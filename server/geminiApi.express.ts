@@ -18,12 +18,34 @@ import {
   fetchMunicipalityContext,
   performSpatialAudit,
   askGeneralAssistant,
-  generateMarketingSummary
+  generateMarketingSummary,
+  generateFigmaAiResponse
 } from "../services/geminiService";
 
 const router = express.Router();
 router.use(bodyParser.json({ limit: "10mb" }));
 router.use(requestLogger);
+
+function setFigmaCorsHeaders(res: express.Response) {
+  res.setHeader("Access-Control-Allow-Origin", "*");
+  res.setHeader("Access-Control-Allow-Headers", "Authorization, Content-Type");
+  res.setHeader("Access-Control-Allow-Methods", "POST, OPTIONS");
+}
+
+router.use((req, res, next) => {
+  if (req.path !== "/api/figma/ai") {
+    next();
+    return;
+  }
+
+  setFigmaCorsHeaders(res);
+  if (req.method === "OPTIONS") {
+    res.status(204).end();
+    return;
+  }
+  next();
+});
+
 router.use(requireAuth);
 router.use(rateLimitByUser(120, 60_000));
 
@@ -84,6 +106,29 @@ router.post("/api/gemini", async (req, res) => {
     res.json({ ok: true, result });
   } catch (e: any) {
     res.status(500).json({ ok: false, error: e?.message || String(e) });
+  }
+});
+
+router.post("/api/figma/ai", async (req, res) => {
+  const prompt = typeof req.body?.prompt === "string" ? req.body.prompt.trim() : "";
+  const context = typeof req.body?.context === "string" ? req.body.context : "";
+  const style = req.body?.style === "detailed" || req.body?.style === "bullet" ? req.body.style : "brief";
+  const history = Array.isArray(req.body?.history)
+    ? req.body.history.filter((item: any) => item && (item.role === "user" || item.role === "model") && typeof item.content === "string")
+    : [];
+
+  if (!prompt) {
+    return res.status(400).json({ ok: false, error: "prompt is required" });
+  }
+
+  try {
+    const text = await generateFigmaAiResponse(prompt, { context, style, history });
+    if (!text) {
+      return res.status(502).json({ ok: false, error: "Empty AI response" });
+    }
+    return res.json({ ok: true, text });
+  } catch (e: any) {
+    return res.status(500).json({ ok: false, error: e?.message || String(e) });
   }
 });
 

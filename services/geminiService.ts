@@ -226,6 +226,43 @@ export const askGeneralAssistant = async (message: string, history: { role: 'use
   }
 };
 
+type FigmaAiHistoryItem = { role: "user" | "model"; content: string };
+
+export const generateFigmaAiResponse = async (
+  prompt: string,
+  options: { context?: string; style?: "brief" | "detailed" | "bullet"; history?: FigmaAiHistoryItem[] } = {}
+): Promise<string> => {
+  try {
+    const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash" });
+    const style = options.style || "brief";
+    const context = (options.context || "").trim();
+    const history = options.history || [];
+
+    const styleInstruction =
+      style === "detailed"
+        ? "Give a detailed design answer with rationale."
+        : style === "bullet"
+        ? "Respond as concise bullet points."
+        : "Keep the response short and practical.";
+
+    const systemInstruction =
+      "You are Miljobeslut AI design copilot. Help with UX copy, information hierarchy, and component-level suggestions for Swedish public-sector environmental workflows.";
+
+    const response = await model.generateContent([
+      { text: systemInstruction },
+      ...(context ? [{ text: "Context: " + context }] : []),
+      ...history.map((item) => ({ text: item.role + ": " + item.content })),
+      { text: styleInstruction },
+      { text: "User prompt: " + prompt }
+    ]);
+
+    return response.response.text() || "";
+  } catch (error) {
+    console.error("Error generating Figma AI response:", error);
+    return "";
+  }
+};
+
 export const processDocumentOCR = async (base64: string, type: string) => {
   return { property_id: "Länna 1:45", municipality: "Haninge" };
 };
