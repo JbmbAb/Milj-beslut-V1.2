@@ -81,6 +81,12 @@
       <option value="bullet">Bullet</option>
     </select>
 
+    <label for="mode">Generation mode</label>
+    <select id="mode">
+      <option value="ui" selected>Build interface</option>
+      <option value="text">Text answer</option>
+    </select>
+
     <label for="endpoint">Backend endpoint</label>
     <input id="endpoint" value="http://localhost:8787/api/figma/ai" />
 
@@ -99,6 +105,7 @@
       const promptEl = document.getElementById("prompt");
       const contextEl = document.getElementById("context");
       const styleEl = document.getElementById("style");
+      const modeEl = document.getElementById("mode");
       const endpointEl = document.getElementById("endpoint");
       const tokenEl = document.getElementById("token");
       const statusEl = document.getElementById("status");
@@ -109,7 +116,7 @@
         statusEl.textContent = text || "";
       }
 
-      async function fetchAiText(endpoint, token, payload) {
+      async function fetchAiData(endpoint, token, payload) {
         const headers = { "Content-Type": "application/json" };
         if (token) {
           headers.Authorization = "Bearer " + token;
@@ -127,13 +134,14 @@
           throw new Error(details);
         }
 
-        return typeof data.text === "string" ? data.text : JSON.stringify(data);
+        return data;
       }
 
       generateBtn.onclick = async () => {
         const prompt = promptEl.value.trim();
         const context = contextEl.value.trim();
         const style = styleEl.value;
+        const mode = modeEl.value === "text" ? "text" : "ui";
         const endpoint = endpointEl.value.trim();
         const token = tokenEl.value.trim();
 
@@ -154,8 +162,14 @@
         setStatus("Generating...");
 
         let aiText = "";
+        let uiSpec = null;
         try {
-          aiText = await fetchAiText(endpoint, token, { prompt, context, style });
+          const data = await fetchAiData(endpoint, token, { prompt, context, style, mode });
+          if (mode === "ui") {
+            uiSpec = data && typeof data.spec === "object" ? data.spec : null;
+          } else {
+            aiText = typeof data.text === "string" ? data.text : JSON.stringify(data);
+          }
           setStatus("AI response received.");
         } catch (err) {
           aiText = "[AI error] " + String(err);
@@ -165,8 +179,10 @@
             {
               pluginMessage: {
                 type: "generate",
+                mode,
                 prompt,
-                aiText
+                aiText,
+                uiSpec
               }
             },
             "*"

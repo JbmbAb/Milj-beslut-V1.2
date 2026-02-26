@@ -19,7 +19,8 @@ import {
   performSpatialAudit,
   askGeneralAssistant,
   generateMarketingSummary,
-  generateFigmaAiResponse
+  generateFigmaAiResponse,
+  generateFigmaUiSpec
 } from "../services/geminiService";
 
 const router = express.Router();
@@ -113,6 +114,7 @@ router.post("/api/figma/ai", async (req, res) => {
   const prompt = typeof req.body?.prompt === "string" ? req.body.prompt.trim() : "";
   const context = typeof req.body?.context === "string" ? req.body.context : "";
   const style = req.body?.style === "detailed" || req.body?.style === "bullet" ? req.body.style : "brief";
+  const mode = req.body?.mode === "ui" ? "ui" : "text";
   const history = Array.isArray(req.body?.history)
     ? req.body.history.filter((item: any) => item && (item.role === "user" || item.role === "model") && typeof item.content === "string")
     : [];
@@ -122,11 +124,16 @@ router.post("/api/figma/ai", async (req, res) => {
   }
 
   try {
+    if (mode === "ui") {
+      const spec = await generateFigmaUiSpec(prompt, { context, style });
+      return res.json({ ok: true, mode: "ui", spec });
+    }
+
     const text = await generateFigmaAiResponse(prompt, { context, style, history });
     if (!text) {
       return res.status(502).json({ ok: false, error: "Empty AI response" });
     }
-    return res.json({ ok: true, text });
+    return res.json({ ok: true, mode: "text", text });
   } catch (e: any) {
     return res.status(500).json({ ok: false, error: e?.message || String(e) });
   }

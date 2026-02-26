@@ -263,6 +263,96 @@ export const generateFigmaAiResponse = async (
   }
 };
 
+type FigmaUiSection = {
+  type: "hero" | "card" | "list";
+  title: string;
+  body?: string;
+  items?: string[];
+  cta?: string;
+};
+
+type FigmaUiSpec = {
+  title: string;
+  width?: number;
+  sections: FigmaUiSection[];
+};
+
+function extractFirstJsonObject(text: string): string | null {
+  const start = text.indexOf("{");
+  const end = text.lastIndexOf("}");
+  if (start === -1 || end === -1 || end <= start) {
+    return null;
+  }
+  return text.slice(start, end + 1);
+}
+
+function fallbackFigmaUiSpec(prompt: string): FigmaUiSpec {
+  return {
+    title: "Miljobeslut UI",
+    width: 1200,
+    sections: [
+      {
+        type: "hero",
+        title: "Projektoversikt",
+        body: prompt,
+        cta: "Starta analys"
+      },
+      {
+        type: "card",
+        title: "Risker",
+        body: "Sammanfatta de viktigaste riskerna for arendet."
+      },
+      {
+        type: "list",
+        title: "Nasta steg",
+        items: ["Verifiera data", "Prioritera atgarder", "Skicka till granskning"]
+      }
+    ]
+  };
+}
+
+export const generateFigmaUiSpec = async (
+  prompt: string,
+  options: { context?: string; style?: "brief" | "detailed" | "bullet" } = {}
+): Promise<FigmaUiSpec> => {
+  try {
+    const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash" });
+    const context = (options.context || "").trim();
+    const style = options.style || "brief";
+
+    const response = await model.generateContent(
+      `Generate a compact JSON UI spec for a Figma plugin.
+Return ONLY JSON object with this schema:
+{
+  "title": "string",
+  "width": 1200,
+  "sections": [
+    { "type": "hero|card|list", "title": "string", "body": "string?", "items": ["string"]?, "cta": "string?" }
+  ]
+}
+Use Swedish product language for labels.
+Prompt: ${prompt}
+Context: ${context}
+Style: ${style}`
+    );
+
+    const raw = response.response.text() || "";
+    const jsonText = extractFirstJsonObject(raw);
+    if (!jsonText) {
+      return fallbackFigmaUiSpec(prompt);
+    }
+
+    const parsed = JSON.parse(jsonText) as FigmaUiSpec;
+    if (!parsed || !Array.isArray(parsed.sections) || parsed.sections.length === 0) {
+      return fallbackFigmaUiSpec(prompt);
+    }
+    return parsed;
+  } catch (error) {
+    console.error("Error generating Figma UI spec:", error);
+    return fallbackFigmaUiSpec(prompt);
+  }
+};
+
 export const processDocumentOCR = async (base64: string, type: string) => {
   return { property_id: "Länna 1:45", municipality: "Haninge" };
 };

@@ -32,5 +32,8 @@ Response shape:
 
 - Write a prompt in the UI.
 - Add context/style if needed.
+- Select `Generation mode`:
+- `Build interface` creates a full UI frame from AI spec.
+- `Text answer` creates a text result frame.
 - Set endpoint and token.
 - The plugin creates a frame in canvas with prompt + AI output.
