@@ -382,10 +382,10 @@ function createTablePanel(width) {
   return panel;
 }
 
-function createExtraCards(main, width, sections) {
-  if (!Array.isArray(sections) || sections.length === 0) return;
+function createExtraCardsRow(width, sections) {
+  if (!Array.isArray(sections) || sections.length === 0) return null;
   const remaining = sections.slice(0, 2);
-  if (remaining.length === 0) return;
+  if (remaining.length === 0) return null;
 
   const row = figma.createFrame();
   row.layoutMode = "HORIZONTAL";
@@ -414,78 +414,82 @@ function createExtraCards(main, width, sections) {
     row.appendChild(card);
   });
 
-  main.appendChild(row);
+  return row;
 }
 
 async function createUiFromSpec(spec) {
   spec = spec || {};
   const totalWidth = Math.max(1320, Math.min(1680, Number(spec.width) || 1440));
-  const root = figma.createFrame();
-  root.name = spec.title || "Miljobeslut UI";
-  root.layoutMode = "VERTICAL";
-  root.primaryAxisSizingMode = "AUTO";
-  root.counterAxisSizingMode = "FIXED";
-  root.itemSpacing = 14;
-  root.paddingTop = 14;
-  root.paddingRight = 14;
-  root.paddingBottom = 14;
-  root.paddingLeft = 14;
-  root.cornerRadius = 12;
-  setBg(root, C.pageBg);
-  root.resize(totalWidth, root.height);
+  const margin = 14;
+  const gap = 14;
+  const sidebarWidth = 250;
+  const topbarWidth = totalWidth - margin * 2;
+  const mainWidth = totalWidth - margin * 2 - sidebarWidth - gap;
 
-  root.appendChild(createTopbar(spec.title || "Miljobeslut App", totalWidth - 28));
+  const vp = figma.viewport.center;
+  const originX = Math.floor(vp.x - totalWidth / 2);
+  const originY = Math.floor(vp.y - 520);
 
-  const shell = figma.createFrame();
-  shell.layoutMode = "HORIZONTAL";
-  shell.primaryAxisSizingMode = "FIXED";
-  shell.counterAxisSizingMode = "AUTO";
-  shell.itemSpacing = 14;
-  emptyFrameFill(shell);
-  shell.resize(totalWidth - 28, shell.height);
+  const createdNodes = [];
+  const placeNode = (node, name, x, y) => {
+    node.name = name;
+    figma.currentPage.appendChild(node);
+    node.x = x;
+    node.y = y;
+    createdNodes.push(node);
+  };
 
-  const sidebar = createSidebar(920);
-  shell.appendChild(sidebar);
+  const backdrop = figma.createFrame();
+  backdrop.resize(totalWidth, 1060);
+  backdrop.cornerRadius = 12;
+  setBg(backdrop, C.pageBg);
+  placeNode(backdrop, spec.title || "Miljobeslut UI", originX, originY);
 
-  const mainWidth = totalWidth - 28 - 250 - 14;
-  const main = figma.createFrame();
-  main.layoutMode = "VERTICAL";
-  main.primaryAxisSizingMode = "AUTO";
-  main.counterAxisSizingMode = "FIXED";
-  main.itemSpacing = 12;
-  setBg(main, C.shellBg);
-  main.cornerRadius = 12;
-  main.paddingTop = 14;
-  main.paddingRight = 14;
-  main.paddingBottom = 14;
-  main.paddingLeft = 14;
-  main.resize(mainWidth, main.height);
+  const topbar = createTopbar(spec.title || "Miljobeslut App", topbarWidth);
+  placeNode(topbar, "Topbar", originX + margin, originY + margin);
+
+  const mainStartY = originY + margin + topbar.height + gap;
+  const sidebar = createSidebar(900);
+  placeNode(sidebar, "Sidebar", originX + margin, mainStartY);
+
+  const mainX = originX + margin + sidebarWidth + gap;
+  let mainY = mainStartY;
 
   const sections = Array.isArray(spec.sections) ? spec.sections.filter(Boolean) : [];
   const heroSection = sections.find((s) => s && s.type === "hero") || { title: spec.title || "Miljobeslut.se", body: "Design generated from AI spec." };
-  main.appendChild(createHero(heroSection, mainWidth - 28));
-  main.appendChild(createMetricsRow(mainWidth - 28));
 
-  const analyticsRow = figma.createFrame();
-  analyticsRow.layoutMode = "HORIZONTAL";
-  analyticsRow.primaryAxisSizingMode = "FIXED";
-  analyticsRow.counterAxisSizingMode = "AUTO";
-  analyticsRow.itemSpacing = 10;
-  emptyFrameFill(analyticsRow);
-  analyticsRow.resize(mainWidth - 28, analyticsRow.height);
+  const hero = createHero(heroSection, mainWidth);
+  placeNode(hero, "Hero", mainX, mainY);
+  mainY += hero.height + 12;
 
-  const leftWidth = Math.floor((mainWidth - 28) * 0.62);
-  const rightWidth = (mainWidth - 28) - leftWidth - 10;
-  analyticsRow.appendChild(createStageGatePanel(leftWidth));
-  analyticsRow.appendChild(createMapPanel(rightWidth));
-  main.appendChild(analyticsRow);
+  const metrics = createMetricsRow(mainWidth);
+  placeNode(metrics, "Metrics", mainX, mainY);
+  mainY += metrics.height + 12;
 
-  main.appendChild(createTablePanel(mainWidth - 28));
-  createExtraCards(main, mainWidth - 28, sections.filter((s) => s !== heroSection));
+  const leftWidth = Math.floor(mainWidth * 0.62);
+  const rightWidth = mainWidth - leftWidth - 10;
+  const stage = createStageGatePanel(leftWidth);
+  const map = createMapPanel(rightWidth);
+  placeNode(stage, "Stage-Gate", mainX, mainY);
+  placeNode(map, "Logistics Map", mainX + leftWidth + 10, mainY);
+  mainY += Math.max(stage.height, map.height) + 12;
 
-  shell.appendChild(main);
-  root.appendChild(shell);
-  centerOnCanvas(root);
+  const table = createTablePanel(mainWidth);
+  placeNode(table, "Latest Projects", mainX, mainY);
+  mainY += table.height + 12;
+
+  const extraRow = createExtraCardsRow(mainWidth, sections.filter((s) => s !== heroSection));
+  if (extraRow) {
+    placeNode(extraRow, "Extra Cards", mainX, mainY);
+    mainY += extraRow.height + 12;
+  }
+
+  const contentHeight = Math.max(820, mainY - mainStartY);
+  sidebar.resize(sidebarWidth, contentHeight);
+  backdrop.resize(totalWidth, Math.max(1060, mainY - originY + margin));
+
+  figma.viewport.scrollAndZoomIntoView(createdNodes);
+  figma.currentPage.selection = createdNodes;
 }
 
 async function createResultFrame(prompt, aiText) {
