@@ -1,0 +1,8 @@
+{
+  "name": "miljobeslut-1.0",
+  "description": "Integrated authority portal for environmental permits, GIS-based risk analysis, and automated MKB generation.",
+  "requestFramePermissions": [
+    "geolocation",
+    "camera"
+  ]
+}

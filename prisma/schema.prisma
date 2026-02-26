@@ -1,0 +1,106 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum UserRole {
+  ADMIN
+  CONSULTANT
+  AUDITOR
+  BANK
+}
+
+enum ProjectStatus {
+  ACTIVE
+  CLOSED
+  ARCHIVED
+}
+
+enum ProjectAccessRole {
+  OWNER
+  CONTRIBUTOR
+  REVIEWER
+  AUDITOR
+}
+
+enum PropertyResponseClass {
+  geometry
+  boundaries
+  ownership_redacted
+}
+
+model User {
+  id             String          @id @default(cuid())
+  organisationId String
+  bankidId       String          @unique
+  role           UserRole
+  createdAt      DateTime        @default(now())
+  organisation   Organisation    @relation(fields: [organisationId], references: [id], onDelete: Restrict)
+  memberships    ProjectMember[]
+  accessLogs     PropertyAccessLog[]
+}
+
+model Organisation {
+  id        String    @id @default(cuid())
+  name      String
+  orgNumber String    @unique
+  createdAt DateTime  @default(now())
+  users     User[]
+  projects  Project[]
+}
+
+model Project {
+  id                  String              @id @default(cuid())
+  organisationId      String
+  propertyDesignation String
+  status              ProjectStatus
+  createdAt           DateTime            @default(now())
+  closedAt            DateTime?
+  retentionUntil      DateTime?
+  organisation        Organisation        @relation(fields: [organisationId], references: [id], onDelete: Restrict)
+  members             ProjectMember[]
+  accessLogs          PropertyAccessLog[]
+  @@index([organisationId, status])
+}
+
+model ProjectMember {
+  id         String            @id @default(cuid())
+  projectId  String
+  userId     String
+  accessRole ProjectAccessRole
+  createdAt  DateTime          @default(now())
+  project    Project           @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  user       User              @relation(fields: [userId], references: [id], onDelete: Cascade)
+  @@unique([projectId, userId])
+}
+
+model PropertyAccessLog {
+  id                  String                @id @default(cuid())
+  userId              String
+  projectId           String
+  propertyDesignation String
+  timestamp           DateTime              @default(now())
+  purpose             String
+  responseClass       PropertyResponseClass
+  user                User                  @relation(fields: [userId], references: [id], onDelete: Restrict)
+  project             Project               @relation(fields: [projectId], references: [id], onDelete: Restrict)
+  @@index([projectId, timestamp])
+  @@index([userId, timestamp])
+}
+
+model AuditTrail {
+  id          String   @id @default(cuid())
+  entityType  String
+  entityId    String
+  action      String
+  userId      String?
+  timestamp   DateTime @default(now())
+  payloadHash String
+  prevHash    String?
+  chainHash   String   @unique
+  @@index([entityType, timestamp])
+}
