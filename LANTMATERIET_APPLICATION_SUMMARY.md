@@ -1,6 +1,6 @@
 # Underlag for ansokan till Lantmateriet (Direktatkomst/API)
 
-Detta dokument sammanfattar vad som bor bifogas i er ansokan for fastighetsinformation till RiskGuard.ai.
+Detta dokument sammanfattar vad som bor bifogas i er ansokan for fastighetsinformation till Miljobeslut.se 2.0.
 
 ## 1) Verksamhetsbeskrivning och andamal
 

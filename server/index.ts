@@ -14,5 +14,5 @@ if (process.env.SEARCH_WORKER_ENABLED !== 'false') {
 }
 
 app.listen(port, () => {
-  console.info(`RiskGuard backend listening on port ${port}`);
+  console.info(`Miljöbeslut backend listening on port ${port}`);
 });

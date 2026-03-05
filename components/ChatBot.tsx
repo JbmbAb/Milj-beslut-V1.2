@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
 
-const TOKEN_KEY = 'riskguard_admin_bearer';
+const TOKEN_KEY = 'miljobeslut_admin_bearer';
 
 type ChatMessage = {
   role: 'user' | 'model';
@@ -59,7 +59,7 @@ const ChatBot: React.FC = () => {
             ...prev,
             {
               role: 'model',
-              content: 'Session saknas. Logga in via admin for att anvanda AI-chatten.',
+              content: 'Session saknas. Logga in via admin för att använda AI-chatten.',
             },
           ]);
           return;
@@ -74,7 +74,7 @@ const ChatBot: React.FC = () => {
         ...prev,
         {
           role: 'model',
-          content: 'Jag kunde tyvarr inte svara just nu. Kontrollera anslutning och API-status.',
+          content: 'Jag kunde tyvärr inte svara just nu. Kontrollera anslutning och API-status.',
         },
       ]);
     } finally {
@@ -92,7 +92,7 @@ const ChatBot: React.FC = () => {
                 <i className="fas fa-sparkles text-lg" />
               </div>
               <div>
-                <h3 className="text-sm font-bold">RiskGuard AI Assistent</h3>
+                <h3 className="text-sm font-bold">Miljöbeslut AI-assistent</h3>
                 <p className="text-[10px] text-blue-100">Drivs av Gemini API</p>
               </div>
             </div>

@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 
-const TOKEN_KEY = 'riskguard_admin_bearer';
+const TOKEN_KEY = 'miljobeslut_admin_bearer';
 
 type IntegrationStatus = 'CONNECTED' | 'DISCONNECTED' | 'ERROR';
 
@@ -374,7 +374,7 @@ const IntegrationsDashboard: React.FC = () => {
       ? 'warn'
       : 'ok'
     : 'default';
-  const dispatchValue = dispatchStatus ? dispatchProviderLabel(dispatchStatus.activeProvider) : 'Ej tillganglig';
+  const dispatchValue = dispatchStatus ? dispatchProviderLabel(dispatchStatus.activeProvider) : 'Ej tillgänglig';
   const avgLatency = useMemo(() => {
     const samples = cards.filter((card) => typeof card.latencyMs === 'number').map((card) => Number(card.latencyMs));
     if (samples.length === 0) return null;

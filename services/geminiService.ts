@@ -19,7 +19,7 @@ type FigmaUiSpec = {
   sections: FigmaUiSection[];
 };
 
-const TOKEN_KEY = "riskguard_admin_bearer";
+const TOKEN_KEY = "miljobeslut_admin_bearer";
 let cachedGenAi: GoogleGenerativeAI | null | undefined;
 
 function hasWindow(): boolean {
@@ -447,4 +447,3 @@ export const generateMarketingSummary = async (
     sources: [],
   };
 };
-

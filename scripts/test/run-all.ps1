@@ -1,10 +1,10 @@
-﻿param(
+param(
   [switch]$Full
 )
 
 $ErrorActionPreference = 'Stop'
 
-Write-Host '== RiskGuard QA Runner =='
+Write-Host '== Miljobeslut.se 2.0 QA Runner =='
 
 npm run typecheck
 npm run lint

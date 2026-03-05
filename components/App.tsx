@@ -33,7 +33,7 @@ const MODE_CARDS: ModeCardConfig[] = [
   {
     mode: 'LOGISTICS_MARKET',
     title: 'Logistik schaktmassor',
-    description: 'Planera mottagning, transport och compliance for masshantering.',
+    description: 'Planera mottagning, transport och regelefterlevnad för masshantering.',
     icon: 'fa-chart-mixed',
     accent: 'bg-indigo-600',
     defaultTab: 'archive',
@@ -41,7 +41,7 @@ const MODE_CARDS: ModeCardConfig[] = [
   {
     mode: 'PERMIT_PORTAL',
     title: 'Provningsportal',
-    description: 'Sok tillstand, bygg ansokan och validera regelkrav.',
+    description: 'Sök tillstånd, bygg ansökan och validera regelkrav.',
     icon: 'fa-file-shield',
     accent: 'bg-emerald-600',
     defaultTab: 'map',
@@ -49,15 +49,15 @@ const MODE_CARDS: ModeCardConfig[] = [
   {
     mode: 'PROJECT_MANAGER',
     title: 'Projektledning',
-    description: 'Planera tid, resurser, risk och uppfoljning i en vy.',
+    description: 'Planera tid, resurser, risk och uppföljning i en vy.',
     icon: 'fa-list-check',
     accent: 'bg-amber-600',
     defaultTab: 'plan',
   },
   {
     mode: 'COMPLIANCE_AUDIT',
-    title: 'Gronkoll och audit',
-    description: 'Compliance-score, revision och banknara rapportering.',
+    title: 'Grönkoll och revision',
+    description: 'Compliance-score, revision och banknära rapportering.',
     icon: 'fa-shield-check',
     accent: 'bg-slate-700',
     defaultTab: 'score',
@@ -65,7 +65,7 @@ const MODE_CARDS: ModeCardConfig[] = [
   {
     mode: 'ADMIN_CONSOLE',
     title: 'Administrator',
-    description: 'Separat adminyta med utokad sokning och analys.',
+    description: 'Separat adminyta med utökad sökning och analys.',
     icon: 'fa-user-shield',
     accent: 'bg-rose-600',
     defaultTab: 'admin-search',
@@ -116,7 +116,7 @@ const App: React.FC = () => {
                 M
               </span>
               <div>
-                <p className="text-[11px] uppercase tracking-[0.18em] text-slate-400">Miljobeslut.se</p>
+                <p className="text-[11px] uppercase tracking-[0.18em] text-slate-400">Miljöbeslut.se 2.0</p>
                 <p className="text-sm font-semibold text-slate-200">Det är lätt att göra rätt</p>
               </div>
             </div>
@@ -128,7 +128,7 @@ const App: React.FC = () => {
                 className="rounded-xl px-4 py-2 text-sm font-black text-white"
                 style={{ backgroundColor: 'var(--color-primary-500)' }}
               >
-                Starta ansokan
+                Starta ansökan
               </button>
               <button
                 type="button"
@@ -165,7 +165,7 @@ const App: React.FC = () => {
                   className="rounded-xl px-5 py-3 text-sm font-black text-white"
                   style={{ backgroundColor: 'var(--color-primary-500)' }}
                 >
-                  Skapa ny ansokan
+                  Skapa ny ansökan
                 </button>
                 <button
                   type="button"
@@ -178,16 +178,16 @@ const App: React.FC = () => {
               <div className="mt-6 grid gap-3 sm:grid-cols-3">
                 <TrustPill label="Kommuner" />
                 <TrustPill label="Entreprenorer" />
-                <TrustPill label="Miljokonsulter" />
+                <TrustPill label="Miljökonsulter" />
               </div>
             </div>
 
             <div className="rounded-3xl border border-slate-800 bg-slate-900 p-6">
-              <p className="text-[11px] uppercase tracking-[0.18em] text-slate-400">Snabbstart pa 3 steg</p>
+              <p className="text-[11px] uppercase tracking-[0.18em] text-slate-400">Snabbstart på 3 steg</p>
               <ol className="mt-4 space-y-4 text-sm">
                 <li className="rounded-xl border border-slate-700 bg-slate-800/80 p-3">
                   <p className="text-[10px] font-black uppercase tracking-[0.16em] text-indigo-300">Steg 1</p>
-                  <p className="mt-1 font-semibold text-slate-100">Valj fastighet och projekt</p>
+                  <p className="mt-1 font-semibold text-slate-100">Välj fastighet och projekt</p>
                   <p className="mt-1 text-slate-400">Systemet laddar relevanta data direkt i arbetsvyn.</p>
                 </li>
                 <li className="rounded-xl border border-slate-700 bg-slate-800/80 p-3">
@@ -198,7 +198,7 @@ const App: React.FC = () => {
                 <li className="rounded-xl border border-slate-700 bg-slate-800/80 p-3">
                   <p className="text-[10px] font-black uppercase tracking-[0.16em] text-indigo-300">Steg 3</p>
                   <p className="mt-1 font-semibold text-slate-100">Folj upp i projektledning och audit</p>
-                  <p className="mt-1 text-slate-400">Samma data finns tillganglig i hela flodet.</p>
+                  <p className="mt-1 text-slate-400">Samma data finns tillgänglig i hela flödet.</p>
                 </li>
               </ol>
               <button
@@ -206,15 +206,15 @@ const App: React.FC = () => {
                 onClick={() => openMode('PROJECT_MANAGER')}
                 className="mt-5 w-full rounded-xl border border-slate-700 bg-slate-800 px-4 py-2 text-xs font-black uppercase tracking-[0.14em] text-slate-200"
               >
-                Oppna projektledning
+                Öppna projektledning
               </button>
             </div>
           </section>
 
           <section className="mt-8 grid gap-4 md:grid-cols-3">
             <QuickStartCard
-              title="Ny ansokan"
-              text="For handlaggare som vill ga fran fastighet till underlag snabbt."
+              title="Ny ansökan"
+              text="För handläggare som vill gå från fastighet till underlag snabbt."
               buttonLabel="Till provningsportal"
               onClick={() => openMode('PERMIT_PORTAL')}
               accent="bg-emerald-600"
@@ -230,7 +230,7 @@ const App: React.FC = () => {
             />
             <QuickStartCard
               title="Status och risk"
-              text="Folj stage gates, blockers och granskning i samma vy."
+              text="Följ stage gates, blockers och granskning i samma vy."
               buttonLabel="Till projektledning"
               onClick={() => openMode('PROJECT_MANAGER')}
               accent="bg-amber-600"
@@ -239,9 +239,9 @@ const App: React.FC = () => {
           </section>
 
           <section className="mt-8 rounded-3xl border border-slate-800 bg-slate-900/60 p-5">
-            <p className="text-[11px] uppercase tracking-[0.18em] text-slate-400">Lagesbild</p>
+            <p className="text-[11px] uppercase tracking-[0.18em] text-slate-400">Lägesbild</p>
             <div className="mt-4 grid grid-cols-2 gap-4 md:grid-cols-4">
-              <MetricTile label="Aktiva arenden" value="1,577" />
+              <MetricTile label="Aktiva ärenden" value="1,577" />
               <MetricTile label="Verifierade dokument" value="12,430" />
               <MetricTile label="Compliance score" value="92%" />
               <MetricTile label="Genomsnittlig ledtid" value="18 dagar" />
@@ -249,15 +249,15 @@ const App: React.FC = () => {
           </section>
 
           <section id="how-it-works" className="mt-8 grid gap-4 md:grid-cols-3">
-            <HowStep number="1" title="Koppla datakallor" text="Importera beslut, kartlager och externa API-floden." />
-            <HowStep number="2" title="Bygg beslutunderlag" text="Anvand guider, filter och kontrollpunkter for kvalitet." />
-            <HowStep number="3" title="Leverera och folj upp" text="Rapportering till intressenter med sparbar audit." />
+            <HowStep number="1" title="Koppla datakällor" text="Importera beslut, kartlager och externa API-flöden." />
+            <HowStep number="2" title="Bygg beslutunderlag" text="Använd guider, filter och kontrollpunkter för kvalitet." />
+            <HowStep number="3" title="Leverera och följ upp" text="Rapportering till intressenter med spårbar revision." />
           </section>
 
           <section id="modes" className="mt-8">
             <div className="mb-4 flex flex-col gap-2 md:flex-row md:items-end md:justify-between">
-              <h3 className="text-xl font-black md:text-2xl">Valj arbetslage</h3>
-              <p className="text-xs font-bold uppercase tracking-[0.18em] text-slate-400">Basta startpunkt for olika roller</p>
+              <h3 className="text-xl font-black md:text-2xl">Välj arbetsläge</h3>
+              <p className="text-xs font-bold uppercase tracking-[0.18em] text-slate-400">Bästa startpunkt för olika roller</p>
             </div>
             <div className="grid gap-4 md:grid-cols-2">
               {MODE_CARDS.slice(0, 4).map((item) => (
@@ -275,32 +275,32 @@ const App: React.FC = () => {
                   </div>
                   <p className="text-sm text-slate-300">{item.description}</p>
                   <p className="mt-4 text-[11px] font-black uppercase tracking-[0.18em] text-indigo-300 group-hover:text-indigo-200">
-                    Oppna vy
+                    Öppna vy
                   </p>
                 </button>
               ))}
             </div>
             <div className="mt-4 rounded-2xl border border-slate-800 bg-slate-900 p-4 md:flex md:items-center md:justify-between">
               <div>
-                <p className="text-[11px] uppercase tracking-[0.18em] text-slate-400">For forvaltning och support</p>
-                <p className="mt-1 text-sm text-slate-200">Behorig personal kan oppna adminyta for status, index och systemkontroll.</p>
+                <p className="text-[11px] uppercase tracking-[0.18em] text-slate-400">För förvaltning och support</p>
+                <p className="mt-1 text-sm text-slate-200">Behörig personal kan öppna adminyta för status, index och systemkontroll.</p>
               </div>
               <button
                 type="button"
                 onClick={() => openMode('ADMIN_CONSOLE')}
                 className="mt-3 rounded-xl border border-slate-700 bg-slate-800 px-4 py-2 text-sm font-black text-slate-200 md:mt-0"
               >
-                Oppna admin
+                Öppna admin
               </button>
             </div>
           </section>
 
           <section className="mt-8 rounded-3xl border border-slate-800 bg-slate-900 p-6 md:flex md:items-center md:justify-between">
             <div>
-              <p className="text-[11px] uppercase tracking-[0.18em] text-slate-400">Kom igang direkt</p>
-              <h4 className="mt-2 text-2xl font-black">Vill du skapa forsta arendet nu?</h4>
+              <p className="text-[11px] uppercase tracking-[0.18em] text-slate-400">Kom igång direkt</p>
+              <h4 className="mt-2 text-2xl font-black">Vill du skapa första ärendet nu?</h4>
               <p className="mt-2 text-sm text-slate-300">
-                Starta i provningsportalen och lagg till logistik eller projektledning nar behovet finns.
+                Starta i prövningsportalen och lägg till logistik eller projektledning när behovet finns.
               </p>
             </div>
             <button
@@ -328,7 +328,7 @@ const App: React.FC = () => {
           </div>
           <div>
             <h1 className="text-lg font-black tracking-tight leading-none italic">
-              RiskGuard<span className="text-blue-500">.ai</span>
+              Miljöbeslut.se 2.0
             </h1>
             <p className="text-[9px] font-bold text-[#8ea0bf] uppercase tracking-widest mt-1">
               {activeMode.title}
@@ -337,7 +337,7 @@ const App: React.FC = () => {
         </div>
 
         <nav className="flex-1 px-3 py-4 space-y-2 overflow-y-auto custom-scrollbar">
-          <p className="px-[10px] pb-1 text-[12px] font-semibold text-[#91a3c4]">Modules</p>
+          <p className="px-[10px] pb-1 text-[12px] font-semibold text-[#91a3c4]">Moduler</p>
 
           {MODE_CARDS.map((item) => (
             <button
@@ -361,7 +361,7 @@ const App: React.FC = () => {
 
           <p className="px-[10px] pt-1 pb-1 text-[11px] font-semibold uppercase tracking-[0.08em] text-[#7086a4]">Sections</p>
           <SidebarLink active={activeTab === 'summary'} icon="fa-house" label="Dashboard" onClick={() => setActiveTab('summary')} />
-          <SidebarLink active={activeTab === 'guide'} icon="fa-book-open" label="Anvandarstod" onClick={() => setActiveTab('guide')} />
+          <SidebarLink active={activeTab === 'guide'} icon="fa-book-open" label="Användarstöd" onClick={() => setActiveTab('guide')} />
           <SidebarLink active={activeTab === 'integrations'} icon="fa-network-wired" label="API och lager" onClick={() => setActiveTab('integrations')} />
           <SidebarLink active={activeTab === 'legal'} icon="fa-scale-balanced" label="Juridik och GDPR" onClick={() => setActiveTab('legal')} />
 
@@ -375,7 +375,7 @@ const App: React.FC = () => {
 
           {mode === 'PERMIT_PORTAL' && (
             <>
-              <SidebarLink active={activeTab === 'apply'} icon="fa-pen-to-square" label="Ny ansokan" onClick={() => setActiveTab('apply')} />
+              <SidebarLink active={activeTab === 'apply'} icon="fa-pen-to-square" label="Ny ansökan" onClick={() => setActiveTab('apply')} />
               <SidebarLink active={activeTab === 'forms'} icon="fa-file-invoice" label="Blankettmotor" onClick={() => setActiveTab('forms')} />
               <SidebarLink active={activeTab === 'biodiversity'} icon="fa-bugs" label="Bioinventering" onClick={() => setActiveTab('biodiversity')} />
               <SidebarLink active={activeTab === 'risks'} icon="fa-shield-virus" label="Riskanalys (GIS)" onClick={() => setActiveTab('risks')} />
@@ -387,7 +387,7 @@ const App: React.FC = () => {
             <>
               <SidebarLink active={activeTab === 'plan'} icon="fa-scroll" label="Projektplan" onClick={() => setActiveTab('plan')} />
               <SidebarLink active={activeTab === 'timeline'} icon="fa-calendar-range" label="Tidplan och Gantt" onClick={() => setActiveTab('timeline')} />
-              <SidebarLink active={activeTab === 'field'} icon="fa-camera-retro" label="Faltstod (AI)" onClick={() => setActiveTab('field')} />
+              <SidebarLink active={activeTab === 'field'} icon="fa-camera-retro" label="Fältstöd (AI)" onClick={() => setActiveTab('field')} />
               <SidebarLink active={activeTab === 'risks'} icon="fa-triangle-exclamation" label="Riskhantering" onClick={() => setActiveTab('risks')} />
             </>
           )}
@@ -396,13 +396,13 @@ const App: React.FC = () => {
             <>
               <SidebarLink active={activeTab === 'score'} icon="fa-gauge-high" label="Compliance score" onClick={() => setActiveTab('score')} />
               <SidebarLink active={activeTab === 'audit'} icon="fa-list-check" label="Revisionslogg" onClick={() => setActiveTab('audit')} />
-              <SidebarLink active={activeTab === 'reports'} icon="fa-file-chart-column" label="Langivarerapport" onClick={() => setActiveTab('reports')} />
+              <SidebarLink active={activeTab === 'reports'} icon="fa-file-chart-column" label="Långivarrapport" onClick={() => setActiveTab('reports')} />
             </>
           )}
 
           {mode === 'ADMIN_CONSOLE' && (
             <>
-              <SidebarLink active={activeTab === 'admin-search'} icon="fa-magnifying-glass-chart" label="Admin sokcenter" onClick={() => setActiveTab('admin-search')} />
+              <SidebarLink active={activeTab === 'admin-search'} icon="fa-magnifying-glass-chart" label="Admin sökcenter" onClick={() => setActiveTab('admin-search')} />
               <SidebarLink active={activeTab === 'admin-insight'} icon="fa-shield-check" label="Analys och compliance" onClick={() => setActiveTab('admin-insight')} />
             </>
           )}
@@ -413,7 +413,7 @@ const App: React.FC = () => {
             onClick={() => setMode(null)}
             className="w-full flex items-center justify-center gap-2 py-3 bg-[#1f2633] text-[#a6b4cb] rounded-[10px] text-[10px] font-black uppercase tracking-widest hover:text-white transition-all"
           >
-            <i className="fas fa-right-left" /> Byt granssnitt
+            <i className="fas fa-right-left" /> Byt gränssnitt
           </button>
         </div>
       </aside>

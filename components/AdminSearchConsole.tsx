@@ -11,10 +11,10 @@ import type {
 } from '../types';
 import AdminRequirementsStudio from './AdminRequirementsStudio';
 
-const TOKEN_KEY = 'riskguard_admin_bearer';
-const REFRESH_KEY = 'riskguard_admin_refresh';
-const PROJECT_KEY = 'riskguard_admin_project';
-const USER_KEY = 'riskguard_admin_user';
+const TOKEN_KEY = 'miljobeslut_admin_bearer';
+const REFRESH_KEY = 'miljobeslut_admin_refresh';
+const PROJECT_KEY = 'miljobeslut_admin_project';
+const USER_KEY = 'miljobeslut_admin_user';
 
 interface AdminSearchConsoleProps {
   panel?: 'search' | 'insight';
@@ -412,7 +412,7 @@ const AdminSearchConsole: React.FC<AdminSearchConsoleProps> = ({ panel = 'search
     const url = URL.createObjectURL(blob);
     const anchor = document.createElement('a');
     anchor.href = url;
-    anchor.download = `riskguard-database-dump-${new Date().toISOString().replace(/[:.]/g, '-')}.json`;
+    anchor.download = `miljobeslut-database-dump-${new Date().toISOString().replace(/[:.]/g, '-')}.json`;
     document.body.appendChild(anchor);
     anchor.click();
     anchor.remove();

@@ -101,8 +101,8 @@ interface ProjectStructureContextValue {
 
 const ProjectStructureContext = createContext<ProjectStructureContextValue | null>(null);
 
-const TOKEN_KEY = 'riskguard_admin_bearer';
-const PROJECT_KEY = 'riskguard_admin_project';
+const TOKEN_KEY = 'miljobeslut_admin_bearer';
+const PROJECT_KEY = 'miljobeslut_admin_project';
 const REMOTE_SYNC_DEBOUNCE_MS = 1200;
 
 function makeLocalId(prefix: string): string {

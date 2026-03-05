@@ -50,7 +50,7 @@ describe('secure API integration', () => {
     expect(res.status).toBe(200);
     expect(res.body).toEqual({
       ok: true,
-      service: 'riskguard-secure-backend',
+      service: 'miljobeslut-secure-backend',
     });
   });
 

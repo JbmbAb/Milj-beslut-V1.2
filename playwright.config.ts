@@ -3,7 +3,7 @@
 const serverEnv = {
   NODE_ENV: 'test',
   PORT: '8787',
-  DATABASE_URL: process.env.DATABASE_URL || 'postgresql://riskguard:password@localhost:5432/riskguard_test',
+  DATABASE_URL: process.env.DATABASE_URL || 'postgresql://miljobeslut:password@localhost:5432/miljobeslut_test',
   JWT_ACCESS_SECRET: process.env.JWT_ACCESS_SECRET || 'test-access-secret',
   JWT_REFRESH_SECRET: process.env.JWT_REFRESH_SECRET || 'test-refresh-secret',
   LANTMATERIET_OPEN_MODE: process.env.LANTMATERIET_OPEN_MODE || 'true',

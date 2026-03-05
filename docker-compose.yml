@@ -6,8 +6,8 @@ services:
     container_name: miljobeslut-postgres
     restart: unless-stopped
     environment:
-      POSTGRES_DB: riskguard
-      POSTGRES_USER: riskguard
+      POSTGRES_DB: miljobeslut
+      POSTGRES_USER: miljobeslut
       POSTGRES_PASSWORD: password
     ports:
       - "5432:5432"
@@ -17,7 +17,7 @@ services:
         target: /var/lib/postgresql/data
       - ./scripts/db/init-search.sql:/docker-entrypoint-initdb.d/init-search.sql:ro
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U riskguard -d riskguard"]
+      test: ["CMD-SHELL", "pg_isready -U miljobeslut -d miljobeslut"]
       interval: 10s
       timeout: 5s
       retries: 5

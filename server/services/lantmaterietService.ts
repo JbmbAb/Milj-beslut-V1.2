@@ -32,6 +32,53 @@ function minimizePropertyPayload(raw: LantmaterietLookupResponse): Record<string
   };
 }
 
+let cachedLantmaterietToken: { token: string; expiresAt: number } | null = null;
+
+async function getLantmaterietAccessToken(): Promise<string> {
+  const consumerKey = process.env.LANTMATERIET_CONSUMER_KEY;
+  const consumerSecret = process.env.LANTMATERIET_CONSUMER_SECRET;
+  const baseUrl = getEnv("LANTMATERIET_BASE_URL"); // Should be https://api-ver.lantmateriet.se
+
+  if (!consumerKey || !consumerSecret) {
+    if (isLantmaterietOpenMode()) {
+      throw new Error("Lantmateriet property lookup requires valid consumer keys. Open mode supports map/WMS testing only.");
+    }
+    throw new Error("Missing env variables: LANTMATERIET_CONSUMER_KEY or LANTMATERIET_CONSUMER_SECRET");
+  }
+
+  // Check cache
+  if (cachedLantmaterietToken && Date.now() < cachedLantmaterietToken.expiresAt) {
+    return cachedLantmaterietToken.token;
+  }
+
+  // Fetch new token
+  const tokenUrl = `${baseUrl.replace(/\/+$/, "")}/token`;
+  const credentials = Buffer.from(`${consumerKey}:${consumerSecret}`).toString("base64");
+
+  const response = await fetch(tokenUrl, {
+    method: "POST",
+    headers: {
+      "Authorization": `Basic ${credentials}`,
+      "Content-Type": "application/x-www-form-urlencoded"
+    },
+    body: new URLSearchParams({ grant_type: "client_credentials" })
+  });
+
+  if (!response.ok) {
+    throw new Error(`Failed to fetch Lantmateriet Access Token (${response.status})`);
+  }
+
+  const data = await response.json() as { access_token: string, expires_in: number };
+
+  // Cache the token, subtract 60 seconds as a buffer
+  cachedLantmaterietToken = {
+    token: data.access_token,
+    expiresAt: Date.now() + (data.expires_in - 60) * 1000
+  };
+
+  return data.access_token;
+}
+
 export async function lookupPropertyByDesignation(input: PropertyLookupInput, user: AuthUser): Promise<Record<string, unknown>> {
   validatePropertyLookupInput(input);
   assertPermission(user, "PROPERTY_LOOKUP");
@@ -43,22 +90,19 @@ export async function lookupPropertyByDesignation(input: PropertyLookupInput, us
   });
 
   const baseUrl = getEnv("LANTMATERIET_BASE_URL");
-  const apiKey = process.env.LANTMATERIET_API_KEY;
-  if (!apiKey) {
-    if (isLantmaterietOpenMode()) {
-      throw new Error("Lantmateriet property lookup requires licensed API key. Open mode supports map/WMS testing only.");
-    }
-    throw new Error("Missing env variable: LANTMATERIET_API_KEY");
-  }
-  const endpoint = `${baseUrl.replace(/\/+$/, "")}/fastighet`;
+  const accessToken = await getLantmaterietAccessToken();
+
+  // Note: Depending on the specific API subscribed to, the endpoint might differ. 
+  // We assume the standard fastighetsindelning/geodatakatalog API format for this request.
+  const endpoint = `${baseUrl.replace(/\/+$/, "")}/distribution/produkter/fastighet/v2.1/fastighet`;
   const url = `${endpoint}?beteckning=${encodeURIComponent(input.propertyDesignation)}`;
 
   const response = await fetch(url, {
     method: "GET",
     headers: {
-      Authorization: `Bearer ${apiKey}`,
+      Authorization: `Bearer ${accessToken}`,
       Accept: "application/json",
-      "X-Client-System": "RiskGuard.ai",
+      "X-Client-System": "Miljobeslut.se 2.0",
     },
   });
 

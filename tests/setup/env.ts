@@ -8,7 +8,7 @@ if (!process.env.ADMIN_CONSOLE_PASSWORD) process.env.ADMIN_CONSOLE_PASSWORD = 'a
 if (!process.env.ADMIN_ORG_NAME) process.env.ADMIN_ORG_NAME = 'Miljobeslut Test Org';
 if (!process.env.ADMIN_ORG_NUMBER) process.env.ADMIN_ORG_NUMBER = '999999-0001';
 if (!process.env.DATABASE_URL)
-  process.env.DATABASE_URL = 'postgresql://riskguard:password@localhost:5432/riskguard_test';
+  process.env.DATABASE_URL = 'postgresql://miljobeslut:password@localhost:5432/miljobeslut_test';
 if (!process.env.SLU_API_BASE_URL) process.env.SLU_API_BASE_URL = 'https://example.invalid';
 if (!process.env.SLU_API_KEY) process.env.SLU_API_KEY = 'test-slu-key';
 if (!process.env.SEARCH_WORKER_ENABLED) process.env.SEARCH_WORKER_ENABLED = 'false';

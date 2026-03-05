@@ -5,7 +5,7 @@ import App from './components/App';
 import { ProjectStructureProvider } from './components/ProjectStructureContext';
 
 /**
- * Initialiserar RiskGuard-plattformen genom att rendera App-komponenten 
+ * Initialiserar Miljobeslut.se 2.0 genom att rendera App-komponenten
  * till 'root'-elementet i index.html.
  */
 const container = document.getElementById('root');

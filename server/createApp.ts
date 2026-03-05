@@ -1,4 +1,4 @@
-﻿import express from 'express';
+import express from 'express';
 import secureApiRouter from './secureApi.express';
 import geminiRouter from './geminiApi.express';
 import geminiDbRouter from './geminiDbApi.express';
@@ -32,7 +32,7 @@ export function createApp() {
   });
 
   app.get('/health', (_req, res) => {
-    res.json({ ok: true, service: 'riskguard-secure-backend' });
+    res.json({ ok: true, service: 'miljobeslut-secure-backend' });
   });
 
   app.use(secureApiRouter);

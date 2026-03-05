@@ -1,4 +1,4 @@
-﻿import { promises as fs } from "node:fs";
+import { promises as fs } from "node:fs";
 import path from "node:path";
 
 interface FetchResult {
@@ -12,7 +12,7 @@ interface FetchResult {
 
 const REQUEST_HEADERS = {
   Accept: "*/*",
-  "User-Agent": "RiskGuard/1.0 (+https://miljobeslut.se)",
+  "User-Agent": "Miljobeslut/2.0 (+https://miljobeslut.se)",
 };
 
 async function fetchJson(endpoint: string): Promise<FetchResult> {

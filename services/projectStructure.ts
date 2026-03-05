@@ -22,7 +22,7 @@ import type {
   StageGateType,
 } from '../types';
 
-export const PROJECT_STRUCTURE_STORAGE_KEY = 'riskguard_project_structure_v1';
+export const PROJECT_STRUCTURE_STORAGE_KEY = 'miljobeslut_project_structure_v2';
 export const PROJECT_STRUCTURE_SCHEMA_VERSION = 2;
 
 const ALL_STAGE_GATES: StageGateType[] = [

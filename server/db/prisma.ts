@@ -1,15 +1,15 @@
 import { PrismaClient } from "@prisma/client";
 
 declare global {
-  var __riskguardPrisma: PrismaClient | undefined;
+  var __miljobeslutPrisma: PrismaClient | undefined;
 }
 
 export const prisma =
-  globalThis.__riskguardPrisma ??
+  globalThis.__miljobeslutPrisma ??
   new PrismaClient({
     log: ["warn", "error"],
   });
 
 if (process.env.NODE_ENV !== "production") {
-  globalThis.__riskguardPrisma = prisma;
+  globalThis.__miljobeslutPrisma = prisma;
 }
