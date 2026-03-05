@@ -1,0 +1,13 @@
+dist
+coverage
+playwright-report
+test-results
+node_modules
+.tmp_figma.html
+tmp-*.csv
+tmp-*.json
+tmp-*.html
+tmp-*.log
+.env
+.env.example
+.env.test

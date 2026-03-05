@@ -1,11 +1,16 @@
+import React, { useEffect, useRef, useState } from 'react';
 
-import React, { useState, useRef, useEffect } from 'react';
-import { askGeneralAssistant } from '../services/geminiService';
+const TOKEN_KEY = 'riskguard_admin_bearer';
+
+type ChatMessage = {
+  role: 'user' | 'model';
+  content: string;
+};
 
 const ChatBot: React.FC = () => {
   const [isOpen, setIsOpen] = useState(false);
   const [input, setInput] = useState('');
-  const [messages, setMessages] = useState<{ role: 'user' | 'model', content: string }[]>([]);
+  const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
 
@@ -15,20 +20,63 @@ const ChatBot: React.FC = () => {
     }
   }, [messages, isOpen]);
 
-  const handleSend = async (e: React.FormEvent) => {
-    e.preventDefault();
+  const handleSend = async (event: React.FormEvent) => {
+    event.preventDefault();
     if (!input.trim() || isLoading) return;
 
-    const userMsg = input;
+    const userMsg = input.trim();
+    const nextHistory: ChatMessage[] = [...messages, { role: 'user', content: userMsg }];
     setInput('');
-    setMessages(prev => [...prev, { role: 'user', content: userMsg }]);
+    setMessages(nextHistory);
     setIsLoading(true);
 
     try {
-      const response = await askGeneralAssistant(userMsg, messages);
-      setMessages(prev => [...prev, { role: 'model', content: response }]);
+      const token = typeof window !== 'undefined' ? String(window.localStorage.getItem(TOKEN_KEY) || '') : '';
+      const headers: Record<string, string> = {
+        'Content-Type': 'application/json',
+      };
+
+      if (token) {
+        headers.Authorization = `Bearer ${token}`;
+      }
+
+      const response = await fetch('/api/gemini', {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({
+          method: 'askGeneralAssistant',
+          payload: {
+            message: userMsg,
+            history: nextHistory,
+          },
+        }),
+      });
+
+      const json = (await response.json()) as { ok?: boolean; error?: string; result?: string };
+      if (!response.ok || !json.ok) {
+        if (response.status === 401) {
+          setMessages((prev) => [
+            ...prev,
+            {
+              role: 'model',
+              content: 'Session saknas. Logga in via admin for att anvanda AI-chatten.',
+            },
+          ]);
+          return;
+        }
+        throw new Error(json.error || `HTTP ${response.status}`);
+      }
+
+      const modelText = String(json.result || '').trim() || 'Jag kunde inte generera ett svar just nu.';
+      setMessages((prev) => [...prev, { role: 'model', content: modelText }]);
     } catch (error) {
-      setMessages(prev => [...prev, { role: 'model', content: "Jag kunde tyvärr inte svara just nu. Kontrollera din anslutning." }]);
+      setMessages((prev) => [
+        ...prev,
+        {
+          role: 'model',
+          content: 'Jag kunde tyvarr inte svara just nu. Kontrollera anslutning och API-status.',
+        },
+      ]);
     } finally {
       setIsLoading(false);
     }
@@ -37,79 +85,87 @@ const ChatBot: React.FC = () => {
   return (
     <div className="fixed bottom-6 right-6 z-[2000] flex flex-col items-end">
       {isOpen && (
-        <div className="bg-white rounded-3xl shadow-2xl w-80 sm:w-96 h-[500px] mb-4 border border-slate-200 flex flex-col overflow-hidden animate-in slide-in-from-bottom-4 duration-300">
-          <div className="bg-gradient-to-r from-blue-600 to-indigo-700 p-4 text-white flex justify-between items-center shrink-0">
+        <div className="mb-4 flex h-[500px] w-80 flex-col overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-2xl animate-in slide-in-from-bottom-4 duration-300 sm:w-96">
+          <div className="flex shrink-0 items-center justify-between bg-gradient-to-r from-blue-600 to-indigo-700 p-4 text-white">
             <div className="flex items-center gap-3">
-              <div className="w-10 h-10 bg-white/20 rounded-full flex items-center justify-center">
-                <i className="fas fa-sparkles text-lg"></i>
+              <div className="flex h-10 w-10 items-center justify-center rounded-full bg-white/20">
+                <i className="fas fa-sparkles text-lg" />
               </div>
               <div>
-                <h3 className="font-bold text-sm">RiskGuard AI Assistent</h3>
-                <p className="text-[10px] text-blue-100">Drivs av Gemini 3 Pro</p>
+                <h3 className="text-sm font-bold">RiskGuard AI Assistent</h3>
+                <p className="text-[10px] text-blue-100">Drivs av Gemini API</p>
               </div>
             </div>
-            <button onClick={() => setIsOpen(false)} className="hover:bg-white/10 p-2 rounded-full transition-colors">
-              <i className="fas fa-times"></i>
+            <button onClick={() => setIsOpen(false)} className="rounded-full p-2 transition-colors hover:bg-white/10">
+              <i className="fas fa-times" />
             </button>
           </div>
 
-          <div ref={scrollRef} className="flex-1 overflow-y-auto p-4 space-y-4 custom-scrollbar bg-slate-50">
+          <div ref={scrollRef} className="custom-scrollbar flex-1 space-y-4 overflow-y-auto bg-slate-50 p-4">
             {messages.length === 0 && (
-              <div className="text-center mt-10 px-4">
-                <i className="fas fa-robot text-4xl text-slate-200 mb-4 block"></i>
-                <p className="text-slate-500 text-sm">Hej! Jag kan svara på frågor om miljöbalken, avfallskoder eller hjälpa dig tolka kartdata. Vad funderar du på?</p>
+              <div className="mt-10 px-4 text-center">
+                <i className="fas fa-robot mb-4 block text-4xl text-slate-200" />
+                <p className="text-sm text-slate-500">Hej! Jag svarar enbart baserat på verifierade lagtexter och handböcker. Jag gissar aldrig. Vad vill du veta om din fastighet eller avfallskod?</p>
               </div>
             )}
-            {messages.map((m, i) => (
-              <div key={i} className={`flex ${m.role === 'user' ? 'justify-end' : 'justify-start'}`}>
-                <div className={`max-w-[85%] px-4 py-3 rounded-2xl text-sm leading-relaxed ${
-                  m.role === 'user' 
-                  ? 'bg-blue-600 text-white rounded-tr-none' 
-                  : 'bg-white border border-slate-200 text-slate-700 rounded-tl-none shadow-sm'
-                }`}>
-                  {m.content}
+
+            {messages.map((message, idx) => (
+              <div key={`${message.role}-${idx}`} className={`flex ${message.role === 'user' ? 'justify-end' : 'justify-start'}`}>
+                <div
+                  className={`max-w-[85%] rounded-2xl px-4 py-3 text-sm leading-relaxed ${
+                    message.role === 'user'
+                      ? 'rounded-tr-none bg-blue-600 text-white'
+                      : 'rounded-tl-none border border-slate-200 bg-white text-slate-700 shadow-sm'
+                  }`}
+                >
+                  {message.content}
                 </div>
               </div>
             ))}
+
             {isLoading && (
               <div className="flex justify-start">
-                <div className="bg-white border border-slate-200 px-4 py-2 rounded-2xl text-sm italic text-slate-400">
-                  <i className="fas fa-circle-notch fa-spin mr-2"></i> Analyserar...
+                <div className="rounded-2xl border border-slate-200 bg-white px-4 py-2 text-sm italic text-slate-400">
+                  <i className="fas fa-circle-notch fa-spin mr-2" />Analyserar...
                 </div>
               </div>
             )}
           </div>
 
-          <form onSubmit={handleSend} className="p-4 bg-white border-t border-slate-100 flex gap-2">
-            <input 
-              type="text" 
-              placeholder="Skriv din fråga här..." 
-              className="flex-1 bg-slate-50 border border-slate-200 rounded-xl px-4 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+          <form onSubmit={handleSend} className="flex gap-2 border-t border-slate-100 bg-white p-4">
+            <textarea
+              placeholder="Skriv eller klistra in text här..."
+              className="flex-1 resize-none rounded-xl border border-slate-200 bg-slate-50 px-4 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 custom-scrollbar"
+              rows={1}
               value={input}
-              onChange={(e) => setInput(e.target.value)}
+              onChange={(event) => setInput(event.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' && !e.shiftKey) {
+                  e.preventDefault();
+                  handleSend(e as unknown as React.FormEvent);
+                }
+              }}
               disabled={isLoading}
             />
-            <button 
+            <button
               type="submit"
               disabled={!input.trim() || isLoading}
-              className="w-10 h-10 bg-blue-600 text-white rounded-xl flex items-center justify-center hover:bg-blue-700 disabled:opacity-50 transition-all shadow-lg shadow-blue-600/20"
+              className="flex h-10 w-10 items-center justify-center rounded-xl bg-blue-600 text-white shadow-lg shadow-blue-600/20 transition-all hover:bg-blue-700 disabled:opacity-50"
             >
-              <i className="fas fa-paper-plane"></i>
+              <i className="fas fa-paper-plane" />
             </button>
           </form>
         </div>
       )}
 
-      <button 
+      <button
         onClick={() => setIsOpen(!isOpen)}
-        className={`w-14 h-14 rounded-full flex items-center justify-center text-white shadow-2xl transition-all duration-300 hover:scale-110 ${
-          isOpen ? 'bg-slate-800 rotate-90' : 'bg-gradient-to-br from-blue-500 to-indigo-600'
+        className={`relative flex h-14 w-14 items-center justify-center rounded-full text-white shadow-2xl transition-all duration-300 hover:scale-110 ${
+          isOpen ? 'rotate-90 bg-slate-800' : 'bg-gradient-to-br from-blue-500 to-indigo-600'
         }`}
       >
-        <i className={`fas ${isOpen ? 'fa-times' : 'fa-comment-dots'} text-xl`}></i>
-        {!isOpen && (
-          <span className="absolute -top-1 -right-1 w-4 h-4 bg-red-500 rounded-full border-2 border-white animate-pulse"></span>
-        )}
+        <i className={`fas ${isOpen ? 'fa-times' : 'fa-comment-dots'} text-xl`} />
+        {!isOpen && <span className="absolute -right-1 -top-1 h-4 w-4 animate-pulse rounded-full border-2 border-white bg-red-500" />}
       </button>
     </div>
   );

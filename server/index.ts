@@ -1,16 +1,17 @@
-import express from "express";
-import secureApiRouter from "./secureApi.express";
-import geminiRouter from "./geminiApi.express";
+import { startSearchWorker } from './services/searchWorker';
+import { loadEnvFile } from './loadEnv';
+import { createApp } from './createApp';
 
-const app = express();
+loadEnvFile();
+
+const app = createApp();
 const port = Number(process.env.PORT || 8787);
 
-app.use(secureApiRouter);
-app.use(geminiRouter);
-
-app.get("/health", (_req, res) => {
-  res.json({ ok: true, service: "riskguard-secure-backend" });
-});
+if (process.env.SEARCH_WORKER_ENABLED !== 'false') {
+  const pollMs = Math.max(500, Number(process.env.SEARCH_WORKER_POLL_MS || 2500));
+  const maxJobs = Math.max(1, Number(process.env.SEARCH_WORKER_MAX_JOBS || 3));
+  startSearchWorker(pollMs, maxJobs);
+}
 
 app.listen(port, () => {
   console.info(`RiskGuard backend listening on port ${port}`);

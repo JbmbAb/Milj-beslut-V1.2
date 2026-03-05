@@ -2,12 +2,12 @@
 import { Permit, DecisionType, WasteCode, Receiver, ProjectPhase, IntegrationSource } from './types';
 
 export const INTEGRATION_SOURCES: IntegrationSource[] = [
-  { id: '1', name: 'Topografisk Webbkarta', provider: 'Lantmäteriet', dataType: 'WMS/WMTS Fastighetsgränser', status: 'CONNECTED', lastSync: 'Realtid', complexity: 2 },
+  { id: '1', name: 'Fastighetsdata (Avgiftsfri)', provider: 'Lantmäteriet', dataType: 'API (Gränser & Ägare)', status: 'CONNECTED', lastSync: 'Realtid', complexity: 2 },
   { id: '2', name: 'Natura 2000', provider: 'Naturvårdsverket', dataType: 'Skyddade områden (Spatial)', status: 'CONNECTED', lastSync: '12h', complexity: 3 },
-  { id: '3', name: 'Fornlämningar', provider: 'Riksantikvarieämbetet', dataType: 'Kulturarvsdata (WMS)', status: 'CONNECTED', lastSync: '24h', complexity: 3 },
+  { id: '3', name: 'Fornsök', provider: 'Riksantikvarieämbetet', dataType: 'K-samsök API', status: 'CONNECTED', lastSync: '24h', complexity: 2 },
   { id: '4', name: 'Jordartskarta 1:25k', provider: 'SGU', dataType: 'Geologiska lager', status: 'CONNECTED', lastSync: '7d', complexity: 4 },
-  { id: '5', name: 'Översvämningsrisk', provider: 'SMHI', dataType: 'Hydrologiska modeller', status: 'CONNECTED', lastSync: '1h', complexity: 5 },
-  { id: '6', name: 'Artportalen', provider: 'SLU', dataType: 'Bio-inventeringar', status: 'CONNECTED', lastSync: '1h', complexity: 4 }
+  { id: '5', name: 'Översvämningskartering', provider: 'MSB', dataType: 'WMS (Inspire)', status: 'CONNECTED', lastSync: '1h', complexity: 2 },
+  { id: '6', name: 'Invasiva Arter', provider: 'SLU Artdatabanken', dataType: 'API (Dyntaxa/Artportalen)', status: 'CONNECTED', lastSync: '1h', complexity: 4 }
 ];
 
 export const WASTE_CODES: WasteCode[] = [
@@ -19,7 +19,12 @@ export const WASTE_CODES: WasteCode[] = [
       storageTime: 'Max 3 år',
       maxAmount: 'Obegränsad vid ringa risk',
       safetyDistance: '50m till bostäder',
-      legalReference: 'Miljöprövningsförordningen 29 kap. 31 §'
+      legalReference: 'Miljöprövningsförordningen 29 kap. 31 §',
+      checklist: [
+        'Verifiera "Ringa risk" mot Naturvårdsverkets riktvärden (KM/MKM)',
+        'Säkerställ att ingen damning sker mot grannfastighet',
+        'Upprätta mottagningskontroll för varje lass'
+      ]
     }
   },
   {
@@ -28,8 +33,12 @@ export const WASTE_CODES: WasteCode[] = [
     type: 'SNI',
     requirements: {
       storageTime: 'Max 1 år',
-      maxAmount: 'Tröskel: 10 ton vid ett tillfälle',
-      legalReference: 'Miljöprövningsförordningen 29 kap. 30 §'
+      maxAmount: 'Anmälan krävs vid >10 ton vid ett tillfälle',
+      legalReference: 'Miljöprövningsförordningen 29 kap. 30 §',
+      checklist: [
+        'Anmälan ska ske senast 6 veckor innan start',
+        'Hårdgjord yta krävs ej vid korta ledtider, men rekommenderas'
+      ]
     }
   },
   {
@@ -38,9 +47,14 @@ export const WASTE_CODES: WasteCode[] = [
     type: 'SNI',
     requirements: {
       storageTime: 'Max 6 månader',
-      maxAmount: 'Max 25 ton för anmälan',
+      maxAmount: 'Anmälan <25 ton. Tillstånd >25 ton.',
       safetyDistance: 'Invallning och spillskydd obligatoriskt',
-      legalReference: 'Miljöprövningsförordningen 29 kap. 50 §'
+      legalReference: 'Miljöprövningsförordningen 29 kap. 50 §',
+      checklist: [
+        'Invallning måste rymma största behållarens volym + 10%',
+        'Tät yta (asfalt/betong) är ett absolut krav',
+        'Absorberingsmedel ska finnas lättillgängligt'
+      ]
     }
   },
   {
@@ -49,8 +63,12 @@ export const WASTE_CODES: WasteCode[] = [
     type: 'SNI',
     requirements: {
       storageTime: 'Max 1 år',
-      maxAmount: 'Tröskel: 1 000 ton per kalenderår',
-      legalReference: 'Miljöprövningsförordningen 29 kap. 80 §'
+      maxAmount: 'Anmälan krävs vid >1 000 ton per kalenderår',
+      legalReference: 'Miljöprövningsförordningen 29 kap. 80 §',
+      checklist: [
+        'Redovisa maskinell utrustning',
+        'Beskriv åtgärder för dammbekämpning'
+      ]
     }
   },
   {
@@ -59,9 +77,13 @@ export const WASTE_CODES: WasteCode[] = [
     type: 'SNI',
     requirements: {
       storageTime: 'Max 1 år',
-      maxAmount: 'Upp till 10 000 ton per år för anmälan',
+      maxAmount: 'Anmälan <10 000 ton/år. Tillstånd >10 000 ton.',
       safetyDistance: 'Bullerdämpande åtgärder krävs',
-      legalReference: 'Miljöprövningsförordningen 29 kap. 110 §'
+      legalReference: 'Miljöprövningsförordningen 29 kap. 110 §',
+      checklist: [
+        'Bullerutredning krävs',
+        'Vibrationskontroll vid krossning'
+      ]
     }
   },
   {
@@ -70,7 +92,8 @@ export const WASTE_CODES: WasteCode[] = [
     type: 'EWC',
     requirements: {
       storageTime: 'Max 1 år vid mellanlagring',
-      legalReference: 'Avfallsförordningen Bilaga 3'
+      legalReference: 'Avfallsförordningen Bilaga 3',
+      checklist: []
     }
   },
   {
@@ -80,7 +103,8 @@ export const WASTE_CODES: WasteCode[] = [
     requirements: {
       storageTime: 'Max 6 månader',
       safetyDistance: 'Invallning krävs',
-      legalReference: 'Avfallsförordningen Bilaga 3'
+      legalReference: 'Avfallsförordningen Bilaga 3',
+      checklist: []
     }
   }
 ];
@@ -125,7 +149,7 @@ export const DEFAULT_PHASES: ProjectPhase[] = [
     isLocked: false,
     requiresSignature: true,
     tasks: [
-      { id: 'T3', title: 'Boka miljöteknisk provtagning', startWeek: 2, duration: 2, type: 'FIELD', status: 'ONGOING' },
+      { id: 'T3', title: 'Provtagning (PFAS11 & Metaller)', startWeek: 2, duration: 2, type: 'FIELD', status: 'ONGOING' },
       { id: 'T4', title: 'Analysera labbsvar', startWeek: 4, duration: 1, type: 'TECHNICAL', status: 'TODO' }
     ]
   },
@@ -134,7 +158,7 @@ export const DEFAULT_PHASES: ProjectPhase[] = [
     title: 'Ansökan & Myndighetskontakt',
     status: 'TODO',
     isLocked: true,
-    requiresSignature: false,
+    requiresSignature: true, // Stop Gate enligt affärsplan
     tasks: [
       { id: 'T5', title: 'Skapa MKB-utkast', startWeek: 5, duration: 3, type: 'LEGAL', status: 'TODO' },
       { id: 'T6', title: 'Skicka in anmälan', startWeek: 8, duration: 1, type: 'ADMIN', status: 'TODO' }
@@ -189,3 +213,20 @@ export const MOCK_PERMITS: Permit[] = [
     applicant_company: "ByggRetur Nacka AB"
   }
 ];
+
+// MOCK DATA FÖR AUTOMATISK PROJEKTUPPSTART (DEL 3)
+export const MOCK_PROPERTY_DATA = {
+  propertyId: "Länna 1:45",
+  municipality: "Haninge",
+  county: "Stockholm",
+  constraints: [
+    { type: "NATURA2000", name: "Tyresta-Åva", distance: "1.2 km", status: "OK" },
+    { type: "VATTENSKYDD", name: "Drevviken VSO", distance: "0 km (Inom område)", status: "WARNING" },
+    { type: "FORNLÄMNING", name: "Röse L123 (Fornsök)", distance: "250 m", status: "INFO" }
+  ],
+  suggestedWBS: [
+    { phase: "Förstudie", tasks: ["Samråd med Länsstyrelsen (pga Vattenskydd)", "Markundersökning (SGU: Lera)", "Kontroll av invasiva arter (SLU)"] },
+    { phase: "Ansökan", tasks: ["Upprätta MKB", "Teknisk beskrivning av invallning"] },
+    { phase: "Drift", tasks: ["Löpande kontroll av grundvattenrör"] }
+  ]
+};

@@ -20,6 +20,9 @@ export function validatePropertyLookupInput(input: PropertyLookupInput): void {
 }
 
 export function assertPermission(user: AuthUser, permission: string): void {
+  if (user.role === "ADMIN") {
+    return;
+  }
   if (!rolePermissions[user.role]?.has(permission)) {
     throw new Error("Role lacks permission");
   }

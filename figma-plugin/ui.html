@@ -51,6 +51,10 @@
         color: #fff;
         flex: 1;
       }
+      #use-structure {
+        background: #dbe6ff;
+        color: #123b8f;
+      }
       #close {
         background: #e6ebf5;
       }
@@ -90,16 +94,17 @@
     <label for="endpoint">Backend endpoint</label>
     <input id="endpoint" value="http://localhost:8787/api/figma/ai" />
 
-    <label for="token">Bearer token</label>
+    <label for="token">Bearer token (optional in local mode)</label>
     <input id="token" placeholder="eyJ..." />
 
     <div class="actions">
+      <button id="use-structure">Use app structure</button>
       <button id="generate">Generate</button>
       <button id="close">Close</button>
     </div>
 
     <div id="status"></div>
-    <div class="hint">Plugin sends prompt to /api/figma/ai and creates one frame with response text.</div>
+    <div class="hint">Plugin sends prompt to /api/figma/ai and creates one frame with response text. On localhost, token can be empty.</div>
 
     <script>
       const promptEl = document.getElementById("prompt");
@@ -109,11 +114,45 @@
       const endpointEl = document.getElementById("endpoint");
       const tokenEl = document.getElementById("token");
       const statusEl = document.getElementById("status");
+      const useStructureBtn = document.getElementById("use-structure");
       const generateBtn = document.getElementById("generate");
       const closeBtn = document.getElementById("close");
 
+      const STRUCTURE_PROMPT =
+        "Skapa Home-frame i Figma, men folj exakt den befintliga kodstrukturen i projektet. " +
+        "Bygg endast UI for existerande komponenter och mode-floden.";
+
+      const STRUCTURE_CONTEXT = [
+        "Struktur-kontrakt (maste foljas):",
+        "1) Top shell + mode navigation -> components/App.tsx",
+        "2) Permit portal-vy -> components/PermitPortalView.tsx",
+        "3) Market/logistik-vy -> components/MarketIntelView.tsx",
+        "4) Admin-vy -> components/AdminSearchConsole.tsx",
+        "",
+        "Regler:",
+        "- Ingen ny toppniva-arkitektur eller nya mode-nycklar.",
+        "- Bevara befintlig affarslogik/API/state-flode.",
+        "- Responsive desktop+mobile.",
+        "- Anvand befintliga tokens (tokens.css/tokens.json).",
+        "",
+        "Mode-ordning i appen:",
+        "- LOGISTICS_MARKET",
+        "- PERMIT_PORTAL",
+        "- PROJECT_MANAGER",
+        "- COMPLIANCE_AUDIT",
+        "- ADMIN_CONSOLE",
+      ].join("\n");
+
       function setStatus(text) {
         statusEl.textContent = text || "";
+      }
+
+      function applyStructureTemplate() {
+        if (!promptEl.value.trim()) {
+          promptEl.value = STRUCTURE_PROMPT;
+        }
+        contextEl.value = STRUCTURE_CONTEXT;
+        setStatus("Project structure template loaded.");
       }
 
       async function fetchAiData(endpoint, token, payload) {
@@ -153,11 +192,6 @@
           setStatus("Set backend endpoint first.");
           return;
         }
-        if (!token) {
-          setStatus("Set bearer token first.");
-          return;
-        }
-
         generateBtn.disabled = true;
         setStatus("Generating...");
 
@@ -194,6 +228,12 @@
       closeBtn.onclick = () => {
         parent.postMessage({ pluginMessage: { type: "cancel" } }, "*");
       };
+
+      useStructureBtn.onclick = () => {
+        applyStructureTemplate();
+      };
+
+      applyStructureTemplate();
     </script>
   </body>
 </html>

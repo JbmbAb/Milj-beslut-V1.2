@@ -24,6 +24,10 @@ function hit(key: string, max: number, windowMs: number): { allowed: boolean; re
 
 export function rateLimitByUser(max: number, windowMs: number) {
   return (req: Request, res: Response, next: NextFunction): void => {
+    if (req.authUser?.role === "ADMIN") {
+      next();
+      return;
+    }
     const subject = req.authUser?.id || req.ip || "anonymous";
     const key = `u:${subject}:${req.path}`;
     const decision = hit(key, max, windowMs);
@@ -40,6 +44,10 @@ export function rateLimitByUser(max: number, windowMs: number) {
 
 export function rateLimitByOrg(max: number, windowMs: number) {
   return (req: Request, res: Response, next: NextFunction): void => {
+    if (req.authUser?.role === "ADMIN") {
+      next();
+      return;
+    }
     const org = req.authUser?.organisationId || "none";
     const key = `o:${org}:${req.path}`;
     const decision = hit(key, max, windowMs);

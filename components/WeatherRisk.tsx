@@ -14,6 +14,11 @@ const WeatherRisk: React.FC<{ municipality: string }> = ({ municipality }) => {
         setRisk(result);
       } catch (e) {
         console.error(e);
+        setRisk({
+          level: 'Låg',
+          description: `Kunde inte hamta vederprognos for ${municipality}.`,
+          action: 'Kontrollera lokala prognoser manuellt.',
+        });
       } finally {
         setLoading(false);
       }

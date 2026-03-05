@@ -8,7 +8,11 @@ $sources = @(
   @{ Id = "smhi"; Url = "https://opendata-download-metfcst.smhi.se/api/category/pmp3g/version/2/geotype/point/lon/18.0686/lat/59.3293/data.json" },
   @{ Id = "naturvardsverket"; Url = "https://oppnadata.naturvardsverket.se/" },
   @{ Id = "sgu"; Url = "https://resource.sgu.se/service/wms/130/brunnar?service=WMS&request=GetCapabilities" },
+  @{ Id = "lansstyrelsen"; Url = "https://www.lansstyrelsen.se/" },
+  @{ Id = "riksantikvarieambetet"; Url = "https://kulturarvsdata.se/" },
   @{ Id = "msb"; Url = "https://inspire.msb.se/oversvamning/wms?service=WMS&request=GetCapabilities" },
+  @{ Id = "boverket"; Url = "https://www.boverket.se/sv/om-boverket/oppna-data/" },
+  @{ Id = "hav"; Url = "https://www.havochvatten.se/" },
   @{ Id = "lantmateriet_open_fastighetsomrade"; Url = "https://api-ver.lantmateriet.se/fastighetsomrade/atom/v1/" },
   @{ Id = "lantmateriet_open_ftp"; Url = "ftp://download-opendata.lantmateriet.se/" }
 )

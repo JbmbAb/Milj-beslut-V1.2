@@ -19,6 +19,10 @@ const MarketingHub: React.FC<MarketingHubProps> = ({ permits, fullView }) => {
       setSummary(result);
     } catch (err) {
       console.error(err);
+      setSummary({
+        text: 'Offline-lage: marknadsanalysen kunde inte hamtas fran extern tjanst. Anvand lokal statistik och historiska beslut for prioritering.',
+        sources: [],
+      });
     } finally {
       setLoading(false);
     }

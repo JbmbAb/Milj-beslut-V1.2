@@ -1,0 +1,15 @@
+[
+  {
+    "id": "NsXMGXB0ljuk3l1D0NOVyK",
+    "name": "User dashboard",
+    "componentName": "UserDashboard",
+    "fileName": "user-dashboard.tsx",
+    "width": null,
+    "height": null,
+    "layerNames": [
+      "Public fallback export",
+      "Add FIGMA_TOKEN for full component tree",
+      "Thumbnail URL redacted"
+    ]
+  }
+]

@@ -33,17 +33,18 @@ const DetailModal: React.FC<DetailModalProps> = ({ permit, onClose }) => {
     e.preventDefault();
     if (!chatInput.trim() || isChatting) return;
 
-    const userMsg = chatInput;
+    const userMsg = chatInput.trim();
+    const nextHistory = [...chatHistory, { role: 'user' as const, content: userMsg }];
     setChatInput('');
-    setChatHistory(prev => [...prev, { role: 'user', content: userMsg }]);
+    setChatHistory(nextHistory);
     setIsChatting(true);
 
     try {
-      const response = await chatWithPermit(permit, userMsg, chatHistory);
-      setChatHistory(prev => [...prev, { role: 'model', content: response || "Inget svar." }]);
+      const response = await chatWithPermit(permit, userMsg, nextHistory);
+      setChatHistory(prev => [...prev, { role: 'model', content: response || "Inget svar just nu." }]);
     } catch (error) {
       console.error(error);
-      setChatHistory(prev => [...prev, { role: 'model', content: "Ett fel uppstod." }]);
+      setChatHistory(prev => [...prev, { role: 'model', content: "Ett fel uppstod. Forsok igen." }]);
     } finally {
       setIsChatting(false);
     }

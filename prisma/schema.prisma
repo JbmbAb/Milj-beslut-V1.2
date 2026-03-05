@@ -33,6 +33,39 @@ enum PropertyResponseClass {
   ownership_redacted
 }
 
+enum DocumentProcessingStatus {
+  METADATA_ONLY
+  TEXT_EXTRACTED
+  EMBEDDED
+  FAILED
+}
+
+enum SearchJobType {
+  SYNC_MANIFEST
+  EXTRACT_TEXT
+  EMBED_DOC
+}
+
+enum SearchJobStatus {
+  PENDING
+  RUNNING
+  DONE
+  FAILED
+}
+
+enum SearchMode {
+  semantic
+  lexical
+  hybrid
+}
+
+enum RequirementVerificationStatus {
+  AUTO
+  REVIEWED
+  VERIFIED
+  REJECTED
+}
+
 model User {
   id             String          @id @default(cuid())
   organisationId String
@@ -42,6 +75,7 @@ model User {
   organisation   Organisation    @relation(fields: [organisationId], references: [id], onDelete: Restrict)
   memberships    ProjectMember[]
   accessLogs     PropertyAccessLog[]
+  searchQueries  SearchQueryLog[]
 }
 
 model Organisation {
@@ -51,6 +85,7 @@ model Organisation {
   createdAt DateTime  @default(now())
   users     User[]
   projects  Project[]
+  documents DocumentRecord[]
 }
 
 model Project {
@@ -64,7 +99,24 @@ model Project {
   organisation        Organisation        @relation(fields: [organisationId], references: [id], onDelete: Restrict)
   members             ProjectMember[]
   accessLogs          PropertyAccessLog[]
+  documents           DocumentRecord[]
+  searchQueries       SearchQueryLog[]
+  requirementCases    RequirementCase[]
+  requirements        RequirementRecord[]
+  planState           ProjectPlanState?
   @@index([organisationId, status])
+}
+
+model ProjectPlanState {
+  id            String   @id @default(cuid())
+  projectId     String   @unique
+  schemaVersion Int      @default(2)
+  plan          Json
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+  project       Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  @@index([updatedAt])
 }
 
 model ProjectMember {
@@ -103,4 +155,203 @@ model AuditTrail {
   prevHash    String?
   chainHash   String   @unique
   @@index([entityType, timestamp])
+}
+
+model DocumentRecord {
+  id                 String                   @id @default(cuid())
+  projectId          String
+  organisationId     String
+  entryId            String
+  receivedTime       DateTime?
+  subject            String
+  originalName       String
+  diskName           String                   @unique
+  absolutePath       String
+  fileSize           BigInt?
+  fileSha256         String?
+  mimeType           String?
+  status             DocumentProcessingStatus @default(METADATA_ONLY)
+  decisionType       String?
+  municipality       String?
+  wasteType          String?
+  hazardousFlag      Boolean?
+  legalStatus        String?
+  createdAt          DateTime                 @default(now())
+  updatedAt          DateTime                 @updatedAt
+  manifestMeta       Json?
+  project            Project                  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  organisation       Organisation             @relation(fields: [organisationId], references: [id], onDelete: Cascade)
+  content            DocumentContent?
+  chunks             DocumentChunk[]
+  requirementCase    RequirementCase?
+  requirements       RequirementRecord[]
+  requirementCitations RequirementCitation[]
+
+  @@index([projectId, receivedTime])
+  @@index([organisationId, receivedTime])
+  @@index([status, updatedAt])
+  @@index([municipality, decisionType])
+}
+
+model DocumentContent {
+  id                String         @id @default(cuid())
+  documentId        String         @unique
+  contentCiphertext String
+  contentIv         String
+  contentTag        String
+  keyVersion        Int            @default(1)
+  searchText        String
+  createdAt         DateTime       @default(now())
+  updatedAt         DateTime       @updatedAt
+  document          DocumentRecord @relation(fields: [documentId], references: [id], onDelete: Cascade)
+}
+
+model DocumentChunk {
+  id              String         @id @default(cuid())
+  documentId      String
+  chunkIndex      Int
+  chunkText       String
+  embeddingJson   Json?
+  createdAt       DateTime       @default(now())
+  document        DocumentRecord @relation(fields: [documentId], references: [id], onDelete: Cascade)
+
+  @@unique([documentId, chunkIndex])
+  @@index([documentId])
+}
+
+model SearchJob {
+  id         String          @id @default(cuid())
+  type       SearchJobType
+  status     SearchJobStatus @default(PENDING)
+  projectId  String?
+  payload    Json
+  error      String?
+  attempts   Int             @default(0)
+  createdAt  DateTime        @default(now())
+  startedAt  DateTime?
+  finishedAt DateTime?
+
+  @@index([status, createdAt])
+  @@index([type, status])
+}
+
+model SearchQueryLog {
+  id          String     @id @default(cuid())
+  userId      String
+  projectId   String
+  query       String
+  mode        SearchMode @default(hybrid)
+  topK        Int        @default(20)
+  resultCount Int        @default(0)
+  elapsedMs   Int        @default(0)
+  createdAt   DateTime   @default(now())
+  user        User       @relation(fields: [userId], references: [id], onDelete: Restrict)
+  project     Project    @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  @@index([projectId, createdAt])
+  @@index([userId, createdAt])
+}
+
+model RequirementCase {
+  id               String              @id @default(cuid())
+  caseKey          String              @unique
+  projectId        String
+  documentId       String              @unique
+  organisationId   String
+  municipality     String?
+  authorityType    String?
+  authorityName    String?
+  diarienummer     String?
+  documentType     String?
+  documentDate     DateTime?
+  sourceFile       String
+  sourceSubject    String?
+  reviewStatus     RequirementVerificationStatus @default(AUTO)
+  validatedBy      String?
+  validatedAt      DateTime?
+  notes            String?
+  createdAt        DateTime            @default(now())
+  updatedAt        DateTime            @updatedAt
+  project          Project             @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  document         DocumentRecord      @relation(fields: [documentId], references: [id], onDelete: Cascade)
+  requirements     RequirementRecord[]
+  citations        RequirementCitation[]
+
+  @@index([projectId, documentDate])
+  @@index([municipality, authorityType])
+}
+
+model RequirementRecord {
+  id                    String                        @id @default(cuid())
+  requirementCode       String                        @unique
+  caseId                String
+  documentId            String
+  projectId             String
+  sourceType            String
+  category              String
+  subcategory           String
+  requirementTextQuote  String
+  interpretedRequirement String
+  level                 String
+  legalReference        String?
+  deadlineText          String?
+  controlFrequency      String?
+  sanctionText          String?
+  triggerCondition      String?
+  wasteType             String?
+  ewcCode               String?
+  maxAmountTon          String?
+  maxStorageTime        String?
+  linkConstruction      Boolean                       @default(false)
+  linkLeachate          Boolean                       @default(false)
+  linkControlProgram    Boolean                       @default(false)
+  linkRisk              Boolean                       @default(false)
+  templateSection       String?
+  templateField         String?
+  supportingAttachment  String?
+  minimumRequirement    Boolean                       @default(false)
+  municipalitySpecific  Boolean                       @default(false)
+  statusInNotification  String                        @default("Ej behandlad")
+  comment               String?
+  codingConfidence      String                        @default("LOW")
+  verificationStatus    RequirementVerificationStatus @default(AUTO)
+  verifiedBy            String?
+  verifiedAt            DateTime?
+  errorType             String?
+  validationComment     String?
+  createdAt             DateTime                      @default(now())
+  updatedAt             DateTime                      @updatedAt
+  case                  RequirementCase               @relation(fields: [caseId], references: [id], onDelete: Cascade)
+  document              DocumentRecord                @relation(fields: [documentId], references: [id], onDelete: Cascade)
+  project               Project                       @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  citations             RequirementCitation[]
+
+  @@index([documentId])
+  @@index([projectId, category])
+  @@index([verificationStatus, updatedAt])
+}
+
+model RequirementCitation {
+  id                  String            @id @default(cuid())
+  citationCode        String            @unique
+  requirementId       String
+  caseId              String
+  documentId          String
+  quoteText           String
+  pageNumber          Int?
+  charStart           Int?
+  charEnd             Int?
+  extractor           String?
+  verificationStatus  RequirementVerificationStatus @default(AUTO)
+  verifiedBy          String?
+  verifiedAt          DateTime?
+  comment             String?
+  createdAt           DateTime          @default(now())
+  requirement         RequirementRecord @relation(fields: [requirementId], references: [id], onDelete: Cascade)
+  case                RequirementCase   @relation(fields: [caseId], references: [id], onDelete: Cascade)
+  document            DocumentRecord    @relation(fields: [documentId], references: [id], onDelete: Cascade)
+
+  @@index([documentId, pageNumber])
+  @@index([requirementId])
+  @@index([verificationStatus, createdAt])
 }

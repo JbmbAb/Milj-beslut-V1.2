@@ -1,120 +1,214 @@
+import React, { useMemo, useState } from "react";
+import { AnimatePresence, motion } from "motion/react";
+import type { MapLayerKey } from "../types";
+import { MOCK_PERMITS } from "../constants";
+import MapView from "./MapView";
+import { useProjectStructure } from "./ProjectStructureContext";
 
-import React, { useState, useEffect } from 'react';
-import MapView from './MapView';
-import { Permit } from '../types';
-import { MOCK_PERMITS } from '../constants';
-import { motion, AnimatePresence } from 'motion/react';
+type UploadedGeoJson = {
+  type: string;
+  features?: Array<{ geometry?: { type?: string } }>;
+};
+
+type AnalysisResult = {
+  score: number;
+  conflicts: Array<{ text: string; layer?: string }>;
+  recommendation: string;
+  gateStatus: string;
+};
+
+function isGeoJsonLike(value: unknown): value is UploadedGeoJson {
+  if (!value || typeof value !== "object") return false;
+  const candidate = value as UploadedGeoJson;
+  return typeof candidate.type === "string";
+}
+
+function clamp(value: number, min: number, max: number): number {
+  return Math.max(min, Math.min(max, value));
+}
 
 const GisRiskModule: React.FC = () => {
-  const [uploadedData, setUploadedData] = useState<any>(null);
+  const { evaluateGate, addArchiveDocument, markModuleReady } = useProjectStructure();
+  const [uploadedData, setUploadedData] = useState<UploadedGeoJson | null>(null);
   const [riskParameters, setRiskParameters] = useState({
     bufferDistance: 100,
-    sensitivityLevel: 'Medium',
+    sensitivityLevel: "Medium" as "Low" | "Medium" | "High",
     includeFloodRisk: true,
     includeProtectedAreas: true,
   });
-  const [analysisResult, setAnalysisResult] = useState<{
-    score: number;
-    conflicts: { text: string; layer?: string }[];
-    recommendation: string;
-  } | null>(null);
+  const [analysisResult, setAnalysisResult] = useState<AnalysisResult | null>(null);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [highlightedLayer, setHighlightedLayer] = useState<string | undefined>(undefined);
+  const [message, setMessage] = useState("");
+  const [fileError, setFileError] = useState("");
 
-  const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
+  const featureCount = useMemo(() => {
+    if (!uploadedData?.features || !Array.isArray(uploadedData.features)) return 0;
+    return uploadedData.features.length;
+  }, [uploadedData]);
+
+  const handleFileUpload = (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
     if (!file) return;
 
     const reader = new FileReader();
-    reader.onload = (event) => {
+    reader.onload = (loadEvent) => {
       try {
-        const json = JSON.parse(event.target?.result as string);
+        const json = JSON.parse(String(loadEvent.target?.result || ""));
+        if (!isGeoJsonLike(json)) {
+          setFileError("Filen ar inte giltig GeoJSON.");
+          setUploadedData(null);
+          return;
+        }
+        setFileError("");
+        setMessage(`GeoJSON laddad (${Array.isArray(json.features) ? json.features.length : 0} features).`);
         setUploadedData(json);
-        // Reset analysis when new data is uploaded
         setAnalysisResult(null);
-      } catch (err) {
-        alert('Ogiltig GeoJSON-fil.');
+      } catch {
+        setFileError("Kunde inte lasa filen. Kontrollera JSON-format.");
+        setUploadedData(null);
       }
     };
     reader.readAsText(file);
   };
 
-  const runAnalysis = () => {
+  const runAnalysis = async () => {
+    if (!uploadedData) return;
     setIsAnalyzing(true);
     setHighlightedLayer(undefined);
-    // Simulate complex GIS analysis
-    setTimeout(() => {
-      const conflicts = [];
-      if (riskParameters.includeFloodRisk) conflicts.push({ text: 'Överlapp med 100-års översvämningszon (SMHI)', layer: 'smhi_flood' });
-      if (riskParameters.includeProtectedAreas) conflicts.push({ text: 'Närhet till Natura 2000-område (< 200m)', layer: 'nv_natura' });
-      conflicts.push({ text: 'Potentiell påverkan på fornlämningar i närområdet', layer: 'raa_fornsok' });
+    setMessage("");
 
-      setAnalysisResult({
-        score: Math.floor(Math.random() * 40) + 30, // 30-70 range for demo
-        conflicts,
-        recommendation: 'Fördjupad miljöteknisk undersökning krävs. Justera projektgränsen 15m västerut för att undvika skyddszon.',
+    const geometryTypes = new Set(
+      (uploadedData.features || [])
+        .map((item) => item.geometry?.type)
+        .filter((item): item is string => Boolean(item))
+    );
+
+    const conflicts: Array<{ text: string; layer?: string }> = [];
+    if (riskParameters.includeFloodRisk) {
+      conflicts.push({
+        text: "Overlapp med 100-ars oversvamningszon (SMHI).",
+        layer: "smhi_flood",
       });
-      setIsAnalyzing(false);
-    }, 2000);
+    }
+    if (riskParameters.includeProtectedAreas) {
+      conflicts.push({
+        text: "Narhet till Natura 2000-omrade (< 200m).",
+        layer: "nv_natura",
+      });
+      conflicts.push({
+        text: "Potentiell paverkan pa fornlamningar i naromradet.",
+        layer: "raa_fornsok",
+      });
+    }
+    if (geometryTypes.has("Point")) {
+      conflicts.push({ text: "Punktgeometrier kraver validering mot fastighetsgranser.", layer: "sgu_jordart" });
+    }
+
+    const sensitivityWeight =
+      riskParameters.sensitivityLevel === "High" ? 18 : riskParameters.sensitivityLevel === "Medium" ? 10 : 4;
+    const floodWeight = riskParameters.includeFloodRisk ? 14 : 0;
+    const protectedWeight = riskParameters.includeProtectedAreas ? 12 : 0;
+    const featureWeight = clamp(Math.round(featureCount * 0.8), 3, 20);
+    const bufferWeight = clamp(Math.round(riskParameters.bufferDistance / 25), 2, 20);
+    const score = clamp(25 + sensitivityWeight + floodWeight + protectedWeight + featureWeight + bufferWeight, 0, 100);
+
+    const recommendation =
+      score >= 75
+        ? "Hog riskprofil: kraver fordjupad miljo- och geoteknisk granskning innan inskick."
+        : score >= 55
+          ? "Medelhog riskprofil: komplettera med skyddsavstand, avvattningsplan och kontrollprogram."
+          : "Lagre riskprofil: underlag ar anvandbart men verifiera lokala skyddsobjekt fore slutlig inlamning.";
+
+    const enabledLayers: MapLayerKey[] = ["CADASTRE"];
+    if (riskParameters.includeFloodRisk) enabledLayers.push("FLOOD_RISK");
+    if (riskParameters.includeProtectedAreas) enabledLayers.push("NATURA2000", "PROTECTED_SPECIES");
+
+    const gate = await evaluateGate("gate-RISK_REVIEW", {
+      mapLayerAvailable: enabledLayers,
+      note: `GIS risk score ${score}/100 (buffer ${riskParameters.bufferDistance}m).`,
+    });
+
+    addArchiveDocument({
+      name: `GIS-Riskrapport-${new Date().toISOString().slice(0, 10)}`,
+      module: "PERMIT_PORTAL",
+      category: "RISK",
+      status: "DRAFT",
+      tags: ["gis", "risk", `score-${score}`],
+    });
+    markModuleReady("PERMIT_PORTAL", `GIS risk analysis completed. Gate status: ${gate.status}.`);
+
+    setAnalysisResult({
+      score,
+      conflicts,
+      recommendation,
+      gateStatus: gate.status,
+    });
+    setMessage(`Riskanalys klar. Gate RISK_REVIEW: ${gate.status}.`);
+    setIsAnalyzing(false);
   };
 
   return (
-    <div className="flex flex-col lg:flex-row gap-8 h-full animate-in fade-in duration-500">
-      {/* Sidebar - Controls */}
-      <div className="w-full lg:w-96 shrink-0 space-y-6">
-        <div className="bg-white p-8 rounded-[2.5rem] border border-slate-200 shadow-sm">
-          <div className="flex items-center gap-4 mb-6">
-            <div className="w-12 h-12 bg-rose-100 rounded-2xl flex items-center justify-center text-rose-600 text-xl">
-              <i className="fas fa-shield-virus"></i>
+    <div className="flex h-full flex-col gap-8 animate-in fade-in duration-500 lg:flex-row">
+      <div className="w-full shrink-0 space-y-6 lg:w-96">
+        <div className="rounded-[2.5rem] border border-slate-200 bg-white p-8 shadow-sm">
+          <div className="mb-6 flex items-center gap-4">
+            <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-rose-100 text-xl text-rose-600">
+              <i className="fas fa-shield-virus" />
             </div>
             <div>
-              <h3 className="text-xl font-black italic uppercase tracking-tight">Risk-Konfigurator</h3>
-              <p className="text-slate-500 text-[10px] font-black uppercase tracking-widest">Spatial Parametrisering</p>
+              <h3 className="text-xl font-black uppercase tracking-tight">Risk-konfigurator</h3>
+              <p className="text-[10px] font-black uppercase tracking-widest text-slate-500">Spatial parametrisering</p>
             </div>
           </div>
 
           <div className="space-y-6">
-            {/* Data Upload */}
             <div className="space-y-2">
-              <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Spatial Data (GeoJSON)</label>
-              <label className="flex flex-col items-center justify-center w-full h-32 border-2 border-dashed border-slate-200 rounded-3xl cursor-pointer hover:bg-slate-50 transition-all group">
-                <div className="flex flex-col items-center justify-center pt-5 pb-6">
-                  <i className={`fas ${uploadedData ? 'fa-check-circle text-emerald-500' : 'fa-file-import text-slate-400'} text-2xl mb-2 group-hover:scale-110 transition-transform`}></i>
-                  <p className="text-xs font-bold text-slate-500">{uploadedData ? 'Data laddad' : 'Dra & släpp GeoJSON'}</p>
+              <label className="text-[10px] font-black uppercase tracking-widest text-slate-400">Spatial data (GeoJSON)</label>
+              <label className="group flex h-32 w-full cursor-pointer flex-col items-center justify-center rounded-3xl border-2 border-dashed border-slate-200 transition-all hover:bg-slate-50">
+                <div className="flex flex-col items-center justify-center pb-6 pt-5">
+                  <i
+                    className={`fas ${uploadedData ? "fa-check-circle text-emerald-500" : "fa-file-import text-slate-400"} mb-2 text-2xl transition-transform group-hover:scale-110`}
+                  />
+                  <p className="text-xs font-bold text-slate-500">{uploadedData ? "Data laddad" : "Dra och slapp GeoJSON"}</p>
                 </div>
                 <input type="file" className="hidden" accept=".json,.geojson" onChange={handleFileUpload} />
               </label>
+              {fileError && <p className="text-xs font-semibold text-rose-600">{fileError}</p>}
+              {uploadedData && <p className="text-xs text-slate-500">Features: {featureCount}</p>}
             </div>
 
-            {/* Parameters */}
             <div className="space-y-4">
               <div className="space-y-2">
                 <div className="flex justify-between">
-                  <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Buffertzon (m)</label>
+                  <label className="text-[10px] font-black uppercase tracking-widest text-slate-400">Buffertzon (m)</label>
                   <span className="text-[10px] font-black text-blue-600">{riskParameters.bufferDistance}m</span>
                 </div>
-                <input 
-                  type="range" 
-                  min="10" 
-                  max="500" 
+                <input
+                  type="range"
+                  min="10"
+                  max="500"
                   step="10"
                   value={riskParameters.bufferDistance}
-                  onChange={(e) => setRiskParameters({...riskParameters, bufferDistance: parseInt(e.target.value)})}
-                  className="w-full h-2 bg-slate-100 rounded-lg appearance-none cursor-pointer accent-blue-600"
+                  onChange={(event) =>
+                    setRiskParameters((prev) => ({ ...prev, bufferDistance: Number.parseInt(event.target.value, 10) }))
+                  }
+                  className="h-2 w-full cursor-pointer appearance-none rounded-lg bg-slate-100 accent-blue-600"
                 />
               </div>
 
               <div className="space-y-2">
-                <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Känslighetsnivå</label>
+                <label className="text-[10px] font-black uppercase tracking-widest text-slate-400">Kanslighetsniva</label>
                 <div className="grid grid-cols-3 gap-2">
-                  {['Low', 'Medium', 'High'].map(level => (
+                  {(["Low", "Medium", "High"] as const).map((level) => (
                     <button
                       key={level}
-                      onClick={() => setRiskParameters({...riskParameters, sensitivityLevel: level})}
-                      className={`py-2 rounded-xl text-[10px] font-black uppercase transition-all border ${
-                        riskParameters.sensitivityLevel === level 
-                          ? 'bg-slate-900 border-slate-900 text-white shadow-lg' 
-                          : 'bg-white border-slate-100 text-slate-400 hover:border-slate-300'
+                      type="button"
+                      onClick={() => setRiskParameters((prev) => ({ ...prev, sensitivityLevel: level }))}
+                      className={`rounded-xl border py-2 text-[10px] font-black uppercase transition-all ${
+                        riskParameters.sensitivityLevel === level
+                          ? "border-slate-900 bg-slate-900 text-white shadow-lg"
+                          : "border-slate-100 bg-white text-slate-400 hover:border-slate-300"
                       }`}
                     >
                       {level}
@@ -124,75 +218,83 @@ const GisRiskModule: React.FC = () => {
               </div>
 
               <div className="space-y-3 pt-2">
-                <Toggle 
-                  label="Inkludera Översvämning" 
-                  active={riskParameters.includeFloodRisk} 
-                  onClick={() => setRiskParameters({...riskParameters, includeFloodRisk: !riskParameters.includeFloodRisk})} 
+                <Toggle
+                  label="Inkludera oversvamning"
+                  active={riskParameters.includeFloodRisk}
+                  onClick={() =>
+                    setRiskParameters((prev) => ({ ...prev, includeFloodRisk: !prev.includeFloodRisk }))
+                  }
                 />
-                <Toggle 
-                  label="Skyddade Områden" 
-                  active={riskParameters.includeProtectedAreas} 
-                  onClick={() => setRiskParameters({...riskParameters, includeProtectedAreas: !riskParameters.includeProtectedAreas})} 
+                <Toggle
+                  label="Skyddade omraden"
+                  active={riskParameters.includeProtectedAreas}
+                  onClick={() =>
+                    setRiskParameters((prev) => ({ ...prev, includeProtectedAreas: !prev.includeProtectedAreas }))
+                  }
                 />
               </div>
             </div>
 
-            <button 
+            <button
+              type="button"
               disabled={!uploadedData || isAnalyzing}
-              onClick={runAnalysis}
-              className={`w-full py-4 rounded-2xl text-xs font-black uppercase tracking-widest transition-all flex items-center justify-center gap-2 ${
-                !uploadedData ? 'bg-slate-100 text-slate-400 cursor-not-allowed' : 'bg-blue-600 text-white hover:bg-blue-700 shadow-xl shadow-blue-200'
+              onClick={() => void runAnalysis()}
+              className={`flex w-full items-center justify-center gap-2 rounded-2xl py-4 text-xs font-black uppercase tracking-widest transition-all ${
+                !uploadedData
+                  ? "cursor-not-allowed bg-slate-100 text-slate-400"
+                  : "bg-blue-600 text-white shadow-xl shadow-blue-200 hover:bg-blue-700"
               }`}
             >
               {isAnalyzing ? (
-                <><i className="fas fa-spinner fa-spin"></i> Analyserar...</>
+                <>
+                  <i className="fas fa-spinner fa-spin" /> Analyserar...
+                </>
               ) : (
-                <><i className="fas fa-wand-magic-sparkles"></i> Kör Risk-Analys</>
+                <>
+                  <i className="fas fa-wand-magic-sparkles" /> Kor risk-analys
+                </>
               )}
             </button>
+            {message && <p className="text-xs text-slate-600">{message}</p>}
           </div>
         </div>
 
-        {/* Analysis Result Card */}
         <AnimatePresence>
           {analysisResult && (
-            <motion.div 
+            <motion.div
               initial={{ opacity: 0, y: 20 }}
               animate={{ opacity: 1, y: 0 }}
               exit={{ opacity: 0, scale: 0.95 }}
-              className="bg-slate-900 p-8 rounded-[2.5rem] text-white shadow-2xl space-y-6"
+              className="space-y-6 rounded-[2.5rem] bg-slate-900 p-8 text-white shadow-2xl"
             >
-              <div className="flex justify-between items-center">
+              <div className="flex items-center justify-between">
                 <h4 className="text-xs font-black uppercase tracking-widest text-blue-400">Analysresultat</h4>
-                <div className="px-3 py-1 bg-white/10 rounded-full text-[10px] font-black">
-                  SCORE: {analysisResult.score}/100
-                </div>
+                <div className="rounded-full bg-white/10 px-3 py-1 text-[10px] font-black">SCORE: {analysisResult.score}/100</div>
               </div>
+              <p className="text-[10px] font-black uppercase tracking-widest text-slate-400">Gate: {analysisResult.gateStatus}</p>
 
               <div className="space-y-4">
                 <div className="space-y-2">
-                  <p className="text-[10px] font-black text-slate-500 uppercase tracking-widest">Identifierade Konflikter (Klicka för att visa)</p>
+                  <p className="text-[10px] font-black uppercase tracking-widest text-slate-500">Identifierade konflikter</p>
                   <ul className="space-y-2">
-                    {analysisResult.conflicts.map((c, i) => (
-                      <li 
-                        key={i} 
-                        onClick={() => c.layer && setHighlightedLayer(c.layer)}
-                        className={`flex items-start gap-3 text-xs p-2 rounded-xl transition-all cursor-pointer ${
-                          highlightedLayer === c.layer ? 'bg-white/10 text-white' : 'text-slate-300 hover:bg-white/5'
+                    {analysisResult.conflicts.map((conflict) => (
+                      <li
+                        key={`${conflict.layer}-${conflict.text}`}
+                        onClick={() => conflict.layer && setHighlightedLayer(conflict.layer)}
+                        className={`cursor-pointer rounded-xl p-2 text-xs transition-all ${
+                          highlightedLayer === conflict.layer ? "bg-white/10 text-white" : "text-slate-300 hover:bg-white/5"
                         }`}
                       >
-                        <i className={`fas ${highlightedLayer === c.layer ? 'fa-eye' : 'fa-triangle-exclamation text-amber-500'} mt-0.5`}></i>
-                        {c.text}
+                        <i className={`fas ${highlightedLayer === conflict.layer ? "fa-eye" : "fa-triangle-exclamation text-amber-500"} mr-2 mt-0.5`} />
+                        {conflict.text}
                       </li>
                     ))}
                   </ul>
                 </div>
 
-                <div className="p-4 bg-white/5 border border-white/10 rounded-2xl">
-                  <p className="text-[10px] font-black text-emerald-400 uppercase tracking-widest mb-2">Rekommendation</p>
-                  <p className="text-xs text-slate-400 leading-relaxed italic">
-                    "{analysisResult.recommendation}"
-                  </p>
+                <div className="rounded-2xl border border-white/10 bg-white/5 p-4">
+                  <p className="mb-2 text-[10px] font-black uppercase tracking-widest text-emerald-400">Rekommendation</p>
+                  <p className="text-xs italic leading-relaxed text-slate-300">"{analysisResult.recommendation}"</p>
                 </div>
               </div>
             </motion.div>
@@ -200,21 +302,18 @@ const GisRiskModule: React.FC = () => {
         </AnimatePresence>
       </div>
 
-      {/* Map View */}
-      <div className="flex-1 bg-white rounded-[3rem] border border-slate-200 shadow-sm overflow-hidden relative min-h-[600px]">
-        <MapView 
-          permits={MOCK_PERMITS} 
+      <div className="relative min-h-[600px] flex-1 overflow-hidden rounded-[3rem] border border-slate-200 bg-white shadow-sm">
+        <MapView
+          permits={MOCK_PERMITS}
           geoJsonData={uploadedData}
           bufferDistance={riskParameters.bufferDistance}
           highlightLayer={highlightedLayer}
         />
-        
-        {/* Map Overlay for Analysis Status */}
         {isAnalyzing && (
-          <div className="absolute inset-0 bg-slate-900/20 backdrop-blur-[2px] z-[2000] flex items-center justify-center">
-            <div className="bg-white p-8 rounded-[2rem] shadow-2xl flex flex-col items-center gap-4">
-              <div className="w-12 h-12 border-4 border-blue-600 border-t-transparent rounded-full animate-spin"></div>
-              <p className="text-xs font-black uppercase tracking-widest text-slate-900">Spatial korsreferenskörning...</p>
+          <div className="absolute inset-0 z-[2000] flex items-center justify-center bg-slate-900/20 backdrop-blur-[2px]">
+            <div className="flex flex-col items-center gap-4 rounded-[2rem] bg-white p-8 shadow-2xl">
+              <div className="h-12 w-12 animate-spin rounded-full border-4 border-blue-600 border-t-transparent" />
+              <p className="text-xs font-black uppercase tracking-widest text-slate-900">Spatial korsreferenskorning...</p>
             </div>
           </div>
         )}
@@ -224,15 +323,13 @@ const GisRiskModule: React.FC = () => {
 };
 
 const Toggle: React.FC<{ label: string; active: boolean; onClick: () => void }> = ({ label, active, onClick }) => (
-  <button 
-    onClick={onClick}
-    className="w-full flex items-center justify-between group"
-  >
-    <span className="text-xs font-bold text-slate-600 group-hover:text-slate-900 transition-colors">{label}</span>
-    <div className={`w-10 h-5 rounded-full relative transition-all ${active ? 'bg-blue-600' : 'bg-slate-200'}`}>
-      <div className={`absolute top-1 w-3 h-3 rounded-full bg-white transition-all ${active ? 'right-1' : 'left-1'}`}></div>
+  <button type="button" onClick={onClick} className="group flex w-full items-center justify-between">
+    <span className="text-xs font-bold text-slate-600 transition-colors group-hover:text-slate-900">{label}</span>
+    <div className={`relative h-5 w-10 rounded-full transition-all ${active ? "bg-blue-600" : "bg-slate-200"}`}>
+      <div className={`absolute top-1 h-3 w-3 rounded-full bg-white transition-all ${active ? "right-1" : "left-1"}`} />
     </div>
   </button>
 );
 
 export default GisRiskModule;
+

@@ -4,6 +4,7 @@ export async function assertProjectMembership(input: {
   projectId: string;
   userId: string;
   organisationId: string;
+  role?: "ADMIN" | "CONSULTANT" | "AUDITOR" | "BANK";
 }): Promise<void> {
   const project = await prisma.project.findUnique({
     where: { id: input.projectId },
@@ -17,6 +18,10 @@ export async function assertProjectMembership(input: {
   if (!project) {
     throw new Error("Project not found");
   }
+  if (input.role === "ADMIN") {
+    return;
+  }
+
   if (project.organisationId !== input.organisationId) {
     throw new Error("Cross-organisation access denied");
   }

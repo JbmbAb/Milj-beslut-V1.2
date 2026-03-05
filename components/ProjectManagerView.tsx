@@ -2,35 +2,103 @@
 import React, { useState } from 'react';
 import GanttChart from './GanttChart';
 import ProjectOrgChart from './ProjectOrgChart';
-import { ProjectPlan, Stakeholder, ProjectPhase } from '../types';
+import ProjectPlanStructurePanel from './ProjectPlanStructurePanel';
+import { CarbonInput, ProjectPlan } from '../types';
 import { suggestStakeholders, generatePlanDraft } from '../services/geminiService';
 import { DEFAULT_PHASES } from '../constants';
+import { createArchiveDocument, getTemplatePacks } from '../services/projectStructure';
+import { useProjectStructure } from './ProjectStructureContext';
 
 interface ProjectManagerViewProps {
   activeTab: string;
 }
 
+const TEMPLATE_PACKS = getTemplatePacks();
+
 const ProjectManagerView: React.FC<ProjectManagerViewProps> = ({ activeTab }) => {
+  const {
+    plan,
+    setPlan,
+    applyTemplatePack,
+    evaluateGate,
+    runCarbonCalculation,
+    applyMapLayerRecommendation,
+    loadPlanFromServer,
+    savePlanToServer,
+    remoteSync,
+    gateStats,
+  } = useProjectStructure();
   const [viewMode, setViewMode] = useState<'edit' | 'report'>('edit');
   const [isInitializing, setIsInitializing] = useState(false);
-  const [plan, setPlan] = useState<ProjectPlan>({
-    name: 'Nytt Projekt',
-    revision: 'Utgåva 1',
-    background: '',
-    description: '',
-    goals: [],
-    location: { lat: 59.3293, lng: 18.0686, address: '', propertyId: '' },
-    stakeholders: [],
-    phases: [],
-    complianceScore: 0,
-    auditTrail: []
-  });
 
   const [isSuggesting, setIsSuggesting] = useState(false);
   const [isDrafting, setIsDrafting] = useState<string | null>(null);
+  const [permitType, setPermitType] = useState('');
+  const [permitSubmitted, setPermitSubmitted] = useState(false);
+  const [carbonInput, setCarbonInput] = useState<CarbonInput>({
+    tons: 100,
+    distanceKm: 12.5,
+    manualDistanceKm: 0,
+    transportMode: 'TRUCK',
+    materialType: 'SOIL',
+  });
+  const [gateInfo, setGateInfo] = useState('');
 
-  const handleUpdatePlan = (key: keyof ProjectPlan, value: any) => {
-    setPlan(prev => ({ ...prev, [key]: value }));
+  const fallbackDraft = (type: 'background' | 'description') => {
+    if (type === 'background') {
+      return `Projektet avser ${plan.name || 'aktuell verksamhet'} och drivs med fokus pa spårbar riskhantering, verifierad dokumentation och tydlig myndighetsdialog.`;
+    }
+    return 'Genomforande sker i etapper med gate-styrning, dokumentkontroll och uppfoljning av risk- och carbonkrav.';
+  };
+
+  const handleUpdatePlan = <K extends keyof ProjectPlan,>(key: K, value: ProjectPlan[K]) => {
+    setPlan((prev) => ({ ...prev, [key]: value }));
+  };
+
+  const handleApplyTemplate = async (templateId: string) => {
+    await applyTemplatePack(templateId);
+    await applyMapLayerRecommendation();
+    setGateInfo(`Mall applicerad: ${templateId}`);
+  };
+
+  const handleEvaluateGates = async () => {
+    const gateIds = plan.stageGates.map((gate) => gate.id);
+    let changedCount = 0;
+    for (const gateId of gateIds) {
+      const result = await evaluateGate(gateId, {
+        permitType,
+        permitSubmitted,
+        mapLayerAvailable: plan.mapLayerSelection.enabled,
+      });
+      if (result.changed) changedCount += 1;
+    }
+    setGateInfo(`Stage-gates utvarderade. Uppdaterade: ${changedCount}.`);
+  };
+
+  const handleCarbonRun = async () => {
+    await runCarbonCalculation(carbonInput);
+    const carbonGate = await evaluateGate('gate-CARBON_CHECK', {
+      permitType,
+      permitSubmitted,
+      mapLayerAvailable: plan.mapLayerSelection.enabled,
+      note: 'CO2 calculated in project panel.',
+    });
+    setGateInfo(`CO2 kalkyl klar. Carbon gate: ${carbonGate.status}.`);
+  };
+
+  const handleRecommendMapLayers = async () => {
+    await applyMapLayerRecommendation();
+    setGateInfo(`Kartlager rekommenderade for projekttyp ${plan.projectType}.`);
+  };
+
+  const handleLoadFromDb = async () => {
+    await loadPlanFromServer();
+    setGateInfo('Plan laddad fran databas.');
+  };
+
+  const handleSaveToDb = async () => {
+    await savePlanToServer();
+    setGateInfo('Plan sparad till databas.');
   };
 
   const handleAutoStart = async () => {
@@ -50,7 +118,24 @@ const ProjectManagerView: React.FC<ProjectManagerViewProps> = ({ activeTab }) =>
         ],
         auditTrail: [
           { id: 'A1', timestamp: new Date().toISOString(), user: 'System', action: 'Projekt skapat', details: `Automatisk uppstart via Fastighets-API för ${prev.location.propertyId}`, immutable: true }
-        ]
+        ],
+        moduleIntegrations: prev.moduleIntegrations.map((item) =>
+          item.module === 'PROJECT_MANAGER' || item.module === 'PERMIT_PORTAL'
+            ? { ...item, readiness: 'READY' }
+            : item
+        ),
+        documentArchive:
+          prev.documentArchive.length > 0
+            ? prev.documentArchive
+            : [
+                createArchiveDocument({
+                  name: `Projektinitiering-${prev.location.propertyId}`,
+                  module: 'PROJECT_MANAGER',
+                  category: 'PROJECT_PLAN',
+                  status: 'VERIFIED',
+                  tags: ['project_plan', 'autostart'],
+                }),
+              ]
       }));
       setIsInitializing(false);
     }, 2000);
@@ -71,9 +156,12 @@ const ProjectManagerView: React.FC<ProjectManagerViewProps> = ({ activeTab }) =>
     setIsDrafting(type);
     try {
       const draft = await generatePlanDraft(type, plan.name);
-      handleUpdatePlan(type, draft);
+      handleUpdatePlan(type, draft || fallbackDraft(type));
+      setGateInfo(`Utkast uppdaterat for ${type}.`);
     } catch (e) {
       console.error(e);
+      handleUpdatePlan(type, fallbackDraft(type));
+      setGateInfo(`AI-tjanst otillganglig. Lokal fallback anvandes for ${type}.`);
     } finally {
       setIsDrafting(null);
     }
@@ -83,9 +171,26 @@ const ProjectManagerView: React.FC<ProjectManagerViewProps> = ({ activeTab }) =>
     setIsSuggesting(true);
     try {
       const suggestions = await suggestStakeholders(plan.location.address, plan.description);
-      handleUpdatePlan('stakeholders', suggestions);
+      if (suggestions.length > 0) {
+        handleUpdatePlan('stakeholders', suggestions);
+        setGateInfo('Intressentlista uppdaterad.');
+      } else {
+        const fallback = [
+          { id: `fb-${Date.now()}-1`, name: 'Kommunens miljoenhet', role: 'Tillsyn', relevance: 'Primar tillsynsmyndighet for arendet.' },
+          { id: `fb-${Date.now()}-2`, name: 'Lansstyrelsen', role: 'Regional samordning', relevance: 'Samordning av natur- och kulturintressen.' },
+          { id: `fb-${Date.now()}-3`, name: 'Narboende/sakagare', role: 'Dialogpart', relevance: 'Berorda av buller, trafik och tidsplan.' },
+        ];
+        handleUpdatePlan('stakeholders', fallback);
+        setGateInfo('Fallback-intressenter laddade (ingen AI-svarsdatas).');
+      }
     } catch (e) {
       console.error(e);
+      const fallback = [
+        { id: `fb-${Date.now()}-1`, name: 'Kommunens miljoenhet', role: 'Tillsyn', relevance: 'Primar tillsynsmyndighet for arendet.' },
+        { id: `fb-${Date.now()}-2`, name: 'Lansstyrelsen', role: 'Regional samordning', relevance: 'Samordning av natur- och kulturintressen.' },
+      ];
+      handleUpdatePlan('stakeholders', fallback);
+      setGateInfo('AI otillganglig. Lokal fallback for intressentanalys anvandes.');
     } finally {
       setIsSuggesting(false);
     }
@@ -95,6 +200,11 @@ const ProjectManagerView: React.FC<ProjectManagerViewProps> = ({ activeTab }) =>
     const newGoals = [...plan.goals, { id: Date.now().toString(), text: '' }];
     handleUpdatePlan('goals', newGoals);
   };
+
+  const reportAccentColor = plan.branding.primaryColor || '#0f172a';
+  const reportLogo =
+    plan.branding.logoUrl?.trim() || 'https://upload.wikimedia.org/wikipedia/commons/4/4e/Lantmateriet_logo.svg';
+  const completedSamplingSteps = plan.samplingPreparation.checklist.filter((item) => item.done).length;
 
   if (plan.phases.length === 0 && activeTab === 'plan') {
     return (
@@ -140,15 +250,17 @@ const ProjectManagerView: React.FC<ProjectManagerViewProps> = ({ activeTab }) =>
         <button onClick={() => setViewMode('edit')} className="fixed top-24 left-10 p-4 bg-slate-900 text-white rounded-full shadow-xl hover:scale-110 transition-all z-50">
           <i className="fas fa-arrow-left"></i>
         </button>
-        <header className="border-b-4 border-slate-900 pb-10 mb-10">
+        <header className="border-b-4 border-slate-900 pb-10 mb-10" style={{ borderColor: reportAccentColor }}>
           <p className="text-xs font-bold uppercase tracking-widest text-slate-500 mb-2">Projektstyrdokument / {plan.revision}</p>
           <h1 className="text-5xl font-black tracking-tighter uppercase">{plan.name}</h1>
           <div className="mt-6 flex justify-between items-end">
             <div>
+              <p className="text-sm font-black">{plan.branding.organizationName}</p>
               <p className="text-sm font-bold">Fastighet: {plan.location.propertyId}</p>
+              <p className="text-xs text-slate-500 uppercase tracking-widest">Layout: {plan.branding.layoutTemplate}</p>
               <p className="text-sm text-slate-400 italic">Skapat: {new Date().toLocaleDateString('sv-SE')}</p>
             </div>
-            <img src="https://upload.wikimedia.org/wikipedia/commons/4/4e/Lantmateriet_logo.svg" className="h-10 grayscale opacity-20" alt="Logo" />
+            <img src={reportLogo} className="h-10 grayscale opacity-20" alt="Logo" />
           </div>
         </header>
 
@@ -180,6 +292,56 @@ const ProjectManagerView: React.FC<ProjectManagerViewProps> = ({ activeTab }) =>
               </div>
             ))}
           </div>
+        </section>
+
+        <section className="mb-12">
+          <h2 className="text-xl font-black uppercase mb-4 border-b border-slate-200 pb-2">5. Dokumentarkiv</h2>
+          <div className="space-y-3">
+            {plan.documentArchive.map((doc) => (
+              <div key={doc.id} className="p-4 border border-slate-100 bg-slate-50">
+                <p className="font-bold">{doc.name}</p>
+                <p className="text-xs uppercase tracking-widest text-slate-500">
+                  {doc.module} / {doc.category} / {doc.status}
+                </p>
+                <p className="text-xs font-mono text-slate-500 mt-1">{doc.storagePath}</p>
+              </div>
+            ))}
+            {plan.documentArchive.length === 0 && (
+              <p className="text-sm text-slate-500 italic">Inga dokument registrerade.</p>
+            )}
+          </div>
+        </section>
+
+        <section className="mb-12">
+          <h2 className="text-xl font-black uppercase mb-4 border-b border-slate-200 pb-2">6. Forberedd Provtagning</h2>
+          <p className="text-sm font-bold">
+            Aktiverad: {plan.samplingPreparation.enabled ? 'Ja' : 'Nej'} | Forberedelse behov nu:{' '}
+            {plan.samplingPreparation.requiresPreparationNow ? 'Ja' : 'Nej'}
+          </p>
+          <p className="text-sm mt-2">
+            Checklista: {completedSamplingSteps}/{plan.samplingPreparation.checklist.length} klara.
+          </p>
+        </section>
+
+        <section className="mb-12">
+          <h2 className="text-xl font-black uppercase mb-4 border-b border-slate-200 pb-2">7. Stage-gates och CO2</h2>
+          <p className="text-sm font-bold">
+            Projekttyp: {plan.projectType} | Mall: {plan.templateId}
+          </p>
+          <div className="mt-3 space-y-2">
+            {plan.stageGates.map((gate) => (
+              <div key={gate.id} className="flex items-center justify-between rounded border border-slate-200 px-3 py-2 text-sm">
+                <span className="font-semibold uppercase">{gate.type}</span>
+                <span className="font-bold">{gate.status}</span>
+              </div>
+            ))}
+          </div>
+          {plan.carbonSummary.lastResult && (
+            <p className="text-sm mt-3">
+              Senaste CO2: <span className="font-bold">{plan.carbonSummary.lastResult.totalKgCo2e.toFixed(2)} kgCO2e</span>{' '}
+              ({plan.carbonSummary.lastResult.quality})
+            </p>
+          )}
         </section>
 
         <footer className="mt-20 pt-10 border-t border-slate-100 text-center text-xs text-slate-400">
@@ -218,6 +380,165 @@ const ProjectManagerView: React.FC<ProjectManagerViewProps> = ({ activeTab }) =>
             </header>
 
             <section className="space-y-6">
+              <div className="rounded-3xl border border-slate-200 bg-slate-50 p-6">
+                <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
+                  <div className="space-y-3">
+                    <p className="text-[11px] font-black uppercase tracking-[0.16em] text-slate-500">Mallmotor (Set A)</p>
+                    <select
+                      className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm font-semibold"
+                      value={plan.templateId}
+                      onChange={(e) => void handleApplyTemplate(e.target.value)}
+                    >
+                      {TEMPLATE_PACKS.map((pack) => (
+                        <option key={pack.id} value={pack.id}>
+                          {pack.name} ({pack.projectType})
+                        </option>
+                      ))}
+                    </select>
+                    <p className="text-xs text-slate-600">Aktiv projekttyp: <span className="font-bold">{plan.projectType}</span></p>
+                  </div>
+
+                  <div className="space-y-3">
+                    <p className="text-[11px] font-black uppercase tracking-[0.16em] text-slate-500">Tillstandsgate</p>
+                    <input
+                      className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm"
+                      placeholder="Permit type (t.ex. Anmalan 9 kap)"
+                      value={permitType}
+                      onChange={(e) => setPermitType(e.target.value)}
+                    />
+                    <label className="flex items-center gap-2 text-xs font-semibold text-slate-700">
+                      <input type="checkbox" checked={permitSubmitted} onChange={(e) => setPermitSubmitted(e.target.checked)} />
+                      Permit submitted
+                    </label>
+                    <button
+                      type="button"
+                      onClick={() => void handleEvaluateGates()}
+                      className="rounded-xl bg-slate-900 px-4 py-2 text-xs font-black uppercase tracking-widest text-white hover:bg-blue-600"
+                    >
+                      Utvardera gates
+                    </button>
+                    <p className="text-xs text-slate-600">
+                      Gates: {gateStats.passed} passed / {gateStats.blocked} blocked
+                    </p>
+                  </div>
+                </div>
+
+                <div className="mt-6 rounded-xl border border-slate-200 bg-white px-4 py-3">
+                  <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+                    <div>
+                      <p className="text-[11px] font-black uppercase tracking-[0.16em] text-slate-500">DB sync</p>
+                      <p className="text-xs text-slate-600">
+                        {remoteSync.enabled ? `Aktiv projektkoppling: ${remoteSync.projectId}` : 'Ingen aktiv API-session (token/projectId saknas).'}
+                      </p>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <button
+                        type="button"
+                        onClick={() => void handleLoadFromDb()}
+                        disabled={remoteSync.syncing}
+                        className="rounded-xl border border-slate-300 bg-slate-50 px-3 py-2 text-xs font-black uppercase tracking-widest text-slate-700 disabled:opacity-60"
+                      >
+                        {remoteSync.syncing ? '...' : 'Ladda DB-plan'}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => void handleSaveToDb()}
+                        disabled={remoteSync.syncing || !remoteSync.enabled}
+                        className="rounded-xl bg-slate-900 px-3 py-2 text-xs font-black uppercase tracking-widest text-white hover:bg-blue-600 disabled:opacity-60"
+                      >
+                        {remoteSync.syncing ? '...' : 'Spara DB-plan'}
+                      </button>
+                    </div>
+                  </div>
+                  <div className="mt-2 flex flex-wrap gap-3 text-[11px] text-slate-500">
+                    {remoteSync.lastLoadedAt && <span>Load: {new Date(remoteSync.lastLoadedAt).toLocaleString('sv-SE')}</span>}
+                    {remoteSync.lastSavedAt && <span>Save: {new Date(remoteSync.lastSavedAt).toLocaleString('sv-SE')}</span>}
+                    {remoteSync.error && <span className="font-semibold text-rose-600">{remoteSync.error}</span>}
+                  </div>
+                </div>
+
+                <div className="mt-6 grid grid-cols-1 gap-4 xl:grid-cols-4">
+                  <input
+                    className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm"
+                    type="number"
+                    min={0}
+                    value={carbonInput.tons}
+                    onChange={(e) => setCarbonInput((prev) => ({ ...prev, tons: Number(e.target.value || 0) }))}
+                    placeholder="Tons"
+                  />
+                  <input
+                    className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm"
+                    type="number"
+                    min={0}
+                    value={carbonInput.distanceKm || 0}
+                    onChange={(e) => setCarbonInput((prev) => ({ ...prev, distanceKm: Number(e.target.value || 0) }))}
+                    placeholder="Rutt distans (km)"
+                  />
+                  <select
+                    className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm font-semibold"
+                    value={carbonInput.transportMode}
+                    onChange={(e) =>
+                      setCarbonInput((prev) => ({
+                        ...prev,
+                        transportMode: e.target.value as CarbonInput['transportMode'],
+                      }))
+                    }
+                  >
+                    <option value="TRUCK">TRUCK</option>
+                    <option value="RAIL">RAIL</option>
+                    <option value="SHIP">SHIP</option>
+                  </select>
+                  <select
+                    className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm font-semibold"
+                    value={carbonInput.materialType}
+                    onChange={(e) =>
+                      setCarbonInput((prev) => ({
+                        ...prev,
+                        materialType: e.target.value as CarbonInput['materialType'],
+                      }))
+                    }
+                  >
+                    <option value="SOIL">SOIL</option>
+                    <option value="ROCK">ROCK</option>
+                    <option value="WASTE">WASTE</option>
+                    <option value="MIXED">MIXED</option>
+                  </select>
+                </div>
+
+                <div className="mt-3 flex flex-wrap items-center gap-3">
+                  <button
+                    type="button"
+                    onClick={() => void handleCarbonRun()}
+                    className="rounded-xl bg-emerald-600 px-4 py-2 text-xs font-black uppercase tracking-widest text-white hover:bg-emerald-700"
+                  >
+                    Kor CO2-kalkyl
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => void handleRecommendMapLayers()}
+                    className="rounded-xl border border-slate-300 bg-slate-50 px-4 py-2 text-xs font-black uppercase tracking-widest text-slate-700 hover:bg-slate-100"
+                  >
+                    Rekommendera kartlager
+                  </button>
+                  {plan.carbonSummary.lastResult && (
+                    <p className="text-xs font-semibold text-slate-700">
+                      Senaste: {plan.carbonSummary.lastResult.totalKgCo2e.toFixed(2)} kgCO2e ({plan.carbonSummary.lastResult.quality})
+                    </p>
+                  )}
+                  {gateInfo && <p className="text-xs text-slate-600">{gateInfo}</p>}
+                </div>
+
+                <div className="mt-4 grid grid-cols-1 gap-2 md:grid-cols-2">
+                  {plan.stageGates.map((gate) => (
+                    <div key={gate.id} className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs">
+                      <p className="font-black uppercase text-slate-700">{gate.type}</p>
+                      <p className="text-slate-600">Status: <span className="font-bold">{gate.status}</span></p>
+                      {gate.reason && <p className="text-slate-500">{gate.reason}</p>}
+                    </div>
+                  ))}
+                </div>
+              </div>
+
               <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
                 <div className="space-y-4">
                   <div className="flex justify-between items-center">
@@ -248,6 +569,8 @@ const ProjectManagerView: React.FC<ProjectManagerViewProps> = ({ activeTab }) =>
                   />
                 </div>
               </div>
+
+              <ProjectPlanStructurePanel plan={plan} onUpdatePlan={handleUpdatePlan} />
 
               {/* Stop Gates / Phases */}
               <div className="pt-10 space-y-6">
@@ -355,3 +678,4 @@ const ProjectManagerView: React.FC<ProjectManagerViewProps> = ({ activeTab }) =>
 };
 
 export default ProjectManagerView;
+

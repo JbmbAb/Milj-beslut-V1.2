@@ -1,88 +1,289 @@
+import React, { useMemo } from 'react';
+import type { InterfaceMode } from '../types';
+import { countReadyModules } from '../services/projectStructure';
+import { useProjectStructure } from './ProjectStructureContext';
 
-import React from 'react';
+interface GuideProps {
+  mode?: InterfaceMode | null;
+  onNavigate?: (tab: string) => void;
+}
 
-const Guide: React.FC = () => {
+type ActionCard = {
+  id: string;
+  title: string;
+  desc: string;
+  tab: string;
+  tone: 'default' | 'ok' | 'warn';
+};
+
+function resolveModeTabs(mode: InterfaceMode | null | undefined): {
+  planTab: string;
+  docsTab: string;
+  riskTab: string;
+  reportTab: string;
+} {
+  if (mode === 'PROJECT_MANAGER') {
+    return {
+      planTab: 'plan',
+      docsTab: 'plan',
+      riskTab: 'risks',
+      reportTab: 'timeline',
+    };
+  }
+  if (mode === 'PERMIT_PORTAL') {
+    return {
+      planTab: 'apply',
+      docsTab: 'forms',
+      riskTab: 'risks',
+      reportTab: 'map',
+    };
+  }
+  if (mode === 'LOGISTICS_MARKET') {
+    return {
+      planTab: 'archive',
+      docsTab: 'archive',
+      riskTab: 'triage',
+      reportTab: 'logistics',
+    };
+  }
+  if (mode === 'COMPLIANCE_AUDIT') {
+    return {
+      planTab: 'score',
+      docsTab: 'audit',
+      riskTab: 'score',
+      reportTab: 'reports',
+    };
+  }
+  return {
+    planTab: 'admin-search',
+    docsTab: 'admin-search',
+    riskTab: 'admin-insight',
+    reportTab: 'admin-insight',
+  };
+}
+
+const Guide: React.FC<GuideProps> = ({ mode = null, onNavigate }) => {
+  const { plan, gateStats, remoteSync } = useProjectStructure();
+
+  const totalRequiredGates = useMemo(() => plan.stageGates.filter((gate) => gate.required).length, [plan.stageGates]);
+  const blockedRequiredGates = gateStats.blocked;
+  const passedRequiredGates = gateStats.passed;
+  const gateCompletionPct = totalRequiredGates > 0 ? Math.round((passedRequiredGates / totalRequiredGates) * 100) : 0;
+
+  const totalDocs = plan.documentArchive.length;
+  const draftDocs = useMemo(() => plan.documentArchive.filter((doc) => doc.status === 'DRAFT').length, [plan.documentArchive]);
+  const verifiedDocs = useMemo(() => plan.documentArchive.filter((doc) => doc.status === 'VERIFIED').length, [plan.documentArchive]);
+  const readyModules = useMemo(() => countReadyModules(plan), [plan]);
+  const carbonReady = Boolean(plan.carbonSummary.lastResult);
+
+  const tabs = useMemo(() => resolveModeTabs(mode), [mode]);
+
+  const actions = useMemo<ActionCard[]>(() => {
+    const next: ActionCard[] = [];
+
+    next.push(
+      blockedRequiredGates > 0
+        ? {
+            id: 'gates',
+            title: 'Los blockerade stage-gates',
+            desc: `${blockedRequiredGates} gate(s) blockerar fortsatt flode. Kor utvardering och komplettera underlag.`,
+            tab: tabs.planTab,
+            tone: 'warn',
+          }
+        : {
+            id: 'gates',
+            title: 'Gate-status ar stabil',
+            desc: `Gate completion ${gateCompletionPct}%. Verifiera att nasta fas har ratt indata.`,
+            tab: tabs.planTab,
+            tone: 'ok',
+          }
+    );
+
+    next.push(
+      draftDocs > 0
+        ? {
+            id: 'docs',
+            title: 'Verifiera dokument',
+            desc: `${draftDocs} dokument ligger i DRAFT. Flytta kritiska underlag till VERIFIED for kortare handlaggning.`,
+            tab: tabs.docsTab,
+            tone: 'warn',
+          }
+        : {
+            id: 'docs',
+            title: 'Dokumentlager ar verifierat',
+            desc: `${verifiedDocs}/${totalDocs} dokument verifierade. Fortsatt med risk- och rapportsteg.`,
+            tab: tabs.docsTab,
+            tone: 'ok',
+          }
+    );
+
+    next.push(
+      carbonReady
+        ? {
+            id: 'carbon',
+            title: 'Carbon-check ar klar',
+            desc: 'CO2-resultat finns i planen. Anvand det i rapport och externa beslutsunderlag.',
+            tab: tabs.reportTab,
+            tone: 'ok',
+          }
+        : {
+            id: 'carbon',
+            title: 'Saknad carbon-berakning',
+            desc: 'Kor CO2-kalkyl och utvardera CARBON_CHECK innan signering.',
+            tab: tabs.riskTab,
+            tone: 'warn',
+          }
+    );
+
+    if (!remoteSync.enabled) {
+      next.push({
+        id: 'sync',
+        title: 'Aktivera DB-session',
+        desc: 'Ingen aktiv project/token-session hittad. Logga in i admin for att synka plan och dashboard-data.',
+        tab: 'admin-search',
+        tone: 'default',
+      });
+    }
+
+    return next;
+  }, [
+    blockedRequiredGates,
+    gateCompletionPct,
+    tabs,
+    draftDocs,
+    verifiedDocs,
+    totalDocs,
+    carbonReady,
+    remoteSync.enabled,
+  ]);
+
   return (
-    <div className="max-w-4xl mx-auto space-y-12 animate-in fade-in duration-500 pb-20 text-slate-800">
-      <header className="text-center">
-        <div className="inline-flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-full text-[10px] font-black uppercase tracking-widest mb-4 shadow-lg shadow-blue-600/20">
-          <i className="fas fa-flag-checkered"></i> Slutfas: Från Data till Insikt
+    <div className="mx-auto max-w-5xl space-y-8 animate-in fade-in duration-500 pb-10 text-slate-800">
+      <header className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
+        <div className="flex flex-col gap-4 md:flex-row md:items-end md:justify-between">
+          <div>
+            <div className="mb-3 inline-flex items-center gap-2 rounded-full bg-blue-600 px-3 py-1 text-[10px] font-black uppercase tracking-[0.14em] text-white">
+              <i className="fas fa-book-open" /> Anvandarstod
+            </div>
+            <h2 className="text-3xl font-black tracking-tight text-slate-900">Guide for nasta steg</h2>
+            <p className="mt-2 text-sm text-slate-600">
+              Datadriven rekommendation baserad pa gates, dokument, moduler och synkstatus.
+            </p>
+          </div>
+          <div className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-2 text-xs font-bold text-slate-600">
+            {remoteSync.enabled ? `DB sync aktiv (${remoteSync.projectId})` : 'DB sync lokal fallback'}
+          </div>
         </div>
-        <h2 className="text-4xl font-black text-slate-900 tracking-tighter leading-tight italic">"1577 pusselbitar är nu lagda."</h2>
-        <p className="text-slate-500 mt-2 text-lg">Här är din guide för att förvandla databasen till ett färdigt examensarbete.</p>
       </header>
 
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
-        <div className="bg-white p-8 rounded-[2.5rem] border border-slate-200 shadow-sm hover:shadow-xl transition-all">
-          <h3 className="text-xl font-black text-slate-900 mb-4 flex items-center gap-3">
-             <i className="fas fa-magnifying-glass-chart text-blue-600"></i>
-             Hitta Trenderna
-          </h3>
-          <p className="text-sm text-slate-500 leading-relaxed mb-6">
-            Använd <strong>Fastighetsarkivet</strong> för att se vilka bolag som är mest aktiva. Sök på avfallskoder som 90.10 för att se hur olika kommuner bedömer samma typ av risk.
-          </p>
-          <div className="bg-slate-50 p-4 rounded-2xl border border-slate-100 italic text-[11px] text-slate-400">
-             "Tips: Jämför Haninge och Huddinge. Finns det en skillnad i hur ofta de ger 'Bifall'?"
-          </div>
-        </div>
+      <section className="grid grid-cols-2 gap-3 md:grid-cols-4 lg:grid-cols-6">
+        <MetricTile label="Gates" value={`${passedRequiredGates}/${totalRequiredGates}`} />
+        <MetricTile label="Blockers" value={String(blockedRequiredGates)} tone={blockedRequiredGates > 0 ? 'warn' : 'ok'} />
+        <MetricTile label="Docs" value={`${verifiedDocs}/${totalDocs}`} />
+        <MetricTile label="Draft" value={String(draftDocs)} tone={draftDocs > 0 ? 'warn' : 'ok'} />
+        <MetricTile label="Moduler redo" value={String(readyModules)} />
+        <MetricTile label="Carbon" value={carbonReady ? 'READY' : 'MISSING'} tone={carbonReady ? 'ok' : 'warn'} />
+      </section>
 
-        <div className="bg-white p-8 rounded-[2.5rem] border border-slate-200 shadow-sm hover:shadow-xl transition-all">
-          <h3 className="text-xl font-black text-slate-900 mb-4 flex items-center gap-3">
-             <i className="fas fa-map-location-dot text-emerald-600"></i>
-             Den Rumsliga Risken
-          </h3>
-          <p className="text-sm text-slate-500 leading-relaxed mb-6">
-            Öppna <strong>Kartutforskaren</strong>. Genom att kombinera dina 1577 punkter med SGU:s lager för grundvatten kan du vetenskapligt bevisa var miljörisken är störst.
-          </p>
-          <div className="bg-emerald-50 p-4 rounded-2xl border border-emerald-100 italic text-[11px] text-emerald-600">
-             "Ta screenshots på klustren vid vattenskyddsområden för din bilaga."
-          </div>
+      <section className="space-y-4">
+        <h3 className="text-lg font-black text-slate-900">Prioriterade atgarder</h3>
+        <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+          {actions.map((item) => (
+            <ActionItem
+              key={item.id}
+              title={item.title}
+              desc={item.desc}
+              tone={item.tone}
+              onOpen={() => {
+                if (onNavigate) onNavigate(item.tab);
+              }}
+              openLabel={`Oppna ${item.tab}`}
+            />
+          ))}
         </div>
-      </div>
+      </section>
 
-      <div className="bg-slate-900 rounded-[3rem] p-12 text-white shadow-2xl relative overflow-hidden">
-        <div className="absolute top-0 right-0 p-12 opacity-10">
-            <i className="fas fa-graduation-cap text-[120px]"></i>
-        </div>
-        <h4 className="text-2xl font-black mb-8 flex items-center gap-4">
-          <i className="fas fa-list-check text-blue-400"></i>
-          Ditt nästa steg (Action Plan)
-        </h4>
-        
-        <div className="space-y-6 relative z-10">
-          <StepItem 
-            num="1" 
-            title="Klassificera i Resurshantering" 
-            desc="Låt AI:n gå igenom bildfragmenten. Detta rensar bort 'brus' och lyfter fram de viktiga signaturerna." 
+      <section className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
+        <h3 className="text-lg font-black text-slate-900">Arbetsordning for examensunderlag</h3>
+        <div className="mt-4 space-y-3 text-sm text-slate-700">
+          <StepRow
+            num="1"
+            title="Sakra datakvalitet"
+            text="Verifiera dokumentstatus och kontrollera att stage-gates ar uppdaterade pa aktuell planversion."
           />
-          <StepItem 
-            num="2" 
-            title="Använd 'Marknadsunderlag'" 
-            desc="Gå till tabellen, välj en grupp dokument och klicka på knappen. Kopiera AI-sammanfattningen som grund till din diskussion." 
+          <StepRow
+            num="2"
+            title="Jamfor myndighetskrav"
+            text="Anvand sok- och filterfloden for att strukturera krav per kommun/lansstyrelse och kravkategori."
           />
-          <StepItem 
-            num="3" 
-            title="Utför Risk-Triage" 
-            desc="Välj ut 10 dokument i arkivet och kör 'AI Riskbedömning'. Jämför resultaten för att se om AI:n hittar risker som handläggaren missat." 
+          <StepRow
+            num="3"
+            title="Bygg mall och slutsatser"
+            text="Sammanfatta minimikrav, vanliga tillagg och rekommenderad C-anmalningsmall i rapportformat."
           />
         </div>
-      </div>
-
-      <footer className="text-center opacity-40 pb-10">
-          <p className="text-[10px] font-black uppercase tracking-[0.2em]">RiskGuard v3.4.2 • Powered by Gemini 3 Pro</p>
-      </footer>
+      </section>
     </div>
   );
 };
 
-const StepItem: React.FC<{ num: string; title: string; desc: string }> = ({ num, title, desc }) => (
-  <div className="flex gap-6 items-start group">
-    <div className="w-8 h-8 rounded-full bg-blue-600 flex items-center justify-center text-xs font-black shrink-0 shadow-lg group-hover:scale-110 transition-transform">
+const MetricTile: React.FC<{ label: string; value: string; tone?: 'default' | 'ok' | 'warn' }> = ({
+  label,
+  value,
+  tone = 'default',
+}) => {
+  const toneClass =
+    tone === 'ok'
+      ? 'border-emerald-200 bg-emerald-50 text-emerald-800'
+      : tone === 'warn'
+        ? 'border-amber-200 bg-amber-50 text-amber-800'
+        : 'border-slate-200 bg-white text-slate-800';
+
+  return (
+    <div className={`rounded-xl border px-3 py-2 shadow-sm ${toneClass}`}>
+      <p className="text-[10px] font-black uppercase tracking-[0.12em] opacity-70">{label}</p>
+      <p className="mt-1 text-sm font-black">{value}</p>
+    </div>
+  );
+};
+
+const ActionItem: React.FC<{
+  title: string;
+  desc: string;
+  tone: 'default' | 'ok' | 'warn';
+  openLabel: string;
+  onOpen: () => void;
+}> = ({ title, desc, tone, openLabel, onOpen }) => {
+  const toneClass =
+    tone === 'ok'
+      ? 'border-emerald-200 bg-emerald-50'
+      : tone === 'warn'
+        ? 'border-amber-200 bg-amber-50'
+        : 'border-slate-200 bg-white';
+
+  return (
+    <div className={`rounded-2xl border p-4 shadow-sm ${toneClass}`}>
+      <p className="text-sm font-black text-slate-900">{title}</p>
+      <p className="mt-2 text-xs leading-relaxed text-slate-700">{desc}</p>
+      <button
+        type="button"
+        onClick={onOpen}
+        className="mt-4 rounded-lg border border-slate-300 bg-white px-3 py-2 text-[10px] font-black uppercase tracking-[0.12em] text-slate-700"
+      >
+        {openLabel}
+      </button>
+    </div>
+  );
+};
+
+const StepRow: React.FC<{ num: string; title: string; text: string }> = ({ num, title, text }) => (
+  <div className="flex items-start gap-3">
+    <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-slate-900 text-[11px] font-black text-white">
       {num}
     </div>
     <div>
-      <h5 className="font-black text-white text-base mb-1">{title}</h5>
-      <p className="text-sm text-slate-400 leading-relaxed">{desc}</p>
+      <p className="text-sm font-black text-slate-900">{title}</p>
+      <p className="text-xs leading-relaxed text-slate-600">{text}</p>
     </div>
   </div>
 );

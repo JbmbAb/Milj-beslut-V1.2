@@ -39,6 +39,7 @@ export async function lookupPropertyByDesignation(input: PropertyLookupInput, us
     projectId: input.projectId,
     userId: user.id,
     organisationId: user.organisationId,
+    role: user.role,
   });
 
   const baseUrl = getEnv("LANTMATERIET_BASE_URL");

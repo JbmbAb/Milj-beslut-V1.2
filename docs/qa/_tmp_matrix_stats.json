@@ -1,0 +1,224 @@
+﻿{
+    "total_rows":  2385,
+    "column_count":  35,
+    "top_categories":  [
+                           {
+                               "Name":  "DagvattenLakvatten",
+                               "Count":  502
+                           },
+                           {
+                               "Name":  "LagringsvolymTid",
+                               "Count":  439
+                           },
+                           {
+                               "Name":  "Riskhantering",
+                               "Count":  400
+                           },
+                           {
+                               "Name":  "MiljopaverkanForsiktighet",
+                               "Count":  382
+                           },
+                           {
+                               "Name":  "DriftEgenkontroll",
+                               "Count":  320
+                           },
+                           {
+                               "Name":  "Ytkonstruktion",
+                               "Count":  288
+                           },
+                           {
+                               "Name":  "TransportLogistik",
+                               "Count":  41
+                           },
+                           {
+                               "Name":  "LokaliseringPlats",
+                               "Count":  11
+                           },
+                           {
+                               "Name":  "AvvecklingEfterbehandling",
+                               "Count":  2
+                           }
+                       ],
+    "link_combo_top":  [
+                           {
+                               "Name":  "Nej-Nej-Nej-Nej",
+                               "Count":  832
+                           },
+                           {
+                               "Name":  "Nej-Ja-Ja-Nej",
+                               "Count":  502
+                           },
+                           {
+                               "Name":  "Nej-Nej-Ja-Ja",
+                               "Count":  400
+                           },
+                           {
+                               "Name":  "Nej-Nej-Ja-Nej",
+                               "Count":  320
+                           },
+                           {
+                               "Name":  "Ja-Nej-Nej-Nej",
+                               "Count":  288
+                           },
+                           {
+                               "Name":  "Nej-Nej-Nej-Ja",
+                               "Count":  41
+                           },
+                           {
+                               "Name":  "Ja-Ja-Ja-Ja",
+                               "Count":  2
+                           }
+                       ],
+    "all4_yes":  2,
+    "konstruktion_yes":  290,
+    "lakvatten_yes":  504,
+    "kravniva":  [
+                     {
+                         "Name":  "SKA",
+                         "Count":  2100
+                     },
+                     {
+                         "Name":  "BOR",
+                         "Count":  236
+                     },
+                     {
+                         "Name":  "INFO",
+                         "Count":  43
+                     },
+                     {
+                         "Name":  "KAN",
+                         "Count":  6
+                     }
+                 ],
+    "rattslig_top":  [
+                         {
+                             "Name":  "FMH",
+                             "Count":  171
+                         },
+                         {
+                             "Name":  "Miljobalken",
+                             "Count":  66
+                         },
+                         {
+                             "Name":  "Naturvardsverket",
+                             "Count":  41
+                         },
+                         {
+                             "Name":  "MPF",
+                             "Count":  20
+                         },
+                         {
+                             "Name":  "Miljobalken, FMH",
+                             "Count":  8
+                         },
+                         {
+                             "Name":  "Miljobalken, MPF",
+                             "Count":  3
+                         },
+                         {
+                             "Name":  "MPF, FMH",
+                             "Count":  2
+                         }
+                     ],
+    "kontrollfrekvens_nonempty_total":  403,
+    "kontrollfrekvens_top":  [
+                                 {
+                                     "Name":  "Arlig",
+                                     "Count":  366
+                                 },
+                                 {
+                                     "Name":  "Manadskontroll",
+                                     "Count":  26
+                                 },
+                                 {
+                                     "Name":  "Lopande",
+                                     "Count":  11
+                                 }
+                             ],
+    "ewc_nonempty_total":  2000,
+    "ewc_top":  [
+                    {
+                        "Name":  "212000",
+                        "Count":  270
+                    },
+                    {
+                        "Name":  "26 70 00",
+                        "Count":  48
+                    },
+                    {
+                        "Name":  "88 63 89",
+                        "Count":  42
+                    },
+                    {
+                        "Name":  "52 0140",
+                        "Count":  42
+                    },
+                    {
+                        "Name":  "35 30 00",
+                        "Count":  36
+                    },
+                    {
+                        "Name":  "556057",
+                        "Count":  28
+                    },
+                    {
+                        "Name":  "25 11 00",
+                        "Count":  24
+                    },
+                    {
+                        "Name":  "26 67 50",
+                        "Count":  24
+                    },
+                    {
+                        "Name":  "513330",
+                        "Count":  18
+                    },
+                    {
+                        "Name":  "17 0340",
+                        "Count":  18
+                    }
+                ],
+    "maxmangd_nonempty_total":  204,
+    "maxmangd_top":  [
+                         {
+                             "Name":  "000",
+                             "Count":  51
+                         },
+                         {
+                             "Name":  "10",
+                             "Count":  41
+                         },
+                         {
+                             "Name":  "2000",
+                             "Count":  9
+                         },
+                         {
+                             "Name":  "5000",
+                             "Count":  7
+                         },
+                         {
+                             "Name":  "50",
+                             "Count":  7
+                         },
+                         {
+                             "Name":  "1",
+                             "Count":  7
+                         },
+                         {
+                             "Name":  "5",
+                             "Count":  6
+                         },
+                         {
+                             "Name":  "200",
+                             "Count":  6
+                         },
+                         {
+                             "Name":  "1000",
+                             "Count":  6
+                         },
+                         {
+                             "Name":  "30",
+                             "Count":  4
+                         }
+                     ]
+}

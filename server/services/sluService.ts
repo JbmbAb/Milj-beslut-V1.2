@@ -7,6 +7,12 @@ import type { AuthUser } from "../security/types";
 
 export type SluProduct = "species_observations" | "taxonomy" | "artfakta" | "metodkatalog";
 type SluMethod = "GET" | "POST";
+type SluPingProbe = {
+  method: SluMethod;
+  pathSuffix?: string;
+  query?: Record<string, string | number | boolean>;
+  payload?: Record<string, unknown>;
+};
 
 const productEnvMap: Record<SluProduct, { keyEnv: string; pathEnv: string }> = {
   species_observations: {
@@ -24,6 +30,27 @@ const productEnvMap: Record<SluProduct, { keyEnv: string; pathEnv: string }> = {
   metodkatalog: {
     keyEnv: "SLU_METODKATALOG_API_KEY",
     pathEnv: "SLU_METODKATALOG_BASE_PATH",
+  },
+};
+
+const productPingProbeMap: Record<SluProduct, SluPingProbe> = {
+  species_observations: {
+    method: "POST",
+    payload: {},
+  },
+  taxonomy: {
+    method: "POST",
+    pathSuffix: "/taxa",
+    payload: {},
+  },
+  artfakta: {
+    method: "GET",
+    pathSuffix: "/speciesdata",
+    query: { taxa: "100024" },
+  },
+  metodkatalog: {
+    method: "GET",
+    pathSuffix: "/About/version",
   },
 };
 
@@ -120,6 +147,7 @@ export async function callSluProductApi(input: {
       projectId: input.projectId,
       userId: input.user.id,
       organisationId: input.user.organisationId,
+      role: input.user.role,
     });
   }
 
@@ -185,12 +213,18 @@ export function getSluProductStatus(): Array<{
 export async function pingSluProduct(product: SluProduct): Promise<{ ok: boolean; status: number; endpoint: string }> {
   const base = normalizeBaseUrl(getEnv("SLU_API_BASE_URL"));
   const config = resolveProductConfig(product);
-  const endpoint = `${base}${config.basePath}`;
+  const probe = productPingProbeMap[product] || { method: "GET" };
+  const suffix = assertSafeSuffix(probe.pathSuffix || "");
+  const queryString = encodeQuery(probe.query);
+  const endpoint = `${base}${config.basePath}${suffix}${queryString}`;
   const response = await fetch(endpoint, {
-    method: "GET",
+    method: probe.method,
     headers: {
+      Accept: "application/json",
+      "Content-Type": "application/json",
       "Ocp-Apim-Subscription-Key": config.apiKey,
     },
+    body: probe.method === "POST" ? JSON.stringify(probe.payload ?? {}) : undefined,
   });
   return {
     ok: response.ok,

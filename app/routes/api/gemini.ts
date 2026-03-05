@@ -32,26 +32,50 @@ function isRateLimited(subject: string, max: number, windowMs: number): boolean 
   return current.count > max;
 }
 
+function resolveClientIp(request: Request): string {
+  const forwardedFor = request.headers.get("x-forwarded-for");
+  if (forwardedFor) {
+    const value = forwardedFor.split(",")[0]?.trim();
+    if (value) return value;
+  }
+  const realIp = request.headers.get("x-real-ip");
+  if (realIp) return realIp.trim();
+  return "anonymous-ip";
+}
+
 export const action = async ({ request }: ActionFunctionArgs) => {
+  let body: any;
+  try {
+    body = await request.json();
+  } catch {
+    return json({ ok: false, error: "Invalid JSON body" }, { status: 400 });
+  }
+
+  const { method, payload } = body || {};
   const authHeader = request.headers.get("authorization");
-  if (!authHeader?.startsWith("Bearer ")) {
+  const canRunAnonymous = method === "askGeneralAssistant";
+  const clientIp = resolveClientIp(request);
+  let subject = `anon:${clientIp}`;
+  let isAuthenticated = false;
+
+  if (authHeader?.startsWith("Bearer ")) {
+    try {
+      const user = getUserFromAccessToken(authHeader.slice("Bearer ".length));
+      subject = `user:${user.id}`;
+      isAuthenticated = true;
+    } catch {
+      if (!canRunAnonymous) {
+        return json({ ok: false, error: "Invalid token" }, { status: 401 });
+      }
+    }
+  } else if (!canRunAnonymous) {
     return json({ ok: false, error: "Unauthorized" }, { status: 401 });
   }
 
-  let userId = "anonymous";
-  try {
-    const user = getUserFromAccessToken(authHeader.slice("Bearer ".length));
-    userId = user.id;
-  } catch {
-    return json({ ok: false, error: "Invalid token" }, { status: 401 });
-  }
-
-  if (isRateLimited(`gemini:${userId}`, 120, 60_000)) {
+  const maxPerMinute = isAuthenticated ? 120 : 30;
+  if (isRateLimited(`gemini:${subject}:${method}`, maxPerMinute, 60_000)) {
     return json({ ok: false, error: "Rate limit exceeded" }, { status: 429 });
   }
-
-  const body = await request.json();
-  const { method, payload } = body || {};
 
   try {
     let result: any;

@@ -1,0 +1,23 @@
+version: "3.9"
+
+services:
+  postgres:
+    image: pgvector/pgvector:pg16
+    container_name: miljobeslut-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: riskguard
+      POSTGRES_USER: riskguard
+      POSTGRES_PASSWORD: password
+    ports:
+      - "5432:5432"
+    volumes:
+      - type: bind
+        source: ${LOCAL_DB_ROOT:-./Database}
+        target: /var/lib/postgresql/data
+      - ./scripts/db/init-search.sql:/docker-entrypoint-initdb.d/init-search.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U riskguard -d riskguard"]
+      interval: 10s
+      timeout: 5s
+      retries: 5

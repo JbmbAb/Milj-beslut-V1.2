@@ -20,8 +20,14 @@ function sha256(value: string): string {
   return crypto.createHash("sha256").update(value).digest("hex");
 }
 
-export async function appendPropertyAudit(event: PropertyAccessAuditEvent): Promise<AuditRecord> {
-  const payload = JSON.stringify(event);
+async function appendAuditEvent(input: {
+  entityType: string;
+  entityId: string;
+  action: string;
+  userId: string;
+  payload: Record<string, unknown>;
+}): Promise<AuditRecord> {
+  const payload = JSON.stringify(input.payload);
   const payloadHash = sha256(payload);
   const prevHash = trail.length > 0 ? trail[trail.length - 1].chainHash : null;
   const timestamp = new Date().toISOString();
@@ -29,10 +35,10 @@ export async function appendPropertyAudit(event: PropertyAccessAuditEvent): Prom
 
   const record: AuditRecord = {
     id: crypto.randomUUID(),
-    entityType: "PropertyAccess",
-    entityId: `${event.projectId}:${event.propertyDesignation}`,
-    action: "READ",
-    userId: event.userId,
+    entityType: input.entityType,
+    entityId: input.entityId,
+    action: input.action,
+    userId: input.userId,
     timestamp,
     payloadHash,
     prevHash,
@@ -51,6 +57,26 @@ export async function appendPropertyAudit(event: PropertyAccessAuditEvent): Prom
     chainHash: record.chainHash,
   });
   return record;
+}
+
+export async function appendPropertyAudit(event: PropertyAccessAuditEvent): Promise<AuditRecord> {
+  return appendAuditEvent({
+    entityType: "PropertyAccess",
+    entityId: `${event.projectId}:${event.propertyDesignation}`,
+    action: "READ",
+    userId: event.userId,
+    payload: event as unknown as Record<string, unknown>,
+  });
+}
+
+export async function appendDomainAudit(input: {
+  entityType: string;
+  entityId: string;
+  action: string;
+  userId: string;
+  payload: Record<string, unknown>;
+}): Promise<AuditRecord> {
+  return appendAuditEvent(input);
 }
 
 export function exportAuditTrail(): ReadonlyArray<AuditRecord> {

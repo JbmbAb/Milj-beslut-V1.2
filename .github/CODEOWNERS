@@ -1,0 +1,10 @@
+﻿# Update owner handles for your repository before enforcing branch protection.
+
+* @your-github-username
+
+# Security and compliance critical areas
+/server/security/ @your-github-username
+/server/secureApi.express.ts @your-github-username
+/server/services/lantmaterietService.ts @your-github-username
+/server/services/sluService.ts @your-github-username
+/docs/qa/ @your-github-username

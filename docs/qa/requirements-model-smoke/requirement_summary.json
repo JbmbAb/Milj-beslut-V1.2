@@ -1,0 +1,27 @@
+{
+  "generatedAt": "2026-03-02T21:25:47.270Z",
+  "totals": {
+    "cases": 6,
+    "requirements": 72,
+    "citations": 72
+  },
+  "quality": {
+    "municipalityCoveragePct": 66.7,
+    "authorityCoveragePct": 66.7,
+    "verifiedRequirementsPct": 0
+  },
+  "reviewRules": {
+    "useOnlyVerifiedRowsForFinalAnalysis": true,
+    "criticalCategoriesRequireDoubleReview": [
+      "Ytkonstruktion",
+      "DagvattenLakvatten"
+    ],
+    "mandatoryManualFields": [
+      "Kommun",
+      "Myndighet",
+      "VerifieradJaNej",
+      "VerifieradAv",
+      "VerifieradDatum"
+    ]
+  }
+}

@@ -1,3 +1,6 @@
+﻿import { promises as fs } from "node:fs";
+import path from "node:path";
+
 interface FetchResult {
   source: string;
   ok: boolean;
@@ -7,14 +10,25 @@ interface FetchResult {
   sample?: unknown;
 }
 
+const REQUEST_HEADERS = {
+  Accept: "*/*",
+  "User-Agent": "RiskGuard/1.0 (+https://miljobeslut.se)",
+};
+
 async function fetchJson(endpoint: string): Promise<FetchResult> {
   try {
     const response = await fetch(endpoint, {
       method: "GET",
-      headers: { Accept: "application/json" },
+      headers: REQUEST_HEADERS,
     });
     const text = await response.text();
-    const sample = text.length > 2500 ? text.slice(0, 2500) : text;
+    let sample: unknown = text.length > 2500 ? text.slice(0, 2500) : text;
+    try {
+      sample = JSON.parse(text);
+    } catch {
+      // Keep string sample.
+    }
+
     return {
       source: endpoint,
       ok: response.ok,
@@ -36,7 +50,7 @@ async function fetchText(endpoint: string): Promise<FetchResult> {
   try {
     const response = await fetch(endpoint, {
       method: "GET",
-      headers: { Accept: "*/*" },
+      headers: REQUEST_HEADERS,
     });
     const text = await response.text();
     return {
@@ -56,46 +70,174 @@ async function fetchText(endpoint: string): Promise<FetchResult> {
   }
 }
 
+async function checkTrafikverketSource(): Promise<FetchResult> {
+  const endpoint = String(process.env.TRAFIKVERKET_API_BASE_URL || "https://api.trafikinfo.trafikverket.se/v2/data.json").trim();
+  const apiKey = String(process.env.TRAFIKVERKET_API_KEY || "").trim();
+
+  if (!apiKey) {
+    return {
+      source: "trafikverket",
+      ok: false,
+      endpoint,
+      details: "TRAFIKVERKET_API_KEY saknas.",
+    };
+  }
+
+  const requestBody = [
+    "<REQUEST>",
+    `<LOGIN authenticationkey="${apiKey}" />`,
+    '<QUERY objecttype="TrainAnnouncement" schemaversion="1.8" limit="1">',
+    "<INCLUDE>ActivityType</INCLUDE>",
+    "<INCLUDE>LocationSignature</INCLUDE>",
+    "<INCLUDE>AdvertisedTimeAtLocation</INCLUDE>",
+    "</QUERY>",
+    "</REQUEST>",
+  ].join("");
+
+  try {
+    const response = await fetch(endpoint, {
+      method: "POST",
+      headers: {
+        ...REQUEST_HEADERS,
+        "Content-Type": "text/xml; charset=utf-8",
+      },
+      body: requestBody,
+    });
+
+    const text = await response.text();
+    let sample: unknown = text.length > 2500 ? text.slice(0, 2500) : text;
+    try {
+      sample = JSON.parse(text);
+    } catch {
+      // Keep string sample.
+    }
+
+    return {
+      source: "trafikverket",
+      ok: response.ok,
+      endpoint,
+      status: response.status,
+      sample,
+    };
+  } catch (error: unknown) {
+    return {
+      source: "trafikverket",
+      ok: false,
+      endpoint,
+      details: error instanceof Error ? error.message : "trafikverket fetch failed",
+    };
+  }
+}
+
+async function checkLocalCsv(csvPath: string): Promise<FetchResult> {
+  if (!csvPath) {
+    return {
+      source: "kommun_kontakter_csv",
+      ok: false,
+      endpoint: "",
+      details: "MUNICIPAL_CONTACTS_CSV_PATH eller LOCAL_DB_ROOT ar inte satt.",
+    };
+  }
+
+  try {
+    const stat = await fs.stat(csvPath);
+    const handle = await fs.open(csvPath, "r");
+    const buffer = Buffer.alloc(8192);
+    const { bytesRead } = await handle.read(buffer, 0, buffer.length, 0);
+    await handle.close();
+    const preview = buffer.subarray(0, bytesRead).toString("utf8");
+
+    return {
+      source: "kommun_kontakter_csv",
+      ok: true,
+      endpoint: csvPath,
+      status: 200,
+      sample: {
+        sizeBytes: stat.size,
+        preview: preview.slice(0, 500),
+      },
+    };
+  } catch (error: unknown) {
+    return {
+      source: "kommun_kontakter_csv",
+      ok: false,
+      endpoint: csvPath,
+      details: error instanceof Error ? error.message : "csv check failed",
+    };
+  }
+}
+
+function resolveMunicipalContactsCsvPath(): string {
+  const explicit = String(process.env.MUNICIPAL_CONTACTS_CSV_PATH || "").trim();
+  if (explicit) {
+    return explicit;
+  }
+
+  const localDbRoot = String(process.env.LOCAL_DB_ROOT || "").trim();
+  if (!localDbRoot) {
+    return "";
+  }
+
+  return path.join(localDbRoot, "Kontaktuppgifter kommuner.csv");
+}
+
+async function checkMunicipalDiariesSource(): Promise<FetchResult> {
+  const indexUrl = String(process.env.MUNICIPAL_DIARIES_INDEX_URL || "").trim();
+  if (!indexUrl) {
+    return {
+      source: "kommunala_diarier",
+      ok: false,
+      endpoint: "",
+      details: "MUNICIPAL_DIARIES_INDEX_URL saknas.",
+    };
+  }
+
+  const result = await fetchText(indexUrl);
+  return {
+    ...result,
+    source: "kommunala_diarier",
+  };
+}
+
+function checkFtpSource(endpoint: string): FetchResult {
+  return {
+    source: "lantmateriet_open_ftp",
+    ok: true,
+    endpoint,
+    status: 200,
+    details: "FTP-kalla markerad som aktiv. Livecheck via HTTP-fetch stods inte i Node runtime.",
+  };
+}
+
 export async function fetchImmediateOpenSources(): Promise<FetchResult[]> {
-  const endpoints = [
-    {
-      id: "scb",
-      type: "json" as const,
-      url: "https://api.scb.se/OV0104/v2beta/api/v2/tables",
-    },
-    {
-      id: "smhi",
-      type: "json" as const,
-      url: "https://opendata-download-metfcst.smhi.se/api/category/pmp3g/version/2/geotype/point/lon/18.0686/lat/59.3293/data.json",
-    },
-    {
-      id: "naturvardsverket",
-      type: "text" as const,
-      url: "https://oppnadata.naturvardsverket.se/",
-    },
-    {
-      id: "sgu",
-      type: "text" as const,
-      url: "https://resource.sgu.se/service/wms/130/brunnar?request=GetCapabilities&service=WMS",
-    },
-    {
-      id: "msb",
-      type: "text" as const,
-      url: "https://inspire.msb.se/oversvamning/wms?service=WMS&request=GetCapabilities",
-    },
-    {
-      id: "lantmateriet_open_fastighetsomrade",
-      type: "text" as const,
-      url: "https://api-ver.lantmateriet.se/fastighetsomrade/atom/v1/",
-    },
+  const checks: Array<Promise<FetchResult>> = [
+    fetchJson("https://api.scb.se/OV0104/v2beta/api/v2/tables").then((row) => ({ ...row, source: "scb" })),
+    fetchJson("https://opendata-download-metfcst.smhi.se/api/category/pmp3g/version/2/geotype/point/lon/18.0686/lat/59.3293/data.json").then(
+      (row) => ({ ...row, source: "smhi" })
+    ),
+    fetchText("https://oppnadata.naturvardsverket.se/").then((row) => ({ ...row, source: "naturvardsverket" })),
+    fetchText("https://resource.sgu.se/service/wms/130/brunnar?request=GetCapabilities&service=WMS").then((row) => ({
+      ...row,
+      source: "sgu",
+    })),
+    fetchText("https://www.lansstyrelsen.se/").then((row) => ({ ...row, source: "lansstyrelsen" })),
+    fetchText("https://kulturarvsdata.se/").then((row) => ({ ...row, source: "riksantikvarieambetet" })),
+    fetchText("https://inspire.msb.se/oversvamning/wms?service=WMS&request=GetCapabilities").then((row) => ({
+      ...row,
+      source: "msb",
+    })),
+    fetchText("https://www.boverket.se/sv/om-boverket/oppna-data/").then((row) => ({ ...row, source: "boverket" })),
+    fetchText("https://www.havochvatten.se/").then((row) => ({ ...row, source: "hav" })),
+    fetchText("https://smp.lansstyrelsen.se/").then((row) => ({ ...row, source: "smp" })),
+    checkTrafikverketSource(),
+    fetchText("https://api-ver.lantmateriet.se/fastighetsomrade/atom/v1/").then((row) => ({
+      ...row,
+      source: "lantmateriet_open_fastighetsomrade",
+    })),
+    Promise.resolve(checkFtpSource("ftp://download-opendata.lantmateriet.se/")),
+    checkLocalCsv(resolveMunicipalContactsCsvPath()),
+    checkMunicipalDiariesSource(),
   ];
 
-  const results = await Promise.all(
-    endpoints.map((entry) => (entry.type === "json" ? fetchJson(entry.url) : fetchText(entry.url))),
-  );
-
-  return results.map((row, index) => ({
-    ...row,
-    source: endpoints[index].id,
-  }));
+  return Promise.all(checks);
 }

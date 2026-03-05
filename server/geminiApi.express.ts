@@ -27,6 +27,11 @@ const router = express.Router();
 router.use(bodyParser.json({ limit: "10mb" }));
 router.use(requestLogger);
 
+function isLoopbackRequest(req: express.Request): boolean {
+  const ip = String(req.ip || "");
+  return ip === "::1" || ip === "127.0.0.1" || ip.startsWith("::ffff:127.0.0.1");
+}
+
 function setFigmaCorsHeaders(res: express.Response) {
   res.setHeader("Access-Control-Allow-Origin", "*");
   res.setHeader("Access-Control-Allow-Headers", "Authorization, Content-Type");
@@ -47,7 +52,25 @@ router.use((req, res, next) => {
   next();
 });
 
-router.use(requireAuth);
+router.use((req, res, next) => {
+  const isAnonymousLocalFigmaCall =
+    req.path === "/api/figma/ai" &&
+    isLoopbackRequest(req) &&
+    !req.headers.authorization;
+  const isAnonymousLocalChatCall =
+    req.path === "/api/gemini" &&
+    req.method === "POST" &&
+    isLoopbackRequest(req) &&
+    !req.headers.authorization &&
+    req.body?.method === "askGeneralAssistant";
+
+  if (isAnonymousLocalFigmaCall || isAnonymousLocalChatCall) {
+    next();
+    return;
+  }
+
+  requireAuth(req, res, next);
+});
 router.use(rateLimitByUser(120, 60_000));
 
 router.post("/api/gemini", async (req, res) => {
