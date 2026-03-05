@@ -242,14 +242,14 @@ const AdminRequirementsStudio: React.FC<AdminRequirementsStudioProps> = ({ token
     setRequirementStatusDraft(selectedRow.verificationStatus);
     setValidationComment(selectedRow.validationComment || '');
     setRequirementErrorType(selectedRow.errorType || '');
-  }, [selectedRow?.requirementCode]);
+  }, [selectedRow]);
 
   useEffect(() => {
     if (!selectedCitation) return;
     setCitationStatusDraft(selectedCitation.verificationStatus);
     setCitationPageNumber(selectedCitation.pageNumber != null ? String(selectedCitation.pageNumber) : '');
     setCitationComment(selectedCitation.comment || '');
-  }, [selectedCitation?.citationCode]);
+  }, [selectedCitation]);
 
   const allCitationsReviewed = useMemo(() => {
     if (!citations.length) return false;

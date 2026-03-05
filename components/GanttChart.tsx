@@ -1,5 +1,5 @@
 
-import React, { useMemo } from 'react';
+import React from 'react';
 import { Task } from '../types';
 
 const MOCK_TASKS: Task[] = [
@@ -22,7 +22,7 @@ interface GanttChartProps {
   phases?: any[];
 }
 
-const GanttChart: React.FC<GanttChartProps> = ({ phases }) => {
+const GanttChart: React.FC<GanttChartProps> = ({ phases: _phases }) => {
   const totalWeeks = 52;
 
   const getTypeColor = (type: Task['type']) => {

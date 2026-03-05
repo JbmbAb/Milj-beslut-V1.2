@@ -196,11 +196,6 @@ const ProjectManagerView: React.FC<ProjectManagerViewProps> = ({ activeTab }) =>
     }
   };
 
-  const handleAddGoal = () => {
-    const newGoals = [...plan.goals, { id: Date.now().toString(), text: '' }];
-    handleUpdatePlan('goals', newGoals);
-  };
-
   const reportAccentColor = plan.branding.primaryColor || '#0f172a';
   const reportLogo =
     plan.branding.logoUrl?.trim() || 'https://upload.wikimedia.org/wikipedia/commons/4/4e/Lantmateriet_logo.svg';

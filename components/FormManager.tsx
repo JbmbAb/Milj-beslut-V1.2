@@ -1,6 +1,6 @@
 
-import React, { useState, useEffect } from 'react';
-import { EnvironmentalForm, FormField } from '../types';
+import React, { useState } from 'react';
+import { EnvironmentalForm } from '../types';
 import { autoFillFormSection } from '../services/geminiService';
 
 const MOCK_FORM: EnvironmentalForm = {

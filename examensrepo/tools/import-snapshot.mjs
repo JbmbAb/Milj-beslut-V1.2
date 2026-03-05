@@ -1,6 +1,5 @@
 #!/usr/bin/env node
 import path from 'node:path';
-import fs from 'node:fs/promises';
 import { copyFileSafe, ensureDir, fileExists, readCsvFile, readJsonFile, timestampSlug, writeJsonFile } from './lib.mjs';
 import { INPUT_FILENAMES } from './contracts.mjs';
 

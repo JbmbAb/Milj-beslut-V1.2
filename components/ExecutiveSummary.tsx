@@ -13,7 +13,7 @@ const ExecutiveSummary: React.FC<ExecutiveSummaryProps> = ({ mode = 'summary' })
 
   const totalModules = plan.moduleIntegrations.length;
   const readyModules = useMemo(() => countReadyModules(plan), [plan]);
-  const blockedModules = useMemo(
+  const _blockedModules = useMemo(
     () => plan.moduleIntegrations.filter((item) => item.readiness === 'BLOCKED').length,
     [plan.moduleIntegrations]
   );
@@ -30,7 +30,7 @@ const ExecutiveSummary: React.FC<ExecutiveSummaryProps> = ({ mode = 'summary' })
 
   const samplingDone = plan.samplingPreparation.checklist.filter((item) => item.done).length;
   const samplingTotal = plan.samplingPreparation.checklist.length;
-  const samplingPct = samplingTotal > 0 ? Math.round((samplingDone / samplingTotal) * 100) : 0;
+  const _samplingPct = samplingTotal > 0 ? Math.round((samplingDone / samplingTotal) * 100) : 0;
 
   const carbonResult = plan.carbonSummary.lastResult;
   const carbonReady = Boolean(carbonResult);

@@ -9,7 +9,7 @@ interface Asset {
   status: "pending" | "reviewed" | "trashed";
 }
 
-const FILTERS = ["ALL", "SIGNATUR", "KOMMUNVAPEN", "SKRAP"] as const;
+type AssetFilter = "ALL" | "SIGNATUR" | "KOMMUNVAPEN" | "SKRAP";
 
 const confidenceByCategory: Record<string, number> = {
   KOMMUNVAPEN: 0.93,
@@ -29,7 +29,7 @@ const AssetTriage: React.FC = () => {
   );
 
   const [isProcessing, setIsProcessing] = useState(false);
-  const [activeFilter, setActiveFilter] = useState<(typeof FILTERS)[number]>("ALL");
+  const [activeFilter, setActiveFilter] = useState<AssetFilter>("ALL");
   const [progress, setProgress] = useState(0);
 
   const filteredAssets = useMemo(() => {

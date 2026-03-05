@@ -69,7 +69,7 @@ const ChatBot: React.FC = () => {
 
       const modelText = String(json.result || '').trim() || 'Jag kunde inte generera ett svar just nu.';
       setMessages((prev) => [...prev, { role: 'model', content: modelText }]);
-    } catch (error) {
+    } catch {
       setMessages((prev) => [
         ...prev,
         {

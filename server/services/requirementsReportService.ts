@@ -135,7 +135,6 @@ export async function buildRequirementsReportSummary(input?: {
     getRequirementReportCitations(requirementIds),
   ]);
 
-  const totalRequirements = requirements.length;
   const verifiedRequirements = allRequirements.filter((row) => row.verificationStatus === "VERIFIED").length;
   const rejectedRequirements = requirements.filter((row) => row.verificationStatus === "REJECTED").length;
   const excludedRequirements = includePreliminary ? 0 : Math.max(0, allRequirements.length - requirements.length);

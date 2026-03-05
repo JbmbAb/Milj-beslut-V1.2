@@ -335,7 +335,7 @@ export const ProjectStructureProvider: React.FC<{ children: React.ReactNode }> =
     setPlan((prev) => ({ ...prev, [key]: value }));
   };
 
-  const addArchiveDocument = (input: AddArchiveInput) => {
+  const addArchiveDocument = useCallback((input: AddArchiveInput) => {
     const nextDoc = createArchiveDocument(input);
     setPlan((prev) =>
       appendLocalAudit(
@@ -347,9 +347,9 @@ export const ProjectStructureProvider: React.FC<{ children: React.ReactNode }> =
         `${nextDoc.name} (${nextDoc.category}) added from ${nextDoc.module}.`
       )
     );
-  };
+  }, []);
 
-  const syncPermitToArchive = (permit: Permit) => {
+  const syncPermitToArchive = useCallback((permit: Permit) => {
     const nextDoc = createPermitArchiveDocument(permit);
     setPlan((prev) =>
       appendLocalAudit(
@@ -361,7 +361,7 @@ export const ProjectStructureProvider: React.FC<{ children: React.ReactNode }> =
         `${permit.filename} synced to project archive.`
       )
     );
-  };
+  }, []);
 
   const applyTemplatePack = useCallback<ProjectStructureContextValue['applyTemplatePack']>(async (templateId) => {
     const credentials = resolveRemoteCredentials();
@@ -1030,6 +1030,8 @@ export const ProjectStructureProvider: React.FC<{ children: React.ReactNode }> =
       remoteSync,
       applyTemplatePack,
       evaluateGate,
+      addArchiveDocument,
+      syncPermitToArchive,
       runCarbonCalculation,
       runTransportComplianceFlow,
       applyMapLayerRecommendation,
@@ -1039,6 +1041,7 @@ export const ProjectStructureProvider: React.FC<{ children: React.ReactNode }> =
   return <ProjectStructureContext.Provider value={value}>{children}</ProjectStructureContext.Provider>;
 };
 
+// eslint-disable-next-line react-refresh/only-export-components
 export const useProjectStructure = (): ProjectStructureContextValue => {
   const ctx = useContext(ProjectStructureContext);
   if (!ctx) {

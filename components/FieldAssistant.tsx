@@ -47,7 +47,7 @@ const FieldAssistant: React.FC = () => {
         result = await analyzeSiteImage(currentBase64, currentFileType);
       }
       setAnalysis(result);
-    } catch (error) {
+    } catch {
       setAnalysis("Misslyckades med att analysera dokumentet. Kontrollera anslutningen eller filformatet.");
     } finally {
       setIsLoading(false);
