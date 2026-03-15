@@ -45,7 +45,7 @@ Mellanlagringsytor for avfall ar en central del i avfallskedjan och behovet okar
 Syftet med studien ar att identifiera och jamfora myndighetskrav vid C-anmalningar for mellanlagring av avfall, samt ta fram en praktiskt anvandbar mall (blankettunderlag) som minskar kompletteringsbehovet och skapar en mer forutsagbar handlaggningstid.
 
 ### 4.3 Metod (kort version)
-Studien genomfors som dokumentstudie med komparativ analys av allmanna handlingar (anmalningar, beslut och kompletteringsforelagganden) fran utvalda lansstyrelser och kommuner. Krav kodas i en analysmatris och analyseras bade kvantitativt (frekvens, variation) och kvalitativt (kravens innehall och detaljeringsniva).
+Studien genomfors som en AI-stodd dokumentstudie med komparativ analys av allmanna handlingar. En automatiserad process (LLM-baserad extraktion) har anvants for att identifiera och koda krav i en stor datamangd (ca 2 400 rader), vilket kompletterats med manuell stickprovsvalidering for att sakerstalla tillforlitlighet.
 
 ### 4.4 Avgransning
 Studien omfattar endast C-anmalningar som avser mellanlagring/hantering av avfall. Studien avgransar sig till analys av myndighetskrav och framtagande av skriftligt underlag. Mjukvaruutveckling, digitala portaler eller ekonomiska kalkyler ingar ej i detta arbete.
@@ -61,8 +61,9 @@ Studien omfattar endast C-anmalningar som avser mellanlagring/hantering av avfal
 3. Skicka begaran till kommunala miljokontor dar underlag saknas.
 4. Kvalitetsgranska och avgransa till relevanta arenden.
 
-### Steg C: Kodning av krav
-Anvand en analysmatris med dessa kategorier:
+### Steg C: AI-baserad Kodning och Extraktion
+Anvandning av AI-modeller for att extrahera krav ur PDF-filer och strukturera dem i analysmatrisen.
+Kategorisering sker automatiskt enligt schema:
 - Lokalisering och platsforutsattningar
 - Ytkonstruktion/tatskikt/barighet
 - Dagvatten/lakvatten
@@ -71,9 +72,9 @@ Anvand en analysmatris med dessa kategorier:
 - Lagringsvolym, lagringstid och avfallsslag
 - Efterbehandling/avveckling
 
-### Steg D: Analys och syntes
-1. Jamfor krav per myndighet och kategori.
-2. Identifiera minimikrav respektive vanligaste tillaggskrav.
+### Steg D: Validering och Analys
+1. Manuell stickprovskontroll av ett urval (t.ex. 5-10%) for att validera AI-tolkningen.
+2. Statistisk analys av den totala datamangden baserat pa extraherade varden.
 3. Ta fram rekommenderat "basunderlag" for C-anmalan.
 4. Formulera malltext och bilagelista.
 

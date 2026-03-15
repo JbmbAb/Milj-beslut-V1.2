@@ -1,4 +1,4 @@
-import type {
+﻿import type {
   CarbonInput,
   DriverJournalStatus,
   LimsSourceType,
@@ -15,7 +15,8 @@ import {
   normalizeProjectPlan,
   recommendMapLayers,
 } from "../../services/projectStructure";
-import { getStoredProjectPlan, upsertStoredProjectPlan } from "../repositories/projectPlanRepository";
+import { calculatePredictiveScores } from "../../services/predictiveScoringService";
+import { getStoredProjectPlan } from "../repositories/projectPlanRepository";
 import {
   createDispatchQuote,
   createTransportBooking,
@@ -23,6 +24,7 @@ import {
   upsertDriverJournal,
 } from "./transportDispatchService";
 import { createLimsReport, verifyLimsReport } from "./limsService";
+import { prisma } from "../db/prisma";
 
 // Runtime cache + persistent database storage.
 // Cache reduces repetitive reads while DB remains source of truth for server-side state.
@@ -50,21 +52,46 @@ async function loadPlanFromDb(projectId: string): Promise<ProjectPlan | null> {
 }
 
 async function persistPlan(projectId: string, plan: ProjectPlan): Promise<ProjectPlan> {
-  projectPlanStore.set(projectId, plan);
+  const planWithScores: ProjectPlan = {
+    ...plan,
+    predictiveScores: calculatePredictiveScores(plan, plan.carbonSummary.lastResult),
+  };
+
+  projectPlanStore.set(projectId, planWithScores);
   if (dbPlanStorageAvailable === false) {
-    return plan;
+    return planWithScores;
   }
   try {
-    await upsertStoredProjectPlan({
-      projectId,
-      schemaVersion: PROJECT_STRUCTURE_SCHEMA_VERSION,
-      plan,
+    // Replace upsertStoredProjectPlan with prisma.projectPlanState.upsert
+    await prisma.projectPlanState.upsert({
+      where: { projectId: projectId },
+      create: {
+        projectId: projectId,
+        plan: planWithScores as any, // Cast to any as Prisma's Json type might not perfectly match ProjectPlan
+        schemaVersion: PROJECT_STRUCTURE_SCHEMA_VERSION,
+      },
+      update: {
+        plan: planWithScores as any,
+        schemaVersion: PROJECT_STRUCTURE_SCHEMA_VERSION,
+      },
     });
+
+    // Update Project and persist summary fields for easier querying/filtering
+    await prisma.project.update({
+      where: { id: projectId },
+      data: {
+        complianceScore: planWithScores.complianceScore,
+        fundingRating: planWithScores.predictiveScores?.fundingRisk.rating,
+        regulatoryRiskScore: planWithScores.predictiveScores?.regulatoryRisk.score,
+        environmentalScore: planWithScores.predictiveScores?.environmentalRisk.score,
+      },
+    });
+
     dbPlanStorageAvailable = true;
   } catch (error: unknown) {
     markDbStorageError(error);
   }
-  return plan;
+  return planWithScores;
 }
 
 async function getOrCreatePlan(projectId: string, incomingPlan?: Partial<ProjectPlan>): Promise<ProjectPlan> {
@@ -403,3 +430,10 @@ export async function verifyLimsReportForProject(input: {
     report: verified,
   };
 }
+
+export async function recalculatePredictiveScoresForProject(projectId: string, plan?: Partial<ProjectPlan>) {
+  const current = await getOrCreatePlan(projectId, plan);
+  await persistPlan(projectId, current);
+  return current;
+}
+

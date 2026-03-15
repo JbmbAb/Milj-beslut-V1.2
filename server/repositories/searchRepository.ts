@@ -77,6 +77,7 @@ export interface ManifestDocumentInput {
   municipality?: string | null;
   wasteType?: string | null;
   hazardousFlag?: boolean | null;
+  activityCode?: string | null;
   legalStatus?: string | null;
   manifestMeta?: Record<string, unknown> | null;
   preserveStatusOnUpdate?: boolean;
@@ -101,6 +102,7 @@ export async function upsertDocumentFromManifest(input: ManifestDocumentInput) {
       municipality: input.municipality || null,
       wasteType: input.wasteType || null,
       hazardousFlag: input.hazardousFlag ?? null,
+      activityCode: input.activityCode || null,
       legalStatus: input.legalStatus || null,
       manifestMeta: input.manifestMeta || undefined,
       status: "METADATA_ONLY",
@@ -120,6 +122,7 @@ export async function upsertDocumentFromManifest(input: ManifestDocumentInput) {
       municipality: input.municipality || null,
       wasteType: input.wasteType || null,
       hazardousFlag: input.hazardousFlag ?? null,
+      activityCode: input.activityCode || null,
       legalStatus: input.legalStatus || null,
       manifestMeta: input.manifestMeta || undefined,
       ...(input.preserveStatusOnUpdate ? {} : { status: "METADATA_ONLY" }),
@@ -413,7 +416,7 @@ export async function queryTopSemanticChunks(input: {
   try {
     const rows = projectId
       ? await db.$queryRawUnsafe(
-          `SELECT
+        `SELECT
              c."documentId" AS "documentId",
              c."chunkIndex" AS "chunkIndex",
              c."chunkText" AS "chunkText",
@@ -424,12 +427,12 @@ export async function queryTopSemanticChunks(input: {
              AND d."projectId" = $2
            ORDER BY c."embeddingVector" <=> $1::vector
            LIMIT $3`,
-          vectorLiteral,
-          projectId,
-          limit
-        )
+        vectorLiteral,
+        projectId,
+        limit
+      )
       : await db.$queryRawUnsafe(
-          `SELECT
+        `SELECT
              c."documentId" AS "documentId",
              c."chunkIndex" AS "chunkIndex",
              c."chunkText" AS "chunkText",
@@ -438,9 +441,9 @@ export async function queryTopSemanticChunks(input: {
            WHERE c."embeddingVector" IS NOT NULL
            ORDER BY c."embeddingVector" <=> $1::vector
            LIMIT $2`,
-          vectorLiteral,
-          limit
-        );
+        vectorLiteral,
+        limit
+      );
 
     if (!Array.isArray(rows)) {
       return [] as Array<{ documentId: string; chunkIndex: number; chunkText: string; similarity: number }>;
@@ -473,17 +476,17 @@ export async function findDocumentsForProject(input: {
   dateTo?: Date;
   take: number;
 }) {
-  return db.documentRecord.findMany({
+  const result = await db.documentRecord.findMany({
     where: {
       ...(input.projectId ? { projectId: input.projectId } : {}),
       ...(input.query
         ? {
-            OR: [
-              { subject: { contains: input.query, mode: "insensitive" } },
-              { originalName: { contains: input.query, mode: "insensitive" } },
-              { diskName: { contains: input.query, mode: "insensitive" } },
-            ],
-          }
+          OR: [
+            { subject: { contains: input.query, mode: "insensitive" } },
+            { originalName: { contains: input.query, mode: "insensitive" } },
+            { diskName: { contains: input.query, mode: "insensitive" } },
+          ],
+        }
         : {}),
       ...(input.municipality ? { municipality: input.municipality } : {}),
       ...(input.decisionType ? { decisionType: input.decisionType } : {}),
@@ -493,11 +496,11 @@ export async function findDocumentsForProject(input: {
       ...(typeof input.hazardousFlag === "boolean" ? { hazardousFlag: input.hazardousFlag } : {}),
       ...((input.dateFrom || input.dateTo)
         ? {
-            receivedTime: {
-              ...(input.dateFrom ? { gte: input.dateFrom } : {}),
-              ...(input.dateTo ? { lte: input.dateTo } : {}),
-            },
-          }
+          receivedTime: {
+            ...(input.dateFrom ? { gte: input.dateFrom } : {}),
+            ...(input.dateTo ? { lte: input.dateTo } : {}),
+          },
+        }
         : {}),
     },
     include: {
@@ -522,6 +525,7 @@ export async function findDocumentsForProject(input: {
     orderBy: [{ receivedTime: "desc" }, { createdAt: "desc" }],
     take: input.take,
   });
+  return result;
 }
 
 export async function logSearchQuery(input: {

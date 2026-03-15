@@ -462,7 +462,6 @@ describe('secure API integration', () => {
           requirementTextQuote: 'Ytan ska vara tat och hardgjord.',
           interpretedRequirement: 'Hardgjord yta kravs.',
           level: 'SKA',
-          verificationStatus: 'AUTO',
           codingConfidence: 'HIGH',
         },
       });
@@ -474,7 +473,6 @@ describe('secure API integration', () => {
           caseId: requirementCase.id,
           documentId: document.id,
           quoteText: 'Ytan ska vara tat och hardgjord enligt beslut.',
-          verificationStatus: 'AUTO',
         },
       });
 
@@ -908,4 +906,5 @@ describe('secure API integration', () => {
     expect(docGateRes.body?.gate?.status).toBe('PASSED');
   });
 });
+
 

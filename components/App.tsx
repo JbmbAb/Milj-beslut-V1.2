@@ -3,7 +3,6 @@ import { Permit, InterfaceMode } from '../types';
 import { MOCK_PERMITS } from '../constants';
 import MarketIntelView from './MarketIntelView';
 import PermitPortalView from './PermitPortalView';
-import ProjectManagerView from './ProjectManagerView';
 import ExecutiveSummary from './ExecutiveSummary';
 import DetailModal from './DetailModal';
 import ChatBot from './ChatBot';
@@ -15,10 +14,13 @@ import AssetTriage from './AssetTriage';
 import FieldAssistant from './FieldAssistant';
 import Guide from './Guide';
 import GisRiskModule from './GisRiskModule';
-import AdminSearchConsole from './AdminSearchConsole';
 import LegalSupportCenter from './LegalSupportCenter';
+import MvpDemoInterface from './MvpDemoInterface';
+import AdminMetadataReview from './AdminMetadataReview';
+import PropertyRegisterExtract from './PropertyRegisterExtract';
 import { useProjectStructure } from './ProjectStructureContext';
 import { countReadyModules } from '../services/projectStructure';
+import { TechnicalDashboardHub } from './TechnicalDashboardHub';
 
 type ModeCardConfig = {
   mode: InterfaceMode;
@@ -56,8 +58,8 @@ const MODE_CARDS: ModeCardConfig[] = [
   },
   {
     mode: 'COMPLIANCE_AUDIT',
-    title: 'Grönkoll och revision',
-    description: 'Compliance-score, revision och banknära rapportering.',
+    title: 'Egenkontroll och revision',
+    description: 'Bedömning av regelefterlevnad, revisionslogg och automatiserad rapportering.',
     icon: 'fa-shield-check',
     accent: 'bg-slate-700',
     defaultTab: 'score',
@@ -69,6 +71,14 @@ const MODE_CARDS: ModeCardConfig[] = [
     icon: 'fa-user-shield',
     accent: 'bg-rose-600',
     defaultTab: 'admin-search',
+  },
+  {
+    mode: 'MVP_WORKFLOW',
+    title: 'Ärendeportal',
+    description: 'Beslutsstöd för miljöärenden: Dashboard → Sök → Granskning → Anmälan.',
+    icon: 'fa-folder-open',
+    accent: 'bg-indigo-600',
+    defaultTab: 'mvp',
   },
 ];
 
@@ -106,214 +116,53 @@ const App: React.FC = () => {
     setActiveTab(modeCardMap[nextMode].defaultTab);
   };
 
+  const renderContent = () => {
+    switch (mode) {
+      case 'MVP_WORKFLOW':
+        return <MvpDemoInterface />;
+      case 'LOGISTICS_MARKET':
+        if (activeTab === 'archive') return <ExecutiveSummary />;
+        if (activeTab === 'logistics') return <MarketIntelView permits={permits} onSelectPermit={setSelectedPermit} mode="logistics" />;
+        if (activeTab === 'triage') return <AssetTriage />;
+        return <ExecutiveSummary />;
+      case 'PERMIT_PORTAL':
+        if (activeTab === 'map') return <PermitPortalView permits={permits} mode="map" />;
+        if (activeTab === 'apply') return <PermitPortalView permits={permits} mode="apply" />;
+        if (activeTab === 'forms') return <FormManager />;
+        if (activeTab === 'risks') return <GisRiskModule />;
+        return <PermitPortalView permits={permits} mode="map" />;
+      case 'PROJECT_MANAGER':
+        if (activeTab === 'plan') return <ApplicationWizard />;
+        if (activeTab === 'field') return <FieldAssistant />;
+        return <ApplicationWizard />;
+      case 'COMPLIANCE_AUDIT':
+        if (activeTab === 'score') return <GisRiskModule />;
+        return <IntegrationsDashboard />;
+      case 'ADMIN_CONSOLE':
+        if (activeTab === 'admin-review') return <AdminMetadataReview />;
+        if (activeTab === 'admin-search') return <PropertyRegisterExtract propertyId={selectedPermit?.property_id || "ORSA STACKMORA 3:12"} />;
+        return <AdminMetadataReview />;
+      default:
+        return (
+          <div className="flex flex-col items-center justify-center h-full text-slate-400">
+            <i className="fas fa-layer-group text-4xl mb-4 opacity-20" />
+            <p className="text-sm font-bold uppercase tracking-widest">Välj en sektion i menyn</p>
+          </div>
+        );
+    }
+  };
+
   if (!mode) {
     return (
-      <div className="min-h-screen bg-slate-950 text-white font-['Plus_Jakarta_Sans']">
-        <div className="mx-auto max-w-7xl px-6 py-8 md:py-12">
-          <header className="flex flex-col gap-4 rounded-3xl border border-slate-800 bg-slate-900/70 p-5 md:flex-row md:items-center md:justify-between">
-            <div className="flex items-center gap-3">
-              <span className="inline-flex h-10 w-10 items-center justify-center rounded-xl bg-indigo-600 text-base font-black text-white shadow-lg">
-                M
-              </span>
-              <div>
-                <p className="text-[11px] uppercase tracking-[0.18em] text-slate-400">Miljöbeslut.se 2.0</p>
-                <p className="text-sm font-semibold text-slate-200">Det är lätt att göra rätt</p>
-              </div>
-            </div>
-            <div className="flex flex-wrap gap-2">
-              <button
-                type="button"
-                onClick={() => openMode('PERMIT_PORTAL')}
-                data-testid="landing-open-permit"
-                className="rounded-xl px-4 py-2 text-sm font-black text-white"
-                style={{ backgroundColor: 'var(--color-primary-500)' }}
-              >
-                Starta ansökan
-              </button>
-              <button
-                type="button"
-                onClick={() => openMode('LOGISTICS_MARKET')}
-                className="rounded-xl border border-slate-700 bg-slate-800 px-4 py-2 text-sm font-black text-slate-200"
-              >
-                Planera logistik
-              </button>
-              <button
-                type="button"
-                onClick={() => openMode('ADMIN_CONSOLE')}
-                data-testid="landing-open-admin"
-                className="rounded-xl border border-slate-700 bg-slate-900 px-4 py-2 text-sm font-black text-slate-200"
-              >
-                Admin
-              </button>
-            </div>
-          </header>
-
-          <section className="mt-8 grid gap-6 lg:grid-cols-[1.35fr_1fr]">
-            <div className="rounded-3xl border border-slate-800 bg-gradient-to-br from-slate-900 via-slate-900 to-slate-800 p-6 md:p-8">
-              <p className="text-[11px] uppercase tracking-[0.18em] text-indigo-300">Human in the Loop</p>
-              <h1 className="mt-3 text-3xl font-black leading-tight md:text-5xl">
-                Automatiserad precision. Mänskligt ansvar.
-              </h1>
-              <p className="mt-4 max-w-2xl text-sm leading-relaxed text-slate-300 md:text-base">
-                Vi kombinerar AI-driven analys av 1500 lagtexter med verifierade "hårda fakta" från myndighets-API:er. 
-                Systemet förbereder – du beslutar och signerar.
-              </p>
-              <div className="mt-6 flex flex-wrap gap-3">
-                <button
-                  type="button"
-                  onClick={() => openMode('PERMIT_PORTAL')}
-                  className="rounded-xl px-5 py-3 text-sm font-black text-white"
-                  style={{ backgroundColor: 'var(--color-primary-500)' }}
-                >
-                  Skapa ny ansökan
-                </button>
-                <button
-                  type="button"
-                  onClick={() => openMode('LOGISTICS_MARKET')}
-                  className="rounded-xl border border-slate-700 bg-slate-900 px-5 py-3 text-sm font-black text-slate-200"
-                >
-                  Kontrollera massor och mottagare
-                </button>
-              </div>
-              <div className="mt-6 grid gap-3 sm:grid-cols-3">
-                <TrustPill label="Kommuner" />
-                <TrustPill label="Entreprenorer" />
-                <TrustPill label="Miljökonsulter" />
-              </div>
-            </div>
-
-            <div className="rounded-3xl border border-slate-800 bg-slate-900 p-6">
-              <p className="text-[11px] uppercase tracking-[0.18em] text-slate-400">Snabbstart på 3 steg</p>
-              <ol className="mt-4 space-y-4 text-sm">
-                <li className="rounded-xl border border-slate-700 bg-slate-800/80 p-3">
-                  <p className="text-[10px] font-black uppercase tracking-[0.16em] text-indigo-300">Steg 1</p>
-                  <p className="mt-1 font-semibold text-slate-100">Välj fastighet och projekt</p>
-                  <p className="mt-1 text-slate-400">Systemet laddar relevanta data direkt i arbetsvyn.</p>
-                </li>
-                <li className="rounded-xl border border-slate-700 bg-slate-800/80 p-3">
-                  <p className="text-[10px] font-black uppercase tracking-[0.16em] text-indigo-300">Steg 2</p>
-                  <p className="mt-1 font-semibold text-slate-100">Bygg underlag med filter och kontroller</p>
-                  <p className="mt-1 text-slate-400">Fokusera pa beslut, status och spårbar dokumentation.</p>
-                </li>
-                <li className="rounded-xl border border-slate-700 bg-slate-800/80 p-3">
-                  <p className="text-[10px] font-black uppercase tracking-[0.16em] text-indigo-300">Steg 3</p>
-                  <p className="mt-1 font-semibold text-slate-100">Folj upp i projektledning och audit</p>
-                  <p className="mt-1 text-slate-400">Samma data finns tillgänglig i hela flödet.</p>
-                </li>
-              </ol>
-              <button
-                type="button"
-                onClick={() => openMode('PROJECT_MANAGER')}
-                className="mt-5 w-full rounded-xl border border-slate-700 bg-slate-800 px-4 py-2 text-xs font-black uppercase tracking-[0.14em] text-slate-200"
-              >
-                Öppna projektledning
-              </button>
-            </div>
-          </section>
-
-          <section className="mt-8 grid gap-4 md:grid-cols-3">
-            <QuickStartCard
-              title="Ny ansökan"
-              text="För handläggare som vill gå från fastighet till underlag snabbt."
-              buttonLabel="Till provningsportal"
-              onClick={() => openMode('PERMIT_PORTAL')}
-              accent="bg-emerald-600"
-              icon="fa-file-pen"
-            />
-            <QuickStartCard
-              title="Logistik och massor"
-              text="Kontrollera mottagare, transportkedja och compliance innan bokning."
-              buttonLabel="Till logistik"
-              onClick={() => openMode('LOGISTICS_MARKET')}
-              accent="bg-indigo-600"
-              icon="fa-truck-ramp-box"
-            />
-            <QuickStartCard
-              title="Status och risk"
-              text="Följ stage gates, blockers och granskning i samma vy."
-              buttonLabel="Till projektledning"
-              onClick={() => openMode('PROJECT_MANAGER')}
-              accent="bg-amber-600"
-              icon="fa-list-check"
-            />
-          </section>
-
-          <section className="mt-8 rounded-3xl border border-slate-800 bg-slate-900/60 p-5">
-            <p className="text-[11px] uppercase tracking-[0.18em] text-slate-400">Lägesbild</p>
-            <div className="mt-4 grid grid-cols-2 gap-4 md:grid-cols-4">
-              <MetricTile label="Aktiva ärenden" value="1,577" />
-              <MetricTile label="Verifierade dokument" value="12,430" />
-              <MetricTile label="Compliance score" value="92%" />
-              <MetricTile label="Genomsnittlig ledtid" value="18 dagar" />
-            </div>
-          </section>
-
-          <section id="how-it-works" className="mt-8 grid gap-4 md:grid-cols-3">
-            <HowStep number="1" title="Koppla datakällor" text="Importera beslut, kartlager och externa API-flöden." />
-            <HowStep number="2" title="Bygg beslutunderlag" text="Använd guider, filter och kontrollpunkter för kvalitet." />
-            <HowStep number="3" title="Leverera och följ upp" text="Rapportering till intressenter med spårbar revision." />
-          </section>
-
-          <section id="modes" className="mt-8">
-            <div className="mb-4 flex flex-col gap-2 md:flex-row md:items-end md:justify-between">
-              <h3 className="text-xl font-black md:text-2xl">Välj arbetsläge</h3>
-              <p className="text-xs font-bold uppercase tracking-[0.18em] text-slate-400">Bästa startpunkt för olika roller</p>
-            </div>
-            <div className="grid gap-4 md:grid-cols-2">
-              {MODE_CARDS.slice(0, 4).map((item) => (
-                <button
-                  key={item.mode}
-                  type="button"
-                  onClick={() => openMode(item.mode)}
-                  className="group rounded-3xl border border-slate-800 bg-slate-900 p-5 text-left transition hover:border-slate-600"
-                >
-                  <div className="mb-4 flex items-center gap-3">
-                    <span className={`inline-flex h-10 w-10 items-center justify-center rounded-xl text-white ${item.accent}`}>
-                      <i className={`fas ${item.icon}`} />
-                    </span>
-                    <p className="text-lg font-black">{item.title}</p>
-                  </div>
-                  <p className="text-sm text-slate-300">{item.description}</p>
-                  <p className="mt-4 text-[11px] font-black uppercase tracking-[0.18em] text-indigo-300 group-hover:text-indigo-200">
-                    Öppna vy
-                  </p>
-                </button>
-              ))}
-            </div>
-            <div className="mt-4 rounded-2xl border border-slate-800 bg-slate-900 p-4 md:flex md:items-center md:justify-between">
-              <div>
-                <p className="text-[11px] uppercase tracking-[0.18em] text-slate-400">För förvaltning och support</p>
-                <p className="mt-1 text-sm text-slate-200">Behörig personal kan öppna adminyta för status, index och systemkontroll.</p>
-              </div>
-              <button
-                type="button"
-                onClick={() => openMode('ADMIN_CONSOLE')}
-                className="mt-3 rounded-xl border border-slate-700 bg-slate-800 px-4 py-2 text-sm font-black text-slate-200 md:mt-0"
-              >
-                Öppna admin
-              </button>
-            </div>
-          </section>
-
-          <section className="mt-8 rounded-3xl border border-slate-800 bg-slate-900 p-6 md:flex md:items-center md:justify-between">
-            <div>
-              <p className="text-[11px] uppercase tracking-[0.18em] text-slate-400">Kom igång direkt</p>
-              <h4 className="mt-2 text-2xl font-black">Vill du skapa första ärendet nu?</h4>
-              <p className="mt-2 text-sm text-slate-300">
-                Starta i prövningsportalen och lägg till logistik eller projektledning när behovet finns.
-              </p>
-            </div>
-            <button
-              type="button"
-              onClick={() => openMode('PERMIT_PORTAL')}
-              className="mt-4 rounded-xl px-4 py-2 text-sm font-black text-white md:mt-0"
-              style={{ backgroundColor: 'var(--color-primary-500)' }}
-            >
-              Starta portal
-            </button>
-          </section>
-        </div>
-      </div>
+      <TechnicalDashboardHub
+        onSelectModule={(id) => {
+          if (id === 'mvp' || id === 'ansokan') openMode('MVP_WORKFLOW');
+          else if (id === 'logistik') openMode('LOGISTICS_MARKET');
+          else if (id === 'projekt') openMode('PROJECT_MANAGER');
+          else if (id === 'gronkoll') openMode('COMPLIANCE_AUDIT');
+        }}
+        user={{ name: "System User" }}
+      />
     );
   }
 
@@ -322,18 +171,11 @@ const App: React.FC = () => {
   return (
     <div className="min-h-screen flex overflow-hidden font-['Plus_Jakarta_Sans'] bg-slate-50">
       <aside className="w-[250px] flex flex-col shrink-0 border-r border-[#243148] bg-[#1c212e] text-white">
-        <div className="h-24 flex items-center px-6 gap-4 border-b border-[#243148]">
-          <div className={`w-10 h-10 rounded-xl flex items-center justify-center text-white text-xl font-black shadow-lg ${activeMode.accent}`}>
-            {mode[0]}{mode.split('_')[1]?.[0] || mode[1]}
-          </div>
-          <div>
-            <h1 className="text-lg font-black tracking-tight leading-none italic">
-              Miljöbeslut.se 2.0
-            </h1>
-            <p className="text-[9px] font-bold text-[#8ea0bf] uppercase tracking-widest mt-1">
-              {activeMode.title}
-            </p>
-          </div>
+        <div className="h-24 flex flex-col justify-center px-6 gap-2 border-b border-[#243148]">
+          <img src="/logo.png" alt="Miljöbeslut.se Logo" className="h-8 w-auto object-contain self-start" />
+          <p className="text-[9px] font-bold text-[#8ea0bf] uppercase tracking-widest">
+            {activeMode.title}
+          </p>
         </div>
 
         <nav className="flex-1 px-3 py-4 space-y-2 overflow-y-auto custom-scrollbar">
@@ -344,9 +186,8 @@ const App: React.FC = () => {
               key={`module-${item.mode}`}
               type="button"
               onClick={() => openMode(item.mode)}
-              className={`w-[226px] h-[35px] flex items-center gap-[10px] px-[10px] rounded-[10px] text-left transition ${
-                mode === item.mode ? 'bg-[#29334a]' : 'bg-[#1f2633] hover:bg-[#273042]'
-              }`}
+              className={`w-[226px] h-[35px] flex items-center gap-[10px] px-[10px] rounded-[10px] text-left transition ${mode === item.mode ? 'bg-[#29334a]' : 'bg-[#1f2633] hover:bg-[#273042]'
+                }`}
             >
               <span className={`h-2 w-2 rounded-full ${mode === item.mode ? 'bg-[#1d77ff]' : 'bg-[#6f86a5]'}`} />
               <span className="text-[12px] font-semibold text-[#e0ebf7] truncate">{item.title}</span>
@@ -361,9 +202,14 @@ const App: React.FC = () => {
 
           <p className="px-[10px] pt-1 pb-1 text-[11px] font-semibold uppercase tracking-[0.08em] text-[#7086a4]">Sections</p>
           <SidebarLink active={activeTab === 'summary'} icon="fa-house" label="Dashboard" onClick={() => setActiveTab('summary')} />
-          <SidebarLink active={activeTab === 'guide'} icon="fa-book-open" label="Användarstöd" onClick={() => setActiveTab('guide')} />
-          <SidebarLink active={activeTab === 'integrations'} icon="fa-network-wired" label="API och lager" onClick={() => setActiveTab('integrations')} />
-          <SidebarLink active={activeTab === 'legal'} icon="fa-scale-balanced" label="Juridik och GDPR" onClick={() => setActiveTab('legal')} />
+          {mode !== 'MVP_WORKFLOW' && (
+            <>
+              <SidebarLink active={activeTab === 'summary'} icon="fa-chart-pie" label="Beslutsöversikt" onClick={() => setActiveTab('summary')} />
+              <SidebarLink active={activeTab === 'integrations'} icon="fa-database" label="Service Integrations" onClick={() => setActiveTab('integrations')} />
+              <SidebarLink active={activeTab === 'guide'} icon="fa-book-open" label="Manualer & Support" onClick={() => setActiveTab('guide')} />
+              <SidebarLink active={activeTab === 'legal'} icon="fa-scale-balanced" label="Rättsligt stöd" onClick={() => setActiveTab('legal')} />
+            </>
+          )}
 
           {mode === 'LOGISTICS_MARKET' && (
             <>
@@ -378,7 +224,7 @@ const App: React.FC = () => {
               <SidebarLink active={activeTab === 'apply'} icon="fa-pen-to-square" label="Ny ansökan" onClick={() => setActiveTab('apply')} />
               <SidebarLink active={activeTab === 'forms'} icon="fa-file-invoice" label="Blankettmotor" onClick={() => setActiveTab('forms')} />
               <SidebarLink active={activeTab === 'biodiversity'} icon="fa-bugs" label="Bioinventering" onClick={() => setActiveTab('biodiversity')} />
-              <SidebarLink active={activeTab === 'risks'} icon="fa-shield-virus" label="Riskanalys (GIS)" onClick={() => setActiveTab('risks')} />
+              <SidebarLink active={activeTab === 'risks'} icon="fa-shield-virus" label="Fastighetsanalys" onClick={() => setActiveTab('risks')} />
               <SidebarLink active={activeTab === 'map'} icon="fa-map-location-dot" label="Kartutforskare" onClick={() => setActiveTab('map')} />
             </>
           )}
@@ -387,7 +233,7 @@ const App: React.FC = () => {
             <>
               <SidebarLink active={activeTab === 'plan'} icon="fa-scroll" label="Projektplan" onClick={() => setActiveTab('plan')} />
               <SidebarLink active={activeTab === 'timeline'} icon="fa-calendar-range" label="Tidplan och Gantt" onClick={() => setActiveTab('timeline')} />
-              <SidebarLink active={activeTab === 'field'} icon="fa-camera-retro" label="Fältstöd (AI)" onClick={() => setActiveTab('field')} />
+              <SidebarLink active={activeTab === 'field'} icon="fa-camera-retro" label="Fältdokumentation" onClick={() => setActiveTab('field')} />
               <SidebarLink active={activeTab === 'risks'} icon="fa-triangle-exclamation" label="Riskhantering" onClick={() => setActiveTab('risks')} />
             </>
           )}
@@ -403,8 +249,13 @@ const App: React.FC = () => {
           {mode === 'ADMIN_CONSOLE' && (
             <>
               <SidebarLink active={activeTab === 'admin-search'} icon="fa-magnifying-glass-chart" label="Admin sökcenter" onClick={() => setActiveTab('admin-search')} />
+              <SidebarLink active={activeTab === 'admin-review'} icon="fa-clipboard-check" label="Kvalitetssäkring" onClick={() => setActiveTab('admin-review')} />
               <SidebarLink active={activeTab === 'admin-insight'} icon="fa-shield-check" label="Analys och compliance" onClick={() => setActiveTab('admin-insight')} />
             </>
+          )}
+
+          {mode === 'MVP_WORKFLOW' && (
+            <SidebarLink active={activeTab === 'mvp'} icon="fa-rocket" label="Ansökningsflöde" onClick={() => setActiveTab('mvp')} />
           )}
         </nav>
 
@@ -437,54 +288,14 @@ const App: React.FC = () => {
             <span className={`text-[10px] font-black px-3 py-1.5 rounded-full border ${carbonReady ? 'bg-emerald-50 text-emerald-700 border-emerald-200' : 'bg-slate-100 text-slate-500 border-slate-200'}`}>
               CO2 {carbonReady ? 'READY' : 'MISSING'}
             </span>
-            <span className="text-[10px] font-black px-3 py-1.5 rounded-full bg-slate-100 text-slate-500 border border-slate-200">
+            <span className="text-[10px] font-black px-3 py-1.5 rounded-full bg-slate-100 text-slate-500 border-slate-200">
               SYSTEM VERSION 5.0.0
             </span>
           </div>
         </header>
 
-        <div className="flex-1 overflow-y-auto p-6 md:p-10 custom-scrollbar">
-          {activeTab === 'summary' && <ExecutiveSummary />}
-          {activeTab === 'guide' && <Guide mode={mode} onNavigate={setActiveTab} />}
-          {activeTab === 'integrations' && <IntegrationsDashboard />}
-          {activeTab === 'legal' && <LegalSupportCenter />}
-
-          {mode === 'LOGISTICS_MARKET' && (
-            <>
-              {activeTab === 'archive' && <MarketIntelView permits={permits} onSelectPermit={setSelectedPermit} />}
-              {activeTab === 'logistics' && <MarketIntelView mode="logistics" permits={permits} onSelectPermit={setSelectedPermit} />}
-              {activeTab === 'triage' && <AssetTriage />}
-            </>
-          )}
-
-          {mode === 'PERMIT_PORTAL' && (
-            <>
-              {activeTab === 'forms' && <FormManager />}
-              {activeTab === 'biodiversity' && <SluExpert />}
-              {activeTab === 'risks' && <GisRiskModule />}
-              {activeTab === 'map' && <PermitPortalView permits={permits} />}
-              {activeTab === 'apply' && (
-                <div className="space-y-8">
-                  <PermitPortalView permits={permits} mode="apply" />
-                  <ApplicationWizard />
-                </div>
-              )}
-            </>
-          )}
-
-          {mode === 'PROJECT_MANAGER' && activeTab === 'field' && <FieldAssistant />}
-
-          {mode === 'PROJECT_MANAGER' && activeTab !== 'summary' && activeTab !== 'integrations' && activeTab !== 'guide' && activeTab !== 'field' && (
-            <ProjectManagerView activeTab={activeTab} />
-          )}
-
-          {mode === 'COMPLIANCE_AUDIT' && activeTab !== 'summary' && activeTab !== 'integrations' && activeTab !== 'guide' && (
-            <ExecutiveSummary mode={activeTab} />
-          )}
-
-          {mode === 'ADMIN_CONSOLE' && activeTab !== 'summary' && activeTab !== 'integrations' && activeTab !== 'guide' && (
-            <AdminSearchConsole panel={activeTab === 'admin-insight' ? 'insight' : 'search'} />
-          )}
+        <div className="flex-1 overflow-y-auto p-6 md:p-10 custom-scrollbar relative">
+          {renderContent()}
         </div>
         <ChatBot />
       </main>
@@ -494,58 +305,12 @@ const App: React.FC = () => {
   );
 };
 
-const MetricTile: React.FC<{ label: string; value: string }> = ({ label, value }) => (
-  <div className="rounded-2xl border border-slate-700 bg-slate-800 p-4">
-    <p className="text-[10px] uppercase tracking-[0.18em] text-slate-400 font-black">{label}</p>
-    <p className="mt-1 text-xl font-black">{value}</p>
-  </div>
-);
-
-const TrustPill: React.FC<{ label: string }> = ({ label }) => (
-  <div className="rounded-xl border border-slate-700 bg-slate-800 px-3 py-2">{label}</div>
-);
-
-const HowStep: React.FC<{ number: string; title: string; text: string }> = ({ number, title, text }) => (
-  <div className="rounded-2xl border border-slate-800 bg-slate-900 p-5">
-    <p className="text-[11px] font-black uppercase tracking-[0.18em] text-indigo-300">Steg {number}</p>
-    <h5 className="mt-2 text-lg font-black">{title}</h5>
-    <p className="mt-2 text-sm text-slate-300">{text}</p>
-  </div>
-);
-
-const QuickStartCard: React.FC<{
-  title: string;
-  text: string;
-  buttonLabel: string;
-  onClick: () => void;
-  accent: string;
-  icon: string;
-}> = ({ title, text, buttonLabel, onClick, accent, icon }) => (
-  <div className="rounded-2xl border border-slate-800 bg-slate-900 p-5">
-    <div className="flex items-center gap-3">
-      <span className={`inline-flex h-9 w-9 items-center justify-center rounded-lg text-white ${accent}`}>
-        <i className={`fas ${icon}`} />
-      </span>
-      <p className="text-base font-black">{title}</p>
-    </div>
-    <p className="mt-3 text-sm text-slate-300">{text}</p>
-    <button
-      type="button"
-      onClick={onClick}
-      className="mt-4 rounded-xl border border-slate-700 bg-slate-800 px-4 py-2 text-xs font-black uppercase tracking-[0.14em] text-slate-200"
-    >
-      {buttonLabel}
-    </button>
-  </div>
-);
-
 const SidebarLink: React.FC<{ active: boolean; icon: string; label: string; onClick: () => void }> = ({ active, icon, label, onClick }) => (
   <button
     onClick={onClick}
     title={icon}
-    className={`w-[226px] h-[35px] flex items-center gap-[10px] px-[10px] rounded-[10px] transition-all duration-200 text-left ${
-      active ? 'bg-[#29334a] text-[#e0ebf7]' : 'bg-[#1f2633] text-[#e0ebf7] hover:bg-[#273042]'
-    }`}
+    className={`w-[226px] h-[35px] flex items-center gap-[10px] px-[10px] rounded-[10px] transition-all duration-200 text-left ${active ? 'bg-[#29334a] text-[#e0ebf7]' : 'bg-[#1f2633] text-[#e0ebf7] hover:bg-[#273042]'
+      }`}
   >
     <span className={`h-2 w-2 rounded-full ${active ? 'bg-[#1d77ff]' : 'bg-[#6f86a5]'}`} />
     <span className="text-[12px] font-semibold tracking-tight truncate">{label}</span>

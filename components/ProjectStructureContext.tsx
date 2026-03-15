@@ -158,6 +158,7 @@ export const ProjectStructureProvider: React.FC<{ children: React.ReactNode }> =
     ],
   });
 
+  /*
   useEffect(() => {
     if (typeof window === 'undefined') return;
     const raw = window.localStorage.getItem(PROJECT_STRUCTURE_STORAGE_KEY);
@@ -179,6 +180,7 @@ export const ProjectStructureProvider: React.FC<{ children: React.ReactNode }> =
       setPlan(createDefaultProjectPlan());
     }
   }, []);
+  */
 
   useEffect(() => {
     if (typeof window === 'undefined') return;

@@ -24,6 +24,11 @@
     "figma:export": "tsx scripts/export-figma.ts",
     "kravmatris:auto": "tsx scripts/export-kravmatris-from-dump.ts",
     "requirements:model": "tsx scripts/build-requirements-model.ts",
+    "ingest:emails:idempotent": "tsx scripts/import/idempotent-ingest.ts",
+    "ingest:requirements:idempotent": "tsx scripts/import/extract-requirements-idempotent.ts",
+    "import:property-units": "tsx scripts/import/import-lantmateriet-property-units.ts",
+    "import:sgu-risk-layers": "tsx scripts/import/import-sgu-risk-layers.ts",
+    "graph:build": "tsx scripts/graph/build-knowledge-graph.ts",
     "search:health": "tsx scripts/search-health.ts",
     "search:repair": "tsx scripts/search-health.ts --repair --recover-stale",
     "tokens:build": "node scripts/build-tokens-css.mjs",
@@ -46,13 +51,15 @@
     "leaflet": "1.9.4",
     "lucide-react": "^0.575.0",
     "motion": "^12.34.3",
+    "openai": "^6.27.0",
     "pdf-parse": "^2.4.5",
     "react": "^19.2.4",
     "react-dom": "^19.2.4",
     "react-markdown": "^10.1.0",
     "recharts": "^3.7.0",
     "tailwind-merge": "^3.5.0",
-    "yazl": "^3.3.1"
+    "yazl": "^3.3.1",
+    "zod": "^3.25.76"
   },
   "devDependencies": {
     "@eslint/js": "^9.39.3",

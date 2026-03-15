@@ -29,7 +29,7 @@ export async function generateApplicationDraft(options: DraftDocumentOptions): P
             projectId: options.projectId,
             organisationId: options.organisationId,
             entryId: `DRAFT-${new Date().getTime()}`,
-            subject: "Anmalan om mellanlagring - UTKAST",
+            subject: "Miljöbeslut.se - Anmalan om mellanlagring - UTKAST",
             originalName: draftName,
             diskName: draftName,
             absolutePath: `/virtual/drafts/${draftName}`,

@@ -2,12 +2,19 @@
 import { Permit, DecisionType, WasteCode, Receiver, ProjectPhase, IntegrationSource } from './types';
 
 export const INTEGRATION_SOURCES: IntegrationSource[] = [
-  { id: '1', name: 'Fastighetsdata (Avgiftsfri)', provider: 'Lantmäteriet', dataType: 'API (Gränser & Ägare)', status: 'CONNECTED', lastSync: 'Realtid', complexity: 2 },
-  { id: '2', name: 'Natura 2000', provider: 'Naturvårdsverket', dataType: 'Skyddade områden (Spatial)', status: 'CONNECTED', lastSync: '12h', complexity: 3 },
-  { id: '3', name: 'Fornsök', provider: 'Riksantikvarieämbetet', dataType: 'K-samsök API', status: 'CONNECTED', lastSync: '24h', complexity: 2 },
-  { id: '4', name: 'Jordartskarta 1:25k', provider: 'SGU', dataType: 'Geologiska lager', status: 'CONNECTED', lastSync: '7d', complexity: 4 },
-  { id: '5', name: 'Översvämningskartering', provider: 'MSB', dataType: 'WMS (Inspire)', status: 'CONNECTED', lastSync: '1h', complexity: 2 },
-  { id: '6', name: 'Invasiva Arter', provider: 'SLU Artdatabanken', dataType: 'API (Dyntaxa/Artportalen)', status: 'CONNECTED', lastSync: '1h', complexity: 4 }
+  // Prioritet 1: Måste ha
+  { id: '1', name: 'Administrativ Indelning', provider: 'Lantmäteriet', dataType: 'Inspire Download', status: 'CONNECTED', lastSync: 'Månadsvis', complexity: 2 },
+  { id: '2', name: 'Hydrografi', provider: 'Lantmäteriet', dataType: 'Nedladdning', status: 'CONNECTED', lastSync: 'Månadsvis', complexity: 3 },
+  { id: '3', name: 'Marktäcke', provider: 'Lantmäteriet', dataType: 'Inspire Download', status: 'CONNECTED', lastSync: 'Månadsvis', complexity: 4 },
+  { id: '4', name: 'Fastighetsområden', provider: 'Lantmäteriet', dataType: 'Download', status: 'CONNECTED', lastSync: 'Dagligen', complexity: 4 },
+  { id: '5', name: 'NVR & Natura 2000', provider: 'Naturvårdsverket', dataType: 'API (Öppen)', status: 'CONNECTED', lastSync: 'Nattlig', complexity: 3 },
+  { id: '6', name: 'SGU Geologi', provider: 'SGU', dataType: 'API/Download', status: 'CONNECTED', lastSync: 'Månadsvis', complexity: 4 },
+  // Prioritet 2: Bra att ha
+  { id: '7', name: 'Belägenhetsadresser', provider: 'Lantmäteriet', dataType: 'Inspire Download', status: 'CONNECTED', lastSync: 'Månadsvis', complexity: 2 },
+  { id: '8', name: 'Byggnader', provider: 'Lantmäteriet', dataType: 'Inspire Download', status: 'CONNECTED', lastSync: 'Månadsvis', complexity: 3 },
+  { id: '9', name: 'Översvämningskartering', provider: 'MSB', dataType: 'WMS (Inspire)', status: 'CONNECTED', lastSync: '1h', complexity: 2 },
+  { id: '10', name: 'Kulturmiljö (RAÄ)', provider: 'Riksantikvarieämbetet', dataType: 'WMS (Fornsök)', status: 'CONNECTED', lastSync: 'Realtid', complexity: 2 },
+  { id: '11', name: 'Vattenförekomster (VISS)', provider: 'Länsstyrelsen', dataType: 'API (Öppen)', status: 'CONNECTED', lastSync: 'Veckovis', complexity: 3 },
 ];
 
 export const WASTE_CODES: WasteCode[] = [
@@ -15,7 +22,7 @@ export const WASTE_CODES: WasteCode[] = [
     code: '90.131',
     name: 'Användning av avfall för anläggningsändamål (ringa risk)',
     type: 'SNI',
-    requirements: {
+  requirements: {
       storageTime: 'Max 3 år',
       maxAmount: 'Obegränsad vid ringa risk',
       safetyDistance: '50m till bostäder',
@@ -211,6 +218,21 @@ export const MOCK_PERMITS: Permit[] = [
     lat: 59.327,
     lng: 18.258,
     applicant_company: "ByggRetur Nacka AB"
+  },
+  {
+    id: 4,
+    filename: "Beslut_Orsa_Stackmora_2024.pdf",
+    checksum: "sha256_orsa_312",
+    received_date: "2024-03-01",
+    property_id: "ORSA STACKMORA 3:12",
+    municipality: "Orsa",
+    waste_codes: "90.131",
+    decision_type: DecisionType.BIFALL,
+    full_text: "Beviljat tillstand for masshantering i Orsa Stackmora.",
+    processed_at: "2024-03-05 10:00:00",
+    lat: 61.134,
+    lng: 14.665,
+    applicant_company: "Orsa Gräv & Schakt"
   }
 ];
 
@@ -230,3 +252,4 @@ export const MOCK_PROPERTY_DATA = {
     { phase: "Drift", tasks: ["Löpande kontroll av grundvattenrör"] }
   ]
 };
+

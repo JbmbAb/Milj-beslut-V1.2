@@ -3,6 +3,7 @@ import React, { useState } from 'react';
 import { Permit } from '../types';
 import { analyzePermitRisk, chatWithPermit } from '../services/geminiService';
 import MunicipalityAvatar from './MunicipalityAvatar';
+import { BtfaNoteWidget } from './BtfaNoteWidget';
 
 interface DetailModalProps {
   permit: Permit;
@@ -118,6 +119,10 @@ const DetailModal: React.FC<DetailModalProps> = ({ permit, onClose }) => {
                   </div>
                   {permit.full_text}
                 </div>
+              </section>
+
+              <section>
+                <BtfaNoteWidget caseId={permit.id.toString()} />
               </section>
             </div>
 

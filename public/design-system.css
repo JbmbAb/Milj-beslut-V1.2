@@ -1,0 +1,107 @@
+/* 
+  Technical Dark Design System
+  Inspired by Figma "RiskGuard.ai" / "Miljobeslut.se"
+*/
+
+@import url('https://fonts.googleapis.com/css2?family=Outfit:wght@100;300;400;500;600;700;800;900&family=Inter:wght@100;300;400;500;600;700;800;900&display=swap');
+
+:root {
+    /* Colors */
+    --bg-main: #060607;
+    --bg-card: #0F0F11;
+    --bg-card-hover: #161619;
+
+    --primary: #6366F1;
+    /* Indigo */
+    --primary-glow: rgba(99, 102, 241, 0.15);
+
+    --secondary: #14B8A6;
+    /* Teal */
+    --secondary-glow: rgba(20, 184, 166, 0.15);
+
+    --accent: #F43F5E;
+    /* Rose */
+    --accent-glow: rgba(244, 63, 94, 0.15);
+
+    --text-primary: #FFFFFF;
+    --text-secondary: #94A3B8;
+    --text-muted: #475569;
+
+    --border: rgba(255, 255, 255, 0.08);
+    --border-bright: rgba(255, 255, 255, 0.15);
+
+    /* Effects */
+    --glass: backdrop-filter: blur(16px) saturate(180%);
+    --shadow-lg: 0 20px 25px -5px rgba(0, 0, 0, 0.5), 0 10px 10px -5px rgba(0, 0, 0, 0.4);
+}
+
+body {
+    background-color: var(--bg-main);
+    color: var(--text-primary);
+    font-family: 'Inter', sans-serif;
+    margin: 0;
+    -webkit-font-smoothing: antialiased;
+}
+
+h1,
+h2,
+h3,
+h4,
+.font-display {
+    font-family: 'Outfit', sans-serif;
+}
+
+/* Glass Card */
+.tech-card {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: 24px;
+    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+    overflow: hidden;
+}
+
+.tech-card:hover {
+    border-color: var(--border-bright);
+    transform: translateY(-4px);
+    background: var(--bg-card-hover);
+    box-shadow: var(--shadow-lg);
+}
+
+/* Glow Effects */
+.glow-indigo:hover {
+    box-shadow: 0 0 40px var(--primary-glow);
+}
+
+.glow-teal:hover {
+    box-shadow: 0 0 40px var(--secondary-glow);
+}
+
+.glow-rose:hover {
+    box-shadow: 0 0 40px var(--accent-glow);
+}
+
+/* Buttons */
+.btn-primary {
+    background: var(--primary);
+    color: white;
+    padding: 12px 24px;
+    border-radius: 14px;
+    font-weight: 700;
+    border: none;
+    cursor: pointer;
+    transition: all 0.2s;
+    font-family: 'Outfit', sans-serif;
+}
+
+.btn-primary:hover {
+    filter: brightness(1.1);
+    transform: scale(1.02);
+}
+
+/* Animated Gradient Text */
+.gradient-text {
+    background: linear-gradient(135deg, #fff 0%, #94A3B8 100%);
+    -webkit-background-clip: text;
+    background-clip: text;
+    -webkit-text-fill-color: transparent;
+}

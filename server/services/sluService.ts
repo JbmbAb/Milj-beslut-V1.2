@@ -252,3 +252,38 @@ export async function searchSluObservations(input: {
     user: input.user,
   });
 }
+export async function searchSluByCoordinates(input: {
+  lat: number;
+  lng: number;
+  radiusDecimalDegrees?: number;
+  purpose: string;
+  user: AuthUser;
+  projectId?: string;
+}): Promise<unknown> {
+  const radius = input.radiusDecimalDegrees || 0.01; // ~1km
+  const payload = {
+    coordinateSystem: "WGS84",
+    searchArea: {
+      type: "Polygon",
+      coordinates: [
+        [
+          [input.lng - radius, input.lat - radius],
+          [input.lng + radius, input.lat - radius],
+          [input.lng + radius, input.lat + radius],
+          [input.lng - radius, input.lat + radius],
+          [input.lng - radius, input.lat - radius],
+        ],
+      ],
+    },
+  };
+
+  return callSluProductApi({
+    product: "species_observations",
+    method: "POST",
+    pathSuffix: "",
+    payload,
+    projectId: input.projectId,
+    purpose: input.purpose,
+    user: input.user,
+  });
+}

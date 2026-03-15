@@ -2,7 +2,7 @@
 import React from 'react';
 import { Task } from '../types';
 
-const MOCK_TASKS: Task[] = [
+const _MOCK_TASKS: Task[] = [
   { id: '1', title: 'Inledande platsspecifik riskanalys', startWeek: 2, duration: 4, type: 'TECHNICAL', status: 'DONE' },
   { id: '2', title: 'Samråd med närboende & intressenter', startWeek: 6, duration: 3, type: 'LEGAL', status: 'ONGOING' },
   { id: '3', title: 'Fältundersökning: PAH & Markprover', startWeek: 8, duration: 2, type: 'FIELD', status: 'TODO' },
@@ -22,10 +22,10 @@ interface GanttChartProps {
   phases?: any[];
 }
 
-const GanttChart: React.FC<GanttChartProps> = ({ phases: _phases }) => {
+const GanttChart: React.FC<GanttChartProps> = ({ phases }) => {
   const totalWeeks = 52;
 
-  const getTypeColor = (type: Task['type']) => {
+  const getTypeColor = (type?: string) => {
     switch (type) {
       case 'LEGAL': return 'bg-rose-500';
       case 'TECHNICAL': return 'bg-blue-500';
@@ -35,17 +35,32 @@ const GanttChart: React.FC<GanttChartProps> = ({ phases: _phases }) => {
     }
   };
 
+  if (!phases || phases.length === 0) {
+    return (
+      <div className="bg-slate-50 border border-slate-200 border-dashed rounded-[3rem] p-12 text-center text-slate-400 font-bold uppercase tracking-widest text-sm">
+        Ingen tidplan genererad ännu. Ange fastighetsbeteckning för att starta projektmotorn.
+      </div>
+    );
+  }
+
+  // Flatten phases and tasks into a single viewable list
+  const allTasks = phases.flatMap(phase => phase.tasks.map((task: any) => ({
+    ...task,
+    phaseId: phase.id,
+    phaseTitle: phase.title
+  })));
+
   return (
     <div className="bg-white rounded-[3rem] border border-slate-200 shadow-sm overflow-hidden flex flex-col animate-in fade-in duration-700">
       <header className="p-8 border-b border-slate-100 flex justify-between items-center bg-slate-50/50">
         <div>
-          <h3 className="text-2xl font-black text-slate-900 tracking-tighter italic">Projekt-Tidplan 2024</h3>
+          <h3 className="text-2xl font-black text-slate-900 tracking-tighter italic">Projekt-Tidplan</h3>
           <p className="text-slate-400 text-[10px] font-black uppercase tracking-widest mt-1 italic">Baserad på myndighetskrav & prövningsprocess</p>
         </div>
         <div className="flex gap-4">
-           <LegendItem color="bg-rose-500" label="Juridisk process" />
-           <LegendItem color="bg-blue-500" label="Tekniskt underlag" />
-           <LegendItem color="bg-emerald-500" label="Fältarbete" />
+          <LegendItem color="bg-rose-500" label="Juridisk process" />
+          <LegendItem color="bg-blue-500" label="Tekniskt underlag" />
+          <LegendItem color="bg-emerald-500" label="Fältarbete" />
         </div>
       </header>
 
@@ -65,27 +80,31 @@ const GanttChart: React.FC<GanttChartProps> = ({ phases: _phases }) => {
 
           {/* Grid View */}
           <div className="relative">
-            {MOCK_TASKS.map((task) => (
+            {allTasks.map((task: any) => (
               <div key={task.id} className="flex border-b border-slate-50 hover:bg-slate-50/50 transition-colors group">
                 <div className="w-64 shrink-0 p-4 border-r border-slate-100 flex items-center gap-3">
                   <div className={`w-2 h-2 rounded-full ${task.status === 'DONE' ? 'bg-emerald-500' : task.status === 'ONGOING' ? 'bg-blue-500 animate-pulse' : 'bg-slate-200'}`}></div>
-                  <span className="text-xs font-bold text-slate-700 truncate group-hover:text-blue-600 transition-colors">{task.title}</span>
+                  <div className="flex flex-col truncate">
+                    <span className="text-[9px] font-black text-slate-400 uppercase tracking-widest">{task.phaseTitle}</span>
+                    <span className="text-xs font-bold text-slate-700 truncate group-hover:text-blue-600 transition-colors">{task.title}</span>
+                  </div>
                 </div>
                 <div className="flex-1 relative h-12 flex items-center">
                   {/* Background Grid Lines */}
                   {Array.from({ length: totalWeeks }).map((_, i) => (
                     <div key={i} className="flex-1 h-full border-r border-slate-50/50"></div>
                   ))}
-                  
+
                   {/* Task Bar */}
-                  <div 
+                  <div
                     className={`absolute h-6 rounded-full shadow-lg ${getTypeColor(task.type)} opacity-90 hover:opacity-100 hover:scale-[1.02] transition-all cursor-pointer flex items-center px-3 overflow-hidden`}
-                    style={{ 
-                      left: `${(task.startWeek / totalWeeks) * 100}%`, 
-                      width: `${(task.duration / totalWeeks) * 100}%` 
+                    style={{
+                      // Provide defaults if startWeek/duration are missing from DB
+                      left: `${((task.startWeek || 1) / totalWeeks) * 100}%`,
+                      width: `${((task.duration || 2) / totalWeeks) * 100}%`
                     }}
                   >
-                    <span className="text-[8px] font-black text-white uppercase tracking-tighter truncate">{task.duration} v</span>
+                    <span className="text-[8px] font-black text-white uppercase tracking-tighter truncate">{task.duration || 2} v</span>
                   </div>
                 </div>
               </div>
@@ -93,21 +112,21 @@ const GanttChart: React.FC<GanttChartProps> = ({ phases: _phases }) => {
           </div>
         </div>
       </div>
-      
+
       <footer className="p-6 bg-slate-900 text-white flex justify-between items-center">
-         <div className="flex gap-8">
-            <div className="text-center">
-               <p className="text-[9px] font-black opacity-40 uppercase mb-1">Total Tid</p>
-               <p className="text-sm font-black italic">42 Veckor</p>
-            </div>
-            <div className="text-center">
-               <p className="text-[9px] font-black opacity-40 uppercase mb-1">Kritiska Steg</p>
-               <p className="text-sm font-black text-rose-400 italic">3 St</p>
-            </div>
-         </div>
-         <button className="px-6 py-2 bg-white/10 hover:bg-white/20 border border-white/10 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all">
-            Exportera till Excel / MSP
-         </button>
+        <div className="flex gap-8">
+          <div className="text-center">
+            <p className="text-[9px] font-black opacity-40 uppercase mb-1">Total Tid</p>
+            <p className="text-sm font-black italic">42 Veckor</p>
+          </div>
+          <div className="text-center">
+            <p className="text-[9px] font-black opacity-40 uppercase mb-1">Faser</p>
+            <p className="text-sm font-black text-rose-400 italic">{phases.length} St</p>
+          </div>
+        </div>
+        <button className="px-6 py-2 bg-white/10 hover:bg-white/20 border border-white/10 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all">
+          Exportera till Excel / MSP
+        </button>
       </footer>
     </div>
   );

@@ -4,5 +4,12 @@
   "requestFramePermissions": [
     "geolocation",
     "camera"
-  ]
+  ],
+  "projectUrl": "https://stitch.withgoogle.com/projects/9118488730778694849",
+  "stats": {
+    "totalDocuments": 3297,
+    "municipalityCoverage": "73%",
+    "decisionTypeCoverage": "56%",
+    "textStatus": "84%"
+  }
 }

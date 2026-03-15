@@ -5,6 +5,7 @@ import WeatherRisk from './WeatherRisk';
 import { WASTE_CODES } from '../constants';
 import { useProjectStructure } from './ProjectStructureContext';
 import { applyPermitCodeSelection } from '../services/projectStructure';
+import RequirementChecklist from './RequirementChecklist';
 
 interface PermitPortalViewProps {
   permits: Permit[];
@@ -96,10 +97,10 @@ const PermitPortalView: React.FC<PermitPortalViewProps> = ({ permits, mode = 'ma
     return (
       <div className="space-y-6 animate-in fade-in duration-500">
         <section className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
-          <p className="text-[11px] uppercase tracking-[0.18em] text-slate-500 font-black">Ansokningsportal</p>
-          <h2 className="mt-2 text-2xl font-black text-slate-900 md:text-3xl">Skapa juridiskt trygg ansokan med smart kodvaljare</h2>
+          <p className="text-[11px] uppercase tracking-[0.18em] text-slate-500 font-black">Ansökningsportal</p>
+          <h2 className="mt-2 text-2xl font-black text-slate-900 md:text-3xl">Juridiskt säker ansökan med smart kodväljare</h2>
           <p className="mt-3 max-w-3xl text-sm text-slate-600">
-            Valj verksamhetskod, kontrollera lagkrav och bygg ett sparbart ansokningsutkast med tydlig kallhanvisning.
+            Välj verksamhetskod, kontrollera lagkrav och få ett spårbart ansökningsutkast baserat på verifierad data.
           </p>
         </section>
 
@@ -108,7 +109,7 @@ const PermitPortalView: React.FC<PermitPortalViewProps> = ({ permits, mode = 'ma
             <div className="mb-5 flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
               <div>
                 <p className="text-[11px] uppercase tracking-[0.18em] text-slate-500 font-black">Steg 1</p>
-                <h3 className="text-xl font-black text-slate-900">Kodvaljare (SNI och EWC)</h3>
+                <h3 className="text-xl font-black text-slate-900">Kodväljare (SNI & EWC)</h3>
               </div>
               <div className="w-full sm:w-56">
                 <label className="text-[11px] uppercase tracking-[0.18em] text-slate-500 font-black">Kommun</label>
@@ -130,7 +131,7 @@ const PermitPortalView: React.FC<PermitPortalViewProps> = ({ permits, mode = 'ma
               <i className="fas fa-search absolute left-4 top-1/2 -translate-y-1/2 text-slate-400" />
               <input
                 type="text"
-                placeholder="Sok kod eller verksamhet"
+                placeholder="Sök kod eller verksamhet (t.ex. 17 05 04)"
                 className="w-full rounded-2xl border border-slate-200 bg-slate-50 py-3 pl-11 pr-4 text-sm font-medium text-slate-700 outline-none focus:ring-2 focus:ring-blue-200"
                 value={searchQuery}
                 onChange={(event) => setSearchQuery(event.target.value)}
@@ -146,20 +147,18 @@ const PermitPortalView: React.FC<PermitPortalViewProps> = ({ permits, mode = 'ma
                     setSelectedCode(code);
                     const applied = applySelectedCodeProfile(code);
                     setDraftSyncInfo(
-                      `Kodprofil synkad: ${applied.profile.regulatoryTrack}. Human legal review required before submission.`
+                      `Profil synkad: ${applied.profile.regulatoryTrack}.`
                     );
                   }}
-                  className={`w-full rounded-2xl border p-4 text-left transition ${
-                    selectedCode?.code === code.code
-                      ? 'border-blue-600 bg-blue-600 text-white shadow-sm'
-                      : 'border-slate-200 bg-white text-slate-800 hover:border-blue-300 hover:bg-blue-50'
-                  }`}
+                  className={`w-full rounded-2xl border p-4 text-left transition ${selectedCode?.code === code.code
+                    ? 'border-blue-600 bg-blue-600 text-white shadow-sm'
+                    : 'border-slate-200 bg-white text-slate-800 hover:border-blue-300 hover:bg-blue-50'
+                    }`}
                 >
                   <div className="mb-1 flex items-center justify-between">
                     <span
-                      className={`rounded-md px-2 py-0.5 text-[10px] font-black uppercase tracking-[0.12em] ${
-                        selectedCode?.code === code.code ? 'bg-white/20 text-white' : 'bg-slate-100 text-slate-500'
-                      }`}
+                      className={`rounded-md px-2 py-0.5 text-[10px] font-black uppercase tracking-[0.12em] ${selectedCode?.code === code.code ? 'bg-white/20 text-white' : 'bg-slate-100 text-slate-500'
+                        }`}
                     >
                       {code.type}
                     </span>
@@ -173,23 +172,21 @@ const PermitPortalView: React.FC<PermitPortalViewProps> = ({ permits, mode = 'ma
 
           <div className="rounded-3xl border border-slate-800 bg-slate-900 p-6 text-white shadow-sm">
             <p className="text-[11px] uppercase tracking-[0.18em] text-slate-400 font-black">Steg 2</p>
-            <h3 className="mt-2 text-xl font-black">Krav och regelkontroll</h3>
+            <h3 className="mt-2 text-xl font-black">Krav och bedömning</h3>
 
             {selectedCode ? (
               <div className="mt-5 space-y-4">
                 <div className="rounded-2xl border border-white/15 bg-white/5 p-4">
-                  <p className="text-[11px] uppercase tracking-[0.18em] text-blue-300 font-black">Checklista</p>
-                  <div className="mt-3 space-y-3">
-                    <ChecklistItem label="Lagringstid" value={selectedCode.requirements.storageTime || 'Ej specificerat'} reference={selectedCode.requirements.legalReference} />
-                    <ChecklistItem label="Maxmangd" value={selectedCode.requirements.maxAmount || 'Ej begransad'} reference={selectedCode.requirements.legalReference} />
-                    <ChecklistItem label="Skyddsavstand" value={selectedCode.requirements.safetyDistance || 'Standardkrav'} reference={selectedCode.requirements.legalReference} />
+                  <p className="text-[11px] uppercase tracking-[0.18em] text-blue-300 font-black">Checklista (AI-genererad)</p>
+                  <div className="mt-3">
+                    <RequirementChecklist code={selectedCode} />
                   </div>
                 </div>
 
                 <div className="rounded-2xl border border-blue-500/25 bg-blue-500/15 p-4">
                   <p className="text-[11px] uppercase tracking-[0.18em] text-blue-300 font-black">AI-insikt</p>
                   <p className="mt-2 text-sm leading-relaxed text-slate-200">
-                    For kod {selectedCode.code} i {selectedMuni} visar historiska beslut hog bifallsgrad nar invallning, loggning och tydlig kontrollplan bifogas.
+                    För kod {selectedCode.code} i {selectedMuni} noteras hög bifallsgrad när invallning, bullerberäkning och en tydlig kontrollplan bifogas ansökan initialt.
                   </p>
                 </div>
 
@@ -197,16 +194,16 @@ const PermitPortalView: React.FC<PermitPortalViewProps> = ({ permits, mode = 'ma
                   <div className="rounded-2xl border border-amber-400/30 bg-amber-500/10 p-4">
                     <p className="text-[11px] uppercase tracking-[0.18em] text-amber-200 font-black">MPF-profil</p>
                     <p className="mt-2 text-sm text-amber-100">
-                      Spar: <span className="font-black">{selectedProfile.regulatoryTrack}</span> | Riskniva:{' '}
-                      <span className="font-black">{selectedProfile.riskTier}</span> | Tidsbuffert:{' '}
-                      <span className="font-black">{selectedProfile.timelineBufferWeeks} vecka(or)</span>
+                      Spår: <span className="font-black">{selectedProfile.regulatoryTrack}</span> | Risknivå:{' '}
+                      <span className="font-black">{selectedProfile.riskTier}</span> | Handläggning:{' '}
+                      <span className="font-black">{selectedProfile.timelineBufferWeeks} v</span>
                     </p>
                     <p className="mt-2 text-xs text-amber-100/90">
                       Geofence-lager: {selectedProfile.requiredMapLayers.join(', ') || 'Inga extra lager'}.
                     </p>
                     {selectedProfile.thresholdTon !== null && (
                       <p className="mt-1 text-xs text-amber-100/90">
-                        Traskel: {selectedProfile.thresholdTon} ton ({selectedProfile.thresholdScope}).
+                        Volymgräns: {selectedProfile.thresholdTon} ton ({selectedProfile.thresholdScope}).
                       </p>
                     )}
                     <p className="mt-2 text-xs text-amber-100">{selectedProfile.reviewNote}</p>
@@ -218,7 +215,7 @@ const PermitPortalView: React.FC<PermitPortalViewProps> = ({ permits, mode = 'ma
                   onClick={() => void handleGenerateDraft()}
                   className="w-full rounded-xl bg-white px-4 py-3 text-sm font-black text-slate-900 transition hover:bg-slate-100"
                 >
-                  Generera ansokningsutkast
+                  Generera ansökningsutkast
                 </button>
                 <button
                   type="button"
@@ -226,15 +223,15 @@ const PermitPortalView: React.FC<PermitPortalViewProps> = ({ permits, mode = 'ma
                   disabled={!selectedCode}
                   className="w-full rounded-xl border border-blue-200 bg-blue-50 px-4 py-3 text-sm font-black text-blue-700 transition hover:bg-blue-100 disabled:opacity-50"
                 >
-                  Markera tillstand inskickat
+                  Markera tillstånd som inskickat
                 </button>
-                {permitSubmitted && <p className="text-xs text-blue-200">Tillstand markerat som inskickat.</p>}
+                {permitSubmitted && <p className="text-xs text-blue-200">Tillstånd inskickat.</p>}
                 {draftSyncInfo && <p className="text-xs text-blue-200">{draftSyncInfo}</p>}
               </div>
             ) : (
               <div className="mt-12 rounded-2xl border border-dashed border-slate-700 p-8 text-center text-slate-400">
                 <i className="fas fa-arrow-left text-xl" />
-                <p className="mt-3 text-sm font-semibold">Valj en kod i listan for att lasa krav och skapa underlag.</p>
+                <p className="mt-3 text-sm font-semibold">Välj en kod i listan för att läsa in gällande miljökrav.</p>
               </div>
             )}
           </div>
@@ -246,10 +243,10 @@ const PermitPortalView: React.FC<PermitPortalViewProps> = ({ permits, mode = 'ma
   return (
     <div className="space-y-6 animate-in fade-in duration-500">
       <section className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
-        <p className="text-[11px] uppercase tracking-[0.18em] text-slate-500 font-black">Portal overview</p>
-        <h2 className="mt-2 text-2xl font-black text-slate-900 md:text-3xl">Kartbaserad tillstandsvy med riskstod</h2>
+        <p className="text-[11px] uppercase tracking-[0.18em] text-slate-500 font-black">Översikt</p>
+        <h2 className="mt-2 text-2xl font-black text-slate-900 md:text-3xl">Kartbaserad insikt med riskstöd</h2>
         <p className="mt-3 max-w-3xl text-sm text-slate-600">
-          Kombinera vader, biodiversitet och geografiska lager for snabb bedomning innan ansokan skickas.
+          Kombinera väderdata, markförhållanden och miljöskyddsobjekt för snabb nulägesbedömning.
         </p>
       </section>
 
@@ -301,15 +298,5 @@ const PermitPortalView: React.FC<PermitPortalViewProps> = ({ permits, mode = 'ma
     </div>
   );
 };
-
-const ChecklistItem: React.FC<{ label: string; value: string; reference: string }> = ({ label, value, reference }) => (
-  <div className="rounded-xl border border-white/10 bg-white/5 p-3">
-    <div className="flex items-center justify-between gap-3">
-      <p className="text-xs font-black uppercase tracking-[0.12em] text-slate-300">{label}</p>
-      <span className="rounded-lg bg-white/10 px-2 py-1 text-[10px] font-bold text-blue-100">{reference}</span>
-    </div>
-    <p className="mt-2 text-sm font-semibold text-white">{value}</p>
-  </div>
-);
 
 export default PermitPortalView;

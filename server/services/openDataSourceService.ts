@@ -221,8 +221,11 @@ export async function fetchImmediateOpenSources(): Promise<FetchResult[]> {
       source: "sgu",
     })),
     fetchText("https://www.lansstyrelsen.se/").then((row) => ({ ...row, source: "lansstyrelsen" })),
-    fetchText("https://kulturarvsdata.se/").then((row) => ({ ...row, source: "riksantikvarieambetet" })),
-    fetchText("https://inspire.msb.se/oversvamning/wms?service=WMS&request=GetCapabilities").then((row) => ({
+    fetchText("https://pub.raa.se/visning/lamningar_v1/wms?service=WMS&request=GetCapabilities").then((row) => ({
+      ...row,
+      source: "riksantikvarieambetet",
+    })),
+    fetchText("https://inspire.msb.se/geoserver/oversvamning/wms?service=WMS&request=GetCapabilities").then((row) => ({
       ...row,
       source: "msb",
     })),

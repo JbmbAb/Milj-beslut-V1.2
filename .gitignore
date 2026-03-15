@@ -31,3 +31,24 @@ playwright-report
 test-results
 .quarantine/
 figma-raw.json
+
+# Temporary files
+.tmp-*
+tmp_*
+*.txt
+*.json
+!package.json
+!package-lock.json
+!tsconfig.json
+!stitch.json
+!figma-raw.json
+!*.md
+
+# Python cache
+__pycache__/
+*.pyc
+
+# Local debug artifacts
+.codex-logs/
+.postqode/
+.gemini/

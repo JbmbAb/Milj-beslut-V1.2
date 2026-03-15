@@ -18,10 +18,9 @@ export async function assertProjectMembership(input: {
   if (!project) {
     throw new Error("Project not found");
   }
-  if (input.role === "ADMIN") {
-    return;
-  }
 
+  // SECURITY FIX: ADMINs do NOT bypass membership checks
+  // All users must have explicit project membership
   if (project.organisationId !== input.organisationId) {
     throw new Error("Cross-organisation access denied");
   }

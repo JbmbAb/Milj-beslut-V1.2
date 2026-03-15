@@ -2,10 +2,10 @@ import crypto from "node:crypto";
 import type { Request, Response, NextFunction } from "express";
 import type { AuthUser } from "./types";
 import { getEnv } from "./env";
+import { isTokenRevoked, markRefreshTokenAsUsed } from "../repositories/tokenRepository";
 
 const accessTtlSeconds = 60 * 15;
 const refreshTtlSeconds = 60 * 60 * 24 * 7;
-const usedRefreshTokens = new Set<string>();
 
 function b64url(input: Buffer | string): string {
   const raw = Buffer.isBuffer(input) ? input.toString("base64") : Buffer.from(input, "utf8").toString("base64");
@@ -33,7 +33,7 @@ interface JwtPayload {
   exp: number;
 }
 
-function signJwt(payload: JwtPayload, secret: string): string {
+export function signJwt(payload: JwtPayload, secret: string): string {
   const header = { alg: "HS256", typ: "JWT" };
   const encodedHeader = b64url(JSON.stringify(header));
   const encodedPayload = b64url(JSON.stringify(payload));
@@ -88,15 +88,21 @@ export function createTokenPair(user: AuthUser): { accessToken: string; refreshT
   };
 }
 
-export function rotateRefreshToken(refreshToken: string): { accessToken: string; refreshToken: string; user: AuthUser } {
+export async function rotateRefreshToken(refreshToken: string): Promise<{ accessToken: string; refreshToken: string; user: AuthUser }> {
   const payload = verifyJwt<JwtPayload>(refreshToken, getEnv("JWT_REFRESH_SECRET"));
   if (payload.type !== "refresh") {
     throw new Error("Invalid token type");
   }
-  if (usedRefreshTokens.has(payload.jti)) {
-    throw new Error("Refresh token reuse detected");
+
+  // Check if token has already been used (prevents reuse attacks)
+  const isRevoked = await isTokenRevoked(payload.jti);
+  if (isRevoked) {
+    throw new Error("Refresh token reuse detected - possible security breach");
   }
-  usedRefreshTokens.add(payload.jti);
+
+  // Mark token as used immediately
+  const expiresAt = new Date(payload.exp * 1000);
+  await markRefreshTokenAsUsed(payload.sub, payload.jti, expiresAt);
 
   const user: AuthUser = {
     id: payload.sub,

@@ -87,7 +87,7 @@ const GisRiskModule: React.FC = () => {
     const conflicts: Array<{ text: string; layer?: string }> = [];
     if (riskParameters.includeFloodRisk) {
       conflicts.push({
-        text: "Overlapp med 100-ars oversvamningszon (SMHI).",
+        text: "Overlapp med 100-ars oversvamningszon (MSB).",
         layer: "smhi_flood",
       });
     }
@@ -332,4 +332,3 @@ const Toggle: React.FC<{ label: string; active: boolean; onClick: () => void }> 
 );
 
 export default GisRiskModule;
-

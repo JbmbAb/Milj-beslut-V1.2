@@ -57,7 +57,7 @@ const DEFAULT_SAMPLING_CHECKLIST = [
 const TEMPLATE_PACKS: ProjectTemplatePack[] = [
   {
     id: 'ENV_PERMIT_CORE',
-    name: 'Miljotillstand',
+    name: 'Miljötillstånd',
     projectType: 'ENV_PERMIT',
     requiredGates: ['PERMIT_REQUIRED', 'RISK_REVIEW', 'DOCUMENT_CONTROL', 'CARBON_CHECK'],
     defaultLayers: {
@@ -87,7 +87,7 @@ const TEMPLATE_PACKS: ProjectTemplatePack[] = [
   },
   {
     id: 'INFRA_STANDARD',
-    name: 'Infrastruktur/Anlaggning',
+    name: 'Infrastruktur/Anläggning',
     projectType: 'INFRA',
     requiredGates: ['RISK_REVIEW', 'DOCUMENT_CONTROL', 'CARBON_CHECK'],
     defaultLayers: {
@@ -154,7 +154,7 @@ const MPF_CODE_RULES: PermitCodeRule[] = [
   {
     code: '90.131',
     codeType: 'SNI',
-    legalReference: 'Miljoprovningsforordningen 29 kap. 31 par.',
+    legalReference: 'Miljöprövningsförordningen 29 kap. 31 par.',
     regulatoryTrack: 'NOTIFICATION',
     thresholdTon: null,
     thresholdScope: null,
@@ -165,7 +165,7 @@ const MPF_CODE_RULES: PermitCodeRule[] = [
   {
     code: '90.30',
     codeType: 'SNI',
-    legalReference: 'Miljoprovningsforordningen 29 kap. 30 par.',
+    legalReference: 'Miljöprövningsförordningen 29 kap. 30 par.',
     regulatoryTrack: 'NOTIFICATION',
     thresholdTon: 10,
     thresholdScope: 'AT_ONCE',
@@ -176,7 +176,7 @@ const MPF_CODE_RULES: PermitCodeRule[] = [
   {
     code: '90.50',
     codeType: 'SNI',
-    legalReference: 'Miljoprovningsforordningen 29 kap. 50 par.',
+    legalReference: 'Miljöprövningsförordningen 29 kap. 50 par.',
     regulatoryTrack: 'NOTIFICATION',
     thresholdTon: 25,
     thresholdScope: 'AT_ONCE',
@@ -187,7 +187,7 @@ const MPF_CODE_RULES: PermitCodeRule[] = [
   {
     code: '90.80',
     codeType: 'SNI',
-    legalReference: 'Miljoprovningsforordningen 29 kap. 80 par.',
+    legalReference: 'Miljöprövningsförordningen 29 kap. 80 par.',
     regulatoryTrack: 'NOTIFICATION',
     thresholdTon: 1000,
     thresholdScope: 'PER_YEAR',
@@ -198,7 +198,7 @@ const MPF_CODE_RULES: PermitCodeRule[] = [
   {
     code: '90.110',
     codeType: 'SNI',
-    legalReference: 'Miljoprovningsforordningen 29 kap. 110 par.',
+    legalReference: 'Miljöprövningsförordningen 29 kap. 110 par.',
     regulatoryTrack: 'NOTIFICATION',
     thresholdTon: 10000,
     thresholdScope: 'PER_YEAR',
@@ -209,7 +209,7 @@ const MPF_CODE_RULES: PermitCodeRule[] = [
   {
     code: '17 05 04',
     codeType: 'EWC',
-    legalReference: 'Avfallsforordningen bilaga 3',
+    legalReference: 'Avfallsförordningen bilaga 3',
     regulatoryTrack: 'NOTIFICATION',
     thresholdTon: null,
     thresholdScope: null,
@@ -220,7 +220,7 @@ const MPF_CODE_RULES: PermitCodeRule[] = [
   {
     code: '17 05 03*',
     codeType: 'EWC',
-    legalReference: 'Avfallsforordningen bilaga 3',
+    legalReference: 'Avfallsförordningen bilaga 3',
     regulatoryTrack: 'PERMIT',
     thresholdTon: null,
     thresholdScope: null,
@@ -523,7 +523,7 @@ function createTemplateDocuments(template: ProjectTemplatePack): ProjectArchiveD
 export function createDefaultProjectPlan(): ProjectPlan {
   return {
     name: 'Nytt Projekt',
-    revision: 'Utgava 1',
+    revision: 'Utgåva 1',
     projectType: 'ENV_PERMIT',
     templateId: DEFAULT_TEMPLATE_ID,
     background: '',
@@ -535,8 +535,8 @@ export function createDefaultProjectPlan(): ProjectPlan {
     complianceScore: 0,
     auditTrail: [],
     branding: {
-      organizationName: 'Miljobeslut.se',
-      logoUrl: '',
+      organizationName: 'Miljöbeslut.se',
+      logoUrl: '/logo.png',
       layoutTemplate: 'CORPORATE',
       primaryColor: '#0f172a',
     },
@@ -551,6 +551,7 @@ export function createDefaultProjectPlan(): ProjectPlan {
     driverJournals: [],
     limsReports: [],
     carbonSummary: createDefaultCarbonSummary(),
+    predictiveScores: undefined,
   };
 }
 
@@ -789,20 +790,20 @@ const normalizeLimsReports = (candidate: unknown): LimsReport[] => {
       const source = sources.includes(String(typed.source || '')) ? (typed.source as LimsReport['source']) : 'MANUAL';
       const metrics = Array.isArray(typed.metrics)
         ? typed.metrics
-            .filter((metric) => metric && typeof metric === 'object')
-            .map((metric) => {
-              const metricTyped = metric as any;
-              const value = Number(metricTyped.value || 0);
-              const maxAllowed = metricTyped.maxAllowed == null ? null : Number(metricTyped.maxAllowed);
-              return {
-                key: String(metricTyped.key || ''),
-                value,
-                unit: String(metricTyped.unit || ''),
-                maxAllowed: maxAllowed == null ? null : maxAllowed,
-                exceeded: maxAllowed == null ? false : value > maxAllowed,
-              };
-            })
-            .filter((metric) => metric.key)
+          .filter((metric) => metric && typeof metric === 'object')
+          .map((metric) => {
+            const metricTyped = metric as any;
+            const value = Number(metricTyped.value || 0);
+            const maxAllowed = metricTyped.maxAllowed == null ? null : Number(metricTyped.maxAllowed);
+            return {
+              key: String(metricTyped.key || ''),
+              value,
+              unit: String(metricTyped.unit || ''),
+              maxAllowed: maxAllowed == null ? null : maxAllowed,
+              exceeded: maxAllowed == null ? false : value > maxAllowed,
+            };
+          })
+          .filter((metric) => metric.key)
         : [];
 
       return {
@@ -859,6 +860,7 @@ export function normalizeProjectPlan(candidate?: Partial<ProjectPlan> | null): P
     driverJournals: normalizeDriverJournals(candidate.driverJournals),
     limsReports: normalizeLimsReports(candidate.limsReports),
     carbonSummary: normalizeCarbonSummary(candidate.carbonSummary),
+    predictiveScores: candidate.predictiveScores || defaults.predictiveScores,
   };
 }
 
@@ -1050,10 +1052,10 @@ export function evaluateStageGate(
   const contextCodeType = context?.codeType === 'SNI' || context?.codeType === 'EWC' ? context.codeType : undefined;
   const permitProfile = context?.permitType
     ? buildPermitCodeProfile({
-        code: context.permitType,
-        codeType: contextCodeType || plan.permitCodeProfile?.codeType || 'SNI',
-        municipality: plan.permitCodeProfile?.municipality || undefined,
-      })
+      code: context.permitType,
+      codeType: contextCodeType || plan.permitCodeProfile?.codeType || 'SNI',
+      municipality: plan.permitCodeProfile?.municipality || undefined,
+    })
     : plan.permitCodeProfile;
   const requiredPermitLayers = permitProfile?.requiredMapLayers || [];
   const missingPermitLayers = requiredPermitLayers.filter((layer) => !resolvedMapLayers.includes(layer));
@@ -1189,10 +1191,10 @@ export function evaluateStageGate(
     plan: unchanged
       ? plan
       : {
-          ...plan,
-          stageGates: nextGates,
-          phases: nextPhases,
-        },
+        ...plan,
+        stageGates: nextGates,
+        phases: nextPhases,
+      },
     gate: nextGate,
     changed: !unchanged,
   };

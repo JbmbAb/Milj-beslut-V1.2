@@ -1,6 +1,6 @@
 # Analys av Kommunala Kravspecifikationer
 **Datum:** 2026-03-02
-**Underlag:** 2 385 verifierade kravrader
+**Underlag:** 2 385 AI-analyserade kravrader
 
 ## 1. Inledning
 Denna sammanställning besvarar frågeställningen kring hur svenska kommuner utformar sina kravspecifikationer för mellanlagring av avfall. Analysen baseras på data exporterad från *Miljöbeslut.se* (Examensmatris).

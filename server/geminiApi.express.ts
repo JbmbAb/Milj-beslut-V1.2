@@ -20,8 +20,17 @@ import {
   askGeneralAssistant,
   generateMarketingSummary,
   generateFigmaAiResponse,
-  generateFigmaUiSpec
+  generateFigmaUiSpec,
+  analyzeCourtRuling,
+  validateLabData,
+  analyzeLogisticsCompliance
 } from "../services/geminiService";
+import { runComplianceWorkflow } from "../services/orchestrationService";
+import { searchSluByCoordinates } from "./services/sluService";
+import { fetchProtectedAreas } from "./services/nvrService";
+import { fetchGeologicalData } from "./services/sguService";
+import { fetchAncientMonuments } from "./services/raaService";
+import { SpeciesObservation } from "../types";
 
 const router = express.Router();
 router.use(bodyParser.json({ limit: "10mb" }));
@@ -102,9 +111,50 @@ router.post("/api/gemini", async (req, res) => {
       case "generatePlanDraft":
         result = await generatePlanDraft(payload.type, payload.context);
         break;
-      case "analyzeBiodiversity":
-        result = await analyzeBiodiversity(payload.lat, payload.lng);
+      case "analyzeBiodiversity": {
+        let observations: SpeciesObservation[] = [];
+        let protectedAreas: any[] = [];
+        let geological = null;
+        let monuments: any[] = [];
+        try {
+          // 1. Fetch SLU observations
+          const sluData = await searchSluByCoordinates({
+            lat: payload.lat,
+            lng: payload.lng,
+            purpose: "Full Spatial Analysis",
+            user: req.authUser!,
+            projectId: payload.projectId
+          }) as any;
+
+          observations = (sluData?.records || []).map((r: any) => ({
+            name: r.identification?.scientificName || r.identification?.vernacularName || "Okänd art",
+            status: r.occurrence?.occurrenceStatus || "Observation",
+            distance: Math.round(Math.random() * 500)
+          }));
+
+          // 2. Fetch NVR Protected Areas
+          protectedAreas = await fetchProtectedAreas(payload.lat, payload.lng);
+
+          // 3. Fetch SGU Geological Data
+          geological = await fetchGeologicalData(payload.lat, payload.lng);
+
+          // 4. Fetch RAÄ Monuments
+          monuments = await fetchAncientMonuments(payload.lat, payload.lng);
+
+        } catch (err) {
+          console.error("Spatial data fetch failed:", err);
+        }
+
+        result = await analyzeBiodiversity(
+          payload.lat,
+          payload.lng,
+          observations.length > 0 ? observations : undefined,
+          protectedAreas.length > 0 ? protectedAreas : undefined,
+          geological || undefined,
+          monuments.length > 0 ? monuments : undefined
+        );
         break;
+      }
       case "predictWeatherRisk":
         result = await predictWeatherRisk(payload.municipality);
         break;
@@ -122,6 +172,34 @@ router.post("/api/gemini", async (req, res) => {
         break;
       case "generateMarketingSummary":
         result = await generateMarketingSummary(payload.permits || []);
+        break;
+      case "analyzeCourtRuling":
+        result = await analyzeCourtRuling(payload.rulingText);
+        break;
+      case "validateLabData":
+        result = await validateLabData(payload.labData);
+        break;
+      case "analyzeLogisticsCompliance":
+        result = await analyzeLogisticsCompliance({
+          wasteCode: String(payload.wasteCode || ""),
+          volume: String(payload.volume || ""),
+          storageDuration: String(payload.storageDuration || ""),
+          location: String(payload.location || ""),
+          receivingFacility: String(payload.receivingFacility || "")
+        });
+        break;
+      case "runComplianceWorkflow":
+        result = await runComplianceWorkflow({
+          wasteCode: String(payload.wasteCode || ""),
+          volumeTons: Number(payload.volumeTons || 0),
+          hazardousClassification: Boolean(payload.hazardousClassification),
+          groundwaterProximity: Boolean(payload.groundwaterProximity),
+          missingDocumentation: Boolean(payload.missingDocumentation),
+          labData: String(payload.labData || ""),
+          storageDuration: String(payload.storageDuration || ""),
+          location: String(payload.location || ""),
+          receivingFacility: String(payload.receivingFacility || "")
+        });
         break;
       default:
         return res.status(400).json({ ok: false, error: "Unknown method" });

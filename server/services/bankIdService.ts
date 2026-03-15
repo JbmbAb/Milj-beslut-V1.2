@@ -163,8 +163,8 @@ export async function cancelBankIdAuth(orderRef: string): Promise<{ cancelled: b
   return { cancelled: true };
 }
 
-export function refreshSession(refreshToken: string): { accessToken: string; refreshToken: string } {
-  const rotated = rotateRefreshToken(refreshToken);
+export async function refreshSession(refreshToken: string): Promise<{ accessToken: string; refreshToken: string }> {
+  const rotated = await rotateRefreshToken(refreshToken);
   return {
     accessToken: rotated.accessToken,
     refreshToken: rotated.refreshToken,

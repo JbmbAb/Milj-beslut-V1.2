@@ -294,7 +294,7 @@ function parseGeminiText(payload: Record<string, unknown>): string {
   return extractSearchText(text);
 }
 
-async function runGeminiOcr(fileBuffer: Buffer, mimeType: string): Promise<string | null> {
+async function runGeminiOcr(fileBuffer: Buffer, mimeType: string, modelOverride?: string): Promise<string | null> {
   const apiKey = String(process.env.GEMINI_API_KEY || "").trim();
   if (!apiKey) {
     return null;
@@ -303,8 +303,9 @@ async function runGeminiOcr(fileBuffer: Buffer, mimeType: string): Promise<strin
     return null;
   }
 
+  const model = modelOverride || OCR_MODEL;
   const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(
-    OCR_MODEL
+    model
   )}:generateContent?key=${encodeURIComponent(apiKey)}`;
 
   try {
@@ -348,7 +349,7 @@ async function runGeminiOcr(fileBuffer: Buffer, mimeType: string): Promise<strin
   }
 }
 
-async function loadPdfText(filePath: string, fallbackTitle: string): Promise<string> {
+async function loadPdfText(filePath: string, fallbackTitle: string, forceOcr = false): Promise<string> {
   let fileBuffer: Buffer;
   try {
     fileBuffer = await fs.readFile(filePath);
@@ -357,28 +358,31 @@ async function loadPdfText(filePath: string, fallbackTitle: string): Promise<str
   }
 
   let parsedText = "";
-  try {
-    const moduleValue = await import("pdf-parse");
-    const PDFParse = (moduleValue as { PDFParse?: unknown }).PDFParse;
-    if (typeof PDFParse === "function") {
-      const parser = new (PDFParse as PdfParserConstructor)({ data: fileBuffer });
-      let parsed: PdfParseResult | null = null;
-      try {
-        parsed = await parser.getText();
-      } finally {
-        await parser.destroy?.();
+  if (!forceOcr) {
+    try {
+      const moduleValue = await import("pdf-parse");
+      const PDFParse = (moduleValue as { PDFParse?: unknown }).PDFParse;
+      if (typeof PDFParse === "function") {
+        const parser = new (PDFParse as PdfParserConstructor)({ data: fileBuffer });
+        let parsed: PdfParseResult | null = null;
+        try {
+          parsed = await parser.getText();
+        } finally {
+          await parser.destroy?.();
+        }
+        parsedText = extractSearchText(String(parsed?.text || ""));
       }
-      parsedText = extractSearchText(String(parsed?.text || ""));
+    } catch {
+      // Continue with OCR fallback below.
     }
-  } catch {
-    // Continue with OCR fallback below.
   }
 
-  if (parsedText.length >= OCR_MIN_TEXT_CHARS) {
+  if (!forceOcr && parsedText.length >= OCR_MIN_TEXT_CHARS) {
     return parsedText;
   }
 
-  const ocrText = await runGeminiOcr(fileBuffer, "application/pdf");
+  const model = forceOcr ? "gemini-2.5-pro" : "gemini-2.5-flash";
+  const ocrText = await runGeminiOcr(fileBuffer, "application/pdf", model);
   if (ocrText) {
     if (parsedText && !ocrText.includes(parsedText)) {
       return extractSearchText(`${parsedText}\n${ocrText}`);
@@ -393,7 +397,7 @@ async function loadPdfText(filePath: string, fallbackTitle: string): Promise<str
   return `Dokument: ${fallbackTitle}. PDF utan extraherbar text/OCR - metadataindexerad.`;
 }
 
-async function loadImageTextWithOcr(filePath: string, ext: string, fallbackTitle: string): Promise<string> {
+async function loadImageTextWithOcr(filePath: string, ext: string, fallbackTitle: string, forceOcr = false): Promise<string> {
   const mimeType = mimeTypeFromExtension(ext);
   if (!mimeType) {
     return `Dokument: ${fallbackTitle}. Binart format (${ext || "okant"}) - metadataindexerad.`;
@@ -401,7 +405,8 @@ async function loadImageTextWithOcr(filePath: string, ext: string, fallbackTitle
 
   try {
     const fileBuffer = await fs.readFile(filePath);
-    const ocrText = await runGeminiOcr(fileBuffer, mimeType);
+    const model = forceOcr ? "gemini-2.5-pro" : "gemini-2.5-flash";
+    const ocrText = await runGeminiOcr(fileBuffer, mimeType, model);
     if (ocrText) {
       return ocrText;
     }
@@ -411,7 +416,7 @@ async function loadImageTextWithOcr(filePath: string, ext: string, fallbackTitle
   }
 }
 
-async function loadDocumentText(filePath: string, fallbackTitle: string): Promise<string> {
+async function loadDocumentText(filePath: string, fallbackTitle: string, forceOcr = false): Promise<string> {
   const ext = path.extname(filePath).toLowerCase();
   const textExtensions = new Set([
     ".txt",
@@ -426,11 +431,11 @@ async function loadDocumentText(filePath: string, fallbackTitle: string): Promis
   ]);
 
   if (ext === ".pdf") {
-    return loadPdfText(filePath, fallbackTitle);
+    return loadPdfText(filePath, fallbackTitle, forceOcr);
   }
 
   if (OCR_IMAGE_EXTENSIONS.has(ext)) {
-    return loadImageTextWithOcr(filePath, ext, fallbackTitle);
+    return loadImageTextWithOcr(filePath, ext, fallbackTitle, forceOcr);
   }
 
   if (!textExtensions.has(ext)) {
@@ -576,7 +581,7 @@ function getEmbeddingModelCandidates(): string[] {
   return Array.from(unique);
 }
 
-async function embedText(text: string): Promise<{ values: number[]; model: string } | null> {
+export async function embedText(text: string): Promise<{ values: number[]; model: string } | null> {
   const apiKey = process.env.GEMINI_API_KEY || "";
   if (!apiKey) {
     return null;
@@ -746,13 +751,13 @@ export async function syncManifestMetadata(input: {
   return { processedRows, queuedExtractionJobs, skippedRows };
 }
 
-export async function extractDocumentTextAndChunk(documentId: string): Promise<{ chunks: number }> {
+export async function extractDocumentTextAndChunk(documentId: string, forceOcr = false): Promise<{ chunks: number }> {
   const target = await getDocumentById(documentId);
   if (!target) {
     throw new Error(`Document not found: ${documentId}`);
   }
 
-  const rawText = await loadDocumentText(String(target.absolutePath || ""), String(target.originalName || target.diskName || "dokument"));
+  const rawText = await loadDocumentText(String(target.absolutePath || ""), String(target.originalName || target.diskName || "dokument"), forceOcr);
   const searchText = extractSearchText(rawText);
   const encrypted = encryptContent(rawText);
 
@@ -828,7 +833,7 @@ export async function runSearchQuery(input: {
 
   const candidates = await findDocumentsForProject({
     projectId,
-    query: mode === "semantic" ? undefined : query || undefined,
+    query: (mode === "semantic" || mode === "hybrid") ? undefined : query || undefined,
     municipality: filters.municipality,
     decisionType: filters.decisionType,
     wasteType: filters.wasteType,
@@ -1001,7 +1006,7 @@ export async function runSearchQuery(input: {
       evidenceFilteredOut,
       citationCoveragePct,
       semanticEngine,
-      draftWatermark: "UTKAST - MANUELL GRANSKNING KRAVS",
+      draftWatermark: "Miljöbeslut.se - UTKAST - MANUELL GRANSKNING KRÄVS",
     },
     results: ranked,
   };

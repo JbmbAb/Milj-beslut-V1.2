@@ -13,6 +13,7 @@ export interface RequirementsFilterInput extends PaginationInput {
   municipality?: string;
   documentType?: string;
   category?: string;
+  ewcCode?: string;
   caseId?: string;
   requirementCode?: string;
   verificationStatus?: RequirementVerificationStatus;
@@ -55,6 +56,7 @@ function requirementWhere(input: RequirementsFilterInput): Record<string, unknow
   const caseId = normalizeText(input.caseId);
   const requirementCode = normalizeText(input.requirementCode);
   const category = normalizeText(input.category);
+  const ewcCode = normalizeText(input.ewcCode);
   const verificationStatus = normalizeText(input.verificationStatus) as RequirementVerificationStatus | undefined;
   const municipality = normalizeText(input.municipality);
   const documentType = normalizeText(input.documentType);
@@ -69,6 +71,7 @@ function requirementWhere(input: RequirementsFilterInput): Record<string, unknow
   if (caseId) where.caseId = caseId;
   if (requirementCode) where.requirementCode = requirementCode;
   if (category) where.category = category;
+  if (ewcCode) where.ewcCode = { contains: ewcCode, mode: "insensitive" };
   if (municipality || documentType) {
     where.case = {
       ...(municipality ? { municipality: { contains: municipality, mode: "insensitive" } } : {}),
@@ -350,4 +353,3 @@ export async function getRequirementReportCitations(requirementIds: string[]) {
     orderBy: [{ createdAt: "asc" }],
   });
 }
-

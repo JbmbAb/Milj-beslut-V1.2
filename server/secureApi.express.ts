@@ -66,6 +66,20 @@ import {
   buildRequirementsReportSummary,
   exportFilename,
 } from "./services/requirementsReportService";
+import { prisma } from "./db/prisma";
+import { getPropertyLayer, lookupPropertyByDesignationFromPostgis } from "./services/propertyUnitService";
+import { runSpatialAudit } from "./services/spatialAuditService";
+import {
+  getHydroLayer,
+  getProtectedAreaLayer,
+  getPublicDatasourceSummary,
+  getSguGroundLayerLayer,
+  getSguLandslideLayer,
+  parseBbox,
+  runClimateAudit,
+  runHeritageAudit,
+  runWaterAudit,
+} from "./services/publicUiService";
 
 assertSecurityEnv();
 
@@ -143,6 +157,182 @@ function parseOptionalText(value: unknown): string | undefined {
   return text || undefined;
 }
 
+router.get("/api/layers/nvr", rateLimitByUser(30, 60_000), async (req, res) => {
+  try {
+    const rawBbox = typeof req.query.bbox === "string" ? req.query.bbox : null;
+    const bbox = parseBbox(rawBbox);
+    if (rawBbox && !bbox) {
+      res.status(400).json({ error: "Invalid bbox" });
+      return;
+    }
+
+    const limit = parsePositiveInt(req.query.limit, 1000, 1, 2000);
+    const collection = await getProtectedAreaLayer(bbox, limit);
+    res.json(collection);
+  } catch (error: unknown) {
+    res.status(500).json({ error: "Failed to fetch data from PostGIS", details: String(error) });
+  }
+});
+
+router.post("/api/spatial-audit", rateLimitByUser(30, 60_000), async (req, res) => {
+  try {
+    const { lat, lng } = req.body ?? {};
+    if (typeof lat !== "number" || typeof lng !== "number") {
+      res.status(400).json({ error: "Missing coordinates" });
+      return;
+    }
+
+    const result = await runSpatialAudit(lat, lng);
+    res.json({
+      hits: result.protectedAreaHits,
+      protectedAreaAvailable: result.protectedAreaAvailable,
+      protectedAreaWarning: result.protectedAreaWarning,
+      isProtected: result.isProtected,
+      manualReviewRequired: result.sgu.manualReviewRequired || !result.protectedAreaAvailable,
+      sgu: result.sgu,
+      text: result.text,
+      sources: result.sources,
+    });
+  } catch (error: unknown) {
+    res.status(500).json({ error: "Database query failed", details: String(error) });
+  }
+});
+
+router.get("/api/layers/sgu/grundlager", rateLimitByUser(30, 60_000), async (req, res) => {
+  try {
+    const rawBbox = typeof req.query.bbox === "string" ? req.query.bbox : null;
+    const bbox = parseBbox(rawBbox);
+    if (!bbox) {
+      res.status(400).json({ error: "bbox is required" });
+      return;
+    }
+
+    const collection = await getSguGroundLayerLayer(bbox);
+    res.json(collection);
+  } catch (error: unknown) {
+    res.status(500).json({ error: "Failed to fetch SGU grundlager", details: String(error) });
+  }
+});
+
+router.get("/api/layers/sgu/jordskred-raviner", rateLimitByUser(30, 60_000), async (req, res) => {
+  try {
+    const rawBbox = typeof req.query.bbox === "string" ? req.query.bbox : null;
+    const bbox = parseBbox(rawBbox);
+    if (!bbox) {
+      res.status(400).json({ error: "bbox is required" });
+      return;
+    }
+
+    const collection = await getSguLandslideLayer(bbox);
+    res.json(collection);
+  } catch (error: unknown) {
+    res.status(500).json({ error: "Failed to fetch SGU jordskred-raviner", details: String(error) });
+  }
+});
+
+router.get("/api/layers/property", rateLimitByUser(30, 60_000), async (req, res) => {
+  try {
+    const rawBbox = typeof req.query.bbox === "string" ? req.query.bbox : null;
+    const bbox = parseBbox(rawBbox);
+    if (!bbox) {
+      res.status(400).json({ error: "bbox is required" });
+      return;
+    }
+
+    const collection = await getPropertyLayer(bbox);
+    res.json(collection);
+  } catch (error: unknown) {
+    res.status(500).json({ error: "Failed to fetch property layers", details: String(error) });
+  }
+});
+
+router.get("/api/layers/hydro.lakes", rateLimitByUser(30, 60_000), async (req, res) => {
+  try {
+    const rawBbox = typeof req.query.bbox === "string" ? req.query.bbox : null;
+    const bbox = parseBbox(rawBbox);
+    if (rawBbox && !bbox) {
+      res.status(400).json({ error: "Invalid bbox" });
+      return;
+    }
+
+    const collection = await getHydroLayer("lakes", bbox);
+    res.json(collection);
+  } catch (error: unknown) {
+    res.status(500).json({ error: "Failed to fetch hydro lakes", details: String(error) });
+  }
+});
+
+router.get("/api/layers/hydro.streams", rateLimitByUser(30, 60_000), async (req, res) => {
+  try {
+    const rawBbox = typeof req.query.bbox === "string" ? req.query.bbox : null;
+    const bbox = parseBbox(rawBbox);
+    if (rawBbox && !bbox) {
+      res.status(400).json({ error: "Invalid bbox" });
+      return;
+    }
+
+    const collection = await getHydroLayer("streams", bbox);
+    res.json(collection);
+  } catch (error: unknown) {
+    res.status(500).json({ error: "Failed to fetch hydro streams", details: String(error) });
+  }
+});
+
+router.post("/api/hydro/water-audit", rateLimitByUser(30, 60_000), async (req, res) => {
+  try {
+    const { lat, lng } = req.body ?? {};
+    if (typeof lat !== "number" || typeof lng !== "number") {
+      res.status(400).json({ error: "Missing coordinates" });
+      return;
+    }
+
+    const result = await runWaterAudit(lat, lng);
+    res.json(result);
+  } catch (error: unknown) {
+    res.status(500).json({ error: "Water audit failed", details: String(error) });
+  }
+});
+
+router.post("/api/culture/heritage-audit", rateLimitByUser(30, 60_000), async (req, res) => {
+  try {
+    const { lat, lng } = req.body ?? {};
+    if (typeof lat !== "number" || typeof lng !== "number") {
+      res.status(400).json({ error: "Missing coordinates" });
+      return;
+    }
+
+    const result = await runHeritageAudit(lat, lng);
+    res.json(result);
+  } catch (error: unknown) {
+    res.status(500).json({ error: "Heritage audit failed", details: String(error) });
+  }
+});
+
+router.post("/api/climate/smhi-audit", rateLimitByUser(30, 60_000), async (req, res) => {
+  try {
+    const { lat, lng } = req.body ?? {};
+    if (typeof lat !== "number" || typeof lng !== "number") {
+      res.status(400).json({ error: "Missing coordinates" });
+      return;
+    }
+
+    const result = await runClimateAudit(lat, lng);
+    res.json(result);
+  } catch (error: unknown) {
+    res.status(500).json({ error: "Climate audit failed", details: String(error) });
+  }
+});
+
+router.get("/api/datasources/public-summary", rateLimitByUser(20, 60_000), async (req, res) => {
+  try {
+    const refresh = parseBooleanFlag(req.query.refresh, false);
+    const summary = await getPublicDatasourceSummary(refresh);
+    res.json({ ok: true, summary });
+  } catch (error: unknown) {
+    res.status(500).json({ ok: false, error: error instanceof Error ? error.message : "Public summary failed" });
+  }
+});
+
 router.post("/api/auth/bankid/init", rateLimitByUser(10, 60_000), async (req, res) => {
   try {
     const endUserIp = String(req.body?.endUserIp ?? req.ip);
@@ -179,10 +369,10 @@ router.post("/api/auth/bankid/cancel", rateLimitByUser(20, 60_000), async (req, 
   }
 });
 
-router.post("/api/auth/refresh", rateLimitByUser(30, 60_000), (req, res) => {
+router.post("/api/auth/refresh", rateLimitByUser(30, 60_000), async (req, res) => {
   try {
     const token = String(req.body?.refreshToken ?? "");
-    const rotated = refreshSession(token);
+    const rotated = await refreshSession(token);
     res.json({ ok: true, ...rotated });
   } catch (error: unknown) {
     res.status(401).json({ ok: false, error: error instanceof Error ? error.message : "refresh failed" });
@@ -234,6 +424,39 @@ router.post("/api/property/lookup", requireAuth, rateLimitByUser(30, 5 * 60_000)
     res.json({ ok: true, result });
   } catch (error: unknown) {
     res.status(400).json({ ok: false, error: error instanceof Error ? error.message : "lookup failed" });
+  }
+});
+
+router.post("/api/property/lookup/postgis", requireAuth, rateLimitByUser(30, 5 * 60_000), rateLimitByOrg(200, 60 * 60_000), async (req, res) => {
+  try {
+    const input = req.body as PropertyLookupInput;
+    if (!req.authUser) {
+      res.status(401).json({ ok: false, error: "Unauthorized" });
+      return;
+    }
+    const result = await lookupPropertyByDesignationFromPostgis(input, req.authUser);
+    res.json({ ok: true, result });
+  } catch (error: unknown) {
+    res.status(400).json({ ok: false, error: error instanceof Error ? error.message : "postgis lookup failed" });
+  }
+});
+
+router.get("/api/system/postgis", async (_req, res) => {
+  try {
+    const result = await prisma.$queryRaw<Array<{ postgis_full_version: string }>>`
+      SELECT postgis_full_version()
+    `;
+    res.json({
+      ok: true,
+      version: result[0]?.postgis_full_version,
+      message: "PostGIS ar korrekt installerat och svarar.",
+    });
+  } catch (error: unknown) {
+    res.status(500).json({
+      ok: false,
+      message: "PostGIS verkar saknas eller databasen ar inte konfigurerad.",
+      details: error instanceof Error ? error.message : String(error),
+    });
   }
 });
 

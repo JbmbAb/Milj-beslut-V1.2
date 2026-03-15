@@ -3,6 +3,7 @@ import os
 import glob
 import json
 import urllib.request
+import urllib.error
 from datetime import datetime
 from openpyxl.styles import PatternFill, Font
 from openpyxl.formatting.rule import FormulaRule
@@ -52,7 +53,7 @@ def load_env_simple():
                     if line and not line.startswith('#') and '=' in line:
                         key, value = line.split('=', 1)
                         if key not in os.environ:
-                            os.environ[key] = value.strip('"\'')
+                            os.environ[key] = value.strip().strip('"\'')
             break
 
 def call_gemini_summary(text_content):
@@ -63,7 +64,7 @@ def call_gemini_summary(text_content):
         return None
 
     # Använder Gemini 1.5 Flash för snabb analys av stora textmängder
-    url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={api_key}"
+    url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash-latest:generateContent?key={api_key}"
     headers = {"Content-Type": "application/json"}
     prompt = "Du är en dataanalytiker. Analysera denna sammanställning av myndighetskrav. Identifiera 3 tydliga trender och 1 avvikelse:\n\n" + text_content[:40000]
     
@@ -74,8 +75,15 @@ def call_gemini_summary(text_content):
         with urllib.request.urlopen(req) as response:
             result = json.loads(response.read().decode('utf-8'))
             return result.get('candidates', [{}])[0].get('content', {}).get('parts', [{}])[0].get('text', '')
+    except urllib.error.HTTPError as e:
+        print(f"Kopplingsfel mot Google Gemini (HTTP {e.code}): {e.reason}")
+        try:
+            print(e.read().decode('utf-8'))
+        except:
+            pass
+        return None
     except Exception as e:
-        print(f"Kopplingsfel mot Google Gemini: {e}")
+        print(f"Oväntat fel vid AI-koppling: {e}")
         return None
 
 def generate_excel():
@@ -104,9 +112,43 @@ def generate_excel():
         # Läs in Rows (Specifika kravrader)
         rows_df = read_requirements_csv(os.path.join(INPUT_DIR, 'requirement_rows.csv'))
         
+        print(f"DEBUG: Totalt antal ärenden i exportfilen (cases): {len(cases_df)}")
+        if 'Kommun' in cases_df.columns:
+            print(f"DEBUG: Totalt antal unika kommuner i exportfilen: {cases_df['Kommun'].nunique()}")
+        print(f"DEBUG: Totalt antal extraherade kravrader (rows): {len(rows_df)}")
+
         # Slå ihop tabellerna på CaseId för att få en komplett "Master Matris"
         # Detta gör att varje kravrad nu har information om Kommun, Årtal, Myndighet etc.
         master_df = pd.merge(rows_df, cases_df, on='CaseId', how='left')
+
+        # --- DATATVÄTT (Power Query-liknande steg) ---
+        print("Utför datatvätt (rensning av whitespace, datumformat, 'nan'-värden)...")
+        
+        # 1. Rensa textfält (trimma och ta bort dubbla mellanslag)
+        for col in master_df.select_dtypes(include=['object']).columns:
+            master_df[col] = master_df[col].apply(lambda x: " ".join(str(x).split()) if pd.notna(x) else "")
+            master_df[col] = master_df[col].replace({'nan': '', 'NaN': '', 'None': ''})
+
+        # 1b. Specifik tvätt av Kommun-kolumnen (ta bort sidhuvuden/datum)
+        if 'Kommun' in master_df.columns:
+            def clean_kommun_field(val):
+                if not val: return ""
+                # Ta bort siffror (datum, sidnummer, orgnr)
+                val = ''.join([c for c in val if not c.isdigit()])
+                # Ta bort vanliga skräpord från sidhuvuden
+                garbage = ["Sida", "Datum", "Dnr", "Diarienummer", "Beslut", "Anmälan", "Protokoll", "Justering", "Avsändare", "Mottagare", "Sammanträdesdatum"]
+                for g in garbage:
+                    val = val.replace(g, "").replace(g.upper(), "").replace(g.lower(), "")
+                # Ta bort specialtecken
+                for char in ['|', '/', ':', ';', '(', ')', '[', ']', '{', '}']:
+                    val = val.replace(char, "")
+                return " ".join(val.split())
+
+            master_df['Kommun'] = master_df['Kommun'].apply(clean_kommun_field)
+
+        # 2. Formatera datum snyggt (ISO 8601)
+        if 'Dokumentdatum' in master_df.columns:
+            master_df['Dokumentdatum'] = pd.to_datetime(master_df['Dokumentdatum'], errors='coerce').dt.strftime('%Y-%m-%d')
 
         # Säkerställ att kolumn för manuell verifiering finns
         if 'VerifieradAv' not in master_df.columns:
@@ -131,10 +173,13 @@ def generate_excel():
             # 0. Sammanställning (Dashboard)
             summary_rows = [
                 {'Nyckeltal': 'Rapportdatum', 'Värde': datetime.now().strftime("%Y-%m-%d %H:%M")},
-                {'Nyckeltal': 'Totalt antal kravrader', 'VÃ¤rde': len(master_df)},
+                {'Nyckeltal': 'Totalt antal kravrader', 'Värde': len(master_df)},
             ]
             if 'Kommun' in master_df.columns:
-                summary_rows.append({'Nyckeltal': 'Antal unika kommuner', 'Värde': master_df['Kommun'].nunique()})
+                summary_rows.append({'Nyckeltal': 'Antal unika kommuner (med krav)', 'Värde': master_df['Kommun'].nunique()})
+            
+            if 'Kommun' in cases_df.columns:
+                summary_rows.append({'Nyckeltal': 'Antal unika kommuner (totalt i underlag)', 'Värde': cases_df['Kommun'].nunique()})
             
             if 'VerifieradAv' in master_df.columns:
                  verified_count = master_df[master_df['VerifieradAv'] != ''].shape[0]

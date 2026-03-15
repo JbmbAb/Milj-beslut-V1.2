@@ -2,6 +2,7 @@ import express from 'express';
 import secureApiRouter from './secureApi.express';
 import geminiRouter from './geminiApi.express';
 import geminiDbRouter from './geminiDbApi.express';
+import mvpRouter from './mvpApi.express';
 
 export function createApp() {
   const app = express();
@@ -35,6 +36,7 @@ export function createApp() {
     res.json({ ok: true, service: 'miljobeslut-secure-backend' });
   });
 
+  app.use(mvpRouter);
   app.use(secureApiRouter);
   app.use(geminiRouter);
   app.use(geminiDbRouter);

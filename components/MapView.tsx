@@ -1,9 +1,9 @@
-import React, { useEffect, useRef, useState } from "react";
+import React, { useCallback, useEffect, useRef, useState } from "react";
 import { load } from "@loaders.gl/core";
 import { LASLoader } from "@loaders.gl/las";
 import { PLYLoader } from "@loaders.gl/ply";
 import { DecisionType, Permit, Receiver } from "../types";
-import { fetchMunicipalityContext, performSpatialAudit } from "../services/geminiService";
+import { fetchMunicipalityContext } from "../services/geminiService";
 
 interface MapViewProps {
   permits?: Permit[];
@@ -23,6 +23,108 @@ type MunicipalityContext = {
   sources: Array<{ web?: { uri: string; title?: string } }>;
 };
 
+type DynamicBboxLayerKey =
+  | "sgu_grundlager"
+  | "sgu_jordskred_raviner"
+  | "postgis_nvr"
+  | "postgis_lakes"
+  | "postgis_streams"
+  | "postgis_property";
+
+const DYNAMIC_BBOX_LAYER_CONFIG: Record<
+  DynamicBboxLayerKey,
+  { endpoint: string; emptyMessage: string; label: string }
+> = {
+  sgu_grundlager: {
+    endpoint: "/api/layers/sgu/grundlager",
+    emptyMessage: "SGU grundlager gav inga lokala traeffar i aktuell kartvy.",
+    label: "SGU grundlager",
+  },
+  sgu_jordskred_raviner: {
+    endpoint: "/api/layers/sgu/jordskred-raviner",
+    emptyMessage: "SGU jordskred/raviner gav inga lokala traeffar i aktuell kartvy.",
+    label: "SGU jordskred/raviner",
+  },
+  postgis_nvr: {
+    endpoint: "/api/layers/nvr",
+    emptyMessage: "Skyddad natur gav inga lokala traeffar i aktuell kartvy.",
+    label: "Skyddad natur",
+  },
+  postgis_lakes: {
+    endpoint: "/api/layers/hydro.lakes",
+    emptyMessage: "Inga sjoar hittades i aktuell kartvy.",
+    label: "Sjoar",
+  },
+  postgis_streams: {
+    endpoint: "/api/layers/hydro.streams",
+    emptyMessage: "Inga vattendrag hittades i aktuell kartvy.",
+    label: "Vattendrag",
+  },
+  postgis_property: {
+    endpoint: "/api/layers/property",
+    emptyMessage: "Inga fastighetsgränser hittades i aktuell kartvy.",
+    label: "Fastighetsgränser",
+  },
+};
+
+function isDynamicBboxLayerKey(value: string): value is DynamicBboxLayerKey {
+  return value in DYNAMIC_BBOX_LAYER_CONFIG;
+}
+
+function toBboxParam(map: any): string | null {
+  const bounds = map?.getBounds?.();
+  if (!bounds?.isValid?.()) return null;
+  return [bounds.getWest(), bounds.getSouth(), bounds.getEast(), bounds.getNorth()].join(",");
+}
+
+async function fetchSpatialAuditText(lat: number, lng: number): Promise<string> {
+  const response = await fetch("/api/spatial-audit", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ lat, lng }),
+  });
+  const payload = await response.json();
+  if (!response.ok) {
+    throw new Error(payload?.error || `HTTP ${response.status}`);
+  }
+  return String(payload?.text || "Ingen spatial analys tillganglig.");
+}
+
+function getSguGroundLayerStyle(feature: any) {
+  const label = String(feature?.properties?.layer_label || "").toLowerCase();
+  if (label.includes("berg")) {
+    return {
+      color: "#475569",
+      weight: 1,
+      opacity: 0.85,
+      fillColor: "#94a3b8",
+      fillOpacity: 0.18,
+    };
+  }
+
+  return {
+    color: "#92400e",
+    weight: 1,
+    opacity: 0.85,
+    fillColor: "#f59e0b",
+    fillOpacity: 0.16,
+  };
+}
+
+function getSguLandslideStyle(feature: any) {
+  const label = String(feature?.properties?.feature_label || "").toLowerCase();
+  if (label.includes("skredvag")) {
+    return { color: "#dc2626", weight: 3, opacity: 0.95 };
+  }
+  if (label.includes("skredarr")) {
+    return { color: "#b91c1c", weight: 3, opacity: 0.95, dashArray: "6,4" };
+  }
+  if (label.includes("ravin")) {
+    return { color: "#a16207", weight: 2, opacity: 0.9 };
+  }
+  return { color: "#7c3aed", weight: 2, opacity: 0.85 };
+}
+
 const MapView: React.FC<MapViewProps> = ({
   permits = [],
   receivers = [],
@@ -41,6 +143,7 @@ const MapView: React.FC<MapViewProps> = ({
   const geoJsonLayerRef = useRef<any>(null);
   const bufferLayerRef = useRef<any>(null);
   const activeOverlaysRef = useRef<string[]>([]);
+  const dynamicLayerRequestRef = useRef<Record<string, number>>({});
 
   const [baseLayer, setBaseLayer] = useState<"osm" | "topo">("osm");
   const [activeOverlays, setActiveOverlays] = useState<string[]>([]);
@@ -48,6 +151,46 @@ const MapView: React.FC<MapViewProps> = ({
   const [isLoadingContext, setIsLoadingContext] = useState(false);
   const [isUploadingPointCloud, setIsUploadingPointCloud] = useState(false);
   const [mapNotice, setMapNotice] = useState("");
+
+  const refreshDynamicBboxLayer = useCallback(async (layerKey: DynamicBboxLayerKey) => {
+    const map = mapRef.current;
+    const layer = layersRef.current[layerKey];
+    const config = DYNAMIC_BBOX_LAYER_CONFIG[layerKey];
+    if (!map || !layer || !config) return;
+
+    const bbox = toBboxParam(map);
+    if (!bbox) return;
+
+    const requestId = (dynamicLayerRequestRef.current[layerKey] || 0) + 1;
+    dynamicLayerRequestRef.current[layerKey] = requestId;
+
+    try {
+      const response = await fetch(`${config.endpoint}?bbox=${encodeURIComponent(bbox)}`);
+      const data = await response.json();
+      if (dynamicLayerRequestRef.current[layerKey] !== requestId) return;
+
+      if (!response.ok) {
+        throw new Error(data?.error || `HTTP ${response.status}`);
+      }
+
+      layer.clearLayers();
+      if (Array.isArray(data?.features) && data.features.length > 0) {
+        layer.addData(data);
+      }
+      layer.__meta = data?.meta || null;
+      setMapNotice(
+        typeof data?.meta?.warning === "string" && data.meta.warning.trim()
+          ? data.meta.warning
+          : Array.isArray(data?.features) && data.features.length === 0
+            ? config.emptyMessage
+            : ""
+      );
+    } catch (error) {
+      if (dynamicLayerRequestRef.current[layerKey] !== requestId) return;
+      console.error(`Kunde inte ladda ${layerKey}:`, error);
+      setMapNotice(`Kunde inte ladda ${config.label}.`);
+    }
+  }, []);
 
   useEffect(() => {
     activeOverlaysRef.current = activeOverlays;
@@ -73,10 +216,10 @@ const MapView: React.FC<MapViewProps> = ({
       version: "1.3.0",
     });
 
-    layersRef.current[baseLayer].addTo(mapRef.current);
+    layersRef.current.osm.addTo(mapRef.current);
 
-    layersRef.current.raa_fornsok = L.tileLayer.wms("https://kulturarvsdata.se/geodata/raa/wms", {
-      layers: "fornlamningar",
+    layersRef.current.raa_fornsok = L.tileLayer.wms("https://pub.raa.se/visning/lamningar_v1/wms", {
+      layers: "fornlamning",
       format: "image/png",
       transparent: true,
       opacity: 0.7,
@@ -87,8 +230,14 @@ const MapView: React.FC<MapViewProps> = ({
       transparent: true,
       opacity: 0.6,
     });
-    layersRef.current.smhi_flood = L.tileLayer.wms("https://geoserver.smhi.se/geoserver/wms", {
-      layers: "oversvamning_100ar",
+    layersRef.current.nv_reservat = L.tileLayer.wms("https://nvpub.naturvardsverket.se/geoservices/wms", {
+      layers: "Naturreservat",
+      format: "image/png",
+      transparent: true,
+      opacity: 0.6,
+    });
+    layersRef.current.smhi_flood = L.tileLayer.wms("https://inspire.msb.se/geoserver/oversvamning/wms", {
+      layers: "NZ_Oversvamning_100",
       format: "image/png",
       transparent: true,
       opacity: 0.5,
@@ -99,6 +248,149 @@ const MapView: React.FC<MapViewProps> = ({
       transparent: true,
       opacity: 0.5,
     });
+    layersRef.current.sgu_grundlager = L.geoJSON(undefined, {
+      style: getSguGroundLayerStyle,
+      onEachFeature: (feature: any, layer: any) => {
+        const properties = feature?.properties || {};
+        layer.bindPopup(
+          `<div class="p-2 text-xs"><b>${properties.layer_label || "Okant grundlager"}</b><br/><small>Skala: ${properties.source_scale || "1:1 000 000"}<br/>Typ: oversiktlig SGU-screening</small></div>`
+        );
+      },
+    });
+    layersRef.current.sgu_jordskred_raviner = L.geoJSON(undefined, {
+      style: getSguLandslideStyle,
+      onEachFeature: (feature: any, layer: any) => {
+        const properties = feature?.properties || {};
+        layer.bindPopup(
+          `<div class="p-2 text-xs"><b>${properties.feature_label || "SGU-indikator"}</b><br/><small>Kalla: SGU jordskred-raviner<br/>Tolka alltid tillsammans med manuell geoteknisk granskning.</small></div>`
+        );
+      },
+    });
+    layersRef.current.trafik_vag = L.tileLayer.wms("https://api.trafikinfo.trafikverket.se/v2/geoserver/wms", {
+      layers: "nvdb:NVDB_Vaglinje",
+      format: "image/png",
+      transparent: true,
+      opacity: 0.8,
+    });
+    layersRef.current.lm_marktacke = L.tileLayer.wms("http://localhost:8080/geoserver/wms", { // Exempel-URL till GeoServer
+      layers: "miljobeslut:marktacke", // Exempel pÃ¥ lagernamn i GeoServer
+      format: "image/png",
+      transparent: true,
+      opacity: 0.6,
+    });
+
+    // NMD & Skogliga grunddata (Naturvårdsverket & Skogsstyrelsen)
+    layersRef.current.nv_nmd_bas = L.tileLayer.wms("https://geodata.naturvardsverket.se/inspire/lc-nmd/ows", {
+      layers: "LC.LandCoverRaster.Bas_2.0",
+      format: "image/png",
+      transparent: true,
+      opacity: 0.6,
+      attribution: "&copy; Naturvårdsverket NMD",
+    });
+
+    layersRef.current.nv_nmd_produktivitet = L.tileLayer.wms("https://geodata.naturvardsverket.se/inspire/lc-nmd/ows", {
+      layers: "LC.LandCoverRaster.Produktivitet.2018",
+      format: "image/png",
+      transparent: true,
+      opacity: 0.5,
+      attribution: "&copy; Naturvårdsverket",
+    });
+
+    layersRef.current.skogs_nyckelbiotoper = L.tileLayer.wms("https://geodpags.skogsstyrelsen.se/arcgis/services/Geodataportal/GeodataportalVisaNyckelbiotoper/MapServer/WmsServer", {
+      layers: "Nyckelbiotoper",
+      format: "image/png",
+      transparent: true,
+      opacity: 0.7,
+      attribution: "&copy; Skogsstyrelsen",
+    });
+
+    layersRef.current.skogs_avverkning = L.tileLayer.wms("https://geodpags.skogsstyrelsen.se/arcgis/services/Geodataportal/GeodataportalVisaAvverkningsanmalan/MapServer/WmsServer", {
+      layers: "Avverkningsanmalan",
+      format: "image/png",
+      transparent: true,
+      opacity: 0.6,
+      attribution: "&copy; Skogsstyrelsen",
+    });
+
+    layersRef.current.skogs_markfuktighet = L.tileLayer.wms("https://geodata.skogsstyrelsen.se/arcgis/services/Publikt/Markfuktighet_DTW/ImageServer/WMSServer", {
+      layers: "Markfuktighet_DTW",
+      format: "image/png",
+      transparent: true,
+      opacity: 0.5,
+      attribution: "&copy; Skogsstyrelsen",
+    });
+
+    layersRef.current.postgis_nvr = L.geoJSON(undefined, {
+      style: {
+        color: "#ff7800",
+        weight: 2,
+        opacity: 0.7,
+        fillColor: "#ff7800",
+        fillOpacity: 0.2,
+      },
+      onEachFeature: (feature: any, layer: any) => {
+        if (feature.properties) {
+          const { name, protection_type } = feature.properties;
+          layer.bindPopup(`<b>${name || "Namnlost omrade"}</b><br>Typ: ${protection_type || "Okand"}<br><small>Kalla: Lokal PostGIS</small>`);
+        }
+      },
+    });
+
+    layersRef.current.postgis_lakes = L.geoJSON(undefined, {
+      style: {
+        color: "#3b82f6",
+        weight: 1,
+        opacity: 0.8,
+        fillColor: "#60a5fa",
+        fillOpacity: 0.5,
+      },
+      onEachFeature: (feature: any, layer: any) => {
+        if (feature.properties) {
+          const { namn, kategori } = feature.properties;
+          layer.bindPopup(`<b>${namn || "Namnlos sjo"}</b><br>Kategori: ${kategori || "Okand"}<br><small>Kalla: Lokal PostGIS (LM Hydro)</small>`);
+        }
+      },
+    });
+
+    layersRef.current.postgis_property = L.geoJSON(undefined, {
+      style: {
+        color: "#dc2626",
+        weight: 2,
+        opacity: 0.8,
+        fillColor: "#f87171",
+        fillOpacity: 0.1,
+      },
+      onEachFeature: (feature: any, layer: any) => {
+        if (feature.properties) {
+          const { designation } = feature.properties;
+          layer.bindPopup(`<b>${designation || "Okänd fastighet"}</b><br><small>Källa: Lokal PostGIS (Lantmäteriet)</small>`);
+        }
+      },
+    });
+
+    layersRef.current.postgis_streams = L.geoJSON(undefined, {
+      style: {
+        color: "#60a5fa",
+        weight: 2,
+        opacity: 0.7,
+      },
+      onEachFeature: (feature: any, layer: any) => {
+        if (feature.properties) {
+          const { namn, kategori } = feature.properties;
+          layer.bindPopup(`<b>${namn || "Namnlost vattendrag"}</b><br>Kategori: ${kategori || "Okand"}<br><small>Kalla: Lokal PostGIS (LM Hydro)</small>`);
+        }
+      },
+    });
+
+    const refreshVisibleDynamicLayers = () => {
+      for (const layerKey of Object.keys(DYNAMIC_BBOX_LAYER_CONFIG)) {
+        if (activeOverlaysRef.current.includes(layerKey)) {
+          void refreshDynamicBboxLayer(layerKey as DynamicBboxLayerKey);
+        }
+      }
+    };
+
+    mapRef.current.on("moveend", refreshVisibleDynamicLayers);
 
     mapRef.current.on("click", async (event: any) => {
       if (activeOverlaysRef.current.length === 0) return;
@@ -111,14 +403,14 @@ const MapView: React.FC<MapViewProps> = ({
         .openOn(mapRef.current);
 
       try {
-        const result = await performSpatialAudit(lat, lng);
+        const result = await fetchSpatialAuditText(lat, lng);
         popup.setContent(`
           <div class="p-4 max-w-[250px] space-y-3">
             <div class="flex items-center gap-2 mb-1">
               <i class="fas fa-satellite text-blue-600 text-xs"></i>
               <span class="text-[10px] font-black uppercase tracking-widest text-slate-400">Spatial analys</span>
             </div>
-            <p class="text-xs text-slate-700 leading-relaxed font-medium">${result.text}</p>
+            <p class="text-xs text-slate-700 leading-relaxed font-medium">${result}</p>
           </div>
         `);
       } catch {
@@ -127,10 +419,13 @@ const MapView: React.FC<MapViewProps> = ({
     });
 
     return () => {
-      if (mapRef.current) mapRef.current.remove();
+      if (mapRef.current) {
+        mapRef.current.off("moveend", refreshVisibleDynamicLayers);
+        mapRef.current.remove();
+      }
       mapRef.current = null;
     };
-  }, [baseLayer]);
+  }, [refreshDynamicBboxLayer]);
 
   useEffect(() => {
     if (!highlightLayer || !mapRef.current || !layersRef.current[highlightLayer]) return;
@@ -139,7 +434,10 @@ const MapView: React.FC<MapViewProps> = ({
       layer.addTo(mapRef.current);
       setActiveOverlays((prev) => [...new Set([...prev, highlightLayer])]);
     }
-  }, [highlightLayer]);
+    if (isDynamicBboxLayerKey(highlightLayer)) {
+      void refreshDynamicBboxLayer(highlightLayer);
+    }
+  }, [highlightLayer, refreshDynamicBboxLayer]);
 
   useEffect(() => {
     if (!mapRef.current) return;
@@ -257,14 +555,14 @@ const MapView: React.FC<MapViewProps> = ({
     setSelectedContext(null);
     try {
       const [audit, facts] = await Promise.all([
-        performSpatialAudit(permit.lat!, permit.lng!),
+        fetchSpatialAuditText(permit.lat!, permit.lng!),
         fetchMunicipalityContext(permit.municipality),
       ]);
       setSelectedContext({
         municipality: permit.municipality,
-        audit: audit.text,
+        audit,
         fact: facts.text,
-        sources: [...audit.sources, ...facts.sources],
+        sources: facts.sources,
       });
     } catch {
       setSelectedContext({
@@ -288,6 +586,10 @@ const MapView: React.FC<MapViewProps> = ({
 
   const toggleOverlay = (layerKey: string) => {
     if (!mapRef.current) return;
+    if (layerKey === "lm_marktacke") {
+      setMapNotice("Marktacke kraver lokal GeoServer pa localhost:8080.");
+      return;
+    }
     const layer = layersRef.current[layerKey];
     if (!layer) return;
     if (mapRef.current.hasLayer(layer)) {
@@ -297,10 +599,13 @@ const MapView: React.FC<MapViewProps> = ({
     }
     layer.addTo(mapRef.current);
     setActiveOverlays((prev) => [...prev, layerKey]);
+    if (isDynamicBboxLayerKey(layerKey)) {
+      void refreshDynamicBboxLayer(layerKey);
+    }
   };
 
   return (
-    <div className="relative h-full min-h-[600px] w-full overflow-hidden rounded-3xl border border-slate-200 bg-slate-100">
+    <div className="relative h-full min-h-[600px] w-full rounded-3xl border border-slate-200 bg-slate-100">
       <div ref={mapContainerRef} className="absolute inset-0 z-0" />
 
       <div className="absolute left-6 top-6 z-[1000] space-y-3">
@@ -310,7 +615,7 @@ const MapView: React.FC<MapViewProps> = ({
             <OverlayToggle
               active={activeOverlays.includes("raa_fornsok")}
               onClick={() => toggleOverlay("raa_fornsok")}
-              label="RAA Fornlamningar"
+              label="RAA lamningar"
               icon="fa-monument"
               color="text-amber-700"
             />
@@ -322,18 +627,116 @@ const MapView: React.FC<MapViewProps> = ({
               color="text-emerald-600"
             />
             <OverlayToggle
+              active={activeOverlays.includes("nv_reservat")}
+              onClick={() => toggleOverlay("nv_reservat")}
+              label="Naturreservat (NV)"
+              icon="fa-tree"
+              color="text-emerald-800"
+            />
+            <OverlayToggle
               active={activeOverlays.includes("smhi_flood")}
               onClick={() => toggleOverlay("smhi_flood")}
-              label="Oversvamningsrisk (SMHI)"
+              label="Oversvamningsrisk (MSB)"
               icon="fa-water"
               color="text-blue-500"
             />
             <OverlayToggle
               active={activeOverlays.includes("sgu_jordart")}
               onClick={() => toggleOverlay("sgu_jordart")}
-              label="Jordartskarta (SGU)"
+              label="SGU jordart WMS"
               icon="fa-mountain"
               color="text-orange-800"
+            />
+            <OverlayToggle
+              active={activeOverlays.includes("sgu_grundlager")}
+              onClick={() => toggleOverlay("sgu_grundlager")}
+              label="SGU grundlager (PostGIS)"
+              icon="fa-layer-group"
+              color="text-slate-700"
+            />
+            <OverlayToggle
+              active={activeOverlays.includes("sgu_jordskred_raviner")}
+              onClick={() => toggleOverlay("sgu_jordskred_raviner")}
+              label="SGU jordskred/raviner"
+              icon="fa-triangle-exclamation"
+              color="text-rose-700"
+            />
+            <OverlayToggle
+              active={activeOverlays.includes("trafik_vag")}
+              onClick={() => toggleOverlay("trafik_vag")}
+              label="VÃ¤gnÃ¤t (Trafikverket)"
+              icon="fa-road"
+              color="text-slate-600"
+            />
+            <OverlayToggle
+              active={activeOverlays.includes("postgis_nvr")}
+              onClick={() => toggleOverlay("postgis_nvr")}
+              label="NVR (PostGIS DB)"
+              icon="fa-shield-halved"
+              color="text-orange-500"
+            />
+            <OverlayToggle
+              active={activeOverlays.includes("postgis_lakes")}
+              onClick={() => toggleOverlay("postgis_lakes")}
+              label="SjÃ¶ar (PostGIS DB)"
+              icon="fa-water"
+              color="text-blue-500"
+            />
+            <OverlayToggle
+              active={activeOverlays.includes("postgis_streams")}
+              onClick={() => toggleOverlay("postgis_streams")}
+              label="Vattendrag (PostGIS DB)"
+              icon="fa-water"
+              color="text-sky-500"
+            />
+            <OverlayToggle
+              active={activeOverlays.includes("postgis_property")}
+              onClick={() => toggleOverlay("postgis_property")}
+              label="Fastighetsgränser (PostGIS)"
+              icon="fa-vector-square"
+              color="text-red-500"
+            />
+            <OverlayToggle
+              active={activeOverlays.includes("lm_marktacke")}
+              onClick={() => toggleOverlay("lm_marktacke")}
+              label="Marktäcke (Lokal)"
+              icon="fa-layer-group"
+              color="text-lime-600"
+            />
+            <OverlayToggle
+              active={activeOverlays.includes("nv_nmd_bas")}
+              onClick={() => toggleOverlay("nv_nmd_bas")}
+              label="NMD Bas (NV)"
+              icon="fa-map"
+              color="text-emerald-700"
+            />
+            <OverlayToggle
+              active={activeOverlays.includes("nv_nmd_produktivitet")}
+              onClick={() => toggleOverlay("nv_nmd_produktivitet")}
+              label="Produktivitet (NMD)"
+              icon="fa-arrow-up-right-dots"
+              color="text-green-600"
+            />
+            <OverlayToggle
+              active={activeOverlays.includes("skogs_nyckelbiotoper")}
+              onClick={() => toggleOverlay("skogs_nyckelbiotoper")}
+              label="Nyckelbiotoper (SKS)"
+              icon="fa-star"
+              color="text-amber-500"
+            />
+            <OverlayToggle
+              active={activeOverlays.includes("skogs_avverkning")}
+              onClick={() => toggleOverlay("skogs_avverkning")}
+              label="Avverkningsanmälan"
+              icon="fa-scissors"
+              color="text-rose-400"
+            />
+            <OverlayToggle
+              active={activeOverlays.includes("skogs_markfuktighet")}
+              onClick={() => toggleOverlay("skogs_markfuktighet")}
+              label="Markfuktighet (DTW)"
+              icon="fa-droplet"
+              color="text-blue-600"
             />
           </div>
         </div>
@@ -448,4 +851,5 @@ const OverlayToggle: React.FC<{
 );
 
 export default MapView;
+
 

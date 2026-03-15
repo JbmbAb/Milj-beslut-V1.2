@@ -46,9 +46,9 @@ const ProjectManagerView: React.FC<ProjectManagerViewProps> = ({ activeTab }) =>
 
   const fallbackDraft = (type: 'background' | 'description') => {
     if (type === 'background') {
-      return `Projektet avser ${plan.name || 'aktuell verksamhet'} och drivs med fokus pa spårbar riskhantering, verifierad dokumentation och tydlig myndighetsdialog.`;
+      return `Projektet avser ${plan.name || 'aktuell verksamhet'} och drivs med fokus på spårbar riskhantering, verifierad dokumentation och tydlig myndighetsdialog.`;
     }
-    return 'Genomforande sker i etapper med gate-styrning, dokumentkontroll och uppfoljning av risk- och carbonkrav.';
+    return 'Genomförande sker i etapper med gate-styrning, dokumentkontroll och uppföljning av risk- och miljökrav.';
   };
 
   const handleUpdatePlan = <K extends keyof ProjectPlan,>(key: K, value: ProjectPlan[K]) => {
@@ -72,7 +72,7 @@ const ProjectManagerView: React.FC<ProjectManagerViewProps> = ({ activeTab }) =>
       });
       if (result.changed) changedCount += 1;
     }
-    setGateInfo(`Stage-gates utvarderade. Uppdaterade: ${changedCount}.`);
+    setGateInfo(`Stage-gates utvärderade. Uppdaterade: ${changedCount}.`);
   };
 
   const handleCarbonRun = async () => {
@@ -88,12 +88,12 @@ const ProjectManagerView: React.FC<ProjectManagerViewProps> = ({ activeTab }) =>
 
   const handleRecommendMapLayers = async () => {
     await applyMapLayerRecommendation();
-    setGateInfo(`Kartlager rekommenderade for projekttyp ${plan.projectType}.`);
+    setGateInfo(`Kartlager rekommenderade för projekttyp ${plan.projectType}.`);
   };
 
   const handleLoadFromDb = async () => {
     await loadPlanFromServer();
-    setGateInfo('Plan laddad fran databas.');
+    setGateInfo('Plan laddad från databas.');
   };
 
   const handleSaveToDb = async () => {
@@ -104,7 +104,7 @@ const ProjectManagerView: React.FC<ProjectManagerViewProps> = ({ activeTab }) =>
   const handleAutoStart = async () => {
     if (!plan.location.propertyId) return;
     setIsInitializing(true);
-    
+
     // Simulate API calls to Lantmäteriet, Länsstyrelsen, SGU
     setTimeout(() => {
       setPlan(prev => ({
@@ -128,14 +128,14 @@ const ProjectManagerView: React.FC<ProjectManagerViewProps> = ({ activeTab }) =>
           prev.documentArchive.length > 0
             ? prev.documentArchive
             : [
-                createArchiveDocument({
-                  name: `Projektinitiering-${prev.location.propertyId}`,
-                  module: 'PROJECT_MANAGER',
-                  category: 'PROJECT_PLAN',
-                  status: 'VERIFIED',
-                  tags: ['project_plan', 'autostart'],
-                }),
-              ]
+              createArchiveDocument({
+                name: `Projektinitiering-${prev.location.propertyId}`,
+                module: 'PROJECT_MANAGER',
+                category: 'PROJECT_PLAN',
+                status: 'VERIFIED',
+                tags: ['project_plan', 'autostart'],
+              }),
+            ]
       }));
       setIsInitializing(false);
     }, 2000);
@@ -157,11 +157,11 @@ const ProjectManagerView: React.FC<ProjectManagerViewProps> = ({ activeTab }) =>
     try {
       const draft = await generatePlanDraft(type, plan.name);
       handleUpdatePlan(type, draft || fallbackDraft(type));
-      setGateInfo(`Utkast uppdaterat for ${type}.`);
+      setGateInfo(`Utkast uppdaterat för ${type}.`);
     } catch (e) {
       console.error(e);
       handleUpdatePlan(type, fallbackDraft(type));
-      setGateInfo(`AI-tjanst otillganglig. Lokal fallback anvandes for ${type}.`);
+      setGateInfo(`AI-tjänst otillgänglig. Lokal fallback användes för ${type}.`);
     } finally {
       setIsDrafting(null);
     }
@@ -176,21 +176,21 @@ const ProjectManagerView: React.FC<ProjectManagerViewProps> = ({ activeTab }) =>
         setGateInfo('Intressentlista uppdaterad.');
       } else {
         const fallback = [
-          { id: `fb-${Date.now()}-1`, name: 'Kommunens miljoenhet', role: 'Tillsyn', relevance: 'Primar tillsynsmyndighet for arendet.' },
-          { id: `fb-${Date.now()}-2`, name: 'Lansstyrelsen', role: 'Regional samordning', relevance: 'Samordning av natur- och kulturintressen.' },
-          { id: `fb-${Date.now()}-3`, name: 'Narboende/sakagare', role: 'Dialogpart', relevance: 'Berorda av buller, trafik och tidsplan.' },
+          { id: `fb-${Date.now()}-1`, name: 'Kommunens miljöenhet', role: 'Tillsyn', relevance: 'Primär tillsynsmyndighet för ärendet.' },
+          { id: `fb-${Date.now()}-2`, name: 'Länsstyrelsen', role: 'Regional samordning', relevance: 'Samordning av natur- och kulturintressen.' },
+          { id: `fb-${Date.now()}-3`, name: 'Närboende/sakägare', role: 'Dialogpart', relevance: 'Berörda av buller, trafik och tidsplan.' },
         ];
         handleUpdatePlan('stakeholders', fallback);
-        setGateInfo('Fallback-intressenter laddade (ingen AI-svarsdatas).');
+        setGateInfo('Fallback-intressenter laddade.');
       }
     } catch (e) {
       console.error(e);
       const fallback = [
-        { id: `fb-${Date.now()}-1`, name: 'Kommunens miljoenhet', role: 'Tillsyn', relevance: 'Primar tillsynsmyndighet for arendet.' },
-        { id: `fb-${Date.now()}-2`, name: 'Lansstyrelsen', role: 'Regional samordning', relevance: 'Samordning av natur- och kulturintressen.' },
+        { id: `fb-${Date.now()}-1`, name: 'Kommunens miljöenhet', role: 'Tillsyn', relevance: 'Primär tillsynsmyndighet för ärendet.' },
+        { id: `fb-${Date.now()}-2`, name: 'Länsstyrelsen', role: 'Regional samordning', relevance: 'Samordning av natur- och kulturintressen.' },
       ];
       handleUpdatePlan('stakeholders', fallback);
-      setGateInfo('AI otillganglig. Lokal fallback for intressentanalys anvandes.');
+      setGateInfo('AI otillgänglig. Lokal fallback för intressentanalys användes.');
     } finally {
       setIsSuggesting(false);
     }
@@ -198,7 +198,7 @@ const ProjectManagerView: React.FC<ProjectManagerViewProps> = ({ activeTab }) =>
 
   const reportAccentColor = plan.branding.primaryColor || '#0f172a';
   const reportLogo =
-    plan.branding.logoUrl?.trim() || 'https://upload.wikimedia.org/wikipedia/commons/4/4e/Lantmateriet_logo.svg';
+    plan.branding.logoUrl?.trim() || '/logo.png';
   const completedSamplingSteps = plan.samplingPreparation.checklist.filter((item) => item.done).length;
 
   if (plan.phases.length === 0 && activeTab === 'plan') {
@@ -213,15 +213,15 @@ const ProjectManagerView: React.FC<ProjectManagerViewProps> = ({ activeTab }) =>
             <p className="text-slate-500 font-medium">Ange fastighetsbeteckning för att generera WBS, tidplan och intressentlista via API.</p>
           </div>
           <div className="relative">
-            <input 
-              type="text" 
+            <input
+              type="text"
               placeholder="T.ex. NACKA ORMINGE 7:8"
               className="w-full p-6 bg-slate-50 border-2 border-slate-100 rounded-3xl text-xl font-black uppercase tracking-widest text-center focus:border-blue-500 outline-none transition-all"
               value={plan.location.propertyId}
               onChange={(e) => handleUpdatePlan('location', { ...plan.location, propertyId: e.target.value })}
             />
           </div>
-          <button 
+          <button
             onClick={handleAutoStart}
             disabled={!plan.location.propertyId || isInitializing}
             className="w-full py-6 bg-slate-900 text-white rounded-3xl text-sm font-black uppercase tracking-widest hover:bg-blue-600 transition-all shadow-xl disabled:opacity-50"
@@ -241,7 +241,7 @@ const ProjectManagerView: React.FC<ProjectManagerViewProps> = ({ activeTab }) =>
         <div className="absolute inset-0 flex items-center justify-center pointer-events-none opacity-[0.03] rotate-[-35deg] select-none">
           <span className="text-9xl font-black whitespace-nowrap uppercase">UTKAST – Kräver manuell verifiering</span>
         </div>
-        
+
         <button onClick={() => setViewMode('edit')} className="fixed top-24 left-10 p-4 bg-slate-900 text-white rounded-full shadow-xl hover:scale-110 transition-all z-50">
           <i className="fas fa-arrow-left"></i>
         </button>
@@ -308,9 +308,9 @@ const ProjectManagerView: React.FC<ProjectManagerViewProps> = ({ activeTab }) =>
         </section>
 
         <section className="mb-12">
-          <h2 className="text-xl font-black uppercase mb-4 border-b border-slate-200 pb-2">6. Forberedd Provtagning</h2>
+          <h2 className="text-xl font-black uppercase mb-4 border-b border-slate-200 pb-2">6. Förberedd Provtagning</h2>
           <p className="text-sm font-bold">
-            Aktiverad: {plan.samplingPreparation.enabled ? 'Ja' : 'Nej'} | Forberedelse behov nu:{' '}
+            Aktiverad: {plan.samplingPreparation.enabled ? 'Ja' : 'Nej'} | Förberedelse behov nu:{' '}
             {plan.samplingPreparation.requiresPreparationNow ? 'Ja' : 'Nej'}
           </p>
           <p className="text-sm mt-2">
@@ -353,20 +353,20 @@ const ProjectManagerView: React.FC<ProjectManagerViewProps> = ({ activeTab }) =>
           <div className="bg-white p-10 md:p-16 rounded-[3rem] border border-slate-200 shadow-sm space-y-12">
             <header className="flex justify-between items-end border-b border-slate-100 pb-10">
               <div className="space-y-4 flex-1">
-                <input 
+                <input
                   className="text-4xl font-black text-slate-900 tracking-tighter italic bg-transparent border-none outline-none focus:ring-0 w-full"
                   value={plan.name}
                   onChange={(e) => handleUpdatePlan('name', e.target.value)}
                   placeholder="Projektnamn..."
                 />
-                <input 
+                <input
                   className="text-xs font-bold text-slate-400 not-italic uppercase tracking-[0.2em] bg-transparent border-none outline-none focus:ring-0"
                   value={plan.revision}
                   onChange={(e) => handleUpdatePlan('revision', e.target.value)}
                   placeholder="Revision / Utgåva..."
                 />
               </div>
-              <button 
+              <button
                 onClick={() => setViewMode('report')}
                 className="px-6 py-3 bg-slate-900 text-white rounded-xl text-[10px] font-black uppercase tracking-widest shadow-xl flex items-center gap-2 hover:bg-blue-600 transition-all"
               >
@@ -394,10 +394,10 @@ const ProjectManagerView: React.FC<ProjectManagerViewProps> = ({ activeTab }) =>
                   </div>
 
                   <div className="space-y-3">
-                    <p className="text-[11px] font-black uppercase tracking-[0.16em] text-slate-500">Tillstandsgate</p>
+                    <p className="text-[11px] font-black uppercase tracking-[0.16em] text-slate-500">Tillståndsgate</p>
                     <input
                       className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm"
-                      placeholder="Permit type (t.ex. Anmalan 9 kap)"
+                      placeholder="Permit type (t.ex. Anmälan 9 kap)"
                       value={permitType}
                       onChange={(e) => setPermitType(e.target.value)}
                     />
@@ -410,7 +410,7 @@ const ProjectManagerView: React.FC<ProjectManagerViewProps> = ({ activeTab }) =>
                       onClick={() => void handleEvaluateGates()}
                       className="rounded-xl bg-slate-900 px-4 py-2 text-xs font-black uppercase tracking-widest text-white hover:bg-blue-600"
                     >
-                      Utvardera gates
+                      Utvärdera gates
                     </button>
                     <p className="text-xs text-slate-600">
                       Gates: {gateStats.passed} passed / {gateStats.blocked} blocked
@@ -506,7 +506,7 @@ const ProjectManagerView: React.FC<ProjectManagerViewProps> = ({ activeTab }) =>
                     onClick={() => void handleCarbonRun()}
                     className="rounded-xl bg-emerald-600 px-4 py-2 text-xs font-black uppercase tracking-widest text-white hover:bg-emerald-700"
                   >
-                    Kor CO2-kalkyl
+                    Kör CO2-kalkyl
                   </button>
                   <button
                     type="button"
@@ -542,7 +542,7 @@ const ProjectManagerView: React.FC<ProjectManagerViewProps> = ({ activeTab }) =>
                       {isDrafting === 'background' ? 'Skriver...' : 'Få AI-utkast'}
                     </button>
                   </div>
-                  <textarea 
+                  <textarea
                     rows={6}
                     className="w-full p-6 bg-slate-50 rounded-3xl border border-slate-200 text-sm text-slate-700 leading-relaxed italic outline-none focus:ring-4 focus:ring-blue-500/5 transition-all"
                     value={plan.background}
@@ -556,7 +556,7 @@ const ProjectManagerView: React.FC<ProjectManagerViewProps> = ({ activeTab }) =>
                       {isDrafting === 'description' ? 'Skriver...' : 'Få AI-utkast'}
                     </button>
                   </div>
-                  <textarea 
+                  <textarea
                     rows={6}
                     className="w-full p-6 bg-slate-50 rounded-3xl border border-slate-200 text-sm text-slate-700 leading-relaxed outline-none focus:ring-4 focus:ring-blue-500/5 transition-all"
                     value={plan.description}
@@ -572,13 +572,11 @@ const ProjectManagerView: React.FC<ProjectManagerViewProps> = ({ activeTab }) =>
                 <h4 className="text-xl font-black text-slate-900 italic tracking-tight">Ansvars-spärrar (Stop Gates)</h4>
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
                   {plan.phases.map((phase) => (
-                    <div key={phase.id} className={`p-6 rounded-3xl border transition-all ${
-                      phase.status === 'DONE' ? 'bg-emerald-50 border-emerald-200' : 'bg-white border-slate-100'
-                    }`}>
+                    <div key={phase.id} className={`p-6 rounded-3xl border transition-all ${phase.status === 'DONE' ? 'bg-emerald-50 border-emerald-200' : 'bg-white border-slate-100'
+                      }`}>
                       <div className="flex justify-between items-start mb-4">
-                        <span className={`text-[10px] font-black uppercase px-2 py-1 rounded-md ${
-                          phase.status === 'DONE' ? 'bg-emerald-500 text-white' : 'bg-slate-100 text-slate-500'
-                        }`}>
+                        <span className={`text-[10px] font-black uppercase px-2 py-1 rounded-md ${phase.status === 'DONE' ? 'bg-emerald-500 text-white' : 'bg-slate-100 text-slate-500'
+                          }`}>
                           {phase.status}
                         </span>
                         {phase.requiresSignature && phase.status !== 'DONE' && (
@@ -587,9 +585,9 @@ const ProjectManagerView: React.FC<ProjectManagerViewProps> = ({ activeTab }) =>
                       </div>
                       <h5 className="font-black text-slate-800 text-sm mb-2">{phase.title}</h5>
                       <p className="text-[10px] text-slate-500 font-bold uppercase mb-4">{phase.tasks.length} Uppgifter</p>
-                      
+
                       {phase.requiresSignature && phase.status !== 'DONE' ? (
-                        <button 
+                        <button
                           onClick={() => handleSignPhase(phase.id)}
                           className="w-full py-3 bg-amber-500 text-white rounded-xl text-[10px] font-black uppercase tracking-widest hover:bg-amber-600 transition-all"
                         >
@@ -611,15 +609,15 @@ const ProjectManagerView: React.FC<ProjectManagerViewProps> = ({ activeTab }) =>
 
               <div className="pt-10 space-y-6">
                 <div className="flex justify-between items-center">
-                   <h4 className="text-xl font-black text-slate-900 italic tracking-tight">Intressentanalys</h4>
-                   <button 
+                  <h4 className="text-xl font-black text-slate-900 italic tracking-tight">Intressentanalys</h4>
+                  <button
                     onClick={handleGetStakeholders}
                     disabled={isSuggesting}
                     className="px-6 py-2 bg-indigo-50 text-indigo-600 rounded-xl text-[10px] font-black uppercase tracking-widest hover:bg-indigo-600 hover:text-white transition-all shadow-sm"
-                   >
-                     {isSuggesting ? <i className="fas fa-spinner fa-spin"></i> : <i className="fas fa-users-viewfinder"></i>}
-                     {isSuggesting ? 'Analyserar...' : 'Föreslå Intressenter'}
-                   </button>
+                  >
+                    {isSuggesting ? <i className="fas fa-spinner fa-spin"></i> : <i className="fas fa-users-viewfinder"></i>}
+                    {isSuggesting ? 'Analyserar...' : 'Föreslå Intressenter'}
+                  </button>
                 </div>
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
                   {plan.stakeholders.map((s) => (
@@ -641,31 +639,31 @@ const ProjectManagerView: React.FC<ProjectManagerViewProps> = ({ activeTab }) =>
 
       {activeTab === 'risks' && (
         <div className="bg-white p-10 rounded-[3rem] border border-slate-200 shadow-sm overflow-hidden max-w-5xl mx-auto">
-           <header className="mb-10 flex justify-between items-center">
-              <div>
-                <h3 className="text-2xl font-black text-slate-900 italic">Riskhanteringsplan</h3>
-                <p className="text-sm text-slate-500 mt-1">Sannolikhet (1-5) x Konsekvens (1-5)</p>
-              </div>
-              <button className="px-6 py-2 bg-slate-900 text-white rounded-xl text-xs font-black uppercase tracking-widest">Ny Risk</button>
-           </header>
-           <table className="w-full text-left">
-              <thead className="bg-slate-50 text-[10px] font-black uppercase text-slate-400">
-                 <tr>
-                    <th className="px-6 py-4">Riskfaktor</th>
-                    <th className="px-6 py-4 text-center">Risknivå</th>
-                    <th className="px-6 py-4">Åtgärd</th>
-                 </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-100 text-sm">
-                 <tr className="hover:bg-slate-50/50 transition-colors">
-                    <td className="px-6 py-4 font-bold text-slate-700">Oväntade markförhållanden</td>
-                    <td className="px-6 py-4 text-center">
-                       <span className="px-3 py-1 bg-rose-50 text-rose-700 rounded-full text-[10px] font-black uppercase border border-rose-100">Allvarlig</span>
-                    </td>
-                    <td className="px-6 py-4 text-slate-600 italic">Kompletterande geoteknik</td>
-                 </tr>
-              </tbody>
-           </table>
+          <header className="mb-10 flex justify-between items-center">
+            <div>
+              <h3 className="text-2xl font-black text-slate-900 italic">Riskhanteringsplan</h3>
+              <p className="text-sm text-slate-500 mt-1">Sannolikhet (1-5) x Konsekvens (1-5)</p>
+            </div>
+            <button className="px-6 py-2 bg-slate-900 text-white rounded-xl text-xs font-black uppercase tracking-widest">Ny Risk</button>
+          </header>
+          <table className="w-full text-left">
+            <thead className="bg-slate-50 text-[10px] font-black uppercase text-slate-400">
+              <tr>
+                <th className="px-6 py-4">Riskfaktor</th>
+                <th className="px-6 py-4 text-center">Risknivå</th>
+                <th className="px-6 py-4">Åtgärd</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-slate-100 text-sm">
+              <tr className="hover:bg-slate-50/50 transition-colors">
+                <td className="px-6 py-4 font-bold text-slate-700">Oväntade markförhållanden</td>
+                <td className="px-6 py-4 text-center">
+                  <span className="px-3 py-1 bg-rose-50 text-rose-700 rounded-full text-[10px] font-black uppercase border border-rose-100">Allvarlig</span>
+                </td>
+                <td className="px-6 py-4 text-slate-600 italic">Kompletterande geoteknik</td>
+              </tr>
+            </tbody>
+          </table>
         </div>
       )}
     </div>

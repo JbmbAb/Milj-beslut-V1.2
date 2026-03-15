@@ -113,6 +113,51 @@ const ExecutiveSummary: React.FC<ExecutiveSummaryProps> = ({ mode = 'summary' })
               <MiniKpi label="Carbon status" value={carbonReady ? 'READY' : 'MISSING'} tone={carbonReady ? 'ok' : 'warn'} />
               <MiniKpi label="Sampling checklista" value={`${samplingDone}/${samplingTotal}`} />
             </div>
+
+            {plan.predictiveScores && (
+              <div className="mt-8 border-t border-slate-100 pt-6">
+                <p className="text-[11px] uppercase tracking-[0.18em] text-slate-500 font-black">Prediktiva Insikter</p>
+                <div className="mt-4 grid grid-cols-1 gap-4 md:grid-cols-3">
+                  <div className="rounded-2xl bg-slate-50 p-4 border border-slate-200">
+                    <p className="text-[10px] uppercase tracking-wider text-slate-500 font-bold">Rating (Finans)</p>
+                    <p className={`text-3xl font-black mt-1 ${['AAA', 'AA', 'A'].includes(plan.predictiveScores.fundingRisk.rating) ? 'text-emerald-600' : 'text-amber-600'
+                      }`}>
+                      {plan.predictiveScores.fundingRisk.rating}
+                    </p>
+                    <p className="text-[9px] text-slate-500 mt-1 uppercase font-bold">
+                      {plan.predictiveScores.fundingRisk.eligibleForGreenLoan ? 'Lämplig för Grönt Lån' : 'Kräver extra säkerhet'}
+                    </p>
+                  </div>
+
+                  <div className="rounded-2xl bg-slate-50 p-4 border border-slate-200">
+                    <p className="text-[10px] uppercase tracking-wider text-slate-500 font-bold">Regulatorisk Risk</p>
+                    <p className="text-3xl font-black mt-1 text-slate-900">
+                      {Math.round(plan.predictiveScores.regulatoryRisk.probabilityRfi * 100)}%
+                    </p>
+                    <p className="text-[9px] text-slate-500 mt-1 uppercase font-bold">Sannolhet för komplettering</p>
+                  </div>
+
+                  <div className="rounded-2xl bg-slate-50 p-4 border border-slate-200">
+                    <p className="text-[10px] uppercase tracking-wider text-slate-500 font-bold">Miljöindex</p>
+                    <p className="text-3xl font-black mt-1 text-slate-900">
+                      {Math.round(plan.predictiveScores.environmentalRisk.score * 100)}/100
+                    </p>
+                    <p className="text-[9px] text-slate-500 mt-1 uppercase font-bold">Geospatial sårbarhet</p>
+                  </div>
+                </div>
+
+                <div className="mt-4">
+                  <p className="text-[10px] uppercase font-black text-slate-400 mb-2">Riskfaktorer baserat på historik</p>
+                  <div className="flex flex-wrap gap-2">
+                    {plan.predictiveScores.regulatoryRisk.topRiskFactors.map((factor, i) => (
+                      <span key={i} className="px-2 py-1 bg-amber-50 text-amber-800 text-[10px] font-bold rounded-lg border border-amber-100">
+                        {factor}
+                      </span>
+                    ))}
+                  </div>
+                </div>
+              </div>
+            )}
           </div>
         </section>
       </div>
@@ -182,6 +227,16 @@ const ExecutiveSummary: React.FC<ExecutiveSummaryProps> = ({ mode = 'summary' })
               <MiniKpi label="Gate completion" value={`${gateCompletionPct}%`} />
               <MiniKpi label="Verifierade docs" value={String(verifiedDocs)} />
               <MiniKpi label="Carbon" value={carbonReady ? `${carbonResult?.totalKgCo2e.toFixed(1)} kg` : 'MISSING'} tone={carbonReady ? 'ok' : 'warn'} />
+            </div>
+          </div>
+
+          <div className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
+            <h3 className="text-sm font-black uppercase tracking-[0.16em] text-slate-500">Prediktiv Riskprofil</h3>
+            <div className="mt-4 space-y-3">
+              <StatusRow label="Finansiell Rating" value={plan.predictiveScores?.fundingRisk.rating || 'N/A'} />
+              <StatusRow label="Risk för komplettering" value={`${Math.round((plan.predictiveScores?.regulatoryRisk.probabilityRfi || 0) * 100)}%`} warn={(plan.predictiveScores?.regulatoryRisk.probabilityRfi || 0) > 0.4} />
+              <StatusRow label="Grundvattenrisk" value={plan.predictiveScores?.environmentalRisk.groundwaterImpact ? 'HÖG' : 'LÅG'} warn={plan.predictiveScores?.environmentalRisk.groundwaterImpact > 0.5} />
+              <StatusRow label="Injunction Risk" value={`${Math.round((plan.predictiveScores?.regulatoryRisk.probabilityInjunction || 0) * 100)}%`} />
             </div>
           </div>
         </section>

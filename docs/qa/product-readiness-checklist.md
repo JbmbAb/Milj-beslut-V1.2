@@ -12,6 +12,11 @@
 2. De kvarstar i checklistan med ordinarie status, men ska inte driva implementation i detta pass.
 3. For blockers till "Fardig saljbar produkt" i denna korning ignoreras avtalssparrade BankID/Lantmateriet-punkter.
 
+## MVP-notering (2026-03-13)
+1. Ovriga publika UI-korrigeringar ar stangda i den senaste korningen.
+2. BankID kvarstar som sista oppna punkt innan MVP-lansering.
+3. Human in the loop kvarstar som tvingande princip aven efter BankID-aktivering.
+
 ## Prioriteringsordning
 1. `P0` MVP-karna: Ansokningsportal + Projektledning + sakerhetsgrunder.
 2. `P1` V2 Logistik: fraktflode, korjournal, LIMS, dispatch-adapter.
