@@ -39,6 +39,7 @@ const ExecutiveSummary: React.FC<ExecutiveSummaryProps> = ({ mode = 'summary' })
     connected: number;
     total: number;
     allOpenSourcesActive: boolean;
+    notResponding: Array<{ name: string; provider: string; status: string; reason: string }>;
   } | null>(null);
 
   useEffect(() => {
@@ -48,12 +49,19 @@ const ExecutiveSummary: React.FC<ExecutiveSummaryProps> = ({ mode = 'summary' })
         if (!res.ok) throw new Error(`Health check failed: ${res.status}`);
         return res.json();
       })
-      .then((data: { ok?: boolean; connected?: number; total?: number; allOpenSourcesActive?: boolean }) => {
+      .then((data: {
+        ok?: boolean;
+        connected?: number;
+        total?: number;
+        allOpenSourcesActive?: boolean;
+        notResponding?: Array<{ name: string; provider: string; status: string; reason: string }>;
+      }) => {
         if (!cancelled && data.ok) {
           setDatasourceHealth({
             connected: data.connected ?? 0,
             total: data.total ?? 0,
             allOpenSourcesActive: data.allOpenSourcesActive ?? false,
+            notResponding: data.notResponding ?? [],
           });
         }
       })
@@ -305,11 +313,29 @@ const ExecutiveSummary: React.FC<ExecutiveSummaryProps> = ({ mode = 'summary' })
             <StatusRow label="Samplingschecklista" value={`${samplingDone}/${samplingTotal}`} />
             <StatusRow label="Koldioxidstatus" value={carbonReady ? 'REDO' : 'SAKNAS'} warn={!carbonReady} />
             {datasourceHealth !== null && (
-              <StatusRow
-                label="Externa datakällor"
-                value={`${datasourceHealth.connected}/${datasourceHealth.total} aktiva`}
-                warn={!datasourceHealth.allOpenSourcesActive}
-              />
+              <>
+                <StatusRow
+                  label="Externa datakällor"
+                  value={`${datasourceHealth.connected}/${datasourceHealth.total} aktiva`}
+                  warn={!datasourceHealth.allOpenSourcesActive}
+                />
+                {datasourceHealth.notResponding.length > 0 && (
+                  <div className="mt-1 rounded-xl border border-rose-100 bg-rose-50 px-3 py-2 text-xs text-rose-700">
+                    <p className="font-black uppercase tracking-[0.12em] text-[10px] mb-1">Svarar ej:</p>
+                    <ul className="space-y-1">
+                      {datasourceHealth.notResponding.map((src) => (
+                        <li key={src.provider} className="flex items-start gap-1">
+                          <span className="mt-0.5 inline-block h-1.5 w-1.5 shrink-0 rounded-full bg-rose-400" />
+                          <span>
+                            <span className="font-semibold">{src.provider}</span>
+                            {' — '}{src.reason}
+                          </span>
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
+              </>
             )}
           </div>
         </div>

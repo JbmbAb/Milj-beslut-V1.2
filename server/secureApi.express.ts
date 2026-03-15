@@ -342,9 +342,11 @@ router.get("/api/datasources/health", rateLimitByUser(30, 60_000), async (_req, 
     const disconnected = cards.filter((c) => c.status === "DISCONNECTED").length;
     const errors = cards.filter((c) => c.status === "ERROR").length;
     const permitRequired = cards.filter((c) => c.activation === "PERMIT_REQUIRED").length;
-    const allOpenSourcesActive = cards
-      .filter((c) => c.activation === "IMMEDIATE")
-      .every((c) => c.status === "CONNECTED");
+    const immediateSources = cards.filter((c) => c.activation === "IMMEDIATE");
+    const allOpenSourcesActive = immediateSources.every((c) => c.status === "CONNECTED");
+    const notResponding = immediateSources
+      .filter((c) => c.status !== "CONNECTED")
+      .map((c) => ({ name: c.name, provider: c.provider, status: c.status, reason: c.reason }));
     res.json({
       ok: true,
       allOpenSourcesActive,
@@ -353,6 +355,7 @@ router.get("/api/datasources/health", rateLimitByUser(30, 60_000), async (_req, 
       errors,
       total,
       permitRequired,
+      notResponding,
       checkedAt: summary.checkedAt,
     });
   } catch (error: unknown) {

@@ -103,5 +103,14 @@ describe('external datasource endpoints use mocks in integration tests', () => {
     expect(res.body.total).toBeGreaterThan(0);
     expect(res.body.connected + res.body.disconnected + res.body.errors).toBe(res.body.total);
     expect(typeof res.body.checkedAt).toBe('string');
+    expect(Array.isArray(res.body.notResponding)).toBe(true);
+    for (const item of res.body.notResponding as Array<unknown>) {
+      expect(item).toMatchObject({
+        name: expect.any(String),
+        provider: expect.any(String),
+        status: expect.any(String),
+        reason: expect.any(String),
+      });
+    }
   });
 });
