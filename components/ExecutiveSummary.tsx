@@ -1,4 +1,4 @@
-import React, { useMemo } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { useProjectStructure } from './ProjectStructureContext';
 import { countReadyModules } from '../services/projectStructure';
 
@@ -34,6 +34,32 @@ const ExecutiveSummary: React.FC<ExecutiveSummaryProps> = ({ mode = 'summary' })
 
   const carbonResult = plan.carbonSummary.lastResult;
   const carbonReady = Boolean(carbonResult);
+
+  const [datasourceHealth, setDatasourceHealth] = useState<{
+    connected: number;
+    total: number;
+    allOpenSourcesActive: boolean;
+  } | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    fetch('/api/datasources/health')
+      .then((res) => {
+        if (!res.ok) throw new Error(`Health check failed: ${res.status}`);
+        return res.json();
+      })
+      .then((data: { ok?: boolean; connected?: number; total?: number; allOpenSourcesActive?: boolean }) => {
+        if (!cancelled && data.ok) {
+          setDatasourceHealth({
+            connected: data.connected ?? 0,
+            total: data.total ?? 0,
+            allOpenSourcesActive: data.allOpenSourcesActive ?? false,
+          });
+        }
+      })
+      .catch(() => { /* silent – status row shows nothing if fetch fails */ });
+    return () => { cancelled = true; };
+  }, []);
 
   const auditRows = useMemo(() => {
     return [...plan.auditTrail]
@@ -278,6 +304,13 @@ const ExecutiveSummary: React.FC<ExecutiveSummaryProps> = ({ mode = 'summary' })
             <StatusRow label="Arkiverade dokument" value={String(archivedDocs)} />
             <StatusRow label="Samplingschecklista" value={`${samplingDone}/${samplingTotal}`} />
             <StatusRow label="Koldioxidstatus" value={carbonReady ? 'REDO' : 'SAKNAS'} warn={!carbonReady} />
+            {datasourceHealth !== null && (
+              <StatusRow
+                label="Externa datakällor"
+                value={`${datasourceHealth.connected}/${datasourceHealth.total} aktiva`}
+                warn={!datasourceHealth.allOpenSourcesActive}
+              />
+            )}
           </div>
         </div>
 

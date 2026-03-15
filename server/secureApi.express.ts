@@ -333,6 +333,33 @@ router.get("/api/datasources/public-summary", rateLimitByUser(20, 60_000), async
   }
 });
 
+router.get("/api/datasources/health", rateLimitByUser(30, 60_000), async (_req, res) => {
+  try {
+    const summary = await getPublicDatasourceSummary(false);
+    const cards = summary.cards;
+    const total = cards.length;
+    const connected = cards.filter((c) => c.status === "CONNECTED").length;
+    const disconnected = cards.filter((c) => c.status === "DISCONNECTED").length;
+    const errors = cards.filter((c) => c.status === "ERROR").length;
+    const permitRequired = cards.filter((c) => c.activation === "PERMIT_REQUIRED").length;
+    const allOpenSourcesActive = cards
+      .filter((c) => c.activation === "IMMEDIATE")
+      .every((c) => c.status === "CONNECTED");
+    res.json({
+      ok: true,
+      allOpenSourcesActive,
+      connected,
+      disconnected,
+      errors,
+      total,
+      permitRequired,
+      checkedAt: summary.checkedAt,
+    });
+  } catch (error: unknown) {
+    res.status(500).json({ ok: false, error: error instanceof Error ? error.message : "Health check failed" });
+  }
+});
+
 router.post("/api/auth/bankid/init", rateLimitByUser(10, 60_000), async (req, res) => {
   try {
     const endUserIp = String(req.body?.endUserIp ?? req.ip);

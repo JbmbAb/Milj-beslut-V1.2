@@ -88,4 +88,20 @@ describe('external datasource endpoints use mocks in integration tests', () => {
     expect(res.body.ok).toBe(true);
     expect(res.body.result.designation).toBe('TEST 1:1');
   });
+
+  it('GET /api/datasources/health returns health summary without auth', async () => {
+    const res = await request(app).get('/api/datasources/health');
+
+    expect(res.status).toBe(200);
+    expect(res.body.ok).toBe(true);
+    expect(typeof res.body.connected).toBe('number');
+    expect(typeof res.body.total).toBe('number');
+    expect(typeof res.body.disconnected).toBe('number');
+    expect(typeof res.body.errors).toBe('number');
+    expect(typeof res.body.permitRequired).toBe('number');
+    expect(typeof res.body.allOpenSourcesActive).toBe('boolean');
+    expect(res.body.total).toBeGreaterThan(0);
+    expect(res.body.connected + res.body.disconnected + res.body.errors).toBe(res.body.total);
+    expect(typeof res.body.checkedAt).toBe('string');
+  });
 });
