@@ -203,10 +203,9 @@ export async function getPendingAttachments(limit = 100) {
  * Marks an attachment as parsed and stores the extracted text.
  */
 export async function markAttachmentParsed(hash: string, extractedText: string) {
-    void extractedText;
     return prisma.outlookAttachment.update({
         where: { attachmentHash: hash },
-        data: { parsed: true },
+        data: { parsed: true, extractedText },
     });
 }
 
@@ -217,7 +216,6 @@ export async function markAttachmentFailed(hash: string, reason: string) {
     console.warn(`[outlook-ingestion] attachment parse failed for ${hash}: ${reason}`);
     return prisma.outlookAttachment.update({
         where: { attachmentHash: hash },
-        // The current schema has no failure column, so we close the item to avoid infinite retries.
-        data: { parsed: true },
+        data: { parsed: true, parseFailureReason: reason },
     });
 }

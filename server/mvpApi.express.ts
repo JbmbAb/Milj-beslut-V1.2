@@ -179,7 +179,7 @@ const mvpRateLimit = rateLimitByUser(60, 60_000);
 
 // ─── DEMO ENDPOINT 1: GET /api/v1/projects/:id/search ─────────────────────
 router.get('/api/v1/projects/:id/search', requireMvpAuth, mvpRateLimit, async (req, res) => {
-  const projectId = req.params.id;
+  const projectId = req.params['id'] as string;
   const query = String(req.query.q || '').trim();
   if (!query) { sendError(res, 400, 'MISSING_QUERY', 'q is required.'); return; }
 
@@ -480,7 +480,7 @@ router.get('/api/v1/admin/review-queue', requireMvpAuth, mvpRateLimit, async (re
 });
 
 router.post('/api/v1/admin/review-queue/:id/resolve', requireMvpAuth, mvpRateLimit, async (req, res) => {
-  const { id } = req.params;
+  const id = req.params['id'] as string;
   const { action, value } = req.body as { action: 'APPROVE' | 'REJECT'; value?: string };
 
   try {

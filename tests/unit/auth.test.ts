@@ -12,6 +12,9 @@ vi.mock('../../server/db/prisma', () => ({
   },
 }));
 
+// Import the mocked module so we can manipulate it in tests
+import { prisma } from '../../server/db/prisma';
+
 describe('auth', () => {
   const user = {
     id: 'user-1',
@@ -56,7 +59,7 @@ describe('auth', () => {
     expect(rotated.accessToken.length).toBeGreaterThan(20);
 
     // Mark the token as revoked for reuse detection
-    vi.mocked(require('../../server/db/prisma').prisma.tokenRevocation.findUnique).mockResolvedValueOnce({
+    vi.mocked(prisma.tokenRevocation.findUnique).mockResolvedValueOnce({
       id: 'rev-1',
       jti: 'some-jti',
       revokedAt: new Date(),

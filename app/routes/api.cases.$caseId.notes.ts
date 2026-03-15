@@ -1,16 +1,22 @@
 import { json } from "@remix-run/node";
 import type { ActionFunctionArgs, LoaderFunctionArgs } from "@remix-run/node";
-
-// In-memory "databas" för att API:et ska svara på riktigt under sessionen.
-// I produktion: Byt ut mot `await prisma.note.findMany(...)`
-const NOTES_STORE: Record<string, Array<{ id: string; text: string; author: string; timestamp: string }>> = {};
-
-console.log("✅ BTFA.Anteckning API redo (Körs i minnet - inga nycklar krävs)");
+import { prisma } from "../../server/db/prisma";
 
 export async function loader({ params }: LoaderFunctionArgs) {
   const caseId = params.caseId || "unknown";
-  const notes = NOTES_STORE[caseId] || [];
-  return json(notes);
+  const notes = await prisma.caseNote.findMany({
+    where: { caseId },
+    orderBy: { createdAt: "desc" },
+    select: { id: true, text: true, author: true, createdAt: true },
+  });
+  return json(
+    notes.map((n) => ({
+      id: n.id,
+      text: n.text,
+      author: n.author,
+      timestamp: n.createdAt.toISOString(),
+    })),
+  );
 }
 
 export async function action({ request, params }: ActionFunctionArgs) {
@@ -27,19 +33,17 @@ export async function action({ request, params }: ActionFunctionArgs) {
     return json({ message: "Text is required" }, { status: 400 });
   }
 
-  // Identifiera användare baserat på om nyckel skickades eller ej
   const authHeader = request.headers.get("Authorization");
-  const authorName = authHeader ? "Handläggare (Admin)" : "Gäst (Utan nyckel)";
+  const author = authHeader ? "Handläggare (Admin)" : "Gäst (Utan nyckel)";
 
-  const newNote = {
-    id: Date.now().toString(),
-    text,
-    author: authorName,
-    timestamp: new Date().toISOString(),
-  };
+  const newNote = await prisma.caseNote.create({
+    data: { caseId, text, author },
+  });
 
-  if (!NOTES_STORE[caseId]) NOTES_STORE[caseId] = [];
-  NOTES_STORE[caseId].unshift(newNote);
-
-  return json(newNote);
+  return json({
+    id: newNote.id,
+    text: newNote.text,
+    author: newNote.author,
+    timestamp: newNote.createdAt.toISOString(),
+  });
 }

@@ -433,6 +433,8 @@ model OutlookAttachment {
   checksumSha256     String               @map("checksum_sha256")
   storedPath         String?              @map("stored_path")
   parsed             Boolean              @default(false)
+  extractedText      String?              @map("extracted_text")
+  parseFailureReason String?              @map("parse_failure_reason")
   documentId         String?              @map("document_id")
   createdAt          DateTime             @default(now()) @map("created_at")
   updatedAt          DateTime             @default(now()) @updatedAt @map("updated_at")
@@ -618,4 +620,20 @@ model CaseCandidate {
 
   @@index([status, caseConfidence])
   @@index([diarie])
+}
+
+// ═══════════════════════════════════════════════════════════
+// CASE NOTES
+// ═══════════════════════════════════════════════════════════
+
+/// Notes attached to a case (project) by handlers.
+model CaseNote {
+  id        String   @id @default(cuid())
+  caseId    String   @map("case_id")
+  text      String
+  author    String
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@index([caseId, createdAt])
+  @@map("case_notes")
 }
