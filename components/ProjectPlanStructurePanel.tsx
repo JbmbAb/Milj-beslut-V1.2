@@ -90,7 +90,7 @@ const ProjectPlanStructurePanel: React.FC<ProjectPlanStructurePanelProps> = ({ p
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           <input
             className="w-full p-4 bg-slate-50 border border-slate-200 rounded-2xl text-sm font-bold text-slate-700 outline-none focus:ring-4 focus:ring-blue-500/10"
-            placeholder="Organization name"
+            placeholder="Organisationsnamn"
             value={plan.branding.organizationName}
             onChange={(e) => updateBranding('organizationName', e.target.value)}
           />
@@ -143,7 +143,7 @@ const ProjectPlanStructurePanel: React.FC<ProjectPlanStructurePanelProps> = ({ p
                 </div>
                 <input
                   className="w-full p-3 bg-white border border-slate-200 rounded-xl text-xs font-medium text-slate-700 outline-none focus:ring-4 focus:ring-blue-500/10"
-                  placeholder="Dependency note"
+                  placeholder="Beroendeanmärkning"
                   value={moduleState.dependencyNote}
                   onChange={(e) => updateDependencyNote(module, e.target.value)}
                 />
@@ -164,7 +164,7 @@ const ProjectPlanStructurePanel: React.FC<ProjectPlanStructurePanelProps> = ({ p
         <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
           <input
             className="md:col-span-2 p-3 bg-slate-50 border border-slate-200 rounded-xl text-xs font-medium text-slate-700 outline-none focus:ring-4 focus:ring-blue-500/10"
-            placeholder="Document name"
+            placeholder="Dokumentnamn"
             value={draftName}
             onChange={(e) => setDraftName(e.target.value)}
           />
@@ -256,7 +256,7 @@ const ProjectPlanStructurePanel: React.FC<ProjectPlanStructurePanelProps> = ({ p
         <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
           <input
             className="p-3 bg-slate-50 border border-slate-200 rounded-xl text-xs font-medium text-slate-700"
-            placeholder="Protocol template"
+            placeholder="Protokollmall"
             value={plan.samplingPreparation.protocolTemplate}
             onChange={(e) =>
               onUpdatePlan('samplingPreparation', {
@@ -267,7 +267,7 @@ const ProjectPlanStructurePanel: React.FC<ProjectPlanStructurePanelProps> = ({ p
           />
           <input
             className="p-3 bg-slate-50 border border-slate-200 rounded-xl text-xs font-medium text-slate-700"
-            placeholder="Chain of custody template"
+            placeholder="Spårningsmall"
             value={plan.samplingPreparation.chainOfCustodyTemplate}
             onChange={(e) =>
               onUpdatePlan('samplingPreparation', {
@@ -278,7 +278,7 @@ const ProjectPlanStructurePanel: React.FC<ProjectPlanStructurePanelProps> = ({ p
           />
           <input
             className="p-3 bg-slate-50 border border-slate-200 rounded-xl text-xs font-medium text-slate-700"
-            placeholder="Planned service window"
+            placeholder="Planerat servicefönster"
             value={plan.samplingPreparation.plannedServiceWindow}
             onChange={(e) =>
               onUpdatePlan('samplingPreparation', {

@@ -35,7 +35,7 @@ describe('ExecutiveSummary', () => {
     mockContext.gateStats = { blocked: 0, passed: 0 };
 
     const html = renderToStaticMarkup(React.createElement(ExecutiveSummary, { mode: 'summary' }));
-    expect(html).toContain('Compliance score');
+    expect(html).toContain('Regelefterlevnadspoäng');
     expect(html).toContain('88/100');
   });
 

@@ -146,7 +146,7 @@ const AdminSearchConsole: React.FC<AdminSearchConsoleProps> = ({ panel = 'search
         body: JSON.stringify({ username, password }),
       });
       const json = (await response.json()) as ({ ok: true } & AdminAuthLoginResponse) | { ok: false; error: string };
-      if (!response.ok || !json.ok) throw new Error((json as { error?: string }).error || 'Login failed');
+      if (!response.ok || !json.ok) throw new Error((json as { error?: string }).error || 'Inloggning misslyckades');
       setToken(json.accessToken);
       setRefreshToken(json.refreshToken);
       setPassword('');
@@ -154,7 +154,7 @@ const AdminSearchConsole: React.FC<AdminSearchConsoleProps> = ({ panel = 'search
       await loadProjects(json.accessToken);
       await loadCatalog(json.accessToken);
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'Login failed');
+      setError(e instanceof Error ? e.message : 'Inloggning misslyckades');
     } finally {
       setBusy('');
     }
@@ -170,12 +170,12 @@ const AdminSearchConsole: React.FC<AdminSearchConsoleProps> = ({ panel = 'search
         body: JSON.stringify({ refreshToken }),
       });
       const json = await response.json();
-      if (!response.ok || !json?.ok) throw new Error(json?.error || 'Refresh failed');
+      if (!response.ok || !json?.ok) throw new Error(json?.error || 'Sessionsförnyelse misslyckades');
       setToken(String(json.accessToken || ''));
       setRefreshToken(String(json.refreshToken || ''));
       setInfo('Session uppdaterad.');
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'Refresh failed');
+      setError(e instanceof Error ? e.message : 'Sessionsförnyelse misslyckades');
     } finally {
       setBusy('');
     }
@@ -463,14 +463,14 @@ const AdminSearchConsole: React.FC<AdminSearchConsoleProps> = ({ panel = 'search
             <input
               data-testid="admin-username-input"
               className="rounded-xl border border-slate-200 px-3 py-2 text-sm"
-              placeholder="Username"
+              placeholder="Användarnamn"
               value={username}
               onChange={(event) => setUsername(event.target.value)}
             />
             <input
               data-testid="admin-password-input"
               className="rounded-xl border border-slate-200 px-3 py-2 text-sm"
-              placeholder="Password"
+              placeholder="Lösenord"
               type="password"
               value={password}
               onChange={(event) => setPassword(event.target.value)}
@@ -807,7 +807,7 @@ const AdminSearchConsole: React.FC<AdminSearchConsoleProps> = ({ panel = 'search
           >
             <option value="">Status (alla)</option>
             <option value="DRAFT">Draft</option>
-            <option value="VERIFIED">Verified</option>
+            <option value="VERIFIED">Verifierad</option>
             <option value="WARNING">Warning</option>
             <option value="BLOCKED">Blocked</option>
           </select>

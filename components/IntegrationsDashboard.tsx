@@ -214,7 +214,7 @@ const IntegrationsDashboard: React.FC = () => {
           <Metric label="Kallor" value={String(cards.length)} />
           <Metric label="Aktiva" value={String(connectedCount)} tone="ok" />
           <Metric label="Fel" value={String(errorCount)} tone={errorCount > 0 ? 'warn' : 'ok'} />
-          <Metric label="Permit required" value={String(permitRequiredCount)} />
+          <Metric label="Tillstånd krävs" value={String(permitRequiredCount)} />
           <Metric label="Dispatch" value={dispatchStatus ? dispatchProviderLabel(dispatchStatus.activeProvider) : 'Ej tillganglig'} tone={dispatchTone} />
         </div>
 
@@ -275,7 +275,7 @@ const IntegrationsDashboard: React.FC = () => {
                   <p>Datatyp: <span className="font-semibold">{card.dataType}</span></p>
                   <p>Komplexitet: <span className="font-semibold">{card.complexity}/5</span></p>
                   <p>Sync: <span className="font-semibold">{card.lastSync}</span></p>
-                  <p>Aktivering: <span className="font-semibold">{card.activation === 'IMMEDIATE' ? 'Immediate' : 'Permit required'}</span></p>
+                  <p>Aktivering: <span className="font-semibold">{card.activation === 'IMMEDIATE' ? 'Omedelbar' : 'Tillstånd krävs'}</span></p>
                 </div>
 
                 <p className="mt-3 rounded-xl border border-slate-100 bg-slate-50 px-3 py-2 text-xs text-slate-600">{card.reason}</p>

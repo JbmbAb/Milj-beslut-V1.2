@@ -10,25 +10,25 @@ const StatsOverview: React.FC<StatsOverviewProps> = ({ stats }) => {
   return (
     <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
       <StatCard 
-        title="Total Permits" 
+        title="Totalt antal tillstånd" 
         value={stats.total} 
         icon="fa-file-contract" 
         color="bg-blue-500" 
       />
       <StatCard 
-        title="Approved (BIFALL)" 
+        title="Beviljade (BIFALL)" 
         value={stats.bifall} 
         icon="fa-check-circle" 
         color="bg-green-500" 
       />
       <StatCard 
-        title="Rejected (AVSLAG)" 
+        title="Avslagna (AVSLAG)" 
         value={stats.avslag} 
         icon="fa-times-circle" 
         color="bg-red-500" 
       />
       <StatCard 
-        title="Municipalities" 
+        title="Kommuner" 
         value={stats.municipalities} 
         icon="fa-city" 
         color="bg-purple-500" 

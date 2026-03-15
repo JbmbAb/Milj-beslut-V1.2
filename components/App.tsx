@@ -196,16 +196,16 @@ const App: React.FC = () => {
 
           <div className="pt-1 pb-3">
             <span className="inline-flex rounded-full bg-[#1a382e] px-[10px] py-[6px] text-[11px] font-semibold text-[#bff2d6]">
-              API: Connected
+              API: Ansluten
             </span>
           </div>
 
-          <p className="px-[10px] pt-1 pb-1 text-[11px] font-semibold uppercase tracking-[0.08em] text-[#7086a4]">Sections</p>
-          <SidebarLink active={activeTab === 'summary'} icon="fa-house" label="Dashboard" onClick={() => setActiveTab('summary')} />
+          <p className="px-[10px] pt-1 pb-1 text-[11px] font-semibold uppercase tracking-[0.08em] text-[#7086a4]">Avsnitt</p>
+          <SidebarLink active={activeTab === 'summary'} icon="fa-house" label="Startsida" onClick={() => setActiveTab('summary')} />
           {mode !== 'MVP_WORKFLOW' && (
             <>
               <SidebarLink active={activeTab === 'summary'} icon="fa-chart-pie" label="Beslutsöversikt" onClick={() => setActiveTab('summary')} />
-              <SidebarLink active={activeTab === 'integrations'} icon="fa-database" label="Service Integrations" onClick={() => setActiveTab('integrations')} />
+              <SidebarLink active={activeTab === 'integrations'} icon="fa-database" label="Tjänsteintegreringar" onClick={() => setActiveTab('integrations')} />
               <SidebarLink active={activeTab === 'guide'} icon="fa-book-open" label="Manualer & Support" onClick={() => setActiveTab('guide')} />
               <SidebarLink active={activeTab === 'legal'} icon="fa-scale-balanced" label="Rättsligt stöd" onClick={() => setActiveTab('legal')} />
             </>
@@ -240,7 +240,7 @@ const App: React.FC = () => {
 
           {mode === 'COMPLIANCE_AUDIT' && (
             <>
-              <SidebarLink active={activeTab === 'score'} icon="fa-gauge-high" label="Compliance score" onClick={() => setActiveTab('score')} />
+              <SidebarLink active={activeTab === 'score'} icon="fa-gauge-high" label="Regelefterlevnad" onClick={() => setActiveTab('score')} />
               <SidebarLink active={activeTab === 'audit'} icon="fa-list-check" label="Revisionslogg" onClick={() => setActiveTab('audit')} />
               <SidebarLink active={activeTab === 'reports'} icon="fa-file-chart-column" label="Långivarrapport" onClick={() => setActiveTab('reports')} />
             </>
@@ -286,7 +286,7 @@ const App: React.FC = () => {
               GATES {passedGateCount}/{requiredGateCount}
             </span>
             <span className={`text-[10px] font-black px-3 py-1.5 rounded-full border ${carbonReady ? 'bg-emerald-50 text-emerald-700 border-emerald-200' : 'bg-slate-100 text-slate-500 border-slate-200'}`}>
-              CO2 {carbonReady ? 'READY' : 'MISSING'}
+              CO2 {carbonReady ? 'REDO' : 'SAKNAS'}
             </span>
             <span className="text-[10px] font-black px-3 py-1.5 rounded-full bg-slate-100 text-slate-500 border-slate-200">
               SYSTEM VERSION 5.0.0

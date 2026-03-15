@@ -74,7 +74,7 @@ const ExecutiveSummary: React.FC<ExecutiveSummaryProps> = ({ mode = 'summary' })
       <div className="animate-in fade-in duration-500 space-y-8">
         <section className="grid grid-cols-1 gap-6 lg:grid-cols-[1fr_2fr]">
           <div className="rounded-3xl border border-slate-200 bg-white p-8 shadow-sm">
-            <p className="text-[11px] uppercase tracking-[0.18em] text-slate-500 font-black">Compliance score</p>
+            <p className="text-[11px] uppercase tracking-[0.18em] text-slate-500 font-black">Regelefterlevnadspoäng</p>
             <div className="mt-4 flex items-center justify-center">
               <div className="relative h-48 w-48">
                 <svg className="h-full w-full" viewBox="0 0 100 100">
@@ -99,7 +99,7 @@ const ExecutiveSummary: React.FC<ExecutiveSummaryProps> = ({ mode = 'summary' })
               </div>
             </div>
             <p className="mt-4 text-xs text-slate-600">
-              Score baseras pa stage-gates, modulberedskap, verifierade dokument och carbon-status.
+              Poängen baseras på kontrollpunkter, modulberedskap, verifierade dokument och koldioxidstatus.
             </p>
           </div>
 
@@ -110,7 +110,7 @@ const ExecutiveSummary: React.FC<ExecutiveSummaryProps> = ({ mode = 'summary' })
               <MiniKpi label="Blockerade gates" value={String(blockedRequiredGates)} tone={blockedRequiredGates > 0 ? 'warn' : 'ok'} />
               <MiniKpi label="Moduler redo" value={`${readyModules}/${totalModules}`} />
               <MiniKpi label="Dokument verifierade" value={`${verifiedDocs}/${totalDocs}`} />
-              <MiniKpi label="Carbon status" value={carbonReady ? 'READY' : 'MISSING'} tone={carbonReady ? 'ok' : 'warn'} />
+              <MiniKpi label="Koldioxidstatus" value={carbonReady ? 'REDO' : 'SAKNAS'} tone={carbonReady ? 'ok' : 'warn'} />
               <MiniKpi label="Sampling checklista" value={`${samplingDone}/${samplingTotal}`} />
             </div>
 
@@ -223,10 +223,10 @@ const ExecutiveSummary: React.FC<ExecutiveSummaryProps> = ({ mode = 'summary' })
           <div className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
             <h3 className="text-sm font-black uppercase tracking-[0.16em] text-slate-500">Nyckeltal</h3>
             <div className="mt-4 grid grid-cols-2 gap-3">
-              <MiniKpi label="Compliance" value={`${complianceScore}/100`} />
-              <MiniKpi label="Gate completion" value={`${gateCompletionPct}%`} />
-              <MiniKpi label="Verifierade docs" value={String(verifiedDocs)} />
-              <MiniKpi label="Carbon" value={carbonReady ? `${carbonResult?.totalKgCo2e.toFixed(1)} kg` : 'MISSING'} tone={carbonReady ? 'ok' : 'warn'} />
+              <MiniKpi label="Regelefterlevnad" value={`${complianceScore}/100`} />
+              <MiniKpi label="Gates genomförda" value={`${gateCompletionPct}%`} />
+              <MiniKpi label="Verifierade dokument" value={String(verifiedDocs)} />
+              <MiniKpi label="Koldioxid" value={carbonReady ? `${carbonResult?.totalKgCo2e.toFixed(1)} kg` : 'SAKNAS'} tone={carbonReady ? 'ok' : 'warn'} />
             </div>
           </div>
 
@@ -236,7 +236,7 @@ const ExecutiveSummary: React.FC<ExecutiveSummaryProps> = ({ mode = 'summary' })
               <StatusRow label="Finansiell Rating" value={plan.predictiveScores?.fundingRisk.rating || 'N/A'} />
               <StatusRow label="Risk för komplettering" value={`${Math.round((plan.predictiveScores?.regulatoryRisk.probabilityRfi || 0) * 100)}%`} warn={(plan.predictiveScores?.regulatoryRisk.probabilityRfi || 0) > 0.4} />
               <StatusRow label="Grundvattenrisk" value={plan.predictiveScores?.environmentalRisk.groundwaterImpact ? 'HÖG' : 'LÅG'} warn={plan.predictiveScores?.environmentalRisk.groundwaterImpact > 0.5} />
-              <StatusRow label="Injunction Risk" value={`${Math.round((plan.predictiveScores?.regulatoryRisk.probabilityInjunction || 0) * 100)}%`} />
+              <StatusRow label="Föreläggandersrisk" value={`${Math.round((plan.predictiveScores?.regulatoryRisk.probabilityInjunction || 0) * 100)}%`} />
             </div>
           </div>
         </section>
@@ -249,7 +249,7 @@ const ExecutiveSummary: React.FC<ExecutiveSummaryProps> = ({ mode = 'summary' })
       <section className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
         <div className="flex flex-col gap-4 md:flex-row md:items-end md:justify-between">
           <div>
-            <p className="text-[11px] uppercase tracking-[0.18em] text-slate-500 font-black">Executive overview</p>
+            <p className="text-[11px] uppercase tracking-[0.18em] text-slate-500 font-black">Verkställande överblick</p>
             <h1 className="mt-1 text-3xl font-black text-slate-900">Projekt- och compliancesammanfattning</h1>
             <p className="mt-2 text-sm text-slate-600">
               {plan.name || 'Namnlost projekt'} | {locationText}
@@ -262,27 +262,27 @@ const ExecutiveSummary: React.FC<ExecutiveSummaryProps> = ({ mode = 'summary' })
       </section>
 
       <section className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
-        <KpiCard label="Compliance score" value={`${complianceScore}/100`} />
-        <KpiCard label="Gates passed" value={`${passedRequiredGates}/${totalRequiredGates}`} />
-        <KpiCard label="Module readiness" value={`${readyModules}/${totalModules}`} />
-        <KpiCard label="Verified docs" value={`${verifiedDocs}/${totalDocs}`} />
+        <KpiCard label="Regelefterlevnadspoäng" value={`${complianceScore}/100`} />
+        <KpiCard label="Gates godkända" value={`${passedRequiredGates}/${totalRequiredGates}`} />
+        <KpiCard label="Modulberedskap" value={`${readyModules}/${totalModules}`} />
+        <KpiCard label="Verifierade dokument" value={`${verifiedDocs}/${totalDocs}`} />
       </section>
 
       <section className="grid grid-cols-1 gap-6 xl:grid-cols-2">
         <div className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
-          <h3 className="text-sm font-black uppercase tracking-[0.16em] text-slate-500">Health status</h3>
+          <h3 className="text-sm font-black uppercase tracking-[0.16em] text-slate-500">Systemstatus</h3>
           <div className="mt-4 space-y-2 text-sm text-slate-700">
-            <StatusRow label="Gate completion" value={`${gateCompletionPct}%`} />
-            <StatusRow label="Blocked gates" value={String(blockedRequiredGates)} warn={blockedRequiredGates > 0} />
-            <StatusRow label="Draft docs" value={String(draftDocs)} warn={draftDocs > 0} />
-            <StatusRow label="Archived docs" value={String(archivedDocs)} />
-            <StatusRow label="Sampling checklist" value={`${samplingDone}/${samplingTotal}`} />
-            <StatusRow label="Carbon status" value={carbonReady ? 'READY' : 'MISSING'} warn={!carbonReady} />
+            <StatusRow label="Gates genomförda" value={`${gateCompletionPct}%`} />
+            <StatusRow label="Blockerade gates" value={String(blockedRequiredGates)} warn={blockedRequiredGates > 0} />
+            <StatusRow label="Utkastdokument" value={String(draftDocs)} warn={draftDocs > 0} />
+            <StatusRow label="Arkiverade dokument" value={String(archivedDocs)} />
+            <StatusRow label="Samplingschecklista" value={`${samplingDone}/${samplingTotal}`} />
+            <StatusRow label="Koldioxidstatus" value={carbonReady ? 'REDO' : 'SAKNAS'} warn={!carbonReady} />
           </div>
         </div>
 
         <div className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
-          <h3 className="text-sm font-black uppercase tracking-[0.16em] text-slate-500">Latest audit entries</h3>
+          <h3 className="text-sm font-black uppercase tracking-[0.16em] text-slate-500">Senaste granskningsposter</h3>
           <div className="mt-4 space-y-2">
             {auditRows.slice(0, 5).map((row) => (
               <div key={row.id} className="rounded-xl border border-slate-100 bg-slate-50 px-3 py-2 text-xs">
@@ -290,7 +290,7 @@ const ExecutiveSummary: React.FC<ExecutiveSummaryProps> = ({ mode = 'summary' })
                 <p className="text-slate-500">{new Date(row.timestamp).toLocaleString('sv-SE')} | {row.user}</p>
               </div>
             ))}
-            {auditRows.length === 0 && <p className="text-xs text-slate-500">Ingen audit-data registrerad an.</p>}
+            {auditRows.length === 0 && <p className="text-xs text-slate-500">Ingen granskningsdata registrerad ännu.</p>}
           </div>
         </div>
       </section>

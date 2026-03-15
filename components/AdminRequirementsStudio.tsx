@@ -580,7 +580,7 @@ const AdminRequirementsStudio: React.FC<AdminRequirementsStudioProps> = ({ token
                   </select>
                   <input
                     className="rounded-lg border border-slate-200 px-3 py-2 text-sm"
-                    placeholder="Validation comment"
+                    placeholder="Valideringskommentar"
                     value={validationComment}
                     onChange={(event) => setValidationComment(event.target.value)}
                   />
@@ -647,7 +647,7 @@ const AdminRequirementsStudio: React.FC<AdminRequirementsStudioProps> = ({ token
                     </select>
                     <input
                       className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm"
-                      placeholder="Page number"
+                      placeholder="Sidnummer"
                       value={citationPageNumber}
                       onChange={(event) => setCitationPageNumber(event.target.value)}
                     />

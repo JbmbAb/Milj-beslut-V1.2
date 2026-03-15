@@ -73,7 +73,7 @@ const ProjectDashboard: React.FC<{ onSelect: (p: Project) => void }> = ({ onSele
             .finally(() => setLoading(false));
     }, []);
 
-    if (loading) return <div className="p-10 text-center animate-pulse text-slate-400">Loading projects...</div>;
+    if (loading) return <div className="p-10 text-center animate-pulse text-slate-400">Laddar projekt...</div>;
 
     return (
         <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500">
