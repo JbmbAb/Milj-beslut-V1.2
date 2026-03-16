@@ -542,6 +542,16 @@ export interface AdminAuthLoginResponse {
   user: AdminAuthUser;
 }
 
+export type ProjectAccessRole = 'OWNER' | 'CONTRIBUTOR' | 'REVIEWER' | 'AUDITOR';
+
+export interface ProjectMemberRecord {
+  id: string;
+  userId: string;
+  bankidId: string;
+  accessRole: ProjectAccessRole;
+  createdAt: string;
+}
+
 export interface AdminProjectSummary {
   id: string;
   propertyDesignation: string;
@@ -850,6 +860,29 @@ export interface AppFeature {
   status: FeatureStatus;
   /** Optional note — explains what remains for PARTIAL/PENDING */
   note?: string;
+}
+
+/** Knowledge-graph search response */
+export interface KnowledgeGraphSearchResponse {
+  query: string;
+  nodes: Array<{
+    id: string;
+    nodeType: string;
+    name: string;
+    metadata: Record<string, unknown>;
+  }>;
+  edges: Array<{
+    id: string;
+    sourceId: string;
+    targetId: string;
+    relation: string;
+    weight: number;
+  }>;
+  stats: {
+    totalNodes: number;
+    totalEdges: number;
+    nodesByType: Array<{ nodeType: string; count: number }>;
+  };
 }
 
 /** Response shape for GET /api/admin/completion — "hur många procent återstår?" */

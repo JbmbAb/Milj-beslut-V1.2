@@ -2,6 +2,17 @@
 import React, { useState } from 'react';
 import { analyzeSiteImage, analyzeTechnicalDrawing, analyzeDrawingOCR } from '../services/geminiService';
 
+const TOKEN_KEY = 'miljobeslut_admin_bearer';
+const PROJECT_KEY = 'miljobeslut_project_id';
+
+function resolveCredentials(): { token: string; projectId: string } | null {
+  if (typeof window === 'undefined') return null;
+  const token = String(window.localStorage.getItem(TOKEN_KEY) ?? '').trim();
+  const projectId = String(window.localStorage.getItem(PROJECT_KEY) ?? '').trim();
+  if (!token || !projectId) return null;
+  return { token, projectId };
+}
+
 const FieldAssistant: React.FC = () => {
   const [image, setImage] = useState<string | null>(null);
   const [analysis, setAnalysis] = useState<string | null>(null);
@@ -9,6 +20,9 @@ const FieldAssistant: React.FC = () => {
   const [mode, setMode] = useState<'site' | 'drawing'>('site');
   const [currentFileType, setCurrentFileType] = useState<string>('');
   const [currentBase64, setCurrentBase64] = useState<string>('');
+  const [currentFilename, setCurrentFilename] = useState<string>('');
+  const [savedAuditId, setSavedAuditId] = useState<string | null>(null);
+  const [isSaving, setIsSaving] = useState(false);
 
   const handleCapture = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -21,36 +35,73 @@ const FieldAssistant: React.FC = () => {
       setImage(base64Full);
       setCurrentBase64(base64);
       setCurrentFileType(file.type);
+      setCurrentFilename(file.name);
       setAnalysis(null);
+      setSavedAuditId(null);
       
       // Starta standardanalys direkt vid uppladdning
-      runAnalysis('standard');
+      runAnalysis('standard', base64, file.type);
     };
     reader.readAsDataURL(file);
   };
 
-  const runAnalysis = async (type: 'standard' | 'ocr') => {
-    if (!currentBase64) return;
+  const runAnalysis = async (type: 'standard' | 'ocr', base64Override?: string, fileTypeOverride?: string) => {
+    const b64 = base64Override ?? currentBase64;
+    const ft = fileTypeOverride ?? currentFileType;
+    if (!b64) return;
     
     setIsLoading(true);
     setAnalysis(null);
+    setSavedAuditId(null);
 
     try {
       let result;
       if (mode === 'drawing') {
         if (type === 'ocr') {
-          result = await analyzeDrawingOCR(currentBase64, currentFileType);
+          result = await analyzeDrawingOCR(b64, ft);
         } else {
-          result = await analyzeTechnicalDrawing(currentBase64, currentFileType);
+          result = await analyzeTechnicalDrawing(b64, ft);
         }
       } else {
-        result = await analyzeSiteImage(currentBase64, currentFileType);
+        result = await analyzeSiteImage(b64, ft);
       }
       setAnalysis(result);
     } catch {
       setAnalysis("Misslyckades med att analysera dokumentet. Kontrollera anslutningen eller filformatet.");
     } finally {
       setIsLoading(false);
+    }
+  };
+
+  const handleSaveAnalysis = async () => {
+    if (!analysis) return;
+    const creds = resolveCredentials();
+    if (!creds) {
+      alert('Inget projekt aktiverat. Ange fastighetsbeteckning i Projekthanteraren först.');
+      return;
+    }
+    setIsSaving(true);
+    try {
+      const resp = await fetch(`/api/projects/${encodeURIComponent(creds.projectId)}/field-analysis`, {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${creds.token}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          mode,
+          analysisType: 'standard',
+          result: analysis,
+          filename: currentFilename || undefined,
+        }),
+      });
+      const json = await resp.json() as { ok?: boolean; auditId?: string; error?: string };
+      if (!resp.ok || !json.ok) throw new Error(json.error ?? `HTTP ${resp.status}`);
+      setSavedAuditId(json.auditId ?? 'saved');
+    } catch (err) {
+      alert(`Kunde inte spara: ${err instanceof Error ? err.message : String(err)}`);
+    } finally {
+      setIsSaving(false);
     }
   };
 
@@ -64,13 +115,13 @@ const FieldAssistant: React.FC = () => {
       {/* Mode Switcher */}
       <div className="flex p-1 bg-slate-200 rounded-2xl w-fit mb-6">
         <button 
-          onClick={() => { setMode('site'); setAnalysis(null); setImage(null); }}
+          onClick={() => { setMode('site'); setAnalysis(null); setImage(null); setSavedAuditId(null); }}
           className={`px-6 py-2.5 rounded-xl text-xs font-black transition-all ${mode === 'site' ? 'bg-white text-blue-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
         >
           <i className="fas fa-camera mr-2"></i> Fältfoto
         </button>
         <button 
-          onClick={() => { setMode('drawing'); setAnalysis(null); setImage(null); }}
+          onClick={() => { setMode('drawing'); setAnalysis(null); setImage(null); setSavedAuditId(null); }}
           className={`px-6 py-2.5 rounded-xl text-xs font-black transition-all ${mode === 'drawing' ? 'bg-white text-blue-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
         >
           <i className="fas fa-drafting-pencil mr-2"></i> Ritning / Situationskarta
@@ -164,10 +215,23 @@ const FieldAssistant: React.FC = () => {
                   {analysis}
                 </div>
                 <div className="flex gap-2">
-                  <button className="flex-1 py-3 bg-blue-50 text-blue-700 font-bold rounded-xl text-xs hover:bg-blue-100 transition-colors">
-                    <i className="fas fa-file-pdf mr-2"></i> Spara granskning
+                  <button
+                    onClick={handleSaveAnalysis}
+                    disabled={isSaving || !!savedAuditId}
+                    className="flex-1 py-3 bg-blue-50 text-blue-700 font-bold rounded-xl text-xs hover:bg-blue-100 transition-colors disabled:opacity-50"
+                  >
+                    {isSaving ? (
+                      <><i className="fas fa-spinner fa-spin mr-2"></i>Sparar...</>
+                    ) : savedAuditId ? (
+                      <><i className="fas fa-check mr-2 text-emerald-600"></i>Sparad i projektjournal</>
+                    ) : (
+                      <><i className="fas fa-file-pdf mr-2"></i>Spara granskning</>
+                    )}
                   </button>
-                  <button className="flex-1 py-3 bg-slate-50 text-slate-600 font-bold rounded-xl text-xs hover:bg-slate-100 transition-colors">
+                  <button
+                    onClick={() => { navigator.clipboard?.writeText(analysis ?? ''); }}
+                    className="flex-1 py-3 bg-slate-50 text-slate-600 font-bold rounded-xl text-xs hover:bg-slate-100 transition-colors"
+                  >
                     <i className="fas fa-copy mr-2"></i> Kopiera
                   </button>
                 </div>

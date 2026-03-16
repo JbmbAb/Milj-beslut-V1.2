@@ -240,3 +240,108 @@ export async function getGraphStats() {
         nodesByType: byType.map(r => ({ nodeType: r.node_type, count: Number(r.count) })),
     };
 }
+
+// ─── Full-text search ────────────────────────────────────────────────────────
+
+/**
+ * searchGraph — sök noder vars namn matchar sökfrasen (case-insensitive ILIKE).
+ * Returnerar matchande noder + deras direkta kanter (1 hop).
+ */
+export async function searchGraph(params: {
+    query: string;
+    nodeTypes?: string[];
+    limit?: number;
+}): Promise<GraphQueryResult> {
+    type NodeRow = { node_id: string; node_type: string; name: string; metadata: string };
+    type EdgeRow = {
+        edge_id: string;
+        source_node: string;
+        target_node: string;
+        relation_type: string;
+        weight: number;
+    };
+
+    const limit = Math.min(params.limit ?? 50, 200);
+    // Escape ILIKE special characters: %, _, and backslash (the escape char itself)
+    const escaped = params.query
+        .replace(/\\/g, '\\\\')
+        .replace(/%/g, '\\%')
+        .replace(/_/g, '\\_');
+    const pattern = `%${escaped}%`;
+
+    let nodeRows: NodeRow[];
+    if (params.nodeTypes && params.nodeTypes.length > 0) {
+        // Filter by type AND name pattern — build parameterised IN list
+        const placeholders = params.nodeTypes.map((_, i) => `$${i + 2}`).join(', ');
+        nodeRows = await prisma.$queryRawUnsafe<NodeRow[]>(
+            `SELECT node_id, node_type, name, metadata::text AS metadata
+       FROM graph_nodes
+       WHERE name ILIKE $1 AND node_type IN (${placeholders})
+       ORDER BY name
+       LIMIT ${limit};`,
+            pattern,
+            ...params.nodeTypes
+        );
+    } else {
+        nodeRows = await prisma.$queryRawUnsafe<NodeRow[]>(
+            `SELECT node_id, node_type, name, metadata::text AS metadata
+       FROM graph_nodes
+       WHERE name ILIKE $1
+       ORDER BY name
+       LIMIT ${limit};`,
+            pattern
+        );
+    }
+
+    if (nodeRows.length === 0) {
+        return { nodes: [], edges: [] };
+    }
+
+    const nodeIds = nodeRows.map(n => n.node_id);
+
+    // Fetch all edges where source OR target is in our result set (1 hop)
+    // Use ANY($1::text[]) so the array is passed only once, avoiding parameter mismatch.
+    const edgeRows = await prisma.$queryRawUnsafe<EdgeRow[]>(
+        `SELECT edge_id, source_node, target_node, relation_type, weight
+     FROM graph_edges
+     WHERE source_node = ANY($1::text[]) OR target_node = ANY($1::text[])
+     LIMIT 500;`,
+        nodeIds
+    );
+
+    // Collect additional node IDs referenced by edges but not in primary result
+    const extraNodeIds = new Set<string>();
+    for (const e of edgeRows) {
+        if (!nodeIds.includes(e.source_node)) extraNodeIds.add(e.source_node);
+        if (!nodeIds.includes(e.target_node)) extraNodeIds.add(e.target_node);
+    }
+
+    let extraNodes: NodeRow[] = [];
+    if (extraNodeIds.size > 0) {
+        const extraArr = Array.from(extraNodeIds);
+        extraNodes = await prisma.$queryRawUnsafe<NodeRow[]>(
+            `SELECT node_id, node_type, name, metadata::text AS metadata FROM graph_nodes WHERE node_id = ANY($1::text[]);`,
+            extraArr
+        );
+    }
+
+    const allNodes = [...nodeRows, ...extraNodes].map(n => ({
+        id: n.node_id,
+        nodeType: n.node_type,
+        name: n.name,
+        metadata: (() => {
+            try { return JSON.parse(n.metadata) as Record<string, unknown>; }
+            catch { return {} as Record<string, unknown>; }
+        })(),
+    }));
+
+    const edges = edgeRows.map(e => ({
+        id: e.edge_id,
+        sourceId: e.source_node,
+        targetId: e.target_node,
+        relation: e.relation_type,
+        weight: e.weight,
+    }));
+
+    return { nodes: allNodes, edges };
+}

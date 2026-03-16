@@ -1,6 +1,6 @@
 
 import React from 'react';
-import { Task } from '../types';
+import { Task, ProjectPhase } from '../types';
 
 const _MOCK_TASKS: Task[] = [
   { id: '1', title: 'Inledande platsspecifik riskanalys', startWeek: 2, duration: 4, type: 'TECHNICAL', status: 'DONE' },
@@ -19,7 +19,7 @@ const MONTHS = [
 ];
 
 interface GanttChartProps {
-  phases?: any[];
+  phases?: ProjectPhase[];
 }
 
 const GanttChart: React.FC<GanttChartProps> = ({ phases }) => {
@@ -44,7 +44,8 @@ const GanttChart: React.FC<GanttChartProps> = ({ phases }) => {
   }
 
   // Flatten phases and tasks into a single viewable list
-  const allTasks = phases.flatMap(phase => phase.tasks.map((task: any) => ({
+  type TaskWithPhase = Task & { phaseId: string; phaseTitle: string };
+  const allTasks: TaskWithPhase[] = phases.flatMap(phase => phase.tasks.map((task: Task) => ({
     ...task,
     phaseId: phase.id,
     phaseTitle: phase.title
@@ -80,7 +81,7 @@ const GanttChart: React.FC<GanttChartProps> = ({ phases }) => {
 
           {/* Grid View */}
           <div className="relative">
-            {allTasks.map((task: any) => (
+            {allTasks.map((task: TaskWithPhase) => (
               <div key={task.id} className="flex border-b border-slate-50 hover:bg-slate-50/50 transition-colors group">
                 <div className="w-64 shrink-0 p-4 border-r border-slate-100 flex items-center gap-3">
                   <div className={`w-2 h-2 rounded-full ${task.status === 'DONE' ? 'bg-emerald-500' : task.status === 'ONGOING' ? 'bg-blue-500 animate-pulse' : 'bg-slate-200'}`}></div>
@@ -117,11 +118,32 @@ const GanttChart: React.FC<GanttChartProps> = ({ phases }) => {
         <div className="flex gap-8">
           <div className="text-center">
             <p className="text-[9px] font-black opacity-40 uppercase mb-1">Total Tid</p>
-            <p className="text-sm font-black italic">42 Veckor</p>
+            <p className="text-sm font-black italic">
+              {(() => {
+                let maxWeek = 0;
+                phases.forEach((phase: ProjectPhase) => {
+                  phase.tasks.forEach((task: Task) => {
+                    const end = (task.startWeek || 1) + (task.duration || 2);
+                    if (end > maxWeek) maxWeek = end;
+                  });
+                });
+                return maxWeek > 0 ? `${maxWeek} Veckor` : '–';
+              })()}
+            </p>
           </div>
           <div className="text-center">
             <p className="text-[9px] font-black opacity-40 uppercase mb-1">Faser</p>
             <p className="text-sm font-black text-rose-400 italic">{phases.length} St</p>
+          </div>
+          <div className="text-center">
+            <p className="text-[9px] font-black opacity-40 uppercase mb-1">Aktiviteter</p>
+            <p className="text-sm font-black text-blue-400 italic">{allTasks.length} St</p>
+          </div>
+          <div className="text-center">
+            <p className="text-[9px] font-black opacity-40 uppercase mb-1">Klara</p>
+            <p className="text-sm font-black text-emerald-400 italic">
+              {allTasks.filter((t: TaskWithPhase) => t.status === 'DONE').length} St
+            </p>
           </div>
         </div>
         <button className="px-6 py-2 bg-white/10 hover:bg-white/20 border border-white/10 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all">

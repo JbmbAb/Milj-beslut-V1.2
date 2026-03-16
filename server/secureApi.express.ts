@@ -27,6 +27,9 @@ import { getSearchConfig, runSearchQuery } from "./services/searchService";
 import { processSearchJobsOnce } from "./services/searchWorker";
 import { getDispatchProviderRuntimeStatus } from "./services/transportDispatchService";
 import { ensureAdminConsoleUser } from "./repositories/userRepository";
+import { isValidRole, listProjectMembers, removeProjectMember, upsertProjectMember } from "./services/projectMemberService";
+import { notifyStageGate, sendProjectNotification } from "./services/notificationService";
+import { searchGraph, getGraphStats } from "./services/knowledgeGraphService";
 import {
   applyTemplateForProject,
   bookTransportForProject,
@@ -46,6 +49,8 @@ import type {
   DriverJournalStatus,
   LimsSourceType,
   MapLayerKey,
+  ProjectAccessRole,
+  ProjectMemberRecord,
   ProjectPlan,
   ProjectType,
   StageGateType,
@@ -1062,6 +1067,14 @@ router.post("/api/projects/:projectId/stage-gates/:gateId/evaluate", requireAuth
           changed: evaluated.changed,
         },
       });
+
+      // ── Notifiera projektmedlemmar om gate-statusbyte ───────────────────
+      void notifyStageGate({
+        projectId,
+        gateId: evaluated.gate.id,
+        status: String(evaluated.gate.status ?? 'BLOCKED'),
+        actingUserId: req.authUser.id,
+      }).catch(() => {/* best-effort */});
     }
 
     res.json({
@@ -1073,6 +1086,144 @@ router.post("/api/projects/:projectId/stage-gates/:gateId/evaluate", requireAuth
     });
   } catch (error: unknown) {
     res.status(400).json({ ok: false, error: error instanceof Error ? error.message : "stage gate evaluation failed" });
+  }
+});
+
+// ── Projektmedlemmar ────────────────────────────────────────────────────────
+
+router.get("/api/projects/:projectId/members", requireAuth, rateLimitByUser(30, 60_000), async (req, res) => {
+  try {
+    if (!req.authUser) { res.status(401).json({ ok: false, error: "Unauthorized" }); return; }
+    const projectId = String(req.params.projectId || "");
+    if (!projectId) { res.status(400).json({ ok: false, error: "projectId is required" }); return; }
+
+    await assertProjectMembership({
+      projectId,
+      userId: req.authUser.id,
+      organisationId: req.authUser.organisationId,
+      role: req.authUser.role,
+    });
+
+    const members: ProjectMemberRecord[] = await listProjectMembers(projectId);
+    res.json({ ok: true, members });
+  } catch (error: unknown) {
+    res.status(400).json({ ok: false, error: error instanceof Error ? error.message : "list members failed" });
+  }
+});
+
+router.put("/api/projects/:projectId/members", requireAuth, rateLimitByUser(20, 60_000), async (req, res) => {
+  try {
+    if (!req.authUser) { res.status(401).json({ ok: false, error: "Unauthorized" }); return; }
+    const projectId = String(req.params.projectId || "");
+    const targetBankidId = String(req.body?.bankidId ?? "").trim();
+    const role = String(req.body?.role ?? "") as ProjectAccessRole;
+
+    if (!projectId || !targetBankidId || !role) {
+      res.status(400).json({ ok: false, error: "projectId, bankidId and role are required" });
+      return;
+    }
+    if (!isValidRole(role)) {
+      res.status(400).json({ ok: false, error: `Invalid role. Must be one of: OWNER, CONTRIBUTOR, REVIEWER, AUDITOR` });
+      return;
+    }
+
+    await assertProjectMembership({
+      projectId,
+      userId: req.authUser.id,
+      organisationId: req.authUser.organisationId,
+      role: req.authUser.role,
+    });
+
+    const member = await upsertProjectMember({
+      projectId,
+      targetBankidId,
+      role,
+      actingUserId: req.authUser.id,
+    });
+
+    // Notifiera
+    void sendProjectNotification({
+      projectId,
+      event: 'MEMBER_ADDED',
+      subjectUserId: member.userId,
+      actingUserId: req.authUser.id,
+      message: `Användare ${targetBankidId} lades till i projekt ${projectId} med roll ${role}.`,
+    }).catch(() => {/* best-effort */});
+
+    res.json({ ok: true, member });
+  } catch (error: unknown) {
+    res.status(400).json({ ok: false, error: error instanceof Error ? error.message : "upsert member failed" });
+  }
+});
+
+router.delete("/api/projects/:projectId/members/:memberId", requireAuth, rateLimitByUser(20, 60_000), async (req, res) => {
+  try {
+    if (!req.authUser) { res.status(401).json({ ok: false, error: "Unauthorized" }); return; }
+    const projectId = String(req.params.projectId || "");
+    const memberId = String(req.params.memberId || "");
+    if (!projectId || !memberId) { res.status(400).json({ ok: false, error: "projectId and memberId are required" }); return; }
+
+    await assertProjectMembership({
+      projectId,
+      userId: req.authUser.id,
+      organisationId: req.authUser.organisationId,
+      role: req.authUser.role,
+    });
+
+    await removeProjectMember({
+      projectId,
+      memberId,
+      actingUserId: req.authUser.id,
+    });
+
+    void sendProjectNotification({
+      projectId,
+      event: 'MEMBER_REMOVED',
+      actingUserId: req.authUser.id,
+      message: `Projektmedlem ${memberId} togs bort från projekt ${projectId}.`,
+    }).catch(() => {/* best-effort */});
+
+    res.json({ ok: true });
+  } catch (error: unknown) {
+    res.status(400).json({ ok: false, error: error instanceof Error ? error.message : "remove member failed" });
+  }
+});
+
+// ── Kunskapsgraf-sökning ────────────────────────────────────────────────────
+
+router.get("/api/admin/knowledge-graph/search", requireAuth, rateLimitByUser(40, 60_000), async (req, res) => {
+  try {
+    if (!req.authUser) { res.status(401).json({ ok: false, error: "Unauthorized" }); return; }
+    if (req.authUser.role !== "ADMIN") { res.status(403).json({ ok: false, error: "Admin role required" }); return; }
+
+    const query = String(req.query.q ?? "").trim();
+    if (!query) { res.status(400).json({ ok: false, error: "Query parameter 'q' is required" }); return; }
+
+    const nodeTypes = req.query.nodeTypes
+      ? String(req.query.nodeTypes).split(",").map(t => t.trim()).filter(Boolean)
+      : undefined;
+    const limit = req.query.limit ? Math.min(Number(req.query.limit), 200) : 50;
+
+    const [result, stats] = await Promise.all([
+      searchGraph({ query, nodeTypes, limit }),
+      getGraphStats(),
+    ]);
+
+    res.json({ ok: true, query, nodes: result.nodes, edges: result.edges, stats });
+  } catch (error: unknown) {
+    res.status(400).json({ ok: false, error: error instanceof Error ? error.message : "knowledge graph search failed" });
+  }
+});
+
+router.get("/api/admin/knowledge-graph/stats", requireAuth, rateLimitByUser(30, 60_000), async (req, res) => {
+  try {
+    if (!req.authUser) { res.status(401).json({ ok: false, error: "Unauthorized" }); return; }
+    if (req.authUser.role !== "ADMIN") { res.status(403).json({ ok: false, error: "Admin role required" }); return; }
+
+    const stats = await getGraphStats();
+    res.json({ ok: true, stats });
+  } catch (error: unknown) {
+    res.status(400).json({ ok: false, error: error instanceof Error ? error.message : "knowledge graph stats failed" });
   }
 });
 
@@ -1582,6 +1733,43 @@ router.post("/api/projects/:projectId/lims/:reportId/verify", requireAuth, rateL
     res.json({ ok: true, report: payload.report, plan: payload.plan });
   } catch (error: unknown) {
     res.status(400).json({ ok: false, error: error instanceof Error ? error.message : "lims verification failed" });
+  }
+});
+
+// ── Fältanalys — spara AI-analysresultat ───────────────────────────────────
+
+router.post("/api/projects/:projectId/field-analysis", requireAuth, rateLimitByUser(20, 60_000), async (req, res) => {
+  try {
+    if (!req.authUser) { res.status(401).json({ ok: false, error: "Unauthorized" }); return; }
+
+    const projectId = String(req.params.projectId || "");
+    if (!projectId) { res.status(400).json({ ok: false, error: "projectId is required" }); return; }
+
+    await assertProjectMembership({
+      projectId,
+      userId: req.authUser.id,
+      organisationId: req.authUser.organisationId,
+      role: req.authUser.role,
+    });
+
+    const mode = String(req.body?.mode ?? "site");
+    const analysisType = String(req.body?.analysisType ?? "standard");
+    const result = String(req.body?.result ?? "");
+    const filename = req.body?.filename ? String(req.body.filename) : undefined;
+
+    if (!result) { res.status(400).json({ ok: false, error: "result is required" }); return; }
+
+    const record = await appendDomainAudit({
+      entityType: "FieldAnalysis",
+      entityId: projectId,
+      action: "FIELD_ANALYSIS_SAVED",
+      userId: req.authUser.id,
+      payload: { projectId, mode, analysisType, resultLength: result.length, filename: filename ?? null },
+    });
+
+    res.json({ ok: true, saved: true, auditId: record.id, projectId, mode, analysisType });
+  } catch (error: unknown) {
+    res.status(400).json({ ok: false, error: error instanceof Error ? error.message : "field analysis save failed" });
   }
 });
 
