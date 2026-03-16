@@ -1,5 +1,5 @@
 import { prisma } from "../db/prisma";
-import type { AdminDatabaseDumpResponse, AdminExamSummary, ProjectStageGate } from "../../types";
+import type { AdminDatabaseDumpResponse, AdminExamSummary, DbStatsResponse, ProjectStageGate } from "../../types";
 
 const db = prisma as any;
 
@@ -352,5 +352,65 @@ export async function getAdminDatabaseDump(input?: {
     generatedAt: new Date().toISOString(),
     countByTable,
     tables,
+  };
+}
+
+export async function getDbStats(): Promise<DbStatsResponse> {
+  const [
+    totalDocuments,
+    totalRequirements,
+    documentsByMunicipality,
+    requirementCaseRows,
+  ] = await Promise.all([
+    db.documentRecord.count(),
+    db.requirementRecord.count(),
+    db.documentRecord.groupBy({
+      by: ["municipalityNormalized"],
+      _count: { _all: true },
+      orderBy: { _count: { _all: "desc" } },
+    }),
+    // Single query: join requirements with their case to get municipality
+    db.requirementRecord.findMany({
+      select: {
+        case: {
+          select: { municipality: true },
+        },
+      },
+    }),
+  ]);
+
+  // Build per-municipality document counts
+  const docMap = new Map<string, number>();
+  for (const row of documentsByMunicipality) {
+    const key: string = (row.municipalityNormalized as string | null) ?? "(okänd)";
+    docMap.set(key, Number(row._count._all));
+  }
+
+  // Build per-municipality requirement counts from the joined query
+  const reqMap = new Map<string, number>();
+  for (const row of requirementCaseRows) {
+    const mun: string = (row.case?.municipality as string | null) ?? "(okänd)";
+    reqMap.set(mun, (reqMap.get(mun) ?? 0) + 1);
+  }
+
+  const allMunicipalities = new Set<string>([...docMap.keys(), ...reqMap.keys()]);
+  const perMunicipality: DbStatsResponse["perMunicipality"] = Array.from(allMunicipalities)
+    .map((mun) => ({
+      municipality: mun,
+      documents: docMap.get(mun) ?? 0,
+      requirements: reqMap.get(mun) ?? 0,
+    }))
+    .sort((a, b) => b.documents + b.requirements - (a.documents + a.requirements));
+
+  const totalMunicipalities = perMunicipality.filter((r) => r.municipality !== "(okänd)").length;
+
+  return {
+    generatedAt: new Date().toISOString(),
+    totals: {
+      documents: totalDocuments,
+      requirements: totalRequirements,
+      municipalities: totalMunicipalities,
+    },
+    perMunicipality,
   };
 }

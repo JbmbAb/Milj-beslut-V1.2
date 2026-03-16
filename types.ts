@@ -620,6 +620,20 @@ export interface AdminDatabaseDumpResponse {
   tables: Record<string, unknown[]>;
 }
 
+export interface DbStatsResponse {
+  generatedAt: string;
+  totals: {
+    documents: number;
+    requirements: number;
+    municipalities: number;
+  };
+  perMunicipality: Array<{
+    municipality: string;
+    documents: number;
+    requirements: number;
+  }>;
+}
+
 export interface SearchInfoField {
   field: string;
   label: string;
