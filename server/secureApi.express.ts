@@ -85,6 +85,40 @@ import {
   runHeritageAudit,
   runWaterAudit,
 } from "./services/publicUiService";
+import {
+  createInvitation,
+  listInvitations,
+  acceptInvitation,
+  revokeInvitation,
+} from "./services/orgInvitationService";
+import { submitPermitToAuthority, getSubmission } from "./services/permitAuthorityService";
+import { getMarketSnapshot, invalidateMarketCache } from "./services/marketIntelService";
+import {
+  enqueueExecSummary,
+  getJobStatus as getExecSummaryJobStatus,
+  listJobsForProject as listExecSummaryJobs,
+} from "./services/execSummaryQueueService";
+import { getMarkCoverLayer } from "./services/markCoverService";
+import {
+  triggerIngestionWebhook,
+  getSchedulerStatus as getOutlookSchedulerStatus,
+} from "./services/outlookSchedulerService";
+import { runRagSearch } from "./services/ragSearchService";
+import {
+  addGpsPosition,
+  getGpsTrack,
+  getLatestPosition as getLatestGpsPosition,
+} from "./services/gpsTrackingService";
+import { signDocumentEidas } from "./services/eidasSignatureService";
+import { getTerrainData } from "./services/terrainService";
+import {
+  extractTextFromDocument,
+  batchExtractPendingDocuments,
+} from "./services/ocrService";
+import { autoFetchLimsReports } from "./services/limsAutoFetchService";
+import { getMetricsText } from "./services/metricsService";
+import { captureException, getRecentErrors } from "./services/errorTrackingService";
+import { runBackup, listBackups, getBackup } from "./services/backupService";
 
 assertSecurityEnv();
 
@@ -2294,6 +2328,531 @@ router.get("/api/admin/database-dump", requireAuth, rateLimitByUser(5, 60_000), 
     res.json({ ok: true, dump });
   } catch (error: unknown) {
     res.status(400).json({ ok: false, error: error instanceof Error ? error.message : "admin database dump failed" });
+  }
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Organisation Invitations  (auth-org-management)
+// ─────────────────────────────────────────────────────────────────────────────
+
+router.post("/api/orgs/:orgId/invitations", requireAuth, rateLimitByUser(20, 60_000), async (req, res) => {
+  try {
+    if (!req.authUser) { res.status(401).json({ ok: false, error: "Unauthorized" }); return; }
+    const { email, role } = req.body as { email?: string; role?: string };
+    if (!email || !role) { res.status(400).json({ ok: false, error: "email och role krävs" }); return; }
+
+    const invitation = await createInvitation({
+      orgId: req.params.orgId,
+      email,
+      role,
+      actingUserId: req.authUser.userId,
+    });
+    res.json({ ok: true, invitation });
+  } catch (error: unknown) {
+    res.status(400).json({ ok: false, error: error instanceof Error ? error.message : "invitation create failed" });
+  }
+});
+
+router.get("/api/orgs/:orgId/invitations", requireAuth, rateLimitByUser(30, 60_000), async (req, res) => {
+  try {
+    if (!req.authUser) { res.status(401).json({ ok: false, error: "Unauthorized" }); return; }
+    const invitations = listInvitations(req.params.orgId);
+    res.json({ ok: true, invitations });
+  } catch (error: unknown) {
+    res.status(400).json({ ok: false, error: error instanceof Error ? error.message : "list invitations failed" });
+  }
+});
+
+router.post("/api/orgs/:orgId/invitations/accept", rateLimitByUser(10, 60_000), async (req, res) => {
+  try {
+    const { token, bankidId } = req.body as { token?: string; bankidId?: string };
+    if (!token || !bankidId) { res.status(400).json({ ok: false, error: "token och bankidId krävs" }); return; }
+
+    const result = await acceptInvitation({ orgId: req.params.orgId, token, bankidId });
+    res.json({ ok: true, ...result });
+  } catch (error: unknown) {
+    res.status(400).json({ ok: false, error: error instanceof Error ? error.message : "accept invitation failed" });
+  }
+});
+
+router.delete("/api/orgs/:orgId/invitations/:inviteId", requireAuth, rateLimitByUser(20, 60_000), async (req, res) => {
+  try {
+    if (!req.authUser) { res.status(401).json({ ok: false, error: "Unauthorized" }); return; }
+    await revokeInvitation({ orgId: req.params.orgId, inviteId: req.params.inviteId, actingUserId: req.authUser.userId });
+    res.json({ ok: true });
+  } catch (error: unknown) {
+    res.status(400).json({ ok: false, error: error instanceof Error ? error.message : "revoke invitation failed" });
+  }
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Permit Authority Submission  (permit-application-wizard + permit-authority-submit)
+// ─────────────────────────────────────────────────────────────────────────────
+
+router.post("/api/projects/:projectId/permit/authority-submit", requireAuth, rateLimitByUser(10, 60_000), async (req, res) => {
+  try {
+    if (!req.authUser) { res.status(401).json({ ok: false, error: "Unauthorized" }); return; }
+    await assertPermission(req.authUser, req.params.projectId);
+
+    const { permitType, applicantName, propertyDesignation, documentIds, authorityName } =
+      req.body as {
+        permitType?: string;
+        applicantName?: string;
+        propertyDesignation?: string;
+        documentIds?: string[];
+        authorityName?: string;
+      };
+
+    if (!permitType || !applicantName || !propertyDesignation) {
+      res.status(400).json({ ok: false, error: "permitType, applicantName och propertyDesignation krävs" });
+      return;
+    }
+
+    const submission = await submitPermitToAuthority({
+      projectId: req.params.projectId,
+      orgId: req.authUser.orgId,
+      actingUserId: req.authUser.userId,
+      permitType,
+      applicantName,
+      propertyDesignation,
+      documentIds: Array.isArray(documentIds) ? documentIds : [],
+      authorityName,
+    });
+
+    res.json({ ok: true, submission });
+  } catch (error: unknown) {
+    res.status(400).json({ ok: false, error: error instanceof Error ? error.message : "permit authority submit failed" });
+  }
+});
+
+router.get("/api/projects/:projectId/permit/submissions/:referenceId", requireAuth, rateLimitByUser(30, 60_000), async (req, res) => {
+  try {
+    if (!req.authUser) { res.status(401).json({ ok: false, error: "Unauthorized" }); return; }
+    const submission = getSubmission(req.params.referenceId);
+    if (!submission) { res.status(404).json({ ok: false, error: "Inlämning hittades inte" }); return; }
+    res.json({ ok: true, submission });
+  } catch (error: unknown) {
+    res.status(400).json({ ok: false, error: error instanceof Error ? error.message : "get submission failed" });
+  }
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Market Intelligence  (logistics-market-view)
+// ─────────────────────────────────────────────────────────────────────────────
+
+router.get("/api/market-intel/prices", requireAuth, rateLimitByUser(60, 60_000), async (_req, res) => {
+  try {
+    const snapshot = await getMarketSnapshot();
+    res.json({ ok: true, snapshot });
+  } catch (error: unknown) {
+    res.status(400).json({ ok: false, error: error instanceof Error ? error.message : "market intel failed" });
+  }
+});
+
+router.post("/api/market-intel/cache/invalidate", requireAuth, rateLimitByUser(5, 60_000), (req, res) => {
+  if (!req.authUser || req.authUser.role !== "ADMIN") { res.status(403).json({ ok: false, error: "Admin required" }); return; }
+  invalidateMarketCache();
+  res.json({ ok: true });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Executive Summary Queue  (compliance-executive-summary)
+// ─────────────────────────────────────────────────────────────────────────────
+
+router.post("/api/projects/:projectId/exec-summary/enqueue", requireAuth, rateLimitByUser(10, 60_000), async (req, res) => {
+  try {
+    if (!req.authUser) { res.status(401).json({ ok: false, error: "Unauthorized" }); return; }
+    await assertPermission(req.authUser, req.params.projectId);
+
+    const job = await enqueueExecSummary({ projectId: req.params.projectId, userId: req.authUser.userId });
+    res.json({ ok: true, job });
+  } catch (error: unknown) {
+    res.status(400).json({ ok: false, error: error instanceof Error ? error.message : "enqueue exec summary failed" });
+  }
+});
+
+router.get("/api/projects/:projectId/exec-summary/status/:jobId", requireAuth, rateLimitByUser(60, 60_000), async (req, res) => {
+  try {
+    if (!req.authUser) { res.status(401).json({ ok: false, error: "Unauthorized" }); return; }
+    const job = getExecSummaryJobStatus(req.params.jobId);
+    if (!job) { res.status(404).json({ ok: false, error: "Jobb hittades inte" }); return; }
+    res.json({ ok: true, job });
+  } catch (error: unknown) {
+    res.status(400).json({ ok: false, error: error instanceof Error ? error.message : "exec summary status failed" });
+  }
+});
+
+router.get("/api/projects/:projectId/exec-summary/jobs", requireAuth, rateLimitByUser(30, 60_000), async (req, res) => {
+  try {
+    if (!req.authUser) { res.status(401).json({ ok: false, error: "Unauthorized" }); return; }
+    await assertPermission(req.authUser, req.params.projectId);
+    const jobs = listExecSummaryJobs(req.params.projectId);
+    res.json({ ok: true, jobs });
+  } catch (error: unknown) {
+    res.status(400).json({ ok: false, error: error instanceof Error ? error.message : "list exec summary jobs failed" });
+  }
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// LULC Marktäcke Layer  (geo-markcover)
+// ─────────────────────────────────────────────────────────────────────────────
+
+router.get("/api/geo/markcover", requireAuth, rateLimitByUser(40, 60_000), async (req, res) => {
+  try {
+    const bboxStr = String(req.query.bbox ?? "");
+    const bbox = parseBbox(bboxStr);
+    if (!bbox) { res.status(400).json({ ok: false, error: "bbox krävs: minLng,minLat,maxLng,maxLat" }); return; }
+
+    const layer = await getMarkCoverLayer(bbox as [number, number, number, number]);
+    res.json({ ok: true, layer });
+  } catch (error: unknown) {
+    res.status(400).json({ ok: false, error: error instanceof Error ? error.message : "markcover failed" });
+  }
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Outlook Ingestion Webhook + Scheduler Status  (search-outlook-ingestion)
+// ─────────────────────────────────────────────────────────────────────────────
+
+router.post("/api/admin/outlook/webhook", rateLimitByUser(30, 60_000), async (req, res) => {
+  try {
+    // Microsoft Graph validation token handshake
+    const validationToken = req.query.validationToken as string | undefined;
+    if (validationToken) {
+      res.status(200).type("text/plain").send(validationToken);
+      return;
+    }
+
+    const rawBody = JSON.stringify(req.body);
+    const signature = req.headers["x-ms-signature"] as string | undefined;
+
+    const result = await triggerIngestionWebhook({ rawBody, signature });
+    res.json({ ok: true, ...result });
+  } catch (error: unknown) {
+    res.status(400).json({ ok: false, error: error instanceof Error ? error.message : "webhook trigger failed" });
+  }
+});
+
+router.get("/api/admin/outlook/scheduler/status", requireAuth, rateLimitByUser(20, 60_000), (req, res) => {
+  if (!req.authUser || req.authUser.role !== "ADMIN") { res.status(403).json({ ok: false, error: "Admin required" }); return; }
+  const status = getOutlookSchedulerStatus();
+  res.json({ ok: true, status });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// General RAG Search  (ai-rag-search)
+// ─────────────────────────────────────────────────────────────────────────────
+
+router.post("/api/search/rag", requireAuth, rateLimitByUser(30, 60_000), rateLimitByOrg(300, 60 * 60_000), async (req, res) => {
+  try {
+    if (!req.authUser) { res.status(401).json({ ok: false, error: "Unauthorized" }); return; }
+
+    const { query, projectId, limit, language } =
+      req.body as { query?: string; projectId?: string; limit?: number; language?: "sv" | "en" };
+
+    if (!query || String(query).trim().length === 0) {
+      res.status(400).json({ ok: false, error: "query krävs" });
+      return;
+    }
+
+    const result = await runRagSearch({
+      query: String(query).trim(),
+      projectId,
+      limit: typeof limit === "number" ? limit : undefined,
+      language: language === "en" ? "en" : "sv",
+    });
+
+    res.json({ ok: true, result });
+  } catch (error: unknown) {
+    res.status(400).json({ ok: false, error: error instanceof Error ? error.message : "rag search failed" });
+  }
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// GPS Tracking  (logistics-gps-tracking)
+// ─────────────────────────────────────────────────────────────────────────────
+
+router.post("/api/projects/:projectId/transport/:bookingId/gps/update", requireAuth, rateLimitByUser(120, 60_000), async (req, res) => {
+  try {
+    if (!req.authUser) { res.status(401).json({ ok: false, error: "Unauthorized" }); return; }
+
+    const { lat, lng, altitude, speedKmh, heading, accuracy } =
+      req.body as {
+        lat?: number;
+        lng?: number;
+        altitude?: number;
+        speedKmh?: number;
+        heading?: number;
+        accuracy?: number;
+      };
+
+    if (typeof lat !== "number" || typeof lng !== "number") {
+      res.status(400).json({ ok: false, error: "lat och lng (number) krävs" });
+      return;
+    }
+
+    const position = await addGpsPosition({
+      bookingId: req.params.bookingId,
+      projectId: req.params.projectId,
+      lat,
+      lng,
+      altitude,
+      speedKmh,
+      heading,
+      accuracy,
+      actingUserId: req.authUser.userId,
+    });
+
+    res.json({ ok: true, position });
+  } catch (error: unknown) {
+    res.status(400).json({ ok: false, error: error instanceof Error ? error.message : "gps update failed" });
+  }
+});
+
+router.get("/api/projects/:projectId/transport/:bookingId/gps", requireAuth, rateLimitByUser(60, 60_000), (req, res) => {
+  try {
+    const track = getGpsTrack(req.params.bookingId);
+    res.json({ ok: true, track });
+  } catch (error: unknown) {
+    res.status(400).json({ ok: false, error: error instanceof Error ? error.message : "gps track failed" });
+  }
+});
+
+router.get("/api/projects/:projectId/transport/:bookingId/gps/latest", requireAuth, rateLimitByUser(120, 60_000), (req, res) => {
+  try {
+    const position = getLatestGpsPosition(req.params.bookingId);
+    if (!position) { res.status(404).json({ ok: false, error: "Ingen position registrerad" }); return; }
+    res.json({ ok: true, position });
+  } catch (error: unknown) {
+    res.status(400).json({ ok: false, error: error instanceof Error ? error.message : "gps latest failed" });
+  }
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// eIDAS Digital Signature  (compliance-digital-signature)
+// ─────────────────────────────────────────────────────────────────────────────
+
+router.post("/api/documents/:documentId/sign/eidas", requireAuth, rateLimitByUser(20, 60_000), async (req, res) => {
+  try {
+    if (!req.authUser) { res.status(401).json({ ok: false, error: "Unauthorized" }); return; }
+
+    const { signerPersonalNumber, signerName, signatureText, format, level } =
+      req.body as {
+        signerPersonalNumber?: string;
+        signerName?: string;
+        signatureText?: string;
+        format?: "PAdES" | "XAdES" | "CAdES";
+        level?: "ADVANCED" | "QUALIFIED";
+      };
+
+    if (!signerPersonalNumber || !signerName) {
+      res.status(400).json({ ok: false, error: "signerPersonalNumber och signerName krävs" });
+      return;
+    }
+
+    const result = await signDocumentEidas(
+      {
+        documentId: req.params.documentId,
+        signerPersonalNumber,
+        signerName,
+        signatureText,
+        format,
+        level,
+      },
+      req.authUser.userId,
+    );
+
+    res.json({ ok: true, signature: result });
+  } catch (error: unknown) {
+    res.status(400).json({ ok: false, error: error instanceof Error ? error.message : "eidas sign failed" });
+  }
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 3D Terrain  (geo-3d-terrain)
+// ─────────────────────────────────────────────────────────────────────────────
+
+router.get("/api/geo/terrain", requireAuth, rateLimitByUser(30, 60_000), async (req, res) => {
+  try {
+    const bboxStr = String(req.query.bbox ?? "");
+    const bbox = parseBbox(bboxStr);
+    if (!bbox) { res.status(400).json({ ok: false, error: "bbox krävs: minLng,minLat,maxLng,maxLat" }); return; }
+
+    const resolutionRaw = parseInt(String(req.query.resolution ?? "32"), 10);
+    const resolution = Number.isFinite(resolutionRaw) ? resolutionRaw : 32;
+
+    const terrain = await getTerrainData(bbox as [number, number, number, number], resolution);
+    res.json({ ok: true, terrain });
+  } catch (error: unknown) {
+    res.status(400).json({ ok: false, error: error instanceof Error ? error.message : "terrain data failed" });
+  }
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// OCR  (search-ocr)
+// ─────────────────────────────────────────────────────────────────────────────
+
+router.post("/api/admin/ocr/extract/:documentId", requireAuth, rateLimitByUser(20, 60_000), async (req, res) => {
+  try {
+    if (!req.authUser) { res.status(401).json({ ok: false, error: "Unauthorized" }); return; }
+    if (req.authUser.role !== "ADMIN") { res.status(403).json({ ok: false, error: "Admin required" }); return; }
+
+    const result = await extractTextFromDocument(req.params.documentId, req.authUser.userId);
+    res.json({ ok: true, result });
+  } catch (error: unknown) {
+    res.status(400).json({ ok: false, error: error instanceof Error ? error.message : "ocr extract failed" });
+  }
+});
+
+router.post("/api/admin/ocr/batch", requireAuth, rateLimitByUser(5, 60_000), async (req, res) => {
+  try {
+    if (!req.authUser) { res.status(401).json({ ok: false, error: "Unauthorized" }); return; }
+    if (req.authUser.role !== "ADMIN") { res.status(403).json({ ok: false, error: "Admin required" }); return; }
+
+    const limitRaw = parseInt(String((req.body as { limit?: unknown })?.limit ?? "50"), 10);
+    const limit = Number.isFinite(limitRaw) ? Math.min(limitRaw, 200) : 50;
+
+    const result = await batchExtractPendingDocuments(req.authUser.userId, limit);
+    res.json({ ok: true, result });
+  } catch (error: unknown) {
+    res.status(400).json({ ok: false, error: error instanceof Error ? error.message : "ocr batch failed" });
+  }
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Automatic LIMS Fetch  (field-lims-integration)
+// ─────────────────────────────────────────────────────────────────────────────
+
+router.post("/api/projects/:projectId/lims/auto-fetch", requireAuth, rateLimitByUser(20, 60_000), async (req, res) => {
+  try {
+    if (!req.authUser) { res.status(401).json({ ok: false, error: "Unauthorized" }); return; }
+    await assertPermission(req.authUser, req.params.projectId);
+
+    const { since } = req.body as { since?: string };
+
+    const result = await autoFetchLimsReports({
+      projectId: req.params.projectId,
+      actingUserId: req.authUser.userId,
+      since,
+    });
+
+    res.json({ ok: true, result });
+  } catch (error: unknown) {
+    res.status(400).json({ ok: false, error: error instanceof Error ? error.message : "lims auto-fetch failed" });
+  }
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Prometheus Metrics  (admin-monitoring)
+// ─────────────────────────────────────────────────────────────────────────────
+
+router.get("/metrics", async (req, res) => {
+  // Protect metrics endpoint: require Bearer token or restrict to localhost
+  const metricsToken = process.env.METRICS_BEARER_TOKEN;
+  if (metricsToken) {
+    const authHeader = req.headers.authorization ?? "";
+    if (authHeader !== `Bearer ${metricsToken}`) {
+      res.status(401).set("WWW-Authenticate", "Bearer").end();
+      return;
+    }
+  } else {
+    // Only allow from loopback if no token configured
+    const clientIp = req.ip ?? req.socket.remoteAddress ?? "";
+    const isLocal = clientIp === "127.0.0.1" || clientIp === "::1" || clientIp === "::ffff:127.0.0.1";
+    if (!isLocal) {
+      res.status(403).end();
+      return;
+    }
+  }
+
+  try {
+    const text = await getMetricsText();
+    res.status(200).type("text/plain; version=0.0.4; charset=utf-8").send(text);
+  } catch (error: unknown) {
+    res.status(500).end();
+  }
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Error Tracking  (admin-error-tracking)
+// ─────────────────────────────────────────────────────────────────────────────
+
+router.get("/api/admin/errors/recent", requireAuth, rateLimitByUser(20, 60_000), (req, res) => {
+  try {
+    if (!req.authUser) { res.status(401).json({ ok: false, error: "Unauthorized" }); return; }
+    if (req.authUser.role !== "ADMIN") { res.status(403).json({ ok: false, error: "Admin required" }); return; }
+
+    const limitRaw = parseInt(String(req.query.limit ?? "50"), 10);
+    const limit = Number.isFinite(limitRaw) ? Math.min(limitRaw, 500) : 50;
+    const severity = req.query.severity as string | undefined;
+
+    const errors = getRecentErrors({ limit, severity: severity as Parameters<typeof getRecentErrors>[0]["severity"] });
+    res.json({ ok: true, errors, total: errors.length });
+  } catch (error: unknown) {
+    res.status(400).json({ ok: false, error: error instanceof Error ? error.message : "get errors failed" });
+  }
+});
+
+router.post("/api/admin/errors/capture", requireAuth, rateLimitByUser(30, 60_000), async (req, res) => {
+  try {
+    if (!req.authUser) { res.status(401).json({ ok: false, error: "Unauthorized" }); return; }
+
+    const { message, severity, context } =
+      req.body as { message?: string; severity?: string; context?: Record<string, unknown> };
+
+    if (!message) { res.status(400).json({ ok: false, error: "message krävs" }); return; }
+
+    const err = new Error(message);
+    const id = await captureException(err, {
+      userId: req.authUser.userId,
+      extra: context,
+      severity: (["fatal", "error", "warning", "info"].includes(severity ?? "") ? severity : "error") as Parameters<typeof captureException>[1]["severity"],
+    });
+
+    res.json({ ok: true, errorId: id });
+  } catch (error: unknown) {
+    res.status(400).json({ ok: false, error: error instanceof Error ? error.message : "capture error failed" });
+  }
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Database Backup  (admin-backup)
+// ─────────────────────────────────────────────────────────────────────────────
+
+router.post("/api/admin/backup/trigger", requireAuth, rateLimitByUser(3, 60_000), async (req, res) => {
+  try {
+    if (!req.authUser) { res.status(401).json({ ok: false, error: "Unauthorized" }); return; }
+    if (req.authUser.role !== "ADMIN") { res.status(403).json({ ok: false, error: "Admin required" }); return; }
+
+    const manifest = await runBackup(req.authUser.userId);
+    res.json({ ok: true, manifest });
+  } catch (error: unknown) {
+    res.status(400).json({ ok: false, error: error instanceof Error ? error.message : "backup failed" });
+  }
+});
+
+router.get("/api/admin/backup/list", requireAuth, rateLimitByUser(20, 60_000), (req, res) => {
+  try {
+    if (!req.authUser) { res.status(401).json({ ok: false, error: "Unauthorized" }); return; }
+    if (req.authUser.role !== "ADMIN") { res.status(403).json({ ok: false, error: "Admin required" }); return; }
+
+    const backups = listBackups();
+    res.json({ ok: true, backups });
+  } catch (error: unknown) {
+    res.status(400).json({ ok: false, error: error instanceof Error ? error.message : "list backups failed" });
+  }
+});
+
+router.get("/api/admin/backup/:backupId", requireAuth, rateLimitByUser(10, 60_000), (req, res) => {
+  try {
+    if (!req.authUser) { res.status(401).json({ ok: false, error: "Unauthorized" }); return; }
+    if (req.authUser.role !== "ADMIN") { res.status(403).json({ ok: false, error: "Admin required" }); return; }
+
+    const backup = getBackup(req.params.backupId);
+    if (!backup) { res.status(404).json({ ok: false, error: "Backup hittades inte" }); return; }
+    res.json({ ok: true, backup });
+  } catch (error: unknown) {
+    res.status(400).json({ ok: false, error: error instanceof Error ? error.message : "get backup failed" });
   }
 });
 
