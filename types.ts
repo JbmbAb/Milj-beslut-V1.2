@@ -839,6 +839,45 @@ export interface DbContentsResponse {
   };
 }
 
+/** Status of a single planned feature in the app completion manifest */
+export type FeatureStatus = 'DONE' | 'PARTIAL' | 'PENDING';
+
+/** A single feature entry in the app completion manifest */
+export interface AppFeature {
+  id: string;
+  label: string;
+  category: string;
+  status: FeatureStatus;
+  /** Optional note — explains what remains for PARTIAL/PENDING */
+  note?: string;
+}
+
+/** Response shape for GET /api/admin/completion — "hur många procent återstår?" */
+export interface AppCompletionResponse {
+  checkedAt: string;
+  /** 0–100 percent of features that are DONE */
+  donePercent: number;
+  /** 0–100 percent of features that are still PENDING or PARTIAL */
+  remainingPercent: number;
+  counts: {
+    total: number;
+    done: number;
+    partial: number;
+    pending: number;
+  };
+  /** Features grouped by category */
+  categories: Array<{
+    name: string;
+    total: number;
+    done: number;
+    partial: number;
+    pending: number;
+    /** 0–100 percent done within this category */
+    percent: number;
+    features: AppFeature[];
+  }>;
+}
+
 /** Response shape for GET /api/admin/app-status — "är appen igång?" */
 export interface AppStatusResponse {
   /** ISO timestamp when the check ran */

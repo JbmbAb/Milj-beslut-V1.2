@@ -50,7 +50,7 @@ import type {
   ProjectType,
   StageGateType,
 } from "../types";
-import { getAdminDatabaseDump, getAdminExamSummary, getAppStatus, getDbAnalysis, getDbContents, getDbStats } from "./repositories/adminReportRepository";
+import { getAdminDatabaseDump, getAdminExamSummary, getAppCompletion, getAppStatus, getDbAnalysis, getDbContents, getDbStats } from "./repositories/adminReportRepository";
 import {
   getDocumentById,
   listRequirementCases,
@@ -1985,6 +1985,24 @@ router.get("/api/admin/app-status", requireAuth, rateLimitByUser(30, 60_000), as
     res.json({ ok: true, status });
   } catch (error: unknown) {
     res.status(400).json({ ok: false, error: error instanceof Error ? error.message : "app status check failed" });
+  }
+});
+
+router.get("/api/admin/completion", requireAuth, rateLimitByUser(30, 60_000), async (req, res) => {
+  try {
+    if (!req.authUser) {
+      res.status(401).json({ ok: false, error: "Unauthorized" });
+      return;
+    }
+    if (req.authUser.role !== "ADMIN") {
+      res.status(403).json({ ok: false, error: "Admin role required" });
+      return;
+    }
+
+    const completion = await getAppCompletion();
+    res.json({ ok: true, completion });
+  } catch (error: unknown) {
+    res.status(400).json({ ok: false, error: error instanceof Error ? error.message : "completion check failed" });
   }
 });
 

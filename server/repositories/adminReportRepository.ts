@@ -1,6 +1,7 @@
 import { prisma } from "../db/prisma";
-import type { AdminDatabaseDumpResponse, AdminExamSummary, AppStatusResponse, DbAnalysisResponse, DbContentsResponse, DbStatsResponse, ProjectStageGate } from "../../types";
+import type { AdminDatabaseDumpResponse, AdminExamSummary, AppCompletionResponse, AppStatusResponse, DbAnalysisResponse, DbContentsResponse, DbStatsResponse, ProjectStageGate } from "../../types";
 import { getPublicDatasourceSummary } from "../services/publicUiService";
+import { getAppCompletion as computeAppCompletion } from "../services/completionService";
 
 const db = prisma as any;
 
@@ -945,4 +946,8 @@ export async function getAppStatus(): Promise<AppStatusResponse> {
       allOpenSourcesActive,
     },
   };
+}
+
+export async function getAppCompletion(): Promise<AppCompletionResponse> {
+  return computeAppCompletion();
 }
