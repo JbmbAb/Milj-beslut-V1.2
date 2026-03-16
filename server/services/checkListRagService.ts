@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto';
+import { logger } from '../logger';
 import { embedText } from './searchService';
 import { queryTopSemanticChunks } from '../repositories/searchRepository';
 import { serverGenerateText } from '../../services/geminiService';
@@ -69,7 +70,7 @@ Do not include markdown blocks like \`\`\`json. Return strictly the raw JSON arr
         const jsonToParse = rawMatch ? rawMatch[0] : (aiTextResponse || '[]');
         parsedRequirements = JSON.parse(jsonToParse);
     } catch {
-        console.error('Failed to parse JSON from AI model:', aiTextResponse);
+        logger.error('Failed to parse JSON from AI model', { response: aiTextResponse });
         throw new Error('AI failed to return valid JSON format.');
     }
 

@@ -1,6 +1,7 @@
 import crypto from "node:crypto";
 import { promises as fs } from "node:fs";
 import path from "node:path";
+import { logger } from "../logger";
 import {
   enqueueSearchJob,
   findDocumentByDiskName,
@@ -624,9 +625,7 @@ export async function embedText(text: string): Promise<{ values: number[]; model
 
       if (model !== EMBEDDING_MODEL && !warnedEmbeddingFallback) {
         warnedEmbeddingFallback = true;
-        console.warn(
-          `[search] Embedding fallback aktiv: anvander '${model}' eftersom '${EMBEDDING_MODEL}' inte fungerade.`
-        );
+        logger.warn('search: embedding fallback active', { fallbackModel: model, primaryModel: EMBEDDING_MODEL });
       }
 
       return {

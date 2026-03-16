@@ -3,6 +3,7 @@ import secureApiRouter from './secureApi.express';
 import geminiRouter from './geminiApi.express';
 import geminiDbRouter from './geminiDbApi.express';
 import mvpRouter from './mvpApi.express';
+import { prisma } from './db/prisma';
 
 export function createApp() {
   const app = express();
@@ -32,8 +33,32 @@ export function createApp() {
     next();
   });
 
-  app.get('/health', (_req, res) => {
-    res.json({ ok: true, service: 'miljobeslut-secure-backend' });
+  /**
+   * GET /health
+   *
+   * Liveness + readiness probe.  Returns HTTP 200 when the application and
+   * database are healthy, HTTP 503 when the database is unreachable.
+   *
+   * Response shape:
+   *   { ok: true,  service: string, version: string, db: "ok",  ts: string }
+   *   { ok: false, service: string, version: string, db: "error", ts: string }
+   */
+  app.get('/health', async (_req, res) => {
+    let dbStatus: 'ok' | 'error' = 'error';
+    try {
+      await prisma.$queryRaw`SELECT 1`;
+      dbStatus = 'ok';
+    } catch {
+      // db unreachable – keep dbStatus = 'error'
+    }
+    const healthy = dbStatus === 'ok';
+    res.status(healthy ? 200 : 503).json({
+      ok: healthy,
+      service: 'miljobeslut-secure-backend',
+      version: process.env.npm_package_version ?? 'unknown',
+      db: dbStatus,
+      ts: new Date().toISOString(),
+    });
   });
 
   app.use(mvpRouter);

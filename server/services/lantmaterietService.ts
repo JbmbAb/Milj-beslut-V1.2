@@ -3,6 +3,7 @@ import { writePropertyAccessLog } from "../repositories/auditRepository";
 import { assertProjectMembership } from "../repositories/projectAccessRepository";
 import { isLantmaterietOpenMode } from "../security/env";
 import { assertPermission, validatePropertyLookupInput } from "../security/projectAccess";
+import { logger } from "../logger";
 import type { AuthUser, PropertyLookupInput } from "../security/types";
 
 interface LantmaterietLookupResponse {
@@ -160,7 +161,7 @@ export async function lookupPropertyByDesignation(input: PropertyLookupInput, us
   // --- MOCK INJECTION ---
   const upperDesignation = input.propertyDesignation.toUpperCase();
   if (upperDesignation === "ORSA STACKMORA 3:12" || upperDesignation === "NACKA ORMINGE 7:8") {
-    console.log("Using Lantmateriet MOCK data for:", input.propertyDesignation);
+    logger.info('Lantmateriet: using mock data', { propertyDesignation: input.propertyDesignation });
     // Rough coordinates for demo map bounding boxes
     const coords = upperDesignation.includes("NACKA")
       ? [[[18.25, 59.33], [18.26, 59.33], [18.26, 59.32], [18.25, 59.32], [18.25, 59.33]]]
@@ -240,7 +241,7 @@ export async function lookupPropertyByDesignation(input: PropertyLookupInput, us
 
   if (!response.ok) {
     const errText = await response.text();
-    console.error("Lantmateriet API Error Response:", errText);
+    logger.error('Lantmateriet API error response', { status: response.status, body: errText });
     const scopeMessage = buildScopeMessage(response.status, errText);
     if (scopeMessage) {
       throw new Error(`${scopeMessage} [HTTP ${response.status}]`);

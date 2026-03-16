@@ -3,6 +3,7 @@ import bodyParser from "body-parser";
 import { requireAuth } from "./security/auth";
 import { rateLimitByUser } from "./security/rateLimit";
 import { requestLogger } from "./security/requestLogging";
+import { logger } from "./logger";
 import {
   analyzePermitRisk,
   chatWithPermit,
@@ -142,7 +143,7 @@ router.post("/api/gemini", async (req, res) => {
           monuments = await fetchAncientMonuments(payload.lat, payload.lng);
 
         } catch (err) {
-          console.error("Spatial data fetch failed:", err);
+          logger.error('Spatial data fetch failed', { err: String(err) });
         }
 
         result = await analyzeBiodiversity(

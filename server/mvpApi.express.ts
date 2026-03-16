@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto';
 import express from 'express';
 import bodyParser from 'body-parser';
 import { z, type ZodTypeAny } from 'zod';
+import { logger } from './logger';
 import { getUserFromAccessToken } from './security/auth';
 import { rateLimitByUser } from './security/rateLimit';
 import {
@@ -87,8 +88,7 @@ function sendValidatedOutput(res: express.Response, schema: ZodTypeAny, payload:
 // ─── PUBLIC DEMO ENDPOINT: GET /api/v1/projects ──────────────────────────
 // (No auth for demo purposes so it loads in dashboard instantly)
 router.get('/api/v1/projects', async (req, res) => {
-  console.log('DEBUG: GET /api/v1/projects HIT!');
-  console.log('DEBUG: Headers:', JSON.stringify(req.headers, null, 2));
+  logger.debug('GET /api/v1/projects', { headers: req.headers });
   try {
     const projects = await prisma.project.findMany({
       select: {
@@ -189,7 +189,7 @@ router.get('/api/v1/projects/:id/search', requireMvpAuth, mvpRateLimit, async (r
   const mode = (['semantic', 'lexical', 'hybrid'].includes(String(req.query.mode)) ? String(req.query.mode) : 'hybrid') as 'semantic' | 'lexical' | 'hybrid';
   const topK = Math.max(1, Math.min(20, Number(req.query.topK || 10)));
 
-  console.log(`Search request for project ${projectId}, query: "${query}"`);
+  logger.info('search request', { projectId, query });
 
   // Quick access-check: project must exist (bypass for demo)
   const isDemo = projectId === 'new-demo-project';

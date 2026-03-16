@@ -1,4 +1,6 @@
 
+import { logger } from "../logger";
+
 export interface GeologicalData {
     soilType?: string;
     groundwaterVulnerability?: string;
@@ -40,7 +42,7 @@ export async function fetchGeologicalData(lat: number, lng: number): Promise<Geo
             }
         }
     } catch (e) {
-        console.error("SGU Jordarter fetch failed:", e);
+        logger.error('SGU Jordarter fetch failed', { err: String(e) });
     }
 
     // 2. Fetch Groundwater Vulnerability (Sårbarhet)
@@ -55,7 +57,7 @@ export async function fetchGeologicalData(lat: number, lng: number): Promise<Geo
             }
         }
     } catch (e) {
-        console.error("SGU Sårbarhet fetch failed:", e);
+        logger.error('SGU Sårbarhet fetch failed', { err: String(e) });
     }
 
     // 3. Simple heuristic for flow/risk if missing

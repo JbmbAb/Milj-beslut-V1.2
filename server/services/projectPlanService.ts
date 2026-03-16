@@ -25,6 +25,7 @@ import {
 } from "./transportDispatchService";
 import { createLimsReport, verifyLimsReport } from "./limsService";
 import { prisma } from "../db/prisma";
+import { logger } from "../logger";
 
 // Runtime cache + persistent database storage.
 // Cache reduces repetitive reads while DB remains source of truth for server-side state.
@@ -36,7 +37,7 @@ function markDbStorageError(error: unknown) {
   if (dbPlanStorageAvailable === false) return;
   dbPlanStorageAvailable = false;
   const message = error instanceof Error ? error.message : "unknown error";
-  console.warn(`[project-plan] persistent storage unavailable, using memory fallback: ${message}`);
+  logger.warn('project-plan: persistent storage unavailable, using memory fallback', { message });
 }
 
 async function loadPlanFromDb(projectId: string): Promise<ProjectPlan | null> {

@@ -1,4 +1,5 @@
 import crypto from "node:crypto";
+import { logger } from "../logger";
 import type {
   DispatchProvider,
   DispatchQuote,
@@ -57,7 +58,7 @@ function warnProviderFallbackOnce(message: string): void {
     return;
   }
   warnedProviderFallbacks.add(message);
-  console.warn(`[dispatch] ${message}`);
+  logger.warn(`dispatch: ${message}`);
 }
 
 function parseRequestedDispatchProvider(): DispatchProvider {

@@ -1,5 +1,6 @@
 import { startSearchWorker } from './services/searchWorker';
 import { loadEnvFile } from './loadEnv';
+import { logger } from './logger';
 import { createApp } from './createApp';
 
 loadEnvFile();
@@ -14,5 +15,5 @@ if (process.env.SEARCH_WORKER_ENABLED !== 'false') {
 }
 
 app.listen(port, () => {
-  console.info(`Miljöbeslut backend listening on port ${port}`);
+  logger.info('Miljöbeslut backend started', { port });
 });

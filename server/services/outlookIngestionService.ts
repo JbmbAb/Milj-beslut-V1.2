@@ -13,6 +13,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import * as crypto from 'crypto';
 import { PrismaClient } from '@prisma/client';
+import { logger } from '../logger';
 
 const prisma = new PrismaClient();
 
@@ -213,7 +214,7 @@ export async function markAttachmentParsed(hash: string, extractedText: string) 
  * Marks an attachment as failed.
  */
 export async function markAttachmentFailed(hash: string, reason: string) {
-    console.warn(`[outlook-ingestion] attachment parse failed for ${hash}: ${reason}`);
+    logger.warn('outlook-ingestion: attachment parse failed', { hash, reason });
     return prisma.outlookAttachment.update({
         where: { attachmentHash: hash },
         data: { parsed: true, parseFailureReason: reason },

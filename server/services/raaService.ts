@@ -1,4 +1,5 @@
 ﻿import crypto from "node:crypto";
+import { logger } from "../logger";
 
 function calculateDistance(lat1: number, lon1: number, lat2: number, lon2: number): number {
   const earthRadiusMeters = 6371e3;
@@ -90,7 +91,7 @@ export async function fetchAncientMonuments(lat: number, lng: number): Promise<M
       })
       .filter((feature: Monument | null): feature is Monument => Boolean(feature));
   } catch (error) {
-    console.error("RAA fetch failed:", error);
+    logger.error('RAA fetch failed', { err: String(error) });
     return [];
   }
 }

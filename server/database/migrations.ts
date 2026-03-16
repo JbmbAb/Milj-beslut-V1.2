@@ -1,11 +1,12 @@
 import { prisma } from '../../db.server';
+import { logger } from '../logger';
 
 /**
  * Initiera alla databastabeller och seed med initial data
  */
 export async function initializeDatabase() {
   try {
-    console.log('🔄 Initialiserar databas...');
+    logger.info('Initialiserar databas');
 
     // Skapa/uppdatera TokenRevocation tabell
     await prisma.$executeRawUnsafe(`
@@ -16,7 +17,7 @@ export async function initializeDatabase() {
         user_id VARCHAR(255) NOT NULL,
         reason VARCHAR(512)
       )
-    `).catch(() => console.log('TokenRevocation tabell existerar redan'));
+    `).catch(() => logger.debug('TokenRevocation table already exists'));
 
     // Skapa/uppdatera RateLimitEntry tabell
     await prisma.$executeRawUnsafe(`
@@ -29,7 +30,7 @@ export async function initializeDatabase() {
         window_end TIMESTAMP NOT NULL,
         UNIQUE(user_id, endpoint, window_start)
       )
-    `).catch(() => console.log('RateLimitEntry tabell existerar redan'));
+    `).catch(() => logger.debug('RateLimitEntry table already exists'));
 
     // Skapa/uppdatera PropertyAccessAudit tabell
     await prisma.$executeRawUnsafe(`
@@ -42,12 +43,12 @@ export async function initializeDatabase() {
         accessed_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
         response_class VARCHAR(50)
       )
-    `).catch(() => console.log('PropertyAccessAudit tabell existerar redan'));
+    `).catch(() => logger.debug('PropertyAccessAudit table already exists'));
 
-    console.log('✅ Databaskonfiguration slutförd');
+    logger.info('Databaskonfiguration slutförd');
     return true;
   } catch (error) {
-    console.error('❌ Fel vid databaskonfiguration:', error);
+    logger.error('Fel vid databaskonfiguration', { err: String(error) });
     throw error;
   }
 }
@@ -57,16 +58,16 @@ export async function initializeDatabase() {
  */
 export async function cleanDatabase() {
   try {
-    console.log('🗑️ Rensar databas...');
+    logger.info('Rensar databas');
     
     // Radera i rätt ordning för FK-constraints
     await prisma.$executeRawUnsafe('TRUNCATE TABLE "PropertyAccessAudit" CASCADE');
     await prisma.$executeRawUnsafe('TRUNCATE TABLE "RateLimitEntry" CASCADE');
     await prisma.$executeRawUnsafe('TRUNCATE TABLE "TokenRevocation" CASCADE');
     
-    console.log('✅ Databas rensakad');
+    logger.info('Databas rensad');
   } catch (error) {
-    console.error('❌ Fel vid rensning:', error);
+    logger.error('Fel vid rensning', { err: String(error) });
   }
 }
 
