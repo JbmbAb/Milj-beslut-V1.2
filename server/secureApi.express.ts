@@ -2389,7 +2389,7 @@ router.delete("/api/orgs/:orgId/invitations/:inviteId", requireAuth, rateLimitBy
 // Permit Authority Submission  (permit-application-wizard + permit-authority-submit)
 // ─────────────────────────────────────────────────────────────────────────────
 
-router.post("/api/projects/:projectId/permit/authority-submit", requireAuth, rateLimitByUser(10, 60_000), async (req, res) => {
+router.post("/api/projects/:projectId/permit/authority-submit", requireAuth, rateLimitByUser(10, 60_000), rateLimitByOrg(50, 60 * 60_000), async (req, res) => {
   try {
     if (!req.authUser) { res.status(401).json({ ok: false, error: "Unauthorized" }); return; }
     await assertPermission(req.authUser, req.params.projectId);
