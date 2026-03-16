@@ -47,7 +47,9 @@ async function main() {
   try {
     const orsaCore = await prisma.$queryRaw<any[]>`SELECT count(*) FROM core.property_unit WHERE designation ILIKE '%ORSA STACKMORA%';`;
     console.log(`\nSökning 'ORSA STACKMORA' i Core: ${orsaCore[0].count} träffar`);
-  } catch (e) {}
+  } catch (_e) {
+    // no matching properties — intentionally silent
+  }
 
   await prisma.$disconnect();
 }

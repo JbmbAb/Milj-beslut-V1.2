@@ -24,6 +24,39 @@ vi.mock('../../server/services/sluService', () => ({
   callSluProductApi: vi.fn(async () => ({ ok: true })),
 }));
 
+vi.mock('../../server/repositories/userRepository', () => ({
+  ensureAdminConsoleUser: vi.fn(async () => ({
+    id: 'mock-admin-id',
+    bankidId: 'admin:admin',
+    role: 'ADMIN',
+    organisationId: 'mock-org-id',
+  })),
+  findAuthUserByBankId: vi.fn(async () => null),
+}));
+
+vi.mock('../../server/repositories/searchRepository', () => ({
+  createOrGetAdminProject: vi.fn(async () => ({
+    project: {
+      id: 'mock-project-id',
+      propertyDesignation: 'MOCK 1:1',
+      status: 'ACTIVE',
+      createdAt: new Date().toISOString(),
+      organisation: { id: 'mock-org-id', name: 'Mock Org', orgNumber: '999999-0001' },
+      _count: { documents: 0 },
+    },
+    created: true,
+  })),
+  enqueueSearchJob: vi.fn(async () => ({})),
+  getSearchStatus: vi.fn(async () => ({})),
+  listProjectsForAdmin: vi.fn(async () => ({ projects: [], total: 0 })),
+  recoverStaleRunningJobs: vi.fn(async () => 0),
+  requeueFailedJobs: vi.fn(async () => 0),
+}));
+
+vi.mock('../../server/repositories/projectAccessRepository', () => ({
+  assertProjectMembership: vi.fn(async () => undefined),
+}));
+
 import { createApp } from '../../server/createApp';
 
 const app = createApp();

@@ -9,7 +9,11 @@ import { createApp } from '../../server/createApp';
 const prisma = new PrismaClient();
 const app = createApp();
 
-describe('secure API integration', () => {
+// This test suite requires a real PostgreSQL database.
+// Set DATABASE_INTEGRATION=true (and a valid DATABASE_URL) to run it.
+const hasDatabaseIntegration = process.env.DATABASE_INTEGRATION === 'true';
+
+describe.skipIf(!hasDatabaseIntegration)('secure API integration', () => {
   let adminToken = '';
   let adminRefreshToken = '';
   let projectId = '';

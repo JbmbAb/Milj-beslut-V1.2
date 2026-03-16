@@ -117,6 +117,10 @@ const App: React.FC = () => {
   };
 
   const renderContent = () => {
+    // Tabs shared across all modes
+    if (activeTab === 'guide') return <Guide mode={mode} onNavigate={setActiveTab} />;
+    if (activeTab === 'legal') return <LegalSupportCenter />;
+
     switch (mode) {
       case 'MVP_WORKFLOW':
         return <MvpDemoInterface />;
@@ -129,6 +133,7 @@ const App: React.FC = () => {
         if (activeTab === 'map') return <PermitPortalView permits={permits} mode="map" />;
         if (activeTab === 'apply') return <PermitPortalView permits={permits} mode="apply" />;
         if (activeTab === 'forms') return <FormManager />;
+        if (activeTab === 'biodiversity') return <SluExpert />;
         if (activeTab === 'risks') return <GisRiskModule />;
         return <PermitPortalView permits={permits} mode="map" />;
       case 'PROJECT_MANAGER':

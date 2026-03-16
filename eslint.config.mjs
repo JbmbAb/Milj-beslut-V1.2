@@ -22,6 +22,7 @@ export default tseslint.config(
       'tmp_*.*',
       'tmp-*',
       'tmp-*.*',
+      'scripts/test-api.js',
       'raw_test.ts',
       'diag_gemini.ts',
       'tmp-*.csv',
