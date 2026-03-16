@@ -624,8 +624,23 @@ export interface DbStatsResponse {
   generatedAt: string;
   totals: {
     documents: number;
+    /** Kravrader from RequirementRecord (structured case pipeline) */
+    requirementsFromCases: number;
+    /** Kravrader from ExtractedRequirement (Outlook / email-ingestion pipeline) */
+    requirementsExtracted: number;
+    /** Combined total of all requirement rows across both pipelines */
     requirements: number;
     municipalities: number;
+  };
+  /** Threshold validation: true = actual value meets or exceeds the minimum */
+  thresholds: {
+    minRequirements: number;
+    minMunicipalities: number;
+    minDocuments: number;
+    requirementsOk: boolean;
+    municipalitiesOk: boolean;
+    documentsOk: boolean;
+    allOk: boolean;
   };
   perMunicipality: Array<{
     municipality: string;

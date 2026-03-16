@@ -4,6 +4,7 @@ import geminiRouter from './geminiApi.express';
 import geminiDbRouter from './geminiDbApi.express';
 import mvpRouter from './mvpApi.express';
 import { prisma } from './db/prisma';
+import { logger } from './logger';
 
 export function createApp() {
   const app = express();
@@ -48,8 +49,9 @@ export function createApp() {
     try {
       await prisma.$queryRaw`SELECT 1`;
       dbStatus = 'ok';
-    } catch {
-      // db unreachable – keep dbStatus = 'error'
+    } catch (err) {
+      logger.error('Health check DB query failed', { err: String(err) });
+      // keep dbStatus = 'error'
     }
     const healthy = dbStatus === 'ok';
     res.status(healthy ? 200 : 503).json({

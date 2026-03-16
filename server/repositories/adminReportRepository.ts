@@ -355,21 +355,38 @@ export async function getAdminDatabaseDump(input?: {
   };
 }
 
+// ─── Threshold constants ─────────────────────────────────────────────────────
+// Can be overridden via environment variables at deploy time.
+const MIN_REQUIREMENTS   = Number(process.env.DB_STATS_MIN_REQUIREMENTS   ?? 41_000);
+const MIN_MUNICIPALITIES = Number(process.env.DB_STATS_MIN_MUNICIPALITIES ?? 260);
+const MIN_DOCUMENTS      = Number(process.env.DB_STATS_MIN_DOCUMENTS      ?? 3_000);
+
 export async function getDbStats(): Promise<DbStatsResponse> {
   const [
     totalDocuments,
-    totalRequirements,
+    totalRequirementsFromCases,
+    totalRequirementsExtracted,
     documentsByMunicipality,
     requirementCaseRows,
+    extractedMunicipalityRows,
   ] = await Promise.all([
+    // Documents
     db.documentRecord.count(),
+
+    // Kravrader – structured pipeline (RequirementRecord via RequirementCase)
     db.requirementRecord.count(),
+
+    // Kravrader – Outlook / email-ingestion pipeline (ExtractedRequirement)
+    db.extractedRequirement.count(),
+
+    // Documents grouped by normalised municipality
     db.documentRecord.groupBy({
       by: ["municipalityNormalized"],
       _count: { _all: true },
       orderBy: { _count: { _all: "desc" } },
     }),
-    // Single query: join requirements with their case to get municipality
+
+    // Requirements → municipality via their case
     db.requirementRecord.findMany({
       select: {
         case: {
@@ -377,23 +394,47 @@ export async function getDbStats(): Promise<DbStatsResponse> {
         },
       },
     }),
+
+    // Distinct municipalities from the extraction pipeline
+    db.extractedRequirement.findMany({
+      where: { municipality: { not: null } },
+      select: { municipality: true },
+      distinct: ["municipality"],
+    }),
   ]);
 
-  // Build per-municipality document counts
+  // ── Build per-municipality document counts ───────────────────────────────
   const docMap = new Map<string, number>();
   for (const row of documentsByMunicipality) {
     const key: string = (row.municipalityNormalized as string | null) ?? "(okänd)";
     docMap.set(key, Number(row._count._all));
   }
 
-  // Build per-municipality requirement counts from the joined query
+  // ── Build per-municipality requirement counts ────────────────────────────
   const reqMap = new Map<string, number>();
+  // From RequirementRecord (via case)
   for (const row of requirementCaseRows) {
     const mun: string = (row.case?.municipality as string | null) ?? "(okänd)";
     reqMap.set(mun, (reqMap.get(mun) ?? 0) + 1);
   }
+  // From ExtractedRequirement – only municipality names are used to enrich the
+  // municipality set.  Per-municipality requirement counts are not incremented here
+  // because ExtractedRequirement has no documentId-based join to DocumentRecord yet.
+  // TODO: once the pipeline links ExtractedRequirement rows to DocumentRecord, add
+  //       per-municipality counts from this source as well.
+  const extractedMunicipalities = new Set<string>(
+    extractedMunicipalityRows
+      .map((r: { municipality: string | null }) => r.municipality)
+      .filter((m): m is string => Boolean(m))
+  );
 
-  const allMunicipalities = new Set<string>([...docMap.keys(), ...reqMap.keys()]);
+  // ── Combine municipality sets ────────────────────────────────────────────
+  const allMunicipalities = new Set<string>([
+    ...docMap.keys(),
+    ...reqMap.keys(),
+    ...extractedMunicipalities,
+  ]);
+
   const perMunicipality: DbStatsResponse["perMunicipality"] = Array.from(allMunicipalities)
     .map((mun) => ({
       municipality: mun,
@@ -403,13 +444,30 @@ export async function getDbStats(): Promise<DbStatsResponse> {
     .sort((a, b) => b.documents + b.requirements - (a.documents + a.requirements));
 
   const totalMunicipalities = perMunicipality.filter((r) => r.municipality !== "(okänd)").length;
+  const totalRequirements = totalRequirementsFromCases + totalRequirementsExtracted;
+
+  // ── Threshold validation ─────────────────────────────────────────────────
+  const requirementsOk   = totalRequirements   >= MIN_REQUIREMENTS;
+  const municipalitiesOk = totalMunicipalities >= MIN_MUNICIPALITIES;
+  const documentsOk      = totalDocuments      >= MIN_DOCUMENTS;
 
   return {
     generatedAt: new Date().toISOString(),
     totals: {
       documents: totalDocuments,
+      requirementsFromCases: totalRequirementsFromCases,
+      requirementsExtracted: totalRequirementsExtracted,
       requirements: totalRequirements,
       municipalities: totalMunicipalities,
+    },
+    thresholds: {
+      minRequirements:   MIN_REQUIREMENTS,
+      minMunicipalities: MIN_MUNICIPALITIES,
+      minDocuments:      MIN_DOCUMENTS,
+      requirementsOk,
+      municipalitiesOk,
+      documentsOk,
+      allOk: requirementsOk && municipalitiesOk && documentsOk,
     },
     perMunicipality,
   };

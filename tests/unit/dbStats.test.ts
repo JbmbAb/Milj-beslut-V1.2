@@ -16,7 +16,22 @@ vi.mock('../../server/repositories/userRepository', () => ({
 
 const mockStats: DbStatsResponse = {
   generatedAt: new Date().toISOString(),
-  totals: { documents: 42, requirements: 130, municipalities: 5 },
+  totals: {
+    documents: 42,
+    requirementsFromCases: 100,
+    requirementsExtracted: 30,
+    requirements: 130,
+    municipalities: 5,
+  },
+  thresholds: {
+    minRequirements: 41_000,
+    minMunicipalities: 260,
+    minDocuments: 3_000,
+    requirementsOk: false,
+    municipalitiesOk: false,
+    documentsOk: false,
+    allOk: false,
+  },
   perMunicipality: [
     { municipality: 'Orsa', documents: 10, requirements: 40 },
     { municipality: 'Falun', documents: 8, requirements: 30 },
@@ -87,7 +102,37 @@ describe('GET /api/admin/db-stats', () => {
 
     expect(res.body.stats.totals.documents).toBe(42);
     expect(res.body.stats.totals.requirements).toBe(130);
+    expect(res.body.stats.totals.requirementsFromCases).toBe(100);
+    expect(res.body.stats.totals.requirementsExtracted).toBe(30);
     expect(res.body.stats.totals.municipalities).toBe(5);
+  });
+
+  it('returns threshold fields', async () => {
+    const res = await request(app)
+      .get('/api/admin/db-stats')
+      .set('Authorization', adminAuthHeader());
+
+    const { thresholds } = res.body.stats;
+    expect(thresholds).toBeDefined();
+    expect(thresholds.minRequirements).toBe(41_000);
+    expect(thresholds.minMunicipalities).toBe(260);
+    expect(thresholds.minDocuments).toBe(3_000);
+    expect(typeof thresholds.requirementsOk).toBe('boolean');
+    expect(typeof thresholds.municipalitiesOk).toBe('boolean');
+    expect(typeof thresholds.documentsOk).toBe('boolean');
+    expect(typeof thresholds.allOk).toBe('boolean');
+  });
+
+  it('allOk is false when counts are below thresholds', async () => {
+    const res = await request(app)
+      .get('/api/admin/db-stats')
+      .set('Authorization', adminAuthHeader());
+
+    // mock data has 42 docs, 130 requirements, 5 municipalities – all below thresholds
+    expect(res.body.stats.thresholds.requirementsOk).toBe(false);
+    expect(res.body.stats.thresholds.municipalitiesOk).toBe(false);
+    expect(res.body.stats.thresholds.documentsOk).toBe(false);
+    expect(res.body.stats.thresholds.allOk).toBe(false);
   });
 
   it('returns per-municipality breakdown', async () => {
