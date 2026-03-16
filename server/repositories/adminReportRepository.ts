@@ -1,5 +1,5 @@
 import { prisma } from "../db/prisma";
-import type { AdminDatabaseDumpResponse, AdminExamSummary, DbAnalysisResponse, DbStatsResponse, ProjectStageGate } from "../../types";
+import type { AdminDatabaseDumpResponse, AdminExamSummary, DbAnalysisResponse, DbContentsResponse, DbStatsResponse, ProjectStageGate } from "../../types";
 
 const db = prisma as any;
 
@@ -625,6 +625,258 @@ export async function getDbAnalysis(): Promise<DbAnalysisResponse> {
       byCategory: extByCategory.map((r: any) => ({ category: String(r.category), count: Number(r._count._all) })),
       byLevel: extByLevel.map((r: any) => ({ level: String(r.requirementLevel), count: Number(r._count._all) })),
       confidenceBuckets: { high: extHigh, medium: extMedium, low: extLow },
+    },
+  };
+}
+
+export async function getDbContents(limit = 10): Promise<DbContentsResponse> {
+  const safeLimit = Math.min(Math.max(1, limit), 50);
+
+  const [
+    orgTotal, orgRows,
+    projTotal, projRows,
+    docTotal, docRows,
+    caseTotal, caseRows,
+    reqTotal, reqRows,
+    extTotal, extRows,
+    emailTotal, emailRows,
+    pipeTotal, pipeRows,
+  ] = await Promise.all([
+    // Organisations
+    db.organisation.count(),
+    db.organisation.findMany({
+      take: safeLimit,
+      orderBy: { createdAt: "desc" },
+      select: {
+        id: true,
+        name: true,
+        orgNumber: true,
+        createdAt: true,
+        _count: { select: { users: true, projects: true } },
+      },
+    }),
+
+    // Projects
+    db.project.count(),
+    db.project.findMany({
+      take: safeLimit,
+      orderBy: { createdAt: "desc" },
+      select: {
+        id: true,
+        propertyDesignation: true,
+        status: true,
+        createdAt: true,
+        organisation: { select: { name: true } },
+        _count: { select: { documents: true, requirements: true } },
+      },
+    }),
+
+    // Documents
+    db.documentRecord.count(),
+    db.documentRecord.findMany({
+      take: safeLimit,
+      orderBy: { createdAt: "desc" },
+      select: {
+        id: true,
+        subject: true,
+        status: true,
+        municipalityNormalized: true,
+        decisionType: true,
+        legalStatus: true,
+        fileSize: true,
+        createdAt: true,
+      },
+    }),
+
+    // RequirementCases
+    db.requirementCase.count(),
+    db.requirementCase.findMany({
+      take: safeLimit,
+      orderBy: { createdAt: "desc" },
+      select: {
+        id: true,
+        caseKey: true,
+        municipality: true,
+        authorityType: true,
+        documentType: true,
+        caseReviewStatus: true,
+        createdAt: true,
+        _count: { select: { requirements: true } },
+      },
+    }),
+
+    // RequirementRecords
+    db.requirementRecord.count(),
+    db.requirementRecord.findMany({
+      take: safeLimit,
+      orderBy: { createdAt: "desc" },
+      select: {
+        id: true,
+        requirementCode: true,
+        category: true,
+        subcategory: true,
+        level: true,
+        codingConfidence: true,
+        statusInNotification: true,
+        minimumRequirement: true,
+        createdAt: true,
+      },
+    }),
+
+    // ExtractedRequirements
+    db.extractedRequirement.count(),
+    db.extractedRequirement.findMany({
+      take: safeLimit,
+      orderBy: { parsedAt: "desc" },
+      select: {
+        id: true,
+        municipality: true,
+        category: true,
+        subcategory: true,
+        requirementLevel: true,
+        confidence: true,
+        parsedAt: true,
+      },
+    }),
+
+    // EmailMessages
+    db.emailMessage.count(),
+    db.emailMessage.findMany({
+      take: safeLimit,
+      orderBy: { receivedAt: "desc" },
+      select: {
+        messageId: true,
+        sender: true,
+        subject: true,
+        status: true,
+        receivedAt: true,
+        _count: { select: { attachments: true } },
+      },
+    }),
+
+    // PipelineRuns
+    db.pipelineRun.count(),
+    db.pipelineRun.findMany({
+      take: safeLimit,
+      orderBy: { startedAt: "desc" },
+      select: {
+        id: true,
+        status: true,
+        messagesIngested: true,
+        requirementsExtracted: true,
+        startedAt: true,
+        finishedAt: true,
+      },
+    }),
+  ]);
+
+  return {
+    generatedAt: new Date().toISOString(),
+    limit: safeLimit,
+
+    organisations: {
+      total: orgTotal,
+      rows: orgRows.map((r: any) => ({
+        id: r.id,
+        name: r.name,
+        orgNumber: r.orgNumber,
+        createdAt: r.createdAt.toISOString(),
+        userCount: r._count.users,
+        projectCount: r._count.projects,
+      })),
+    },
+
+    projects: {
+      total: projTotal,
+      rows: projRows.map((r: any) => ({
+        id: r.id,
+        propertyDesignation: r.propertyDesignation,
+        status: String(r.status),
+        organisationName: r.organisation?.name ?? "(okänd)",
+        createdAt: r.createdAt.toISOString(),
+        documentCount: r._count.documents,
+        requirementCount: r._count.requirements,
+      })),
+    },
+
+    documents: {
+      total: docTotal,
+      rows: docRows.map((r: any) => ({
+        id: r.id,
+        subject: r.subject,
+        status: String(r.status),
+        municipality: r.municipalityNormalized ?? null,
+        decisionType: r.decisionType ?? null,
+        legalStatus: r.legalStatus ?? null,
+        fileSize: r.fileSize !== null && r.fileSize !== undefined ? Number(r.fileSize) : null,
+        createdAt: r.createdAt.toISOString(),
+      })),
+    },
+
+    requirementCases: {
+      total: caseTotal,
+      rows: caseRows.map((r: any) => ({
+        id: r.id,
+        caseKey: r.caseKey,
+        municipality: r.municipality ?? null,
+        authorityType: r.authorityType ?? null,
+        documentType: r.documentType ?? null,
+        reviewStatus: r.caseReviewStatus,
+        requirementCount: r._count.requirements,
+        createdAt: r.createdAt.toISOString(),
+      })),
+    },
+
+    requirements: {
+      total: reqTotal,
+      rows: reqRows.map((r: any) => ({
+        id: r.id,
+        requirementCode: r.requirementCode,
+        category: r.category,
+        subcategory: r.subcategory,
+        level: r.level,
+        codingConfidence: r.codingConfidence,
+        statusInNotification: r.statusInNotification,
+        minimumRequirement: r.minimumRequirement,
+        createdAt: r.createdAt.toISOString(),
+      })),
+    },
+
+    extractedRequirements: {
+      total: extTotal,
+      rows: extRows.map((r: any) => ({
+        id: r.id,
+        municipality: r.municipality ?? null,
+        category: r.category,
+        subcategory: r.subcategory ?? null,
+        requirementLevel: r.requirementLevel,
+        confidence: Number(r.confidence),
+        parsedAt: r.parsedAt.toISOString(),
+      })),
+    },
+
+    emailMessages: {
+      total: emailTotal,
+      rows: emailRows.map((r: any) => ({
+        messageId: r.messageId,
+        sender: r.sender ?? null,
+        subject: r.subject ?? null,
+        status: r.status,
+        attachmentCount: r._count?.attachments ?? 0,
+        createdAt: r.receivedAt ? r.receivedAt.toISOString() : null,
+      })),
+    },
+
+    pipelineRuns: {
+      total: pipeTotal,
+      rows: pipeRows.map((r: any) => ({
+        id: r.id,
+        status: r.status,
+        messagesIngested: r.messagesIngested ?? null,
+        requirementsExtracted: r.requirementsExtracted ?? null,
+        startedAt: r.startedAt.toISOString(),
+        finishedAt: r.finishedAt ? r.finishedAt.toISOString() : null,
+      })),
     },
   };
 }

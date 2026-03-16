@@ -726,6 +726,119 @@ export interface DbAnalysisResponse {
   };
 }
 
+/** Snapshot of actual database rows per key table — "vad finns i db". */
+export interface DbContentsResponse {
+  generatedAt: string;
+  /** Query limit used for each table */
+  limit: number;
+
+  organisations: {
+    total: number;
+    rows: Array<{
+      id: string;
+      name: string;
+      orgNumber: string;
+      createdAt: string;
+      userCount: number;
+      projectCount: number;
+    }>;
+  };
+
+  projects: {
+    total: number;
+    rows: Array<{
+      id: string;
+      propertyDesignation: string;
+      status: string;
+      organisationName: string;
+      createdAt: string;
+      documentCount: number;
+      requirementCount: number;
+    }>;
+  };
+
+  documents: {
+    total: number;
+    rows: Array<{
+      id: string;
+      subject: string;
+      status: string;
+      municipality: string | null;
+      decisionType: string | null;
+      legalStatus: string | null;
+      fileSize: number | null;
+      createdAt: string;
+    }>;
+  };
+
+  requirementCases: {
+    total: number;
+    rows: Array<{
+      id: string;
+      caseKey: string;
+      municipality: string | null;
+      authorityType: string | null;
+      documentType: string | null;
+      reviewStatus: string;
+      requirementCount: number;
+      createdAt: string;
+    }>;
+  };
+
+  requirements: {
+    total: number;
+    rows: Array<{
+      id: string;
+      requirementCode: string;
+      category: string;
+      subcategory: string;
+      level: string;
+      codingConfidence: string;
+      statusInNotification: string;
+      minimumRequirement: boolean;
+      createdAt: string;
+    }>;
+  };
+
+  extractedRequirements: {
+    total: number;
+    rows: Array<{
+      id: string;
+      municipality: string | null;
+      category: string;
+      subcategory: string | null;
+      requirementLevel: string;
+      confidence: number;
+      parsedAt: string;
+    }>;
+  };
+
+  emailMessages: {
+    total: number;
+    rows: Array<{
+      messageId: string;
+      sender: string | null;
+      subject: string | null;
+      status: string;
+      attachmentCount: number;
+      /** receivedAt from Outlook ingestion; null when not yet set */
+      createdAt: string | null;
+    }>;
+  };
+
+  pipelineRuns: {
+    total: number;
+    rows: Array<{
+      id: string;
+      status: string;
+      messagesIngested: number | null;
+      requirementsExtracted: number | null;
+      startedAt: string;
+      finishedAt: string | null;
+    }>;
+  };
+}
+
 export interface SearchInfoField {
   field: string;
   label: string;

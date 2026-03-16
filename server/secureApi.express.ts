@@ -50,7 +50,7 @@ import type {
   ProjectType,
   StageGateType,
 } from "../types";
-import { getAdminDatabaseDump, getAdminExamSummary, getDbAnalysis, getDbStats } from "./repositories/adminReportRepository";
+import { getAdminDatabaseDump, getAdminExamSummary, getDbAnalysis, getDbContents, getDbStats } from "./repositories/adminReportRepository";
 import {
   getDocumentById,
   listRequirementCases,
@@ -2006,10 +2006,31 @@ router.get("/api/admin/db-analysis", requireAuth, rateLimitByUser(20, 60_000), a
   }
 });
 
+router.get("/api/admin/db-contents", requireAuth, rateLimitByUser(15, 60_000), async (req, res) => {
+  try {
+    if (!req.authUser) {
+      res.status(401).json({ ok: false, error: "Unauthorized" });
+      return;
+    }
+    if (req.authUser.role !== "ADMIN") {
+      res.status(403).json({ ok: false, error: "Admin role required" });
+      return;
+    }
+
+    const limitParam = parseInt(String(req.query.limit ?? "10"), 10);
+    const limit = Number.isFinite(limitParam) ? limitParam : 10;
+    const contents = await getDbContents(limit);
+    res.json({ ok: true, contents });
+  } catch (error: unknown) {
+    res.status(400).json({ ok: false, error: error instanceof Error ? error.message : "db contents failed" });
+  }
+});
+
 router.get("/api/admin/exam-summary", requireAuth, rateLimitByUser(20, 60_000), async (req, res) => {
   try {
     if (!req.authUser) {
       res.status(401).json({ ok: false, error: "Unauthorized" });
+
       return;
     }
     if (req.authUser.role !== "ADMIN") {
