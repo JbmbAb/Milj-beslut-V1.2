@@ -50,7 +50,7 @@ import type {
   ProjectType,
   StageGateType,
 } from "../types";
-import { getAdminDatabaseDump, getAdminExamSummary, getDbStats } from "./repositories/adminReportRepository";
+import { getAdminDatabaseDump, getAdminExamSummary, getDbAnalysis, getDbStats } from "./repositories/adminReportRepository";
 import {
   getDocumentById,
   listRequirementCases,
@@ -1985,6 +1985,24 @@ router.get("/api/admin/db-stats", requireAuth, rateLimitByUser(30, 60_000), asyn
     res.json({ ok: true, stats });
   } catch (error: unknown) {
     res.status(400).json({ ok: false, error: error instanceof Error ? error.message : "db stats failed" });
+  }
+});
+
+router.get("/api/admin/db-analysis", requireAuth, rateLimitByUser(20, 60_000), async (req, res) => {
+  try {
+    if (!req.authUser) {
+      res.status(401).json({ ok: false, error: "Unauthorized" });
+      return;
+    }
+    if (req.authUser.role !== "ADMIN") {
+      res.status(403).json({ ok: false, error: "Admin role required" });
+      return;
+    }
+
+    const analysis = await getDbAnalysis();
+    res.json({ ok: true, analysis });
+  } catch (error: unknown) {
+    res.status(400).json({ ok: false, error: error instanceof Error ? error.message : "db analysis failed" });
   }
 });
 

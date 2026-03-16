@@ -649,6 +649,83 @@ export interface DbStatsResponse {
   }>;
 }
 
+/** Granular database analysis: category breakdowns, quality distribution, coverage gaps. */
+export interface DbAnalysisResponse {
+  generatedAt: string;
+
+  /** Analytical breakdown of RequirementRecord rows */
+  requirements: {
+    /** Count per requirement category */
+    byCategory: Array<{ category: string; count: number }>;
+    /** Count per coding-confidence band (HIGH / MEDIUM / LOW) */
+    byCodingConfidence: Array<{ confidence: string; count: number }>;
+    /** Count per requirement level (e.g. "mandatory", "recommended") */
+    byLevel: Array<{ level: string; count: number }>;
+    /** Count per statusInNotification value */
+    byStatus: Array<{ status: string; count: number }>;
+    /** How many rows are flagged as municipality-specific */
+    municipalitySpecificCount: number;
+    /** How many rows are flagged as minimum requirements */
+    minimumRequirementCount: number;
+    /** How many requirements have at least one citation */
+    withCitationsCount: number;
+    /** Total citation rows across all requirements */
+    citationsTotal: number;
+  };
+
+  /** Analytical breakdown of DocumentRecord rows */
+  documents: {
+    /** Count per processing status enum value */
+    byStatus: Array<{ status: string; count: number }>;
+    /** Count per decisionType value */
+    byDecisionType: Array<{ decisionType: string; count: number }>;
+    /** Count per legalStatus value */
+    byLegalStatus: Array<{ legalStatus: string; count: number }>;
+    /**
+     * Distribution of municipalityConfidence values, bucketed:
+     * high ≥ 0.8, medium [0.5, 0.8), low < 0.5, missing = null
+     */
+    municipalityConfidenceBuckets: {
+      high: number;
+      medium: number;
+      low: number;
+      missing: number;
+    };
+  };
+
+  /** Coverage and gap analysis between DocumentRecord and RequirementRecord */
+  coverage: {
+    /** Documents that have at least one RequirementRecord */
+    documentsWithRequirements: number;
+    /** Documents that have zero RequirementRecord rows */
+    documentsWithoutRequirements: number;
+    /** Percentage of documents covered by at least one requirement (0–100) */
+    coverageRatioPct: number;
+    /** Mean RequirementRecord rows per document that has any */
+    avgRequirementsPerCoveredDocument: number;
+    /** Named municipalities appearing in both document and requirement sets */
+    municipalitiesWithBoth: number;
+    /** Named municipalities that have documents but no requirements extracted yet */
+    municipalitiesDocumentsOnly: string[];
+    /** Named municipalities that appear in requirements but have no document records */
+    municipalitiesRequirementsOnly: string[];
+  };
+
+  /** Analytical breakdown of ExtractedRequirement rows (email-ingestion pipeline) */
+  extractedRequirements: {
+    /** Count per category */
+    byCategory: Array<{ category: string; count: number }>;
+    /** Count per requirementLevel */
+    byLevel: Array<{ level: string; count: number }>;
+    /** Distribution of confidence score, bucketed: high ≥ 0.8, medium [0.5, 0.8), low < 0.5 */
+    confidenceBuckets: {
+      high: number;
+      medium: number;
+      low: number;
+    };
+  };
+}
+
 export interface SearchInfoField {
   field: string;
   label: string;

@@ -1,5 +1,5 @@
 import { prisma } from "../db/prisma";
-import type { AdminDatabaseDumpResponse, AdminExamSummary, DbStatsResponse, ProjectStageGate } from "../../types";
+import type { AdminDatabaseDumpResponse, AdminExamSummary, DbAnalysisResponse, DbStatsResponse, ProjectStageGate } from "../../types";
 
 const db = prisma as any;
 
@@ -470,5 +470,161 @@ export async function getDbStats(): Promise<DbStatsResponse> {
       allOk: requirementsOk && municipalitiesOk && documentsOk,
     },
     perMunicipality,
+  };
+}
+
+export async function getDbAnalysis(): Promise<DbAnalysisResponse> {
+  const [
+    reqByCategory,
+    reqByCodingConfidence,
+    reqByLevel,
+    reqByStatus,
+    municipalitySpecificCount,
+    minimumRequirementCount,
+    citationsTotal,
+    // For requirements-with-citations we need distinct requirementIds in citations
+    citationDistinctReqIds,
+
+    docByStatus,
+    docByDecisionType,
+    docByLegalStatus,
+    // For confidence buckets we fetch all confidence values
+    docConfidenceRows,
+
+    // Coverage: how many documents have at least one RequirementRecord
+    docsWithReqs,
+
+    // Per-municipality sets for gap analysis
+    docMunicipalityRows,
+    reqMunicipalityRows,
+
+    // ExtractedRequirement analytics
+    extByCategory,
+    extByLevel,
+    extConfidenceRows,
+  ] = await Promise.all([
+    // ── RequirementRecord analytics ────────────────────────────────────────
+    db.requirementRecord.groupBy({ by: ["category"], _count: { _all: true }, orderBy: { _count: { _all: "desc" } } }),
+    db.requirementRecord.groupBy({ by: ["codingConfidence"], _count: { _all: true }, orderBy: { _count: { _all: "desc" } } }),
+    db.requirementRecord.groupBy({ by: ["level"], _count: { _all: true }, orderBy: { _count: { _all: "desc" } } }),
+    db.requirementRecord.groupBy({ by: ["statusInNotification"], _count: { _all: true }, orderBy: { _count: { _all: "desc" } } }),
+    db.requirementRecord.count({ where: { municipalitySpecific: true } }),
+    db.requirementRecord.count({ where: { minimumRequirement: true } }),
+    db.requirementCitation.count(),
+    db.requirementCitation.findMany({ select: { requirementId: true }, distinct: ["requirementId"] }),
+
+    // ── DocumentRecord analytics ───────────────────────────────────────────
+    db.documentRecord.groupBy({ by: ["status"], _count: { _all: true }, orderBy: { _count: { _all: "desc" } } }),
+    db.documentRecord.groupBy({ by: ["decisionType"], _count: { _all: true }, orderBy: { _count: { _all: "desc" } } }),
+    db.documentRecord.groupBy({ by: ["legalStatus"], _count: { _all: true }, orderBy: { _count: { _all: "desc" } } }),
+    db.documentRecord.findMany({ select: { municipalityConfidence: true } }),
+
+    // ── Coverage analysis ─────────────────────────────────────────────────
+    db.documentRecord.findMany({
+      select: { id: true },
+      where: { requirements: { some: {} } },
+    }),
+
+    // Per-municipality for gap analysis
+    db.documentRecord.findMany({
+      where: { municipalityNormalized: { not: null } },
+      select: { municipalityNormalized: true },
+      distinct: ["municipalityNormalized"],
+    }),
+    db.requirementRecord.findMany({
+      select: { case: { select: { municipality: true } } },
+    }),
+
+    // ── ExtractedRequirement analytics ────────────────────────────────────
+    db.extractedRequirement.groupBy({ by: ["category"], _count: { _all: true }, orderBy: { _count: { _all: "desc" } } }),
+    db.extractedRequirement.groupBy({ by: ["requirementLevel"], _count: { _all: true }, orderBy: { _count: { _all: "desc" } } }),
+    db.extractedRequirement.findMany({ select: { confidence: true } }),
+  ]);
+
+  // ── Requirements ────────────────────────────────────────────────────────
+  const withCitationsCount = citationDistinctReqIds.length;
+
+  // ── Documents – confidence buckets ──────────────────────────────────────
+  let confHigh = 0, confMedium = 0, confLow = 0, confMissing = 0;
+  for (const row of docConfidenceRows) {
+    const v = row.municipalityConfidence as number | null;
+    if (v === null || v === undefined) { confMissing++; }
+    else if (v >= 0.8) { confHigh++; }
+    else if (v >= 0.5) { confMedium++; }
+    else { confLow++; }
+  }
+
+  // ── Coverage ─────────────────────────────────────────────────────────────
+  const totalDocuments = docConfidenceRows.length;
+  const documentsWithRequirements = docsWithReqs.length;
+  const documentsWithoutRequirements = totalDocuments - documentsWithRequirements;
+  const coverageRatioPct =
+    totalDocuments > 0 ? Number(((documentsWithRequirements / totalDocuments) * 100).toFixed(1)) : 0;
+  const avgRequirementsPerCoveredDocument =
+    documentsWithRequirements > 0
+      ? Number((reqByCategory.reduce((s: number, r: { _count: { _all: number } }) => s + Number(r._count._all), 0) / documentsWithRequirements).toFixed(1))
+      : 0;
+
+  // ── Gap analysis ─────────────────────────────────────────────────────────
+  const docMuns = new Set<string>(
+    docMunicipalityRows
+      .map((r: { municipalityNormalized: string | null }) => r.municipalityNormalized)
+      .filter((m: string | null): m is string => Boolean(m))
+  );
+  const reqMuns = new Set<string>(
+    reqMunicipalityRows
+      .map((r: { case: { municipality: string | null } | null }) => r.case?.municipality)
+      .filter((m: string | null | undefined): m is string => Boolean(m))
+  );
+  const allNamedMuns = new Set<string>([...docMuns, ...reqMuns]);
+  const municipalitiesWithBoth = [...allNamedMuns].filter((m) => docMuns.has(m) && reqMuns.has(m)).length;
+  const municipalitiesDocumentsOnly = [...allNamedMuns]
+    .filter((m) => docMuns.has(m) && !reqMuns.has(m))
+    .sort();
+  const municipalitiesRequirementsOnly = [...allNamedMuns]
+    .filter((m) => reqMuns.has(m) && !docMuns.has(m))
+    .sort();
+
+  // ── ExtractedRequirement – confidence buckets ────────────────────────────
+  let extHigh = 0, extMedium = 0, extLow = 0;
+  for (const row of extConfidenceRows) {
+    const v = row.confidence as number;
+    if (v >= 0.8) { extHigh++; }
+    else if (v >= 0.5) { extMedium++; }
+    else { extLow++; }
+  }
+
+  return {
+    generatedAt: new Date().toISOString(),
+    requirements: {
+      byCategory: reqByCategory.map((r: any) => ({ category: String(r.category), count: Number(r._count._all) })),
+      byCodingConfidence: reqByCodingConfidence.map((r: any) => ({ confidence: String(r.codingConfidence), count: Number(r._count._all) })),
+      byLevel: reqByLevel.map((r: any) => ({ level: String(r.level), count: Number(r._count._all) })),
+      byStatus: reqByStatus.map((r: any) => ({ status: String(r.statusInNotification), count: Number(r._count._all) })),
+      municipalitySpecificCount,
+      minimumRequirementCount,
+      withCitationsCount,
+      citationsTotal,
+    },
+    documents: {
+      byStatus: docByStatus.map((r: any) => ({ status: String(r.status), count: Number(r._count._all) })),
+      byDecisionType: docByDecisionType.map((r: any) => ({ decisionType: String(r.decisionType ?? "(okänd)"), count: Number(r._count._all) })),
+      byLegalStatus: docByLegalStatus.map((r: any) => ({ legalStatus: String(r.legalStatus ?? "(okänd)"), count: Number(r._count._all) })),
+      municipalityConfidenceBuckets: { high: confHigh, medium: confMedium, low: confLow, missing: confMissing },
+    },
+    coverage: {
+      documentsWithRequirements,
+      documentsWithoutRequirements,
+      coverageRatioPct,
+      avgRequirementsPerCoveredDocument,
+      municipalitiesWithBoth,
+      municipalitiesDocumentsOnly,
+      municipalitiesRequirementsOnly,
+    },
+    extractedRequirements: {
+      byCategory: extByCategory.map((r: any) => ({ category: String(r.category), count: Number(r._count._all) })),
+      byLevel: extByLevel.map((r: any) => ({ level: String(r.requirementLevel), count: Number(r._count._all) })),
+      confidenceBuckets: { high: extHigh, medium: extMedium, low: extLow },
+    },
   };
 }
