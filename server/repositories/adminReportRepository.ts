@@ -1,5 +1,6 @@
 import { prisma } from "../db/prisma";
-import type { AdminDatabaseDumpResponse, AdminExamSummary, DbAnalysisResponse, DbContentsResponse, DbStatsResponse, ProjectStageGate } from "../../types";
+import type { AdminDatabaseDumpResponse, AdminExamSummary, AppStatusResponse, DbAnalysisResponse, DbContentsResponse, DbStatsResponse, ProjectStageGate } from "../../types";
+import { getPublicDatasourceSummary } from "../services/publicUiService";
 
 const db = prisma as any;
 
@@ -877,6 +878,71 @@ export async function getDbContents(limit = 10): Promise<DbContentsResponse> {
         startedAt: r.startedAt.toISOString(),
         finishedAt: r.finishedAt ? r.finishedAt.toISOString() : null,
       })),
+    },
+  };
+}
+
+export async function getAppStatus(): Promise<AppStatusResponse> {
+  const checkedAt = new Date().toISOString();
+
+  // ── 1. Database ping with latency ────────────────────────────────────────
+  let dbStatus: 'ok' | 'error' = 'error';
+  let dbLatencyMs: number | null = null;
+  try {
+    const t0 = Date.now();
+    await db.$queryRaw`SELECT 1`;
+    dbLatencyMs = Date.now() - t0;
+    dbStatus = 'ok';
+  } catch {
+    // dbStatus stays 'error'
+  }
+
+  // ── 2. Datasource summary (cached — no forceRefresh) ────────────────────
+  let dsTotal = 0;
+  let dsConnected = 0;
+  let dsErrors = 0;
+  let dsPermitRequired = 0;
+  let allOpenSourcesActive = false;
+  try {
+    const summary = await getPublicDatasourceSummary(false);
+    const cards = summary.cards;
+    dsTotal = cards.length;
+    dsConnected = cards.filter((c: any) => c.status === 'CONNECTED').length;
+    dsErrors = cards.filter((c: any) => c.status === 'ERROR').length;
+    dsPermitRequired = cards.filter((c: any) => c.activation === 'PERMIT_REQUIRED').length;
+    const immediateCards = cards.filter((c: any) => c.activation === 'IMMEDIATE');
+    allOpenSourcesActive = immediateCards.length === 0 || immediateCards.every((c: any) => c.status === 'CONNECTED');
+  } catch {
+    // datasource summary is best-effort
+  }
+
+  // ── 3. Overall health ───────────────────────────────────────────────────
+  const overall: 'ok' | 'degraded' | 'error' =
+    dbStatus === 'error'
+      ? 'error'
+      : !allOpenSourcesActive || dsErrors > 0
+      ? 'degraded'
+      : 'ok';
+
+  return {
+    checkedAt,
+    overall,
+    app: {
+      status: 'ok',
+      version: process.env.npm_package_version ?? 'unknown',
+      uptimeSeconds: Math.floor(process.uptime()),
+      environment: process.env.NODE_ENV ?? 'unknown',
+    },
+    db: {
+      status: dbStatus,
+      latencyMs: dbLatencyMs,
+    },
+    datasources: {
+      total: dsTotal,
+      connected: dsConnected,
+      errors: dsErrors,
+      permitRequired: dsPermitRequired,
+      allOpenSourcesActive,
     },
   };
 }

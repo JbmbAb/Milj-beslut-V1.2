@@ -839,6 +839,35 @@ export interface DbContentsResponse {
   };
 }
 
+/** Response shape for GET /api/admin/app-status — "är appen igång?" */
+export interface AppStatusResponse {
+  /** ISO timestamp when the check ran */
+  checkedAt: string;
+  /** Overall application health: "ok" | "degraded" | "error" */
+  overall: 'ok' | 'degraded' | 'error';
+  /** Backend application server status */
+  app: {
+    status: 'ok' | 'error';
+    version: string;
+    /** Seconds the Node process has been running */
+    uptimeSeconds: number;
+    environment: string;
+  };
+  /** Database connectivity status */
+  db: {
+    status: 'ok' | 'error';
+    latencyMs: number | null;
+  };
+  /** Aggregated datasource availability */
+  datasources: {
+    total: number;
+    connected: number;
+    errors: number;
+    permitRequired: number;
+    allOpenSourcesActive: boolean;
+  };
+}
+
 export interface SearchInfoField {
   field: string;
   label: string;
