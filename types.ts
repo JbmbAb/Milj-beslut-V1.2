@@ -620,6 +620,35 @@ export interface AdminDatabaseDumpResponse {
   tables: Record<string, unknown[]>;
 }
 
+export interface SearchInfoField {
+  field: string;
+  label: string;
+  type?: string;
+  example?: string | boolean;
+  values?: string[];
+  source?: string;
+  description?: string;
+  searchable?: boolean;
+}
+
+export interface SearchInfoMode {
+  id: string;
+  label: string;
+  description: string;
+}
+
+export interface SearchInfoResponse {
+  ok: boolean;
+  info: {
+    description: string;
+    modes: SearchInfoMode[];
+    fullTextFields: SearchInfoField[];
+    metadataFilterFields: SearchInfoField[];
+    lexicalMatchFields: SearchInfoField[];
+    queryParameters: Record<string, string>;
+  };
+}
+
 export type RequirementVerificationStatus = 'AUTO' | 'REVIEWED' | 'VERIFIED' | 'REJECTED';
 
 export interface AdminRequirementCase {

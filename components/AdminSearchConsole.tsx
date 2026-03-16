@@ -5,6 +5,7 @@ import type {
   AdminExamSummary,
   AdminProjectSummary,
   SearchFilters,
+  SearchInfoResponse,
   SearchMode,
   SearchQueryResponse,
   SearchStatusResponse,
@@ -46,6 +47,8 @@ const AdminSearchConsole: React.FC<AdminSearchConsoleProps> = ({ panel = 'search
   const [examSummary, setExamSummary] = useState<AdminExamSummary | null>(null);
   const [databaseDump, setDatabaseDump] = useState<AdminDatabaseDumpResponse | null>(null);
   const [showDumpJson, setShowDumpJson] = useState(false);
+  const [searchInfo, setSearchInfo] = useState<SearchInfoResponse['info'] | null>(null);
+  const [showSearchInfo, setShowSearchInfo] = useState(false);
 
   const [busy, setBusy] = useState('');
   const [error, setError] = useState('');
@@ -348,6 +351,19 @@ const AdminSearchConsole: React.FC<AdminSearchConsoleProps> = ({ panel = 'search
       setCatalogCount(Array.isArray(json.sources) ? json.sources.length : 0);
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Catalog failed');
+    }
+  };
+
+  const loadSearchInfo = async () => {
+    setBusy('search-info');
+    try {
+      const data = await secure<SearchInfoResponse>('/api/search/info', 'GET');
+      setSearchInfo(data.info);
+      setShowSearchInfo(true);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Kunde inte hämta sökinfo');
+    } finally {
+      setBusy('');
     }
   };
 
@@ -922,6 +938,114 @@ const AdminSearchConsole: React.FC<AdminSearchConsoleProps> = ({ panel = 'search
             </span>
           ))}
         </div>
+
+        <div className="mt-3 flex items-center gap-2">
+          <button
+            type="button"
+            className="rounded-xl border border-indigo-200 bg-indigo-50 px-4 py-2 text-xs font-bold text-indigo-700 hover:bg-indigo-100 disabled:opacity-60"
+            disabled={Boolean(busy) || !token}
+            onClick={loadSearchInfo}
+          >
+            {busy === 'search-info' ? 'Hämtar...' : '? Vad är sökbart i databasen?'}
+          </button>
+          {showSearchInfo && (
+            <button
+              type="button"
+              className="rounded-xl border border-slate-200 px-3 py-2 text-xs text-slate-500 hover:bg-slate-100"
+              onClick={() => setShowSearchInfo(false)}
+            >
+              Dölj
+            </button>
+          )}
+        </div>
+
+        {showSearchInfo && searchInfo && (
+          <div className="mt-3 rounded-2xl border border-indigo-100 bg-indigo-50 p-5 space-y-4">
+            <p className="text-sm font-black text-indigo-900">{searchInfo.description}</p>
+
+            <div>
+              <p className="text-xs font-black uppercase tracking-widest text-indigo-700 mb-2">Söklägen</p>
+              <div className="grid grid-cols-1 gap-2 md:grid-cols-3">
+                {searchInfo.modes.map((m) => (
+                  <div key={m.id} className="rounded-xl border border-indigo-200 bg-white p-3">
+                    <p className="text-xs font-black text-indigo-800">{m.label}</p>
+                    <p className="text-[11px] text-slate-600 mt-1">{m.description}</p>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            <div>
+              <p className="text-xs font-black uppercase tracking-widest text-indigo-700 mb-2">Fulltextfält (semantisk & lexikal sökning)</p>
+              <div className="space-y-1">
+                {searchInfo.fullTextFields.map((f) => (
+                  <div key={f.field} className="flex items-start gap-3 rounded-lg border border-indigo-100 bg-white px-3 py-2">
+                    <code className="text-[11px] font-bold text-indigo-700 shrink-0">{f.field}</code>
+                    <div>
+                      <p className="text-xs font-semibold text-slate-800">{f.label}</p>
+                      {f.source && <p className="text-[11px] text-slate-500">{f.source}</p>}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            <div>
+              <p className="text-xs font-black uppercase tracking-widest text-indigo-700 mb-2">Metadatafilter (filters-objekt)</p>
+              <div className="overflow-x-auto">
+                <table className="w-full text-left text-xs">
+                  <thead className="bg-indigo-100 text-[10px] uppercase text-indigo-600">
+                    <tr>
+                      <th className="px-3 py-2">Fält</th>
+                      <th className="px-3 py-2">Label</th>
+                      <th className="px-3 py-2">Typ</th>
+                      <th className="px-3 py-2">Exempel</th>
+                      <th className="px-3 py-2">Beskrivning</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-indigo-50">
+                    {searchInfo.metadataFilterFields.map((f) => (
+                      <tr key={f.field} className="bg-white">
+                        <td className="px-3 py-2"><code className="font-bold text-indigo-700">{f.field}</code></td>
+                        <td className="px-3 py-2 font-semibold text-slate-800">{f.label}</td>
+                        <td className="px-3 py-2 text-slate-600">{f.type}{f.values ? `: [${f.values.join(', ')}]` : ''}</td>
+                        <td className="px-3 py-2 text-slate-600">{String(f.example ?? '')}</td>
+                        <td className="px-3 py-2 text-slate-500">{f.description}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+
+            <div>
+              <p className="text-xs font-black uppercase tracking-widest text-indigo-700 mb-2">Lexikal matchning (nyckelord)</p>
+              <div className="space-y-1">
+                {searchInfo.lexicalMatchFields.map((f) => (
+                  <div key={f.field} className="flex items-start gap-3 rounded-lg border border-indigo-100 bg-white px-3 py-2">
+                    <code className="text-[11px] font-bold text-indigo-700 shrink-0">{f.field}</code>
+                    <div>
+                      <p className="text-xs font-semibold text-slate-800">{f.label}</p>
+                      {f.description && <p className="text-[11px] text-slate-500">{f.description}</p>}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            <div>
+              <p className="text-xs font-black uppercase tracking-widest text-indigo-700 mb-2">Frågeparametrar (/api/search/query)</p>
+              <div className="space-y-1">
+                {Object.entries(searchInfo.queryParameters).map(([key, desc]) => (
+                  <div key={key} className="flex items-start gap-3 rounded-lg border border-indigo-100 bg-white px-3 py-2">
+                    <code className="text-[11px] font-bold text-indigo-700 shrink-0">{key}</code>
+                    <p className="text-[11px] text-slate-600">{desc}</p>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+        )}
       </section>
 
       {panel === 'insight' && (
