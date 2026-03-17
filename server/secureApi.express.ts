@@ -123,6 +123,10 @@ import { getFullStatus } from "./services/fullStatusService";
 
 assertSecurityEnv();
 
+// @types/express v5 changed ParamsDictionary to { [key: string]: string | string[] }.
+// Route params are always single strings — this helper enforces that at the call site.
+function sp(v: string | string[]): string { return Array.isArray(v) ? v[0] : v; }
+
 const router = express.Router();
 router.use(bodyParser.json({ limit: "1mb" }));
 router.use(requestLogger);
@@ -2343,10 +2347,10 @@ router.post("/api/orgs/:orgId/invitations", requireAuth, rateLimitByUser(20, 60_
     if (!email || !role) { res.status(400).json({ ok: false, error: "email och role krävs" }); return; }
 
     const invitation = await createInvitation({
-      orgId: req.params.orgId,
+      orgId: sp(req.params.orgId),
       email,
       role,
-      actingUserId: req.authUser.userId,
+      actingUserId: req.authUser.id,
     });
     res.json({ ok: true, invitation });
   } catch (error: unknown) {
@@ -2357,7 +2361,7 @@ router.post("/api/orgs/:orgId/invitations", requireAuth, rateLimitByUser(20, 60_
 router.get("/api/orgs/:orgId/invitations", requireAuth, rateLimitByUser(30, 60_000), async (req, res) => {
   try {
     if (!req.authUser) { res.status(401).json({ ok: false, error: "Unauthorized" }); return; }
-    const invitations = listInvitations(req.params.orgId);
+    const invitations = listInvitations(sp(req.params.orgId));
     res.json({ ok: true, invitations });
   } catch (error: unknown) {
     res.status(400).json({ ok: false, error: error instanceof Error ? error.message : "list invitations failed" });
@@ -2369,7 +2373,7 @@ router.post("/api/orgs/:orgId/invitations/accept", rateLimitByUser(10, 60_000), 
     const { token, bankidId } = req.body as { token?: string; bankidId?: string };
     if (!token || !bankidId) { res.status(400).json({ ok: false, error: "token och bankidId krävs" }); return; }
 
-    const result = await acceptInvitation({ orgId: req.params.orgId, token, bankidId });
+    const result = await acceptInvitation({ orgId: sp(req.params.orgId), token, bankidId });
     res.json({ ok: true, ...result });
   } catch (error: unknown) {
     res.status(400).json({ ok: false, error: error instanceof Error ? error.message : "accept invitation failed" });
@@ -2379,7 +2383,7 @@ router.post("/api/orgs/:orgId/invitations/accept", rateLimitByUser(10, 60_000), 
 router.delete("/api/orgs/:orgId/invitations/:inviteId", requireAuth, rateLimitByUser(20, 60_000), async (req, res) => {
   try {
     if (!req.authUser) { res.status(401).json({ ok: false, error: "Unauthorized" }); return; }
-    await revokeInvitation({ orgId: req.params.orgId, inviteId: req.params.inviteId, actingUserId: req.authUser.userId });
+    await revokeInvitation({ orgId: sp(req.params.orgId), inviteId: sp(req.params.inviteId), actingUserId: req.authUser.id });
     res.json({ ok: true });
   } catch (error: unknown) {
     res.status(400).json({ ok: false, error: error instanceof Error ? error.message : "revoke invitation failed" });
@@ -2393,7 +2397,7 @@ router.delete("/api/orgs/:orgId/invitations/:inviteId", requireAuth, rateLimitBy
 router.post("/api/projects/:projectId/permit/authority-submit", requireAuth, rateLimitByUser(10, 60_000), rateLimitByOrg(50, 60 * 60_000), async (req, res) => {
   try {
     if (!req.authUser) { res.status(401).json({ ok: false, error: "Unauthorized" }); return; }
-    await assertPermission(req.authUser, req.params.projectId);
+    await assertPermission(req.authUser, sp(req.params.projectId));
 
     const { permitType, applicantName, propertyDesignation, documentIds, authorityName } =
       req.body as {
@@ -2410,9 +2414,9 @@ router.post("/api/projects/:projectId/permit/authority-submit", requireAuth, rat
     }
 
     const submission = await submitPermitToAuthority({
-      projectId: req.params.projectId,
-      orgId: req.authUser.orgId,
-      actingUserId: req.authUser.userId,
+      projectId: sp(req.params.projectId),
+      orgId: req.authUser.organisationId,
+      actingUserId: req.authUser.id,
       permitType,
       applicantName,
       propertyDesignation,
@@ -2429,7 +2433,8 @@ router.post("/api/projects/:projectId/permit/authority-submit", requireAuth, rat
 router.get("/api/projects/:projectId/permit/submissions/:referenceId", requireAuth, rateLimitByUser(30, 60_000), async (req, res) => {
   try {
     if (!req.authUser) { res.status(401).json({ ok: false, error: "Unauthorized" }); return; }
-    const submission = getSubmission(req.params.referenceId);
+    await assertPermission(req.authUser, sp(req.params.projectId));
+    const submission = getSubmission(sp(req.params.referenceId));
     if (!submission) { res.status(404).json({ ok: false, error: "Inlämning hittades inte" }); return; }
     res.json({ ok: true, submission });
   } catch (error: unknown) {
@@ -2463,9 +2468,9 @@ router.post("/api/market-intel/cache/invalidate", requireAuth, rateLimitByUser(5
 router.post("/api/projects/:projectId/exec-summary/enqueue", requireAuth, rateLimitByUser(10, 60_000), async (req, res) => {
   try {
     if (!req.authUser) { res.status(401).json({ ok: false, error: "Unauthorized" }); return; }
-    await assertPermission(req.authUser, req.params.projectId);
+    await assertPermission(req.authUser, sp(req.params.projectId));
 
-    const job = await enqueueExecSummary({ projectId: req.params.projectId, userId: req.authUser.userId });
+    const job = await enqueueExecSummary({ projectId: sp(req.params.projectId), userId: req.authUser.id });
     res.json({ ok: true, job });
   } catch (error: unknown) {
     res.status(400).json({ ok: false, error: error instanceof Error ? error.message : "enqueue exec summary failed" });
@@ -2475,7 +2480,7 @@ router.post("/api/projects/:projectId/exec-summary/enqueue", requireAuth, rateLi
 router.get("/api/projects/:projectId/exec-summary/status/:jobId", requireAuth, rateLimitByUser(60, 60_000), async (req, res) => {
   try {
     if (!req.authUser) { res.status(401).json({ ok: false, error: "Unauthorized" }); return; }
-    const job = getExecSummaryJobStatus(req.params.jobId);
+    const job = getExecSummaryJobStatus(sp(req.params.jobId));
     if (!job) { res.status(404).json({ ok: false, error: "Jobb hittades inte" }); return; }
     res.json({ ok: true, job });
   } catch (error: unknown) {
@@ -2486,8 +2491,8 @@ router.get("/api/projects/:projectId/exec-summary/status/:jobId", requireAuth, r
 router.get("/api/projects/:projectId/exec-summary/jobs", requireAuth, rateLimitByUser(30, 60_000), async (req, res) => {
   try {
     if (!req.authUser) { res.status(401).json({ ok: false, error: "Unauthorized" }); return; }
-    await assertPermission(req.authUser, req.params.projectId);
-    const jobs = listExecSummaryJobs(req.params.projectId);
+    await assertPermission(req.authUser, sp(req.params.projectId));
+    const jobs = listExecSummaryJobs(sp(req.params.projectId));
     res.json({ ok: true, jobs });
   } catch (error: unknown) {
     res.status(400).json({ ok: false, error: error instanceof Error ? error.message : "list exec summary jobs failed" });
@@ -2504,7 +2509,7 @@ router.get("/api/geo/markcover", requireAuth, rateLimitByUser(40, 60_000), async
     const bbox = parseBbox(bboxStr);
     if (!bbox) { res.status(400).json({ ok: false, error: "bbox krävs: minLng,minLat,maxLng,maxLat" }); return; }
 
-    const layer = await getMarkCoverLayer(bbox as [number, number, number, number]);
+    const layer = await getMarkCoverLayer((bbox as unknown) as [number, number, number, number]);
     res.json({ ok: true, layer });
   } catch (error: unknown) {
     res.status(400).json({ ok: false, error: error instanceof Error ? error.message : "markcover failed" });
@@ -2593,15 +2598,15 @@ router.post("/api/projects/:projectId/transport/:bookingId/gps/update", requireA
     }
 
     const position = await addGpsPosition({
-      bookingId: req.params.bookingId,
-      projectId: req.params.projectId,
+      bookingId: sp(req.params.bookingId),
+      projectId: sp(req.params.projectId),
       lat,
       lng,
       altitude,
       speedKmh,
       heading,
       accuracy,
-      actingUserId: req.authUser.userId,
+      actingUserId: req.authUser.id,
     });
 
     res.json({ ok: true, position });
@@ -2612,7 +2617,7 @@ router.post("/api/projects/:projectId/transport/:bookingId/gps/update", requireA
 
 router.get("/api/projects/:projectId/transport/:bookingId/gps", requireAuth, rateLimitByUser(60, 60_000), (req, res) => {
   try {
-    const track = getGpsTrack(req.params.bookingId);
+    const track = getGpsTrack(sp(req.params.bookingId));
     res.json({ ok: true, track });
   } catch (error: unknown) {
     res.status(400).json({ ok: false, error: error instanceof Error ? error.message : "gps track failed" });
@@ -2621,7 +2626,7 @@ router.get("/api/projects/:projectId/transport/:bookingId/gps", requireAuth, rat
 
 router.get("/api/projects/:projectId/transport/:bookingId/gps/latest", requireAuth, rateLimitByUser(120, 60_000), (req, res) => {
   try {
-    const position = getLatestGpsPosition(req.params.bookingId);
+    const position = getLatestGpsPosition(sp(req.params.bookingId));
     if (!position) { res.status(404).json({ ok: false, error: "Ingen position registrerad" }); return; }
     res.json({ ok: true, position });
   } catch (error: unknown) {
@@ -2653,14 +2658,14 @@ router.post("/api/documents/:documentId/sign/eidas", requireAuth, rateLimitByUse
 
     const result = await signDocumentEidas(
       {
-        documentId: req.params.documentId,
+        documentId: sp(req.params.documentId),
         signerPersonalNumber,
         signerName,
         signatureText,
         format,
         level,
       },
-      req.authUser.userId,
+      req.authUser.id,
     );
 
     res.json({ ok: true, signature: result });
@@ -2682,7 +2687,7 @@ router.get("/api/geo/terrain", requireAuth, rateLimitByUser(30, 60_000), async (
     const resolutionRaw = parseInt(String(req.query.resolution ?? "32"), 10);
     const resolution = Number.isFinite(resolutionRaw) ? resolutionRaw : 32;
 
-    const terrain = await getTerrainData(bbox as [number, number, number, number], resolution);
+    const terrain = await getTerrainData((bbox as unknown) as [number, number, number, number], resolution);
     res.json({ ok: true, terrain });
   } catch (error: unknown) {
     res.status(400).json({ ok: false, error: error instanceof Error ? error.message : "terrain data failed" });
@@ -2698,7 +2703,7 @@ router.post("/api/admin/ocr/extract/:documentId", requireAuth, rateLimitByUser(2
     if (!req.authUser) { res.status(401).json({ ok: false, error: "Unauthorized" }); return; }
     if (req.authUser.role !== "ADMIN") { res.status(403).json({ ok: false, error: "Admin required" }); return; }
 
-    const result = await extractTextFromDocument(req.params.documentId, req.authUser.userId);
+    const result = await extractTextFromDocument(sp(req.params.documentId), req.authUser.id);
     res.json({ ok: true, result });
   } catch (error: unknown) {
     res.status(400).json({ ok: false, error: error instanceof Error ? error.message : "ocr extract failed" });
@@ -2713,7 +2718,7 @@ router.post("/api/admin/ocr/batch", requireAuth, rateLimitByUser(5, 60_000), asy
     const limitRaw = parseInt(String((req.body as { limit?: unknown })?.limit ?? "50"), 10);
     const limit = Number.isFinite(limitRaw) ? Math.min(limitRaw, 200) : 50;
 
-    const result = await batchExtractPendingDocuments(req.authUser.userId, limit);
+    const result = await batchExtractPendingDocuments(req.authUser.id, limit);
     res.json({ ok: true, result });
   } catch (error: unknown) {
     res.status(400).json({ ok: false, error: error instanceof Error ? error.message : "ocr batch failed" });
@@ -2727,13 +2732,13 @@ router.post("/api/admin/ocr/batch", requireAuth, rateLimitByUser(5, 60_000), asy
 router.post("/api/projects/:projectId/lims/auto-fetch", requireAuth, rateLimitByUser(20, 60_000), async (req, res) => {
   try {
     if (!req.authUser) { res.status(401).json({ ok: false, error: "Unauthorized" }); return; }
-    await assertPermission(req.authUser, req.params.projectId);
+    await assertPermission(req.authUser, sp(req.params.projectId));
 
     const { since } = req.body as { since?: string };
 
     const result = await autoFetchLimsReports({
-      projectId: req.params.projectId,
-      actingUserId: req.authUser.userId,
+      projectId: sp(req.params.projectId),
+      actingUserId: req.authUser.id,
       since,
     });
 
@@ -2805,7 +2810,7 @@ router.post("/api/admin/errors/capture", requireAuth, rateLimitByUser(30, 60_000
 
     const err = new Error(message);
     const id = await captureException(err, {
-      userId: req.authUser.userId,
+      userId: req.authUser.id,
       extra: context,
       severity: (["fatal", "error", "warning", "info"].includes(severity ?? "") ? severity : "error") as Parameters<typeof captureException>[1]["severity"],
     });
@@ -2825,7 +2830,7 @@ router.post("/api/admin/backup/trigger", requireAuth, rateLimitByUser(3, 60_000)
     if (!req.authUser) { res.status(401).json({ ok: false, error: "Unauthorized" }); return; }
     if (req.authUser.role !== "ADMIN") { res.status(403).json({ ok: false, error: "Admin required" }); return; }
 
-    const manifest = await runBackup(req.authUser.userId);
+    const manifest = await runBackup(req.authUser.id);
     res.json({ ok: true, manifest });
   } catch (error: unknown) {
     res.status(400).json({ ok: false, error: error instanceof Error ? error.message : "backup failed" });
@@ -2849,7 +2854,7 @@ router.get("/api/admin/backup/:backupId", requireAuth, rateLimitByUser(10, 60_00
     if (!req.authUser) { res.status(401).json({ ok: false, error: "Unauthorized" }); return; }
     if (req.authUser.role !== "ADMIN") { res.status(403).json({ ok: false, error: "Admin required" }); return; }
 
-    const backup = getBackup(req.params.backupId);
+    const backup = getBackup(sp(req.params.backupId));
     if (!backup) { res.status(404).json({ ok: false, error: "Backup hittades inte" }); return; }
     res.json({ ok: true, backup });
   } catch (error: unknown) {

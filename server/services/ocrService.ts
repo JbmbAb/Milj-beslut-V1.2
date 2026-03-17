@@ -51,7 +51,10 @@ export async function extractTextFromDocument(
   // 1. Try pdf-parse on the stored file
   try {
     const { readFileSync } = await import('node:fs');
-    const pdfParse = (await import('pdf-parse')).default;
+    // pdf-parse exports differently in ESM vs CJS — handle both
+    const pdfParseModule = await import('pdf-parse');
+    const pdfParse = (pdfParseModule as unknown as { default: (b: Buffer) => Promise<{ text: string; numpages: number }> }).default
+      ?? (pdfParseModule as unknown as (b: Buffer) => Promise<{ text: string; numpages: number }>);
 
     const buffer = readFileSync(doc.absolutePath);
     const parsed = await pdfParse(buffer);

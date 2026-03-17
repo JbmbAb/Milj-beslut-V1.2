@@ -201,11 +201,11 @@ async function probeIntegrations(): Promise<IntegrationProbe[]> {
   // Transport dispatch
   const dispatch = getDispatchProviderRuntimeStatus();
   results.push({
-    name: `Transport Dispatch (${dispatch.provider})`,
-    status: dispatch.provider === 'MOCK_FRAKTBORS' ? 'MOCK' : 'CONFIGURED',
-    note: dispatch.provider === 'MOCK_FRAKTBORS'
+    name: `Transport Dispatch (${dispatch.activeProvider})`,
+    status: dispatch.activeProvider === 'MOCK_FRAKTBORS' ? 'MOCK' : 'CONFIGURED',
+    note: dispatch.activeProvider === 'MOCK_FRAKTBORS'
       ? 'Mock-leverantör — verklig offertintegration kräver TIMOCOM/TRANS_EU-konfiguration'
-      : `Aktiv leverantör: ${dispatch.provider}`,
+      : `Aktiv leverantör: ${dispatch.activeProvider}`,
   });
 
   // Prometheus metrics token

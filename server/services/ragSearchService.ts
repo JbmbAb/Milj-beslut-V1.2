@@ -72,9 +72,9 @@ export async function runRagSearch(params: {
       });
       sources = chunks.map((c) => ({
         documentId: c.documentId,
-        chunkId: c.chunkId,
+        chunkId: String(c.chunkIndex),
         snippet: c.chunkText?.slice(0, 400) ?? '',
-        score: c.score ?? 0,
+        score: c.similarity ?? 0,
       }));
     } catch (err) {
       logger.warn('rag-search: semantic chunk query failed', { err: String(err) });
