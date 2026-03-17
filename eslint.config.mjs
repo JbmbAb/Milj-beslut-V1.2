@@ -60,4 +60,26 @@ export default tseslint.config(
       'no-control-regex': 'off',
     },
   },
+  // Service worker files run in a browser-worker context — enable the matching globals
+  {
+    files: ['public/sw.js', '**/sw.js'],
+    languageOptions: {
+      globals: {
+        self: 'readonly',
+        caches: 'readonly',
+        fetch: 'readonly',
+        Request: 'readonly',
+        Response: 'readonly',
+        URL: 'readonly',
+        clients: 'readonly',
+        skipWaiting: 'readonly',
+        importScripts: 'readonly',
+      },
+    },
+    rules: {
+      'no-undef': 'off',
+      'no-unused-vars': ['warn', { argsIgnorePattern: '^_', varsIgnorePattern: '^_' }],
+      '@typescript-eslint/no-unused-vars': ['warn', { argsIgnorePattern: '^_', varsIgnorePattern: '^_' }],
+    },
+  },
 );

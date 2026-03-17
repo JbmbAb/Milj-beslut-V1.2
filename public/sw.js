@@ -8,7 +8,7 @@
  *   - Push-notifikationer
  */
 
-const CACHE_NAME = 'miljobeslut-v1';
+const _CACHE_NAME = 'miljobeslut-v1';
 const STATIC_CACHE_NAME = 'miljobeslut-static-v1';
 const API_CACHE_NAME = 'miljobeslut-api-v1';
 
