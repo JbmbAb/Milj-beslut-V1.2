@@ -1111,3 +1111,111 @@ export interface AdminVerifyCitationPayload {
   pageNumber?: number;
   comment?: string;
 }
+
+// ─── Full Status Analysis ─────────────────────────────────────────────────────
+
+export interface IntegrationStatusEntry {
+  name: string;
+  status: 'CONFIGURED' | 'NOT_CONFIGURED' | 'LIVE' | 'MOCK' | 'ERROR';
+  endpoint?: string;
+  note?: string;
+}
+
+export interface DbTableSummary {
+  table: string;
+  rows: number;
+  latestEntry?: string;
+}
+
+export interface EnvConfigEntry {
+  name: string;
+  category: string;
+  configured: boolean;
+  maskedValue?: string;
+  required: boolean;
+}
+
+/** Full system status analysis — GET /api/admin/full-status */
+export interface FullStatusReport {
+  generatedAt: string;
+  overall: 'ok' | 'degraded' | 'error';
+
+  app: {
+    version: string;
+    environment: string;
+    uptimeSeconds: number;
+    nodeVersion: string;
+  };
+
+  db: {
+    status: 'ok' | 'error';
+    latencyMs: number | null;
+  };
+
+  completion: AppCompletionResponse;
+
+  integrations: IntegrationStatusEntry[];
+
+  datasources: {
+    total: number;
+    connected: number;
+    cards: Array<{
+      name: string;
+      status: string;
+      activation: string;
+      lastChecked?: string;
+    }>;
+  };
+
+  database: {
+    tables: DbTableSummary[];
+    totalRows: number;
+    recentAuditEvents: Array<{ action: string; entityType: string; timestamp: string }>;
+    recentSearchQueries: Array<{ query: string; resultCount: number; createdAt: string }>;
+    pipelineRuns: Array<{
+      runId: string;
+      runType: string;
+      status: string;
+      startedAt: string;
+      processedCount: number;
+    }>;
+  };
+
+  environment: {
+    configured: number;
+    total: number;
+    requiredMissing: string[];
+    vars: EnvConfigEntry[];
+  };
+
+  backgroundServices: {
+    outlookScheduler: {
+      running: boolean;
+      intervalMs: number;
+      totalRuns: number;
+      lastRunAt?: string;
+      nextRunAt?: string;
+      lastResult?: {
+        emailsProcessed: number;
+        emailsSkipped: number;
+        attachmentsSaved: number;
+        errors: string[];
+      };
+    };
+  };
+
+  backup: {
+    totalBackups: number;
+    latestBackupAt?: string;
+    latestBackupStatus?: string;
+    latestBackupSizeBytes?: number;
+  };
+
+  recentErrors: Array<{
+    id: string;
+    severity: string;
+    message: string;
+    capturedAt: string;
+    type: string;
+  }>;
+}

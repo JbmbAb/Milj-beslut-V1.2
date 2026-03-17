@@ -119,6 +119,7 @@ import { autoFetchLimsReports } from "./services/limsAutoFetchService";
 import { getMetricsText } from "./services/metricsService";
 import { captureException, getRecentErrors } from "./services/errorTrackingService";
 import { runBackup, listBackups, getBackup } from "./services/backupService";
+import { getFullStatus } from "./services/fullStatusService";
 
 assertSecurityEnv();
 
@@ -2853,6 +2854,30 @@ router.get("/api/admin/backup/:backupId", requireAuth, rateLimitByUser(10, 60_00
     res.json({ ok: true, backup });
   } catch (error: unknown) {
     res.status(400).json({ ok: false, error: error instanceof Error ? error.message : "get backup failed" });
+  }
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Full Status Analysis
+// GET /api/admin/full-status
+// Fullständig statusanalys av alla funktioner, integrationer och DB-innehåll.
+// ─────────────────────────────────────────────────────────────────────────────
+
+router.get("/api/admin/full-status", requireAuth, rateLimitByUser(10, 60_000), async (req, res) => {
+  try {
+    if (!req.authUser) {
+      res.status(401).json({ ok: false, error: "Unauthorized" });
+      return;
+    }
+    if (req.authUser.role !== "ADMIN") {
+      res.status(403).json({ ok: false, error: "Admin role required" });
+      return;
+    }
+
+    const report = await getFullStatus();
+    res.json({ ok: true, report });
+  } catch (error: unknown) {
+    res.status(500).json({ ok: false, error: error instanceof Error ? error.message : "full status analysis failed" });
   }
 });
 

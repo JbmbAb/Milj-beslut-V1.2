@@ -384,6 +384,7 @@ const FEATURES: AppFeature[] = [
     label: 'Systemhälsostatus (GET /api/admin/app-status)',
     category: 'Administration & Drift',
     status: 'DONE',
+    note: 'GET /api/admin/app-status + GET /api/admin/full-status — fullständig statusanalys med integrationer, DB-innehåll, miljövariabler och bakgrundstjänster.',
   },
   {
     id: 'admin-db-stats',
