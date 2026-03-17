@@ -1,0 +1,29 @@
+/* ============================================================
+ * Miljöbeslut.se 2.0 — Main stylesheet
+ *
+ * Imports Tailwind CSS v4 (processed by @tailwindcss/vite),
+ * Leaflet map styles, and FontAwesome icons — all bundled
+ * locally so the app works without CDN access.
+ * ============================================================ */
+
+/* Tailwind CSS v4 */
+@import "tailwindcss";
+
+/* Leaflet map CSS — bundled from node_modules */
+@import "leaflet/dist/leaflet.css";
+
+/* FontAwesome 6 — all styles (solid, regular, brands) */
+@import "@fortawesome/fontawesome-free/css/all.min.css";
+
+/* System font stack as fallback when Google Fonts is unavailable */
+@layer base {
+  :root {
+    --font-sans: "Plus Jakarta Sans", ui-sans-serif, system-ui, -apple-system,
+      BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial,
+      "Noto Sans", sans-serif;
+  }
+
+  body {
+    font-family: var(--font-sans);
+  }
+}

@@ -3,6 +3,7 @@ import React from 'react';
 import { createRoot } from 'react-dom/client';
 import App from './components/App';
 import { ProjectStructureProvider } from './components/ProjectStructureContext';
+import './index.css';
 
 /**
  * Initialiserar Miljobeslut.se 2.0 genom att rendera App-komponenten

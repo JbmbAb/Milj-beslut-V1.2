@@ -37,6 +37,7 @@
     "prisma:migrate": "prisma migrate dev"
   },
   "dependencies": {
+    "@fortawesome/fontawesome-free": "^7.2.0",
     "@google/genai": "^1.41.0",
     "@google/generative-ai": "^0.24.1",
     "@loaders.gl/core": "^4.1.0",
@@ -64,6 +65,7 @@
   "devDependencies": {
     "@eslint/js": "^9.39.3",
     "@playwright/test": "^1.58.2",
+    "@tailwindcss/vite": "^4.2.1",
     "@types/express": "^5.0.1",
     "@types/node": "^22.14.0",
     "@types/supertest": "^7.2.0",
@@ -76,6 +78,7 @@
     "prettier": "^3.8.1",
     "prisma": "^6.5.0",
     "supertest": "^7.2.2",
+    "tailwindcss": "^4.2.1",
     "tsx": "^4.20.5",
     "typescript": "~5.8.2",
     "typescript-eslint": "^8.56.1",
