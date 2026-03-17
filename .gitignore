@@ -43,6 +43,7 @@ tmp_*
 !stitch.json
 !figma-raw.json
 !*.md
+!public/manifest.json
 
 # Python cache
 __pycache__/
