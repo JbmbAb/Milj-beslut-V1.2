@@ -120,6 +120,12 @@ import { getMetricsText } from "./services/metricsService";
 import { captureException, getRecentErrors } from "./services/errorTrackingService";
 import { runBackup, listBackups, getBackup } from "./services/backupService";
 import { getFullStatus } from "./services/fullStatusService";
+import {
+  exportUserPersonalData,
+  permanentlyDeleteUserData,
+  runGdprMaintenanceJob,
+  setProjectRetentionPolicy,
+} from "./services/gdprComplianceService";
 
 assertSecurityEnv();
 
@@ -2883,6 +2889,68 @@ router.get("/api/admin/full-status", requireAuth, rateLimitByUser(10, 60_000), a
     res.json({ ok: true, report });
   } catch (error: unknown) {
     res.status(500).json({ ok: false, error: error instanceof Error ? error.message : "full status analysis failed" });
+  }
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// GDPR  (Article 15, 17, 20)
+// ─────────────────────────────────────────────────────────────────────────────
+
+// GET /api/gdpr/me/export — self-service data portability (Art. 20)
+router.get("/api/gdpr/me/export", requireAuth, rateLimitByUser(5, 60_000), async (req, res) => {
+  try {
+    if (!req.authUser) { res.status(401).json({ ok: false, error: "Unauthorized" }); return; }
+    const data = await exportUserPersonalData(req.authUser.id);
+    res.json({ ok: true, data });
+  } catch (error: unknown) {
+    res.status(400).json({ ok: false, error: error instanceof Error ? error.message : "gdpr export failed" });
+  }
+});
+
+// DELETE /api/admin/gdpr/users/:userId — permanent deletion (Art. 17, ADMIN only)
+router.delete("/api/admin/gdpr/users/:userId", requireAuth, rateLimitByUser(5, 60_000), async (req, res) => {
+  try {
+    if (!req.authUser) { res.status(401).json({ ok: false, error: "Unauthorized" }); return; }
+    if (req.authUser.role !== "ADMIN") { res.status(403).json({ ok: false, error: "Admin role required" }); return; }
+
+    const userId = sp(req.params.userId);
+    const result = await permanentlyDeleteUserData(userId);
+    res.json({ ok: true, result });
+  } catch (error: unknown) {
+    res.status(400).json({ ok: false, error: error instanceof Error ? error.message : "gdpr delete failed" });
+  }
+});
+
+// POST /api/admin/gdpr/maintenance — trigger periodic GDPR cleanup (ADMIN only)
+router.post("/api/admin/gdpr/maintenance", requireAuth, rateLimitByUser(5, 60_000), async (req, res) => {
+  try {
+    if (!req.authUser) { res.status(401).json({ ok: false, error: "Unauthorized" }); return; }
+    if (req.authUser.role !== "ADMIN") { res.status(403).json({ ok: false, error: "Admin role required" }); return; }
+
+    const result = await runGdprMaintenanceJob();
+    res.json({ ok: true, result });
+  } catch (error: unknown) {
+    res.status(400).json({ ok: false, error: error instanceof Error ? error.message : "gdpr maintenance failed" });
+  }
+});
+
+// PUT /api/projects/:projectId/retention — set retention policy (ADMIN only)
+router.put("/api/projects/:projectId/retention", requireAuth, rateLimitByUser(20, 60_000), async (req, res) => {
+  try {
+    if (!req.authUser) { res.status(401).json({ ok: false, error: "Unauthorized" }); return; }
+    if (req.authUser.role !== "ADMIN") { res.status(403).json({ ok: false, error: "Admin role required" }); return; }
+
+    const projectId = sp(req.params.projectId);
+    const retentionDays = parseInt(String(req.body?.retentionDays ?? ""), 10);
+    if (!Number.isFinite(retentionDays) || retentionDays < 1) {
+      res.status(400).json({ ok: false, error: "retentionDays must be a positive integer" });
+      return;
+    }
+
+    await setProjectRetentionPolicy(projectId, retentionDays);
+    res.json({ ok: true });
+  } catch (error: unknown) {
+    res.status(400).json({ ok: false, error: error instanceof Error ? error.message : "set retention failed" });
   }
 });
 
