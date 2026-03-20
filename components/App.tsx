@@ -9,7 +9,6 @@ import ChatBot from './ChatBot';
 import FormManager from './FormManager';
 import SluExpert from './SluExpert';
 import IntegrationsDashboard from './IntegrationsDashboard';
-import ApplicationWizard from './ApplicationWizard';
 import AssetTriage from './AssetTriage';
 import FieldAssistant from './FieldAssistant';
 import Guide from './Guide';
@@ -25,6 +24,7 @@ import { TechnicalDashboardHub } from './TechnicalDashboardHub';
 import SystemFunctionalAnalysis from './SystemFunctionalAnalysis';
 import MarketingHub from './MarketingHub';
 import UploadModal from './UploadModal';
+import ProjectManagerView from './ProjectManagerView';
 
 type ModeCardConfig = {
   mode: InterfaceMode;
@@ -125,6 +125,7 @@ const App: React.FC = () => {
     // Tabs shared across all modes
     if (activeTab === 'guide') return <Guide mode={mode} onNavigate={setActiveTab} />;
     if (activeTab === 'legal') return <LegalSupportCenter />;
+    if (activeTab === 'integrations') return <IntegrationsDashboard />;
 
     switch (mode) {
       case 'MVP_WORKFLOW':
@@ -143,11 +144,12 @@ const App: React.FC = () => {
         if (activeTab === 'risks') return <GisRiskModule />;
         return <PermitPortalView permits={permits} mode="map" />;
       case 'PROJECT_MANAGER':
-        if (activeTab === 'plan') return <ApplicationWizard />;
         if (activeTab === 'field') return <FieldAssistant />;
-        return <ApplicationWizard />;
+        return <ProjectManagerView activeTab={activeTab} />;
       case 'COMPLIANCE_AUDIT':
         if (activeTab === 'score') return <GisRiskModule />;
+        if (activeTab === 'audit') return <AdminMetadataReview />;
+        if (activeTab === 'reports') return <ExecutiveSummary />;
         return <IntegrationsDashboard />;
       case 'ADMIN_CONSOLE':
         if (activeTab === 'admin-review') return <AdminMetadataReview />;
