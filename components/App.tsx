@@ -17,7 +17,8 @@ import GisRiskModule from './GisRiskModule';
 import LegalSupportCenter from './LegalSupportCenter';
 import MvpDemoInterface from './MvpDemoInterface';
 import AdminMetadataReview from './AdminMetadataReview';
-import PropertyRegisterExtract from './PropertyRegisterExtract';
+import AdminSearchConsole from './AdminSearchConsole';
+import AdminGdprPanel from './AdminGdprPanel';
 import { useProjectStructure } from './ProjectStructureContext';
 import { countReadyModules } from '../services/projectStructure';
 import { TechnicalDashboardHub } from './TechnicalDashboardHub';
@@ -145,8 +146,9 @@ const App: React.FC = () => {
         return <IntegrationsDashboard />;
       case 'ADMIN_CONSOLE':
         if (activeTab === 'admin-review') return <AdminMetadataReview />;
-        if (activeTab === 'admin-search') return <PropertyRegisterExtract propertyId={selectedPermit?.property_id || "ORSA STACKMORA 3:12"} />;
-        return <AdminMetadataReview />;
+        if (activeTab === 'admin-gdpr') return <AdminGdprPanel />;
+        if (activeTab === 'admin-insight') return <AdminSearchConsole panel="insight" />;
+        return <AdminSearchConsole panel="search" />;
       default:
         return (
           <div className="flex flex-col items-center justify-center h-full text-slate-400">
@@ -256,6 +258,7 @@ const App: React.FC = () => {
               <SidebarLink active={activeTab === 'admin-search'} icon="fa-magnifying-glass-chart" label="Admin sökcenter" onClick={() => setActiveTab('admin-search')} />
               <SidebarLink active={activeTab === 'admin-review'} icon="fa-clipboard-check" label="Kvalitetssäkring" onClick={() => setActiveTab('admin-review')} />
               <SidebarLink active={activeTab === 'admin-insight'} icon="fa-shield-check" label="Analys och compliance" onClick={() => setActiveTab('admin-insight')} />
+              <SidebarLink active={activeTab === 'admin-gdpr'} icon="fa-user-shield" label="GDPR-hantering" onClick={() => setActiveTab('admin-gdpr')} />
             </>
           )}
 
