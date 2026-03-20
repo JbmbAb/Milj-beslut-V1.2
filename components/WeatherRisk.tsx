@@ -6,24 +6,29 @@ import { WeatherRisk as WeatherRiskType } from '../types';
 const WeatherRisk: React.FC<{ municipality: string }> = ({ municipality }) => {
   const [risk, setRisk] = useState<WeatherRiskType | null>(null);
   const [loading, setLoading] = useState(true);
+  const [isOffline, setIsOffline] = useState(false);
 
   useEffect(() => {
-    const fetch = async () => {
+    const load = async () => {
       try {
         const result = await predictWeatherRisk(municipality);
         setRisk(result);
+        if (result?.description?.toLowerCase().includes('offline')) {
+          setIsOffline(true);
+        }
       } catch (e) {
         console.error(e);
         setRisk({
           level: 'Låg',
-          description: `Kunde inte hamta vederprognos for ${municipality}.`,
+          description: `Kunde inte hämta väderprognos för ${municipality}.`,
           action: 'Kontrollera lokala prognoser manuellt.',
         });
+        setIsOffline(true);
       } finally {
         setLoading(false);
       }
     };
-    fetch();
+    load();
   }, [municipality]);
 
   if (loading) return (
@@ -49,6 +54,11 @@ const WeatherRisk: React.FC<{ municipality: string }> = ({ municipality }) => {
             <span className={`text-[9px] font-black px-2 py-0.5 rounded uppercase ${
               risk?.level === 'Hög' ? 'bg-rose-500 text-white' : 'text-slate-400 border border-slate-700'
             }`}>Risk: {risk?.level}</span>
+            {isOffline && (
+              <span className="text-[9px] font-black px-2 py-0.5 rounded uppercase bg-slate-700 text-slate-400 border border-slate-600 flex items-center gap-1">
+                <i className="fas fa-plug-circle-xmark"></i> Demo-läge — saknar VITE_GEMINI_API_KEY
+              </span>
+            )}
          </div>
          <h4 className="text-xl font-black text-white italic tracking-tight">Väderpåverkan vid Schakt</h4>
          <p className="text-slate-400 text-xs mt-2 leading-relaxed">{risk?.description}</p>

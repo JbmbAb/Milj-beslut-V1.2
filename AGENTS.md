@@ -157,12 +157,12 @@ npm run dev                   # startar på http://localhost:5173
 
 ### Uppgifter Copilot agent kan göra direkt (inga API-nycklar krävs)
 
-| # | Uppgift | Fil | Tid |
+| # | Uppgift | Fil | Status |
 |---|---|---|---|
-| 1 | Koppla `UploadModal` till `PermitPortalView` (knapp + routing) | `components/App.tsx`, `components/PermitPortalView.tsx` | ~15 min |
-| 2 | Koppla `MarketingHub` till navigationen (ny tab i LOGISTICS_MARKET) | `components/App.tsx` | ~10 min |
-| 3 | `WeatherRisk`-komponenten: lägg till tom state + felmeddelande för saknad API-nyckel | `components/WeatherRisk.tsx` | ~10 min |
-| 4 | `MOCK_PERMITS` → verkliga API-anrop i `App.tsx` och `GisRiskModule` | `components/App.tsx`, `components/GisRiskModule.tsx` | ~20 min |
+| 1 | Koppla `UploadModal` till `PermitPortalView` (knapp + routing) | `components/App.tsx` | ✅ Klart |
+| 2 | Koppla `MarketingHub` till navigationen (ny tab i LOGISTICS_MARKET) | `components/App.tsx` | ✅ Klart |
+| 3 | `WeatherRisk`-komponenten: visa tydligt felmeddelande vid saknad API-nyckel | `components/WeatherRisk.tsx` | ✅ Klart |
+| 4 | `MOCK_PERMITS` → verkliga API-anrop i `App.tsx` och `GisRiskModule` | `components/App.tsx`, `components/GisRiskModule.tsx` | ⏳ Kräver lokal DB |
 
 ### Uppgifter för Figma Make (visuell förbättring)
 
@@ -195,12 +195,13 @@ npm run dev                   # startar på http://localhost:5173
 ---
 
 ## Kvarstående arbete (prioritetsordning)
-1. **[Copilot agent]** Koppla `UploadModal` + `MarketingHub` till routing → kan göras nu
-2. **[Figma Make]** Visuell polish av `ExecutiveSummary` och `PermitPortalView`
-3. **[VS Code]** `POST /api/documents/upload` endpoint med multer
-4. **[VS Code]** Riktig Lantmäteriet-integration med OAuth2-nyckel
-5. **[VS Code]** Permit-inlämning: ersätt `MOCK_QUEUED` med riktig endpoint
-6. **[VS Code]** SMHI-väderintegration med riktig API-nyckel
-7. **[VS Code]** E2E-tester mot körande app
-8. **[DevOps]** Staging-driftsättning Docker + PostgreSQL + env-vars
+1. ~~**[Copilot agent]** Koppla `UploadModal` + `MarketingHub` till routing~~ ✅ Klart
+2. ~~**[Copilot agent]** `WeatherRisk` felmeddelande vid saknad API-nyckel~~ ✅ Klart
+3. **[Figma Make]** Visuell polish av `ExecutiveSummary` och `PermitPortalView`
+4. **[VS Code]** `POST /api/documents/upload` endpoint med multer (multer installerat ✅)
+5. **[VS Code]** Riktig Lantmäteriet-integration med OAuth2-nyckel
+6. **[VS Code]** Permit-inlämning: ersätt `MOCK_QUEUED` med riktig endpoint
+7. **[VS Code]** SMHI-väderintegration med riktig API-nyckel
+8. **[VS Code]** E2E-tester mot körande app
+9. **[DevOps]** Staging-driftsättning Docker + PostgreSQL + env-vars
 
