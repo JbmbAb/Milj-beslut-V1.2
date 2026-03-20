@@ -23,6 +23,8 @@ import { useProjectStructure } from './ProjectStructureContext';
 import { countReadyModules } from '../services/projectStructure';
 import { TechnicalDashboardHub } from './TechnicalDashboardHub';
 import SystemFunctionalAnalysis from './SystemFunctionalAnalysis';
+import MarketingHub from './MarketingHub';
+import UploadModal from './UploadModal';
 
 type ModeCardConfig = {
   mode: InterfaceMode;
@@ -90,6 +92,7 @@ const App: React.FC = () => {
   const [selectedPermit, setSelectedPermit] = useState<Permit | null>(null);
   const [mode, setMode] = useState<InterfaceMode | null>(null);
   const [activeTab, setActiveTab] = useState('summary');
+  const [showUpload, setShowUpload] = useState(false);
 
   const readyModuleCount = useMemo(() => countReadyModules(plan), [plan]);
   const blockedModuleCount = useMemo(
@@ -130,6 +133,7 @@ const App: React.FC = () => {
         if (activeTab === 'archive') return <ExecutiveSummary />;
         if (activeTab === 'logistics') return <MarketIntelView permits={permits} onSelectPermit={setSelectedPermit} mode="logistics" />;
         if (activeTab === 'triage') return <AssetTriage />;
+        if (activeTab === 'marketing') return <MarketingHub permits={permits} fullView />;
         return <ExecutiveSummary />;
       case 'PERMIT_PORTAL':
         if (activeTab === 'map') return <PermitPortalView permits={permits} mode="map" />;
@@ -225,6 +229,7 @@ const App: React.FC = () => {
               <SidebarLink active={activeTab === 'archive'} icon="fa-box-archive" label="Beslutsarkiv" onClick={() => setActiveTab('archive')} />
               <SidebarLink active={activeTab === 'logistics'} icon="fa-truck-ramp-box" label="Logistik och massor" onClick={() => setActiveTab('logistics')} />
               <SidebarLink active={activeTab === 'triage'} icon="fa-microscope" label="Resurs-triage" onClick={() => setActiveTab('triage')} />
+              <SidebarLink active={activeTab === 'marketing'} icon="fa-bullhorn" label="Marknadsanalys" onClick={() => setActiveTab('marketing')} />
             </>
           )}
 
@@ -235,6 +240,7 @@ const App: React.FC = () => {
               <SidebarLink active={activeTab === 'biodiversity'} icon="fa-bugs" label="Bioinventering" onClick={() => setActiveTab('biodiversity')} />
               <SidebarLink active={activeTab === 'risks'} icon="fa-shield-virus" label="Fastighetsanalys" onClick={() => setActiveTab('risks')} />
               <SidebarLink active={activeTab === 'map'} icon="fa-map-location-dot" label="Kartutforskare" onClick={() => setActiveTab('map')} />
+              <SidebarLink active={false} icon="fa-file-arrow-up" label="Ladda upp dokument" onClick={() => setShowUpload(true)} />
             </>
           )}
 
@@ -312,6 +318,16 @@ const App: React.FC = () => {
       </main>
 
       {selectedPermit && <DetailModal permit={selectedPermit} onClose={() => setSelectedPermit(null)} />}
+      {showUpload && (
+        <UploadModal
+          onComplete={(partial) => {
+            setShowUpload(false);
+            // If we got permit data back, navigate to apply tab
+            if (partial) setActiveTab('apply');
+          }}
+          onClose={() => setShowUpload(false)}
+        />
+      )}
     </div>
   );
 };
