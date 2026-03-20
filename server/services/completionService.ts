@@ -22,7 +22,8 @@ const FEATURES: AppFeature[] = [
     id: 'auth-bankid',
     label: 'BankID-inloggning',
     category: 'Autentisering',
-    status: 'DONE',
+    status: 'PARTIAL',
+    note: 'Kod klar (bankidService.ts, /api/auth/bankid/*). Kräver BANKID_PFX_PATH (eller BANKID_CERT_PATH+BANKID_KEY_PATH) + BANKID_BASE_URL i produktion. Kan inte testas end-to-end utan fysisk BankID-certifikat.',
   },
   {
     id: 'auth-admin-console',
@@ -151,8 +152,8 @@ const FEATURES: AppFeature[] = [
     id: 'permit-authority-submit',
     label: 'Digital inlämning till länsstyrelse/kommunen',
     category: 'Tillståndsportalen',
-    status: 'DONE',
-    note: 'permitAuthorityService.ts — genererar diarienummer, loggar i AuditTrail, stöder extern AUTHORITY_SUBMIT_ENDPOINT.',
+    status: 'PARTIAL',
+    note: 'permitAuthorityService.ts genererar diarienummer + AuditTrail. Utan AUTHORITY_SUBMIT_ENDPOINT returnerar tjänsten alltid MOCK_QUEUED. Kräver riktig myndighets-API-nyckel (AUTHORITY_API_KEY) för produktionsinlämning.',
   },
 
   // ── Logistik & Transport ───────────────────────────────────────────────────
@@ -231,8 +232,8 @@ const FEATURES: AppFeature[] = [
     id: 'compliance-digital-signature',
     label: 'Kvalificerade e-signaturer (EU eIDAS)',
     category: 'Compliance & Revision',
-    status: 'DONE',
-    note: 'POST /api/documents/:id/sign/eidas — Advanced/Qualified via EIDAS_QTSP_ENDPOINT (Assently/Scrive), PAdES/XAdES/CAdES.',
+    status: 'PARTIAL',
+    note: 'POST /api/documents/:id/sign/eidas — kod klar för Advanced/Qualified via EIDAS_QTSP_ENDPOINT (Assently/Scrive), PAdES/XAdES/CAdES. Kräver EIDAS_QTSP_ENDPOINT + EIDAS_QTSP_API_KEY för riktig signering.',
   },
 
   // ── Geodata & Kartfunktioner ───────────────────────────────────────────────
@@ -264,7 +265,8 @@ const FEATURES: AppFeature[] = [
     id: 'geo-property-lookup',
     label: 'Fastighetsuppslag (PostGIS + Lantmäteriet)',
     category: 'Geodata & Kartfunktioner',
-    status: 'DONE',
+    status: 'PARTIAL',
+    note: 'PropertyRegisterExtract anropar /api/property/lookup. Kräver LANTMATERIET_CONSUMER_KEY+SECRET (OAuth2), LANTMATERIET_ACCESS_TOKEN eller LANTMATERIET_API_KEY för riktig fastighetsdata från Lantmäteriet.',
   },
   {
     id: 'geo-spatial-audit',
@@ -310,8 +312,8 @@ const FEATURES: AppFeature[] = [
     id: 'search-outlook-ingestion',
     label: 'Outlook e-postinläsning',
     category: 'Sökning & Dokumenthantering',
-    status: 'DONE',
-    note: 'POST /api/admin/outlook/webhook — HMAC-verifierat Graph-webhook + startIngestionScheduler() med konfigurerbart intervall.',
+    status: 'PARTIAL',
+    note: 'POST /api/admin/outlook/webhook — HMAC-verifierat Graph-webhook + startIngestionScheduler() implementerat. Kräver Microsoft Graph API-credentials (OUTLOOK_WEBHOOK_SECRET + Graph OAuth2 app-registrering) för riktig e-postinläsning.',
   },
   {
     id: 'search-ocr',
@@ -367,8 +369,8 @@ const FEATURES: AppFeature[] = [
     id: 'field-lims-integration',
     label: 'Automatisk LIMS-dataöverföring från lab',
     category: 'Fältprovtagning',
-    status: 'DONE',
-    note: 'POST /api/projects/:id/lims/auto-fetch — hämtar från LIMS_API_ENDPOINT med bearer-auth, AuditTrail-loggning.',
+    status: 'PARTIAL',
+    note: 'POST /api/projects/:id/lims/auto-fetch — kod klar med bearer-auth + AuditTrail-loggning. Kräver LIMS_API_ENDPOINT + LIMS_API_KEY för riktig labdataöverföring; stubbas utan konfiguration.',
   },
   {
     id: 'field-mobile-app',
@@ -424,6 +426,29 @@ const FEATURES: AppFeature[] = [
     category: 'Administration & Drift',
     status: 'DONE',
     note: 'POST /api/admin/backup/trigger — JSON+gzip snapshot av alla Prisma-modeller, SHA-256 checksum, S3-upload om BACKUP_S3_BUCKET konfigureras.',
+  },
+
+  // ── Återstående (PENDING) ─────────────────────────────────────────────────
+  {
+    id: 'doc-file-upload',
+    label: 'Filuppladdning (POST /api/documents/upload med multipart)',
+    category: 'Sökning & Dokumenthantering',
+    status: 'PENDING',
+    note: 'Backend-endpoint med multer för fil-multipart/form-data saknas. UploadModal i UI är kopplad men POST /api/documents/upload ej implementerad. Kräver lokal disk/S3 + Prisma DocumentRecord-skapande.',
+  },
+  {
+    id: 'permit-list-api',
+    label: 'Realtids-tillståndslista (GET /api/permits från databas)',
+    category: 'Tillståndsportalen',
+    status: 'PENDING',
+    note: 'App.tsx och GisRiskModule använder MOCK_PERMITS-konstant (hårdkodad mock-data) istället för dynamisk API-hämtning. Kräver GET /api/permits-endpoint kopplad till Prisma Permit-model.',
+  },
+  {
+    id: 'infra-staging',
+    label: 'Staging-driftsättning (Docker + PostgreSQL + env-vars)',
+    category: 'Administration & Drift',
+    status: 'PENDING',
+    note: 'Ingen staging-miljö finns. Kräver Docker Compose med PostgreSQL, konfigurerade env-variabler (BankID-cert, Lantmäteriet-nycklar etc.) och CI/CD-pipeline för automatiserad deploy.',
   },
 ];
 
