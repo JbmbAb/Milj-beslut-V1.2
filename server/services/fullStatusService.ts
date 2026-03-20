@@ -73,21 +73,29 @@ async function probeIntegrations(): Promise<IntegrationProbe[]> {
   // Lantmäteriet
   const lantAuth = hasLantmaterietAuth();
   const lantOpenMode = isLantmaterietOpenMode();
-  const lantAuthMethod = process.env.LANTMATERIET_CONSUMER_KEY
-    ? 'OAuth2 (consumer key+secret)'
-    : process.env.LANTMATERIET_ACCESS_TOKEN
-      ? 'Direkttoken (LANTMATERIET_ACCESS_TOKEN)'
-      : process.env.LANTMATERIET_API_KEY
-        ? 'Legacy API-nyckel (LANTMATERIET_API_KEY)'
-        : null;
+
+  let lantAuthMethod: string | null = null;
+  if (String(process.env.LANTMATERIET_CONSUMER_KEY || '').trim()) {
+    lantAuthMethod = 'OAuth2 (consumer key+secret)';
+  } else if (String(process.env.LANTMATERIET_ACCESS_TOKEN || '').trim()) {
+    lantAuthMethod = 'Direkttoken (LANTMATERIET_ACCESS_TOKEN)';
+  } else if (String(process.env.LANTMATERIET_API_KEY || '').trim()) {
+    lantAuthMethod = 'Legacy API-nyckel (LANTMATERIET_API_KEY)';
+  }
+
+  let lantNote: string;
+  if (lantAuth) {
+    lantNote = `Autentisering konfigurerad via ${lantAuthMethod ?? 'okänd metod'} — fastighetsuppslag aktivt`;
+  } else if (lantOpenMode) {
+    lantNote = 'Öppet kartläge (LANTMATERIET_OPEN_MODE=true) — fastighetsuppslag ej tillgängligt';
+  } else {
+    lantNote = 'Autentisering saknas — sätt LANTMATERIET_CONSUMER_KEY+CONSUMER_SECRET, LANTMATERIET_ACCESS_TOKEN, eller LANTMATERIET_API_KEY';
+  }
+
   results.push({
     name: 'Lantmäteriet',
-    status: lantAuth ? 'CONFIGURED' : lantOpenMode ? 'CONFIGURED' : 'NOT_CONFIGURED',
-    note: lantAuth
-      ? `Autentisering konfigurerad via ${lantAuthMethod} — fastighetsuppslag aktivt`
-      : lantOpenMode
-        ? 'Öppet kartläge (LANTMATERIET_OPEN_MODE=true) — fastighetsuppslag ej tillgängligt'
-        : 'Autentisering saknas — sätt LANTMATERIET_CONSUMER_KEY+CONSUMER_SECRET, LANTMATERIET_ACCESS_TOKEN, eller LANTMATERIET_API_KEY',
+    status: (lantAuth || lantOpenMode) ? 'CONFIGURED' : 'NOT_CONFIGURED',
+    note: lantNote,
   });
 
   // SLU Artdatabanken
