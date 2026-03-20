@@ -10,8 +10,14 @@ export function assertSecurityEnv(): void {
     throw new Error(`Missing required security env variables: ${missing.join(", ")}`);
   }
 
-  if (!isLantmaterietOpenMode() && !process.env.LANTMATERIET_API_KEY) {
-    throw new Error("Missing env variable: LANTMATERIET_API_KEY (set LANTMATERIET_OPEN_MODE=true for open-map-only testing)");
+  if (!isLantmaterietOpenMode() && !hasLantmaterietAuth()) {
+    throw new Error(
+      "Lantmäteriet autentisering saknas. Ange ett av alternativen: " +
+      "LANTMATERIET_CONSUMER_KEY+LANTMATERIET_CONSUMER_SECRET (OAuth2), " +
+      "LANTMATERIET_ACCESS_TOKEN (direkttoken), " +
+      "eller LANTMATERIET_API_KEY (legacy). " +
+      "Sätt LANTMATERIET_OPEN_MODE=true för öppet kartläge utan autentisering."
+    );
   }
 }
 
@@ -46,4 +52,13 @@ export function assertSluEnv(): void {
 
 export function isLantmaterietOpenMode(): boolean {
   return String(process.env.LANTMATERIET_OPEN_MODE || "").toLowerCase() === "true";
+}
+
+export function hasLantmaterietAuth(): boolean {
+  const hasConsumerPair =
+    Boolean(String(process.env.LANTMATERIET_CONSUMER_KEY || "").trim()) &&
+    Boolean(String(process.env.LANTMATERIET_CONSUMER_SECRET || "").trim());
+  const hasDirectToken = Boolean(String(process.env.LANTMATERIET_ACCESS_TOKEN || "").trim());
+  const hasApiKey = Boolean(String(process.env.LANTMATERIET_API_KEY || "").trim());
+  return hasConsumerPair || hasDirectToken || hasApiKey;
 }

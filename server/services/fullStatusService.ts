@@ -23,6 +23,7 @@ import { getDispatchProviderRuntimeStatus } from './transportDispatchService';
 import { getSchedulerStatus as getOutlookSchedulerStatus } from './outlookSchedulerService';
 import { listBackups } from './backupService';
 import { getRecentErrors } from './errorTrackingService';
+import { hasLantmaterietAuth, isLantmaterietOpenMode } from '../security/env';
 import type { FullStatusReport } from '../../types';
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -70,12 +71,23 @@ async function probeIntegrations(): Promise<IntegrationProbe[]> {
   });
 
   // Lantmäteriet
+  const lantAuth = hasLantmaterietAuth();
+  const lantOpenMode = isLantmaterietOpenMode();
+  const lantAuthMethod = process.env.LANTMATERIET_CONSUMER_KEY
+    ? 'OAuth2 (consumer key+secret)'
+    : process.env.LANTMATERIET_ACCESS_TOKEN
+      ? 'Direkttoken (LANTMATERIET_ACCESS_TOKEN)'
+      : process.env.LANTMATERIET_API_KEY
+        ? 'Legacy API-nyckel (LANTMATERIET_API_KEY)'
+        : null;
   results.push({
     name: 'Lantmäteriet',
-    status: envPresent('LANTMATERIET_API_KEY') ? 'CONFIGURED' : 'NOT_CONFIGURED',
-    note: envPresent('LANTMATERIET_API_KEY')
-      ? 'Licensnyckel finns — fastighetsuppslag aktivt'
-      : 'LANTMATERIET_API_KEY saknas — fastighetsuppslag ej tillgängligt',
+    status: lantAuth ? 'CONFIGURED' : lantOpenMode ? 'CONFIGURED' : 'NOT_CONFIGURED',
+    note: lantAuth
+      ? `Autentisering konfigurerad via ${lantAuthMethod} — fastighetsuppslag aktivt`
+      : lantOpenMode
+        ? 'Öppet kartläge (LANTMATERIET_OPEN_MODE=true) — fastighetsuppslag ej tillgängligt'
+        : 'Autentisering saknas — sätt LANTMATERIET_CONSUMER_KEY+CONSUMER_SECRET, LANTMATERIET_ACCESS_TOKEN, eller LANTMATERIET_API_KEY',
   });
 
   // SLU Artdatabanken
@@ -366,6 +378,12 @@ function collectEnvConfig(): EnvConfig[] {
     { name: 'VITE_GEMINI_API_KEY', category: 'AI', required: false },
     // Lantmäteriet
     { name: 'LANTMATERIET_API_KEY', category: 'Geodata', required: false },
+    { name: 'LANTMATERIET_CONSUMER_KEY', category: 'Geodata', required: false },
+    { name: 'LANTMATERIET_CONSUMER_SECRET', category: 'Geodata', required: false },
+    { name: 'LANTMATERIET_ACCESS_TOKEN', category: 'Geodata', required: false },
+    { name: 'LANTMATERIET_LOOKUP_MODE', category: 'Geodata', required: false },
+    { name: 'LANTMATERIET_TOKEN_URL', category: 'Geodata', required: false },
+    { name: 'LANTMATERIET_SCOPE', category: 'Geodata', required: false },
     // SMTP
     { name: 'SMTP_HOST', category: 'E-post', required: false },
     { name: 'SMTP_PORT', category: 'E-post', required: false },
