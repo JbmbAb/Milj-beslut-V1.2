@@ -5,7 +5,7 @@
 import { prisma } from '../../server/db/prisma';
 import {
     arg, flag, startPipelineRun, finishPipelineRun, failPipelineRun,
-    conditionalUpdate, extractDiarie, BATCH, MUNICIPALITY_MAP,
+    conditionalUpdate, extractDiarieSignal, BATCH, MUNICIPALITY_MAP, repairSwedishMojibake,
 } from './_shared';
 
 const DECISION_KW: Record<string, string> = {
@@ -26,10 +26,19 @@ const WASTE_KW: Record<string, string> = {
 
 function extractFromText(text: string) {
     const lower = text.toLowerCase();
+    const ascii = lower
+        .normalize('NFD')
+        .replace(/[\u0300-\u036f]/g, '')
+        .replace(/[^a-z0-9\s-]/g, ' ');
     let municipality: string | null = null;
     let muniConf = 0;
     for (const [key, display] of Object.entries(MUNICIPALITY_MAP)) {
-        if (lower.includes(key)) { municipality = display; muniConf = 0.85; break; }
+        const normalizedKey = repairSwedishMojibake(key)
+            .toLowerCase()
+            .normalize('NFD')
+            .replace(/[\u0300-\u036f]/g, '')
+            .replace(/[^a-z0-9\s-]/g, ' ');
+        if (ascii.includes(normalizedKey)) { municipality = repairSwedishMojibake(display); muniConf = 0.91; break; }
     }
     let decisionType: string | null = null;
     let dtConf = 0;
@@ -43,7 +52,7 @@ function extractFromText(text: string) {
     for (const [kw, label] of Object.entries(WASTE_KW)) {
         if (lower.includes(kw)) { wasteType = label; wtConf = 0.80; break; }
     }
-    const diarie = extractDiarie(text);
+    const diarie = extractDiarieSignal(text);
     return { municipality, muniConf, decisionType, dtConf, activityCode, wasteType, wtConf, diarie };
 }
 
@@ -64,20 +73,21 @@ async function main() {
                     content: { isNot: null },
                 },
                 select: { id: true, content: { select: { searchText: true } } },
-                take: BATCH.metadataPass,
+                take: Math.min(BATCH.metadataPass, limit - processed),
                 ...(cursor ? { skip: 1, cursor: { id: cursor } } : {}),
                 orderBy: { id: 'asc' },
             });
             if (docs.length === 0) break;
 
             for (const doc of docs) {
+                if (processed >= limit) break;
                 const text = (doc.content?.searchText ?? '').slice(0, 2000);
                 if (!text) { cursor = doc.id; continue; }
                 try {
                     const ex = extractFromText(text);
                     await Promise.allSettled([
                         ex.municipality ? conditionalUpdate({ documentId: doc.id, field: 'municipality', value: ex.municipality, confidence: ex.muniConf, sourceType: 'text_regex', extractorVersion: '1.0', dryRun }) : Promise.resolve(),
-                        ex.diarie ? conditionalUpdate({ documentId: doc.id, field: 'legalStatus', value: ex.diarie, confidence: 0.88, sourceType: 'text_regex', extractorVersion: '1.0', dryRun }) : Promise.resolve(),
+                        ex.diarie.value ? conditionalUpdate({ documentId: doc.id, field: 'legalStatus', value: ex.diarie.value, confidence: ex.diarie.confidence, sourceType: 'text_regex', extractorVersion: '1.1', rawEvidence: text.slice(0, 200), dryRun }) : Promise.resolve(),
                         ex.decisionType ? conditionalUpdate({ documentId: doc.id, field: 'decisionType', value: ex.decisionType, confidence: ex.dtConf, sourceType: 'text_regex', extractorVersion: '1.0', dryRun }) : Promise.resolve(),
                         ex.activityCode ? conditionalUpdate({ documentId: doc.id, field: 'activityCode', value: ex.activityCode, confidence: 0.83, sourceType: 'text_regex', extractorVersion: '1.0', dryRun }) : Promise.resolve(),
                         ex.wasteType ? conditionalUpdate({ documentId: doc.id, field: 'wasteType', value: ex.wasteType, confidence: ex.wtConf, sourceType: 'text_regex', extractorVersion: '1.0', dryRun }) : Promise.resolve(),

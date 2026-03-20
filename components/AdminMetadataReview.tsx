@@ -36,6 +36,10 @@ const AdminMetadataReview: React.FC = () => {
                 headers: { 'Authorization': `Bearer ${token}` }
             });
             const data = await response.json();
+            if (response.status === 401) {
+                setError('Adminsessionen har gått ut. Logga in igen eller förnya token.');
+                return;
+            }
             if (data.ok) {
                 setQueue(data.queue);
             } else {
@@ -65,6 +69,10 @@ const AdminMetadataReview: React.FC = () => {
                 body: JSON.stringify({ action, value: newValue })
             });
             const data = await response.json();
+            if (response.status === 401) {
+                alert('Adminsessionen har gått ut. Logga in igen eller förnya token.');
+                return;
+            }
             if (data.ok) {
                 setQueue(prev => prev.filter(item => item.id !== id));
             } else {

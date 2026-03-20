@@ -1,10 +1,13 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import type {
+  AdminRequirementCase,
   AdminRequirementCitation,
   AdminRequirementRow,
+  AdminReviewRequirementCasePayload,
   AdminRequirementsSummary,
   AdminVerifyCitationPayload,
   AdminVerifyRequirementPayload,
+  RequirementCaseReviewStatus,
   RequirementVerificationStatus,
 } from '../types';
 
@@ -19,12 +22,20 @@ interface AdminRequirementsStudioProps {
 const PAGE_SIZE = 25;
 
 const STATUS_OPTIONS: RequirementVerificationStatus[] = ['AUTO', 'REVIEWED', 'VERIFIED', 'REJECTED'];
+const CASE_STATUS_OPTIONS: RequirementCaseReviewStatus[] = ['AUTO', 'NEEDS_REVIEW', 'VERIFIED', 'LOCKED'];
 
 const statusTone: Record<RequirementVerificationStatus, string> = {
   AUTO: 'bg-slate-100 text-slate-700 border-slate-200',
   REVIEWED: 'bg-blue-50 text-blue-700 border-blue-200',
   VERIFIED: 'bg-emerald-50 text-emerald-700 border-emerald-200',
   REJECTED: 'bg-rose-50 text-rose-700 border-rose-200',
+};
+
+const caseStatusTone: Record<RequirementCaseReviewStatus, string> = {
+  AUTO: 'bg-slate-100 text-slate-700 border-slate-200',
+  NEEDS_REVIEW: 'bg-amber-50 text-amber-700 border-amber-200',
+  VERIFIED: 'bg-emerald-50 text-emerald-700 border-emerald-200',
+  LOCKED: 'bg-indigo-50 text-indigo-700 border-indigo-200',
 };
 
 function parseFilenameFromDisposition(header: string | null, fallback: string): string {
@@ -42,6 +53,7 @@ const AdminRequirementsStudio: React.FC<AdminRequirementsStudioProps> = ({ token
   const [busy, setBusy] = useState('');
   const [localError, setLocalError] = useState('');
 
+  const [cases, setCases] = useState<AdminRequirementCase[]>([]);
   const [rows, setRows] = useState<AdminRequirementRow[]>([]);
   const [rowsTotal, setRowsTotal] = useState(0);
   const [casesTotal, setCasesTotal] = useState(0);
@@ -56,10 +68,13 @@ const AdminRequirementsStudio: React.FC<AdminRequirementsStudioProps> = ({ token
   const [categoryFilter, setCategoryFilter] = useState('');
   const [documentTypeFilter, setDocumentTypeFilter] = useState('');
 
+  const [selectedCaseId, setSelectedCaseId] = useState('');
   const [selectedRequirementCode, setSelectedRequirementCode] = useState('');
   const [selectedCitationCode, setSelectedCitationCode] = useState('');
 
   const [verifiedBy, setVerifiedBy] = useState('');
+  const [caseStatusDraft, setCaseStatusDraft] = useState<RequirementCaseReviewStatus>('AUTO');
+  const [caseNotesDraft, setCaseNotesDraft] = useState('');
   const [requirementStatusDraft, setRequirementStatusDraft] = useState<RequirementVerificationStatus>('AUTO');
   const [validationComment, setValidationComment] = useState('');
   const [requirementErrorType, setRequirementErrorType] = useState('');
@@ -71,6 +86,11 @@ const AdminRequirementsStudio: React.FC<AdminRequirementsStudioProps> = ({ token
   const selectedRow = useMemo(
     () => rows.find((item) => item.requirementCode === selectedRequirementCode) || null,
     [rows, selectedRequirementCode]
+  );
+
+  const selectedCase = useMemo(
+    () => cases.find((item) => item.id === selectedCaseId) || null,
+    [cases, selectedCaseId]
   );
 
   const selectedCitation = useMemo(
@@ -102,6 +122,9 @@ const AdminRequirementsStudio: React.FC<AdminRequirementsStudioProps> = ({ token
 
       if (!response.ok || !(json as { ok?: boolean } | null)?.ok) {
         const errorMessage = (json as { error?: string } | null)?.error || `HTTP ${response.status}`;
+        if (response.status === 401 || /bearer token|invalid token|access token/i.test(errorMessage)) {
+          throw new Error('Adminsessionen har gått ut. Klicka "Refresh token" eller logga in igen.');
+        }
         throw new Error(errorMessage);
       }
       return json as T;
@@ -146,24 +169,31 @@ const AdminRequirementsStudio: React.FC<AdminRequirementsStudioProps> = ({ token
     }
   }, [token, page, statusFilter, municipalityFilter, categoryFilter, documentTypeFilter, selectedRequirementCode, fetchJson, onError]);
 
-  const loadCasesCount = useCallback(async () => {
+  const loadCases = useCallback(async () => {
     if (!token) return;
     try {
       const params = new URLSearchParams();
       params.set('page', '1');
-      params.set('pageSize', '1');
+      params.set('pageSize', '100');
       if (statusFilter !== 'ALL') params.set('verificationStatus', statusFilter);
       if (municipalityFilter.trim()) params.set('municipality', municipalityFilter.trim());
       if (documentTypeFilter.trim()) params.set('documentType', documentTypeFilter.trim());
 
-      const data = await fetchJson<{ ok: true; total: number }>(`/api/admin/requirements/cases?${params.toString()}`);
+      const data = await fetchJson<{ ok: true; total: number; items: AdminRequirementCase[] }>(
+        `/api/admin/requirements/cases?${params.toString()}`
+      );
+      setCases(data.items || []);
       setCasesTotal(Number(data.total || 0));
+
+      if (!data.items?.some((item) => item.id === selectedCaseId)) {
+        setSelectedCaseId(data.items?.[0]?.id || '');
+      }
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Kunde inte hamta arenden.';
       setLocalError(message);
       onError(message);
     }
-  }, [token, statusFilter, municipalityFilter, documentTypeFilter, fetchJson, onError]);
+  }, [token, statusFilter, municipalityFilter, documentTypeFilter, fetchJson, onError, selectedCaseId]);
 
   const loadCitations = useCallback(async () => {
     if (!token || !selectedRequirementCode) {
@@ -222,10 +252,10 @@ const AdminRequirementsStudio: React.FC<AdminRequirementsStudioProps> = ({ token
     if (!token) return;
     const timeoutId = window.setTimeout(() => {
       loadRows();
-      loadCasesCount();
+      loadCases();
     }, 350);
     return () => window.clearTimeout(timeoutId);
-  }, [token, loadRows, loadCasesCount]);
+  }, [token, loadRows, loadCases]);
 
   useEffect(() => {
     if (!token) return;
@@ -245,6 +275,12 @@ const AdminRequirementsStudio: React.FC<AdminRequirementsStudioProps> = ({ token
   }, [selectedRow]);
 
   useEffect(() => {
+    if (!selectedCase) return;
+    setCaseStatusDraft(selectedCase.caseReviewStatus);
+    setCaseNotesDraft(selectedCase.notes || '');
+  }, [selectedCase]);
+
+  useEffect(() => {
     if (!selectedCitation) return;
     setCitationStatusDraft(selectedCitation.verificationStatus);
     setCitationPageNumber(selectedCitation.pageNumber != null ? String(selectedCitation.pageNumber) : '');
@@ -259,6 +295,7 @@ const AdminRequirementsStudio: React.FC<AdminRequirementsStudioProps> = ({ token
   }, [citations]);
 
   const canSetRequirementVerified = verifiedBy.trim().length > 0 && allCitationsReviewed;
+  const canSaveCase = caseStatusDraft === 'AUTO' || verifiedBy.trim().length > 0;
   const canSaveRequirement = requirementStatusDraft !== 'VERIFIED' || canSetRequirementVerified;
 
   const parsedCitationPageNumber = citationPageNumber.trim() ? Number(citationPageNumber.trim()) : undefined;
@@ -301,6 +338,43 @@ const AdminRequirementsStudio: React.FC<AdminRequirementsStudioProps> = ({ token
       await Promise.all([loadRows(), loadCitations(), loadSummary()]);
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Kunde inte verifiera kravrad.';
+      setLocalError(message);
+      onError(message);
+    } finally {
+      setBusy('');
+    }
+  };
+
+  const saveCase = async () => {
+    if (!selectedCase) return;
+    if (!canSaveCase) {
+      const message = 'Arende kan inte sattas till manuell status utan granskare.';
+      setLocalError(message);
+      onError(message);
+      return;
+    }
+
+    setBusy('verify-case');
+    setLocalError('');
+    try {
+      const payload: AdminReviewRequirementCasePayload = {
+        caseReviewStatus: caseStatusDraft,
+        validatedBy: verifiedBy.trim() || undefined,
+        notes: caseNotesDraft.trim() || undefined,
+      };
+
+      await fetchJson(
+        `/api/admin/requirements/cases/${encodeURIComponent(selectedCase.id)}/review`,
+        {
+          method: 'PATCH',
+          body: JSON.stringify(payload),
+        }
+      );
+
+      onInfo(`Arende ${selectedCase.caseKey} uppdaterat (${caseStatusDraft}).`);
+      await Promise.all([loadCases(), loadRows(), loadSummary()]);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Kunde inte uppdatera arendet.';
       setLocalError(message);
       onError(message);
     } finally {
@@ -479,6 +553,115 @@ const AdminRequirementsStudio: React.FC<AdminRequirementsStudioProps> = ({ token
           value={verifiedBy}
           onChange={(event) => setVerifiedBy(event.target.value)}
         />
+      </div>
+
+      <div className="mt-4 grid grid-cols-1 gap-6 xl:grid-cols-[0.95fr_1.05fr]">
+        <div className="overflow-hidden rounded-2xl border border-slate-200">
+          <div className="flex items-center justify-between border-b border-slate-200 bg-slate-50 px-3 py-2 text-xs font-bold text-slate-600">
+            <span>Case-review ({casesTotal} arenden)</span>
+            <span>{cases.length} visade</span>
+          </div>
+          <div className="max-h-[360px] overflow-auto">
+            <table className="w-full text-left text-xs">
+              <thead className="bg-slate-50 text-[10px] uppercase tracking-[0.1em] text-slate-500">
+                <tr>
+                  <th className="px-3 py-2">Arendenyckel</th>
+                  <th className="px-3 py-2">Kommun</th>
+                  <th className="px-3 py-2">Diarie</th>
+                  <th className="px-3 py-2">Case-status</th>
+                </tr>
+              </thead>
+              <tbody>
+                {cases.map((item) => (
+                  <tr
+                    key={item.id}
+                    className={`cursor-pointer border-b border-slate-100 ${
+                      selectedCaseId === item.id ? 'bg-blue-50' : 'bg-white'
+                    }`}
+                    onClick={() => setSelectedCaseId(item.id)}
+                  >
+                    <td className="px-3 py-2 font-bold text-slate-900">{item.caseKey}</td>
+                    <td className="px-3 py-2 text-slate-700">{item.municipality || '-'}</td>
+                    <td className="px-3 py-2 text-slate-700">{item.diarienummer || '-'}</td>
+                    <td className="px-3 py-2">
+                      <span className={`rounded-lg border px-2 py-1 text-[10px] font-black ${caseStatusTone[item.caseReviewStatus]}`}>
+                        {item.caseReviewStatus}
+                      </span>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+            {cases.length === 0 && <p className="px-3 py-6 text-center text-sm text-slate-500">Inga arenden matchar filter.</p>}
+          </div>
+        </div>
+
+        <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
+          <p className="text-[11px] uppercase tracking-[0.14em] text-slate-500 font-black">Casegranskning</p>
+          {!selectedCase && <p className="mt-2 text-sm text-slate-500">Valj ett arende for manuell granskning.</p>}
+          {selectedCase && (
+            <>
+              <div className="mt-2 flex flex-wrap items-center gap-2">
+                <span className={`rounded-lg border px-2 py-1 text-[10px] font-black ${caseStatusTone[selectedCase.caseReviewStatus]}`}>
+                  {selectedCase.caseReviewStatus}
+                </span>
+                <span className={`rounded-lg border px-2 py-1 text-[10px] font-black ${statusTone[selectedCase.reviewStatus]}`}>
+                  {selectedCase.reviewStatus}
+                </span>
+              </div>
+
+              <div className="mt-3 grid grid-cols-1 gap-3 md:grid-cols-2">
+                <MiniKpi label="Kommun" value={selectedCase.municipality || '-'} />
+                <MiniKpi label="Diarienummer" value={selectedCase.diarienummer || '-'} />
+                <MiniKpi label="Dokumenttyp" value={selectedCase.documentType || '-'} />
+                <MiniKpi label="Verifierad av" value={selectedCase.validatedBy || '-'} />
+              </div>
+
+              <div className="mt-3 rounded-xl border border-slate-200 bg-white p-3 text-xs text-slate-700">
+                <p className="font-bold text-slate-900">Subject</p>
+                <p className="mt-1">{selectedCase.sourceSubject || '(saknas subject)'}</p>
+                <p className="mt-3 font-bold text-slate-900">Fil</p>
+                <p className="mt-1 break-all">{selectedCase.sourceFile}</p>
+              </div>
+
+              <div className="mt-3 grid grid-cols-1 gap-2">
+                <select
+                  className="rounded-lg border border-slate-200 px-3 py-2 text-sm"
+                  value={caseStatusDraft}
+                  onChange={(event) => setCaseStatusDraft(event.target.value as RequirementCaseReviewStatus)}
+                >
+                  {CASE_STATUS_OPTIONS.map((status) => (
+                    <option key={status} value={status}>
+                      {status}
+                    </option>
+                  ))}
+                </select>
+                <textarea
+                  className="min-h-[96px] rounded-lg border border-slate-200 px-3 py-2 text-sm"
+                  placeholder="Notering fran manuell granskning"
+                  value={caseNotesDraft}
+                  onChange={(event) => setCaseNotesDraft(event.target.value)}
+                />
+                <div className="flex flex-wrap gap-2">
+                  <button
+                    className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-xs font-bold text-slate-700"
+                    disabled={busy === 'document'}
+                    onClick={() => openDocument(selectedCase.documentId)}
+                  >
+                    Oppna källdokument
+                  </button>
+                  <button
+                    className="rounded-lg bg-slate-900 px-3 py-2 text-xs font-bold text-white disabled:opacity-50"
+                    disabled={busy === 'verify-case' || !canSaveCase}
+                    onClick={saveCase}
+                  >
+                    {busy === 'verify-case' ? 'Sparar...' : 'Spara case-status'}
+                  </button>
+                </div>
+              </div>
+            </>
+          )}
+        </div>
       </div>
 
       <div className="mt-4 grid grid-cols-1 gap-6 xl:grid-cols-[1.2fr_1fr]">

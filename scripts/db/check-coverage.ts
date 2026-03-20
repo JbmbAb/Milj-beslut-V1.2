@@ -40,7 +40,6 @@ async function checkCoverage() {
     });
 
     // Show small ones
-    const small = inDb.filter(m => Number(m.count) < 50);
     console.log(`\n📊 DISTRIBUTION:`);
     console.log(`   > 100 docs: ${inDb.filter(m => Number(m.count) > 100).length} municipalities`);
     console.log(`   50-100 docs: ${inDb.filter(m => Number(m.count) >= 50 && Number(m.count) <= 100).length} municipalities`);

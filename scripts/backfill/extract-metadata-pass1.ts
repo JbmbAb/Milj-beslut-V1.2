@@ -6,7 +6,7 @@
 import { prisma } from '../../server/db/prisma';
 import {
     arg, flag, startPipelineRun, finishPipelineRun, failPipelineRun,
-    conditionalUpdate, extractDiarie, extractMunicipalityWeighted, BATCH,
+    conditionalUpdate, extractDiarieSignal, extractMunicipalityWeighted, BATCH,
 } from './_shared';
 
 const DECISION_KEYWORDS: Record<string, string> = {
@@ -71,12 +71,14 @@ async function processDoc(doc: {
     // Extract sender email from manifestMeta (from Outlook ingest CSV)
     const meta = doc.manifestMeta as Record<string, string> | null;
     const senderEmail = meta?.sender || meta?.Sender || meta?.SenderEmail || meta?.senderEmail || '';
+    const manifestMunicipality = meta?.kommunnamn || meta?.kommun || meta?.municipality || meta?.Municipality || '';
 
     // Weighted municipality extraction: subject + path + sender domain
     const muni = extractMunicipalityWeighted({
         subject: doc.subject + ' ' + doc.originalName + ' ' + (doc.legalStatus ?? ''),
         absolutePath: doc.absolutePath,
         senderEmail,
+        manifestMunicipality,
     });
 
     const searchText = [
@@ -87,11 +89,11 @@ async function processDoc(doc: {
     const dt = extractDecisionType(searchText);
     const ac = extractActivityCode(searchText);
     const wt = extractWasteType(searchText);
-    const diarie = extractDiarie(searchText);
+    const diarie = extractDiarieSignal(searchText);
 
     await Promise.allSettled([
         muni.value ? conditionalUpdate({ documentId: doc.id, field: 'municipality', value: muni.value, confidence: muni.confidence, sourceType: 'subject_regex', extractorVersion: '1.1', rawEvidence: searchText.slice(0, 200), dryRun }) : Promise.resolve('skipped_lower' as const),
-        diarie ? conditionalUpdate({ documentId: doc.id, field: 'legalStatus', value: diarie, confidence: 0.91, sourceType: 'subject_regex', extractorVersion: '1.1', rawEvidence: doc.subject.slice(0, 200), dryRun }) : Promise.resolve('skipped_lower' as const),
+        diarie.value ? conditionalUpdate({ documentId: doc.id, field: 'legalStatus', value: diarie.value, confidence: diarie.confidence, sourceType: 'subject_regex', extractorVersion: '1.2', rawEvidence: searchText.slice(0, 200), dryRun }) : Promise.resolve('skipped_lower' as const),
         dt.value ? conditionalUpdate({ documentId: doc.id, field: 'decisionType', value: dt.value, confidence: dt.confidence, sourceType: 'subject_regex', extractorVersion: '1.1', dryRun }) : Promise.resolve('skipped_lower' as const),
         ac.value ? conditionalUpdate({ documentId: doc.id, field: 'activityCode', value: ac.value, confidence: ac.confidence, sourceType: 'subject_regex', extractorVersion: '1.1', dryRun }) : Promise.resolve('skipped_lower' as const),
         wt.value ? conditionalUpdate({ documentId: doc.id, field: 'wasteType', value: wt.value, confidence: wt.confidence, sourceType: 'subject_regex', extractorVersion: '1.1', dryRun }) : Promise.resolve('skipped_lower' as const),
@@ -116,13 +118,14 @@ async function main() {
                     ...(onlyMissing ? { municipalityNormalized: null } : {}),
                 },
                 select: { id: true, subject: true, originalName: true, entryId: true, legalStatus: true, manifestMeta: true, absolutePath: true },
-                take: BATCH.metadataPass,
+                take: Math.min(BATCH.metadataPass, limit - processed),
                 skip: offset,
                 orderBy: { createdAt: 'asc' },
             });
             if (docs.length === 0) break;
 
             for (const doc of docs) {
+                if (processed >= limit) break;
                 try {
                     await processDoc(doc, dryRun);
                     processed++;

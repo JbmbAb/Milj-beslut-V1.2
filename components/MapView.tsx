@@ -145,7 +145,7 @@ const MapView: React.FC<MapViewProps> = ({
   const activeOverlaysRef = useRef<string[]>([]);
   const dynamicLayerRequestRef = useRef<Record<string, number>>({});
 
-  const [baseLayer, setBaseLayer] = useState<"osm" | "topo">("osm");
+  const [baseLayer, setBaseLayer] = useState<"osm" | "topo" | "orto">("topo");
   const [activeOverlays, setActiveOverlays] = useState<string[]>([]);
   const [selectedContext, setSelectedContext] = useState<MunicipalityContext | null>(null);
   const [isLoadingContext, setIsLoadingContext] = useState(false);
@@ -214,9 +214,16 @@ const MapView: React.FC<MapViewProps> = ({
       layers: "topowebb",
       format: "image/png",
       version: "1.3.0",
+      attribution: "&copy; Lantmateriet",
+    });
+    layersRef.current.orto = L.tileLayer.wms("https://api.lantmateriet.se/open/ortofoto-ccby/v1/wms", {
+      layers: "Ortofoto_0.5,Ortofoto_0.4,Ortofoto_0.25,Ortofoto_0.16",
+      format: "image/png",
+      version: "1.3.0",
+      attribution: "&copy; Lantmateriet",
     });
 
-    layersRef.current.osm.addTo(mapRef.current);
+    layersRef.current.topo.addTo(mapRef.current);
 
     layersRef.current.raa_fornsok = L.tileLayer.wms("https://pub.raa.se/visning/lamningar_v1/wms", {
       layers: "fornlamning",
@@ -272,11 +279,13 @@ const MapView: React.FC<MapViewProps> = ({
       transparent: true,
       opacity: 0.8,
     });
-    layersRef.current.lm_marktacke = L.tileLayer.wms("http://localhost:8080/geoserver/wms", { // Exempel-URL till GeoServer
-      layers: "miljobeslut:marktacke", // Exempel pÃ¥ lagernamn i GeoServer
+    layersRef.current.lm_fastighet = L.tileLayer.wms("https://api.lantmateriet.se/open/fastighetsindelning-ccby/v1/wms", {
+      layers: "fastighetsytor,fastighetsgranser,fastighetsbeteckning",
       format: "image/png",
       transparent: true,
-      opacity: 0.6,
+      version: "1.3.0",
+      opacity: 0.8,
+      attribution: "&copy; Lantmateriet",
     });
 
     // NMD & Skogliga grunddata (Naturvårdsverket & Skogsstyrelsen)
@@ -576,10 +585,11 @@ const MapView: React.FC<MapViewProps> = ({
     }
   };
 
-  const toggleBaseLayer = (layer: "osm" | "topo") => {
+  const toggleBaseLayer = (layer: "osm" | "topo" | "orto") => {
     if (!mapRef.current) return;
     mapRef.current.removeLayer(layersRef.current.osm);
     mapRef.current.removeLayer(layersRef.current.topo);
+    if (layersRef.current.orto) mapRef.current.removeLayer(layersRef.current.orto);
     layersRef.current[layer].addTo(mapRef.current);
     setBaseLayer(layer);
   };
@@ -697,11 +707,11 @@ const MapView: React.FC<MapViewProps> = ({
               color="text-red-500"
             />
             <OverlayToggle
-              active={activeOverlays.includes("lm_marktacke")}
-              onClick={() => toggleOverlay("lm_marktacke")}
-              label="Marktäcke (Lokal)"
-              icon="fa-layer-group"
-              color="text-lime-600"
+              active={activeOverlays.includes("lm_fastighet")}
+              onClick={() => toggleOverlay("lm_fastighet")}
+              label="Lantm. Fastighetskarta"
+              icon="fa-map-location-dot"
+              color="text-blue-700"
             />
             <OverlayToggle
               active={activeOverlays.includes("nv_nmd_bas")}
@@ -750,7 +760,25 @@ const MapView: React.FC<MapViewProps> = ({
           {mapNotice && <p className="mt-2 text-[10px] font-semibold text-slate-600">{mapNotice}</p>}
         </div>
 
-        <div className="flex w-60 gap-2 rounded-2xl border border-slate-200 bg-white/95 p-3 shadow-xl">
+        <div className="flex w-64 gap-1.5 rounded-2xl border border-slate-200 bg-white/95 p-2.5 shadow-xl">
+          <button
+            type="button"
+            onClick={() => toggleBaseLayer("topo")}
+            className={`flex-1 rounded-lg py-1.5 text-[9px] font-black uppercase tracking-widest transition-all ${
+              baseLayer === "topo" ? "bg-slate-900 text-white" : "bg-slate-50 text-slate-400"
+            }`}
+          >
+            Topo
+          </button>
+          <button
+            type="button"
+            onClick={() => toggleBaseLayer("orto")}
+            className={`flex-1 rounded-lg py-1.5 text-[9px] font-black uppercase tracking-widest transition-all ${
+              baseLayer === "orto" ? "bg-slate-900 text-white" : "bg-slate-50 text-slate-400"
+            }`}
+          >
+            Orto
+          </button>
           <button
             type="button"
             onClick={() => toggleBaseLayer("osm")}
@@ -759,15 +787,6 @@ const MapView: React.FC<MapViewProps> = ({
             }`}
           >
             OSM
-          </button>
-          <button
-            type="button"
-            onClick={() => toggleBaseLayer("topo")}
-            className={`flex-1 rounded-lg py-1.5 text-[9px] font-black uppercase tracking-widest transition-all ${
-              baseLayer === "topo" ? "bg-slate-900 text-white" : "bg-slate-50 text-slate-400"
-            }`}
-          >
-            Lantm.
           </button>
         </div>
       </div>

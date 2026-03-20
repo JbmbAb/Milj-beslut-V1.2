@@ -1,4 +1,4 @@
-﻿import type {
+import type {
   CarbonInput,
   DriverJournalStatus,
   LimsSourceType,
@@ -40,10 +40,10 @@ function markDbStorageError(error: unknown) {
   logger.warn('project-plan: persistent storage unavailable, using memory fallback', { message });
 }
 
-async function loadPlanFromDb(projectId: string): Promise<ProjectPlan | null> {
+async function loadPlanFromDb(projectId: string, organisationId: string): Promise<ProjectPlan | null> {
   if (dbPlanStorageAvailable === false) return null;
   try {
-    const stored = await getStoredProjectPlan(projectId);
+    const stored = await getStoredProjectPlan(projectId, organisationId);
     dbPlanStorageAvailable = true;
     return stored ? normalizeProjectPlan(stored) : null;
   } catch (error: unknown) {
@@ -52,7 +52,7 @@ async function loadPlanFromDb(projectId: string): Promise<ProjectPlan | null> {
   }
 }
 
-async function persistPlan(projectId: string, plan: ProjectPlan): Promise<ProjectPlan> {
+async function persistPlan(projectId: string, organisationId: string, plan: ProjectPlan): Promise<ProjectPlan> {
   const planWithScores: ProjectPlan = {
     ...plan,
     predictiveScores: calculatePredictiveScores(plan, plan.carbonSummary.lastResult),
@@ -64,11 +64,12 @@ async function persistPlan(projectId: string, plan: ProjectPlan): Promise<Projec
   }
   try {
     // Replace upsertStoredProjectPlan with prisma.projectPlanState.upsert
+    // Use direct prisma calls but enforce organisationId for safety
     await prisma.projectPlanState.upsert({
       where: { projectId: projectId },
       create: {
         projectId: projectId,
-        plan: planWithScores as any, // Cast to any as Prisma's Json type might not perfectly match ProjectPlan
+        plan: planWithScores as any,
         schemaVersion: PROJECT_STRUCTURE_SCHEMA_VERSION,
       },
       update: {
@@ -77,9 +78,12 @@ async function persistPlan(projectId: string, plan: ProjectPlan): Promise<Projec
       },
     });
 
-    // Update Project and persist summary fields for easier querying/filtering
+    // Verify project belongs to org during update
     await prisma.project.update({
-      where: { id: projectId },
+      where: { 
+        id: projectId,
+        organisationId: organisationId
+      },
       data: {
         complianceScore: planWithScores.complianceScore,
         fundingRating: planWithScores.predictiveScores?.fundingRisk.rating,
@@ -95,10 +99,10 @@ async function persistPlan(projectId: string, plan: ProjectPlan): Promise<Projec
   return planWithScores;
 }
 
-async function getOrCreatePlan(projectId: string, incomingPlan?: Partial<ProjectPlan>): Promise<ProjectPlan> {
+async function getOrCreatePlan(projectId: string, organisationId: string, incomingPlan?: Partial<ProjectPlan>): Promise<ProjectPlan> {
   if (incomingPlan) {
     const normalized = normalizeProjectPlan(incomingPlan);
-    await persistPlan(projectId, normalized);
+    await persistPlan(projectId, organisationId, normalized);
     return normalized;
   }
 
@@ -107,44 +111,47 @@ async function getOrCreatePlan(projectId: string, incomingPlan?: Partial<Project
     return existing;
   }
 
-  const fromDb = await loadPlanFromDb(projectId);
+  const fromDb = await loadPlanFromDb(projectId, organisationId);
   if (fromDb) {
     projectPlanStore.set(projectId, fromDb);
     return fromDb;
   }
 
   const created = normalizeProjectPlan(null);
-  await persistPlan(projectId, created);
+  await persistPlan(projectId, organisationId, created);
   return created;
 }
 
-export async function getProjectPlanSnapshot(projectId: string): Promise<ProjectPlan | null> {
+export async function getProjectPlanSnapshot(projectId: string, organisationId: string): Promise<ProjectPlan | null> {
   if (projectPlanStore.has(projectId)) {
     return projectPlanStore.get(projectId) || null;
   }
-  return loadPlanFromDb(projectId);
+  return loadPlanFromDb(projectId, organisationId);
 }
 
 export async function saveProjectPlanSnapshot(input: {
   projectId: string;
+  organisationId: string;
   plan?: Partial<ProjectPlan>;
 }): Promise<ProjectPlan> {
-  return getOrCreatePlan(input.projectId, input.plan);
+  return getOrCreatePlan(input.projectId, input.organisationId, input.plan);
 }
 
 export async function applyTemplateForProject(input: {
   projectId: string;
+  organisationId: string;
   templateId: string;
   plan?: Partial<ProjectPlan>;
 }) {
-  const current = await getOrCreatePlan(input.projectId, input.plan);
+  const current = await getOrCreatePlan(input.projectId, input.organisationId, input.plan);
   const next = applyTemplate(current, input.templateId);
-  await persistPlan(input.projectId, next);
+  await persistPlan(input.projectId, input.organisationId, next);
   return next;
 }
 
 export async function evaluateGateForProject(input: {
   projectId: string;
+  organisationId: string;
   gateId: string;
   plan?: Partial<ProjectPlan>;
   context?: {
@@ -155,7 +162,7 @@ export async function evaluateGateForProject(input: {
     note?: string;
   };
 }) {
-  const current = await getOrCreatePlan(input.projectId, input.plan);
+  const current = await getOrCreatePlan(input.projectId, input.organisationId, input.plan);
   const evaluated = evaluateStageGate(current, input.gateId, input.context);
   const evalHash = evaluated.gate.lastEvaluationHash || "no-hash";
   const dedupKey = `${input.projectId}:${evaluated.gate.id}:${evalHash}`;
@@ -166,7 +173,7 @@ export async function evaluateGateForProject(input: {
   }
 
   if (evaluated.changed) {
-    await persistPlan(input.projectId, evaluated.plan);
+    await persistPlan(input.projectId, input.organisationId, evaluated.plan);
   }
 
   return {
@@ -177,13 +184,14 @@ export async function evaluateGateForProject(input: {
 
 export async function calculateCarbonForProject(input: {
   projectId: string;
+  organisationId: string;
   carbonInput: CarbonInput;
   plan?: Partial<ProjectPlan>;
 }) {
-  const current = await getOrCreatePlan(input.projectId, input.plan);
+  const current = await getOrCreatePlan(input.projectId, input.organisationId, input.plan);
   const result = calculateCarbon(input.carbonInput);
   const next = applyCarbonToPlan(current, input.carbonInput, result);
-  await persistPlan(input.projectId, next);
+  await persistPlan(input.projectId, input.organisationId, next);
   return {
     plan: next,
     result,
@@ -192,10 +200,11 @@ export async function calculateCarbonForProject(input: {
 
 export async function recommendMapLayersForProject(input: {
   projectId: string;
+  organisationId: string;
   projectType?: ProjectType;
   plan?: Partial<ProjectPlan>;
 }) {
-  const current = await getOrCreatePlan(input.projectId, input.plan);
+  const current = await getOrCreatePlan(input.projectId, input.organisationId, input.plan);
   const projectType = input.projectType || current.projectType || "ENV_PERMIT";
   const recommendation = recommendMapLayers(projectType);
   const next = {
@@ -203,7 +212,7 @@ export async function recommendMapLayersForProject(input: {
     projectType,
     mapLayerSelection: recommendation,
   };
-  await persistPlan(input.projectId, next);
+  await persistPlan(input.projectId, input.organisationId, next);
   return {
     plan: next,
     recommendation,
@@ -212,6 +221,7 @@ export async function recommendMapLayersForProject(input: {
 
 export async function createDispatchQuoteForProject(input: {
   projectId: string;
+  organisationId: string;
   receiverId: string;
   receiverName: string;
   wasteCode: string;
@@ -219,7 +229,7 @@ export async function createDispatchQuoteForProject(input: {
   distanceKm?: number;
   plan?: Partial<ProjectPlan>;
 }) {
-  const current = await getOrCreatePlan(input.projectId, input.plan);
+  const current = await getOrCreatePlan(input.projectId, input.organisationId, input.plan);
   const quote = createDispatchQuote({
     receiverId: input.receiverId,
     receiverName: input.receiverName,
@@ -231,7 +241,7 @@ export async function createDispatchQuoteForProject(input: {
     ...current,
     dispatchQuotes: [quote, ...current.dispatchQuotes.filter((item) => item.id !== quote.id)],
   };
-  await persistPlan(input.projectId, next);
+  await persistPlan(input.projectId, input.organisationId, next);
   return {
     plan: next,
     quote,
@@ -240,11 +250,12 @@ export async function createDispatchQuoteForProject(input: {
 
 export async function bookTransportForProject(input: {
   projectId: string;
+  organisationId: string;
   quoteId: string;
   plannedPickupAt?: string;
   plan?: Partial<ProjectPlan>;
 }) {
-  const current = await getOrCreatePlan(input.projectId, input.plan);
+  const current = await getOrCreatePlan(input.projectId, input.organisationId, input.plan);
   const quote = current.dispatchQuotes.find((item) => item.id === input.quoteId);
   if (!quote) {
     throw new Error("Dispatch quote not found");
@@ -257,7 +268,7 @@ export async function bookTransportForProject(input: {
     ...current,
     transportBookings: [booking, ...current.transportBookings.filter((item) => item.id !== booking.id)],
   };
-  await persistPlan(input.projectId, next);
+  await persistPlan(input.projectId, input.organisationId, next);
   return {
     plan: next,
     booking,
@@ -266,6 +277,7 @@ export async function bookTransportForProject(input: {
 
 export async function upsertDriverJournalForProject(input: {
   projectId: string;
+  organisationId: string;
   journal: {
     id?: string;
     bookingId: string;
@@ -284,7 +296,7 @@ export async function upsertDriverJournalForProject(input: {
   };
   plan?: Partial<ProjectPlan>;
 }) {
-  const current = await getOrCreatePlan(input.projectId, input.plan);
+  const current = await getOrCreatePlan(input.projectId, input.organisationId, input.plan);
   const booking = current.transportBookings.find((item) => item.id === input.journal.bookingId);
   if (!booking) {
     throw new Error("Transport booking not found");
@@ -302,7 +314,7 @@ export async function upsertDriverJournalForProject(input: {
     ...current,
     driverJournals: updated.journals,
   };
-  await persistPlan(input.projectId, next);
+  await persistPlan(input.projectId, input.organisationId, next);
   return {
     plan: next,
     journal: updated.journal,
@@ -311,12 +323,13 @@ export async function upsertDriverJournalForProject(input: {
 
 export async function signDriverJournalForProject(input: {
   projectId: string;
+  organisationId: string;
   journalId: string;
   signerRole: "DRIVER" | "REVIEWER";
   signatureId: string;
   plan?: Partial<ProjectPlan>;
 }) {
-  const current = await getOrCreatePlan(input.projectId, input.plan);
+  const current = await getOrCreatePlan(input.projectId, input.organisationId, input.plan);
   const existing = current.driverJournals.find((item) => item.id === input.journalId);
   if (!existing) {
     throw new Error("Driver journal not found");
@@ -343,7 +356,7 @@ export async function signDriverJournalForProject(input: {
     driverJournals: current.driverJournals.map((item) => (item.id === signed.id ? signed : item)),
     auditTrail: [...current.auditTrail, signatureAuditEntry],
   };
-  await persistPlan(input.projectId, next);
+  await persistPlan(input.projectId, input.organisationId, next);
   return {
     plan: next,
     journal: signed,
@@ -352,6 +365,7 @@ export async function signDriverJournalForProject(input: {
 
 export async function ingestLimsReportForProject(input: {
   projectId: string;
+  organisationId: string;
   report: {
     bookingId?: string | null;
     sampleId: string;
@@ -369,7 +383,7 @@ export async function ingestLimsReportForProject(input: {
   };
   plan?: Partial<ProjectPlan>;
 }) {
-  const current = await getOrCreatePlan(input.projectId, input.plan);
+  const current = await getOrCreatePlan(input.projectId, input.organisationId, input.plan);
   if (input.report.bookingId) {
     const bookingExists = current.transportBookings.some((item) => item.id === input.report.bookingId);
     if (!bookingExists) {
@@ -382,7 +396,7 @@ export async function ingestLimsReportForProject(input: {
     ...current,
     limsReports: [report, ...current.limsReports.filter((item) => item.id !== report.id)],
   };
-  await persistPlan(input.projectId, next);
+  await persistPlan(input.projectId, input.organisationId, next);
   return {
     plan: next,
     report,
@@ -391,13 +405,14 @@ export async function ingestLimsReportForProject(input: {
 
 export async function verifyLimsReportForProject(input: {
   projectId: string;
+  organisationId: string;
   reportId: string;
   reviewer: string;
   signatureId: string;
   approved?: boolean;
   plan?: Partial<ProjectPlan>;
 }) {
-  const current = await getOrCreatePlan(input.projectId, input.plan);
+  const current = await getOrCreatePlan(input.projectId, input.organisationId, input.plan);
   const existing = current.limsReports.find((item) => item.id === input.reportId);
   if (!existing) {
     throw new Error("LIMS report not found");
@@ -425,16 +440,16 @@ export async function verifyLimsReportForProject(input: {
     limsReports: current.limsReports.map((item) => (item.id === verified.id ? verified : item)),
     auditTrail: [...current.auditTrail, signatureAuditEntry],
   };
-  await persistPlan(input.projectId, next);
+  await persistPlan(input.projectId, input.organisationId, next);
   return {
     plan: next,
     report: verified,
   };
 }
 
-export async function recalculatePredictiveScoresForProject(projectId: string, plan?: Partial<ProjectPlan>) {
-  const current = await getOrCreatePlan(projectId, plan);
-  await persistPlan(projectId, current);
+export async function recalculatePredictiveScoresForProject(projectId: string, organisationId: string, plan?: Partial<ProjectPlan>) {
+  const current = await getOrCreatePlan(projectId, organisationId, plan);
+  await persistPlan(projectId, organisationId, current);
   return current;
 }
 

@@ -5,6 +5,7 @@
  */
 import { prisma } from '../../server/db/prisma';
 import { flag, startPipelineRun, finishPipelineRun, failPipelineRun, enqueueReview } from './_shared';
+import { dedupeReviewIntents, type ReviewQueueIntent } from './reviewQueueHelpers';
 
 async function main() {
     const dryRun = flag('dry-run');
@@ -13,6 +14,8 @@ async function main() {
     const errors = 0;
 
     try {
+        const intents: ReviewQueueIntent[] = [];
+
         // Rule 1: municipality in subject (pass1) ≠ municipality in document text (pass2)
         const muniDisagreements = await prisma.$queryRawUnsafe<Array<{ documentId: string; val1: string; val2: string }>>(
             `SELECT e1."documentId", e1."fieldValue" AS val1, e2."fieldValue" AS val2
@@ -34,17 +37,14 @@ async function main() {
         );
 
         for (const row of muniDisagreements) {
-            if (!dryRun) {
-                await enqueueReview({
-                    documentId: row.documentId,
-                    queueType: 'DISAGREEMENT',
-                    fieldName: 'municipality',
-                    proposedValue: null,
-                    confidence: null,
-                    reason: `subject says "${row.val1}" but doc text says "${row.val2}"`,
-                });
-            }
-            processed++;
+            intents.push({
+                documentId: row.documentId,
+                queueType: 'DISAGREEMENT',
+                fieldName: 'municipality',
+                proposedValue: null,
+                confidence: null,
+                reason: `subject says "${row.val1}" but doc text says "${row.val2}"`,
+            });
         }
 
         // Rule 2: Multiple diarienummer in same case candidate
@@ -66,17 +66,14 @@ async function main() {
         for (const row of diarieDisagreements) {
             const docIds: string[] = JSON.parse(row.docIds);
             for (const docId of docIds) {
-                if (!dryRun) {
-                    await enqueueReview({
-                        documentId: docId,
-                        queueType: 'DISAGREEMENT',
-                        fieldName: 'legalStatus',
-                        proposedValue: null,
-                        confidence: null,
-                        reason: `multiple diarie numbers in same case candidate (${row.caseKey})`,
-                    });
-                }
-                processed++;
+                intents.push({
+                    documentId: docId,
+                    queueType: 'DISAGREEMENT',
+                    fieldName: 'legalStatus',
+                    proposedValue: null,
+                    confidence: null,
+                    reason: `multiple diarie numbers in same case candidate (${row.caseKey})`,
+                });
             }
         }
 
@@ -96,17 +93,23 @@ async function main() {
         for (const row of actDisagreements) {
             const docIds: string[] = JSON.parse(row.docIds);
             for (const docId of docIds) {
-                if (!dryRun) {
-                    await enqueueReview({
-                        documentId: docId,
-                        queueType: 'DISAGREEMENT',
-                        fieldName: 'activityCode',
-                        proposedValue: null,
-                        confidence: null,
-                        reason: `multiple activityCodes in same case candidate (${row.caseKey})`,
-                    });
-                }
-                processed++;
+                intents.push({
+                    documentId: docId,
+                    queueType: 'DISAGREEMENT',
+                    fieldName: 'activityCode',
+                    proposedValue: null,
+                    confidence: null,
+                    reason: `multiple activityCodes in same case candidate (${row.caseKey})`,
+                });
+            }
+        }
+
+        const dedupedIntents = dedupeReviewIntents(intents);
+        processed = dedupedIntents.length;
+
+        if (!dryRun) {
+            for (const intent of dedupedIntents) {
+                await enqueueReview(intent);
             }
         }
 

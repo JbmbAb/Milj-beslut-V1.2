@@ -22,6 +22,18 @@ const PermitPortalView: React.FC<PermitPortalViewProps> = ({ permits, mode = 'ma
   const [permitSubmitted, setPermitSubmitted] = useState(false);
 
   const municipalities = useMemo(() => Array.from(new Set(permits.map((permit) => permit.municipality))).sort(), [permits]);
+  const selectedWeatherCoordinates = useMemo(() => {
+    const permitWithCoordinates = permits.find(
+      (permit) =>
+        permit.municipality === selectedMuni &&
+        typeof permit.lat === 'number' &&
+        Number.isFinite(permit.lat) &&
+        typeof permit.lng === 'number' &&
+        Number.isFinite(permit.lng)
+    );
+
+    return permitWithCoordinates ? { lat: permitWithCoordinates.lat as number, lng: permitWithCoordinates.lng as number } : null;
+  }, [permits, selectedMuni]);
 
   const filteredCodes = useMemo(() => {
     const q = searchQuery.toLowerCase();
@@ -250,7 +262,7 @@ const PermitPortalView: React.FC<PermitPortalViewProps> = ({ permits, mode = 'ma
         </p>
       </section>
 
-      <WeatherRisk municipality={selectedMuni} />
+      <WeatherRisk municipality={selectedMuni} coordinates={selectedWeatherCoordinates} />
 
       <section className="rounded-3xl border border-slate-200 bg-white shadow-sm">
         <div className="border-b border-slate-200 p-4 md:flex md:items-center md:justify-between">

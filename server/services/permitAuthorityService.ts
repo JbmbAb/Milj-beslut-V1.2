@@ -1,32 +1,13 @@
-/**
- * permitAuthorityService.ts
- *
- * Digital inlämning av tillståndsansökan till länsstyrelse / kommunen.
- *
- * Flödet:
- *   1. Klient anropar POST /api/projects/:projectId/permit/authority-submit
- *   2. Tjänsten skapar ett unikt diarienummer (referensnummer)
- *   3. Ansökan registreras i AuditTrail med hash-chain
- *   4. Om AUTHORITY_SUBMIT_ENDPOINT är konfigurerat görs ett riktigt API-anrop;
- *      annars returneras ett mock-kvittens med PENDING-status (graceful fallback)
- *
- * Miljövariabler (valfria):
- *   AUTHORITY_SUBMIT_ENDPOINT  — URL till myndighetens API (t.ex. länsstyrelsen eSTA)
- *   AUTHORITY_API_KEY          — API-nyckel till myndighetsystemet
- */
-
 import crypto from 'node:crypto';
 import { appendDomainAudit } from '../security/auditTrail';
 import { logger } from '../logger';
+import {
+  submitToConfiguredAuthority,
+  type PermitAuthorityFailureMode,
+  type PermitAuthorityStatus,
+} from './permitAuthorityAdapter';
 
-// ─── Types ───────────────────────────────────────────────────────────────────
-
-export type AuthoritySubmitStatus =
-  | 'SUBMITTED'
-  | 'RECEIVED'
-  | 'PENDING_REVIEW'
-  | 'REJECTED'
-  | 'MOCK_QUEUED';
+export type AuthoritySubmitStatus = PermitAuthorityStatus;
 
 export interface AuthoritySubmission {
   referenceId: string;
@@ -36,13 +17,13 @@ export interface AuthoritySubmission {
   status: AuthoritySubmitStatus;
   auditId: string;
   externalRef?: string;
+  providerMode: 'mock' | 'external';
+  responseCode: number | null;
+  rawStatus: string | null;
+  failureMode: PermitAuthorityFailureMode;
 }
 
-// ─── In-process submission log ────────────────────────────────────────────────
-
 const submissions = new Map<string, AuthoritySubmission>();
-
-// ─── Helpers ──────────────────────────────────────────────────────────────────
 
 function generateCaseNumber(orgId: string): string {
   const year = new Date().getFullYear();
@@ -51,11 +32,6 @@ function generateCaseNumber(orgId: string): string {
   return `LST-${year}-${orgPrefix}-${rand}`;
 }
 
-// ─── Main service function ────────────────────────────────────────────────────
-
-/**
- * Skicka in en tillståndsansökan till behörig myndighet.
- */
 export async function submitPermitToAuthority(params: {
   projectId: string;
   orgId: string;
@@ -69,9 +45,8 @@ export async function submitPermitToAuthority(params: {
   const referenceId = crypto.randomUUID();
   const caseNumber = generateCaseNumber(params.orgId);
   const submittedAt = new Date().toISOString();
-  const authority = params.authorityName ?? 'Länsstyrelsen';
+  const authority = params.authorityName ?? 'Lansstyrelsen';
 
-  // Log to AuditTrail first — always persists regardless of external call
   const auditRecord = await appendDomainAudit({
     entityType: 'PERMIT_SUBMISSION',
     entityId: referenceId,
@@ -90,76 +65,50 @@ export async function submitPermitToAuthority(params: {
     },
   });
 
-  // Try external authority API if configured
-  const endpoint = process.env.AUTHORITY_SUBMIT_ENDPOINT;
-  let status: AuthoritySubmitStatus = 'MOCK_QUEUED';
-  let externalRef: string | undefined;
-
-  if (endpoint) {
-    try {
-      const apiKey = process.env.AUTHORITY_API_KEY ?? '';
-      const body = JSON.stringify({
-        caseNumber,
-        permitType: params.permitType,
-        applicantName: params.applicantName,
-        propertyDesignation: params.propertyDesignation,
-        documentIds: params.documentIds,
-        submittedAt,
-        referenceId,
-      });
-
-      const resp = await fetch(endpoint, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          ...(apiKey ? { 'X-Api-Key': apiKey } : {}),
-        },
-        body,
-        signal: AbortSignal.timeout(10_000),
-      });
-
-      if (resp.ok) {
-        const json = (await resp.json()) as { ref?: string };
-        externalRef = json.ref;
-        status = 'SUBMITTED';
-      } else {
-        logger.warn('permit-authority: external submit failed', { status: resp.status });
-        status = 'PENDING_REVIEW';
-      }
-    } catch (err) {
-      logger.warn('permit-authority: external endpoint unreachable', { err: String(err) });
-      status = 'PENDING_REVIEW';
-    }
-  }
+  const adapterResult = await submitToConfiguredAuthority({
+    referenceId,
+    caseNumber,
+    submittedAt,
+    projectId: params.projectId,
+    orgId: params.orgId,
+    authority,
+    permitType: params.permitType,
+    applicantName: params.applicantName,
+    propertyDesignation: params.propertyDesignation,
+    documentIds: params.documentIds,
+  });
 
   const submission: AuthoritySubmission = {
     referenceId,
     caseNumber,
     submittedAt,
     authority,
-    status,
+    status: adapterResult.status,
     auditId: auditRecord.id,
-    externalRef,
+    externalRef: adapterResult.externalRef,
+    providerMode: adapterResult.providerMode,
+    responseCode: adapterResult.responseCode,
+    rawStatus: adapterResult.rawStatus,
+    failureMode: adapterResult.failureMode,
   };
 
   submissions.set(referenceId, submission);
-  logger.info('permit-authority: submission created', { referenceId, caseNumber, status });
+  logger.info('permit-authority: submission created', {
+    referenceId,
+    caseNumber,
+    status: submission.status,
+    providerMode: submission.providerMode,
+    responseCode: submission.responseCode,
+    failureMode: submission.failureMode,
+  });
 
   return submission;
 }
 
-/**
- * Hämta status för en specifik inlämning.
- */
 export function getSubmission(referenceId: string): AuthoritySubmission | undefined {
   return submissions.get(referenceId);
 }
 
-/**
- * Lista alla inlämningar för ett projekt.
- */
-export function listSubmissionsForProject(projectId: string): AuthoritySubmission[] {
-  // In production, filter by projectId stored on each submission.
-  // Here we return all (the projectId is in the audit trail payload).
+export function listSubmissionsForProject(_projectId: string): AuthoritySubmission[] {
   return Array.from(submissions.values());
 }

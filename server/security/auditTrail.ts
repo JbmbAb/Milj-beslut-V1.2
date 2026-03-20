@@ -1,5 +1,5 @@
 import crypto from "node:crypto";
-import { appendAuditTrailRow } from "../repositories/auditRepository";
+import { appendAuditTrailRow, getAuditExportRows } from "../repositories/auditRepository";
 import type { PropertyAccessAuditEvent } from "./types";
 
 interface AuditRecord {
@@ -7,17 +7,20 @@ interface AuditRecord {
   entityType: string;
   entityId: string;
   action: string;
-  userId: string;
+  userId?: string;
   timestamp: string;
   payloadHash: string;
   prevHash: string | null;
   chainHash: string;
 }
 
-const trail: AuditRecord[] = [];
-
 function sha256(value: string): string {
   return crypto.createHash("sha256").update(value).digest("hex");
+}
+
+async function getLastChainHash(): Promise<string | null> {
+  const latest = await getAuditExportRows(1);
+  return latest.length > 0 ? latest[0].chainHash : null;
 }
 
 async function appendAuditEvent(input: {
@@ -29,7 +32,7 @@ async function appendAuditEvent(input: {
 }): Promise<AuditRecord> {
   const payload = JSON.stringify(input.payload);
   const payloadHash = sha256(payload);
-  const prevHash = trail.length > 0 ? trail[trail.length - 1].chainHash : null;
+  const prevHash = await getLastChainHash();
   const timestamp = new Date().toISOString();
   const chainHash = sha256(`${prevHash ?? "GENESIS"}|${payloadHash}|${timestamp}`);
 
@@ -45,7 +48,6 @@ async function appendAuditEvent(input: {
     chainHash,
   };
 
-  trail.push(record);
   await appendAuditTrailRow({
     entityType: record.entityType,
     entityId: record.entityId,
@@ -79,18 +81,31 @@ export async function appendDomainAudit(input: {
   return appendAuditEvent(input);
 }
 
-export function exportAuditTrail(): ReadonlyArray<AuditRecord> {
-  return trail;
+export async function exportAuditTrail(): Promise<ReadonlyArray<AuditRecord>> {
+  const rows = await getAuditExportRows(1000);
+  return rows.map(r => ({
+    id: r.id,
+    entityType: r.entityType,
+    entityId: r.entityId,
+    action: r.action,
+    userId: r.userId ?? undefined,
+    timestamp: r.timestamp.toISOString(),
+    payloadHash: r.payloadHash,
+    prevHash: r.prevHash,
+    chainHash: r.chainHash,
+  }));
 }
 
-export function verifyAuditTrail(): { ok: boolean; invalidIndex?: number } {
-  for (let index = 0; index < trail.length; index += 1) {
-    const row = trail[index];
-    const previous = index === 0 ? null : trail[index - 1].chainHash;
-    const expected = sha256(`${previous ?? "GENESIS"}|${row.payloadHash}|${row.timestamp}`);
+export async function verifyAuditTrail(): Promise<{ ok: boolean; invalidIndex?: number }> {
+  const rows = await getAuditExportRows(5000);
+  for (let index = 0; index < rows.length; index += 1) {
+    const row = rows[index];
+    const previous = index === 0 ? null : rows[index - 1].chainHash;
+    const expected = sha256(`${previous ?? "GENESIS"}|${row.payloadHash}|${row.timestamp.toISOString()}`);
     if (expected !== row.chainHash) {
       return { ok: false, invalidIndex: index };
     }
   }
   return { ok: true };
 }
+

@@ -17,6 +17,7 @@ import GisRiskModule from './GisRiskModule';
 import LegalSupportCenter from './LegalSupportCenter';
 import MvpDemoInterface from './MvpDemoInterface';
 import AdminMetadataReview from './AdminMetadataReview';
+import AdminSearchConsole from './AdminSearchConsole';
 import PropertyRegisterExtract from './PropertyRegisterExtract';
 import { useProjectStructure } from './ProjectStructureContext';
 import { countReadyModules } from '../services/projectStructure';
@@ -146,6 +147,7 @@ const App: React.FC = () => {
       case 'ADMIN_CONSOLE':
         if (activeTab === 'admin-review') return <AdminMetadataReview />;
         if (activeTab === 'admin-search') return <PropertyRegisterExtract propertyId={selectedPermit?.property_id || "ORSA STACKMORA 3:12"} />;
+        if (activeTab === 'admin-insight') return <AdminSearchConsole panel="insight" />;
         return <AdminMetadataReview />;
       default:
         return (
@@ -165,6 +167,7 @@ const App: React.FC = () => {
           else if (id === 'logistik') openMode('LOGISTICS_MARKET');
           else if (id === 'projekt') openMode('PROJECT_MANAGER');
           else if (id === 'gronkoll') openMode('COMPLIANCE_AUDIT');
+          else if (id === 'admin') openMode('ADMIN_CONSOLE');
         }}
         user={{ name: "System User" }}
       />

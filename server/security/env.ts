@@ -4,14 +4,27 @@ const requiredEnv = [
   "LANTMATERIET_BASE_URL",
 ] as const;
 
+function hasLicensedLantmaterietConfig(): boolean {
+  const hasApiKey = Boolean(String(process.env.LANTMATERIET_API_KEY || "").trim());
+  const hasAccessToken = Boolean(String(process.env.LANTMATERIET_ACCESS_TOKEN || "").trim());
+  const hasOauthPair = Boolean(
+    String(process.env.LANTMATERIET_CONSUMER_KEY || "").trim() &&
+      String(process.env.LANTMATERIET_CONSUMER_SECRET || "").trim(),
+  );
+
+  return hasApiKey || hasAccessToken || hasOauthPair;
+}
+
 export function assertSecurityEnv(): void {
   const missing = requiredEnv.filter((key) => !process.env[key]);
   if (missing.length > 0) {
     throw new Error(`Missing required security env variables: ${missing.join(", ")}`);
   }
 
-  if (!isLantmaterietOpenMode() && !process.env.LANTMATERIET_API_KEY) {
-    throw new Error("Missing env variable: LANTMATERIET_API_KEY (set LANTMATERIET_OPEN_MODE=true for open-map-only testing)");
+  if (!isLantmaterietOpenMode() && !hasLicensedLantmaterietConfig()) {
+    throw new Error(
+      "Missing Lantmateriet licensed credentials: set LANTMATERIET_API_KEY, LANTMATERIET_ACCESS_TOKEN, or LANTMATERIET_CONSUMER_KEY+LANTMATERIET_CONSUMER_SECRET (set LANTMATERIET_OPEN_MODE=true for open-map-only testing)",
+    );
   }
 }
 

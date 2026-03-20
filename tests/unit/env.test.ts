@@ -43,14 +43,27 @@ describe('security env', () => {
     expect(() => assertSecurityEnv()).not.toThrow();
   });
 
-  it('requires licensed Lantmateriet key when not in open mode', () => {
+  it('requires licensed Lantmateriet credentials when not in open mode', () => {
     setSecurityBaseEnv();
     process.env.LANTMATERIET_OPEN_MODE = 'false';
     delete process.env.LANTMATERIET_API_KEY;
+    delete process.env.LANTMATERIET_ACCESS_TOKEN;
+    delete process.env.LANTMATERIET_CONSUMER_KEY;
+    delete process.env.LANTMATERIET_CONSUMER_SECRET;
 
-    expect(() => assertSecurityEnv()).toThrow(/LANTMATERIET_API_KEY/);
+    expect(() => assertSecurityEnv()).toThrow(/Lantmateriet licensed credentials/);
 
     process.env.LANTMATERIET_API_KEY = 'licensed-key';
+    expect(() => assertSecurityEnv()).not.toThrow();
+
+    delete process.env.LANTMATERIET_API_KEY;
+    process.env.LANTMATERIET_CONSUMER_KEY = 'consumer-key';
+    process.env.LANTMATERIET_CONSUMER_SECRET = 'consumer-secret';
+    expect(() => assertSecurityEnv()).not.toThrow();
+
+    delete process.env.LANTMATERIET_CONSUMER_KEY;
+    delete process.env.LANTMATERIET_CONSUMER_SECRET;
+    process.env.LANTMATERIET_ACCESS_TOKEN = 'short-lived-token';
     expect(() => assertSecurityEnv()).not.toThrow();
   });
 

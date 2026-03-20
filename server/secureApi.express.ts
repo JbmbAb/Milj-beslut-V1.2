@@ -17,7 +17,9 @@ import type { PropertyLookupInput } from "./security/types";
 import { assertProjectMembership } from "./repositories/projectAccessRepository";
 import {
   createOrGetAdminProject,
+  deleteDocumentById,
   enqueueSearchJob,
+  getDocumentById as getSearchDocumentById,
   getSearchStatus,
   listProjectsForAdmin,
   recoverStaleRunningJobs,
@@ -55,9 +57,17 @@ import type {
   ProjectType,
   StageGateType,
 } from "../types";
-import { getAdminDatabaseDump, getAdminExamSummary, getAppCompletion, getAppStatus, getDbAnalysis, getDbContents, getDbStats } from "./repositories/adminReportRepository";
 import {
-  getDocumentById,
+  getAdminDatabaseDump,
+  getAdminExamSummary,
+  getAppCompletion,
+  getAppStatus,
+  getDbAnalysis,
+  getDbContents,
+  getDbStats,
+  getExternalHealth,
+} from "./repositories/adminReportRepository";
+import {
   listRequirementCases,
   listRequirementCitations,
   listRequirementRows,
@@ -115,10 +125,13 @@ import {
   extractTextFromDocument,
   batchExtractPendingDocuments,
 } from "./services/ocrService";
+import { uploadDocumentToProject } from "./services/documentUploadService";
 import { autoFetchLimsReports } from "./services/limsAutoFetchService";
 import { getMetricsText } from "./services/metricsService";
 import { captureException, getRecentErrors } from "./services/errorTrackingService";
 import { runBackup, listBackups, getBackup } from "./services/backupService";
+import { toSafeErrorResponse } from "./security/secureErrors";
+
 
 assertSecurityEnv();
 
@@ -209,7 +222,7 @@ router.get("/api/layers/nvr", rateLimitByUser(30, 60_000), async (req, res) => {
     const collection = await getProtectedAreaLayer(bbox, limit);
     res.json(collection);
   } catch (error: unknown) {
-    res.status(500).json({ error: "Failed to fetch data from PostGIS", details: String(error) });
+    res.status(500).json(toSafeErrorResponse(error));
   }
 });
 
@@ -233,7 +246,7 @@ router.post("/api/spatial-audit", rateLimitByUser(30, 60_000), async (req, res) 
       sources: result.sources,
     });
   } catch (error: unknown) {
-    res.status(500).json({ error: "Database query failed", details: String(error) });
+    res.status(500).json(toSafeErrorResponse(error));
   }
 });
 
@@ -249,7 +262,7 @@ router.get("/api/layers/sgu/grundlager", rateLimitByUser(30, 60_000), async (req
     const collection = await getSguGroundLayerLayer(bbox);
     res.json(collection);
   } catch (error: unknown) {
-    res.status(500).json({ error: "Failed to fetch SGU grundlager", details: String(error) });
+    res.status(500).json(toSafeErrorResponse(error));
   }
 });
 
@@ -265,7 +278,7 @@ router.get("/api/layers/sgu/jordskred-raviner", rateLimitByUser(30, 60_000), asy
     const collection = await getSguLandslideLayer(bbox);
     res.json(collection);
   } catch (error: unknown) {
-    res.status(500).json({ error: "Failed to fetch SGU jordskred-raviner", details: String(error) });
+    res.status(500).json(toSafeErrorResponse(error));
   }
 });
 
@@ -281,7 +294,7 @@ router.get("/api/layers/property", rateLimitByUser(30, 60_000), async (req, res)
     const collection = await getPropertyLayer(bbox);
     res.json(collection);
   } catch (error: unknown) {
-    res.status(500).json({ error: "Failed to fetch property layers", details: String(error) });
+    res.status(500).json(toSafeErrorResponse(error));
   }
 });
 
@@ -297,7 +310,7 @@ router.get("/api/layers/hydro.lakes", rateLimitByUser(30, 60_000), async (req, r
     const collection = await getHydroLayer("lakes", bbox);
     res.json(collection);
   } catch (error: unknown) {
-    res.status(500).json({ error: "Failed to fetch hydro lakes", details: String(error) });
+    res.status(500).json(toSafeErrorResponse(error));
   }
 });
 
@@ -313,7 +326,7 @@ router.get("/api/layers/hydro.streams", rateLimitByUser(30, 60_000), async (req,
     const collection = await getHydroLayer("streams", bbox);
     res.json(collection);
   } catch (error: unknown) {
-    res.status(500).json({ error: "Failed to fetch hydro streams", details: String(error) });
+    res.status(500).json(toSafeErrorResponse(error));
   }
 });
 
@@ -328,7 +341,7 @@ router.post("/api/hydro/water-audit", rateLimitByUser(30, 60_000), async (req, r
     const result = await runWaterAudit(lat, lng);
     res.json(result);
   } catch (error: unknown) {
-    res.status(500).json({ error: "Water audit failed", details: String(error) });
+    res.status(500).json(toSafeErrorResponse(error));
   }
 });
 
@@ -343,7 +356,7 @@ router.post("/api/culture/heritage-audit", rateLimitByUser(30, 60_000), async (r
     const result = await runHeritageAudit(lat, lng);
     res.json(result);
   } catch (error: unknown) {
-    res.status(500).json({ error: "Heritage audit failed", details: String(error) });
+    res.status(500).json(toSafeErrorResponse(error));
   }
 });
 
@@ -358,7 +371,7 @@ router.post("/api/climate/smhi-audit", rateLimitByUser(30, 60_000), async (req, 
     const result = await runClimateAudit(lat, lng);
     res.json(result);
   } catch (error: unknown) {
-    res.status(500).json({ error: "Climate audit failed", details: String(error) });
+    res.status(500).json(toSafeErrorResponse(error));
   }
 });
 
@@ -368,7 +381,7 @@ router.get("/api/datasources/public-summary", rateLimitByUser(20, 60_000), async
     const summary = await getPublicDatasourceSummary(refresh);
     res.json({ ok: true, summary });
   } catch (error: unknown) {
-    res.status(500).json({ ok: false, error: error instanceof Error ? error.message : "Public summary failed" });
+    res.status(500).json(toSafeErrorResponse(error));
   }
 });
 
@@ -398,7 +411,7 @@ router.get("/api/datasources/health", rateLimitByUser(30, 60_000), async (_req, 
       checkedAt: summary.checkedAt,
     });
   } catch (error: unknown) {
-    res.status(500).json({ ok: false, error: error instanceof Error ? error.message : "Health check failed" });
+    res.status(500).json(toSafeErrorResponse(error));
   }
 });
 
@@ -414,7 +427,7 @@ router.post("/api/auth/bankid/init", rateLimitByUser(10, 60_000), async (req, re
     });
     res.json({ ok: true, ...order, orderTime: orderTime.toISOString(), qrPayload });
   } catch (error: unknown) {
-    res.status(400).json({ ok: false, error: error instanceof Error ? error.message : "bankid init failed" });
+    res.status(400).json(toSafeErrorResponse(error));
   }
 });
 
@@ -424,7 +437,7 @@ router.post("/api/auth/bankid/collect", rateLimitByUser(60, 60_000), async (req,
     const result = await collectBankIdAuth(orderRef);
     res.json({ ok: true, ...result });
   } catch (error: unknown) {
-    res.status(400).json({ ok: false, error: error instanceof Error ? error.message : "collect failed" });
+    res.status(400).json(toSafeErrorResponse(error));
   }
 });
 
@@ -434,7 +447,7 @@ router.post("/api/auth/bankid/cancel", rateLimitByUser(20, 60_000), async (req, 
     const result = await cancelBankIdAuth(orderRef);
     res.json({ ok: true, ...result });
   } catch (error: unknown) {
-    res.status(400).json({ ok: false, error: error instanceof Error ? error.message : "cancel failed" });
+    res.status(400).json(toSafeErrorResponse(error));
   }
 });
 
@@ -444,7 +457,7 @@ router.post("/api/auth/refresh", rateLimitByUser(30, 60_000), async (req, res) =
     const rotated = await refreshSession(token);
     res.json({ ok: true, ...rotated });
   } catch (error: unknown) {
-    res.status(401).json({ ok: false, error: error instanceof Error ? error.message : "refresh failed" });
+    res.status(401).json(toSafeErrorResponse(error));
   }
 });
 
@@ -478,7 +491,237 @@ router.post("/api/admin/auth/login", rateLimitByUser(20, 60_000), async (req, re
       },
     });
   } catch (error: unknown) {
-    res.status(400).json({ ok: false, error: error instanceof Error ? error.message : "admin login failed" });
+    res.status(400).json(toSafeErrorResponse(error));
+  }
+});
+
+router.post(
+  "/api/documents/upload",
+  requireAuth,
+  express.raw({ limit: "25mb", type: () => true }),
+  rateLimitByUser(20, 60_000),
+  async (req, res) => {
+    try {
+      if (!req.authUser) {
+        res.status(401).json({ ok: false, error: "Unauthorized" });
+        return;
+      }
+
+      const projectId = String(req.query?.projectId ?? "").trim();
+      const originalName = String(req.query?.originalName ?? "").trim();
+      const subject = parseOptionalText(req.query?.subject);
+      const buffer = Buffer.isBuffer(req.body) ? req.body : Buffer.alloc(0);
+      const mimeType = parseOptionalText(req.header("content-type"));
+
+      if (!projectId) {
+        res.status(400).json({ ok: false, error: "projectId is required" });
+        return;
+      }
+      if (!originalName) {
+        res.status(400).json({ ok: false, error: "originalName is required" });
+        return;
+      }
+      if (buffer.length === 0) {
+        res.status(400).json({ ok: false, error: "file body is required" });
+        return;
+      }
+
+      await assertProjectMembership({
+        projectId,
+        userId: req.authUser.id,
+        organisationId: req.authUser.organisationId,
+        role: req.authUser.role,
+      });
+
+      const uploaded = await uploadDocumentToProject({
+        projectId,
+        organisationId: req.authUser.organisationId,
+        actingUserId: req.authUser.id,
+        buffer,
+        originalName,
+        subject,
+        mimeType,
+      });
+
+      res.status(201).json({
+        ok: true,
+        document: uploaded.document,
+        searchJobId: uploaded.searchJobId,
+        auditId: uploaded.auditId,
+      });
+    } catch (error: unknown) {
+      res.status(400).json(toSafeErrorResponse(error));
+    }
+  }
+);
+
+router.get("/api/documents/:documentId/view", requireAuth, rateLimitByUser(50, 60_000), async (req, res) => {
+  try {
+    if (!req.authUser) {
+      res.status(401).json({ ok: false, error: "Unauthorized" });
+      return;
+    }
+
+    const documentId = String(req.params.documentId || "").trim();
+    if (!documentId) {
+      res.status(400).json({ ok: false, error: "documentId is required" });
+      return;
+    }
+
+    const document = await getSearchDocumentById(documentId);
+    if (!document || !document.absolutePath) {
+      res.status(404).json({ ok: false, error: "Document not found" });
+      return;
+    }
+    if (!fs.existsSync(document.absolutePath)) {
+      res.status(404).json({ ok: false, error: "Document file missing on server" });
+      return;
+    }
+
+    await assertProjectMembership({
+      projectId: String(document.projectId),
+      userId: req.authUser.id,
+      organisationId: req.authUser.organisationId,
+      role: req.authUser.role,
+    });
+
+    await appendDomainAudit({
+      entityType: "DocumentRecord",
+      entityId: String(document.id),
+      action: "DOCUMENT_VIEW",
+      userId: req.authUser.id,
+      payload: {
+        documentId: String(document.id),
+        projectId: String(document.projectId),
+        mimeType: document.mimeType || "application/octet-stream",
+      },
+    });
+
+    const stream = fs.createReadStream(document.absolutePath);
+    res.setHeader("Content-Type", document.mimeType || "application/octet-stream");
+    res.setHeader(
+      "Content-Disposition",
+      `inline; filename="${encodeURIComponent(String(document.originalName || "document"))}"`
+    );
+    stream.pipe(res);
+  } catch (error: unknown) {
+    res.status(400).json(toSafeErrorResponse(error));
+  }
+});
+
+router.get("/api/documents/:documentId/download", requireAuth, rateLimitByUser(50, 60_000), async (req, res) => {
+  try {
+    if (!req.authUser) {
+      res.status(401).json({ ok: false, error: "Unauthorized" });
+      return;
+    }
+
+    const documentId = String(req.params.documentId || "").trim();
+    if (!documentId) {
+      res.status(400).json({ ok: false, error: "documentId is required" });
+      return;
+    }
+
+    const document = await getSearchDocumentById(documentId);
+    if (!document || !document.absolutePath) {
+      res.status(404).json({ ok: false, error: "Document not found" });
+      return;
+    }
+    if (!fs.existsSync(document.absolutePath)) {
+      res.status(404).json({ ok: false, error: "Document file missing on server" });
+      return;
+    }
+
+    await assertProjectMembership({
+      projectId: String(document.projectId),
+      userId: req.authUser.id,
+      organisationId: req.authUser.organisationId,
+      role: req.authUser.role,
+    });
+
+    await appendDomainAudit({
+      entityType: "DocumentRecord",
+      entityId: String(document.id),
+      action: "DOCUMENT_DOWNLOAD",
+      userId: req.authUser.id,
+      payload: {
+        documentId: String(document.id),
+        projectId: String(document.projectId),
+        mimeType: document.mimeType || "application/octet-stream",
+      },
+    });
+
+    const stream = fs.createReadStream(document.absolutePath);
+    res.setHeader("Content-Type", document.mimeType || "application/octet-stream");
+    res.setHeader(
+      "Content-Disposition",
+      `attachment; filename="${encodeURIComponent(String(document.originalName || "document"))}"`
+    );
+    stream.pipe(res);
+  } catch (error: unknown) {
+    res.status(400).json(toSafeErrorResponse(error));
+  }
+});
+
+router.delete("/api/documents/:documentId", requireAuth, rateLimitByUser(20, 60_000), async (req, res) => {
+  try {
+    if (!req.authUser) {
+      res.status(401).json({ ok: false, error: "Unauthorized" });
+      return;
+    }
+
+    const documentId = String(req.params.documentId || "").trim();
+    if (!documentId) {
+      res.status(400).json({ ok: false, error: "documentId is required" });
+      return;
+    }
+
+    const document = await getSearchDocumentById(documentId);
+    if (!document) {
+      res.status(404).json({ ok: false, error: "Document not found" });
+      return;
+    }
+
+    await assertProjectMembership({
+      projectId: String(document.projectId),
+      userId: req.authUser.id,
+      organisationId: req.authUser.organisationId,
+      role: req.authUser.role,
+    });
+
+    const deleted = await deleteDocumentById(documentId);
+    if (!deleted) {
+      res.status(404).json({ ok: false, error: "Document not found" });
+      return;
+    }
+
+    let fileDeleted = false;
+    if (deleted.absolutePath && fs.existsSync(deleted.absolutePath)) {
+      fs.unlinkSync(deleted.absolutePath);
+      fileDeleted = true;
+    }
+
+    await appendDomainAudit({
+      entityType: "DocumentRecord",
+      entityId: String(deleted.id),
+      action: "DOCUMENT_DELETE",
+      userId: req.authUser.id,
+      payload: {
+        documentId: String(deleted.id),
+        projectId: String(deleted.projectId),
+        deletedSearchJobs: deleted.deletedSearchJobs,
+        fileDeleted,
+      },
+    });
+
+    res.json({
+      ok: true,
+      documentId: String(deleted.id),
+      deletedSearchJobs: Number(deleted.deletedSearchJobs || 0),
+      fileDeleted,
+    });
+  } catch (error: unknown) {
+    res.status(400).json(toSafeErrorResponse(error));
   }
 });
 
@@ -492,7 +735,7 @@ router.post("/api/property/lookup", requireAuth, rateLimitByUser(30, 5 * 60_000)
     const result = await lookupPropertyByDesignation(input, req.authUser);
     res.json({ ok: true, result });
   } catch (error: unknown) {
-    res.status(400).json({ ok: false, error: error instanceof Error ? error.message : "lookup failed" });
+    res.status(400).json(toSafeErrorResponse(error));
   }
 });
 
@@ -506,7 +749,7 @@ router.post("/api/property/lookup/postgis", requireAuth, rateLimitByUser(30, 5 *
     const result = await lookupPropertyByDesignationFromPostgis(input, req.authUser);
     res.json({ ok: true, result });
   } catch (error: unknown) {
-    res.status(400).json({ ok: false, error: error instanceof Error ? error.message : "postgis lookup failed" });
+    res.status(400).json(toSafeErrorResponse(error));
   }
 });
 
@@ -521,11 +764,7 @@ router.get("/api/system/postgis", async (_req, res) => {
       message: "PostGIS ar korrekt installerat och svarar.",
     });
   } catch (error: unknown) {
-    res.status(500).json({
-      ok: false,
-      message: "PostGIS verkar saknas eller databasen ar inte konfigurerad.",
-      details: error instanceof Error ? error.message : String(error),
-    });
+    res.status(500).json(toSafeErrorResponse(error));
   }
 });
 
@@ -539,10 +778,7 @@ router.get("/api/datasources/lantmateriet/open/status", requireAuth, rateLimitBy
     const result = await getLantmaterietOpenMapStatus();
     res.json({ ok: true, result });
   } catch (error: unknown) {
-    res.status(400).json({
-      ok: false,
-      error: error instanceof Error ? error.message : "Lantmateriet open status failed",
-    });
+    res.status(400).json(toSafeErrorResponse(error));
   }
 });
 
@@ -562,7 +798,7 @@ router.get("/api/audit/export", requireAuth, rateLimitByUser(10, 60_000), async 
       records: dbRecords,
     });
   } catch (error: unknown) {
-    res.status(403).json({ ok: false, error: error instanceof Error ? error.message : "forbidden" });
+    res.status(403).json(toSafeErrorResponse(error));
   }
 });
 
@@ -580,7 +816,7 @@ router.post("/api/datasources/open/sync", requireAuth, rateLimitByUser(10, 60_00
     const results = await fetchImmediateOpenSources();
     res.json({ ok: true, results });
   } catch (error: unknown) {
-    res.status(400).json({ ok: false, error: error instanceof Error ? error.message : "sync failed" });
+    res.status(400).json(toSafeErrorResponse(error));
   }
 });
 
@@ -593,7 +829,7 @@ router.get("/api/datasources/slu/status", requireAuth, rateLimitByUser(10, 60_00
     assertPermission(req.authUser, "AUDIT_EXPORT");
     res.json({ ok: true, products: getSluProductStatus() });
   } catch (error: unknown) {
-    res.status(400).json({ ok: false, error: error instanceof Error ? error.message : "SLU status failed" });
+    res.status(400).json(toSafeErrorResponse(error));
   }
 });
 
@@ -608,7 +844,7 @@ router.get("/api/datasources/slu/ping/:product", requireAuth, rateLimitByUser(10
     const result = await pingSluProduct(product);
     res.json({ ok: true, result });
   } catch (error: unknown) {
-    res.status(400).json({ ok: false, error: error instanceof Error ? error.message : "SLU ping failed" });
+    res.status(400).json(toSafeErrorResponse(error));
   }
 });
 
@@ -624,7 +860,7 @@ router.post("/api/datasources/slu/observations", requireAuth, rateLimitByUser(20
     const result = await searchSluObservations({ projectId, purpose, payload, user: req.authUser });
     res.json({ ok: true, result });
   } catch (error: unknown) {
-    res.status(400).json({ ok: false, error: error instanceof Error ? error.message : "SLU observation search failed" });
+    res.status(400).json(toSafeErrorResponse(error));
   }
 });
 
@@ -655,7 +891,7 @@ router.post("/api/datasources/slu/proxy", requireAuth, rateLimitByUser(20, 60_00
     });
     res.json({ ok: true, result });
   } catch (error: unknown) {
-    res.status(400).json({ ok: false, error: error instanceof Error ? error.message : "SLU proxy failed" });
+    res.status(400).json(toSafeErrorResponse(error));
   }
 });
 
@@ -757,7 +993,7 @@ router.post("/api/search/sync-manifest", requireAuth, rateLimitByUser(10, 60_000
       },
     });
   } catch (error: unknown) {
-    res.status(400).json({ ok: false, error: error instanceof Error ? error.message : "sync manifest failed" });
+    res.status(400).json(toSafeErrorResponse(error));
   }
 });
 
@@ -810,7 +1046,7 @@ router.post("/api/search/query", requireAuth, rateLimitByUser(80, 60_000), rateL
 
     res.json({ ok: true, result });
   } catch (error: unknown) {
-    res.status(400).json({ ok: false, error: error instanceof Error ? error.message : "search query failed" });
+    res.status(400).json(toSafeErrorResponse(error));
   }
 });
 
@@ -839,7 +1075,7 @@ router.get("/api/search/status", requireAuth, rateLimitByUser(30, 60_000), async
     const status = await getSearchStatus(projectId);
     res.json({ ok: true, status });
   } catch (error: unknown) {
-    res.status(400).json({ ok: false, error: error instanceof Error ? error.message : "search status failed" });
+    res.status(400).json(toSafeErrorResponse(error));
   }
 });
 
@@ -866,7 +1102,7 @@ router.get("/api/search/status/:projectId", requireAuth, rateLimitByUser(30, 60_
     const status = await getSearchStatus(projectId);
     res.json({ ok: true, status });
   } catch (error: unknown) {
-    res.status(400).json({ ok: false, error: error instanceof Error ? error.message : "search status failed" });
+    res.status(400).json(toSafeErrorResponse(error));
   }
 });
 
@@ -897,7 +1133,7 @@ router.post("/api/search/recover-stale", requireAuth, rateLimitByUser(6, 60_000)
     const processedImmediately = await processSearchJobsOnce(2);
     res.json({ ok: true, recovered, processedImmediately });
   } catch (error: unknown) {
-    res.status(400).json({ ok: false, error: error instanceof Error ? error.message : "recover stale jobs failed" });
+    res.status(400).json(toSafeErrorResponse(error));
   }
 });
 
@@ -926,7 +1162,7 @@ router.post("/api/search/retry-failed", requireAuth, rateLimitByUser(10, 60_000)
     const processedImmediately = await processSearchJobsOnce(2);
     res.json({ ok: true, requeued, processedImmediately });
   } catch (error: unknown) {
-    res.status(400).json({ ok: false, error: error instanceof Error ? error.message : "retry failed jobs failed" });
+    res.status(400).json(toSafeErrorResponse(error));
   }
 });
 
@@ -950,10 +1186,10 @@ router.get("/api/projects/:projectId/plan", requireAuth, rateLimitByUser(30, 60_
       role: req.authUser.role,
     });
 
-    const plan = await getProjectPlanSnapshot(projectId);
+    const plan = await getProjectPlanSnapshot(projectId, req.authUser.organisationId);
     res.json({ ok: true, plan });
   } catch (error: unknown) {
-    res.status(400).json({ ok: false, error: error instanceof Error ? error.message : "project plan load failed" });
+    res.status(400).json(toSafeErrorResponse(error));
   }
 });
 
@@ -979,6 +1215,7 @@ router.post("/api/projects/:projectId/plan/save", requireAuth, rateLimitByUser(3
 
     const plan = await saveProjectPlanSnapshot({
       projectId,
+      organisationId: req.authUser.organisationId,
       plan: asOptionalProjectPlan(req.body?.plan),
     });
 
@@ -996,7 +1233,7 @@ router.post("/api/projects/:projectId/plan/save", requireAuth, rateLimitByUser(3
 
     res.json({ ok: true, plan });
   } catch (error: unknown) {
-    res.status(400).json({ ok: false, error: error instanceof Error ? error.message : "project plan save failed" });
+    res.status(400).json(toSafeErrorResponse(error));
   }
 });
 
@@ -1023,6 +1260,7 @@ router.post("/api/projects/:projectId/template/apply", requireAuth, rateLimitByU
 
     const plan = await applyTemplateForProject({
       projectId,
+      organisationId: req.authUser.organisationId,
       templateId,
       plan: asOptionalProjectPlan(req.body?.plan),
     });
@@ -1041,7 +1279,7 @@ router.post("/api/projects/:projectId/template/apply", requireAuth, rateLimitByU
 
     res.json({ ok: true, plan });
   } catch (error: unknown) {
-    res.status(400).json({ ok: false, error: error instanceof Error ? error.message : "template apply failed" });
+    res.status(400).json(toSafeErrorResponse(error));
   }
 });
 
@@ -1074,6 +1312,7 @@ router.post("/api/projects/:projectId/stage-gates/:gateId/evaluate", requireAuth
 
     const evaluated = await evaluateGateForProject({
       projectId,
+      organisationId: req.authUser.organisationId,
       gateId,
       plan: asOptionalProjectPlan(req.body?.plan),
       context: {
@@ -1119,7 +1358,7 @@ router.post("/api/projects/:projectId/stage-gates/:gateId/evaluate", requireAuth
       plan: evaluated.plan,
     });
   } catch (error: unknown) {
-    res.status(400).json({ ok: false, error: error instanceof Error ? error.message : "stage gate evaluation failed" });
+    res.status(400).json(toSafeErrorResponse(error));
   }
 });
 
@@ -1141,7 +1380,7 @@ router.get("/api/projects/:projectId/members", requireAuth, rateLimitByUser(30, 
     const members: ProjectMemberRecord[] = await listProjectMembers(projectId);
     res.json({ ok: true, members });
   } catch (error: unknown) {
-    res.status(400).json({ ok: false, error: error instanceof Error ? error.message : "list members failed" });
+    res.status(400).json(toSafeErrorResponse(error));
   }
 });
 
@@ -1186,7 +1425,7 @@ router.put("/api/projects/:projectId/members", requireAuth, rateLimitByUser(20, 
 
     res.json({ ok: true, member });
   } catch (error: unknown) {
-    res.status(400).json({ ok: false, error: error instanceof Error ? error.message : "upsert member failed" });
+    res.status(400).json(toSafeErrorResponse(error));
   }
 });
 
@@ -1219,7 +1458,7 @@ router.delete("/api/projects/:projectId/members/:memberId", requireAuth, rateLim
 
     res.json({ ok: true });
   } catch (error: unknown) {
-    res.status(400).json({ ok: false, error: error instanceof Error ? error.message : "remove member failed" });
+    res.status(400).json(toSafeErrorResponse(error));
   }
 });
 
@@ -1245,7 +1484,7 @@ router.get("/api/admin/knowledge-graph/search", requireAuth, rateLimitByUser(40,
 
     res.json({ ok: true, query, nodes: result.nodes, edges: result.edges, stats });
   } catch (error: unknown) {
-    res.status(400).json({ ok: false, error: error instanceof Error ? error.message : "knowledge graph search failed" });
+    res.status(400).json(toSafeErrorResponse(error));
   }
 });
 
@@ -1257,7 +1496,7 @@ router.get("/api/admin/knowledge-graph/stats", requireAuth, rateLimitByUser(30, 
     const stats = await getGraphStats();
     res.json({ ok: true, stats });
   } catch (error: unknown) {
-    res.status(400).json({ ok: false, error: error instanceof Error ? error.message : "knowledge graph stats failed" });
+    res.status(400).json(toSafeErrorResponse(error));
   }
 });
 
@@ -1302,6 +1541,7 @@ router.post("/api/projects/:projectId/carbon/calculate", requireAuth, rateLimitB
 
     const payload = await calculateCarbonForProject({
       projectId,
+      organisationId: req.authUser.organisationId,
       carbonInput,
       plan: asOptionalProjectPlan(req.body?.plan),
     });
@@ -1321,7 +1561,7 @@ router.post("/api/projects/:projectId/carbon/calculate", requireAuth, rateLimitB
 
     res.json({ ok: true, result: payload.result, plan: payload.plan });
   } catch (error: unknown) {
-    res.status(400).json({ ok: false, error: error instanceof Error ? error.message : "carbon calculation failed" });
+    res.status(400).json(toSafeErrorResponse(error));
   }
 });
 
@@ -1353,6 +1593,7 @@ router.post("/api/projects/:projectId/map-layers/recommend", requireAuth, rateLi
 
     const payload = await recommendMapLayersForProject({
       projectId,
+      organisationId: req.authUser.organisationId,
       projectType: requestedProjectType as ProjectType | undefined,
       plan: asOptionalProjectPlan(req.body?.plan),
     });
@@ -1371,7 +1612,7 @@ router.post("/api/projects/:projectId/map-layers/recommend", requireAuth, rateLi
 
     res.json({ ok: true, recommendation: payload.recommendation, plan: payload.plan });
   } catch (error: unknown) {
-    res.status(400).json({ ok: false, error: error instanceof Error ? error.message : "map layer recommendation failed" });
+    res.status(400).json(toSafeErrorResponse(error));
   }
 });
 
@@ -1408,6 +1649,7 @@ router.post("/api/projects/:projectId/dispatch/quote", requireAuth, rateLimitByU
 
     const payload = await createDispatchQuoteForProject({
       projectId,
+      organisationId: req.authUser.organisationId,
       receiverId,
       receiverName,
       wasteCode,
@@ -1432,7 +1674,7 @@ router.post("/api/projects/:projectId/dispatch/quote", requireAuth, rateLimitByU
 
     res.json({ ok: true, quote: payload.quote, plan: payload.plan });
   } catch (error: unknown) {
-    res.status(400).json({ ok: false, error: error instanceof Error ? error.message : "dispatch quote failed" });
+    res.status(400).json(toSafeErrorResponse(error));
   }
 });
 
@@ -1461,6 +1703,7 @@ router.post("/api/projects/:projectId/dispatch/book", requireAuth, rateLimitByUs
 
     const payload = await bookTransportForProject({
       projectId,
+      organisationId: req.authUser.organisationId,
       quoteId,
       plannedPickupAt,
       plan: asOptionalProjectPlan(req.body?.plan),
@@ -1483,7 +1726,7 @@ router.post("/api/projects/:projectId/dispatch/book", requireAuth, rateLimitByUs
 
     res.json({ ok: true, booking: payload.booking, plan: payload.plan });
   } catch (error: unknown) {
-    res.status(400).json({ ok: false, error: error instanceof Error ? error.message : "dispatch booking failed" });
+    res.status(400).json(toSafeErrorResponse(error));
   }
 });
 
@@ -1532,6 +1775,7 @@ router.post("/api/projects/:projectId/driver-journals/upsert", requireAuth, rate
 
     const payload = await upsertDriverJournalForProject({
       projectId,
+      organisationId: req.authUser.organisationId,
       journal: {
         id: journalPayload.id ? String(journalPayload.id) : undefined,
         bookingId,
@@ -1569,7 +1813,7 @@ router.post("/api/projects/:projectId/driver-journals/upsert", requireAuth, rate
 
     res.json({ ok: true, journal: payload.journal, plan: payload.plan });
   } catch (error: unknown) {
-    res.status(400).json({ ok: false, error: error instanceof Error ? error.message : "driver journal upsert failed" });
+    res.status(400).json(toSafeErrorResponse(error));
   }
 });
 
@@ -1603,6 +1847,7 @@ router.post("/api/projects/:projectId/driver-journals/:journalId/sign", requireA
 
     const payload = await signDriverJournalForProject({
       projectId,
+      organisationId: req.authUser.organisationId,
       journalId,
       signerRole,
       signatureId,
@@ -1624,7 +1869,7 @@ router.post("/api/projects/:projectId/driver-journals/:journalId/sign", requireA
 
     res.json({ ok: true, journal: payload.journal, plan: payload.plan });
   } catch (error: unknown) {
-    res.status(400).json({ ok: false, error: error instanceof Error ? error.message : "driver journal sign failed" });
+    res.status(400).json(toSafeErrorResponse(error));
   }
 });
 
@@ -1681,6 +1926,7 @@ router.post("/api/projects/:projectId/lims/ingest", requireAuth, rateLimitByUser
 
     const payload = await ingestLimsReportForProject({
       projectId,
+      organisationId: req.authUser.organisationId,
       report: {
         bookingId,
         sampleId,
@@ -1711,7 +1957,7 @@ router.post("/api/projects/:projectId/lims/ingest", requireAuth, rateLimitByUser
 
     res.json({ ok: true, report: payload.report, plan: payload.plan });
   } catch (error: unknown) {
-    res.status(400).json({ ok: false, error: error instanceof Error ? error.message : "lims ingest failed" });
+    res.status(400).json(toSafeErrorResponse(error));
   }
 });
 
@@ -1743,6 +1989,7 @@ router.post("/api/projects/:projectId/lims/:reportId/verify", requireAuth, rateL
 
     const payload = await verifyLimsReportForProject({
       projectId,
+      organisationId: req.authUser.organisationId,
       reportId,
       reviewer,
       signatureId,
@@ -1766,7 +2013,7 @@ router.post("/api/projects/:projectId/lims/:reportId/verify", requireAuth, rateL
 
     res.json({ ok: true, report: payload.report, plan: payload.plan });
   } catch (error: unknown) {
-    res.status(400).json({ ok: false, error: error instanceof Error ? error.message : "lims verification failed" });
+    res.status(400).json(toSafeErrorResponse(error));
   }
 });
 
@@ -1803,7 +2050,7 @@ router.post("/api/projects/:projectId/field-analysis", requireAuth, rateLimitByU
 
     res.json({ ok: true, saved: true, auditId: record.id, projectId, mode, analysisType });
   } catch (error: unknown) {
-    res.status(400).json({ ok: false, error: error instanceof Error ? error.message : "field analysis save failed" });
+    res.status(400).json(toSafeErrorResponse(error));
   }
 });
 
@@ -1821,7 +2068,7 @@ router.get("/api/admin/projects", requireAuth, rateLimitByUser(40, 60_000), asyn
     const projects = await listProjectsForAdmin();
     res.json({ ok: true, projects });
   } catch (error: unknown) {
-    res.status(400).json({ ok: false, error: error instanceof Error ? error.message : "admin project list failed" });
+    res.status(400).json(toSafeErrorResponse(error));
   }
 });
 
@@ -1848,7 +2095,7 @@ router.post("/api/admin/projects", requireAuth, rateLimitByUser(20, 60_000), asy
 
     res.json({ ok: true, project: result.project, created: result.created });
   } catch (error: unknown) {
-    res.status(400).json({ ok: false, error: error instanceof Error ? error.message : "admin project create failed" });
+    res.status(400).json(toSafeErrorResponse(error));
   }
 });
 
@@ -1866,7 +2113,7 @@ router.get("/api/admin/dispatch/provider", requireAuth, rateLimitByUser(30, 60_0
     const dispatch = getDispatchProviderRuntimeStatus();
     res.json({ ok: true, dispatch, checkedAt: new Date().toISOString() });
   } catch (error: unknown) {
-    res.status(400).json({ ok: false, error: error instanceof Error ? error.message : "dispatch status failed" });
+    res.status(400).json(toSafeErrorResponse(error));
   }
 });
 
@@ -1893,7 +2140,7 @@ router.get("/api/admin/requirements/cases", requireAuth, rateLimitByUser(40, 60_
 
     res.json({ ok: true, ...payload });
   } catch (error: unknown) {
-    res.status(400).json({ ok: false, error: error instanceof Error ? error.message : "requirements cases failed" });
+    res.status(400).json(toSafeErrorResponse(error));
   }
 });
 
@@ -1925,7 +2172,7 @@ router.get("/api/admin/requirements/rows", requireAuth, rateLimitByUser(60, 60_0
 
     res.json({ ok: true, ...payload });
   } catch (error: unknown) {
-    res.status(400).json({ ok: false, error: error instanceof Error ? error.message : "requirements rows failed" });
+    res.status(400).json(toSafeErrorResponse(error));
   }
 });
 
@@ -1953,7 +2200,7 @@ router.get("/api/admin/requirements/citations", requireAuth, rateLimitByUser(60,
 
     res.json({ ok: true, ...payload });
   } catch (error: unknown) {
-    res.status(400).json({ ok: false, error: error instanceof Error ? error.message : "requirements citations failed" });
+    res.status(400).json(toSafeErrorResponse(error));
   }
 });
 
@@ -2001,7 +2248,7 @@ router.patch("/api/admin/requirements/rows/:requirementCode/verify", requireAuth
 
     res.json({ ok: true, row: updated });
   } catch (error: unknown) {
-    res.status(400).json({ ok: false, error: error instanceof Error ? error.message : "requirement verify failed" });
+    res.status(400).json(toSafeErrorResponse(error));
   }
 });
 
@@ -2056,7 +2303,7 @@ router.patch(
 
       res.json({ ok: true, citation: updated });
     } catch (error: unknown) {
-      res.status(400).json({ ok: false, error: error instanceof Error ? error.message : "citation verify failed" });
+      res.status(400).json(toSafeErrorResponse(error));
     }
   }
 );
@@ -2078,7 +2325,7 @@ router.get("/api/admin/requirements/documents/:documentId/view", requireAuth, ra
       return;
     }
 
-    const document = await getDocumentById(documentId);
+    const document = await getSearchDocumentById(documentId);
     if (!document || !document.absolutePath) {
       res.status(404).json({ ok: false, error: "Document not found" });
       return;
@@ -2104,7 +2351,7 @@ router.get("/api/admin/requirements/documents/:documentId/view", requireAuth, ra
     res.setHeader("Content-Disposition", `inline; filename="${encodeURIComponent(document.originalName || "document.pdf")}"`);
     stream.pipe(res);
   } catch (error: unknown) {
-    res.status(400).json({ ok: false, error: error instanceof Error ? error.message : "document view failed" });
+    res.status(400).json(toSafeErrorResponse(error));
   }
 });
 
@@ -2123,7 +2370,7 @@ router.get("/api/admin/requirements/reports/summary", requireAuth, rateLimitByUs
     const payload = await buildRequirementsReportSummary({ includePreliminary });
     res.json({ ok: true, summary: payload.summary });
   } catch (error: unknown) {
-    res.status(400).json({ ok: false, error: error instanceof Error ? error.message : "report summary failed" });
+    res.status(400).json(toSafeErrorResponse(error));
   }
 });
 
@@ -2154,7 +2401,7 @@ router.get("/api/admin/requirements/reports/export.csv", requireAuth, rateLimitB
     res.setHeader("Content-Disposition", `attachment; filename="${filename}"`);
     stream.pipe(res);
   } catch (error: unknown) {
-    res.status(400).json({ ok: false, error: error instanceof Error ? error.message : "csv export failed" });
+    res.status(400).json(toSafeErrorResponse(error));
   }
 });
 
@@ -2188,7 +2435,7 @@ router.post("/api/admin/requirements/reports/export.docx", requireAuth, rateLimi
     res.setHeader("Content-Disposition", `attachment; filename="${filename}"`);
     res.send(buffer);
   } catch (error: unknown) {
-    res.status(400).json({ ok: false, error: error instanceof Error ? error.message : "docx export failed" });
+    res.status(400).json(toSafeErrorResponse(error));
   }
 });
 
@@ -2206,7 +2453,7 @@ router.get("/api/admin/app-status", requireAuth, rateLimitByUser(30, 60_000), as
     const status = await getAppStatus();
     res.json({ ok: true, status });
   } catch (error: unknown) {
-    res.status(400).json({ ok: false, error: error instanceof Error ? error.message : "app status check failed" });
+    res.status(400).json(toSafeErrorResponse(error));
   }
 });
 
@@ -2224,7 +2471,25 @@ router.get("/api/admin/completion", requireAuth, rateLimitByUser(30, 60_000), as
     const completion = await getAppCompletion();
     res.json({ ok: true, completion });
   } catch (error: unknown) {
-    res.status(400).json({ ok: false, error: error instanceof Error ? error.message : "completion check failed" });
+    res.status(400).json(toSafeErrorResponse(error));
+  }
+});
+
+router.get("/api/admin/external-health", requireAuth, rateLimitByUser(20, 60_000), async (req, res) => {
+  try {
+    if (!req.authUser) {
+      res.status(401).json({ ok: false, error: "Unauthorized" });
+      return;
+    }
+    if (req.authUser.role !== "ADMIN") {
+      res.status(403).json({ ok: false, error: "Admin role required" });
+      return;
+    }
+
+    const report = await getExternalHealth();
+    res.json({ ok: true, report });
+  } catch (error: unknown) {
+    res.status(400).json(toSafeErrorResponse(error));
   }
 });
 
@@ -2242,7 +2507,7 @@ router.get("/api/admin/db-stats", requireAuth, rateLimitByUser(30, 60_000), asyn
     const stats = await getDbStats();
     res.json({ ok: true, stats });
   } catch (error: unknown) {
-    res.status(400).json({ ok: false, error: error instanceof Error ? error.message : "db stats failed" });
+    res.status(400).json(toSafeErrorResponse(error));
   }
 });
 
@@ -2260,7 +2525,7 @@ router.get("/api/admin/db-analysis", requireAuth, rateLimitByUser(20, 60_000), a
     const analysis = await getDbAnalysis();
     res.json({ ok: true, analysis });
   } catch (error: unknown) {
-    res.status(400).json({ ok: false, error: error instanceof Error ? error.message : "db analysis failed" });
+    res.status(400).json(toSafeErrorResponse(error));
   }
 });
 
@@ -2280,7 +2545,7 @@ router.get("/api/admin/db-contents", requireAuth, rateLimitByUser(15, 60_000), a
     const contents = await getDbContents(limit);
     res.json({ ok: true, contents });
   } catch (error: unknown) {
-    res.status(400).json({ ok: false, error: error instanceof Error ? error.message : "db contents failed" });
+    res.status(400).json(toSafeErrorResponse(error));
   }
 });
 
@@ -2299,7 +2564,7 @@ router.get("/api/admin/exam-summary", requireAuth, rateLimitByUser(20, 60_000), 
     const summary = await getAdminExamSummary();
     res.json({ ok: true, summary });
   } catch (error: unknown) {
-    res.status(400).json({ ok: false, error: error instanceof Error ? error.message : "admin exam summary failed" });
+    res.status(400).json(toSafeErrorResponse(error));
   }
 });
 
@@ -2327,7 +2592,7 @@ router.get("/api/admin/database-dump", requireAuth, rateLimitByUser(5, 60_000), 
     });
     res.json({ ok: true, dump });
   } catch (error: unknown) {
-    res.status(400).json({ ok: false, error: error instanceof Error ? error.message : "admin database dump failed" });
+    res.status(400).json(toSafeErrorResponse(error));
   }
 });
 
@@ -2345,11 +2610,11 @@ router.post("/api/orgs/:orgId/invitations", requireAuth, rateLimitByUser(20, 60_
       orgId: req.params.orgId,
       email,
       role,
-      actingUserId: req.authUser.userId,
+      actingUserId: req.authUser.id,
     });
     res.json({ ok: true, invitation });
   } catch (error: unknown) {
-    res.status(400).json({ ok: false, error: error instanceof Error ? error.message : "invitation create failed" });
+    res.status(400).json(toSafeErrorResponse(error));
   }
 });
 
@@ -2359,7 +2624,7 @@ router.get("/api/orgs/:orgId/invitations", requireAuth, rateLimitByUser(30, 60_0
     const invitations = listInvitations(req.params.orgId);
     res.json({ ok: true, invitations });
   } catch (error: unknown) {
-    res.status(400).json({ ok: false, error: error instanceof Error ? error.message : "list invitations failed" });
+    res.status(400).json(toSafeErrorResponse(error));
   }
 });
 
@@ -2371,17 +2636,17 @@ router.post("/api/orgs/:orgId/invitations/accept", rateLimitByUser(10, 60_000), 
     const result = await acceptInvitation({ orgId: req.params.orgId, token, bankidId });
     res.json({ ok: true, ...result });
   } catch (error: unknown) {
-    res.status(400).json({ ok: false, error: error instanceof Error ? error.message : "accept invitation failed" });
+    res.status(400).json(toSafeErrorResponse(error));
   }
 });
 
 router.delete("/api/orgs/:orgId/invitations/:inviteId", requireAuth, rateLimitByUser(20, 60_000), async (req, res) => {
   try {
     if (!req.authUser) { res.status(401).json({ ok: false, error: "Unauthorized" }); return; }
-    await revokeInvitation({ orgId: req.params.orgId, inviteId: req.params.inviteId, actingUserId: req.authUser.userId });
+    await revokeInvitation({ orgId: req.params.orgId, inviteId: req.params.inviteId, actingUserId: req.authUser.id });
     res.json({ ok: true });
   } catch (error: unknown) {
-    res.status(400).json({ ok: false, error: error instanceof Error ? error.message : "revoke invitation failed" });
+    res.status(400).json(toSafeErrorResponse(error));
   }
 });
 
@@ -2410,8 +2675,8 @@ router.post("/api/projects/:projectId/permit/authority-submit", requireAuth, rat
 
     const submission = await submitPermitToAuthority({
       projectId: req.params.projectId,
-      orgId: req.authUser.orgId,
-      actingUserId: req.authUser.userId,
+      orgId: req.authUser.organisationId,
+      actingUserId: req.authUser.id,
       permitType,
       applicantName,
       propertyDesignation,
@@ -2421,7 +2686,7 @@ router.post("/api/projects/:projectId/permit/authority-submit", requireAuth, rat
 
     res.json({ ok: true, submission });
   } catch (error: unknown) {
-    res.status(400).json({ ok: false, error: error instanceof Error ? error.message : "permit authority submit failed" });
+    res.status(400).json(toSafeErrorResponse(error));
   }
 });
 
@@ -2432,7 +2697,7 @@ router.get("/api/projects/:projectId/permit/submissions/:referenceId", requireAu
     if (!submission) { res.status(404).json({ ok: false, error: "Inlämning hittades inte" }); return; }
     res.json({ ok: true, submission });
   } catch (error: unknown) {
-    res.status(400).json({ ok: false, error: error instanceof Error ? error.message : "get submission failed" });
+    res.status(400).json(toSafeErrorResponse(error));
   }
 });
 
@@ -2445,7 +2710,7 @@ router.get("/api/market-intel/prices", requireAuth, rateLimitByUser(60, 60_000),
     const snapshot = await getMarketSnapshot();
     res.json({ ok: true, snapshot });
   } catch (error: unknown) {
-    res.status(400).json({ ok: false, error: error instanceof Error ? error.message : "market intel failed" });
+    res.status(400).json(toSafeErrorResponse(error));
   }
 });
 
@@ -2464,10 +2729,10 @@ router.post("/api/projects/:projectId/exec-summary/enqueue", requireAuth, rateLi
     if (!req.authUser) { res.status(401).json({ ok: false, error: "Unauthorized" }); return; }
     await assertPermission(req.authUser, req.params.projectId);
 
-    const job = await enqueueExecSummary({ projectId: req.params.projectId, userId: req.authUser.userId });
+    const job = await enqueueExecSummary({ projectId: req.params.projectId, userId: req.authUser.id });
     res.json({ ok: true, job });
   } catch (error: unknown) {
-    res.status(400).json({ ok: false, error: error instanceof Error ? error.message : "enqueue exec summary failed" });
+    res.status(400).json(toSafeErrorResponse(error));
   }
 });
 
@@ -2478,7 +2743,7 @@ router.get("/api/projects/:projectId/exec-summary/status/:jobId", requireAuth, r
     if (!job) { res.status(404).json({ ok: false, error: "Jobb hittades inte" }); return; }
     res.json({ ok: true, job });
   } catch (error: unknown) {
-    res.status(400).json({ ok: false, error: error instanceof Error ? error.message : "exec summary status failed" });
+    res.status(400).json(toSafeErrorResponse(error));
   }
 });
 
@@ -2489,7 +2754,7 @@ router.get("/api/projects/:projectId/exec-summary/jobs", requireAuth, rateLimitB
     const jobs = listExecSummaryJobs(req.params.projectId);
     res.json({ ok: true, jobs });
   } catch (error: unknown) {
-    res.status(400).json({ ok: false, error: error instanceof Error ? error.message : "list exec summary jobs failed" });
+    res.status(400).json(toSafeErrorResponse(error));
   }
 });
 
@@ -2506,7 +2771,7 @@ router.get("/api/geo/markcover", requireAuth, rateLimitByUser(40, 60_000), async
     const layer = await getMarkCoverLayer(bbox as [number, number, number, number]);
     res.json({ ok: true, layer });
   } catch (error: unknown) {
-    res.status(400).json({ ok: false, error: error instanceof Error ? error.message : "markcover failed" });
+    res.status(400).json(toSafeErrorResponse(error));
   }
 });
 
@@ -2529,7 +2794,7 @@ router.post("/api/admin/outlook/webhook", rateLimitByUser(30, 60_000), async (re
     const result = await triggerIngestionWebhook({ rawBody, signature });
     res.json({ ok: true, ...result });
   } catch (error: unknown) {
-    res.status(400).json({ ok: false, error: error instanceof Error ? error.message : "webhook trigger failed" });
+    res.status(400).json(toSafeErrorResponse(error));
   }
 });
 
@@ -2564,7 +2829,7 @@ router.post("/api/search/rag", requireAuth, rateLimitByUser(30, 60_000), rateLim
 
     res.json({ ok: true, result });
   } catch (error: unknown) {
-    res.status(400).json({ ok: false, error: error instanceof Error ? error.message : "rag search failed" });
+    res.status(400).json(toSafeErrorResponse(error));
   }
 });
 
@@ -2600,12 +2865,12 @@ router.post("/api/projects/:projectId/transport/:bookingId/gps/update", requireA
       speedKmh,
       heading,
       accuracy,
-      actingUserId: req.authUser.userId,
+      actingUserId: req.authUser.id,
     });
 
     res.json({ ok: true, position });
   } catch (error: unknown) {
-    res.status(400).json({ ok: false, error: error instanceof Error ? error.message : "gps update failed" });
+    res.status(400).json(toSafeErrorResponse(error));
   }
 });
 
@@ -2614,7 +2879,7 @@ router.get("/api/projects/:projectId/transport/:bookingId/gps", requireAuth, rat
     const track = getGpsTrack(req.params.bookingId);
     res.json({ ok: true, track });
   } catch (error: unknown) {
-    res.status(400).json({ ok: false, error: error instanceof Error ? error.message : "gps track failed" });
+    res.status(400).json(toSafeErrorResponse(error));
   }
 });
 
@@ -2624,7 +2889,7 @@ router.get("/api/projects/:projectId/transport/:bookingId/gps/latest", requireAu
     if (!position) { res.status(404).json({ ok: false, error: "Ingen position registrerad" }); return; }
     res.json({ ok: true, position });
   } catch (error: unknown) {
-    res.status(400).json({ ok: false, error: error instanceof Error ? error.message : "gps latest failed" });
+    res.status(400).json(toSafeErrorResponse(error));
   }
 });
 
@@ -2659,12 +2924,12 @@ router.post("/api/documents/:documentId/sign/eidas", requireAuth, rateLimitByUse
         format,
         level,
       },
-      req.authUser.userId,
+      req.authUser.id,
     );
 
     res.json({ ok: true, signature: result });
   } catch (error: unknown) {
-    res.status(400).json({ ok: false, error: error instanceof Error ? error.message : "eidas sign failed" });
+    res.status(400).json(toSafeErrorResponse(error));
   }
 });
 
@@ -2684,7 +2949,7 @@ router.get("/api/geo/terrain", requireAuth, rateLimitByUser(30, 60_000), async (
     const terrain = await getTerrainData(bbox as [number, number, number, number], resolution);
     res.json({ ok: true, terrain });
   } catch (error: unknown) {
-    res.status(400).json({ ok: false, error: error instanceof Error ? error.message : "terrain data failed" });
+    res.status(400).json(toSafeErrorResponse(error));
   }
 });
 
@@ -2697,10 +2962,10 @@ router.post("/api/admin/ocr/extract/:documentId", requireAuth, rateLimitByUser(2
     if (!req.authUser) { res.status(401).json({ ok: false, error: "Unauthorized" }); return; }
     if (req.authUser.role !== "ADMIN") { res.status(403).json({ ok: false, error: "Admin required" }); return; }
 
-    const result = await extractTextFromDocument(req.params.documentId, req.authUser.userId);
+    const result = await extractTextFromDocument(req.params.documentId, req.authUser.id);
     res.json({ ok: true, result });
   } catch (error: unknown) {
-    res.status(400).json({ ok: false, error: error instanceof Error ? error.message : "ocr extract failed" });
+    res.status(400).json(toSafeErrorResponse(error));
   }
 });
 
@@ -2712,10 +2977,10 @@ router.post("/api/admin/ocr/batch", requireAuth, rateLimitByUser(5, 60_000), asy
     const limitRaw = parseInt(String((req.body as { limit?: unknown })?.limit ?? "50"), 10);
     const limit = Number.isFinite(limitRaw) ? Math.min(limitRaw, 200) : 50;
 
-    const result = await batchExtractPendingDocuments(req.authUser.userId, limit);
+    const result = await batchExtractPendingDocuments(req.authUser.id, limit);
     res.json({ ok: true, result });
   } catch (error: unknown) {
-    res.status(400).json({ ok: false, error: error instanceof Error ? error.message : "ocr batch failed" });
+    res.status(400).json(toSafeErrorResponse(error));
   }
 });
 
@@ -2732,13 +2997,13 @@ router.post("/api/projects/:projectId/lims/auto-fetch", requireAuth, rateLimitBy
 
     const result = await autoFetchLimsReports({
       projectId: req.params.projectId,
-      actingUserId: req.authUser.userId,
+      actingUserId: req.authUser.id,
       since,
     });
 
     res.json({ ok: true, result });
   } catch (error: unknown) {
-    res.status(400).json({ ok: false, error: error instanceof Error ? error.message : "lims auto-fetch failed" });
+    res.status(400).json(toSafeErrorResponse(error));
   }
 });
 
@@ -2768,7 +3033,7 @@ router.get("/metrics", async (req, res) => {
   try {
     const text = await getMetricsText();
     res.status(200).type("text/plain; version=0.0.4; charset=utf-8").send(text);
-  } catch (error: unknown) {
+  } catch {
     res.status(500).end();
   }
 });
@@ -2789,7 +3054,7 @@ router.get("/api/admin/errors/recent", requireAuth, rateLimitByUser(20, 60_000),
     const errors = getRecentErrors({ limit, severity: severity as Parameters<typeof getRecentErrors>[0]["severity"] });
     res.json({ ok: true, errors, total: errors.length });
   } catch (error: unknown) {
-    res.status(400).json({ ok: false, error: error instanceof Error ? error.message : "get errors failed" });
+    res.status(400).json(toSafeErrorResponse(error));
   }
 });
 
@@ -2804,14 +3069,14 @@ router.post("/api/admin/errors/capture", requireAuth, rateLimitByUser(30, 60_000
 
     const err = new Error(message);
     const id = await captureException(err, {
-      userId: req.authUser.userId,
+      userId: req.authUser.id,
       extra: context,
       severity: (["fatal", "error", "warning", "info"].includes(severity ?? "") ? severity : "error") as Parameters<typeof captureException>[1]["severity"],
     });
 
     res.json({ ok: true, errorId: id });
   } catch (error: unknown) {
-    res.status(400).json({ ok: false, error: error instanceof Error ? error.message : "capture error failed" });
+    res.status(400).json(toSafeErrorResponse(error));
   }
 });
 
@@ -2824,10 +3089,10 @@ router.post("/api/admin/backup/trigger", requireAuth, rateLimitByUser(3, 60_000)
     if (!req.authUser) { res.status(401).json({ ok: false, error: "Unauthorized" }); return; }
     if (req.authUser.role !== "ADMIN") { res.status(403).json({ ok: false, error: "Admin required" }); return; }
 
-    const manifest = await runBackup(req.authUser.userId);
+    const manifest = await runBackup(req.authUser.id);
     res.json({ ok: true, manifest });
   } catch (error: unknown) {
-    res.status(400).json({ ok: false, error: error instanceof Error ? error.message : "backup failed" });
+    res.status(400).json(toSafeErrorResponse(error));
   }
 });
 
@@ -2839,7 +3104,7 @@ router.get("/api/admin/backup/list", requireAuth, rateLimitByUser(20, 60_000), (
     const backups = listBackups();
     res.json({ ok: true, backups });
   } catch (error: unknown) {
-    res.status(400).json({ ok: false, error: error instanceof Error ? error.message : "list backups failed" });
+    res.status(400).json(toSafeErrorResponse(error));
   }
 });
 
@@ -2852,7 +3117,7 @@ router.get("/api/admin/backup/:backupId", requireAuth, rateLimitByUser(10, 60_00
     if (!backup) { res.status(404).json({ ok: false, error: "Backup hittades inte" }); return; }
     res.json({ ok: true, backup });
   } catch (error: unknown) {
-    res.status(400).json({ ok: false, error: error instanceof Error ? error.message : "get backup failed" });
+    res.status(400).json(toSafeErrorResponse(error));
   }
 });
 

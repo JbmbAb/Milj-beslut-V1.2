@@ -58,6 +58,15 @@ const MODULES = [
         badge: 'COMPLIANCE',
         accent: 'glow-rose',
         delay: 0.4
+    },
+    {
+        id: 'admin',
+        title: 'Administrator',
+        description: 'Adminyta för case-review, dokumentvisning och fördjupad analys.',
+        icon: <User size={32} className="text-fuchsia-500" />,
+        badge: 'ADMIN',
+        accent: 'glow-rose',
+        delay: 0.45
     }
 ];
 

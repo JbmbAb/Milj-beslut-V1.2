@@ -593,17 +593,39 @@ describe.skipIf(!hasDatabaseIntegration)('secure API integration', () => {
     const originalFetch = globalThis.fetch;
     const originalBaseUrl = process.env.LANTMATERIET_BASE_URL;
     const originalApiKey = process.env.LANTMATERIET_API_KEY;
+    const originalConsumerKey = process.env.LANTMATERIET_CONSUMER_KEY;
+    const originalConsumerSecret = process.env.LANTMATERIET_CONSUMER_SECRET;
+    const originalTokenUrl = process.env.LANTMATERIET_TOKEN_URL;
+    const originalLookupMode = process.env.LANTMATERIET_LOOKUP_MODE;
+    const originalScope = process.env.LANTMATERIET_SCOPE;
+    const originalOpenMode = process.env.LANTMATERIET_OPEN_MODE;
     const originalOpenWms = process.env.LANTMATERIET_OPEN_WMS_URL;
 
     const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
       const url = String(input);
-      if (url.includes('/fastighet')) {
+      if (url.includes('/oauth2/token')) {
         return new Response(
           JSON.stringify({
-            designation: 'TEST 1:1',
-            geometry: { type: 'Polygon' },
-            boundaries: { source: 'mock' },
-            ownership: { ownerType: 'PRIVATE', share: '1/1', ownerName: 'REDACTED' },
+            access_token: 'mock-access-token',
+            expires_in: 3600,
+            scope: 'ogc-features:fastighetsindelning.read',
+          }),
+          {
+            status: 200,
+            headers: { 'Content-Type': 'application/json' },
+          }
+        );
+      }
+
+      if (url.includes('/collections/registerenhetsomradesytor/items')) {
+        return new Response(
+          JSON.stringify({
+            features: [
+              {
+                geometry: { type: 'Polygon', coordinates: [[[18.0, 59.0], [18.1, 59.0], [18.1, 58.9], [18.0, 58.9], [18.0, 59.0]]] },
+                properties: { etikett: 'TEST 1:1' },
+              },
+            ],
           }),
           {
             status: 200,
@@ -619,8 +641,14 @@ describe.skipIf(!hasDatabaseIntegration)('secure API integration', () => {
     });
 
     globalThis.fetch = fetchMock as unknown as typeof fetch;
-    process.env.LANTMATERIET_BASE_URL = 'https://lantmateriet.mock';
-    process.env.LANTMATERIET_API_KEY = 'licensed-test-key';
+    process.env.LANTMATERIET_OPEN_MODE = 'false';
+    process.env.LANTMATERIET_BASE_URL = 'https://lantmateriet.mock/ogc-features/v1';
+    process.env.LANTMATERIET_API_KEY = '';
+    process.env.LANTMATERIET_CONSUMER_KEY = 'licensed-test-consumer-key';
+    process.env.LANTMATERIET_CONSUMER_SECRET = 'licensed-test-consumer-secret';
+    process.env.LANTMATERIET_TOKEN_URL = 'https://lantmateriet.mock/oauth2/token';
+    process.env.LANTMATERIET_LOOKUP_MODE = 'ogc';
+    process.env.LANTMATERIET_SCOPE = 'ogc-features:fastighetsindelning.read';
     process.env.LANTMATERIET_OPEN_WMS_URL = 'https://lantmateriet.mock/wms?service=WMTS';
 
     try {
@@ -650,6 +678,12 @@ describe.skipIf(!hasDatabaseIntegration)('secure API integration', () => {
       globalThis.fetch = originalFetch;
       process.env.LANTMATERIET_BASE_URL = originalBaseUrl;
       process.env.LANTMATERIET_API_KEY = originalApiKey;
+      process.env.LANTMATERIET_CONSUMER_KEY = originalConsumerKey;
+      process.env.LANTMATERIET_CONSUMER_SECRET = originalConsumerSecret;
+      process.env.LANTMATERIET_TOKEN_URL = originalTokenUrl;
+      process.env.LANTMATERIET_LOOKUP_MODE = originalLookupMode;
+      process.env.LANTMATERIET_SCOPE = originalScope;
+      process.env.LANTMATERIET_OPEN_MODE = originalOpenMode;
       process.env.LANTMATERIET_OPEN_WMS_URL = originalOpenWms;
     }
   });

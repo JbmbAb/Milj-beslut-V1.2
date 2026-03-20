@@ -3,6 +3,7 @@ import { prisma } from "../db/prisma";
 const db = prisma as any;
 
 export type RequirementVerificationStatus = "AUTO" | "REVIEWED" | "VERIFIED" | "REJECTED";
+export type RequirementCaseReviewStatus = "AUTO" | "NEEDS_REVIEW" | "VERIFIED" | "LOCKED";
 
 export interface PaginationInput {
   page?: number;
@@ -18,6 +19,8 @@ export interface RequirementsFilterInput extends PaginationInput {
   requirementCode?: string;
   verificationStatus?: RequirementVerificationStatus;
   includePreliminary?: boolean;
+  organisationId: string;
+  projectId?: string;
 }
 
 function normalizeText(value?: string): string | undefined {
@@ -30,6 +33,22 @@ function normalizePagination(input?: PaginationInput) {
   const pageSize = Math.max(1, Math.min(200, Number(input?.pageSize || 25)));
   const skip = (page - 1) * pageSize;
   return { page, pageSize, skip, take: pageSize };
+}
+
+function mapCaseReviewStatusToVerificationStatus(
+  caseReviewStatus: RequirementCaseReviewStatus
+): RequirementVerificationStatus {
+  switch (caseReviewStatus) {
+    case "AUTO":
+      return "AUTO";
+    case "NEEDS_REVIEW":
+      return "REVIEWED";
+    case "VERIFIED":
+    case "LOCKED":
+      return "VERIFIED";
+    default:
+      return "AUTO";
+  }
 }
 
 function caseWhere(input: RequirementsFilterInput): Record<string, unknown> {
@@ -46,6 +65,14 @@ function caseWhere(input: RequirementsFilterInput): Record<string, unknown> {
   }
   if (verificationStatus) {
     where.reviewStatus = verificationStatus;
+  }
+
+  // Enforce organisationId (MANDATORY)
+  where.organisationId = input.organisationId;
+  
+  // Optional projectId filter
+  if (input.projectId) {
+    where.projectId = input.projectId;
   }
 
   return where;
@@ -71,12 +98,20 @@ function requirementWhere(input: RequirementsFilterInput): Record<string, unknow
   if (caseId) where.caseId = caseId;
   if (requirementCode) where.requirementCode = requirementCode;
   if (category) where.category = category;
-  if (ewcCode) where.ewcCode = { contains: ewcCode, mode: "insensitive" };
   if (municipality || documentType) {
     where.case = {
       ...(municipality ? { municipality: { contains: municipality, mode: "insensitive" } } : {}),
       ...(documentType ? { documentType } : {}),
     };
+  }
+
+  // Enforce organisationId via Project
+  where.project = {
+    organisationId: input.organisationId,
+  };
+  
+  if (input.projectId) {
+    where.projectId = input.projectId;
   }
 
   return where;
@@ -100,6 +135,21 @@ function citationWhere(input: RequirementsFilterInput): Record<string, unknown> 
     where.requirement = {
       ...(where.requirement as Record<string, unknown> | undefined),
       requirementCode,
+    };
+  }
+
+  // Enforce organisationId via Requirement -> Project
+  where.requirement = {
+    ...(where.requirement as Record<string, unknown> | undefined),
+    project: {
+      organisationId: input.organisationId,
+    },
+  };
+  
+  if (input.projectId) {
+    where.requirement = {
+      ...(where.requirement as Record<string, unknown> | undefined),
+      projectId: input.projectId,
     };
   }
 
@@ -164,9 +214,12 @@ export async function listRequirementCitations(input: RequirementsFilterInput) {
   return { items, total, page, pageSize };
 }
 
-export async function getRequirementByCode(requirementCode: string) {
-  return db.requirementRecord.findUnique({
-    where: { requirementCode },
+export async function getRequirementByCode(requirementCode: string, organisationId: string) {
+  return db.requirementRecord.findFirst({
+    where: { 
+      requirementCode,
+      project: { organisationId }
+    },
     include: {
       case: true,
       citations: true,
@@ -174,9 +227,14 @@ export async function getRequirementByCode(requirementCode: string) {
   });
 }
 
-export async function getCitationByCode(citationCode: string) {
-  return db.requirementCitation.findUnique({
-    where: { citationCode },
+export async function getCitationByCode(citationCode: string, organisationId: string) {
+  return db.requirementCitation.findFirst({
+    where: { 
+      citationCode,
+      requirement: {
+        project: { organisationId }
+      }
+    },
     include: {
       requirement: true,
       case: true,
@@ -184,15 +242,63 @@ export async function getCitationByCode(citationCode: string) {
   });
 }
 
+export async function getRequirementCaseById(caseId: string, organisationId: string) {
+  return db.requirementCase.findFirst({
+    where: { 
+      id: caseId,
+      organisationId
+    },
+  });
+}
+
+export async function updateRequirementCaseReview(input: {
+  caseId: string;
+  organisationId: string;
+  caseReviewStatus: RequirementCaseReviewStatus;
+  validatedBy?: string | null;
+  validatedAt?: Date | null;
+  notes?: string | null;
+}) {
+  const requirementCase = await getRequirementCaseById(input.caseId, input.organisationId);
+  if (!requirementCase) {
+    throw new Error("Requirement case not found");
+  }
+
+  const normalizedValidatedBy = normalizeText(input.validatedBy);
+  if (input.caseReviewStatus !== "AUTO" && !normalizedValidatedBy) {
+    throw new Error("validatedBy is required when setting a manual case review status");
+  }
+
+  const nextValidatedAt =
+    input.caseReviewStatus === "AUTO"
+      ? null
+      : input.validatedAt || new Date();
+
+  return db.requirementCase.updateMany({
+    where: { 
+      id: input.caseId,
+      organisationId: input.organisationId
+    },
+    data: {
+      caseReviewStatus: input.caseReviewStatus,
+      reviewStatus: mapCaseReviewStatusToVerificationStatus(input.caseReviewStatus),
+      validatedBy: normalizedValidatedBy || null,
+      validatedAt: nextValidatedAt,
+      notes: normalizeText(input.notes) || null,
+    },
+  });
+}
+
 export async function updateRequirementVerification(input: {
   requirementCode: string;
+  organisationId: string;
   verificationStatus: RequirementVerificationStatus;
   verifiedBy?: string | null;
   verifiedAt?: Date | null;
   errorType?: string | null;
   validationComment?: string | null;
 }) {
-  const requirement = await getRequirementByCode(input.requirementCode);
+  const requirement = await getRequirementByCode(input.requirementCode, input.organisationId);
   if (!requirement) {
     throw new Error("Requirement not found");
   }
@@ -217,8 +323,11 @@ export async function updateRequirementVerification(input: {
       ? input.verifiedAt || new Date()
       : input.verifiedAt || null;
 
-  return db.requirementRecord.update({
-    where: { requirementCode: input.requirementCode },
+  return db.requirementRecord.updateMany({
+    where: { 
+      requirementCode: input.requirementCode,
+      project: { organisationId: input.organisationId }
+    },
     data: {
       verificationStatus: input.verificationStatus,
       verifiedBy: normalizeText(input.verifiedBy) || null,
@@ -235,6 +344,7 @@ export async function updateRequirementVerification(input: {
 
 export async function updateCitationVerification(input: {
   citationCode: string;
+  organisationId: string;
   verificationStatus: RequirementVerificationStatus;
   verifiedBy?: string | null;
   verifiedAt?: Date | null;
@@ -243,7 +353,7 @@ export async function updateCitationVerification(input: {
   charEnd?: number | null;
   comment?: string | null;
 }) {
-  const citation = await getCitationByCode(input.citationCode);
+  const citation = await getCitationByCode(input.citationCode, input.organisationId);
   if (!citation) {
     throw new Error("Citation not found");
   }
@@ -271,8 +381,13 @@ export async function updateCitationVerification(input: {
       ? input.verifiedAt || new Date()
       : input.verifiedAt || null;
 
-  return db.requirementCitation.update({
-    where: { citationCode: input.citationCode },
+  return db.requirementCitation.updateMany({
+    where: { 
+      citationCode: input.citationCode,
+      requirement: {
+        project: { organisationId: input.organisationId }
+      }
+    },
     data: {
       verificationStatus: input.verificationStatus,
       verifiedBy: normalizeText(input.verifiedBy) || null,
@@ -307,9 +422,12 @@ export async function updateCitationVerification(input: {
   });
 }
 
-export async function getDocumentById(documentId: string) {
-  return db.documentRecord.findUnique({
-    where: { id: documentId },
+export async function getDocumentById(documentId: string, organisationId: string) {
+  return db.documentRecord.findFirst({
+    where: { 
+      id: documentId,
+      organisationId
+    },
     select: {
       id: true,
       originalName: true,
@@ -319,11 +437,20 @@ export async function getDocumentById(documentId: string) {
   });
 }
 
-export async function getRequirementReportRows(input?: { includePreliminary?: boolean }) {
-  const includePreliminary = Boolean(input?.includePreliminary);
-  const where = includePreliminary
+export async function getRequirementReportRows(input: { 
+  organisationId: string; 
+  projectId?: string;
+  includePreliminary?: boolean; 
+}) {
+  const includePreliminary = Boolean(input.includePreliminary);
+  const where: any = includePreliminary
     ? {}
     : { verificationStatus: "VERIFIED" };
+  
+  where.project = { 
+    organisationId: input.organisationId,
+    ...(input.projectId ? { id: input.projectId } : {})
+  };
 
   return db.requirementRecord.findMany({
     where,
@@ -335,20 +462,36 @@ export async function getRequirementReportRows(input?: { includePreliminary?: bo
   });
 }
 
-export async function getRequirementReportCases(caseIds: string[]) {
+export async function getRequirementReportCases(
+  caseIds: string[], 
+  filter: { organisationId: string; projectId?: string }
+) {
   if (!Array.isArray(caseIds) || caseIds.length === 0) return [];
   return db.requirementCase.findMany({
-    where: { id: { in: caseIds } },
+    where: { 
+      id: { in: caseIds },
+      organisationId: filter.organisationId,
+      ...(filter.projectId ? { projectId: filter.projectId } : {})
+    },
     orderBy: [{ documentDate: "asc" }, { createdAt: "asc" }],
   });
 }
 
-export async function getRequirementReportCitations(requirementIds: string[]) {
+export async function getRequirementReportCitations(
+  requirementIds: string[], 
+  filter: { organisationId: string; projectId?: string }
+) {
   if (!Array.isArray(requirementIds) || requirementIds.length === 0) return [];
   return db.requirementCitation.findMany({
     where: {
       requirementId: { in: requirementIds },
       verificationStatus: { in: ["REVIEWED", "VERIFIED"] },
+      requirement: {
+        project: { 
+          organisationId: filter.organisationId,
+          ...(filter.projectId ? { id: filter.projectId } : {})
+        }
+      }
     },
     orderBy: [{ createdAt: "asc" }],
   });

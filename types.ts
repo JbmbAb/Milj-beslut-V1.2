@@ -207,6 +207,37 @@ export interface WeatherRisk {
   level: 'Låg' | 'Medel' | 'Hög';
   description: string;
   action: string;
+  source?: string;
+  fetchedAt?: string;
+  approvedTime?: string | null;
+  referenceTime?: string | null;
+  municipality?: string;
+  coordinates?: { lat: number; lng: number };
+  forecastWindowHours?: number;
+  summary?: {
+    airTemperatureC: number | null;
+    windSpeedMs: number | null;
+    gustMs: number | null;
+    precipitationMmPerHour: number | null;
+    thunderstormRiskPct: number | null;
+    symbolCode: number | null;
+  };
+  peaks?: {
+    maxWindMs: number | null;
+    maxGustMs: number | null;
+    maxPrecipitationMmPerHour: number | null;
+    accumulatedPrecipitationMm: number | null;
+    maxThunderstormRiskPct: number | null;
+  };
+  timeline?: Array<{
+    validTime: string;
+    airTemperatureC: number | null;
+    windSpeedMs: number | null;
+    gustMs: number | null;
+    precipitationMmPerHour: number | null;
+    thunderstormRiskPct: number | null;
+    symbolCode: number | null;
+  }>;
 }
 
 export interface Stats {
@@ -940,6 +971,45 @@ export interface AppStatusResponse {
   };
 }
 
+export type ExternalHealthStatus = 'healthy' | 'degraded' | 'error' | 'not_configured';
+export type ExternalHealthCheckMode = 'live' | 'config' | 'derived';
+
+export interface ExternalHealthCheck {
+  key: string;
+  label: string;
+  category: string;
+  status: ExternalHealthStatus;
+  mode: ExternalHealthCheckMode;
+  configured: boolean;
+  detail: string;
+  endpoint?: string | null;
+  responseCode?: number | null;
+  activation?: 'IMMEDIATE' | 'PERMIT_REQUIRED' | 'OPTIONAL';
+}
+
+export interface ExternalHealthReport {
+  checkedAt: string;
+  overall: 'ok' | 'degraded' | 'error';
+  totals: {
+    total: number;
+    healthy: number;
+    degraded: number;
+    error: number;
+    notConfigured: number;
+    configured: number;
+    liveChecked: number;
+  };
+  categories: Array<{
+    name: string;
+    total: number;
+    healthy: number;
+    degraded: number;
+    error: number;
+    notConfigured: number;
+  }>;
+  checks: ExternalHealthCheck[];
+}
+
 export interface SearchInfoField {
   field: string;
   label: string;
@@ -970,6 +1040,7 @@ export interface SearchInfoResponse {
 }
 
 export type RequirementVerificationStatus = 'AUTO' | 'REVIEWED' | 'VERIFIED' | 'REJECTED';
+export type RequirementCaseReviewStatus = 'AUTO' | 'NEEDS_REVIEW' | 'VERIFIED' | 'LOCKED';
 
 export interface AdminRequirementCase {
   id: string;
@@ -986,6 +1057,7 @@ export interface AdminRequirementCase {
   sourceFile: string;
   sourceSubject: string | null;
   reviewStatus: RequirementVerificationStatus;
+  caseReviewStatus: RequirementCaseReviewStatus;
   validatedBy: string | null;
   validatedAt: string | null;
   notes: string | null;
@@ -1110,4 +1182,10 @@ export interface AdminVerifyCitationPayload {
   verifiedBy?: string;
   pageNumber?: number;
   comment?: string;
+}
+
+export interface AdminReviewRequirementCasePayload {
+  caseReviewStatus: RequirementCaseReviewStatus;
+  validatedBy?: string;
+  notes?: string;
 }

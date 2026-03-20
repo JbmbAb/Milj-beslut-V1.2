@@ -84,6 +84,7 @@ const mockAnalysis: DbAnalysisResponse = {
 vi.mock('../../server/repositories/adminReportRepository', () => ({
   getAdminExamSummary: vi.fn(),
   getAdminDatabaseDump: vi.fn(),
+  getExternalHealth: vi.fn(),
   getDbStats: vi.fn(),
   getDbAnalysis: vi.fn(async () => mockAnalysis),
 }));

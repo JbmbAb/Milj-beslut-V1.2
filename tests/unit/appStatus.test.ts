@@ -42,6 +42,7 @@ vi.mock('../../server/repositories/adminReportRepository', () => ({
   getDbStats: vi.fn(),
   getDbAnalysis: vi.fn(),
   getDbContents: vi.fn(),
+  getExternalHealth: vi.fn(),
   getAppStatus: vi.fn(async () => mockStatus),
 }));
 

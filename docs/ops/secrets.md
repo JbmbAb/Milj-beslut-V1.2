@@ -37,6 +37,7 @@ Se `.env.example` för icke-hemliga standardvärden.
 | `JWT_ACCESS_SECRET`       | Signerar access-tokens (HMAC-SHA256, ≥ 32 bytes)        | 90 dagar        |
 | `JWT_REFRESH_SECRET`      | Signerar refresh-tokens (HMAC-SHA256, ≥ 32 bytes)       | 90 dagar        |
 | `ADMIN_CONSOLE_PASSWORD`  | Lösenord för admin-konsolen                              | 90 dagar        |
+| `STAGING_ADMIN_CONSOLE_PASSWORD` | Staging-lösenord för admin-konsolen               | 90 dagar        |
 
 ### Databas
 
@@ -121,6 +122,8 @@ Prefixet `STAGING_` används för att separera staging-secrets från produktions
 |------------------------|------------------------------------------------|
 | `STAGING_URL`          | Publik bas-URL för staging-miljön              |
 | `STAGING_API_BASE_URL` | API-bas-URL inbakad i frontend-bygget          |
+| `STAGING_ADMIN_CONSOLE_USERNAME` | Användarnamn för staging-adminlogin, normalt `admin` |
+| `STAGING_DEPLOY_COMMAND` | Plattformsspecifikt deploykommando som körs i workflowet |
 
 ---
 

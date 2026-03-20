@@ -2,7 +2,7 @@ import crypto from "node:crypto";
 import type { Request, Response, NextFunction } from "express";
 import type { AuthUser } from "./types";
 import { getEnv } from "./env";
-import { isTokenRevoked, markRefreshTokenAsUsed } from "../repositories/tokenRepository";
+import { isTokenRevoked, markRefreshTokenAsUsed, revokeRefreshToken } from "../repositories/tokenRepository";
 
 const accessTtlSeconds = 60 * 15;
 const refreshTtlSeconds = 60 * 60 * 24 * 7;
@@ -16,13 +16,13 @@ function hmac(data: string, secret: string): string {
   return b64url(crypto.createHmac("sha256", secret).update(data).digest());
 }
 
-function decodeB64UrlJson<T>(input: string): T {
+export function decodeB64UrlJson<T>(input: string): T {
   const normalized = input.replace(/-/g, "+").replace(/_/g, "/");
   const padding = "=".repeat((4 - (normalized.length % 4)) % 4);
   return JSON.parse(Buffer.from(normalized + padding, "base64").toString("utf8")) as T;
 }
 
-interface JwtPayload {
+export interface JwtPayload {
   sub: string;
   organisationId: string;
   bankidId: string;
@@ -127,24 +127,51 @@ export function requireAuth(req: Request, res: Response, next: NextFunction): vo
     return;
   }
 
-  try {
-    const token = raw.slice("Bearer ".length);
-    req.authUser = getUserFromAccessToken(token);
-    next();
-  } catch {
-    res.status(401).json({ ok: false, error: "Invalid token" });
-  }
+  const token = raw.slice("Bearer ".length);
+  getUserFromAccessToken(token)
+    .then((user) => {
+      req.authUser = user;
+      next();
+    })
+    .catch((err) => {
+      res.status(401).json({ ok: false, error: err instanceof Error ? err.message : "Invalid or revoked token" });
+    });
 }
 
-export function getUserFromAccessToken(token: string): AuthUser {
+export async function getUserFromAccessToken(token: string): Promise<AuthUser> {
   const payload = verifyJwt<JwtPayload>(token, getEnv("JWT_ACCESS_SECRET"));
   if (payload.type !== "access") {
     throw new Error("Invalid access token");
   }
+
+  const revoked = await isTokenRevoked(payload.jti);
+  if (revoked) {
+    throw new Error("Token has been revoked");
+  }
+
   return {
     id: payload.sub,
     organisationId: payload.organisationId,
     bankidId: payload.bankidId,
     role: payload.role,
   };
+}
+
+export async function revokeSession(accessToken?: string, refreshToken?: string): Promise<void> {
+  const tokens = [accessToken, refreshToken];
+
+  for (const token of tokens) {
+    if (!token) continue;
+    try {
+      const parts = token.split(".");
+      if (parts.length !== 3) continue;
+      const payload = decodeB64UrlJson<JwtPayload>(parts[1]);
+      if (payload.jti) {
+        const expiresAt = new Date(payload.exp * 1000);
+        await revokeRefreshToken(payload.sub, payload.jti, expiresAt);
+      }
+    } catch {
+      // Ignore errors during revocation attempt
+    }
+  }
 }

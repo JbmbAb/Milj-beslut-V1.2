@@ -3,6 +3,7 @@
  */
 import crypto from 'node:crypto';
 import { prisma } from '../../server/db/prisma';
+import { mergeReviewReasons } from './reviewQueueHelpers';
 
 // â”€â”€â”€ Confidence-trÃ¶sklar (fÃ¤ltvisa, lÃ¥sta) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 export const CONFIDENCE_THRESHOLDS = {
@@ -133,10 +134,20 @@ export const MUNICIPALITY_MAP: Record<string, string> = {
     'Ã¶verkalix': 'Ã–verkalix', 'Ã¶vertorneÃ¥': 'Ã–vertorneÃ¥'
 };
 
+export function repairSwedishMojibake(value: string | null | undefined): string {
+    return String(value ?? '')
+        .replace(/Ã…/g, 'Å')
+        .replace(/Ã„/g, 'Ä')
+        .replace(/Ã–/g, 'Ö')
+        .replace(/Ã¥/g, 'å')
+        .replace(/Ã¤/g, 'ä')
+        .replace(/Ã¶/g, 'ö');
+}
+
 /** Normaliserar ett rÃ¥a kommunnamn till en kanonisk form frÃ¥n listan ovan. */
 export function normalizeMunicipality(raw: string | null | undefined): string | null {
     if (!raw) return null;
-    const cleaned = raw
+    const cleaned = repairSwedishMojibake(raw)
         .toLowerCase()
         // Replace common Swedish word endings/prefixes if they are detached by space
         .replace(/\bkommun\b/g, '')
@@ -148,28 +159,32 @@ export function normalizeMunicipality(raw: string | null | undefined): string | 
         // Just remove ' stad' or ' kommun' if they are clearly separated
         .replace(/\s+stad\b/g, '')
         .replace(/\s+kommun\b/g, '')
-        .replace(/[^a-zÃ¥Ã¤Ã¶\s-]/g, '')
+        .replace(/[^a-zåäö\s-]/g, '')
         .replace(/\s+/g, ' ')
         .trim();
 
-    if (MUNICIPALITY_MAP[cleaned]) return MUNICIPALITY_MAP[cleaned];
+    for (const [key, display] of Object.entries(MUNICIPALITY_MAP)) {
+        if (repairSwedishMojibake(key).toLowerCase() === cleaned) return repairSwedishMojibake(display);
+    }
 
     // Robust cleaning: remove anything not being a letter, number, space or hyphen
     // We do this AFTER the direct map check to allow exact matches with special chars if they exist
     const normalized = cleaned
-        .replace(/[^a-z0-9Ã¥Ã¤Ã¶\s-]/g, '')
+        .replace(/[^a-z0-9åäö\s-]/g, '')
         .replace(/\s+/g, ' ')
         .trim();
 
-    if (MUNICIPALITY_MAP[normalized]) return MUNICIPALITY_MAP[normalized];
+    for (const [key, display] of Object.entries(MUNICIPALITY_MAP)) {
+        if (repairSwedishMojibake(key).toLowerCase() === normalized) return repairSwedishMojibake(display);
+    }
 
     // Create a version without Ã¥Ã¤Ã¶ for robust matching
-    const stripAccents = (s: string) => s.replace(/[Ã¥Ã¤]/g, 'a').replace(/Ã¶/g, 'o');
+    const stripAccents = (s: string) => s.replace(/[åä]/g, 'a').replace(/ö/g, 'o');
     const cleanedStripped = stripAccents(normalized);
 
     // Check aliases first if any
     for (const [alias, display] of Object.entries(MUNICIPALITY_ALIASES)) {
-        if (normalized.includes(alias.toLowerCase())) return display;
+        if (normalized.includes(repairSwedishMojibake(alias).toLowerCase())) return repairSwedishMojibake(display);
     }
 
     // Match against MAP keys
@@ -177,9 +192,10 @@ export function normalizeMunicipality(raw: string | null | undefined): string | 
     const cleanedAll = stripAll(normalized);
 
     for (const [key, display] of Object.entries(MUNICIPALITY_MAP)) {
-        const keyAll = stripAll(key);
-        if (normalized === key || stripAccents(key) === cleanedStripped || cleanedAll === keyAll || (keyAll.length > 3 && cleanedAll.includes(keyAll))) {
-            return display;
+        const repairedKey = repairSwedishMojibake(key);
+        const keyAll = stripAll(repairedKey);
+        if (normalized === repairedKey || stripAccents(repairedKey) === cleanedStripped || cleanedAll === keyAll || (keyAll.length > 3 && cleanedAll.includes(keyAll))) {
+            return repairSwedishMojibake(display);
         }
     }
 
@@ -255,6 +271,7 @@ export function extractMunicipalityWeighted(opts: {
     absolutePath?: string;
     senderDomain?: string;   // e.g. "nacka.se"
     senderEmail?: string;    // e.g. "karin@stockholm.se"
+    manifestMunicipality?: string;
     bodyText?: string;
 }): { value: string | null; confidence: number } {
     const scores = new Map<string, number>();
@@ -301,7 +318,13 @@ export function extractMunicipalityWeighted(opts: {
         addScore(m, 0.40);
     }
 
-    // Signal 4: First 500 chars of body text (+0.25)
+    // Signal 4: Municipality carried in manifest/import metadata (+0.60)
+    if (opts.manifestMunicipality) {
+        const m = matchMuni(opts.manifestMunicipality);
+        addScore(m, 0.60);
+    }
+
+    // Signal 5: First 500 chars of body text (+0.25)
     if (opts.bodyText) {
         const m = matchMuni(opts.bodyText.slice(0, 500));
         addScore(m, 0.25);
@@ -321,11 +344,44 @@ export function extractMunicipalityWeighted(opts: {
 }
 
 // â”€â”€â”€ Diarienummer-regex â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-const DIARIE_REGEX = /\b(?:dnr|diarienr(?:ummer)?|diarie)[\s.:/-]*([A-Z0-9][A-Z0-9.\-/]+)/i;
+function normalizeDiarieValue(rawValue: string): string {
+    const trimmed = rawValue.trim().replace(/_+/g, '.');
+    if (/^[A-Z]{2,6}[.-]\d{4}[.-]\d+$/i.test(trimmed) && trimmed.includes('.')) {
+        return trimmed.toUpperCase().replace(/-/g, '.');
+    }
+    if (/^\d{4}[.-]\d{2,6}$/i.test(trimmed) && trimmed.includes('.')) {
+        return trimmed.replace(/-/g, '.');
+    }
+    return trimmed.toUpperCase();
+}
+
+export function extractDiarieSignal(text: string): { value: string | null; confidence: number } {
+    const normalizedText = repairSwedishMojibake(text)
+        .normalize('NFD')
+        .replace(/[\u0300-\u036f]/g, '');
+    const patterns = [
+        { regex: /\b(?:dnr|diarienr(?:ummer)?|diarie|arende|arendenummer)[\s.:#/-]*([A-Z]{1,4}-\d{4}[-/]\d+)\b/i, confidence: 0.95 },
+        { regex: /\b(?:dnr|diarienr(?:ummer)?|diarie|arende(?:\.?\s*nr)?|arendenummer)[\s.:#/-]*([A-Z]?\d{4}[-/]\d+)\b/i, confidence: 0.93 },
+        { regex: /\b(?:dnr|diarienr(?:ummer)?|diarienummer|diarie(?:nummer)?|arende(?:nummer|\.?\s*nr)?|malnr|mal\s*nr|beteckning)[\s.:#/-]*([A-Z]{2,6}[._-]\d{4}[._-]\d+)\b/i, confidence: 0.95 },
+        { regex: /\b(?:dnr|diarienr(?:ummer)?|diarienummer|diarie(?:nummer)?|arende(?:nummer|\.?\s*nr)?|malnr|mal\s*nr|beteckning)[\s.:#/-]*([A-Z]?\d{4}[._-]\d+)\b/i, confidence: 0.93 },
+        { regex: /\b([A-Z]{1,4}-\d{4}[-/]\d+)\b/i, confidence: 0.91 },
+        { regex: /\b([A-Z]{2,6}[._-]\d{4}[._-]\d+)\b/i, confidence: 0.91 },
+        { regex: /(?:^|[\s\\/])(\d{4}[-/]\d{2,6})(?=[A-Za-zÅÄÖ])/, confidence: 0.9 },
+        { regex: /(?:^|[\s\\/])(\d{4}[._-]\d{2,6})(?=\.[A-Za-z0-9]{2,5}\b|[A-Za-zÅÄÖ]|\b)/, confidence: 0.9 },
+    ];
+
+    for (const pattern of patterns) {
+        const match = normalizedText.match(pattern.regex);
+        if (match?.[1]) {
+            return { value: normalizeDiarieValue(match[1]), confidence: pattern.confidence };
+        }
+    }
+
+    return { value: null, confidence: 0 };
+}
 
 export function extractDiarie(text: string): string | null {
-    const m = text.match(DIARIE_REGEX);
-    return m ? m[1].trim() : null;
+    return extractDiarieSignal(text).value;
 }
 
 // â”€â”€â”€ SHA256-hjÃ¤lp â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
@@ -417,13 +473,40 @@ export async function enqueueReview(opts: {
     confidence: number | null;
     reason: string;
 }): Promise<void> {
-    await prisma.$executeRawUnsafe(
-        `INSERT INTO "MetadataReviewQueue"
-     (id, "documentId", "queueType", "fieldName", "proposedValue", confidence, reason)
-     VALUES (gen_random_uuid()::text, $1, $2, $3, $4, $5, $6);`,
-        opts.documentId, opts.queueType, opts.fieldName,
-        opts.proposedValue ?? null, opts.confidence ?? null, opts.reason,
-    );
+    const existing = await prisma.metadataReviewQueue.findFirst({
+        where: {
+            documentId: opts.documentId,
+            queueType: opts.queueType,
+            fieldName: opts.fieldName,
+            status: 'OPEN',
+        },
+        orderBy: { createdAt: 'asc' },
+        select: { id: true, proposedValue: true, confidence: true, reason: true },
+    });
+
+    if (existing) {
+        const mergedConfidence = Math.max(existing.confidence ?? -1, opts.confidence ?? -1);
+        await prisma.metadataReviewQueue.update({
+            where: { id: existing.id },
+            data: {
+                proposedValue: opts.proposedValue ?? existing.proposedValue,
+                confidence: mergedConfidence >= 0 ? mergedConfidence : null,
+                reason: mergeReviewReasons(existing.reason, opts.reason),
+            },
+        });
+        return;
+    }
+
+    await prisma.metadataReviewQueue.create({
+        data: {
+            documentId: opts.documentId,
+            queueType: opts.queueType,
+            fieldName: opts.fieldName,
+            proposedValue: opts.proposedValue ?? null,
+            confidence: opts.confidence ?? null,
+            reason: opts.reason,
+        },
+    });
 }
 
 /**

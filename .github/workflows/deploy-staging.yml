@@ -1,7 +1,5 @@
-name: Deploy – Staging
+name: Deploy - Staging
 
-# Triggered automatically after a successful CI run on main/master,
-# or manually via workflow_dispatch for one-click re-deploy.
 on:
   workflow_run:
     workflows: [CI]
@@ -10,7 +8,6 @@ on:
   workflow_dispatch:
 
 jobs:
-  # Guard: only run when the triggering CI run passed.
   guard:
     name: Gate on CI success
     runs-on: ubuntu-latest
@@ -19,7 +16,7 @@ jobs:
       github.event_name == 'workflow_dispatch' ||
       github.event.workflow_run.conclusion == 'success'
     steps:
-      - run: echo "CI passed – proceeding to staging deploy"
+      - run: echo "CI passed - proceeding to staging deploy"
 
   deploy-staging:
     name: Deploy to staging
@@ -33,7 +30,7 @@ jobs:
       url: ${{ vars.STAGING_URL }}
     concurrency:
       group: deploy-staging
-      cancel-in-progress: false   # never cancel an in-flight deploy
+      cancel-in-progress: false
 
     steps:
       - uses: actions/checkout@v4
@@ -45,76 +42,78 @@ jobs:
 
       - run: npm ci
 
-      # ── Build the frontend bundle ────────────────────────────────────────
       - name: Build
         run: npm run build
         env:
           VITE_API_BASE_URL: ${{ vars.STAGING_API_BASE_URL }}
 
-      # ── Run database migrations against staging DB ───────────────────────
       - name: Prisma migrate (staging)
         run: npx prisma migrate deploy
         env:
           DATABASE_URL: ${{ secrets.STAGING_DATABASE_URL }}
 
-      # ── Deploy application ───────────────────────────────────────────────
-      # Replace the step below with the deploy command for your platform
-      # (Fly.io, Railway, Render, Azure App Service, custom SSH, …).
-      #
-      # Example – Fly.io:
-      #   - uses: superfly/flyctl-actions/setup-flyctl@master
-      #   - run: flyctl deploy --remote-only
-      #     env:
-      #       FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
-      #
-      # Example – SSH deploy:
-      #   - uses: appleboy/ssh-action@v1
-      #     with:
-      #       host:     ${{ secrets.STAGING_SSH_HOST }}
-      #       username: ${{ secrets.STAGING_SSH_USER }}
-      #       key:      ${{ secrets.STAGING_SSH_KEY }}
-      #       script: |
-      #         cd /opt/miljobeslut
-      #         git pull origin main
-      #         npm ci --omit=dev
-      #         npx prisma migrate deploy
-      #         pm2 restart miljobeslut
-      #
-      # Once configured, set the STAGING_DEPLOY_CONFIGURED repository variable
-      # to 'true' so this check passes.
       - name: Check deploy configuration
+        id: deploy_config
         run: |
           if [ "${{ vars.STAGING_DEPLOY_CONFIGURED }}" != "true" ]; then
+            echo "configured=false" >> "$GITHUB_OUTPUT"
             echo "::warning::Staging deploy is not configured yet."
-            echo "Set the STAGING_DEPLOY_CONFIGURED repository variable to 'true'"
-            echo "after adding the platform-specific deploy step to this workflow."
-            echo "See the inline comments in .github/workflows/deploy-staging.yml for examples."
+            echo "Set STAGING_DEPLOY_CONFIGURED=true and provide STAGING_DEPLOY_COMMAND."
             exit 0
           fi
-          echo "Deploy configured – add your platform-specific deploy step here."
+
+          if [ -z "${{ vars.STAGING_DEPLOY_COMMAND }}" ]; then
+            echo "::error::STAGING_DEPLOY_COMMAND is empty even though staging deploy is marked configured."
+            exit 1
+          fi
+
+          echo "configured=true" >> "$GITHUB_OUTPUT"
+          echo "Deploy configured."
+
+      - name: Deploy application
+        if: steps.deploy_config.outputs.configured == 'true'
+        run: ${{ vars.STAGING_DEPLOY_COMMAND }}
         env:
-          STAGING_DATABASE_URL: ${{ secrets.STAGING_DATABASE_URL }}
-          JWT_ACCESS_SECRET:    ${{ secrets.STAGING_JWT_ACCESS_SECRET }}
-          JWT_REFRESH_SECRET:   ${{ secrets.STAGING_JWT_REFRESH_SECRET }}
-          GEMINI_API_KEY:       ${{ secrets.STAGING_GEMINI_API_KEY }}
-          OPENAI_API_KEY:       ${{ secrets.STAGING_OPENAI_API_KEY }}
-          BANKID_PFX_PATH:      ${{ secrets.STAGING_BANKID_PFX_PATH }}
+          DATABASE_URL: ${{ secrets.STAGING_DATABASE_URL }}
+          JWT_ACCESS_SECRET: ${{ secrets.STAGING_JWT_ACCESS_SECRET }}
+          JWT_REFRESH_SECRET: ${{ secrets.STAGING_JWT_REFRESH_SECRET }}
+          GEMINI_API_KEY: ${{ secrets.STAGING_GEMINI_API_KEY }}
+          OPENAI_API_KEY: ${{ secrets.STAGING_OPENAI_API_KEY }}
+          ADMIN_CONSOLE_USERNAME: ${{ vars.STAGING_ADMIN_CONSOLE_USERNAME }}
+          ADMIN_CONSOLE_PASSWORD: ${{ secrets.STAGING_ADMIN_CONSOLE_PASSWORD }}
+          BANKID_PFX_PATH: ${{ secrets.STAGING_BANKID_PFX_PATH }}
           BANKID_PFX_PASSPHRASE: ${{ secrets.STAGING_BANKID_PFX_PASSPHRASE }}
           LANTMATERIET_API_KEY: ${{ secrets.STAGING_LANTMATERIET_API_KEY }}
-          SLU_API_KEY:          ${{ secrets.STAGING_SLU_API_KEY }}
+          SLU_API_KEY: ${{ secrets.STAGING_SLU_API_KEY }}
           SEARCH_ENCRYPTION_KEY_BASE64: ${{ secrets.STAGING_SEARCH_ENCRYPTION_KEY }}
+          VITE_API_BASE_URL: ${{ vars.STAGING_API_BASE_URL }}
 
-      # ── Smoke-test the staging deployment ───────────────────────────────
       - name: Health check
+        if: steps.deploy_config.outputs.configured == 'true'
         run: |
           STAGING_URL="${{ vars.STAGING_URL }}"
           if [ -z "$STAGING_URL" ]; then
-            echo "STAGING_URL variable not set – skipping health check."
+            echo "STAGING_URL variable not set - skipping health check."
             exit 0
           fi
+
           STATUS=$(curl -s -o /dev/null -w "%{http_code}" "$STAGING_URL/health")
           if [ "$STATUS" != "200" ]; then
-            echo "Staging health check failed – HTTP $STATUS"
+            echo "Staging health check failed - HTTP $STATUS"
             exit 1
           fi
+
           echo "Staging health check passed (HTTP $STATUS)"
+
+      - name: Install Playwright browsers
+        if: steps.deploy_config.outputs.configured == 'true' && vars.STAGING_URL != ''
+        run: npx playwright install --with-deps chromium
+
+      - name: Staging smoke tests
+        if: steps.deploy_config.outputs.configured == 'true' && vars.STAGING_URL != ''
+        run: npm run test:e2e:staging
+        env:
+          PLAYWRIGHT_BASE_URL: ${{ vars.STAGING_URL }}
+          PLAYWRIGHT_API_BASE_URL: ${{ vars.STAGING_API_BASE_URL }}
+          E2E_ADMIN_USERNAME: ${{ vars.STAGING_ADMIN_CONSOLE_USERNAME }}
+          E2E_ADMIN_PASSWORD: ${{ secrets.STAGING_ADMIN_CONSOLE_PASSWORD }}

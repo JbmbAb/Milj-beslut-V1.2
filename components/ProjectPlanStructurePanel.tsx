@@ -1,5 +1,8 @@
 import React, { useMemo, useState } from 'react';
 import { ArchiveCategory, CoreModuleKey, ModuleReadiness, ProjectPlan } from '../types';
+import { createArchiveDocument, mergeArchiveDocument } from '../services/projectStructure';
+import { uploadProjectDocument } from '../services/documentUploadClient';
+import { deleteProjectDocument, downloadProjectDocument, openProjectDocument } from '../services/documentAccessClient';
 
 interface ProjectPlanStructurePanelProps {
   plan: ProjectPlan;
@@ -17,11 +20,19 @@ const MODULE_OPTIONS: CoreModuleKey[] = [
 const CATEGORY_OPTIONS: ArchiveCategory[] = ['PROJECT_PLAN', 'PERMIT', 'RISK', 'FIELD', 'FINANCE', 'OTHER'];
 
 const READINESS_OPTIONS: ModuleReadiness[] = ['READY', 'NOT_READY', 'BLOCKED'];
+const TOKEN_KEY = 'miljobeslut_admin_bearer';
+const PROJECT_KEY = 'miljobeslut_admin_project';
 
 const ProjectPlanStructurePanel: React.FC<ProjectPlanStructurePanelProps> = ({ plan, onUpdatePlan }) => {
   const [draftName, setDraftName] = useState('');
   const [draftModule, setDraftModule] = useState<CoreModuleKey>('PROJECT_MANAGER');
   const [draftCategory, setDraftCategory] = useState<ArchiveCategory>('PROJECT_PLAN');
+  const [uploadFile, setUploadFile] = useState<File | null>(null);
+  const [isUploading, setIsUploading] = useState(false);
+  const [uploadMessage, setUploadMessage] = useState('');
+  const [openingDocumentId, setOpeningDocumentId] = useState('');
+  const [downloadingDocumentId, setDownloadingDocumentId] = useState('');
+  const [deletingDocumentId, setDeletingDocumentId] = useState('');
 
   const archiveStats = useMemo(() => {
     const total = plan.documentArchive.length;
@@ -51,25 +62,175 @@ const ProjectPlanStructurePanel: React.FC<ProjectPlanStructurePanelProps> = ({ p
   const addArchiveDocument = () => {
     if (!draftName.trim()) return;
 
-    const createdAt = new Date().toISOString();
-    const storageSafeName = draftName.trim().replace(/\s+/g, '-').toLowerCase();
-
-    const nextArchive = [
-      {
-        id: `DOC-${Date.now()}`,
+    const nextArchive = mergeArchiveDocument(
+      plan.documentArchive,
+      createArchiveDocument({
         name: draftName.trim(),
         module: draftModule,
         category: draftCategory,
-        status: 'DRAFT' as const,
-        uploadedAt: createdAt,
-        storagePath: `/archive/${new Date().getFullYear()}/${storageSafeName}`,
-        tags: [draftCategory.toLowerCase(), draftModule.toLowerCase()]
-      },
-      ...plan.documentArchive
-    ];
+        status: 'DRAFT',
+        tags: [draftCategory.toLowerCase(), draftModule.toLowerCase()],
+      })
+    );
 
     onUpdatePlan('documentArchive', nextArchive);
     setDraftName('');
+  };
+
+  const handleFileSelection = (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0] || null;
+    setUploadFile(file);
+    setUploadMessage('');
+    if (file && !draftName.trim()) {
+      setDraftName(file.name);
+    }
+  };
+
+  const handleUploadToArchive = async () => {
+    if (!uploadFile) {
+      setUploadMessage('Välj en fil först.');
+      return;
+    }
+
+    if (typeof window === 'undefined') {
+      setUploadMessage('Filuppladdning stöds bara i webbläsaren.');
+      return;
+    }
+
+    const token = String(window.localStorage.getItem(TOKEN_KEY) || '').trim();
+    const projectId = String(window.localStorage.getItem(PROJECT_KEY) || '').trim();
+
+    if (!token || !projectId) {
+      setUploadMessage('Adminsession eller projektkoppling saknas. Logga in och välj projekt först.');
+      return;
+    }
+
+    setIsUploading(true);
+    setUploadMessage('Laddar upp dokument till projektarkivet...');
+
+    try {
+      const uploaded = await uploadProjectDocument({
+        file: uploadFile,
+        projectId,
+        token,
+        subject: draftName.trim() || uploadFile.name,
+      });
+
+      const archiveDoc = createArchiveDocument({
+        name: draftName.trim() || uploadFile.name,
+        module: draftModule,
+        category: draftCategory,
+        status: 'DRAFT',
+        tags: [draftCategory.toLowerCase(), draftModule.toLowerCase(), 'uploaded'],
+        storagePath: `/uploads/${projectId}/${uploaded.document.diskName}`,
+      });
+
+      const nextArchive = mergeArchiveDocument(plan.documentArchive, {
+        ...archiveDoc,
+        id: uploaded.document.id,
+        uploadedAt: uploaded.document.receivedTime || archiveDoc.uploadedAt,
+      });
+
+      onUpdatePlan('documentArchive', nextArchive);
+      setUploadMessage(`Dokument uppladdat och köat för indexering: ${uploaded.document.originalName}`);
+      setUploadFile(null);
+      setDraftName('');
+    } catch (error) {
+      setUploadMessage(error instanceof Error ? error.message : 'Uppladdningen misslyckades.');
+    } finally {
+      setIsUploading(false);
+    }
+  };
+
+  const handleOpenArchiveDocument = async (documentId: string, filename: string) => {
+    if (typeof window === 'undefined') {
+      setUploadMessage('Dokument kan bara öppnas i webbläsaren.');
+      return;
+    }
+
+    const token = String(window.localStorage.getItem(TOKEN_KEY) || '').trim();
+    if (!token) {
+      setUploadMessage('Adminsession saknas. Logga in igen.');
+      return;
+    }
+
+    setOpeningDocumentId(documentId);
+    setUploadMessage('');
+
+    try {
+      await openProjectDocument({ documentId, token, filename });
+    } catch (error) {
+      setUploadMessage(error instanceof Error ? error.message : 'Dokumentet kunde inte öppnas.');
+    } finally {
+      setOpeningDocumentId('');
+    }
+  };
+
+  const handleDownloadArchiveDocument = async (documentId: string, filename: string) => {
+    if (typeof window === 'undefined') {
+      setUploadMessage('Document can only be downloaded in the browser.');
+      return;
+    }
+
+    const token = String(window.localStorage.getItem(TOKEN_KEY) || '').trim();
+    if (!token) {
+      setUploadMessage('Admin session is missing. Log in again.');
+      return;
+    }
+
+    setDownloadingDocumentId(documentId);
+    setUploadMessage('');
+
+    try {
+      await downloadProjectDocument({ documentId, token, filename });
+    } catch (error) {
+      setUploadMessage(error instanceof Error ? error.message : 'The document could not be downloaded.');
+    } finally {
+      setDownloadingDocumentId('');
+    }
+  };
+
+  const handleDeleteArchiveDocument = async (documentId: string) => {
+    const isPersistedDocument = !String(documentId).startsWith('DOC-');
+    if (typeof window === 'undefined') {
+      setUploadMessage('Archive updates can only be performed in the browser.');
+      return;
+    }
+
+    if (!window.confirm(isPersistedDocument ? 'Delete this uploaded document from the server and archive?' : 'Remove this archive entry?')) {
+      return;
+    }
+
+    if (!isPersistedDocument) {
+      onUpdatePlan(
+        'documentArchive',
+        plan.documentArchive.filter((doc) => doc.id !== documentId)
+      );
+      setUploadMessage('Archive entry removed.');
+      return;
+    }
+
+    const token = String(window.localStorage.getItem(TOKEN_KEY) || '').trim();
+    if (!token) {
+      setUploadMessage('Admin session is missing. Log in again.');
+      return;
+    }
+
+    setDeletingDocumentId(documentId);
+    setUploadMessage('');
+
+    try {
+      await deleteProjectDocument({ documentId, token });
+      onUpdatePlan(
+        'documentArchive',
+        plan.documentArchive.filter((doc) => doc.id !== documentId)
+      );
+      setUploadMessage('Document removed from the server and archive.');
+    } catch (error) {
+      setUploadMessage(error instanceof Error ? error.message : 'The document could not be deleted.');
+    } finally {
+      setDeletingDocumentId('');
+    }
   };
 
   const toggleSamplingChecklist = (checkId: string) => {
@@ -192,12 +353,36 @@ const ProjectPlanStructurePanel: React.FC<ProjectPlanStructurePanelProps> = ({ p
           </select>
         </div>
 
-        <button
-          onClick={addArchiveDocument}
-          className="px-5 py-3 bg-slate-900 text-white rounded-xl text-[10px] font-black uppercase tracking-widest hover:bg-blue-600 transition-all"
-        >
-          Add to archive
-        </button>
+        <div className="grid grid-cols-1 gap-3 md:grid-cols-[1.4fr_auto_auto]">
+          <label className="flex cursor-pointer items-center justify-between rounded-xl border border-dashed border-slate-300 bg-slate-50 px-4 py-3 text-xs font-bold text-slate-600">
+            <span className="truncate pr-3">{uploadFile ? uploadFile.name : 'Välj fil för riktig uppladdning'}</span>
+            <span className="rounded-lg bg-white px-3 py-1 text-[10px] font-black uppercase tracking-widest text-slate-700">
+              Bläddra
+            </span>
+            <input type="file" className="hidden" onChange={handleFileSelection} />
+          </label>
+
+          <button
+            onClick={addArchiveDocument}
+            className="px-5 py-3 bg-slate-900 text-white rounded-xl text-[10px] font-black uppercase tracking-widest hover:bg-blue-600 transition-all"
+          >
+            Add to archive
+          </button>
+
+          <button
+            onClick={() => void handleUploadToArchive()}
+            disabled={!uploadFile || isUploading}
+            className="px-5 py-3 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all disabled:opacity-50 bg-emerald-600 text-white hover:bg-emerald-500"
+          >
+            {isUploading ? 'Uploading...' : 'Upload file'}
+          </button>
+        </div>
+
+        {uploadMessage && (
+          <div className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-xs font-medium text-slate-600">
+            {uploadMessage}
+          </div>
+        )}
 
         <div className="space-y-2">
           {plan.documentArchive.map((doc) => (
@@ -209,7 +394,37 @@ const ProjectPlanStructurePanel: React.FC<ProjectPlanStructurePanelProps> = ({ p
                     {doc.module} / {doc.category} / {doc.status}
                   </p>
                 </div>
-                <p className="text-[10px] font-mono text-slate-500">{doc.storagePath}</p>
+                <div className="flex items-center gap-3">
+                  <p className="text-[10px] font-mono text-slate-500">{doc.storagePath}</p>
+                  {!String(doc.id).startsWith('DOC-') && (
+                    <>
+                      <button
+                        type="button"
+                        onClick={() => void handleOpenArchiveDocument(doc.id, doc.name)}
+                        disabled={openingDocumentId === doc.id}
+                        className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-[10px] font-black uppercase tracking-widest text-slate-700 transition hover:border-blue-300 hover:bg-blue-50 disabled:opacity-50"
+                      >
+                        {openingDocumentId === doc.id ? 'Opening...' : 'Open'}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => void handleDownloadArchiveDocument(doc.id, doc.name)}
+                        disabled={downloadingDocumentId === doc.id}
+                        className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-[10px] font-black uppercase tracking-widest text-slate-700 transition hover:border-emerald-300 hover:bg-emerald-50 disabled:opacity-50"
+                      >
+                        {downloadingDocumentId === doc.id ? 'Downloading...' : 'Download'}
+                      </button>
+                    </>
+                  )}
+                  <button
+                    type="button"
+                    onClick={() => void handleDeleteArchiveDocument(doc.id)}
+                    disabled={deletingDocumentId === doc.id}
+                    className="rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-[10px] font-black uppercase tracking-widest text-rose-700 transition hover:border-rose-300 hover:bg-rose-100 disabled:opacity-50"
+                  >
+                    {deletingDocumentId === doc.id ? 'Deleting...' : String(doc.id).startsWith('DOC-') ? 'Remove' : 'Delete'}
+                  </button>
+                </div>
               </div>
             </div>
           ))}

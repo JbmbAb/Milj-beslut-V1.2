@@ -9,6 +9,7 @@ import type {
   DbAnalysisResponse,
   DbContentsResponse,
   DbStatsResponse,
+  ExternalHealthReport,
   SearchFilters,
   SearchInfoResponse,
   SearchMode,
@@ -202,11 +203,105 @@ interface AdminSearchConsoleProps {
   panel?: 'search' | 'insight';
 }
 
+const statusPillClass: Record<ExternalHealthReport['checks'][number]['status'], string> = {
+  healthy: 'bg-emerald-100 text-emerald-800',
+  degraded: 'bg-amber-100 text-amber-800',
+  error: 'bg-red-100 text-red-800',
+  not_configured: 'bg-slate-200 text-slate-700',
+};
+
+const modePillClass: Record<ExternalHealthReport['checks'][number]['mode'], string> = {
+  live: 'bg-blue-50 text-blue-700 border border-blue-200',
+  config: 'bg-slate-50 text-slate-600 border border-slate-200',
+  derived: 'bg-violet-50 text-violet-700 border border-violet-200',
+};
+
+const ExternalHealthPanel: React.FC<{ report: ExternalHealthReport | null }> = ({ report }) => {
+  if (!report) {
+    return <p className="mt-3 text-sm text-slate-500">Klicka "Extern API health" for att kontrollera integrationerna live.</p>;
+  }
+
+  return (
+    <>
+      <div className="mt-4 grid grid-cols-2 gap-3 md:grid-cols-4 xl:grid-cols-6">
+        <KpiCard label="Healthy" value={String(report.totals.healthy)} />
+        <KpiCard label="Degraded" value={String(report.totals.degraded)} />
+        <KpiCard label="Error" value={String(report.totals.error)} />
+        <KpiCard label="Ej konfig" value={String(report.totals.notConfigured)} />
+        <KpiCard label="Liveprobes" value={String(report.totals.liveChecked)} />
+        <KpiCard label="Totalt" value={String(report.totals.total)} />
+      </div>
+
+      <p className="mt-3 text-xs text-slate-500">
+        Kontrollerad: {new Date(report.checkedAt).toLocaleString('sv-SE')} · Overgripande status:{' '}
+        <span className={`font-black ${report.overall === 'ok' ? 'text-emerald-700' : report.overall === 'degraded' ? 'text-amber-700' : 'text-red-700'}`}>
+          {report.overall}
+        </span>
+      </p>
+
+      <div className="mt-4 flex flex-wrap gap-2">
+        {report.categories.map((category) => (
+          <span key={category.name} className="rounded-full border border-slate-200 bg-slate-50 px-3 py-1 text-[11px] font-bold text-slate-600">
+            {category.name}: {category.healthy}/{category.total} healthy
+          </span>
+        ))}
+      </div>
+
+      <div className="mt-4 overflow-x-auto rounded-xl border border-slate-200">
+        <table className="w-full text-left text-xs">
+          <thead className="bg-slate-50 text-[10px] uppercase tracking-wider text-slate-500">
+            <tr>
+              <th className="px-3 py-2 font-black">Integration</th>
+              <th className="px-3 py-2 font-black">Status</th>
+              <th className="px-3 py-2 font-black">Typ</th>
+              <th className="px-3 py-2 font-black">Detalj</th>
+              <th className="px-3 py-2 font-black">Endpoint</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-slate-100">
+            {report.checks.map((check) => (
+              <tr key={check.key} className="align-top hover:bg-slate-50">
+                <td className="px-3 py-2">
+                  <p className="font-bold text-slate-900">{check.label}</p>
+                  <p className="text-[11px] text-slate-500">{check.category}</p>
+                </td>
+                <td className="px-3 py-2">
+                  <div className="flex flex-wrap gap-2">
+                    <span className={`rounded-full px-2 py-0.5 text-[10px] font-black uppercase ${statusPillClass[check.status]}`}>
+                      {check.status}
+                    </span>
+                    <span className={`rounded-full px-2 py-0.5 text-[10px] font-black uppercase ${modePillClass[check.mode]}`}>
+                      {check.mode}
+                    </span>
+                  </div>
+                </td>
+                <td className="px-3 py-2 text-slate-600">
+                  {check.activation || '-'}
+                </td>
+                <td className="px-3 py-2 text-slate-700">
+                  {check.detail}
+                  {typeof check.responseCode === 'number' && (
+                    <span className="ml-1 text-slate-400">HTTP {check.responseCode}</span>
+                  )}
+                </td>
+                <td className="px-3 py-2 text-slate-500">
+                  {check.endpoint ? <span className="block max-w-[280px] truncate" title={check.endpoint}>{check.endpoint}</span> : '-'}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </>
+  );
+};
+
 const AdminSearchConsole: React.FC<AdminSearchConsoleProps> = ({ panel = 'search' }) => {
   const [username, setUsername] = useState('admin');
   const [password, setPassword] = useState('');
   const [token, setToken] = useState('');
   const [refreshToken, setRefreshToken] = useState('');
+  const [authBootstrapping, setAuthBootstrapping] = useState(true);
   const [projectId, setProjectId] = useState('');
   const [newProjectDesignation, setNewProjectDesignation] = useState('');
   const [projects, setProjects] = useState<AdminProjectSummary[]>([]);
@@ -238,16 +333,72 @@ const AdminSearchConsole: React.FC<AdminSearchConsoleProps> = ({ panel = 'search
   const appStatusPollRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const [appCompletion, setAppCompletion] = useState<AppCompletionResponse | null>(null);
   const [completionExpanded, setCompletionExpanded] = useState(false);
+  const [externalHealth, setExternalHealth] = useState<ExternalHealthReport | null>(null);
 
   const [busy, setBusy] = useState('');
   const [error, setError] = useState('');
   const [info, setInfo] = useState('');
 
   useEffect(() => {
-    setToken(localStorage.getItem(TOKEN_KEY) || '');
-    setRefreshToken(localStorage.getItem(REFRESH_KEY) || '');
-    setProjectId(localStorage.getItem(PROJECT_KEY) || '');
-    setUsername(localStorage.getItem(USER_KEY) || 'admin');
+    let cancelled = false;
+
+    const bootstrapAuth = async () => {
+      const storedToken = localStorage.getItem(TOKEN_KEY) || '';
+      const storedRefreshToken = localStorage.getItem(REFRESH_KEY) || '';
+      const storedProjectId = localStorage.getItem(PROJECT_KEY) || '';
+      const storedUsername = localStorage.getItem(USER_KEY) || 'admin';
+
+      setProjectId(storedProjectId);
+      setUsername(storedUsername);
+
+      if (!storedToken && !storedRefreshToken) {
+        if (!cancelled) {
+          setToken('');
+          setRefreshToken('');
+          setAuthBootstrapping(false);
+        }
+        return;
+      }
+
+      if (!storedRefreshToken) {
+        if (!cancelled) {
+          setToken(storedToken);
+          setRefreshToken('');
+          setAuthBootstrapping(false);
+        }
+        return;
+      }
+
+      try {
+        const response = await fetch('/api/auth/refresh', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ refreshToken: storedRefreshToken }),
+        });
+        const json = await response.json();
+        if (!response.ok || !json?.ok) {
+          throw new Error(json?.error || 'Sessionsförnyelse misslyckades');
+        }
+        if (cancelled) return;
+        setToken(String(json.accessToken || ''));
+        setRefreshToken(String(json.refreshToken || storedRefreshToken));
+        setError('');
+      } catch {
+        if (cancelled) return;
+        setToken('');
+        setRefreshToken('');
+        setError('Adminsessionen hade gått ut. Logga in igen.');
+      } finally {
+        if (!cancelled) {
+          setAuthBootstrapping(false);
+        }
+      }
+    };
+
+    void bootstrapAuth();
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   useEffect(() => {
@@ -272,7 +423,7 @@ const AdminSearchConsole: React.FC<AdminSearchConsoleProps> = ({ panel = 'search
       clearInterval(appStatusPollRef.current);
       appStatusPollRef.current = null;
     }
-    if (!token) {
+    if (authBootstrapping || !token) {
       setAppStatus(null);
       return;
     }
@@ -317,7 +468,7 @@ const AdminSearchConsole: React.FC<AdminSearchConsoleProps> = ({ panel = 'search
         appStatusPollRef.current = null;
       }
     };
-  }, [token]);
+  }, [authBootstrapping, token]);
 
   const cleanFilters = useMemo(() => {
     const normalized: SearchFilters = {};
@@ -340,6 +491,8 @@ const AdminSearchConsole: React.FC<AdminSearchConsoleProps> = ({ panel = 'search
     if (rows.length === 0) return 0;
     return rows.reduce((sum, result) => sum + result.score, 0) / rows.length;
   }, [rows]);
+
+  const hasActiveSession = !authBootstrapping && Boolean(token);
 
   const qualifiedHits = useMemo(() => rows.filter((result) => result.score >= 0.55).length, [rows]);
 
@@ -377,6 +530,9 @@ const AdminSearchConsole: React.FC<AdminSearchConsoleProps> = ({ panel = 'search
       body: method === 'POST' ? JSON.stringify(payload || {}) : undefined,
     });
     const json = await response.json();
+    if (response.status === 401 || /bearer token|invalid token|access token/i.test(String(json?.error || ''))) {
+      throw new Error('Adminsessionen har gått ut. Klicka "Refresh token" eller logga in igen.');
+    }
     if (!response.ok || !json?.ok) throw new Error(json?.error || `HTTP ${response.status}`);
     return json as T;
   };
@@ -441,6 +597,9 @@ const AdminSearchConsole: React.FC<AdminSearchConsoleProps> = ({ panel = 'search
         headers: { Authorization: `Bearer ${overrideToken || token}` },
       });
       const json = await response.json();
+      if (response.status === 401 || /bearer token|invalid token|access token/i.test(String(json?.error || ''))) {
+        throw new Error('Adminsessionen har gått ut. Klicka "Refresh token" eller logga in igen.');
+      }
       if (!response.ok || !json?.ok) throw new Error(json?.error || 'Project list failed');
       const list = (json.projects || []) as AdminProjectSummary[];
       setProjects(list);
@@ -589,6 +748,9 @@ const AdminSearchConsole: React.FC<AdminSearchConsoleProps> = ({ panel = 'search
         headers: { Authorization: `Bearer ${overrideToken || token}` },
       });
       const json = await response.json();
+      if (response.status === 401 || /bearer token|invalid token|access token/i.test(String(json?.error || ''))) {
+        throw new Error('Adminsessionen har gått ut. Klicka "Refresh token" eller logga in igen.');
+      }
       if (!response.ok || !json?.ok) throw new Error(json?.error || 'Catalog failed');
       setCatalogCount(Array.isArray(json.sources) ? json.sources.length : 0);
     } catch (e) {
@@ -626,6 +788,20 @@ const AdminSearchConsole: React.FC<AdminSearchConsoleProps> = ({ panel = 'search
       setInfo('Kartlager och datakallor uppdaterade.');
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Datasource check failed');
+    } finally {
+      setBusy('');
+    }
+  };
+
+  const loadExternalHealth = async () => {
+    setError('');
+    setBusy('externalhealth');
+    try {
+      const data = await secure<{ ok: true; report: ExternalHealthReport }>('/api/admin/external-health', 'GET');
+      setExternalHealth(data.report);
+      setInfo('Extern API health uppdaterad.');
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'External health failed');
     } finally {
       setBusy('');
     }
@@ -735,7 +911,7 @@ const AdminSearchConsole: React.FC<AdminSearchConsoleProps> = ({ panel = 'search
     <div className="mx-auto max-w-7xl space-y-6 animate-in fade-in duration-500">
 
       {/* ── App-statusindikatorn "är appen igång?" ──────────────────────── */}
-      {token && (
+      {hasActiveSession && (
         <div
           data-testid="app-status-bar"
           className={`flex flex-wrap items-center gap-3 rounded-2xl border px-4 py-2.5 text-xs font-semibold transition-colors ${
@@ -835,7 +1011,7 @@ const AdminSearchConsole: React.FC<AdminSearchConsoleProps> = ({ panel = 'search
       )}
 
       {/* ── Completion-tracker "hur många procent återstår?" ──────────────── */}
-      {token && (
+      {hasActiveSession && (
         <div
           data-testid="completion-bar"
           className="rounded-2xl border border-slate-200 bg-white px-4 py-3 text-xs"
@@ -1041,6 +1217,13 @@ const AdminSearchConsole: React.FC<AdminSearchConsoleProps> = ({ panel = 'search
               {busy === 'datasources' ? 'Arbetar...' : 'Kartlager/data status'}
             </button>
             <button
+              className="rounded-xl bg-fuchsia-700 px-4 py-2 text-xs font-bold text-white disabled:opacity-60"
+              disabled={Boolean(busy) || !token}
+              onClick={loadExternalHealth}
+            >
+              {busy === 'externalhealth' ? 'Arbetar...' : 'Extern API health'}
+            </button>
+            <button
               className="rounded-xl bg-violet-700 px-4 py-2 text-xs font-bold text-white disabled:opacity-60"
               disabled={Boolean(busy) || !token}
               onClick={loadExamSummary}
@@ -1126,6 +1309,27 @@ const AdminSearchConsole: React.FC<AdminSearchConsoleProps> = ({ panel = 'search
             </div>
           </div>
         </div>
+      </section>
+
+      <section className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
+        <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+          <div>
+            <p className="text-[11px] uppercase tracking-[0.18em] text-slate-500 font-black">Extern health</p>
+            <h3 className="text-lg font-black text-slate-900">Livebild av externa API:er och fallback-floden</h3>
+            <p className="mt-1 text-xs text-slate-500">
+              Healthy betyder verifierad liveprobe. Degraded betyder konfigurerad eller fallback, men inte fullt verifierad.
+            </p>
+          </div>
+          <button
+            className="rounded-xl bg-fuchsia-700 px-4 py-2 text-xs font-bold text-white disabled:opacity-60"
+            disabled={Boolean(busy) || !token}
+            onClick={loadExternalHealth}
+          >
+            {busy === 'externalhealth' ? 'Kontrollerar...' : 'Kör kontroll'}
+          </button>
+        </div>
+
+        <ExternalHealthPanel report={externalHealth} />
       </section>
 
       <section className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
@@ -1629,7 +1833,7 @@ const AdminSearchConsole: React.FC<AdminSearchConsoleProps> = ({ panel = 'search
         )}
       </section>
 
-      <AdminRequirementsStudio token={token} onError={setError} onInfo={setInfo} />
+      {hasActiveSession && <AdminRequirementsStudio token={token} onError={setError} onInfo={setInfo} />}
 
       {databaseDump && (
         <section className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">

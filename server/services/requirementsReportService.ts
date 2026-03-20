@@ -104,6 +104,8 @@ function toTableRows(headers: string[], rows: Array<Record<string, unknown>>, ma
 }
 
 export async function buildRequirementsReportSummary(input?: {
+  organisationId?: string;
+  projectId?: string;
   includePreliminary?: boolean;
 }): Promise<{
   summary: RequirementsReportSummary;
@@ -112,10 +114,25 @@ export async function buildRequirementsReportSummary(input?: {
   citations: RequirementCitation[];
 }> {
   const includePreliminary = Boolean(input?.includePreliminary);
-  const requirements = await getRequirementReportRows({ includePreliminary });
+  const organisationId = input?.organisationId;
+  const projectId = input?.projectId;
+
+  if (!organisationId) {
+    throw new Error("organisationId is required for report generation");
+  }
+
+  const requirements = await getRequirementReportRows({ 
+    includePreliminary,
+    organisationId,
+    projectId
+  });
   const allRequirements = includePreliminary
     ? requirements
-    : await getRequirementReportRows({ includePreliminary: true });
+    : await getRequirementReportRows({ 
+        includePreliminary: true,
+        organisationId,
+        projectId
+      });
   const caseIds: string[] = Array.from(
     new Set(
       (requirements as Array<{ caseId?: string }>)
@@ -131,8 +148,8 @@ export async function buildRequirementsReportSummary(input?: {
     )
   );
   const [cases, citations] = await Promise.all([
-    getRequirementReportCases(caseIds),
-    getRequirementReportCitations(requirementIds),
+    getRequirementReportCases(caseIds, { organisationId, projectId }),
+    getRequirementReportCitations(requirementIds, { organisationId, projectId }),
   ]);
 
   const verifiedRequirements = allRequirements.filter((row) => row.verificationStatus === "VERIFIED").length;
@@ -290,7 +307,11 @@ function citationRowsToExport(rows: RequirementCitation[]) {
   }));
 }
 
-export async function buildRequirementsExportCsvZip(input?: { includePreliminary?: boolean }) {
+export async function buildRequirementsExportCsvZip(input?: { 
+  organisationId?: string;
+  projectId?: string;
+  includePreliminary?: boolean;
+}) {
   const { summary, requirements, cases, citations } = await buildRequirementsReportSummary(input);
   const caseRows = caseRowsToExport(cases);
   const requirementRows = requirementRowsToExport(requirements);
@@ -373,7 +394,11 @@ export async function buildRequirementsExportCsvZip(input?: { includePreliminary
   return stream;
 }
 
-export async function buildRequirementsDocxBuffer(input?: { includePreliminary?: boolean }) {
+export async function buildRequirementsDocxBuffer(input?: { 
+  organisationId?: string;
+  projectId?: string;
+  includePreliminary?: boolean;
+}) {
   const { summary } = await buildRequirementsReportSummary(input);
 
   const doc = new Document({

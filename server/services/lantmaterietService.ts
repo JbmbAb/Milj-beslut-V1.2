@@ -22,6 +22,14 @@ interface OgcFeatureCollection {
   features?: OgcFeature[];
 }
 
+interface ParsedOgcDesignation {
+  municipality: string | null;
+  tract: string | null;
+  label: string;
+  exactFilter: string;
+  tractFilter: string | null;
+}
+
 function buildMissingProductMessage(baseUrl: string, status: number): string | null {
   if (status !== 404) {
     return null;
@@ -76,15 +84,159 @@ function minimizePropertyPayload(raw: LantmaterietLookupResponse): Record<string
   };
 }
 
-function minimizeOgcFeaturePayload(collection: OgcFeatureCollection, requestedDesignation: string): Record<string, unknown> {
-  const feature = collection.features?.[0];
-  const properties = feature?.properties ?? {};
+function escapeCqlLiteral(value: string): string {
+  return value.replace(/'/g, "''");
+}
+
+function normalizeDesignationLabel(value: string | null | undefined): string {
+  return String(value || "").trim().toUpperCase();
+}
+
+function designationBase(value: string | null | undefined): string {
+  return normalizeDesignationLabel(value).split(">")[0] || "";
+}
+
+function extractOgcFeatureLabel(feature: OgcFeature): string {
+  return String(feature.properties?.etikett ?? "").trim();
+}
+
+function hasLicensedLantmaterietLookupConfig(): boolean {
+  return Boolean(
+    String(process.env.LANTMATERIET_ACCESS_TOKEN || "").trim() ||
+      (String(process.env.LANTMATERIET_CONSUMER_KEY || "").trim() &&
+        String(process.env.LANTMATERIET_CONSUMER_SECRET || "").trim()) ||
+      String(process.env.LANTMATERIET_API_KEY || "").trim(),
+  );
+}
+
+export function parseOgcDesignation(propertyDesignation: string): ParsedOgcDesignation {
+  const cleaned = propertyDesignation.trim();
+  const rawParts = cleaned.split(/\s+/).filter(Boolean);
+
+  if (rawParts.length >= 2) {
+    const label = rawParts[rawParts.length - 1];
+    const tract = rawParts[rawParts.length - 2];
+    const municipality = rawParts.slice(0, rawParts.length - 2).join(" ") || null;
+    const safeLabel = escapeCqlLiteral(label);
+    const safeTract = escapeCqlLiteral(tract.toUpperCase());
+
+    if (municipality) {
+      const safeMunicipality = escapeCqlLiteral(municipality.toUpperCase());
+      return {
+        municipality: municipality.toUpperCase(),
+        tract: tract.toUpperCase(),
+        label,
+        exactFilter: `kommunnamn = '${safeMunicipality}' AND trakt = '${safeTract}' AND etikett = '${safeLabel}'`,
+        tractFilter: `kommunnamn = '${safeMunicipality}' AND trakt = '${safeTract}'`,
+      };
+    }
+
+    return {
+      municipality: null,
+      tract: tract.toUpperCase(),
+      label,
+      exactFilter: `trakt = '${safeTract}' AND etikett = '${safeLabel}'`,
+      tractFilter: `trakt = '${safeTract}'`,
+    };
+  }
+
+  const safeDesignation = escapeCqlLiteral(cleaned);
+  return {
+    municipality: null,
+    tract: null,
+    label: cleaned,
+    exactFilter: `etikett = '${safeDesignation}'`,
+    tractFilter: null,
+  };
+}
+
+function compareMatchedFeatureOrder(a: OgcFeature, b: OgcFeature, requestedLabel: string): number {
+  const normalizedRequested = normalizeDesignationLabel(requestedLabel);
+  const labelA = normalizeDesignationLabel(extractOgcFeatureLabel(a));
+  const labelB = normalizeDesignationLabel(extractOgcFeatureLabel(b));
+
+  const rank = (label: string): number => {
+    if (label === normalizedRequested) return -1;
+    if (!label.startsWith(`${normalizedRequested}>`)) return Number.MAX_SAFE_INTEGER;
+    const suffix = label.slice(normalizedRequested.length + 1);
+    const numericSuffix = Number.parseInt(suffix, 10);
+    return Number.isFinite(numericSuffix) ? numericSuffix : Number.MAX_SAFE_INTEGER - 1;
+  };
+
+  const rankA = rank(labelA);
+  const rankB = rank(labelB);
+  if (rankA !== rankB) return rankA - rankB;
+  return labelA.localeCompare(labelB, "sv-SE");
+}
+
+export function findMatchingOgcFeatures(features: OgcFeature[], requestedDesignation: string): OgcFeature[] {
+  const parsed = parseOgcDesignation(requestedDesignation);
+  const requestedLabel = normalizeDesignationLabel(parsed.label);
+  const exactSplitRequested = requestedLabel.includes(">");
+
+  return features
+    .filter((feature) => {
+      const label = normalizeDesignationLabel(extractOgcFeatureLabel(feature));
+      if (!label) return false;
+      if (label === requestedLabel) return true;
+      if (exactSplitRequested) return false;
+      return designationBase(label) === requestedLabel;
+    })
+    .sort((a, b) => compareMatchedFeatureOrder(a, b, parsed.label));
+}
+
+export function mergeOgcFeatureGeometry(features: OgcFeature[]): unknown {
+  if (features.length === 0) return null;
+  if (features.length === 1) return features[0].geometry ?? null;
+
+  const polygons: unknown[] = [];
+  for (const feature of features) {
+    const geometry = feature.geometry as { type?: string; coordinates?: unknown } | undefined;
+    if (!geometry?.type) continue;
+    if (geometry.type === "Polygon" && Array.isArray(geometry.coordinates)) {
+      polygons.push(geometry.coordinates);
+      continue;
+    }
+    if (geometry.type === "MultiPolygon" && Array.isArray(geometry.coordinates)) {
+      polygons.push(...geometry.coordinates);
+      continue;
+    }
+    return features[0].geometry ?? null;
+  }
+
+  if (polygons.length === 0) {
+    return features[0].geometry ?? null;
+  }
 
   return {
-    designation: String(properties.etikett ?? requestedDesignation),
-    geometry: feature?.geometry ?? null,
-    boundaries: feature ?? null,
+    type: "MultiPolygon",
+    coordinates: polygons,
+  };
+}
+
+export function minimizeOgcFeaturePayload(features: OgcFeature[] | OgcFeatureCollection, requestedDesignation: string): Record<string, unknown> {
+  const normalizedFeatures = Array.isArray(features) ? features : (features.features ?? []);
+  const firstFeature = normalizedFeatures[0];
+  const matchedLabels = normalizedFeatures
+    .map((feature) => extractOgcFeatureLabel(feature))
+    .filter(Boolean);
+  const designation =
+    matchedLabels.length === 1
+      ? matchedLabels[0]
+      : requestedDesignation;
+
+  return {
+    designation,
+    geometry: mergeOgcFeatureGeometry(normalizedFeatures),
+    boundaries:
+      normalizedFeatures.length <= 1
+        ? firstFeature ?? null
+        : {
+            type: "FeatureCollection",
+            features: normalizedFeatures,
+          },
     ownership: undefined,
+    matchedDesignations: matchedLabels.length > 0 ? matchedLabels : undefined,
   };
 }
 
@@ -148,6 +300,29 @@ async function getLantmaterietAccessToken(): Promise<string> {
   return data.access_token;
 }
 
+function buildOgcItemsUrl(base: string, collection: string, filter: string, limit: number): string {
+  return `${base}/fastighetsindelning/collections/${encodeURIComponent(collection)}/items?filter=${encodeURIComponent(filter)}&filter-lang=cql2-text&limit=${limit}`;
+}
+
+async function fetchLantmaterietLookupResponse(url: string, accessToken: string, allowRetry = true): Promise<Response> {
+  const response = await fetch(url, {
+    method: "GET",
+    headers: {
+      Authorization: `Bearer ${accessToken}`,
+      Accept: "application/geo+json, application/json",
+      "X-Client-System": "Miljobeslut.se 2.0",
+    },
+  });
+
+  if (response.status === 401 && allowRetry) {
+    cachedLantmaterietToken = null;
+    const refreshedAccessToken = await getLantmaterietAccessToken();
+    return fetchLantmaterietLookupResponse(url, refreshedAccessToken, false);
+  }
+
+  return response;
+}
+
 export async function lookupPropertyByDesignation(input: PropertyLookupInput, user: AuthUser): Promise<Record<string, unknown>> {
   validatePropertyLookupInput(input);
   assertPermission(user, "PROPERTY_LOOKUP");
@@ -160,7 +335,10 @@ export async function lookupPropertyByDesignation(input: PropertyLookupInput, us
 
   // --- MOCK INJECTION ---
   const upperDesignation = input.propertyDesignation.toUpperCase();
-  if (upperDesignation === "ORSA STACKMORA 3:12" || upperDesignation === "NACKA ORMINGE 7:8") {
+  if (
+    !hasLicensedLantmaterietLookupConfig() &&
+    (upperDesignation === "ORSA STACKMORA 3:12" || upperDesignation === "NACKA ORMINGE 7:8")
+  ) {
     logger.info('Lantmateriet: using mock data', { propertyDesignation: input.propertyDesignation });
     // Rough coordinates for demo map bounding boxes
     const coords = upperDesignation.includes("NACKA")
@@ -202,27 +380,9 @@ export async function lookupPropertyByDesignation(input: PropertyLookupInput, us
   let url: string;
   if (useOgcLookup) {
     const collection = process.env.LANTMATERIET_OGC_COLLECTION || "registerenhetsomradesytor";
+    const parsedDesignation = parseOgcDesignation(input.propertyDesignation);
 
-    // Parse designation "COMMUNE TRACT LABEL"
-    const rawParts = input.propertyDesignation.trim().split(/\s+/);
-    let filter: string;
-
-    if (rawParts.length >= 2) {
-      const label = rawParts[rawParts.length - 1].replace(/'/g, "''");
-      const tract = rawParts[rawParts.length - 2].replace(/'/g, "''");
-      const muni = rawParts.slice(0, rawParts.length - 2).join(" ").replace(/'/g, "''");
-
-      if (muni) {
-        filter = `kommunnamn = '${muni.toUpperCase()}' AND trakt = '${tract.toUpperCase()}' AND etikett = '${label}'`;
-      } else {
-        filter = `trakt = '${tract.toUpperCase()}' AND etikett = '${label}'`;
-      }
-    } else {
-      const safeDesignation = input.propertyDesignation.replace(/'/g, "''");
-      filter = `etikett = '${safeDesignation}'`;
-    }
-
-    url = `${base}/fastighetsindelning/collections/${encodeURIComponent(collection)}/items?filter=${encodeURIComponent(filter)}&filter-lang=cql2-text&limit=1`;
+    url = buildOgcItemsUrl(base, collection, parsedDesignation.exactFilter, 1);
   } else {
     const lookupEndpoint =
       process.env.LANTMATERIET_LOOKUP_ENDPOINT ||
@@ -230,14 +390,7 @@ export async function lookupPropertyByDesignation(input: PropertyLookupInput, us
     url = `${lookupEndpoint}?beteckning=${encodeURIComponent(input.propertyDesignation)}`;
   }
 
-  const response = await fetch(url, {
-    method: "GET",
-    headers: {
-      Authorization: `Bearer ${accessToken}`,
-      Accept: "application/geo+json, application/json",
-      "X-Client-System": "Miljobeslut.se 2.0",
-    },
-  });
+  const response = await fetchLantmaterietLookupResponse(url, accessToken);
 
   if (!response.ok) {
     const errText = await response.text();
@@ -255,7 +408,27 @@ export async function lookupPropertyByDesignation(input: PropertyLookupInput, us
 
   let minimized: Record<string, unknown>;
   if (useOgcLookup) {
-    const ogc = (await response.json()) as OgcFeatureCollection;
+    let ogc = (await response.json()) as OgcFeatureCollection;
+    const parsedDesignation = parseOgcDesignation(input.propertyDesignation);
+
+    if ((!ogc.features || ogc.features.length === 0) && parsedDesignation.tractFilter) {
+      const collection = process.env.LANTMATERIET_OGC_COLLECTION || "registerenhetsomradesytor";
+      const fallbackUrl = buildOgcItemsUrl(base, collection, parsedDesignation.tractFilter, 2000);
+      const fallbackResponse = await fetchLantmaterietLookupResponse(fallbackUrl, accessToken);
+
+      if (!fallbackResponse.ok) {
+        const fallbackText = await fallbackResponse.text();
+        logger.error('Lantmateriet API fallback response', { status: fallbackResponse.status, body: fallbackText });
+        throw new Error(`Lantmateriet fallback lookup failed (${fallbackResponse.status}): ${fallbackText}`);
+      }
+
+      const fallbackCollection = (await fallbackResponse.json()) as OgcFeatureCollection;
+      const matchedFeatures = findMatchingOgcFeatures(fallbackCollection.features ?? [], input.propertyDesignation);
+      if (matchedFeatures.length > 0) {
+        ogc = { features: matchedFeatures };
+      }
+    }
+
     if (!ogc.features || ogc.features.length === 0) {
       throw new Error(`Fastighet hittades inte: ${input.propertyDesignation}`);
     }

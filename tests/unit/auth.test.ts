@@ -27,29 +27,29 @@ describe('auth', () => {
     vi.clearAllMocks();
   });
 
-  it('creates valid access and refresh tokens', () => {
+  it('creates valid access and refresh tokens', async () => {
     const tokens = createTokenPair(user);
 
-    const decoded = getUserFromAccessToken(tokens.accessToken);
+    const decoded = await getUserFromAccessToken(tokens.accessToken);
     expect(decoded.id).toBe(user.id);
     expect(decoded.organisationId).toBe(user.organisationId);
     expect(tokens.refreshToken.length).toBeGreaterThan(20);
   });
 
-  it('rejects tampered access token', () => {
+  it('rejects tampered access token', async () => {
     const tokens = createTokenPair(user);
     const tampered = `${tokens.accessToken}tamper`;
 
-    expect(() => getUserFromAccessToken(tampered)).toThrow();
+    await expect(getUserFromAccessToken(tampered)).rejects.toThrow();
   });
 
-  it('rejects refresh token when used as access token', () => {
+  it('rejects refresh token when used as access token', async () => {
     const tokens = createTokenPair(user);
-    expect(() => getUserFromAccessToken(tokens.refreshToken)).toThrow();
+    await expect(getUserFromAccessToken(tokens.refreshToken)).rejects.toThrow();
   });
 
-  it('rejects malformed tokens', () => {
-    expect(() => getUserFromAccessToken('malformed-token')).toThrow(/Malformed token/);
+  it('rejects malformed tokens', async () => {
+    await expect(getUserFromAccessToken('malformed-token')).rejects.toThrow(/Malformed token/);
   });
 
   it('rotates refresh token and detects reuse', async () => {

@@ -11,7 +11,7 @@ import crypto from 'crypto';
 const prisma = new PrismaClient();
 
 // All 290 Swedish municipalities
-const allSwedishMunicipalities = [
+const _allSwedishMunicipalities = [
   'Ale', 'Alingsås', 'Alvesta', 'Aneby', 'Arboga', 'Arjeplog', 'Askersund', 'Åtvidaberg',
   'Avesta', 'Axvall', 'Båstad', 'Bengtsfors', 'Bergsbrunna', 'Bergslagen', 'Bergsöe', 'Bergvik',
   'Bjurholm', 'Bjuv', 'Blekinge', 'Blomstermåla', 'Blåkulla', 'Bohuslän', 'Bollnäs', 'Borgholm',

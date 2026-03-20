@@ -263,6 +263,42 @@ export async function getDocumentById(documentId: string) {
   });
 }
 
+export async function deleteDocumentById(documentId: string) {
+  const existing = await db.documentRecord.findUnique({
+    where: { id: documentId },
+    select: {
+      id: true,
+      projectId: true,
+      organisationId: true,
+      originalName: true,
+      absolutePath: true,
+      mimeType: true,
+    },
+  });
+
+  if (!existing) {
+    return null;
+  }
+
+  let deletedSearchJobs = 0;
+  await db.$transaction(async (tx: any) => {
+    const result = await tx.$executeRawUnsafe(
+      `DELETE FROM "SearchJob" WHERE payload->>'documentId' = $1`,
+      documentId
+    );
+    deletedSearchJobs = Number(result || 0);
+
+    await tx.documentRecord.delete({
+      where: { id: documentId },
+    });
+  });
+
+  return {
+    ...existing,
+    deletedSearchJobs,
+  };
+}
+
 export async function setDocumentStatus(documentId: string, status: "METADATA_ONLY" | "TEXT_EXTRACTED" | "EMBEDDED" | "FAILED") {
   return db.documentRecord.update({
     where: { id: documentId },
@@ -676,8 +712,9 @@ export async function getProjectDocumentCount(projectId: string) {
   return db.documentRecord.count({ where: { projectId } });
 }
 
-export async function listProjectsForAdmin() {
+export async function listProjectsForAdmin(organisationId: string) {
   return db.project.findMany({
+    where: { organisationId },
     select: {
       id: true,
       propertyDesignation: true,

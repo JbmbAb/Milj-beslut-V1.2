@@ -1,6 +1,5 @@
-import { describe, it, expect, beforeEach, vi } from 'vitest';
-import { assertProjectMembership } from '../../server/repositories/projectAccessRepository';
-import { assertPermission, assertProjectAccess, validatePropertyLookupInput } from '../../server/security/projectAccess';
+import { describe, it, expect, vi } from 'vitest';
+import { assertPermission, validatePropertyLookupInput } from '../../server/security/projectAccess';
 import type { AuthUser } from '../../server/security/types';
 
 /**
@@ -106,7 +105,7 @@ describe('Property Lookup Authorization', () => {
   describe('assertProjectMembership - CRITICAL SECURITY TEST', () => {
     it('accepts member from same org', async () => {
       // Mock the prisma calls
-      const mockPrisma = {
+      const _mockPrisma = {
         project: {
           findUnique: vi.fn(async () => ({
             id: 'project-1',
