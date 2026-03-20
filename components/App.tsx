@@ -22,6 +22,7 @@ import AdminGdprPanel from './AdminGdprPanel';
 import { useProjectStructure } from './ProjectStructureContext';
 import { countReadyModules } from '../services/projectStructure';
 import { TechnicalDashboardHub } from './TechnicalDashboardHub';
+import SystemFunctionalAnalysis from './SystemFunctionalAnalysis';
 
 type ModeCardConfig = {
   mode: InterfaceMode;
@@ -148,6 +149,7 @@ const App: React.FC = () => {
         if (activeTab === 'admin-review') return <AdminMetadataReview />;
         if (activeTab === 'admin-gdpr') return <AdminGdprPanel />;
         if (activeTab === 'admin-insight') return <AdminSearchConsole panel="insight" />;
+        if (activeTab === 'admin-system') return <SystemFunctionalAnalysis />;
         return <AdminSearchConsole panel="search" />;
       default:
         return (
@@ -259,6 +261,7 @@ const App: React.FC = () => {
               <SidebarLink active={activeTab === 'admin-review'} icon="fa-clipboard-check" label="Kvalitetssäkring" onClick={() => setActiveTab('admin-review')} />
               <SidebarLink active={activeTab === 'admin-insight'} icon="fa-shield-check" label="Analys och compliance" onClick={() => setActiveTab('admin-insight')} />
               <SidebarLink active={activeTab === 'admin-gdpr'} icon="fa-user-shield" label="GDPR-hantering" onClick={() => setActiveTab('admin-gdpr')} />
+              <SidebarLink active={activeTab === 'admin-system'} icon="fa-chart-bar" label="Funktionsanalys" onClick={() => setActiveTab('admin-system')} />
             </>
           )}
 
