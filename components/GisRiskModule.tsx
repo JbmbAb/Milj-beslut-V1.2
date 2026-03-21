@@ -1,7 +1,6 @@
 import React, { useMemo, useState } from "react";
 import { AnimatePresence, motion } from "motion/react";
-import type { MapLayerKey } from "../types";
-import { MOCK_PERMITS } from "../constants";
+import type { MapLayerKey, Permit } from "../types";
 import MapView from "./MapView";
 import { useProjectStructure } from "./ProjectStructureContext";
 
@@ -27,7 +26,11 @@ function clamp(value: number, min: number, max: number): number {
   return Math.max(min, Math.min(max, value));
 }
 
-const GisRiskModule: React.FC = () => {
+interface GisRiskModuleProps {
+  permits?: Permit[];
+}
+
+const GisRiskModule: React.FC<GisRiskModuleProps> = ({ permits = [] }) => {
   const { evaluateGate, addArchiveDocument, markModuleReady } = useProjectStructure();
   const [uploadedData, setUploadedData] = useState<UploadedGeoJson | null>(null);
   const [riskParameters, setRiskParameters] = useState({
@@ -304,7 +307,7 @@ const GisRiskModule: React.FC = () => {
 
       <div className="relative min-h-[600px] flex-1 overflow-hidden rounded-[3rem] border border-slate-200 bg-white shadow-sm">
         <MapView
-          permits={MOCK_PERMITS}
+          permits={permits}
           geoJsonData={uploadedData}
           bufferDistance={riskParameters.bufferDistance}
           highlightLayer={highlightedLayer}

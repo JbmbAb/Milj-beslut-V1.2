@@ -2954,4 +2954,54 @@ router.put("/api/projects/:projectId/retention", requireAuth, rateLimitByUser(20
   }
 });
 
+// ─── Permits list (maps DocumentRecord → Permit shape) ───────────────────────
+router.get("/api/permits", requireAuth, rateLimitByUser(60, 60_000), async (req, res) => {
+  try {
+    if (!req.authUser) { res.status(401).json({ ok: false, error: "Unauthorized" }); return; }
+
+    const docs = await prisma.documentRecord.findMany({
+      where: { organisationId: req.authUser.organisationId },
+      orderBy: { receivedTime: "desc" },
+      take: 200,
+      select: {
+        id: true,
+        originalName: true,
+        fileSha256: true,
+        receivedTime: true,
+        municipalityNormalized: true,
+        municipality: true,
+        activityCode: true,
+        wasteType: true,
+        decisionType: true,
+        updatedAt: true,
+        createdAt: true,
+      },
+    });
+
+    const permits = docs.map((doc) => ({
+      id: doc.id,
+      filename: doc.originalName,
+      checksum: doc.fileSha256 ?? "",
+      received_date: (doc.receivedTime ?? doc.createdAt).toISOString().slice(0, 10),
+      // property_id and full_text are not stored in DocumentRecord; they remain empty
+      // until a dedicated Permit model with OCR extraction is added.
+      property_id: "",
+      municipality: doc.municipalityNormalized ?? doc.municipality ?? "",
+      waste_codes: [doc.activityCode, doc.wasteType].filter(Boolean).join(", "),
+      decision_type: (doc.decisionType as "BIFALL" | "AVSLAG") ?? "BIFALL",
+      full_text: "",
+      processed_at: doc.updatedAt.toISOString(),
+    }));
+
+    res.json({ ok: true, permits });
+  } catch (error: unknown) {
+    res.status(500).json({ ok: false, error: error instanceof Error ? error.message : "fetch permits failed" });
+  }
+});
+
+// ─── Receivers list (placeholder – no DB model yet) ───────────────────────────
+router.get("/api/receivers", requireAuth, rateLimitByUser(60, 60_000), (_req, res) => {
+  res.json({ ok: true, receivers: [] });
+});
+
 export default router;

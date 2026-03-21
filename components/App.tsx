@@ -1,6 +1,5 @@
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { Permit, InterfaceMode } from '../types';
-import { MOCK_PERMITS } from '../constants';
 import MarketIntelView from './MarketIntelView';
 import PermitPortalView from './PermitPortalView';
 import ExecutiveSummary from './ExecutiveSummary';
@@ -88,11 +87,20 @@ const MODE_CARDS: ModeCardConfig[] = [
 
 const App: React.FC = () => {
   const { plan } = useProjectStructure();
-  const [permits] = useState<Permit[]>(MOCK_PERMITS);
+  const [permits, setPermits] = useState<Permit[]>([]);
   const [selectedPermit, setSelectedPermit] = useState<Permit | null>(null);
   const [mode, setMode] = useState<InterfaceMode | null>(null);
   const [activeTab, setActiveTab] = useState('summary');
   const [showUpload, setShowUpload] = useState(false);
+
+  useEffect(() => {
+    fetch('/api/permits')
+      .then((r) => r.json())
+      .then((data: { ok: boolean; permits?: Permit[] }) => {
+        if (data.ok && data.permits) setPermits(data.permits);
+      })
+      .catch(() => { /* stay with empty array if API unavailable */ });
+  }, []);
 
   const readyModuleCount = useMemo(() => countReadyModules(plan), [plan]);
   const blockedModuleCount = useMemo(
@@ -141,13 +149,13 @@ const App: React.FC = () => {
         if (activeTab === 'apply') return <PermitPortalView permits={permits} mode="apply" />;
         if (activeTab === 'forms') return <FormManager />;
         if (activeTab === 'biodiversity') return <SluExpert />;
-        if (activeTab === 'risks') return <GisRiskModule />;
+        if (activeTab === 'risks') return <GisRiskModule permits={permits} />;
         return <PermitPortalView permits={permits} mode="map" />;
       case 'PROJECT_MANAGER':
         if (activeTab === 'field') return <FieldAssistant />;
         return <ProjectManagerView activeTab={activeTab} />;
       case 'COMPLIANCE_AUDIT':
-        if (activeTab === 'score') return <GisRiskModule />;
+        if (activeTab === 'score') return <GisRiskModule permits={permits} />;
         if (activeTab === 'audit') return <AdminMetadataReview />;
         if (activeTab === 'reports') return <ExecutiveSummary />;
         return <IntegrationsDashboard />;

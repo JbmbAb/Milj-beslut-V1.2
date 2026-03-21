@@ -440,8 +440,8 @@ const FEATURES: AppFeature[] = [
     id: 'permit-list-api',
     label: 'Realtids-tillståndslista (GET /api/permits från databas)',
     category: 'Tillståndsportalen',
-    status: 'PENDING',
-    note: 'App.tsx och GisRiskModule använder MOCK_PERMITS-konstant (hårdkodad mock-data) istället för dynamisk API-hämtning. Kräver GET /api/permits-endpoint kopplad till Prisma Permit-model.',
+    status: 'DONE',
+    note: 'GET /api/permits implementerat i secureApi.express.ts. Mappar DocumentRecord → Permit-format. App.tsx och GisRiskModule hämtar via useEffect/fetch. MOCK_PERMITS och MOCK_RECEIVERS borttagna.',
   },
   {
     id: 'infra-staging',

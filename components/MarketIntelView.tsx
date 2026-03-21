@@ -1,9 +1,9 @@
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import StatsOverview from './StatsOverview';
 import PermitTable from './PermitTable';
 import MapView from './MapView';
 import { Permit, Receiver, WasteCode } from '../types';
-import { MOCK_RECEIVERS, WASTE_CODES } from '../constants';
+import { WASTE_CODES } from '../constants';
 import { useProjectStructure } from './ProjectStructureContext';
 
 interface MarketIntelViewProps {
@@ -17,6 +17,7 @@ const MarketIntelView: React.FC<MarketIntelViewProps> = ({ permits, onSelectPerm
     useProjectStructure();
   const [selectedWasteCode, setSelectedWasteCode] = useState<WasteCode | null>(null);
   const [selectedReceiver, setSelectedReceiver] = useState<Receiver | null>(null);
+  const [receivers, setReceivers] = useState<Receiver[]>([]);
   const [massAmount, setMassAmount] = useState<number>(0);
   const [driverName, setDriverName] = useState('');
   const [vehicleId, setVehicleId] = useState('');
@@ -27,6 +28,15 @@ const MarketIntelView: React.FC<MarketIntelViewProps> = ({ permits, onSelectPerm
   const [syncInfo, setSyncInfo] = useState('');
   const [flowError, setFlowError] = useState('');
   const [lastRunPreliminary, setLastRunPreliminary] = useState(false);
+
+  useEffect(() => {
+    fetch('/api/receivers')
+      .then((r) => r.json())
+      .then((data: { ok: boolean; receivers?: Receiver[] }) => {
+        if (data.ok && data.receivers) setReceivers(data.receivers);
+      })
+      .catch(() => { /* stay with empty array if API unavailable */ });
+  }, []);
 
   const stats = useMemo(
     () => ({
@@ -198,11 +208,11 @@ const MarketIntelView: React.FC<MarketIntelViewProps> = ({ permits, onSelectPerm
                     className="mt-1 w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-sm font-semibold text-slate-800"
                     value={selectedReceiver?.id || ''}
                     onChange={(event) =>
-                      setSelectedReceiver(MOCK_RECEIVERS.find((receiver) => receiver.id === event.target.value) || null)
+                      setSelectedReceiver(receivers.find((receiver) => receiver.id === event.target.value) || null)
                     }
                   >
                     <option value="">Valj mottagare</option>
-                    {MOCK_RECEIVERS.map((receiver) => (
+                    {receivers.map((receiver) => (
                       <option key={receiver.id} value={receiver.id}>
                         {receiver.name} ({receiver.type})
                       </option>
@@ -323,7 +333,7 @@ const MarketIntelView: React.FC<MarketIntelViewProps> = ({ permits, onSelectPerm
               <h3 className="text-lg font-black text-slate-900">Interaktiv mottagarkarta</h3>
             </div>
             <div className="h-[520px]">
-              <MapView receivers={MOCK_RECEIVERS} onSelectReceiver={setSelectedReceiver} selectedReceiverId={selectedReceiver?.id} />
+              <MapView receivers={receivers} onSelectReceiver={setSelectedReceiver} selectedReceiverId={selectedReceiver?.id} />
             </div>
           </div>
         </section>

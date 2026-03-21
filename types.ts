@@ -422,7 +422,7 @@ export interface ProjectPhase {
 }
 
 export interface Permit {
-  id: number;
+  id: string;
   filename: string;
   checksum: string;
   received_date: string;
