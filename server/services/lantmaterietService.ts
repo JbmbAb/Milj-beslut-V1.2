@@ -172,7 +172,8 @@ export async function lookupPropertyByDesignation(input: PropertyLookupInput, us
     } else if (upperDesignation.includes("ORSA") || upperDesignation.includes("STACKMORA")) {
       coords = [[[14.73, 61.12], [14.74, 61.12], [14.74, 61.11], [14.73, 61.11], [14.73, 61.12]]];
     } else {
-      // Deterministic offset from Stockholm city center based on designation string hash
+      // Deterministic offset from Stockholm city center based on designation string hash.
+      // Uses multiplier 31 (Java String.hashCode() algorithm) for stable cross-platform results.
       const hash = Array.from(upperDesignation).reduce((acc, c) => (acc * 31 + c.charCodeAt(0)) & 0x7fffffff, 0);
       const lon = 18.07 + ((hash % 100) / 1000);
       const lat = 59.33 + ((Math.floor(hash / 100) % 100) / 1000);
