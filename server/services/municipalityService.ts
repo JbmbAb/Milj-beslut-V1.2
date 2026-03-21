@@ -19,48 +19,6 @@ export interface MunicipalityInsight {
     patterns: string[];
 }
 
-const _MOCK_PROFILES: Record<string, Partial<MunicipalityInsight>> = {
-    'ORSA': {
-        name: 'Orsa',
-        index: 0.42,
-        ranking: 185,
-        commonRisks: ['Buller', 'Damm', 'Transporter'],
-        commonRequirements: ['Skyddsvallar', 'Begränsade arbetstider'],
-        stats: {
-            avgRequirements: 4.2,
-            riskCoveragePct: 45,
-            documentationLevel: 'Låg',
-        },
-        patterns: ['Standardiserade krav', 'Geografisk variation (Låg)']
-    },
-    'STOCKHOLM': {
-        name: 'Stockholm',
-        index: 0.88,
-        ranking: 12,
-        commonRisks: ['Dagvatten', 'Lakvatten', 'Förorenad mark', 'Byggbuller'],
-        commonRequirements: ['Oljeavskiljare', 'Provtagningsplan', 'Täthetskontroll'],
-        stats: {
-            avgRequirements: 12.5,
-            riskCoveragePct: 92,
-            documentationLevel: 'Hög',
-        },
-        patterns: ['Hydrologiskt fokus', 'Dokumentationsbaserad tillsyn']
-    },
-    'NACKA': {
-        name: 'Nacka',
-        index: 0.82,
-        ranking: 24,
-        commonRisks: ['Vattenskyddsområde', 'Schaktmassor', 'Buller'],
-        commonRequirements: ['Invallning', 'Journalföring', 'Recipientskydd'],
-        stats: {
-            avgRequirements: 9.8,
-            riskCoveragePct: 88,
-            documentationLevel: 'Medel',
-        },
-        patterns: ['Riskbaserad tillsyn', 'Hydrologiskt fokus']
-    }
-};
-
 export async function getMunicipalityInsight(name: string): Promise<MunicipalityInsight> {
     const normalizedRaw = name.trim();
     const normalizedUpper = normalizedRaw.toUpperCase();

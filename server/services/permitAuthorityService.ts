@@ -26,7 +26,7 @@ export type AuthoritySubmitStatus =
   | 'RECEIVED'
   | 'PENDING_REVIEW'
   | 'REJECTED'
-  | 'MOCK_QUEUED';
+  | 'PENDING';
 
 export interface AuthoritySubmission {
   referenceId: string;
@@ -92,7 +92,7 @@ export async function submitPermitToAuthority(params: {
 
   // Try external authority API if configured
   const endpoint = process.env.AUTHORITY_SUBMIT_ENDPOINT;
-  let status: AuthoritySubmitStatus = 'MOCK_QUEUED';
+  let status: AuthoritySubmitStatus = 'PENDING';
   let externalRef: string | undefined;
 
   if (endpoint) {

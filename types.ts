@@ -54,7 +54,7 @@ export interface PermitCodeProfile {
   municipality: string | null;
 }
 
-export type DispatchProvider = 'MOCK_FRAKTBORS' | 'TIMOCOM' | 'TRANS_EU';
+export type DispatchProvider = 'DEMO_FRAKTBORS' | 'TIMOCOM' | 'TRANS_EU';
 export type DispatchBookingStatus = 'QUOTED' | 'BOOKED' | 'IN_TRANSIT' | 'DELIVERED' | 'CANCELLED' | 'BLOCKED';
 export type DriverJournalStatus = 'DRAFT' | 'SUBMITTED' | 'VERIFIED' | 'REJECTED';
 export type LimsSourceType = 'API' | 'SFTP' | 'MANUAL';

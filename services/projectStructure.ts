@@ -691,7 +691,7 @@ const normalizeDispatchProvider = (candidate: unknown): DispatchQuote['provider'
   if (candidate === 'TIMOCOM' || candidate === 'TRANS_EU') {
     return candidate;
   }
-  return 'MOCK_FRAKTBORS';
+  return 'DEMO_FRAKTBORS';
 };
 
 const normalizeDispatchQuotes = (candidate: unknown): DispatchQuote[] => {

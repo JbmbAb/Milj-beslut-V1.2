@@ -603,7 +603,7 @@ export const ProjectStructureProvider: React.FC<{ children: React.ReactNode }> =
         }));
 
         try {
-          // TODO: Replace MOCK_FRAKTBORS request mapping with TIMOCOM/Trans.eu adapter when credentials are available.
+          // TODO: Replace DEMO_FRAKTBORS request mapping with TIMOCOM/Trans.eu adapter when credentials are available.
           const quotePayload = await callProjectApi<{ quote: DispatchQuote }>('/dispatch/quote', {
             receiverId: input.receiverId,
             receiverName: input.receiverName,
@@ -761,7 +761,7 @@ export const ProjectStructureProvider: React.FC<{ children: React.ReactNode }> =
         const timestamp = nowIso();
         const quote: DispatchQuote = {
           id: makeLocalId('QUOTE'),
-          provider: 'MOCK_FRAKTBORS',
+          provider: 'DEMO_FRAKTBORS',
           receiverId: input.receiverId,
           receiverName: input.receiverName,
           wasteCode: input.wasteCode,
@@ -776,7 +776,7 @@ export const ProjectStructureProvider: React.FC<{ children: React.ReactNode }> =
         const booking: TransportBooking = {
           id: makeLocalId('BOOKING'),
           quoteId: quote.id,
-          provider: 'MOCK_FRAKTBORS',
+          provider: 'DEMO_FRAKTBORS',
           status: 'BOOKED',
           receiverId: input.receiverId,
           receiverName: input.receiverName,

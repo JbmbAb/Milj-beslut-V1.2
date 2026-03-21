@@ -201,7 +201,7 @@ describe('projectStructure', () => {
     plan.transportBookings.push({
       id: 'BOOKING-1',
       quoteId: 'QUOTE-1',
-      provider: 'MOCK_FRAKTBORS',
+      provider: 'DEMO_FRAKTBORS',
       status: 'BOOKED',
       receiverId: 'R1',
       receiverName: 'Receiver 1',
@@ -248,7 +248,7 @@ describe('projectStructure', () => {
     plan.transportBookings.push({
       id: 'BOOKING-HAZ',
       quoteId: 'QUOTE-HAZ',
-      provider: 'MOCK_FRAKTBORS',
+      provider: 'DEMO_FRAKTBORS',
       status: 'BOOKED',
       receiverId: 'R2',
       receiverName: 'Receiver 2',

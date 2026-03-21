@@ -158,9 +158,9 @@ export async function lookupPropertyByDesignation(input: PropertyLookupInput, us
     role: user.role,
   });
 
-  // --- MOCK INJECTION ---
+  // --- DEMO FALLBACK (only when LANTMATERIET_DEMO_MODE=true and no real credentials) ---
   const upperDesignation = input.propertyDesignation.toUpperCase();
-  if (upperDesignation === "ORSA STACKMORA 3:12" || upperDesignation === "NACKA ORMINGE 7:8") {
+  if (process.env.LANTMATERIET_DEMO_MODE === 'true' && (upperDesignation === "ORSA STACKMORA 3:12" || upperDesignation === "NACKA ORMINGE 7:8")) {
     logger.info('Lantmateriet: using mock data', { propertyDesignation: input.propertyDesignation });
     // Rough coordinates for demo map bounding boxes
     const coords = upperDesignation.includes("NACKA")
@@ -191,7 +191,7 @@ export async function lookupPropertyByDesignation(input: PropertyLookupInput, us
     await writePropertyAccessLog(auditEvent);
     return minimized;
   }
-  // --- END MOCK ---
+  // --- END DEMO FALLBACK ---
 
   const baseUrl = (process.env.LANTMATERIET_BASE_URL || "https://api.lantmateriet.se/ogc-features/v1").trim();
   const accessToken = await getLantmaterietAccessToken();

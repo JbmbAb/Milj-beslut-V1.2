@@ -129,8 +129,8 @@ describe.skipIf(!hasDatabaseIntegration)('secure API integration', () => {
 
     expect(res.status).toBe(200);
     expect(res.body?.ok).toBe(true);
-    expect(['MOCK_FRAKTBORS', 'TIMOCOM', 'TRANS_EU']).toContain(res.body?.dispatch?.requestedProvider);
-    expect(['MOCK_FRAKTBORS', 'TIMOCOM', 'TRANS_EU']).toContain(res.body?.dispatch?.activeProvider);
+    expect(['DEMO_FRAKTBORS', 'TIMOCOM', 'TRANS_EU']).toContain(res.body?.dispatch?.requestedProvider);
+    expect(['DEMO_FRAKTBORS', 'TIMOCOM', 'TRANS_EU']).toContain(res.body?.dispatch?.activeProvider);
     expect(typeof res.body?.dispatch?.fallbackActive).toBe('boolean');
   });
 

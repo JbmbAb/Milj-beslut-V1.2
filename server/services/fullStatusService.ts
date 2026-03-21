@@ -222,9 +222,9 @@ async function probeIntegrations(): Promise<IntegrationProbe[]> {
   const dispatch = getDispatchProviderRuntimeStatus();
   results.push({
     name: `Transport Dispatch (${dispatch.activeProvider})`,
-    status: dispatch.activeProvider === 'MOCK_FRAKTBORS' ? 'MOCK' : 'CONFIGURED',
-    note: dispatch.activeProvider === 'MOCK_FRAKTBORS'
-      ? 'Mock-leverantör — verklig offertintegration kräver TIMOCOM/TRANS_EU-konfiguration'
+    status: dispatch.activeProvider === 'DEMO_FRAKTBORS' ? 'DEMO' : 'CONFIGURED',
+    note: dispatch.activeProvider === 'DEMO_FRAKTBORS'
+      ? 'Demo-leverantör — verklig offertintegration kräver TIMOCOM/TRANS_EU-konfiguration'
       : `Aktiv leverantör: ${dispatch.activeProvider}`,
   });
 

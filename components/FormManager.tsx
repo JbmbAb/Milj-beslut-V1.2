@@ -3,7 +3,7 @@ import React, { useState } from 'react';
 import { EnvironmentalForm } from '../types';
 import { autoFillFormSection } from '../services/geminiService';
 
-const MOCK_FORM: EnvironmentalForm = {
+const BLANK_FORM: EnvironmentalForm = {
   id: 'mkb-90.131',
   title: 'Anmälan om miljöfarlig verksamhet (90.131)',
   wasteCode: '90.131',
@@ -33,7 +33,7 @@ const MOCK_FORM: EnvironmentalForm = {
 };
 
 const FormManager: React.FC = () => {
-  const [form, setForm] = useState<EnvironmentalForm>(MOCK_FORM);
+  const [form, setForm] = useState<EnvironmentalForm>(BLANK_FORM);
   const [isGenerating, setIsGenerating] = useState<string | null>(null);
   const [isSuccess, setIsSuccess] = useState(false);
   const [isSigned, setIsSigned] = useState(false);

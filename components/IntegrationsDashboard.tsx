@@ -4,7 +4,7 @@ const PRIMARY_TOKEN_KEY = 'miljobeslut_admin_bearer';
 const LEGACY_TOKEN_KEY = 'riskguard_admin_bearer';
 
 type IntegrationStatus = 'CONNECTED' | 'DISCONNECTED' | 'ERROR';
-type DispatchProvider = 'MOCK_FRAKTBORS' | 'TIMOCOM' | 'TRANS_EU';
+type DispatchProvider = 'DEMO_FRAKTBORS' | 'TIMOCOM' | 'TRANS_EU';
 
 type DispatchRuntimeStatus = {
   requestedProvider: DispatchProvider;

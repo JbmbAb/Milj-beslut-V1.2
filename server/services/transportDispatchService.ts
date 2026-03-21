@@ -62,10 +62,10 @@ function warnProviderFallbackOnce(message: string): void {
 }
 
 function parseRequestedDispatchProvider(): DispatchProvider {
-  const rawProvider = String(process.env.DISPATCH_PROVIDER_MODE || "MOCK_FRAKTBORS")
+  const rawProvider = String(process.env.DISPATCH_PROVIDER_MODE || "DEMO_FRAKTBORS")
     .trim()
     .toUpperCase();
-  return rawProvider === "TIMOCOM" ? "TIMOCOM" : rawProvider === "TRANS_EU" ? "TRANS_EU" : "MOCK_FRAKTBORS";
+  return rawProvider === "TIMOCOM" ? "TIMOCOM" : rawProvider === "TRANS_EU" ? "TRANS_EU" : "DEMO_FRAKTBORS";
 }
 
 function resolveDispatchProvider(requestedProvider: DispatchProvider): DispatchProvider {
@@ -73,9 +73,9 @@ function resolveDispatchProvider(requestedProvider: DispatchProvider): DispatchP
     const hasCredentials = Boolean(String(process.env.TIMOCOM_API_KEY || "").trim());
     if (!hasCredentials) {
       warnProviderFallbackOnce(
-        "DISPATCH_PROVIDER_MODE=TIMOCOM saknar TIMOCOM_API_KEY. Faller tillbaka till MOCK_FRAKTBORS."
+        "DISPATCH_PROVIDER_MODE=TIMOCOM saknar TIMOCOM_API_KEY. Faller tillbaka till DEMO_FRAKTBORS."
       );
-      return "MOCK_FRAKTBORS";
+      return "DEMO_FRAKTBORS";
     }
   }
 
@@ -83,9 +83,9 @@ function resolveDispatchProvider(requestedProvider: DispatchProvider): DispatchP
     const hasCredentials = Boolean(String(process.env.TRANS_EU_API_KEY || "").trim());
     if (!hasCredentials) {
       warnProviderFallbackOnce(
-        "DISPATCH_PROVIDER_MODE=TRANS_EU saknar TRANS_EU_API_KEY. Faller tillbaka till MOCK_FRAKTBORS."
+        "DISPATCH_PROVIDER_MODE=TRANS_EU saknar TRANS_EU_API_KEY. Faller tillbaka till DEMO_FRAKTBORS."
       );
-      return "MOCK_FRAKTBORS";
+      return "DEMO_FRAKTBORS";
     }
   }
 
