@@ -4,6 +4,9 @@ import type { MapLayerKey, Permit } from "../types";
 import MapView from "./MapView";
 import { useProjectStructure } from "./ProjectStructureContext";
 
+const TOKEN_KEY = "miljobeslut_admin_bearer";
+const PROJECT_KEY = "miljobeslut_admin_project";
+
 type UploadedGeoJson = {
   type: string;
   features?: Array<{ geometry?: { type?: string } }>;
@@ -33,6 +36,80 @@ interface GisRiskModuleProps {
 const GisRiskModule: React.FC<GisRiskModuleProps> = ({ permits = [] }) => {
   const { evaluateGate, addArchiveDocument, markModuleReady } = useProjectStructure();
   const [uploadedData, setUploadedData] = useState<UploadedGeoJson | null>(null);
+
+  // Property designation (beteckning) search state
+  const [beteckning, setBeteckning] = useState("");
+  const [propertyGeoJson, setPropertyGeoJson] = useState<object | null>(null);
+  const [propertyLoading, setPropertyLoading] = useState(false);
+  const [propertyError, setPropertyError] = useState("");
+  const [propertyDemo, setPropertyDemo] = useState(false);
+  const [foundBeteckning, setFoundBeteckning] = useState("");
+
+  const searchProperty = async () => {
+    const trimmed = beteckning.trim();
+    if (!trimmed) return;
+    setPropertyLoading(true);
+    setPropertyError("");
+    setPropertyGeoJson(null);
+    setPropertyDemo(false);
+    setFoundBeteckning("");
+    try {
+      const token = typeof window !== "undefined" ? (localStorage.getItem(TOKEN_KEY) ?? "") : "";
+      const projectId = typeof window !== "undefined" ? (localStorage.getItem(PROJECT_KEY) ?? "") : "";
+      if (!token) {
+        setPropertyError("Du måste vara inloggad för att söka fastigheter. Logga in via Admin Console.");
+        return;
+      }
+      if (!projectId) {
+        setPropertyError("Inget aktivt projekt hittades. Öppna ett projekt innan du söker.");
+        return;
+      }
+      const response = await fetch("/api/property/lookup", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({
+          projectId,
+          propertyDesignation: trimmed,
+          purpose: "KARTVISNING",
+        }),
+      });
+      const json = (await response.json()) as { ok: boolean; result?: { geometry?: unknown; _demo?: boolean; designation?: string }; error?: string };
+      if (!json.ok) {
+        setPropertyError(json.error ?? "Sökningen misslyckades");
+      } else if (!json.result?.geometry) {
+        setPropertyError("Ingen geometri returnerades för beteckningen.");
+      } else {
+        setPropertyGeoJson(json.result.geometry as object);
+        setPropertyDemo(!!json.result._demo);
+        setFoundBeteckning(json.result.designation ?? trimmed);
+      }
+    } catch (err: unknown) {
+      setPropertyError(err instanceof Error ? err.message : "Nätverksfel vid fastighetssökning.");
+    } finally {
+      setPropertyLoading(false);
+    }
+  };
+
+  // Merge uploaded GeoJSON and property search result for map display
+  const mapData = useMemo(() => {
+    const features: unknown[] = [];
+    if (uploadedData) {
+      if (uploadedData.type === "FeatureCollection" && Array.isArray(uploadedData.features)) {
+        features.push(...uploadedData.features);
+      } else {
+        features.push({ type: "Feature", geometry: uploadedData, properties: {} });
+      }
+    }
+    if (propertyGeoJson) {
+      features.push({ type: "Feature", geometry: propertyGeoJson, properties: { label: foundBeteckning } });
+    }
+    if (features.length === 0) return null;
+    return { type: "FeatureCollection", features };
+  }, [uploadedData, propertyGeoJson, foundBeteckning]);
+
   const [riskParameters, setRiskParameters] = useState({
     bufferDistance: 100,
     sensitivityLevel: "Medium" as "Low" | "Medium" | "High",
@@ -154,6 +231,59 @@ const GisRiskModule: React.FC<GisRiskModuleProps> = ({ permits = [] }) => {
   return (
     <div className="flex h-full flex-col gap-8 animate-in fade-in duration-500 lg:flex-row">
       <div className="w-full shrink-0 space-y-6 lg:w-96">
+
+        {/* Beteckningssökning på karta */}
+        <div className="rounded-[2.5rem] border border-blue-100 bg-white p-8 shadow-sm">
+          <div className="mb-6 flex items-center gap-4">
+            <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-blue-100 text-xl text-blue-600">
+              <i className="fas fa-map-location-dot" />
+            </div>
+            <div>
+              <h3 className="text-xl font-black uppercase tracking-tight">Sök fastighet</h3>
+              <p className="text-[10px] font-black uppercase tracking-widest text-slate-500">Beteckning på karta</p>
+            </div>
+          </div>
+          <div className="space-y-3">
+            <label className="text-[10px] font-black uppercase tracking-widest text-slate-400">Fastighetsbeteckning</label>
+            <input
+              type="text"
+              placeholder="t.ex. NACKA BOO 1:1"
+              value={beteckning}
+              onChange={(e) => setBeteckning(e.target.value)}
+              onKeyDown={(e) => { if (e.key === "Enter") void searchProperty(); }}
+              className="w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm font-medium text-slate-700 placeholder-slate-400 focus:border-blue-400 focus:bg-white focus:outline-none"
+            />
+            <button
+              type="button"
+              disabled={!beteckning.trim() || propertyLoading}
+              onClick={() => void searchProperty()}
+              className={`flex w-full items-center justify-center gap-2 rounded-2xl py-3 text-xs font-black uppercase tracking-widest transition-all ${
+                !beteckning.trim()
+                  ? "cursor-not-allowed bg-slate-100 text-slate-400"
+                  : "bg-blue-600 text-white shadow-lg shadow-blue-200 hover:bg-blue-700"
+              }`}
+            >
+              {propertyLoading ? (
+                <><i className="fas fa-spinner fa-spin" /> Söker...</>
+              ) : (
+                <><i className="fas fa-search" /> Visa på karta</>
+              )}
+            </button>
+            {propertyError && (
+              <p className="rounded-xl bg-rose-50 px-3 py-2 text-xs font-semibold text-rose-600">
+                <i className="fas fa-triangle-exclamation mr-1" />{propertyError}
+              </p>
+            )}
+            {propertyGeoJson && !propertyError && (
+              <div className={`rounded-xl px-3 py-2 text-xs font-semibold ${propertyDemo ? "bg-amber-50 text-amber-700" : "bg-emerald-50 text-emerald-700"}`}>
+                {propertyDemo
+                  ? <><i className="fas fa-flask mr-1" />Demo-koordinater — {foundBeteckning} visas på kartan</>
+                  : <><i className="fas fa-check-circle mr-1" />{foundBeteckning} visas på kartan</>}
+              </div>
+            )}
+          </div>
+        </div>
+
         <div className="rounded-[2.5rem] border border-slate-200 bg-white p-8 shadow-sm">
           <div className="mb-6 flex items-center gap-4">
             <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-rose-100 text-xl text-rose-600">
@@ -308,7 +438,7 @@ const GisRiskModule: React.FC<GisRiskModuleProps> = ({ permits = [] }) => {
       <div className="relative min-h-[600px] flex-1 overflow-hidden rounded-[3rem] border border-slate-200 bg-white shadow-sm">
         <MapView
           permits={permits}
-          geoJsonData={uploadedData}
+          geoJsonData={mapData}
           bufferDistance={riskParameters.bufferDistance}
           highlightLayer={highlightedLayer}
         />
