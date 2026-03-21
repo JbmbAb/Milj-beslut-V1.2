@@ -1,7 +1,7 @@
 import { appendPropertyAudit } from "../security/auditTrail";
 import { writePropertyAccessLog } from "../repositories/auditRepository";
 import { assertProjectMembership } from "../repositories/projectAccessRepository";
-import { isLantmaterietOpenMode } from "../security/env";
+import { isLantmaterietOpenMode, hasLantmaterietAuth } from "../security/env";
 import { assertPermission, validatePropertyLookupInput } from "../security/projectAccess";
 import { logger } from "../logger";
 import type { AuthUser, PropertyLookupInput } from "../security/types";
@@ -158,26 +158,36 @@ export async function lookupPropertyByDesignation(input: PropertyLookupInput, us
     role: user.role,
   });
 
-  // --- DEMO FALLBACK (only when LANTMATERIET_DEMO_MODE=true and no real credentials) ---
+  // --- DEMO FALLBACK (when LANTMATERIET_DEMO_MODE=true or no real credentials configured) ---
   const upperDesignation = input.propertyDesignation.toUpperCase();
-  if (process.env.LANTMATERIET_DEMO_MODE === 'true' && (upperDesignation === "ORSA STACKMORA 3:12" || upperDesignation === "NACKA ORMINGE 7:8")) {
-    logger.info('Lantmateriet: using mock data', { propertyDesignation: input.propertyDesignation });
-    // Rough coordinates for demo map bounding boxes
-    const coords = upperDesignation.includes("NACKA")
-      ? [[[18.25, 59.33], [18.26, 59.33], [18.26, 59.32], [18.25, 59.32], [18.25, 59.33]]]
-      : [[[14.73, 61.12], [14.74, 61.12], [14.74, 61.11], [14.73, 61.11], [14.73, 61.12]]];
+  const demoMode = process.env.LANTMATERIET_DEMO_MODE === 'true' || !hasLantmaterietAuth();
+
+  if (demoMode) {
+    logger.info('Lantmateriet: using demo data', { propertyDesignation: input.propertyDesignation, demoMode: true });
+
+    // Well-known test designations get specific coordinates; others get a deterministic offset in Stockholm.
+    let coords: number[][][];
+    if (upperDesignation.includes("NACKA")) {
+      coords = [[[18.25, 59.33], [18.26, 59.33], [18.26, 59.32], [18.25, 59.32], [18.25, 59.33]]];
+    } else if (upperDesignation.includes("ORSA") || upperDesignation.includes("STACKMORA")) {
+      coords = [[[14.73, 61.12], [14.74, 61.12], [14.74, 61.11], [14.73, 61.11], [14.73, 61.12]]];
+    } else {
+      // Deterministic offset from Stockholm city center based on designation string hash
+      const hash = Array.from(upperDesignation).reduce((acc, c) => (acc * 31 + c.charCodeAt(0)) & 0x7fffffff, 0);
+      const lon = 18.07 + ((hash % 100) / 1000);
+      const lat = 59.33 + ((Math.floor(hash / 100) % 100) / 1000);
+      coords = [[[lon, lat], [lon + 0.01, lat], [lon + 0.01, lat - 0.01], [lon, lat - 0.01], [lon, lat]]];
+    }
 
     const mockFeature = {
-      geometry: {
-        type: "Polygon",
-        coordinates: coords
-      },
-      properties: {
-        etikett: upperDesignation
-      }
+      geometry: { type: "Polygon", coordinates: coords },
+      properties: { etikett: upperDesignation },
     };
 
-    const minimized = minimizeOgcFeaturePayload({ features: [mockFeature] }, input.propertyDesignation);
+    const minimized = {
+      ...minimizeOgcFeaturePayload({ features: [mockFeature] }, input.propertyDesignation),
+      _demo: true,
+    };
 
     const auditEvent = {
       userId: user.id,

@@ -54,7 +54,7 @@ async function safeQuery<T>(fn: () => Promise<T>, fallback: T): Promise<T> {
 
 interface IntegrationProbe {
   name: string;
-  status: 'CONFIGURED' | 'NOT_CONFIGURED' | 'LIVE' | 'MOCK' | 'ERROR';
+  status: 'CONFIGURED' | 'NOT_CONFIGURED' | 'LIVE' | 'MOCK' | 'ERROR' | 'DEMO';
   endpoint?: string;
   note?: string;
 }

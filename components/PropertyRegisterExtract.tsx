@@ -8,6 +8,7 @@ interface PropertyLookupResult {
   geometry?: unknown;
   boundaries?: unknown;
   ownership?: { ownerType?: unknown; share?: unknown } | null;
+  _demo?: boolean;
 }
 
 interface PropertyRegisterExtractProps {
@@ -88,6 +89,13 @@ const PropertyRegisterExtract: React.FC<PropertyRegisterExtractProps> = ({ prope
 
   return (
     <div className="bg-white border-2 border-slate-900 p-8 shadow-sm font-serif max-w-4xl mx-auto my-6 text-slate-900 overflow-hidden relative">
+      {/* Demo-badge */}
+      {data._demo && (
+        <div className="mb-4 px-3 py-2 bg-amber-50 border border-amber-300 rounded text-amber-700 text-xs font-semibold flex items-center gap-2">
+          <span>⚠️</span>
+          <span>Demo-data — Lantmäteriet-API ej konfigurerat. Sätt <code className="font-mono">LANTMATERIET_CONSUMER_KEY</code> + <code className="font-mono">LANTMATERIET_CONSUMER_SECRET</code> (eller <code className="font-mono">LANTMATERIET_ACCESS_TOKEN</code>) för riktiga registerdata.</span>
+        </div>
+      )}
       {/* Vattenstämpel */}
       <div className="absolute top-4 right-8 opacity-10 pointer-events-none uppercase text-4xl font-black rotate-[-15deg] border-4 border-slate-900 p-2">
         Registerutdrag

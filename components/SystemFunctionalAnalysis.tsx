@@ -29,6 +29,7 @@ function StatusBadge({ status }: StatusBadgeProps) {
     NOT_CONFIGURED: 'bg-slate-100 text-slate-600',
     PENDING: 'bg-slate-100 text-slate-600',
     MOCK: 'bg-orange-100 text-orange-800',
+    DEMO: 'bg-amber-100 text-amber-800',
     ERROR: 'bg-red-100 text-red-800',
     ok: 'bg-emerald-100 text-emerald-800',
     degraded: 'bg-amber-100 text-amber-800',
@@ -73,8 +74,9 @@ function ProgressBar({ percent, color = 'bg-emerald-500' }: { percent: number; c
 
 function IntegrationRow({ entry }: { entry: IntegrationStatusEntry }) {
   const isMock = entry.status === 'MOCK' || entry.status === 'NOT_CONFIGURED';
+  const isDemo = entry.status === 'DEMO';
   return (
-    <tr className={`border-b border-slate-100 last:border-0 ${isMock ? 'bg-orange-50/40' : ''}`}>
+    <tr className={`border-b border-slate-100 last:border-0 ${isMock ? 'bg-orange-50/40' : isDemo ? 'bg-amber-50/40' : ''}`}>
       <td className="py-2 pr-3 text-xs font-semibold text-slate-800 whitespace-nowrap">{entry.name}</td>
       <td className="py-2 pr-3"><StatusBadge status={entry.status} /></td>
       <td className="py-2 pr-3 text-[10px] text-slate-500 font-mono truncate max-w-[200px]">{entry.endpoint ?? '—'}</td>
@@ -127,7 +129,7 @@ export const SystemFunctionalAnalysis: React.FC = () => {
     );
   }
 
-  const mockIntegrations = report?.integrations.filter((i) => i.status === 'MOCK' || i.status === 'NOT_CONFIGURED') ?? [];
+  const mockIntegrations = report?.integrations.filter((i) => i.status === 'MOCK' || i.status === 'NOT_CONFIGURED' || i.status === 'DEMO') ?? [];
   const liveIntegrations = report?.integrations.filter((i) => i.status === 'CONFIGURED' || i.status === 'LIVE') ?? [];
   const allCategories = report?.completion.categories ?? [];
   const filteredCategories = selectedCategory
