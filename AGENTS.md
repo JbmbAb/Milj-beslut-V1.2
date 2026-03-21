@@ -95,7 +95,7 @@ npm run dev                   # startar på http://localhost:5173
 | TypeScript | ✅ 0 fel |
 | Lint (ESLint) | ✅ 0 fel |
 | Build (`npm run build`) | ✅ Lyckat |
-| Enhetstester (Vitest) | ✅ 115/115 pass |
+| Enhetstester (Vitest) | ✅ 153/153 pass |
 | Integrationstester | ⚠️ Kräver lokal DB |
 | E2E-tester (Playwright) | ⚠️ Kräver lokal server |
 
@@ -197,11 +197,23 @@ npm run dev                   # startar på http://localhost:5173
 ## Kvarstående arbete (prioritetsordning)
 1. ~~**[Copilot agent]** Koppla `UploadModal` + `MarketingHub` till routing~~ ✅ Klart
 2. ~~**[Copilot agent]** `WeatherRisk` felmeddelande vid saknad API-nyckel~~ ✅ Klart
-3. **[Figma Make]** Visuell polish av `ExecutiveSummary` och `PermitPortalView`
-4. **[VS Code]** `POST /api/documents/upload` endpoint med multer (multer installerat ✅)
-5. **[VS Code]** Riktig Lantmäteriet-integration med OAuth2-nyckel
-6. **[VS Code]** Permit-inlämning: ersätt `MOCK_QUEUED` med riktig endpoint
-7. **[VS Code]** SMHI-väderintegration med riktig API-nyckel
-8. **[VS Code]** E2E-tester mot körande app
-9. **[DevOps]** Staging-driftsättning Docker + PostgreSQL + env-vars
+3. ~~**[Copilot agent]** Unit-tester `transportDispatchService`, `metricsService`, `sguRiskService`~~ ✅ 153/153 pass
+4. **[Figma Make]** Visuell polish av `ExecutiveSummary` och `PermitPortalView`
+5. **[VS Code]** `POST /api/documents/upload` endpoint med multer (multer installerat ✅)
+6. **[VS Code]** Riktig Lantmäteriet-integration med OAuth2-nyckel
+7. **[VS Code]** Permit-inlämning: ersätt `MOCK_QUEUED` med riktig endpoint
+8. **[VS Code]** SMHI-väderintegration med riktig API-nyckel
+9. **[VS Code]** E2E-tester mot körande app
+10. **[DevOps]** Staging-driftsättning Docker + PostgreSQL + env-vars
+
+## Testansvarsfördelning
+
+| Typ | Vem | Kommando |
+|---|---|---|
+| Unit-tester (rena funktioner, mock DB) | **Copilot agent** | `npm run test` |
+| TS-kontroll | **Copilot agent** | `npx tsc --noEmit` |
+| Lint | **Copilot agent** | `npx eslint .` |
+| E2E mot lokal server | **VS Code / Codex** | `npx playwright test` |
+| Visuell komponent-test | **Figma Make / Antigravity** | UI-preview i Figma |
+| Integrationstester mot riktig DB | **VS Code / Codex** | behöver lokal PostgreSQL |
 
