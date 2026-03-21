@@ -138,7 +138,32 @@ const GanttChart: React.FC<GanttChartProps> = ({ phases }) => {
             </p>
           </div>
         </div>
-        <button className="px-6 py-2 bg-white/10 hover:bg-white/20 border border-white/10 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all">
+        <button
+          type="button"
+          onClick={() => {
+            const rows = [
+              ['Fas', 'Aktivitet', 'Typ', 'Status', 'Startvecka', 'Varaktighet (veckor)', 'Slutvecka'],
+              ...allTasks.map((t: TaskWithPhase) => [
+                t.phaseTitle,
+                t.title,
+                t.type ?? '',
+                t.status ?? '',
+                String(t.startWeek ?? ''),
+                String(t.duration ?? ''),
+                String((t.startWeek ?? 1) + (t.duration ?? 2) - 1),
+              ]),
+            ];
+            const csv = rows.map((r) => r.map((v) => `"${String(v).replace(/"/g, '""')}"`).join(',')).join('\n');
+            const blob = new Blob(['\uFEFF' + csv], { type: 'text/csv;charset=utf-8;' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = `projekt-tidplan-${new Date().toISOString().slice(0, 10)}.csv`;
+            a.click();
+            URL.revokeObjectURL(url);
+          }}
+          className="px-6 py-2 bg-white/10 hover:bg-white/20 border border-white/10 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all"
+        >
           Exportera till Excel / MSP
         </button>
       </footer>

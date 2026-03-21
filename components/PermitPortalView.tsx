@@ -20,6 +20,8 @@ const PermitPortalView: React.FC<PermitPortalViewProps> = ({ permits, mode = 'ma
   const [searchQuery, setSearchQuery] = useState('');
   const [draftSyncInfo, setDraftSyncInfo] = useState('');
   const [permitSubmitted, setPermitSubmitted] = useState(false);
+  const [actionLoading, setActionLoading] = useState(false);
+  const [actionError, setActionError] = useState<string | null>(null);
 
   const municipalities = useMemo(() => Array.from(new Set(permits.map((permit) => permit.municipality))).sort(), [permits]);
 
@@ -41,56 +43,73 @@ const PermitPortalView: React.FC<PermitPortalViewProps> = ({ permits, mode = 'ma
 
   const handleGenerateDraft = async () => {
     if (!selectedCode) return;
-    const draftName = `Ansokningsutkast-${selectedMuni}-${selectedCode.code}`;
-    const applied = applySelectedCodeProfile(selectedCode);
+    setActionLoading(true);
+    setActionError(null);
+    try {
+      const draftName = `Ansokningsutkast-${selectedMuni}-${selectedCode.code}`;
+      const applied = applySelectedCodeProfile(selectedCode);
 
-    addArchiveDocument({
-      name: draftName,
-      module: 'PERMIT_PORTAL',
-      category: 'PERMIT',
-      status: 'DRAFT',
-      tags: ['application', selectedMuni.toLowerCase(), selectedCode.code.toLowerCase()],
-    });
-    markModuleReady('PERMIT_PORTAL', `Permit handoff active for ${selectedMuni} (${selectedCode.code}).`);
-    setPermitSubmitted(false);
-    const permitGate = await evaluateGate('gate-PERMIT_REQUIRED', {
-      permitType: selectedCode.code,
-      codeType: selectedCode.type,
-      permitSubmitted: false,
-      mapLayerAvailable: applied.plan.mapLayerSelection.enabled,
-      note: 'Draft generated in permit portal.',
-    });
-    const riskGate = await evaluateGate('gate-RISK_REVIEW', {
-      permitType: selectedCode.code,
-      codeType: selectedCode.type,
-      mapLayerAvailable: applied.plan.mapLayerSelection.enabled,
-      note: 'Code profile synchronized for geofence checks.',
-    });
-    setDraftSyncInfo(
-      `Synkad till projektplan: ${draftName}. Permit gate: ${permitGate.status}. Risk gate: ${riskGate.status}.`
-    );
+      addArchiveDocument({
+        name: draftName,
+        module: 'PERMIT_PORTAL',
+        category: 'PERMIT',
+        status: 'DRAFT',
+        tags: ['application', selectedMuni.toLowerCase(), selectedCode.code.toLowerCase()],
+      });
+      markModuleReady('PERMIT_PORTAL', `Permit handoff active for ${selectedMuni} (${selectedCode.code}).`);
+      setPermitSubmitted(false);
+      const permitGate = await evaluateGate('gate-PERMIT_REQUIRED', {
+        permitType: selectedCode.code,
+        codeType: selectedCode.type,
+        permitSubmitted: false,
+        mapLayerAvailable: applied.plan.mapLayerSelection.enabled,
+        note: 'Draft generated in permit portal.',
+      });
+      const riskGate = await evaluateGate('gate-RISK_REVIEW', {
+        permitType: selectedCode.code,
+        codeType: selectedCode.type,
+        mapLayerAvailable: applied.plan.mapLayerSelection.enabled,
+        note: 'Code profile synchronized for geofence checks.',
+      });
+      setDraftSyncInfo(
+        `Synkad till projektplan: ${draftName}. Permit gate: ${permitGate.status}. Risk gate: ${riskGate.status}.`
+      );
+    } catch (err: unknown) {
+      setActionError(err instanceof Error ? err.message : 'Kunde inte generera utkast. Försök igen.');
+    } finally {
+      setActionLoading(false);
+    }
   };
 
   const handleMarkSubmitted = async () => {
     if (!selectedCode) return;
-    const applied = applySelectedCodeProfile(selectedCode);
-    setPermitSubmitted(true);
-    const permitGate = await evaluateGate('gate-PERMIT_REQUIRED', {
-      permitType: selectedCode.code,
-      codeType: selectedCode.type,
-      permitSubmitted: true,
-      mapLayerAvailable: applied.plan.mapLayerSelection.enabled,
-      note: 'Permit marked as submitted from portal.',
-    });
-    const riskGate = await evaluateGate('gate-RISK_REVIEW', {
-      permitType: selectedCode.code,
-      codeType: selectedCode.type,
-      mapLayerAvailable: applied.plan.mapLayerSelection.enabled,
-      note: 'Risk review re-evaluated after permit submission.',
-    });
-    setDraftSyncInfo(
-      `Tillstand markerat som inskickat. Permit gate: ${permitGate.status}. Risk gate: ${riskGate.status}.`
-    );
+    setActionLoading(true);
+    setActionError(null);
+    try {
+      const applied = applySelectedCodeProfile(selectedCode);
+      setPermitSubmitted(true);
+      const permitGate = await evaluateGate('gate-PERMIT_REQUIRED', {
+        permitType: selectedCode.code,
+        codeType: selectedCode.type,
+        permitSubmitted: true,
+        mapLayerAvailable: applied.plan.mapLayerSelection.enabled,
+        note: 'Permit marked as submitted from portal.',
+      });
+      const riskGate = await evaluateGate('gate-RISK_REVIEW', {
+        permitType: selectedCode.code,
+        codeType: selectedCode.type,
+        mapLayerAvailable: applied.plan.mapLayerSelection.enabled,
+        note: 'Risk review re-evaluated after permit submission.',
+      });
+      setDraftSyncInfo(
+        `Tillstand markerat som inskickat. Permit gate: ${permitGate.status}. Risk gate: ${riskGate.status}.`
+      );
+    } catch (err: unknown) {
+      setPermitSubmitted(false);
+      setActionError(err instanceof Error ? err.message : 'Kunde inte markera tillstånd. Försök igen.');
+    } finally {
+      setActionLoading(false);
+    }
   };
 
   if (mode === 'apply') {
@@ -213,20 +232,25 @@ const PermitPortalView: React.FC<PermitPortalViewProps> = ({ permits, mode = 'ma
                 <button
                   type="button"
                   onClick={() => void handleGenerateDraft()}
-                  className="w-full rounded-xl bg-white px-4 py-3 text-sm font-black text-slate-900 transition hover:bg-slate-100"
+                  disabled={actionLoading}
+                  className="w-full rounded-xl bg-white px-4 py-3 text-sm font-black text-slate-900 transition hover:bg-slate-100 disabled:opacity-60 disabled:cursor-wait"
                 >
-                  Generera ansökningsutkast
+                  {actionLoading ? '⏳ Arbetar…' : 'Generera ansökningsutkast'}
                 </button>
                 <button
                   type="button"
                   onClick={() => void handleMarkSubmitted()}
-                  disabled={!selectedCode}
-                  className="w-full rounded-xl border border-blue-200 bg-blue-50 px-4 py-3 text-sm font-black text-blue-700 transition hover:bg-blue-100 disabled:opacity-50"
+                  disabled={!selectedCode || actionLoading}
+                  className="w-full rounded-xl border border-blue-200 bg-blue-50 px-4 py-3 text-sm font-black text-blue-700 transition hover:bg-blue-100 disabled:opacity-50 disabled:cursor-not-allowed"
+                  title={!selectedCode ? 'Välj en avfallskod först' : undefined}
                 >
-                  Markera tillstånd som inskickat
+                  {actionLoading ? '⏳ Arbetar…' : 'Markera tillstånd som inskickat'}
                 </button>
-                {permitSubmitted && <p className="text-xs text-blue-200">Tillstånd inskickat.</p>}
-                {draftSyncInfo && <p className="text-xs text-blue-200">{draftSyncInfo}</p>}
+                {actionError && (
+                  <p className="text-xs text-red-300 bg-red-900/30 rounded px-3 py-2">⚠️ {actionError}</p>
+                )}
+                {!actionError && permitSubmitted && <p className="text-xs text-green-300">✅ Tillstånd inskickat.</p>}
+                {!actionError && draftSyncInfo && <p className="text-xs text-blue-200">{draftSyncInfo}</p>}
               </div>
             ) : (
               <div className="mt-12 rounded-2xl border border-dashed border-slate-700 p-8 text-center text-slate-400">
@@ -291,7 +315,34 @@ const PermitPortalView: React.FC<PermitPortalViewProps> = ({ permits, mode = 'ma
             </p>
           </div>
         </div>
-        <button type="button" className="mt-4 rounded-xl border border-white/20 bg-white/10 px-4 py-2 text-xs font-black uppercase tracking-[0.12em] md:mt-0">
+        <button
+          type="button"
+          onClick={() => {
+            const rows = [
+              ['id', 'municipality', 'property_id', 'waste_codes', 'decision_type', 'received_date', 'applicant_company', 'lat', 'lng'],
+              ...permits.map((p) => [
+                p.id,
+                p.municipality,
+                p.property_id,
+                p.waste_codes,
+                p.decision_type,
+                p.received_date,
+                p.applicant_company ?? '',
+                p.lat != null ? String(p.lat) : '',
+                p.lng != null ? String(p.lng) : '',
+              ]),
+            ];
+            const csv = rows.map((r) => r.map((v) => `"${String(v).replace(/"/g, '""')}"`).join(',')).join('\n');
+            const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = `spatial-audit-${new Date().toISOString().slice(0, 10)}.csv`;
+            a.click();
+            URL.revokeObjectURL(url);
+          }}
+          className="mt-4 rounded-xl border border-white/20 bg-white/10 px-4 py-2 text-xs font-black uppercase tracking-[0.12em] transition hover:bg-white/20 md:mt-0"
+        >
           Exportera spatial audit
         </button>
       </section>
