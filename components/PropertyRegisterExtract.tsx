@@ -3,18 +3,121 @@ import React, { useEffect, useState } from 'react';
 const TOKEN_KEY = 'miljobeslut_admin_bearer';
 const PROJECT_KEY = 'miljobeslut_project_id';
 
+interface GeoJsonGeometry {
+  type?: string;
+  coordinates?: unknown;
+}
+
 interface PropertyLookupResult {
   designation?: string | null;
-  geometry?: unknown;
+  geometry?: GeoJsonGeometry | null;
   boundaries?: unknown;
   ownership?: { ownerType?: unknown; share?: unknown } | null;
   _demo?: boolean;
+}
+
+/**
+ * Extract a representative [lng, lat] coordinate from a GeoJSON geometry.
+ * Returns the first ring's first point for Polygon/MultiPolygon, or the first
+ * point for Point/MultiPoint/LineString/MultiLineString.
+ */
+function extractCentroidCoord(geometry: GeoJsonGeometry): [number, number] | null {
+  try {
+    const coords = geometry.coordinates;
+    if (!coords) return null;
+    switch (geometry.type) {
+      case 'Point':
+        if (Array.isArray(coords) && coords.length >= 2) return [Number(coords[0]), Number(coords[1])];
+        break;
+      case 'MultiPoint':
+      case 'LineString':
+        if (Array.isArray(coords) && Array.isArray(coords[0]) && (coords[0] as number[]).length >= 2) {
+          const pt = coords[0] as number[];
+          return [Number(pt[0]), Number(pt[1])];
+        }
+        break;
+      case 'MultiLineString':
+      case 'Polygon':
+        if (Array.isArray(coords) && Array.isArray(coords[0]) && Array.isArray((coords[0] as number[][])[0])) {
+          const pt = (coords[0] as number[][])[0];
+          return [Number(pt[0]), Number(pt[1])];
+        }
+        break;
+      case 'MultiPolygon':
+        if (Array.isArray(coords) && Array.isArray(coords[0]) && Array.isArray((coords[0] as number[][][])[0]) && Array.isArray(((coords[0] as number[][][])[0])[0])) {
+          const pt = ((coords[0] as number[][][])[0])[0] as number[];
+          return [Number(pt[0]), Number(pt[1])];
+        }
+        break;
+    }
+  } catch {
+    // ignore parse errors
+  }
+  return null;
 }
 
 interface PropertyRegisterExtractProps {
   propertyId: string;
   projectId?: string;
 }
+
+/** Inline map panel shown inside PropertyRegisterExtract when geometry is available. */
+const PropertyMap: React.FC<{ geometry: GeoJsonGeometry; designation: string }> = ({ geometry, designation }) => {
+  const coord = extractCentroidCoord(geometry);
+  const geomType = String(geometry.type ?? 'okänd typ');
+
+  if (!coord) {
+    return (
+      <p className="text-sm text-slate-600">
+        Geometrityp: <span className="font-semibold">{geomType}</span> — koordinater kunde inte extraheras.
+      </p>
+    );
+  }
+
+  const [lng, lat] = coord;
+  // OpenStreetMap embed URL (no API key needed)
+  const zoom = 15;
+  const osmSrc = `https://www.openstreetmap.org/export/embed.html?bbox=${lng - 0.01},${lat - 0.01},${lng + 0.01},${lat + 0.01}&layer=mapnik&marker=${lat},${lng}`;
+  const osmLink = `https://www.openstreetmap.org/?mlat=${lat}&mlon=${lng}#map=${zoom}/${lat}/${lng}`;
+  const label = encodeURIComponent(`${designation} (${lat.toFixed(6)}, ${lng.toFixed(6)})`);
+  const googleLink = `https://www.google.com/maps/search/?api=1&query=${lat},${lng}&query_place_id=${label}`;
+
+  return (
+    <div className="space-y-3">
+      <p className="text-xs text-slate-500">
+        Geometrityp: <span className="font-semibold text-slate-700">{geomType}</span>
+        {' · '}
+        <span className="font-mono">{lat.toFixed(6)}, {lng.toFixed(6)}</span>
+      </p>
+      <iframe
+        title={`Karta för ${designation}`}
+        src={osmSrc}
+        className="w-full h-56 border border-slate-300 rounded"
+        loading="lazy"
+        referrerPolicy="no-referrer"
+      />
+      <div className="flex gap-3 text-xs">
+        <a
+          href={osmLink}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="text-blue-600 underline hover:text-blue-800"
+        >
+          Öppna i OpenStreetMap ↗
+        </a>
+        <a
+          href={googleLink}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="text-blue-600 underline hover:text-blue-800"
+        >
+          Öppna i Google Maps ↗
+        </a>
+      </div>
+    </div>
+  );
+};
+
 
 const PropertyRegisterExtract: React.FC<PropertyRegisterExtractProps> = ({ propertyId, projectId }) => {
   const [data, setData] = useState<PropertyLookupResult | null>(null);
@@ -153,9 +256,7 @@ const PropertyRegisterExtract: React.FC<PropertyRegisterExtractProps> = ({ prope
         <div className="bg-slate-50 p-4 border border-slate-200">
           <h2 className="text-xs font-black uppercase tracking-widest text-slate-400 mb-4">Geometridata</h2>
           {data.geometry ? (
-            <p className="text-sm text-slate-600">
-              Geometri hämtad ({String((data.geometry as { type?: string } | null)?.type ?? 'okänd typ')}) — visas i kartvy.
-            </p>
+            <PropertyMap geometry={data.geometry} designation={designation} />
           ) : (
             <p className="text-sm italic text-slate-400">Ingen geometri tillgänglig</p>
           )}
