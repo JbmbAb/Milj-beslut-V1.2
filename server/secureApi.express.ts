@@ -9,7 +9,7 @@ import { appendDomainAudit, exportAuditTrail, verifyAuditTrail } from "./securit
 import { assertPermission } from "./security/projectAccess";
 import { cancelBankIdAuth, collectBankIdAuth, generateAnimatedQrPayload, initiateBankIdAuth, refreshSession } from "./services/bankIdService";
 import { getAuditExportRows } from "./repositories/auditRepository";
-import { getLantmaterietOpenMapStatus, lookupPropertyByDesignation } from "./services/lantmaterietService";
+import { getLantmaterietOpenMapStatus, lookupPropertyByDesignation, testLantmaterietConnection } from "./services/lantmaterietService";
 import { SOURCE_CATALOG } from "./datasources/catalog";
 import { fetchImmediateOpenSources } from "./services/openDataSourceService";
 import { callSluProductApi, getSluProductStatus, pingSluProduct, searchSluObservations } from "./services/sluService";
@@ -553,6 +553,32 @@ router.get("/api/datasources/lantmateriet/open/status", requireAuth, rateLimitBy
     res.status(400).json({
       ok: false,
       error: error instanceof Error ? error.message : "Lantmateriet open status failed",
+    });
+  }
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Lantmäteriet anslutningstest (admin only)
+// POST /api/admin/lantmateriet/test
+// Testar token-hämtning + OGC-uppslag. Returnerar detaljerad statusrapport.
+// ─────────────────────────────────────────────────────────────────────────────
+
+router.post("/api/admin/lantmateriet/test", requireAuth, rateLimitByUser(5, 60_000), async (req, res) => {
+  try {
+    if (!req.authUser) {
+      res.status(401).json({ ok: false, error: "Unauthorized" });
+      return;
+    }
+    if (req.authUser.role !== "ADMIN") {
+      res.status(403).json({ ok: false, error: "Admin role required" });
+      return;
+    }
+    const result = await testLantmaterietConnection();
+    res.json({ ok: true, result });
+  } catch (error: unknown) {
+    res.status(500).json({
+      ok: false,
+      error: error instanceof Error ? error.message : "Lantmäteriet connection test failed",
     });
   }
 });

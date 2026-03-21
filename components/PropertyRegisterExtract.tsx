@@ -91,9 +91,29 @@ const PropertyRegisterExtract: React.FC<PropertyRegisterExtractProps> = ({ prope
     <div className="bg-white border-2 border-slate-900 p-8 shadow-sm font-serif max-w-4xl mx-auto my-6 text-slate-900 overflow-hidden relative">
       {/* Demo-badge */}
       {data._demo && (
-        <div className="mb-4 px-3 py-2 bg-amber-50 border border-amber-300 rounded text-amber-700 text-xs font-semibold flex items-center gap-2">
-          <span>⚠️</span>
-          <span>Demo-data — Lantmäteriet-API ej konfigurerat. Sätt <code className="font-mono">LANTMATERIET_CONSUMER_KEY</code> + <code className="font-mono">LANTMATERIET_CONSUMER_SECRET</code> (eller <code className="font-mono">LANTMATERIET_ACCESS_TOKEN</code>) för riktiga registerdata.</span>
+        <div className="mb-4 px-4 py-3 bg-amber-50 border border-amber-300 rounded-lg text-amber-800 text-xs space-y-1.5">
+          <div className="flex items-center gap-2 font-bold">
+            <span>⚠️</span>
+            <span>Demo-data — Koordinaterna är syntetiska</span>
+          </div>
+          <p>
+            För <strong>riktiga koordinater från Lantmäteriet</strong>, konfigurera credentials i <code className="font-mono bg-amber-100 px-1 rounded">.env</code>:
+          </p>
+          <ul className="list-disc list-inside space-y-0.5 text-amber-700">
+            <li>Hämta Consumer Key + Secret från{' '}
+              <a
+                href="https://www.lantmateriet.se/en/about-lantmateriet/it-services/api-portal/"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="underline font-semibold hover:text-amber-900"
+              >
+                Lantmäteriet API-portal ↗
+              </a>
+            </li>
+            <li>Sätt <code className="font-mono bg-amber-100 px-1 rounded">LANTMATERIET_CONSUMER_KEY</code> och <code className="font-mono bg-amber-100 px-1 rounded">LANTMATERIET_CONSUMER_SECRET</code></li>
+            <li>Eller sätt <code className="font-mono bg-amber-100 px-1 rounded">LANTMATERIET_ACCESS_TOKEN</code> (kortlivad testtoken)</li>
+            <li>Testa anslutningen i <strong>Admin Console → Lantmäteriet — Testa riktiga koordinater</strong></li>
+          </ul>
         </div>
       )}
       {/* Vattenstämpel */}

@@ -102,6 +102,21 @@ export const SystemFunctionalAnalysis: React.FC = () => {
   const [lastRefresh, setLastRefresh] = useState<Date | null>(null);
   const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
 
+  // Lantmäteriet connection test state
+  const [lantTestLoading, setLantTestLoading] = useState(false);
+  const [lantTestResult, setLantTestResult] = useState<{
+    ok: boolean;
+    mode: string;
+    authMethod: string | null;
+    tokenFetched: boolean;
+    sampleLookupOk: boolean | null;
+    sampleDesignation: string;
+    sampleGeometry: unknown;
+    error: string | null;
+    setupGuide: string[];
+  } | null>(null);
+  const [lantTestError, setLantTestError] = useState<string | null>(null);
+
   const load = useCallback(async () => {
     setLoading(true);
     setError(null);
@@ -113,6 +128,29 @@ export const SystemFunctionalAnalysis: React.FC = () => {
       setError(err instanceof Error ? err.message : 'Kunde inte hämta systemanalys');
     } finally {
       setLoading(false);
+    }
+  }, []);
+
+  const runLantTest = useCallback(async () => {
+    setLantTestLoading(true);
+    setLantTestError(null);
+    setLantTestResult(null);
+    try {
+      const token = getToken();
+      const res = await fetch('/api/admin/lantmateriet/test', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(token ? { Authorization: 'Bearer ' + token } : {}),
+        },
+      });
+      const json = await res.json() as { ok: boolean; result?: typeof lantTestResult; error?: string };
+      if (!json.ok) throw new Error(json.error ?? 'Test misslyckades');
+      setLantTestResult(json.result ?? null);
+    } catch (err) {
+      setLantTestError(err instanceof Error ? err.message : 'Okänt fel');
+    } finally {
+      setLantTestLoading(false);
     }
   }, []);
 
@@ -413,6 +451,93 @@ export const SystemFunctionalAnalysis: React.FC = () => {
                       )}
                     </p>
                   </div>
+                </div>
+              )}
+            </div>
+          </Section>
+
+          {/* Lantmäteriet Anslutningstest */}
+          <Section title="Lantmäteriet — Testa riktiga koordinater" icon="fa-map-location-dot">
+            <div className="space-y-4">
+              <p className="text-xs text-slate-600">
+                Testa om Lantmäteriet-integrationen är korrekt konfigurerad för att hämta <strong>riktiga koordinater</strong>.
+                I demo-läge returneras syntetisk geometri. Sätt rätt env-variabler för riktiga data.
+              </p>
+
+              <button
+                onClick={() => void runLantTest()}
+                disabled={lantTestLoading}
+                className="flex items-center gap-2 px-4 py-2 bg-slate-900 text-white rounded-xl text-xs font-black uppercase tracking-wide hover:bg-slate-700 transition disabled:opacity-50"
+              >
+                <i className={`fas ${lantTestLoading ? 'fa-spinner fa-spin' : 'fa-plug'}`} />
+                Testa anslutning nu
+              </button>
+
+              {lantTestError && (
+                <div className="rounded-xl bg-red-50 border border-red-200 p-3 text-xs text-red-700">
+                  <i className="fas fa-triangle-exclamation mr-1" />{lantTestError}
+                </div>
+              )}
+
+              {lantTestResult && (
+                <div className={`rounded-xl border p-4 space-y-3 ${lantTestResult.ok ? 'bg-emerald-50 border-emerald-200' : 'bg-amber-50 border-amber-300'}`}>
+                  {/* Status header */}
+                  <div className="flex items-center gap-2">
+                    <i className={`fas ${lantTestResult.ok ? 'fa-circle-check text-emerald-600' : 'fa-triangle-exclamation text-amber-600'} text-lg`} />
+                    <span className="text-sm font-black text-slate-900">
+                      {lantTestResult.ok ? 'Riktiga koordinater fungerar! ✓' : lantTestResult.mode === 'demo' ? 'Demo-läge aktivt — inga riktiga koordinater' : 'Anslutning misslyckades'}
+                    </span>
+                    <StatusBadge status={lantTestResult.mode === 'demo' ? 'DEMO' : lantTestResult.ok ? 'LIVE' : 'ERROR'} />
+                  </div>
+
+                  {/* Details */}
+                  <div className="grid grid-cols-2 gap-2 text-xs">
+                    <div className="bg-white/70 rounded p-2">
+                      <p className="text-slate-500 font-medium mb-0.5">Autentiseringsmetod</p>
+                      <p className="font-semibold text-slate-800">{lantTestResult.authMethod ?? 'Ingen (demo)'}</p>
+                    </div>
+                    <div className="bg-white/70 rounded p-2">
+                      <p className="text-slate-500 font-medium mb-0.5">Token hämtad</p>
+                      <p className="font-semibold text-slate-800">{lantTestResult.tokenFetched ? 'Ja ✓' : 'Nej ✗'}</p>
+                    </div>
+                    <div className="bg-white/70 rounded p-2">
+                      <p className="text-slate-500 font-medium mb-0.5">Test-uppslag ({lantTestResult.sampleDesignation})</p>
+                      <p className="font-semibold text-slate-800">
+                        {lantTestResult.sampleLookupOk === null ? '—' : lantTestResult.sampleLookupOk ? 'Koordinater hittade ✓' : 'Uppslag OK, fastighet ej hittad'}
+                      </p>
+                    </div>
+                    {lantTestResult.sampleGeometry && (
+                      <div className="bg-white/70 rounded p-2 col-span-2">
+                        <p className="text-slate-500 font-medium mb-0.5">Returnerad geometri (utdrag)</p>
+                        <pre className="font-mono text-[10px] text-slate-700 overflow-auto max-h-20">
+                          {JSON.stringify(lantTestResult.sampleGeometry, null, 2).slice(0, 400)}
+                        </pre>
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Error message */}
+                  {lantTestResult.error && (
+                    <div className="text-xs text-amber-800 bg-amber-100 rounded p-2">
+                      <i className="fas fa-info-circle mr-1" />{lantTestResult.error}
+                    </div>
+                  )}
+
+                  {/* Setup guide */}
+                  {lantTestResult.setupGuide.length > 0 && (
+                    <div className="bg-white/80 rounded p-3 border border-amber-200">
+                      <p className="text-xs font-black text-slate-900 mb-2 uppercase tracking-wide">Konfigurationsguide</p>
+                      <ol className="list-decimal list-inside space-y-1">
+                        {lantTestResult.setupGuide.map((step, i) => (
+                          <li key={i} className="text-[11px] text-slate-700">
+                            {step.startsWith('http') ? (
+                              <a href={step} target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:underline font-medium">{step}</a>
+                            ) : step}
+                          </li>
+                        ))}
+                      </ol>
+                    </div>
+                  )}
                 </div>
               )}
             </div>

@@ -290,6 +290,147 @@ export async function lookupPropertyByDesignation(input: PropertyLookupInput, us
   return minimized;
 }
 
+export interface LantmaterietConnectionTestResult {
+  ok: boolean;
+  mode: "demo" | "real";
+  authMethod: string | null;
+  tokenFetched: boolean;
+  sampleLookupOk: boolean | null;
+  sampleDesignation: string;
+  sampleGeometry: unknown;
+  error: string | null;
+  setupGuide: string[];
+}
+
+/**
+ * Tests the Lantmäteriet connection end-to-end.
+ * 1. Checks if real credentials are configured.
+ * 2. Attempts to fetch an access token.
+ * 3. Attempts a lightweight OGC lookup for a known test designation.
+ * Returns a detailed report without requiring project membership (admin only).
+ */
+export async function testLantmaterietConnection(): Promise<LantmaterietConnectionTestResult> {
+  const demoMode = process.env.LANTMATERIET_DEMO_MODE === 'true' || !hasLantmaterietAuth();
+
+  let authMethod: string | null = null;
+  if (String(process.env.LANTMATERIET_CONSUMER_KEY || '').trim()) {
+    authMethod = 'OAuth2 (LANTMATERIET_CONSUMER_KEY + LANTMATERIET_CONSUMER_SECRET)';
+  } else if (String(process.env.LANTMATERIET_ACCESS_TOKEN || '').trim()) {
+    authMethod = 'Direkttoken (LANTMATERIET_ACCESS_TOKEN)';
+  } else if (String(process.env.LANTMATERIET_API_KEY || '').trim()) {
+    authMethod = 'Legacy API-nyckel (LANTMATERIET_API_KEY)';
+  }
+
+  if (demoMode) {
+    return {
+      ok: false,
+      mode: 'demo',
+      authMethod: null,
+      tokenFetched: false,
+      sampleLookupOk: null,
+      sampleDesignation: '',
+      sampleGeometry: null,
+      error: 'Lantmäteriet-credentials saknas — demo-läge aktivt',
+      setupGuide: [
+        'Gå till https://www.lantmateriet.se/en/about-lantmateriet/it-services/api-portal/',
+        'Registrera ett konto och skapa en applikation',
+        'Välj produkten "Fastighet och samfällighet Direkt" eller OGC Features (registerenhetsomradesytor)',
+        'Kopiera Consumer Key + Consumer Secret',
+        'Sätt LANTMATERIET_CONSUMER_KEY och LANTMATERIET_CONSUMER_SECRET i .env',
+        'Sätt LANTMATERIET_LOOKUP_MODE=ogc och LANTMATERIET_BASE_URL=https://api.lantmateriet.se/ogc-features/v1',
+        'Starta om servern — demo-läge inaktiveras automatiskt',
+      ],
+    };
+  }
+
+  // Try token
+  let accessToken: string;
+  try {
+    accessToken = await getLantmaterietAccessToken();
+  } catch (err) {
+    return {
+      ok: false,
+      mode: 'real',
+      authMethod,
+      tokenFetched: false,
+      sampleLookupOk: null,
+      sampleDesignation: '',
+      sampleGeometry: null,
+      error: `Token-hämtning misslyckades: ${err instanceof Error ? err.message : String(err)}`,
+      setupGuide: [
+        'Kontrollera att LANTMATERIET_CONSUMER_KEY och LANTMATERIET_CONSUMER_SECRET är korrekta',
+        `Token URL: ${process.env.LANTMATERIET_TOKEN_URL ?? 'https://apimanager.lantmateriet.se/oauth2/token'}`,
+        'Kontrollera att applikationen i API-portalen är aktiverad och prenumerationen är aktiv',
+      ],
+    };
+  }
+
+  // Try OGC lookup for a known designation
+  const baseUrl = (process.env.LANTMATERIET_BASE_URL || 'https://api.lantmateriet.se/ogc-features/v1').replace(/\/+$/, '');
+  const collection = process.env.LANTMATERIET_OGC_COLLECTION || 'registerenhetsomradesytor';
+  const testDesignation = 'NACKA BOO 1:1';
+  const filter = `kommunnamn = 'NACKA' AND trakt = 'BOO' AND etikett = '1:1'`;
+  const lookupUrl = `${baseUrl}/fastighetsindelning/collections/${encodeURIComponent(collection)}/items?filter=${encodeURIComponent(filter)}&filter-lang=cql2-text&limit=1`;
+
+  try {
+    const resp = await fetch(lookupUrl, {
+      method: 'GET',
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        Accept: 'application/geo+json, application/json',
+        'X-Client-System': 'Miljobeslut.se 2.0',
+      },
+    });
+
+    if (!resp.ok) {
+      const errBody = await resp.text();
+      const scopeMsg = buildScopeMessage(resp.status, errBody);
+      const productMsg = buildMissingProductMessage(baseUrl, resp.status);
+      return {
+        ok: false,
+        mode: 'real',
+        authMethod,
+        tokenFetched: true,
+        sampleLookupOk: false,
+        sampleDesignation: testDesignation,
+        sampleGeometry: null,
+        error: scopeMsg ?? productMsg ?? `OGC lookup HTTP ${resp.status}: ${errBody.slice(0, 300)}`,
+        setupGuide: [
+          'Kontrollera att din prenumeration inkluderar OGC Features (fastighetsindelning)',
+          'Kontrollera att LANTMATERIET_SCOPE innehåller ogc-features:fastighetsindelning.read om scope krävs',
+          `Testade endpoint: ${lookupUrl}`,
+        ],
+      };
+    }
+
+    const data = (await resp.json()) as OgcFeatureCollection;
+    const feature = data.features?.[0];
+    return {
+      ok: true,
+      mode: 'real',
+      authMethod,
+      tokenFetched: true,
+      sampleLookupOk: Boolean(feature),
+      sampleDesignation: testDesignation,
+      sampleGeometry: feature?.geometry ?? null,
+      error: feature ? null : `Fastighet "${testDesignation}" hittades inte — API fungerar men beteckningen saknas (normalt för test)`,
+      setupGuide: [],
+    };
+  } catch (err) {
+    return {
+      ok: false,
+      mode: 'real',
+      authMethod,
+      tokenFetched: true,
+      sampleLookupOk: false,
+      sampleDesignation: testDesignation,
+      sampleGeometry: null,
+      error: `OGC-uppslag misslyckades: ${err instanceof Error ? err.message : String(err)}`,
+      setupGuide: [`Testade endpoint: ${lookupUrl}`],
+    };
+  }
+}
+
 export async function getLantmaterietOpenMapStatus(): Promise<{
   ok: boolean;
   status?: number;
