@@ -96,6 +96,12 @@ async function getLantmaterietAccessToken(): Promise<string> {
     return directAccessToken;
   }
 
+  // Legacy API-key used directly as Bearer token
+  const apiKey = process.env.LANTMATERIET_API_KEY?.trim();
+  if (apiKey) {
+    return apiKey;
+  }
+
   const consumerKey = process.env.LANTMATERIET_CONSUMER_KEY;
   const consumerSecret = process.env.LANTMATERIET_CONSUMER_SECRET;
   const baseUrl = (process.env.LANTMATERIET_BASE_URL || "https://api.lantmateriet.se/ogc-features/v1").trim();
