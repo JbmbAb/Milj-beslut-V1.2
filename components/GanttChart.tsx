@@ -2,14 +2,6 @@
 import React from 'react';
 import { Task, ProjectPhase } from '../types';
 
-const _MOCK_TASKS: Task[] = [
-  { id: '1', title: 'Inledande platsspecifik riskanalys', startWeek: 2, duration: 4, type: 'TECHNICAL', status: 'DONE' },
-  { id: '2', title: 'Samråd med närboende & intressenter', startWeek: 6, duration: 3, type: 'LEGAL', status: 'ONGOING' },
-  { id: '3', title: 'Fältundersökning: PAH & Markprover', startWeek: 8, duration: 2, type: 'FIELD', status: 'TODO' },
-  { id: '4', title: 'MKB - Miljökonsekvensbeskrivning', startWeek: 10, duration: 8, type: 'LEGAL', status: 'TODO' },
-  { id: '5', title: 'Ansökan enligt 90-serien (90.131)', startWeek: 18, duration: 1, type: 'ADMIN', status: 'TODO' },
-  { id: '6', title: 'Myndighetshandläggning (Estimerad)', startWeek: 19, duration: 12, type: 'LEGAL', status: 'TODO' },
-];
 
 const MONTHS = [
   { name: 'Jan', weeks: 4 }, { name: 'Feb', weeks: 4 }, { name: 'Mar', weeks: 5 },
