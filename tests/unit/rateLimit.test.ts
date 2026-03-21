@@ -1,5 +1,5 @@
 ﻿import { describe, expect, it, vi } from 'vitest';
-import { rateLimitByOrg, rateLimitByUser } from '../../server/security/rateLimit';
+import { rateLimitByOrg, rateLimitByUser, pruneExpiredBuckets } from '../../server/security/rateLimit';
 
 function createRes() {
   return {
@@ -78,3 +78,26 @@ describe('rateLimit', () => {
     expect(res2.statusCode).toBe(429);
   });
 });
+
+describe('pruneExpiredBuckets', () => {
+  it('is callable and does not throw', () => {
+    // Create a throttled bucket that will expire immediately (1 ms window)
+    const middleware = rateLimitByUser(1, 1);
+    const req = {
+      authUser: { id: `prune-user-${Date.now()}`, role: 'CONSULTANT' },
+      ip: '127.0.0.1',
+      path: `/prune-path-${Date.now()}`,
+    } as any;
+    const res = createRes();
+    middleware(req, res as any, vi.fn());
+
+    // Wait for window to expire, then prune
+    return new Promise<void>((resolve) => {
+      setTimeout(() => {
+        expect(() => pruneExpiredBuckets()).not.toThrow();
+        resolve();
+      }, 5);
+    });
+  });
+});
+

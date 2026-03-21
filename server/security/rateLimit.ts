@@ -7,6 +7,21 @@ interface Bucket {
 
 const buckets = new Map<string, Bucket>();
 
+/** Removes expired buckets to prevent unbounded memory growth. */
+function pruneExpiredBuckets(): void {
+  const now = Date.now();
+  for (const [key, bucket] of buckets) {
+    if (bucket.resetAt <= now) {
+      buckets.delete(key);
+    }
+  }
+}
+
+// Run pruning every 5 minutes in server context (unref so the timer doesn't block process exit).
+if (typeof setInterval !== "undefined") {
+  setInterval(pruneExpiredBuckets, 5 * 60 * 1000).unref();
+}
+
 function hit(key: string, max: number, windowMs: number): { allowed: boolean; remaining: number; resetAt: number } {
   const now = Date.now();
   const current = buckets.get(key);
@@ -21,6 +36,9 @@ function hit(key: string, max: number, windowMs: number): { allowed: boolean; re
     resetAt: active.resetAt,
   };
 }
+
+/** Exposed for testing: manually prune expired entries. */
+export { pruneExpiredBuckets };
 
 export function rateLimitByUser(max: number, windowMs: number) {
   return (req: Request, res: Response, next: NextFunction): void => {
