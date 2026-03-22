@@ -1,4 +1,5 @@
 ﻿import { defineConfig } from 'vitest/config';
+import react from '@vitejs/plugin-react';
 
 export default defineConfig({
   test: {
@@ -86,6 +87,16 @@ export default defineConfig({
       },
     },
     projects: [
+      {
+        plugins: [react()],
+        test: {
+          name: 'components',
+          include: ['tests/components/**/*.test.tsx', 'tests/components/**/*.test.ts'],
+          environment: 'jsdom',
+          setupFiles: ['tests/setup/react.ts'],
+          globals: true,
+        },
+      },
       {
         test: {
           name: 'unit',
