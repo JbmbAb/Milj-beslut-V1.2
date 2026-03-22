@@ -36,7 +36,9 @@
 
 ---
 
-## 🎨 Figma Make / "antigravity" — UI-design och komponentprototyper
+## 🎨 Figma Make / "Antigravity" — UI-design och komponentprototyper
+> **"Antigravity"** är det interna projektnamnet för Figma Make-integrationen i detta repo.
+
 **Passar för**: visuell layout, designtokens, komponentstruktur — INNAN kod skrivs.
 
 ### Gör det här:
@@ -88,16 +90,54 @@ npm run dev                   # startar på http://localhost:5173
 
 ---
 
-# Nuläge (20 mars 2026)
+# Nuläge (22 mars 2026)
 
 | Kvalitetsmått | Status |
 |---|---|
 | TypeScript | ✅ 0 fel |
 | Lint (ESLint) | ✅ 0 fel |
 | Build (`npm run build`) | ✅ Lyckat |
-| Enhetstester (Vitest) | ✅ 153/153 pass |
+| Enhetstester (Vitest) | ✅ 176/176 pass (24 testfiler) |
 | Integrationstester | ⚠️ Kräver lokal DB |
 | E2E-tester (Playwright) | ⚠️ Kräver lokal server |
+
+---
+
+# 🗄️ DB-status (Prisma / PostgreSQL)
+
+**Kräver**: `DATABASE_URL` i `.env.local` pekar på körande PostgreSQL-instans.
+
+| Parameter | Värde |
+|---|---|
+| ORM | Prisma (v6) |
+| Databas | PostgreSQL |
+| Schema-fil | `prisma/schema.prisma` |
+| Antal modeller | 28 |
+| Antal migrationer | 6 (alla klara) |
+| Repositories | 8 (`server/repositories/`) |
+| In-memory mock | ❌ Nej — all data via Prisma |
+
+## Modeller (28 st)
+`AuditTrail`, `AttachmentOccurrence`, `CaseCandidate`, `CaseNote`, `DocumentChunk`, `DocumentContent`, `DocumentMetadataEvidence`, `DocumentRecord`, `EmailMessage`, `ExtractedRequirement`, `KnowledgeEdge`, `KnowledgeNode`, `MetadataReviewQueue`, `Organisation`, `OutlookAttachment`, `PipelineRun`, `Project`, `ProjectMember`, `ProjectPlanState`, `PropertyAccessLog`, `RateLimitEntry`, `RequirementCase`, `RequirementCitation`, `RequirementRecord`, `SearchJob`, `SearchQueryLog`, `TokenRevocation`, `User`
+
+## Migrationer (6 st)
+| Migration | Innehåll |
+|---|---|
+| `20260301_init` | Grundschema |
+| `20260302_requirements_model` | RequirementRecord m.fl. |
+| `20260314005842_sync_schema_and_fix_drift` | Schemadrift-fix |
+| `20260315_add_case_notes_and_attachment_fields` | CaseNote, fält |
+| `20260315_add_rate_limit_table` | RateLimitEntry |
+| `20260315_add_token_revocation` | TokenRevocation |
+
+## Köra lokalt
+```bash
+cp .env.example .env.local
+# Sätt DATABASE_URL=postgresql://... i .env.local
+npm run db:migrate    # kör alla migrationer
+npm run db:seed       # (frivilligt) seed-data
+npm run dev           # startar på http://localhost:5173
+```
 
 ---
 
@@ -197,14 +237,16 @@ npm run dev                   # startar på http://localhost:5173
 ## Kvarstående arbete (prioritetsordning)
 1. ~~**[Copilot agent]** Koppla `UploadModal` + `MarketingHub` till routing~~ ✅ Klart
 2. ~~**[Copilot agent]** `WeatherRisk` felmeddelande vid saknad API-nyckel~~ ✅ Klart
-3. ~~**[Copilot agent]** Unit-tester `transportDispatchService`, `metricsService`, `sguRiskService`~~ ✅ 153/153 pass
-4. **[Figma Make]** Visuell polish av `ExecutiveSummary` och `PermitPortalView`
-5. **[VS Code]** `POST /api/documents/upload` endpoint med multer (multer installerat ✅)
-6. **[VS Code]** Riktig Lantmäteriet-integration med OAuth2-nyckel
-7. **[VS Code]** Permit-inlämning: ersätt `MOCK_QUEUED` med riktig endpoint
-8. **[VS Code]** SMHI-väderintegration med riktig API-nyckel
-9. **[VS Code]** E2E-tester mot körande app
-10. **[DevOps]** Staging-driftsättning Docker + PostgreSQL + env-vars
+3. ~~**[Copilot agent]** Unit-tester `transportDispatchService`, `metricsService`, `sguRiskService`~~ ✅ 176/176 pass
+4. ~~**[Copilot agent]** GDPR: AdminGdprPanel + REST-endpoints~~ ✅ Klart
+5. ~~**[Copilot agent]** Säkerhet: rateLimit.ts minnesläcka fixad, SECURITY.md skapad~~ ✅ Klart
+6. **[Figma Make]** Visuell polish av `ExecutiveSummary` och `PermitPortalView`
+7. **[VS Code]** `POST /api/documents/upload` endpoint med multer (multer installerat ✅)
+8. **[VS Code]** Riktig Lantmäteriet-integration med OAuth2-nyckel
+9. **[VS Code]** Permit-inlämning: ersätt `MOCK_QUEUED` med riktig endpoint
+10. **[VS Code]** SMHI-väderintegration med riktig API-nyckel
+11. **[VS Code]** E2E-tester mot körande app
+12. **[DevOps]** Staging-driftsättning Docker + PostgreSQL + env-vars
 
 ## Testansvarsfördelning
 
