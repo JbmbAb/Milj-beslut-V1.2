@@ -3,14 +3,25 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import { PrismaClient } from '@prisma/client';
 
-const prisma = new PrismaClient();
+const prismaDatabaseUrl =
+  String(process.env.PLAYWRIGHT_DATABASE_URL || process.env.DATABASE_URL || '').trim() ||
+  'postgresql://riskguard:password@localhost:5432/riskguard_test';
+const prisma = new PrismaClient({
+  datasources: {
+    db: {
+      url: prismaDatabaseUrl,
+    },
+  },
+});
 
 test.afterAll(async () => {
   await prisma.$disconnect();
 });
 
 async function expectAdminLoginStatus(page: import('@playwright/test').Page) {
-  await expect(page.getByTestId('admin-status-info')).toContainText(/inloggad|projektlista laddad|katalog laddad/i);
+  await expect(page.getByTestId('admin-status-info')).toContainText(
+    /inloggad|projektlista laddad|katalog laddad/i,
+  );
 }
 
 test('admin login from landing page', async ({ page }) => {
@@ -39,39 +50,25 @@ test('admin can create a project from console', async ({ page }) => {
   await expect(page.getByText(/Projekt skapat|Projekt finns redan/)).toBeVisible();
 });
 
-test('logistics one-click flow works in local preliminary mode', async ({ page }) => {
+test('logistics flow is blocked when verified receiver catalog is missing', async ({ page }) => {
   await page.goto('/');
-  await page.getByRole('button', { name: 'Planera logistik' }).first().click();
-  await page.getByRole('button', { name: 'Logistik och massor' }).first().click();
+  await page.getByText('Logistik & Massor', { exact: true }).click();
+  await page.getByRole('button', { name: 'Logistik och massor' }).click();
 
-  await page.locator('select').first().selectOption('17 05 04');
-  await page.getByPlaceholder('Exempel: 500').fill('12');
-  await page.getByRole('combobox', { name: 'Mottagare (snabbval)' }).selectOption('R1');
-
-  await page.getByPlaceholder('Namn pa forare').fill('E2E Forare');
-  await page.getByPlaceholder('Registreringsnummer').fill('E2E-123');
-  await page.getByPlaceholder('Namn pa ansvarig granskare').fill('E2E Granskare');
-
-  await page.getByRole('button', { name: 'Boka transport' }).click();
-
-  await expect(page.getByText(/Transportkedja skapad/)).toBeVisible();
-  await expect(page.getByText(/Transportdokument: Transportdokument-/)).toBeVisible();
-  await expect(page.getByText(/Vagkort: Vagkort-/)).toBeVisible();
-  await expect(page.getByText(/Preliminart lage: data, signaturer och LIMS-spor/)).toBeVisible();
+  await expect(page.getByText(/Verifierad mottagarkatalog saknas/)).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Boka transport' })).toHaveCount(0);
 });
 
-test('logistics blocks booking when receiver does not support selected waste code', async ({ page }) => {
+test('logistics view keeps receiver selection blocked without verified catalog', async ({ page }) => {
   await page.goto('/');
-  await page.getByRole('button', { name: 'Planera logistik' }).first().click();
-  await page.getByRole('button', { name: 'Logistik och massor' }).first().click();
+  await page.getByText('Logistik & Massor', { exact: true }).click();
+  await page.getByRole('button', { name: 'Logistik och massor' }).click();
 
   await expect(page.getByText('Interaktiv mottagarkarta')).toBeVisible();
 
   await page.locator('select').first().selectOption('17 05 03*');
   await page.getByPlaceholder('Exempel: 500').fill('8');
-  await page.getByRole('combobox', { name: 'Mottagare (snabbval)' }).selectOption('R1');
-
-  await expect(page.getByText('Ej tillatet')).toBeVisible();
+  await expect(page.getByRole('combobox', { name: 'Mottagare (snabbval)' })).toBeDisabled();
   await expect(page.getByRole('button', { name: 'Boka transport' })).toHaveCount(0);
 });
 
@@ -240,24 +237,27 @@ test('dispatch + journal + lims API flow passes end-to-end', async ({ request })
   const bookingId = String((await book.json())?.booking?.id || '');
   expect(bookingId).not.toBe('');
 
-  const upsertJournal = await request.post(`/api/projects/${encodeURIComponent(projectId)}/driver-journals/upsert`, {
-    headers: { Authorization: `Bearer ${token}` },
-    data: {
-      journal: {
-        bookingId,
-        driverName: 'E2E Driver',
-        vehicleId: 'E2E-TRUCK',
-        origin: 'Site A',
-        destination: 'Site B',
-        wasteCode: '17 05 03*',
-        tons: 9,
-        startedAt: now,
-        endedAt: now,
-        odometerStartKm: 5000,
-        odometerEndKm: 5020,
+  const upsertJournal = await request.post(
+    `/api/projects/${encodeURIComponent(projectId)}/driver-journals/upsert`,
+    {
+      headers: { Authorization: `Bearer ${token}` },
+      data: {
+        journal: {
+          bookingId,
+          driverName: 'E2E Driver',
+          vehicleId: 'E2E-TRUCK',
+          origin: 'Site A',
+          destination: 'Site B',
+          wasteCode: '17 05 03*',
+          tons: 9,
+          startedAt: now,
+          endedAt: now,
+          odometerStartKm: 5000,
+          odometerEndKm: 5020,
+        },
       },
     },
-  });
+  );
   expect(upsertJournal.ok()).toBeTruthy();
   const journalId = String((await upsertJournal.json())?.journal?.id || '');
   expect(journalId).not.toBe('');
@@ -270,7 +270,7 @@ test('dispatch + journal + lims API flow passes end-to-end', async ({ request })
         signerRole: 'DRIVER',
         signatureId: `SIG-DRV-${Date.now()}`,
       },
-    }
+    },
   );
   expect(signDriver.ok()).toBeTruthy();
 
@@ -282,7 +282,7 @@ test('dispatch + journal + lims API flow passes end-to-end', async ({ request })
         signerRole: 'REVIEWER',
         signatureId: `SIG-REV-${Date.now()}`,
       },
-    }
+    },
   );
   expect(signReviewer.ok()).toBeTruthy();
 
@@ -310,14 +310,17 @@ test('dispatch + journal + lims API flow passes end-to-end', async ({ request })
   const reportId = String((await ingest.json())?.report?.id || '');
   expect(reportId).not.toBe('');
 
-  const verify = await request.post(`/api/projects/${encodeURIComponent(projectId)}/lims/${encodeURIComponent(reportId)}/verify`, {
-    headers: { Authorization: `Bearer ${token}` },
-    data: {
-      reviewer: 'E2E QA',
-      signatureId: `SIG-LIMS-${Date.now()}`,
-      approved: true,
+  const verify = await request.post(
+    `/api/projects/${encodeURIComponent(projectId)}/lims/${encodeURIComponent(reportId)}/verify`,
+    {
+      headers: { Authorization: `Bearer ${token}` },
+      data: {
+        reviewer: 'E2E QA',
+        signatureId: `SIG-LIMS-${Date.now()}`,
+        approved: true,
+      },
     },
-  });
+  );
   expect(verify.ok()).toBeTruthy();
 
   const evaluateDocumentGate = await request.post(
@@ -325,7 +328,7 @@ test('dispatch + journal + lims API flow passes end-to-end', async ({ request })
     {
       headers: { Authorization: `Bearer ${token}` },
       data: {},
-    }
+    },
   );
   expect(evaluateDocumentGate.ok()).toBeTruthy();
   const gateStatus = String((await evaluateDocumentGate.json())?.gate?.status || '');
@@ -432,6 +435,22 @@ test('requirements studio API flow verifies citation + requirement and exports',
     });
     expect(list.ok()).toBeTruthy();
 
+    const reviewCase = await request.patch(
+      `/api/admin/requirements/cases/${encodeURIComponent(requirementCase.id)}/review`,
+      {
+        headers: { Authorization: `Bearer ${token}` },
+        data: {
+          caseReviewStatus: 'VERIFIED',
+          validatedBy: 'E2E Reviewer',
+          notes: 'Case review saved from E2E flow',
+        },
+      },
+    );
+    expect(reviewCase.ok()).toBeTruthy();
+    const reviewCaseJson = await reviewCase.json();
+    expect(reviewCaseJson?.case?.caseReviewStatus).toBe('VERIFIED');
+    expect(reviewCaseJson?.case?.reviewStatus).toBe('VERIFIED');
+
     const verifyCitation = await request.patch(
       `/api/admin/requirements/citations/${encodeURIComponent(citation.citationCode)}/verify`,
       {
@@ -441,7 +460,7 @@ test('requirements studio API flow verifies citation + requirement and exports',
           verifiedBy: 'E2E Reviewer',
           pageNumber: 1,
         },
-      }
+      },
     );
     expect(verifyCitation.ok()).toBeTruthy();
 
@@ -454,7 +473,7 @@ test('requirements studio API flow verifies citation + requirement and exports',
           verifiedBy: 'E2E Reviewer',
           validationComment: 'E2E verifierad',
         },
-      }
+      },
     );
     expect(verifyRequirement.ok()).toBeTruthy();
 

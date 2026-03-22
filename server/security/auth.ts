@@ -95,9 +95,9 @@ export async function rotateRefreshToken(refreshToken: string): Promise<{ access
   }
 
   // Check if token has already been used (prevents reuse attacks)
-  const isRevoked = await isTokenRevoked(payload.jti);
+  const isRevoked = await isTokenRevoked(payload.jti, payload.sub);
   if (isRevoked) {
-    throw new Error("Refresh token reuse detected - possible security breach");
+    throw new Error("Refresh token reuse detected or session revoked - possible security breach");
   }
 
   // Mark token as used immediately
@@ -144,9 +144,9 @@ export async function getUserFromAccessToken(token: string): Promise<AuthUser> {
     throw new Error("Invalid access token");
   }
 
-  const revoked = await isTokenRevoked(payload.jti);
+  const revoked = await isTokenRevoked(payload.jti, payload.sub);
   if (revoked) {
-    throw new Error("Token has been revoked");
+    throw new Error("Token has been revoked or session terminated");
   }
 
   return {

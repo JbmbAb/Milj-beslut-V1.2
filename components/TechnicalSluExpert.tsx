@@ -1,11 +1,11 @@
 import React, { useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { analyzeBiodiversity } from '../services/geminiService';
-import { SpeciesObservation } from '../types';
-import { ProtectedArea } from '../server/services/nvrService';
-import { GeologicalData } from '../server/services/sguService';
-import { Monument } from '../server/services/raaService';
-import { SiteAnalysis } from '../server/services/complianceRuleEngine';
+import type { SpeciesObservation } from '../types';
+import type { ProtectedArea } from '../server/services/nvrService';
+import type { GeologicalData } from '../server/services/sguService';
+import type { Monument } from '../server/services/raaService';
+import type { SiteAnalysis } from '../server/services/complianceRuleEngine';
 import { Bug, Search, Loader2, ShieldAlert, CheckCircle2, MapPin, Waves, Mountain, Gavel, Landmark } from 'lucide-react';
 
 export const TechnicalSluExpert: React.FC = () => {

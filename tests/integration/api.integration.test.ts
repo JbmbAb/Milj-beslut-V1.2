@@ -59,9 +59,7 @@ describe.skipIf(!hasDatabaseIntegration)('secure API integration', () => {
   });
 
   it('rotates refresh token and returns a new token pair', async () => {
-    const res = await request(app)
-      .post('/api/auth/refresh')
-      .send({ refreshToken: adminRefreshToken });
+    const res = await request(app).post('/api/auth/refresh').send({ refreshToken: adminRefreshToken });
 
     expect(res.status).toBe(200);
     expect(res.body?.ok).toBe(true);
@@ -83,9 +81,7 @@ describe.skipIf(!hasDatabaseIntegration)('secure API integration', () => {
     process.env.BANKID_BASE_URL = 'https://bankid.invalid';
 
     try {
-      const res = await request(app)
-        .post('/api/auth/bankid/init')
-        .send({ endUserIp: '127.0.0.1' });
+      const res = await request(app).post('/api/auth/bankid/init').send({ endUserIp: '127.0.0.1' });
 
       expect(res.status).toBe(400);
       expect(res.body?.ok).toBe(false);
@@ -129,8 +125,12 @@ describe.skipIf(!hasDatabaseIntegration)('secure API integration', () => {
 
     expect(res.status).toBe(200);
     expect(res.body?.ok).toBe(true);
-    expect(['MOCK_FRAKTBORS', 'TIMOCOM', 'TRANS_EU']).toContain(res.body?.dispatch?.requestedProvider);
-    expect(['MOCK_FRAKTBORS', 'TIMOCOM', 'TRANS_EU']).toContain(res.body?.dispatch?.activeProvider);
+    expect(['NOT_CONFIGURED', 'MOCK_FRAKTBORS', 'TIMOCOM', 'TRANS_EU']).toContain(
+      res.body?.dispatch?.requestedProvider,
+    );
+    expect(['NOT_CONFIGURED', 'MOCK_FRAKTBORS', 'TIMOCOM', 'TRANS_EU']).toContain(
+      res.body?.dispatch?.activeProvider,
+    );
     expect(typeof res.body?.dispatch?.fallbackActive).toBe('boolean');
   });
 
@@ -151,7 +151,12 @@ describe.skipIf(!hasDatabaseIntegration)('secure API integration', () => {
 
     const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
       const url = String(input);
-      if (url.includes('/species') || url.includes('/taxa') || url.includes('/speciesdata') || url.includes('/About/version')) {
+      if (
+        url.includes('/species') ||
+        url.includes('/taxa') ||
+        url.includes('/speciesdata') ||
+        url.includes('/About/version')
+      ) {
         return new Response(JSON.stringify({ ok: true, endpoint: url }), {
           status: 200,
           headers: { 'Content-Type': 'application/json' },
@@ -221,7 +226,9 @@ describe.skipIf(!hasDatabaseIntegration)('secure API integration', () => {
       expect(openSyncRes.body?.ok).toBe(true);
       expect(Array.isArray(openSyncRes.body?.results)).toBe(true);
       expect(openSyncRes.body.results.length).toBeGreaterThan(0);
-      const trafikverketResult = openSyncRes.body.results.find((row: { source?: string }) => row?.source === 'trafikverket');
+      const trafikverketResult = openSyncRes.body.results.find(
+        (row: { source?: string }) => row?.source === 'trafikverket',
+      );
       expect(trafikverketResult).toBeTruthy();
       expect(fetchMock).toHaveBeenCalled();
     } finally {
@@ -293,7 +300,9 @@ describe.skipIf(!hasDatabaseIntegration)('secure API integration', () => {
     expect(queryRes.body.result.results.length).toBeGreaterThan(0);
     expect(Array.isArray(queryRes.body.result.results[0]?.citations)).toBe(true);
     expect(queryRes.body.result.results[0].citations.length).toBeGreaterThan(0);
-    expect(String(queryRes.body.result.results[0].citations[0]?.quote || '').toLowerCase()).toContain('kvicksilver');
+    expect(String(queryRes.body.result.results[0].citations[0]?.quote || '').toLowerCase()).toContain(
+      'kvicksilver',
+    );
 
     const statusByIdRes = await request(app)
       .get(`/api/search/status/${encodeURIComponent(projectId)}`)
@@ -341,9 +350,7 @@ describe.skipIf(!hasDatabaseIntegration)('secure API integration', () => {
       });
     expect(evalRes.status).toBe(200);
 
-    const auditRes = await request(app)
-      .get('/api/audit/export')
-      .set('Authorization', `Bearer ${adminToken}`);
+    const auditRes = await request(app).get('/api/audit/export').set('Authorization', `Bearer ${adminToken}`);
 
     expect(auditRes.status).toBe(200);
     expect(auditRes.body?.ok).toBe(true);
@@ -498,7 +505,24 @@ describe.skipIf(!hasDatabaseIntegration)('secure API integration', () => {
       expect(listRes.status).toBe(200);
       expect(listRes.body?.ok).toBe(true);
       expect(Array.isArray(listRes.body?.items)).toBe(true);
-      expect(listRes.body.items.some((item: { requirementCode?: string }) => item.requirementCode === requirement.requirementCode)).toBe(true);
+      expect(
+        listRes.body.items.some(
+          (item: { requirementCode?: string }) => item.requirementCode === requirement.requirementCode,
+        ),
+      ).toBe(true);
+
+      const caseReviewRes = await request(app)
+        .patch(`/api/admin/requirements/cases/${encodeURIComponent(requirementCase.id)}/review`)
+        .set('Authorization', `Bearer ${adminToken}`)
+        .send({
+          caseReviewStatus: 'VERIFIED',
+          validatedBy: 'Integration Reviewer',
+          notes: 'Verifierad i integrationsscenario.',
+        });
+      expect(caseReviewRes.status).toBe(200);
+      expect(caseReviewRes.body?.ok).toBe(true);
+      expect(caseReviewRes.body?.case?.caseReviewStatus).toBe('VERIFIED');
+      expect(caseReviewRes.body?.case?.reviewStatus).toBe('VERIFIED');
 
       const verifyRequirementBeforeCitation = await request(app)
         .patch(`/api/admin/requirements/rows/${encodeURIComponent(requirement.requirementCode)}/verify`)
@@ -532,12 +556,18 @@ describe.skipIf(!hasDatabaseIntegration)('secure API integration', () => {
       expect(requirementVerifyRes.body?.row?.verificationStatus).toBe('VERIFIED');
 
       const citationsRes = await request(app)
-        .get(`/api/admin/requirements/citations?requirementCode=${encodeURIComponent(requirement.requirementCode)}&includePreliminary=true`)
+        .get(
+          `/api/admin/requirements/citations?requirementCode=${encodeURIComponent(requirement.requirementCode)}&includePreliminary=true`,
+        )
         .set('Authorization', `Bearer ${adminToken}`);
       expect(citationsRes.status).toBe(200);
       expect(citationsRes.body?.ok).toBe(true);
       expect(Array.isArray(citationsRes.body?.items)).toBe(true);
-      expect(citationsRes.body.items.some((item: { citationCode?: string }) => item.citationCode === citation.citationCode)).toBe(true);
+      expect(
+        citationsRes.body.items.some(
+          (item: { citationCode?: string }) => item.citationCode === citation.citationCode,
+        ),
+      ).toBe(true);
 
       const viewRes = await request(app)
         .get(`/api/admin/requirements/documents/${encodeURIComponent(document.id)}/view`)
@@ -564,7 +594,9 @@ describe.skipIf(!hasDatabaseIntegration)('secure API integration', () => {
         .set('Authorization', `Bearer ${adminToken}`)
         .send({});
       expect(docxRes.status).toBe(200);
-      expect(String(docxRes.headers['content-type'] || '')).toMatch(/application\/vnd\.openxmlformats-officedocument\.wordprocessingml\.document/i);
+      expect(String(docxRes.headers['content-type'] || '')).toMatch(
+        /application\/vnd\.openxmlformats-officedocument\.wordprocessingml\.document/i,
+      );
     } finally {
       await fs.unlink(pdfPath).catch(() => undefined);
     }
@@ -580,9 +612,7 @@ describe.skipIf(!hasDatabaseIntegration)('secure API integration', () => {
     expect(geminiUnknownMethodRes.body?.ok).toBe(false);
     expect(String(geminiUnknownMethodRes.body?.error || '')).toMatch(/Unknown method/i);
 
-    const figmaMissingPromptRes = await request(app)
-      .post('/api/figma/ai')
-      .send({ mode: 'text' });
+    const figmaMissingPromptRes = await request(app).post('/api/figma/ai').send({ mode: 'text' });
 
     expect(figmaMissingPromptRes.status).toBe(400);
     expect(figmaMissingPromptRes.body?.ok).toBe(false);
@@ -613,7 +643,7 @@ describe.skipIf(!hasDatabaseIntegration)('secure API integration', () => {
           {
             status: 200,
             headers: { 'Content-Type': 'application/json' },
-          }
+          },
         );
       }
 
@@ -622,7 +652,18 @@ describe.skipIf(!hasDatabaseIntegration)('secure API integration', () => {
           JSON.stringify({
             features: [
               {
-                geometry: { type: 'Polygon', coordinates: [[[18.0, 59.0], [18.1, 59.0], [18.1, 58.9], [18.0, 58.9], [18.0, 59.0]]] },
+                geometry: {
+                  type: 'Polygon',
+                  coordinates: [
+                    [
+                      [18.0, 59.0],
+                      [18.1, 59.0],
+                      [18.1, 58.9],
+                      [18.0, 58.9],
+                      [18.0, 59.0],
+                    ],
+                  ],
+                },
                 properties: { etikett: 'TEST 1:1' },
               },
             ],
@@ -630,7 +671,7 @@ describe.skipIf(!hasDatabaseIntegration)('secure API integration', () => {
           {
             status: 200,
             headers: { 'Content-Type': 'application/json' },
-          }
+          },
         );
       }
 
@@ -696,9 +737,7 @@ describe.skipIf(!hasDatabaseIntegration)('secure API integration', () => {
     expect(loadRes.status).toBe(200);
     expect(loadRes.body.ok).toBe(true);
 
-    const plan = (loadRes.body.plan && typeof loadRes.body.plan === 'object')
-      ? loadRes.body.plan
-      : {};
+    const plan = loadRes.body.plan && typeof loadRes.body.plan === 'object' ? loadRes.body.plan : {};
     const nextName = `Integration-${Date.now()}`;
     const nextPlan = {
       ...plan,
@@ -796,9 +835,7 @@ describe.skipIf(!hasDatabaseIntegration)('secure API integration', () => {
       .set('Authorization', `Bearer ${adminToken}`);
 
     expect(loadRes.status).toBe(200);
-    const basePlan = loadRes.body.plan && typeof loadRes.body.plan === 'object'
-      ? loadRes.body.plan
-      : {};
+    const basePlan = loadRes.body.plan && typeof loadRes.body.plan === 'object' ? loadRes.body.plan : {};
     const now = new Date().toISOString();
     const seededPlan = {
       ...basePlan,
@@ -883,7 +920,9 @@ describe.skipIf(!hasDatabaseIntegration)('secure API integration', () => {
     expect(journalId).not.toBe('');
 
     const signDriverRes = await request(app)
-      .post(`/api/projects/${encodeURIComponent(projectId)}/driver-journals/${encodeURIComponent(journalId)}/sign`)
+      .post(
+        `/api/projects/${encodeURIComponent(projectId)}/driver-journals/${encodeURIComponent(journalId)}/sign`,
+      )
       .set('Authorization', `Bearer ${adminToken}`)
       .send({
         signerRole: 'DRIVER',
@@ -892,7 +931,9 @@ describe.skipIf(!hasDatabaseIntegration)('secure API integration', () => {
     expect(signDriverRes.status).toBe(200);
 
     const signReviewerRes = await request(app)
-      .post(`/api/projects/${encodeURIComponent(projectId)}/driver-journals/${encodeURIComponent(journalId)}/sign`)
+      .post(
+        `/api/projects/${encodeURIComponent(projectId)}/driver-journals/${encodeURIComponent(journalId)}/sign`,
+      )
       .set('Authorization', `Bearer ${adminToken}`)
       .send({
         signerRole: 'REVIEWER',
@@ -944,5 +985,3 @@ describe.skipIf(!hasDatabaseIntegration)('secure API integration', () => {
     expect(docGateRes.body?.gate?.status).toBe('PASSED');
   });
 });
-
-

@@ -14,6 +14,13 @@ vi.mock('../../server/repositories/userRepository', () => ({
   findAuthUserByBankId: vi.fn(async () => null),
 }));
 
+vi.mock('../../server/repositories/tokenRepository', () => ({
+  isTokenRevoked: vi.fn(async () => false),
+  markRefreshTokenAsUsed: vi.fn(async () => undefined),
+  revokeRefreshToken: vi.fn(async () => undefined),
+  cleanupExpiredTokenRevocations: vi.fn(async () => 0),
+}));
+
 const mockAnalysis: DbAnalysisResponse = {
   generatedAt: new Date().toISOString(),
   requirements: {
@@ -118,16 +125,12 @@ describe('GET /api/admin/db-analysis', () => {
   });
 
   it('returns 403 for non-admin users', async () => {
-    const res = await request(app)
-      .get('/api/admin/db-analysis')
-      .set('Authorization', consultantAuthHeader());
+    const res = await request(app).get('/api/admin/db-analysis').set('Authorization', consultantAuthHeader());
     expect(res.status).toBe(403);
   });
 
   it('returns 200 with correct top-level shape for admin', async () => {
-    const res = await request(app)
-      .get('/api/admin/db-analysis')
-      .set('Authorization', adminAuthHeader());
+    const res = await request(app).get('/api/admin/db-analysis').set('Authorization', adminAuthHeader());
 
     expect(res.status).toBe(200);
     expect(res.body.ok).toBe(true);
@@ -141,9 +144,7 @@ describe('GET /api/admin/db-analysis', () => {
   });
 
   it('returns requirements breakdown', async () => {
-    const res = await request(app)
-      .get('/api/admin/db-analysis')
-      .set('Authorization', adminAuthHeader());
+    const res = await request(app).get('/api/admin/db-analysis').set('Authorization', adminAuthHeader());
 
     const { requirements } = res.body.analysis;
     expect(Array.isArray(requirements.byCategory)).toBe(true);
@@ -161,9 +162,7 @@ describe('GET /api/admin/db-analysis', () => {
   });
 
   it('returns document confidence buckets', async () => {
-    const res = await request(app)
-      .get('/api/admin/db-analysis')
-      .set('Authorization', adminAuthHeader());
+    const res = await request(app).get('/api/admin/db-analysis').set('Authorization', adminAuthHeader());
 
     const { municipalityConfidenceBuckets } = res.body.analysis.documents;
     expect(municipalityConfidenceBuckets.high).toBe(28);
@@ -173,9 +172,7 @@ describe('GET /api/admin/db-analysis', () => {
   });
 
   it('returns coverage analysis', async () => {
-    const res = await request(app)
-      .get('/api/admin/db-analysis')
-      .set('Authorization', adminAuthHeader());
+    const res = await request(app).get('/api/admin/db-analysis').set('Authorization', adminAuthHeader());
 
     const { coverage } = res.body.analysis;
     expect(coverage.documentsWithRequirements).toBe(35);
@@ -188,9 +185,7 @@ describe('GET /api/admin/db-analysis', () => {
   });
 
   it('returns extracted requirements analysis', async () => {
-    const res = await request(app)
-      .get('/api/admin/db-analysis')
-      .set('Authorization', adminAuthHeader());
+    const res = await request(app).get('/api/admin/db-analysis').set('Authorization', adminAuthHeader());
 
     const { extractedRequirements } = res.body.analysis;
     expect(Array.isArray(extractedRequirements.byCategory)).toBe(true);

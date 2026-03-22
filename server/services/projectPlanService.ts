@@ -261,7 +261,7 @@ export async function bookTransportForProject(input: {
     throw new Error("Dispatch quote not found");
   }
 
-  const booking = createTransportBooking(quote, {
+  const booking = await createTransportBooking(quote, {
     plannedPickupAt: input.plannedPickupAt,
   });
   const next = {
@@ -302,8 +302,7 @@ export async function upsertDriverJournalForProject(input: {
     throw new Error("Transport booking not found");
   }
 
-  const updated = upsertDriverJournal({
-    journals: current.driverJournals,
+  const updated = await upsertDriverJournal({
     journal: {
       ...input.journal,
       wasteCode: input.journal.wasteCode || booking.wasteCode,
@@ -312,12 +311,12 @@ export async function upsertDriverJournalForProject(input: {
   });
   const next = {
     ...current,
-    driverJournals: updated.journals,
+    driverJournals: [updated, ...current.driverJournals.filter((item) => item.id !== updated.id)],
   };
   await persistPlan(input.projectId, input.organisationId, next);
   return {
     plan: next,
-    journal: updated.journal,
+    journal: updated,
   };
 }
 
@@ -335,8 +334,8 @@ export async function signDriverJournalForProject(input: {
     throw new Error("Driver journal not found");
   }
 
-  const signed = signDriverJournal({
-    journal: existing,
+  const signed = await signDriverJournal({
+    journalId: existing.id,
     signerRole: input.signerRole,
     signatureId: input.signatureId,
   });
@@ -391,7 +390,7 @@ export async function ingestLimsReportForProject(input: {
     }
   }
 
-  const report = createLimsReport(input.report);
+  const report = await createLimsReport(input.report);
   const next = {
     ...current,
     limsReports: [report, ...current.limsReports.filter((item) => item.id !== report.id)],
@@ -418,8 +417,8 @@ export async function verifyLimsReportForProject(input: {
     throw new Error("LIMS report not found");
   }
 
-  const verified = verifyLimsReport({
-    report: existing,
+  const verified = await verifyLimsReport({
+    reportId: existing.id,
     reviewer: input.reviewer,
     signatureId: input.signatureId,
     approved: input.approved,

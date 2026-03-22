@@ -15,13 +15,11 @@ async function analyzeOrsa() {
     const total = await prisma.$queryRaw<
       Array<{ count: number }>
     >`SELECT COUNT(*) as count FROM "DocumentRecord" WHERE municipality = 'Orsa'`;
-    
+
     console.log(`📊 Total Orsa documents: ${total[0]?.count || 0}\n`);
 
     // Group by status
-    const byStatus = await prisma.$queryRaw<
-      Array<{ status: string; count: number }>
-    >`
+    const byStatus = await prisma.$queryRaw<Array<{ status: string; count: number }>>`
       SELECT status, COUNT(*) as count 
       FROM "DocumentRecord"
       WHERE municipality = 'Orsa'
@@ -30,14 +28,12 @@ async function analyzeOrsa() {
     `;
 
     console.log('By Status:');
-    byStatus.forEach(row => {
+    byStatus.forEach((row) => {
       console.log(`  ${row.status}: ${row.count}`);
     });
 
     // Group by decision type
-    const byDecision = await prisma.$queryRaw<
-      Array<{ decisionType: string | null; count: number }>
-    >`
+    const byDecision = await prisma.$queryRaw<Array<{ decisionType: string | null; count: number }>>`
       SELECT "decisionType", COUNT(*) as count 
       FROM "DocumentRecord"
       WHERE municipality = 'Orsa'
@@ -46,14 +42,12 @@ async function analyzeOrsa() {
     `;
 
     console.log('\nBy Decision Type:');
-    byDecision.forEach(row => {
+    byDecision.forEach((row) => {
       console.log(`  ${row.decisionType || 'NULL'}: ${row.count}`);
     });
 
     // Group by waste type
-    const byWaste = await prisma.$queryRaw<
-      Array<{ wasteType: string | null; count: number }>
-    >`
+    const byWaste = await prisma.$queryRaw<Array<{ wasteType: string | null; count: number }>>`
       SELECT "wasteType", COUNT(*) as count 
       FROM "DocumentRecord"
       WHERE municipality = 'Orsa'
@@ -63,14 +57,12 @@ async function analyzeOrsa() {
     `;
 
     console.log('\nTop Waste Types:');
-    byWaste.forEach(row => {
+    byWaste.forEach((row) => {
       console.log(`  ${row.wasteType || 'NULL'}: ${row.count}`);
     });
 
     // Check date range
-    const dateRange = await prisma.$queryRaw<
-      Array<{ minDate: any; maxDate: any }>
-    >`
+    const dateRange = await prisma.$queryRaw<Array<{ minDate: any; maxDate: any }>>`
       SELECT 
         MIN("receivedTime") as "minDate",
         MAX("receivedTime") as "maxDate"
@@ -85,9 +77,7 @@ async function analyzeOrsa() {
     }
 
     // Check by year
-    const byYear = await prisma.$queryRaw<
-      Array<{ year: number; count: number }>
-    >`
+    const byYear = await prisma.$queryRaw<Array<{ year: number; count: number }>>`
       SELECT 
         EXTRACT(YEAR FROM "receivedTime")::INT as year,
         COUNT(*) as count
@@ -98,7 +88,7 @@ async function analyzeOrsa() {
     `;
 
     console.log('\nBy Year:');
-    byYear.forEach(row => {
+    byYear.forEach((row) => {
       console.log(`  ${row.year}: ${row.count}`);
     });
 
@@ -113,13 +103,12 @@ async function analyzeOrsa() {
     `;
 
     console.log('\nSample Documents:');
-    samples.forEach(s => {
+    samples.forEach((s) => {
       console.log(`  📄 ${s.originalName}`);
       console.log(`     Status: ${s.status}, Decision: ${s.decisionType}`);
     });
 
     console.log('\n');
-
   } catch (error) {
     console.error('\n❌ Error:', error);
     process.exit(1);

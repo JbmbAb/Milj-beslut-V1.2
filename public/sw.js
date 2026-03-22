@@ -8,7 +8,6 @@
  *   - Push-notifikationer
  */
 
-const CACHE_NAME = 'miljobeslut-v1';
 const STATIC_CACHE_NAME = 'miljobeslut-static-v1';
 const API_CACHE_NAME = 'miljobeslut-api-v1';
 
@@ -130,7 +129,7 @@ async function syncPendingFieldData() {
 
 // Placeholder IDB helpers (implementation in app layer)
 async function getPendingFieldDataFromIDB() { return []; }
-async function removePendingFieldDataFromIDB(_id) { }
+async function removePendingFieldDataFromIDB() { }
 
 // ─── Push Notifications ───────────────────────────────────────────────────────
 

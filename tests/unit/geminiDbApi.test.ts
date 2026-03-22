@@ -63,9 +63,7 @@ describe('geminiDbApi.express', () => {
     const missingRes = await request(app).get('/api/gemini-db/health');
     expect(missingRes.status).toBe(401);
 
-    const wrongRes = await request(app)
-      .get('/api/gemini-db/health')
-      .set('x-gemini-db-key', 'wrong-key');
+    const wrongRes = await request(app).get('/api/gemini-db/health').set('x-gemini-db-key', 'wrong-key');
     expect(wrongRes.status).toBe(401);
   });
 
@@ -91,7 +89,9 @@ describe('geminiDbApi.express', () => {
 
     const app = createTestApp();
     const res = await request(app)
-      .get('/api/gemini-db/requirements/rows?page=0&pageSize=999&verificationStatus=VERIFIED&includePreliminary=ja')
+      .get(
+        '/api/gemini-db/requirements/rows?page=0&pageSize=999&verificationStatus=VERIFIED&includePreliminary=ja&organisationId=test-org-1',
+      )
       .set('x-gemini-db-key', 'unit-test-key');
 
     expect(res.status).toBe(200);
@@ -101,6 +101,7 @@ describe('geminiDbApi.express', () => {
     expect(vi.mocked(listRequirementRows)).toHaveBeenCalledWith({
       page: 1,
       pageSize: 200,
+      organisationId: 'test-org-1',
       municipality: undefined,
       documentType: undefined,
       category: undefined,
@@ -120,7 +121,7 @@ describe('geminiDbApi.express', () => {
 
     const app = createTestApp();
     const res = await request(app)
-      .get('/api/gemini-db/requirements/rows/REQ-123')
+      .get('/api/gemini-db/requirements/rows/REQ-123?organisationId=test-org-1')
       .set('x-gemini-db-key', 'unit-test-key');
 
     expect(res.status).toBe(200);

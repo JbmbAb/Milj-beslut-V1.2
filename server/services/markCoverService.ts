@@ -32,7 +32,7 @@ export interface MarkCoverFeature {
 export interface MarkCoverResponse {
   type: 'FeatureCollection';
   features: MarkCoverFeature[];
-  source: 'postgis' | 'wms' | 'synthetic';
+  source: 'postgis' | 'wms';
   bbox: [number, number, number, number];
   fetchedAt: string;
 }
@@ -133,53 +133,8 @@ export async function getMarkCoverLayer(
     }
   }
 
-  // 3. Synthetic demo data (always works)
-  const features = generateSyntheticCover(bbox);
-  return { type: 'FeatureCollection', features, source: 'synthetic', bbox, fetchedAt };
+  throw new Error("Alla NMD API-anrop misslyckades. Kan ej ta fram markklassificering för angiven geometri.");
 }
 
-function generateSyntheticCover(
-  bbox: [number, number, number, number],
-): MarkCoverFeature[] {
-  const [minLng, minLat, maxLng, maxLat] = bbox;
-  const lngStep = (maxLng - minLng) / 3;
-  const latStep = (maxLat - minLat) / 3;
-  const codes = [11, 21, 41, 51, 31];
+// ─── END Service ──────────────────────────────────────────────────────────────
 
-  const features: MarkCoverFeature[] = [];
-  let codeIdx = 0;
-
-  for (let row = 0; row < 3; row++) {
-    for (let col = 0; col < 3; col++) {
-      const sLng = minLng + col * lngStep;
-      const sLat = minLat + row * latStep;
-      const eLng = sLng + lngStep;
-      const eLat = sLat + latStep;
-      const code = codes[codeIdx % codes.length];
-      codeIdx++;
-
-      features.push({
-        type: 'Feature',
-        geometry: {
-          type: 'Polygon',
-          coordinates: [
-            [
-              [sLng, sLat],
-              [eLng, sLat],
-              [eLng, eLat],
-              [sLng, eLat],
-              [sLng, sLat],
-            ],
-          ],
-        },
-        properties: {
-          nmdCode: code,
-          description: NMD_CLASSES[code] ?? 'Okänd',
-          areaHa: Math.round(((eLng - sLng) * (eLat - sLat) * 111_320 * 111_320) / 10_000),
-        },
-      });
-    }
-  }
-
-  return features;
-}

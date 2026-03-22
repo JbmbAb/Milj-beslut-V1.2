@@ -1,16 +1,13 @@
-
 import { PrismaClient } from '@prisma/client';
 
 const prisma = new PrismaClient();
 
 function serialize(obj: any) {
-    return JSON.stringify(obj, (key, value) =>
-        typeof value === 'bigint' ? value.toString() : value, 2
-    );
+  return JSON.stringify(obj, (key, value) => (typeof value === 'bigint' ? value.toString() : value), 2);
 }
 
 async function main() {
-    const muniCounts = await prisma.$queryRaw`
+  const muniCounts = await prisma.$queryRaw`
     SELECT "municipalityNormalized", COUNT(*) as count 
     FROM "DocumentRecord" 
     WHERE "municipalityNormalized" IS NOT NULL 
@@ -19,9 +16,9 @@ async function main() {
     LIMIT 20;
   `;
 
-    console.log(serialize(muniCounts));
+  console.log(serialize(muniCounts));
 
-    const decisionCounts = await prisma.$queryRaw`
+  const decisionCounts = await prisma.$queryRaw`
     SELECT "decisionType", COUNT(*) as count 
     FROM "DocumentRecord" 
     WHERE "decisionType" IS NOT NULL 
@@ -30,14 +27,14 @@ async function main() {
     LIMIT 20;
   `;
 
-    console.log(serialize(decisionCounts));
+  console.log(serialize(decisionCounts));
 }
 
 main()
-    .catch((e) => {
-        console.error(e);
-        process.exit(1);
-    })
-    .finally(async () => {
-        await prisma.$disconnect();
-    });
+  .catch((e) => {
+    console.error(e);
+    process.exit(1);
+  })
+  .finally(async () => {
+    await prisma.$disconnect();
+  });

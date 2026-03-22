@@ -18,7 +18,7 @@ async function main() {
       try {
         const result: any = await prisma.$queryRawUnsafe(`SELECT count(*) as count FROM ${table}`);
         tableCounts[table] = Number(result[0].count);
-      } catch (e) {
+      } catch {
         tableCounts[table] = -1; // Not found
       }
     }
@@ -34,7 +34,7 @@ async function main() {
       try {
         const result: any = await prisma.$queryRawUnsafe(`SELECT count(*) as count FROM ${table}`);
         tableCounts[table] = Number(result[0].count);
-      } catch (e) {
+      } catch {
         tableCounts[table] = -1; // Not found
       }
     }

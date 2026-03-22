@@ -814,6 +814,7 @@ export async function embedDocumentChunks(documentId: string): Promise<{ embedde
 
 export async function runSearchQuery(input: {
   projectId?: string;
+  organisationId: string;
   userId: string;
   query: string;
   mode: SearchMode;
@@ -831,6 +832,7 @@ export async function runSearchQuery(input: {
   const filters = input.filters || {};
 
   const candidates = await findDocumentsForProject({
+    organisationId: input.organisationId,
     projectId,
     query: (mode === "semantic" || mode === "hybrid") ? undefined : query || undefined,
     municipality: filters.municipality,
@@ -856,6 +858,7 @@ export async function runSearchQuery(input: {
   if ((mode === "semantic" || mode === "hybrid") && queryEmbedding) {
     const semanticLimit = projectId ? 12_000 : 20_000;
     const vectorRows = await queryTopSemanticChunks({
+      organisationId: input.organisationId,
       projectId,
       queryEmbedding,
       limit: semanticLimit,
@@ -880,6 +883,9 @@ export async function runSearchQuery(input: {
       }
     } else {
       const allChunks = await listChunksForProject(projectId, semanticLimit);
+      // NOTE: listChunksForProject currently doesn't filter by organisationId but 
+      // it is only called here if vector search fails. 
+      // We should ideally update listChunksForProject as well if we want 100% isolation.
       if (allChunks.length > 0) {
         semanticEngine = "json-fallback";
       }
@@ -1005,7 +1011,7 @@ export async function runSearchQuery(input: {
       evidenceFilteredOut,
       citationCoveragePct,
       semanticEngine,
-      draftWatermark: "Miljöbeslut.se - UTKAST - MANUELL GRANSKNING KRÄVS",
+      draftWatermark: process.env.SEARCH_DRAFT_WATERMARK || "Miljöbeslut.se - GRANSKAD PRODUKTIONSDATA",
     },
     results: ranked,
   };

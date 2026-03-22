@@ -14,6 +14,13 @@ vi.mock('../../server/repositories/userRepository', () => ({
   findAuthUserByBankId: vi.fn(async () => null),
 }));
 
+vi.mock('../../server/repositories/tokenRepository', () => ({
+  isTokenRevoked: vi.fn(async () => false),
+  markRefreshTokenAsUsed: vi.fn(async () => undefined),
+  revokeRefreshToken: vi.fn(async () => undefined),
+  cleanupExpiredTokenRevocations: vi.fn(async () => 0),
+}));
+
 vi.mock('../../server/repositories/adminReportRepository', () => {
   const mockCompletion: AppCompletionResponse = {
     checkedAt: new Date().toISOString(),
@@ -28,9 +35,7 @@ vi.mock('../../server/repositories/adminReportRepository', () => {
         partial: 1,
         pending: 0,
         percent: 88,
-        features: [
-          { id: 'auth-bankid', label: 'BankID', category: 'Autentisering', status: 'DONE' },
-        ],
+        features: [{ id: 'auth-bankid', label: 'BankID', category: 'Autentisering', status: 'DONE' }],
       },
     ],
   };
@@ -75,24 +80,18 @@ describe('GET /api/admin/completion', () => {
   });
 
   it('returns 403 for non-admin users', async () => {
-    const res = await request(app)
-      .get('/api/admin/completion')
-      .set('Authorization', consultantAuthHeader());
+    const res = await request(app).get('/api/admin/completion').set('Authorization', consultantAuthHeader());
     expect(res.status).toBe(403);
   });
 
   it('returns 200 with ok=true for admin', async () => {
-    const res = await request(app)
-      .get('/api/admin/completion')
-      .set('Authorization', adminAuthHeader());
+    const res = await request(app).get('/api/admin/completion').set('Authorization', adminAuthHeader());
     expect(res.status).toBe(200);
     expect(res.body.ok).toBe(true);
   });
 
   it('response has correct top-level shape', async () => {
-    const res = await request(app)
-      .get('/api/admin/completion')
-      .set('Authorization', adminAuthHeader());
+    const res = await request(app).get('/api/admin/completion').set('Authorization', adminAuthHeader());
     const c = res.body.completion as AppCompletionResponse;
     expect(typeof c.checkedAt).toBe('string');
     expect(typeof c.donePercent).toBe('number');
@@ -102,17 +101,13 @@ describe('GET /api/admin/completion', () => {
   });
 
   it('donePercent + remainingPercent equals 100', async () => {
-    const res = await request(app)
-      .get('/api/admin/completion')
-      .set('Authorization', adminAuthHeader());
+    const res = await request(app).get('/api/admin/completion').set('Authorization', adminAuthHeader());
     const c = res.body.completion as AppCompletionResponse;
     expect(c.donePercent + c.remainingPercent).toBe(100);
   });
 
   it('counts section has required fields', async () => {
-    const res = await request(app)
-      .get('/api/admin/completion')
-      .set('Authorization', adminAuthHeader());
+    const res = await request(app).get('/api/admin/completion').set('Authorization', adminAuthHeader());
     const c = res.body.completion as AppCompletionResponse;
     expect(typeof c.counts.total).toBe('number');
     expect(typeof c.counts.done).toBe('number');
@@ -121,9 +116,7 @@ describe('GET /api/admin/completion', () => {
   });
 
   it('categories contain features with required fields', async () => {
-    const res = await request(app)
-      .get('/api/admin/completion')
-      .set('Authorization', adminAuthHeader());
+    const res = await request(app).get('/api/admin/completion').set('Authorization', adminAuthHeader());
     const c = res.body.completion as AppCompletionResponse;
     expect(c.categories.length).toBeGreaterThan(0);
     const cat = c.categories[0];
@@ -137,9 +130,7 @@ describe('GET /api/admin/completion', () => {
   });
 
   it('returns mock values correctly', async () => {
-    const res = await request(app)
-      .get('/api/admin/completion')
-      .set('Authorization', adminAuthHeader());
+    const res = await request(app).get('/api/admin/completion').set('Authorization', adminAuthHeader());
     const c = res.body.completion as AppCompletionResponse;
     expect(c.donePercent).toBe(70);
     expect(c.remainingPercent).toBe(30);

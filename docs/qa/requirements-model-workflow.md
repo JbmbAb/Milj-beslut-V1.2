@@ -1,7 +1,9 @@
 # Valideringsflode for kravdata (cases + requirements + citations)
 
 ## Syfte
+
 Detta flode ersatter "en stor CSV" som primar arbetsyta med en normaliserad struktur:
+
 1. `requirement_cases.csv` for arende-/dokumentmetadata.
 2. `requirement_rows.csv` for ett krav per rad.
 3. `requirement_citations.csv` for spårbar citatniva.
@@ -9,11 +11,13 @@ Detta flode ersatter "en stor CSV" som primar arbetsyta med en normaliserad stru
 Slutlig analys ska bara anvanda rader som ar manuellt verifierade.
 
 ## Kora normaliserad export
+
 ```powershell
 npm run requirements:model
 ```
 
 Med filter:
+
 ```powershell
 npm run requirements:model -- --project-id=<PROJECT_ID> --limit-docs=200 --max-per-document=4
 ```
@@ -22,12 +26,14 @@ Output skrivs till:
 `docs/qa/requirements-model/`
 
 ## Filer som skapas
+
 1. `requirement_cases.csv`
 2. `requirement_rows.csv`
 3. `requirement_citations.csv`
 4. `requirement_summary.json`
 
 ## Manuell validering (human-in-the-loop)
+
 1. Granska per `CaseId` / `KallaFil`.
 2. Bekrafta metadata i `requirement_cases.csv`:
    - `Kommun`, `Myndighet`, `Diarienummer`, `Dokumenttyp`, `Dokumentdatum`.
@@ -40,27 +46,33 @@ Output skrivs till:
    - markera verifieringsstatus
 
 ## Regler for analys
+
 1. Slutrapport ska baseras pa `VerifieradJaNej=Ja`.
 2. Kategorierna `Ytkonstruktion` och `DagvattenLakvatten` ska dubbelgranskas.
 3. Rader med `Feltyp` eller tom karnmetadata exkluderas tills korrigering ar gjord.
 
 ## Databasmodell (Prisma)
+
 Migrationen `prisma/migrations/20260302_requirements_model/migration.sql` introducerar:
+
 1. `RequirementCase`
 2. `RequirementRecord`
 3. `RequirementCitation`
 4. enum `RequirementVerificationStatus`
 
 For att applicera lokalt:
+
 ```powershell
 npm run prisma:migrate
 npm run prisma:generate
 ```
 
 ## Adminlage: Examensrapport Studio
+
 Adminpanelen innehaller nu en verifieringsdriven rapportstudio som anvander samma modell.
 
 Flode:
+
 1. Oppna `Admin Console` och logga in som admin.
 2. I sektionen `Examensrapport Studio`, filtrera verifieringskon.
 3. Valj kravrad, granska citat och oppna PDF via `DocumentId`-route.
@@ -70,6 +82,7 @@ Flode:
 7. Exportera CSV-zip och DOCX.
 
 Tekniska regler:
+
 1. `VERIFIED` for kravrad blockeras tills alla citat ar `REVIEWED`/`VERIFIED`.
 2. `VERIFIED` for citat blockeras utan `verifiedBy` och pageNumber eller kommentar.
 3. Rapportsummering och export inkluderar endast `VERIFIED` som standard.

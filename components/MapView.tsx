@@ -1,7 +1,4 @@
 import React, { useCallback, useEffect, useRef, useState } from "react";
-import { load } from "@loaders.gl/core";
-import { LASLoader } from "@loaders.gl/las";
-import { PLYLoader } from "@loaders.gl/ply";
 import { DecisionType, Permit, Receiver } from "../types";
 import { fetchMunicipalityContext } from "../services/geminiService";
 
@@ -69,6 +66,16 @@ const DYNAMIC_BBOX_LAYER_CONFIG: Record<
 
 function isDynamicBboxLayerKey(value: string): value is DynamicBboxLayerKey {
   return value in DYNAMIC_BBOX_LAYER_CONFIG;
+}
+
+async function loadPointCloudDependencies() {
+  const [{ load }, { LASLoader }, { PLYLoader }] = await Promise.all([
+    import("@loaders.gl/core"),
+    import("@loaders.gl/las"),
+    import("@loaders.gl/ply"),
+  ]);
+
+  return { load, LASLoader, PLYLoader };
 }
 
 function toBboxParam(map: any): string | null {
@@ -519,33 +526,51 @@ const MapView: React.FC<MapViewProps> = ({
     const L = (window as any).L;
 
     try {
-      if (!L?.canvasLayer) {
-        setMapNotice("CanvasLayer-plugin saknas. Punktmoln kan inte visas i denna miljo.");
-        return;
+      const { load, LASLoader, PLYLoader } = await loadPointCloudDependencies();
+      let canvasLayer = (L as any).canvasLayer?.();
+      
+      if (!canvasLayer) {
+        console.warn("L.canvasLayer saknas, använder inbyggd shim.");
+        // Enkel shim för miljöer utan plugin
+        canvasLayer = L.layerGroup();
+        (canvasLayer as any).isShim = true;
       }
+
       const loader = file.name.endsWith(".ply") ? PLYLoader : LASLoader;
       const data = await load(file, loader);
       const center = mapRef.current.getCenter();
 
       if (pointCloudLayerRef.current) mapRef.current.removeLayer(pointCloudLayerRef.current);
-      const canvasLayer = L.canvasLayer().delegate({
-        onDrawLayer(info: any) {
-          const ctx = info.canvas.getContext("2d");
-          ctx.clearRect(0, 0, info.canvas.width, info.canvas.height);
-          const positions = data.attributes.POSITION.value;
-          ctx.fillStyle = "rgba(255,255,0,0.8)";
-          for (let index = 0; index < positions.length; index += 30) {
-            const x = positions[index];
-            const y = positions[index + 1];
-            const lat = center.lat + y / 100000;
-            const lng = center.lng + x / 100000;
-            const point = info.layer._map.latLngToContainerPoint([lat, lng]);
-            ctx.beginPath();
-            ctx.arc(point.x, point.y, 1, 0, Math.PI * 2);
-            ctx.fill();
-          }
-        },
-      });
+
+      if ((canvasLayer as any).isShim) {
+        // Fallback: Rendera som cirklar (begränsat antal för prestanda)
+        const positions = data.attributes.POSITION.value;
+        const step = Math.max(3, Math.floor(positions.length / 3000) * 3);
+        for (let i = 0; i < Math.min(positions.length, 3000 * 3); i += step) {
+          const lat = center.lat + positions[i+1] / 100000;
+          const lng = center.lng + positions[i] / 100000;
+          L.circleMarker([lat, lng], { radius: 1, color: "yellow", fillOpacity: 0.8 }).addTo(canvasLayer);
+        }
+      } else {
+        canvasLayer.delegate({
+          onDrawLayer(info: any) {
+            const ctx = info.canvas.getContext("2d");
+            ctx.clearRect(0, 0, info.canvas.width, info.canvas.height);
+            const positions = data.attributes.POSITION.value;
+            ctx.fillStyle = "rgba(255,255,0,0.8)";
+            for (let index = 0; index < positions.length; index += 30) {
+              const x = positions[index];
+              const y = positions[index + 1];
+              const lat = center.lat + y / 100000;
+              const lng = center.lng + x / 100000;
+              const point = info.layer._map.latLngToContainerPoint([lat, lng]);
+              ctx.beginPath();
+              ctx.arc(point.x, point.y, 1, 0, Math.PI * 2);
+              ctx.fill();
+            }
+          },
+        });
+      }
 
       pointCloudLayerRef.current = canvasLayer;
       canvasLayer.addTo(mapRef.current);
@@ -674,7 +699,7 @@ const MapView: React.FC<MapViewProps> = ({
             <OverlayToggle
               active={activeOverlays.includes("trafik_vag")}
               onClick={() => toggleOverlay("trafik_vag")}
-              label="VÃ¤gnÃ¤t (Trafikverket)"
+              label="Vägnät (Trafikverket)"
               icon="fa-road"
               color="text-slate-600"
             />
@@ -688,7 +713,7 @@ const MapView: React.FC<MapViewProps> = ({
             <OverlayToggle
               active={activeOverlays.includes("postgis_lakes")}
               onClick={() => toggleOverlay("postgis_lakes")}
-              label="SjÃ¶ar (PostGIS DB)"
+              label="Sjöar (PostGIS DB)"
               icon="fa-water"
               color="text-blue-500"
             />

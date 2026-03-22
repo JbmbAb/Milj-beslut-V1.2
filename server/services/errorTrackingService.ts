@@ -47,7 +47,6 @@ function storeError(err: CapturedError): void {
 // ─── Sentry forwarder ─────────────────────────────────────────────────────────
 
 let _sentryInitialized = false;
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
 let _sentryClient: any = null;
 
 async function initSentry(): Promise<boolean> {
@@ -62,10 +61,8 @@ async function initSentry(): Promise<boolean> {
   try {
     // Dynamic import — Sentry SDK is an optional peer dependency.
     // Install with: npm install @sentry/node
-    // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment
     const Sentry = await import('@sentry/node').catch(() => null);
     if (Sentry) {
-      // eslint-disable-next-line @typescript-eslint/no-unsafe-call, @typescript-eslint/no-unsafe-member-access
       Sentry.init({ dsn, tracesSampleRate: 0.1 });
       _sentryClient = Sentry;
       logger.info('error-tracking: Sentry initialized');
@@ -86,14 +83,12 @@ async function forwardToSentry(captured: CapturedError): Promise<boolean> {
     if (captured.type === 'exception' && captured.stack) {
       const err = new Error(captured.message);
       err.stack = captured.stack;
-      // eslint-disable-next-line @typescript-eslint/no-unsafe-call, @typescript-eslint/no-unsafe-member-access
       _sentryClient.captureException(err, {
         level: captured.severity,
         extra: captured.context,
         user: captured.userId ? { id: captured.userId } : undefined,
       });
     } else {
-      // eslint-disable-next-line @typescript-eslint/no-unsafe-call, @typescript-eslint/no-unsafe-member-access
       _sentryClient.captureMessage(captured.message, captured.severity);
     }
     return true;

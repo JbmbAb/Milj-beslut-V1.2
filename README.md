@@ -53,11 +53,10 @@ View your app in AI Studio: https://ai.studio/apps/c85fb0f1-3062-4d35-b8b2-f2449
 ## Dispatch provider feature flag
 
 - Dispatch provider can be switched without UI code changes via `.env`:
-  - `DISPATCH_PROVIDER_MODE=MOCK_FRAKTBORS|TIMOCOM|TRANS_EU`
+  - `DISPATCH_PROVIDER_MODE=TIMOCOM|TRANS_EU`
 - Current adapter behavior:
-  - `MOCK_FRAKTBORS` is always available.
-  - `TIMOCOM` requires `TIMOCOM_API_KEY`, otherwise server falls back to `MOCK_FRAKTBORS`.
-  - `TRANS_EU` requires `TRANS_EU_API_KEY`, otherwise server falls back to `MOCK_FRAKTBORS`.
+  - `TIMOCOM` requires `TIMOCOM_API_KEY`, otherwise transportflodet blockeras.
+  - `TRANS_EU` requires `TRANS_EU_API_KEY`, otherwise transportflodet blockeras.
 - Full external adapter wiring is still intentionally gated behind credentials and supplier contracts.
 
 ## QA and test package

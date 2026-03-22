@@ -12,9 +12,7 @@ async function countMunicipalities() {
 
   try {
     // Count unique municipalities from DocumentRecord
-    const docMunicipalities = await prisma.$queryRaw<
-      Array<{ municipality: string | null; count: number }>
-    >`
+    const docMunicipalities = await prisma.$queryRaw<Array<{ municipality: string | null; count: number }>>`
       SELECT municipality, COUNT(*) as count 
       FROM "DocumentRecord"
       WHERE municipality IS NOT NULL AND municipality != ''
@@ -24,7 +22,7 @@ async function countMunicipalities() {
 
     console.log('From DocumentRecord:');
     console.log(`Total: ${docMunicipalities.length} unique municipalities\n`);
-    
+
     if (docMunicipalities.length > 0) {
       console.log('Top 10:');
       docMunicipalities.slice(0, 10).forEach((m, i) => {
@@ -38,14 +36,13 @@ async function countMunicipalities() {
     const totalDocs = docMunicipalities.reduce((sum, m) => sum + Number(m.count), 0);
     console.log(`✅ Total document records: ${totalDocs}`);
     console.log(`✅ Coverage: NATIONAL (Sweden)`);
-    
+
     // Show largest municipalities
     console.log(`\n\n🏆 LARGEST (by document count):`);
     docMunicipalities.slice(0, 3).forEach((m, i) => {
       const pct = ((Number(m.count) / totalDocs) * 100).toFixed(1);
       console.log(`  ${i + 1}. ${m.municipality} - ${m.count} docs (${pct}%)`);
     });
-
   } catch (error) {
     console.error('\n❌ Error:', error);
     process.exit(1);

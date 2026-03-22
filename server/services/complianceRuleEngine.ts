@@ -1,6 +1,6 @@
-import { GeologicalData } from "./sguService";
-import { ProtectedArea } from "./nvrService";
-import { Monument } from "./raaService";
+import type { GeologicalData } from "./sguService";
+import type { ProtectedArea } from "./nvrService";
+import type { Monument } from "./raaService";
 
 export type RiskLevel = "LOW" | "MEDIUM" | "HIGH" | "BLOCK";
 

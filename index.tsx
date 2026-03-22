@@ -2,7 +2,6 @@
 import React from 'react';
 import { createRoot } from 'react-dom/client';
 import App from './components/App';
-import { ProjectStructureProvider } from './components/ProjectStructureContext';
 
 /**
  * Initialiserar Miljobeslut.se 2.0 genom att rendera App-komponenten
@@ -14,9 +13,7 @@ if (container) {
   const root = createRoot(container);
   root.render(
     <React.StrictMode>
-      <ProjectStructureProvider>
-        <App />
-      </ProjectStructureProvider>
+      <App />
     </React.StrictMode>
   );
 } else {

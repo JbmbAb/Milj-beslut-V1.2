@@ -20,7 +20,7 @@
     "qa": "npm run typecheck && npm run lint && npm run format:check && npm run test",
     "qa:full": "npm run qa && npm run build && npm run test:e2e",
     "db:test:migrate": "dotenv -e .env.test -- prisma migrate deploy",
-    "db:test:seed": "dotenv -e .env.test -- tsx scripts/db/seed-test.ts",
+    "db:test:seed": "dotenv -e .env.test -- prisma db execute --file scripts/db/seed-test.sql --schema prisma/schema.prisma",
     "db:test:reset": "dotenv -e .env.test -- prisma migrate reset --force --skip-seed",
     "figma:export": "tsx scripts/export-figma.ts",
     "kravmatris:auto": "tsx scripts/export-kravmatris-from-dump.ts",

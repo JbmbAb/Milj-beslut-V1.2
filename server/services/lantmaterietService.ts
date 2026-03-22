@@ -100,15 +100,6 @@ function extractOgcFeatureLabel(feature: OgcFeature): string {
   return String(feature.properties?.etikett ?? "").trim();
 }
 
-function hasLicensedLantmaterietLookupConfig(): boolean {
-  return Boolean(
-    String(process.env.LANTMATERIET_ACCESS_TOKEN || "").trim() ||
-      (String(process.env.LANTMATERIET_CONSUMER_KEY || "").trim() &&
-        String(process.env.LANTMATERIET_CONSUMER_SECRET || "").trim()) ||
-      String(process.env.LANTMATERIET_API_KEY || "").trim(),
-  );
-}
-
 export function parseOgcDesignation(propertyDesignation: string): ParsedOgcDesignation {
   const cleaned = propertyDesignation.trim();
   const rawParts = cleaned.split(/\s+/).filter(Boolean);
@@ -333,43 +324,7 @@ export async function lookupPropertyByDesignation(input: PropertyLookupInput, us
     role: user.role,
   });
 
-  // --- MOCK INJECTION ---
-  const upperDesignation = input.propertyDesignation.toUpperCase();
-  if (
-    !hasLicensedLantmaterietLookupConfig() &&
-    (upperDesignation === "ORSA STACKMORA 3:12" || upperDesignation === "NACKA ORMINGE 7:8")
-  ) {
-    logger.info('Lantmateriet: using mock data', { propertyDesignation: input.propertyDesignation });
-    // Rough coordinates for demo map bounding boxes
-    const coords = upperDesignation.includes("NACKA")
-      ? [[[18.25, 59.33], [18.26, 59.33], [18.26, 59.32], [18.25, 59.32], [18.25, 59.33]]]
-      : [[[14.73, 61.12], [14.74, 61.12], [14.74, 61.11], [14.73, 61.11], [14.73, 61.12]]];
-
-    const mockFeature = {
-      geometry: {
-        type: "Polygon",
-        coordinates: coords
-      },
-      properties: {
-        etikett: upperDesignation
-      }
-    };
-
-    const minimized = minimizeOgcFeaturePayload({ features: [mockFeature] }, input.propertyDesignation);
-
-    const auditEvent = {
-      userId: user.id,
-      projectId: input.projectId,
-      propertyDesignation: input.propertyDesignation,
-      purpose: input.purpose,
-      responseClass: "geometry",
-    } as const;
-
-    await appendPropertyAudit(auditEvent);
-    await writePropertyAccessLog(auditEvent);
-    return minimized;
-  }
-  // --- END MOCK ---
+  
 
   const baseUrl = (process.env.LANTMATERIET_BASE_URL || "https://api.lantmateriet.se/ogc-features/v1").trim();
   const accessToken = await getLantmaterietAccessToken();

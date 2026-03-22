@@ -15,8 +15,14 @@ export async function writePropertyAccessLog(event: PropertyAccessAuditEvent): P
 
 export async function getAuditExportRows(limit: number = 5000) {
   return prisma.auditTrail.findMany({
-    orderBy: { timestamp: "asc" },
+    orderBy: [{ timestamp: "asc" }, { id: "asc" }],
     take: limit,
+  });
+}
+
+export async function getLatestAuditRow() {
+  return prisma.auditTrail.findFirst({
+    orderBy: [{ timestamp: "desc" }, { id: "desc" }],
   });
 }
 

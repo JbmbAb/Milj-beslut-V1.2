@@ -323,17 +323,6 @@ function mapFeatureToStageRow(feature: OgcFeature): StageRow | null {
   };
 }
 
-async function assertStageTableExists(): Promise<void> {
-  try {
-    await prisma.$executeRawUnsafe('SELECT 1 FROM stage.property_unit_raw LIMIT 1');
-  } catch (e: any) {
-    console.error(`DEBUG: Table check failed: ${e.message}`);
-    throw new Error(
-      "stage.property_unit_raw does not exist. Run scripts/enable_postgis.sql and scripts/db/create_property_unit_pipeline.sql first.",
-    );
-  }
-}
-
 async function upsertBatch(rows: StageRow[]): Promise<void> {
   if (rows.length === 0) {
     return;
@@ -430,8 +419,6 @@ async function main(): Promise<void> {
   const token = await getAccessToken(baseUrl);
   const cqlFilter = buildCqlFilter(options);
   const baseItemsUrl = `${baseUrl}/fastighetsindelning/collections/${encodeURIComponent(collection)}/items`;
-
-  // await assertStageTableExists();
 
   console.log("Lantmateriet property import");
   console.log(`Collection: ${collection}`);

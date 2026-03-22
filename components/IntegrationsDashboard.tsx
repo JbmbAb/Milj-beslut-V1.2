@@ -4,7 +4,7 @@ const PRIMARY_TOKEN_KEY = 'miljobeslut_admin_bearer';
 const LEGACY_TOKEN_KEY = 'riskguard_admin_bearer';
 
 type IntegrationStatus = 'CONNECTED' | 'DISCONNECTED' | 'ERROR';
-type DispatchProvider = 'MOCK_FRAKTBORS' | 'TIMOCOM' | 'TRANS_EU';
+type DispatchProvider = 'MOCK_FRAKTBORS' | 'TIMOCOM' | 'TRANS_EU' | 'NOT_CONFIGURED';
 
 type DispatchRuntimeStatus = {
   requestedProvider: DispatchProvider;
@@ -108,7 +108,8 @@ function statusBadge(status: IntegrationStatus): { tone: string; label: string }
 function dispatchProviderLabel(provider: DispatchProvider): string {
   if (provider === 'TIMOCOM') return 'TIMOCOM';
   if (provider === 'TRANS_EU') return 'Trans.eu';
-  return 'Mock fraktbors';
+  if (provider === 'NOT_CONFIGURED') return 'Ej konfigurerad';
+  return 'Historisk mockdata';
 }
 
 const IntegrationsDashboard: React.FC = () => {
@@ -170,7 +171,7 @@ const IntegrationsDashboard: React.FC = () => {
     return (sum / cards.length).toFixed(1);
   }, [cards]);
   const dispatchTone: 'default' | 'ok' | 'warn' = dispatchStatus
-    ? dispatchStatus.fallbackActive
+    ? dispatchStatus.fallbackActive || dispatchStatus.activeProvider === 'NOT_CONFIGURED'
       ? 'warn'
       : 'ok'
     : 'default';
@@ -237,9 +238,9 @@ const IntegrationsDashboard: React.FC = () => {
           )}
         </div>
 
-        {dispatchStatus?.fallbackActive && (
+        {dispatchStatus && (dispatchStatus.fallbackActive || dispatchStatus.activeProvider === 'NOT_CONFIGURED') && (
           <p className="mt-2 text-xs text-amber-700">
-            Konfigurerad dispatch-provider saknar credentials. Runtime fallback anvands tills nycklar ar satta.
+            Konfigurerad dispatch-provider saknar credentials. Transportflodet ar blockerat tills riktiga nycklar ar satta.
           </p>
         )}
         {error && <p className="mt-3 text-xs font-semibold text-rose-600">{error}</p>}

@@ -1,7 +1,6 @@
 import React, { useMemo, useState } from "react";
 import { AnimatePresence, motion } from "motion/react";
 import type { MapLayerKey } from "../types";
-import { MOCK_PERMITS } from "../constants";
 import MapView from "./MapView";
 import { useProjectStructure } from "./ProjectStructureContext";
 
@@ -304,7 +303,7 @@ const GisRiskModule: React.FC = () => {
 
       <div className="relative min-h-[600px] flex-1 overflow-hidden rounded-[3rem] border border-slate-200 bg-white shadow-sm">
         <MapView
-          permits={MOCK_PERMITS}
+          permits={[]}
           geoJsonData={uploadedData}
           bufferDistance={riskParameters.bufferDistance}
           highlightLayer={highlightedLayer}

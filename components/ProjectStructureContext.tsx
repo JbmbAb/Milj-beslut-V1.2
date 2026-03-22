@@ -2,14 +2,10 @@ import React, { createContext, useCallback, useContext, useEffect, useMemo, useR
 import type {
   CarbonInput,
   CoreModuleKey,
-  DispatchQuote,
-  DriverJournalEntry,
-  LimsReport,
   MapLayerKey,
   Permit,
   ProjectArchiveDocument,
   ProjectPlan,
-  TransportBooking,
 } from '../types';
 import {
   PROJECT_STRUCTURE_SCHEMA_VERSION,
@@ -27,6 +23,7 @@ import {
   normalizeProjectPlan,
   recommendMapLayers,
 } from '../services/projectStructure';
+import type { runRemoteTransportComplianceFlow as RunRemoteTransportComplianceFlow } from './projectTransportComplianceFlow';
 
 interface AddArchiveInput {
   name: string;
@@ -104,18 +101,6 @@ const ProjectStructureContext = createContext<ProjectStructureContextValue | nul
 const TOKEN_KEY = 'miljobeslut_admin_bearer';
 const PROJECT_KEY = 'miljobeslut_admin_project';
 const REMOTE_SYNC_DEBOUNCE_MS = 1200;
-
-function makeLocalId(prefix: string): string {
-  return `${prefix}-${Date.now()}-${Math.floor(Math.random() * 10000)}`;
-}
-
-function isHazardousWasteCode(wasteCode: string): boolean {
-  return String(wasteCode || '').includes('*');
-}
-
-function nowIso(): string {
-  return new Date().toISOString();
-}
 
 function resolveRemoteCredentials(): { token: string; projectId: string } | null {
   if (typeof window === 'undefined') return null;
@@ -569,360 +554,31 @@ export const ProjectStructureProvider: React.FC<{ children: React.ReactNode }> =
       const credentials = resolveRemoteCredentials();
 
       if (credentials) {
-        const callProjectApi = async <TResponse extends object>(
-          path: string,
-          body: Record<string, unknown>
-        ): Promise<TResponse> => {
-          const response = await fetch(`/api/projects/${encodeURIComponent(credentials.projectId)}${path}`, {
-            method: 'POST',
-            headers: {
-              Authorization: `Bearer ${credentials.token}`,
-              'Content-Type': 'application/json',
-            },
-            body: JSON.stringify(body),
-          });
+        const { runRemoteTransportComplianceFlow }: { runRemoteTransportComplianceFlow: typeof RunRemoteTransportComplianceFlow } =
+          await import('./projectTransportComplianceFlow');
 
-          const json = (await response.json()) as {
-            ok?: boolean;
-            error?: string;
-          } & TResponse;
-
-          if (!response.ok || !json.ok) {
-            throw new Error(json.error || `HTTP ${response.status}`);
-          }
-
-          return json;
-        };
-
-        setRemoteSync((prev) => ({
-          ...prev,
-          enabled: true,
-          projectId: credentials.projectId,
-          syncing: true,
-          error: '',
-        }));
-
-        try {
-          // TODO: Replace MOCK_FRAKTBORS request mapping with TIMOCOM/Trans.eu adapter when credentials are available.
-          const quotePayload = await callProjectApi<{ quote: DispatchQuote }>('/dispatch/quote', {
-            receiverId: input.receiverId,
-            receiverName: input.receiverName,
-            wasteCode: input.wasteCode,
-            tons: input.tons,
-            distanceKm: input.distanceKm,
-          });
-
-          const bookingPayload = await callProjectApi<{ booking: TransportBooking }>('/dispatch/book', {
-            quoteId: quotePayload.quote.id,
-          });
-
-          const carbonPayload = await callProjectApi<{ plan?: Partial<ProjectPlan> }>('/carbon/calculate', {
-            carbonInput: {
-              tons: input.tons,
-              distanceKm: input.distanceKm,
-              transportMode: 'TRUCK',
-              materialType: isHazardousWasteCode(input.wasteCode) ? 'WASTE' : 'SOIL',
-            },
-          });
-          if (carbonPayload.plan) {
+        return runRemoteTransportComplianceFlow({
+          credentials,
+          input,
+          getCurrentPlan: () => planRef.current,
+          normalizeProjectPlan,
+          applyRemotePlan: (candidate) => {
             skipNextAutoSave.current = true;
-            setPlan(normalizeProjectPlan(carbonPayload.plan));
-          }
-
-          const startedAt = bookingPayload.booking.plannedPickupAt || nowIso();
-          const endedAt = bookingPayload.booking.plannedDeliveryAt || nowIso();
-          const journalPayload = await callProjectApi<{ journal: DriverJournalEntry }>(
-            '/driver-journals/upsert',
-            {
-              journal: {
-                bookingId: bookingPayload.booking.id,
-                driverName: input.driverName,
-                vehicleId: input.vehicleId,
-                origin: input.origin?.trim() || 'Projektplats',
-                destination: input.destination?.trim() || input.receiverName,
-                wasteCode: input.wasteCode,
-                tons: input.tons,
-                startedAt,
-                endedAt,
-                odometerStartKm: 10000,
-                odometerEndKm: 10000 + Math.max(1, Math.round(input.distanceKm)),
-              },
-            }
-          );
-
-          const driverSignatureId = `PLACEHOLDER-BANKID-DRIVER-${Date.now()}`;
-          const reviewerSignatureId = `PLACEHOLDER-BANKID-REVIEWER-${Date.now()}`;
-          await callProjectApi<{ journal: DriverJournalEntry }>(
-            `/driver-journals/${encodeURIComponent(journalPayload.journal.id)}/sign`,
-            {
-              signerRole: 'DRIVER',
-              signatureId: driverSignatureId,
-            }
-          );
-
-          await callProjectApi<{ journal: DriverJournalEntry }>(
-            `/driver-journals/${encodeURIComponent(journalPayload.journal.id)}/sign`,
-            {
-              signerRole: 'REVIEWER',
-              signatureId: reviewerSignatureId,
-            }
-          );
-
-          let limsReportId: string | null = null;
-          if (isHazardousWasteCode(input.wasteCode)) {
-            const limsPayload = await callProjectApi<{ report: LimsReport }>('/lims/ingest', {
-              report: {
-                bookingId: bookingPayload.booking.id,
-                sampleId: `LOCAL-SAMPLE-${Date.now()}`,
-                labName: 'Preliminar Lab Feed',
-                source: 'MANUAL',
-                rawReference: `PRELIM-REF-${Date.now()}`,
-                metrics: [
-                  {
-                    key: 'Pb',
-                    value: 0.8,
-                    unit: 'mg/kg',
-                    maxAllowed: 1,
-                  },
-                ],
-              },
-            });
-            limsReportId = limsPayload.report.id;
-
-            await callProjectApi<{ report: LimsReport }>(
-              `/lims/${encodeURIComponent(limsPayload.report.id)}/verify`,
-              {
-                reviewer: input.reviewerName,
-                signatureId: `PLACEHOLDER-BANKID-LIMS-${Date.now()}`,
-                approved: true,
-              }
-            );
-          }
-
-          const carbonGatePayload = await callProjectApi<{ gate?: { status?: string }; plan?: Partial<ProjectPlan> }>(
-            '/stage-gates/gate-CARBON_CHECK/evaluate',
-            {
-              note: 'Carbon gate evaluated from one-click logistics flow.',
-            }
-          );
-          const documentGatePayload = await callProjectApi<{ gate?: { status?: string }; plan?: Partial<ProjectPlan> }>(
-            '/stage-gates/gate-DOCUMENT_CONTROL/evaluate',
-            {
-              note: 'Document gate evaluated from one-click logistics flow.',
-            }
-          );
-
-          if (documentGatePayload.plan || carbonGatePayload.plan) {
-            skipNextAutoSave.current = true;
-            setPlan(normalizeProjectPlan(documentGatePayload.plan || carbonGatePayload.plan || null));
-          }
-
-          setRemoteSync((prev) => ({
-            ...prev,
-            enabled: true,
-            projectId: credentials.projectId,
-            syncing: false,
-            lastSavedAt: nowIso(),
-            error: '',
-          }));
-
-          return {
-            quoteId: quotePayload.quote.id,
-            bookingId: bookingPayload.booking.id,
-            journalId: journalPayload.journal.id,
-            limsReportId,
-            carbonGate: String(carbonGatePayload.gate?.status || 'PENDING'),
-            documentGate: String(documentGatePayload.gate?.status || 'PENDING'),
-            preliminary: false,
-          };
-        } catch (error: unknown) {
-          setRemoteSync((prev) => ({
-            ...prev,
-            enabled: true,
-            projectId: credentials.projectId,
-            syncing: false,
-            error: error instanceof Error ? error.message : 'Transport compliance flow failed',
-          }));
-          throw error instanceof Error ? error : new Error('Transport compliance flow failed');
-        }
+            setPlan(normalizeProjectPlan(candidate || null));
+          },
+          setRemoteSync,
+        });
       }
 
-      let localResult: TransportComplianceResult = {
-        quoteId: '',
-        bookingId: '',
-        journalId: '',
-        limsReportId: null,
-        carbonGate: 'PENDING',
-        documentGate: 'PENDING',
-        preliminary: true,
-      };
-
-      setPlan((previous) => {
-        const timestamp = nowIso();
-        const quote: DispatchQuote = {
-          id: makeLocalId('QUOTE'),
-          provider: 'MOCK_FRAKTBORS',
-          receiverId: input.receiverId,
-          receiverName: input.receiverName,
-          wasteCode: input.wasteCode,
-          tons: input.tons,
-          distanceKm: input.distanceKm,
-          estimatedCostSek: Math.round(Math.max(1, input.tons) * Math.max(1, input.distanceKm) * 2.4),
-          etaHours: Math.max(1, Number((Math.max(1, input.distanceKm) / 60).toFixed(1))),
-          currency: 'SEK',
-          createdAt: timestamp,
-        };
-
-        const booking: TransportBooking = {
-          id: makeLocalId('BOOKING'),
-          quoteId: quote.id,
-          provider: 'MOCK_FRAKTBORS',
-          status: 'BOOKED',
-          receiverId: input.receiverId,
-          receiverName: input.receiverName,
-          wasteCode: input.wasteCode,
-          tons: input.tons,
-          distanceKm: input.distanceKm,
-          co2EstimateKg: Number((input.tons * input.distanceKm * 0.12).toFixed(2)),
-          plannedPickupAt: timestamp,
-          plannedDeliveryAt: new Date(Date.now() + 90 * 60 * 1000).toISOString(),
-          externalReference: makeLocalId('LOCAL-FB'),
-          createdAt: timestamp,
-          updatedAt: timestamp,
-        };
-
-        const driverSignatureId = `LOCAL-PRELIM-DRIVER-${Date.now()}`;
-        const reviewerSignatureId = `LOCAL-PRELIM-REVIEWER-${Date.now()}`;
-        const journal: DriverJournalEntry = {
-          id: makeLocalId('JOURNAL'),
-          bookingId: booking.id,
-          driverName: input.driverName,
-          vehicleId: input.vehicleId,
-          origin: input.origin?.trim() || 'Projektplats',
-          destination: input.destination?.trim() || input.receiverName,
-          wasteCode: input.wasteCode,
-          tons: input.tons,
-          startedAt: booking.plannedPickupAt,
-          endedAt: booking.plannedDeliveryAt,
-          odometerStartKm: 10000,
-          odometerEndKm: 10000 + Math.max(1, Math.round(input.distanceKm)),
-          gpsTrackHash: makeLocalId('PRELIM-GPS-HASH'),
-          status: 'VERIFIED',
-          signedByDriver: true,
-          signedByReviewer: true,
-          driverSignatureId,
-          reviewerSignatureId,
-          createdAt: timestamp,
-          updatedAt: timestamp,
-        };
-
-        let limsReport: LimsReport | null = null;
-        if (isHazardousWasteCode(input.wasteCode)) {
-          limsReport = {
-            id: makeLocalId('LIMS'),
-            bookingId: booking.id,
-            sampleId: makeLocalId('SAMPLE'),
-            labName: 'Preliminar Lab Feed',
-            source: 'MANUAL',
-            analyzedAt: timestamp,
-            rawReference: makeLocalId('PRELIM-REF'),
-            metrics: [
-              {
-                key: 'Pb',
-                value: 0.8,
-                unit: 'mg/kg',
-                maxAllowed: 1,
-                exceeded: false,
-              },
-            ],
-            passed: true,
-            verifiedByHuman: true,
-            reviewer: input.reviewerName,
-            reviewerSignatureId: `LOCAL-PRELIM-LIMS-${Date.now()}`,
-            verifiedAt: timestamp,
-            createdAt: timestamp,
-          };
-        }
-
-        const withFlowData: ProjectPlan = {
-          ...previous,
-          dispatchQuotes: [quote, ...previous.dispatchQuotes],
-          transportBookings: [booking, ...previous.transportBookings],
-          driverJournals: [journal, ...previous.driverJournals],
-          limsReports: limsReport ? [limsReport, ...previous.limsReports] : previous.limsReports,
-          auditTrail: [
-            ...previous.auditTrail,
-            {
-              id: makeLocalId('AUDIT'),
-              timestamp,
-              user: input.driverName,
-              action: 'DRIVER_JOURNAL_SIGN',
-              details:
-                'Preliminar lokal signering av forare. Ej juridiskt bindande utan extern verifiering.',
-              immutable: true,
-              signatureId: driverSignatureId,
-            },
-            {
-              id: makeLocalId('AUDIT'),
-              timestamp,
-              user: input.reviewerName,
-              action: 'DRIVER_JOURNAL_SIGN',
-              details:
-                'Preliminar lokal granskningssignering. Ej juridiskt bindande utan extern verifiering.',
-              immutable: true,
-              signatureId: reviewerSignatureId,
-            },
-            ...(limsReport
-              ? [
-                  {
-                    id: makeLocalId('AUDIT'),
-                    timestamp,
-                    user: input.reviewerName,
-                    action: 'LIMS_REPORT_VERIFY',
-                    details:
-                      'Preliminar lokal LIMS-verifiering. Ackrediterad labb/extern signatur kravs i produktion.',
-                    immutable: true,
-                    signatureId: limsReport.reviewerSignatureId || undefined,
-                  },
-                ]
-              : []),
-          ],
-        };
-
-        const carbonInput: CarbonInput = {
-          tons: input.tons,
-          distanceKm: input.distanceKm,
-          transportMode: 'TRUCK',
-          materialType: isHazardousWasteCode(input.wasteCode) ? 'WASTE' : 'SOIL',
-        };
-        const withCarbon = applyCarbonToPlan(withFlowData, carbonInput, calculateCarbon(carbonInput));
-        const carbonEvaluation = evaluateStageGate(withCarbon, 'gate-CARBON_CHECK', {
-          note: 'Local preliminary carbon gate evaluation from one-click flow.',
-        });
-        const documentEvaluation = evaluateStageGate(carbonEvaluation.plan, 'gate-DOCUMENT_CONTROL', {
-          note: 'Local preliminary document evaluation; external verification still required.',
-        });
-
-        const finalized = appendLocalAudit(
-          documentEvaluation.plan,
-          'Transport flow (local preliminary)',
-          `Preliminar kedja skapad: ${quote.id} -> ${booking.id} -> ${journal.id}.`
-        );
-
-        localResult = {
-          quoteId: quote.id,
-          bookingId: booking.id,
-          journalId: journal.id,
-          limsReportId: limsReport?.id || null,
-          carbonGate: carbonEvaluation.gate.status,
-          documentGate: documentEvaluation.gate.status,
-          preliminary: true,
-        };
-
-        return finalized;
-      });
-
-      return localResult;
+      setRemoteSync((prev) => ({
+        ...prev,
+        enabled: false,
+        syncing: false,
+        error: 'Transportflodet ar blockerat tills adminsession, projektkoppling och riktig dispatch-provider ar konfigurerade.',
+      }));
+      throw new Error(
+        'Transportflodet ar blockerat tills adminsession, projektkoppling och riktig dispatch-provider ar konfigurerade.'
+      );
     },
     []
   );

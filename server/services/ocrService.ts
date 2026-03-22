@@ -51,12 +51,25 @@ export async function extractTextFromDocument(
   // 1. Try pdf-parse on the stored file
   try {
     const { readFileSync } = await import('node:fs');
-    const pdfParse = (await import('pdf-parse')).default;
+    const moduleValue = await import('pdf-parse');
+    const PDFParse = (moduleValue as { PDFParse?: unknown }).PDFParse;
+    if (typeof PDFParse !== 'function') {
+      throw new Error('pdf-parse PDFParse constructor is unavailable');
+    }
 
     const buffer = readFileSync(doc.absolutePath);
-    const parsed = await pdfParse(buffer);
-    extractedText = parsed.text?.trim() ?? '';
-    pageCount = parsed.numpages ?? 0;
+    const parser = new (PDFParse as new (input: { data: Buffer }) => {
+      getText(): Promise<{ text?: string; total?: number; numpages?: number }>;
+      destroy?(): Promise<void>;
+    })({ data: buffer });
+    let parsed: { text?: string; total?: number; numpages?: number } | null = null;
+    try {
+      parsed = await parser.getText();
+    } finally {
+      await parser.destroy?.();
+    }
+    extractedText = parsed?.text?.trim() ?? '';
+    pageCount = parsed?.numpages ?? parsed?.total ?? 0;
 
     if (extractedText.length > 0) {
       method = 'pdf-parse';

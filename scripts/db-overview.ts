@@ -32,14 +32,14 @@ async function main() {
   try {
     const coreCount = await prisma.$queryRaw<any[]>`SELECT count(*) FROM core.property_unit`;
     console.log(`\nFastighetsenheter (Core): ${coreCount[0].count}`);
-  } catch (e) {
+  } catch {
     console.log("\nFastighetsenheter (Core): Tabell saknas eller kunde inte läsas.");
   }
 
   try {
     const stageCount = await prisma.$queryRaw<any[]>`SELECT count(*) FROM stage.property_unit_raw`;
     console.log(`Fastighetsenheter (Staging): ${stageCount[0].count}`);
-  } catch (e) {
+  } catch {
     console.log("Fastighetsenheter (Staging): Tabell saknas eller kunde inte läsas.");
   }
 
@@ -47,7 +47,7 @@ async function main() {
   try {
     const orsaCore = await prisma.$queryRaw<any[]>`SELECT count(*) FROM core.property_unit WHERE designation ILIKE '%ORSA STACKMORA%';`;
     console.log(`\nSökning 'ORSA STACKMORA' i Core: ${orsaCore[0].count} träffar`);
-  } catch (_e) {
+  } catch {
     // no matching properties — intentionally silent
   }
 

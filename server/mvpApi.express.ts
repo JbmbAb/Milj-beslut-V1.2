@@ -2,7 +2,6 @@ import { randomUUID } from 'node:crypto';
 import express from 'express';
 import bodyParser from 'body-parser';
 import { z, type ZodTypeAny } from 'zod';
-import { logger } from './logger';
 import { getUserFromAccessToken } from './security/auth';
 import { rateLimitByUser } from './security/rateLimit';
 import {
@@ -30,7 +29,38 @@ import {
 } from './services/mvpContractService';
 import { buildPermitDocxBuffer } from './services/permitDocxExportService';
 import { appendAuditLog } from '../services/auditLogService';
-import { demoSearch, getRagCitations } from './services/demoSearchService';
+import { runSearchQuery } from './services/searchService';
+
+async function getRagCitations(input: {
+    projectId: string;
+    organisationId: string;
+    userId: string;
+    query: string;
+    topK?: number;
+}) {
+    const raw = await runSearchQuery({
+        ...input,
+        mode: 'hybrid',
+        topK: input.topK || 5,
+        strictEvidence: false,
+    });
+    
+    const docIds = raw.results.map(r => r.documentId);
+    const metaRows = docIds.length > 0
+        ? await prisma.documentRecord.findMany({
+            where: { id: { in: docIds } },
+            select: { id: true, municipalityNormalized: true },
+        })
+        : [];
+    const metaByDocId = new Map(metaRows.map(r => [r.id, r]));
+
+    return raw.results.map(r => ({
+        source: `DocumentRecord:${r.documentId}`,
+        snippet: (r.snippet || r.citations[0]?.quote || '').slice(0, 300),
+        municipality: metaByDocId.get(r.documentId)?.municipalityNormalized || r.metadata.municipality || null,
+        documentId: r.documentId,
+    }));
+}
 import { getMunicipalityInsight } from './services/municipalityService';
 import { prisma } from './db/prisma';
 
@@ -85,57 +115,6 @@ function sendValidatedOutput(res: express.Response, schema: ZodTypeAny, payload:
   res.json(parsed.data);
 }
 
-// ─── PUBLIC DEMO ENDPOINT: GET /api/v1/projects ──────────────────────────
-// (No auth for demo purposes so it loads in dashboard instantly)
-router.get('/api/v1/projects', async (req, res) => {
-  logger.debug('GET /api/v1/projects', { headers: req.headers });
-  try {
-    const projects = await prisma.project.findMany({
-      select: {
-        id: true,
-        propertyDesignation: true,
-        status: true,
-        createdAt: true,
-        _count: {
-          select: { documents: true }
-        }
-      },
-      orderBy: { createdAt: 'desc' }
-    });
-
-    const result = await Promise.all(projects.map(async (p) => {
-      const totalDocs = p._count.documents;
-      if (totalDocs === 0) {
-        return {
-          ...p,
-          coverage: { municipality: 0, decisionType: 0 }
-        };
-      }
-
-      const muniCount = await prisma.documentRecord.count({
-        where: { projectId: p.id, municipalityNormalized: { not: null } }
-      });
-      const decisionCount = await prisma.documentRecord.count({
-        where: { projectId: p.id, decisionType: { not: null } }
-      });
-
-      return {
-        id: p.id,
-        propertyDesignation: p.propertyDesignation,
-        status: p.status,
-        docCount: totalDocs,
-        coverage: {
-          municipality: Math.round((muniCount / totalDocs) * 100),
-          decisionType: Math.round((decisionCount / totalDocs) * 100)
-        }
-      };
-    }));
-
-    res.json({ ok: true, projects: result });
-  } catch (error) {
-    sendError(res, 500, 'PROJECT_LIST_FAILED', 'Could not fetch projects.', String(error));
-  }
-});
 
 router.get('/api/v1/municipality/:name/insight', async (req, res) => {
   try {
@@ -147,7 +126,7 @@ router.get('/api/v1/municipality/:name/insight', async (req, res) => {
 });
 
 
-const requireMvpAuth = (req: any, res: express.Response, next: express.NextFunction) => {
+const requireMvpAuth = async (req: any, res: express.Response, next: express.NextFunction) => {
   const authHeader = String(req.headers.authorization || '');
   if (!authHeader.startsWith('Bearer ')) {
     sendError(res, 401, 'AUTH_MISSING', 'Missing bearer token.');
@@ -156,7 +135,7 @@ const requireMvpAuth = (req: any, res: express.Response, next: express.NextFunct
 
   try {
     const token = authHeader.slice('Bearer '.length).trim();
-    req.authUser = getUserFromAccessToken(token);
+    req.authUser = await getUserFromAccessToken(token);
     if (!req.authUser || !['ADMIN', 'CONSULTANT'].includes(req.authUser.role)) {
       sendError(res, 403, 'AUTH_FORBIDDEN', 'Insufficient role.');
       return;
@@ -175,47 +154,6 @@ router.use('/api/v1', (req, res, next) => {
 // rateLimit managed per route or globally for this router
 const mvpRateLimit = rateLimitByUser(60, 60_000);
 
-
-
-// ─── DEMO ENDPOINT 1: GET /api/v1/projects/:id/search ─────────────────────
-router.get('/api/v1/projects/:id/search', requireMvpAuth, mvpRateLimit, async (req, res) => {
-  const projectId = req.params['id'] as string;
-  const query = String(req.query.q || '').trim();
-  if (!query) { sendError(res, 400, 'MISSING_QUERY', 'q is required.'); return; }
-
-  const municipality = req.query.municipality ? String(req.query.municipality) : undefined;
-  const decisionType = req.query.decisionType ? String(req.query.decisionType) : undefined;
-  const wasteType = req.query.wasteType ? String(req.query.wasteType) : undefined;
-  const mode = (['semantic', 'lexical', 'hybrid'].includes(String(req.query.mode)) ? String(req.query.mode) : 'hybrid') as 'semantic' | 'lexical' | 'hybrid';
-  const topK = Math.max(1, Math.min(20, Number(req.query.topK || 10)));
-
-  logger.info('search request', { projectId, query });
-
-  // Quick access-check: project must exist (bypass for demo)
-  const isDemo = projectId === 'new-demo-project';
-  if (!isDemo) {
-    try {
-      const proj = await prisma.project.findUnique({ where: { id: projectId }, select: { id: true, organisationId: true } });
-      if (!proj) { sendError(res, 404 as ApiErrorStatus, 'PROJECT_NOT_FOUND', `Project ${projectId} not found.`); return; }
-    } catch { sendError(res, 500, 'DB_ERROR', 'Project lookup failed.'); return; }
-  }
-
-  try {
-    const result = await demoSearch({
-      projectId: isDemo ? '' : projectId, // Clear ID for global search if demo
-      userId: req.authUser?.id || 'anonymous',
-      query,
-      mode,
-      topK,
-      municipality,
-      decisionType,
-      wasteType,
-    });
-    res.json({ ok: true, traceId: traceIdOf(res), ...result });
-  } catch (error) {
-    sendError(res, 500, 'SEARCH_FAILED', 'Search failed.', String(error));
-  }
-});
 
 // ─── DEMO ENDPOINT 2: POST /api/v1/classification ─────────────────────────
 // DB-backed classification with RAG citations (distinct from /classification/activity)
@@ -258,13 +196,6 @@ router.post('/api/v1/classification', requireMvpAuth, mvpRateLimit, async (req, 
         dbActivityCode = doc.activityCode ?? dbActivityCode;
         subject = doc.subject;
       }
-    } else if (projectId === 'new-demo-project') {
-      // Demo fallback for new-demo-project
-      dbMunicipality = 'Stockholm';
-      dbDecisionType = 'Tillstånd';
-      dbWasteType = 'Farligt avfall';
-      dbActivityCode = '90.40';
-      subject = 'Demo project for waste management';
     } else if (projectId) {
       // Majority vote on municipality across project documents
       const majorityCounts = await prisma.$queryRawUnsafe<Array<{ municipalityNormalized: string; cnt: bigint }>>(
@@ -296,7 +227,13 @@ router.post('/api/v1/classification', requireMvpAuth, mvpRateLimit, async (req, 
   let citations: Array<{ source: string; snippet: string; municipality: string | null; documentId: string }> = [];
   if (projectId) {
     try {
-      citations = await getRagCitations({ projectId, userId: req.authUser?.id || 'anonymous', query: ragQuery, topK: 4 });
+      citations = await getRagCitations({
+        projectId,
+        organisationId: req.authUser?.organisationId || '',
+        userId: req.authUser?.id || 'anonymous',
+        query: ragQuery,
+        topK: 4,
+      });
     } catch { /* non-fatal */ }
   }
 
@@ -365,7 +302,7 @@ router.post('/api/v1/compliance/requirements', requireMvpAuth, mvpRateLimit, asy
   const traceId = traceIdOf(res);
 
   try {
-    const result = await getComplianceRequirements(input, traceId);
+    const result = await getComplianceRequirements(input, traceId, req.authUser?.organisationId);
     sendValidatedOutput(res, complianceRequirementsResponseSchema, result);
   } catch (error) {
     sendError(res, 500, 'REQUIREMENTS_LOOKUP_FAILED', 'Could not fetch compliance requirements.', String(error));
@@ -479,9 +416,36 @@ router.get('/api/v1/admin/review-queue', requireMvpAuth, mvpRateLimit, async (re
   }
 });
 
+router.post('/api/v1/admin/review-queue/clear-proposals', requireMvpAuth, mvpRateLimit, async (req, res) => {
+  const ids = Array.isArray(req.body?.ids)
+    ? req.body.ids.filter((value: unknown): value is string => typeof value === 'string' && value.trim().length > 0)
+    : [];
+
+  if (ids.length === 0) {
+    sendError(res, 400, 'IDS_REQUIRED', 'At least one review queue id is required.');
+    return;
+  }
+
+  try {
+    const result = await prisma.metadataReviewQueue.updateMany({
+      where: {
+        id: { in: ids.slice(0, 100) },
+        status: 'OPEN',
+      },
+      data: {
+        proposedValue: null,
+      },
+    });
+
+    res.json({ ok: true, cleared: result.count });
+  } catch (error) {
+    sendError(res, 500, 'CLEAR_PROPOSALS_FAILED', 'Could not clear proposed values.', String(error));
+  }
+});
+
 router.post('/api/v1/admin/review-queue/:id/resolve', requireMvpAuth, mvpRateLimit, async (req, res) => {
   const id = req.params['id'] as string;
-  const { action, value } = req.body as { action: 'APPROVE' | 'REJECT'; value?: string };
+  const { action, value } = req.body as { action: 'APPROVE' | 'REJECT' | 'CLEAR_PROPOSAL'; value?: string };
 
   try {
     const item = await prisma.metadataReviewQueue.findUnique({
@@ -494,7 +458,14 @@ router.post('/api/v1/admin/review-queue/:id/resolve', requireMvpAuth, mvpRateLim
       return;
     }
 
-    if (action === 'APPROVE') {
+    if (action === 'CLEAR_PROPOSAL') {
+      await prisma.metadataReviewQueue.update({
+        where: { id },
+        data: {
+          proposedValue: null,
+        }
+      });
+    } else if (action === 'APPROVE') {
       const finalValue = value !== undefined ? value : item.proposedValue;
       const fieldName = item.fieldName;
 

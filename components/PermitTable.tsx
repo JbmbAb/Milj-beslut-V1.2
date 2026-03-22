@@ -56,7 +56,7 @@ const PermitTable: React.FC<PermitTableProps> = ({ permits, onSelect }) => {
             <h2 className="text-2xl font-black text-slate-800 tracking-tight flex items-center gap-3">
                Fastighetsdatabas
                <span className="text-[10px] px-3 py-1 bg-green-50 text-green-600 rounded-full border border-green-100 font-black uppercase tracking-widest animate-pulse">
-                 Live: 1577 Dokument
+                 Verifierade poster: {permits.length}
                </span>
             </h2>
             <p className="text-slate-400 text-xs font-medium mt-1 italic">Datan är synkroniserad från Outlook-importen (risk_data.db)</p>

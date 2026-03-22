@@ -1,16 +1,13 @@
-
 import { PrismaClient } from '@prisma/client';
 
 const prisma = new PrismaClient();
 
 function serialize(obj: any) {
-    return JSON.stringify(obj, (key, value) =>
-        typeof value === 'bigint' ? value.toString() : value, 2
-    );
+  return JSON.stringify(obj, (key, value) => (typeof value === 'bigint' ? value.toString() : value), 2);
 }
 
 async function main() {
-    const muniReqs = await prisma.$queryRaw`
+  const muniReqs = await prisma.$queryRaw`
     SELECT 
       c.municipality, 
       COUNT(r.id) as req_count,
@@ -24,9 +21,9 @@ async function main() {
     LIMIT 10;
   `;
 
-    console.log(serialize(muniReqs));
+  console.log(serialize(muniReqs));
 
-    const categoryDistribution = await prisma.$queryRaw`
+  const categoryDistribution = await prisma.$queryRaw`
     SELECT 
       c.municipality,
       r.category,
@@ -38,14 +35,14 @@ async function main() {
     ORDER BY c.municipality, count DESC;
   `;
 
-    console.log(serialize(categoryDistribution));
+  console.log(serialize(categoryDistribution));
 }
 
 main()
-    .catch((e) => {
-        console.error(e);
-        process.exit(1);
-    })
-    .finally(async () => {
-        await prisma.$disconnect();
-    });
+  .catch((e) => {
+    console.error(e);
+    process.exit(1);
+  })
+  .finally(async () => {
+    await prisma.$disconnect();
+  });

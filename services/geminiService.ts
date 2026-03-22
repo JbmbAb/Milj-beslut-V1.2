@@ -1,10 +1,10 @@
 ﻿import { GoogleGenerativeAI } from "@google/generative-ai";
 import type { Permit, SpeciesObservation, Stakeholder, WeatherRisk } from "../types";
-import { ProtectedArea } from "../server/services/nvrService";
-import { GeologicalData } from "../server/services/sguService";
-import { Monument } from "../server/services/raaService";
-import { SiteAnalysis, evaluateComplianceRules } from "../server/services/complianceRuleEngine";
-import { runSpatialAudit } from "../server/services/spatialAuditService";
+import type { ProtectedArea } from "../server/services/nvrService";
+import type { GeologicalData } from "../server/services/sguService";
+import type { Monument } from "../server/services/raaService";
+import { evaluateComplianceRules } from "../server/services/complianceRuleEngine";
+import type { SiteAnalysis } from "../server/services/complianceRuleEngine";
 
 type HistoryItem = { role: "user" | "model"; content: string };
 type GroundingSource = { web?: { uri: string; title?: string } };
@@ -590,6 +590,8 @@ export const performSpatialAudit = async (
 
   if (!hasWindow()) {
     try {
+      const serverModulePath = "../server/services/spatialAuditService";
+      const { runSpatialAudit } = await import(/* @vite-ignore */ serverModulePath);
       const localAudit = await runSpatialAudit(lat, lng);
       return { text: localAudit.text, sources: localAudit.sources };
     } catch {

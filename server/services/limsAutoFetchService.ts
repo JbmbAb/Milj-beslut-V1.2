@@ -80,7 +80,7 @@ export async function autoFetchLimsReports(params: {
 
         for (const raw of rawReports) {
           try {
-            const report = createLimsReport({
+            const report = await createLimsReport({
               bookingId: null,
               sampleId: raw.sampleId,
               labName: raw.labName,

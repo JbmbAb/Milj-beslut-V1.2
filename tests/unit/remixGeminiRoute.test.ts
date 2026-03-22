@@ -1,7 +1,14 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import type { ActionFunctionArgs } from '@remix-run/node';
 import { action, loader } from '../../app/routes/api/gemini';
 import { createTokenPair } from '../../server/security/auth';
+
+vi.mock('../../server/repositories/tokenRepository', () => ({
+  isTokenRevoked: vi.fn(async () => false),
+  markRefreshTokenAsUsed: vi.fn(async () => undefined),
+  revokeRefreshToken: vi.fn(async () => undefined),
+  cleanupExpiredTokenRevocations: vi.fn(async () => 0),
+}));
 
 function asActionArgs(request: Request): ActionFunctionArgs {
   return { request, params: {}, context: {} as never };

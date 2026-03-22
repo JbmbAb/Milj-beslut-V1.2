@@ -184,6 +184,94 @@ model AuditTrail {
   @@index([entityType, timestamp])
 }
 
+model TransportBooking {
+  id                String   @id @default(cuid())
+  quoteId           String
+  provider          String
+  status            String
+  receiverId        String
+  receiverName      String
+  wasteCode         String
+  tons              Float
+  distanceKm        Float
+  co2EstimateKg     Float
+  plannedPickupAt   DateTime
+  plannedDeliveryAt DateTime
+  externalReference String?
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+  journals          DriverJournal[]
+  limsReports       LimsReport[]
+  gpsPositions      GpsPosition[]
+
+  @@index([status])
+  @@index([receiverId])
+}
+
+model DriverJournal {
+  id                  String   @id @default(cuid())
+  bookingId           String
+  driverName          String
+  vehicleId           String
+  origin              String
+  destination         String
+  wasteCode           String
+  tons                Float
+  startedAt           DateTime
+  endedAt             DateTime?
+  odometerStartKm     Float
+  odometerEndKm       Float?
+  gpsTrackHash        String?
+  status              String   @default("DRAFT")
+  signedByDriver      Boolean  @default(false)
+  signedByReviewer    Boolean  @default(false)
+  driverSignatureId   String?
+  reviewerSignatureId String?
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
+  booking             TransportBooking @relation(fields: [bookingId], references: [id], onDelete: Cascade)
+
+  @@index([driverName])
+  @@index([status])
+}
+
+model LimsReport {
+  id                 String   @id @default(cuid())
+  bookingId          String?
+  sampleId           String
+  labName            String
+  source             String   @default("MANUAL")
+  analyzedAt         DateTime
+  rawReference       String
+  metrics            Json     // Storing as JSON for flexibility in dev
+  passed             Boolean
+  verifiedByHuman    Boolean  @default(false)
+  reviewer           String?
+  reviewerSignatureId String?
+  verifiedAt         DateTime?
+  createdAt          DateTime @default(now())
+  booking            TransportBooking? @relation(fields: [bookingId], references: [id], onDelete: SetNull)
+
+  @@index([sampleId])
+}
+
+model GpsPosition {
+  id        String   @id @default(cuid())
+  bookingId String
+  lat       Float
+  lng       Float
+  altitude  Float?
+  speedKmh  Float?
+  heading   Float?
+  accuracy  Float?
+  timestamp DateTime @default(now())
+  hash      String
+  prevHash  String?
+  booking   TransportBooking @relation(fields: [bookingId], references: [id], onDelete: Cascade)
+
+  @@index([bookingId, timestamp])
+}
+
 model DocumentRecord {
   id                        String                   @id @default(cuid())
   projectId                 String
@@ -363,7 +451,7 @@ model RequirementRecord {
   statusInNotification   String                        @default("Ej behandlad")
   comment                String?
   codingConfidence       String                        @default("LOW")
-//  verificationStatus     RequirementVerificationStatus @default(AUTO)
+  verificationStatus     RequirementVerificationStatus @default(AUTO)
   verifiedBy             String?
   verifiedAt             DateTime?
   errorType              String?
@@ -391,7 +479,7 @@ model RequirementCitation {
   charStart           Int?
   charEnd             Int?
   extractor           String?
-//  verificationStatus  RequirementVerificationStatus @default(AUTO)
+  verificationStatus  RequirementVerificationStatus @default(AUTO)
   verifiedBy          String?
   verifiedAt          DateTime?
   comment             String?

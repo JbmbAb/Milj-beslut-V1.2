@@ -60,7 +60,7 @@ export const action = async ({ request }: ActionFunctionArgs) => {
 
   if (authHeader?.startsWith("Bearer ")) {
     try {
-      const user = getUserFromAccessToken(authHeader.slice("Bearer ".length));
+      const user = await getUserFromAccessToken(authHeader.slice("Bearer ".length));
       subject = `user:${user.id}`;
       isAuthenticated = true;
     } catch {

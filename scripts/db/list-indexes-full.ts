@@ -1,8 +1,7 @@
-
 import { PrismaClient } from '@prisma/client';
 const prisma = new PrismaClient();
 async function main() {
-    const result: any[] = await prisma.$queryRaw`
+  const result: any[] = await prisma.$queryRaw`
     SELECT
         indexname,
         indexdef
@@ -11,10 +10,10 @@ async function main() {
     WHERE
         tablename = 'RequirementRecord';
   `;
-    for (const idx of result) {
-        console.log(`Index: ${idx.indexname}`);
-        console.log(`Def: ${idx.indexdef}`);
-        console.log('---');
-    }
+  for (const idx of result) {
+    console.log(`Index: ${idx.indexname}`);
+    console.log(`Def: ${idx.indexdef}`);
+    console.log('---');
+  }
 }
 main().finally(() => prisma.$disconnect());

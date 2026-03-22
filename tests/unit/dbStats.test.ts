@@ -14,6 +14,13 @@ vi.mock('../../server/repositories/userRepository', () => ({
   findAuthUserByBankId: vi.fn(async () => null),
 }));
 
+vi.mock('../../server/repositories/tokenRepository', () => ({
+  isTokenRevoked: vi.fn(async () => false),
+  markRefreshTokenAsUsed: vi.fn(async () => undefined),
+  revokeRefreshToken: vi.fn(async () => undefined),
+  cleanupExpiredTokenRevocations: vi.fn(async () => 0),
+}));
+
 const mockStats: DbStatsResponse = {
   generatedAt: new Date().toISOString(),
   totals: {
@@ -75,16 +82,12 @@ describe('GET /api/admin/db-stats', () => {
   });
 
   it('returns 403 for non-admin users', async () => {
-    const res = await request(app)
-      .get('/api/admin/db-stats')
-      .set('Authorization', consultantAuthHeader());
+    const res = await request(app).get('/api/admin/db-stats').set('Authorization', consultantAuthHeader());
     expect(res.status).toBe(403);
   });
 
   it('returns stats for admin users with correct shape', async () => {
-    const res = await request(app)
-      .get('/api/admin/db-stats')
-      .set('Authorization', adminAuthHeader());
+    const res = await request(app).get('/api/admin/db-stats').set('Authorization', adminAuthHeader());
 
     expect(res.status).toBe(200);
     expect(res.body.ok).toBe(true);
@@ -97,9 +100,7 @@ describe('GET /api/admin/db-stats', () => {
   });
 
   it('returns correct totals from the repository', async () => {
-    const res = await request(app)
-      .get('/api/admin/db-stats')
-      .set('Authorization', adminAuthHeader());
+    const res = await request(app).get('/api/admin/db-stats').set('Authorization', adminAuthHeader());
 
     expect(res.body.stats.totals.documents).toBe(42);
     expect(res.body.stats.totals.requirements).toBe(130);
@@ -109,9 +110,7 @@ describe('GET /api/admin/db-stats', () => {
   });
 
   it('returns threshold fields', async () => {
-    const res = await request(app)
-      .get('/api/admin/db-stats')
-      .set('Authorization', adminAuthHeader());
+    const res = await request(app).get('/api/admin/db-stats').set('Authorization', adminAuthHeader());
 
     const { thresholds } = res.body.stats;
     expect(thresholds).toBeDefined();
@@ -125,9 +124,7 @@ describe('GET /api/admin/db-stats', () => {
   });
 
   it('allOk is false when counts are below thresholds', async () => {
-    const res = await request(app)
-      .get('/api/admin/db-stats')
-      .set('Authorization', adminAuthHeader());
+    const res = await request(app).get('/api/admin/db-stats').set('Authorization', adminAuthHeader());
 
     // mock data has 42 docs, 130 requirements, 5 municipalities – all below thresholds
     expect(res.body.stats.thresholds.requirementsOk).toBe(false);
@@ -137,18 +134,16 @@ describe('GET /api/admin/db-stats', () => {
   });
 
   it('returns per-municipality breakdown', async () => {
-    const res = await request(app)
-      .get('/api/admin/db-stats')
-      .set('Authorization', adminAuthHeader());
+    const res = await request(app).get('/api/admin/db-stats').set('Authorization', adminAuthHeader());
 
     const municipalities: string[] = res.body.stats.perMunicipality.map(
-      (r: { municipality: string }) => r.municipality
+      (r: { municipality: string }) => r.municipality,
     );
     expect(municipalities).toContain('Orsa');
     expect(municipalities).toContain('Falun');
 
     const orsa = res.body.stats.perMunicipality.find(
-      (r: { municipality: string }) => r.municipality === 'Orsa'
+      (r: { municipality: string }) => r.municipality === 'Orsa',
     );
     expect(orsa.documents).toBe(10);
     expect(orsa.requirements).toBe(40);

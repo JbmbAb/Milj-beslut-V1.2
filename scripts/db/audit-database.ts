@@ -35,16 +35,16 @@ async function auditDatabase() {
     console.log('───────────────────────────────────────────────────────');
     allMuni.forEach((m, i) => {
       const year = m.maxYear ? `(${m.minYear}-${m.maxYear})` : '(NULL)';
-      console.log(`${String(i + 1).padStart(3)}. ${m.municipality.padEnd(30)} ${String(m.count).padStart(4)} docs ${year}`);
+      console.log(
+        `${String(i + 1).padStart(3)}. ${m.municipality.padEnd(30)} ${String(m.count).padStart(4)} docs ${year}`,
+      );
     });
 
     console.log('\n📈 STATISTICS:');
     console.log('───────────────────────────────────────────────────────');
-    
+
     // Check date distribution
-    const dateDistribution = await prisma.$queryRaw<
-      Array<{ year: number | null; count: number }>
-    >`
+    const dateDistribution = await prisma.$queryRaw<Array<{ year: number | null; count: number }>>`
       SELECT 
         EXTRACT(YEAR FROM "receivedTime")::INT as year,
         COUNT(*) as count
@@ -54,7 +54,7 @@ async function auditDatabase() {
     `;
 
     console.log('Documents by year:');
-    dateDistribution.forEach(d => {
+    dateDistribution.forEach((d) => {
       const yearStr = d.year ? String(d.year) : 'NULL';
       console.log(`  ${yearStr}: ${d.count}`);
     });
@@ -63,16 +63,16 @@ async function auditDatabase() {
     const synthCount = await prisma.documentRecord.count({
       where: {
         originalName: {
-          contains: 'MIL'
+          contains: 'MIL',
         },
-        status: 'EMBEDDED'
-      }
+        status: 'EMBEDDED',
+      },
     });
 
     const realCount = await prisma.documentRecord.count({
       where: {
-        status: 'EMBEDDED'
-      }
+        status: 'EMBEDDED',
+      },
     });
 
     console.log(`\nDocument source estimate:`);
@@ -81,28 +81,24 @@ async function auditDatabase() {
     console.log(`  Est. real: ${realCount - synthCount}`);
 
     // List synthetic municipalities (ones added with population script)
-    const synthetic = allMuni.filter(m => 
-      (m.minYear === 2021 || m.minYear === 2022 || m.minYear === 2023) && 
-      m.count <= 5 && 
-      m.count >= 3
+    const synthetic = allMuni.filter(
+      (m) => (m.minYear === 2021 || m.minYear === 2022 || m.minYear === 2023) && m.count <= 5 && m.count >= 3,
     );
 
     console.log(`\n🏗️ LIKELY SYNTHETIC MUNICIPALITIES (added by population):`);
     console.log(`Count: ${synthetic.length}`);
     if (synthetic.length > 0) {
-      synthetic.forEach(m => {
+      synthetic.forEach((m) => {
         console.log(`  - ${m.municipality} (${m.count} docs, ${m.minYear}-${m.maxYear})`);
       });
     }
 
     // Original municipalities (more docs or earlier dates)
-    const original = allMuni.filter(m => 
-      m.count > 5 || (m.minYear && m.minYear < 2020)
-    );
+    const original = allMuni.filter((m) => m.count > 5 || (m.minYear && m.minYear < 2020));
 
     console.log(`\n📍 LIKELY ORIGINAL MUNICIPALITIES (real municipal data):`);
     console.log(`Count: ${original.length}`);
-    original.slice(0, 20).forEach(m => {
+    original.slice(0, 20).forEach((m) => {
       console.log(`  - ${m.municipality} (${m.count} docs, ${m.minYear}-${m.maxYear})`);
     });
     if (original.length > 20) {
@@ -111,11 +107,11 @@ async function auditDatabase() {
 
     // Projects
     const projects = await prisma.project.findMany({
-      select: { id: true, propertyDesignation: true }
+      select: { id: true, propertyDesignation: true },
     });
 
     console.log(`\n📦 PROJECTS IN DATABASE:`);
-    projects.forEach(p => {
+    projects.forEach((p) => {
       console.log(`  ${p.propertyDesignation}`);
     });
 
@@ -135,7 +131,6 @@ async function auditDatabase() {
     }
 
     console.log('\n');
-
   } catch (error) {
     console.error('\n❌ Error:', error);
     process.exit(1);

@@ -50,6 +50,7 @@ export interface RagSearchResult {
  */
 export async function runRagSearch(params: {
   query: string;
+  organisationId: string;
   projectId?: string;
   limit?: number;
   language?: 'sv' | 'en';
@@ -68,13 +69,15 @@ export async function runRagSearch(params: {
     try {
       const chunks = await queryTopSemanticChunks({
         queryEmbedding: embedding.values,
+        organisationId: params.organisationId,
+        projectId: params.projectId,
         limit,
       });
       sources = chunks.map((c) => ({
         documentId: c.documentId,
-        chunkId: c.chunkId,
+        chunkId: `${c.documentId}:${c.chunkIndex}`,
         snippet: c.chunkText?.slice(0, 400) ?? '',
-        score: c.score ?? 0,
+        score: c.similarity ?? 0,
       }));
     } catch (err) {
       logger.warn('rag-search: semantic chunk query failed', { err: String(err) });

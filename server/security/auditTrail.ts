@@ -1,5 +1,5 @@
 import crypto from "node:crypto";
-import { appendAuditTrailRow, getAuditExportRows } from "../repositories/auditRepository";
+import { appendAuditTrailRow, getAuditExportRows, getLatestAuditRow } from "../repositories/auditRepository";
 import type { PropertyAccessAuditEvent } from "./types";
 
 interface AuditRecord {
@@ -19,8 +19,8 @@ function sha256(value: string): string {
 }
 
 async function getLastChainHash(): Promise<string | null> {
-  const latest = await getAuditExportRows(1);
-  return latest.length > 0 ? latest[0].chainHash : null;
+  const latest = await getLatestAuditRow();
+  return latest ? latest.chainHash : null;
 }
 
 async function appendAuditEvent(input: {
@@ -101,8 +101,15 @@ export async function verifyAuditTrail(): Promise<{ ok: boolean; invalidIndex?: 
   for (let index = 0; index < rows.length; index += 1) {
     const row = rows[index];
     const previous = index === 0 ? null : rows[index - 1].chainHash;
-    const expected = sha256(`${previous ?? "GENESIS"}|${row.payloadHash}|${row.timestamp.toISOString()}`);
+    const tsStr = row.timestamp instanceof Date ? row.timestamp.toISOString() : String(row.timestamp);
+    const input = `${previous ?? "GENESIS"}|${row.payloadHash}|${tsStr}`;
+    const expected = sha256(input);
+    
     if (expected !== row.chainHash) {
+      console.error(`Mismatch at index ${index}:`);
+      console.error(`  Input: ${input}`);
+      console.error(`  Expected: ${expected}`);
+      console.error(`  Actual:   ${row.chainHash}`);
       return { ok: false, invalidIndex: index };
     }
   }

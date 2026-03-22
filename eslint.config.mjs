@@ -60,4 +60,32 @@ export default tseslint.config(
       'no-control-regex': 'off',
     },
   },
+  {
+    files: ['cleanup.js'],
+    languageOptions: {
+      sourceType: 'commonjs',
+      globals: {
+        require: 'readonly',
+        __dirname: 'readonly',
+        console: 'readonly',
+      },
+    },
+    rules: {
+      '@typescript-eslint/no-require-imports': 'off',
+      'no-regex-spaces': 'off',
+    },
+  },
+  {
+    files: ['public/sw.js'],
+    languageOptions: {
+      globals: {
+        self: 'readonly',
+        caches: 'readonly',
+        Request: 'readonly',
+        Response: 'readonly',
+        fetch: 'readonly',
+        URL: 'readonly',
+      },
+    },
+  },
 );

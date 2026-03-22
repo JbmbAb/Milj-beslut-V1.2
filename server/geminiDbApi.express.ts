@@ -20,6 +20,7 @@ const requirementStatuses: RequirementVerificationStatus[] = ["AUTO", "REVIEWED"
 interface GeminiDbQueryFilters {
   page: number;
   pageSize: number;
+  organisationId?: string;
   municipality?: string;
   documentType?: string;
   category?: string;
@@ -64,6 +65,7 @@ function parseFilters(query: express.Request["query"]): GeminiDbQueryFilters {
   return {
     page: parsePositiveInt(query.page, 1, 1, 10_000),
     pageSize: parsePositiveInt(query.pageSize, 50, 1, 200),
+    organisationId: parseOptionalText(query.organisationId),
     municipality: parseOptionalText(query.municipality),
     documentType: parseOptionalText(query.documentType),
     category: parseOptionalText(query.category),
@@ -72,6 +74,18 @@ function parseFilters(query: express.Request["query"]): GeminiDbQueryFilters {
     verificationStatus: parseOptionalRequirementStatus(query.verificationStatus),
     includePreliminary: parseBoolean(query.includePreliminary, false),
   };
+}
+
+function requireOrganisationId(res: express.Response, filters: GeminiDbQueryFilters): string | null {
+  if (filters.organisationId) {
+    return filters.organisationId;
+  }
+
+  res.status(400).json({
+    ok: false,
+    error: 'organisationId is required for Gemini DB requirement queries.',
+  });
+  return null;
 }
 
 function isLoopbackRequest(req: express.Request): boolean {
@@ -158,9 +172,12 @@ router.get("/api/gemini-db/health", (_req, res) => {
 router.get("/api/gemini-db/requirements/cases", async (req, res) => {
   try {
     const filters = parseFilters(req.query);
+    const organisationId = requireOrganisationId(res, filters);
+    if (!organisationId) return;
     const payload = await listRequirementCases({
       page: filters.page,
       pageSize: filters.pageSize,
+      organisationId,
       municipality: filters.municipality,
       documentType: filters.documentType,
       verificationStatus: filters.verificationStatus,
@@ -175,9 +192,12 @@ router.get("/api/gemini-db/requirements/cases", async (req, res) => {
 router.get("/api/gemini-db/requirements/rows", async (req, res) => {
   try {
     const filters = parseFilters(req.query);
+    const organisationId = requireOrganisationId(res, filters);
+    if (!organisationId) return;
     const payload = await listRequirementRows({
       page: filters.page,
       pageSize: filters.pageSize,
+      organisationId,
       municipality: filters.municipality,
       documentType: filters.documentType,
       category: filters.category,
@@ -201,12 +221,17 @@ router.get("/api/gemini-db/requirements/rows", async (req, res) => {
 router.get("/api/gemini-db/requirements/rows/:requirementCode", async (req, res) => {
   try {
     const requirementCode = String(req.params.requirementCode || "").trim();
+    const organisationId = parseOptionalText(req.query.organisationId);
     if (!requirementCode) {
       res.status(400).json({ ok: false, error: "requirementCode is required" });
       return;
     }
+    if (!organisationId) {
+      res.status(400).json({ ok: false, error: "organisationId is required" });
+      return;
+    }
 
-    const row = await getRequirementByCode(requirementCode);
+    const row = await getRequirementByCode(requirementCode, organisationId);
     if (!row) {
       res.status(404).json({ ok: false, error: "Requirement not found" });
       return;
@@ -221,9 +246,12 @@ router.get("/api/gemini-db/requirements/rows/:requirementCode", async (req, res)
 router.get("/api/gemini-db/requirements/citations", async (req, res) => {
   try {
     const filters = parseFilters(req.query);
+    const organisationId = requireOrganisationId(res, filters);
+    if (!organisationId) return;
     const payload = await listRequirementCitations({
       page: filters.page,
       pageSize: filters.pageSize,
+      organisationId,
       requirementCode: filters.requirementCode,
       verificationStatus: filters.verificationStatus,
       includePreliminary: filters.includePreliminary,

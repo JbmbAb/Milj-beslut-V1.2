@@ -115,32 +115,36 @@ export function classifyActivity(input: ClassificationRequest, traceId: string):
 
 export async function getComplianceRequirements(
   input: ComplianceRequirementsRequest,
-  traceId: string
+  traceId: string,
+  organisationId?: string
 ): Promise<ComplianceRequirementsResponse> {
-  const result = await listRequirementRows({
-    page: 1,
-    pageSize: 100,
-    verificationStatus: 'VERIFIED',
-    includePreliminary: false,
-    ewcCode: input.ewc_code,
-  });
+  if (organisationId) {
+    const result = await listRequirementRows({
+      page: 1,
+      pageSize: 100,
+      verificationStatus: 'VERIFIED',
+      includePreliminary: false,
+      ewcCode: input.ewc_code,
+      organisationId,
+    });
 
-  const fromIndex: RequirementItem[] = result.items
-    .map((row) => {
-      const rule = normalize(row.interpretedRequirement) || normalize(row.requirementTextQuote);
-      const citation = normalize(row.legalReference) || 'Manuell juridisk kontroll krävs';
-      const law = normalize(row.legalReference) || 'Svensk miljölagstiftning';
-      if (!rule) return null;
-      return { rule, law, citation };
-    })
-    .filter((item): item is RequirementItem => Boolean(item));
+    const fromIndex: RequirementItem[] = result.items
+      .map((row) => {
+        const rule = normalize(row.interpretedRequirement) || normalize(row.requirementTextQuote);
+        const citation = normalize(row.legalReference) || 'Manuell juridisk kontroll krävs';
+        const law = normalize(row.legalReference) || 'Svensk miljölagstiftning';
+        if (!rule) return null;
+        return { rule, law, citation };
+      })
+      .filter((item): item is RequirementItem => Boolean(item));
 
-  if (fromIndex.length > 0) {
-    return {
-      traceId,
-      requirements: uniqueRequirements(fromIndex),
-      source: 'INDEX',
-    };
+    if (fromIndex.length > 0) {
+      return {
+        traceId,
+        requirements: uniqueRequirements(fromIndex),
+        source: 'INDEX',
+      };
+    }
   }
 
   const aiRequirements = await suggestRequirementsFromGemini({

@@ -14,7 +14,7 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: read
-      packages: write   # needed to push to GHCR
+      packages: write # needed to push to GHCR
 
     steps:
       - uses: actions/checkout@v4

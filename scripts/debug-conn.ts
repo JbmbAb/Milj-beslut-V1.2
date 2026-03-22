@@ -7,7 +7,7 @@ async function main() {
   console.log("Current User:", (await prisma.$queryRaw<any[]>`SELECT current_user`)[0].current_user);
   
   try {
-    const r = await prisma.$executeRawUnsafe('SELECT 1 FROM stage.property_unit_raw LIMIT 1');
+    await prisma.$executeRawUnsafe('SELECT 1 FROM stage.property_unit_raw LIMIT 1');
     console.log("Success!");
   } catch (e: any) {
     console.error("Error Code:", e.code);

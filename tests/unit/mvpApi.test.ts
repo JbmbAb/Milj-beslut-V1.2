@@ -3,6 +3,13 @@ import request from 'supertest';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { createTokenPair } from '../../server/security/auth';
 
+vi.mock('../../server/repositories/tokenRepository', () => ({
+  isTokenRevoked: vi.fn(async () => false),
+  markRefreshTokenAsUsed: vi.fn(async () => undefined),
+  revokeRefreshToken: vi.fn(async () => undefined),
+  cleanupExpiredTokenRevocations: vi.fn(async () => 0),
+}));
+
 vi.mock('../../server/repositories/requirementsRepository', () => ({
   listRequirementRows: vi.fn(),
 }));
@@ -109,17 +116,14 @@ describe('mvpApi.express', () => {
 
   it('exports DOCX with expected content-type', async () => {
     const app = createApp();
-    const res = await request(app)
-      .post('/api/v1/document/export')
-      .set('Authorization', authHeader())
-      .send({
-        draft_text: '1. Bakgrund\nDetta ar ett testutkast.',
-        document_type: 'C-anmalan',
-      });
+    const res = await request(app).post('/api/v1/document/export').set('Authorization', authHeader()).send({
+      draft_text: '1. Bakgrund\nDetta ar ett testutkast.',
+      document_type: 'C-anmalan',
+    });
 
     expect(res.status).toBe(200);
     expect(String(res.headers['content-type'] || '')).toMatch(
-      /application\/vnd\.openxmlformats-officedocument\.wordprocessingml\.document/
+      /application\/vnd\.openxmlformats-officedocument\.wordprocessingml\.document/,
     );
     expect(String(res.headers['content-disposition'] || '')).toMatch(/\.docx/);
   });

@@ -3,7 +3,7 @@ import StatsOverview from './StatsOverview';
 import PermitTable from './PermitTable';
 import MapView from './MapView';
 import { Permit, Receiver, WasteCode } from '../types';
-import { MOCK_RECEIVERS, WASTE_CODES } from '../constants';
+import { WASTE_CODES } from '../constants';
 import { useProjectStructure } from './ProjectStructureContext';
 
 interface MarketIntelViewProps {
@@ -15,6 +15,7 @@ interface MarketIntelViewProps {
 const MarketIntelView: React.FC<MarketIntelViewProps> = ({ permits, onSelectPermit, mode = 'archive' }) => {
   const { syncPermitToArchive, addArchiveDocument, markModuleReady, runTransportComplianceFlow, remoteSync } =
     useProjectStructure();
+  const receivers: Receiver[] = [];
   const [selectedWasteCode, setSelectedWasteCode] = useState<WasteCode | null>(null);
   const [selectedReceiver, setSelectedReceiver] = useState<Receiver | null>(null);
   const [massAmount, setMassAmount] = useState<number>(0);
@@ -26,7 +27,6 @@ const MarketIntelView: React.FC<MarketIntelViewProps> = ({ permits, onSelectPerm
   const [isBooking, setIsBooking] = useState(false);
   const [syncInfo, setSyncInfo] = useState('');
   const [flowError, setFlowError] = useState('');
-  const [lastRunPreliminary, setLastRunPreliminary] = useState(false);
 
   const stats = useMemo(
     () => ({
@@ -123,7 +123,6 @@ const MarketIntelView: React.FC<MarketIntelViewProps> = ({ permits, onSelectPerm
         `1-klicksflode klart (${result.bookingId}). Carbon: ${result.carbonGate}, Document: ${result.documentGate}.`
       );
 
-      setLastRunPreliminary(result.preliminary);
       const limsInfo = result.limsReportId ? ` LIMS: ${result.limsReportId}.` : '';
       const preliminaryInfo = result.preliminary
         ? ' Preliminart lage: signatur- och LIMS-spar ar lokala tills extern verifiering finns.'
@@ -153,7 +152,7 @@ const MarketIntelView: React.FC<MarketIntelViewProps> = ({ permits, onSelectPerm
           </p>
           {!remoteSync.enabled && (
             <p className="mt-3 text-xs font-semibold text-amber-700">
-              Preliminart lage aktivt: backend-auth saknas, sa flodet sparas lokalt tills extern verifiering ar tillganglig.
+              Transportflodet ar blockerat tills adminsession, projektkoppling och riktig dispatch-provider ar konfigurerade.
             </p>
           )}
         </section>
@@ -165,6 +164,12 @@ const MarketIntelView: React.FC<MarketIntelViewProps> = ({ permits, onSelectPerm
               <h3 className="mt-1 text-xl font-black text-slate-900">Mass-matchning</h3>
 
               <div className="mt-4 space-y-4">
+                {receivers.length === 0 && (
+                  <div className="rounded-xl border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">
+                    Verifierad mottagarkatalog saknas. Transportbokning ar darfor blockerad tills riktiga mottagare och tillstand finns
+                    inkopplade.
+                  </div>
+                )}
                 <label className="block">
                   <span className="text-[11px] uppercase tracking-[0.18em] text-slate-500 font-black">Avfallskod (EWC)</span>
                   <select
@@ -195,14 +200,15 @@ const MarketIntelView: React.FC<MarketIntelViewProps> = ({ permits, onSelectPerm
                 <label className="block">
                   <span className="text-[11px] uppercase tracking-[0.18em] text-slate-500 font-black">Mottagare (snabbval)</span>
                   <select
+                    disabled={receivers.length === 0}
                     className="mt-1 w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-sm font-semibold text-slate-800"
                     value={selectedReceiver?.id || ''}
                     onChange={(event) =>
-                      setSelectedReceiver(MOCK_RECEIVERS.find((receiver) => receiver.id === event.target.value) || null)
+                      setSelectedReceiver(receivers.find((receiver) => receiver.id === event.target.value) || null)
                     }
                   >
-                    <option value="">Valj mottagare</option>
-                    {MOCK_RECEIVERS.map((receiver) => (
+                    <option value="">{receivers.length === 0 ? 'Ingen verifierad mottagare' : 'Valj mottagare'}</option>
+                    {receivers.map((receiver) => (
                       <option key={receiver.id} value={receiver.id}>
                         {receiver.name} ({receiver.type})
                       </option>
@@ -306,11 +312,6 @@ const MarketIntelView: React.FC<MarketIntelViewProps> = ({ permits, onSelectPerm
                     </button>
                     {flowError && <p className="mt-2 text-xs font-semibold text-rose-700">{flowError}</p>}
                     {syncInfo && <p className="mt-2 text-xs font-semibold text-emerald-700">{syncInfo}</p>}
-                    {lastRunPreliminary && (
-                      <p className="mt-1 text-xs font-semibold text-amber-700">
-                        Preliminart lage: data, signaturer och LIMS-spor ar lokala tills extern verifiering finns.
-                      </p>
-                    )}
                   </div>
                 )}
               </div>
@@ -323,7 +324,7 @@ const MarketIntelView: React.FC<MarketIntelViewProps> = ({ permits, onSelectPerm
               <h3 className="text-lg font-black text-slate-900">Interaktiv mottagarkarta</h3>
             </div>
             <div className="h-[520px]">
-              <MapView receivers={MOCK_RECEIVERS} onSelectReceiver={setSelectedReceiver} selectedReceiverId={selectedReceiver?.id} />
+              <MapView receivers={receivers} onSelectReceiver={setSelectedReceiver} selectedReceiverId={selectedReceiver?.id} />
             </div>
           </div>
         </section>

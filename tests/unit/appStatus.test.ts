@@ -14,6 +14,13 @@ vi.mock('../../server/repositories/userRepository', () => ({
   findAuthUserByBankId: vi.fn(async () => null),
 }));
 
+vi.mock('../../server/repositories/tokenRepository', () => ({
+  isTokenRevoked: vi.fn(async () => false),
+  markRefreshTokenAsUsed: vi.fn(async () => undefined),
+  revokeRefreshToken: vi.fn(async () => undefined),
+  cleanupExpiredTokenRevocations: vi.fn(async () => 0),
+}));
+
 const mockStatus: AppStatusResponse = {
   checkedAt: new Date().toISOString(),
   overall: 'ok',
@@ -75,24 +82,18 @@ describe('GET /api/admin/app-status', () => {
   });
 
   it('returns 403 for non-admin users', async () => {
-    const res = await request(app)
-      .get('/api/admin/app-status')
-      .set('Authorization', consultantAuthHeader());
+    const res = await request(app).get('/api/admin/app-status').set('Authorization', consultantAuthHeader());
     expect(res.status).toBe(403);
   });
 
   it('returns 200 with ok=true for admin', async () => {
-    const res = await request(app)
-      .get('/api/admin/app-status')
-      .set('Authorization', adminAuthHeader());
+    const res = await request(app).get('/api/admin/app-status').set('Authorization', adminAuthHeader());
     expect(res.status).toBe(200);
     expect(res.body.ok).toBe(true);
   });
 
   it('response has correct top-level shape', async () => {
-    const res = await request(app)
-      .get('/api/admin/app-status')
-      .set('Authorization', adminAuthHeader());
+    const res = await request(app).get('/api/admin/app-status').set('Authorization', adminAuthHeader());
     const s = res.body.status as AppStatusResponse;
     expect(typeof s.checkedAt).toBe('string');
     expect(['ok', 'degraded', 'error']).toContain(s.overall);
@@ -102,9 +103,7 @@ describe('GET /api/admin/app-status', () => {
   });
 
   it('app section has required fields', async () => {
-    const res = await request(app)
-      .get('/api/admin/app-status')
-      .set('Authorization', adminAuthHeader());
+    const res = await request(app).get('/api/admin/app-status').set('Authorization', adminAuthHeader());
     const s = res.body.status as AppStatusResponse;
     expect(['ok', 'error']).toContain(s.app.status);
     expect(typeof s.app.version).toBe('string');
@@ -113,18 +112,14 @@ describe('GET /api/admin/app-status', () => {
   });
 
   it('db section has required fields', async () => {
-    const res = await request(app)
-      .get('/api/admin/app-status')
-      .set('Authorization', adminAuthHeader());
+    const res = await request(app).get('/api/admin/app-status').set('Authorization', adminAuthHeader());
     const s = res.body.status as AppStatusResponse;
     expect(['ok', 'error']).toContain(s.db.status);
     expect(s.db.latencyMs === null || typeof s.db.latencyMs === 'number').toBe(true);
   });
 
   it('datasources section has required fields', async () => {
-    const res = await request(app)
-      .get('/api/admin/app-status')
-      .set('Authorization', adminAuthHeader());
+    const res = await request(app).get('/api/admin/app-status').set('Authorization', adminAuthHeader());
     const s = res.body.status as AppStatusResponse;
     expect(typeof s.datasources.total).toBe('number');
     expect(typeof s.datasources.connected).toBe('number');
@@ -134,9 +129,7 @@ describe('GET /api/admin/app-status', () => {
   });
 
   it('returns mock data values correctly', async () => {
-    const res = await request(app)
-      .get('/api/admin/app-status')
-      .set('Authorization', adminAuthHeader());
+    const res = await request(app).get('/api/admin/app-status').set('Authorization', adminAuthHeader());
     const s = res.body.status as AppStatusResponse;
     expect(s.overall).toBe('ok');
     expect(s.app.version).toBe('1.0.0');

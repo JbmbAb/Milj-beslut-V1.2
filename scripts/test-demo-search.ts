@@ -1,15 +1,26 @@
-import { demoSearch } from '../server/services/demoSearchService';
+import { runSearchQuery } from '../server/services/searchService';
 import { prisma } from '../server/db/prisma';
 
 async function test() {
     const userId = "cmm4xvu9l0002cuh4aqp40zlm";
     const projectId = "cmm55w57p0004cuisfrtpqly8";
+    const project = await prisma.project.findUnique({
+        where: { id: projectId },
+        select: { organisationId: true },
+    });
+
+    if (!project?.organisationId) {
+        throw new Error(`Project '${projectId}' is missing organisationId or does not exist.`);
+    }
 
     console.log(`Testing search for project: ${projectId}...`);
-    const results = await demoSearch({
+    const results = await runSearchQuery({
         projectId,
+        organisationId: project.organisationId,
         userId,
-        query: 'dagvatten lakvatten tät platta',
+        query: 'dagvatten lakvatten tat platta',
+        mode: 'hybrid',
+        strictEvidence: false,
         topK: 3
     });
 

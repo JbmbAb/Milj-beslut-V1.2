@@ -13,9 +13,7 @@ async function investigateMissingDocs() {
 
   try {
     // Get current state
-    const current = await prisma.$queryRaw<
-      Array<{ municipality: string; count: number }>
-    >`
+    const current = await prisma.$queryRaw<Array<{ municipality: string; count: number }>>`
       SELECT municipality, COUNT(*) as count
       FROM "DocumentRecord"
       GROUP BY municipality
@@ -29,16 +27,14 @@ async function investigateMissingDocs() {
     console.log(`Total municipalities: ${current.length}\n`);
 
     // Analyze documents by status
-    const byStatus = await prisma.$queryRaw<
-      Array<{ status: string; count: number }>
-    >`
+    const byStatus = await prisma.$queryRaw<Array<{ status: string; count: number }>>`
       SELECT status, COUNT(*) as count
       FROM "DocumentRecord"
       GROUP BY status
     `;
 
     console.log('By Status:');
-    byStatus.forEach(row => {
+    byStatus.forEach((row) => {
       console.log(`  ${row.status}: ${row.count}`);
     });
 
@@ -59,14 +55,12 @@ async function investigateMissingDocs() {
     `;
 
     console.log('By Project:');
-    byProject.forEach(row => {
+    byProject.forEach((row) => {
       console.log(`  ${row.projectName} (${row.projectId}): ${row.count}`);
     });
 
     // Check for orphaned documents (no project)
-    const orphaned = await prisma.$queryRaw<
-      Array<{ count: number }>
-    >`
+    const orphaned = await prisma.$queryRaw<Array<{ count: number }>>`
       SELECT COUNT(*) as count
       FROM "DocumentRecord"
       WHERE "projectId" NOT IN (SELECT id FROM "Project")
@@ -106,7 +100,7 @@ async function investigateMissingDocs() {
     `;
 
     console.log('\nRecent documents (by month):');
-    timeline.forEach(row => {
+    timeline.forEach((row) => {
       const date = row.year ? `${row.year}-${String(row.month).padStart(2, '0')}` : 'NULL';
       console.log(`  ${date}: ${row.count}`);
     });
@@ -131,7 +125,7 @@ async function investigateMissingDocs() {
     const realTotal = realData.reduce((sum, m) => sum + Number(m.realCount), 0);
     console.log(`Total original docs remaining: ${realTotal}`);
     console.log(`From ${realData.length} municipalities\n`);
-    realData.slice(0, 15).forEach(row => {
+    realData.slice(0, 15).forEach((row) => {
       console.log(`  ${row.municipality}: ${row.realCount}/${row.count}`);
     });
 
@@ -139,16 +133,16 @@ async function investigateMissingDocs() {
     console.log('\n' + '═'.repeat(60));
     console.log('🕵️ HYPOTHESIS:');
     console.log('═'.repeat(60));
-    
+
     const totalDocs = current.reduce((sum, m) => sum + Number(m.count), 0);
     const realDocs = realData.reduce((sum, m) => sum + Number(m.realCount), 0);
     const syntheticDocs = totalDocs - realDocs;
-    
+
     console.log(`Current total: ${totalDocs}`);
     console.log(`Real original docs: ~${realDocs}`);
     console.log(`Synthetic added: ${syntheticDocs}`);
     console.log(`\nMissing from original: ~${2692 - totalDocs} (total was 2692)`);
-    
+
     if (realDocs < 500) {
       console.log('\n⚠️ LIKELY ISSUE:');
       console.log('The populate-municipalities.ts script may have:');
@@ -158,7 +152,6 @@ async function investigateMissingDocs() {
     }
 
     console.log('\n');
-
   } catch (error) {
     console.error('\n❌ Error:', error);
     process.exit(1);

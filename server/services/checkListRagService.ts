@@ -29,6 +29,8 @@ export async function extractAndGenerateChecklistFromRag(
     // 2. Perform RAG search to get Top Document Chunks
     const semanticHits = await queryTopSemanticChunks({
         queryEmbedding: embeddingResult.values,
+        organisationId,
+        projectId,
         limit: 15,
     });
 

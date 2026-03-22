@@ -429,6 +429,7 @@ export async function listChunksForDocument(documentId: string, limit: number = 
 
 export async function queryTopSemanticChunks(input: {
   queryEmbedding: number[];
+  organisationId: string;
   projectId?: string;
   limit?: number;
 }) {
@@ -461,10 +462,12 @@ export async function queryTopSemanticChunks(input: {
            INNER JOIN "DocumentRecord" d ON d.id = c."documentId"
            WHERE c."embeddingVector" IS NOT NULL
              AND d."projectId" = $2
+             AND d."organisationId" = $3
            ORDER BY c."embeddingVector" <=> $1::vector
-           LIMIT $3`,
+           LIMIT $4`,
         vectorLiteral,
         projectId,
+        input.organisationId,
         limit
       )
       : await db.$queryRawUnsafe(
@@ -474,10 +477,13 @@ export async function queryTopSemanticChunks(input: {
              c."chunkText" AS "chunkText",
              1 - (c."embeddingVector" <=> $1::vector) AS "similarity"
            FROM "DocumentChunk" c
+           INNER JOIN "DocumentRecord" d ON d.id = c."documentId"
            WHERE c."embeddingVector" IS NOT NULL
+             AND d."organisationId" = $2
            ORDER BY c."embeddingVector" <=> $1::vector
-           LIMIT $2`,
+           LIMIT $3`,
         vectorLiteral,
+        input.organisationId,
         limit
       );
 
@@ -500,6 +506,7 @@ export async function queryTopSemanticChunks(input: {
 }
 
 export async function findDocumentsForProject(input: {
+  organisationId: string;
   projectId?: string;
   query?: string;
   municipality?: string;
@@ -514,6 +521,7 @@ export async function findDocumentsForProject(input: {
 }) {
   const result = await db.documentRecord.findMany({
     where: {
+      organisationId: input.organisationId,
       ...(input.projectId ? { projectId: input.projectId } : {}),
       ...(input.query
         ? {

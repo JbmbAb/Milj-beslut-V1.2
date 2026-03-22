@@ -13,6 +13,13 @@ vi.mock('../../server/repositories/userRepository', () => ({
   findAuthUserByBankId: vi.fn(async () => null),
 }));
 
+vi.mock('../../server/repositories/tokenRepository', () => ({
+  isTokenRevoked: vi.fn(async () => false),
+  markRefreshTokenAsUsed: vi.fn(async () => undefined),
+  revokeRefreshToken: vi.fn(async () => undefined),
+  cleanupExpiredTokenRevocations: vi.fn(async () => 0),
+}));
+
 const app = createApp();
 
 function adminAuthHeader() {
@@ -42,9 +49,7 @@ describe('GET /api/search/info', () => {
   });
 
   it('returns search info for admin users', async () => {
-    const res = await request(app)
-      .get('/api/search/info')
-      .set('Authorization', adminAuthHeader());
+    const res = await request(app).get('/api/search/info').set('Authorization', adminAuthHeader());
 
     expect(res.status).toBe(200);
     expect(res.body.ok).toBe(true);
@@ -59,9 +64,7 @@ describe('GET /api/search/info', () => {
   });
 
   it('returns correct search mode IDs', async () => {
-    const res = await request(app)
-      .get('/api/search/info')
-      .set('Authorization', adminAuthHeader());
+    const res = await request(app).get('/api/search/info').set('Authorization', adminAuthHeader());
 
     const modeIds = res.body.info.modes.map((m: { id: string }) => m.id);
     expect(modeIds).toContain('hybrid');
@@ -70,9 +73,7 @@ describe('GET /api/search/info', () => {
   });
 
   it('returns metadata filter fields including municipality and decisionType', async () => {
-    const res = await request(app)
-      .get('/api/search/info')
-      .set('Authorization', adminAuthHeader());
+    const res = await request(app).get('/api/search/info').set('Authorization', adminAuthHeader());
 
     const fields = res.body.info.metadataFilterFields.map((f: { field: string }) => f.field);
     expect(fields).toContain('municipality');
@@ -85,9 +86,7 @@ describe('GET /api/search/info', () => {
   });
 
   it('returns search info for non-admin authenticated users', async () => {
-    const res = await request(app)
-      .get('/api/search/info')
-      .set('Authorization', consultantAuthHeader());
+    const res = await request(app).get('/api/search/info').set('Authorization', consultantAuthHeader());
 
     expect(res.status).toBe(200);
     expect(res.body.ok).toBe(true);

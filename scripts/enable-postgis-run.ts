@@ -1,6 +1,5 @@
 import { PrismaClient } from '@prisma/client';
 import { promises as fs } from 'node:fs';
-import path from 'node:path';
 
 const prisma = new PrismaClient();
 

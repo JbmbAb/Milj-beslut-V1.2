@@ -98,6 +98,7 @@ function requirementWhere(input: RequirementsFilterInput): Record<string, unknow
   if (caseId) where.caseId = caseId;
   if (requirementCode) where.requirementCode = requirementCode;
   if (category) where.category = category;
+  if (ewcCode) where.ewcCode = ewcCode;
   if (municipality || documentType) {
     where.case = {
       ...(municipality ? { municipality: { contains: municipality, mode: "insensitive" } } : {}),
@@ -274,10 +275,9 @@ export async function updateRequirementCaseReview(input: {
       ? null
       : input.validatedAt || new Date();
 
-  return db.requirementCase.updateMany({
-    where: { 
-      id: input.caseId,
-      organisationId: input.organisationId
+  return db.requirementCase.update({
+    where: {
+      id: requirementCase.id,
     },
     data: {
       caseReviewStatus: input.caseReviewStatus,
@@ -323,10 +323,9 @@ export async function updateRequirementVerification(input: {
       ? input.verifiedAt || new Date()
       : input.verifiedAt || null;
 
-  return db.requirementRecord.updateMany({
-    where: { 
-      requirementCode: input.requirementCode,
-      project: { organisationId: input.organisationId }
+  return db.requirementRecord.update({
+    where: {
+      id: requirement.id,
     },
     data: {
       verificationStatus: input.verificationStatus,
@@ -381,12 +380,9 @@ export async function updateCitationVerification(input: {
       ? input.verifiedAt || new Date()
       : input.verifiedAt || null;
 
-  return db.requirementCitation.updateMany({
-    where: { 
-      citationCode: input.citationCode,
-      requirement: {
-        project: { organisationId: input.organisationId }
-      }
+  return db.requirementCitation.update({
+    where: {
+      id: citation.id,
     },
     data: {
       verificationStatus: input.verificationStatus,

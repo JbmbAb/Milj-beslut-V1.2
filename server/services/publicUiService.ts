@@ -194,9 +194,9 @@ const EXCLUDED_PUBLIC_SUMMARY_KEYS = new Set(["kommun_kontakter_csv", "kommunala
 let cachedSummary: { expiresAt: number; value: PublicDatasourceSummary } | null = null;
 
 function getSguCoverageMode(): SguCoverageMode {
-  return String(process.env.SGU_DB_COVERAGE_MODE || "sample").trim().toLowerCase() === "complete"
-    ? "complete"
-    : "sample";
+  return String(process.env.SGU_DB_COVERAGE_MODE || "complete").trim().toLowerCase() === "sample"
+    ? "sample"
+    : "complete";
 }
 
 export function parseBbox(raw: string | null): Bbox | null {

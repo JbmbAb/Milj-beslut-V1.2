@@ -57,6 +57,12 @@ vi.mock('../../server/repositories/projectAccessRepository', () => ({
   assertProjectMembership: vi.fn(async () => undefined),
 }));
 
+vi.mock('../../server/repositories/tokenRepository', () => ({
+  isTokenRevoked: vi.fn(async () => false),
+  markRefreshTokenAsUsed: vi.fn(async () => undefined),
+  revokeRefreshToken: vi.fn(async () => undefined),
+}));
+
 import { createApp } from '../../server/createApp';
 
 const app = createApp();

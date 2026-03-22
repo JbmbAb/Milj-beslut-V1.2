@@ -4,7 +4,7 @@ import type { AuthUser } from '../../server/security/types';
 
 /**
  * Test Suite: Property Lookup & Authorization
- * 
+ *
  * Verifies that:
  * 1. Property lookup requires project membership
  * 2. ADMINs cannot bypass membership checks
@@ -129,7 +129,7 @@ describe('Property Lookup Authorization', () => {
        * SECURITY-CRITICAL TEST:
        * Before fix: ADMINs could bypass this check
        * After fix: ADMINs must still be project members
-       * 
+       *
        * This is verified by the code in projectAccessRepository.ts:
        * - No early return for admin role
        * - All users require membership check
@@ -184,13 +184,11 @@ describe('Property Lookup Authorization', () => {
        * The new assertProjectAccess function combines:
        * 1. Role validation (via assertPermission)
        * 2. Project membership (via assertProjectMembership)
-       * 
+       *
        * This is used for resource-level auth.
        */
-
       // Signature would be:
       // await assertProjectAccess(user, projectId, organizationId)
-
       // Should fail if user lacks role OR project membership
     });
   });
@@ -239,11 +237,10 @@ describe('Property Lookup Authorization', () => {
        * - /api/layers/sgu/grundlager (Ground layer)
        * - /api/layers/hydro.lakes (Lakes)
        * - /api/layers/hydro.streams (Streams)
-       * 
+       *
        * They should use rateLimitByUser() for DDoS protection
        * but NOT requireAuth
        */
-
       // These are correctly implemented in secureApi.express.ts:
       // router.get("/api/layers/nvr", rateLimitByUser(30, 60_000), async (req, res) => {
       // No requireAuth middleware!
@@ -263,7 +260,7 @@ describe('Property Lookup Authorization', () => {
        * - Auth failures -> "Access denied"
        * - Not found -> "Resource not found"
        * - Expired -> "Session expired"
-       * 
+       *
        * Never leak:
        * - Specific project names
        * - User IDs

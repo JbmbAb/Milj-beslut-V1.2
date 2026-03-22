@@ -13,9 +13,7 @@ async function checkCoverage() {
 
   try {
     // Get current coverage
-    const inDb = await prisma.$queryRaw<
-      Array<{ municipality: string; count: number }>
-    >`
+    const inDb = await prisma.$queryRaw<Array<{ municipality: string; count: number }>>`
       SELECT municipality, COUNT(*) as count
       FROM "DocumentRecord"
       WHERE municipality IS NOT NULL AND municipality != ''
@@ -26,7 +24,7 @@ async function checkCoverage() {
     const total = inDb.length;
     const targetSwedish = 290;
     const requiredProduction = 260;
-    
+
     console.log(`📊 CURRENT STATUS:`);
     console.log(`   Coverage: ${total}/${targetSwedish} municipalities`);
     console.log(`   Required: ${requiredProduction}/${targetSwedish} (for production)`);
@@ -41,14 +39,14 @@ async function checkCoverage() {
 
     // Show small ones
     console.log(`\n📊 DISTRIBUTION:`);
-    console.log(`   > 100 docs: ${inDb.filter(m => Number(m.count) > 100).length} municipalities`);
-    console.log(`   50-100 docs: ${inDb.filter(m => Number(m.count) >= 50 && Number(m.count) <= 100).length} municipalities`);
-    console.log(`   < 50 docs: ${inDb.filter(m => Number(m.count) < 50).length} municipalities`);
+    console.log(`   > 100 docs: ${inDb.filter((m) => Number(m.count) > 100).length} municipalities`);
+    console.log(
+      `   50-100 docs: ${inDb.filter((m) => Number(m.count) >= 50 && Number(m.count) <= 100).length} municipalities`,
+    );
+    console.log(`   < 50 docs: ${inDb.filter((m) => Number(m.count) < 50).length} municipalities`);
 
     // Check if real data
-    const dateCheck = await prisma.$queryRaw<
-      Array<{ hasRealDates: boolean; count: number }>
-    >`
+    const dateCheck = await prisma.$queryRaw<Array<{ hasRealDates: boolean; count: number }>>`
       SELECT 
         (EXTRACT(YEAR FROM "receivedTime") > 1970) as "hasRealDates",
         COUNT(*) as count
@@ -57,8 +55,8 @@ async function checkCoverage() {
     `;
 
     console.log('\n⏰ DATA QUALITY:');
-    const realDatesCount = dateCheck.find(d => d.hasRealDates)?.count || 0;
-    const testDataCount = dateCheck.find(d => !d.hasRealDates)?.count || 0;
+    const realDatesCount = dateCheck.find((d) => d.hasRealDates)?.count || 0;
+    const testDataCount = dateCheck.find((d) => !d.hasRealDates)?.count || 0;
     console.log(`   Real dates (>1970): ${realDatesCount} documents`);
     console.log(`   Test data (NULL/1970): ${testDataCount} documents`);
     const isRealData = realDatesCount > testDataCount;
@@ -67,7 +65,7 @@ async function checkCoverage() {
     console.log('\n' + '═'.repeat(50));
     console.log('🎯 PRODUCTION READINESS:');
     console.log('═'.repeat(50));
-    
+
     if (total >= requiredProduction && isRealData) {
       console.log('✅ READY FOR PRODUCTION');
       console.log(`   - Coverage: ${total}/${targetSwedish} (needs ${requiredProduction}+)`);
@@ -77,12 +75,14 @@ async function checkCoverage() {
       console.log('❌ NOT READY - ISSUES FOUND:\n');
       const issues = [];
       if (total < requiredProduction) {
-        issues.push(`   ❌ Insufficient coverage: ${total}/${requiredProduction} (missing ${requiredProduction - total})`);
+        issues.push(
+          `   ❌ Insufficient coverage: ${total}/${requiredProduction} (missing ${requiredProduction - total})`,
+        );
       }
       if (!isRealData) {
         issues.push('   ❌ Contains test data (dates in 1970)');
       }
-      issues.forEach(i => console.log(i));
+      issues.forEach((i) => console.log(i));
       console.log('\n   ACTION REQUIRED:');
       console.log('   1) Obtain real municipal permit data for 260+ communes');
       console.log('   2) Import data with valid date ranges');
@@ -91,7 +91,6 @@ async function checkCoverage() {
     }
 
     console.log('\n');
-
   } catch (error) {
     console.error('\n❌ Error:', error);
     process.exit(1);

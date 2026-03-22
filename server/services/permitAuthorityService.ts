@@ -17,7 +17,7 @@ export interface AuthoritySubmission {
   status: AuthoritySubmitStatus;
   auditId: string;
   externalRef?: string;
-  providerMode: 'mock' | 'external';
+  providerMode: 'unconfigured' | 'external';
   responseCode: number | null;
   rawStatus: string | null;
   failureMode: PermitAuthorityFailureMode;
