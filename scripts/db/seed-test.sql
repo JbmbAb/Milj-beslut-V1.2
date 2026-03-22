@@ -1,5 +1,9 @@
 BEGIN;
 
+DELETE FROM "PropertyAccessLog"
+WHERE "projectId" = 'test-project-001'
+   OR "userId" IN ('test-user-admin-001', 'test-user-consultant-001');
+
 DELETE FROM "ProjectMember"
 WHERE "projectId" IN (
         SELECT "id" FROM "Project" WHERE "organisationId" = 'test-org-001'
