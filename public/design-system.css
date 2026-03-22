@@ -80,6 +80,14 @@ h4,
     box-shadow: 0 0 40px var(--accent-glow);
 }
 
+.glow-emerald:hover {
+    box-shadow: 0 0 40px rgba(16, 185, 129, 0.15);
+}
+
+.glow-amber:hover {
+    box-shadow: 0 0 40px rgba(245, 158, 11, 0.15);
+}
+
 /* Buttons */
 .btn-primary {
     background: var(--primary);

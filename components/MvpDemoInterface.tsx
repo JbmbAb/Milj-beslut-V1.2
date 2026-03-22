@@ -65,11 +65,15 @@ const Badge: React.FC<{ label: string; color?: string; className?: string; icon?
 const ProjectDashboard: React.FC<{ onSelect: (p: Project) => void }> = ({ onSelect }) => {
     const [projects, setProjects] = useState<Project[]>([]);
     const [loading, setLoading] = useState(true);
+    const [apiError, setApiError] = useState<string | null>(null);
 
     useEffect(() => {
         callMvp<{ projects: Project[] }>('/api/v1/projects', { method: 'GET' })
             .then(res => setProjects(res.projects))
-            .catch(err => console.error(err))
+            .catch(err => {
+                console.error(err);
+                setApiError('API ej tillgänglig – kontrollera att backend-servern körs.');
+            })
             .finally(() => setLoading(false));
     }, []);
 
@@ -105,6 +109,16 @@ const ProjectDashboard: React.FC<{ onSelect: (p: Project) => void }> = ({ onSele
             </div>
 
             <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
+                {apiError && (
+                    <div className="col-span-full rounded-2xl border border-amber-200 bg-amber-50 px-5 py-4 text-sm text-amber-800 flex items-start gap-3">
+                        <AlertTriangle size={18} className="shrink-0 mt-0.5 text-amber-500" />
+                        <div>
+                            <p className="font-bold">Backend ej tillgänglig</p>
+                            <p className="mt-0.5 text-amber-700">{apiError}</p>
+                            <p className="mt-1 text-xs text-amber-600">Du kan fortfarande söka eller starta ett nytt projekt med demofunktionaliteten ovan.</p>
+                        </div>
+                    </div>
+                )}
                 {projects.map(project => (
                     <Card key={project.id} className="hover:border-indigo-300 transition-colors cursor-pointer group" onClick={() => onSelect(project)}>
                         <div className="p-5">
