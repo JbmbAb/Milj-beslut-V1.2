@@ -17,6 +17,7 @@ import MvpDemoInterface from './MvpDemoInterface';
 import AdminMetadataReview from './AdminMetadataReview';
 import AdminSearchConsole from './AdminSearchConsole';
 import AdminGdprPanel from './AdminGdprPanel';
+import AdminDbStatusPanel from './AdminDbStatusPanel';
 import { useProjectStructure } from './ProjectStructureContext';
 import { countReadyModules } from '../services/projectStructure';
 import { TechnicalDashboardHub } from './TechnicalDashboardHub';
@@ -162,6 +163,7 @@ const App: React.FC = () => {
       case 'ADMIN_CONSOLE':
         if (activeTab === 'admin-review') return <AdminMetadataReview />;
         if (activeTab === 'admin-gdpr') return <AdminGdprPanel />;
+        if (activeTab === 'admin-db') return <AdminDbStatusPanel />;
         if (activeTab === 'admin-insight') return <AdminSearchConsole panel="insight" />;
         if (activeTab === 'admin-system') return <SystemFunctionalAnalysis />;
         return <AdminSearchConsole panel="search" />;
@@ -277,6 +279,7 @@ const App: React.FC = () => {
               <SidebarLink active={activeTab === 'admin-review'} icon="fa-clipboard-check" label="Kvalitetssäkring" onClick={() => setActiveTab('admin-review')} />
               <SidebarLink active={activeTab === 'admin-insight'} icon="fa-shield-check" label="Analys och compliance" onClick={() => setActiveTab('admin-insight')} />
               <SidebarLink active={activeTab === 'admin-gdpr'} icon="fa-user-shield" label="GDPR-hantering" onClick={() => setActiveTab('admin-gdpr')} />
+              <SidebarLink active={activeTab === 'admin-db'} icon="fa-database" label="Databasstatus" onClick={() => setActiveTab('admin-db')} />
               <SidebarLink active={activeTab === 'admin-system'} icon="fa-chart-bar" label="Funktionsanalys" onClick={() => setActiveTab('admin-system')} />
             </>
           )}

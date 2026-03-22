@@ -97,7 +97,7 @@ npm run dev                   # startar på http://localhost:5173
 | TypeScript | ✅ 0 fel |
 | Lint (ESLint) | ✅ 0 fel |
 | Build (`npm run build`) | ✅ Lyckat |
-| Enhetstester (Vitest) | ✅ 176/176 pass (24 testfiler) |
+| Enhetstester (Vitest) | ✅ 185/185 pass (25 testfiler) |
 | Integrationstester | ⚠️ Kräver lokal DB |
 | E2E-tester (Playwright) | ⚠️ Kräver lokal server |
 
@@ -106,6 +106,8 @@ npm run dev                   # startar på http://localhost:5173
 # 🗄️ DB-status (Prisma / PostgreSQL)
 
 **Kräver**: `DATABASE_URL` i `.env.local` pekar på körande PostgreSQL-instans.
+
+**Admin-UI**: ADMIN_CONSOLE → **"Databasstatus"** (sidebar-länk, `fa-database`) visar automatiskt dokumentantal, kravrader och kommuner via `GET /api/admin/db-stats`.
 
 | Parameter | Värde |
 |---|---|
@@ -116,6 +118,16 @@ npm run dev                   # startar på http://localhost:5173
 | Antal migrationer | 6 (alla klara) |
 | Repositories | 8 (`server/repositories/`) |
 | In-memory mock | ❌ Nej — all data via Prisma |
+
+## Admin routing (ADMIN_CONSOLE)
+| Tab | Komponent |
+|---|---|
+| `admin-search` | `AdminSearchConsole(search)` |
+| `admin-insight` | `AdminSearchConsole(insight)` |
+| `admin-review` | `AdminMetadataReview` |
+| `admin-gdpr` | `AdminGdprPanel` |
+| `admin-db` | `AdminDbStatusPanel` ← **NY** (auto-laddar DB-statistik) |
+| `admin-system` | `SystemFunctionalAnalysis` |
 
 ## Modeller (28 st)
 `AuditTrail`, `AttachmentOccurrence`, `CaseCandidate`, `CaseNote`, `DocumentChunk`, `DocumentContent`, `DocumentMetadataEvidence`, `DocumentRecord`, `EmailMessage`, `ExtractedRequirement`, `KnowledgeEdge`, `KnowledgeNode`, `MetadataReviewQueue`, `Organisation`, `OutlookAttachment`, `PipelineRun`, `Project`, `ProjectMember`, `ProjectPlanState`, `PropertyAccessLog`, `RateLimitEntry`, `RequirementCase`, `RequirementCitation`, `RequirementRecord`, `SearchJob`, `SearchQueryLog`, `TokenRevocation`, `User`
