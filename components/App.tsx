@@ -22,6 +22,7 @@ import { useProjectStructure } from './ProjectStructureContext';
 import { countReadyModules } from '../services/projectStructure';
 import { TechnicalDashboardHub } from './TechnicalDashboardHub';
 import SystemFunctionalAnalysis from './SystemFunctionalAnalysis';
+import AppReadinessPanel from './AppReadinessPanel';
 import MarketingHub from './MarketingHub';
 import UploadModal from './UploadModal';
 import ProjectManagerView from './ProjectManagerView';
@@ -166,6 +167,7 @@ const App: React.FC = () => {
         if (activeTab === 'admin-db') return <AdminDbStatusPanel />;
         if (activeTab === 'admin-insight') return <AdminSearchConsole panel="insight" />;
         if (activeTab === 'admin-system') return <SystemFunctionalAnalysis />;
+        if (activeTab === 'admin-readiness') return <AppReadinessPanel />;
         return <AdminSearchConsole panel="search" />;
       default:
         return (
@@ -281,6 +283,7 @@ const App: React.FC = () => {
               <SidebarLink active={activeTab === 'admin-gdpr'} icon="fa-user-shield" label="GDPR-hantering" onClick={() => setActiveTab('admin-gdpr')} />
               <SidebarLink active={activeTab === 'admin-db'} icon="fa-database" label="Databasstatus" onClick={() => setActiveTab('admin-db')} />
               <SidebarLink active={activeTab === 'admin-system'} icon="fa-chart-bar" label="Funktionsanalys" onClick={() => setActiveTab('admin-system')} />
+              <SidebarLink active={activeTab === 'admin-readiness'} icon="fa-shield-check" label="App-garanti" onClick={() => setActiveTab('admin-readiness')} />
             </>
           )}
 
