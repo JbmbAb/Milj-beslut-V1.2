@@ -1,4 +1,5 @@
 ﻿import { describe, expect, it } from 'vitest';
+import { DecisionType } from '../../types';
 import {
   applyPermitCodeSelection,
   applyCarbonToPlan,
@@ -500,7 +501,7 @@ describe('createArchiveDocument', () => {
     const doc = createArchiveDocument({
       name: '  Trimmed Name  ',
       module: 'COMPLIANCE_AUDIT',
-      category: 'REPORT',
+      category: 'OTHER',
       status: 'VERIFIED',
       storagePath: '/custom/path',
       tags: ['tag1', 'tag2'],
@@ -548,7 +549,7 @@ describe('createPermitArchiveDocument', () => {
       property_id: 'PROP-001',
       municipality: 'Stockholm',
       waste_codes: 'EWC-17 05 03*',
-      decision_type: 'BIFALL' as const,
+      decision_type: DecisionType.BIFALL,
       full_text: 'Full permit text',
       processed_at: '2025-01-02',
     };
@@ -568,7 +569,7 @@ describe('createPermitArchiveDocument', () => {
       property_id: 'PROP-002',
       municipality: 'Göteborg',
       waste_codes: 'EWC-17 05 03*',
-      decision_type: 'AVSLAG' as const,
+      decision_type: DecisionType.AVSLAG,
       full_text: 'Full permit text',
       processed_at: '2025-01-02',
     };
@@ -610,7 +611,7 @@ describe('buildPermitCodeProfile', () => {
   });
 
   it('builds fallback profile for unknown MPF code', () => {
-    const profile = buildPermitCodeProfile({ code: 'UNKNOWN-MPF', codeType: 'MPF' });
+    const profile = buildPermitCodeProfile({ code: 'UNKNOWN-MPF', codeType: 'SNI' });
     expect(profile.requiredMapLayers).toContain('CADASTRE');
     expect(profile.requiredMapLayers).toContain('FLOOD_RISK');
   });
@@ -682,13 +683,18 @@ describe('evaluateStageGate — DOCUMENT_CONTROL failedHazardousLims branch', ()
     plan.transportBookings = [
       {
         id: 'BOOKING-HAZ',
-        wasteCode: '17 05 03*',
-        isHazardous: true,
-        carrierId: 'C-1',
-        driverName: 'Driver',
-        vehicleId: 'V-1',
-        scheduledAt: now,
+        quoteId: 'Q-1',
+        provider: 'DEMO_FRAKTBORS',
         status: 'DELIVERED',
+        receiverId: 'R-1',
+        receiverName: 'Receiver',
+        wasteCode: '17 05 03*',
+        tons: 10,
+        distanceKm: 50,
+        co2EstimateKg: 100,
+        plannedPickupAt: now,
+        plannedDeliveryAt: now,
+        externalReference: 'REF-1',
         createdAt: now,
         updatedAt: now,
       },
@@ -697,6 +703,12 @@ describe('evaluateStageGate — DOCUMENT_CONTROL failedHazardousLims branch', ()
       {
         id: 'DJ-1',
         bookingId: 'BOOKING-HAZ',
+        driverName: 'Driver',
+        vehicleId: 'V-1',
+        origin: 'Stockholm',
+        destination: 'Göteborg',
+        wasteCode: '17 05 03*',
+        tons: 10,
         startedAt: now,
         endedAt: now,
         odometerStartKm: 0,

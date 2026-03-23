@@ -52,7 +52,7 @@ beforeEach(() => {
   vi.mocked(generatePermitDraftFromGemini).mockResolvedValue(null);
   vi.mocked(getVerificationSecondOpinionFromOpenAi).mockResolvedValue({ status: 'VERIFIED', missing_citations: [] });
   vi.mocked(suggestRequirementsFromGemini).mockResolvedValue([]);
-  vi.mocked(evaluateProjectCompliance).mockReturnValue({ riskFactors: [], riskScore: 'LOW' });
+  vi.mocked(evaluateProjectCompliance).mockReturnValue({ riskFactors: [], riskScore: 'LOW', requiresPermitOrNotification: 'NONE', requirements: [] });
 });
 
 describe('classifyActivity()', () => {
@@ -108,6 +108,8 @@ describe('analyzeRisk()', () => {
     vi.mocked(evaluateProjectCompliance).mockReturnValue({
       riskFactors: ['Hazardous waste'],
       riskScore: 'HIGH',
+      requiresPermitOrNotification: 'PERMIT',
+      requirements: [],
     });
     const result = analyzeRisk({ ewc_code: '17 06 01*', volume_tons: 500, location: 'Stockholm' }, 'trace-r4');
     expect(result.risk_flags).toContain('Hazardous waste');
