@@ -735,3 +735,89 @@ describe('evaluateStageGate — DOCUMENT_CONTROL failedHazardousLims branch', ()
     expect(result.gate.reason).toContain('LIMS');
   });
 });
+
+describe('evaluateStageGate — RISK_REVIEW additional branches', () => {
+  it('returns PENDING for RISK_REVIEW when some map layers are unavailable', () => {
+    const plan = createDefaultProjectPlan();
+    plan.mapLayerSelection.enabled = ['SGU_BEDROCK' as never];
+    plan.mapLayerSelection.unavailable = ['LIDAR' as never];
+    plan.documentArchive = [
+      {
+        id: 'RISK-DOC',
+        name: 'Riskrapport',
+        module: 'PROJECT_MANAGER',
+        category: 'RISK',
+        status: 'VERIFIED',
+        uploadedAt: new Date().toISOString(),
+        storagePath: '/tmp/risk',
+        tags: [],
+      },
+    ];
+
+    const gateId = plan.stageGates.find((g) => g.type === 'RISK_REVIEW')!.id;
+    const result = evaluateStageGate(plan, gateId, {});
+
+    expect(result.gate.status).toBe('PENDING');
+    expect(result.gate.reason).toContain('unavailable');
+  });
+
+  it('returns BLOCKED for RISK_REVIEW when risk document is missing but layers present', () => {
+    const plan = createDefaultProjectPlan();
+    plan.mapLayerSelection.enabled = ['SGU_BEDROCK' as never];
+    plan.mapLayerSelection.unavailable = [];
+    plan.documentArchive = [];
+
+    const gateId = plan.stageGates.find((g) => g.type === 'RISK_REVIEW')!.id;
+    const result = evaluateStageGate(plan, gateId, {});
+
+    expect(result.gate.status).toBe('BLOCKED');
+    expect(result.gate.reason).toContain('Risk document');
+  });
+});
+
+describe('evaluateStageGate — PERMIT_REQUIRED submitted branch', () => {
+  it('returns BLOCKED when permit type is provided but not submitted', () => {
+    const plan = createDefaultProjectPlan();
+    const gateId = plan.stageGates.find((g) => g.type === 'PERMIT_REQUIRED')!.id;
+
+    const result = evaluateStageGate(plan, gateId, {
+      permitType: '29.40',
+      permitSubmitted: false,
+    });
+
+    expect(result.gate.status).toBe('BLOCKED');
+    expect(result.gate.reason).toContain('submitted');
+  });
+
+  it('returns BLOCKED when permit submitted but no permit documents in archive', () => {
+    const plan = createDefaultProjectPlan();
+    plan.documentArchive = [];
+    const gateId = plan.stageGates.find((g) => g.type === 'PERMIT_REQUIRED')!.id;
+
+    const result = evaluateStageGate(plan, gateId, {
+      permitType: '29.40',
+      permitSubmitted: true,
+    });
+
+    expect(result.gate.status).toBe('BLOCKED');
+    expect(result.gate.reason).toContain('No permit documents');
+  });
+});
+
+describe('normalizeProjectPlan — edge cases', () => {
+  it('handles undefined input by returning default plan', () => {
+    const plan = normalizeProjectPlan(undefined);
+    expect(plan.name).toBe('Nytt Projekt');
+    expect(plan.stageGates.length).toBeGreaterThan(0);
+  });
+
+  it('preserves custom name from partial plan', () => {
+    const plan = normalizeProjectPlan({ name: 'Mitt Projekt' });
+    expect(plan.name).toBe('Mitt Projekt');
+  });
+
+  it('creates default transport bookings when missing', () => {
+    const plan = normalizeProjectPlan({ transportBookings: undefined });
+    expect(Array.isArray(plan.transportBookings)).toBe(true);
+  });
+});

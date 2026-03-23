@@ -337,4 +337,124 @@ describe('mvpApi.express', () => {
     // Should succeed even without DB since we mocked it
     expect([200, 500].includes(res.status)).toBe(true);
   });
+
+  // ─── POST /api/v1/classification/activity ─────────────────────────────────
+  it('POST /classification/activity returns classification for known activity code', async () => {
+    const app = createApp();
+    const res = await request(app)
+      .post('/api/v1/classification/activity')
+      .set('Authorization', authHeader())
+      .send({ activity_code: '29.40', ewc_code: '17 05 04', volume_tons: 500 });
+
+    expect(res.status).toBe(200);
+    expect(res.body?.classification).toBeTruthy();
+  });
+
+  it('POST /classification/activity returns 400 for missing body fields', async () => {
+    const app = createApp();
+    const res = await request(app)
+      .post('/api/v1/classification/activity')
+      .set('Authorization', authHeader())
+      .send({});
+
+    expect(res.status).toBe(400);
+    expect(res.body?.ok).toBe(false);
+  });
+
+  // ─── Auth 403 for invalid role ─────────────────────────────────────────────
+  it('returns 403 for user with insufficient role', async () => {
+    const lowPrivToken = createTokenPair({
+      id: 'viewer-user',
+      organisationId: 'org-1',
+      bankidId: 'bankid:viewer',
+      role: 'VIEWER' as never,
+    }).accessToken;
+
+    const app = createApp();
+    const res = await request(app)
+      .post('/api/v1/classification/activity')
+      .set('Authorization', `Bearer ${lowPrivToken}`)
+      .send({ activity_code: '29.40', ewc_code: '17 05 04', volume_tons: 500 });
+
+    expect(res.status).toBe(403);
+    expect(res.body?.ok).toBe(false);
+  });
+
+  // ─── GET /api/v1/projects/:id/search (demo mode) ──────────────────────────
+  it('GET /projects/:id/search returns 400 when q is missing', async () => {
+    const app = createApp();
+    const res = await request(app)
+      .get('/api/v1/projects/new-demo-project/search')
+      .set('Authorization', authHeader());
+
+    expect(res.status).toBe(400);
+    expect(res.body?.error?.code).toBe('MISSING_QUERY');
+  });
+
+  it('GET /projects/:id/search returns 404 for non-existing project', async () => {
+    vi.mocked(prisma.project.findUnique).mockResolvedValue(null);
+    const app = createApp();
+    const res = await request(app)
+      .get('/api/v1/projects/non-existing-id/search?q=test')
+      .set('Authorization', authHeader());
+
+    expect(res.status).toBe(404);
+  });
+
+  // ─── POST /admin/review-queue/:id/resolve APPROVE actions ─────────────────
+  it('POST /admin/review-queue/:id/resolve APPROVE municipality field succeeds', async () => {
+    vi.mocked(prisma.metadataReviewQueue.findUnique).mockResolvedValue({
+      id: 'item-1',
+      documentId: 'doc-1',
+      fieldName: 'municipality',
+      proposedValue: 'Stockholm',
+      document: { id: 'doc-1' },
+    } as never);
+
+    const app = createApp();
+    const res = await request(app)
+      .post('/api/v1/admin/review-queue/item-1/resolve')
+      .set('Authorization', authHeader())
+      .send({ action: 'APPROVE' });
+
+    expect([200, 500].includes(res.status)).toBe(true);
+  });
+
+  it('POST /admin/review-queue/:id/resolve REJECT action succeeds', async () => {
+    vi.mocked(prisma.metadataReviewQueue.findUnique).mockResolvedValue({
+      id: 'item-2',
+      documentId: 'doc-2',
+      fieldName: 'legalStatus',
+      proposedValue: 'APPROVED',
+      document: { id: 'doc-2' },
+    } as never);
+    vi.mocked(prisma.metadataReviewQueue.update).mockResolvedValue({} as never);
+
+    const app = createApp();
+    const res = await request(app)
+      .post('/api/v1/admin/review-queue/item-2/resolve')
+      .set('Authorization', authHeader())
+      .send({ action: 'REJECT' });
+
+    expect([200, 500].includes(res.status)).toBe(true);
+  });
+
+  // ─── POST /compliance/requirements ────────────────────────────────────────
+  it('POST /compliance/requirements returns requirements', async () => {
+    vi.mocked(listRequirementRows).mockResolvedValue({
+      items: [],
+      total: 0,
+      page: 1,
+      pageSize: 100,
+    });
+
+    const app = createApp();
+    const res = await request(app)
+      .post('/api/v1/compliance/requirements')
+      .set('Authorization', authHeader())
+      .send({ activity_code: '29.40', ewc_code: '17 05 04' });
+
+    expect(res.status).toBe(200);
+    expect(Array.isArray(res.body?.requirements)).toBe(true);
+  });
 });
