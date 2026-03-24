@@ -1,0 +1,186 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "Test: Watch Current File",
+      "type": "shell",
+      "command": "npx vitest --watch ${relativeFile}",
+      "group": "test",
+      "presentation": {
+        "reveal": "always",
+        "panel": "dedicated",
+        "clear": true
+      },
+      "problemMatcher": []
+    },
+    {
+      "label": "Test: Unit Tests",
+      "type": "shell",
+      "command": "npm run test:unit",
+      "group": "test",
+      "presentation": {
+        "reveal": "always",
+        "panel": "shared"
+      },
+      "problemMatcher": []
+    },
+    {
+      "label": "Test: Component Tests",
+      "type": "shell",
+      "command": "npx vitest run --config vitest.config.ts --project components",
+      "group": "test",
+      "presentation": {
+        "reveal": "always",
+        "panel": "shared"
+      },
+      "problemMatcher": []
+    },
+    {
+      "label": "Test: Integration Tests",
+      "type": "shell",
+      "command": "npm run test:integration",
+      "group": "test",
+      "presentation": {
+        "reveal": "always",
+        "panel": "shared"
+      },
+      "problemMatcher": []
+    },
+    {
+      "label": "Test: E2E Tests",
+      "type": "shell",
+      "command": "npm run test:e2e",
+      "group": "test",
+      "presentation": {
+        "reveal": "always",
+        "panel": "shared"
+      },
+      "problemMatcher": []
+    },
+    {
+      "label": "Test: Coverage Report",
+      "type": "shell",
+      "command": "npm run test:unit",
+      "linux": {
+        "command": "npm run test:unit && xdg-open coverage/index.html"
+      },
+      "osx": {
+        "command": "npm run test:unit && open coverage/index.html"
+      },
+      "windows": {
+        "command": "npm run test:unit && start coverage/index.html"
+      },
+      "group": "test",
+      "presentation": {
+        "reveal": "always",
+        "panel": "shared"
+      },
+      "problemMatcher": []
+    },
+    {
+      "label": "Test: Full QA Pipeline",
+      "type": "shell",
+      "command": "npm run qa:full",
+      "group": {
+        "kind": "test",
+        "isDefault": true
+      },
+      "presentation": {
+        "reveal": "always",
+        "panel": "shared"
+      },
+      "problemMatcher": []
+    },
+    {
+      "label": "QA: Typecheck",
+      "type": "shell",
+      "command": "npm run typecheck",
+      "group": "build",
+      "presentation": {
+        "reveal": "silent",
+        "panel": "shared"
+      },
+      "problemMatcher": ["$tsc"]
+    },
+    {
+      "label": "QA: Lint",
+      "type": "shell",
+      "command": "npm run lint",
+      "group": "build",
+      "presentation": {
+        "reveal": "silent",
+        "panel": "shared"
+      },
+      "problemMatcher": ["$eslint-stylish"]
+    },
+    {
+      "label": "QA: Lint Fix",
+      "type": "shell",
+      "command": "npm run lint:fix",
+      "group": "build",
+      "problemMatcher": []
+    },
+    {
+      "label": "QA: Format Check",
+      "type": "shell",
+      "command": "npm run format:check",
+      "group": "build",
+      "problemMatcher": []
+    },
+    {
+      "label": "QA: Format Fix",
+      "type": "shell",
+      "command": "npm run format",
+      "group": "build",
+      "problemMatcher": []
+    },
+    {
+      "label": "DB: Test Migrate",
+      "type": "shell",
+      "command": "npm run db:test:migrate",
+      "group": "none",
+      "problemMatcher": []
+    },
+    {
+      "label": "DB: Test Seed",
+      "type": "shell",
+      "command": "npm run db:test:seed",
+      "group": "none",
+      "problemMatcher": []
+    },
+    {
+      "label": "DB: Test Reset",
+      "type": "shell",
+      "command": "npm run db:test:reset",
+      "group": "none",
+      "problemMatcher": []
+    },
+    {
+      "label": "Dev: Start Frontend",
+      "type": "shell",
+      "command": "npm run dev",
+      "group": "none",
+      "isBackground": true,
+      "problemMatcher": []
+    },
+    {
+      "label": "Dev: Start Server",
+      "type": "shell",
+      "command": "npm run dev:server",
+      "group": "none",
+      "isBackground": true,
+      "problemMatcher": []
+    },
+    {
+      "label": "Build: Vite",
+      "type": "shell",
+      "command": "npm run build",
+      "group": "build",
+      "presentation": {
+        "reveal": "always",
+        "panel": "shared"
+      },
+      "problemMatcher": []
+    }
+  ]
+}

@@ -1,0 +1,37 @@
+// Copy these entries to your user keybindings.json
+// Open with: Ctrl+Shift+P → "Preferences: Open Keyboard Shortcuts (JSON)"
+//
+// NOTE: This file is an example only. These keybindings are NOT loaded automatically.
+// User keybindings are personal and stored outside the workspace.
+[
+  {
+    "key": "ctrl+shift+t",
+    "command": "workbench.action.tasks.runTask",
+    "args": "Test: Watch Current File",
+    "when": "editorTextFocus"
+  },
+  {
+    "key": "ctrl+shift+u",
+    "command": "workbench.action.tasks.runTask",
+    "args": "Test: Unit Tests",
+    "when": "editorTextFocus"
+  },
+  {
+    "key": "ctrl+shift+c",
+    "command": "workbench.action.tasks.runTask",
+    "args": "Test: Coverage Report",
+    "when": "editorTextFocus"
+  },
+  {
+    "key": "ctrl+shift+q",
+    "command": "workbench.action.tasks.runTask",
+    "args": "Test: Full QA Pipeline",
+    "when": "editorTextFocus"
+  },
+  {
+    "key": "ctrl+shift+l",
+    "command": "workbench.action.tasks.runTask",
+    "args": "QA: Lint",
+    "when": "editorTextFocus"
+  }
+]
