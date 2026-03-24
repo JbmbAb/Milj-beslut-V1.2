@@ -104,9 +104,7 @@ export default function AppReadinessPanel() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  const load = () => {
-    setLoading(true);
-    setError(null);
+  const fetchHealth = () => {
     fetch('/api/health')
       .then((r) => r.json() as Promise<HealthReport>)
       .then((data) => {
@@ -119,7 +117,13 @@ export default function AppReadinessPanel() {
       });
   };
 
-  useEffect(() => { load(); }, []);
+  const handleRefresh = () => {
+    setLoading(true);
+    setError(null);
+    fetchHealth();
+  };
+
+  useEffect(() => { fetchHealth(); }, []);
 
   return (
     <div className="h-full overflow-y-auto p-6 bg-slate-50">
@@ -135,7 +139,7 @@ export default function AppReadinessPanel() {
           </p>
         </div>
         <button
-          onClick={load}
+          onClick={handleRefresh}
           disabled={loading}
           className="flex items-center gap-2 px-3 py-2 text-[11px] font-black uppercase tracking-wide bg-white border border-slate-200 rounded-lg hover:bg-slate-50 transition-colors disabled:opacity-50"
         >
