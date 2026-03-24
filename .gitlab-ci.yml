@@ -75,7 +75,7 @@ integration-tests:
   stage: test
   <<: *node-setup
   services:
-    - name: postgis/postgis:16-3.4
+    - name: ghcr.io/jbmbab/milj-beslut-postgres-test:16
       alias: postgres
       variables:
         POSTGRES_DB: riskguard_test
@@ -99,12 +99,6 @@ integration-tests:
   script:
     - cp .env.test.example .env.test
     - apt-get update -qq && apt-get install -y postgresql-client
-    - |
-      PGPASSWORD=password psql -h postgres -U riskguard -d riskguard_test \
-        -c "CREATE EXTENSION IF NOT EXISTS postgis;" \
-        -c "CREATE EXTENSION IF NOT EXISTS pg_trgm;" \
-        -c "CREATE EXTENSION IF NOT EXISTS unaccent;" \
-        -c "CREATE EXTENSION IF NOT EXISTS vector;"
     - npm run db:test:migrate
     - npm run db:test:seed
     - npm run test:integration
@@ -127,7 +121,7 @@ e2e-tests:
   image: mcr.microsoft.com/playwright:v1.50.0-noble
   needs: [build, integration-tests]
   services:
-    - name: postgis/postgis:16-3.4
+    - name: ghcr.io/jbmbab/milj-beslut-postgres-test:16
       alias: postgres
       variables:
         POSTGRES_DB: riskguard_test
@@ -153,12 +147,6 @@ e2e-tests:
   script:
     - cp .env.test.example .env.test
     - apt-get update -qq && apt-get install -y postgresql-client
-    - |
-      PGPASSWORD=password psql -h postgres -U riskguard -d riskguard_test \
-        -c "CREATE EXTENSION IF NOT EXISTS postgis;" \
-        -c "CREATE EXTENSION IF NOT EXISTS pg_trgm;" \
-        -c "CREATE EXTENSION IF NOT EXISTS unaccent;" \
-        -c "CREATE EXTENSION IF NOT EXISTS vector;"
     - npm run db:test:migrate
     - npm run db:test:seed
     - npm run test:e2e
