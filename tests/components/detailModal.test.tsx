@@ -38,10 +38,10 @@ vi.mock('../../services/geminiService', () => ({
 }));
 
 describe('DetailModal', () => {
-  let onClose: ReturnType<typeof vi.fn>;
+  let onClose: ReturnType<typeof vi.fn<() => void>>;
 
   beforeEach(() => {
-    onClose = vi.fn();
+    onClose = vi.fn<() => void>();
     vi.clearAllMocks();
   });
 

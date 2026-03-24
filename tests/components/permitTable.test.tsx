@@ -52,10 +52,10 @@ const SAMPLE_PERMITS: Permit[] = [
 ];
 
 describe('PermitTable', () => {
-  let onSelect: ReturnType<typeof vi.fn>;
+  let onSelect: ReturnType<typeof vi.fn<(permit: Permit) => void>>;
 
   beforeEach(() => {
-    onSelect = vi.fn();
+    onSelect = vi.fn<(permit: Permit) => void>();
     vi.clearAllMocks();
   });
 
