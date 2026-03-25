@@ -45,6 +45,7 @@ tmp_*
 !tsconfig.json
 !stitch.json
 !figma-raw.json
+!vercel.json
 !*.md
 !public/manifest.json
 !.vscode/extensions.json
