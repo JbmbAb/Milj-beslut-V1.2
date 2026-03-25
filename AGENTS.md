@@ -10,7 +10,7 @@
 
 ---
 
-# Arbetsfördelning: tre verktyg
+# Arbetsfördelning: fyra verktyg
 
 ## 🤖 GitHub Copilot agent ("här") — PR-driven automation
 **Passar för**: allt som kan automatiseras, verifieras med tester och committas direkt.
@@ -59,6 +59,33 @@
 - Backend-logik (services, repositories, API-routes)
 - Databasschema eller Prisma-migrationer
 - Säkerhetskod (auth, rate limiting)
+
+---
+
+## 🧪 Google AI Studio — prompt-tuning och AI-pipeline
+
+**Passar för**: interaktiv finjustering av Gemini-promptar och analys av rättsliga dokument.
+
+### Gör det här:
+| Uppgift | Varför |
+|---|---|
+| Finjustera system-promptar (gemini-2.5-pro/flash) | Interaktivt promptlab utan kodingrepp |
+| Analysera miljödomar och tillståndsbeslut (PDF) | 1M tokens kontextfönster, stöder PDF-upload direkt |
+| Prototypa strukturerade JSON-svar (`application/json`-läge) | Se exakt vad tjänsterna returnerar |
+| Testa embedding-modeller (`gemini-embedding-001`) | Verifiera sökkvalitet innan deploy |
+| Generera svenska testdata med å/ä/ö + SWEREF99-koordinater | Snabbare än att skriva för hand |
+
+**Importordning till AI Studio** (se `ai_studio_context_manifest.md`):
+- Session 1 (kravanalys): `types.ts` → `server/schemas/mvpSchemas.ts` → `server/services/mvpAiGatewayService.ts`
+- Session 2 (RAG): `types.ts` → `server/services/ragSearchService.ts`
+- Session 3 (dokumentanalys): `types.ts` → `server/services/documentGenerator.ts` + PDF-upload
+
+**Redo att använda prompts**: se `AI_STUDIO_PROMPT.md`
+
+### Gör INTE det här:
+- Ladda upp `.env`, certifikat eller riktiga personuppgifter
+- Ersätt produktionskod utan TS/lint-verifiering från Copilot agent
+- Använd för UI-komponent-generering (hellre Figma Make / Stitch)
 
 ---
 
@@ -153,18 +180,20 @@ npm run dev           # startar på http://localhost:5173
 
 ---
 
-# 🛠️ Verktygsval: UI-slutförande — Figma Make ELLER Stitch?
+# 🛠️ Verktygsval: rätt verktyg för rätt uppgift
 
 ## Kortsvaret
 
-| Uppgift | Figma Make | Stitch (bolt.new / lovable.dev) | Copilot agent |
-|---|---|---|---|
-| Ny visuell vy från scratch | ✅ Bäst | ✅ Bra | ✅ Kan |
-| Koppla existerande komponent till routing | ❌ Nej | ⚠️ Kräver kontext | ✅ **Gör detta här** |
-| Design tokens / färger / spacing | ✅ Bäst | ✅ Bra | ⚠️ Manuellt |
-| Full-stack feature (UI + API) | ❌ Nej | ✅ Bra | ✅ Bra |
-| Interagera med riktig DB lokalt | ❌ Nej | ❌ Nej | ❌ → VS Code |
-| Iterera på befintlig komponents layout | ✅ Bra | ✅ Bra | ✅ Kan |
+| Uppgift | Figma Make | Stitch (bolt.new / lovable.dev) | AI Studio | Copilot agent |
+|---|---|---|---|---|
+| Ny visuell vy från scratch | ✅ Bäst | ✅ Bra | ❌ Nej | ✅ Kan |
+| Koppla existerande komponent till routing | ❌ Nej | ⚠️ Kräver kontext | ❌ Nej | ✅ **Gör detta här** |
+| Design tokens / färger / spacing | ✅ Bäst | ✅ Bra | ❌ Nej | ⚠️ Manuellt |
+| Full-stack feature (UI + API) | ❌ Nej | ✅ Bra | ❌ Nej | ✅ Bra |
+| Finjustera Gemini-promptar | ❌ Nej | ❌ Nej | ✅ **Bäst** | ⚠️ Manuellt |
+| Analysera PDF-miljödomar | ❌ Nej | ❌ Nej | ✅ **Bäst** | ❌ Nej |
+| Interagera med riktig DB lokalt | ❌ Nej | ❌ Nej | ❌ Nej | ❌ → VS Code |
+| Iterera på befintlig komponents layout | ✅ Bra | ✅ Bra | ❌ Nej | ✅ Kan |
 
 ## Detaljanalys
 
@@ -182,6 +211,21 @@ npm run dev           # startar på http://localhost:5173
 **Begränsningar**:
 - Kan inte koppla ihop routing, API-anrop eller event-handlers
 - Kan inte testa bygget — output måste kopieras hit och köras av Copilot agent
+
+### Google AI Studio (rekommenderas för prompt-tuning och dokumentanalys)
+**Passar för**:
+- Finjustera systempromptar för `mvpAiGatewayService`, `ragSearchService`, `execSummaryQueueService`
+- Analysera PDF-miljödomar med Gemini 2.5 Pro (1M tokens kontextfönster)
+- Testa och validera JSON-svar från Gemini innan koden ändras
+
+**Kräver** att du laddar in rätt kontextfiler (se `ai_studio_context_manifest.md`):
+- Välj modell: `gemini-2.5-pro` för djupanalys, `gemini-2.0-flash` för snabba iterationer
+- Sätt `responseMimeType: application/json` för strukturerade svar
+
+**Begränsningar**:
+- Ingen tillgång till databasen eller servermiljön
+- Ladda aldrig upp `.env` eller personuppgifter (GDPR)
+- Output måste verifieras med TS/lint av Copilot agent innan den committas
 
 ### Stitch / Bolt.new / Lovable (rekommenderas för snabb full-stack MVP)
 **Passar för**:
@@ -239,9 +283,10 @@ npm run dev           # startar på http://localhost:5173
 ## Rekommenderat flöde
 
 ```
-1. Figma Make → visuell förbättring av befintliga vyer → exportera ny TSX
-2. Copilot agent → granskar + kör TS/lint + kopplar routing + pushar PR
-3. VS Code / Stitch → lokal server-funktioner (upload, BankID, E2E)
+1. AI Studio       → finjustera Gemini-promptar och validera JSON-svar
+2. Figma Make      → visuell förbättring av befintliga vyer → exportera ny TSX
+3. Copilot agent   → granskar + kör TS/lint + kopplar routing + pushar PR
+4. VS Code / Stitch → lokal server-funktioner (upload, BankID, E2E)
 ```
 
 ---
@@ -252,13 +297,15 @@ npm run dev           # startar på http://localhost:5173
 3. ~~**[Copilot agent]** Unit-tester `transportDispatchService`, `metricsService`, `sguRiskService`~~ ✅ 176/176 pass
 4. ~~**[Copilot agent]** GDPR: AdminGdprPanel + REST-endpoints~~ ✅ Klart
 5. ~~**[Copilot agent]** Säkerhet: rateLimit.ts minnesläcka fixad, SECURITY.md skapad~~ ✅ Klart
-6. **[Figma Make]** Visuell polish av `ExecutiveSummary` och `PermitPortalView`
-7. **[VS Code]** `POST /api/documents/upload` endpoint med multer (multer installerat ✅)
-8. **[VS Code]** Riktig Lantmäteriet-integration med OAuth2-nyckel
-9. **[VS Code]** Permit-inlämning: ersätt `MOCK_QUEUED` med riktig endpoint
-10. **[VS Code]** SMHI-väderintegration med riktig API-nyckel
-11. **[VS Code]** E2E-tester mot körande app
-12. **[DevOps]** Staging-driftsättning Docker + PostgreSQL + env-vars
+6. ~~**[Copilot agent]** Google AI Studio: context manifest + prompt-bibliotek dokumenterat~~ ✅ Klart
+7. **[AI Studio]** Finjustera systempromptar för `mvpAiGatewayService` och `ragSearchService`
+8. **[Figma Make]** Visuell polish av `ExecutiveSummary` och `PermitPortalView`
+9. **[VS Code]** `POST /api/documents/upload` endpoint med multer (multer installerat ✅)
+10. **[VS Code]** Riktig Lantmäteriet-integration med OAuth2-nyckel
+11. **[VS Code]** Permit-inlämning: ersätt `MOCK_QUEUED` med riktig endpoint
+12. **[VS Code]** SMHI-väderintegration med riktig API-nyckel
+13. **[VS Code]** E2E-tester mot körande app
+14. **[DevOps]** Staging-driftsättning Docker + PostgreSQL + env-vars
 
 ## Testansvarsfördelning
 
@@ -267,6 +314,7 @@ npm run dev           # startar på http://localhost:5173
 | Unit-tester (rena funktioner, mock DB) | **Copilot agent** | `npm run test` |
 | TS-kontroll | **Copilot agent** | `npx tsc --noEmit` |
 | Lint | **Copilot agent** | `npx eslint .` |
+| Prompt-kvalitet (Gemini-tjänster) | **Google AI Studio** | interaktivt i webbläsaren |
 | E2E mot lokal server | **VS Code / Codex** | `npx playwright test` |
 | Visuell komponent-test | **Figma Make / Antigravity** | UI-preview i Figma |
 | Integrationstester mot riktig DB | **VS Code / Codex** | behöver lokal PostgreSQL |
