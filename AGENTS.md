@@ -74,6 +74,35 @@ Du (JbmbAb)
 
 ---
 
+## AI-modellval – vilket verktyg för vad?
+
+| Uppgift | Verktyg | Modell | Kontextfönster |
+|---|---|---|---|
+| Daglig kodgenerering (1–10 filer) | Cursor + Copilot Agent | Claude 3.5 Sonnet | 200 000 tokens |
+| Helikopteranalys av hela kodbasen | Google AI Studio | Gemini 1.5 Pro | 2 000 000 tokens |
+| Komplex logisk bugg (GIS/AI-motor) | ChatGPT | o1 / o3-mini | 128 000 tokens |
+| CI/CD, tester, commit | GitHub Copilot Agent | – | hel kodbas via RAG |
+
+### Cursor-inställningar (slå på en gång)
+```
+Settings → Features → Codebase Indexing → Enable ✓
+```
+Använd `@Codebase`, `@server/repositories`, `@AGENTS.md`, `@prisma/schema.prisma` som kontextflaggor.
+`.cursorignore` håller brus (node_modules, CSV-filer, package-lock.json) borta från indexet.
+
+### Full Context Dump (för Gemini 1.5 Pro)
+```bash
+# Generera hela kodbasen som en fil (exkluderar automatiskt CSV, package-lock, binärer)
+npx repomix
+# → repomix-output.xml skapas (ignoreras av .gitignore)
+# → Ladda upp i Google AI Studio → Gemini 1.5 Pro
+# → Använd prompt-mallen: docs/templates/context-dump-prompt.md
+```
+
+Fullständig guide: **`docs/architecture/ai-model-selection.md`**
+
+---
+
 ## Konfliktförebyggande
 
 1. Figma Make och AI Studio gör **aldrig** direkta git-commits

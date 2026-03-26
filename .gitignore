@@ -52,3 +52,7 @@ __pycache__/
 .codex-logs/
 .postqode/
 .gemini/
+
+# Repomix context dump (autogenererad, ska ej committas)
+repomix-output.xml
+repomix-output.txt
