@@ -1,0 +1,80 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# Google Cloud Build – Miljobeslut.se
+# Bygger Docker-image, pushar till Artifact Registry och deployar till Cloud Run.
+#
+# Sätt dessa substitutions i Cloud Build-triggern (eller via --substitutions):
+#   _REGION            Region för Artifact Registry + Cloud Run, t.ex. europe-west1
+#   _REPO              Artifact Registry repo-namn,              t.ex. miljobeslut
+#   _SERVICE           Cloud Run service-namn,                   t.ex. miljobeslut
+#   _CLOUDSQL_INSTANCE Cloud SQL connection name,                t.ex. PROJECT:europe-west1:miljobeslut-db
+# ─────────────────────────────────────────────────────────────────────────────
+
+substitutions:
+  _REGION: europe-west1
+  _REPO: miljobeslut
+  _SERVICE: miljobeslut
+  _CLOUDSQL_INSTANCE: MUST_BE_SET_IN_TRIGGER  # Ersätt med PROJECT_ID:europe-west1:miljobeslut-db i triggern
+
+steps:
+  # ── 1. Bygg Docker-image (multi-stage, target=production) ─────────────────
+  - name: gcr.io/cloud-builders/docker
+    id: build
+    args:
+      - build
+      - --target=production
+      - --tag=${_REGION}-docker.pkg.dev/$PROJECT_ID/${_REPO}/${_SERVICE}:$COMMIT_SHA
+      - --tag=${_REGION}-docker.pkg.dev/$PROJECT_ID/${_REPO}/${_SERVICE}:latest
+      - --cache-from=${_REGION}-docker.pkg.dev/$PROJECT_ID/${_REPO}/${_SERVICE}:latest
+      - .
+
+  # ── 2. Pusha till Artifact Registry ───────────────────────────────────────
+  - name: gcr.io/cloud-builders/docker
+    id: push
+    waitFor: [build]
+    args:
+      - push
+      - --all-tags
+      - ${_REGION}-docker.pkg.dev/$PROJECT_ID/${_REPO}/${_SERVICE}
+
+  # ── 3. Kör Prisma migrate mot Cloud SQL via Cloud SQL Auth Proxy ──────────
+  #    DATABASE_URL hämtas från Secret Manager och pekar på Cloud SQL-socket.
+  - name: ${_REGION}-docker.pkg.dev/$PROJECT_ID/${_REPO}/${_SERVICE}:$COMMIT_SHA
+    id: migrate
+    waitFor: [push]
+    entrypoint: npx
+    args: [prisma, migrate, deploy]
+    env:
+      - DATABASE_URL=$$DATABASE_URL
+    secretEnv: [DATABASE_URL]
+
+  # ── 4. Deploya till Cloud Run ─────────────────────────────────────────────
+  - name: gcr.io/google.com/cloudsdktool/cloud-sdk
+    id: deploy
+    waitFor: [migrate]
+    entrypoint: gcloud
+    args:
+      - run
+      - deploy
+      - ${_SERVICE}
+      - --image=${_REGION}-docker.pkg.dev/$PROJECT_ID/${_REPO}/${_SERVICE}:$COMMIT_SHA
+      - --region=${_REGION}
+      - --platform=managed
+      - --add-cloudsql-instances=${_CLOUDSQL_INSTANCE}
+      - --update-secrets=DATABASE_URL=DATABASE_URL:latest,JWT_ACCESS_SECRET=JWT_ACCESS_SECRET:latest,JWT_REFRESH_SECRET=JWT_REFRESH_SECRET:latest,GEMINI_API_KEY=GEMINI_API_KEY:latest,OPENAI_API_KEY=OPENAI_API_KEY:latest,BANKID_PFX_PASSPHRASE=BANKID_PFX_PASSPHRASE:latest,LANTMATERIET_API_KEY=LANTMATERIET_API_KEY:latest,SLU_API_KEY=SLU_API_KEY:latest,SEARCH_ENCRYPTION_KEY_BASE64=SEARCH_ENCRYPTION_KEY_BASE64:latest,ADMIN_CONSOLE_PASSWORD=ADMIN_CONSOLE_PASSWORD:latest
+      - --set-env-vars=NODE_ENV=production
+      - --no-allow-unauthenticated
+
+# Secrets som hämtas från Secret Manager under bygget (steg 3)
+availableSecrets:
+  secretManager:
+    - versionName: projects/$PROJECT_ID/secrets/DATABASE_URL/versions/latest
+      env: DATABASE_URL
+
+# Images som sparas i Artifact Registry
+images:
+  - ${_REGION}-docker.pkg.dev/$PROJECT_ID/${_REPO}/${_SERVICE}:$COMMIT_SHA
+  - ${_REGION}-docker.pkg.dev/$PROJECT_ID/${_REPO}/${_SERVICE}:latest
+
+options:
+  logging: CLOUD_LOGGING_ONLY
+  machineType: E2_HIGHCPU_8

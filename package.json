@@ -4,6 +4,7 @@
   "version": "0.0.0",
   "type": "module",
   "scripts": {
+    "start": "node --import tsx server/index.ts",
     "dev": "vite",
     "dev:server": "node --import tsx server/index.ts",
     "build": "vite build",

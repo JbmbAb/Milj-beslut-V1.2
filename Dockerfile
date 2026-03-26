@@ -3,6 +3,9 @@ FROM node:22-alpine AS base
 # Uppdatera och installera curl och openssl för Prisma
 RUN apk update && apk add --no-cache openssl curl
 
+# Skapa non-root användare (används i production-stadiet)
+RUN addgroup -S appgroup && adduser -S appuser -G appgroup
+
 WORKDIR /app
 
 # Steg 1: Byggmiljö
@@ -27,8 +30,9 @@ FROM base AS production
 ENV NODE_ENV=production
 
 COPY package*.json ./
-# Installera endast produktionsberoenden
-RUN npm ci --only=production
+# tsx är en runtime-executor för TypeScript-servern och krävs i produktion.
+# npm ci installerar alla beroenden inklusive tsx (se package.json dependencies).
+RUN npm ci
 
 # Kopiera Prisma och generera klient
 COPY prisma ./prisma
@@ -38,9 +42,9 @@ RUN npx prisma generate
 COPY --from=builder /app/build ./build
 COPY --from=builder /app/server ./server
 
-# Säkerhetsjusteringar (om applikationen ska köras non-root)
-# RUN addgroup -S appgroup && adduser -S appuser -G appgroup
-# USER appuser
+# Sätt non-root ägare och byt användare
+RUN chown -R appuser:appgroup /app
+USER appuser
 
 EXPOSE 3000
 
