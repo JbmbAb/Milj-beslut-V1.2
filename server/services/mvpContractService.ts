@@ -297,7 +297,7 @@ export async function verifyAnalysis(
     deterministicMissing.push('Saknar lag- eller forordningsnamn (eller SFS-nummer).');
   }
 
-  const hasChapterAndParagraph = /\b\d+\s*kap\.\s*\d+\s*[a-z]?\s*(?:\u00a7|paragraf)\b/i.test(text);
+  const hasChapterAndParagraph = /\b\d+\s*kap\.\s*\d+\s*[a-z]?\s*(?:\u00a7|paragraf)/i.test(text);
   if (!hasChapterAndParagraph) {
     deterministicMissing.push('Saknar kapitel/paragraf-hanvisning (ex. 26 kap. paragraf 19).');
   }

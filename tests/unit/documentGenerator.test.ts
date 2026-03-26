@@ -49,6 +49,7 @@ vi.mock('@prisma/client', () => ({
 // ─── Re-import helpers ────────────────────────────────────────────────────────
 
 import type { generateApplicationDraft as GenerateApplicationDraft } from '../../server/services/documentGenerator';
+import { Packer } from 'docx';
 
 type DocGenService = {
   generateApplicationDraft: typeof GenerateApplicationDraft;
@@ -103,7 +104,9 @@ const baseOptions = {
 
 describe('documentGenerator – generateApplicationDraft', () => {
   beforeEach(async () => {
-    vi.clearAllMocks();
+    vi.resetAllMocks();
+    // Re-initialize Packer.toBuffer after reset (vi.resetAllMocks clears all mock impls)
+    (Packer.toBuffer as ReturnType<typeof vi.fn>).mockResolvedValue(Buffer.from('MOCK-DOCX'));
     await loadService();
   });
 
