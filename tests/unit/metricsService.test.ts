@@ -32,7 +32,6 @@ beforeEach(async () => {
 // ─── Tests ────────────────────────────────────────────────────────────────────
 
 describe('metricsService', () => {
-
   // ── recordRequest ──────────────────────────────────────────────────────────
 
   describe('recordRequest', () => {

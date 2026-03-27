@@ -21,7 +21,6 @@ beforeEach(async () => {
 // ─── Tests ────────────────────────────────────────────────────────────────────
 
 describe('marketIntelService', () => {
-
   // ── invalidateMarketCache ──────────────────────────────────────────────────
 
   describe('invalidateMarketCache', () => {

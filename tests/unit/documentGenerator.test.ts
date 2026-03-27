@@ -132,7 +132,7 @@ describe('documentGenerator – generateApplicationDraft', () => {
           projectId: 'proj-1',
           organisationId: 'org-1',
         }),
-      })
+      }),
     );
   });
 
@@ -142,7 +142,7 @@ describe('documentGenerator – generateApplicationDraft', () => {
     expect(prismaInstanceMock.documentRecord.create).toHaveBeenCalledWith(
       expect.objectContaining({
         data: expect.objectContaining({ legalStatus: 'DRAFT_UNVERIFIED' }),
-      })
+      }),
     );
   });
 
@@ -154,7 +154,7 @@ describe('documentGenerator – generateApplicationDraft', () => {
         data: expect.objectContaining({
           mimeType: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
         }),
-      })
+      }),
     );
   });
 
@@ -174,17 +174,14 @@ describe('documentGenerator – generateApplicationDraft', () => {
     await svc.generateApplicationDraft(baseOptions);
     expect(fsMock.mkdirSync).toHaveBeenCalledWith(
       expect.stringMatching(/drafts/),
-      expect.objectContaining({ recursive: true })
+      expect.objectContaining({ recursive: true }),
     );
   });
 
   it('writes the docx buffer to disk via fs.writeFileSync', async () => {
     prismaInstanceMock.documentRecord.create.mockResolvedValue(makeDocumentRecord());
     await svc.generateApplicationDraft(baseOptions);
-    expect(fsMock.writeFileSync).toHaveBeenCalledWith(
-      expect.stringMatching(/\.docx$/),
-      expect.any(Buffer)
-    );
+    expect(fsMock.writeFileSync).toHaveBeenCalledWith(expect.stringMatching(/\.docx$/), expect.any(Buffer));
   });
 
   it('includes requirementContext in manifestMeta', async () => {
@@ -239,7 +236,9 @@ describe('documentGenerator – generateApplicationDraft', () => {
   });
 
   it('propagates fs.writeFileSync errors to caller', async () => {
-    fsMock.writeFileSync.mockImplementation(() => { throw new Error('Disk full'); });
+    fsMock.writeFileSync.mockImplementation(() => {
+      throw new Error('Disk full');
+    });
     await expect(svc.generateApplicationDraft(baseOptions)).rejects.toThrow('Disk full');
   });
 
@@ -265,7 +264,7 @@ describe('documentGenerator – generateApplicationDraft', () => {
     expect(prismaInstanceMock.documentRecord.create).toHaveBeenCalledWith(
       expect.objectContaining({
         data: expect.objectContaining({ status: 'TEXT_EXTRACTED' }),
-      })
+      }),
     );
   });
 });

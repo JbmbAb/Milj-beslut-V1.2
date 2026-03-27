@@ -91,9 +91,9 @@ describe('documentUploadService – uploadDocumentToProject', () => {
   });
 
   it('throws when buffer is empty', async () => {
-    await expect(
-      uploadDocumentToProject(makeInput({ buffer: Buffer.alloc(0) })),
-    ).rejects.toThrow('Upload body is empty');
+    await expect(uploadDocumentToProject(makeInput({ buffer: Buffer.alloc(0) }))).rejects.toThrow(
+      'Upload body is empty',
+    );
 
     expect(mocks.fsWriteFile).not.toHaveBeenCalled();
   });
@@ -101,9 +101,7 @@ describe('documentUploadService – uploadDocumentToProject', () => {
   it('sanitises malicious filenames', async () => {
     setupHappyPath();
 
-    await uploadDocumentToProject(
-      makeInput({ originalName: '../../../etc/passwd' }),
-    );
+    await uploadDocumentToProject(makeInput({ originalName: '../../../etc/passwd' }));
 
     // upsertDocumentFromManifest should receive sanitised name (no path traversal)
     const call = mocks.upsertDocumentFromManifest.mock.calls[0][0];
@@ -114,9 +112,7 @@ describe('documentUploadService – uploadDocumentToProject', () => {
   it('strips dangerous characters from filename', async () => {
     setupHappyPath();
 
-    await uploadDocumentToProject(
-      makeInput({ originalName: 'file<bad>:name?.pdf' }),
-    );
+    await uploadDocumentToProject(makeInput({ originalName: 'file<bad>:name?.pdf' }));
 
     const call = mocks.upsertDocumentFromManifest.mock.calls[0][0];
     expect(call.originalName).not.toMatch(/[<>:?]/);
@@ -125,9 +121,7 @@ describe('documentUploadService – uploadDocumentToProject', () => {
   it('infers mimeType from extension when mimeType is null', async () => {
     setupHappyPath();
 
-    await uploadDocumentToProject(
-      makeInput({ originalName: 'photo.png', mimeType: null }),
-    );
+    await uploadDocumentToProject(makeInput({ originalName: 'photo.png', mimeType: null }));
 
     const call = mocks.upsertDocumentFromManifest.mock.calls[0][0];
     expect(call.mimeType).toBe('image/png');

@@ -71,16 +71,14 @@ describe('BtfaNoteWidget', () => {
     (fetch as ReturnType<typeof vi.fn>).mockResolvedValue({ ok: true, json: async () => [] });
     render(<BtfaNoteWidget caseId="case-1" />);
     await waitFor(() =>
-      expect(screen.getByPlaceholderText(/Skriv en tjänsteanteckning/i)).toBeInTheDocument()
+      expect(screen.getByPlaceholderText(/Skriv en tjänsteanteckning/i)).toBeInTheDocument(),
     );
   });
 
   it('Spara button is disabled when input is empty', async () => {
     (fetch as ReturnType<typeof vi.fn>).mockResolvedValue({ ok: true, json: async () => [] });
     render(<BtfaNoteWidget caseId="case-1" />);
-    await waitFor(() =>
-      expect(screen.getByRole('button', { name: /Spara/i })).toBeDisabled()
-    );
+    await waitFor(() => expect(screen.getByRole('button', { name: /Spara/i })).toBeDisabled());
   });
 
   it('Spara button becomes enabled when typing', async () => {

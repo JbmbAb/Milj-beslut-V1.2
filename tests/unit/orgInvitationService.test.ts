@@ -42,13 +42,16 @@ beforeEach(async () => {
 
 // ─── Counter for unique org/email IDs ─────────────────────────────────────────
 let counter = 0;
-function uniqueOrg() { return `org-test-${++counter}`; }
-function uniqueEmail() { return `user-${counter}@example.com`; }
+function uniqueOrg() {
+  return `org-test-${++counter}`;
+}
+function uniqueEmail() {
+  return `user-${counter}@example.com`;
+}
 
 // ─── Tests ────────────────────────────────────────────────────────────────────
 
 describe('orgInvitationService', () => {
-
   // ── createInvitation ───────────────────────────────────────────────────────
 
   describe('createInvitation', () => {
@@ -172,10 +175,20 @@ describe('orgInvitationService', () => {
       const orgB = uniqueOrg();
       prismaMocks.orgFindUnique.mockResolvedValue({ id: orgA });
 
-      await svc.createInvitation({ orgId: orgA, email: uniqueEmail(), role: 'CONSULTANT', actingUserId: 'a' });
+      await svc.createInvitation({
+        orgId: orgA,
+        email: uniqueEmail(),
+        role: 'CONSULTANT',
+        actingUserId: 'a',
+      });
 
       prismaMocks.orgFindUnique.mockResolvedValue({ id: orgB });
-      await svc.createInvitation({ orgId: orgB, email: uniqueEmail(), role: 'CONSULTANT', actingUserId: 'a' });
+      await svc.createInvitation({
+        orgId: orgB,
+        email: uniqueEmail(),
+        role: 'CONSULTANT',
+        actingUserId: 'a',
+      });
 
       const list = svc.listInvitations(orgA);
       expect(list.every((inv) => inv.orgId === orgA)).toBe(true);
@@ -232,7 +245,12 @@ describe('orgInvitationService', () => {
     it('throws when inviteId belongs to a different org', async () => {
       const orgA = uniqueOrg();
       prismaMocks.orgFindUnique.mockResolvedValue({ id: orgA });
-      const inv = await svc.createInvitation({ orgId: orgA, email: uniqueEmail(), role: 'CONSULTANT', actingUserId: 'a' });
+      const inv = await svc.createInvitation({
+        orgId: orgA,
+        email: uniqueEmail(),
+        role: 'CONSULTANT',
+        actingUserId: 'a',
+      });
 
       await expect(
         svc.revokeInvitation({ orgId: 'org-wrong', inviteId: inv.id, actingUserId: 'a' }),
@@ -243,7 +261,12 @@ describe('orgInvitationService', () => {
       const { appendDomainAudit } = await import('../../server/security/auditTrail');
       const orgId = uniqueOrg();
       prismaMocks.orgFindUnique.mockResolvedValue({ id: orgId });
-      const inv = await svc.createInvitation({ orgId, email: uniqueEmail(), role: 'CONSULTANT', actingUserId: 'a' });
+      const inv = await svc.createInvitation({
+        orgId,
+        email: uniqueEmail(),
+        role: 'CONSULTANT',
+        actingUserId: 'a',
+      });
 
       await svc.revokeInvitation({ orgId, inviteId: inv.id, actingUserId: 'admin-audit' });
 
@@ -268,7 +291,12 @@ describe('orgInvitationService', () => {
       });
 
       prismaMocks.userFindFirst.mockResolvedValue(null);
-      prismaMocks.userCreate.mockResolvedValue({ id: 'user-new', bankidId: '19900101-1234', organisationId: orgId, role: 'CONSULTANT' });
+      prismaMocks.userCreate.mockResolvedValue({
+        id: 'user-new',
+        bankidId: '19900101-1234',
+        organisationId: orgId,
+        role: 'CONSULTANT',
+      });
 
       const result = await svc.acceptInvitation({
         orgId,
@@ -301,9 +329,9 @@ describe('orgInvitationService', () => {
 
       await svc.revokeInvitation({ orgId, inviteId: inv.id, actingUserId: 'admin-a' });
 
-      await expect(
-        svc.acceptInvitation({ orgId, token: inv.token, bankidId: 'some-id' }),
-      ).rejects.toThrow('REVOKED');
+      await expect(svc.acceptInvitation({ orgId, token: inv.token, bankidId: 'some-id' })).rejects.toThrow(
+        'REVOKED',
+      );
     });
 
     it('reuses an existing user when bankidId already has a record', async () => {
@@ -317,7 +345,12 @@ describe('orgInvitationService', () => {
         actingUserId: 'admin-a',
       });
 
-      const existingUser = { id: 'user-existing', bankidId: 'existing-bankid', organisationId: orgId, role: 'ADMIN' };
+      const existingUser = {
+        id: 'user-existing',
+        bankidId: 'existing-bankid',
+        organisationId: orgId,
+        role: 'ADMIN',
+      };
       prismaMocks.userFindFirst.mockResolvedValue(existingUser);
 
       const result = await svc.acceptInvitation({

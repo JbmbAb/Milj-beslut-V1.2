@@ -34,7 +34,6 @@ beforeEach(() => {
 // ─── Tests ────────────────────────────────────────────────────────────────────
 
 describe('permitAuthorityAdapter – submitToConfiguredAuthority', () => {
-
   // ── No endpoint configured ─────────────────────────────────────────────────
 
   describe('no endpoint configured', () => {
@@ -115,7 +114,9 @@ describe('permitAuthorityAdapter – submitToConfiguredAuthority', () => {
         ok: true,
         status: 200,
         headers: new Headers({ 'content-type': 'text/plain' }),
-        json: async () => { throw new Error('not JSON'); },
+        json: async () => {
+          throw new Error('not JSON');
+        },
         text: async () => 'TEXTREF-999',
       } as unknown as Response);
 
@@ -252,7 +253,8 @@ describe('permitAuthorityAdapter – submitToConfiguredAuthority', () => {
       const fetchSpy = vi.spyOn(global, 'fetch').mockImplementationOnce(async (_url, opts) => {
         capturedHeaders = (opts?.headers ?? {}) as Record<string, string>;
         return {
-          ok: true, status: 200,
+          ok: true,
+          status: 200,
           headers: new Headers({ 'content-type': 'application/json' }),
           json: async () => ({}),
           text: async () => '',

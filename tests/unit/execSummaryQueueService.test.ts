@@ -35,7 +35,6 @@ beforeEach(async () => {
 // ─── Tests ────────────────────────────────────────────────────────────────────
 
 describe('execSummaryQueueService', () => {
-
   // ── getJobStatus ───────────────────────────────────────────────────────────
 
   describe('getJobStatus', () => {

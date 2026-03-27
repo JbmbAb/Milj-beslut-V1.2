@@ -37,7 +37,9 @@ describe('WeatherRisk', () => {
 
   it('shows loading spinner initially', () => {
     fetchMock.mockReturnValue(new Promise(() => {}));
-    const { container } = render(<WeatherRisk municipality="Stockholm" coordinates={{ lat: 59.3, lng: 18.06 }} />);
+    const { container } = render(
+      <WeatherRisk municipality="Stockholm" coordinates={{ lat: 59.3, lng: 18.06 }} />,
+    );
     expect(container.querySelector('.animate-spin')).toBeInTheDocument();
   });
 

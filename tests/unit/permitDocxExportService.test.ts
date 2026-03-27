@@ -5,9 +5,9 @@ import { describe, expect, it } from 'vitest';
 // in test environment – mock it to return a deterministic Buffer.
 
 vi.mock('docx', () => {
-  const Paragraph = vi.fn(function(this: Record<string, unknown>, _arg: unknown) {});
-  const TextRun = vi.fn(function(this: Record<string, unknown>, _arg: unknown) {});
-  const Document = vi.fn(function(this: Record<string, unknown>, _arg: unknown) {});
+  const Paragraph = vi.fn(function (this: Record<string, unknown>, _arg: unknown) {});
+  const TextRun = vi.fn(function (this: Record<string, unknown>, _arg: unknown) {});
+  const Document = vi.fn(function (this: Record<string, unknown>, _arg: unknown) {});
 
   return {
     Document,
@@ -27,7 +27,6 @@ import { Packer } from 'docx';
 // ─── Tests ────────────────────────────────────────────────────────────────────
 
 describe('permitDocxExportService – buildPermitDocxBuffer', () => {
-
   // ── Return type ───────────────────────────────────────────────────────────
 
   it('returns a Buffer', async () => {
@@ -40,9 +39,7 @@ describe('permitDocxExportService – buildPermitDocxBuffer', () => {
   });
 
   it('resolves (does not throw) with minimal input', async () => {
-    await expect(
-      buildPermitDocxBuffer({ documentType: 'Test', draftText: '' }),
-    ).resolves.toBeDefined();
+    await expect(buildPermitDocxBuffer({ documentType: 'Test', draftText: '' })).resolves.toBeDefined();
   });
 
   // ── Packer.toBuffer called ─────────────────────────────────────────────────
@@ -82,9 +79,7 @@ describe('permitDocxExportService – buildPermitDocxBuffer', () => {
   });
 
   it('does not throw on empty draftText', async () => {
-    await expect(
-      buildPermitDocxBuffer({ documentType: 'Empty', draftText: '' }),
-    ).resolves.toBeDefined();
+    await expect(buildPermitDocxBuffer({ documentType: 'Empty', draftText: '' })).resolves.toBeDefined();
   });
 
   it('does not throw when generatedAt is provided', async () => {

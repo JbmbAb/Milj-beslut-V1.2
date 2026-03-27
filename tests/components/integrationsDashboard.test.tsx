@@ -61,42 +61,28 @@ describe('IntegrationsDashboard', () => {
   // ── Success state ───────────────────────────────────────────────────────────
 
   it('shows integration cards from API response', async () => {
-    vi.stubGlobal(
-      'fetch',
-      vi.fn().mockResolvedValue({ ok: true, json: async () => successPayload })
-    );
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: true, json: async () => successPayload }));
     render(<IntegrationsDashboard />);
     await waitFor(() => expect(screen.getByText('Skyddad natur')).toBeInTheDocument());
     expect(screen.getByText('SGU risklager')).toBeInTheDocument();
   });
 
   it('shows CONNECTED badge', async () => {
-    vi.stubGlobal(
-      'fetch',
-      vi.fn().mockResolvedValue({ ok: true, json: async () => successPayload })
-    );
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: true, json: async () => successPayload }));
     render(<IntegrationsDashboard />);
     await waitFor(() => expect(screen.getByText('Aktiv')).toBeInTheDocument());
   });
 
   it('shows DISCONNECTED badge', async () => {
-    vi.stubGlobal(
-      'fetch',
-      vi.fn().mockResolvedValue({ ok: true, json: async () => successPayload })
-    );
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: true, json: async () => successPayload }));
     render(<IntegrationsDashboard />);
     await waitFor(() => expect(screen.getByText('Krav saknas')).toBeInTheDocument());
   });
 
   it('shows success info message after load', async () => {
-    vi.stubGlobal(
-      'fetch',
-      vi.fn().mockResolvedValue({ ok: true, json: async () => successPayload })
-    );
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: true, json: async () => successPayload }));
     render(<IntegrationsDashboard />);
-    await waitFor(() =>
-      expect(screen.getByText(/Publik integrationssammanstallning/)).toBeInTheDocument()
-    );
+    await waitFor(() => expect(screen.getByText(/Publik integrationssammanstallning/)).toBeInTheDocument());
   });
 
   // ── Fallback/error state ────────────────────────────────────────────────────
@@ -120,7 +106,7 @@ describe('IntegrationsDashboard', () => {
         ok: false,
         status: 503,
         json: async () => ({ ok: false, error: 'Service unavailable' }),
-      })
+      }),
     );
     render(<IntegrationsDashboard />);
     await waitFor(() => expect(screen.getByText('Skyddad natur')).toBeInTheDocument());
@@ -129,10 +115,7 @@ describe('IntegrationsDashboard', () => {
   // ── Uppdatera button ────────────────────────────────────────────────────────
 
   it('has an "Uppdatera" button', async () => {
-    vi.stubGlobal(
-      'fetch',
-      vi.fn().mockResolvedValue({ ok: true, json: async () => successPayload })
-    );
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: true, json: async () => successPayload }));
     render(<IntegrationsDashboard />);
     await waitFor(() => screen.getByText('Skyddad natur'));
     expect(screen.getByRole('button', { name: /Uppdatera/i })).toBeInTheDocument();

@@ -21,9 +21,7 @@ const samplePhases: ProjectPhase[] = [
     status: 'TODO',
     isLocked: false,
     requiresSignature: true,
-    tasks: [
-      { id: 't3', title: 'MKB', startWeek: 8, duration: 8, type: 'LEGAL', status: 'TODO' },
-    ],
+    tasks: [{ id: 't3', title: 'MKB', startWeek: 8, duration: 8, type: 'LEGAL', status: 'TODO' }],
   },
 ];
 

@@ -56,9 +56,7 @@ describe('tokenRepository', () => {
     it('propagates DB errors', async () => {
       mocks.tokenRevocationCreate.mockRejectedValue(new Error('DB write failed'));
 
-      await expect(
-        revokeRefreshToken('user-1', 'jti-x', new Date()),
-      ).rejects.toThrow('DB write failed');
+      await expect(revokeRefreshToken('user-1', 'jti-x', new Date())).rejects.toThrow('DB write failed');
     });
   });
 

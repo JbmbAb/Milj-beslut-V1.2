@@ -35,7 +35,7 @@ let svc: MvpService;
 
 async function loadService() {
   vi.resetModules();
-  svc = await import('../../server/services/mvpAiGatewayService') as MvpService;
+  svc = (await import('../../server/services/mvpAiGatewayService')) as MvpService;
 }
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -273,4 +273,3 @@ describe('mvpAiGatewayService', () => {
     });
   });
 });
-

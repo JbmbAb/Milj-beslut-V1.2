@@ -66,9 +66,7 @@ describe('requirementsReportService', () => {
 
   describe('buildRequirementsReportSummary', () => {
     it('throws when organisationId is not provided', async () => {
-      await expect(buildRequirementsReportSummary({})).rejects.toThrow(
-        'organisationId is required',
-      );
+      await expect(buildRequirementsReportSummary({})).rejects.toThrow('organisationId is required');
     });
 
     it('returns summary with zero totals for empty data', async () => {

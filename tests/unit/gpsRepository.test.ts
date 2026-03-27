@@ -31,7 +31,6 @@ beforeEach(() => {
 });
 
 describe('gpsRepository', () => {
-
   // ── addGpsPosition ────────────────────────────────────────────────────────
 
   describe('addGpsPosition', () => {

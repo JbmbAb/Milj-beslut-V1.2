@@ -104,9 +104,9 @@ describe('projectAccessRepository – assertProjectMembership', () => {
     mocks.projectMemberFindUnique.mockResolvedValue(null);
 
     // Even an ADMIN role must have explicit membership
-    await expect(
-      assertProjectMembership(makeInput({ role: 'ADMIN' })),
-    ).rejects.toThrow('User is not a member of this project');
+    await expect(assertProjectMembership(makeInput({ role: 'ADMIN' }))).rejects.toThrow(
+      'User is not a member of this project',
+    );
   });
 
   it('queries projectMember with composite key', async () => {

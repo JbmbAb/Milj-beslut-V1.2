@@ -99,14 +99,14 @@ describe('checkListRagService – extractAndGenerateChecklistFromRag', () => {
   it('throws when embedding fails (empty values)', async () => {
     mocks.embedText.mockResolvedValue({ values: [] });
     await expect(
-      svc.extractAndGenerateChecklistFromRag('proj-1', 'org-1', 'lakvatten', '29.40')
+      svc.extractAndGenerateChecklistFromRag('proj-1', 'org-1', 'lakvatten', '29.40'),
     ).rejects.toThrow(/embedding/i);
   });
 
   it('throws when embedText returns null', async () => {
     mocks.embedText.mockResolvedValue(null);
     await expect(
-      svc.extractAndGenerateChecklistFromRag('proj-1', 'org-1', 'lakvatten', '29.40')
+      svc.extractAndGenerateChecklistFromRag('proj-1', 'org-1', 'lakvatten', '29.40'),
     ).rejects.toThrow(/embedding/i);
   });
 
@@ -134,14 +134,16 @@ describe('checkListRagService – extractAndGenerateChecklistFromRag', () => {
     mockSemanticHits([{ documentId: 'doc-1', chunkText: 'Some text' }]);
     mocks.serverGenerateText.mockResolvedValue('not valid json at all');
     await expect(
-      svc.extractAndGenerateChecklistFromRag('proj-1', 'org-1', 'lakvatten', '29.40')
+      svc.extractAndGenerateChecklistFromRag('proj-1', 'org-1', 'lakvatten', '29.40'),
     ).rejects.toThrow(/JSON/i);
   });
 
   it('skips requirements where documentId is missing', async () => {
     mockEmbedding();
     mockSemanticHits([{ documentId: 'doc-1', chunkText: 'Some text' }]);
-    mockAiResponse([{ category: 'Buller', interpretedRequirement: 'No noise', requirementTextQuote: 'Quiet' }]); // no documentId
+    mockAiResponse([
+      { category: 'Buller', interpretedRequirement: 'No noise', requirementTextQuote: 'Quiet' },
+    ]); // no documentId
     const result = await svc.extractAndGenerateChecklistFromRag('proj-1', 'org-1', 'lakvatten', '29.40');
     expect(result.requirementsCreated).toBe(0);
   });
@@ -149,13 +151,15 @@ describe('checkListRagService – extractAndGenerateChecklistFromRag', () => {
   it('skips requirements where document is not found in DB', async () => {
     mockEmbedding();
     mockSemanticHits([{ documentId: 'doc-1', chunkText: 'Some text' }]);
-    mockAiResponse([{
-      documentId: 'doc-999',
-      category: 'Buller',
-      interpretedRequirement: 'No noise',
-      requirementTextQuote: 'Quiet',
-      level: 'mandatory',
-    }]);
+    mockAiResponse([
+      {
+        documentId: 'doc-999',
+        category: 'Buller',
+        interpretedRequirement: 'No noise',
+        requirementTextQuote: 'Quiet',
+        level: 'mandatory',
+      },
+    ]);
     prismaMock.documentRecord.findUnique.mockResolvedValue(null);
     const result = await svc.extractAndGenerateChecklistFromRag('proj-1', 'org-1', 'lakvatten', '29.40');
     expect(result.requirementsCreated).toBe(0);
@@ -164,15 +168,17 @@ describe('checkListRagService – extractAndGenerateChecklistFromRag', () => {
   it('creates case, requirement, and citation for valid AI requirement', async () => {
     mockEmbedding();
     mockSemanticHits([{ documentId: 'doc-1', chunkText: 'Relevant text here' }]);
-    mockAiResponse([{
-      documentId: 'doc-1',
-      category: 'Lakvatten',
-      subcategory: 'Provtagning',
-      requirementTextQuote: 'Provtagning krävs månadsvis.',
-      interpretedRequirement: 'Månadsvis provtagning av lakvatten.',
-      level: 'mandatory',
-      legalReference: 'Miljöbalken 9 kap. 3 §',
-    }]);
+    mockAiResponse([
+      {
+        documentId: 'doc-1',
+        category: 'Lakvatten',
+        subcategory: 'Provtagning',
+        requirementTextQuote: 'Provtagning krävs månadsvis.',
+        interpretedRequirement: 'Månadsvis provtagning av lakvatten.',
+        level: 'mandatory',
+        legalReference: 'Miljöbalken 9 kap. 3 §',
+      },
+    ]);
     mockDocument('doc-1');
     mockRequirementCase('case-1');
     mockRequirementRecord('req-1');
@@ -189,13 +195,15 @@ describe('checkListRagService – extractAndGenerateChecklistFromRag', () => {
   it('reuses existing RequirementCase when found in DB', async () => {
     mockEmbedding();
     mockSemanticHits([{ documentId: 'doc-1', chunkText: 'Some text' }]);
-    mockAiResponse([{
-      documentId: 'doc-1',
-      category: 'Buller',
-      requirementTextQuote: 'Quiet',
-      interpretedRequirement: 'No noise',
-      level: 'mandatory',
-    }]);
+    mockAiResponse([
+      {
+        documentId: 'doc-1',
+        category: 'Buller',
+        requirementTextQuote: 'Quiet',
+        interpretedRequirement: 'No noise',
+        level: 'mandatory',
+      },
+    ]);
     mockDocument('doc-1');
     prismaMock.requirementCase.findUnique.mockResolvedValue({ id: 'existing-case' });
     prismaMock.requirementCase.create.mockResolvedValue({ id: 'new-case' });
@@ -212,13 +220,15 @@ describe('checkListRagService – extractAndGenerateChecklistFromRag', () => {
   it('handles AI response wrapped in markdown JSON block', async () => {
     mockEmbedding();
     mockSemanticHits([{ documentId: 'doc-1', chunkText: 'text' }]);
-    const req = [{
-      documentId: 'doc-1',
-      category: 'Damning',
-      requirementTextQuote: 'Dammning kontrolleras',
-      interpretedRequirement: 'Kontrollera damning regelbundet',
-      level: 'mandatory',
-    }];
+    const req = [
+      {
+        documentId: 'doc-1',
+        category: 'Damning',
+        requirementTextQuote: 'Dammning kontrolleras',
+        interpretedRequirement: 'Kontrollera damning regelbundet',
+        level: 'mandatory',
+      },
+    ];
     // AI wraps in markdown block – service should still parse the raw array
     mocks.serverGenerateText.mockResolvedValue(`\`\`\`json\n${JSON.stringify(req)}\n\`\`\``);
     mockDocument('doc-1');
@@ -236,7 +246,7 @@ describe('checkListRagService – extractAndGenerateChecklistFromRag', () => {
     mocks.queryTopSemanticChunks.mockResolvedValue([]);
     await svc.extractAndGenerateChecklistFromRag('my-project', 'my-org', 'test query', '29.50');
     expect(mocks.queryTopSemanticChunks).toHaveBeenCalledWith(
-      expect.objectContaining({ projectId: 'my-project', organisationId: 'my-org', limit: 15 })
+      expect.objectContaining({ projectId: 'my-project', organisationId: 'my-org', limit: 15 }),
     );
   });
 });

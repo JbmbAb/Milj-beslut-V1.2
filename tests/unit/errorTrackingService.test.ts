@@ -23,7 +23,6 @@ beforeEach(async () => {
 // ─── Tests ────────────────────────────────────────────────────────────────────
 
 describe('errorTrackingService', () => {
-
   // ── captureException ──────────────────────────────────────────────────────
 
   describe('captureException', () => {

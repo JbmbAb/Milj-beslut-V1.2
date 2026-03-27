@@ -34,14 +34,16 @@ import {
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
-function makeNode(overrides: Partial<{
-  id: string;
-  nodeType: string;
-  name: string;
-  metadata: Record<string, unknown>;
-  outEdges: unknown[];
-  inEdges: unknown[];
-}> = {}) {
+function makeNode(
+  overrides: Partial<{
+    id: string;
+    nodeType: string;
+    name: string;
+    metadata: Record<string, unknown>;
+    outEdges: unknown[];
+    inEdges: unknown[];
+  }> = {},
+) {
   return {
     id: 'node-1',
     nodeType: 'REQUIREMENT',
@@ -74,12 +76,14 @@ describe('knowledgeGraphService', () => {
 
     it('returns matched nodes and their edges', async () => {
       const node = makeNode({
-        outEdges: [{ id: 'edge-1', sourceId: 'node-1', targetId: 'node-2', relation: 'motiveras_av', weight: 1 }],
+        outEdges: [
+          { id: 'edge-1', sourceId: 'node-1', targetId: 'node-2', relation: 'motiveras_av', weight: 1 },
+        ],
         inEdges: [],
       });
       mocks.knowledgeNodeFindMany
-        .mockResolvedValueOnce([node])   // primary query
-        .mockResolvedValueOnce([]);       // extra nodes (targets not in result)
+        .mockResolvedValueOnce([node]) // primary query
+        .mockResolvedValueOnce([]); // extra nodes (targets not in result)
 
       const result = await searchGraph({ query: 'dagvatten' });
 
@@ -94,9 +98,7 @@ describe('knowledgeGraphService', () => {
 
       await searchGraph({ query: 'x', limit: 9999 });
 
-      expect(mocks.knowledgeNodeFindMany).toHaveBeenCalledWith(
-        expect.objectContaining({ take: 200 }),
-      );
+      expect(mocks.knowledgeNodeFindMany).toHaveBeenCalledWith(expect.objectContaining({ take: 200 }));
     });
 
     it('applies nodeTypes filter when provided', async () => {
@@ -167,8 +169,22 @@ describe('knowledgeGraphService', () => {
       mocks.knowledgeNodeFindMany.mockResolvedValue([
         makeNode({
           outEdges: [
-            { id: 'e1', sourceId: 'node-1', targetId: 'n-risk', relation: 'hanterar', weight: 1, target: riskNode },
-            { id: 'e2', sourceId: 'node-1', targetId: 'n-law', relation: 'motiveras_av', weight: 1, target: lawNode },
+            {
+              id: 'e1',
+              sourceId: 'node-1',
+              targetId: 'n-risk',
+              relation: 'hanterar',
+              weight: 1,
+              target: riskNode,
+            },
+            {
+              id: 'e2',
+              sourceId: 'node-1',
+              targetId: 'n-law',
+              relation: 'motiveras_av',
+              weight: 1,
+              target: lawNode,
+            },
           ],
         }),
       ]);

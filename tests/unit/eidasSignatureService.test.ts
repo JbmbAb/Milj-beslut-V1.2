@@ -37,7 +37,6 @@ beforeEach(() => {
 });
 
 describe('eidasSignatureService', () => {
-
   // ── ADVANCED signature (no QTSP) ──────────────────────────────────────────
 
   describe('signDocumentEidas – ADVANCED (no QTSP configured)', () => {

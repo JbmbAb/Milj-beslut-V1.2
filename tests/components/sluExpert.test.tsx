@@ -59,7 +59,7 @@ describe('SluExpert', () => {
     render(<SluExpert />);
     await userEvent.click(screen.getByRole('button', { name: /Starta Inventering/i }));
     await waitFor(() =>
-      expect(screen.getByText('Inga fridlysta arter funna vid fastigheten.')).toBeInTheDocument()
+      expect(screen.getByText('Inga fridlysta arter funna vid fastigheten.')).toBeInTheDocument(),
     );
   });
 

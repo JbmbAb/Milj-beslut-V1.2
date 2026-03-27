@@ -38,7 +38,7 @@ jobs:
     needs: guard
     permissions:
       contents: read
-      id-token: write   # Krävs för Workload Identity Federation
+      id-token: write # Krävs för Workload Identity Federation
     environment:
       name: ${{ github.event.inputs.environment || 'production' }}
       url: ${{ vars.GCP_SERVICE_URL }}

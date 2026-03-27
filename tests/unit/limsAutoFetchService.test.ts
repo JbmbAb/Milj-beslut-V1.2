@@ -48,7 +48,6 @@ beforeEach(() => {
 // ─── Tests ────────────────────────────────────────────────────────────────────
 
 describe('limsAutoFetchService – autoFetchLimsReports', () => {
-
   // ── NOT_CONFIGURED ────────────────────────────────────────────────────────
 
   describe('NOT_CONFIGURED (no LIMS_API_ENDPOINT)', () => {

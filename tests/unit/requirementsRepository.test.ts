@@ -291,10 +291,7 @@ describe('requirementsRepository', () => {
     it('updates successfully when all citations are verified', async () => {
       mocks.requirementRecordFindFirst.mockResolvedValue({
         id: 'req-1',
-        citations: [
-          { verificationStatus: 'VERIFIED' },
-          { verificationStatus: 'REVIEWED' },
-        ],
+        citations: [{ verificationStatus: 'VERIFIED' }, { verificationStatus: 'REVIEWED' }],
       });
       mocks.requirementRecordUpdate.mockResolvedValue({ id: 'req-1', verificationStatus: 'VERIFIED' });
 

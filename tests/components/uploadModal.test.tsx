@@ -40,8 +40,7 @@ describe('UploadModal', () => {
   it('renders the file drop area', () => {
     render(<UploadModal onComplete={onComplete} onClose={onClose} />);
     expect(
-      screen.getByText(/Ladda upp PDF/i) ||
-      screen.getByRole('button', { name: /Avbryt/i })
+      screen.getByText(/Ladda upp PDF/i) || screen.getByRole('button', { name: /Avbryt/i }),
     ).toBeInTheDocument();
   });
 

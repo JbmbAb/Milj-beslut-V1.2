@@ -97,9 +97,7 @@ describe('auditRepository', () => {
 
       await getAuditExportRows();
 
-      expect(mocks.auditTrailFindMany).toHaveBeenCalledWith(
-        expect.objectContaining({ take: 5000 }),
-      );
+      expect(mocks.auditTrailFindMany).toHaveBeenCalledWith(expect.objectContaining({ take: 5000 }));
     });
   });
 

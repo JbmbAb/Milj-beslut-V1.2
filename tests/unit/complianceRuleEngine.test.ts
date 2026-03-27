@@ -1,8 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import {
-  evaluateComplianceRules,
-  type SiteAnalysis,
-} from '../../server/services/complianceRuleEngine';
+import { evaluateComplianceRules, type SiteAnalysis } from '../../server/services/complianceRuleEngine';
 
 // ─── Test data builders ───────────────────────────────────────────────────────
 
@@ -125,23 +122,15 @@ describe('complianceRuleEngine – evaluateComplianceRules', () => {
   });
 
   it('detects Frid-status as Artskydd', () => {
-    const result = evaluateComplianceRules(
-      [{ name: 'Lork', status: 'Fridlyst' }],
-      [],
-      emptyGeo(),
-      [],
-    );
+    const result = evaluateComplianceRules([{ name: 'Lork', status: 'Fridlyst' }], [], emptyGeo(), []);
 
     expect(result.restrictions).toContain('Artskydd');
   });
 
   it('detects monument / fornlämning as HIGH risk', () => {
-    const result = evaluateComplianceRules(
-      [],
-      [],
-      emptyGeo(),
-      [{ id: 'mon-1', name: 'Fornborg RAA 1', type: 'Fornlämning', distance: 50 }],
-    );
+    const result = evaluateComplianceRules([], [], emptyGeo(), [
+      { id: 'mon-1', name: 'Fornborg RAA 1', type: 'Fornlämning', distance: 50 },
+    ]);
 
     expect(result.overallRisk).toBe('HIGH');
     expect(result.restrictions).toContain('Kulturmiljo');

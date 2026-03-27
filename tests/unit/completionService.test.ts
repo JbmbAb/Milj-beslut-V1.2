@@ -5,7 +5,6 @@ import { getAppCompletion } from '../../server/services/completionService';
 // ─── Tests ────────────────────────────────────────────────────────────────────
 
 describe('completionService – getAppCompletion', () => {
-
   // ── Return shape ───────────────────────────────────────────────────────────
 
   it('returns an AppCompletionResponse with all required fields', () => {

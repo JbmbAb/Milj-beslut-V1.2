@@ -40,7 +40,6 @@ beforeEach(async () => {
 // ─── Tests ────────────────────────────────────────────────────────────────────
 
 describe('notificationService', () => {
-
   // ── sendProjectNotification ────────────────────────────────────────────────
 
   describe('sendProjectNotification', () => {

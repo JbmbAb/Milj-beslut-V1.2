@@ -188,9 +188,7 @@ describe('ragSearchService – runRagSearch', () => {
 
     await runRagSearch(makeParams({ limit: 999 }));
 
-    expect(mocks.queryTopSemanticChunks).toHaveBeenCalledWith(
-      expect.objectContaining({ limit: 20 }),
-    );
+    expect(mocks.queryTopSemanticChunks).toHaveBeenCalledWith(expect.objectContaining({ limit: 20 }));
   });
 
   it('passes projectId to chunk query when provided', async () => {

@@ -32,7 +32,6 @@ beforeEach(() => {
 });
 
 describe('limsRepository', () => {
-
   // ── createLimsReport ──────────────────────────────────────────────────────
 
   describe('createLimsReport', () => {

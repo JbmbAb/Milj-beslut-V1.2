@@ -70,38 +70,56 @@ describe('mvpContractService', () => {
   // ── classifyActivity ────────────────────────────────────────────────────────
   describe('classifyActivity', () => {
     it('returns MATCHED result for known activity code 29.40', () => {
-      const result = svc.classifyActivity({ activity_code: '29.40', ewc_code: '17 05 04', volume_tons: 100 }, 'trace-1');
+      const result = svc.classifyActivity(
+        { activity_code: '29.40', ewc_code: '17 05 04', volume_tons: 100 },
+        'trace-1',
+      );
       expect(result.status).toBe('MATCHED');
       expect(result.classification).toBe('C-verksamhet');
       expect(result.traceId).toBe('trace-1');
     });
 
     it('returns MATCHED result for known activity code 29.50', () => {
-      const result = svc.classifyActivity({ activity_code: '29.50', ewc_code: '17 05 04', volume_tons: 500 }, 'trace-2');
+      const result = svc.classifyActivity(
+        { activity_code: '29.50', ewc_code: '17 05 04', volume_tons: 500 },
+        'trace-2',
+      );
       expect(result.status).toBe('MATCHED');
       expect(result.classification).toBe('B-verksamhet');
     });
 
     it('returns MATCHED result for known activity code 29.60', () => {
-      const result = svc.classifyActivity({ activity_code: '29.60', ewc_code: '17 05 04', volume_tons: 2000 }, 'trace-3');
+      const result = svc.classifyActivity(
+        { activity_code: '29.60', ewc_code: '17 05 04', volume_tons: 2000 },
+        'trace-3',
+      );
       expect(result.status).toBe('MATCHED');
       expect(result.classification).toBe('A-verksamhet');
     });
 
     it('returns FALLBACK B-verksamhet for unknown code with volume > 10000', () => {
-      const result = svc.classifyActivity({ activity_code: '99.99', ewc_code: '', volume_tons: 15000 }, 'trace-4');
+      const result = svc.classifyActivity(
+        { activity_code: '99.99', ewc_code: '', volume_tons: 15000 },
+        'trace-4',
+      );
       expect(result.status).toBe('FALLBACK');
       expect(result.classification).toBe('B-verksamhet');
     });
 
     it('returns FALLBACK C-verksamhet for unknown code with volume <= 10000', () => {
-      const result = svc.classifyActivity({ activity_code: '00.00', ewc_code: '', volume_tons: 50 }, 'trace-5');
+      const result = svc.classifyActivity(
+        { activity_code: '00.00', ewc_code: '', volume_tons: 50 },
+        'trace-5',
+      );
       expect(result.status).toBe('FALLBACK');
       expect(result.classification).toBe('C-verksamhet');
     });
 
     it('preserves ewc_code and volume_tons in result', () => {
-      const result = svc.classifyActivity({ activity_code: '29.40', ewc_code: '17 05 04', volume_tons: 42 }, 'trace-6');
+      const result = svc.classifyActivity(
+        { activity_code: '29.40', ewc_code: '17 05 04', volume_tons: 42 },
+        'trace-6',
+      );
       expect(result.ewc_code).toBe('17 05 04');
       expect(result.volume_tons).toBe(42);
     });
@@ -123,21 +141,26 @@ describe('mvpContractService', () => {
           volumeTons: 100,
           hazardousClassification: false,
           groundwaterProximity: false,
-        })
+        }),
       );
     });
 
     it('detects hazardous waste via asterisk in ewc_code', () => {
-      mocks.evaluateProjectCompliance.mockReturnValue({ riskScore: 'HIGH', riskFactors: ['Hazardous waste'] });
+      mocks.evaluateProjectCompliance.mockReturnValue({
+        riskScore: 'HIGH',
+        riskFactors: ['Hazardous waste'],
+      });
       const result = svc.analyzeRisk({ ewc_code: '17 09 04 *', volume_tons: 100, location: '' }, 'trace-r2');
-      expect(mocks.evaluateProjectCompliance).toHaveBeenCalledWith(expect.objectContaining({ hazardousClassification: true }));
+      expect(mocks.evaluateProjectCompliance).toHaveBeenCalledWith(
+        expect.objectContaining({ hazardousClassification: true }),
+      );
       expect(result.risk_score).toBe('HIGH');
     });
 
     it('detects groundwater proximity from location text', () => {
       svc.analyzeRisk({ ewc_code: '17 05 04', volume_tons: 100, location: 'nära grundvatten' }, 'trace-r3');
       expect(mocks.evaluateProjectCompliance).toHaveBeenCalledWith(
-        expect.objectContaining({ groundwaterProximity: true })
+        expect.objectContaining({ groundwaterProximity: true }),
       );
     });
 
@@ -155,13 +178,22 @@ describe('mvpContractService', () => {
 
     it('adds "Potential groundwater impact" flag when near groundwater', () => {
       mocks.evaluateProjectCompliance.mockReturnValue({ riskScore: 'MEDIUM', riskFactors: [] });
-      const result = svc.analyzeRisk({ ewc_code: '17 05 04', volume_tons: 100, location: 'brunn nära' }, 'trace-r6');
+      const result = svc.analyzeRisk(
+        { ewc_code: '17 05 04', volume_tons: 100, location: 'brunn nära' },
+        'trace-r6',
+      );
       expect(result.risk_flags).toContain('Potential groundwater impact');
     });
 
     it('deduplicates risk flags from baseline and analysis', () => {
-      mocks.evaluateProjectCompliance.mockReturnValue({ riskScore: 'HIGH', riskFactors: ['Potential groundwater impact'] });
-      const result = svc.analyzeRisk({ ewc_code: '17 05 04', volume_tons: 100, location: 'vatten' }, 'trace-r7');
+      mocks.evaluateProjectCompliance.mockReturnValue({
+        riskScore: 'HIGH',
+        riskFactors: ['Potential groundwater impact'],
+      });
+      const result = svc.analyzeRisk(
+        { ewc_code: '17 05 04', volume_tons: 100, location: 'vatten' },
+        'trace-r7',
+      );
       const gwFlags = result.risk_flags.filter((f) => f === 'Potential groundwater impact');
       expect(gwFlags).toHaveLength(1);
     });
@@ -177,7 +209,7 @@ describe('mvpContractService', () => {
     it('returns PASS when all samples are within limits', () => {
       const result = svc.validateLabResults(
         { sample_results: [{ parameter: 'arsenik', value: 5, unit: 'mg/kg TS' }] },
-        'trace-l1'
+        'trace-l1',
       );
       expect(result.status).toBe('PASS');
       expect(result.exceedances).toHaveLength(0);
@@ -186,7 +218,7 @@ describe('mvpContractService', () => {
     it('returns FAIL when a sample exceeds its limit', () => {
       const result = svc.validateLabResults(
         { sample_results: [{ parameter: 'arsenik', value: 15, unit: 'mg/kg TS' }] },
-        'trace-l2'
+        'trace-l2',
       );
       expect(result.status).toBe('FAIL');
       expect(result.exceedances).toHaveLength(1);
@@ -197,7 +229,7 @@ describe('mvpContractService', () => {
     it('ignores unknown parameters', () => {
       const result = svc.validateLabResults(
         { sample_results: [{ parameter: 'okand-param', value: 9999, unit: 'mg/kg TS' }] },
-        'trace-l3'
+        'trace-l3',
       );
       expect(result.status).toBe('PASS');
       expect(result.exceedances).toHaveLength(0);
@@ -212,7 +244,7 @@ describe('mvpContractService', () => {
             { parameter: 'krom', value: 50, unit: 'mg/kg TS' },
           ],
         },
-        'trace-l4'
+        'trace-l4',
       );
       expect(result.status).toBe('FAIL');
       expect(result.exceedances).toHaveLength(2);
@@ -225,7 +257,7 @@ describe('mvpContractService', () => {
       // arsenik limit = 10; value = 10 should pass
       const result = svc.validateLabResults(
         { sample_results: [{ parameter: 'arsenik', value: 10, unit: 'mg/kg TS' }] },
-        'trace-l5'
+        'trace-l5',
       );
       expect(result.status).toBe('PASS');
     });
@@ -233,7 +265,7 @@ describe('mvpContractService', () => {
     it('includes traceId in result', () => {
       const result = svc.validateLabResults(
         { sample_results: [{ parameter: 'nickel', value: 1 }] },
-        'my-trace-l'
+        'my-trace-l',
       );
       expect(result.traceId).toBe('my-trace-l');
     });
@@ -255,7 +287,7 @@ describe('mvpContractService', () => {
       const result = await svc.getComplianceRequirements(
         { activity_code: '29.40', ewc_code: '17 05 04' },
         'trace-c1',
-        'org-1'
+        'org-1',
       );
       expect(result.source).toBe('INDEX');
       expect(result.requirements).toHaveLength(1);
@@ -270,7 +302,7 @@ describe('mvpContractService', () => {
       const result = await svc.getComplianceRequirements(
         { activity_code: '29.40', ewc_code: '17 05 04' },
         'trace-c2',
-        'org-1'
+        'org-1',
       );
       expect(result.source).toBe('AI');
       expect(result.requirements[0].rule).toBe('AI rule 1');
@@ -282,7 +314,7 @@ describe('mvpContractService', () => {
       const result = await svc.getComplianceRequirements(
         { activity_code: '29.40', ewc_code: '17 05 04' },
         'trace-c3',
-        'org-1'
+        'org-1',
       );
       expect(result.source).toBe('FALLBACK');
       expect(result.requirements.length).toBeGreaterThan(0);
@@ -292,7 +324,7 @@ describe('mvpContractService', () => {
       mocks.suggestRequirementsFromGemini.mockResolvedValue([]);
       const result = await svc.getComplianceRequirements(
         { activity_code: '29.40', ewc_code: '17 05 04' },
-        'trace-c4'
+        'trace-c4',
       );
       expect(mocks.listRequirementRows).not.toHaveBeenCalled();
       expect(result.source).toBe('FALLBACK');
@@ -308,7 +340,7 @@ describe('mvpContractService', () => {
       const result = await svc.getComplianceRequirements(
         { activity_code: '29.40', ewc_code: '' },
         'trace-c5',
-        'org-1'
+        'org-1',
       );
       expect(result.requirements).toHaveLength(1);
     });
@@ -317,37 +349,51 @@ describe('mvpContractService', () => {
   // ── verifyAnalysis ──────────────────────────────────────────────────────────
   describe('verifyAnalysis', () => {
     it('returns VERIFIED when text contains law name and chapter/paragraph', async () => {
-      mocks.getVerificationSecondOpinionFromOpenAi.mockResolvedValue({ status: 'VERIFIED', missing_citations: [] });
+      mocks.getVerificationSecondOpinionFromOpenAi.mockResolvedValue({
+        status: 'VERIFIED',
+        missing_citations: [],
+      });
       const result = await svc.verifyAnalysis(
         { analysis: 'Enligt Miljöbalken (1998:808), 26 kap. 19 § ska egenkontroll utföras.' },
-        'trace-v1'
+        'trace-v1',
       );
       expect(result.status).toBe('VERIFIED');
       expect(result.missing_citations).toHaveLength(0);
     });
 
     it('returns UNVERIFIED and lists missing law name when absent', async () => {
-      mocks.getVerificationSecondOpinionFromOpenAi.mockResolvedValue({ status: 'VERIFIED', missing_citations: [] });
+      mocks.getVerificationSecondOpinionFromOpenAi.mockResolvedValue({
+        status: 'VERIFIED',
+        missing_citations: [],
+      });
       const result = await svc.verifyAnalysis(
         { analysis: 'Verksamheten ska ha egenkontroll, 26 kap. 19 §.' },
-        'trace-v2'
+        'trace-v2',
       );
       expect(result.status).toBe('UNVERIFIED');
-      expect(result.missing_citations.some((m) => /lag/i.test(m) || /f.rordning/i.test(m) || /SFS/i.test(m))).toBe(true);
+      expect(
+        result.missing_citations.some((m) => /lag/i.test(m) || /f.rordning/i.test(m) || /SFS/i.test(m)),
+      ).toBe(true);
     });
 
     it('returns UNVERIFIED and lists missing paragraph ref when absent', async () => {
-      mocks.getVerificationSecondOpinionFromOpenAi.mockResolvedValue({ status: 'VERIFIED', missing_citations: [] });
+      mocks.getVerificationSecondOpinionFromOpenAi.mockResolvedValue({
+        status: 'VERIFIED',
+        missing_citations: [],
+      });
       const result = await svc.verifyAnalysis(
         { analysis: 'Miljöbalken (1998:808) är tillämplig.' },
-        'trace-v3'
+        'trace-v3',
       );
       expect(result.status).toBe('UNVERIFIED');
       expect(result.missing_citations.some((m) => /kapitel|paragraf|§/i.test(m))).toBe(true);
     });
 
     it('returns UNVERIFIED when analysis is empty', async () => {
-      mocks.getVerificationSecondOpinionFromOpenAi.mockResolvedValue({ status: 'VERIFIED', missing_citations: [] });
+      mocks.getVerificationSecondOpinionFromOpenAi.mockResolvedValue({
+        status: 'VERIFIED',
+        missing_citations: [],
+      });
       const result = await svc.verifyAnalysis({ analysis: '' }, 'trace-v4');
       expect(result.status).toBe('UNVERIFIED');
     });
@@ -357,10 +403,7 @@ describe('mvpContractService', () => {
         status: 'UNVERIFIED',
         missing_citations: ['AI says missing X'],
       });
-      const result = await svc.verifyAnalysis(
-        { analysis: 'Ingen lag nämns.' },
-        'trace-v5'
-      );
+      const result = await svc.verifyAnalysis({ analysis: 'Ingen lag nämns.' }, 'trace-v5');
       expect(result.missing_citations).toContain('AI says missing X');
       expect(result.missing_citations.length).toBeGreaterThan(1);
     });
@@ -377,10 +420,13 @@ describe('mvpContractService', () => {
     });
 
     it('accepts SFS-nummer as valid law reference', async () => {
-      mocks.getVerificationSecondOpinionFromOpenAi.mockResolvedValue({ status: 'VERIFIED', missing_citations: [] });
+      mocks.getVerificationSecondOpinionFromOpenAi.mockResolvedValue({
+        status: 'VERIFIED',
+        missing_citations: [],
+      });
       const result = await svc.verifyAnalysis(
         { analysis: 'SFS 1998:808 gäller. 26 kap. 19 § är tillämplig.' },
-        'trace-v7'
+        'trace-v7',
       );
       expect(result.status).toBe('VERIFIED');
     });
@@ -403,7 +449,7 @@ describe('mvpContractService', () => {
           requirements: [{ rule: 'Egenkontroll', law: 'Miljöbalken', citation: '26 kap. 19 §' }],
           risk_flags: [],
         },
-        'trace-p1'
+        'trace-p1',
       );
       expect(result.draft_text).toBe('AI generated permit text');
       expect(result.document_type).toBe('B-tillstand');
@@ -417,7 +463,7 @@ describe('mvpContractService', () => {
           requirements: [],
           risk_flags: [],
         },
-        'trace-p2'
+        'trace-p2',
       );
       expect(result.draft_text).toContain('base permit text');
     });
@@ -430,7 +476,7 @@ describe('mvpContractService', () => {
           requirements: [],
           risk_flags: [],
         },
-        'trace-p3'
+        'trace-p3',
       );
       expect(result.document_type).toBe('B-tillstand');
     });
@@ -443,7 +489,7 @@ describe('mvpContractService', () => {
           requirements: [],
           risk_flags: [],
         },
-        'trace-p4'
+        'trace-p4',
       );
       expect(result.document_type).toBe('C-anmalan');
     });
@@ -452,7 +498,7 @@ describe('mvpContractService', () => {
       mocks.generatePermitDraftFromGemini.mockResolvedValue(null);
       const result = await svc.generatePermitDraft(
         { project_data: { name: 'X', municipality: 'Y' }, requirements: [], risk_flags: [] },
-        'my-trace-permit'
+        'my-trace-permit',
       );
       expect(result.traceId).toBe('my-trace-permit');
     });

@@ -71,9 +71,7 @@ describe('TechnicalSluExpert', () => {
   it('renders observation cards from API response', async () => {
     analyzesMock.mockResolvedValue({
       summary: 'Fynd.',
-      observations: [
-        { name: 'Flygekorren', status: 'Rödlistad', distance: 200 },
-      ],
+      observations: [{ name: 'Flygekorren', status: 'Rödlistad', distance: 200 }],
       protectedAreas: [],
     });
     render(<TechnicalSluExpert />);

@@ -11,20 +11,23 @@ import {
 // ─── Tests ────────────────────────────────────────────────────────────────────
 
 describe('requirementExtractionService – pure functions', () => {
-
   // ── segmentText ────────────────────────────────────────────────────────────
 
   describe('segmentText', () => {
     it('splits plain text into sentences', () => {
-      const text = 'Bolaget ska ha ett journalsystem. Dagvatten ska ledas till oljeavskiljare. Provtagning krävs.';
+      const text =
+        'Bolaget ska ha ett journalsystem. Dagvatten ska ledas till oljeavskiljare. Provtagning krävs.';
       const segments = segmentText(text);
       expect(segments.length).toBeGreaterThan(0);
       expect(segments[0]).toMatchObject({ index: 0 });
     });
 
     it('ignores fragments shorter than 20 characters', () => {
-      const text = 'Short. ' + 'Bolaget ska dokumentera alla transporter och rapportera till myndigheten.\n\n' +
-                   'Ja. Nej. ' + 'Farligt avfall ska förvaras åtskilt och märkas enligt gällande föreskrifter.';
+      const text =
+        'Short. ' +
+        'Bolaget ska dokumentera alla transporter och rapportera till myndigheten.\n\n' +
+        'Ja. Nej. ' +
+        'Farligt avfall ska förvaras åtskilt och märkas enligt gällande föreskrifter.';
       const segments = segmentText(text);
       for (const seg of segments) {
         expect(seg.text.length).toBeGreaterThan(20);
@@ -32,14 +35,16 @@ describe('requirementExtractionService – pure functions', () => {
     });
 
     it('respects form-feed page breaks', () => {
-      const text = 'Sida ett innehåller krav på provtagning varje kvartal.\fSida två innehåller krav på dokumentation.';
+      const text =
+        'Sida ett innehåller krav på provtagning varje kvartal.\fSida två innehåller krav på dokumentation.';
       const segments = segmentText(text);
-      const page2 = segments.filter(s => s.pageNumber === 2);
+      const page2 = segments.filter((s) => s.pageNumber === 2);
       expect(page2.length).toBeGreaterThan(0);
     });
 
     it('assigns sequential index values', () => {
-      const text = 'Bolaget ska dokumentera alla transporter.\nFarligt avfall ska förvaras åtskilt i märkta behållare.';
+      const text =
+        'Bolaget ska dokumentera alla transporter.\nFarligt avfall ska förvaras åtskilt i märkta behållare.';
       const segments = segmentText(text);
       segments.forEach((seg, i) => {
         expect(seg.index).toBe(i);
@@ -162,7 +167,9 @@ describe('requirementExtractionService – pure functions', () => {
     });
 
     it('returns "recommended" for text with "rekommenderas"', () => {
-      expect(classifyRequirementLevel('Det rekommenderas att installera regnvattentank.')).toBe('recommended');
+      expect(classifyRequirementLevel('Det rekommenderas att installera regnvattentank.')).toBe(
+        'recommended',
+      );
     });
 
     it('returns "conditional" for neutral text', () => {
@@ -176,9 +183,9 @@ describe('requirementExtractionService – pure functions', () => {
     it('returns only requirement candidates from text', () => {
       const text = [
         'Bolaget ska ha ett dokumenterat egenkontrollprogram för alla verksamheter.',
-        'Platsen är belägen nära en skola.',                                // not a candidate
+        'Platsen är belägen nära en skola.', // not a candidate
         'Farligt avfall ska förvaras åtskilt och märkas korrekt enligt gällande regler.',
-        'Det är vackert väder idag utanför kontoret.',                      // not a candidate
+        'Det är vackert väder idag utanför kontoret.', // not a candidate
       ].join('\n\n');
 
       const results = extractRequirementsFromText(text);
@@ -211,7 +218,8 @@ describe('requirementExtractionService – pure functions', () => {
     });
 
     it('attaches page number when pages are present', () => {
-      const text = 'Sida ett innehåller inte krav.\fDagvatten ska samlas upp och analyseras av godkänt laboratorium.';
+      const text =
+        'Sida ett innehåller inte krav.\fDagvatten ska samlas upp och analyseras av godkänt laboratorium.';
       const results = extractRequirementsFromText(text);
       if (results.length > 0) {
         expect(results[0].pageNumber).toBeDefined();

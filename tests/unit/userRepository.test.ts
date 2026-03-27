@@ -20,10 +20,7 @@ vi.mock('../../server/db/prisma', () => ({
   },
 }));
 
-import {
-  ensureAdminConsoleUser,
-  findAuthUserByBankId,
-} from '../../server/repositories/userRepository';
+import { ensureAdminConsoleUser, findAuthUserByBankId } from '../../server/repositories/userRepository';
 
 // ─── Tests ───────────────────────────────────────────────────────────────────
 

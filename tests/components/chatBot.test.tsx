@@ -55,9 +55,7 @@ describe('ChatBot', () => {
     await user.click(screen.getAllByRole('button')[0]);
     expect(screen.getByText('Miljöbeslut AI-assistent')).toBeInTheDocument();
     // Find close button (inside header)
-    const closeBtn = screen.getAllByRole('button').find((b) =>
-      b.className.includes('hover:bg-white/10')
-    );
+    const closeBtn = screen.getAllByRole('button').find((b) => b.className.includes('hover:bg-white/10'));
     if (closeBtn) await user.click(closeBtn);
     expect(screen.queryByText('Miljöbeslut AI-assistent')).not.toBeInTheDocument();
   });
@@ -112,7 +110,7 @@ describe('ChatBot', () => {
         ok: false,
         status: 401,
         json: async () => ({ ok: false, error: 'Unauthorized' }),
-      })
+      }),
     );
 
     render(<ChatBot />);

@@ -39,7 +39,6 @@ beforeEach(() => {
 });
 
 describe('transportRepository', () => {
-
   // ── createTransportBooking ─────────────────────────────────────────────────
 
   describe('createTransportBooking', () => {
@@ -169,7 +168,11 @@ describe('transportRepository', () => {
 
       expect(driverJournalMock.update).toHaveBeenCalledWith({
         where: { id: 'dj-upd' },
-        data: expect.objectContaining({ status: 'SIGNED', signedByDriver: true, updatedAt: expect.any(Date) }),
+        data: expect.objectContaining({
+          status: 'SIGNED',
+          signedByDriver: true,
+          updatedAt: expect.any(Date),
+        }),
       });
     });
 
