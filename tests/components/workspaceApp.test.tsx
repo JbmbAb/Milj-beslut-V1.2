@@ -4,19 +4,12 @@ import { describe, expect, it, vi } from 'vitest';
 
 // Use vi.hoisted so the mock components are available inside the vi.mock() factory
 const { MockPW, MockSW } = vi.hoisted(() => {
-  const R = require('react') as typeof React;
-  const MockPW = ({ mode, activeTab }: { mode: string; activeTab: string }) =>
-    R.createElement('div', {
-      'data-testid': 'project-workspace',
-      'data-mode': mode,
-      'data-tab': activeTab,
-    });
-  const MockSW = ({ mode, activeTab }: { mode: string; activeTab: string }) =>
-    R.createElement('div', {
-      'data-testid': 'standalone-workspace',
-      'data-mode': mode,
-      'data-tab': activeTab,
-    });
+  const MockPW = ({ mode, activeTab }: { mode: string; activeTab: string }) => (
+    <div data-testid="project-workspace" data-mode={mode} data-tab={activeTab} />
+  );
+  const MockSW = ({ mode, activeTab }: { mode: string; activeTab: string }) => (
+    <div data-testid="standalone-workspace" data-mode={mode} data-tab={activeTab} />
+  );
   return { MockPW, MockSW };
 });
 

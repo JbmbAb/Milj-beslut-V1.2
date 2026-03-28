@@ -16,17 +16,20 @@ vi.mock('../../components/PermitPortalMapPanel', () => ({
 }));
 
 import PermitPortalView from '../../components/PermitPortalView';
-import type { Permit } from '../../types';
+import { type Permit, DecisionType } from '../../types';
 
 const samplePermits: Permit[] = [
   {
-    id: 'p1',
-    diarienummer: 'DIA-001',
+    id: 1,
+    filename: 'permit-001.pdf',
+    checksum: 'abc123',
+    received_date: '2024-01-01',
+    property_id: 'PROP-001',
     municipality: 'Stockholm',
-    decision_type: 'BIFALL',
-    permit_type: 'C-ANMALAN',
-    date: '2024-01-01',
-    description: 'Test permit',
+    waste_codes: '17 05 04',
+    decision_type: DecisionType.BIFALL,
+    full_text: 'Test permit',
+    processed_at: '2024-01-02',
   },
 ];
 

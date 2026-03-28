@@ -1,6 +1,6 @@
 import { render, screen } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
-import type { Permit } from '../../types';
+import { type Permit, DecisionType } from '../../types';
 
 vi.mock('../../components/ProjectStructureContext', () => ({
   useProjectStructure: () => ({
@@ -24,13 +24,16 @@ import PermitPortalApplyPanel from '../../components/PermitPortalApplyPanel';
 
 const samplePermits: Permit[] = [
   {
-    id: 'p1',
-    diarienummer: 'D-001',
+    id: 1,
+    filename: 'permit-001.pdf',
+    checksum: 'abc123',
+    received_date: '2024-01-01',
+    property_id: 'PROP-001',
     municipality: 'Stockholm',
-    decision_type: 'BIFALL',
-    permit_type: 'C-ANMALAN',
-    date: '2024-01-01',
-    description: 'Test',
+    waste_codes: '17 05 04',
+    decision_type: DecisionType.BIFALL,
+    full_text: 'Test',
+    processed_at: '2024-01-02',
   },
 ];
 

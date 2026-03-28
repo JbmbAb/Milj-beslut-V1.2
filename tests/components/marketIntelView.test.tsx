@@ -1,6 +1,7 @@
 import { render, screen } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 import type { Permit } from '../../types';
+import { DecisionType } from '../../types';
 
 vi.mock('../../components/ProjectStructureContext', () => ({
   useProjectStructure: () => ({
@@ -42,22 +43,28 @@ import MarketIntelView from '../../components/MarketIntelView';
 
 const samplePermits: Permit[] = [
   {
-    id: 'p1',
-    diarienummer: 'D-001',
+    id: 1,
+    filename: 'permit-001.pdf',
+    checksum: 'abc123',
+    received_date: '2024-01-01',
+    property_id: 'PROP-001',
     municipality: 'Stockholm',
-    decision_type: 'BIFALL',
-    permit_type: 'C-ANMALAN',
-    date: '2024-01-01',
-    description: 'Test permit 1',
+    waste_codes: '17 05 04',
+    decision_type: DecisionType.BIFALL,
+    full_text: 'Test permit 1',
+    processed_at: '2024-01-02',
   },
   {
-    id: 'p2',
-    diarienummer: 'D-002',
+    id: 2,
+    filename: 'permit-002.pdf',
+    checksum: 'def456',
+    received_date: '2024-06-01',
+    property_id: 'PROP-002',
     municipality: 'Göteborg',
-    decision_type: 'AVSLAG',
-    permit_type: 'TILLSTAND',
-    date: '2024-06-01',
-    description: 'Test permit 2',
+    waste_codes: '17 05 04',
+    decision_type: DecisionType.AVSLAG,
+    full_text: 'Test permit 2',
+    processed_at: '2024-06-02',
   },
 ];
 

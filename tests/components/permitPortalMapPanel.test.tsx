@@ -1,6 +1,6 @@
 import { render, screen } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
-import type { Permit } from '../../types';
+import { type Permit, DecisionType } from '../../types';
 
 vi.mock('../../components/MapView', () => ({
   default: () => <div data-testid="map-view" />,
@@ -16,24 +16,30 @@ import PermitPortalMapPanel from '../../components/PermitPortalMapPanel';
 
 const twoMuniPermits: Permit[] = [
   {
-    id: 'p1',
-    diarienummer: 'D-001',
+    id: 1,
+    filename: 'permit-001.pdf',
+    checksum: 'abc123',
+    received_date: '2024-01-01',
+    property_id: 'PROP-001',
     municipality: 'Stockholm',
-    decision_type: 'BIFALL',
-    permit_type: 'C-ANMALAN',
-    date: '2024-01-01',
-    description: 'Stockholm permit',
+    waste_codes: '17 05 04',
+    decision_type: DecisionType.BIFALL,
+    full_text: 'Stockholm permit',
+    processed_at: '2024-01-02',
     lat: 59.33,
     lng: 18.06,
   },
   {
-    id: 'p2',
-    diarienummer: 'D-002',
+    id: 2,
+    filename: 'permit-002.pdf',
+    checksum: 'def456',
+    received_date: '2024-06-01',
+    property_id: 'PROP-002',
     municipality: 'Göteborg',
-    decision_type: 'AVSLAG',
-    permit_type: 'TILLSTAND',
-    date: '2024-06-01',
-    description: 'Göteborg permit',
+    waste_codes: '17 05 04',
+    decision_type: DecisionType.AVSLAG,
+    full_text: 'Göteborg permit',
+    processed_at: '2024-06-02',
   },
 ];
 

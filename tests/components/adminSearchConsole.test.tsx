@@ -91,4 +91,4 @@ describe('AdminSearchConsole', () => {
     await user.click(loginBtn);
     await waitFor(() => expect(screen.getByText(/Ogiltiga uppgifter/i)).toBeInTheDocument());
   });
-}
+});

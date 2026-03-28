@@ -2,8 +2,6 @@ import { render, screen } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import MvpWorkflowView from '../../components/MvpWorkflowView';
 
-const user = (await import('@testing-library/user-event')).default.setup({ delay: null });
-
 describe('MvpWorkflowView', () => {
   afterEach(() => {
     vi.restoreAllMocks();
