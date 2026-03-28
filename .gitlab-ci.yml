@@ -1,0 +1,41 @@
+# .gitlab-ci.yml
+stages:
+  - validate
+  - test
+  - build
+  - e2e
+
+variables:
+  NODE_VERSION: "22"
+
+typecheck:
+  stage: validate
+  image: node:${NODE_VERSION}
+  script:
+    - npm ci
+    - npm run typecheck
+
+unit-tests:
+  stage: test
+  image: node:${NODE_VERSION}
+  script:
+    - npm ci
+    - npm run test:unit
+  coverage: '/Lines\s*:\s*(\d+\.?\d*)%/'
+  artifacts:
+    reports:
+      coverage_report:
+        coverage_format: cobertura
+        path: coverage/cobertura-coverage.xml
+
+integration-tests:
+  stage: test
+  image: node:${NODE_VERSION}
+  services:
+    - name: postgis/postgis:16-3.4
+      alias: postgres
+  variables:
+    DATABASE_URL: postgresql://postgres:password@postgres:5432/test
+  script:
+    - npm ci
+    - npm run test:integration

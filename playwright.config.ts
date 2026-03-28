@@ -1,0 +1,82 @@
+import { defineConfig } from '@playwright/test';
+import { loadEnv } from 'vite';
+
+function trim(value: string | undefined): string {
+  return String(value || '').trim();
+}
+
+function parsePort(value: string | undefined, fallback: number): number {
+  const parsed = Number(trim(value));
+  return Number.isFinite(parsed) && parsed > 0 ? Math.trunc(parsed) : fallback;
+}
+
+const externalBaseUrl = trim(process.env.PLAYWRIGHT_BASE_URL) || trim(process.env.STAGING_URL);
+const localApiPort = parsePort(process.env.PLAYWRIGHT_LOCAL_API_PORT, 8788);
+const localUiPort = parsePort(process.env.PLAYWRIGHT_LOCAL_UI_PORT, 3100);
+const localUiBaseUrl = `http://127.0.0.1:${localUiPort}`;
+const isExternalTarget = Boolean(externalBaseUrl);
+const forceFreshSetting = trim(process.env.PLAYWRIGHT_FORCE_FRESH_SERVER).toLowerCase();
+const requireFreshLocalServers = forceFreshSetting === '' ? true : forceFreshSetting === 'true';
+const testEnv = loadEnv('test', process.cwd(), '');
+
+const serverEnv = {
+  NODE_ENV: 'test',
+  PORT: String(localApiPort),
+  DATABASE_URL:
+    trim(process.env.PLAYWRIGHT_DATABASE_URL) ||
+    trim(testEnv.DATABASE_URL) ||
+    'postgresql://riskguard:password@localhost:5432/riskguard_test',
+  JWT_ACCESS_SECRET: trim(testEnv.JWT_ACCESS_SECRET) || 'test-access-secret',
+  JWT_REFRESH_SECRET: trim(testEnv.JWT_REFRESH_SECRET) || 'test-refresh-secret',
+  LANTMATERIET_OPEN_MODE: trim(testEnv.LANTMATERIET_OPEN_MODE) || 'true',
+  LANTMATERIET_BASE_URL: trim(testEnv.LANTMATERIET_BASE_URL) || 'https://example.invalid',
+  ADMIN_CONSOLE_USERNAME: trim(testEnv.ADMIN_CONSOLE_USERNAME) || 'admin',
+  ADMIN_CONSOLE_PASSWORD: trim(testEnv.ADMIN_CONSOLE_PASSWORD) || 'admin-test-password',
+  ADMIN_ORG_NAME: trim(testEnv.ADMIN_ORG_NAME) || 'Miljobeslut Test Org',
+  ADMIN_ORG_NUMBER: trim(testEnv.ADMIN_ORG_NUMBER) || '999999-0001',
+  SLU_API_BASE_URL: trim(testEnv.SLU_API_BASE_URL) || 'https://example.invalid',
+  SLU_API_KEY: trim(testEnv.SLU_API_KEY) || 'test-slu-key',
+  DISPATCH_PROVIDER_MODE: trim(testEnv.DISPATCH_PROVIDER_MODE) || 'MOCK_FRAKTBORS',
+  CORS_ALLOW_ORIGINS: localUiBaseUrl,
+  SEARCH_WORKER_ENABLED: 'false',
+} as const;
+
+if (!isExternalTarget) {
+  process.env.PLAYWRIGHT_DATABASE_URL = serverEnv.DATABASE_URL;
+  process.env.DATABASE_URL = serverEnv.DATABASE_URL;
+}
+
+export default defineConfig({
+  testDir: 'tests/e2e',
+  timeout: 60000,
+  retries: process.env.CI ? 1 : 0,
+  reporter: process.env.CI ? [['github'], ['html', { open: 'never' }]] : 'list',
+  testIgnore: isExternalTarget ? ['tests/e2e/admin-flow.spec.ts'] : [],
+  use: {
+    baseURL: externalBaseUrl || localUiBaseUrl,
+    trace: 'on-first-retry',
+    screenshot: 'only-on-failure',
+    video: 'retain-on-failure',
+  },
+  webServer: isExternalTarget
+    ? undefined
+    : [
+        {
+          command: 'npm run dev:server',
+          port: localApiPort,
+          timeout: 120000,
+          reuseExistingServer: !process.env.CI && !requireFreshLocalServers,
+          env: serverEnv,
+        },
+        {
+          command: `npm run dev -- --host 127.0.0.1 --port ${localUiPort}`,
+          port: localUiPort,
+          timeout: 120000,
+          reuseExistingServer: !process.env.CI && !requireFreshLocalServers,
+          env: {
+            ...serverEnv,
+            VITE_API_BASE_URL: `http://127.0.0.1:${localApiPort}`,
+          },
+        },
+      ],
+});

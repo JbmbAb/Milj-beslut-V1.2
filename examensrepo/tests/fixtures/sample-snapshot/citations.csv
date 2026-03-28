@@ -1,0 +1,4 @@
+CitationId;RequirementId;CaseId;DocumentId;QuoteText;PageNumber;CharStart;CharEnd;Extractor;VerifieradJaNej;VerifieradAv;VerifieradDatum;Kommentar
+CIT-001;REQ-001;CASE-001;DOC-001;tat yta citat;5;;;manual;Ja;Verifierare A;2026-03-01;
+CIT-002;REQ-002;CASE-001;DOC-001;lakvatten citat;6;;;manual;Ja;Verifierare A;2026-03-01;
+CIT-003;REQ-003;CASE-002;DOC-002;kontrollprogram citat;;; ;manual;Ja;Verifierare B;2026-03-02;Verifierad utan sidnummer, kommentar finns

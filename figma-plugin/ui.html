@@ -1,0 +1,239 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Miljobeslut AI Starter</title>
+    <style>
+      body {
+        margin: 0;
+        padding: 14px;
+        font: 12px/1.4 Inter, system-ui, -apple-system, Segoe UI, sans-serif;
+        background: #f7f9fc;
+        color: #1d2433;
+      }
+      h1 {
+        margin: 0 0 10px;
+        font-size: 14px;
+      }
+      label {
+        display: block;
+        margin: 10px 0 6px;
+        font-weight: 600;
+      }
+      textarea,
+      input,
+      select {
+        width: 100%;
+        border: 1px solid #cfd7e6;
+        border-radius: 8px;
+        padding: 8px;
+        box-sizing: border-box;
+        background: #fff;
+      }
+      textarea {
+        min-height: 96px;
+        resize: vertical;
+      }
+      .actions {
+        margin-top: 12px;
+        display: flex;
+        gap: 8px;
+      }
+      button {
+        border: 0;
+        border-radius: 8px;
+        padding: 8px 10px;
+        cursor: pointer;
+      }
+      #generate {
+        background: #0069ff;
+        color: #fff;
+        flex: 1;
+      }
+      #use-structure {
+        background: #dbe6ff;
+        color: #123b8f;
+      }
+      #close {
+        background: #e6ebf5;
+      }
+      #status {
+        margin-top: 10px;
+        min-height: 18px;
+        color: #44506a;
+      }
+      .hint {
+        margin-top: 8px;
+        color: #58637d;
+      }
+    </style>
+  </head>
+  <body>
+    <h1>Miljobeslut AI Starter</h1>
+
+    <label for="prompt">Prompt</label>
+    <textarea id="prompt" placeholder="Skapa ett UX-forslag for denna vy"></textarea>
+
+    <label for="context">Context (optional)</label>
+    <textarea id="context" placeholder="Beskriv sida, malgrupp och krav"></textarea>
+
+    <label for="style">Response style</label>
+    <select id="style">
+      <option value="brief" selected>Brief</option>
+      <option value="detailed">Detailed</option>
+      <option value="bullet">Bullet</option>
+    </select>
+
+    <label for="mode">Generation mode</label>
+    <select id="mode">
+      <option value="ui" selected>Build interface</option>
+      <option value="text">Text answer</option>
+    </select>
+
+    <label for="endpoint">Backend endpoint</label>
+    <input id="endpoint" value="http://localhost:8787/api/figma/ai" />
+
+    <label for="token">Bearer token (optional in local mode)</label>
+    <input id="token" placeholder="eyJ..." />
+
+    <div class="actions">
+      <button id="use-structure">Use app structure</button>
+      <button id="generate">Generate</button>
+      <button id="close">Close</button>
+    </div>
+
+    <div id="status"></div>
+    <div class="hint">Plugin sends prompt to /api/figma/ai and creates one frame with response text. On localhost, token can be empty.</div>
+
+    <script>
+      const promptEl = document.getElementById("prompt");
+      const contextEl = document.getElementById("context");
+      const styleEl = document.getElementById("style");
+      const modeEl = document.getElementById("mode");
+      const endpointEl = document.getElementById("endpoint");
+      const tokenEl = document.getElementById("token");
+      const statusEl = document.getElementById("status");
+      const useStructureBtn = document.getElementById("use-structure");
+      const generateBtn = document.getElementById("generate");
+      const closeBtn = document.getElementById("close");
+
+      const STRUCTURE_PROMPT =
+        "Skapa Home-frame i Figma, men folj exakt den befintliga kodstrukturen i projektet. " +
+        "Bygg endast UI for existerande komponenter och mode-floden.";
+
+      const STRUCTURE_CONTEXT = [
+        "Struktur-kontrakt (maste foljas):",
+        "1) Top shell + mode navigation -> components/App.tsx",
+        "2) Permit portal-vy -> components/PermitPortalView.tsx",
+        "3) Market/logistik-vy -> components/MarketIntelView.tsx",
+        "4) Admin-vy -> components/AdminSearchConsole.tsx",
+        "",
+        "Regler:",
+        "- Ingen ny toppniva-arkitektur eller nya mode-nycklar.",
+        "- Bevara befintlig affarslogik/API/state-flode.",
+        "- Responsive desktop+mobile.",
+        "- Anvand befintliga tokens (tokens.css/tokens.json).",
+        "",
+        "Mode-ordning i appen:",
+        "- LOGISTICS_MARKET",
+        "- PERMIT_PORTAL",
+        "- PROJECT_MANAGER",
+        "- COMPLIANCE_AUDIT",
+        "- ADMIN_CONSOLE",
+      ].join("\n");
+
+      function setStatus(text) {
+        statusEl.textContent = text || "";
+      }
+
+      function applyStructureTemplate() {
+        if (!promptEl.value.trim()) {
+          promptEl.value = STRUCTURE_PROMPT;
+        }
+        contextEl.value = STRUCTURE_CONTEXT;
+        setStatus("Project structure template loaded.");
+      }
+
+      async function fetchAiData(endpoint, token, payload) {
+        const headers = { "Content-Type": "application/json" };
+        if (token) {
+          headers.Authorization = "Bearer " + token;
+        }
+
+        const res = await fetch(endpoint, {
+          method: "POST",
+          headers,
+          body: JSON.stringify(payload)
+        });
+
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok || data.ok === false) {
+          const details = data && typeof data.error === "string" ? data.error : "HTTP " + res.status;
+          throw new Error(details);
+        }
+
+        return data;
+      }
+
+      generateBtn.onclick = async () => {
+        const prompt = promptEl.value.trim();
+        const context = contextEl.value.trim();
+        const style = styleEl.value;
+        const mode = modeEl.value === "text" ? "text" : "ui";
+        const endpoint = endpointEl.value.trim();
+        const token = tokenEl.value.trim();
+
+        if (!prompt) {
+          setStatus("Write a prompt first.");
+          return;
+        }
+        if (!endpoint) {
+          setStatus("Set backend endpoint first.");
+          return;
+        }
+        generateBtn.disabled = true;
+        setStatus("Generating...");
+
+        let aiText = "";
+        let uiSpec = null;
+        try {
+          const data = await fetchAiData(endpoint, token, { prompt, context, style, mode });
+          if (mode === "ui") {
+            uiSpec = data && typeof data.spec === "object" ? data.spec : null;
+          } else {
+            aiText = typeof data.text === "string" ? data.text : JSON.stringify(data);
+          }
+          setStatus("AI response received.");
+        } catch (err) {
+          aiText = "[AI error] " + String(err);
+          setStatus("AI request failed. Creating frame with error text.");
+        } finally {
+          parent.postMessage(
+            {
+              pluginMessage: {
+                type: "generate",
+                mode,
+                prompt,
+                aiText,
+                uiSpec
+              }
+            },
+            "*"
+          );
+          generateBtn.disabled = false;
+        }
+      };
+
+      closeBtn.onclick = () => {
+        parent.postMessage({ pluginMessage: { type: "cancel" } }, "*");
+      };
+
+      useStructureBtn.onclick = () => {
+        applyStructureTemplate();
+      };
+
+      applyStructureTemplate();
+    </script>
+  </body>
+</html>

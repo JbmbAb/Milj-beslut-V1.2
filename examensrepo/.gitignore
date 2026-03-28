@@ -1,0 +1,6 @@
+node_modules/
+output/
+working/
+verified/
+input/snapshots/
+!input/snapshots/.gitkeep

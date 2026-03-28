@@ -1,0 +1,57 @@
+# Logs
+logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+lerna-debug.log*
+
+node_modules
+dist
+dist-ssr
+*.local
+
+# Editor directories and files
+.vscode/*
+!.vscode/extensions.json
+.idea
+.DS_Store
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
+.env
+.env.test
+.env.local
+.env.*.local
+.env.supabase
+.env.production
+.env.staging
+coverage
+playwright-report
+test-results
+.quarantine/
+figma-raw.json
+
+# Temporary files
+.tmp-*
+tmp_*
+*.txt
+*.json
+!package.json
+!package-lock.json
+!tsconfig.json
+!stitch.json
+!figma-raw.json
+!*.md
+
+# Python cache
+__pycache__/
+*.pyc
+
+# Local debug artifacts
+.codex-logs/
+.postqode/
+.gemini/

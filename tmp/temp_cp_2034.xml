@@ -1,0 +1,31 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<feed xmlns:georss="http://www.georss.org/georss" xmlns="http://www.w3.org/2005/Atom" xmlns:inspire_dls="http://inspire.ec.europa.eu/schemas/inspire_dls/1.0" xml:lang="sv">
+    <id>https://api.lantmateriet.se/fastighetsomrade/atom/v1/inspire/cp/2034</id>
+    <title>Fördefinierad datamängd Inspire Cadastral Parcels, Orsa (2034)</title>
+    <subtitle>Fördefinierad datamängd i olika referenssystem och format</subtitle>
+    <updated>2024-09-20T02:51:44+02:00</updated>
+    <link href="https://api.lantmateriet.se/fastighetsomrade/atom/v1/inspire/cp/2034" rel="self" type="application/atom+xml" hreflang="sv" title="Detta dokument"/>
+    <link href="https://api.lantmateriet.se/fastighetsomrade/atom/v1/inspire/cp" rel="up" type="application/atom+xml" hreflang="sv" title="Inspire Cadastral Parcels"/>
+    <link href="http://inspire.ec.europa.eu/featureconcept/CadastralBoundary/" rel="describedby" type="text/html" title="Featurtype Cadastral Boundary"/>
+    <link href="http://inspire.ec.europa.eu/featureconcept/BasicPropertyUnit/" rel="describedby" type="text/html" title="Featurtype Basic Property Unit"/>
+    <link href="http://inspire.ec.europa.eu/featureconcept/CadastralParcel" rel="describedby" type="text/html" title="Featurtype Cadastral Parcel"/>
+    <rights>Produkten omfattas av upphovsrätt. Avtal för användning krävs, avgifter för användning tas ut. Användningen förutsätter ändamålsprövning.</rights>
+    <author>
+        <name>Geodatasupport</name>
+        <email>geodatasupport@lm.se</email>
+    </author>
+    <entry>
+        <id>https://api.lantmateriet.se/fastighetsomrade/atom/v1/inspire/cp/2034/dataset?srs=3006&amp;format=application/zip</id>
+        <title>Inspire Cadastral Parcels, Orsa (2034) [EPSG:3006, GML]</title>
+        <updated>2024-09-20T02:51:39+02:00</updated>
+        <link href="https://api.lantmateriet.se/fastighetsomrade/atom/v1/inspire/cp/2034/dataset?srs=3006&amp;format=application/zip" rel="alternate" type="application/zip" hreflang="sv" title="inspire-cp_2034.3006.zip" length="7618709"/>
+        <category term="http://www.opengis.net/def/crs/EPSG/0/3006" label="SWEREF99 TM"/>
+    </entry>
+    <entry>
+        <id>https://api.lantmateriet.se/fastighetsomrade/atom/v1/inspire/cp/2034/dataset?srs=4258&amp;format=application/zip</id>
+        <title>Inspire Cadastral Parcels, Orsa (2034) [EPSG:4258, GML]</title>
+        <updated>2024-09-20T02:51:44+02:00</updated>
+        <link href="https://api.lantmateriet.se/fastighetsomrade/atom/v1/inspire/cp/2034/dataset?srs=4258&amp;format=application/zip" rel="alternate" type="application/zip" hreflang="sv" title="inspire-cp_2034.4258.zip" length="11314318"/>
+        <category term="http://www.opengis.net/def/crs/EPSG/0/4258" label="ETRS89"/>
+    </entry>
+</feed>

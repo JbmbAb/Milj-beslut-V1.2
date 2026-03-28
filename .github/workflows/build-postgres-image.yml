@@ -1,0 +1,41 @@
+name: Build & publish test-DB image
+
+# Rebuild whenever the Dockerfile or init scripts change.
+on:
+  push:
+    branches: [main, master]
+    paths:
+      - 'docker/postgres-test/**'
+  workflow_dispatch:
+
+jobs:
+  build-and-push:
+    name: Build postgres-test image
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write # needed to push to GHCR
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build and push
+        uses: docker/build-push-action@v6
+        with:
+          context: docker/postgres-test
+          push: true
+          tags: |
+            ghcr.io/jbmbab/milj-beslut-postgres-test:16
+            ghcr.io/jbmbab/milj-beslut-postgres-test:latest
+          cache-from: type=gha
+          cache-to: type=gha,mode=max

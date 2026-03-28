@@ -1,0 +1,1384 @@
+{
+  "openapi" : "3.0.3",
+  "info" : {
+    "title" : "FAPI",
+    "description" : "API för ansökningar om avtalsrättigheter och anteckningar",
+    "contact" : {
+      "name" : "Team LEIA",
+      "email" : "sl-team-leia@lm.se"
+    },
+    "version" : "v1"
+  },
+  "servers" : [ {
+    "url" : "https://api.lantmateriet.se/fapi/v1"
+  }, {
+    "url" : "http://api.lantmateriet.se/fapi/v1"
+  } ],
+  "security" : [ {
+    "default" : [ ]
+  } ],
+  "tags" : [ {
+    "name" : "Anteckningar"
+  }, {
+    "name" : "Avtalsrättighet"
+  }, {
+    "name" : "Inteckning"
+  }, {
+    "name" : "Komplettering"
+  } ],
+  "paths" : {
+    "/anteckning" : {
+      "delete" : {
+        "tags" : [ "Anteckningar" ],
+        "summary" : "Ta bort anteckning",
+        "description" : "Ta bort anteckning",
+        "requestBody" : {
+          "content" : {
+            "application/json" : {
+              "schema" : {
+                "$ref" : "#/components/schemas/Anteckning"
+              }
+            },
+            "application/xml" : {
+              "schema" : {
+                "$ref" : "#/components/schemas/Anteckning"
+              }
+            }
+          },
+          "required" : true
+        },
+        "responses" : {
+          "200" : {
+            "description" : "OK",
+            "content" : {
+              "application/json" : {
+                "schema" : { }
+              },
+              "application/xml" : { }
+            }
+          }
+        },
+        "security" : [ {
+          "default" : [ "fapi:anteckning.write" ]
+        } ],
+        "x-auth-type" : "Application & Application User",
+        "x-throttling-tier" : "50KPerMin"
+      }
+    },
+    "/anteckning/betalningssakring" : {
+      "post" : {
+        "tags" : [ "Anteckningar" ],
+        "summary" : "Skapa anteckning för betalningssäkring",
+        "description" : "Betalningssäkring",
+        "requestBody" : {
+          "content" : {
+            "application/json" : {
+              "schema" : {
+                "$ref" : "#/components/schemas/Betalningssakring"
+              }
+            },
+            "application/xml" : {
+              "schema" : {
+                "$ref" : "#/components/schemas/Betalningssakring"
+              }
+            }
+          },
+          "required" : true
+        },
+        "responses" : {
+          "200" : {
+            "description" : "OK",
+            "content" : {
+              "application/json" : {
+                "schema" : { }
+              },
+              "application/xml" : { }
+            }
+          },
+          "400" : {
+            "description" : "Bad Request"
+          }
+        },
+        "security" : [ {
+          "default" : [ "fapi:anteckning.write" ]
+        } ],
+        "x-auth-type" : "Application & Application User",
+        "x-throttling-tier" : "50KPerMin"
+      }
+    },
+    "/anteckning/exekutiv-forsaljning" : {
+      "post" : {
+        "tags" : [ "Anteckningar" ],
+        "summary" : "Skapa anteckning för exekutiv försäljning",
+        "description" : "Exekutiv försäljning",
+        "requestBody" : {
+          "content" : {
+            "application/json" : {
+              "schema" : {
+                "$ref" : "#/components/schemas/ExekutivForsaljning"
+              }
+            },
+            "application/xml" : {
+              "schema" : {
+                "$ref" : "#/components/schemas/ExekutivForsaljning"
+              }
+            }
+          },
+          "required" : true
+        },
+        "responses" : {
+          "200" : {
+            "description" : "OK",
+            "content" : {
+              "application/json" : {
+                "schema" : { }
+              },
+              "application/xml" : { }
+            }
+          },
+          "400" : {
+            "description" : "Bad Request"
+          }
+        },
+        "security" : [ {
+          "default" : [ "fapi:anteckning.write" ]
+        } ],
+        "x-auth-type" : "Application & Application User",
+        "x-throttling-tier" : "50KPerMin"
+      }
+    },
+    "/anteckning/forbud" : {
+      "post" : {
+        "tags" : [ "Anteckningar" ],
+        "summary" : "Skapa anteckning för förbud",
+        "description" : "Förbud",
+        "requestBody" : {
+          "content" : {
+            "application/json" : {
+              "schema" : {
+                "$ref" : "#/components/schemas/Forbud"
+              }
+            },
+            "application/xml" : {
+              "schema" : {
+                "$ref" : "#/components/schemas/Forbud"
+              }
+            }
+          },
+          "required" : true
+        },
+        "responses" : {
+          "200" : {
+            "description" : "OK",
+            "content" : {
+              "application/json" : {
+                "schema" : { }
+              },
+              "application/xml" : { }
+            }
+          },
+          "400" : {
+            "description" : "Bad Request"
+          }
+        },
+        "security" : [ {
+          "default" : [ "fapi:anteckning.write" ]
+        } ],
+        "x-auth-type" : "Application & Application User",
+        "x-throttling-tier" : "50KPerMin"
+      }
+    },
+    "/anteckning/forelaggande" : {
+      "post" : {
+        "tags" : [ "Anteckningar" ],
+        "summary" : "Skapa anteckning för föreläggande",
+        "description" : "Föreläggande",
+        "requestBody" : {
+          "content" : {
+            "application/json" : {
+              "schema" : {
+                "$ref" : "#/components/schemas/Forelaggande"
+              }
+            },
+            "application/xml" : {
+              "schema" : {
+                "$ref" : "#/components/schemas/Forelaggande"
+              }
+            }
+          },
+          "required" : true
+        },
+        "responses" : {
+          "200" : {
+            "description" : "OK",
+            "content" : {
+              "application/json" : {
+                "schema" : { }
+              },
+              "application/xml" : { }
+            }
+          },
+          "400" : {
+            "description" : "Bad Request"
+          }
+        },
+        "security" : [ {
+          "default" : [ "fapi:anteckning.write" ]
+        } ],
+        "x-auth-type" : "Application & Application User",
+        "x-throttling-tier" : "50KPerMin"
+      }
+    },
+    "/anteckning/forsaljning" : {
+      "post" : {
+        "tags" : [ "Anteckningar" ],
+        "summary" : "Skapa anteckning för försäljning",
+        "description" : "Försäljning",
+        "requestBody" : {
+          "content" : {
+            "application/json" : {
+              "schema" : {
+                "$ref" : "#/components/schemas/ForordnandeForsaljning"
+              }
+            },
+            "application/xml" : {
+              "schema" : {
+                "$ref" : "#/components/schemas/ForordnandeForsaljning"
+              }
+            }
+          },
+          "required" : true
+        },
+        "responses" : {
+          "200" : {
+            "description" : "OK",
+            "content" : {
+              "application/json" : {
+                "schema" : { }
+              },
+              "application/xml" : { }
+            }
+          },
+          "400" : {
+            "description" : "Bad Request"
+          }
+        },
+        "security" : [ {
+          "default" : [ "fapi:anteckning.write" ]
+        } ],
+        "x-auth-type" : "Application & Application User",
+        "x-throttling-tier" : "50KPerMin"
+      }
+    },
+    "/anteckning/utmatning" : {
+      "post" : {
+        "tags" : [ "Anteckningar" ],
+        "summary" : "Skapa anteckning för utmätning",
+        "description" : "Utmätning",
+        "requestBody" : {
+          "content" : {
+            "application/json" : {
+              "schema" : {
+                "$ref" : "#/components/schemas/Utmatning"
+              }
+            },
+            "application/xml" : {
+              "schema" : {
+                "$ref" : "#/components/schemas/Utmatning"
+              }
+            }
+          },
+          "required" : true
+        },
+        "responses" : {
+          "200" : {
+            "description" : "OK",
+            "content" : {
+              "application/json" : {
+                "schema" : { }
+              },
+              "application/xml" : { }
+            }
+          },
+          "400" : {
+            "description" : "Bad Request"
+          }
+        },
+        "security" : [ {
+          "default" : [ "fapi:anteckning.write" ]
+        } ],
+        "x-auth-type" : "Application & Application User",
+        "x-throttling-tier" : "50KPerMin"
+      }
+    },
+    "/avtalsrattighet" : {
+      "delete" : {
+        "tags" : [ "Avtalsrättighet" ],
+        "summary" : "Ta bort avtalsrättighet",
+        "description" : "Ta bort avtalsrättighet",
+        "requestBody" : {
+          "content" : {
+            "application/json" : {
+              "schema" : {
+                "$ref" : "#/components/schemas/DodningAvtalsrattighet"
+              }
+            },
+            "application/xml" : {
+              "schema" : {
+                "$ref" : "#/components/schemas/DodningAvtalsrattighet"
+              }
+            }
+          },
+          "required" : true
+        },
+        "responses" : {
+          "200" : {
+            "description" : "OK",
+            "content" : {
+              "application/json" : {
+                "schema" : { }
+              },
+              "application/xml" : { }
+            }
+          }
+        },
+        "security" : [ {
+          "default" : [ "fapi:avtalsrattighet.write" ]
+        } ],
+        "x-auth-type" : "Application & Application User",
+        "x-throttling-tier" : "50KPerMin"
+      }
+    },
+    "/avtalsrattighet/avtalsservitut" : {
+      "post" : {
+        "tags" : [ "Avtalsrättighet" ],
+        "summary" : "Skapa avtalsservitut",
+        "description" : "Avtalsservitut",
+        "requestBody" : {
+          "content" : {
+            "application/json" : {
+              "schema" : {
+                "$ref" : "#/components/schemas/Avtalsservitut"
+              }
+            },
+            "application/xml" : {
+              "schema" : {
+                "$ref" : "#/components/schemas/Avtalsservitut"
+              }
+            }
+          },
+          "required" : true
+        },
+        "responses" : {
+          "200" : {
+            "description" : "OK",
+            "content" : {
+              "application/json" : {
+                "schema" : { }
+              },
+              "application/xml" : { }
+            }
+          },
+          "400" : {
+            "description" : "Bad Request"
+          }
+        },
+        "security" : [ {
+          "default" : [ "fapi:avtalsrattighet.write" ]
+        } ],
+        "x-auth-type" : "Application & Application User",
+        "x-throttling-tier" : "50KPerMin"
+      }
+    },
+    "/avtalsrattighet/nyttjanderatt" : {
+      "post" : {
+        "tags" : [ "Avtalsrättighet" ],
+        "summary" : "Skapa nyttjanderätt",
+        "description" : "Nyttjanderätt",
+        "requestBody" : {
+          "content" : {
+            "application/json" : {
+              "schema" : {
+                "$ref" : "#/components/schemas/Nyttjanderatt"
+              }
+            },
+            "application/xml" : {
+              "schema" : {
+                "$ref" : "#/components/schemas/Nyttjanderatt"
+              }
+            }
+          },
+          "required" : true
+        },
+        "responses" : {
+          "200" : {
+            "description" : "OK",
+            "content" : {
+              "application/json" : {
+                "schema" : { }
+              },
+              "application/xml" : { }
+            }
+          },
+          "400" : {
+            "description" : "Bad Request"
+          }
+        },
+        "security" : [ {
+          "default" : [ "fapi:avtalsrattighet.write" ]
+        } ],
+        "x-auth-type" : "Application & Application User",
+        "x-throttling-tier" : "50KPerMin"
+      }
+    },
+    "/inteckning" : {
+      "post" : {
+        "tags" : [ "Inteckning" ],
+        "summary" : "Skapa inteckningsåtgärd",
+        "description" : "Inteckning",
+        "requestBody" : {
+          "content" : {
+            "application/json" : {
+              "schema" : {
+                "$ref" : "#/components/schemas/Inteckning"
+              }
+            },
+            "application/xml" : {
+              "schema" : {
+                "$ref" : "#/components/schemas/Inteckning"
+              }
+            }
+          },
+          "required" : true
+        },
+        "responses" : {
+          "200" : {
+            "description" : "OK",
+            "content" : {
+              "application/json" : {
+                "schema" : { }
+              },
+              "application/xml" : { }
+            }
+          },
+          "400" : {
+            "description" : "Bad Request"
+          }
+        },
+        "security" : [ {
+          "default" : [ "fapi:inteckning.write" ]
+        } ],
+        "x-auth-type" : "Application & Application User",
+        "x-throttling-tier" : "50KPerMin"
+      }
+    },
+    "/komplettering" : {
+      "post" : {
+        "tags" : [ "Komplettering" ],
+        "summary" : "Komplettera ett ärende",
+        "description" : "Komplettering",
+        "requestBody" : {
+          "content" : {
+            "application/json" : {
+              "schema" : {
+                "$ref" : "#/components/schemas/Komplettering"
+              }
+            },
+            "application/xml" : {
+              "schema" : {
+                "$ref" : "#/components/schemas/Komplettering"
+              }
+            }
+          },
+          "required" : true
+        },
+        "responses" : {
+          "200" : {
+            "description" : "OK",
+            "content" : {
+              "application/json" : {
+                "schema" : { }
+              },
+              "application/xml" : { }
+            }
+          },
+          "400" : {
+            "description" : "Bad Request"
+          }
+        },
+        "security" : [ {
+          "default" : [ "fapi:anteckning.write", "fapi:avtalsrattighet.write", "fapi:inteckning.write" ]
+        } ],
+        "x-auth-type" : "Application & Application User",
+        "x-throttling-tier" : "50KPerMin"
+      }
+    }
+  },
+  "components" : {
+    "schemas" : {
+      "Anteckning" : {
+        "required" : [ "aktnummer", "fastigheter", "ingivare" ],
+        "type" : "object",
+        "properties" : {
+          "ingivare" : {
+            "$ref" : "#/components/schemas/Ingivare"
+          },
+          "kontaktuppgifter" : {
+            "$ref" : "#/components/schemas/Kontaktuppgifter"
+          },
+          "aktnummer" : {
+            "pattern" : "^(D-\\d{4}-\\d{8}:\\d*|\\d{2}/\\d{1,8}[A-Za-z]{0,2})$",
+            "type" : "string",
+            "example" : "D-2023-01234567:1"
+          },
+          "fastigheter" : {
+            "minItems" : 1,
+            "type" : "array",
+            "items" : {
+              "$ref" : "#/components/schemas/Fastighetsbeteckning"
+            }
+          }
+        }
+      },
+      "Avtalsservitut" : {
+        "required" : [ "harskandeFastigheter", "ingivare", "kontaktperson", "sokande", "tjanandeFastigheter" ],
+        "type" : "object",
+        "properties" : {
+          "ingivare" : {
+            "type" : "object",
+            "example" : {
+              "type" : "ingivarnummer",
+              "ingivarnummer" : "100105"
+            },
+            "allOf" : [ {
+              "$ref" : "#/components/schemas/Ingivare"
+            } ]
+          },
+          "kontaktperson" : {
+            "$ref" : "#/components/schemas/Kontaktuppgifter"
+          },
+          "faktureringsadress" : {
+            "$ref" : "#/components/schemas/Faktureringsadress"
+          },
+          "sokande" : {
+            "pattern" : "^(\\d{2})?\\d{6}-?\\d{4}$",
+            "type" : "string",
+            "example" : "555666-1121"
+          },
+          "handlingar" : {
+            "type" : "array",
+            "items" : {
+              "$ref" : "#/components/schemas/Handling"
+            }
+          },
+          "andamal" : {
+            "type" : "string",
+            "example" : "Ändamål för avtalsrättighet"
+          },
+          "tjanandeFastigheter" : {
+            "minItems" : 1,
+            "type" : "array",
+            "example" : [ {
+              "kommun" : "Yvre",
+              "trakt" : "Aspa",
+              "block" : "2",
+              "enhet" : 79
+            } ],
+            "items" : {
+              "$ref" : "#/components/schemas/Fastighetsbeteckning"
+            }
+          },
+          "harskandeFastigheter" : {
+            "minItems" : 1,
+            "type" : "array",
+            "example" : [ {
+              "kommun" : "Dalnäs",
+              "trakt" : "Ren",
+              "block" : "30",
+              "enhet" : 112
+            } ],
+            "items" : {
+              "$ref" : "#/components/schemas/Fastighetsbeteckning"
+            }
+          }
+        }
+      },
+      "Betalningssakring" : {
+        "required" : [ "beslutsdatum", "fastighet", "ingivare", "skuldbelopp", "valuta" ],
+        "type" : "object",
+        "properties" : {
+          "ingivare" : {
+            "$ref" : "#/components/schemas/Ingivare"
+          },
+          "kontaktuppgifter" : {
+            "$ref" : "#/components/schemas/Kontaktuppgifter"
+          },
+          "fastighet" : {
+            "$ref" : "#/components/schemas/Fastighetsbeteckning"
+          },
+          "beslutsdatum" : {
+            "type" : "string",
+            "example" : "2001-01-01",
+            "allOf" : [ {
+              "$ref" : "#/components/schemas/LocalDate"
+            } ]
+          },
+          "skuldbelopp" : {
+            "minimum" : 0,
+            "exclusiveMinimum" : true,
+            "type" : "integer",
+            "format" : "int32",
+            "example" : 1337
+          },
+          "valuta" : {
+            "$ref" : "#/components/schemas/Valuta"
+          },
+          "beslutstext" : {
+            "type" : "string",
+            "example" : "Se bifogad fil"
+          },
+          "handlingar" : {
+            "type" : "array",
+            "items" : {
+              "$ref" : "#/components/schemas/Handling"
+            }
+          }
+        }
+      },
+      "DodningAvtalsrattighet" : {
+        "required" : [ "aktnummer", "ingivare", "inskrivningsdag", "kontaktperson", "sokande", "tjanandeFastigheter" ],
+        "type" : "object",
+        "properties" : {
+          "ingivare" : {
+            "$ref" : "#/components/schemas/Ingivare"
+          },
+          "kontaktperson" : {
+            "$ref" : "#/components/schemas/Kontaktuppgifter"
+          },
+          "sokande" : {
+            "pattern" : "^(\\d{2})?\\d{6}-?\\d{4}$",
+            "type" : "string",
+            "example" : "555666-1121"
+          },
+          "tjanandeFastigheter" : {
+            "minItems" : 1,
+            "type" : "array",
+            "items" : {
+              "$ref" : "#/components/schemas/Fastighetsbeteckning"
+            }
+          },
+          "aktnummer" : {
+            "pattern" : "^(D-\\d{4}-\\d{8}:\\d*|\\d{2}/\\d{1,8}[A-Za-z]{0,2})$",
+            "type" : "string",
+            "example" : "D-2023-01234567:1"
+          },
+          "inskrivningsdag" : {
+            "type" : "string",
+            "example" : "2001-01-01",
+            "allOf" : [ {
+              "$ref" : "#/components/schemas/LocalDate"
+            } ]
+          },
+          "handlingar" : {
+            "type" : "array",
+            "example" : [ {
+              "mimetype" : "application/pdf",
+              "typ" : "Övrigt",
+              "data" : "JVBERi0xLjEKJcKlwrHDqwoKMSAwIG9iagogIDw8IC9UeXBlIC9DYXRhbG9nCiAgICAgL1BhZ2VzIDIgMCBSCiAgPj4KZW5kb2JqCgoyIDAgb2JqCiAgPDwgL1R5cGUgL1BhZ2VzCiAgICAgL0tpZHMgWzMgMCBSXQogICAgIC9Db3VudCAxCiAgICAgL01lZGlhQm94IFswIDAgMzAwIDE0NF0KICA+PgplbmRvYmoKCjMgMCBvYmoKICA8PCAgL1R5cGUgL1BhZ2UKICAgICAgL1BhcmVudCAyIDAgUgogICAgICAvUmVzb3VyY2VzCiAgICAgICA8PCAvRm9udAogICAgICAgICAgIDw8IC9GMQogICAgICAgICAgICAgICA8PCAvVHlwZSAvRm9udAogICAgICAgICAgICAgICAgICAvU3VidHlwZSAvVHlwZTEKICAgICAgICAgICAgICAgICAgL0Jhc2VGb250IC9UaW1lcy1Sb21hbgogICAgICAgICAgICAgICA+PgogICAgICAgICAgID4+CiAgICAgICA+PgogICAgICAvQ29udGVudHMgNCAwIFIKICA+PgplbmRvYmoKCjQgMCBvYmoKICA8PCAvTGVuZ3RoIDU1ID4+CnN0cmVhbQogIEJUCiAgICAvRjEgMTggVGYKICAgIDAgMCBUZAogICAgKEhlbGxvIFdvcmxkKSBUagogIEVUCmVuZHN0cmVhbQplbmRvYmoKCnhyZWYKMCA1CjAwMDAwMDAwMDAgNjU1MzUgZiAKMDAwMDAwMDAxOCAwMDAwMCBuIAowMDAwMDAwMDc3IDAwMDAwIG4gCjAwMDAwMDAxNzggMDAwMDAgbiAKMDAwMDAwMDQ1NyAwMDAwMCBuIAp0cmFpbGVyCiAgPDwgIC9Sb290IDEgMCBSCiAgICAgIC9TaXplIDUKICA+PgpzdGFydHhyZWYKNTY1CiUlRU9GCg=="
+            } ],
+            "items" : {
+              "$ref" : "#/components/schemas/Handling"
+            }
+          }
+        }
+      },
+      "DodningInteckning" : {
+        "required" : [ "aktnummer", "belopp", "fastigheter" ],
+        "type" : "object",
+        "properties" : {
+          "type" : {
+            "type" : "string",
+            "example" : "DodningInteckning"
+          },
+          "pantbrevstyp" : {
+            "$ref" : "#/components/schemas/Pantbrevstyp"
+          },
+          "fastigheter" : {
+            "minItems" : 1,
+            "type" : "array",
+            "items" : {
+              "$ref" : "#/components/schemas/Fastighetsbeteckning"
+            }
+          },
+          "aktnummer" : {
+            "pattern" : "^(D-\\d{4}-\\d{8}:\\d*|\\d{2}/\\d{1,8}[A-Za-z]{0,2})$",
+            "type" : "string",
+            "example" : "D-2023-01234567:1"
+          },
+          "belopp" : {
+            "minimum" : 0,
+            "exclusiveMinimum" : true,
+            "type" : "integer",
+            "format" : "int32",
+            "example" : 1337
+          },
+          "valuta" : {
+            "type" : "string",
+            "example" : "SEK",
+            "allOf" : [ {
+              "$ref" : "#/components/schemas/Valuta"
+            } ]
+          }
+        }
+      },
+      "ExekutivForsaljning" : {
+        "required" : [ "fastighet", "ingivare" ],
+        "type" : "object",
+        "properties" : {
+          "ingivare" : {
+            "$ref" : "#/components/schemas/Ingivare"
+          },
+          "kontaktuppgifter" : {
+            "$ref" : "#/components/schemas/Kontaktuppgifter"
+          },
+          "fastighet" : {
+            "$ref" : "#/components/schemas/Fastighetsbeteckning"
+          },
+          "handlingar" : {
+            "type" : "array",
+            "items" : {
+              "$ref" : "#/components/schemas/Handling"
+            }
+          },
+          "beslutstext" : {
+            "type" : "string",
+            "example" : "Se bifogad fil"
+          }
+        }
+      },
+      "Faktureringsadress" : {
+        "type" : "object",
+        "discriminator" : {
+          "propertyName" : "type"
+        },
+        "anyOf" : [ {
+          "$ref" : "#/components/schemas/Faktureringsuppgift"
+        }, {
+          "$ref" : "#/components/schemas/Faktureringsorganisation"
+        } ]
+      },
+      "Faktureringsorganisation" : {
+        "required" : [ "organisationsnummer" ],
+        "type" : "object",
+        "properties" : {
+          "type" : {
+            "type" : "string",
+            "example" : "faktureringsorganisation"
+          },
+          "organisationsnummer" : {
+            "pattern" : "^(\\d{6}-\\d{4}$)",
+            "type" : "string",
+            "example" : "555666-1121"
+          }
+        }
+      },
+      "Faktureringsuppgift" : {
+        "required" : [ "adress", "namn" ],
+        "type" : "object",
+        "properties" : {
+          "type" : {
+            "type" : "string",
+            "example" : "faktureringsuppgift"
+          },
+          "namn" : {
+            "type" : "string",
+            "example" : "El AB"
+          },
+          "adress" : {
+            "$ref" : "#/components/schemas/SvenskAdress"
+          }
+        }
+      },
+      "Fastighetsbeteckning" : {
+        "required" : [ "enhet", "kommun", "trakt" ],
+        "type" : "object",
+        "properties" : {
+          "kommun" : {
+            "pattern" : "\\S",
+            "type" : "string",
+            "example" : "Dalnäs"
+          },
+          "trakt" : {
+            "pattern" : "\\S",
+            "type" : "string",
+            "example" : "Ren"
+          },
+          "block" : {
+            "type" : "string",
+            "example" : "1"
+          },
+          "enhet" : {
+            "type" : "integer",
+            "format" : "int32",
+            "example" : 11
+          }
+        }
+      },
+      "Forbud" : {
+        "required" : [ "fastighet", "ingivare" ],
+        "type" : "object",
+        "properties" : {
+          "ingivare" : {
+            "$ref" : "#/components/schemas/Ingivare"
+          },
+          "kontaktuppgifter" : {
+            "$ref" : "#/components/schemas/Kontaktuppgifter"
+          },
+          "fastighet" : {
+            "$ref" : "#/components/schemas/Fastighetsbeteckning"
+          },
+          "handlingar" : {
+            "type" : "array",
+            "items" : {
+              "$ref" : "#/components/schemas/Handling"
+            }
+          }
+        }
+      },
+      "Forelaggande" : {
+        "required" : [ "fastighet", "ingivare" ],
+        "type" : "object",
+        "properties" : {
+          "ingivare" : {
+            "$ref" : "#/components/schemas/Ingivare"
+          },
+          "kontaktuppgifter" : {
+            "$ref" : "#/components/schemas/Kontaktuppgifter"
+          },
+          "fastighet" : {
+            "$ref" : "#/components/schemas/Fastighetsbeteckning"
+          },
+          "handlingar" : {
+            "type" : "array",
+            "items" : {
+              "$ref" : "#/components/schemas/Handling"
+            }
+          }
+        }
+      },
+      "ForordnandeForsaljning" : {
+        "required" : [ "fastighet", "ingivare" ],
+        "type" : "object",
+        "properties" : {
+          "ingivare" : {
+            "$ref" : "#/components/schemas/Ingivare"
+          },
+          "kontaktuppgifter" : {
+            "$ref" : "#/components/schemas/Kontaktuppgifter"
+          },
+          "fastighet" : {
+            "$ref" : "#/components/schemas/Fastighetsbeteckning"
+          },
+          "handlingar" : {
+            "type" : "array",
+            "items" : {
+              "$ref" : "#/components/schemas/Handling"
+            }
+          },
+          "beslutstext" : {
+            "type" : "string",
+            "example" : "Se bifogad fil"
+          }
+        }
+      },
+      "Handling" : {
+        "required" : [ "data", "mimetype", "typ" ],
+        "type" : "object",
+        "properties" : {
+          "typ" : {
+            "$ref" : "#/components/schemas/HandlingTyp"
+          },
+          "mimetype" : {
+            "$ref" : "#/components/schemas/MimeTyp"
+          },
+          "data" : {
+            "pattern" : "\\S",
+            "type" : "string",
+            "example" : "JVBERi0xLjEKJcKlwrHDqwoKMSAwIG9iagogIDw8IC9UeXBlIC9DYXRhbG9nCiAgICAgL1BhZ2VzIDIgMCBSCiAgPj4KZW5kb2JqCgoyIDAgb2JqCiAgPDwgL1R5cGUgL1BhZ2VzCiAgICAgL0tpZHMgWzMgMCBSXQogICAgIC9Db3VudCAxCiAgICAgL01lZGlhQm94IFswIDAgMzAwIDE0NF0KICA+PgplbmRvYmoKCjMgMCBvYmoKICA8PCAgL1R5cGUgL1BhZ2UKICAgICAgL1BhcmVudCAyIDAgUgogICAgICAvUmVzb3VyY2VzCiAgICAgICA8PCAvRm9udAogICAgICAgICAgIDw8IC9GMQogICAgICAgICAgICAgICA8PCAvVHlwZSAvRm9udAogICAgICAgICAgICAgICAgICAvU3VidHlwZSAvVHlwZTEKICAgICAgICAgICAgICAgICAgL0Jhc2VGb250IC9UaW1lcy1Sb21hbgogICAgICAgICAgICAgICA+PgogICAgICAgICAgID4+CiAgICAgICA+PgogICAgICAvQ29udGVudHMgNCAwIFIKICA+PgplbmRvYmoKCjQgMCBvYmoKICA8PCAvTGVuZ3RoIDU1ID4+CnN0cmVhbQogIEJUCiAgICAvRjEgMTggVGYKICAgIDAgMCBUZAogICAgKEhlbGxvIFdvcmxkKSBUagogIEVUCmVuZHN0cmVhbQplbmRvYmoKCnhyZWYKMCA1CjAwMDAwMDAwMDAgNjU1MzUgZiAKMDAwMDAwMDAxOCAwMDAwMCBuIAowMDAwMDAwMDc3IDAwMDAwIG4gCjAwMDAwMDAxNzggMDAwMDAgbiAKMDAwMDAwMDQ1NyAwMDAwMCBuIAp0cmFpbGVyCiAgPDwgIC9Sb290IDEgMCBSCiAgICAgIC9TaXplIDUKICA+PgpzdGFydHhyZWYKNTY1CiUlRU9GCg=="
+          },
+          "originalintygadAvKontaktpersonen" : {
+            "type" : "boolean",
+            "example" : true
+          }
+        }
+      },
+      "HandlingTyp" : {
+        "type" : "string",
+        "enum" : [ "Upplåtelse av rättighet", "Fullmakt", "Originalintygad handling", "Läkarintyg", "Övrigt" ]
+      },
+      "Ingivare" : {
+        "type" : "object",
+        "discriminator" : {
+          "propertyName" : "type"
+        },
+        "anyOf" : [ {
+          "$ref" : "#/components/schemas/Ingivarnummer"
+        }, {
+          "$ref" : "#/components/schemas/Ingivaruppgift"
+        }, {
+          "$ref" : "#/components/schemas/Ingivarorganisation"
+        } ]
+      },
+      "Ingivarnummer" : {
+        "required" : [ "ingivarnummer" ],
+        "type" : "object",
+        "properties" : {
+          "type" : {
+            "type" : "string",
+            "example" : "ingivarnummer"
+          },
+          "ingivarnummer" : {
+            "maxLength" : 6,
+            "minLength" : 6,
+            "type" : "string",
+            "example" : "070809"
+          }
+        }
+      },
+      "Ingivarorganisation" : {
+        "required" : [ "organisationsnummer" ],
+        "type" : "object",
+        "properties" : {
+          "type" : {
+            "type" : "string",
+            "example" : "ingivarorganisation"
+          },
+          "organisationsnummer" : {
+            "pattern" : "^(\\d{6}-\\d{4}$)",
+            "type" : "string",
+            "example" : "555666-1121"
+          }
+        }
+      },
+      "Ingivaruppgift" : {
+        "required" : [ "adress", "namn" ],
+        "type" : "object",
+        "properties" : {
+          "type" : {
+            "type" : "string",
+            "example" : "ingivaruppgift"
+          },
+          "namn" : {
+            "type" : "string",
+            "example" : "El AB"
+          },
+          "adress" : {
+            "$ref" : "#/components/schemas/SvenskAdress"
+          }
+        }
+      },
+      "Inteckning" : {
+        "required" : [ "atgarder", "handlingar", "ingivare", "kontaktuppgifter", "sokande" ],
+        "type" : "object",
+        "properties" : {
+          "ingivare" : {
+            "$ref" : "#/components/schemas/Ingivare"
+          },
+          "kontaktuppgifter" : {
+            "$ref" : "#/components/schemas/Kontaktuppgifter"
+          },
+          "faktureringsadress" : {
+            "$ref" : "#/components/schemas/Faktureringsadress"
+          },
+          "atgarder" : {
+            "minItems" : 1,
+            "type" : "array",
+            "items" : {
+              "$ref" : "#/components/schemas/Inteckningsatgard"
+            }
+          },
+          "sokande" : {
+            "minItems" : 1,
+            "type" : "array",
+            "example" : [ "900101-0101" ],
+            "items" : {
+              "pattern" : "^(\\d{2})?\\d{6}-?\\d{4}$",
+              "type" : "string"
+            }
+          },
+          "handlingar" : {
+            "minItems" : 1,
+            "type" : "array",
+            "items" : {
+              "$ref" : "#/components/schemas/Handling"
+            }
+          }
+        }
+      },
+      "Inteckningsatgard" : {
+        "type" : "object",
+        "properties" : {
+          "fastigheter" : {
+            "type" : "array",
+            "items" : {
+              "$ref" : "#/components/schemas/Fastighetsbeteckning"
+            }
+          }
+        },
+        "discriminator" : {
+          "propertyName" : "type"
+        },
+        "anyOf" : [ {
+          "$ref" : "#/components/schemas/Nyinteckning"
+        }, {
+          "$ref" : "#/components/schemas/DodningInteckning"
+        }, {
+          "$ref" : "#/components/schemas/UtbyteInteckning"
+        } ]
+      },
+      "Komplettering" : {
+        "required" : [ "arendenummer", "handlingar", "ingivare" ],
+        "type" : "object",
+        "properties" : {
+          "ingivare" : {
+            "$ref" : "#/components/schemas/Ingivare"
+          },
+          "kontaktperson" : {
+            "$ref" : "#/components/schemas/Kontaktuppgifter"
+          },
+          "arendenummer" : {
+            "pattern" : "^(D-\\d{4}-\\d{8})$",
+            "type" : "string",
+            "example" : "D-2023-01234567"
+          },
+          "handlingar" : {
+            "minItems" : 1,
+            "type" : "array",
+            "example" : [ {
+              "mimetype" : "application/pdf",
+              "typ" : "Övrigt",
+              "data" : "JVBERi0xLjEKJcKlwrHDqwoKMSAwIG9iagogIDw8IC9UeXBlIC9DYXRhbG9nCiAgICAgL1BhZ2VzIDIgMCBSCiAgPj4KZW5kb2JqCgoyIDAgb2JqCiAgPDwgL1R5cGUgL1BhZ2VzCiAgICAgL0tpZHMgWzMgMCBSXQogICAgIC9Db3VudCAxCiAgICAgL01lZGlhQm94IFswIDAgMzAwIDE0NF0KICA+PgplbmRvYmoKCjMgMCBvYmoKICA8PCAgL1R5cGUgL1BhZ2UKICAgICAgL1BhcmVudCAyIDAgUgogICAgICAvUmVzb3VyY2VzCiAgICAgICA8PCAvRm9udAogICAgICAgICAgIDw8IC9GMQogICAgICAgICAgICAgICA8PCAvVHlwZSAvRm9udAogICAgICAgICAgICAgICAgICAvU3VidHlwZSAvVHlwZTEKICAgICAgICAgICAgICAgICAgL0Jhc2VGb250IC9UaW1lcy1Sb21hbgogICAgICAgICAgICAgICA+PgogICAgICAgICAgID4+CiAgICAgICA+PgogICAgICAvQ29udGVudHMgNCAwIFIKICA+PgplbmRvYmoKCjQgMCBvYmoKICA8PCAvTGVuZ3RoIDU1ID4+CnN0cmVhbQogIEJUCiAgICAvRjEgMTggVGYKICAgIDAgMCBUZAogICAgKEhlbGxvIFdvcmxkKSBUagogIEVUCmVuZHN0cmVhbQplbmRvYmoKCnhyZWYKMCA1CjAwMDAwMDAwMDAgNjU1MzUgZiAKMDAwMDAwMDAxOCAwMDAwMCBuIAowMDAwMDAwMDc3IDAwMDAwIG4gCjAwMDAwMDAxNzggMDAwMDAgbiAKMDAwMDAwMDQ1NyAwMDAwMCBuIAp0cmFpbGVyCiAgPDwgIC9Sb290IDEgMCBSCiAgICAgIC9TaXplIDUKICA+PgpzdGFydHhyZWYKNTY1CiUlRU9GCg=="
+            } ],
+            "items" : {
+              "$ref" : "#/components/schemas/Handling"
+            }
+          }
+        }
+      },
+      "Kontaktuppgifter" : {
+        "required" : [ "epost", "namn", "telefonnummer" ],
+        "type" : "object",
+        "properties" : {
+          "namn" : {
+            "pattern" : "\\S",
+            "type" : "string",
+            "example" : "N.N."
+          },
+          "epost" : {
+            "pattern" : "\\S",
+            "type" : "string",
+            "example" : "notetur.nomen@lm.se"
+          },
+          "telefonnummer" : {
+            "pattern" : "\\S",
+            "type" : "string",
+            "example" : "0123456789"
+          }
+        }
+      },
+      "LocalDate" : {
+        "type" : "string",
+        "format" : "date",
+        "example" : "2022-03-10"
+      },
+      "MimeTyp" : {
+        "type" : "string",
+        "description" : "Tillåtna MIME-typer för handlingar",
+        "enum" : [ "application/pdf", "image/jpeg", "image/jpg", "image/png" ]
+      },
+      "NyUtbytesinteckning" : {
+        "required" : [ "belopp", "panthavarnummer", "valuta" ],
+        "type" : "object",
+        "properties" : {
+          "panthavarnummer" : {
+            "pattern" : "\\d{6}",
+            "type" : "string",
+            "example" : "123456"
+          },
+          "belopp" : {
+            "minimum" : 0,
+            "exclusiveMinimum" : true,
+            "type" : "integer",
+            "format" : "int64",
+            "example" : 1337
+          },
+          "valuta" : {
+            "$ref" : "#/components/schemas/Valuta"
+          }
+        }
+      },
+      "Nyinteckning" : {
+        "required" : [ "belopp", "fastigheter", "valuta" ],
+        "type" : "object",
+        "properties" : {
+          "type" : {
+            "type" : "string",
+            "example" : "Nyinteckning"
+          },
+          "fastigheter" : {
+            "minItems" : 1,
+            "type" : "array",
+            "items" : {
+              "$ref" : "#/components/schemas/Fastighetsbeteckning"
+            }
+          },
+          "pantbrevstyp" : {
+            "$ref" : "#/components/schemas/Pantbrevstyp"
+          },
+          "belopp" : {
+            "minimum" : 0,
+            "exclusiveMinimum" : true,
+            "type" : "integer",
+            "format" : "int64",
+            "example" : 1337
+          },
+          "valuta" : {
+            "$ref" : "#/components/schemas/Valuta"
+          }
+        }
+      },
+      "Nyttjanderatt" : {
+        "required" : [ "ingivare", "kontaktperson", "sokande", "tjanandeFastigheter" ],
+        "type" : "object",
+        "properties" : {
+          "ingivare" : {
+            "type" : "object",
+            "example" : {
+              "type" : "ingivarnummer",
+              "ingivarnummer" : "100105"
+            },
+            "allOf" : [ {
+              "$ref" : "#/components/schemas/Ingivare"
+            } ]
+          },
+          "kontaktperson" : {
+            "$ref" : "#/components/schemas/Kontaktuppgifter"
+          },
+          "faktureringsadress" : {
+            "$ref" : "#/components/schemas/Faktureringsadress"
+          },
+          "sokande" : {
+            "pattern" : "^(\\d{2})?\\d{6}-?\\d{4}$",
+            "type" : "string",
+            "example" : "555666-1121"
+          },
+          "handlingar" : {
+            "type" : "array",
+            "items" : {
+              "$ref" : "#/components/schemas/Handling"
+            }
+          },
+          "andamal" : {
+            "type" : "string",
+            "example" : "Ändamål för avtalsrättighet"
+          },
+          "tjanandeFastigheter" : {
+            "minItems" : 1,
+            "type" : "array",
+            "example" : [ {
+              "kommun" : "Yvre",
+              "trakt" : "Aspa",
+              "block" : "2",
+              "enhet" : 79
+            } ],
+            "items" : {
+              "$ref" : "#/components/schemas/Fastighetsbeteckning"
+            }
+          }
+        }
+      },
+      "Pantbrevstyp" : {
+        "type" : "string",
+        "enum" : [ "Datapantbrev", "Skriftligt pantbrev" ]
+      },
+      "Svarande" : {
+        "type" : "object",
+        "properties" : {
+          "fornamn" : {
+            "type" : "string",
+            "example" : "Notetur"
+          },
+          "efternamn" : {
+            "type" : "string",
+            "example" : "Nomen"
+          },
+          "adress" : {
+            "$ref" : "#/components/schemas/SvenskAdress"
+          },
+          "idnummer" : {
+            "pattern" : "^(\\d{8}-?\\d{4}|\\d{6}-?\\d{4})$",
+            "type" : "string",
+            "example" : "20010101-1337"
+          }
+        }
+      },
+      "SvenskAdress" : {
+        "required" : [ "adressrad1", "postnummer", "postort" ],
+        "type" : "object",
+        "properties" : {
+          "coAdress" : {
+            "type" : "string",
+            "example" : "N.N."
+          },
+          "adressrad1" : {
+            "pattern" : "\\S",
+            "type" : "string",
+            "example" : "Lantmäterigatan 2 C"
+          },
+          "adressrad2" : {
+            "type" : "string",
+            "example" : "Adressrad 2"
+          },
+          "postnummer" : {
+            "pattern" : "\\S",
+            "type" : "string",
+            "example" : "80264"
+          },
+          "postort" : {
+            "pattern" : "\\S",
+            "type" : "string",
+            "example" : "Gävle"
+          }
+        }
+      },
+      "UtbyteInteckning" : {
+        "required" : [ "aktnummer", "fastigheter", "likaRatt" ],
+        "type" : "object",
+        "properties" : {
+          "type" : {
+            "type" : "string",
+            "example" : "UtbyteInteckning"
+          },
+          "fastigheter" : {
+            "minItems" : 1,
+            "type" : "array",
+            "items" : {
+              "$ref" : "#/components/schemas/Fastighetsbeteckning"
+            }
+          },
+          "aktnummer" : {
+            "pattern" : "^(D-\\d{4}-\\d{8}:\\d*|\\d{2}/\\d{1,8}[A-Za-z]{0,2})$",
+            "type" : "string",
+            "example" : "D-2023-01234567:1"
+          },
+          "utbytesinteckningar" : {
+            "minItems" : 2,
+            "type" : "array",
+            "items" : {
+              "$ref" : "#/components/schemas/NyUtbytesinteckning"
+            }
+          },
+          "likaRatt" : {
+            "type" : "boolean"
+          }
+        }
+      },
+      "Utmatning" : {
+        "required" : [ "beslutsdatum", "beslutsnummer", "beslutstext", "fastigheter", "ingivare", "skuldbelopp", "valuta" ],
+        "type" : "object",
+        "properties" : {
+          "ingivare" : {
+            "$ref" : "#/components/schemas/Ingivare"
+          },
+          "kontaktuppgifter" : {
+            "$ref" : "#/components/schemas/Kontaktuppgifter"
+          },
+          "svarande" : {
+            "$ref" : "#/components/schemas/Svarande"
+          },
+          "fastigheter" : {
+            "minItems" : 1,
+            "type" : "array",
+            "items" : {
+              "$ref" : "#/components/schemas/Fastighetsbeteckning"
+            }
+          },
+          "beslutsnummer" : {
+            "maxLength" : 20,
+            "pattern" : "\\S",
+            "type" : "string",
+            "example" : "1337"
+          },
+          "beslutstext" : {
+            "pattern" : "\\S",
+            "type" : "string",
+            "example" : "Se bifogad fil"
+          },
+          "aktnummerGaldenar" : {
+            "type" : "array",
+            "example" : [ "D-2024-01234567:1" ],
+            "items" : {
+              "pattern" : "^(D-\\d{4}-\\d{8}:\\d*|\\d{2}/\\d{1,8}[A-Za-z]{0,2})$",
+              "type" : "string"
+            }
+          },
+          "aktnummerInteckning" : {
+            "type" : "array",
+            "example" : [ "D-2024-01234567:1" ],
+            "items" : {
+              "pattern" : "^(D-\\d{4}-\\d{8}:\\d*|\\d{2}/\\d{1,8}[A-Za-z]{0,2})$",
+              "type" : "string"
+            }
+          },
+          "beslutsdatum" : {
+            "type" : "string",
+            "example" : "2001-01-01",
+            "allOf" : [ {
+              "$ref" : "#/components/schemas/LocalDate"
+            } ]
+          },
+          "skuldbelopp" : {
+            "minimum" : 0,
+            "exclusiveMinimum" : true,
+            "type" : "integer",
+            "format" : "int32",
+            "example" : 1337
+          },
+          "valuta" : {
+            "$ref" : "#/components/schemas/Valuta"
+          },
+          "handlingar" : {
+            "type" : "array",
+            "items" : {
+              "$ref" : "#/components/schemas/Handling"
+            }
+          }
+        }
+      },
+      "Valuta" : {
+        "type" : "string",
+        "enum" : [ "SEK", "EUR", "GBP", "USD", "AED", "AFN", "ALL", "AMD", "ANG", "AOA", "ARS", "AUD", "AWG", "AZN", "BAM", "BBD", "BDT", "BGN", "BHD", "BIF", "BMD", "BND", "BOB", "BOV", "BRL", "BSD", "BTN", "BWP", "BYR", "BZD", "CAD", "CDF", "CHE", "CHF", "CHW", "CLF", "CLP", "CNY", "COP", "COU", "CRC", "CUP", "CVE", "CZK", "DJF", "DKK", "DOP", "DZD", "EEK", "EGP", "ERN", "ETB", "FJD", "FKP", "GEL", "GHC", "GIP", "GMD", "GNF", "GTQ", "GYD", "HKD", "HNL", "HRK", "HTG", "HUF", "IDR", "ILS", "INR", "IQD", "IRR", "ISK", "JMD", "JOD", "JPY", "KES", "KGS", "KHR", "KMF", "KPW", "KRW", "KWD", "KYD", "KZT", "LAK", "LBP", "LKR", "LRD", "LSL", "LTL", "LVL", "LYD", "MAD", "MDL", "MGA", "MKD", "MMK", "MNT", "MOP", "MRO", "MUR", "MVR", "MWK", "MXN", "MXV", "MYR", "MZN", "NAD", "NGN", "NIO", "NOK", "NPR", "NZD", "OMR", "PAB", "PEN", "PGK", "PHP", "PKR", "PLN", "PYG", "QAR", "RON", "RSD", "RUB", "RWF", "SAR", "SBD", "SCR", "SDG", "SGD", "SHP", "SLL", "SOS", "SRD", "STD", "SYP", "SZL", "THB", "TJS", "TMM", "TND", "TOP", "TRY", "TTD", "TWD", "TZS", "UAH", "UGX", "USN", "USS", "UYU", "UZS", "VEF", "VND", "VUV", "WST", "XAF", "XCD", "XOF", "XPF", "YER", "ZAR", "ZMK", "ZWD" ]
+      }
+    },
+    "securitySchemes" : {
+      "default" : {
+        "type" : "oauth2",
+        "flows" : {
+          "implicit" : {
+            "authorizationUrl" : "https://api.lantmateriet.se/authorize",
+            "scopes" : {
+              "fapi:inteckning.write" : "Åtkomst till Inteckning",
+              "fapi:anteckning.write" : "Åtkomst till Anteckningar",
+              "fapi:avtalsrattighet.write" : "Åtkomst till Avtalrättighet"
+            },
+            "x-scopes-bindings" : {
+              "fapi:inteckning.write" : "LMKE/ak001924_inteckningar_extern_api_prod",
+              "fapi:anteckning.write" : "LMKE/ak001661_anteckningar_extern_api_prod",
+              "fapi:avtalsrattighet.write" : "LMKE/ak001695_avtalsrättigheter_extern_api_prod"
+            }
+          }
+        }
+      }
+    }
+  }
+}

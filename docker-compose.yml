@@ -1,0 +1,52 @@
+version: "3.9"
+
+services:
+  # ─── Applikation (Node.js / Remix) ──────────────────────────
+  app:
+    build:
+      context: .
+      target: production
+    container_name: miljobeslut-app
+    restart: unless-stopped
+    ports:
+      - "8787:8787"
+    env_file:
+      - .env
+    environment:
+      - NODE_ENV=development
+      # Rikta interna anslutningar mot db-containern (inte localhost)
+      - DATABASE_URL=postgresql://riskguard:password@db:5432/riskguard
+    depends_on:
+      db:
+        condition: service_healthy
+    networks:
+      - miljobeslut-net
+
+  # ─── PostgreSQL med PostGIS + pgvector ──────────────────────
+  db:
+    image: postgis/postgis:16-3.4
+    container_name: miljobeslut-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: riskguard
+      POSTGRES_USER: riskguard
+      POSTGRES_PASSWORD: password
+    ports:
+      - "5432:5432"
+    volumes:
+      - type: bind
+        source: ${LOCAL_DB_ROOT:-./Database}
+        target: /var/lib/postgresql/data
+      - ./scripts/db/init-search.sql:/docker-entrypoint-initdb.d/01-init-search.sql:ro
+      - ./docker/postgres-init:/docker-entrypoint-initdb.d/extra:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U riskguard -d riskguard"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - miljobeslut-net
+
+networks:
+  miljobeslut-net:
+    driver: bridge
