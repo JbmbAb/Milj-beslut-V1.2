@@ -1,0 +1,160 @@
+name: Deploy – Google Cloud Run
+
+on:
+  workflow_run:
+    workflows: [CI]
+    branches: [main, master]
+    types: [completed]
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: Målmiljö
+        required: true
+        default: production
+        type: choice
+        options: [production, staging]
+
+# Förhindra parallella deployments till samma miljö
+concurrency:
+  group: deploy-gcp-${{ github.event.inputs.environment || 'production' }}
+  cancel-in-progress: false
+
+jobs:
+  # ── 1. Stoppa om CI inte gick igenom ──────────────────────────────────────
+  guard:
+    name: Gate on CI success
+    runs-on: ubuntu-latest
+    permissions: {}
+    if: >
+      github.event_name == 'workflow_dispatch' ||
+      github.event.workflow_run.conclusion == 'success'
+    steps:
+      - run: echo "CI passed – fortsätter med GCP-deploy"
+
+  # ── 2. Bygg, pusha och deploya ────────────────────────────────────────────
+  deploy-gcp:
+    name: Deploy to Cloud Run
+    runs-on: ubuntu-latest
+    needs: guard
+    permissions:
+      contents: read
+      id-token: write # Krävs för Workload Identity Federation
+    environment:
+      name: ${{ github.event.inputs.environment || 'production' }}
+      url: ${{ vars.GCP_SERVICE_URL }}
+
+    env:
+      PROJECT_ID: ${{ secrets.GCP_PROJECT_ID }}
+      REGION: ${{ vars.GCP_REGION || 'europe-west1' }}
+      SERVICE: ${{ vars.GCP_SERVICE_NAME || 'miljobeslut' }}
+      REPO: ${{ vars.GCP_ARTIFACT_REPO || 'miljobeslut' }}
+      CLOUDSQL_INSTANCE: ${{ secrets.GCP_CLOUDSQL_INSTANCE }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      # ── Autentisera mot GCP via Workload Identity Federation ──────────────
+      - name: Authenticate to Google Cloud
+        id: auth
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ secrets.GCP_SERVICE_ACCOUNT }}
+
+      - name: Set up Cloud SDK
+        uses: google-github-actions/setup-gcloud@v2
+
+      # ── Konfigurera Docker för Artifact Registry ──────────────────────────
+      - name: Configure Docker for Artifact Registry
+        run: gcloud auth configure-docker ${{ env.REGION }}-docker.pkg.dev --quiet
+
+      # ── Bygg Docker-image ─────────────────────────────────────────────────
+      - name: Build Docker image
+        run: |
+          docker build \
+            --target production \
+            --tag ${{ env.REGION }}-docker.pkg.dev/${{ env.PROJECT_ID }}/${{ env.REPO }}/${{ env.SERVICE }}:${{ github.sha }} \
+            --tag ${{ env.REGION }}-docker.pkg.dev/${{ env.PROJECT_ID }}/${{ env.REPO }}/${{ env.SERVICE }}:latest \
+            --cache-from ${{ env.REGION }}-docker.pkg.dev/${{ env.PROJECT_ID }}/${{ env.REPO }}/${{ env.SERVICE }}:latest \
+            .
+
+      # ── Pusha till Artifact Registry ──────────────────────────────────────
+      - name: Push to Artifact Registry
+        run: |
+          docker push --all-tags \
+            ${{ env.REGION }}-docker.pkg.dev/${{ env.PROJECT_ID }}/${{ env.REPO }}/${{ env.SERVICE }}
+
+      # ── Kör Prisma migrate ────────────────────────────────────────────────
+      - name: Run Prisma migrate
+        run: npx prisma migrate deploy
+        env:
+          DATABASE_URL: ${{ secrets.GCP_DATABASE_URL }}
+
+      # ── Deploya till Cloud Run ────────────────────────────────────────────
+      - name: Deploy to Cloud Run
+        id: deploy
+        run: |
+          gcloud run deploy ${{ env.SERVICE }} \
+            --image=${{ env.REGION }}-docker.pkg.dev/${{ env.PROJECT_ID }}/${{ env.REPO }}/${{ env.SERVICE }}:${{ github.sha }} \
+            --region=${{ env.REGION }} \
+            --platform=managed \
+            --add-cloudsql-instances=${{ env.CLOUDSQL_INSTANCE }} \
+            --update-secrets="\
+              DATABASE_URL=DATABASE_URL:latest,\
+              JWT_ACCESS_SECRET=JWT_ACCESS_SECRET:latest,\
+              JWT_REFRESH_SECRET=JWT_REFRESH_SECRET:latest,\
+              GEMINI_API_KEY=GEMINI_API_KEY:latest,\
+              OPENAI_API_KEY=OPENAI_API_KEY:latest,\
+              BANKID_PFX_PASSPHRASE=BANKID_PFX_PASSPHRASE:latest,\
+              LANTMATERIET_API_KEY=LANTMATERIET_API_KEY:latest,\
+              SLU_API_KEY=SLU_API_KEY:latest,\
+              SEARCH_ENCRYPTION_KEY_BASE64=SEARCH_ENCRYPTION_KEY_BASE64:latest,\
+              ADMIN_CONSOLE_PASSWORD=ADMIN_CONSOLE_PASSWORD:latest" \
+            --set-env-vars="NODE_ENV=production,CORS_ALLOW_ORIGINS=${{ vars.GCP_CORS_ORIGINS }}" \
+            --no-allow-unauthenticated \
+            --format="value(status.url)"
+
+      # ── Hälsokontroll ─────────────────────────────────────────────────────
+      - name: Health check
+        run: |
+          SERVICE_URL="${{ vars.GCP_SERVICE_URL }}"
+          if [ -z "$SERVICE_URL" ]; then
+            echo "GCP_SERVICE_URL inte satt – hoppar över hälsokontroll."
+            exit 0
+          fi
+
+          echo "Väntar på att tjänsten ska starta..."
+          sleep 10
+
+          STATUS=$(curl -s -o /dev/null -w "%{http_code}" \
+            -H "Authorization: Bearer $(gcloud auth print-identity-token)" \
+            "$SERVICE_URL/api/health")
+
+          if [ "$STATUS" != "200" ]; then
+            echo "Hälsokontroll misslyckades – HTTP $STATUS"
+            exit 1
+          fi
+
+          echo "Hälsokontroll OK (HTTP $STATUS)"
+
+      # ── Rulla tillbaka om deploy misslyckas ───────────────────────────────
+      - name: Rollback on failure
+        if: failure() && steps.deploy.outcome == 'failure'
+        run: |
+          echo "Deploy misslyckades – rullar tillbaka till föregående revision..."
+          PREV_REVISION=$(gcloud run revisions list \
+            --service=${{ env.SERVICE }} \
+            --region=${{ env.REGION }} \
+            --limit=2 \
+            --format="value(name)" | tail -1)
+
+          if [ -z "$PREV_REVISION" ]; then
+            echo "Ingen tidigare revision hittades – kan inte rulla tillbaka."
+            exit 1
+          fi
+
+          gcloud run services update-traffic ${{ env.SERVICE }} \
+            --region=${{ env.REGION }} \
+            --to-revisions="${PREV_REVISION}=100"
+
+          echo "Rollback till $PREV_REVISION slutförd."

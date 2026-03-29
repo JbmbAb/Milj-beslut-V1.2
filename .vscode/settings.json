@@ -1,0 +1,8 @@
+{
+  "git.autofetch": true,
+  "git.autofetchPeriod": 180,
+  "git.rebaseWhenSync": true,
+  "git.confirmSync": false,
+  "editor.formatOnSave": true,
+  "editor.defaultFormatter": "esbenp.prettier-vscode"
+}
