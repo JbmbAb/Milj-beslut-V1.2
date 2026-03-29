@@ -65,10 +65,7 @@ describe('ai.routes – RAG search', () => {
   });
 
   it('returns 400 when query is missing', async () => {
-    const res = await request(app)
-      .post('/api/search/rag')
-      .set('Authorization', authHeader())
-      .send({});
+    const res = await request(app).post('/api/search/rag').set('Authorization', authHeader()).send({});
     expect(res.status).toBe(400);
     expect(res.body.error).toMatch(/query/i);
   });
@@ -95,14 +92,9 @@ describe('ai.routes – RAG search', () => {
   });
 
   it('defaults language to sv', async () => {
-    await request(app)
-      .post('/api/search/rag')
-      .set('Authorization', authHeader())
-      .send({ query: 'test' });
+    await request(app).post('/api/search/rag').set('Authorization', authHeader()).send({ query: 'test' });
 
-    expect(mocks.runRagSearch).toHaveBeenCalledWith(
-      expect.objectContaining({ language: 'sv' }),
-    );
+    expect(mocks.runRagSearch).toHaveBeenCalledWith(expect.objectContaining({ language: 'sv' }));
   });
 
   it('passes en language when specified', async () => {
@@ -111,9 +103,7 @@ describe('ai.routes – RAG search', () => {
       .set('Authorization', authHeader())
       .send({ query: 'test', language: 'en' });
 
-    expect(mocks.runRagSearch).toHaveBeenCalledWith(
-      expect.objectContaining({ language: 'en' }),
-    );
+    expect(mocks.runRagSearch).toHaveBeenCalledWith(expect.objectContaining({ language: 'en' }));
   });
 
   it('returns 400 on service failure', async () => {

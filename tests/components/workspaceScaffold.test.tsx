@@ -88,10 +88,7 @@ describe('WorkspaceScaffold', () => {
 
   it('renders headerBadges when provided', () => {
     render(
-      <WorkspaceScaffold
-        {...defaultProps}
-        headerBadges={<span data-testid="badge">Test Badge</span>}
-      />,
+      <WorkspaceScaffold {...defaultProps} headerBadges={<span data-testid="badge">Test Badge</span>} />,
     );
     expect(screen.getByTestId('badge')).toBeInTheDocument();
   });

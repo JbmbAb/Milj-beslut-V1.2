@@ -36,9 +36,7 @@ const completion: AppCompletionResponse = {
 
 describe('CompletionTracker', () => {
   it('renders nothing when hasActiveSession is false', () => {
-    const { container } = render(
-      <CompletionTracker appCompletion={completion} hasActiveSession={false} />,
-    );
+    const { container } = render(<CompletionTracker appCompletion={completion} hasActiveSession={false} />);
     expect(container).toBeEmptyDOMElement();
   });
 

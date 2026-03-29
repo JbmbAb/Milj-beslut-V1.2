@@ -113,9 +113,7 @@ describe('compliance.routes – permit authority submit', () => {
         propertyDesignation: 'Mark 2:2',
       });
 
-    expect(mocks.submitPermitToAuthority).toHaveBeenCalledWith(
-      expect.objectContaining({ documentIds: [] }),
-    );
+    expect(mocks.submitPermitToAuthority).toHaveBeenCalledWith(expect.objectContaining({ documentIds: [] }));
   });
 
   it('returns 400 on service failure in submit', async () => {
@@ -257,9 +255,7 @@ describe('compliance.routes – LIMS auto-fetch', () => {
       .send({});
 
     expect(res.status).toBe(200);
-    expect(mocks.autoFetchLimsReports).toHaveBeenCalledWith(
-      expect.objectContaining({ since: undefined }),
-    );
+    expect(mocks.autoFetchLimsReports).toHaveBeenCalledWith(expect.objectContaining({ since: undefined }));
   });
 
   it('returns 400 when assertPermission fails', async () => {
