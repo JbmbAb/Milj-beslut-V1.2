@@ -43,6 +43,7 @@ tmp_*
 !tsconfig.json
 !stitch.json
 !figma-raw.json
+!.vscode/settings.json
 !*.md
 
 # Python cache
