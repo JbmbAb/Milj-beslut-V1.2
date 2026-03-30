@@ -63,7 +63,7 @@ describe('GisRiskModule', () => {
 
   it('renders the analyse button disabled when no file loaded', () => {
     render(<GisRiskModule />);
-    const analyseBtn = screen.getByRole('button', { name: /Starta Analys/i });
+    const analyseBtn = screen.getByRole('button', { name: /Kor risk-analys/i });
     expect(analyseBtn).toBeDisabled();
   });
 

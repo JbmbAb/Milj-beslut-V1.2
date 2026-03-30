@@ -57,7 +57,7 @@ describe('PermitPortalApplyPanel', () => {
 
   it('renders the code selector heading', () => {
     render(<PermitPortalApplyPanel permits={samplePermits} />);
-    expect(screen.getByText(/Kodvaljare/i)).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: /Kodvaljare/i })).toBeInTheDocument();
   });
 
   it('renders search input', () => {
