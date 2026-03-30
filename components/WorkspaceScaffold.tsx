@@ -29,7 +29,7 @@ const WorkspaceScaffold: React.FC<WorkspaceScaffoldProps> = ({
     }, {} as Record<InterfaceMode, (typeof MODE_CARDS)[number]>);
   }, []);
 
-  const activeMode = modeCardMap[mode];
+  const activeMode = modeCardMap[mode] ?? null;
 
   return (
     <div className="min-h-screen flex overflow-hidden font-['Plus_Jakarta_Sans'] bg-slate-50">
@@ -37,7 +37,7 @@ const WorkspaceScaffold: React.FC<WorkspaceScaffoldProps> = ({
         <div className="h-24 flex flex-col justify-center px-6 gap-2 border-b border-[#243148]">
           <img src="/logo.png" alt="Miljobeslut.se Logo" className="h-8 w-auto object-contain self-start" />
           <p className="text-[9px] font-bold text-[#8ea0bf] uppercase tracking-widest">
-            {activeMode.title}
+            {activeMode?.title}
           </p>
         </div>
 
@@ -153,7 +153,7 @@ const WorkspaceScaffold: React.FC<WorkspaceScaffoldProps> = ({
       <main className="flex-1 flex flex-col h-screen overflow-hidden">
         <header className="h-20 border-b flex items-center justify-between px-10 shrink-0 bg-white z-10 shadow-sm">
           <h2 className="text-sm font-black uppercase tracking-widest text-slate-900 flex items-center gap-3">
-            <span className={`w-2 h-2 rounded-full ${activeMode.accent}`} />
+            <span className={`w-2 h-2 rounded-full ${activeMode?.accent ?? 'bg-slate-400'}`} />
             {activeTab}
           </h2>
           <div className="flex items-center gap-4">

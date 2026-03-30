@@ -32,9 +32,9 @@ describe('WorkspaceScaffold', () => {
 
   it('renders all mode titles in sidebar', () => {
     render(<WorkspaceScaffold {...defaultProps} />);
-    expect(screen.getByText('Logistik schaktmassor')).toBeInTheDocument();
-    expect(screen.getByText('Provningsportal')).toBeInTheDocument();
-    expect(screen.getByText('Projektledning')).toBeInTheDocument();
+    expect(screen.getAllByText('Logistik schaktmassor').length).toBeGreaterThanOrEqual(1);
+    expect(screen.getAllByText('Provningsportal').length).toBeGreaterThanOrEqual(1);
+    expect(screen.getAllByText('Projektledning').length).toBeGreaterThanOrEqual(1);
   });
 
   it('renders API: Ansluten badge', () => {

@@ -27,8 +27,8 @@ const Consumer: React.FC = () => {
         onClick={() =>
           addArchiveDocument({
             name: 'Test-dokument',
-            module: 'PERMIT',
-            category: 'permit',
+            module: 'PERMIT_PORTAL',
+            category: 'PERMIT',
           })
         }
       >
@@ -47,7 +47,7 @@ const TwoDocConsumer: React.FC = () => {
       <button
         type="button"
         onClick={() =>
-          addArchiveDocument({ name: 'Dokument A', module: 'PERMIT', category: 'permit' })
+          addArchiveDocument({ name: 'Dokument A', module: 'PERMIT_PORTAL', category: 'PERMIT' })
         }
       >
         Lagg till A
@@ -55,7 +55,7 @@ const TwoDocConsumer: React.FC = () => {
       <button
         type="button"
         onClick={() =>
-          addArchiveDocument({ name: 'Dokument B', module: 'PERMIT', category: 'permit' })
+          addArchiveDocument({ name: 'Dokument B', module: 'PERMIT_PORTAL', category: 'PERMIT' })
         }
       >
         Lagg till B
