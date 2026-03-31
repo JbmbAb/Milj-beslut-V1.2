@@ -297,7 +297,10 @@ export async function verifyAnalysis(
     deterministicMissing.push('Saknar lag- eller forordningsnamn (eller SFS-nummer).');
   }
 
-  const hasChapterAndParagraph = /\b\d+\s*kap\.\s*\d+\s*[a-z]?\s*(?:\u00a7|paragraf)\b/i.test(text);
+  // §-tecknet är ett icke-ordtecken (non-word char). \b efter § kräver att nästa tecken
+  // är ett ordtecken – det stämmer ALDRIG i svensk lagtext där § följs av mellanslag.
+  // Trailande \b tas därför bort medvetet.
+  const hasChapterAndParagraph = /\b\d+\s*kap\.\s*\d+\s*[a-z]?\s*(?:\u00a7|paragraf)/i.test(text);
   if (!hasChapterAndParagraph) {
     deterministicMissing.push('Saknar kapitel/paragraf-hanvisning (ex. 26 kap. paragraf 19).');
   }

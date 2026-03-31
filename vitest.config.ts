@@ -1,4 +1,5 @@
-﻿import { defineConfig } from 'vitest/config';
+﻿import react from '@vitejs/plugin-react';
+import { defineConfig } from 'vitest/config';
 
 export default defineConfig({
   test: {
@@ -20,8 +21,20 @@ export default defineConfig({
         test: {
           name: 'unit',
           include: ['tests/unit/**/*.test.ts'],
+          // BankID-avtal ej klart – exkluderas tills vidare
+          exclude: ['tests/unit/bankIdService.test.ts'],
           environment: 'node',
           setupFiles: ['tests/setup/env.ts'],
+        },
+      },
+      {
+        plugins: [react()],
+        test: {
+          name: 'component',
+          include: ['tests/components/**/*.test.tsx'],
+          environment: 'jsdom',
+          globals: true,
+          setupFiles: ['tests/setup/setupTests.ts'],
         },
       },
       {

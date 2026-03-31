@@ -74,7 +74,8 @@ describe.skipIf(!hasDatabaseIntegration)('secure API integration', () => {
     expect(String(res.body?.refreshToken || '').length).toBeGreaterThan(20);
   });
 
-  it('fails BankID init gracefully when mTLS config is missing', async () => {
+  // BankID-avtal ej klart – hoppa över tills avtalet är signerat
+  it.skip('fails BankID init gracefully when mTLS config is missing', async () => {
     const originalPfxPath = process.env.BANKID_PFX_PATH;
     const originalCertPath = process.env.BANKID_CERT_PATH;
     const originalKeyPath = process.env.BANKID_KEY_PATH;
