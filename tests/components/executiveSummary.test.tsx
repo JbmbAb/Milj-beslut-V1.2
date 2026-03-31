@@ -27,10 +27,7 @@ import ExecutiveSummary from '../../components/ExecutiveSummary';
 
 describe('ExecutiveSummary', () => {
   beforeEach(() => {
-    vi.stubGlobal(
-      'fetch',
-      vi.fn().mockRejectedValue(new Error('Network error')),
-    );
+    vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new Error('Network error')));
   });
 
   afterEach(() => {

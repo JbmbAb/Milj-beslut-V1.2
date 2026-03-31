@@ -73,9 +73,7 @@ describe('DetailModal', () => {
     render(<DetailModal permit={mockPermit} onClose={onClose} />);
     // Close button is the only button in the header that has onClose
     const allButtons = screen.getAllByRole('button');
-    const closeBtn = allButtons.find(
-      (b) => b.className.includes('w-12') && b.className.includes('h-12'),
-    );
+    const closeBtn = allButtons.find((b) => b.className.includes('w-12') && b.className.includes('h-12'));
     if (closeBtn) await user.click(closeBtn);
     expect(onClose).toHaveBeenCalledTimes(1);
   });

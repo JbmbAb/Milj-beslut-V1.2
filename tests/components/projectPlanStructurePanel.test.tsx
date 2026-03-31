@@ -36,12 +36,7 @@ describe('ProjectPlanStructurePanel', () => {
   });
 
   const renderPanel = () =>
-    render(
-      <ProjectPlanStructurePanel
-        plan={createDefaultProjectPlan()}
-        onUpdatePlan={onUpdatePlan}
-      />,
-    );
+    render(<ProjectPlanStructurePanel plan={createDefaultProjectPlan()} onUpdatePlan={onUpdatePlan} />);
 
   // ── Branding section ──────────────────────────────────────────────────────
 
@@ -97,7 +92,10 @@ describe('ProjectPlanStructurePanel', () => {
     renderPanel();
     const orgInput = screen.getByPlaceholderText('Organisationsnamn');
     fireEvent.change(orgInput, { target: { value: 'Testorg AB' } });
-    expect(onUpdatePlan).toHaveBeenCalledWith('branding', expect.objectContaining({ organizationName: 'Testorg AB' }));
+    expect(onUpdatePlan).toHaveBeenCalledWith(
+      'branding',
+      expect.objectContaining({ organizationName: 'Testorg AB' }),
+    );
   });
 
   it('shows upload warning when no session', () => {

@@ -100,9 +100,7 @@ describe('MapView', () => {
 
   it('shows Leaflet missing notice when window.L is absent', () => {
     render(<MapView />);
-    expect(
-      screen.getByText(/Leaflet saknas i runtime/i),
-    ).toBeInTheDocument();
+    expect(screen.getByText(/Leaflet saknas i runtime/i)).toBeInTheDocument();
   });
 
   it('renders the layer control panel (Integrerade myndighetslager)', () => {

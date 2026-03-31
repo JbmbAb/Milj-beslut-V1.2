@@ -45,8 +45,7 @@ describe('Guide', () => {
     renderGuide();
     // Either "Los blockerade stage-gates" or "Gate-status ar stabil"
     const gateCard =
-      screen.queryByText(/Los blockerade stage-gates/i) ||
-      screen.queryByText(/Gate-status ar stabil/i);
+      screen.queryByText(/Los blockerade stage-gates/i) || screen.queryByText(/Gate-status ar stabil/i);
     expect(gateCard).not.toBeNull();
   });
 

@@ -16,17 +16,17 @@ function mockWeatherRisk(overrides: Partial<WeatherRisk> = {}): WeatherRisk {
 }
 
 function successResponse(risk: WeatherRisk) {
-  return new Response(
-    JSON.stringify({ ok: true, result: risk }),
-    { status: 200, headers: { 'Content-Type': 'application/json' } },
-  );
+  return new Response(JSON.stringify({ ok: true, result: risk }), {
+    status: 200,
+    headers: { 'Content-Type': 'application/json' },
+  });
 }
 
 function errorResponse(message: string, status = 400) {
-  return new Response(
-    JSON.stringify({ ok: false, error: message }),
-    { status, headers: { 'Content-Type': 'application/json' } },
-  );
+  return new Response(JSON.stringify({ ok: false, error: message }), {
+    status,
+    headers: { 'Content-Type': 'application/json' },
+  });
 }
 
 afterEach(() => {
@@ -81,7 +81,10 @@ describe('fetchSmhiWeatherRisk', () => {
 
   it('returns the WeatherRisk result from the response', async () => {
     const risk = mockWeatherRisk({ level: 'Hög', description: 'Extrem storm' });
-    vi.stubGlobal('fetch', vi.fn(async () => successResponse(risk)));
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => successResponse(risk)),
+    );
 
     const result = await fetchSmhiWeatherRisk({ lat: 59.33, lng: 18.06 });
 
@@ -90,11 +93,12 @@ describe('fetchSmhiWeatherRisk', () => {
   });
 
   it('throws when response status is not ok', async () => {
-    vi.stubGlobal('fetch', vi.fn(async () => errorResponse('Internal error', 500)));
-
-    await expect(fetchSmhiWeatherRisk({ lat: 59, lng: 18 })).rejects.toThrow(
-      /Internal error/i,
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => errorResponse('Internal error', 500)),
     );
+
+    await expect(fetchSmhiWeatherRisk({ lat: 59, lng: 18 })).rejects.toThrow(/Internal error/i);
   });
 
   it('throws when ok is false in payload', async () => {

@@ -85,9 +85,7 @@ describe('calculatePredictiveScores – regulatory risk', () => {
     const geo = calculatePredictiveScores(
       basePlan({ location: { lat: 59, lng: 18, address: 'Skyddad nara vattendrag', propertyId: 'p' } }),
     );
-    expect(geo.regulatoryRisk.probabilityRfi).toBeGreaterThan(
-      normal.regulatoryRisk.probabilityRfi,
-    );
+    expect(geo.regulatoryRisk.probabilityRfi).toBeGreaterThan(normal.regulatoryRisk.probabilityRfi);
   });
 
   it('probabilityInjunction is 40 % of probabilityRfi', () => {
@@ -132,9 +130,7 @@ describe('calculatePredictiveScores – environmental risk', () => {
     const with_ = calculatePredictiveScores(
       basePlan({ mapLayerSelection: { base: [], optional: [], enabled: ['FLOOD_RISK'], unavailable: [] } }),
     );
-    expect(with_.environmentalRisk.floodingImpact).toBeGreaterThan(
-      without.environmentalRisk.floodingImpact,
-    );
+    expect(with_.environmentalRisk.floodingImpact).toBeGreaterThan(without.environmentalRisk.floodingImpact);
   });
 
   it('envRisk.score is between 0 and 1', () => {
