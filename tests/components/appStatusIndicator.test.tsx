@@ -27,9 +27,7 @@ const errorStatus: AppStatusResponse = {
 
 describe('AppStatusIndicator', () => {
   it('renders nothing when hasActiveSession is false', () => {
-    const { container } = render(
-      <AppStatusIndicator appStatus={okStatus} hasActiveSession={false} />,
-    );
+    const { container } = render(<AppStatusIndicator appStatus={okStatus} hasActiveSession={false} />);
     expect(container).toBeEmptyDOMElement();
   });
 

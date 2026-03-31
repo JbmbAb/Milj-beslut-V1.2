@@ -130,8 +130,7 @@ describe('callMvp', () => {
         new Response(blobData, {
           status: 200,
           headers: {
-            'Content-Type':
-              'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+            'Content-Type': 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
           },
         }),
     );
@@ -158,8 +157,7 @@ describe('callMvp', () => {
   it('throws with HTTP status when response body cannot be parsed', async () => {
     vi.stubGlobal('window', { localStorage: mockLocalStorage(null) });
     const fetchMock = vi.fn(
-      async () =>
-        new Response('bad gateway', { status: 502, headers: { 'Content-Type': 'text/plain' } }),
+      async () => new Response('bad gateway', { status: 502, headers: { 'Content-Type': 'text/plain' } }),
     );
     vi.stubGlobal('fetch', fetchMock);
 

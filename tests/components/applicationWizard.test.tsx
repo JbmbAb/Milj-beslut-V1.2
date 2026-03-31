@@ -95,14 +95,9 @@ describe('ApplicationWizard', () => {
 
   it('displays error message when BankID init fetch fails', async () => {
     const user = userEvent.setup({ delay: null });
-    vi.stubGlobal(
-      'fetch',
-      vi.fn().mockRejectedValue(new Error('BankID kunde inte startas.')),
-    );
+    vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new Error('BankID kunde inte startas.')));
     render(<ApplicationWizard />);
     await user.click(screen.getByRole('button', { name: /Starta BankID/i }));
-    await waitFor(() =>
-      expect(screen.getByText(/BankID kunde inte startas\./i)).toBeInTheDocument(),
-    );
+    await waitFor(() => expect(screen.getByText(/BankID kunde inte startas\./i)).toBeInTheDocument());
   });
 });

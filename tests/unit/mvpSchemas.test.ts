@@ -40,8 +40,13 @@ describe('classificationRequestSchema', () => {
 
   it('requires ewc_code to be non-empty when provided (default does not bypass min(1))', () => {
     // schema has min(1) before optional().default('') so '' always fails
-    expect(classificationRequestSchema.safeParse({ activity_code: 'SNI', ewc_code: '', volume_tons: 50 }).success).toBe(false);
-    expect(classificationRequestSchema.safeParse({ activity_code: 'SNI', ewc_code: '17 05', volume_tons: 50 }).success).toBe(true);
+    expect(
+      classificationRequestSchema.safeParse({ activity_code: 'SNI', ewc_code: '', volume_tons: 50 }).success,
+    ).toBe(false);
+    expect(
+      classificationRequestSchema.safeParse({ activity_code: 'SNI', ewc_code: '17 05', volume_tons: 50 })
+        .success,
+    ).toBe(true);
   });
 
   it('rejects negative volume', () => {
@@ -87,17 +92,15 @@ describe('classificationResponseSchema', () => {
   });
 
   it('rejects invalid status', () => {
-    expect(
-      classificationResponseSchema.safeParse({ ...valid, status: 'UNKNOWN' }).success,
-    ).toBe(false);
+    expect(classificationResponseSchema.safeParse({ ...valid, status: 'UNKNOWN' }).success).toBe(false);
   });
 });
 
 describe('requirementItemSchema', () => {
   it('accepts valid requirement', () => {
-    expect(
-      requirementItemSchema.safeParse({ rule: 'R1', law: 'MB', citation: 'Kap 1 § 2' }).success,
-    ).toBe(true);
+    expect(requirementItemSchema.safeParse({ rule: 'R1', law: 'MB', citation: 'Kap 1 § 2' }).success).toBe(
+      true,
+    );
   });
 
   it('rejects empty fields', () => {
@@ -114,8 +117,12 @@ describe('complianceRequirementsRequestSchema', () => {
 
   it('requires ewc_code to be non-empty when provided', () => {
     // same min(1) constraint - providing empty string fails
-    expect(complianceRequirementsRequestSchema.safeParse({ activity_code: 'A1', ewc_code: '' }).success).toBe(false);
-    expect(complianceRequirementsRequestSchema.safeParse({ activity_code: 'A1', ewc_code: '17 05' }).success).toBe(true);
+    expect(complianceRequirementsRequestSchema.safeParse({ activity_code: 'A1', ewc_code: '' }).success).toBe(
+      false,
+    );
+    expect(
+      complianceRequirementsRequestSchema.safeParse({ activity_code: 'A1', ewc_code: '17 05' }).success,
+    ).toBe(true);
   });
 });
 
@@ -143,9 +150,7 @@ describe('complianceRequirementsResponseSchema', () => {
 
 describe('riskAnalysisRequestSchema', () => {
   it('accepts valid risk request', () => {
-    expect(
-      riskAnalysisRequestSchema.safeParse({ ewc_code: '17 05', volume_tons: 50 }).success,
-    ).toBe(true);
+    expect(riskAnalysisRequestSchema.safeParse({ ewc_code: '17 05', volume_tons: 50 }).success).toBe(true);
   });
 
   it('defaults location to empty string', () => {
@@ -167,9 +172,7 @@ describe('riskAnalysisResponseSchema', () => {
   });
 
   it('accepts response without risk_score', () => {
-    expect(
-      riskAnalysisResponseSchema.safeParse({ traceId: 't1', risk_flags: [] }).success,
-    ).toBe(true);
+    expect(riskAnalysisResponseSchema.safeParse({ traceId: 't1', risk_flags: [] }).success).toBe(true);
   });
 });
 
@@ -279,15 +282,15 @@ describe('verificationCheckResponseSchema', () => {
 
 describe('documentExportRequestSchema', () => {
   it('accepts valid export request', () => {
-    expect(
-      documentExportRequestSchema.safeParse({ draft_text: 'Text', document_type: 'PDF' }).success,
-    ).toBe(true);
+    expect(documentExportRequestSchema.safeParse({ draft_text: 'Text', document_type: 'PDF' }).success).toBe(
+      true,
+    );
   });
 
   it('rejects blank draft_text', () => {
-    expect(
-      documentExportRequestSchema.safeParse({ draft_text: '   ', document_type: 'PDF' }).success,
-    ).toBe(false);
+    expect(documentExportRequestSchema.safeParse({ draft_text: '   ', document_type: 'PDF' }).success).toBe(
+      false,
+    );
   });
 });
 

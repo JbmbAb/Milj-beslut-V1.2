@@ -1,10 +1,7 @@
 import React from 'react';
 import { render, screen, act } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import {
-  ProjectStructureProvider,
-  useProjectStructure,
-} from '../../components/ProjectStructureContext';
+import { ProjectStructureProvider, useProjectStructure } from '../../components/ProjectStructureContext';
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -16,10 +13,7 @@ const Consumer: React.FC = () => {
       <span data-testid="project-name">{plan.name}</span>
       <span data-testid="archive-count">{plan.documentArchive.length}</span>
       <span data-testid="project-type">{plan.projectType}</span>
-      <button
-        type="button"
-        onClick={() => updatePlan('name', 'Nytt projektnamn')}
-      >
+      <button type="button" onClick={() => updatePlan('name', 'Nytt projektnamn')}>
         Byt namn
       </button>
       <button

@@ -21,13 +21,7 @@ afterEach(() => {
 });
 
 const renderStudio = (token = 'test-token') =>
-  render(
-    <AdminRequirementsStudio
-      token={token}
-      onError={vi.fn()}
-      onInfo={vi.fn()}
-    />
-  );
+  render(<AdminRequirementsStudio token={token} onError={vi.fn()} onInfo={vi.fn()} />);
 
 describe('AdminRequirementsStudio', () => {
   it('renders studio heading', () => {

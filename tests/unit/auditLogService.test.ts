@@ -32,9 +32,7 @@ function baseEntry() {
 describe('appendAuditLog', () => {
   it('returns an entry with a non-empty logId UUID', () => {
     const entry = svc.appendAuditLog(baseEntry());
-    expect(entry.logId).toMatch(
-      /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i,
-    );
+    expect(entry.logId).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i);
   });
 
   it('returns an entry with an ISO timestamp', () => {
@@ -87,9 +85,7 @@ describe('appendAuditLog', () => {
     const a = svc.appendAuditLog(baseEntry());
     await new Promise((r) => setTimeout(r, 2));
     const b = svc.appendAuditLog(baseEntry());
-    expect(new Date(b.timestamp).getTime()).toBeGreaterThanOrEqual(
-      new Date(a.timestamp).getTime(),
-    );
+    expect(new Date(b.timestamp).getTime()).toBeGreaterThanOrEqual(new Date(a.timestamp).getTime());
   });
 });
 

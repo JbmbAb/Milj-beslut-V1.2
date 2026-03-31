@@ -51,10 +51,7 @@ describe('requestLogger middleware', () => {
 
   it('generates a unique request-id per request', async () => {
     const app = buildApp();
-    const [r1, r2] = await Promise.all([
-      request(app).get('/test'),
-      request(app).get('/test'),
-    ]);
+    const [r1, r2] = await Promise.all([request(app).get('/test'), request(app).get('/test')]);
     expect(r1.headers['x-request-id']).not.toBe(r2.headers['x-request-id']);
   });
 
@@ -102,10 +99,7 @@ describe('requestLogger middleware', () => {
     const app = buildApp();
     const res = await request(app).get('/test');
     const requestId = res.headers['x-request-id'];
-    expect(mocks.loggerInfo).toHaveBeenCalledWith(
-      'http_access',
-      expect.objectContaining({ requestId }),
-    );
+    expect(mocks.loggerInfo).toHaveBeenCalledWith('http_access', expect.objectContaining({ requestId }));
   });
 
   it('includes durationMs in log entry', async () => {

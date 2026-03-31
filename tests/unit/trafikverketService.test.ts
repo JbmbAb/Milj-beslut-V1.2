@@ -23,11 +23,12 @@ afterEach(() => {
 
 describe('fetchTrafikverketData', () => {
   it('sends a POST request to the configured API_URL', async () => {
-    const fetchMock = vi.fn(async () =>
-      new Response(
-        JSON.stringify({ RESPONSE: { RESULT: [{ TrainStation: [] }] } }),
-        { status: 200, headers: { 'Content-Type': 'application/json' } },
-      ),
+    const fetchMock = vi.fn(
+      async () =>
+        new Response(JSON.stringify({ RESPONSE: { RESULT: [{ TrainStation: [] }] } }), {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        }),
     );
     vi.stubGlobal('fetch', fetchMock);
 
@@ -39,11 +40,12 @@ describe('fetchTrafikverketData', () => {
   });
 
   it('sends correct headers including API key', async () => {
-    const fetchMock = vi.fn(async () =>
-      new Response(JSON.stringify({ RESPONSE: { RESULT: [{}] } }), {
-        status: 200,
-        headers: { 'Content-Type': 'application/json' },
-      }),
+    const fetchMock = vi.fn(
+      async () =>
+        new Response(JSON.stringify({ RESPONSE: { RESULT: [{}] } }), {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        }),
     );
     vi.stubGlobal('fetch', fetchMock);
 
@@ -57,11 +59,12 @@ describe('fetchTrafikverketData', () => {
 
   it('sends the provided query as request body', async () => {
     const xmlQuery = '<REQUEST><LOGIN authenticationkey="test-api-key-123"/></REQUEST>';
-    const fetchMock = vi.fn(async () =>
-      new Response(JSON.stringify({ RESPONSE: { RESULT: [{}] } }), {
-        status: 200,
-        headers: { 'Content-Type': 'application/json' },
-      }),
+    const fetchMock = vi.fn(
+      async () =>
+        new Response(JSON.stringify({ RESPONSE: { RESULT: [{}] } }), {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        }),
     );
     vi.stubGlobal('fetch', fetchMock);
 
@@ -73,11 +76,12 @@ describe('fetchTrafikverketData', () => {
 
   it('returns the first RESULT element when present', async () => {
     const result = { TrainStation: [{ Name: 'Stockholm C' }] };
-    const fetchMock = vi.fn(async () =>
-      new Response(JSON.stringify({ RESPONSE: { RESULT: [result] } }), {
-        status: 200,
-        headers: { 'Content-Type': 'application/json' },
-      }),
+    const fetchMock = vi.fn(
+      async () =>
+        new Response(JSON.stringify({ RESPONSE: { RESULT: [result] } }), {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        }),
     );
     vi.stubGlobal('fetch', fetchMock);
 
@@ -86,11 +90,12 @@ describe('fetchTrafikverketData', () => {
   });
 
   it('returns an empty object when RESULT is missing', async () => {
-    const fetchMock = vi.fn(async () =>
-      new Response(JSON.stringify({}), {
-        status: 200,
-        headers: { 'Content-Type': 'application/json' },
-      }),
+    const fetchMock = vi.fn(
+      async () =>
+        new Response(JSON.stringify({}), {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        }),
     );
     vi.stubGlobal('fetch', fetchMock);
 
@@ -99,11 +104,12 @@ describe('fetchTrafikverketData', () => {
   });
 
   it('returns an empty object when RESULT array is empty', async () => {
-    const fetchMock = vi.fn(async () =>
-      new Response(JSON.stringify({ RESPONSE: { RESULT: [] } }), {
-        status: 200,
-        headers: { 'Content-Type': 'application/json' },
-      }),
+    const fetchMock = vi.fn(
+      async () =>
+        new Response(JSON.stringify({ RESPONSE: { RESULT: [] } }), {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        }),
     );
     vi.stubGlobal('fetch', fetchMock);
 
@@ -112,11 +118,12 @@ describe('fetchTrafikverketData', () => {
   });
 
   it('throws when the API response status is not ok', async () => {
-    const fetchMock = vi.fn(async () =>
-      new Response('Service Unavailable', {
-        status: 503,
-        headers: { 'Content-Type': 'text/plain' },
-      }),
+    const fetchMock = vi.fn(
+      async () =>
+        new Response('Service Unavailable', {
+          status: 503,
+          headers: { 'Content-Type': 'text/plain' },
+        }),
     );
     vi.stubGlobal('fetch', fetchMock);
 
