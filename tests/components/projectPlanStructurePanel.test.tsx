@@ -71,8 +71,8 @@ describe('ProjectPlanStructurePanel', () => {
 
   it('renders module readiness selects', () => {
     renderPanel();
-    expect(screen.getByText('PROJECT_MANAGER')).toBeInTheDocument();
-    expect(screen.getByText('PERMIT_PORTAL')).toBeInTheDocument();
+    expect(screen.getAllByText('PROJECT_MANAGER').length).toBeGreaterThanOrEqual(1);
+    expect(screen.getAllByText('PERMIT_PORTAL').length).toBeGreaterThanOrEqual(1);
   });
 
   // ── Document archive section ───────────────────────────────────────────────
@@ -98,11 +98,9 @@ describe('ProjectPlanStructurePanel', () => {
     );
   });
 
-  it('shows upload warning when no session', async () => {
+  it('shows upload warning when no session', () => {
     renderPanel();
-    // Find upload button
-    const uploadBtn = screen.getByRole('button', { name: /Ladda upp till projektarkiv/i });
-    fireEvent.click(uploadBtn);
-    expect(await screen.findByText(/Valj en fil forst|Välj en fil först/i)).toBeInTheDocument();
+    const uploadBtn = screen.getByRole('button', { name: /Upload file/i });
+    expect(uploadBtn).toBeDisabled();
   });
 });

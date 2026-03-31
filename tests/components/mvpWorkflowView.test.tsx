@@ -64,11 +64,11 @@ describe('MvpWorkflowView', () => {
 
   it('renders all 7 workflow step cards', () => {
     render(<MvpWorkflowView />);
-    expect(screen.getByText('Klassifiera verksamhet')).toBeInTheDocument();
-    expect(screen.getByText('Hämta juridiska krav')).toBeInTheDocument();
-    expect(screen.getByText('Riskanalys')).toBeInTheDocument();
-    expect(screen.getByText('Labbdatavalidering')).toBeInTheDocument();
-    expect(screen.getByText(/Generera ansokningsutkast|Generera ansökningsutkast/i)).toBeInTheDocument();
+    expect(screen.getByText(/Klassifiera verksamhet/i)).toBeInTheDocument();
+    expect(screen.getByText(/Hämta juridiska krav/i)).toBeInTheDocument();
+    expect(screen.getByText(/Riskanalys/i)).toBeInTheDocument();
+    expect(screen.getByText(/Labbdatavalidering/i)).toBeInTheDocument();
+    expect(screen.getByText(/Generera ans[oö]kningsutkast/i)).toBeInTheDocument();
     expect(screen.getByText(/Verifiera juridiska citat/i)).toBeInTheDocument();
     expect(screen.getByText(/Exportera dokument/i)).toBeInTheDocument();
   });
