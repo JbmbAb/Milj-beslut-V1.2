@@ -109,3 +109,42 @@ Fullständig guide: **`docs/architecture/ai-model-selection.md`**
 2. Stitch-scriptet körs **manuellt** (`npx ts-node scripts/sync-stitch.ts`) – inte automatiskt i CI
 3. Alla kodändringar går via Copilot Agent PR → du godkänner → merge
 4. Innan varje ny Copilot-session: `git pull` i VS Code för att synka
+
+---
+
+## Governance och Rutiner
+
+Fullständig beskrivning av processer, rutiner och beslutsflöden finns i:
+**`docs/architecture/development-governance.md`**
+
+### Snabbreferens:
+
+**Kvalitetsgrindar före commit:**
+```bash
+npm run typecheck  # 0 TypeScript-fel
+npm run lint       # 0 ESLint-fel
+npm run test:unit  # Alla unit-tester passing
+```
+
+**Vem beslutar vad:**
+- **Autonoma beslut (Copilot Agent):** Bugfixes, tester, formatering
+- **Snabba beslut (JbmbAb inom samma dag):** Nya komponenter, refactoring
+- **Strategiska beslut (JbmbAb efter analys):** Nya features, API-ändringar, schema-ändringar
+- **Kritiska beslut (JbmbAb + extern rådgivning):** Säkerhet, GDPR, deployment
+
+**Förbud (kräver explicit godkännande):**
+- ❌ Ta bort databastabeller eller kolumner
+- ❌ Ändra API-kontrakt (breaking changes)
+- ❌ Ta bort tester
+- ❌ Inaktivera säkerhetskontroller
+- ❌ Hardkoda credentials
+- ❌ Hoppa över migrations
+- ❌ Commita direkt till main
+- ❌ Merge utan godkända tester
+
+Se fullständig dokumentation i **development-governance.md** för:
+- Workflow för kodändringar
+- Synkroniseringsrutiner
+- Eskaleringsprocess
+- Kvalitetsmätning
+- Månadsgranskningar
