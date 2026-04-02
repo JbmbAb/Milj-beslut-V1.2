@@ -38,8 +38,8 @@ Detta dokument klassificerar varje modul i kodbasen enligt fyra kategorier:
 
 | Service | Rader | Problem | Ombyggnadsstrategi |
 |---------|-------|---------|-------------------|
-| **complianceRuleEngine.ts** | ~800 | Duplicerad (finns även i /services/) | Konsolidera till EN version i domain/ |
-| **smhiWeatherService.ts** | ~450 | Duplicerad (weatherService.ts i root) | Välj EN, gör adapter tydlig |
+| **complianceRuleEngine.ts** | 221 | ✅ **KONSOLIDERAD 2026-04-02** - Lade till waste-specific types från services/complianceRulesEngine.ts | Klar - innehåller nu både geo + waste compliance |
+| **smhiWeatherService.ts** | 246 | ✅ **BEHÅLLS** - services/weatherService.ts är frontend client, INTE duplicerad | Ingen åtgärd - korrekt separation frontend/backend |
 | **sguService.ts** | ~500 | Två SGU-services (även sguRiskService) | Dela upp: adapter + domain logic |
 | **sguRiskService.ts** | ~400 | Otydlig separation från sguService | Flytta risk-logik till domain/ |
 | **geminiService.ts** (server) | ~600 | AI-integration + prompt + RAG blandat | Dela: prompts/, adapters/, domain/ |
@@ -52,13 +52,18 @@ Detta dokument klassificerar varje modul i kodbasen enligt fyra kategorier:
 
 ### 1.3 ARKIVERA (Experiment/POC)
 
-| Service | Rader | Skäl | Destination |
-|---------|-------|------|-------------|
-| **gpsTrackingService.ts** | ~300 | Ingen UI-integration, används bara i routes | legacy/logistics/ |
-| **marketIntelService.ts** | ~350 | Experiment, inget UI, låg användning | legacy/market-intel/ |
-| **bankComplianceProfileService.ts** | ~400 | Förberedd men aldrig integrerad | legacy/bank-scoring/ |
+| Service | Rader | Skäl | Destination | Status |
+|---------|-------|------|-------------|--------|
+| **gpsTrackingService.ts** | 300 | Ingen UI-integration, används bara i routes | legacy/experimental/ | ✅ **ARKIVERAD 2026-04-02** |
+| **marketIntelService.ts** | 350 | Experiment, inget UI, låg användning | legacy/experimental/ | ✅ **ARKIVERAD 2026-04-02** |
+| **bankComplianceProfileService.ts** | 400 | Förberedd men aldrig integrerad | legacy/experimental/ | ✅ **ARKIVERAD 2026-04-02** |
 
-**Total: 3 services att arkivera**
+**Total: 3 services arkiverade till `legacy/experimental/`**
+
+**Beslut 2026-04-02:**
+- Skapade `legacy/README.md` med beslutsrationale
+- Uppdaterade alla imports i routes, tester och services
+- Kvalitetsgrindar: TS 0, ESLint 0, 119 testfiler (1031 tester) passing
 
 ### 1.4 KASSERA (Duplicerad/Oanvänd)
 
@@ -74,8 +79,8 @@ Detta dokument klassificerar varje modul i kodbasen enligt fyra kategorier:
 |---------|-------|--------|--------|
 | **projectStructure.ts** | 1265 | 🔄 BYGG OM | Dela i: domain/models/, application/workflows/, config/ |
 | **geminiService.ts** | 901 | 🔄 BYGG OM | Dela i: adapters/gemini/, prompts/, domain/ |
-| **complianceRulesEngine.ts** | ~700 | 🔄 BYGG OM | Konsolidera med server-versionen |
-| **weatherService.ts** | ~300 | 🔄 BYGG OM | Välj EN weather-service |
+| **complianceRulesEngine.ts** | 0 | ✅ **ARKIVERAD 2026-04-02** | → legacy/experimental/complianceRulesEngine_old.ts |
+| **weatherService.ts** | 27 | ✅ **BEHÅLLS** | Frontend API client - INTE duplicerad mot server/services/smhiWeatherService.ts |
 | **documentRequirements.ts** | ~400 | ✅ BEHÅLL | Ren domänlogik, flytta till domain/ |
 | **stageGates.ts** | ~350 | ✅ BEHÅLL | Workflow-logik, flytta till domain/ |
 | **gisRiskService.ts** | ~450 | 🔄 BYGG OM | Dela: GIS-adapter + risk-domain |
@@ -137,28 +142,33 @@ Detta dokument klassificerar varje modul i kodbasen enligt fyra kategorier:
 
 ## 4. Arkitektoniska Konflikter
 
-### 4.1 KASSERA: Remix Routes (app/routes/)
+### 4.1 ARKIVERA: Remix Routes (app/routes/)
 
 **Problem:** Parallell arkitektur som aldrig togs i bruk
 
-**Filer att kassera:**
+**Status:** ✅ **ARKIVERADE 2026-04-02** till `legacy/remix-poc/routes/`
+
+**Arkiverade filer:**
 ```
-app/routes/api.cases.$caseId.notes.ts
-app/routes/api.datasources.lantmateriet.ts
-app/routes/api.layers.sgu.grundlager.ts
-app/routes/api.layers.sgu.jordskred-raviner.ts
-app/routes/api.layers.hydro.lakes.ts
-app/routes/api.layers.hydro.streams.ts
-app/routes/api.layers.marktacke.query.ts
-app/routes/api.layers.nvr.ts
-app/routes/api.spatial-audit.ts
-app/routes/api.system.postgis.ts
-app/routes/api/ (hela underkatalogen)
+legacy/remix-poc/routes/api.cases.$caseId.notes.ts
+legacy/remix-poc/routes/api.datasources.lantmateriet.ts
+legacy/remix-poc/routes/api.layers.sgu.grundlager.ts
+legacy/remix-poc/routes/api.layers.sgu.jordskred-raviner.ts
+legacy/remix-poc/routes/api.layers.hydro.lakes.ts
+legacy/remix-poc/routes/api.layers.hydro.streams.ts
+legacy/remix-poc/routes/api.layers.marktacke.query.ts
+legacy/remix-poc/routes/api.layers.nvr.ts
+legacy/remix-poc/routes/api.spatial-audit.ts
+legacy/remix-poc/routes/api.system.postgis.ts
+legacy/remix-poc/routes/api/gemini.ts
 ```
 
-**Åtgärd:** Hela `/app/routes/` kan tas bort - funktionalitet finns i `/server/routes/`
+**Genomfört 2026-04-02:**
+- Flyttade alla 11 Remix routes till `legacy/remix-poc/routes/`
+- Uppdaterade imports för att peka på korrekt placering (../../../../)
+- Express routes i `/server/routes/` är den enda produktionsarkitekturen
 
-**Total: 11 filer att kassera**
+**Total: 11 filer arkiverade**
 
 ---
 
