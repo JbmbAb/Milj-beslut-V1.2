@@ -33,7 +33,7 @@ import {
   clearGpsTrack,
   getGpsTrack,
   getLatestPosition,
-} from '../../server/services/gpsTrackingService';
+} from '../../legacy/experimental/gpsTrackingService';
 
 describe('gpsTrackingService', () => {
   beforeEach(() => {

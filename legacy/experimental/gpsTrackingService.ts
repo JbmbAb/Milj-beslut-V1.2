@@ -16,8 +16,8 @@
  */
 
 import crypto from 'node:crypto';
-import { logger } from '../logger';
-import * as gpsRepo from '../repositories/gpsRepository';
+import { logger } from '../../server/logger';
+import * as gpsRepo from '../../server/repositories/gpsRepository';
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
