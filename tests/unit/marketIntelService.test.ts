@@ -9,13 +9,13 @@ vi.mock('../../server/logger', () => ({
 // ─── Module under test ─────────────────────────────────────────────────────────
 
 // Reset modules per test so the module-level _cache is always null at start.
-let svc: typeof import('../../server/services/marketIntelService');
+let svc: typeof import('../../legacy/experimental/marketIntelService');
 
 beforeEach(async () => {
   vi.clearAllMocks();
   vi.resetModules();
   delete process.env.MARKET_INTEL_ENDPOINT;
-  svc = await import('../../server/services/marketIntelService');
+  svc = await import('../../legacy/experimental/marketIntelService');
 });
 
 // ─── Tests ────────────────────────────────────────────────────────────────────

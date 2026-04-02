@@ -15,7 +15,7 @@
  * Ersätter inte juridisk, finansiell eller ESG-revision.
  */
 
-import { logger } from "../logger";
+import { logger } from "../../server/logger";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 

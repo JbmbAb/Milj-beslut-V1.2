@@ -1,6 +1,6 @@
 import { json } from "@remix-run/node";
 import type { ActionFunctionArgs, LoaderFunctionArgs } from "@remix-run/node";
-import { prisma } from "../../server/db/prisma";
+import { prisma } from "../../../server/db/prisma";
 
 export async function loader({ params }: LoaderFunctionArgs) {
   const caseId = params.caseId || "unknown";

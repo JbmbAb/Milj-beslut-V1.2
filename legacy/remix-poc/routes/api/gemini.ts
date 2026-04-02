@@ -1,6 +1,6 @@
 import { json } from "@remix-run/node";
 import type { ActionFunctionArgs } from "@remix-run/node";
-import { getUserFromAccessToken } from "../../../server/security/auth";
+import { getUserFromAccessToken } from "../../../../server/security/auth";
 import {
   analyzePermitRisk,
   chatWithPermit,
@@ -17,7 +17,7 @@ import {
   performSpatialAudit,
   askGeneralAssistant,
   generateMarketingSummary
-} from "../../../services/geminiService";
+} from "../../../../services/geminiService";
 
 // POST API route for server-side calls to Gemini service.
 // Expects JSON: { method: string, payload: any }

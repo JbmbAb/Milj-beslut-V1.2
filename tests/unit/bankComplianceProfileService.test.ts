@@ -19,7 +19,7 @@ import {
   getBankTaxonomyIndicators,
   scoreSingleIndicator,
   type ProjectComplianceData,
-} from '../../server/services/bankComplianceProfileService';
+} from '../../legacy/experimental/bankComplianceProfileService';
 
 const baseData: ProjectComplianceData = {
   projectId: 'proj-001',
