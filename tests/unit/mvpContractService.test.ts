@@ -23,7 +23,7 @@ vi.mock('../../server/repositories/requirementsRepository', () => ({
   listRequirementRows: mocks.listRequirementRows,
 }));
 
-vi.mock('../../services/complianceRulesEngine', () => ({
+vi.mock('../../server/services/complianceRuleEngine', () => ({
   evaluateProjectCompliance: mocks.evaluateProjectCompliance,
 }));
 

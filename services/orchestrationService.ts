@@ -1,5 +1,5 @@
 import { validateLabData, analyzeLogisticsCompliance, LabDataValidationResult, LogisticsComplianceResult } from "./geminiService";
-import { evaluateProjectCompliance, ComplianceMetrics, RuleEngineResult } from "./complianceRulesEngine";
+import { evaluateProjectCompliance, ComplianceMetrics, RuleEngineResult } from "../server/services/complianceRuleEngine";
 
 export type OrchestrationRequest = {
     wasteCode: string;

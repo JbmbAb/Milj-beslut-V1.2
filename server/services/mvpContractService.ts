@@ -1,4 +1,4 @@
-import { evaluateProjectCompliance } from '../../services/complianceRulesEngine';
+import { evaluateProjectCompliance } from './complianceRuleEngine';
 import { renderCompliancePlanTemplate } from '../../services/documentTemplateEngine';
 import { listRequirementRows } from '../repositories/requirementsRepository';
 import {
