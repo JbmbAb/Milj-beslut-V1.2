@@ -49,12 +49,6 @@ describe('WorkspaceApp', () => {
 
   // ── Standalone modes ─────────────────────────────────────────────────────
 
-  it('renders StandaloneWorkspace for MVP_WORKFLOW', async () => {
-    render(<WorkspaceApp {...baseProps} initialMode="MVP_WORKFLOW" />);
-    const sw = await screen.findByTestId('standalone-workspace');
-    expect(sw).toHaveAttribute('data-mode', 'MVP_WORKFLOW');
-  });
-
   it('renders StandaloneWorkspace for ADMIN_CONSOLE', async () => {
     render(<WorkspaceApp {...baseProps} initialMode="ADMIN_CONSOLE" />);
     expect(await screen.findByTestId('standalone-workspace')).toBeInTheDocument();

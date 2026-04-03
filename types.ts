@@ -12,7 +12,7 @@ export enum ApplicationStatus {
   COMPLETED = 'AVSLUTAD'
 }
 
-export type InterfaceMode = 'LOGISTICS_MARKET' | 'PERMIT_PORTAL' | 'PROJECT_MANAGER' | 'COMPLIANCE_AUDIT' | 'ADMIN_CONSOLE' | 'MVP_WORKFLOW';
+export type InterfaceMode = 'LOGISTICS_MARKET' | 'PERMIT_PORTAL' | 'PROJECT_MANAGER' | 'COMPLIANCE_AUDIT' | 'ADMIN_CONSOLE';
 
 export interface User {
   id: string;

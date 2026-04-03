@@ -11,7 +11,6 @@ const loadGisRiskModule = () => import('./GisRiskModule');
 const loadAdminSearchConsole = () => import('./AdminSearchConsole');
 const loadAdminSessionConsole = () => import('./admin/AdminSessionConsole');
 const loadAdminSearchPanelView = () => import('./admin/AdminSearchPanelView');
-const loadMvpDemoInterface = () => import('./MvpDemoInterface');
 
 function needsProjectStructure(mode: InterfaceMode, activeTab: string): boolean {
   if (activeTab === 'guide') return true;
@@ -35,8 +34,6 @@ function preloadDefaultView(mode: InterfaceMode): Promise<unknown> {
       return loadGisRiskModule();
     case 'ADMIN_CONSOLE':
       return Promise.all([loadAdminSearchConsole(), loadAdminSessionConsole(), loadAdminSearchPanelView()]);
-    case 'MVP_WORKFLOW':
-      return loadMvpDemoInterface();
     default:
       return Promise.resolve();
   }

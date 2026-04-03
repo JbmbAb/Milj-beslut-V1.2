@@ -83,14 +83,10 @@ const WorkspaceScaffold: React.FC<WorkspaceScaffoldProps> = ({
             Avsnitt
           </p>
           <SidebarLink active={activeTab === 'summary'} icon="fa-house" label="Startsida" onClick={() => onSetActiveTab('summary')} />
-          {mode !== 'MVP_WORKFLOW' && (
-            <>
-              <SidebarLink active={activeTab === 'summary'} icon="fa-chart-pie" label="Beslutsoversikt" onClick={() => onSetActiveTab('summary')} />
-              <SidebarLink active={activeTab === 'integrations'} icon="fa-database" label="Tjansteintegreringar" onClick={() => onSetActiveTab('integrations')} />
-              <SidebarLink active={activeTab === 'guide'} icon="fa-book-open" label="Manualer & Support" onClick={() => onSetActiveTab('guide')} />
-              <SidebarLink active={activeTab === 'legal'} icon="fa-scale-balanced" label="Rattsligt stod" onClick={() => onSetActiveTab('legal')} />
-            </>
-          )}
+          <SidebarLink active={activeTab === 'summary'} icon="fa-chart-pie" label="Beslutsoversikt" onClick={() => onSetActiveTab('summary')} />
+          <SidebarLink active={activeTab === 'integrations'} icon="fa-database" label="Tjansteintegreringar" onClick={() => onSetActiveTab('integrations')} />
+          <SidebarLink active={activeTab === 'guide'} icon="fa-book-open" label="Manualer & Support" onClick={() => onSetActiveTab('guide')} />
+          <SidebarLink active={activeTab === 'legal'} icon="fa-scale-balanced" label="Rattsligt stod" onClick={() => onSetActiveTab('legal')} />
 
           {mode === 'LOGISTICS_MARKET' && (
             <>
@@ -133,10 +129,6 @@ const WorkspaceScaffold: React.FC<WorkspaceScaffoldProps> = ({
               <SidebarLink active={activeTab === 'admin-review'} icon="fa-clipboard-check" label="Kvalitetssakring" onClick={() => onSetActiveTab('admin-review')} />
               <SidebarLink active={activeTab === 'admin-insight'} icon="fa-shield-check" label="Analys och compliance" onClick={() => onSetActiveTab('admin-insight')} />
             </>
-          )}
-
-          {mode === 'MVP_WORKFLOW' && (
-            <SidebarLink active={activeTab === 'mvp'} icon="fa-rocket" label="Ansokningsflode" onClick={() => onSetActiveTab('mvp')} />
           )}
         </nav>
 

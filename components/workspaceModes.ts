@@ -50,19 +50,11 @@ export const MODE_CARDS: ModeCardConfig[] = [
     accent: 'bg-rose-600',
     defaultTab: 'admin-search',
   },
-  {
-    mode: 'MVP_WORKFLOW',
-    title: 'Ärendeportal',
-    description: 'Beslutsstöd för miljöärenden: Dashboard → Sök → Granskning → Anmälan.',
-    icon: 'fa-folder-open',
-    accent: 'bg-indigo-600',
-    defaultTab: 'mvp',
-  },
 ];
 
 export function resolveInterfaceModeFromModuleId(id: string): InterfaceMode | null {
-  if (id === 'mvp' || id === 'ansokan') return 'MVP_WORKFLOW';
   if (id === 'logistik') return 'LOGISTICS_MARKET';
+  if (id === 'tillstand' || id === 'ansokan') return 'PERMIT_PORTAL';
   if (id === 'projekt') return 'PROJECT_MANAGER';
   if (id === 'gronkoll') return 'COMPLIANCE_AUDIT';
   if (id === 'admin') return 'ADMIN_CONSOLE';
