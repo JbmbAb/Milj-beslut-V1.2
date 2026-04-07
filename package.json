@@ -81,12 +81,12 @@
     "eslint-plugin-react-refresh": "^0.5.2",
     "jsdom": "^26.1.0",
     "prettier": "^3.8.1",
-    "prisma": "^6.5.0",
+    "prisma": "^6.19.3",
     "supertest": "^7.2.2",
     "tsx": "^4.20.5",
     "typescript": "~5.8.2",
     "typescript-eslint": "^8.56.1",
-    "vite": "^6.2.0",
+    "vite": "^6.4.2",
     "vitest": "^4.0.18"
   }
 }
