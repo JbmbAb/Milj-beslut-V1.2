@@ -21,7 +21,7 @@ async function loadServiceWithOptionalSentry(sentryMock?: {
   vi.resetModules();
   vi.clearAllMocks();
   if (sentryMock) {
-    process.env.SENTRY_DSN = 'https://examplePublicKey@o0.ingest.sentry.io/0';
+    process.env.SENTRY_DSN = 'https://test@example.com/0';
     vi.doMock('@sentry/node', () => sentryMock);
   } else {
     delete process.env.SENTRY_DSN;
@@ -244,8 +244,8 @@ describe('errorTrackingService', () => {
     });
 
     it('keeps only the latest 500 entries in the ring buffer', async () => {
-      for (let i = 0; i < 501; i++) {
-        await svc.captureMessage(`ring-${i}`, 'info');
+      for (let entryIndex = 0; entryIndex < 501; entryIndex++) {
+        await svc.captureMessage(`ring-${entryIndex}`, 'info');
       }
 
       const all = svc.getRecentErrors({ limit: 600 });
