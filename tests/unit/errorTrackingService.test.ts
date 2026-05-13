@@ -13,11 +13,24 @@ vi.mock('../../server/logger', () => ({
 
 let svc: typeof import('../../server/services/errorTrackingService');
 
-beforeEach(async () => {
-  vi.clearAllMocks();
+async function loadServiceWithOptionalSentry(sentryMock?: {
+  init?: ReturnType<typeof vi.fn>;
+  captureException?: ReturnType<typeof vi.fn>;
+  captureMessage?: ReturnType<typeof vi.fn>;
+}) {
   vi.resetModules();
-  delete process.env.SENTRY_DSN;
+  vi.clearAllMocks();
+  if (sentryMock) {
+    process.env.SENTRY_DSN = 'https://examplePublicKey@o0.ingest.sentry.io/0';
+    vi.doMock('@sentry/node', () => sentryMock);
+  } else {
+    delete process.env.SENTRY_DSN;
+  }
   svc = await import('../../server/services/errorTrackingService');
+}
+
+beforeEach(async () => {
+  await loadServiceWithOptionalSentry();
 });
 
 // ─── Tests ────────────────────────────────────────────────────────────────────
@@ -79,6 +92,53 @@ describe('errorTrackingService', () => {
       const errors = svc.getRecentErrors({ limit: 1 });
       expect(errors[0].sentToSentry).toBe(false);
     });
+
+    it('forwards exceptions to Sentry when DSN and SDK are available', async () => {
+      const sentryMock = {
+        init: vi.fn(),
+        captureException: vi.fn(),
+        captureMessage: vi.fn(),
+      };
+      await loadServiceWithOptionalSentry(sentryMock);
+
+      await svc.captureException(new Error('sentry exception'), {
+        severity: 'fatal',
+        userId: 'user-1',
+        extra: { requestId: 'req-1' },
+      });
+
+      expect(sentryMock.init).toHaveBeenCalledWith(
+        expect.objectContaining({
+          tracesSampleRate: 0.1,
+        }),
+      );
+      expect(sentryMock.captureException).toHaveBeenCalledWith(
+        expect.any(Error),
+        expect.objectContaining({
+          level: 'fatal',
+          extra: { requestId: 'req-1' },
+          user: { id: 'user-1' },
+        }),
+      );
+      const errors = svc.getRecentErrors({ limit: 1 });
+      expect(errors[0].sentToSentry).toBe(true);
+    });
+
+    it('falls back to local storage when Sentry capture throws', async () => {
+      const sentryMock = {
+        init: vi.fn(),
+        captureException: vi.fn(() => {
+          throw new Error('sentry failed');
+        }),
+        captureMessage: vi.fn(),
+      };
+      await loadServiceWithOptionalSentry(sentryMock);
+
+      await svc.captureException(new Error('local fallback'));
+
+      const errors = svc.getRecentErrors({ limit: 1 });
+      expect(errors[0].sentToSentry).toBe(false);
+    });
   });
 
   // ── captureMessage ────────────────────────────────────────────────────────
@@ -116,6 +176,21 @@ describe('errorTrackingService', () => {
 
       const errors = svc.getRecentErrors({ limit: 1 });
       expect(errors[0].context).toEqual({ extra: 'data' });
+    });
+
+    it('forwards messages to Sentry when configured', async () => {
+      const sentryMock = {
+        init: vi.fn(),
+        captureException: vi.fn(),
+        captureMessage: vi.fn(),
+      };
+      await loadServiceWithOptionalSentry(sentryMock);
+
+      await svc.captureMessage('sentry message', 'warning');
+
+      expect(sentryMock.captureMessage).toHaveBeenCalledWith('sentry message', 'warning');
+      const errors = svc.getRecentErrors({ limit: 1 });
+      expect(errors[0].sentToSentry).toBe(true);
     });
   });
 
@@ -166,6 +241,17 @@ describe('errorTrackingService', () => {
       }
       const errors = svc.getRecentErrors({});
       expect(errors.length).toBe(50);
+    });
+
+    it('keeps only the latest 500 entries in the ring buffer', async () => {
+      for (let i = 0; i < 505; i++) {
+        await svc.captureMessage(`ring-${i}`, 'info');
+      }
+
+      const all = svc.getRecentErrors({ limit: 600 });
+      expect(all.length).toBe(500);
+      expect(all.some((item) => item.message === 'ring-0')).toBe(false);
+      expect(all.some((item) => item.message === 'ring-504')).toBe(true);
     });
   });
 
