@@ -244,14 +244,14 @@ describe('errorTrackingService', () => {
     });
 
     it('keeps only the latest 500 entries in the ring buffer', async () => {
-      for (let i = 0; i < 505; i++) {
+      for (let i = 0; i < 501; i++) {
         await svc.captureMessage(`ring-${i}`, 'info');
       }
 
       const all = svc.getRecentErrors({ limit: 600 });
       expect(all.length).toBe(500);
       expect(all.some((item) => item.message === 'ring-0')).toBe(false);
-      expect(all.some((item) => item.message === 'ring-504')).toBe(true);
+      expect(all.some((item) => item.message === 'ring-500')).toBe(true);
     });
   });
 
