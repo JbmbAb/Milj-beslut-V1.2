@@ -1,0 +1,198 @@
+/**
+ * Green Check Generator Styling
+ */
+
+.green-check-generator-container {
+  display: grid;
+  grid-template-columns: 1fr 350px;
+  gap: var(--spacing-xl);
+  padding: var(--spacing-lg);
+}
+
+.green-check-generator-form {
+  background: #fff;
+  border: 1px solid var(--color-border-light-digg);
+  border-radius: 8px;
+  padding: var(--spacing-lg);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
+}
+
+.green-check-generator-title {
+  font-size: var(--font-size-lg-digg);
+  font-weight: bold;
+  color: var(--color-text-primary-digg);
+  margin: 0 0 var(--spacing-sm) 0;
+}
+
+.green-check-generator-subtitle {
+  font-size: var(--font-size-sm-digg);
+  color: var(--color-text-secondary-digg);
+  margin: 0 0 var(--spacing-lg) 0;
+}
+
+/* Form Groups */
+.green-check-form-group {
+  display: flex;
+  flex-direction: column;
+  margin-bottom: var(--spacing-lg);
+}
+
+.green-check-form-group label {
+  font-size: var(--font-size-sm-digg);
+  font-weight: 500;
+  color: var(--color-text-primary-digg);
+  margin-bottom: var(--spacing-sm);
+}
+
+.green-check-form-group small {
+  font-size: 11px;
+  color: var(--color-text-muted-digg);
+  margin-top: 4px;
+}
+
+.required {
+  color: #dc2626;
+  font-weight: bold;
+}
+
+/* Form Row (for lat/long side-by-side) */
+.green-check-form-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--spacing-md);
+}
+
+/* Input Styles */
+.green-check-input,
+.green-check-textarea,
+.green-check-select {
+  font-family: inherit;
+  font-size: var(--font-size-sm-digg);
+  padding: var(--spacing-sm) var(--spacing-md);
+  border: 1px solid var(--color-border-light-digg);
+  border-radius: 4px;
+  color: var(--color-text-primary-digg);
+  background: #fff;
+  transition:
+    border-color 0.2s,
+    box-shadow 0.2s;
+}
+
+.green-check-input:hover,
+.green-check-textarea:hover,
+.green-check-select:hover {
+  border-color: var(--color-primary-digg);
+}
+
+.green-check-input:focus,
+.green-check-textarea:focus,
+.green-check-select:focus {
+  outline: none;
+  border-color: var(--color-primary-digg);
+  box-shadow: 0 0 0 3px rgba(0, 82, 147, 0.1);
+}
+
+.green-check-input:disabled,
+.green-check-textarea:disabled,
+.green-check-select:disabled {
+  background-color: #f3f4f6;
+  cursor: not-allowed;
+  opacity: 0.7;
+}
+
+.green-check-textarea {
+  resize: vertical;
+  min-height: 120px;
+}
+
+/* Generate Button */
+.green-check-btn-generate {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--spacing-sm);
+  width: 100%;
+  padding: var(--spacing-md) var(--spacing-lg);
+  font-size: var(--font-size-sm-digg);
+  font-weight: 600;
+  color: #fff;
+  background: var(--color-primary-digg);
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+  transition: all 0.3s;
+}
+
+.green-check-btn-generate:hover:not(:disabled) {
+  background: #004070;
+  box-shadow: 0 4px 6px rgba(0, 82, 147, 0.15);
+  transform: translateY(-1px);
+}
+
+.green-check-btn-generate:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.green-check-btn-generate .spinner {
+  animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* Info Box */
+.green-check-info-box {
+  background: linear-gradient(135deg, #ecfdf5 0%, #f0fdf4 100%);
+  border-left: 4px solid #10b981;
+  border-radius: 8px;
+  padding: var(--spacing-lg);
+  font-size: var(--font-size-xs-digg);
+  line-height: 1.6;
+  color: var(--color-text-primary-digg);
+}
+
+.green-check-info-box h3 {
+  margin: 0 0 var(--spacing-sm) 0;
+  font-size: var(--font-size-sm-digg);
+  color: #065f46;
+  font-weight: 600;
+}
+
+.green-check-info-box ul {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+}
+
+.green-check-info-box li {
+  margin-bottom: 8px;
+  padding-left: 20px;
+  position: relative;
+}
+
+.green-check-info-box li:before {
+  content: '✓';
+  position: absolute;
+  left: 0;
+  color: #10b981;
+  font-weight: bold;
+}
+
+.green-check-info-box strong {
+  color: #065f46;
+}
+
+/* Responsive */
+@media (max-width: 768px) {
+  .green-check-generator-container {
+    grid-template-columns: 1fr;
+  }
+
+  .green-check-form-row {
+    grid-template-columns: 1fr;
+  }
+}

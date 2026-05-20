@@ -1,0 +1,122 @@
+/**
+ * Canonical list of all external OGC/WFS data sources for the platform.
+ * This file serves as the single source of truth for bulk imports.
+ *
+ * Each entry defines:
+ * - id: A unique identifier for the data source.
+ * - url: (Optional) The base URL for the OGC API Features or WFS service.
+ * - filePath: (Optional) The local path to a file (e.g., Shapefile, GeoPackage).
+ * - layerName: (Optional) The specific layer to import from a file source.
+ * - table: The target table in the database (including schema).
+ * - auth: (Optional) Specifies if authentication is needed (e.g., 'lm' for Lantmäteriet).
+ * - type: The type of service, defaults to 'OAPIF' (OGC API Features). Can be 'WFS'.
+ * - featureType: (Optional) The specific feature type to request for WFS services.
+ */
+export const PLATFORM_COLLECTIONS = [
+  // SGU - Geologi & Risker (OGC API Features)
+  {
+    id: 'sgu_ground_1m' as const,
+    url: 'https://api.sgu.se/oppnadata/jordarter1miljon/ogc/features/v1/collections/grundlager',
+    table: 'env.sgu_ground_layer_1m',
+  },
+  {
+    id: 'sgu_landslide' as const,
+    url: 'https://api.sgu.se/oppnadata/jordskred-raviner/ogc/features/v1/collections/jordskred-raviner',
+    table: 'env.sgu_landslide_feature',
+  },
+  {
+    id: 'sgu_soil_25k_100k' as const,
+    url: 'https://api.sgu.se/oppnadata/jordarter25k-100k/ogc/features/v1/collections/ytlager',
+    table: 'env.sgu_soil_type_25k_100k',
+  },
+  {
+    id: 'sgu_groundwater' as const,
+    url: 'https://api.sgu.se/oppnadata/grundvattenmagasin/ogc/features/v1/collections/grundvattenmagasin',
+    table: 'env.env_sgu_grundvatten_sarbarhet',
+  },
+  {
+    id: 'sgu_wells' as const,
+    url: 'https://api.sgu.se/oppnadata/brunnar/ogc/features/v1/collections/brunnar',
+    table: 'env.sgu_well',
+  },
+  {
+    id: 'sgu_aktsam_efterarbetad' as const,
+    url: 'https://api.sgu.se/oppnadata/forutsattningar-skred-finkornig-jordart/ogc/features/v1/collections/aktsam-efterarbetad',
+    table: 'env.sgu_aktsamhet_efterarbetad',
+  },
+  {
+    id: 'sgu_erosion_aktiv' as const,
+    url: 'https://api.sgu.se/oppnadata/stranderosion-kust/ogc/features/v1/collections/aktiv-erosion',
+    table: 'env.sgu_erosion_aktiv',
+  },
+  {
+    id: 'sgu_fastmark' as const,
+    url: 'https://api.sgu.se/oppnadata/fastmark/ogc/features/v1/collections/fastmark',
+    table: 'env.sgu_fastmark_stabilitet',
+  },
+
+  // LANTMÄTERIET - Fastigheter & Topografi (OGC API Features)
+  {
+    id: 'lm_fastighetsytor' as const,
+    url: 'https://api.lantmateriet.se/ogc-features/v1/fastighetsindelning/collections/registerenhetsomradesytor',
+    table: 'env.registerenhetsomradesytor',
+    auth: 'lm',
+  },
+  {
+    id: 'lm_fastighetslinjer' as const,
+    url: 'https://api.lantmateriet.se/ogc-features/v1/fastighetsindelning/collections/registerenhetsomradeslinjer',
+    table: 'env.registerenhetsomradeslinjer',
+    auth: 'lm',
+  },
+  {
+    id: 'lm_topo_mark' as const,
+    url: 'https://api.lantmateriet.se/ogc-features/v1/topografi/collections/mark',
+    table: 'core.lm_mark',
+    auth: 'lm',
+  },
+  {
+    id: 'lm_topo_byggnad' as const,
+    url: 'https://api.lantmateriet.se/ogc-features/v1/topografi/collections/byggnad',
+    table: 'core.lm_byggnad',
+    auth: 'lm',
+  },
+  {
+    id: 'lm_topo_vatten' as const,
+    url: 'https://api.lantmateriet.se/ogc-features/v1/topografi/collections/vattenytor',
+    table: 'topo10.vatten',
+    auth: 'lm',
+  },
+
+  // NATURVÅRDSVERKET - Skyddad natur (OGC API Features via Geodata.se)
+  // Uppdaterad URL 2025 – gamla Metria WFS-tjänsten är nedlagd
+  {
+    id: 'nv_skyddad_natur' as const,
+    url: 'https://geodata.naturvardsverket.se/naturvardsverket/ogc/features/v1/collections/skyddade_omraden',
+    table: 'env.nv_skyddad_natur',
+  },
+
+  // RIKSANTIKVARIEÄMBETET - Fornlämningar (OGC API Features via SOCH)
+  // Uppdaterad URL 2025 – gamla WFS karta.raa.se/geo är nedlagd
+  {
+    id: 'raa_fornlamningar' as const,
+    url: 'https://api.raa.se/fornsok/v2/ogcapi/collections/fornlamning',
+    table: 'env.raa_fornlamning',
+  },
+
+  // LÄNSSTYRELSERNA - Vattenskyddsområden (OGC API Features via VISS/Geodata)
+  // Uppdaterad URL 2025 – gamla Länsstyrelsen WFS är nedlagd
+  {
+    id: 'lst_vattenskydd' as const,
+    url: 'https://geodata.naturvardsverket.se/naturvardsverket/ogc/features/v1/collections/vattenskyddsomraden',
+    table: 'env.lst_vattenskyddsomrade',
+  },
+
+  // Exempel på lokal Shapefile-import
+  {
+    id: 'nv_naturreservat_shp' as const,
+    filePath:
+      'E:\\MiljoBeslut_Produktdata_Sources\\Geodata\\Naturvardsverket\\re-extracted\\NR\\NR\\NR_polygon.shp',
+    layerName: 'NR_polygon',
+    table: 'env.nv_naturreservat',
+  },
+];

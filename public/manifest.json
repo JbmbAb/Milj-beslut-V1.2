@@ -1,0 +1,38 @@
+{
+  "name": "Miljobeslut.se 2.0",
+  "short_name": "Miljöbeslut",
+  "description": "Sveriges ledande plattform för automatiserade miljötillstånd, MKB-underlag och marknadsanalys.",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#0f172a",
+  "theme_color": "#2563eb",
+  "orientation": "portrait-primary",
+  "icons": [
+    {
+      "src": "/logo.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "/logo.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ],
+  "shortcuts": [
+    {
+      "name": "Core Workflow",
+      "url": "/?mode=core",
+      "description": "Snabbspår för klassificering och anmälan"
+    },
+    {
+      "name": "GIS-karta",
+      "url": "/?mode=gis",
+      "description": "Geospatial riskanalys"
+    }
+  ],
+  "categories": ["productivity", "utilities"],
+  "lang": "sv"
+}

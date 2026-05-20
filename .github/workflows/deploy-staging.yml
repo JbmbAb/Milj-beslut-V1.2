@@ -1,0 +1,103 @@
+name: Deploy – Staging
+
+# Triggered automatically after a successful CI run on main/master,
+# or manually via workflow_dispatch for one-click re-deploy.
+on:
+  workflow_run:
+    workflows: [CI]
+    branches: [main, master]
+    types: [completed]
+  workflow_dispatch:
+
+jobs:
+  # Guard: only run when the triggering CI run passed.
+  guard:
+    name: Gate on CI success
+    runs-on: ubuntu-latest
+    permissions: {}
+    if: >
+      github.event_name == 'workflow_dispatch' ||
+      github.event.workflow_run.conclusion == 'success'
+    steps:
+      - run: echo "CI passed – proceeding to staging deploy"
+
+  deploy-staging:
+    name: Deploy to staging
+    runs-on: ubuntu-latest
+    needs: guard
+    permissions:
+      contents: read
+      deployments: write
+    environment:
+      name: staging
+      url: ${{ vars.STAGING_URL }}
+    concurrency:
+      group: deploy-staging
+      cancel-in-progress: false # never cancel an in-flight deploy
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+
+      - run: npm ci
+
+      # ── Build the frontend bundle ────────────────────────────────────────
+      - name: Build
+        run: npm run build
+        env:
+          VITE_API_BASE_URL: ${{ vars.STAGING_API_BASE_URL }}
+
+      # ── Run database migrations against staging DB ───────────────────────
+      - name: Prisma migrate (staging)
+        run: npx prisma migrate deploy
+        env:
+          DATABASE_URL: ${{ secrets.STAGING_DATABASE_URL }}
+
+      # ── Deploy to Vercel ─────────────────────────────────────────────────
+      # Required GitHub Secrets (Settings → Secrets and variables → Actions):
+      #   VERCEL_TOKEN       – API token from vercel.com/account/tokens
+      # Required GitHub Variables (Settings → Secrets and variables → Variables):
+      #   VERCEL_ORG_ID      – found in vercel.com/[team]/settings → Team ID
+      #   VERCEL_PROJECT_ID  – found in vercel.com/[team]/[project]/settings → Project ID
+      - name: Deploy to Vercel (staging)
+        run: |
+          npm install -g vercel@latest
+          vercel pull --yes --environment=preview
+          vercel build
+          vercel deploy --prebuilt | tee /tmp/vercel-url.txt
+          echo "VERCEL_PREVIEW_URL=$(tail -1 /tmp/vercel-url.txt)" >> "$GITHUB_ENV"
+        env:
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+          VERCEL_ORG_ID: ${{ vars.VERCEL_ORG_ID }}
+          VERCEL_PROJECT_ID: ${{ vars.VERCEL_PROJECT_ID }}
+          # Runtime environment variables forwarded to the Vercel project:
+          DATABASE_URL: ${{ secrets.STAGING_DATABASE_URL }}
+          JWT_ACCESS_SECRET: ${{ secrets.STAGING_JWT_ACCESS_SECRET }}
+          JWT_REFRESH_SECRET: ${{ secrets.STAGING_JWT_REFRESH_SECRET }}
+          GEMINI_API_KEY: ${{ secrets.STAGING_GEMINI_API_KEY }}
+          OPENAI_API_KEY: ${{ secrets.STAGING_OPENAI_API_KEY }}
+          BANKID_PFX_PATH: ${{ secrets.STAGING_BANKID_PFX_PATH }}
+          BANKID_PFX_PASSPHRASE: ${{ secrets.STAGING_BANKID_PFX_PASSPHRASE }}
+          LANTMATERIET_API_KEY: ${{ secrets.STAGING_LANTMATERIET_API_KEY }}
+          SLU_API_KEY: ${{ secrets.STAGING_SLU_API_KEY }}
+          SEARCH_ENCRYPTION_KEY_BASE64: ${{ secrets.STAGING_SEARCH_ENCRYPTION_KEY }}
+
+      # ── Smoke-test the staging deployment ───────────────────────────────
+      - name: Health check
+        run: |
+          TARGET_URL="${VERCEL_PREVIEW_URL:-${{ vars.STAGING_URL }}}"
+          if [ -z "$TARGET_URL" ]; then
+            echo "No URL available – skipping health check."
+            exit 0
+          fi
+          echo "Checking $TARGET_URL/api/health …"
+          STATUS=$(curl -s -o /dev/null -w "%{http_code}" "$TARGET_URL/api/health")
+          if [ "$STATUS" != "200" ]; then
+            echo "Staging health check failed – HTTP $STATUS"
+            exit 1
+          fi
+          echo "Staging health check passed (HTTP $STATUS)"

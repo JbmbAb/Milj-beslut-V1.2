@@ -1,0 +1,91 @@
+/* Sewage Map View Styles */
+
+.sewage-map-view {
+  background: #ffffff;
+  border: 1px solid #e0e0e0;
+  border-radius: 8px;
+  padding: var(--spacing-lg);
+  margin-bottom: var(--spacing-xl);
+}
+
+.sewage-map-header {
+  margin-bottom: var(--spacing-lg);
+}
+
+.sewage-map-header h3 {
+  margin: 0 0 var(--spacing-sm) 0;
+  color: #333;
+  font-size: 16px;
+  font-weight: 600;
+}
+
+.sewage-map-subtitle {
+  margin: 0;
+  color: #666;
+  font-size: 13px;
+}
+
+/* SVG Map */
+.sewage-map-svg {
+  width: 100%;
+  max-width: 800px;
+  display: block;
+  margin: 0 auto var(--spacing-lg) auto;
+  border: 1px solid #ddd;
+  border-radius: 4px;
+  background: white;
+}
+
+/* Legend */
+.sewage-map-legend {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: var(--spacing-md);
+  padding: var(--spacing-lg);
+  background: #f9f9f9;
+  border-radius: 4px;
+  border: 1px solid #e0e0e0;
+}
+
+.sewage-legend-item {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-md);
+  font-size: 12px;
+  color: #666;
+}
+
+.sewage-legend-color {
+  width: 24px;
+  height: 24px;
+  border-radius: 2px;
+  flex-shrink: 0;
+}
+
+/* Info Box */
+.sewage-map-info {
+  margin-top: var(--spacing-lg);
+  padding: var(--spacing-lg);
+  background: #e8f4fd;
+  border-left: 4px solid #0066cc;
+  border-radius: 4px;
+}
+
+.sewage-map-info p {
+  margin: var(--spacing-sm) 0;
+  color: #333;
+  font-size: 13px;
+  line-height: 1.4;
+}
+
+.sewage-map-info p:first-child {
+  margin-top: 0;
+}
+
+.sewage-map-info p:last-child {
+  margin-bottom: 0;
+}
+
+.sewage-map-info strong {
+  color: #0066cc;
+}

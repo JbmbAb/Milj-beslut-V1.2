@@ -1,0 +1,37 @@
+---
+description: Säkerhetschecklista för nya Express-routes och känsliga endpoints
+globs:
+  - "server/**/*.ts"
+alwaysApply: false
+---
+
+# Nya routes och säkerhet (Express / secure API)
+
+Innan du mergar en ny eller ändrad HTTP-route, gå igenom punkterna nedan. Avvika inte från befintliga mönster i `server/security/` och `server/createApp.ts` utan medveten beslut.
+
+## Autentisering och behörighet
+
+- [ ] Är endpointen korrekt skyddad med `requireAuth`, admin-gate (`ADMIN`), organisations-scoping eller motsvarande befintlig middleware?
+- [ ] Undviks läckage av **PII**, interna id:n eller stackar i felmeddelanden? Använd säkra felresponser som i övriga routes.
+- [ ] Valideras och begränsas indata (storlek, tillåtna fält) där det behövs?
+
+## Missbrukskydd
+
+- [ ] Finns **rate limiting** parallellt med liknande endpoints (användar- eller IP-baserat som redan finns i projektet)?
+- [ ] För **muterande** anrop: överväg CSRF/replay-skydd om flödet är webbläsar-baserat och befintlig kod kräver det.
+
+## Webhooks och externa callbacks
+
+- [ ] Verifieras **HMAC/signatur** eller käll-IP enligt leverantörens krav?
+- [ ] Loggas endast säkra, icke-känsliga detaljer (inga hemligheter eller råa tokens)?
+
+## Tester
+
+- [ ] Minst ett test som täcker **lyckat** och relevant **403/401/400**-fall.
+- [ ] Om route rör **filer, AI, sök eller admin**: säkerställ att regressionsrisk och data-isolering är täckt i befintlig teststil.
+
+## Drift
+
+- [ ] Nya integrationer dokumenteras i `.env.example` / `.env.test.example` utan att lägga riktiga hemligheter i repo.
+
+GitHub: aktivera **secret scanning** och **push protection** för organisationen om det inte redan är påslaget (ingen kodändring i repo räcker för organisationens inställningar).

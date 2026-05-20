@@ -1,0 +1,74 @@
+services:
+  # ─── Applikation (Node.js / Remix) ──────────────────────────
+  app:
+    build:
+      context: .
+      target: production
+    container_name: miljobeslut-app
+    restart: unless-stopped
+    ports:
+      - '8787:8787'
+    env_file:
+      - .env
+    environment:
+      - NODE_ENV=production
+      # App-containern ska använda den lokala Postgres-instansen i Docker-nätverket.
+      - DATABASE_URL=postgresql://miljobeslut:miljobeslut@db:5432/miljobeslut?sslmode=disable
+    networks:
+      - miljobeslut-net
+
+  # ─── PostgreSQL med PostGIS + pgvector ──────────────────────
+  db:
+    profiles:
+      - docker-db
+    build:
+      context: .
+      dockerfile: docker/postgres-dev/Dockerfile
+    container_name: miljobeslut-postgres
+    restart: unless-stopped
+    shm_size: '1gb'
+    environment:
+      POSTGRES_DB: miljobeslut
+      POSTGRES_USER: miljobeslut
+      POSTGRES_PASSWORD: miljobeslut
+    ports:
+      - '5432:5432'
+    volumes:
+      - type: volume
+        source: postgres-data
+        target: /var/lib/postgresql/data
+      #      - ./scripts/db/init-search.sql:/docker-entrypoint-initdb.d/01-init-search.sql:ro
+      - ./docker/postgres-init:/docker-entrypoint-initdb.d/extra:ro
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U miljobeslut -d miljobeslut']
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - miljobeslut-net
+
+  # ─── Isolerad testdatabas för Vitest/integrationstester ─────
+  db-test:
+    profiles:
+      - test-db
+    build:
+      context: .
+      dockerfile: docker/postgres-dev/Dockerfile
+    container_name: miljobeslut-postgres-test
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: miljobeslut_test
+      POSTGRES_USER: miljobeslut
+      POSTGRES_PASSWORD: miljobeslut
+    ports:
+      - '5433:5432' # Exponera på en annan port för att undvika konflikt
+    networks:
+      - miljobeslut-net
+
+volumes:
+  postgres-data:
+    driver: local
+
+networks:
+  miljobeslut-net:
+    driver: bridge

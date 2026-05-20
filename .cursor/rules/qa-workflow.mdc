@@ -1,0 +1,37 @@
+---
+description: Kvalitet, tester och täckning för Miljöbeslut-portalen
+globs:
+  - "**/*.{ts,tsx}"
+  - "server/**/*.ts"
+  - "tests/**/*.{ts,tsx}"
+alwaysApply: false
+---
+
+# QA och kodkvalitet
+
+## Obligatoriskt innan PR / merge
+
+Kör i repo-rot:
+
+```bash
+npm run qa
+```
+
+För release eller ändringar som rör E2E / build:
+
+```bash
+npm run qa:full
+```
+
+`qa` kör: `typecheck` → `lint` → `format:check` → `test` (unit + integration med test-DB).
+
+## Täckning
+
+- Efter funktionsändringar som når `server/` eller `src/`: kör `npm run test:unit:coverage` och granska `coverage/index.html`.
+- Lista svagast täckta filer under `server/` och `src/`: `npm run coverage:gaps` (kräver färsk `coverage/lcov.info`).
+- Se `docs/qa/coverage-baseline.md` för tolkning och CI.
+
+## Nya features
+
+- Nya **publika eller autentiserade API-vägar** ska ha minst ett **route-/integrations- eller enhetstest** som verifierar statuskoder och auth där det är relevant.
+- Kritiska **användarresor** ska ha motsvarighet i `tests/e2e/` när flödet är centralt för produkten.

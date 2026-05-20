@@ -1,0 +1,257 @@
+/**
+ * Persistens för canonical enskilt-avlopp-ansökningar (/api/sewage/applications).
+ * Prisma när SewageApplicationCase finns; in-memory i test eller vid DB-fel.
+ */
+
+import type { SewageGISAnalysis, SewageProtectionProfile } from '../../types';
+import { prisma } from '../../db.server';
+
+export type SewageApplicationStatus = 'DRAFT' | 'SUBMITTED' | 'IN_REVIEW' | 'DECISION';
+
+export interface SewageDomainSnapshot {
+  protectionProfile?: SewageProtectionProfile;
+  gisAnalysis?: SewageGISAnalysis;
+  generatedDocuments?: {
+    situationPlanSVG?: string;
+    crossSectionSVG?: string;
+    generatedAt?: string;
+  };
+  usedDefaultGis?: boolean;
+  soilTest?: { ltar: number; testDate: string };
+  neighborConsent?: { address: string; distance: number; obtained: boolean };
+}
+
+export interface SewageApplicationRecord {
+  id: string;
+  referenceNumber: string;
+  organisationId: string;
+  createdByUserId: string;
+  projectId?: string;
+  municipalityCode?: string;
+  pe: number;
+  propertyDesignation: string;
+  latitude: number;
+  longitude: number;
+  applicantName: string;
+  applicantEmail: string;
+  systemType: string;
+  purpose?: string;
+  status: SewageApplicationStatus;
+  decisionNote?: string;
+  municipalityReference?: string;
+  domainSnapshot?: SewageDomainSnapshot;
+  createdAt: string;
+  updatedAt: string;
+}
+
+const memoryStore = new Map<string, SewageApplicationRecord>();
+
+function useMemoryOnly(): boolean {
+  return process.env.SEWAGE_APPLICATION_REPO === 'memory' || process.env.NODE_ENV === 'test';
+}
+
+function rowToRecord(row: {
+  id: string;
+  referenceNumber: string;
+  organisationId: string;
+  createdByUserId: string;
+  projectId: string | null;
+  municipalityCode: string | null;
+  pe: number;
+  propertyDesignation: string;
+  latitude: number;
+  longitude: number;
+  applicantName: string;
+  applicantEmail: string;
+  systemType: string;
+  purpose: string | null;
+  status: string;
+  decisionNote: string | null;
+  municipalityReference: string | null;
+  payload: unknown;
+  createdAt: Date;
+  updatedAt: Date;
+}): SewageApplicationRecord {
+  const payload = (row.payload ?? {}) as { domainSnapshot?: SewageDomainSnapshot };
+  return {
+    id: row.id,
+    referenceNumber: row.referenceNumber,
+    organisationId: row.organisationId,
+    createdByUserId: row.createdByUserId,
+    projectId: row.projectId ?? undefined,
+    municipalityCode: row.municipalityCode ?? undefined,
+    pe: row.pe,
+    propertyDesignation: row.propertyDesignation,
+    latitude: row.latitude,
+    longitude: row.longitude,
+    applicantName: row.applicantName,
+    applicantEmail: row.applicantEmail,
+    systemType: row.systemType,
+    purpose: row.purpose ?? undefined,
+    status: row.status as SewageApplicationStatus,
+    decisionNote: row.decisionNote ?? undefined,
+    municipalityReference: row.municipalityReference ?? undefined,
+    domainSnapshot: payload.domainSnapshot,
+    createdAt: row.createdAt.toISOString(),
+    updatedAt: row.updatedAt.toISOString(),
+  };
+}
+
+export function createSewageApplicationRecord(
+  input: Omit<
+    SewageApplicationRecord,
+    'id' | 'referenceNumber' | 'createdAt' | 'updatedAt' | 'status' | 'pe'
+  > & {
+    status?: SewageApplicationStatus;
+    pe?: number;
+  },
+): SewageApplicationRecord {
+  const now = new Date();
+  const id = `avlopp-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+  const record: SewageApplicationRecord = {
+    id,
+    referenceNumber: `AVLOPP-${id}`,
+    pe: input.pe ?? 5,
+    status: input.status ?? 'DRAFT',
+    createdAt: now.toISOString(),
+    updatedAt: now.toISOString(),
+    ...input,
+  };
+
+  memoryStore.set(id, record);
+
+  if (!useMemoryOnly()) {
+    void prisma.sewageApplicationCase
+      .create({
+        data: {
+          id: record.id,
+          referenceNumber: record.referenceNumber,
+          organisationId: record.organisationId,
+          createdByUserId: record.createdByUserId,
+          projectId: record.projectId ?? null,
+          municipalityCode: record.municipalityCode ?? null,
+          pe: record.pe,
+          propertyDesignation: record.propertyDesignation,
+          latitude: record.latitude,
+          longitude: record.longitude,
+          applicantName: record.applicantName,
+          applicantEmail: record.applicantEmail,
+          systemType: record.systemType,
+          purpose: record.purpose ?? null,
+          status: record.status,
+          decisionNote: record.decisionNote ?? null,
+          municipalityReference: record.municipalityReference ?? null,
+          payload: { domainSnapshot: record.domainSnapshot ?? {} },
+        },
+      })
+      .catch(() => {
+        /* Prisma tabell saknas eller DB otillgänglig — memory räcker */
+      });
+  }
+
+  return record;
+}
+
+export function getSewageApplicationById(id: string): SewageApplicationRecord | null {
+  const mem = memoryStore.get(id);
+  if (mem) return mem;
+  return null;
+}
+
+export async function getSewageApplicationByIdAsync(id: string): Promise<SewageApplicationRecord | null> {
+  const mem = memoryStore.get(id);
+  if (mem) return mem;
+
+  if (useMemoryOnly()) return null;
+
+  try {
+    const row = await prisma.sewageApplicationCase.findUnique({ where: { id } });
+    if (!row) return null;
+    const record = rowToRecord(row);
+    memoryStore.set(id, record);
+    return record;
+  } catch {
+    return null;
+  }
+}
+
+export function listSewageApplicationsByOrg(organisationId: string): SewageApplicationRecord[] {
+  return [...memoryStore.values()].filter((r) => r.organisationId === organisationId);
+}
+
+export function updateSewageApplicationRecord(
+  id: string,
+  patch: Partial<
+    Pick<
+      SewageApplicationRecord,
+      | 'status'
+      | 'decisionNote'
+      | 'projectId'
+      | 'municipalityCode'
+      | 'pe'
+      | 'propertyDesignation'
+      | 'latitude'
+      | 'longitude'
+      | 'applicantName'
+      | 'applicantEmail'
+      | 'systemType'
+      | 'purpose'
+      | 'municipalityReference'
+      | 'domainSnapshot'
+    >
+  >,
+): SewageApplicationRecord | null {
+  const existing = memoryStore.get(id);
+  if (!existing) return null;
+
+  const updated: SewageApplicationRecord = {
+    ...existing,
+    ...patch,
+    domainSnapshot: patch.domainSnapshot
+      ? { ...existing.domainSnapshot, ...patch.domainSnapshot }
+      : existing.domainSnapshot,
+    updatedAt: new Date().toISOString(),
+  };
+  memoryStore.set(id, updated);
+
+  if (!useMemoryOnly()) {
+    void prisma.sewageApplicationCase
+      .update({
+        where: { id },
+        data: {
+          status: updated.status,
+          decisionNote: updated.decisionNote ?? null,
+          projectId: updated.projectId ?? null,
+          municipalityCode: updated.municipalityCode ?? null,
+          pe: updated.pe,
+          propertyDesignation: updated.propertyDesignation,
+          latitude: updated.latitude,
+          longitude: updated.longitude,
+          applicantName: updated.applicantName,
+          applicantEmail: updated.applicantEmail,
+          systemType: updated.systemType,
+          purpose: updated.purpose ?? null,
+          municipalityReference: updated.municipalityReference ?? null,
+          payload: { domainSnapshot: updated.domainSnapshot ?? {} },
+          updatedAt: new Date(updated.updatedAt),
+        },
+      })
+      .catch(() => undefined);
+  }
+
+  return updated;
+}
+
+export function assertSewageApplicationOrgAccess(
+  record: SewageApplicationRecord,
+  organisationId: string,
+  role: string,
+): boolean {
+  if (role === 'ADMIN') return true;
+  return record.organisationId === organisationId;
+}
+
+/** Endast för tester */
+export function __clearSewageApplicationStoreForTests(): void {
+  memoryStore.clear();
+}

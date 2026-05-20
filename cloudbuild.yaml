@@ -1,0 +1,335 @@
+# cloudbuild.yaml — build → push → Prisma/PostGIS (Cloud Run Job) → deploy Cloud Run
+'# Bygger separata images för webbserver och bakgrundsarbetare.
+#
+# gcloud builds submit --config=cloudbuild.yaml --substitutions=SHORT_SHA=$(git rev-parse --short HEAD)
+#
+# Sätt minst: _CLOUDSQL, _VPC_CONNECTOR, _GCS_DOCUMENTS_BUCKET (rekommenderat).
+# Förbered: Secret Manager (DATABASE_URL, JWT_*, SEARCH_ENCRYPTION_KEY_BASE64, …), migrate-jobb, VPC.
+# Se docs/deploy/DEPLOY_GCP.md och docs/deploy/GCP_P2_PLATFORM.md
+
+substitutions:
+  _REGION: europe-west1
+  _SERVICE_WEB: miljobeslut-web
+  _SERVICE_GDPR_WORKER: miljobeslut-gdpr-worker
+  _SERVICE_SEARCH_WORKER: miljobeslut-search-worker
+  _SERVICE_AUDIT_WORKER: miljobeslut-audit-worker
+  _SERVICE_DOMSTOL_WORKER: miljobeslut-domstol-worker
+  _SERVICE_RAA_IMPORTER: miljobeslut-raa-importer # Ny arbetare
+  _REPO: miljobeslut
+  _CLOUDSQL: ''
+  _DB_MIGRATE_JOB: miljobeslut-migrate
+  _VPC_CONNECTOR: miljobeslut-vpc
+  _RUNTIME_SA: miljobeslut-runtime
+  _GCS_DOCUMENTS_BUCKET: ''
+
+options:
+  logging: CLOUD_LOGGING_ONLY
+  machineType: E2_HIGHCPU_8
+  substitution_option: ALLOW_LOOSE
+
+images:
+  - '${_REGION}-docker.pkg.dev/${PROJECT_ID}/${_REPO}/${_SERVICE_WEB}:${SHORT_SHA}'
+  - '${_REGION}-docker.pkg.dev/${PROJECT_ID}/${_REPO}/${_SERVICE_WEB}:latest'
+  - '${_REGION}-docker.pkg.dev/${PROJECT_ID}/${_REPO}/${_SERVICE_GDPR_WORKER}:${SHORT_SHA}'
+  - '${_REGION}-docker.pkg.dev/${PROJECT_ID}/${_REPO}/${_SERVICE_GDPR_WORKER}:latest'
+  - '${_REGION}-docker.pkg.dev/${PROJECT_ID}/${_REPO}/${_SERVICE_SEARCH_WORKER}:${SHORT_SHA}'
+  - '${_REGION}-docker.pkg.dev/${PROJECT_ID}/${_REPO}/${_SERVICE_SEARCH_WORKER}:latest'
+  - '${_REGION}-docker.pkg.dev/${PROJECT_ID}/${_REPO}/${_SERVICE_DOMSTOL_WORKER}:${SHORT_SHA}'
+  - '${_REGION}-docker.pkg.dev/${PROJECT_ID}/${_REPO}/${_SERVICE_DOMSTOL_WORKER}:latest'
+  - '${_REGION}-docker.pkg.dev/${PROJECT_ID}/${_REPO}/${_SERVICE_AUDIT_WORKER}:${SHORT_SHA}'
+  - '${_REGION}-docker.pkg.dev/${PROJECT_ID}/${_REPO}/${_SERVICE_AUDIT_WORKER}:latest'
+  - '${_REGION}-docker.pkg.dev/${PROJECT_ID}/${_REPO}/${_SERVICE_RAA_IMPORTER}:${SHORT_SHA}' # Ny image
+  - '${_REGION}-docker.pkg.dev/${PROJECT_ID}/${_REPO}/${_SERVICE_RAA_IMPORTER}:latest'
+  - '${_REGION}-docker.pkg.dev/${PROJECT_ID}/${_REPO}/${_SERVICE_RAA_IMPORTER}:${SHORT_SHA}' # Ny image
+  - '${_REGION}-docker.pkg.dev/${PROJECT_ID}/${_REPO}/${_SERVICE_RAA_IMPORTER}:latest'
+
+steps:
+  - id: build-web
+    name: gcr.io/cloud-builders/docker
+    args:
+      - build
+      - '-f'
+      - Dockerfile
+      - '--target=web' # Bygg 'web'-steget i Dockerfile
+      - '-t'
+      - '${_REGION}-docker.pkg.dev/${PROJECT_ID}/${_REPO}/${_SERVICE_WEB}:${SHORT_SHA}'
+      - '-t'
+      - '${_REGION}-docker.pkg.dev/${PROJECT_ID}/${_REPO}/${_SERVICE_WEB}:latest'
+      - '.'
+
+  - id: build-gdpr-worker
+    name: gcr.io/cloud-builders/docker
+    args:
+      - build
+      - '-f'
+      - Dockerfile
+      - '--target=gdpr-worker' # Bygg 'gdpr-worker'-steget
+      - '-t'
+      - '${_REGION}-docker.pkg.dev/${PROJECT_ID}/${_REPO}/${_SERVICE_GDPR_WORKER}:${SHORT_SHA}'
+      - '-t'
+      - '${_REGION}-docker.pkg.dev/${PROJECT_ID}/${_REPO}/${_SERVICE_GDPR_WORKER}:latest'
+      - '.'
+
+  - id: build-search-worker
+    name: gcr.io/cloud-builders/docker
+    args:
+      - build
+      - '-f'
+      - Dockerfile
+      - '--target=search-indexer-worker' # Bygg 'search-indexer-worker'-steget
+      - '-t'
+      - '${_REGION}-docker.pkg.dev/${PROJECT_ID}/${_REPO}/${_SERVICE_SEARCH_WORKER}:${SHORT_SHA}'
+      - '-t'
+      - '${_REGION}-docker.pkg.dev/${PROJECT_ID}/${_REPO}/${_SERVICE_SEARCH_WORKER}:latest'
+      - '.'
+
+  - id: build-domstol-worker
+    name: gcr.io/cloud-builders/docker
+    args:
+      - build
+      - '-f'
+      - Dockerfile
+      - '--target=domstol-rss-worker' # Bygg 'domstol-rss-worker'-steget
+      - '-t'
+      - '${_REGION}-docker.pkg.dev/${PROJECT_ID}/${_REPO}/${_SERVICE_DOMSTOL_WORKER}:${SHORT_SHA}'
+      - '-t'
+      - '${_REGION}-docker.pkg.dev/${PROJECT_ID}/${_REPO}/${_SERVICE_DOMSTOL_WORKER}:latest'
+      - '.'
+
+  - id: build-audit-worker
+    name: gcr.io/cloud-builders/docker
+    args:
+      - build
+      - '-f'
+      - Dockerfile
+      - '--target=audit-verification-worker' # Bygg 'audit-verification-worker'-steget
+      - '-t'
+      - '${_REGION}-docker.pkg.dev/${PROJECT_ID}/${_REPO}/${_SERVICE_AUDIT_WORKER}:${SHORT_SHA}'
+      - '-t'
+      - '${_REGION}-docker.pkg.dev/${PROJECT_ID}/${_REPO}/${_SERVICE_AUDIT_WORKER}:latest'
+      - '.'
+
+  - id: build-raa-importer
+    name: gcr.io/cloud-builders/docker
+    args:
+      - build
+      - '-f'
+      - Dockerfile
+      - '--target=raa-importer-worker' # Nytt target i Dockerfile
+      - '-t'
+      - '${_REGION}-docker.pkg.dev/${PROJECT_ID}/${_REPO}/${_SERVICE_RAA_IMPORTER}:${SHORT_SHA}'
+      - '-t'
+      - '${_REGION}-docker.pkg.dev/${PROJECT_ID}/${_REPO}/${_SERVICE_RAA_IMPORTER}:latest'
+      - '.'
+
+  - id: build-raa-importer
+    name: gcr.io/cloud-builders/docker
+    args:
+      - build
+      - '-f'
+      - Dockerfile
+      - '--target=raa-importer-worker' # Nytt target i Dockerfile
+      - '-t'
+      - '${_REGION}-docker.pkg.dev/${PROJECT_ID}/${_REPO}/${_SERVICE_RAA_IMPORTER}:${SHORT_SHA}'
+      - '-t'
+      - '${_REGION}-docker.pkg.dev/${PROJECT_ID}/${_REPO}/${_SERVICE_RAA_IMPORTER}:latest'
+      - '.'
+
+  - id: push-web
+    name: gcr.io/cloud-builders/docker
+    args:
+      - push
+      - '--all-tags'
+      - '${_REGION}-docker.pkg.dev/${PROJECT_ID}/${_REPO}/${_SERVICE_WEB}'
+
+  - id: push-gdpr-worker
+    name: gcr.io/cloud-builders/docker
+    args: ['push', '--all-tags', '${_REGION}-docker.pkg.dev/${PROJECT_ID}/${_REPO}/${_SERVICE_GDPR_WORKER}']
+
+  - id: push-search-worker
+    name: gcr.io/cloud-builders/docker
+    args: ['push', '--all-tags', '${_REGION}-docker.pkg.dev/${PROJECT_ID}/${_REPO}/${_SERVICE_SEARCH_WORKER}']
+
+  - id: push-audit-worker
+    name: gcr.io/cloud-builders/docker
+    args: ['push', '--all-tags', '${_REGION}-docker.pkg.dev/${PROJECT_ID}/${_REPO}/${_SERVICE_AUDIT_WORKER}']
+
+  - id: push-domstol-worker
+    name: gcr.io/cloud-builders/docker
+    args: ['push', '--all-tags', '${_REGION}-docker.pkg.dev/${PROJECT_ID}/${_REPO}/${_SERVICE_DOMSTOL_WORKER}']
+
+  - id: push-raa-importer
+    name: gcr.io/cloud-builders/docker
+    args: ['push', '--all-tags', '${_REGION}-docker.pkg.dev/${PROJECT_ID}/${_REPO}/${_SERVICE_RAA_IMPORTER}']
+
+  - id: push-raa-importer
+    name: gcr.io/cloud-builders/docker
+    args: ['push', '--all-tags', '${_REGION}-docker.pkg.dev/${PROJECT_ID}/${_REPO}/${_SERVICE_RAA_IMPORTER}']
+
+  - id: migrate
+    name: gcr.io/google.com/cloudsdktool/cloud-sdk:slim
+    entrypoint: bash
+    args:
+      - '-c'
+      - |
+        set -euo pipefail
+        gcloud run jobs update ${_DB_MIGRATE_JOB} \
+          --region=${_REGION} \
+          --image=${_REGION}-docker.pkg.dev/${PROJECT_ID}/${_REPO}/${_SERVICE_WEB}:${SHORT_SHA} \
+          --service-account=${_RUNTIME_SA}@${PROJECT_ID}.iam.gserviceaccount.com \
+          --command=/bin/sh \
+          --args='-c','npx prisma migrate deploy && npx tsx scripts/db/spatial-bootstrap.ts' \
+          --set-cloudsql-instances=${_CLOUDSQL} \
+          --vpc-connector=${_VPC_CONNECTOR} \
+          --vpc-egress=private-ranges-only \
+          --set-secrets=DATABASE_URL=DATABASE_URL:latest \
+          --quiet
+        gcloud run jobs execute ${_DB_MIGRATE_JOB} --region=${_REGION} --wait
+
+  - id: deploy
+    name: gcr.io/google.com/cloudsdktool/cloud-sdk:slim
+    entrypoint: bash
+    args:
+      - '-c'
+      - |
+        set -euo pipefail
+        IMAGE='${_REGION}-docker.pkg.dev/${PROJECT_ID}/${_REPO}/${_SERVICE_WEB}:${SHORT_SHA}'
+        # Minimikrets — lägg fler hemligheter samma mönster: SM_NAMN=SM_NAMN:latest
+        SECRETS='DATABASE_URL=DATABASE_URL:latest,JWT_ACCESS_SECRET=JWT_ACCESS_SECRET:latest,JWT_REFRESH_SECRET=JWT_REFRESH_SECRET:latest,SEARCH_ENCRYPTION_KEY_BASE64=SEARCH_ENCRYPTION_KEY_BASE64:latest,INTERNAL_CRON_TOKEN=INTERNAL_CRON_TOKEN:latest,LANTMATERIET_CONSUMER_KEY=LANTMATERIET_CONSUMER_KEY:latest,LANTMATERIET_CONSUMER_SECRET=LANTMATERIET_CONSUMER_SECRET:latest'
+        ENV='NODE_ENV=production,VERTEX_PROJECT_ID=${PROJECT_ID},VERTEX_LOCATION=${_REGION},PROPERTY_LOOKUP_MODE=postgis_first,START_WORKERS_IN_PROCESS=false'
+        if [ -n "${_GCS_DOCUMENTS_BUCKET}" ]; then
+          ENV="$${ENV},GCS_DOCUMENTS_BUCKET=${_GCS_DOCUMENTS_BUCKET},GCS_DOCUMENTS_PREFIX=documents"
+        fi
+        gcloud run deploy ${_SERVICE_WEB} \
+          --region=${_REGION} \
+          --image="$${IMAGE}" \
+          --platform=managed \
+          --allow-unauthenticated \
+          --port=8080 \
+          --cpu=1 \
+          --memory=1Gi \
+          --min-instances=1 \
+          --max-instances=10 \
+          --timeout=3600 \
+          --session-affinity \
+          --service-account=${_RUNTIME_SA}@${PROJECT_ID}.iam.gserviceaccount.com \
+          --vpc-connector=${_VPC_CONNECTOR} \
+          --vpc-egress=private-ranges-only \
+          --set-cloudsql-instances=${_CLOUDSQL} \
+          --set-env-vars="$${ENV}" \
+          --set-secrets="$${SECRETS}" \
+          --quiet
+        echo "Klart. Webbservern är driftsatt."
+
+  - id: deploy-gdpr-worker-job
+    name: gcr.io/google.com/cloudsdktool/cloud-sdk:slim
+    entrypoint: bash
+    args:
+      - '-c'
+      - |
+        set -euo pipefail
+        echo "Deploying GDPR worker as a Cloud Run Job..."
+        gcloud run jobs update ${_SERVICE_GDPR_WORKER} \
+          --region=${_REGION} \
+          --image=${_REGION}-docker.pkg.dev/${PROJECT_ID}/${_REPO}/${_SERVICE_GDPR_WORKER}:${SHORT_SHA} \
+          --service-account=${_RUNTIME_SA}@${PROJECT_ID}.iam.gserviceaccount.com \
+          --set-cloudsql-instances=${_CLOUDSQL} \
+          --vpc-connector=${_VPC_CONNECTOR} \
+          --set-secrets=DATABASE_URL=DATABASE_URL:latest \
+          --quiet
+        echo "Cloud Run Job '${_SERVICE_GDPR_WORKER}' has been created/updated. Anropa det via Cloud Scheduler."
+
+  - id: deploy-search-worker
+    name: gcr.io/google.com/cloudsdktool/cloud-sdk:slim
+    entrypoint: bash
+    args:
+      - '-c'
+      - |
+        set -euo pipefail
+        echo "Deploying search indexer worker as a Cloud Run service..."
+        gcloud run deploy ${_SERVICE_SEARCH_WORKER} \
+          --region=${_REGION} \
+          --image=${_REGION}-docker.pkg.dev/${PROJECT_ID}/${_REPO}/${_SERVICE_SEARCH_WORKER}:${SHORT_SHA} \
+          --service-account=${_RUNTIME_SA}@${PROJECT_ID}.iam.gserviceaccount.com \
+          --set-cloudsql-instances=${_CLOUDSQL} \
+          --vpc-connector=${_VPC_CONNECTOR} \
+          --vpc-egress=private-ranges-only \
+          --set-secrets=DATABASE_URL=DATABASE_URL:latest \
+          --set-env-vars='NODE_ENV=production' \
+          --min-instances=1 \
+          --max-instances=1 \
+          --no-allow-unauthenticated \
+          --quiet
+        echo "Cloud Run service '${_SERVICE_SEARCH_WORKER}' has been deployed."
+
+  - id: deploy-domstol-worker-job
+    name: gcr.io/google.com/cloudsdktool/cloud-sdk:slim
+    entrypoint: bash
+    args:
+      - '-c'
+      - |
+        set -euo pipefail
+        echo "Deploying Domstol RSS worker as a Cloud Run Job..."
+        gcloud run jobs update ${_SERVICE_DOMSTOL_WORKER} \
+          --region=${_REGION} \
+          --image=${_REGION}-docker.pkg.dev/${PROJECT_ID}/${_REPO}/${_SERVICE_DOMSTOL_WORKER}:${SHORT_SHA} \
+          --service-account=${_RUNTIME_SA}@${PROJECT_ID}.iam.gserviceaccount.com \
+          --set-cloudsql-instances=${_CLOUDSQL} \
+          --vpc-connector=${_VPC_CONNECTOR} \
+          --set-secrets=DATABASE_URL=DATABASE_URL:latest \
+          --quiet
+        echo "Cloud Run Job '${_SERVICE_DOMSTOL_WORKER}' has been created/updated. Anropa det via Cloud Scheduler."
+
+  - id: deploy-audit-worker-job
+    name: gcr.io/google.com/cloudsdktool/cloud-sdk:slim
+    entrypoint: bash
+    args:
+      - '-c'
+      - |
+        set -euo pipefail
+        echo "Deploying Audit Verification worker as a Cloud Run Job..."
+        gcloud run jobs update ${_SERVICE_AUDIT_WORKER} \
+          --region=${_REGION} \
+          --image=${_REGION}-docker.pkg.dev/${PROJECT_ID}/${_REPO}/${_SERVICE_AUDIT_WORKER}:${SHORT_SHA} \
+          --service-account=${_RUNTIME_SA}@${PROJECT_ID}.iam.gserviceAccount.com \
+          --set-cloudsql-instances=${_CLOUDSQL} \
+          --vpc-connector=${_VPC_CONNECTOR} \
+          --set-secrets=DATABASE_URL=DATABASE_URL:latest \
+          --quiet
+        echo "Cloud Run Job '${_SERVICE_AUDIT_WORKER}' has been created/updated. Anropa det via Cloud Scheduler."
+
+  - id: deploy-raa-importer-job
+    name: gcr.io/google.com/cloudsdktool/cloud-sdk:slim
+    entrypoint: bash
+    args:
+      - -c
+      - |
+        set -euo pipefail
+        echo "Deploying Riksantikvarieämbetet importer as a Cloud Run Job..."
+        gcloud run jobs update ${_SERVICE_RAA_IMPORTER} \
+          --region=${_REGION} \
+          --image=${_REGION}-docker.pkg.dev/${PROJECT_ID}/${_REPO}/${_SERVICE_RAA_IMPORTER}:${SHORT_SHA} \
+          --service-account=${_RUNTIME_SA}@${PROJECT_ID}.iam.gserviceAccount.com \
+          --set-cloudsql-instances=${_CLOUDSQL} \
+          --vpc-connector=${_VPC_CONNECTOR} \
+          --set-secrets=DATABASE_URL=DATABASE_URL:latest \
+          --quiet
+        echo "Cloud Run Job '${_SERVICE_RAA_IMPORTER}' has been created/updated. Anropa det via Cloud Scheduler."
+
+  - id: deploy-raa-importer-job
+    name: gcr.io/google.com/cloudsdktool/cloud-sdk:slim
+    entrypoint: bash
+    args:
+      - -c
+      - |
+        set -euo pipefail
+        echo "Deploying Riksantikvarieämbetet importer as a Cloud Run Job..."
+        gcloud run jobs update ${_SERVICE_RAA_IMPORTER} \
+          --region=${_REGION} \
+          --image=${_REGION}-docker.pkg.dev/${PROJECT_ID}/${_REPO}/${_SERVICE_RAA_IMPORTER}:${SHORT_SHA} \
+          --service-account=${_RUNTIME_SA}@${PROJECT_ID}.iam.gserviceAccount.com \
+          --set-cloudsql-instances=${_CLOUDSQL} \
+          --vpc-connector=${_VPC_CONNECTOR} \
+          --set-secrets=DATABASE_URL=DATABASE_URL:latest \
+          --quiet
+        echo "Cloud Run Job '${_SERVICE_RAA_IMPORTER}' has been created/updated. Anropa det via Cloud Scheduler."

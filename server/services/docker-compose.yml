@@ -1,0 +1,19 @@
+version: '3.8'
+
+services:
+  db:
+    image: postgis/postgis:16-3.4
+    container_name: miljobeslut-postgis
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-miljobeslut}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-miljobeslut}
+      POSTGRES_DB: ${POSTGRES_DB:-miljobeslut}
+    ports:
+      - '5432:5432'
+    volumes:
+      - miljobeslut-data:/var/lib/postgresql/data
+    restart: unless-stopped
+
+volumes:
+  miljobeslut-data:
+    driver: local

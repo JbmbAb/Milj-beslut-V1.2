@@ -1,0 +1,22 @@
+{
+  "recommendations": [
+    "bradlc.vscode-tailwindcss",
+    "prisma.prisma",
+    "dbaeumer.vscode-eslint",
+    "esbenp.prettier-vscode",
+    "eamodio.gitlens",
+    "mhutchie.git-graph",
+    "yoavbls.pretty-ts-errors",
+    "mikestead.dotenv",
+    "dsznajder.es7-react-js-snippets",
+    "usernamehw.errorlens",
+    "vitest.explorer",
+    "ms-playwright.playwright",
+    "ryanluker.vscode-coverage-gutters",
+    "GitHub.vscode-github-actions",
+    "humao.rest-client",
+    "mtxr.sqltools",
+    "mtxr.sqltools-driver-pg",
+    "streetsidesoftware.code-spell-checker"
+  ]
+}

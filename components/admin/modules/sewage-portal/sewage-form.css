@@ -1,0 +1,91 @@
+/* Sewage Form Styles */
+
+.sewage-form-container {
+  max-width: 700px;
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-xl);
+}
+
+.sewage-form-section {
+  background-color: var(--color-bg-digg);
+  border: 1px solid var(--color-border-digg);
+  border-radius: var(--border-radius-lg-digg);
+  padding: var(--spacing-xl);
+  box-shadow: var(--shadow-sm);
+}
+
+.sewage-form-section-title {
+  font-size: var(--font-size-lg-digg);
+  font-weight: var(--font-weight-semibold);
+  color: var(--color-text-primary-digg);
+  margin-bottom: var(--spacing-xl);
+  padding-bottom: var(--spacing-lg);
+  border-bottom: 2px solid var(--color-border-light);
+}
+
+.sewage-form-group {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-sm);
+  margin-bottom: var(--spacing-lg);
+}
+
+.sewage-form-label {
+  font-size: var(--font-size-sm-digg);
+  font-weight: var(--font-weight-semibold);
+  color: var(--color-text-primary-digg);
+}
+
+.sewage-form-input {
+  padding: var(--spacing-md) var(--spacing-lg);
+  border: 1px solid var(--color-border-digg);
+  border-radius: var(--border-radius-md-digg);
+  color: var(--color-text-primary-digg);
+  font-family: var(--font-family-body-digg);
+  font-size: var(--font-size-base-digg);
+  background-color: var(--color-bg-light);
+  transition: all var(--transition-fast);
+}
+
+.sewage-form-input:focus {
+  outline: none;
+  border-color: var(--color-primary-digg);
+  background-color: var(--color-bg-digg);
+  box-shadow: 0 0 0 3px rgba(0, 82, 147, 0.1);
+}
+
+.sewage-form-button-group {
+  display: flex;
+  gap: var(--spacing-lg);
+  justify-content: flex-end;
+  padding-top: var(--spacing-xl);
+  border-top: 1px solid var(--color-border-light);
+}
+
+.sewage-form-btn-submit {
+  padding: var(--spacing-md) var(--spacing-xl);
+  background-color: var(--color-primary-digg);
+  color: white;
+  border: none;
+  border-radius: var(--border-radius-md-digg);
+  font-weight: var(--font-weight-semibold);
+  cursor: pointer;
+  transition: all var(--transition-base);
+}
+
+.sewage-form-btn-submit:hover {
+  background-color: var(--color-primary-digg-light);
+  transform: translateY(-2px);
+  box-shadow: var(--shadow-md);
+}
+
+@media (max-width: 768px) {
+  .sewage-form-button-group {
+    flex-direction: column-reverse;
+  }
+
+  .sewage-form-btn-submit {
+    width: 100%;
+  }
+}

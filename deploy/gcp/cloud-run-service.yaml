@@ -1,0 +1,109 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# Cloud Run service-definition – Miljobeslut.se
+#
+# Ersätt PROJECT_ID med ditt GCP-projekt-ID innan du kör:
+#   gcloud run services replace deploy/gcp/cloud-run-service.yaml --region=europe-west1
+# ─────────────────────────────────────────────────────────────────────────────
+
+apiVersion: serving.knative.dev/v1
+kind: Service
+metadata:
+  name: miljobeslut
+  labels:
+    cloud.googleapis.com/location: europe-west1
+  annotations:
+    run.googleapis.com/ingress: all
+spec:
+  template:
+    metadata:
+      annotations:
+        # Koppla Cloud SQL-instansen (Unix-socket via /cloudsql/...)
+        # Ersätt <PROJECT_ID> med ditt faktiska GCP-projekt-ID (se README.md steg 6)
+        run.googleapis.com/cloudsql-instances: <PROJECT_ID>:europe-west1:miljobeslut-db
+        # Skalning: minst 1 instans igång (förhindrar cold-start för BankID/Lantmäteriet)
+        autoscaling.knative.dev/minScale: '1'
+        autoscaling.knative.dev/maxScale: '10'
+        # Starttidsgräns – ger Prisma tid att ladda vid cold-start
+        run.googleapis.com/startup-cpu-boost: 'true'
+    spec:
+      # Dedikerat service account med minsta behörighet (se README.md för roller)
+      serviceAccountName: miljobeslut-sa@<PROJECT_ID>.iam.gserviceaccount.com
+      # Tidsgräns per request – höjs för långa AI-anrop
+      timeoutSeconds: 300
+      containers:
+        - image: europe-west1-docker.pkg.dev/<PROJECT_ID>/miljobeslut/miljobeslut:latest
+          ports:
+            - name: http1
+              containerPort: 3000
+          resources:
+            limits:
+              memory: 1Gi
+              cpu: '1'
+          env:
+            - name: NODE_ENV
+              value: production
+            - name: DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: DATABASE_URL
+                  key: latest
+            - name: JWT_ACCESS_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: JWT_ACCESS_SECRET
+                  key: latest
+            - name: JWT_REFRESH_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: JWT_REFRESH_SECRET
+                  key: latest
+            - name: GEMINI_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: GEMINI_API_KEY
+                  key: latest
+            - name: OPENAI_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: OPENAI_API_KEY
+                  key: latest
+            - name: LANTMATERIET_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: LANTMATERIET_API_KEY
+                  key: latest
+            - name: SLU_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: SLU_API_KEY
+                  key: latest
+            - name: BANKID_PFX_PASSPHRASE
+              valueFrom:
+                secretKeyRef:
+                  name: BANKID_PFX_PASSPHRASE
+                  key: latest
+            - name: SEARCH_ENCRYPTION_KEY_BASE64
+              valueFrom:
+                secretKeyRef:
+                  name: SEARCH_ENCRYPTION_KEY_BASE64
+                  key: latest
+            - name: ADMIN_CONSOLE_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: ADMIN_CONSOLE_PASSWORD
+                  key: latest
+          # Health checks mot den befintliga /api/health-endpointen (Tier 1-3 readiness)
+          livenessProbe:
+            httpGet:
+              path: /api/health
+              port: 3000
+            initialDelaySeconds: 10
+            periodSeconds: 30
+            failureThreshold: 3
+          startupProbe:
+            httpGet:
+              path: /api/health
+              port: 3000
+            initialDelaySeconds: 5
+            failureThreshold: 12
+            periodSeconds: 5

@@ -1,0 +1,121 @@
+# Logs
+logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+lerna-debug.log*
+
+node_modules
+dist
+dist-ssr
+*.local
+
+# Editor directories and files
+.vscode/*
+!.vscode/extensions.json
+!.vscode/settings.json
+!.vscode/tasks.json
+!.vscode/keybindings.example.json
+.idea
+.DS_Store
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
+.env
+.env.test
+.env.local
+.env.*.local
+.env.supabase
+.env.production
+.env.staging
+coverage
+docs/qa/coverage-baseline-generated.md
+playwright-report
+test-results
+.quarantine/
+figma-raw.json
+
+# Temporary files
+.tmp-*
+tmp_*
+*.txt
+*.json
+!package.json
+!package-lock.json
+!tsconfig.json
+!stitch.json
+!figma-raw.json
+!vercel.json
+!*.md
+!public/manifest.json
+!.vscode/extensions.json
+!.vscode/settings.json
+!.vscode/tasks.json
+!.vscode/keybindings.example.json
+
+# Python cache
+__pycache__/
+*.pyc
+
+# Local debug artifacts
+.codex-logs/
+.postqode/
+.gemini/
+cred.err
+cred.out
+push.err
+push.out
+openssl-push.err
+openssl-push.out
+
+# Repomix context dump (autogenererad, ska ej committas)
+repomix-output.xml
+repomix-output.txt
+
+# Runtime storage: uploads, ingest caches, extracted datasets (blob store / local disk — not source)
+/storage/
+
+# Playwright CLI local page dumps (not source — regenerate if needed)
+.playwright-cli/
+
+# Windows shortcut files (not source)
+*.url
+
+# Generated local analysis / dossier outputs (large GeoJSON)
+Analysis/
+
+# Local scratch, outputs, dossier builds (not source)
+scratch/
+output/
+dossiers/
+
+# Local raster/pyramid tiles (gdal2tiles → MapView ortofoto); not reproducible artefakter för CI
+public/tiles/
+
+# Ad-hoc pg_dump / migration backups (lokala)
+backup_pre_migration.sql
+backup-*.sql
+backup-.sql
+
+# Lokala PostgreSQL-datafiler / runtime-datadir (ej källkod)
+Database/
+
+# Lokala AI/editor-artifakter
+.kombai/
+
+# Lokalt brus: examensmaterial, nedladdningar, IDE-sessions, tillfälliga Copilot-skript
+.copilot-*.ts
+*.session.sql
+Examensmatris*.xlsx
+Sammanställning/
+downloads/
+examensrepo/
+examensarbete_*
+kravmatris_*
+mall_c_anmalan_*.md
+hardware-check.ps1
+hardware-check.ts

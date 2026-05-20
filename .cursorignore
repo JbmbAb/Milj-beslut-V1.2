@@ -1,0 +1,70 @@
+# ----------------------------------------------------------------------------
+# .cursorignore - Cursor / VS Code AI indexing rules
+#
+# Files and folders that should not be indexed in the local AI vector database.
+# Keep source code, schemas, docs and tests available; exclude generated output,
+# binaries, large datasets and archival noise.
+# ----------------------------------------------------------------------------
+
+# Node.js / build output
+node_modules/
+dist/
+build/
+.next/
+coverage/
+.nyc_output/
+tmp/
+
+# Package manager locks
+package-lock.json
+yarn.lock
+pnpm-lock.yaml
+
+# Large data and archived support material
+*.csv
+*.xlsx
+*.xls
+*.sql.bak
+*.dump
+*.sqlite
+*.db
+archive/examensarbete/
+
+# Generated type declarations
+**/*.d.ts
+prisma/generated/
+
+# Binary assets and media
+*.png
+*.jpg
+*.jpeg
+*.gif
+*.ico
+*.svg
+*.woff
+*.woff2
+*.ttf
+*.eot
+*.pdf
+*.zip
+*.tar.gz
+
+# Sourcemaps and minified bundles
+**/*.map
+**/*.min.js
+**/*.min.css
+
+# Git internals
+.git/
+
+# Repomix output
+repomix-output.xml
+repomix-output.txt
+
+# Environment files
+.env
+.env.local
+.env.*.local
+
+# Stitch / metrics artifacts
+stitch.json
