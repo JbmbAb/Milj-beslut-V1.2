@@ -12,6 +12,7 @@ import type {
 } from '../../types';
 import { getPublicDatasourceSummary } from '../services/publicUiService';
 import { getAppCompletion as computeAppCompletion } from '../services/completionService';
+import { getOperationalCoverage } from '../services/operationalCoverageService';
 import { getExternalHealthReport } from '../services/externalHealthService';
 
 const db = prisma;
@@ -1151,7 +1152,11 @@ export async function getAppStatus(): Promise<AppStatusResponse> {
 }
 
 export async function getAppCompletion(): Promise<AppCompletionResponse> {
-  return computeAppCompletion();
+  const [base, operationalCoverage] = await Promise.all([
+    Promise.resolve(computeAppCompletion()),
+    getOperationalCoverage(),
+  ]);
+  return { ...base, operationalCoverage };
 }
 
 export async function getExternalHealth(): Promise<ExternalHealthReport> {

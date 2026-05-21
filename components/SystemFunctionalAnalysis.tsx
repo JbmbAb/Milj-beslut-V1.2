@@ -247,7 +247,17 @@ export const SystemFunctionalAnalysis: React.FC = () => {
             </div>
             <div className="text-right">
               <p className="text-3xl font-black text-slate-900">{report.completion.donePercent}%</p>
-              <p className="text-[10px] text-slate-500 font-bold uppercase tracking-wide">Implementerat</p>
+              <p className="text-[10px] text-slate-500 font-bold uppercase tracking-wide">Produktionsklart (DONE)</p>
+              <p className="text-lg font-black text-slate-600 mt-1">{report.completion.implementationPercent}%</p>
+              <p className="text-[10px] text-slate-500 font-bold uppercase tracking-wide">Kod/implementering</p>
+              {report.completion.operationalCoverage && (
+                <>
+                  <p className="text-lg font-black text-indigo-600 mt-1">
+                    {report.completion.operationalCoverage.percent}%
+                  </p>
+                  <p className="text-[10px] text-indigo-500 font-bold uppercase tracking-wide">Operativ täckning</p>
+                </>
+              )}
             </div>
           </div>
 

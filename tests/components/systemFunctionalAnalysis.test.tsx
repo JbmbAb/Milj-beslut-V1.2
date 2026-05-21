@@ -32,6 +32,7 @@ describe('SystemFunctionalAnalysis', () => {
     db: { status: 'ok', latencyMs: 45 },
     completion: {
       donePercent: 75,
+      implementationPercent: 82,
       remainingPercent: 25,
       counts: { done: 3, partial: 1, pending: 0, total: 4 },
       categories: [

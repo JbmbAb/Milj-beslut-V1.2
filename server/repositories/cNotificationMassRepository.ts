@@ -1,8 +1,11 @@
 /**
  * Persistens för C-anmälan schaktmassor (/api/c-notification/mass/*)
+ * Prioriterar Prisma för persistens, med in-memory fallback för tester.
  */
 
 import { prisma } from '../../db.server';
+import type { Prisma } from '@prisma/client';
+import type { MassGisSnapshot } from '../../src/types/mass';
 
 export type MassOperationType = 'MELLANLAGRING' | 'DEPONI';
 export type MassCaseStatus = 'DRAFT' | 'VALIDATED' | 'READY' | 'SUBMITTED';
@@ -34,6 +37,7 @@ export interface CNotificationMassCaseRecord {
   logisticsPlanId?: string;
   massFlowSnapshot?: unknown;
   exportPayload?: unknown;
+  gisSnapshot?: MassGisSnapshot;
   municipalityReference?: string;
   createdAt: string;
   updatedAt: string;
@@ -42,15 +46,40 @@ export interface CNotificationMassCaseRecord {
 const memoryStore = new Map<string, CNotificationMassCaseRecord>();
 
 function useMemoryOnly(): boolean {
+  if (process.env.DATABASE_INTEGRATION === 'true') return false;
   return process.env.C_NOTIFICATION_MASS_REPO === 'memory' || process.env.NODE_ENV === 'test';
 }
 
-export function createMassCase(
-  input: Omit<CNotificationMassCaseRecord, 'id' | 'referenceNumber' | 'createdAt' | 'updatedAt' | 'status' | 'operations'> & {
+function rowToRecord(row: any): CNotificationMassCaseRecord {
+  const payload = (row.payload ?? {}) as any;
+  return {
+    id: row.id,
+    referenceNumber: row.referenceNumber,
+    organisationId: row.organisationId,
+    createdByUserId: row.createdByUserId,
+    projectId: row.projectId,
+    propertyDesignation: row.propertyDesignation,
+    status: row.status as MassCaseStatus,
+    operations: payload.operations ?? [],
+    logisticsPlanId: payload.logisticsPlanId,
+    massFlowSnapshot: payload.massFlowSnapshot,
+    exportPayload: payload.exportPayload,
+    gisSnapshot: payload.gisSnapshot,
+    municipalityReference: row.municipalityReference ?? undefined,
+    createdAt: row.createdAt.toISOString(),
+    updatedAt: row.updatedAt.toISOString(),
+  };
+}
+
+export async function createMassCase(
+  input: Omit<
+    CNotificationMassCaseRecord,
+    'id' | 'referenceNumber' | 'createdAt' | 'updatedAt' | 'status' | 'operations'
+  > & {
     status?: MassCaseStatus;
     operations?: MassOperationRecord[];
   },
-): CNotificationMassCaseRecord {
+): Promise<CNotificationMassCaseRecord> {
   const now = new Date();
   const id = `cmass-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
   const record: CNotificationMassCaseRecord = {
@@ -62,11 +91,12 @@ export function createMassCase(
     updatedAt: now.toISOString(),
     ...input,
   };
+  
   memoryStore.set(id, record);
 
   if (!useMemoryOnly()) {
-    void prisma.cNotificationMassCase
-      .create({
+    try {
+      await prisma.cNotificationMassCase.create({
         data: {
           id: record.id,
           referenceNumber: record.referenceNumber,
@@ -76,25 +106,59 @@ export function createMassCase(
           propertyDesignation: record.propertyDesignation,
           status: record.status,
           municipalityReference: record.municipalityReference ?? null,
-          payload: {
+          payload: ({
             operations: record.operations,
             logisticsPlanId: record.logisticsPlanId,
             massFlowSnapshot: record.massFlowSnapshot,
             exportPayload: record.exportPayload,
-          },
+            gisSnapshot: record.gisSnapshot,
+          } as unknown) as Prisma.InputJsonValue,
         },
-      })
-      .catch(() => undefined);
+      });
+    } catch (error) {
+      console.warn('[CNotificationMassRepository] DB create failed', error);
+    }
   }
 
   return record;
 }
 
-export function getMassCaseById(id: string): CNotificationMassCaseRecord | null {
-  return memoryStore.get(id) ?? null;
+export async function getMassCaseById(id: string): Promise<CNotificationMassCaseRecord | null> {
+  const mem = memoryStore.get(id);
+  if (mem) return mem;
+
+  if (useMemoryOnly()) return null;
+
+  try {
+    const row = await prisma.cNotificationMassCase.findUnique({ where: { id } });
+    if (!row) return null;
+    const record = rowToRecord(row);
+    memoryStore.set(id, record);
+    return record;
+  } catch (error) {
+    console.warn('[CNotificationMassRepository] DB fetch failed', error);
+    return null;
+  }
 }
 
-export function updateMassCase(
+export async function listMassCasesByOrg(organisationId: string): Promise<CNotificationMassCaseRecord[]> {
+  if (useMemoryOnly()) {
+    return [...memoryStore.values()].filter((r) => r.organisationId === organisationId);
+  }
+
+  try {
+    const rows = await prisma.cNotificationMassCase.findMany({
+      where: { organisationId },
+      orderBy: { updatedAt: 'desc' },
+    });
+    return rows.map(rowToRecord);
+  } catch (error) {
+    console.warn('[CNotificationMassRepository] DB list failed', error);
+    return [...memoryStore.values()].filter((r) => r.organisationId === organisationId);
+  }
+}
+
+export async function updateMassCase(
   id: string,
   patch: Partial<
     Pick<
@@ -105,12 +169,14 @@ export function updateMassCase(
       | 'logisticsPlanId'
       | 'massFlowSnapshot'
       | 'exportPayload'
+      | 'gisSnapshot'
       | 'municipalityReference'
     >
   >,
-): CNotificationMassCaseRecord | null {
-  const existing = memoryStore.get(id);
+): Promise<CNotificationMassCaseRecord | null> {
+  const existing = await getMassCaseById(id);
   if (!existing) return null;
+
   const updated: CNotificationMassCaseRecord = {
     ...existing,
     ...patch,
@@ -120,23 +186,26 @@ export function updateMassCase(
   memoryStore.set(id, updated);
 
   if (!useMemoryOnly()) {
-    void prisma.cNotificationMassCase
-      .update({
+    try {
+      await prisma.cNotificationMassCase.update({
         where: { id },
         data: {
           status: updated.status,
           propertyDesignation: updated.propertyDesignation,
           municipalityReference: updated.municipalityReference ?? null,
-          payload: {
+          payload: ({
             operations: updated.operations,
             logisticsPlanId: updated.logisticsPlanId,
             massFlowSnapshot: updated.massFlowSnapshot,
             exportPayload: updated.exportPayload,
-          },
+            gisSnapshot: updated.gisSnapshot,
+          } as unknown) as Prisma.InputJsonValue,
           updatedAt: new Date(updated.updatedAt),
         },
-      })
-      .catch(() => undefined);
+      });
+    } catch (error) {
+      console.warn('[CNotificationMassRepository] DB update failed', error);
+    }
   }
 
   return updated;
@@ -147,7 +216,9 @@ export function assertMassCaseOrgAccess(
   organisationId: string,
   role: string,
 ): boolean {
-  if (role === 'ADMIN') return true;
+  // I ett multi-tenant-system ska även admins vara låsta till sin egen organisation.
+  // Om global admin behövs bör en separat roll (t.ex. SUPER_ADMIN) introduceras.
+  if (role === 'ADMIN' && record.organisationId === organisationId) return true;
   return record.organisationId === organisationId;
 }
 

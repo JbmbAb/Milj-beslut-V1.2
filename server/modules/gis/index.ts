@@ -31,5 +31,5 @@ export {
   getTopo10Layer,
 } from '../../services/publicUiService';
 
-export { getMarkCoverLayer } from '../../services/markCoverService';
+export { getMarkCoverLayer, queryMarkCoverAtPoint } from '../../services/markCoverService';
 export { getPropertyLayer } from '../../services/propertyUnitService';

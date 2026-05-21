@@ -32,7 +32,7 @@ describe('WorkspaceScaffold', () => {
 
   it('renders all mode titles in sidebar', () => {
     render(<WorkspaceScaffold {...defaultProps} />);
-    expect(screen.getAllByText('Logistik schaktmassor').length).toBeGreaterThanOrEqual(1);
+    expect(screen.getAllByText('Logistik och massor').length).toBeGreaterThanOrEqual(1);
     expect(screen.getAllByText('Provningsportal').length).toBeGreaterThanOrEqual(1);
     expect(screen.getAllByText('Projektledning').length).toBeGreaterThanOrEqual(1);
   });

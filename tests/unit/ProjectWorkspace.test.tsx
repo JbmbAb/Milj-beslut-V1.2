@@ -13,6 +13,10 @@ vi.mock('../../components/PermitPortalView', () => ({
   default: () => <div data-testid="permit-portal">Permit Portal View</div>,
 }));
 
+vi.mock('../../components/admin/modules/c-notification-mass/CNotificationMassUI', () => ({
+  CNotificationMassUI: () => <div data-testid="c-notification-mass-ui">C-anmalan mass</div>,
+}));
+
 vi.mock('../../components/ExecutiveSummary', () => ({
   default: () => <div data-testid="executive-summary">Executive Summary</div>,
 }));
@@ -127,11 +131,11 @@ describe('ProjectWorkspace', () => {
     });
   });
 
-  it('should render permit portal for PERMIT_PORTAL mode with apply tab', async () => {
+  it('should render C-anmalan mass for PERMIT_PORTAL mode with apply tab', async () => {
     render(<ProjectWorkspace {...defaultProps} mode="PERMIT_PORTAL" activeTab="apply" />);
 
     await waitFor(() => {
-      expect(screen.getByTestId('permit-portal')).toBeInTheDocument();
+      expect(screen.getByTestId('c-notification-mass-ui')).toBeInTheDocument();
     });
   });
 

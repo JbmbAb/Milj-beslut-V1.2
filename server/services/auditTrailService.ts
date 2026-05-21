@@ -125,8 +125,9 @@ class AuditTrailLogger {
           action: action,
           userId: userId,
           timestamp: timestamp,
-          payloadHash: JSON.stringify(entry), // Store full entry as JSON string in payloadHash
-          chainHash: entry.id, // Use our generated ID as unique chain hash
+          referenceNumber: referenceNumber,
+          payloadHash: JSON.stringify(entry),
+          chainHash: entry.id,
         },
       });
     } catch (error) {
@@ -422,11 +423,8 @@ class AuditTrailLogger {
 
 export async function getAuditTrail(referenceNumber: string): Promise<AuditEntry[]> {
   try {
-    // Current AuditTrail model doesn't have referenceNumber indexed or as a field,
-    // but it's stored inside the payloadHash JSON.
-    // For now, we'll fetch entries by entity type or just all and filter if needed.
-    // Better: Fetch all and look for the referenceNumber in the parsed JSON.
     const logs = await prisma.auditTrail.findMany({
+      where: { referenceNumber },
       orderBy: { timestamp: 'asc' },
     });
 
@@ -438,7 +436,7 @@ export async function getAuditTrail(referenceNumber: string): Promise<AuditEntry
           return null;
         }
       })
-      .filter((e): e is AuditEntry => e !== null && e.referenceNumber === referenceNumber);
+      .filter((e): e is AuditEntry => e !== null);
   } catch (error) {
     logger.error('Failed to fetch audit trail', { error, referenceNumber });
     return [];

@@ -25,6 +25,7 @@ vi.mock('../../server/repositories/adminReportRepository', () => {
   const mockCompletion: AppCompletionResponse = {
     checkedAt: new Date().toISOString(),
     donePercent: 70,
+    implementationPercent: 78,
     remainingPercent: 30,
     counts: { total: 60, done: 42, partial: 10, pending: 8 },
     categories: [

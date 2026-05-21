@@ -1,20 +1,5 @@
 import { expect, test, type Page } from '@playwright/test';
-import { PrismaClient } from '@prisma/client';
 import { createApiContext, primeAuthenticatedPage } from './support';
-
-const prisma = new PrismaClient({
-  datasources: {
-    db: {
-      url:
-        String(process.env.PLAYWRIGHT_DATABASE_URL || process.env.DATABASE_URL || '').trim() ||
-        'postgresql://miljobeslut:password@localhost:5432/miljobeslut_test',
-    },
-  },
-});
-
-test.afterAll(async () => {
-  await prisma.$disconnect();
-});
 
 async function openLogisticsModule(page: Page): Promise<void> {
   await expect(page).toHaveTitle(/Milj.*beslut/i);

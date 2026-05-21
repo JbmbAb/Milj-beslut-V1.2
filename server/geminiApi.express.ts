@@ -13,7 +13,6 @@ import {
   classifyAsset,
   suggestStakeholders,
   generatePlanDraft,
-  analyzeBiodiversity,
   predictWeatherRisk,
   autoFillFormSection,
   fetchMunicipalityContext,
@@ -32,6 +31,7 @@ import { fetchProtectedAreas } from './services/nvrService';
 import { fetchGeologicalData } from './services/sguService';
 import { fetchAncientMonuments } from './services/raaService';
 import { SpeciesObservation } from '../types';
+import { analyzeBiodiversityWithCompliance } from './services/geminiBiodiversityService';
 
 const router = express.Router();
 router.use(bodyParser.json({ limit: '10mb' }));
@@ -148,13 +148,13 @@ router.post('/api/gemini', async (req, res) => {
           logger.error('Spatial data fetch failed', { err: String(err) });
         }
 
-        result = await analyzeBiodiversity(
+        result = await analyzeBiodiversityWithCompliance(
           payload.lat,
           payload.lng,
-          observations.length > 0 ? observations : undefined,
-          protectedAreas.length > 0 ? protectedAreas : undefined,
-          geological || undefined,
-          monuments.length > 0 ? monuments : undefined,
+          observations.length > 0 ? observations : payload.providedObservations,
+          protectedAreas.length > 0 ? protectedAreas : payload.protectedAreas,
+          geological || payload.geologicalData,
+          monuments.length > 0 ? monuments : payload.monuments,
         );
         break;
       }

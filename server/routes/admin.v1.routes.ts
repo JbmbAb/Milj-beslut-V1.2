@@ -6,11 +6,14 @@ import { ensureAdminConsoleUser } from '../repositories/userRepository';
 import { createTokenPair } from '../security/auth';
 import {
   getAppStatus,
+  getAppCompletion,
+  getExternalHealth,
   getDbAnalysis,
   getDbContents,
   getDbStats,
 } from '../repositories/adminReportRepository';
 import { getFullStatus } from '../services/fullStatusService';
+import { getAppHealthReport } from '../services/appHealthService';
 import { getRecentErrors } from '../services/errorTrackingService';
 import { runBackup, listBackups, getBackup } from '../services/backupService';
 import { runGdprMaintenanceJob } from '../services/gdprComplianceService';
@@ -25,15 +28,20 @@ import {
   listProjectsSewagePage,
   getProjectBasicForSewage,
 } from '../modules/platform/public';
-import {
-  adminLoginSchema,
-  sewageApplicationSchema,
-  paginationSchema,
-} from '../schemas/api.schemas';
+import { adminLoginSchema, sewageApplicationSchema, paginationSchema } from '../schemas/api.schemas';
 import { logger } from '../logger';
 import { runReliableJob } from '../services/BackgroundJobService';
 
 const router = express.Router();
+
+router.get('/api/health', async (_req, res, next) => {
+  try {
+    const report = await getAppHealthReport();
+    res.json(report);
+  } catch (error) {
+    next(error);
+  }
+});
 
 function routeParam(value: string | string[] | undefined): string | null {
   if (!value) return null;
@@ -46,7 +54,7 @@ router.post('/api/admin/auth/login', rateLimitByUser(20, 60_000), async (req, re
 
     const expectedUsername = String(process.env.ADMIN_CONSOLE_USERNAME || 'admin').trim();
     const expectedPassword = String(process.env.ADMIN_CONSOLE_PASSWORD || '');
-    
+
     if (!expectedPassword) {
       return res.status(503).json({ ok: false, error: 'Admin login is not configured.' });
     }
@@ -77,6 +85,26 @@ router.get('/api/admin/app-status', requireAuth, async (req, res, next) => {
     if (req.authUser?.role !== 'ADMIN') return res.status(403).json({ ok: false, error: 'Admin only' });
     const status = await getAppStatus();
     res.json({ ok: true, status });
+  } catch (error) {
+    next(error);
+  }
+});
+
+router.get('/api/admin/completion', requireAuth, rateLimitByUser(30, 60_000), async (req, res, next) => {
+  try {
+    if (req.authUser?.role !== 'ADMIN') return res.status(403).json({ ok: false, error: 'Admin role required' });
+    const completion = await getAppCompletion();
+    res.json({ ok: true, completion });
+  } catch (error) {
+    next(error);
+  }
+});
+
+router.get('/api/admin/external-health', requireAuth, rateLimitByUser(20, 60_000), async (req, res, next) => {
+  try {
+    if (req.authUser?.role !== 'ADMIN') return res.status(403).json({ ok: false, error: 'Admin role required' });
+    const report = await getExternalHealth();
+    res.json({ ok: true, report });
   } catch (error) {
     next(error);
   }
@@ -165,11 +193,11 @@ router.post('/api/internal/background/gdpr-maintenance', async (req, res, next) 
     if (process.env.INTERNAL_API_TOKEN && internalToken !== process.env.INTERNAL_API_TOKEN) {
       return res.status(401).json({ ok: false, error: 'Invalid internal token' });
     }
-    
+
     const result = await runReliableJob('GDPR_MAINTENANCE', {}, async () => {
-       return runGdprMaintenanceJob();
+      return runGdprMaintenanceJob();
     });
-    
+
     res.json({ ok: true, result });
   } catch (error) {
     next(error);
@@ -185,17 +213,22 @@ router.get('/api/admin/observability/metrics', async (_req, res, next) => {
   }
 });
 
-router.get('/api/admin/migration/readiness', requireAuth, rateLimitByUser(10, 60_000), async (req, res, next) => {
-  try {
-    if (!req.authUser || req.authUser.role !== 'ADMIN') {
-      return res.status(403).json({ ok: false, error: 'Admin role required' });
+router.get(
+  '/api/admin/migration/readiness',
+  requireAuth,
+  rateLimitByUser(10, 60_000),
+  async (req, res, next) => {
+    try {
+      if (!req.authUser || req.authUser.role !== 'ADMIN') {
+        return res.status(403).json({ ok: false, error: 'Admin role required' });
+      }
+      const report = buildMigrationReadinessReport();
+      res.json({ ok: true, report });
+    } catch (error) {
+      next(error);
     }
-    const report = buildMigrationReadinessReport();
-    res.json({ ok: true, report });
-  } catch (error) {
-    next(error);
-  }
-});
+  },
+);
 
 // Sewage Applications (DEPRECATED list — canonical cases + legacy project proxy)
 router.get('/api/sewage-applications', requireAuth, async (req, res, next) => {
@@ -203,7 +236,7 @@ router.get('/api/sewage-applications', requireAuth, async (req, res, next) => {
     const { page, limit } = paginationSchema.parse(req.query);
     const orgId = req.authUser?.organisationId ?? 'default-org';
     const { listSewageApplicationsByOrg } = await import('../repositories/sewageApplicationRepository');
-    const canonical = listSewageApplicationsByOrg(orgId).map((app) => ({
+    const canonical = (await listSewageApplicationsByOrg(orgId)).map((app) => ({
       id: app.id,
       organisationId: app.organisationId,
       propertyAddress: app.propertyDesignation,

@@ -106,7 +106,7 @@ Huvudlinjen ar:
 | ----------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------- | ------------------------------------------------------------------------------------- | ----------------------------------------------------------------------- |
 | App shell och workspace       | `components/App.tsx`, `components/WorkspaceApp.tsx`, `components/WorkspaceScaffold.tsx`, `components/workspaceModes.ts`, `components/ProjectWorkspace.tsx`                                | `BYGGS OM` | Har verkligt produktvarde men verkar samla for manga koncept i samma yta.             | Bygg nytt shell ovanpa ny API-yta och featurestruktur.                  |
 | Projektledning och planvy     | `components/ProjectManagerView.tsx`, `components/ProjectPlanStructurePanel.tsx`, `components/GanttChart.tsx`, `components/ProjectOrgChart.tsx`                                            | `BEHALLAS` | Stark koppling till verklig verksamhet och planfloden.                                | Behall som funktionell referens, migrera stegvis till ny UI-struktur.   |
-| Permit portal                 | `components/PermitPortalView.tsx`, `components/PermitPortalApplyPanel.tsx`, `components/PermitPortalMapPanel.tsx`, `components/PermitTable.tsx`, `components/DetailModal.tsx`             | `BEHALLAS` | En av de tydligaste produktmodulerna i repo:t.                                        | Behall som prioriterad feature vid ombyggnad.                           |
+| Permit portal (legacy)      | `components/PermitPortalView.tsx`, `components/PermitTable.tsx`, `components/DetailModal.tsx`                                                                                               | `ARKIVERAS` | Ursprunglig monolitisk C-anmälan; canonical modul är C-anmälan schaktmassor.          | Behåll kart-/riskvy med deprecation; ny funktionalitet → `CNotificationMassUI`. Se `PERMIT_PORTAL_LEGACY.md`. |
 | Marknad och logistik          | `components/MarketIntelView.tsx`, `components/MarketingHub.tsx`, `components/projectTransportComplianceFlow.ts`                                                                           | `BYGGS OM` | Har potential men blandar marknad, logistik och compliance pa ett tungt satt.         | Splitta till separata features: `MarketIntel`, `Transport`, `MassFlow`. |
 | GIS och kartgranssnitt        | `components/MapView.tsx`, `components/GisRiskModule.tsx`, `components/WeatherRisk.tsx`                                                                                                    | `BEHALLAS` | Tydligt produktvarde.                                                                 | Behall UX-koncepten men koppla om mot ny geo-API.                       |
 | Adminverktyg                  | `components/AdminRequirementsStudio.tsx`, `components/AdminSearchConsole.tsx`, `components/AdminDbStatusPanel.tsx`, `components/AdminGdprPanel.tsx`, `components/AdminMetadataReview.tsx` | `BYGGS OM` | Vardefulla interna verktyg, men bor delas upp tydligare mellan drift, krav och admin. | Bygg om till ren adminyta med separata featurepaket.                    |
@@ -157,7 +157,7 @@ Huvudlinjen ar:
 - Projektplan och projektstruktur
 - Behorighet och access
 - Dokument- och kravunderlag
-- Permit portal
+- C-anmälan schaktmassor (`CNotificationMassUI`, `/api/c-notification/mass/*`)
 - Lantmateriet och fastighetsdata
 - Basala GIS- och naturdata-integrationer
 

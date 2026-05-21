@@ -12,6 +12,7 @@ describe('getAppCompletion', () => {
 
     expect(result).toHaveProperty('checkedAt');
     expect(result).toHaveProperty('donePercent');
+    expect(result).toHaveProperty('implementationPercent');
     expect(result).toHaveProperty('remainingPercent');
     expect(result).toHaveProperty('counts');
     expect(result).toHaveProperty('categories');
@@ -106,13 +107,25 @@ describe('getAppCompletion', () => {
     expect(names).toContain('AI & Kunskapsgraf');
   });
 
-  it('DONE features contribute full weight (donePercent reflects weighted calc)', () => {
+  it('implementationPercent is between donePercent and 100 when partial features exist', () => {
+    const { donePercent, implementationPercent, counts } = getAppCompletion();
+    if (counts.partial > 0) {
+      expect(implementationPercent).toBeGreaterThanOrEqual(donePercent);
+      expect(implementationPercent).toBeLessThanOrEqual(100);
+    }
+  });
+
+  it('strict donePercent counts only DONE features', () => {
     const { counts, donePercent } = getAppCompletion();
-    // If all features are DONE, percent should be 100; with any pending/partial it should be < 100
+    const expectedStrict = counts.total > 0 ? Math.round((counts.done / counts.total) * 100) : 0;
+    expect(donePercent).toBe(expectedStrict);
+  });
+
+  it('DONE-only manifest yields 100% for both metrics', () => {
+    const { counts, donePercent, implementationPercent } = getAppCompletion();
     if (counts.pending === 0 && counts.partial === 0) {
       expect(donePercent).toBe(100);
-    } else {
-      expect(donePercent).toBeLessThan(100);
+      expect(implementationPercent).toBe(100);
     }
   });
 });

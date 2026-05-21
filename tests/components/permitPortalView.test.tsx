@@ -41,7 +41,13 @@ vi.mock('../../services/coreApiClient', () => ({
       { code: '90.131', name: 'Miljöfarlig verksamhet', type: 'SNI' },
     ],
   }),
-  getActiveProjectId: vi.fn().mockReturnValue('project-1'),
+}));
+
+vi.mock('../../services/projectStructure', () => ({
+  applyPermitCodeSelection: vi.fn().mockReturnValue({
+    plan: { mapLayerSelection: { enabled: [] } },
+    profile: { regulatoryTrack: 'TEST_TRACK' },
+  }),
 }));
 
 import PermitPortalView from '../../components/PermitPortalView';
@@ -66,6 +72,11 @@ describe('PermitPortalView', () => {
   it('renders map view in default map mode', async () => {
     render(<PermitPortalView permits={samplePermits} />);
     expect(await screen.findByTestId('map-view')).toBeInTheDocument();
+  });
+
+  it('shows legacy deprecation banner', async () => {
+    render(<PermitPortalView permits={samplePermits} />);
+    expect(await screen.findByText(/Legacy — Provningsportal/i)).toBeInTheDocument();
   });
 
   it('does not render apply content in map mode', async () => {

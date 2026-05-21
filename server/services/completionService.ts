@@ -468,7 +468,10 @@ export function getAppCompletion(): AppCompletionResponse {
   const pending = FEATURES.filter((f) => f.status === 'PENDING').length;
 
   const weightedDone = FEATURES.reduce((sum, f) => sum + weight(f.status), 0);
-  const donePercent = Math.round((weightedDone / total) * 100);
+  /** Endast status DONE — ingen halvpoäng för PARTIAL */
+  const donePercent = total > 0 ? Math.round((done / total) * 100) : 0;
+  /** Kod/implementering inkl. delvisa features (PARTIAL = 50 %) */
+  const implementationPercent = total > 0 ? Math.round((weightedDone / total) * 100) : 0;
   const remainingPercent = 100 - donePercent;
 
   // Group by category
@@ -498,6 +501,7 @@ export function getAppCompletion(): AppCompletionResponse {
   return {
     checkedAt: new Date().toISOString(),
     donePercent,
+    implementationPercent,
     remainingPercent,
     counts: { total, done, partial, pending },
     categories,

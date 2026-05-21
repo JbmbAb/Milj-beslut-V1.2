@@ -42,9 +42,7 @@ export function recordStatusToDomain(status: SewageApplicationStatus): SewageApp
   }
 }
 
-function buildDefaultProtectionProfile(
-  record: SewageApplicationRecord,
-): SewageProtectionProfile {
+function buildDefaultProtectionProfile(record: SewageApplicationRecord): SewageProtectionProfile {
   return {
     propertyId: record.id,
     protectionLevel: 'NORMAL',
@@ -126,8 +124,7 @@ export function resolveDomainContext(
     usedDefaultGis = true;
   }
 
-  const gisAnalysis =
-    body?.gisAnalysis ?? snapshot.gisAnalysis ?? buildDefaultGisAnalysis(record);
+  const gisAnalysis = body?.gisAnalysis ?? snapshot.gisAnalysis ?? buildDefaultGisAnalysis(record);
   if (!body?.gisAnalysis && !snapshot.gisAnalysis) {
     warnings.push('gisAnalysis saknas — standardprofil används; verifiera mot SGU/Lantmäteriet i staging.');
     usedDefaultGis = true;
@@ -148,8 +145,7 @@ export function resolveDomainContext(
     projectId: body?.projectId ?? record.projectId ?? body?.application?.projectId ?? 'unassigned',
     propertyDesignation: record.propertyDesignation,
     pe: body?.pe ?? record.pe,
-    selectedSystemType: (body?.application?.selectedSystemType ??
-      record.systemType) as SewageSystemTypeId,
+    selectedSystemType: (body?.application?.selectedSystemType ?? record.systemType) as SewageSystemTypeId,
     protectionProfile,
     soilTestCompleted: Boolean(snapshot.soilTest),
     ltar: snapshot.soilTest?.ltar,
@@ -160,7 +156,10 @@ export function resolveDomainContext(
       ? { address: snapshot.neighborConsent.address, distance: snapshot.neighborConsent.distance }
       : undefined,
     situationPlan: snapshot.generatedDocuments?.situationPlanSVG
-      ? { generatedDate: snapshot.generatedDocuments.generatedAt ?? record.updatedAt, url: 'inline:situation' }
+      ? {
+          generatedDate: snapshot.generatedDocuments.generatedAt ?? record.updatedAt,
+          url: 'inline:situation',
+        }
       : undefined,
     crossSection: snapshot.generatedDocuments?.crossSectionSVG
       ? { generatedDate: snapshot.generatedDocuments.generatedAt ?? record.updatedAt, url: 'inline:cross' }
@@ -181,7 +180,7 @@ export function resolveDomainContext(
   return { application, protectionProfile, gisAnalysis, warnings };
 }
 
-export function validateSewageApplication(
+export async function validateSewageApplication(
   applicationId: string,
   body?: {
     application?: Partial<SewageApplication>;
@@ -189,11 +188,11 @@ export function validateSewageApplication(
     gisAnalysis?: SewageGISAnalysis;
   },
 ) {
-  const record = getSewageApplicationById(applicationId);
+  const record = await getSewageApplicationById(applicationId);
   if (!record) return { ok: false as const, status: 404, error: 'not_found' };
 
-  const { application, protectionProfile, warnings } = resolveDomainContext(record, body);
-  const result = validateApplicationForSubmission(application, protectionProfile);
+  const { application, warnings } = resolveDomainContext(record, body);
+  const result = await validateApplicationForSubmission(applicationId);
 
   return {
     ok: true as const,
@@ -204,7 +203,7 @@ export function validateSewageApplication(
   };
 }
 
-export function generateDocumentsForApplication(
+export async function generateDocumentsForApplication(
   applicationId: string,
   body?: {
     application?: Partial<SewageApplication>;
@@ -212,7 +211,7 @@ export function generateDocumentsForApplication(
     gisAnalysis?: SewageGISAnalysis;
   },
 ) {
-  const record = getSewageApplicationById(applicationId);
+  const record = await getSewageApplicationById(applicationId);
   if (!record) return { ok: false as const, status: 404, error: 'not_found' };
 
   const { application, protectionProfile, gisAnalysis, warnings } = resolveDomainContext(record, body);
@@ -229,7 +228,7 @@ export function generateDocumentsForApplication(
     },
   };
 
-  updateSewageApplicationRecord(applicationId, { domainSnapshot });
+  await updateSewageApplicationRecord(applicationId, { domainSnapshot });
 
   return {
     ok: true as const,
@@ -253,7 +252,7 @@ export async function submitSewageApplication(
     crossSectionSVG?: string;
   },
 ) {
-  const record = getSewageApplicationById(applicationId);
+  const record = await getSewageApplicationById(applicationId);
   if (!record) return { ok: false as const, status: 404, error: 'not_found' };
 
   const municipalityCode = body.municipalityCode || record.municipalityCode;
@@ -282,7 +281,7 @@ export async function submitSewageApplication(
     projectId,
   });
 
-  const validation = validateApplicationForSubmission(application, protectionProfile);
+  const validation = await validateApplicationForSubmission(applicationId);
   if (!validation.canSubmit) {
     return {
       ok: false as const,
@@ -314,7 +313,7 @@ export async function submitSewageApplication(
       auth.organisationId,
     );
 
-    const updated = updateSewageApplicationRecord(applicationId, {
+    const updated = await updateSewageApplicationRecord(applicationId, {
       status: 'SUBMITTED',
       municipalityCode,
       projectId,
@@ -356,7 +355,7 @@ export async function submitSewageApplication(
 }
 
 export async function getApplicationStatusHistory(applicationId: string) {
-  const record = getSewageApplicationById(applicationId);
+  const record = await getSewageApplicationById(applicationId);
   if (!record) return { ok: false as const, status: 404, error: 'not_found' };
   const ref = record.municipalityReference ?? record.referenceNumber;
   const history = await getStatusHistory(ref);
@@ -364,14 +363,13 @@ export async function getApplicationStatusHistory(applicationId: string) {
 }
 
 export async function getApplicationAuditTrail(applicationId: string) {
-  const record = getSewageApplicationById(applicationId);
+  const record = await getSewageApplicationById(applicationId);
   if (!record) return { ok: false as const, status: 404, error: 'not_found' };
-  const ref = record.municipalityReference ?? record.referenceNumber;
-  const entries = await getAuditTrail(ref);
-  return { ok: true as const, referenceNumber: ref, entries };
+  const entries = await getAuditTrail(record.referenceNumber);
+  return { ok: true as const, referenceNumber: record.municipalityReference ?? record.referenceNumber, entries };
 }
 
-export function patchApplicationDraft(
+export async function patchApplicationDraft(
   applicationId: string,
   patch: Partial<{
     propertyDesignation: string;
@@ -386,35 +384,32 @@ export function patchApplicationDraft(
     pe: number;
   }>,
 ) {
-  const updated = updateSewageApplicationRecord(applicationId, patch);
+  const updated = await updateSewageApplicationRecord(applicationId, patch);
   if (!updated) return { ok: false as const, status: 404, error: 'not_found' };
   return { ok: true as const, application: updated };
 }
 
-export function recordSoilTest(
-  applicationId: string,
-  input: { ltar: number; testDate: string },
-) {
-  const record = getSewageApplicationById(applicationId);
+export async function recordSoilTest(applicationId: string, input: { ltar: number; testDate: string }) {
+  const record = await getSewageApplicationById(applicationId);
   if (!record) return { ok: false as const, status: 404, error: 'not_found' };
   const domainSnapshot: SewageDomainSnapshot = {
     ...(record.domainSnapshot ?? {}),
     soilTest: { ltar: input.ltar, testDate: input.testDate },
   };
-  const updated = updateSewageApplicationRecord(applicationId, { domainSnapshot });
+  const updated = await updateSewageApplicationRecord(applicationId, { domainSnapshot });
   return { ok: true as const, application: updated };
 }
 
-export function recordNeighborConsent(
+export async function recordNeighborConsent(
   applicationId: string,
   input: { address: string; distance: number },
 ) {
-  const record = getSewageApplicationById(applicationId);
+  const record = await getSewageApplicationById(applicationId);
   if (!record) return { ok: false as const, status: 404, error: 'not_found' };
   const domainSnapshot: SewageDomainSnapshot = {
     ...(record.domainSnapshot ?? {}),
     neighborConsent: { ...input, obtained: true },
   };
-  const updated = updateSewageApplicationRecord(applicationId, { domainSnapshot });
+  const updated = await updateSewageApplicationRecord(applicationId, { domainSnapshot });
   return { ok: true as const, application: updated };
 }

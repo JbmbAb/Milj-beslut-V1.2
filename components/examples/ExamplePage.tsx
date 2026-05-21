@@ -154,8 +154,8 @@ export const ExamplePage: React.FC = () => {
 
           {/* Data Table */}
           <Card header={<h2 className="text-xl font-bold">Användarlista</h2>}>
-            <DataTable<User>
-              data={exampleUsers}
+            <DataTable<User & Record<string, unknown>>
+              data={exampleUsers as Array<User & Record<string, unknown>>}
               columns={[
                 { key: 'name', label: 'Namn', sortable: true },
                 { key: 'email', label: 'E-post', sortable: true },

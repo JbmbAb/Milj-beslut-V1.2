@@ -1,6 +1,7 @@
 import express from 'express';
 import { requireAuth } from '../security/auth';
 import { rateLimitByUser } from '../security/rateLimit';
+import { paginationSchema } from '../schemas/api.schemas';
 import { toSafeErrorResponse } from '../security/secureErrors';
 import {
   addGpsPosition,
@@ -10,6 +11,10 @@ import {
 import { getMarketSnapshot, invalidateMarketCache } from '../../legacy/experimental/marketIntelService';
 import { transportService, limsService } from '../modules/logistics/public';
 import { routeParam } from '../utils/routeUtils';
+import {
+  countTransportBookings,
+  listTransportBookingsPage,
+} from '../modules/platform/public';
 
 const router = express.Router();
 
@@ -108,6 +113,27 @@ router.post('/api/market-intel/cache/invalidate', requireAuth, rateLimitByUser(5
 });
 
 // Transport & Bookings
+router.get('/api/transport/bookings', requireAuth, rateLimitByUser(60, 60_000), async (req, res) => {
+  try {
+    const { page, limit } = paginationSchema.parse(req.query);
+    const total = await countTransportBookings();
+    const skip = (page - 1) * limit;
+    const bookings = await listTransportBookingsPage({ skip, take: limit });
+
+    res.json({
+      ok: true,
+      bookings,
+      total,
+      page,
+      limit,
+      totalPages: Math.ceil(total / limit),
+      hasMore: skip + limit < total,
+    });
+  } catch (error: unknown) {
+    res.status(400).json(toSafeErrorResponse(error));
+  }
+});
+
 router.post('/api/transport/bookings', requireAuth, async (req, res) => {
   try {
     const { quote, plannedPickupAt } = req.body;

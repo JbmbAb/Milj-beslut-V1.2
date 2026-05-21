@@ -11,6 +11,7 @@ import {
 import { normalizePropertyLookupBody } from '../../security/propertyLookupNormalize';
 import type { AuthUser } from '../../security/types';
 import { auditTrail } from '../../services/auditTrailService';
+import type { MassGisSnapshot } from '../../../src/types/mass';
 import {
   assertMassCaseOrgAccess,
   createMassCase,
@@ -106,7 +107,7 @@ export async function searchPropertyForMass(authUser: AuthUser, body: unknown) {
   return { ok: true as const, result, source, warnings };
 }
 
-export function upsertMassOperations(
+export async function upsertMassOperations(
   caseId: string | undefined,
   authUser: AuthUser,
   input: {
@@ -122,6 +123,7 @@ export function upsertMassOperations(
       transportChain?: string[];
       storageAreaId?: string;
     }>;
+    gisSnapshot?: MassGisSnapshot;
   },
 ) {
   const evaluated: MassOperationRecord[] = input.operations.map((op) => ({
@@ -146,21 +148,26 @@ export function upsertMassOperations(
 
   let record: CNotificationMassCaseRecord;
   if (caseId) {
-    const existing = getMassCaseById(caseId);
+    const existing = await getMassCaseById(caseId);
     if (!existing) return { ok: false as const, status: 404, error: 'not_found' };
     if (!assertMassCaseOrgAccess(existing, authUser.organisationId, authUser.role)) {
       return { ok: false as const, status: 403, error: 'forbidden' };
     }
-    const updated = updateMassCase(caseId, { operations: evaluated, propertyDesignation: input.propertyDesignation });
+    const updated = await updateMassCase(caseId, {
+      operations: evaluated,
+      propertyDesignation: input.propertyDesignation,
+      gisSnapshot: input.gisSnapshot ?? existing.gisSnapshot,
+    });
     if (!updated) return { ok: false as const, status: 404, error: 'not_found' };
     record = updated;
   } else {
-    record = createMassCase({
+    record = await createMassCase({
       organisationId: authUser.organisationId,
       createdByUserId: authUser.id,
       projectId: input.projectId,
       propertyDesignation: input.propertyDesignation,
       operations: evaluated,
+      gisSnapshot: input.gisSnapshot,
     });
   }
 
@@ -187,7 +194,7 @@ export async function recordMassFlowForCase(
     destinationStorageAreaId?: string;
   },
 ) {
-  const record = getMassCaseById(caseId);
+  const record = await getMassCaseById(caseId);
   if (!record) return { ok: false as const, status: 404, error: 'not_found' };
   if (!assertMassCaseOrgAccess(record, authUser.organisationId, authUser.role)) {
     return { ok: false as const, status: 403, error: 'forbidden' };
@@ -202,7 +209,7 @@ export async function recordMassFlowForCase(
   });
 
   const snapshot = await getMassFlowSnapshot(record.projectId);
-  updateMassCase(caseId, { massFlowSnapshot: snapshot });
+  await updateMassCase(caseId, { massFlowSnapshot: snapshot });
 
   return { ok: true as const, snapshot };
 }
@@ -217,7 +224,7 @@ export async function generateLogisticsForCase(
     wasteType?: LogisticsGeneratorRequest['wasteType'];
   },
 ) {
-  const record = getMassCaseById(caseId);
+  const record = await getMassCaseById(caseId);
   if (!record) return { ok: false as const, status: 404, error: 'not_found' };
   if (!assertMassCaseOrgAccess(record, authUser.organisationId, authUser.role)) {
     return { ok: false as const, status: 403, error: 'forbidden' };
@@ -232,7 +239,7 @@ export async function generateLogisticsForCase(
       destinationAddress: input.destinationAddress,
       transportMode: 'TRUCK',
     });
-    updateMassCase(caseId, { logisticsPlanId: plan.id, status: 'VALIDATED' });
+    await updateMassCase(caseId, { logisticsPlanId: plan.id, status: 'VALIDATED' });
     return { ok: true as const, plan };
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
@@ -249,7 +256,7 @@ export async function generateLogisticsForCase(
         integrationsAvailable: [],
         _fallback: true,
       };
-      updateMassCase(caseId, { logisticsPlanId: fallback.id });
+      await updateMassCase(caseId, { logisticsPlanId: fallback.id, status: 'VALIDATED' });
       return { ok: true as const, plan: fallback, warnings: [message] };
     }
     return {
@@ -263,20 +270,45 @@ export async function generateLogisticsForCase(
 
 export function buildMassExport(record: CNotificationMassCaseRecord) {
   const primaryEwc = record.operations[0]?.ewcCode ?? '';
+  const mellanlagring = record.operations.filter((o) => o.operationType === 'MELLANLAGRING');
+  const deponi = record.operations.filter((o) => o.operationType === 'DEPONI');
+
   return {
     referenceNumber: record.referenceNumber,
     projectId: record.projectId,
     propertyDesignation: record.propertyDesignation,
     status: record.status,
-    operations: record.operations.map((op) => ({
-      operationType: op.operationType,
-      ewcCode: op.ewcCode,
-      gateDecision: op.gateDecision,
-      quantityPerYear: op.quantityPerYear,
-      receiverName: op.receiverName,
-      capacityM3: op.capacityM3,
-      transportChain: op.transportChain ?? [],
-    })),
+    gis: record.gisSnapshot
+      ? {
+          analyzedAt: record.gisSnapshot.analyzedAt,
+          propertySource: record.gisSnapshot.propertySource,
+          centroid: record.gisSnapshot.analysis.centroid,
+          markCover: record.gisSnapshot.analysis.markCover,
+          overallRiskScore: record.gisSnapshot.analysis.overallRiskScore,
+          logisticsSuitability: record.gisSnapshot.analysis.logisticsSuitability,
+          siteConstraints: record.gisSnapshot.analysis.siteConstraints,
+          recommendedZones: record.gisSnapshot.siteProfile.recommendedZones,
+          warnings: record.gisSnapshot.analysis.warnings,
+        }
+      : null,
+    decisions: {
+      mellanlagring: mellanlagring.map((op) => ({
+        ewcCode: op.ewcCode,
+        gateDecision: op.gateDecision,
+        quantityPerYear: op.quantityPerYear,
+        receiverName: op.receiverName,
+        capacityM3: op.capacityM3,
+        transportChain: op.transportChain ?? [],
+      })),
+      deponi: deponi.map((op) => ({
+        ewcCode: op.ewcCode,
+        gateDecision: op.gateDecision,
+        quantityPerYear: op.quantityPerYear,
+        receiverName: op.receiverName,
+        capacityM3: op.capacityM3,
+        transportChain: op.transportChain ?? [],
+      })),
+    },
     classification: primaryEwc,
     humanInTheLoop:
       'Underlaget är AI-assisterat. Handläggare ska verifiera MPF/EWC, kapacitet och transportkedja innan inlämning.',
@@ -284,27 +316,40 @@ export function buildMassExport(record: CNotificationMassCaseRecord) {
   };
 }
 
-export function generateDocumentsForCase(caseId: string, authUser: AuthUser) {
-  const record = getMassCaseById(caseId);
+export async function generateDocumentsForCase(caseId: string, authUser: AuthUser) {
+  const record = await getMassCaseById(caseId);
   if (!record) return { ok: false as const, status: 404, error: 'not_found' };
   if (!assertMassCaseOrgAccess(record, authUser.organisationId, authUser.role)) {
     return { ok: false as const, status: 403, error: 'forbidden' };
   }
 
   const exportPayload = buildMassExport(record);
-  updateMassCase(caseId, { exportPayload, status: 'READY' });
+  await updateMassCase(caseId, { exportPayload, status: 'READY' });
+
+  const warnings: string[] = [];
+  if (!record.gisSnapshot) {
+    warnings.push('GIS-situationsplan saknas — kör GIS-analys och spara delbeslut innan inlämning.');
+  }
 
   return {
     ok: true as const,
     documents: {
       summary: exportPayload,
+      situationsplan: record.gisSnapshot
+        ? {
+            title: 'Situationsplan — masslogistik',
+            propertyDesignation: record.propertyDesignation,
+            gis: record.gisSnapshot,
+          }
+        : null,
       generatedAt: new Date().toISOString(),
     },
+    warnings,
   };
 }
 
-export function exportMassCase(caseId: string, authUser: AuthUser) {
-  const record = getMassCaseById(caseId);
+export async function exportMassCase(caseId: string, authUser: AuthUser) {
+  const record = await getMassCaseById(caseId);
   if (!record) return { ok: false as const, status: 404, error: 'not_found' };
   if (!assertMassCaseOrgAccess(record, authUser.organisationId, authUser.role)) {
     return { ok: false as const, status: 403, error: 'forbidden' };
@@ -315,7 +360,7 @@ export function exportMassCase(caseId: string, authUser: AuthUser) {
 }
 
 export async function submitMassCase(caseId: string, authUser: AuthUser) {
-  const record = getMassCaseById(caseId);
+  const record = await getMassCaseById(caseId);
   if (!record) return { ok: false as const, status: 404, error: 'not_found' };
   if (!assertMassCaseOrgAccess(record, authUser.organisationId, authUser.role)) {
     return { ok: false as const, status: 403, error: 'forbidden' };
@@ -334,13 +379,13 @@ export async function submitMassCase(caseId: string, authUser: AuthUser) {
   }
 
   const ref = `C-ANM-MASS-${Date.now()}`;
-  const updated = updateMassCase(caseId, {
+  const updated = await updateMassCase(caseId, {
     status: 'SUBMITTED',
     municipalityReference: ref,
   });
 
   await auditTrail.logAction(
-    ref,
+    record.referenceNumber,
     'APPLICATION_SUBMITTED',
     'SewageApplication',
     caseId,
@@ -360,14 +405,13 @@ export async function submitMassCase(caseId: string, authUser: AuthUser) {
 }
 
 export async function getMassCaseAuditTrail(caseId: string, authUser: AuthUser) {
-  const record = getMassCaseById(caseId);
+  const record = await getMassCaseById(caseId);
   if (!record) return { ok: false as const, status: 404, error: 'not_found' };
   if (!assertMassCaseOrgAccess(record, authUser.organisationId, authUser.role)) {
     return { ok: false as const, status: 403, error: 'forbidden' };
   }
 
   const { getAuditTrail } = await import('../../services/auditTrailService');
-  const ref = record.municipalityReference ?? record.referenceNumber;
-  const entries = await getAuditTrail(ref);
-  return { ok: true as const, referenceNumber: ref, entries };
+  const entries = await getAuditTrail(record.referenceNumber);
+  return { ok: true as const, referenceNumber: record.municipalityReference ?? record.referenceNumber, entries };
 }

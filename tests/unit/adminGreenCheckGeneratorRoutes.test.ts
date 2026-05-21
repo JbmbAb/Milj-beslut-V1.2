@@ -18,11 +18,11 @@ vi.mock('../../server/services/greenCheckGeneratorService', () => ({
   generateGreenCheck: mocks.generateGreenCheck,
 }));
 
-import adminGreenCheckGeneratorRoutes from '../../server/routes/admin.v1.routes';
+import generatorRoutes from '../../server/routes/generators.routes';
 
 const app = express();
 app.use(express.json());
-app.use(adminGreenCheckGeneratorRoutes);
+app.use(generatorRoutes);
 
 function authHeader() {
   return `Bearer ${
@@ -45,7 +45,6 @@ const mockAssessment = {
   generatedAt: new Date().toISOString(),
 };
 
-/*
 describe('admin.green-check-generator routes', () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -181,4 +180,3 @@ describe('admin.green-check-generator routes', () => {
     });
   });
 });
-*/

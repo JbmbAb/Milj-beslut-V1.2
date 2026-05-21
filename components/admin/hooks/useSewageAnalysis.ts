@@ -4,6 +4,7 @@
  */
 
 import { useMutation } from '@tanstack/react-query';
+import { analyzeSewageProperty } from '../../../services/sewageApi';
 import type { SewageGISAnalysis, SewageProtectionProfile } from '../../../types';
 
 export interface UseSewageAnalysisOptions {
@@ -13,32 +14,7 @@ export interface UseSewageAnalysisOptions {
 
 export function useSewageAnalysis(options?: UseSewageAnalysisOptions) {
   return useMutation({
-    mutationFn: async (params: {
-      propertyDesignation: string;
-      municipalityCode: string;
-      latitude: number;
-      longitude: number;
-      pe: number; // Person equivalents (1-200)
-    }) => {
-      const response = await fetch('/api/sewage/analyze', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify(params),
-      });
-
-      if (!response.ok) {
-        const error = await response.json();
-        throw new Error(error.error || 'Failed to analyze property');
-      }
-
-      const data = await response.json();
-      return {
-        analysis: data.analysis as SewageGISAnalysis,
-        protectionProfile: data.protectionProfile as SewageProtectionProfile,
-      };
-    },
+    mutationFn: analyzeSewageProperty,
     onSuccess: options?.onSuccess,
     onError: options?.onError,
   });

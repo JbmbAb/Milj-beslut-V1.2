@@ -565,7 +565,7 @@ function buildSnippet(text: string, query: string): string {
 }
 
 export async function embedText(text: string): Promise<{ values: number[]; model: string } | null> {
-  if (process.env.USE_MOCK_AI === 'true' || process.env.NODE_ENV === 'test') {
+  if (process.env.USE_MOCK_AI === 'true') {
     return {
       values: new Array(768).fill(0).map(() => Math.random()),
       model: 'mock-embedding-v1',

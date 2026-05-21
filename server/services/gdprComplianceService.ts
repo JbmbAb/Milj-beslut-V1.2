@@ -1,4 +1,4 @@
-import { Prisma, PrismaClient } from '../db/prisma';
+import { Prisma, prisma } from '../db/prisma';
 import { cleanupExpiredTokenRevocations } from '../repositories/tokenRepository';
 import { deleteStorageFile } from './documentObjectStorage';
 
@@ -51,9 +51,7 @@ export async function permanentlyDeleteProjectData(
   projectId: string,
   prismaClient?: Prisma.TransactionClient,
 ): Promise<void> {
-  const db = prismaClient ?? prisma;
-
-  await db.$transaction(async (tx) => {
+  const runDelete = async (tx: Prisma.TransactionClient) => {
     const project = await tx.project.findUnique({
       where: { id: projectId },
       include: {
@@ -120,7 +118,15 @@ export async function permanentlyDeleteProjectData(
     await tx.project.delete({
       where: { id: projectId },
     });
-  });
+  };
+
+  if (prismaClient) {
+    await runDelete(prismaClient);
+  } else {
+    await prisma.$transaction(async (tx) => {
+      await runDelete(tx);
+    });
+  }
 
   console.info(`Permanently deleted project data for project: ${projectId}`);
 }

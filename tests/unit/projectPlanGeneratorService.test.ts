@@ -16,6 +16,17 @@ vi.mock('../../server/services/vertexAiService', () => {
   };
 });
 
+vi.mock('../../server/services/hybridGeoService', () => ({
+  tryFetchLocalPropertyGeometry: vi.fn(async () => null),
+}));
+
+vi.mock('../../server/services/sguService', () => ({
+  fetchGeologicalData: vi.fn(async () => ({
+    soilType: 'Morän',
+    groundwaterVulnerability: 'Låg',
+  })),
+}));
+
 vi.mock('../../db.server', () => ({
   prisma: {
     project: { findUnique: vi.fn() },

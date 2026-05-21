@@ -49,8 +49,7 @@ function authHeader() {
   }`;
 }
 
-/*
-describe('admin.permit-application routes', () => {
+describe.skip('admin.permit-application routes', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     prismaMock.projectFindFirst.mockResolvedValue({ id: 'proj-1' });
@@ -191,5 +190,4 @@ describe('admin.permit-application routes', () => {
       expect(res.status).toBe(401);
     });
   });
-});
-*/
+});

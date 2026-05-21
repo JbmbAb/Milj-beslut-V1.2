@@ -49,7 +49,6 @@ describe('AuditTrailService', () => {
   it('should get audit trail', async () => {
     const mockLogs = [
       { payloadHash: JSON.stringify({ referenceNumber: 'AVLOPP-1', action: 'CREATED' }) },
-      { payloadHash: JSON.stringify({ referenceNumber: 'AVLOPP-2', action: 'UPDATED' }) },
     ];
     (prisma.auditTrail.findMany as any).mockResolvedValue(mockLogs);
 
@@ -57,6 +56,9 @@ describe('AuditTrailService', () => {
 
     expect(result.length).toBe(1);
     expect(result[0].referenceNumber).toBe('AVLOPP-1');
+    expect(prisma.auditTrail.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({ where: { referenceNumber: 'AVLOPP-1' } }),
+    );
   });
 
   it('returns immutable:true on returned entry', async () => {
@@ -225,5 +227,40 @@ describe('AuditTrailService', () => {
     expect(report.criticalEventsCount).toBe(1);
     expect(report.auditTrailComplete).toBe(true);
     expect(report.timeline).toHaveLength(2);
+  });
+});
+
+// ── AuditTrailLogger — saknade metoder ────────────────────────────────────
+
+describe('AuditTrailLogger — logGISAnalysis, logSystemSelection, logDataExport', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    (prisma.auditTrail.create as any).mockResolvedValue({});
+  });
+
+  it('logGISAnalysis loggar action med skyddsnivå', async () => {
+    await auditTrail.logGISAnalysis('AVLOPP-gis-1', 'app-1', 'user-1', 'HIGH', ['MINI_PLANT_BDTA']);
+    expect(prisma.auditTrail.create).toHaveBeenCalledOnce();
+    const call = (prisma.auditTrail.create as any).mock.calls[0][0];
+    expect(call.data.referenceNumber).toBe('AVLOPP-gis-1');
+  });
+
+  it('logSystemSelection loggar valt system och PE', async () => {
+    await auditTrail.logSystemSelection('AVLOPP-sys-1', 'app-1', 'user-1', 'INFILTRATION', 5);
+    expect(prisma.auditTrail.create).toHaveBeenCalledOnce();
+    const call = (prisma.auditTrail.create as any).mock.calls[0][0];
+    expect(call.data.referenceNumber).toBe('AVLOPP-sys-1');
+  });
+
+  it('logDataExport loggar exportformat och mottagare', async () => {
+    await auditTrail.logDataExport('AVLOPP-exp-1', 'app-1', 'user-1', 'PDF', ['mottagare@test.se']);
+    expect(prisma.auditTrail.create).toHaveBeenCalledOnce();
+    const call = (prisma.auditTrail.create as any).mock.calls[0][0];
+    expect(call.data.referenceNumber).toBe('AVLOPP-exp-1');
+  });
+
+  it('logDataExport fungerar utan mottagarlista', async () => {
+    await auditTrail.logDataExport('AVLOPP-exp-2', 'app-2', 'user-1', 'JSON');
+    expect(prisma.auditTrail.create).toHaveBeenCalledOnce();
   });
 });

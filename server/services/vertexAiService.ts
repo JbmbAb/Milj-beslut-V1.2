@@ -8,7 +8,6 @@ import * as os from 'os';
 import * as path from 'path';
 
 import { VertexAI } from '@google-cloud/vertexai';
-import { GoogleAuth } from 'google-auth-library';
 import { CircuitBreaker } from '../utils/circuitBreaker';
 
 const vertexBreaker = new CircuitBreaker({
@@ -29,15 +28,10 @@ function getVertexAIClient(): VertexAI {
   const geminiApiKey = process.env.GEMINI_API_KEY?.trim();
 
   if (geminiApiKey) {
-    // Använd API-nyckel för autentisering (lokal utveckling)
-    const auth = new GoogleAuth({
-      keyFile: undefined, // Se till att inte ladda från fil
-      credentials: { client_email: 'not-used', private_key: 'not-used' }, // Dummy-värden
-    });
+    // API-nyckelstyrda miljöer använder separat endpointkonfiguration.
     _vertexAIClient = new VertexAI({
       project: projectId || 'miljobeslut-v2',
       location,
-      googleAuth: auth,
       apiEndpoint: 'generativelanguage.googleapis.com',
     });
   } else {

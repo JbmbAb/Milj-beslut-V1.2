@@ -3,10 +3,10 @@
  * Dynamically generated checklist of legal requirements based on system type and location
  */
 
-import React, { useMemo, useState } from 'react';
+import React, { useState } from 'react';
 import { CheckCircle, AlertCircle, Clock } from 'lucide-react';
 import type { SewageSystemTypeId } from '../../../../types';
-import { generateSewageRequirementChecklist } from '../../../../server/services/sewageRegulationsService';
+import { useSewageRequirementChecklist } from '../../hooks/useSewageRequirementChecklist';
 import './sewage-requirements.css';
 
 interface SewageRequirementChecklistProps {
@@ -31,9 +31,12 @@ const SewageRequirementChecklist: React.FC<SewageRequirementChecklistProps> = ({
 }) => {
   const [completedItems, setCompletedItems] = useState<Set<string>>(new Set());
 
-  const requirements = useMemo(() => {
-    return generateSewageRequirementChecklist(systemType, protectionLevel, municipalityCode, distanceData);
-  }, [systemType, protectionLevel, municipalityCode, distanceData]);
+  const { data: requirements = [], isLoading, error } = useSewageRequirementChecklist({
+    systemType,
+    protectionLevel,
+    municipalityCode,
+    distanceData,
+  });
 
   const toggleRequirement = (id: string) => {
     const newCompleted = new Set(completedItems);
@@ -45,8 +48,25 @@ const SewageRequirementChecklist: React.FC<SewageRequirementChecklistProps> = ({
     setCompletedItems(newCompleted);
   };
 
-  const progressPercentage = Math.round((completedItems.size / requirements.length) * 100);
-  const allCompleted = completedItems.size === requirements.length;
+  const progressPercentage =
+    requirements.length > 0 ? Math.round((completedItems.size / requirements.length) * 100) : 0;
+  const allCompleted = requirements.length > 0 && completedItems.size === requirements.length;
+
+  if (isLoading) {
+    return (
+      <div className="sewage-requirement-checklist">
+        <p className="module-subtitle">Genererar juridiska krav...</p>
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className="sewage-requirement-checklist">
+        <p className="module-subtitle">Kunde inte hämta kravchecklista: {error.message}</p>
+      </div>
+    );
+  }
 
   const categorizedRequirements = {
     DISTANCE: requirements.filter((r) => r.category === 'DISTANCE'),

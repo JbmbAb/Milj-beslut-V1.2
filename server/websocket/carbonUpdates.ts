@@ -5,6 +5,7 @@
 
 import { WebSocket } from 'ws';
 import { prisma } from '../../db.server';
+import { buildProjectRiskMetrics } from '../services/projectRiskMetrics';
 
 interface CarbonMessage {
   type: 'carbon-update';
@@ -96,26 +97,7 @@ export const sendCarbonUpdate = async (projectId: string) => {
     }
 
     // Build risk metrics from project data
-    const riskMetrics = [
-      {
-        name: 'Regulatorisk Risk',
-        score: project.regulatoryRiskScore || 35,
-        threshold: 50,
-        status: (project.regulatoryRiskScore || 35) < 50 ? ('low' as const) : ('medium' as const),
-      },
-      {
-        name: 'Miljöpåverkan',
-        score: project.environmentalScore || 62,
-        threshold: 75,
-        status: (project.environmentalScore || 62) < 75 ? ('medium' as const) : ('high' as const),
-      },
-      {
-        name: 'Finansiell Hälsa',
-        score: project.complianceScore || 82,
-        threshold: 75,
-        status: (project.complianceScore || 82) >= 75 ? ('high' as const) : ('medium' as const),
-      },
-    ];
+    const riskMetrics = buildProjectRiskMetrics(project);
 
     const message: CarbonMessage = {
       type: 'carbon-update',

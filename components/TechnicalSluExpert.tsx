@@ -2,10 +2,12 @@ import React, { useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { analyzeBiodiversity } from '../services/geminiService';
 import type { SpeciesObservation } from '../types';
-import type { ProtectedArea } from '../server/services/nvrService';
-import type { GeologicalData } from '../server/services/sguService';
-import type { Monument } from '../server/services/raaService';
-import type { SiteAnalysis } from '../server/services/complianceRuleEngine';
+import type {
+  ProtectedArea,
+  GeologicalData,
+  Monument,
+  SiteAnalysis,
+} from '../src/types/geo';
 import {
   Bug,
   Search,

@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { generateBankComplianceIndex } from '../../server/services/bankComplianceService';
+import type { RiskLevel } from '../../server/services/complianceRuleEngine';
 
 vi.mock('../../server/services/complianceRuleEngine', () => ({
   evaluateComplianceRules: vi.fn(),
@@ -11,12 +12,21 @@ vi.mock('../../server/db/prisma', () => ({
 
 import { evaluateComplianceRules } from '../../server/services/complianceRuleEngine';
 
-const mockSiteAnalysis = (rules: { ruleId: string; risk: string; description: string; chapter?: string; title?: string; recommendation?: string }[]) => ({
+const mockSiteAnalysis = (
+  rules: {
+    ruleId: string;
+    risk: RiskLevel;
+    description: string;
+    chapter?: string;
+    title?: string;
+    recommendation?: string;
+  }[],
+) => ({
   overallRisk: 'LOW' as const,
   permitProbability: 0.9,
   restrictions: [],
   summary: 'Test',
-  rules: rules.map(r => ({
+  rules: rules.map((r) => ({
     ruleId: r.ruleId,
     risk: r.risk,
     description: r.description,
@@ -106,11 +116,14 @@ describe('generateBankComplianceIndex', () => {
 
   it('taxonomyAligned är false om score <= 70 trots inga röda flaggor', async () => {
     // 7 medium flags → 100 - 35 = 65 → taxonomyAligned false
-    const mediumRules = Array.from({ length: 7 }, (_, i) => ({
-      ruleId: `M${i}`,
-      risk: 'MEDIUM',
-      description: `Medium ${i}`,
-    }));
+    const mediumRules: Array<{ ruleId: string; risk: RiskLevel; description: string }> = Array.from(
+      { length: 7 },
+      (_, i) => ({
+        ruleId: `M${i}`,
+        risk: 'MEDIUM',
+        description: `Medium ${i}`,
+      }),
+    );
     vi.mocked(evaluateComplianceRules).mockReturnValue(mockSiteAnalysis(mediumRules));
     const report = await generateBankComplianceIndex('proj-6');
     expect(report.overallComplianceScore).toBe(65);

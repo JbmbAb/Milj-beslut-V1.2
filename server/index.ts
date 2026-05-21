@@ -3,12 +3,8 @@ import { loadEnvFile } from './loadEnv';
 import { logger } from './logger';
 import { createApp } from './createApp';
 import { initializeWebSocketServer } from './websocket';
-import { captureException } from './sentry';
-import { runGdprMaintenanceJob } from './services/gdprComplianceService';
-import { startMunicipalityStatusPolling } from './services/municipalityStatusPolling';
-import { startSearchWorker } from './services/searchWorker';
-import { startDomstolScheduler } from './services/domstolRssSchedulerService';
 import { warnProductionDevFlags } from './warnProductionDevFlags';
+import { shouldStartWorkersInProcess, startInProcessWorkers } from './workers/registry';
 
 loadEnvFile();
 const preserveRuntimeEnv =
@@ -28,46 +24,11 @@ const server = http.createServer(app);
 if (process.env.NODE_ENV !== 'test') {
   initializeWebSocketServer(server);
 
-  // In-process workers and schedulers. In a real cloud environment, these would
-  // be disabled here and run as separate services (e.g., separate Cloud Run jobs).
-  const startWorkersInProcess = process.env.START_WORKERS_IN_PROCESS !== 'false';
-  if (startWorkersInProcess) {
-    const MAINTENANCE_INTERVAL = 24 * 60 * 60 * 1000;
-    setInterval(async () => {
-      try {
-        logger.info('Starting daily GDPR maintenance job...');
-        await runGdprMaintenanceJob();
-      } catch (error) {
-        logger.error('GDPR maintenance job failed', { error: String(error) });
-      }
-    }, MAINTENANCE_INTERVAL);
-
-    setTimeout(async () => {
-      try {
-        await runGdprMaintenanceJob();
-      } catch (error) {
-        logger.error('Initial GDPR maintenance job failed', { error: String(error) });
-        captureException(error, { context: 'initial-gdpr-maintenance' });
-      }
-    }, 10000); // Delay initial run slightly
-
-    if (process.env.SEARCH_WORKER_ENABLED !== 'false') {
-      const pollMs = Math.max(500, Number(process.env.SEARCH_WORKER_POLL_MS || 2500));
-      const maxJobs = Math.max(1, Number(process.env.SEARCH_WORKER_MAX_JOBS || 3));
-      startSearchWorker(pollMs, maxJobs);
-    }
-
-    const MUNICIPALITY_POLL_INTERVAL = 6 * 60 * 60 * 1000;
-    startMunicipalityStatusPolling(MUNICIPALITY_POLL_INTERVAL);
-
-    if (process.env.DOMSTOL_RSS_ENABLED !== 'false') {
-      try {
-        startDomstolScheduler();
-      } catch (err) {
-        logger.error('Failed to start domstol-rss scheduler', { error: String(err) });
-        captureException(err, { context: 'domstol-rss-scheduler-start' });
-      }
-    }
+  // Bakgrundsjobb: kör separat via `npm run worker:all` i produktion (START_WORKERS_IN_PROCESS=false).
+  if (shouldStartWorkersInProcess()) {
+    startInProcessWorkers();
+  } else {
+    logger.info('In-process workers disabled (set START_WORKERS_IN_PROCESS=true to force-enable)');
   }
 
   server.listen(port, () => {

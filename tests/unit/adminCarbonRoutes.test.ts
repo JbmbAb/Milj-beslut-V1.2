@@ -15,6 +15,32 @@ vi.mock('../../server/repositories/tokenRepository', () => ({
   cleanupExpiredTokenRevocations: vi.fn(async () => 0),
 }));
 
+vi.mock('../../server/repositories/projectAccessRepository', () => ({
+  assertProjectMembership: vi.fn(async () => undefined),
+}));
+
+vi.mock('../../server/security/auditTrail', () => ({
+  appendDomainAudit: vi.fn(async () => undefined),
+}));
+
+vi.mock('../../server/services/projectPlanService', () => ({
+  calculateCarbonForProject: vi.fn(async ({ carbonInput }: { carbonInput: { tons?: number; distanceKm?: number; emissionFactorKgCo2ePerTonKm?: number } }) => {
+    const tons = Number(carbonInput.tons || 0);
+    const distanceKm = Number(carbonInput.distanceKm || 0);
+    const factor = Number(carbonInput.emissionFactorKgCo2ePerTonKm || 0.1);
+    const transportKgCo2e = tons * distanceKm * factor;
+    return {
+      plan: { id: 'plan-1' },
+      result: {
+        totalKgCo2e: transportKgCo2e,
+        breakdown: { transportKgCo2e },
+        quality: 'ROUTED',
+        method: 'LOCAL_DISTANCE',
+      },
+    };
+  }),
+}));
+
 vi.mock('../../server/modules/platform/public', async (importOriginal) => {
   const mod = await importOriginal<typeof import('../../server/modules/platform/public')>();
   return {

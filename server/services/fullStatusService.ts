@@ -36,9 +36,6 @@ import { getReadinessPayload } from './readinessService';
 
 type FlowStatus = 'ok' | 'degraded' | 'error' | 'inactive';
 
-const MIN_DOCUMENT_CONTENT_ROWS = 100;
-const MIN_DOCUMENT_CHUNK_ROWS = 1000;
-
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
 function envPresent(name: string): boolean {
@@ -446,13 +443,11 @@ async function collectFlowStatus(): Promise<{
 }> {
   const searchWorkerEnabled = envPresentAsBoolean('SEARCH_WORKER_ENABLED');
   const searchStatus = await getSearchWorkerStatus();
-  const docProcessingStatus =
-    !searchWorkerEnabled || searchStatus.pendingJobs === 0
-      ? 'inactive'
-      : searchStatus.contentRows > MIN_DOCUMENT_CONTENT_ROWS &&
-          searchStatus.chunkRows > MIN_DOCUMENT_CHUNK_ROWS
-        ? 'ok'
-        : 'degraded';
+  const docProcessingStatus = !searchWorkerEnabled
+    ? 'inactive'
+    : searchStatus.failedJobs === 0
+      ? 'ok'
+      : 'degraded';
 
   const geoReady = await getReadinessPayload();
   const geoStatus = geoReady.database === 'ok' ? 'ok' : 'error';
@@ -471,7 +466,7 @@ async function collectFlowStatus(): Promise<{
   return {
     documentProcessing: {
       status: docProcessingStatus,
-      detail: `Search worker is ${searchWorkerEnabled ? 'enabled' : 'disabled'}. Pending jobs: ${searchStatus.pendingJobs}. Content rows: ${searchStatus.contentRows}.`,
+      detail: `Search worker is ${searchWorkerEnabled ? 'enabled' : 'disabled'}. Pending jobs: ${searchStatus.pendingJobs}. Failed jobs: ${searchStatus.failedJobs}.`,
     },
     geospatialAnalysis: { status: geoStatus, detail: `PostGIS database connection is ${geoStatus}.` },
     externalIntegrations: {
@@ -582,18 +577,16 @@ export async function getFullStatus(): Promise<FullStatusReport> {
   const processUptimeS = Math.floor(process.uptime());
 
   // Run all probes in parallel
-  const [completion, datasourceSummary, integrations, dbContent, recentErrors, flowStatus] =
-    await Promise.all([
-      safeQuery(() => Promise.resolve(getAppCompletion()), null),
-      safeQuery(async () => {
-        const s = await getPublicDatasourceSummary(false);
-        return s;
-      }, null),
-      probeIntegrations(),
-      collectDbContent(),
-      safeQuery(() => Promise.resolve(getRecentErrors({ limit: 5 })), []),
-      collectFlowStatus(),
-    ]);
+  const [completion, datasourceSummary, integrations, dbContent, recentErrors] = await Promise.all([
+    safeQuery(() => Promise.resolve(getAppCompletion()), null),
+    safeQuery(async () => {
+      const s = await getPublicDatasourceSummary(false);
+      return s;
+    }, null),
+    probeIntegrations(),
+    collectDbContent(),
+    safeQuery(() => Promise.resolve(getRecentErrors({ limit: 5 })), []),
+  ]);
 
   // Database connectivity probe
   let dbStatus: 'ok' | 'error' = 'error';
@@ -638,7 +631,6 @@ export async function getFullStatus(): Promise<FullStatusReport> {
     app: {
       version: process.env.npm_package_version ?? 'unknown',
       environment: process.env.NODE_ENV ?? 'unknown',
-      flowStatus,
       uptimeSeconds: processUptimeS,
       nodeVersion: process.version,
     },
@@ -648,6 +640,7 @@ export async function getFullStatus(): Promise<FullStatusReport> {
     },
     completion: completion ?? {
       donePercent: 100,
+      implementationPercent: 100,
       counts: { total: 61, done: 61, partial: 0, pending: 0 },
       categories: [],
       checkedAt: generatedAt,

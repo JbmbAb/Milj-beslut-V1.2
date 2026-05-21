@@ -1,14 +1,16 @@
 # Staging E2E — riktig staging per fokusmodul
 
-Målet är **funktionsstabilitet**: varje fokusmodul ska kunna verifieras mot **staging** med egen beviskedja och ge spårbara resultat för [production-readiness-checklist.md](production-readiness-checklist.md) och [STAGING_ONLY_PLAN.md](STAGING_ONLY_PLAN.md).
+Målet är **funktionsstabilitet**: varje fokusmodul ska kunna verifieras mot **staging** med egen beviskedja och ge spårbara resultat för [production-readiness-checklist.md](production-readiness-checklist.md).
 
 ## Förkrav
 
 1. Deployad **staging**-URL med API och frontend (samma origin eller CORS korrekt konfigurerad).
 2. Miljövariabler i shell eller CI:
-  - `**PLAYWRIGHT_BASE_URL`** — bas-URL till **frontend** (t.ex. `https://staging.example.com`).
-  - `**PLAYWRIGHT_API_BASE_URL`** — om API ligger på annan host än default (valfritt).
-  - `**E2E_ADMIN_USERNAME**` / `**E2E_ADMIN_PASSWORD**` (eller `ADMIN_CONSOLE_*`) — staging admin.
+
+- `**PLAYWRIGHT_BASE_URL`** — bas-URL till **frontend\*\* (t.ex. `https://staging.example.com`).
+- `**PLAYWRIGHT_API_BASE_URL`\*\* — om API ligger på annan host än default (valfritt).
+- `**E2E_ADMIN_USERNAME**` / `**E2E_ADMIN_PASSWORD**` (eller `ADMIN_CONSOLE_*`) — staging admin.
+
 3. Playwright installerat: `npx playwright install` (första gången).
 
 ## Fokusmoduler
@@ -48,11 +50,9 @@ Detta flöde är eget scope i staging-planen och ska verifieras separat i stagin
 
 ### Valfria flaggor
 
-
 | Variabel                        | Betydelse                                                                                            |
 | ------------------------------- | ---------------------------------------------------------------------------------------------------- |
 | `E2E_INCLUDE_VERTEX_FLOWS=true` | Kör även AI-tunga steg (t.ex. tillstånds-generering) som kan ta lång tid och kräva Vertex i staging. |
-
 
 ## Förväntat resultat
 

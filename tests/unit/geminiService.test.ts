@@ -13,14 +13,6 @@ vi.mock('../../server/services/vertexAiService', () => ({
   __resetVertexClientForTest: vi.fn(),
 }));
 
-// Mock complianceRuleEngine (imported by geminiService)
-vi.mock('../../server/services/complianceRuleEngine', () => ({
-  evaluateComplianceRules: vi.fn(() => ({
-    overallStatus: 'COMPLIANT',
-    checks: [],
-    recommendations: [],
-  })),
-}));
 
 // ─── Module under test ────────────────────────────────────────────────────────
 

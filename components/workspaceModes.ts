@@ -20,8 +20,8 @@ export const MODE_CARDS: ModeCardConfig[] = [
   },
   {
     mode: 'PERMIT_PORTAL',
-    title: 'Provningsportal',
-    description: 'Sök tillstånd, bygg ansökan och validera regelkrav.',
+    title: 'Provningsportal (legacy)',
+    description: 'Kart- och riskstöd. C-anmälan schaktmassor finns under Huvudmoduler.',
     icon: 'fa-file-shield',
     accent: 'bg-emerald-600',
     defaultTab: 'map',

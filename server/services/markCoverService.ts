@@ -186,4 +186,44 @@ export async function getMarkCoverLayer(bbox: [number, number, number, number]):
   };
 }
 
+export interface MarkCoverPointResult {
+  value: number;
+  description: string;
+}
+
+/**
+ * Slå upp marktäckeklassificering vid en punkt (WGS84).
+ * Försöker PostGIS-raster först, faller tillbaka till NMD/GDAL.
+ */
+export async function queryMarkCoverAtPoint(lat: number, lng: number): Promise<MarkCoverPointResult | null> {
+  try {
+    const result = await prisma.$queryRaw<{ value: number | null }[]>`
+      SELECT ST_Value(
+        rast,
+        ST_Transform(ST_SetSRID(ST_MakePoint(${lng}, ${lat}), 4326), 3006)
+      ) as value
+      FROM env.marktacke
+      WHERE ST_Intersects(
+        rast,
+        ST_Transform(ST_SetSRID(ST_MakePoint(${lng}, ${lat}), 4326), 3006)
+      );
+    `;
+
+    if (result?.length && result[0].value != null) {
+      const value = Number(result[0].value);
+      const description = NMD_CLASSES[value] || `Okänd kod (${value})`;
+      return { value, description };
+    }
+  } catch (err) {
+    logger.warn('markcover: PostGIS punktfråga misslyckades', { err: String(err) });
+  }
+
+  const nmd = await queryNmdPoint(lat, lng);
+  if (nmd.ok) {
+    return { value: nmd.code, description: nmd.description };
+  }
+
+  return null;
+}
+
 // ─── END Service ──────────────────────────────────────────────────────────────

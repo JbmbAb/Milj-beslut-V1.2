@@ -2,6 +2,10 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import request from 'supertest';
 import crypto from 'node:crypto';
 
+vi.mock('../../../server/modules/sewage/public', () => ({
+  getSubmissionOrgAndProjectByKey: vi.fn(),
+}));
+
 // 1. Mock EVERYTHING before any imports
 vi.mock('../../../server/db/prisma', () => ({
   prisma: {
@@ -74,9 +78,9 @@ vi.mock('../../../server/security/env', async (importOriginal) => {
 
 // 2. Now import the app and other things
 import { createApp } from '../../../server/createApp';
-import { prisma } from '../../../db.server';
 import { assertProjectAccess } from '../../../server/security/projectAccess';
 import { signJwt } from '../../../server/security/auth';
+import { getSubmissionOrgAndProjectByKey } from '../../../server/modules/sewage/public';
 
 describe('Security: Cross-Organization Access', () => {
   let app: any;
@@ -114,8 +118,10 @@ describe('Security: Cross-Organization Access', () => {
       organisationId: 'org-b',
     };
 
-    (prisma.submission.findUnique as any).mockResolvedValue(submissionB);
-    (prisma.tokenRevocation.findUnique as any).mockResolvedValue(null);
+    vi.mocked(getSubmissionOrgAndProjectByKey).mockResolvedValue({
+      projectId: 'proj-b',
+      organisationId: 'org-b',
+    });
 
     // Route is at /sewage/application/:key/status (no /api prefix)
     const response = await request(app)
@@ -138,15 +144,18 @@ describe('Security: Cross-Organization Access', () => {
       organisationId: 'org-a',
     };
 
-    (prisma.submission.findUnique as any).mockResolvedValue(submissionA);
-    (prisma.tokenRevocation.findUnique as any).mockResolvedValue(null);
+    vi.mocked(getSubmissionOrgAndProjectByKey).mockResolvedValue({
+      projectId: 'proj-a',
+      organisationId: 'org-a',
+    });
 
     // Route is at /sewage/application/:key/status (no /api prefix)
     const response = await request(app)
       .get('/sewage/application/AVLOPP-A/status')
       .set('Authorization', `Bearer ${tokenA}`);
 
-    // 200/404 = normal; 501 = tillstånds-/lagring inte konfigurerad i testmiljö (samma org, men funktion otillgänglig).
-    expect([200, 404, 501]).toContain(response.status);
+    expect(response.status, `Cross-org status check failed: ${JSON.stringify(response.body)}`).not.toBe(500);
+    expect(response.status, `Cross-org status check failed: ${JSON.stringify(response.body)}`).not.toBe(501);
+    expect([200, 404]).toContain(response.status);
   });
 });

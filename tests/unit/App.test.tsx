@@ -19,6 +19,10 @@ vi.mock('../../components/PriorityModulePortfolio', () => ({
   PriorityModulePortfolio: () => <div data-testid="priority-module-portfolio" />,
 }));
 
+vi.mock('../../components/admin/modules/c-notification-mass/CNotificationMassUI', () => ({
+  CNotificationMassUI: () => <div data-testid="c-notification-mass-ui" />,
+}));
+
 vi.mock('../../services/coreApiClient', () => ({
   callApi: coreApiClientMocks.callApi,
   clearSession: coreApiClientMocks.clearSession,
@@ -175,9 +179,9 @@ describe('App component', () => {
     });
   });
 
-  it('opens fastighetsanalys by default when an active project exists', async () => {
+  it('opens Huvudmoduler by default when an active project exists', async () => {
     renderApp();
-    expect(await screen.findByTestId('gis-risk-module')).toBeInTheDocument();
+    expect(await screen.findByTestId('priority-module-portfolio')).toBeInTheDocument();
   });
 
   it('renders TechnicalDashboardHub when no active project exists', async () => {
@@ -233,11 +237,20 @@ describe('App component', () => {
     expect(await screen.findByTestId('priority-module-portfolio')).toBeInTheDocument();
   });
 
-  it('opens fastighetsanalys when selecting ansokan', async () => {
+  it('opens C-anmalan mass when selecting ansokan', async () => {
     const user = userEvent.setup();
+    coreApiClientMocks.callApi.mockImplementation(async (endpoint: string) => {
+      if (endpoint === '/api/app/bootstrap') {
+        return { ok: true, bootstrap: { ...bootstrap, activeProjectId: null } };
+      }
+      if (endpoint === '/api/permits') {
+        return { ok: true, permits: [] };
+      }
+      return { ok: true };
+    });
     renderApp();
     await user.click(await screen.findByTestId('select-ansokan'));
-    expect(await screen.findByTestId('gis-risk-module')).toBeInTheDocument();
+    expect(await screen.findByTestId('c-notification-mass-ui')).toBeInTheDocument();
   });
 
   it('opens admin console when selecting admin', async () => {

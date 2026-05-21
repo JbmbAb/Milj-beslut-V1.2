@@ -64,8 +64,7 @@ export function isLocalizationStrictMode(): boolean {
 
 function hasSluSpeciesConfigured(): boolean {
   return Boolean(
-    process.env.SLU_SPECIES_OBS_API_KEY ||
-      (process.env.SLU_SPECIES_OBS_BASE_PATH && process.env.SLU_API_KEY),
+    process.env.SLU_SPECIES_OBS_API_KEY || (process.env.SLU_SPECIES_OBS_BASE_PATH && process.env.SLU_API_KEY),
   );
 }
 
@@ -88,8 +87,7 @@ function parseSluObservations(raw: unknown): Array<{ name?: string; status?: str
       row.properties && typeof row.properties === 'object'
         ? (row.properties as Record<string, unknown>)
         : row;
-    const name =
-      props.taxonName ?? props.scientificName ?? props.species ?? props.name ?? row.name;
+    const name = props.taxonName ?? props.scientificName ?? props.species ?? props.name ?? row.name;
     const status = props.redlistCategory ?? props.conservationStatus ?? props.status;
     return {
       name: name != null ? String(name).slice(0, 120) : undefined,
@@ -100,7 +98,18 @@ function parseSluObservations(raw: unknown): Array<{ name?: string; status?: str
 
 type FetchOutcome<T> = { ok: true; data: T } | { ok: false; error: string };
 
-async function fetchNvrAreas(lat: number, lng: number, siteId: string): Promise<FetchOutcome<ProtectedArea[]>> {
+function getFetchError<T>(outcome: FetchOutcome<T>): string {
+  if ('error' in outcome) {
+    return outcome.error;
+  }
+  return '';
+}
+
+async function fetchNvrAreas(
+  lat: number,
+  lng: number,
+  siteId: string,
+): Promise<FetchOutcome<ProtectedArea[]>> {
   try {
     const data = await fetchProtectedAreas(lat, lng, 500);
     return { ok: true, data };
@@ -111,7 +120,11 @@ async function fetchNvrAreas(lat: number, lng: number, siteId: string): Promise<
   }
 }
 
-async function fetchRaaMonuments(lat: number, lng: number, siteId: string): Promise<FetchOutcome<Monument[]>> {
+async function fetchRaaMonuments(
+  lat: number,
+  lng: number,
+  siteId: string,
+): Promise<FetchOutcome<Monument[]>> {
   try {
     const data = await fetchAncientMonuments(lat, lng);
     return { ok: true, data };
@@ -122,7 +135,11 @@ async function fetchRaaMonuments(lat: number, lng: number, siteId: string): Prom
   }
 }
 
-async function fetchVissStatus(lat: number, lng: number, siteId: string): Promise<FetchOutcome<VissWaterStatus | null>> {
+async function fetchVissStatus(
+  lat: number,
+  lng: number,
+  siteId: string,
+): Promise<FetchOutcome<VissWaterStatus | null>> {
   try {
     const result = await queryVissPoint(lat, lng);
     if (result.ok === true) {
@@ -186,24 +203,22 @@ function buildDataSources(input: {
     {
       source: 'NVR API',
       status: input.nvr.ok ? 'ok' : 'unavailable',
-      detail: input.nvr.ok ? `${input.nvr.data.length} träffar` : input.nvr.error,
+      detail: input.nvr.ok ? `${input.nvr.data.length} träffar` : getFetchError(input.nvr),
     },
     {
       source: 'RAA API',
       status: input.raa.ok ? 'ok' : 'unavailable',
-      detail: input.raa.ok ? `${input.raa.data.length} fornlämningar` : input.raa.error,
+      detail: input.raa.ok ? `${input.raa.data.length} fornlämningar` : getFetchError(input.raa),
     },
     {
       source: 'VISS',
       status: input.viss.ok ? 'ok' : 'unavailable',
-      detail: input.viss.ok
-        ? input.viss.data?.waterName || 'ingen primär status'
-        : input.viss.error,
+      detail: input.viss.ok ? input.viss.data?.waterName || 'ingen primär status' : getFetchError(input.viss),
     },
     {
       source: 'SLU Artdata',
       status: input.slu.ok ? 'ok' : 'unavailable',
-      detail: input.slu.ok ? `${input.slu.data.length} observationer` : input.slu.error,
+      detail: input.slu.ok ? `${input.slu.data.length} observationer` : getFetchError(input.slu),
     },
   ];
   return sources;
@@ -227,18 +242,18 @@ function collectWarnings(input: {
   if (!input.nvr.ok) {
     warnings.push(
       input.strict
-        ? `NVR API otillgänglig — skyddade områden från livekälla saknas: ${input.nvr.error}`
-        : `NVR API otillgänglig (använder endast lokal PostGIS): ${input.nvr.error}`,
+        ? `NVR API otillgänglig — skyddade områden från livekälla saknas: ${getFetchError(input.nvr)}`
+        : `NVR API otillgänglig (använder endast lokal PostGIS): ${getFetchError(input.nvr)}`,
     );
   }
   if (!input.raa.ok) {
-    warnings.push(`RAA/fornlämningar otillgängliga: ${input.raa.error}`);
+    warnings.push(`RAA/fornlämningar otillgängliga: ${getFetchError(input.raa)}`);
   }
   if (!input.viss.ok) {
-    warnings.push(`VISS otillgänglig: ${input.viss.error}`);
+    warnings.push(`VISS otillgänglig: ${getFetchError(input.viss)}`);
   }
   if (!input.slu.ok) {
-    warnings.push(`SLU Artdata: ${input.slu.error}`);
+    warnings.push(`SLU Artdata: ${getFetchError(input.slu)}`);
   }
   return warnings;
 }
@@ -288,8 +303,7 @@ async function analyzeSite(
   const geologicalData = toGeologicalData(spatialAudit.sgu);
   const distanceToWaterMeters = spatialAudit.distanceToWaterMeters;
   const distanceForCompliance =
-    distanceToWaterMeters ??
-    (strict && !spatialAudit.distanceToWaterAvailable ? null : 200);
+    distanceToWaterMeters ?? (strict && !spatialAudit.distanceToWaterAvailable ? null : 200);
 
   if (distanceForCompliance == null) {
     warnings.push('Avstånd till vatten okänt — compliance använder inte standardfallback i strikt läge.');
@@ -330,9 +344,7 @@ export async function generateLocalizationReport(input: {
   user?: AuthUser;
 }): Promise<LocalizationReport> {
   const analyses = await Promise.all(
-    input.siteAlternatives.map((site) =>
-      analyzeSite(site, { projectId: input.projectId, user: input.user }),
-    ),
+    input.siteAlternatives.map((site) => analyzeSite(site, { projectId: input.projectId, user: input.user })),
   );
 
   const sortedByPermit = [...analyses].sort(
@@ -344,9 +356,7 @@ export async function generateLocalizationReport(input: {
     ? `Alternativ ${bestAlternative.site.id} (${bestAlternative.site.name || 'namnlöst'}) har högst tillståndssannolikhet (${(bestAlternative.complianceAnalysis.permitProbability * 100).toFixed(0)}%) baserat på spatial analys, ${bestAlternative.monuments.length} kulturmiljöträffar, ${bestAlternative.sluObservationCount} SLU-observationer, och riskklassning ${bestAlternative.complianceAnalysis.overallRisk}.`
     : 'Inga alternativ analyserade.';
 
-  const reportWarnings = analyses.flatMap((a) =>
-    a.warnings.map((w) => `${a.site.id}: ${w}`),
-  );
+  const reportWarnings = analyses.flatMap((a) => a.warnings.map((w) => `${a.site.id}: ${w}`));
 
   const report: LocalizationReport = {
     projectId: input.projectId,
@@ -364,7 +374,7 @@ export async function generateLocalizationReport(input: {
     await auditTrail.logAction(
       `LOK-${input.projectId}`,
       'GIS_ANALYSIS_COMPLETED',
-      'LocalizationStudy',
+      'Document',
       input.projectId,
       input.userId || 'SYSTEM',
       `Lokaliseringsutredning genererad med ${input.siteAlternatives.length} alternativ. Bästa: ${bestAlternative?.site.id || 'N/A'}.`,

@@ -1,15 +1,23 @@
-# Copilot Instructions for Milj-beslut-V1-2
+# Copilot Instructions for Miljöbeslut V2.0
 
 ## Project Overview
 
 Swedish environmental decision support system:
 
-- **Framework**: Remix (Vite-based)
-- **Frontend**: React 19 + TypeScript
-- **Styling**: Vanilla CSS (Global & Module-based)
-- **Database**: PostgreSQL 16 with PostGIS, pgvector + Prisma ORM
-- **AI**: Google Gemini (Flash 2.0/Pro 1.5) + OpenAI (GPT-4o)
+- **Framework**: Vite 5 + Express API (`server/`)
+- **Frontend**: React 18 + TypeScript
+- **Styling**: Tailwind CSS v4 (`@tailwindcss/postcss`) + design tokens in `src/index.css` / `components/admin/admin-tokens.css`
+- **Data fetching**: TanStack Query v5 + `services/apiClient.ts` / `services/coreApiClient.ts`
+- **Database**: PostgreSQL 16 with PostGIS, pgvector + Prisma ORM (server-side only)
+- **AI**: Google Vertex AI (Gemini) via `server/services/vertexAiService.ts`
 - **Testing**: Vitest (unit/integration), Playwright (E2E)
+
+## Architecture Rules
+
+- **Never import `server/**` from React components.** Use `/api/*` endpoints and client services in `services/`.
+- **Never use Prisma in frontend code.** Database access belongs in `server/routes` and `server/services`.
+- **Single QueryClientProvider** at app root (`src/main.tsx` via `src/queryClient.ts`). Do not nest additional providers.
+- Shared frontend types live in `src/types/` — not in `server/services/`.
 
 ## Test Generation Rules
 
@@ -194,7 +202,8 @@ When asked to test components in `components/`:
 2. **High (core workflows):**
    - `ProjectWorkspace.tsx` - project editing
    - `StandaloneWorkspace.tsx` - standalone workflows
-   - `PermitPortalView.tsx` - permit handling
+   - `CNotificationMassUI.tsx` - canonical C-anmälan schaktmassor
+   - `PermitPortalView.tsx` - **deprecated** legacy kart-/provningsyta (se `docs/architecture/PERMIT_PORTAL_LEGACY.md`)
 
 3. **Medium (supporting features):**
    - `GanttChart.tsx` - timeline visualization
@@ -257,13 +266,10 @@ All design tokens are defined in `public/design-system.css` as CSS custom proper
 
 ### CSS Implementation Rules
 
-1. **Vanilla CSS + Design Tokens:** All colors, spacing, radii use CSS custom properties
-2. **Animation Keyframes:** Pre-built animations in `public/design-system.css`
-   - `fadeIn`, `slideUpIn`, `slideDownIn`, `scaleIn`, `pulse`, `shimmer`, `spin`, `bounce`
-   - Applied via `.animate-*` utility classes
-3. **Glass Morphism:** Use `.glass` (weak) or `.glass-strong` (heavy blur) classes
-4. **Skeleton Loaders:** Use `.skeleton` with `.skeleton-text`, `.skeleton-avatar`, `.skeleton-card`
-5. **Accessibility:** All interactive elements must support keyboard focus (`outline: 2px solid var(--primary)`)
+1. **Tailwind CSS v4:** Use `@tailwind base/components/utilities` in `src/index.css`. Prefer utility classes and design tokens over ad-hoc CSS.
+2. **Design Tokens:** Admin tokens in `components/admin/admin-tokens.css`; global tokens via CSS custom properties.
+3. **Animation Keyframes:** Pre-built animations where defined in design system CSS.
+4. **Accessibility:** All interactive elements must support keyboard focus (`outline: 2px solid var(--primary)`).
 
 ### Motion.dev Integration
 
@@ -335,24 +341,35 @@ When building components for `app/routes/dashboard.tsx` or related views:
   - `MEDIUM` -> `var(--status-medium)` (Orange).
   - `LOW` -> `var(--status-low)` (Green).
 
-### 2. Frontend Loader Pattern
+### Frontend Data Fetching Pattern
 
-NEVER hardcode arrays in components. Use the Remix `loader` pattern:
+Use TanStack Query hooks that call typed API helpers — never direct `server/` imports:
 
 ```typescript
-// app/routes/dashboard.tsx
-export const loader = async ({ request }: LoaderFunctionArgs) => {
-  const user = await requireUser(request);
-  const completion = getAppCompletion();
-  const graphStats = await getGraphStats();
-  return json({ completion, graphStats });
-};
+// services/sewageApi.ts
+import { callCore } from './coreApiClient';
 
-export default function Dashboard() {
-  const { completion, graphStats } = useLoaderData<typeof loader>();
-  // Render using real data...
+export async function fetchSewageRequirementChecklist(params: SewageRequirementChecklistRequest) {
+  const result = await callCore<{ ok: boolean; requirements: SewageRequirement[] }>(
+    '/api/sewage/requirement-checklist',
+    { body: params },
+  );
+  return result.requirements;
+}
+
+// components/admin/hooks/useSewageRequirementChecklist.ts
+import { useQuery } from '@tanstack/react-query';
+import { fetchSewageRequirementChecklist } from '../../../services/sewageApi';
+
+export function useSewageRequirementChecklist(params: SewageRequirementChecklistRequest) {
+  return useQuery({
+    queryKey: ['sewage', 'requirement-checklist', params],
+    queryFn: () => fetchSewageRequirementChecklist(params),
+  });
 }
 ```
+
+Public endpoints use `services/apiClient.ts`; authenticated admin endpoints use `services/coreApiClient.ts` (`callCore`).
 
 ### 3. Figma to Code Fidelity
 
@@ -367,9 +384,10 @@ export default function Dashboard() {
 - Use `any` type in test files
 - Call real external APIs in tests
 - Commit tests that don't pass
+- **Import `server/**` from React components or client-side `services/` (except type-only re-exports in `src/types/`)**
+- **Accept HTTP 500/501 as passing smoke-test status codes**
 - **Hardcode UI arrays for "demonstration" (use real service data instead)**
 - Use console.log for debugging (use proper logging service)
-- Use hardcoded colors instead of CSS variables
+- Use hardcoded colors instead of CSS variables or Tailwind tokens
 - Apply animations without considering performance (60fps target)
-- Create new Tailwind classes when design tokens exist
 - **Ignore Swedish grammar in UI strings (e.g., use "Miljöbeslut" not "Miljo beslut")**

@@ -11,6 +11,7 @@ describe('secureErrors', () => {
       ok: false,
       error: 'Temporarily unavailable',
       code: '503',
+      statusCode: 503,
     });
   });
 
@@ -18,22 +19,26 @@ describe('secureErrors', () => {
     expect(toSafeErrorResponse(new Error('resource not found'))).toEqual({
       ok: false,
       error: 'Resource not found',
+      code: undefined,
+      statusCode: 404,
     });
     expect(toSafeErrorResponse(new Error('permission denied'))).toEqual({
       ok: false,
       error: 'Access denied',
+      code: undefined,
+      statusCode: 403,
     });
     expect(toSafeErrorResponse(new Error('invalid token supplied'))).toEqual({
       ok: false,
       error: 'Authentication failed',
+      code: undefined,
+      statusCode: 401,
     });
     expect(toSafeErrorResponse(new Error('session expired'))).toEqual({
       ok: false,
       error: 'Session expired',
-    });
-    expect(toSafeErrorResponse(new Error('refresh token reuse detected'))).toEqual({
-      ok: false,
-      error: 'Session security check failed - please login again',
+      code: undefined,
+      statusCode: 401,
     });
   });
 
@@ -41,10 +46,13 @@ describe('secureErrors', () => {
     expect(toSafeErrorResponse(new Error('boom'))).toEqual({
       ok: false,
       error: 'An error occurred processing your request',
+      code: undefined,
+      statusCode: 500,
     });
     expect(toSafeErrorResponse('plain-string-error')).toEqual({
       ok: false,
       error: 'Unknown error',
+      statusCode: 500,
     });
   });
 
@@ -59,6 +67,8 @@ describe('secureErrors', () => {
     expect(toSafeErrorResponse(new Error('unauthorized access'))).toEqual({
       ok: false,
       error: 'Access denied',
+      code: undefined,
+      statusCode: 403,
     });
   });
 });

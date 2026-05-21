@@ -58,17 +58,19 @@ describe.skipIf(!hasDatabaseIntegration)('Critical Flows Smoke Test', () => {
       .get(`/api/sewage-applications/${appId}`)
       .set('Authorization', `Bearer ${adminToken}`);
     
-    // During migration/smoke testing, newly created mock IDs might return 404 or 200 depending on DB state.
-    // The goal is to verify the POST worked and the GET is reachable.
-    expect([200, 404, 500]).toContain(statusRes.status); 
+    // During migration/smoke testing, newly created mock IDs might return 404 depending on DB state.
+    expect(statusRes.status, `GET application status failed: ${JSON.stringify(statusRes.body)}`).not.toBe(500);
+    expect(statusRes.status, `GET application status failed: ${JSON.stringify(statusRes.body)}`).not.toBe(501);
+    expect([200, 404]).toContain(statusRes.status);
 
     // 3. Submit
     const submitRes = await request(app)
       .post(`/sewage/application/${appId}/submit`)
       .set('Authorization', `Bearer ${adminToken}`)
       .send({});
-    // Might fail if not all fields are filled, but it's a smoke test
-    expect([200, 400, 501]).toContain(submitRes.status); 
+    expect(submitRes.status, `Submit failed: ${JSON.stringify(submitRes.body)}`).not.toBe(500);
+    expect(submitRes.status, `Submit failed: ${JSON.stringify(submitRes.body)}`).not.toBe(501);
+    expect([200, 400]).toContain(submitRes.status);
   }, 30000);
 
   it('Flow: Spatial Audit', async () => {

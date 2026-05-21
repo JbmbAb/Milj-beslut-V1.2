@@ -30,6 +30,18 @@ const GreenCheckModule: React.FC = () => {
   useCarbonWebSocket(projectId);
 
   // Calculate KPIs from real data
+  const complianceLabel = useMemo(() => {
+    const complianceMetric = riskMetrics.find((m) => m.name === 'Compliance');
+    if (complianceMetric && complianceMetric.score > 0) {
+      return `${Math.round(complianceMetric.score)}%`;
+    }
+    if (riskMetrics.length > 0) {
+      const passing = riskMetrics.filter((m) => m.status === 'low' || m.score >= m.threshold).length;
+      return `${Math.round((passing / riskMetrics.length) * 100)}%`;
+    }
+    return '—';
+  }, [riskMetrics]);
+
   const kpis = useMemo(
     () => [
       {
@@ -44,16 +56,16 @@ const GreenCheckModule: React.FC = () => {
       },
       {
         label: 'Compliance',
-        value: '95%',
-        trend: '↑',
+        value: complianceLabel,
+        trend: complianceLabel === '—' ? '—' : '↑',
       },
       {
         label: 'Loan Eligible',
-        value: carbonResult && carbonResult.quality === 'VERIFIED' ? 'Ja' : 'Ja',
-        trend: '✓',
+        value: carbonResult && carbonResult.quality === 'VERIFIED' ? 'Ja' : 'Nej',
+        trend: carbonResult && carbonResult.quality === 'VERIFIED' ? '✓' : '⚠',
       },
     ],
-    [carbonResult],
+    [carbonResult, complianceLabel],
   );
 
   const getGaugeClass = (status: string) => {

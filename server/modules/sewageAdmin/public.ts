@@ -2,8 +2,6 @@ export {
   createSewageApplication,
   validateApplicationForSubmission,
   submitApplicationToMunicipality,
-  generateSubmissionSummary,
-  updateGateStatus,
 } from '../../services/sewageApplicationService';
 export { generateSewageDocuments } from '../../services/sewageDocumentGeneratorService';
 export {

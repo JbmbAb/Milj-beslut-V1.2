@@ -5,7 +5,7 @@
  * Kör: npm run e2e:staging:avlopp
  * Eller via workflow: Staging E2E Proof (välj include_vertex_flows=true)
  *
- * Täcker punkt 1–5 ur STAGING_ONLY_PLAN.md#enskilt-avlopp:
+ * Täcker E2E-validering för enskilt avlopp:
  *   1. API-flöde utan fallback-mock
  *   2. Statusövergångar: utkast → handläggning → beslut
  *   3. Validering av obligatoriska fält, koordinater och mottagare

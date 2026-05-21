@@ -40,6 +40,7 @@ const mocks = vi.hoisted(() => ({
   queryRaw: vi.fn(),
   getPublicDatasourceSummary: vi.fn(),
   computeAppCompletion: vi.fn(),
+  getOperationalCoverage: vi.fn(),
   getExternalHealthReport: vi.fn(),
 }));
 
@@ -127,6 +128,10 @@ vi.mock('../../server/services/publicUiService', () => ({
 
 vi.mock('../../server/services/completionService', () => ({
   getAppCompletion: mocks.computeAppCompletion,
+}));
+
+vi.mock('../../server/services/operationalCoverageService', () => ({
+  getOperationalCoverage: mocks.getOperationalCoverage,
 }));
 
 vi.mock('../../server/services/externalHealthService', () => ({
@@ -770,12 +775,21 @@ describe('adminReportRepository', () => {
   });
 
   it('delegates app completion and external health helpers', async () => {
-    const completion = { completedModules: 11, totalModules: 12 };
+    const completion = {
+      donePercent: 86,
+      implementationPercent: 93,
+      remainingPercent: 14,
+      counts: { total: 64, done: 55, partial: 9, pending: 0 },
+      categories: [],
+      checkedAt: '2026-03-21T12:00:00.000Z',
+    };
+    const operationalCoverage = { percent: 42, integrations: { configured: 2, total: 9, percent: 22 }, notes: [] };
     const health = { overall: 'degraded', checkedAt: '2026-03-21T12:00:00.000Z', services: [{ id: 'slu' }] };
-    mocks.computeAppCompletion.mockResolvedValue(completion);
+    mocks.computeAppCompletion.mockReturnValue(completion);
+    mocks.getOperationalCoverage.mockResolvedValue(operationalCoverage);
     mocks.getExternalHealthReport.mockResolvedValue(health);
 
-    await expect(getAppCompletion()).resolves.toEqual(completion);
+    await expect(getAppCompletion()).resolves.toEqual({ ...completion, operationalCoverage });
     await expect(getExternalHealth()).resolves.toEqual(health);
   });
 

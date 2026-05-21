@@ -215,12 +215,12 @@ export async function submitSewageApplicationToMunicipality(
     // Uppdatera submission med länk till det genererade dokumentet
     await submissionRepo.addArtifact({
       submissionId: submission.id,
-      role: SubmissionArtifactRole.GENERATED_DRAFT,
+      role: SubmissionArtifactRole.PRIMARY_DOCUMENT,
       label: draftDoc.originalName || 'Anmälan Utkast',
       mimeType:
         draftDoc.mimeType || 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
       sourceType: 'GENERATED_DOCX',
-      externalId: String(draftDoc.id),
+      documentId: String(draftDoc.id),
     });
 
     logger.info('DOCX-utkast genererat och kopplat till inlämning', {
@@ -411,15 +411,16 @@ export async function dispatchSubmissionToRecipient(params: {
   if (!submission) {
     throw new Error(`Submission with ID ${submissionId} not found.`);
   }
-  if (submission.status !== SubmissionStatus.PENDING_DISPATCH) {
+  if (submission.status !== SubmissionStatus.PENDING_REVIEW) {
     throw new Error(`Submission is not in a dispatchable state. Current status: ${submission.status}`);
   }
 
   // 2. Hämta nödvändiga dokument (artefakter)
-  const artifacts = await submissionRepo.findArtifactsBySubmissionId(submissionId);
+  const withEvents = await submissionRepo.getSubmissionWithEvents(submissionId);
+  const artifacts = withEvents.artifacts;
   const situationPlan = artifacts.find((a) => a.label === 'Situationsplan');
   const crossSection = artifacts.find((a) => a.label === 'Tvärsektion');
-  const applicationDraft = artifacts.find((a) => a.role === SubmissionArtifactRole.GENERATED_DRAFT);
+  const applicationDraft = artifacts.find((a) => a.role === SubmissionArtifactRole.PRIMARY_DOCUMENT);
 
   if (!applicationDraft) {
     throw new Error('Cannot dispatch: Application draft (DOCX) is missing.');
@@ -585,7 +586,7 @@ async function submitViaEmailFallback(
     domain: 'SEWAGE',
     authorityName: `Kommun ${municipalityCode}`,
     recipientChannel: SubmissionChannel.EMAIL,
-    status: SubmissionStatus.PENDING_DISPATCH, // Väntar på manuell hantering
+    status: SubmissionStatus.PENDING_REVIEW,
     caseNumber: application.id,
     submittedBy: applicantEmail,
     createdAt: new Date(),
@@ -639,7 +640,7 @@ async function submitViaEmailFallback(
     // Logga att ärendet väntar på manuell hantering
     await submissionRepo.logStatusEvent({
       submissionId: submissionId,
-      status: SubmissionStatus.PENDING_DISPATCH,
+      status: SubmissionStatus.PENDING_REVIEW,
       sourceSystem: 'MILJOBESLUT_PORTAL',
       summary: 'Endpoint not configured and no registrar email found. Queued for manual dispatch.',
       occurredAt: new Date(),

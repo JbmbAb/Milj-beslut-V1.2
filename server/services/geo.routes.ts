@@ -25,7 +25,14 @@ router.post('/api/geo/property-lookup', requireAuth, async (req, res, next) => {
       return res.status(400).json({ error: 'propertyDesignation and projectId are required' });
     }
 
-    const result = await lookupPropertyByDesignation({ propertyDesignation, projectId, purpose }, req.user!);
+    if (!req.authUser) {
+      return res.status(401).json({ error: 'Unauthorized' });
+    }
+
+    const result = await lookupPropertyByDesignation(
+      { propertyDesignation, projectId, purpose },
+      req.authUser,
+    );
 
     res.json(result);
   } catch (error) {

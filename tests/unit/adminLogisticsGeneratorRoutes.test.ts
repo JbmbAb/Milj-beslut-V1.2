@@ -18,11 +18,15 @@ vi.mock('../../server/services/logisticsGeneratorService', () => ({
   generateLogisticsPlan: mocks.generateLogisticsPlan,
 }));
 
-import adminLogisticsGeneratorRoutes from '../../server/routes/admin.v1.routes';
+vi.mock('../../server/repositories/projectAccessRepository', () => ({
+  assertProjectMembership: vi.fn(async () => undefined),
+}));
+
+import generatorRoutes from '../../server/routes/generators.routes';
 
 const app = express();
 app.use(express.json());
-app.use(adminLogisticsGeneratorRoutes);
+app.use(generatorRoutes);
 
 function authHeader() {
   return `Bearer ${
@@ -47,7 +51,6 @@ const mockPlan = {
   generatedAt: new Date().toISOString(),
 };
 
-/*
 describe('admin.logistics-generator routes', () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -203,5 +206,4 @@ describe('admin.logistics-generator routes', () => {
       expect(res.body.plan.projectId).toBe('proj-1');
     });
   });
-});
-*/
+});

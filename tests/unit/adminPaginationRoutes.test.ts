@@ -28,11 +28,13 @@ vi.mock('../../server/modules/platform/public', async (importOriginal) => {
   };
 });
 
-import adminPaginationRoutes from '../../server/routes/admin.v1.routes';
+import projectV1Routes from '../../server/routes/project.v1.routes';
+import logisticsRoutes from '../../server/routes/logistics.routes';
 
 const app = express();
 app.use(express.json());
-app.use(adminPaginationRoutes);
+app.use(projectV1Routes);
+app.use(logisticsRoutes);
 
 function authHeader(role: string = 'ADMIN') {
   return `Bearer ${
@@ -75,7 +77,6 @@ const mockBookings = [
   },
 ];
 
-/*
 describe('admin.pagination routes', () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -173,5 +174,4 @@ describe('admin.pagination routes', () => {
       expect(res.body.hasMore).toBe(true);
     });
   });
-});
-*/
+});

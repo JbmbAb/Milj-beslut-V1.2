@@ -47,8 +47,7 @@ const mockProject = {
   createdAt: new Date(),
 };
 
-/*
-describe('admin.project-plan routes', () => {
+describe.skip('admin.project-plan routes', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mocks.getProjectForPlanHeader.mockResolvedValue(mockProject);
@@ -147,5 +146,4 @@ describe('admin.project-plan routes', () => {
       expect(res.status).toBe(401);
     });
   });
-});
-*/
+});

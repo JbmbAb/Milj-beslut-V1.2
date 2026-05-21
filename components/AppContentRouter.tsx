@@ -33,6 +33,7 @@ export interface AppContentRouterProps {
   permits: Permit[];
   setSelectedPermit: (p: Permit) => void;
   setActiveTab: (tab: string) => void;
+  onOpenMassModule?: () => void;
 }
 
 export const AppContentRouter: React.FC<AppContentRouterProps> = ({
@@ -41,6 +42,7 @@ export const AppContentRouter: React.FC<AppContentRouterProps> = ({
   permits,
   setSelectedPermit,
   setActiveTab,
+  onOpenMassModule,
 }) => {
   if (activeTab === 'guide') return <Guide mode={mode} onNavigate={setActiveTab} />;
   if (activeTab === 'legal') return <LegalSupportCenter />;
@@ -61,12 +63,13 @@ export const AppContentRouter: React.FC<AppContentRouterProps> = ({
       if (activeTab === 'marketing') return <MarketingHub permits={permits} fullView />;
       return <ExecutiveSummary />;
     case 'PERMIT_PORTAL':
-      if (activeTab === 'map') return <PermitPortalView permits={permits} mode="map" />;
-      if (activeTab === 'apply') return <PermitPortalView permits={permits} mode="apply" />;
+      if (activeTab === 'apply') return <CNotificationMassUI />;
+      if (activeTab === 'map')
+        return <PermitPortalView permits={permits} mode="map" onOpenMassModule={onOpenMassModule} />;
       if (activeTab === 'forms') return <FormManager />;
       if (activeTab === 'biodiversity') return <SluExpert />;
       if (activeTab === 'risks') return <GisRiskModule permits={permits} />;
-      return <PermitPortalView permits={permits} mode="map" />;
+      return <PermitPortalView permits={permits} mode="map" onOpenMassModule={onOpenMassModule} />;
     case 'PROJECT_MANAGER':
       if (activeTab === 'field') return <FieldAssistant />;
       return <ProjectManagerView activeTab={activeTab} />;

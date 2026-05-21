@@ -18,11 +18,15 @@ vi.mock('../../server/services/permitApplicationGeneratorService', () => ({
   generatePermitApplication: mocks.generatePermitApplication,
 }));
 
-import adminPermitGeneratorRoutes from '../../server/routes/admin.v1.routes';
+vi.mock('../../server/repositories/projectAccessRepository', () => ({
+  assertProjectMembership: vi.fn(async () => undefined),
+}));
+
+import generatorRoutes from '../../server/routes/generators.routes';
 
 const app = express();
 app.use(express.json());
-app.use(adminPermitGeneratorRoutes);
+app.use(generatorRoutes);
 
 function authHeader() {
   return `Bearer ${
@@ -54,7 +58,6 @@ const mockGeneratedApplication = {
   externalSourcesUsed: [],
 };
 
-/*
 describe('admin.permit-generator routes', () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -202,5 +205,4 @@ describe('admin.permit-generator routes', () => {
       );
     });
   });
-});
-*/
+});

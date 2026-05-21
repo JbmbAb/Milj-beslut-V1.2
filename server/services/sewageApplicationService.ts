@@ -1,32 +1,38 @@
 /**
  * Sewage Application Service
  * Manages the complete lifecycle of a private sewage system application
- * - Validation against regulations
- * - Gate management
- * - Status transitions
- * - Submission workflow
  */
 
-import { prisma } from '../../db.server';
 import type {
-  SewageApplication,
   SewageGISAnalysis,
   SewageProtectionProfile,
   SewageSystemTypeId,
   Gate,
 } from '../../types';
 import {
-  generateSewageRequirementChecklist,
   validateSewageApplicationRegulations,
 } from './sewageRegulationsService';
+import { 
+  createSewageApplicationRecord, 
+  getSewageApplicationById, 
+  updateSewageApplicationRecord,
+  type SewageApplicationRecord 
+} from '../repositories/sewageApplicationRepository';
 
 export interface CreateSewageApplicationRequest {
-  projectId: string;
+  projectId?: string;
   propertyDesignation: string;
-  municipalityCode: string;
-  pe: number;
-  gisAnalysis: SewageGISAnalysis;
-  protectionProfile: SewageProtectionProfile;
+  municipalityCode?: string;
+  pe?: number;
+  gisAnalysis?: SewageGISAnalysis;
+  protectionProfile?: SewageProtectionProfile;
+  organisationId: string;
+  createdByUserId: string;
+  applicantName: string;
+  applicantEmail: string;
+  latitude: number;
+  longitude: number;
+  systemType?: string;
 }
 
 /**
@@ -34,26 +40,48 @@ export interface CreateSewageApplicationRequest {
  */
 export async function createSewageApplication(
   request: CreateSewageApplicationRequest,
-): Promise<SewageApplication> {
-  const now = new Date().toISOString();
-
-  // Generate initial requirements checklist
-  const requirementChecklist = generateSewageRequirementChecklist(
-    request.protectionProfile.recommendedSystem,
-    request.protectionProfile.protectionLevel,
-    request.municipalityCode,
-    {
-      toWell: request.protectionProfile.nearestWell.distance,
-      toPropertyLine: request.protectionProfile.distanceToPropertyLine,
+): Promise<SewageApplicationRecord> {
+  // Use provided profile/analysis or build defaults
+  const protectionProfile = request.protectionProfile ?? {
+    propertyId: 'initial',
+    protectionLevel: 'NORMAL',
+    reason: 'Standardbedömning — verifiera mot GIS',
+    nearestWell: { 
+      distance: 80, 
+      owner: 'NEIGHBOR', 
+      coordinates: { lat: request.latitude + 0.0005, lng: request.longitude + 0.0005 } 
     },
-  );
+    nearestWaterCourse: { distance: 120, type: 'Bäck' },
+    distanceToPropertyLine: 8,
+    soilProfile: { soilType: 'Morän', depthToRock: 3, groundwaterLevel: 2, infiltrationCapacity: 'MEDIUM', permeability: 20 },
+    floodRisk: 'LOW',
+    protectedNatureNearby: false,
+    recommendedSystem: (request.systemType || 'INFILTRATION') as SewageSystemTypeId,
+    timelineEstimateWeeks: 8,
+    requiredGates: []
+  };
 
-  // Create initial gates
+  const gisAnalysis = request.gisAnalysis ?? {
+    propertyId: 'initial',
+    timestamp: new Date().toISOString(),
+    sguJordartData: { soilType: 'Morän', depthToRock: 3, groundwaterLevel: 2, loadingCapacity: 'MEDIUM' },
+    sguBrunnarData: { nearestNeighborWells: [], nearestOwnWell: { distance: 80, coordinates: { lat: request.latitude, lng: request.longitude } } },
+    protectedAreas: [],
+    propertyBoundaries: { area: 2500, perimeter: 200, nearestNeighbor: 8 },
+    floodRiskZone: { level: 'LOW', floodFrequency: '1:100 år' },
+    overallRiskScore: 35,
+    feasibilityScore: 70,
+    recommendedSystems: [(request.systemType || 'INFILTRATION') as SewageSystemTypeId],
+    blockedSystems: [],
+    reasoning: ['GIS-standardprofil']
+  };
+
+  // Create initial gates (domain logic)
   const gates: Gate[] = [
     {
       id: 'gate-SEWAGE_PROTECTION_LEVEL',
       name: 'Skyddsnivå-bedömning',
-      description: `Fastigheten ligger i ${request.protectionProfile.protectionLevel === 'HIGH' ? 'högt' : 'normalt'} skyddad område`,
+      description: `Fastigheten ligger i ${protectionProfile.protectionLevel === 'HIGH' ? 'högt' : 'normalt'} skyddad område`,
       status: 'COMPLETED',
       priority: 'HIGH',
     },
@@ -63,21 +91,18 @@ export async function createSewageApplication(
       description: 'Perkolationsprov (LTAR) måste genomföras',
       status: 'PENDING',
       priority: 'HIGH',
-      blockingFactor: requirementChecklist.some((r) => r.id.includes('soil-test'))
-        ? 'Kräver perkolationsprov för detta systemval'
-        : undefined,
     },
     {
       id: 'gate-NEIGHBOR_CONSENT',
       name: 'Grannemedgivande',
       description:
-        request.protectionProfile.nearestWell.distance < 50 ||
-        request.protectionProfile.distanceToPropertyLine < 4.5
+        protectionProfile.nearestWell.distance < 50 ||
+        protectionProfile.distanceToPropertyLine < 4.5
           ? 'Grannemedgivande krävs – nära grannboll eller brunn'
           : 'Ej krävs för denna plats',
       status:
-        request.protectionProfile.nearestWell.distance < 50 ||
-        request.protectionProfile.distanceToPropertyLine < 4.5
+        protectionProfile.nearestWell.distance < 50 ||
+        protectionProfile.distanceToPropertyLine < 4.5
           ? 'PENDING'
           : 'COMPLETED',
       priority: 'MEDIUM',
@@ -89,34 +114,28 @@ export async function createSewageApplication(
       status: 'PENDING',
       priority: 'HIGH',
     },
-    {
-      id: 'gate-REGULATORY_COMPLIANCE',
-      name: 'Regelverksprövning',
-      description: 'Ansökan måste uppfylla alla juridiska krav',
-      status: 'PENDING',
-      priority: 'HIGH',
-    },
   ];
 
-  const application: SewageApplication = {
-    id: `sewage-${request.propertyDesignation}-${Date.now()}`,
+  // Persist via repository
+  return createSewageApplicationRecord({
     projectId: request.projectId,
+    organisationId: request.organisationId,
+    createdByUserId: request.createdByUserId,
     propertyDesignation: request.propertyDesignation,
+    municipalityCode: request.municipalityCode,
     pe: request.pe,
-    selectedSystemType: request.protectionProfile.recommendedSystem,
-    protectionProfile: request.protectionProfile,
-    soilTestCompleted: false,
-    neighborConsentRequired:
-      request.protectionProfile.nearestWell.distance < 50 ||
-      request.protectionProfile.distanceToPropertyLine < 4.5,
-    neighborConsentObtained: false,
+    latitude: request.latitude,
+    longitude: request.longitude,
+    applicantName: request.applicantName,
+    applicantEmail: request.applicantEmail,
+    systemType: request.systemType || protectionProfile.recommendedSystem,
     status: 'DRAFT',
-    createdAt: now,
-    updatedAt: now,
-    currentGates: gates,
-  };
-
-  return application;
+    domainSnapshot: {
+      protectionProfile,
+      gisAnalysis,
+      gates,
+    }
+  });
 }
 
 /**
@@ -126,11 +145,12 @@ export async function updateSoilTestResults(
   applicationId: string,
   ltar: number,
   testDate: string,
-): Promise<SewageApplication | null> {
-  // In production: query database
-  console.log(`[SewageApplication] Updated soil test: LTAR=${ltar}, Date=${testDate}`);
-
-  return null;
+): Promise<SewageApplicationRecord | null> {
+  return updateSewageApplicationRecord(applicationId, {
+    domainSnapshot: {
+      soilTest: { ltar, testDate }
+    }
+  });
 }
 
 /**
@@ -140,11 +160,13 @@ export async function recordNeighborConsent(
   applicationId: string,
   address: string,
   distance: number,
-): Promise<SewageApplication | null> {
-  // In production: query database
-  console.log(`[SewageApplication] Recorded neighbor consent from ${address} at ${distance}m`);
-
-  return null;
+  obtained: boolean = true
+): Promise<SewageApplicationRecord | null> {
+  return updateSewageApplicationRecord(applicationId, {
+    domainSnapshot: {
+      neighborConsent: { address, distance, obtained }
+    }
+  });
 }
 
 /**
@@ -154,63 +176,74 @@ export async function changeSewageSystem(
   applicationId: string,
   newSystemType: SewageSystemTypeId,
   protectionProfile: SewageProtectionProfile,
-): Promise<SewageApplication | null> {
-  // Regenerate gates based on new system type
-  const checklist = generateSewageRequirementChecklist(newSystemType, protectionProfile.protectionLevel, '');
-
-  console.log(
-    `[SewageApplication] Changed system to ${newSystemType}, regenerated ${checklist.length} requirements`,
-  );
-
-  return null;
+): Promise<SewageApplicationRecord | null> {
+  return updateSewageApplicationRecord(applicationId, {
+    systemType: newSystemType,
+    domainSnapshot: { protectionProfile }
+  });
 }
 
 /**
  * Validate application before submission
  */
-export function validateApplicationForSubmission(
-  application: SewageApplication,
-  protectionProfile: SewageProtectionProfile,
-): {
+export async function validateApplicationForSubmission(
+  applicationId: string
+): Promise<{
   canSubmit: boolean;
   blockers: string[];
   warnings: string[];
-} {
+}> {
+  const application = await getSewageApplicationById(applicationId);
+  if (!application || !application.domainSnapshot?.protectionProfile) {
+    return { canSubmit: false, blockers: ['Application data missing'], warnings: [] };
+  }
+
   const blockers: string[] = [];
   const warnings: string[] = [];
+  const profile = application.domainSnapshot.protectionProfile;
+  const gates = application.domainSnapshot.gates ?? [];
 
-  // Check all critical gates are completed
-  const criticalGates = application.currentGates.filter((g) => g.priority === 'HIGH');
-  const incompleteGates = criticalGates.filter((g) => g.status !== 'COMPLETED');
-
-  if (incompleteGates.length > 0) {
+  const missingHighPriorityGates = gates.filter((gate) => gate.priority === 'HIGH' && gate.status !== 'COMPLETED');
+  if (missingHighPriorityGates.length > 0) {
     blockers.push(
-      `${incompleteGates.length} kritiska steg måste färdigställas: ${incompleteGates.map((g) => g.name).join(', ')}`,
+      `Kritiska steg ej klara: ${missingHighPriorityGates.map((gate) => gate.name).join(', ')}`,
     );
   }
 
-  // Check soil test if required
-  if (
-    ['INFILTRATION', 'SOIL_BED'].includes(application.selectedSystemType) &&
-    !application.soilTestCompleted
-  ) {
-    blockers.push('Markundersökning (perkolationsprov) är obligatorisk för detta systemval');
+  if (gates.length === 0) {
+    warnings.push('Inga gates registrerade för ansökan.');
   }
 
-  // Check neighbor consent if required
-  if (application.neighborConsentRequired && !application.neighborConsentObtained) {
-    blockers.push('Grannemedgivande måste erhållas och registreras innan inskickning');
+  const requiresSoilTest = ['INFILTRATION', 'SOIL_BED'].includes(application.systemType);
+  if (requiresSoilTest && !application.domainSnapshot.soilTest) {
+    blockers.push('Markundersökning (LTAR/perkolationsprov) saknas för valt system.');
   }
 
-  // Check documents
-  if (!application.situationPlan || !application.crossSection) {
-    blockers.push('Situationsplan och tvärsektion måste genereras');
+  const neighborConsentRequired =
+    profile.nearestWell.distance < 50 || profile.distanceToPropertyLine < 4.5;
+  const neighborConsentObtained = application.domainSnapshot.neighborConsent?.obtained === true;
+  if (neighborConsentRequired && !neighborConsentObtained) {
+    blockers.push('Grannemedgivande krävs men är inte registrerat.');
+  }
+
+  if (!application.domainSnapshot.generatedDocuments?.situationPlanSVG) {
+    blockers.push('Situationsplan saknas.');
+  }
+  if (!application.domainSnapshot.generatedDocuments?.crossSectionSVG) {
+    blockers.push('Tvärsektion saknas.');
   }
 
   // Regulatory validation
   const { violations, warnings: regWarnings } = validateSewageApplicationRegulations(
-    application,
-    protectionProfile,
+    {
+      ...application,
+      selectedSystemType: application.systemType as SewageSystemTypeId,
+      soilTestCompleted: !!application.domainSnapshot.soilTest,
+      neighborConsentObtained,
+      neighborConsentRequired,
+      currentGates: gates,
+    } as any,
+    profile
   );
 
   if (violations.length > 0) {
@@ -227,24 +260,10 @@ export function validateApplicationForSubmission(
 }
 
 /**
- * Update gate status
- */
-export function updateGateStatus(gates: Gate[], gateId: string, newStatus: Gate['status']): Gate[] {
-  return gates.map((g) => (g.id === gateId ? { ...g, status: newStatus } : g));
-}
-
-/**
- * Get all pending gates
- */
-export function getPendingGates(application: SewageApplication): Gate[] {
-  return application.currentGates.filter((g) => g.status === 'PENDING');
-}
-
-/**
  * Submit application to municipality
  */
 export async function submitApplicationToMunicipality(
-  application: SewageApplication,
+  applicationId: string,
   municipalityCode: string,
 ): Promise<{
   success: boolean;
@@ -253,46 +272,24 @@ export async function submitApplicationToMunicipality(
   estimatedProcessingTime?: number; // weeks
   error?: string;
 }> {
-  // In production: send to municipality eService or generate reference number
-  const referenceNumber = `AVLOPP-${municipalityCode}-${Date.now()}`;
-  const submissionId = `submission-${referenceNumber}`;
+  const application = await getSewageApplicationById(applicationId);
+  if (!application) {
+    return { success: false, error: 'Application not found' };
+  }
 
-  console.log(
-    `[SewageApplication] Submitted application to municipality ${municipalityCode}, Ref: ${referenceNumber}`,
-  );
+  // Generate municipality-specific submission reference
+  const municipalityReference = `AVLOPP-${municipalityCode}-${Date.now()}`;
+  const submissionId = `submission-${municipalityReference}`;
+
+  await updateSewageApplicationRecord(applicationId, {
+    status: 'SUBMITTED',
+    municipalityReference: municipalityReference
+  });
 
   return {
     success: true,
     submissionId,
-    referenceNumber,
-    estimatedProcessingTime: application.protectionProfile.timelineEstimateWeeks || 8,
-  };
-}
-
-/**
- * Generate summary for municipality submission
- */
-export function generateSubmissionSummary(application: SewageApplication): Record<string, unknown> {
-  return {
-    referenceData: {
-      propertyDesignation: application.propertyDesignation,
-      pe: application.pe,
-      selectedSystem: application.selectedSystemType,
-    },
-    gisAnalysis: {
-      protectionLevel: application.protectionProfile.protectionLevel,
-      riskScore: 'From GIS analysis',
-      feasibility: 'From GIS analysis',
-    },
-    applicant: {
-      // Will be filled from user context
-    },
-    documents: {
-      situationPlan: application.situationPlan?.url,
-      crossSection: application.crossSection?.url,
-      performanceDeclaration: application.performanceDeclaration?.url,
-    },
-    status: application.status,
-    submittedDate: new Date().toISOString(),
+    referenceNumber: municipalityReference,
+    estimatedProcessingTime: application.domainSnapshot?.protectionProfile?.timelineEstimateWeeks || 8,
   };
 }

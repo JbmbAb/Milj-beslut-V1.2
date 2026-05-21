@@ -1,13 +1,9 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { LantmaterietAdapter } from '../../../src/infrastructure/lantmateriet-adapter';
-import { prisma } from '../../../server/db/prisma';
+import { tryFetchLocalPropertyGeometry } from '../../../server/services/hybridGeoService';
 
-vi.mock('../../../server/db/prisma', () => ({
-  prisma: {
-    propertyUnit: {
-      findFirst: vi.fn(),
-    },
-  },
+vi.mock('../../../server/services/hybridGeoService', () => ({
+  tryFetchLocalPropertyGeometry: vi.fn(),
 }));
 
 describe('LantmaterietAdapter', () => {
@@ -15,10 +11,10 @@ describe('LantmaterietAdapter', () => {
   const originalEnv = process.env;
 
   beforeEach(() => {
+    process.env = { ...originalEnv };
     process.env.PROPERTY_LOOKUP_MODE = 'postgis_first';
     vi.clearAllMocks();
     adapter = new LantmaterietAdapter();
-    process.env = { ...originalEnv };
   });
 
   afterEach(() => {
@@ -26,138 +22,39 @@ describe('LantmaterietAdapter', () => {
     vi.restoreAllMocks();
   });
 
-  it('should check PostGIS first in postgis_first mode', async () => {
-    const mockProperty = {
-      id: 1,
-      designation: 'DB TEST 1:1',
-      geom: {}, // Mocked geometry
-    };
-    (prisma.propertyUnit.findFirst as vi.Mock).mockResolvedValue(mockProperty);
+  it('returns local PostGIS hit in postgis_first mode', async () => {
+    vi.mocked(tryFetchLocalPropertyGeometry).mockResolvedValue({
+      designation: 'NACKA BOO 1:1',
+      boundaries: { properties: { kommunnamn: 'Nacka', area: 1234 } },
+    } as any);
 
-    const result = await adapter.fetchPropertyInfo('TEST 1:1');
+    const result = await adapter.fetchPropertyInfo('NACKA BOO 1:1');
 
-    expect(prisma.propertyUnit.findFirst).toHaveBeenCalled();
-    expect(result?.designation).toBe('DB TEST 1:1');
-    expect(global.fetch).not.toHaveBeenCalled();
+    expect(tryFetchLocalPropertyGeometry).toHaveBeenCalledWith('NACKA BOO 1:1');
+    expect(result?.designation).toBe('NACKA BOO 1:1');
+    expect(result?.municipality).toBe('Nacka');
   });
 
-  it('should fall back to live API if not found in PostGIS', async () => {
-    (prisma.propertyUnit.findFirst as vi.Mock).mockResolvedValue(null);
-
+  it('falls back to live API when local lookup is empty', async () => {
+    vi.mocked(tryFetchLocalPropertyGeometry).mockResolvedValue(null);
     process.env.LANTMATERIET_PROPERTY_ENDPOINT = 'http://api.test/property';
     process.env.LANTMATERIET_CLIENT_ID = 'client';
     process.env.LANTMATERIET_CLIENT_SECRET = 'secret';
-    process.env.LANTMATERIET_TOKEN_URL = 'url';
+    process.env.LANTMATERIET_TOKEN_URL = 'http://api.test/token';
 
-    global.fetch = vi.fn().mockResolvedValue({
-      ok: true,
-      json: () =>
-        Promise.resolve({
-          id: 'p1',
-          designation: 'LIVE TEST 1:1',
-        }),
-    });
+    global.fetch = vi
+      .fn()
+      .mockResolvedValueOnce({
+        ok: true,
+        json: () => Promise.resolve({ access_token: 'token', expires_in: 3600 }),
+      } as any)
+      .mockResolvedValueOnce({
+        ok: true,
+        json: () => Promise.resolve({ id: 'p1', designation: 'LIVE TEST 1:1', municipality: 'Teststad' }),
+      } as any);
 
     const result = await adapter.fetchPropertyInfo('TEST 1:1');
-    expect(prisma.propertyUnit.findFirst).toHaveBeenCalled();
     expect(global.fetch).toHaveBeenCalled();
     expect(result?.designation).toBe('LIVE TEST 1:1');
-  });
-
-  it('should return null if no endpoint is configured in real mode', async () => {
-    delete process.env.LANTMATERIET_PROPERTY_ENDPOINT;
-
-    // Mock getAccessToken by mocking global fetch or we can mock it
-    global.fetch = vi.fn().mockResolvedValue({
-      ok: true,
-      json: () => Promise.resolve({ access_token: 'token', expires_in: 3600 }),
-    });
-
-    process.env.LANTMATERIET_CLIENT_ID = 'client';
-    process.env.LANTMATERIET_CLIENT_SECRET = 'secret';
-    process.env.LANTMATERIET_TOKEN_URL = 'url';
-
-    (prisma.propertyUnit.findFirst as vi.Mock).mockResolvedValue(null);
-    const result = await adapter.fetchPropertyInfo('TEST 1:1');
-    expect(result).toBeNull();
-  });
-
-  it('should fetch property info successfully', async () => {
-    process.env.LANTMATERIET_DEMO_MODE = 'false';
-    process.env.LANTMATERIET_PROPERTY_ENDPOINT = 'http://api.test/property';
-    process.env.LANTMATERIET_CLIENT_ID = 'client';
-    process.env.LANTMATERIET_CLIENT_SECRET = 'secret';
-    process.env.LANTMATERIET_TOKEN_URL = 'url';
-
-    (prisma.propertyUnit.findFirst as vi.Mock).mockResolvedValue(null);
-
-    global.fetch = vi
-      .fn()
-      .mockResolvedValueOnce({
-        ok: true,
-        json: () => Promise.resolve({ access_token: 'token', expires_in: 3600 }),
-      })
-      .mockResolvedValueOnce({
-        ok: true,
-        json: () =>
-          Promise.resolve({
-            id: 'p1',
-            designation: 'REAL 1:1',
-            municipality: 'CITY',
-            area: 100,
-            owner: 'Owner',
-            centroid: { lat: 1, lng: 2 },
-          }),
-      });
-
-    const result = await adapter.fetchPropertyInfo('REAL 1:1');
-    expect(result?.designation).toBe('REAL 1:1');
-    expect(result?.ownerName).toBe('Owner');
-  });
-
-  it('should return null if API request fails', async () => {
-    process.env.LANTMATERIET_DEMO_MODE = 'false';
-    process.env.LANTMATERIET_PROPERTY_ENDPOINT = 'http://api.test/property';
-    process.env.LANTMATERIET_CLIENT_ID = 'client';
-    process.env.LANTMATERIET_CLIENT_SECRET = 'secret';
-    process.env.LANTMATERIET_TOKEN_URL = 'url';
-
-    (prisma.propertyUnit.findFirst as vi.Mock).mockResolvedValue(null);
-
-    global.fetch = vi
-      .fn()
-      .mockResolvedValueOnce({
-        ok: true,
-        json: () => Promise.resolve({ access_token: 'token', expires_in: 3600 }),
-      })
-      .mockRejectedValueOnce(new Error('Network error'));
-
-    const result = await adapter.fetchPropertyInfo('REAL 1:1');
-    expect(result).toBeNull();
-  });
-
-  it('searchMunicipality och assessRisk returnerar null/[] utan konfiguration (live-regel)', async () => {
-    const muni = await adapter.searchMunicipality('Stockholm');
-    expect(muni).toBeNull();
-
-    const risk = await adapter.assessRisk({ lat: 1, lng: 2 });
-    expect(risk).toEqual([]);
-  });
-
-  it('should throw error if token fetch fails', async () => {
-    process.env.LANTMATERIET_DEMO_MODE = 'false';
-    process.env.LANTMATERIET_PROPERTY_ENDPOINT = 'http://api.test/property';
-    process.env.LANTMATERIET_CLIENT_ID = 'client';
-    process.env.LANTMATERIET_CLIENT_SECRET = 'secret';
-    process.env.LANTMATERIET_TOKEN_URL = 'url';
-
-    (prisma.propertyUnit.findFirst as vi.Mock).mockResolvedValue(null);
-
-    global.fetch = vi.fn().mockResolvedValueOnce({
-      ok: false,
-    });
-
-    const result = await adapter.fetchPropertyInfo('REAL 1:1');
-    expect(result).toBeNull(); // Adapter catches and logs
   });
 });

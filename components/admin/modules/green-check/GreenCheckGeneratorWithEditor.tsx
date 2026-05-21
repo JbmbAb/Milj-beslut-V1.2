@@ -7,7 +7,7 @@ import React, { useState } from 'react';
 import { CheckCircle } from 'lucide-react';
 import GreenCheckGenerator from './GreenCheckGenerator';
 import GreenCheckEditor from './GreenCheckEditor';
-import type { GeneratedGreenCheck } from '../../../../server/services/greenCheckGeneratorService';
+import type { GeneratedGreenCheck } from '../../../../src/types/generators';
 import './green-check-generator-with-editor.css';
 
 export interface GreenCheckGeneratorWithEditorProps {

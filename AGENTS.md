@@ -12,16 +12,6 @@
 - **Juridisk hållbarhet:** All programmering måste följa svenska regler för miljödata och sekretess.
 - **Human in the loop:** Du granskar och godkänner allt innan produktion.
 
-# Staging-Only Direktiv (obligatoriskt)
-
-- All funktionsvalidering ska ske i staging, inte lokalt.
-- Lokalt läge används endast för snabb utveckling/debug, aldrig som godkännandemiljö.
-- Mock/demo-flaggor ska vara avstängda i staging.
-- PR får inte godkännas utan dokumenterat staging-bevis för berörda flöden.
-- Följ körplanen i `docs/qa/STAGING_ONLY_PLAN.md` för Lokaliseringsutredning, C-anmälan och Enskilt avlopp.
-
----
-
 # 🤖 AI-verktygsdirektiv – V2.0
 
 ## Beslut: vilka AI-verktyg som används

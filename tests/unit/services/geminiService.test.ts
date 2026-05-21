@@ -40,10 +40,6 @@ vi.mock('../../../server/services/vertexAiService', () => ({
   __resetVertexClientForTest: vi.fn(),
 }));
 
-// Mocka complianceRuleEngine
-vi.mock('../../../server/services/complianceRuleEngine', () => ({
-  evaluateComplianceRules: vi.fn().mockReturnValue({ rules: [{ title: 'Skyddszon', risk: 'Låg' }] }),
-}));
 
 describe('geminiService', () => {
   const originalEnv = process.env;

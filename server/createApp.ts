@@ -6,6 +6,8 @@ import searchRouter from './routes/search.routes';
 import gdprRouter from './routes/gdpr.routes';
 import adminV1Router from './routes/admin.v1.routes';
 import projectV1Router from './routes/project.v1.routes';
+import generatorsRouter from './routes/generators.routes';
+import logisticsRouter from './routes/logistics.routes';
 import geminiRouter from './geminiApi.express';
 import geminiDbRouter from './geminiDbApi.express';
 import coreRouter from './coreApi.express';
@@ -171,6 +173,8 @@ export function createApp() {
   // Refactored V1 Routes
   app.use(authRouter);
   app.use(projectV1Router);
+  app.use(generatorsRouter);
+  app.use(logisticsRouter);
   app.use(datasourceRouter);
   app.use(searchRouter);
   app.use(gdprRouter);

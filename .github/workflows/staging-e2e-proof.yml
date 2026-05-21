@@ -68,6 +68,12 @@ jobs:
       - name: Run staging Enskilt avlopp flows
         run: npm run e2e:staging:avlopp
 
+      - name: Run staging C-anmälan schaktmassor
+        run: npm run e2e:staging:c-mass
+
+      - name: Run staging Lokaliseringsutredning
+        run: npm run e2e:staging:localization
+
       - name: Upload Playwright report
         if: always()
         uses: actions/upload-artifact@v4

@@ -4,11 +4,7 @@
 // spår 10b (Vertex-migration).
 import { CircuitBreaker } from '../server/utils/circuitBreaker';
 import type { Permit, SpeciesObservation, Stakeholder, WeatherRisk } from '../types';
-import type { ProtectedArea } from '../server/services/nvrService';
-import type { GeologicalData } from '../server/services/sguService';
-import type { Monument } from '../server/services/raaService';
-import { evaluateComplianceRules } from '../server/services/complianceRuleEngine';
-import type { SiteAnalysis } from '../server/services/complianceRuleEngine';
+import type { ProtectedArea, GeologicalData, Monument, SiteAnalysis } from '../src/types/geo';
 
 type HistoryItem = { role: 'user' | 'model'; content: string };
 type GroundingSource = { web?: { uri: string; title?: string } };
@@ -461,53 +457,6 @@ export const analyzeBiodiversity = async (
     monuments,
   });
   if (apiResult && Array.isArray(apiResult.observations)) return apiResult;
-
-  const observations = providedObservations || [];
-
-  const pAreas = protectedAreas || [];
-  const geo = geologicalData || { soilType: 'Information saknas', groundwaterVulnerability: 'Ej bedÃ¶md' };
-  const mons = monuments || [];
-
-  // Calculate Hard Rules
-  const compliance = evaluateComplianceRules(observations, pAreas, geo, mons);
-
-  const obsList = observations.map((o) => `${o.name} (${o.status})`).join(', ');
-  const areaList = pAreas.map((a) => `${a.name} (${a.type})`).join(', ');
-  const monList = mons.map((m) => `${m.name} (${m.type})`).join(', ');
-  const ruleSummary = compliance.rules.map((r) => `- ${r.title}: ${r.risk}`).join('\n');
-
-  const serverResult = await serverGenerateText(
-    `FULL SPATIAL COMPLIANCE AUDIT vid lat ${lat}, lng ${lng}. 
-
-     BIOLOGI:
-     NÃ¤rliggande arter: ${obsList}. 
-     Skyddade omrÃ¥den: ${areaList || 'Inga funna i omedelbar nÃ¤rhet'}. 
-
-     GEOLOGI:
-     Jordart: ${geo.soilType}.
-     GrundvattensÃ¥rbarhet: ${geo.groundwaterVulnerability}.
-
-     KULTURMILJÃ– (RAÃ„):
-     FornlÃ¤mningar/Monument: ${monList || 'Inga kÃ¤nda fynd vid platsen'}.
-
-     SYSTEM-BEDÃ–MDA REGLER (MILJÃ–BALKEN & KML):
-     ${ruleSummary || 'Inga direkta regelfel funna.'}
-
-     TASK:
-     Analysera geodataresultaten enligt MiljÃ¶balken (MB) och KulturmiljÃ¶lagen (KML). BedÃ¶m sannolikheten fÃ¶r tillstÃ¥nd. 
-     Svara med en text som fÃ¶rklarar vilka kapitel i MB som berÃ¶rs (t.ex. 2 kap, 3 kap, 7 kap, 9 kap) och varfÃ¶r.`,
-  );
-
-  if (serverResult) {
-    return {
-      summary: serverResult,
-      observations,
-      protectedAreas: pAreas,
-      geological: geo,
-      monuments: mons,
-      compliance,
-    };
-  }
 
   return unavailable('Biodiversitetsanalys');
 };

@@ -329,16 +329,18 @@ model SewageApplicationCase {
 
 /// Immutable security log. Stores a chain of hashes to ensure data integrity and track all administrative actions.
 model AuditTrail {
-  id          String   @id @default(cuid())
-  entityType  String
-  entityId    String
-  action      String
-  userId      String?
-  timestamp   DateTime @default(now())
-  payloadHash String
-  prevHash    String?
-  chainHash   String   @unique
+  id              String   @id @default(cuid())
+  entityType      String
+  entityId        String
+  action          String
+  userId          String?
+  timestamp       DateTime @default(now())
+  referenceNumber String?  @map("reference_number")
+  payloadHash     String
+  prevHash        String?
+  chainHash       String   @unique
 
+  @@index([referenceNumber])
   @@index([entityType, timestamp])
   @@schema("public")
 }

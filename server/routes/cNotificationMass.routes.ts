@@ -51,9 +51,16 @@ const operationsSchema = z.object({
     .min(1),
 });
 
-function sendOrchestratorResult(res: express.Response, result: { ok: boolean; status?: number; error?: string }) {
+type ValidateCodesInput = z.infer<typeof validateCodesSchema>;
+type OperationsInput = z.infer<typeof operationsSchema>;
+
+function sendOrchestratorResult(
+  res: express.Response,
+  result: { ok: boolean; status?: unknown; error?: string },
+) {
   if (!result.ok) {
-    res.status(result.status ?? 400).json(result);
+    const statusCode = typeof result.status === 'number' ? result.status : 400;
+    res.status(statusCode).json(result);
     return false;
   }
   return true;
@@ -83,7 +90,7 @@ router.post('/api/c-notification/mass/validate-codes', requireAuth, rateLimitByU
       return;
     }
 
-    const input = validateCodesSchema.parse(req.body);
+    const input: ValidateCodesInput = validateCodesSchema.parse(req.body);
     const op = evaluateOperationCodes(input);
 
     res.json({
@@ -120,9 +127,9 @@ router.post('/api/c-notification/mass/operations', requireAuth, rateLimitByUser(
       res.status(401).json({ ok: false, error: 'Unauthorized' });
       return;
     }
-    const input = operationsSchema.parse(req.body);
-    await assertProjectAccess(req.authUser, input.projectId);
-    const result = upsertMassOperations(input.caseId, req.authUser, input);
+    const input: OperationsInput = operationsSchema.parse(req.body);
+    await assertProjectAccess(req.authUser, input.projectId, req.authUser.organisationId);
+    const result = await upsertMassOperations(input.caseId, req.authUser, input);
     if (!sendOrchestratorResult(res, result)) return;
     res.status(input.caseId ? 200 : 201).json(result);
   } catch (error: unknown) {
@@ -136,7 +143,13 @@ router.post('/api/c-notification/mass/mass-flow', requireAuth, rateLimitByUser(2
       res.status(401).json({ ok: false, error: 'Unauthorized' });
       return;
     }
-    const body = z
+    const body: {
+      caseId: string;
+      wasteCode: string;
+      volumeM3: number;
+      sourceStorageAreaId?: string;
+      destinationStorageAreaId?: string;
+    } = z
       .object({
         caseId: z.string().min(1),
         wasteCode: z.string().min(1),
@@ -160,7 +173,13 @@ router.post('/api/c-notification/mass/logistics', requireAuth, rateLimitByUser(1
       res.status(401).json({ ok: false, error: 'Unauthorized' });
       return;
     }
-    const body = z
+    const body: {
+      caseId: string;
+      sourceAddress: string;
+      destinationAddress: string;
+      estimatedTons: number;
+      wasteType?: 'SOIL' | 'CONSTRUCTION' | 'INDUSTRIAL' | 'HAZARDOUS' | 'ORGANIC';
+    } = z
       .object({
         caseId: z.string().min(1),
         sourceAddress: z.string().min(1),
@@ -189,7 +208,7 @@ router.post(
         return;
       }
       const { caseId } = z.object({ caseId: z.string().min(1) }).parse(req.body);
-      const result = generateDocumentsForCase(caseId, req.authUser);
+      const result = await generateDocumentsForCase(caseId, req.authUser);
       if (!sendOrchestratorResult(res, result)) return;
       res.json(result);
     } catch (error: unknown) {
@@ -205,7 +224,7 @@ router.get('/api/c-notification/mass/:caseId/export', requireAuth, rateLimitByUs
       return;
     }
     const caseId = String(req.params.caseId ?? '');
-    const result = exportMassCase(caseId, req.authUser);
+    const result = await exportMassCase(caseId, req.authUser);
     if (!sendOrchestratorResult(res, result)) return;
     res.setHeader('Content-Type', 'application/json; charset=utf-8');
     res.json({ ok: true, caseId, export: result.export });

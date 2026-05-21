@@ -97,6 +97,7 @@ describe.skipIf(!hasDatabaseIntegration)('Blind Endpoint Smoke Test', () => {
        // We allow 404 because some tests use 'fake-id' or 'mock' data which might not exist in a fresh DB.
        // The goal is to verify the endpoint is alive and the handler doesn't throw.
        expect(res.status, `Endpoint ${method} ${testPath} failed with status ${res.status}: ${JSON.stringify(res.body)}`).not.toBe(500);
+       expect(res.status, `Endpoint ${method} ${testPath} failed with status ${res.status}: ${JSON.stringify(res.body)}`).not.toBe(501);
        
        // Optional: Log 404s for awareness but don't fail the build if it's a known resource-not-found
        if (res.status === 404) {

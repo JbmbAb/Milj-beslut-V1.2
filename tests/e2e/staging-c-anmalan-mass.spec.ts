@@ -109,10 +109,16 @@ test.describe('Staging: C-anmälan schaktmassor', () => {
       });
       expect(res.ok(), await res.text()).toBeTruthy();
       const body = await parseJson<{
-        export?: { humanInTheLoop?: string; operations?: unknown[] };
+        export?: {
+          humanInTheLoop?: string;
+          decisions?: { mellanlagring?: unknown[]; deponi?: unknown[] };
+        };
       }>(res);
       expect(body.export?.humanInTheLoop).toContain('verifiera');
-      expect((body.export?.operations ?? []).length).toBeGreaterThanOrEqual(2);
+      const totalOps =
+        (body.export?.decisions?.mellanlagring ?? []).length +
+        (body.export?.decisions?.deponi ?? []).length;
+      expect(totalOps).toBeGreaterThanOrEqual(2);
     } finally {
       await api.dispose();
     }

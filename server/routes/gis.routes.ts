@@ -28,6 +28,7 @@ import {
   getSguHighestCoastlineLayer,
   getWaterCatchmentLayer,
   getMarkCoverLayer,
+  queryMarkCoverAtPoint,
   getPropertyLayer,
   buildCulturalEnvironmentDownloadBundle,
   searchKsamsokBoundingBox,
@@ -461,6 +462,28 @@ router.get('/api/layers/markcover', rateLimitByUser(30, 60_000), async (req, res
         warning,
       },
     });
+  }
+});
+
+router.post('/api/layers/marktacke/query', rateLimitByUser(30, 60_000), async (req, res) => {
+  try {
+    const lat = parseCoordinate(req.body?.lat);
+    const lng = parseCoordinate(req.body?.lng);
+    if (lat == null || lng == null || !isLatitude(lat) || !isLongitude(lng)) {
+      res.status(400).json({ error: 'Missing or invalid coordinates' });
+      return;
+    }
+
+    const result = await queryMarkCoverAtPoint(lat, lng);
+    if (!result) {
+      res.json({ description: 'Ingen marktäckedata hittades för denna punkt.' });
+      return;
+    }
+
+    res.json({ value: result.value, description: result.description });
+  } catch (error: unknown) {
+    logger.error('Marktacke point query failed', { error: String(error) });
+    res.status(500).json(toSafeErrorResponse(error));
   }
 });
 

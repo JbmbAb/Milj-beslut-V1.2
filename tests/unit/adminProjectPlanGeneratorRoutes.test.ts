@@ -18,11 +18,15 @@ vi.mock('../../server/services/projectPlanGeneratorService', () => ({
   generateProjectPlan: mocks.generateProjectPlan,
 }));
 
-import adminProjectPlanGeneratorRoutes from '../../server/routes/admin.v1.routes';
+vi.mock('../../server/repositories/projectAccessRepository', () => ({
+  assertProjectMembership: vi.fn(async () => undefined),
+}));
+
+import generatorRoutes from '../../server/routes/generators.routes';
 
 const app = express();
 app.use(express.json());
-app.use(adminProjectPlanGeneratorRoutes);
+app.use(generatorRoutes);
 
 function authHeader() {
   return `Bearer ${
@@ -44,7 +48,6 @@ const mockPlan = {
   generatedAt: new Date().toISOString(),
 };
 
-/*
 describe('admin.project-plan-generator routes', () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -178,5 +181,4 @@ describe('admin.project-plan-generator routes', () => {
       expect(res.body.error).toContain('Missing required fields');
     });
   });
-});
-*/
+});

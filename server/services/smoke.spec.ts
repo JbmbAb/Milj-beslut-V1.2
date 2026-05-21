@@ -6,7 +6,7 @@ import type { SewageApplication, SewageGISAnalysis, SewageProtectionProfile } fr
 
 describe('Smoke Tests for Core API Endpoints', () => {
   let app: Express;
-  let request: supertest.SuperTest<supertest.Test>;
+  let request: ReturnType<typeof supertest>;
 
   beforeAll(() => {
     app = createApp();
@@ -16,8 +16,35 @@ describe('Smoke Tests for Core API Endpoints', () => {
   it('POST /api/sewage/submit-application should accept a valid sewage application', async () => {
     const mockApplication: SewageApplication = {
       id: 'app-smoke-1',
+      projectId: 'proj-smoke-test',
       propertyDesignation: 'RÖKEN 1:23',
       selectedSystemType: 'MINI_PLANT_BDTA',
+      protectionProfile: {
+        propertyId: 'app-smoke-1',
+        protectionLevel: 'HIGH',
+        reason: 'Närhet till vattenskyddsområde',
+        nearestWell: { distance: 80, owner: 'OWN', coordinates: { lat: 59.33, lng: 18.07 } },
+        nearestWaterCourse: { distance: 250, type: 'Bäck' },
+        distanceToPropertyLine: 10,
+        soilProfile: {
+          soilType: 'Morän',
+          depthToRock: 1.8,
+          groundwaterLevel: 1.2,
+          infiltrationCapacity: 'MEDIUM',
+          permeability: 15,
+        },
+        floodRisk: 'LOW',
+        protectedNatureNearby: false,
+        recommendedSystem: 'MINI_PLANT_BDTA',
+        timelineEstimateWeeks: 6,
+        requiredGates: [],
+      },
+      soilTestCompleted: false,
+      neighborConsentRequired: false,
+      status: 'DRAFT',
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+      currentGates: [],
       pe: 5,
     };
 
@@ -25,18 +52,39 @@ describe('Smoke Tests for Core API Endpoints', () => {
       propertyId: 'app-smoke-1',
       protectionLevel: 'HIGH',
       reason: 'Närhet till vattenskyddsområde',
-      nearestWell: { distance: 80, owner: 'OWN' },
+      nearestWell: { distance: 80, owner: 'OWN', coordinates: { lat: 59.33, lng: 18.07 } },
+      nearestWaterCourse: { distance: 250, type: 'Bäck' },
       distanceToPropertyLine: 10,
+      soilProfile: {
+        soilType: 'Morän',
+        depthToRock: 1.8,
+        groundwaterLevel: 1.2,
+        infiltrationCapacity: 'MEDIUM',
+        permeability: 15,
+      },
+      floodRisk: 'LOW',
+      protectedNatureNearby: false,
+      recommendedSystem: 'MINI_PLANT_BDTA',
+      timelineEstimateWeeks: 6,
+      requiredGates: [],
     };
 
     const mockGisAnalysis: SewageGISAnalysis = {
       propertyId: 'app-smoke-1',
       timestamp: new Date().toISOString(),
-      sguJordartData: { soilType: 'Morän', loadingCapacity: 'MEDIUM' },
-      sguBrunnarData: { nearestOwnWell: { distance: 80 } },
+      sguJordartData: {
+        soilType: 'Morän',
+        depthToRock: 1.8,
+        groundwaterLevel: 1.2,
+        loadingCapacity: 'MEDIUM',
+      },
+      sguBrunnarData: {
+        nearestOwnWell: { distance: 80, coordinates: { lat: 59.33, lng: 18.07 } },
+        nearestNeighborWells: [],
+      },
       protectedAreas: [{ name: 'Vattenskyddsområde', type: 'WATER_PROTECTION', distance: 250 }],
       propertyBoundaries: { area: 2000, perimeter: 180, nearestNeighbor: 10 },
-      floodRiskZone: { level: 'LOW' },
+      floodRiskZone: { level: 'LOW', floodFrequency: '1:100 years' },
       overallRiskScore: 60,
       feasibilityScore: 80,
       recommendedSystems: ['MINI_PLANT_BDTA'],

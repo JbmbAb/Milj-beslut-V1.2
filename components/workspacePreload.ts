@@ -5,7 +5,6 @@ const loadProjectWorkspace = () => import('./ProjectWorkspace');
 const loadStandaloneWorkspace = () => import('./StandaloneWorkspace');
 const loadExecutiveSummary = () => import('./ExecutiveSummary');
 const loadPermitPortalView = () => import('./PermitPortalView');
-const loadPermitPortalMapPanel = () => import('./PermitPortalMapPanel');
 const loadApplicationWizard = () => import('./ApplicationWizard');
 const loadGisRiskModule = () => import('./GisRiskModule');
 const loadAdminSearchConsole = () => import('./AdminSearchConsole');
@@ -28,7 +27,7 @@ function preloadDefaultView(mode: InterfaceMode): Promise<unknown> {
     case 'LOGISTICS_MARKET':
       return loadExecutiveSummary();
     case 'PERMIT_PORTAL':
-      return Promise.all([loadPermitPortalView(), loadPermitPortalMapPanel()]);
+      return loadPermitPortalView();
     case 'PROJECT_MANAGER':
       return loadApplicationWizard();
     case 'COMPLIANCE_AUDIT':

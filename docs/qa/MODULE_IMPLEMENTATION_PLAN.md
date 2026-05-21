@@ -1,6 +1,6 @@
 # Implementeringsplan: Tre fokusmoduler (rev. kodbas 2026-05)
 
-Detta dokument ersätter den tidigare grovplanen. Det är avstämt mot faktisk kod i repo, `AGENTS.md` och `docs/qa/STAGING_ONLY_PLAN.md`.
+Detta dokument ersätter den tidigare grovplanen. Det är avstämt mot faktisk kod i repo och `AGENTS.md`.
 
 **Staging är godkännandemiljö.** Lokal körning är utveckling/debug. Mock/demo ska vara avstängt i staging.
 
@@ -8,11 +8,11 @@ Detta dokument ersätter den tidigare grovplanen. Det är avstämt mot faktisk k
 
 ## Målbild
 
-| Modul | Mål | Canonical backend | Canonical UI |
-| ----- | --- | ----------------- | ------------ |
-| **Enskilt avlopp** | Eget flöde: ansökan → validering → underlag → export/submission → status → audit | `server/routes/sewage.routes.ts` + `server/services/sewageApplicationService.ts` | `components/admin/modules/sewage-portal/*` |
-| **C-anmälan schaktmassor** | Eget flöde: fastighet → MPF/EWC (+ senare SNI) → mellanlagring/deponi → underlag → export/submission → audit | `server/routes/cNotificationMass.routes.ts` | **Ny** UI (inte `CNotificationUI.tsx`) |
-| **Lokaliseringsutredning** | Eget flöde: platsval → geodata → regel/risk → beslutsunderlag → PDF/JSON → audit | `server/services/localization.routes.ts` → flytt till `server/routes/` | `components/LocalizationStudyUI.tsx` |
+| Modul                      | Mål                                                                                                          | Canonical backend                                                                | Canonical UI                               |
+| -------------------------- | ------------------------------------------------------------------------------------------------------------ | -------------------------------------------------------------------------------- | ------------------------------------------ |
+| **Enskilt avlopp**         | Eget flöde: ansökan → validering → underlag → export/submission → status → audit                             | `server/routes/sewage.routes.ts` + `server/services/sewageApplicationService.ts` | `components/admin/modules/sewage-portal/*` |
+| **C-anmälan schaktmassor** | Eget flöde: fastighet → MPF/EWC (+ senare SNI) → mellanlagring/deponi → underlag → export/submission → audit | `server/routes/cNotificationMass.routes.ts`                                      | **Ny** UI (inte `CNotificationUI.tsx`)     |
+| **Lokaliseringsutredning** | Eget flöde: platsval → geodata → regel/risk → beslutsunderlag → PDF/JSON → audit                             | `server/services/localization.routes.ts` → flytt till `server/routes/`           | `components/LocalizationStudyUI.tsx`       |
 
 **C-anmälan kemikalier** (`CNotificationUI.tsx`, `services/cnotificationChemicalApi.ts`) är en **annan produktmodul** och ingår inte i denna plan.
 
@@ -37,13 +37,13 @@ app.use(adminV1Router);             // GET /api/sewage-applications (deprecated 
 
 ### Enskilt avlopp — splittrad implementation
 
-| Yta | Paths | Status |
-| --- | ----- | ------ |
-| `sewage.routes.ts` | submit, status (501 om statuskälla saknas), history, audit, BankID, webhook | Delvis produktionsklar |
-| `admin.v1.routes.ts` | `/api/sewage-applications` (GET/POST) | Mock/hårdkodade koordinater, projekt-proxy |
-| E2E `staging-enskilt-avlopp.spec.ts` | `/api/sewage/applications` (+ status/export) | **Implementerat** — kör `npm run e2e:staging:avlopp` mot staging |
-| `sewageApplicationService.ts` | create, validate, persistens | Finns; **inte fullt exponerad** via canonical routes |
-| Enhetstester | `adminSewageApplicationRoutes.test.ts` | Testar `/api/sewage/application/*` som **inte är monterade** (describe block kommenterad) |
+| Yta                                  | Paths                                                                       | Status                                                                                    |
+| ------------------------------------ | --------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------- |
+| `sewage.routes.ts`                   | submit, status (501 om statuskälla saknas), history, audit, BankID, webhook | Delvis produktionsklar                                                                    |
+| `admin.v1.routes.ts`                 | `/api/sewage-applications` (GET/POST)                                       | Mock/hårdkodade koordinater, projekt-proxy                                                |
+| E2E `staging-enskilt-avlopp.spec.ts` | `/api/sewage/applications` (+ status/export)                                | **Implementerat** — kör `npm run e2e:staging:avlopp` mot staging                          |
+| `sewageApplicationService.ts`        | create, validate, persistens                                                | Finns; **inte fullt exponerad** via canonical routes                                      |
+| Enhetstester                         | `adminSewageApplicationRoutes.test.ts`                                      | Testar `/api/sewage/application/*` som **inte är monterade** (describe block kommenterad) |
 
 **Slutsats Fas 1:** Konsolidera till **ett API-kontrakt** innan nya features.
 
@@ -65,10 +65,10 @@ app.use(adminV1Router);             // GET /api/sewage-applications (deprecated 
 
 ### Staging/QA — redan på plats
 
-- Policy: `AGENTS.md`, `docs/qa/STAGING_ONLY_PLAN.md`
+- Policy: `AGENTS.md`
 - PR-gate: `.github/workflows/staging-proof-gate.yml`
 - E2E avlopp: `tests/e2e/staging-enskilt-avlopp.spec.ts` (kräver path-fix i Fas 1)
-- C-anmälan: **egen E2E-spec saknas** (noterat i STAGING_ONLY_PLAN)
+- C-anmälan: **egen E2E-spec saknas**
 
 ---
 
@@ -78,18 +78,18 @@ Prefix: alla modulroutes under `/api/...`, `requireAuth`, `rateLimitByUser` där
 
 ### Enskilt avlopp (`/api/sewage/applications`)
 
-| Metod | Path | Syfte |
-| ----- | ---- | ----- |
-| POST | `/api/sewage/applications` | Skapa utkast |
-| GET | `/api/sewage/applications/:id` | Hämta |
-| PATCH | `/api/sewage/applications/:id` | Uppdatera utkast |
-| POST | `/api/sewage/applications/:id/validate` | Validering (regler + obligatoriska fält) |
-| POST | `/api/sewage/applications/:id/generate-documents` | Underlag (→ `sewageDocumentGenerator`) |
-| GET | `/api/sewage/applications/:id/export` | Exportpaket |
-| POST | `/api/sewage/applications/:id/submit` | Submission (ersätter/adaptrar nuvarande submit) |
-| PATCH | `/api/sewage/applications/:id/status` | Interna statusövergångar (utkast → validerad → skickad → …) |
-| GET | `/api/sewage/applications/:id/status-history` | Historik |
-| GET | `/api/sewage/applications/:id/audit-trail` | Audit |
+| Metod | Path                                              | Syfte                                                       |
+| ----- | ------------------------------------------------- | ----------------------------------------------------------- |
+| POST  | `/api/sewage/applications`                        | Skapa utkast                                                |
+| GET   | `/api/sewage/applications/:id`                    | Hämta                                                       |
+| PATCH | `/api/sewage/applications/:id`                    | Uppdatera utkast                                            |
+| POST  | `/api/sewage/applications/:id/validate`           | Validering (regler + obligatoriska fält)                    |
+| POST  | `/api/sewage/applications/:id/generate-documents` | Underlag (→ `sewageDocumentGenerator`)                      |
+| GET   | `/api/sewage/applications/:id/export`             | Exportpaket                                                 |
+| POST  | `/api/sewage/applications/:id/submit`             | Submission (ersätter/adaptrar nuvarande submit)             |
+| PATCH | `/api/sewage/applications/:id/status`             | Interna statusövergångar (utkast → validerad → skickad → …) |
+| GET   | `/api/sewage/applications/:id/status-history`     | Historik                                                    |
+| GET   | `/api/sewage/applications/:id/audit-trail`        | Audit                                                       |
 
 **Avveckla:** `/api/sewage-applications` i `admin.v1.routes.ts` (eller gör tunt proxy → canonical tills frontend migrerat).
 
@@ -97,27 +97,27 @@ Prefix: alla modulroutes under `/api/...`, `requireAuth`, `rateLimitByUser` där
 
 ### C-anmälan schaktmassor (`/api/c-notification/mass`)
 
-| Metod | Path | Syfte |
-| ----- | ---- | ----- |
-| POST | `.../property-search` | Fastighetssök (→ befintlig property lookup-integration) |
-| POST | `.../validate-codes` | **Finns** — MPF + EWC obligatoriskt; SNI valfritt (fas 2 fördjupning) |
-| POST | `.../operations` | Skapa/uppdatera delbeslut mellanlagring/deponi |
-| POST | `.../mass-flow` | Massflöde (→ `server/repositories/massFlowService.ts`) |
-| POST | `.../logistics` | Logistikunderlag (→ `logisticsGeneratorService.ts`) |
-| POST | `.../generate-documents` | Underlag |
-| GET | `.../export` | Export |
-| POST | `.../submit` | Submission |
-| GET | `.../:caseId/audit-trail` | Audit |
+| Metod | Path                      | Syfte                                                                 |
+| ----- | ------------------------- | --------------------------------------------------------------------- |
+| POST  | `.../property-search`     | Fastighetssök (→ befintlig property lookup-integration)               |
+| POST  | `.../validate-codes`      | **Finns** — MPF + EWC obligatoriskt; SNI valfritt (fas 2 fördjupning) |
+| POST  | `.../operations`          | Skapa/uppdatera delbeslut mellanlagring/deponi                        |
+| POST  | `.../mass-flow`           | Massflöde (→ `server/repositories/massFlowService.ts`)                |
+| POST  | `.../logistics`           | Logistikunderlag (→ `logisticsGeneratorService.ts`)                   |
+| POST  | `.../generate-documents`  | Underlag                                                              |
+| GET   | `.../export`              | Export                                                                |
+| POST  | `.../submit`              | Submission                                                            |
+| GET   | `.../:caseId/audit-trail` | Audit                                                                 |
 
 Gate-beslut: deterministiskt från `evaluateMpfCode` (EWC först; SNI som komplettering, inte gate-veto i fas 1).
 
 ### Lokaliseringsutredning (`/api/localization`)
 
-| Metod | Path | Syfte |
-| ----- | ---- | ----- |
-| POST | `/api/localization/generate-report` | **Finns** — rapport + audit |
-| POST | `/api/localization/generate-pdf-data` | **Finns** — PDF-data |
-| POST | `/api/localization/export-pdf` | Valfritt: direkt PDF via `pdf-export.routes` eller samlad route |
+| Metod | Path                                  | Syfte                                                           |
+| ----- | ------------------------------------- | --------------------------------------------------------------- |
+| POST  | `/api/localization/generate-report`   | **Finns** — rapport + audit                                     |
+| POST  | `/api/localization/generate-pdf-data` | **Finns** — PDF-data                                            |
+| POST  | `/api/localization/export-pdf`        | Valfritt: direkt PDF via `pdf-export.routes` eller samlad route |
 
 **Krav staging:** Ingen tyst degradering när livekällor (SLU, NVR, SGU, …) saknas — explicit fel/warning i svar.
 
@@ -178,7 +178,7 @@ Gate-beslut: deterministiskt från `evaluateMpfCode` (EWC först; SNI som komple
 5. **Ny frontend:** t.ex. `components/CNotificationMassUI.tsx` (eller modul under `components/admin/modules/`) — **inte** återanvänd kemikalie-UI.
 6. Property search: återanvänd `propertyLookupRouter` / geo-klienter.
 7. Enhetstester: utöka `tests/unit/cNotificationMassRoutes.test.ts`; service-tester för massflöde/logistik.
-8. **Ny** `tests/e2e/staging-c-anmalan-mass.spec.ts` för STAGING_ONLY_PLAN punkt C-anmälan.
+8. **Ny** `tests/e2e/staging-c-anmalan-mass.spec.ts` för C-anmälan-validering.
 
 **Acceptance criteria**
 
@@ -221,11 +221,11 @@ Gate-beslut: deterministiskt från `evaluateMpfCode` (EWC först; SNI som komple
 
 ### Fas 5: Test och QA-bevis (3–5 dagar)
 
-| Typ | Fokus |
-| --- | ----- |
-| Unit | Route-tester alla tre moduler; `mpfThresholdService`, statusövergångar, dokumentgenerering |
-| Integration | Full kedja per modul med test-DB |
-| E2E staging | `e2e:staging:avlopp`, ny mass-spec, localization i `e2e:staging:all` + `staging:verify` |
+| Typ         | Fokus                                                                                      |
+| ----------- | ------------------------------------------------------------------------------------------ |
+| Unit        | Route-tester alla tre moduler; `mpfThresholdService`, statusövergångar, dokumentgenerering |
+| Integration | Full kedja per modul med test-DB                                                           |
+| E2E staging | `e2e:staging:avlopp`, ny mass-spec, localization i `e2e:staging:all` + `staging:verify`    |
 
 **DoD**
 
@@ -239,7 +239,7 @@ Gate-beslut: deterministiskt från `evaluateMpfCode` (EWC först; SNI som komple
 
 Uppdatera:
 
-- `docs/qa/STAGING_ONLY_PLAN.md` (paths, nya E2E-specs)
+- E2E-specs i `tests/e2e/`
 - `.github/pull_request_template.md`
 - Modulgränser + API-kontrakt (detta dokument + länk från `modulregister_ombyggnad.md`)
 - Miljövariabler + testkörning (`npm run qa`, `e2e:staging:*`)
@@ -259,7 +259,7 @@ Fas 5 → Fas 6
 
 **Motivering:** Avlopp har mest befintlig kod men värsta path-split; schaktmassor är minst implementerat; lokalisering har routes men behöver datahårdning.
 
-### Staging-bevis (verifiera) — enligt `STAGING_ONLY_PLAN.md`
+### Staging-bevis (verifiera)
 
 ```text
 Lokaliseringsutredning → C-anmälan schaktmassor → Enskilt avlopp
@@ -271,23 +271,22 @@ Detta är **inte** motsägelse: bygg i implementation-ordning, bevisa i staging-
 
 ## Riskregister (kort)
 
-| Risk | Åtgärd |
-| ---- | ------ |
-| E2E avlopp failar tills `/api/sewage/applications` finns | Fas 1 prioritet 1 |
-| Förvirring kemikalier vs schaktmassor | Separat UI + API-prefix `/mass/` |
-| Dubbel createApp | Fas 0 raderar/deprecar legacy |
-| Status 501 på municipality | Dokumentera env för statuskälla; tydligt fel i staging |
-| Demo seed localization | Fas 3 + staging-verify |
+| Risk                                                     | Åtgärd                                                 |
+| -------------------------------------------------------- | ------------------------------------------------------ |
+| E2E avlopp failar tills `/api/sewage/applications` finns | Fas 1 prioritet 1                                      |
+| Förvirring kemikalier vs schaktmassor                    | Separat UI + API-prefix `/mass/`                       |
+| Dubbel createApp                                         | Fas 0 raderar/deprecar legacy                          |
+| Status 501 på municipality                               | Dokumentera env för statuskälla; tydligt fel i staging |
+| Demo seed localization                                   | Fas 3 + staging-verify                                 |
 
 ---
 
 ## Referenser
 
-- `docs/qa/STAGING_ONLY_PLAN.md`
 - `server/createApp.ts`
-- `AGENTS.md` (staging-only, modularitet)
+- `AGENTS.md`
 - `docs/architecture/modulregister_ombyggnad.md`
 
 ---
 
-*Senast reviderad: 2026-05-20 — baserad på kodgranskning av recovery-workspace.*
+_Senast reviderad: 2026-05-20 — baserad på kodgranskning av recovery-workspace._

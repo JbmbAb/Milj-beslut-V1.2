@@ -64,8 +64,7 @@ const mockApplication = {
   createdAt: new Date().toISOString(),
 };
 
-/*
-describe('admin.sewage-application routes', () => {
+describe.skip('admin.sewage-application routes', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mocks.createSewageApplication.mockResolvedValue(mockApplication);
@@ -299,5 +298,4 @@ describe('admin.sewage-application routes', () => {
       expect(res.body.application.id).toBe('app-1');
     });
   });
-});
-*/
+});

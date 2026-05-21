@@ -33,6 +33,8 @@ import {
   parseOptionalText,
 } from '../utils/routeUtils';
 import { StageGateType, ProjectAccessRole, ProjectMemberRecord, CarbonInput } from '../../types';
+import { prisma } from '../db/prisma';
+import { buildProjectRiskMetrics } from '../services/projectRiskMetrics';
 
 const router = express.Router();
 
@@ -423,6 +425,16 @@ router.post(
         plan: asOptionalProjectPlan(req.body?.plan),
       });
 
+      const projectScores = await prisma.project.findUnique({
+        where: { id: projectId },
+        select: {
+          complianceScore: true,
+          environmentalScore: true,
+          regulatoryRiskScore: true,
+        },
+      });
+      const riskMetrics = projectScores ? buildProjectRiskMetrics(projectScores) : [];
+
       await appendDomainAudit({
         entityType: 'ProjectPlan',
         entityId: `${projectId}:carbon`,
@@ -436,7 +448,7 @@ router.post(
         },
       });
 
-      res.json({ ok: true, result: payload.result, plan: payload.plan });
+      res.json({ ok: true, result: payload.result, plan: payload.plan, riskMetrics });
     } catch (error: unknown) {
       res.status(400).json(toSafeErrorResponse(error));
     }

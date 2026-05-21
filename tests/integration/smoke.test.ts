@@ -11,19 +11,20 @@ import request from 'supertest';
 import type { Express } from 'express';
 
 // ── Prisma mock (förhindrar att appen försöker nå databasen vid boot) ─────────
-vi.mock('@prisma/client', async () => {
-  const prismaStub = {
-    $connect: vi.fn().mockResolvedValue(undefined),
-    $disconnect: vi.fn().mockResolvedValue(undefined),
-    $queryRaw: vi.fn().mockResolvedValue([{ '?column?': 1 }]),
-    $queryRawUnsafe: vi.fn().mockResolvedValue([]),
-    user: { findUnique: vi.fn().mockResolvedValue(null), findMany: vi.fn().mockResolvedValue([]) },
-    project: { findUnique: vi.fn().mockResolvedValue(null), findMany: vi.fn().mockResolvedValue([]), count: vi.fn().mockResolvedValue(0) },
-    auditLog: { create: vi.fn().mockResolvedValue({}), findMany: vi.fn().mockResolvedValue([]) },
-    rateLimitRecord: { findUnique: vi.fn().mockResolvedValue(null), upsert: vi.fn().mockResolvedValue({}) },
-    token: { findUnique: vi.fn().mockResolvedValue(null) },
-    backgroundJob: { findMany: vi.fn().mockResolvedValue([]) },
-  };
+const prismaStub = {
+  $connect: vi.fn().mockResolvedValue(undefined),
+  $disconnect: vi.fn().mockResolvedValue(undefined),
+  $queryRaw: vi.fn().mockResolvedValue([{ '?column?': 1 }]),
+  $queryRawUnsafe: vi.fn().mockResolvedValue([]),
+  user: { findUnique: vi.fn().mockResolvedValue(null), findMany: vi.fn().mockResolvedValue([]) },
+  project: { findUnique: vi.fn().mockResolvedValue(null), findMany: vi.fn().mockResolvedValue([]), count: vi.fn().mockResolvedValue(0) },
+  auditLog: { create: vi.fn().mockResolvedValue({}), findMany: vi.fn().mockResolvedValue([]) },
+  rateLimitRecord: { findUnique: vi.fn().mockResolvedValue(null), upsert: vi.fn().mockResolvedValue({}) },
+  token: { findUnique: vi.fn().mockResolvedValue(null) },
+  backgroundJob: { findMany: vi.fn().mockResolvedValue([]) },
+};
+
+vi.mock('@prisma/client', () => {
   return {
     PrismaClient: vi.fn(() => prismaStub),
     Prisma: { sql: vi.fn(), empty: null, PrismaClientKnownRequestError: class extends Error {} },

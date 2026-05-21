@@ -21,6 +21,15 @@ vi.mock('../../server/db/prisma', () => ({
   },
 }));
 
+vi.mock('../../server/services/vertexAiService', () => ({
+  vertexConfigStatus: vi.fn(() => ({
+    configured: true,
+    missing: [],
+    projectId: 'test-project',
+    location: 'europe-west1',
+  })),
+}));
+
 vi.mock('../../server/repositories/userRepository', () => ({
   ensureAdminConsoleUser: vi.fn(async () => ({
     id: 'test-admin-id',

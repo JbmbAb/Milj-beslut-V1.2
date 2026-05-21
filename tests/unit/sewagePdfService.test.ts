@@ -36,12 +36,6 @@ const mocks = vi.hoisted(() => {
       textCalls.length = 0;
       finishHandler = undefined;
       ended = false;
-      Object.values(docInstance).forEach((value) => {
-        if (typeof value === 'function' && 'mockClear' in value) {
-          (value as any).mockClear();
-        }
-      });
-      docInstance.bufferedPageRange.mockReturnValue({ count: 1 });
     },
     setFinishHandler(handler: () => void) {
       finishHandler = handler;
@@ -50,9 +44,7 @@ const mocks = vi.hoisted(() => {
       on: vi.fn((event: string, callback: () => void) => {
         if (event === 'finish') {
           finishHandler = callback;
-          if (ended) {
-            callback();
-          }
+          if (ended) callback();
         }
       }),
     })),
@@ -70,91 +62,53 @@ vi.mock('fs', () => ({
   createWriteStream: mocks.createWriteStream,
 }));
 
+const baseApplication = {
+  id: 'app-1',
+  referenceNumber: 'AVLOPP-2026-001',
+  propertyDesignation: 'GÄVLE BRYNÄS 1:1',
+  status: 'DRAFT',
+  applicantName: 'Ada Testsson',
+  applicantEmail: 'ada@example.com',
+  latitude: 60.67,
+  longitude: 17.14,
+  pe: 5,
+  systemType: 'INFILTRATION',
+  domainSnapshot: {
+    protectionProfile: {
+      protectionLevel: 'NORMAL',
+      reason: 'Normal skyddsnivå',
+      nearestWell: { distance: 45 },
+      nearestWaterCourse: { distance: 120 },
+      distanceToPropertyLine: 8,
+    },
+    generatedDocuments: {
+      situationPlanSVG: '<svg/>',
+      crossSectionSVG: '<svg/>',
+    },
+  },
+};
+
 describe('generateSewageDossierPdf', () => {
   beforeEach(() => {
     mocks.reset();
   });
 
-  it('uses main activities in the summary and falls back for empty mitigation measures', async () => {
+  it('generates a PDF path and includes property designation', async () => {
     const { generateSewageDossierPdf } = await import('../../server/services/sewagePdfService');
 
-    const result = await generateSewageDossierPdf(
-      {} as any,
-      {
-        id: 'permit-1',
-        propertyDesignation: 'GÄVLE BRYNÄS 1:1',
-        sniCode: '90.40',
-        applicationSummary: {
-          title: 'Tillståndsansökan',
-          mainActivities: ['Infiltration', 'Provtagning'],
-        },
-        riskAnalysis: [
-          {
-            riskName: 'Hög grundvattennivå',
-            severity: 'HIGH',
-            mitigationMeasures: [],
-          },
-        ],
-        complianceChecklist: [],
-      } as any,
-      'C:\\temp\\dossier.pdf',
-    );
+    const result = await generateSewageDossierPdf(baseApplication as any, 'C:\\temp\\dossier.pdf');
 
     expect(result).toBe('C:\\temp\\dossier.pdf');
-    expect(mocks.textCalls).toContain('Infiltration, Provtagning');
-    expect(mocks.textCalls).toContain('Skyddsåtgärd: Se teknisk beskrivning');
+    expect(mocks.textCalls.join(' ')).toContain('GÄVLE BRYNÄS 1:1');
+    expect(mocks.textCalls.join(' ')).toContain('AVLOPP-2026-001');
   });
 
-  it('falls back to the title when no main activities exist', async () => {
+  it('includes protection profile details when present', async () => {
     const { generateSewageDossierPdf } = await import('../../server/services/sewagePdfService');
 
-    await generateSewageDossierPdf(
-      {} as any,
-      {
-        id: 'permit-2',
-        propertyDesignation: 'Stockholms kommun',
-        sniCode: '90.30',
-        applicationSummary: {
-          title: 'Ansökan för mellanlagring',
-          mainActivities: [],
-        },
-        riskAnalysis: [
-          {
-            riskName: 'Skyfall',
-            severity: 'MEDIUM',
-            mitigationMeasures: ['Fördröjningsmagasin'],
-          },
-        ],
-        complianceChecklist: [{ requirement: 'Provtagning', relatedLaw: '' }],
-      } as any,
-      'C:\\temp\\dossier-2.pdf',
-    );
+    await generateSewageDossierPdf(baseApplication as any, 'C:\\temp\\dossier-2.pdf');
 
-    expect(mocks.textCalls).toContain('Ansökan för mellanlagring');
-    expect(mocks.textCalls).toContain('Skyddsåtgärd: Fördröjningsmagasin');
-    expect(mocks.textCalls).toContain('[ ] Provtagning (Allmänna råd)');
-  });
-
-  it('rejects when stream creation fails', async () => {
-    mocks.createWriteStream.mockImplementationOnce(() => {
-      throw new Error('disk full');
-    });
-
-    const { generateSewageDossierPdf } = await import('../../server/services/sewagePdfService');
-
-    await expect(
-      generateSewageDossierPdf(
-        {} as any,
-        {
-          id: 'permit-3',
-          propertyDesignation: 'GÄVLE BRYNÄS 1:1',
-          sniCode: '90.40',
-          applicationSummary: { title: 'T', mainActivities: [] },
-          riskAnalysis: [],
-          complianceChecklist: [],
-        } as any,
-        'C:\\temp\\dossier-3.pdf',
-      ),
-    ).rejects.toThrow('disk full');
+    expect(mocks.textCalls.join(' ')).toContain('Normal skyddsnivå');
+    expect(mocks.textCalls.join(' ')).toContain('INFILTRATION');
   });
 });

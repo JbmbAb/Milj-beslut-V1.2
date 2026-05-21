@@ -9,6 +9,7 @@ import { toSafeErrorResponse } from '../security/secureErrors';
 import {
   analyzeSewageProperty,
   generateSewageProtectionProfile,
+  generateSewageRequirementChecklist,
   type SewageAnalysisRequest,
 } from '../modules/sewageAdmin/public';
 
@@ -70,6 +71,36 @@ router.post('/api/sewage/analyze', requireAuth, async (req, res) => {
     });
   } catch (error: unknown) {
     console.error('[SewageAnalysis] Error:', error);
+    res.status(400).json(toSafeErrorResponse(error));
+  }
+});
+
+/**
+ * POST /api/sewage/requirement-checklist
+ * Generate legal requirement checklist for a sewage system configuration
+ */
+router.post('/api/sewage/requirement-checklist', requireAuth, async (req, res) => {
+  try {
+    const { systemType, protectionLevel, municipalityCode, distanceData } = req.body ?? {};
+
+    if (!systemType || !protectionLevel || !municipalityCode) {
+      res.status(400).json({
+        ok: false,
+        error: 'Missing required fields: systemType, protectionLevel, municipalityCode',
+      });
+      return;
+    }
+
+    const requirements = generateSewageRequirementChecklist(
+      systemType,
+      protectionLevel,
+      municipalityCode,
+      distanceData,
+    );
+
+    res.json({ ok: true, requirements });
+  } catch (error: unknown) {
+    console.error('[SewageRequirementChecklist] Error:', error);
     res.status(400).json(toSafeErrorResponse(error));
   }
 });

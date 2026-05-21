@@ -13,7 +13,10 @@ import {
   LocalizationDataUnavailableError,
   runLocalizationReport,
 } from '../modules/localization/localizationOrchestrator';
-import { generateLocalizationReportLegacy, type SiteAlternative } from '../services/localizationReportService';
+import {
+  generateLocalizationReportLegacy,
+  type SiteAlternative,
+} from '../services/localizationReportService';
 
 const router = express.Router();
 
@@ -43,7 +46,7 @@ router.post(
         projectId: String(req.body?.projectId || ''),
         siteAlternatives: req.body?.siteAlternatives,
       });
-      if (!result.ok) {
+      if (result.ok === false) {
         res.status(result.status).json({ ok: false, error: result.error });
         return;
       }
@@ -73,7 +76,7 @@ router.post(
         projectId: String(req.body?.projectId || ''),
         siteAlternatives: req.body?.siteAlternatives,
       });
-      if (!result.ok) {
+      if (result.ok === false) {
         res.status(result.status).json({ ok: false, error: result.error });
         return;
       }
@@ -100,7 +103,7 @@ router.post(
         projectId: String(req.body?.projectId || ''),
         siteAlternatives: req.body?.siteAlternatives,
       });
-      if (!result.ok) {
+      if (result.ok === false) {
         res.status(result.status).json({ ok: false, error: result.error });
         return;
       }

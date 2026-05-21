@@ -1,15 +1,15 @@
 import React, { useMemo, useState, type ReactNode } from 'react';
 import { useDebounce } from '../hooks/useDebounce';
 
-interface Column<T> {
-  key: keyof T;
+interface Column<T extends Record<string, unknown>, K extends keyof T = keyof T> {
+  key: K;
   label: string;
   sortable?: boolean;
-  render?: (value: any, row: T) => ReactNode;
+  render?: (value: T[K], row: T) => ReactNode;
   width?: string;
 }
 
-interface DataTableProps<T extends Record<string, any>> {
+interface DataTableProps<T extends Record<string, unknown>> {
   data: T[];
   columns: Column<T>[];
   rowKey: keyof T;
@@ -25,7 +25,7 @@ type SortOrder = 'asc' | 'desc' | null;
 /**
  * Data table component with sorting, filtering, and pagination
  */
-export function DataTable<T extends Record<string, any>>({
+export function DataTable<T extends Record<string, unknown>>({
   data,
   columns,
   rowKey,
@@ -58,8 +58,16 @@ export function DataTable<T extends Record<string, any>>({
         const aVal = a[sortKey];
         const bVal = b[sortKey];
 
-        if (aVal < bVal) return sortOrder === 'asc' ? -1 : 1;
-        if (aVal > bVal) return sortOrder === 'asc' ? 1 : -1;
+        if (typeof aVal === 'number' && typeof bVal === 'number') {
+          if (aVal < bVal) return sortOrder === 'asc' ? -1 : 1;
+          if (aVal > bVal) return sortOrder === 'asc' ? 1 : -1;
+          return 0;
+        }
+
+        const aText = String(aVal ?? '');
+        const bText = String(bVal ?? '');
+        if (aText < bText) return sortOrder === 'asc' ? -1 : 1;
+        if (aText > bText) return sortOrder === 'asc' ? 1 : -1;
         return 0;
       });
     }

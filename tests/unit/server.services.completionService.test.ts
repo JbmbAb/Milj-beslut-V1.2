@@ -20,6 +20,8 @@ describe('server/services/completionService', () => {
 
       expect(result.donePercent).toBeGreaterThanOrEqual(0);
       expect(result.donePercent).toBeLessThanOrEqual(100);
+      expect(result.implementationPercent).toBeGreaterThanOrEqual(result.donePercent);
+      expect(result.implementationPercent).toBeLessThanOrEqual(100);
     });
 
     it('returns feature categories', () => {

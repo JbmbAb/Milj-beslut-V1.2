@@ -116,7 +116,9 @@ describe('ProjectWorkspace', () => {
 
   it('renders guide loading fallback for guide activeTab', async () => {
     render(<ProjectWorkspace {...baseProps} activeTab="guide" />);
-    expect(await screen.findByText('Laddar guide')).toBeInTheDocument();
+    await waitFor(() => {
+      expect(screen.getByTestId('guide-LOGISTICS_MARKET')).toBeInTheDocument();
+    });
   });
 
   // ── Legal tab ─────────────────────────────────────────────────────────────

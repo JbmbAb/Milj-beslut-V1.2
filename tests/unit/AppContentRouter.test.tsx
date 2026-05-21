@@ -26,6 +26,9 @@ vi.mock('../../components/LocalizationStudyUI', () => ({ LocalizationStudyUI: ()
 vi.mock('../../components/CNotificationUI', () => ({ CNotificationUI: () => <div data-testid="c-notification-ui" /> }));
 vi.mock('../../components/PriorityModulePortfolio', () => ({ PriorityModulePortfolio: () => <div data-testid="priority-module-portfolio" /> }));
 vi.mock('../../components/admin/modules/sewage-portal/SewagePortalView', () => ({ default: () => <div data-testid="sewage-portal-view" /> }));
+vi.mock('../../components/admin/modules/c-notification-mass/CNotificationMassUI', () => ({
+  CNotificationMassUI: () => <div data-testid="c-notification-mass-ui" />,
+}));
 
 describe('AppContentRouter', () => {
   const baseProps = {
@@ -49,5 +52,16 @@ describe('AppContentRouter', () => {
   it('renders separate lokaliseringsutredning flow', () => {
     render(<AppContentRouter {...baseProps} activeTab="localization" />);
     expect(screen.getByTestId('localization-study-ui')).toBeInTheDocument();
+  });
+
+  it('routes legacy PERMIT_PORTAL apply tab to C-anmalan mass', () => {
+    render(
+      <AppContentRouter
+        {...baseProps}
+        mode="PERMIT_PORTAL"
+        activeTab="apply"
+      />,
+    );
+    expect(screen.getByTestId('c-notification-mass-ui')).toBeInTheDocument();
   });
 });

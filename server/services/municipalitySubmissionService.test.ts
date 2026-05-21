@@ -1,16 +1,16 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { submitSewageApplicationToMunicipality } from '../municipalitySubmissionService';
-import * as notificationService from '../notificationService';
-import { PrismaSubmissionRepository } from '../../../src/infrastructure/prisma-submission-repository';
-import type { SewageApplication, SewageProtectionProfile } from '../../../types';
-import { SubmissionStatus } from '../../../src/domain/submission';
+import { submitSewageApplicationToMunicipality } from './municipalitySubmissionService';
+import * as notificationService from './notificationService';
+import { PrismaSubmissionRepository } from '../../src/infrastructure/prisma-submission-repository';
+import type { SewageApplication, SewageProtectionProfile } from '../../types';
+import { SubmissionStatus } from '../../src/domain/submission';
 
 // Mock dependencies
-vi.mock('../notificationService', () => ({
+vi.mock('./notificationService', () => ({
   sendEmailNotification: vi.fn(),
 }));
 
-vi.mock('../documentGenerator', () => ({
+vi.mock('./documentGenerator', () => ({
   generateApplicationDraft: vi.fn().mockResolvedValue({
     id: 'doc-123',
     originalName: 'Anmälan Utkast.docx',
@@ -47,13 +47,65 @@ describe('municipalitySubmissionService', () => {
 
   const application: SewageApplication = {
     id: 'app-1',
+    projectId: 'proj-1',
     propertyDesignation: 'TESTFASTIGHET 1:1',
-    selectedSystemType: 'Infiltration',
+    selectedSystemType: 'INFILTRATION',
+    protectionProfile: {
+      propertyId: 'app-1',
+      protectionLevel: 'HIGH',
+      reason: 'Test',
+      nearestWell: {
+        distance: 120,
+        owner: 'OWN',
+        coordinates: { lat: 59.33, lng: 18.06 },
+      },
+      nearestWaterCourse: { distance: 300, type: 'Bäck' },
+      distanceToPropertyLine: 10,
+      soilProfile: {
+        soilType: 'Morän',
+        depthToRock: 2,
+        groundwaterLevel: 1.5,
+        infiltrationCapacity: 'MEDIUM',
+        permeability: 20,
+      },
+      floodRisk: 'LOW',
+      protectedNatureNearby: false,
+      recommendedSystem: 'INFILTRATION',
+      timelineEstimateWeeks: 6,
+      requiredGates: [],
+    },
+    soilTestCompleted: false,
+    neighborConsentRequired: false,
+    status: 'DRAFT',
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
+    currentGates: [],
     pe: 5,
   };
 
   const protectionProfile: SewageProtectionProfile = {
-    protectionLevel: 'Hög skyddsnivå',
+    propertyId: 'app-1',
+    protectionLevel: 'HIGH',
+    reason: 'Test',
+    nearestWell: {
+      distance: 120,
+      owner: 'OWN',
+      coordinates: { lat: 59.33, lng: 18.06 },
+    },
+    nearestWaterCourse: { distance: 300, type: 'Bäck' },
+    distanceToPropertyLine: 10,
+    soilProfile: {
+      soilType: 'Morän',
+      depthToRock: 2,
+      groundwaterLevel: 1.5,
+      infiltrationCapacity: 'MEDIUM',
+      permeability: 20,
+    },
+    floodRisk: 'LOW',
+    protectedNatureNearby: false,
+    recommendedSystem: 'INFILTRATION',
+    timelineEstimateWeeks: 6,
+    requiredGates: [],
   };
 
   it('should call sendEmailNotification when municipality endpoint is missing but a registrar email exists', async () => {
@@ -110,7 +162,7 @@ describe('municipalitySubmissionService', () => {
     const lastLogCall = mockSubmissionRepo.logStatusEvent.mock.calls.at(-1)[0];
     expect(lastLogCall).toEqual(
       expect.objectContaining({
-        status: SubmissionStatus.PENDING_DISPATCH,
+        status: SubmissionStatus.PENDING_REVIEW,
         summary: 'Endpoint not configured and no registrar email found. Queued for manual dispatch.',
       }),
     );

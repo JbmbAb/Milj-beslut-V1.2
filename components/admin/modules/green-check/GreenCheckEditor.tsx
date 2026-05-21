@@ -16,7 +16,7 @@ import {
   FileDown,
 } from 'lucide-react';
 import { downloadPdfFromJson } from '../../../../services/pdfExportClient';
-import type { GeneratedGreenCheck } from '../../../../server/services/greenCheckGeneratorService';
+import type { GeneratedGreenCheck } from '../../../../src/types/generators';
 import './green-check-editor.css';
 
 export interface GreenCheckEditorProps {

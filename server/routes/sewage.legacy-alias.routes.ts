@@ -89,8 +89,8 @@ router.post('/api/sewage/application/create', requireAuth, rateLimitByUser(30, 6
   }
 });
 
-function accessCheck(id: string, authUser: OrchestratorAuth) {
-  const record = getSewageApplicationById(id);
+async function accessCheck(id: string, authUser: OrchestratorAuth) {
+  const record = await getSewageApplicationById(id);
   if (!record) return { record: null, status: 404 as const };
   if (!assertSewageApplicationOrgAccess(record, authUser.organisationId, authUser.role)) {
     return { record: null, status: 403 as const };
@@ -109,12 +109,12 @@ router.post(
       return;
     }
     const id = String(req.params.id ?? '');
-    const access = accessCheck(id, authUser);
+    const access = await accessCheck(id, authUser);
     if (!access.record) {
       res.status(access.status).json({ ok: false, error: access.status === 403 ? 'forbidden' : 'not_found' });
       return;
     }
-    const result = validateSewageApplication(id, req.body);
+    const result = await validateSewageApplication(id, req.body);
     if (!result.ok) {
       res.status(result.status).json({ ok: false, error: result.error });
       return;
@@ -134,12 +134,12 @@ router.post(
       return;
     }
     const id = String(req.params.id ?? '');
-    const access = accessCheck(id, authUser);
+    const access = await accessCheck(id, authUser);
     if (!access.record) {
       res.status(access.status).json({ ok: false, error: access.status === 403 ? 'forbidden' : 'not_found' });
       return;
     }
-    const result = generateDocumentsForApplication(id, req.body);
+    const result = await generateDocumentsForApplication(id, req.body);
     if (!result.ok) {
       res.status(result.status).json({ ok: false, error: result.error });
       return;
@@ -165,7 +165,7 @@ router.post(
       return;
     }
     const id = String(req.params.id ?? '');
-    const access = accessCheck(id, authUser);
+    const access = await accessCheck(id, authUser);
     if (!access.record) {
       res.status(access.status).json({ ok: false, error: access.status === 403 ? 'forbidden' : 'not_found' });
       return;
@@ -194,7 +194,9 @@ router.post(
     });
 
     if (!result.ok) {
-      res.status(result.status).json({ ok: false, error: result.error, message: 'message' in result ? result.message : undefined });
+      res
+        .status(result.status)
+        .json({ ok: false, error: result.error, message: 'message' in result ? result.message : undefined });
       return;
     }
 
@@ -217,13 +219,15 @@ router.post(
       return;
     }
     const id = String(req.params.id ?? '');
-    const access = accessCheck(id, authUser);
+    const access = await accessCheck(id, authUser);
     if (!access.record) {
       res.status(access.status).json({ ok: false, error: access.status === 403 ? 'forbidden' : 'not_found' });
       return;
     }
-    const input = z.object({ ltar: z.number().finite().positive(), testDate: z.string().min(1) }).parse(req.body);
-    const result = recordSoilTest(id, input);
+    const input = z
+      .object({ ltar: z.number().finite().positive(), testDate: z.string().min(1) })
+      .parse(req.body);
+    const result = await recordSoilTest(id, { ltar: input.ltar, testDate: input.testDate });
     res.json({ ok: true, application: result.application });
   },
 );
@@ -239,7 +243,7 @@ router.post(
       return;
     }
     const id = String(req.params.id ?? '');
-    const access = accessCheck(id, authUser);
+    const access = await accessCheck(id, authUser);
     if (!access.record) {
       res.status(access.status).json({ ok: false, error: access.status === 403 ? 'forbidden' : 'not_found' });
       return;
@@ -251,7 +255,7 @@ router.post(
         distance: z.number().finite(),
       })
       .parse(req.body);
-    const result = recordNeighborConsent(id, {
+    const result = await recordNeighborConsent(id, {
       address: input.neighborAddress ?? input.address ?? 'Granne',
       distance: input.distance,
     });

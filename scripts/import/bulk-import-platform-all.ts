@@ -31,7 +31,10 @@ class Semaphore {
   release(): void {
     this.running--;
     const next = this.queue.shift();
-    if (next) { this.running++; next(); }
+    if (next) {
+      this.running++;
+      next();
+    }
   }
 }
 
@@ -104,11 +107,11 @@ async function runImport() {
   const runOgr = (args: string[], processId: string, extraEnv?: Record<string, string>) => {
     return new Promise<void>((resolve, reject) => {
       const env = extraEnv ? { ...process.env, ...extraEnv } : process.env;
-      const process = spawn(OGR2OGR_PATH, args, { stdio: 'pipe', shell: false, env });
+      const childProcess = spawn(OGR2OGR_PATH, args, { stdio: 'pipe', shell: false, env });
       let stderr = '';
-      process.stderr.on('data', (data) => (stderr += data.toString()));
-      process.stdout.on('data', (data) => console.log(`[${processId}] ${data.toString().trim()}`));
-      process.on('close', (code) => {
+      childProcess.stderr.on('data', (data) => (stderr += data.toString()));
+      childProcess.stdout.on('data', (data) => console.log(`[${processId}] ${data.toString().trim()}`));
+      childProcess.on('close', (code) => {
         if (code === 0) {
           resolve();
         } else {
@@ -145,7 +148,7 @@ async function runImport() {
       const sourceType = 'type' in item && item.type === 'WFS' ? 'WFS' : 'OAPIF';
       sourcePath = `${sourceType}:${item.url}`;
       if ('featureType' in item && item.featureType) {
-        sourceFlags.push(item.featureType);
+        sourceFlags.push(String(item.featureType));
       }
     } else {
       throw new Error('No url or filePath provided');
@@ -164,41 +167,62 @@ async function runImport() {
       }
       const downloadPath = `${DOWNLOAD_DIR}/${item.id}.gpkg`;
       const downloadArgs = [
-        '-f', 'GPKG',
+        '-f',
+        'GPKG',
         downloadPath,
         sourcePath,
         ...sourceFlags,
         '-overwrite',
-        '-nlt', 'PROMOTE_TO_MULTI',
-        '-gt', '500000',
-        '--config', 'OAPIF_PAGE_SIZE', '5000',
-        '--config', 'GDAL_CACHEMAX', '2048',
+        '-nlt',
+        'PROMOTE_TO_MULTI',
+        '-gt',
+        '500000',
+        '--config',
+        'OAPIF_PAGE_SIZE',
+        '5000',
+        '--config',
+        'GDAL_CACHEMAX',
+        '2048',
       ].filter(Boolean);
 
       await runOgr(downloadArgs, `${item.id}-download`, lmEnv);
       const stat = fs.statSync(downloadPath);
       const mb = (stat.size / 1024 / 1024).toFixed(1);
-      console.log(`   - Download complete for ${item.id}: ${downloadPath} (${mb} MB, ${formatElapsed(itemStart)})`);
+      console.log(
+        `   - Download complete for ${item.id}: ${downloadPath} (${mb} MB, ${formatElapsed(itemStart)})`,
+      );
       sourcePath = downloadPath;
       sourceFlags.length = 0;
     }
 
     const isFileBased = !sourcePath.startsWith('OAPIF:') && !sourcePath.startsWith('WFS:');
     const pgArgs = [
-      '-f', 'PostgreSQL',
+      '-f',
+      'PostgreSQL',
       pgConn,
       sourcePath,
       ...sourceFlags,
-      '-nln', item.table,
+      '-nln',
+      item.table,
       '-overwrite',
-      '-gt', isFileBased ? '500000' : '65536',
-      '-nlt', 'PROMOTE_TO_MULTI',
-      '-lco', 'GEOMETRY_NAME=geom',
-      '-lco', 'SPATIAL_INDEX=NONE',
-      '-lco', 'UNLOGGED=YES',
-      '--config', 'PG_USE_COPY', 'YES',
-      '--config', 'GDAL_CACHEMAX', '2048',
-      '-t_srs', TARGET_SRS,
+      '-gt',
+      isFileBased ? '500000' : '65536',
+      '-nlt',
+      'PROMOTE_TO_MULTI',
+      '-lco',
+      'GEOMETRY_NAME=geom',
+      '-lco',
+      'SPATIAL_INDEX=NONE',
+      '-lco',
+      'UNLOGGED=YES',
+      '--config',
+      'PG_USE_COPY',
+      'YES',
+      '--config',
+      'GDAL_CACHEMAX',
+      '2048',
+      '-t_srs',
+      TARGET_SRS,
       ...(isFileBased ? [] : ['--config', 'OAPIF_PAGE_SIZE', '5000']),
     ].filter(Boolean);
 
@@ -248,9 +272,9 @@ async function runImport() {
   if (successCount > 0) {
     console.log(`\n🔧 Building spatial indexes (parallel, maintenance_work_mem=4GB)...`);
     const idxStart = Date.now();
-    const successfulTables = PLATFORM_COLLECTIONS
-      .filter((_, i) => results[i].status === 'fulfilled')
-      .map((item) => item.table);
+    const successfulTables = PLATFORM_COLLECTIONS.filter((_, i) => results[i].status === 'fulfilled').map(
+      (item) => item.table,
+    );
 
     for (const table of successfulTables) {
       const idxName = `${table.replace('.', '_')}_geom_idx`;

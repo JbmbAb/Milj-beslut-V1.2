@@ -13,7 +13,7 @@ vi.mock('../../server/db/prisma', () => ({
 
 describe('GEO API Endpoints', () => {
   let app: Express;
-  let request: supertest.SuperTest<supertest.Test>;
+  let request: ReturnType<typeof supertest>;
 
   beforeAll(() => {
     app = createApp();

@@ -1,7 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import AdminShell, { AdminModuleId } from './AdminShell';
 import ModuleRouter from './ModuleRouter';
-import AdminQueryClientProvider from './providers/QueryClientProvider';
 import './admin-tokens.css';
 
 /**
@@ -28,11 +27,9 @@ const AdminContainer: React.FC = () => {
   };
 
   return (
-    <AdminQueryClientProvider>
-      <AdminShell activeModule={activeModule} onModuleChange={handleModuleChange} onLogout={handleLogout}>
-        <ModuleRouter moduleId={activeModule} />
-      </AdminShell>
-    </AdminQueryClientProvider>
+    <AdminShell activeModule={activeModule} onModuleChange={handleModuleChange} onLogout={handleLogout}>
+      <ModuleRouter moduleId={activeModule} />
+    </AdminShell>
   );
 };
 

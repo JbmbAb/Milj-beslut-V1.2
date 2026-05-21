@@ -6,7 +6,7 @@
 import React, { useState } from 'react';
 import PermitApplicationGenerator from './PermitApplicationGenerator';
 import PermitApplicationEditor from './PermitApplicationEditor';
-import type { GeneratedPermitApplication } from '~/server/services/permitApplicationGeneratorService';
+import type { GeneratedPermitApplication } from '../../../../src/types/generators';
 
 import type { EditablePermitApplication } from './PermitApplicationEditor';
 

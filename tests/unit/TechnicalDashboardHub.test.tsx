@@ -99,7 +99,7 @@ describe('TechnicalDashboardHub', () => {
       expect(screen.getByText(/Automatiserade forhandsprovningar/)).toBeInTheDocument();
     });
 
-    it('displays module badges (NEW, AI-SUPPORT, etc)', () => {
+    it('displays module badges (NEW, CANONICAL, etc)', () => {
       render(<TechnicalDashboardHub onSelectModule={vi.fn()} />);
       expect(screen.getByText('NEW')).toBeInTheDocument();
       expect(screen.getByText('AI-SUPPORT')).toBeInTheDocument();

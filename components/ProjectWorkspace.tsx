@@ -18,6 +18,11 @@ const AssetTriage = lazy(() => import('./AssetTriage'));
 const FieldAssistant = lazy(() => import('./FieldAssistant'));
 const Guide = lazy(() => import('./Guide'));
 const GisRiskModule = lazy(() => import('./GisRiskModule'));
+const CNotificationMassUI = lazy(() =>
+  import('./admin/modules/c-notification-mass/CNotificationMassUI').then((module) => ({
+    default: module.CNotificationMassUI,
+  })),
+);
 
 type ProjectWorkspaceProps = {
   mode: InterfaceMode;
@@ -72,8 +77,8 @@ const ProjectWorkspaceInner: React.FC<ProjectWorkspaceProps> = ({
         if (activeTab === 'triage') return <AssetTriage />;
         return <ExecutiveSummary />;
       case 'PERMIT_PORTAL':
+        if (activeTab === 'apply') return <CNotificationMassUI />;
         if (activeTab === 'map') return <PermitPortalView permits={permits} mode="map" />;
-        if (activeTab === 'apply') return <PermitPortalView permits={permits} mode="apply" />;
         if (activeTab === 'forms') return <FormManager />;
         if (activeTab === 'biodiversity') return <SluExpert />;
         if (activeTab === 'risks') return <GisRiskModule />;

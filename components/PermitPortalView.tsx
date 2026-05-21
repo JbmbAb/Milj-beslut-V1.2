@@ -1,17 +1,25 @@
+/**
+ * @deprecated Legacy Provningsportal (ursprunglig monolitisk C-anmälan).
+ * Canonical modul: `CNotificationMassUI` under `Core_WORKFLOW` → `c-notification-mass`.
+ * Se `docs/architecture/PERMIT_PORTAL_LEGACY.md`.
+ */
 import React, { useEffect, useMemo, useState } from 'react';
 import MapView from './MapView';
 import { Permit, PermitCodeProfile, WasteCode } from '../types';
 import WeatherRisk from './WeatherRisk';
 import { useProjectStructure } from './ProjectStructureContext';
 import RequirementChecklist from './RequirementChecklist';
-import { callApi, getActiveProjectId } from '../services/coreApiClient';
+import LegacyPermitPortalBanner from './LegacyPermitPortalBanner';
+import { applyPermitCodeSelection } from '../services/projectStructure';
+import { callApi } from '../services/coreApiClient';
 
 interface PermitPortalViewProps {
   permits: Permit[];
   mode?: 'map' | 'apply';
+  onOpenMassModule?: () => void;
 }
 
-const PermitPortalView: React.FC<PermitPortalViewProps> = ({ permits, mode = 'map' }) => {
+const PermitPortalView: React.FC<PermitPortalViewProps> = ({ permits, mode = 'map', onOpenMassModule }) => {
   const { plan, setPlan, addArchiveDocument, evaluateGate, markModuleReady } = useProjectStructure();
   const [selectedMuni, setSelectedMuni] = useState('');
   const [selectedCode, setSelectedCode] = useState<WasteCode | null>(null);
@@ -67,39 +75,19 @@ const PermitPortalView: React.FC<PermitPortalViewProps> = ({ permits, mode = 'ma
     };
   }, []);
 
-  const applySelectedCodeProfile = async (code: WasteCode) => {
-    const projectId = getActiveProjectId();
-    if (!projectId) {
-      throw new Error('Aktivt projekt saknas. Välj projekt innan du arbetar i ansökningsportalen.');
-    }
+  const applySelectedCodeProfile = (code: WasteCode) => {
     if (!selectedMuni) {
       throw new Error('Kommun saknas i verifierad projektdata.');
     }
 
-    const payload = await callApi<{ ok: boolean; plan?: typeof plan; profile?: PermitCodeProfile }>(
-      `/api/projects/${encodeURIComponent(projectId)}/permit-code-profile/apply`,
-      {
-        method: 'POST',
-        body: {
-          code: code.code,
-          codeType: code.type,
-          municipality: selectedMuni,
-          plan,
-        },
-      },
-    );
-
-    if (payload.plan) {
-      setPlan(payload.plan);
-    }
-    if (payload.profile) {
-      setSelectedProfile(payload.profile);
-    }
-
-    return {
-      plan: payload.plan || plan,
-      profile: payload.profile as PermitCodeProfile,
-    };
+    const applied = applyPermitCodeSelection(plan, {
+      code: code.code,
+      codeType: code.type,
+      municipality: selectedMuni,
+    });
+    setPlan(applied.plan);
+    setSelectedProfile(applied.profile);
+    return applied;
   };
 
   const handleGenerateDraft = async () => {
@@ -108,7 +96,7 @@ const PermitPortalView: React.FC<PermitPortalViewProps> = ({ permits, mode = 'ma
     setActionError(null);
     try {
       const draftName = `Ansokningsutkast-${selectedMuni}-${selectedCode.code}`;
-      const applied = await applySelectedCodeProfile(selectedCode);
+      const applied = applySelectedCodeProfile(selectedCode);
 
       addArchiveDocument({
         name: draftName,
@@ -147,7 +135,7 @@ const PermitPortalView: React.FC<PermitPortalViewProps> = ({ permits, mode = 'ma
     setActionLoading(true);
     setActionError(null);
     try {
-      const applied = await applySelectedCodeProfile(selectedCode);
+      const applied = applySelectedCodeProfile(selectedCode);
       setPermitSubmitted(true);
       const permitGate = await evaluateGate('gate-PERMIT_REQUIRED', {
         permitType: selectedCode.code,
@@ -176,6 +164,7 @@ const PermitPortalView: React.FC<PermitPortalViewProps> = ({ permits, mode = 'ma
   if (mode === 'apply') {
     return (
       <div className="space-y-6 animate-in fade-in duration-500">
+        <LegacyPermitPortalBanner onOpenMassModule={onOpenMassModule} />
         <section className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
           <p className="text-[11px] uppercase tracking-[0.18em] text-slate-500 font-black">
             Ansökningsportal
@@ -244,16 +233,14 @@ const PermitPortalView: React.FC<PermitPortalViewProps> = ({ permits, mode = 'ma
                     setSelectedCode(code);
                     setActionLoading(true);
                     setActionError(null);
-                    void applySelectedCodeProfile(code)
-                      .then((applied) => {
-                        setDraftSyncInfo(`Profil synkad: ${applied.profile.regulatoryTrack}.`);
-                      })
-                      .catch((err: unknown) => {
-                        setActionError(err instanceof Error ? err.message : 'Kunde inte synka kodprofil.');
-                      })
-                      .finally(() => {
-                        setActionLoading(false);
-                      });
+                    try {
+                      const applied = applySelectedCodeProfile(code);
+                      setDraftSyncInfo(`Profil synkad: ${applied.profile.regulatoryTrack}.`);
+                    } catch (err: unknown) {
+                      setActionError(err instanceof Error ? err.message : 'Kunde inte synka kodprofil.');
+                    } finally {
+                      setActionLoading(false);
+                    }
                   }}
                   className={`w-full rounded-2xl border p-4 text-left transition ${
                     selectedCode?.code === code.code
@@ -357,6 +344,7 @@ const PermitPortalView: React.FC<PermitPortalViewProps> = ({ permits, mode = 'ma
 
   return (
     <div className="space-y-6 animate-in fade-in duration-500">
+      <LegacyPermitPortalBanner onOpenMassModule={onOpenMassModule} />
       <section className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
         <p className="text-[11px] uppercase tracking-[0.18em] text-slate-500 font-black">Översikt</p>
         <h2 className="mt-2 text-2xl font-black text-slate-900 md:text-3xl">

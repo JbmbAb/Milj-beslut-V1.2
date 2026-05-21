@@ -4,7 +4,7 @@
  */
 
 import { useMutation } from '@tanstack/react-query';
-import type { GeneratedGreenCheck } from '../../../server/services/greenCheckGeneratorService';
+import type { GeneratedGreenCheck } from '../../../src/types/generators';
 
 export interface UseGreenCheckGeneratorOptions {
   onSuccess?: (assessment: GeneratedGreenCheck) => void;

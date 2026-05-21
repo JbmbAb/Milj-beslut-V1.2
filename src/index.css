@@ -1,0 +1,30 @@
+/* ============================================================
+ * Miljöbeslut.se 2.0 — Main stylesheet
+ *
+ * Tailwind CSS v4 directives.
+ * External library CSS (Leaflet, FontAwesome) is imported
+ * via the main application entry point for better 
+ * compatibility with Vite.
+ * Admin DIGG tokens are imported from components/admin/
+ * ============================================================ */
+
+/* Admin DIGG Design Tokens */
+@import '../components/admin/admin-tokens.css';
+
+/* Tailwind CSS v4 directives */
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* System font stack as fallback when Google Fonts is unavailable */
+@layer base {
+  :root {
+    --font-sans:
+      'Plus Jakarta Sans', ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto,
+      'Helvetica Neue', Arial, 'Noto Sans', sans-serif;
+  }
+
+  body {
+    font-family: var(--font-sans);
+  }
+}

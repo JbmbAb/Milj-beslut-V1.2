@@ -14,6 +14,17 @@ vi.mock('../../server/services/vertexAiService', () => ({
   __resetVertexClientForTest: vi.fn(),
 }));
 
+vi.mock('../../server/services/sguService', () => ({
+  fetchGeologicalData: vi.fn(async () => ({
+    soilType: 'Morän',
+    groundwaterVulnerability: 'Låg',
+  })),
+}));
+
+vi.mock('../../server/services/hybridGeoService', () => ({
+  tryFetchLocalPropertyGeometry: vi.fn(async () => null),
+}));
+
 vi.mock('../../db.server', () => ({
   prisma: {
     project: { findUnique: vi.fn() },
@@ -21,8 +32,14 @@ vi.mock('../../db.server', () => ({
 }));
 
 import { prisma } from '../../db.server';
+import { setAiProvider } from '../../server/services/aiProviderImplementation';
 import { generatePermitApplication } from '../../server/services/permitApplicationGeneratorService';
 import type { PermitApplicationRequest } from '../../server/services/permitApplicationGeneratorService';
+
+let testAiProvider: {
+  generateText: () => Promise<{ text: string }>;
+  generateJson: <T>() => Promise<T>;
+};
 
 const mockPrisma = prisma as any;
 
@@ -119,7 +136,12 @@ describe('permitApplicationGeneratorService', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mockPrisma.project.findUnique.mockResolvedValue(mockProject);
-    mockGenerateContent.mockResolvedValue(validGeminiResponse);
+    mockGenerateContent.mockResolvedValue({ text: validGeminiResponse });
+    testAiProvider = {
+      generateText: async () => ({ text: validGeminiResponse }),
+      generateJson: async () => JSON.parse(validGeminiResponse),
+    };
+    setAiProvider(testAiProvider);
   });
 
   describe('generatePermitApplication', () => {
@@ -199,14 +221,26 @@ describe('permitApplicationGeneratorService', () => {
     });
 
     it('hanterar Gemini API-fel korrekt', async () => {
-      mockGenerateContent.mockRejectedValue(new Error('API-kvota överskriden'));
+      setAiProvider({
+        generateText: async () => {
+          throw new Error('API-kvota överskriden');
+        },
+        generateJson: async () => {
+          throw new Error('API-kvota överskriden');
+        },
+      });
       await expect(generatePermitApplication(validRequest)).rejects.toThrow(
         'Failed to generate permit application',
       );
     });
 
     it('hanterar ogiltig JSON från Gemini', async () => {
-      mockGenerateContent.mockResolvedValue('Detta är inte JSON');
+      setAiProvider({
+        generateText: async () => ({ text: 'Detta är inte JSON' }),
+        generateJson: async () => {
+          throw new Error('No JSON object found');
+        },
+      });
       await expect(generatePermitApplication(validRequest)).rejects.toThrow();
     });
 
