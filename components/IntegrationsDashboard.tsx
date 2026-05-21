@@ -60,6 +60,7 @@ function providerIcon(provider: string): string {
   if (normalized.includes('riksantikvarie') || normalized.includes('kultur')) return 'fa-monument';
   if (normalized.includes('msb') || normalized.includes('hav')) return 'fa-water';
   if (normalized.includes('slu') || normalized.includes('art')) return 'fa-bugs';
+  if (normalized.includes('smed') || normalized.includes('emissions')) return 'fa-smog';
   if (normalized.includes('bolagsverket')) return 'fa-building';
   if (normalized.includes('bankid')) return 'fa-fingerprint';
   if (normalized.includes('smhi')) return 'fa-cloud-bolt';

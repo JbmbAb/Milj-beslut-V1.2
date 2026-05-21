@@ -1,4 +1,5 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
+import { environmentalImpactService, RecipientStatus } from '../services/environmentalImpactService';
 
 type AssessmentCriterion = {
   id: string;
@@ -38,6 +39,13 @@ const MkbBvbModule: React.FC = () => {
   const [criteria, setCriteria] = useState(BVB_CRITERIA);
   const [generatingMkb, setGeneratingMkb] = useState(false);
   const [mkbDraft, setMkbDraft] = useState<string | null>(null);
+  const [recipientStatus, setRecipientStatus] = useState<RecipientStatus | null>(null);
+
+  useEffect(() => {
+    // Mock coordinates for baseline check
+    environmentalImpactService.getRegionalBaseline(59.3293, 18.0686)
+      .then(setRecipientStatus);
+  }, []);
 
   const updateStatus = (id: string, status: 'yes' | 'no') => {
     setCriteria((prev) => prev.map((c) => (c.id === id ? { ...c, status } : c)));
@@ -88,6 +96,12 @@ ${
                 <div className="flex-1">
                   <p className="text-sm font-bold text-slate-800">{c.label}</p>
                   <p className="text-xs text-slate-500 mt-1">{c.description}</p>
+                  {c.id === 'water_impact' && recipientStatus && (
+                    <div className="mt-2 p-2 bg-rose-50 border border-rose-100 rounded-lg animate-in fade-in zoom-in duration-300">
+                      <p className="text-[10px] font-black uppercase text-rose-600">Miljöstatus (SMED/VISS)</p>
+                      <p className="text-[11px] text-rose-800 font-medium">{recipientStatus.currentLoading}</p>
+                    </div>
+                  )}
                 </div>
                 <div className="flex gap-2">
                   <button

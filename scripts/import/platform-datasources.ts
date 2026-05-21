@@ -111,6 +111,28 @@ export const PLATFORM_COLLECTIONS = [
     table: 'env.lst_vattenskyddsomrade',
   },
 
+  // VISS & SMED - Vattenstatus och Miljöbelastning
+  {
+    id: 'viss_vattenforekomster' as const,
+    url: 'https://ext-geodata.lansstyrelsen.se/viss/wfs',
+    table: 'env.viss_vattenforekomst',
+    type: 'WFS',
+    featureType: 'ms:viss_vattendirektivet_ytvatten',
+  },
+  {
+    id: 'smed_belastning_vatten' as const,
+    url: 'https://ext-geodata.lansstyrelsen.se/viss/wfs',
+    table: 'env.smed_belastning_vatten',
+    type: 'WFS',
+    featureType: 'ms:viss_belastning_totp_totn',
+  },
+  {
+    id: 'smed_utslapp_luft' as const,
+    url: 'https://api.smhi.se/emissions/ogc/features/v1/collections/emissions_grid_1km',
+    table: 'env.smed_utslapp_luft',
+    type: 'OAPIF',
+  },
+
   // Exempel på lokal Shapefile-import
   {
     id: 'nv_naturreservat_shp' as const,
