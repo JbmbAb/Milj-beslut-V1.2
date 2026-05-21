@@ -103,12 +103,20 @@ export const PLATFORM_COLLECTIONS = [
     table: 'env.raa_fornlamning',
   },
 
-  // LÄNSSTYRELSERNA - Vattenskyddsområden (OGC API Features via VISS/Geodata)
-  // Uppdaterad URL 2025 – gamla Länsstyrelsen WFS är nedlagd
+  // LÄNSSTYRELSERNA - Vattenskyddsområden & Miljöfarlig verksamhet
   {
     id: 'lst_vattenskydd' as const,
-    url: 'https://geodata.naturvardsverket.se/naturvardsverket/ogc/features/v1/collections/vattenskyddsomraden',
+    url: 'https://ext-geodata.lansstyrelsen.se/arcgis/services/WFS/LST_WFS_Riks/MapServer/WFSServer',
     table: 'env.lst_vattenskyddsomrade',
+    type: 'WFS',
+    featureType: 'Vattenskyddsområden',
+  },
+  {
+    id: 'lst_miljofarlig_verksamhet' as const,
+    url: 'https://ext-geodata.lansstyrelsen.se/geoserver/ows',
+    table: 'env.lst_miljofarlig_verksamhet',
+    type: 'WFS',
+    featureType: 'lst:miljofarlig_verksamhet',
   },
 
   // VISS & SMED - Vattenstatus och Miljöbelastning
@@ -131,6 +139,29 @@ export const PLATFORM_COLLECTIONS = [
     url: 'https://api.smhi.se/emissions/ogc/features/v1/collections/emissions_grid_1km',
     table: 'env.smed_utslapp_luft',
     type: 'OAPIF',
+  },
+
+  // SLU & SKOGSSTYRELSEN - Biologisk mångfald & Artskydd
+  {
+    id: 'slu_artobservationer' as const,
+    url: 'https://sosgeo.artdata.slu.se/geoserver/SOS/ows',
+    table: 'env.slu_species_observation',
+    type: 'WFS',
+    featureType: 'SOS:SpeciesObservations',
+  },
+  {
+    id: 'skogsstyrelsen_nyckelbiotoper' as const,
+    url: 'https://wfs.skogsstyrelsen.se/arcgis/services/Nyckelbiotoper/MapServer/WFSServer',
+    table: 'env.skogsstyrelsen_key_habitat',
+    type: 'WFS',
+    featureType: 'Nyckelbiotoper',
+  },
+  {
+    id: 'skogsstyrelsen_naturvarden' as const,
+    url: 'https://wfs.skogsstyrelsen.se/arcgis/services/ObjektNaturvarde/MapServer/WFSServer',
+    table: 'env.skogsstyrelsen_nature_value',
+    type: 'WFS',
+    featureType: 'ObjektNaturvarde',
   },
 
   // Exempel på lokal Shapefile-import

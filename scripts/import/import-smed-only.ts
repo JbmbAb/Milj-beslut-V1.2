@@ -22,11 +22,14 @@ async function runSmedImport() {
   const port = url.port || '5432';
   const pgConn = `PG:dbname='${dbname}' host='${host}' user='${user}' password='${password}' port='${port}'`;
 
-  // Filter for the new SMED/VISS collections
-  // NOTE: Skipping VISS (Länsstyrelsen) for now due to connection issues
-  const smedCollections = PLATFORM_COLLECTIONS.filter(c => 
-    ['smed_utslapp_luft'].includes(c.id)
-  );
+  // Filter for SLU and Skogsstyrelsen environmental layers (Skipping LST/SMHI due to downtime)
+  const targetIds = [
+    'slu_artobservationer',
+    'skogsstyrelsen_nyckelbiotoper',
+    'skogsstyrelsen_naturvarden'
+  ];
+  
+  const smedCollections = PLATFORM_COLLECTIONS.filter(c => targetIds.includes(c.id));
 
   if (smedCollections.length === 0) {
     console.error('❌ No SMED/VISS collections found in platform-datasources.ts');
@@ -55,6 +58,8 @@ async function runSmedImport() {
       sourcePath, ...sourceFlags,
       '-nln', item.table,
       '-overwrite',
+      '-skipfailures',
+      '-limit', '1000',
       '-lco', 'GEOMETRY_NAME=geom',
       '-lco', 'SPATIAL_INDEX=GIST',
       '-t_srs', TARGET_SRS,
