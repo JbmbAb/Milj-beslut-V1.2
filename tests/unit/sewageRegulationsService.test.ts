@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, vi } from 'vitest';
+import { describe, it, expect } from 'vitest';
 
 /**
  * Sewage Regulations Service Tests
@@ -25,7 +25,6 @@ describe('Sewage Regulations Service', () => {
     });
 
     it('should classify package treatment plant', () => {
-      const facilityType = 'PACKAGE_PLANT';
       expect(['ENSKILT', 'COMMUNAL']).toContain('ENSKILT');
     });
   });
@@ -143,7 +142,6 @@ describe('Sewage Regulations Service', () => {
 
   describe('Soil Suitability Assessment', () => {
     it('should accept clay/silt soils with drainage (K ≥ 10^-7)', () => {
-      const soilType = 'clay';
       const permeability = 2e-7;
       const acceptable = permeability >= 1e-7;
 
@@ -151,7 +149,6 @@ describe('Sewage Regulations Service', () => {
     });
 
     it('should accept sandy soils with good drainage', () => {
-      const soilType = 'sand';
       const permeability = 1e-5;
       const acceptable = permeability >= 1e-7;
 

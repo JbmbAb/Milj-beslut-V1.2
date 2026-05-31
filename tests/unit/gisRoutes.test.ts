@@ -25,6 +25,8 @@ const mocks = vi.hoisted(() => ({
   getPublicDatasourceSummary: vi.fn(),
   getHydroLayer: vi.fn(),
   getWaterCatchmentLayer: vi.fn(),
+  getMainCatchmentLayer: vi.fn(),
+  getDatasetMapLayer: vi.fn(),
   getMarkCoverLayer: vi.fn(),
   getPropertyLayer: vi.fn(),
   getLantmaterietOpenMapStatus: vi.fn(),
@@ -66,6 +68,8 @@ vi.mock('../../server/services/publicUiService', () => ({
   getPublicDatasourceSummary: mocks.getPublicDatasourceSummary,
   getHydroLayer: mocks.getHydroLayer,
   getWaterCatchmentLayer: mocks.getWaterCatchmentLayer,
+  getMainCatchmentLayer: mocks.getMainCatchmentLayer,
+  getDatasetMapLayer: mocks.getDatasetMapLayer,
   getTopo10Layer: mocks.getTopo10Layer,
 }));
 
@@ -98,6 +102,10 @@ vi.mock('../../server/services/smhiWeatherService', () => ({
 
 vi.mock('../../server/services/spatialAuditService', () => ({
   runSpatialAudit: mocks.runSpatialAudit,
+}));
+
+vi.mock('../../server/services/postgisLayerService', () => ({
+  getDatasetMapLayer: mocks.getDatasetMapLayer,
 }));
 
 import gisRoutes from '../../server/routes/gis.routes';
@@ -152,11 +160,17 @@ describe('gis.routes', () => {
     mocks.getSguGroundwaterBodyLayer.mockResolvedValue({ type: 'FeatureCollection', features: [], meta: {} });
     mocks.getSguLandslideLayer.mockResolvedValue({ type: 'FeatureCollection', features: [], meta: {} });
     mocks.getSguCoastalErosionLayer.mockResolvedValue({ type: 'FeatureCollection', features: [], meta: {} });
-    mocks.getSguHighestCoastlineLayer.mockResolvedValue({ type: 'FeatureCollection', features: [], meta: {} });
+    mocks.getSguHighestCoastlineLayer.mockResolvedValue({
+      type: 'FeatureCollection',
+      features: [],
+      meta: {},
+    });
     mocks.getFloodRiskLayer.mockResolvedValue({ type: 'FeatureCollection', features: [], meta: {} });
     mocks.getPropertyLayer.mockResolvedValue({ type: 'FeatureCollection', features: [], meta: {} });
     mocks.getHydroLayer.mockResolvedValue({ type: 'FeatureCollection', features: [], meta: {} });
     mocks.getWaterCatchmentLayer.mockResolvedValue({ type: 'FeatureCollection', features: [], meta: {} });
+    mocks.getMainCatchmentLayer.mockResolvedValue({ type: 'FeatureCollection', features: [], meta: {} });
+    mocks.getDatasetMapLayer.mockResolvedValue({ type: 'FeatureCollection', features: [], meta: {} });
     mocks.getMarkCoverLayer.mockResolvedValue({ type: 'FeatureCollection', features: [], source: 'postgis' });
     mocks.runSpatialAudit.mockResolvedValue({
       protectedAreaHits: [{ id: 'nvr-1' }],
@@ -248,7 +262,9 @@ describe('gis.routes', () => {
     expect(natura2000.status).toBe(200);
     expect(mocks.getNatura2000Layer).toHaveBeenCalledWith(validBbox, 25);
 
-    const internationalProtection = await request(app).get('/api/layers/international-protection?bbox=18,59,19,60');
+    const internationalProtection = await request(app).get(
+      '/api/layers/international-protection?bbox=18,59,19,60',
+    );
     expect(internationalProtection.status).toBe(200);
     expect(mocks.getInternationalProtectionLayer).toHaveBeenCalledWith(validBbox, 1000);
 
@@ -315,12 +331,23 @@ describe('gis.routes', () => {
     expect(catchment.status).toBe(200);
     expect(mocks.getWaterCatchmentLayer).toHaveBeenCalledWith(validBbox);
 
+    const mainCatchment = await request(app).get('/api/layers/hydro.main-catchments?bbox=18,59,19,60');
+    expect(mainCatchment.status).toBe(200);
+    expect(mocks.getDatasetMapLayer).toHaveBeenCalledWith('smhi_huvudavrinningsomraden', validBbox, 1500);
+
+    const mainCatchmentMissing = await request(app).get('/api/layers/hydro.main-catchments');
+    expect(mainCatchmentMissing.status).toBe(400);
+
+    const datasetLayer = await request(app).get('/api/layers/dataset/sgu_fastmark?bbox=18,59,19,60');
+    expect(datasetLayer.status).toBe(200);
+    expect(mocks.getDatasetMapLayer).toHaveBeenCalledWith('sgu_fastmark', validBbox, 1500);
+
     const propertyMissing = await request(app).get('/api/layers/property');
     expect(propertyMissing.status).toBe(400);
 
     const property = await request(app).get('/api/layers/property?bbox=18,59,19,60');
     expect(property.status).toBe(200);
-    expect(mocks.getPropertyLayer).toHaveBeenCalledWith(validBbox);
+    expect(mocks.getPropertyLayer).toHaveBeenCalledWith(validBbox, undefined);
   });
 
   it('runs spatial, water, heritage and climate audits with coordinate validation', async () => {
@@ -476,6 +503,14 @@ describe('gis.routes', () => {
         user: expect.objectContaining({ id: 'admin-1' }),
       }),
     );
+  });
+
+  it('exposes federated OGC catalog summaries without auth', async () => {
+    const response = await request(app).get('/api/reference/ogc-catalogs');
+    expect(response.status).toBe(200);
+    expect(response.body.ok).toBe(true);
+    expect(Array.isArray(response.body.catalogs)).toBe(true);
+    expect(response.body.catalogs.some((c: { id: string }) => c.id === 'lst_geoserver_wms')).toBe(true);
   });
 
   it('syncs open datasources for authenticated users', async () => {

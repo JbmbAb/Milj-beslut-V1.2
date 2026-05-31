@@ -4,7 +4,6 @@ import { MODE_CARDS } from './workspaceModes';
 const loadProjectWorkspace = () => import('./ProjectWorkspace');
 const loadStandaloneWorkspace = () => import('./StandaloneWorkspace');
 const loadExecutiveSummary = () => import('./ExecutiveSummary');
-const loadPermitPortalView = () => import('./PermitPortalView');
 const loadApplicationWizard = () => import('./ApplicationWizard');
 const loadGisRiskModule = () => import('./GisRiskModule');
 const loadAdminSearchConsole = () => import('./AdminSearchConsole');
@@ -13,21 +12,22 @@ const loadAdminSearchPanelView = () => import('./admin/AdminSearchPanelView');
 const loadCoreWorkflowView = () => import('./CoreWorkflowView');
 
 function needsProjectStructure(mode: InterfaceMode, activeTab: string): boolean {
+  const normalizedMode = mode === 'PERMIT_PORTAL' ? 'Core_WORKFLOW' : mode;
+
   if (activeTab === 'guide') return true;
   return (
-    mode === 'LOGISTICS_MARKET' ||
-    mode === 'PERMIT_PORTAL' ||
-    mode === 'PROJECT_MANAGER' ||
-    mode === 'COMPLIANCE_AUDIT'
+    normalizedMode === 'LOGISTICS_MARKET' ||
+    normalizedMode === 'PROJECT_MANAGER' ||
+    normalizedMode === 'COMPLIANCE_AUDIT'
   );
 }
 
 function preloadDefaultView(mode: InterfaceMode): Promise<unknown> {
-  switch (mode) {
+  const normalizedMode = mode === 'PERMIT_PORTAL' ? 'Core_WORKFLOW' : mode;
+
+  switch (normalizedMode) {
     case 'LOGISTICS_MARKET':
       return loadExecutiveSummary();
-    case 'PERMIT_PORTAL':
-      return loadPermitPortalView();
     case 'PROJECT_MANAGER':
       return loadApplicationWizard();
     case 'COMPLIANCE_AUDIT':

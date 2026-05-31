@@ -25,8 +25,6 @@ export class HealthService {
   ) {}
 
   async check(): Promise<HealthStatus> {
-    const start = Date.now();
-
     // 1. Kontrollera Databasen (Prisma)
     const dbStatus = await this.checkDatabase();
 

@@ -70,6 +70,18 @@ async function fetchText(endpoint: string): Promise<FetchResult> {
   }
 }
 
+async function checkLastkajenSource(): Promise<FetchResult> {
+  const { pingLastkajen } = await import('./lastkajenService');
+  const result = await pingLastkajen();
+  return {
+    source: result.source,
+    ok: result.ok,
+    endpoint: result.endpoint,
+    details: result.details,
+    sample: result.packageCount !== undefined ? { packageCount: result.packageCount } : undefined,
+  };
+}
+
 async function checkTrafikverketSource(): Promise<FetchResult> {
   const endpoint = String(
     process.env.TRAFIKVERKET_API_BASE_URL || 'https://api.trafikinfo.trafikverket.se/v2/data.json',
@@ -247,6 +259,7 @@ export async function fetchImmediateOpenSources(): Promise<FetchResult[]> {
     fetchText('https://www.havochvatten.se/').then((row) => ({ ...row, source: 'hav' })),
     fetchText('https://smp.lansstyrelsen.se/').then((row) => ({ ...row, source: 'smp' })),
     checkTrafikverketSource(),
+    checkLastkajenSource(),
     fetchText('https://api-ver.lantmateriet.se/fastighetsomrade/atom/v1/').then((row) => ({
       ...row,
       source: 'lantmateriet_open_fastighetsomrade',

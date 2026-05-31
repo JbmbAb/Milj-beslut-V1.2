@@ -10,7 +10,7 @@ interface UseAsyncState<T> {
  * Hook for handling async operations (like API calls)
  * Returns current state and a function to trigger the async operation
  */
-export function useAsync<T, E = Error>(asyncFunction: () => Promise<T>, immediate = true) {
+export function useAsync<T>(asyncFunction: () => Promise<T>, immediate = true) {
   const [state, setState] = useState<UseAsyncState<T>>({
     status: 'idle',
     data: null,

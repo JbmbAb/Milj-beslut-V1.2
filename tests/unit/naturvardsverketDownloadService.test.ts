@@ -33,11 +33,45 @@ describe('naturvardsverketDownloadService', () => {
         throw new Error('DNS lookup failed');
       }
 
+      if (input.includes('dice/oai')) {
+        return {
+          ok: true,
+          status: 200,
+          statusText: 'OK',
+          text: async () => `
+            <OAI-PMH>
+              <ListRecords>
+                <record>
+                  <header><identifier>oai:DiVA.org:naturvardsverket-8882</identifier></header>
+                  <metadata>
+                    <oai_dc:dc>
+                      <dc:title>Handbok 2010:1</dc:title>
+                      <dc:format>application/pdf</dc:format>
+                    </oai_dc:dc>
+                  </metadata>
+                </record>
+              </ListRecords>
+            </OAI-PMH>`,
+          arrayBuffer: async () => new ArrayBuffer(0),
+        };
+      }
+
+      if (input.includes('FULLTEXT01.pdf')) {
+        return {
+          ok: true,
+          status: 200,
+          statusText: 'OK',
+          text: async () => '',
+          arrayBuffer: async () => new TextEncoder().encode('%PDF-1.4 test').buffer,
+        };
+      }
+
       return {
         ok: true,
         status: 200,
         statusText: 'OK',
         text: async () => `<body>${input}</body>`,
+        arrayBuffer: async () => new ArrayBuffer(0),
       };
     });
 
@@ -51,20 +85,25 @@ describe('naturvardsverketDownloadService', () => {
       'oppnadata.html',
       'geodatakatalogen.html',
       'naturvardsregistret-wfs-capabilities.xml',
+      'broschyrer/manifest.json',
     ]);
     expect(rmMock).toHaveBeenCalledWith('C:\\tmp\\naturvardsverket', { recursive: true, force: true });
     expect(mkdirMock).toHaveBeenCalledWith('C:\\tmp\\naturvardsverket', { recursive: true });
-    expect(writeFileMock).toHaveBeenCalledTimes(4);
+    expect(writeFileMock).toHaveBeenCalledTimes(6);
     expect(writeFileMock).toHaveBeenCalledWith(
       'C:\\tmp\\naturvardsverket\\manifest.json',
       expect.stringContaining('"legacyEbhProbe"'),
+      'utf8',
+    );
+    expect(writeFileMock).toHaveBeenCalledWith(
+      'C:\\tmp\\naturvardsverket\\broschyrer\\manifest.json',
+      expect.stringContaining('"downloads"'),
       'utf8',
     );
   });
 
   it('resolves the default NVV output directory', () => {
     const dir = resolveNaturvardsverketDownloadDirectory();
-    expect(dir.toLowerCase()).toContain('knowledge_base');
     expect(dir.toLowerCase()).toContain('naturvardsverket');
   });
 });

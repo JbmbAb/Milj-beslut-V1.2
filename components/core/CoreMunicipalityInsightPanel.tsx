@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { Activity, ClipboardCheck, Scale, ShieldAlert } from 'lucide-react';
+import { ClipboardCheck, Scale, ShieldAlert } from 'lucide-react';
 import { callCore } from '../../services/coreApiClient';
 import type { MunicipalityInsight, Project } from './coreDemoModel';
 import { getProjectMunicipality } from './coreDemoModel';

@@ -1,15 +1,10 @@
 import { it, expect, beforeAll, afterAll } from 'vitest';
-import path from 'path';
-import dotenv from 'dotenv';
 import { prisma } from '../../server/db/prisma';
 import {
   lookupPropertyByDesignationFromPostgis,
   getPropertyLayer,
 } from '../../server/services/propertyUnitService';
 import { describeIfDatabaseIntegration } from './integrationTestEnv';
-
-// Secure DATABASE_URL before prisma-backed integration setup.
-dotenv.config({ path: path.resolve(process.cwd(), '.env') });
 
 describeIfDatabaseIntegration('propertyUnitService Integration (PostGIS)', () => {
   let testOrgId = '';
@@ -70,8 +65,16 @@ describeIfDatabaseIntegration('propertyUnitService Integration (PostGIS)', () =>
           core.normalize_designation('KALLAREN 1:1'),
           'Stockholm',
           'test-data',
-          ST_Transform(ST_Multi(ST_SetSRID(ST_GeomFromText('POLYGON((18.0 59.0, 18.1 59.0, 18.1 59.1, 18.0 59.1, 18.0 59.0))'), 4326)), 3006)
-        ) ON CONFLICT (source_key) DO UPDATE SET designation = EXCLUDED.designation;
+          ST_Multi(ST_Transform(
+            ST_SetSRID(ST_GeomFromText('POLYGON((18.0 59.0, 18.1 59.0, 18.1 59.1, 18.0 59.1, 18.0 59.0))'), 4326),
+            3006
+          ))
+        ) ON CONFLICT (source_key) DO UPDATE SET
+          designation = EXCLUDED.designation,
+          designation_norm = EXCLUDED.designation_norm,
+          municipality_name = EXCLUDED.municipality_name,
+          source_dataset = EXCLUDED.source_dataset,
+          geom = EXCLUDED.geom;
       `;
     } catch (error) {
       console.error('FAILED TO SEED POSTGIS DATA:', error);

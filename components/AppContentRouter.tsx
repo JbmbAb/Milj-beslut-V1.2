@@ -2,17 +2,13 @@ import React from 'react';
 import { InterfaceMode, Permit } from '../types';
 
 import MarketIntelView from './MarketIntelView';
-import PermitPortalView from './PermitPortalView';
 import ExecutiveSummary from './ExecutiveSummary';
-import FormManager from './FormManager';
-import SluExpert from './SluExpert';
 import IntegrationsDashboard from './IntegrationsDashboard';
 import AssetTriage from './AssetTriage';
 import FieldAssistant from './FieldAssistant';
 import Guide from './Guide';
 import GisRiskModule from './GisRiskModule';
 import LegalSupportCenter from './LegalSupportCenter';
-import CoreWorkflowView from './CoreWorkflowView';
 import AdminMetadataReview from './AdminMetadataReview';
 import AdminSearchConsole from './AdminSearchConsole';
 import AdminGdprPanel from './AdminGdprPanel';
@@ -26,6 +22,7 @@ import { CNotificationUI } from './CNotificationUI';
 import { CNotificationMassUI } from './admin/modules/c-notification-mass/CNotificationMassUI';
 import { PriorityModulePortfolio } from './PriorityModulePortfolio';
 import SewagePortalView from './admin/modules/sewage-portal/SewagePortalView';
+import { DossierDashboard } from './DossierDashboard';
 
 export interface AppContentRouterProps {
   mode: InterfaceMode | null;
@@ -42,49 +39,55 @@ export const AppContentRouter: React.FC<AppContentRouterProps> = ({
   permits,
   setSelectedPermit,
   setActiveTab,
-  onOpenMassModule,
+  onOpenMassModule: _onOpenMassModule,
 }) => {
-  if (activeTab === 'guide') return <Guide mode={mode} onNavigate={setActiveTab} />;
-  if (activeTab === 'legal') return <LegalSupportCenter />;
-  if (activeTab === 'integrations') return <IntegrationsDashboard />;
+  const normalizedMode = mode === 'PERMIT_PORTAL' ? 'Core_WORKFLOW' : mode;
+  const normalizedTab =
+    mode === 'PERMIT_PORTAL'
+      ? activeTab === 'apply'
+        ? 'c-notification-mass'
+        : activeTab === 'map' ||
+            activeTab === 'forms' ||
+            activeTab === 'biodiversity' ||
+            activeTab === 'risks'
+          ? 'core'
+          : activeTab
+      : activeTab;
 
-  switch (mode) {
+  if (normalizedTab === 'guide') return <Guide mode={normalizedMode} onNavigate={setActiveTab} />;
+  if (normalizedTab === 'legal') return <LegalSupportCenter />;
+  if (normalizedTab === 'integrations') return <IntegrationsDashboard />;
+  if (normalizedTab === 'dossier') return <DossierDashboard />;
+
+  switch (normalizedMode) {
     case 'Core_WORKFLOW':
-      if (activeTab === 'sewage-application') return <SewagePortalView />;
-      if (activeTab === 'localization') return <LocalizationStudyUI />;
-      if (activeTab === 'c-notification-mass') return <CNotificationMassUI />;
-      if (activeTab === 'c-notification-chemicals') return <CNotificationUI />;
+      if (normalizedTab === 'sewage-application') return <SewagePortalView />;
+      if (normalizedTab === 'localization') return <LocalizationStudyUI />;
+      if (normalizedTab === 'c-notification-mass') return <CNotificationMassUI />;
+      if (normalizedTab === 'c-notification-chemicals') return <CNotificationUI />;
       return <PriorityModulePortfolio onNavigate={setActiveTab} />;
     case 'LOGISTICS_MARKET':
-      if (activeTab === 'archive') return <ExecutiveSummary />;
-      if (activeTab === 'logistics')
+      if (normalizedTab === 'archive') return <ExecutiveSummary />;
+      if (normalizedTab === 'logistics')
         return <MarketIntelView permits={permits} onSelectPermit={setSelectedPermit} mode="logistics" />;
-      if (activeTab === 'triage') return <AssetTriage />;
-      if (activeTab === 'marketing') return <MarketingHub permits={permits} fullView />;
+      if (normalizedTab === 'triage') return <AssetTriage />;
+      if (normalizedTab === 'marketing') return <MarketingHub permits={permits} fullView />;
       return <ExecutiveSummary />;
-    case 'PERMIT_PORTAL':
-      if (activeTab === 'apply') return <CNotificationMassUI />;
-      if (activeTab === 'map')
-        return <PermitPortalView permits={permits} mode="map" onOpenMassModule={onOpenMassModule} />;
-      if (activeTab === 'forms') return <FormManager />;
-      if (activeTab === 'biodiversity') return <SluExpert />;
-      if (activeTab === 'risks') return <GisRiskModule permits={permits} />;
-      return <PermitPortalView permits={permits} mode="map" onOpenMassModule={onOpenMassModule} />;
     case 'PROJECT_MANAGER':
-      if (activeTab === 'field') return <FieldAssistant />;
-      return <ProjectManagerView activeTab={activeTab} />;
+      if (normalizedTab === 'field') return <FieldAssistant />;
+      return <ProjectManagerView activeTab={normalizedTab} />;
     case 'COMPLIANCE_AUDIT':
-      if (activeTab === 'score') return <GisRiskModule permits={permits} />;
-      if (activeTab === 'audit') return <AdminMetadataReview />;
-      if (activeTab === 'reports') return <ExecutiveSummary />;
+      if (normalizedTab === 'score') return <GisRiskModule permits={permits} />;
+      if (normalizedTab === 'audit') return <AdminMetadataReview />;
+      if (normalizedTab === 'reports') return <ExecutiveSummary />;
       return <IntegrationsDashboard />;
     case 'ADMIN_CONSOLE':
-      if (activeTab === 'admin-review') return <AdminMetadataReview />;
-      if (activeTab === 'admin-gdpr') return <AdminGdprPanel />;
-      if (activeTab === 'admin-db') return <AdminDbStatusPanel />;
-      if (activeTab === 'admin-insight') return <AdminSearchConsole panel="insight" />;
-      if (activeTab === 'admin-system') return <SystemFunctionalAnalysis />;
-      if (activeTab === 'admin-readiness') return <AppReadinessPanel />;
+      if (normalizedTab === 'admin-review') return <AdminMetadataReview />;
+      if (normalizedTab === 'admin-gdpr') return <AdminGdprPanel />;
+      if (normalizedTab === 'admin-db') return <AdminDbStatusPanel />;
+      if (normalizedTab === 'admin-insight') return <AdminSearchConsole panel="insight" />;
+      if (normalizedTab === 'admin-system') return <SystemFunctionalAnalysis />;
+      if (normalizedTab === 'admin-readiness') return <AppReadinessPanel />;
       return <AdminSearchConsole panel="search" />;
     default:
       return (

@@ -40,6 +40,7 @@ const PermitPortalView: React.FC<PermitPortalViewProps> = ({ permits, mode = 'ma
 
   useEffect(() => {
     if (selectedMuni || municipalities.length === 0) return;
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setSelectedMuni(municipalities[0]);
   }, [municipalities, selectedMuni]);
 
@@ -74,6 +75,35 @@ const PermitPortalView: React.FC<PermitPortalViewProps> = ({ permits, mode = 'ma
       active = false;
     };
   }, []);
+
+  useEffect(() => {
+    const telemetryKey = 'legacy-permit-portal-telemetry-sent';
+
+    if (typeof window !== 'undefined' && window.sessionStorage.getItem(telemetryKey) === '1') {
+      return;
+    }
+
+    void callApi<{ ok: boolean }>('/api/admin/errors/capture', {
+      method: 'POST',
+      body: {
+        message: 'Legacy PermitPortalView accessed',
+        severity: 'info',
+        context: {
+          module: 'PERMIT_PORTAL',
+          mode,
+          hasOpenMassModuleHandler: Boolean(onOpenMassModule),
+        },
+      },
+    })
+      .then(() => {
+        if (typeof window !== 'undefined') {
+          window.sessionStorage.setItem(telemetryKey, '1');
+        }
+      })
+      .catch(() => {
+        // Non-blocking telemetry path.
+      });
+  }, [mode, onOpenMassModule]);
 
   const applySelectedCodeProfile = (code: WasteCode) => {
     if (!selectedMuni) {

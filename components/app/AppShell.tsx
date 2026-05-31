@@ -104,6 +104,11 @@ export const AppShell: React.FC = () => {
     return (
       <TechnicalDashboardHub
         onSelectModule={(id) => {
+          if (id === 'dossier') {
+            setMode('Core_WORKFLOW');
+            setActiveTab('dossier');
+            return;
+          }
           if (id === 'core' || id === 'ansokan') {
             openMode('Core_WORKFLOW');
             setActiveTab(id === 'ansokan' ? 'c-notification-mass' : 'core');

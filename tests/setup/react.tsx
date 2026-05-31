@@ -1,7 +1,5 @@
 import '@testing-library/jest-dom';
 import { vi } from 'vitest';
-import React from 'react';
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 
 // Fix for JSDOM missing matchMedia
 if (typeof window !== 'undefined') {
@@ -80,17 +78,6 @@ if (typeof window !== 'undefined') {
     })),
   };
 }
-
-// React Query Client for tests
-const queryClient = new QueryClient({
-  defaultOptions: {
-    queries: {
-      retry: false,
-      gcTime: 0,
-      staleTime: 0,
-    },
-  },
-});
 
 // Mock for ProjectStructureContext if needed
 // This might be better handled per test, but a basic one here can help

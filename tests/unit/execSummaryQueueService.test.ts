@@ -18,12 +18,22 @@ vi.mock('../../server/logger', () => ({
 }));
 
 // Flush all pending microtasks/macrotasks so the async worker finishes
-const flushAsync = () => new Promise<void>((resolve) => setTimeout(resolve, 20));
+const flushAsync = () => new Promise<void>((resolve) => setTimeout(resolve, 50));
 
 describe('execSummaryQueueService', () => {
   let enqueueExecSummary: (params: { projectId: string; userId: string }) => Promise<unknown>;
   let getJobStatus: (jobId: string) => unknown;
   let listJobsForProject: (projectId: string) => unknown[];
+
+  async function waitForJobStatus(jobId: string, status: string, timeoutMs = 1000) {
+    const started = Date.now();
+    while (Date.now() - started < timeoutMs) {
+      const job = getJobStatus(jobId) as { status?: string } | undefined;
+      if (job?.status === status) return job;
+      await new Promise<void>((resolve) => setTimeout(resolve, 10));
+    }
+    return getJobStatus(jobId);
+  }
 
   beforeEach(async () => {
     vi.resetAllMocks();
@@ -97,7 +107,7 @@ describe('execSummaryQueueService', () => {
       };
       await flushAsync();
 
-      const updated = getJobStatus(job.id) as {
+      const updated = (await waitForJobStatus(job.id, 'DONE')) as {
         status: string;
         result?: { summary: string; complianceScore: number; keyRisks: string[]; recommendations: string[] };
       };
@@ -173,7 +183,7 @@ describe('execSummaryQueueService', () => {
       const job = (await enqueueExecSummary({ projectId: 'proj-audit', userId: 'u-audit' })) as {
         id: string;
       };
-      await flushAsync();
+      await waitForJobStatus(job.id, 'DONE');
 
       expect(mocks.appendDomainAudit).toHaveBeenCalledWith(
         expect.objectContaining({

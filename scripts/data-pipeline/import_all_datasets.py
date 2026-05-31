@@ -26,12 +26,41 @@ PROJECT_DATA_ROOT = PROJECT_ROOT.parent
 RAW_SOURCE_ROOTS = [
     pathlib.Path(EXTRACTED),
     pathlib.Path(r'D:\ingest-arkiv-2026-03-29\nvr-download'),
+    pathlib.Path(r'D:\GEodata\extracted'),   # Extraherade zips fran D:\GEodata
+    pathlib.Path(r'D:\GEodata'),             # Enstaka .gpkg-filer (t.ex. geologiskt-intressanta-platser.gpkg)
     PROJECT_ROOT / 'scratch' / 'naturvardsverket' / 'natura2000_sci',
     PROJECT_ROOT / 'scratch' / 'naturvardsverket' / 'natura2000_spa',
     PROJECT_DATA_ROOT / 'Miljobeslut_Ops_Pipeline' / 'storage' / 'extracted',
     pathlib.Path(r'D:\MiljoBeslut_Produktdata_Sources\Pipeline_Storage\storage\extracted'),
     pathlib.Path(r'D:\MiljoBeslut_Produktdata_Sources\Geodata'),
 ]
+SGU_PREFERRED_ROOTS = [
+    pathlib.Path(r'D:\GEodata\extracted'),
+    pathlib.Path(r'D:\GEodata'),
+]
+SGU_DATASET_FOLDERS = {
+    'jordarter25k-100k',
+    'jordarter250k',
+    'jordarter200k',
+    'jordarter750k',
+    'jordarter1miljon',
+    'jorddjupsmodell',
+    'genomslapplighet',
+    'fastmark',
+    'sur-sulfatjord',
+    'berggrund50k-250k',
+    'berggrund1miljon',
+    'grus-krossberg',
+    'grundvattentillgang-sma-magasin',
+    'grundvattenmagasin',
+    'grundvattenforekomster',
+    'jordskred-raviner',
+    'grundvattennivaer-observerade',
+    'kallor',
+    'brunnar',
+    'stranderosion-kust',
+    'hogsta-kustlinjen',
+}
 DATASET_ALIASES = {
     'GPT_potentella_lovskogar': ['potentiella_lovskogar'],
     'naturtypskartan_RIKS': ['Naturtypskartan_RIKS'],
@@ -108,7 +137,20 @@ if _OGR2OGR_PATH:
     _candidate = os.path.join(os.path.dirname(_OGR2OGR_PATH), 'ogrinfo.exe' if os.name == 'nt' else 'ogrinfo')
     if os.path.exists(_candidate):
         _OGRINFO_PATH = _candidate
+
+_PSQL_PATH = shutil.which('psql')
+if not _PSQL_PATH:
+    _psql_common_paths = [
+        r'C:\Program Files\QGIS 4.0.2\bin\psql.exe',
+        r'C:\Program Files\PostgreSQL\16\bin\psql.exe',
+    ]
+    for p in _psql_common_paths:
+        if os.path.exists(p):
+            _PSQL_PATH = p
+            break
+
 _TABLE_EXISTS_CACHE = {}
+_SCHEMA_EXISTS_CACHE = set()
 
 def _build_local_gdal_env():
     env = os.environ.copy()
@@ -150,6 +192,31 @@ def _db_connect():
         return None
     return psycopg2.connect(DB_URL)
 
+def _run_psql(sql, quiet=False):
+    if not _PSQL_PATH:
+        if not quiet:
+            log('  [WARN] psql saknas; kan inte falla tillbaka for DB-kontroll')
+        return None
+    cmd = [
+        _PSQL_PATH,
+        '-h', _pu.hostname or '127.0.0.1',
+        '-p', str(_pu.port or 5432),
+        '-U', _pu.username or '',
+        '-d', _pu.path.lstrip('/'),
+        '-t',
+        '-A',
+        '-c', sql,
+    ]
+    env = os.environ.copy()
+    if _pu.password:
+        env['PGPASSWORD'] = _pu.password
+    result = subprocess.run(cmd, capture_output=True, text=True, env=env)
+    if result.returncode != 0:
+        if not quiet:
+            log(f'  [WARN] psql-fallback misslyckades: {result.stderr[:200]}')
+        return None
+    return result.stdout.strip()
+
 def _quote_ident(value):
     return '"' + value.replace('"', '""') + '"'
 
@@ -161,8 +228,17 @@ def table_exists(schema, table):
     try:
         conn = _db_connect()
         if conn is None:
-            _TABLE_EXISTS_CACHE[key] = False
-            return False
+            schema_sql = schema.replace("'", "''")
+            table_sql = table.replace("'", "''")
+            result = _run_psql(
+                "SELECT EXISTS ("
+                "SELECT 1 FROM information_schema.tables "
+                f"WHERE table_schema = '{schema_sql}' AND table_name = '{table_sql}'"
+                ")"
+            )
+            exists = (result or '').strip().lower() in {'t', 'true', '1'}
+            _TABLE_EXISTS_CACHE[key] = exists
+            return exists
         with conn, conn.cursor() as cur:
             cur.execute(
                 """
@@ -193,7 +269,8 @@ def table_row_count(schema, table):
     try:
         conn = _db_connect()
         if conn is None:
-            return 0
+            result = _run_psql(f'SELECT count(*) FROM {_quote_ident(schema)}.{_quote_ident(table)}')
+            return int((result or '0').splitlines()[-1])
         sql = f'SELECT count(*) FROM {_quote_ident(schema)}.{_quote_ident(table)}'
         with conn, conn.cursor() as cur:
             cur.execute(sql)
@@ -212,8 +289,10 @@ def run_sql(sql):
     try:
         conn = _db_connect()
         if conn is None:
-            log('  [WARN] psycopg2 saknas; kan inte koera SQL-bootstrap')
-            return False
+            if _run_psql(sql) is None:
+                return False
+            _TABLE_EXISTS_CACHE.clear()
+            return True
         with conn:
             with conn.cursor() as cur:
                 cur.execute(sql)
@@ -227,6 +306,21 @@ def run_sql(sql):
             conn.close()
         except Exception:
             pass
+
+def ensure_schema(schema):
+    if schema in {'public', 'information_schema', 'pg_catalog'}:
+        return True
+    if schema in _SCHEMA_EXISTS_CACHE:
+        return True
+    if not run_sql(f'CREATE SCHEMA IF NOT EXISTS {_quote_ident(schema)}'):
+        log(f'  [FEL] Kunde inte skapa schema {schema}')
+        return False
+    _SCHEMA_EXISTS_CACHE.add(schema)
+    return True
+
+def _parse_csv_env(name):
+    value = os.environ.get(name, '')
+    return {item.strip().lower() for item in value.split(',') if item.strip()}
 
 def _safe_table_suffix(value):
     value = value.lower().replace('-', '_')
@@ -269,11 +363,13 @@ def _get_layer_field_names(src_path, source_layer=None):
         return {}
     fields = {}
     for line in result.stdout.splitlines():
+        if line.lstrip().startswith('INFO:'):
+            continue
         match = re.match(r'^\s*([^:=][^:]+):\s+[A-Za-z]', line)
         if not match:
             continue
         field_name = match.group(1).strip()
-        if field_name in {'Layer name', 'Geometry', 'Feature Count', 'Layer SRS WKT', 'Geometry Column', 'FID Column'}:
+        if field_name in {'Layer name', 'Geometry', 'Feature Count', 'Layer SRS WKT', 'Geometry Column', 'FID Column', 'Metadata', 'Data axis to CRS axis mapping', 'INFO'}:
             continue
         fields[field_name.lower()] = field_name
     return fields
@@ -281,18 +377,18 @@ def _get_layer_field_names(src_path, source_layer=None):
 def resolve_dataset_folder(folder_name):
     candidates = [folder_name] + DATASET_ALIASES.get(folder_name, [])
     checked = set()
+    ordered_roots = list(RAW_SOURCE_ROOTS)
+    if any(candidate.lower() in SGU_DATASET_FOLDERS for candidate in candidates):
+        ordered_roots = SGU_PREFERRED_ROOTS + [root for root in RAW_SOURCE_ROOTS if root not in SGU_PREFERRED_ROOTS]
     for candidate in candidates:
-        direct = pathlib.Path(EXTRACTED) / candidate
-        if direct.exists():
-            return direct
-        for root in RAW_SOURCE_ROOTS:
+        for root in ordered_roots:
             possible = root / candidate
             if possible.exists():
                 return possible
     for hint in DATASET_HINTS.get(folder_name, []):
         if hint.exists():
             return hint
-    for root in RAW_SOURCE_ROOTS:
+    for root in ordered_roots:
         if not root.exists():
             continue
         try:
@@ -334,6 +430,8 @@ def ogr_import(src_path, schema, table, src_srs='EPSG:3006', target_srs='EPSG:30
     """Kors ogr2ogr. Om mode ej anges bestams den av _TABLES_INITIALIZED state."""
     global _TABLES_INITIALIZED
     src_path = pathlib.Path(src_path)
+    if not ensure_schema(schema):
+        return False
     full_table = f"{schema}.{table}"
     
     if mode is None:
@@ -507,12 +605,30 @@ def import_sgu():
     # Default ar darfor att inte appenda till en redan fylld target-tabell.
     # Saett SGU_IMPORT_APPEND_EXISTING=1 om du uttryckligen vill appenda igen.
     skip_existing = os.environ.get('SGU_IMPORT_APPEND_EXISTING', '0') != '1'
+    reset_tables = _parse_csv_env('SGU_RESET_TABLES')
+    prepared_tables = set()
+    touched_tables = set()
+
+    def _prepare_target(schema, table):
+        full_table = f'{schema}.{table}'
+        if full_table in prepared_tables:
+            return True
+        prepared_tables.add(full_table)
+        if table.lower() not in reset_tables and full_table.lower() not in reset_tables:
+            return True
+        log(f'  [RESET] {full_table} trunkeras innan SGU-import')
+        if not run_sql(f'TRUNCATE TABLE {_quote_ident(schema)}.{_quote_ident(table)}'):
+            log(f'  [FEL] Kunde inte trunkera {full_table}; hoppar over import')
+            return False
+        _TABLES_INITIALIZED.discard(full_table)
+        _TABLE_EXISTS_CACHE[(schema, table)] = True
+        return True
 
     well_map = {
         'grundvattentillgang-sma-magasin': ('sgu_well', None),
-        'grundvattennivaer-observerade':   ('sgu_well', None),
-        'kallor':                          ('sgu_well', None),
-        'brunnar':                         ('sgu_well_actual', None),
+        'grundvattennivaer-observerade':   ('sgu_well', 'stationer'),
+        'kallor':                          ('sgu_well', 'kallor'),
+        'brunnar':                         ('sgu_well_actual', 'brunnar'),
     }
 
     # Helper for robust import
@@ -523,13 +639,24 @@ def import_sgu():
                 log(f'  [SAKNAS] {folder_name}')
                 continue
             if isinstance(target, tuple):
-                table, source_layer = target
+                if len(target) == 2 and target[0] in {'env', 'climate', 'hydro', 'transport', 'audit', 'core', 'ops', 'public'}:
+                    schema, table = target
+                    source_layer = None
+                elif len(target) == 3:
+                    schema, table, source_layer = target
+                else:
+                    table, source_layer = target
+                    schema = 'env'
             else:
                 table, source_layer = target, None
-            schema = 'env'
-            if skip_existing and table_row_count(schema, table) > 0:
+                schema = 'env'
+            full_table = f'{schema}.{table}'
+            if not _prepare_target(schema, table):
+                continue
+            if skip_existing and table_row_count(schema, table) > 0 and full_table not in touched_tables:
                 log(f'  [SKIP] {folder_name} -> {schema}.{table} har redan data (SGU_IMPORT_APPEND_EXISTING=1 for append)')
                 continue
+            imported_any = False
             for gf in find_geodata(folder):
                 # Robust hantering: om tabellen foervaentar ytor (soil_type), skippa punkt-filer
                 if table in ('sgu_soil_type', 'sgu_permeability', 'sgu_bedrock') and 'point' in gf.name.lower():
@@ -541,9 +668,13 @@ def import_sgu():
 
                 # Anvaend -skipfailures och PROMOTE_TO_MULTI. Tvinga -append foer att inte rensa tabellen
                 opts = ['-nlt', 'PROMOTE_TO_MULTI', '-skipfailures']
-                ogr_import(gf, schema, table, extra_opts=opts, mode='-append', source_layer=source_layer)
+                imported_any = ogr_import(gf, schema, table, extra_opts=opts, mode='-append', source_layer=source_layer) or imported_any
+            if imported_any:
+                touched_tables.add(full_table)
 
     def _import_if_empty(folder_name, table, source_layer=None, extra_opts=None):
+        if not _prepare_target('env', table):
+            return
         if skip_existing and table_row_count('env', table) > 0:
             log(f'  [SKIP] {folder_name} -> env.{table} har redan data')
             return
@@ -562,6 +693,8 @@ def import_sgu():
             )
 
     def _import_landslide_features():
+        if not _prepare_target('env', 'sgu_landslide_feature'):
+            return
         if skip_existing and table_row_count('env', 'sgu_landslide_feature') > 0:
             log('  [SKIP] jordskred-raviner -> env.sgu_landslide_feature har redan data')
             return
@@ -619,7 +752,7 @@ def import_sgu():
                     source_layer=layer_name,
                 )
 
-    # _import_sgu_category(sgu_map) # Redan klart
+    _import_sgu_category(sgu_map)
     _import_if_empty('grundvattenmagasin', 'sgu_groundwater_magazine', source_layer='grundvattenmagasin')
     _import_if_empty('grundvattenforekomster', 'sgu_groundwater_body', source_layer='grundvattenforekomster')
     _import_landslide_features()
@@ -659,17 +792,22 @@ def import_vatten():
         'SVAR2022_delavrinningsomraden':             ('env', 'water_catchment'),
         'SVAR2022_Vattenforekomstavrinningsomraden': ('env', 'water_catchment'),
         'Avrinningsomraden_2016':                    ('env', 'water_catchment'),
-        'klimatindikatorer-sgu-hype-omraden':        ('env', 'sgu_well'),
+        'klimatindikatorer-sgu-hype-omraden':        ('env', 'water_catchment', 'omraden'),
         'SE_EF_StnReg_DV_Sjoar_vattendrag':          ('env', 'water_station'),
         'SE_EF_StnReg_DV_Grundvatten':               ('env', 'sgu_well'),
     }
-    for folder_name, (schema, table) in v_map.items():
+    for folder_name, target in v_map.items():
+        if len(target) == 3:
+            schema, table, source_layer = target
+        else:
+            schema, table = target
+            source_layer = None
         folder = resolve_dataset_folder(folder_name)
         if not folder:
             log(f'  [SAKNAS] {folder_name}')
             continue
         for gf in find_geodata(folder):
-            ogr_import(gf, schema, table, extra_opts=['-nlt', 'PROMOTE_TO_MULTI', '-skipfailures'])
+            ogr_import(gf, schema, table, extra_opts=['-nlt', 'PROMOTE_TO_MULTI', '-skipfailures'], source_layer=source_layer)
 
 def import_natura2000():
     """P2: Natura 2000, Ramsar, Varldsarv -> env.natura2000_area, env.protected_area"""
@@ -739,11 +877,14 @@ def import_nmd():
             log(f'  [SAKNAS] {folder_name}')
             continue
         for gf in find_geodata(folder):
-            # Vi vaeljer ut standardfaelt och skippar system-specifika shape-areor som ofta failar
-            sql = f"SELECT *, '{source_label}' AS source FROM \"{gf.stem}\""
-            ogr_import(gf, 'env', 'land_cover',
-                       extra_opts=['-sql', sql,
-                                   '-nlt', 'PROMOTE_TO_MULTI', '-skipfailures'])
+            layers = _list_ogr_layers(gf)
+            if not layers:
+                source_layer = _get_source_layer_name(gf)
+                layers = [(source_layer, '')]
+            for layer_name, _geometry_type in layers:
+                ogr_import(gf, 'env', 'land_cover',
+                           extra_opts=['-nlt', 'PROMOTE_TO_MULTI', '-skipfailures'],
+                           source_layer=layer_name)
 
 def import_soil_moisture():
     """NMD Markfuktighetsindex -> env.soil_moisture"""
@@ -793,9 +934,15 @@ def import_vatmark():
                 source_layer = _get_source_layer_name(gf)
                 fields = _get_layer_field_names(gf, source_layer)
                 shape_area_field = fields.get('shape_area')
-                sql = f"SELECT *, '{source_label}' AS source FROM \"{source_layer}\""
+                select_fields = [
+                    _quote_ident(field_name)
+                    for lower_name, field_name in fields.items()
+                    if lower_name not in {'shape_area', 'shape_len'}
+                ]
+                sql_parts = select_fields + [f"'{source_label}' AS source"]
                 if shape_area_field:
-                    sql = f"SELECT *, '{source_label}' AS source, CAST({shape_area_field} AS float) AS shape_area_f FROM \"{source_layer}\""
+                    sql_parts.append(f'CAST({_quote_ident(shape_area_field)} AS float) AS shape_area_f')
+                sql = f'SELECT {", ".join(sql_parts)} FROM "{source_layer}"'
                 ogr_import(gf, 'env', 'wetland',
                            extra_opts=['-sql', sql, '-nlt', 'PROMOTE_TO_MULTI', '-skipfailures'],
                            mode='-append')

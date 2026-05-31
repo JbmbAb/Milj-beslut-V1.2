@@ -12,16 +12,12 @@ import { toSafeErrorResponse } from '../security/secureErrors';
 import { auditTrail } from '../services/auditTrailService';
 import {
   assertSewageApplicationOrgAccess,
-  createSewageApplicationRecord,
   getSewageApplicationById,
   updateSewageApplicationRecord,
   type SewageApplicationRecord,
   type SewageApplicationStatus,
 } from '../repositories/sewageApplicationRepository';
-import {
-  createSewageApplication,
-  validateApplicationForSubmission,
-} from '../services/sewageApplicationService';
+import { createSewageApplication } from '../services/sewageApplicationService';
 import {
   generateDocumentsForApplication,
   getApplicationAuditTrail,
@@ -145,7 +141,6 @@ router.post('/api/sewage/applications', requireAuth, rateLimitByUser(30, 60_000)
       applicantName: input.applicantName.trim(),
       applicantEmail: input.applicantEmail.trim(),
       systemType: input.systemType,
-      purpose: input.purpose,
       projectId: input.projectId,
       municipalityCode: input.municipalityCode,
       pe: input.pe,

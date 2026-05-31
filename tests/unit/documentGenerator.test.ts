@@ -151,6 +151,32 @@ describe('documentGenerator unit tests', () => {
     expect(prismaMock.documentRecord.create).toHaveBeenCalledTimes(1);
   });
 
+  it('should handle requirements with only text field', async () => {
+    prismaMock.documentRecord.create.mockResolvedValue({ id: 'doc-text-only' });
+
+    await generateApplicationDraft({
+      ...validOptions,
+      requirementData: {
+        requirements: [{ text: 'Fyll i manuellt underlag' }],
+      },
+    });
+
+    expect(prismaMock.documentRecord.create).toHaveBeenCalledTimes(1);
+  });
+
+  it('should fall back to generic labels when requirement fields are missing', async () => {
+    prismaMock.documentRecord.create.mockResolvedValue({ id: 'doc-generic' });
+
+    await generateApplicationDraft({
+      ...validOptions,
+      requirementData: {
+        requirements: [{}],
+      },
+    });
+
+    expect(prismaMock.documentRecord.create).toHaveBeenCalledTimes(1);
+  });
+
   it('should propagate Prisma error upward', async () => {
     prismaMock.documentRecord.create.mockRejectedValue(new Error('DB connection failed'));
 

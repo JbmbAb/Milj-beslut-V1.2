@@ -6,10 +6,11 @@
 import { prisma } from '../../db.server';
 import type { Prisma } from '@prisma/client';
 import type { MassGisSnapshot } from '../../src/types/mass';
+import type { MpfDecisionSummary, MpfGateDecision } from '../../src/types';
 
 export type MassOperationType = 'MELLANLAGRING' | 'DEPONI';
 export type MassCaseStatus = 'DRAFT' | 'VALIDATED' | 'READY' | 'SUBMITTED';
-export type GateDecision = 'PERMIT_REQUIRED' | 'NOTIFICATION_REQUIRED' | 'EXEMPT' | 'UNKNOWN_CODE';
+export type GateDecision = MpfGateDecision;
 
 export interface MassOperationRecord {
   operationType: MassOperationType;
@@ -18,6 +19,7 @@ export interface MassOperationRecord {
   quantityPerYear: number;
   sniCode?: string;
   gateDecision: GateDecision;
+  mpfDecision?: MpfDecisionSummary;
   capacityM3?: number;
   receiverName?: string;
   transportChain?: string[];
@@ -45,7 +47,7 @@ export interface CNotificationMassCaseRecord {
 
 const memoryStore = new Map<string, CNotificationMassCaseRecord>();
 
-function useMemoryOnly(): boolean {
+function shouldUseMemoryOnly(): boolean {
   if (process.env.DATABASE_INTEGRATION === 'true') return false;
   return process.env.C_NOTIFICATION_MASS_REPO === 'memory' || process.env.NODE_ENV === 'test';
 }
@@ -91,10 +93,10 @@ export async function createMassCase(
     updatedAt: now.toISOString(),
     ...input,
   };
-  
+
   memoryStore.set(id, record);
 
-  if (!useMemoryOnly()) {
+  if (!shouldUseMemoryOnly()) {
     try {
       await prisma.cNotificationMassCase.create({
         data: {
@@ -106,13 +108,13 @@ export async function createMassCase(
           propertyDesignation: record.propertyDesignation,
           status: record.status,
           municipalityReference: record.municipalityReference ?? null,
-          payload: ({
+          payload: {
             operations: record.operations,
             logisticsPlanId: record.logisticsPlanId,
             massFlowSnapshot: record.massFlowSnapshot,
             exportPayload: record.exportPayload,
             gisSnapshot: record.gisSnapshot,
-          } as unknown) as Prisma.InputJsonValue,
+          } as unknown as Prisma.InputJsonValue,
         },
       });
     } catch (error) {
@@ -127,7 +129,7 @@ export async function getMassCaseById(id: string): Promise<CNotificationMassCase
   const mem = memoryStore.get(id);
   if (mem) return mem;
 
-  if (useMemoryOnly()) return null;
+  if (shouldUseMemoryOnly()) return null;
 
   try {
     const row = await prisma.cNotificationMassCase.findUnique({ where: { id } });
@@ -142,7 +144,7 @@ export async function getMassCaseById(id: string): Promise<CNotificationMassCase
 }
 
 export async function listMassCasesByOrg(organisationId: string): Promise<CNotificationMassCaseRecord[]> {
-  if (useMemoryOnly()) {
+  if (shouldUseMemoryOnly()) {
     return [...memoryStore.values()].filter((r) => r.organisationId === organisationId);
   }
 
@@ -185,7 +187,7 @@ export async function updateMassCase(
   };
   memoryStore.set(id, updated);
 
-  if (!useMemoryOnly()) {
+  if (!shouldUseMemoryOnly()) {
     try {
       await prisma.cNotificationMassCase.update({
         where: { id },
@@ -193,13 +195,13 @@ export async function updateMassCase(
           status: updated.status,
           propertyDesignation: updated.propertyDesignation,
           municipalityReference: updated.municipalityReference ?? null,
-          payload: ({
+          payload: {
             operations: updated.operations,
             logisticsPlanId: updated.logisticsPlanId,
             massFlowSnapshot: updated.massFlowSnapshot,
             exportPayload: updated.exportPayload,
             gisSnapshot: updated.gisSnapshot,
-          } as unknown) as Prisma.InputJsonValue,
+          } as unknown as Prisma.InputJsonValue,
           updatedAt: new Date(updated.updatedAt),
         },
       });

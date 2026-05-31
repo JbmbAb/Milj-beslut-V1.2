@@ -1,5 +1,4 @@
-import { evaluateComplianceRules, RiskLevel, SiteAnalysis } from './complianceRuleEngine';
-import { prisma } from '../db/prisma';
+import { evaluateComplianceRules, RiskLevel } from './complianceRuleEngine';
 
 export interface BankComplianceReport {
   projectId: string;
@@ -30,7 +29,7 @@ export async function generateBankComplianceIndex(projectId: string): Promise<Ba
   let yellowFlags = 0;
   let greenFlags = 0;
 
-  const details = rulesResult.rules.map(r => {
+  const details = rulesResult.rules.map((r) => {
     if (r.risk === 'BLOCK' || r.risk === 'HIGH') {
       redFlags++;
     } else if (r.risk === 'MEDIUM') {
@@ -41,13 +40,13 @@ export async function generateBankComplianceIndex(projectId: string): Promise<Ba
     return {
       ruleId: r.ruleId,
       description: r.description,
-      risk: r.risk
+      risk: r.risk,
     };
   });
 
   // Calculate a mock score (0-100)
   // Base 100, -20 per red flag, -5 per yellow flag
-  let score = 100 - (redFlags * 20) - (yellowFlags * 5);
+  let score = 100 - redFlags * 20 - yellowFlags * 5;
   if (score < 0) score = 0;
 
   // Taxonomy alignment is true if score > 70 and no red flags
@@ -61,6 +60,6 @@ export async function generateBankComplianceIndex(projectId: string): Promise<Ba
     redFlags,
     yellowFlags,
     greenFlags,
-    details
+    details,
   };
 }

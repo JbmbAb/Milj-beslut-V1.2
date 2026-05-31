@@ -215,7 +215,7 @@ describe('logistics repositories', () => {
     expect(created).toEqual({ id: 'gps-1' });
     expect(track).toEqual([{ id: 'gps-1' }]);
     expect(latest).toEqual({ id: 'gps-2' });
-    expect(cleared).toEqual({ count: 2 });
+    expect(cleared).toBe(2);
     expect(prisma.gpsPosition.create).toHaveBeenCalledWith({
       data: expect.objectContaining({
         bookingId: 'booking-1',

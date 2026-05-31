@@ -12,8 +12,8 @@ import {
   normalizeBankIdPersonalNumber,
   refreshSession,
 } from '../services/bankIdService';
-import { isBankIdMockMode } from '../security/env';
-import { createTokenPair, requireAuth } from '../security/auth';
+import { getBankIdConfigurationStatus } from '../security/env';
+import { createTokenPair } from '../security/auth';
 import { ensureAdminConsoleUser } from '../repositories/userRepository';
 
 const router = express.Router();
@@ -92,41 +92,35 @@ function renderMockBankIdLaunchHtml(orderRef: string, csrfToken: string): string
 </html>`;
 }
 
+function requireBankIdReady(res: express.Response): boolean {
+  const status = getBankIdConfigurationStatus();
+  if (status.canInitiate) {
+    return true;
+  }
+
+  res.status(503).json({
+    ok: false,
+    mode: status.mode,
+    error: status.message,
+  });
+  return false;
+}
+
 router.get('/api/auth/bankid/status', rateLimitByUser(60, 60_000), (_req, res) => {
-  if (isBankIdMockMode()) {
-    res.json({
-      ok: true,
-      mode: 'mock',
-      canInitiate: true,
-      message: 'BankID körs i utvecklingsläge (mock).',
-    });
-    return;
-  }
-
-  const hasPfx = Boolean(process.env.BANKID_PFX_PATH);
-  const hasPemPair = Boolean(process.env.BANKID_CERT_PATH && process.env.BANKID_KEY_PATH);
-  const hasBaseUrl = Boolean(String(process.env.BANKID_BASE_URL || '').trim());
-  if (!hasBaseUrl || (!hasPfx && !hasPemPair)) {
-    res.json({
-      ok: true,
-      mode: 'unconfigured',
-      canInitiate: false,
-      message:
-        'BankID är inte konfigurerat (saknas certifikat eller BANKID_BASE_URL). Använd administratörsinloggning tills avtal och certifikat är klara.',
-    });
-    return;
-  }
-
+  const status = getBankIdConfigurationStatus();
   res.json({
     ok: true,
-    mode: 'real',
-    canInitiate: true,
-    message: 'BankID kan användas.',
+    mode: status.mode,
+    canInitiate: status.canInitiate,
+    message: status.message,
   });
 });
 
 router.post('/api/auth/bankid/init', rateLimitByUser(10, 60_000), async (req, res, next) => {
   try {
+    if (!requireBankIdReady(res)) {
+      return;
+    }
     const endUserIp = String(req.body?.endUserIp ?? (req.ip || '127.0.0.1'));
     const personalNumber = normalizeBankIdPersonalNumber(req.body?.personalNumber);
     const orderTime = new Date();
@@ -144,6 +138,9 @@ router.post('/api/auth/bankid/init', rateLimitByUser(10, 60_000), async (req, re
 
 router.post('/api/auth/bankid/collect', rateLimitByUser(60, 60_000), async (req, res, next) => {
   try {
+    if (!requireBankIdReady(res)) {
+      return;
+    }
     const orderRef = String(req.body?.orderRef ?? '');
     const endUserIp = String(req.body?.endUserIp ?? (req.ip || '127.0.0.1'));
     const result = await collectBankIdAuth(orderRef, endUserIp);
@@ -155,6 +152,9 @@ router.post('/api/auth/bankid/collect', rateLimitByUser(60, 60_000), async (req,
 
 router.post('/api/auth/bankid/cancel', rateLimitByUser(20, 60_000), async (req, res, next) => {
   try {
+    if (!requireBankIdReady(res)) {
+      return;
+    }
     const orderRef = String(req.body?.orderRef ?? '');
     const result = await cancelBankIdAuth(orderRef);
     res.json({ ok: true, ...result });
@@ -196,7 +196,8 @@ router.post('/api/auth/bankid/mock/complete', rateLimitByUser(120, 60_000), (req
     }
 
     const orderRef = String(req.body?.orderRef ?? '');
-    const bankidId = typeof req.body?.bankidId === 'string' ? req.body.bankidId.trim() || undefined : undefined;
+    const bankidId =
+      typeof req.body?.bankidId === 'string' ? req.body.bankidId.trim() || undefined : undefined;
     const order = completeMockBankIdOrder({ orderRef, bankidId });
     res.json({ ok: true, mode: 'mock', order });
   } catch (error: unknown) {
@@ -222,10 +223,24 @@ router.post('/api/auth/bankid/mock/fail', rateLimitByUser(120, 60_000), (req, re
 
 router.post('/api/auth/refresh', rateLimitByUser(30, 60_000), async (req, res, next) => {
   try {
-    const token = String(req.body?.refreshToken ?? '');
+    const token = String(req.body?.refreshToken ?? '').trim();
+    if (!token) {
+      res.status(400).json({ ok: false, error: 'refresh_token_required' });
+      return;
+    }
     const rotated = await refreshSession(token);
     res.json({ ok: true, ...rotated });
   } catch (error: unknown) {
+    const message = error instanceof Error ? error.message : String(error);
+    if (
+      message === 'Malformed token' ||
+      message === 'Invalid signature' ||
+      message === 'Token expired' ||
+      /revoked|invalid/i.test(message)
+    ) {
+      res.status(401).json({ ok: false, error: 'invalid_refresh_token' });
+      return;
+    }
     next(error);
   }
 });
@@ -237,6 +252,23 @@ router.post('/api/admin/auth/login', rateLimitByUser(20, 60_000), async (req, re
 
     const expectedUsername = String(process.env.ADMIN_CONSOLE_USERNAME || 'admin').trim();
     const expectedPassword = String(process.env.ADMIN_CONSOLE_PASSWORD || '');
+
+    // Developer bypass for easier testing
+    if (process.env.NODE_ENV === 'development' && password === 'dev') {
+      const user = await ensureAdminConsoleUser(expectedUsername);
+      const tokens = createTokenPair(user);
+      return res.json({
+        ok: true,
+        accessToken: tokens.accessToken,
+        refreshToken: tokens.refreshToken,
+        user: {
+          id: user.id,
+          role: user.role,
+          organisationId: user.organisationId,
+        },
+      });
+    }
+
     if (!expectedPassword) {
       res
         .status(503)

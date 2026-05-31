@@ -263,13 +263,16 @@ const AdminRequirementsStudio: React.FC<AdminRequirementsStudioProps> = ({ token
   }, [token, includePreliminarySummary, fetchJson, onError]);
 
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setPage(1);
   }, [statusFilter, municipalityFilter, categoryFilter, documentTypeFilter]);
 
   useEffect(() => {
     if (!token) return;
     const timeoutId = window.setTimeout(() => {
+       
       loadRows();
+       
       loadCases();
     }, 350);
     return () => window.clearTimeout(timeoutId);
@@ -277,31 +280,41 @@ const AdminRequirementsStudio: React.FC<AdminRequirementsStudioProps> = ({ token
 
   useEffect(() => {
     if (!token) return;
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     loadSummary();
   }, [token, includePreliminarySummary, loadSummary]);
 
   useEffect(() => {
     if (!token) return;
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     loadCitations();
   }, [token, selectedRequirementCode, loadCitations]);
 
   useEffect(() => {
     if (!selectedRow) return;
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setRequirementStatusDraft(selectedRow.verificationStatus);
+     
     setValidationComment(selectedRow.validationComment || '');
+     
     setRequirementErrorType(selectedRow.errorType || '');
   }, [selectedRow]);
 
   useEffect(() => {
     if (!selectedCase) return;
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setCaseStatusDraft(selectedCase.caseReviewStatus);
+     
     setCaseNotesDraft(selectedCase.notes || '');
   }, [selectedCase]);
 
   useEffect(() => {
     if (!selectedCitation) return;
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setCitationStatusDraft(selectedCitation.verificationStatus);
+     
     setCitationPageNumber(selectedCitation.pageNumber != null ? String(selectedCitation.pageNumber) : '');
+     
     setCitationComment(selectedCitation.comment || '');
   }, [selectedCitation]);
 

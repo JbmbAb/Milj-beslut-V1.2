@@ -43,7 +43,8 @@ function mapRowToPayload(row: PropertyLookupRow, matchType: 'exact' | 'fuzzy'): 
   };
 }
 
-async function runExactLookup(propertyDesignation: string): Promise<PropertyLookupRow | null> {
+async function runExactLookup(propertyDesignation: string, lanKod?: number): Promise<PropertyLookupRow | null> {
+  const countyCode = typeof lanKod === 'number' ? String(lanKod).padStart(2, '0') : null;
   const rows = await prisma.$queryRaw<PropertyLookupRow[]>`
     WITH q AS (
       SELECT core.normalize_designation(${propertyDesignation}) AS designation_norm
@@ -60,12 +61,14 @@ async function runExactLookup(propertyDesignation: string): Promise<PropertyLook
       ST_AsGeoJSON(ST_Transform(geom, 4326))::text AS geometry_geojson
     FROM core.property_unit pu, q
     WHERE pu.designation_norm = q.designation_norm
+      AND (${countyCode}::text IS NULL OR pu.county_code = ${countyCode}::text)
     LIMIT 1;
   `;
   return rows[0] ?? null;
 }
 
-async function runFuzzyLookup(propertyDesignation: string): Promise<PropertyLookupRow | null> {
+async function runFuzzyLookup(propertyDesignation: string, lanKod?: number): Promise<PropertyLookupRow | null> {
+  const countyCode = typeof lanKod === 'number' ? String(lanKod).padStart(2, '0') : null;
   const rows = await prisma.$queryRaw<PropertyLookupRow[]>`
     WITH q AS (
       SELECT core.normalize_designation(${propertyDesignation}) AS designation_norm
@@ -83,6 +86,7 @@ async function runFuzzyLookup(propertyDesignation: string): Promise<PropertyLook
       similarity(pu.designation_norm, q.designation_norm) AS similarity
     FROM core.property_unit pu, q
     WHERE pu.designation_norm % q.designation_norm
+      AND (${countyCode}::text IS NULL OR pu.county_code = ${countyCode}::text)
     ORDER BY similarity DESC
     LIMIT 1;
   `;
@@ -130,14 +134,16 @@ export async function getPropertyLayer(bbox: {
   minLat: number;
   maxLng: number;
   maxLat: number;
-}): Promise<any> {
+}, lanKod?: number): Promise<any> {
+  const countyCode = typeof lanKod === 'number' ? String(lanKod).padStart(2, '0') : null;
   const rows = await prisma.$queryRaw<any[]>`
         SELECT
             source_key,
             designation,
-            ST_AsGeoJSON(ST_Transform(geom, 4326)) AS geometry_geojson
+            ST_AsGeoJSON(ST_Transform(geom, 4326))::text AS geometry_geojson
         FROM core.property_unit
         WHERE geom && ST_Transform(ST_MakeEnvelope(${bbox.minLng}, ${bbox.minLat}, ${bbox.maxLng}, ${bbox.maxLat}, 4326), 3006)
+          AND (${countyCode}::text IS NULL OR county_code = ${countyCode}::text)
         LIMIT 500
     `;
   return {

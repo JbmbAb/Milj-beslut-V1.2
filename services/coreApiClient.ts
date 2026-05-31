@@ -134,31 +134,45 @@ export async function callApi<T>(endpoint: string, options: ApiCallOptions = {})
   return response.text() as unknown as Promise<T>;
 }
 
+let refreshInFlight: Promise<{ accessToken: string; refreshToken: string }> | null = null;
+
 export async function refreshAccessSession(): Promise<{ accessToken: string; refreshToken: string }> {
-  const refreshToken = getRefreshToken();
-  if (!refreshToken) {
-    throw new Error('No refresh token available');
+  if (refreshInFlight) {
+    return refreshInFlight;
   }
 
-  const result = await callApi<{ ok: boolean; accessToken: string; refreshToken: string }>(
-    '/api/auth/refresh',
-    {
-      method: 'POST',
-      auth: false,
-      body: { refreshToken },
-    },
-  );
+  refreshInFlight = (async () => {
+    const refreshToken = getRefreshToken();
+    if (!refreshToken) {
+      throw new Error('No refresh token available');
+    }
 
-  setSession({
-    accessToken: result.accessToken,
-    refreshToken: result.refreshToken,
-    activeProjectId: getActiveProjectId() || undefined,
-  });
+    const result = await callApi<{ ok: boolean; accessToken: string; refreshToken: string }>(
+      '/api/auth/refresh',
+      {
+        method: 'POST',
+        auth: false,
+        body: { refreshToken },
+      },
+    );
 
-  return {
-    accessToken: result.accessToken,
-    refreshToken: result.refreshToken,
-  };
+    setSession({
+      accessToken: result.accessToken,
+      refreshToken: result.refreshToken,
+      activeProjectId: getActiveProjectId() || undefined,
+    });
+
+    return {
+      accessToken: result.accessToken,
+      refreshToken: result.refreshToken,
+    };
+  })();
+
+  try {
+    return await refreshInFlight;
+  } finally {
+    refreshInFlight = null;
+  }
 }
 
 export async function callCore<T>(endpoint: string, options: ApiCallOptions = {}): Promise<T> {

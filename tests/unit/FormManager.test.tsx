@@ -33,7 +33,7 @@ describe('FormManager', () => {
 
   it('should have submit button', () => {
     render(<FormManager />);
-    const buttons = screen.queryAllByRole('button');
+    screen.queryAllByRole('button');
     // Component may or may not have buttons depending on mode; it renders without crashing.
     expect(document.body).not.toBeEmptyDOMElement();
   });

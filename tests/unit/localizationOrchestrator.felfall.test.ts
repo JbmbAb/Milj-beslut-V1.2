@@ -12,6 +12,7 @@ import {
   validateLocalizationBody,
 } from '../../server/modules/localization/localizationOrchestrator';
 import type { LocalizationReport } from '../../server/services/localizationReportService';
+import type { AuthUser } from '../../server/security/types';
 
 vi.mock('../../server/services/auditTrailService', () => ({
   auditTrail: { logAction: vi.fn().mockResolvedValue(undefined) },
@@ -46,7 +47,14 @@ vi.mock('../../server/services/pdfExportService', () => ({
   buildJsonPdfBuffer: vi.fn().mockResolvedValue(Buffer.from('PDF')),
 }));
 
-const AUTH = { id: 'user-1', organisationId: 'org-1', role: 'ADMIN' as const };
+type SiteAnalysisResult = LocalizationReport['siteAnalyses'][number];
+
+const AUTH: AuthUser = {
+  id: 'user-1',
+  organisationId: 'org-1',
+  bankidId: 'bankid-user-1',
+  role: 'ADMIN',
+};
 const PROJECT_ID = 'proj-lok-felfall';
 const VALID_SITE = { id: 'alt-1', lat: 59.33, lng: 18.07 };
 
@@ -61,7 +69,25 @@ function makeReport(projectId = PROJECT_ID): LocalizationReport {
           protectedAreaHits: [],
           protectedAreaAvailable: true,
           isProtected: false,
-          sgu: { riskLevel: 'LOW', riskFactors: [], sources: [] },
+          sgu: {
+            coverageMode: 'sample',
+            manualReviewRequired: false,
+            riskLevel: 'LOW',
+            groundLayer: {
+              intersects: false,
+              hit: null,
+              advisory: 'Ingen avvikelse i grundlager.',
+            },
+            landslideFeatures: {
+              nearby: false,
+              bufferMeters: 150,
+              nearestDistanceMeters: null,
+              hits: [],
+              advisory: 'Inga SGU-indikatorer inom buffert.',
+            },
+            flags: [],
+            summary: 'SGU-risk: låg',
+          },
           distanceToWaterMeters: null,
           distanceToWaterAvailable: true,
           text: 'OK',
@@ -73,10 +99,6 @@ function makeReport(projectId = PROJECT_ID): LocalizationReport {
           restrictions: [],
           rules: [],
           summary: 'OK',
-          violations: [],
-          warnings: [],
-          feasibilityScore: 80,
-          recommendations: [],
         },
         monuments: [],
         vissWaterStatus: null,
@@ -107,8 +129,7 @@ describe('localizationOrchestrator — felfall och saknade grenar', () => {
         siteAlternatives: [],
       });
       expect(result.ok).toBe(false);
-      if (result.ok) return;
-      expect(result.status).toBe(400);
+      expect('status' in result ? result.status : 0).toBe(400);
     });
 
     it('returnerar 400 när array innehåller icke-objekt (null)', async () => {
@@ -118,8 +139,7 @@ describe('localizationOrchestrator — felfall och saknade grenar', () => {
         siteAlternatives: [null],
       });
       expect(result.ok).toBe(false);
-      if (result.ok) return;
-      expect(result.status).toBe(400);
+      expect('status' in result ? result.status : 0).toBe(400);
     });
 
     it('returnerar 400 när id saknas (tom sträng)', async () => {
@@ -129,8 +149,7 @@ describe('localizationOrchestrator — felfall och saknade grenar', () => {
         siteAlternatives: [{ id: '', lat: 59.33, lng: 18.07 }],
       });
       expect(result.ok).toBe(false);
-      if (result.ok) return;
-      expect(result.status).toBe(400);
+      expect('status' in result ? result.status : 0).toBe(400);
     });
 
     it('returnerar 400 när koordinater inte är finita (NaN)', async () => {
@@ -140,8 +159,7 @@ describe('localizationOrchestrator — felfall och saknade grenar', () => {
         siteAlternatives: [{ id: 'x', lat: NaN, lng: 18.07 }],
       });
       expect(result.ok).toBe(false);
-      if (result.ok) return;
-      expect(result.status).toBe(400);
+      expect('status' in result ? result.status : 0).toBe(400);
     });
 
     it('returnerar 400 när siteAlternatives inte är en array', async () => {
@@ -151,8 +169,7 @@ describe('localizationOrchestrator — felfall och saknade grenar', () => {
         siteAlternatives: 'not-an-array',
       });
       expect(result.ok).toBe(false);
-      if (result.ok) return;
-      expect(result.status).toBe(400);
+      expect('status' in result ? result.status : 0).toBe(400);
     });
 
     it('returnerar 400 vid tomt projectId', async () => {
@@ -162,8 +179,7 @@ describe('localizationOrchestrator — felfall och saknade grenar', () => {
         siteAlternatives: [VALID_SITE],
       });
       expect(result.ok).toBe(false);
-      if (result.ok) return;
-      expect(result.status).toBe(400);
+      expect('status' in result ? result.status : 0).toBe(400);
     });
   });
 
@@ -171,9 +187,8 @@ describe('localizationOrchestrator — felfall och saknade grenar', () => {
 
   describe('assertStrictReportUsable — spatialDown + externa otillgängliga', () => {
     it('kastar vid spatialDown och 2 externa otillgängliga (< 3 externa totalt)', async () => {
-      const { isLocalizationStrictMode, generateLocalizationReport } = await import(
-        '../../server/services/localizationReportService'
-      );
+      const { isLocalizationStrictMode, generateLocalizationReport } =
+        await import('../../server/services/localizationReportService');
       (isLocalizationStrictMode as ReturnType<typeof vi.fn>).mockReturnValue(true);
 
       const base = makeReport();
@@ -181,7 +196,7 @@ describe('localizationOrchestrator — felfall och saknade grenar', () => {
         ...base,
         siteAnalyses: [
           {
-            ...base.siteAnalyses[0],
+            ...(base.siteAnalyses[0] as SiteAnalysisResult),
             spatialAudit: {
               ...base.siteAnalyses[0].spatialAudit,
               protectedAreaAvailable: false,
@@ -202,9 +217,8 @@ describe('localizationOrchestrator — felfall och saknade grenar', () => {
     });
 
     it('felmeddelande innehåller "degraderad" vid spatialDown', async () => {
-      const { isLocalizationStrictMode, generateLocalizationReport } = await import(
-        '../../server/services/localizationReportService'
-      );
+      const { isLocalizationStrictMode, generateLocalizationReport } =
+        await import('../../server/services/localizationReportService');
       (isLocalizationStrictMode as ReturnType<typeof vi.fn>).mockReturnValue(true);
 
       const base = makeReport();
@@ -212,7 +226,7 @@ describe('localizationOrchestrator — felfall och saknade grenar', () => {
         ...base,
         siteAnalyses: [
           {
-            ...base.siteAnalyses[0],
+            ...(base.siteAnalyses[0] as SiteAnalysisResult),
             spatialAudit: {
               ...base.siteAnalyses[0].spatialAudit,
               protectedAreaAvailable: false,
@@ -233,9 +247,8 @@ describe('localizationOrchestrator — felfall och saknade grenar', () => {
     });
 
     it('felmeddelande innehåller "delvis" när spatial INTE är nere (3 externa nere)', async () => {
-      const { isLocalizationStrictMode, generateLocalizationReport } = await import(
-        '../../server/services/localizationReportService'
-      );
+      const { isLocalizationStrictMode, generateLocalizationReport } =
+        await import('../../server/services/localizationReportService');
       (isLocalizationStrictMode as ReturnType<typeof vi.fn>).mockReturnValue(true);
 
       const base = makeReport();
@@ -243,7 +256,7 @@ describe('localizationOrchestrator — felfall och saknade grenar', () => {
         ...base,
         siteAnalyses: [
           {
-            ...base.siteAnalyses[0],
+            ...(base.siteAnalyses[0] as SiteAnalysisResult),
             spatialAudit: {
               ...base.siteAnalyses[0].spatialAudit,
               protectedAreaAvailable: true,
@@ -265,9 +278,8 @@ describe('localizationOrchestrator — felfall och saknade grenar', () => {
     });
 
     it('lyckas när strict mode och alla källor tillgängliga', async () => {
-      const { isLocalizationStrictMode, generateLocalizationReport } = await import(
-        '../../server/services/localizationReportService'
-      );
+      const { isLocalizationStrictMode, generateLocalizationReport } =
+        await import('../../server/services/localizationReportService');
       (isLocalizationStrictMode as ReturnType<typeof vi.fn>).mockReturnValue(true);
       (generateLocalizationReport as ReturnType<typeof vi.fn>).mockResolvedValueOnce(makeReport());
 

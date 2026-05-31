@@ -23,7 +23,7 @@ export default defineConfig({
         test: {
           name: 'unit',
           include: ['tests/unit/**/*.test.ts', 'tests/unit/**/*.test.tsx'],
-          exclude: ['tests/unit/bankIdService.test.ts'], // Keep existing exclusion if intentional
+          exclude: ['tests/unit/server.services.bankIdService.test.ts'],
           environment: 'jsdom',
           setupFiles: ['tests/setup/env.ts'],
         },

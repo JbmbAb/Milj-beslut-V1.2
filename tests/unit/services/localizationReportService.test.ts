@@ -176,9 +176,8 @@ describe('generateLocalizationReportLegacy', () => {
   });
 
   it('delegerar till generateLocalizationReport', async () => {
-    const { generateLocalizationReportLegacy } = await import(
-      '../../../server/services/localizationReportService'
-    );
+    const { generateLocalizationReportLegacy } =
+      await import('../../../server/services/localizationReportService');
     const report = await generateLocalizationReportLegacy('proj-legacy', [SITE], 'user-1');
     expect(report.projectId).toBe('proj-legacy');
     expect(report.siteAnalyses).toHaveLength(1);
@@ -188,7 +187,12 @@ describe('generateLocalizationReportLegacy', () => {
 // ── SLU-integration: hasSluSpeciesConfigured och parseSluObservations ─────────
 
 describe('SLU-integration via generateLocalizationReport (user-kontext)', () => {
-  const AUTH_USER = { id: 'user-1', organisationId: 'org-1', role: 'ADMIN' as const };
+  const AUTH_USER = {
+    id: 'user-1',
+    organisationId: 'org-1',
+    bankidId: 'bankid-user-1',
+    role: 'ADMIN' as const,
+  };
 
   beforeEach(() => {
     vi.clearAllMocks();
@@ -245,7 +249,12 @@ describe('SLU-integration via generateLocalizationReport (user-kontext)', () => 
 // ── Externa API-felfall (NVR/RAA/VISS/SLU) ───────────────────────────────────
 
 describe('generateLocalizationReport — externa API-felfall', () => {
-  const AUTH_USER = { id: 'user-1', organisationId: 'org-1', role: 'ADMIN' as const };
+  const AUTH_USER = {
+    id: 'user-1',
+    organisationId: 'org-1',
+    bankidId: 'bankid-user-1',
+    role: 'ADMIN' as const,
+  };
 
   beforeEach(() => {
     vi.clearAllMocks();
@@ -258,9 +267,7 @@ describe('generateLocalizationReport — externa API-felfall', () => {
 
   it('NVR-fel ger varning och dataSources unavailable (ej strict)', async () => {
     const { fetchProtectedAreas } = await import('../../../server/services/nvrService');
-    (fetchProtectedAreas as ReturnType<typeof vi.fn>).mockRejectedValueOnce(
-      new Error('NVR timeout'),
-    );
+    (fetchProtectedAreas as ReturnType<typeof vi.fn>).mockRejectedValueOnce(new Error('NVR timeout'));
 
     const report = await generateLocalizationReport({
       projectId: 'proj-nvr-fail',
@@ -274,9 +281,7 @@ describe('generateLocalizationReport — externa API-felfall', () => {
 
   it('NVR-fel med strict=true inkluderar skyddskällevarning', async () => {
     const { fetchProtectedAreas } = await import('../../../server/services/nvrService');
-    (fetchProtectedAreas as ReturnType<typeof vi.fn>).mockRejectedValueOnce(
-      new Error('NVR down'),
-    );
+    (fetchProtectedAreas as ReturnType<typeof vi.fn>).mockRejectedValueOnce(new Error('NVR down'));
     process.env.LOCALIZATION_STRICT_SOURCES = 'true';
 
     try {
@@ -293,9 +298,7 @@ describe('generateLocalizationReport — externa API-felfall', () => {
 
   it('RAA-fel ger varning och dataSources unavailable', async () => {
     const { fetchAncientMonuments } = await import('../../../server/services/raaService');
-    (fetchAncientMonuments as ReturnType<typeof vi.fn>).mockRejectedValueOnce(
-      new Error('RAA API offline'),
-    );
+    (fetchAncientMonuments as ReturnType<typeof vi.fn>).mockRejectedValueOnce(new Error('RAA API offline'));
 
     const report = await generateLocalizationReport({
       projectId: 'proj-raa-fail',
@@ -309,9 +312,7 @@ describe('generateLocalizationReport — externa API-felfall', () => {
 
   it('VISS-fel ger varning och dataSources unavailable', async () => {
     const { queryVissPoint } = await import('../../../server/services/vissService');
-    (queryVissPoint as ReturnType<typeof vi.fn>).mockRejectedValueOnce(
-      new Error('VISS timeout'),
-    );
+    (queryVissPoint as ReturnType<typeof vi.fn>).mockRejectedValueOnce(new Error('VISS timeout'));
 
     const report = await generateLocalizationReport({
       projectId: 'proj-viss-fail',
@@ -341,9 +342,7 @@ describe('generateLocalizationReport — externa API-felfall', () => {
   it('SLU-fel (throw) ger varning och sluObservationCount=0', async () => {
     process.env.SLU_SPECIES_OBS_API_KEY = 'test-key';
     const { searchSluByCoordinates } = await import('../../../server/services/sluService');
-    (searchSluByCoordinates as ReturnType<typeof vi.fn>).mockRejectedValueOnce(
-      new Error('SLU API down'),
-    );
+    (searchSluByCoordinates as ReturnType<typeof vi.fn>).mockRejectedValueOnce(new Error('SLU API down'));
 
     const report = await generateLocalizationReport({
       projectId: 'proj-slu-err',
@@ -446,7 +445,12 @@ describe('generateLocalizationReport — VISS ok=true och SLU via BASE_PATH', ()
       results: [{ taxonName: 'Rana arvalis' }],
     });
 
-    const AUTH_USER = { id: 'user-1', organisationId: 'org-1', role: 'ADMIN' as const };
+    const AUTH_USER = {
+      id: 'user-1',
+      organisationId: 'org-1',
+      bankidId: 'bankid-user-1',
+      role: 'ADMIN' as const,
+    };
     const report = await generateLocalizationReport({
       projectId: 'proj-slu-base',
       siteAlternatives: [SITE],
@@ -458,9 +462,7 @@ describe('generateLocalizationReport — VISS ok=true och SLU via BASE_PATH', ()
 
   it('NVR-catch hanterar icke-Error throw (String-gren)', async () => {
     const { fetchProtectedAreas } = await import('../../../server/services/nvrService');
-    (fetchProtectedAreas as ReturnType<typeof vi.fn>).mockRejectedValueOnce(
-      'NVR timeout string',
-    );
+    (fetchProtectedAreas as ReturnType<typeof vi.fn>).mockRejectedValueOnce('NVR timeout string');
 
     const report = await generateLocalizationReport({
       projectId: 'proj-nvr-str',
@@ -473,9 +475,7 @@ describe('generateLocalizationReport — VISS ok=true och SLU via BASE_PATH', ()
 
   it('RAA-catch hanterar icke-Error throw', async () => {
     const { fetchAncientMonuments } = await import('../../../server/services/raaService');
-    (fetchAncientMonuments as ReturnType<typeof vi.fn>).mockRejectedValueOnce(
-      'RAA string error',
-    );
+    (fetchAncientMonuments as ReturnType<typeof vi.fn>).mockRejectedValueOnce('RAA string error');
 
     const report = await generateLocalizationReport({
       projectId: 'proj-raa-str',
@@ -532,5 +532,3 @@ describe('generateLocalizationReport — VISS ok=true och SLU via BASE_PATH', ()
     expect(report.siteAnalyses[0].warnings.some((w) => w.includes('Avstånd'))).toBe(true);
   });
 });
-
-

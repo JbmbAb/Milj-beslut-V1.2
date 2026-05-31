@@ -118,9 +118,12 @@ for (const { key, label } of requiredKeys) {
 
 const hasLmOAuth = env('LANTMATERIET_CONSUMER_KEY') && env('LANTMATERIET_CONSUMER_SECRET');
 const hasLmToken = env('LANTMATERIET_ACCESS_TOKEN') || env('LANTMATERIET_API_KEY');
+const hasLmOpenSubscription = Boolean(env('LANTMATERIET_OPEN_SUBSCRIPTION_KEY'));
 
 if (hasLmOAuth) {
   pass('LANTMATERIET_AUTH', 'OAuth2 consumer key + secret satt');
+} else if (hasLmOpenSubscription) {
+  pass('LANTMATERIET_AUTH', 'Öppen prenumerationsnyckel (LANTMATERIET_OPEN_SUBSCRIPTION_KEY) satt');
 } else if (hasLmToken) {
   warn('LANTMATERIET_AUTH', 'Statisk token/API-nyckel – fungerar men OAuth2 rekommenderas');
 } else if (isTrue('LANTMATERIET_OPEN_MODE')) {
@@ -164,12 +167,20 @@ if (!isTrue('BANKID_MOCK_MODE') && hasBankIdCert && hasBankIdUrl) {
 
 // ── 6. AI-modeller ────────────────────────────────────────────────────────────
 
-if (env('VERTEX_PROJECT_ID') && env('VERTEX_LOCATION')) {
-  pass('VERTEX_AI', `Project ${env('VERTEX_PROJECT_ID')} @ ${env('VERTEX_LOCATION')}`);
+const hasVertexProject = Boolean(env('VERTEX_PROJECT_ID'));
+const hasVertexLocation = Boolean(env('VERTEX_LOCATION'));
+const hasVertexAdc =
+  Boolean(env('GOOGLE_APPLICATION_CREDENTIALS')) || Boolean(env('GOOGLE_APPLICATION_CREDENTIALS_JSON'));
+
+if (hasVertexProject && hasVertexLocation) {
+  pass(
+    'VERTEX_AI',
+    `Project ${env('VERTEX_PROJECT_ID')} @ ${env('VERTEX_LOCATION')}${hasVertexAdc ? '' : ' (förväntar ADC/workload identity i moln)'}`,
+  );
 } else if (env('GEMINI_API_KEY')) {
-  warn('VERTEX_AI', 'GEMINI_API_KEY satt men VERTEX_PROJECT_ID saknas – Vertex används inte');
+  warn('VERTEX_AI', 'GEMINI_API_KEY satt men VERTEX_PROJECT_ID saknas – Vertex används inte i prod');
 } else {
-  fail('VERTEX_AI', 'Varken VERTEX_PROJECT_ID eller GEMINI_API_KEY är satt');
+  fail('VERTEX_AI', 'VERTEX_PROJECT_ID + VERTEX_LOCATION krävs (GEMINI_API_KEY räcker inte längre)');
 }
 
 // ── 7. CORS ───────────────────────────────────────────────────────────────────

@@ -46,7 +46,11 @@ npm run e2e:staging:avlopp
 
 ### C-anmälan
 
-Detta flöde är eget scope i staging-planen och ska verifieras separat i staging tills en dedikerad E2E-spec finns. Dokumentera körning, scope och artifact-länkar i PR-beviset.
+```bash
+npm run e2e:staging:c-mass
+```
+
+Se `tests/e2e/staging-c-anmalan-mass.spec.ts`.
 
 ### Valfria flaggor
 

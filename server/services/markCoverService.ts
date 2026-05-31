@@ -14,7 +14,7 @@
 import { prisma } from '../db/prisma';
 import { logger } from '../logger';
 import { tryFetchLocalTopo10Data } from './hybridGeoService';
-import { queryNmdPoint, NMD_CLASS_MAP } from './nmdService';
+import { queryNmdPoint } from './nmdService';
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -113,11 +113,13 @@ export async function getMarkCoverLayer(bbox: [number, number, number, number]):
       if (nmd.ok) {
         return {
           type: 'FeatureCollection',
-          features: [{
-            type: 'Feature' as const,
-            geometry: { type: 'Point' as const, coordinates: [centerLng, centerLat] },
-            properties: { nmdCode: nmd.code, description: nmd.description },
-          }],
+          features: [
+            {
+              type: 'Feature' as const,
+              geometry: { type: 'Point' as const, coordinates: [centerLng, centerLat] },
+              properties: { nmdCode: nmd.code, description: nmd.description },
+            },
+          ],
           source: 'postgis',
           bbox,
           fetchedAt,

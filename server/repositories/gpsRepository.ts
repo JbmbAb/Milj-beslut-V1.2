@@ -34,7 +34,8 @@ export async function getLatestPosition(bookingId: string) {
 }
 
 export async function clearGpsTrack(bookingId: string) {
-  return prisma.gpsPosition.deleteMany({
+  const result = await prisma.gpsPosition.deleteMany({
     where: { bookingId },
   });
+  return result.count;
 }

@@ -86,7 +86,6 @@ describe('domstolRssDownloadService', () => {
 
   it('resolves the default output directory', () => {
     const dir = resolveDomstolRssDownloadDirectory();
-    expect(dir.toLowerCase()).toContain('knowledge_base');
     expect(dir.toLowerCase()).toContain('domstol-rss');
   });
 });

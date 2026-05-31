@@ -1,5 +1,4 @@
 import express from 'express';
-import { prisma } from '../db/prisma';
 import { requireAuth } from '../security/auth';
 import { rateLimitByUser } from '../security/rateLimit';
 import { ensureAdminConsoleUser } from '../repositories/userRepository';
@@ -15,7 +14,6 @@ import {
 import { getFullStatus } from '../services/fullStatusService';
 import { getAppHealthReport } from '../services/appHealthService';
 import { getRecentErrors } from '../services/errorTrackingService';
-import { runBackup, listBackups, getBackup } from '../services/backupService';
 import { runGdprMaintenanceJob } from '../services/gdprComplianceService';
 import { getMetricsText } from '../services/metricsService';
 import { testLantmaterietConnection } from '../services/lantmaterietService';
@@ -28,8 +26,7 @@ import {
   listProjectsSewagePage,
   getProjectBasicForSewage,
 } from '../modules/platform/public';
-import { adminLoginSchema, sewageApplicationSchema, paginationSchema } from '../schemas/api.schemas';
-import { logger } from '../logger';
+import { adminLoginSchema, paginationSchema } from '../schemas/api.schemas';
 import { runReliableJob } from '../services/BackgroundJobService';
 
 const router = express.Router();
@@ -92,7 +89,8 @@ router.get('/api/admin/app-status', requireAuth, async (req, res, next) => {
 
 router.get('/api/admin/completion', requireAuth, rateLimitByUser(30, 60_000), async (req, res, next) => {
   try {
-    if (req.authUser?.role !== 'ADMIN') return res.status(403).json({ ok: false, error: 'Admin role required' });
+    if (req.authUser?.role !== 'ADMIN')
+      return res.status(403).json({ ok: false, error: 'Admin role required' });
     const completion = await getAppCompletion();
     res.json({ ok: true, completion });
   } catch (error) {
@@ -102,7 +100,8 @@ router.get('/api/admin/completion', requireAuth, rateLimitByUser(30, 60_000), as
 
 router.get('/api/admin/external-health', requireAuth, rateLimitByUser(20, 60_000), async (req, res, next) => {
   try {
-    if (req.authUser?.role !== 'ADMIN') return res.status(403).json({ ok: false, error: 'Admin role required' });
+    if (req.authUser?.role !== 'ADMIN')
+      return res.status(403).json({ ok: false, error: 'Admin role required' });
     const report = await getExternalHealth();
     res.json({ ok: true, report });
   } catch (error) {
@@ -353,6 +352,33 @@ router.get('/api/sewage-applications/:id', requireAuth, async (req, res, next) =
     };
 
     res.json({ ok: true, application });
+  } catch (error) {
+    next(error);
+  }
+});
+
+// MPF Rules (mounted on active admin.v1 router)
+router.get('/api/admin/mpf/thresholds', requireAuth, rateLimitByUser(60, 60_000), async (req, res, next) => {
+  try {
+    if (!req.authUser || req.authUser.role !== 'ADMIN') {
+      return res.status(403).json({ ok: false, error: 'Admin role required' });
+    }
+    const { getEffectiveMpfThresholds } = await import('../services/mpfRuleRegistryService');
+    const thresholds = await getEffectiveMpfThresholds();
+    res.json({ ok: true, items: thresholds });
+  } catch (error) {
+    next(error);
+  }
+});
+
+router.post('/api/admin/mpf/thresholds', requireAuth, rateLimitByUser(10, 60_000), async (req, res, next) => {
+  try {
+    if (!req.authUser || req.authUser.role !== 'ADMIN') {
+      return res.status(403).json({ ok: false, error: 'Admin role required' });
+    }
+    const { upsertMpfRule } = await import('../services/mpfRuleRegistryService');
+    await upsertMpfRule(req.body);
+    res.json({ ok: true });
   } catch (error) {
     next(error);
   }

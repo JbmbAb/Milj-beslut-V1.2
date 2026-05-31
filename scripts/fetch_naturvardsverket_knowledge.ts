@@ -1,8 +1,8 @@
-import { loadEnvFile } from '../server/loadEnv';
+import { loadEnvFile } from '../server/loadEnv.ts';
 import {
   downloadNaturvardsverketKnowledge,
   resolveNaturvardsverketDownloadDirectory,
-} from '../server/modules/legal/services/naturvardsverketDownloadService';
+} from '../server/modules/legal/services/naturvardsverketDownloadService.ts';
 
 async function main(): Promise<void> {
   loadEnvFile();

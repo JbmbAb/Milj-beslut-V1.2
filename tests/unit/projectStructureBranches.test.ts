@@ -10,7 +10,6 @@ import {
   buildPermitCodeProfile,
   calculateCarbon,
   createDefaultProjectPlan,
-  createDefaultStageGates,
   evaluateStageGate,
   normalizeProjectPlan,
   applyTemplate,

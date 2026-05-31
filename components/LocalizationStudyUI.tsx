@@ -419,6 +419,63 @@ export const LocalizationStudyUI: React.FC = () => {
     }
   };
 
+  const onDownloadSituationMap = () => {
+    if (selectedAlternatives.length === 0) {
+      setReportState((prev) => ({
+        ...prev,
+        error: 'Välj minst ett alternativ innan du laddar ner situationskarta.',
+      }));
+      return;
+    }
+
+    const width = 960;
+    const height = 540;
+    const padding = 80;
+    const lats = selectedAlternatives.map((s) => s.lat);
+    const lngs = selectedAlternatives.map((s) => s.lng);
+    const minLat = Math.min(...lats);
+    const maxLat = Math.max(...lats);
+    const minLng = Math.min(...lngs);
+    const maxLng = Math.max(...lngs);
+    const latRange = Math.max(maxLat - minLat, 0.0001);
+    const lngRange = Math.max(maxLng - minLng, 0.0001);
+
+    const toX = (lng: number) => padding + ((lng - minLng) / lngRange) * (width - padding * 2);
+    const toY = (lat: number) => height - padding - ((lat - minLat) / latRange) * (height - padding * 2);
+
+    const points = selectedAlternatives
+      .map((site) => {
+        const x = Math.round(toX(site.lng));
+        const y = Math.round(toY(site.lat));
+        return `<g>
+  <circle cx="${x}" cy="${y}" r="10" fill="#1d4ed8" />
+  <text x="${x + 14}" y="${y - 12}" font-size="13" fill="#0f172a">${site.id}: ${site.label}</text>
+  <text x="${x + 14}" y="${y + 8}" font-size="11" fill="#475569">${site.lat.toFixed(5)}, ${site.lng.toFixed(
+    5,
+  )}</text>
+</g>`;
+      })
+      .join('');
+
+    const svg = `<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}">
+  <rect width="${width}" height="${height}" fill="#f8fafc" />
+  <rect x="30" y="30" width="900" height="480" rx="18" fill="#ffffff" stroke="#cbd5e1" />
+  <text x="60" y="74" font-size="28" font-weight="700" fill="#0f172a">Situationskarta - Lokaliseringsutredning</text>
+  <text x="60" y="104" font-size="14" fill="#334155">Valda alternativ: ${selectedAlternatives.length}</text>
+  ${points}
+  <text x="60" y="486" font-size="12" fill="#64748b">Human-in-the-loop: juridisk slutgranskning krävs</text>
+</svg>`;
+
+    const blob = new Blob([svg], { type: 'image/svg+xml;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const anchor = document.createElement('a');
+    anchor.href = url;
+    anchor.download = `situationskarta-lokalisering-${selectedAlternatives.length}-alternativ.svg`;
+    anchor.click();
+    URL.revokeObjectURL(url);
+  };
+
   const onMapPickAlternative = (lat: number, lng: number) => {
     setSelectedAlternatives((prev) => {
       if (prev.length >= 8) {
@@ -474,7 +531,15 @@ export const LocalizationStudyUI: React.FC = () => {
                 disabled={reportState.loading}
                 className="bg-[#131b2e] disabled:opacity-60 disabled:cursor-not-allowed text-[#ffffff] px-6 py-3 rounded text-sm font-bold shadow-lg hover:bg-[#0f172a] transition-all"
               >
-                {reportState.loading ? 'Kör utredning…' : 'Kör lokaliseringsutredning'}
+                {reportState.loading ? 'Genererar underlag…' : 'Generera underlag'}
+              </button>
+              <button
+                type="button"
+                onClick={onDownloadSituationMap}
+                disabled={reportState.loading || selectedAlternatives.length === 0}
+                className="bg-white border border-[#131b2e] disabled:opacity-60 text-[#131b2e] px-6 py-3 rounded text-sm font-bold hover:bg-[#f1f5f9] transition-all"
+              >
+                Ladda ner situationskarta
               </button>
               <button
                 type="button"
@@ -673,7 +738,8 @@ export const LocalizationStudyUI: React.FC = () => {
           {(reportState.report?.warnings?.length ?? 0) > 0 ? (
             <div className="mb-4 rounded border border-amber-300 bg-amber-50/80 px-4 py-3 text-sm text-amber-950">
               <p className="font-bold mb-2">
-                Datakällor / varningar ({reportState.report?.meta?.warningCount ?? reportState.report?.warnings?.length})
+                Datakällor / varningar (
+                {reportState.report?.meta?.warningCount ?? reportState.report?.warnings?.length})
               </p>
               <ul className="list-disc pl-5 space-y-1">
                 {reportState.report?.warnings?.map((warning) => (

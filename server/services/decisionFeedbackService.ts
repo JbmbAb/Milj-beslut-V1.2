@@ -12,7 +12,6 @@
  *   4. APPLIED - Approved recommendation is applied to RequirementCase/matrix
  */
 
-import crypto from 'node:crypto';
 import { prisma } from '../db/prisma';
 import { logger } from '../logger';
 import type {
@@ -308,7 +307,7 @@ export async function applyApprovedRecommendation(
   const appliedAt = new Date();
 
   // Update recommendation with application metadata
-  const applied = await prisma.classificationRecommendation.update({
+  await prisma.classificationRecommendation.update({
     where: { id: recommendationId },
     data: {
       status: 'APPLIED',

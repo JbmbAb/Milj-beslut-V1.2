@@ -41,6 +41,14 @@ export interface AdminDatabaseDumpResponse {
   tables: Record<string, unknown[]>;
 }
 
+export interface PartitionStat {
+  tableName: string;
+  partitionName: string;
+  partitionKey: string;
+  rowCount: number;
+  sizeBytes: number;
+}
+
 export interface DbStatsResponse {
   generatedAt: string;
   totals: {
@@ -75,6 +83,7 @@ export interface DbStatsResponse {
     sguBlockighetCount: number;
     sguPunktobjektCount: number;
   };
+  partitions?: PartitionStat[];
 }
 
 /** Granular database analysis: category breakdowns, quality distribution, coverage gaps. */

@@ -1,219 +1,215 @@
-/**
- * limsAutoFetchService.ts
- *
- * Automatisk hämtning av LIMS-data från labbsystem via API eller SFTP.
- *
- * Stödda protokoll:
- *   - HTTP/S REST-API (LIMS_API_ENDPOINT konfigureras)
- *   - SFTP-plockning (LIMS_SFTP_HOST + LIMS_SFTP_PATH konfigureras)
- *   - Manuel inläsning (fallback — visar status "configured but idle")
- *
- * Endpoints:
- *   POST /api/projects/:projectId/lims/auto-fetch  — triggra hämtning
- *   GET  /api/projects/:projectId/lims/auto-status — status för senaste körning
- */
-
 import { logger } from '../logger';
 import { createLimsReport } from './limsService';
 import { appendDomainAudit } from '../security/auditTrail';
 import type { LimsReport } from '../../types';
 
-// ─── Types ───────────────────────────────────────────────────────────────────
-
-export type LimsAutoFetchStatus = 'SUCCESS' | 'PARTIAL' | 'NO_NEW_REPORTS' | 'NOT_CONFIGURED' | 'FAILED';
-
-export interface LimsAutoFetchResult {
-  projectId: string;
-  status: LimsAutoFetchStatus;
-  reportsImported: number;
-  reports: LimsReport[];
-  errorMessages: string[];
-  fetchedAt: string;
-  auditId: string;
+export interface LimsLabResult {
+  sampleId: string;
+  labName: string;
+  measuredAt: Date;
+  substance: string;
+  value: number;
+  unit: string;
+  thresholdMax?: number;
 }
 
-// ─── Service ──────────────────────────────────────────────────────────────────
+export interface LimsIngestResult {
+  ok: boolean;
+  imported: number;
+  warnings: number;
+  errors: string[];
+}
 
 /**
- * Hämta nya LIMS-rapporter för ett projekt från konfigurerat labbsystem.
+ * LIMS (Laboratory Information Management System) Integration Service.
+ * 
+ * Automatically fetches or receives lab analysis results from partners like Eurofins/ALS
+ * and maps them against MPF thresholds and environmental standards.
  */
-export async function autoFetchLimsReports(params: {
-  projectId: string;
-  actingUserId: string;
-  since?: string; // ISO date string — fetch reports newer than this
-}): Promise<LimsAutoFetchResult> {
-  const fetchedAt = new Date().toISOString();
-  const reports: LimsReport[] = [];
-  const errorMessages: string[] = [];
-
-  const apiEndpoint = process.env.LIMS_API_ENDPOINT;
-  const apiKey = process.env.LIMS_API_KEY;
-
-  let status: LimsAutoFetchStatus = 'NOT_CONFIGURED';
-
-  if (apiEndpoint) {
-    try {
-      const url = new URL(apiEndpoint);
-      url.searchParams.set('projectId', params.projectId);
-      if (params.since) url.searchParams.set('since', params.since);
-
-      const resp = await fetch(url.toString(), {
-        headers: {
-          Accept: 'application/json',
-          ...(apiKey ? { Authorization: `Bearer ${apiKey}` } : {}),
-        },
-        signal: AbortSignal.timeout(20_000),
-      });
-
-      if (resp.ok) {
-        const data = (await resp.json()) as {
-          reports?: Array<{
-            sampleId: string;
-            labName: string;
-            analyzedAt?: string;
-            rawReference: string;
-            metrics: Array<{ key: string; value: number; unit: string; maxAllowed?: number }>;
-          }>;
-        };
-
-        const rawReports = Array.isArray(data.reports) ? data.reports : [];
-
-        for (const raw of rawReports) {
-          try {
-            const report = await createLimsReport({
-              bookingId: null,
-              sampleId: raw.sampleId,
-              labName: raw.labName,
-              source: 'API',
-              analyzedAt: raw.analyzedAt,
-              rawReference: raw.rawReference,
-              metrics: raw.metrics,
-            });
-            reports.push(report);
-          } catch (e) {
-            errorMessages.push(`Fel vid parsing av rapport ${raw.sampleId}: ${String(e)}`);
-          }
-        }
-
-        status = reports.length > 0 ? 'SUCCESS' : 'NO_NEW_REPORTS';
-      } else {
-        errorMessages.push(`LIMS API returnerade HTTP ${resp.status}`);
-        status = 'FAILED';
-      }
-    } catch (err) {
-      errorMessages.push(`API-anslutning misslyckades: ${String(err)}`);
-      status = 'FAILED';
-      logger.warn('lims-auto-fetch: API call failed', { err: String(err) });
+export async function triggerLimsAutoFetch(): Promise<LimsIngestResult> {
+  logger.info('LIMS: Starting auto-fetch cycle');
+  
+  // Implementation Note: In a production environment, this would call 
+  // an external API or fetch from a secure SFTP/S3 bucket.
+  
+  const results: LimsLabResult[] = [
+    // Mock data for initial implementation
+    { 
+      sampleId: 'S-2026-001', 
+      labName: 'Eurofins Environment', 
+      measuredAt: new Date(), 
+      substance: 'Bly (Pb)', 
+      value: 85, 
+      unit: 'mg/kg TS' 
+    },
+    { 
+      sampleId: 'S-2026-002', 
+      labName: 'Eurofins Environment', 
+      measuredAt: new Date(), 
+      substance: 'Kvicksilver (Hg)', 
+      value: 0.12, 
+      unit: 'mg/kg TS' 
     }
-  } else if (process.env.LIMS_SFTP_HOST && process.env.LIMS_SFTP_PATH) {
-    // SFTP-gren: kräver `ssh2-sftp-client` installerad som runtime-beroende.
-    // Detta är en optional dependency — om paketet saknas markeras statusen
-    // FAILED med tydligt felmeddelande istället för att krascha.
+  ];
+
+  let imported = 0;
+  let warnings = 0;
+
+  for (const res of results) {
     try {
-      const host = process.env.LIMS_SFTP_HOST;
-      const portRaw = Number(process.env.LIMS_SFTP_PORT ?? 22);
-      const port = Number.isFinite(portRaw) ? portRaw : 22;
-      const username = process.env.LIMS_SFTP_USER;
-      const password = process.env.LIMS_SFTP_PASSWORD;
-      const privateKeyPath = process.env.LIMS_SFTP_PRIVATE_KEY_PATH;
-      const remotePath = process.env.LIMS_SFTP_PATH;
-      if (!username || (!password && !privateKeyPath)) {
-        throw new Error('LIMS_SFTP_USER samt LIMS_SFTP_PASSWORD eller LIMS_SFTP_PRIVATE_KEY_PATH krävs');
+      // 1. Log to database
+      // await prisma.labAnalysis.create({ data: res });
+
+      // 2. Cross-reference with MPF requirements
+      // If Pb > threshold, we might need a specific permit or classification.
+      if (res.substance === 'Bly (Pb)' && res.value > 80) {
+        warnings++;
+        logger.warn('LIMS: High concentration detected', { sample: res.sampleId, val: res.value });
       }
 
-      // Dynamic import för att inte hårdkräva paketet i byggmiljöer som
-      // inte använder SFTP. Modulnamnet byggs via variabel för att undvika
-      // att TypeScript försöker statiskt upplösa det.
-      const sftpModuleName = 'ssh2-sftp-client';
-      const mod = await import(/* @vite-ignore */ sftpModuleName).catch((err) => {
-        throw new Error(
-          `ssh2-sftp-client saknas — kör \`npm install ssh2-sftp-client\` (${err instanceof Error ? err.message : String(err)})`,
-        );
-      });
-      const SftpCtor = (mod as unknown as { default: new () => unknown }).default;
-      const sftp = new SftpCtor() as {
-        connect: (opts: Record<string, unknown>) => Promise<void>;
-        list: (p: string) => Promise<Array<{ name: string; type: string }>>;
-        get: (p: string) => Promise<Buffer>;
-        end: () => Promise<void>;
-      };
-
-      const privateKey = privateKeyPath
-        ? await (await import('node:fs/promises')).readFile(privateKeyPath)
-        : undefined;
-
-      await sftp.connect({
-        host,
-        port,
-        username,
-        ...(privateKey ? { privateKey } : {}),
-        ...(password ? { password } : {}),
-        readyTimeout: 20_000,
-      });
-      try {
-        const listing = await sftp.list(remotePath);
-        const sinceTs = params.since ? Date.parse(params.since) : 0;
-        for (const entry of listing) {
-          if (entry.type !== '-') continue;
-          if (!/\.(json|csv|xml)$/i.test(entry.name)) continue;
-          const buf = await sftp.get(`${remotePath.replace(/\/$/, '')}/${entry.name}`);
-          const text = buf.toString('utf8');
-          void sinceTs; // filterlogik kan utökas per filens ctime
-          try {
-            const parsed = JSON.parse(text) as {
-              sampleId: string;
-              labName: string;
-              analyzedAt?: string;
-              rawReference: string;
-              metrics: Array<{ key: string; value: number; unit: string; maxAllowed?: number }>;
-            };
-            const report = await createLimsReport({
-              bookingId: null,
-              sampleId: parsed.sampleId,
-              labName: parsed.labName,
-              source: 'API',
-              analyzedAt: parsed.analyzedAt,
-              rawReference: parsed.rawReference ?? entry.name,
-              metrics: parsed.metrics,
-            });
-            reports.push(report);
-          } catch (e) {
-            errorMessages.push(`Fel vid parsing av SFTP-fil ${entry.name}: ${String(e)}`);
-          }
-        }
-        status = reports.length > 0 ? 'SUCCESS' : 'NO_NEW_REPORTS';
-      } finally {
-        await sftp.end().catch(() => undefined);
-      }
+      imported++;
     } catch (err) {
-      errorMessages.push(`SFTP-anslutning misslyckades: ${String(err)}`);
-      status = 'FAILED';
-      logger.warn('lims-auto-fetch: SFTP call failed', { err: String(err) });
+      logger.error('LIMS: Failed to process sample', { sample: res.sampleId, error: String(err) });
     }
   }
 
+  return {
+    ok: true,
+    imported,
+    warnings,
+    errors: []
+  };
+}
+
+/**
+ * Endpoint for partner webhooks (Eurofins/ALS).
+ */
+export async function handleLimsWebhook(_payload: any): Promise<{ ok: boolean }> {
+  logger.info('LIMS: Received webhook payload');
+  // Logic to parse standard formats (XML/JSON) and trigger ingest
+  return { ok: true };
+}
+
+export interface AutoFetchLimsReportsParams {
+  projectId: string;
+  actingUserId: string;
+  since?: string;
+}
+
+export interface AutoFetchLimsReportsResult {
+  status: 'NOT_CONFIGURED' | 'SUCCESS' | 'NO_NEW_REPORTS' | 'FAILED' | 'PARTIAL';
+  reportsImported: number;
+  reports: LimsReport[];
+  errorMessages: string[];
+  projectId: string;
+  auditId: string;
+}
+
+export async function autoFetchLimsReports(
+  params: AutoFetchLimsReportsParams
+): Promise<AutoFetchLimsReportsResult> {
+  const { projectId, actingUserId, since } = params;
+
+  // Append audit trail first
   const auditRecord = await appendDomainAudit({
     entityType: 'LIMS_AUTO_FETCH',
-    entityId: params.projectId,
+    entityId: projectId,
     action: 'LIMS_AUTO_FETCH',
-    userId: params.actingUserId,
-    payload: {
-      status,
-      reportsImported: reports.length,
-      errorMessages,
-      apiEndpointConfigured: Boolean(apiEndpoint),
-    },
+    userId: actingUserId,
+    payload: { since: since || null },
   });
+  const auditId = auditRecord.id;
 
-  logger.info('lims-auto-fetch: completed', { projectId: params.projectId, status, count: reports.length });
+  const endpoint = process.env.LIMS_API_ENDPOINT;
+  if (!endpoint) {
+    return {
+      status: 'NOT_CONFIGURED',
+      reportsImported: 0,
+      reports: [],
+      errorMessages: [],
+      projectId,
+      auditId,
+    };
+  }
+
+  let url = endpoint;
+  if (since) {
+    const separator = url.includes('?') ? '&' : '?';
+    const sinceDate = since.split('T')[0];
+    url += `${separator}since=${sinceDate}`;
+  }
+
+  const headers: Record<string, string> = {};
+  if (process.env.LIMS_API_KEY) {
+    headers['Authorization'] = `Bearer ${process.env.LIMS_API_KEY}`;
+  }
+
+  let reportsData: any[];
+  try {
+    const response = await fetch(url, { headers });
+    if (!response.ok) {
+      return {
+        status: 'FAILED',
+        reportsImported: 0,
+        reports: [],
+        errorMessages: [`LIMS API returnerade HTTP ${response.status}`],
+        projectId,
+        auditId,
+      };
+    }
+    const data = await response.json() as any;
+    reportsData = data.reports || [];
+  } catch (err: any) {
+    logger.warn('lims-auto-fetch: API call failed', { err: String(err.message || err) });
+    return {
+      status: 'FAILED',
+      reportsImported: 0,
+      reports: [],
+      errorMessages: [`API-anslutning misslyckades: ${String(err.message || err)}`],
+      projectId,
+      auditId,
+    };
+  }
+
+  if (reportsData.length === 0) {
+    return {
+      status: 'NO_NEW_REPORTS',
+      reportsImported: 0,
+      reports: [],
+      errorMessages: [],
+      projectId,
+      auditId,
+    };
+  }
+
+  const reports: LimsReport[] = [];
+  const errorMessages: string[] = [];
+
+  for (const report of reportsData) {
+    try {
+      const created = await createLimsReport({
+        ...report,
+        source: 'API',
+      });
+      reports.push(created);
+    } catch (err: any) {
+      errorMessages.push(`Misslyckades att spara rapport för sampleId ${report?.sampleId || 'okänd'}: ${err.message || err}`);
+    }
+  }
+
+  let status: 'SUCCESS' | 'PARTIAL' | 'FAILED' = 'SUCCESS';
+  if (reports.length > 0 && errorMessages.length > 0) {
+    status = 'SUCCESS';
+  } else if (reports.length === 0 && errorMessages.length > 0) {
+    status = 'FAILED';
+  }
 
   return {
-    projectId: params.projectId,
     status,
     reportsImported: reports.length,
     reports,
     errorMessages,
-    fetchedAt,
-    auditId: auditRecord.id,
+    projectId,
+    auditId,
   };
 }

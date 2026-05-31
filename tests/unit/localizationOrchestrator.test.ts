@@ -20,39 +20,86 @@ import {
   generateLocalizationReport,
   isLocalizationStrictMode,
 } from '../../server/services/localizationReportService';
+import type { AuthUser } from '../../server/security/types';
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
+
+type SiteAnalysisResult = LocalizationReport['siteAnalyses'][number];
 
 function makeReport(overrides: Partial<LocalizationReport> = {}): LocalizationReport {
   return {
     projectId: 'proj-1',
     generatedAt: '2026-05-21T10:00:00.000Z',
+    summary: {
+      bestAlternativeId: 'A',
+      reasoning: 'Baseline motivering',
+    },
     warnings: [],
     siteAnalyses: [],
+    humanInTheLoop: 'Handläggare ska verifiera rapporten innan beslut fattas.',
     ...overrides,
   };
 }
 
-function makeSiteAnalysis(siteId: string, unavailableSources: string[], spatialDown = false) {
+function makeSiteAnalysis(
+  siteId: string,
+  unavailableSources: string[],
+  spatialDown = false,
+): SiteAnalysisResult {
   const externalSources = ['NVR API', 'RAA API', 'VISS', 'SLU Artdata'];
   return {
     site: { id: siteId, lat: 59.3, lng: 18.07 },
     dataSources: externalSources.map((source) => ({
       source,
-      status: unavailableSources.includes(source) ? ('unavailable' as const) : ('available' as const),
+      status: unavailableSources.includes(source) ? ('unavailable' as const) : ('ok' as const),
     })),
     spatialAudit: {
+      protectedAreaHits: [],
       protectedAreaAvailable: !spatialDown,
+      isProtected: false,
+      sgu: {
+        coverageMode: 'sample',
+        manualReviewRequired: false,
+        riskLevel: 'LOW',
+        groundLayer: {
+          intersects: false,
+          hit: null,
+          advisory: 'Ingen avvikelse i grundlager.',
+        },
+        landslideFeatures: {
+          nearby: false,
+          bufferMeters: 150,
+          nearestDistanceMeters: null,
+          hits: [],
+          advisory: 'Inga SGU-indikatorer inom buffert.',
+        },
+        flags: [],
+        summary: 'SGU-risk: låg',
+      },
+      distanceToWaterMeters: null,
       distanceToWaterAvailable: !spatialDown,
+      text: 'Spatial audit genomford.',
+      sources: [],
+    },
+    complianceAnalysis: {
+      overallRisk: 'LOW',
+      permitProbability: 0.75,
+      restrictions: [],
+      rules: [],
+      summary: 'Låg risk.',
     },
     warnings: [],
-    feasibilityScore: 70,
+    monuments: [],
+    vissWaterStatus: null,
+    distanceToWaterMeters: null,
+    sluObservationCount: 0,
   };
 }
 
-const mockAuth = {
+const mockAuth: AuthUser = {
   id: 'user-1',
   organisationId: 'org-1',
+  bankidId: 'bankid-user-1',
   role: 'ADMIN',
 };
 
@@ -326,7 +373,7 @@ describe('assertStrictReportUsable via runLocalizationReport', () => {
       siteAlternatives: [{ id: 'A', lat: 59.3, lng: 18.07 }],
     });
     expect(result.ok).toBe(false);
-    if (!result.ok) expect(result.status).toBe(400);
+    expect('status' in result ? result.status : 0).toBe(400);
   });
 
   it('returns 400 when siteAlternatives is empty array', async () => {
@@ -336,7 +383,7 @@ describe('assertStrictReportUsable via runLocalizationReport', () => {
       siteAlternatives: [],
     });
     expect(result.ok).toBe(false);
-    if (!result.ok) expect(result.status).toBe(400);
+    expect('status' in result ? result.status : 0).toBe(400);
   });
 
   it('meta.strictMode reflects isLocalizationStrictMode', async () => {

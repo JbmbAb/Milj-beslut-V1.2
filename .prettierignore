@@ -22,3 +22,5 @@ figma-raw.json
 public
 prisma/migrations
 logs
+cloudbuild.yaml
+scratch

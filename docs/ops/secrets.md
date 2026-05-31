@@ -54,6 +54,9 @@ Se `.env.example` för icke-hemliga standardvärden.
 | `BANKID_PFX_PASSPHRASE` | Lösenord till PFX-filen                       | Vid rotation av certifikatet |
 | `BANKID_CERT_PATH`      | Alternativt PEM-certifikat (istället för PFX) | —                            |
 | `BANKID_KEY_PATH`       | Privat nyckel till PEM-certifikatet           | —                            |
+| `BANKID_CA_PATH`        | Valfri trust chain / CA för BankID-miljön     | Vid byte av CA / truststore  |
+
+**Notering:** BankID-secrets ska normalt **inte** sättas i kundnära miljö förrän avtal och rätt test-/produktionscertifikat finns. Före det används admin-/organisationsinloggning eller explicit “unconfigured”-läge.
 
 ### AI-API:er
 
@@ -101,6 +104,8 @@ Se `.env.example` för icke-hemliga standardvärden.
 | `TIMOCOM_API_KEY`      | Timocom fraktbörsen                    | 365 dagar       |
 | `TRANS_EU_API_KEY`     | Trans.eu fraktbörsen                   | 365 dagar       |
 | `TRAFIKVERKET_API_KEY` | Trafikverket Trafikinformation         | 365 dagar       |
+| `LASTKAJEN_USERNAME`   | Lastkajen 2 inloggning (Trafikverket)  | 365 dagar       |
+| `LASTKAJEN_PASSWORD`   | Lastkajen 2 lösenord                   | 365 dagar       |
 | `VISS_API_KEY`         | VISS vattenförekomster (Länsstyrelsen) | 365 dagar       |
 
 ---
@@ -118,6 +123,7 @@ Prefixet `STAGING_` används för att separera staging-secrets från produktions
 | `STAGING_OPENAI_API_KEY`        | `OPENAI_API_KEY`               |
 | `STAGING_BANKID_PFX_PATH`       | `BANKID_PFX_PATH`              |
 | `STAGING_BANKID_PFX_PASSPHRASE` | `BANKID_PFX_PASSPHRASE`        |
+| `STAGING_BANKID_CA_PATH`        | `BANKID_CA_PATH`               |
 | `STAGING_LANTMATERIET_API_KEY`  | `LANTMATERIET_API_KEY`         |
 | `STAGING_SLU_API_KEY`           | `SLU_API_KEY`                  |
 | `STAGING_SLU_SPECIES_OBS_API_KEY` | `SLU_SPECIES_OBS_API_KEY`    |

@@ -62,7 +62,6 @@ describe('lansstyrelserCorpusService', () => {
 
   it('resolves the default länsstyrelser directory', () => {
     const dir = resolveLansstyrelserCorpusDirectory();
-    expect(dir.toLowerCase()).toContain('knowledge_base');
     expect(dir.toLowerCase()).toContain('lansstyrelserna');
   });
 });

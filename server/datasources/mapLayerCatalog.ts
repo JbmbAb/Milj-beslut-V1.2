@@ -12,6 +12,7 @@ import {
   DATAPORTAL_DATASETS_BASE_URL,
   RAA_KSAMSOK_API_GUIDE_URL,
 } from '../constants/culturalHeritageSources';
+import { ALL_DATASET_MAP_LAYERS, type DatasetLayerStyle } from './platformMapLayerRegistry';
 
 export type MapLayerActivation = 'IMMEDIATE' | 'PERMIT_REQUIRED';
 
@@ -29,6 +30,10 @@ export interface MapLayerCatalogEntry {
   description?: string;
   /** Om utelämnad fylls standard (dataportal + K-samsök) i /api/reference/map-layers */
   documentationUrls?: string[];
+  /** Dataset-lager: stilhint för kartan */
+  datasetStyle?: DatasetLayerStyle;
+  /** Dataset-lager: min zoom innan bbox-hämtning */
+  minZoom?: number;
 }
 
 /** Standardreferenser för nedladdnings-/ screening-flöden (dataportal + RAA K-samsök). */
@@ -204,6 +209,30 @@ export const MAP_LAYER_CATALOG: MapLayerCatalogEntry[] = [
     activation: 'IMMEDIATE',
   },
   {
+    key: 'hydro_main_catchment',
+    label: 'Huvudavrinningsomraden',
+    endpoint: '/api/layers/hydro.main-catchments',
+    bboxRequired: true,
+    geometry: 'polygon',
+    source: 'postgis',
+    provider: 'SMHI',
+    activation: 'IMMEDIATE',
+  },
+  {
+    key: 'slu_lake_catchment',
+    label: 'SLU sjöavrinningsområden',
+    endpoint: '/api/layers/dataset/slu_lake_catchment',
+    bboxRequired: true,
+    geometry: 'polygon',
+    source: 'postgis',
+    provider: 'SLU',
+    activation: 'IMMEDIATE',
+    description:
+      'Avrinningsområden kring nationellt övervakade sjöar (SLS + trend). Kompletterar SMHI huvudavrinningsområden.',
+    datasetStyle: 'water',
+    minZoom: 9,
+  },
+  {
     key: 'climate_flood_risk',
     label: 'Oversvamningsrisk',
     endpoint: '/api/layers/climate.flood-risk',
@@ -240,6 +269,19 @@ export const MAP_LAYER_CATALOG: MapLayerCatalogEntry[] = [
       DATAPORTAL_DATASETS_BASE_URL,
     ],
   },
+  ...ALL_DATASET_MAP_LAYERS.map((layer) => ({
+    key: layer.key,
+    label: layer.label,
+    endpoint: `/api/layers/dataset/${layer.key}`,
+    bboxRequired: layer.bboxRequired,
+    geometry: layer.geometry,
+    source: 'postgis' as const,
+    provider: layer.provider,
+    activation: 'IMMEDIATE' as const,
+    description: `PostGIS: ${layer.schema}.${layer.table}`,
+    datasetStyle: layer.style,
+    minZoom: layer.minZoom,
+  })),
 ];
 
 /**

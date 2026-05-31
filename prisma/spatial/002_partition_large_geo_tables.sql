@@ -18,7 +18,7 @@ IF EXISTS (
     WHERE schemaname = 'env' AND tablename = 'sgu_ground_layer'
 ) AND NOT EXISTS (
     SELECT 1 FROM pg_partitioned_table 
-    WHERE partrelid = 'env.sgu_ground_layer'::regclass
+    WHERE partrelid = to_regclass('env.sgu_ground_layer')
 ) THEN
     DROP TABLE env.sgu_ground_layer CASCADE;
 END IF;

@@ -1,3 +1,4 @@
+/* eslint-disable react-refresh/only-export-components */
 import React, { createContext, useContext, useEffect, ReactNode } from 'react';
 import { useLocalStorage } from '../hooks/useLocalStorage';
 import { useMediaQuery } from '../hooks/useMediaQuery';

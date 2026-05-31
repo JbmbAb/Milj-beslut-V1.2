@@ -13,7 +13,7 @@ import { fetchAncientMonuments, type Monument } from './raaService';
 import { queryVissPoint, type VissPointResult, type VissWaterStatus } from './vissService';
 import { toGeologicalData } from './sguRiskService';
 import { auditTrail } from './auditTrailService';
-import { searchSluByCoordinates } from './sluService';
+import { searchSluByCoordinates, getSpeciesInformation } from './sluService';
 import { logger } from '../logger';
 import type { AuthUser } from '../security/types';
 
@@ -22,6 +22,15 @@ export interface SiteAlternative {
   name?: string;
   lat: number;
   lng: number;
+}
+
+export interface SluObservation {
+  name: string;
+  scientificName?: string;
+  taxonId: number;
+  redlistCategory?: string;
+  protectionStatus?: string;
+  biology?: string;
 }
 
 export type DataSourceStatus = {
@@ -68,7 +77,7 @@ function hasSluSpeciesConfigured(): boolean {
   );
 }
 
-function parseSluObservations(raw: unknown): Array<{ name?: string; status?: string }> {
+function parseSluObservations(raw: unknown): SluObservation[] {
   if (!raw || typeof raw !== 'object') return [];
   const record = raw as Record<string, unknown>;
   const list = Array.isArray(record.observations)
@@ -87,11 +96,12 @@ function parseSluObservations(raw: unknown): Array<{ name?: string; status?: str
       row.properties && typeof row.properties === 'object'
         ? (row.properties as Record<string, unknown>)
         : row;
-    const name = props.taxonName ?? props.scientificName ?? props.species ?? props.name ?? row.name;
-    const status = props.redlistCategory ?? props.conservationStatus ?? props.status;
+    
     return {
-      name: name != null ? String(name).slice(0, 120) : undefined,
-      status: status != null ? String(status).slice(0, 40) : undefined,
+      name: String(props.taxonName ?? props.scientificName ?? props.species ?? props.name ?? row.name ?? 'Okänd art'),
+      scientificName: props.scientificName ? String(props.scientificName) : undefined,
+      taxonId: Number(props.taxonId || 0),
+      redlistCategory: props.redlistCategory ? String(props.redlistCategory) : undefined,
     };
   });
 }
@@ -157,7 +167,7 @@ async function fetchSluObservations(input: {
   site: SiteAlternative;
   projectId: string;
   user: AuthUser;
-}): Promise<FetchOutcome<Array<{ name?: string; status?: string }>>> {
+}): Promise<FetchOutcome<SluObservation[]>> {
   if (!hasSluSpeciesConfigured()) {
     return { ok: false, error: 'SLU Artdata API-nyckel eller bas-URL saknas' };
   }
@@ -169,21 +179,58 @@ async function fetchSluObservations(input: {
       user: input.user,
       projectId: input.projectId,
     });
-    return { ok: true, data: parseSluObservations(raw) };
+    
+    const baseObservations = parseSluObservations(raw);
+    const taxonIds = baseObservations.map(o => o.taxonId).filter(id => id > 0);
+    
+    if (taxonIds.length > 0) {
+      // Enrich with detailed facts from Artfakta
+      try {
+        const enrichedData = (await getSpeciesInformation({
+          taxonIds: [...new Set(taxonIds)], // Unique IDs
+          purpose: 'enrich_observations',
+          user: input.user,
+          projectId: input.projectId
+        })) as any[];
+        
+        if (Array.isArray(enrichedData)) {
+          return {
+            ok: true,
+            data: baseObservations.map(obs => {
+              const facts = enrichedData.find((f: any) => f.taxonId === obs.taxonId);
+              if (facts) {
+                return {
+                  ...obs,
+                  redlistCategory: facts.conservationStatus?.redlistCategory || obs.redlistCategory,
+                  protectionStatus: facts.protectionStatus?.statusText,
+                  biology: facts.biology?.description
+                };
+              }
+              return obs;
+            })
+          };
+        }
+      } catch (enrichErr) {
+        logger.warn('Failed to enrich SLU observations with Artfakta facts', { err: String(enrichErr) });
+      }
+    }
+
+    return { ok: true, data: baseObservations };
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     logger.warn('searchSluByCoordinates failed for localization', { site: input.site.id, err: msg });
     return { ok: false, error: msg };
   }
 }
-
 function buildDataSources(input: {
   spatial: SpatialAuditSummary;
   nvr: FetchOutcome<ProtectedArea[]>;
   raa: FetchOutcome<Monument[]>;
   viss: FetchOutcome<VissWaterStatus | null>;
-  slu: FetchOutcome<Array<{ name?: string; status?: string }>>;
+  slu: FetchOutcome<SluObservation[]>;
 }): DataSourceStatus[] {
+// ... (rest of method)
+
   const sources: DataSourceStatus[] = [
     {
       source: 'PostGIS spatial',
@@ -223,15 +270,16 @@ function buildDataSources(input: {
   ];
   return sources;
 }
-
 function collectWarnings(input: {
   spatial: SpatialAuditSummary;
   nvr: FetchOutcome<ProtectedArea[]>;
   raa: FetchOutcome<Monument[]>;
   viss: FetchOutcome<VissWaterStatus | null>;
-  slu: FetchOutcome<Array<{ name?: string; status?: string }>>;
+  slu: FetchOutcome<SluObservation[]>;
   strict: boolean;
 }): string[] {
+// ... (rest of method)
+
   const warnings: string[] = [];
   if (!input.spatial.protectedAreaAvailable && input.spatial.protectedAreaWarning) {
     warnings.push(`Skyddad natur (lokal): ${input.spatial.protectedAreaWarning}`);

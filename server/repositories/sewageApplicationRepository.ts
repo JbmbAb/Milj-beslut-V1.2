@@ -54,7 +54,7 @@ export interface SewageApplicationRecord {
 
 const memoryStore = new Map<string, SewageApplicationRecord>();
 
-function useMemoryOnly(): boolean {
+function shouldUseMemoryOnly(): boolean {
   if (process.env.DATABASE_INTEGRATION === 'true') return false;
   return process.env.SEWAGE_APPLICATION_REPO === 'memory' || process.env.NODE_ENV === 'test';
 }
@@ -132,7 +132,7 @@ export async function createSewageApplicationRecord(
 
   memoryStore.set(id, record);
 
-  if (!useMemoryOnly()) {
+  if (!shouldUseMemoryOnly()) {
     try {
       await prisma.sewageApplicationCase.create({
         data: {
@@ -168,7 +168,7 @@ export async function getSewageApplicationById(id: string): Promise<SewageApplic
   const mem = memoryStore.get(id);
   if (mem) return mem;
 
-  if (useMemoryOnly()) return null;
+  if (shouldUseMemoryOnly()) return null;
 
   try {
     const row = await prisma.sewageApplicationCase.findUnique({ where: { id } });
@@ -185,7 +185,7 @@ export async function getSewageApplicationById(id: string): Promise<SewageApplic
 export async function listSewageApplicationsByOrg(
   organisationId: string,
 ): Promise<SewageApplicationRecord[]> {
-  if (useMemoryOnly()) {
+  if (shouldUseMemoryOnly()) {
     return [...memoryStore.values()].filter((r) => r.organisationId === organisationId);
   }
 
@@ -236,7 +236,7 @@ export async function updateSewageApplicationRecord(
   };
   memoryStore.set(id, updated);
 
-  if (!useMemoryOnly()) {
+  if (!shouldUseMemoryOnly()) {
     try {
       await prisma.sewageApplicationCase.update({
         where: { id },

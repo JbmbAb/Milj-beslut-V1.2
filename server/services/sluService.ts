@@ -269,24 +269,66 @@ export async function searchSluByCoordinates(input: {
   const payload = {
     coordinateSystem: 'WGS84',
     searchArea: {
-      type: 'Polygon',
-      coordinates: [
-        [
-          [input.lng - radius, input.lat - radius],
-          [input.lng + radius, input.lat - radius],
-          [input.lng + radius, input.lat + radius],
-          [input.lng - radius, input.lat + radius],
-          [input.lng - radius, input.lat - radius],
-        ],
-      ],
+      type: 'Circle',
+      center: { lat: input.lat, lon: input.lng },
+      radius: radius * 111000, // Approximate conversion from DD to meters
     },
   };
 
   return callSluProductApi({
     product: 'species_observations',
     method: 'POST',
-    pathSuffix: '',
+    pathSuffix: '/Observations/Search',
     payload,
+    projectId: input.projectId,
+    purpose: input.purpose,
+    user: input.user,
+  });
+}
+
+/**
+ * Fetches detailed facts for specific taxa (Species Information / Artfakta).
+ * Relevant for identifying red-list status and protection levels.
+ */
+export async function getSpeciesInformation(input: {
+  taxonIds: number[];
+  purpose: string;
+  user: AuthUser;
+  projectId?: string;
+}): Promise<any> {
+  if (input.taxonIds.length === 0) return [];
+  
+  return callSluProductApi({
+    product: 'artfakta',
+    method: 'GET',
+    pathSuffix: '/speciesdata',
+    query: { 
+      taxa: input.taxonIds.join(','),
+      // We often want biology, conservation status and protection
+      fields: 'TaxonId,ScientificName,SwedishName,ConservationStatus,ProtectionStatus,Biology'
+    },
+    projectId: input.projectId,
+    purpose: input.purpose,
+    user: input.user,
+  });
+}
+
+/**
+ * Fetches taxonomic information for specific taxa.
+ */
+export async function getTaxonInformation(input: {
+  taxonIds: number[];
+  purpose: string;
+  user: AuthUser;
+  projectId?: string;
+}): Promise<any> {
+  if (input.taxonIds.length === 0) return [];
+  
+  return callSluProductApi({
+    product: 'taxonomy',
+    method: 'POST',
+    pathSuffix: '/taxa',
+    payload: { taxonIds: input.taxonIds },
     projectId: input.projectId,
     purpose: input.purpose,
     user: input.user,

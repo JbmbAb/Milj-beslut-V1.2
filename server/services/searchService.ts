@@ -30,7 +30,6 @@ const EMBEDDING_MODEL = String(
   process.env.VERTEX_EMBEDDING_MODEL || process.env.EMBEDDING_MODEL || 'text-multilingual-embedding-002',
 ).trim();
 const EMBEDDING_DIM = Math.max(64, Number(process.env.EMBEDDING_DIM || 768));
-const EMBEDDING_TIMEOUT_MS = Math.max(5_000, Number(process.env.EMBEDDING_TIMEOUT_MS || 25_000));
 const MAX_TEXT_BYTES = 2_000_000;
 const CHUNK_WORDS = 180;
 const CHUNK_OVERLAP = 40;

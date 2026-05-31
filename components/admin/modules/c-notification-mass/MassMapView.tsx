@@ -1,10 +1,11 @@
 import React from 'react';
-import type { MassGISAnalysis, MassSiteProfile } from '../../../../types';
+import type { MapLayerKey, MassGISAnalysis, MassSiteProfile } from '../../../../types';
 import './mass-map.css';
 
 interface MassMapViewProps {
   analysis: MassGISAnalysis;
   siteProfile: MassSiteProfile;
+  requiredMapLayers?: MapLayerKey[];
 }
 
 const zoneColors: Record<string, string> = {
@@ -13,7 +14,7 @@ const zoneColors: Record<string, string> = {
   TRANSIT: '#475569',
 };
 
-const MassMapView: React.FC<MassMapViewProps> = ({ analysis, siteProfile }) => {
+const MassMapView: React.FC<MassMapViewProps> = ({ analysis, siteProfile, requiredMapLayers = [] }) => {
   const mapWidth = 820;
   const mapHeight = 420;
   const centerX = mapWidth / 2;
@@ -78,6 +79,11 @@ const MassMapView: React.FC<MassMapViewProps> = ({ analysis, siteProfile }) => {
         <text x={16} y={24} fontSize="11" fill="#64748b">
           Risk {analysis.overallRiskScore}/100 · {analysis.logisticsSuitability}
         </text>
+        {requiredMapLayers.length > 0 && (
+          <text x={16} y={42} fontSize="11" fill="#4338ca">
+            MPF-lager: {requiredMapLayers.join(', ')}
+          </text>
+        )}
       </svg>
 
       <div className="mass-map-legend">

@@ -225,7 +225,9 @@ describe('sluService unit tests', () => {
 
     const [, options] = fetchMock.mock.calls[0];
     const body = JSON.parse(options.body);
-    // With radius 0.05, the coordinates should span 0.1 degrees
-    expect(body.searchArea.coordinates[0][0][0]).toBeCloseTo(14.95);
+    expect(body.searchArea.type).toBe('Circle');
+    expect(body.searchArea.center.lon).toBe(15.0);
+    expect(body.searchArea.center.lat).toBe(60.0);
+    expect(body.searchArea.radius).toBeCloseTo(5550); // 0.05 * 111000
   });
 });

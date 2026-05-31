@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
-import { render, screen, fireEvent, waitFor } from '@testing-library/react';
+import { render, screen, waitFor } from '@testing-library/react';
 import React from 'react';
 import ProjectWorkspace from '../../components/ProjectWorkspace';
 import type { InterfaceMode } from '../../types';
@@ -127,7 +127,7 @@ describe('ProjectWorkspace', () => {
     render(<ProjectWorkspace {...defaultProps} mode="PERMIT_PORTAL" activeTab="map" />);
 
     await waitFor(() => {
-      expect(screen.getByTestId('permit-portal')).toBeInTheDocument();
+      expect(screen.getByTestId('c-notification-mass-ui')).toBeInTheDocument();
     });
   });
 
@@ -143,7 +143,7 @@ describe('ProjectWorkspace', () => {
     render(<ProjectWorkspace {...defaultProps} mode="PERMIT_PORTAL" activeTab="forms" />);
 
     await waitFor(() => {
-      expect(screen.getByTestId('form-manager')).toBeInTheDocument();
+      expect(screen.getByTestId('c-notification-mass-ui')).toBeInTheDocument();
     });
   });
 
@@ -151,7 +151,7 @@ describe('ProjectWorkspace', () => {
     render(<ProjectWorkspace {...defaultProps} mode="PERMIT_PORTAL" activeTab="biodiversity" />);
 
     await waitFor(() => {
-      expect(screen.getByTestId('slu-expert')).toBeInTheDocument();
+      expect(screen.getByTestId('c-notification-mass-ui')).toBeInTheDocument();
     });
   });
 
@@ -159,7 +159,7 @@ describe('ProjectWorkspace', () => {
     render(<ProjectWorkspace {...defaultProps} mode="PERMIT_PORTAL" activeTab="risks" />);
 
     await waitFor(() => {
-      expect(screen.getByTestId('gis-risk')).toBeInTheDocument();
+      expect(screen.getByTestId('c-notification-mass-ui')).toBeInTheDocument();
     });
   });
 

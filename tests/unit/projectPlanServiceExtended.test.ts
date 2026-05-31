@@ -118,7 +118,7 @@ describe('projectPlanService – extended branch coverage', () => {
       });
 
       // First evaluation
-      const first = await service.evaluateGateForProject({
+      await service.evaluateGateForProject({
         projectId: 'proj-gate-2',
         organisationId: 'org-1',
         gateId: 'CARBON_CHECK',

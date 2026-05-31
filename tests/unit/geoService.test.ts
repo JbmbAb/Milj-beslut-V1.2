@@ -11,21 +11,27 @@ vi.mock('../../server/db/prisma', () => {
   };
 });
 
+vi.mock('../../server/services/hybridGeoService', () => ({
+  tryFetchLocalProtectionData: vi.fn(),
+}));
+
 // Import efter mock
 import { prisma } from '../../server/db/prisma';
+import { tryFetchLocalProtectionData } from '../../server/services/hybridGeoService';
 import { checkGeospatialRisks } from '../../server/services/geoService';
 
 describe('geoService unit tests', () => {
   beforeEach(() => {
-    vi.clearAllMocks();
+    vi.resetAllMocks();
   });
 
   it('should return a risk status when a coordinate has all geospatial intersecting features', async () => {
-    vi.mocked(prisma.$queryRaw)
-      .mockResolvedValueOnce([{ id: 1 }]) // landslide
-      .mockResolvedValueOnce([{ external_id: 'N2K-123' }]) // natura 2000
-      .mockResolvedValueOnce([{ nvr_id: 'PA-999' }]); // protected area
+    vi.mocked(prisma.$queryRaw).mockResolvedValueOnce([{ id: 1 }]); // landslide
     vi.mocked(prisma.$queryRawUnsafe).mockResolvedValueOnce([{ layer_label: 'Postglacial lera (å, ä, ö)' }]); // ground layer
+    vi.mocked(tryFetchLocalProtectionData).mockResolvedValueOnce([
+      { source: 'natura2000' },
+      { source: 'nvr' },
+    ] as any);
 
     const result = await checkGeospatialRisks(59.3293, 18.0686);
 
@@ -40,6 +46,7 @@ describe('geoService unit tests', () => {
   it('should handle cases where no risks are found (empty arrays from DB)', async () => {
     vi.mocked(prisma.$queryRaw).mockResolvedValue([]);
     vi.mocked(prisma.$queryRawUnsafe).mockResolvedValue([]);
+    vi.mocked(tryFetchLocalProtectionData).mockResolvedValue([] as any);
 
     const result = await checkGeospatialRisks(59.1, 18.2);
 
@@ -54,6 +61,7 @@ describe('geoService unit tests', () => {
   it('should handle Swedish characters in labels correctly from the mock', async () => {
     vi.mocked(prisma.$queryRaw).mockResolvedValue([]);
     vi.mocked(prisma.$queryRawUnsafe).mockResolvedValue([{ layer_label: 'Urberg, morän och lera' }]);
+    vi.mocked(tryFetchLocalProtectionData).mockResolvedValue([] as any);
 
     const result = await checkGeospatialRisks(60.1, 15.2);
     expect(result.groundLayerLabel).toBe('Urberg, morän och lera');
@@ -62,6 +70,7 @@ describe('geoService unit tests', () => {
   it('should handle missing layer_label in results graciously', async () => {
     vi.mocked(prisma.$queryRaw).mockResolvedValue([]);
     vi.mocked(prisma.$queryRawUnsafe).mockResolvedValue([{}]);
+    vi.mocked(tryFetchLocalProtectionData).mockResolvedValue([] as any);
 
     const result = await checkGeospatialRisks(59.1, 18.2);
     expect(result.groundLayerLabel).toBeNull();

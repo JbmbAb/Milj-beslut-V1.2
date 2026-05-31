@@ -17,6 +17,7 @@ import {
   upsertMassOperations,
 } from '../../server/modules/c-notification-mass/massOrchestrator';
 import { getMassCaseById } from '../../server/repositories/cNotificationMassRepository';
+import { auditTrail } from '../../server/services/auditTrailService';
 
 // auditTrail skriver till Prisma — mockas för att hålla testet isolerat
 vi.mock('../../server/services/auditTrailService', () => ({
@@ -27,6 +28,7 @@ vi.mock('../../server/services/auditTrailService', () => ({
 const authUser = {
   id: 'user-1',
   organisationId: 'org-1',
+  bankidId: 'bankid-user-1',
   role: 'ADMIN' as const,
 };
 
@@ -71,8 +73,10 @@ describe('Mass C-anmälan — intern E2E (in-memory)', () => {
 
     // MELLANLAGRING: 17 05 08 @ 15000 > 10000 → NOTIFICATION_REQUIRED
     expect(result.decisions.mellanlagring?.gateDecision).toBe('NOTIFICATION_REQUIRED');
+    expect(result.decisions.mellanlagring?.mpfDecision?.ewcEvaluation.code).toBe('17 05 08');
     // DEPONI: 17 05 04 @ 200 < 50000 → EXEMPT
     expect(result.decisions.deponi?.gateDecision).toBe('EXEMPT');
+    expect(result.decisions.deponi?.mpfDecision?.activityCode).toBeTruthy();
 
     // Inga varningar för fullständig operation (båda typerna finns)
     const missingTypes = result.warnings.filter((w) => w.includes('Saknar delbeslut'));
@@ -170,6 +174,81 @@ describe('Mass C-anmälan — intern E2E (in-memory)', () => {
     expect(result.error).toBe('no_notification_required');
   });
 
+  it('Steg 4 — submitMassCase blockeras om EWC-kod är okänd även om SNI ger fallback', async () => {
+    const create = await upsertMassOperations(undefined, authUser, {
+      ...BASE_INPUT,
+      operations: [
+        {
+          operationType: 'MELLANLAGRING',
+          ewcCode: '00 00 00',
+          sniCode: '38.21',
+          quantityPerYear: 100,
+        },
+        {
+          operationType: 'DEPONI',
+          ewcCode: '17 05 08',
+          quantityPerYear: 15000,
+        },
+      ],
+    });
+    if (!create.ok) return;
+
+    const result = await submitMassCase(create.caseId, authUser);
+
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.status).toBe(422);
+    expect(result.error).toBe('unknown_ewc_code');
+  });
+
+  it('Steg 4 — submitMassCase returnerar SNI-varningar men blockerar inte', async () => {
+    const create = await upsertMassOperations(undefined, authUser, {
+      ...BASE_INPUT,
+      operations: [
+        {
+          operationType: 'MELLANLAGRING',
+          ewcCode: '17 05 08',
+          sniCode: '38.21',
+          quantityPerYear: 15000,
+          capacityM3: 5000,
+          receiverName: 'AB Mottagning',
+          transportChain: ['Lastbil'],
+        },
+        BASE_INPUT.operations[1],
+      ],
+    });
+    if (!create.ok) return;
+
+    await generateLogisticsForCase(create.caseId, authUser, {
+      sourceAddress: 'A',
+      destinationAddress: 'B',
+      estimatedTons: 100,
+    });
+    await generateDocumentsForCase(create.caseId, authUser);
+
+    const result = await submitMassCase(create.caseId, authUser);
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.warnings?.length).toBeGreaterThan(0);
+    expect(result.warnings?.[0]).toContain('MELLANLAGRING');
+    expect(auditTrail.logAction).toHaveBeenCalledWith(
+      expect.any(String),
+      'APPLICATION_SUBMITTED',
+      'SewageApplication',
+      expect.any(String),
+      authUser.id,
+      expect.stringContaining('rådgivande SNI-varningar'),
+      expect.objectContaining({
+        severity: 'warning',
+        details: expect.objectContaining({
+          mpfPrimaryPolicy: 'EWC_PRIMARY',
+          advisoryWarningCount: 1,
+        }),
+      }),
+    );
+  });
+
   it('Fullständigt flöde — status-transition DRAFT → VALIDATED → READY → SUBMITTED', async () => {
     // Steg 1: Skapa ärende
     const create = await upsertMassOperations(undefined, authUser, BASE_INPUT);
@@ -219,6 +298,7 @@ describe('Mass C-anmälan — intern E2E (in-memory)', () => {
     expect(exportData.decisions.mellanlagring).toHaveLength(1);
     expect(exportData.decisions.deponi).toHaveLength(1);
     expect(exportData.decisions.mellanlagring[0].gateDecision).toBe('NOTIFICATION_REQUIRED');
+    expect(exportData.decisions.mellanlagring[0].mpfDecision.activityCode).toBeTruthy();
     expect(exportData.decisions.mellanlagring[0].receiverName).toBe('AB Mottagning');
     expect(exportData.propertyDesignation).toBe('STOCKHOLM BRYNÄS 1:1');
   });

@@ -4,17 +4,7 @@
  */
 
 import React, { useState } from 'react';
-import {
-  ChevronDown,
-  ChevronUp,
-  Trash2,
-  Plus,
-  AlertCircle,
-  TrendingUp,
-  CheckCircle,
-  AlertTriangle,
-  FileDown,
-} from 'lucide-react';
+import { CheckCircle, AlertTriangle, FileDown } from 'lucide-react';
 import { downloadPdfFromJson } from '../../../../services/pdfExportClient';
 import type { GeneratedGreenCheck } from '../../../../src/types/generators';
 import './green-check-editor.css';
@@ -29,19 +19,9 @@ type EditorTab = 'overview' | 'esg' | 'taxonomy' | 'regulatory' | 'financing' | 
 
 const GreenCheckEditor: React.FC<GreenCheckEditorProps> = ({ assessment, onSave, onCancel }) => {
   const [activeTab, setActiveTab] = useState<EditorTab>('overview');
-  const [editable, setEditable] = useState<GeneratedGreenCheck>(assessment);
+  const [editable] = useState<GeneratedGreenCheck>(assessment);
   const [pdfBusy, setPdfBusy] = useState(false);
   const [pdfError, setPdfError] = useState<string | null>(null);
-  const [expandedSections, setExpandedSections] = useState<Record<string, boolean>>({
-    overview: true,
-  });
-
-  const toggleSection = (key: string) => {
-    setExpandedSections((prev) => ({
-      ...prev,
-      [key]: !prev[key],
-    }));
-  };
 
   const handleSave = () => {
     onSave?.(editable);

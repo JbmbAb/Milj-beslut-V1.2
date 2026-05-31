@@ -20,11 +20,8 @@ vi.mock('../../db.server', () => ({
   },
 }));
 
-import { prisma } from '../../db.server';
 import { generateGreenCheck } from '../../server/services/greenCheckGeneratorService';
 import type { GreenCheckRequest } from '../../server/services/greenCheckGeneratorService';
-
-const mockPrisma = prisma as any;
 
 const validJsonResponse = JSON.stringify({
   esgRating: {

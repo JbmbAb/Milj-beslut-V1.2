@@ -8,7 +8,7 @@ import { apiClient } from './apiClient';
 
 export interface EmissionImpact {
   co2e: number; // kg
-  nox: number;  // g
+  nox: number; // g
   pm10: number; // g
   unit: string;
 }
@@ -24,12 +24,16 @@ export class EnvironmentalImpactService {
    * RELEVANT FOR: LogisticsModule, MarketIntelView
    * Calculates real-time transport emissions using SMED fleet factors.
    */
-  async getTransportEmissions(tonnes: number, distanceKm: number, fuelType: 'DIESEL' | 'HVO100' | 'ELECTRIC'): Promise<EmissionImpact> {
+  async getTransportEmissions(
+    tonnes: number,
+    distanceKm: number,
+    fuelType: 'DIESEL' | 'HVO100' | 'ELECTRIC',
+  ): Promise<EmissionImpact> {
     // SMED standard factors for Swedish heavy transport (2024-2026 estimates)
     const factors = {
       DIESEL: { co2: 0.11, nox: 0.45, pm: 0.02 },
       HVO100: { co2: 0.012, nox: 0.42, pm: 0.015 },
-      ELECTRIC: { co2: 0.002, nox: 0.01, pm: 0.005 }
+      ELECTRIC: { co2: 0.002, nox: 0.01, pm: 0.005 },
     };
 
     const factor = factors[fuelType];
@@ -37,7 +41,7 @@ export class EnvironmentalImpactService {
       co2e: tonnes * distanceKm * factor.co2,
       nox: tonnes * distanceKm * factor.nox,
       pm10: tonnes * distanceKm * factor.pm,
-      unit: 'kg/trip'
+      unit: 'kg/trip',
     };
   }
 
@@ -49,17 +53,17 @@ export class EnvironmentalImpactService {
   async getRegionalBaseline(lat: number, lng: number): Promise<RecipientStatus> {
     try {
       // Try to fetch real data from our PostGIS-backed environmental API
-      const response = await apiClient.get<RecipientStatus>(`/api/environmental/baseline`, {
-        params: { lat, lng }
+      const baseline = await apiClient.get<RecipientStatus>(`/api/environmental/baseline`, {
+        params: { lat, lng },
       });
-      
-      if (response.data) {
+
+      if (baseline) {
         return {
-          ...response.data,
-          source: 'DATABASE'
+          ...baseline,
+          source: 'DATABASE',
         };
       }
-    } catch (error) {
+    } catch {
       console.warn('Could not fetch real baseline, falling back to SMED mock data');
     }
 
@@ -67,7 +71,7 @@ export class EnvironmentalImpactService {
     return {
       sensitivity: 'HIGH',
       currentLoading: 'Nitrogen levels at 85% of Environmental Quality Norm (MKN) - (SMED baseline)',
-      source: 'SMED_WATER'
+      source: 'SMED_WATER',
     };
   }
 

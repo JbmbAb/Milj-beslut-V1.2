@@ -53,6 +53,7 @@ export const useProjectPlan = (projectId: string): UseProjectPlanResult => {
   }, [projectId]);
 
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     fetchPlan();
   }, [fetchPlan]);
 

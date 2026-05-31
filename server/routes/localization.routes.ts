@@ -124,7 +124,7 @@ router.get(
   '/api/localization/:projectId/audit-trail',
   requireAuth,
   rateLimitByUser(60, 60_000),
-  async (req, res, next) => {
+  async (req, res, _next) => {
     try {
       const projectId = String(req.params.projectId || '').trim();
       if (!projectId) {

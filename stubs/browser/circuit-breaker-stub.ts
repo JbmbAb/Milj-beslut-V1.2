@@ -48,7 +48,7 @@ export class CircuitBreaker {
     if (this.state === 'OPEN') {
       if (this.openedAt != null && now - this.openedAt >= this.recoveryTimeoutMs) {
         this.state = 'HALF_OPEN';
-        // eslint-disable-next-line no-console
+         
         console.info(`[CircuitBreaker ${this.name}] OPEN → HALF_OPEN (probe)`);
       } else {
         throw new Error(`${this.name} is OPEN. Request blocked`);
@@ -69,7 +69,7 @@ export class CircuitBreaker {
       if (this.state === 'HALF_OPEN' || this.failureCount >= this.failureThreshold) {
         this.state = 'OPEN';
         this.openedAt = now;
-        // eslint-disable-next-line no-console
+         
         console.warn(`[CircuitBreaker ${this.name}] OPEN after failure`, errMsg);
       }
       throw error;

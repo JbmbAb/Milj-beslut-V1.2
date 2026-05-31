@@ -1,5 +1,5 @@
 import React from 'react';
-import { ToneColor, toneColors } from '../theme/designTokens';
+import { ToneColor } from '../theme/designTokens';
 
 interface MetricCardProps {
   label: string;

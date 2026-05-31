@@ -8,9 +8,6 @@ import {
   type IndicatorScore,
   type ComplianceProfile,
 } from '../../src/domain/compliance';
-import type { Project } from '../../src/domain/project';
-import type { Requirement } from '../../src/domain/requirement';
-import type { Document } from '../../src/domain/document';
 
 describe('Domain Models', () => {
   // ── AuditEvent ───────────────────────────────────────────────────────────────
@@ -63,7 +60,7 @@ describe('Domain Models', () => {
       const originalAction = auditEvent.action;
 
       // Attempting to modify should either fail or create new object
-      const frozenEvent = Object.freeze(auditEvent);
+      Object.freeze(auditEvent);
 
       // Verify original is unchanged
       expect(auditEvent.action).toBe(originalAction);

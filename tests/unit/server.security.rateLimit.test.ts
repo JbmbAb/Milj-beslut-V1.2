@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
-import type { Request, Response, NextFunction } from 'express';
+import type { Request, Response } from 'express';
 
 vi.mock('../../server/db/prisma', () => ({
   prisma: {
@@ -27,6 +27,7 @@ describe('server/security/rateLimit', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     (prisma.$transaction as any).mockImplementation((cb: any) => cb(prisma));
+    delete process.env.DISABLE_DB_RATE_LIMIT;
   });
 
   describe('rateLimitByUser', () => {
@@ -161,6 +162,28 @@ describe('server/security/rateLimit', () => {
       expect(res.setHeader).toHaveBeenCalledWith('X-RateLimit-Remaining', '1');
       expect(res.setHeader).toHaveBeenCalledWith('X-RateLimit-Reset', expect.any(String));
     });
+
+    it('fails open when the rate limit database errors', async () => {
+      const middleware = rateLimitByUser(3, 1000);
+      const req = {
+        authUser: { id: 'user1', role: 'CONSULTANT', organisationId: 'org1', bankidId: 'bid1' },
+        ip: '127.0.0.1',
+        path: '/api/test',
+      } as unknown as Request;
+      const res = {
+        setHeader: vi.fn(),
+        status: vi.fn().mockReturnThis(),
+        json: vi.fn(),
+      } as unknown as Response;
+      const next = vi.fn();
+
+      (prisma.$transaction as any).mockRejectedValueOnce(new Error('db down'));
+
+      await middleware(req, res, next);
+
+      expect(next).toHaveBeenCalledOnce();
+      expect(res.status).not.toHaveBeenCalled();
+    });
   });
 
   describe('rateLimitByOrg', () => {
@@ -211,6 +234,26 @@ describe('server/security/rateLimit', () => {
       expect(res.status).toHaveBeenCalledWith(429);
       expect(res.json).toHaveBeenCalledWith({ ok: false, error: 'Organisation quota exceeded' });
     });
+
+    it('bypasses organisation rate limit for ADMIN users', async () => {
+      const middleware = rateLimitByOrg(1, 1000);
+      const req = {
+        authUser: { id: 'admin1', role: 'ADMIN', organisationId: 'org1', bankidId: 'bid1' },
+        ip: '127.0.0.1',
+        path: '/api/test',
+      } as unknown as Request;
+      const res = {
+        setHeader: vi.fn(),
+        status: vi.fn().mockReturnThis(),
+        json: vi.fn(),
+      } as unknown as Response;
+      const next = vi.fn();
+
+      await middleware(req, res, next);
+
+      expect(next).toHaveBeenCalledOnce();
+      expect(prismaMock.findUnique).not.toHaveBeenCalled();
+    });
   });
 
   describe('pruneExpiredBuckets', () => {
@@ -219,6 +262,33 @@ describe('server/security/rateLimit', () => {
       const count = await pruneExpiredBuckets();
       expect(count).toBe(5);
       expect(prismaMock.deleteMany).toHaveBeenCalled();
+    });
+
+    it('returns 0 when db rate limit is disabled', async () => {
+      process.env.DISABLE_DB_RATE_LIMIT = 'true';
+
+      const count = await pruneExpiredBuckets();
+
+      expect(count).toBe(0);
+      expect(prismaMock.deleteMany).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('_resetBuckets', () => {
+    it('clears buckets when enabled', async () => {
+      prismaMock.deleteMany.mockResolvedValue({ count: 2 });
+
+      await _resetBuckets();
+
+      expect(prismaMock.deleteMany).toHaveBeenCalledWith({});
+    });
+
+    it('skips clearing when db rate limit is disabled', async () => {
+      process.env.DISABLE_DB_RATE_LIMIT = 'yes';
+
+      await _resetBuckets();
+
+      expect(prismaMock.deleteMany).not.toHaveBeenCalled();
     });
   });
 });

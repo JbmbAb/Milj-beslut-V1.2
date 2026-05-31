@@ -49,7 +49,7 @@ export default defineConfig(({ mode }) => {
     const resolvedPort = parsed.port || (parsed.protocol === 'https:' ? '443' : '80');
     const isLocalHost = ['localhost', '127.0.0.1', '0.0.0.0'].includes(parsed.hostname);
     if (isLocalHost && resolvedPort === '3000') {
-      // eslint-disable-next-line no-console
+       
       console.warn(
         '[vite] VITE_API_BASE_URL pekar mot Vite-servern (3000). Byter till http://localhost:8787 för att undvika API/auth-loop.',
       );
@@ -63,7 +63,7 @@ export default defineConfig(({ mode }) => {
   const viteLantm = String(env.VITE_LANTMATERIET_OPEN_SUBSCRIPTION_KEY ?? '').trim();
   const serverLantm = String(env.LANTMATERIET_OPEN_SUBSCRIPTION_KEY ?? '').trim();
   if (viteLantm && serverLantm && viteLantm !== serverLantm) {
-    // eslint-disable-next-line no-console
+     
     console.warn(
       '[vite] Lantmäteriet: VITE_LANTMATERIET_OPEN_SUBSCRIPTION_KEY skiljer sig från LANTMATERIET_OPEN_SUBSCRIPTION_KEY — använder VITE-värdet i klienten.',
     );

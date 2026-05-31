@@ -433,6 +433,7 @@ export async function getDbStats(): Promise<DbStatsResponse> {
     sguSoilTypeRows,
     sguBlockighetRows,
     sguPunktobjektRows,
+    partitionRows,
   ] = await Promise.all([
     // Documents
     db.documentRecord.count(),
@@ -476,11 +477,28 @@ export async function getDbStats(): Promise<DbStatsResponse> {
     }),
 
     // Raw Geodata Counts (LM & SGU)
-    db.$queryRaw<any[]>`SELECT count(*)::int as count FROM core.lm_mark`.catch(() => [{ count: 0 }]),
-    db.$queryRaw<any[]>`SELECT count(*)::int as count FROM core.lm_byggnad`.catch(() => [{ count: 0 }]),
-    db.$queryRaw<any[]>`SELECT count(*)::int as count FROM env.sgu_soil_type`.catch(() => [{ count: 0 }]),
-    db.$queryRaw<any[]>`SELECT count(*)::int as count FROM env.sgu_blockighet`.catch(() => [{ count: 0 }]),
-    db.$queryRaw<any[]>`SELECT count(*)::int as count FROM env.sgu_punktobjekt`.catch(() => [{ count: 0 }]),
+    db.$queryRaw<any[]>`SELECT count(*)::int as count FROM public.env_lm_marktacke`.catch(() => [{ count: 0 }]),
+    db.$queryRaw<any[]>`SELECT count(*)::int as count FROM core.property_unit`.catch(() => [{ count: 0 }]),
+    db.$queryRaw<any[]>`SELECT count(*)::int as count FROM env.env_sgu_jordarter`.catch(() => [{ count: 0 }]),
+    db.$queryRaw<any[]>`SELECT count(*)::int as count FROM env.env_sgu_grundvatten_sarbarhet`.catch(() => [{ count: 0 }]),
+    db.$queryRaw<any[]>`SELECT count(*)::int as count FROM public.env_viss_vattenforekomster`.catch(() => [{ count: 0 }]),
+
+    // Partition Stats (PostgreSQL specific metadata)
+    db.$queryRaw<any[]>`
+      SELECT
+          nmsp_parent.nspname AS schema_name,
+          rel_parent.relname AS table_name,
+          rel_child.relname AS partition_name,
+          pg_get_partkeydef(rel_parent.oid) AS partition_key,
+          reltuples::bigint AS row_count,
+          pg_total_relation_size(rel_child.oid) AS size_bytes
+      FROM pg_inherits
+      JOIN pg_class rel_parent ON pg_inherits.inhparent = rel_parent.oid
+      JOIN pg_class rel_child ON pg_inherits.inhrelid = rel_child.oid
+      JOIN pg_namespace nmsp_parent ON nmsp_parent.oid = rel_parent.relnamespace
+      WHERE rel_parent.relkind = 'p'
+      ORDER BY table_name, partition_name;
+    `.catch(() => []),
   ]);
 
   const lmMarkCount = Number(lmMarkRows?.[0]?.count ?? 0);
@@ -488,6 +506,14 @@ export async function getDbStats(): Promise<DbStatsResponse> {
   const sguJordarterCount = Number(sguSoilTypeRows?.[0]?.count ?? 0);
   const sguBlockighetCount = Number(sguBlockighetRows?.[0]?.count ?? 0);
   const sguPunktobjektCount = Number(sguPunktobjektRows?.[0]?.count ?? 0);
+
+  const partitions = partitionRows.map((row) => ({
+    tableName: row.table_name,
+    partitionName: row.partition_name,
+    partitionKey: row.partition_key,
+    rowCount: Number(row.row_count),
+    sizeBytes: Number(row.size_bytes),
+  }));
 
   // ── Build per-municipality document counts ───────────────────────────────
   const docMap = new Map<string, number>();

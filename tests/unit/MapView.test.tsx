@@ -23,6 +23,13 @@ vi.mock('../../src/ui/hooks/useGeoLayers', () => ({
     auditRisk: null,
     mutateAsync: vi.fn().mockResolvedValue('GIS result'),
   })),
+  useOgcFederatedMapLayers: vi.fn(() => ({
+    wmsLayers: [],
+    catalogLabelById: new Map(),
+    warnings: [],
+    isLoading: false,
+    isError: false,
+  })),
 }));
 
 vi.mock('./project/MapConfig', async () => ({

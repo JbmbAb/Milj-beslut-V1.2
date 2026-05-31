@@ -51,7 +51,6 @@ describe('sewageApplicationService', () => {
     });
 
     it('NEIGHBOR_CONSENT gate PENDING när brunn < 50 m', async () => {
-      const { buildDefaultProtectionProfile } = await import('../../../server/modules/sewage/applicationOrchestrator');
       const app = await createSewageApplication({
         ...BASE_REQUEST,
         protectionProfile: {
@@ -61,7 +60,13 @@ describe('sewageApplicationService', () => {
           nearestWell: { distance: 30, owner: 'NEIGHBOR', coordinates: { lat: 60.67, lng: 17.14 } },
           nearestWaterCourse: { distance: 100, type: 'Bäck' },
           distanceToPropertyLine: 8,
-          soilProfile: { soilType: 'Morän', depthToRock: 3, groundwaterLevel: 2, infiltrationCapacity: 'MEDIUM', permeability: 20 },
+          soilProfile: {
+            soilType: 'Morän',
+            depthToRock: 3,
+            groundwaterLevel: 2,
+            infiltrationCapacity: 'MEDIUM',
+            permeability: 20,
+          },
           floodRisk: 'LOW',
           protectedNatureNearby: false,
           recommendedSystem: 'INFILTRATION',
@@ -98,7 +103,8 @@ describe('sewageApplicationService', () => {
     it('bevarar befintligt protectionProfile efter soilTest-uppdatering', async () => {
       const app = await createSewageApplication(BASE_REQUEST);
       await updateSoilTestResults(app.id, 20, '2026-05-01');
-      const { getSewageApplicationById } = await import('../../../server/repositories/sewageApplicationRepository');
+      const { getSewageApplicationById } =
+        await import('../../../server/repositories/sewageApplicationRepository');
       const record = await getSewageApplicationById(app.id);
       expect(record?.domainSnapshot?.protectionProfile?.protectionLevel).toBe('NORMAL');
     });
@@ -144,13 +150,33 @@ describe('sewageApplicationService', () => {
         protectionLevel: 'HIGH' as const,
       };
       await changeSewageSystem(app.id, 'MINI_PLANT_BDTA', newProfile);
-      const { getSewageApplicationById } = await import('../../../server/repositories/sewageApplicationRepository');
+      const { getSewageApplicationById } =
+        await import('../../../server/repositories/sewageApplicationRepository');
       const record = await getSewageApplicationById(app.id);
       expect(record?.domainSnapshot?.protectionProfile?.protectionLevel).toBe('HIGH');
     });
 
     it('returnerar null för okänt ID', async () => {
-      const dummy = { propertyId: 'x', protectionLevel: 'NORMAL' as const, reason: '', nearestWell: { distance: 80, owner: 'NEIGHBOR' as const, coordinates: { lat: 0, lng: 0 } }, nearestWaterCourse: { distance: 100, type: '' }, distanceToPropertyLine: 8, soilProfile: { soilType: '', depthToRock: 0, groundwaterLevel: 0, infiltrationCapacity: 'MEDIUM' as const, permeability: 0 }, floodRisk: 'LOW' as const, protectedNatureNearby: false, recommendedSystem: 'INFILTRATION' as const, timelineEstimateWeeks: 8, requiredGates: [] };
+      const dummy = {
+        propertyId: 'x',
+        protectionLevel: 'NORMAL' as const,
+        reason: '',
+        nearestWell: { distance: 80, owner: 'NEIGHBOR' as const, coordinates: { lat: 0, lng: 0 } },
+        nearestWaterCourse: { distance: 100, type: '' },
+        distanceToPropertyLine: 8,
+        soilProfile: {
+          soilType: '',
+          depthToRock: 0,
+          groundwaterLevel: 0,
+          infiltrationCapacity: 'MEDIUM' as const,
+          permeability: 0,
+        },
+        floodRisk: 'LOW' as const,
+        protectedNatureNearby: false,
+        recommendedSystem: 'INFILTRATION' as const,
+        timelineEstimateWeeks: 8,
+        requiredGates: [],
+      };
       const result = await changeSewageSystem('bad-id', 'SOIL_BED', dummy);
       expect(result).toBeNull();
     });
@@ -162,7 +188,8 @@ describe('sewageApplicationService', () => {
     async function readyApp() {
       const app = await createSewageApplication(BASE_REQUEST);
       await updateSoilTestResults(app.id, 15, '2026-05-21');
-      const { updateSewageApplicationRecord } = await import('../../../server/repositories/sewageApplicationRepository');
+      const { updateSewageApplicationRecord } =
+        await import('../../../server/repositories/sewageApplicationRepository');
       await updateSewageApplicationRecord(app.id, {
         domainSnapshot: {
           ...app.domainSnapshot,
@@ -194,7 +221,8 @@ describe('sewageApplicationService', () => {
 
     it('canSubmit=false och blocker för saknad tvärsektion', async () => {
       const app = await createSewageApplication(BASE_REQUEST);
-      const { updateSewageApplicationRecord } = await import('../../../server/repositories/sewageApplicationRepository');
+      const { updateSewageApplicationRecord } =
+        await import('../../../server/repositories/sewageApplicationRepository');
       await updateSewageApplicationRecord(app.id, {
         domainSnapshot: {
           ...app.domainSnapshot,
@@ -211,7 +239,8 @@ describe('sewageApplicationService', () => {
 
     it('canSubmit=false och blocker för saknad markundersökning (INFILTRATION)', async () => {
       const app = await createSewageApplication(BASE_REQUEST);
-      const { updateSewageApplicationRecord } = await import('../../../server/repositories/sewageApplicationRepository');
+      const { updateSewageApplicationRecord } =
+        await import('../../../server/repositories/sewageApplicationRepository');
       await updateSewageApplicationRecord(app.id, {
         domainSnapshot: {
           ...app.domainSnapshot,
@@ -221,7 +250,9 @@ describe('sewageApplicationService', () => {
         },
       });
       const result = await validateApplicationForSubmission(app.id);
-      expect(result.blockers.some((b) => b.includes('Markundersökning') || b.includes('markundersökning'))).toBe(true);
+      expect(
+        result.blockers.some((b) => b.includes('Markundersökning') || b.includes('markundersökning')),
+      ).toBe(true);
     });
 
     it('canSubmit=false när HIGH-prioritet gate är PENDING', async () => {
@@ -258,7 +289,8 @@ describe('sewageApplicationService', () => {
 
     it('använder timelineEstimateWeeks från protectionProfile', async () => {
       const app = await createSewageApplication(BASE_REQUEST);
-      const { updateSewageApplicationRecord } = await import('../../../server/repositories/sewageApplicationRepository');
+      const { updateSewageApplicationRecord } =
+        await import('../../../server/repositories/sewageApplicationRepository');
       await updateSewageApplicationRecord(app.id, {
         domainSnapshot: {
           protectionProfile: {
@@ -268,7 +300,13 @@ describe('sewageApplicationService', () => {
             nearestWell: { distance: 80, owner: 'NEIGHBOR', coordinates: { lat: 60, lng: 17 } },
             nearestWaterCourse: { distance: 100, type: 'Bäck' },
             distanceToPropertyLine: 8,
-            soilProfile: { soilType: 'Morän', depthToRock: 3, groundwaterLevel: 2, infiltrationCapacity: 'MEDIUM', permeability: 20 },
+            soilProfile: {
+              soilType: 'Morän',
+              depthToRock: 3,
+              groundwaterLevel: 2,
+              infiltrationCapacity: 'MEDIUM',
+              permeability: 20,
+            },
             floodRisk: 'LOW',
             protectedNatureNearby: false,
             recommendedSystem: 'INFILTRATION',

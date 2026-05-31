@@ -22,7 +22,7 @@ beforeAll(() => {
 describe('TechnicalDashboardHub', () => {
   it('renders branding text', () => {
     render(<TechnicalDashboardHub onSelectModule={vi.fn()} />);
-    expect(screen.getByText(/Miljöbeslut/i)).toBeInTheDocument();
+    expect(screen.getAllByText(/Miljöbeslut/i).length).toBeGreaterThanOrEqual(1);
     expect(screen.getByText(/Miljöbeslut 2\.0/i)).toBeInTheDocument();
   });
 

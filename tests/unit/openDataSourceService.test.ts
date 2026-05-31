@@ -89,7 +89,7 @@ describe('openDataSourceService', () => {
   it('reports missing optional credentials and local source paths', async () => {
     const result = await fetchImmediateOpenSources();
 
-    expect(result).toHaveLength(15);
+    expect(result).toHaveLength(16);
     expect(result.find((row) => row.source === 'trafikverket')).toMatchObject({
       ok: false,
       details: expect.stringContaining('TRAFIKVERKET_API_KEY'),

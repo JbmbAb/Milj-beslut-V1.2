@@ -110,10 +110,8 @@ def log(msg):
 _token = None
 _token_expires = 0
 
-def get_token():
+def _refresh_token():
     global _token, _token_expires
-    if _token and time.time() < _token_expires - 60:
-        return _token
     data = urllib.parse.urlencode({"grant_type": "client_credentials"}).encode()
     import base64
     creds = base64.b64encode(f"{CONSUMER_KEY}:{CONSUMER_SECRET}".encode()).decode()
@@ -126,19 +124,44 @@ def get_token():
     _token_expires = time.time() + body.get("expires_in", 3600)
     return _token
 
+def get_token():
+    global _token, _token_expires
+    if _token and time.time() < _token_expires - 60:
+        return _token
+    return _refresh_token()
+
+def _force_new_token():
+    global _token, _token_expires
+    _token = None
+    _token_expires = 0
+    time.sleep(2)
+    return _refresh_token()
+
 def _fetch(url):
     req = urllib.request.Request(url, headers={"Authorization": f"Bearer {get_token()}"})
     with urllib.request.urlopen(req) as resp:
         return json.loads(resp.read())
 
 def _download(url, dest: pathlib.Path):
-    req = urllib.request.Request(url, headers={"Authorization": f"Bearer {get_token()}"})
-    with urllib.request.urlopen(req) as resp, open(dest, "wb") as f:
-        while True:
-            chunk = resp.read(1 << 20)  # 1 MB
-            if not chunk:
-                break
-            f.write(chunk)
+    import urllib.error
+    for attempt in range(4):
+        try:
+            req = urllib.request.Request(url, headers={"Authorization": f"Bearer {get_token()}"})
+            with urllib.request.urlopen(req) as resp, open(dest, "wb") as f:
+                while True:
+                    chunk = resp.read(1 << 20)  # 1 MB
+                    if not chunk:
+                        break
+                    f.write(chunk)
+            return
+        except urllib.error.HTTPError as e:
+            if e.code == 401 and attempt < 3:
+                wait = 5 * (attempt + 1)
+                log(f"    401 – hämtar ny token och försöker igen om {wait}s (försök {attempt+1}/3)...")
+                time.sleep(wait)
+                _force_new_token()
+            else:
+                raise
 
 # ── STAC-items ───────────────────────────────────────────────────────────────
 def fetch_all_items(collection):

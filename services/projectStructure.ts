@@ -23,6 +23,7 @@ import type {
   SamplingPreparation,
   StageGateType,
 } from '../types';
+import { resolvePermitCodeProfile } from './mpfEngine';
 
 export const PROJECT_STRUCTURE_STORAGE_KEY = 'miljobeslut_project_structure_v2';
 export const PROJECT_STRUCTURE_SCHEMA_VERSION = 2;
@@ -140,98 +141,6 @@ const TRANSPORT_FACTORS: Record<CarbonInput['transportMode'], Record<CarbonInput
   SHIP: { SOIL: 0.015, ROCK: 0.014, WASTE: 0.02, MIXED: 0.017 },
 };
 
-interface PermitCodeRule {
-  code: string;
-  codeType: PermitCodeProfile['codeType'];
-  legalReference: string;
-  regulatoryTrack: PermitCodeProfile['regulatoryTrack'];
-  thresholdTon: number | null;
-  thresholdScope: PermitCodeProfile['thresholdScope'];
-  riskTier: PermitCodeProfile['riskTier'];
-  requiredMapLayers: MapLayerKey[];
-  timelineBufferWeeks: number;
-}
-
-const MPF_CODE_RULES: PermitCodeRule[] = [
-  {
-    code: '90.131',
-    codeType: 'SNI',
-    legalReference: 'Miljöprövningsförordningen 29 kap. 31 par.',
-    regulatoryTrack: 'NOTIFICATION',
-    thresholdTon: null,
-    thresholdScope: null,
-    riskTier: 'LOW',
-    requiredMapLayers: ['CADASTRE', 'FLOOD_RISK'],
-    timelineBufferWeeks: 0,
-  },
-  {
-    code: '90.30',
-    codeType: 'SNI',
-    legalReference: 'Miljöprövningsförordningen 29 kap. 30 par.',
-    regulatoryTrack: 'NOTIFICATION',
-    thresholdTon: 10,
-    thresholdScope: 'AT_ONCE',
-    riskTier: 'MEDIUM',
-    requiredMapLayers: ['CADASTRE', 'FLOOD_RISK', 'GROUNDWATER'],
-    timelineBufferWeeks: 1,
-  },
-  {
-    code: '90.50',
-    codeType: 'SNI',
-    legalReference: 'Miljöprövningsförordningen 29 kap. 50 par.',
-    regulatoryTrack: 'NOTIFICATION',
-    thresholdTon: 25,
-    thresholdScope: 'AT_ONCE',
-    riskTier: 'HIGH',
-    requiredMapLayers: ['CADASTRE', 'FLOOD_RISK', 'GROUNDWATER', 'NATURA2000'],
-    timelineBufferWeeks: 2,
-  },
-  {
-    code: '90.80',
-    codeType: 'SNI',
-    legalReference: 'Miljöprövningsförordningen 29 kap. 80 par.',
-    regulatoryTrack: 'NOTIFICATION',
-    thresholdTon: 1000,
-    thresholdScope: 'PER_YEAR',
-    riskTier: 'MEDIUM',
-    requiredMapLayers: ['CADASTRE', 'FLOOD_RISK', 'NOISE'],
-    timelineBufferWeeks: 1,
-  },
-  {
-    code: '90.110',
-    codeType: 'SNI',
-    legalReference: 'Miljöprövningsförordningen 29 kap. 110 par.',
-    regulatoryTrack: 'NOTIFICATION',
-    thresholdTon: 10000,
-    thresholdScope: 'PER_YEAR',
-    riskTier: 'MEDIUM',
-    requiredMapLayers: ['CADASTRE', 'FLOOD_RISK', 'NOISE'],
-    timelineBufferWeeks: 1,
-  },
-  {
-    code: '17 05 04',
-    codeType: 'EWC',
-    legalReference: 'Avfallsförordningen bilaga 3',
-    regulatoryTrack: 'NOTIFICATION',
-    thresholdTon: null,
-    thresholdScope: null,
-    riskTier: 'LOW',
-    requiredMapLayers: ['CADASTRE', 'SOIL'],
-    timelineBufferWeeks: 0,
-  },
-  {
-    code: '17 05 03*',
-    codeType: 'EWC',
-    legalReference: 'Avfallsförordningen bilaga 3',
-    regulatoryTrack: 'PERMIT',
-    thresholdTon: null,
-    thresholdScope: null,
-    riskTier: 'HIGH',
-    requiredMapLayers: ['CADASTRE', 'SOIL', 'GROUNDWATER', 'NATURA2000'],
-    timelineBufferWeeks: 2,
-  },
-];
-
 const DEFAULT_TEMPLATE_ID = 'ENV_PERMIT_CORE';
 
 function dedupeLayers(input: MapLayerKey[]): MapLayerKey[] {
@@ -256,64 +165,12 @@ function normalizeMapLayerList(input: unknown): MapLayerKey[] {
   return dedupeLayers(input.filter(asMapLayer));
 }
 
-function normalizePermitCode(code: string): string {
-  return String(code || '')
-    .trim()
-    .replace(/\s+/g, '')
-    .toUpperCase();
-}
-
-function findPermitCodeRule(code: string, codeType?: PermitCodeProfile['codeType']): PermitCodeRule | null {
-  const normalizedCode = normalizePermitCode(code);
-  if (!normalizedCode) return null;
-
-  const rule = MPF_CODE_RULES.find((candidate) => {
-    if (codeType && candidate.codeType !== codeType) return false;
-    return normalizePermitCode(candidate.code) === normalizedCode;
-  });
-  return rule || null;
-}
-
 export function buildPermitCodeProfile(input: {
   code: string;
   codeType: PermitCodeProfile['codeType'];
   municipality?: string;
 }): PermitCodeProfile {
-  const rule = findPermitCodeRule(input.code, input.codeType);
-
-  if (!rule) {
-    return {
-      code: input.code,
-      codeType: input.codeType,
-      legalReference: 'Manual legal verification required',
-      regulatoryTrack: 'NONE',
-      thresholdTon: null,
-      thresholdScope: null,
-      riskTier: 'MEDIUM',
-      requiresGeofencing: true,
-      requiredMapLayers: input.codeType === 'EWC' ? ['CADASTRE', 'SOIL'] : ['CADASTRE', 'FLOOD_RISK'],
-      timelineBufferWeeks: 1,
-      humanReviewRequired: true,
-      reviewNote: 'Auto classification is advisory only and must be approved by a human legal reviewer.',
-      municipality: input.municipality || null,
-    };
-  }
-
-  return {
-    code: rule.code,
-    codeType: rule.codeType,
-    legalReference: rule.legalReference,
-    regulatoryTrack: rule.regulatoryTrack,
-    thresholdTon: rule.thresholdTon,
-    thresholdScope: rule.thresholdScope,
-    riskTier: rule.riskTier,
-    requiresGeofencing: rule.requiredMapLayers.length > 0,
-    requiredMapLayers: dedupeLayers(rule.requiredMapLayers),
-    timelineBufferWeeks: Math.max(0, rule.timelineBufferWeeks),
-    humanReviewRequired: true,
-    reviewNote: 'Auto classification is advisory only and must be approved by a human legal reviewer.',
-    municipality: input.municipality || null,
-  };
+  return resolvePermitCodeProfile(input);
 }
 
 function adjustPhasesForPermitProfile(

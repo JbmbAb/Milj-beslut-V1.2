@@ -19,7 +19,6 @@ import {
 } from '../../server/modules/sewage/applicationOrchestrator';
 import {
   createSewageApplicationRecord,
-  updateSewageApplicationRecord,
   __clearSewageApplicationStoreForTests,
 } from '../../server/repositories/sewageApplicationRepository';
 import type { SewageDomainSnapshot } from '../../server/repositories/sewageApplicationRepository';

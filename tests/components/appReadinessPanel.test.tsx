@@ -11,7 +11,7 @@
 
 import React from 'react';
 import { render, screen, waitFor, fireEvent } from '@testing-library/react';
-import { vi, describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { vi, describe, it, expect, afterEach } from 'vitest';
 
 import AppReadinessPanel from '../../components/AppReadinessPanel';
 

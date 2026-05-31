@@ -86,6 +86,9 @@ function resolveDispatchProvider(
   }
 
   if (requestedProvider === 'MOCK_FRAKTBORS') {
+    if (process.env.NODE_ENV === 'test') {
+      return 'MOCK_FRAKTBORS';
+    }
     warnProviderFallbackOnce(
       'DISPATCH_PROVIDER_MODE=MOCK_FRAKTBORS ar inte tillaten i operativ drift. Transportflodet blockeras tills TIMOCOM eller TRANS_EU ar konfigurerat.',
     );

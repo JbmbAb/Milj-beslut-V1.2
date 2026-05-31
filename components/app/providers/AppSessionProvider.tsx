@@ -1,3 +1,4 @@
+/* eslint-disable react-refresh/only-export-components */
 import React, {
   createContext,
   useCallback,
@@ -20,7 +21,7 @@ import {
 
 export type AppSessionState = 'loading' | 'unauthenticated' | 'ready' | 'error';
 
-function shouldForceReauthentication(error: unknown): boolean {
+export function shouldForceReauthentication(error: unknown): boolean {
   if (!(error instanceof Error)) return false;
   const message = error.message.toLowerCase();
   return (
@@ -29,7 +30,12 @@ function shouldForceReauthentication(error: unknown): boolean {
     message.includes('unauthorized') ||
     message.includes('forbidden') ||
     message.includes('session expired') ||
-    message.includes('token')
+    message.includes('token expired') ||
+    message.includes('invalid token') ||
+    message.includes('invalid access token') ||
+    message.includes('missing bearer token') ||
+    message.includes('token has been revoked') ||
+    message.includes('refresh token reuse')
   );
 }
 
@@ -50,6 +56,8 @@ const AppSessionContext = createContext<AppSessionContextValue | null>(null);
 
 export function AppSessionProvider({ children }: { children: ReactNode }) {
   const hasAutoOpenedWorkspaceRef = useRef(false);
+  const bootstrapInFlightRef = useRef<Promise<void> | null>(null);
+  const bootstrapEpochRef = useRef(0);
   const [sessionState, setSessionState] = useState<AppSessionState>(() =>
     getToken() ? 'loading' : 'unauthenticated',
   );
@@ -66,58 +74,75 @@ export function AppSessionProvider({ children }: { children: ReactNode }) {
     return payload.bootstrap;
   }, []);
 
+  const applyBootstrapSuccess = useCallback((epoch: number, nextBootstrap: AppBootstrapResponse) => {
+    if (epoch !== bootstrapEpochRef.current) return;
+    setBootstrap(nextBootstrap);
+    setSessionUser({
+      id: nextBootstrap.user.id,
+      name: nextBootstrap.user.displayName,
+      personalNumber: nextBootstrap.user.bankidId,
+      isAuthenticated: true,
+    });
+    setSessionState('ready');
+    setSessionError('');
+    setActiveProjectId(nextBootstrap.activeProjectId);
+  }, []);
+
+  const applyBootstrapFailure = useCallback((epoch: number, resolvedError: unknown) => {
+    if (epoch !== bootstrapEpochRef.current) return;
+    const stillHasSession = Boolean(getToken());
+    hasAutoOpenedWorkspaceRef.current = false;
+    setBootstrap(null);
+    setSessionUser(null);
+    setSessionState(stillHasSession ? 'error' : 'unauthenticated');
+    setSessionError(
+      resolvedError instanceof Error ? resolvedError.message : 'Kunde inte ladda appstart.',
+    );
+  }, []);
+
   const loadBootstrap = useCallback(
     async (allowRefresh = true) => {
-      try {
-        const nextBootstrap = await requestBootstrap();
-        setBootstrap(nextBootstrap);
-        setSessionUser({
-          id: nextBootstrap.user.id,
-          name: nextBootstrap.user.displayName,
-          personalNumber: nextBootstrap.user.bankidId,
-          isAuthenticated: true,
-        });
-        setSessionState('ready');
-        setSessionError('');
-        setActiveProjectId(nextBootstrap.activeProjectId);
-      } catch (error: unknown) {
-        let resolvedError: unknown = error;
-        if (allowRefresh && getToken()) {
-          try {
-            await refreshAccessSession();
-            const nextBootstrap = await requestBootstrap();
-            setBootstrap(nextBootstrap);
-            setSessionUser({
-              id: nextBootstrap.user.id,
-              name: nextBootstrap.user.displayName,
-              personalNumber: nextBootstrap.user.bankidId,
-              isAuthenticated: true,
-            });
-            setSessionState('ready');
-            setSessionError('');
-            setActiveProjectId(nextBootstrap.activeProjectId);
-            return;
-          } catch (refreshError: unknown) {
-            resolvedError = refreshError;
-            if (shouldForceReauthentication(refreshError)) {
-              clearSession();
-            }
-          }
-        } else if (shouldForceReauthentication(error)) {
-          clearSession();
-        }
-
-        const stillHasSession = Boolean(getToken());
-        hasAutoOpenedWorkspaceRef.current = false;
-        setBootstrap(null);
-        setSessionUser(null);
-        setSessionState(stillHasSession ? 'error' : 'unauthenticated');
-        setSessionError(
-          resolvedError instanceof Error ? resolvedError.message : 'Kunde inte ladda appstart.',
-        );
+      if (bootstrapInFlightRef.current) {
+        return bootstrapInFlightRef.current;
       }
+
+      const epoch = bootstrapEpochRef.current;
+
+      const run = async () => {
+        try {
+          const nextBootstrap = await requestBootstrap();
+          applyBootstrapSuccess(epoch, nextBootstrap);
+        } catch (error: unknown) {
+          let resolvedError: unknown = error;
+          if (allowRefresh && getToken()) {
+            try {
+              await refreshAccessSession();
+              const nextBootstrap = await requestBootstrap();
+              applyBootstrapSuccess(epoch, nextBootstrap);
+              return;
+            } catch (refreshError: unknown) {
+              resolvedError = refreshError;
+              if (shouldForceReauthentication(refreshError)) {
+                clearSession();
+              }
+            }
+          } else if (shouldForceReauthentication(error)) {
+            clearSession();
+          }
+
+          applyBootstrapFailure(epoch, resolvedError);
+        }
+      };
+
+      const promise = run().finally(() => {
+        if (bootstrapInFlightRef.current === promise) {
+          bootstrapInFlightRef.current = null;
+        }
+      });
+      bootstrapInFlightRef.current = promise;
+      return promise;
     },
-    [requestBootstrap],
+    [applyBootstrapFailure, applyBootstrapSuccess, requestBootstrap],
   );
 
   useEffect(() => {
@@ -135,6 +160,7 @@ export function AppSessionProvider({ children }: { children: ReactNode }) {
 
   const onLoginSuccess = useCallback(
     (user: User) => {
+      bootstrapEpochRef.current += 1;
       setSessionUser(user);
       setSessionState('loading');
       void loadBootstrap();

@@ -1,10 +1,10 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { DecisionType, Permit, Receiver } from '../types';
 import { fetchMunicipalityContext } from '../services/geminiService';
-import { useMapLayerCatalog, useSpatialAudit } from '../src/ui/hooks/useGeoLayers';
+import { useMapLayerCatalog, useOgcFederatedMapLayers, useSpatialAudit } from '../src/ui/hooks/useGeoLayers';
+import type { MapLayerCatalogEntry } from '../src/ui/api-client/geo.client';
 import {
   DYNAMIC_BBOX_LAYER_CONFIG,
-  DynamicBboxLayerKey,
   FLOOD_RISK_STYLE,
   getMarkCoverStyle,
   getSguCoastalErosionStyle,
@@ -25,6 +25,9 @@ import {
   SGU_WELL_POINT_STYLE,
   STATIC_OVERLAY_CONFIG,
   WATER_CATCHMENT_STYLE,
+  MAIN_CATCHMENT_STYLE,
+  getDatasetLeafletStyleBundle,
+  type CatalogLayerStyleHint,
   WATER_PROTECTION_STYLE,
   TOPO10_BUILDINGS_STYLE,
   TOPO10_MARK_STYLE,
@@ -252,6 +255,42 @@ const MapView: React.FC<MapViewProps> = ({
 
   const spatialAudit = useSpatialAudit();
   const mapLayerCatalog = useMapLayerCatalog();
+  const ogcFederated = useOgcFederatedMapLayers();
+  const federatedWmsConfigRef = useRef<Map<string, { baseUrl: string; layers: string; version: string }>>(
+    new Map(),
+  );
+
+  const layerFetchConfig = useMemo(() => {
+    const config: Record<string, { endpoint: string; emptyMessage: string; label: string }> = {
+      ...(Object.fromEntries(
+        Object.entries(DYNAMIC_BBOX_LAYER_CONFIG).map(([key, cfg]) => [key, cfg]),
+      ) as Record<string, { endpoint: string; emptyMessage: string; label: string }>),
+    };
+    const catalogEntries = Array.isArray(mapLayerCatalog.data) ? mapLayerCatalog.data : [];
+    for (const entry of catalogEntries) {
+      const key = SERVER_TO_UI_LAYER_KEY[entry.key] ?? entry.key;
+      if (!config[key] && entry.endpoint) {
+        config[key] = {
+          endpoint: entry.endpoint,
+          label: entry.label,
+          emptyMessage: `Inga ${entry.label} i aktuell kartvy.`,
+        };
+      }
+    }
+    return config;
+  }, [mapLayerCatalog.data]);
+
+  const catalogMinZoom = useMemo(() => {
+    const zooms: Record<string, number> = { ...HEAVY_LAYER_MIN_ZOOM };
+    const catalogEntries = Array.isArray(mapLayerCatalog.data) ? mapLayerCatalog.data : [];
+    for (const entry of catalogEntries) {
+      const key = SERVER_TO_UI_LAYER_KEY[entry.key] ?? entry.key;
+      if (typeof entry.minZoom === 'number') {
+        zooms[key] = entry.minZoom;
+      }
+    }
+    return zooms;
+  }, [mapLayerCatalog.data]);
 
   const overlayDescriptors = useMemo<OverlayDescriptor[]>(() => {
     const resolved = new Map<string, OverlayDescriptor>();
@@ -264,9 +303,7 @@ const MapView: React.FC<MapViewProps> = ({
     const catalogEntries = Array.isArray(mapLayerCatalog.data) ? mapLayerCatalog.data : [];
     for (const entry of catalogEntries) {
       const resolvedKey = SERVER_TO_UI_LAYER_KEY[entry.key] ?? entry.key;
-      if (resolvedKey in DYNAMIC_BBOX_LAYER_CONFIG || resolvedKey in STATIC_OVERLAY_CONFIG) {
-        add(resolvedKey, entry.label);
-      }
+      add(resolvedKey, entry.label);
     }
 
     (Object.entries(STATIC_OVERLAY_CONFIG) as Array<[string, { label: string }]>).forEach(([key, cfg]) => {
@@ -283,6 +320,42 @@ const MapView: React.FC<MapViewProps> = ({
 
     return Array.from(resolved.values());
   }, [mapLayerCatalog.data]);
+
+  useEffect(() => {
+    const next = new Map<string, { baseUrl: string; layers: string; version: string }>();
+    for (const layer of ogcFederated.wmsLayers) {
+      if (layer.wms) {
+        next.set(layer.layerKey, layer.wms);
+      }
+    }
+    federatedWmsConfigRef.current = next;
+  }, [ogcFederated.wmsLayers]);
+
+  const federatedOverlayDescriptors = useMemo<OverlayDescriptor[]>(() => {
+    return ogcFederated.wmsLayers.map((layer) => {
+      const catalogId = /^ogc_wms:([^:]+):/.exec(layer.layerKey)?.[1] ?? '';
+      const catalogLabel = ogcFederated.catalogLabelById.get(catalogId) ?? 'WMS';
+      const shortLabel = (layer.title?.trim() || layer.name).slice(0, 48);
+      return {
+        key: layer.layerKey,
+        label: `${catalogLabel.replace(/\s*\(WMS\)\s*/i, '').slice(0, 14)} · ${shortLabel}`,
+      };
+    });
+  }, [ogcFederated.wmsLayers, ogcFederated.catalogLabelById]);
+
+  const ensureOgcWmsLayer = useCallback((layerKey: string) => {
+    if (layersRef.current[layerKey]) return;
+    const cfg = federatedWmsConfigRef.current.get(layerKey);
+    const L = (window as { L?: { tileLayer: { wms: (...args: unknown[]) => unknown } } }).L;
+    if (!cfg || !L) return;
+    layersRef.current[layerKey] = L.tileLayer.wms(cfg.baseUrl, {
+      layers: cfg.layers,
+      format: 'image/png',
+      transparent: true,
+      opacity: 0.65,
+      version: cfg.version || '1.3.0',
+    });
+  }, []);
 
   const markerCoordinates = useMemo(() => {
     const permitCoords = permits
@@ -311,114 +384,118 @@ const MapView: React.FC<MapViewProps> = ({
     return [west, south, east, north].join(',');
   };
 
-  const refreshDynamicBboxLayer = useCallback(async (layerKey: DynamicBboxLayerKey) => {
-    const map = mapRef.current;
-    const layer = layersRef.current[layerKey];
-    const config = DYNAMIC_BBOX_LAYER_CONFIG[layerKey];
-    if (!map || !layer || !config) {
-      setOverlayStatuses((prev) => ({ ...prev, [layerKey]: 'not_configured' }));
-      return;
-    }
+  const refreshDynamicBboxLayer = useCallback(
+    async function refreshDynamicBboxLayerInternal(layerKey: string) {
+      const map = mapRef.current;
+      const layer = layersRef.current[layerKey];
+      const config = layerFetchConfig[layerKey];
+      if (!map || !layer || !config) {
+        setOverlayStatuses((prev) => ({ ...prev, [layerKey]: 'not_configured' }));
+        return;
+      }
 
-    // (#9) Tunga lager: stoppa fetch när användaren är för utzoomad så att
-    // klienten inte försöker rendera hundratusentals features. Tröskeln rensar
-    // också tidigare data så lagret inte ligger kvar som "loaded" felaktigt.
-    const minZoom = HEAVY_LAYER_MIN_ZOOM[layerKey];
-    if (typeof minZoom === 'number') {
-      const zoom = typeof map.getZoom === 'function' ? Number(map.getZoom()) : NaN;
-      if (Number.isFinite(zoom) && zoom < minZoom) {
-        try {
-          layer.clearLayers?.();
-        } catch {
-          /* mock-säker */
+      // (#9) Tunga lager: stoppa fetch när användaren är för utzoomad så att
+      // klienten inte försöker rendera hundratusentals features. Tröskeln rensar
+      // också tidigare data så lagret inte ligger kvar som "loaded" felaktigt.
+      const minZoom = catalogMinZoom[layerKey];
+      if (typeof minZoom === 'number') {
+        const zoom = typeof map.getZoom === 'function' ? Number(map.getZoom()) : NaN;
+        if (Number.isFinite(zoom) && zoom < minZoom) {
+          try {
+            layer.clearLayers?.();
+          } catch {
+            /* mock-säker */
+          }
+          setOverlayStatuses((prev) => ({ ...prev, [layerKey]: 'empty' }));
+          setMapNotice(`Zooma in (≥ ${minZoom}) för att ladda ${config.label}.`);
+          return;
         }
-        setOverlayStatuses((prev) => ({ ...prev, [layerKey]: 'empty' }));
-        setMapNotice(`Zooma in (≥ ${minZoom}) för att ladda ${config.label}.`);
-        return;
-      }
-    }
-
-    let bbox = toBboxParam(map);
-    if (!bbox) {
-      map.invalidateSize?.(false);
-      await new Promise((resolve) => window.setTimeout(resolve, 150));
-      bbox = toBboxParam(map);
-    }
-    if (!bbox) {
-      // (#1) Tysta tidigare gjorde att lagret aktiverades utan feedback. Nu
-      // visar vi tydlig status + notice, och (#2) schemalägger en automatisk
-      // retry så snart kartan får giltigt bounds — med en hård gräns för att
-      // undvika oändliga loopar om containern aldrig dimensioneras.
-      const attempts = (pendingBboxRetryRef.current.get(layerKey) ?? 0) + 1;
-      pendingBboxRetryRef.current.set(layerKey, attempts);
-
-      if (attempts > MAX_BBOX_RETRIES) {
-        pendingBboxRetryRef.current.delete(layerKey);
-        setOverlayStatuses((prev) => ({ ...prev, [layerKey]: 'error' }));
-        setMapNotice(
-          `Kartan kunde inte initieras. ${config.label} kunde inte hämtas. Försök ladda om sidan.`,
-        );
-        return;
       }
 
-      setOverlayStatuses((prev) => ({ ...prev, [layerKey]: 'loading' }));
-      setMapNotice(`Kartan inte redo — försöker hämta ${config.label} igen…`);
-      window.setTimeout(() => {
-        if (activeOverlaysRef.current.includes(layerKey)) {
-          void refreshDynamicBboxLayer(layerKey);
-        } else {
+      let bbox = toBboxParam(map);
+      if (!bbox) {
+        map.invalidateSize?.(false);
+        await new Promise((resolve) => window.setTimeout(resolve, 150));
+        bbox = toBboxParam(map);
+      }
+      if (!bbox) {
+        // (#1) Tysta tidigare gjorde att lagret aktiverades utan feedback. Nu
+        // visar vi tydlig status + notice, och (#2) schemalägger en automatisk
+        // retry så snart kartan får giltigt bounds — med en hård gräns för att
+        // undvika oändliga loopar om containern aldrig dimensioneras.
+        const attempts = (pendingBboxRetryRef.current.get(layerKey) ?? 0) + 1;
+        pendingBboxRetryRef.current.set(layerKey, attempts);
+
+        if (attempts > MAX_BBOX_RETRIES) {
           pendingBboxRetryRef.current.delete(layerKey);
+          setOverlayStatuses((prev) => ({ ...prev, [layerKey]: 'error' }));
+          setMapNotice(
+            `Kartan kunde inte initieras. ${config.label} kunde inte hämtas. Försök ladda om sidan.`,
+          );
+          return;
         }
-      }, BBOX_RETRY_DELAY_MS);
-      return;
-    }
-    pendingBboxRetryRef.current.delete(layerKey);
 
-    const requestId = (dynamicLayerRequestRef.current[layerKey] || 0) + 1;
-    dynamicLayerRequestRef.current[layerKey] = requestId;
-    setOverlayStatuses((prev) => ({ ...prev, [layerKey]: 'loading' }));
-
-    try {
-      const response = await fetch(`${config.endpoint}?bbox=${encodeURIComponent(bbox)}`, {
-        credentials: 'same-origin',
-      });
-      const data = await response.json().catch(() => ({}) as Record<string, unknown>);
-      if (dynamicLayerRequestRef.current[layerKey] !== requestId) return;
-
-      if (!response.ok) {
-        // Plocka först meta.warning (kontextrikt servermeddelande), sedan
-        // top-level error, sedan generisk HTTP-statustext.
-        const detail =
-          (typeof (data as any)?.meta?.warning === 'string' && (data as any).meta.warning) ||
-          (typeof (data as any)?.error === 'string' && (data as any).error) ||
-          `HTTP ${response.status}`;
-        throw new Error(detail);
+        setOverlayStatuses((prev) => ({ ...prev, [layerKey]: 'loading' }));
+        setMapNotice(`Kartan inte redo — försöker hämta ${config.label} igen…`);
+        window.setTimeout(() => {
+          if (activeOverlaysRef.current.includes(layerKey)) {
+            void refreshDynamicBboxLayerInternal(layerKey);
+          } else {
+            pendingBboxRetryRef.current.delete(layerKey);
+          }
+        }, BBOX_RETRY_DELAY_MS);
+        return;
       }
+      pendingBboxRetryRef.current.delete(layerKey);
 
-      layer.clearLayers();
-      if (Array.isArray((data as any)?.features) && (data as any).features.length > 0) {
-        layer.addData(data);
+      const requestId = (dynamicLayerRequestRef.current[layerKey] || 0) + 1;
+      dynamicLayerRequestRef.current[layerKey] = requestId;
+      setOverlayStatuses((prev) => ({ ...prev, [layerKey]: 'loading' }));
+
+      try {
+        const response = await fetch(`${config.endpoint}?bbox=${encodeURIComponent(bbox)}`, {
+          credentials: 'same-origin',
+        });
+        const data = await response.json().catch(() => ({}) as Record<string, unknown>);
+        if (dynamicLayerRequestRef.current[layerKey] !== requestId) return;
+
+        if (!response.ok) {
+          // Plocka först meta.warning (kontextrikt servermeddelande), sedan
+          // top-level error, sedan generisk HTTP-statustext.
+          const detail =
+            (typeof (data as any)?.meta?.warning === 'string' && (data as any).meta.warning) ||
+            (typeof (data as any)?.error === 'string' && (data as any).error) ||
+            `HTTP ${response.status}`;
+          throw new Error(detail);
+        }
+
+        layer.clearLayers();
+        if (Array.isArray((data as any)?.features) && (data as any).features.length > 0) {
+          layer.addData(data);
+        }
+        const status: LayerStatus =
+          Array.isArray((data as any)?.features) && (data as any).features.length === 0 ? 'empty' : 'loaded';
+        const warning = typeof (data as any)?.meta?.warning === 'string' ? (data as any).meta.warning : '';
+        setOverlayStatuses((prev) => ({ ...prev, [layerKey]: status }));
+        setMapNotice(warning || (status === 'empty' ? config.emptyMessage : ''));
+      } catch (err) {
+        if (dynamicLayerRequestRef.current[layerKey] !== requestId) return;
+        setOverlayStatuses((prev) => ({ ...prev, [layerKey]: 'error' }));
+        const message =
+          err instanceof Error && err.message ? err.message : `Kunde inte ladda ${config.label}.`;
+        setMapNotice(message);
       }
-      const status: LayerStatus =
-        Array.isArray((data as any)?.features) && (data as any).features.length === 0 ? 'empty' : 'loaded';
-      const warning = typeof (data as any)?.meta?.warning === 'string' ? (data as any).meta.warning : '';
-      setOverlayStatuses((prev) => ({ ...prev, [layerKey]: status }));
-      setMapNotice(warning || (status === 'empty' ? config.emptyMessage : ''));
-    } catch (err) {
-      if (dynamicLayerRequestRef.current[layerKey] !== requestId) return;
-      setOverlayStatuses((prev) => ({ ...prev, [layerKey]: 'error' }));
-      const message = err instanceof Error && err.message ? err.message : `Kunde inte ladda ${config.label}.`;
-      setMapNotice(message);
-    }
-  }, []);
+    },
+    [catalogMinZoom, layerFetchConfig],
+  );
 
   const refreshVisibleDynamicLayers = useCallback(() => {
-    Object.keys(DYNAMIC_BBOX_LAYER_CONFIG).forEach((key) => {
-      if (activeOverlaysRef.current.includes(key)) {
-        void refreshDynamicBboxLayer(key as DynamicBboxLayerKey);
+    activeOverlaysRef.current.forEach((key) => {
+      if (layerFetchConfig[key]) {
+        void refreshDynamicBboxLayer(key);
       }
     });
-  }, [refreshDynamicBboxLayer]);
+  }, [refreshDynamicBboxLayer, layerFetchConfig]);
 
   const applyBaseLayer = useCallback((key: BaseLayerKey) => {
     const map = mapRef.current;
@@ -572,6 +649,7 @@ const MapView: React.FC<MapViewProps> = ({
     layersRef.current.postgis_lakes = L.geoJSON(undefined, { style: POSTGIS_LAKES_STYLE });
     layersRef.current.postgis_streams = L.geoJSON(undefined, { style: POSTGIS_STREAMS_STYLE });
     layersRef.current.hydro_water_catchment = L.geoJSON(undefined, { style: WATER_CATCHMENT_STYLE });
+    layersRef.current.hydro_main_catchment = L.geoJSON(undefined, { style: MAIN_CATCHMENT_STYLE });
     layersRef.current.postgis_property = L.geoJSON(undefined, { style: POSTGIS_PROPERTY_STYLE });
     layersRef.current.topo10_buildings = L.geoJSON(undefined, { style: TOPO10_BUILDINGS_STYLE });
     layersRef.current.topo10_mark = L.geoJSON(undefined, { style: TOPO10_MARK_STYLE });
@@ -719,13 +797,60 @@ const MapView: React.FC<MapViewProps> = ({
     if (!map.hasLayer(layer)) {
       layer.addTo(map);
       setActiveOverlays((prev) => (prev.includes(resolved) ? prev : [...prev, resolved]));
-      if (resolved in DYNAMIC_BBOX_LAYER_CONFIG) {
-        void refreshDynamicBboxLayer(resolved as DynamicBboxLayerKey);
+      if (layerFetchConfig[resolved]) {
+        void refreshDynamicBboxLayer(resolved);
       } else {
         setOverlayStatuses((prev) => ({ ...prev, [resolved]: 'loaded' }));
       }
     }
-  }, [highlightLayer, refreshDynamicBboxLayer]);
+  }, [highlightLayer, layerFetchConfig, refreshDynamicBboxLayer]);
+
+  // Skapa GeoJSON-lager för dataset-rader i katalogen (ett lager per datakälla).
+  useEffect(() => {
+    const L = (window as any).L;
+    if (!L || !mapRef.current) return;
+    const entries: MapLayerCatalogEntry[] = Array.isArray(mapLayerCatalog.data) ? mapLayerCatalog.data : [];
+    for (const entry of entries) {
+      if (entry.source === 'external') continue;
+      const key = SERVER_TO_UI_LAYER_KEY[entry.key] ?? entry.key;
+      if (layersRef.current[key]) continue;
+      const bundle = getDatasetLeafletStyleBundle(
+        entry.geometry,
+        entry.datasetStyle as CatalogLayerStyleHint | undefined,
+      );
+      if (bundle.kind === 'point') {
+        layersRef.current[key] = L.geoJSON(undefined, {
+          pointToLayer: (_feature: unknown, latlng: unknown) => L.circleMarker(latlng, bundle.pointStyle),
+        });
+      } else if (bundle.kind === 'line') {
+        layersRef.current[key] = L.geoJSON(undefined, { style: bundle.style });
+      } else {
+        layersRef.current[key] = L.geoJSON(undefined, { style: bundle.style });
+      }
+    }
+  }, [mapLayerCatalog.data]);
+
+  async function handleContextFetch(permit: Permit) {
+    const coordinates = getPermitCoordinates(permit);
+    if (!coordinates) return;
+    setIsLoadingContext(true);
+    try {
+      const [audit, facts] = await Promise.all([
+        spatialAudit.mutateAsync(coordinates),
+        fetchMunicipalityContext(permit.municipality),
+      ]);
+      setSelectedContext({
+        municipality: permit.municipality,
+        audit,
+        fact: facts.text,
+        sources: facts.sources,
+      });
+    } catch {
+      setMapNotice('Kunde inte hämta kontext.');
+    } finally {
+      setIsLoadingContext(false);
+    }
+  }
 
   // --- DATA SYNC ---
   useEffect(() => {
@@ -767,29 +892,10 @@ const MapView: React.FC<MapViewProps> = ({
     });
   }, [onSelectPermit, onSelectReceiver, permits, receivers, selectedReceiverId]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const handleContextFetch = async (permit: Permit) => {
-    const coordinates = getPermitCoordinates(permit);
-    if (!coordinates) return;
-    setIsLoadingContext(true);
-    try {
-      const [audit, facts] = await Promise.all([
-        spatialAudit.mutateAsync(coordinates),
-        fetchMunicipalityContext(permit.municipality),
-      ]);
-      setSelectedContext({
-        municipality: permit.municipality,
-        audit,
-        fact: facts.text,
-        sources: facts.sources,
-      });
-    } catch {
-      setMapNotice('Kunde inte hämta kontext.');
-    } finally {
-      setIsLoadingContext(false);
+  function toggleOverlay(layerKey: string) {
+    if (layerKey.startsWith('ogc_wms:')) {
+      ensureOgcWmsLayer(layerKey);
     }
-  };
-
-  const toggleOverlay = (layerKey: string) => {
     if (!mapRef.current || !layersRef.current[layerKey]) return;
     const layer = layersRef.current[layerKey];
     if (mapRef.current.hasLayer(layer)) {
@@ -800,13 +906,13 @@ const MapView: React.FC<MapViewProps> = ({
     } else {
       layer.addTo(mapRef.current);
       setActiveOverlays((prev) => [...prev, layerKey]);
-      if (layerKey in DYNAMIC_BBOX_LAYER_CONFIG) {
-        void refreshDynamicBboxLayer(layerKey as DynamicBboxLayerKey);
+      if (layerFetchConfig[layerKey]) {
+        void refreshDynamicBboxLayer(layerKey);
       } else {
         setOverlayStatuses((prev) => ({ ...prev, [layerKey]: 'loaded' }));
       }
     }
-  };
+  }
 
   return (
     <div
@@ -910,6 +1016,46 @@ const MapView: React.FC<MapViewProps> = ({
             ))}
           </div>
         </div>
+
+        {(ogcFederated.isLoading ||
+          federatedOverlayDescriptors.length > 0 ||
+          ogcFederated.warnings.length > 0) && (
+          <div className="w-60 rounded-3xl border border-indigo-100 bg-white/95 p-4 shadow-2xl backdrop-blur-md max-h-[280px] overflow-y-auto custom-scrollbar">
+            <p className="mb-2 px-1 text-[10px] font-black uppercase tracking-widest text-indigo-500">
+              WMS-katalog
+            </p>
+            <p className="mb-2 px-1 text-[9px] leading-snug text-slate-500">
+              Underlager från LST GeoServer och VISS via GetCapabilities (rutbilder, ingen import).
+            </p>
+            {ogcFederated.isLoading && (
+              <p className="px-1 text-[9px] font-semibold text-slate-400">Laddar katalog…</p>
+            )}
+            {ogcFederated.warnings.slice(0, 2).map((warning) => (
+              <p key={warning} className="mb-2 px-1 text-[9px] font-semibold text-amber-800">
+                {warning}
+              </p>
+            ))}
+            <div className="space-y-1.5" data-testid="map-ogc-wms-panel">
+              {federatedOverlayDescriptors.map(({ key, label }) => (
+                <OverlayToggle
+                  key={key}
+                  active={activeOverlays.includes(key)}
+                  onClick={() => toggleOverlay(key)}
+                  label={label}
+                  status={overlayStatuses[key] ?? (activeOverlays.includes(key) ? 'loaded' : undefined)}
+                  icon="fa-globe"
+                  color="text-indigo-600"
+                  testId={`map-ogc-wms-toggle-${key}`}
+                />
+              ))}
+              {!ogcFederated.isLoading && federatedOverlayDescriptors.length === 0 && (
+                <p className="px-1 text-[9px] text-slate-400">
+                  Inga WMS-lager tillgängliga (nätverk eller tjänst svarar inte).
+                </p>
+              )}
+            </div>
+          </div>
+        )}
       </div>
 
       {mapNotice && (

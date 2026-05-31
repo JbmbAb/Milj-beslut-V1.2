@@ -125,7 +125,6 @@ class AuditTrailLogger {
           action: action,
           userId: userId,
           timestamp: timestamp,
-          referenceNumber: referenceNumber,
           payloadHash: JSON.stringify(entry),
           chainHash: entry.id,
         },
@@ -424,15 +423,15 @@ class AuditTrailLogger {
 export async function getAuditTrail(referenceNumber: string): Promise<AuditEntry[]> {
   try {
     const logs = await prisma.auditTrail.findMany({
-      where: { referenceNumber },
       orderBy: { timestamp: 'asc' },
     });
 
     return logs
       .map((l) => {
         try {
-          return JSON.parse(l.payloadHash) as AuditEntry;
-        } catch (e) {
+          const parsed = JSON.parse(l.payloadHash) as AuditEntry;
+          return parsed.referenceNumber === referenceNumber ? parsed : null;
+        } catch {
           return null;
         }
       })

@@ -1,8 +1,10 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import {
   isTokenRevoked,
+  markRefreshTokenAsUsed,
   revokeRefreshToken,
   cleanupExpiredTokenRevocations,
+  revokeAllTokensForUser,
 } from '../../server/repositories/tokenRepository';
 import { prisma } from '../../server/db/prisma';
 import { logger } from '../../server/logger';
@@ -62,6 +64,30 @@ describe('Token Repository (Token Reuse Protection)', () => {
     expect(logger.error).not.toHaveBeenCalled(); // Ska ignoreras tyst
   });
 
+  it('markRefreshTokenAsUsed skapar en revokering via samma flöde', async () => {
+    const expiresAt = new Date('2030-01-01T00:00:00.000Z');
+    vi.mocked(prisma.tokenRevocation.create).mockResolvedValue({ id: 'rev-1' } as any);
+
+    await markRefreshTokenAsUsed('user-1', 'jti-456', expiresAt);
+
+    expect(prisma.tokenRevocation.create).toHaveBeenCalledWith({
+      data: {
+        jti: 'jti-456',
+        userId: 'user-1',
+        expiresAt,
+      },
+    });
+  });
+
+  it('revokeRefreshToken kastar säkert fel vid oväntade databasfel', async () => {
+    vi.mocked(prisma.tokenRevocation.create).mockRejectedValue(new Error('write failed'));
+
+    await expect(revokeRefreshToken('user-1', 'jti-789', new Date())).rejects.toThrow(
+      /Kunde inte säkert revokera sessionen/,
+    );
+    expect(logger.error).toHaveBeenCalled();
+  });
+
   it('cleanupExpiredTokenRevocations städar bort utgångna tokens', async () => {
     vi.mocked(prisma.tokenRevocation.deleteMany).mockResolvedValue({ count: 42 });
     const count = await cleanupExpiredTokenRevocations();
@@ -70,5 +96,31 @@ describe('Token Repository (Token Reuse Protection)', () => {
     expect(prisma.tokenRevocation.deleteMany).toHaveBeenCalledWith({
       where: { expiresAt: { lt: expect.any(Date) } },
     });
+  });
+
+  it('cleanupExpiredTokenRevocations returnerar 0 om städningen fallerar', async () => {
+    vi.mocked(prisma.tokenRevocation.deleteMany).mockRejectedValue(new Error('cleanup failed'));
+
+    await expect(cleanupExpiredTokenRevocations()).resolves.toBe(0);
+    expect(logger.error).toHaveBeenCalled();
+  });
+
+  it('revokeAllTokensForUser raderar alla användarens tokens', async () => {
+    vi.mocked(prisma.tokenRevocation.deleteMany).mockResolvedValue({ count: 3 });
+
+    await revokeAllTokensForUser('user-1');
+
+    expect(prisma.tokenRevocation.deleteMany).toHaveBeenCalledWith({
+      where: { userId: 'user-1' },
+    });
+  });
+
+  it('revokeAllTokensForUser kastar tydligt fel vid databasproblem', async () => {
+    vi.mocked(prisma.tokenRevocation.deleteMany).mockRejectedValue(new Error('bulk delete failed'));
+
+    await expect(revokeAllTokensForUser('user-1')).rejects.toThrow(
+      /Kunde inte revokera alla sessioner för användaren/,
+    );
+    expect(logger.error).toHaveBeenCalled();
   });
 });

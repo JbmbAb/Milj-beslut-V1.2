@@ -14,14 +14,7 @@
  */
 
 import { expect, test } from '@playwright/test';
-import {
-  adminAuthHeaders,
-  createApiContext,
-  isExternalE2E,
-  loginAsAdmin,
-  obtainCsrfToken,
-  parseJson,
-} from './support';
+import { adminAuthHeaders, createApiContext, isExternalE2E, loginAsAdmin, parseJson } from './support';
 
 function envString(name: string, fallback: string): string {
   return String(process.env[name] ?? '').trim() || fallback;

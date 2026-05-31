@@ -1,5 +1,4 @@
 import { logger } from '../logger';
-import { prisma } from '../db/prisma';
 
 export type ErpProvider = 'FORTNOX' | 'VISMA' | 'MOCK' | 'NOT_CONFIGURED';
 
@@ -24,13 +23,19 @@ export interface ErpTransaction {
 function getErpConfig(): ErpConfig {
   const provider = (process.env.ERP_PROVIDER || 'NOT_CONFIGURED').toUpperCase() as ErpProvider;
   return {
-    provider: provider === 'FORTNOX' || provider === 'VISMA' || provider === 'MOCK' ? provider : 'NOT_CONFIGURED',
+    provider:
+      provider === 'FORTNOX' || provider === 'VISMA' || provider === 'MOCK' ? provider : 'NOT_CONFIGURED',
     apiKey: process.env.ERP_API_KEY,
     endpoint: process.env.ERP_ENDPOINT,
   };
 }
 
-export async function syncMilestoneToErp(projectId: string, milestoneId: string, description: string, amount: number): Promise<ErpTransaction> {
+export async function syncMilestoneToErp(
+  projectId: string,
+  milestoneId: string,
+  description: string,
+  amount: number,
+): Promise<ErpTransaction> {
   const config = getErpConfig();
 
   if (config.provider === 'NOT_CONFIGURED') {
@@ -42,7 +47,7 @@ export async function syncMilestoneToErp(projectId: string, milestoneId: string,
       currency: 'SEK',
       description,
       milestoneId,
-      status: 'FAILED'
+      status: 'FAILED',
     };
   }
 
@@ -51,8 +56,8 @@ export async function syncMilestoneToErp(projectId: string, milestoneId: string,
   // We will mock the database operation for this prototype since we don't know the exact schema
   logger.info(`Initiating ERP sync to ${config.provider} for project ${projectId}, milestone ${milestoneId}`);
 
-  let externalReference = `ERP-${Date.now()}`;
-  let status: 'SENT' | 'FAILED' = 'SENT';
+  const externalReference = `ERP-${Date.now()}`;
+  const status: 'SENT' | 'FAILED' = 'SENT';
 
   if (config.provider === 'FORTNOX') {
     // Implement Fortnox logic here
@@ -73,6 +78,6 @@ export async function syncMilestoneToErp(projectId: string, milestoneId: string,
     milestoneId,
     status,
     sentAt: new Date(),
-    externalReference
+    externalReference,
   };
 }

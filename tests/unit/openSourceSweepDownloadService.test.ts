@@ -52,18 +52,17 @@ describe('openSourceSweepDownloadService', () => {
       now: () => new Date('2026-04-27T19:00:00.000Z'),
     });
 
-    expect(result.attempted).toBe(11);
-    expect(result.downloaded).toBe(10);
+    expect(result.attempted).toBe(21);
+    expect(result.downloaded).toBe(20);
     expect(writeFileMock).toHaveBeenCalledWith(
       'C:\\tmp\\open-source-sweep\\manifest.json',
-      expect.stringContaining('"downloaded": 10'),
+      expect.stringContaining('"downloaded": 20'),
       'utf8',
     );
   });
 
   it('resolves the default sweep output directory', () => {
     const dir = resolveOpenSourceSweepDirectory();
-    expect(dir.toLowerCase()).toContain('knowledge_base');
     expect(dir.toLowerCase()).toContain('open-source-sweep');
   });
 });

@@ -58,6 +58,7 @@ const AdminDbStatusPanel: React.FC = () => {
     if (hasFetched.current) return;
     if (!token) return;
     hasFetched.current = true;
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     void load();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -278,7 +279,9 @@ const AdminDbStatusPanel: React.FC = () => {
                   </p>
                 </div>
                 <div className="space-y-1">
-                  <p className="text-[10px] font-bold uppercase text-blue-700/70">SGU Jordarter (Soil Type)</p>
+                  <p className="text-[10px] font-bold uppercase text-blue-700/70">
+                    SGU Jordarter (Soil Type)
+                  </p>
                   <p className="text-xl font-black text-blue-950 tabular-nums">
                     {stats.geodata.sguJordarterCount.toLocaleString('sv-SE')}
                   </p>
@@ -303,6 +306,42 @@ const AdminDbStatusPanel: React.FC = () => {
           <p className="text-xs text-slate-400">
             Genererad: {new Date(stats.generatedAt).toLocaleString('sv-SE')}
           </p>
+
+          {/* ── Partition Summary ── */}
+          {stats.partitions && stats.partitions.length > 0 && (
+            <div className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
+              <h3 className="text-base font-black text-slate-900">Databaspartitioner</h3>
+              <p className="mt-1 text-xs text-slate-500">
+                Status för tidsserie- och spatial-partitioner.
+              </p>
+              <div className="mt-4 overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="border-b border-slate-100 text-left text-[11px] font-black uppercase tracking-widest text-slate-500">
+                      <th className="pb-2 pr-4">Tabell</th>
+                      <th className="pb-2 pr-4">Partition</th>
+                      <th className="pb-2 pr-4 text-right">Rader</th>
+                      <th className="pb-2 text-right">Storlek</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {stats.partitions.map((p) => (
+                      <tr key={p.partitionName} className="border-b border-slate-50 hover:bg-slate-50">
+                        <td className="py-2 pr-4 font-mono text-[10px] text-slate-500">{p.tableName}</td>
+                        <td className="py-2 pr-4 font-medium text-slate-800">{p.partitionName}</td>
+                        <td className="py-2 pr-4 text-right tabular-nums text-slate-700">
+                          {p.rowCount.toLocaleString('sv-SE')}
+                        </td>
+                        <td className="py-2 text-right tabular-nums text-slate-700">
+                          {(p.sizeBytes / (1024 * 1024)).toFixed(1)} MB
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
 
           {/* ── Per-municipality table ── */}
           {stats.perMunicipality.length > 0 && (

@@ -116,7 +116,7 @@ class PersistentReplayProtection {
   /**
    * Fail a session
    */
-  async failSession(orderRef: string, reason: string): Promise<void> {
+  async failSession(orderRef: string, _reason: string): Promise<void> {
     try {
       await prisma.bankIdSession
         .update({
@@ -127,7 +127,7 @@ class PersistentReplayProtection {
           },
         })
         .catch(() => {}); // Ignore if not found
-    } catch (error) {
+    } catch {
       // Silent fail for cleanup
     }
   }

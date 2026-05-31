@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
+import { describe, it, expect, afterEach, vi } from 'vitest';
 import express from 'express';
 import request from 'supertest';
 import coreRouter from '../../server/coreApi.express';

@@ -30,7 +30,7 @@ export function getE2EApiBaseUrl(): string {
     trim(process.env.PLAYWRIGHT_BASE_URL) ||
     trim(process.env.STAGING_API_BASE_URL) ||
     trim(process.env.STAGING_URL) ||
-    `http://127.0.0.1:${trim(process.env.PLAYWRIGHT_LOCAL_API_PORT) || '8788'}`
+    `http://127.0.0.1:${trim(process.env.PLAYWRIGHT_LOCAL_API_PORT) || '8787'}`
   );
 }
 
@@ -119,13 +119,62 @@ export async function primeAuthenticatedPage(page: Page, api: APIRequestContext)
   );
 }
 
-/** Vänta tills hubben visar att projektmodulen är READY (bootstrap + aktivt projekt). */
+/** Vänta tills hubben visar efterfrågad modul (bootstrap + aktivt projekt). */
 export async function waitForHubModuleReady(page: Page, moduleId: string): Promise<void> {
+  const creds = getE2EAdminCredentials();
+  const coreButton = page.getByTestId('landing-open-core');
+  const moduleCard = page.getByTestId(`landing-open-${moduleId}`);
+  const moduleNavFallback =
+    moduleId === 'logistik' ? page.getByRole('button', { name: /Logistik schaktmassor/i }) : null;
+  const adminLoginButton = page.getByRole('button', { name: /Logga in som administratör/i });
+
   await expect(page).toHaveTitle(/Milj.*beslut/i);
-  await expect(page.getByTestId('landing-open-core')).toBeVisible({ timeout: 60_000 });
-  await expect(page.getByTestId(`landing-open-${moduleId}`).getByText('READY', { exact: true })).toBeVisible({
-    timeout: 60_000,
-  });
+  const coreVisibleInitially = await coreButton.isVisible().catch(() => false);
+
+  if (!coreVisibleInitially) {
+    const adminLoginVisible = await adminLoginButton.isVisible().catch(() => false);
+    if (adminLoginVisible) {
+      const usernameInput = page
+        .getByRole('textbox', { name: /Användarnamn/i })
+        .or(page.getByTestId('admin-username-input'));
+      if (await usernameInput.isVisible().catch(() => false)) {
+        await usernameInput.fill(creds.username);
+      }
+
+      const passwordInput = page
+        .getByRole('textbox', { name: /Lösenord/i })
+        .or(page.getByTestId('admin-password-input'));
+      await passwordInput.fill(creds.password);
+      await adminLoginButton.click();
+    }
+  }
+
+  await expect
+    .poll(
+      async () => {
+        const coreVisible = await coreButton.isVisible().catch(() => false);
+        const moduleVisible = await moduleCard.isVisible().catch(() => false);
+        const moduleNavVisible = moduleNavFallback
+          ? await moduleNavFallback.isVisible().catch(() => false)
+          : false;
+        return coreVisible || moduleVisible || moduleNavVisible;
+      },
+      {
+        timeout: 60_000,
+      },
+    )
+    .toBeTruthy();
+
+  if (await moduleCard.isVisible().catch(() => false)) {
+    await expect(moduleCard).toBeVisible({ timeout: 60_000 });
+
+    const readyBadge = moduleCard.getByText('READY', { exact: true });
+    if ((await readyBadge.count()) > 0) {
+      await expect(readyBadge).toBeVisible({ timeout: 10_000 });
+    }
+  } else if (moduleNavFallback) {
+    await expect(moduleNavFallback).toBeVisible({ timeout: 60_000 });
+  }
 }
 
 export async function parseJson<T>(response: APIResponse): Promise<T> {

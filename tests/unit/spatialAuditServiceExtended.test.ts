@@ -38,6 +38,7 @@ const defaultSguResult = {
 describe('spatialAuditService – utvidgade scenarier', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    mocks.queryRaw.mockResolvedValue([]);
     mocks.auditSguRiskAtPoint.mockResolvedValue(defaultSguResult);
   });
 
@@ -114,8 +115,12 @@ describe('spatialAuditService – utvidgade scenarier', () => {
     mocks.queryRaw.mockResolvedValueOnce([]);
     mocks.auditSguRiskAtPoint.mockRejectedValue(new Error('SGU API timeout'));
 
-    // SGU-felet ska propageras (ej tystas) eftersom sguPromise awaitas
-    await expect(runSpatialAudit(58.0, 15.0)).rejects.toThrow('SGU API timeout');
+    const result = await runSpatialAudit(58.0, 15.0);
+
+    expect(result.sgu.manualReviewRequired).toBe(true);
+    expect(result.sgu.flags).toContain('sgu:unavailable');
+    expect(result.sgu.summary).toContain('SGU API timeout');
+    expect(result.text).toContain('SGU riskkontroll kunde inte köras');
   });
 
   it('parallella anrop för olika koordinater returnerar isolerade resultat', async () => {

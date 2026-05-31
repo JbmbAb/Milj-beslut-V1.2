@@ -1,4 +1,8 @@
-name: Deploy – Staging
+name: Deploy – Staging (Vercel, valfri)
+
+# OBS: Primär deploy-väg är Google Cloud Run (.github/workflows/deploy-gcp.yml).
+# Denna workflow är kvar för team som fortfarande använder Vercel preview/staging.
+# Fullstack (WebSocket, workers, PostGIS) kräver GCP eller docker-compose.staging.yml — se docs/deploy/DEPLOY_GCP.md.
 
 # Triggered automatically after a successful CI run on main/master,
 # or manually via workflow_dispatch for one-click re-deploy.

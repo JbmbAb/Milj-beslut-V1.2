@@ -18,6 +18,7 @@ import {
   validateLocalizationBody,
 } from '../../server/modules/localization/localizationOrchestrator';
 import type { LocalizationReport } from '../../server/services/localizationReportService';
+import type { AuthUser } from '../../server/security/types';
 
 vi.mock('../../server/services/localizationReportService', () => ({
   generateLocalizationReport: vi.fn(),
@@ -50,47 +51,64 @@ import {
   isLocalizationStrictMode,
 } from '../../server/services/localizationReportService';
 
-const AUTH = { id: 'user-1', organisationId: 'org-1', role: 'ADMIN' as const };
+type SiteAnalysisResult = LocalizationReport['siteAnalyses'][number];
+
+const AUTH: AuthUser = {
+  id: 'user-1',
+  organisationId: 'org-1',
+  bankidId: 'bankid-user-1',
+  role: 'ADMIN',
+};
 const PROJECT_ID = 'proj-lok-e2e';
 const SITES = [
   { id: 'plats-A', lat: 59.3, lng: 18.07, name: 'Norra tomten' },
   { id: 'plats-B', lat: 67.0, lng: 20.5, name: 'Södra alternativen' },
 ];
 
-function makeSpatialAudit(overrides: Record<string, unknown> = {}) {
+function makeSpatialAudit(
+  overrides: Partial<SiteAnalysisResult['spatialAudit']> = {},
+): SiteAnalysisResult['spatialAudit'] {
   return {
     protectedAreaHits: [],
     protectedAreaAvailable: true,
     isProtected: false,
     sgu: {
-      lat: 59.3,
-      lng: 18.07,
-      soilType: 'Morän',
-      depthToRock: 3,
-      groundwaterDepth: 2,
+      coverageMode: 'sample',
+      manualReviewRequired: false,
       riskLevel: 'LOW',
-      evidenceSources: [],
+      groundLayer: {
+        intersects: false,
+        hit: null,
+        advisory: 'Ingen avvikelse i grundlager.',
+      },
+      landslideFeatures: {
+        nearby: false,
+        bufferMeters: 150,
+        nearestDistanceMeters: null,
+        hits: [],
+        advisory: 'Inga SGU-indikatorer inom buffert.',
+      },
+      flags: [],
+      summary: 'SGU-risk: låg',
     },
     distanceToWaterMeters: 120,
     distanceToWaterAvailable: true,
+    text: 'Spatial audit genomford.',
+    sources: [],
     ...overrides,
   };
 }
 
-function makeSiteAnalysis(siteId: string, siteLat = 59.3, siteLng = 18.07) {
+function makeSiteAnalysis(siteId: string, siteLat = 59.3, siteLng = 18.07): SiteAnalysisResult {
   return {
     site: { id: siteId, lat: siteLat, lng: siteLng, name: siteId },
     spatialAudit: makeSpatialAudit(),
     complianceAnalysis: {
-      siteId,
-      violations: [],
-      warnings: [],
-      feasibilityScore: 75,
-      recommendations: [],
       overallRisk: 'LOW',
       permitProbability: 0.75,
       restrictions: [],
       rules: [],
+      summary: 'Lag risk enligt regelmotor.',
     },
     monuments: [],
     vissWaterStatus: null,
@@ -147,9 +165,7 @@ describe('Lokaliseringsutredning — intern E2E', () => {
       const reportWithWarnings: LocalizationReport = {
         ...makeReport(),
         warnings: ['Global varning'],
-        siteAnalyses: [
-          { ...makeSiteAnalysis('plats-A'), warnings: ['Site-varning 1', 'Site-varning 2'] },
-        ],
+        siteAnalyses: [{ ...makeSiteAnalysis('plats-A'), warnings: ['Site-varning 1', 'Site-varning 2'] }],
       };
       vi.mocked(generateLocalizationReport).mockResolvedValue(reportWithWarnings);
 
@@ -171,8 +187,7 @@ describe('Lokaliseringsutredning — intern E2E', () => {
         siteAlternatives: SITES,
       });
       expect(result.ok).toBe(false);
-      if (result.ok) return;
-      expect(result.status).toBe(400);
+      expect('status' in result ? result.status : 0).toBe(400);
     });
 
     it('returnerar 400 vid ogiltiga koordinater (utanför Sverige)', async () => {
@@ -182,8 +197,7 @@ describe('Lokaliseringsutredning — intern E2E', () => {
         siteAlternatives: [{ id: 'utlandet', lat: 48.8, lng: 2.3 }],
       });
       expect(result.ok).toBe(false);
-      if (result.ok) return;
-      expect(result.status).toBe(400);
+      expect('status' in result ? result.status : 0).toBe(400);
     });
 
     it('strict mode + alla externa tillgängliga → lyckas', async () => {
@@ -276,8 +290,7 @@ describe('Lokaliseringsutredning — intern E2E', () => {
         siteAlternatives: [],
       });
       expect(result.ok).toBe(false);
-      if (result.ok) return;
-      expect(result.status).toBe(400);
+      expect('status' in result ? result.status : 0).toBe(400);
     });
 
     it('genererar PDF som börjar med PDF-magi-bytes (%PDF)', async () => {

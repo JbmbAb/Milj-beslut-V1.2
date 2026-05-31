@@ -1,6 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import request from 'supertest';
-import crypto from 'node:crypto';
 
 vi.mock('../../../server/modules/sewage/public', () => ({
   getSubmissionOrgAndProjectByKey: vi.fn(),
@@ -111,13 +110,6 @@ describe('Security: Cross-Organization Access', () => {
 
     const tokenA = createToken('user-a', 'org-a');
 
-    const submissionB = {
-      id: 'sub-b',
-      submissionKey: 'AVLOPP-B',
-      projectId: 'proj-b',
-      organisationId: 'org-b',
-    };
-
     vi.mocked(getSubmissionOrgAndProjectByKey).mockResolvedValue({
       projectId: 'proj-b',
       organisationId: 'org-b',
@@ -136,13 +128,6 @@ describe('Security: Cross-Organization Access', () => {
     (assertProjectAccess as any).mockResolvedValue(undefined);
 
     const tokenA = createToken('user-a', 'org-a');
-
-    const submissionA = {
-      id: 'sub-a',
-      submissionKey: 'AVLOPP-A',
-      projectId: 'proj-a',
-      organisationId: 'org-a',
-    };
 
     vi.mocked(getSubmissionOrgAndProjectByKey).mockResolvedValue({
       projectId: 'proj-a',

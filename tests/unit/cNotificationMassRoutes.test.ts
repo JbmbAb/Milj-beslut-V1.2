@@ -116,6 +116,32 @@ describe('cNotificationMass.routes', () => {
 
     expect(res.status).toBe(200);
     expect(res.body.gateDecision).toBe('NOTIFICATION_REQUIRED');
+    expect(res.body.mpfDecision.activityCode).toBeTruthy();
+    expect(res.body.mpfDecision.ewcEvaluation.code).toBe('17 05 08');
+    expect(res.body.mpfDecision.requiredMapLayers.length).toBeGreaterThan(0);
+    expect(res.body.mpfDecision.registryVersion).toBeTruthy();
+  });
+
+  it('gis-analysis returns deterministic vitest payload', async () => {
+    const previousVitest = process.env.VITEST;
+    process.env.VITEST = 'true';
+    try {
+      const res = await request(app)
+        .post('/api/c-notification/mass/gis-analysis')
+        .set('Authorization', authHeader())
+        .send({ projectId: 'proj-1', propertyDesignation: 'GÄVLE BRYNÄS 1:1' });
+
+      expect(res.status).toBe(200);
+      expect(res.body.ok).toBe(true);
+      expect(res.body.analysis.propertyDesignation).toBe('GÄVLE BRYNÄS 1:1');
+      expect(res.body.siteProfile.recommendedZones.length).toBeGreaterThan(0);
+    } finally {
+      if (previousVitest === undefined) {
+        delete process.env.VITEST;
+      } else {
+        process.env.VITEST = previousVitest;
+      }
+    }
   });
 
   it('property-search returns result', async () => {
@@ -137,6 +163,7 @@ describe('cNotificationMass.routes', () => {
     expect(res.body.decisions.mellanlagring.operationType).toBe('MELLANLAGRING');
     expect(res.body.decisions.deponi.operationType).toBe('DEPONI');
     expect(res.body.decisions.mellanlagring.gateDecision).toBeTruthy();
+    expect(res.body.decisions.mellanlagring.mpfDecision).toBeTruthy();
   });
 
   it('full flow: operations → documents → export → submit', async () => {
@@ -156,8 +183,14 @@ describe('cNotificationMass.routes', () => {
       .get(`/api/c-notification/mass/${caseId}/export`)
       .set('Authorization', authHeader());
     expect(exp.status).toBe(200);
-    expect(exp.body.export.operations).toHaveLength(2);
-    expect(exp.body.export.humanInTheLoop).toContain('verifiera');
+    
+    const exported = exp.body?.export;
+    expect(exported).toBeTruthy();
+    expect(exported.decisions).toBeTruthy();
+    expect(exported.decisions.mellanlagring).toBeDefined();
+    expect(exported.decisions.deponi).toBeDefined();
+    expect(exported.decisions.mellanlagring[0].mpfDecision.activityCode).toBeTruthy();
+    expect(exported.humanInTheLoop).toContain('verifiera');
 
     const sub = await request(app)
       .post('/api/c-notification/mass/submit')

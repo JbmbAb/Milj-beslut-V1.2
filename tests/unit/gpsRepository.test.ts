@@ -135,7 +135,7 @@ describe('clearGpsTrack', () => {
     expect(mocks.gpsPositionDeleteMany).toHaveBeenCalledWith({
       where: { bookingId: 'b-99' },
     });
-    expect(result).toEqual({ count: 3 });
+    expect(result).toBe(3);
   });
 
   it('returns count 0 when there are no positions to delete', async () => {
@@ -143,7 +143,7 @@ describe('clearGpsTrack', () => {
 
     const result = await clearGpsTrack('b-empty');
 
-    expect(result).toEqual({ count: 0 });
+    expect(result).toBe(0);
   });
 });
 
@@ -317,7 +317,7 @@ describe('gpsRepository - Error Handling & Edge Cases', () => {
 
       const result = await clearGpsTrack('b-special!@#');
 
-      expect(result).toEqual({ count: 0 });
+      expect(result).toBe(0);
     });
 
     it('handles very large deletion results', async () => {
@@ -325,7 +325,7 @@ describe('gpsRepository - Error Handling & Edge Cases', () => {
 
       const result = await clearGpsTrack('b-large-delete');
 
-      expect(result).toEqual({ count: 100000 });
+      expect(result).toBe(100000);
     });
   });
 });

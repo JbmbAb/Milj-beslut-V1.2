@@ -53,6 +53,7 @@ const MvpPermitGeneratorView: React.FC<MvpPermitGeneratorViewProps> = ({ project
 
   useEffect(() => {
     const municipality = getProjectMunicipality(project.propertyDesignation);
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setFormData((current) => ({
       ...current,
       property: project.propertyDesignation,

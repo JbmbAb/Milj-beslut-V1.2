@@ -4,7 +4,12 @@ vi.mock('../../server/logger', () => ({
   logger: {
     warn: vi.fn(),
     error: vi.fn(),
+    info: vi.fn(),
   },
+}));
+
+vi.mock('../../server/services/hybridGeoService', () => ({
+  tryFetchLocalPropertyGeometry: vi.fn(async () => null),
 }));
 
 import { AuditService } from '../../src/platform/audit.service';
@@ -121,6 +126,7 @@ describe('src platform and adapter utilities', () => {
   });
 
   it('avvecklat demo-läge: fetchPropertyInfo returnerar null utan riktig endpoint', async () => {
+    vi.stubEnv('PROPERTY_LOOKUP_MODE', 'api');
     vi.stubEnv('LANTMATERIET_DEMO_MODE', 'true');
     vi.stubEnv('LANTMATERIET_PROPERTY_ENDPOINT', '');
 

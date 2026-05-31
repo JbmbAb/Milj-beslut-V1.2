@@ -5,14 +5,7 @@
  * Supports: 1-200 PE (Person Equivalents)
  */
 
-import { prisma } from '../../db.server';
-import type {
-  SewageGISAnalysis,
-  SewageProtectionProfile,
-  SewageSystemTypeId,
-  SewageRequirement,
-  SewageSourceTracing,
-} from '../../types';
+import type { SewageGISAnalysis, SewageProtectionProfile, SewageSystemTypeId } from '../../types';
 import { fetchGeologicalData } from './sguService';
 import { fetchProtectedAreas } from './nvrService';
 
@@ -228,8 +221,8 @@ function determineSystemsAndRisks(
   brunnarData: any,
   propertyData: any,
   protectedAreas: any[],
-  floodRisk: any,
-  municipalityCode: string,
+  _floodRisk: any,
+  _municipalityCode: string,
 ): {
   riskScore: number;
   recommendedSystems: SewageSystemTypeId[];
@@ -315,8 +308,6 @@ export async function generateSewageProtectionProfile(
   analysis: SewageGISAnalysis,
   municipalityCode: string,
 ): Promise<SewageProtectionProfile> {
-  const now = new Date().toISOString();
-
   // Determine protection level
   const isInHighProtectionArea = analysis.protectedAreas.some(
     (a) => a.type === 'WATER_PROTECTION' || a.type === 'NATURA2000',

@@ -1,9 +1,23 @@
 import { execSync } from 'child_process';
+import fs from 'node:fs';
+import path from 'node:path';
+import dotenv from 'dotenv';
 import pkg from 'pg';
 const { Client } = pkg;
 import { PrismaClient } from '@prisma/client';
+import { ensureAdminConsoleUser } from '../../server/repositories/userRepository';
+
+// Align with tests/setup/env.ts so globalSetup mutates the same DATABASE_URL as integration tests.
+const envTestPath = path.resolve(process.cwd(), '.env.test');
+if (fs.existsSync(envTestPath)) {
+  dotenv.config({ path: envTestPath, override: true });
+}
+dotenv.config();
 
 const prisma = new PrismaClient();
+
+/** PostGIS/systemtabeller som inte ska trunceras mellan testkörningar. */
+const TRUNCATE_EXCLUDE = new Set(['_prisma_migrations', 'spatial_ref_sys']);
 
 export default async () => {
   console.log('Setting up test database...');
@@ -19,7 +33,7 @@ export default async () => {
 
   const tablesToTruncate = tableNames
     .map(({ tablename }) => tablename)
-    .filter((name) => name !== '_prisma_migrations'); // Don't truncate migrations table
+    .filter((name) => !TRUNCATE_EXCLUDE.has(name));
 
   if (tablesToTruncate.length > 0) {
     try {
@@ -40,13 +54,36 @@ export default async () => {
   const client = new Client({ connectionString: process.env.DATABASE_URL });
   await client.connect();
   try {
-    await client.query('CREATE EXTENSION IF NOT EXISTS "postgis";');
-    await client.query('CREATE EXTENSION IF NOT EXISTS "postgis_raster";');
+    await client.query('DROP EXTENSION IF EXISTS postgis_raster CASCADE');
+    await client.query('DROP EXTENSION IF EXISTS postgis CASCADE');
+    await client.query('CREATE EXTENSION postgis');
+    await client.query('CREATE EXTENSION postgis_raster');
     await client.query('CREATE EXTENSION IF NOT EXISTS "unaccent";');
     await client.query('CREATE EXTENSION IF NOT EXISTS "pg_trgm";');
     await client.query('CREATE SCHEMA IF NOT EXISTS "env";');
     await client.query('CREATE SCHEMA IF NOT EXISTS "core";');
     await client.query('CREATE SCHEMA IF NOT EXISTS "topo10";');
+
+    await client.query(`
+      DROP TABLE IF EXISTS env.protected_area CASCADE;
+      DROP TABLE IF EXISTS env.natura2000_area CASCADE;
+      DROP TABLE IF EXISTS core.lm_byggnad CASCADE;
+      DROP TABLE IF EXISTS env.sgu_soil_type CASCADE;
+      DROP TABLE IF EXISTS env.sgu_soil_type_25k_100k CASCADE;
+      DROP TABLE IF EXISTS env.sgu_blockighet CASCADE;
+      DROP TABLE IF EXISTS env.sgu_landslide_feature CASCADE;
+      DROP TABLE IF EXISTS env.sgu_punktobjekt CASCADE;
+      DROP TABLE IF EXISTS env.sgu_well CASCADE;
+      DROP TABLE IF EXISTS core.lm_mark CASCADE;
+      DROP TABLE IF EXISTS env.marktacke CASCADE;
+      DROP TABLE IF EXISTS topo10.byggnad CASCADE;
+      DROP TABLE IF EXISTS topo10.mark CASCADE;
+      DROP TABLE IF EXISTS topo10.vatten CASCADE;
+      DROP TABLE IF EXISTS topo10.vag CASCADE;
+      DROP TABLE IF EXISTS topo10.jarnvag CASCADE;
+      DROP TABLE IF EXISTS core.property_unit CASCADE;
+      DROP TABLE IF EXISTS env.water_protection_area CASCADE;
+    `);
 
     await client.query(`
       CREATE OR REPLACE FUNCTION core.normalize_designation(input_text text)
@@ -62,14 +99,14 @@ export default async () => {
           name TEXT,
           protection_type TEXT,
           decision_status TEXT,
-          geom geometry(MultiPolygon, 3006)
+          wkb_geometry geometry(MultiPolygon, 3006)
       );
 
       CREATE TABLE IF NOT EXISTS "env"."natura2000_area" (
           external_id TEXT PRIMARY KEY,
           site_name TEXT,
           category TEXT,
-          geom geometry(MultiPolygon, 3006)
+          wkb_geometry geometry(MultiPolygon, 3006)
       );
 
       CREATE TABLE IF NOT EXISTS "core"."lm_byggnad" (
@@ -86,9 +123,11 @@ export default async () => {
       CREATE TABLE IF NOT EXISTS "env"."sgu_soil_type_25k_100k" (
           id SERIAL PRIMARY KEY,
           jordart TEXT,
+          jy1 INTEGER,
+          jy1_tx TEXT,
+          karttyp INTEGER,
           jg2 TEXT,
           jg2_tx TEXT,
-          karttyp TEXT,
           geom geometry(MultiPolygon, 3006)
       );
 
@@ -102,6 +141,8 @@ export default async () => {
           source_key TEXT,
           feature_code TEXT,
           feature_label TEXT,
+          sl INTEGER,
+          sl_tx TEXT,
           symbol INTEGER,
           geom geometry(MultiPolygon, 3006)
       );
@@ -213,6 +254,13 @@ export default async () => {
           "appliedAt" TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
           "durationMs" INTEGER
       );
+
+      ALTER TABLE env.sgu_soil_type_25k_100k ADD COLUMN IF NOT EXISTS jy1 INTEGER;
+      ALTER TABLE env.sgu_soil_type_25k_100k ADD COLUMN IF NOT EXISTS jy1_tx TEXT;
+      ALTER TABLE env.sgu_soil_type_25k_100k ADD COLUMN IF NOT EXISTS karttyp INTEGER;
+
+      ALTER TABLE env.sgu_landslide_feature ADD COLUMN IF NOT EXISTS sl INTEGER;
+      ALTER TABLE env.sgu_landslide_feature ADD COLUMN IF NOT EXISTS sl_tx TEXT;
     `);
     console.log('GIS stubs and functions re-applied.');
   } catch (err) {
@@ -221,5 +269,7 @@ export default async () => {
     await client.end();
   }
 
-  console.log('Test database is ready.');
+  const adminUsername = String(process.env.ADMIN_CONSOLE_USERNAME || 'admin').trim() || 'admin';
+  await ensureAdminConsoleUser(adminUsername);
+  console.log(`Test database is ready (admin: ${adminUsername}).`);
 };

@@ -91,10 +91,16 @@ describe('transportDispatchService', () => {
     });
 
     it('returns NOT_CONFIGURED for MOCK_FRAKTBORS in production', () => {
+      const previousNodeEnv = process.env.NODE_ENV;
+      process.env.NODE_ENV = 'production';
       process.env.DISPATCH_PROVIDER_MODE = 'MOCK_FRAKTBORS';
-      const status = getDispatchProviderRuntimeStatus();
-      expect(status.activeProvider).toBe('NOT_CONFIGURED');
-      expect(status.requestedProvider).toBe('MOCK_FRAKTBORS');
+      try {
+        const status = getDispatchProviderRuntimeStatus();
+        expect(status.activeProvider).toBe('NOT_CONFIGURED');
+        expect(status.requestedProvider).toBe('MOCK_FRAKTBORS');
+      } finally {
+        process.env.NODE_ENV = previousNodeEnv;
+      }
     });
   });
 

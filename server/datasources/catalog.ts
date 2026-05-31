@@ -122,6 +122,12 @@ export const SOURCE_CATALOG: SourceCatalogItem[] = [
     reason: 'Registrering, licens och API-nyckel kravs for API-uttag.',
     implementationKey: 'trafikverket',
   },
+  {
+    name: 'Lastkajen (Trafikverket)',
+    activation: 'PERMIT_REQUIRED',
+    reason: 'Konto kravs for maskinell nedladdning av publicerade datapaket (REST API).',
+    implementationKey: 'lastkajen',
+  },
 ];
 
 function normalizeCatalogString(value: string): string {

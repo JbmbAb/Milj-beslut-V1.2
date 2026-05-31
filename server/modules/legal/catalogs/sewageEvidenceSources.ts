@@ -82,6 +82,16 @@ export const SEWAGE_EVIDENCE_SOURCES: readonly SewageEvidenceSource[] = [
     sourceUrl: 'https://www.dataportal.se/',
     note: 'Behöver ombyggd discovery för att ge samma platsbundna underlag till avloppsbedömningen.',
   },
+  {
+    id: 'sewage.sgu.groundwater',
+    title: 'SGU - Analytiska modeller för bedömning av influensområde avseende grundvatten',
+    authorityName: 'SGU',
+    sourceSystem: 'SGU',
+    sourceType: 'TECHNICAL_GUIDANCE',
+    readiness: 'IMPORT_READY',
+    sourceUrl: 'https://www.sgu.se/anvandarstod-for-geologiska-fragor/bedomning-av-influensomrade-avseende-grundvatten/berakningsmodeller/analytiska-modeller/',
+    note: 'Innehåller formler för avsänkning och influensområde (Dupuit-Thiem, Sichardt) som används för MKB-scoping.',
+  },
 ];
 
 export function listSewageEvidenceSources(): SewageEvidenceSource[] {

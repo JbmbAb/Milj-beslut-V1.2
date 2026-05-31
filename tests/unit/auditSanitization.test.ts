@@ -30,6 +30,12 @@ describe('sanitizeAuditPayload', () => {
     expect(result.bankidId).toBe('[REDACTED_12_CHARS]');
   });
 
+  it('redacts bankid-related snake_case fields by pattern', () => {
+    const result = sanitizeAuditPayload({ bankid_reference: 'ref_123456', action: 'login' });
+    expect(result.bankid_reference).toBe('[REDACTED_10_CHARS]');
+    expect(result.action).toBe('login');
+  });
+
   it('redacts personnummer and socialSecurityNumber', () => {
     const result = sanitizeAuditPayload({ personnummer: '199001011234', socialSecurityNumber: '123456789' });
     expect(result.personnummer).toBe('[REDACTED_12_CHARS]');
@@ -75,10 +81,103 @@ describe('sanitizeAuditPayload', () => {
     expect(result.tags).toEqual(['a', 'b', 'c']);
   });
 
+  it('redacts emails and personnummer inside free-text fields', () => {
+    const result = sanitizeAuditPayload({
+      description: 'Kontakt: john.doe@example.com, personnummer 199001011234 och 900101-1234.',
+    });
+    expect(result.description).toBe('Kontakt: [REDACTED], personnummer [REDACTED] och [REDACTED].');
+  });
+
   it('matches sensitive field names by pattern (e.g. myApiKey)', () => {
     const result = sanitizeAuditPayload({ myApiKey: 'val', xToken: 'tok' });
     expect(result.myApiKey).toMatch(/REDACTED/);
     expect(result.xToken).toMatch(/REDACTED/);
+  });
+
+  it('matches sensitive field names case-insensitively', () => {
+    const result = sanitizeAuditPayload({
+      Password: 'secret',
+      Api_Key: 'key1',
+      PRIVATE_KEY: 'key2',
+    });
+    expect(result.Password).toBe('[REDACTED_6_CHARS]');
+    expect(result.Api_Key).toBe('[REDACTED_4_CHARS]');
+    expect(result.PRIVATE_KEY).toBe('[REDACTED_4_CHARS]');
+  });
+
+  it('collapses sensitive objects instead of recursively expanding them', () => {
+    const result = sanitizeAuditPayload({
+      credentials: {
+        password: 'secret',
+        apiKey: 'sk_live_123',
+      },
+      result: 'success',
+    });
+    expect(result.credentials).toBe('[REDACTED_OBJECT]');
+    expect(result.result).toBe('success');
+  });
+
+  it('preserves null, undefined, and primitive values consistently', () => {
+    const result = sanitizeAuditPayload({
+      password: null,
+      email: undefined,
+      apiKey: '',
+      count: 42,
+      isActive: true,
+    });
+    expect(result.password).toBe('[REDACTED]');
+    expect(result.email).toBeUndefined();
+    expect(result.apiKey).toBe('[REDACTED_0_CHARS]');
+    expect(result.count).toBe(42);
+    expect(result.isActive).toBe(true);
+  });
+
+  it('handles deeply nested structures', () => {
+    const result = sanitizeAuditPayload({
+      level1: {
+        level2: {
+          level3: {
+            password: 'deep_secret',
+            email: 'nested@example.com',
+            userId: 'user123',
+          },
+        },
+      },
+    });
+    const nested = (((result.level1 as Record<string, unknown>).level2 as Record<string, unknown>)
+      .level3 as Record<string, unknown>);
+    expect(nested.password).toBe('[REDACTED_11_CHARS]');
+    expect(nested.email).toBe('[REDACTED]');
+    expect(nested.userId).toBe('user123');
+  });
+
+  it('marks circular object references instead of recursing forever', () => {
+    const payload: Record<string, unknown> = { id: 'node-1' };
+    payload.self = payload;
+
+    const result = sanitizeAuditPayload(payload);
+
+    expect(result.id).toBe('node-1');
+    expect(result.self).toBe('[CIRCULAR]');
+  });
+
+  it('marks circular array references instead of recursing forever', () => {
+    const entries: unknown[] = [];
+    entries.push({ label: 'safe' }, entries);
+
+    const result = sanitizeAuditPayload({ entries });
+
+    expect(result.entries).toEqual([{ label: 'safe' }, '[CIRCULAR]']);
+  });
+
+  it('preserves Date values as cloned Date instances', () => {
+    const createdAt = new Date('2024-06-01T12:00:00.000Z');
+
+    const result = sanitizeAuditPayload({ createdAt });
+
+    expect(result.createdAt).toBeInstanceOf(Date);
+    expect((result.createdAt as Date).toISOString()).toBe('2024-06-01T12:00:00.000Z');
+    expect(result.createdAt).not.toBe(createdAt);
   });
 });
 

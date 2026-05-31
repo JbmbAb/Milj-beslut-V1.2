@@ -6,6 +6,7 @@ import { createTokenPair } from '../../server/security/auth';
 const mocks = vi.hoisted(() => ({
   listRequirementRows: vi.fn(),
   runSearchQuery: vi.fn(),
+  verifyAnalysis: vi.fn(),
   assertProjectMembership: vi.fn(),
   projectMemberFindMany: vi.fn(),
   documentRecordFindUnique: vi.fn(),
@@ -27,6 +28,16 @@ vi.mock('../../server/repositories/requirementsRepository', () => ({
 vi.mock('../../server/services/searchService', () => ({
   runSearchQuery: mocks.runSearchQuery,
 }));
+
+vi.mock('../../server/services/coreContractService', async () => {
+  const actual = await vi.importActual<typeof import('../../server/services/coreContractService')>(
+    '../../server/services/coreContractService',
+  );
+  return {
+    ...actual,
+    verifyAnalysis: mocks.verifyAnalysis,
+  };
+});
 
 vi.mock('../../server/repositories/projectAccessRepository', () => ({
   assertProjectMembership: mocks.assertProjectMembership,
@@ -81,6 +92,11 @@ function authHeader() {
 describe('coreApi.express', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    mocks.verifyAnalysis.mockResolvedValue({
+      status: 'UNVERIFIED',
+      missing_citations: ['MB 2 kap.'],
+      traceId: 'trace-test',
+    });
     vi.mocked(listRequirementRows).mockResolvedValue({
       items: [],
       total: 0,

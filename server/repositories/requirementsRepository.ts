@@ -1,5 +1,6 @@
 import { prisma } from '../db/prisma';
 import { assertTransitionAllowed } from '../domain/requirementLifecycle';
+import { SecureError } from '../security/secureErrors';
 import { inc } from '../observability/metrics';
 import { createCaseSnapshot } from '../modules/evidence/public';
 
@@ -396,7 +397,11 @@ export async function updateRequirementVerification(input: {
         )
       : false;
     if (!hasValidCitation) {
-      throw new Error('All citations must be REVIEWED or VERIFIED before requirement can be VERIFIED');
+      throw new SecureError(
+        'All citations must be REVIEWED or VERIFIED before requirement can be VERIFIED',
+        'All citations must be REVIEWED or VERIFIED before requirement can be VERIFIED',
+        400,
+      );
     }
   }
 

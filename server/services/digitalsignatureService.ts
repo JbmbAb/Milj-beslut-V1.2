@@ -13,7 +13,7 @@
 import crypto from 'node:crypto';
 import type { SewageApplication } from '../../types';
 import { logger } from '../logger';
-import { initiateBankIdSign, collectBankIdSign, type BankIdCollectResponse } from './bankIdService';
+import { initiateBankIdSign, collectBankIdSign } from './bankIdService';
 // ============================================================================
 // DIGITAL SIGNATURE TYPES
 // ============================================================================
@@ -77,7 +77,7 @@ export async function initiateBankIDSignature(
   documentId: string,
   documentContent: string,
   endUserIp: string,
-  userPersonalNumber?: string,
+  _userPersonalNumber?: string,
 ): Promise<{
   orderRef: string;
   autoStartToken: string;

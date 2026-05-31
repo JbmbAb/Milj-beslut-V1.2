@@ -121,6 +121,12 @@ export async function collectDownloadedLegalCorpus(
     collectMmdCorpusRecords(rootDir, options),
     collectLansstyrelserRecords(rootDir, options),
     collectNaturvardsverketRecords(rootDir, options),
+    collectNaturvardsverketPdfRecords(rootDir, options),
+    collectNaturvardsverketSitePdfRecords(rootDir, options),
+    collectBergsstatenRecords(rootDir, options),
+    collectSguAnvandarstodRecords(rootDir, options),
+    collectSguPortalRecords(rootDir, options),
+    collectDivaRecords(rootDir, options),
     collectOpenSourceSweepRecords(rootDir, options),
     collectBoverketRecords(rootDir, options),
   ]);
@@ -214,7 +220,7 @@ function mapCorpusRecordForWrite(
   record: StructuredLegalCorpusRecord,
   legalSourceId?: string,
   judgmentId?: string,
-){
+) {
   return {
     recordKey: record.recordKey,
     canonicalKey: record.canonicalKey,
@@ -259,31 +265,36 @@ async function collectFoundationRecords(
   const manifest = await readJsonFile<{ downloads?: ManifestDownload[] }>(manifestPath);
   const downloads = manifest.downloads || [];
 
-  return Promise.all(
+  const results = await Promise.all(
     downloads.map((download) =>
-      materializeStructuredRecord(rootDir, {
-        sourceFamily: 'FOUNDATION',
-        sourceSystem: 'SFS',
-        sourceType: inferFoundationType(download.title || ''),
-        sourcePath: path.join('legal', 'foundation-sources', download.savedAs),
-        recordKey: toKey('foundation', download.savedAs),
-        canonicalKey: toKey('sfs', download.externalId || download.savedAs),
-        externalId: download.externalId,
-        title: download.title || fileStem(download.savedAs),
-        summary: normalizeExternalText(download.title),
-        sourceUrl: download.sourceUrl,
-        normalizedUrl: download.sourceUrl,
-        authorityName: inferFoundationAuthority(download.title || ''),
-        authorityType: inferFoundationAuthorityType(download.title || ''),
-        legalArea: inferLegalArea(download.title || ''),
-        mimeType: download.contentType,
-        metadata: {
-          download,
+      materializeStructuredRecord(
+        rootDir,
+        {
+          sourceFamily: 'FOUNDATION',
+          sourceSystem: 'SFS',
+          sourceType: inferFoundationType(download.title || ''),
+          sourcePath: path.join('legal', 'foundation-sources', download.savedAs),
+          recordKey: toKey('foundation', download.savedAs),
+          canonicalKey: toKey('sfs', download.externalId || download.savedAs),
+          externalId: download.externalId,
+          title: download.title || fileStem(download.savedAs),
+          summary: normalizeExternalText(download.title),
+          sourceUrl: download.sourceUrl,
+          normalizedUrl: download.sourceUrl,
+          authorityName: inferFoundationAuthority(download.title || ''),
+          authorityType: inferFoundationAuthorityType(download.title || ''),
+          legalArea: inferLegalArea(download.title || ''),
+          mimeType: download.contentType,
+          metadata: {
+            download,
+          },
+          tags: ['foundation', 'sfs'],
         },
-        tags: ['foundation', 'sfs'],
-      }, options),
+        options,
+      ),
     ),
   );
+  return results.filter((r): r is StructuredLegalCorpusRecord => r !== null);
 }
 
 async function collectCuratedRecords(
@@ -294,11 +305,12 @@ async function collectCuratedRecords(
   const manifest = await readJsonFile<{ downloads?: ManifestDownload[] }>(manifestPath);
   const downloads = manifest.downloads || [];
 
-  return Promise.all(
+  const results = await Promise.all(
     downloads.map((download) => {
       const title = firstNonEmpty(download.titles) || download.title || fileStem(download.savedAs);
       const authorityName = firstNonEmpty(download.authorityNames);
-      const sourceSystem = firstNonEmpty(download.sourceSystems) || inferSourceSystemFromUrl(download.sourceUrl);
+      const sourceSystem =
+        firstNonEmpty(download.sourceSystems) || inferSourceSystemFromUrl(download.sourceUrl);
       const sourceType = firstNonEmpty(download.sourceTypes) || inferSourceTypeFromUrl(download.sourceUrl);
       const externalId = firstNonEmpty(download.externalIds) || download.externalId || download.savedAs;
 
@@ -329,6 +341,7 @@ async function collectCuratedRecords(
       );
     }),
   );
+  return results.filter((r): r is StructuredLegalCorpusRecord => r !== null);
 }
 
 async function collectDomstolRecords(
@@ -337,12 +350,12 @@ async function collectDomstolRecords(
 ): Promise<StructuredLegalCorpusRecord[]> {
   const itemsPath = path.join(rootDir, 'legal', 'domstol-rss', 'items.json');
   const feedPath = path.join(rootDir, 'legal', 'domstol-rss', 'feed.xml');
-  const manifest = await readJsonFile<{ items?: Array<{ guid: string; title: string; link: string; savedAs: string }> }>(
-    itemsPath,
-  );
+  const manifest = await readJsonFile<{
+    items?: Array<{ guid: string; title: string; link: string; savedAs: string }>;
+  }>(itemsPath);
   const feedEntries = await readDomstolFeed(feedPath);
 
-  return Promise.all(
+  const results = await Promise.all(
     (manifest.items || []).map((item) => {
       const feed = feedEntries.get(item.guid);
       const title = normalizeExternalText(feed?.title || item.title) || item.title;
@@ -389,6 +402,7 @@ async function collectDomstolRecords(
       );
     }),
   );
+  return results.filter((r): r is StructuredLegalCorpusRecord => r !== null);
 }
 
 async function collectModCorpusRecords(
@@ -396,11 +410,11 @@ async function collectModCorpusRecords(
   options: CollectDownloadedLegalCorpusOptions,
 ): Promise<StructuredLegalCorpusRecord[]> {
   const manifestPath = path.join(rootDir, 'legal', 'mod-corpus', 'manifest.json');
-  const manifest = await readJsonFile<{ items?: Array<{ guid: string; title: string; link: string; savedAs: string }> }>(
-    manifestPath,
-  );
+  const manifest = await readJsonFile<{
+    items?: Array<{ guid: string; title: string; link: string; savedAs: string }>;
+  }>(manifestPath);
 
-  return Promise.all(
+  const results = await Promise.all(
     (manifest.items || []).map((item) =>
       materializeStructuredRecord(
         rootDir,
@@ -432,6 +446,7 @@ async function collectModCorpusRecords(
       ),
     ),
   );
+  return results.filter((r): r is StructuredLegalCorpusRecord => r !== null);
 }
 
 async function collectMmdCorpusRecords(
@@ -439,69 +454,67 @@ async function collectMmdCorpusRecords(
   options: CollectDownloadedLegalCorpusOptions,
 ): Promise<StructuredLegalCorpusRecord[]> {
   const manifestPath = path.join(rootDir, 'legal', 'mmd-corpus', 'manifest.json');
-  const manifest = await readJsonFile<{ courts?: Array<{ id: string; title: string; url: string; savedAs: string }> }>(
-    manifestPath,
-  );
+  const manifest = await readJsonFile<{
+    courts?: Array<{ id: string; title: string; url: string; savedAs: string }>;
+  }>(manifestPath);
 
   const records: StructuredLegalCorpusRecord[] = [];
-  records.push(
-    await materializeStructuredRecord(
+  const overview = await materializeStructuredRecord(
+    rootDir,
+    {
+      sourceFamily: 'MMD',
+      sourceSystem: 'DOMSTOL_MMD',
+      sourceType: 'COURT_OVERVIEW',
+      sourcePath: path.join('legal', 'mmd-corpus', 'overview.html'),
+      recordKey: toKey('mmd-overview', 'overview.html'),
+      canonicalKey: toKey('domstol-mmd', 'overview'),
+      title: 'Mark- och miljödomstolarna - översikt',
+      summary: 'Översiktssida för mark- och miljödomstolarna.',
+      sourceUrl:
+        'https://www.domstol.se/amnen/mark-och-miljo/introduktion-till-mark--och-miljodomstolen/har-finns-vi/',
+      normalizedUrl:
+        'https://www.domstol.se/amnen/mark-och-miljo/introduktion-till-mark--och-miljodomstolen/har-finns-vi/',
+      authorityName: 'Sveriges Domstolar',
+      authorityType: 'Domstol',
+      courtLevel: 'INSTANSOVERSIKT',
+      legalArea: 'Miljö',
+      metadata: {
+        type: 'overview',
+      },
+      tags: ['mmd', 'court-overview'],
+    },
+    options,
+  );
+  if (overview) records.push(overview);
+
+  for (const court of manifest.courts || []) {
+    const record = await materializeStructuredRecord(
       rootDir,
       {
         sourceFamily: 'MMD',
         sourceSystem: 'DOMSTOL_MMD',
-        sourceType: 'COURT_OVERVIEW',
-        sourcePath: path.join('legal', 'mmd-corpus', 'overview.html'),
-        recordKey: toKey('mmd-overview', 'overview.html'),
-        canonicalKey: toKey('domstol-mmd', 'overview'),
-        title: 'Mark- och miljödomstolarna - översikt',
-        summary: 'Översiktssida för mark- och miljödomstolarna.',
-        sourceUrl:
-          'https://www.domstol.se/amnen/mark-och-miljo/introduktion-till-mark--och-miljodomstolen/har-finns-vi/',
-        normalizedUrl:
-          'https://www.domstol.se/amnen/mark-och-miljo/introduktion-till-mark--och-miljodomstolen/har-finns-vi/',
-        authorityName: 'Sveriges Domstolar',
+        sourceType: 'COURT_PAGE',
+        sourcePath: path.join('legal', 'mmd-corpus', court.savedAs.replace(/\//g, path.sep)),
+        recordKey: toKey('mmd', court.savedAs),
+        canonicalKey: toKey('domstol-mmd', court.id),
+        externalId: court.id,
+        title: court.title,
+        summary: court.title,
+        sourceUrl: court.url,
+        normalizedUrl: court.url,
+        authorityName: court.title,
         authorityType: 'Domstol',
-        courtLevel: 'INSTANSOVERSIKT',
+        court: court.title,
+        courtLevel: 'MMD',
         legalArea: 'Miljö',
         metadata: {
-          type: 'overview',
+          court,
         },
-        tags: ['mmd', 'court-overview'],
+        tags: ['mmd', 'court-page'],
       },
       options,
-    ),
-  );
-
-  for (const court of manifest.courts || []) {
-    records.push(
-      await materializeStructuredRecord(
-        rootDir,
-        {
-          sourceFamily: 'MMD',
-          sourceSystem: 'DOMSTOL_MMD',
-          sourceType: 'COURT_PAGE',
-          sourcePath: path.join('legal', 'mmd-corpus', court.savedAs.replace(/\//g, path.sep)),
-          recordKey: toKey('mmd', court.savedAs),
-          canonicalKey: toKey('domstol-mmd', court.id),
-          externalId: court.id,
-          title: court.title,
-          summary: court.title,
-          sourceUrl: court.url,
-          normalizedUrl: court.url,
-          authorityName: court.title,
-          authorityType: 'Domstol',
-          court: court.title,
-          courtLevel: 'MMD',
-          legalArea: 'Miljö',
-          metadata: {
-            court,
-          },
-          tags: ['mmd', 'court-page'],
-        },
-        options,
-      ),
     );
+    if (record) records.push(record);
   }
 
   return records;
@@ -512,65 +525,63 @@ async function collectLansstyrelserRecords(
   options: CollectDownloadedLegalCorpusOptions,
 ): Promise<StructuredLegalCorpusRecord[]> {
   const manifestPath = path.join(rootDir, 'lansstyrelserna', 'manifest.json');
-  const manifest = await readJsonFile<{ counties?: Array<{ id: string; title: string; url: string; savedAs: string }> }>(
-    manifestPath,
-  );
+  const manifest = await readJsonFile<{
+    counties?: Array<{ id: string; title: string; url: string; savedAs: string }>;
+  }>(manifestPath);
 
   const records: StructuredLegalCorpusRecord[] = [];
-  records.push(
-    await materializeStructuredRecord(
+  const homepage = await materializeStructuredRecord(
+    rootDir,
+    {
+      sourceFamily: 'LANSSTYRELSEN',
+      sourceSystem: 'LANSSTYRELSEN',
+      sourceType: 'PORTAL_HOME',
+      sourcePath: path.join('lansstyrelserna', 'homepage.html'),
+      recordKey: toKey('lansstyrelsen-home', 'homepage.html'),
+      canonicalKey: toKey('lansstyrelsen', 'home'),
+      title: 'Länsstyrelserna',
+      summary: 'Startsida för Länsstyrelserna.',
+      sourceUrl: 'https://www.lansstyrelsen.se/',
+      normalizedUrl: 'https://www.lansstyrelsen.se/',
+      authorityName: 'Länsstyrelserna',
+      authorityType: 'Länsstyrelse',
+      legalArea: 'Miljö',
+      metadata: {
+        type: 'homepage',
+      },
+      tags: ['lansstyrelsen', 'homepage'],
+    },
+    options,
+  );
+  if (homepage) records.push(homepage);
+
+  for (const county of manifest.counties || []) {
+    const record = await materializeStructuredRecord(
       rootDir,
       {
         sourceFamily: 'LANSSTYRELSEN',
         sourceSystem: 'LANSSTYRELSEN',
-        sourceType: 'PORTAL_HOME',
-        sourcePath: path.join('lansstyrelserna', 'homepage.html'),
-        recordKey: toKey('lansstyrelsen-home', 'homepage.html'),
-        canonicalKey: toKey('lansstyrelsen', 'home'),
-        title: 'Länsstyrelserna',
-        summary: 'Startsida för Länsstyrelserna.',
-        sourceUrl: 'https://www.lansstyrelsen.se/',
-        normalizedUrl: 'https://www.lansstyrelsen.se/',
-        authorityName: 'Länsstyrelserna',
+        sourceType: 'COUNTY_PAGE',
+        sourcePath: path.join('lansstyrelserna', county.savedAs.replace(/\//g, path.sep)),
+        recordKey: toKey('lansstyrelsen', county.savedAs),
+        canonicalKey: toKey('lansstyrelsen', county.id),
+        externalId: county.id,
+        title: county.title,
+        summary: county.title,
+        sourceUrl: county.url,
+        normalizedUrl: county.url,
+        authorityName: county.title,
         authorityType: 'Länsstyrelse',
+        municipality: county.title,
         legalArea: 'Miljö',
         metadata: {
-          type: 'homepage',
+          county,
         },
-        tags: ['lansstyrelsen', 'homepage'],
+        tags: ['lansstyrelsen', 'county-page'],
       },
       options,
-    ),
-  );
-
-  for (const county of manifest.counties || []) {
-    records.push(
-      await materializeStructuredRecord(
-        rootDir,
-        {
-          sourceFamily: 'LANSSTYRELSEN',
-          sourceSystem: 'LANSSTYRELSEN',
-          sourceType: 'COUNTY_PAGE',
-          sourcePath: path.join('lansstyrelserna', county.savedAs.replace(/\//g, path.sep)),
-          recordKey: toKey('lansstyrelsen', county.savedAs),
-          canonicalKey: toKey('lansstyrelsen', county.id),
-          externalId: county.id,
-          title: county.title,
-          summary: county.title,
-          sourceUrl: county.url,
-          normalizedUrl: county.url,
-          authorityName: county.title,
-          authorityType: 'Länsstyrelse',
-          municipality: county.title,
-          legalArea: 'Miljö',
-          metadata: {
-            county,
-          },
-          tags: ['lansstyrelsen', 'county-page'],
-        },
-        options,
-      ),
     );
+    if (record) records.push(record);
   }
 
   return records;
@@ -583,7 +594,7 @@ async function collectNaturvardsverketRecords(
   const manifestPath = path.join(rootDir, 'naturvardsverket', 'manifest.json');
   const manifest = await readJsonFile<JsonObject>(manifestPath);
 
-  return Promise.all([
+  const results = await Promise.all([
     materializeStructuredRecord(
       rootDir,
       {
@@ -637,8 +648,10 @@ async function collectNaturvardsverketRecords(
         canonicalKey: toKey('naturvardsverket', 'naturvardsregistret-wfs-capabilities'),
         title: 'Naturvårdsregistret WFS GetCapabilities',
         summary: 'WFS-kapabiliteter för Naturvårdsregistret.',
-        sourceUrl: 'https://geodata.naturvardsverket.se/naturvardsregistret/wfs?service=WFS&request=GetCapabilities',
-        normalizedUrl: 'https://geodata.naturvardsverket.se/naturvardsregistret/wfs?service=WFS&request=GetCapabilities',
+        sourceUrl:
+          'https://geodata.naturvardsverket.se/naturvardsregistret/wfs?service=WFS&request=GetCapabilities',
+        normalizedUrl:
+          'https://geodata.naturvardsverket.se/naturvardsregistret/wfs?service=WFS&request=GetCapabilities',
         authorityName: 'Naturvårdsverket',
         authorityType: 'Myndighet',
         legalArea: 'Miljö',
@@ -650,6 +663,103 @@ async function collectNaturvardsverketRecords(
       options,
     ),
   ]);
+  return results.filter((r): r is StructuredLegalCorpusRecord => r !== null);
+}
+
+async function collectNaturvardsverketPdfRecords(
+  rootDir: string,
+  options: CollectDownloadedLegalCorpusOptions,
+): Promise<StructuredLegalCorpusRecord[]> {
+  const manifestPath = path.join(rootDir, 'naturvardsverket', 'broschyrer', 'manifest.json');
+  if (!(await fileExists(manifestPath))) {
+    return [];
+  }
+
+  const manifest = await readJsonFile<{
+    downloads?: Array<{ title: string; sourceUrl: string; savedAs: string }>;
+  }>(manifestPath);
+  const downloads = manifest.downloads || [];
+
+  const results = await Promise.all(
+    downloads.map((download) =>
+      materializeStructuredRecord(
+        rootDir,
+        {
+          sourceFamily: 'NATURVARDSVERKET',
+          sourceSystem: 'NATURVARDSVERKET',
+          sourceType: 'NATURVARDSVERKET_PDF_PUBLICATION',
+          sourcePath: path.join('naturvardsverket', download.savedAs),
+          recordKey: toKey('naturvardsverket-pdf', download.savedAs),
+          canonicalKey: toKey('naturvardsverket', download.savedAs),
+          externalId: download.savedAs,
+          title: download.title,
+          summary: download.title,
+          sourceUrl: download.sourceUrl,
+          normalizedUrl: download.sourceUrl,
+          authorityName: 'Naturvårdsverket',
+          authorityType: 'Myndighet',
+          legalArea: 'Miljö',
+          mimeType: 'application/pdf',
+          formatHint: 'pdf',
+          metadata: {
+            download,
+          },
+          tags: ['naturvardsverket', 'pdf', 'publikation'],
+        },
+        options,
+      ),
+    ),
+  );
+
+  return results.filter((r): r is StructuredLegalCorpusRecord => r !== null);
+}
+
+async function collectNaturvardsverketSitePdfRecords(
+  rootDir: string,
+  options: CollectDownloadedLegalCorpusOptions,
+): Promise<StructuredLegalCorpusRecord[]> {
+  const manifestPath = path.join(rootDir, 'naturvardsverket', 'broschyrer-site', 'manifest.json');
+  if (!(await fileExists(manifestPath))) {
+    return [];
+  }
+
+  const manifest = await readJsonFile<{
+    downloads?: Array<{ title: string; sourceUrl: string; savedAs: string; detailUrl?: string }>;
+  }>(manifestPath);
+  const downloads = manifest.downloads || [];
+
+  const results = await Promise.all(
+    downloads.map((download) =>
+      materializeStructuredRecord(
+        rootDir,
+        {
+          sourceFamily: 'NATURVARDSVERKET',
+          sourceSystem: 'NATURVARDSVERKET',
+          sourceType: 'NATURVARDSVERKET_PDF_PUBLICATION',
+          sourcePath: path.join('naturvardsverket', download.savedAs),
+          recordKey: toKey('naturvardsverket-pdf-site', download.savedAs),
+          canonicalKey: toKey('naturvardsverket', download.savedAs),
+          externalId: download.savedAs,
+          title: download.title,
+          summary: download.title,
+          sourceUrl: download.sourceUrl,
+          normalizedUrl: download.sourceUrl,
+          authorityName: 'Naturvårdsverket',
+          authorityType: 'Myndighet',
+          legalArea: 'Miljö',
+          mimeType: 'application/pdf',
+          formatHint: 'pdf',
+          metadata: {
+            download,
+          },
+          tags: ['naturvardsverket', 'pdf', 'publikation', 'site'],
+        },
+        options,
+      ),
+    ),
+  );
+
+  return results.filter((r): r is StructuredLegalCorpusRecord => r !== null);
 }
 
 async function collectOpenSourceSweepRecords(
@@ -657,9 +767,11 @@ async function collectOpenSourceSweepRecords(
   options: CollectDownloadedLegalCorpusOptions,
 ): Promise<StructuredLegalCorpusRecord[]> {
   const manifestPath = path.join(rootDir, 'open-source-sweep', 'manifest.json');
-  const manifest = await readJsonFile<{ entries?: Array<{ id: string; url: string; fileName: string }> }>(manifestPath);
+  const manifest = await readJsonFile<{ entries?: Array<{ id: string; url: string; fileName: string }> }>(
+    manifestPath,
+  );
 
-  return Promise.all(
+  const results = await Promise.all(
     (manifest.entries || []).map((entry) =>
       materializeStructuredRecord(
         rootDir,
@@ -683,14 +795,388 @@ async function collectOpenSourceSweepRecords(
           },
           tags: ['open-source-sweep', normalizeSearchToken(entry.id)],
           postgisSchemaOverride: /wfs|wms/i.test(entry.url) ? 'env' : undefined,
-          postgisTableOverride: /wfs|wms/i.test(entry.url)
-            ? sanitizeDatabaseIdentifier(entry.id)
-            : undefined,
+          postgisTableOverride: /wfs|wms/i.test(entry.url) ? sanitizeDatabaseIdentifier(entry.id) : undefined,
         },
         options,
       ),
     ),
   );
+  return results.filter((r): r is StructuredLegalCorpusRecord => r !== null);
+}
+
+async function collectBergsstatenRecords(
+  rootDir: string,
+  options: CollectDownloadedLegalCorpusOptions,
+): Promise<StructuredLegalCorpusRecord[]> {
+  const manifestPath = path.join(rootDir, 'bergsstaten', 'manifest.json');
+  if (!(await fileExists(manifestPath))) {
+    return [];
+  }
+
+  const manifest = await readJsonFile<{
+    pages?: Array<{ title: string; sourceUrl: string; savedAs: string; normalizedUrl?: string }>;
+    pdfs?: Array<{
+      title: string;
+      sourceUrl: string;
+      normalizedUrl?: string;
+      parentUrl?: string;
+      savedAs: string;
+      bytes?: number;
+    }>;
+  }>(manifestPath);
+
+  const pageRecords = await Promise.all(
+    (manifest.pages || []).map((page) =>
+      materializeStructuredRecord(
+        rootDir,
+        {
+          sourceFamily: 'BERGSSTATEN',
+          sourceSystem: 'BERGSSTATEN',
+          sourceType: 'BERGSSTATEN_PAGE',
+          sourcePath: path.join('bergsstaten', page.savedAs.replace(/\//g, path.sep)),
+          recordKey: toKey('bergsstaten-page', page.savedAs),
+          canonicalKey: toKey('bergsstaten', page.savedAs),
+          externalId: page.savedAs,
+          title: page.title,
+          summary: page.title,
+          sourceUrl: page.sourceUrl,
+          normalizedUrl: page.normalizedUrl || page.sourceUrl,
+          authorityName: 'Bergsstaten (SGU)',
+          authorityType: 'Myndighet',
+          legalArea: 'Miljöprövning',
+          metadata: {
+            page,
+          },
+          tags: ['bergsstaten', 'page'],
+        },
+        options,
+      ),
+    ),
+  );
+
+  const pdfRecords = await Promise.all(
+    (manifest.pdfs || []).map((pdf) =>
+      materializeStructuredRecord(
+        rootDir,
+        {
+          sourceFamily: 'BERGSSTATEN',
+          sourceSystem: 'BERGSSTATEN',
+          sourceType: 'BERGSSTATEN_PDF_DOCUMENT',
+          sourcePath: path.join('bergsstaten', pdf.savedAs.replace(/\//g, path.sep)),
+          recordKey: toKey('bergsstaten-pdf', pdf.savedAs),
+          canonicalKey: toKey('bergsstaten', pdf.savedAs),
+          externalId: pdf.savedAs,
+          title: pdf.title,
+          summary: pdf.title,
+          sourceUrl: pdf.sourceUrl,
+          normalizedUrl: pdf.normalizedUrl || pdf.sourceUrl,
+          authorityName: 'Bergsstaten (SGU)',
+          authorityType: 'Myndighet',
+          legalArea: 'Miljöprövning',
+          mimeType: 'application/pdf',
+          formatHint: 'pdf',
+          metadata: {
+            pdf,
+            parentUrl: pdf.parentUrl,
+          },
+          tags: ['bergsstaten', 'pdf', 'kungorelse', 'mineralratt'],
+        },
+        options,
+      ),
+    ),
+  );
+
+  return [...pageRecords, ...pdfRecords].filter((r): r is StructuredLegalCorpusRecord => r !== null);
+}
+
+async function collectSguAnvandarstodRecords(
+  rootDir: string,
+  options: CollectDownloadedLegalCorpusOptions,
+): Promise<StructuredLegalCorpusRecord[]> {
+  const manifestPath = path.join(rootDir, 'sgu-anvandarstod', 'manifest.json');
+  if (!(await fileExists(manifestPath))) {
+    return [];
+  }
+
+  const manifest = await readJsonFile<{
+    pages?: Array<{ title: string; sourceUrl: string; savedAs: string; normalizedUrl?: string }>;
+    pdfs?: Array<{
+      title: string;
+      sourceUrl: string;
+      normalizedUrl?: string;
+      parentUrl?: string;
+      savedAs: string;
+    }>;
+  }>(manifestPath);
+
+  const pageRecords = await Promise.all(
+    (manifest.pages || []).map((page) =>
+      materializeStructuredRecord(
+        rootDir,
+        {
+          sourceFamily: 'SGU',
+          sourceSystem: 'SGU_ANVANDARSTOD',
+          sourceType: 'SGU_GUIDANCE_PAGE',
+          sourcePath: path.join('sgu-anvandarstod', page.savedAs.replace(/\//g, path.sep)),
+          recordKey: toKey('sgu-anvandarstod-page', page.savedAs),
+          canonicalKey: toKey('sgu-anvandarstod', page.savedAs),
+          externalId: page.savedAs,
+          title: page.title,
+          summary: page.title,
+          sourceUrl: page.sourceUrl,
+          normalizedUrl: page.normalizedUrl || page.sourceUrl,
+          authorityName: 'Sveriges geologiska undersokning (SGU)',
+          authorityType: 'Myndighet',
+          legalArea: 'Geologi och miljo',
+          metadata: {
+            page,
+          },
+          tags: ['sgu', 'anvandarstod', 'guidance'],
+        },
+        options,
+      ),
+    ),
+  );
+
+  const pdfRecords = await Promise.all(
+    (manifest.pdfs || []).map((pdf) =>
+      materializeStructuredRecord(
+        rootDir,
+        {
+          sourceFamily: 'SGU',
+          sourceSystem: 'SGU_ANVANDARSTOD',
+          sourceType: 'SGU_GUIDANCE_PDF',
+          sourcePath: path.join('sgu-anvandarstod', pdf.savedAs.replace(/\//g, path.sep)),
+          recordKey: toKey('sgu-anvandarstod-pdf', pdf.savedAs),
+          canonicalKey: toKey('sgu-anvandarstod', pdf.savedAs),
+          externalId: pdf.savedAs,
+          title: pdf.title,
+          summary: pdf.title,
+          sourceUrl: pdf.sourceUrl,
+          normalizedUrl: pdf.normalizedUrl || pdf.sourceUrl,
+          authorityName: 'Sveriges geologiska undersokning (SGU)',
+          authorityType: 'Myndighet',
+          legalArea: 'Geologi och miljo',
+          mimeType: 'application/pdf',
+          formatHint: 'pdf',
+          metadata: {
+            pdf,
+            parentUrl: pdf.parentUrl,
+          },
+          tags: ['sgu', 'anvandarstod', 'pdf'],
+        },
+        options,
+      ),
+    ),
+  );
+
+  return [...pageRecords, ...pdfRecords].filter((r): r is StructuredLegalCorpusRecord => r !== null);
+}
+
+async function collectSguPortalRecords(
+  rootDir: string,
+  options: CollectDownloadedLegalCorpusOptions,
+): Promise<StructuredLegalCorpusRecord[]> {
+  const manifestPath = path.join(rootDir, 'sgu-portal', 'manifest.json');
+  if (!(await fileExists(manifestPath))) {
+    return [];
+  }
+
+  const manifest = await readJsonFile<{
+    pages?: Array<{ title: string; sourceUrl: string; savedAs: string; normalizedUrl?: string }>;
+    pdfs?: Array<{
+      title: string;
+      sourceUrl: string;
+      normalizedUrl?: string;
+      parentUrl?: string;
+      savedAs: string;
+    }>;
+  }>(manifestPath);
+
+  const pageRecords = await Promise.all(
+    (manifest.pages || []).map((page) =>
+      materializeStructuredRecord(
+        rootDir,
+        {
+          sourceFamily: 'SGU',
+          sourceSystem: 'SGU_PORTAL',
+          sourceType: 'SGU_PORTAL_PAGE',
+          sourcePath: path.join('sgu-portal', page.savedAs.replace(/\//g, path.sep)),
+          recordKey: toKey('sgu-portal-page', page.savedAs),
+          canonicalKey: toKey('sgu-portal', page.savedAs),
+          externalId: page.savedAs,
+          title: page.title,
+          summary: page.title,
+          sourceUrl: page.sourceUrl,
+          normalizedUrl: page.normalizedUrl || page.sourceUrl,
+          authorityName: 'Sveriges geologiska undersokning (SGU)',
+          authorityType: 'Myndighet',
+          legalArea: 'Geologi och miljo',
+          metadata: {
+            page,
+          },
+          tags: ['sgu', 'portal', 'geodata'],
+        },
+        options,
+      ),
+    ),
+  );
+
+  const pdfRecords = await Promise.all(
+    (manifest.pdfs || []).map((pdf) =>
+      materializeStructuredRecord(
+        rootDir,
+        {
+          sourceFamily: 'SGU',
+          sourceSystem: 'SGU_PORTAL',
+          sourceType: 'SGU_PORTAL_PDF',
+          sourcePath: path.join('sgu-portal', pdf.savedAs.replace(/\//g, path.sep)),
+          recordKey: toKey('sgu-portal-pdf', pdf.savedAs),
+          canonicalKey: toKey('sgu-portal', pdf.savedAs),
+          externalId: pdf.savedAs,
+          title: pdf.title,
+          summary: pdf.title,
+          sourceUrl: pdf.sourceUrl,
+          normalizedUrl: pdf.normalizedUrl || pdf.sourceUrl,
+          authorityName: 'Sveriges geologiska undersokning (SGU)',
+          authorityType: 'Myndighet',
+          legalArea: 'Geologi och miljo',
+          mimeType: 'application/pdf',
+          formatHint: 'pdf',
+          metadata: {
+            pdf,
+            parentUrl: pdf.parentUrl,
+          },
+          tags: ['sgu', 'portal', 'pdf'],
+        },
+        options,
+      ),
+    ),
+  );
+
+  return [...pageRecords, ...pdfRecords].filter((r): r is StructuredLegalCorpusRecord => r !== null);
+}
+
+async function collectDivaRecords(
+  rootDir: string,
+  options: CollectDownloadedLegalCorpusOptions,
+): Promise<StructuredLegalCorpusRecord[]> {
+  const topEntries = await fs.readdir(rootDir, { withFileTypes: true });
+  const divaDirs = topEntries.filter((entry) => entry.isDirectory() && /^diva-/i.test(entry.name));
+
+  if (!divaDirs.length) {
+    return [];
+  }
+
+  const allRecords: StructuredLegalCorpusRecord[] = [];
+
+  for (const dir of divaDirs) {
+    const domain = dir.name.replace(/^diva-/i, '').trim().toLowerCase() || 'unknown';
+    const manifestPath = path.join(rootDir, dir.name, 'manifest.json');
+    if (!(await fileExists(manifestPath))) {
+      continue;
+    }
+
+    const manifest = await readJsonFile<{
+      domain?: string;
+      records?: Array<{
+        id: string;
+        title: string;
+        sourceUrl: string;
+        normalizedUrl?: string;
+        savedAs: string;
+        metadataPrefix?: string;
+        setSpec?: string;
+      }>;
+      pdfs?: Array<{
+        id: string;
+        sourceUrl: string;
+        normalizedUrl?: string;
+        parentId?: string;
+        savedAs: string;
+        bytes?: number;
+      }>;
+    }>(manifestPath);
+
+    const manifestDomain = (manifest.domain || domain).trim().toLowerCase();
+
+    const metadataRecords = await Promise.all(
+      (manifest.records || []).map((entry) =>
+        materializeStructuredRecord(
+          rootDir,
+          {
+            sourceFamily: 'DIVA',
+            sourceSystem: 'DIVA_OAI_PMH',
+            sourceType: 'DIVA_METADATA_RECORD',
+            sourcePath: path.join(dir.name, entry.savedAs.replace(/\//g, path.sep)),
+            recordKey: toKey('diva-record', `${manifestDomain}__${entry.id}`),
+            canonicalKey: toKey('diva', `${manifestDomain}__${entry.id}`),
+            externalId: entry.id,
+            title: entry.title,
+            summary: `DiVA ${manifestDomain} ${entry.metadataPrefix || ''} ${entry.setSpec || ''}`
+              .trim()
+              .replace(/\s+/g, ' '),
+            sourceUrl: entry.sourceUrl,
+            normalizedUrl: entry.normalizedUrl || entry.sourceUrl,
+            authorityName: `DiVA (${manifestDomain})`,
+            authorityType: 'Universitetsarkiv',
+            legalArea: 'Forskning och miljo',
+            formatHint: 'json',
+            metadata: {
+              domain: manifestDomain,
+              oai: {
+                metadataPrefix: entry.metadataPrefix,
+                setSpec: entry.setSpec,
+              },
+              record: entry,
+            },
+            tags: ['diva', 'oai-pmh', 'metadata', manifestDomain],
+          },
+          options,
+        ),
+      ),
+    );
+
+    const pdfRecords = await Promise.all(
+      (manifest.pdfs || []).map((entry) =>
+        materializeStructuredRecord(
+          rootDir,
+          {
+            sourceFamily: 'DIVA',
+            sourceSystem: 'DIVA_OAI_PMH',
+            sourceType: 'DIVA_FULLTEXT_PDF',
+            sourcePath: path.join(dir.name, entry.savedAs.replace(/\//g, path.sep)),
+            recordKey: toKey('diva-pdf', `${manifestDomain}__${entry.id}`),
+            canonicalKey: toKey('diva', `${manifestDomain}__${entry.parentId || entry.id}`),
+            externalId: entry.id,
+            title: `DiVA PDF ${entry.parentId || entry.id}`,
+            summary: entry.sourceUrl,
+            sourceUrl: entry.sourceUrl,
+            normalizedUrl: entry.normalizedUrl || entry.sourceUrl,
+            authorityName: `DiVA (${manifestDomain})`,
+            authorityType: 'Universitetsarkiv',
+            legalArea: 'Forskning och miljo',
+            mimeType: 'application/pdf',
+            formatHint: 'pdf',
+            byteSize: entry.bytes,
+            metadata: {
+              domain: manifestDomain,
+              pdf: entry,
+            },
+            tags: ['diva', 'pdf', 'fulltext', manifestDomain],
+          },
+          options,
+        ),
+      ),
+    );
+
+    allRecords.push(
+      ...metadataRecords.filter((r): r is StructuredLegalCorpusRecord => r !== null),
+      ...pdfRecords.filter((r): r is StructuredLegalCorpusRecord => r !== null),
+    );
+  }
+
+  return allRecords;
 }
 
 async function collectBoverketRecords(
@@ -711,7 +1197,8 @@ async function collectBoverketRecords(
     const metadataId = String(metadataJson.id || fileStem(metadataFile));
     const canonicalKey = toKey('boverket', metadataId);
     const title =
-      normalizeExternalText(String(metadataJson.titel || metadataJson.forfattning || metadataId)) || metadataId;
+      normalizeExternalText(String(metadataJson.titel || metadataJson.forfattning || metadataId)) ||
+      metadataId;
     const summary = [
       normalizeExternalText(String(metadataJson.forfattning || '')),
       normalizeExternalText(String(metadataJson.forkortning || '')),
@@ -880,20 +1367,32 @@ async function materializeStructuredRecord(
   rootDir: string,
   seed: Omit<StructuredLegalCorpusRecord, 'searchText'> & { searchText?: string },
   options: CollectDownloadedLegalCorpusOptions,
-): Promise<StructuredLegalCorpusRecord> {
+): Promise<StructuredLegalCorpusRecord | null> {
   const fullPath = path.join(rootDir, seed.sourcePath);
-  const extracted = await extractCorpusContent(fullPath, seed.mimeType, {
-    extractPdfText: options.extractPdfText,
-  });
+
+  let extracted;
+  try {
+    extracted = await extractCorpusContent(fullPath, seed.mimeType, {
+      extractPdfText: options.extractPdfText,
+    });
+  } catch (err) {
+    console.warn(
+      `[legalCorpusImportService] Hoppar över fil som saknas eller inte kan läsas: ${seed.sourcePath}`,
+    );
+    return null;
+  }
+
   const title = normalizeExternalText(seed.title) || extracted.detectedTitle || fileStem(seed.sourcePath);
   const summary = normalizeExternalText(seed.summary) || extracted.detectedSummary;
-  const documentText = normalizeExternalText(seed.documentText || extracted.documentText);
+  const documentText = normalizeExternalText(seed.documentText || extracted.documentText)?.replace(/\0/g, '');
   const sourceUrl = normalizeExternalText(seed.sourceUrl);
   const normalizedUrl = normalizeExternalText(seed.normalizedUrl || sourceUrl);
   const publishedAt = seed.publishedAt;
   const decisionDate = seed.decisionDate;
   const year = seed.year || inferYear(publishedAt, decisionDate, sourceUrl, seed.title, seed.sourcePath);
-  const caseNumber = normalizeExternalText(seed.caseNumber || extractCaseNumber(title) || extractCaseNumber(documentText || ''));
+  const caseNumber = normalizeExternalText(
+    seed.caseNumber || extractCaseNumber(title) || extractCaseNumber(documentText || ''),
+  );
   const metadata = {
     ...seed.metadata,
     extraction: {
@@ -903,22 +1402,15 @@ async function materializeStructuredRecord(
     },
   } as JsonObject;
 
-  const searchText =
+  const searchText = (
     seed.searchText ||
     normalizeExternalText(
-      [
-        title,
-        summary,
-        seed.authorityName,
-        seed.court,
-        caseNumber,
-        seed.legalArea,
-        documentText,
-      ]
+      [title, summary, seed.authorityName, seed.court, caseNumber, seed.legalArea, documentText]
         .filter(Boolean)
         .join(' '),
     ) ||
-    title;
+    title
+  )?.replace(/\0/g, '');
 
   return {
     ...seed,
@@ -951,7 +1443,9 @@ async function readDomstolFeed(feedPath: string): Promise<Map<string, DomstolFee
     trimValues: true,
   });
 
-  const parsed = parser.parse(xml) as { rss?: { channel?: { item?: Array<Record<string, unknown>> | Record<string, unknown> } } };
+  const parsed = parser.parse(xml) as {
+    rss?: { channel?: { item?: Array<Record<string, unknown>> | Record<string, unknown> } };
+  };
   const rawItems = parsed.rss?.channel?.item;
   const items = Array.isArray(rawItems) ? rawItems : rawItems ? [rawItems] : [];
   const map = new Map<string, DomstolFeedItem>();
@@ -1096,7 +1590,9 @@ function inferSourceTypeFromUrl(url: string): string {
 }
 
 function extractCaseNumber(value: string): string | undefined {
-  const match = String(value || '').match(/(?:mål:\s*)?([A-ZÅÄÖ]{1,3}\s?\d+(?:-\d+)?(?:,\s*[A-ZÅÄÖ]{1,3}\s?\d+(?:-\d+)?)*)/i);
+  const match = String(value || '').match(
+    /(?:mål:\s*)?([A-ZÅÄÖ]{1,3}\s?\d+(?:-\d+)?(?:,\s*[A-ZÅÄÖ]{1,3}\s?\d+(?:-\d+)?)*)/i,
+  );
   return normalizeExternalText(match?.[1]);
 }
 
@@ -1132,7 +1628,9 @@ function parseDateValue(value: unknown): Date | undefined {
 }
 
 function sanitizeDatabaseIdentifier(input: string): string {
-  const normalized = normalizeSearchToken(input).replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '');
+  const normalized = normalizeSearchToken(input)
+    .replace(/[^a-z0-9]+/g, '_')
+    .replace(/^_+|_+$/g, '');
   return normalized || 'dataset';
 }
 
@@ -1192,7 +1690,10 @@ function toSerializableValue(value: unknown): unknown {
   }
   if (typeof value === 'object') {
     return Object.fromEntries(
-      Object.entries(value as Record<string, unknown>).map(([key, nested]) => [key, toSerializableValue(nested)]),
+      Object.entries(value as Record<string, unknown>).map(([key, nested]) => [
+        key,
+        toSerializableValue(nested),
+      ]),
     );
   }
   return value;

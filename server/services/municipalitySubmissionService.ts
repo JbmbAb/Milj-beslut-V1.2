@@ -404,7 +404,7 @@ export async function dispatchSubmissionToRecipient(params: {
   actingUserId: string;
   organisationId: string;
 }): Promise<{ ok: boolean; message: string }> {
-  const { submissionId, recipientEmail, actingUserId, organisationId } = params;
+  const { submissionId, recipientEmail, actingUserId, organisationId: _organisationId } = params;
 
   // 1. Hämta ärendet och verifiera status
   const submission = await submissionRepo.findById(submissionId);
@@ -418,8 +418,8 @@ export async function dispatchSubmissionToRecipient(params: {
   // 2. Hämta nödvändiga dokument (artefakter)
   const withEvents = await submissionRepo.getSubmissionWithEvents(submissionId);
   const artifacts = withEvents.artifacts;
-  const situationPlan = artifacts.find((a) => a.label === 'Situationsplan');
-  const crossSection = artifacts.find((a) => a.label === 'Tvärsektion');
+  const _situationPlan = artifacts.find((a) => a.label === 'Situationsplan');
+  const _crossSection = artifacts.find((a) => a.label === 'Tvärsektion');
   const applicationDraft = artifacts.find((a) => a.role === SubmissionArtifactRole.PRIMARY_DOCUMENT);
 
   if (!applicationDraft) {
@@ -668,8 +668,6 @@ function generateReferenceNumber(municipalityCode: string): string {
 }
 
 export function getMunicipalityContactEmail(municipalityCode: string): string {
-  const endpoint = MUNICIPALITY_ENDPOINTS[municipalityCode];
-
   // Map to known contact emails
   const emailMap: Record<string, string> = {
     '0180': 'miljoe@stockholm.se',

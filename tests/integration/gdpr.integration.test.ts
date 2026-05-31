@@ -1,5 +1,5 @@
 import { test, expect, beforeAll, afterAll, beforeEach } from 'vitest';
-import { ProjectStatus, UserRole } from '@prisma/client';
+import { UserRole } from '@prisma/client';
 import { createTokenPair } from '../../server/security/auth';
 import { prisma, request, factory, resetDatabase } from '../setup/integration-setup';
 
@@ -30,17 +30,19 @@ async function setupTestUser() {
 }
 
 beforeAll(async () => {
-  // Login as admin to get a token for admin-only actions
-  // Note: We use a mock or a pre-configured admin for tests
-  const adminOrg = await prisma.organisation.create({
-    data: { name: 'Admin Org', orgNumber: 'admin-org-001' }
+  const adminOrg = await prisma.organisation.upsert({
+    where: { orgNumber: 'admin-org-001' },
+    create: { name: 'Admin Org', orgNumber: 'admin-org-001' },
+    update: { name: 'Admin Org' },
   });
-  const adminUser = await prisma.user.create({
-    data: {
+  const adminUser = await prisma.user.upsert({
+    where: { bankidId: 'admin-test-id' },
+    create: {
       bankidId: 'admin-test-id',
       role: UserRole.ADMIN,
-      organisationId: adminOrg.id
-    }
+      organisationId: adminOrg.id,
+    },
+    update: { organisationId: adminOrg.id, role: UserRole.ADMIN },
   });
   const tokenPair = createTokenPair(adminUser);
   adminToken = tokenPair.accessToken;

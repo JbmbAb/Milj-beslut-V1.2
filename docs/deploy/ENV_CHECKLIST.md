@@ -46,8 +46,12 @@ Använd denna lista när du sätter upp **lokal utveckling**, **staging** eller 
 
 | Variabel                                                   | Syfte                                                                                                            |
 | ---------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------- |
-| `BANKID_BASE_URL`, certifikat (`BANKID_PFX_PATH` / motsv.) | Riktig BankID                                                                                                    |
+| `BANKID_BASE_URL`, certifikat (`BANKID_PFX_PATH` / motsv.) | Riktig BankID — sätts först när avtal och rätt test-/produktionscertifikat finns                                 |
 | `BANKID_MOCK_MODE`                                         | **Endast utveckling/test** — ska **inte** vara `true` i produktion (server loggar fel vid `NODE_ENV=production`) |
+
+- **Före avtal:** lämna BankID oaktiverat i staging/produktion och använd admin-/organisationsinloggning.
+- **BankID testmiljö:** använd separat testcertifikat, separat trust chain och BankID:s test-endpoint.
+- **BankID produktion:** aktivera först efter verifierad testmiljö med motsvarande mTLS-upplägg.
 
 ## Myndighetsinlämning
 

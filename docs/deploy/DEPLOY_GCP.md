@@ -32,6 +32,7 @@ Secret Manager (credentials), Cloud Storage (attachments) och Cloud Build (CI/CD
 ## Förkrav
 
 - Sammanställd variabelchecklista: [ENV_CHECKLIST.md](ENV_CHECKLIST.md) — säkerställ att `BANKID_MOCK_MODE` och `AUTHORITY_MOCK_MODE` **inte** är `true` i produktion (servern loggar annars fel vid start).
+- Före BankID-avtal: lämna BankID oaktiverat i kundnära miljö och använd admin-/organisationsinloggning tills testcertifikat och produktionscertifikat finns.
 - `gcloud` CLI installerat (<https://cloud.google.com/sdk/docs/install>).
 - Ägar- eller Editor-roll i GCP-projektet.
 - Fakturering aktiverad på projektet (Cloud Run + Cloud SQL är inte gratis).
@@ -169,11 +170,15 @@ set_secret OUTLOOK_GRAPH_CLIENT_ID "..."
 set_secret OUTLOOK_GRAPH_CLIENT_SECRET "..."
 set_secret OUTLOOK_GRAPH_USER "registrator@miljobeslut.se"
 
-# BankID (enda tillåtna mock-vägen)
-set_secret BANKID_BASE_URL "https://appapi2.bankid.com/rp/v6.0"
+# BankID (aktivera först när avtal och certifikat finns)
+# Testmiljö använder separat endpoint och separat testcertifikat, t.ex.:
+# set_secret BANKID_BASE_URL "https://appapi2.test.bankid.com/rp/v5.1"
+# Produktion använder produktionsendpoint först efter verifierad testmiljö:
+# set_secret BANKID_BASE_URL "https://appapi2.bankid.com/rp/v6.0"
 # Certifikat: ladda upp som binär Secret (version tar --data-file):
 # gcloud secrets create BANKID_PFX --replication-policy=automatic
 # gcloud secrets versions add BANKID_PFX --data-file=bankid.pfx
+# PFX-lösenord lagras separat som Secret Manager-secret.
 ```
 
 Ge Cloud Run-SA access till varje secret (alternativt ge `secretAccessor`-rollen
@@ -287,9 +292,11 @@ gcloud run services update miljobeslut --region=$REGION \
 
 ## Regel om mockar (oförändrad)
 
-Endast `BANKID_MOCK_MODE=true` får vara aktiverat i produktion. Alla andra
-integrationer kör live. Smoketest `npm run smoke:integrations` flaggar
-MISSING för integrationer utan credentials.
+`BANKID_MOCK_MODE=true` får **inte** vara aktiverat i produktion. Före avtal ska
+BankID i stället vara oaktiverat eller returnera kontrollerat konfigurationsfel,
+medan admin-/organisationsinloggning används för kundnära drift. Alla andra
+integrationer kör live. Smoketest `npm run smoke:integrations` flaggar MISSING
+för integrationer utan credentials.
 
 ## Felsökning
 

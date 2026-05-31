@@ -1,10 +1,8 @@
 import { expect, test } from '@playwright/test';
-import { adminAuthHeaders, createApiContext, loginAsAdmin } from './support';
 
 import { createTokenPair } from '../../server/security/auth';
 
 test.describe('Security E2E', () => {
-
   test('should return 401 for admin endpoint without token', async ({ request }) => {
     const response = await request.get('/api/admin/projects');
     expect(response.status()).toBe(401);

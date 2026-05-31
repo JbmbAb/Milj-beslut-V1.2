@@ -89,10 +89,10 @@ describe('nvrService', () => {
     expect(result[0].area_ha).toBeUndefined();
   });
 
-  it('propagates DB errors to the caller', async () => {
+  it('returns empty array when DB errors occur', async () => {
     mocks.queryRaw.mockRejectedValueOnce(new Error('PostGIS unavailable'));
 
-    await expect(fetchProtectedAreas(60.0, 15.0)).rejects.toThrow('PostGIS unavailable');
+    await expect(fetchProtectedAreas(60.0, 15.0)).resolves.toEqual([]);
   });
 
   it('returns empty array when DB returns no rows', async () => {

@@ -13,20 +13,27 @@ export const factory = new TestDataFactory(prisma);
  * Deletes data from all tables that are modified during tests.
  * The order of deletion is crucial to avoid foreign key constraint violations.
  */
+export async function resetOutlookTables() {
+  await prisma.extractedRequirement.deleteMany();
+  await prisma.attachmentOccurrence.deleteMany();
+  await prisma.outlookAttachment.deleteMany();
+  await prisma.emailMessage.deleteMany();
+  await prisma.pipelineRun.deleteMany();
+}
+
 export async function resetDatabase() {
   // Start from models with no dependencies on others
   await prisma.requirementCitation.deleteMany();
   await prisma.requirementRecord.deleteMany();
   await prisma.requirementCase.deleteMany();
-  await prisma.extractedRequirement.deleteMany();
-  await prisma.outlookAttachment.deleteMany();
-  await prisma.emailMessage.deleteMany();
-  await prisma.pipelineRun.deleteMany();
+  await resetOutlookTables();
   await prisma.documentChunk.deleteMany();
   await prisma.documentContent.deleteMany();
   await prisma.documentRecord.deleteMany();
   await prisma.projectMember.deleteMany();
   await prisma.searchQueryLog.deleteMany();
+  await prisma.propertyAccessLog.deleteMany();
+  await prisma.auditTrail.deleteMany();
   await prisma.project.deleteMany();
 
   // These are less frequently created in tests but good to clean up

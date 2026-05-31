@@ -144,5 +144,219 @@ describe('externalHealthService unit tests', () => {
       const vertex = report.checks.find((c) => c.key === 'vertex_ai');
       expect(vertex?.status).toBe('not_configured');
     });
+
+    it('reports healthy live/config checks when integrations are configured', async () => {
+      process.env.VERTEX_PROJECT_ID = 'p1';
+      process.env.GOOGLE_APPLICATION_CREDENTIALS_JSON = '{"type":"service_account","fake":true}';
+      process.env.VISS_API_KEY = 'viss-key';
+      process.env.VISS_API_BASE_URL = 'https://viss.test/api';
+      process.env.LANTMATERIET_CONSUMER_KEY = 'lm-key';
+      process.env.LANTMATERIET_CONSUMER_SECRET = 'lm-secret';
+      process.env.LANTMATERIET_LOOKUP_MODE = 'ogc';
+      process.env.LANTMATERIET_BASE_URL = 'https://lm.test/ogc-features/v1';
+      process.env.MARKET_INTEL_ENDPOINT = 'https://market.test/health';
+      process.env.BANKID_PFX_PATH = 'bankid.pfx';
+      process.env.BANKID_BASE_URL = 'https://bankid.test/rp/v6.0';
+      process.env.AUTHORITY_SUBMIT_ENDPOINT = 'https://authority.test/submit';
+      process.env.AUTHORITY_API_KEY = 'authority-key';
+      process.env.EIDAS_QTSP_ENDPOINT = 'https://qtsp.test';
+      process.env.EIDAS_QTSP_API_KEY = 'qtsp-key';
+      process.env.LIMS_API_ENDPOINT = 'https://lims.test';
+      process.env.LIMS_API_KEY = 'lims-key';
+      process.env.OCR_API_KEY = 'ocr-key';
+
+      sluMock.getSluProductStatus.mockReturnValue([
+        { product: 'artdata', hasApiKey: true, hasBasePath: true },
+      ]);
+      sluMock.pingSluProduct.mockResolvedValue({
+        ok: true,
+        status: 200,
+        endpoint: 'https://slu.test/ping',
+      });
+      transportMock.getDispatchProviderRuntimeStatus.mockReturnValue({
+        activeProvider: 'TIMOCOM',
+        credentials: { timocomConfigured: true, transEuConfigured: true },
+      });
+      openDataMock.fetchImmediateOpenSources.mockResolvedValue([
+        { source: 'naturvardsverket', ok: true, status: 200, endpoint: 'https://nv.test', details: 'ok' },
+      ]);
+      lantmaterietMock.getLantmaterietOpenMapStatus.mockResolvedValue({
+        ok: true,
+        status: 200,
+        endpoint: 'https://lm.test/open',
+        mode: 'open',
+      });
+      fetchMock
+        .mockResolvedValueOnce({
+          ok: true,
+          status: 200,
+          json: () => Promise.resolve({ NearbyWaters: [{ id: 1 }] }),
+          text: () => Promise.resolve(''),
+        })
+        .mockResolvedValueOnce({
+          ok: true,
+          status: 200,
+          json: () => Promise.resolve({ scope: 'ogc-features:fastighetsindelning.read' }),
+          text: () => Promise.resolve(''),
+        })
+        .mockResolvedValueOnce({
+          ok: true,
+          status: 200,
+          json: () => Promise.resolve({ ok: true }),
+          text: () => Promise.resolve('ok'),
+        });
+
+      const report = await getExternalHealthReport();
+
+      expect(report.checks.find((c) => c.key === 'viss')?.status).toBe('healthy');
+      expect(report.checks.find((c) => c.key === 'lantmateriet_licensed')?.status).toBe('healthy');
+      expect(report.checks.find((c) => c.key === 'lantmateriet_open_map')?.status).toBe('healthy');
+      expect(report.checks.find((c) => c.key === 'slu')?.status).toBe('healthy');
+      expect(report.checks.find((c) => c.key === 'market_intel')?.status).toBe('healthy');
+      expect(report.checks.find((c) => c.key === 'bankid')?.status).toBe('degraded');
+      expect(report.checks.find((c) => c.key === 'permit_authority')?.status).toBe('degraded');
+      expect(report.checks.find((c) => c.key === 'timocom')?.configured).toBe(true);
+      expect(report.checks.find((c) => c.key === 'trans_eu')?.configured).toBe(true);
+      expect(report.checks.find((c) => c.key === 'eidas_qtsp')?.configured).toBe(true);
+      expect(report.checks.find((c) => c.key === 'lims_api')?.configured).toBe(true);
+      expect(report.checks.find((c) => c.key === 'ocr_api')?.configured).toBe(true);
+    });
+
+    it('maps failing live probes and missing credentials to error or not_configured', async () => {
+      delete process.env.VERTEX_PROJECT_ID;
+      process.env.VISS_API_KEY = 'viss-key';
+      process.env.LANTMATERIET_CONSUMER_KEY = 'lm-key';
+      process.env.LANTMATERIET_CONSUMER_SECRET = 'lm-secret';
+      process.env.LANTMATERIET_BASE_URL = 'https://lm.test/ogc-features/v1';
+      process.env.MARKET_INTEL_ENDPOINT = 'https://market.test/health';
+
+      sluMock.getSluProductStatus.mockReturnValue([
+        { product: 'artdata', hasApiKey: false, hasBasePath: true },
+      ]);
+      openDataMock.fetchImmediateOpenSources.mockResolvedValue([
+        {
+          source: 'lantmateriet_open_ftp',
+          ok: false,
+          status: 503,
+          endpoint: 'ftp://download-opendata.lantmateriet.se',
+          details: 'temporarily unavailable',
+        },
+      ]);
+      lantmaterietMock.getLantmaterietOpenMapStatus.mockResolvedValue({
+        ok: false,
+        status: 502,
+        endpoint: 'https://lm.test/open',
+        mode: 'licensed',
+      });
+      fetchMock
+        .mockResolvedValueOnce({
+          ok: false,
+          status: 403,
+          json: () => Promise.resolve({}),
+          text: () => Promise.resolve('forbidden'),
+        })
+        .mockResolvedValueOnce({
+          ok: false,
+          status: 401,
+          json: () => Promise.resolve({}),
+          text: () => Promise.resolve('bad credentials'),
+        })
+        .mockResolvedValueOnce({
+          ok: false,
+          status: 500,
+          json: () => Promise.resolve({}),
+          text: () => Promise.resolve('market down'),
+        });
+
+      const report = await getExternalHealthReport();
+
+      expect(report.checks.find((c) => c.key === 'viss')?.status).toBe('error');
+      expect(report.checks.find((c) => c.key === 'lantmateriet_licensed')?.status).toBe('error');
+      expect(report.checks.find((c) => c.key === 'lantmateriet_open_map')?.status).toBe('error');
+      expect(report.checks.find((c) => c.key === 'lantmateriet_open_ftp')?.status).toBe('degraded');
+      expect(report.checks.find((c) => c.key === 'slu')?.status).toBe('not_configured');
+      expect(report.checks.find((c) => c.key === 'market_intel')?.status).toBe('error');
+      expect(report.checks.find((c) => c.key === 'permit_authority')?.status).toBe('not_configured');
+      expect(report.overall).toBe('error');
+    });
+
+    it('maps config-only degradations and missing-credential open probes correctly', async () => {
+      process.env.VERTEX_PROJECT_ID = 'p1';
+      process.env.GOOGLE_APPLICATION_CREDENTIALS_JSON = '{"type":"service_account","fake":true}';
+      delete process.env.VISS_API_KEY;
+      process.env.LANTMATERIET_ACCESS_TOKEN = 'direct-token';
+      delete process.env.LANTMATERIET_CONSUMER_KEY;
+      delete process.env.LANTMATERIET_CONSUMER_SECRET;
+      delete process.env.LANTMATERIET_API_KEY;
+      process.env.LANTMATERIET_BASE_URL = 'https://lm.test/ogc-features/v1';
+      process.env.BANKID_CERT_PATH = 'bankid-cert.pem';
+      process.env.BANKID_KEY_PATH = 'bankid-key.pem';
+      process.env.BANKID_BASE_URL = 'https://bankid.test/rp/v6.0';
+      process.env.AUTHORITY_SUBMIT_ENDPOINT = 'https://authority.test/submit';
+
+      openDataMock.fetchImmediateOpenSources.mockResolvedValue([
+        {
+          source: 'smhi',
+          ok: false,
+          status: 401,
+          endpoint: 'https://smhi.test',
+          details: 'API-nyckel saknas för SMHI',
+        },
+      ]);
+      lantmaterietMock.getLantmaterietOpenMapStatus.mockResolvedValue({
+        ok: false,
+        status: 503,
+        endpoint: 'https://lm.test/open',
+        mode: 'licensed',
+      });
+      sluMock.getSluProductStatus.mockReturnValue([
+        { product: 'artportalen', hasApiKey: true, hasBasePath: true },
+      ]);
+      sluMock.pingSluProduct.mockRejectedValue(new Error('timeout'));
+
+      const report = await getExternalHealthReport();
+
+      expect(report.checks.find((c) => c.key === 'vertex_ai')?.status).toBe('healthy');
+      expect(report.checks.find((c) => c.key === 'viss')?.status).toBe('not_configured');
+      expect(report.checks.find((c) => c.key === 'lantmateriet_licensed')?.status).toBe('degraded');
+      expect(report.checks.find((c) => c.key === 'lantmateriet_open_map')?.status).toBe('error');
+      expect(report.checks.find((c) => c.key === 'slu')?.status).toBe('error');
+      expect(report.checks.find((c) => c.key === 'bankid')?.configured).toBe(true);
+      expect(report.checks.find((c) => c.key === 'permit_authority')?.status).toBe('degraded');
+      expect(report.checks.find((c) => c.key === 'smhi')?.status).toBe('not_configured');
+      expect(report.checks.find((c) => c.key === 'market_intel')?.status).toBe('not_configured');
+    });
+
+    it('maps API-key Lantmateriet and configured optional integrations as degraded', async () => {
+      delete process.env.VISS_API_KEY;
+      delete process.env.LANTMATERIET_ACCESS_TOKEN;
+      delete process.env.LANTMATERIET_CONSUMER_KEY;
+      delete process.env.LANTMATERIET_CONSUMER_SECRET;
+      process.env.LANTMATERIET_API_KEY = 'legacy-key';
+      process.env.LANTMATERIET_BASE_URL = 'https://lm.test/ogc-features/v1';
+      process.env.MARKET_INTEL_ENDPOINT = 'https://market.test/health';
+      process.env.EIDAS_QTSP_API_KEY = 'qtsp-key';
+      process.env.OCR_API_KEY = 'ocr-key';
+
+      transportMock.getDispatchProviderRuntimeStatus.mockReturnValue({
+        activeProvider: 'TRANS_EU',
+        credentials: { timocomConfigured: false, transEuConfigured: true },
+      });
+      fetchMock.mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        json: () => Promise.resolve({ ok: true }),
+        text: () => Promise.resolve('ok'),
+      });
+
+      const report = await getExternalHealthReport();
+
+      expect(report.checks.find((c) => c.key === 'lantmateriet_licensed')?.status).toBe('degraded');
+      expect(report.checks.find((c) => c.key === 'market_intel')?.status).toBe('healthy');
+      expect(report.checks.find((c) => c.key === 'eidas_qtsp')?.status).toBe('degraded');
+      expect(report.checks.find((c) => c.key === 'ocr_api')?.status).toBe('degraded');
+      expect(report.checks.find((c) => c.key === 'timocom')?.status).toBe('not_configured');
+      expect(report.checks.find((c) => c.key === 'trans_eu')?.status).toBe('degraded');
+    });
   });
 });

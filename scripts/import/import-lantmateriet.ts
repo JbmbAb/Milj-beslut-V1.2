@@ -53,12 +53,11 @@ async function runImport() {
 
     console.log('🔑 Fetching Lantmäteriet access token...');
     const auth = Buffer.from(`${consumerKey}:${consumerSecret}`).toString('base64');
-    const tokenUrl = process.env.LANTMATERIET_TOKEN_URL || 'https://apimanager.lantmateriet.se/oauth2/token';
-    const scope = process.env.LANTMATERIET_SCOPE || 'ogc-features:fastighetsindelning.read';
+    const tokenUrl = 'https://api.lantmateriet.se/token';
     const res = await fetch(tokenUrl, {
       method: 'POST',
       headers: { Authorization: `Basic ${auth}`, 'Content-Type': 'application/x-www-form-urlencoded' },
-      body: `grant_type=client_credentials&scope=${encodeURIComponent(scope)}`,
+      body: `grant_type=client_credentials&scope=ogc_api_topografi_read ogc_api_fastighetsindelning_read`,
     });
     if (!res.ok) {
       throw new Error(`Failed to get LM token: ${res.status} ${res.statusText}`);
@@ -83,20 +82,25 @@ async function runImport() {
       await prisma.$executeRawUnsafe(`CREATE SCHEMA IF NOT EXISTS ${schema};`);
 
       let sourcePath = `OAPIF:${item.url}`;
-      const authHeader = `Authorization: Bearer ${lmToken}`;
 
       if (DOWNLOAD_FIRST) {
         console.log(`   - Downloading to local file first...`);
         const downloadPath = `${DOWNLOAD_DIR}/${item.id}.gpkg`;
 
         const args = [
-          '--config', 'GDAL_HTTP_HEADER_FILE', path.resolve('lm_headers.txt'),
-          '--config', 'OAPIF_PAGE_SIZE', '5000',
-          '-f', 'GPKG',
+          '--config',
+          'GDAL_HTTP_HEADER_FILE',
+          path.resolve('lm_headers.txt'),
+          '--config',
+          'OAPIF_PAGE_SIZE',
+          '5000',
+          '-f',
+          'GPKG',
           path.resolve(downloadPath),
           sourcePath,
           '-overwrite',
-          '-nlt', 'PROMOTE_TO_MULTI',
+          '-nlt',
+          'PROMOTE_TO_MULTI',
         ];
 
         console.log(`   - Running ogr2ogr download...`);
@@ -110,16 +114,24 @@ async function runImport() {
       }
 
       const args = [
-        '--config', 'GDAL_HTTP_HEADER_FILE', path.resolve('lm_headers.txt'),
-        '-f', 'PostgreSQL',
+        '--config',
+        'GDAL_HTTP_HEADER_FILE',
+        path.resolve('lm_headers.txt'),
+        '-f',
+        'PostgreSQL',
         pgConn,
         sourcePath,
-        '-nln', item.table,
+        '-nln',
+        item.table,
         '-overwrite',
-        '-gt', '65536',
-        '-nlt', 'PROMOTE_TO_MULTI',
-        '-lco', 'GEOMETRY_NAME=geom',
-        '-lco', 'SPATIAL_INDEX=NONE',
+        '-gt',
+        '65536',
+        '-nlt',
+        'PROMOTE_TO_MULTI',
+        '-lco',
+        'GEOMETRY_NAME=geom',
+        '-lco',
+        'SPATIAL_INDEX=NONE',
       ];
 
       console.log(`   - Running ogr2ogr import...`);

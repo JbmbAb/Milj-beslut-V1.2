@@ -31,6 +31,13 @@ if (process.env.NODE_ENV !== 'test') {
     logger.info('In-process workers disabled (set START_WORKERS_IN_PROCESS=true to force-enable)');
   }
 
+  if (port === 3000 && process.env.NODE_ENV !== 'production') {
+    logger.warn(
+      'PORT=3000 kolliderar med Vite (npm run dev). Sätt PORT=8787 i .env.local och kör backend med npm run dev:server.',
+      { port },
+    );
+  }
+
   server.listen(port, () => {
     logger.info('Miljöbeslut backend started with WebSocket support', { port });
   });

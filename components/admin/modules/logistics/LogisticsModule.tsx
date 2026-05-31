@@ -1,5 +1,5 @@
-import React, { useState } from 'react';
-import { Truck, Package, Gauge, AlertTriangle, Wand2 } from 'lucide-react';
+import React, { useEffect, useState } from 'react';
+import { Truck, Package, Gauge, AlertTriangle, Wand2, ShieldCheck } from 'lucide-react';
 import '../module-common.css';
 import './logistics-dashboard.css';
 import './logistics-generator.css';
@@ -47,7 +47,8 @@ const LogisticsModule: React.FC = () => {
   useEffect(() => {
     if (activeTab === 'emissions' && stats.totalTonnage > 0) {
       // Benchmark based on SMED DIESEL fleet (avg distance assumed 50km if not in data)
-      void environmentalImpactService.getTransportEmissions(stats.totalTonnage, 50, 'DIESEL')
+      void environmentalImpactService
+        .getTransportEmissions(stats.totalTonnage, 50, 'DIESEL')
         .then(setSmedStats);
     }
   }, [activeTab, stats.totalTonnage]);
@@ -244,8 +245,27 @@ const LogisticsModule: React.FC = () => {
         )}
 
         {activeTab === 'emissions' && (
-          <div className="emissions-report-container" style={{ padding: 'var(--spacing-xl)', background: 'white', borderRadius: 'var(--border-radius-lg-digg)', border: '1px solid var(--color-border-digg)' }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '24px', padding: '16px', background: '#F0FDF4', borderRadius: '12px', border: '1px solid #BBF7D0' }}>
+          <div
+            className="emissions-report-container"
+            style={{
+              padding: 'var(--spacing-xl)',
+              background: 'white',
+              borderRadius: 'var(--border-radius-lg-digg)',
+              border: '1px solid var(--color-border-digg)',
+            }}
+          >
+            <div
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: '12px',
+                marginBottom: '24px',
+                padding: '16px',
+                background: '#F0FDF4',
+                borderRadius: '12px',
+                border: '1px solid #BBF7D0',
+              }}
+            >
               <ShieldCheck size={28} color="#059669" />
               <div>
                 <h3 style={{ margin: 0, color: '#065F46' }}>SMED-Verifierad Miljörapport</h3>
@@ -273,12 +293,22 @@ const LogisticsModule: React.FC = () => {
               </div>
             </div>
 
-            <div style={{ marginTop: '32px', padding: '20px', borderRadius: '16px', background: '#F9FAFB', border: '1px solid #E5E7EB' }}>
-              <h4 style={{ margin: '0 0 12px 0', fontSize: '14px', fontWeight: 'bold' }}>Analys & Compliance</h4>
+            <div
+              style={{
+                marginTop: '32px',
+                padding: '20px',
+                borderRadius: '16px',
+                background: '#F9FAFB',
+                border: '1px solid #E5E7EB',
+              }}
+            >
+              <h4 style={{ margin: '0 0 12px 0', fontSize: '14px', fontWeight: 'bold' }}>
+                Analys & Compliance
+              </h4>
               <p style={{ margin: 0, fontSize: '13px', color: '#4B5563', lineHeight: '1.6' }}>
-                Dessa värden används för att automatiskt fylla i Miljörapporten (Svenska Miljörapporteringsportalen - SMP) 
-                och för att verifiera efterlevnad av Miljökvalitetsnormer (MKN) för luftkvalitet. 
-                Värdena baseras på en genomsnittlig svensk lastbilsflotta 2024.
+                Dessa värden används för att automatiskt fylla i Miljörapporten (Svenska
+                Miljörapporteringsportalen - SMP) och för att verifiera efterlevnad av Miljökvalitetsnormer
+                (MKN) för luftkvalitet. Värdena baseras på en genomsnittlig svensk lastbilsflotta 2024.
               </p>
             </div>
           </div>

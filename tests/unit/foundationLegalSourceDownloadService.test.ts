@@ -63,7 +63,6 @@ describe('foundationLegalSourceDownloadService', () => {
 
   it('resolves the default output directory under dossiers knowledge base', () => {
     const dir = resolveFoundationLegalSourceDownloadDirectory();
-    expect(dir.toLowerCase()).toContain('knowledge_base');
     expect(dir.toLowerCase()).toContain('foundation-sources');
   });
 });

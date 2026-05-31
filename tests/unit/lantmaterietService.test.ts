@@ -18,6 +18,9 @@ const envMock = vi.hoisted(() => ({
   isLantmaterietOpenMode: vi.fn().mockReturnValue(false),
   hasLantmaterietAuth: vi.fn().mockReturnValue(true),
 }));
+const hybridGeoMock = vi.hoisted(() => ({
+  tryFetchLocalPropertyGeometry: vi.fn().mockResolvedValue(null),
+}));
 
 // VIKTIGT: Sökvägar från tests/unit/ -> server/...
 vi.mock('../../server/security/auditTrail', () => auditMock);
@@ -25,6 +28,7 @@ vi.mock('../../server/repositories/auditRepository', () => auditRepoMock);
 vi.mock('../../server/repositories/projectAccessRepository', () => authRepoMock);
 vi.mock('../../server/security/projectAccess', () => securityMock);
 vi.mock('../../server/security/env', () => envMock);
+vi.mock('../../server/services/hybridGeoService', () => hybridGeoMock);
 
 // Sätt miljövariabler innan import
 vi.hoisted(() => {
@@ -44,6 +48,7 @@ describe('lantmaterietService unit tests', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     delete process.env.LANTMATERIET_OPEN_SUBSCRIPTION_KEY;
+    hybridGeoMock.tryFetchLocalPropertyGeometry.mockResolvedValue(null);
   });
 
   const mockUser: any = { id: 'u1', organisationId: 'o1', role: 'USER' };
@@ -78,6 +83,28 @@ describe('lantmaterietService unit tests', () => {
 
       expect(result.designation).toBe('GÄVLE 1:1');
       expect(fetchMock).toHaveBeenCalled();
+    });
+
+    it('returns local hybrid geometry before live lookup', async () => {
+      hybridGeoMock.tryFetchLocalPropertyGeometry.mockResolvedValueOnce({
+        designation: 'GÄVLE 1:1',
+        geometry: { type: 'Polygon', coordinates: [] },
+        boundaries: { id: 'local' },
+      });
+
+      const result = await lookupPropertyByDesignation(
+        {
+          projectId: 'p1',
+          propertyDesignation: 'GÄVLE 1:1',
+          purpose: 'Inspection',
+        },
+        mockUser,
+      );
+
+      expect(result.source).toBe('local_db_hybrid');
+      expect(fetchMock).not.toHaveBeenCalled();
+      expect(auditMock.appendPropertyAudit).toHaveBeenCalled();
+      expect(auditRepoMock.writePropertyAccessLog).toHaveBeenCalled();
     });
   });
 });

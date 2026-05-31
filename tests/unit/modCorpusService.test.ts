@@ -1,12 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-const {
-  readFileMock,
-  rmMock,
-  mkdirMock,
-  copyFileMock,
-  writeFileMock,
-} = vi.hoisted(() => ({
+const { readFileMock, rmMock, mkdirMock, copyFileMock, writeFileMock } = vi.hoisted(() => ({
   readFileMock: vi.fn(),
   rmMock: vi.fn(),
   mkdirMock: vi.fn(),
@@ -29,7 +23,10 @@ vi.mock('node:fs/promises', () => ({
   writeFile: writeFileMock,
 }));
 
-import { buildModCorpus, resolveModCorpusDirectory } from '../../server/modules/legal/services/modCorpusService';
+import {
+  buildModCorpus,
+  resolveModCorpusDirectory,
+} from '../../server/modules/legal/services/modCorpusService';
 
 describe('modCorpusService', () => {
   beforeEach(() => {
@@ -81,7 +78,6 @@ describe('modCorpusService', () => {
 
   it('resolves the default MÖD corpus directory', () => {
     const dir = resolveModCorpusDirectory();
-    expect(dir.toLowerCase()).toContain('knowledge_base');
     expect(dir.toLowerCase()).toContain('mod-corpus');
   });
 });

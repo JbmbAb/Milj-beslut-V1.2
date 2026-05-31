@@ -485,6 +485,7 @@ const PermitGenerator: React.FC<{ project: Project }> = ({ project }) => {
 
   useEffect(() => {
     const muni = project.propertyDesignation.split(' ')[0] || '';
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setFormData((prev) => ({
       ...prev,
       property: project.propertyDesignation,

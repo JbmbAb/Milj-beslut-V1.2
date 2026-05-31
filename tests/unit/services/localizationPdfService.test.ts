@@ -19,7 +19,25 @@ function makeSpatialAudit(overrides: Record<string, unknown> = {}) {
     protectedAreaHits: [],
     protectedAreaAvailable: true,
     isProtected: false,
-    sgu: { riskLevel: 'LOW', riskFactors: [], sources: [] },
+    sgu: {
+      coverageMode: 'sample' as const,
+      manualReviewRequired: false,
+      riskLevel: 'LOW' as const,
+      groundLayer: {
+        intersects: false,
+        hit: null,
+        advisory: 'Ingen avvikelse i grundlager.',
+      },
+      landslideFeatures: {
+        nearby: false,
+        bufferMeters: 150,
+        nearestDistanceMeters: null,
+        hits: [],
+        advisory: 'Inga SGU-indikatorer inom buffert.',
+      },
+      flags: [],
+      summary: 'SGU-risk: låg',
+    },
     distanceToWaterMeters: null,
     distanceToWaterAvailable: false,
     text: 'OK',
@@ -35,10 +53,6 @@ function makeCompliance(siteId: string, overrides: Record<string, unknown> = {})
     restrictions: [],
     rules: [],
     summary: `Sammanfattning ${siteId}`,
-    violations: [],
-    warnings: [],
-    feasibilityScore: 80,
-    recommendations: [],
     ...overrides,
   };
 }
@@ -203,9 +217,7 @@ describe('buildLocalizationPdfData', () => {
         },
       ];
       const report = makeReport({
-        siteAnalyses: [
-          makeSiteAnalysis('alt-1', { complianceAnalysis: makeCompliance('alt-1', { rules }) }),
-        ],
+        siteAnalyses: [makeSiteAnalysis('alt-1', { complianceAnalysis: makeCompliance('alt-1', { rules }) })],
       });
       const pdf = buildLocalizationPdfData(report);
       expect(pdf.sites[0].rules[0].ruleId).toBe('MB-2-3');

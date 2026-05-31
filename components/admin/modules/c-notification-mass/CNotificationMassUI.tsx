@@ -1,11 +1,12 @@
-import React, { useCallback, useState } from 'react';
+import React, { useCallback, useMemo, useState } from 'react';
 import { callApi, getActiveProjectId } from '../../../../services/coreApiClient';
-import type { MassGISAnalysis, MassSiteProfile } from '../../../../types';
+import { isSensitiveAreaFromMassGis } from '../../../../services/massSpatialSensitivity';
+import type { MassGISAnalysis, MassSiteProfile, MpfDecisionSummary } from '../../../../types';
 import { useMassGisAnalysis } from '../../hooks/useMassGisAnalysis';
 import MassMapView from './MassMapView';
+import MpfGeofenceOverlay from './MpfGeofenceOverlay';
 import '../module-common.css';
 
-type GateDecision = 'PERMIT_REQUIRED' | 'NOTIFICATION_REQUIRED' | 'EXEMPT' | 'UNKNOWN_CODE';
 type MassStep = 'property' | 'operations' | 'submission';
 
 type OperationDraft = {
@@ -35,12 +36,99 @@ export const CNotificationMassUI: React.FC = () => {
   const [caseId, setCaseId] = useState('');
   const [mellanlagring, setMellanlagring] = useState<OperationDraft>(emptyOp('MELLANLAGRING'));
   const [deponi, setDeponi] = useState<OperationDraft>(emptyOp('DEPONI'));
-  const [gateM, setGateM] = useState<GateDecision | null>(null);
-  const [gateD, setGateD] = useState<GateDecision | null>(null);
+  const [decisionM, setDecisionM] = useState<MpfDecisionSummary | null>(null);
+  const [decisionD, setDecisionD] = useState<MpfDecisionSummary | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
   const [exportJson, setExportJson] = useState<string | null>(null);
+
+  const mergedGeofenceLayers = useMemo(() => {
+    const seen = new Set<string>();
+    const merged = [...(decisionM?.geofenceLayers ?? []), ...(decisionD?.geofenceLayers ?? [])];
+    return merged.filter((layer) => {
+      if (seen.has(layer.key)) return false;
+      seen.add(layer.key);
+      return true;
+    });
+  }, [decisionM, decisionD]);
+
+  const mergedRequiredMapLayers = useMemo(
+    () => mergedGeofenceLayers.map((layer) => layer.key),
+    [mergedGeofenceLayers],
+  );
+
+  const siteIsSensitive = useMemo(
+    () => Boolean(gisAnalysis && isSensitiveAreaFromMassGis(gisAnalysis)),
+    [gisAnalysis],
+  );
+
+  const downloadBlob = (blob: Blob, fileName: string) => {
+    const url = URL.createObjectURL(blob);
+    const anchor = document.createElement('a');
+    anchor.href = url;
+    anchor.download = fileName;
+    anchor.click();
+    URL.revokeObjectURL(url);
+  };
+
+  const buildSituationMapSvg = (payload: Record<string, unknown>) => {
+    const gis = (payload.gis as Record<string, unknown> | null) ?? null;
+    const centroid = (gis?.centroid as { lat?: number; lng?: number } | undefined) ?? {};
+    const recommendedZones = (
+      (gis?.recommendedZones as Array<Record<string, unknown>> | undefined) ?? []
+    ).slice(0, 8);
+
+    const width = 960;
+    const height = 540;
+    const centerX = 480;
+    const centerY = 260;
+    const zoneColors: Record<string, string> = {
+      MELLANLAGRING: '#4f46e5',
+      DEPONI: '#059669',
+      TRANSIT: '#475569',
+    };
+
+    const zoneNodes = recommendedZones
+      .map((zone, index) => {
+        const operationType = String(zone.operationType || 'TRANSIT');
+        const label = String(zone.label || operationType);
+        const color = zoneColors[operationType] ?? '#475569';
+        const angle = (index / Math.max(recommendedZones.length, 1)) * Math.PI * 2;
+        const radius = 120;
+        const x = Math.round(centerX + Math.cos(angle) * radius);
+        const y = Math.round(centerY + Math.sin(angle) * radius);
+        return `<g><circle cx="${x}" cy="${y}" r="18" fill="${color}" /><text x="${x}" y="${
+          y + 34
+        }" text-anchor="middle" font-size="13" fill="#334155">${label}</text></g>`;
+      })
+      .join('');
+
+    return `<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}">
+  <rect width="${width}" height="${height}" fill="#f8fafc" />
+  <rect x="30" y="30" width="900" height="480" rx="18" fill="#ffffff" stroke="#cbd5e1" />
+  <text x="60" y="74" font-size="28" font-weight="700" fill="#0f172a">Situationskarta - C-anmälan schaktmassor</text>
+  <text x="60" y="104" font-size="16" fill="#334155">Fastighet: ${propertyDesignation}</text>
+  <text x="60" y="130" font-size="14" fill="#475569">Centroid: ${Number(centroid.lat || 0).toFixed(5)}, ${Number(
+    centroid.lng || 0,
+  ).toFixed(5)}</text>
+  <circle cx="${centerX}" cy="${centerY}" r="42" fill="#dbeafe" stroke="#2563eb" stroke-width="2" />
+  <text x="${centerX}" y="${centerY + 6}" text-anchor="middle" font-size="14" fill="#1e3a8a">Fastighet</text>
+  ${zoneNodes}
+  <text x="60" y="486" font-size="12" fill="#64748b">Human-in-the-loop: juridisk slutgranskning krävs</text>
+</svg>`;
+  };
+
+  const fetchCaseExport = async () => {
+    if (!caseId) {
+      throw new Error('Ärende-ID saknas. Spara delbeslut först.');
+    }
+    return callApi<{ ok: boolean; export: Record<string, unknown> }>(
+      `/api/c-notification/mass/${encodeURIComponent(caseId)}/export`,
+      { method: 'GET' },
+    );
+  };
 
   const {
     mutate: runGisAnalysis,
@@ -58,25 +146,22 @@ export const CNotificationMassUI: React.FC = () => {
     },
   });
 
-  const run = useCallback(
-    async (fn: () => Promise<void>) => {
-      setLoading(true);
-      setError(null);
-      try {
-        await fn();
-      } catch (e) {
-        setError(e instanceof Error ? e.message : 'Ett fel uppstod');
-      } finally {
-        setLoading(false);
-      }
-    },
-    [],
-  );
+  const run = useCallback(async (fn: () => Promise<void>) => {
+    setLoading(true);
+    setError(null);
+    try {
+      await fn();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Ett fel uppstod');
+    } finally {
+      setLoading(false);
+    }
+  }, []);
 
-  const validateOne = async (op: OperationDraft, setter: (g: GateDecision) => void) => {
+  const validateOne = async (op: OperationDraft, setter: (decision: MpfDecisionSummary | null) => void) => {
     const res = await callApi<{
       ok: boolean;
-      gateDecision: GateDecision;
+      mpfDecision: MpfDecisionSummary;
     }>('/api/c-notification/mass/validate-codes', {
       method: 'POST',
       body: {
@@ -85,9 +170,14 @@ export const CNotificationMassUI: React.FC = () => {
         quantityPerYear: Number(op.quantityPerYear),
         ewcCode: op.ewcCode,
         sniCode: op.sniCode || undefined,
+        isSensitiveArea: gisAnalysis ? isSensitiveAreaFromMassGis(gisAnalysis) : undefined,
+        siteLat: gisAnalysis?.centroid.lat,
+        siteLng: gisAnalysis?.centroid.lng,
       },
     });
-    if (res.ok) setter(res.gateDecision);
+    if (res.ok) {
+      setter(res.mpfDecision);
+    }
   };
 
   const steps: Array<{ id: MassStep; label: string }> = [
@@ -203,7 +293,15 @@ export const CNotificationMassUI: React.FC = () => {
                   )}
                 </section>
 
-                <MassMapView analysis={gisAnalysis} siteProfile={siteProfile} />
+                <MassMapView
+                  analysis={gisAnalysis}
+                  siteProfile={siteProfile}
+                  requiredMapLayers={mergedRequiredMapLayers}
+                />
+
+                {mergedGeofenceLayers.length > 0 && (
+                  <MpfGeofenceOverlay layers={mergedGeofenceLayers} isSensitiveArea={siteIsSensitive} />
+                )}
 
                 <div className="flex justify-end">
                   <button
@@ -221,7 +319,9 @@ export const CNotificationMassUI: React.FC = () => {
 
         {currentStep === 'operations' && (
           <section className="rounded-lg border border-slate-200 bg-white p-6 shadow-sm space-y-4">
-            <h2 className="text-sm font-black uppercase tracking-widest text-slate-500">Delbeslut (MPF + EWC)</h2>
+            <h2 className="text-sm font-black uppercase tracking-widest text-slate-500">
+              Delbeslut (MPF + EWC)
+            </h2>
             {!gisAnalysis && (
               <p className="text-xs text-amber-700">
                 GIS-analys saknas — kör steg 1 först för bättre platsunderlag.
@@ -230,7 +330,7 @@ export const CNotificationMassUI: React.FC = () => {
             {(['MELLANLAGRING', 'DEPONI'] as const).map((type) => {
               const op = type === 'MELLANLAGRING' ? mellanlagring : deponi;
               const setOp = type === 'MELLANLAGRING' ? setMellanlagring : setDeponi;
-              const gate = type === 'MELLANLAGRING' ? gateM : gateD;
+              const decision = type === 'MELLANLAGRING' ? decisionM : decisionD;
               return (
                 <div key={type} className="rounded border border-slate-100 p-4 space-y-2">
                   <p className="text-xs font-bold text-slate-700">{type}</p>
@@ -252,14 +352,42 @@ export const CNotificationMassUI: React.FC = () => {
                     type="button"
                     disabled={loading}
                     className="text-xs font-bold text-indigo-600"
-                    onClick={() => run(() => validateOne(op, type === 'MELLANLAGRING' ? setGateM : setGateD))}
+                    onClick={() =>
+                      run(() => validateOne(op, type === 'MELLANLAGRING' ? setDecisionM : setDecisionD))
+                    }
                   >
                     Validera kod
                   </button>
-                  {gate && (
-                    <p className="text-xs text-slate-600">
-                      Gate: <strong>{gate}</strong>
-                    </p>
+                  {decision && (
+                    <div className="rounded border border-slate-100 bg-slate-50 p-3 text-xs text-slate-700 space-y-1">
+                      <p>
+                        Gate: <strong>{decision.gateDecision}</strong>
+                      </p>
+                      <p>
+                        Primär källa: <strong>{decision.primaryCodeType ?? 'okänd'}</strong>
+                        {decision.activityCode ? ` · MPF-aktivitet ${decision.activityCode}` : ''}
+                      </p>
+                      {decision.primaryPermitProfile && (
+                        <p>
+                          Spår: <strong>{decision.primaryPermitProfile.regulatoryTrack}</strong> · Risk:{' '}
+                          <strong>{decision.primaryPermitProfile.riskTier}</strong>
+                        </p>
+                      )}
+                      <p>{decision.notes}</p>
+                      {decision.advisorySignals.length > 0 && (
+                        <ul className="list-disc pl-4 text-amber-800">
+                          {decision.advisorySignals.map((signal) => (
+                            <li key={signal}>{signal}</li>
+                          ))}
+                        </ul>
+                      )}
+                      {decision.requiredMapLayers.length > 0 && (
+                        <MpfGeofenceOverlay
+                          layers={decision.geofenceLayers}
+                          isSensitiveArea={decision.isSensitiveArea}
+                        />
+                      )}
+                    </div>
                   )}
                 </div>
               );
@@ -273,6 +401,10 @@ export const CNotificationMassUI: React.FC = () => {
                   const res = await callApi<{
                     ok: boolean;
                     caseId: string;
+                    decisions?: {
+                      mellanlagring?: { mpfDecision?: MpfDecisionSummary | null } | null;
+                      deponi?: { mpfDecision?: MpfDecisionSummary | null } | null;
+                    };
                     warnings?: string[];
                   }>('/api/c-notification/mass/operations', {
                     method: 'POST',
@@ -303,6 +435,8 @@ export const CNotificationMassUI: React.FC = () => {
                     },
                   });
                   if (res.ok) {
+                    setDecisionM(res.decisions?.mellanlagring?.mpfDecision ?? decisionM);
+                    setDecisionD(res.decisions?.deponi?.mpfDecision ?? decisionD);
                     setCaseId(res.caseId);
                     setMessage(`Ärende ${res.caseId} sparat. ${(res.warnings ?? []).join(' ')}`);
                     setCurrentStep('submission');
@@ -317,7 +451,9 @@ export const CNotificationMassUI: React.FC = () => {
 
         {currentStep === 'submission' && (
           <section className="rounded-lg border border-slate-200 bg-white p-6 shadow-sm space-y-3">
-            <h2 className="text-sm font-black uppercase tracking-widest text-slate-500">Underlag och inlämning</h2>
+            <h2 className="text-sm font-black uppercase tracking-widest text-slate-500">
+              Underlag och inlämning
+            </h2>
             <p className="text-xs text-slate-500">Ärende-ID: {caseId || '— skapa delbeslut först —'}</p>
             <div className="flex flex-wrap gap-2">
               <button
@@ -350,15 +486,56 @@ export const CNotificationMassUI: React.FC = () => {
                 className="rounded border px-3 py-2 text-xs font-bold disabled:opacity-50"
                 onClick={() =>
                   run(async () => {
-                    const res = await callApi<{ ok: boolean; export: unknown }>(
-                      `/api/c-notification/mass/${encodeURIComponent(caseId)}/export`,
-                    );
+                    const res = await fetchCaseExport();
+                    const svg = buildSituationMapSvg(res.export);
+                    const blob = new Blob([svg], { type: 'image/svg+xml;charset=utf-8' });
+                    downloadBlob(blob, `situationskarta-${caseId}.svg`);
+                    setMessage('Situationskarta nedladdad.');
+                  })
+                }
+              >
+                Ladda ner situationskarta
+              </button>
+              <button
+                type="button"
+                disabled={loading || !caseId}
+                className="rounded border px-3 py-2 text-xs font-bold disabled:opacity-50"
+                onClick={() =>
+                  run(async () => {
+                    const res = await fetchCaseExport();
+                    const pdfBlob = await callApi<Blob>('/api/export/pdf-json', {
+                      method: 'POST',
+                      body: {
+                        title: `C-anmälan schaktmassor - ${caseId}`,
+                        subtitle: `Fastighet ${propertyDesignation}`,
+                        json: {
+                          ...res.export,
+                          exportedAt: new Date().toISOString(),
+                          humanInTheLoop:
+                            'Underlaget är AI-assisterat. Handläggare ska verifiera uppgifterna innan myndighetsinlämning.',
+                        },
+                      },
+                    });
+                    downloadBlob(pdfBlob, `c-anmalan-schaktmassor-${caseId}.pdf`);
+                    setMessage('PDF-export klar.');
+                  })
+                }
+              >
+                Exportera PDF
+              </button>
+              <button
+                type="button"
+                disabled={loading || !caseId}
+                className="rounded border px-3 py-2 text-xs font-bold disabled:opacity-50"
+                onClick={() =>
+                  run(async () => {
+                    const res = await fetchCaseExport();
                     setExportJson(JSON.stringify(res.export, null, 2));
                     setMessage('Export hämtad');
                   })
                 }
               >
-                Export
+                Visa exportdata
               </button>
               <button
                 type="button"
@@ -366,11 +543,14 @@ export const CNotificationMassUI: React.FC = () => {
                 className="rounded bg-emerald-700 px-3 py-2 text-xs font-bold text-white disabled:opacity-50"
                 onClick={() =>
                   run(async () => {
-                    const res = await callApi<{ ok: boolean; referenceNumber: string }>(
+                    const res = await callApi<{ ok: boolean; referenceNumber: string; warnings?: string[] }>(
                       '/api/c-notification/mass/submit',
                       { method: 'POST', body: { caseId } },
                     );
-                    setMessage(`Inlämnad: ${res.referenceNumber}`);
+                    const warningNote = (res.warnings ?? []).join(' ');
+                    setMessage(
+                      [`Inlämnad: ${res.referenceNumber}`, warningNote].filter(Boolean).join(' '),
+                    );
                   })
                 }
               >

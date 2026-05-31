@@ -390,4 +390,33 @@ router.get('/api/admin/dispatch/provider', requireAuth, rateLimitByUser(30, 60_0
   }
 });
 
+// MPF Rules
+router.get('/api/admin/mpf/thresholds', requireAuth, rateLimitByUser(60, 60_000), async (req, res) => {
+  try {
+    if (!req.authUser || req.authUser.role !== 'ADMIN') {
+      res.status(403).json({ ok: false, error: 'Admin role required' });
+      return;
+    }
+    const { getEffectiveMpfThresholds } = await import('../services/mpfRuleRegistryService');
+    const thresholds = await getEffectiveMpfThresholds();
+    res.json({ ok: true, items: thresholds });
+  } catch (error: unknown) {
+    res.status(500).json(toSafeErrorResponse(error));
+  }
+});
+
+router.post('/api/admin/mpf/thresholds', requireAuth, rateLimitByUser(10, 60_000), async (req, res) => {
+  try {
+    if (!req.authUser || req.authUser.role !== 'ADMIN') {
+      res.status(403).json({ ok: false, error: 'Admin role required' });
+      return;
+    }
+    const { upsertMpfRule } = await import('../services/mpfRuleRegistryService');
+    await upsertMpfRule(req.body);
+    res.json({ ok: true });
+  } catch (error: unknown) {
+    res.status(400).json(toSafeErrorResponse(error));
+  }
+});
+
 export default router;

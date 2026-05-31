@@ -10,7 +10,7 @@ const hasDatabaseIntegration = process.env.DATABASE_INTEGRATION === 'true';
 
 describe.skipIf(!hasDatabaseIntegration)('Security & Production Flows Integration Test', () => {
   let adminToken = '';
-  let adminRefreshToken = '';
+  let _adminRefreshToken = '';
 
   beforeAll(async () => {
     await prisma.$connect();
@@ -29,22 +29,20 @@ describe.skipIf(!hasDatabaseIntegration)('Security & Production Flows Integratio
     it('should block excessive requests to /api/admin/auth/login', async () => {
       let lastStatus = 200;
       let blockedCount = 0;
-      
+
       // Make up to 25 requests. The limit is 20 per minute.
       for (let i = 0; i < 25; i++) {
-        const res = await request(app)
-          .post('/api/admin/auth/login')
-          .send({
-            username: 'wrong-user',
-            password: 'wrong-password',
-          });
-        
+        const res = await request(app).post('/api/admin/auth/login').send({
+          username: 'wrong-user',
+          password: 'wrong-password',
+        });
+
         lastStatus = res.status;
         if (res.status === 429) {
           blockedCount++;
         } else {
           // Expected 401 for bad credentials when not blocked
-          expect(res.status).toBe(401); 
+          expect(res.status).toBe(401);
         }
       }
 
@@ -62,15 +60,15 @@ describe.skipIf(!hasDatabaseIntegration)('Security & Production Flows Integratio
           username: process.env.ADMIN_CONSOLE_USERNAME || 'admin',
           password: process.env.ADMIN_CONSOLE_PASSWORD || 'admin',
         });
-      
+
       expect(loginRes.status).toBe(200);
       adminToken = loginRes.body.accessToken;
-      adminRefreshToken = loginRes.body.refreshToken;
+      _adminRefreshToken = loginRes.body.refreshToken;
 
       // Extract JTI from JWT (payload is the second part)
       const tokenParts = adminToken.split('.');
       expect(tokenParts.length).toBe(3);
-      
+
       const payload = JSON.parse(Buffer.from(tokenParts[1], 'base64').toString());
       const jti = payload.jti;
       const userId = payload.userId || payload.sub || 'test-user';
@@ -87,8 +85,8 @@ describe.skipIf(!hasDatabaseIntegration)('Security & Production Flows Integratio
         data: {
           jti,
           userId,
-          expiresAt: new Date(Date.now() + 1000 * 60 * 60) // Future
-        }
+          expiresAt: new Date(Date.now() + 1000 * 60 * 60), // Future
+        },
       });
 
       // The token should now be rejected
@@ -110,7 +108,7 @@ describe.skipIf(!hasDatabaseIntegration)('Security & Production Flows Integratio
         });
       const validToken = loginRes.body.accessToken;
 
-      // We hit the internal endpoint (often protected by internal network or special token, 
+      // We hit the internal endpoint (often protected by internal network or special token,
       // but let's check its behavior. If it requires X-Internal-Token, we provide it or just see if it's there).
       const res = await request(app)
         .post('/api/internal/background/gdpr-maintenance')
@@ -124,8 +122,8 @@ describe.skipIf(!hasDatabaseIntegration)('Security & Production Flows Integratio
       const exportRes = await request(app)
         .get('/api/gdpr/me/export')
         .set('Authorization', `Bearer ${validToken}`);
-      
-      // Some endpoints might return 400 if user doesn't have an associated bankid user, 
+
+      // Some endpoints might return 400 if user doesn't have an associated bankid user,
       // but it shouldn't be 404 or 500
       expect(exportRes.status).not.toBe(404);
       expect(exportRes.status).not.toBe(500);

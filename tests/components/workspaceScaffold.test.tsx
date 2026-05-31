@@ -33,7 +33,7 @@ describe('WorkspaceScaffold', () => {
   it('renders all mode titles in sidebar', () => {
     render(<WorkspaceScaffold {...defaultProps} />);
     expect(screen.getAllByText('Logistik och massor').length).toBeGreaterThanOrEqual(1);
-    expect(screen.getAllByText('Provningsportal').length).toBeGreaterThanOrEqual(1);
+    expect(screen.getAllByText(/Provningsportal/i).length).toBeGreaterThanOrEqual(1);
     expect(screen.getAllByText('Projektledning').length).toBeGreaterThanOrEqual(1);
   });
 
@@ -75,7 +75,7 @@ describe('WorkspaceScaffold', () => {
     const onOpenMode = vi.fn();
     render(<WorkspaceScaffold {...defaultProps} onOpenMode={onOpenMode} />);
     // Click Provningsportal module button
-    fireEvent.click(screen.getByText('Provningsportal'));
+    fireEvent.click(screen.getByText(/Provningsportal/i));
     expect(onOpenMode).toHaveBeenCalledWith('PERMIT_PORTAL');
   });
 

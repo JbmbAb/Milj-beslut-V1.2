@@ -1,6 +1,15 @@
+import path from 'node:path';
 import express from 'express';
 import { SOURCE_CATALOG } from '../datasources/catalog';
 import { MAP_LAYER_CATALOG, MAP_LAYER_DEFAULT_DOCUMENTATION_URLS } from '../datasources/mapLayerCatalog';
+import { getOgcCatalogLayers, listOgcCatalogSummaries } from '../services/ogcCapabilitiesService';
+import {
+  downloadDataPackageFileToPath,
+  getLastkajenStatus,
+  listDataPackageFiles,
+  listPublishedDataPackages,
+  pingLastkajen,
+} from '../services/lastkajenService';
 import { logger } from '../logger';
 import { requireAuth } from '../security/auth';
 import { rateLimitByUser } from '../security/rateLimit';
@@ -27,6 +36,8 @@ import {
   getSguCoastalErosionLayer,
   getSguHighestCoastlineLayer,
   getWaterCatchmentLayer,
+  getMainCatchmentLayer,
+  getDatasetMapLayer,
   getMarkCoverLayer,
   queryMarkCoverAtPoint,
   getPropertyLayer,
@@ -48,7 +59,6 @@ import {
   type SluProduct,
 } from '../modules/gis/public';
 import { parsePositiveInt, parseBooleanFlag } from '../utils/routeUtils';
-import { spatialAuditSchema } from '../schemas/api.schemas';
 
 const router = express.Router();
 
@@ -357,7 +367,10 @@ router.get('/api/layers/property', rateLimitByUser(30, 60_000), async (req, res)
       return;
     }
 
-    const collection = await getPropertyLayer(bbox);
+    const lanKodRaw = typeof req.query.lan_kod === 'string' ? Number(req.query.lan_kod) : null;
+    const lanKod = Number.isInteger(lanKodRaw) && lanKodRaw >= 1 && lanKodRaw <= 25 ? lanKodRaw : undefined;
+
+    const collection = await getPropertyLayer(bbox, lanKod);
     res.json(collection);
   } catch (error: unknown) {
     const safe = toSafeErrorResponse(error);
@@ -415,6 +428,47 @@ router.get('/api/layers/hydro.water-catchments', rateLimitByUser(30, 60_000), as
     res
       .status(200)
       .json(featureCollectionFallback(String(safe.error || 'Avrinningsomraden kunde inte laddas.')));
+  }
+});
+
+router.get('/api/layers/dataset/:layerKey', rateLimitByUser(30, 60_000), async (req, res) => {
+  try {
+    const layerKey = typeof req.params.layerKey === 'string' ? req.params.layerKey : '';
+    const rawBbox = typeof req.query.bbox === 'string' ? req.query.bbox : null;
+    const bbox = parseBbox(rawBbox);
+    if (!layerKey) {
+      res.status(400).json({ error: 'layerKey is required' });
+      return;
+    }
+    if (!bbox) {
+      res.status(400).json({ error: 'bbox is required' });
+      return;
+    }
+    const limit = parsePositiveInt(req.query.limit, 1500, 1, 3000);
+    const collection = await getDatasetMapLayer(layerKey, bbox, limit);
+    res.json(collection);
+  } catch (error: unknown) {
+    const safe = toSafeErrorResponse(error);
+    res.status(200).json(featureCollectionFallback(String(safe.error || 'Dataset-lager kunde inte laddas.')));
+  }
+});
+
+router.get('/api/layers/hydro.main-catchments', rateLimitByUser(30, 60_000), async (req, res) => {
+  try {
+    const rawBbox = typeof req.query.bbox === 'string' ? req.query.bbox : null;
+    const bbox = parseBbox(rawBbox);
+    if (!bbox) {
+      res.status(400).json({ error: 'bbox is required' });
+      return;
+    }
+
+    const collection = await getMainCatchmentLayer(bbox);
+    res.json(collection);
+  } catch (error: unknown) {
+    const safe = toSafeErrorResponse(error);
+    res
+      .status(200)
+      .json(featureCollectionFallback(String(safe.error || 'Huvudavrinningsomraden kunde inte laddas.')));
   }
 });
 
@@ -687,6 +741,24 @@ router.get('/api/reference/map-layers', rateLimitByUser(30, 60_000), (_req, res)
   });
 });
 
+router.get('/api/reference/ogc-catalogs', rateLimitByUser(30, 60_000), (_req, res) => {
+  res.json({
+    ok: true,
+    catalogs: listOgcCatalogSummaries(),
+    generatedAt: new Date().toISOString(),
+  });
+});
+
+router.get('/api/reference/ogc-catalogs/:catalogId/layers', rateLimitByUser(15, 60_000), async (req, res) => {
+  try {
+    const payload = await getOgcCatalogLayers(String(req.params.catalogId ?? ''));
+    res.json({ ok: true, ...payload });
+  } catch (error: unknown) {
+    const message = error instanceof Error ? error.message : String(error);
+    res.status(message.includes('Okänd') ? 404 : 500).json({ ok: false, error: message });
+  }
+});
+
 // Utökad PostGIS-hälsokontroll: version, SRID-stöd, antal GIST-index, senaste
 // spatial-migration. Ersätter den enklare varianten i secureApi (som inte nås
 // eftersom gisRouter monteras först).
@@ -759,6 +831,91 @@ router.get(
       res.json({ ok: true, result });
     } catch (error: unknown) {
       res.status(400).json(toSafeErrorResponse(error));
+    }
+  },
+);
+
+router.get(
+  '/api/datasources/lastkajen/status',
+  requireAuth,
+  rateLimitByUser(30, 60_000),
+  async (_req, res) => {
+    try {
+      const status = await getLastkajenStatus();
+      res.json({ ok: true, status });
+    } catch (error: unknown) {
+      res.status(503).json(toSafeErrorResponse(error));
+    }
+  },
+);
+
+router.get('/api/datasources/lastkajen/ping', requireAuth, rateLimitByUser(10, 60_000), async (_req, res) => {
+  try {
+    const result = await pingLastkajen();
+    res.json({ ok: result.ok, result });
+  } catch (error: unknown) {
+    res.status(500).json(toSafeErrorResponse(error));
+  }
+});
+
+router.get(
+  '/api/datasources/lastkajen/packages',
+  requireAuth,
+  rateLimitByUser(20, 60_000),
+  async (_req, res) => {
+    try {
+      const packages = await listPublishedDataPackages();
+      res.json({ ok: true, packages });
+    } catch (error: unknown) {
+      res.status(503).json(toSafeErrorResponse(error));
+    }
+  },
+);
+
+router.get(
+  '/api/datasources/lastkajen/packages/:packageId/files',
+  requireAuth,
+  rateLimitByUser(20, 60_000),
+  async (req, res) => {
+    try {
+      const packageId = parsePositiveInt(req.params.packageId, 0, 1, Number.MAX_SAFE_INTEGER);
+      if (!packageId) {
+        res.status(400).json({ ok: false, error: 'Ogiltigt packageId' });
+        return;
+      }
+      const files = await listDataPackageFiles(packageId);
+      res.json({ ok: true, packageId, files });
+    } catch (error: unknown) {
+      res.status(503).json(toSafeErrorResponse(error));
+    }
+  },
+);
+
+router.post(
+  '/api/datasources/lastkajen/download',
+  requireAuth,
+  rateLimitByUser(5, 60_000),
+  async (req, res) => {
+    try {
+      const packageId = parsePositiveInt(String(req.body?.packageId ?? ''), 0, 1, Number.MAX_SAFE_INTEGER);
+      const fileName = String(req.body?.fileName ?? '').trim();
+      if (!packageId || !fileName) {
+        res.status(400).json({ ok: false, error: 'packageId och fileName krävs' });
+        return;
+      }
+      const safeName = path.basename(fileName);
+      const destination = path.join(
+        process.cwd(),
+        'storage',
+        'ingest',
+        'lastkajen',
+        String(packageId),
+        safeName,
+      );
+      const result = await downloadDataPackageFileToPath(packageId, safeName, destination);
+      res.json({ ok: true, ...result });
+    } catch (error: unknown) {
+      res.status(503).json(toSafeErrorResponse(error));
     }
   },
 );

@@ -26,7 +26,7 @@ export const PLATFORM_COLLECTIONS = [
   },
   {
     id: 'sgu_soil_25k_100k' as const,
-    url: 'https://api.sgu.se/oppnadata/jordarter25k-100k/ogc/features/v1/collections/ytlager',
+    url: 'https://api.sgu.se/oppnadata/jordarter25k-100k/ogc/features/v1/collections/grundlager',
     table: 'env.sgu_soil_type_25k_100k',
   },
   {
@@ -53,6 +53,7 @@ export const PLATFORM_COLLECTIONS = [
     id: 'sgu_fastmark' as const,
     url: 'https://api.sgu.se/oppnadata/fastmark/ogc/features/v1/collections/fastmark',
     table: 'env.sgu_fastmark_stabilitet',
+    disabled: true, // Temporarily disabled: intermittent lock/stall behavior during imported-run validation.
   },
 
   // LANTMÄTERIET - Fastigheter & Topografi (OGC API Features)
@@ -67,24 +68,34 @@ export const PLATFORM_COLLECTIONS = [
     url: 'https://api.lantmateriet.se/ogc-features/v1/fastighetsindelning/collections/registerenhetsomradeslinjer',
     table: 'env.registerenhetsomradeslinjer',
     auth: 'lm',
+    disabled: true, // Endpoint currently returning 404 in ingestion runtime.
   },
   {
     id: 'lm_topo_mark' as const,
     url: 'https://api.lantmateriet.se/ogc-features/v1/topografi/collections/mark',
+    filePath:
+      'C:\\Millbygard_from_D\\Millbygård\\data\\topografi\\orsa_stackmora_3_12_topografi_mark_2km_3006.gpkg',
     table: 'core.lm_mark',
     auth: 'lm',
+    disabled: true, // Endpoint currently returning 404 in ingestion runtime.
   },
   {
     id: 'lm_topo_byggnad' as const,
     url: 'https://api.lantmateriet.se/ogc-features/v1/topografi/collections/byggnad',
+    filePath:
+      'C:\\Millbygard_from_D\\Millbygård\\data\\topografi\\orsa_stackmora_3_12_topografi_byggnadsverk_2km_3006.gpkg',
     table: 'core.lm_byggnad',
     auth: 'lm',
+    disabled: true, // Endpoint currently returning 404 in ingestion runtime.
   },
   {
     id: 'lm_topo_vatten' as const,
     url: 'https://api.lantmateriet.se/ogc-features/v1/topografi/collections/vattenytor',
+    filePath:
+      'C:\\Millbygard_from_D\\Millbygård\\data\\topografi\\orsa_stackmora_3_12_topografi_hydrografi_2km_3006.gpkg',
     table: 'topo10.vatten',
     auth: 'lm',
+    disabled: true, // Endpoint currently returning 404 in ingestion runtime.
   },
 
   // NATURVÅRDSVERKET - Skyddad natur (OGC API Features via Geodata.se)
@@ -93,6 +104,7 @@ export const PLATFORM_COLLECTIONS = [
     id: 'nv_skyddad_natur' as const,
     url: 'https://geodata.naturvardsverket.se/naturvardsverket/ogc/features/v1/collections/skyddade_omraden',
     table: 'env.nv_skyddad_natur',
+    disabled: true, // OAPIF URL responds with service-not-found HTML.
   },
 
   // RIKSANTIKVARIEÄMBETET - Fornlämningar (OGC API Features via SOCH)
@@ -101,6 +113,7 @@ export const PLATFORM_COLLECTIONS = [
     id: 'raa_fornlamningar' as const,
     url: 'https://api.raa.se/fornsok/v2/ogcapi/collections/fornlamning',
     table: 'env.raa_fornlamning',
+    disabled: true, // DNS resolution failed repeatedly in ingestion runtime.
   },
 
   // LÄNSSTYRELSERNA - Vattenskyddsområden & Miljöfarlig verksamhet
@@ -110,6 +123,7 @@ export const PLATFORM_COLLECTIONS = [
     table: 'env.lst_vattenskyddsomrade',
     type: 'WFS',
     featureType: 'Vattenskyddsområden',
+    disabled: true, // Endpoint timed out repeatedly during retries.
   },
   {
     id: 'lst_miljofarlig_verksamhet' as const,
@@ -117,6 +131,7 @@ export const PLATFORM_COLLECTIONS = [
     table: 'env.lst_miljofarlig_verksamhet',
     type: 'WFS',
     featureType: 'lst:miljofarlig_verksamhet',
+    disabled: true, // Endpoint timed out repeatedly during retries.
   },
 
   // VISS & SMED - Vattenstatus och Miljöbelastning
@@ -126,6 +141,7 @@ export const PLATFORM_COLLECTIONS = [
     table: 'env.viss_vattenforekomst',
     type: 'WFS',
     featureType: 'ms:viss_vattendirektivet_ytvatten',
+    disabled: true, // Endpoint timed out repeatedly during retries.
   },
   {
     id: 'smed_belastning_vatten' as const,
@@ -133,12 +149,23 @@ export const PLATFORM_COLLECTIONS = [
     table: 'env.smed_belastning_vatten',
     type: 'WFS',
     featureType: 'ms:viss_belastning_totp_totn',
+    disabled: true, // Endpoint timed out repeatedly during retries.
   },
   {
     id: 'smed_utslapp_luft' as const,
     url: 'https://api.smhi.se/emissions/ogc/features/v1/collections/emissions_grid_1km',
     table: 'env.smed_utslapp_luft',
     type: 'OAPIF',
+    disabled: true, // DNS resolution failed repeatedly in ingestion runtime.
+  },
+
+  // SMHI SVAR 2022 – huvudavrinningsområden (111 polygoner, WFS 2.0)
+  {
+    id: 'smhi_huvudavrinningsomraden' as const,
+    url: 'https://opendata-view.smhi.se/SMHI_vatten_RiverBasin/HY.PhysicalWaters.Catchments/wfs',
+    table: 'hydro.huvudavrinningsomraden',
+    type: 'WFS',
+    featureType: 'SMHI_vatten_RiverBasin:HY.PhysicalWaters.Catchments',
   },
 
   // SLU & SKOGSSTYRELSEN - Biologisk mångfald & Artskydd
@@ -148,6 +175,7 @@ export const PLATFORM_COLLECTIONS = [
     table: 'env.slu_species_observation',
     type: 'WFS',
     featureType: 'SOS:SpeciesObservations',
+    disabled: true, // Endpoint returns WFS 400 for current request shape.
   },
   {
     id: 'skogsstyrelsen_nyckelbiotoper' as const,
@@ -155,6 +183,7 @@ export const PLATFORM_COLLECTIONS = [
     table: 'env.skogsstyrelsen_key_habitat',
     type: 'WFS',
     featureType: 'Nyckelbiotoper',
+    disabled: true, // DNS resolution failed repeatedly in ingestion runtime.
   },
   {
     id: 'skogsstyrelsen_naturvarden' as const,
@@ -162,14 +191,6 @@ export const PLATFORM_COLLECTIONS = [
     table: 'env.skogsstyrelsen_nature_value',
     type: 'WFS',
     featureType: 'ObjektNaturvarde',
-  },
-
-  // Exempel på lokal Shapefile-import
-  {
-    id: 'nv_naturreservat_shp' as const,
-    filePath:
-      'E:\\MiljoBeslut_Produktdata_Sources\\Geodata\\Naturvardsverket\\re-extracted\\NR\\NR\\NR_polygon.shp',
-    layerName: 'NR_polygon',
-    table: 'env.nv_naturreservat',
+    disabled: true, // DNS resolution failed repeatedly in ingestion runtime.
   },
 ];

@@ -15,11 +15,6 @@ import {
 
 const router = express.Router();
 
-function routeParam(value: string | string[] | undefined): string | null {
-  if (!value) return null;
-  return Array.isArray(value) ? value[0] : value;
-}
-
 /**
  * POST /api/sewage/analyze
  * Analyze property for sewage system suitability using GIS data

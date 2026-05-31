@@ -103,39 +103,41 @@ function deriveRiskLevel(hits: SguLandslideFeatureHit[]): 'LOW' | 'MEDIUM' | 'HI
 export async function auditSguRiskAtPoint(lat: number, lng: number): Promise<SguRiskAudit> {
   const coverageMode = getCoverageMode();
 
-  const groundLayerRows = await prisma.$queryRaw<GroundLayerRow[]>(Prisma.sql`
-    SELECT
-      id::text AS source_key,
-      jg2 AS layer_code,
-      jg2_tx AS layer_label,
-      karttyp AS map_type,
-      '1:25 000-1:100 000'::text AS source_scale
-    FROM ${Prisma.raw(SGU_GROUND_LAYER_TABLE)}
-    WHERE ST_Covers(
-      geom,
-      ST_Transform(ST_SetSRID(ST_MakePoint(${lng}, ${lat}), 4326), 3006)
-    )
-    LIMIT 1;
-  `);
-
-  const landslideRows = await prisma.$queryRaw<LandslideFeatureRow[]>`
-    SELECT
-      source_key,
-      feature_code,
-      feature_label,
-      ST_Distance(
+  // Kör både grundlager- och skredsökning parallellt för bättre prestanda
+  const [groundLayerRows, landslideRows] = await Promise.all([
+    prisma.$queryRaw<GroundLayerRow[]>(Prisma.sql`
+      SELECT
+        id::text AS source_key,
+        jy1 AS layer_code,
+        jy1_tx AS layer_label,
+        karttyp AS map_type,
+        '1:25 000-1:100 000'::text AS source_scale
+      FROM ${Prisma.raw(SGU_GROUND_LAYER_TABLE)}
+      WHERE ST_Covers(
         geom,
         ST_Transform(ST_SetSRID(ST_MakePoint(${lng}, ${lat}), 4326), 3006)
-      ) AS distance_meters
-    FROM env.sgu_landslide_feature
-    WHERE ST_DWithin(
-      geom,
-      ST_Transform(ST_SetSRID(ST_MakePoint(${lng}, ${lat}), 4326), 3006),
-      ${SGU_LANDSLIDE_REVIEW_BUFFER_METERS}
-    )
-    ORDER BY distance_meters ASC
-    LIMIT 10;
-  `;
+      )
+      LIMIT 1;
+    `),
+    prisma.$queryRaw<LandslideFeatureRow[]>`
+      SELECT
+        id::text AS source_key,
+        sl AS feature_code,
+        sl_tx AS feature_label,
+        ST_Distance(
+          geom,
+          ST_Transform(ST_SetSRID(ST_MakePoint(${lng}, ${lat}), 4326), 3006)
+        ) AS distance_meters
+      FROM env.sgu_landslide_feature
+      WHERE ST_DWithin(
+        geom,
+        ST_Transform(ST_SetSRID(ST_MakePoint(${lng}, ${lat}), 4326), 3006),
+        ${SGU_LANDSLIDE_REVIEW_BUFFER_METERS}
+      )
+      ORDER BY distance_meters ASC
+      LIMIT 10;
+    `,
+  ]);
 
   const groundHit = groundLayerRows[0]
     ? {

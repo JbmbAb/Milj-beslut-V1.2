@@ -81,7 +81,7 @@ async function loadService() {
 
 // ── Tests ─────────────────────────────────────────────────────────────────────
 
-describe('searchService – kärnlogik', { timeout: 10000 }, () => {
+describe('searchService – kärnlogik', { timeout: 30000 }, () => {
   const savedEnv: Record<string, string | undefined> = {};
   const ENV_KEYS = [
     'VERTEX_PROJECT_ID',

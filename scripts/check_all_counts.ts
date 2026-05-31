@@ -1,4 +1,3 @@
-
 import { PrismaClient } from '@prisma/client';
 
 const prisma = new PrismaClient();
@@ -17,13 +16,13 @@ async function main() {
     'env.forest_analytics',
     'env.noise_area',
     'env.geophysics',
-    'climate.smhi_station'
+    'climate.smhi_station',
   ];
   for (const table of tables) {
     try {
       const result = await prisma.$queryRawUnsafe(`SELECT COUNT(*) FROM ${table}`);
       console.log(`${table}:`, result);
-    } catch (e) {
+    } catch {
       console.log(`${table}: Error or not found`);
     }
   }

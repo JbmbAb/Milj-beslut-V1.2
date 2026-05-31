@@ -34,7 +34,7 @@ const serverEnv = {
   ADMIN_CONSOLE_USERNAME:
     trim(process.env.E2E_ADMIN_USERNAME) || trim(testEnv.ADMIN_CONSOLE_USERNAME) || 'admin',
   ADMIN_CONSOLE_PASSWORD:
-    trim(process.env.E2E_ADMIN_PASSWORD) || trim(testEnv.ADMIN_CONSOLE_PASSWORD) || 'admin',
+    trim(process.env.E2E_ADMIN_PASSWORD) || trim(testEnv.ADMIN_CONSOLE_PASSWORD) || 'admin-test-password',
   ADMIN_ORG_NAME: trim(testEnv.ADMIN_ORG_NAME) || 'Miljöbeslut Test Org',
   ADMIN_ORG_NUMBER: trim(testEnv.ADMIN_ORG_NUMBER) || '999999-0001',
   SLU_API_BASE_URL: trim(testEnv.SLU_API_BASE_URL) || 'https://example.invalid',

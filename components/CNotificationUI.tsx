@@ -61,11 +61,14 @@ export const CNotificationUI: React.FC<Props> = ({ projectId: projectIdProp }) =
   }, [projectId]);
 
   useEffect(() => {
-    const q = typeof window !== 'undefined' ? new URLSearchParams(window.location.search).get('projectId') : null;
+    const q =
+      typeof window !== 'undefined' ? new URLSearchParams(window.location.search).get('projectId') : null;
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     if (!projectIdProp && q) setProjectId(q);
   }, [projectIdProp]);
 
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     void load();
   }, [load]);
 
@@ -139,14 +142,18 @@ export const CNotificationUI: React.FC<Props> = ({ projectId: projectIdProp }) =
               <div className="w-10 h-10 rounded-full bg-[#ffffff] border-2 border-[#cfdaf2] text-[#cfdaf2] flex items-center justify-center font-bold ring-4 ring-[#f9f9ff]">
                 3
               </div>
-              <span className="text-xs font-bold uppercase tracking-wider text-[#565e74] opacity-50">Utsläpp</span>
+              <span className="text-xs font-bold uppercase tracking-wider text-[#565e74] opacity-50">
+                Utsläpp
+              </span>
             </div>
 
             <div className="flex flex-col items-center gap-2">
               <div className="w-10 h-10 rounded-full bg-[#ffffff] border-2 border-[#cfdaf2] text-[#cfdaf2] flex items-center justify-center font-bold ring-4 ring-[#f9f9ff]">
                 4
               </div>
-              <span className="text-xs font-bold uppercase tracking-wider text-[#565e74] opacity-50">Granskning</span>
+              <span className="text-xs font-bold uppercase tracking-wider text-[#565e74] opacity-50">
+                Granskning
+              </span>
             </div>
           </div>
         </header>
@@ -155,8 +162,8 @@ export const CNotificationUI: React.FC<Props> = ({ projectId: projectIdProp }) =
           <div className="p-8 border-b border-[#cfdaf2]">
             <h2 className="text-2xl font-bold mb-2">Kemikalieförteckning</h2>
             <p className="text-[#565e74] text-sm">
-              Registrera kemiska produkter som hanteras i verksamheten. Uppgifterna sparas i databasen per organisation
-              (valfritt filtrerat på projekt-ID).
+              Registrera kemiska produkter som hanteras i verksamheten. Uppgifterna sparas i databasen per
+              organisation (valfritt filtrerat på projekt-ID).
             </p>
             <div className="mt-4 flex flex-col sm:flex-row gap-2 sm:items-center">
               <label className="text-xs font-bold text-[#565e74] shrink-0">Projekt-ID (valfritt)</label>
@@ -193,7 +200,9 @@ export const CNotificationUI: React.FC<Props> = ({ projectId: projectIdProp }) =
               <div
                 key={row.id}
                 className={`p-6 rounded-lg border flex justify-between items-center gap-4 ${
-                  row.requiresSafetyDataSheet ? 'bg-[#ffffff] border-2 border-[#c76c00]' : 'bg-[#f0f3ff] border-[#cfdaf2]/50'
+                  row.requiresSafetyDataSheet
+                    ? 'bg-[#ffffff] border-2 border-[#c76c00]'
+                    : 'bg-[#f0f3ff] border-[#cfdaf2]/50'
                 }`}
               >
                 <div className="min-w-0">
@@ -202,7 +211,9 @@ export const CNotificationUI: React.FC<Props> = ({ projectId: projectIdProp }) =
                     {statusBadge(row)}
                   </div>
                   <p className="text-sm text-[#565e74]">
-                    {row.annualConsumption ? `Årlig förbrukning: ${row.annualConsumption}` : 'Årlig förbrukning: —'}
+                    {row.annualConsumption
+                      ? `Årlig förbrukning: ${row.annualConsumption}`
+                      : 'Årlig förbrukning: —'}
                     {row.storageNote ? ` • ${row.storageNote}` : ''}
                     {row.hazardCode ? ` • ${row.hazardCode}` : ''}
                   </p>

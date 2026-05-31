@@ -1,5 +1,5 @@
 import React from 'react';
-import { designTokens, ToneColor } from '../theme/designTokens';
+import { ToneColor } from '../theme/designTokens';
 
 interface BadgeProps {
   children: React.ReactNode;

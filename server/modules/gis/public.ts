@@ -22,3 +22,4 @@ export type { SluProduct } from '../../services/sluService';
 export { getSmhiWeatherRisk } from '../../services/smhiWeatherService';
 export { runSpatialAudit } from '../../services/spatialAuditService';
 export { getPostgisExtendedHealth } from './adapters/postgisHealth';
+export { getDatasetMapLayer } from '../../services/postgisLayerService';

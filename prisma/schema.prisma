@@ -1684,3 +1684,23 @@ model LmMarktackeLegacy {
   @@map("env_lm_marktacke")
   @@schema("public")
 }
+
+model MpfRule {
+  id                      String   @id @default(cuid())
+  code                    String   @unique
+  codeType                String // EWC or SNI
+  description             String
+  permitClass             String // A, B, C, U
+  thresholdValue          Float
+  sensitiveThresholdValue Float?
+  sensitivePermitClass    String?
+  thresholdUnit           String   @default("ton/år")
+  mpfReference            String
+  requiresEia             Boolean  @default(false)
+  createdAt               DateTime @default(now())
+  updatedAt               DateTime @updatedAt
+
+  @@index([codeType])
+  @@map("mpf_rules")
+  @@schema("public")
+}

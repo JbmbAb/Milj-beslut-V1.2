@@ -83,6 +83,11 @@ const mocks = vi.hoisted(() => {
     findAuthUserByBankId: vi.fn(),
     getEnv: vi.fn(),
     isBankIdMockMode: vi.fn(),
+    persistentReplayProtection: {
+      registerSession: vi.fn(),
+      validateAndComplete: vi.fn(),
+      failSession: vi.fn(),
+    },
     readFileSync: vi.fn(),
     request,
     requests,
@@ -123,14 +128,26 @@ vi.mock('../../server/repositories/userRepository', () => ({
   findAuthUserByBankId: mocks.findAuthUserByBankId,
 }));
 
+vi.mock('../../server/security/persistentReplayProtection', () => ({
+  persistentReplayProtection: mocks.persistentReplayProtection,
+}));
+
+vi.mock('../../server/logger', () => ({
+  logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
+}));
+
 import {
   completeMockBankIdOrder,
   cancelBankIdAuth,
   collectBankIdAuth,
+  collectBankIdSign,
+  getBankIdMode,
   getMockBankIdOrder,
   generateAnimatedQrPayload,
   initiateBankIdAuth,
+  initiateBankIdSign,
   failMockBankIdOrder,
+  normalizeBankIdPersonalNumber,
   refreshSession,
 } from '../../server/services/bankIdService';
 
@@ -195,6 +212,9 @@ describe('bankIdService', () => {
         bankidId: '191212121212',
       },
     });
+    mocks.persistentReplayProtection.registerSession.mockResolvedValue({ nonce: 'nonce-1' });
+    mocks.persistentReplayProtection.validateAndComplete.mockResolvedValue(undefined);
+    mocks.persistentReplayProtection.failSession.mockResolvedValue(undefined);
   });
 
   afterEach(() => {
@@ -220,6 +240,20 @@ describe('bankIdService', () => {
     });
 
     expect(payload).toBe(`bankid.qr-token.5.${authCode}`);
+  });
+
+  it('reports current BankID mode from env helper', () => {
+    mocks.isBankIdMockMode.mockReturnValueOnce(false);
+    expect(getBankIdMode()).toBe('real');
+
+    mocks.isBankIdMockMode.mockReturnValueOnce(true);
+    expect(getBankIdMode()).toBe('mock');
+  });
+
+  it('normalizes 12-digit personal numbers and rejects invalid values', () => {
+    expect(normalizeBankIdPersonalNumber('19121212-1212')).toBe('191212121212');
+    expect(normalizeBankIdPersonalNumber(undefined)).toBeUndefined();
+    expect(() => normalizeBankIdPersonalNumber('121212-1212')).toThrow(/12 siffror/i);
   });
 
   it('initiates mock auth without requiring mTLS configuration', async () => {
@@ -265,7 +299,12 @@ describe('bankIdService', () => {
     expect(mocks.readFileSync).toHaveBeenCalledWith('certificates/bankid.pfx');
     expect(mocks.readFileSync).toHaveBeenCalledWith('certificates/ca.pem');
     expect(mocks.requests[0]?.options.path).toBe('/rp/v6.0/auth');
-    expect(JSON.parse(mocks.requests[0]?.body || '{}')).toEqual({ endUserIp: '127.0.0.1' });
+    expect(JSON.parse(mocks.requests[0]?.body || '{}')).toEqual(
+      expect.objectContaining({
+        endUserIp: '127.0.0.1',
+        userNonVisibleData: expect.any(String),
+      }),
+    );
   });
 
   it('returns pending collect responses without issuing tokens', async () => {
@@ -298,6 +337,47 @@ describe('bankIdService', () => {
     expect(mocks.createTokenPair).not.toHaveBeenCalled();
   });
 
+  it('initiates sign using explicit non-visible data and base64 visible data', async () => {
+    mocks.scenarios.push({
+      statusCode: 200,
+      body: JSON.stringify({
+        orderRef: 'sign-order-1',
+        autoStartToken: 'sign-auto-token',
+        qrStartToken: 'sign-qr-token',
+        qrStartSecret: 'sign-qr-secret',
+      }),
+    });
+
+    const result = await initiateBankIdSign({
+      endUserIp: '127.0.0.1',
+      userVisibleData: 'Skriv under dokument',
+      userNonVisibleData: 'nonce-sign-1',
+    });
+
+    expect(result.orderRef).toBe('sign-order-1');
+    expect(mocks.requests.at(-1)?.options.path).toBe('/rp/v6.0/sign');
+    expect(JSON.parse(mocks.requests.at(-1)?.body || '{}')).toEqual({
+      endUserIp: '127.0.0.1',
+      userVisibleData: Buffer.from('Skriv under dokument').toString('base64'),
+      userNonVisibleData: 'nonce-sign-1',
+    });
+    expect(mocks.persistentReplayProtection.registerSession).toHaveBeenCalledWith('sign-order-1', '127.0.0.1');
+  });
+
+  it('initiates mock sign and stores replay session without mtls', async () => {
+    mocks.isBankIdMockMode.mockReturnValue(true);
+
+    const result = await initiateBankIdSign({
+      endUserIp: '127.0.0.1',
+      userVisibleData: 'Mocksignera',
+    });
+
+    expect(result.orderRef).toMatch(/^mock-order-/);
+    expect(result.launchMode).toBe('mock');
+    expect(mocks.persistentReplayProtection.registerSession).toHaveBeenCalledWith(result.orderRef, '127.0.0.1');
+    expect(mocks.request).not.toHaveBeenCalled();
+  });
+
   it('returns complete collect responses for permitted users', async () => {
     mocks.scenarios.push({
       statusCode: 200,
@@ -326,6 +406,12 @@ describe('bankIdService', () => {
 
     const result = await collectBankIdAuth('order-2', '127.0.0.1');
 
+    expect(mocks.persistentReplayProtection.validateAndComplete).toHaveBeenCalledWith({
+      orderRef: 'order-2',
+      ipAddress: '127.0.0.1',
+      bankidId: '191212121212',
+      signature: 'signature',
+    });
     expect(mocks.findAuthUserByBankId).toHaveBeenCalledWith('191212121212');
     expect(mocks.createTokenPair).toHaveBeenCalledWith({
       id: 'user-1',
@@ -368,6 +454,57 @@ describe('bankIdService', () => {
         bankidId: 'mock-bankid-testuser-1',
         displayName: 'Mock User',
       },
+    });
+  });
+
+  it('does not auto-provision mock users when auto-create is disabled', async () => {
+    process.env.BANKID_MOCK_AUTO_CREATE_USER = 'nej';
+    mocks.isBankIdMockMode.mockReturnValue(true);
+    mocks.findAuthUserByBankId.mockResolvedValueOnce(null);
+
+    const started = await initiateBankIdAuth('127.0.0.1');
+    completeMockBankIdOrder({ orderRef: started.orderRef, bankidId: 'mock-bankid-testuser-2' });
+
+    await expect(collectBankIdAuth(started.orderRef, '127.0.0.1')).rejects.toThrow(
+      /not registered in a permitted organisation/i,
+    );
+    expect(mocks.ensureMockAuthUser).not.toHaveBeenCalled();
+  });
+
+  it('collects completed sign responses and runs replay validation', async () => {
+    mocks.scenarios.push({
+      statusCode: 200,
+      body: JSON.stringify({
+        orderRef: 'sign-order-2',
+        status: 'complete',
+        completionData: {
+          user: {
+            personalNumber: '191212121212',
+            givenName: 'Test',
+            surname: 'Signer',
+            name: 'Test Signer',
+          },
+          device: {
+            ipAddress: '127.0.0.1',
+          },
+          cert: {
+            notBefore: '2026-03-21T12:00:00.000Z',
+            notAfter: '2028-03-21T12:00:00.000Z',
+          },
+          signature: 'sign-signature',
+          ocspResponse: 'sign-ocsp',
+        },
+      }),
+    });
+
+    const result = await collectBankIdSign('sign-order-2', '127.0.0.1');
+
+    expect(result.status).toBe('complete');
+    expect(mocks.persistentReplayProtection.validateAndComplete).toHaveBeenCalledWith({
+      orderRef: 'sign-order-2',
+      ipAddress: '127.0.0.1',
+      bankidId: '191212121212',
+      signature: 'sign-signature',
     });
   });
 
@@ -454,6 +591,38 @@ describe('bankIdService', () => {
     await expect(cancelBankIdAuth('order-5')).rejects.toThrow(
       /BankID request failed \(500\): upstream failure/,
     );
+  });
+
+  it('cancels mock auth orders and marks replay protection as failed', async () => {
+    mocks.isBankIdMockMode.mockReturnValue(true);
+    const started = await initiateBankIdAuth('127.0.0.1');
+
+    const result = await cancelBankIdAuth(started.orderRef);
+
+    expect(result).toEqual({ cancelled: true });
+    expect(getMockBankIdOrder(started.orderRef)).toMatchObject({
+      status: 'failed',
+      hintCode: 'userCancel',
+    });
+    expect(mocks.persistentReplayProtection.failSession).toHaveBeenCalledWith(started.orderRef, 'userCancel');
+  });
+
+  it('throws when requesting an unknown mock order', () => {
+    expect(() => getMockBankIdOrder('missing-order')).toThrow(/Mock BankID order not found/);
+  });
+
+  it('cancels real auth orders through the cancel endpoint', async () => {
+    mocks.scenarios.push({
+      statusCode: 200,
+      body: JSON.stringify({ message: 'cancelled' }),
+    });
+
+    const result = await cancelBankIdAuth('real-order-1');
+
+    expect(result).toEqual({ cancelled: true });
+    expect(mocks.requests.at(-1)?.options.path).toBe('/rp/v6.0/cancel');
+    expect(JSON.parse(mocks.requests.at(-1)?.body || '{}')).toEqual({ orderRef: 'real-order-1' });
+    expect(mocks.persistentReplayProtection.failSession).toHaveBeenCalledWith('real-order-1', 'userCancel');
   });
 
   it('rejects timed out BankID requests', async () => {

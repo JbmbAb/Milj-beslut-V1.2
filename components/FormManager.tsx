@@ -45,9 +45,17 @@ const FormManager: React.FC = () => {
   const [isSigned, setIsSigned] = useState(false);
 
   const handleFieldChange = (sectionIdx: number, fieldIdx: number, value: string) => {
-    const newForm = { ...form };
-    newForm.sections[sectionIdx].fields[fieldIdx].value = value;
-    setForm(newForm);
+    setForm((current) => ({
+      ...current,
+      sections: current.sections.map((section, sIdx) =>
+        sIdx !== sectionIdx
+          ? section
+          : {
+              ...section,
+              fields: section.fields.map((field, fIdx) => (fIdx !== fieldIdx ? field : { ...field, value })),
+            },
+      ),
+    }));
   };
 
   const handleAIAutoFill = async (sectionIdx: number) => {
@@ -60,10 +68,23 @@ const FormManager: React.FC = () => {
         property: 'Fastighet X:Y',
         wasteCode: '90.131',
       });
-      const newForm = { ...form };
-      const targetField = section.fields.find((f) => f.type === 'textarea') || section.fields[0];
-      targetField.value = result;
-      setForm(newForm);
+      const targetFieldIndex =
+        section.fields.findIndex((field) => field.type === 'textarea') >= 0
+          ? section.fields.findIndex((field) => field.type === 'textarea')
+          : 0;
+      setForm((current) => ({
+        ...current,
+        sections: current.sections.map((currentSection, sIdx) =>
+          sIdx !== sectionIdx
+            ? currentSection
+            : {
+                ...currentSection,
+                fields: currentSection.fields.map((field, fIdx) =>
+                  fIdx !== targetFieldIndex ? field : { ...field, value: result },
+                ),
+              },
+        ),
+      }));
     } catch (e) {
       console.error(e);
     } finally {

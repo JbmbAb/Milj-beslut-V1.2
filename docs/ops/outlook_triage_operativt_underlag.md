@@ -161,10 +161,9 @@ Jimmy Bruce
 
 Filer som jämförts:
 
-- `C:\Users\jimmy\Desktop\OutlookExport\manifest.csv`
-- `C:\Users\jimmy\Desktop\OutlookExport\outlook_email_triage_report.csv`
-- `C:\Users\jimmy\Desktop\OutlookExport\outlook_email_triage_actionable_2026-03-07T09-29-13.csv`
-- `C:\Users\jimmy\Desktop\OutlookExport\outlook_email_triage_actionable_2026-03-07T09-41-31.csv`
+- `C:\Users\jimmy\Desktop\OutlookExport\manifest.csv` (rådata)
+- `C:\Users\jimmy\Desktop\OutlookExport\outlook_email_triage_report.csv` (huvudfil för triage)
+- `C:\Users\jimmy\Desktop\OutlookExport\outlook_email_triage_actionable_2026-03-07T09-29-13.csv` (urval)
 
 ### Faktiska skillnader
 
@@ -185,21 +184,10 @@ Filer som jämförts:
 - 137 rader
 - 25 kolumner
 
-`outlook_email_triage_actionable_2026-03-07T09-41-31.csv`
-
-- 137 rader
-- 25 kolumner
-
-Jämförelse mellan de två actionable-filerna:
-
-- samma antal rader
-- samma kolumner
-- inga skillnader i `EntryID`
-
 Slutsats:
 
-- de två actionable-filerna är i praktiken identiska
-- de utgör ingen ny dataversion, bara samma urval exporterad två gånger
+- `outlook_email_triage_report.csv` är den kompletta arbetsfilen.
+- Den "actionable"-filen är ett filtrerat urval från huvudfilen. Flera exporter av denna fil var identiska och tillförde ingen ny information.
 
 ### Faktiska observationer i `outlook_email_triage_report.csv`
 

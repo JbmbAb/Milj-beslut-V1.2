@@ -11,8 +11,16 @@ vi.mock('../../src/ui/hooks/useGeoLayers', () => ({
     auditRisk: null,
   })),
   useMapLayerCatalog: vi.fn(() => ({
+    data: [],
     layers: [],
     isLoading: false,
+  })),
+  useOgcFederatedMapLayers: vi.fn(() => ({
+    wmsLayers: [],
+    catalogLabelById: new Map(),
+    warnings: [],
+    isLoading: false,
+    isError: false,
   })),
   useMapOverlays: vi.fn(() => []),
 }));

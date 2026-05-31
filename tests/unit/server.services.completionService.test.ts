@@ -13,6 +13,7 @@ describe('server/services/completionService', () => {
 
       expect(result).toHaveProperty('donePercent');
       expect(result).toHaveProperty('categories');
+      expect(result).toHaveProperty('counts');
     });
 
     it('calculates done percentage correctly', () => {
@@ -67,6 +68,16 @@ describe('server/services/completionService', () => {
       for (const category of result.categories) {
         expect(Number.isNaN(category.percent)).toBe(false);
       }
+    });
+
+    it('reports total counts for done, partial and pending features', () => {
+      const result = getAppCompletion() as AppCompletionResponse;
+
+      expect(result.counts.total).toBeGreaterThan(0);
+      expect(result.counts.done).toBeGreaterThan(0);
+      expect(result.counts.partial).toBeGreaterThan(0);
+      expect(result.counts.pending).toBeGreaterThanOrEqual(0);
+      expect(result.remainingPercent).toBe(100 - result.donePercent);
     });
   });
 });

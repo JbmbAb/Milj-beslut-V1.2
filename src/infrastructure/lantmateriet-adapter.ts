@@ -5,7 +5,6 @@
  */
 import { IGeoProvider } from '../domain/geo-repository.interface';
 import { PropertyInfo, MunicipalityInfo, GeoAssessment } from '../domain/geo';
-import { prisma } from '../../server/db/prisma';
 import { logger } from '../../server/logger';
 import { tryFetchLocalPropertyGeometry } from '../../server/services/hybridGeoService';
 
@@ -74,7 +73,7 @@ export class LantmaterietAdapter implements IGeoProvider {
     return null;
   }
 
-  async assessRisk(coords: { lat: number; lng: number }): Promise<GeoAssessment[]> {
+  async assessRisk(_coords: { lat: number; lng: number }): Promise<GeoAssessment[]> {
     // This would typically call SGU or NV API
     // Placeholder for hexagonal migration
     return [];

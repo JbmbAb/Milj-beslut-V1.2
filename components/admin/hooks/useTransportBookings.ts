@@ -67,6 +67,7 @@ export const useTransportBookings = (projectId?: string): UseTransportBookingsRe
   }, [projectId]);
 
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     fetchBookings();
   }, [fetchBookings]);
 

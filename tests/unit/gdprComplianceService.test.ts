@@ -13,7 +13,7 @@ vi.mock('../../server/db/prisma', () => ({
     requirementCase: { deleteMany: vi.fn() },
     projectPlanState: { deleteMany: vi.fn() },
     projectMember: { findMany: vi.fn(), deleteMany: vi.fn() },
-    propertyAccessLog: { updateMany: vi.fn(), deleteMany: vi.fn() },
+    propertyAccessLog: { updateMany: vi.fn(), deleteMany: vi.fn(), findMany: vi.fn() },
     searchQueryLog: { updateMany: vi.fn(), deleteMany: vi.fn(), findMany: vi.fn() },
     caseNote: { updateMany: vi.fn(), findMany: vi.fn() },
     auditTrail: { updateMany: vi.fn() },
@@ -26,8 +26,13 @@ vi.mock('../../server/repositories/tokenRepository', () => ({
   cleanupExpiredTokenRevocations: vi.fn(),
 }));
 
+vi.mock('../../server/services/documentObjectStorage', () => ({
+  deleteStorageFile: vi.fn(),
+}));
+
 import { prisma } from '../../server/db/prisma';
 import { cleanupExpiredTokenRevocations } from '../../server/repositories/tokenRepository';
+import { deleteStorageFile } from '../../server/services/documentObjectStorage';
 import {
   setProjectRetentionPolicy,
   archiveExpiredProjects,
@@ -99,6 +104,15 @@ describe('gdprComplianceService', () => {
       expect(prisma.documentRecord.deleteMany).toHaveBeenCalledWith({ where: { projectId } });
       expect(prisma.project.delete).toHaveBeenCalledWith({ where: { id: projectId } });
     });
+
+    it('returns early when project is already missing', async () => {
+      vi.mocked(prisma.project.findUnique).mockResolvedValue(null);
+
+      await permanentlyDeleteProjectData('missing-project');
+
+      expect(prisma.project.delete).not.toHaveBeenCalled();
+      expect(prisma.documentRecord.deleteMany).not.toHaveBeenCalled();
+    });
   });
 
   describe('scrubProjectData', () => {
@@ -122,6 +136,26 @@ describe('gdprComplianceService', () => {
         where: { id: projectId },
         data: expect.objectContaining({ propertyDesignation: 'SCRUBBED_PROJECT' }),
       });
+    });
+
+    it('returns early when scrubbing a missing project', async () => {
+      vi.mocked(prisma.project.findUnique).mockResolvedValue(null);
+
+      await scrubProjectData('missing-project');
+
+      expect(prisma.documentContent.updateMany).not.toHaveBeenCalled();
+      expect(prisma.project.update).not.toHaveBeenCalled();
+    });
+
+    it('skips storage deletion when scrubbed documents lack absolute paths', async () => {
+      vi.mocked(prisma.project.findUnique).mockResolvedValue({
+        id: 'p124',
+        documents: [{ id: 'd2', absolutePath: null }],
+      } as any);
+
+      await scrubProjectData('p124');
+
+      expect(deleteStorageFile).not.toHaveBeenCalled();
     });
   });
 

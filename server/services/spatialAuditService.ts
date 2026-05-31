@@ -36,7 +36,7 @@ async function fetchProtectedAreaHits(lat: number, lng: number): Promise<LocalPr
         protection_type,
         decision_status
       FROM env.protected_area, point
-      WHERE ST_Intersects(env.protected_area.geom, point.geom)
+      WHERE ST_Intersects(env.protected_area.wkb_geometry, point.geom)
 
       UNION ALL
 
@@ -46,70 +46,95 @@ async function fetchProtectedAreaHits(lat: number, lng: number): Promise<LocalPr
         ('Natura 2000 ' || category) AS protection_type,
         NULL::text AS decision_status
       FROM env.natura2000_area, point
-      WHERE ST_Intersects(env.natura2000_area.geom, point.geom)
+      WHERE ST_Intersects(env.natura2000_area.wkb_geometry, point.geom)
     ) hits
     LIMIT 10;
   `;
 }
 
-/**
- * Calculates shortest distance in meters from point to nearest water body
- * using PostGIS tables: env.lakes, env.streams, topo10.vatten.
- */
 async function fetchDistanceToWater(lat: number, lng: number): Promise<number | null> {
   type DistRow = { distance_m: number };
   const rows = await prisma.$queryRaw<DistRow[]>`
     WITH point AS (
       SELECT ST_Transform(ST_SetSRID(ST_MakePoint(${lng}, ${lat}), 4326), 3006) AS geom
     )
-    SELECT MIN(d) AS distance_m FROM (
-      SELECT ST_Distance(t.geom, point.geom) AS d
-      FROM geo.lakes t, point
-      WHERE ST_DWithin(t.geom, point.geom, 500)
-      UNION ALL
-      SELECT ST_Distance(t.geom, point.geom) AS d
-      FROM geo.streams t, point
-      WHERE ST_DWithin(t.geom, point.geom, 500)
-      UNION ALL
-      SELECT ST_Distance(t.geom, point.geom) AS d
-      FROM geo.topo10_vatten t, point
-      WHERE ST_DWithin(t.geom, point.geom, 500)
-    ) sub;
+    SELECT ST_Distance(t.geom, point.geom) AS distance_m
+    FROM topo10.vatten t, point
+    WHERE ST_DWithin(t.geom, point.geom, 500)
+    ORDER BY distance_m ASC
+    LIMIT 1;
   `;
   const val = rows[0]?.distance_m;
   return val != null ? Number(val) : null;
 }
 
+function fallbackSguAudit(reason: string): SguRiskAudit {
+  return {
+    coverageMode: 'sample',
+    manualReviewRequired: true,
+    riskLevel: 'LOW',
+    groundLayer: {
+      intersects: false,
+      hit: null,
+      advisory: reason,
+    },
+    landslideFeatures: {
+      nearby: false,
+      bufferMeters: 150,
+      nearestDistanceMeters: null,
+      hits: [],
+      advisory: reason,
+    },
+    flags: ['sgu:unavailable'],
+    summary: reason,
+  };
+}
+
 export async function runSpatialAudit(lat: number, lng: number): Promise<SpatialAuditSummary> {
-  let protectedAreaHits: LocalProtectedAreaHit[] = [];
-  let protectedAreaAvailable = true;
-  let protectedAreaWarning: string | undefined;
+  const sguPromise = auditSguRiskAtPoint(lat, lng).catch((error) => {
+    const reason = `SGU riskkontroll kunde inte köras: ${error instanceof Error ? error.message : String(error)}`;
+    logger.warn('auditSguRiskAtPoint failed', { lat, lng, error: String(error) });
+    return fallbackSguAudit(reason);
+  });
 
-  let distanceToWaterMeters: number | null = null;
-  let distanceToWaterAvailable = true;
-  let distanceToWaterWarning: string | undefined;
+  const [protectedAreaResult, distanceResult, sgu] = await Promise.all([
+    // 1. Skyddad natur (NVR + Natura 2000)
+    (async () => {
+      try {
+        const hits = await fetchProtectedAreaHits(lat, lng);
+        return { ok: true as const, hits };
+      } catch (error) {
+        const details = error instanceof Error ? error.message : String(error);
+        const warning = details.includes('env.protected_area')
+          ? 'Lokal tabell for skyddad natur saknas i databasen.'
+          : `Skyddad natur kunde inte verifieras i lokal databas: ${details}`;
+        return { ok: false as const, warning };
+      }
+    })(),
 
-  const sguPromise = auditSguRiskAtPoint(lat, lng);
+    // 2. Avstånd till vatten
+    (async () => {
+      try {
+        const distance = await fetchDistanceToWater(lat, lng);
+        return { ok: true as const, distance };
+      } catch (error) {
+        const warning = `Kunde inte beräkna avstånd till vatten: ${error instanceof Error ? error.message : String(error)}`;
+        logger.warn('fetchDistanceToWater failed', { lat, lng, error: String(error) });
+        return { ok: false as const, warning };
+      }
+    })(),
 
-  try {
-    protectedAreaHits = await fetchProtectedAreaHits(lat, lng);
-  } catch (error) {
-    protectedAreaAvailable = false;
-    const details = error instanceof Error ? error.message : String(error);
-    protectedAreaWarning = details.includes('env.protected_area')
-      ? 'Lokal tabell for skyddad natur saknas i databasen.'
-      : `Skyddad natur kunde inte verifieras i lokal databas: ${details}`;
-  }
+    // 3. SGU Risk (redan optimerad internt nu)
+    sguPromise,
+  ]);
 
-  try {
-    distanceToWaterMeters = await fetchDistanceToWater(lat, lng);
-  } catch (error) {
-    distanceToWaterAvailable = false;
-    distanceToWaterWarning = `Kunde inte beräkna avstånd till vatten: ${error instanceof Error ? error.message : String(error)}`;
-    logger.warn('fetchDistanceToWater failed', { lat, lng, error: String(error) });
-  }
+  const protectedAreaHits = protectedAreaResult.ok ? protectedAreaResult.hits : [];
+  const protectedAreaAvailable = protectedAreaResult.ok;
+  const protectedAreaWarning = protectedAreaResult.ok ? undefined : protectedAreaResult.warning;
 
-  const sgu = await sguPromise;
+  const distanceToWaterMeters = distanceResult.ok ? distanceResult.distance : null;
+  const distanceToWaterAvailable = distanceResult.ok;
+  const distanceToWaterWarning = distanceResult.ok ? undefined : distanceResult.warning;
 
   const parts: string[] = [];
   if (!protectedAreaAvailable) {

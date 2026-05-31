@@ -5,7 +5,6 @@ import {
   SubmissionStatusEvent,
   SubmissionStatus,
   SubmissionChannel,
-  SubmissionArtifactRole,
 } from '../domain/submission';
 import { ISubmissionRepository } from '../domain/submission-repository.interface';
 

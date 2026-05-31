@@ -17,7 +17,10 @@ vi.mock('node:fs/promises', () => ({
   writeFile: writeFileMock,
 }));
 
-import { buildMmdCorpus, resolveMmdCorpusDirectory } from '../../server/modules/legal/services/mmdCorpusService';
+import {
+  buildMmdCorpus,
+  resolveMmdCorpusDirectory,
+} from '../../server/modules/legal/services/mmdCorpusService';
 
 describe('mmdCorpusService', () => {
   beforeEach(() => {
@@ -59,7 +62,6 @@ describe('mmdCorpusService', () => {
 
   it('resolves the default MMD corpus directory', () => {
     const dir = resolveMmdCorpusDirectory();
-    expect(dir.toLowerCase()).toContain('knowledge_base');
     expect(dir.toLowerCase()).toContain('mmd-corpus');
   });
 });

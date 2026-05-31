@@ -23,16 +23,20 @@ describe.skipIf(!hasDatabaseIntegration)('outlookIngestionService integration', 
     beforeEach(async () => {
         // Clean the database before each test
         vi.clearAllMocks();
-        await prisma.pipelineRun.deleteMany({});
-        await prisma.emailMessage.deleteMany({});
+        await prisma.extractedRequirement.deleteMany({});
+        await prisma.attachmentOccurrence.deleteMany({});
         await prisma.outlookAttachment.deleteMany({});
+        await prisma.emailMessage.deleteMany({});
+        await prisma.pipelineRun.deleteMany({});
     });
 
     afterAll(async () => {
         // Clean the database after all tests
-        await prisma.pipelineRun.deleteMany({});
-        await prisma.emailMessage.deleteMany({});
+        await prisma.extractedRequirement.deleteMany({});
+        await prisma.attachmentOccurrence.deleteMany({});
         await prisma.outlookAttachment.deleteMany({});
+        await prisma.emailMessage.deleteMany({});
+        await prisma.pipelineRun.deleteMany({});
         await prisma.$disconnect();
     });
 

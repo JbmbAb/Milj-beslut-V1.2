@@ -1,3 +1,4 @@
+/* eslint-disable react-refresh/only-export-components */
 import React, {
   createContext,
   useCallback,
@@ -66,16 +67,20 @@ export function AppWorkspaceProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     if (sessionState !== 'ready' && sessionState !== 'loading') {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       setMode(null);
+
       setPermits([]);
+
       setSelectedPermit(null);
     }
   }, [sessionState]);
 
   const openMode = useCallback(
     (nextMode: InterfaceMode) => {
-      setMode(nextMode);
-      setActiveTab(modeCardMap[nextMode].defaultTab);
+      const normalizedMode = nextMode === 'PERMIT_PORTAL' ? 'Core_WORKFLOW' : nextMode;
+      setMode(normalizedMode);
+      setActiveTab(modeCardMap[normalizedMode].defaultTab);
     },
     [modeCardMap],
   );
@@ -103,17 +108,7 @@ export function AppWorkspaceProvider({ children }: { children: ReactNode }) {
       activeMode,
       activeProjectLabel: activeProject?.propertyDesignation || null,
     }),
-    [
-      mode,
-      activeTab,
-      openMode,
-      permits,
-      selectedPermit,
-      showUpload,
-      modeCardMap,
-      activeMode,
-      activeProject,
-    ],
+    [mode, activeTab, openMode, permits, selectedPermit, showUpload, modeCardMap, activeMode, activeProject],
   );
 
   return <AppWorkspaceContext.Provider value={value}>{children}</AppWorkspaceContext.Provider>;

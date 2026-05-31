@@ -8,7 +8,7 @@ export class GeminiAIAdapter implements IAIService {
   /** @deprecated För bakåtkompabilitet; Vertex använder ADC, inte en klient-API-nyckel. */
   constructor(_legacyApiKey?: string) {}
 
-  async analyzeDocumentText(text: string, contextPrompt: string): Promise<AIAnalysisResult> {
+  async analyzeDocumentText(text: string, _contextPrompt: string): Promise<AIAnalysisResult> {
     console.log(`[GeminiAIAdapter] Analyzing text length: ${text.length}`);
 
     return {
@@ -19,7 +19,7 @@ export class GeminiAIAdapter implements IAIService {
     };
   }
 
-  async extractRequirements(text: string): Promise<any[]> {
+  async extractRequirements(_text: string): Promise<any[]> {
     return [{ code: 'AI-KRAV-1', text: 'Bullernivå max 55 dB', level: 'MANDATORY' }];
   }
 }

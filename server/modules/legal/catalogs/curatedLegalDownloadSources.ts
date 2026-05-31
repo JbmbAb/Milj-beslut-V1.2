@@ -72,6 +72,8 @@ function inferSewageExternalId(source: SewageEvidenceSource): string {
       return 'LANSSTYRELSEN:ENSKILT_AVLOPP';
     case 'sewage.dataportal':
       return 'DATAPORTAL:ENSKILT_AVLOPP';
+    case 'sewage.sgu.groundwater':
+      return 'SGU:GROUNDWATER_INFLUENCE_MODELS';
     default:
       return `${source.sourceSystem}:${source.id.toUpperCase()}`;
   }
@@ -93,6 +95,8 @@ function inferSewageFileSlug(source: SewageEvidenceSource): string {
       return 'lansstyrelsen-enskilt-avlopp';
     case 'sewage.dataportal':
       return 'dataportal-enskilt-avlopp';
+    case 'sewage.sgu.groundwater':
+      return 'sgu-grundvatten-influensomrade';
     default:
       return toFileSlug(source.id);
   }

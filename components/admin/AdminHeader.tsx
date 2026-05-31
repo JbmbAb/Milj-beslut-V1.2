@@ -17,6 +17,7 @@ const MODULE_LABELS: Record<AdminModuleId, string> = {
   'project-plan': 'Projektplan',
   'green-check': 'Grönkoll för Banker',
   'sewage-portal': 'Enskilt Avlopp',
+  operations: 'Drift & Databas',
 };
 
 /**

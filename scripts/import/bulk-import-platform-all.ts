@@ -2,6 +2,7 @@ import { spawn } from 'child_process';
 import { PrismaClient } from '@prisma/client';
 import dotenv from 'dotenv';
 import fs from 'fs';
+import path from 'path';
 import { PLATFORM_COLLECTIONS } from './platform-datasources';
 
 dotenv.config();
@@ -10,11 +11,103 @@ const prisma = new PrismaClient();
 const DATABASE_URL = process.env.DATABASE_URL || '';
 const OGR2OGR_PATH = 'C:\\Program Files\\GDAL\\ogr2ogr.exe';
 const FETCH_TIMEOUT_MS = 120000; // 2 minutes
+const OGR_DOWNLOAD_TIMEOUT_MS = 10 * 60 * 1000; // 10 minutes
+const OGR_REMOTE_RETRY_ATTEMPTS = 3;
+const MIN_VALID_GPKG_BYTES = 128 * 1024; // Ignore known truncated 64KB stubs.
 const DOWNLOAD_DIR = './storage/ingest/platform-downloads';
 const DOWNLOAD_FIRST = process.argv.includes('--download-first');
+const FROM_DOWNLOADED = process.argv.includes('--from-downloaded');
+const INCLUDE_DISABLED = process.argv.includes('--include-disabled');
+const FORCE_REDOWNLOAD = process.argv.includes('--force-redownload');
+const LOCAL_ONLY = process.argv.includes('--local-only');
+const ONLY_PREFIXES_ARG = process.argv.find((arg) => arg.startsWith('--only-prefixes='));
+const ONLY_PREFIXES = ONLY_PREFIXES_ARG
+  ? ONLY_PREFIXES_ARG.split('=')[1]
+      .split(',')
+      .map((p) => p.trim().toLowerCase())
+      .filter(Boolean)
+  : [];
 // Keep downloaded GPKG files after import? Pass --keep-downloads to preserve.
 const KEEP_DOWNLOADS = process.argv.includes('--keep-downloads');
 const MAX_CONCURRENT_IMPORTS = 4; // Enforced via semaphore below
+
+function isDisabledSource(item: (typeof PLATFORM_COLLECTIONS)[number]): boolean {
+  return 'disabled' in item && item.disabled === true;
+}
+
+function isIncludedByPrefix(item: (typeof PLATFORM_COLLECTIONS)[number]): boolean {
+  if (ONLY_PREFIXES.length === 0) {
+    return true;
+  }
+  const id = String(item.id).toLowerCase();
+  return ONLY_PREFIXES.some((prefix) => id.startsWith(`${prefix}_`) || id === prefix);
+}
+
+function isRecoverableLocalGpkgError(message: string): boolean {
+  return (
+    message.includes('database disk image is malformed') ||
+    message.includes('attempt to write a readonly database') ||
+    message.includes('Unable to open datasource')
+  );
+}
+
+function isTransientRemoteOgrError(message: string): boolean {
+  const normalized = message.toLowerCase();
+  return (
+    normalized.includes('recv failure') ||
+    normalized.includes('connection was reset') ||
+    normalized.includes('unable to open datasource') ||
+    normalized.includes('timed out') ||
+    normalized.includes('temporarily unavailable')
+  );
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function getQuarantineMarkerPath(localDownloadPath: string): string {
+  return `${localDownloadPath}.bad`;
+}
+
+function isQuarantinedDownloadedFile(localDownloadPath: string): boolean {
+  return fs.existsSync(getQuarantineMarkerPath(localDownloadPath));
+}
+
+function markDownloadedFileQuarantined(localDownloadPath: string, reason: string): void {
+  const markerPath = getQuarantineMarkerPath(localDownloadPath);
+  const payload = `quarantinedAt=${new Date().toISOString()}\nreason=${reason}\n`;
+  fs.writeFileSync(markerPath, payload, 'utf8');
+}
+
+function resolveBestLocalDownloadedPath(sourceId: string): string | null {
+  if (!fs.existsSync(DOWNLOAD_DIR)) {
+    return null;
+  }
+
+  const entries = fs
+    .readdirSync(DOWNLOAD_DIR, { withFileTypes: true })
+    .filter((d) => d.isFile())
+    .map((d) => d.name)
+    .filter((name) => name.startsWith(sourceId) && name.endsWith('.gpkg'));
+
+  if (entries.length === 0) {
+    return null;
+  }
+
+  const ranked = entries
+    .map((name) => {
+      const fullPath = path.join(DOWNLOAD_DIR, name);
+      const stat = fs.statSync(fullPath);
+      const canonicalBonus = name === `${sourceId}.gpkg` ? 1 : 0;
+      return { fullPath, size: stat.size, mtimeMs: stat.mtimeMs, canonicalBonus };
+    })
+    .filter((e) => !isQuarantinedDownloadedFile(e.fullPath))
+    .filter((e) => e.size >= MIN_VALID_GPKG_BYTES)
+    .sort((a, b) => b.size - a.size || b.canonicalBonus - a.canonicalBonus || b.mtimeMs - a.mtimeMs);
+
+  return ranked.length > 0 ? ranked[0].fullPath : null;
+}
 
 /** Simple semaphore so at most MAX_CONCURRENT_IMPORTS run in parallel. */
 class Semaphore {
@@ -49,11 +142,34 @@ function formatElapsed(startMs: number): string {
 
 async function runImport() {
   const importStart = Date.now();
+  const skippedLocalOnlyIds: string[] = [];
+  const prefixScopedCollections = PLATFORM_COLLECTIONS.filter((item) => isIncludedByPrefix(item));
+  const activeCollections = prefixScopedCollections.filter(
+    (item) => INCLUDE_DISABLED || !isDisabledSource(item),
+  );
+  const disabledCollections = prefixScopedCollections.filter((item) => isDisabledSource(item));
+
   console.log(`\n🚀 STARTING MASSIVE CROSS-AUTHORITY BULK IMPORT`);
   console.log(`====================================================`);
   console.log(`   Mode: ${DOWNLOAD_FIRST ? 'Download-first (GPKG)' : 'Stream direct'}`);
   console.log(`   Concurrency limit: ${MAX_CONCURRENT_IMPORTS}`);
   console.log(`   Keep downloads: ${KEEP_DOWNLOADS}`);
+  if (ONLY_PREFIXES.length > 0) {
+    console.log(`   Prefix filter: ${ONLY_PREFIXES.join(', ')}`);
+  }
+  if (INCLUDE_DISABLED) {
+    console.log('   Include disabled sources: true');
+  }
+  if (FORCE_REDOWNLOAD) {
+    console.log('   Force redownload: true');
+  }
+  if (LOCAL_ONLY) {
+    console.log('   Local only: true');
+  }
+  if (disabledCollections.length > 0) {
+    console.log(`   Disabled sources: ${disabledCollections.length}`);
+    console.log(`   Disabled IDs: ${disabledCollections.map((c) => c.id).join(', ')}`);
+  }
   console.log();
 
   const url = new URL(DATABASE_URL);
@@ -74,7 +190,7 @@ async function runImport() {
 
   // Get Lantmäteriet Token if needed
   let lmToken = '';
-  if (PLATFORM_COLLECTIONS.some((c) => 'auth' in c && c.auth === 'lm')) {
+  if (activeCollections.some((c) => 'auth' in c && c.auth === 'lm')) {
     try {
       const consumerKey = process.env.LANTMATERIET_CONSUMER_KEY;
       const consumerSecret = process.env.LANTMATERIET_CONSUMER_SECRET;
@@ -104,14 +220,38 @@ async function runImport() {
     }
   }
 
-  const runOgr = (args: string[], processId: string, extraEnv?: Record<string, string>) => {
+  const runOgr = (
+    args: string[],
+    processId: string,
+    extraEnv?: Record<string, string>,
+    timeoutMs?: number,
+  ) => {
     return new Promise<void>((resolve, reject) => {
       const env = extraEnv ? { ...process.env, ...extraEnv } : process.env;
       const childProcess = spawn(OGR2OGR_PATH, args, { stdio: 'pipe', shell: false, env });
       let stderr = '';
+      let timedOut = false;
+      let timeoutHandle: NodeJS.Timeout | undefined;
+
+      if (typeof timeoutMs === 'number' && timeoutMs > 0) {
+        timeoutHandle = setTimeout(() => {
+          timedOut = true;
+          childProcess.kill();
+        }, timeoutMs);
+      }
+
       childProcess.stderr.on('data', (data) => (stderr += data.toString()));
       childProcess.stdout.on('data', (data) => console.log(`[${processId}] ${data.toString().trim()}`));
       childProcess.on('close', (code) => {
+        if (timeoutHandle) {
+          clearTimeout(timeoutHandle);
+        }
+        if (timedOut) {
+          reject(
+            new Error(`ogr2ogr timed out after ${Math.round((timeoutMs || 0) / 1000)}s. Stderr: ${stderr}`),
+          );
+          return;
+        }
         if (code === 0) {
           resolve();
         } else {
@@ -135,14 +275,18 @@ async function runImport() {
 
     let sourcePath: string;
     const sourceFlags: string[] = [];
+    const localDownloadPath = path.join(DOWNLOAD_DIR, `${item.id}.gpkg`);
+    const bestLocalDownloadedPath = resolveBestLocalDownloadedPath(String(item.id));
+    let usedExistingDownloadedFile = false;
 
     if ('filePath' in item && item.filePath) {
-      if (!fs.existsSync(item.filePath)) {
-        throw new Error(`File not found: ${item.filePath}`);
+      const filePath = String(item.filePath);
+      if (!fs.existsSync(filePath)) {
+        throw new Error(`File not found: ${filePath}`);
       }
-      sourcePath = item.filePath;
+      sourcePath = filePath;
       if ('layerName' in item && item.layerName) {
-        sourceFlags.push(item.layerName);
+        sourceFlags.push(String(item.layerName));
       }
     } else if ('url' in item && item.url) {
       const sourceType = 'type' in item && item.type === 'WFS' ? 'WFS' : 'OAPIF';
@@ -160,39 +304,88 @@ async function runImport() {
         ? { GDAL_HTTP_HEADERS: `Authorization: Bearer ${lmToken}` }
         : undefined;
 
-    if (DOWNLOAD_FIRST && 'url' in item) {
+    const isRemoteSourcePath = sourcePath.startsWith('OAPIF:') || sourcePath.startsWith('WFS:');
+
+    const downloadToLocal = async (targetPath: string = localDownloadPath) => {
       console.log(`   - Downloading ${item.id} to local GPKG first...`);
       if (!fs.existsSync(DOWNLOAD_DIR)) {
         fs.mkdirSync(DOWNLOAD_DIR, { recursive: true });
       }
-      const downloadPath = `${DOWNLOAD_DIR}/${item.id}.gpkg`;
-      const downloadArgs = [
-        '-f',
-        'GPKG',
-        downloadPath,
-        sourcePath,
-        ...sourceFlags,
-        '-overwrite',
-        '-nlt',
-        'PROMOTE_TO_MULTI',
-        '-gt',
-        '500000',
-        '--config',
-        'OAPIF_PAGE_SIZE',
-        '5000',
-        '--config',
-        'GDAL_CACHEMAX',
-        '2048',
-      ].filter(Boolean);
+      let lastError: unknown;
 
-      await runOgr(downloadArgs, `${item.id}-download`, lmEnv);
-      const stat = fs.statSync(downloadPath);
-      const mb = (stat.size / 1024 / 1024).toFixed(1);
-      console.log(
-        `   - Download complete for ${item.id}: ${downloadPath} (${mb} MB, ${formatElapsed(itemStart)})`,
-      );
-      sourcePath = downloadPath;
+      for (let attempt = 1; attempt <= OGR_REMOTE_RETRY_ATTEMPTS; attempt++) {
+        let effectiveTargetPath = targetPath;
+        if (fs.existsSync(effectiveTargetPath) || attempt > 1) {
+          effectiveTargetPath = path.join(DOWNLOAD_DIR, `${item.id}-dl-${Date.now()}-${attempt}.gpkg`);
+          console.log(`   - Existing target is busy/present, using unique path: ${effectiveTargetPath}`);
+        }
+
+        const downloadArgs = [
+          '-f',
+          'GPKG',
+          effectiveTargetPath,
+          sourcePath,
+          ...sourceFlags,
+          '-overwrite',
+          '-nlt',
+          'PROMOTE_TO_MULTI',
+          '-gt',
+          '500000',
+          '--config',
+          'OAPIF_PAGE_SIZE',
+          '5000',
+          '--config',
+          'GDAL_CACHEMAX',
+          '2048',
+        ].filter(Boolean);
+
+        try {
+          await runOgr(downloadArgs, `${item.id}-download`, lmEnv, OGR_DOWNLOAD_TIMEOUT_MS);
+          const stat = fs.statSync(effectiveTargetPath);
+          const mb = (stat.size / 1024 / 1024).toFixed(1);
+          console.log(
+            `   - Download complete for ${item.id}: ${effectiveTargetPath} (${mb} MB, ${formatElapsed(itemStart)})`,
+          );
+          sourcePath = effectiveTargetPath;
+          sourceFlags.length = 0;
+          return;
+        } catch (error) {
+          lastError = error;
+          const message = error instanceof Error ? error.message : String(error);
+          const canRetry = attempt < OGR_REMOTE_RETRY_ATTEMPTS && isTransientRemoteOgrError(message);
+          if (!canRetry) {
+            throw error;
+          }
+
+          const backoffMs = attempt * 5000;
+          console.warn(
+            `   ⚠️  Remote fetch failed for ${item.id} (attempt ${attempt}/${OGR_REMOTE_RETRY_ATTEMPTS}): ${message.split('\n')[0]}`,
+          );
+          console.warn(`   - Retrying ${item.id} download in ${Math.round(backoffMs / 1000)}s...`);
+          await sleep(backoffMs);
+        }
+      }
+
+      throw lastError instanceof Error ? lastError : new Error(String(lastError));
+    };
+
+    const shouldUseDownloadedFile =
+      isRemoteSourcePath &&
+      bestLocalDownloadedPath !== null &&
+      !FORCE_REDOWNLOAD &&
+      (FROM_DOWNLOADED || DOWNLOAD_FIRST || LOCAL_ONLY);
+
+    if (shouldUseDownloadedFile) {
+      console.log(`   - Using downloaded GPKG already on disk: ${bestLocalDownloadedPath}`);
+      sourcePath = bestLocalDownloadedPath;
       sourceFlags.length = 0;
+      usedExistingDownloadedFile = true;
+    } else if (LOCAL_ONLY && isRemoteSourcePath) {
+      console.warn(`   ⚠️  Skipped ${item.id}: no usable local GPKG found (${localDownloadPath})`);
+      skippedLocalOnlyIds.push(String(item.id));
+      return;
+    } else if ((DOWNLOAD_FIRST || FROM_DOWNLOADED) && isRemoteSourcePath) {
+      await downloadToLocal();
     }
 
     const isFileBased = !sourcePath.startsWith('OAPIF:') && !sourcePath.startsWith('WFS:');
@@ -231,7 +424,97 @@ async function runImport() {
     }
 
     console.log(`   - Streaming into PostgreSQL for ${item.id} (UNLOGGED, COPY mode)...`);
-    await runOgr(pgArgs, item.id, isFileBased ? undefined : lmEnv);
+    try {
+      await runOgr(pgArgs, item.id, isFileBased ? undefined : lmEnv);
+    } catch (error) {
+      let message = error instanceof Error ? error.message : String(error);
+      const canRetryTransientRemoteStream = !isFileBased && isTransientRemoteOgrError(message);
+
+      if (canRetryTransientRemoteStream) {
+        console.warn(`   ⚠️  Transient remote error for ${item.id}. Retrying stream once...`);
+        await sleep(3000);
+        try {
+          await runOgr(pgArgs, `${item.id}-stream-retry`, isFileBased ? undefined : lmEnv);
+          message = '';
+        } catch (retryError) {
+          message = retryError instanceof Error ? retryError.message : String(retryError);
+        }
+      }
+
+      if (message === '') {
+        // Stream retry succeeded.
+      } else {
+        const canRetryCorruptLocal =
+          usedExistingDownloadedFile &&
+          'url' in item &&
+          sourcePath === localDownloadPath &&
+          isRecoverableLocalGpkgError(message);
+
+        if (!canRetryCorruptLocal || LOCAL_ONLY) {
+          throw new Error(message);
+        }
+
+        console.warn(
+          `   ⚠️  Local downloaded GPKG for ${item.id} appears broken. Redownloading and retrying once...`,
+        );
+        let retryDownloadPath = localDownloadPath;
+        if (fs.existsSync(localDownloadPath)) {
+          try {
+            const quarantinedPath = `${localDownloadPath}.bad-${Date.now()}`;
+            fs.renameSync(localDownloadPath, quarantinedPath);
+            markDownloadedFileQuarantined(localDownloadPath, `renamed-to=${path.basename(quarantinedPath)}`);
+          } catch {
+            markDownloadedFileQuarantined(localDownloadPath, 'rename-failed-or-locked');
+            retryDownloadPath = path.join(DOWNLOAD_DIR, `${item.id}-retry-${Date.now()}.gpkg`);
+          }
+        }
+
+        if ('url' in item && item.url) {
+          const sourceType = 'type' in item && item.type === 'WFS' ? 'WFS' : 'OAPIF';
+          sourcePath = `${sourceType}:${item.url}`;
+        }
+        sourceFlags.length = 0;
+        if ('featureType' in item && item.featureType) {
+          sourceFlags.push(String(item.featureType));
+        }
+        await downloadToLocal(retryDownloadPath);
+
+        const retryArgs = [
+          '-f',
+          'PostgreSQL',
+          pgConn,
+          sourcePath,
+          ...sourceFlags,
+          '-nln',
+          item.table,
+          '-overwrite',
+          '-gt',
+          '500000',
+          '-nlt',
+          'PROMOTE_TO_MULTI',
+          '-lco',
+          'GEOMETRY_NAME=geom',
+          '-lco',
+          'SPATIAL_INDEX=NONE',
+          '-lco',
+          'UNLOGGED=YES',
+          '--config',
+          'PG_USE_COPY',
+          'YES',
+          '--config',
+          'GDAL_CACHEMAX',
+          '2048',
+          '-t_srs',
+          TARGET_SRS,
+        ];
+
+        if (sourcePath.endsWith('.shp')) {
+          retryArgs.push('-lco', 'ENCODING=UTF-8', '--config', 'SHAPE_ENCODING', 'LATIN1');
+        }
+
+        await runOgr(retryArgs, `${item.id}-retry`, lmEnv);
+      }
+    }
 
     // Convert UNLOGGED -> LOGGED immediately after this table finishes
     // (defers durability cost but preserves data once WAL-logged)
@@ -252,7 +535,7 @@ async function runImport() {
 
   const sem = new Semaphore(MAX_CONCURRENT_IMPORTS);
 
-  const importPromises = PLATFORM_COLLECTIONS.map((item) =>
+  const importPromises = activeCollections.map((item) =>
     sem.acquire().then(() =>
       processItem(item)
         .catch((err) => {
@@ -265,16 +548,17 @@ async function runImport() {
 
   const results = await Promise.allSettled(importPromises);
   const failedCount = results.filter((r) => r.status === 'rejected').length;
-  const successCount = PLATFORM_COLLECTIONS.length - failedCount;
+  const successCount = activeCollections.length - failedCount - skippedLocalOnlyIds.length;
 
   // Build spatial indexes on all successfully imported tables at the end,
   // with high maintenance_work_mem already set for the session.
   if (successCount > 0) {
     console.log(`\n🔧 Building spatial indexes (parallel, maintenance_work_mem=4GB)...`);
     const idxStart = Date.now();
-    const successfulTables = PLATFORM_COLLECTIONS.filter((_, i) => results[i].status === 'fulfilled').map(
-      (item) => item.table,
-    );
+    const skippedSet = new Set(skippedLocalOnlyIds);
+    const successfulTables = activeCollections
+      .filter((item, i) => results[i].status === 'fulfilled' && !skippedSet.has(String(item.id)))
+      .map((item) => item.table);
 
     for (const table of successfulTables) {
       const idxName = `${table.replace('.', '_')}_geom_idx`;
@@ -305,12 +589,17 @@ async function runImport() {
 
   console.log(`\n${'='.repeat(52)}`);
   console.log(`ALL IMPORTS FINISHED (total: ${formatElapsed(importStart)})`);
-  console.log(`   Collections: ${PLATFORM_COLLECTIONS.length}`);
+  console.log(`   Collections: ${activeCollections.length}`);
+  console.log(`   Disabled:    ${disabledCollections.length}`);
   console.log(`   Successful:  ${successCount}`);
+  if (skippedLocalOnlyIds.length > 0) {
+    console.log(`   Skipped:     ${skippedLocalOnlyIds.length}`);
+    console.log(`   Skipped IDs: ${skippedLocalOnlyIds.join(', ')}`);
+  }
   console.log(`   Failed:      ${failedCount}`);
   if (failedCount > 0) {
     const failed = results
-      .map((r, i) => (r.status === 'rejected' ? PLATFORM_COLLECTIONS[i].id : null))
+      .map((r, i) => (r.status === 'rejected' ? activeCollections[i].id : null))
       .filter(Boolean);
     console.log(`   Failed IDs:  ${failed.join(', ')}`);
   }

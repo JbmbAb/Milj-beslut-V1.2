@@ -20,8 +20,11 @@ const StakeholderAnalysis: React.FC = () => {
   useEffect(() => {
     const projectId = getActiveProjectId();
     if (!projectId) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       setStakeholders([]);
+       
       setError('Inget aktivt projekt är valt. Öppna ett projekt för att läsa intressenter.');
+       
       setLoading(false);
       return;
     }

@@ -42,6 +42,7 @@ interface SourceTracing {
 | `SNI_REGISTRY`     | `2024`             | 100        | Industry classification |
 | `LANTMATERIET`     | `2024`             | 100        | Property information    |
 | `SGU`              | `2024`             | 100        | Soil & groundwater data |
+| `SGU_ATLAS`        | `2024`             | 100        | Geochemical background  |
 | `NATURVÅRDSVERKET` | `2024`             | 100        | Environmental laws      |
 | `SWEDAC`           | `2024`             | 100        | Lab accreditation       |
 | `SMHI`             | `2024`             | 100        | Weather/climate data    |

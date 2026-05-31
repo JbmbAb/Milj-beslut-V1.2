@@ -1,5 +1,5 @@
-import { describe, expect, it, vi } from 'vitest';
-import { SecureError, secureErrorHandler, toSafeErrorResponse } from '../../server/security/secureErrors';
+import { describe, expect, it } from 'vitest';
+import { SecureError, toSafeErrorResponse } from '../../server/security/secureErrors';
 
 describe('secureErrors', () => {
   it('maps secure errors to public payloads', () => {

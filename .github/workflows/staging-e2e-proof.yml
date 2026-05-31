@@ -26,9 +26,12 @@ jobs:
 
     env:
       PLAYWRIGHT_BASE_URL: ${{ inputs.base_url || vars.STAGING_URL }}
+      PLAYWRIGHT_API_BASE_URL: ${{ vars.STAGING_API_BASE_URL || inputs.base_url || vars.STAGING_URL }}
       E2E_ADMIN_USERNAME: ${{ secrets.STAGING_E2E_ADMIN_USERNAME || secrets.ADMIN_CONSOLE_USERNAME }}
       E2E_ADMIN_PASSWORD: ${{ secrets.STAGING_E2E_ADMIN_PASSWORD || secrets.ADMIN_CONSOLE_PASSWORD }}
       E2E_INCLUDE_VERTEX_FLOWS: ${{ inputs.include_vertex_flows && 'true' || 'false' }}
+      E2E_SKIP_VERTEX_FLOWS: ${{ inputs.include_vertex_flows && 'false' || 'true' }}
+      STAGING_VERIFY_ALLOW_BANKID_PENDING: 'true'
 
     steps:
       - name: Validate required inputs/secrets
@@ -61,6 +64,20 @@ jobs:
         continue-on-error: false
         env:
           STAGING_URL: ${{ inputs.base_url || vars.STAGING_URL }}
+          DATABASE_URL: ${{ secrets.STAGING_DATABASE_URL }}
+          JWT_ACCESS_SECRET: ${{ secrets.STAGING_JWT_ACCESS_SECRET }}
+          JWT_REFRESH_SECRET: ${{ secrets.STAGING_JWT_REFRESH_SECRET }}
+          ADMIN_CONSOLE_PASSWORD: ${{ secrets.STAGING_E2E_ADMIN_PASSWORD || secrets.ADMIN_CONSOLE_PASSWORD }}
+          LANTMATERIET_CONSUMER_KEY: ${{ secrets.STAGING_LANTMATERIET_CONSUMER_KEY }}
+          LANTMATERIET_CONSUMER_SECRET: ${{ secrets.STAGING_LANTMATERIET_CONSUMER_SECRET }}
+          LANTMATERIET_OPEN_SUBSCRIPTION_KEY: ${{ secrets.STAGING_LANTMATERIET_OPEN_SUBSCRIPTION_KEY }}
+          LANTMATERIET_API_KEY: ${{ secrets.STAGING_LANTMATERIET_API_KEY }}
+          SLU_API_KEY: ${{ secrets.STAGING_SLU_API_KEY }}
+          VERTEX_PROJECT_ID: ${{ secrets.GCP_PROJECT_ID }}
+          VERTEX_LOCATION: ${{ vars.GCP_REGION || 'europe-west1' }}
+          BANKID_MOCK_MODE: 'false'
+          AUTHORITY_MOCK_MODE: 'false'
+          LANTMATERIET_DEMO_MODE: 'false'
 
       - name: Run staging core flows (Lokaliseringsutredning)
         run: npm run e2e:staging

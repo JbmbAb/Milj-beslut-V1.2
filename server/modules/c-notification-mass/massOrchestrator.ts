@@ -2,7 +2,11 @@
  * Orkestrering: C-anmälan schaktmassor
  */
 
-import { evaluateMpfCode } from '../../services/mpfThresholdService';
+import {
+  evaluateMpfOperation,
+  mergeGateDecisions as mergeMpfGateDecisions,
+  toMpfDecisionSummary,
+} from '../mpf/public';
 import { getMassFlowSnapshot, recordMassMovement } from '../../repositories/massFlowService';
 import { generateLogisticsPlan, type LogisticsGeneratorRequest } from '../../services/logisticsGeneratorService';
 import {
@@ -22,14 +26,12 @@ import {
   type MassOperationRecord,
   type MassOperationType,
 } from '../../repositories/cNotificationMassRepository';
+import { resolveMassSiteSensitivity } from './massSpatialSensitivity';
 
 export type { GateDecision, MassOperationType };
 
 export function mergeGateDecisions(decisions: GateDecision[]): GateDecision {
-  if (decisions.includes('PERMIT_REQUIRED')) return 'PERMIT_REQUIRED';
-  if (decisions.includes('NOTIFICATION_REQUIRED')) return 'NOTIFICATION_REQUIRED';
-  if (decisions.includes('UNKNOWN_CODE')) return 'UNKNOWN_CODE';
-  return 'EXEMPT';
+  return mergeMpfGateDecisions(decisions);
 }
 
 export function evaluateOperationCodes(input: {
@@ -38,25 +40,14 @@ export function evaluateOperationCodes(input: {
   quantityPerYear: number;
   ewcCode: string;
   sniCode?: string;
+  isSensitiveArea?: boolean;
 }): MassOperationRecord {
-  const ewcEvaluation = evaluateMpfCode({
-    code: input.ewcCode,
+  const evaluation = evaluateMpfOperation({
+    ewcCode: input.ewcCode,
+    sniCode: input.sniCode,
     quantity: input.quantityPerYear,
-    codeType: 'EWC',
+    isSensitiveArea: input.isSensitiveArea,
   });
-
-  const sniEvaluation = input.sniCode
-    ? evaluateMpfCode({
-        code: input.sniCode,
-        quantity: input.quantityPerYear,
-        codeType: 'SNI',
-      })
-    : null;
-
-  const gateDecision = mergeGateDecisions([
-    ewcEvaluation.gateDecision,
-    ...(sniEvaluation ? [sniEvaluation.gateDecision] : []),
-  ]);
 
   return {
     operationType: input.operationType,
@@ -64,7 +55,9 @@ export function evaluateOperationCodes(input: {
     ewcCode: input.ewcCode,
     quantityPerYear: input.quantityPerYear,
     sniCode: input.sniCode,
-    gateDecision,
+    gateDecision: evaluation.gateDecision,
+    mpfDecision: toMpfDecisionSummary(evaluation),
+    notes: evaluation.notes,
   };
 }
 
@@ -126,6 +119,12 @@ export async function upsertMassOperations(
     gisSnapshot?: MassGisSnapshot;
   },
 ) {
+  const siteSensitivity = await resolveMassSiteSensitivity({
+    gisAnalysis: input.gisSnapshot?.analysis,
+    siteLat: input.gisSnapshot?.analysis.centroid.lat,
+    siteLng: input.gisSnapshot?.analysis.centroid.lng,
+  });
+
   const evaluated: MassOperationRecord[] = input.operations.map((op) => ({
     ...evaluateOperationCodes({
       propertyDesignation: input.propertyDesignation,
@@ -133,6 +132,7 @@ export async function upsertMassOperations(
       quantityPerYear: op.quantityPerYear,
       ewcCode: op.ewcCode,
       sniCode: op.sniCode,
+      isSensitiveArea: siteSensitivity.isSensitiveArea,
     }),
     capacityM3: op.capacityM3,
     receiverName: op.receiverName,
@@ -145,6 +145,11 @@ export async function upsertMassOperations(
   const warnings: string[] = [];
   if (mellanlagring.length === 0) warnings.push('Saknar delbeslut MELLANLAGRING.');
   if (deponi.length === 0) warnings.push('Saknar delbeslut DEPONI.');
+  if (siteSensitivity.isSensitiveArea) {
+    warnings.push(
+      `Platsen bedöms som känslig (${siteSensitivity.source}) — MPF-trösklar kan vara skärpta.`,
+    );
+  }
 
   let record: CNotificationMassCaseRecord;
   if (caseId) {
@@ -294,7 +299,9 @@ export function buildMassExport(record: CNotificationMassCaseRecord) {
     decisions: {
       mellanlagring: mellanlagring.map((op) => ({
         ewcCode: op.ewcCode,
+        sniCode: op.sniCode,
         gateDecision: op.gateDecision,
+        mpfDecision: op.mpfDecision ?? null,
         quantityPerYear: op.quantityPerYear,
         receiverName: op.receiverName,
         capacityM3: op.capacityM3,
@@ -302,7 +309,9 @@ export function buildMassExport(record: CNotificationMassCaseRecord) {
       })),
       deponi: deponi.map((op) => ({
         ewcCode: op.ewcCode,
+        sniCode: op.sniCode,
         gateDecision: op.gateDecision,
+        mpfDecision: op.mpfDecision ?? null,
         quantityPerYear: op.quantityPerYear,
         receiverName: op.receiverName,
         capacityM3: op.capacityM3,
@@ -366,6 +375,28 @@ export async function submitMassCase(caseId: string, authUser: AuthUser) {
     return { ok: false as const, status: 403, error: 'forbidden' };
   }
 
+  const unknownEwcOperations = record.operations.filter(
+    (operation) => operation.mpfDecision?.ewcEvaluation.gateDecision === 'UNKNOWN_CODE',
+  );
+  if (unknownEwcOperations.length > 0) {
+    return {
+      ok: false as const,
+      status: 422,
+      error: 'unknown_ewc_code',
+      message: 'Minst en EWC-kod saknar verifierad MPF-regel. Manuell juridisk granskning krävs före inlämning.',
+      warnings: unknownEwcOperations.map(
+        (operation) =>
+          `EWC-kod ${operation.ewcCode} för ${operation.operationType} saknar verifierad regel och måste granskas manuellt.`,
+      ),
+    };
+  }
+
+  const advisoryWarnings = record.operations.flatMap((operation) =>
+    (operation.mpfDecision?.advisorySignals ?? []).map(
+      (signal) => `${operation.operationType}: ${signal}`,
+    ),
+  );
+
   const requiresNotification = record.operations.some(
     (o) => o.gateDecision === 'NOTIFICATION_REQUIRED' || o.gateDecision === 'PERMIT_REQUIRED',
   );
@@ -390,8 +421,19 @@ export async function submitMassCase(caseId: string, authUser: AuthUser) {
     'SewageApplication',
     caseId,
     authUser.id,
-    'C-anmälan schaktmassor inlämnad',
-    { userRole: authUser.role, details: { operations: record.operations.length } },
+    advisoryWarnings.length > 0
+      ? 'C-anmälan schaktmassor inlämnad med rådgivande SNI-varningar'
+      : 'C-anmälan schaktmassor inlämnad',
+    {
+      userRole: authUser.role,
+      severity: advisoryWarnings.length > 0 ? 'warning' : 'info',
+      details: {
+        operations: record.operations.length,
+        mpfPrimaryPolicy: 'EWC_PRIMARY',
+        advisoryWarnings,
+        advisoryWarningCount: advisoryWarnings.length,
+      },
+    },
   );
 
   return {
@@ -400,6 +442,7 @@ export async function submitMassCase(caseId: string, authUser: AuthUser) {
     caseId,
     status: 'SUBMITTED',
     submittedAt: new Date().toISOString(),
+    warnings: advisoryWarnings,
     case: updated,
   };
 }

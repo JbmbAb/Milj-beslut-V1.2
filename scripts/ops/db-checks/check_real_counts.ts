@@ -12,7 +12,7 @@ async function main() {
     'env.marktacke',
     'topo10.vatten',
     'topo10.mark',
-    'topo10.byggnad'
+    'topo10.byggnad',
   ];
 
   console.log('--- Real Record Counts ---');
@@ -20,14 +20,14 @@ async function main() {
     try {
       const result = await prisma.$queryRawUnsafe(`SELECT COUNT(*) as count FROM ${table}`);
       console.log(`${table}: ${(result as any)[0].count}`);
-    } catch (e) {
+    } catch {
       console.log(`${table}: (error or not found)`);
     }
   }
 }
 
 main()
-  .catch(e => console.error(e))
+  .catch((e) => console.error(e))
   .finally(async () => {
     await prisma.$disconnect();
   });

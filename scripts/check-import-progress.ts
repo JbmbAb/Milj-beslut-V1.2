@@ -5,12 +5,12 @@ dotenv.config();
 async function check() {
   const client = new Client({ connectionString: process.env.DATABASE_URL });
   await client.connect();
-  
+
   const tables = [
     { name: 'env.sgu_fastmark_stabilitet', label: 'SGU Fastmark' },
     { name: 'public.env_registerenhetsomradesytor', label: 'LM Fastighetsytor' },
     { name: 'public.env_registerenhetsomradeslinjer', label: 'LM Fastighetslinjer' },
-    { name: 'core.lm_byggnad', label: 'LM Byggnader' }
+    { name: 'core.lm_byggnad', label: 'LM Byggnader' },
   ];
 
   console.log('\n--- Aktuell Status ---');
@@ -18,7 +18,7 @@ async function check() {
     try {
       const res = await client.query(`SELECT count(*) FROM ${t.name}`);
       console.log(`${t.label}: ${res.rows[0].count} rader`);
-    } catch (e) {
+    } catch {
       console.log(`${t.label}: Tabell ej skapad ännu`);
     }
   }

@@ -7,6 +7,17 @@ import { afterEach } from 'vitest';
 // Lazy-loaded routes (React.lazy) can exceed the default 1000 ms under parallel Vitest workers.
 configure({ asyncUtilTimeout: 10_000 });
 
+import dotenv from 'dotenv';
+
+// Automatically load .env.test if it exists to align local test database target (e.g. port 5433)
+const envTestPath = path.resolve(process.cwd(), '.env.test');
+if (fs.existsSync(envTestPath)) {
+  const envTestConfig = dotenv.parse(fs.readFileSync(envTestPath, 'utf-8'));
+  for (const k in envTestConfig) {
+    process.env[k] = envTestConfig[k];
+  }
+}
+
 if (!process.env.NODE_ENV) process.env.NODE_ENV = 'test';
 
 if (!process.env.JWT_ACCESS_SECRET) process.env.JWT_ACCESS_SECRET = 'test-access-secret';

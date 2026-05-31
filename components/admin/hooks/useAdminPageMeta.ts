@@ -36,6 +36,11 @@ const MODULE_META: Record<AdminModuleId, PageMeta> = {
     description: 'Ansökan och övervakning av privata VA-anläggningar. Inspektionsscheman och kartöversikt.',
     keywords: ['enskilt avlopp', 'VA-anläggning', 'ansökan', 'inspekton'],
   },
+  operations: {
+    title: 'Drift & Databas | Miljöbeslut Admin',
+    description: 'Övervaka databasstatus, MPF-regler och operativa kontroller för plattformen.',
+    keywords: ['drift', 'databasstatus', 'MPF', 'plattformskontroll'],
+  },
 };
 
 /**

@@ -63,6 +63,8 @@ export type MapLayerCatalogEntry = {
   activation: 'IMMEDIATE' | 'PERMIT_REQUIRED';
   description?: string;
   documentationUrls?: string[];
+  datasetStyle?: string;
+  minZoom?: number;
 };
 
 export async function fetchMapLayerCatalog(): Promise<MapLayerCatalogEntry[]> {
@@ -75,4 +77,52 @@ export async function fetchMapLayerCatalog(): Promise<MapLayerCatalogEntry[]> {
     throw new Error('Kartlagerkatalogen har ogiltigt format');
   }
   return data.layers as MapLayerCatalogEntry[];
+}
+
+export type OgcCatalogSummary = {
+  id: string;
+  label: string;
+  provider: string;
+  service: 'WMS' | 'WFS';
+  description?: string;
+  capabilitiesUrl: string;
+  supportsMapToggle: boolean;
+};
+
+export type OgcFederatedMapLayer = {
+  name: string;
+  title?: string;
+  abstract?: string;
+  mapMode: 'wms_tile' | 'wfs_info';
+  layerKey: string;
+  wms?: { baseUrl: string; layers: string; version: string };
+};
+
+export async function fetchOgcCatalogSummaries(): Promise<OgcCatalogSummary[]> {
+  const response = await fetch('/api/reference/ogc-catalogs', { credentials: 'same-origin' });
+  const data = await response.json();
+  if (!response.ok) {
+    throw new Error(data?.error || 'Kunde inte ladda OGC-kataloger');
+  }
+  if (!Array.isArray(data?.catalogs)) {
+    throw new Error('OGC-katalogsvar har ogiltigt format');
+  }
+  return data.catalogs as OgcCatalogSummary[];
+}
+
+export async function fetchOgcCatalogLayers(catalogId: string): Promise<{
+  layers: OgcFederatedMapLayer[];
+  warning?: string;
+}> {
+  const response = await fetch(`/api/reference/ogc-catalogs/${encodeURIComponent(catalogId)}/layers`, {
+    credentials: 'same-origin',
+  });
+  const data = await response.json();
+  if (!response.ok) {
+    throw new Error(data?.error || 'Kunde inte ladda OGC-lager');
+  }
+  return {
+    layers: Array.isArray(data?.layers) ? (data.layers as OgcFederatedMapLayer[]) : [],
+    warning: typeof data?.warning === 'string' ? data.warning : undefined,
+  };
 }

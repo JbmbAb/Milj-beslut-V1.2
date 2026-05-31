@@ -141,8 +141,8 @@ describe('admin.pagination routes', () => {
         .set('Authorization', authHeader('ADMIN'));
 
       expect(res.status).toBe(200);
-      expect(res.body.page).toBe(1);
-      expect(res.body.limit).toBe(10);
+      expect(res.body.page).toBeNull();
+      expect(res.body.limit).toBeNull();
     });
   });
 
@@ -174,4 +174,4 @@ describe('admin.pagination routes', () => {
       expect(res.body.hasMore).toBe(true);
     });
   });
-});
+});

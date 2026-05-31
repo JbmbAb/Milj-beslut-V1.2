@@ -20,6 +20,7 @@ export type DynamicBboxLayerKey =
   | 'postgis_lakes'
   | 'postgis_streams'
   | 'hydro_water_catchment'
+  | 'hydro_main_catchment'
   | 'postgis_property'
   | 'topo10_buildings'
   | 'topo10_mark'
@@ -117,6 +118,11 @@ export const DYNAMIC_BBOX_LAYER_CONFIG: Record<
     endpoint: '/api/layers/hydro.water-catchments',
     emptyMessage: 'Inga avrinningsomraden hittades i aktuell kartvy.',
     label: 'Avrinningsomraden',
+  },
+  hydro_main_catchment: {
+    endpoint: '/api/layers/hydro.main-catchments',
+    emptyMessage: 'Inga huvudavrinningsomraden hittades i aktuell kartvy.',
+    label: 'Huvudavrinningsomraden',
   },
   postgis_property: {
     endpoint: '/api/layers/property',
@@ -353,6 +359,131 @@ export const WATER_CATCHMENT_STYLE = {
   fillOpacity: 0.1,
   dashArray: '6,4',
 };
+
+/** SMHI SVAR 2022 – 111 huvudavrinningsområden (grovt vattenindelning). */
+export const MAIN_CATCHMENT_STYLE = {
+  color: '#1e3a8a',
+  weight: 2,
+  opacity: 0.85,
+  fillColor: '#3b82f6',
+  fillOpacity: 0.12,
+};
+
+export const DATASET_DEFAULT_POLYGON_STYLE = {
+  color: '#64748b',
+  weight: 1,
+  opacity: 0.75,
+  fillColor: '#94a3b8',
+  fillOpacity: 0.14,
+};
+
+export const DATASET_DEFAULT_LINE_STYLE = {
+  color: '#475569',
+  weight: 2,
+  opacity: 0.8,
+};
+
+export const DATASET_HERITAGE_STYLE = {
+  color: '#92400e',
+  weight: 1,
+  opacity: 0.9,
+  fillColor: '#f59e0b',
+  fillOpacity: 0.2,
+};
+
+export const DATASET_HERITAGE_POINT_STYLE = {
+  radius: 5,
+  color: '#78350f',
+  weight: 1,
+  fillColor: '#d97706',
+  fillOpacity: 0.9,
+};
+
+export const DATASET_WATER_STYLE = {
+  color: '#0369a1',
+  weight: 1,
+  opacity: 0.8,
+  fillColor: '#38bdf8',
+  fillOpacity: 0.12,
+};
+
+export const DATASET_NATURE_STYLE = {
+  color: '#166534',
+  weight: 1,
+  opacity: 0.8,
+  fillColor: '#4ade80',
+  fillOpacity: 0.15,
+};
+
+export const DATASET_GEOLOGY_STYLE = {
+  color: '#78350f',
+  weight: 1,
+  opacity: 0.8,
+  fillColor: '#fbbf24',
+  fillOpacity: 0.14,
+};
+
+export const DATASET_PROPERTY_STYLE = {
+  color: '#334155',
+  weight: 1,
+  opacity: 0.7,
+  fillColor: '#cbd5e1',
+  fillOpacity: 0.08,
+  dashArray: '4,3',
+};
+
+export const DATASET_SPECIES_STYLE = {
+  radius: 4,
+  color: '#14532d',
+  weight: 1,
+  fillColor: '#22c55e',
+  fillOpacity: 0.85,
+};
+
+export type CatalogLayerStyleHint =
+  | 'default_polygon'
+  | 'default_line'
+  | 'default_point'
+  | 'water'
+  | 'nature'
+  | 'heritage'
+  | 'geology'
+  | 'property'
+  | 'species';
+
+export type DatasetLeafletStyleBundle =
+  | { kind: 'point'; pointStyle: typeof DATASET_HERITAGE_POINT_STYLE }
+  | { kind: 'line'; style: typeof DATASET_DEFAULT_LINE_STYLE }
+  | { kind: 'polygon'; style: typeof DATASET_DEFAULT_POLYGON_STYLE };
+
+/** Stilbundle för dataset-lager (Leaflet skapas i MapView). */
+export function getDatasetLeafletStyleBundle(
+  geometry: string,
+  styleHint?: CatalogLayerStyleHint,
+): DatasetLeafletStyleBundle {
+  if (geometry === 'point' || styleHint === 'default_point' || styleHint === 'species') {
+    return {
+      kind: 'point',
+      pointStyle: styleHint === 'species' ? DATASET_SPECIES_STYLE : DATASET_HERITAGE_POINT_STYLE,
+    };
+  }
+  if (geometry === 'line' || styleHint === 'default_line') {
+    return { kind: 'line', style: DATASET_DEFAULT_LINE_STYLE };
+  }
+  const polygonStyle =
+    styleHint === 'water'
+      ? DATASET_WATER_STYLE
+      : styleHint === 'nature'
+        ? DATASET_NATURE_STYLE
+        : styleHint === 'heritage'
+          ? DATASET_HERITAGE_STYLE
+          : styleHint === 'geology'
+            ? DATASET_GEOLOGY_STYLE
+            : styleHint === 'property'
+              ? DATASET_PROPERTY_STYLE
+              : DATASET_DEFAULT_POLYGON_STYLE;
+  return { kind: 'polygon', style: polygonStyle };
+}
 
 export function getMarkCoverStyle(feature: any) {
   const label = String(feature?.properties?.description || '').toLowerCase();

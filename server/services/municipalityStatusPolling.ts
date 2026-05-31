@@ -69,7 +69,7 @@ export async function handleMunicipalityWebhook(payload: MunicipalityStatusUpdat
   message: string;
 }> {
   try {
-    const { referenceNumber, status, lastStatusUpdate, decision, attachments } = payload;
+    const { referenceNumber, status, decision } = payload;
 
     logger.info('Received municipality webhook', {
       referenceNumber,
@@ -182,7 +182,7 @@ export async function pollMunicipalityStatuses(): Promise<{
 // MUNICIPALITY STATUS QUERY
 // ============================================================================
 
-async function queryMunicipalityStatus(
+async function _queryMunicipalityStatus(
   referenceNumber: string,
   municipalityCode: string,
 ): Promise<MunicipalityStatusUpdate> {
@@ -242,7 +242,7 @@ async function broadcastStatusUpdate(referenceNumber: string, status: Applicatio
 export async function appealDecision(
   referenceNumber: string,
   appealReason: string,
-  attachments?: string[],
+  _attachments?: string[],
 ): Promise<{
   ok: boolean;
   appealReferenceNumber: string;

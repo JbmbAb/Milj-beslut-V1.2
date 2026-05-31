@@ -6,7 +6,12 @@
 
 import React, { useState } from 'react';
 import { MapPin, CheckCircle, AlertCircle, FileText, Send } from 'lucide-react';
-import type { SewageApplication, SewageGISAnalysis, SewageProtectionProfile, SewageSystemTypeId } from '../../../../types';
+import type {
+  SewageApplication,
+  SewageGISAnalysis,
+  SewageProtectionProfile,
+  SewageSystemTypeId,
+} from '../../../../types';
 import '../module-common.css';
 import './sewage-portal.css';
 import { useSewageAnalysis } from '../../hooks/useSewageAnalysis';
@@ -15,7 +20,7 @@ import SewageRequirementChecklist from './SewageRequirementChecklist';
 import SewageMapView from './SewageMapView';
 import SewageApplicationSummary from './SewageApplicationSummary';
 import { LoadingSpinner, ErrorAlert } from '../../shared';
-import { getActiveProjectId } from '../../../../services/coreApiClient';
+import { callApi, getActiveProjectId } from '../../../../services/coreApiClient';
 
 type SewageStep =
   | 'property'
@@ -70,7 +75,9 @@ function buildInitialApplication(
       {
         id: 'gate-NEIGHBOR_CONSENT',
         name: 'Grannemedgivande',
-        description: neighborConsentRequired ? 'Grannemedgivande krävs för vald placering.' : 'Ej krav för vald placering.',
+        description: neighborConsentRequired
+          ? 'Grannemedgivande krävs för vald placering.'
+          : 'Ej krav för vald placering.',
         status: neighborConsentRequired ? 'PENDING' : 'COMPLETED',
         priority: 'MEDIUM',
       },
@@ -85,7 +92,11 @@ function buildInitialApplication(
   };
 }
 
-function patchGateStatus(application: SewageApplication, gateId: string, status: 'PENDING' | 'IN_PROGRESS' | 'COMPLETED' | 'BLOCKED'): SewageApplication {
+function patchGateStatus(
+  application: SewageApplication,
+  gateId: string,
+  status: 'PENDING' | 'IN_PROGRESS' | 'COMPLETED' | 'BLOCKED',
+): SewageApplication {
   return {
     ...application,
     updatedAt: new Date().toISOString(),
@@ -111,6 +122,46 @@ const SewagePortalView: React.FC = () => {
   const [isGeneratingDocuments, setIsGeneratingDocuments] = useState(false);
   const [documentError, setDocumentError] = useState<string | null>(null);
   const [formError, setFormError] = useState<string | null>(null);
+
+  const downloadDataUrl = (dataUrl: string, fileName: string) => {
+    const anchor = document.createElement('a');
+    anchor.href = dataUrl;
+    anchor.download = fileName;
+    anchor.click();
+  };
+
+  const handleExportSewagePdf = async () => {
+    if (!application || !protectionProfile) {
+      setDocumentError('Saknade uppgifter för PDF-export.');
+      return;
+    }
+
+    try {
+      const blob = await callApi<Blob>('/api/export/pdf-json', {
+        method: 'POST',
+        body: {
+          title: `Enskilt avlopp - ${application.propertyDesignation}`,
+          subtitle: `Kommun ${municipalityCode} · PE ${application.pe}`,
+          json: {
+            application,
+            protectionProfile,
+            exportedAt: new Date().toISOString(),
+            humanInTheLoop:
+              'Underlaget är AI-assisterat. Handläggare ska verifiera alla uppgifter innan myndighetsinlämning.',
+          },
+        },
+      });
+
+      const url = URL.createObjectURL(blob);
+      const anchor = document.createElement('a');
+      anchor.href = url;
+      anchor.download = `enskilt-avlopp-${application.propertyDesignation.replace(/\s+/g, '-')}.pdf`;
+      anchor.click();
+      URL.revokeObjectURL(url);
+    } catch (error) {
+      setDocumentError(error instanceof Error ? error.message : 'PDF-export misslyckades.');
+    }
+  };
 
   // Mutation for GIS analysis
   const {
@@ -157,8 +208,7 @@ const SewagePortalView: React.FC = () => {
     setSelectedSystemId(systemId);
     if (protectionProfile) {
       const nextApplication =
-        application ??
-        buildInitialApplication(propertyDesignation, pe, protectionProfile, systemId);
+        application ?? buildInitialApplication(propertyDesignation, pe, protectionProfile, systemId);
       setApplication({
         ...nextApplication,
         selectedSystemType: systemId,
@@ -285,10 +335,13 @@ const SewagePortalView: React.FC = () => {
           const isDone =
             (step.id === 'property' && currentStep !== 'property') ||
             (step.id === 'analysis' &&
-              ['systemSelection', 'requirements', 'documents', 'submission', 'confirmation'].includes(currentStep)) ||
+              ['systemSelection', 'requirements', 'documents', 'submission', 'confirmation'].includes(
+                currentStep,
+              )) ||
             (step.id === 'systemSelection' &&
               ['requirements', 'documents', 'submission', 'confirmation'].includes(currentStep)) ||
-            (step.id === 'requirements' && ['documents', 'submission', 'confirmation'].includes(currentStep)) ||
+            (step.id === 'requirements' &&
+              ['documents', 'submission', 'confirmation'].includes(currentStep)) ||
             (step.id === 'documents' && ['submission', 'confirmation'].includes(currentStep)) ||
             (step.id === 'submission' && currentStep === 'confirmation');
 
@@ -315,7 +368,9 @@ const SewagePortalView: React.FC = () => {
           onDismiss={() => setDismissedError(true)}
         />
       )}
-      {formError && <ErrorAlert message={formError} severity="warning" onDismiss={() => setFormError(null)} />}
+      {formError && (
+        <ErrorAlert message={formError} severity="warning" onDismiss={() => setFormError(null)} />
+      )}
 
       {/* Step 1: Property Information */}
       {currentStep === 'property' && (
@@ -402,10 +457,7 @@ const SewagePortalView: React.FC = () => {
               </div>
             </div>
 
-            <button
-              type="submit"
-              className="sewage-button sewage-button-primary"
-            >
+            <button type="submit" className="sewage-button sewage-button-primary">
               Starta GIS-analys
             </button>
           </form>
@@ -415,13 +467,13 @@ const SewagePortalView: React.FC = () => {
             <div>
               <strong>Vad är PE?</strong>
               <p>Person Equivalents (PE) motsvarar belastningen från en person per dag. Vanligtvis:</p>
-                <ul>
-                  <li>1 person = 1 PE</li>
-                  <li>Vi utgår från 8 PE för en genomsnittlig villa med 4 personer</li>
-                  <li>Stöd finns upp till 200 PE för större installationer</li>
-                </ul>
-              </div>
+              <ul>
+                <li>1 person = 1 PE</li>
+                <li>Vi utgår från 8 PE för en genomsnittlig villa med 4 personer</li>
+                <li>Stöd finns upp till 200 PE för större installationer</li>
+              </ul>
             </div>
+          </div>
         </div>
       )}
 
@@ -522,9 +574,41 @@ const SewagePortalView: React.FC = () => {
               onDismiss={() => setDocumentError(null)}
             />
           ) : (
-            <button className="sewage-button sewage-button-primary" onClick={handleGenerateDocuments}>
-              Generera Dokument
-            </button>
+            <div className="flex flex-wrap gap-3">
+              <button className="sewage-button sewage-button-primary" onClick={handleGenerateDocuments}>
+                Generera underlag
+              </button>
+              <button
+                type="button"
+                className="sewage-button"
+                disabled={!application?.situationPlan?.url}
+                onClick={() => {
+                  if (!application?.situationPlan?.url) return;
+                  downloadDataUrl(application.situationPlan.url, 'situationsplan.svg');
+                }}
+              >
+                Ladda ner situationskarta
+              </button>
+              <button
+                type="button"
+                className="sewage-button"
+                onClick={() => void handleExportSewagePdf()}
+                disabled={!application?.situationPlan?.url && !application?.crossSection?.url}
+              >
+                Exportera PDF
+              </button>
+              <button
+                type="button"
+                className="sewage-button"
+                disabled={!application?.crossSection?.url}
+                onClick={() => {
+                  if (!application?.crossSection?.url) return;
+                  downloadDataUrl(application.crossSection.url, 'tvarsektion.svg');
+                }}
+              >
+                Ladda ner tvärsektion
+              </button>
+            </div>
           )}
         </div>
       )}

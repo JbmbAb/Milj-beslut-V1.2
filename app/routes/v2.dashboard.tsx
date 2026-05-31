@@ -1,3 +1,5 @@
+/* eslint-disable react-refresh/only-export-components */
+
 import { json, type LoaderFunctionArgs } from '@remix-run/node';
 import { useLoaderData } from '@remix-run/react';
 import { platformV2 } from '../../src/api/platform.master';

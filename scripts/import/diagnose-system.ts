@@ -7,23 +7,33 @@
  * for a 100M–500M row PostgreSQL geodata import on Windows.
  */
 
-import { execSync, spawnSync } from 'child_process';
+import { execSync } from 'child_process';
 import fs from 'fs';
 import os from 'os';
 import path from 'path';
 
-const GREEN  = '\x1b[32m';
+const GREEN = '\x1b[32m';
 const YELLOW = '\x1b[33m';
-const RED    = '\x1b[1;31m';
-const CYAN   = '\x1b[36m';
-const RESET  = '\x1b[0m';
-const BOLD   = '\x1b[1m';
+const RED = '\x1b[1;31m';
+const CYAN = '\x1b[36m';
+const RESET = '\x1b[0m';
+const BOLD = '\x1b[1m';
 
-function ok(msg: string)   { console.log(`  ${GREEN}✅ ${msg}${RESET}`); }
-function warn(msg: string) { console.log(`  ${YELLOW}⚠️  ${msg}${RESET}`); }
-function fail(msg: string) { console.log(`  ${RED}❌ ${msg}${RESET}`); }
-function info(msg: string) { console.log(`  ${CYAN}ℹ  ${msg}${RESET}`); }
-function header(msg: string) { console.log(`\n${BOLD}${CYAN}── ${msg} ──────────────────────────────────────${RESET}`); }
+function ok(msg: string) {
+  console.log(`  ${GREEN}✅ ${msg}${RESET}`);
+}
+function warn(msg: string) {
+  console.log(`  ${YELLOW}⚠️  ${msg}${RESET}`);
+}
+function fail(msg: string) {
+  console.log(`  ${RED}❌ ${msg}${RESET}`);
+}
+function info(msg: string) {
+  console.log(`  ${CYAN}ℹ  ${msg}${RESET}`);
+}
+function header(msg: string) {
+  console.log(`\n${BOLD}${CYAN}── ${msg} ──────────────────────────────────────${RESET}`);
+}
 
 function gb(bytes: bigint | number): string {
   const n = typeof bytes === 'bigint' ? Number(bytes) : bytes;
@@ -41,35 +51,36 @@ function runCmd(cmd: string): string {
 // ── 1. DISK SPACE ──────────────────────────────────────────────────
 header('1. DISK SPACE');
 
-interface DiskInfo { device: string; free: number; total: number; name: string; }
+interface DiskInfo {
+  device: string;
+  free: number;
+  total: number;
+  name: string;
+}
 const drives: DiskInfo[] = [];
 
 try {
   const raw = runCmd('wmic logicaldisk get DeviceID,FreeSpace,Size,VolumeName /format:csv');
-  const lines = raw.split('\n').filter(l => l.trim() && !l.startsWith('Node'));
+  const lines = raw.split('\n').filter((l) => l.trim() && !l.startsWith('Node'));
   for (const line of lines) {
     const parts = line.split(',');
     // CSV: Node,DeviceID,FreeSpace,Size,VolumeName
     if (parts.length >= 5) {
       const device = parts[1]?.trim();
-      const free   = parseInt(parts[2]?.trim() || '0', 10) || 0;
-      const total  = parseInt(parts[3]?.trim() || '0', 10) || 0;
-      const name   = parts[4]?.trim() || '';
+      const free = parseInt(parts[2]?.trim() || '0', 10) || 0;
+      const total = parseInt(parts[3]?.trim() || '0', 10) || 0;
+      const name = parts[4]?.trim() || '';
       if (device && total > 0) drives.push({ device, free, total, name });
     }
   }
-} catch { /* wmic unavailable */ }
-
-const DRIVES_OF_INTEREST = ['C:', 'D:', 'E:', 'F:'];
-let mainDiskFreeGB = 0;
+} catch {
+  /* wmic unavailable */
+}
 
 for (const d of drives) {
   const freeGB = d.free / 1e9;
-  const totalGB = d.total / 1e9;
   const usedPct = Math.round(((d.total - d.free) / d.total) * 100);
   const label = `${d.device} ${d.name ? `(${d.name})` : ''}`.trim();
-
-  if (d.device === 'C:') mainDiskFreeGB = freeGB;
 
   if (freeGB < 20) {
     fail(`${label}: ${gb(d.free)} free / ${gb(d.total)} total  [${usedPct}% used] ← CRITICALLY LOW`);
@@ -86,11 +97,6 @@ if (drives.length === 0) {
 
 // RAW COPY DECISION
 console.log();
-const hasD = drives.some(d => d.device === 'D:' && d.free / 1e9 > 200);
-const hasE = drives.some(d => d.device === 'E:');
-const dFreeGB = drives.find(d => d.device === 'D:')?.free ?? 0;
-const eFreeGB = drives.find(d => d.device === 'E:')?.free ?? 0;
-
 console.log(`  ${BOLD}📦 Råkopia (GPKG) beslut:${RESET}`);
 // Estimated GPKG sizes for all 14 collections: ~80–150 GB
 const estGpkgGB = 120;
@@ -113,9 +119,9 @@ if (bestDownloadDrive && bestDownloadDrive.free / 1e9 > estGpkgGB + 50) {
 // ── 2. RAM ─────────────────────────────────────────────────────────
 header('2. RAM');
 const totalRAM = os.totalmem();
-const freeRAM  = os.freemem();
-const totalGB  = totalRAM / 1e9;
-const freeGB   = freeRAM  / 1e9;
+const freeRAM = os.freemem();
+const totalGB = totalRAM / 1e9;
+const freeGB = freeRAM / 1e9;
 
 info(`Total: ${totalGB.toFixed(1)} GB`);
 if (freeGB >= 8) {
@@ -154,12 +160,14 @@ if (pgReady.includes('accepting connections')) {
 // PostgreSQL version
 const pgVer = runCmd('psql -h localhost -p 5432 -U postgres -c "SELECT version();" -t 2>&1');
 if (pgVer && !pgVer.includes('error') && !pgVer.includes('fatal')) {
-  const versionLine = pgVer.split('\n').find(l => l.includes('PostgreSQL'));
+  const versionLine = pgVer.split('\n').find((l) => l.includes('PostgreSQL'));
   ok(`Version: ${versionLine?.trim() ?? pgVer.substring(0, 80)}`);
 }
 
 // Check if PostGIS is installed
-const postgis = runCmd('psql -h localhost -p 5432 -U postgres -d miljobeslut -c "SELECT PostGIS_Version();" -t 2>&1');
+const postgis = runCmd(
+  'psql -h localhost -p 5432 -U postgres -d miljobeslut -c "SELECT PostGIS_Version();" -t 2>&1',
+);
 if (postgis && postgis.includes('.')) {
   ok(`PostGIS: ${postgis.trim().substring(0, 60)}`);
 } else {
@@ -167,7 +175,9 @@ if (postgis && postgis.includes('.')) {
 }
 
 // Check pgvector
-const pgvec = runCmd('psql -h localhost -p 5432 -U postgres -d miljobeslut -c "SELECT extversion FROM pg_extension WHERE extname=\'vector\';" -t 2>&1');
+const pgvec = runCmd(
+  'psql -h localhost -p 5432 -U postgres -d miljobeslut -c "SELECT extversion FROM pg_extension WHERE extname=\'vector\';" -t 2>&1',
+);
 if (pgvec && pgvec.match(/\d+\.\d+/)) {
   ok(`pgvector: ${pgvec.trim()}`);
 } else {
@@ -202,10 +212,14 @@ header('6. ENHETER & KATALOGER');
 
 const pathsToCheck = [
   { path: 'E:\\MiljoBeslut_Produktdata_Sources', desc: 'E: källdata (NV shapefile)', required: false },
-  { path: 'D:\\ingest-arkiv-2026-03-29',         desc: 'D: import-arkiv',            required: false },
-  { path: path.resolve('storage/ingest/platform-downloads'), desc: 'GPKG nedladdningskatalog', required: false },
-  { path: path.resolve('prisma'),                 desc: 'Prisma-schema',              required: true  },
-  { path: path.resolve('scripts/db'),             desc: 'DB-skript',                 required: true  },
+  { path: 'D:\\ingest-arkiv-2026-03-29', desc: 'D: import-arkiv', required: false },
+  {
+    path: path.resolve('storage/ingest/platform-downloads'),
+    desc: 'GPKG nedladdningskatalog',
+    required: false,
+  },
+  { path: path.resolve('prisma'), desc: 'Prisma-schema', required: true },
+  { path: path.resolve('scripts/db'), desc: 'DB-skript', required: true },
 ];
 
 for (const p of pathsToCheck) {
@@ -236,24 +250,27 @@ for (const p of pathsToCheck) {
 // ── 7. PROCESSER (top memory) ─────────────────────────────────────
 header('7. PROCESSER MED HÖG RAM-ANVÄNDNING');
 const processOut = runCmd('wmic process get Name,WorkingSetSize /format:csv');
-interface Proc { name: string; mb: number; }
+interface Proc {
+  name: string;
+  mb: number;
+}
 const procs: Proc[] = [];
 
 for (const line of processOut.split('\n')) {
   const parts = line.split(',');
   if (parts.length >= 3) {
     const name = parts[2]?.trim();
-    const wss  = parseInt(parts[1]?.trim() || '0', 10) || 0;
+    const wss = parseInt(parts[1]?.trim() || '0', 10) || 0;
     if (name && wss > 0) procs.push({ name, mb: Math.round(wss / 1024 / 1024) });
   }
 }
 
 procs.sort((a, b) => b.mb - a.mb);
 const canClose = ['chrome', 'firefox', 'msedge', 'teams', 'slack', 'discord', 'zoom', 'outlook', 'spotify'];
-let topProcs = procs.slice(0, 25);
+const topProcs = procs.slice(0, 25);
 
 for (const p of topProcs) {
-  const shouldClose = canClose.some(c => p.name.toLowerCase().includes(c));
+  const shouldClose = canClose.some((c) => p.name.toLowerCase().includes(c));
   const tag = shouldClose ? ` ${YELLOW}← STÄNG!${RESET}` : '';
   const color = p.mb > 500 ? YELLOW : RESET;
   console.log(`  ${color}${p.name.padEnd(35)} ${String(p.mb).padStart(6)} MB${tag}${RESET}`);
@@ -313,9 +330,10 @@ console.log(`
   4. psql -U postgres -d miljobeslut -f scripts\\db\\post-import-indexing.sql
 
   ${BOLD}Diskutrymme-rekommendation:${RESET}
-  ${bestDownloadDrive && bestDownloadDrive.free / 1e9 > estGpkgGB + 50
-    ? `✅ SPARA råkopior (--keep-downloads) på ${bestDownloadDrive.device} – ${gb(bestDownloadDrive.free)} fritt`
-    : `⚠️  RADERA råkopior (utelämna --keep-downloads) – för lite diskutrymme`
+  ${
+    bestDownloadDrive && bestDownloadDrive.free / 1e9 > estGpkgGB + 50
+      ? `✅ SPARA råkopior (--keep-downloads) på ${bestDownloadDrive.device} – ${gb(bestDownloadDrive.free)} fritt`
+      : `⚠️  RADERA råkopior (utelämna --keep-downloads) – för lite diskutrymme`
   }
 `);
 

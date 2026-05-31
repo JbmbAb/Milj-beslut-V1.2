@@ -24,7 +24,7 @@ import type { SewageApplication, SewageProtectionProfile, SewageGISAnalysis } fr
 export function generateSituationPlanSVG(
   application: SewageApplication,
   protectionProfile: SewageProtectionProfile,
-  analysis: SewageGISAnalysis,
+  _analysis: SewageGISAnalysis,
 ): string {
   const width = 1200;
   const height = 900;
@@ -210,10 +210,6 @@ export function generateCrossSectionSVG(
 
   // System dimensions
   const systemDepth = application.dimensionedDepth || 1.5;
-  const systemWidth =
-    application.dimensionedArea && application.dimensionedArea > 0
-      ? Math.sqrt(application.dimensionedArea)
-      : 8;
 
   return `<?xml version="1.0" encoding="UTF-8"?>
 <svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" 

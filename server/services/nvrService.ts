@@ -34,9 +34,9 @@ export async function fetchProtectedAreas(
           pa.name AS name,
           pa.protection_type AS type,
           pa.area_ha AS area_ha,
-          ST_Distance(pa.geom, point.geom) AS distance_m
+          ST_Distance(pa.wkb_geometry, point.geom) AS distance_m
         FROM env.protected_area pa, point
-        WHERE ST_DWithin(pa.geom, point.geom, ${radiusMeters})
+        WHERE ST_DWithin(pa.wkb_geometry, point.geom, ${radiusMeters})
   
         UNION ALL
   
@@ -45,9 +45,9 @@ export async function fetchProtectedAreas(
           na.site_name AS name,
           ('Natura 2000 ' || na.category) AS type,
           NULL::numeric AS area_ha,
-          ST_Distance(na.geom, point.geom) AS distance_m
+          ST_Distance(na.wkb_geometry, point.geom) AS distance_m
         FROM env.natura2000_area na, point
-        WHERE ST_DWithin(na.geom, point.geom, ${radiusMeters})
+        WHERE ST_DWithin(na.wkb_geometry, point.geom, ${radiusMeters})
       ) hits
       ORDER BY distance_m ASC NULLS LAST
       LIMIT 50;

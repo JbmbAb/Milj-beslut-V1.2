@@ -97,7 +97,6 @@ describe('server/security/rateLimitDb', () => {
       const now = new Date();
       const expiredResetAt = new Date(now.getTime() - 1000);
 
-      vi.mocked(prisma.rateLimitEntry.deleteMany).mockResolvedValue({ count: 0 });
       vi.mocked(prisma.rateLimitEntry.findUnique).mockResolvedValue({
         id: '1',
         key,
@@ -105,13 +104,30 @@ describe('server/security/rateLimitDb', () => {
         resetAt: expiredResetAt,
         createdAt: now,
       } as any);
-      vi.mocked(prisma.rateLimitEntry.update).mockResolvedValue({} as any);
+      vi.mocked(prisma.rateLimitEntry.upsert).mockResolvedValue({
+        id: '1',
+        key,
+        count: 1,
+        resetAt: new Date(now.getTime() + 1000),
+        createdAt: now,
+      } as any);
 
       const result = await checkRateLimit(key, 5, 1000);
 
       expect(result.allowed).toBe(true);
       expect(result.remainingAttempts).toBe(4);
-      expect(prisma.rateLimitEntry.update).toHaveBeenCalled();
+      expect(prisma.rateLimitEntry.upsert).toHaveBeenCalledWith({
+        where: { key },
+        update: {
+          count: 1,
+          resetAt: expect.any(Date),
+        },
+        create: {
+          key,
+          count: 1,
+          resetAt: expect.any(Date),
+        },
+      });
     });
 
     it('handles database errors gracefully', async () => {

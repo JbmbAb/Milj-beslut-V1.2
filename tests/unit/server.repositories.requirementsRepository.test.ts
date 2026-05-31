@@ -2,21 +2,54 @@ import { describe, it, expect, beforeEach, vi } from 'vitest';
 import {
   listRequirementCases,
   listRequirementRows,
-  listRequirementCitations as _listRequirementCitations,
+  listRequirementCitations,
   getRequirementByCode,
-  getCitationByCode as _getCitationByCode,
-  getRequirementCaseById as _getRequirementCaseById,
+  getCitationByCode,
+  getRequirementCaseById,
   updateRequirementCaseReview,
   updateRequirementVerification,
   updateCitationVerification,
+  getDocumentById,
   getRequirementReportRows,
   getRequirementReportCases,
   getRequirementReportCitations,
 } from '../../server/repositories/requirementsRepository';
 import { prisma } from '../../server/db/prisma';
+import { assertTransitionAllowed } from '../../server/domain/requirementLifecycle';
+import { inc } from '../../server/observability/metrics';
+import { createCaseSnapshot } from '../../server/modules/evidence/public';
+
+vi.mock('../../server/domain/requirementLifecycle', () => ({
+  assertTransitionAllowed: vi.fn(),
+}));
+
+vi.mock('../../server/observability/metrics', () => ({
+  inc: vi.fn(),
+}));
+
+vi.mock('../../server/modules/evidence/public', () => ({
+  createCaseSnapshot: vi.fn(),
+}));
 
 vi.mock('../../server/db/prisma', () => ({
   prisma: {
+    $transaction: vi.fn(async (callback: (tx: any) => Promise<unknown>) =>
+      callback({
+        $executeRaw: vi.fn(),
+        evidenceExport: {
+          count: vi.fn().mockResolvedValue(0),
+        },
+        requirementCase: {
+          update: vi.fn().mockResolvedValue({ id: 'system-case' }),
+        },
+        requirementRecord: {
+          update: vi.fn().mockResolvedValue({ id: 'system-record' }),
+        },
+        requirementCitation: {
+          update: vi.fn().mockResolvedValue({ id: 'system-citation' }),
+        },
+      }),
+    ),
     requirementCase: {
       count: vi.fn(),
       findMany: vi.fn(),
@@ -117,6 +150,23 @@ describe('server/repositories/requirementsRepository', () => {
       expect(result.page).toBe(1); // Should normalize to 1
       expect(result.pageSize).toBe(200); // Should cap at 200
     });
+
+    it('applies document type, review status and project filters', async () => {
+      vi.mocked(prisma.requirementCase.count).mockResolvedValue(0);
+      vi.mocked(prisma.requirementCase.findMany).mockResolvedValue([]);
+
+      await listRequirementCases({
+        organisationId: 'org1',
+        documentType: 'Samråd',
+        verificationStatus: 'REVIEWED',
+        projectId: 'proj1',
+      });
+
+      const countCall = vi.mocked(prisma.requirementCase.count).mock.calls[0][0];
+      expect(countCall.where.documentType).toBe('Samråd');
+      expect(countCall.where.reviewStatus).toBe('REVIEWED');
+      expect(countCall.where.projectId).toBe('proj1');
+    });
   });
 
   describe('listRequirementRows', () => {
@@ -169,6 +219,35 @@ describe('server/repositories/requirementsRepository', () => {
 
       const countCall = vi.mocked(prisma.requirementRecord.count).mock.calls[0][0];
       expect(countCall.where.verificationStatus).toBeUndefined();
+    });
+
+    it('applies explicit requirement filters and case filters together', async () => {
+      vi.mocked(prisma.requirementRecord.count).mockResolvedValue(0);
+      vi.mocked(prisma.requirementRecord.findMany).mockResolvedValue([]);
+
+      await listRequirementRows({
+        organisationId: 'org1',
+        caseId: 'case1',
+        requirementCode: 'REQ-001',
+        category: 'Massor',
+        ewcCode: '17 05 04',
+        municipality: 'Gävle',
+        documentType: 'MKB',
+        verificationStatus: 'REVIEWED',
+        projectId: 'proj1',
+      });
+
+      const countCall = vi.mocked(prisma.requirementRecord.count).mock.calls[0][0];
+      expect(countCall.where.caseId).toBe('case1');
+      expect(countCall.where.requirementCode).toBe('REQ-001');
+      expect(countCall.where.category).toBe('Massor');
+      expect(countCall.where.ewcCode).toBe('17 05 04');
+      expect(countCall.where.verificationStatus).toBe('REVIEWED');
+      expect(countCall.where.projectId).toBe('proj1');
+      expect(countCall.where.case).toEqual({
+        municipality: { contains: 'Gävle', mode: 'insensitive' },
+        documentType: 'MKB',
+      });
     });
   });
 
@@ -280,6 +359,117 @@ describe('server/repositories/requirementsRepository', () => {
       const updateCall = vi.mocked(prisma.requirementCase.update).mock.calls[0][0];
       expect(updateCall.data.validatedBy).toBe('validator1');
     });
+
+    it('maps NEEDS_REVIEW to REVIEWED review status', async () => {
+      vi.mocked(prisma.requirementCase.findFirst).mockResolvedValue({
+        id: 'case1',
+        caseReviewStatus: 'AUTO',
+      } as any);
+      vi.mocked(prisma.requirementCase.update).mockResolvedValue({
+        id: 'case1',
+        caseReviewStatus: 'NEEDS_REVIEW',
+      } as any);
+
+      await updateRequirementCaseReview({
+        caseId: 'case1',
+        organisationId: 'org1',
+        caseReviewStatus: 'NEEDS_REVIEW',
+        validatedBy: 'reviewer1',
+      });
+
+      const updateCall = vi.mocked(prisma.requirementCase.update).mock.calls.at(-1)?.[0];
+      expect(updateCall?.data.reviewStatus).toBe('REVIEWED');
+      expect(updateCall?.data.validatedAt).toBeInstanceOf(Date);
+    });
+
+    it('blocks locked cases for non-system actors', async () => {
+      vi.mocked(prisma.requirementCase.findFirst).mockResolvedValue({
+        id: 'case1',
+        caseReviewStatus: 'LOCKED',
+      } as any);
+
+      await expect(
+        updateRequirementCaseReview({
+          caseId: 'case1',
+          organisationId: 'org1',
+          caseReviewStatus: 'VERIFIED',
+          validatedBy: 'validator1',
+        }),
+      ).rejects.toThrow('REQUIREMENT_LOCKED');
+
+      expect(inc).toHaveBeenCalledWith('cases.denied.locked', 1);
+    });
+
+    it('creates snapshot and uses system override when locking a case as system', async () => {
+      vi.mocked(prisma.requirementCase.findFirst).mockResolvedValue({
+        id: 'case1',
+        caseReviewStatus: 'AUTO',
+      } as any);
+
+      await updateRequirementCaseReview({
+        caseId: 'case1',
+        organisationId: 'org1',
+        caseReviewStatus: 'LOCKED',
+        validatedBy: 'system-user',
+        actorKind: 'system',
+      });
+
+      expect(createCaseSnapshot).toHaveBeenCalledWith({
+        requirementCaseId: 'case1',
+        organisationId: 'org1',
+        createdBy: 'system-user',
+        snapshotType: 'LOCK',
+      });
+      expect(prisma.$transaction).toHaveBeenCalled();
+    });
+
+    it('increments governance metric when system override runs after prior export', async () => {
+      vi.mocked(prisma.requirementCase.findFirst).mockResolvedValue({
+        id: 'case1',
+        caseReviewStatus: 'AUTO',
+      } as any);
+      vi.mocked(prisma.$transaction).mockImplementationOnce(async (callback: (tx: any) => Promise<unknown>) =>
+        callback({
+          $executeRaw: vi.fn(),
+          evidenceExport: {
+            count: vi.fn().mockResolvedValue(2),
+          },
+          requirementCase: {
+            update: vi.fn().mockResolvedValue({ id: 'case1' }),
+          },
+        }),
+      );
+
+      await updateRequirementCaseReview({
+        caseId: 'case1',
+        organisationId: 'org1',
+        caseReviewStatus: 'LOCKED',
+        validatedBy: 'system-user',
+        actorKind: 'system',
+      });
+
+      expect(inc).toHaveBeenCalledWith('evidence.governance.system_override_with_prior_export', 1);
+    });
+
+    it('falls back to AUTO for unknown case review status values', async () => {
+      vi.mocked(prisma.requirementCase.findFirst).mockResolvedValue({
+        id: 'case1',
+        caseReviewStatus: 'AUTO',
+      } as any);
+      vi.mocked(prisma.requirementCase.update).mockResolvedValue({
+        id: 'case1',
+      } as any);
+
+      await updateRequirementCaseReview({
+        caseId: 'case1',
+        organisationId: 'org1',
+        caseReviewStatus: 'UNEXPECTED_STATUS' as any,
+        validatedBy: 'reviewer1',
+      });
+
+      const updateCall = vi.mocked(prisma.requirementCase.update).mock.calls.at(-1)?.[0];
+      expect(updateCall?.data.reviewStatus).toBe('AUTO');
+    });
   });
 
   describe('updateRequirementVerification', () => {
@@ -324,6 +514,45 @@ describe('server/repositories/requirementsRepository', () => {
           verifiedBy: 'user1',
         }),
       ).rejects.toThrow('All citations must be REVIEWED or VERIFIED before requirement can be VERIFIED');
+    });
+
+    it('blocks locked requirements for non-system actors', async () => {
+      vi.mocked(prisma.requirementRecord.findFirst).mockResolvedValue({
+        id: 'req1',
+        verificationStatus: 'AUTO',
+        citations: [],
+        case: { id: 'case1', caseReviewStatus: 'LOCKED' },
+      } as any);
+
+      await expect(
+        updateRequirementVerification({
+          requirementCode: 'REQ-001',
+          organisationId: 'org1',
+          verificationStatus: 'REVIEWED',
+        }),
+      ).rejects.toThrow('REQUIREMENT_LOCKED');
+
+      expect(inc).toHaveBeenCalledWith('requirements.denied.locked', 1);
+    });
+
+    it('updates requirement through system override when allowed', async () => {
+      vi.mocked(prisma.requirementRecord.findFirst).mockResolvedValue({
+        id: 'req1',
+        verificationStatus: 'REVIEWED',
+        citations: [{ verificationStatus: 'VERIFIED' }],
+        case: { id: 'case1', caseReviewStatus: 'LOCKED' },
+      } as any);
+
+      await updateRequirementVerification({
+        requirementCode: 'REQ-001',
+        organisationId: 'org1',
+        verificationStatus: 'VERIFIED',
+        verifiedBy: 'reviewer1',
+        actorKind: 'system',
+      });
+
+      expect(assertTransitionAllowed).toHaveBeenCalled();
+      expect(prisma.$transaction).toHaveBeenCalled();
     });
   });
 
@@ -370,6 +599,119 @@ describe('server/repositories/requirementsRepository', () => {
           verifiedBy: 'user1',
         }),
       ).rejects.toThrow('pageNumber or comment is required when setting VERIFIED');
+    });
+
+    it('blocks locked citations for non-system actors', async () => {
+      vi.mocked(prisma.requirementCitation.findFirst).mockResolvedValue({
+        id: 'cit1',
+        pageNumber: 1,
+        case: { id: 'case1', caseReviewStatus: 'LOCKED' },
+      } as any);
+
+      await expect(
+        updateCitationVerification({
+          citationCode: 'CIT-001',
+          organisationId: 'org1',
+          verificationStatus: 'REVIEWED',
+        }),
+      ).rejects.toThrow('REQUIREMENT_LOCKED');
+
+      expect(inc).toHaveBeenCalledWith('citations.denied.locked', 1);
+    });
+
+    it('updates citation through system override and preserves nullable fields', async () => {
+      vi.mocked(prisma.requirementCitation.findFirst).mockResolvedValue({
+        id: 'cit1',
+        pageNumber: 12,
+        comment: null,
+        case: { id: 'case1', caseReviewStatus: 'LOCKED' },
+      } as any);
+
+      await updateCitationVerification({
+        citationCode: 'CIT-001',
+        organisationId: 'org1',
+        verificationStatus: 'VERIFIED',
+        verifiedBy: 'reviewer1',
+        actorKind: 'system',
+        pageNumber: null,
+        charStart: null,
+        charEnd: null,
+        comment: '  Bekräftad hänvisning  ',
+      });
+
+      expect(prisma.$transaction).toHaveBeenCalled();
+    });
+  });
+
+  describe('citation and single-record readers', () => {
+    it('lists requirement citations with requirement and case includes', async () => {
+      vi.mocked(prisma.requirementCitation.count).mockResolvedValue(1);
+      vi.mocked(prisma.requirementCitation.findMany).mockResolvedValue([{ id: 'cit1' }] as any);
+
+      const result = await listRequirementCitations({
+        organisationId: 'org1',
+        requirementCode: 'REQ-001',
+        verificationStatus: 'REVIEWED',
+        projectId: 'proj1',
+        includePreliminary: false,
+      });
+
+      expect(result.total).toBe(1);
+      const countCall = vi.mocked(prisma.requirementCitation.count).mock.calls[0][0];
+      expect(countCall.where.verificationStatus).toBe('REVIEWED');
+      expect(countCall.where.requirement.projectId).toBe('proj1');
+      expect(countCall.where.requirement.project.organisationId).toBe('org1');
+    });
+
+    it('defaults citation queries to verified requirements when preliminary data is excluded', async () => {
+      vi.mocked(prisma.requirementCitation.count).mockResolvedValue(0);
+      vi.mocked(prisma.requirementCitation.findMany).mockResolvedValue([]);
+
+      await listRequirementCitations({
+        organisationId: 'org1',
+        includePreliminary: false,
+      });
+
+      const countCall = vi.mocked(prisma.requirementCitation.count).mock.calls[0][0];
+      expect(countCall.where.requirement).toEqual({
+        verificationStatus: 'VERIFIED',
+        project: { organisationId: 'org1' },
+      });
+    });
+
+    it('fetches citation by code with org filter', async () => {
+      vi.mocked(prisma.requirementCitation.findFirst).mockResolvedValue({ id: 'cit1', citationCode: 'CIT-001' } as any);
+
+      const result = await getCitationByCode('CIT-001', 'org1');
+
+      expect(result?.citationCode).toBe('CIT-001');
+      const call = vi.mocked(prisma.requirementCitation.findFirst).mock.calls[0][0];
+      expect(call.where.requirement.project.organisationId).toBe('org1');
+    });
+
+    it('fetches requirement case by id with organisation guard', async () => {
+      vi.mocked(prisma.requirementCase.findFirst).mockResolvedValue({ id: 'case1', organisationId: 'org1' } as any);
+
+      const result = await getRequirementCaseById('case1', 'org1');
+
+      expect(result?.id).toBe('case1');
+      const call = vi.mocked(prisma.requirementCase.findFirst).mock.calls[0][0];
+      expect(call.where).toEqual({ id: 'case1', organisationId: 'org1' });
+    });
+
+    it('fetches document by id with selected fields', async () => {
+      vi.mocked(prisma.documentRecord.findFirst).mockResolvedValue({ id: 'doc1', originalName: 'fil.pdf' } as any);
+
+      const result = await getDocumentById('doc1', 'org1');
+
+      expect(result?.id).toBe('doc1');
+      const call = vi.mocked(prisma.documentRecord.findFirst).mock.calls[0][0];
+      expect(call.select).toEqual({
+        id: true,
+        originalName: true,
+        absolutePath: true,
+        mimeType: true,
+      });
     });
   });
 
@@ -435,6 +777,15 @@ describe('server/repositories/requirementsRepository', () => {
       const call = vi.mocked(prisma.requirementCase.findMany).mock.calls[0][0];
       expect(call.where.organisationId).toBe('org1');
     });
+
+    it('filters report cases by projectId when provided', async () => {
+      vi.mocked(prisma.requirementCase.findMany).mockResolvedValue([]);
+
+      await getRequirementReportCases(['case1'], { organisationId: 'org1', projectId: 'proj1' });
+
+      const call = vi.mocked(prisma.requirementCase.findMany).mock.calls[0][0];
+      expect(call.where.projectId).toBe('proj1');
+    });
   });
 
   describe('getRequirementReportCitations', () => {
@@ -460,6 +811,15 @@ describe('server/repositories/requirementsRepository', () => {
 
       const call = vi.mocked(prisma.requirementCitation.findMany).mock.calls[0][0];
       expect(call.where.requirement?.project?.organisationId).toBe('org1');
+    });
+
+    it('filters report citations by projectId when provided', async () => {
+      vi.mocked(prisma.requirementCitation.findMany).mockResolvedValue([]);
+
+      await getRequirementReportCitations(['req1'], { organisationId: 'org1', projectId: 'proj1' });
+
+      const call = vi.mocked(prisma.requirementCitation.findMany).mock.calls[0][0];
+      expect(call.where.requirement.project.id).toBe('proj1');
     });
   });
 });

@@ -8,6 +8,25 @@ import { XMLParser } from 'fast-xml-parser';
 
 const RSS_FEED_URL = 'https://www.domstol.se/feed/15972/?scope=decision&searchPageId=15972';
 
+async function triggerRagIngest(input: {
+  id: string;
+  title: string;
+  content: string;
+  sourceType: 'JUDGMENT';
+  metadata: Record<string, string>;
+}): Promise<void> {
+  const ragModule = await import('./ragSearchService');
+  const ingestDocumentForRag = (ragModule as { ingestDocumentForRag?: (arg: typeof input) => Promise<void> })
+    .ingestDocumentForRag;
+
+  if (typeof ingestDocumentForRag !== 'function') {
+    console.warn('domstolRssService: ingestDocumentForRag saknas i ragSearchService, hoppar over RAG-ingest.');
+    return;
+  }
+
+  await ingestDocumentForRag(input);
+}
+
 interface RssItem {
   guid: { '#text': string; '@_isPermaLink': string };
   link: string;
@@ -106,6 +125,7 @@ export async function ingestDomstolRssFeed(): Promise<{ newJudgments: number; up
         const description = normalizeExternalText(item.description) || item.description;
         const pubDate = new Date(item.pubDate);
 
+        // ... (in the loop)
         const result = await upsertJudgment({
           guid,
           title,
@@ -113,6 +133,15 @@ export async function ingestDomstolRssFeed(): Promise<{ newJudgments: number; up
           description,
           pubDate,
         });
+
+        // Trigger asynkron RAG-vektorisering
+        triggerRagIngest({
+          id: result.id,
+          title,
+          content: description,
+          sourceType: 'JUDGMENT',
+          metadata: { link, guid, source: 'DOMSTOL_RSS' }
+        }).catch(err => console.error('RAG ingest failed', err));
         await upsertLegalSourceWithMatrix(
           buildJudgmentLegalSourceSeed({
             guid,

@@ -282,9 +282,11 @@ const BankIDLogin: React.FC<BankIDLoginProps> = ({ onLogin, adminOnly: adminOnly
     }
   };
 
-  const handleAdminLogin = async () => {
+  const handleAdminLogin = async (credentials?: { username: string; password: string }) => {
     setAdminBusy(true);
     setErrorMessage('');
+    const username = credentials?.username ?? adminUsername.trim();
+    const password = credentials?.password ?? adminPassword;
     try {
       const res = await callApi<{
         ok: boolean;
@@ -294,7 +296,7 @@ const BankIDLogin: React.FC<BankIDLoginProps> = ({ onLogin, adminOnly: adminOnly
       }>('/api/admin/auth/login', {
         method: 'POST',
         auth: false,
-        body: { username: adminUsername.trim(), password: adminPassword },
+        body: { username, password },
       });
       if (!res?.accessToken) {
         throw new Error('Saknade sessionstoken från servern.');
@@ -413,13 +415,15 @@ const BankIDLogin: React.FC<BankIDLoginProps> = ({ onLogin, adminOnly: adminOnly
                 <div className="mb-8 p-1 rounded-2xl bg-gradient-to-r from-indigo-500 via-purple-500 to-pink-500 animate-pulse shadow-lg shadow-indigo-500/20">
                   <button
                     onClick={() => {
+                      // Matchar dev-bypass i auth.routes (NODE_ENV=development + lösenord "dev").
+                      const demoPassword = import.meta.env.DEV ? 'dev' : 'admin';
                       setAdminUsername('admin');
-                      setAdminPassword('admin-test-password');
-                      handleAdminLogin();
+                      setAdminPassword(demoPassword);
+                      void handleAdminLogin({ username: 'admin', password: demoPassword });
                     }}
                     className="w-full py-4 bg-slate-900 rounded-xl font-bold text-lg hover:bg-slate-800 transition-colors flex items-center justify-center gap-3 border border-white/10 text-white"
                   >
-                    <i className="fa-solid fa-rocket text-indigo-400"></i>
+                    <i className="fas fa-rocket text-indigo-400"></i>
                     DEMO SNABB-LOGGA IN
                   </button>
                 </div>

@@ -5,7 +5,6 @@ import { createTokenPair, rotateRefreshToken } from '../security/auth';
 import { assertBankIdEnv, getEnv, isBankIdMockMode } from '../security/env';
 import { ensureMockAuthUser, findAuthUserByBankId } from '../repositories/userRepository';
 import { persistentReplayProtection } from '../security/persistentReplayProtection';
-import { logger } from '../logger';
 import { CircuitBreaker } from '../utils/circuitBreaker';
 
 const bankIdBreaker = new CircuitBreaker({

@@ -31,6 +31,14 @@ vi.mock('../../server/logger', () => ({
 
 describe.skipIf(!hasDatabaseIntegration)('requirementExtractionService integration', () => {
 
+    async function seedEmailMessage(messageId: string) {
+        await prisma.emailMessage.upsert({
+            where: { messageId },
+            create: { messageId, status: 'NEW' },
+            update: {},
+        });
+    }
+
     beforeAll(async () => {
         await prisma.$connect();
     });
@@ -39,23 +47,21 @@ describe.skipIf(!hasDatabaseIntegration)('requirementExtractionService integrati
         // Clean the database before each test
         vi.resetAllMocks();
         await prisma.extractedRequirement.deleteMany({});
+        await prisma.attachmentOccurrence.deleteMany({});
         await prisma.outlookAttachment.deleteMany({});
+        await prisma.emailMessage.deleteMany({});
+        await prisma.pipelineRun.deleteMany({});
 
-        // Create a default attachment for tests that need it
-        await prisma.outlookAttachment.create({
-            data: {
-                attachmentHash: 'default-hash',
-                filename: 'default.txt',
-                checksumSha256: 'default-sha',
-                canonicalMessageId: 'default-msg',
-            }
-        });
+        await seedEmailMessage('default-msg');
+        await seedEmailMessage('message1');
     });
 
     afterAll(async () => {
-        // Clean the database after all tests
         await prisma.extractedRequirement.deleteMany({});
+        await prisma.attachmentOccurrence.deleteMany({});
         await prisma.outlookAttachment.deleteMany({});
+        await prisma.emailMessage.deleteMany({});
+        await prisma.pipelineRun.deleteMany({});
         await prisma.$disconnect();
     });
 
@@ -104,10 +110,10 @@ describe.skipIf(!hasDatabaseIntegration)('requirementExtractionService integrati
 
             const stats = await processPendingAttachments();
             expect(stats.errors.length).toBe(1);
-            expect(stats.errors[0]).toContain('Unsupported file extension');
+            expect(stats.errors[0]).toContain('No extracted text source available for attachment');
             const updatedAttachment = await prisma.outlookAttachment.findUnique({ where: { attachmentHash: 'hash2' } });
             expect(updatedAttachment?.parsed).toBe(true);
-            expect(updatedAttachment?.parseFailureReason).toContain('Unsupported file extension');
+            expect(updatedAttachment?.parseFailureReason).toContain('No extracted text source available for attachment');
         });
 
         it('processes attachment with valid .txt storedPath', async () => {
@@ -156,29 +162,41 @@ describe.skipIf(!hasDatabaseIntegration)('requirementExtractionService integrati
 
             const stats = await processPendingAttachments();
             expect(stats.errors.length).toBe(1);
-            expect(stats.errors[0]).toContain('FileSystem read error');
+            expect(stats.errors[0]).toContain('No extracted text source available for attachment');
 
             const updatedAttachment = await prisma.outlookAttachment.findUnique({ where: { attachmentHash: 'hash4' } });
             expect(updatedAttachment?.parsed).toBe(true);
-            expect(updatedAttachment?.parseFailureReason).toContain('FileSystem read error');
+            expect(updatedAttachment?.parseFailureReason).toContain('No extracted text source available for attachment');
         });
     });
 
     describe('queryRequirements', () => {
         beforeEach(async () => {
+            await prisma.outlookAttachment.create({
+                data: {
+                    attachmentHash: 'default-hash',
+                    filename: 'default.txt',
+                    checksumSha256: 'default-sha',
+                    canonicalMessageId: 'default-msg',
+                    parsed: true,
+                },
+            });
+
             await prisma.extractedRequirement.createMany({
                 data: [
                     {
                         attachmentHash: 'default-hash',
                         category: 'soil',
                         requirementLevel: 'mandatory',
-                        requirementText: 'Requirement 1'
+                        requirementText: 'Requirement 1',
+                        confidence: 0.9,
                     },
                     {
                         attachmentHash: 'default-hash',
                         category: 'sampling',
                         requirementLevel: 'mandatory',
-                        requirementText: 'Requirement 2'
+                        requirementText: 'Requirement 2',
+                        confidence: 0.9,
                     }
                 ]
             });
@@ -198,6 +216,16 @@ describe.skipIf(!hasDatabaseIntegration)('requirementExtractionService integrati
 
     describe('getRequirementStats', () => {
         it('returns correct aggregated stats', async () => {
+            await prisma.outlookAttachment.create({
+                data: {
+                    attachmentHash: 'default-hash',
+                    filename: 'default.txt',
+                    checksumSha256: 'default-sha',
+                    canonicalMessageId: 'default-msg',
+                    parsed: true,
+                },
+            });
+
             await prisma.extractedRequirement.createMany({
                 data: [
                     {

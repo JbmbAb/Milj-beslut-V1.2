@@ -1,6 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { GeminiAIAdapter } from '../../../src/infrastructure/gemini-ai-adapter';
-import { AIAnalysisResult } from '../../../src/domain/ai.interface';
 
 describe('GeminiAIAdapter', () => {
   let adapter: GeminiAIAdapter;

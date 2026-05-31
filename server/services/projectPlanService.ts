@@ -175,12 +175,24 @@ export async function evaluateGateForProject(input: {
 }) {
   const current = await getOrCreatePlan(input.projectId, input.organisationId, input.plan);
   const evaluated = evaluateStageGate(current, input.gateId, input.context);
+  
   const evalHash = evaluated.gate.lastEvaluationHash || 'no-hash';
   const dedupKey = `${input.projectId}:${evaluated.gate.id}:${evalHash}`;
   const idempotent = !evaluated.changed || gateEvaluationDedup.has(dedupKey);
 
   if (!idempotent) {
     gateEvaluationDedup.add(dedupKey);
+    
+    // Add audit entry for gate evaluation
+    const auditEntry = {
+      id: `GATE-EVAL-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
+      timestamp: new Date().toISOString(),
+      user: 'System',
+      action: 'GATE_EVALUATION' as const,
+      details: `Gate ${evaluated.gate.label} evaluated to ${evaluated.gate.status}. Reason: ${evaluated.gate.reason}`,
+      immutable: false,
+    };
+    evaluated.plan.auditTrail.push(auditEntry);
   }
 
   if (evaluated.changed) {

@@ -30,7 +30,7 @@ const SewagePortalModule: React.FC = () => {
 
   const handleNewApplication = (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
-    const formData = new FormData(e.currentTarget);
+    void new FormData(e.currentTarget);
 
     // Canonical: POST /api/sewage/applications
     refetch();

@@ -7,7 +7,6 @@ import { Router, Request, Response } from 'express';
 import { requireAuth } from '../security/auth';
 import { assertProjectAccess } from '../security/projectAccess';
 import {
-  generateSewageApplicationDocuments,
   handleMunicipalityWebhook,
   getStatusHistory,
   appealDecision,
@@ -249,10 +248,9 @@ router.get(
         referenceNumber,
         status: 'SUBMITTED',
         source: 'local',
-        note:
-          process.env.SEWAGE_STATUS_ENDPOINT?.trim()
-            ? 'Live statuskälla konfigurerad men ej implementerad i denna route.'
-            : 'Statuskälla ej konfigurerad — returnerar senast kända lokala status.',
+        note: process.env.SEWAGE_STATUS_ENDPOINT?.trim()
+          ? 'Live statuskälla konfigurerad men ej implementerad i denna route.'
+          : 'Statuskälla ej konfigurerad — returnerar senast kända lokala status.',
       });
     } catch (error) {
       logger.error('Error checking application status', { error });

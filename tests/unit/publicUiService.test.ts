@@ -144,14 +144,20 @@ describe('publicUiService', () => {
 
   describe('FeatureCollection Layers', () => {
     it('getProtectedAreaLayer: handles both Bbox and global mode', async () => {
-      (prisma.$queryRaw as Mock).mockResolvedValue([
-        { nvr_id: '1', geojson: '{"type":"Point","coordinates":[1,2]}' },
-      ]);
+      (prisma.$queryRaw as Mock)
+        .mockResolvedValueOnce([{ regclass: 'env.protected_area' }])
+        .mockResolvedValueOnce([{ regclass: 'env.natura2000_area' }])
+        .mockResolvedValueOnce([{ nvr_id: '1', geojson: '{"type":"Point","coordinates":[1,2]}' }])
+        .mockResolvedValueOnce([{ regclass: 'env.protected_area' }])
+        .mockResolvedValueOnce([{ regclass: 'env.natura2000_area' }])
+        .mockResolvedValueOnce([{ nvr_id: '1', geojson: '{"type":"Point","coordinates":[1,2]}' }]);
 
       const fc = await getProtectedAreaLayer({ minLng: 1, minLat: 1, maxLng: 2, maxLat: 2 });
       expect(fc.features.length).toBe(1);
-      const callArgs = vi.mocked(prisma.$queryRaw).mock.calls[0];
-      expect((callArgs[0] as unknown as string[]).join('')).toContain('ST_MakeEnvelope');
+      const sqlTexts = vi
+        .mocked(prisma.$queryRaw)
+        .mock.calls.map((call) => String((call[0] as unknown as string[]).join('')));
+      expect(sqlTexts.some((sql) => sql.includes('ST_MakeEnvelope'))).toBe(true);
 
       const globalFc = await getProtectedAreaLayer(null);
       expect(globalFc.features.length).toBe(1);
@@ -159,6 +165,7 @@ describe('publicUiService', () => {
 
     it('getNatura2000Layer and getInternationalProtectionLayer return filtered feature collections', async () => {
       (prisma.$queryRaw as Mock)
+        .mockResolvedValueOnce([{ regclass: 'env.natura2000_area' }])
         .mockResolvedValueOnce([
           {
             nvr_id: 'natura-1',
@@ -168,6 +175,7 @@ describe('publicUiService', () => {
             geojson: '{"type":"Polygon","coordinates":[[[15,60],[15.1,60],[15.1,60.1],[15,60.1],[15,60]]]}',
           },
         ])
+        .mockResolvedValueOnce([{ regclass: 'env.protected_area' }])
         .mockResolvedValueOnce([
           {
             nvr_id: 'ramsar-1',
@@ -447,15 +455,18 @@ describe('publicUiService', () => {
 
   describe('getWaterProtectionLayer additional branches', () => {
     it('filters water protection features from protected areas', async () => {
-      (prisma.$queryRaw as Mock).mockResolvedValueOnce([
-        {
-          nvr_id: 'wp-1',
-          name: 'Vattenskyddsomrade Test',
-          protection_type: 'Vattenskyddsomrade',
-          source: 'water_protection',
-          geojson: '{"type":"Polygon","coordinates":[[[15,60],[15.1,60],[15.1,60.1],[15,60.1],[15,60]]]}',
-        },
-      ]);
+      (prisma.$queryRaw as Mock)
+        .mockResolvedValueOnce([{ regclass: 'env.water_protection_area' }])
+        .mockResolvedValueOnce([
+          {
+            id: 'wp-1',
+            name: 'Vattenskyddsomrade Test',
+            authority: 'Lansstyrelsen',
+            source_updated_at: '2024-01-01',
+            source: 'water_protection_area',
+            geojson: '{"type":"Polygon","coordinates":[[[15,60],[15.1,60],[15.1,60.1],[15,60.1],[15,60]]]}',
+          },
+        ]);
 
       const result = await getWaterProtectionLayer({
         minLng: 14.9,

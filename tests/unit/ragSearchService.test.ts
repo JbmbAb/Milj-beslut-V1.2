@@ -6,7 +6,7 @@ const mocks = vi.hoisted(() => ({
   searchGraph: vi.fn(),
   loggerWarn: vi.fn(),
   loggerInfo: vi.fn(),
-  generateTextWithVertex: vi.fn(),
+  generateText: vi.fn(),
 }));
 
 vi.mock('../../server/services/searchService', () => ({
@@ -29,10 +29,15 @@ vi.mock('../../server/logger', () => ({
 }));
 
 vi.mock('../../server/services/vertexAiService', () => ({
-  generateTextWithVertex: mocks.generateTextWithVertex,
   generateJsonWithVertex: vi.fn(),
   vertexConfigStatus: vi.fn(),
   __resetVertexClientForTest: vi.fn(),
+}));
+
+vi.mock('../../server/services/aiProviderImplementation', () => ({
+  getAiProvider: () => ({
+    generateText: mocks.generateText,
+  }),
 }));
 
 import { runRagSearch } from '../../server/services/ragSearchService';
@@ -51,7 +56,7 @@ describe('runRagSearch', () => {
     mocks.searchGraph.mockResolvedValue({
       nodes: [{ id: 'n1', nodeType: 'Regulation', name: 'MB 2 kap' }],
     });
-    mocks.generateTextWithVertex.mockResolvedValue('Svaret är att miljöbalken kräver tillstånd.');
+    mocks.generateText.mockResolvedValue({ text: 'Svaret är att miljöbalken kräver tillstånd.' });
 
     const result = await runRagSearch({
       query: 'Vad krävs för tillstånd?',
@@ -75,7 +80,7 @@ describe('runRagSearch', () => {
       { documentId: 'doc2', chunkIndex: 1, chunkText: 'Miljöbalkens bestämmelser', similarity: 0.7 },
     ]);
     mocks.searchGraph.mockResolvedValue({ nodes: [] });
-    mocks.generateTextWithVertex.mockRejectedValue(new Error('API error'));
+    mocks.generateText.mockRejectedValue(new Error('API error'));
 
     const result = await runRagSearch({
       query: 'Miljöbalken?',
@@ -157,7 +162,7 @@ describe('runRagSearch', () => {
 
     const result = await runRagSearch({ query: 'q', organisationId: 'org-1' });
 
-    expect(mocks.generateTextWithVertex).not.toHaveBeenCalled();
+    expect(mocks.generateText).not.toHaveBeenCalled();
     expect(result.fallback).toBe(true);
   });
 
@@ -168,7 +173,7 @@ describe('runRagSearch', () => {
       { documentId: 'docX', chunkIndex: 0, chunkText: longText, similarity: 0.5 },
     ]);
     mocks.searchGraph.mockResolvedValue({ nodes: [] });
-    mocks.generateTextWithVertex.mockResolvedValue('ok');
+    mocks.generateText.mockResolvedValue({ text: 'ok' });
 
     const result = await runRagSearch({ query: 'q', organisationId: 'org-1' });
 

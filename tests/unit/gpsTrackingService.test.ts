@@ -28,12 +28,7 @@ vi.mock('../../server/logger', () => ({
   logger: mocks.logger,
 }));
 
-import {
-  addGpsPosition,
-  clearGpsTrack,
-  getGpsTrack,
-  getLatestPosition,
-} from '../../legacy/experimental/gpsTrackingService';
+import { addGpsPosition, getGpsTrack } from '../../legacy/experimental/gpsTrackingService';
 
 describe('gpsTrackingService', () => {
   beforeEach(() => {

@@ -5,7 +5,6 @@
  * Compliance: EU Taxonomy, CSRD, Banking Directive
  */
 
-import { prisma } from '../../db.server';
 import { generateTextWithVertex } from './vertexAiService';
 
 export interface GreenCheckRequest {

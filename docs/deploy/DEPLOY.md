@@ -70,7 +70,7 @@ fly secrets set \
   SEARCH_ENCRYPTION_KEY_BASE64="$(openssl rand -base64 32)"
 ```
 
-**För skarpa integrationer (inget får mockas utom BankID):**
+**För skarpa integrationer (före BankID-avtal kan BankID lämnas oaktiverat):**
 
 ```bash
 fly secrets set \
@@ -92,15 +92,17 @@ fly secrets set \
   OUTLOOK_GRAPH_USER="registrator@miljobeslut.se"
 ```
 
-**BankID (enda tillåtna mock-vägen):**
+**BankID (aktivera först när avtal och certifikat finns):**
 
 ```bash
-# Production med cert
+# Produktion med cert
 fly secrets set \
   BANKID_BASE_URL="https://appapi2.bankid.com/rp/v6.0" \
   BANKID_PFX_PATH="/app/certs/bankid.pfx" \
   BANKID_PFX_PASSPHRASE="..."
-# Dev/test mock
+# Testmiljö använder separat testendpoint och separat certifikat, t.ex.:
+# BANKID_BASE_URL="https://appapi2.test.bankid.com/rp/v5.1"
+# Dev/test mock (endast lokalt eller isolerad testmiljö)
 fly secrets set BANKID_MOCK_MODE="true"
 ```
 
@@ -170,8 +172,9 @@ ren app-tier + extern blob storage (S3/Backblaze B2).
 
 ## Regel om mockar i produktion
 
-**Hård regel (2026-04):** Endast `BANKID_MOCK_MODE=true` får vara aktiverat i
-produktion. Alla andra integrationer ska köra live — annars fallar
+**Hård regel (2026-04):** `BANKID_MOCK_MODE=true` får **inte** vara aktiverat i
+produktion. Före avtal ska BankID vara oaktiverat eller ge kontrollerat
+konfigurationsfel, medan övriga integrationer ska köra live — annars fallar
 deploy-verifieringen (smoketest `npm run smoke:integrations` flaggar MISSING).
 
 Specifika spärrar:

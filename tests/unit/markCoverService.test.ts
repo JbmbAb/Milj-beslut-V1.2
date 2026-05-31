@@ -108,26 +108,34 @@ describe('markCoverService', () => {
     );
   });
 
-  it('logs endpoint failures and throws when no mark cover source succeeds', async () => {
+  it('logs endpoint failures and returns empty collection when no mark cover source succeeds', async () => {
     process.env.LULC_ENDPOINT = 'https://lulc.example.test/wfs';
     mocks.queryRawUnsafe.mockResolvedValueOnce([]);
     vi.mocked(global.fetch).mockRejectedValueOnce(new Error('wfs offline'));
 
-    await expect(getMarkCoverLayer([15.2, 60.1, 15.4, 60.3])).rejects.toThrow(
-      /Alla NMD API-anrop misslyckades/i,
-    );
+    const result = await getMarkCoverLayer([15.2, 60.1, 15.4, 60.3]);
+
+    expect(result).toMatchObject({
+      type: 'FeatureCollection',
+      source: 'postgis',
+      features: [],
+    });
     expect(mocks.loggerWarn).toHaveBeenCalledWith('markcover: WMS fetch failed', {
       err: 'Error: wfs offline',
     });
   });
 
-  it('throws when PostGIS is empty and no LULC_ENDPOINT is configured', async () => {
+  it('returns empty collection when PostGIS is empty and no LULC_ENDPOINT is configured', async () => {
     // No LULC_ENDPOINT set (deleted in beforeEach)
     mocks.queryRawUnsafe.mockResolvedValueOnce([]);
 
-    await expect(getMarkCoverLayer([15.2, 60.1, 15.4, 60.3])).rejects.toThrow(
-      /Alla NMD API-anrop misslyckades/i,
-    );
+    const result = await getMarkCoverLayer([15.2, 60.1, 15.4, 60.3]);
+
+    expect(result).toMatchObject({
+      type: 'FeatureCollection',
+      source: 'postgis',
+      features: [],
+    });
     expect(vi.mocked(global.fetch)).not.toHaveBeenCalled();
   });
 
@@ -144,7 +152,7 @@ describe('markCoverService', () => {
     expect(result.features[0].properties.nmdCode).toBe(11);
   });
 
-  it('falls through to throw when WFS responds with ok:false', async () => {
+  it('falls through to empty collection when WFS responds with ok:false', async () => {
     process.env.LULC_ENDPOINT = 'https://lulc.example.test/wfs';
     mocks.queryRawUnsafe.mockResolvedValueOnce([]);
     vi.mocked(global.fetch).mockResolvedValueOnce({
@@ -153,8 +161,8 @@ describe('markCoverService', () => {
       json: async () => ({}),
     } as Response);
 
-    await expect(getMarkCoverLayer([15.2, 60.1, 15.4, 60.3])).rejects.toThrow(
-      /Alla NMD API-anrop misslyckades/i,
-    );
+    const result = await getMarkCoverLayer([15.2, 60.1, 15.4, 60.3]);
+    expect(result.features).toEqual([]);
+    expect(result.source).toBe('postgis');
   });
 });

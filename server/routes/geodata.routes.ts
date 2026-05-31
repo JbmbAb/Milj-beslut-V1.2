@@ -200,7 +200,11 @@ router.get('/api/geodata/property', rateLimitByUser(30, 60_000), async (req, res
       res.status(400).json({ error: 'bbox is required' });
       return;
     }
-    const collection = await getPropertyLayer(bbox);
+
+    const lanKodRaw = typeof req.query.lan_kod === 'string' ? Number(req.query.lan_kod) : null;
+    const lanKod = Number.isInteger(lanKodRaw) && lanKodRaw >= 1 && lanKodRaw <= 25 ? lanKodRaw : undefined;
+
+    const collection = await getPropertyLayer(bbox, lanKod);
     res.json(collection);
   } catch (error: unknown) {
     const safe = toSafeErrorResponse(error);

@@ -4,11 +4,7 @@
  */
 
 import { useMutation } from '@tanstack/react-query';
-import type {
-  SewageApplication,
-  SewageGISAnalysis,
-  SewageProtectionProfile,
-} from '../../../types';
+import type { SewageApplication, SewageGISAnalysis, SewageProtectionProfile } from '../../../types';
 
 export interface UseSewageApplicationGeneratorOptions {
   onSuccess?: (data: { application: SewageApplication }) => void;
@@ -65,7 +61,7 @@ export function useSewageApplicationCreate(options?: UseSewageApplicationGenerat
 /**
  * Mutation to validate application
  */
-export function useSewageApplicationValidate(options?: UseSewageApplicationGeneratorOptions) {
+export function useSewageApplicationValidate(_options?: UseSewageApplicationGeneratorOptions) {
   return useMutation({
     mutationFn: async (params: {
       applicationId: string;
@@ -94,7 +90,7 @@ export function useSewageApplicationValidate(options?: UseSewageApplicationGener
 /**
  * Mutation to generate documents
  */
-export function useSewageDocumentGenerator(options?: UseSewageApplicationGeneratorOptions) {
+export function useSewageDocumentGenerator(_options?: UseSewageApplicationGeneratorOptions) {
   return useMutation({
     mutationFn: async (params: {
       applicationId: string;
@@ -106,14 +102,11 @@ export function useSewageDocumentGenerator(options?: UseSewageApplicationGenerat
       latitude: number;
       longitude: number;
     }) => {
-      const response = await fetch(
-        `/api/sewage/applications/${params.applicationId}/generate-documents`,
-        {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(params),
-        },
-      );
+      const response = await fetch(`/api/sewage/applications/${params.applicationId}/generate-documents`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(params),
+      });
 
       if (!response.ok) {
         const error = await response.json();
@@ -165,7 +158,7 @@ export function useSewageApplicationSubmit(options?: UseSewageApplicationGenerat
 /**
  * Mutation to record soil test
  */
-export function useSewageSoilTestRecord(options?: UseSewageApplicationGeneratorOptions) {
+export function useSewageSoilTestRecord(_options?: UseSewageApplicationGeneratorOptions) {
   return useMutation({
     mutationFn: async (params: {
       applicationId: string;
@@ -173,17 +166,14 @@ export function useSewageSoilTestRecord(options?: UseSewageApplicationGeneratorO
       testDate: string;
       percolationProveReference?: string;
     }) => {
-      const legacy = await fetch(
-        `/api/sewage/application/${params.applicationId}/update-soil-test`,
-        {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            ltar: params.ltar,
-            testDate: params.testDate,
-          }),
-        },
-      );
+      const legacy = await fetch(`/api/sewage/application/${params.applicationId}/update-soil-test`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          ltar: params.ltar,
+          testDate: params.testDate,
+        }),
+      });
 
       if (!legacy.ok) {
         const error = await legacy.json();
@@ -198,7 +188,7 @@ export function useSewageSoilTestRecord(options?: UseSewageApplicationGeneratorO
 /**
  * Mutation to record neighbor consent
  */
-export function useSewageNeighborConsent(options?: UseSewageApplicationGeneratorOptions) {
+export function useSewageNeighborConsent(_options?: UseSewageApplicationGeneratorOptions) {
   return useMutation({
     mutationFn: async (params: {
       applicationId: string;

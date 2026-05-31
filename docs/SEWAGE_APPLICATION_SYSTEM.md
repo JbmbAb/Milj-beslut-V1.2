@@ -29,6 +29,7 @@
 | **Bassändirektivet**               | 91/271/EEG           | Känsliga mottagarvatten                         |
 | **Mark- och miljödomstolspraxis**  | Se t.ex. MÖD 2018:38 | Infiltrationssystems efektivitet                |
 | **Länstyrelses lokala riktlinjer** | Varierar per fylke   | Kommunspecifika tillägg                         |
+| **Livsmedelsverkets vägledning**  | Brunnar/Vattentäkt    | Riktlinjer för placering och skydd av brunnar   |
 
 ---
 

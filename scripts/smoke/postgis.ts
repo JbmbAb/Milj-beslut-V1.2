@@ -10,8 +10,14 @@
  */
 
 import { Pool } from 'pg';
+import { loadEnvFile } from '../../server/loadEnv';
 
 async function main(): Promise<void> {
+  const preserveRuntimeEnv =
+    String(process.env.PRESERVE_RUNTIME_ENV || '').toLowerCase() === 'true';
+  loadEnvFile();
+  loadEnvFile('.env.local', { overrideExisting: !preserveRuntimeEnv });
+
   const connStr = process.env.DATABASE_URL;
   if (!connStr) {
     console.error('FEL: DATABASE_URL saknas.');

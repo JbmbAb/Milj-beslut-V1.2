@@ -3,35 +3,22 @@ import { prisma } from '../db/prisma';
 import { requireAuth } from '../security/auth';
 import { rateLimitByUser } from '../security/rateLimit';
 import { assertProjectMembership } from '../repositories/projectAccessRepository';
-import {
-  createOrGetAdminProject,
-} from '../repositories/searchRepository';
-import {
-  countProjectsForOrganisation,
-  listProjectsPageForOrganisation,
-} from '../modules/platform/public';
+import { createOrGetAdminProject } from '../repositories/searchRepository';
+import { countProjectsForOrganisation, listProjectsPageForOrganisation } from '../modules/platform/public';
 import {
   calculateCarbonForProject,
   getProjectPlanSnapshot,
   saveProjectPlanSnapshot,
 } from '../services/projectPlanService';
-import {
-  getProjectEnvironmentalOnly,
-  getProjectForCarbonView,
-} from '../modules/platform/public';
+import { getProjectEnvironmentalOnly, getProjectForCarbonView } from '../modules/platform/public';
 import { buildProjectRiskMetrics } from '../services/projectRiskMetrics';
 import { appendDomainAudit } from '../security/auditTrail';
-import type { CarbonInput, ProjectPlan } from '../../types';
+import type { CarbonInput } from '../../types';
 import { getPublicDatasourceSummary } from '../services/publicUiService';
 import { getDispatchProviderRuntimeStatus } from '../services/transportDispatchService';
 import { getBankIdMode } from '../services/bankIdService';
 import { summarizeModuleAccess, listAccessibleProjects, parseOptionalText } from './routeHelpers';
-import {
-  createProjectSchema,
-  projectPlanSchema,
-  carbonInputSchema,
-  paginationSchema,
-} from '../schemas/api.schemas';
+import { createProjectSchema, projectPlanSchema, paginationSchema } from '../schemas/api.schemas';
 
 const router = express.Router();
 
@@ -72,7 +59,7 @@ router.get('/api/app/bootstrap', requireAuth, rateLimitByUser(60, 60_000), async
         : dispatch.fallbackActive
           ? 'unavailable'
           : 'ready';
-    
+
     const datasourceStatus = datasourceSummary.cards.some((c) => c.status === 'CONNECTED')
       ? 'ready'
       : datasourceSummary.cards.length > 0
@@ -127,7 +114,8 @@ router.get('/api/app/bootstrap', requireAuth, rateLimitByUser(60, 60_000), async
 
 router.get('/api/admin/projects', requireAuth, async (req, res, next) => {
   try {
-    if (req.authUser?.role !== 'ADMIN') return res.status(403).json({ ok: false, error: 'Admin role required' });
+    if (req.authUser?.role !== 'ADMIN')
+      return res.status(403).json({ ok: false, error: 'Admin role required' });
 
     const { page, limit } = paginationSchema.parse(req.query);
     const organisationId = req.authUser.organisationId;
@@ -153,7 +141,7 @@ router.post('/api/admin/projects', requireAuth, async (req, res, next) => {
   try {
     if (req.authUser?.role !== 'ADMIN') return res.status(403).json({ ok: false, error: 'Admin only' });
     const { propertyDesignation } = createProjectSchema.parse(req.body);
-    
+
     const result = await createOrGetAdminProject({
       organisationId: req.authUser.organisationId,
       userId: req.authUser.id,
@@ -222,8 +210,7 @@ router.get('/api/projects/:projectId/carbon', requireAuth, async (req, res, next
       project.complianceScore == null &&
       project.regulatoryRiskScore == null;
 
-    const totalKgCo2e =
-      project.environmentalScore != null ? project.environmentalScore * 100 : 0;
+    const totalKgCo2e = project.environmentalScore != null ? project.environmentalScore * 100 : 0;
 
     const carbonResult =
       allScoresMissing || project.environmentalScore == null

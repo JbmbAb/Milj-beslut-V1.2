@@ -84,7 +84,7 @@ export async function checkRateLimit(
 /**
  * Internal: fetch current rate limit entry
  */
-async function getRateLimitEntry(key: string): Promise<RateLimitEntry | null> {
+async function _getRateLimitEntry(key: string): Promise<RateLimitEntry | null> {
   const entry = await prisma.rateLimitEntry.findUnique({
     where: { key },
   });
@@ -102,7 +102,7 @@ async function getRateLimitEntry(key: string): Promise<RateLimitEntry | null> {
 /**
  * Internal: create new rate limit entry
  */
-async function createRateLimitEntry(key: string, resetAt: Date): Promise<void> {
+async function _createRateLimitEntry(key: string, resetAt: Date): Promise<void> {
   await prisma.rateLimitEntry.create({
     data: {
       key,
@@ -115,7 +115,7 @@ async function createRateLimitEntry(key: string, resetAt: Date): Promise<void> {
 /**
  * Internal: increment rate limit counter
  */
-async function incrementRateLimitCount(key: string): Promise<void> {
+async function _incrementRateLimitCount(key: string): Promise<void> {
   await prisma.rateLimitEntry.update({
     where: { key },
     data: {
@@ -129,7 +129,7 @@ async function incrementRateLimitCount(key: string): Promise<void> {
 /**
  * Internal: reset rate limit entry
  */
-async function resetRateLimitEntry(key: string, resetAt: Date): Promise<void> {
+async function _resetRateLimitEntry(key: string, resetAt: Date): Promise<void> {
   await prisma.rateLimitEntry.update({
     where: { key },
     data: {
@@ -142,7 +142,7 @@ async function resetRateLimitEntry(key: string, resetAt: Date): Promise<void> {
 /**
  * Clean up expired rate limit entries (periodic maintenance)
  */
-async function cleanupExpiredRateLimits(): Promise<number> {
+async function _cleanupExpiredRateLimits(): Promise<number> {
   const result = await prisma.rateLimitEntry.deleteMany({
     where: {
       resetAt: {

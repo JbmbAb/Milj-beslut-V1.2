@@ -5,7 +5,9 @@ import datasourceRouter from './routes/datasource.routes';
 import searchRouter from './routes/search.routes';
 import gdprRouter from './routes/gdpr.routes';
 import adminV1Router from './routes/admin.v1.routes';
+import adminLegacyRouter from './routes/admin.routes';
 import projectV1Router from './routes/project.v1.routes';
+import projectLegacyRouter from './routes/project.routes';
 import generatorsRouter from './routes/generators.routes';
 import logisticsRouter from './routes/logistics.routes';
 import geminiRouter from './geminiApi.express';
@@ -23,6 +25,7 @@ import sewageDocumentRouter from './routes/sewage.routes';
 import sewageApplicationsRouter from './routes/sewage.applications.routes';
 import sewageLegacyAliasRouter from './routes/sewage.legacy-alias.routes';
 import cNotificationMassRouter from './routes/cNotificationMass.routes';
+import hydroRouter from './routes/hydro.routes';
 import pdfExportRouter from './routes/pdf-export.routes';
 import bankComplianceRouter from './routes/bankCompliance.routes';
 import erpSyncRouter from './routes/erpSync.routes';
@@ -148,6 +151,7 @@ export function createApp() {
   app.use(sewageLegacyAliasRouter);
   app.use(sewageDocumentRouter);
   app.use(cNotificationMassRouter);
+  app.use(hydroRouter);
   app.use(propertyLookupRouter);
   app.use(bankComplianceRouter);
   app.use(erpSyncRouter);
@@ -172,6 +176,7 @@ export function createApp() {
 
   // Refactored V1 Routes
   app.use(authRouter);
+  app.use(projectLegacyRouter);
   app.use(projectV1Router);
   app.use(generatorsRouter);
   app.use(logisticsRouter);
@@ -179,6 +184,7 @@ export function createApp() {
   app.use(searchRouter);
   app.use(gdprRouter);
   app.use(referenceRouter);
+  app.use(adminLegacyRouter);
   app.use(adminV1Router);
 
   app.use(geminiRouter);

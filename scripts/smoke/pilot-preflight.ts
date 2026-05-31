@@ -11,11 +11,11 @@ import { buildMigrationReadinessReport } from '../../server/services/migrationRe
 function main() {
   const report = buildMigrationReadinessReport();
   if (!report.ok) {
-    // eslint-disable-next-line no-console
+     
     console.error('PRECHECK FAILED: migration readiness is false');
-    // eslint-disable-next-line no-console
+     
     console.error(JSON.stringify(report.summary, null, 2));
-    // eslint-disable-next-line no-console
+     
     console.error(
       report.items
         .filter((i) => i.status !== 'DONE')
@@ -24,9 +24,9 @@ function main() {
     );
     process.exit(2);
   }
-  // eslint-disable-next-line no-console
+   
   console.log('PRECHECK OK');
-  // eslint-disable-next-line no-console
+   
   console.log(JSON.stringify({ checkedAt: report.checkedAt, summary: report.summary }, null, 2));
 }
 

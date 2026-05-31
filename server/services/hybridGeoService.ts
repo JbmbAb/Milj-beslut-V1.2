@@ -77,7 +77,7 @@ export async function tryFetchLocalSguData(lat: number, lng: number): Promise<an
       LIMIT 1;
     `;
     return result[0] || null;
-  } catch (err) {
+  } catch {
     return null;
   }
 }
@@ -95,7 +95,7 @@ export async function tryFetchLocalRaaData(lat: number, lng: number): Promise<an
       LIMIT 10;
     `;
     return result.length > 0 ? result : null;
-  } catch (err) {
+  } catch {
     return null;
   }
 }
@@ -123,7 +123,7 @@ export async function tryFetchLocalTopo10Data(
       maxLat,
     );
     return result.length > 0 ? result : null;
-  } catch (err) {
+  } catch {
     return null;
   }
 }
@@ -143,7 +143,7 @@ export async function tryFetchLocalProtectionData(lat: number, lng: number): Pro
       WHERE ST_Intersects(geom, ST_Transform(ST_SetSRID(ST_MakePoint(${lng}, ${lat}), 4326), 3006));
     `;
     return result.length > 0 ? result : null;
-  } catch (err) {
+  } catch {
     return null;
   }
 }

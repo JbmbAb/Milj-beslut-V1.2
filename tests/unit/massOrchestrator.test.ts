@@ -67,6 +67,7 @@ describe('evaluateOperationCodes', () => {
     expect(result.ewcCode).toBe('17 05 03*');
     expect(result.operationType).toBe('DEPONI');
     expect(result.propertyDesignation).toBe('STOCKHOLM 1:1');
+    expect(result.mpfDecision?.primaryCodeType).toBe('EWC');
   });
 
   it('returns EXEMPT for hazardous EWC below threshold (class A, <10 ton/år)', () => {
@@ -129,9 +130,9 @@ describe('evaluateOperationCodes', () => {
     expect(result.gateDecision).toBe('UNKNOWN_CODE');
   });
 
-  it('SNI code provided: PERMIT_REQUIRED wins over EXEMPT EWC', () => {
+  it('SNI code provided: EWC remains gate driver in phase 1', () => {
     // EWC 17 05 04 at 100 ton → EXEMPT (below 50000 threshold)
-    // SNI 38.21 at 100 ton → PERMIT_REQUIRED (class A, threshold 1 ton)
+    // SNI 38.21 at 100 ton → PERMIT_REQUIRED, but only advisory in phase 1
     const result = evaluateOperationCodes({
       propertyDesignation: 'TEST 1:1',
       operationType: 'DEPONI',
@@ -139,7 +140,8 @@ describe('evaluateOperationCodes', () => {
       ewcCode: '17 05 04',
       sniCode: '38.21',
     });
-    expect(result.gateDecision).toBe('PERMIT_REQUIRED');
+    expect(result.gateDecision).toBe('EXEMPT');
+    expect(result.notes).toContain('EWC-koden styr gate-beslutet');
   });
 
   it('without SNI code: only EWC evaluated', () => {
@@ -165,6 +167,42 @@ describe('evaluateOperationCodes', () => {
     expect(result.quantityPerYear).toBe(500);
     expect(result.ewcCode).toBe('17 05 08');
     expect(result.sniCode).toBe('38.11');
+    expect(result.notes).toBeTruthy();
+    expect(result.mpfDecision?.ewcEvaluation.code).toBe('17 05 08');
+  });
+
+  it('returns required map layers in mpfDecision summary', () => {
+    const result = evaluateOperationCodes({
+      propertyDesignation: 'TEST 1:1',
+      operationType: 'MELLANLAGRING',
+      quantityPerYear: 100,
+      ewcCode: '17 05 04',
+    });
+
+    expect(result.mpfDecision?.requiredMapLayers).toContain('CADASTRE');
+    expect(result.mpfDecision?.requiredMapLayers).toContain('SOIL');
+    expect(result.mpfDecision?.geofenceLayers.length).toBeGreaterThan(0);
+    expect(result.mpfDecision?.registryVersion).toBeTruthy();
+  });
+
+  it('applies sensitive area when explicitly requested', () => {
+    const baseline = evaluateOperationCodes({
+      propertyDesignation: 'TEST 1:1',
+      operationType: 'DEPONI',
+      quantityPerYear: 100,
+      ewcCode: '17 05 04',
+    });
+    const sensitive = evaluateOperationCodes({
+      propertyDesignation: 'TEST 1:1',
+      operationType: 'DEPONI',
+      quantityPerYear: 15000,
+      ewcCode: '17 05 04',
+      isSensitiveArea: true,
+    });
+
+    expect(baseline.gateDecision).toBe('EXEMPT');
+    expect(sensitive.gateDecision).toBe('PERMIT_REQUIRED');
+    expect(sensitive.mpfDecision?.isSensitiveArea).toBe(true);
   });
 });
 

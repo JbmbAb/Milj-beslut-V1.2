@@ -1,5 +1,15 @@
 const requiredEnv = ['JWT_ACCESS_SECRET', 'JWT_REFRESH_SECRET', 'LANTMATERIET_BASE_URL'] as const;
 
+export type BankIdConfigurationStatus = {
+  mode: 'mock' | 'real' | 'unconfigured';
+  canInitiate: boolean;
+  hasBaseUrl: boolean;
+  hasMtls: boolean;
+  hasPfx: boolean;
+  hasPemPair: boolean;
+  message: string;
+};
+
 export function assertSecurityEnv(): void {
   const missing = requiredEnv.filter((key) => !process.env[key]);
   if (missing.length > 0) {
@@ -26,17 +36,16 @@ export function getEnv(name: string): string {
 }
 
 export function assertBankIdEnv(): void {
-  if (isBankIdMockMode()) {
+  const status = getBankIdConfigurationStatus();
+  if (status.mode === 'mock') {
     return;
   }
 
-  const hasPfx = Boolean(process.env.BANKID_PFX_PATH);
-  const hasPemPair = Boolean(process.env.BANKID_CERT_PATH && process.env.BANKID_KEY_PATH);
-  if (!hasPfx && !hasPemPair) {
+  if (!status.hasMtls) {
     throw new Error('BankID mTLS config missing: set BANKID_PFX_PATH or BANKID_CERT_PATH+BANKID_KEY_PATH');
   }
 
-  if (!process.env.BANKID_BASE_URL) {
+  if (!status.hasBaseUrl) {
     throw new Error('Missing env variable: BANKID_BASE_URL');
   }
 }
@@ -56,6 +65,57 @@ export function isBankIdMockMode(): boolean {
       .trim()
       .toLowerCase() === 'true'
   );
+}
+
+export function getBankIdConfigurationStatus(): BankIdConfigurationStatus {
+  const hasBaseUrl = Boolean(String(process.env.BANKID_BASE_URL || '').trim());
+  const hasPfx = Boolean(String(process.env.BANKID_PFX_PATH || '').trim());
+  const hasPemPair =
+    Boolean(String(process.env.BANKID_CERT_PATH || '').trim()) &&
+    Boolean(String(process.env.BANKID_KEY_PATH || '').trim());
+  const hasMtls = hasPfx || hasPemPair;
+
+  if (isBankIdMockMode()) {
+    return {
+      mode: 'mock',
+      canInitiate: true,
+      hasBaseUrl,
+      hasMtls,
+      hasPfx,
+      hasPemPair,
+      message: 'BankID körs i utvecklingsläge (mock).',
+    };
+  }
+
+  if (hasBaseUrl && hasMtls) {
+    return {
+      mode: 'real',
+      canInitiate: true,
+      hasBaseUrl,
+      hasMtls,
+      hasPfx,
+      hasPemPair,
+      message: 'BankID kan användas.',
+    };
+  }
+
+  const missingParts: string[] = [];
+  if (!hasBaseUrl) {
+    missingParts.push('BANKID_BASE_URL');
+  }
+  if (!hasMtls) {
+    missingParts.push('mTLS-certifikat (BANKID_PFX_PATH eller BANKID_CERT_PATH + BANKID_KEY_PATH)');
+  }
+
+  return {
+    mode: 'unconfigured',
+    canInitiate: false,
+    hasBaseUrl,
+    hasMtls,
+    hasPfx,
+    hasPemPair,
+    message: `BankID är inte aktiverat ännu (saknar ${missingParts.join(' och ')}). Använd administratörsinloggning tills avtal och certifikat är klara.`,
+  };
 }
 
 export function isLantmaterietOpenMode(): boolean {

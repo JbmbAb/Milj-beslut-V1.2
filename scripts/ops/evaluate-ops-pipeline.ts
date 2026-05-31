@@ -84,7 +84,6 @@ function scorePath(
     if (re.test(hay)) {
       score += weight;
       matched.push(re.source);
-      const key = hint as 'culture' | 'env' | 'legal';
       if (hint === 'culture') schemaWeights.culture += weight;
       if (hint === 'env') schemaWeights.env += weight;
       if (hint === 'legal') schemaWeights.legal += weight;
@@ -130,7 +129,7 @@ async function walkFiles(root: string, sub: string): Promise<string[]> {
   return out;
 }
 
-function buildOgrHint(rel: string, tier: EvaluationTier, suggested: string): string | undefined {
+function buildOgrHint(rel: string, tier: EvaluationTier, _suggested: string): string | undefined {
   if (tier === 'skip') return undefined;
   const safe = rel.replace(/[^a-zA-Z0-9_/.-]+/g, '_').slice(0, 120);
   const table = `staging.ops_${safe.replace(/\//g, '_').replace(/\./g, '_')}`.slice(0, 63);

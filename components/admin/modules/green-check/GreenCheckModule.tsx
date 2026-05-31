@@ -23,7 +23,7 @@ const GreenCheckModule: React.FC = () => {
   const { data, isLoading, error } = useCarbonMetricsQuery(projectId);
   // Extract from data object - structure varies based on API response
   const carbonResult = data?.result ?? null;
-  const riskMetrics = data?.riskMetrics ?? [];
+  const riskMetrics = useMemo(() => data?.riskMetrics ?? [], [data?.riskMetrics]);
   const loading = isLoading;
 
   // Subscribe to real-time CO₂ updates (WebSocket)

@@ -53,6 +53,7 @@ export default tseslint.config(
       'scripts/gather-report-to-desktop.ts',
       'scripts/import/extract-deep-ai.ts',
       'scripts/test-write.ts',
+      'scratch/**',
     ],
   },
   js.configs.recommended,

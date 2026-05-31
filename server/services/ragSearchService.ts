@@ -57,14 +57,14 @@ export interface RagSearchResult {
 
 /**
  * Kör en fullständig RAG-sökning (Retrieval-Augmented Generation).
- * 
+ *
  * Processen består av följande steg:
  * 1. Embedding: Konverterar användarens fråga till en vektor via Vertex AI.
  * 2. Retrieval: Söker efter de mest relevanta dokumentfragmenten (chunks) i databasen baserat på vektorsimilaritet.
  * 3. Contextualization: Hämtar relaterad information från kunskapsgrafen (municipality, waste types, etc.).
  * 4. Augmentation: Kombinerar dokumentchunks och graf-data till en prompt.
  * 5. Generation: Skickar prompten till Gemini för att generera ett faktabaserat svar med källhänvisningar.
- * 
+ *
  * @param params Sökparametrar inkl. fråga, organisations-ID och valfritt projekt-ID.
  * @param params.query Användarens sökfråga i fritext.
  * @param params.organisationId Organisationens ID för att begränsa sökrymden.
@@ -72,7 +72,7 @@ export interface RagSearchResult {
  * @param params.limit Antal källor att hämta (standard 10).
  * @param params.language Svarsspråk ('sv' eller 'en').
  * @param params.explain Om true, inkluderas detaljerad metadata om sökningen i svaret.
- * 
+ *
  * @returns Ett objekt som innehåller det genererade svaret, källhänvisningar och (om explain=true) sökmetadata.
  */
 export async function runRagSearch(params: {
@@ -99,7 +99,6 @@ export async function runRagSearch(params: {
 
   // Step 2: Semantic document search
   let sources: RagSource[] = [];
-  let topScore = 0;
   if (embedding && embedding.values.length > 0) {
     try {
       const chunks = await queryTopSemanticChunks({
@@ -114,9 +113,6 @@ export async function runRagSearch(params: {
         snippet: c.chunkText?.slice(0, 400) ?? '',
         score: c.similarity ?? 0,
       }));
-      if (sources.length > 0) {
-        topScore = sources[0].score;
-      }
     } catch (err) {
       logger.warn('rag-search: semantic chunk query failed', { err: String(err) });
     }

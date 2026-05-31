@@ -1,4 +1,4 @@
-/* eslint-disable no-irregular-whitespace */
+ 
 import React, { useEffect, useState } from 'react';
 import { csrfFetch } from '../services/csrfClient';
 import PropertyLookupDetails, {
@@ -132,8 +132,11 @@ const PropertyRegisterExtract: React.FC<PropertyRegisterExtractProps> = ({ prope
 
   useEffect(() => {
     if (!normalizedPropertyId) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       setLoading(false);
+       
       setError(null);
+       
       setData(null);
       return;
     }

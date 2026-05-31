@@ -37,7 +37,7 @@ async function seedLocalizationDemo() {
     console.log(`  Project ID: ${project.id}`);
 
     // 3. Create project plan state (to track workflow progress)
-    const planState = await prisma.projectPlanState.create({
+    await prisma.projectPlanState.create({
       data: {
         projectId: project.id,
         plan: {

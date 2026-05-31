@@ -436,7 +436,7 @@ async function collectDbContent(): Promise<{
   return { tables, totalRows, recentAuditEvents, recentSearchQueries, pipelineRuns };
 }
 
-async function collectFlowStatus(): Promise<{
+async function _collectFlowStatus(): Promise<{
   documentProcessing: { status: FlowStatus; detail: string };
   geospatialAnalysis: { status: FlowStatus; detail: string };
   externalIntegrations: { status: FlowStatus; detail: string };

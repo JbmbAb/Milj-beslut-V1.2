@@ -131,6 +131,24 @@ describe('limsService unit tests', () => {
       expect(savedData.bookingId).toBe('booking-99');
       expect(savedData.source).toBe('API');
     });
+
+    it('uses current time when analyzedAt is invalid and explicit passed cannot override failed metrics', async () => {
+      limsRepoMock.createLimsReport.mockImplementation((data) =>
+        Promise.resolve({ ...data, id: 'rep-6', createdAt: new Date(), verifiedAt: null }),
+      );
+
+      const report = await createLimsReport({
+        sampleId: 'S-6',
+        labName: 'L1',
+        rawReference: 'R6',
+        analyzedAt: 'inte-ett-datum',
+        metrics: [{ key: 'Hg', value: 99, unit: 'mg/kg', maxAllowed: 1 }],
+        passed: true,
+      });
+
+      expect(report.passed).toBe(false);
+      expect(new Date(report.analyzedAt).toString()).not.toBe('Invalid Date');
+    });
   });
 
   describe('verifyLimsReport', () => {
@@ -192,6 +210,54 @@ describe('limsService unit tests', () => {
       await expect(verifyLimsReport({ reportId: 'r3', reviewer: 'Valid', signatureId: '' })).rejects.toThrow(
         'signatureId is required',
       );
+    });
+
+    it('marks verified reports as failed when reviewer explicitly rejects them', async () => {
+      const mockReport = {
+        id: 'r4',
+        metrics: [{ key: 'X', value: 1, unit: 'mg/kg', maxAllowed: 10, exceeded: false }],
+        analyzedAt: new Date(),
+        createdAt: new Date(),
+        source: 'MANUAL',
+      };
+      limsRepoMock.getLimsReport.mockResolvedValue(mockReport);
+      limsRepoMock.verifyLimsReport.mockImplementation(async (_reportId, data) => ({
+        ...mockReport,
+        ...data,
+      }));
+
+      const result = await verifyLimsReport({
+        reportId: 'r4',
+        reviewer: 'Verifierare',
+        signatureId: 'SIG-4',
+        approved: false,
+      });
+
+      expect(result.passed).toBe(false);
+    });
+
+    it('keeps reports failed when exceeded metrics remain even if approved', async () => {
+      const mockReport = {
+        id: 'r5',
+        metrics: [{ key: 'X', value: 50, unit: 'mg/kg', maxAllowed: 10, exceeded: true }],
+        analyzedAt: new Date(),
+        createdAt: new Date(),
+        source: 'MANUAL',
+      };
+      limsRepoMock.getLimsReport.mockResolvedValue(mockReport);
+      limsRepoMock.verifyLimsReport.mockImplementation(async (_reportId, data) => ({
+        ...mockReport,
+        ...data,
+      }));
+
+      const result = await verifyLimsReport({
+        reportId: 'r5',
+        reviewer: 'Verifierare',
+        signatureId: 'SIG-5',
+        approved: true,
+      });
+
+      expect(result.passed).toBe(false);
     });
   });
 });

@@ -67,9 +67,9 @@ export class VertexDirigentService {
         // Initiera vanliga Gemini-klienten för lokal utveckling (gratisnyckeln)
         const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
 
-        // Vi använder Gemini 1.5 Pro för djup resonemangsförmåga med stora kontextfönster
+        // Vi använder Gemini 1.5 Flash för snabba och effektiva juridiska svar
         return genAI.getGenerativeModel({
-            model: 'gemini-2.5-flash',
+            model: 'gemini-1.5-flash',
             generationConfig: {
                 temperature: 0.1, // Låg temperatur för konsekventa, juridiska svar
                 responseMimeType: 'application/json', // Tvinga JSON-utdata

@@ -33,6 +33,7 @@ const WorkspaceScaffold: React.FC<WorkspaceScaffoldProps> = ({
   }, []);
 
   const activeMode = modeCardMap[mode] ?? null;
+  const primaryModeCards = MODE_CARDS;
 
   return (
     <div className="min-h-screen flex overflow-hidden font-['Plus_Jakarta_Sans'] bg-slate-50">
@@ -45,7 +46,7 @@ const WorkspaceScaffold: React.FC<WorkspaceScaffoldProps> = ({
         <nav className="flex-1 px-3 py-4 space-y-2 overflow-y-auto custom-scrollbar">
           <p className="px-[10px] pb-1 text-[12px] font-semibold text-[#91a3c4]">Moduler</p>
 
-          {MODE_CARDS.map((item) => (
+          {primaryModeCards.map((item) => (
             <button
               key={`module-${item.mode}`}
               type="button"

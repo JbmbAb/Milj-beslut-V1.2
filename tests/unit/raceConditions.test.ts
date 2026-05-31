@@ -27,7 +27,13 @@ vi.mock('../../server/services/vertexAiService', () => ({
   generateTextWithVertex: generateTextWithVertexMock,
   generateTextWithVertexAndInlineData: vi.fn(),
   generateJsonWithVertex: vi.fn(),
-  vertexConfigStatus: vi.fn(() => ({ configured: true, missing: [], projectId: 't', location: 'europe-west1', hasExplicitServiceAccountFile: true })),
+  vertexConfigStatus: vi.fn(() => ({
+    configured: true,
+    missing: [],
+    projectId: 't',
+    location: 'europe-west1',
+    hasExplicitServiceAccountFile: true,
+  })),
   __resetVertexClientForTest: vi.fn(),
 }));
 
@@ -92,10 +98,6 @@ function makeVertexEmbeddingResult(values?: number[]) {
   };
 }
 
-function delayMs(ms: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms));
-}
-
 // ─── embedText race-conditions ────────────────────────────────────────────────
 
 describe('raceConditions – embedText', () => {
@@ -112,7 +114,9 @@ describe('raceConditions – embedText', () => {
     const N = 8;
     for (let i = 0; i < N; i++) {
       const val = (i + 1) / 10;
-      embedTextWithVertexPredictMock.mockResolvedValueOnce(makeVertexEmbeddingResult(new Array(768).fill(val)));
+      embedTextWithVertexPredictMock.mockResolvedValueOnce(
+        makeVertexEmbeddingResult(new Array(768).fill(val)),
+      );
     }
 
     const results = await Promise.all(Array.from({ length: N }, (_, i) => embedText(`query ${i}`)));
@@ -189,26 +193,29 @@ describe('raceConditions – spatialAuditService', () => {
       { lat: 65.5, lon: 22.1, name: 'Luleå Reservat' },
     ];
 
-    (prisma.$queryRaw as ReturnType<typeof vi.fn>).mockImplementation(() =>
-      // Each call gets its own promise; we identify by call-count order
-      Promise.resolve([]),
-    );
+    (prisma.$queryRaw as ReturnType<typeof vi.fn>).mockImplementation(
+      (strings: TemplateStringsArray, ...values: any[]) => {
+        const sql = strings.join(' ');
 
-    // Re-mock with per-call data
-    let callIndex = 0;
-    (prisma.$queryRaw as ReturnType<typeof vi.fn>).mockImplementation(() => {
-      const c = coords[callIndex++ % coords.length];
-      if (!c) return Promise.resolve([]);
-      if (!c.name) return Promise.resolve([]);
-      return Promise.resolve([
-        {
-          nvr_id: `id-${c.lat}`,
-          name: c.name,
-          protection_type: 'Naturreservat',
-          decision_status: 'GALLANDE',
-        },
-      ]);
-    });
+        if (sql.includes('FROM env.protected_area')) {
+          const lat = Number(values[1]);
+          const byLat = new Map(coords.map((c) => [c.lat, c.name] as const));
+          const name = byLat.get(lat);
+          if (!name) return Promise.resolve([]);
+          return Promise.resolve([
+            {
+              nvr_id: `id-${lat}`,
+              name,
+              protection_type: 'Naturreservat',
+              decision_status: 'GALLANDE',
+            },
+          ]);
+        }
+
+        // Distance-to-water query path
+        return Promise.resolve([{ distance_m: 120 }]);
+      },
+    );
 
     const { runSpatialAudit } = await import('../../server/services/spatialAuditService');
 
@@ -227,22 +234,29 @@ describe('raceConditions – spatialAuditService', () => {
   });
 
   it('spatialAudit-resultat blandas inte vid hög parallelism (stress test)', async () => {
-    let callCnt = 0;
-    (prisma.$queryRaw as ReturnType<typeof vi.fn>).mockImplementation(() => {
-      const n = callCnt++;
-      // Var annan anrop returnerar en area
-      if (n % 2 === 0) {
-        return Promise.resolve([
-          {
-            nvr_id: `id-${n}`,
-            name: `Reservat-${n}`,
-            protection_type: 'Naturreservat',
-            decision_status: 'GALLANDE',
-          },
-        ]);
-      }
-      return Promise.resolve([]);
-    });
+    (prisma.$queryRaw as ReturnType<typeof vi.fn>).mockImplementation(
+      (strings: TemplateStringsArray, ...values: any[]) => {
+        const sql = strings.join(' ');
+
+        if (sql.includes('FROM env.protected_area')) {
+          const lat = Number(values[1]);
+          const index = Math.round((lat - 59.0) / 0.1);
+          if (index % 2 === 0) {
+            return Promise.resolve([
+              {
+                nvr_id: `id-${index}`,
+                name: `Reservat-${index}`,
+                protection_type: 'Naturreservat',
+                decision_status: 'GALLANDE',
+              },
+            ]);
+          }
+          return Promise.resolve([]);
+        }
+
+        return Promise.resolve([{ distance_m: 75 }]);
+      },
+    );
 
     const { runSpatialAudit } = await import('../../server/services/spatialAuditService');
 

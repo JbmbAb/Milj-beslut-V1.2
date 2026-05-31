@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, cleanup, within } from '@testing-library/react';
+import { render, cleanup } from '@testing-library/react';
 import { screen, waitFor } from '@testing-library/dom';
 import userEvent from '@testing-library/user-event';
 import { TechnicalDashboardHub } from '../../components/TechnicalDashboardHub';

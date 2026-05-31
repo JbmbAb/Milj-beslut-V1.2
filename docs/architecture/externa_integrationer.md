@@ -39,7 +39,7 @@ Plattformen "pingar" och aggregerar data från myndighetsportaler för att ge en
 
 ## 5. Systemintegrationer & Verifiering
 
-- **BankID**: För säker autentisering av konsulter och handläggare enligt svensk säkerhetsstandard.
+- **BankID**: För säker autentisering när avtal och certifikat finns. Före det används admin-/organisationsinloggning eller separat test/mock-miljö, inte skarp BankID i kundnära drift.
 - **Microsoft Graph (Outlook)**: För automatiserad import av beslut och korrespondens direkt från projektets inkorg.
 - **SCB (Statistiska Centralbyrån)**: För att hämta demografisk och regional statistik som kan påverka socioekonomiska konsekvensbeskrivningar i en MKB.
 

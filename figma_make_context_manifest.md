@@ -2,6 +2,31 @@
 
 Use this order when feeding files into Figma Make so the AI gets architecture first, then views, then backend/API constraints.
 
+## Fokuspaket: Enskilt avlopp + C-anmälan + Lokaliseringsutredning + Admin
+
+When the design task is specifically these four areas, use this compact order first:
+
+1. `types.ts`
+2. `tokens.json`
+3. `tokens.css`
+4. `components/AppContentRouter.tsx`
+5. `components/admin/modules/sewage-portal/SewagePortalView.tsx`
+6. `components/admin/modules/sewage-portal/SewageSystemSelector.tsx`
+7. `components/admin/modules/sewage-portal/SewageRequirementChecklist.tsx`
+8. `components/admin/modules/sewage-portal/SewageMapView.tsx`
+9. `components/admin/modules/c-notification-mass/CNotificationMassUI.tsx`
+10. `components/admin/modules/c-notification-mass/MassMapView.tsx`
+11. `components/LocalizationStudyUI.tsx`
+12. `components/admin/AdminContainer.tsx`
+13. `components/admin/AdminShell.tsx`
+14. `components/admin/AdminNav.tsx`
+15. `components/admin/AdminHeader.tsx`
+16. `components/admin/ModuleRouter.tsx`
+17. `components/admin/admin-tokens.css`
+18. `components/admin/admin-shell.css`
+19. `components/admin/admin-nav.css`
+20. `components/admin/admin-header.css`
+
 ## 1) Core app shell and contracts
 
 1. `types.ts`
@@ -29,7 +54,8 @@ Use this order when feeding files into Figma Make so the AI gets architecture fi
 5. `components/MarketIntelView.tsx`
 6. `components/AdminSearchConsole.tsx`
 7. `components/IntegrationsDashboard.tsx`
-8. `components/Guide.tsx`
+8. `components/DossierDashboard.tsx`
+9. `components/Guide.tsx`
 
 ## 4) Supporting feature components
 
@@ -51,6 +77,7 @@ Use this order when feeding files into Figma Make so the AI gets architecture fi
 16. `components/MarketingHub.tsx`
 17. `components/BankIDLogin.tsx`
 18. `components/GeminiClientExample.tsx`
+19. `app/components/MapComponent.tsx`
 
 ## 5) Client-side AI/service dependencies
 
@@ -62,6 +89,7 @@ Use this order when feeding files into Figma Make so the AI gets architecture fi
 2. `server/secureApi.express.ts`
 3. `server/geminiApi.express.ts`
 4. `app/routes/api/gemini.ts`
+5. `app/routes/api.dossier.$propertyId.tsx`
 
 ## 7) Domain services used by UI/data flows
 

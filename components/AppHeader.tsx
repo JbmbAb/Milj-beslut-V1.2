@@ -20,10 +20,10 @@ export const AppHeader: React.FC<AppHeaderProps> = ({
   activeMode,
   readyModuleCount,
   totalModuleCount,
-  blockedModuleCount,
+  blockedModuleCount: _blockedModuleCount,
   passedGateCount,
   requiredGateCount,
-  carbonReady,
+  carbonReady: _carbonReady,
   activeProjectLabel,
 }) => {
   return (
@@ -33,7 +33,9 @@ export const AppHeader: React.FC<AppHeaderProps> = ({
           data-testid="workspace-active-tab-label"
           className="text-[11px] font-black uppercase tracking-[0.2em] text-white flex items-center gap-3"
         >
-          <span className={`w-2.5 h-2.5 rounded-full ${activeMode.accent} shadow-[0_0_12px_rgba(var(--accent-rgb),0.5)]`} />
+          <span
+            className={`w-2.5 h-2.5 rounded-full ${activeMode.accent} shadow-[0_0_12px_rgba(var(--accent-rgb),0.5)]`}
+          />
           {activeTab}
         </h2>
         <div className="h-6 w-px bg-white/10 hidden md:block" />
@@ -46,7 +48,10 @@ export const AppHeader: React.FC<AppHeaderProps> = ({
         <div className="hidden lg:flex items-center gap-2 mr-4">
           <div className="flex -space-x-2">
             {[1, 2, 3].map((i) => (
-              <div key={i} className="w-6 h-6 rounded-full bg-slate-800 border-2 border-slate-950 flex items-center justify-center">
+              <div
+                key={i}
+                className="w-6 h-6 rounded-full bg-slate-800 border-2 border-slate-950 flex items-center justify-center"
+              >
                 <i className="fas fa-user text-[10px] text-slate-500" />
               </div>
             ))}

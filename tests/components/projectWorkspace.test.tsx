@@ -26,8 +26,8 @@ vi.mock('../../components/MarketIntelView', () => ({
   default: ({ mode }: { mode: string }) => <div data-testid={`market-intel-${mode}`} />,
 }));
 
-vi.mock('../../components/PermitPortalView', () => ({
-  default: ({ mode }: { mode: string }) => <div data-testid={`permit-portal-${mode}`} />,
+vi.mock('../../components/admin/modules/c-notification-mass/CNotificationMassUI', () => ({
+  CNotificationMassUI: () => <div data-testid="c-notification-mass-ui" />,
 }));
 
 vi.mock('../../components/AssetTriage', () => ({
@@ -128,11 +128,11 @@ describe('ProjectWorkspace', () => {
     expect(await screen.findByTestId('legal-support-center')).toBeInTheDocument();
   });
 
-  // ── PERMIT_PORTAL tabs ────────────────────────────────────────────────────
+  // ── Legacy PERMIT_PORTAL handoff ──────────────────────────────────────────
 
-  it('renders PermitPortalView for PERMIT_PORTAL mode', async () => {
+  it('routes PERMIT_PORTAL mode to canonical C-anmalan mass module', async () => {
     render(<ProjectWorkspace {...baseProps} mode="PERMIT_PORTAL" activeTab="map" />);
-    expect(await screen.findByTestId('permit-portal-map', {}, { timeout: 10_000 })).toBeInTheDocument();
+    expect(await screen.findByTestId('c-notification-mass-ui', {}, { timeout: 10_000 })).toBeInTheDocument();
   });
 
   // ── COMPLIANCE_AUDIT tabs ─────────────────────────────────────────────────

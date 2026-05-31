@@ -8,7 +8,7 @@ import type { ProjectPlan, CarbonResult } from '../types';
  */
 
 export function calculatePredictiveScores(plan: ProjectPlan, carbonResult?: CarbonResult | null) {
-  const _wasteCode = plan.permitCodeProfile?.code || '17 05 04';
+  const regulatoryCode = plan.permitCodeProfile?.activityCode || plan.permitCodeProfile?.code || '17 05 04';
   const _volume = plan.transportBookings.reduce((sum, b) => sum + b.tons, 0) || 1000;
   const location = plan.location.address.toLowerCase() || 'unknown';
 
@@ -26,7 +26,9 @@ export function calculatePredictiveScores(plan: ProjectPlan, carbonResult?: Carb
     probabilityInjunction: Math.round(probabilityInjunction * 100) / 100,
     confidence: 0.85,
     topRiskFactors: [
-      plan.permitCodeProfile?.riskTier === 'HIGH' ? 'Hög riskklass för avfallskod' : 'Normal riskklass',
+      plan.permitCodeProfile?.riskTier === 'HIGH'
+        ? `Hög riskklass för kod ${regulatoryCode}`
+        : `Normal riskklass för kod ${regulatoryCode}`,
       geoRfiProb > 0 ? 'Geografisk känslighet detekterad' : 'Ingen direkt geografisk konflikt funnen',
     ].filter(Boolean) as string[],
   };

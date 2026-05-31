@@ -1,12 +1,9 @@
 import { spawnSync } from 'child_process';
-import { PrismaClient } from '@prisma/client';
 import dotenv from 'dotenv';
 import fetch from 'node-fetch';
 import fs from 'fs';
 
 dotenv.config();
-
-const prisma = new PrismaClient();
 const DATABASE_URL = process.env.DATABASE_URL || '';
 const OGR2OGR_PATH = 'C:\\Program Files\\GDAL\\ogr2ogr.exe';
 

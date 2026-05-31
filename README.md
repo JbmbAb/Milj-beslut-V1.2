@@ -29,11 +29,11 @@ Plattformen är designad för robust och skalbar drift i molnet genom att separe
 **Prerequisites:** Node.js
 
 1. Install dependencies: `npm install`
-2. Kopiera `.env.example` till `.env` och fyll i minst `DATABASE_URL`. För **livetest/demo** (tills vidare):
+2. Kopiera `.env.example` till `.env` och fyll i minst `DATABASE_URL`. För **lokal utveckling före BankID-avtal**:
    - `ADMIN_CONSOLE_USERNAME=admin` och `ADMIN_CONSOLE_PASSWORD=admin` (fördefinierat i exempel — byt före skarp produktion)
    - **Vertex (Gemini) i moln:** sätt `VERTEX_PROJECT_ID` och kör `gcloud auth application-default login` så `GOOGLE_APPLICATION_CREDENTIALS` kan lämnas tom lokalt, eller peka mot en tjänstekonto-JSON.
 3. Kör: `npm run dev` (frontend) och i separat terminal `npm run dev:server` om du behöver fullt API (standard enligt `package.json`).
-   - **Webbläsaren:** öppna **http://localhost:3000** — där är inloggningssidan (BankID + **admin** längre ned). Vite proxar `/api` till backend (**http://localhost:8787** om `PORT` inte satts), så du behöver inte anropa 8787 manuellt från UI.
+   - **Webbläsaren:** öppna **http://localhost:3000** — där är inloggningssidan (BankID + **admin** längre ned). Före BankID-avtal eller certifikat: använd normalt **admininloggningen**. Vite proxar `/api` till backend (**http://localhost:8787** om `PORT` inte satts), så du behöver inte anropa 8787 manuellt från UI.
    - **Bara admin, utan BankID i gränssnittet:** sätt `VITE_LOGIN_ADMIN_ONLY=true` (t.ex. i `.env`), starta om `npm run dev`. Döljs endast inloggningssteget för BankID; backend-rutter och andra e‑leg-flöden ändras inte.
 
 **VS Code / agenter (Gemini DB, read-only):** sätt `GEMINI_DB_API_KEY` i `.env` om du använder `/api/gemini-db/*` enligt avsnittet nedan — det är separat från Vertex i drift.
@@ -126,7 +126,7 @@ eller att `DATABASE_URL` pekar på körbar PostGIS-instans för DB-tester.
 | SMHI                                | Live (publikt)      | –                                                                                              |
 | Naturvårdsverket (NVR)              | Lokal PostGIS       | importerad data i `env.protected_area`                                                         |
 | SLU Artdatabanken                   | Kräver nyckel       | `SLU_API_KEY`, `SLU_SPECIES_OBS_API_KEY` m.fl.                                                 |
-| BankID                              | Live eller mock     | `BANKID_PFX_PATH`/`BANKID_CERT_PATH` + `BANKID_BASE_URL`                                       |
+| BankID                              | Mock lokalt, live efter avtal | `BANKID_PFX_PATH`/`BANKID_CERT_PATH` + `BANKID_BASE_URL` när avtal och certifikat finns |
 | eIDAS QTSP                          | PARTIAL             | `EIDAS_QTSP_ENDPOINT` + `EIDAS_QTSP_API_KEY` (nu med PDF-hash)                                 |
 | LIMS                                | HTTP eller SFTP     | `LIMS_API_ENDPOINT`/`LIMS_API_KEY` **eller** `LIMS_SFTP_HOST`/`LIMS_SFTP_PATH`                 |
 | Outlook (Graph)                     | PARTIAL             | `OUTLOOK_GRAPH_TENANT_ID/CLIENT_ID/CLIENT_SECRET/USER`                                         |

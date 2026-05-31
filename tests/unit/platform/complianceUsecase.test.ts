@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { ComputeComplianceProfileUseCase } from '../../../src/application/compute-compliance-profile.usecase';
-import { ComplianceStatus, ComplianceCategory, RatingLabel } from '../../../src/domain/compliance';
+import { ComplianceCategory } from '../../../src/domain/compliance';
 import { ProjectStatus, ProjectType } from '../../../src/domain/project';
 
 describe('ComputeComplianceProfileUseCase', () => {

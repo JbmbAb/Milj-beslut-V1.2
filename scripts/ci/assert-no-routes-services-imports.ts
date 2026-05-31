@@ -36,16 +36,16 @@ for (const file of files) {
 }
 
 if (violations.length > 0) {
-  // eslint-disable-next-line no-console
+   
   console.error(
     'CI ARCHITECTURE GUARD FAILED: server/routes must not import services, repositories, or db clients directly (use server/modules).',
   );
   for (const v of violations) {
-    // eslint-disable-next-line no-console
+     
     console.error('- ' + path.relative(process.cwd(), v.file) + ' :: ' + v.line);
   }
   process.exit(2);
 }
 
-// eslint-disable-next-line no-console
+ 
 console.log('OK: routes are thin (no direct services/repositories/db imports)');

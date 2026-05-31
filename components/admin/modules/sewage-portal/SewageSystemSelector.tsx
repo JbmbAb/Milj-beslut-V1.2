@@ -4,7 +4,7 @@
  * Corresponds to: WasteCodeSelector in PermitPortal
  */
 
-import React, { useState, useMemo } from 'react';
+import React from 'react';
 import { CheckCircle, AlertCircle, Lock } from 'lucide-react';
 import type { SewageSystemType, SewageSystemTypeId } from '../../../../types';
 import './sewage-system-selector.css';

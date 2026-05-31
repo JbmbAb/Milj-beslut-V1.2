@@ -32,8 +32,18 @@ vi.mock('../../server/repositories/massFlowService', () => ({
   recordMassMovement: vi.fn().mockResolvedValue(undefined),
 }));
 
-const org1User = { id: 'user-1', organisationId: 'org-1', role: 'ADMIN' as const };
-const org2User = { id: 'user-2', organisationId: 'org-2', role: 'ADMIN' as const };
+const org1User = {
+  id: 'user-1',
+  organisationId: 'org-1',
+  bankidId: 'bankid-user-1',
+  role: 'ADMIN' as const,
+};
+const org2User = {
+  id: 'user-2',
+  organisationId: 'org-2',
+  bankidId: 'bankid-user-2',
+  role: 'ADMIN' as const,
+};
 
 const BASE_INPUT = {
   projectId: 'proj-1',
@@ -72,7 +82,9 @@ describe('massOrchestrator — felfall och saknade grenar', () => {
     it('varnar om DEPONI saknas', async () => {
       const result = await upsertMassOperations(undefined, org1User, {
         ...BASE_INPUT,
-        operations: [{ operationType: 'MELLANLAGRING' as const, ewcCode: '17 05 08', quantityPerYear: 15000 }],
+        operations: [
+          { operationType: 'MELLANLAGRING' as const, ewcCode: '17 05 08', quantityPerYear: 15000 },
+        ],
       });
       expect(result.ok).toBe(true);
       if (!result.ok) return;
@@ -146,7 +158,8 @@ describe('massOrchestrator — felfall och saknade grenar', () => {
       const result = await exportMassCase(caseId, org1User);
       expect(result.ok).toBe(true);
       if (!result.ok) return;
-      expect(result.export.humanInTheLoop).toContain('verifiera');
+      const exported = result.export as { humanInTheLoop: string };
+      expect(exported.humanInTheLoop).toContain('verifiera');
     });
 
     it('bygger export on-the-fly om exportPayload saknas', async () => {
@@ -155,7 +168,8 @@ describe('massOrchestrator — felfall och saknade grenar', () => {
       const result = await exportMassCase(caseId, org1User);
       expect(result.ok).toBe(true);
       if (!result.ok) return;
-      expect(result.export.decisions.mellanlagring).toHaveLength(1);
+      const exported = result.export as { decisions: { mellanlagring: unknown[] } };
+      expect(exported.decisions.mellanlagring).toHaveLength(1);
     });
 
     it('returnerar 404 för okänt caseId', async () => {
@@ -260,9 +274,8 @@ describe('massOrchestrator — felfall och saknade grenar', () => {
 
   describe('searchPropertyForMass', () => {
     it('returnerar resultat från PostGIS när tillgängligt', async () => {
-      const { lookupPropertyByDesignationFromPostgis } = await import(
-        '../../server/services/propertyUnitService'
-      );
+      const { lookupPropertyByDesignationFromPostgis } =
+        await import('../../server/services/propertyUnitService');
       (lookupPropertyByDesignationFromPostgis as any).mockResolvedValueOnce({
         propertyDesignation: 'TEST 1:1',
         centroid: { lat: 59.33, lng: 18.07 },
@@ -281,9 +294,8 @@ describe('massOrchestrator — felfall och saknade grenar', () => {
     });
 
     it('varnar och returnerar placeholder om PostGIS kastar i icke-produktion', async () => {
-      const { lookupPropertyByDesignationFromPostgis } = await import(
-        '../../server/services/propertyUnitService'
-      );
+      const { lookupPropertyByDesignationFromPostgis } =
+        await import('../../server/services/propertyUnitService');
       (lookupPropertyByDesignationFromPostgis as any).mockRejectedValueOnce(new Error('DB offline'));
       const result = await searchPropertyForMass(org1User, { propertyDesignation: 'OKÄND 9:9' });
       expect(result.ok).toBe(true);
@@ -293,9 +305,8 @@ describe('massOrchestrator — felfall och saknade grenar', () => {
     });
 
     it('returnerar null-resultat som placeholder när PostGIS ger null', async () => {
-      const { lookupPropertyByDesignationFromPostgis } = await import(
-        '../../server/services/propertyUnitService'
-      );
+      const { lookupPropertyByDesignationFromPostgis } =
+        await import('../../server/services/propertyUnitService');
       (lookupPropertyByDesignationFromPostgis as any).mockResolvedValueOnce(null);
       const result = await searchPropertyForMass(org1User, { propertyDesignation: 'SAKNAS 1:1' });
       expect(result.ok).toBe(true);
@@ -307,22 +318,23 @@ describe('massOrchestrator — felfall och saknade grenar', () => {
   // ── evaluateOperationCodes SNI+EWC interaktion ──────────────────────────
 
   describe('evaluateOperationCodes — SNI+EWC interaktion', () => {
-    it('PERMIT_REQUIRED SNI lyfter EXEMPT EWC', () => {
+    it('EXEMPT EWC står kvar även när SNI signalerar PERMIT_REQUIRED', () => {
       const result = evaluateOperationCodes({
         propertyDesignation: 'TEST 1:1',
         operationType: 'MELLANLAGRING',
-        quantityPerYear: 5,         // EWC 17 05 03* klass A tröskel 10 → EXEMPT (5 < 10)
+        quantityPerYear: 5, // EWC 17 05 03* klass A tröskel 10 → EXEMPT (5 < 10)
         ewcCode: '17 05 03*',
-        sniCode: '38.21',           // SNI 38.21 klass A tröskel 1 → PERMIT_REQUIRED (5 >= 1)
+        sniCode: '38.21', // SNI 38.21 klass A tröskel 1 → PERMIT_REQUIRED (5 >= 1)
       });
-      expect(result.gateDecision).toBe('PERMIT_REQUIRED');
+      expect(result.gateDecision).toBe('EXEMPT');
+      expect(result.notes).toContain('EWC-koden styr gate-beslutet');
     });
 
     it('PERMIT_REQUIRED EWC slår alla SNI-beslut', () => {
       const result = evaluateOperationCodes({
         propertyDesignation: 'TEST 1:1',
         operationType: 'DEPONI',
-        quantityPerYear: 15,        // EWC 17 05 03* klass A → PERMIT_REQUIRED
+        quantityPerYear: 15, // EWC 17 05 03* klass A → PERMIT_REQUIRED
         ewcCode: '17 05 03*',
         sniCode: '38.11',
       });

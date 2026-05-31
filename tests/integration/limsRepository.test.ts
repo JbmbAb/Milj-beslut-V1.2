@@ -115,7 +115,22 @@ describeIfDatabaseIntegration('limsRepository Integration', () => {
   });
 
   it('should list LIMS reports by booking ID', async () => {
-    const bookingId = 'booking-abc';
+    const booking = await prisma.transportBooking.create({
+      data: {
+        quoteId: 'quote-lims-list',
+        provider: 'MOCK_FRAKTBORS',
+        status: 'BOOKED',
+        receiverId: 'receiver-lims-list',
+        receiverName: 'LIMS List Receiver',
+        wasteCode: '17 05 04',
+        tons: 10,
+        distanceKm: 50,
+        co2EstimateKg: 100,
+        plannedPickupAt: new Date(),
+        plannedDeliveryAt: new Date(Date.now() + 3600 * 1000),
+      },
+    });
+    const bookingId = booking.id;
     const report1 = await createLimsReport({
       bookingId,
       sampleId: 's1',
@@ -137,7 +152,23 @@ describeIfDatabaseIntegration('limsRepository Integration', () => {
       passed: true,
     });
     await createLimsReport({
-      bookingId: 'other-booking',
+      bookingId: (
+        await prisma.transportBooking.create({
+          data: {
+            quoteId: 'quote-lims-other',
+            provider: 'MOCK_FRAKTBORS',
+            status: 'BOOKED',
+            receiverId: 'receiver-lims-other',
+            receiverName: 'LIMS Other Receiver',
+            wasteCode: '17 05 04',
+            tons: 5,
+            distanceKm: 25,
+            co2EstimateKg: 50,
+            plannedPickupAt: new Date(),
+            plannedDeliveryAt: new Date(Date.now() + 3600 * 1000),
+          },
+        })
+      ).id,
       sampleId: 's3',
       labName: 'LabZ',
       source: 'API',

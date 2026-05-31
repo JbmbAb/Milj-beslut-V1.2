@@ -1,5 +1,4 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
-import * as bankIdModule from '../../server/services/bankIdService';
 
 vi.mock('node:fs', () => ({
   readFileSync: vi.fn(() => Buffer.from('mock-cert')),

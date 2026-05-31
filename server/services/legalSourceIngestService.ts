@@ -42,17 +42,25 @@ export interface LegalSourceSeedInput {
   payload?: Record<string, unknown>;
 }
 
-export interface NormalizedLegalSourceInput extends LegalSourceSeedInput {
+export interface NormalizedLegalSourceInput {
+  sourceSystem: string;
+  sourceType: string;
+  externalId: string;
   title: string;
-  summary?: string;
-  normalizedUrl?: string;
-  authorityName?: string;
-  authorityType?: string;
-  municipality?: string;
-  diarienummer?: string;
-  legalArea?: string;
-  mimeType?: string;
-  formatHint?: string;
+  summary?: string | null;
+  sourceUrl: string;
+  normalizedUrl?: string | null;
+  providerId?: string | null;
+  providerLabel?: string | null;
+  authorityName?: string | null;
+  authorityType?: string | null;
+  municipality?: string | null;
+  diarienummer?: string | null;
+  legalArea?: string | null;
+  mimeType?: string | null;
+  formatHint?: string | null;
+  decisionDate?: Date | null;
+  publishedAt?: Date | null;
   storageTarget: LegalStorageTarget;
   postgisSchema?: string;
   postgisTable?: string;
@@ -193,6 +201,7 @@ export function inferMatrixProjection(input: LegalSourceSeedInput): MatrixProjec
   };
 }
 
+
 export function normalizeLegalSource(input: LegalSourceSeedInput): NormalizedLegalSourceInput {
   const storageTarget = inferStorageTarget(input);
   const matrix = inferMatrixProjection(input);
@@ -200,7 +209,9 @@ export function normalizeLegalSource(input: LegalSourceSeedInput): NormalizedLeg
   const postgisTarget = inferPostgisTarget(input);
 
   return {
-    ...input,
+    sourceSystem: input.sourceSystem,
+    sourceType: input.sourceType,
+    externalId: input.externalId,
     title: normalizeExternalText(input.title) || input.externalId,
     summary: normalizeExternalText(input.summary),
     sourceUrl: normalizeExternalText(input.sourceUrl) || input.sourceUrl,
@@ -214,6 +225,8 @@ export function normalizeLegalSource(input: LegalSourceSeedInput): NormalizedLeg
     legalArea: normalizeExternalText(input.legalArea),
     mimeType: normalizeExternalText(input.mimeType),
     formatHint: normalizeExternalText(input.formatHint),
+    decisionDate: input.decisionDate,
+    publishedAt: input.publishedAt,
     storageTarget,
     postgisSchema: postgisTarget.postgisSchema,
     postgisTable: postgisTarget.postgisTable,

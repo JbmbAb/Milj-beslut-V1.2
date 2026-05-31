@@ -216,7 +216,7 @@ export const ExamplePage: React.FC = () => {
               onSubmit={handleFormSubmit}
               initialValues={{ name: '', email: '', message: '' }}
             >
-              {({ values, errors, touched, handleChange, handleBlur, isSubmitting }) => (
+              {({ values, errors, touched, handleChange, handleBlur }) => (
                 <>
                   <FormField
                     label="Namn"

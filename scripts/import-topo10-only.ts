@@ -65,19 +65,27 @@ async function runImport() {
       await prisma.$executeRawUnsafe(`CREATE SCHEMA IF NOT EXISTS ${schema};`);
 
       const args = [
-        '-f', 'PostgreSQL',
+        '-f',
+        'PostgreSQL',
         pgConn,
         item.file,
         item.layer,
-        '-nln', item.table,
+        '-nln',
+        item.table,
         '-overwrite',
-        '-gt', '65536',
-        '-nlt', 'PROMOTE_TO_MULTI',
-        '-lco', 'GEOMETRY_NAME=geom',
-        '-lco', 'SPATIAL_INDEX=NONE',
-        '-t_srs', 'EPSG:4326',
-        '-nlt', item.geomType || 'MULTIPOLYGON',
-        '-progress'
+        '-gt',
+        '65536',
+        '-nlt',
+        'PROMOTE_TO_MULTI',
+        '-lco',
+        'GEOMETRY_NAME=geom',
+        '-lco',
+        'SPATIAL_INDEX=NONE',
+        '-t_srs',
+        'EPSG:4326',
+        '-nlt',
+        item.geomType || 'MULTIPOLYGON',
+        '-progress',
       ];
 
       console.log(`   Running ogr2ogr...`);
@@ -101,7 +109,7 @@ async function runImport() {
       const res = await prisma.$queryRawUnsafe(`SELECT count(*) as c FROM ${item.table}`);
       const count = (res as any)[0].c;
       console.log(`   ${item.table.padEnd(20)}: ${count.toLocaleString().padStart(10)} rows`);
-    } catch (e) {
+    } catch {
       console.log(`   ${item.table.padEnd(20)}: ERROR`);
     }
   }
@@ -110,7 +118,7 @@ async function runImport() {
   console.log('\n✅ Done!');
 }
 
-runImport().catch(e => {
+runImport().catch((e) => {
   console.error('Fatal error:', e);
   process.exit(1);
 });

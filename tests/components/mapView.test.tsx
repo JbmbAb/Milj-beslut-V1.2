@@ -20,6 +20,13 @@ vi.mock('../../src/ui/hooks/useGeoLayers', () => ({
   useSpatialAudit: vi.fn(() => ({
     mutateAsync: vi.fn().mockResolvedValue('GIS result'),
   })),
+  useOgcFederatedMapLayers: vi.fn(() => ({
+    wmsLayers: [],
+    catalogLabelById: new Map(),
+    warnings: [],
+    isLoading: false,
+    isError: false,
+  })),
 }));
 
 import MapView from '../../components/MapView';

@@ -1,7 +1,7 @@
 import fs from 'fs';
 import path from 'path';
-import { boverketService } from '../services/boverketService';
-import { resolveKnowledgeBasePath } from '../server/services/importPathService';
+import { boverketService } from '../services/boverketService.ts';
+import { resolveKnowledgeBasePath } from '../server/services/importPathService.ts';
 import dotenv from 'dotenv';
 
 dotenv.config();

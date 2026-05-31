@@ -26,7 +26,23 @@ services:
       dockerfile: docker/postgres-dev/Dockerfile
     container_name: miljobeslut-postgres
     restart: unless-stopped
-    shm_size: '1gb'
+    shm_size: '2gb'
+    command:
+      - postgres
+      - -c
+      - shared_buffers=1GB
+      - -c
+      - effective_cache_size=12GB
+      - -c
+      - work_mem=32MB
+      - -c
+      - maintenance_work_mem=1GB
+      - -c
+      - effective_io_concurrency=64
+      - -c
+      - max_parallel_workers_per_gather=4
+      - -c
+      - random_page_cost=1.1
     environment:
       POSTGRES_DB: miljobeslut
       POSTGRES_USER: miljobeslut

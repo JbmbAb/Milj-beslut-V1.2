@@ -1,5 +1,5 @@
 import { expect, test, type Page } from '@playwright/test';
-import { createApiContext, isExternalE2E, primeAuthenticatedPage } from './support';
+import { createApiContext, primeAuthenticatedPage } from './support';
 
 const BROWSER_TIMEOUT = 180_000;
 

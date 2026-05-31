@@ -16,6 +16,10 @@ vi.mock('../../server/repositories/tokenRepository', () => ({
   cleanupExpiredTokenRevocations: vi.fn(async () => 0),
 }));
 
+vi.mock('../../server/repositories/sewageApplicationRepository', () => ({
+  listSewageApplicationsByOrg: vi.fn(async () => []),
+}));
+
 vi.mock('../../server/modules/platform/public', async (importOriginal) => {
   const mod = await importOriginal<typeof import('../../server/modules/platform/public')>();
   return {
