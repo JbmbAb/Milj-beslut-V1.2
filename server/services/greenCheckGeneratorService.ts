@@ -246,6 +246,8 @@ export async function generateGreenCheck(request: GreenCheckRequest): Promise<Ge
       'ECB Guidelines on Climate-Related & Environmental Risks',
       'Finansinspektionen (Swedish Financial Authority)',
       'Naturvårdsverket (Environmental Protection Agency)',
+      'Åtgärdsportalen CO2-kalkylator (co2.atgardsportalen.se) för sanering och efterbehandling',
+      'Åtgärdsportalen (atgardsportalen.se) för efterbehandling och marksanering',
       'Technical Screening Criteria Database',
       'Green Bond Principles',
     ];
@@ -270,12 +272,13 @@ ORGANISATIONSINFORMATION:
 - Sektor: ${request.sector || 'Blandad'}
 - Projektbeskrivning: ${request.projectDescription || 'Ej angiven'}
 
-REGULATORISKA RAMVERK SOM GÄLLER:
+REGULATORISKA RAMVERK OCH BRANSCHVERKTYG SOM GÄLLER:
 1. EU Taxonomy Regulation (2020/852) – klassificera hållbara aktiviteter
 2. CSRD (Corporate Sustainability Reporting Directive) – rapporteringskrav från 2025
 3. EU Banking Directive – kapital- och likviditetskrav
 4. ECB Guidelines – klimat- och miljörisker
 5. Finansinspektionens normer – svenska krav
+6. Åtgärdsportalen (atgardsportalen.se) och dess CO2-kalkylator (co2.atgardsportalen.se) – Nationell kunskapsbank för efterbehandling av förorenade områden samt officiellt branschverktyg för CO2-beräkningar. Om projektbeskrivningen eller sektorn indikerar markarbete, schaktning, dikesrensning, masshantering eller sanering av förorenad mark, ska du lägga till en högprioriterad rekommendation att använda atgardsportalen.se och co2.atgardsportalen.se för att följa nationell praxis, riskbedömning och göra en Scope 3- och CSRD-analys av masshanteringen.
 
 GENERERA DENNA BEDÖMNING I JSON:
 

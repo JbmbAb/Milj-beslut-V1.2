@@ -10,6 +10,12 @@ import {
   estimateInfluenceRadiusSichardt,
   GroundwaterModelInput,
 } from '../services/groundwaterInfluenceService';
+import {
+  calculateStormwaterDetention,
+  calculateVaProjectClimate,
+  StormwaterCalculationInput,
+  VaClimateInput,
+} from '../services/svensktVattenService';
 
 const router = express.Router();
 
@@ -55,6 +61,40 @@ router.post('/api/hydro/estimate-radius', requireAuth, rateLimitByUser(20, 60_00
 
     const radius = estimateInfluenceRadiusSichardt(drawdown, hydraulicConductivityK);
     res.json({ ok: true, radius });
+  } catch (error: unknown) {
+    res.status(400).json(toSafeErrorResponse(error));
+  }
+});
+
+/**
+ * POST /api/hydro/svenskt-vatten/p110
+ * Utför P110 dagvattenavledning och fördröjningsberäkning (rationella metoden + Dahlström)
+ */
+router.post('/api/hydro/svenskt-vatten/p110', requireAuth, rateLimitByUser(20, 60_000), (req, res) => {
+  try {
+    const input = req.body as StormwaterCalculationInput;
+    if (!input.areaM2 || !input.runoffCoefficient || !input.returnPeriodYears || !input.durationMinutes || !input.climateFactor) {
+      return res.status(400).json({ ok: false, error: 'Saknade obligatoriska parametrar (areaM2, runoffCoefficient, returnPeriodYears, durationMinutes, climateFactor)' });
+    }
+    const result = calculateStormwaterDetention(input);
+    res.json({ ok: true, result });
+  } catch (error: unknown) {
+    res.status(400).json(toSafeErrorResponse(error));
+  }
+});
+
+/**
+ * POST /api/hydro/svenskt-vatten/klimat-va
+ * Beräknar klimatpåverkan (CO2e) för ett VA-anläggningsprojekt (schakt, rör, transporter)
+ */
+router.post('/api/hydro/svenskt-vatten/klimat-va', requireAuth, rateLimitByUser(20, 60_000), (req, res) => {
+  try {
+    const input = req.body as VaClimateInput;
+    if (!input.trenchLengthM || !input.trenchWidthM || !input.trenchDepthM || input.reusePercentage === undefined || !input.pipes || input.transportDistanceKm === undefined) {
+      return res.status(400).json({ ok: false, error: 'Saknade obligatoriska parametrar (trenchLengthM, trenchWidthM, trenchDepthM, reusePercentage, pipes, transportDistanceKm)' });
+    }
+    const result = calculateVaProjectClimate(input);
+    res.json({ ok: true, result });
   } catch (error: unknown) {
     res.status(400).json(toSafeErrorResponse(error));
   }

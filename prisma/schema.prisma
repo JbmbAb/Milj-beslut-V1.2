@@ -23,9 +23,10 @@ model User {
   role           UserRole
   createdAt      DateTime            @default(now())
   memberships    ProjectMember[]
-  accessLogs     PropertyAccessLog[]
-  searchQueries  SearchQueryLog[]
-  organisation   Organisation        @relation(fields: [organisationId], references: [id])
+  accessLogs                   PropertyAccessLog[]
+  searchQueries                SearchQueryLog[]
+  organisation                 Organisation                  @relation(fields: [organisationId], references: [id])
+  interactionPrototypeSessions InteractionPrototypeSession[]
 
   @@schema("public")
 }
@@ -66,8 +67,9 @@ model Organisation {
   RequirementCase         RequirementCase[]
   submissions             Submission[]
   users                   User[]
-  cNotificationChemicals  CNotificationChemical[]
-  permitApplicationDrafts PermitApplicationDraft[]
+  cNotificationChemicals       CNotificationChemical[]
+  permitApplicationDrafts      PermitApplicationDraft[]
+  interactionPrototypeSessions InteractionPrototypeSession[]
 
   @@schema("public")
 }
@@ -101,8 +103,9 @@ model Project {
   cNotificationChemicals  CNotificationChemical[]
   permitApplicationDrafts PermitApplicationDraft[]
   satelliteAnalyses       SatelliteAnalysis[]
-  geoAnalysisLayers       GeoAnalysisLayer[]
-  components              ProjectComponent[]
+  geoAnalysisLayers            GeoAnalysisLayer[]
+  components                   ProjectComponent[]
+  interactionPrototypeSessions InteractionPrototypeSession[]
 
   @@index([organisationId, status])
   @@schema("public")
@@ -1597,94 +1600,6 @@ model ProjectComponent {
   @@schema("public")
 }
 
-/// Fastighetskartan: Registerenhetsområdesytor (Fastighetsgränser)
-model RegisterenhetOmradesyta {
-  id                   Int                                         @id @default(autoincrement())
-  objekt_id            String                                      @unique
-  externid             String?
-  fastighet_id         String?
-  objekt_version       Int?
-  detaljtyp            String?
-  fastighetsbeteckning String?                                     @map("fastighet")
-  geom                 Unsupported("geometry(MultiPolygon, 3006)")
-  area_m2              Float?                                      @map("area")
-  createdAt            DateTime                                    @default(now()) @map("created_at")
-
-  @@index([fastighetsbeteckning])
-  @@map("env_registerenhetsomradesytor")
-  @@schema("public")
-}
-
-/// SGU: Jordarter 1:25 000 - 1:100 000
-model SguJordart {
-  id           Int                                         @id @default(autoincrement())
-  jordart_kod  String?                                     @map("jordart_kod")
-  jordart_namn String?                                     @map("jordart_namn")
-  beskrivning  String?
-  geom         Unsupported("geometry(MultiPolygon, 3006)")
-  createdAt    DateTime                                    @default(now()) @map("created_at")
-
-  @@index([jordart_kod])
-  @@map("env_sgu_jordarter")
-  @@schema("env")
-}
-
-/// SGU: Grundvattnets sårbarhet
-model SguGrundvattenSarbarhet {
-  id          Int                                         @id @default(autoincrement())
-  klass       String?
-  beskrivning String?
-  geom        Unsupported("geometry(MultiPolygon, 3006)")
-  createdAt   DateTime                                    @default(now()) @map("created_at")
-
-  @@map("env_sgu_grundvatten_sarbarhet")
-  @@schema("env")
-}
-
-/// VISS: Vattenförekomster (Juridisk status & MKN)
-model VissVattenforekomstLegacy {
-  id               Int                                     @id @default(autoincrement())
-  viss_id          String                                  @unique @map("viss_id")
-  namn             String?
-  kategori         String? // t.ex. Sjö, Vattendrag, Grundvatten
-  status_ekologisk String?                                 @map("ekologisk_status")
-  status_kemisk    String?                                 @map("kemisk_status")
-  mkn_deadline     DateTime?                               @map("mkn_tidsfrist")
-  skyddat_omrade   Boolean                                 @default(false) @map("is_protected")
-  geom             Unsupported("geometry(Geometry, 3006)")
-  createdAt        DateTime                                @default(now()) @map("created_at")
-
-  @@index([viss_id])
-  @@map("env_viss_vattenforekomster")
-  @@schema("public")
-}
-
-/// SVAR: Avrinningsområden (Hydrologisk koppling)
-model SvarAvrinningsomrade {
-  id        Int                                         @id @default(autoincrement())
-  aro_id    String                                      @unique @map("aro_id")
-  namn      String?
-  huvud_aro Int?                                        @map("huvud_aro")
-  geom      Unsupported("geometry(MultiPolygon, 3006)")
-  createdAt DateTime                                    @default(now()) @map("created_at")
-
-  @@map("env_svar_avrinningsomraden")
-  @@schema("public")
-}
-
-/// Lantmäteriet: Marktäcke (Vegetation & Markanvändning)
-model LmMarktackeLegacy {
-  id        Int                                         @id @default(autoincrement())
-  detaljtyp String?
-  klass_kod Int?                                        @map("klass_kod")
-  geom      Unsupported("geometry(MultiPolygon, 3006)")
-  createdAt DateTime                                    @default(now()) @map("created_at")
-
-  @@index([klass_kod])
-  @@map("env_lm_marktacke")
-  @@schema("public")
-}
-
 model MpfRule {
   id                      String   @id @default(cuid())
   code                    String   @unique
@@ -1702,5 +1617,26 @@ model MpfRule {
 
   @@index([codeType])
   @@map("mpf_rules")
+  @@schema("public")
+}
+
+model InteractionPrototypeSession {
+  id                String   @id @default(cuid())
+  userId            String
+  organisationId    String
+  projectId         String?
+  lastInteractionId String?
+  model             String   @default("gemini-3.5-flash")
+  purpose           String   @default("INTERACTIONS_PROTOTYPE")
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  user         User         @relation(fields: [userId], references: [id])
+  organisation Organisation @relation(fields: [organisationId], references: [id])
+  project      Project?     @relation(fields: [projectId], references: [id])
+
+  @@index([userId, createdAt])
+  @@index([organisationId])
+  @@index([projectId])
   @@schema("public")
 }

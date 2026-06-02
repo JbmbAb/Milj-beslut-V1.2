@@ -63,12 +63,15 @@ export interface VertexGenerateOptions {
   temperature?: number;
   maxOutputTokens?: number;
   systemInstruction?: string;
+  responseMimeType?: string;
+  responseSchema?: any; // Schema from @google-cloud/vertexai
 }
 
 export interface VertexJsonOptions<T> extends VertexGenerateOptions {
-  /** Valfritt JSON-schema eller ledtråd som bifogas i prompten */
-
+  /** Valfritt JSON-schema eller ledtråd som bifogas i prompten (fallback-metod) */
   schemaHint?: Record<string, unknown>;
+  /** OpenAPI-schema för Gemini Structured Outputs (rekommenderad metod) */
+  responseSchema?: any;
   /** Tolka parsad JSON till domän-T */
   parse?: (payload: unknown) => T | null;
 }
@@ -166,11 +169,12 @@ export async function generateJsonWithVertex<T = unknown>(
   options: VertexJsonOptions<T> = {},
 ): Promise<T | null> {
   let full = prompt.trim();
-  if (options.schemaHint && Object.keys(options.schemaHint).length > 0) {
+  
+  if (options.schemaHint && Object.keys(options.schemaHint).length > 0 && !options.responseSchema) {
     full += `\n\nSvara med strikt giltig JSON (inga fenced blocks, ingen förklaring) som följer:\n${JSON.stringify(
       options.schemaHint,
     )}`;
-  } else {
+  } else if (!options.responseSchema) {
     full += `\n\nSvara enbart med strikt giltig JSON, utan kodblock eller annan text runtom.`;
   }
 
@@ -180,6 +184,8 @@ export async function generateJsonWithVertex<T = unknown>(
     temperature: options.temperature,
     maxOutputTokens: options.maxOutputTokens ?? 8192,
     systemInstruction: options.systemInstruction,
+    responseMimeType: 'application/json',
+    responseSchema: options.responseSchema,
   });
 
   let payload: unknown;
@@ -216,6 +222,8 @@ export async function generateTextWithVertexAndInlineData(
       generationConfig: {
         temperature: options.temperature ?? 0.2,
         maxOutputTokens: options.maxOutputTokens ?? 8192,
+        ...(options.responseMimeType ? { responseMimeType: options.responseMimeType } : {}),
+        ...(options.responseSchema ? { responseSchema: options.responseSchema } : {}),
       },
       ...(options.systemInstruction
         ? {
@@ -275,6 +283,8 @@ export async function generateTextWithVertex(
       generationConfig: {
         temperature: options.temperature ?? 0.2,
         maxOutputTokens: options.maxOutputTokens ?? 2048,
+        ...(options.responseMimeType ? { responseMimeType: options.responseMimeType } : {}),
+        ...(options.responseSchema ? { responseSchema: options.responseSchema } : {}),
       },
       ...(options.systemInstruction
         ? {

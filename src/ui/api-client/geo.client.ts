@@ -8,6 +8,73 @@ import { csrfFetch } from '../../../services/csrfClient';
 
 const ADMIN_BEARER_KEY = 'miljobeslut_admin_bearer';
 
+type GeoJsonGeometry = {
+  type?: string;
+  coordinates?: unknown;
+  geometry?: GeoJsonGeometry;
+  properties?: Record<string, unknown>;
+};
+
+function centroidFromGeometry(geometry: unknown): { lat: number; lng: number } | null {
+  if (!geometry || typeof geometry !== 'object') return null;
+  const g = geometry as GeoJsonGeometry;
+
+  if (g.type === 'Feature' && g.geometry) {
+    return centroidFromGeometry(g.geometry);
+  }
+
+  if (g.type === 'Point' && Array.isArray(g.coordinates) && g.coordinates.length >= 2) {
+    const [lng, lat] = g.coordinates as number[];
+    return { lat, lng };
+  }
+
+  if (g.type === 'Polygon' && Array.isArray(g.coordinates?.[0])) {
+    const ring = g.coordinates[0] as number[][];
+    if (ring.length === 0) return null;
+    let sumLng = 0;
+    let sumLat = 0;
+    for (const [lng, lat] of ring) {
+      sumLng += lng;
+      sumLat += lat;
+    }
+    return { lat: sumLat / ring.length, lng: sumLng / ring.length };
+  }
+
+  if (g.type === 'MultiPolygon' && Array.isArray(g.coordinates?.[0]?.[0])) {
+    return centroidFromGeometry({ type: 'Polygon', coordinates: g.coordinates[0] });
+  }
+
+  return null;
+}
+
+/** Normaliserar /api/property/lookup till PropertyInfo med centroid från geometri. */
+export function mapLookupResultToPropertyInfo(raw: Record<string, unknown>): PropertyInfo {
+  const boundaries = raw.boundaries as GeoJsonGeometry | undefined;
+  const boundaryProps = boundaries?.properties ?? {};
+  const designation = String(
+    raw.designation ?? raw.normalizedDesignation ?? raw.requestedDesignation ?? '',
+  ).trim();
+  const municipality = String(
+    boundaryProps.municipalityName ?? boundaryProps.kommunnamn ?? raw.municipality ?? '',
+  ).trim();
+  const geometry = raw.geometry ?? boundaries?.geometry ?? boundaries;
+  const existingCentroid = raw.centroid as { lat?: number; lng?: number } | undefined;
+  const centroid =
+    existingCentroid &&
+    typeof existingCentroid.lat === 'number' &&
+    typeof existingCentroid.lng === 'number'
+      ? { lat: existingCentroid.lat, lng: existingCentroid.lng }
+      : centroidFromGeometry(geometry);
+
+  return {
+    id: String(raw.source_key ?? raw.id ?? (designation || 'unknown')),
+    designation,
+    municipality,
+    areaM2: typeof boundaryProps.area === 'number' ? boundaryProps.area : undefined,
+    centroid: centroid ?? undefined,
+  };
+}
+
 export async function fetchPropertyInfo(designation: string, projectId?: string): Promise<PropertyInfo> {
   const token = typeof window !== 'undefined' ? (window.localStorage.getItem(ADMIN_BEARER_KEY) ?? '') : '';
   const response = await csrfFetch('/api/property/lookup', {
@@ -29,7 +96,11 @@ export async function fetchPropertyInfo(designation: string, projectId?: string)
   }
 
   const data = await response.json();
-  return data.result;
+  const raw = data.result;
+  if (!raw || typeof raw !== 'object') {
+    throw new Error('Fastighetsuppslag returnerade ogiltigt svar');
+  }
+  return mapLookupResultToPropertyInfo(raw as Record<string, unknown>);
 }
 
 export async function fetchSpatialAudit(lat: number, lng: number): Promise<string> {

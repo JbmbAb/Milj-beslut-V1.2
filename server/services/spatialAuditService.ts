@@ -1,5 +1,6 @@
 import { prisma } from '../db/prisma';
 import { auditSguRiskAtPoint, type SguRiskAudit } from './sguRiskService';
+import { auditInSarRiskAtPoint, type InSarRiskAudit } from './sgiInSarService';
 import { logger } from '../logger';
 
 export interface LocalProtectedAreaHit {
@@ -15,6 +16,7 @@ export interface SpatialAuditSummary {
   protectedAreaWarning?: string;
   isProtected: boolean;
   sgu: SguRiskAudit;
+  insar: InSarRiskAudit;
   /** Shortest distance in meters to nearest water body (lake, stream, topo10 water). null if unavailable. */
   distanceToWaterMeters: number | null;
   distanceToWaterAvailable: boolean;
@@ -68,6 +70,19 @@ async function fetchDistanceToWater(lat: number, lng: number): Promise<number | 
   return val != null ? Number(val) : null;
 }
 
+function fallbackInSarAudit(reason: string): InSarRiskAudit {
+  return {
+    pointCount: 0,
+    averageVelocityMmYear: 0,
+    maxSubsidenceMmYear: 0,
+    riskLevel: 'LOW',
+    advisory: reason,
+    sourceUrl: 'https://gis.sgi.se/geoserver/wfs?service=WFS&version=2.0.0&request=GetCapabilities',
+    points: [],
+    warningFlags: ['insar:unavailable'],
+  };
+}
+
 function fallbackSguAudit(reason: string): SguRiskAudit {
   return {
     coverageMode: 'sample',
@@ -97,7 +112,13 @@ export async function runSpatialAudit(lat: number, lng: number): Promise<Spatial
     return fallbackSguAudit(reason);
   });
 
-  const [protectedAreaResult, distanceResult, sgu] = await Promise.all([
+  const insarPromise = auditInSarRiskAtPoint(lat, lng).catch((error) => {
+    const reason = `SGI InSAR riskkontroll kunde inte köras: ${error instanceof Error ? error.message : String(error)}`;
+    logger.warn('auditInSarRiskAtPoint failed', { lat, lng, error: String(error) });
+    return fallbackInSarAudit(reason);
+  });
+
+  const [protectedAreaResult, distanceResult, sgu, insar] = await Promise.all([
     // 1. Skyddad natur (NVR + Natura 2000)
     (async () => {
       try {
@@ -126,6 +147,9 @@ export async function runSpatialAudit(lat: number, lng: number): Promise<Spatial
 
     // 3. SGU Risk (redan optimerad internt nu)
     sguPromise,
+
+    // 4. SGI InSAR Markrörelser
+    insarPromise,
   ]);
 
   const protectedAreaHits = protectedAreaResult.ok ? protectedAreaResult.hits : [];
@@ -158,8 +182,15 @@ export async function runSpatialAudit(lat: number, lng: number): Promise<Spatial
   }
 
   parts.push(sgu.summary);
+  parts.push(`InSAR (Markrörelser): ${insar.advisory}`);
 
   const sources: Array<{ web: { uri: string; title: string } }> = [];
+  sources.push({
+    web: {
+      title: 'SGI InSAR Markrörelser',
+      uri: 'https://www.sgi.se/tjanster-och-verktyg/kartor-och-verktyg/insar/',
+    },
+  });
   sources.push({
     web: {
       title: 'Naturvardsregistret / lokal PostGIS',
@@ -172,12 +203,6 @@ export async function runSpatialAudit(lat: number, lng: number): Promise<Spatial
       uri: 'https://api.sgu.se/oppnadata/jordarter1miljon/ogc/features/v1/collections/grundlager',
     },
   });
-  sources.push({
-    web: {
-      title: 'SGU jordskred-raviner',
-      uri: 'https://api.sgu.se/oppnadata/jordskred-raviner/ogc/features/v1/collections/jordskred-raviner',
-    },
-  });
 
   return {
     protectedAreaHits,
@@ -185,6 +210,7 @@ export async function runSpatialAudit(lat: number, lng: number): Promise<Spatial
     protectedAreaWarning,
     isProtected: protectedAreaHits.length > 0,
     sgu,
+    insar,
     distanceToWaterMeters,
     distanceToWaterAvailable,
     distanceToWaterWarning,

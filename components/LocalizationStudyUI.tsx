@@ -314,22 +314,36 @@ export const LocalizationStudyUI: React.FC = () => {
       return;
     }
     setPropertyStatus('Hämtar…');
+    setReportState({ loading: false, error: '', report: null });
     try {
-      const info = await fetchPropertyInfo(d);
-      setPropertyStatus(`${info.designation} — ${info.municipality || 'kommun okänd'}`);
-      if (info.centroid) {
-        const { lat, lng } = info.centroid;
-        const bb = bboxFromCenter(lat, lng, 0.015);
-        const [w, s, e, n] = bb.split(',').map(Number);
-        if ([w, s, e, n].every(Number.isFinite)) {
-          setFitTarget((prev) => ({
-            seq: (prev?.seq ?? 0) + 1,
-            bounds: [
-              [s, w],
-              [n, e],
-            ],
-          }));
-        }
+      const info = await fetchPropertyInfo(d, getActiveProjectId());
+      if (!info.centroid) {
+        setPropertyStatus(`${info.designation} — saknar centroid, klicka i kartan för plats.`);
+        return;
+      }
+
+      const { lat, lng } = info.centroid;
+      alternativeSeq.current = 1;
+      setSelectedAlternatives([
+        {
+          id: 'FASTIGHET',
+          label: info.designation || d,
+          lat: Number(lat.toFixed(6)),
+          lng: Number(lng.toFixed(6)),
+        },
+      ]);
+      setPropertyStatus(`${info.designation} — ${info.municipality || 'kommun okänd'} (plats vald)`);
+
+      const bb = bboxFromCenter(lat, lng, 0.015);
+      const [w, s, e, n] = bb.split(',').map(Number);
+      if ([w, s, e, n].every(Number.isFinite)) {
+        setFitTarget((prev) => ({
+          seq: (prev?.seq ?? 0) + 1,
+          bounds: [
+            [s, w],
+            [n, e],
+          ],
+        }));
       }
     } catch (e) {
       setPropertyStatus(e instanceof Error ? e.message : 'Uppslag misslyckades.');
@@ -350,7 +364,7 @@ export const LocalizationStudyUI: React.FC = () => {
     if (selectedAlternatives.length === 0) {
       setReportState({
         loading: false,
-        error: 'Välj minst ett alternativ på kartan innan du kör utredningen.',
+        error: 'Hämta fastighet eller klicka i kartan för att välja plats innan utredningen körs.',
         report: null,
       });
       return;
@@ -676,7 +690,7 @@ export const LocalizationStudyUI: React.FC = () => {
             <div className="bg-[#ffffff] p-6 rounded-lg shadow-sm border border-[#cfdaf2]/50">
               <h3 className="font-bold text-lg mb-2">Valda alternativ</h3>
               <p className="text-xs text-[#565e74] mb-3">
-                Klicka i kartan för att lägga till alternativa platser.
+                Fastighetsuppslag väljer plats automatiskt. Klicka i kartan för fler alternativ.
               </p>
               {selectedAlternatives.length === 0 ? (
                 <p className="text-xs text-[#565e74]">Inga alternativ valda ännu.</p>

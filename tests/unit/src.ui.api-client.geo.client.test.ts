@@ -5,6 +5,7 @@ import {
   fetchMapLayerCatalog,
   fetchPropertyInfo,
   fetchSpatialAudit,
+  mapLookupResultToPropertyInfo,
 } from '../../src/ui/api-client/geo.client';
 
 describe('src/ui/api-client/geo.client', () => {
@@ -29,8 +30,11 @@ describe('src/ui/api-client/geo.client', () => {
       }) as unknown as typeof fetch;
 
     await expect(fetchPropertyInfo('1:23', 'project-1')).resolves.toEqual({
+      id: 'X',
       designation: 'X',
       municipality: 'Y',
+      areaM2: undefined,
+      centroid: undefined,
     });
 
     expect(global.fetch).toHaveBeenNthCalledWith(1, '/api/csrf-token', {
@@ -114,5 +118,32 @@ describe('src/ui/api-client/geo.client', () => {
     ]);
 
     expect(global.fetch).toHaveBeenCalledWith('/api/reference/map-layers', { credentials: 'same-origin' });
+  });
+
+  it('derives centroid from polygon geometry in lookup payloads', () => {
+    expect(
+      mapLookupResultToPropertyInfo({
+        designation: 'ORSA STACKMORA 3:12>1',
+        geometry: {
+          type: 'Polygon',
+          coordinates: [
+            [
+              [14.66, 61.13],
+              [14.67, 61.13],
+              [14.67, 61.14],
+              [14.66, 61.13],
+            ],
+          ],
+        },
+        boundaries: {
+          properties: { municipalityName: 'Orsa', area: 5962 },
+        },
+      }),
+    ).toMatchObject({
+      designation: 'ORSA STACKMORA 3:12>1',
+      municipality: 'Orsa',
+      areaM2: 5962,
+      centroid: { lat: expect.any(Number), lng: expect.any(Number) },
+    });
   });
 });

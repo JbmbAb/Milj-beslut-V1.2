@@ -39,6 +39,7 @@ import { csrfProtection } from './security/csrf';
 import { secureErrorHandler } from './security/secureErrors';
 import internalBackgroundRouter from './routes/internal.background.routes';
 import { getReadinessPayload } from './services/readinessService';
+import interactionsPrototypeRouter from './modules/ai/interactions/interactionsPrototype.routes';
 
 export function createApp() {
   const app = express();
@@ -189,6 +190,13 @@ export function createApp() {
 
   app.use(geminiRouter);
   app.use(geminiDbRouter);
+
+  if (
+    process.env.NODE_ENV !== 'production' &&
+    String(process.env.INTERACTIONS_PROTOTYPE_ENABLED || '').toLowerCase() === 'true'
+  ) {
+    app.use(interactionsPrototypeRouter);
+  }
 
   // Global felhantering (ska ligga sist)
   app.use(secureErrorHandler);
