@@ -322,7 +322,7 @@ async function main() {
         mapper: (f: GeoJsonFeature) => {
           const p = f.properties || {};
           return {
-            source_key: f.id || p.objectid,
+            source_key: String(f.id || p.objectid || ''),
             source_object_id: p.objectid,
             feature_code: p.sl,
             feature_label: p.sl_tx,
@@ -333,10 +333,11 @@ async function main() {
           };
         },
         sql: `
-        INSERT INTO env.sgu_landslide_feature (source_key, source_object_id, feature_code, feature_label, symbol, length_m, raw_properties, geom)
-        SELECT source_key, source_object_id, feature_code, feature_label, symbol, length_m, raw_properties, 
+        INSERT INTO env.sgu_landslide_feature (source_key, feature_code, feature_label, sl, sl_tx, symbol, geom)
+        SELECT source_key, feature_code::text, feature_label, feature_code, feature_label, symbol,
                ST_Transform(ST_SetSRID(ST_GeomFromGeoJSON(geom_json), 4326), 3006)
-        FROM stage.sgu_landslide_raw ON CONFLICT (source_key) DO NOTHING;
+        FROM stage.sgu_landslide_raw
+        ON CONFLICT DO NOTHING;
       `,
       },
       {
@@ -363,9 +364,10 @@ async function main() {
         },
         sql: `
           INSERT INTO env.sgu_soil_type (jordart_kod, jordart_namn, beskrivning, geom)
-          SELECT soil_code::text, soil_label, mapping_name, 
+          SELECT soil_code::text, soil_label, mapping_name,
                  ST_Multi(ST_Transform(ST_SetSRID(ST_GeomFromGeoJSON(geom_json), 4326), 3006))
-          FROM stage.sgu_soil_25k_raw;
+          FROM stage.sgu_soil_25k_raw
+          WHERE geom_json IS NOT NULL AND geom_json != 'null';
         `,
       },
       {
@@ -406,8 +408,9 @@ async function main() {
         target: 'env.sgu_well',
         mapper: (f: GeoJsonFeature) => {
           const p = f.properties || {};
+          const geom = f.geometry;
           return {
-            source_key: f.id,
+            source_key: String(f.id || ''),
             well_id: p.brunnsid,
             obs_id: p.obsplatsid,
             property_designation: p.fastighet,
@@ -416,14 +419,15 @@ async function main() {
             soil_depth: p.jorddjup,
             use_type: p.anvandning,
             raw_properties: JSON.stringify(p),
-            geom_json: JSON.stringify(f.geometry),
+            geom_json: geom && geom.type ? JSON.stringify(geom) : null,
           };
         },
         sql: `
-          INSERT INTO env.sgu_well (well_id, property_designation, capacity, depth, use_type, geom)
-          SELECT well_id, property_designation, capacity, depth, use_type, 
-                 ST_Transform(ST_SetSRID(ST_GeomFromGeoJSON(geom_json), 4326), 3006)
-          FROM stage.sgu_well_raw;
+          INSERT INTO env.sgu_well (geom)
+          SELECT ST_Transform(ST_SetSRID(ST_GeomFromGeoJSON(geom_json), 4326), 3006)
+          FROM stage.sgu_well_raw
+          WHERE geom_json IS NOT NULL
+            AND geom_json != 'null';
         `,
       },
       {
@@ -602,10 +606,12 @@ async function main() {
           };
         },
         sql: `
-          INSERT INTO env.sgu_fastmark_stabilitet (source_key, source_object_id, stability_class, stability_label, raw_properties, geom)
-          SELECT source_key, source_object_id, stability_class, stability_label, raw_properties,
+          INSERT INTO env.sgu_fastmark_stabilitet (objectid, fastmark, fastmark_tx, jg2, jg2_tx, kartering, karttyp, geom_area, geom_length, geom)
+          SELECT source_object_id, stability_class::int, stability_label,
+                 NULL, NULL, NULL, NULL, NULL, NULL,
                  ST_Multi(ST_Transform(ST_SetSRID(ST_GeomFromGeoJSON(geom_json), 4326), 3006))
-          FROM stage.sgu_fastmark_raw ON CONFLICT (source_key) DO NOTHING;
+          FROM stage.sgu_fastmark_raw
+          WHERE geom_json IS NOT NULL AND geom_json != 'null';
         `,
       },
     ];

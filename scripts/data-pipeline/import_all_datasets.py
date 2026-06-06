@@ -23,9 +23,14 @@ _TABLES_INITIALIZED = set()
 # Haemta DATABASE_URL fran .env.local/.env
 PROJECT_ROOT = pathlib.Path(__file__).resolve().parent.parent.parent
 PROJECT_DATA_ROOT = PROJECT_ROOT.parent
+GEO_INLARNING_ROOT = pathlib.Path(
+    os.environ.get('GEO_INLARNING_DIR', r'D:\Geo inlärning')
+)
+
 RAW_SOURCE_ROOTS = [
     pathlib.Path(EXTRACTED),
     pathlib.Path(r'D:\ingest-arkiv-2026-03-29\nvr-download'),
+    GEO_INLARNING_ROOT,
     pathlib.Path(r'D:\GEodata\extracted'),   # Extraherade zips fran D:\GEodata
     pathlib.Path(r'D:\GEodata'),             # Enstaka .gpkg-filer (t.ex. geologiskt-intressanta-platser.gpkg)
     PROJECT_ROOT / 'scratch' / 'naturvardsverket' / 'natura2000_sci',
@@ -71,6 +76,13 @@ DATASET_ALIASES = {
     'RI_Friluftsliv': ['friluftsliv'],
     'HH.StrategicNoiseMaps_Sweden_END_Geopackage': ['ljudmiljo'],
 }
+GEO_INLARNING_MSb_HINTS = [
+    GEO_INLARNING_ROOT / 'oversvamning-vattendrag',
+    GEO_INLARNING_ROOT / 'oversvamning-kust',
+    GEO_INLARNING_ROOT / 'oversvamning-alv',
+    GEO_INLARNING_ROOT / 'oversvamning-malaren',
+    GEO_INLARNING_ROOT / 'oversiktlig-stabilitetskartering-i-moran-och-grova-jordar',
+]
 DATASET_HINTS = {
     'RI_Naturvard': [
         pathlib.Path(r'D:\MiljoBeslut_Produktdata_Sources\Geodata\Naturvardsverket\extracted_nv_riksintresse_natur'),
@@ -87,6 +99,9 @@ DATASET_HINTS = {
     'HH.StrategicNoiseMaps_Sweden_END_Geopackage': [
         pathlib.Path(r'D:\MiljoBeslut_Produktdata_Sources\Geodata\MiljoBeslut_Archive\reimported-from-c\production-imported-2026-05-02\storage\extracted\HH.StrategicNoiseMaps_Sweden_END_Geopackage'),
     ],
+    'InspireMSB_oversvam': list(GEO_INLARNING_MSb_HINTS),
+    'InspireMSB_APSFR': list(GEO_INLARNING_MSb_HINTS),
+    'InspireMSB_pfra': list(GEO_INLARNING_MSb_HINTS),
 }
 ENV_FILES = [
     PROJECT_ROOT / '.env.local',
@@ -763,6 +778,32 @@ def import_sgu():
     _import_layers_to_own_tables('stranderosion-kust', 'sgu_coastal_erosion')
     _import_layers_to_own_tables('hogsta-kustlinjen', 'sgu_highest_coastline')
 
+def import_geo_inlarning():
+    """Geo inlarning: MSB oversvamning/stabilitetskarteringar (produktfloden avlopp, C-anmalan, lokalisering)."""
+    log('\n=== Geo inlarning (MSB + oversvamning) ===')
+    if not GEO_INLARNING_ROOT.exists():
+        log(f'  [SAKNAS] {GEO_INLARNING_ROOT}')
+        return
+    import_msb()
+    flood_keywords = ('oversvam', 'översvämn', 'apsfr', 'pfra', 'flod', 'flood', 'malaren', 'vattendrag', 'kust')
+    imported = 0
+    for gf in find_geodata(GEO_INLARNING_ROOT):
+        low = str(gf).lower()
+        if 'stabilitetszon' in low:
+            continue
+        if not any(k in low for k in flood_keywords):
+            continue
+        sql = f'SELECT *, CAST(COALESCE(fid, ogc_fid, 1) AS character) AS external_id FROM "{gf.stem}"'
+        ogr_import(
+            gf,
+            'climate',
+            'flood_risk_area',
+            extra_opts=['-sql', sql, '-nlt', 'PROMOTE_TO_MULTI', '-skipfailures'],
+            mode='-append',
+        )
+        imported += 1
+    log(f'  Geo inlarning: {imported} extra flood-lager (utover msb_map)')
+
 def import_msb():
     """P2: MSB oversvamning/risk -> climate.flood_risk_area, climate.risk_area"""
     log('\n=== MSB Oversvamning och risk ===')
@@ -1125,6 +1166,7 @@ def import_naturtyp():
 CATEGORIES = {
     'nvr':         import_nvr,
     'sgu':         import_sgu,
+    'geo_inlarning': import_geo_inlarning,
     'msb':         import_msb,
     'vatten':      import_vatten,
     'natura2000':  import_natura2000,

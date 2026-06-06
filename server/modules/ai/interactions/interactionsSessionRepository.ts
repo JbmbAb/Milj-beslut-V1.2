@@ -1,45 +1,50 @@
-import type { InteractionPrototypeSession } from '@prisma/client';
-import { prisma } from '../../../db/prisma';
+import { prisma } from '../../../../db/prisma';
 
-export async function findInteractionSessionForUser(input: {
-  sessionId: string;
+export interface InteractionPrototypeSessionData {
   userId: string;
   organisationId: string;
-}): Promise<InteractionPrototypeSession | null> {
-  return prisma.interactionPrototypeSession.findFirst({
-    where: {
-      id: input.sessionId,
-      userId: input.userId,
-      organisationId: input.organisationId,
-    },
-  });
+  projectId?: string;
+  lastInteractionId?: string;
+  model?: string;
 }
 
-export async function createInteractionSession(input: {
-  userId: string;
-  organisationId: string;
-  projectId?: string | null;
-  lastInteractionId: string;
-  model: string;
-}): Promise<InteractionPrototypeSession> {
-  return prisma.interactionPrototypeSession.create({
-    data: {
-      userId: input.userId,
-      organisationId: input.organisationId,
-      projectId: input.projectId ?? null,
-      lastInteractionId: input.lastInteractionId,
-      model: input.model,
-      purpose: 'INTERACTIONS_PROTOTYPE',
-    },
-  });
-}
+export const interactionsSessionRepository = {
+  async findById(id: string) {
+    return prisma.interactionPrototypeSession.findUnique({
+      where: { id },
+    });
+  },
 
-export async function updateInteractionSessionLastId(input: {
-  sessionId: string;
-  lastInteractionId: string;
-}): Promise<InteractionPrototypeSession> {
-  return prisma.interactionPrototypeSession.update({
-    where: { id: input.sessionId },
-    data: { lastInteractionId: input.lastInteractionId },
-  });
-}
+  async create(data: InteractionPrototypeSessionData) {
+    return prisma.interactionPrototypeSession.create({
+      data: {
+        userId: data.userId,
+        organisationId: data.organisationId,
+        projectId: data.projectId,
+        lastInteractionId: data.lastInteractionId,
+        model: data.model || 'gemini-3.5-flash',
+      },
+    });
+  },
+
+  async updateLastInteraction(id: string, interactionId: string) {
+    return prisma.interactionPrototypeSession.update({
+      where: { id },
+      data: {
+        lastInteractionId: interactionId,
+      },
+    });
+  },
+
+  async findByProjectAndUser(projectId: string, userId: string) {
+    return prisma.interactionPrototypeSession.findFirst({
+      where: {
+        projectId,
+        userId,
+      },
+      orderBy: {
+        createdAt: 'desc',
+      },
+    });
+  },
+};

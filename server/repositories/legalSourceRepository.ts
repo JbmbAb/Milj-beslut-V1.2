@@ -12,42 +12,74 @@ export async function upsertLegalSourceRecord(input: LegalSourceSeedInput, judgm
   const normalized = normalizeLegalSource(input);
   if (!normalized) return null;
 
-  return db.legalSourceRecord.upsert({
-    where: {
-      sourceSystem_externalId: {
-        sourceSystem: normalized.sourceSystem,
-        externalId: normalized.externalId,
+  try {
+    return await db.legalSourceRecord.upsert({
+      where: {
+        sourceSystem_externalId: {
+          sourceSystem: normalized.sourceSystem,
+          externalId: normalized.externalId,
+        },
       },
-    },
-    create: {
-      ...normalized,
-      judgmentId: judgmentId || null,
-    },
-    update: {
-      title: normalized.title,
-      summary: normalized.summary,
-      sourceUrl: normalized.sourceUrl,
-      normalizedUrl: normalized.normalizedUrl,
-      providerId: normalized.providerId,
-      providerLabel: normalized.providerLabel,
-      authorityName: normalized.authorityName,
-      authorityType: normalized.authorityType,
-      municipality: normalized.municipality,
-      diarienummer: normalized.diarienummer,
-      legalArea: normalized.legalArea,
-      mimeType: normalized.mimeType,
-      formatHint: normalized.formatHint,
-      decisionDate: normalized.decisionDate,
-      publishedAt: normalized.publishedAt,
-      storageTarget: normalized.storageTarget,
-      postgisSchema: normalized.postgisSchema,
-      postgisTable: normalized.postgisTable,
-      matrixCategory: normalized.matrixCategory,
-      matrixSuggested: normalized.matrixSuggested,
-      payload: normalized.payload,
-      judgmentId: judgmentId || undefined,
-    },
-  });
+      create: {
+        ...normalized,
+        judgmentId: judgmentId || null,
+      },
+      update: {
+        title: normalized.title,
+        summary: normalized.summary,
+        sourceUrl: normalized.sourceUrl,
+        normalizedUrl: normalized.normalizedUrl,
+        providerId: normalized.providerId,
+        providerLabel: normalized.providerLabel,
+        authorityName: normalized.authorityName,
+        authorityType: normalized.authorityType,
+        municipality: normalized.municipality,
+        diarienummer: normalized.diarienummer,
+        legalArea: normalized.legalArea,
+        mimeType: normalized.mimeType,
+        formatHint: normalized.formatHint,
+        decisionDate: normalized.decisionDate,
+        publishedAt: normalized.publishedAt,
+        storageTarget: normalized.storageTarget,
+        postgisSchema: normalized.postgisSchema,
+        postgisTable: normalized.postgisTable,
+        matrixCategory: normalized.matrixCategory,
+        matrixSuggested: normalized.matrixSuggested,
+        payload: normalized.payload,
+        judgmentId: judgmentId || undefined,
+      },
+    });
+  } catch (error: any) {
+    if (error.code === 'P2002' && judgmentId) {
+      return db.legalSourceRecord.update({
+        where: { judgmentId },
+        data: {
+          title: normalized.title,
+          summary: normalized.summary,
+          sourceUrl: normalized.sourceUrl,
+          normalizedUrl: normalized.normalizedUrl,
+          providerId: normalized.providerId,
+          providerLabel: normalized.providerLabel,
+          authorityName: normalized.authorityName,
+          authorityType: normalized.authorityType,
+          municipality: normalized.municipality,
+          diarienummer: normalized.diarienummer,
+          legalArea: normalized.legalArea,
+          mimeType: normalized.mimeType,
+          formatHint: normalized.formatHint,
+          decisionDate: normalized.decisionDate,
+          publishedAt: normalized.publishedAt,
+          storageTarget: normalized.storageTarget,
+          postgisSchema: normalized.postgisSchema,
+          postgisTable: normalized.postgisTable,
+          matrixCategory: normalized.matrixCategory,
+          matrixSuggested: normalized.matrixSuggested,
+          payload: normalized.payload,
+        },
+      });
+    }
+    throw error;
+  }
 }
 
 export async function upsertRequirementMatrixRowFromLegalSource(

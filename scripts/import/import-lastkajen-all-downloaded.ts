@@ -23,7 +23,7 @@ dotenv.config();
 
 const prisma = new PrismaClient();
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
-const ingestRoot = path.join(repoRoot, 'storage/ingest/lastkajen');
+const ingestRoot = process.env.LASTKAJEN_INGEST_ROOT || path.join(repoRoot, 'storage/ingest/lastkajen');
 
 const skipPackages = new Set(
   process.argv

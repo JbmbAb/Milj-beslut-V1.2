@@ -20,7 +20,7 @@ OGR = r"C:\Program Files\GDAL\ogr2ogr.exe"
 TOKEN_URL = "https://api.lantmateriet.se/token"
 STAC_BASE = "https://api.lantmateriet.se/stac-vektor/v1"
 LOG_DIR = PROJECT_ROOT / "logs"
-WORK_DIR = pathlib.Path(tempfile.gettempdir()) / "lm_stac_resume_work"
+WORK_DIR = pathlib.Path("D:\\GEodata\\Downloads_Archive")
 
 DATASETS = {
     "byggnader": {
@@ -42,6 +42,26 @@ DATASETS = {
         "collection": "marktacke",
         "layer": "mark",
         "table": "env.marktacke",
+    },
+    "ortnamn": {
+        "collection": "ortnamn",
+        "layer": "ortnamn",
+        "table": "core.ortnamn",
+    },
+    "kommuner": {
+        "collection": "kommun-lan-rike",
+        "layer": "kommun",
+        "table": "core.kommuner",
+    },
+    "lan": {
+        "collection": "kommun-lan-rike",
+        "layer": "lan",
+        "table": "core.lan",
+    },
+    "rike": {
+        "collection": "kommun-lan-rike",
+        "layer": "rike",
+        "table": "core.rike",
     }
 }
 
@@ -136,13 +156,16 @@ def run_import(dataset_key):
         zip_path = WORK_DIR / f"{item_id}.zip"
         
         try:
-            print(f"  [{i}/{len(items)}] {item_id}: downloading...")
-            req = urllib.request.Request(href, headers={"Authorization": f"Bearer {get_token()}"})
-            with urllib.request.urlopen(req) as resp, open(zip_path, "wb") as f:
-                f.write(resp.read())
+            if zip_path.exists():
+                print(f"  [{i}/{len(items)}] {item_id}: ZIP already exists locally, skipping download.")
+            else:
+                print(f"  [{i}/{len(items)}] {item_id}: downloading...")
+                req = urllib.request.Request(href, headers={"Authorization": f"Bearer {get_token()}"})
+                with urllib.request.urlopen(req) as resp, open(zip_path, "wb") as f:
+                    f.write(resp.read())
             
             with zipfile.ZipFile(zip_path) as zf:
-                gpkg_name = [n for name in zf.namelist() if name.endswith(".gpkg")][0]
+                gpkg_name = [name for name in zf.namelist() if name.endswith(".gpkg")][0]
                 zf.extract(gpkg_name, WORK_DIR)
                 gpkg_path = WORK_DIR / gpkg_name
 
@@ -173,7 +196,8 @@ def run_import(dataset_key):
         except Exception as e:
             print(f"  [ERROR] {item_id}: {e}")
         finally:
-            if zip_path.exists(): zip_path.unlink()
+            # Keep zip on D: as permanent archive
+            # if zip_path.exists(): zip_path.unlink()
             # clean work dir gpkgs
             for p in WORK_DIR.glob("*.gpkg"): p.unlink()
 

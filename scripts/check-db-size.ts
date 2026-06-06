@@ -1,38 +1,26 @@
-import { Client } from 'pg';
-import dotenv from 'dotenv';
-dotenv.config();
+import { PrismaClient } from '@prisma/client';
+const prisma = new PrismaClient();
 
-async function run() {
-  const client = new Client({
-    connectionString: process.env.DATABASE_URL
-  });
-  await client.connect();
+async function main() {
+  const size: any = await prisma.$queryRawUnsafe("SELECT pg_size_pretty(pg_database_size('miljobeslut'));");
+  console.log('DB Size:', size);
+
+  const tables: any = await prisma.$queryRawUnsafe(`
+    SELECT relname as table_name,
+           pg_size_pretty(pg_total_relation_size(relid)) as total_size,
+           pg_total_relation_size(relid) as raw_size
+    FROM pg_catalog.pg_statio_user_tables
+    ORDER BY pg_total_relation_size(relid) DESC
+    LIMIT 20;
+  `);
+  console.log('Top Tables:', tables);
   
-  const query = `
-    SELECT 
-        schemaname, 
-        relname AS table_name, 
-        pg_size_pretty(pg_total_relation_size(relid)) AS total_size,
-        pg_total_relation_size(relid) AS size_bytes
-    FROM pg_catalog.pg_statio_user_tables 
-    ORDER BY pg_total_relation_size(relid) DESC;
-  `;
-
-  try {
-    const res = await client.query(query);
-    console.table(res.rows.map(r => ({
-      schema: r.schemaname,
-      table: r.table_name,
-      size: r.total_size
-    })));
-    
-    const totalBytes = res.rows.reduce((acc, r) => acc + parseInt(r.size_bytes), 0);
-    console.log(`\nTotal databasstorlek (användardata): ${(totalBytes / 1024 / 1024).toFixed(2)} MB`);
-  } catch (err) {
-    console.error('Kunde inte hämta storleksstatistik:', err);
-  } finally {
-    await client.end();
-  }
+  const counts = await prisma.$transaction([
+    prisma.legalSourceRecord.count(),
+    prisma.legalCorpusRecord.count(),
+    prisma.judgmentRecord.count()
+  ]);
+  console.log('Counts:', { legalSourceRecord: counts[0], legalCorpusRecord: counts[1], judgmentRecord: counts[2] });
 }
 
-run();
+main().finally(() => prisma.$disconnect());

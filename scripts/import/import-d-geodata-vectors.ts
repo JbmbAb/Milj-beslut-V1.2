@@ -36,7 +36,7 @@ const IMPORTS: VectorImportJob[] = [
   {
     id: 'svar_vattenomraden',
     file: path.join(GEODATA_DIR, 'VARO_2016.zip'),
-    layer: 'VARO_2016',
+    layer: 'vm.VISS_SW_VARO_2016_1_RISK_TOTALT',
     table: 'env.svar_vattenomraden_2016',
   },
   {

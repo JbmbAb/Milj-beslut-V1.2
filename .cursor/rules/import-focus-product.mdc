@@ -1,0 +1,67 @@
+---
+description: PostGIS-import för Miljöbeslut-produktflöden + Geo inlärning. Aldrig vägnät/bulk utan explicit begäran.
+globs:
+  - "scripts/import/**"
+  - "scripts/data-pipeline/import*.py"
+  - "scripts/import/run-import*.ps1"
+  - "server/services/hybridGeoService.ts"
+  - "server/datasources/mapLayerCatalog.ts"
+  - "components/LocalizationStudyUI.tsx"
+  - "app/services/analysis/**"
+  - "docs/SEWAGE_APPLICATION_SYSTEM.md"
+alwaysApply: false
+---
+
+# Import-FOKUS (Miljöbeslut + Geo inlärning)
+
+## Produktflöden
+- **Enskilt avlopp** — brunnar, jordarter, genomsläpplighet, jorddjup, grundvatten, recipient/hydro, vattenskydd, MSB översvämning/stabilitet, fastighet
+- **C-anmälan** — fastighet, skyddad natur, byggnad/mark, recipienter, geologi/risk
+- **Lokaliseringsutredning** — kartlager i `LocalizationStudyUI` / `/api/layers/*`
+
+## Geo inlärning (`D:\Geo inlärning` / `GEO_INLARNING_DIR`)
+Prioriterad källa för **MSB-inlärningsmaterial**:
+- Kommunal **stabilitetszoner** → `import-stability-mapping.ts` → `env.msb_stabilitetszon`
+- **Översvämning** (vattendrag, kust, älv, Mälaren, morän) → `import_all_datasets.py geo_inlarning` → `climate.flood_risk_area` m.fl.
+- PDF/FGDB i samma träd: vektor först till PostGIS; PDF för kunskapsbas/RAG separat om flödet kräver det
+
+## Kör (standard)
+```bash
+npm run import:focus
+```
+
+## Importera (relevant)
+| Domän | Exempel |
+|--------|---------|
+| Fastighet | LM STAC `fastighetsindelning`, `core.property_unit`, `geom` på registerenhet |
+| Geo inlärning | MSB stabilitet + översvämning (ovan) |
+| SGU | `D:\GEodata` via `import-sgu-bulk` (brunnar, jord, GW, skred, …) |
+| NVR / miljö | `protected_area`, `natura2000_area`, `water_protection_area` |
+| Hydro | SVARO/SVAR, APSFR från `D:\GEodata` |
+| Topo10 | mark, vatten, byggnad — inte vägnät som primärmål |
+
+## Importera INTE utan explicit användarbegäran
+- Lastkajen, `transport.*`, TN-väg, NVDB, vägbeläggning, 631 dataportal-GPKG
+- `run-import-session.ps1 -FullBulk` / `-IncludeTransport`
+
+## Disk-strategi (klargjord 2026-06-03)
+- **C:** Plattformens "hem" — kod + installation + PostGIS (byggs/körs här). 
+  Plattformen flyttas till ren sökväg på C: och döps helst om till enbart `C:\miljöbeslut` (eller `C:\Dev\miljöbeslut`).
+- **D:** Tillfällig råfilsyta för import. All bulk-rådata ligger här under arbetet:
+  - D:\GEodata, D:\Geo inlärning, D:\ingest-arkiv-2026-03-29
+  - "Skrivbordet på D:" från annan dator: D:\Users\jimmy\Desktop\MiljoBeslut_Produktdata (huvudproduktdata), OutlookExport (C-anmälan-dokument, ansökningar/beslut från olika kommuner), Mariestad m.fl.
+  Importskripten pekar hit via env (GEODATA_DIR etc.). Råfiler **stannar på D:** tills import är klar.
+- **H:** Primär backup-driv för råfiler. När import är verifierad kopieras de stora rå-träden från D: till H: (användaren har redan kopierat GeoData + Geo inlärning dit). Därefter kan D: tömmas/frigöras.
+- **G:** Sekundär/moln-backup (Google Drive "Min enhet"). Extra redundans när H: inte är ansluten.
+- I repot på C: (`storage/import-archive`): **endast** små curated saker + manifests (t.ex. de 4 Lastkajen produkt-paketen för buller/barriär/vilt, import-logs). **Inga** stora bulk-råfiler hit.
+
+Skript:
+- `npm run import:inventory` — läser D: + H: + G: + PostGIS.
+- `npm run import:archive-product` — curated till C: + backup stora från D: till H: (primärt) + G:.
+- `npm run import:archive-product:local` — endast C: (curated, ingen H:/G:).
+- Efter H: backup + verifiering: rensa motsvarande på D: för att frigöra disken.
+
+Se `scripts/import/data-disk-layout.ps1` för exakta sökvägar (uppdateras när plattforms-mappen flyttas/renamas). H_*-sökvägar pekar på den befintliga kopian på H:.
+
+## Verifiering
+`npm run demo:preflight` + staging smoke (avlopp, lokaliseringsutredning, C-anmälan).

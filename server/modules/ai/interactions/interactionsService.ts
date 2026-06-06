@@ -1,84 +1,32 @@
-import { logger } from '../../../logger';
-import { SecureError } from '../../../security/secureErrors';
-import { CircuitBreaker } from '../../../utils/circuitBreaker';
 import { getInteractionsClient } from './interactionsClient';
-import { assertInteractionsPrototypeConfigured } from './interactionsConfig';
-import type { GenerateWithInteractionsInput, GenerateWithInteractionsResult } from './types';
+import { InteractionInput, InteractionResult } from './types';
 
-const interactionsBreaker = new CircuitBreaker({
-  name: 'InteractionsAPI',
-  failureThreshold: 3,
-  recoveryTimeoutMs: 30_000,
-});
+/**
+ * Isolated service for the Interactions API prototype.
+ * Targets gemini-3.5-flash by default.
+ */
+export async function generateWithInteractions(input: InteractionInput): Promise<InteractionResult> {
+  const client = getInteractionsClient();
+  const modelName = input.model || process.env.INTERACTIONS_MODEL || 'gemini-3.5-flash';
+  const store = input.store !== undefined ? input.store : (process.env.INTERACTIONS_STORE === 'true');
 
-type CompletedInteraction = {
-  id: string;
-  status: string;
-  output_text?: string;
-  steps?: unknown[];
-  usage?: unknown;
-};
+  console.log(`[Interactions API] Calling interactions.create with model ${modelName}, store=${store}`);
 
-function isCompletedInteraction(value: unknown): value is CompletedInteraction {
-  return Boolean(
-    value &&
-      typeof value === 'object' &&
-      'id' in value &&
-      typeof (value as CompletedInteraction).id === 'string' &&
-      'status' in value,
-  );
-}
-
-export async function generateWithInteractions(
-  input: GenerateWithInteractionsInput,
-): Promise<GenerateWithInteractionsResult> {
-  return interactionsBreaker.execute(async () => {
-    const config = assertInteractionsPrototypeConfigured();
-    const client = getInteractionsClient();
-
-    const interaction = await client.interactions.create({
-      model: input.model ?? config.model,
-      input: input.prompt,
-      store: input.store ?? config.store,
-      previous_interaction_id: input.previousInteractionId,
-      system_instruction: input.systemInstruction,
-    });
-
-    if (!isCompletedInteraction(interaction)) {
-      throw new SecureError(
-        'interactions_stream_unexpected',
-        'Unexpected streaming response from Interactions API',
-        502,
-      );
-    }
-
-    if (interaction.status === 'failed' || interaction.status === 'cancelled') {
-      logger.warn('Interactions API returned non-success status', {
-        interactionId: interaction.id,
-        status: interaction.status,
-      });
-      throw new SecureError(
-        `interactions_status_${interaction.status}`,
-        'Interactions API request failed',
-        502,
-      );
-    }
-
-    const outputText = String(interaction.output_text ?? '').trim();
-    if (!outputText) {
-      throw new SecureError(
-        'interactions_empty_output',
-        'Interactions API returned no text output',
-        502,
-      );
-    }
-
-    return {
-      interactionId: interaction.id,
-      outputText,
-      status: interaction.status,
-      stepCount: Array.isArray(interaction.steps) ? interaction.steps.length : 0,
-      usage: interaction.usage,
-    };
+  // @ts-ignore - The interactions API might be marked as experimental or missing from types in older versions of the SDK,
+  // but we verified it exists at runtime in v2.7.0.
+  const interaction = await client.interactions.create({
+    model: modelName,
+    input: input.prompt,
+    store: store,
+    previous_interaction_id: input.previousInteractionId,
+    system_instruction: input.systemInstruction,
   });
+
+  return {
+    interactionId: interaction.id,
+    outputText: interaction.output_text,
+    status: interaction.status,
+    stepCount: interaction.steps?.length || 0,
+    usage: interaction.usage,
+  };
 }

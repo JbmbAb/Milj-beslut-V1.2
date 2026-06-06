@@ -117,6 +117,7 @@ export async function collectDownloadedLegalCorpus(
     collectFoundationRecords(rootDir, options),
     collectCuratedRecords(rootDir, options),
     collectDomstolRecords(rootDir, options),
+    collectDomstolHistoryRecords(rootDir, options),
     collectModCorpusRecords(rootDir, options),
     collectMmdCorpusRecords(rootDir, options),
     collectLansstyrelserRecords(rootDir, options),
@@ -396,6 +397,88 @@ async function collectDomstolRecords(
             link: item.link,
             description: summary,
             pubDate: pubDate || new Date(),
+          },
+        },
+        options,
+      );
+    }),
+  );
+  return results.filter((r): r is StructuredLegalCorpusRecord => r !== null);
+}
+
+async function collectDomstolHistoryRecords(
+  rootDir: string,
+  options: CollectDownloadedLegalCorpusOptions,
+): Promise<StructuredLegalCorpusRecord[]> {
+  const manifestPath = path.join(rootDir, 'legal', 'domstol-history', 'items.json');
+  let manifest: any;
+  try {
+    manifest = await readJsonFile<{
+      items?: Array<{ guid: string; title: string; link: string; savedAs: string }>;
+    }>(manifestPath);
+  } catch (e) {
+    return []; // No history downloaded yet
+  }
+
+  const results = await Promise.all(
+    (manifest.items || []).map(async (manifestItem: any) => {
+      const sourcePath = path.join('legal', 'domstol-history', 'pages', manifestItem.savedAs);
+      const fullPath = path.join(rootDir, sourcePath);
+      let item: any = {};
+      try {
+        item = await readJsonFile<any>(fullPath);
+      } catch (e) {
+        console.warn(`[legalCorpusImportService] Missing or unreadable JSON file: ${fullPath}`);
+        return null;
+      }
+
+      const isEnvironmental = (item.rattsomradeLista || []).some((r: string) => 
+        r.toLowerCase().includes('miljö') || r.toLowerCase().includes('mark') || r.toLowerCase().includes('vatten')
+      ) || (item.domstolLista || []).some((d: string) => 
+        d.toLowerCase().includes('miljö') || d.toLowerCase().includes('mark')
+      ) || (item.nyckelordLista || []).some((n: string) => 
+        n.toLowerCase().includes('miljö') || n.toLowerCase().includes('pbl')
+      );
+
+      const title = item.malNummerLista?.[0] ? `Avgörande ${item.malNummerLista[0]}` : manifestItem.title;
+      const summary = item.sammanfattning || title;
+      const caseNumber = item.malNummerLista?.[0] || extractCaseNumber(title);
+      const pubDate = item.avgorandedatum ? new Date(item.avgorandedatum) : new Date();
+
+      return materializeStructuredRecord(
+        rootDir,
+        {
+          sourceFamily: 'JUDGMENT',
+          sourceSystem: 'DOMSTOL_RSS',
+          sourceType: 'JUDGMENT',
+          sourcePath,
+          recordKey: toKey('domstol-history', manifestItem.savedAs),
+          canonicalKey: toKey('domstol', item.id),
+          externalId: item.id,
+          title,
+          summary,
+          documentText: summary,
+          sourceUrl: manifestItem.link,
+          normalizedUrl: manifestItem.link,
+          authorityName: item.domstolLista?.[0] || 'Sveriges Domstolar',
+          authorityType: 'Domstol',
+          court: item.domstolLista?.[0] || 'Sveriges Domstolar',
+          courtLevel: 'OVERDOMSTOL',
+          legalArea: item.rattsomradeLista?.[0] || 'Miljö',
+          caseNumber,
+          decisionDate: pubDate,
+          publishedAt: pubDate,
+          metadata: {
+            item,
+            isRelevantForAi: isEnvironmental
+          },
+          tags: ['judgment', 'domstol-history', isEnvironmental ? 'environmental' : 'other'],
+          judgmentInput: {
+            guid: item.id,
+            title,
+            link: manifestItem.link,
+            description: summary,
+            pubDate: pubDate,
           },
         },
         options,

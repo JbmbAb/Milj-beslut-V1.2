@@ -99,7 +99,18 @@ function parseOnlyKeys(argv: string[]): Set<string> | null {
 
 function filterJobs(jobs: SguBulkImportJob[], only: Set<string> | null): SguBulkImportJob[] {
   if (!only || only.size === 0) return jobs;
-  return jobs.filter((j) => only.has(j.key));
+  const needles = [...only];
+  return jobs.filter((j) => {
+    if (only.has(j.key)) return true;
+    const zip = j.zipFile.toLowerCase();
+    const key = j.key.toLowerCase();
+    return needles.some(
+      (n) =>
+        key.startsWith(n.toLowerCase()) ||
+        zip.includes(n.toLowerCase()) ||
+        j.table.toLowerCase().includes(n.toLowerCase()),
+    );
+  });
 }
 
 async function main() {
