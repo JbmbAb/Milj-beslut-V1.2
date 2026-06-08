@@ -1,4 +1,6 @@
 # Wrapper: standard = FOKUS (demo). Bulk/transport ar opt-in.
+# TODO(Mimers Brunn): Migration debt. This runner still exports legacy D:\GEodata and
+# D:\Geo inlärning paths. Point it at GEO_Master_Archive-backed manifests before reuse.
 param(
     [switch]$FullBulk,
     [switch]$IncludeTransport

@@ -1,6 +1,8 @@
 # PRODUKT-FOKUS: enskilt avlopp, C-anmalan, lokaliseringsutredning + Geo inlarning + Miljobeslut-GIS.
 # EJ: Lastkajen/transport, 631 dataportal-GPKG-bulk.
 # Loggar: logs/import-focus-YYYYMMDD-HHmm/
+# TODO(Mimers Brunn): Migration debt. This runner still exports legacy D:\GEodata and
+# D:\Geo inlärning paths. Point it at GEO_Master_Archive-backed manifests before reuse.
 param(
     [switch]$SkipLmStac,
     [switch]$SkipSguBulk,

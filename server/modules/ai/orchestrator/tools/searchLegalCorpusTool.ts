@@ -1,8 +1,6 @@
 import { FunctionDeclaration, Type } from '@google/genai';
-import { PrismaClient } from '@prisma/client';
 import { embedText } from '../../../../services/searchService';
-
-const prisma = new PrismaClient();
+import { prisma } from '../../../../db/prisma';
 
 export const searchLegalCorpusDeclaration: FunctionDeclaration = {
   name: 'searchLegalCorpus',
@@ -182,7 +180,7 @@ export async function searchLegalCorpusHandler(args: { query: string; legalArea?
     }
 
     const details = await prisma.$queryRawUnsafe<any[]>(
-      `SELECT id, title, case_number, published_at, decision_date, authority_name, legal_area, document_text, metadata
+      `SELECT id, title, case_number, published_at, decision_date, authority_name, legal_area, document_text, metadata, source_url, source_path
        FROM legal_corpus_records
        WHERE id IN (${sortedIds.map((_, i) => `$${i + 1}`).join(', ')});`,
       ...sortedIds
@@ -214,6 +212,8 @@ export async function searchLegalCorpusHandler(args: { query: string; legalArea?
         publishedAt: detail.published_at,
         authorityName: detail.authority_name,
         legalArea: detail.legal_area,
+        sourceUrl: detail.source_url,
+        sourcePath: detail.source_path,
         snippet,
         metadata: structuredMeta,
         score: rrfInfo?.rrf ? Number(rrfInfo.rrf.toFixed(6)) : 0,

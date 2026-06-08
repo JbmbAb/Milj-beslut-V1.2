@@ -20,10 +20,27 @@
 -- För massiva dataset (>100M) kan denna behöva brytas ut till batchad kopiering.
 BEGIN;
 
+CREATE SCHEMA IF NOT EXISTS "ops";
+
+CREATE TABLE IF NOT EXISTS "ops"."GpsPosition_id_registry" (
+    "id" TEXT PRIMARY KEY,
+    "createdAt" TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS "ops"."AuditTrail_id_registry" (
+    "id" TEXT PRIMARY KEY,
+    "createdAt" TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS "ops"."AuditTrail_chainHash_registry" (
+    "chainHash" TEXT PRIMARY KEY,
+    "createdAt" TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
 -- =========================================================================
 -- 1. GPS POSITION (Mest kritisk, högst frekvens)
 -- =========================================================================
-RAISE NOTICE 'Migrating GpsPosition...';
+-- RAISE NOTICE 'Migrating GpsPosition...';
 
 -- Byt namn på nuvarande
 ALTER TABLE "public"."GpsPosition" RENAME TO "GpsPosition_legacy";
@@ -50,12 +67,31 @@ CREATE TABLE "public"."GpsPosition" (
 
 -- Skapa index
 CREATE INDEX "GpsPosition_bookingId_timestamp_idx" ON "public"."GpsPosition"("bookingId", "timestamp");
-CREATE INDEX "GpsPosition_brin_timestamp_idx" ON "public"."GpsPosition" USING BRIN ("timestamp") WITH (pages_per_range = 128);
+CREATE INDEX "GpsPosition_timestamp_brin_idx" ON "public"."GpsPosition" USING BRIN ("timestamp") WITH (pages_per_range = 128);
+
+CREATE OR REPLACE FUNCTION "public"."ensure_gpsposition_unique_id_registry"()
+RETURNS TRIGGER
+LANGUAGE plpgsql
+AS $$
+BEGIN
+    INSERT INTO "ops"."GpsPosition_id_registry" ("id") VALUES (NEW."id");
+    RETURN NEW;
+EXCEPTION
+    WHEN unique_violation THEN
+        RAISE EXCEPTION 'GpsPosition id already exists: %', NEW."id" USING ERRCODE = '23505';
+END;
+$$;
+
+DROP TRIGGER IF EXISTS "GpsPosition_unique_id_registry" ON "public"."GpsPosition";
+CREATE TRIGGER "GpsPosition_unique_id_registry"
+BEFORE INSERT ON "public"."GpsPosition"
+FOR EACH ROW
+EXECUTE FUNCTION "public"."ensure_gpsposition_unique_id_registry"();
 
 -- =========================================================================
 -- 2. AUDIT TRAIL
 -- =========================================================================
-RAISE NOTICE 'Migrating AuditTrail...';
+-- RAISE NOTICE 'Migrating AuditTrail...';
 
 ALTER TABLE "public"."AuditTrail" RENAME TO "AuditTrail_legacy";
 ALTER INDEX IF EXISTS "AuditTrail_pkey" RENAME TO "AuditTrail_legacy_pkey";
@@ -81,12 +117,32 @@ CREATE TABLE "public"."AuditTrail" (
 
 CREATE INDEX "AuditTrail_reference_number_idx" ON "public"."AuditTrail"("reference_number");
 CREATE INDEX "AuditTrail_entityType_timestamp_idx" ON "public"."AuditTrail"("entityType", "timestamp");
-CREATE INDEX "AuditTrail_brin_timestamp_idx" ON "public"."AuditTrail" USING BRIN ("timestamp") WITH (pages_per_range = 128);
+CREATE INDEX "AuditTrail_timestamp_brin_idx" ON "public"."AuditTrail" USING BRIN ("timestamp") WITH (pages_per_range = 128);
+
+CREATE OR REPLACE FUNCTION "public"."ensure_audittrail_unique_registry"()
+RETURNS TRIGGER
+LANGUAGE plpgsql
+AS $$
+BEGIN
+    INSERT INTO "ops"."AuditTrail_id_registry" ("id") VALUES (NEW."id");
+    INSERT INTO "ops"."AuditTrail_chainHash_registry" ("chainHash") VALUES (NEW."chainHash");
+    RETURN NEW;
+EXCEPTION
+    WHEN unique_violation THEN
+        RAISE EXCEPTION 'AuditTrail id or chainHash already exists for row % / %', NEW."id", NEW."chainHash" USING ERRCODE = '23505';
+END;
+$$;
+
+DROP TRIGGER IF EXISTS "AuditTrail_unique_registry" ON "public"."AuditTrail";
+CREATE TRIGGER "AuditTrail_unique_registry"
+BEFORE INSERT ON "public"."AuditTrail"
+FOR EACH ROW
+EXECUTE FUNCTION "public"."ensure_audittrail_unique_registry"();
 
 -- =========================================================================
 -- 3. SEARCH QUERY LOG
 -- =========================================================================
-RAISE NOTICE 'Migrating SearchQueryLog...';
+-- RAISE NOTICE 'Migrating SearchQueryLog...';
 
 ALTER TABLE "public"."SearchQueryLog" RENAME TO "SearchQueryLog_legacy";
 ALTER INDEX IF EXISTS "SearchQueryLog_pkey" RENAME TO "SearchQueryLog_legacy_pkey";
@@ -111,12 +167,12 @@ CREATE TABLE "public"."SearchQueryLog" (
 
 CREATE INDEX "SearchQueryLog_projectId_createdAt_idx" ON "public"."SearchQueryLog"("projectId", "createdAt");
 CREATE INDEX "SearchQueryLog_userId_createdAt_idx" ON "public"."SearchQueryLog"("userId", "createdAt");
-CREATE INDEX "SearchQueryLog_brin_createdAt_idx" ON "public"."SearchQueryLog" USING BRIN ("createdAt") WITH (pages_per_range = 128);
+CREATE INDEX "SearchQueryLog_createdAt_brin_idx" ON "public"."SearchQueryLog" USING BRIN ("createdAt") WITH (pages_per_range = 128);
 
 -- =========================================================================
 -- 4. PROPERTY ACCESS LOG
 -- =========================================================================
-RAISE NOTICE 'Migrating PropertyAccessLog...';
+-- RAISE NOTICE 'Migrating PropertyAccessLog...';
 
 ALTER TABLE "public"."PropertyAccessLog" RENAME TO "PropertyAccessLog_legacy";
 ALTER INDEX IF EXISTS "PropertyAccessLog_pkey" RENAME TO "PropertyAccessLog_legacy_pkey";
@@ -139,7 +195,7 @@ CREATE TABLE "public"."PropertyAccessLog" (
 
 CREATE INDEX "PropertyAccessLog_projectId_timestamp_idx" ON "public"."PropertyAccessLog"("projectId", "timestamp");
 CREATE INDEX "PropertyAccessLog_userId_timestamp_idx" ON "public"."PropertyAccessLog"("userId", "timestamp");
-CREATE INDEX "PropertyAccessLog_brin_timestamp_idx" ON "public"."PropertyAccessLog" USING BRIN ("timestamp") WITH (pages_per_range = 128);
+CREATE INDEX "PropertyAccessLog_timestamp_brin_idx" ON "public"."PropertyAccessLog" USING BRIN ("timestamp") WITH (pages_per_range = 128);
 
 -- =========================================================================
 -- PARTITION GENERATION (2024 - 2026)
@@ -152,7 +208,7 @@ DECLARE
     end_date TEXT;
     part_suffix TEXT;
 BEGIN
-    FOR y IN 2024..2026 LOOP
+    FOR y IN 2024..2030 LOOP
         FOR m IN 1..12 LOOP
             start_date := format('%s-%s-01', y, lpad(m::text, 2, '0'));
             IF m = 12 THEN
@@ -161,7 +217,7 @@ BEGIN
                 end_date := format('%s-%s-01', y, lpad((m + 1)::text, 2, '0'));
             END IF;
             
-            part_suffix := format('y%sm%s', y, lpad(m::text, 2, '0'));
+            part_suffix := format('%s_%s', y, lpad(m::text, 2, '0'));
             
             -- GpsPosition
             EXECUTE format('CREATE TABLE IF NOT EXISTS "public"."GpsPosition_%s" PARTITION OF "public"."GpsPosition" FOR VALUES FROM (%L) TO (%L);', part_suffix, start_date, end_date);
@@ -187,7 +243,7 @@ CREATE TABLE IF NOT EXISTS "public"."PropertyAccessLog_default" PARTITION OF "pu
 -- =========================================================================
 -- DATA TRANSFER
 -- =========================================================================
-RAISE NOTICE 'Copying data to partitioned tables. This may take time...';
+-- RAISE NOTICE 'Copying data to partitioned tables. This may take time...';
 
 INSERT INTO "public"."GpsPosition" 
 SELECT * FROM "GpsPosition_legacy";
@@ -201,6 +257,6 @@ SELECT * FROM "SearchQueryLog_legacy";
 INSERT INTO "public"."PropertyAccessLog" 
 SELECT * FROM "PropertyAccessLog_legacy";
 
-RAISE NOTICE 'Migration completed successfully.';
+-- RAISE NOTICE 'Migration completed successfully.';
 
 COMMIT;

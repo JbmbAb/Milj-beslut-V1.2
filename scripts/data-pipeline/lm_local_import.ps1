@@ -1,6 +1,8 @@
 # scripts/data-pipeline/lm_local_import.ps1
 # LM-import via LOCAL ogr2ogr directly from ZIP using native tar.exe for extraction
 # Uses C drive for temporary extraction to resolve D drive space limits
+# TODO(Mimers Brunn): Migration debt. This script still depends on D:\GEodata as source.
+# Rewrite it to read archived LM deliveries from GEO_Master_Archive before reuse.
 
 $zip = "D:\GEodata\Fastighetsinformation.zip"
 # Extract to C drive where there is 38.4 GB of free space

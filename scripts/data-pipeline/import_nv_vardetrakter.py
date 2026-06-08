@@ -3,6 +3,8 @@ import_nv_vardetrakter.py
 Importerar Värdetrakter (Grön Infrastruktur) från D:\\Geo inlärning\\Värdetrakter.zip
 till PostGIS env.nv_vardetrakter.
 """
+# TODO(Mimers Brunn): Migration debt. This importer still points directly at
+# D:\Geo inlärning. Rewrite it to resolve archived input from GEO_Master_Archive.
 import os, sys, subprocess, pathlib, zipfile, tempfile, re, urllib.parse
 
 PROJECT_ROOT = pathlib.Path(__file__).resolve().parent.parent.parent

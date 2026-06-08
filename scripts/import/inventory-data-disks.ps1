@@ -1,5 +1,7 @@
 # Inventerar råfiler för import på C: och D: + PostGIS-trasig data (tomma stora tabeller).
 # Skriver JSON under logs/ och storage/import-archive/manifests/
+# TODO(Mimers Brunn): Migration debt. This inventory still reports legacy D:-roots and
+# must be rewritten around GEO_Master_Archive once the migration is complete.
 param(
     [switch]$Quick,
     [int]$MaxFilesPerRoot = 5000
@@ -141,7 +143,7 @@ $report = @{
         'Kör sanitize-postgis-failed-imports.ps1 -WhatIf sedan utan WhatIf'
         'Kör archive-product-raw.ps1 för Lastkajen-produkt + G: backup'
         'Synka Google Drive om G: är tom'
-        'Efter import:focus: flytta D:\GEodata m.m. till storage/import-archive på C:'
+        'Efter import:focus: flytta kvarvarande legacy-rådata till GEO_Master_Archive på H:'
     )
 }
 

@@ -23,3 +23,5 @@ export { getSmhiWeatherRisk } from '../../services/smhiWeatherService';
 export { runSpatialAudit } from '../../services/spatialAuditService';
 export { getPostgisExtendedHealth } from './adapters/postgisHealth';
 export { getDatasetMapLayer } from '../../services/postgisLayerService';
+export { getArcGisLayerAsGeoJson } from '../../services/arcgisProxyService';
+export { getNmdOutOfDbBandPath, queryNmdRasterPoint, getNmdVectorTile } from './index';

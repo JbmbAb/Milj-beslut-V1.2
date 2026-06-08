@@ -1,4 +1,6 @@
 $ErrorActionPreference = 'Continue'
+# TODO(Mimers Brunn): Migration debt. This importer still uses a temp workspace under
+# D:\GEodata. Rewrite it to stage from GEO_Master_Archive-managed paths before reuse.
 
 $OGR      = 'C:\Program Files\GDAL\ogr2ogr.exe'
 $PG_HOST  = 'localhost'

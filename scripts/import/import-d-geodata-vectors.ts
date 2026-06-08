@@ -1,5 +1,7 @@
 /**
  * Importerar vektorlager från D:\GEodata till PostGIS (ogr2ogr).
+ * TODO(Mimers Brunn): rewrite this entrypoint to resolve archived sources from
+ * GEO_Master_Archive instead of legacy D:-root defaults before next reuse.
  *
  * Run:
  *   npx dotenv -e .env -- tsx scripts/import/import-d-geodata-vectors.ts

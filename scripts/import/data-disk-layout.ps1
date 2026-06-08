@@ -1,4 +1,7 @@
 # Gemensam sökvägskonvention (uppdaterad 2026-06-03):
+# TODO(Mimers Brunn): Migration debt. This layout still models D:\GEodata and
+# D:\Geo inlärning as active roots. Rewrite defaults to GEO_Master_Archive once the
+# Antigravity migration is complete.
 # - C: = Plattformens installation + kod (PostGIS byggs/körs här tillsammans med appen).
 #   Plattformen flyttas till ren sökväg på C: och döps om till t.ex. C:\miljöbeslut (enbart "miljöbeslut").
 # - D: = Tillfällig råfils-lagring / bulk för import (GEodata, Geo inlärning, Outlook/C-anmälan-dokument från skrivbordet på D:, etc.).

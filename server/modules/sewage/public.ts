@@ -1,4 +1,6 @@
 export { generateSewageApplicationDocuments } from '../../services/sewageDocumentGenerator';
+export { estimateSewageSizing } from './sewageSizingService';
+export { selectPreferredSewageTechnology } from './technologySelector';
 export { submitSewageApplicationToMunicipality } from '../../services/municipalitySubmissionService';
 export {
   handleMunicipalityWebhook,

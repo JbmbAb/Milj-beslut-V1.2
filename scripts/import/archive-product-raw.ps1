@@ -1,4 +1,7 @@
 # Arkivering / backup av råfiler enligt disk-strategi (2026-06-03):
+# TODO(Mimers Brunn): Migration debt. This helper still refers to legacy D:\GEodata and
+# D:\Geo inlärning sources during the move to GEO_Master_Archive. Replace these source
+# defaults with canonical archive manifests before next long-term use.
 # - Plattform + PostGIS på C: (ren mapp, t.ex. C:\miljöbeslut).
 # - Råfiler (bulk) lever på D: som tillfällig källa under import.
 # - H: = primär backup-driv för råfiler (GeoData, Geo inlärning, Outlook/C-anmälan-dokument, etc.).

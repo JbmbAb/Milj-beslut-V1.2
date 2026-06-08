@@ -1,26 +1,47 @@
 import { GoogleGenAI } from '@google/genai';
 import { searchLegalCorpusDeclaration, searchLegalCorpusHandler } from './tools/searchLegalCorpusTool';
 import { queryGeodataDeclaration, queryGeodataHandler } from './tools/queryGeodataTool';
+import { searchSewageKnowledgeDeclaration, searchSewageKnowledgeHandler } from './tools/searchSewageKnowledgeTool';
 import { DEFAULT_AI_POLICY, ragSystemInstruction } from '../policy';
+import { logger } from '../../../logger';
+
+type ToolHandler = (args: unknown) => Promise<unknown>;
 
 export class VertexOrkester {
   private ai: GoogleGenAI;
-  private tools: any[];
+  private tools: Array<{ functionDeclarations: unknown[] }>;
+  private toolHandlers: Record<string, ToolHandler>;
   private model: string;
 
   constructor(projectId: string, location?: string, model: string = 'gemini-1.5-pro') {
     const loc = location || process.env.VERTEX_LOCATION || 'europe-west1';
-    this.ai = new GoogleGenAI({ vertexai: { project: projectId, location: loc }, project: projectId, location: loc });
+    this.ai = new GoogleGenAI({ vertexai: true, project: projectId, location: loc });
     this.model = process.env.VERTEX_MODEL || model;
+    this.toolHandlers = {
+      searchLegalCorpus: (args) =>
+        searchLegalCorpusHandler(args as Parameters<typeof searchLegalCorpusHandler>[0]),
+      queryGeodata: (args) => queryGeodataHandler(args as Parameters<typeof queryGeodataHandler>[0]),
+      searchSewageKnowledge: (args) =>
+        searchSewageKnowledgeHandler(args as Parameters<typeof searchSewageKnowledgeHandler>[0]),
+    };
 
     this.tools = [
       {
         functionDeclarations: [
           searchLegalCorpusDeclaration,
-          queryGeodataDeclaration
+          queryGeodataDeclaration,
+          searchSewageKnowledgeDeclaration
         ]
       }
     ];
+  }
+
+  private async invokeTool(name: string, args: unknown): Promise<unknown> {
+    const handler = this.toolHandlers[name];
+    if (!handler) {
+      throw new Error(`Unknown function ${name}`);
+    }
+    return handler(args);
   }
 
   public async ask(prompt: string): Promise<string> {
@@ -46,19 +67,15 @@ export class VertexOrkester {
       const parts = await Promise.all(
         functionCalls.map(async (call) => {
           const name = call.name;
-          const args = call.args as any;
-          let apiResponse: any;
+          const args = call.args ?? {};
+          let apiResponse: unknown;
 
           try {
-            if (name === 'searchLegalCorpus') {
-              apiResponse = await searchLegalCorpusHandler(args);
-            } else if (name === 'queryGeodata') {
-              apiResponse = await queryGeodataHandler(args);
-            } else {
-              apiResponse = { error: `Unknown function ${name}` };
-            }
-          } catch (err: any) {
-            apiResponse = { error: `Verktygsfel: ${err.message}` };
+            apiResponse = await this.invokeTool(name, args);
+          } catch (error) {
+            const message = error instanceof Error ? error.message : String(error);
+            logger.warn('VertexOrkester tool invocation failed', { name, message });
+            apiResponse = { error: `Verktygsfel: ${message}` };
           }
 
           return {
@@ -78,7 +95,7 @@ export class VertexOrkester {
     }
 
     if (functionCalls && functionCalls.length > 0 && loopCount >= MAX_LOOPS) {
-      console.warn(`VertexOrkester: loopCount reached MAX_LOOPS (${MAX_LOOPS}) while model still requested tool calls.`);
+      logger.warn('VertexOrkester loop cap reached', { maxLoops: MAX_LOOPS });
     }
 
     return response.text || 'Kunde inte generera ett svar.';

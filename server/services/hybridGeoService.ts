@@ -1,7 +1,5 @@
-import { Prisma, PrismaClient } from '@prisma/client';
+import { Prisma, prisma } from '../db/prisma';
 import { logger } from '../logger';
-
-const prisma = new PrismaClient();
 
 export interface LocalGeoFeature {
   designation: string;

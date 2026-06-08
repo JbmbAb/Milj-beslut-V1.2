@@ -26,6 +26,7 @@ import sewageApplicationsRouter from './routes/sewage.applications.routes';
 import sewageLegacyAliasRouter from './routes/sewage.legacy-alias.routes';
 import cNotificationMassRouter from './routes/cNotificationMass.routes';
 import hydroRouter from './routes/hydro.routes';
+import tilesRouter from './routes/tiles.routes';
 import pdfExportRouter from './routes/pdf-export.routes';
 import bankComplianceRouter from './routes/bankCompliance.routes';
 import erpSyncRouter from './routes/erpSync.routes';
@@ -153,6 +154,7 @@ export function createApp() {
   app.use(sewageDocumentRouter);
   app.use(cNotificationMassRouter);
   app.use(hydroRouter);
+  app.use(tilesRouter);
   app.use(propertyLookupRouter);
   app.use(bankComplianceRouter);
   app.use(erpSyncRouter);

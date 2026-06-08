@@ -1,5 +1,7 @@
 # Raderar råfiler som verifierats importerade (logg 2026-06-02-session).
 # Rör INTE G:\ (Google Drive) eller storage/ingest/lastkajen.
+# TODO(Mimers Brunn): Migration debt. This cleanup is hardcoded to legacy D:\GEodata
+# artifacts and must be rewritten against GEO_Master_Archive manifests before reuse.
 $ErrorActionPreference = 'Stop'
 $logDir = Join-Path $PSScriptRoot '..\..\logs'
 New-Item -ItemType Directory -Force -Path $logDir | Out-Null

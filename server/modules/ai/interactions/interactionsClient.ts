@@ -15,5 +15,5 @@ export function getInteractionsClient() {
     throw new Error('INTERACTIONS_GEMINI_API_KEY is required for the Interactions prototype.');
   }
 
-  return new GoogleGenAI(apiKey);
+  return new GoogleGenAI({ apiKey });
 }

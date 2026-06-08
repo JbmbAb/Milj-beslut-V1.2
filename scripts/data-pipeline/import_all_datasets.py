@@ -21,6 +21,10 @@ EXTRACTED_LX = '/data/extracted'   # Monterings-path inuti Docker
 _TABLES_INITIALIZED = set()
 
 # Haemta DATABASE_URL fran .env.local/.env
+# TODO(Mimers Brunn): Migration debt. This importer still contains legacy D:\GEodata
+# and D:\Geo inlärning fallbacks. Rewrite source discovery around GEO_Master_Archive
+# manifests before the next operational import run.
+
 PROJECT_ROOT = pathlib.Path(__file__).resolve().parent.parent.parent
 PROJECT_DATA_ROOT = PROJECT_ROOT.parent
 GEO_INLARNING_ROOT = pathlib.Path(
