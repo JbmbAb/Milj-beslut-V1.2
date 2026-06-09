@@ -16,7 +16,7 @@ COPY tsconfig.json ./
 RUN npm ci --legacy-peer-deps
 
 COPY prisma ./prisma
-RUN DATABASE_URL=postgresql://localhost npx prisma generate
+RUN mkdir -p /app/docs/architecture && DATABASE_URL=postgresql://localhost npx prisma generate
 
 # Kopiera källkod
 COPY . .

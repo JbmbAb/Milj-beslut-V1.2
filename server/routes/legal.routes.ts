@@ -12,7 +12,7 @@ import express from 'express';
 import { z } from 'zod';
 import { requireAuth } from '../security/auth';
 import { rateLimitByUser } from '../security/rateLimit';
-import { toSafeErrorResponse } from '../security/secureErrors';
+import { toSafeErrorResponse, SecureError } from '../security/secureErrors';
 import type { Prisma } from '@prisma/client';
 import {
   listJudgments,
@@ -22,21 +22,61 @@ import {
   listLegalSourceRecordsPage,
 } from '../modules/legal/public';
 import { parseListQuery } from '../lib/querySort';
+import { prisma } from '../db/prisma';
+import * as fs from 'fs';
+import * as path from 'path';
 
 const router = express.Router();
 
-const JUDGMENT_SORT_KEYS = ['pubDate', 'createdAt', 'updatedAt', 'title', 'relevance'] as const;
-const LEGAL_SOURCE_SORT_KEYS = [
-  'createdAt',
-  'updatedAt',
-  'publishedAt',
-  'decisionDate',
-  'title',
-  'relevance',
-] as const;
-const KNOWLEDGE_SORT_KEYS = ['name', 'relevance', 'createdAt'] as const;
+const JUDGMENT_SORT_KEYS = ['pubDate', 'title', 'legalArea', 'authorityType', 'relevance'] as const;
+const LEGAL_SOURCE_SORT_KEYS = ['publishedAt', 'title', 'sourceSystem', 'sourceType', 'relevance', 'createdAt'] as const;
+const KNOWLEDGE_SORT_KEYS = ['relevance'] as const;
 
-// GET /api/legal/judgments — lista domar med filter/sort.
+router.get('/api/legal/view/:id', rateLimitByUser(60, 60_000), async (req, res) => {
+  try {
+    const id = req.params.id;
+    const record = await prisma.legalCorpusRecord.findUnique({
+      where: { id: req.params.id as string },
+      select: { sourcePath: true, title: true, mimeType: true, sourceUrl: true }
+    });
+
+    if (!record) {
+      return res.status(404).json({ ok: false, error: 'Hittade inte det juridiska dokumentet.' });
+    }
+
+    // Om vi har en extern URL men ingen lokal fil, omdirigera
+    if (!record.sourcePath && record.sourceUrl) {
+      return res.redirect(record.sourceUrl);
+    }
+
+    if (!record.sourcePath) {
+      return res.status(404).json({ ok: false, error: 'Dokumentfilen saknas på servern.' });
+    }
+
+    const absolutePath = path.isAbsolute(record.sourcePath) 
+      ? record.sourcePath 
+      : path.resolve(process.cwd(), record.sourcePath);
+
+    if (!fs.existsSync(absolutePath)) {
+      // Fallback till sourceUrl om filen saknas lokalt
+      if (record.sourceUrl) {
+        return res.redirect(record.sourceUrl);
+      }
+      return res.status(404).json({ ok: false, error: 'Dokumentfilen hittades inte på angiven sökväg.' });
+    }
+
+    const mimeType = record.mimeType || 'application/pdf';
+    res.setHeader('Content-Type', mimeType);
+    res.setHeader('Content-Disposition', `inline; filename="${encodeURIComponent(record.title)}.pdf"`);
+    
+    const stream = fs.createReadStream(absolutePath);
+    stream.pipe(res);
+  } catch (error: unknown) {
+    res.status(500).json(toSafeErrorResponse(error));
+  }
+});
+
+// ... (rest of existing routes)
 router.get('/api/legal/judgments', rateLimitByUser(60, 60_000), async (req, res) => {
   try {
     const parsed = parseListQuery(req.query, {

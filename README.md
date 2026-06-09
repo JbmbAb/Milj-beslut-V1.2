@@ -104,10 +104,11 @@ eller att `DATABASE_URL` pekar på körbar PostGIS-instans för DB-tester.
 
 ### Importarkiv på extern disk
 
-- Sätt `KNOWLEDGE_BASE_ROOT`, `IMPORT_ARCHIVE_ROOT`, `IMPORT_SOURCE_ROOT`, `IMPORT_CACHE_ROOT` och `IMPORT_REIMPORT_SCAN_ROOTS` om D: ska vara source of truth för importerat källmaterial.
+- Plattformen följer [Mimers Brunn offline-first policy](docs/architecture/mimers-brunn-offline-first.md): Master-arkivet på `H:\Delade enheter\Miljöbeslut\GEO_Master_Archive` är canonical för beslutskritisk geodata och källdokument.
+- Sätt `IMPORT_ARCHIVE_ROOT`, `IMPORT_SOURCE_ROOT`, `IMPORT_CACHE_ROOT` och `IMPORT_REIMPORT_SCAN_ROOTS` så nya pipelines använder Master-arkivet. Gamla rötter som `D:\GEodata`, `D:\Geo inlärning` och `C:\GEO PDF` är migrationskällor, inte permanent source of truth.
 - `npm run archive:import-sources -- --source <path>` arkiverar importerat källmaterial till `IMPORT_ARCHIVE_ROOT`.
 - `npm run scan:import-sources` letar efter manifest, shapefiles och arkiv under de konfigurerade scan-rötterna och föreslår återimport.
-- `npm run import:legal:corpus -- --root-dir <path>` importerar legal corpus direkt från vald katalog, t.ex. på D:.
+- `npm run import:legal:corpus -- --root-dir <path>` importerar legal corpus från vald arkivkatalog, normalt under Master-arkivet.
 
 ### Analys av fallerande tester
 

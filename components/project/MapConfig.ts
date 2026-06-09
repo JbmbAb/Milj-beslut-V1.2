@@ -26,7 +26,11 @@ export type DynamicBboxLayerKey =
   | 'topo10_mark'
   | 'topo10_vag'
   | 'topo10_vatten'
-  | 'topo10_jarnvag';
+  | 'topo10_jarnvag'
+  | 'lst_vm_avlopp'
+  | 'lst_vm_dagvatten'
+  | 'lst_vm_fororenade_omraden'
+  | 'lst_vm_fysisk_planering';
 
 export type StaticOverlayKey = 'sgu_brunnar' | 'sgu_groundwater_vulnerability' | 'raa_fornsok';
 
@@ -153,6 +157,26 @@ export const DYNAMIC_BBOX_LAYER_CONFIG: Record<
     endpoint: '/api/layers/topo10/jarnvag',
     emptyMessage: 'Ingen jarnvag (Topo 10) hittades i aktuell kartvy.',
     label: 'Järnväg (Topo 10)',
+  },
+  lst_vm_avlopp: {
+    endpoint: '/api/layers/external/lst-vm/lst_vm_avlopp',
+    emptyMessage: 'Inga åtgärdsunderlag för avlopp hittades.',
+    label: 'Atgärdsunderlag: Avlopp',
+  },
+  lst_vm_dagvatten: {
+    endpoint: '/api/layers/external/lst-vm/lst_vm_dagvatten',
+    emptyMessage: 'Inga åtgärdsunderlag för dagvatten hittades.',
+    label: 'Atgärdsunderlag: Dagvatten',
+  },
+  lst_vm_fororenade_omraden: {
+    endpoint: '/api/layers/external/lst-vm/lst_vm_fororenade_omraden',
+    emptyMessage: 'Inga åtgärdsunderlag för förorenade områden hittades.',
+    label: 'Atgärdsunderlag: Förorenade områden',
+  },
+  lst_vm_fysisk_planering: {
+    endpoint: '/api/layers/external/lst-vm/lst_vm_fysisk_planering',
+    emptyMessage: 'Inga åtgärdsunderlag för fysisk planering hittades.',
+    label: 'Atgärdsunderlag: Fysisk planering',
   },
 };
 

@@ -1,4 +1,4 @@
-import { prisma } from '../../../../db/prisma';
+import { prisma } from '../../../db/prisma';
 
 export interface InteractionPrototypeSessionData {
   userId: string;
@@ -8,43 +8,33 @@ export interface InteractionPrototypeSessionData {
   model?: string;
 }
 
-export const interactionsSessionRepository = {
-  async findById(id: string) {
-    return prisma.interactionPrototypeSession.findUnique({
-      where: { id },
-    });
-  },
+export async function findInteractionSessionForUser(args: { sessionId: string; userId: string; organisationId: string }) {
+  return prisma.interactionPrototypeSession.findFirst({
+    where: {
+      id: args.sessionId,
+      userId: args.userId,
+      organisationId: args.organisationId,
+    },
+  });
+}
 
-  async create(data: InteractionPrototypeSessionData) {
-    return prisma.interactionPrototypeSession.create({
-      data: {
-        userId: data.userId,
-        organisationId: data.organisationId,
-        projectId: data.projectId,
-        lastInteractionId: data.lastInteractionId,
-        model: data.model || 'gemini-3.5-flash',
-      },
-    });
-  },
+export async function createInteractionSession(data: InteractionPrototypeSessionData) {
+  return prisma.interactionPrototypeSession.create({
+    data: {
+      userId: data.userId,
+      organisationId: data.organisationId,
+      projectId: data.projectId,
+      lastInteractionId: data.lastInteractionId,
+      model: data.model || 'gemini-3.5-flash',
+    },
+  });
+}
 
-  async updateLastInteraction(id: string, interactionId: string) {
-    return prisma.interactionPrototypeSession.update({
-      where: { id },
-      data: {
-        lastInteractionId: interactionId,
-      },
-    });
-  },
-
-  async findByProjectAndUser(projectId: string, userId: string) {
-    return prisma.interactionPrototypeSession.findFirst({
-      where: {
-        projectId,
-        userId,
-      },
-      orderBy: {
-        createdAt: 'desc',
-      },
-    });
-  },
-};
+export async function updateInteractionSessionLastId(args: { sessionId: string; lastInteractionId: string }) {
+  return prisma.interactionPrototypeSession.update({
+    where: { id: args.sessionId },
+    data: {
+      lastInteractionId: args.lastInteractionId,
+    },
+  });
+}

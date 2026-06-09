@@ -3,7 +3,7 @@ services:
   app:
     build:
       context: .
-      target: production
+      target: web
     container_name: miljobeslut-app
     restart: unless-stopped
     ports:
@@ -16,6 +16,10 @@ services:
       - DATABASE_URL=postgresql://miljobeslut:miljobeslut@db:5432/miljobeslut?sslmode=disable
     networks:
       - miljobeslut-net
+    volumes:
+      - type: bind
+        source: H:\Delade enheter\Miljöbeslut\GEO_Master_Archive
+        target: /master-archive
 
   # ─── PostgreSQL med PostGIS + pgvector ──────────────────────
   db:
@@ -49,12 +53,20 @@ services:
       POSTGRES_PASSWORD: miljobeslut
     ports:
       - '5432:5432'
+    cap_add:
+      - SYS_ADMIN
+    devices:
+      - /dev/fuse
+    security_opt:
+      - apparmor:unconfined
     volumes:
       - type: volume
         source: postgres-data
         target: /var/lib/postgresql/data
-      #      - ./scripts/db/init-search.sql:/docker-entrypoint-initdb.d/01-init-search.sql:ro
       - ./docker/postgres-init:/docker-entrypoint-initdb.d/extra:ro
+      - type: bind
+        source: H:\Delade enheter\Miljöbeslut\GEO_Master_Archive
+        target: /master-archive
     healthcheck:
       test: ['CMD-SHELL', 'pg_isready -U miljobeslut -d miljobeslut']
       interval: 10s

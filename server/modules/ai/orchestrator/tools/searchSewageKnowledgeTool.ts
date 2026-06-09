@@ -64,7 +64,7 @@ export async function searchSewageKnowledgeHandler(args: { query: string }) {
 
     if (!response.ok) {
       const errorText = await response.text();
-      logger.error('Vertex AI Search API error:', errorText);
+      logger.error('Vertex AI Search API error:', { errorText });
       return { error: 'Kunde inte söka i kunskapsbanken just nu.' };
     }
 

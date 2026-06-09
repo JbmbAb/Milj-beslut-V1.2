@@ -6,5 +6,5 @@ export async function buildCNotificationCase(input: {
   authUser: AuthUser;
   payload: unknown;
 }) {
-  return upsertMassOperations(input.caseId, input.authUser, input.payload);
+  return upsertMassOperations(input.caseId, input.authUser, input.payload as any);
 }

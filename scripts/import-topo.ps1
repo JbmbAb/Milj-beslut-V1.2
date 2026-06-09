@@ -55,7 +55,7 @@ foreach ($topoName in $TOPO_FILES) {
         $vsiPath = "/vsizip/$($innerZip.FullName.Replace('\', '/'))"
 
         try {
-            & ogr2ogr -f "PostgreSQL" "PG:host=localhost user=miljobeslut dbname=miljobeslut password=miljobeslut" $vsiPath -nln $tableName -nlt GEOMETRY -overwrite -gt 65536 -lco GEOMETRY_NAME=geom -lco FID=id -lco SPATIAL_INDEX=GIST -makevalid --config PG_USE_COPY YES
+            & ogr2ogr -f "PostgreSQL" "PG:host=localhost user=miljobeslut dbname=miljobeslut password=miljobeslut" $vsiPath -nln $tableName -nlt GEOMETRY -overwrite -gt 65536 -lco GEOMETRY_NAME=geom -lco FID=id -lco SPATIAL_INDEX=GIST --config PG_USE_COPY YES
             if ($LASTEXITCODE -eq 0) {
                 Write-Log "      OK (Tabell: $tableName)" "Green"
             } else {

@@ -46,7 +46,10 @@ export function ragSystemInstruction(policy: AiPolicy): string {
 
   if (policy.requireJudgmentCitationSpecification) {
     instructions.push(
-      'Vid alla påståenden om juridisk praxis eller miljödomar ska du explicit inkludera diarienummer/målnummer, domstol, datum samt tillämpliga lagrum (kapitel och paragraf i Miljöbalken eller annan lag) för att slutanvändaren ska kunna granska underlaget.'
+      'Vid alla påståenden om juridisk praxis eller miljödomar ska du explicit inkludera diarienummer/målnummer, domstol, datum samt tillämpliga lagrum (kapitel och paragraf i Miljöbalken eller annan lag).',
+      'VIKTIGT: Du ska alltid inkludera en klickbar Markdown-länk till originaldokumentet för varje källa du citerar.',
+      '- För källor som har ett ID i verktygssvaret: använd [Titel/Målnummer](/api/legal/view/ID).',
+      '- För källor som har en extern URL (sourceUrl): använd [Titel](URL).'
     );
   }
 

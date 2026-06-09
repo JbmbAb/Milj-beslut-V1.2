@@ -84,8 +84,8 @@ async function main() {
           mimeType: 'application/pdf',
           formatHint: 'pdf',
           sourcePath: pdfPath, // Spara absolut sökväg så UI kan ladda den
-          documentText: extraction.text,
-          searchText: extraction.text?.substring(0, 5000) || fileName,
+          documentText: extraction.documentText,
+          searchText: extraction.documentText?.substring(0, 5000) || fileName,
           byteSize: stats.size,
           contentHash,
           language: 'sv',
@@ -93,8 +93,8 @@ async function main() {
           tags: ['local-archive', 'pdf', folderName.toLowerCase()],
         },
         update: {
-          documentText: extraction.text,
-          searchText: extraction.text?.substring(0, 5000) || fileName,
+          documentText: extraction.documentText,
+          searchText: extraction.documentText?.substring(0, 5000) || fileName,
           byteSize: stats.size,
           contentHash,
           sourcePath: pdfPath,

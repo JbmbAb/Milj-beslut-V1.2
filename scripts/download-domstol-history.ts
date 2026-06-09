@@ -15,7 +15,7 @@ function toFileSlug(value: string): string {
   return value.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');
 }
 
-async function fetchWithRetry(url: string, retries = 3): Promise<Response> {
+async function fetchWithRetry(url: string, retries = 3): Promise<any> {
   for (let i = 0; i < retries; i++) {
     try {
       const res = await fetch(url, {

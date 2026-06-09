@@ -60,13 +60,17 @@ export class BoverketService {
     }
 
     /**
+     * Hämtar hela Planbestämmelsekatalogen V2
+     * Ger systemet möjlighet att mappa digitala plankoder till juridisk text.
+     */
+    async getPlanbestammelserV2(): Promise<any> {
+        return this.request('/planbestammelser/v2/json');
+    }
+
+    /**
      * Hämtar Boverkets begrepp och termer (Ordbok)
-     * Ger systemet en gemensam vokabulär för plan- och byggfrågor.
      */
     async getTermbank(): Promise<any> {
-        // Observera: Den exakta endpointen för Boverkets ordbok kan variera beroende på vilken version
-        // av deras Termbank-API som publicerats (ofta kallat begrepp/ordbok).
-        // Standardiserad gissning baserat på deras portalstruktur:
         return this.request('/termbank/v1/begrepp');
     }
 

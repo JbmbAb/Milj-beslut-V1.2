@@ -40,7 +40,7 @@
     "ci:arch:data-class": "tsx scripts/ci/assert-data-classification-imports.ts",
     "ci:arch:mimers-brunn": "tsx scripts/ci/assert-mimers-brunn-policy.ts",
     "tokens:build": "tsx config/build-tokens.ts",
-    "prisma:generate": "prisma generate",
+    "prisma:generate": "mkdir -p docs/architecture && prisma generate",
     "prisma:migrate": "prisma migrate dev",
     "smoke:map-layers": "tsx scripts/smoke/map-layers.ts",
     "smoke:pilot-preflight": "tsx scripts/smoke/pilot-preflight.ts",

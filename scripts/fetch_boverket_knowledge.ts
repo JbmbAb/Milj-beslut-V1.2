@@ -97,6 +97,19 @@ async function fetchAllKnowledge() {
             await cacheTermbankFallback();
         }
 
+        // 4. Hämta Planbestämmelsekatalogen V2
+        console.log('📖 Hämtar Planbestämmelsekatalogen V2...');
+        try {
+            const planKatalog = await boverketService.getPlanbestammelserV2();
+            fs.writeFileSync(
+                path.join(KNOWLEDGE_DIR, 'planbestammelsekatalogen_v2.json'), 
+                JSON.stringify(planKatalog, null, 2)
+            );
+            console.log('✅ Sparade Planbestämmelsekatalogen V2.');
+        } catch (err: any) {
+            console.warn(`⚠️ Kunde inte hämta Planbestämmelsekatalogen V2: ${err.message}`);
+        }
+
         console.log('\n🎉 Klar! All relevant data är nu cachad i:', KNOWLEDGE_DIR);
         console.log('Dessa filer kan nu läsas in direkt av Vertex AI (Dirigenten) utan att belasta nätverket.');
 

@@ -12,6 +12,15 @@
 - **Juridisk hållbarhet:** All programmering måste följa svenska regler för miljödata och sekretess.
 - **Human in the loop:** Du granskar och godkänner allt innan produktion.
 
+# Arkitekturpolicy: Mimers Brunn (Offline-First)
+
+- **Download-first:** Live-API:er (WMS/WFS/REST) får bara vara tillfälliga visuella hjälpmedel. Varje permanent dataset ska ha en robust harvesting-pipeline som laddar ner rådatan fysiskt.
+- **Master-arkivet är canonical:** Nya data- och dokumentpipelines får inte skriva till gamla rötter som `D:\GEodata`, `D:\Geo inlärning` eller `C:\GEO PDF`. Nya nedladdningar ska landa under `H:\Delade enheter\Miljöbeslut\GEO_Master_Archive`.
+- **Data ska säkras innan import:** Vektordata importeras till PostGIS efter arkivering. Raster registreras via stabila Out-of-DB-länkar från Master-arkivet. Importera inte från `_review` eller temporära mappar.
+- **Lokala källhänvisningar:** PDF:er, domar och rapporter ska arkiveras under `GEO_Master_Archive\Documents\Sources\<Provider>\<Dataset>` och serveras från lokal arkivroute. Frontend ska inte bygga beslutskritiska länkar direkt mot original-URL:er.
+- **Harvesting-kontrakt:** Nya nedladdningspipelines ska bevara versioner, aldrig skriva över historiska filer, använda polite scraping (rate limiting, retry/backoff, checkpoints) och skriva SHA-256 + storlek i manifest för varje fil.
+- **Legacy är undantag, inte norm:** Befintliga äldre scripts med hårdkodade D:/C:/gamla H:-vägar ska betraktas som migrationsskuld. Nya eller refaktorerade `scripts/import/`-moduler ska följa Mimers Brunn.
+
 # 🤖 AI-verktygsdirektiv – V2.0
 
 ## Beslut: vilka AI-verktyg som används

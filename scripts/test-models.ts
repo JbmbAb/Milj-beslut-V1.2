@@ -1,7 +1,7 @@
 import { GoogleGenAI } from '@google/genai';
 const location = 'europe-west1';
 const projectId = process.env.VERTEX_PROJECT_ID || process.env.GOOGLE_CLOUD_PROJECT || 'miljointelligens';
-const ai = new GoogleGenAI({ vertexai: { project: projectId, location }, project: projectId, location });
+const ai = new GoogleGenAI({ vertexai: true, project: projectId, location });
 
 async function testModel(modelName: string) {
   try {

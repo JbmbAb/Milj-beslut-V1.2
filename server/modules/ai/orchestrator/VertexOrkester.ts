@@ -68,10 +68,13 @@ export class VertexOrkester {
         functionCalls.map(async (call) => {
           const name = call.name;
           const args = call.args ?? {};
-          let apiResponse: unknown;
+          let apiResponse: object;
 
           try {
-            apiResponse = await this.invokeTool(name, args);
+            const rawResponse = await this.invokeTool(name, args);
+            apiResponse = typeof rawResponse === 'object' && rawResponse !== null 
+              ? (rawResponse as object) 
+              : { result: rawResponse };
           } catch (error) {
             const message = error instanceof Error ? error.message : String(error);
             logger.warn('VertexOrkester tool invocation failed', { name, message });
@@ -89,7 +92,7 @@ export class VertexOrkester {
 
       // Send the function response back to the model
       response = await chat.sendMessage({
-        message: parts
+        message: parts as any
       });
       functionCalls = response.functionCalls;
     }

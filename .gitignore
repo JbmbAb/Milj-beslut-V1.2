@@ -119,3 +119,8 @@ kravmatris_*
 mall_c_anmalan_*.md
 hardware-check.ps1
 hardware-check.ts
+
+# Lokala sync-/träningsartefakter (ej källkod)
+rclone.conf
+rclone.exe
+training/

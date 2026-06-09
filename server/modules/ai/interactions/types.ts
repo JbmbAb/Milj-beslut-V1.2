@@ -15,7 +15,7 @@ export interface InteractionResult {
 }
 
 export interface PrototypeSessionResponse {
-  ok: boolean;
+  ok: true;
   sessionId: string;
   interactionId: string;
   outputText: string;
@@ -23,5 +23,10 @@ export interface PrototypeSessionResponse {
   meta: {
     model: string;
     stepCount: number;
+    usage?: any;
   };
 }
+
+export type InteractionPrototypeTurnResult =
+  | { ok: false; status: number; error: string }
+  | PrototypeSessionResponse;

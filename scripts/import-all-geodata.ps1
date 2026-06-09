@@ -47,7 +47,7 @@ function Import-SpatialFile {
 
     # Kör ogr2ogr
     try {
-        & ogr2ogr -f "PostgreSQL" "PG:host=localhost user=miljobeslut dbname=miljobeslut password=miljobeslut" $FilePath -nln $cleanTable -nlt PROMOTE_TO_MULTI -overwrite -gt 65536 -lco GEOMETRY_NAME=geom -lco FID=id -lco SPATIAL_INDEX=GIST -makevalid --config PG_USE_COPY YES
+        & ogr2ogr -f "PostgreSQL" "PG:host=localhost user=miljobeslut dbname=miljobeslut password=miljobeslut" $FilePath -nln $cleanTable -nlt PROMOTE_TO_MULTI -unsetFieldWidth -overwrite -gt 65536 -lco GEOMETRY_NAME=geom -lco FID=id -lco SPATIAL_INDEX=GIST -makevalid --config PG_USE_COPY YES
         if ($LASTEXITCODE -eq 0) {
             Write-Log "      [OK] $cleanTable" "Green"
         } else {
@@ -89,7 +89,7 @@ function Process-Directory {
         New-Item -ItemType Directory -Path $tempDir | Out-Null
         
         try {
-            Expand-Archive -Path $zip.FullName -DestinationPath $tempDir -Force -ErrorAction Stop
+            & tar.exe -xf $zip.FullName -C $tempDir
             
             # Sök inuti den uppackade mappen
             $innerSpatialFiles = Get-ChildItem -Path $tempDir -File -Recurse -Include *.shp, *.gpkg, *.geojson

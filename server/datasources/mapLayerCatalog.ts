@@ -13,6 +13,10 @@ import {
   RAA_KSAMSOK_API_GUIDE_URL,
 } from '../constants/culturalHeritageSources';
 import { ALL_DATASET_MAP_LAYERS, type DatasetLayerStyle } from './platformMapLayerRegistry';
+import {
+  NATIONAL_ENVIRONMENTAL_LAYERS,
+  VATTENMYNDIGHETERNA_ATGARDSUNDERLAG_URL,
+} from './nationalEnvironmentalLayers';
 
 export type MapLayerActivation = 'IMMEDIATE' | 'PERMIT_REQUIRED';
 
@@ -269,6 +273,18 @@ export const MAP_LAYER_CATALOG: MapLayerCatalogEntry[] = [
       DATAPORTAL_DATASETS_BASE_URL,
     ],
   },
+  ...NATIONAL_ENVIRONMENTAL_LAYERS.map((layer) => ({
+    key: layer.key,
+    label: layer.label,
+    endpoint: `/api/layers/external/lst-vm/${layer.key}`,
+    bboxRequired: true,
+    geometry: 'mixed' as const,
+    source: 'external' as const,
+    provider: layer.provider,
+    activation: 'IMMEDIATE' as const,
+    description: layer.description,
+    documentationUrls: [VATTENMYNDIGHETERNA_ATGARDSUNDERLAG_URL],
+  })),
   ...ALL_DATASET_MAP_LAYERS.map((layer) => ({
     key: layer.key,
     label: layer.label,

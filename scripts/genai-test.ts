@@ -2,7 +2,9 @@ import { GoogleGenAI } from '@google/genai';
 
 async function main() {
   const ai = new GoogleGenAI({
-    vertexai: { project: process.env.VERTEX_PROJECT_ID || 'miljointelligens', location: process.env.VERTEX_LOCATION || 'europe-west1' }
+    vertexai: true,
+    project: process.env.VERTEX_PROJECT_ID || 'miljointelligens',
+    location: process.env.VERTEX_LOCATION || 'europe-west1'
   });
 
   const chat = ai.chats.create({
@@ -16,9 +18,9 @@ async function main() {
               name: "get_weather",
               description: "Get the weather",
               parameters: {
-                type: "OBJECT",
+                type: "OBJECT" as any,
                 properties: {
-                  location: { type: "STRING" }
+                  location: { type: "STRING" as any }
                 }
               }
             }

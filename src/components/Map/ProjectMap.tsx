@@ -80,17 +80,25 @@ export function ProjectMap({
 
   return (
     <div className={`overflow-hidden rounded-2xl border border-white/10 bg-[var(--bg-card)] shadow-lg ${className}`}>
+      {/* @ts-ignore */}
       <MapContainer center={center} zoom={zoom} scrollWheelZoom className="h-[480px] w-full">
         {lantmaterietUrl ? (
           <WMSTileLayer
-            url={lantmaterietUrl}
-            layers="topowebb"
-            format="image/png"
-            transparent={false}
-            version="1.3.0"
+            {...({
+              url: lantmaterietUrl,
+              layers: "topowebb",
+              format: "image/png",
+              transparent: false,
+              version: "1.3.0"
+            } as any)}
           />
         ) : (
-          <TileLayer attribution={OSM_ATTRIBUTION} url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" />
+          <TileLayer
+            {...({
+              attribution: OSM_ATTRIBUTION,
+              url: "https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
+            } as any)}
+          />
         )}
         <NmdVectorTileLayer visible={showNmdLayer} />
       </MapContainer>

@@ -2,9 +2,7 @@ import { Router } from 'express';
 import { requireAuth } from '../../../security/auth';
 import { rateLimitByUser } from '../../../security/rateLimit';
 import { assertProjectAccess } from '../../../security/projectAccess';
-import { generateWithInteractions } from './interactionsService';
-import { interactionsSessionRepository } from './interactionsSessionRepository';
-import { PrototypeSessionResponse } from './types';
+import { runInteractionPrototypeTurn } from './interactionsOrchestrator';
 
 const router = Router();
 
@@ -38,55 +36,18 @@ router.post('/api/prototype/interactions',
         return res.status(400).json({ error: 'Prompt is required.' });
       }
 
-      // 1. Authorization check if projectId is provided
-      if (projectId) {
-        await assertProjectAccess(authUser, projectId, authUser.organisationId);
-      }
-
-      // 2. Session lookup/creation
-      let session;
-      if (sessionId) {
-        session = await interactionsSessionRepository.findById(sessionId);
-        if (!session) {
-          return res.status(404).json({ error: 'Session not found.' });
-        }
-        // Verify ownership
-        if (session.userId !== authUser.id || session.organisationId !== authUser.organisationId) {
-          return res.status(403).json({ error: 'Unauthorized session access.' });
-        }
-      } else {
-        session = await interactionsSessionRepository.create({
-          userId: authUser.id,
-          organisationId: authUser.organisationId,
-          projectId,
-          model: process.env.INTERACTIONS_MODEL || 'gemini-3.5-flash',
-        });
-      }
-
-      // 3. Call Interactions API
-      const result = await generateWithInteractions({
+      const result = await runInteractionPrototypeTurn({
+        authUser,
         prompt,
-        previousInteractionId: session.lastInteractionId || undefined,
-        store: true, // Prototype is stateful by default
+        sessionId,
+        projectId,
       });
 
-      // 4. Update session
-      await interactionsSessionRepository.updateLastInteraction(session.id, result.interactionId);
+      if (!result.ok || 'error' in result) {
+        return res.status(Number(result.status) || 500).json({ error: (result as any).error });
+      }
 
-      // 5. Response
-      const response: PrototypeSessionResponse = {
-        ok: true,
-        sessionId: session.id,
-        interactionId: result.interactionId,
-        outputText: result.outputText,
-        status: result.status,
-        meta: {
-          model: session.model,
-          stepCount: result.stepCount,
-        },
-      };
-
-      res.json(response);
+      res.json(result);
     } catch (error: any) {
       console.error('[Interactions Prototype] Route error:', error);
       res.status(500).json({ 
