@@ -27,6 +27,9 @@ export const useWebSocket = (url: string, options: UseWebSocketOptions) => {
   const connect = useCallback(
     function connectSocket() {
       const { onMessage, onError, onOpen, onClose } = options;
+      if (!url) {
+        return;
+      }
       try {
         isIntentionallyClosed.current = false;
         const ws = new WebSocket(url);

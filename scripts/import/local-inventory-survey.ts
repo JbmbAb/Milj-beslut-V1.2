@@ -1,7 +1,7 @@
 /**
  * local-inventory-survey.ts
  * 
- * Mimer Bibliotekarie: Inventerar lokala legacy-diskar (H:\...) för
+ * Mimer Bibliotekarie: Inventerar GEO_Master_Archive (H:\Delade enheter\...\GEO_Master_Archive)
  * att bygga upp "Legacy Baseline Manifests" och förhindra duplicerad
  * nedladdning vid nationell harvesting.
  */

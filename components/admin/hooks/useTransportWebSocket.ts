@@ -1,10 +1,12 @@
 /**
  * useTransportWebSocket – Subscribe to real-time transport updates
- * Connects to ws://server/transport/updates
+ * Connects to ws://server/transport/updates?token=...
  */
 
 import { useQueryClient } from '@tanstack/react-query';
 import { useWebSocket } from './useWebSocket';
+
+const ACCESS_TOKEN_KEY = 'miljobeslut_admin_bearer';
 
 interface TransportUpdate {
   type: 'transport-update';
@@ -31,7 +33,12 @@ interface InitialData {
 export const useTransportWebSocket = () => {
   const queryClient = useQueryClient();
 
-  const wsUrl = `${window.location.protocol === 'https:' ? 'wss:' : 'ws:'}//${window.location.host}/transport/updates`;
+  const token =
+    typeof window !== 'undefined' ? String(window.localStorage.getItem(ACCESS_TOKEN_KEY) || '').trim() : '';
+
+  const wsUrl = token
+    ? `${window.location.protocol === 'https:' ? 'wss:' : 'ws:'}//${window.location.host}/transport/updates?token=${encodeURIComponent(token)}`
+    : '';
 
   const { isConnected } = useWebSocket(wsUrl, {
     onMessage: (data: TransportUpdate | InitialData) => {

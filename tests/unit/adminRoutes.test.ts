@@ -74,11 +74,17 @@ vi.mock('../../server/security/projectAccess', () => ({
   assertPermission: mocks.assertPermission,
 }));
 
+vi.mock('../../server/services/metricsService', () => ({
+  getMetricsText: mocks.getMetricsText,
+}));
+
 import adminRoutes from '../../server/routes/admin.routes';
+import { secureErrorHandler } from '../../server/security/secureErrors';
 
 const app = express();
 app.use(express.json());
 app.use(adminRoutes);
+app.use(secureErrorHandler);
 
 function authHeader(role: 'ADMIN' | 'CONSULTANT' = 'ADMIN') {
   return `Bearer ${

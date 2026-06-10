@@ -104,4 +104,19 @@ export class TestDataFactory {
       },
     });
   }
+
+  async seedPropertyUnit(designation: string, sourceKey: string) {
+    const { seedPropertyUnit } = await import('../helpers/postgisSeed');
+    await seedPropertyUnit(this.prisma, { designation, sourceKey });
+  }
+
+  async seedProtectedArea(nvrId: string, name: string, protectionType: string) {
+    const { seedProtectedArea } = await import('../helpers/postgisSeed');
+    await seedProtectedArea(this.prisma, { nvrId, name, protectionType });
+  }
+
+  async seedSguWell(lng: number, lat: number) {
+    const { seedSguWell } = await import('../helpers/postgisSeed');
+    await seedSguWell(this.prisma, lng, lat);
+  }
 }

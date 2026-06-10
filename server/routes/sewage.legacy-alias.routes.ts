@@ -23,6 +23,12 @@ import {
 
 const router = Router();
 
+router.use((_req, res, next) => {
+  res.setHeader('Deprecation', 'true');
+  res.setHeader('Link', '</api/sewage/application>; rel="successor-version"');
+  next();
+});
+
 const SWEDEN_LAT_MIN = 55.0;
 const SWEDEN_LAT_MAX = 69.5;
 const SWEDEN_LON_MIN = 10.0;

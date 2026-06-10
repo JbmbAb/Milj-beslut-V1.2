@@ -8,6 +8,7 @@ import type { Server as HTTPSServer } from 'https';
 import { WebSocketServer, WebSocket } from 'ws';
 import { handleCarbonConnection } from './carbonUpdates';
 import { handleTransportConnection } from './transportUpdates';
+import { authenticateProjectWebSocket, authenticateWebSocket } from './authenticate';
 
 type Server = HTTPServer | HTTPSServer;
 
@@ -20,25 +21,42 @@ export const initializeWebSocketServer = (server: Server) => {
   console.log('[WebSocket] Server initialized');
 
   wss.on('connection', (ws: WebSocket, req) => {
-    const url = new URL(req.url || '', `http://${req.headers.host}`);
-    const pathname = url.pathname;
+    void (async () => {
+      const url = new URL(req.url || '', `http://${req.headers.host}`);
+      const pathname = url.pathname;
 
-    console.log(`[WebSocket] New connection: ${pathname}`);
+      console.log(`[WebSocket] New connection: ${pathname}`);
 
-    // Route WebSocket connections to appropriate handlers
-    if (pathname.startsWith('/projects/') && pathname.includes('/carbon')) {
-      // Extract projectId from URL: /projects/{projectId}/carbon
-      const projectId = pathname.split('/')[2];
-      if (projectId) {
+      if (pathname.startsWith('/projects/') && pathname.includes('/carbon')) {
+        const projectId = pathname.split('/')[2];
+        if (!projectId) {
+          ws.close(1008, 'Invalid project ID');
+          return;
+        }
+
+        const auth = await authenticateProjectWebSocket(req, url, projectId);
+        if ('error' in auth) {
+          ws.close(1008, auth.error);
+          return;
+        }
+
         handleCarbonConnection(ws, projectId);
-      } else {
-        ws.close(1008, 'Invalid project ID');
+        return;
       }
-    } else if (pathname === '/transport/updates') {
-      handleTransportConnection(ws);
-    } else {
+
+      if (pathname === '/transport/updates') {
+        const auth = await authenticateWebSocket(req, url);
+        if ('error' in auth) {
+          ws.close(1008, auth.error);
+          return;
+        }
+
+        handleTransportConnection(ws);
+        return;
+      }
+
       ws.close(1008, 'Unknown endpoint');
-    }
+    })();
   });
 
   wss.on('error', (error) => {

@@ -768,6 +768,40 @@ model PipelineRun {
   @@schema("public")
 }
 
+model KnowledgeNode {
+  id                    String                 @id @default(cuid())
+  nodeType              KnowledgeNodeType      @map("node_type")
+  name                  String
+  metadata              Json                   @default("{}")
+  createdAt             DateTime               @default(now())
+  extractedRequirements ExtractedRequirement[]
+  outEdges              KnowledgeEdge[]        @relation("SourceEdges")
+  inEdges               KnowledgeEdge[]        @relation("TargetEdges")
+
+  @@unique([nodeType, name])
+  @@index([nodeType])
+  @@map("knowledge_nodes")
+  @@schema("public")
+}
+
+model KnowledgeEdge {
+  id        String        @id @default(cuid())
+  sourceId  String        @map("source_id")
+  targetId  String        @map("target_id")
+  relation  String
+  weight    Float         @default(1.0)
+  metadata  Json          @default("{}")
+  createdAt DateTime      @default(now())
+  source    KnowledgeNode @relation("SourceEdges", fields: [sourceId], references: [id])
+  target    KnowledgeNode @relation("TargetEdges", fields: [targetId], references: [id])
+
+  @@unique([sourceId, targetId, relation])
+  @@index([sourceId, relation])
+  @@index([targetId, relation])
+  @@map("knowledge_edges")
+  @@schema("public")
+}
+
 model ExtractedRequirement {
   id               String            @id @default(cuid())
   attachmentHash   String            @map("attachment_hash")
@@ -782,7 +816,9 @@ model ExtractedRequirement {
   pageNumber       Int?              @map("page_number")
   sourceSegment    String?           @map("source_segment")
   parsedAt         DateTime          @default(now()) @map("parsed_at")
+  knowledgeNodeId  String?           @map("knowledge_node_id")
   attachment       OutlookAttachment @relation(fields: [attachmentHash], references: [attachmentHash], onDelete: Cascade)
+  knowledgeNode    KnowledgeNode?    @relation(fields: [knowledgeNodeId], references: [id])
 
   @@index([attachmentHash])
   @@index([municipality, category])
@@ -1656,14 +1692,26 @@ model HarvestBatch {
 }
 
 model PostgisImportBatch {
-  id               String       @id @default(uuid())
-  harvest_batch_id String
-  target_schema    String
-  target_table     String
-  imported_at      DateTime     @default(now())
-  row_count        Int?
-  dataset_version  String?
-  harvestBatch     HarvestBatch @relation(fields: [harvest_batch_id], references: [id])
+  id                    String       @id @default(uuid())
+  harvest_batch_id      String?
+  target_schema         String
+  target_table          String
+  imported_at           DateTime     @default(now())
+  row_count             Int?
+  dataset_version       String?
+  
+  // V2.0 Ingester Fields
+  status                String       @default("PLANNED")
+  manifest_path         String?
+  content_bundle_sha256 String       @default("")
+  source_runtime_path   String?
+  ogr2ogr_version       String?
+  started_at            DateTime     @default(now())
+  completed_at          DateTime?
+  error_message         String?
+  import_mode           String       @default("plan")
+
+  harvestBatch          HarvestBatch? @relation(fields: [harvest_batch_id], references: [id])
 
   @@schema("public")
 }

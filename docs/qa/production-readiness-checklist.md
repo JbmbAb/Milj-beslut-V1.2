@@ -28,6 +28,7 @@ Varje rad ska fyllas med faktisk körning. En P3-signoff kräver grön rad mot s
 | 2026-04-25 | Lokal fullstack   | `npm run e2e:staging`                                                                        | Röd: 8/10 pass, 2 fail                                                | Codex    | Fail: Lantmäteriet-live saknas (`LIVE_LANTMATERIET_REQUIRED`) och `VERTEX_PROJECT_ID` saknas    |
 | 2026-04-25 | Lokal browser     | `npx playwright test tests/e2e/staging-core-flows.spec.ts -g "Browser: hub"`                 | Pass: browserflöde renderar Core + fastighetskarta utan BankID        | Codex    | Playwright artefakter sparas i `test-results/` vid fel                                          |
 | 2026-04-25 | Staging browser   | `PLAYWRIGHT_BASE_URL=<staging-ui> PLAYWRIGHT_API_BASE_URL=<staging-api> npm run e2e:staging` | Ej körd: `PLAYWRIGHT_BASE_URL` / `STAGING_URL` saknas i aktuell miljö | Codex    | Körs när staging-URL, adminsecret, Lantmäteriet-live och `VERTEX_PROJECT_ID` är satta i staging |
+| 2026-06-09 | Lokal kodkontroll | Plattformsanalys stop-the-line (cloudbuild, metrics, WS, Mimers Brunn) | Deploy/säkerhet fixade i repo | Agent    | Se [P3_STAGING_EVIDENCE_2026-06-09.md](P3_STAGING_EVIDENCE_2026-06-09.md) och [P3_GO_NO_GO_2026-06-09.md](P3_GO_NO_GO_2026-06-09.md) |
 
 ## Innehåll
 

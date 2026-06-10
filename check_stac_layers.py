@@ -1,4 +1,4 @@
- import os, sys, subprocess, pathlib, json, zipfile, tempfile, time, urllib.request, urllib.parse
+import os, sys, subprocess, pathlib, json, zipfile, tempfile, time, urllib.request, urllib.parse
 from datetime import datetime
 
 # ── Konfiguration ─────────────────────────────────────────────────────────────

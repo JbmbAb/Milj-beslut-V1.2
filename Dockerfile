@@ -1,7 +1,11 @@
 FROM node:22-alpine AS base
 
-# Uppdatera och installera curl och openssl för Prisma
-RUN apk update && apk add --no-cache openssl curl
+# Uppdatera och installera curl och openssl för Prisma, plus chromium för ERD-generatorn
+RUN apk update && apk add --no-cache openssl curl chromium
+
+# Konfigurera Puppeteer för att använda den Alpine-installerade Chromium
+ENV PUPPETEER_SKIP_CHROMIUM_DOWNLOAD=true \
+    PUPPETEER_EXECUTABLE_PATH=/usr/bin/chromium-browser
 
 # Skapa non-root användare
 RUN addgroup -S appgroup && adduser -S appuser -G appgroup
@@ -50,8 +54,10 @@ RUN chown -R appuser:appgroup /app
 USER appuser
 
 # --- Slutsteg: Webbserver (default) ---
+# Cloud Run sätter PORT=8080; lokalt dev använder PORT=8787 via .env
 FROM production-base AS web
-EXPOSE 8787
+ENV PORT=8080
+EXPOSE 8080
 CMD ["npm", "start"]
 
 # --- Slutsteg: GDPR Worker ---

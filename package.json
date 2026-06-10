@@ -21,6 +21,7 @@
     "format:check": "prettier --check . --ignore-path .prettierignore",
     "test:unit": "vitest run --config vitest.config.ts --project unit --maxWorkers=1",
     "test:unit:coverage": "vitest run --config vitest.config.ts --project unit --coverage --maxWorkers=1",
+    "test:coverage:all": "vitest run --config vitest.config.ts --project unit --project integration --coverage --maxWorkers=1 --coverage.reportOnFailure=true",
     "test:integration": "vitest run --config vitest.config.ts --project integration",
     "test:smoke": "vitest run --config vitest.config.ts --project integration tests/integration/smoke.test.ts tests/smoke/",
     "test:component": "vitest run --config vitest.config.ts --project component",

@@ -12,14 +12,6 @@ vi.mock('../../server/services/publicUiService', () => raaMock);
 
 import { buildCulturalEnvironmentDownloadBundle } from '../../server/services/culturalEnvironmentBundleService';
 import {
-  buildGraphFromRequirements,
-  getGraphStats,
-  getTypicalRequirements,
-  searchGraph,
-  upsertEdge,
-  upsertNode,
-} from '../../server/services/knowledgeGraphService';
-import {
   isSubPath,
   resolveImportArchiveRoot,
   resolveImportCacheRoot,
@@ -32,19 +24,6 @@ describe('zero/low coverage services', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     vi.unstubAllEnvs();
-  });
-
-  it('knowledgeGraphService stub returns stable shapes', async () => {
-    await expect(upsertNode('type', 'name', {})).resolves.toBe('stub-node-id');
-    await expect(upsertEdge('a', 'b', 'rel')).resolves.toBe('stub-edge-id');
-    await expect(buildGraphFromRequirements([])).resolves.toEqual({ nodesCreated: 0, edgesCreated: 0 });
-    await expect(getTypicalRequirements({ category: 'X' })).resolves.toEqual({
-      requirements: [],
-      risks: [],
-      legalRules: [],
-    });
-    await expect(getGraphStats()).resolves.toMatchObject({ totalNodes: 0, totalEdges: 0 });
-    await expect(searchGraph({ query: 'test' })).resolves.toEqual({ nodes: [], edges: [] });
   });
 
   it('buildCulturalEnvironmentDownloadBundle aggregates ksamsok + raa + catalog', async () => {

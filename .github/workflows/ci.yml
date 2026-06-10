@@ -92,13 +92,27 @@ jobs:
       - name: Component tests
         run: npm run test:component
 
-  # ── 2b. Unit tests – no database needed ──────────────────────────────────
+  # ── 2b. Unit + integration coverage (PostGIS test DB) ─────────────────────
   test-unit:
-    name: Unit tests
+    name: Unit tests + coverage
     runs-on: ubuntu-latest
     needs: [typecheck]
     permissions:
       contents: read
+    services:
+      postgres:
+        image: ghcr.io/jbmbab/milj-beslut-postgres-test:16
+        env:
+          POSTGRES_DB: miljobeslut_test
+          POSTGRES_USER: miljobeslut
+          POSTGRES_PASSWORD: password
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U miljobeslut -d miljobeslut_test"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 15
     env:
       NODE_ENV: test
       JWT_ACCESS_SECRET: ci-access-secret
@@ -112,6 +126,7 @@ jobs:
       SLU_API_BASE_URL: https://example.invalid
       SLU_API_KEY: ci-slu-key
       SEARCH_WORKER_ENABLED: 'false'
+      DATABASE_INTEGRATION: 'true'
       DATABASE_URL: postgresql://miljobeslut:password@localhost:5432/miljobeslut_test
     steps:
       - uses: actions/checkout@v4
@@ -121,10 +136,17 @@ jobs:
           cache: npm
       - run: npm ci
       - run: cp .env.test.example .env.test
+      - name: Enable PostGIS + pgvector extensions
+        run: |
+          PGPASSWORD=password psql -h localhost -U miljobeslut -d miljobeslut_test \
+            -c "CREATE EXTENSION IF NOT EXISTS postgis;" \
+            -c "CREATE EXTENSION IF NOT EXISTS pg_trgm;" \
+            -c "CREATE EXTENSION IF NOT EXISTS unaccent;" \
+            -c "CREATE EXTENSION IF NOT EXISTS vector;"
       - name: Readiness gate (pilot-preflight)
         run: npm run smoke:pilot-preflight
-      - name: Unit tests + coverage (thresholds in vitest.config.ts)
-        run: npm run test:unit:coverage
+      - name: Unit + integration tests + coverage (thresholds in vitest.config.ts)
+        run: npm run test:coverage:all
       - name: Upload coverage
         if: always()
         uses: actions/upload-artifact@v4

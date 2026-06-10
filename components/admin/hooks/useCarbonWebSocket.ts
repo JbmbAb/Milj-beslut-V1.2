@@ -1,10 +1,12 @@
 /**
  * useCarbonWebSocket – Subscribe to real-time CO₂ updates
- * Connects to ws://server/projects/:projectId/carbon
+ * Connects to ws://server/projects/:projectId/carbon?token=...
  */
 
 import { useQueryClient } from '@tanstack/react-query';
 import { useWebSocket } from './useWebSocket';
+
+const ACCESS_TOKEN_KEY = 'miljobeslut_admin_bearer';
 
 interface CarbonUpdate {
   type: 'carbon-update';
@@ -26,9 +28,13 @@ interface CarbonUpdate {
 export const useCarbonWebSocket = (projectId: string) => {
   const queryClient = useQueryClient();
 
-  const wsUrl = projectId
-    ? `${window.location.protocol === 'https:' ? 'wss:' : 'ws:'}//${window.location.host}/projects/${projectId}/carbon`
-    : '';
+  const token =
+    typeof window !== 'undefined' ? String(window.localStorage.getItem(ACCESS_TOKEN_KEY) || '').trim() : '';
+
+  const wsUrl =
+    projectId && token
+      ? `${window.location.protocol === 'https:' ? 'wss:' : 'ws:'}//${window.location.host}/projects/${projectId}/carbon?token=${encodeURIComponent(token)}`
+      : '';
 
   const { isConnected } = useWebSocket(wsUrl, {
     onMessage: (data: CarbonUpdate) => {

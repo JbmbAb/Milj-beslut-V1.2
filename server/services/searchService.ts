@@ -140,6 +140,28 @@ function readField(row: ManifestRow, candidates: string[]): string {
   return '';
 }
 
+function manifestDiskName(row: ManifestRow): string {
+  const storedPath = readField(row, ['stored_path', 'StoredPath', 'RelativePath', 'Path', 'FilePath']);
+  if (storedPath) {
+    const leaf = path.basename(storedPath);
+    if (leaf) {
+      return leaf;
+    }
+  }
+  return readField(row, ['DiskName', 'disk_name', 'filename', 'file_name']);
+}
+
+function resolveManifestAbsolutePath(outlookBaseDir: string, storedPath: string, diskName: string): string {
+  const trimmedStored = storedPath.trim();
+  if (trimmedStored) {
+    if (path.isAbsolute(trimmedStored)) {
+      return path.resolve(outlookBaseDir, path.basename(trimmedStored));
+    }
+    return path.resolve(outlookBaseDir, trimmedStored);
+  }
+  return path.resolve(outlookBaseDir, diskName);
+}
+
 function parseDelimitedLine(line: string, delimiter: string = ';'): string[] {
   const cells: string[] = [];
   let current = '';
@@ -622,16 +644,14 @@ export async function syncManifestMetadata(input: {
   let skippedRows = 0;
 
   for (const row of rows) {
-    const diskName = readField(row, ['DiskName', 'disk_name', 'filename', 'file_name']);
+    const diskName = manifestDiskName(row);
     if (!diskName) {
       skippedRows += 1;
       continue;
     }
 
-    const relativePath = readField(row, ['RelativePath', 'Path', 'FilePath']);
-    const resolvedAbsolutePath = relativePath
-      ? path.resolve(outlookBaseDir, relativePath)
-      : path.resolve(outlookBaseDir, diskName);
+    const storedPath = readField(row, ['stored_path', 'StoredPath', 'RelativePath', 'Path', 'FilePath']);
+    const resolvedAbsolutePath = resolveManifestAbsolutePath(outlookBaseDir, storedPath, diskName);
 
     const stat = await statSafe(resolvedAbsolutePath);
     const fileSize = stat?.size ?? null;
@@ -639,7 +659,7 @@ export async function syncManifestMetadata(input: {
     const subject = readField(row, ['Subject', 'subject']) || diskName;
     const entryId = readField(row, ['EntryID', 'EntryId', 'message_id', 'MessageId']) || diskName;
     const receivedTime = parseDateOrNull(
-      readField(row, ['ReceivedTime', 'received_date', 'Date', 'received']),
+      readField(row, ['ReceivedTime', 'received_date', 'received_at', 'Date', 'received']),
     );
     const mimeType = readField(row, ['MimeType', 'mime_type', 'ContentType']) || null;
     const fileSha256 = readField(row, ['Sha256', 'Checksum', 'Hash']) || null;

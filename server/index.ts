@@ -5,6 +5,7 @@ import { createApp } from './createApp';
 import { initializeWebSocketServer } from './websocket';
 import { warnProductionDevFlags } from './warnProductionDevFlags';
 import { shouldStartWorkersInProcess, startInProcessWorkers } from './workers/registry';
+import { assertSecurityEnv } from './security/env';
 
 loadEnvFile();
 const preserveRuntimeEnv =
@@ -13,6 +14,10 @@ const preserveRuntimeEnv =
   process.env.NODE_ENV === 'test';
 loadEnvFile('.env.local', { overrideExisting: !preserveRuntimeEnv });
 warnProductionDevFlags();
+
+if (process.env.NODE_ENV === 'production') {
+  assertSecurityEnv();
+}
 
 export const app = createApp();
 const port = Number(process.env.PORT || 8787);

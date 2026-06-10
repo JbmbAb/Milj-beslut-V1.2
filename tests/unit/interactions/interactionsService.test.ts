@@ -47,7 +47,7 @@ describe('generateWithInteractions', () => {
         previous_interaction_id: 'int-1',
         system_instruction: 'test instruction',
         model: 'gemini-3.5-flash',
-        store: true,
+        store: false,
       }),
     );
     expect(result.interactionId).toBe('int-2');

@@ -30,11 +30,11 @@ describe('tiles.routes', () => {
     const buffer = Buffer.from('mvt-tile');
     mocks.getNmdVectorTile.mockResolvedValueOnce(buffer);
 
-    const response = await request(app).get('/api/tiles/nmd/12/2200/1343.pbf');
+    const response = await request(app).get('/api/tiles/nmd/12/2200/1343.pbf').buffer(true);
 
     expect(response.status).toBe(200);
     expect(response.header['content-type']).toContain('application/x-protobuf');
-    expect(Buffer.compare(response.body, buffer)).toBe(0);
+    expect(response.text).toBe(buffer.toString('binary'));
   });
 
   it('returns 204 when the NMD tile has no data', async () => {

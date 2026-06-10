@@ -65,6 +65,8 @@ export default async () => {
     await client.query('CREATE SCHEMA IF NOT EXISTS "topo10";');
 
     await client.query(`
+      DROP TABLE IF EXISTS env.registerenhetsomradesytor CASCADE;
+      DROP TABLE IF EXISTS env.registerenhetsomradeslinjer CASCADE;
       DROP TABLE IF EXISTS env.protected_area CASCADE;
       DROP TABLE IF EXISTS env.natura2000_area CASCADE;
       DROP TABLE IF EXISTS core.lm_byggnad CASCADE;
@@ -99,14 +101,16 @@ export default async () => {
           name TEXT,
           protection_type TEXT,
           decision_status TEXT,
-          wkb_geometry geometry(MultiPolygon, 3006)
+          wkb_geometry geometry(MultiPolygon, 3006),
+          geom geometry(MultiPolygon, 3006)
       );
 
       CREATE TABLE IF NOT EXISTS "env"."natura2000_area" (
           external_id TEXT PRIMARY KEY,
           site_name TEXT,
           category TEXT,
-          wkb_geometry geometry(MultiPolygon, 3006)
+          wkb_geometry geometry(MultiPolygon, 3006),
+          geom geometry(MultiPolygon, 3006)
       );
 
       CREATE TABLE IF NOT EXISTS "core"."lm_byggnad" (
@@ -246,6 +250,129 @@ export default async () => {
           ursbesldat DATE,
           ogc_fid INTEGER,
           geom geometry(MultiPolygon, 3006)
+      );
+
+      CREATE SCHEMA IF NOT EXISTS climate;
+      CREATE SCHEMA IF NOT EXISTS lm_staging;
+      CREATE SCHEMA IF NOT EXISTS hydro;
+
+      CREATE TABLE env.registerenhetsomradesytor (
+          id SERIAL PRIMARY KEY,
+          etikett TEXT,
+          kommunnamn TEXT,
+          trakt TEXT,
+          geom geometry(MultiPolygon, 3006)
+      );
+      CREATE INDEX IF NOT EXISTS idx_registerenhetsomradesytor_geom
+          ON env.registerenhetsomradesytor USING GIST (geom);
+
+      CREATE TABLE IF NOT EXISTS env.registerenhetsomradeslinjer (
+          id SERIAL PRIMARY KEY,
+          geom geometry(MultiLineString, 3006)
+      );
+
+      CREATE TABLE IF NOT EXISTS env.sgu_jorddjupsmodell_10m (
+          id SERIAL PRIMARY KEY,
+          geom geometry(Geometry, 3006)
+      );
+
+      CREATE TABLE IF NOT EXISTS env.sgu_fastmark_stabilitet (
+          id SERIAL PRIMARY KEY,
+          geom geometry(Geometry, 3006)
+      );
+
+      CREATE TABLE IF NOT EXISTS env.env_sgu_grundvatten_sarbarhet (
+          id SERIAL PRIMARY KEY,
+          geom geometry(Geometry, 3006)
+      );
+
+      CREATE TABLE IF NOT EXISTS env.sgu_aktsamhet_efterarbetad (
+          id SERIAL PRIMARY KEY,
+          geom geometry(Geometry, 3006)
+      );
+
+      CREATE TABLE IF NOT EXISTS env.svaro_2016 (
+          id SERIAL PRIMARY KEY,
+          geom geometry(Geometry, 3006)
+      );
+
+      CREATE TABLE IF NOT EXISTS env.viss_sw_varo_risk (
+          id SERIAL PRIMARY KEY,
+          geom geometry(Geometry, 3006)
+      );
+
+      CREATE TABLE IF NOT EXISTS env.msb_pfra_pastevent (
+          id SERIAL PRIMARY KEY,
+          geom geometry(Geometry, 3006)
+      );
+
+      CREATE TABLE IF NOT EXISTS climate.flood_risk_area (
+          id SERIAL PRIMARY KEY,
+          geom geometry(Geometry, 3006)
+      );
+
+      ALTER TABLE env.protected_area ADD COLUMN IF NOT EXISTS geom geometry(MultiPolygon, 3006);
+      ALTER TABLE env.natura2000_area ADD COLUMN IF NOT EXISTS geom geometry(MultiPolygon, 3006);
+
+      CREATE TABLE IF NOT EXISTS "public"."PostgisImportBatch" (
+          id TEXT PRIMARY KEY DEFAULT gen_random_uuid()::text,
+          harvest_batch_id TEXT,
+          target_schema TEXT NOT NULL,
+          target_table TEXT NOT NULL,
+          imported_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+          row_count INTEGER,
+          dataset_version TEXT,
+          status TEXT NOT NULL DEFAULT 'PLANNED',
+          manifest_path TEXT,
+          content_bundle_sha256 TEXT NOT NULL DEFAULT '',
+          source_runtime_path TEXT,
+          ogr2ogr_version TEXT,
+          started_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+          completed_at TIMESTAMPTZ,
+          error_message TEXT,
+          import_mode TEXT NOT NULL DEFAULT 'plan'
+      );
+
+      -- Deterministic Mimers Brunn mini-seed (offline test fixtures)
+      DELETE FROM env.registerenhetsomradesytor;
+      INSERT INTO env.registerenhetsomradesytor (etikett, kommunnamn, trakt, geom)
+      VALUES (
+          '1:1',
+          'GÄVLE',
+          'BRYNÄS',
+          ST_Multi(ST_Transform(
+              ST_SetSRID(ST_GeomFromText('POLYGON((17.13 60.66, 17.15 60.66, 17.15 60.68, 17.13 60.68, 17.13 60.66))'), 4326),
+              3006
+          ))
+      );
+
+      DELETE FROM env.sgu_soil_type_25k_100k;
+      INSERT INTO env.sgu_soil_type_25k_100k (jordart, jg2_tx, geom)
+      VALUES (
+          'Morän',
+          'Medel permeabilitet',
+          ST_Multi(ST_Transform(
+              ST_SetSRID(ST_GeomFromText('POLYGON((17.13 60.66, 17.15 60.66, 17.15 60.68, 17.13 60.68, 17.13 60.66))'), 4326),
+              3006
+          ))
+      );
+
+      DELETE FROM env.protected_area;
+      INSERT INTO env.protected_area (nvr_id, name, protection_type, geom)
+      VALUES (
+          'TEST-NVR-1',
+          'Test vattenskydd',
+          'Vattenskyddsområde',
+          ST_Multi(ST_Transform(
+              ST_SetSRID(ST_GeomFromText('POLYGON((17.13 60.66, 17.15 60.66, 17.15 60.68, 17.13 60.68, 17.13 60.66))'), 4326),
+              3006
+          ))
+      );
+
+      DELETE FROM env.sgu_well;
+      INSERT INTO env.sgu_well (geom)
+      VALUES (
+          ST_Transform(ST_SetSRID(ST_MakePoint(17.14, 60.67), 4326), 3006)
       );
 
       CREATE TABLE IF NOT EXISTS "public"."spatial_migrations" (

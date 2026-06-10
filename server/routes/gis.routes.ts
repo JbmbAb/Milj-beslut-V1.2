@@ -448,6 +448,10 @@ router.get('/api/layers/dataset/:layerKey', rateLimitByUser(30, 60_000), async (
     }
     const limit = parsePositiveInt(req.query.limit, 1500, 1, 3000);
     const collection = await getDatasetMapLayer(layerKey, bbox, limit);
+    if (collection.meta?.available === false) {
+      res.status(503).json(collection);
+      return;
+    }
     res.json(collection);
   } catch (error: unknown) {
     const safe = toSafeErrorResponse(error);

@@ -203,14 +203,23 @@ router.post('/api/internal/background/gdpr-maintenance', async (req, res, next) 
   }
 });
 
-router.get('/api/admin/observability/metrics', async (_req, res, next) => {
-  try {
-    const metrics = await getMetricsText();
-    res.type('text/plain').send(metrics);
-  } catch (error) {
-    next(error);
-  }
-});
+router.get(
+  '/api/admin/observability/metrics',
+  requireAuth,
+  rateLimitByUser(20, 60_000),
+  async (req, res, next) => {
+    try {
+      if (!req.authUser || req.authUser.role !== 'ADMIN') {
+        res.status(403).json({ ok: false, error: 'Admin required' });
+        return;
+      }
+      const metrics = await getMetricsText();
+      res.type('text/plain; version=0.0.4; charset=utf-8').send(metrics);
+    } catch (error) {
+      next(error);
+    }
+  },
+);
 
 router.get(
   '/api/admin/migration/readiness',

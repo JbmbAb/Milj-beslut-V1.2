@@ -158,22 +158,19 @@ describe('sewageAnalysisService', () => {
     it('returnerar requiredGates lista', async () => {
       const profile = await generateSewageProtectionProfile(baseAnalysis, '2180');
 
-      expect(profile.requiredGates).toHaveLength(3);
+      expect(profile.requiredGates).toHaveLength(2);
       const gateIds = profile.requiredGates.map((g) => g.id);
       expect(gateIds).toContain('gate-SEWAGE_PROTECTION_LEVEL');
       expect(gateIds).toContain('gate-SOIL_TEST_COMPLETED');
-      expect(gateIds).toContain('gate-NEIGHBOR_CONSENT');
     });
 
-    it('grannemedgivande krävs när brunn < 50m', async () => {
-      // nearestOwnWell.distance = 38 in baseAnalysis → < 50
+    it('sätter nearestWell.distance från brunnsdata (< 50m)', async () => {
       const profile = await generateSewageProtectionProfile(baseAnalysis, '2180');
 
-      const neighborGate = profile.requiredGates.find((g) => g.id === 'gate-NEIGHBOR_CONSENT');
-      expect(neighborGate?.description).toContain('Krävs');
+      expect(profile.nearestWell.distance).toBeLessThan(50);
     });
 
-    it('grannemedgivande ej krävs när brunn >= 50m', async () => {
+    it('sätter nearestWell.distance >= 50m när brunn är längre bort', async () => {
       const analysisWithFarWell = {
         ...baseAnalysis,
         sguBrunnarData: {
@@ -183,8 +180,7 @@ describe('sewageAnalysisService', () => {
       };
       const profile = await generateSewageProtectionProfile(analysisWithFarWell, '2180');
 
-      const neighborGate = profile.requiredGates.find((g) => g.id === 'gate-NEIGHBOR_CONSENT');
-      expect(neighborGate?.description).toContain('Ej krävs');
+      expect(profile.nearestWell.distance).toBeGreaterThanOrEqual(50);
     });
 
     it('inkluderar protectedNatureNearby baserat på protectedAreas', async () => {

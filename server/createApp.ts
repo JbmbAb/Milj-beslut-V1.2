@@ -41,9 +41,14 @@ import { secureErrorHandler } from './security/secureErrors';
 import internalBackgroundRouter from './routes/internal.background.routes';
 import { getReadinessPayload } from './services/readinessService';
 import interactionsPrototypeRouter from './modules/ai/interactions/interactionsPrototype.routes';
+import { handleMetricsRequest } from './security/metricsAccess';
 
 export function createApp() {
   const app = express();
+
+  if (process.env.NODE_ENV === 'production') {
+    app.set('trust proxy', 1);
+  }
 
   // Initialize Sentry error tracking
   initializeSentry(app);
@@ -159,16 +164,8 @@ export function createApp() {
   app.use(bankComplianceRouter);
   app.use(erpSyncRouter);
 
-  // Legacy alias for Prometheus metrics
-  app.get('/metrics', async (_req, res, next) => {
-    try {
-      const { getMetricsText } = await import('./services/metricsService');
-      const metrics = await getMetricsText();
-      res.type('text/plain').send(metrics);
-    } catch (error) {
-      next(error);
-    }
-  });
+  // Legacy alias for Prometheus metrics (bearer token or localhost only)
+  app.get('/metrics', handleMetricsRequest);
 
   // GIS & Legal Domain
   app.use(gisRouter);

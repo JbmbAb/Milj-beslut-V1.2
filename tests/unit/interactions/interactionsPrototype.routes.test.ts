@@ -52,8 +52,8 @@ describe('interactionsPrototype.routes', () => {
       .set('Authorization', authHeader())
       .send({ prompt: 'hello' });
 
-    expect(res.status).toBe(404);
-    expect(res.body.ok).toBe(false);
+    expect(res.status).toBe(403);
+    expect(res.body.error).toContain('disabled');
   });
 
   it('returns 401 without auth', async () => {

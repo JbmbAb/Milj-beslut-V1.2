@@ -342,6 +342,15 @@ describe('gis.routes', () => {
     expect(datasetLayer.status).toBe(200);
     expect(mocks.getDatasetMapLayer).toHaveBeenCalledWith('sgu_fastmark', validBbox, 1500);
 
+    mocks.getDatasetMapLayer.mockResolvedValueOnce({
+      type: 'FeatureCollection',
+      features: [],
+      meta: { available: false, warning: 'Tabellen saknas' },
+    });
+    const unavailableDataset = await request(app).get('/api/layers/dataset/sgu_missing?bbox=18,59,19,60');
+    expect(unavailableDataset.status).toBe(503);
+    expect(unavailableDataset.body.meta.available).toBe(false);
+
     const propertyMissing = await request(app).get('/api/layers/property');
     expect(propertyMissing.status).toBe(400);
 

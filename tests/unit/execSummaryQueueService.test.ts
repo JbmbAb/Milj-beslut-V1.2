@@ -4,10 +4,15 @@ const mocks = vi.hoisted(() => ({
   appendDomainAudit: vi.fn(),
   loggerInfo: vi.fn(),
   loggerWarn: vi.fn(),
+  generateJsonWithVertex: vi.fn(),
 }));
 
 vi.mock('../../server/security/auditTrail', () => ({
   appendDomainAudit: mocks.appendDomainAudit,
+}));
+
+vi.mock('../../server/services/vertexAiService', () => ({
+  generateJsonWithVertex: mocks.generateJsonWithVertex,
 }));
 
 vi.mock('../../server/logger', () => ({
@@ -39,11 +44,13 @@ describe('execSummaryQueueService', () => {
     vi.resetAllMocks();
     vi.resetModules();
 
-    // Ensure no Gemini key is present so the deterministic fallback is always used
+    // Ensure no Gemini/Vertex keys are present so the deterministic fallback is always used
     delete process.env.GEMINI_API_KEY;
     delete process.env.VITE_GEMINI_API_KEY;
+    delete process.env.VERTEX_PROJECT_ID;
 
     mocks.appendDomainAudit.mockResolvedValue({ id: 'audit-abc' });
+    mocks.generateJsonWithVertex.mockRejectedValue(new Error('vertex disabled in unit test'));
 
     const mod = await import('../../server/services/execSummaryQueueService');
     enqueueExecSummary = mod.enqueueExecSummary;
