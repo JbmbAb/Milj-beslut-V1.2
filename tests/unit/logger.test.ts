@@ -145,6 +145,14 @@ describe('logger.debug()', () => {
     delete process.env.NODE_ENV;
   });
 
+  it('emits to stdout when NODE_ENV=debug', () => {
+    process.env.NODE_ENV = 'debug';
+    logger.debug('debug env');
+    expect(stdoutSpy).toHaveBeenCalled();
+    expect(getLastStdout().level).toBe('debug');
+    delete process.env.NODE_ENV;
+  });
+
   it('does NOT emit when NODE_ENV=production', () => {
     process.env.NODE_ENV = 'production';
     logger.debug('production debug');
@@ -157,5 +165,20 @@ describe('logger.debug()', () => {
     logger.debug('debug ctx', { key: 'val' });
     expect(getLastStdout().key).toBe('val');
     delete process.env.LOG_LEVEL;
+  });
+});
+
+describe('logger JSON output', () => {
+  it('writes a single JSON line ending with newline', () => {
+    logger.info('single line');
+    const raw = stdoutSpy.mock.calls[0][0] as string;
+
+    expect(raw.endsWith('\n')).toBe(true);
+    expect(raw.split('\n')).toHaveLength(2);
+  });
+
+  it('preserves special characters in JSON output', () => {
+    logger.info('message with "quotes" and \n newlines');
+    expect(getLastStdout().message).toBe('message with "quotes" and \n newlines');
   });
 });

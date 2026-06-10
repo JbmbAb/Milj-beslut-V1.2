@@ -39,7 +39,7 @@ interface GraphStorageStats {
     backend: 'graph';
     nodes: number;
     edges: number;
-  };
+  } | null;
   effective: {
     backend: 'knowledge' | 'graph';
     nodes: number;
@@ -103,13 +103,13 @@ function toJsonValue(metadata: Record<string, unknown> = {}): Prisma.InputJsonVa
   return JSON.parse(JSON.stringify(metadata ?? {})) as Prisma.InputJsonValue;
 }
 
-async function getLegacyGraphCounts(): Promise<{ nodes: number; edges: number }> {
+async function getLegacyGraphCounts(): Promise<{ nodes: number; edges: number; available: boolean }> {
   const raw = prisma as typeof prisma & {
     $queryRawUnsafe?: (query: string) => Promise<Array<{ nodes: bigint | number; edges: bigint | number }>>;
   };
 
   if (typeof raw.$queryRawUnsafe !== 'function') {
-    return { nodes: 0, edges: 0 };
+    return { nodes: 0, edges: 0, available: false };
   }
 
   try {
@@ -122,9 +122,10 @@ async function getLegacyGraphCounts(): Promise<{ nodes: number; edges: number }>
     return {
       nodes: Number(row?.nodes ?? 0),
       edges: Number(row?.edges ?? 0),
+      available: true,
     };
   } catch {
-    return { nodes: 0, edges: 0 };
+    return { nodes: 0, edges: 0, available: false };
   }
 }
 
@@ -255,25 +256,29 @@ export async function getGraphStats() {
     getLegacyGraphCounts(),
   ]);
 
+  const hasLegacyTables = legacy.available;
   const effectiveBackend: 'knowledge' | 'graph' =
-    legacy.nodes > totalNodes || legacy.edges > totalEdges ? 'graph' : 'knowledge';
+    hasLegacyTables && (legacy.nodes > totalNodes || legacy.edges > totalEdges) ? 'graph' : 'knowledge';
+
   const storage: GraphStorageStats = {
     preferred: {
       backend: 'knowledge',
       nodes: totalNodes,
       edges: totalEdges,
     },
-    legacy: {
-      backend: 'graph',
-      nodes: legacy.nodes,
-      edges: legacy.edges,
-    },
+    legacy: hasLegacyTables
+      ? {
+          backend: 'graph',
+          nodes: legacy.nodes,
+          edges: legacy.edges,
+        }
+      : null,
     effective: {
       backend: effectiveBackend,
       nodes: effectiveBackend === 'graph' ? legacy.nodes : totalNodes,
       edges: effectiveBackend === 'graph' ? legacy.edges : totalEdges,
     },
-    driftDetected: legacy.nodes !== totalNodes || legacy.edges !== totalEdges,
+    driftDetected: hasLegacyTables && (legacy.nodes !== totalNodes || legacy.edges !== totalEdges),
   };
 
   return {

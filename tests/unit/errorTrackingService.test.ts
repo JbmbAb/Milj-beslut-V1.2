@@ -21,15 +21,31 @@ describe('errorTrackingService', () => {
   let captureMessage: ErrorTrackingModule['captureMessage'];
   let getRecentErrors: ErrorTrackingModule['getRecentErrors'];
 
-  beforeEach(async () => {
+  async function loadModuleWithOptionalSentry(
+    sentryMock?: {
+      init: ReturnType<typeof vi.fn>;
+      captureException: ReturnType<typeof vi.fn>;
+      captureMessage: ReturnType<typeof vi.fn>;
+    },
+  ) {
     vi.resetAllMocks();
     vi.resetModules();
+    vi.doUnmock('@sentry/node');
     delete process.env.SENTRY_DSN;
+
+    if (sentryMock) {
+      process.env.SENTRY_DSN = 'https://test@example.com/0';
+      vi.doMock('@sentry/node', () => sentryMock);
+    }
 
     const mod = await import('../../server/services/errorTrackingService');
     captureException = mod.captureException;
     captureMessage = mod.captureMessage;
     getRecentErrors = mod.getRecentErrors;
+  }
+
+  beforeEach(async () => {
+    await loadModuleWithOptionalSentry();
   });
 
   describe('captureException', () => {
@@ -96,6 +112,55 @@ describe('errorTrackingService', () => {
       expect(errors[0]?.sentToSentry).toBe(false);
     });
 
+    it('forwards exceptions to Sentry when DSN and SDK are available', async () => {
+      const sentryMock = {
+        init: vi.fn(),
+        captureException: vi.fn(),
+        captureMessage: vi.fn(),
+      };
+
+      await loadModuleWithOptionalSentry(sentryMock);
+      await captureException(new Error('Sentry exception'), {
+        severity: 'fatal',
+        userId: 'user-1',
+        extra: { requestId: 'req-1' },
+      });
+
+      expect(sentryMock.init).toHaveBeenCalledWith(
+        expect.objectContaining({
+          dsn: 'https://test@example.com/0',
+          tracesSampleRate: 0.1,
+        }),
+      );
+      expect(sentryMock.captureException).toHaveBeenCalledWith(
+        expect.any(Error),
+        expect.objectContaining({
+          level: 'fatal',
+          extra: { requestId: 'req-1' },
+          user: { id: 'user-1' },
+        }),
+      );
+
+      const errors = getRecentErrors({ limit: 1 });
+      expect(errors[0]?.sentToSentry).toBe(true);
+    });
+
+    it('falls back to local storage when Sentry capture throws', async () => {
+      const sentryMock = {
+        init: vi.fn(),
+        captureException: vi.fn(() => {
+          throw new Error('Sentry failed');
+        }),
+        captureMessage: vi.fn(),
+      };
+
+      await loadModuleWithOptionalSentry(sentryMock);
+      await captureException(new Error('Fallback exception'));
+
+      const errors = getRecentErrors({ limit: 1 });
+      expect(errors[0]?.sentToSentry).toBe(false);
+    });
+
     it('stores capturedAt as a valid ISO 8601 timestamp', async () => {
       await captureException(new Error('Timestamp check'));
       const errors = getRecentErrors({ limit: 1 });
@@ -149,6 +214,22 @@ describe('errorTrackingService', () => {
         'error-tracking: message captured',
         expect.objectContaining({ message: 'Log info msg' }),
       );
+    });
+
+    it('forwards messages to Sentry when configured', async () => {
+      const sentryMock = {
+        init: vi.fn(),
+        captureException: vi.fn(),
+        captureMessage: vi.fn(),
+      };
+
+      await loadModuleWithOptionalSentry(sentryMock);
+      await captureMessage('Sentry message', 'warning');
+
+      expect(sentryMock.captureMessage).toHaveBeenCalledWith('Sentry message', 'warning');
+
+      const errors = getRecentErrors({ limit: 1 });
+      expect(errors[0]?.sentToSentry).toBe(true);
     });
   });
 

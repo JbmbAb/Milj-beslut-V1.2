@@ -31,7 +31,7 @@ export default defineConfig({
         plugins: [react()],
         test: {
           name: 'unit',
-          include: ['tests/unit/**/*.test.ts', 'tests/unit/**/*.test.tsx'],
+          include: ['tests/unit/**/*.{test,spec}.ts', 'tests/unit/**/*.{test,spec}.tsx'],
           exclude: ['tests/unit/server.services.bankIdService.test.ts'],
           environment: 'jsdom',
           setupFiles: ['tests/setup/env.ts'],
@@ -41,7 +41,7 @@ export default defineConfig({
         plugins: [react()],
         test: {
           name: 'component',
-          include: ['tests/components/**/*.test.tsx'],
+          include: ['tests/components/**/*.{test,spec}.tsx'],
           environment: 'jsdom',
           globals: true,
           setupFiles: ['tests/setup/setupTests.ts'],
@@ -50,7 +50,7 @@ export default defineConfig({
       {
         test: {
           name: 'integration',
-          include: ['tests/integration/**/*.test.ts', 'tests/smoke/**/*.test.ts'],
+          include: ['tests/integration/**/*.{test,spec}.ts', 'tests/smoke/**/*.{test,spec}.ts'],
           environment: 'node',
           setupFiles: ['tests/setup/env.ts', 'tests/setup/integrationCsrfBypass.ts'],
           testTimeout: 30000,

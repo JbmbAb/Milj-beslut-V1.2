@@ -233,12 +233,25 @@ describe('getGraphStats', () => {
     mocks.knowledgeNodeGroupBy.mockResolvedValue([]);
     mocks.knowledgeEdgeCount.mockResolvedValue(0);
     mocks.knowledgeNodeCount.mockResolvedValue(0);
-    mocks.queryRawUnsafe.mockResolvedValueOnce([{ nodes: 0, edges: 0 }]);
+    mocks.queryRawUnsafe.mockRejectedValueOnce(new Error('relation "graph_nodes" does not exist'));
 
     const stats = await getGraphStats();
     expect(stats.totalNodes).toBe(0);
     expect(stats.totalEdges).toBe(0);
     expect(stats.nodesByType).toEqual([]);
+    expect(stats.storage.legacy).toBeNull();
+    expect(stats.storage.driftDetected).toBe(false);
+  });
+
+  it('treats empty legacy tables as available but without drift when knowledge is empty', async () => {
+    mocks.knowledgeNodeGroupBy.mockResolvedValue([]);
+    mocks.knowledgeEdgeCount.mockResolvedValue(0);
+    mocks.knowledgeNodeCount.mockResolvedValue(0);
+    mocks.queryRawUnsafe.mockResolvedValueOnce([{ nodes: 0, edges: 0 }]);
+
+    const stats = await getGraphStats();
+    expect(stats.storage.legacy).toEqual({ backend: 'graph', nodes: 0, edges: 0 });
+    expect(stats.storage.driftDetected).toBe(false);
   });
 
   it('reports storage drift when legacy graph tables are larger', async () => {

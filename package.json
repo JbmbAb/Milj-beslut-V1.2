@@ -39,6 +39,8 @@
     "qa:full": "npm run qa && npm run build",
     "ci:arch:guard": "tsx scripts/ci/assert-no-routes-services-imports.ts",
     "ci:arch:data-class": "tsx scripts/ci/assert-data-classification-imports.ts",
+    "ci:arch:baseline": "tsx scripts/ci/generate-legacy-baseline.ts",
+    "ci:arch:legacy-growth": "tsx scripts/ci/assert-legacy-layer-growth.ts",
     "ci:arch:mimers-brunn": "tsx scripts/ci/assert-mimers-brunn-policy.ts",
     "tokens:build": "tsx config/build-tokens.ts",
     "prisma:generate": "mkdir -p docs/architecture && prisma generate",

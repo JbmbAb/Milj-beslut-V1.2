@@ -117,6 +117,26 @@ describe('auditSguRiskAtPoint', () => {
     expect(result.flags).not.toContain('sgu:sample-coverage');
   });
 
+  it('handles null values in ground layer database results', async () => {
+    mocks.queryRaw
+      .mockResolvedValueOnce([
+        {
+          source_key: 'test',
+          layer_code: null,
+          layer_label: null,
+          map_type: null,
+          source_scale: '1:1 000 000',
+        },
+      ])
+      .mockResolvedValueOnce([]);
+
+    const result = await auditSguRiskAtPoint(59.33, 18.07);
+
+    expect(result.groundLayer.hit?.layerCode).toBeNull();
+    expect(result.groundLayer.hit?.layerLabel).toBeNull();
+    expect(result.groundLayer.hit?.mapType).toBeNull();
+  });
+
   it('advisory mentions missing data when no ground hit', async () => {
     mocks.queryRaw.mockResolvedValueOnce([]).mockResolvedValueOnce([]);
 
@@ -140,6 +160,15 @@ describe('auditSguRiskAtPoint', () => {
     const result = await auditSguRiskAtPoint(59.0, 18.0);
 
     expect(result.landslideFeatures.bufferMeters).toBe(SGU_LANDSLIDE_REVIEW_BUFFER_METERS);
+  });
+
+  it('returns a non-empty summary string', async () => {
+    mocks.queryRaw.mockResolvedValueOnce([]).mockResolvedValueOnce([]);
+
+    const result = await auditSguRiskAtPoint(59.0, 18.0);
+
+    expect(result.summary).toBeTruthy();
+    expect(typeof result.summary).toBe('string');
   });
 });
 

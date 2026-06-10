@@ -13,12 +13,16 @@ import dotenv from 'dotenv';
 import fs from 'fs';
 import path from 'path';
 
+import { MASTER_ARCHIVE_ROOT } from './config/mimersBrunn';
+
 dotenv.config();
 
 const prisma = new PrismaClient();
 const DATABASE_URL = process.env.DATABASE_URL || '';
 const OGR2OGR_PATH = process.env.OGR2OGR_PATH ?? 'C:\\Program Files\\GDAL\\ogr2ogr.exe';
-const GEODATA_DIR = process.env.GEODATA_DIR ?? 'D:\\GEodata';
+
+// Mimers Brunn: Default to Master Archive. Legacy D:\GEodata is now a secondary fallback or env override.
+const GEODATA_DIR = process.env.GEODATA_DIR ?? path.join(MASTER_ARCHIVE_ROOT, 'Data', 'legacy_adopted');
 
 type VectorImportJob = {
   id: string;
