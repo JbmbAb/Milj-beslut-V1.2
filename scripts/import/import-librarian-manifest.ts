@@ -2,9 +2,42 @@ import * as fs from 'fs';
 import path from 'path';
 import { spawnSync } from 'child_process';
 import { PrismaClient } from '@prisma/client';
-import { getTargetConfig } from './config/importRegistry';
+import { getRegistryEntry } from './config/importRegistry';
+import {
+  assertExpectedColumnsPresent,
+  assertStagingQaPasses,
+  applyPostImportIndexing,
+  buildPromoteInsertSql,
+  countTableRows,
+  ensureGiSTIndex,
+  formatPromoteAuditSummary,
+  formatStagingQaSummary,
+  OGR2OGR_PGOPTIONS,
+  parseOgrinfoFieldNames,
+  resetBulkImportSession,
+  runStagingVectorQa,
+  setBulkImportSession,
+  smokeMapLayerForTable,
+  tableExists,
+  vacuumAnalyzeTable,
+} from './importLibrarianQa';
+import {
+  type ArchiveManifestV2,
+  ensureArchiveManifestV2,
+  isImportEligible,
+  readQaStatus,
+  validateArchiveManifestStructure,
+} from './types/manifestSchema';
+import {
+  flushManifestWriteBackQueue,
+  formatQaError,
+  scheduleManifestWriteBack,
+  updateManifestStateLocal,
+  type ManifestQAUpdate,
+} from './utils/manifestWriteBack';
 import dotenv from 'dotenv';
 import { fileURLToPath } from 'url';
+import { syncPropertyUnitFromEnv } from '../db/sync-property-unit-from-env';
 
 dotenv.config();
 
@@ -14,16 +47,9 @@ const OGR2OGR_PATH = process.env.OGR2OGR_PATH || 'C:\\Program Files\\GDAL\\ogr2o
 const OGRINFO_PATH = process.env.OGRINFO_PATH || 'C:\\Program Files\\GDAL\\ogrinfo.exe';
 const POSTGIS_CONTAINER = process.env.POSTGIS_CONTAINER || 'miljobeslut-postgres';
 const POSTGIS_MOUNT_ROOT = process.env.POSTGIS_MOUNT_ROOT || '/mnt/drive'; // Path inside Docker container where H: is mounted
+const QA_LOG_DIR = path.join(process.cwd(), 'storage', 'manifests', 'import-qa');
 
-interface Manifest {
-  provider: string;
-  dataset: string;
-  version: string;
-  provenance: string;
-  content_bundle_sha256: string;
-  files: string[];
-  total_bytes: number;
-}
+type Manifest = ArchiveManifestV2;
 
 // Arguments
 const args = process.argv.slice(2);
@@ -32,6 +58,9 @@ let dataDir = '';
 let onlyHash = '';
 let execute = false;
 let mode = 'plan'; // 'plan' | 'import-staging' | 'promote'
+let writeBackManifest = false;
+
+const writeBackQueue: Array<Promise<{ ok: boolean; remotePath: string; error?: string }>> = [];
 
 for (let i = 0; i < args.length; i++) {
   if (args[i] === '--manifest-dir') manifestDir = args[++i];
@@ -39,6 +68,7 @@ for (let i = 0; i < args.length; i++) {
   if (args[i] === '--only') onlyHash = args[++i];
   if (args[i] === '--execute') execute = true;
   if (args[i] === '--mode') mode = args[++i];
+  if (args[i] === '--write-back-manifest') writeBackManifest = true;
 }
 
 const logger = {
@@ -70,14 +100,47 @@ async function findPrimaryFile(manifest: Manifest, fullDataPath: string): Promis
   throw new Error('No primary spatial file found in manifest.');
 }
 
+function writeQaLog(batchId: string, payload: Record<string, unknown>): void {
+  fs.mkdirSync(QA_LOG_DIR, { recursive: true });
+  fs.writeFileSync(path.join(QA_LOG_DIR, `${batchId}.json`), JSON.stringify(payload, null, 2), 'utf8');
+}
+
+function scheduleQaWriteBack(manifestPath: string, manifest: Manifest, update: ManifestQAUpdate): void {
+  const updated = updateManifestStateLocal(manifestPath, manifest, update);
+  logger.info(`   [Local] Manifest -> qa_status=${update.qa_status} (${manifestPath})`);
+
+  if (!writeBackManifest) return;
+  scheduleManifestWriteBack(
+    writeBackQueue,
+    manifest.provider,
+    manifest.dataset,
+    manifest.version,
+    update,
+    {
+      baseManifest: updated,
+      logger: {
+        log: (msg: string) => logger.info(msg),
+        warn: (msg: string) => logger.warn(msg),
+        error: (msg: string, err?: unknown) => logger.error(msg, err),
+      },
+    },
+  );
+}
+
 async function processManifest(manifestPath: string) {
   try {
     const raw = fs.readFileSync(manifestPath, 'utf8');
-    const manifest: Manifest = JSON.parse(raw);
+    const parsed = JSON.parse(raw);
+    const validated = validateArchiveManifestStructure(parsed);
+    if (!validated.ok) {
+      throw new Error(`Invalid manifest schema at ${manifestPath}: ${validated.errors.join('; ')}`);
+    }
+    const manifest: Manifest = validated.manifest;
 
-    // Validate Schema
-    if (!manifest.provider || !manifest.dataset || !manifest.content_bundle_sha256 || !manifest.files) {
-      throw new Error(`Invalid manifest schema at ${manifestPath}`);
+    if (!isImportEligible(manifest)) {
+      throw new Error(
+        `Manifest ${manifestPath} is not import-eligible (qa_status=${readQaStatus(manifest)})`,
+      );
     }
 
     if (onlyHash && manifest.content_bundle_sha256 !== onlyHash) {
@@ -87,9 +150,13 @@ async function processManifest(manifestPath: string) {
     logger.info(`\n📦 Processing: ${manifest.provider} / ${manifest.dataset}`);
 
     // Import Registry lookup
-    const targetConfig = getTargetConfig(manifest.provider, manifest.dataset);
-    const { target_schema, target_table } = targetConfig;
+    const registryEntry = getRegistryEntry(manifest.provider, manifest.dataset);
+    const { target_schema, target_table } = registryEntry;
+    const expectedColumns = [...registryEntry.expected_columns];
     logger.info(`   Registry Target: ${target_schema}.${target_table}`);
+    if (expectedColumns.length > 0) {
+      logger.info(`   Expected columns (${expectedColumns.length}): ${expectedColumns.slice(0, 6).join(', ')}${expectedColumns.length > 6 ? '…' : ''}`);
+    }
 
     // Dedupe Check
     const existingSuccess = await prisma.postgisImportBatch.findFirst({
@@ -194,17 +261,33 @@ async function processManifest(manifestPath: string) {
           }
 
           logger.info(`   - Executing raster registration SQL (${Math.round(sql.length / 1024)} KB)...`);
-          // raster2pgsql emits BEGIN; ... COMMIT; — split and run each statement
-          const statements = sql.split(/;\s*\n/).map(s => s.trim()).filter(s => s.length > 0 && s !== 'BEGIN' && s !== 'COMMIT');
-          for (const stmt of statements) {
-            await prisma.$executeRawUnsafe(stmt + ';');
+          await setBulkImportSession(prisma);
+          try {
+            const statements = sql.split(/;\s*\n/).map(s => s.trim()).filter(s => s.length > 0 && s !== 'BEGIN' && s !== 'COMMIT');
+            for (const stmt of statements) {
+              await prisma.$executeRawUnsafe(stmt + ';');
+            }
+          } finally {
+            await resetBulkImportSession(prisma);
           }
+
+          const rasterRows = await countTableRows(prisma, fullStagingTarget);
+          if (rasterRows === 0) {
+            throw new Error('Staging QA failed: zero raster rows registered');
+          }
+          logger.info(`   - Raster staging rows: ${rasterRows.toLocaleString()}`);
 
         } else {
           // VECTOR FLOW
           // Validation: Verify source CRS via ogrinfo
           logger.info(`   - Verifying source CRS using ogrinfo...`);
-          const ogrinfoResult = spawnSync(OGRINFO_PATH, ['-so', '-al', primaryFilePath], { encoding: 'utf-8' });
+          const ogrinfoArgs = ['-so', primaryFilePath];
+          if (registryEntry.ogr_layer) {
+            ogrinfoArgs.push(registryEntry.ogr_layer);
+          } else {
+            ogrinfoArgs.push('-al');
+          }
+          const ogrinfoResult = spawnSync(OGRINFO_PATH, ogrinfoArgs, { encoding: 'utf-8' });
           
           if (ogrinfoResult.status !== 0) {
             throw new Error(`ogrinfo failed to read file. Status: ${ogrinfoResult.status}`);
@@ -216,46 +299,80 @@ async function processManifest(manifestPath: string) {
             throw new Error(`Source file lacks a valid CRS. Cannot safely transform to EPSG:3006 without guessing.`);
           }
 
+          if (expectedColumns.length > 0) {
+            const sourceFields = parseOgrinfoFieldNames(output);
+            assertExpectedColumnsPresent(sourceFields, expectedColumns);
+            logger.info(`   - Source schema OK (${sourceFields.length} fields, expected ${expectedColumns.length})`);
+          }
+
+          const ogrLayer = registryEntry.ogr_layer;
           const ogrArgs = [
             '-f', 'PostgreSQL',
             pgConn,
             primaryFilePath,
+            ...(ogrLayer ? [ogrLayer] : []),
             '-nln', fullStagingTarget,
             '-overwrite',
             '-nlt', 'PROMOTE_TO_MULTI',
             '-lco', 'GEOMETRY_NAME=geom',
             '-lco', 'SPATIAL_INDEX=NONE', // Vi skapar GiST index manuellt efteråt
             '-t_srs', 'EPSG:3006',
+            '-gt', '65536',
+            '--config', 'PG_USE_COPY', 'YES',
           ];
 
           logger.info(`   - Running ogr2ogr to ${fullStagingTarget}...`);
-          const result = spawnSync(OGR2OGR_PATH, ogrArgs, { stdio: 'inherit' });
+          const result = spawnSync(OGR2OGR_PATH, ogrArgs, {
+            stdio: 'inherit',
+            env: { ...process.env, PGOPTIONS: OGR2OGR_PGOPTIONS },
+          });
           
           if (result.status !== 0) {
             throw new Error(`ogr2ogr failed with status ${result.status}`);
           }
 
-          logger.info(`   - Creating GiST index and running VACUUM ANALYZE...`);
-          await prisma.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS idx_${stagingTable}_geom ON ${stagingSchema}.${stagingTable} USING GIST (geom);`);
+          logger.info(`   - Running staging spatial QA...`);
+          const stagingQa = await runStagingVectorQa(prisma, fullStagingTarget);
+          logger.info(`   - ${formatStagingQaSummary(stagingQa)}`);
+          assertStagingQaPasses(stagingQa);
+          writeQaLog(batch.id, { manifestPath, stagingQa, qualifiedTable: fullStagingTarget });
+
+          logger.info(`   - Creating GiST index on staging and running VACUUM ANALYZE...`);
+          await setBulkImportSession(prisma);
           try {
-            await prisma.$executeRawUnsafe(`VACUUM ANALYZE ${stagingSchema}.${stagingTable};`);
-          } catch(e) {
-             logger.warn(`Could not run VACUUM ANALYZE: ${(e as Error).message}`);
+            await ensureGiSTIndex(prisma, stagingSchema, stagingTable, `idx_${stagingTable}_geom`);
+            try {
+              await vacuumAnalyzeTable(prisma, fullStagingTarget);
+            } catch (e) {
+              logger.warn(`Could not run VACUUM ANALYZE on staging: ${(e as Error).message}`);
+            }
+          } finally {
+            await resetBulkImportSession(prisma);
           }
         }
 
         await prisma.postgisImportBatch.update({
           where: { id: batch.id },
-          data: { status: 'STAGING_IMPORTED' },
+          data: {
+            status: 'STAGING_IMPORTED',
+            row_count: await countTableRows(prisma, fullStagingTarget),
+            dataset_version: manifest.version,
+          },
         });
 
         logger.info(`   ✅ Staging Import Successful.`);
-      } catch (err: any) {
+        scheduleQaWriteBack(manifestPath, manifest, { qa_status: 'staging_ok' });
+      } catch (err: unknown) {
+        const message = err instanceof Error ? err.message : String(err);
         await prisma.postgisImportBatch.update({
           where: { id: batch.id },
-          data: { status: 'FAILED', error_message: err.message },
+          data: { status: 'FAILED', error_message: message },
         });
-        logger.error(`   ❌ Failed: ${err.message}`);
+        scheduleQaWriteBack(manifestPath, manifest, {
+          qa_status: 'failed',
+          qa_error: formatQaError(err),
+        });
+        logger.error(`   ❌ Failed: ${message}`);
       }
     } else if (mode === 'promote') {
       // Find the STAGING_IMPORTED batch
@@ -275,9 +392,22 @@ async function processManifest(manifestPath: string) {
       }
 
       if (!execute) {
-        logger.dry(`[promote] Would promote ${fullStagingTarget} to ${target_schema}.${target_table} using TRUNCATE + INSERT to preserve views.`);
+        logger.dry(`[promote] Would run promote audit, then promote ${fullStagingTarget} -> ${target_schema}.${target_table}`);
         return;
       }
+
+      const prodExists = await tableExists(prisma, target_schema, target_table);
+      const stagingRows = await countTableRows(prisma, fullStagingTarget);
+      const prodRowsBefore = prodExists ? await countTableRows(prisma, `${target_schema}.${target_table}`) : 0;
+
+      if (stagingRows === 0) {
+        logger.error(`   Promote audit failed: staging table ${fullStagingTarget} is empty`);
+        return;
+      }
+
+      logger.info(
+        `   - Promote audit: staging=${stagingRows.toLocaleString()}, prod_before=${prodRowsBefore.toLocaleString()}`,
+      );
 
       logger.info(`   - Promoting ${fullStagingTarget} -> ${target_schema}.${target_table}...`);
       await prisma.postgisImportBatch.update({
@@ -286,25 +416,101 @@ async function processManifest(manifestPath: string) {
       });
 
       try {
-        // We use a transaction to ensure atomic promotion. 
-        // This prevents the target table from being left empty if the process fails mid-way.
+        const insertSql = await buildPromoteInsertSql(
+          prisma,
+          target_schema,
+          target_table,
+          stagingSchema,
+          stagingTable,
+        );
         await prisma.$transaction([
           prisma.$executeRawUnsafe(`TRUNCATE ${target_schema}.${target_table};`),
-          prisma.$executeRawUnsafe(`INSERT INTO ${target_schema}.${target_table} SELECT * FROM ${stagingSchema}.${stagingTable};`)
+          prisma.$executeRawUnsafe(insertSql),
         ]);
-        
+
+        const prodRowsAfter = await countTableRows(prisma, `${target_schema}.${target_table}`);
+        if (prodRowsAfter !== stagingRows) {
+          throw new Error(
+            `Promote audit failed: staging=${stagingRows}, prod_after=${prodRowsAfter}`,
+          );
+        }
+
+        const promoteAudit = { stagingRows, prodRowsBefore, prodRowsAfter };
+        logger.info(`   - ${formatPromoteAuditSummary(promoteAudit)}`);
+
+        logger.info(`   - Post-promote: GiST + BRIN (if eligible) + VACUUM ANALYZE on ${target_schema}.${target_table}...`);
+        let indexingResult: Awaited<ReturnType<typeof applyPostImportIndexing>> | undefined;
+        try {
+          indexingResult = await applyPostImportIndexing(prisma, target_schema, target_table);
+          if (indexingResult.brinColumn) {
+            logger.info(
+              `   - BRIN index on ${indexingResult.brinColumn} (${indexingResult.rowCount.toLocaleString('sv-SE')} rows)`,
+            );
+          } else if (indexingResult.rowCount >= 100_000) {
+            logger.warn(`   - No BRIN column (ogc_fid/fid/id) on ${target_schema}.${target_table}`);
+          }
+        } catch (e) {
+          logger.warn(`Could not complete post-import indexing: ${(e as Error).message}`);
+        }
+
+        const smoke = await smokeMapLayerForTable(target_schema, target_table);
+        if (smoke.skipped) {
+          logger.warn(`   - Map-layer smoke skipped: ${smoke.detail}`);
+        } else if (smoke.status === 'ok') {
+          logger.info(`   - Map-layer smoke OK (${smoke.layerKey}): ${smoke.detail}`);
+        } else {
+          logger.warn(`   - Map-layer smoke ${smoke.status} (${smoke.layerKey}): ${smoke.detail}`);
+        }
+
+        writeQaLog(stagedBatch.id, {
+          manifestPath,
+          promoteAudit,
+          indexing: indexingResult,
+          smoke,
+          promotedTo: `${target_schema}.${target_table}`,
+        });
+
         await prisma.postgisImportBatch.update({
           where: { id: stagedBatch.id },
-          data: { status: 'SUCCESS', completed_at: new Date() },
+          data: {
+            status: 'SUCCESS',
+            completed_at: new Date(),
+            row_count: prodRowsAfter,
+            dataset_version: manifest.version,
+          },
         });
-        
-        logger.info(`   ✅ Promote Successful (Atomic).`);
-      } catch (err: any) {
+
+        logger.info(`   ✅ Promote Successful (Atomic, QA verified).`);
+
+        if (target_table === 'registerenhetsomradesytor') {
+          logger.info(`   - Syncing core.property_unit from env.registerenhetsomradesytor...`);
+          try {
+            const syncResult = await syncPropertyUnitFromEnv(prisma, { execute: true });
+            logger.info(
+              `   - core.property_unit sync OK: ${syncResult.coreRowsAfter.toLocaleString('sv-SE')} rows in ${(syncResult.durationMs / 1000).toFixed(1)}s`,
+            );
+            for (const check of syncResult.spotChecks) {
+              logger.info(`     spot-check [${check.found ? 'OK' : 'MISS'}] ${check.designation}`);
+            }
+          } catch (syncErr: unknown) {
+            const syncMessage = syncErr instanceof Error ? syncErr.message : String(syncErr);
+            logger.error(`   ❌ core.property_unit sync failed: ${syncMessage}`);
+            throw syncErr;
+          }
+        }
+
+        scheduleQaWriteBack(manifestPath, manifest, { qa_status: 'passed' });
+      } catch (err: unknown) {
+        const message = err instanceof Error ? err.message : String(err);
         await prisma.postgisImportBatch.update({
           where: { id: stagedBatch.id },
-          data: { status: 'FAILED', error_message: `Promote failed: ${err.message}` },
+          data: { status: 'FAILED', error_message: `Promote failed: ${message}` },
         });
-        logger.error(`   ❌ Promote Failed: ${err.message}`);
+        scheduleQaWriteBack(manifestPath, manifest, {
+          qa_status: 'failed',
+          qa_error: formatQaError(err),
+        });
+        logger.error(`   ❌ Promote Failed: ${message}`);
       }
     } else {
        logger.warn(`Unknown mode: ${mode}`);
@@ -360,15 +566,28 @@ async function main() {
       logger.error(`Manifest directory not found: ${manifestDir}`);
       process.exit(1);
     }
-    const files = fs.readdirSync(manifestDir).filter(f => f.endsWith('.json') && !f.includes('local_master_index'));
-    for (const file of files) {
-      await processManifest(path.join(manifestDir, file));
+    const files = fs
+      .readdirSync(manifestDir)
+      .filter(
+        (f) =>
+          f.endsWith('.json') &&
+          !f.includes('local_master_index') &&
+          !f.startsWith('merge-') &&
+          f !== 'checksums.txt',
+      );
+    if (files.length === 0 && fs.existsSync(path.join(manifestDir, 'manifest.json'))) {
+      await processManifest(path.join(manifestDir, 'manifest.json'));
+    } else {
+      for (const file of files) {
+        await processManifest(path.join(manifestDir, file));
+      }
     }
   } else {
     // If running as a test/imported module, do nothing.
     logger.info('Unified Ingester initialized. Use --manifest-dir to process or --mode cleanup-staging to clean up.');
   }
-  
+
+  await flushManifestWriteBackQueue(writeBackQueue);
   await prisma.$disconnect();
 }
 

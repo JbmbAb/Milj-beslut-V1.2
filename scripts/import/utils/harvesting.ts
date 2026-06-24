@@ -48,7 +48,10 @@ export async function createManifest(
   targetDir: string,
   metadata: Omit<HarvestManifest, 'content_bundle_sha256' | 'files' | 'total_bytes' | 'downloaded_at'>
 ): Promise<HarvestManifest> {
-  const allFiles = fs.readdirSync(targetDir).filter(f => f !== 'manifest.json' && f !== 'checksums.txt');
+  const allFiles = fs.readdirSync(targetDir).filter((f) => {
+    if (f === 'manifest.json' || f === 'checksums.txt') return false;
+    return fs.statSync(path.join(targetDir, f)).isFile();
+  });
   const fullPaths = allFiles.map(f => path.join(targetDir, f));
   
   const content_bundle_sha256 = await calculateBundleHash(fullPaths);
