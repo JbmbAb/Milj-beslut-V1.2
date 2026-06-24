@@ -416,17 +416,24 @@ async function processManifest(manifestPath: string) {
       });
 
       try {
-        const insertSql = await buildPromoteInsertSql(
-          prisma,
-          target_schema,
-          target_table,
-          stagingSchema,
-          stagingTable,
-        );
-        await prisma.$transaction([
-          prisma.$executeRawUnsafe(`TRUNCATE ${target_schema}.${target_table};`),
-          prisma.$executeRawUnsafe(insertSql),
-        ]);
+        if (prodExists) {
+          const insertSql = await buildPromoteInsertSql(
+            prisma,
+            target_schema,
+            target_table,
+            stagingSchema,
+            stagingTable,
+          );
+          await prisma.$transaction([
+            prisma.$executeRawUnsafe(`TRUNCATE ${target_schema}.${target_table};`),
+            prisma.$executeRawUnsafe(insertSql),
+          ]);
+        } else {
+          logger.info(`   - Prod table missing — bootstrapping from staging...`);
+          await prisma.$executeRawUnsafe(
+            `CREATE TABLE ${target_schema}.${target_table} AS SELECT * FROM ${stagingSchema}.${stagingTable}`,
+          );
+        }
 
         const prodRowsAfter = await countTableRows(prisma, `${target_schema}.${target_table}`);
         if (prodRowsAfter !== stagingRows) {

@@ -75,7 +75,7 @@ const SGU_JORDART_25K_COLUMNS = ['jg2', 'jg2_tx', 'kartering', 'karttyp', 'symbo
 
 const SGU_JORDSKRED_COLUMNS = ['objectid', 'sl', 'sl_tx', 'symbol'] as const;
 
-const SGU_FASTMARK_COLUMNS = ['objectid', 'fastmarkstyp', 'fastmarkstyp_tx'] as const;
+const SGU_FASTMARK_COLUMNS = ['objectid', 'fastmark', 'fastmark_tx'] as const;
 
 const SGU_GRUNDVATTEN_COLUMNS = [
   'unik_magasinsidentitet',
@@ -85,7 +85,7 @@ const SGU_GRUNDVATTEN_COLUMNS = [
   'akvifertyp',
 ] as const;
 
-const SGU_AKTSAMHET_COLUMNS = ['objectid', 'aktsamhet', 'aktsamhet_tx'] as const;
+const SGU_AKTSAMHET_COLUMNS = ['objectid', 'aktskre', 'aktskre_tx'] as const;
 
 const SGU_JORDDJUP_10M_COLUMNS = ['jorddjup', 'jordart'] as const;
 

@@ -45,13 +45,26 @@ export const SGU_HARVEST_SOURCES: SguHarvestSource[] = [
     registryDataset: 'Brunnar',
     license: 'CC BY 4.0',
     apiCollectionUrl: 'https://api.sgu.se/oppnadata/brunnar/ogc/features/v1/collections/brunnar',
-    // bulk ZIP: https://resource.sgu.se/data/oppnadata/brunnar/brunnar.zip — add when validated
+    zip: {
+      zipUrl: 'https://resource.sgu.se/data/oppnadata/brunnar/brunnar.zip',
+      zipFileName: 'brunnar.zip',
+      innerGpkg: 'brunnar.gpkg',
+      ogrLayer: 'brunnar',
+      expectedFeatureCount: 832_535,
+    },
   },
   {
     id: 'Fastmark',
     registryDataset: 'Fastmark',
     license: 'CC BY 4.0',
     apiCollectionUrl: 'https://api.sgu.se/oppnadata/fastmark/ogc/features/v1/collections/fastmark',
+    zip: {
+      zipUrl: 'https://resource.sgu.se/data/oppnadata/fastmark/fastmark.zip',
+      zipFileName: 'fastmark.zip',
+      innerGpkg: 'fastmark.gpkg',
+      ogrLayer: 'fastmark',
+      expectedFeatureCount: 2_956_837,
+    },
   },
   {
     id: 'Grundvatten',
@@ -59,6 +72,13 @@ export const SGU_HARVEST_SOURCES: SguHarvestSource[] = [
     license: 'CC BY 4.0',
     apiCollectionUrl:
       'https://api.sgu.se/oppnadata/grundvattenmagasin/ogc/features/v1/collections/grundvattenmagasin',
+    zip: {
+      zipUrl: 'https://resource.sgu.se/data/oppnadata/grundvattenmagasin/grundvattenmagasin.zip',
+      zipFileName: 'grundvattenmagasin.zip',
+      innerGpkg: 'grundvattenmagasin.gpkg',
+      ogrLayer: 'grundvattenmagasin',
+      expectedFeatureCount: 9_340,
+    },
   },
   {
     id: 'Jordskred',
@@ -66,6 +86,13 @@ export const SGU_HARVEST_SOURCES: SguHarvestSource[] = [
     license: 'CC BY 4.0',
     apiCollectionUrl:
       'https://api.sgu.se/oppnadata/jordskred-raviner/ogc/features/v1/collections/jordskred-raviner',
+    zip: {
+      zipUrl: 'https://resource.sgu.se/data/oppnadata/jordskred-raviner/jordskred-raviner.zip',
+      zipFileName: 'jordskred-raviner.zip',
+      innerGpkg: 'jordskred_raviner.gpkg',
+      ogrLayer: 'jordskred_raviner',
+      expectedFeatureCount: 50_373,
+    },
   },
   {
     id: 'AktsamhetEfterarbetad',
@@ -73,6 +100,14 @@ export const SGU_HARVEST_SOURCES: SguHarvestSource[] = [
     license: 'CC BY 4.0',
     apiCollectionUrl:
       'https://api.sgu.se/oppnadata/forutsattningar-skred-finkornig-jordart/ogc/features/v1/collections/aktsam-efterarbetad',
+    zip: {
+      zipUrl:
+        'https://resource.sgu.se/data/oppnadata/forutsattningar-skred-finkornig-jordart/forutsattningar-skred-finkornig-jordart.zip',
+      zipFileName: 'forutsattningar-skred-finkornig-jordart.zip',
+      innerGpkg: 'forutsattningar_skred_finkornig_jordart.gpkg',
+      ogrLayer: 'aktsam_efterarbetad',
+      expectedFeatureCount: 242_296,
+    },
   },
 ];
 
