@@ -44,23 +44,24 @@ const LM_FASTIGHET_YTOR_COLUMNS = [
 
 const LM_FASTIGHET_LINJER_COLUMNS = [
   'objektidentitet',
-  'versiongiltigfran',
   'registerenhetsreferens',
   'etikett',
   'kommunnamn',
   'trakt',
-  'detaljtyp',
+  'objekttyp',
 ] as const;
 
 const LM_BYGGNAD_COLUMNS = [
   'objektidentitet',
   'versiongiltigfran',
-  'byggnadstyp',
-  'byggnadsstatus',
-  'andamal',
+  'objekttyp',
+  'huvudbyggnad',
+  'andamal1',
 ] as const;
 
-const LM_MARK_COLUMNS = ['objektidentitet', 'versiongiltigfran', 'detaljtyp', 'klass_kod'] as const;
+const LM_MARK_COLUMNS = ['objektidentitet', 'versiongiltigfran', 'objekttyp', 'vattenytaid'] as const;
+
+const MCF_STABILITY_PILOT_COLUMNS = ['kommun_namn', 'zon_typ'] as const;
 
 const SGU_BRUNNAR_COLUMNS = [
   'brunnsid',
@@ -87,9 +88,15 @@ const SGU_GRUNDVATTEN_COLUMNS = [
 
 const SGU_AKTSAMHET_COLUMNS = ['objectid', 'aktskre', 'aktskre_tx'] as const;
 
-const SGU_JORDDJUP_10M_COLUMNS = ['jorddjup', 'jordart'] as const;
+const SGU_JORDDJUP_10M_COLUMNS = ['djup', 'avslut'] as const;
 
-const SGU_JORDDJUP_BERGYTA_COLUMNS = ['jorddjup', 'bergyta'] as const;
+const SGU_JORDDJUP_BERGYTA_COLUMNS = ['djup', 'avslut'] as const;
+
+const SGU_EROSION_AKTIV_COLUMNS = ['sl', 'sl_tx'] as const;
+
+const SGU_BLOCKIGHET_750K_COLUMNS = ['bl', 'bl_tx'] as const;
+
+const SGU_LANDFORM_750K_COLUMNS = ['lf', 'lf_tx'] as const;
 
 function entry(
   config: Omit<ImportRegistryEntry, 'expected_columns'> & { expected_columns: readonly string[] },
@@ -212,23 +219,56 @@ export const IMPORT_REGISTRY: Record<string, Record<string, ImportRegistryEntry>
       target_schema: 'env',
       target_table: 'sgu_jorddjupsmodell_10m',
       expected_columns: SGU_JORDDJUP_10M_COLUMNS,
-      tier: 1,
+      tier: 2,
       ogr_layer: 'underlag_jorddjup',
       primary_format: 'gpkg',
-      source_url: 'https://api.sgu.se/oppnadata/jorddjupsmodell',
-      license: 'CC BY 4.0',
+      source_url: 'https://resource.sgu.se/data/oppnadata/jorddjupsmodell/jorddjupsmodell.zip',
+      license: 'CC0',
       aliases: ['Legacy_Archive/Jorddjup10m', 'jorddjupsmodell'],
     }),
     JorddjupBergyta50m: entry({
       target_schema: 'env',
       target_table: 'sgu_jorddjupsmodell_bergyta_50m',
       expected_columns: SGU_JORDDJUP_BERGYTA_COLUMNS,
-      tier: 1,
+      tier: 2,
       ogr_layer: 'underlag_jorddjup',
       primary_format: 'gpkg',
-      source_url: 'https://api.sgu.se/oppnadata/jorddjupsmodell',
-      license: 'CC BY 4.0',
+      source_url: 'https://resource.sgu.se/data/oppnadata/jorddjupsmodell/jorddjupsmodell.zip',
+      license: 'CC0',
       aliases: ['Legacy_Archive/JorddjupBergyta50m'],
+    }),
+    StranderosionAktiv: entry({
+      target_schema: 'env',
+      target_table: 'sgu_erosion_aktiv',
+      expected_columns: SGU_EROSION_AKTIV_COLUMNS,
+      tier: 2,
+      ogr_layer: 'aktiv_erosion',
+      primary_format: 'gpkg',
+      source_url: 'https://resource.sgu.se/data/oppnadata/stranderosion-kust/stranderosion-kust.zip',
+      license: 'CC BY 4.0',
+      aliases: ['stranderosion-kust', 'aktiv_erosion'],
+    }),
+    Jordarter750kBlockighet: entry({
+      target_schema: 'env',
+      target_table: 'sgu_blockighet_750k',
+      expected_columns: SGU_BLOCKIGHET_750K_COLUMNS,
+      tier: 2,
+      ogr_layer: 'blockighet',
+      primary_format: 'gpkg',
+      source_url: 'https://resource.sgu.se/data/oppnadata/jordarter750k/jordarter750k.zip',
+      license: 'CC BY 4.0',
+      aliases: ['jordarter750k', 'Legacy_Archive/Jordarter750k'],
+    }),
+    Jordarter750kLandform: entry({
+      target_schema: 'env',
+      target_table: 'sgu_landform_750k',
+      expected_columns: SGU_LANDFORM_750K_COLUMNS,
+      tier: 2,
+      ogr_layer: 'landform',
+      primary_format: 'gpkg',
+      source_url: 'https://resource.sgu.se/data/oppnadata/jordarter750k/jordarter750k.zip',
+      license: 'CC BY 4.0',
+      aliases: ['Legacy_Archive/Jordarter750kLandform'],
     }),
     Fastmark: entry({
       target_schema: 'env',
@@ -325,6 +365,18 @@ export const IMPORT_REGISTRY: Record<string, Record<string, ImportRegistryEntry>
       target_table: 'flood_risk_area',
       expected_columns: ['riskklass', 'scenario'],
       tier: 2,
+    }),
+  },
+  MCF: {
+    'finkorniga-jordar-pilot': entry({
+      target_schema: 'env',
+      target_table: 'msb_stabilitetszon_mcf_pilot',
+      expected_columns: MCF_STABILITY_PILOT_COLUMNS,
+      tier: 2,
+      ogr_layer: 'stabilitetszon',
+      primary_format: 'gpkg',
+      source_url: 'https://lastkaj.mcf.se/Karteringar/finkorniga-jordar/',
+      license: 'CC0',
     }),
   },
   legacy_adopted: {
