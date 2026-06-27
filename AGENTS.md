@@ -109,3 +109,36 @@ Fullständig guide: **`docs/architecture/ai-model-selection.md`**
 2. Stitch-scriptet körs **manuellt** (`npx ts-node scripts/sync-stitch.ts`) – inte automatiskt i CI
 3. Alla kodändringar går via Copilot Agent PR → du godkänner → merge
 4. Innan varje ny Copilot-session: `git pull` i VS Code för att synka
+
+---
+
+## Cursor Cloud specific instructions
+
+The dependency-refresh update script runs `npm install` + `npx prisma generate` automatically on
+session start. Everything below is the non-obvious context needed to actually run/test the app; the
+standard commands themselves live in `package.json` scripts and `README.md` (QA section).
+
+### Services overview
+- **Backend API** (Express): `npm run dev:server` → port `8787`. Health probe: `GET /health` returns `{ db: "ok" }` when Postgres is reachable.
+- **Frontend SPA** (Vite/React): `npm run dev` → port `3000`, proxies `/api` → `http://localhost:8787`.
+- **PostgreSQL 16** with `postgis`, `pgvector`, `pg_trgm`, `unaccent` extensions. Two local DBs exist (role `riskguard` / password `password`): `riskguard` (dev) and `riskguard_test` (tests).
+- **examensrepo/** is a separate, standalone Node pipeline (no DB, no server): `cd examensrepo && npm install && npm test`.
+
+### Startup caveats (do this each session)
+- **Postgres is not auto-started.** Run `sudo pg_ctlcluster 16 main start` before the backend/tests. The cluster, `riskguard` role and both databases persist in the VM snapshot; only the process needs starting.
+- **Env files are gitignored** (`.env` for dev, `.env.test` for tests) and persist in the snapshot. If missing, recreate `.env.test` via `cp .env.test.example .env.test`, and create `.env` with the same keys (dev defaults: `DATABASE_URL=postgresql://riskguard:password@localhost:5432/riskguard`, `JWT_ACCESS_SECRET`/`JWT_REFRESH_SECRET` set, `LANTMATERIET_OPEN_MODE=true`, `ADMIN_CONSOLE_USERNAME=admin`, `ADMIN_CONSOLE_PASSWORD=admin-dev-password`, `CORS_ALLOW_ORIGINS=http://localhost:3000`, `SEARCH_WORKER_ENABLED=false`).
+- **`DATABASE_URL` / docker-compose mismatch:** `docker-compose.yml` uses a `miljobeslut` role/db, but the app, `.env*`, CI and `playwright.config.ts` all use `riskguard`. Use `riskguard` locally; ignore the compose credentials.
+
+### Running migrations
+- Dev DB: `npx dotenv -e .env -- prisma migrate deploy`. Test DB: `npm run db:test:migrate` then `npm run db:test:seed`.
+
+### Testing gotchas
+- **Unit tests:** `npm run test:unit` — no DB needed.
+- **Integration tests:** `npm run test:integration` requires Postgres running. The DB-backed cases are gated by `DATABASE_INTEGRATION=true`, and `tests/setup/env.ts` defaults `DATABASE_URL` to a non-existent `miljobeslut` URL unless you export it. Run the full suite with: `DATABASE_INTEGRATION=true DATABASE_URL=postgresql://riskguard:password@localhost:5432/riskguard_test npm run test:integration`.
+- **E2E:** `npm run test:e2e` (Playwright auto-starts its own API on `8788` + UI on `3100`); run `npx playwright install chromium` first.
+
+### App hello-world (verified working)
+Open `http://localhost:3000` → "Administratör" module → log in (`admin` / `admin-dev-password`) → "Operativ Konsol" → create a project ("Skapa projekt"). The full path UI → `/api/admin/auth/login` → JWT → Prisma → Postgres works and persists rows.
+
+### Search worker
+`SEARCH_WORKER_ENABLED` is `false` locally. It needs a `GEMINI_API_KEY` to embed documents; leave it off unless testing embeddings.
