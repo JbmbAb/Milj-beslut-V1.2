@@ -109,3 +109,18 @@ Fullständig guide: **`docs/architecture/ai-model-selection.md`**
 2. Stitch-scriptet körs **manuellt** (`npx ts-node scripts/sync-stitch.ts`) – inte automatiskt i CI
 3. Alla kodändringar går via Copilot Agent PR → du godkänner → merge
 4. Innan varje ny Copilot-session: `git pull` i VS Code för att synka
+
+---
+
+## Cursor Cloud specific instructions
+
+Single full-stack app (`miljobeslut-se-2.0`): Vite + React frontend (port **3000**), Express + Prisma backend (port **8787**), PostgreSQL + pgvector (port **5432**). The Vite dev server proxies only `/api/*` to the backend (see `vite.config.ts`). Standard scripts live in `package.json`; QA flow is documented in `README.md`.
+
+The update script (`npm install` + `npx prisma generate`) runs automatically on VM start. The notes below cover what it does NOT do.
+
+- **PostgreSQL is installed locally via apt (not Docker).** Docker is unavailable in this environment; the `docker-compose.yml` Postgres is replaced by a local `pgvector/pg16` cluster. Start it each session with `sudo pg_ctlcluster 16 main start`. Credentials match the compose file: user `miljobeslut`, password `password`, db `miljobeslut`. Note `.env.example` ships a different (`riskguard`) `DATABASE_URL` — the working local value is `postgresql://miljobeslut:password@localhost:5432/miljobeslut`.
+- **`.env` is committed-out of git but already present in the VM** with dev values (JWT secrets, `LANTMATERIET_OPEN_MODE=true`, local `DATABASE_URL`, admin console creds). The backend's `assertSecurityEnv()` throws at boot unless `JWT_ACCESS_SECRET`, `JWT_REFRESH_SECRET`, `LANTMATERIET_BASE_URL` and a Lantmäteriet credential (or `LANTMATERIET_OPEN_MODE=true`) are set.
+- **Gotcha — start the backend with `--env-file`.** `npm run dev:server` / `npm start` do NOT reliably load `.env`: `assertSecurityEnv()` runs at module-import time, before `loadEnv.ts` executes (ESM hoisting), so the server crashes with "Missing required security env variables". Start it instead with `node --env-file=.env --import tsx server/index.ts` (or export the vars into the shell first). Frontend is just `npm run dev`.
+- **DB schema setup** (already applied; rerun after schema changes): `npx prisma migrate deploy`, then `psql -f scripts/db/init-search.sql` to add the pgvector column/index (it degrades gracefully if pgvector is absent).
+- **Health/verify**: `curl http://localhost:8787/health` should return `{ ok: true, db: "ok" }`. `/health` is NOT proxied through Vite (only `/api`), so hit port 8787 directly.
+- **Hello-world / admin login**: POST `/api/admin/auth/login` with `admin` / `admin-dev-password` (from `.env`) returns JWT tokens; in the UI use the Administrator module → "Logga in", then "Skapa projekt". Most external integrations (Gemini, OpenAI, BankID, SLU, Lantmäteriet licensed lookups) require real API keys and degrade gracefully without them.
