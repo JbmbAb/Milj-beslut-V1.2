@@ -97,7 +97,36 @@
     <div id="root"></div>
     <script type="module" src="/src/main.tsx"></script>
     <script>
-      if ('serviceWorker' in navigator) {
+      if (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1') {
+        // Self-cleaning block for localhost developers to clear any stale Service Worker or Caches
+        if ('serviceWorker' in navigator) {
+          navigator.serviceWorker.getRegistrations().then((registrations) => {
+            let unregisteredAny = false;
+            for (const registration of registrations) {
+              registration.unregister();
+              unregisteredAny = true;
+              console.log('[Dev Cleanup] Unregistered Service Worker:', registration);
+            }
+            if (unregisteredAny) {
+              console.log('[Dev Cleanup] Service Worker unregistered on localhost.');
+            }
+          });
+        }
+        if ('caches' in window) {
+          caches.keys().then((keys) => {
+            let deletedAny = false;
+            for (const key of keys) {
+              caches.delete(key);
+              deletedAny = true;
+              console.log('[Dev Cleanup] Deleted cache:', key);
+            }
+            if (deletedAny) {
+              console.log('[Dev Cleanup] Caches cleared. Reloading page...');
+              window.location.reload();
+            }
+          });
+        }
+      } else if ('serviceWorker' in navigator) {
         window.addEventListener('load', () => {
           navigator.serviceWorker.register('/sw.js').catch(() => {});
         });

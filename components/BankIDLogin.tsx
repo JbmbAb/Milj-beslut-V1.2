@@ -5,9 +5,14 @@ import { callApi, setSession } from '../services/coreApiClient';
 import { resolveBankIdLaunchHref } from './applicationWizard/bankIdLaunch';
 
 function readViteAdminOnlyLogin(): boolean {
-  return String((import.meta as ImportMeta & { env?: { VITE_LOGIN_ADMIN_ONLY?: string } }).env?.VITE_LOGIN_ADMIN_ONLY ?? '')
-    .trim()
-    .toLowerCase() === 'true';
+  return (
+    String(
+      (import.meta as ImportMeta & { env?: { VITE_LOGIN_ADMIN_ONLY?: string } }).env?.VITE_LOGIN_ADMIN_ONLY ??
+        '',
+    )
+      .trim()
+      .toLowerCase() === 'true'
+  );
 }
 
 interface BankIDLoginProps {
@@ -318,6 +323,13 @@ const BankIDLogin: React.FC<BankIDLoginProps> = ({ onLogin, adminOnly: adminOnly
     }
   };
 
+  const handleGoogleLogin = () => {
+    // This will redirect the entire window to the backend endpoint,
+    // which then redirects to the Google login page. After successful
+    // login, Google calls back to the backend, which then redirects
+    // back to the frontend application's main page.
+    window.location.href = '/api/auth/google/login';
+  };
   // Tomt = QR-flöde; 12 siffror = samma enhet. 1–11 siffror = ofullständigt personnummer.
   const personnummerSyntaktisktOk = personalNumber.length === 0 || personalNumber.length === 12;
   const canTryBankId = personnummerSyntaktisktOk;
@@ -335,9 +347,11 @@ const BankIDLogin: React.FC<BankIDLoginProps> = ({ onLogin, adminOnly: adminOnly
       </p>
       {isAdminOnlyLogin && (
         <p className="text-xs text-indigo-100/90 mb-3">
-          BankID är avstängt i denna vy via <span className="font-mono text-[11px]">VITE_LOGIN_ADMIN_ONLY=true</span>.
-          Backend <span className="font-mono text-[11px]">/api/auth/bankid/*</span> finns kvar för andra funktioner. Sätt{' '}
-          <span className="font-mono text-[11px]">ADMIN_CONSOLE_PASSWORD</span> i serverns <span className="font-mono text-[11px]">.env</span> (t.ex. enligt{' '}
+          BankID är avstängt i denna vy via{' '}
+          <span className="font-mono text-[11px]">VITE_LOGIN_ADMIN_ONLY=true</span>. Backend{' '}
+          <span className="font-mono text-[11px]">/api/auth/bankid/*</span> finns kvar för andra funktioner.
+          Sätt <span className="font-mono text-[11px]">ADMIN_CONSOLE_PASSWORD</span> i serverns{' '}
+          <span className="font-mono text-[11px]">.env</span> (t.ex. enligt{' '}
           <span className="font-mono text-[11px]">.env.example</span>).
         </p>
       )}
@@ -345,8 +359,8 @@ const BankIDLogin: React.FC<BankIDLoginProps> = ({ onLogin, adminOnly: adminOnly
         <p className="text-xs text-indigo-100/90 mb-3">
           När avtal eller certifikat saknas: logga in här (samma API som karta/fastighet). Sätt{' '}
           <span className="font-mono text-[11px]">ADMIN_CONSOLE_PASSWORD</span> i serverns{' '}
-          <span className="font-mono text-[11px]">.env</span>
-          , t.ex. värdet i <span className="font-mono text-[11px]">.env.example</span>.
+          <span className="font-mono text-[11px]">.env</span>, t.ex. värdet i{' '}
+          <span className="font-mono text-[11px]">.env.example</span>.
         </p>
       )}
       {!useAdminFirst && (
@@ -412,19 +426,30 @@ const BankIDLogin: React.FC<BankIDLoginProps> = ({ onLogin, adminOnly: adminOnly
               className="space-y-8"
             >
               <div className="text-center">
-                <div className="mb-8 p-1 rounded-2xl bg-gradient-to-r from-indigo-500 via-purple-500 to-pink-500 animate-pulse shadow-lg shadow-indigo-500/20">
+                <div className="mb-8">
                   <button
-                    onClick={() => {
-                      // Matchar dev-bypass i auth.routes (NODE_ENV=development + lösenord "dev").
-                      const demoPassword = import.meta.env.DEV ? 'dev' : 'admin';
-                      setAdminUsername('admin');
-                      setAdminPassword(demoPassword);
-                      void handleAdminLogin({ username: 'admin', password: demoPassword });
-                    }}
-                    className="w-full py-4 bg-slate-900 rounded-xl font-bold text-lg hover:bg-slate-800 transition-colors flex items-center justify-center gap-3 border border-white/10 text-white"
+                    onClick={handleGoogleLogin}
+                    className="w-full py-4 bg-white/90 rounded-2xl font-bold text-lg text-slate-900 hover:bg-white transition-colors flex items-center justify-center gap-3 border border-white/10 shadow-lg shadow-white/10"
                   >
-                    <i className="fas fa-rocket text-indigo-400"></i>
-                    DEMO SNABB-LOGGA IN
+                    <svg className="w-6 h-6" viewBox="0 0 48 48">
+                      <path
+                        fill="#FFC107"
+                        d="M43.611 20.083H42V20H24v8h11.303c-1.649 4.657-6.08 8-11.303 8c-6.627 0-12-5.373-12-12s5.373-12 12-12c3.059 0 5.842 1.154 7.961 3.039l5.657-5.657C34.046 6.053 29.268 4 24 4C12.955 4 4 12.955 4 24s8.955 20 20 20s20-8.955 20-20c0-1.341-.138-2.65-.389-3.917z"
+                      ></path>
+                      <path
+                        fill="#FF3D00"
+                        d="M6.306 14.691l6.571 4.819C14.655 15.108 18.961 12 24 12c3.059 0 5.842 1.154 7.961 3.039l5.657-5.657C34.046 6.053 29.268 4 24 4C16.318 4 9.656 8.337 6.306 14.691z"
+                      ></path>
+                      <path
+                        fill="#4CAF50"
+                        d="M24 44c5.166 0 9.86-1.977 13.409-5.192l-6.19-5.238A11.91 11.91 0 0 1 24 36c-5.202 0-9.619-3.317-11.283-7.946l-6.522 5.025C9.505 39.556 16.227 44 24 44z"
+                      ></path>
+                      <path
+                        fill="#1976D2"
+                        d="M43.611 20.083H42V20H24v8h11.303c-.792 2.237-2.231 4.166-4.087 5.571l6.19 5.238C42.012 35.24 44 30.025 44 24c0-1.341-.138-2.65-.389-3.917z"
+                      ></path>
+                    </svg>
+                    Logga in med Google
                   </button>
                 </div>
                 <h1 className="text-3xl font-black text-white tracking-tighter italic mb-2">Välkommen.</h1>
@@ -445,8 +470,8 @@ const BankIDLogin: React.FC<BankIDLoginProps> = ({ onLogin, adminOnly: adminOnly
 
               {!isAdminOnlyLogin && bankIdStatus && bankIdStatus.mode === 'mock' && (
                 <div className="rounded-2xl border border-emerald-400/20 bg-emerald-500/10 px-4 py-3 text-xs text-emerald-100/95">
-                  Utvecklingsläge: när du startar BankID öppnas ett litet fönster som simulerar signering. Tillåt
-                  popup för denna sajt, annars hänger flödet kvar.
+                  Utvecklingsläge: när du startar BankID öppnas ett litet fönster som simulerar signering.
+                  Tillåt popup för denna sajt, annars hänger flödet kvar.
                 </div>
               )}
 

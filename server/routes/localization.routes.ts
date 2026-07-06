@@ -6,17 +6,15 @@ import express from 'express';
 import { requireAuth } from '../security/auth';
 import { rateLimitByUser } from '../security/rateLimit';
 import { toSafeErrorResponse } from '../security/secureErrors';
-import { buildLocalizationPdfData } from '../services/localizationPdfService';
 import {
+  buildLocalizationPdfData,
   exportLocalizationPdf,
   fetchLocalizationAuditTrail,
   LocalizationDataUnavailableError,
   runLocalizationReport,
-} from '../modules/localization/localizationOrchestrator';
-import {
   generateLocalizationReportLegacy,
   type SiteAlternative,
-} from '../services/localizationReportService';
+} from '../modules/localization/public';
 
 const router = express.Router();
 

@@ -21,7 +21,7 @@ describeIfDatabaseIntegration('propertyUnitService PostGIS integration', () => {
   beforeAll(async () => {
     const org = await prisma.organisation.upsert({
       where: { orgNumber: 'POSTGIS-PROP-ORG' },
-      create: { name: 'PostGIS Property Org', orgNumber: 'POSTGIS-PROP-ORG' },
+      create: { name: 'PostGIS Property Org', orgNumber: 'POSTGIS-PROP-ORG', role: 'CLIENT' },
       update: {},
     });
     testOrgId = org.id;

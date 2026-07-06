@@ -19,5 +19,5 @@
     "allowImportingTsExtensions": true,
     "noEmit": true
   },
-  "exclude": ["node_modules", "dist", "scratch"]
+  "exclude": ["node_modules", "dist", "scratch", "storage"]
 }

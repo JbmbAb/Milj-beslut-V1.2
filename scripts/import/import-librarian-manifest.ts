@@ -6,6 +6,7 @@ import { getRegistryEntry } from './config/importRegistry';
 import {
   assertExpectedColumnsPresent,
   assertStagingQaPasses,
+  repairInvalidGeometries,
   applyPostImportIndexing,
   buildPromoteInsertSql,
   countTableRows,
@@ -59,6 +60,7 @@ let onlyHash = '';
 let execute = false;
 let mode = 'plan'; // 'plan' | 'import-staging' | 'promote'
 let writeBackManifest = false;
+let retryFailed = false;
 
 const writeBackQueue: Array<Promise<{ ok: boolean; remotePath: string; error?: string }>> = [];
 
@@ -69,6 +71,7 @@ for (let i = 0; i < args.length; i++) {
   if (args[i] === '--execute') execute = true;
   if (args[i] === '--mode') mode = args[++i];
   if (args[i] === '--write-back-manifest') writeBackManifest = true;
+  if (args[i] === '--retry-failed') retryFailed = true;
 }
 
 const logger = {
@@ -133,14 +136,17 @@ async function processManifest(manifestPath: string) {
     const parsed = JSON.parse(raw);
     const validated = validateArchiveManifestStructure(parsed);
     if (!validated.ok) {
-      throw new Error(`Invalid manifest schema at ${manifestPath}: ${validated.errors.join('; ')}`);
+      throw new Error(`Invalid manifest schema at ${manifestPath}: ${(validated as { ok: false; errors: string[] }).errors.join('; ')}`);
     }
     const manifest: Manifest = validated.manifest;
 
-    if (!isImportEligible(manifest)) {
+    if (!retryFailed && !isImportEligible(manifest)) {
       throw new Error(
         `Manifest ${manifestPath} is not import-eligible (qa_status=${readQaStatus(manifest)})`,
       );
+    }
+    if (retryFailed && readQaStatus(manifest) === 'failed') {
+      logger.warn(`   Retrying manifest with qa_status=failed (--retry-failed)`);
     }
 
     if (onlyHash && manifest.content_bundle_sha256 !== onlyHash) {
@@ -168,9 +174,12 @@ async function processManifest(manifestPath: string) {
       },
     });
 
-    if (existingSuccess) {
+    if (existingSuccess && !retryFailed) {
       logger.info(`   ⏭️ SKIPPED (Already imported successfully in batch ${existingSuccess.id})`);
       return;
+    }
+    if (existingSuccess && retryFailed) {
+      logger.warn(`   Re-importing despite prior SUCCESS batch ${existingSuccess.id} (--retry-failed)`);
     }
 
     // Prepare variables
@@ -331,6 +340,11 @@ async function processManifest(manifestPath: string) {
             throw new Error(`ogr2ogr failed with status ${result.status}`);
           }
 
+          const repaired = await repairInvalidGeometries(prisma, fullStagingTarget);
+          if (repaired > 0) {
+            logger.info(`   - Repaired ${repaired} invalid geometries with ST_MakeValid`);
+          }
+
           logger.info(`   - Running staging spatial QA...`);
           const stagingQa = await runStagingVectorQa(prisma, fullStagingTarget);
           logger.info(`   - ${formatStagingQaSummary(stagingQa)}`);
@@ -416,6 +430,7 @@ async function processManifest(manifestPath: string) {
       });
 
       try {
+        const promoteStrategy = registryEntry.promote_strategy ?? 'replace';
         if (prodExists) {
           const insertSql = await buildPromoteInsertSql(
             prisma,
@@ -424,10 +439,15 @@ async function processManifest(manifestPath: string) {
             stagingSchema,
             stagingTable,
           );
-          await prisma.$transaction([
-            prisma.$executeRawUnsafe(`TRUNCATE ${target_schema}.${target_table};`),
-            prisma.$executeRawUnsafe(insertSql),
-          ]);
+          if (promoteStrategy === 'append') {
+            logger.info(`   - Promote strategy: append (no TRUNCATE)`);
+            await prisma.$executeRawUnsafe(insertSql);
+          } else {
+            await prisma.$transaction([
+              prisma.$executeRawUnsafe(`TRUNCATE ${target_schema}.${target_table};`),
+              prisma.$executeRawUnsafe(insertSql),
+            ]);
+          }
         } else {
           logger.info(`   - Prod table missing — bootstrapping from staging...`);
           await prisma.$executeRawUnsafe(
@@ -436,9 +456,11 @@ async function processManifest(manifestPath: string) {
         }
 
         const prodRowsAfter = await countTableRows(prisma, `${target_schema}.${target_table}`);
-        if (prodRowsAfter !== stagingRows) {
+        const expectedProdRows =
+          promoteStrategy === 'append' ? prodRowsBefore + stagingRows : stagingRows;
+        if (prodRowsAfter !== expectedProdRows) {
           throw new Error(
-            `Promote audit failed: staging=${stagingRows}, prod_after=${prodRowsAfter}`,
+            `Promote audit failed: staging=${stagingRows}, prod_before=${prodRowsBefore}, expected_after=${expectedProdRows}, prod_after=${prodRowsAfter}`,
           );
         }
 
@@ -476,6 +498,18 @@ async function processManifest(manifestPath: string) {
           smoke,
           promotedTo: `${target_schema}.${target_table}`,
         });
+
+        if (retryFailed) {
+          await prisma.postgisImportBatch.deleteMany({
+            where: {
+              content_bundle_sha256: manifest.content_bundle_sha256,
+              target_schema,
+              target_table,
+              status: 'SUCCESS',
+              id: { not: stagedBatch.id },
+            },
+          });
+        }
 
         await prisma.postgisImportBatch.update({
           where: { id: stagedBatch.id },
@@ -573,18 +607,24 @@ async function main() {
       logger.error(`Manifest directory not found: ${manifestDir}`);
       process.exit(1);
     }
-    const files = fs
-      .readdirSync(manifestDir)
-      .filter(
-        (f) =>
-          f.endsWith('.json') &&
-          !f.includes('local_master_index') &&
-          !f.startsWith('merge-') &&
-          f !== 'checksums.txt',
-      );
-    if (files.length === 0 && fs.existsSync(path.join(manifestDir, 'manifest.json'))) {
-      await processManifest(path.join(manifestDir, 'manifest.json'));
+    const canonicalManifest = path.join(manifestDir, 'manifest.json');
+    if (fs.existsSync(canonicalManifest)) {
+      await processManifest(canonicalManifest);
     } else {
+      const files = fs
+        .readdirSync(manifestDir)
+        .filter(
+          (f) =>
+            f.endsWith('.json') &&
+            !f.startsWith('.') &&
+            !f.includes('local_master_index') &&
+            !f.startsWith('merge-') &&
+            f !== 'checksums.txt',
+        );
+      if (files.length === 0) {
+        logger.error(`No manifest.json in ${manifestDir}`);
+        process.exit(1);
+      }
       for (const file of files) {
         await processManifest(path.join(manifestDir, file));
       }

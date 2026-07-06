@@ -25,3 +25,27 @@ export { getPostgisExtendedHealth } from './adapters/postgisHealth';
 export { getDatasetMapLayer } from '../../services/postgisLayerService';
 export { getArcGisLayerAsGeoJson } from '../../services/arcgisProxyService';
 export { getNmdOutOfDbBandPath, queryNmdRasterPoint, getNmdVectorTile } from './index';
+export { getPublicDatasourceSummary, parseBbox } from '../../services/publicUiService';
+export { getMarkCoverLayer } from '../../services/markCoverService';
+export { auditInSarRiskAtPoint } from '../../services/sgiInSarService';
+export { getOgcCatalogLayers, listOgcCatalogSummaries } from '../../services/ogcCapabilitiesService';
+export {
+  downloadDataPackageFileToPath,
+  getLastkajenStatus,
+  listDataPackageFiles,
+  listPublishedDataPackages,
+  pingLastkajen,
+} from '../../services/lastkajenService';
+export {
+  calculateRadialOpenAquifer,
+  calculateOneDimOpenAquifer,
+  calculateRadialConfinedAquifer,
+  calculateOneDimConfinedAquifer,
+  estimateInfluenceRadiusSichardt,
+} from '../../services/groundwaterInfluenceService';
+export type { GroundwaterModelInput } from '../../services/groundwaterInfluenceService';
+export {
+  calculateStormwaterDetention,
+  calculateVaProjectClimate,
+} from '../../services/svensktVattenService';
+export type { StormwaterCalculationInput, VaClimateInput } from '../../services/svensktVattenService';

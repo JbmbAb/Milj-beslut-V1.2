@@ -8,12 +8,14 @@ import dotenv from 'dotenv';
 import path from 'path';
 import fs from 'fs';
 
+import { PATHS } from './config/mimersBrunn';
+
 dotenv.config();
 
 const prisma = new PrismaClient();
 const DATABASE_URL = process.env.DATABASE_URL || '';
 const OGR2OGR_PATH = process.env.OGR2OGR_PATH ?? 'C:\\Program Files\\GDAL\\ogr2ogr.exe';
-const GEO_INLARNING_DIR = process.env.GEO_INLARNING_DIR ?? 'D:\\Geo inlärning';
+const GEO_INLARNING_DIR = process.env.GEO_INLARNING_DIR ?? path.join(PATHS.DATA, 'MCF'); // Point to harvested MCF data
 
 /** Rekursivt i rot + en nivå undermappar (Lastkaj-kategorier). */
 function listZipFiles(dir: string): string[] {

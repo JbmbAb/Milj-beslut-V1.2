@@ -8,6 +8,22 @@ vi.mock('../../services/geminiService', () => ({
   fetchMunicipalityContext: vi.fn(),
 }));
 
+const geoLayerHookState = vi.hoisted(() => ({
+  ogcFederated: {
+    wmsLayers: [] as Array<{
+      name: string;
+      title?: string;
+      mapMode: 'wms_tile';
+      layerKey: string;
+      wms: { baseUrl: string; layers: string; version: string };
+    }>,
+    catalogLabelById: new Map<string, string>(),
+    warnings: [] as string[],
+    isLoading: false,
+    isError: false,
+  },
+}));
+
 vi.mock('../../src/ui/hooks/useGeoLayers', () => ({
   useMapLayerCatalog: vi.fn(() => ({
     data: [
@@ -20,13 +36,7 @@ vi.mock('../../src/ui/hooks/useGeoLayers', () => ({
   useSpatialAudit: vi.fn(() => ({
     mutateAsync: vi.fn().mockResolvedValue('GIS result'),
   })),
-  useOgcFederatedMapLayers: vi.fn(() => ({
-    wmsLayers: [],
-    catalogLabelById: new Map(),
-    warnings: [],
-    isLoading: false,
-    isError: false,
-  })),
+  useOgcFederatedMapLayers: vi.fn(() => geoLayerHookState.ogcFederated),
 }));
 
 import MapView from '../../components/MapView';
@@ -152,6 +162,13 @@ function renderMapView(ui: React.ReactElement) {
 describe('MapView', () => {
   afterEach(() => {
     vi.restoreAllMocks();
+    geoLayerHookState.ogcFederated = {
+      wmsLayers: [],
+      catalogLabelById: new Map(),
+      warnings: [],
+      isLoading: false,
+      isError: false,
+    };
     // Reset window.L between tests
     (window as unknown as Record<string, unknown>).L = undefined;
   });
@@ -322,6 +339,73 @@ describe('MapView', () => {
 
     expect(mockL._mockMap.setView).toHaveBeenCalledWith([61.115, 14.617], 11);
     expect(mockL._mockMap.setView).toHaveBeenCalledWith([59.3, 18], 13);
+  });
+
+  it('renders WMS catalog panel with federated layers and warnings', async () => {
+    geoLayerHookState.ogcFederated = {
+      wmsLayers: [
+        {
+          name: 'water_layer',
+          title: 'Vattenskydd WMS',
+          mapMode: 'wms_tile',
+          layerKey: 'ogc_wms:lst_geoserver_wms:water_layer',
+          wms: {
+            baseUrl: 'https://example.test/wms',
+            layers: 'water_layer',
+            version: '1.3.0',
+          },
+        },
+      ],
+      catalogLabelById: new Map([['lst_geoserver_wms', 'LST GeoServer (WMS)']]),
+      warnings: ['Capabilities stale'],
+      isLoading: false,
+      isError: false,
+    };
+
+    renderMapView(<MapView />);
+
+    expect(screen.getByText(/WMS-katalog/i)).toBeInTheDocument();
+    expect(screen.getByTestId('map-ogc-wms-panel')).toBeInTheDocument();
+    expect(screen.getByText(/Capabilities stale/i)).toBeInTheDocument();
+    expect(
+      screen.getByTestId('map-ogc-wms-toggle-ogc_wms:lst_geoserver_wms:water_layer'),
+    ).toBeInTheDocument();
+  });
+
+  it('activates federated WMS overlay when toggled', async () => {
+    const user = userEvent.setup({ delay: null });
+    const mockL = buildLeafletMock();
+    (window as unknown as Record<string, unknown>).L = mockL;
+
+    geoLayerHookState.ogcFederated = {
+      wmsLayers: [
+        {
+          name: 'water_layer',
+          title: 'Vattenskydd WMS',
+          mapMode: 'wms_tile',
+          layerKey: 'ogc_wms:lst_geoserver_wms:water_layer',
+          wms: {
+            baseUrl: 'https://example.test/wms',
+            layers: 'water_layer',
+            version: '1.3.0',
+          },
+        },
+      ],
+      catalogLabelById: new Map([['lst_geoserver_wms', 'LST GeoServer (WMS)']]),
+      warnings: [],
+      isLoading: false,
+      isError: false,
+    };
+
+    renderMapView(<MapView />);
+    const toggle = screen.getByTestId('map-ogc-wms-toggle-ogc_wms:lst_geoserver_wms:water_layer');
+    await user.click(toggle);
+
+    expect(toggle.className).toContain('bg-slate-900');
+    expect(mockL.tileLayer.wms).toHaveBeenCalledWith(
+      'https://example.test/wms',
+      expect.objectContaining({ layers: 'water_layer', version: '1.3.0' }),
+    );
   });
 
   it('calls selection callbacks when permit and receiver markers are clicked', async () => {

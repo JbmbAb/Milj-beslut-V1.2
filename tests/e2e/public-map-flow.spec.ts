@@ -71,10 +71,38 @@ test.describe('Public Map and Project Verification', () => {
 
       const panel = page.getByTestId('map-overlay-panel');
       await expect(panel).toBeVisible({ timeout: 60_000 });
+      await expect(panel.getByText(/Skyddad natur|SGU grundlager/i).first()).toBeVisible();
+
+      const layerResponses: number[] = [];
+      page.on('response', (response) => {
+        const url = response.url();
+        if (url.includes('/api/layers/') || url.includes('/api/geodata/')) {
+          layerResponses.push(response.status());
+        }
+      });
 
       const overlayButtons = panel.locator('[data-testid^="map-overlay-toggle-"]');
       const overlayCount = await overlayButtons.count();
       expect(overlayCount).toBeGreaterThan(0);
+
+      const firstOverlay = overlayButtons.first();
+      await firstOverlay.scrollIntoViewIfNeeded();
+      await firstOverlay.click({ force: true });
+      await expect(firstOverlay).toHaveClass(/bg-slate-900/);
+
+      await page.waitForTimeout(1500);
+      if (layerResponses.length > 0) {
+        expect(layerResponses.some((status) => status >= 200 && status < 300)).toBeTruthy();
+      }
+
+      const wmsPanel = page.getByTestId('map-ogc-wms-panel');
+      if (await wmsPanel.isVisible().catch(() => false)) {
+        const wmsToggle = wmsPanel.locator('[data-testid^="map-ogc-wms-toggle-"]').first();
+        if (await wmsToggle.count()) {
+          await wmsToggle.click({ force: true });
+          await expect(wmsToggle).toHaveClass(/bg-slate-900/);
+        }
+      }
 
       for (let index = 0; index < overlayCount; index += 1) {
         const button = overlayButtons.nth(index);

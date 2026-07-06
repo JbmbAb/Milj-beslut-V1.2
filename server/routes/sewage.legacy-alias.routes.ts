@@ -11,7 +11,7 @@ import {
   createSewageApplicationRecord,
   getSewageApplicationById,
   assertSewageApplicationOrgAccess,
-} from '../repositories/sewageApplicationRepository';
+} from '../modules/sewage/public';
 import type { OrchestratorAuth } from '../modules/sewage/applicationOrchestrator';
 import {
   generateDocumentsForApplication,

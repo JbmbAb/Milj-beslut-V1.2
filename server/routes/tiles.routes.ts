@@ -1,6 +1,7 @@
 import express from 'express';
-import { getNmdVectorTile } from '../modules/gis/public';
-import { logger } from '../logger';
+import { logger } from '../logger.js';
+import { layers } from '../modules/gis/layerConfig.js';
+import { getVectorTile } from '../modules/gis/vectorTileEngine.js';
 
 const router = express.Router();
 
@@ -13,7 +14,22 @@ function parseTileCoordinate(value: string): number | null {
   return Number.isSafeInteger(parsed) ? parsed : null;
 }
 
-router.get('/api/tiles/nmd/:z/:x/:y.pbf', async (req, res) => {
+// Metadata API
+router.get('/api/tiles/metadata', (req, res) => {
+  // Strip away internal DB config (schema, table, columns) for the client
+  const metadata = Object.entries(layers).map(([id, config]) => ({
+    id,
+    minZoom: config.minZoom,
+    maxZoom: config.maxZoom,
+    style: config.style,
+  }));
+  
+  res.json(metadata);
+});
+
+// Generic Tile Route
+router.get('/api/tiles/:layer/:z/:x/:y.pbf', async (req, res) => {
+  const { layer } = req.params;
   const z = parseTileCoordinate(req.params.z);
   const x = parseTileCoordinate(req.params.x);
   const y = parseTileCoordinate(req.params.y);
@@ -23,25 +39,36 @@ router.get('/api/tiles/nmd/:z/:x/:y.pbf', async (req, res) => {
     return;
   }
 
-  try {
-    const tile = await getNmdVectorTile(z, x, y);
+  const config = layers[layer];
+  if (!config) {
+    res.status(404).json({ error: 'Lagret hittades inte.' });
+    return;
+  }
 
-    if (!tile || tile.length === 0) {
+  try {
+    const tileResult = await getVectorTile(config, z, x, y);
+
+    if (!tileResult || !tileResult.buffer || tileResult.buffer.length === 0) {
       res.status(204).end();
       return;
     }
 
-    res.setHeader('Content-Type', 'application/x-protobuf');
-    res.setHeader('Cache-Control', 'public, max-age=3600');
-    res.status(200).send(tile);
+    res.setHeader('Content-Type', 'application/vnd.mapbox-vector-tile');
+    res.setHeader('Cache-Control', 'public, max-age=86400, stale-while-revalidate=3600');
+    res.setHeader('ETag', `"${tileResult.etag}"`);
+    
+    // Check if client supports gzip. If we have a global compression middleware, 
+    // it usually handles it, but since we are serving raw buffers, compression middleware 
+    // often ignores them unless they are strings or we explicitly compress. 
+    // Let's rely on Express compression middleware which we'll add to app.ts.
+    
+    res.status(200).send(tileResult.buffer);
   } catch (error) {
-    logger.error('NMD tile generation failed', {
-      z,
-      x,
-      y,
+    logger.error(`Tile generation failed for ${layer}`, {
+      z, x, y,
       error: error instanceof Error ? error.message : String(error),
     });
-    res.status(500).json({ error: 'NMD-vectorlager kunde inte genereras.' });
+    res.status(500).json({ error: 'Vectorlager kunde inte genereras.' });
   }
 });
 

@@ -62,6 +62,16 @@ vi.mock('fs', () => ({
   createWriteStream: mocks.createWriteStream,
 }));
 
+vi.mock('../../src/infrastructure/geo/static-map-generator', () => {
+  return {
+    StaticMapGenerator: class {
+      drawMapToPdf() {
+        return Promise.resolve(['Natura 2000: Mockområde']);
+      }
+    }
+  };
+});
+
 const baseApplication = {
   id: 'app-1',
   referenceNumber: 'AVLOPP-2026-001',

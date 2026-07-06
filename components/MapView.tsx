@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useAppWorkspace } from './app/providers/AppWorkspaceProvider';
 import { DecisionType, Permit, Receiver } from '../types';
 import { fetchMunicipalityContext } from '../services/geminiService';
 import { useMapLayerCatalog, useOgcFederatedMapLayers, useSpatialAudit } from '../src/ui/hooks/useGeoLayers';
@@ -244,6 +245,33 @@ const MapView: React.FC<MapViewProps> = ({
   /** Lager som väntar på att kartan ska få giltigt bbox (#1/#2) */
   const pendingBboxRetryRef = useRef<Map<string, number>>(new Map());
 
+  // Context retrieval inside try-catch to avoid breaking unit tests
+  let workspace: any = null;
+  try {
+    workspace = useAppWorkspace();
+  } catch (e) {
+    // ignore
+  }
+
+  const activeProjectLabel = workspace?.activeProjectLabel;
+  const municipality = workspace?.selectedPermit?.municipality;
+
+  const isOrsa = useMemo(() => {
+    const labelStr = (activeProjectLabel || '').toLowerCase();
+    const muniStr = (municipality || '').toLowerCase();
+    return labelStr.includes('orsa') || muniStr.includes('orsa');
+  }, [activeProjectLabel, municipality]);
+
+  const trueOrthoFailedRef = useRef(false);
+  const applyBaseLayerRef = useRef<any>(null);
+
+  const [expandedCategories, setExpandedCategories] = useState<Record<string, boolean>>({
+    hydrology: true,
+    nature: true,
+    property: true,
+    external: true,
+  });
+
   const [baseLayer, setBaseLayer] = useState<BaseLayerKey>('osm');
   const showLocalBasemapOption = readLocalBasemapConfig() !== null;
   const localBasemapLabel = localBasemapButtonLabel();
@@ -320,6 +348,43 @@ const MapView: React.FC<MapViewProps> = ({
 
     return Array.from(resolved.values());
   }, [mapLayerCatalog.data]);
+
+  const classifiedOverlays = useMemo(() => {
+    const categories: Record<string, { label: string; items: OverlayDescriptor[] }> = {
+      hydrology: { label: 'Hydrologi & Geologi', items: [] },
+      nature: { label: 'Natur & Miljöskydd', items: [] },
+      property: { label: 'Fastighet & Byggnad', items: [] },
+      external: { label: 'Externa WMS & Övrigt', items: [] },
+    };
+
+    overlayDescriptors.forEach((desc) => {
+      const { key } = desc;
+      if (
+        key.startsWith('sgu_') ||
+        key === 'postgis_lakes' ||
+        key === 'postgis_streams' ||
+        key.startsWith('hydro_')
+      ) {
+        categories.hydrology.items.push(desc);
+      } else if (
+        key === 'nv_natura' ||
+        key === 'natura2000_area' ||
+        key === 'climate_flood_risk' ||
+        key === 'mark_cover' ||
+        key === 'water_protection' ||
+        key === 'international_protection' ||
+        key === 'postgis_nvr'
+      ) {
+        categories.nature.items.push(desc);
+      } else if (key === 'postgis_property' || key.startsWith('topo10_')) {
+        categories.property.items.push(desc);
+      } else {
+        categories.external.items.push(desc);
+      }
+    });
+
+    return categories;
+  }, [overlayDescriptors]);
 
   useEffect(() => {
     const next = new Map<string, { baseUrl: string; layers: string; version: string }>();
@@ -523,6 +588,16 @@ const MapView: React.FC<MapViewProps> = ({
     }
   }, []);
 
+  useEffect(() => {
+    applyBaseLayerRef.current = applyBaseLayer;
+  }, [applyBaseLayer]);
+
+  useEffect(() => {
+    if (!isOrsa && baseLayer === 'orsa_true_ortho') {
+      applyBaseLayer('osm');
+    }
+  }, [isOrsa, baseLayer, applyBaseLayer]);
+
   // --- INITIALIZATION ---
   useEffect(() => {
     if (!mapContainerRef.current || mapRef.current) return;
@@ -582,6 +657,14 @@ const MapView: React.FC<MapViewProps> = ({
       minZoom: 15,
       tms: true, // gdal2tiles mercator default
       attribution: '&copy; Lantmateriet TrueOrtho 2024',
+    });
+
+    layersRef.current.orsa_true_ortho.on('tileerror', () => {
+      if (!trueOrthoFailedRef.current) {
+        trueOrthoFailedRef.current = true;
+        setMapNotice('Lokala TrueOrtho-bilder saknas på servern. Återgår till OSM.');
+        applyBaseLayerRef.current?.('osm');
+      }
     });
 
     // OpenStreetMap som standard — fungerar utan API-nyckel. Lantmäteriet WMS kan ge tom karta utan giltig prenumeration.
@@ -969,17 +1052,19 @@ const MapView: React.FC<MapViewProps> = ({
             >
               Ortofoto
             </button>
-            <button
-              type="button"
-              onClick={() => applyBaseLayer('orsa_true_ortho')}
-              className={`rounded-lg border px-2 py-1 text-[10px] font-bold uppercase transition-colors ${
-                baseLayer === 'orsa_true_ortho'
-                  ? 'border-indigo-900 bg-indigo-900 text-white'
-                  : 'border-indigo-100 bg-white text-indigo-800'
-              }`}
-            >
-              Orsa TrueOrtho
-            </button>
+            {isOrsa && (
+              <button
+                type="button"
+                onClick={() => applyBaseLayer('orsa_true_ortho')}
+                className={`rounded-lg border px-2 py-1 text-[10px] font-bold uppercase transition-colors ${
+                  baseLayer === 'orsa_true_ortho'
+                    ? 'border-indigo-900 bg-indigo-900 text-white'
+                    : 'border-indigo-100 bg-white text-indigo-800'
+                }`}
+              >
+                Orsa TrueOrtho
+              </button>
+            )}
             {showLocalBasemapOption && (
               <button
                 type="button"
@@ -1001,19 +1086,59 @@ const MapView: React.FC<MapViewProps> = ({
           <p className="mb-3 px-1 text-[10px] font-black uppercase tracking-widest text-slate-400">
             Myndighetslager
           </p>
-          <div className="space-y-1.5" data-testid="map-overlay-panel">
-            {overlayDescriptors.map(({ key, label }) => (
-              <OverlayToggle
-                key={key}
-                active={activeOverlays.includes(key)}
-                onClick={() => toggleOverlay(key)}
-                label={label}
-                status={overlayStatuses[key]}
-                icon="fa-layer-group"
-                color="text-slate-600"
-                testId={`map-overlay-toggle-${key}`}
-              />
-            ))}
+          <div className="space-y-1" data-testid="map-overlay-panel">
+            {Object.entries(classifiedOverlays).map(([catKey, cat]) => {
+              const activeCount = cat.items.filter((item) => activeOverlays.includes(item.key)).length;
+              const isExpanded = expandedCategories[catKey];
+              return (
+                <div key={catKey} className="border-b border-slate-100 last:border-0 pb-1.5 last:pb-0">
+                  <button
+                    type="button"
+                    onClick={() =>
+                      setExpandedCategories((prev) => ({
+                        ...prev,
+                        [catKey]: !prev[catKey],
+                      }))
+                    }
+                    className="flex w-full items-center justify-between py-1.5 text-[10px] font-black uppercase tracking-wider text-slate-700 hover:text-indigo-600 transition-colors"
+                  >
+                    <span className="flex items-center gap-1.5 truncate">
+                      {catKey === 'hydrology' && <i className="fa-solid fa-droplet text-blue-500 w-3 text-center" />}
+                      {catKey === 'nature' && <i className="fa-solid fa-leaf text-emerald-500 w-3 text-center" />}
+                      {catKey === 'property' && <i className="fa-solid fa-building text-amber-500 w-3 text-center" />}
+                      {catKey === 'external' && <i className="fa-solid fa-globe text-indigo-500 w-3 text-center" />}
+                      <span className="truncate">{cat.label}</span>
+                      {activeCount > 0 && (
+                        <span className="ml-1 rounded-full bg-indigo-50 px-1 py-0.5 text-[8px] font-black text-indigo-600">
+                          {activeCount}
+                        </span>
+                      )}
+                    </span>
+                    <i className={`fa-solid fa-chevron-${isExpanded ? 'up' : 'down'} text-[8px] text-slate-400`} />
+                  </button>
+                  {isExpanded && (
+                    <div className="mt-1 space-y-1 pl-1">
+                      {cat.items.length === 0 ? (
+                        <p className="text-[9px] italic text-slate-400 py-1 pl-4">Inga tillgängliga lager</p>
+                      ) : (
+                        cat.items.map(({ key, label }) => (
+                          <OverlayToggle
+                            key={key}
+                            active={activeOverlays.includes(key)}
+                            onClick={() => toggleOverlay(key)}
+                            label={label}
+                            status={overlayStatuses[key]}
+                            icon="fa-layer-group"
+                            color="text-slate-600"
+                            testId={`map-overlay-toggle-${key}`}
+                          />
+                        ))
+                      )}
+                    </div>
+                  )}
+                </div>
+              );
+            })}
           </div>
         </div>
 

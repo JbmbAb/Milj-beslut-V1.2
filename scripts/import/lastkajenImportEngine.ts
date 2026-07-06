@@ -1,3 +1,7 @@
+/**
+ * @deprecated Sunset 2026-09-01 — use import-librarian-manifest.ts only.
+ * See docs/architecture/import-librarian-only-policy.md
+ */
 import { execSync, spawn } from 'child_process';
 import fs from 'fs';
 import path from 'path';
@@ -80,7 +84,19 @@ function copyZipToAsciiTemp(zipPath: string): { zipPath: string; cleanup: () => 
   const tempDir = path.join(gdalExtractRoot(), 'zip-cache');
   fs.mkdirSync(tempDir, { recursive: true });
   const tempZip = path.join(tempDir, `archive-${process.pid}-${Date.now()}.zip`);
-  fs.copyFileSync(zipPath, tempZip);
+  const isCloudDrive = zipPath.startsWith('H:') || zipPath.toLowerCase().includes('delade enheter');
+  if (isCloudDrive) {
+    const content = fs.readFileSync(zipPath);
+    fs.writeFileSync(tempZip, content);
+  } else {
+    try {
+      fs.copyFileSync(zipPath, tempZip);
+    } catch (err) {
+      // Fallback: copy via reading/writing buffer to handle Google Drive FS virtual files
+      const content = fs.readFileSync(zipPath);
+      fs.writeFileSync(tempZip, content);
+    }
+  }
   return {
     zipPath: tempZip,
     cleanup: () => {
@@ -116,7 +132,8 @@ export function resolveGpkgSource(
   innerHint?: string | ((zipBase: string) => string),
   options?: { requireExtractedGpkg?: boolean },
 ): ResolvedGpkgSource {
-  if (!options?.requireExtractedGpkg) {
+  const isCloudDrive = zipPath.startsWith('H:') || zipPath.toLowerCase().includes('delade enheter');
+  if (!options?.requireExtractedGpkg && !isCloudDrive) {
     const zipOnly = vsizipPath(zipPath);
     if (canOpenOgrSource(zipOnly)) {
       return { sourcePath: zipOnly, cleanup: () => {} };
@@ -129,7 +146,7 @@ export function resolveGpkgSource(
         return { sourcePath: hinted, cleanup: () => {} };
       }
     }
-  } else if (innerHint) {
+  } else if (innerHint && !isCloudDrive) {
     const inner = typeof innerHint === 'function' ? innerHint(path.basename(zipPath)) : innerHint;
     const hinted = vsizipPath(zipPath, inner);
     if (canOpenOgrSource(hinted)) {

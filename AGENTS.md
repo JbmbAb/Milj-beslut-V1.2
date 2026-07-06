@@ -15,6 +15,9 @@
 # Arkitekturpolicy: Mimers Brunn (Offline-First)
 
 - **Download-first:** Live-API:er (WMS/WFS/REST) får bara vara tillfälliga visuella hjälpmedel. Varje permanent dataset ska ha en robust harvesting-pipeline som laddar ner rådatan fysiskt.
+- **Ny gyllene regel:** Skörda alltid om från källan enligt Mimers Brunn om källan är tillgänglig och nedladdningen är rimligt snabb. Varje ny eller omarbetad källa ska landa i canonical path med manifest v2, `files_detail`, SHA-256 och storlek per fil.
+- **Legacy-adoption är undantag:** Adoptera äldre nedladdad data endast om källan har försvunnit, datamängden är extremt tids- eller kostnadskrävande att hämta igen, eller den kräver manuell export/tillståndsprocess. Undantag ska dokumenteras.
+- **Definition of Done:** Kärndataset får inte räknas som stängt förrän audit visar 0 % `checksum_missing` och 0 % `legacy_path_mismatch`.
 - **Master-arkivet är canonical:** Nya data- och dokumentpipelines får inte skriva till gamla rötter som `D:\GEodata`, `D:\Geo inlärning` eller `C:\GEO PDF`. Nya nedladdningar ska landa under `H:\Delade enheter\Miljöbeslut\GEO_Master_Archive`.
 - **Data ska säkras innan import:** Vektordata importeras till PostGIS efter arkivering. Raster registreras via stabila Out-of-DB-länkar från Master-arkivet. Importera inte från `_review` eller temporära mappar.
 - **Lokala källhänvisningar:** PDF:er, domar och rapporter ska arkiveras under `GEO_Master_Archive\Documents\Sources\<Provider>\<Dataset>` och serveras från lokal arkivroute. Frontend ska inte bygga beslutskritiska länkar direkt mot original-URL:er.

@@ -16,6 +16,7 @@ async function seedLocalizationDemo() {
         data: {
           name: 'Miljobeslut Admin HQ',
           orgNumber: '123456-7890',
+          role: 'CLIENT',
         },
       });
     }

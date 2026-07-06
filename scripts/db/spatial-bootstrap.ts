@@ -22,17 +22,46 @@ import { Pool } from 'pg';
 
 const SPATIAL_DIR = resolve(process.cwd(), 'prisma', 'spatial');
 
+async function tableHasColumn(
+  pool: Pool,
+  table: string,
+  column: string,
+): Promise<boolean> {
+  const { rows } = await pool.query<{ exists: boolean }>(
+    `SELECT EXISTS (
+       SELECT 1
+       FROM information_schema.columns
+       WHERE table_schema = 'public'
+         AND table_name = $1
+         AND column_name = $2
+     ) AS exists`,
+    [table, column],
+  );
+  return Boolean(rows[0]?.exists);
+}
+
 async function ensureMigrationsTable(pool: Pool): Promise<void> {
-  await pool.query(`
-    CREATE TABLE IF NOT EXISTS spatial_migrations (
-      id            text PRIMARY KEY,
-      "fileName"    text NOT NULL UNIQUE,
-      checksum      text NOT NULL,
-      "appliedAt"   timestamptz NOT NULL DEFAULT now(),
-      "durationMs"  integer,
-      note          text
-    );
-  `);
+  const tableExists = await tableHasColumn(pool, 'spatial_migrations', 'id');
+  if (!tableExists) {
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS spatial_migrations (
+        id            SERIAL PRIMARY KEY,
+        "fileName"    VARCHAR(255) NOT NULL UNIQUE,
+        checksum      TEXT,
+        "appliedAt"   TIMESTAMPTZ DEFAULT now(),
+        "durationMs"  INTEGER,
+        note          TEXT
+      );
+    `);
+    return;
+  }
+
+  if (!(await tableHasColumn(pool, 'spatial_migrations', 'checksum'))) {
+    await pool.query(`ALTER TABLE spatial_migrations ADD COLUMN IF NOT EXISTS checksum TEXT`);
+  }
+  if (!(await tableHasColumn(pool, 'spatial_migrations', 'note'))) {
+    await pool.query(`ALTER TABLE spatial_migrations ADD COLUMN IF NOT EXISTS note TEXT`);
+  }
 }
 
 async function ensureExtensions(pool: Pool): Promise<void> {
@@ -63,12 +92,16 @@ function loadMigrationFiles(): MigrationFile[] {
 }
 
 async function applyMigration(pool: Pool, file: MigrationFile): Promise<void> {
-  const existing = await pool.query<{ checksum: string }>(
+  const existing = await pool.query<{ checksum: string | null }>(
     'SELECT checksum FROM spatial_migrations WHERE "fileName" = $1',
     [file.fileName],
   );
 
-  if (existing.rowCount && existing.rows[0].checksum === file.checksum) {
+  if (
+    existing.rowCount &&
+    existing.rows[0].checksum &&
+    existing.rows[0].checksum === file.checksum
+  ) {
     console.log(`[=] ${file.fileName} (oförändrad, skippas)`);
     return;
   }
@@ -89,11 +122,10 @@ async function applyMigration(pool: Pool, file: MigrationFile): Promise<void> {
       );
       console.log(`[~] ${file.fileName} (återapplicerad, ${duration}ms)`);
     } else {
-      const id = `spatial_${file.fileName.replace(/\W+/g, '_')}`;
       await client.query(
-        `INSERT INTO spatial_migrations (id, "fileName", checksum, "durationMs", note)
-         VALUES ($1, $2, $3, $4, 'initial')`,
-        [id, file.fileName, file.checksum, duration],
+        `INSERT INTO spatial_migrations ("fileName", checksum, "durationMs", note)
+         VALUES ($1, $2, $3, 'initial')`,
+        [file.fileName, file.checksum, duration],
       );
       console.log(`[+] ${file.fileName} (applicerad, ${duration}ms)`);
     }

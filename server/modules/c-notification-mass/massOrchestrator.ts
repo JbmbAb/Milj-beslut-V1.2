@@ -2,6 +2,9 @@
  * Orkestrering: C-anmälan schaktmassor
  */
 
+import * as fs from 'fs';
+import * as os from 'os';
+import * as path from 'path';
 import {
   evaluateMpfOperation,
   mergeGateDecisions as mergeMpfGateDecisions,
@@ -9,6 +12,7 @@ import {
 } from '../mpf/public';
 import { getMassFlowSnapshot, recordMassMovement } from '../../repositories/massFlowService';
 import { generateLogisticsPlan, type LogisticsGeneratorRequest } from '../../services/logisticsGeneratorService';
+import { generateMassLogisticsPdf } from '../../services/massLogisticsPdfService';
 import {
   lookupPropertyByDesignationFromPostgis,
 } from '../../services/propertyUnitService';
@@ -366,6 +370,37 @@ export async function exportMassCase(caseId: string, authUser: AuthUser) {
 
   const exportPayload = record.exportPayload ?? buildMassExport(record);
   return { ok: true as const, export: exportPayload };
+}
+
+export async function exportMassCasePdf(caseId: string, authUser: AuthUser) {
+  const record = await getMassCaseById(caseId);
+  if (!record) return { ok: false as const, status: 404, error: 'not_found' };
+  if (!assertMassCaseOrgAccess(record, authUser.organisationId, authUser.role)) {
+    return { ok: false as const, status: 403, error: 'forbidden' };
+  }
+
+  const tempPath = path.join(os.tmpdir(), `mass-export-${caseId}-${Date.now()}.pdf`);
+  try {
+    await generateMassLogisticsPdf(record, tempPath);
+    const buffer = await fs.promises.readFile(tempPath);
+    await auditTrail.logAction(
+      record.referenceNumber,
+      'DATA_EXPORTED',
+      'Document',
+      record.id,
+      authUser.id,
+      'PDF-export av C-anmälan schaktmassor (PDF-ready, ej myndighetsinlämning)',
+      { userRole: authUser.role },
+    );
+    const safeRef = record.referenceNumber.replace(/[^a-zA-Z0-9-_]+/g, '-');
+    return {
+      ok: true as const,
+      buffer,
+      filename: `c-anmalan-mass-${safeRef}.pdf`,
+    };
+  } finally {
+    await fs.promises.unlink(tempPath).catch(() => undefined);
+  }
 }
 
 export async function submitMassCase(caseId: string, authUser: AuthUser) {

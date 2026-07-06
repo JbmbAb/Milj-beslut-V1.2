@@ -17,6 +17,28 @@ vi.mock('../../server/services/sewageRegulationsService', () => ({
   validateSewageApplicationRegulations: vi.fn().mockReturnValue({ violations: [], warnings: [] }),
 }));
 
+vi.mock('../../src/application/evaluate-sewage-regulations.usecase', () => ({
+  validateSewageApplicationRegulations: vi.fn().mockReturnValue({ violations: [], warnings: [] }),
+}));
+
+vi.mock('../../server/services/sewageDocumentGenerator', () => ({
+  generateSewageApplicationDocuments: vi.fn().mockReturnValue({
+    situationPlanSVG: '<svg>situation</svg>',
+    crossSectionSVG: '<svg>cross</svg>',
+    generatedAt: new Date().toISOString(),
+  }),
+}));
+
+vi.mock('../../server/services/municipalitySubmissionService', () => ({
+  submitSewageApplicationToMunicipality: vi.fn().mockResolvedValue({
+    referenceNumber: 'SUB-0180-123',
+    municipalityCode: '0180',
+    municipalityContactEmail: 'kommun@test.se',
+    submittedAt: new Date().toISOString(),
+    estimatedProcessingDays: 30,
+  }),
+}));
+
 import {
   createSewageApplicationRecord,
   getSewageApplicationById,
@@ -102,7 +124,7 @@ describe('sewageApplicationService', () => {
     } as any;
 
     vi.mocked(getSewageApplicationById).mockResolvedValue(mockApp);
-    const { validateSewageApplicationRegulations } = await import('../../server/services/sewageRegulationsService');
+    const { validateSewageApplicationRegulations } = await import('../../src/application/evaluate-sewage-regulations.usecase');
 
     await validateApplicationForSubmission('app-3');
 

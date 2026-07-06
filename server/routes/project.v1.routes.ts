@@ -2,21 +2,25 @@ import express from 'express';
 import { prisma } from '../db/prisma';
 import { requireAuth } from '../security/auth';
 import { rateLimitByUser } from '../security/rateLimit';
-import { assertProjectMembership } from '../repositories/projectAccessRepository';
-import { createOrGetAdminProject } from '../repositories/searchRepository';
-import { countProjectsForOrganisation, listProjectsPageForOrganisation } from '../modules/platform/public';
 import {
+  assertProjectMembership,
   calculateCarbonForProject,
   getProjectPlanSnapshot,
   saveProjectPlanSnapshot,
-} from '../services/projectPlanService';
-import { getProjectEnvironmentalOnly, getProjectForCarbonView } from '../modules/platform/public';
-import { buildProjectRiskMetrics } from '../services/projectRiskMetrics';
+  buildProjectRiskMetrics
+} from '../modules/project/public';
+import { createOrGetAdminProject } from '../modules/search/public';
+import {
+  countProjectsForOrganisation,
+  listProjectsPageForOrganisation,
+  getProjectEnvironmentalOnly,
+  getProjectForCarbonView,
+  getDispatchProviderRuntimeStatus
+} from '../modules/platform/public';
 import { appendDomainAudit } from '../security/auditTrail';
 import type { CarbonInput } from '../../types';
-import { getPublicDatasourceSummary } from '../services/publicUiService';
-import { getDispatchProviderRuntimeStatus } from '../services/transportDispatchService';
-import { getBankIdMode } from '../services/bankIdService';
+import { getPublicDatasourceSummary } from '../modules/gis/public';
+import { getBankIdMode } from '../modules/auth/public';
 import { summarizeModuleAccess, listAccessibleProjects, parseOptionalText } from './routeHelpers';
 import { createProjectSchema, projectPlanSchema, paginationSchema } from '../schemas/api.schemas';
 

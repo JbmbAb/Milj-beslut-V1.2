@@ -9,13 +9,11 @@ import {
   calculateOneDimConfinedAquifer,
   estimateInfluenceRadiusSichardt,
   GroundwaterModelInput,
-} from '../services/groundwaterInfluenceService';
-import {
   calculateStormwaterDetention,
   calculateVaProjectClimate,
   StormwaterCalculationInput,
   VaClimateInput,
-} from '../services/svensktVattenService';
+} from '../modules/gis/public';
 
 const router = express.Router();
 

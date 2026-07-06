@@ -1,3 +1,7 @@
+/**
+ * @deprecated Sunset 2026-09-01 — use import-librarian-manifest.ts only.
+ * See docs/architecture/import-librarian-only-policy.md
+ */
 import { execSync } from 'child_process';
 import { PrismaClient } from '@prisma/client';
 import dotenv from 'dotenv';

@@ -7,7 +7,7 @@ import { useSyncExternalStore } from 'react';
 export function useMediaQuery(query: string): boolean {
   return useSyncExternalStore(
     (onStoreChange) => {
-      if (typeof window === 'undefined') {
+      if (typeof window === 'undefined' || typeof window.matchMedia !== 'function') {
         return () => {};
       }
 
@@ -17,7 +17,12 @@ export function useMediaQuery(query: string): boolean {
       mediaQuery.addEventListener('change', listener);
       return () => mediaQuery.removeEventListener('change', listener);
     },
-    () => (typeof window === 'undefined' ? false : window.matchMedia(query).matches),
+    () => {
+      if (typeof window === 'undefined' || typeof window.matchMedia !== 'function') {
+        return false;
+      }
+      return window.matchMedia(query).matches;
+    },
     () => false,
   );
 }

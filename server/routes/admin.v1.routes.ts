@@ -1,7 +1,7 @@
 import express from 'express';
 import { requireAuth } from '../security/auth';
 import { rateLimitByUser } from '../security/rateLimit';
-import { ensureAdminConsoleUser } from '../repositories/userRepository';
+import { ensureAdminConsoleUser } from '../modules/auth/public';
 import { createTokenPair } from '../security/auth';
 import {
   getAppStatus,
@@ -10,24 +10,22 @@ import {
   getDbAnalysis,
   getDbContents,
   getDbStats,
-} from '../repositories/adminReportRepository';
-import { getFullStatus } from '../services/fullStatusService';
-import { getAppHealthReport } from '../services/appHealthService';
-import { getRecentErrors } from '../services/errorTrackingService';
-import { runGdprMaintenanceJob } from '../services/gdprComplianceService';
-import { getMetricsText } from '../services/metricsService';
-import { testLantmaterietConnection } from '../services/lantmaterietService';
-import { assertPermission } from '../security/projectAccess';
-import { verifyAuditTrail, exportAuditTrail } from '../security/auditTrail';
-import { getAuditExportRows } from '../repositories/auditRepository';
-import { buildMigrationReadinessReport } from '../modules/migration/public';
-import {
+  getFullStatus,
+  getAppHealthReport,
+  getRecentErrors,
+  runGdprMaintenanceJob,
+  getMetricsText,
+  testLantmaterietConnection,
+  runReliableJob,
   countAllProjects,
   listProjectsSewagePage,
   getProjectBasicForSewage,
 } from '../modules/platform/public';
+import { assertPermission } from '../security/projectAccess';
+import { verifyAuditTrail, exportAuditTrail } from '../security/auditTrail';
+import { getAuditExportRows } from '../modules/audit/public';
+import { buildMigrationReadinessReport } from '../modules/migration/public';
 import { adminLoginSchema, paginationSchema } from '../schemas/api.schemas';
-import { runReliableJob } from '../services/BackgroundJobService';
 
 const router = express.Router();
 
@@ -279,7 +277,7 @@ router.get('/api/sewage-applications', requireAuth, async (req, res, next) => {
 
     const mappedApplications = applications.map((app) => {
       const status: 'APPROVED' | 'UNDER_REVIEW' | 'DRAFT' =
-        app.status === 'CLOSED' ? 'APPROVED' : app.status === 'ACTIVE' ? 'UNDER_REVIEW' : 'DRAFT';
+        app.status === 'COMPLETED' || (app.status as string) === 'CLOSED' ? 'APPROVED' : app.status === 'ACTIVE' ? 'UNDER_REVIEW' : 'DRAFT';
 
       return {
         id: app.id,
@@ -290,7 +288,7 @@ router.get('/api/sewage-applications', requireAuth, async (req, res, next) => {
         householdSize: 4,
         status,
         submittedAt: app.createdAt,
-        approvedAt: app.status === 'CLOSED' ? app.createdAt : undefined,
+        approvedAt: app.status === 'COMPLETED' ? app.createdAt : undefined,
         propertyDesignation: app.propertyDesignation,
       };
     });
@@ -346,7 +344,7 @@ router.get('/api/sewage-applications/:id', requireAuth, async (req, res, next) =
     const project = await getProjectBasicForSewage(id);
     if (!project) return res.status(404).json({ ok: false, error: 'Application not found' });
 
-    const status: 'APPROVED' | 'UNDER_REVIEW' = project.status === 'CLOSED' ? 'APPROVED' : 'UNDER_REVIEW';
+    const status: 'APPROVED' | 'UNDER_REVIEW' = project.status === 'COMPLETED' || (project.status as string) === 'CLOSED' ? 'APPROVED' : 'UNDER_REVIEW';
 
     const application = {
       id: project.id,
@@ -357,7 +355,7 @@ router.get('/api/sewage-applications/:id', requireAuth, async (req, res, next) =
       householdSize: 4,
       status,
       submittedAt: project.createdAt,
-      approvedAt: project.status === 'CLOSED' ? project.createdAt : undefined,
+      approvedAt: project.status === 'COMPLETED' ? project.createdAt : undefined,
     };
 
     res.json({ ok: true, application });

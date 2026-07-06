@@ -1,7 +1,7 @@
 import os, subprocess
 
 # Konfiguration
-UTTAG_DIR = r"C:\Users\jimmy\Desktop\MiljoBeslut_Produktdata\Kartor\Topografisk webbkarta - uttag f9c36525"
+UTTAG_DIR = r"H:\Delade enheter\Miljöbeslut\GEO_Master_Archive\Data\Lantmateriet\Topografisk_webbkarta"
 DB_CONN = "PG:host=host.docker.internal port=5432 user=miljobeslut password=password dbname=miljobeslut"
 # Orsa Bbox
 BBOX = "14.3 60.9 15.0 61.4"

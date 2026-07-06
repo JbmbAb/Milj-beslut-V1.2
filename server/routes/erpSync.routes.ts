@@ -2,7 +2,7 @@ import express from 'express';
 import { requireAuth } from '../security/auth';
 import { rateLimitByUser } from '../security/rateLimit';
 import { toSafeErrorResponse } from '../security/secureErrors';
-import { syncMilestoneToErp } from '../services/erpSyncService';
+import { syncMilestoneToErp } from '../modules/project/public';
 import { routeParam } from '../utils/routeUtils';
 
 const router = express.Router();

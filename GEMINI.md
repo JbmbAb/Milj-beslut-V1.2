@@ -2,6 +2,17 @@
 
 Den här filen innehåller arkitektoniska beslut och konventioner som är specifika för detta projekt.
 
+## Dokumentation och Gemini Enterprise
+
+| Ämne | Sökväg |
+|------|--------|
+| Knowledge base (indexera först) | `knowledge-base/README.md` |
+| Geodata-gap | `docs/architecture/data-coverage-gaps.md` |
+| Framtida optimeringar | `docs/architecture/future-optimizations-backlog.md` |
+| Dela kod + PostGIS-kontext | `docs/ops/gemini-enterprise-access.md` |
+
+**Plattformskod** delas via **Git**. **Geodata** delas via **Drive** (`GEO_Master_Archive`). **PostGIS** delas via schema/SQL i repot — inte Docker-volymen på Drive.
+
 ## Mimer Bibliotekarie (Specialiserad AI-Roll)
 Plattformen använder en specialiserad agentroll, **Mimer Bibliotekarie**, för att hantera geodataflöden. 
 - **Mandat:** Granska, planera och optimera dataflöden enligt Mimers Brunn-policyn.

@@ -514,6 +514,19 @@ describe('gis.routes', () => {
     );
   });
 
+  it('exposes map layer catalog without auth', async () => {
+    const response = await request(app).get('/api/reference/map-layers');
+    expect(response.status).toBe(200);
+    expect(response.body.ok).toBe(true);
+    expect(Array.isArray(response.body.layers)).toBe(true);
+    expect(response.body.layers.length).toBeGreaterThan(0);
+    expect(response.body.layers.some((l: { key: string }) => l.key === 'postgis_nvr')).toBe(true);
+    expect(response.body.generatedAt).toBeTruthy();
+    const first = response.body.layers[0];
+    expect(first.documentationUrls).toBeDefined();
+    expect(Array.isArray(first.documentationUrls)).toBe(true);
+  });
+
   it('exposes federated OGC catalog summaries without auth', async () => {
     const response = await request(app).get('/api/reference/ogc-catalogs');
     expect(response.status).toBe(200);

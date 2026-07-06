@@ -32,6 +32,7 @@ import bankComplianceRouter from './routes/bankCompliance.routes';
 import erpSyncRouter from './routes/erpSync.routes';
 import helmet from 'helmet';
 import rateLimit from 'express-rate-limit';
+import compression from 'compression';
 import { traceMiddleware } from './observability/trace';
 import { propertyLookupRouter } from './integrations/propertyLookup';
 import { initializeSentry } from './sentry';
@@ -75,6 +76,7 @@ export function createApp() {
   // Trace ID across all routes (AI→audit→submission)
   app.use(traceMiddleware());
 
+  app.use(compression());
   app.use(express.json({ limit: '10mb' }));
 
   const corsAllowList = String(process.env.CORS_ALLOW_ORIGINS || '')

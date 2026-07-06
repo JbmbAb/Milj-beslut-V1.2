@@ -1,6 +1,7 @@
 import { FunctionDeclaration, Type } from '@google/genai';
 import { embedText } from '../../../../services/searchService';
 import { prisma } from '../../../../db/prisma';
+import { parseLegalReference } from '../../../legal/services/legalReferenceParser';
 
 export const searchLegalCorpusDeclaration: FunctionDeclaration = {
   name: 'searchLegalCorpus',
@@ -80,12 +81,40 @@ export async function searchLegalCorpusHandler(args: { query: string; legalArea?
   }
 
   try {
-    // 1. Full-Text Search (FTS) query using websearch_to_tsquery
+    // ① LegalReferenceParser — extrahera strukturerat lagrum ur query
+    const legalRef = parseLegalReference(query);
+
+    // ① Exact SQL arm — precisionsuppslag på chapter + paragraph i legal_corpus_chunks
+    //   Körs när parsern identifierat ett lagrum. Ger hög precision för kända hänvisningar.
+    let exactResults: any[] = [];
+    if (legalRef?.chapter && legalRef?.paragraph) {
+      exactResults = await prisma.$queryRawUnsafe<any[]>(
+        `SELECT DISTINCT record_id AS id
+         FROM public.legal_corpus_chunks
+         WHERE chapter = $1
+           AND paragraph = $2
+         LIMIT 20`,
+        legalRef.chapter,
+        legalRef.paragraph,
+      );
+    } else if (legalRef?.lawName) {
+      // Enbart lagnamn — sök i legal_corpus_records
+      exactResults = await prisma.$queryRawUnsafe<any[]>(
+        `SELECT id
+         FROM public.legal_corpus_records
+         WHERE title ILIKE $1
+         LIMIT 20`,
+        `%${legalRef.lawName}%`,
+      );
+    }
+
+    // ② Full-Text Search (FTS) query using websearch_to_tsquery
     let ftsQuery = `
-      SELECT id, 
-             ts_rank_cd(to_tsvector('swedish', coalesce(search_text, '')), websearch_to_tsquery('swedish', $1)) as rank
+      SELECT id,
+             ts_rank_cd(search_vector, websearch_to_tsquery('swedish', $1)) as rank
       FROM legal_corpus_records
-      WHERE to_tsvector('swedish', coalesce(search_text, '')) @@ websearch_to_tsquery('swedish', $1)
+      WHERE search_vector @@ websearch_to_tsquery('swedish', $1)
+        AND search_text IS NOT NULL
     `;
     const ftsParams: any[] = [query];
     if (legalArea) {
@@ -138,9 +167,22 @@ export async function searchLegalCorpusHandler(args: { query: string; legalArea?
       }
     }
 
-    // 4. Reciprocal Rank Fusion (RRF) to merge rankings
+    // 4. Reciprocal Rank Fusion (RRF) — sammanväger alla tre armar
+    // Formel: RRF(d) = Σ 1/(k + rank_i), k=60 (standard)
     const rrfScores = new Map<string, { rrf: number; similarity?: number; rank?: number }>();
 
+    // ① Exact SQL: precision-arm (högt värde vid match)
+    if (exactResults.length > 0) {
+      exactResults.forEach((row, index) => {
+        const docId = row.id;
+        const current = rrfScores.get(docId) || { rrf: 0 };
+        // Exact-arm ges dubbel vikt (k=30 istf 60) — hög precision motiverar boost
+        current.rrf += 1 / (30 + index + 1);
+        rrfScores.set(docId, current);
+      });
+    }
+
+    // ③ Vector arm
     if (vectorResults && vectorResults.length > 0) {
       vectorResults.forEach((row, index) => {
         const docId = row.id;
@@ -151,6 +193,7 @@ export async function searchLegalCorpusHandler(args: { query: string; legalArea?
       });
     }
 
+    // ② FTS arm
     if (ftsResults && ftsResults.length > 0) {
       ftsResults.forEach((row, index) => {
         const docId = row.id;
@@ -159,8 +202,8 @@ export async function searchLegalCorpusHandler(args: { query: string; legalArea?
         current.rank = Number(row.rank || 0);
         rrfScores.set(docId, current);
       });
-    } else if (vectorResults.length === 0) {
-      // If both vector and FTS returned empty, use LIKE fallback
+    } else if (vectorResults.length === 0 && exactResults.length === 0) {
+      // Alla tre armar tomma — LIKE-fallback
       const fallbackResults = await prisma.$queryRawUnsafe<any[]>(likeQuery, ...likeParams);
       fallbackResults.forEach((row, index) => {
         const docId = row.id;

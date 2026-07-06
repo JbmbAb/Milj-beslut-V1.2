@@ -8,9 +8,9 @@ async function check() {
 
   const tables = [
     { name: 'env.sgu_fastmark_stabilitet', label: 'SGU Fastmark' },
-    { name: 'public.env_registerenhetsomradesytor', label: 'LM Fastighetsytor' },
-    { name: 'public.env_registerenhetsomradeslinjer', label: 'LM Fastighetslinjer' },
-    { name: 'core.lm_byggnad', label: 'LM Byggnader' },
+    { name: 'env.registerenhetsomradesytor', label: 'LM Fastighetsytor' },
+    { name: 'env.registerenhetsomradeslinjer', label: 'LM Fastighetslinjer' },
+    { name: 'topo10.byggnad', label: 'LM Byggnader' },
   ];
 
   console.log('\n--- Aktuell Status ---');

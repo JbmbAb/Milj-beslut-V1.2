@@ -29,12 +29,12 @@ interface AdminSessionConsoleProps {
   panel?: 'search' | 'insight' | 'invitations';
   username: string;
   setUsername: (value: string) => void;
-  password: string;
-  setPassword: (value: string) => void;
+  password?: string;
+  setPassword?: (value: string) => void;
   token: string;
   refreshToken: string;
   organisationId: string;
-  onLogin: () => Promise<void>;
+  onLogin?: () => Promise<void>;
   onRefresh: () => Promise<void>;
   onLogout: () => void;
 }
@@ -55,12 +55,12 @@ const AdminSessionConsole: React.FC<AdminSessionConsoleProps> = ({
   panel = 'search',
   username,
   setUsername,
-  password,
-  setPassword,
+  password = '',
+  setPassword = () => {},
   token,
   refreshToken,
   organisationId,
-  onLogin,
+  onLogin = async () => {},
   onRefresh,
   onLogout,
 }) => {

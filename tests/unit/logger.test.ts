@@ -145,8 +145,8 @@ describe('logger.debug()', () => {
     delete process.env.NODE_ENV;
   });
 
-  it('emits to stdout when NODE_ENV=debug', () => {
-    process.env.NODE_ENV = 'debug';
+  it('emits to stdout when NODE_ENV=development (debug level)', () => {
+    process.env.NODE_ENV = 'development';
     logger.debug('debug env');
     expect(stdoutSpy).toHaveBeenCalled();
     expect(getLastStdout().level).toBe('debug');

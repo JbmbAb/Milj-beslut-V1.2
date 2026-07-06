@@ -8,6 +8,7 @@ import {
   formatStagingQaSummary,
   parseOgrinfoFieldNames,
   pickBrinColumnFromNames,
+  columnsForPromote,
 } from '../../../scripts/import/importLibrarianQa';
 
 describe('importLibrarianQa', () => {
@@ -99,6 +100,13 @@ Geometry Column = geom
     expect(() =>
       assertExpectedColumnsPresent(['etikett', 'trakt'], ['etikett', 'kommunnamn', 'trakt']),
     ).toThrow(/missing expected columns/i);
+  });
+
+  it('columnsForPromote excludes staging id (SERIAL conflict)', () => {
+    expect(columnsForPromote(['id', 'geom', 'kommun_namn'], ['id', 'geom', 'kommun_namn', 'ogc_fid'])).toEqual([
+      'geom',
+      'kommun_namn',
+    ]);
   });
 
   it('pickBrinColumnFromNames prefers ogc_fid then fid', () => {

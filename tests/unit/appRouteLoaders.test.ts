@@ -218,7 +218,7 @@ describe('app route loaders', () => {
       mocks.queryRawUnsafe.mockResolvedValue([]);
 
       const response = await loader({
-        params: { schema: 'staging', table: 'nmd2023', z: '10', x: '540', y: '321.png' },
+        params: { schema: 'staging', table: 'nmd2023', z: '10', x: '541', y: '322.png' },
         request: new Request('https://example.test'),
         context: {},
       } as any);

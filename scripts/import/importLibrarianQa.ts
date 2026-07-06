@@ -166,6 +166,28 @@ export async function runStagingVectorQa(
   };
 }
 
+/** Repair self-intersecting rings etc. before staging QA (common in legacy shapefile merges). */
+export async function repairInvalidGeometries(
+  prisma: PrismaClient,
+  qualifiedStagingTable: string,
+): Promise<number> {
+  const hasGeom = await tableHasGeomColumn(prisma, qualifiedStagingTable);
+  if (!hasGeom) return 0;
+
+  const rows = await prisma.$executeRawUnsafe(
+    `UPDATE ${qualifiedStagingTable}
+     SET geom = ST_MakeValid(geom)
+     WHERE geom IS NOT NULL AND NOT ST_IsValid(geom)`,
+  );
+  return typeof rows === 'number' ? rows : Number(rows);
+}
+
+/** Overlapping prod/staging columns for promote — never copy SERIAL `id` from staging. */
+export function columnsForPromote(prodCols: readonly string[], stagingCols: readonly string[]): string[] {
+  const stg = new Set(stagingCols);
+  return prodCols.filter((c) => c !== 'id' && stg.has(c));
+}
+
 export async function countTableRows(prisma: PrismaClient, qualifiedTable: string): Promise<number> {
   const rows = await prisma.$queryRawUnsafe<{ n: bigint }[]>(
     `SELECT COUNT(*)::bigint AS n FROM ${qualifiedTable}`,
@@ -197,8 +219,8 @@ export async function buildPromoteInsertSql(
   stagingTable: string,
 ): Promise<string> {
   const prodCols = await listTableColumns(prisma, targetSchema, targetTable);
-  const stgColSet = new Set(await listTableColumns(prisma, stagingSchema, stagingTable));
-  const columns = prodCols.filter((c) => stgColSet.has(c));
+  const stgCols = await listTableColumns(prisma, stagingSchema, stagingTable);
+  const columns = columnsForPromote(prodCols, stgCols);
   if (columns.length === 0) {
     throw new Error(
       `No overlapping columns between ${targetSchema}.${targetTable} and ${stagingSchema}.${stagingTable}`,

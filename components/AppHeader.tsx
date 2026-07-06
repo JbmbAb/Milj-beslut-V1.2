@@ -1,4 +1,5 @@
 import React from 'react';
+import { useOperationsCenter, type WorkflowStepId } from './context/OperationsCenterContext';
 
 interface AppHeaderProps {
   activeTab: string;
@@ -26,47 +27,86 @@ export const AppHeader: React.FC<AppHeaderProps> = ({
   carbonReady: _carbonReady,
   activeProjectLabel,
 }) => {
+  const { activeStep, setActiveStep, workflowSteps, setCommandPaletteOpen } = useOperationsCenter();
+
   return (
-    <header className="h-20 border-b border-white/5 flex items-center justify-between px-10 shrink-0 bg-slate-950/50 backdrop-blur-xl z-10 shadow-2xl">
-      <div className="flex items-center gap-6">
-        <h2
-          data-testid="workspace-active-tab-label"
-          className="text-[11px] font-black uppercase tracking-[0.2em] text-white flex items-center gap-3"
-        >
-          <span
-            className={`w-2.5 h-2.5 rounded-full ${activeMode.accent} shadow-[0_0_12px_rgba(var(--accent-rgb),0.5)]`}
-          />
-          {activeTab}
-        </h2>
-        <div className="h-6 w-px bg-white/10 hidden md:block" />
-        <p className="hidden md:block text-[10px] font-bold text-slate-500 uppercase tracking-widest">
-          {activeMode.title}
-        </p>
+    <header className="h-16 border-b border-slate-800 flex items-center justify-between px-6 shrink-0 bg-slate-900 z-10 shadow-lg text-slate-100 transition-colors duration-150">
+      {/* Tab and Mode Metadata */}
+      <div className="flex items-center gap-4">
+        <div className="flex flex-col">
+          <h2
+            data-testid="workspace-active-tab-label"
+            className="text-[10px] font-black uppercase tracking-widest text-slate-400 flex items-center gap-2"
+          >
+            <span
+              className={`w-2 h-2 rounded-full ${activeMode.accent === 'bg-indigo-500' ? 'bg-cyan-500' : activeMode.accent}`}
+            />
+            {activeTab}
+          </h2>
+          <span className="text-[9px] text-slate-500 font-bold uppercase tracking-wider mt-0.5">
+            {activeMode.title}
+          </span>
+        </div>
       </div>
 
-      <div className="flex items-center gap-3">
-        <div className="hidden lg:flex items-center gap-2 mr-4">
-          <div className="flex -space-x-2">
-            {[1, 2, 3].map((i) => (
-              <div
-                key={i}
-                className="w-6 h-6 rounded-full bg-slate-800 border-2 border-slate-950 flex items-center justify-center"
-              >
-                <i className="fas fa-user text-[10px] text-slate-500" />
-              </div>
-            ))}
-          </div>
-          <span className="text-[10px] font-bold text-slate-400 ml-1">3 AKTIVA</span>
-        </div>
+      {/* Workflow Step Timeline */}
+      <div className="hidden xl:flex items-center gap-1.5 bg-slate-950/40 border border-slate-800 rounded-xl p-1">
+        {workflowSteps.map((step) => {
+          const isActive = step.id === activeStep;
+          const isPassed = step.id < activeStep;
 
-        <div className="flex items-center gap-2 bg-white/5 p-1 rounded-2xl border border-white/10">
-          <span className="text-[9px] font-black px-3 py-1.5 rounded-xl bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
+          return (
+            <div key={step.id} className="flex items-center gap-1.5">
+              <button
+                type="button"
+                onClick={() => setActiveStep(step.id as WorkflowStepId)}
+                className={`px-3 py-1 rounded-lg text-[10px] font-black tracking-wide flex items-center gap-1.5 transition-all ${
+                  isActive
+                    ? 'bg-cyan-950 text-cyan-400 border border-cyan-800/40'
+                    : isPassed
+                      ? 'text-emerald-400 hover:text-slate-100'
+                      : 'text-slate-500 hover:text-slate-300'
+                }`}
+              >
+                <div className={`w-3.5 h-3.5 rounded-full flex items-center justify-center text-[8px] ${
+                  isActive
+                    ? 'bg-cyan-500 text-cyan-950'
+                    : isPassed
+                      ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30'
+                      : 'bg-slate-800 text-slate-500'
+                }`}>
+                  {isPassed ? <i className="fas fa-check" /> : step.id}
+                </div>
+                <span>{step.label}</span>
+              </button>
+              {step.id !== 5 && <i className="fas fa-angle-right text-[9px] text-slate-700" />}
+            </div>
+          );
+        })}
+      </div>
+
+      {/* Search Input Box & Metrics */}
+      <div className="flex items-center gap-4">
+        {/* Interactive Command Center Trigger */}
+        <button
+          type="button"
+          onClick={() => setCommandPaletteOpen(true)}
+          className="flex items-center gap-2 px-3 py-1.5 bg-slate-950/60 border border-slate-800 hover:border-slate-700 rounded-xl text-left text-[11px] text-slate-500 transition-all w-48 md:w-56"
+        >
+          <i className="fas fa-search text-xs" />
+          <span className="flex-1 truncate">Sök verktyg eller lager...</span>
+          <kbd className="px-1.5 py-0.5 bg-slate-800 text-slate-400 text-[8px] rounded border border-slate-700">Ctrl+K</kbd>
+        </button>
+
+        {/* User Stats and Status Indicator */}
+        <div className="flex items-center gap-2 bg-slate-950/60 px-2 py-1 rounded-xl border border-slate-800">
+          <span className="text-[9px] font-black px-2.5 py-1 rounded-lg bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
             {readyModuleCount}/{totalModuleCount} REDO
           </span>
-          <span className="text-[9px] font-black px-3 py-1.5 rounded-xl bg-blue-500/10 text-blue-400 border border-blue-500/20">
+          <span className="text-[9px] font-black px-2.5 py-1 rounded-lg bg-cyan-500/10 text-cyan-400 border border-cyan-500/20">
             GATES {passedGateCount}/{requiredGateCount}
           </span>
-          <span className="text-[9px] font-black px-3 py-1.5 rounded-xl bg-slate-800 text-slate-400 border border-white/5">
+          <span className="text-[9px] font-black px-2.5 py-1 rounded-lg bg-slate-800 text-slate-400 border border-slate-700/60 uppercase max-w-[120px] truncate" title={activeProjectLabel || 'INGET PROJEKT'}>
             {activeProjectLabel || 'INGET PROJEKT'}
           </span>
         </div>
@@ -74,3 +114,4 @@ export const AppHeader: React.FC<AppHeaderProps> = ({
     </header>
   );
 };
+

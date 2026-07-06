@@ -58,7 +58,12 @@ model Organisation {
   id                           String                        @id @default(cuid())
   name                         String
   orgNumber                    String                        @unique
+  role                         OrganizationRole
+  contactEmail                 String?
+  phone                        String?
+  address                      Json?
   createdAt                    DateTime                      @default(now())
+  updatedAt                    DateTime                      @updatedAt
   authorityInboxEvents         AuthorityInboxEvent[]
   CaseSnapshot                 CaseSnapshot[]
   documents                    DocumentRecord[]
@@ -1068,6 +1073,7 @@ model LegalCorpusRecord {
   searchVector  Unsupported("tsvector")? @map("search_vector")
   judgment      JudgmentRecord?          @relation(fields: [judgmentId], references: [id], onDelete: SetNull)
   legalSource   LegalSourceRecord?       @relation(fields: [legalSourceId], references: [id], onDelete: SetNull)
+  chunks        LegalCorpusChunk[]
 
   @@index([canonicalKey])
   @@index([sourceFamily, sourceType, publishedAt])
@@ -1079,6 +1085,40 @@ model LegalCorpusRecord {
   @@map("legal_corpus_records")
   @@schema("public")
 }
+
+/// Chunkat textavsnitt ur ett LegalCorpusRecord, redo för RAG-retrieval.
+/// chunk_version spårar vilken chunknings-logik som använts (idempotent backfill).
+model LegalCorpusChunk {
+  id              String            @id @default(cuid())
+  recordId        String            @map("record_id")
+  chunkIndex      Int               @map("chunk_index")
+  chunkText       String            @map("chunk_text")
+
+  /// Vektordimension matchar EMBEDDING_DIM=768 i searchService.ts
+  embeddingVector Unsupported("vector(768)")? @map("embedding_vector")
+
+  /// chunk_version spårar chunkningslogikens version (används för idempotent backfill)
+  chunkVersion    String            @default("v2.2") @map("chunk_version")
+
+  /// Denormaliserade sökfält (kopierade från LegalCorpusRecord vid ingest)
+  documentType    String            @default("other") @map("document_type") // 'lag' | 'dom' | 'beslut' | 'other'
+  lawName         String?           @map("law_name")
+
+  /// Lagrum-metadata (enbart för dokumenttyp 'lag')
+  chapter         String?
+  paragraph       String?
+
+  /// Sektionstyp (enbart för domar och beslut): DOMSKÄL, DOMSLUT, YRKANDEN
+  section         String?
+
+  record          LegalCorpusRecord @relation(fields: [recordId], references: [id], onDelete: Cascade)
+
+  @@unique([recordId, chunkIndex])
+  @@index([documentType, lawName, chapter, paragraph])
+  @@map("legal_corpus_chunks")
+  @@schema("public")
+}
+
 
 /// Record of an official submission (anmälan/ansökan) sent to an authority.
 model Submission {
@@ -1417,9 +1457,20 @@ enum UserRole {
 }
 
 enum ProjectStatus {
+  DRAFT
   ACTIVE
-  CLOSED
   ARCHIVED
+  COMPLETED
+
+  @@schema("public")
+}
+
+enum ProjectType {
+  ENV_PERMIT
+  REMEDIATION
+  INFRA
+  ENERGY
+  VA
 
   @@schema("public")
 }
@@ -1429,6 +1480,44 @@ enum ProjectAccessRole {
   CONTRIBUTOR
   REVIEWER
   AUDITOR
+
+  @@schema("public")
+}
+
+enum OrganizationRole {
+  CLIENT
+  AUTHORITY
+  CONTRACTOR
+  PARTNER
+
+  @@schema("public")
+}
+
+enum RequirementSourceType {
+  LAW
+  REGULATION
+  COURT_RULING
+  STANDARD
+  INTERNAL
+  PROJECT_SPECIFIC
+
+  @@schema("public")
+}
+
+enum IntegrationHealth {
+  HEALTHY
+  DEGRADED
+  UNHEALTHY
+  UNKNOWN
+
+  @@schema("public")
+}
+
+enum TransportStatus {
+  PLANNED
+  IN_TRANSIT
+  DELIVERED
+  CANCELLED
 
   @@schema("public")
 }
@@ -1600,6 +1689,7 @@ enum ConfidenceLevel {
 
   @@schema("public")
 }
+
 
 model ComponentTemplate {
   id               String             @id @default(cuid())

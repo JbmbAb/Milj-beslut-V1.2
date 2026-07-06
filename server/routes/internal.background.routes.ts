@@ -5,8 +5,8 @@
 
 import express from 'express';
 import { logger } from '../logger';
-import { processSearchJobsOnce } from '../services/searchWorker';
-import { runGdprMaintenanceJob } from '../services/gdprComplianceService';
+import { processSearchJobsOnce } from '../modules/search/public';
+import { runGdprMaintenanceJob } from '../modules/platform/public';
 
 const router = express.Router();
 

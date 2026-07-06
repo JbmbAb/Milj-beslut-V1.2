@@ -216,33 +216,42 @@ router.get('/api/geodata/property', rateLimitByUser(30, 60_000), async (req, res
 
 router.get('/api/geodata/stats', rateLimitByUser(60, 60_000), async (_req, res) => {
   try {
-    const rows = await prisma.$queryRaw<
-      Array<{
-        skyddade: bigint;
-        kulturmiljoer: bigint;
-        vatmarker: bigint;
-        fastigheter: bigint;
-      }>
-    >`
-      SELECT
-        (SELECT count(*) FROM env.protected_area) +
-        (SELECT count(*) FROM env.natura2000_area) +
-        (SELECT count(*) FROM env.nv_naturreservat) +
-        (SELECT count(*) FROM env.water_protection_area) AS skyddade,
-        (SELECT count(*) FROM env.byggnadsminnen) +
-        (SELECT count(*) FROM env.kulturmiljo_omrade) AS kulturmiljoer,
-        (SELECT count(*) FROM env.wetland) AS vatmarker,
-        (SELECT count(*) FROM env.registerenhetsomradesytor) AS fastigheter
-    `;
-    const r = rows[0];
+    const getCount = async (table: string): Promise<number> => {
+      try {
+        const rows = await prisma.$queryRawUnsafe<Array<{ count: string | number | bigint }>>(
+          `SELECT count(*)::text as count FROM ${table}`
+        );
+        return rows[0] && rows[0].count ? Number(rows[0].count) : 0;
+      } catch {
+        return 0;
+      }
+    };
+
+    const [
+      protectedArea, natura2000, nvReservat, waterProt,
+      byggnadsminnen, kulturmiljo,
+      wetland,
+      fastigheter
+    ] = await Promise.all([
+      getCount('env.protected_area'),
+      getCount('env.natura2000_area'),
+      getCount('env.nv_naturreservat'),
+      getCount('env.water_protection_area'),
+      getCount('env.byggnadsminnen'),
+      getCount('env.kulturmiljo_omrade'),
+      getCount('env.wetland'),
+      getCount('env.registerenhetsomradesytor')
+    ]);
+
     res.json({
       ok: true,
-      skyddadeOmraden: Number(r.skyddade),
-      kulturmiljoer: Number(r.kulturmiljoer),
-      vatmarker: Number(r.vatmarker),
-      fastigheter: Number(r.fastigheter),
+      skyddadeOmraden: protectedArea + natura2000 + nvReservat + waterProt,
+      kulturmiljoer: byggnadsminnen + kulturmiljo,
+      vatmarker: wetland,
+      fastigheter: fastigheter,
     });
   } catch (error: unknown) {
+    console.error('Error in /api/geodata/stats:', error);
     res.status(500).json(toSafeErrorResponse(error));
   }
 });

@@ -166,6 +166,27 @@ describe('cNotificationMass.routes', () => {
     expect(res.body.decisions.mellanlagring.mpfDecision).toBeTruthy();
   });
 
+  it('exports PDF binary for mass case', async () => {
+    const created = await request(app)
+      .post('/api/c-notification/mass/operations')
+      .set('Authorization', authHeader())
+      .send(baseOps);
+    const caseId = created.body.caseId;
+
+    await request(app)
+      .post('/api/c-notification/mass/generate-documents')
+      .set('Authorization', authHeader())
+      .send({ caseId });
+
+    const res = await request(app)
+      .get(`/api/c-notification/mass/${caseId}/export-pdf`)
+      .set('Authorization', authHeader());
+    expect(res.status).toBe(200);
+    expect(res.headers['content-type']).toContain('application/pdf');
+    expect(Buffer.isBuffer(res.body)).toBe(true);
+    expect(res.body.subarray(0, 4).toString('ascii')).toBe('%PDF');
+  });
+
   it('full flow: operations → documents → export → submit', async () => {
     const created = await request(app)
       .post('/api/c-notification/mass/operations')

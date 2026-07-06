@@ -17,10 +17,15 @@ from datetime import datetime
 # ── Konfiguration ─────────────────────────────────────────────────────────────
 PROJECT_ROOT = pathlib.Path(__file__).resolve().parent.parent.parent
 OGR = r"C:\Program Files\GDAL\ogr2ogr.exe"
+OGRINFO_PATH = r"C:\Program Files\GDAL\ogrinfo.exe"
 TOKEN_URL = "https://api.lantmateriet.se/token"
 STAC_BASE = "https://api.lantmateriet.se/stac-vektor/v1"
 LOG_DIR = PROJECT_ROOT / "logs"
-WORK_DIR = pathlib.Path("D:\\GEodata\\Downloads_Archive")
+
+# Mimers Brunn: Archive path
+MASTER_ARCHIVE_ROOT = pathlib.Path(r"H:\Delade enheter\Miljöbeslut\GEO_Master_Archive")
+# We use a fixed folder for the STAC archive to support resume logic across time
+WORK_DIR = MASTER_ARCHIVE_ROOT / "Data" / "LM" / "STAC_Archive"
 
 DATASETS = {
     "byggnader": {
@@ -62,6 +67,11 @@ DATASETS = {
         "collection": "kommun-lan-rike",
         "layer": "rike",
         "table": "core.rike",
+    },
+    "belagenhetsadresser": {
+        "collection": "belagenhetsadresser",
+        "layer": "belagenhetsadress",
+        "table": "core.belagenhetsadress",
     }
 }
 
@@ -125,6 +135,11 @@ def run_import(dataset_key):
     layer = cfg["layer"]
     table = cfg["table"]
     
+    # Mimers Brunn: Archive path
+    MASTER_ARCHIVE_ROOT = pathlib.Path(r"H:\Delade enheter\Miljöbeslut\GEO_Master_Archive")
+    COLL_DIR = MASTER_ARCHIVE_ROOT / "Data" / "LM" / "STAC_Archive" / coll
+    COLL_DIR.mkdir(parents=True, exist_ok=True)
+
     log_file = LOG_DIR / f"lm_resume_{dataset_key}.json"
     LOG_DIR.mkdir(parents=True, exist_ok=True)
     
@@ -135,17 +150,18 @@ def run_import(dataset_key):
         except: pass
 
     print(f"=== LM RESUME: {dataset_key} -> {table} ===")
+    
     items = fetch_all_items(coll)
     print(f"  Found {len(items)} items. {len(completed)} already done.")
 
-    WORK_DIR.mkdir(parents=True, exist_ok=True)
-    
     # Check if table exists to decide -overwrite vs -append
-    first = True
-    # In resume mode, we usually want to append unless it's the very first item ever.
-    # But if we have 0 completed, we might want to overwrite.
-    if len(completed) > 0:
-        first = False
+    # We'll use ogrinfo to check if the table exists in the DB
+    check_cmd = [OGRINFO_PATH, "-ro", "-so", f"PG:{DB_OGR}", table.split(".")[-1]]
+    # ogrinfo returns 0 if table exists, non-zero if not.
+    res_check = subprocess.run(check_cmd, capture_output=True, text=True)
+    first = (res_check.returncode != 0)
+
+    DOWNLOAD_ONLY = "--download-only" in sys.argv
 
     for i, item in enumerate(items, 1):
         item_id = item["id"]
@@ -153,59 +169,61 @@ def run_import(dataset_key):
             continue
             
         href = item["assets"]["data"]["href"]
-        zip_path = WORK_DIR / f"{item_id}.zip"
+        zip_path = COLL_DIR / f"{item_id}.zip"
         
         try:
-            if zip_path.exists():
-                print(f"  [{i}/{len(items)}] {item_id}: ZIP already exists locally, skipping download.")
+            if zip_path.exists() and zip_path.stat().st_size > 1000:
+                print(f"  [{i}/{len(items)}] {item_id}: ZIP already exists, skipping download.")
             else:
                 print(f"  [{i}/{len(items)}] {item_id}: downloading...")
                 req = urllib.request.Request(href, headers={"Authorization": f"Bearer {get_token()}"})
                 with urllib.request.urlopen(req) as resp, open(zip_path, "wb") as f:
                     f.write(resp.read())
             
+            if DOWNLOAD_ONLY:
+                completed.add(item_id)
+                log_file.write_text(json.dumps(list(completed)))
+                print(f"  [{i}/{len(items)}] {item_id}: OK (downloaded)")
+                continue
+
             with zipfile.ZipFile(zip_path) as zf:
                 gpkg_name = [name for name in zf.namelist() if name.endswith(".gpkg")][0]
-                zf.extract(gpkg_name, WORK_DIR)
-                gpkg_path = WORK_DIR / gpkg_name
+                with tempfile.TemporaryDirectory() as tmp_extract:
+                    zf.extract(gpkg_name, tmp_extract)
+                    gpkg_path = pathlib.Path(tmp_extract) / gpkg_name
 
-            mode = "-overwrite" if first else "-append"
-            cmd = [
-                OGR, "-f", "PostgreSQL", f"PG:{DB_OGR}",
-                str(gpkg_path), layer,
-                "-nln", table,
-                mode,
-                "-nlt", "PROMOTE_TO_MULTI",
-                "-lco", "GEOMETRY_NAME=geom",
-                "-lco", "SPATIAL_INDEX=NONE",
-                "-gt", "65536",
-                "--config", "PG_USE_COPY", "YES",
-            ]
-            
-            print(f"  [{i}/{len(items)}] {item_id}: importing {layer}...")
-            res = subprocess.run(cmd, capture_output=True, text=True)
-            if res.returncode != 0:
-                print(f"  [ERROR] {item_id}: {res.stderr[:200]}")
-                continue
-            
-            first = False
-            completed.add(item_id)
-            log_file.write_text(json.dumps(list(completed)))
-            print(f"  [{i}/{len(items)}] {item_id}: OK")
+                    mode = "-overwrite" if first else "-append"
+                    cmd = [
+                        OGR, "-f", "PostgreSQL", f"PG:{DB_OGR}",
+                        str(gpkg_path), layer,
+                        "-nln", table,
+                        mode,
+                        "-nlt", "PROMOTE_TO_MULTI",
+                        "-lco", "GEOMETRY_NAME=geom",
+                        "-lco", "SPATIAL_INDEX=NONE",
+                        "-gt", "65536",
+                        "--config", "PG_USE_COPY", "YES",
+                    ]
+                    
+                    print(f"  [{i}/{len(items)}] {item_id}: importing {layer}...")
+                    res = subprocess.run(cmd, capture_output=True, text=True)
+                    if res.returncode != 0:
+                        print(f"  [ERROR] {item_id}: {res.stderr[:200]}")
+                        continue
+                    
+                    first = False
+                    completed.add(item_id)
+                    log_file.write_text(json.dumps(list(completed)))
+                    print(f"  [{i}/{len(items)}] {item_id}: OK")
             
         except Exception as e:
             print(f"  [ERROR] {item_id}: {e}")
-        finally:
-            # Keep zip on D: as permanent archive
-            # if zip_path.exists(): zip_path.unlink()
-            # clean work dir gpkgs
-            for p in WORK_DIR.glob("*.gpkg"): p.unlink()
 
     print(f"Done! {len(completed)}/{len(items)} completed.")
 
 if __name__ == "__main__":
     if len(sys.argv) < 2 or sys.argv[1] not in DATASETS:
-        print(f"Usage: python import_lm_stac_resume.py <dataset>")
+        print(f"Usage: python import_lm_stac_resume.py <dataset> [--download-only]")
         print(f"Datasets: {', '.join(DATASETS.keys())}")
         sys.exit(1)
     run_import(sys.argv[1])

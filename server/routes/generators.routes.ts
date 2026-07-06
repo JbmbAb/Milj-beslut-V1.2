@@ -1,12 +1,14 @@
 import express from 'express';
 import { requireAuth } from '../security/auth';
 import { rateLimitByUser } from '../security/rateLimit';
-import { assertProjectMembership } from '../repositories/projectAccessRepository';
+import { assertProjectMembership } from '../modules/project/public';
 import { toSafeErrorResponse } from '../security/secureErrors';
-import { generateGreenCheck } from '../services/greenCheckGeneratorService';
-import { generateLogisticsPlan } from '../services/logisticsGeneratorService';
-import { generatePermitApplication } from '../services/permitApplicationGeneratorService';
-import { generateProjectPlan } from '../services/projectPlanGeneratorService';
+import {
+  generateGreenCheck,
+  generateLogisticsPlan,
+  generatePermitApplication,
+  generateProjectPlan,
+} from '../modules/generators/public';
 
 const router = express.Router();
 

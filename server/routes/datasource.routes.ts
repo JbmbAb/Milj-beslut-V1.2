@@ -2,33 +2,30 @@ import express from 'express';
 import { requireAuth } from '../security/auth';
 import { rateLimitByUser, rateLimitByOrg } from '../security/rateLimit';
 import { assertPermission } from '../security/projectAccess';
-import { assertProjectMembership } from '../repositories/projectAccessRepository';
+import { assertProjectMembership } from '../modules/project/public';
 import {
   SOURCE_CATALOG,
 } from '../datasources/catalog';
 import {
   fetchImmediateOpenSources,
-} from '../services/openDataSourceService';
-import {
   getSluProductStatus,
   pingSluProduct,
   searchSluObservations,
   callSluProductApi,
-} from '../services/sluService';
+  getPublicDatasourceSummary,
+  parseBbox,
+  getMarkCoverLayer,
+  getTerrainData,
+} from '../modules/gis/public';
 import {
   getSearchStatus,
   enqueueSearchJob,
   recoverStaleRunningJobs,
   requeueFailedJobs,
-} from '../repositories/searchRepository';
-import {
   getSearchConfig,
   runSearchQuery,
-} from '../services/searchService';
-import { processSearchJobsOnce } from '../services/searchWorker';
-import { getPublicDatasourceSummary, parseBbox } from '../services/publicUiService';
-import { getMarkCoverLayer } from '../services/markCoverService';
-import { getTerrainData } from '../services/terrainService';
+  processSearchJobsOnce,
+} from '../modules/search/public';
 import { parseBooleanFlag } from '../utils/routeUtils';
 
 const router = express.Router();

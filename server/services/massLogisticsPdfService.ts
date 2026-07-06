@@ -172,6 +172,16 @@ export async function generateMassLogisticsPdf(
         );
       }
 
+      doc.addPage();
+      doc.fontSize(14).fillColor('#1a5f7a').text('5. Human in the Loop', { underline: true });
+      doc.moveDown(0.5);
+      doc
+        .fontSize(10)
+        .fillColor('#333')
+        .text(
+          'Underlaget är AI-assisterat. Handläggare ska verifiera MPF/EWC, kapacitet och transportkedja innan myndighetsinlämning.',
+        );
+
       // --- Footer ---
       const pages = doc.bufferedPageRange();
       for (let i = 0; i < pages.count; i++) {

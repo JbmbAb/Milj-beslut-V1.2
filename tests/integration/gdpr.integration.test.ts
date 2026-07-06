@@ -9,7 +9,7 @@ let adminToken: string;
 async function setupTestUser() {
   // Create a standard user for testing self-service actions
   const org = await prisma.organisation.create({
-    data: { name: 'GDPR Test Org', orgNumber: `gdpr-test-${Date.now()}` },
+    data: { name: 'GDPR Test Org', orgNumber: `gdpr-test-${Date.now()}`, role: 'CLIENT' },
   });
 
   const user = await prisma.user.create({
@@ -32,7 +32,7 @@ async function setupTestUser() {
 beforeAll(async () => {
   const adminOrg = await prisma.organisation.upsert({
     where: { orgNumber: 'admin-org-001' },
-    create: { name: 'Admin Org', orgNumber: 'admin-org-001' },
+    create: { name: 'Admin Org', orgNumber: 'admin-org-001', role: 'CLIENT' },
     update: { name: 'Admin Org' },
   });
   const adminUser = await prisma.user.upsert({
@@ -166,7 +166,7 @@ test('runGdprMaintenanceJob should archive projects with expired retention polic
     data: {
       organisationId: testUser.organisationId,
       propertyDesignation: 'EXPIRED 1:1',
-      status: 'CLOSED',
+      status: 'COMPLETED',
       retentionUntil: new Date(Date.now() - 24 * 60 * 60 * 1000), // Yesterday
     },
   });
@@ -175,7 +175,7 @@ test('runGdprMaintenanceJob should archive projects with expired retention polic
     data: {
       organisationId: testUser.organisationId,
       propertyDesignation: 'ACTIVE 2:2',
-      status: 'CLOSED',
+      status: 'COMPLETED',
       retentionUntil: new Date(Date.now() + 24 * 60 * 60 * 1000), // Tomorrow
     },
   });
@@ -194,7 +194,7 @@ test('runGdprMaintenanceJob should archive projects with expired retention polic
   const stillClosedProject = await prisma.project.findUnique({
     where: { id: activeProject.id },
   });
-  expect(stillClosedProject?.status).toBe('CLOSED');
+  expect(stillClosedProject?.status).toBe('COMPLETED');
 });
 
 test('runGdprMaintenanceJob should permanently purge archived projects older than 30 days', async () => {

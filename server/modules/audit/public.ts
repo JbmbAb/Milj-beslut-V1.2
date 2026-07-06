@@ -5,3 +5,4 @@ export {
   auditRequirementChanged,
   auditSubmissionEvent,
 } from '../../services/auditEvents';
+export { getAuditExportRows } from '../../repositories/auditRepository';

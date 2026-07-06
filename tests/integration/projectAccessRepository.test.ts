@@ -22,7 +22,7 @@ describeIfDatabaseIntegration('projectAccessRepository Integration', () => {
 
     // Setup Org 1, User 1, Project 1 (active, user1 is owner)
     const org1 = await prisma.organisation.create({
-      data: { name: 'Org 1', orgNumber: `org1-${Date.now()}` },
+      data: { name: 'Org 1', orgNumber: `org1-${Date.now()}`, role: 'CLIENT' },
     });
     org1Id = org1.id;
     const user1 = await prisma.user.create({
@@ -39,7 +39,7 @@ describeIfDatabaseIntegration('projectAccessRepository Integration', () => {
 
     // Setup Org 2, User 2, Project 2 (active, user2 is owner)
     const org2 = await prisma.organisation.create({
-      data: { name: 'Org 2', orgNumber: `org2-${Date.now()}` },
+      data: { name: 'Org 2', orgNumber: `org2-${Date.now()}`, role: 'CLIENT' },
     });
     org2Id = org2.id;
     const user2 = await prisma.user.create({

@@ -12,49 +12,40 @@ param(
     [switch]$SkipManifestPromote
 )
 $ErrorActionPreference = 'Continue'
-$root = 'C:\Dev\miljobeslut-platform-recovery'
-$logDir = Join-Path $root ('logs\import-focus-' + (Get-Date -Format 'yyyy-MM-dd-HHmm'))
-New-Item -ItemType Directory -Force -Path $logDir | Out-Null
 
-$defaultArchive = 'H:\Delade enheter\Miljöbeslut\GEO_Master_Archive'
-$geoMasterArchive = if ($env:GEO_MASTER_ARCHIVE) { $env:GEO_MASTER_ARCHIVE } else { $defaultArchive }
-$archiveVectors = Join-Path $geoMasterArchive 'Data\Vectors'
-$archiveGeoInlarning = Join-Path $geoMasterArchive 'Data\GeoInlarning'
-
-$legacyGeodata = 'D:\GEodata'
-$legacyGeoInlarning = 'D:\Geo inlärning'
-
-function Resolve-DataRoot($archivePath, $legacyPath, $label) {
-    if (Test-Path $archivePath) {
-        Write-Host "[$label] Using GEO_Master_Archive: $archivePath" -ForegroundColor Green
-        return $archivePath
+function Resolve-DataRoot {
+    param(
+        [string]$ArchivePath,
+        [string]$LegacyPath,
+        [string]$Label
+    )
+    if (Test-Path -LiteralPath $ArchivePath) {
+        Write-Host "[$Label] Using GEO_Master_Archive: $ArchivePath" -ForegroundColor Green
+        return $ArchivePath
     }
-    if (Test-Path $legacyPath) {
-        Write-Host "[$label] WARN: Archive path missing — fallback to legacy: $legacyPath" -ForegroundColor Yellow
-        return $legacyPath
+    if (Test-Path -LiteralPath $LegacyPath) {
+        Write-Host "[$Label] WARN: Archive path missing — fallback to legacy: $LegacyPath" -ForegroundColor Yellow
+        return $LegacyPath
     }
-    Write-Host "[$label] WARN: Neither archive nor legacy path exists. Steps may no-op." -ForegroundColor Yellow
-    return $legacyPath
+    Write-Host "[$Label] WARN: Neither archive nor legacy path exists. Steps may no-op." -ForegroundColor Yellow
+    return $LegacyPath
 }
 
-$env:DATABASE_URL = if ($env:DATABASE_URL) { $env:DATABASE_URL } else { 'postgresql://miljobeslut:miljobeslut@127.0.0.1:5432/miljobeslut' }
-$env:GEO_MASTER_ARCHIVE = $geoMasterArchive
-$env:GEODATA_DIR = Resolve-DataRoot $archiveVectors $legacyGeodata 'GEODATA'
-$env:SGU_DOWNLOAD_DIR = $env:GEODATA_DIR
-$env:GEO_INLARNING_DIR = Resolve-DataRoot $archiveGeoInlarning $legacyGeoInlarning 'GEO_INLARNING'
-$env:PGOPTIONS = '-c synchronous_commit=off -c maintenance_work_mem=1GB'
-
-function Run-Step($name, $command) {
-    $log = Join-Path $logDir ($name + '.log')
-    Write-Host "`n========== $name ==========" -ForegroundColor Cyan
+function Run-Step {
+    param(
+        [string]$Name,
+        [string]$Command
+    )
+    $log = Join-Path $script:LogDir ($Name + '.log')
+    Write-Host "`n========== $Name ==========" -ForegroundColor Cyan
     Write-Host "Log: $log"
-    Push-Location $root
+    Push-Location $script:Root
     try {
-        Invoke-Expression $command *>&1 | Tee-Object -FilePath $log
+        Invoke-Expression $Command *>&1 | Tee-Object -FilePath $log
         $code = $LASTEXITCODE
         if ($null -eq $code) { $code = 0 }
         if ($code -ne 0) {
-            Write-Host "WARN: $name exit $code" -ForegroundColor Yellow
+            Write-Host "WARN: $Name exit $code" -ForegroundColor Yellow
         }
     } finally {
         Pop-Location
@@ -62,12 +53,12 @@ function Run-Step($name, $command) {
 }
 
 function Import-ManifestsFromArchive {
-    $manifestRoot = Join-Path $geoMasterArchive 'metadata\manifests'
-    if (-not (Test-Path $manifestRoot)) {
+    $manifestRoot = Join-Path $script:GeoMasterArchive 'metadata\manifests'
+    if (-not (Test-Path -LiteralPath $manifestRoot)) {
         Write-Host "No manifest directory at $manifestRoot — skip V2 promote" -ForegroundColor DarkYellow
         return
     }
-    $manifests = Get-ChildItem -Path $manifestRoot -Filter 'manifest.json' -Recurse -ErrorAction SilentlyContinue
+    $manifests = Get-ChildItem -LiteralPath $manifestRoot -Filter 'manifest.json' -Recurse -ErrorAction SilentlyContinue
     if (-not $manifests -or $manifests.Count -eq 0) {
         Write-Host "No manifest.json files under $manifestRoot" -ForegroundColor DarkYellow
         return
@@ -78,11 +69,37 @@ function Import-ManifestsFromArchive {
     }
 }
 
+$script:Root = 'C:\Dev\miljobeslut-platform-recovery'
+$script:LogDir = Join-Path $script:Root ('logs\import-focus-' + (Get-Date -Format 'yyyy-MM-dd-HHmm'))
+New-Item -ItemType Directory -Force -Path $script:LogDir | Out-Null
+
+$defaultArchive = 'H:\Delade enheter\Miljöbeslut\GEO_Master_Archive'
+$script:GeoMasterArchive = if ($env:GEO_MASTER_ARCHIVE) { $env:GEO_MASTER_ARCHIVE } else { $defaultArchive }
+$archiveVectors = Join-Path $script:GeoMasterArchive 'Data\Vectors'
+$archiveGeoInlarning = Join-Path $script:GeoMasterArchive 'Data\GeoInlarning'
+
+$legacyGeodata = 'D:\GEodata'
+$legacyGeoInlarning = 'D:\Geo inlärning'
+
+$env:DATABASE_URL = if ($env:DATABASE_URL) { $env:DATABASE_URL } else { 'postgresql://miljobeslut:miljobeslut@127.0.0.1:5432/miljobeslut' }
+$env:GEO_MASTER_ARCHIVE = $script:GeoMasterArchive
+$env:GEODATA_DIR = Resolve-DataRoot -ArchivePath $archiveVectors -LegacyPath $legacyGeodata -Label 'GEODATA'
+$sguLegacyRaw = Join-Path $script:GeoMasterArchive 'Data\SGU\Legacy_Archive\2026-06-10\raw'
+if (Test-Path -LiteralPath $sguLegacyRaw) {
+    $env:SGU_DOWNLOAD_DIR = $sguLegacyRaw
+    Write-Host "[SGU] Using legacy raw zips from GEO_Master_Archive: $sguLegacyRaw" -ForegroundColor Green
+} else {
+    $env:SGU_DOWNLOAD_DIR = $env:GEODATA_DIR
+}
+$env:GEO_INLARNING_DIR = Resolve-DataRoot -ArchivePath $archiveGeoInlarning -LegacyPath $legacyGeoInlarning -Label 'GEO_INLARNING'
+$env:PGOPTIONS = '-c synchronous_commit=off -c maintenance_work_mem=1GB'
+
 Write-Host @"
 
 PRODUKT-FOKUS-IMPORT (Miljobeslut / Mimers Brunn)
-  Archive root: $geoMasterArchive
+  Archive root: $($script:GeoMasterArchive)
   GEODATA_DIR:  $($env:GEODATA_DIR)
+  SGU_DOWNLOAD: $($env:SGU_DOWNLOAD_DIR)
   GEO_INLARNING: $($env:GEO_INLARNING_DIR)
   Floden: enskilt avlopp, C-anmalan, lokaliseringsutredning
 
@@ -121,7 +138,7 @@ if (-not $SkipSguBulk) {
         'forutsattningar',
         'hydraulisk'
     ) -join ','
-    Run-Step '08-sgu-bulk' "npx dotenv -e .env -- tsx scripts/import/import-sgu-bulk.ts --only=$sguOnly"
+    Run-Step '08-sgu-bulk' "npx dotenv -e .env -- tsx scripts/import/import-sgu-bulk.ts --only=$sguOnly --resume"
 }
 
 Run-Step '09-sgu-gap-audit' 'npx dotenv -e .env -- tsx scripts/import/sgu-import-gap.ts'
@@ -130,5 +147,5 @@ if (-not $SkipManifestPromote) {
     Import-ManifestsFromArchive
 }
 
-Write-Host "`nProdukt-fokus-import klar. Loggar: $logDir" -ForegroundColor Green
+Write-Host "`nProdukt-fokus-import klar. Loggar: $($script:LogDir)" -ForegroundColor Green
 Write-Host "Verifiera: npm run demo:preflight; e2e staging-avlopp / staging-lokaliseringsutredning" -ForegroundColor Cyan

@@ -8,6 +8,7 @@ import {
   submitApplicationToMunicipality,
 } from '../../../server/services/sewageApplicationService';
 import { __clearSewageApplicationStoreForTests } from '../../../server/repositories/sewageApplicationRepository';
+import { prisma } from '../../../db.server';
 
 vi.mock('../../../server/services/sewageRegulationsService', () => ({
   validateSewageApplicationRegulations: vi.fn().mockReturnValue({
@@ -18,7 +19,18 @@ vi.mock('../../../server/services/sewageRegulationsService', () => ({
   }),
 }));
 
+vi.mock('../../../server/services/municipalitySubmissionService', () => ({
+  submitSewageApplicationToMunicipality: vi.fn().mockResolvedValue({
+    referenceNumber: 'AVLOPP-2180-456',
+    municipalityCode: '2180',
+    municipalityContactEmail: 'kommun@test.se',
+    submittedAt: new Date().toISOString(),
+    estimatedProcessingDays: undefined,
+  }),
+}));
+
 const BASE_REQUEST = {
+  projectId: 'test-project',
   organisationId: 'org-1',
   createdByUserId: 'user-1',
   propertyDesignation: 'GÄVLE BRYNÄS 1:1',
@@ -30,9 +42,26 @@ const BASE_REQUEST = {
 } as const;
 
 describe('sewageApplicationService', () => {
-  beforeEach(() => {
+  beforeEach(async () => {
     __clearSewageApplicationStoreForTests();
     vi.clearAllMocks();
+
+    await prisma.organisation.upsert({
+      where: { id: 'org-1' },
+      update: {},
+      create: { id: 'org-1', name: 'Test Org', orgNumber: '556000-0001', role: 'CLIENT' },
+    });
+
+    await prisma.project.upsert({
+      where: { id: 'test-project' },
+      update: {},
+      create: {
+        id: 'test-project',
+        organisationId: 'org-1',
+        propertyDesignation: 'GÄVLE BRYNÄS 1:1',
+        status: 'ACTIVE',
+      },
+    });
   });
 
   // ── createSewageApplication ───────────────────────────────────────────────
@@ -273,8 +302,41 @@ describe('sewageApplicationService', () => {
   // ── submitApplicationToMunicipality ──────────────────────────────────────
 
   describe('submitApplicationToMunicipality', () => {
+    async function ensureRequirementCaseExists(appId: string) {
+      const docId = `doc-${appId}`;
+      await prisma.documentRecord.upsert({
+        where: { id: docId },
+        update: {},
+        create: {
+          id: docId,
+          projectId: 'test-project',
+          organisationId: 'org-1',
+          originalName: `test-${appId}.pdf`,
+          diskName: `disk-${appId}`,
+          absolutePath: `/test/path/${appId}`,
+          entryId: `entry-${appId}`,
+          subject: 'Test Subject',
+          status: 'METADATA_ONLY',
+        },
+      });
+
+      await prisma.requirementCase.upsert({
+        where: { id: appId },
+        update: {},
+        create: {
+          id: appId,
+          caseKey: `CASE-${appId}`,
+          projectId: 'test-project',
+          documentId: docId,
+          organisationId: 'org-1',
+          sourceFile: 'test.pdf',
+        },
+      });
+    }
+
     it('returnerar success=true med referensnummer för känd ansökan', async () => {
       const app = await createSewageApplication(BASE_REQUEST);
+      await ensureRequirementCaseExists(app.id);
       const result = await submitApplicationToMunicipality(app.id, '2180');
       expect(result.success).toBe(true);
       expect(result.referenceNumber).toContain('AVLOPP-2180');
@@ -289,6 +351,7 @@ describe('sewageApplicationService', () => {
 
     it('använder timelineEstimateWeeks från protectionProfile', async () => {
       const app = await createSewageApplication(BASE_REQUEST);
+      await ensureRequirementCaseExists(app.id);
       const { updateSewageApplicationRecord } =
         await import('../../../server/repositories/sewageApplicationRepository');
       await updateSewageApplicationRecord(app.id, {

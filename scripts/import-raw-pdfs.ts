@@ -3,6 +3,7 @@ import * as path from 'node:path';
 import { PrismaClient } from '@prisma/client';
 import { extractCorpusContent } from '../server/modules/legal/services/legalCorpusTextExtractor';
 import crypto from 'node:crypto';
+import { PATHS } from './import/config/mimersBrunn';
 
 const prisma = new PrismaClient();
 
@@ -35,7 +36,7 @@ function toKey(...parts: string[]): string {
 async function main() {
   const rootDir = process.argv.includes('--root-dir') 
     ? process.argv[process.argv.indexOf('--root-dir') + 1] 
-    : 'C:\\GEO PDF';
+    : PATHS.DOCUMENTS;
 
   console.log(`Skannar ${rootDir} efter PDF-filer...`);
   const pdfs = await walk(rootDir);

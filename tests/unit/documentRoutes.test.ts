@@ -30,6 +30,8 @@ vi.mock('../../server/repositories/tokenRepository', () => ({
 
 vi.mock('../../server/modules/documents/public', () => ({
   uploadDocumentToProject: mocks.uploadDocumentToProject,
+  storageFileExists: mocks.storageFileExists,
+  createStorageReadStream: mocks.createStorageReadStream,
 }));
 
 vi.mock('../../server/modules/search/public', async (importOriginal) => {

@@ -2,14 +2,15 @@ import path from 'node:path';
 import express from 'express';
 import { SOURCE_CATALOG } from '../datasources/catalog';
 import { MAP_LAYER_CATALOG, MAP_LAYER_DEFAULT_DOCUMENTATION_URLS } from '../datasources/mapLayerCatalog';
-import { getOgcCatalogLayers, listOgcCatalogSummaries } from '../services/ogcCapabilitiesService';
 import {
+  getOgcCatalogLayers,
+  listOgcCatalogSummaries,
   downloadDataPackageFileToPath,
   getLastkajenStatus,
   listDataPackageFiles,
   listPublishedDataPackages,
   pingLastkajen,
-} from '../services/lastkajenService';
+} from '../modules/gis/public';
 import { logger } from '../logger';
 import { requireAuth } from '../security/auth';
 import { rateLimitByUser } from '../security/rateLimit';

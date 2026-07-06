@@ -49,3 +49,18 @@ export interface TransportBooking {
   destinationAreaId?: string;
   plannedDate: Date;
 }
+
+export interface MassFlow {
+  id: string;
+  transportBookingId: string;
+  actualTons: number;
+  startedAt: Date;
+  completedAt?: Date;
+  originatingSignature: string; // Signature from source
+  destinationSignature: string; // Signature from destination
+  vehicleId: string;
+  documents: {
+    weighingTicket: string; // path or id
+    disposalPermit: string; // path or id
+  };
+}

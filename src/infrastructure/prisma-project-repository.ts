@@ -1,4 +1,4 @@
-﻿import { prisma } from '../../db.server';
+import { prisma } from '../../db.server';
 import { Project, ProjectStatus, ProjectType } from '../domain/project';
 import { IProjectRepository } from '../domain/project-repository.interface';
 import { ProjectStatus as PrismaProjectStatus } from '@prisma/client';
@@ -97,7 +97,7 @@ export class PrismaProjectRepository implements IProjectRepository {
         return ProjectStatus.ACTIVE;
       case 'ARCHIVED':
         return ProjectStatus.ARCHIVED;
-      case 'CLOSED':
+      case 'COMPLETED':
         return ProjectStatus.COMPLETED;
       default:
         return ProjectStatus.DRAFT;
@@ -111,7 +111,7 @@ export class PrismaProjectRepository implements IProjectRepository {
       case ProjectStatus.ARCHIVED:
         return 'ARCHIVED';
       case ProjectStatus.COMPLETED:
-        return 'CLOSED';
+        return 'COMPLETED';
       default:
         return 'ACTIVE'; // Fallback
     }

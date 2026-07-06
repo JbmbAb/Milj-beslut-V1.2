@@ -20,3 +20,5 @@ export {
 } from '../../services/projectMemberService';
 export { notifyStageGate, sendProjectNotification } from '../../services/notificationService';
 export { assertProjectMembership } from '../../repositories/projectAccessRepository';
+export { syncMilestoneToErp } from '../../services/erpSyncService';
+export { buildProjectRiskMetrics } from '../../services/projectRiskMetrics';

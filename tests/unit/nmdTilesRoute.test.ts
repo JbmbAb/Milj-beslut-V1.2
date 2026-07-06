@@ -3,12 +3,12 @@ import request from 'supertest';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const mocks = vi.hoisted(() => ({
-  getNmdVectorTile: vi.fn(),
+  getVectorTile: vi.fn(),
   loggerError: vi.fn(),
 }));
 
-vi.mock('../../server/modules/gis/public', () => ({
-  getNmdVectorTile: mocks.getNmdVectorTile,
+vi.mock('../../server/modules/gis/vectorTileEngine.js', () => ({
+  getVectorTile: mocks.getVectorTile,
 }));
 
 vi.mock('../../server/logger', () => ({
@@ -28,19 +28,19 @@ describe('tiles.routes', () => {
     const app = express();
     app.use(tilesRouter);
     const buffer = Buffer.from('mvt-tile');
-    mocks.getNmdVectorTile.mockResolvedValueOnce(buffer);
+    mocks.getVectorTile.mockResolvedValueOnce({ buffer, etag: 'etag-123' });
 
     const response = await request(app).get('/api/tiles/nmd/12/2200/1343.pbf').buffer(true);
 
     expect(response.status).toBe(200);
-    expect(response.header['content-type']).toContain('application/x-protobuf');
+    expect(response.header['content-type']).toContain('application/vnd.mapbox-vector-tile');
     expect(response.text).toBe(buffer.toString('binary'));
   });
 
   it('returns 204 when the NMD tile has no data', async () => {
     const app = express();
     app.use(tilesRouter);
-    mocks.getNmdVectorTile.mockResolvedValueOnce(null);
+    mocks.getVectorTile.mockResolvedValueOnce(null);
 
     const response = await request(app).get('/api/tiles/nmd/12/2200/1343.pbf');
 

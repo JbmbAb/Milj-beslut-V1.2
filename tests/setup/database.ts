@@ -5,7 +5,6 @@ import dotenv from 'dotenv';
 import pkg from 'pg';
 const { Client } = pkg;
 import { PrismaClient } from '@prisma/client';
-import { ensureAdminConsoleUser } from '../../server/repositories/userRepository';
 
 // Align with tests/setup/env.ts so globalSetup mutates the same DATABASE_URL as integration tests.
 const envTestPath = path.resolve(process.cwd(), '.env.test');
@@ -22,8 +21,43 @@ const TRUNCATE_EXCLUDE = new Set(['_prisma_migrations', 'spatial_ref_sys']);
 export default async () => {
   console.log('Setting up test database...');
 
+  // Pre-clean public schema to avoid Prisma P3005 (database not empty) error
+  const preClient = new Client({ connectionString: process.env.DATABASE_URL });
+  await preClient.connect();
+  try {
+    const publicTables = await preClient.query(`
+      SELECT tablename FROM pg_tables WHERE schemaname = 'public'
+    `);
+    for (const row of publicTables.rows) {
+      if (row.tablename !== 'spatial_ref_sys') {
+        await preClient.query(`DROP TABLE IF EXISTS "public"."${row.tablename}" CASCADE`);
+      }
+    }
+    // Also drop any public types/enums
+    const publicTypes = await preClient.query(`
+      SELECT typname FROM pg_type t JOIN pg_namespace n ON n.oid = t.typnamespace
+      WHERE n.nspname = 'public' AND t.typtype = 'e'
+    `);
+    for (const row of publicTypes.rows) {
+      await preClient.query(`DROP TYPE IF EXISTS "public"."${row.typname}" CASCADE`);
+    }
+    // Also drop other Prisma schemas to prevent P3005 on migrate deploy
+    await preClient.query('DROP SCHEMA IF EXISTS "env" CASCADE');
+    await preClient.query('DROP SCHEMA IF EXISTS "core" CASCADE');
+    await preClient.query('DROP SCHEMA IF EXISTS "topo10" CASCADE');
+    await preClient.query('DROP SCHEMA IF EXISTS "climate" CASCADE');
+    await preClient.query('DROP SCHEMA IF EXISTS "lm_staging" CASCADE');
+    await preClient.query('DROP SCHEMA IF EXISTS "hydro" CASCADE');
+    console.log('Pre-cleaned public, env, core, topo10, climate, lm_staging, hydro schemas in test database.');
+  } catch (err) {
+    console.warn('Failed to pre-clean public schema in test database:', err);
+  } finally {
+    await preClient.end();
+  }
+
   // 1. Ensure the database schema is up to date
   execSync('npx prisma migrate deploy', { stdio: 'inherit' });
+
 
   // 2. Clean data from all tables managed by Prisma
   // This is much faster and safer than `migrate reset`
@@ -397,6 +431,8 @@ export default async () => {
   }
 
   const adminUsername = String(process.env.ADMIN_CONSOLE_USERNAME || 'admin').trim() || 'admin';
+  const { ensureAdminConsoleUser } = await import('../../server/repositories/userRepository');
   await ensureAdminConsoleUser(adminUsername);
   console.log(`Test database is ready (admin: ${adminUsername}).`);
 };
+

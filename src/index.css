@@ -11,10 +11,10 @@
 /* Admin DIGG Design Tokens */
 @import '../components/admin/admin-tokens.css';
 
-/* Tailwind CSS v4 directives */
-@tailwind base;
-@tailwind components;
-@tailwind utilities;
+/* Tailwind CSS v4 directives and source paths */
+@import "tailwindcss";
+@source "../components/**/*.{ts,tsx,js,jsx}";
+@source "../index.html";
 
 /* System font stack as fallback when Google Fonts is unavailable */
 @layer base {

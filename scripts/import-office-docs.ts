@@ -4,6 +4,8 @@ import { execSync } from 'child_process';
 import { PrismaClient } from '@prisma/client';
 import crypto from 'node:crypto';
 
+import { PATHS } from './import/config/mimersBrunn';
+
 const prisma = new PrismaClient();
 
 function walk(dir: string): string[] {
@@ -92,7 +94,9 @@ function toKey(...parts: string[]): string {
 }
 
 async function main() {
-  const rootDir = 'D:\\GEodata\\Geo_inlarning_Office';
+  const rootDir = process.argv.includes('--root-dir') 
+    ? process.argv[process.argv.indexOf('--root-dir') + 1] 
+    : PATHS.DOCUMENTS;
   console.log(`Skannar ${rootDir} efter Office-filer...`);
   const files = walk(rootDir);
   console.log(`Hittade ${files.length} Office-filer.`);

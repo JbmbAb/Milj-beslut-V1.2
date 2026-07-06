@@ -58,7 +58,7 @@ describeIfDatabaseIntegration('projectPlanRepository Integration', () => {
 
     // Setup for main test user/org/project
     const org = await prisma.organisation.create({
-      data: { name: 'Test Org', orgNumber: `test-org-${Date.now()}` },
+      data: { name: 'Test Org', orgNumber: `test-org-${Date.now()}`, role: 'CLIENT' },
     });
     testOrgId = org.id;
     const user = await prisma.user.create({
@@ -75,7 +75,7 @@ describeIfDatabaseIntegration('projectPlanRepository Integration', () => {
 
     // Setup for other org/user/project (for access control tests)
     const otherOrg = await prisma.organisation.create({
-      data: { name: 'Other Org', orgNumber: `other-org-${Date.now()}` },
+      data: { name: 'Other Org', orgNumber: `other-org-${Date.now()}`, role: 'CLIENT' },
     });
     otherOrgId = otherOrg.id;
     const otherUser = await prisma.user.create({

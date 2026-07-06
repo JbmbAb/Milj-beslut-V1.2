@@ -16,7 +16,7 @@ describeIfDatabaseIntegration('searchService Integration (Real Postgres)', () =>
   beforeAll(async () => {
     const org = await prisma.organisation.upsert({
       where: { orgNumber: 'INTEGRATION-TEST-ORG' },
-      create: { name: 'Aao Kommunal Forvaltning', orgNumber: 'INTEGRATION-TEST-ORG' },
+      create: { name: 'Aao Kommunal Forvaltning', orgNumber: 'INTEGRATION-TEST-ORG', role: 'CLIENT' },
       update: { name: 'Aao Kommunal Forvaltning' },
     });
     testOrgId = org.id;

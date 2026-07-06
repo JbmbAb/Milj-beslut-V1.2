@@ -18,6 +18,7 @@ describe('import-librarian-manifest (offline file fixtures)', () => {
 
   it('findPrimaryFile rejects incomplete shapefile bundle', async () => {
     const manifest = {
+      schema_version: '2.0' as const,
       provider: 'LM',
       dataset: 'Fastighet',
       version: '1',
@@ -25,6 +26,7 @@ describe('import-librarian-manifest (offline file fixtures)', () => {
       content_bundle_sha256: 'hash1',
       total_bytes: 0,
       files: ['fastighet.shp'],
+      qa_status: 'pending' as const,
     };
 
     await expect(findPrimaryFile(manifest, '/data')).rejects.toThrow(

@@ -24,6 +24,18 @@ vi.mock('../../server/repositories/userRepository', () => ({
   findAuthUserByBankId: vi.fn(async () => null),
 }));
 
+vi.mock('../../server/services/operationalCoverageService', () => ({
+  getOperationalCoverage: vi.fn(async () => ({
+    percent: 85,
+    integrations: { configured: 8, total: 9, percent: 88 },
+    datasources: { connected: 5, total: 6, percent: 83 },
+    municipalities: { covered: 20, target: 290, productionTarget: 260, percent: 7 },
+    documentRequirementCoveragePct: 10,
+    sguCoverageMode: 'complete',
+    notes: [],
+  })),
+}));
+
 // Mock prisma.$queryRaw to simulate DB ping (returns OK)
 vi.mock('../../server/db/prisma', () => ({
   prisma: {

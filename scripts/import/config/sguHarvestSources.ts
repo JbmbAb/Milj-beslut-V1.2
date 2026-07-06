@@ -50,7 +50,7 @@ export const SGU_HARVEST_SOURCES: SguHarvestSource[] = [
       zipFileName: 'brunnar.zip',
       innerGpkg: 'brunnar.gpkg',
       ogrLayer: 'brunnar',
-      expectedFeatureCount: 832_535,
+      expectedFeatureCount: 836435,
     },
   },
   {
@@ -77,7 +77,7 @@ export const SGU_HARVEST_SOURCES: SguHarvestSource[] = [
       zipFileName: 'grundvattenmagasin.zip',
       innerGpkg: 'grundvattenmagasin.gpkg',
       ogrLayer: 'grundvattenmagasin',
-      expectedFeatureCount: 9_340,
+      expectedFeatureCount: 9368,
     },
   },
   {
@@ -109,7 +109,88 @@ export const SGU_HARVEST_SOURCES: SguHarvestSource[] = [
       expectedFeatureCount: 242_296,
     },
   },
+  {
+    id: 'Jorddjupsmodell',
+    registryDataset: 'Jorddjup10m',
+    license: 'CC0',
+    apiCollectionUrl: 'https://api.sgu.se/oppnadata/jorddjupsmodell/ogc/features/v1',
+    zip: {
+      zipUrl: 'https://resource.sgu.se/data/oppnadata/jorddjupsmodell/jorddjupsmodell.zip',
+      zipFileName: 'jorddjupsmodell.zip',
+      innerGpkg: 'jorddjupsmodell.gpkg',
+      ogrLayer: 'underlag_jorddjup',
+    },
+  },
+  {
+    id: 'StranderosionKust',
+    registryDataset: 'StranderosionAktiv',
+    license: 'CC BY 4.0',
+    apiCollectionUrl:
+      'https://api.sgu.se/oppnadata/stranderosion-kust/ogc/features/v1/collections/aktiv-erosion',
+    zip: {
+      zipUrl: 'https://resource.sgu.se/data/oppnadata/stranderosion-kust/stranderosion-kust.zip',
+      zipFileName: 'stranderosion-kust.zip',
+      innerGpkg: 'stranderosion_kust.gpkg',
+      ogrLayer: 'aktiv_erosion',
+    },
+  },
+  {
+    id: 'Jordarter750kBlockighet',
+    registryDataset: 'Jordarter750kBlockighet',
+    license: 'CC BY 4.0',
+    apiCollectionUrl: 'https://api.sgu.se/oppnadata/jordarter750k/ogc/features/v1/collections/blockighet',
+    zip: {
+      zipUrl: 'https://resource.sgu.se/data/oppnadata/jordarter750k/jordarter750k.zip',
+      zipFileName: 'jordarter750k.zip',
+      innerGpkg: 'jordarter750k.gpkg',
+      ogrLayer: 'blockighet',
+    },
+  },
+  {
+    id: 'Jordarter750kLandform',
+    registryDataset: 'Jordarter750kLandform',
+    license: 'CC BY 4.0',
+    apiCollectionUrl: 'https://api.sgu.se/oppnadata/jordarter750k/ogc/features/v1/collections/landform',
+    zip: {
+      zipUrl: 'https://resource.sgu.se/data/oppnadata/jordarter750k/jordarter750k.zip',
+      zipFileName: 'jordarter750k.zip',
+      innerGpkg: 'jordarter750k.gpkg',
+      ogrLayer: 'landform',
+    },
+  },
+  {
+    id: 'Kallor',
+    registryDataset: 'Kallor',
+    license: 'CC0 1.0',
+    apiCollectionUrl: 'https://api.sgu.se/oppnadata/kallor/ogc/features/v1/collections/kallor',
+  },
+  {
+    id: 'Borrhal',
+    registryDataset: 'Borrhal',
+    license: 'CC0 1.0',
+    apiCollectionUrl: 'https://api.sgu.se/oppnadata/borrhal/ogc/features/v1/collections/borrhal',
+  },
+  {
+    id: 'Grundvattenforekomster',
+    registryDataset: 'Grundvattenforekomster',
+    license: 'CC0 1.0',
+    apiCollectionUrl: 'https://api.sgu.se/oppnadata/grundvattenforekomster/ogc/features/v1/collections/grundvattenforekomster',
+  },
+  {
+    id: 'MaringeologiYtsubstrat',
+    registryDataset: 'MaringeologiYtsubstrat',
+    license: 'CC0 1.0',
+    apiCollectionUrl: 'https://api.sgu.se/oppnadata/maringeologi25k/ogc/features/v1/collections/ytsubstrat',
+  },
 ];
+
+/** Tier 2 wave — verified official ZIP URLs (product PDFs 2024–2025). */
+export const SGU_TIER2_HARVEST_IDS = [
+  'Jorddjupsmodell',
+  'StranderosionKust',
+  'Jordarter750kBlockighet',
+  'Jordarter750kLandform',
+] as const;
 
 export function getSguHarvestSource(id: string): SguHarvestSource | undefined {
   return SGU_HARVEST_SOURCES.find((s) => s.id === id);

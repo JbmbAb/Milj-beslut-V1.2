@@ -19,6 +19,8 @@ Conclusion: the platform has the right PostGIS direction, but 500M-row robustnes
 
 ## What Is Already Good
 
+- `scripts/import/import-librarian-manifest.ts` runs **GiST + BRIN + VACUUM ANALYZE** on production tables after promote via `applyPostImportIndexing()` in `importLibrarianQa.ts`.
+- Bulk import sessions raise `maintenance_work_mem` / `work_mem` only during Librarian index work (`setBulkImportSession`); ogr2ogr uses `PGOPTIONS` on its own libpq connection.
 - `server/services/sguRiskService.ts` runs independent SGU soil and landslide lookups in parallel.
 - `server/services/spatialAuditService.ts` runs protected-area lookup, distance-to-water, and SGU audit in parallel.
 - Most point queries transform the input point/envelope rather than transforming the indexed geometry column in `WHERE`.
@@ -233,4 +235,9 @@ No, the current system should not be considered robust for 500M rows yet.
 
 It is optimized enough to be a solid baseline, and several query patterns are already correct. But 500M rows requires a deliberate physical storage strategy: partitioned append-only tables, subdivided and/or partitioned static GIS layers, query-plan regression checks, controlled concurrency, and precomputed map outputs.
 
-The next highest-value change is not another `Promise.all`; it is a PostGIS operations package: partition migrations, EXPLAIN-based validation, and a standardized import/index/analyze pipeline.
+The next highest-value change is not another `Promise.all`; it is completing **partition cutovers** for national-scale tables and EXPLAIN-based validation. Librarian already automates post-promote GiST/BRIN indexing.
+
+### Cloud Native (GCP) — not local Docker requirements
+
+- **PgBouncer / connection pooling:** use Cloud SQL Auth Proxy + managed pool or AlloyDB; optional Prisma Accelerate in production. Local Fury dev: Prisma `pool_size` only — status ❌ for PgBouncer locally is intentional.
+- **Read replicas:** provision when map/API read load must not compete with Librarian promote; not required for Tier 1–2 import on a single dev Postgres instance.

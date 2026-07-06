@@ -20,7 +20,7 @@ import {
 import { getDocumentById as getSearchDocumentById } from '../modules/search/public';
 import { appendDomainAudit } from '../security/auditTrail';
 import { auditRequirementChanged } from '../modules/audit/public';
-import { createStorageReadStream, storageFileExists } from '../services/documentObjectStorage';
+import { createStorageReadStream, storageFileExists } from '../modules/documents/public';
 import {
   parsePositiveInt,
   parseOptionalText,

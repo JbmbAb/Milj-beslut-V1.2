@@ -13,6 +13,8 @@ const pnorm = (s: string) => s.replace(/\\/g, '/');
 function serverModulesBrowserStubsPlugin(): Plugin {
   const vertStub = path.resolve(__dirname, 'stubs/browser/vertexAiService.ts');
   const cbStub = path.resolve(__dirname, 'stubs/browser/circuit-breaker-stub.ts');
+  const storageStub = path.resolve(__dirname, 'stubs/browser/documentObjectStorage.ts');
+  const searchStub = path.resolve(__dirname, 'stubs/browser/searchService.ts');
   return {
     name: 'server-modules-browser-stubs',
     enforce: 'pre',
@@ -24,6 +26,12 @@ function serverModulesBrowserStubsPlugin(): Plugin {
       if (n.includes('server/utils/circuitBreaker')) {
         return cbStub;
       }
+      if (n.includes('server/services/documentObjectStorage')) {
+        return storageStub;
+      }
+      if (n.includes('server/services/searchService')) {
+        return searchStub;
+      }
       if (importer) {
         const joined = pnorm(path.join(path.dirname(importer), id));
         if (joined.includes('server/services/vertexAiService')) {
@@ -31,6 +39,12 @@ function serverModulesBrowserStubsPlugin(): Plugin {
         }
         if (joined.includes('server/utils/circuitBreaker')) {
           return cbStub;
+        }
+        if (joined.includes('server/services/documentObjectStorage')) {
+          return storageStub;
+        }
+        if (joined.includes('server/services/searchService')) {
+          return searchStub;
         }
       }
       return null;

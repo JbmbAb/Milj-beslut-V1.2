@@ -10,6 +10,7 @@ import {
 import { Badge } from './ui/Badge';
 import { IconButton } from './ui/IconButton';
 import type { AppModuleAccess } from '../types';
+import { featureFlags } from '../src/infrastructure/feature-flags';
 
 const TechnicalSluExpert = lazy(() =>
   import('./TechnicalSluExpert').then((module) => ({ default: module.TechnicalSluExpert })),
@@ -241,7 +242,13 @@ export const TechnicalDashboardHub: React.FC<TechnicalDashboardHubProps> = ({
           initial="hidden"
           animate="visible"
         >
-          {MODULES.map((module) => {
+          {MODULES.filter((module) => {
+            if (module.id === 'logistik') return featureFlags.isEnabled('show-logistics-workspace');
+            if (module.id === 'projekt') return featureFlags.isEnabled('show-project-manager');
+            if (module.id === 'gronkoll') return featureFlags.isEnabled('show-compliance-audit');
+            if (module.id === 'admin') return featureFlags.isEnabled('show-admin-console');
+            return true;
+          }).map((module) => {
             const access = accessById[module.id];
             const enabled = access ? access.enabled : true;
             const statusLabel =

@@ -64,8 +64,15 @@ function restoreRelevantEnv() {
 
   for (const key of managedKeys) {
     const originalValue = originalEnv[key];
-    if (originalValue === undefined) delete process.env[key];
-    else process.env[key] = originalValue;
+    if (originalValue === undefined) {
+      for (const k of Object.keys(process.env)) {
+        if (k.toUpperCase() === key.toUpperCase()) {
+          delete process.env[k];
+        }
+      }
+    } else {
+      process.env[key] = originalValue;
+    }
   }
 }
 
@@ -314,10 +321,39 @@ describe('getExternalHealthReport', () => {
   });
 
   it('marks integrations as not configured when credentials are missing', async () => {
-    delete process.env.VERTEX_PROJECT_ID;
-    delete process.env.VISS_API_KEY;
-    delete process.env.LANTMATERIET_CONSUMER_KEY;
-    delete process.env.LANTMATERIET_CONSUMER_SECRET;
+    const managedKeys = [
+      'VERTEX_PROJECT_ID',
+      'VISS_API_KEY',
+      'VISS_API_BASE_URL',
+      'LANTMATERIET_ACCESS_TOKEN',
+      'LANTMATERIET_CONSUMER_KEY',
+      'LANTMATERIET_CONSUMER_SECRET',
+      'LANTMATERIET_API_KEY',
+      'LANTMATERIET_BASE_URL',
+      'LANTMATERIET_TOKEN_URL',
+      'LANTMATERIET_LOOKUP_MODE',
+      'LANTMATERIET_SCOPE',
+      'SLU_API_BASE_URL',
+      'MARKET_INTEL_ENDPOINT',
+      'AUTHORITY_SUBMIT_ENDPOINT',
+      'AUTHORITY_API_KEY',
+      'BANKID_BASE_URL',
+      'BANKID_CERT_PATH',
+      'BANKID_KEY_PATH',
+      'BANKID_PFX_PATH',
+      'EIDAS_QTSP_ENDPOINT',
+      'EIDAS_QTSP_API_KEY',
+      'LIMS_API_ENDPOINT',
+      'LIMS_API_KEY',
+      'OCR_API_KEY',
+    ];
+    for (const key of managedKeys) {
+      for (const k of Object.keys(process.env)) {
+        if (k.toUpperCase() === key.toUpperCase()) {
+          delete process.env[k];
+        }
+      }
+    }
 
     mocks.getLantmaterietOpenMapStatus.mockResolvedValue({
       ok: false,

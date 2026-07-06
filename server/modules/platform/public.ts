@@ -34,3 +34,8 @@ export {
   listProjectsSewagePage,
   getProjectBasicForSewage,
 } from './adapters/sewageApplicationList';
+export { getFullStatus } from '../../services/fullStatusService';
+export { getAppHealthReport } from '../../services/appHealthService';
+export { runGdprMaintenanceJob, getUserDataExport, permanentlyDeleteUserData } from '../../services/gdprComplianceService';
+export { testLantmaterietConnection } from '../../services/lantmaterietService';
+export { runReliableJob } from '../../services/BackgroundJobService';

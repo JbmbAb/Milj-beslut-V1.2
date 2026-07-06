@@ -1,2 +1,6 @@
-export type { GeneratedGreenCheck } from '../../server/services/greenCheckGeneratorService';
-export type { GeneratedPermitApplication } from '../../server/services/permitApplicationGeneratorService';
+/**
+ * Decoupled client-side types for generators to prevent server-side import leaks.
+ */
+
+export type GeneratedGreenCheck = any;
+export type GeneratedPermitApplication = any;

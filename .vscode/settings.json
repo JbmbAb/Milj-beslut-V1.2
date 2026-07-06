@@ -25,7 +25,7 @@
   "coverage-gutters.lcovname": "coverage/lcov.info",
   "prisma.pinToPrisma6": true,
   "[jsonc]": {
-    "editor.defaultFormatter": "rvest.vs-code-prettier-eslint"
+    "editor.defaultFormatter": "esbenp.prettier-vscode"
   },
   "supermaven.allowGitignore": true,
   "editor.codeActionsOnSave": {

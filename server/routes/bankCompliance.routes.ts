@@ -2,7 +2,7 @@ import express from 'express';
 import { requireAuth } from '../security/auth';
 import { rateLimitByUser } from '../security/rateLimit';
 import { toSafeErrorResponse } from '../security/secureErrors';
-import { generateBankComplianceIndex } from '../services/bankComplianceService';
+import { generateBankComplianceIndex } from '../modules/compliance/public';
 import { routeParam } from '../utils/routeUtils';
 
 const router = express.Router();

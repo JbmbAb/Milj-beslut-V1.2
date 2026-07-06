@@ -1,4 +1,4 @@
-# Ombyggnadsstrategi: Bygga Nytt, Bygga Ratt
+# Ombyggnadssegi: Bygga Nytt, Bygga Ratt
 
 Detta dokument beskriver hur plattformen kan byggas om pa ett kontrollerat satt med maximal ateranvandning av det som ar bra i dagens losning, men utan att dra med historisk komplexitet, utvecklingsspår eller teknisk skuld in i nasta generation.
 

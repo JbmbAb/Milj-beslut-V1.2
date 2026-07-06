@@ -9,7 +9,30 @@ import os, sys, subprocess, pathlib, zipfile, tempfile, re, urllib.parse
 
 PROJECT_ROOT = pathlib.Path(__file__).resolve().parent.parent.parent
 OGR = r"C:\Program Files\GDAL\ogr2ogr.exe"
-ZIP_PATH = r"D:\Geo inlärning\Värdetrakter.zip"
+
+# Mimers Brunn: Point to Master Archive
+MASTER_ARCHIVE_ROOT = pathlib.Path(r"H:\Delade enheter\Miljöbeslut\GEO_Master_Archive")
+# We look for the latest zip in the Data/NV/Vardetrakter folder
+ARCHIVE_VARDETRAKTER = MASTER_ARCHIVE_ROOT / "Data" / "NV" / "Vardetrakter"
+
+def find_latest_zip():
+    if not ARCHIVE_VARDETRAKTER.exists():
+        return None
+    # Look for raw/*.zip in any timestamped subfolder
+    zips = list(ARCHIVE_VARDETRAKTER.glob("**/raw/Värdetrakter.zip"))
+    if not zips:
+        # Fallback to direct search if structure is slightly different
+        zips = list(ARCHIVE_VARDETRAKTER.glob("**/*.zip"))
+    
+    if zips:
+        # Return newest by file mtime
+        return str(sorted(zips, key=lambda x: x.stat().st_mtime, reverse=True)[0])
+    return None
+
+ZIP_PATH = find_latest_zip()
+if not ZIP_PATH:
+    print("Error: No Värdetrakter.zip found in Master Archive (H:\\Delade enheter\\Miljöbeslut\\GEO_Master_Archive\\Data\\NV\\Vardetrakter).")
+    sys.exit(1)
 DB_URL = "postgresql://miljobeslut:miljobeslut@127.0.0.1:5432/miljobeslut"
 TABLE_NAME = "env.nv_vardetrakter"
 

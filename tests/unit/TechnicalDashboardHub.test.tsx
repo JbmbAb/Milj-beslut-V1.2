@@ -1,8 +1,9 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, cleanup } from '@testing-library/react';
 import { screen, waitFor } from '@testing-library/dom';
 import userEvent from '@testing-library/user-event';
 import { TechnicalDashboardHub } from '../../components/TechnicalDashboardHub';
+import { featureFlags } from '../../src/infrastructure/feature-flags';
 import React from 'react';
 
 // Robust Observer Mock
@@ -26,7 +27,13 @@ describe('TechnicalDashboardHub', () => {
   beforeEach(() => {
     cleanup();
     vi.clearAllMocks();
+    vi.spyOn(featureFlags, 'isEnabled').mockReturnValue(true);
   });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
 
   describe('Header & Branding', () => {
     it('renders the header with Miljöbeslut logo', () => {

@@ -7,6 +7,7 @@ export type ModeCardConfig = {
   icon: string;
   accent: string;
   defaultTab: string;
+  flag?: string;
 };
 
 export const MODE_CARDS: ModeCardConfig[] = [
@@ -17,6 +18,7 @@ export const MODE_CARDS: ModeCardConfig[] = [
     icon: 'fa-chart-mixed',
     accent: 'bg-indigo-600',
     defaultTab: 'archive',
+    flag: 'show-logistics-workspace',
   },
   {
     mode: 'PERMIT_PORTAL',
@@ -33,6 +35,7 @@ export const MODE_CARDS: ModeCardConfig[] = [
     icon: 'fa-list-check',
     accent: 'bg-amber-600',
     defaultTab: 'plan',
+    flag: 'show-project-manager',
   },
   {
     mode: 'COMPLIANCE_AUDIT',
@@ -41,6 +44,7 @@ export const MODE_CARDS: ModeCardConfig[] = [
     icon: 'fa-shield-check',
     accent: 'bg-slate-700',
     defaultTab: 'score',
+    flag: 'show-compliance-audit',
   },
   {
     mode: 'ADMIN_CONSOLE',
@@ -49,6 +53,7 @@ export const MODE_CARDS: ModeCardConfig[] = [
     icon: 'fa-user-shield',
     accent: 'bg-rose-600',
     defaultTab: 'admin-search',
+    flag: 'show-admin-console',
   },
   {
     mode: 'Core_WORKFLOW',

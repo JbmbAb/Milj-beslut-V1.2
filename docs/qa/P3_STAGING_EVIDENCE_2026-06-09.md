@@ -14,32 +14,41 @@ Uppdatering efter plattformsanalys och stop-the-line-fixar (deploy, säkerhet, M
 
 ## Testinventering
 
-Kommando: `npx playwright test tests/e2e/staging-core-flows.spec.ts --list`
+Kommando: `npx playwright test tests/e2e/staging-*.spec.ts --list`
 
-**10 tester** i `staging-core-flows.spec.ts` (P3 utan BankID).
+| Spec | PDF-slutsteg | Submit |
+| ---- | ------------ | ------ |
+| `staging-lokaliseringsutredning.spec.ts` | `POST /api/localization/export-pdf` | Deferred |
+| `staging-c-anmalan-mass.spec.ts` | `GET .../export-pdf` | Deferred |
+| `staging-enskilt-avlopp.spec.ts` | `GET .../dossier` | Deferred |
+| `staging-core-flows.spec.ts` | — (P3 admin) | — |
+
+**10 tester** i `staging-core-flows.spec.ts` (P3 utan BankID) + modulspecar ovan.
 
 ## Körningar
 
 | Datum | Miljö | Kommando | Resultat | Ansvarig | Kommentar |
 |-------|--------|----------|----------|----------|-----------|
 | 2026-06-09 | Lokal | `npx playwright test tests/e2e/staging-core-flows.spec.ts --list` | Pass | Plattformsanalys | 10 P3-tester identifierade |
+| 2026-06-10 | Lokal | PDF-ready specar uppdaterade (export-pdf/dossier + HITL) | Kod klar | Recovery | Kräver staging-körning för grön gate |
 | 2026-06-09 | Lokal | `npx tsc --noEmit` | Pass (efter import-test fix) | Plattformsanalys | Typecheck efter säkerhets/deploy-ändringar |
-| 2026-06-09 | Staging URL | `PLAYWRIGHT_BASE_URL=<staging-ui> PLAYWRIGHT_API_BASE_URL=<staging-api> npm run e2e:staging` | **Ej körd** | — | Kräver staging-secrets + LM live + Vertex i GitHub/staging env |
+| 2026-06-09 | Staging URL | `PLAYWRIGHT_BASE_URL=<staging-ui> npm run e2e:staging:all` | **Ej körd** | — | Kräver staging-secrets + LM live + Vertex i GitHub/staging env |
 
 ## Blockerare före grön staging-E2E
 
 1. `STAGING_URL` / `PLAYWRIGHT_BASE_URL` saknas i aktuell agent-miljö
 2. Tidigare lokal körning (2026-04-25): 8/10 pass — fail på `LIVE_LANTMATERIET_REQUIRED` och `VERTEX_PROJECT_ID`
 3. Efter denna iteration: deploy-drift i `cloudbuild.yaml` åtgärdad; metrics/WebSocket skyddade — **omdeploy staging** krävs innan ny full körning
+4. Modulspecar kräver riktig staging — lokalt skip när `PLAYWRIGHT_BASE_URL` saknas
 
 ## Verifieringskommandon (efter staging-deploy)
 
 ```powershell
 $env:PLAYWRIGHT_BASE_URL = "<staging-ui>"
 $env:PLAYWRIGHT_API_BASE_URL = "<staging-api>"
-$env:STAGING_ADMIN_USERNAME = "<admin>"
-$env:STAGING_ADMIN_PASSWORD = "<secret>"
-npm run e2e:staging
+$env:E2E_ADMIN_USERNAME = "<admin>"
+$env:E2E_ADMIN_PASSWORD = "<secret>"
+npm run e2e:staging:all
 ```
 
 Artefakter vid fel: `test-results/`, `playwright-report/`.

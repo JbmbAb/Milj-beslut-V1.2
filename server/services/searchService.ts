@@ -141,6 +141,26 @@ function readField(row: ManifestRow, candidates: string[]): string {
 }
 
 function manifestDiskName(row: ManifestRow): string {
+  const diskNameCandidates = ['DiskName', 'disk_name', 'filename', 'file_name'];
+  
+  let hasDiskNameColumn = false;
+  for (const candidate of diskNameCandidates) {
+    const expected = normalizeKey(candidate);
+    for (const key of Object.keys(row)) {
+      if (normalizeKey(key) === expected) {
+        hasDiskNameColumn = true;
+        break;
+      }
+    }
+    if (hasDiskNameColumn) {
+      break;
+    }
+  }
+
+  if (hasDiskNameColumn) {
+    return readField(row, diskNameCandidates);
+  }
+
   const storedPath = readField(row, ['stored_path', 'StoredPath', 'RelativePath', 'Path', 'FilePath']);
   if (storedPath) {
     const leaf = path.basename(storedPath);
@@ -148,7 +168,7 @@ function manifestDiskName(row: ManifestRow): string {
       return leaf;
     }
   }
-  return readField(row, ['DiskName', 'disk_name', 'filename', 'file_name']);
+  return '';
 }
 
 function resolveManifestAbsolutePath(outlookBaseDir: string, storedPath: string, diskName: string): string {

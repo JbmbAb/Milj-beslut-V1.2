@@ -31,7 +31,7 @@ export class PrismaUserRepository implements IUserRepository {
 
     if (!orgId) {
       const newOrg = await prisma.organisation.create({
-        data: { name: 'Mock Organisation', orgNumber: '556000-0000' },
+        data: { name: 'Mock Organisation', orgNumber: '556000-0000', role: 'CLIENT' },
       });
       orgId = newOrg.id;
     }

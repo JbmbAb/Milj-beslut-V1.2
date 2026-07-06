@@ -62,6 +62,13 @@ vi.mock('../../server/modules/sewage/public', () => ({
   checkSignatureStatus: mocks.checkSignatureStatus,
   verifyAllSignaturesForApplication: mocks.verifyAllSignaturesForApplication,
   getSubmissionOrgAndProjectByKey: mocks.getSubmissionOrgAndProjectByKey,
+  createSewageApplication: mocks.createSewageApplication,
+  validateApplicationForSubmission: mocks.validateApplicationForSubmission,
+  submitApplicationToMunicipality: mocks.submitApplicationToMunicipality,
+  generateSewageDossierPdf: vi.fn(),
+  getSewageApplicationById: mocks.getSewageApplicationById,
+  updateSewageApplicationRecord: mocks.updateSewageApplicationRecord,
+  listSewageApplicationsByOrg: mocks.listSewageApplicationsByOrg,
 }));
 
 vi.mock('../../server/security/projectAccess', () => ({

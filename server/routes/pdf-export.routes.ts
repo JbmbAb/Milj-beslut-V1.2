@@ -3,7 +3,7 @@ import path from 'node:path';
 import { requireAuth } from '../security/auth';
 import { rateLimitByUser } from '../security/rateLimit';
 import { toSafeErrorResponse } from '../security/secureErrors';
-import { buildJsonPdfBuffer, buildSimplePdfBuffer } from '../services/pdfExportService';
+import { buildJsonPdfBuffer, buildSimplePdfBuffer } from '../modules/documents/public';
 
 const router = express.Router();
 const MAX_PAYLOAD_CHARS = 600_000;

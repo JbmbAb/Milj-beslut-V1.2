@@ -12,6 +12,11 @@ import { countReadyModules } from '../../services/projectStructure';
 import { MODE_CARDS } from './modeCards';
 import { useAppSession } from './providers/AppSessionProvider';
 import { useAppWorkspace } from './providers/AppWorkspaceProvider';
+import { useOperationsCenter } from '../context/OperationsCenterContext';
+import { useTheme } from '../context/ThemeContext';
+import { CommandPalette, InspectorPanel } from '../ui';
+import { featureFlags } from '../../src/infrastructure/feature-flags';
+
 
 export const AppShell: React.FC = () => {
   const { plan } = useProjectStructure();
@@ -24,6 +29,8 @@ export const AppShell: React.FC = () => {
     onLoginSuccess,
     clearSessionAndReset,
   } = useAppSession();
+  const { isDark } = useTheme();
+
   const {
     mode,
     activeTab,
@@ -50,6 +57,10 @@ export const AppShell: React.FC = () => {
     [plan],
   );
   const carbonReady = Boolean(plan.carbonSummary.lastResult);
+
+  const filteredModeCards = useMemo(() => {
+    return MODE_CARDS.filter((card) => !card.flag || featureFlags.isEnabled(card.flag));
+  }, []);
 
   if (sessionState === 'loading') {
     return (
@@ -136,8 +147,11 @@ export const AppShell: React.FC = () => {
   return (
     <div
       data-testid="app-workspace-shell"
-      className="min-h-screen flex overflow-hidden font-['Plus_Jakarta_Sans'] bg-slate-50"
+      className={`min-h-screen flex overflow-hidden font-['Plus_Jakarta_Sans'] transition-colors duration-150 ${
+        isDark ? 'bg-slate-950 text-slate-100' : 'bg-slate-50 text-slate-900'
+      }`}
     >
+      {/* 1. Navigator (Left Sidebar - Width 72px collapsed, 256px expanded) */}
       <AppSidebar
         mode={mode}
         activeTab={activeTab}
@@ -145,12 +159,13 @@ export const AppShell: React.FC = () => {
         setMode={setMode}
         bootstrap={bootstrap}
         activeMode={activeMode}
-        modeCards={MODE_CARDS}
+        modeCards={filteredModeCards}
         openMode={openMode}
         setShowUpload={setShowUpload}
       />
 
-      <main className="flex-1 flex flex-col h-screen overflow-hidden">
+      {/* 2. Workspace (Middle Main Pane - Flex Center Split) */}
+      <main className="flex-1 flex flex-col h-screen overflow-hidden border-r border-slate-850">
         <AppHeader
           activeTab={activeTab}
           activeMode={activeMode}
@@ -163,7 +178,7 @@ export const AppShell: React.FC = () => {
           activeProjectLabel={activeProjectLabel}
         />
 
-        <div className="flex-1 overflow-y-auto p-6 md:p-10 custom-scrollbar relative">
+        <div className="flex-1 overflow-y-auto p-4 md:p-6 custom-scrollbar relative">
           <AppContentRouter
             mode={mode}
             activeTab={activeTab}
@@ -178,6 +193,12 @@ export const AppShell: React.FC = () => {
         </div>
         <ChatBot />
       </main>
+
+      {/* 3. Inspector (Right Panel - Width 320px) */}
+      <InspectorPanel />
+
+      {/* 4. Global Command Palette (Ctrl+K overlay) */}
+      <CommandPalette />
 
       {selectedPermit && <DetailModal permit={selectedPermit} onClose={() => setSelectedPermit(null)} />}
       {showUpload && (

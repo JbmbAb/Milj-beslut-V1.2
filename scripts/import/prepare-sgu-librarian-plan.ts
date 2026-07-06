@@ -26,7 +26,8 @@ async function main() {
   }
 
   const rawDir = path.resolve(
-    readArg('raw-dir') ?? path.join(process.cwd(), 'storage', 'manifests', 'sgu-jordart-zip', 'raw'),
+    readArg('raw-dir') ??
+      path.join(process.cwd(), 'storage', 'manifests', `sgu-${id.toLowerCase()}-zip`, 'raw'),
   );
   const harvestManifest = path.join(rawDir, 'manifest.json');
   const gpkgPath = path.join(rawDir, 'extracted', source.zip.innerGpkg);

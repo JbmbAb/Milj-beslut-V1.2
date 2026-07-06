@@ -14,38 +14,33 @@ try:
 except ImportError:
     psycopg2 = None
 
-EXTRACTED    = r'D:\ingest-arkiv-2026-03-29\dataportal-env\downloads\files'
-LOG          = r'C:\Dev\miljobeslut-platform-recovery\logs\import.log'
+MASTER_ARCHIVE = r'H:\Delade enheter\Miljöbeslut\GEO_Master_Archive\Data'
+LEGACY_ADOPTED = os.path.join(MASTER_ARCHIVE, 'legacy_adopted')
+PROJECT_ROOT = pathlib.Path(__file__).resolve().parent.parent.parent
+LOG          = str(PROJECT_ROOT / 'logs' / 'import.log')
 GDAL_IMAGE   = 'ghcr.io/osgeo/gdal:ubuntu-small-latest'
 EXTRACTED_LX = '/data/extracted'   # Monterings-path inuti Docker
 _TABLES_INITIALIZED = set()
 
 # Haemta DATABASE_URL fran .env.local/.env
-# TODO(Mimers Brunn): Migration debt. This importer still contains legacy D:\GEodata
-# and D:\Geo inlärning fallbacks. Rewrite source discovery around GEO_Master_Archive
-# manifests before the next operational import run.
+# TODO(Mimers Brunn): Migration debt. This importer now points to GEO_Master_Archive.
 
-PROJECT_ROOT = pathlib.Path(__file__).resolve().parent.parent.parent
 PROJECT_DATA_ROOT = PROJECT_ROOT.parent
 GEO_INLARNING_ROOT = pathlib.Path(
-    os.environ.get('GEO_INLARNING_DIR', r'D:\Geo inlärning')
+    os.environ.get('GEO_INLARNING_DIR', os.path.join(MASTER_ARCHIVE, 'Geo_Inlarning'))
 )
 
 RAW_SOURCE_ROOTS = [
-    pathlib.Path(EXTRACTED),
-    pathlib.Path(r'D:\ingest-arkiv-2026-03-29\nvr-download'),
+    pathlib.Path(MASTER_ARCHIVE),
+    pathlib.Path(LEGACY_ADOPTED),
     GEO_INLARNING_ROOT,
-    pathlib.Path(r'D:\GEodata\extracted'),   # Extraherade zips fran D:\GEodata
-    pathlib.Path(r'D:\GEodata'),             # Enstaka .gpkg-filer (t.ex. geologiskt-intressanta-platser.gpkg)
     PROJECT_ROOT / 'scratch' / 'naturvardsverket' / 'natura2000_sci',
     PROJECT_ROOT / 'scratch' / 'naturvardsverket' / 'natura2000_spa',
     PROJECT_DATA_ROOT / 'Miljobeslut_Ops_Pipeline' / 'storage' / 'extracted',
-    pathlib.Path(r'D:\MiljoBeslut_Produktdata_Sources\Pipeline_Storage\storage\extracted'),
-    pathlib.Path(r'D:\MiljoBeslut_Produktdata_Sources\Geodata'),
 ]
 SGU_PREFERRED_ROOTS = [
-    pathlib.Path(r'D:\GEodata\extracted'),
-    pathlib.Path(r'D:\GEodata'),
+    pathlib.Path(MASTER_ARCHIVE) / 'SGU',
+    pathlib.Path(LEGACY_ADOPTED) / 'SGU',
 ]
 SGU_DATASET_FOLDERS = {
     'jordarter25k-100k',

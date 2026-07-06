@@ -2,6 +2,7 @@ import PDFDocument from 'pdfkit';
 import * as fs from 'fs';
 import { SewageApplicationRecord } from '../repositories/sewageApplicationRepository';
 import { logger } from '../logger';
+import { StaticMapGenerator } from '../../src/infrastructure/geo/static-map-generator';
 
 /**
  * SewagePdfService
@@ -12,7 +13,7 @@ export async function generateSewageDossierPdf(
   application: SewageApplicationRecord,
   outputPath: string
 ): Promise<string> {
-  return new Promise((resolve, reject) => {
+  return new Promise(async (resolve, reject) => {
     try {
       const doc = new PDFDocument({
         margin: 50,
@@ -80,13 +81,44 @@ export async function generateSewageDossierPdf(
       // Situationsplan placeholder/info
       doc.fontSize(12).fillColor('#000').text('3.1 Situationsplan');
       doc.moveDown(0.5);
-      if (docs?.situationPlanSVG) {
-        doc.rect(doc.x, doc.y, 450, 250).stroke('#ccc');
-        doc.fontSize(10).fillColor('#666').text('SVG-ritning genererad och bifogas i digital submission.', doc.x + 100, doc.y + 110);
-        doc.moveDown(18);
-      } else {
-        doc.fontSize(10).fillColor('#900').text('Varning: Situationsplan ej genererad.');
-        doc.moveDown(2);
+      
+      const currentX = doc.x;
+      const currentY = doc.y;
+      
+      try {
+        const generator = new StaticMapGenerator();
+        const intersectingZones = await generator.drawMapToPdf(
+          doc,
+          application.propertyDesignation,
+          currentX,
+          currentY,
+          450,
+          250,
+          25
+        );
+        
+        logger.info(`Intersecting zones for ${application.propertyDesignation}: ${intersectingZones.join(', ')}`);
+        
+        // Advance doc.y past the map (height = 250) + padding
+        doc.y = currentY + 265;
+        
+        // Also list intersecting zones if any found
+        if (intersectingZones.length > 0) {
+          doc.fontSize(10).fillColor('#d9534f').text(`Varning - Miljöskyddszoner som berörs:`, currentX, doc.y);
+          intersectingZones.forEach(zone => {
+            doc.fontSize(9).fillColor('#333333').text(`• ${zone}`, { indent: 10 });
+          });
+          doc.moveDown(1);
+        } else {
+          doc.fontSize(10).fillColor('#5cb85c').text('Inga överlappande miljöskyddszoner identifierades i kartanalysen.', currentX, doc.y);
+          doc.moveDown(1);
+        }
+      } catch (mapErr: any) {
+        logger.error(`Misslyckades att generera statisk karta i PDF: ${mapErr.message}`);
+        // Fallback till en enkel ruta
+        doc.rect(currentX, currentY, 450, 250).stroke('#ccc');
+        doc.fontSize(10).fillColor('#900').text(`Kunde inte rita karta: ${mapErr.message}`, currentX + 10, currentY + 110);
+        doc.y = currentY + 265;
       }
 
       // Tvärsektion placeholder/info

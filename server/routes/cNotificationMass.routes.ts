@@ -11,6 +11,7 @@ import { toSafeErrorResponse } from '../security/secureErrors';
 import {
   evaluateOperationCodes,
   exportMassCase,
+  exportMassCasePdf,
   generateDocumentsForCase,
   generateLogisticsForCase,
   getMassCaseAuditTrail,
@@ -405,6 +406,28 @@ router.get(
       if (!sendOrchestratorResult(res, result)) return;
       res.setHeader('Content-Type', 'application/json; charset=utf-8');
       res.json({ ok: true, caseId, export: result.export });
+    } catch (error: unknown) {
+      res.status(500).json(toSafeErrorResponse(error));
+    }
+  },
+);
+
+router.get(
+  '/api/c-notification/mass/:caseId/export-pdf',
+  requireAuth,
+  rateLimitByUser(15, 60_000),
+  async (req, res) => {
+    try {
+      if (!req.authUser) {
+        res.status(401).json({ ok: false, error: 'Unauthorized' });
+        return;
+      }
+      const caseId = String(req.params.caseId ?? '');
+      const result = await exportMassCasePdf(caseId, req.authUser);
+      if (!sendOrchestratorResult(res, result)) return;
+      res.setHeader('Content-Type', 'application/pdf');
+      res.setHeader('Content-Disposition', `attachment; filename="${result.filename}"`);
+      res.send(result.buffer);
     } catch (error: unknown) {
       res.status(500).json(toSafeErrorResponse(error));
     }

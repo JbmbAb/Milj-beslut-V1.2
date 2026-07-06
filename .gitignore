@@ -26,6 +26,7 @@ dist-ssr
 *.sln
 *.sw?
 .env
+.secrets/
 .env.test
 .env.local
 .env.*.local
@@ -124,3 +125,12 @@ hardware-check.ts
 rclone.conf
 rclone.exe
 training/
+
+# Stora geodata-rastrar och databasinitialiserings-dumpar
+*.tif
+*.tiff
+docker/postgres-init/raster-poc/
+docker/postgres-init/**/*.tif
+docker/postgres-init/**/*.tiff
+libsf_mini_core_windows_amd64.dll
+

@@ -1,5 +1,5 @@
 import { useMemo } from 'react';
-import { useMutation, useQueries, useQuery } from '@tanstack/react-query';
+import { useMutation, useQueries, useQuery, type UseQueryResult } from '@tanstack/react-query';
 import {
   fetchDynamicLayer,
   fetchMapLayerCatalog,
@@ -52,6 +52,7 @@ export function useOgcFederatedMapLayers() {
       staleTime: 1000 * 60 * 60 * 6,
       retry: 1,
     })),
+    combine: (results: UseQueryResult<{ layers: OgcFederatedMapLayer[]; warning?: string }>[]) => results,
   });
 
   const wmsLayers = useMemo(() => {

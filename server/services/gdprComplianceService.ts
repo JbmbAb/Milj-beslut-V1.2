@@ -31,7 +31,7 @@ export async function archiveExpiredProjects(): Promise<number> {
 
   const result = await prisma.project.updateMany({
     where: {
-      status: 'CLOSED',
+      status: 'COMPLETED',
       retentionUntil: {
         lt: now,
       },

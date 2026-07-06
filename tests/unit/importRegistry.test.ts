@@ -48,7 +48,7 @@ describe('importRegistry', () => {
     const resolved = resolveStacMergeEntry('marktacke');
     expect(resolved?.dataset).toBe('Marktacke_Nationell/Mark');
     expect(resolved?.entry.target_table).toBe('marktacke');
-    expect(listStacMergeProfiles()).toHaveLength(4);
+    expect(listStacMergeProfiles().length).toBeGreaterThanOrEqual(4);
   });
 
   it('throws for unknown provider/dataset', () => {

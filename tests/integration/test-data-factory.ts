@@ -7,6 +7,7 @@ import {
   ProjectStatus,
   UserRole,
   DocumentProcessingStatus,
+  OrganizationRole,
 } from '@prisma/client';
 
 /**
@@ -26,6 +27,7 @@ export class TestDataFactory {
       data: {
         name: 'Test Organisation',
         orgNumber,
+        role: OrganizationRole.CLIENT,
         ...overrides,
       },
     });

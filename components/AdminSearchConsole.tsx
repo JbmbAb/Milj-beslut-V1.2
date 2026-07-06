@@ -1,6 +1,6 @@
 import React, { Suspense, lazy, useEffect, useState } from 'react';
 import { StatusBanner } from './admin/SharedAdminComponents';
-import { csrfFetch } from '../services/csrfClient';
+import { csrfFetch, getCsrfToken } from '../services/csrfClient';
 
 const AdminSessionConsole = lazy(() => import('./admin/AdminSessionConsole'));
 
@@ -22,15 +22,44 @@ const SessionFallback: React.FC = () => (
 );
 
 const AdminSearchConsole: React.FC<AdminSearchConsoleProps> = ({ panel = 'search' }) => {
-  const [username, setUsername] = useState('admin');
-  const [password, setPassword] = useState('');
   const [token, setToken] = useState('');
   const [refreshToken, setRefreshToken] = useState('');
+  const [username, setUsername] = useState('admin');
   const [organisationId, setOrganisationId] = useState('');
   const [authBootstrapping, setAuthBootstrapping] = useState(true);
-  const [busy, setBusy] = useState('');
+  const [password, setPassword] = useState('');
   const [error, setError] = useState('');
-  const [info, setInfo] = useState('');
+  const [isLoggingIn, setIsLoggingIn] = useState(false);
+
+  const handleLogin = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setError('');
+    setIsLoggingIn(true);
+    try {
+      const csrfToken = await getCsrfToken(true);
+      const response = await fetch('/api/admin/auth/login', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-csrf-token': csrfToken,
+        },
+        body: JSON.stringify({ username, password }),
+      });
+      const json = await response.json();
+      if (!response.ok || !json?.ok) {
+        throw new Error(json?.error || 'Inloggningen misslyckades');
+      }
+      setToken(json.accessToken);
+      setRefreshToken(json.refreshToken || '');
+      if (json.user?.organisationId) {
+        setOrganisationId(json.user.organisationId);
+      }
+    } catch (err: any) {
+      setError(err.message || 'Ogiltiga uppgifter');
+    } finally {
+      setIsLoggingIn(false);
+    }
+  };
 
   useEffect(() => {
     let cancelled = false;
@@ -74,12 +103,10 @@ const AdminSearchConsole: React.FC<AdminSearchConsoleProps> = ({ panel = 'search
         setToken(String(json.accessToken || ''));
         setRefreshToken(String(json.refreshToken || storedRefreshToken));
         if (json.user?.organisationId) setOrganisationId(json.user.organisationId);
-        setError('');
       } catch {
         if (cancelled) return;
         setToken('');
         setRefreshToken('');
-        setError('Adminsessionen hade gatt ut. Logga in igen.');
       } finally {
         if (!cancelled) setAuthBootstrapping(false);
       }
@@ -102,22 +129,6 @@ const AdminSearchConsole: React.FC<AdminSearchConsoleProps> = ({ panel = 'search
   useEffect(() => {
     localStorage.setItem(USER_KEY, username);
   }, [username]);
-
-  const login = async () => {
-    const response = await csrfFetch('/api/admin/auth/login', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ username, password }),
-    });
-    const json = await response.json();
-    if (!response.ok || !json?.ok) {
-      throw new Error(json?.error || 'Inloggning misslyckades');
-    }
-    setToken(String(json.accessToken || ''));
-    setRefreshToken(String(json.refreshToken || ''));
-    if (json.user?.organisationId) setOrganisationId(json.user.organisationId);
-    setPassword('');
-  };
 
   const refresh = async () => {
     const response = await csrfFetch('/api/auth/refresh', {
@@ -153,58 +164,51 @@ const AdminSearchConsole: React.FC<AdminSearchConsoleProps> = ({ panel = 'search
 
   if (!token) {
     return (
-      <div className="flex min-h-screen items-center justify-center bg-slate-50 p-6 font-sans">
+      <div className="flex h-screen items-center justify-center bg-slate-50 font-sans">
         <div className="w-full max-w-md rounded-3xl border border-slate-200 bg-white p-8 shadow-xl">
-          <h1 className="text-2xl font-black text-slate-900">Admin Login</h1>
-          <h2 className="mt-2 text-lg font-black text-slate-900">Admin inloggning och session</h2>
-          <p className="mt-2 text-sm text-slate-500">Logga in for att hantera miljo-beslut.se plattformen.</p>
-          <div className="mt-8 space-y-4">
-            <input
-              data-testid="admin-username-input"
-              className="w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm focus:outline-none"
-              placeholder="Username"
-              value={username}
-              onChange={(event) => setUsername(event.target.value)}
-            />
-            <input
-              data-testid="admin-password-input"
-              className="w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm focus:outline-none"
-              type="password"
-              placeholder="Password"
-              value={password}
-              onChange={(event) => setPassword(event.target.value)}
-              onKeyDown={(event) => {
-                if (event.key === 'Enter' && !busy) {
-                  setBusy('login');
-                  setError('');
-                  void login()
-                    .then(() => setInfo('Admin inloggad.'))
-                    .catch((loginError) =>
-                      setError(loginError instanceof Error ? loginError.message : 'Inloggning misslyckades'),
-                    )
-                    .finally(() => setBusy(''));
-                }
-              }}
-            />
+          <h2 className="text-2xl font-bold text-slate-800 text-center mb-2">Admin Login</h2>
+          <p className="text-slate-500 text-sm text-center mb-6">Logga in for att hantera systemet</p>
+          
+          {error && (
+            <div className="mb-4 rounded-xl bg-red-50 p-4 border border-red-200 text-red-700 text-sm">
+              {error}
+            </div>
+          )}
+          
+          <form onSubmit={handleLogin} className="space-y-4">
+            <div>
+              <label className="block text-sm font-semibold text-slate-700 mb-1">Användarnamn</label>
+              <input
+                data-testid="admin-username-input"
+                type="text"
+                className="w-full rounded-xl border border-slate-300 px-4 py-2 text-slate-800 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                value={username}
+                onChange={(e) => setUsername(e.target.value)}
+                required
+              />
+            </div>
+            
+            <div>
+              <label className="block text-sm font-semibold text-slate-700 mb-1">Lösenord</label>
+              <input
+                data-testid="admin-password-input"
+                type="password"
+                className="w-full rounded-xl border border-slate-300 px-4 py-2 text-slate-800 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                required
+              />
+            </div>
+            
             <button
               data-testid="admin-login-button"
-              className="w-full rounded-2xl bg-slate-900 py-3 text-sm font-black text-white transition-all hover:bg-black"
-              onClick={() => {
-                setBusy('login');
-                setError('');
-                void login()
-                  .then(() => setInfo('Admin inloggad.'))
-                  .catch((loginError) =>
-                    setError(loginError instanceof Error ? loginError.message : 'Inloggning misslyckades'),
-                  )
-                  .finally(() => setBusy(''));
-              }}
-              disabled={busy === 'login'}
+              type="submit"
+              disabled={isLoggingIn}
+              className="w-full rounded-xl bg-indigo-600 py-3 font-semibold text-white transition hover:bg-indigo-700 disabled:bg-indigo-400"
             >
-              {busy === 'login' ? 'Loggar in...' : 'Logga in'}
+              {isLoggingIn ? 'Loggar in...' : 'Logga in'}
             </button>
-          </div>
-          <StatusBanner error={error} info={info} />
+          </form>
         </div>
       </div>
     );
@@ -216,12 +220,9 @@ const AdminSearchConsole: React.FC<AdminSearchConsoleProps> = ({ panel = 'search
         panel={panel}
         username={username}
         setUsername={setUsername}
-        password={password}
-        setPassword={setPassword}
         token={token}
         refreshToken={refreshToken}
         organisationId={organisationId}
-        onLogin={login}
         onRefresh={refresh}
         onLogout={logout}
       />

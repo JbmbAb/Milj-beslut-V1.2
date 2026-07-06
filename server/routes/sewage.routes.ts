@@ -18,18 +18,14 @@ import {
   checkSignatureStatus,
   verifyAllSignaturesForApplication,
   getSubmissionOrgAndProjectByKey,
-} from '../modules/sewage/public';
-import {
   createSewageApplication,
   validateApplicationForSubmission,
   submitApplicationToMunicipality,
-} from '../services/sewageApplicationService';
-import { generateSewageDossierPdf } from '../services/sewagePdfService';
-import {
+  generateSewageDossierPdf,
   getSewageApplicationById,
   updateSewageApplicationRecord,
   listSewageApplicationsByOrg,
-} from '../repositories/sewageApplicationRepository';
+} from '../modules/sewage/public';
 import { logger } from '../logger';
 import { getEnv } from '../security/env';
 import crypto from 'node:crypto';

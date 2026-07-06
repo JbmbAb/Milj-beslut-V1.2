@@ -1,6 +1,8 @@
 /**
- * Staging E2E: Lokaliseringsutredning
+ * Staging E2E: Lokaliseringsutredning (PDF-ready)
  * Kör: npm run e2e:staging:localization
+ *
+ * Scope: generate + export PDF för utskrift. Myndighetsinlämning (submit) är medvetet deferred.
  *
  * Kräver extern miljö:
  *   STAGING_URL eller PLAYWRIGHT_BASE_URL (frontend/API-bas)
@@ -15,9 +17,12 @@
 import { expect, test } from '@playwright/test';
 import {
   adminAuthHeaders,
+  assertHumanInTheLoopText,
+  assertNoDemoOrFallback,
+  assertPrintablePdfResponse,
   createApiContext,
   getE2EApiBaseUrl,
-  isExternalE2E,
+  isStagingModuleE2ETarget,
   loginAsAdmin,
   parseJson,
 } from './support';
@@ -36,8 +41,6 @@ const SITE = {
 };
 
 const resolvedApiBaseUrl = getE2EApiBaseUrl();
-const isLocalTarget = /127\.0\.0\.1|localhost/i.test(resolvedApiBaseUrl);
-const isExternalTarget = isExternalE2E() && !isLocalTarget;
 
 let sharedToken = '';
 let sharedProjectId = '';
@@ -93,12 +96,36 @@ function formatApiError(status: number, text: string): string {
   return `${status} ${text}`;
 }
 
-test.describe('Staging: Lokaliseringsutredning', () => {
+test.describe('Staging: Lokaliseringsutredning (PDF-ready)', () => {
   test.skip(
-    !isExternalTarget,
-    `Kräver staging (STAGING_URL/PLAYWRIGHT_BASE_URL, inte localhost). API-bas: ${resolvedApiBaseUrl}`,
+    !isStagingModuleE2ETarget(),
+    `Kräver staging eller E2E_ALLOW_LOCAL=true med API på ${resolvedApiBaseUrl}`,
   );
   test.describe.configure({ mode: 'serial' });
+
+  test('geodata-prober: soil och protected-nature svarar FeatureCollection eller degraded', async () => {
+    const api = await createApiContext();
+    try {
+      const bbox = [
+        SITE.lng - 0.05,
+        SITE.lat - 0.05,
+        SITE.lng + 0.05,
+        SITE.lat + 0.05,
+      ].join(',');
+      for (const path of ['/api/geodata/soil', '/api/geodata/protected-nature']) {
+        const res = await api.get(`${path}?bbox=${encodeURIComponent(bbox)}`);
+        const text = await res.text();
+        expect([200, 503]).toContain(res.status());
+        if (res.ok()) {
+          const body = JSON.parse(text) as { type?: string; features?: unknown[] };
+          expect(body.type).toBe('FeatureCollection');
+          expect(Array.isArray(body.features)).toBe(true);
+        }
+      }
+    } finally {
+      await api.dispose();
+    }
+  });
 
   test('generate-report: ok med siteAnalyses och dataSources', async () => {
     const api = await createApiContext();
@@ -115,18 +142,65 @@ test.describe('Staging: Lokaliseringsutredning', () => {
         ok?: boolean;
         siteAnalyses?: Array<{ dataSources?: unknown[] }>;
         summary?: { bestAlternativeId?: string };
-        warnings?: string[];
+        humanInTheLoop?: string;
       };
       expect(body.ok).toBe(true);
+      assertNoDemoOrFallback(body, 'localization generate-report');
       expect(body.siteAnalyses?.length).toBeGreaterThan(0);
       expect(body.siteAnalyses?.[0]?.dataSources?.length).toBeGreaterThan(0);
       expect(body.summary?.bestAlternativeId).toBeTruthy();
+      if (body.humanInTheLoop) {
+        assertHumanInTheLoopText(body.humanInTheLoop, 'localization report');
+      }
     } finally {
       await api.dispose();
     }
   });
 
-  test('audit-trail: referens LOK-{projectId}', async () => {
+  test('generate-pdf-data: human-in-the-loop i underlag', async () => {
+    const api = await createApiContext();
+    try {
+      const { token, projectId } = await ensureLocalizationProject();
+      const headers = await adminAuthHeaders(api, token);
+      const res = await api.post('/api/localization/generate-pdf-data', {
+        headers: { ...headers, 'content-type': 'application/json' },
+        data: { projectId, siteAlternatives: [SITE] },
+      });
+      const text = await res.text();
+      expect(res.ok(), formatApiError(res.status(), text)).toBeTruthy();
+      const body = JSON.parse(text) as {
+        ok?: boolean;
+        pdfData?: { humanInTheLoop?: string; disclaimer?: string };
+      };
+      expect(body.ok).toBe(true);
+      assertNoDemoOrFallback(body, 'localization pdf-data');
+      const hitl = `${body.pdfData?.humanInTheLoop ?? ''} ${body.pdfData?.disclaimer ?? ''}`;
+      assertHumanInTheLoopText(hitl, 'localization pdf-data');
+    } finally {
+      await api.dispose();
+    }
+  });
+
+  test('export-pdf: utskriftsbar PDF (slutsteg PDF-ready)', async () => {
+    const api = await createApiContext();
+    try {
+      const { token, projectId } = await ensureLocalizationProject();
+      const headers = await adminAuthHeaders(api, token);
+      const res = await api.post('/api/localization/export-pdf', {
+        headers: { ...headers, 'content-type': 'application/json' },
+        data: { projectId, siteAlternatives: [SITE] },
+      });
+      const text = await res.text();
+      if (!res.ok()) {
+        throw new Error(formatApiError(res.status(), text));
+      }
+      await assertPrintablePdfResponse(res, 'localization export-pdf');
+    } finally {
+      await api.dispose();
+    }
+  });
+
+  test('audit-trail: referens LOK-{projectId} efter generate/export', async () => {
     const api = await createApiContext();
     try {
       const { token, projectId } = await ensureLocalizationProject();

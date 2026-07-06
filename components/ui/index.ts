@@ -23,3 +23,8 @@ export { Card } from './Card';
 // Modal & Data Display
 export { Modal } from './Modal';
 export { DataTable } from './DataTable';
+
+// Command Center Components
+export { CommandPalette } from './CommandPalette';
+export { InspectorPanel } from './InspectorPanel';
+

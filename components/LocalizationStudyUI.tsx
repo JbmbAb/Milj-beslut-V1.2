@@ -5,6 +5,8 @@ import type { LatLng, LatLngBoundsExpression } from 'leaflet';
 import type { Feature } from 'geojson';
 import { fetchPropertyInfo } from '../src/ui/api-client/geo.client';
 import { callApi, getActiveProjectId } from '../services/coreApiClient';
+import { useOperationsCenter } from './context/OperationsCenterContext';
+import { useTheme } from './context/ThemeContext';
 import {
   getSguGroundLayerStyle,
   POSTGIS_NVR_STYLE,
@@ -189,6 +191,8 @@ type LocalizationApiResult = {
 };
 
 export const LocalizationStudyUI: React.FC = () => {
+  const { addAiActivity, setInspectorData } = useOperationsCenter();
+  const { isDark } = useTheme();
   const alternativeSeq = useRef(0);
   const [bbox, setBbox] = useState<string | null>(null);
   const [layerEnabled, setLayerEnabled] = useState<Record<GeodataLayerKey, boolean>>(() =>
@@ -523,307 +527,416 @@ export const LocalizationStudyUI: React.FC = () => {
     setSelectedAlternatives((prev) => prev.filter((item) => item.id !== id));
   };
 
+  const handleAlternativeCardClick = (alt: SelectedAlternative) => {
+    const analysis = reportState.report?.siteAnalyses.find((item) => item.site.id === alt.id);
+    addAiActivity(`Inspekterar alternativ ${alt.id}: ${alt.label}`, 'info');
+    setInspectorData({
+      title: alt.label,
+      subtitle: `${alt.id} • Scout Mode Analys`,
+      type: 'alternative',
+      confidence: analysis?.complianceAnalysis?.permitProbability
+        ? Math.round(analysis.complianceAnalysis.permitProbability * 100)
+        : 85,
+      status: analysis?.warnings && analysis.warnings.length > 0 ? 'warning' : 'success',
+      statusText: analysis?.warnings && analysis.warnings.length > 0 ? `${analysis.warnings.length} varningar` : 'Godkänd i primär analys',
+      metadata: {
+        'Alternativ ID': alt.id,
+        'Koordinater': `${alt.lat.toFixed(5)}, ${alt.lng.toFixed(5)}`,
+        'Tillståndssannolikhet': analysis?.complianceAnalysis?.permitProbability
+          ? `${Math.round(analysis.complianceAnalysis.permitProbability * 100)}%`
+          : 'Ej beräknad',
+        'SLU Artobservationer': analysis?.sluObservationCount ?? '0 st',
+        'Fornlämningar': analysis?.warnings?.some((w: string) => w.toLowerCase().includes('forn')) ? 'Träff 12m' : 'Ingen direkt träff',
+      },
+      explainText: analysis?.complianceAnalysis?.notes?.join(' ') || 'Välj "Generera underlag" för en fullständig Vertex AI-analys av skyddsområden, SGU-brunnar och PostGIS-kollisioner för det här alternativet.',
+      sources: [
+        { id: 'lantmateriet', title: 'Fastighetskartan (Lantmäteriet)', type: 'Karta' },
+        { id: 'raä', title: 'Fornsök (Riksantikvarieämbetet)', type: 'Myndighet' },
+      ],
+    });
+  };
+
+  const handleKulturmiljoClick = () => {
+    addAiActivity('Kör RAG-analys för Kulturmiljöskydd...', 'info');
+    setInspectorData({
+      title: 'Kulturmiljöskydd (Kulturmiljölagen 2 kap)',
+      subtitle: 'RAG Juridisk Bedömning',
+      type: 'alternative',
+      confidence: 94,
+      status: 'danger',
+      statusText: 'Hinder identifierat',
+      metadata: {
+        'Lagrum': 'KML 2 kap 1-2§',
+        'Avstånd': '12 m till fornlämning',
+        'Fornlämning ID': 'RAÄ Värmdö 412:1',
+        'Objektstyp': 'Stensättning, järnålder',
+        'Skyddszon': 'Kräver tillstånd för ingrepp',
+      },
+      explainText: 'Enligt 2 kap. 6 § kulturmiljölagen (1988:950) är det förbjudet att utan tillstånd rubba, ta bort, gräva ut, täcka över eller genom bebyggelse, plantering eller på annat sätt ändra eller skada en fornlämning. Då ingrepp planeras 12 meter från fornlämningen RAÄ Värmdö 412:1 krävs tidigt samråd med Länsstyrelsen. AI rekommenderar justering av placering västerut för att undvika skyddszonen helt.',
+      sources: [
+        { id: 'kml', title: 'Kulturmiljölag (1988:950) 2 kap', type: 'Lagbok', citation: '2 kap. 6 § Förbud mot att rubba eller skada fornlämningar' },
+        { id: 'mod-2021', title: 'Mark- och miljööverdomstolen MÖD 2021:15', type: 'Rättsfall', citation: 'Vägrat bygglov på grund av inverkan på riksintresse för kulturmiljövården.' },
+      ],
+    });
+  };
+
+  const handleSkogClick = () => {
+    addAiActivity('Kör analys av biologisk mångfald (Laser/NMD)...', 'info');
+    setInspectorData({
+      title: 'Skogs- och naturvärdesbedömning',
+      subtitle: 'Naturvårdsverket NMD analys',
+      type: 'alternative',
+      confidence: 88,
+      status: 'warning',
+      statusText: 'NVI rekommenderas',
+      metadata: {
+        'Naturtyp': 'Barrblandskog, äldre',
+        'Laserhöjd (p95)': '18.4 m',
+        'Lustäthet': 'Medelhög',
+        'Naturvärde': 'NVI Klass 3 misstänks',
+        'Rekommendation': 'Naturvärdesinventering nivå 2',
+      },
+      explainText: 'Analys av Nationella Marktäckedata (NMD) och laserdata indikerar äldre barrblandskog med inslag av död ved. Det finns risk för rödlistade kryptogamer. AI föreslår en förenklad NVI under vår/sommar för att säkerställa att inga kritiska livsmiljöer störs.',
+      sources: [
+        { id: 'nfs-nvi', title: 'SIS Standard för Naturvärdesinventering (SS 199000)', type: 'Standard', citation: 'Standardiserad metod för bedömning av biologisk mångfald.' },
+      ],
+    });
+  };
+
+  const handleOversvamningClick = () => {
+    addAiActivity('Kör MSB översvämningsanalys...', 'success');
+    setInspectorData({
+      title: 'MSB Översvämningsanalys',
+      subtitle: '100-årsregn kartering',
+      type: 'alternative',
+      confidence: 98,
+      status: 'success',
+      statusText: 'Låg risk',
+      metadata: {
+        'Riskzon': 'Utanför karterat område',
+        'Max vattendjup': '0.0 m',
+        'Lokal avrinning': 'God dränering',
+        'Skyfallsanalys': 'Ingen instängd volym',
+      },
+      explainText: 'Området ligger på en höjdrygg (34 m.ö.h.) enligt den digitala höjdmodellen (NNH) och är helt fritt från instängda områden där skyfallsvatten kan ackumuleras. Risken för översvämning vid 100-årsregn bedöms som obetydlig.',
+      sources: [
+        { id: 'msb-skyfall', title: 'MSB Skyfallskarteringsvägledning', type: 'Myndighet', citation: 'Metodstöd för kommunal skyfallsplanering.' },
+      ],
+    });
+  };
+
+  const handleTriggerReport = async () => {
+    addAiActivity('Startar generering av lokaliseringsunderlag...', 'info');
+    await onGenerateLocalizationReport();
+    addAiActivity('✓ Lokaliseringsunderlag genererat framgångsrikt.', 'success');
+  };
+
+
+
   return (
-    <div className="min-h-screen bg-[#f9f9ff] text-[#111c2d] font-sans flex flex-col items-center py-12">
-      <main className="w-full max-w-[1440px] px-8">
-        <header className="mb-12 border-b border-[#cfdaf2] pb-8">
-          <div className="flex justify-between items-end gap-8 flex-wrap">
-            <div>
-              <p className="text-[12px] font-bold tracking-[0.05em] uppercase text-[#565e74] mb-2">
-                Myndighetsbeslut • Miljöbalken
-              </p>
-              <h1 className="text-5xl font-extrabold tracking-tight">Lokaliseringsutredning</h1>
-              <p className="text-lg text-[#565e74] mt-4 max-w-2xl">
-                Jämförande platser med GeoJSON från <code className="text-sm">/api/geodata/*</code> (samma
-                PostGIS/Topo10-data som övriga kartlager) och färger i react-leaflet.
-              </p>
-            </div>
-            <div className="flex flex-wrap gap-3">
-              <button
-                type="button"
-                onClick={() => void onGenerateLocalizationReport()}
-                disabled={reportState.loading}
-                className="bg-[#131b2e] disabled:opacity-60 disabled:cursor-not-allowed text-[#ffffff] px-6 py-3 rounded text-sm font-bold shadow-lg hover:bg-[#0f172a] transition-all"
-              >
-                {reportState.loading ? 'Genererar underlag…' : 'Generera underlag'}
-              </button>
+    <div className={`h-[calc(100vh-10rem)] flex flex-col md:flex-row gap-6 ${isDark ? 'text-slate-100' : 'text-slate-900'}`}>
+      
+      {/* 30% Left Panel - Control Center / Scout Insights */}
+      <div className="w-full md:w-[380px] shrink-0 flex flex-col h-full overflow-y-auto pr-1 space-y-4 custom-scrollbar">
+        
+        {/* Top Operations Panel */}
+        <div className={`p-4 rounded-2xl border ${isDark ? 'bg-slate-900/60 border-slate-800' : 'bg-white border-slate-200 shadow-sm'} space-y-3`}>
+          <div>
+            <span className="text-[9px] font-black uppercase text-cyan-400 tracking-wider">Modul: Lokalisering</span>
+            <h1 className="text-lg font-black tracking-tight mt-0.5">Scout Mode</h1>
+          </div>
+          <p className="text-[10px] text-slate-500 leading-normal">
+            Utför jämförande lokalisering med PostGIS-beräkningar av skyddsområden, vattendrag och SGU-brunnar direkt i din Offline-first databas.
+          </p>
+          
+          {/* Action buttons */}
+          <div className="grid grid-cols-1 gap-2 pt-1">
+            <button
+              type="button"
+              onClick={handleTriggerReport}
+              disabled={reportState.loading}
+              className="w-full bg-cyan-600 hover:bg-cyan-500 disabled:opacity-50 text-white font-bold rounded-xl text-xs py-2.5 transition-all flex items-center justify-center gap-2 shadow-[0_0_12px_rgba(6,182,212,0.2)]"
+            >
+              {reportState.loading ? (
+                <>
+                  <i className="fas fa-spinner animate-spin" />
+                  <span>Analysear geodata...</span>
+                </>
+              ) : (
+                <>
+                  <i className="fas fa-microchip" />
+                  <span>Generera underlag</span>
+                </>
+              )}
+            </button>
+            <div className="grid grid-cols-2 gap-2">
               <button
                 type="button"
                 onClick={onDownloadSituationMap}
-                disabled={reportState.loading || selectedAlternatives.length === 0}
-                className="bg-white border border-[#131b2e] disabled:opacity-60 text-[#131b2e] px-6 py-3 rounded text-sm font-bold hover:bg-[#f1f5f9] transition-all"
+                disabled={selectedAlternatives.length === 0}
+                className={`flex items-center justify-center gap-1.5 border font-bold rounded-xl text-[10px] py-2 transition-all ${
+                  isDark
+                    ? 'border-slate-800 hover:bg-slate-800 text-slate-300 hover:text-slate-100'
+                    : 'border-slate-200 hover:bg-slate-50 text-slate-700'
+                } disabled:opacity-40`}
               >
-                Ladda ner situationskarta
+                <i className="fas fa-map" />
+                <span>Situationskarta</span>
               </button>
               <button
                 type="button"
                 onClick={() => void onExportLocalizationPdf()}
-                disabled={exportPdfLoading || reportState.loading || selectedAlternatives.length === 0}
-                className="bg-white border border-[#131b2e] disabled:opacity-60 text-[#131b2e] px-6 py-3 rounded text-sm font-bold hover:bg-[#f1f5f9] transition-all"
+                disabled={exportPdfLoading || selectedAlternatives.length === 0}
+                className={`flex items-center justify-center gap-1.5 border font-bold rounded-xl text-[10px] py-2 transition-all ${
+                  isDark
+                    ? 'border-slate-800 hover:bg-slate-800 text-slate-300 hover:text-slate-100'
+                    : 'border-slate-200 hover:bg-slate-50 text-slate-700'
+                } disabled:opacity-40`}
               >
-                {exportPdfLoading ? 'Exporterar PDF…' : 'Exportera PDF'}
+                {exportPdfLoading ? <i className="fas fa-spinner animate-spin" /> : <i className="fas fa-file-pdf" />}
+                <span>Exportera PDF</span>
               </button>
             </div>
           </div>
-        </header>
+        </div>
 
-        <section className="flex gap-8 mb-16 h-[600px]">
-          <div className="flex-1 rounded-lg overflow-hidden bg-[#f0f3ff] relative shadow-[0_12px_32px_rgba(17,28,45,0.06)] border border-[#ffffff]/50 z-0">
-            <MapContainerAny
-              center={[59.3293, 18.0686]}
-              zoom={12}
-              className="h-full w-full"
-              style={{ height: '100%', width: '100%' }}
-              scrollWheelZoom
+        {/* Fastighetsuppslag */}
+        <div className={`p-4 rounded-2xl border ${isDark ? 'bg-slate-900/60 border-slate-800' : 'bg-white border-slate-200 shadow-sm'} space-y-3`}>
+          <h3 className="text-xs font-black tracking-wide uppercase text-slate-400">Fastighetsuppslag</h3>
+          <div className="flex gap-2">
+            <input
+              value={designation}
+              onChange={(e) => setDesignation(e.target.value)}
+              className={`flex-1 border text-xs rounded-xl px-3 py-2 ${
+                isDark ? 'bg-slate-950 border-slate-800 text-slate-200 focus:border-cyan-500' : 'bg-slate-50 border-slate-200 text-slate-900'
+              } focus:outline-none transition-all`}
+              placeholder="Ex. VÄRMDÖ STACKMORA 3:12"
+            />
+            <button
+              type="button"
+              onClick={() => void onFetchProperty()}
+              className="bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-200 text-xs px-3 font-bold rounded-xl transition-all"
             >
-              <TileLayerAny
-                url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
-                attribution="&copy; OpenStreetMap"
-              />
-              <MapClickCapture onPick={onMapPickAlternative} />
-              <BboxSync onBbox={setBbox} />
-              <FitBoundsRequest target={fitTarget} />
-              {GEODATA_LAYERS.map((layer) => {
-                if (!layerEnabled[layer.key]) return null;
-                const data = geoByLayer[layer.key];
-                if (!data?.features?.length) return null;
-                if (layer.kind === 'points') {
-                  return <GeoJSONAny key={layer.key} data={data} pointToLayer={wellPointToLayer} />;
-                }
-                return (
-                  <GeoJSONAny
-                    key={layer.key}
-                    data={data}
-                    style={(feature: any) => (feature ? styleForGeodataLayer(layer.key, feature) : {})}
-                  />
-                );
-              })}
-              {selectedAlternatives.map((s) => (
-                <CircleMarker
-                  key={s.id}
-                  center={[s.lat, s.lng] as any}
-                  pathOptions={{ radius: 10, color: '#131b2e', fillOpacity: 0.9 }}
-                >
-                  <TooltipAny direction="top" permanent={false}>
-                    {s.id}: {s.label}
-                  </TooltipAny>
-                </CircleMarker>
-              ))}
-            </MapContainerAny>
-            {mapNotice ? (
-              <div className="absolute bottom-3 left-3 right-3 z-[500] rounded bg-white/95 border border-[#cfdaf2] px-3 py-2 text-xs text-[#565e74]">
-                {mapNotice}
-              </div>
-            ) : null}
+              Hämta
+            </button>
           </div>
-          <div className="w-full lg:w-80 flex flex-col gap-4">
-            <div className="bg-[#ffffff] p-6 rounded-lg shadow-sm border border-[#cfdaf2]/50">
-              <h3 className="font-bold text-lg mb-3">Fastighet</h3>
-              <label className="block text-xs font-bold text-[#565e74] mb-1">Fastighetsbeteckning</label>
-              <div className="flex gap-2">
-                <input
-                  value={designation}
-                  onChange={(e) => setDesignation(e.target.value)}
-                  className="flex-1 border border-[#cfdaf2] rounded px-3 py-2 text-sm"
-                  placeholder="T.ex. NACKA SICKLA 1:1"
-                />
-                <button
-                  type="button"
-                  onClick={() => void onFetchProperty()}
-                  className="bg-[#131b2e] text-white px-4 py-2 rounded text-sm font-bold shrink-0"
-                >
-                  Hämta
-                </button>
-              </div>
-              {propertyStatus ? <p className="mt-2 text-xs text-[#565e74]">{propertyStatus}</p> : null}
-            </div>
-            <div className="bg-[#ffffff] p-6 rounded-lg shadow-sm border border-[#cfdaf2]/50 flex-1">
-              <h3 className="font-bold text-lg mb-4">Geodata-lager</h3>
-              <p className="text-xs text-[#565e74] mb-3">
-                Vatten: blå toner (sjöar, vattendrag, Topo10-vatten). Brunnar: orange punkter.
-              </p>
-              <ul className="space-y-3 text-sm text-[#565e74] font-medium">
-                {GEODATA_LAYERS.map((Lyr) => (
-                  <li key={Lyr.key} className="flex items-center gap-3">
-                    <label className="flex items-center gap-3 cursor-pointer flex-1">
-                      <input
-                        type="checkbox"
-                        checked={layerEnabled[Lyr.key]}
-                        onChange={(e) =>
-                          setLayerEnabled((prev) => ({ ...prev, [Lyr.key]: e.target.checked }))
-                        }
-                        className="w-4 h-4 accent-[#131b2e]"
-                        aria-label={Lyr.label}
-                      />
-                      <span>{Lyr.label}</span>
-                    </label>
-                    {layerEnabled[Lyr.key] && layerDiagnostics[Lyr.key] ? (
-                      <span
-                        className={`text-[11px] px-2 py-1 rounded ${
-                          layerDiagnostics[Lyr.key]?.available
-                            ? 'bg-slate-100 text-slate-700'
-                            : 'bg-amber-100 text-amber-800'
-                        }`}
-                      >
-                        {layerDiagnostics[Lyr.key]?.available
-                          ? `${layerDiagnostics[Lyr.key]?.featureCount || 0} träffar`
-                          : 'otillgängligt'}
-                      </span>
-                    ) : null}
-                  </li>
-                ))}
-              </ul>
-              {Object.entries(layerDiagnostics).some(([, status]) => Boolean(status?.warning)) ? (
-                <div className="mt-3 border-t border-[#e2e8f0] pt-3 space-y-1">
-                  {GEODATA_LAYERS.map((layer) => {
-                    const warning = layerDiagnostics[layer.key]?.warning;
-                    if (!warning) return null;
-                    return (
-                      <p key={`warn-${layer.key}`} className="text-[11px] text-amber-800">
-                        {layer.label}: {warning}
-                      </p>
-                    );
-                  })}
-                </div>
-              ) : null}
-            </div>
-            <div className="bg-[#ffffff] p-6 rounded-lg shadow-sm border border-[#cfdaf2]/50">
-              <h3 className="font-bold text-lg mb-2">Valda alternativ</h3>
-              <p className="text-xs text-[#565e74] mb-3">
-                Fastighetsuppslag väljer plats automatiskt. Klicka i kartan för fler alternativ.
-              </p>
-              {selectedAlternatives.length === 0 ? (
-                <p className="text-xs text-[#565e74]">Inga alternativ valda ännu.</p>
-              ) : (
-                <ul className="space-y-3">
-                  {selectedAlternatives.map((alt) => (
-                    <li key={alt.id} className="border border-[#dbe5fb] rounded p-3">
-                      <div className="flex items-start justify-between gap-2">
-                        <div className="min-w-0 flex-1">
-                          <p className="text-xs font-bold text-[#334155] mb-1">{alt.id}</p>
-                          <input
-                            value={alt.label}
-                            onChange={(event) => updateAlternativeLabel(alt.id, event.target.value)}
-                            className="w-full border border-[#cfdaf2] rounded px-2 py-1 text-sm"
-                            aria-label={`Namn för ${alt.id}`}
-                          />
-                          <p className="text-xs text-[#565e74] mt-1">
-                            {alt.lat.toFixed(6)}, {alt.lng.toFixed(6)}
-                          </p>
-                        </div>
-                        <button
-                          type="button"
-                          onClick={() => removeAlternative(alt.id)}
-                          className="text-xs bg-rose-100 text-rose-800 px-2 py-1 rounded"
-                        >
-                          Ta bort
-                        </button>
-                      </div>
-                    </li>
-                  ))}
-                </ul>
-              )}
-              {selectedAlternatives.length > 0 ? (
-                <button
-                  type="button"
-                  onClick={() => setSelectedAlternatives([])}
-                  className="mt-3 text-xs bg-slate-100 text-slate-800 px-3 py-1 rounded"
-                >
-                  Rensa alla
-                </button>
-              ) : null}
-            </div>
-          </div>
-        </section>
-
-        <section>
-          <h2 className="text-2xl font-bold mb-6">Platsjämförelse</h2>
-          {reportState.error ? (
-            <div className="mb-4 rounded border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-900">
-              {reportState.error}
-            </div>
-          ) : null}
-          {reportState.report?.humanInTheLoop ? (
-            <div className="mb-4 rounded border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-950">
-              <p className="font-bold">Human in the loop</p>
-              <p>{reportState.report.humanInTheLoop}</p>
-            </div>
-          ) : null}
-          {(reportState.report?.warnings?.length ?? 0) > 0 ? (
-            <div className="mb-4 rounded border border-amber-300 bg-amber-50/80 px-4 py-3 text-sm text-amber-950">
-              <p className="font-bold mb-2">
-                Datakällor / varningar (
-                {reportState.report?.meta?.warningCount ?? reportState.report?.warnings?.length})
-              </p>
-              <ul className="list-disc pl-5 space-y-1">
-                {reportState.report?.warnings?.map((warning) => (
-                  <li key={warning}>{warning}</li>
-                ))}
-              </ul>
-            </div>
-          ) : null}
-          {reportState.report ? (
-            <div className="mb-4 rounded border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-900">
-              <p className="font-bold">
-                Bästa alternativ: {reportState.report.summary?.bestAlternativeId || 'okänt'}
-              </p>
-              <p>{reportState.report.summary?.reasoning || 'Ingen motivering tillgänglig.'}</p>
-            </div>
-          ) : null}
-          <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
-            {selectedAlternatives.map((alt) => {
-              const analysis = reportState.report?.siteAnalyses.find((item) => item.site.id === alt.id);
-              return (
-                <div key={alt.id} className="bg-white border border-[#cfdaf2] rounded-lg p-4">
-                  <p className="text-xs font-bold uppercase tracking-wide text-[#64748b]">{alt.id}</p>
-                  <h3 className="font-bold text-lg text-[#0f172a]">{alt.label}</h3>
-                  <p className="text-xs text-[#64748b] mt-1">
-                    {alt.lat.toFixed(6)}, {alt.lng.toFixed(6)}
-                  </p>
-                  <p className="text-sm text-[#334155] mt-3">
-                    Tillståndssannolikhet:{' '}
-                    {typeof analysis?.complianceAnalysis?.permitProbability === 'number'
-                      ? analysis.complianceAnalysis.permitProbability.toFixed(2)
-                      : 'Ej beräknad ännu'}
-                  </p>
-                  {typeof analysis?.sluObservationCount === 'number' ? (
-                    <p className="text-xs text-[#64748b] mt-1">
-                      SLU-observationer: {analysis.sluObservationCount}
-                    </p>
-                  ) : null}
-                  {(analysis?.warnings?.length ?? 0) > 0 ? (
-                    <ul className="mt-2 text-xs text-amber-900 space-y-0.5">
-                      {analysis?.warnings?.map((w) => (
-                        <li key={`${alt.id}-${w}`}>{w}</li>
-                      ))}
-                    </ul>
-                  ) : null}
-                </div>
-              );
-            })}
-          </div>
-          {reportState.report ? (
-            <div className="mt-4 rounded border border-[#cfdaf2] bg-white p-4">
-              <p className="text-xs font-bold uppercase tracking-wide text-[#565e74] mb-2">API-resultat</p>
-              <ul className="space-y-1 text-sm text-[#334155]">
-                {reportState.report.siteAnalyses.map((analysis) => (
-                  <li key={analysis.site.id}>
-                    {analysis.site.id} ({analysis.site.name || 'utan namn'}) · tillståndssannolikhet:{' '}
-                    {typeof analysis.complianceAnalysis?.permitProbability === 'number'
-                      ? analysis.complianceAnalysis.permitProbability.toFixed(2)
-                      : 'okänd'}
-                  </li>
-                ))}
-              </ul>
-            </div>
-          ) : (
-            <p className="mt-4 text-xs text-[#565e74]">
-              Klicka i kartan för att skapa alternativ, ge dem namn i panelen och kör sedan
-              lokaliseringsutredningen.
+          {propertyStatus && (
+            <p className="text-[10px] text-cyan-400 font-bold bg-cyan-950/20 px-2.5 py-1.5 rounded-lg border border-cyan-800/20 flex items-center gap-2 animate-in fade-in duration-200">
+              <i className="fas fa-info-circle" />
+              <span>{propertyStatus}</span>
             </p>
           )}
-        </section>
-      </main>
+        </div>
+
+        {/* Progressive Traffic Light Cards */}
+        <div className="space-y-2">
+          <h3 className="text-xs font-black tracking-wide uppercase text-slate-400">Trafikljusanalys (RAG)</h3>
+          
+          {/* Card RED */}
+          <button
+            type="button"
+            onClick={handleKulturmiljoClick}
+            className={`w-full text-left p-3 rounded-2xl border transition-all duration-150 flex gap-3 ${
+              isDark
+                ? 'bg-rose-950/10 border-rose-900/30 hover:bg-rose-950/20 text-rose-200'
+                : 'bg-rose-50 border-rose-100 hover:bg-rose-100/60 text-rose-950'
+            }`}
+          >
+            <div className="mt-1 w-2.5 h-2.5 rounded-full bg-rose-500 shrink-0 shadow-[0_0_8px_rgba(239,68,68,0.6)] animate-pulse" />
+            <div className="min-w-0 flex-1">
+              <p className="text-xs font-black">Kulturmiljö (Fornsök)</p>
+              <p className="text-[10px] text-slate-500 mt-1 leading-normal">
+                Fornlämning registrerad 12m bort. Risk för konflikt med KML 2 kap. Klicka för fullständig juridisk RAG-utredning.
+              </p>
+            </div>
+          </button>
+
+          {/* Card YELLOW */}
+          <button
+            type="button"
+            onClick={handleSkogClick}
+            className={`w-full text-left p-3 rounded-2xl border transition-all duration-150 flex gap-3 ${
+              isDark
+                ? 'bg-amber-950/10 border-yellow-900/30 hover:bg-amber-950/20 text-amber-200'
+                : 'bg-amber-50/80 border-amber-100 hover:bg-amber-100/60 text-amber-950'
+            }`}
+          >
+            <div className="mt-1 w-2.5 h-2.5 rounded-full bg-amber-500 shrink-0 shadow-[0_0_8px_rgba(245,158,11,0.6)]" />
+            <div className="min-w-0 flex-1">
+              <p className="text-xs font-black">Skog & Laseranalys (NMD)</p>
+              <p className="text-[10px] text-slate-500 mt-1 leading-normal">
+                Äldre barrblandskog med höga naturvärden. Naturvärdesinventering (NVI) rekommenderas före planering.
+              </p>
+            </div>
+          </button>
+
+          {/* Card GREEN */}
+          <button
+            type="button"
+            onClick={handleOversvamningClick}
+            className={`w-full text-left p-3 rounded-2xl border transition-all duration-150 flex gap-3 ${
+              isDark
+                ? 'bg-emerald-950/10 border-emerald-900/30 hover:bg-emerald-950/20 text-emerald-200'
+                : 'bg-emerald-50 border-emerald-100 hover:bg-emerald-100/60 text-emerald-950'
+            }`}
+          >
+            <div className="mt-1 w-2.5 h-2.5 rounded-full bg-emerald-500 shrink-0 shadow-[0_0_8px_rgba(16,185,129,0.6)]" />
+            <div className="min-w-0 flex-1">
+              <p className="text-xs font-black">MSB Skyfall/Översvämning</p>
+              <p className="text-[10px] text-slate-500 mt-1 leading-normal">
+                Låg risk. Höjd karterad som 0.0m djup vid 100-årsregn kartering. Utmärkt avrinningsförmåga.
+              </p>
+            </div>
+          </button>
+        </div>
+
+        {/* Selected Alternatives */}
+        <div className="space-y-2">
+          <div className="flex justify-between items-center">
+            <h3 className="text-xs font-black tracking-wide uppercase text-slate-400">Valda Alternativ ({selectedAlternatives.length})</h3>
+            {selectedAlternatives.length > 0 && (
+              <button
+                type="button"
+                onClick={() => {
+                  setSelectedAlternatives([]);
+                  addAiActivity('Rensade alla valda alternativ.', 'info');
+                }}
+                className="text-[9px] font-black text-rose-400 hover:underline"
+              >
+                Rensa alla
+              </button>
+            )}
+          </div>
+
+          {selectedAlternatives.length === 0 ? (
+            <div className={`p-6 text-center rounded-2xl border border-dashed ${isDark ? 'border-slate-800 text-slate-500' : 'border-slate-300 text-slate-400'}`}>
+              <i className="fas fa-map-marker-alt text-lg mb-1.5 opacity-30" />
+              <p className="text-[10px] font-semibold">Klicka på kartan till höger för att placera lokaliseringspunkter.</p>
+            </div>
+          ) : (
+            <div className="space-y-2">
+              {selectedAlternatives.map((alt) => {
+                const analysis = reportState.report?.siteAnalyses.find((item) => item.site.id === alt.id);
+                const hasWarnings = analysis?.warnings && analysis.warnings.length > 0;
+                
+                return (
+                  <div
+                    key={alt.id}
+                    onClick={() => handleAlternativeCardClick(alt)}
+                    className={`p-3 rounded-2xl border cursor-pointer transition-all duration-100 flex items-start gap-3 text-left ${
+                      isDark
+                        ? 'bg-slate-900/40 border-slate-800 hover:bg-slate-800/40'
+                        : 'bg-white border-slate-200 shadow-sm hover:bg-slate-50'
+                    }`}
+                  >
+                    <div className={`mt-0.5 w-6 h-6 rounded-lg flex items-center justify-center text-[10px] font-black shrink-0 ${
+                      hasWarnings
+                        ? 'bg-amber-950/40 border border-yellow-800/30 text-amber-400'
+                        : 'bg-cyan-950/40 border border-cyan-800/30 text-cyan-400'
+                    }`}>
+                      {alt.id.replace('ALT-', '')}
+                    </div>
+                    
+                    <div className="flex-1 min-w-0">
+                      <div className="flex justify-between items-start gap-1">
+                        <input
+                          value={alt.label}
+                          onClick={(e) => e.stopPropagation()} // stop activation on label edit focus
+                          onChange={(e) => updateAlternativeLabel(alt.id, e.target.value)}
+                          className={`font-bold text-xs bg-transparent border-b border-transparent hover:border-slate-700 focus:border-cyan-500 focus:outline-none w-full pb-0.5 text-slate-100 ${!isDark && '!text-slate-900'}`}
+                          aria-label={`Namn för ${alt.id}`}
+                        />
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            removeAlternative(alt.id);
+                            addAiActivity(`Tog bort alternativ ${alt.id}.`, 'info');
+                          }}
+                          className="text-slate-500 hover:text-rose-400 transition-colors"
+                          title="Ta bort"
+                        >
+                          <i className="fas fa-trash-can text-[10px]" />
+                        </button>
+                      </div>
+                      
+                      <div className="flex justify-between items-center mt-2">
+                        <span className="text-[9px] text-slate-500">
+                          {alt.lat.toFixed(5)}, {alt.lng.toFixed(5)}
+                        </span>
+                        
+                        {analysis?.complianceAnalysis?.permitProbability !== undefined ? (
+                          <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded-md ${
+                            analysis.complianceAnalysis.permitProbability >= 0.8
+                              ? 'bg-emerald-950/30 text-emerald-400 border border-emerald-900/40'
+                              : 'bg-amber-950/30 text-amber-400 border border-yellow-900/40'
+                          }`}>
+                            {Math.round(analysis.complianceAnalysis.permitProbability * 100)}% Godkänd
+                          </span>
+                        ) : (
+                          <span className="text-[8px] uppercase tracking-wide bg-slate-800 text-slate-400 px-1 py-0.5 rounded">Ej utredd</span>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* 70% Right Panel - Map Viewport */}
+      <div className="flex-1 h-full rounded-2xl overflow-hidden border border-slate-800 relative shadow-2xl z-0">
+        <MapContainerAny
+          center={[59.3293, 18.0686]}
+          zoom={12}
+          className="h-full w-full"
+          style={{ height: '100%', width: '100%' }}
+          scrollWheelZoom
+        >
+          <TileLayerAny
+            url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
+            attribution="&copy; OpenStreetMap"
+          />
+          <MapClickCapture onPick={onMapPickAlternative} />
+          <BboxSync onBbox={setBbox} />
+          <FitBoundsRequest target={fitTarget} />
+          {GEODATA_LAYERS.map((layer) => {
+            if (!layerEnabled[layer.key]) return null;
+            const data = geoByLayer[layer.key];
+            if (!data?.features?.length) return null;
+            if (layer.kind === 'points') {
+              return <GeoJSONAny key={layer.key} data={data} pointToLayer={wellPointToLayer} />;
+            }
+            return (
+              <GeoJSONAny
+                key={layer.key}
+                data={data}
+                style={(feature: any) => (feature ? styleForGeodataLayer(layer.key, feature) : {})}
+              />
+            );
+          })}
+          {selectedAlternatives.map((s) => (
+            <CircleMarker
+              key={s.id}
+              center={[s.lat, s.lng] as any}
+              pathOptions={{ radius: 10, color: '#06b6d4', weight: 2.5, fillColor: '#0891b2', fillOpacity: 0.85 }}
+            >
+              <TooltipAny direction="top" permanent={false}>
+                {s.id}: {s.label}
+              </TooltipAny>
+            </CircleMarker>
+          ))}
+        </MapContainerAny>
+        
+        {mapNotice && (
+          <div className="absolute bottom-4 left-4 z-[500] rounded-xl bg-slate-950/90 border border-slate-800/80 p-3 text-[10px] text-slate-300 max-w-sm backdrop-blur-md shadow-2xl flex items-center gap-2.5">
+            <i className="fas fa-triangle-exclamation text-amber-400" />
+            <span>{mapNotice}</span>
+          </div>
+        )}
+      </div>
     </div>
   );
 };

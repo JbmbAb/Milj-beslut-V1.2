@@ -22,16 +22,20 @@ export interface StacMergeProfile {
   output_gpkg: string;
 }
 
+export type PromoteStrategy = 'replace' | 'append';
+
 export interface ImportRegistryEntry extends TargetConfig {
   expected_columns: readonly string[];
   tier?: ImportTier;
   ogr_layer?: string;
-  primary_format?: 'gpkg' | 'geojson' | 'shp';
+  primary_format?: 'gpkg' | 'geojson' | 'shp' | 'tif';
   source_url?: string;
   license?: string;
   stac_merge?: StacMergeProfile;
   /** Alternate manifest `dataset` values resolving to this entry */
   aliases?: readonly string[];
+  /** replace = TRUNCATE+INSERT (default); append = INSERT into existing prod table */
+  promote_strategy?: PromoteStrategy;
 }
 
 const LM_FASTIGHET_YTOR_COLUMNS = [
@@ -191,6 +195,77 @@ export const IMPORT_REGISTRY: Record<string, Record<string, ImportRegistryEntry>
         output_gpkg: 'marktacke_nationell.gpkg',
       },
     }),
+    'Ortnamn_Nationell/Ortnamn': entry({
+      target_schema: 'core',
+      target_table: 'ortnamn',
+      expected_columns: ['ortnamn', 'kommunkod', 'detaljtyp'],
+      tier: 2,
+      ogr_layer: 'ortnamn',
+      primary_format: 'gpkg',
+      source_url: 'https://api.lantmateriet.se/stac-vektor/v1/collections/ortnamn',
+      license: 'CC0',
+      stac_merge: {
+        stac_archive_folder: 'ortnamn',
+        ogr_layer: 'ortnamn',
+        output_gpkg: 'ortnamn_nationell.gpkg',
+      },
+    }),
+    'AdministrativIndelning_Nationell/Kommun': entry({
+      target_schema: 'core',
+      target_table: 'kommuner',
+      expected_columns: ['objektidentitet', 'beslutatnamn', 'kommunkod'],
+      tier: 2,
+      ogr_layer: 'kommun',
+      primary_format: 'gpkg',
+      source_url: 'https://api.lantmateriet.se/stac-vektor/v1/collections/kommun-lan-rike',
+      license: 'CC0',
+      stac_merge: {
+        stac_archive_folder: 'kommun-lan-rike',
+        ogr_layer: 'kommun',
+        output_gpkg: 'kommun_nationell.gpkg',
+      },
+    }),
+    'AdministrativIndelning_Nationell/Lan': entry({
+      target_schema: 'core',
+      target_table: 'lan',
+      expected_columns: ['objektidentitet', 'beslutatnamn', 'lanskod'],
+      tier: 2,
+      ogr_layer: 'lan',
+      primary_format: 'gpkg',
+      stac_merge: {
+        stac_archive_folder: 'kommun-lan-rike',
+        ogr_layer: 'lan',
+        output_gpkg: 'lan_nationell.gpkg',
+      },
+    }),
+    'AdministrativIndelning_Nationell/Rike': entry({
+      target_schema: 'core',
+      target_table: 'rike',
+      expected_columns: ['objektidentitet', 'beslutatnamn'],
+      tier: 2,
+      ogr_layer: 'rike',
+      primary_format: 'gpkg',
+      stac_merge: {
+        stac_archive_folder: 'kommun-lan-rike',
+        ogr_layer: 'rike',
+        output_gpkg: 'rike_nationell.gpkg',
+      },
+    }),
+    'Belagenhetsadress_Nationell/Belagenhetsadress': entry({
+      target_schema: 'core',
+      target_table: 'belagenhetsadress',
+      expected_columns: ['belagenhetsadress_objektidentitet', 'adressplatsnummer', 'postort', 'kommunkod'],
+      tier: 2,
+      ogr_layer: 'belagenhetsadress',
+      primary_format: 'gpkg',
+      source_url: 'https://api.lantmateriet.se/stac-vektor/v1/collections/belagenhetsadresser',
+      license: 'CC0',
+      stac_merge: {
+        stac_archive_folder: 'belagenhetsadresser',
+        ogr_layer: 'belagenhetsadress',
+        output_gpkg: 'belagenhetsadress_nationell.gpkg',
+      },
+    }),
   },
   SGU: {
     Brunnar: entry({
@@ -317,6 +392,47 @@ export const IMPORT_REGISTRY: Record<string, Record<string, ImportRegistryEntry>
       license: 'CC BY 4.0',
       aliases: ['Legacy_Archive/AktsamhetEfterarbetad'],
     }),
+    Kallor: entry({
+      target_schema: 'env',
+      target_table: 'sgu_kallor',
+      expected_columns: ['id', 'namn', 'kommun', 'kalltyp', 'kalltyp_tx', 'akvtyp', 'obsdat', 'objectid'],
+      tier: 2,
+      ogr_layer: 'kallor',
+      primary_format: 'gpkg',
+      source_url: 'https://api.sgu.se/oppnadata/kallor/ogc/features/v1/collections/kallor',
+      license: 'CC0 1.0',
+    }),
+    Borrhal: entry({
+      target_schema: 'env',
+      target_table: 'sgu_borrhal',
+      expected_columns: ['idcode', 'name', 'drillhole', 'drillyear', 'tot_depth', 'commune'],
+      tier: 2,
+      ogr_layer: 'borrhal',
+      primary_format: 'gpkg',
+      source_url: 'https://api.sgu.se/oppnadata/borrhal/ogc/features/v1/collections/borrhal',
+      license: 'CC0 1.0',
+    }),
+    Grundvattenforekomster: entry({
+      target_schema: 'env',
+      target_table: 'sgu_grundvattenforekomst',
+      expected_columns: ['eu_cd', 'ms_cd', 'name', 'district', 'comp_auth', 'wb_type', 'url_viss'],
+      tier: 2,
+      ogr_layer: 'grundvattenforekomster',
+      primary_format: 'gpkg',
+      source_url:
+        'https://api.sgu.se/oppnadata/grundvattenforekomster/ogc/features/v1/collections/grundvattenforekomster',
+      license: 'CC0 1.0',
+    }),
+    MaringeologiYtsubstrat: entry({
+      target_schema: 'env',
+      target_table: 'sgu_maringeologi_ytsubstrat',
+      expected_columns: ['ysub', 'ysub_txt', 'objectid'],
+      tier: 2,
+      ogr_layer: 'MaringeologiYtsubstrat',
+      primary_format: 'gpkg',
+      source_url: 'https://api.sgu.se/oppnadata/maringeologi25k/ogc/features/v1/collections/ytsubstrat',
+      license: 'CC0 1.0',
+    }),
   },
   Naturvardsverket: {
     'SkyddadeOmraden/Naturreservat': entry({
@@ -366,6 +482,16 @@ export const IMPORT_REGISTRY: Record<string, Record<string, ImportRegistryEntry>
       expected_columns: ['riskklass', 'scenario'],
       tier: 2,
     }),
+    oversvamning_nationell: entry({
+      target_schema: 'climate',
+      target_table: 'flood_risk_area',
+      expected_columns: ['return_period', 'typeofhazard', 'objectid', 'likelihoodofoccurence'],
+      tier: 1,
+      ogr_layer: 'oversvamningszon',
+      primary_format: 'gpkg',
+      source_url: 'https://inspire.msb.se/geoserver/oversvamning/wfs',
+      promote_strategy: 'replace',
+    }),
   },
   MCF: {
     'finkorniga-jordar-pilot': entry({
@@ -377,6 +503,145 @@ export const IMPORT_REGISTRY: Record<string, Record<string, ImportRegistryEntry>
       primary_format: 'gpkg',
       source_url: 'https://lastkaj.mcf.se/Karteringar/finkorniga-jordar/',
       license: 'CC0',
+    }),
+    'stabilitetskartering-nationell/finkorniga-jordar': entry({
+      target_schema: 'env',
+      target_table: 'msb_stabilitetszon',
+      expected_columns: ['kommun_namn', 'zon_typ', 'kategori', 'source_zip'],
+      tier: 2,
+      ogr_layer: 'stabilitetszon',
+      primary_format: 'gpkg',
+      source_url: 'https://lastkaj.mcf.se/Karteringar/finkorniga-jordar/',
+      license: 'CC0',
+    }),
+    'stabilitetskartering-nationell/oversiktlig-stabilitetskartering-finkorniga-jordarter': entry({
+      target_schema: 'env',
+      target_table: 'msb_stabilitetszon',
+      expected_columns: ['kommun_namn', 'zon_typ', 'kategori', 'source_zip'],
+      tier: 2,
+      ogr_layer: 'stabilitetszon',
+      primary_format: 'gpkg',
+      promote_strategy: 'append',
+    }),
+    'stabilitetskartering-nationell/moran-grovkorninga-jordar': entry({
+      target_schema: 'env',
+      target_table: 'msb_stabilitetszon',
+      expected_columns: ['kommun_namn', 'zon_typ', 'kategori', 'source_zip'],
+      tier: 2,
+      ogr_layer: 'stabilitetszon',
+      primary_format: 'gpkg',
+      promote_strategy: 'append',
+    }),
+    'stabilitetskartering-nationell/oversiktlig-stabilitetskartering-i-moran-och-grova-jordar': entry({
+      target_schema: 'env',
+      target_table: 'msb_stabilitetszon',
+      expected_columns: ['kommun_namn', 'zon_typ', 'kategori', 'source_zip'],
+      tier: 2,
+      ogr_layer: 'stabilitetszon',
+      primary_format: 'gpkg',
+      promote_strategy: 'append',
+    }),
+  },
+  VISS: {
+    viss_vattenforekomster: entry({
+      target_schema: 'env',
+      target_table: 'viss_vattenforekomst',
+      expected_columns: ['eu_cd', 'viss_lank'],
+      tier: 1,
+      ogr_layer: 'viss_vattenforekomster',
+      primary_format: 'gpkg',
+      source_url: 'https://ext-geodata.lansstyrelsen.se/viss/wfs',
+    }),
+    smed_belastning_vatten: entry({
+      target_schema: 'env',
+      target_table: 'smed_belastning_vatten',
+      expected_columns: ['objektid'],
+      tier: 2,
+      ogr_layer: 'smed_belastning_vatten',
+      primary_format: 'gpkg',
+    }),
+    lst_vattenskydd: entry({
+      target_schema: 'env',
+      target_table: 'water_protection_area',
+      expected_columns: ['vso_id', 'namn'],
+      tier: 1,
+      ogr_layer: 'lst_vattenskydd',
+      primary_format: 'gpkg',
+    }),
+  },
+  SMHI: {
+    huvudavrinningsomraden_svar_2022: entry({
+      target_schema: 'hydro',
+      target_table: 'huvudavrinningsomraden',
+      expected_columns: ['gml_id', 'NAME', 'HARO'],
+      tier: 1,
+      ogr_layer: 'huvudavrinningsomraden',
+      primary_format: 'gpkg',
+      source_url:
+        'https://opendata-view.smhi.se/SMHI_vatten_RiverBasin/HY.PhysicalWaters.Catchments/wfs',
+    }),
+  },
+  LST: {
+    EBH_Potentiellt_fororenade_omraden: entry({
+      target_schema: 'env',
+      target_table: 'ebh_potentiellt_fororenade_omraden',
+      expected_columns: ['ebh_id', 'status'],
+      tier: 1,
+      ogr_layer: 'ebh_potentiellt_fororenade_omraden',
+      primary_format: 'gpkg',
+      source_url:
+        'https://ext-dokument.lansstyrelsen.se/Gemensamt/Geodata/Datadistribution/SWEREF99TM/EBH_Potentiellt_fororenade_omraden.zip',
+    }),
+  },
+  Skogsstyrelsen: {
+    SksNyckelbiotoper: entry({
+      target_schema: 'env',
+      target_table: 'sks_nyckelbiotoper',
+      expected_columns: [], // Skip exact column validation to be robust
+      tier: 2,
+      ogr_layer: 'NyckelbiotopYta',
+      primary_format: 'gpkg',
+      source_url: 'https://geodpags.skogsstyrelsen.se/geodataport/feeds/Nyckelbiotoper.xml',
+      license: 'Öppen data (Skogsstyrelsen)',
+    }),
+    SksBiotopskydd: entry({
+      target_schema: 'env',
+      target_table: 'sks_biotopskydd',
+      expected_columns: [],
+      tier: 2,
+      ogr_layer: 'BiotopskyddYta',
+      primary_format: 'gpkg',
+      source_url: 'https://geodpags.skogsstyrelsen.se/geodataport/feeds/biotopskydd.xml',
+      license: 'Öppen data (Skogsstyrelsen)',
+    }),
+    SksNaturvardsavtal: entry({
+      target_schema: 'env',
+      target_table: 'sks_naturvardsavtal',
+      expected_columns: [],
+      tier: 2,
+      ogr_layer: 'NaturvardsavtalYta',
+      primary_format: 'gpkg',
+      source_url: 'https://geodpags.skogsstyrelsen.se/geodataport/feeds/Naturvardsavtal.xml',
+      license: 'Öppen data (Skogsstyrelsen)',
+    }),
+    SksAvverkningsanmalan: entry({
+      target_schema: 'env',
+      target_table: 'sks_avverkningsanmalan',
+      expected_columns: [],
+      tier: 2,
+      ogr_layer: 'AvverkningsAnmalanYta',
+      primary_format: 'gpkg',
+      source_url: 'https://geodpags.skogsstyrelsen.se/geodataport/feeds/AvverkAnm.xml',
+      license: 'Öppen data (Skogsstyrelsen)',
+    }),
+    SLUMarkfuktighetKlassad: entry({
+      target_schema: 'env',
+      target_table: 'sks_slu_markfuktighet_klassad',
+      expected_columns: [],
+      tier: 2,
+      primary_format: 'tif',
+      source_url: 'https://geodpags.skogsstyrelsen.se/geodataport/feeds/SLUMarkfuktighetKlassad.xml',
+      license: 'Öppen data (SLU/Skogsstyrelsen)',
     }),
   },
   legacy_adopted: {

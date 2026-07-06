@@ -4,15 +4,15 @@ import { requireAuth } from '../security/auth';
 import { assertProjectAccess } from '../security/projectAccess';
 import { rateLimitByUser } from '../security/rateLimit';
 import { toSafeErrorResponse } from '../security/secureErrors';
-import { auditTrail } from '../services/auditTrailService';
 import {
+  auditTrail,
   assertSewageApplicationOrgAccess,
   getSewageApplicationById,
   updateSewageApplicationRecord,
   type SewageApplicationRecord,
   type SewageApplicationStatus,
-} from '../repositories/sewageApplicationRepository';
-import { createSewageApplication } from '../services/sewageApplicationService';
+  createSewageApplication,
+} from '../modules/sewage/public';
 import {
   generateDocumentsForApplication,
   getApplicationAuditTrail,
@@ -21,7 +21,7 @@ import {
   submitSewageApplication,
   validateSewageApplication,
 } from '../modules/sewage/applicationOrchestrator';
-import { generateSewageDossierPdf } from '../services/sewagePdfService';
+import { generateSewageDossierPdf } from '../modules/sewage/public';
 import * as path from 'path';
 import * as os from 'os';
 import * as fs from 'fs';

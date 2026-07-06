@@ -1,7 +1,7 @@
 import express from 'express';
 import { requireAuth } from '../security/auth';
 import { toSafeErrorResponse } from '../security/secureErrors';
-import { getUserDataExport, permanentlyDeleteUserData } from '../services/gdprComplianceService';
+import { getUserDataExport, permanentlyDeleteUserData } from '../modules/platform/public';
 
 const router = express.Router();
 

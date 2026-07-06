@@ -85,6 +85,7 @@ async function main() {
     '--mode',
     'import-staging',
     '--execute',
+    '--retry-failed',
   ]);
   assertManifestQaStatus(versionDir, 'staging_ok', 'Librarian import-staging');
 
@@ -98,6 +99,7 @@ async function main() {
     'promote',
     '--execute',
     '--write-back-manifest',
+    '--retry-failed',
   ]);
   assertManifestQaStatus(versionDir, 'passed', 'Librarian promote');
 
