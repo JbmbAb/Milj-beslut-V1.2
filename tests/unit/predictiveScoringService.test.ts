@@ -25,6 +25,7 @@ function basePlan(overrides: Partial<ProjectPlan> = {}): ProjectPlan {
     stageGates: [],
     mapLayerSelection: { base: [], optional: [], enabled: [], unavailable: [] },
     permitCodeProfile: null,
+    storageAreas: [],
     dispatchQuotes: [],
     transportBookings: [],
     driverJournals: [],

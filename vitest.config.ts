@@ -1,29 +1,30 @@
-﻿import react from '@vitejs/plugin-react';
 import { defineConfig } from 'vitest/config';
+import react from '@vitejs/plugin-react';
 
 export default defineConfig({
   test: {
+    globalSetup: 'tests/setup/database.ts',
     globals: true,
     coverage: {
       provider: 'v8',
       reporter: ['text', 'html', 'lcov'],
       reportsDirectory: 'coverage',
+      // Trösklar: höj stegvis (t.ex. 85 → 88) när baseline är grön; `npm run coverage:gaps` visar var fokus ska ligga.
       thresholds: {
-        // Ratcheted to the current verified suite level so the gate stays meaningful and green.
-        lines: 60,
-        branches: 47,
-        functions: 62,
-        statements: 58,
+        lines: 85,
+        branches: 85,
+        functions: 85,
+        statements: 85,
       },
     },
     projects: [
       {
+        plugins: [react()],
         test: {
           name: 'unit',
-          include: ['tests/unit/**/*.test.ts'],
-          // BankID-avtal ej klart – exkluderas tills vidare
-          exclude: ['tests/unit/bankIdService.test.ts'],
-          environment: 'node',
+          include: ['tests/unit/**/*.test.ts', 'tests/unit/**/*.test.tsx'],
+          exclude: ['tests/unit/server.services.bankIdService.test.ts'],
+          environment: 'jsdom',
           setupFiles: ['tests/setup/env.ts'],
         },
       },
@@ -40,11 +41,12 @@ export default defineConfig({
       {
         test: {
           name: 'integration',
-          include: ['tests/integration/**/*.test.ts'],
+          include: ['tests/integration/**/*.test.ts', 'tests/smoke/**/*.test.ts'],
           environment: 'node',
-          setupFiles: ['tests/setup/env.ts'],
+          setupFiles: ['tests/setup/env.ts', 'tests/setup/integrationCsrfBypass.ts'],
           testTimeout: 30000,
           hookTimeout: 30000,
+          fileParallelism: false,
         },
       },
     ],

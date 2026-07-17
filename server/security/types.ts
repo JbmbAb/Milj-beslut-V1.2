@@ -1,4 +1,4 @@
-export type UserRole = "ADMIN" | "CONSULTANT" | "AUDITOR" | "BANK";
+export type UserRole = 'ADMIN' | 'CONSULTANT' | 'AUDITOR' | 'BANK';
 
 export interface AuthUser {
   id: string;
@@ -17,13 +17,13 @@ export interface ProjectRecord {
   id: string;
   organisationId: string;
   propertyDesignation: string;
-  status: "ACTIVE" | "CLOSED" | "ARCHIVED";
+  status: 'ACTIVE' | 'CLOSED' | 'ARCHIVED';
 }
 
 export interface ProjectMemberRecord {
   projectId: string;
   userId: string;
-  accessRole: "OWNER" | "CONTRIBUTOR" | "REVIEWER" | "AUDITOR";
+  accessRole: 'OWNER' | 'CONTRIBUTOR' | 'REVIEWER' | 'AUDITOR';
 }
 
 export interface PropertyAccessAuditEvent {
@@ -31,5 +31,5 @@ export interface PropertyAccessAuditEvent {
   projectId: string;
   propertyDesignation: string;
   purpose: string;
-  responseClass: "geometry" | "boundaries" | "ownership_redacted";
+  responseClass: 'geometry' | 'boundaries' | 'ownership_redacted';
 }

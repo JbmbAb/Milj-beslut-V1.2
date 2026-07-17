@@ -6,7 +6,7 @@ import type { Permit } from '../../types';
 import { DecisionType } from '../../types';
 
 const mockPermit: Permit = {
-  id: 1,
+  id: '1',
   filename: 'test.pdf',
   checksum: 'abc123',
   received_date: '2024-01-01',

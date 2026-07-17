@@ -28,9 +28,11 @@ const prisma = vi.hoisted(() => ({
 vi.mock('../../server/db/prisma', () => ({ prisma }));
 
 import {
+  createDriverJournal,
   createTransportBooking,
   getTransportBooking,
   listJournalsForBooking,
+  updateDriverJournal,
   updateTransportBookingStatus,
 } from '../../server/repositories/transportRepository';
 import {
@@ -96,6 +98,68 @@ describe('logistics repositories', () => {
     });
   });
 
+  it('creates and updates driver journals with updated timestamps', async () => {
+    prisma.driverJournal.create.mockResolvedValue({ id: 'journal-2' });
+    prisma.driverJournal.update.mockResolvedValue({ id: 'journal-2', status: 'SIGNED' });
+
+    const created = await createDriverJournal({
+      bookingId: 'booking-1',
+      driverName: 'Driver One',
+      vehicleId: 'ABC123',
+      origin: 'Origin',
+      destination: 'Destination',
+      wasteCode: '17 05 04',
+      tons: 5,
+      startedAt: new Date('2026-01-01T10:00:00.000Z'),
+      endedAt: new Date('2026-01-01T11:00:00.000Z'),
+      odometerStartKm: 1000,
+      odometerEndKm: 1025,
+      gpsTrackHash: 'track-hash-1',
+      status: 'IN_PROGRESS',
+    });
+
+    const updated = await updateDriverJournal('journal-2', {
+      status: 'SIGNED',
+      signedByDriver: true,
+      signedByReviewer: true,
+      driverSignatureId: 'driver-signature',
+      reviewerSignatureId: 'reviewer-signature',
+      odometerEndKm: 1025,
+    });
+
+    expect(created).toEqual({ id: 'journal-2' });
+    expect(updated).toEqual({ id: 'journal-2', status: 'SIGNED' });
+    expect(prisma.driverJournal.create).toHaveBeenCalledWith({
+      data: {
+        bookingId: 'booking-1',
+        driverName: 'Driver One',
+        vehicleId: 'ABC123',
+        origin: 'Origin',
+        destination: 'Destination',
+        wasteCode: '17 05 04',
+        tons: 5,
+        startedAt: new Date('2026-01-01T10:00:00.000Z'),
+        endedAt: new Date('2026-01-01T11:00:00.000Z'),
+        odometerStartKm: 1000,
+        odometerEndKm: 1025,
+        gpsTrackHash: 'track-hash-1',
+        status: 'IN_PROGRESS',
+      },
+    });
+    expect(prisma.driverJournal.update).toHaveBeenCalledWith({
+      where: { id: 'journal-2' },
+      data: {
+        status: 'SIGNED',
+        signedByDriver: true,
+        signedByReviewer: true,
+        driverSignatureId: 'driver-signature',
+        reviewerSignatureId: 'reviewer-signature',
+        odometerEndKm: 1025,
+        updatedAt: expect.any(Date),
+      },
+    });
+  });
+
   it('creates, finds, verifies and lists lims reports', async () => {
     prisma.limsReport.create.mockResolvedValue({ id: 'report-1' });
     prisma.limsReport.findUnique.mockResolvedValue({ id: 'report-1' });
@@ -151,7 +215,7 @@ describe('logistics repositories', () => {
     expect(created).toEqual({ id: 'gps-1' });
     expect(track).toEqual([{ id: 'gps-1' }]);
     expect(latest).toEqual({ id: 'gps-2' });
-    expect(cleared).toEqual({ count: 2 });
+    expect(cleared).toBe(2);
     expect(prisma.gpsPosition.create).toHaveBeenCalledWith({
       data: expect.objectContaining({
         bookingId: 'booking-1',

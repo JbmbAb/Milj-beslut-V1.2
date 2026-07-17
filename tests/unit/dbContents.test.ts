@@ -103,6 +103,7 @@ const mockContents: DbContentsResponse = {
       {
         id: 'ext-1',
         municipality: 'Gothenburg',
+        documentId: 'doc-1',
         category: 'Vatten',
         subcategory: null,
         requirementLevel: 'mandatory',
@@ -131,7 +132,7 @@ const mockContents: DbContentsResponse = {
         id: 'run-1',
         status: 'SUCCESS',
         messagesIngested: 4,
-        requirementsExtracted: 5,
+        errors: 1,
         startedAt: new Date().toISOString(),
         finishedAt: new Date().toISOString(),
       },
@@ -251,6 +252,6 @@ describe('GET /api/admin/db-contents', () => {
     const runRow = res.body.contents.pipelineRuns.rows[0];
     expect(runRow.status).toBe('SUCCESS');
     expect(runRow.messagesIngested).toBe(4);
-    expect(runRow.requirementsExtracted).toBe(5);
+    expect(runRow.errors).toBe(1);
   });
 });

@@ -1,6 +1,7 @@
 /**
  * completionService.ts
  *
+ *
  * Tracks which features of the Miljöbeslut application are implemented,
  * partially implemented, or still pending — answering the question
  * "hur många procent återstår innan komplett app?".
@@ -22,7 +23,8 @@ const FEATURES: AppFeature[] = [
     id: 'auth-bankid',
     label: 'BankID-inloggning',
     category: 'Autentisering',
-    status: 'DONE',
+    status: 'PARTIAL',
+    note: 'Kod klar (bankidService.ts, /api/auth/bankid/*). Kräver BANKID_PFX_PATH (eller BANKID_CERT_PATH+BANKID_KEY_PATH) + BANKID_BASE_URL i produktion. Kan inte testas end-to-end utan fysisk BankID-certifikat.',
   },
   {
     id: 'auth-admin-console',
@@ -151,8 +153,8 @@ const FEATURES: AppFeature[] = [
     id: 'permit-authority-submit',
     label: 'Digital inlämning till länsstyrelse/kommunen',
     category: 'Tillståndsportalen',
-    status: 'DONE',
-    note: 'permitAuthorityService.ts — genererar diarienummer, loggar i AuditTrail, stöder extern AUTHORITY_SUBMIT_ENDPOINT.',
+    status: 'PARTIAL',
+    note: 'permitAuthorityService.ts loggar AuditTrail. AUTHORITY_SUBMIT_ENDPOINT aktiverar live-inlämning; AUTHORITY_MOCK_MODE=true aktiverar deterministiskt mock-submit för E2E-tester. Kräver riktig myndighets-API-nyckel (AUTHORITY_API_KEY) för produktionsinlämning.',
   },
 
   // ── Logistik & Transport ───────────────────────────────────────────────────
@@ -225,14 +227,14 @@ const FEATURES: AppFeature[] = [
     label: 'Exekutiv sammanfattning (ExecSummary)',
     category: 'Compliance & Revision',
     status: 'DONE',
-    note: 'POST /api/projects/:id/exec-summary/enqueue + status/:jobId — asynkron Gemini-generering med deduplicering.',
+    note: 'POST /api/projects/:id/exec-summary/enqueue + status/:jobId — asynkron Vertex-generering med deduplicering.',
   },
   {
     id: 'compliance-digital-signature',
     label: 'Kvalificerade e-signaturer (EU eIDAS)',
     category: 'Compliance & Revision',
-    status: 'DONE',
-    note: 'POST /api/documents/:id/sign/eidas — Advanced/Qualified via EIDAS_QTSP_ENDPOINT (Assently/Scrive), PAdES/XAdES/CAdES.',
+    status: 'PARTIAL',
+    note: 'POST /api/documents/:id/sign/eidas — kod klar för Advanced/Qualified via EIDAS_QTSP_ENDPOINT (Assently/Scrive), PAdES/XAdES/CAdES. Kräver EIDAS_QTSP_ENDPOINT + EIDAS_QTSP_API_KEY för riktig signering.',
   },
 
   // ── Geodata & Kartfunktioner ───────────────────────────────────────────────
@@ -264,7 +266,8 @@ const FEATURES: AppFeature[] = [
     id: 'geo-property-lookup',
     label: 'Fastighetsuppslag (PostGIS + Lantmäteriet)',
     category: 'Geodata & Kartfunktioner',
-    status: 'DONE',
+    status: 'PARTIAL',
+    note: 'PropertyRegisterExtract anropar /api/property/lookup. Kräver LANTMATERIET_CONSUMER_KEY+SECRET (OAuth2), LANTMATERIET_ACCESS_TOKEN eller LANTMATERIET_API_KEY för riktig fastighetsdata från Lantmäteriet.',
   },
   {
     id: 'geo-spatial-audit',
@@ -277,14 +280,14 @@ const FEATURES: AppFeature[] = [
     label: 'Marktäckekartlager (LULC)',
     category: 'Geodata & Kartfunktioner',
     status: 'DONE',
-    note: 'GET /api/geo/markcover?bbox= — PostGIS NMD-raster → WFS-fallback → syntetisk GeoJSON FeatureCollection.',
+    note: 'GET /api/geo/markcover?bbox= — PostGIS NMD-raster eller verifierad WFS-källa. Ingen syntetisk GeoJSON används.',
   },
   {
     id: 'geo-3d-terrain',
     label: '3D-terrängvisualisering',
     category: 'Geodata & Kartfunktioner',
-    status: 'DONE',
-    note: 'GET /api/geo/terrain?bbox=&resolution= — procedurellt höjdgrid (4–128 res) med TERRAIN_ENDPOINT-stöd.',
+    status: 'PARTIAL',
+    note: 'GET /api/geo/terrain?bbox=&resolution= kräver TERRAIN_ENDPOINT. Syntetiskt höjdgrid är avstängt.',
   },
 
   // ── Sökning & Dokumenthantering ───────────────────────────────────────────
@@ -310,8 +313,8 @@ const FEATURES: AppFeature[] = [
     id: 'search-outlook-ingestion',
     label: 'Outlook e-postinläsning',
     category: 'Sökning & Dokumenthantering',
-    status: 'DONE',
-    note: 'POST /api/admin/outlook/webhook — HMAC-verifierat Graph-webhook + startIngestionScheduler() med konfigurerbart intervall.',
+    status: 'PARTIAL',
+    note: 'outlookGraphClient.ts kopplar MS Graph client_credentials -> RawEmail[] -> runIngestion. Konfigurera OUTLOOK_GRAPH_TENANT_ID/CLIENT_ID/CLIENT_SECRET/USER (+ Mail.Read application permission) för att aktivera riktig hämtning. Webhook-handshake finns sedan tidigare.',
   },
   {
     id: 'search-ocr',
@@ -324,13 +327,13 @@ const FEATURES: AppFeature[] = [
   // ── AI & Kunskapsgraf ──────────────────────────────────────────────────────
   {
     id: 'ai-gemini-integration',
-    label: 'Gemini AI-integration (chat + analys)',
+    label: 'Vertex AI-integration (chat + analys)',
     category: 'AI & Kunskapsgraf',
     status: 'DONE',
   },
   {
-    id: 'ai-mvp-gateway',
-    label: 'MVP AI-gateway (OpenAI GPT)',
+    id: 'ai-core-gateway',
+    label: 'Core AI-gateway (Vertex)',
     category: 'AI & Kunskapsgraf',
     status: 'DONE',
   },
@@ -352,7 +355,7 @@ const FEATURES: AppFeature[] = [
     label: 'RAG-sökning mot kunskapsbas',
     category: 'AI & Kunskapsgraf',
     status: 'DONE',
-    note: 'POST /api/search/rag — embedding + semantisk dokumentsökning + kunskapsgraf + Gemini-svarsgenerering.',
+    note: 'POST /api/search/rag — embedding + semantisk dokumentsökning + kunskapsgraf + Vertex-svarsgenerering.',
   },
 
   // ── Fältprovtagning ────────────────────────────────────────────────────────
@@ -367,15 +370,15 @@ const FEATURES: AppFeature[] = [
     id: 'field-lims-integration',
     label: 'Automatisk LIMS-dataöverföring från lab',
     category: 'Fältprovtagning',
-    status: 'DONE',
-    note: 'POST /api/projects/:id/lims/auto-fetch — hämtar från LIMS_API_ENDPOINT med bearer-auth, AuditTrail-loggning.',
+    status: 'PARTIAL',
+    note: 'POST /api/projects/:id/lims/auto-fetch — HTTP API (LIMS_API_ENDPOINT + LIMS_API_KEY) eller SFTP (LIMS_SFTP_HOST + LIMS_SFTP_PATH, kräver `ssh2-sftp-client`). Ingen riktig körning utan credentials.',
   },
   {
     id: 'field-mobile-app',
     label: 'Mobil-app för fältinsamling',
     category: 'Fältprovtagning',
-    status: 'DONE',
-    note: 'PWA: public/manifest.json + public/sw.js (offline-cache, background sync, push notifications). SW registreras i index.html.',
+    status: 'PARTIAL',
+    note: 'PWA-grund (manifest + service worker) finns i repo, men saknar dedikerad E2E för offline/push och fältflöde som mobil primär yta. Behåll PARTIAL tills acceptanstester finns.',
   },
 
   // ── Administration & Drift ─────────────────────────────────────────────────
@@ -384,6 +387,7 @@ const FEATURES: AppFeature[] = [
     label: 'Systemhälsostatus (GET /api/admin/app-status)',
     category: 'Administration & Drift',
     status: 'DONE',
+    note: 'GET /api/admin/app-status + GET /api/admin/full-status — fullständig statusanalys med integrationer, DB-innehåll, miljövariabler och bakgrundstjänster.',
   },
   {
     id: 'admin-db-stats',
@@ -424,6 +428,29 @@ const FEATURES: AppFeature[] = [
     status: 'DONE',
     note: 'POST /api/admin/backup/trigger — JSON+gzip snapshot av alla Prisma-modeller, SHA-256 checksum, S3-upload om BACKUP_S3_BUCKET konfigureras.',
   },
+
+  // ── Återstående (PENDING) ─────────────────────────────────────────────────
+  {
+    id: 'doc-file-upload',
+    label: 'Filuppladdning (POST /api/documents/upload)',
+    category: 'Sökning & Dokumenthantering',
+    status: 'DONE',
+    note: 'POST /api/documents/upload implementerat i server/routes/document.routes.ts med express.raw() för binär body (application/pdf m.fl.) och documentUploadService.ts för disk-lagring + Prisma DocumentRecord + sökjobbsenliggörande.',
+  },
+  {
+    id: 'permit-list-api',
+    label: 'Realtids-tillståndslista (GET /api/permits från databas)',
+    category: 'Tillståndsportalen',
+    status: 'DONE',
+    note: 'GET /api/permits implementerat i secureApi.express.ts. Mappar DocumentRecord → Permit-format. App.tsx och GisRiskModule hämtar via useEffect/fetch. MOCK_PERMITS och MOCK_RECEIVERS borttagna.',
+  },
+  {
+    id: 'infra-staging',
+    label: 'Staging-driftsättning (Docker + PostgreSQL + env-vars)',
+    category: 'Administration & Drift',
+    status: 'PARTIAL',
+    note: 'docker-compose.staging.yml skapad med app + PostgreSQL. CI deploy-pipeline (deploy-staging.yml) finns. Kräver .env.staging med BankID-cert, Lantmäteriet-nycklar etc. för fullt fungerande staging.',
+  },
 ];
 
 // ─── Aggregering ──────────────────────────────────────────────────────────────
@@ -441,7 +468,10 @@ export function getAppCompletion(): AppCompletionResponse {
   const pending = FEATURES.filter((f) => f.status === 'PENDING').length;
 
   const weightedDone = FEATURES.reduce((sum, f) => sum + weight(f.status), 0);
-  const donePercent = Math.round((weightedDone / total) * 100);
+  /** Endast status DONE — ingen halvpoäng för PARTIAL */
+  const donePercent = total > 0 ? Math.round((done / total) * 100) : 0;
+  /** Kod/implementering inkl. delvisa features (PARTIAL = 50 %) */
+  const implementationPercent = total > 0 ? Math.round((weightedDone / total) * 100) : 0;
   const remainingPercent = 100 - donePercent;
 
   // Group by category
@@ -471,6 +501,7 @@ export function getAppCompletion(): AppCompletionResponse {
   return {
     checkedAt: new Date().toISOString(),
     donePercent,
+    implementationPercent,
     remainingPercent,
     counts: { total, done, partial, pending },
     categories,

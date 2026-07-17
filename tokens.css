@@ -1,9 +1,9 @@
 :root {
   /* Generated from tokens.json. Run: npm run tokens:build */
-  --color-primary-500: #2563EB;
+  --color-primary-500: #2563eb;
   --radius-md: 12px;
   --space-4: 4px;
-  --typography-body-md-font-family: "Lucida Sans Typewriter", sans-serif;
+  --typography-body-md-font-family: 'Lucida Sans Typewriter', sans-serif;
   --typography-body-md-font-weight: 400;
   --typography-body-md-font-size: 16px;
   --typography-body-md-line-height: 24px;

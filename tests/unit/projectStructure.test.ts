@@ -1,12 +1,28 @@
 ﻿import { describe, expect, it } from 'vitest';
+import { DecisionType } from '../../types';
 import {
   applyPermitCodeSelection,
   applyCarbonToPlan,
   applyTemplate,
+  buildPermitCodeProfile,
   calculateCarbon,
+  countBlockedGates,
+  countPassedGates,
+  countReadyModules,
+  createArchiveDocument,
+  createDefaultCarbonSummary,
+  createDefaultMapLayerSelection,
+  createDefaultModuleIntegrations,
   createDefaultProjectPlan,
+  createDefaultSamplingPreparation,
+  createDefaultStageGates,
+  createPermitArchiveDocument,
   evaluateStageGate,
+  getTemplateById,
+  getTemplatePacks,
+  mergeArchiveDocument,
   normalizeProjectPlan,
+  recommendMapLayers,
 } from '../../services/projectStructure';
 
 function withPermitDocument() {
@@ -370,5 +386,483 @@ describe('projectStructure', () => {
 
     const result = evaluateStageGate(plan, target.id, {});
     expect(result.gate.status).toBe('NOT_REQUIRED');
+  });
+});
+
+describe('getTemplatePacks / getTemplateById', () => {
+  it('getTemplatePacks returns an array of template packs', () => {
+    const packs = getTemplatePacks();
+    expect(Array.isArray(packs)).toBe(true);
+    expect(packs.length).toBeGreaterThan(0);
+    expect(packs[0]).toHaveProperty('id');
+    expect(packs[0]).toHaveProperty('projectType');
+  });
+
+  it('getTemplateById returns matching template', () => {
+    const packs = getTemplatePacks();
+    const first = packs[0];
+    const found = getTemplateById(first.id);
+    expect(found.id).toBe(first.id);
+  });
+
+  it('getTemplateById returns default template when id is undefined', () => {
+    const defaultPack = getTemplateById(undefined);
+    expect(defaultPack).toBeDefined();
+    expect(defaultPack.id).toBeTruthy();
+  });
+
+  it('getTemplateById returns default for unknown id', () => {
+    const defaultPack = getTemplateById('NON_EXISTENT_TEMPLATE_XYZ');
+    expect(defaultPack).toBeDefined();
+  });
+});
+
+describe('createDefaultModuleIntegrations', () => {
+  it('returns array with PROJECT_MANAGER and PERMIT_PORTAL as READY', () => {
+    const integrations = createDefaultModuleIntegrations();
+    expect(Array.isArray(integrations)).toBe(true);
+    expect(integrations.length).toBeGreaterThan(0);
+    const manager = integrations.find((m) => m.module === 'PROJECT_MANAGER');
+    const portal = integrations.find((m) => m.module === 'PERMIT_PORTAL');
+    expect(manager?.readiness).toBe('READY');
+    expect(portal?.readiness).toBe('READY');
+  });
+
+  it('returns non-core modules as NOT_READY', () => {
+    const integrations = createDefaultModuleIntegrations();
+    const logistics = integrations.find((m) => m.module === 'LOGISTICS_MARKET');
+    expect(logistics?.readiness).toBe('NOT_READY');
+  });
+});
+
+describe('createDefaultSamplingPreparation', () => {
+  it('returns sampling preparation with expected defaults', () => {
+    const prep = createDefaultSamplingPreparation();
+    expect(prep.enabled).toBe(false);
+    expect(prep.requiresPreparationNow).toBe(true);
+    expect(typeof prep.protocolTemplate).toBe('string');
+    expect(Array.isArray(prep.checklist)).toBe(true);
+  });
+});
+
+describe('createDefaultMapLayerSelection', () => {
+  it('returns map layer selection with base layers', () => {
+    const layers = createDefaultMapLayerSelection();
+    expect(Array.isArray(layers.base)).toBe(true);
+    expect(Array.isArray(layers.enabled)).toBe(true);
+    expect(layers.enabled.length).toBeGreaterThan(0);
+  });
+
+  it('accepts a custom templateId', () => {
+    const packs = getTemplatePacks();
+    const layers = createDefaultMapLayerSelection(packs[0].id);
+    expect(layers).toBeDefined();
+    expect(Array.isArray(layers.base)).toBe(true);
+  });
+});
+
+describe('createDefaultStageGates', () => {
+  it('returns all gate types', () => {
+    const gates = createDefaultStageGates();
+    expect(gates.some((g) => g.type === 'PERMIT_REQUIRED')).toBe(true);
+    expect(gates.some((g) => g.type === 'CARBON_CHECK')).toBe(true);
+    expect(gates.some((g) => g.type === 'DOCUMENT_CONTROL')).toBe(true);
+    expect(gates.some((g) => g.type === 'RISK_REVIEW')).toBe(true);
+  });
+});
+
+describe('createDefaultCarbonSummary', () => {
+  it('returns empty carbon summary', () => {
+    const summary = createDefaultCarbonSummary();
+    expect(summary.lastInput).toBeNull();
+    expect(summary.lastResult).toBeNull();
+    expect(Array.isArray(summary.history)).toBe(true);
+    expect(summary.history.length).toBe(0);
+  });
+});
+
+describe('createArchiveDocument', () => {
+  it('creates a document with required fields', () => {
+    const doc = createArchiveDocument({
+      name: 'Test Document',
+      module: 'PERMIT_PORTAL',
+      category: 'PERMIT',
+    });
+    expect(doc.id).toMatch(/^DOC-/);
+    expect(doc.name).toBe('Test Document');
+    expect(doc.module).toBe('PERMIT_PORTAL');
+    expect(doc.category).toBe('PERMIT');
+    expect(doc.status).toBe('DRAFT');
+    expect(doc.storagePath).toContain('/archive/');
+    expect(Array.isArray(doc.tags)).toBe(true);
+  });
+
+  it('uses provided storagePath and status', () => {
+    const doc = createArchiveDocument({
+      name: '  Trimmed Name  ',
+      module: 'COMPLIANCE_AUDIT',
+      category: 'OTHER',
+      status: 'VERIFIED',
+      storagePath: '/custom/path',
+      tags: ['tag1', 'tag2'],
+    });
+    expect(doc.name).toBe('Trimmed Name');
+    expect(doc.status).toBe('VERIFIED');
+    expect(doc.storagePath).toBe('/custom/path');
+    expect(doc.tags).toEqual(['tag1', 'tag2']);
+  });
+});
+
+describe('mergeArchiveDocument', () => {
+  it('adds a new document to archive', () => {
+    const archive: ReturnType<typeof createArchiveDocument>[] = [];
+    const doc = createArchiveDocument({ name: 'New Doc', module: 'PERMIT_PORTAL', category: 'PERMIT' });
+    const merged = mergeArchiveDocument(archive, doc);
+    expect(merged.length).toBe(1);
+    expect(merged[0].name).toBe('New Doc');
+  });
+
+  it('does not add duplicate document (same name, module, category)', () => {
+    const doc = createArchiveDocument({ name: 'Dup Doc', module: 'PERMIT_PORTAL', category: 'PERMIT' });
+    const archive = [doc];
+    const docDup = createArchiveDocument({ name: 'Dup Doc', module: 'PERMIT_PORTAL', category: 'PERMIT' });
+    const merged = mergeArchiveDocument(archive, docDup);
+    expect(merged.length).toBe(1);
+  });
+
+  it('is case-insensitive for name matching', () => {
+    const doc = createArchiveDocument({ name: 'My Doc', module: 'PERMIT_PORTAL', category: 'PERMIT' });
+    const archive = [doc];
+    const docUpper = createArchiveDocument({ name: 'MY DOC', module: 'PERMIT_PORTAL', category: 'PERMIT' });
+    const merged = mergeArchiveDocument(archive, docUpper);
+    expect(merged.length).toBe(1);
+  });
+});
+
+describe('createPermitArchiveDocument', () => {
+  it('creates archive document for approved permit', () => {
+    const permit = {
+      id: 'permit-1',
+      filename: 'permit.pdf',
+      checksum: 'abc123',
+      received_date: '2025-01-01',
+      property_id: 'PROP-001',
+      municipality: 'Stockholm',
+      waste_codes: 'EWC-17 05 03*',
+      decision_type: DecisionType.BIFALL,
+      full_text: 'Full permit text',
+      processed_at: '2025-01-02',
+    };
+    const doc = createPermitArchiveDocument(permit);
+    expect(doc.status).toBe('VERIFIED');
+    expect(doc.category).toBe('PERMIT');
+    expect(doc.name).toContain('Stockholm');
+    expect(doc.name).toContain('PROP-001');
+  });
+
+  it('creates draft document for non-approved permit', () => {
+    const permit = {
+      id: 'permit-2',
+      filename: 'permit2.pdf',
+      checksum: 'def456',
+      received_date: '2025-01-01',
+      property_id: 'PROP-002',
+      municipality: 'Göteborg',
+      waste_codes: 'EWC-17 05 03*',
+      decision_type: DecisionType.AVSLAG,
+      full_text: 'Full permit text',
+      processed_at: '2025-01-02',
+    };
+    const doc = createPermitArchiveDocument(permit);
+    expect(doc.status).toBe('DRAFT');
+  });
+});
+
+describe('recommendMapLayers', () => {
+  it('returns map layer selection for REMEDIATION project type', () => {
+    const layers = recommendMapLayers('REMEDIATION');
+    expect(Array.isArray(layers.base)).toBe(true);
+    expect(layers.base.length).toBeGreaterThan(0);
+  });
+
+  it('returns map layer selection for unknown project type (falls back to default)', () => {
+    const layers = recommendMapLayers('LOGISTICS' as any);
+    expect(layers).toBeDefined();
+    expect(Array.isArray(layers.base)).toBe(true);
+  });
+});
+
+describe('buildPermitCodeProfile', () => {
+  it('builds profile for a known EWC code', () => {
+    const profile = buildPermitCodeProfile({ code: '17 05 03*', codeType: 'EWC' });
+    expect(profile.code).toBe('17 05 03*');
+    expect(profile.codeType).toBe('EWC');
+    expect(profile.humanReviewRequired).toBe(true);
+    expect(profile.requiresGeofencing).toBeDefined();
+  });
+
+  it('builds fallback profile for unknown code', () => {
+    const profile = buildPermitCodeProfile({
+      code: 'UNKNOWN-CODE-XYZ',
+      codeType: 'EWC',
+      municipality: 'Uppsala',
+    });
+    expect(profile.code).toBe('UNKNOWN-CODE-XYZ');
+    expect(profile.riskTier).toBe('MEDIUM');
+    expect(profile.requiresGeofencing).toBe(true);
+    expect(profile.municipality).toBe('Uppsala');
+    expect(profile.legalReference).toContain('Manual');
+  });
+
+  it('builds fallback profile for unknown MPF code', () => {
+    const profile = buildPermitCodeProfile({ code: 'UNKNOWN-MPF', codeType: 'SNI' });
+    expect(profile.requiredMapLayers).toContain('CADASTRE');
+    expect(profile.requiredMapLayers).toContain('FLOOD_RISK');
+  });
+});
+
+describe('countReadyModules / countBlockedGates / countPassedGates', () => {
+  it('countReadyModules counts READY integrations', () => {
+    const plan = createDefaultProjectPlan();
+    const readyCount = countReadyModules(plan);
+    expect(readyCount).toBeGreaterThanOrEqual(0);
+    const expectedCount = plan.moduleIntegrations.filter((m) => m.readiness === 'READY').length;
+    expect(readyCount).toBe(expectedCount);
+  });
+
+  it('countBlockedGates counts required BLOCKED gates', () => {
+    const plan = createDefaultProjectPlan();
+    const count = countBlockedGates(plan);
+    const expected = plan.stageGates.filter((g) => g.required && g.status === 'BLOCKED').length;
+    expect(count).toBe(expected);
+  });
+
+  it('countPassedGates counts required PASSED gates', () => {
+    const plan = createDefaultProjectPlan();
+    const count = countPassedGates(plan);
+    expect(count).toBe(0);
+
+    // Force a gate to PASSED
+    const requiredGate = plan.stageGates.find((g) => g.required);
+    if (requiredGate) {
+      requiredGate.status = 'PASSED';
+      expect(countPassedGates(plan)).toBe(1);
+    }
+  });
+});
+
+describe('evaluateStageGate — DOCUMENT_CONTROL failedHazardousLims branch', () => {
+  it('blocks DOCUMENT_CONTROL when LIMS report has passed=false for hazardous booking', () => {
+    const plan = createDefaultProjectPlan();
+    const gateId = plan.stageGates.find((gate) => gate.type === 'DOCUMENT_CONTROL')!.id;
+    const now = new Date().toISOString();
+
+    // Set up required documents
+    plan.documentArchive = [
+      {
+        id: 'DOC-VER',
+        name: 'Verified Doc',
+        module: 'PERMIT_PORTAL',
+        category: 'PERMIT',
+        status: 'VERIFIED',
+        uploadedAt: now,
+        storagePath: '/tmp/doc',
+        tags: [],
+      },
+    ];
+    // Set up a signature event via auditTrail
+    plan.auditTrail = [
+      {
+        id: 'AUDIT-1',
+        timestamp: now,
+        user: 'test-user',
+        action: 'SIGN',
+        details: 'BankID signature',
+        immutable: true,
+        signatureId: 'SIG-BANKID-1',
+      },
+    ];
+
+    // Add a hazardous booking with LIMS report that FAILED
+    plan.transportBookings = [
+      {
+        id: 'BOOKING-HAZ',
+        quoteId: 'Q-1',
+        provider: 'MOCK_FRAKTBORS',
+        status: 'DELIVERED',
+        receiverId: 'R-1',
+        receiverName: 'Receiver',
+        wasteCode: '17 05 03*',
+        tons: 10,
+        distanceKm: 50,
+        co2EstimateKg: 100,
+        plannedPickupAt: now,
+        plannedDeliveryAt: now,
+        externalReference: 'REF-1',
+        createdAt: now,
+        updatedAt: now,
+      },
+    ];
+    plan.driverJournals = [
+      {
+        id: 'DJ-1',
+        bookingId: 'BOOKING-HAZ',
+        driverName: 'Driver',
+        vehicleId: 'V-1',
+        origin: 'Stockholm',
+        destination: 'Göteborg',
+        wasteCode: '17 05 03*',
+        tons: 10,
+        startedAt: now,
+        endedAt: now,
+        odometerStartKm: 0,
+        odometerEndKm: 10,
+        gpsTrackHash: 'h',
+        status: 'VERIFIED',
+        signedByDriver: true,
+        signedByReviewer: true,
+        driverSignatureId: 'SIG-D',
+        reviewerSignatureId: 'SIG-R',
+        createdAt: now,
+        updatedAt: now,
+      },
+    ];
+    plan.limsReports = [
+      {
+        id: 'LIMS-HAZ',
+        bookingId: 'BOOKING-HAZ',
+        sampleId: 'S-1',
+        labName: 'ALS',
+        source: 'API',
+        analyzedAt: now,
+        rawReference: 'REF-1',
+        metrics: [],
+        passed: false, // ← FAILED
+        verifiedByHuman: true,
+        reviewer: 'QA',
+        reviewerSignatureId: 'SIG-L',
+        verifiedAt: now,
+        createdAt: now,
+      },
+    ];
+
+    const result = evaluateStageGate(plan, gateId, {});
+    expect(result.gate.status).toBe('BLOCKED');
+    expect(result.gate.reason).toContain('LIMS');
+  });
+});
+
+describe('evaluateStageGate — RISK_REVIEW additional branches', () => {
+  it('returns PENDING for RISK_REVIEW when some map layers are unavailable', () => {
+    const plan = createDefaultProjectPlan();
+    plan.mapLayerSelection.enabled = ['SGU_BEDROCK' as never];
+    plan.mapLayerSelection.unavailable = ['LIDAR' as never];
+    plan.documentArchive = [
+      {
+        id: 'RISK-DOC',
+        name: 'Riskrapport',
+        module: 'PROJECT_MANAGER',
+        category: 'RISK',
+        status: 'VERIFIED',
+        uploadedAt: new Date().toISOString(),
+        storagePath: '/tmp/risk',
+        tags: [],
+      },
+    ];
+
+    const gateId = plan.stageGates.find((g) => g.type === 'RISK_REVIEW')!.id;
+    const result = evaluateStageGate(plan, gateId, {});
+
+    expect(result.gate.status).toBe('PENDING');
+    expect(result.gate.reason).toContain('unavailable');
+  });
+
+  it('returns BLOCKED for RISK_REVIEW when risk document is missing but layers present', () => {
+    const plan = createDefaultProjectPlan();
+    plan.mapLayerSelection.enabled = ['SGU_BEDROCK' as never];
+    plan.mapLayerSelection.unavailable = [];
+    plan.documentArchive = [];
+
+    const gateId = plan.stageGates.find((g) => g.type === 'RISK_REVIEW')!.id;
+    const result = evaluateStageGate(plan, gateId, {});
+
+    expect(result.gate.status).toBe('BLOCKED');
+    expect(result.gate.reason).toContain('Risk document');
+  });
+});
+
+describe('evaluateStageGate — PERMIT_REQUIRED submitted branch', () => {
+  it('returns BLOCKED when permit type is provided but not submitted', () => {
+    const plan = createDefaultProjectPlan();
+    const gateId = plan.stageGates.find((g) => g.type === 'PERMIT_REQUIRED')!.id;
+
+    const result = evaluateStageGate(plan, gateId, {
+      permitType: '29.40',
+      permitSubmitted: false,
+    });
+
+    expect(result.gate.status).toBe('BLOCKED');
+    expect(result.gate.reason).toContain('submitted');
+  });
+
+  it('returns BLOCKED when permit submitted but no permit documents in archive', () => {
+    const plan = createDefaultProjectPlan();
+    plan.documentArchive = [];
+    const gateId = plan.stageGates.find((g) => g.type === 'PERMIT_REQUIRED')!.id;
+
+    const result = evaluateStageGate(plan, gateId, {
+      permitType: '29.40',
+      permitSubmitted: true,
+    });
+
+    expect(result.gate.status).toBe('BLOCKED');
+    expect(result.gate.reason).toContain('No permit documents');
+  });
+});
+
+describe('normalizeProjectPlan — edge cases', () => {
+  it('handles undefined input by returning default plan', () => {
+    const plan = normalizeProjectPlan(undefined);
+    expect(plan.name).toBe('Nytt Projekt');
+    expect(plan.stageGates.length).toBeGreaterThan(0);
+  });
+
+  it('preserves custom name from partial plan', () => {
+    const plan = normalizeProjectPlan({ name: 'Mitt Projekt' });
+    expect(plan.name).toBe('Mitt Projekt');
+  });
+
+  it('creates default transport bookings when missing', () => {
+    const plan = normalizeProjectPlan({ transportBookings: undefined });
+    expect(Array.isArray(plan.transportBookings)).toBe(true);
+  });
+
+  it('creates default storage areas when missing', () => {
+    const plan = normalizeProjectPlan({ storageAreas: undefined });
+    expect(Array.isArray(plan.storageAreas)).toBe(true);
+    expect(plan.storageAreas).toHaveLength(0);
+  });
+
+  it('normalizes storage area contents and drops invalid volume values', () => {
+    const plan = normalizeProjectPlan({
+      storageAreas: [
+        {
+          id: 'storage-1',
+          projectId: 'project-1',
+          name: 'Yta A',
+          capacityM3: 250,
+          contents: {
+            '17 05 04': 120.5,
+            invalid: -4,
+            another: 'not-a-number',
+          },
+        },
+      ] as any,
+    });
+
+    expect(plan.storageAreas).toHaveLength(1);
+    expect(plan.storageAreas[0].contents).toEqual({
+      '17 05 04': 120.5,
+    });
   });
 });

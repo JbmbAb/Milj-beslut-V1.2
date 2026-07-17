@@ -15,6 +15,7 @@
 import crypto from 'node:crypto';
 import { logger } from '../logger';
 import { appendDomainAudit } from '../security/auditTrail';
+import { generateJsonWithVertex } from './vertexAiService';
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -56,8 +57,7 @@ export async function enqueueExecSummary(params: {
   userId: string;
 }): Promise<ExecSummaryJob> {
   const existing = Array.from(jobs.values()).find(
-    (j) =>
-      j.projectId === params.projectId && (j.status === 'QUEUED' || j.status === 'RUNNING'),
+    (j) => j.projectId === params.projectId && (j.status === 'QUEUED' || j.status === 'RUNNING'),
   );
   if (existing) return existing;
 
@@ -155,44 +155,39 @@ async function runWorkerOnce(): Promise<void> {
   }
 }
 
-// ─── AI generation (with Gemini fallback) ─────────────────────────────────────
+// ─── AI generation (Vertex) ─────────────────────────────────────────────────
+
+function parseExecSummaryJson(
+  payload: unknown,
+): Pick<ExecSummaryResult, 'summary' | 'keyRisks' | 'recommendations' | 'complianceScore'> | null {
+  if (!payload || typeof payload !== 'object') return null;
+  const o = payload as Record<string, unknown>;
+  const summary = String(o.summary ?? '').trim();
+  if (!summary) return null;
+  const keyRisks = Array.isArray(o.keyRisks) ? o.keyRisks.map((x) => String(x)) : [];
+  const recommendations = Array.isArray(o.recommendations) ? o.recommendations.map((x) => String(x)) : [];
+  const complianceScore = typeof o.complianceScore === 'number' ? o.complianceScore : 0.75;
+  return { summary, keyRisks, recommendations, complianceScore };
+}
 
 async function generateSummary(projectId: string): Promise<ExecSummaryResult> {
   const generatedAt = new Date().toISOString();
 
-  // Try Gemini AI if configured
-  const apiKey = process.env.GEMINI_API_KEY ?? process.env.VITE_GEMINI_API_KEY;
-  if (apiKey) {
+  if (process.env.VERTEX_PROJECT_ID?.trim()) {
     try {
-      const { GoogleGenAI } = await import('@google/genai');
-      const ai = new GoogleGenAI({ apiKey });
       const prompt = `Du är en senior miljökonsult. Generera en exekutiv sammanfattning för miljöprojekt ${projectId}.
-Svara ENBART med ett JSON-objekt med exakt dessa fält:
-{
-  "summary": "kort sammanfattning 2-3 meningar",
-  "keyRisks": ["risk1","risk2","risk3"],
-  "recommendations": ["rek1","rek2","rek3"],
-  "complianceScore": 0.0-1.0
-}`;
+Svara med JSON enligt schema:
+{ "summary": "string", "keyRisks": ["..."], "recommendations": ["..."], "complianceScore": 0.0-1.0 }`;
 
-      const response = await ai.models.generateContent({
-        model: 'gemini-2.0-flash',
-        contents: prompt,
+      const parsed = await generateJsonWithVertex(prompt, {
+        profile: 'json',
+        parse: (p) => parseExecSummaryJson(p),
       });
-      const text = response.text ?? '';
-      const jsonMatch = text.match(/\{[\s\S]*\}/);
-      if (jsonMatch) {
-        const parsed = JSON.parse(jsonMatch[0]) as Partial<ExecSummaryResult>;
-        return {
-          summary: String(parsed.summary ?? ''),
-          keyRisks: Array.isArray(parsed.keyRisks) ? parsed.keyRisks.map(String) : [],
-          recommendations: Array.isArray(parsed.recommendations) ? parsed.recommendations.map(String) : [],
-          complianceScore: typeof parsed.complianceScore === 'number' ? parsed.complianceScore : 0.75,
-          generatedAt,
-        };
+      if (parsed) {
+        return { ...parsed, generatedAt };
       }
     } catch (err) {
-      logger.warn('exec-summary: Gemini call failed, using fallback', { err: String(err) });
+      logger.warn('exec-summary: Vertex call failed, using fallback', { err: String(err) });
     }
   }
 

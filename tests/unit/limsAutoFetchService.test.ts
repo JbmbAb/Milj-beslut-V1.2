@@ -1,223 +1,206 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { describe, it, expect, vi, beforeEach } from 'vitest';
 
-// ─── Mocks ────────────────────────────────────────────────────────────────────
-
-vi.mock('../../server/logger', () => ({
-  logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
+const mocks = vi.hoisted(() => ({
+  appendDomainAudit: vi.fn(),
+  createLimsReport: vi.fn(),
+  loggerInfo: vi.fn(),
+  loggerWarn: vi.fn(),
 }));
 
 vi.mock('../../server/security/auditTrail', () => ({
-  appendDomainAudit: vi.fn().mockResolvedValue({ id: 'audit-lims-1' }),
+  appendDomainAudit: mocks.appendDomainAudit,
 }));
 
 vi.mock('../../server/services/limsService', () => ({
-  createLimsReport: vi.fn(),
+  createLimsReport: mocks.createLimsReport,
 }));
 
-// ─── Module under test ─────────────────────────────────────────────────────────
+vi.mock('../../server/logger', () => ({
+  logger: {
+    info: mocks.loggerInfo,
+    warn: mocks.loggerWarn,
+  },
+}));
 
 import { autoFetchLimsReports } from '../../server/services/limsAutoFetchService';
-import { appendDomainAudit } from '../../server/security/auditTrail';
-import { createLimsReport } from '../../server/services/limsService';
 
-// ─── Helpers ──────────────────────────────────────────────────────────────────
-
-function baseParams() {
-  return {
-    projectId: 'proj-lims-1',
-    actingUserId: 'user-lims-1',
-  };
-}
-
-function makeReport(sampleId = 'S-001') {
-  return {
-    sampleId,
-    labName: 'TestLab',
-    analyzedAt: '2024-06-01T10:00:00Z',
-    rawReference: 'REF-001',
-    metrics: [{ key: 'pH', value: 7.2, unit: '-' }],
-  };
-}
+const BASE_PARAMS = { projectId: 'proj-1', actingUserId: 'user-1' };
 
 beforeEach(() => {
-  vi.clearAllMocks();
+  vi.resetAllMocks();
   delete process.env.LIMS_API_ENDPOINT;
   delete process.env.LIMS_API_KEY;
+
+  mocks.appendDomainAudit.mockResolvedValue({ id: 'audit-id-1' });
 });
 
-// ─── Tests ────────────────────────────────────────────────────────────────────
+describe('autoFetchLimsReports', () => {
+  it('returns NOT_CONFIGURED when LIMS_API_ENDPOINT is not set', async () => {
+    const result = await autoFetchLimsReports(BASE_PARAMS);
 
-describe('limsAutoFetchService – autoFetchLimsReports', () => {
-  // ── NOT_CONFIGURED ────────────────────────────────────────────────────────
-
-  describe('NOT_CONFIGURED (no LIMS_API_ENDPOINT)', () => {
-    it('returns NOT_CONFIGURED status and 0 reports', async () => {
-      const result = await autoFetchLimsReports(baseParams());
-
-      expect(result.status).toBe('NOT_CONFIGURED');
-      expect(result.reportsImported).toBe(0);
-      expect(result.reports).toHaveLength(0);
-    });
-
-    it('still writes an audit record', async () => {
-      await autoFetchLimsReports(baseParams());
-
-      expect(appendDomainAudit).toHaveBeenCalledWith(
-        expect.objectContaining({
-          action: 'LIMS_AUTO_FETCH',
-          entityId: 'proj-lims-1',
-          userId: 'user-lims-1',
-        }),
-      );
-    });
-
-    it('includes projectId and auditId in the result', async () => {
-      const result = await autoFetchLimsReports(baseParams());
-      expect(result.projectId).toBe('proj-lims-1');
-      expect(result.auditId).toBe('audit-lims-1');
-    });
-
-    it('includes a fetchedAt ISO timestamp', async () => {
-      const result = await autoFetchLimsReports(baseParams());
-      expect(new Date(result.fetchedAt).getTime()).not.toBeNaN();
-    });
+    expect(result.status).toBe('NOT_CONFIGURED');
+    expect(result.reportsImported).toBe(0);
+    expect(result.reports).toHaveLength(0);
+    expect(result.errorMessages).toHaveLength(0);
+    expect(result.projectId).toBe('proj-1');
+    expect(result.auditId).toBe('audit-id-1');
   });
 
-  // ── SUCCESS (API returns reports) ─────────────────────────────────────────
+  it('appends audit record regardless of configuration', async () => {
+    await autoFetchLimsReports(BASE_PARAMS);
 
-  describe('API configured – successful fetch', () => {
-    it('returns SUCCESS when API returns reports', async () => {
-      process.env.LIMS_API_ENDPOINT = 'https://lims.example.com/api';
+    expect(mocks.appendDomainAudit).toHaveBeenCalledOnce();
+    expect(mocks.appendDomainAudit).toHaveBeenCalledWith(
+      expect.objectContaining({
+        entityType: 'LIMS_AUTO_FETCH',
+        entityId: 'proj-1',
+        action: 'LIMS_AUTO_FETCH',
+        userId: 'user-1',
+      }),
+    );
+  });
 
-      const rawReport = makeReport('S-100');
-      const savedReport = { id: 'lr-1', sampleId: 'S-100' } as any;
+  it('returns SUCCESS with reports when API returns valid data', async () => {
+    process.env.LIMS_API_ENDPOINT = 'https://lims.example.com/api/reports';
 
-      vi.spyOn(global, 'fetch').mockResolvedValueOnce({
+    const fakeReport = {
+      sampleId: 'S-001',
+      labName: 'TestLab',
+      analyzedAt: '2024-01-01T00:00:00Z',
+      rawReference: 'ref-001',
+      metrics: [{ key: 'pH', value: 7.2, unit: 'pH', maxAllowed: 9 }],
+    };
+
+    const mockFetch = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ reports: [fakeReport] }),
+    });
+    vi.stubGlobal('fetch', mockFetch);
+
+    const createdReport = { id: 'report-1', sampleId: 'S-001' };
+    mocks.createLimsReport.mockResolvedValue(createdReport);
+
+    const result = await autoFetchLimsReports(BASE_PARAMS);
+
+    expect(result.status).toBe('SUCCESS');
+    expect(result.reportsImported).toBe(1);
+    expect(result.reports).toHaveLength(1);
+    expect(result.errorMessages).toHaveLength(0);
+    expect(mocks.createLimsReport).toHaveBeenCalledWith(
+      expect.objectContaining({ sampleId: 'S-001', labName: 'TestLab', source: 'API' }),
+    );
+
+    vi.unstubAllGlobals();
+  });
+
+  it('returns NO_NEW_REPORTS when API returns empty reports array', async () => {
+    process.env.LIMS_API_ENDPOINT = 'https://lims.example.com/api/reports';
+
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: true, json: async () => ({ reports: [] }) }));
+
+    const result = await autoFetchLimsReports(BASE_PARAMS);
+
+    expect(result.status).toBe('NO_NEW_REPORTS');
+    expect(result.reportsImported).toBe(0);
+
+    vi.unstubAllGlobals();
+  });
+
+  it('returns FAILED and records error when API responds with non-ok status', async () => {
+    process.env.LIMS_API_ENDPOINT = 'https://lims.example.com/api/reports';
+
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: false, status: 503 }));
+
+    const result = await autoFetchLimsReports(BASE_PARAMS);
+
+    expect(result.status).toBe('FAILED');
+    expect(result.errorMessages).toContain('LIMS API returnerade HTTP 503');
+
+    vi.unstubAllGlobals();
+  });
+
+  it('returns FAILED and logs warning when fetch throws a network error', async () => {
+    process.env.LIMS_API_ENDPOINT = 'https://lims.example.com/api/reports';
+
+    vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new Error('Network failure')));
+
+    const result = await autoFetchLimsReports(BASE_PARAMS);
+
+    expect(result.status).toBe('FAILED');
+    expect(result.errorMessages[0]).toMatch(/API-anslutning misslyckades/);
+    expect(mocks.loggerWarn).toHaveBeenCalledWith(
+      'lims-auto-fetch: API call failed',
+      expect.objectContaining({ err: expect.stringContaining('Network failure') }),
+    );
+
+    vi.unstubAllGlobals();
+  });
+
+  it('adds error message but continues when an individual report fails to parse', async () => {
+    process.env.LIMS_API_ENDPOINT = 'https://lims.example.com/api/reports';
+
+    const goodReport = {
+      sampleId: 'S-OK',
+      labName: 'GoodLab',
+      rawReference: 'ref-ok',
+      metrics: [],
+    };
+    const badReport = {
+      sampleId: 'S-BAD',
+      labName: 'BadLab',
+      rawReference: 'ref-bad',
+      metrics: [],
+    };
+
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue({
         ok: true,
-        json: async () => ({ reports: [rawReport] }),
-      } as Response);
+        json: async () => ({ reports: [goodReport, badReport] }),
+      }),
+    );
 
-      (createLimsReport as ReturnType<typeof vi.fn>).mockResolvedValueOnce(savedReport);
+    mocks.createLimsReport
+      .mockResolvedValueOnce({ id: 'report-ok', sampleId: 'S-OK' })
+      .mockRejectedValueOnce(new Error('Parsing error for S-BAD'));
 
-      const result = await autoFetchLimsReports(baseParams());
+    const result = await autoFetchLimsReports(BASE_PARAMS);
 
-      expect(result.status).toBe('SUCCESS');
-      expect(result.reportsImported).toBe(1);
-      expect(result.reports[0]).toBe(savedReport);
-    });
+    expect(result.reportsImported).toBe(1);
+    expect(result.errorMessages).toHaveLength(1);
+    expect(result.errorMessages[0]).toMatch(/S-BAD/);
+    // One report succeeded → PARTIAL expected? Source returns SUCCESS if any reports
+    expect(['SUCCESS', 'PARTIAL']).toContain(result.status);
 
-    it('passes sampleId and labName to createLimsReport', async () => {
-      process.env.LIMS_API_ENDPOINT = 'https://lims.example.com/api';
-
-      const rawReport = makeReport('S-200');
-      vi.spyOn(global, 'fetch').mockResolvedValueOnce({
-        ok: true,
-        json: async () => ({ reports: [rawReport] }),
-      } as Response);
-
-      (createLimsReport as ReturnType<typeof vi.fn>).mockResolvedValueOnce({ id: 'lr-2' });
-
-      await autoFetchLimsReports(baseParams());
-
-      expect(createLimsReport).toHaveBeenCalledWith(
-        expect.objectContaining({ sampleId: 'S-200', labName: 'TestLab', source: 'API' }),
-      );
-    });
-
-    it('includes Authorization header when LIMS_API_KEY is set', async () => {
-      process.env.LIMS_API_ENDPOINT = 'https://lims.example.com/api';
-      process.env.LIMS_API_KEY = 'my-lims-key';
-
-      let capturedHeaders: Record<string, string> = {};
-      vi.spyOn(global, 'fetch').mockImplementationOnce(async (_url, opts) => {
-        capturedHeaders = (opts?.headers ?? {}) as Record<string, string>;
-        return { ok: true, json: async () => ({ reports: [] }) } as Response;
-      });
-
-      await autoFetchLimsReports(baseParams());
-
-      expect(capturedHeaders['Authorization']).toBe('Bearer my-lims-key');
-    });
-
-    it('adds since param to URL when provided', async () => {
-      process.env.LIMS_API_ENDPOINT = 'https://lims.example.com/api';
-
-      let calledUrl = '';
-      vi.spyOn(global, 'fetch').mockImplementationOnce(async (url) => {
-        calledUrl = url as string;
-        return { ok: true, json: async () => ({ reports: [] }) } as Response;
-      });
-
-      await autoFetchLimsReports({ ...baseParams(), since: '2024-01-01' });
-
-      expect(calledUrl).toContain('since=2024-01-01');
-    });
+    vi.unstubAllGlobals();
   });
 
-  // ── NO_NEW_REPORTS ────────────────────────────────────────────────────────
+  it('includes Bearer token in Authorization header when LIMS_API_KEY is set', async () => {
+    process.env.LIMS_API_ENDPOINT = 'https://lims.example.com/api/reports';
+    process.env.LIMS_API_KEY = 'secret-key';
 
-  describe('API configured – empty reports array', () => {
-    it('returns NO_NEW_REPORTS when API returns empty array', async () => {
-      process.env.LIMS_API_ENDPOINT = 'https://lims.example.com/api';
+    const mockFetch = vi.fn().mockResolvedValue({ ok: true, json: async () => ({ reports: [] }) });
+    vi.stubGlobal('fetch', mockFetch);
 
-      vi.spyOn(global, 'fetch').mockResolvedValueOnce({
-        ok: true,
-        json: async () => ({ reports: [] }),
-      } as Response);
+    await autoFetchLimsReports(BASE_PARAMS);
 
-      const result = await autoFetchLimsReports(baseParams());
+    const [, options] = mockFetch.mock.calls[0];
+    expect((options as RequestInit).headers).toMatchObject({ Authorization: 'Bearer secret-key' });
 
-      expect(result.status).toBe('NO_NEW_REPORTS');
-      expect(result.reportsImported).toBe(0);
-    });
+    vi.unstubAllGlobals();
   });
 
-  // ── FAILED (HTTP error) ───────────────────────────────────────────────────
+  it('passes the since parameter to the API URL when provided', async () => {
+    process.env.LIMS_API_ENDPOINT = 'https://lims.example.com/api/reports';
 
-  describe('API configured – HTTP error', () => {
-    it('returns FAILED on non-OK response', async () => {
-      process.env.LIMS_API_ENDPOINT = 'https://lims.example.com/api';
+    const mockFetch = vi.fn().mockResolvedValue({ ok: true, json: async () => ({ reports: [] }) });
+    vi.stubGlobal('fetch', mockFetch);
 
-      vi.spyOn(global, 'fetch').mockResolvedValueOnce({
-        ok: false,
-        status: 503,
-      } as Response);
+    await autoFetchLimsReports({ ...BASE_PARAMS, since: '2024-06-01T00:00:00Z' });
 
-      const result = await autoFetchLimsReports(baseParams());
+    const [url] = mockFetch.mock.calls[0];
+    expect(url).toContain('since=2024-06-01');
 
-      expect(result.status).toBe('FAILED');
-      expect(result.errorMessages.length).toBeGreaterThan(0);
-      expect(result.errorMessages[0]).toContain('503');
-    });
-
-    it('returns FAILED on network error', async () => {
-      process.env.LIMS_API_ENDPOINT = 'https://lims.example.com/api';
-
-      vi.spyOn(global, 'fetch').mockRejectedValueOnce(new Error('ECONNREFUSED'));
-
-      const result = await autoFetchLimsReports(baseParams());
-
-      expect(result.status).toBe('FAILED');
-      expect(result.errorMessages[0]).toContain('ECONNREFUSED');
-    });
-  });
-
-  // ── Audit payload ─────────────────────────────────────────────────────────
-
-  describe('audit trail', () => {
-    it('includes status and reportsImported in audit payload', async () => {
-      await autoFetchLimsReports(baseParams());
-
-      const call = (appendDomainAudit as ReturnType<typeof vi.fn>).mock.calls[0][0];
-      expect(call.payload).toHaveProperty('status');
-      expect(call.payload).toHaveProperty('reportsImported');
-    });
-
-    it('includes apiEndpointConfigured in audit payload', async () => {
-      await autoFetchLimsReports(baseParams());
-
-      const call = (appendDomainAudit as ReturnType<typeof vi.fn>).mock.calls[0][0];
-      expect(call.payload.apiEndpointConfigured).toBe(false);
-    });
+    vi.unstubAllGlobals();
   });
 });

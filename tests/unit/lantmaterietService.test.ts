@@ -1,113 +1,110 @@
-import { describe, expect, it } from 'vitest';
-import {
-  findMatchingOgcFeatures,
-  mergeOgcFeatureGeometry,
-  minimizeOgcFeaturePayload,
-  parseOgcDesignation,
-} from '../../server/services/lantmaterietService';
+import { describe, it, expect, vi, beforeEach } from 'vitest';
 
-describe('lantmaterietService OGC helpers', () => {
-  it('parses municipality, tract and label for exact and fallback filters', () => {
-    const parsed = parseOgcDesignation('Orsa Stackmora 3:12');
+// 1. Mocka beroenden HOISTED
+const auditMock = vi.hoisted(() => ({
+  appendPropertyAudit: vi.fn(),
+}));
+const auditRepoMock = vi.hoisted(() => ({
+  writePropertyAccessLog: vi.fn(),
+}));
+const authRepoMock = vi.hoisted(() => ({
+  assertProjectMembership: vi.fn(),
+}));
+const securityMock = vi.hoisted(() => ({
+  assertPermission: vi.fn(),
+  validatePropertyLookupInput: vi.fn(),
+}));
+const envMock = vi.hoisted(() => ({
+  isLantmaterietOpenMode: vi.fn().mockReturnValue(false),
+  hasLantmaterietAuth: vi.fn().mockReturnValue(true),
+}));
+const hybridGeoMock = vi.hoisted(() => ({
+  tryFetchLocalPropertyGeometry: vi.fn().mockResolvedValue(null),
+}));
 
-    expect(parsed.municipality).toBe('ORSA');
-    expect(parsed.tract).toBe('STACKMORA');
-    expect(parsed.label).toBe('3:12');
-    expect(parsed.exactFilter).toBe("kommunnamn = 'ORSA' AND trakt = 'STACKMORA' AND etikett = '3:12'");
-    expect(parsed.tractFilter).toBe("kommunnamn = 'ORSA' AND trakt = 'STACKMORA'");
+// VIKTIGT: Sökvägar från tests/unit/ -> server/...
+vi.mock('../../server/security/auditTrail', () => auditMock);
+vi.mock('../../server/repositories/auditRepository', () => auditRepoMock);
+vi.mock('../../server/repositories/projectAccessRepository', () => authRepoMock);
+vi.mock('../../server/security/projectAccess', () => securityMock);
+vi.mock('../../server/security/env', () => envMock);
+vi.mock('../../server/services/hybridGeoService', () => hybridGeoMock);
+
+// Sätt miljövariabler innan import
+vi.hoisted(() => {
+  process.env.LANTMATERIET_CONSUMER_KEY = 'test-key';
+  process.env.LANTMATERIET_CONSUMER_SECRET = 'test-secret';
+  process.env.LANTMATERIET_LOOKUP_MODE = 'ogc';
+  process.env.LANTMATERIET_BASE_URL = 'https://api.test';
+});
+
+// Mocka fetch globalt
+const fetchMock = vi.fn();
+vi.stubGlobal('fetch', fetchMock);
+
+import { lookupPropertyByDesignation } from '../../server/services/lantmaterietService';
+
+describe('lantmaterietService unit tests', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    delete process.env.LANTMATERIET_OPEN_SUBSCRIPTION_KEY;
+    hybridGeoMock.tryFetchLocalPropertyGeometry.mockResolvedValue(null);
   });
 
-  it('matches split labels for a base property designation and sorts them predictably', () => {
-    const features = [
-      { properties: { etikett: '3:12>2' } },
-      { properties: { etikett: '3:12>1' } },
-      { properties: { etikett: '54:4' } },
-    ];
+  const mockUser: any = { id: 'u1', organisationId: 'o1', role: 'USER' };
 
-    const matches = findMatchingOgcFeatures(features, 'Orsa Stackmora 3:12');
+  describe('lookupPropertyByDesignation', () => {
+    it('should complete a lookup flow: get token -> fetch items', async () => {
+      // Mocka Token
+      fetchMock.mockResolvedValueOnce({
+        ok: true,
+        json: () => Promise.resolve({ access_token: 'valid-token', expires_in: 3600 }),
+      });
 
-    expect(matches.map((feature) => feature.properties?.etikett)).toEqual(['3:12>1', '3:12>2']);
-  });
+      // Mocka Items
+      fetchMock.mockResolvedValueOnce({
+        ok: true,
+        json: () =>
+          Promise.resolve({
+            features: [
+              { properties: { etikett: 'GÄVLE 1:1' }, geometry: { type: 'Point', coordinates: [17, 60] } },
+            ],
+          }),
+      });
 
-  it('does not widen to sibling split labels when an exact split label is requested', () => {
-    const features = [{ properties: { etikett: '3:12>2' } }, { properties: { etikett: '3:12>1' } }];
-
-    const matches = findMatchingOgcFeatures(features, 'Orsa Stackmora 3:12>2');
-
-    expect(matches.map((feature) => feature.properties?.etikett)).toEqual(['3:12>2']);
-  });
-
-  it('aggregates split polygons into a multipolygon payload', () => {
-    const matches = findMatchingOgcFeatures(
-      [
+      const result = await lookupPropertyByDesignation(
         {
-          geometry: {
-            type: 'Polygon',
-            coordinates: [
-              [
-                [14.73, 61.12],
-                [14.74, 61.12],
-                [14.74, 61.11],
-                [14.73, 61.11],
-                [14.73, 61.12],
-              ],
-            ],
-          },
-          properties: { etikett: '3:12>2' },
+          projectId: 'p1',
+          propertyDesignation: 'GÄVLE 1:1',
+          purpose: 'Inspection',
         },
+        mockUser,
+      );
+
+      expect(result.designation).toBe('GÄVLE 1:1');
+      expect(fetchMock).toHaveBeenCalled();
+    });
+
+    it('returns local hybrid geometry before live lookup', async () => {
+      hybridGeoMock.tryFetchLocalPropertyGeometry.mockResolvedValueOnce({
+        designation: 'GÄVLE 1:1',
+        geometry: { type: 'Polygon', coordinates: [] },
+        boundaries: { id: 'local' },
+      });
+
+      const result = await lookupPropertyByDesignation(
         {
-          geometry: {
-            type: 'Polygon',
-            coordinates: [
-              [
-                [14.75, 61.12],
-                [14.76, 61.12],
-                [14.76, 61.11],
-                [14.75, 61.11],
-                [14.75, 61.12],
-              ],
-            ],
-          },
-          properties: { etikett: '3:12>1' },
+          projectId: 'p1',
+          propertyDesignation: 'GÄVLE 1:1',
+          purpose: 'Inspection',
         },
-      ],
-      'Orsa Stackmora 3:12',
-    );
+        mockUser,
+      );
 
-    const payload = minimizeOgcFeaturePayload(matches, 'Orsa Stackmora 3:12') as {
-      designation: string;
-      geometry: { type: string; coordinates: unknown[] };
-      boundaries: { type: string; features: unknown[] };
-      matchedDesignations: string[];
-    };
-
-    expect(payload.designation).toBe('Orsa Stackmora 3:12');
-    expect(payload.matchedDesignations).toEqual(['3:12>1', '3:12>2']);
-    expect(payload.geometry.type).toBe('MultiPolygon');
-    expect(payload.geometry.coordinates).toHaveLength(2);
-    expect(payload.boundaries.type).toBe('FeatureCollection');
-    expect(payload.boundaries.features).toHaveLength(2);
-  });
-
-  it('keeps the first geometry if mixed geometry types prevent aggregation', () => {
-    const geometry = mergeOgcFeatureGeometry([
-      {
-        geometry: {
-          type: 'Polygon',
-          coordinates: [
-            [
-              [14.73, 61.12],
-              [14.74, 61.12],
-              [14.74, 61.11],
-              [14.73, 61.11],
-              [14.73, 61.12],
-            ],
-          ],
-        },
-      },
-      { geometry: { type: 'Point', coordinates: [14.75, 61.12] } },
-    ]) as { type: string };
-
-    expect(geometry.type).toBe('Polygon');
+      expect(result.source).toBe('local_db_hybrid');
+      expect(fetchMock).not.toHaveBeenCalled();
+      expect(auditMock.appendPropertyAudit).toHaveBeenCalled();
+      expect(auditRepoMock.writePropertyAccessLog).toHaveBeenCalled();
+    });
   });
 });

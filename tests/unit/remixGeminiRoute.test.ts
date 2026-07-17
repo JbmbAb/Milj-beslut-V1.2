@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import type { ActionFunctionArgs } from '@remix-run/node';
-import { action, loader } from '../../app/routes/api/gemini';
+import { action, loader } from '../../legacy/remix-poc/routes/api/gemini';
 import { createTokenPair } from '../../server/security/auth';
 
 vi.mock('../../server/repositories/tokenRepository', () => ({

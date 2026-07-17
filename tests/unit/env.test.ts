@@ -3,6 +3,7 @@ import {
   assertBankIdEnv,
   assertSecurityEnv,
   assertSluEnv,
+  getBankIdConfigurationStatus,
   getEnv,
   isLantmaterietOpenMode,
 } from '../../server/security/env';
@@ -51,7 +52,7 @@ describe('security env', () => {
     delete process.env.LANTMATERIET_CONSUMER_KEY;
     delete process.env.LANTMATERIET_CONSUMER_SECRET;
 
-    expect(() => assertSecurityEnv()).toThrow(/Lantmateriet licensed credentials/);
+    expect(() => assertSecurityEnv()).toThrow(/Lantm.*autentisering saknas/i);
 
     process.env.LANTMATERIET_API_KEY = 'licensed-key';
     expect(() => assertSecurityEnv()).not.toThrow();
@@ -68,6 +69,7 @@ describe('security env', () => {
   });
 
   it('requires either BankID PFX or PEM configuration', () => {
+    process.env.BANKID_MOCK_MODE = 'false';
     delete process.env.BANKID_PFX_PATH;
     delete process.env.BANKID_CERT_PATH;
     delete process.env.BANKID_KEY_PATH;
@@ -83,6 +85,45 @@ describe('security env', () => {
     process.env.BANKID_CERT_PATH = 'dummy.crt';
     process.env.BANKID_KEY_PATH = 'dummy.key';
     expect(() => assertBankIdEnv()).not.toThrow();
+  });
+
+  it('reports BankID as unconfigured until both base URL and mTLS are ready', () => {
+    process.env.BANKID_MOCK_MODE = 'false';
+    delete process.env.BANKID_BASE_URL;
+    delete process.env.BANKID_PFX_PATH;
+    delete process.env.BANKID_CERT_PATH;
+    delete process.env.BANKID_KEY_PATH;
+
+    expect(getBankIdConfigurationStatus()).toMatchObject({
+      mode: 'unconfigured',
+      canInitiate: false,
+      hasBaseUrl: false,
+      hasMtls: false,
+    });
+
+    process.env.BANKID_BASE_URL = 'https://appapi2.test.bankid.com/rp/v5.1';
+    process.env.BANKID_PFX_PATH = 'bankid-test.pfx';
+
+    expect(getBankIdConfigurationStatus()).toMatchObject({
+      mode: 'real',
+      canInitiate: true,
+      hasBaseUrl: true,
+      hasMtls: true,
+      hasPfx: true,
+    });
+  });
+
+  it('reports BankID mock mode as ready without real certificates', () => {
+    process.env.BANKID_MOCK_MODE = 'true';
+    delete process.env.BANKID_BASE_URL;
+    delete process.env.BANKID_PFX_PATH;
+    delete process.env.BANKID_CERT_PATH;
+    delete process.env.BANKID_KEY_PATH;
+
+    expect(getBankIdConfigurationStatus()).toMatchObject({
+      mode: 'mock',
+      canInitiate: true,
+    });
   });
 
   it('requires SLU base URL and API key', () => {

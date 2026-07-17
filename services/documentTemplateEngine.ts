@@ -1,28 +1,29 @@
 export type TemplateVariables = {
-    projectName: string;
-    municipality: string;
-    wasteTypes: string[];
-    totalVolumeTons: number;
-    riskScore: string;
-    riskFactors: string[];
-    aiMitigationAdvice?: string;
+  projectName: string;
+  municipality: string;
+  wasteTypes: string[];
+  totalVolumeTons: number;
+  riskScore: string;
+  riskFactors: string[];
+  aiMitigationAdvice?: string;
 };
 
 /**
  * Dokument-autogenerering 2.0 (Template Engine)
- * 
- * Istället för att låta LLM:en uppfinna eller omformulera den juridiska och 
- * formatmässiga rapportstrukturen (hallucinationsrisk), så fyller vi i en 
- * hårdkodad och juridiskt granskad mall. AI:n hjälper bara till att ta fram 
+ *
+ * Istället för att låta LLM:en uppfinna eller omformulera den juridiska och
+ * formatmässiga rapportstrukturen (hallucinationsrisk), så fyller vi i en
+ * hårdkodad och juridiskt granskad mall. AI:n hjälper bara till att ta fram
  * själva parametrarna (rådatan) som injiceras.
  */
 export const renderCompliancePlanTemplate = (vars: TemplateVariables): string => {
-    const dateStr = new Date().toISOString().split("T")[0];
-    const factorsStr = vars.riskFactors.length === 0
-        ? "  - Inga förhöjda risker identifierades under regelmotorns granskning."
-        : vars.riskFactors.map(f => `  - ${f}`).join("\n");
+  const dateStr = new Date().toISOString().split('T')[0];
+  const factorsStr =
+    vars.riskFactors.length === 0
+      ? '  - Inga förhöjda risker identifierades under regelmotorns granskning.'
+      : vars.riskFactors.map((f) => `  - ${f}`).join('\n');
 
-    return `
+  return `
 ============================================================
            MILJÖKONTROLLPLAN & PROJEKTBESKRIVNING
 ============================================================
@@ -49,7 +50,7 @@ Verksamheten omfattar formell hantering och transport av
 totalt ca ${vars.totalVolumeTons} ton massor.
 Följande avfallskoder (EWC/Avfallsförordningen) misstänks eller
 har uppmätts:
-  > ${vars.wasteTypes.join(", ")}
+  > ${vars.wasteTypes.join(', ')}
 
 
 3. MILJÖRISKANALYS
@@ -64,7 +65,7 @@ ${factorsStr}
 
 4. RISKMINIMERANDE ÅTGÄRDER OCH RÅDGIVNING
 ------------------------------------------------------------
-${vars.aiMitigationAdvice || "Inväntar detaljerad rådgivning från AI-modulen."}
+${vars.aiMitigationAdvice || 'Inväntar detaljerad rådgivning från AI-modulen.'}
 
 ============================================================
 Detta är ett systemgenererat beslutsunderlag. Ansvarig för 

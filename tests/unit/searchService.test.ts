@@ -1,6 +1,17 @@
 import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
+const embedTextWithVertexPredictMock = vi.hoisted(() => vi.fn());
+
+vi.mock('../../server/services/vertexEmbeddingService', () => ({
+  embedTextWithVertexPredict: embedTextWithVertexPredictMock,
+}));
+
+const vertexMultimodalMock = vi.hoisted(() => vi.fn());
+vi.mock('../../server/services/vertexAiService', () => ({
+  generateTextWithVertexAndInlineData: vertexMultimodalMock,
+}));
+
 const mocks = vi.hoisted(() => ({
   enqueueSearchJob: vi.fn(),
   findDocumentByDiskName: vi.fn(),
@@ -20,6 +31,7 @@ const mocks = vi.hoisted(() => ({
   stat: vi.fn(),
   loggerWarn: vi.fn(),
   loggerInfo: vi.fn(),
+  prismaQueryRaw: vi.fn(),
 }));
 
 vi.mock('../../server/repositories/searchRepository', () => ({
@@ -44,6 +56,13 @@ vi.mock('node:fs', () => ({
     readFile: mocks.readFile,
     stat: mocks.stat,
   },
+  // Vite/Vitest sometimes accesses node:fs via a default export interop wrapper.
+  default: {
+    promises: {
+      readFile: mocks.readFile,
+      stat: mocks.stat,
+    },
+  },
 }));
 
 vi.mock('../../server/logger', () => ({
@@ -53,9 +72,16 @@ vi.mock('../../server/logger', () => ({
   },
 }));
 
+vi.mock('../../server/db/prisma', () => ({
+  prisma: {
+    $queryRaw: mocks.prismaQueryRaw,
+  },
+}));
+
 describe('searchService', () => {
+  vi.setConfig({ testTimeout: 10000 });
   const originalEnv = {
-    GEMINI_API_KEY: process.env.GEMINI_API_KEY,
+    VERTEX_PROJECT_ID: process.env.VERTEX_PROJECT_ID,
     OUTLOOK_MANIFEST_PATH: process.env.OUTLOOK_MANIFEST_PATH,
     OUTLOOK_BASE_DIR: process.env.OUTLOOK_BASE_DIR,
     LOCAL_DB_ROOT: process.env.LOCAL_DB_ROOT,
@@ -71,7 +97,9 @@ describe('searchService', () => {
 
     process.env.EMBEDDING_MODEL = 'gemini-embedding-001';
     process.env.EMBEDDING_FALLBACK_MODELS = 'gemini-embedding-001,text-embedding-004';
-    delete process.env.GEMINI_API_KEY;
+    delete process.env.VERTEX_PROJECT_ID;
+    embedTextWithVertexPredictMock.mockReset();
+    vertexMultimodalMock.mockReset();
     delete process.env.OUTLOOK_MANIFEST_PATH;
     delete process.env.OUTLOOK_BASE_DIR;
     delete process.env.LOCAL_DB_ROOT;
@@ -86,6 +114,7 @@ describe('searchService', () => {
     mocks.upsertDocumentFromManifest.mockResolvedValue({ id: 'doc-1' });
     mocks.readFile.mockResolvedValue(Buffer.from(''));
     mocks.stat.mockResolvedValue({ size: 12, mtimeMs: 1000 });
+    mocks.prismaQueryRaw.mockResolvedValue([]);
 
     global.fetch = vi.fn();
   });
@@ -126,19 +155,9 @@ describe('searchService', () => {
     expect(await serviceWithoutKey.embedText('hej')).toBeNull();
 
     vi.resetModules();
-    process.env.GEMINI_API_KEY = 'secret-key';
+    process.env.VERTEX_PROJECT_ID = 'secret-proj';
+    embedTextWithVertexPredictMock.mockResolvedValue({ values: [1, 2, 3, 4], model: 'text-embedding-004' });
     const service = await loadModule();
-
-    vi.mocked(global.fetch)
-      .mockResolvedValueOnce({ ok: false } as Response)
-      .mockResolvedValueOnce({
-        ok: true,
-        json: async () => ({
-          embedding: {
-            values: [1, 2, 3, 4],
-          },
-        }),
-      } as Response);
 
     const result = await service.embedText('text to embed');
 
@@ -146,10 +165,34 @@ describe('searchService', () => {
       values: [1, 2, 3, 4],
       model: 'text-embedding-004',
     });
-    expect(mocks.loggerWarn).toHaveBeenCalledWith('search: embedding fallback active', {
-      fallbackModel: 'text-embedding-004',
-      primaryModel: 'gemini-embedding-001',
+    expect(mocks.loggerWarn).toHaveBeenCalledWith('search: vertex embedding model', {
+      model: 'text-embedding-004',
+      embeddingModelEnv: 'gemini-embedding-001',
     });
+  });
+
+  it('handles manifest CSV with alternative column names for municipality and waste', async () => {
+    const csv = [
+      'DiskName;RelativePath;Subject;EntryID;ReceivedTime;kommun;DecisionType;avfallstyp;Status;Farligt;OriginalName;Sha256',
+      'd2.pdf;p2.pdf;Sub;e2;2026;Orsa;Tillstånd;Asbest;Aktiv;ja;o2.pdf;h2',
+    ].join('\n');
+    mocks.readFile.mockResolvedValueOnce(Buffer.from(csv, 'utf8'));
+
+    const service = await loadModule();
+    await service.syncManifestMetadata({
+      projectId: 'p2',
+      organisationId: 'o2',
+      manifestPath: 'm.csv',
+      outlookBaseDir: 'd',
+    });
+
+    expect(mocks.upsertDocumentFromManifest).toHaveBeenCalledWith(
+      expect.objectContaining({
+        municipality: 'Orsa',
+        wasteType: 'Asbest',
+        hazardousFlag: true,
+      }),
+    );
   });
 
   it('syncs manifest rows, skips invalid entries and preserves unchanged documents', async () => {
@@ -293,7 +336,8 @@ describe('searchService', () => {
   });
 
   it('uses JSON semantic fallback for hybrid searches when pgvector returns no rows', async () => {
-    process.env.GEMINI_API_KEY = 'secret-key';
+    process.env.VERTEX_PROJECT_ID = 'test-proj';
+    embedTextWithVertexPredictMock.mockResolvedValue({ values: [1, 0], model: 'm' });
     mocks.findDocumentsForProject.mockResolvedValueOnce([
       {
         id: 'doc-1',
@@ -325,15 +369,6 @@ describe('searchService', () => {
         embeddingJson: [1, 0],
       },
     ]);
-    vi.mocked(global.fetch).mockResolvedValueOnce({
-      ok: true,
-      json: async () => ({
-        embedding: {
-          values: [1, 0],
-        },
-      }),
-    } as Response);
-
     const service = await loadModule();
     const result = await service.runSearchQuery({
       projectId: 'project-1',
@@ -419,22 +454,15 @@ describe('searchService', () => {
 
     vi.resetAllMocks();
     vi.resetModules();
-    process.env.GEMINI_API_KEY = 'secret-key';
+    process.env.VERTEX_PROJECT_ID = 'test-proj';
+    embedTextWithVertexPredictMock
+      .mockResolvedValueOnce({ values: [0.1, 0.2, 0.3], model: 'gemini-embedding-001' })
+      .mockResolvedValueOnce(null);
     mocks.getDocumentById.mockResolvedValueOnce({ id: 'doc-1' });
     mocks.listChunksForDocument.mockResolvedValueOnce([
       { id: 'chunk-1', documentId: 'doc-1', chunkIndex: 0, chunkText: 'alpha beta' },
       { id: 'chunk-2', documentId: 'doc-1', chunkIndex: 1, chunkText: 'gamma delta' },
     ]);
-    vi.mocked(global.fetch)
-      .mockResolvedValueOnce({
-        ok: true,
-        json: async () => ({
-          embedding: {
-            values: [0.1, 0.2, 0.3],
-          },
-        }),
-      } as Response)
-      .mockResolvedValueOnce({ ok: false } as Response);
 
     const service = await loadModule();
     const result = await service.embedDocumentChunks('doc-1');
@@ -449,7 +477,8 @@ describe('searchService', () => {
   });
 
   it('uses pgvector semantic matches for global searches and avoids project logging', async () => {
-    process.env.GEMINI_API_KEY = 'secret-key';
+    process.env.VERTEX_PROJECT_ID = 'test-proj';
+    embedTextWithVertexPredictMock.mockResolvedValue({ values: [0.2, 0.4], model: 'm' });
     mocks.findDocumentsForProject.mockResolvedValueOnce([
       {
         id: 'doc-1',
@@ -480,15 +509,6 @@ describe('searchService', () => {
         chunkIndex: 2,
       },
     ]);
-    vi.mocked(global.fetch).mockResolvedValueOnce({
-      ok: true,
-      json: async () => ({
-        embedding: {
-          values: [0.2, 0.4],
-        },
-      }),
-    } as Response);
-
     const service = await loadModule();
     const result = await service.runSearchQuery({
       organisationId: 'org-1',
@@ -553,5 +573,106 @@ describe('searchService', () => {
     expect(result.results).toEqual([]);
     expect(result.guardrails.evidenceFilteredOut).toBe(1);
     expect(result.guardrails.citationCoveragePct).toBe(0);
+  });
+
+  it('handles empty query strings by returning all documents for the project', async () => {
+    mocks.findDocumentsForProject.mockResolvedValueOnce([{ id: 'd' } as any]);
+    const service = await loadModule();
+    const result = await service.runSearchQuery({
+      projectId: 'p',
+      organisationId: 'o',
+      userId: 'u',
+      query: '',
+      mode: 'lexical',
+    });
+    expect(result.results.length).toBe(1);
+  });
+
+  it('handles UTF-16 BE CSV files correctly', async () => {
+    const csv = 'DiskName;Subject\nd1.pdf;Sub';
+    const buffer = Buffer.alloc(csv.length * 2 + 2);
+    buffer[0] = 0xfe;
+    buffer[1] = 0xff; // BOM
+    for (let i = 0; i < csv.length; i++) {
+      buffer.writeUInt16BE(csv.charCodeAt(i), i * 2 + 2);
+    }
+    mocks.readFile.mockResolvedValueOnce(buffer);
+    const service = await loadModule();
+    const result = await service.syncManifestMetadata({
+      projectId: 'p',
+      organisationId: 'o',
+      manifestPath: 'm.csv',
+      outlookBaseDir: 'd',
+    });
+    expect(result.processedRows).toBe(1);
+    expect(mocks.upsertDocumentFromManifest).toHaveBeenCalledWith(
+      expect.objectContaining({ subject: 'Sub' }),
+    );
+  });
+
+  it('handles OCR file size limits and API errors gracefully', async () => {
+    process.env.VERTEX_PROJECT_ID = 'p1';
+    const largeBuffer = Buffer.alloc(13_000_000);
+    const service = await loadModule();
+    const result = await (service as any).runGeminiOcr(largeBuffer, 'image/png');
+    expect(result).toBeNull();
+
+    vertexMultimodalMock.mockRejectedValueOnce(new Error('Vertex OCR failed'));
+    const apiErrorResult = await (service as any).runGeminiOcr(Buffer.from('small'), 'image/png');
+    expect(apiErrorResult).toBeNull();
+  });
+
+  it('handles PDF parsing errors and fallbacks to OCR', async () => {
+    mocks.readFile.mockResolvedValueOnce(Buffer.from('%PDF-1.4...'));
+    vi.mock('pdf-parse', () => ({
+      default: vi.fn().mockImplementation(() => {
+        throw new Error('Parse error');
+      }),
+    }));
+
+    const service = await loadModule();
+    const result = await (service as any).loadPdfText('test.pdf', 'fallback');
+    expect(result).toContain('Dokument: fallback');
+  });
+
+  it('covers encryption key versions and fallbacks', async () => {
+    delete process.env.SEARCH_ENCRYPTION_KEY_BASE64;
+    process.env.JWT_ACCESS_SECRET = 'test-secret';
+    const service = await loadModule();
+    const result = (service as any).encryptContent('secret text');
+    expect(result.keyVersion).toBe(1);
+    expect(result.ciphertext).toBeDefined();
+  });
+
+  it('covers cosine similarity edge cases', async () => {
+    const service = await loadModule();
+    const similarity = (service as any).cosineSimilarity;
+    expect(similarity([1, 0], [0, 1])).toBe(0);
+    expect(similarity([1, 1], [1, 1])).toBeCloseTo(1);
+    expect(similarity([0, 0], [0, 0])).toBe(0);
+    expect(similarity([1], [1, 2])).toBe(0);
+  });
+
+  it('marks search jobs for extraction when metadata changed', async () => {
+    const service = await loadModule();
+    const csv = 'DiskName;Sha256\nd1.pdf;h1';
+    mocks.readFile.mockResolvedValue(Buffer.from(csv));
+
+    mocks.findDocumentByDiskName.mockResolvedValue({
+      diskName: 'd1.pdf',
+      fileSha256: 'OLD_HASH',
+      absolutePath: path.resolve('d', 'd1.pdf'),
+      fileSize: BigInt(12),
+      content: { searchText: 'old' },
+    });
+
+    await service.syncManifestMetadata({
+      projectId: 'p',
+      organisationId: 'o',
+      manifestPath: 'm.csv',
+      outlookBaseDir: 'd',
+    });
+
+    expect(mocks.enqueueSearchJob).toHaveBeenCalledWith(expect.objectContaining({ type: 'EXTRACT_TEXT' }));
   });
 });

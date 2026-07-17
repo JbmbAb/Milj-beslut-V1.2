@@ -25,6 +25,9 @@ const mocks = vi.hoisted(() => ({
   getBackup: vi.fn(),
   extractTextFromDocument: vi.fn(),
   batchExtractPendingDocuments: vi.fn(),
+  exportAuditTrail: vi.fn(),
+  verifyAuditTrail: vi.fn(),
+  assertPermission: vi.fn(),
 }));
 
 vi.mock('../../server/repositories/tokenRepository', () => ({
@@ -34,49 +37,41 @@ vi.mock('../../server/repositories/tokenRepository', () => ({
   cleanupExpiredTokenRevocations: vi.fn(async () => 0),
 }));
 
-vi.mock('../../server/repositories/adminReportRepository', () => ({
-  getAppStatus: mocks.getAppStatus,
-  getAppCompletion: mocks.getAppCompletion,
-  getExternalHealth: mocks.getExternalHealth,
-  getDbStats: mocks.getDbStats,
-  getDbAnalysis: mocks.getDbAnalysis,
-  getDbContents: mocks.getDbContents,
-  getAdminExamSummary: mocks.getAdminExamSummary,
-  getAdminDatabaseDump: mocks.getAdminDatabaseDump,
+vi.mock('../../server/modules/platform/public', async (importOriginal) => {
+  const mod = await importOriginal<typeof import('../../server/modules/platform/public')>();
+  return {
+    ...mod,
+    getAppStatus: mocks.getAppStatus,
+    getAppCompletion: mocks.getAppCompletion,
+    getExternalHealth: mocks.getExternalHealth,
+    getDbStats: mocks.getDbStats,
+    getDbAnalysis: mocks.getDbAnalysis,
+    getDbContents: mocks.getDbContents,
+    getAdminExamSummary: mocks.getAdminExamSummary,
+    getAdminDatabaseDump: mocks.getAdminDatabaseDump,
+    listProjectsForAdmin: mocks.listProjectsForAdmin,
+    createOrGetAdminProject: mocks.createOrGetAdminProject,
+    getDispatchProviderRuntimeStatus: mocks.getDispatchProviderRuntimeStatus,
+    getOutlookSchedulerStatus: mocks.getOutlookSchedulerStatus,
+    triggerIngestionWebhook: mocks.triggerIngestionWebhook,
+    getMetricsText: mocks.getMetricsText,
+    getRecentErrors: mocks.getRecentErrors,
+    captureException: mocks.captureException,
+    runBackup: mocks.runBackup,
+    listBackups: mocks.listBackups,
+    getBackup: mocks.getBackup,
+    extractTextFromDocument: mocks.extractTextFromDocument,
+    batchExtractPendingDocuments: mocks.batchExtractPendingDocuments,
+  };
+});
+
+vi.mock('../../server/security/auditTrail', () => ({
+  exportAuditTrail: mocks.exportAuditTrail,
+  verifyAuditTrail: mocks.verifyAuditTrail,
 }));
 
-vi.mock('../../server/repositories/searchRepository', () => ({
-  listProjectsForAdmin: mocks.listProjectsForAdmin,
-  createOrGetAdminProject: mocks.createOrGetAdminProject,
-}));
-
-vi.mock('../../server/services/transportDispatchService', () => ({
-  getDispatchProviderRuntimeStatus: mocks.getDispatchProviderRuntimeStatus,
-}));
-
-vi.mock('../../server/services/outlookSchedulerService', () => ({
-  getSchedulerStatus: mocks.getOutlookSchedulerStatus,
-  triggerIngestionWebhook: mocks.triggerIngestionWebhook,
-}));
-
-vi.mock('../../server/services/metricsService', () => ({
-  getMetricsText: mocks.getMetricsText,
-}));
-
-vi.mock('../../server/services/errorTrackingService', () => ({
-  getRecentErrors: mocks.getRecentErrors,
-  captureException: mocks.captureException,
-}));
-
-vi.mock('../../server/services/backupService', () => ({
-  runBackup: mocks.runBackup,
-  listBackups: mocks.listBackups,
-  getBackup: mocks.getBackup,
-}));
-
-vi.mock('../../server/services/ocrService', () => ({
-  extractTextFromDocument: mocks.extractTextFromDocument,
-  batchExtractPendingDocuments: mocks.batchExtractPendingDocuments,
+vi.mock('../../server/security/projectAccess', () => ({
+  assertPermission: mocks.assertPermission,
 }));
 
 import adminRoutes from '../../server/routes/admin.routes';
@@ -121,6 +116,15 @@ describe('admin.routes', () => {
     mocks.extractTextFromDocument.mockResolvedValue({ id: 'doc-1', status: 'EXTRACTED' });
     mocks.batchExtractPendingDocuments.mockResolvedValue({ processed: 2 });
     mocks.getDispatchProviderRuntimeStatus.mockReturnValue({ provider: 'mock', healthy: true });
+    mocks.exportAuditTrail.mockResolvedValue([{ id: 'row-1' }]);
+    mocks.verifyAuditTrail.mockResolvedValue({ ok: true, broken: 0 });
+    mocks.assertPermission.mockReturnValue(undefined);
+    mocks.getAppStatus.mockResolvedValue({ healthy: true });
+    mocks.getAppCompletion.mockResolvedValue({ donePercent: 72 });
+    mocks.getExternalHealth.mockResolvedValue([{ service: 'SMHI', ok: true }]);
+    mocks.getDbStats.mockResolvedValue({ tables: 12 });
+    mocks.getDbAnalysis.mockResolvedValue({ slow: [] });
+    mocks.getAdminExamSummary.mockResolvedValue({ total: 5 });
   });
 
   afterEach(() => {
@@ -289,5 +293,81 @@ describe('admin.routes', () => {
       .set('Authorization', authHeader('ADMIN'));
     expect(dispatch.status).toBe(200);
     expect(dispatch.body?.dispatch?.provider).toBe('mock');
+  });
+
+  it('exports audit trail and verifies integrity for admin', async () => {
+    const res = await request(app).get('/api/audit/export').set('Authorization', authHeader('ADMIN'));
+
+    expect(res.status).toBe(200);
+    expect(res.body.ok).toBe(true);
+    expect(Array.isArray(res.body.records)).toBe(true);
+    expect(mocks.exportAuditTrail).toHaveBeenCalled();
+    expect(mocks.verifyAuditTrail).toHaveBeenCalled();
+  });
+
+  it('returns 403 on audit export when permission check fails', async () => {
+    mocks.assertPermission.mockImplementationOnce(() => {
+      throw new Error('Insufficient role permissions for AUDIT_EXPORT');
+    });
+
+    const res = await request(app).get('/api/audit/export').set('Authorization', authHeader('CONSULTANT'));
+
+    expect(res.status).toBe(403);
+  });
+
+  it('serves app-status, completion, external-health, db-stats, db-analysis, exam-summary', async () => {
+    const appStatus = await request(app)
+      .get('/api/admin/app-status')
+      .set('Authorization', authHeader('ADMIN'));
+    expect(appStatus.status).toBe(200);
+    expect(appStatus.body?.status?.healthy).toBe(true);
+
+    const completion = await request(app)
+      .get('/api/admin/completion')
+      .set('Authorization', authHeader('ADMIN'));
+    expect(completion.status).toBe(200);
+    expect(completion.body?.completion?.donePercent).toBe(72);
+
+    const health = await request(app)
+      .get('/api/admin/external-health')
+      .set('Authorization', authHeader('ADMIN'));
+    expect(health.status).toBe(200);
+
+    const dbStats = await request(app).get('/api/admin/db-stats').set('Authorization', authHeader('ADMIN'));
+    expect(dbStats.status).toBe(200);
+
+    const dbAnalysis = await request(app)
+      .get('/api/admin/db-analysis')
+      .set('Authorization', authHeader('ADMIN'));
+    expect(dbAnalysis.status).toBe(200);
+
+    const exam = await request(app).get('/api/admin/exam-summary').set('Authorization', authHeader('ADMIN'));
+    expect(exam.status).toBe(200);
+    expect(exam.body?.summary?.total).toBe(5);
+  });
+
+  it('forbids non-admin access to all admin endpoints', async () => {
+    const endpoints = [
+      { method: 'get', path: '/api/admin/app-status' },
+      { method: 'get', path: '/api/admin/completion' },
+      { method: 'get', path: '/api/admin/external-health' },
+      { method: 'get', path: '/api/admin/db-stats' },
+      { method: 'get', path: '/api/admin/db-analysis' },
+      { method: 'get', path: '/api/admin/exam-summary' },
+    ] as const;
+
+    const agent = request(app) as any;
+    for (const ep of endpoints) {
+      const res = await agent[ep.method](ep.path).set('Authorization', authHeader('CONSULTANT'));
+      expect(res.status, `${ep.path} should be 403 for CONSULTANT`).toBe(403);
+    }
+  });
+
+  it('returns 500 when getMetricsText throws', async () => {
+    process.env.METRICS_BEARER_TOKEN = 'secret-token';
+    mocks.getMetricsText.mockRejectedValueOnce(new Error('prometheus error'));
+
+    const res = await request(app).get('/metrics').set('Authorization', 'Bearer secret-token');
+    expect(res.status).toBe(500);
   });
 });

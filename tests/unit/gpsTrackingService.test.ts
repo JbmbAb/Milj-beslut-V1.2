@@ -28,12 +28,7 @@ vi.mock('../../server/logger', () => ({
   logger: mocks.logger,
 }));
 
-import {
-  addGpsPosition,
-  clearGpsTrack,
-  getGpsTrack,
-  getLatestPosition,
-} from '../../server/services/gpsTrackingService';
+import { addGpsPosition, getGpsTrack } from '../../legacy/experimental/gpsTrackingService';
 
 describe('gpsTrackingService', () => {
   beforeEach(() => {
@@ -148,23 +143,36 @@ describe('gpsTrackingService', () => {
     expect(track.totalDistance).toBeGreaterThan(0);
   });
 
-  it('returns latest positions and clears tracks', async () => {
-    mocks.getLatestPosition.mockResolvedValueOnce(null).mockResolvedValueOnce({
-      id: 'gps-latest',
-      bookingId: 'booking-1',
-      lat: 59.33,
-      lng: 18.07,
-      timestamp: new Date('2026-01-01T09:10:00.000Z'),
-      hash: 'h-latest',
-      prevHash: 'h2',
+  it('returns zero distance for empty GPS track', async () => {
+    mocks.getGpsTrack.mockResolvedValue([]);
+
+    const track = await getGpsTrack('booking-empty');
+    expect(track.bookingId).toBe('booking-empty');
+    expect(track.positions).toHaveLength(0);
+    expect(track.totalDistance).toBe(0);
+  });
+
+  it('links first GPS position with null prevHash when no prior position exists', async () => {
+    mocks.getLatestPosition.mockResolvedValue(null);
+    mocks.addGpsPosition.mockResolvedValue({
+      id: 'gps-first',
+      bookingId: 'booking-new',
+      lat: 57.7,
+      lng: 12.0,
+      timestamp: new Date('2026-02-01T10:00:00.000Z'),
+      hash: 'first-hash',
+      prevHash: null,
     });
 
-    expect(await getLatestPosition('booking-1')).toBeNull();
+    const position = await addGpsPosition({
+      bookingId: 'booking-new',
+      projectId: 'project-2',
+      lat: 57.7,
+      lng: 12.0,
+      actingUserId: 'user-1',
+    });
 
-    const latest = await getLatestPosition('booking-1');
-    expect(latest?.timestamp).toBe('2026-01-01T09:10:00.000Z');
-
-    await clearGpsTrack('booking-1');
-    expect(mocks.clearGpsTrack).toHaveBeenCalledWith('booking-1');
+    expect(position.prevHash).toBeNull();
+    expect(mocks.addGpsPosition).toHaveBeenCalledWith(expect.objectContaining({ prevHash: null }));
   });
 });

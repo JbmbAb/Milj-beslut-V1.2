@@ -1,29 +1,18 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-// ─── Mock @google/generative-ai before any import ────────────────────────────
-
-const mockGenerateContent = vi.fn();
-const mockGetGenerativeModel = vi.fn(() => ({
-  generateContent: mockGenerateContent,
-  startChat: vi.fn(() => ({
-    sendMessage: vi.fn(async () => ({ response: { text: () => 'chat-reply' } })),
+// ─── Mock Vertex AI gateway (ersätter gamla Gemini SDK-mockar) ──────────────
+vi.mock('../../server/services/vertexAiService', () => ({
+  generateTextWithVertex: vi.fn(async () => ''),
+  generateJsonWithVertex: vi.fn(async () => null),
+  vertexConfigStatus: vi.fn(() => ({
+    configured: false,
+    missing: ['VERTEX_PROJECT_ID'],
+    projectId: null,
+    location: 'europe-west1',
   })),
+  __resetVertexClientForTest: vi.fn(),
 }));
 
-vi.mock('@google/generative-ai', () => ({
-  GoogleGenerativeAI: vi.fn().mockImplementation(() => ({
-    getGenerativeModel: mockGetGenerativeModel,
-  })),
-}));
-
-// Mock complianceRuleEngine (imported by geminiService)
-vi.mock('../../server/services/complianceRuleEngine', () => ({
-  evaluateComplianceRules: vi.fn(() => ({
-    overallStatus: 'COMPLIANT',
-    checks: [],
-    recommendations: [],
-  })),
-}));
 
 // ─── Module under test ────────────────────────────────────────────────────────
 
@@ -41,7 +30,7 @@ import { DecisionType, type Permit } from '../../types';
 
 function basePerm(overrides: Partial<Permit> = {}): Permit {
   return {
-    id: 1,
+    id: '1',
     filename: 'beslut.pdf',
     checksum: 'abc',
     received_date: '2025-01-01',
@@ -77,93 +66,59 @@ describe('serverGenerateText', () => {
   });
 });
 
-// ─── analyzePermitRisk – offline fallback ─────────────────────────────────────
-
+// ─── analyzePermitRisk – kräver live AI-källa ──────────────────────────────────
+//
+// OBS: Tidigare test förväntade "offline fallback" med lokala strängar.
+// Den vägen är avvecklad: utan verifierad AI-källa kastar geminiService
+// `unavailable(...)` enligt regeln att endast BankID får köras som demo.
 describe('analyzePermitRisk', () => {
-  it('returns a non-empty string even without Gemini API key', async () => {
-    const result = await analyzePermitRisk(basePerm());
-    expect(typeof result).toBe('string');
-    expect(result.length).toBeGreaterThan(0);
+  it('kastar när ingen AI-källa finns (ingen lokal fallback)', async () => {
+    await expect(analyzePermitRisk(basePerm())).rejects.toThrow(/verifierad AI-källa/);
   });
 
-  it('offline fallback mentions higher risk for AVSLAG decision', async () => {
-    const result = await analyzePermitRisk(basePerm({ decision_type: DecisionType.AVSLAG }));
-    expect(result.toLowerCase()).toMatch(/risk|avslag|offline/i);
-  });
-
-  it('offline fallback mentions normal risk for BIFALL decision', async () => {
-    const result = await analyzePermitRisk(basePerm({ decision_type: DecisionType.BIFALL }));
-    expect(result.toLowerCase()).toMatch(/risk|normal|offline/i);
+  it('kastar även för AVSLAG-beslut utan AI-källa', async () => {
+    await expect(analyzePermitRisk(basePerm({ decision_type: DecisionType.AVSLAG }))).rejects.toThrow(
+      /verifierad AI-källa/,
+    );
   });
 });
-
-// ─── chatWithPermit – offline fallback ───────────────────────────────────────
 
 describe('chatWithPermit', () => {
-  it('returns a non-empty string offline', async () => {
-    const result = await chatWithPermit(basePerm(), 'Vad krävs?', []);
-    expect(typeof result).toBe('string');
-    expect(result.length).toBeGreaterThan(0);
-  });
-
-  it('offline response mentions property_id', async () => {
-    const result = await chatWithPermit(basePerm({ property_id: 'PROP-XYZ' }), 'Fråga?', []);
-    expect(result).toContain('PROP-XYZ');
+  it('kastar när ingen AI-källa finns (ingen offline-generator)', async () => {
+    await expect(chatWithPermit(basePerm(), 'Vad krävs?', [])).rejects.toThrow(/verifierad AI-källa/);
   });
 });
-
-// ─── validateLabData – offline fallback ──────────────────────────────────────
 
 describe('validateLabData', () => {
-  it('returns a LabDataValidationResult offline', async () => {
-    const result = await validateLabData('{"arsenik": 12, "bly": 50}');
-    expect(result).toBeDefined();
-    expect(['PASS', 'FAIL', 'UNKNOWN']).toContain(result?.status);
-  });
-
-  it('returns UNKNOWN when offline', async () => {
-    const result = await validateLabData('{}');
-    expect(result?.status).toBe('UNKNOWN');
-  });
-
-  it('offline result has expected shape', async () => {
-    const result = await validateLabData('some lab data');
-    expect(Array.isArray(result?.parameters_exceeding_limits)).toBe(true);
-    expect(typeof result?.applicable_guidelines).toBe('string');
-    expect(typeof result?.environmental_risk_level).toBe('string');
+  it('kastar (eller returnerar null) när ingen AI-källa finns', async () => {
+    // validateLabData kan antingen kasta eller returnera null beroende på
+    // kodväg, men ska aldrig returnera en syntetisk PASS/FAIL-bedömning.
+    let result: unknown = null;
+    try {
+      result = await validateLabData('{"arsenik": 12}');
+    } catch (err) {
+      expect((err as Error).message).toMatch(/verifierad AI-källa/);
+      return;
+    }
+    expect(result).toBeNull();
   });
 });
 
-// ─── analyzeLogisticsCompliance – offline fallback ───────────────────────────
-
 describe('analyzeLogisticsCompliance', () => {
-  it('returns a non-null result offline', async () => {
-    const result = await analyzeLogisticsCompliance({
-      wasteCode: '17 05 04',
-      volume: '500 ton',
-      storageDuration: '30 days',
-      location: 'Solna',
-      receivingFacility: 'Stena Recycling',
-    });
-    expect(result).toBeDefined();
-  });
-
-  it('offline result has expected shape', async () => {
-    const result = await analyzeLogisticsCompliance({
-      wasteCode: '20 01 21*',
-      volume: '10 ton',
-      storageDuration: '7 days',
-      location: 'Malmö',
-      receivingFacility: 'SAKAB',
-    });
-    if (result) {
-      expect(typeof result.storage_compliance).toBe('string');
-      expect(Array.isArray(result.transport_requirements)).toBe(true);
-      expect(Array.isArray(result.environmental_risks)).toBe(true);
-      expect(Array.isArray(result.recommended_actions)).toBe(true);
-    } else {
-      // null is also valid when offline
-      expect(result).toBeNull();
+  it('kastar eller returnerar null utan AI-källa (ingen syntetisk bedömning)', async () => {
+    let result: unknown = null;
+    try {
+      result = await analyzeLogisticsCompliance({
+        wasteCode: '17 05 04',
+        volume: '500 ton',
+        storageDuration: '30 days',
+        location: 'Solna',
+        receivingFacility: 'Stena Recycling',
+      });
+    } catch (err) {
+      expect((err as Error).message).toMatch(/verifierad AI-källa/);
+      return;
     }
+    expect(result).toBeNull();
   });
 });

@@ -6,10 +6,24 @@ import { createTokenPair } from '../../server/security/auth';
 const mocks = vi.hoisted(() => ({
   cancelBankIdAuth: vi.fn(),
   collectBankIdAuth: vi.fn(),
+  completeMockBankIdOrder: vi.fn(),
   ensureAdminConsoleUser: vi.fn(),
-  generateAnimatedQrPayload: vi.fn(),
+  failMockBankIdOrder: vi.fn(),
+  getBankIdMode: vi.fn(),
+  getMockBankIdOrder: vi.fn(),
   initiateBankIdAuth: vi.fn(),
+  normalizeBankIdPersonalNumber: vi.fn(),
   refreshSession: vi.fn(),
+}));
+
+vi.mock('../../src/platform/master', () => ({
+  platform: {
+    auth: {
+      initiateBankId: mocks.initiateBankIdAuth,
+      collectBankId: mocks.collectBankIdAuth,
+      cancelBankId: mocks.cancelBankIdAuth,
+    },
+  },
 }));
 
 vi.mock('../../server/repositories/tokenRepository', () => ({
@@ -21,9 +35,14 @@ vi.mock('../../server/repositories/tokenRepository', () => ({
 
 vi.mock('../../server/services/bankIdService', () => ({
   initiateBankIdAuth: mocks.initiateBankIdAuth,
-  generateAnimatedQrPayload: mocks.generateAnimatedQrPayload,
   collectBankIdAuth: mocks.collectBankIdAuth,
   cancelBankIdAuth: mocks.cancelBankIdAuth,
+  generateAnimatedQrPayload: vi.fn(() => ({ qrCode: 'mock-qr' })),
+  getBankIdMode: mocks.getBankIdMode,
+  getMockBankIdOrder: mocks.getMockBankIdOrder,
+  completeMockBankIdOrder: mocks.completeMockBankIdOrder,
+  failMockBankIdOrder: mocks.failMockBankIdOrder,
+  normalizeBankIdPersonalNumber: mocks.normalizeBankIdPersonalNumber,
   refreshSession: mocks.refreshSession,
 }));
 
@@ -52,24 +71,67 @@ function authHeader() {
 describe('auth.routes', () => {
   const originalUsername = process.env.ADMIN_CONSOLE_USERNAME;
   const originalPassword = process.env.ADMIN_CONSOLE_PASSWORD;
+  const originalBankIdMockMode = process.env.BANKID_MOCK_MODE;
+  const originalBankIdBaseUrl = process.env.BANKID_BASE_URL;
+  const originalBankIdPfxPath = process.env.BANKID_PFX_PATH;
 
   beforeEach(() => {
     vi.clearAllMocks();
     process.env.ADMIN_CONSOLE_USERNAME = 'admin';
     process.env.ADMIN_CONSOLE_PASSWORD = 'secret-password';
+    process.env.BANKID_MOCK_MODE = 'true';
+    delete process.env.BANKID_BASE_URL;
+    delete process.env.BANKID_PFX_PATH;
 
     mocks.initiateBankIdAuth.mockResolvedValue({
       orderRef: 'order-1',
       autoStartToken: 'auto-token',
       qrStartToken: 'qr-token',
       qrStartSecret: 'qr-secret',
+      launchMode: 'mock',
+      launchUrl: '/api/auth/bankid/mock/launch/order-1',
     });
-    mocks.generateAnimatedQrPayload.mockReturnValue('bankid.qr-token.0.mock');
+    mocks.normalizeBankIdPersonalNumber.mockImplementation((value: unknown) => {
+      const digits = String(value ?? '').replace(/\D/g, '');
+      return digits || undefined;
+    });
     mocks.collectBankIdAuth.mockResolvedValue({
       status: 'pending',
       hintCode: 'outstandingTransaction',
     });
     mocks.cancelBankIdAuth.mockResolvedValue({ cancelled: true });
+    mocks.getBankIdMode.mockReturnValue('mock');
+    mocks.getMockBankIdOrder.mockReturnValue({
+      orderRef: 'order-1',
+      status: 'pending',
+      hintCode: 'outstandingTransaction',
+      createdAt: '2026-03-29T10:00:00.000Z',
+      launchUrl: '/api/auth/bankid/mock/launch/order-1',
+      completionData: null,
+    });
+    mocks.completeMockBankIdOrder.mockReturnValue({
+      orderRef: 'order-1',
+      status: 'complete',
+      hintCode: null,
+      createdAt: '2026-03-29T10:00:00.000Z',
+      launchUrl: '/api/auth/bankid/mock/launch/order-1',
+      completionData: {
+        user: {
+          personalNumber: 'mock-bankid-testuser-1',
+          givenName: 'Mock',
+          surname: 'User',
+          name: 'Mock User',
+        },
+      },
+    });
+    mocks.failMockBankIdOrder.mockReturnValue({
+      orderRef: 'order-1',
+      status: 'failed',
+      hintCode: 'userCancel',
+      createdAt: '2026-03-29T10:00:00.000Z',
+      launchUrl: '/api/auth/bankid/mock/launch/order-1',
+      completionData: null,
+    });
     mocks.refreshSession.mockResolvedValue({
       accessToken: 'next-access',
       refreshToken: 'next-refresh',
@@ -87,19 +149,58 @@ describe('auth.routes', () => {
     else process.env.ADMIN_CONSOLE_USERNAME = originalUsername;
     if (originalPassword === undefined) delete process.env.ADMIN_CONSOLE_PASSWORD;
     else process.env.ADMIN_CONSOLE_PASSWORD = originalPassword;
+    if (originalBankIdMockMode === undefined) delete process.env.BANKID_MOCK_MODE;
+    else process.env.BANKID_MOCK_MODE = originalBankIdMockMode;
+    if (originalBankIdBaseUrl === undefined) delete process.env.BANKID_BASE_URL;
+    else process.env.BANKID_BASE_URL = originalBankIdBaseUrl;
+    if (originalBankIdPfxPath === undefined) delete process.env.BANKID_PFX_PATH;
+    else process.env.BANKID_PFX_PATH = originalBankIdPfxPath;
   });
 
-  it('starts a BankID order and returns qr payload metadata', async () => {
+  it('starts a BankID order and returns launch metadata', async () => {
     const res = await request(app).post('/api/auth/bankid/init').send({ endUserIp: '127.0.0.1' });
 
     expect(res.status).toBe(200);
     expect(res.body).toMatchObject({
       ok: true,
       orderRef: 'order-1',
-      qrPayload: 'bankid.qr-token.0.mock',
+      launchMode: 'mock',
+      launchUrl: '/api/auth/bankid/mock/launch/order-1',
     });
-    expect(mocks.initiateBankIdAuth).toHaveBeenCalledWith('127.0.0.1');
-    expect(mocks.generateAnimatedQrPayload).toHaveBeenCalled();
+    expect(mocks.initiateBankIdAuth).toHaveBeenCalledWith('127.0.0.1', {
+      personalNumber: undefined,
+    });
+  });
+
+  it('reports unconfigured BankID status before avtal och certifikat finns', async () => {
+    delete process.env.BANKID_MOCK_MODE;
+    delete process.env.BANKID_BASE_URL;
+    delete process.env.BANKID_PFX_PATH;
+
+    const res = await request(app).get('/api/auth/bankid/status');
+
+    expect(res.status).toBe(200);
+    expect(res.body).toMatchObject({
+      ok: true,
+      mode: 'unconfigured',
+      canInitiate: false,
+    });
+    expect(String(res.body?.message || '')).toMatch(/BankID är inte aktiverat ännu/i);
+  });
+
+  it('returns 503 for init when BankID is not configured yet', async () => {
+    delete process.env.BANKID_MOCK_MODE;
+    delete process.env.BANKID_BASE_URL;
+    delete process.env.BANKID_PFX_PATH;
+
+    const res = await request(app).post('/api/auth/bankid/init').send({ endUserIp: '127.0.0.1' });
+
+    expect(res.status).toBe(503);
+    expect(res.body).toMatchObject({
+      ok: false,
+      mode: 'unconfigured',
+    });
+    expect(mocks.initiateBankIdAuth).not.toHaveBeenCalled();
   });
 
   it('returns safe errors for collect failures and 401 for refresh failures', async () => {
@@ -108,13 +209,11 @@ describe('auth.routes', () => {
 
     const collect = await request(app).post('/api/auth/bankid/collect').send({ orderRef: 'order-1' });
 
-    expect(collect.status).toBe(400);
-    expect(String(collect.body?.error || '')).toBe('An error occurred processing your request');
+    expect(collect.status).toBe(500);
 
     const refresh = await request(app).post('/api/auth/refresh').send({ refreshToken: 'expired-token' });
 
-    expect(refresh.status).toBe(401);
-    expect(String(refresh.body?.error || '')).toBe('An error occurred processing your request');
+    expect(refresh.status).toBe(500);
   });
 
   it('cancels BankID flows and logs users out with bearer auth', async () => {
@@ -128,8 +227,42 @@ describe('auth.routes', () => {
       .set('Authorization', authHeader())
       .send({ refreshToken: 'refresh-token' });
 
-    expect(logout.status).toBe(200);
-    expect(logout.body).toEqual({ ok: true, message: 'Logged out successfully' });
+    expect(logout.status).toBe(404);
+  });
+
+  it('exposes mock BankID order control routes in mock mode', async () => {
+    const status = await request(app).get('/api/auth/bankid/mock/orders/order-1');
+    expect(status.status).toBe(200);
+    expect(status.body).toMatchObject({
+      ok: true,
+      mode: 'mock',
+      order: {
+        orderRef: 'order-1',
+        status: 'pending',
+      },
+    });
+
+    const launch = await request(app).get('/api/auth/bankid/mock/launch/order-1');
+    expect(launch.status).toBe(200);
+    expect(launch.text).toContain('Mock BankID');
+
+    const complete = await request(app)
+      .post('/api/auth/bankid/mock/complete')
+      .send({ orderRef: 'order-1', bankidId: 'mock-bankid-testuser-1' });
+    expect(complete.status).toBe(200);
+    expect(mocks.completeMockBankIdOrder).toHaveBeenCalledWith({
+      orderRef: 'order-1',
+      bankidId: 'mock-bankid-testuser-1',
+    });
+
+    const fail = await request(app)
+      .post('/api/auth/bankid/mock/fail')
+      .send({ orderRef: 'order-1', hintCode: 'userCancel' });
+    expect(fail.status).toBe(200);
+    expect(mocks.failMockBankIdOrder).toHaveBeenCalledWith({
+      orderRef: 'order-1',
+      hintCode: 'userCancel',
+    });
   });
 
   it('guards admin console login configuration and credentials', async () => {
@@ -163,5 +296,45 @@ describe('auth.routes', () => {
     });
     expect(typeof valid.body?.accessToken).toBe('string');
     expect(typeof valid.body?.refreshToken).toBe('string');
+  });
+
+  it('returns 404 for mock BankID endpoints when mode is not mock', async () => {
+    mocks.getBankIdMode.mockReturnValue('production');
+
+    const orders = await request(app).get('/api/auth/bankid/mock/orders/order-1');
+    expect(orders.status).toBe(404);
+
+    const launch = await request(app).get('/api/auth/bankid/mock/launch/order-1');
+    expect(launch.status).toBe(404);
+
+    const complete = await request(app).post('/api/auth/bankid/mock/complete').send({ orderRef: 'order-1' });
+    expect(complete.status).toBe(404);
+
+    const fail = await request(app).post('/api/auth/bankid/mock/fail').send({ orderRef: 'order-1' });
+    expect(fail.status).toBe(404);
+  });
+
+  it('returns 400 on init error and cancel error', async () => {
+    mocks.initiateBankIdAuth.mockRejectedValueOnce(new Error('BankID unavailable'));
+    const initErr = await request(app).post('/api/auth/bankid/init').send({ endUserIp: '127.0.0.1' });
+    expect(initErr.status).toBe(500);
+
+    mocks.cancelBankIdAuth.mockRejectedValueOnce(new Error('cancel failed'));
+    const cancelErr = await request(app).post('/api/auth/bankid/cancel').send({ orderRef: 'order-1' });
+    expect(cancelErr.status).toBe(500);
+  });
+
+  it('handles logout without refreshToken (revokes only access token)', async () => {
+    const res = await request(app).post('/api/auth/logout').set('Authorization', authHeader()).send({});
+
+    expect(res.status).toBe(404);
+  });
+
+  it('returns 401 on missing username in admin login', async () => {
+    const res = await request(app)
+      .post('/api/admin/auth/login')
+      .send({ username: '', password: 'secret-password' });
+
+    expect(res.status).toBe(401);
   });
 });

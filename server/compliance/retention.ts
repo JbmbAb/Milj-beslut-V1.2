@@ -1,6 +1,6 @@
 export interface ProjectRetentionRecord {
   id: string;
-  status: "ACTIVE" | "CLOSED" | "ARCHIVED";
+  status: 'ACTIVE' | 'CLOSED' | 'ARCHIVED';
   closedAt: Date | null;
   retentionUntil: Date | null;
 }
@@ -14,7 +14,7 @@ export function findProjectsReadyForDeletion(
   now: Date = new Date(),
 ): ProjectRetentionRecord[] {
   return projects.filter((project) => {
-    if (project.status === "ACTIVE") {
+    if (project.status === 'ACTIVE') {
       return false;
     }
     if (!project.retentionUntil) {

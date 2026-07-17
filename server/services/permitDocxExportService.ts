@@ -25,7 +25,7 @@ function linesToParagraphs(text: string): Paragraph[] {
         new Paragraph({
           heading: HeadingLevel.HEADING_2,
           children: [new TextRun({ text: headingText, bold: true })],
-        })
+        }),
       );
       continue;
     }
@@ -49,10 +49,14 @@ export async function buildPermitDocxBuffer(input: {
         children: [
           new Paragraph({
             heading: HeadingLevel.HEADING_1,
-            children: [new TextRun({ text: `Miljöbeslut.se - ${input.documentType}`, bold: true })],
+            children: [new TextRun({ text: `Miljobeslut.se - ${input.documentType}`, bold: true })],
           }),
-          new Paragraph(`Genererad: ${generatedAt.toLocaleDateString('sv-SE')} ${generatedAt.toLocaleTimeString('sv-SE')}`),
-          new Paragraph('Denna rapport är framtagen av Miljöbeslut.se som beslutsstöd. Extern juridisk granskning krävs före slutlig inlämning till myndighet.'),
+          new Paragraph(
+            `Genererad: ${generatedAt.toLocaleDateString('sv-SE')} ${generatedAt.toLocaleTimeString('sv-SE')}`,
+          ),
+          new Paragraph(
+            'Denna rapport är framtagen av Miljobeslut.se som beslutsstöd. Extern juridisk granskning krävs före slutlig inlämning till myndighet.',
+          ),
           new Paragraph(''),
           ...linesToParagraphs(input.draftText),
         ],

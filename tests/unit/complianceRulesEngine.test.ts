@@ -3,7 +3,7 @@ import {
   evaluateProjectCompliance,
   type ComplianceMetrics,
   type RuleEngineResult,
-} from '../../services/complianceRulesEngine';
+} from '../../server/services/complianceRuleEngine';
 
 // ─── helpers ─────────────────────────────────────────────────────────────────
 

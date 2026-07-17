@@ -5,29 +5,29 @@ import FormManager from '../../components/FormManager';
 describe('FormManager', () => {
   it('renders the heading', () => {
     render(<FormManager />);
-    expect(screen.getByText('Blankett-hantering')).toBeInTheDocument();
+    expect(screen.getByText(/Blankett-hantering\./i)).toBeInTheDocument();
   });
 
-  it('shows the blocked state heading', () => {
+  it('shows the draft state heading', () => {
     render(<FormManager />);
-    expect(screen.getByText('Ingen verifierad blankettmall tillgänglig')).toBeInTheDocument();
+    expect(screen.getByText(/UTKAST - EJ VERIFIERAT/i)).toBeInTheDocument();
   });
 
-  it('shows the requirements for re-activation', () => {
+  it('shows the core section headings', () => {
     render(<FormManager />);
-    expect(screen.getByText(/Verifierad formulärkälla/i)).toBeInTheDocument();
-    expect(screen.getByText(/Spårbar versionshantering/i)).toBeInTheDocument();
-    expect(screen.getByText(/Human-in-the-loop/i)).toBeInTheDocument();
+    expect(screen.getByText(/Verksamhetsutövare/i)).toBeInTheDocument();
+    expect(screen.getByText(/Platsbeskrivning/i)).toBeInTheDocument();
+    expect(screen.getByText(/Teknisk Beskrivning/i)).toBeInTheDocument();
   });
 
-  it('shows the blocked label', () => {
+  it('shows the manual mode label', () => {
     render(<FormManager />);
-    expect(screen.getByText(/Blankettmotor blockerad/i)).toBeInTheDocument();
+    expect(screen.getByText(/Manuellt läge aktivt/i)).toBeInTheDocument();
   });
 
-  it('does not render any form inputs (no fake data)', () => {
+  it('renders form inputs for manual completion', () => {
     const { container } = render(<FormManager />);
     const inputs = container.querySelectorAll('input, select, textarea');
-    expect(inputs.length).toBe(0);
+    expect(inputs.length).toBeGreaterThan(0);
   });
 });

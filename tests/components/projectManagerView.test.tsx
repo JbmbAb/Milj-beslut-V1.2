@@ -1,7 +1,16 @@
 import React from 'react';
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { render, screen } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { createDefaultProjectPlan } from '../../services/projectStructure';
+
+const queryClient = new QueryClient({
+  defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
+});
+
+function renderWithQuery(ui: React.ReactElement) {
+  return render(<QueryClientProvider client={queryClient}>{ui}</QueryClientProvider>);
+}
 
 const defaultPlan = createDefaultProjectPlan();
 
@@ -63,50 +72,51 @@ describe('ProjectManagerView', () => {
   // ── plan tab ─────────────────────────────────────────────────────────────
 
   it('renders plan name input in plan tab', () => {
-    render(<ProjectManagerView activeTab="plan" />);
+    renderWithQuery(<ProjectManagerView activeTab="plan" />);
     const input = screen.getByPlaceholderText('Projektnamn...');
     expect(input).toBeInTheDocument();
   });
 
   it('renders Sammanstall Styrdokument button in plan tab', () => {
-    render(<ProjectManagerView activeTab="plan" />);
+    renderWithQuery(<ProjectManagerView activeTab="plan" />);
     expect(screen.getByText(/Sammanst.*ll Styrdokument/i)).toBeInTheDocument();
   });
 
-  it('renders Utvardera gates button in plan tab', () => {
-    render(<ProjectManagerView activeTab="plan" />);
-    expect(screen.getByText(/Utv.*rdera gates/i)).toBeInTheDocument();
+  it('renders stop gates section in plan tab', () => {
+    renderWithQuery(<ProjectManagerView activeTab="plan" />);
+    expect(screen.getByText(/Ansvars-spärrar \(Stop Gates\)/i)).toBeInTheDocument();
   });
 
-  it('renders gates stats in plan tab', () => {
-    render(<ProjectManagerView activeTab="plan" />);
-    expect(screen.getByText(/Gates:/i)).toBeInTheDocument();
+  it('renders default phase titles in plan tab', () => {
+    renderWithQuery(<ProjectManagerView activeTab="plan" />);
+    expect(screen.getByText(/Initiation and requirements/i)).toBeInTheDocument();
   });
 
   // ── timeline tab ─────────────────────────────────────────────────────────
 
   it('renders GanttChart in timeline tab', () => {
-    render(<ProjectManagerView activeTab="timeline" />);
+    renderWithQuery(<ProjectManagerView activeTab="timeline" />);
     expect(screen.getByTestId('gantt-chart')).toBeInTheDocument();
   });
 
   // ── org chart inside plan tab ──────────────────────────────────────────────
 
   it('renders ProjectOrgChart in plan tab', () => {
-    render(<ProjectManagerView activeTab="plan" />);
+    renderWithQuery(<ProjectManagerView activeTab="plan" />);
     expect(screen.getByTestId('project-org-chart')).toBeInTheDocument();
   });
 
   // ── risks tab ─────────────────────────────────────────────────────────────
 
-  it('renders Riskhanteringsplan heading in risks tab', () => {
-    render(<ProjectManagerView activeTab="risks" />);
-    expect(screen.getByText(/Riskhanteringsplan/i)).toBeInTheDocument();
+  it('risks tab renders shell without plan or timeline panels', () => {
+    renderWithQuery(<ProjectManagerView activeTab="risks" />);
+    expect(screen.queryByTestId('project-manager-plan')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('gantt-chart')).not.toBeInTheDocument();
   });
 
   // ── unknown tab (defaults to plan view) ──────────────────────────────────
 
   it('does not crash for unknown activeTab', () => {
-    expect(() => render(<ProjectManagerView activeTab="unknown" />)).not.toThrow();
+    expect(() => renderWithQuery(<ProjectManagerView activeTab="unknown" />)).not.toThrow();
   });
 });

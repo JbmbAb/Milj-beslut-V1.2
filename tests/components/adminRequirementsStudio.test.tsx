@@ -26,7 +26,7 @@ const renderStudio = (token = 'test-token') =>
 describe('AdminRequirementsStudio', () => {
   it('renders studio heading', () => {
     renderStudio();
-    expect(screen.getByText(/Examensrapport Studio/i)).toBeInTheDocument();
+    expect(screen.getByText(/Kravrapport Studio/i)).toBeInTheDocument();
   });
 
   it('renders sub-heading text', () => {
@@ -67,6 +67,6 @@ describe('AdminRequirementsStudio', () => {
 
   it('renders with empty token without crashing', () => {
     renderStudio('');
-    expect(screen.getByText(/Examensrapport Studio/i)).toBeInTheDocument();
+    expect(screen.getByText(/Kravrapport Studio/i)).toBeInTheDocument();
   });
 });

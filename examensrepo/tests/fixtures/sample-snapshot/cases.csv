@@ -1,3 +1,0 @@
-CaseId;DocumentId;ProjectId;OrganisationId;Kommun;Myndighetstyp;Myndighet;Diarienummer;Dokumenttyp;Dokumentdatum;KallaFil;Kallrubrik;CaseReviewStatus;ValidatedBy;ValidatedAt;Notes
-CASE-001;DOC-001;PROJ-1;ORG-1;Uppsala;Kommun;Uppsala kommun;DNR-1;Anmalan;2026-01-10;d1.pdf;Rubrik 1;VERIFIED;analytiker;2026-03-01;ok
-CASE-002;DOC-002;PROJ-1;ORG-1;Vasteras;Kommun;Vasteras kommun;DNR-2;Beslut;2026-01-11;d2.pdf;Rubrik 2;VERIFIED;analytiker;2026-03-01;ok

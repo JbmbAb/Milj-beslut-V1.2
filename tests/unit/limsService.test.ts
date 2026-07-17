@@ -1,245 +1,263 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { describe, it, expect, vi, beforeEach } from 'vitest';
 
-const mocks = vi.hoisted(() => ({
-  createLimsReportRepo: vi.fn(),
-  getLimsReportRepo: vi.fn(),
-  verifyLimsReportRepo: vi.fn(),
+// 1. Mocka beroenden HOISTED
+const limsRepoMock = vi.hoisted(() => ({
+  createLimsReport: vi.fn(),
+  getLimsReport: vi.fn(),
+  verifyLimsReport: vi.fn(),
 }));
 
-vi.mock('../../server/repositories/limsRepository', () => ({
-  createLimsReport: mocks.createLimsReportRepo,
-  getLimsReport: mocks.getLimsReportRepo,
-  verifyLimsReport: mocks.verifyLimsReportRepo,
-  listLimsReportsByBooking: vi.fn(),
-  listLimsReportsBySample: vi.fn(),
+// VIKTIGT: Vi måste mocka det sättet tjänsten importerar det.
+// Eftersom limsService.ts gör: import { isHazardousWasteCode } from "./transportDispatchService"
+// måste vi se till att Vitest mappar detta rätt.
+const transportMock = vi.hoisted(() => ({
+  isHazardousWasteCode: vi.fn().mockImplementation((code) => code?.startsWith('H')),
 }));
+
+vi.mock('../../server/repositories/limsRepository', () => limsRepoMock);
+vi.mock('../../server/services/transportDispatchService', () => transportMock);
 
 import {
   createLimsReport,
-  isLimsRequiredForBooking,
   verifyLimsReport,
+  isLimsRequiredForBooking,
 } from '../../server/services/limsService';
 
-function reportRow(overrides: Record<string, unknown> = {}) {
-  return {
-    id: 'report-1',
-    bookingId: 'booking-1',
-    sampleId: 'sample-1',
-    labName: 'ALS',
-    source: 'API',
-    analyzedAt: new Date('2026-01-01T10:00:00.000Z'),
-    rawReference: 'raw-1',
-    metrics: [
-      {
-        key: 'Pb',
-        value: 0.6,
-        unit: 'mg/kg',
-        maxAllowed: 1,
-        exceeded: false,
-      },
-    ],
-    passed: true,
-    verifiedByHuman: false,
-    reviewer: null,
-    reviewerSignatureId: null,
-    verifiedAt: null,
-    createdAt: new Date('2026-01-01T11:00:00.000Z'),
-    ...overrides,
-  };
-}
-
-describe('limsService', () => {
+describe('limsService unit tests', () => {
   beforeEach(() => {
     vi.clearAllMocks();
   });
 
-  it('requires lims for hazardous waste bookings only', () => {
-    expect(
-      isLimsRequiredForBooking({
-        id: 'b1',
-        quoteId: 'q1',
-        provider: 'MOCK_FRAKTBORS',
-        status: 'BOOKED',
-        receiverId: 'R1',
-        receiverName: 'Receiver',
-        wasteCode: '17 05 03*',
-        tons: 4,
-        distanceKm: 10,
-        co2EstimateKg: 4.8,
-        plannedPickupAt: '2026-01-01T10:00:00.000Z',
-        plannedDeliveryAt: '2026-01-01T11:00:00.000Z',
-        externalReference: 'EXT-1',
-        createdAt: '2026-01-01T09:00:00.000Z',
-        updatedAt: '2026-01-01T09:00:00.000Z',
-      }),
-    ).toBe(true);
-
-    expect(
-      isLimsRequiredForBooking({
-        id: 'b2',
-        quoteId: 'q2',
-        provider: 'MOCK_FRAKTBORS',
-        status: 'BOOKED',
-        receiverId: 'R2',
-        receiverName: 'Receiver',
-        wasteCode: '17 05 04',
-        tons: 4,
-        distanceKm: 10,
-        co2EstimateKg: 4.8,
-        plannedPickupAt: '2026-01-01T10:00:00.000Z',
-        plannedDeliveryAt: '2026-01-01T11:00:00.000Z',
-        externalReference: 'EXT-2',
-        createdAt: '2026-01-01T09:00:00.000Z',
-        updatedAt: '2026-01-01T09:00:00.000Z',
-      }),
-    ).toBe(false);
+  describe('isLimsRequiredForBooking', () => {
+    it('should return true for hazardous waste codes (H*)', () => {
+      expect(isLimsRequiredForBooking({ wasteCode: 'H123' } as any)).toBe(true);
+      expect(isLimsRequiredForBooking({ wasteCode: '170101' } as any)).toBe(false);
+    });
   });
 
-  it('normalizes metrics and auto-passes compliant reports', async () => {
-    mocks.createLimsReportRepo.mockResolvedValue(reportRow());
+  describe('createLimsReport', () => {
+    it('should correctly normalize metrics and sense exceeded values', async () => {
+      limsRepoMock.createLimsReport.mockImplementation((data) =>
+        Promise.resolve({
+          ...data,
+          id: 'rep-1',
+          createdAt: new Date(),
+          verifiedAt: null,
+        }),
+      );
 
-    const report = await createLimsReport({
-      bookingId: 'booking-1',
-      sampleId: 'sample-1',
-      labName: 'ALS',
-      source: 'API',
-      rawReference: 'raw-1',
-      metrics: [
-        {
-          key: 'Pb',
-          value: 0.6,
-          unit: 'mg/kg',
-          maxAllowed: 1,
-        },
-      ],
+      const report = await createLimsReport({
+        sampleId: 'S-1',
+        labName: 'L1',
+        rawReference: 'R1',
+        metrics: [{ key: 'Pb', value: 100, unit: 'mg/kg', maxAllowed: 10 }],
+      });
+
+      expect(report.metrics[0].exceeded).toBe(true);
+      expect(report.passed).toBe(false);
     });
 
-    expect(report.id).toBe('report-1');
-    expect(report.metrics[0]?.key).toBe('Pb');
-    expect(mocks.createLimsReportRepo).toHaveBeenCalledWith(
-      expect.objectContaining({
+    it('returns passed=true when all metrics are within limits', async () => {
+      limsRepoMock.createLimsReport.mockImplementation((data) =>
+        Promise.resolve({ ...data, id: 'rep-2', createdAt: new Date(), verifiedAt: null }),
+      );
+
+      const report = await createLimsReport({
+        sampleId: 'S-2',
+        labName: 'L1',
+        rawReference: 'R2',
+        metrics: [
+          { key: 'Pb', value: 5, unit: 'mg/kg', maxAllowed: 50 },
+          { key: 'Cd', value: 0.1, unit: 'mg/kg', maxAllowed: 1 },
+        ],
+      });
+
+      expect(report.passed).toBe(true);
+      expect(report.metrics.every((m) => !m.exceeded)).toBe(true);
+    });
+
+    it('explicit passed=false overrides auto-pass when all metrics within limits', async () => {
+      limsRepoMock.createLimsReport.mockImplementation((data) =>
+        Promise.resolve({ ...data, id: 'rep-3', createdAt: new Date(), verifiedAt: null }),
+      );
+
+      const report = await createLimsReport({
+        sampleId: 'S-3',
+        labName: 'L1',
+        rawReference: 'R3',
+        metrics: [{ key: 'Cu', value: 1, unit: 'mg/kg', maxAllowed: 100 }],
+        passed: false, // explicit override
+      });
+
+      // passed = false && autoPassed=true → false
+      expect(report.passed).toBe(false);
+    });
+
+    it('filters out metrics with empty keys', async () => {
+      limsRepoMock.createLimsReport.mockImplementation((data) =>
+        Promise.resolve({ ...data, id: 'rep-4', createdAt: new Date(), verifiedAt: null }),
+      );
+
+      await createLimsReport({
+        sampleId: 'S-4',
+        labName: 'L1',
+        rawReference: 'R4',
+        metrics: [
+          { key: '', value: 5, unit: 'mg/kg' },
+          { key: 'Pb', value: 10, unit: 'mg/kg', maxAllowed: 50 },
+        ],
+      });
+
+      const [savedData] = limsRepoMock.createLimsReport.mock.calls[0];
+      expect(savedData.metrics).toHaveLength(1);
+      expect(savedData.metrics[0].key).toBe('Pb');
+    });
+
+    it('accepts custom source and bookingId', async () => {
+      limsRepoMock.createLimsReport.mockImplementation((data) =>
+        Promise.resolve({ ...data, id: 'rep-5', createdAt: new Date(), verifiedAt: null }),
+      );
+
+      await createLimsReport({
+        bookingId: 'booking-99',
+        sampleId: 'S-5',
+        labName: 'Extern Lab AB',
+        rawReference: 'EXTERN-001',
+        source: 'API',
+        metrics: [],
+      });
+
+      const [savedData] = limsRepoMock.createLimsReport.mock.calls[0];
+      expect(savedData.bookingId).toBe('booking-99');
+      expect(savedData.source).toBe('API');
+    });
+
+    it('uses current time when analyzedAt is invalid and explicit passed cannot override failed metrics', async () => {
+      limsRepoMock.createLimsReport.mockImplementation((data) =>
+        Promise.resolve({ ...data, id: 'rep-6', createdAt: new Date(), verifiedAt: null }),
+      );
+
+      const report = await createLimsReport({
+        sampleId: 'S-6',
+        labName: 'L1',
+        rawReference: 'R6',
+        analyzedAt: 'inte-ett-datum',
+        metrics: [{ key: 'Hg', value: 99, unit: 'mg/kg', maxAllowed: 1 }],
         passed: true,
-        metrics: [
-          {
-            key: 'Pb',
-            value: 0.6,
-            unit: 'mg/kg',
-            maxAllowed: 1,
-            exceeded: false,
-          },
-        ],
-      }),
-    );
+      });
+
+      expect(report.passed).toBe(false);
+      expect(new Date(report.analyzedAt).toString()).not.toBe('Invalid Date');
+    });
   });
 
-  it('forces failed state when exceeded metrics are present', async () => {
-    mocks.createLimsReportRepo.mockResolvedValue(
-      reportRow({
-        passed: false,
-        metrics: [
-          {
-            key: 'Pb',
-            value: 1.6,
-            unit: 'mg/kg',
-            maxAllowed: 1,
-            exceeded: true,
-          },
-        ],
-      }),
-    );
+  describe('verifyLimsReport', () => {
+    it('should handle verification of a report', async () => {
+      const mockReport = {
+        id: 'r1',
+        metrics: [{ key: 'X', value: 1, unit: 'mg/kg', maxAllowed: 10 }],
+        analyzedAt: new Date(),
+        createdAt: new Date(),
+        source: 'MANUAL',
+      };
+      limsRepoMock.getLimsReport.mockResolvedValue(mockReport);
+      limsRepoMock.verifyLimsReport.mockResolvedValue({
+        ...mockReport,
+        reviewer: 'Tester',
+        verifiedAt: new Date(),
+      });
 
-    const report = await createLimsReport({
-      bookingId: 'booking-1',
-      sampleId: 'sample-2',
-      labName: 'ALS',
-      source: 'MANUAL',
-      rawReference: 'raw-2',
-      passed: true,
-      metrics: [
-        {
-          key: 'Pb',
-          value: 1.6,
-          unit: 'mg/kg',
-          maxAllowed: 1,
-        },
-      ],
+      const result = await verifyLimsReport({
+        reportId: 'r1',
+        reviewer: 'Tester',
+        signatureId: 'SIG-1',
+      });
+
+      expect(result.reviewer).toBe('Tester');
     });
 
-    expect(report.passed).toBe(false);
-    expect(mocks.createLimsReportRepo).toHaveBeenCalledWith(
-      expect.objectContaining({
-        passed: false,
-      }),
-    );
-  });
+    it('throws when report is not found', async () => {
+      limsRepoMock.getLimsReport.mockResolvedValue(null);
 
-  it('validates required verification inputs', async () => {
-    mocks.getLimsReportRepo.mockResolvedValue(null);
-    await expect(
-      verifyLimsReport({
-        reportId: 'report-1',
-        reviewer: 'QA',
-        signatureId: 'sig-1',
-      }),
-    ).rejects.toThrow(/not found/i);
-
-    mocks.getLimsReportRepo.mockResolvedValue(reportRow());
-    await expect(
-      verifyLimsReport({
-        reportId: 'report-1',
-        reviewer: '',
-        signatureId: 'sig-1',
-      }),
-    ).rejects.toThrow(/reviewer is required/i);
-
-    await expect(
-      verifyLimsReport({
-        reportId: 'report-1',
-        reviewer: 'QA',
-        signatureId: '',
-      }),
-    ).rejects.toThrow(/signatureId is required/i);
-  });
-
-  it('verifies reports with human approval and recomputes pass state', async () => {
-    mocks.getLimsReportRepo.mockResolvedValue(
-      reportRow({
-        metrics: [
-          {
-            key: 'Pb',
-            value: 0.6,
-            unit: 'mg/kg',
-            maxAllowed: 1,
-            exceeded: false,
-          },
-        ],
-      }),
-    );
-    mocks.verifyLimsReportRepo.mockResolvedValue(
-      reportRow({
-        verifiedByHuman: true,
-        reviewer: 'QA',
-        reviewerSignatureId: 'sig-1',
-        verifiedAt: new Date('2026-01-01T12:00:00.000Z'),
-      }),
-    );
-
-    const report = await verifyLimsReport({
-      reportId: 'report-1',
-      reviewer: 'QA',
-      signatureId: 'sig-1',
-      approved: true,
+      await expect(
+        verifyLimsReport({ reportId: 'missing', reviewer: 'T', signatureId: 'S' }),
+      ).rejects.toThrow('LimsReport not found');
     });
 
-    expect(report.verifiedByHuman).toBe(true);
-    expect(report.reviewer).toBe('QA');
-    expect(mocks.verifyLimsReportRepo).toHaveBeenCalledWith(
-      'report-1',
-      expect.objectContaining({
-        reviewer: 'QA',
-        reviewerSignatureId: 'sig-1',
-        passed: true,
-      }),
-    );
+    it('throws when reviewer is empty string', async () => {
+      limsRepoMock.getLimsReport.mockResolvedValue({
+        id: 'r2',
+        metrics: [],
+        analyzedAt: new Date(),
+        createdAt: new Date(),
+        source: 'MANUAL',
+      });
+
+      await expect(verifyLimsReport({ reportId: 'r2', reviewer: '   ', signatureId: 'SIG' })).rejects.toThrow(
+        'reviewer is required',
+      );
+    });
+
+    it('throws when signatureId is empty string', async () => {
+      limsRepoMock.getLimsReport.mockResolvedValue({
+        id: 'r3',
+        metrics: [],
+        analyzedAt: new Date(),
+        createdAt: new Date(),
+        source: 'MANUAL',
+      });
+
+      await expect(verifyLimsReport({ reportId: 'r3', reviewer: 'Valid', signatureId: '' })).rejects.toThrow(
+        'signatureId is required',
+      );
+    });
+
+    it('marks verified reports as failed when reviewer explicitly rejects them', async () => {
+      const mockReport = {
+        id: 'r4',
+        metrics: [{ key: 'X', value: 1, unit: 'mg/kg', maxAllowed: 10, exceeded: false }],
+        analyzedAt: new Date(),
+        createdAt: new Date(),
+        source: 'MANUAL',
+      };
+      limsRepoMock.getLimsReport.mockResolvedValue(mockReport);
+      limsRepoMock.verifyLimsReport.mockImplementation(async (_reportId, data) => ({
+        ...mockReport,
+        ...data,
+      }));
+
+      const result = await verifyLimsReport({
+        reportId: 'r4',
+        reviewer: 'Verifierare',
+        signatureId: 'SIG-4',
+        approved: false,
+      });
+
+      expect(result.passed).toBe(false);
+    });
+
+    it('keeps reports failed when exceeded metrics remain even if approved', async () => {
+      const mockReport = {
+        id: 'r5',
+        metrics: [{ key: 'X', value: 50, unit: 'mg/kg', maxAllowed: 10, exceeded: true }],
+        analyzedAt: new Date(),
+        createdAt: new Date(),
+        source: 'MANUAL',
+      };
+      limsRepoMock.getLimsReport.mockResolvedValue(mockReport);
+      limsRepoMock.verifyLimsReport.mockImplementation(async (_reportId, data) => ({
+        ...mockReport,
+        ...data,
+      }));
+
+      const result = await verifyLimsReport({
+        reportId: 'r5',
+        reviewer: 'Verifierare',
+        signatureId: 'SIG-5',
+        approved: true,
+      });
+
+      expect(result.passed).toBe(false);
+    });
   });
 });

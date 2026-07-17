@@ -1,4 +1,4 @@
-import { prisma } from "../db/prisma";
+import { prisma } from '../db/prisma';
 
 export async function createTransportBooking(data: {
   quoteId: string;
@@ -53,15 +53,18 @@ export async function createDriverJournal(data: {
   });
 }
 
-export async function updateDriverJournal(id: string, data: Partial<{
-  endedAt: Date;
-  odometerEndKm: number;
-  status: string;
-  signedByDriver: boolean;
-  signedByReviewer: boolean;
-  driverSignatureId: string;
-  reviewerSignatureId: string;
-}>) {
+export async function updateDriverJournal(
+  id: string,
+  data: Partial<{
+    endedAt: Date;
+    odometerEndKm: number;
+    status: string;
+    signedByDriver: boolean;
+    signedByReviewer: boolean;
+    driverSignatureId: string;
+    reviewerSignatureId: string;
+  }>,
+) {
   return prisma.driverJournal.update({
     where: { id },
     data: { ...data, updatedAt: new Date() },
@@ -71,6 +74,6 @@ export async function updateDriverJournal(id: string, data: Partial<{
 export async function listJournalsForBooking(bookingId: string) {
   return prisma.driverJournal.findMany({
     where: { bookingId },
-    orderBy: { startedAt: "asc" },
+    orderBy: { startedAt: 'asc' },
   });
 }

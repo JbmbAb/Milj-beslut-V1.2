@@ -48,13 +48,13 @@ describe('RequirementChecklist', () => {
   it('renders fallback storageTime when not provided', () => {
     const code = { ...baseCode, requirements: { ...baseCode.requirements, storageTime: undefined } };
     render(<RequirementChecklist code={code} />);
-    expect(screen.getByText(/Max 1 år inomhus/)).toBeInTheDocument();
+    expect(screen.getByText(/Saknas i verifierad kravdata/i)).toBeInTheDocument();
   });
 
   it('renders fallback maxAmount when not provided', () => {
     const code = { ...baseCode, requirements: { ...baseCode.requirements, maxAmount: undefined } };
     render(<RequirementChecklist code={code} />);
-    expect(screen.getByText(/Ej begränsad/)).toBeInTheDocument();
+    expect(screen.getByText(/Saknas i verifierad kravdata/i)).toBeInTheDocument();
   });
 
   it('renders extra citations passed as props', () => {
@@ -72,14 +72,14 @@ describe('RequirementChecklist', () => {
 
   it('shows tooltip on hover over Lagringstid', async () => {
     render(<RequirementChecklist code={baseCode} />);
-    const row = screen.getByText('Lagringstid').closest('[class*="group"]') as HTMLElement;
+    const row = screen.getByText('Lagringstid').closest('.group') as HTMLElement;
     await userEvent.hover(row);
-    expect(screen.getByText(/KÄLLHÄNVISNING/i)).toBeInTheDocument();
+    expect(screen.getByRole('heading', { level: 4, name: /KÄLLHÄNVISNING/i })).toBeInTheDocument();
   });
 
   it('hides tooltip after mouseleave', async () => {
     render(<RequirementChecklist code={baseCode} />);
-    const row = screen.getByText('Lagringstid').closest('[class*="group"]') as HTMLElement;
+    const row = screen.getByText('Lagringstid').closest('.group') as HTMLElement;
     await userEvent.hover(row);
     await userEvent.unhover(row);
     expect(screen.queryByText(/KÄLLHÄNVISNING/i)).not.toBeInTheDocument();

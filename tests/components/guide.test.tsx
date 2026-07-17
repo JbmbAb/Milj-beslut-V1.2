@@ -1,3 +1,4 @@
+import React from 'react';
 import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi } from 'vitest';
@@ -29,7 +30,7 @@ describe('Guide', () => {
 
   it('renders Arbetsordning section', () => {
     renderGuide();
-    expect(screen.getByText(/Arbetsordning for examensunderlag/i)).toBeInTheDocument();
+    expect(screen.getByText(/Arbetsordning for beslutsunderlag/i)).toBeInTheDocument();
   });
 
   // ── Activate DB-session card appears in default state ─────────────────────

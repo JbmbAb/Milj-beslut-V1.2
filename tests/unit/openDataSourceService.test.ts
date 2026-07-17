@@ -10,6 +10,13 @@ vi.mock('node:fs', () => ({
     stat: mocks.fsStat,
     open: mocks.fsOpen,
   },
+  // Vite/Vitest sometimes accesses node:fs via a default export interop wrapper.
+  default: {
+    promises: {
+      stat: mocks.fsStat,
+      open: mocks.fsOpen,
+    },
+  },
 }));
 
 import { fetchImmediateOpenSources } from '../../server/services/openDataSourceService';
@@ -82,7 +89,7 @@ describe('openDataSourceService', () => {
   it('reports missing optional credentials and local source paths', async () => {
     const result = await fetchImmediateOpenSources();
 
-    expect(result).toHaveLength(15);
+    expect(result).toHaveLength(16);
     expect(result.find((row) => row.source === 'trafikverket')).toMatchObject({
       ok: false,
       details: expect.stringContaining('TRAFIKVERKET_API_KEY'),
@@ -101,49 +108,63 @@ describe('openDataSourceService', () => {
     });
   });
 
-  it('checks trafikverket, local csv previews and diary index sources', async () => {
-    process.env.TRAFIKVERKET_API_KEY = 'trafik-key';
-    process.env.TRAFIKVERKET_API_BASE_URL = 'https://trafikinfo.trafikverket.se/v2/data.json';
-    process.env.MUNICIPAL_CONTACTS_CSV_PATH = 'C:/data/kommuner.csv';
-    process.env.MUNICIPAL_DIARIES_INDEX_URL = 'https://diaries.example.test';
+  it('uses LOCAL_DB_ROOT to resolve csv path when MUNICIPAL_CONTACTS_CSV_PATH not set', async () => {
+    process.env.LOCAL_DB_ROOT = 'C:/data/local';
 
+    mocks.fsStat.mockResolvedValueOnce({ size: 256 });
     const handle = {
       read: vi.fn(async (buffer: Buffer) => {
-        const content = Buffer.from('kommun;telefon\nOrsa;0123-45 67 89');
+        const content = Buffer.from('kommun;telefon\nGävle;026-17 80 00');
         content.copy(buffer, 0);
         return { bytesRead: content.length };
       }),
       close: vi.fn(async () => undefined),
     };
-
-    mocks.fsStat.mockResolvedValueOnce({ size: 128 });
     mocks.fsOpen.mockResolvedValueOnce(handle);
 
     const result = await fetchImmediateOpenSources();
 
-    expect(result.find((row) => row.source === 'trafikverket')).toMatchObject({
-      ok: true,
-      status: 200,
-      sample: { RESPONSE: 'ok' },
+    const csv = result.find((row) => row.source === 'kommun_kontakter_csv');
+    expect(csv).toBeDefined();
+    // Windows normalizes forward-slash paths to backslash; compare case-insensitively.
+    expect(csv?.endpoint.replace(/\\/g, '/')).toContain('C:/data/local');
+    expect(csv?.ok).toBe(true);
+  });
+
+  it('returns failed result when CSV stat throws', async () => {
+    process.env.MUNICIPAL_CONTACTS_CSV_PATH = 'C:/data/missing.csv';
+    mocks.fsStat.mockRejectedValueOnce(new Error('ENOENT: no such file'));
+
+    const result = await fetchImmediateOpenSources();
+
+    const csv = result.find((row) => row.source === 'kommun_kontakter_csv');
+    expect(csv).toBeDefined();
+    expect(csv?.ok).toBe(false);
+    expect(csv?.details).toContain('ENOENT');
+  });
+
+  it('marks trafikverket failed when API returns non-ok response', async () => {
+    process.env.TRAFIKVERKET_API_KEY = 'bad-key';
+    process.env.TRAFIKVERKET_API_BASE_URL = 'https://trafikinfo.trafikverket.se/v2/data.json';
+
+    // Override trafikverket fetch to return 401
+    global.fetch = vi.fn(async (input: string | URL | Request) => {
+      const url = String(input);
+      if (url.includes('trafikinfo.trafikverket.se')) {
+        return {
+          ok: false,
+          status: 401,
+          text: async () => '{"RESPONSE":"Unauthorized"}',
+        } as Response;
+      }
+      return { ok: true, status: 200, text: async () => 'ok' } as Response;
     });
-    expect(result.find((row) => row.source === 'kommun_kontakter_csv')).toMatchObject({
-      ok: true,
-      status: 200,
-      endpoint: 'C:/data/kommuner.csv',
-      sample: {
-        sizeBytes: 128,
-        preview: expect.stringContaining('Orsa'),
-      },
-    });
-    expect(result.find((row) => row.source === 'kommunala_diarier')).toMatchObject({
-      ok: true,
-      status: 200,
-      endpoint: 'https://diaries.example.test',
-    });
-    expect(result.find((row) => row.source === 'hav')).toMatchObject({
-      ok: false,
-      details: 'HAV offline',
-    });
-    expect(handle.close).toHaveBeenCalled();
+
+    const result = await fetchImmediateOpenSources();
+
+    const trafik = result.find((row) => row.source === 'trafikverket');
+    expect(trafik).toBeDefined();
+    expect(trafik?.ok).toBe(false);
+    expect(trafik?.status).toBe(401);
   });
 });

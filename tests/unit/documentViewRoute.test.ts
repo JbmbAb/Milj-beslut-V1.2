@@ -25,6 +25,10 @@ vi.mock('../../server/repositories/userRepository', () => ({
   findAuthUserByBankId: vi.fn(async () => null),
 }));
 
+vi.mock('../../server/security/csrf', () => ({
+  csrfProtection: (_req: any, _res: any, next: any) => next(),
+}));
+
 vi.mock('../../server/repositories/tokenRepository', () => ({
   isTokenRevoked: vi.fn(async () => false),
   markRefreshTokenAsUsed: vi.fn(async () => undefined),
@@ -32,20 +36,18 @@ vi.mock('../../server/repositories/tokenRepository', () => ({
   cleanupExpiredTokenRevocations: vi.fn(async () => 0),
 }));
 
-vi.mock('../../server/repositories/projectAccessRepository', () => ({
+vi.mock('../../server/modules/project/public', () => ({
   assertProjectMembership,
 }));
 
-vi.mock('../../server/repositories/searchRepository', () => ({
-  createOrGetAdminProject: vi.fn(),
-  deleteDocumentById,
-  enqueueSearchJob: vi.fn(),
-  getSearchStatus: vi.fn(),
-  listProjectsForAdmin: vi.fn(),
-  recoverStaleRunningJobs: vi.fn(),
-  requeueFailedJobs: vi.fn(),
-  getDocumentById,
-}));
+vi.mock('../../server/modules/search/public', async (importOriginal) => {
+  const mod = await importOriginal<typeof import('../../server/modules/search/public')>();
+  return {
+    ...mod,
+    getDocumentById,
+    deleteDocumentById,
+  };
+});
 
 vi.mock('../../server/security/auditTrail', async () => {
   const actual = await vi.importActual<typeof import('../../server/security/auditTrail')>(

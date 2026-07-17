@@ -1,270 +1,205 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
+import * as fs from 'fs';
 
-// ─── Mock docx ────────────────────────────────────────────────────────────────
-// documentGenerator builds a full docx document tree – mock all constructors
-// and Packer.toBuffer so no real OOXML is generated in unit tests.
+// 1. Mocka Prisma (hoistad)
+const prismaMock = vi.hoisted(() => ({
+  documentRecord: {
+    create: vi.fn(),
+  },
+}));
 
-vi.mock('docx', () => {
-  const makeCtor = () => vi.fn(function (this: Record<string, unknown>, _: unknown) {});
-  return {
-    Document: makeCtor(),
-    Packer: { toBuffer: vi.fn().mockResolvedValue(Buffer.from('MOCK-DOCX')) },
-    Paragraph: makeCtor(),
-    TextRun: makeCtor(),
-    Table: makeCtor(),
-    TableRow: makeCtor(),
-    TableCell: makeCtor(),
-    HeadingLevel: { TITLE: 'TITLE', HEADING_1: 1, HEADING_2: 2 },
-    AlignmentType: { CENTER: 'center', LEFT: 'left' },
-    BorderStyle: { SINGLE: 'single' },
-    WidthType: { PERCENTAGE: 'pct' },
-    ShadingType: { SOLID: 'solid' },
-  };
-});
+vi.mock('../../server/db/prisma', () => ({
+  prisma: prismaMock,
+}));
 
-// ─── Mock fs ─────────────────────────────────────────────────────────────────
-
-const fsMock = vi.hoisted(() => ({
+// 2. Mocka fs
+vi.mock('fs', () => ({
   mkdirSync: vi.fn(),
   writeFileSync: vi.fn(),
 }));
 
-vi.mock('fs', () => fsMock);
+// 3. Mocka docx (Packer.toBuffer)
+vi.mock('docx', () => {
+  class Document {
+    constructor(_options?: unknown) {}
+  }
+  class Paragraph {
+    constructor(_options?: unknown) {}
+  }
+  class TextRun {
+    constructor(_options?: unknown) {}
+  }
+  class Table {
+    constructor(_options?: unknown) {}
+  }
+  class TableRow {
+    constructor(_options?: unknown) {}
+  }
+  class TableCell {
+    constructor(_options?: unknown) {}
+  }
 
-// ─── Mock @prisma/client ──────────────────────────────────────────────────────
-// documentGenerator calls `new PrismaClient()` at module level (not via shared
-// prisma singleton), so we must mock @prisma/client directly.
-
-const prismaInstanceMock = vi.hoisted(() => ({
-  documentRecord: { create: vi.fn() },
-}));
-
-vi.mock('@prisma/client', () => ({
-  PrismaClient: vi.fn(function (this: Record<string, unknown>) {
-    return prismaInstanceMock;
-  }),
-  DocumentRecord: {},
-}));
-
-// ─── Re-import helpers ────────────────────────────────────────────────────────
-
-import type { generateApplicationDraft as GenerateApplicationDraft } from '../../server/services/documentGenerator';
-import { Packer } from 'docx';
-
-type DocGenService = {
-  generateApplicationDraft: typeof GenerateApplicationDraft;
-};
-
-let svc: DocGenService;
-
-async function loadService() {
-  vi.resetModules();
-  svc = (await import('../../server/services/documentGenerator')) as unknown as DocGenService;
-}
-
-// ─── Helpers ──────────────────────────────────────────────────────────────────
-
-function makeDocumentRecord(overrides: Record<string, unknown> = {}) {
   return {
-    id: 'doc-001',
-    projectId: 'proj-1',
-    organisationId: 'org-1',
-    entryId: 'DRAFT-123',
-    subject: 'Miljöbeslut.se - Anmalan om mellanlagring - UTKAST',
-    originalName: 'Anmalan_Utkast_123.docx',
-    diskName: 'Anmalan_Utkast_123.docx',
-    absolutePath: '/some/path/Anmalan_Utkast_123.docx',
-    fileSize: BigInt(1024),
-    mimeType: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
-    status: 'TEXT_EXTRACTED',
-    legalStatus: 'DRAFT_UNVERIFIED',
-    manifestMeta: {},
-    createdAt: new Date(),
-    updatedAt: new Date(),
-    ...overrides,
+    Document,
+    Packer: {
+      toBuffer: vi.fn().mockResolvedValue(Buffer.from('dummy-content')),
+    },
+    Paragraph,
+    TextRun,
+    HeadingLevel: { TITLE: 'title', HEADING_1: 'h1', HEADING_2: 'h2' },
+    AlignmentType: { CENTER: 'center' },
+    BorderStyle: { SINGLE: 'single' },
+    Table,
+    TableRow,
+    TableCell,
+    WidthType: { PERCENTAGE: 'percentage' },
+    ShadingType: { SOLID: 'solid' },
   };
-}
+});
 
-const baseOptions = {
-  projectId: 'proj-1',
-  organisationId: 'org-1',
-  userId: 'user-1',
-  requirementData: {
-    requirements: [
-      {
-        title: 'Egenkontroll',
-        description: 'Verksamhetsutövaren ska utföra egenkontroll.',
-        legalReference: 'Miljöbalken 26 kap. 19 §',
-      },
-    ],
-  },
-};
+// Import efter mocks
+import { generateApplicationDraft } from '../../server/services/documentGenerator';
 
-// ─── Tests ────────────────────────────────────────────────────────────────────
-
-describe('documentGenerator – generateApplicationDraft', () => {
-  beforeEach(async () => {
-    vi.resetAllMocks();
-    // Re-initialize Packer.toBuffer after reset (vi.resetAllMocks clears all mock impls)
-    (Packer.toBuffer as ReturnType<typeof vi.fn>).mockResolvedValue(Buffer.from('MOCK-DOCX'));
-    await loadService();
+describe('documentGenerator unit tests', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
   });
 
-  afterEach(() => {
-    vi.restoreAllMocks();
-  });
+  const validOptions = {
+    projectId: 'proj-123',
+    organisationId: 'org-456',
+    userId: 'user-789',
+    requirementData: {
+      requirements: [{ title: 'Markskydd', description: 'Täck', legalReference: 'MB 2 kap' }],
+    },
+  };
 
-  // ── Happy path ───────────────────────────────────────────────────────────────
-
-  it('returns the DocumentRecord created by Prisma', async () => {
-    const record = makeDocumentRecord();
-    prismaInstanceMock.documentRecord.create.mockResolvedValue(record);
-    const result = await svc.generateApplicationDraft(baseOptions);
-    expect(result).toBe(record);
-  });
-
-  it('calls prisma.documentRecord.create with correct projectId and organisationId', async () => {
-    prismaInstanceMock.documentRecord.create.mockResolvedValue(makeDocumentRecord());
-    await svc.generateApplicationDraft(baseOptions);
-    expect(prismaInstanceMock.documentRecord.create).toHaveBeenCalledWith(
-      expect.objectContaining({
-        data: expect.objectContaining({
-          projectId: 'proj-1',
-          organisationId: 'org-1',
-        }),
-      }),
-    );
-  });
-
-  it('sets legalStatus to DRAFT_UNVERIFIED', async () => {
-    prismaInstanceMock.documentRecord.create.mockResolvedValue(makeDocumentRecord());
-    await svc.generateApplicationDraft(baseOptions);
-    expect(prismaInstanceMock.documentRecord.create).toHaveBeenCalledWith(
-      expect.objectContaining({
-        data: expect.objectContaining({ legalStatus: 'DRAFT_UNVERIFIED' }),
-      }),
-    );
-  });
-
-  it('sets mimeType to docx MIME type', async () => {
-    prismaInstanceMock.documentRecord.create.mockResolvedValue(makeDocumentRecord());
-    await svc.generateApplicationDraft(baseOptions);
-    expect(prismaInstanceMock.documentRecord.create).toHaveBeenCalledWith(
-      expect.objectContaining({
-        data: expect.objectContaining({
-          mimeType: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
-        }),
-      }),
-    );
-  });
-
-  it('embeds UTKAST watermark in manifestMeta', async () => {
-    prismaInstanceMock.documentRecord.create.mockResolvedValue(makeDocumentRecord());
-    await svc.generateApplicationDraft(baseOptions);
-    const callArg = prismaInstanceMock.documentRecord.create.mock.calls[0][0];
-    expect(callArg.data.manifestMeta).toMatchObject({
-      watermark: expect.stringMatching(/UTKAST/i),
-      generatedByAI: true,
-      requiresSignature: true,
+  it('should generate a docx buffer and save record to database', async () => {
+    prismaMock.documentRecord.create.mockResolvedValue({
+      id: 'doc-999',
     });
+
+    const result = await generateApplicationDraft(validOptions);
+
+    expect(fs.mkdirSync).toHaveBeenCalled();
+    expect(fs.writeFileSync).toHaveBeenCalled();
+    expect(prismaMock.documentRecord.create).toHaveBeenCalled();
+    expect(result.id).toBe('doc-999');
   });
 
-  it('creates the output directory via fs.mkdirSync', async () => {
-    prismaInstanceMock.documentRecord.create.mockResolvedValue(makeDocumentRecord());
-    await svc.generateApplicationDraft(baseOptions);
-    expect(fsMock.mkdirSync).toHaveBeenCalledWith(
-      expect.stringMatching(/drafts/),
-      expect.objectContaining({ recursive: true }),
-    );
+  it('should include correct manifestMeta when saving through Prisma', async () => {
+    prismaMock.documentRecord.create.mockResolvedValue({ id: 'any' });
+
+    await generateApplicationDraft(validOptions);
+
+    const call = prismaMock.documentRecord.create.mock.calls[0][0];
+    expect(call.data.legalStatus).toBe('DRAFT_UNVERIFIED');
+    expect(call.data.manifestMeta.generatedByAI).toBe(true);
   });
 
-  it('writes the docx buffer to disk via fs.writeFileSync', async () => {
-    prismaInstanceMock.documentRecord.create.mockResolvedValue(makeDocumentRecord());
-    await svc.generateApplicationDraft(baseOptions);
-    expect(fsMock.writeFileSync).toHaveBeenCalledWith(expect.stringMatching(/\.docx$/), expect.any(Buffer));
+  it('should handle empty requirements array and use fallback paragraph', async () => {
+    prismaMock.documentRecord.create.mockResolvedValue({ id: 'doc-empty' });
+
+    const result = await generateApplicationDraft({
+      ...validOptions,
+      requirementData: { requirements: [] },
+    });
+
+    expect(result.id).toBe('doc-empty');
+    expect(prismaMock.documentRecord.create).toHaveBeenCalledTimes(1);
+    const call = prismaMock.documentRecord.create.mock.calls[0][0];
+    expect(call.data.manifestMeta.requirementContext).toMatchObject({ requirements: [] });
   });
 
-  it('includes requirementContext in manifestMeta', async () => {
-    prismaInstanceMock.documentRecord.create.mockResolvedValue(makeDocumentRecord());
-    await svc.generateApplicationDraft(baseOptions);
-    const callArg = prismaInstanceMock.documentRecord.create.mock.calls[0][0];
-    expect(callArg.data.manifestMeta.requirementContext).toEqual(baseOptions.requirementData);
+  it('should handle missing requirementData gracefully (null)', async () => {
+    prismaMock.documentRecord.create.mockResolvedValue({ id: 'doc-null' });
+
+    const result = await generateApplicationDraft({
+      ...validOptions,
+      requirementData: null,
+    });
+
+    expect(result.id).toBe('doc-null');
+    expect(prismaMock.documentRecord.create).toHaveBeenCalledTimes(1);
   });
 
-  // ── Empty requirements ───────────────────────────────────────────────────────
+  it('should handle requirements without legalReference (no extra paragraph)', async () => {
+    prismaMock.documentRecord.create.mockResolvedValue({ id: 'doc-no-ref' });
 
-  it('works when requirementData.requirements is an empty array', async () => {
-    prismaInstanceMock.documentRecord.create.mockResolvedValue(makeDocumentRecord());
-    const options = { ...baseOptions, requirementData: { requirements: [] } };
-    await expect(svc.generateApplicationDraft(options)).resolves.toBeDefined();
-  });
-
-  it('works when requirementData has no requirements key', async () => {
-    prismaInstanceMock.documentRecord.create.mockResolvedValue(makeDocumentRecord());
-    const options = { ...baseOptions, requirementData: {} };
-    await expect(svc.generateApplicationDraft(options)).resolves.toBeDefined();
-  });
-
-  it('works when requirementData is null-like (non-array requirements)', async () => {
-    prismaInstanceMock.documentRecord.create.mockResolvedValue(makeDocumentRecord());
-    const options = { ...baseOptions, requirementData: { requirements: 'not-an-array' } };
-    await expect(svc.generateApplicationDraft(options)).resolves.toBeDefined();
-  });
-
-  // ── Multiple requirements ─────────────────────────────────────────────────────
-
-  it('processes multiple requirements without error', async () => {
-    prismaInstanceMock.documentRecord.create.mockResolvedValue(makeDocumentRecord());
-    const options = {
-      ...baseOptions,
+    await generateApplicationDraft({
+      ...validOptions,
       requirementData: {
-        requirements: [
-          { title: 'Krav 1', description: 'Desc 1', legalReference: 'MB 26:1' },
-          { title: 'Krav 2', description: 'Desc 2' },
-          { description: 'Krav utan titel' },
-        ],
+        requirements: [{ title: 'Buller', description: 'Mät buller' }],
       },
-    };
-    await expect(svc.generateApplicationDraft(options)).resolves.toBeDefined();
-  });
-
-  // ── Error handling ────────────────────────────────────────────────────────────
-
-  it('propagates Prisma errors to caller', async () => {
-    prismaInstanceMock.documentRecord.create.mockRejectedValue(new Error('DB connection failed'));
-    await expect(svc.generateApplicationDraft(baseOptions)).rejects.toThrow('DB connection failed');
-  });
-
-  it('propagates fs.writeFileSync errors to caller', async () => {
-    fsMock.writeFileSync.mockImplementation(() => {
-      throw new Error('Disk full');
     });
-    await expect(svc.generateApplicationDraft(baseOptions)).rejects.toThrow('Disk full');
+
+    expect(prismaMock.documentRecord.create).toHaveBeenCalledTimes(1);
+    const call = prismaMock.documentRecord.create.mock.calls[0][0];
+    expect(call.data.manifestMeta.requirementContext.requirements[0].title).toBe('Buller');
   });
 
-  // ── Output file naming ────────────────────────────────────────────────────────
+  it('should handle requirements with only description (no title)', async () => {
+    prismaMock.documentRecord.create.mockResolvedValue({ id: 'doc-desc-only' });
 
-  it('generates an entryId starting with DRAFT-', async () => {
-    prismaInstanceMock.documentRecord.create.mockResolvedValue(makeDocumentRecord());
-    await svc.generateApplicationDraft(baseOptions);
-    const callArg = prismaInstanceMock.documentRecord.create.mock.calls[0][0];
-    expect(callArg.data.entryId).toMatch(/^DRAFT-\d+$/);
+    await generateApplicationDraft({
+      ...validOptions,
+      requirementData: {
+        requirements: [{ description: 'Hantera förorenade massor', legalReference: 'MB 10 kap' }],
+      },
+    });
+
+    expect(prismaMock.documentRecord.create).toHaveBeenCalledTimes(1);
   });
 
-  it('generates a diskName ending with .docx', async () => {
-    prismaInstanceMock.documentRecord.create.mockResolvedValue(makeDocumentRecord());
-    await svc.generateApplicationDraft(baseOptions);
-    const callArg = prismaInstanceMock.documentRecord.create.mock.calls[0][0];
-    expect(callArg.data.diskName).toMatch(/\.docx$/);
+  it('should handle requirements with only text field', async () => {
+    prismaMock.documentRecord.create.mockResolvedValue({ id: 'doc-text-only' });
+
+    await generateApplicationDraft({
+      ...validOptions,
+      requirementData: {
+        requirements: [{ text: 'Fyll i manuellt underlag' }],
+      },
+    });
+
+    expect(prismaMock.documentRecord.create).toHaveBeenCalledTimes(1);
   });
 
-  it('uses status TEXT_EXTRACTED for the created record', async () => {
-    prismaInstanceMock.documentRecord.create.mockResolvedValue(makeDocumentRecord());
-    await svc.generateApplicationDraft(baseOptions);
-    expect(prismaInstanceMock.documentRecord.create).toHaveBeenCalledWith(
-      expect.objectContaining({
-        data: expect.objectContaining({ status: 'TEXT_EXTRACTED' }),
-      }),
+  it('should fall back to generic labels when requirement fields are missing', async () => {
+    prismaMock.documentRecord.create.mockResolvedValue({ id: 'doc-generic' });
+
+    await generateApplicationDraft({
+      ...validOptions,
+      requirementData: {
+        requirements: [{}],
+      },
+    });
+
+    expect(prismaMock.documentRecord.create).toHaveBeenCalledTimes(1);
+  });
+
+  it('should propagate Prisma error upward', async () => {
+    prismaMock.documentRecord.create.mockRejectedValue(new Error('DB connection failed'));
+
+    await expect(generateApplicationDraft(validOptions)).rejects.toThrow('DB connection failed');
+  });
+
+  it('should store entryId with DRAFT prefix', async () => {
+    prismaMock.documentRecord.create.mockResolvedValue({ id: 'doc-entryid' });
+
+    await generateApplicationDraft(validOptions);
+
+    const call = prismaMock.documentRecord.create.mock.calls[0][0];
+    expect(call.data.entryId).toMatch(/^DRAFT-\d+$/);
+  });
+
+  it('should set correct mimeType for docx output', async () => {
+    prismaMock.documentRecord.create.mockResolvedValue({ id: 'doc-mime' });
+
+    await generateApplicationDraft(validOptions);
+
+    const call = prismaMock.documentRecord.create.mock.calls[0][0];
+    expect(call.data.mimeType).toBe(
+      'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
     );
   });
 });

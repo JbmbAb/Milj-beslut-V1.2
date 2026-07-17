@@ -57,9 +57,9 @@ describe('ProjectPlanStructurePanel', () => {
 
   it('renders layout template dropdown', () => {
     renderPanel();
-    expect(screen.getByRole('option', { name: 'CORPORATE' })).toBeInTheDocument();
-    expect(screen.getByRole('option', { name: 'AUTHORITIES' })).toBeInTheDocument();
-    expect(screen.getByRole('option', { name: 'COMPACT' })).toBeInTheDocument();
+    expect(screen.getByDisplayValue('CORPORATE')).toBeInTheDocument();
+    expect(screen.getByText('AUTHORITIES')).toBeInTheDocument();
+    expect(screen.getByText('COMPACT')).toBeInTheDocument();
   });
 
   // ── Module readiness section ───────────────────────────────────────────────

@@ -1,26 +1,16 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import type { extractAndGenerateChecklistFromRag as ExtractChecklist } from '../../server/services/checkListRagService';
-
-// ─── Mocks ────────────────────────────────────────────────────────────────────
-
-const prismaMock = vi.hoisted(() => ({
-  documentRecord: { findUnique: vi.fn() },
-  requirementCase: {
-    findUnique: vi.fn(),
-    create: vi.fn(),
-  },
-  requirementRecord: { create: vi.fn() },
-  requirementCitation: { create: vi.fn() },
-}));
-
-vi.mock('../../server/db/prisma', () => ({
-  prisma: prismaMock,
-}));
+import { describe, it, expect, vi, beforeEach } from 'vitest';
 
 const mocks = vi.hoisted(() => ({
   embedText: vi.fn(),
   queryTopSemanticChunks: vi.fn(),
   serverGenerateText: vi.fn(),
+  documentRecordFindUnique: vi.fn(),
+  requirementCaseFindUnique: vi.fn(),
+  requirementCaseCreate: vi.fn(),
+  requirementRecordCreate: vi.fn(),
+  requirementCitationCreate: vi.fn(),
+  loggerError: vi.fn(),
+  loggerInfo: vi.fn(),
 }));
 
 vi.mock('../../server/services/searchService', () => ({
@@ -35,156 +25,67 @@ vi.mock('../../services/geminiService', () => ({
   serverGenerateText: mocks.serverGenerateText,
 }));
 
-// ─── Re-import helpers ────────────────────────────────────────────────────────
+vi.mock('../../server/logger', () => ({
+  logger: {
+    error: mocks.loggerError,
+    info: mocks.loggerInfo,
+    warn: vi.fn(),
+  },
+}));
 
-type ChecklistService = {
-  extractAndGenerateChecklistFromRag: typeof ExtractChecklist;
+vi.mock('../../server/db/prisma', () => ({
+  prisma: {
+    documentRecord: { findUnique: mocks.documentRecordFindUnique },
+    requirementCase: {
+      findUnique: mocks.requirementCaseFindUnique,
+      create: mocks.requirementCaseCreate,
+    },
+    requirementRecord: { create: mocks.requirementRecordCreate },
+    requirementCitation: { create: mocks.requirementCitationCreate },
+  },
+}));
+
+import { extractAndGenerateChecklistFromRag } from '../../server/services/checkListRagService';
+
+const FAKE_EMBEDDING = { values: new Array(768).fill(0.1) };
+const FAKE_HITS = [
+  { documentId: 'doc-1', chunkText: 'Lakvatten ska provtas månadsvis.' },
+  { documentId: 'doc-1', chunkText: 'Buller begränsas till 55 dB(A).' },
+];
+const FAKE_DOCUMENT = {
+  id: 'doc-1',
+  municipality: 'Göteborg',
+  diskName: 'beslut.pdf',
+  subject: 'Miljöbeslut 2024',
 };
+const FAKE_REQUIREMENTS_JSON = JSON.stringify([
+  {
+    documentId: 'doc-1',
+    category: 'Lakvatten',
+    subcategory: 'Provtagning',
+    requirementTextQuote: 'Lakvatten ska provtas månadsvis.',
+    interpretedRequirement: 'Monthly leachate sampling required.',
+    level: 'mandatory',
+    legalReference: 'Miljöbalken 9 kap',
+  },
+]);
 
-let svc: ChecklistService;
+beforeEach(() => {
+  vi.resetAllMocks();
 
-async function loadService() {
-  vi.resetModules();
-  svc = (await import('../../server/services/checkListRagService')) as unknown as ChecklistService;
-}
+  mocks.embedText.mockResolvedValue(FAKE_EMBEDDING);
+  mocks.queryTopSemanticChunks.mockResolvedValue(FAKE_HITS);
+  mocks.serverGenerateText.mockResolvedValue(FAKE_REQUIREMENTS_JSON);
+  mocks.documentRecordFindUnique.mockResolvedValue(FAKE_DOCUMENT);
+  mocks.requirementCaseFindUnique.mockResolvedValue(null);
+  mocks.requirementCaseCreate.mockResolvedValue({ id: 'rc-1', caseKey: 'case_doc-1' });
+  mocks.requirementRecordCreate.mockResolvedValue({ id: 'rr-1' });
+  mocks.requirementCitationCreate.mockResolvedValue({ id: 'cit-1' });
+});
 
-// ─── Helpers ──────────────────────────────────────────────────────────────────
-
-function mockEmbedding(values: number[] = [0.1, 0.2, 0.3]) {
-  mocks.embedText.mockResolvedValue({ values });
-}
-
-function mockSemanticHits(hits: Array<{ documentId: string; chunkText: string }>) {
-  mocks.queryTopSemanticChunks.mockResolvedValue(hits);
-}
-
-function mockAiResponse(requirements: object[]) {
-  mocks.serverGenerateText.mockResolvedValue(JSON.stringify(requirements));
-}
-
-function mockDocument(id: string) {
-  prismaMock.documentRecord.findUnique.mockResolvedValue({
-    id,
-    municipality: 'Malmö',
-    diskName: 'test.pdf',
-    subject: 'Testärende',
-  });
-}
-
-function mockRequirementCase(id: string) {
-  prismaMock.requirementCase.findUnique.mockResolvedValue(null);
-  prismaMock.requirementCase.create.mockResolvedValue({ id });
-}
-
-function mockRequirementRecord(id: string) {
-  prismaMock.requirementRecord.create.mockResolvedValue({ id });
-}
-
-function mockRequirementCitation() {
-  prismaMock.requirementCitation.create.mockResolvedValue({ id: 'cit-1' });
-}
-
-// ─── Tests ────────────────────────────────────────────────────────────────────
-
-describe('checkListRagService – extractAndGenerateChecklistFromRag', () => {
-  beforeEach(async () => {
-    vi.clearAllMocks();
-    await loadService();
-  });
-
-  afterEach(() => {
-    vi.restoreAllMocks();
-  });
-
-  it('throws when embedding fails (empty values)', async () => {
-    mocks.embedText.mockResolvedValue({ values: [] });
-    await expect(
-      svc.extractAndGenerateChecklistFromRag('proj-1', 'org-1', 'lakvatten', '29.40'),
-    ).rejects.toThrow(/embedding/i);
-  });
-
-  it('throws when embedText returns null', async () => {
-    mocks.embedText.mockResolvedValue(null);
-    await expect(
-      svc.extractAndGenerateChecklistFromRag('proj-1', 'org-1', 'lakvatten', '29.40'),
-    ).rejects.toThrow(/embedding/i);
-  });
-
-  it('returns zero counts when no semantic hits are found', async () => {
-    mockEmbedding();
-    mockSemanticHits([]);
-    const result = await svc.extractAndGenerateChecklistFromRag('proj-1', 'org-1', 'lakvatten', '29.40');
-    expect(result.requirementsCreated).toBe(0);
-    expect(result.casesCreated).toBe(0);
-    expect(result.citationsCreated).toBe(0);
-    expect(result.message).toMatch(/no relevant/i);
-  });
-
-  it('returns zero counts when AI returns empty array', async () => {
-    mockEmbedding();
-    mockSemanticHits([{ documentId: 'doc-1', chunkText: 'Some text' }]);
-    mockAiResponse([]);
-    const result = await svc.extractAndGenerateChecklistFromRag('proj-1', 'org-1', 'lakvatten', '29.40');
-    expect(result.requirementsCreated).toBe(0);
-    expect(result.message).toMatch(/no requirements/i);
-  });
-
-  it('throws when AI returns non-JSON text', async () => {
-    mockEmbedding();
-    mockSemanticHits([{ documentId: 'doc-1', chunkText: 'Some text' }]);
-    mocks.serverGenerateText.mockResolvedValue('not valid json at all');
-    await expect(
-      svc.extractAndGenerateChecklistFromRag('proj-1', 'org-1', 'lakvatten', '29.40'),
-    ).rejects.toThrow(/JSON/i);
-  });
-
-  it('skips requirements where documentId is missing', async () => {
-    mockEmbedding();
-    mockSemanticHits([{ documentId: 'doc-1', chunkText: 'Some text' }]);
-    mockAiResponse([
-      { category: 'Buller', interpretedRequirement: 'No noise', requirementTextQuote: 'Quiet' },
-    ]); // no documentId
-    const result = await svc.extractAndGenerateChecklistFromRag('proj-1', 'org-1', 'lakvatten', '29.40');
-    expect(result.requirementsCreated).toBe(0);
-  });
-
-  it('skips requirements where document is not found in DB', async () => {
-    mockEmbedding();
-    mockSemanticHits([{ documentId: 'doc-1', chunkText: 'Some text' }]);
-    mockAiResponse([
-      {
-        documentId: 'doc-999',
-        category: 'Buller',
-        interpretedRequirement: 'No noise',
-        requirementTextQuote: 'Quiet',
-        level: 'mandatory',
-      },
-    ]);
-    prismaMock.documentRecord.findUnique.mockResolvedValue(null);
-    const result = await svc.extractAndGenerateChecklistFromRag('proj-1', 'org-1', 'lakvatten', '29.40');
-    expect(result.requirementsCreated).toBe(0);
-  });
-
-  it('creates case, requirement, and citation for valid AI requirement', async () => {
-    mockEmbedding();
-    mockSemanticHits([{ documentId: 'doc-1', chunkText: 'Relevant text here' }]);
-    mockAiResponse([
-      {
-        documentId: 'doc-1',
-        category: 'Lakvatten',
-        subcategory: 'Provtagning',
-        requirementTextQuote: 'Provtagning krävs månadsvis.',
-        interpretedRequirement: 'Månadsvis provtagning av lakvatten.',
-        level: 'mandatory',
-        legalReference: 'Miljöbalken 9 kap. 3 §',
-      },
-    ]);
-    mockDocument('doc-1');
-    mockRequirementCase('case-1');
-    mockRequirementRecord('req-1');
-    mockRequirementCitation();
-
-    const result = await svc.extractAndGenerateChecklistFromRag('proj-1', 'org-1', 'lakvatten', '29.40');
+describe('extractAndGenerateChecklistFromRag', () => {
+  it('returns created counts on a successful run', async () => {
+    const result = await extractAndGenerateChecklistFromRag('proj-1', 'org-1', 'lakvatten krav', '90.003-1');
 
     expect(result.requirementsCreated).toBe(1);
     expect(result.casesCreated).toBe(1);
@@ -192,61 +93,140 @@ describe('checkListRagService – extractAndGenerateChecklistFromRag', () => {
     expect(result.message).toMatch(/1 requirements/i);
   });
 
-  it('reuses existing RequirementCase when found in DB', async () => {
-    mockEmbedding();
-    mockSemanticHits([{ documentId: 'doc-1', chunkText: 'Some text' }]);
-    mockAiResponse([
-      {
-        documentId: 'doc-1',
-        category: 'Buller',
-        requirementTextQuote: 'Quiet',
-        interpretedRequirement: 'No noise',
-        level: 'mandatory',
-      },
-    ]);
-    mockDocument('doc-1');
-    prismaMock.requirementCase.findUnique.mockResolvedValue({ id: 'existing-case' });
-    prismaMock.requirementCase.create.mockResolvedValue({ id: 'new-case' });
-    mockRequirementRecord('req-1');
-    mockRequirementCitation();
+  it('throws when embedding generation fails', async () => {
+    mocks.embedText.mockResolvedValue(null);
 
-    const result = await svc.extractAndGenerateChecklistFromRag('proj-1', 'org-1', 'buller', '29.40');
+    await expect(extractAndGenerateChecklistFromRag('proj-1', 'org-1', 'query', 'code')).rejects.toThrow(
+      'Failed to generate embedding',
+    );
+  });
 
-    expect(prismaMock.requirementCase.create).not.toHaveBeenCalled();
+  it('throws when embedding returns empty values', async () => {
+    mocks.embedText.mockResolvedValue({ values: [] });
+
+    await expect(extractAndGenerateChecklistFromRag('proj-1', 'org-1', 'query', 'code')).rejects.toThrow(
+      'Failed to generate embedding',
+    );
+  });
+
+  it('returns zero counts when no semantic hits are found', async () => {
+    mocks.queryTopSemanticChunks.mockResolvedValue([]);
+
+    const result = await extractAndGenerateChecklistFromRag('proj-1', 'org-1', 'query', 'code');
+
+    expect(result.requirementsCreated).toBe(0);
+    expect(result.casesCreated).toBe(0);
+    expect(result.message).toMatch(/No relevant documents/i);
+  });
+
+  it('throws when AI returns invalid JSON', async () => {
+    mocks.serverGenerateText.mockResolvedValue('not json at all');
+
+    await expect(extractAndGenerateChecklistFromRag('proj-1', 'org-1', 'query', 'code')).rejects.toThrow(
+      'AI failed to return valid JSON format',
+    );
+
+    expect(mocks.loggerError).toHaveBeenCalled();
+  });
+
+  it('returns zero counts when AI returns empty array', async () => {
+    mocks.serverGenerateText.mockResolvedValue('[]');
+
+    const result = await extractAndGenerateChecklistFromRag('proj-1', 'org-1', 'query', 'code');
+
+    expect(result.requirementsCreated).toBe(0);
+    expect(result.message).toMatch(/No requirements could be extracted/i);
+  });
+
+  it('skips entries where documentId is missing', async () => {
+    mocks.serverGenerateText.mockResolvedValue(
+      JSON.stringify([{ category: 'Test', requirementTextQuote: 'Quote' }]),
+    );
+
+    const result = await extractAndGenerateChecklistFromRag('proj-1', 'org-1', 'query', 'code');
+
+    expect(result.requirementsCreated).toBe(0);
+    expect(mocks.documentRecordFindUnique).not.toHaveBeenCalled();
+  });
+
+  it('skips entries where document does not exist in DB', async () => {
+    mocks.documentRecordFindUnique.mockResolvedValue(null);
+
+    const result = await extractAndGenerateChecklistFromRag('proj-1', 'org-1', 'query', 'code');
+
+    expect(result.requirementsCreated).toBe(0);
+    expect(mocks.requirementCaseCreate).not.toHaveBeenCalled();
+  });
+
+  it('reuses an existing RequirementCase instead of creating a new one', async () => {
+    const existingCase = { id: 'rc-existing', caseKey: 'case_doc-1' };
+    mocks.requirementCaseFindUnique.mockResolvedValue(existingCase);
+
+    const result = await extractAndGenerateChecklistFromRag('proj-1', 'org-1', 'query', 'code');
+
+    expect(mocks.requirementCaseCreate).not.toHaveBeenCalled();
     expect(result.casesCreated).toBe(0);
     expect(result.requirementsCreated).toBe(1);
   });
 
-  it('handles AI response wrapped in markdown JSON block', async () => {
-    mockEmbedding();
-    mockSemanticHits([{ documentId: 'doc-1', chunkText: 'text' }]);
-    const req = [
-      {
-        documentId: 'doc-1',
-        category: 'Damning',
-        requirementTextQuote: 'Dammning kontrolleras',
-        interpretedRequirement: 'Kontrollera damning regelbundet',
-        level: 'mandatory',
-      },
-    ];
-    // AI wraps in markdown block – service should still parse the raw array
-    mocks.serverGenerateText.mockResolvedValue(`\`\`\`json\n${JSON.stringify(req)}\n\`\`\``);
-    mockDocument('doc-1');
-    mockRequirementCase('case-1');
-    mockRequirementRecord('req-1');
-    mockRequirementCitation();
+  it('passes organisationId and projectId when creating RequirementCase', async () => {
+    await extractAndGenerateChecklistFromRag('proj-42', 'org-99', 'query', 'code');
 
-    // Service extracts JSON via regex – should find the array inside the block
-    const result = await svc.extractAndGenerateChecklistFromRag('proj-1', 'org-1', 'damning', '29.40');
-    expect(result.requirementsCreated).toBe(1);
+    expect(mocks.requirementCaseCreate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          projectId: 'proj-42',
+          organisationId: 'org-99',
+        }),
+      }),
+    );
   });
 
-  it('passes projectId and organisationId when querying semantic chunks', async () => {
-    mockEmbedding([0.5, 0.6]);
-    mocks.queryTopSemanticChunks.mockResolvedValue([]);
-    await svc.extractAndGenerateChecklistFromRag('my-project', 'my-org', 'test query', '29.50');
-    expect(mocks.queryTopSemanticChunks).toHaveBeenCalledWith(
-      expect.objectContaining({ projectId: 'my-project', organisationId: 'my-org', limit: 15 }),
+  it('creates one RequirementCitation per RequirementRecord', async () => {
+    await extractAndGenerateChecklistFromRag('proj-1', 'org-1', 'query', 'code');
+
+    expect(mocks.requirementCitationCreate).toHaveBeenCalledTimes(1);
+    expect(mocks.requirementCitationCreate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          extractor: 'Gemini-2.5-Pro',
+        }),
+      }),
     );
+  });
+
+  it('handles multiple requirements across the same document', async () => {
+    mocks.serverGenerateText.mockResolvedValue(
+      JSON.stringify([
+        {
+          documentId: 'doc-1',
+          category: 'Cat1',
+          subcategory: 'Sub1',
+          requirementTextQuote: 'Q1',
+          interpretedRequirement: 'I1',
+          level: 'mandatory',
+          legalReference: 'MB',
+        },
+        {
+          documentId: 'doc-1',
+          category: 'Cat2',
+          subcategory: 'Sub2',
+          requirementTextQuote: 'Q2',
+          interpretedRequirement: 'I2',
+          level: 'mandatory',
+          legalReference: 'MB',
+        },
+      ]),
+    );
+    // Second call to findUnique returns existing case
+    mocks.requirementCaseFindUnique
+      .mockResolvedValueOnce(null)
+      .mockResolvedValueOnce({ id: 'rc-1', caseKey: 'case_doc-1' });
+
+    const result = await extractAndGenerateChecklistFromRag('proj-1', 'org-1', 'query', 'code');
+
+    expect(result.requirementsCreated).toBe(2);
+    expect(result.casesCreated).toBe(1);
+    expect(result.citationsCreated).toBe(2);
   });
 });

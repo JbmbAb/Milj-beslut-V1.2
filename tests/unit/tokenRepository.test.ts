@@ -1,11 +1,8 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-// ─── Prisma mock ─────────────────────────────────────────────────────────────
-
 const mocks = vi.hoisted(() => ({
   tokenRevocationCreate: vi.fn(),
-  tokenRevocationFindUnique: vi.fn(),
-  tokenRevocationUpsert: vi.fn(),
+  tokenRevocationFindFirst: vi.fn(),
   tokenRevocationDeleteMany: vi.fn(),
 }));
 
@@ -13,8 +10,7 @@ vi.mock('../../server/db/prisma', () => ({
   prisma: {
     tokenRevocation: {
       create: mocks.tokenRevocationCreate,
-      findUnique: mocks.tokenRevocationFindUnique,
-      upsert: mocks.tokenRevocationUpsert,
+      findFirst: mocks.tokenRevocationFindFirst,
       deleteMany: mocks.tokenRevocationDeleteMany,
     },
   },
@@ -28,151 +24,148 @@ import {
   revokeRefreshToken,
 } from '../../server/repositories/tokenRepository';
 
-// ─── Tests ────────────────────────────────────────────────────────────────────
+beforeEach(() => {
+  vi.resetAllMocks();
+});
 
-describe('tokenRepository', () => {
-  beforeEach(() => {
-    vi.clearAllMocks();
-  });
+describe('revokeRefreshToken', () => {
+  it('creates a token revocation record with the provided fields', async () => {
+    mocks.tokenRevocationCreate.mockResolvedValue(undefined);
 
-  // ── revokeRefreshToken ───────────────────────────────────────────────────
+    const expiresAt = new Date('2027-01-01T00:00:00Z');
+    await revokeRefreshToken('user-1', 'jti-abc', expiresAt);
 
-  describe('revokeRefreshToken', () => {
-    it('creates a token revocation record', async () => {
-      mocks.tokenRevocationCreate.mockResolvedValue({ id: 'rev-1' });
-      const expiresAt = new Date(Date.now() + 86_400_000);
-
-      await revokeRefreshToken('user-1', 'jti-abc', expiresAt);
-
-      expect(mocks.tokenRevocationCreate).toHaveBeenCalledWith({
-        data: {
-          userId: 'user-1',
-          jti: 'jti-abc',
-          expiresAt,
-        },
-      });
-    });
-
-    it('propagates DB errors', async () => {
-      mocks.tokenRevocationCreate.mockRejectedValue(new Error('DB write failed'));
-
-      await expect(revokeRefreshToken('user-1', 'jti-x', new Date())).rejects.toThrow('DB write failed');
+    expect(mocks.tokenRevocationCreate).toHaveBeenCalledOnce();
+    expect(mocks.tokenRevocationCreate).toHaveBeenCalledWith({
+      data: {
+        userId: 'user-1',
+        jti: 'jti-abc',
+        expiresAt,
+      },
     });
   });
 
-  // ── revokeAllTokensForUser ────────────────────────────────────────────────
+  it('propagates prisma errors', async () => {
+    mocks.tokenRevocationCreate.mockRejectedValue(new Error('unique constraint'));
 
-  describe('revokeAllTokensForUser', () => {
-    it('upserts an ALL:<userId> wildcard revocation', async () => {
-      mocks.tokenRevocationUpsert.mockResolvedValue({ id: 'rev-all' });
-      const expiresAt = new Date(Date.now() + 86_400_000);
+    await expect(revokeRefreshToken('user-1', 'jti-dup', new Date())).rejects.toThrow(
+      'Kunde inte säkert revokera sessionen',
+    );
+  });
+});
 
-      await revokeAllTokensForUser('user-1', expiresAt);
+describe('revokeAllTokensForUser', () => {
+  it('deletes all records for the specified user', async () => {
+    mocks.tokenRevocationDeleteMany.mockResolvedValue({ count: 5 });
 
-      expect(mocks.tokenRevocationUpsert).toHaveBeenCalledWith(
-        expect.objectContaining({
-          where: { jti: 'ALL:user-1' },
-          create: expect.objectContaining({ jti: 'ALL:user-1', userId: 'user-1' }),
-          update: expect.objectContaining({ expiresAt }),
-        }),
-      );
+    await revokeAllTokensForUser('user-42');
+
+    expect(mocks.tokenRevocationDeleteMany).toHaveBeenCalledOnce();
+    expect(mocks.tokenRevocationDeleteMany).toHaveBeenCalledWith({
+      where: { userId: 'user-42' },
     });
   });
 
-  // ── isTokenRevoked ────────────────────────────────────────────────────────
+  it('handles database errors during user-level revocation', async () => {
+    mocks.tokenRevocationDeleteMany.mockRejectedValue(new Error('delete failed'));
 
-  describe('isTokenRevoked', () => {
-    it('returns true when specific jti is revoked', async () => {
-      mocks.tokenRevocationFindUnique.mockResolvedValue({ jti: 'jti-abc' });
+    await expect(revokeAllTokensForUser('user-fail')).rejects.toThrow(
+      'Kunde inte revokera alla sessioner för användaren',
+    );
+  });
+});
 
-      const result = await isTokenRevoked('jti-abc');
+describe('isTokenRevoked', () => {
+  it('returns true when a matching record is found', async () => {
+    mocks.tokenRevocationFindFirst.mockResolvedValue({ jti: 'jti-bad', userId: 'user-1' });
 
-      expect(result).toBe(true);
-    });
+    const result = await isTokenRevoked('jti-bad', 'user-1');
 
-    it('returns false when jti is not revoked and no userId given', async () => {
-      mocks.tokenRevocationFindUnique.mockResolvedValue(null);
-
-      const result = await isTokenRevoked('jti-unknown');
-
-      expect(result).toBe(false);
-    });
-
-    it('returns true when ALL:<userId> wildcard is present', async () => {
-      mocks.tokenRevocationFindUnique.mockImplementation(async ({ where }: { where: { jti: string } }) => {
-        if (where.jti === 'ALL:user-1') return { jti: 'ALL:user-1' };
-        return null;
-      });
-
-      const result = await isTokenRevoked('jti-xyz', 'user-1');
-
-      expect(result).toBe(true);
-    });
-
-    it('returns false when neither specific nor wildcard record exists', async () => {
-      mocks.tokenRevocationFindUnique.mockResolvedValue(null);
-
-      const result = await isTokenRevoked('jti-none', 'user-1');
-
-      expect(result).toBe(false);
-    });
-
-    it('checks both specific jti and ALL wildcard when userId is provided', async () => {
-      mocks.tokenRevocationFindUnique.mockResolvedValue(null);
-
-      await isTokenRevoked('jti-check', 'user-99');
-
-      // Two separate findUnique calls: one for jti, one for ALL:<userId>
-      expect(mocks.tokenRevocationFindUnique).toHaveBeenCalledTimes(2);
-    });
-
-    it('only checks specific jti when no userId is provided', async () => {
-      mocks.tokenRevocationFindUnique.mockResolvedValue(null);
-
-      await isTokenRevoked('jti-only');
-
-      expect(mocks.tokenRevocationFindUnique).toHaveBeenCalledTimes(1);
+    expect(result).toBe(true);
+    expect(mocks.tokenRevocationFindFirst).toHaveBeenCalledWith({
+      where: { jti: 'jti-bad', userId: 'user-1' },
     });
   });
 
-  // ── markRefreshTokenAsUsed ────────────────────────────────────────────────
+  it('returns false when no matching record is found', async () => {
+    mocks.tokenRevocationFindFirst.mockResolvedValue(null);
 
-  describe('markRefreshTokenAsUsed', () => {
-    it('delegates to revokeRefreshToken (token reuse prevention)', async () => {
-      mocks.tokenRevocationCreate.mockResolvedValue({ id: 'rev-2' });
-      const expiresAt = new Date();
+    const result = await isTokenRevoked('jti-ok', 'user-1');
 
-      await markRefreshTokenAsUsed('user-1', 'jti-used', expiresAt);
-
-      // Same underlying call as revokeRefreshToken
-      expect(mocks.tokenRevocationCreate).toHaveBeenCalledWith({
-        data: { userId: 'user-1', jti: 'jti-used', expiresAt },
-      });
-    });
+    expect(result).toBe(false);
   });
 
-  // ── cleanupExpiredTokenRevocations ───────────────────────────────────────
+  it('returns true when an error occurs during lookup (fail-safe)', async () => {
+    mocks.tokenRevocationFindFirst.mockRejectedValue(new Error('lookup failed'));
 
-  describe('cleanupExpiredTokenRevocations', () => {
-    it('deletes expired records and returns count', async () => {
-      mocks.tokenRevocationDeleteMany.mockResolvedValue({ count: 7 });
+    const result = await isTokenRevoked('jti-any', 'user-any');
 
-      const count = await cleanupExpiredTokenRevocations();
+    expect(result).toBe(true);
+  });
+});
 
-      expect(count).toBe(7);
-      expect(mocks.tokenRevocationDeleteMany).toHaveBeenCalledWith(
-        expect.objectContaining({
-          where: { expiresAt: { lt: expect.any(Date) } },
-        }),
-      );
+describe('markRefreshTokenAsUsed', () => {
+  it('delegates to revokeRefreshToken by creating a revocation record', async () => {
+    mocks.tokenRevocationCreate.mockResolvedValue(undefined);
+
+    const expiresAt = new Date('2027-03-01T00:00:00Z');
+    await markRefreshTokenAsUsed('user-9', 'jti-used', expiresAt);
+
+    expect(mocks.tokenRevocationCreate).toHaveBeenCalledOnce();
+    expect(mocks.tokenRevocationCreate).toHaveBeenCalledWith({
+      data: {
+        userId: 'user-9',
+        jti: 'jti-used',
+        expiresAt,
+      },
     });
+  });
+});
 
-    it('returns 0 when no records expired', async () => {
-      mocks.tokenRevocationDeleteMany.mockResolvedValue({ count: 0 });
+describe('cleanupExpiredTokenRevocations', () => {
+  it('deletes revocations whose expiresAt is in the past and returns the count', async () => {
+    mocks.tokenRevocationDeleteMany.mockResolvedValue({ count: 7 });
 
-      const count = await cleanupExpiredTokenRevocations();
+    const result = await cleanupExpiredTokenRevocations();
 
-      expect(count).toBe(0);
-    });
+    expect(result).toBe(7);
+    expect(mocks.tokenRevocationDeleteMany).toHaveBeenCalledOnce();
+
+    const callArg = mocks.tokenRevocationDeleteMany.mock.calls[0][0];
+    expect(callArg.where.expiresAt.lt).toBeInstanceOf(Date);
+  });
+
+  it('returns 0 when there are no expired revocations', async () => {
+    mocks.tokenRevocationDeleteMany.mockResolvedValue({ count: 0 });
+
+    const result = await cleanupExpiredTokenRevocations();
+
+    expect(result).toBe(0);
+  });
+
+  it('returns 0 and logs error when database fails', async () => {
+    mocks.tokenRevocationDeleteMany.mockRejectedValue(new Error('cleanup failed'));
+
+    const result = await cleanupExpiredTokenRevocations();
+    expect(result).toBe(0);
+  });
+});
+
+describe('edge cases', () => {
+  it('handles very long JTI strings', async () => {
+    const longJti = 'jti-' + 'x'.repeat(1000);
+    mocks.tokenRevocationFindFirst.mockResolvedValue(null);
+
+    const result = await isTokenRevoked(longJti, 'user-1');
+
+    expect(result).toBe(false);
+  });
+
+  it('handles empty strings', async () => {
+    mocks.tokenRevocationFindFirst.mockResolvedValue(null);
+
+    const result = await isTokenRevoked('', '');
+
+    expect(result).toBe(false);
   });
 });

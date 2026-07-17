@@ -11,13 +11,20 @@ const mocks = vi.hoisted(() => ({
   updateRequirementVerification: vi.fn(),
   updateCitationVerification: vi.fn(),
   buildRequirementsDocxBuffer: vi.fn(),
+  buildRequirementsReportPdfBuffer: vi.fn(),
   buildRequirementsExportCsvZip: vi.fn(),
   buildRequirementsReportSummary: vi.fn(),
   exportFilename: vi.fn(),
   getSearchDocumentById: vi.fn(),
   appendDomainAudit: vi.fn(),
-  existsSync: vi.fn(),
-  createReadStream: vi.fn(),
+  auditRequirementChanged: vi.fn(),
+  storageFileExists: vi.fn(),
+  createStorageReadStream: vi.fn(),
+}));
+
+vi.mock('../../server/services/documentObjectStorage', () => ({
+  storageFileExists: mocks.storageFileExists,
+  createStorageReadStream: mocks.createStorageReadStream,
 }));
 
 vi.mock('../../server/repositories/tokenRepository', () => ({
@@ -38,31 +45,27 @@ vi.mock('../../server/repositories/requirementsRepository', () => ({
 
 vi.mock('../../server/services/requirementsReportService', () => ({
   buildRequirementsDocxBuffer: mocks.buildRequirementsDocxBuffer,
+  buildRequirementsReportPdfBuffer: mocks.buildRequirementsReportPdfBuffer,
   buildRequirementsExportCsvZip: mocks.buildRequirementsExportCsvZip,
   buildRequirementsReportSummary: mocks.buildRequirementsReportSummary,
   exportFilename: mocks.exportFilename,
 }));
 
-vi.mock('../../server/repositories/searchRepository', () => ({
-  getDocumentById: mocks.getSearchDocumentById,
-}));
+vi.mock('../../server/modules/search/public', async (importOriginal) => {
+  const mod = await importOriginal<typeof import('../../server/modules/search/public')>();
+  return {
+    ...mod,
+    getDocumentById: mocks.getSearchDocumentById,
+  };
+});
 
 vi.mock('../../server/security/auditTrail', () => ({
   appendDomainAudit: mocks.appendDomainAudit,
 }));
 
-vi.mock('node:fs', () => {
-  const api = {
-    existsSync: mocks.existsSync,
-    createReadStream: mocks.createReadStream,
-  };
-
-  return {
-    default: api,
-    existsSync: mocks.existsSync,
-    createReadStream: mocks.createReadStream,
-  };
-});
+vi.mock('../../server/services/auditEvents', () => ({
+  auditRequirementChanged: mocks.auditRequirementChanged,
+}));
 
 import requirementsRoutes from '../../server/routes/requirements.routes';
 
@@ -124,6 +127,7 @@ describe('requirements.routes', () => {
       requirementCode: 'REQ-1',
       verificationStatus: 'VERIFIED',
       verifiedBy: 'Anna Admin',
+      projectId: 'proj-1',
     });
     mocks.updateCitationVerification.mockResolvedValue({
       id: 'citation-1',
@@ -136,11 +140,13 @@ describe('requirements.routes', () => {
     });
     mocks.buildRequirementsExportCsvZip.mockResolvedValue(pipeable('zip-body'));
     mocks.buildRequirementsDocxBuffer.mockResolvedValue(Buffer.from('docx-body'));
+    mocks.buildRequirementsReportPdfBuffer.mockResolvedValue(Buffer.from('%PDF-1.4 mock'));
     mocks.exportFilename.mockReturnValue('kravrapport-export.bin');
     mocks.getSearchDocumentById.mockResolvedValue(null);
     mocks.appendDomainAudit.mockResolvedValue({ id: 'audit-1' });
-    mocks.existsSync.mockReturnValue(true);
-    mocks.createReadStream.mockReturnValue(pipeable('pdf-body'));
+    mocks.auditRequirementChanged.mockResolvedValue(undefined);
+    mocks.storageFileExists.mockReturnValue(true);
+    mocks.createStorageReadStream.mockReturnValue(pipeable('PDF_CONTENT'));
   });
 
   it('guards admin access and parses case filters', async () => {
@@ -229,6 +235,7 @@ describe('requirements.routes', () => {
       caseReviewStatus: 'VERIFIED',
       validatedBy: 'Anna Admin',
       notes: 'Looks good',
+      actorKind: 'user',
     });
     expect(mocks.appendDomainAudit).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -257,6 +264,7 @@ describe('requirements.routes', () => {
       verifiedBy: 'Anna Admin',
       validationComment: 'Confirmed',
       errorType: 'NONE',
+      actorKind: 'user',
     });
 
     const citation = await request(app)
@@ -277,6 +285,7 @@ describe('requirements.routes', () => {
       verifiedBy: 'Anna Admin',
       comment: 'Relevant',
       pageNumber: 8,
+      actorKind: 'user',
     });
   });
 
@@ -293,6 +302,8 @@ describe('requirements.routes', () => {
       mimeType: 'application/pdf',
       originalName: 'beslut.pdf',
     });
+    mocks.storageFileExists.mockResolvedValueOnce(true);
+    mocks.createStorageReadStream.mockReturnValueOnce(pipeable('PDF_CONTENT'));
 
     const found = await request(app)
       .get('/api/admin/requirements/documents/doc-1/view')
@@ -306,6 +317,78 @@ describe('requirements.routes', () => {
         action: 'REQUIREMENT_DOCUMENT_VIEW',
       }),
     );
+  });
+
+  it('returns 400 for missing caseId or invalid caseReviewStatus', async () => {
+    const missingCaseId = await request(app)
+      .patch('/api/admin/requirements/cases//review')
+      .set('Authorization', authHeader('ADMIN'))
+      .send({ caseReviewStatus: 'VERIFIED', validatedBy: 'Anna' });
+
+    expect([400, 404]).toContain(missingCaseId.status);
+
+    const invalidStatus = await request(app)
+      .patch('/api/admin/requirements/cases/case-1/review')
+      .set('Authorization', authHeader('ADMIN'))
+      .send({ caseReviewStatus: 'INVALID_STATUS' });
+
+    expect(invalidStatus.status).toBe(400);
+  });
+
+  it('allows AUTO caseReviewStatus without validatedBy', async () => {
+    const res = await request(app)
+      .patch('/api/admin/requirements/cases/case-1/review')
+      .set('Authorization', authHeader('ADMIN'))
+      .send({ caseReviewStatus: 'AUTO' });
+
+    expect(res.status).toBe(200);
+    expect(mocks.updateRequirementCaseReview).toHaveBeenCalledWith(
+      expect.objectContaining({ caseReviewStatus: 'AUTO', validatedBy: undefined }),
+    );
+  });
+
+  it('returns 400 for missing requirementCode or verificationStatus', async () => {
+    const missingStatus = await request(app)
+      .patch('/api/admin/requirements/rows/REQ-1/verify')
+      .set('Authorization', authHeader('ADMIN'))
+      .send({});
+
+    expect(missingStatus.status).toBe(400);
+    expect(missingStatus.body.error).toContain('required');
+  });
+
+  it('returns 400 for missing citationCode or verificationStatus', async () => {
+    const res = await request(app)
+      .patch('/api/admin/requirements/citations/CIT-1/verify')
+      .set('Authorization', authHeader('ADMIN'))
+      .send({ verificationStatus: 'INVALID_STATUS' });
+
+    expect(res.status).toBe(400);
+  });
+
+  it('returns 404 when document file missing on server', async () => {
+    mocks.getSearchDocumentById.mockResolvedValueOnce({
+      id: 'doc-2',
+      absolutePath: 'C:/tmp/not-found.pdf',
+      mimeType: 'application/pdf',
+      originalName: 'beslut.pdf',
+    });
+    mocks.storageFileExists.mockReturnValueOnce(false);
+
+    const res = await request(app)
+      .get('/api/admin/requirements/documents/doc-2/view')
+      .set('Authorization', authHeader('ADMIN'));
+
+    expect(res.status).toBe(404);
+    expect(res.body.error).toContain('missing on server');
+  });
+
+  it('returns 400 for missing documentId', async () => {
+    const res = await request(app)
+      .get('/api/admin/requirements/documents//view')
+      .set('Authorization', authHeader('ADMIN'));
+
+    expect([400, 404]).toContain(res.status);
   });
 
   it('builds summary and export responses with audit trail', async () => {
@@ -343,9 +426,45 @@ describe('requirements.routes', () => {
       organisationId: 'org-1',
       includePreliminary: true,
     });
+
+    const pdf = await request(app)
+      .post('/api/admin/requirements/reports/export.pdf')
+      .set('Authorization', authHeader('ADMIN'))
+      .send({ includePreliminary: true });
+
+    expect(pdf.status).toBe(200);
+    expect(pdf.headers['content-type']).toContain('application/pdf');
+    expect(mocks.buildRequirementsReportPdfBuffer).toHaveBeenCalledWith({
+      organisationId: 'org-1',
+      includePreliminary: true,
+    });
+
     expect(mocks.appendDomainAudit).toHaveBeenCalledWith(
       expect.objectContaining({
         entityType: 'RequirementReport',
+      }),
+    );
+  });
+
+  it('audits requirement status changes via auditEvents helper', async () => {
+    mocks.listRequirementRows.mockResolvedValueOnce({
+      items: [{ id: 'row-1', requirementCode: 'REQ-1', verificationStatus: 'AUTO', projectId: 'proj-1' }],
+      total: 1,
+      page: 1,
+      pageSize: 1,
+    });
+
+    const res = await request(app)
+      .patch('/api/admin/requirements/rows/REQ-1/verify')
+      .set('Authorization', authHeader('ADMIN'))
+      .send({ verificationStatus: 'VERIFIED', verifiedBy: 'Anna Admin' });
+
+    expect(res.status).toBe(200);
+    expect(mocks.auditRequirementChanged).toHaveBeenCalledWith(
+      expect.objectContaining({
+        requirementId: 'row-1',
+        projectId: 'proj-1',
+        change: 'STATUS',
       }),
     );
   });

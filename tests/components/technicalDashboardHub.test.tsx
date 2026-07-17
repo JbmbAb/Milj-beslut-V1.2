@@ -22,18 +22,18 @@ beforeAll(() => {
 describe('TechnicalDashboardHub', () => {
   it('renders branding text', () => {
     render(<TechnicalDashboardHub onSelectModule={vi.fn()} />);
-    expect(screen.getByText(/RiskGuard/i)).toBeInTheDocument();
-    expect(screen.getByText(/Miljobeslut 2\.0/i)).toBeInTheDocument();
+    expect(screen.getAllByText(/Miljöbeslut/i).length).toBeGreaterThanOrEqual(1);
+    expect(screen.getByText(/Miljöbeslut 2\.0/i)).toBeInTheDocument();
   });
 
   it('renders hero headline', () => {
     render(<TechnicalDashboardHub onSelectModule={vi.fn()} />);
-    expect(screen.getByText(/Gor miljo-tillstand enkelt och sakert/i)).toBeInTheDocument();
+    expect(screen.getByText(/Miljöbeslut Business Intelligence/i)).toBeInTheDocument();
   });
 
   it('renders all 6 module cards', () => {
     render(<TechnicalDashboardHub onSelectModule={vi.fn()} />);
-    expect(screen.getByText('MVP Workflow')).toBeInTheDocument();
+    expect(screen.getByText('Core Workflow')).toBeInTheDocument();
     expect(screen.getByText('Ansokningsportal')).toBeInTheDocument();
     expect(screen.getByText('Logistik & Massor')).toBeInTheDocument();
     expect(screen.getByText('Projektledning')).toBeInTheDocument();
@@ -42,11 +42,11 @@ describe('TechnicalDashboardHub', () => {
     expect(screen.getByTestId('landing-open-admin')).toBeInTheDocument();
   });
 
-  it('calls onSelectModule with correct id when MVP card clicked', () => {
+  it('calls onSelectModule with correct id when Core card clicked', () => {
     const onSelectModule = vi.fn();
     render(<TechnicalDashboardHub onSelectModule={onSelectModule} />);
-    fireEvent.click(screen.getByTestId('landing-open-mvp'));
-    expect(onSelectModule).toHaveBeenCalledWith('mvp');
+    fireEvent.click(screen.getByTestId('landing-open-core'));
+    expect(onSelectModule).toHaveBeenCalledWith('core');
   });
 
   it('calls onSelectModule with ansokan id when ansökan card clicked', () => {
@@ -63,9 +63,9 @@ describe('TechnicalDashboardHub', () => {
     expect(onPreviewModule).toHaveBeenCalledWith('admin');
   });
 
-  it('renders user name when provided', () => {
-    render(<TechnicalDashboardHub onSelectModule={vi.fn()} user={{ name: 'Karin Eriksson' }} />);
-    expect(screen.getByText('Karin Eriksson')).toBeInTheDocument();
+  it('renders the user profile button', () => {
+    render(<TechnicalDashboardHub onSelectModule={vi.fn()} />);
+    expect(screen.getByRole('button', { name: 'User profile' })).toBeInTheDocument();
   });
 
   it('renders default Administrator when no user provided', () => {
@@ -74,8 +74,8 @@ describe('TechnicalDashboardHub', () => {
     expect(screen.getAllByText('Administrator').length).toBeGreaterThanOrEqual(1);
   });
 
-  it('renders Powered by Gemini label', () => {
+  it('renders the live-data integration badge', () => {
     render(<TechnicalDashboardHub onSelectModule={vi.fn()} />);
-    expect(screen.getByText(/Powered by Gemini/i)).toBeInTheDocument();
+    expect(screen.getByText(/Live-data ansluten:/i)).toBeInTheDocument();
   });
 });

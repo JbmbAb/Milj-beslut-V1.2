@@ -129,4 +129,41 @@ describe('organisation.routes', () => {
       actingUserId: 'admin-1',
     });
   });
+
+  it("returns 403 when accessing another organisation's invitations list", async () => {
+    const res = await request(app)
+      .get('/api/orgs/org-2/invitations')
+      .set('Authorization', authHeader('org-1'));
+
+    expect(res.status).toBe(403);
+  });
+
+  it("returns 403 when deleting another organisation's invitation", async () => {
+    const res = await request(app)
+      .delete('/api/orgs/org-2/invitations/invite-1')
+      .set('Authorization', authHeader('org-1'));
+
+    expect(res.status).toBe(403);
+  });
+
+  it('surfaces service errors from createInvitation as 400', async () => {
+    mocks.createInvitation.mockRejectedValueOnce(new Error('e-post redan inbjuden'));
+
+    const res = await request(app)
+      .post('/api/orgs/org-1/invitations')
+      .set('Authorization', authHeader('org-1'))
+      .send({ email: 'dup@example.com', role: 'CONSULTANT' });
+
+    expect(res.status).toBe(400);
+  });
+
+  it('surfaces service errors from acceptInvitation as 400', async () => {
+    mocks.acceptInvitation.mockRejectedValueOnce(new Error('inbjudan har löpt ut'));
+
+    const res = await request(app)
+      .post('/api/orgs/org-1/invitations/accept')
+      .send({ token: 'expired-token', bankidId: '191212121212' });
+
+    expect(res.status).toBe(400);
+  });
 });

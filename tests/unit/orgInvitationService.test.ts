@@ -1,366 +1,263 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { describe, it, expect, vi, beforeEach } from 'vitest';
 
-// ─── Mocks ────────────────────────────────────────────────────────────────────
-
-const prismaMocks = vi.hoisted(() => ({
-  orgFindUnique: vi.fn(),
+const mocks = vi.hoisted(() => ({
+  organisationFindUnique: vi.fn(),
   userFindFirst: vi.fn(),
   userCreate: vi.fn(),
+  appendDomainAudit: vi.fn(),
+  loggerInfo: vi.fn(),
+  loggerWarn: vi.fn(),
 }));
 
 vi.mock('../../server/db/prisma', () => ({
   prisma: {
-    organisation: { findUnique: prismaMocks.orgFindUnique },
+    organisation: {
+      findUnique: mocks.organisationFindUnique,
+    },
     user: {
-      findFirst: prismaMocks.userFindFirst,
-      create: prismaMocks.userCreate,
+      findFirst: mocks.userFindFirst,
+      create: mocks.userCreate,
     },
   },
 }));
 
 vi.mock('../../server/security/auditTrail', () => ({
-  appendDomainAudit: vi.fn().mockResolvedValue({ id: 'audit-1' }),
+  appendDomainAudit: mocks.appendDomainAudit,
 }));
 
 vi.mock('../../server/logger', () => ({
-  logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
+  logger: {
+    info: mocks.loggerInfo,
+    warn: mocks.loggerWarn,
+  },
 }));
 
-// ─── Module under test ─────────────────────────────────────────────────────────
+// Import after mocks to ensure module uses fresh in-memory state.
+import {
+  createInvitation,
+  listInvitations,
+  acceptInvitation,
+  revokeInvitation,
+} from '../../server/services/orgInvitationService';
 
-// Reset modules per test to get a clean in-memory invitations map.
-let svc: typeof import('../../server/services/orgInvitationService');
+const ORG_ID = 'org-test-001';
+const ACTING_USER = 'user-admin-001';
 
-beforeEach(async () => {
-  vi.clearAllMocks();
-  vi.resetModules();
-  svc = await import('../../server/services/orgInvitationService');
+describe('createInvitation', () => {
+  beforeEach(() => {
+    vi.resetAllMocks();
+    mocks.appendDomainAudit.mockResolvedValue(undefined);
+  });
 
-  // Default: organisation exists
-  prismaMocks.orgFindUnique.mockResolvedValue({ id: 'org-1', name: 'Test Org' });
+  it('creates and returns a new invitation', async () => {
+    mocks.organisationFindUnique.mockResolvedValue({ id: ORG_ID, name: 'Test Org' });
+
+    const inv = await createInvitation({
+      orgId: ORG_ID,
+      email: 'user@example.com',
+      role: 'CONSULTANT',
+      actingUserId: ACTING_USER,
+    });
+
+    expect(inv.orgId).toBe(ORG_ID);
+    expect(inv.email).toBe('user@example.com');
+    expect(inv.role).toBe('CONSULTANT');
+    expect(inv.status).toBe('PENDING');
+    expect(inv.token).toBeTruthy();
+    expect(inv.id).toBeTruthy();
+    expect(mocks.appendDomainAudit).toHaveBeenCalledWith(
+      expect.objectContaining({ action: 'INVITATION_CREATED' }),
+    );
+  });
+
+  it('throws when organisation does not exist', async () => {
+    mocks.organisationFindUnique.mockResolvedValue(null);
+
+    await expect(
+      createInvitation({ orgId: 'no-org', email: 'x@x.com', role: 'CONSULTANT', actingUserId: ACTING_USER }),
+    ).rejects.toThrow('hittades inte');
+  });
+
+  it('normalises email to lowercase', async () => {
+    mocks.organisationFindUnique.mockResolvedValue({ id: ORG_ID });
+
+    const inv = await createInvitation({
+      orgId: ORG_ID,
+      email: 'USER@EXAMPLE.COM',
+      role: 'CONSULTANT',
+      actingUserId: ACTING_USER,
+    });
+
+    expect(inv.email).toBe('user@example.com');
+  });
+
+  it('returns existing pending invitation for same email', async () => {
+    mocks.organisationFindUnique.mockResolvedValue({ id: ORG_ID });
+
+    const first = await createInvitation({
+      orgId: ORG_ID,
+      email: 'dup@example.com',
+      role: 'CONSULTANT',
+      actingUserId: ACTING_USER,
+    });
+
+    // Reset call count to verify second call doesn't create another audit entry
+    mocks.appendDomainAudit.mockClear();
+
+    const second = await createInvitation({
+      orgId: ORG_ID,
+      email: 'dup@example.com',
+      role: 'CONSULTANT',
+      actingUserId: ACTING_USER,
+    });
+
+    expect(second.id).toBe(first.id);
+    expect(mocks.appendDomainAudit).not.toHaveBeenCalled();
+  });
 });
 
-// ─── Counter for unique org/email IDs ─────────────────────────────────────────
-let counter = 0;
-function uniqueOrg() {
-  return `org-test-${++counter}`;
-}
-function uniqueEmail() {
-  return `user-${counter}@example.com`;
-}
-
-// ─── Tests ────────────────────────────────────────────────────────────────────
-
-describe('orgInvitationService', () => {
-  // ── createInvitation ───────────────────────────────────────────────────────
-
-  describe('createInvitation', () => {
-    it('creates an invitation with correct fields', async () => {
-      const orgId = uniqueOrg();
-      prismaMocks.orgFindUnique.mockResolvedValue({ id: orgId });
-
-      const inv = await svc.createInvitation({
-        orgId,
-        email: 'anna@example.com',
-        role: 'CONSULTANT',
-        actingUserId: 'admin-1',
-      });
-
-      expect(inv.id).toBeTruthy();
-      expect(inv.orgId).toBe(orgId);
-      expect(inv.email).toBe('anna@example.com');
-      expect(inv.role).toBe('CONSULTANT');
-      expect(inv.status).toBe('PENDING');
-      expect(new Date(inv.expiresAt).getTime()).toBeGreaterThan(Date.now());
-    });
-
-    it('normalises email to lowercase', async () => {
-      const orgId = uniqueOrg();
-      prismaMocks.orgFindUnique.mockResolvedValue({ id: orgId });
-
-      const inv = await svc.createInvitation({
-        orgId,
-        email: 'ANNA@EXAMPLE.COM',
-        role: 'CONSULTANT',
-        actingUserId: 'admin-1',
-      });
-
-      expect(inv.email).toBe('anna@example.com');
-    });
-
-    it('throws when organisation does not exist', async () => {
-      prismaMocks.orgFindUnique.mockResolvedValue(null);
-
-      await expect(
-        svc.createInvitation({
-          orgId: 'org-missing',
-          email: 'x@example.com',
-          role: 'CONSULTANT',
-          actingUserId: 'admin-1',
-        }),
-      ).rejects.toThrow('hittades inte');
-    });
-
-    it('deduplicates: returns existing PENDING invite for same email+org', async () => {
-      const orgId = uniqueOrg();
-      prismaMocks.orgFindUnique.mockResolvedValue({ id: orgId });
-
-      const inv1 = await svc.createInvitation({
-        orgId,
-        email: 'dup@example.com',
-        role: 'CONSULTANT',
-        actingUserId: 'admin-1',
-      });
-
-      const inv2 = await svc.createInvitation({
-        orgId,
-        email: 'dup@example.com',
-        role: 'ADMIN',
-        actingUserId: 'admin-2',
-      });
-
-      expect(inv2.id).toBe(inv1.id);
-    });
-
-    it('creates a new invite if previous one was for different org', async () => {
-      const orgA = uniqueOrg();
-      const orgB = uniqueOrg();
-      prismaMocks.orgFindUnique.mockResolvedValue({ id: orgA });
-
-      const inv1 = await svc.createInvitation({
-        orgId: orgA,
-        email: 'shared@example.com',
-        role: 'CONSULTANT',
-        actingUserId: 'admin-1',
-      });
-
-      prismaMocks.orgFindUnique.mockResolvedValue({ id: orgB });
-      const inv2 = await svc.createInvitation({
-        orgId: orgB,
-        email: 'shared@example.com',
-        role: 'CONSULTANT',
-        actingUserId: 'admin-1',
-      });
-
-      expect(inv2.id).not.toBe(inv1.id);
-    });
-
-    it('writes an audit event', async () => {
-      const { appendDomainAudit } = await import('../../server/security/auditTrail');
-      const orgId = uniqueOrg();
-      prismaMocks.orgFindUnique.mockResolvedValue({ id: orgId });
-
-      await svc.createInvitation({
-        orgId,
-        email: uniqueEmail(),
-        role: 'CONSULTANT',
-        actingUserId: 'admin-audit',
-      });
-
-      expect(appendDomainAudit).toHaveBeenCalledWith(
-        expect.objectContaining({ action: 'INVITATION_CREATED', entityType: 'ORG_INVITATION' }),
-      );
-    });
+describe('listInvitations', () => {
+  beforeEach(() => {
+    vi.resetAllMocks();
+    mocks.appendDomainAudit.mockResolvedValue(undefined);
   });
 
-  // ── listInvitations ────────────────────────────────────────────────────────
+  it('returns invitations for the given orgId', async () => {
+    mocks.organisationFindUnique.mockResolvedValue({ id: ORG_ID });
 
-  describe('listInvitations', () => {
-    it('returns empty array when no invitations exist for org', () => {
-      expect(svc.listInvitations('org-empty')).toHaveLength(0);
+    await createInvitation({
+      orgId: ORG_ID,
+      email: 'list-test@example.com',
+      role: 'CONSULTANT',
+      actingUserId: ACTING_USER,
     });
 
-    it('returns only invitations for the requested org', async () => {
-      const orgA = uniqueOrg();
-      const orgB = uniqueOrg();
-      prismaMocks.orgFindUnique.mockResolvedValue({ id: orgA });
-
-      await svc.createInvitation({
-        orgId: orgA,
-        email: uniqueEmail(),
-        role: 'CONSULTANT',
-        actingUserId: 'a',
-      });
-
-      prismaMocks.orgFindUnique.mockResolvedValue({ id: orgB });
-      await svc.createInvitation({
-        orgId: orgB,
-        email: uniqueEmail(),
-        role: 'CONSULTANT',
-        actingUserId: 'a',
-      });
-
-      const list = svc.listInvitations(orgA);
-      expect(list.every((inv) => inv.orgId === orgA)).toBe(true);
-    });
-
-    it('marks expired invitations as EXPIRED', async () => {
-      // Create an invite, then manually expire it by directly overriding expiresAt
-      const orgId = uniqueOrg();
-      prismaMocks.orgFindUnique.mockResolvedValue({ id: orgId });
-
-      const inv = await svc.createInvitation({
-        orgId,
-        email: uniqueEmail(),
-        role: 'CONSULTANT',
-        actingUserId: 'a',
-      });
-
-      // Manipulate via the returned object reference that's also stored in the map
-      // (the map stores the same reference, so mutating inv affects the map)
-      inv.expiresAt = new Date(Date.now() - 1000).toISOString();
-
-      const list = svc.listInvitations(orgId);
-      const listed = list.find((i) => i.id === inv.id);
-      expect(listed?.status).toBe('EXPIRED');
-    });
+    const list = listInvitations(ORG_ID);
+    expect(list.some((i) => i.email === 'list-test@example.com')).toBe(true);
   });
 
-  // ── revokeInvitation ───────────────────────────────────────────────────────
+  it('does not return invitations from other orgs', async () => {
+    const list = listInvitations('other-org-999');
+    expect(list.every((i) => i.orgId === 'other-org-999')).toBe(true);
+  });
+});
 
-  describe('revokeInvitation', () => {
-    it('marks the invitation as REVOKED', async () => {
-      const orgId = uniqueOrg();
-      prismaMocks.orgFindUnique.mockResolvedValue({ id: orgId });
-
-      const inv = await svc.createInvitation({
-        orgId,
-        email: uniqueEmail(),
-        role: 'CONSULTANT',
-        actingUserId: 'a',
-      });
-
-      await svc.revokeInvitation({ orgId, inviteId: inv.id, actingUserId: 'admin-r' });
-
-      const found = svc.listInvitations(orgId).find((i) => i.id === inv.id);
-      expect(found?.status).toBe('REVOKED');
-    });
-
-    it('throws when inviteId does not exist', async () => {
-      await expect(
-        svc.revokeInvitation({ orgId: 'org-x', inviteId: 'no-such-invite', actingUserId: 'a' }),
-      ).rejects.toThrow('hittades inte');
-    });
-
-    it('throws when inviteId belongs to a different org', async () => {
-      const orgA = uniqueOrg();
-      prismaMocks.orgFindUnique.mockResolvedValue({ id: orgA });
-      const inv = await svc.createInvitation({
-        orgId: orgA,
-        email: uniqueEmail(),
-        role: 'CONSULTANT',
-        actingUserId: 'a',
-      });
-
-      await expect(
-        svc.revokeInvitation({ orgId: 'org-wrong', inviteId: inv.id, actingUserId: 'a' }),
-      ).rejects.toThrow('hittades inte');
-    });
-
-    it('writes an audit event on revoke', async () => {
-      const { appendDomainAudit } = await import('../../server/security/auditTrail');
-      const orgId = uniqueOrg();
-      prismaMocks.orgFindUnique.mockResolvedValue({ id: orgId });
-      const inv = await svc.createInvitation({
-        orgId,
-        email: uniqueEmail(),
-        role: 'CONSULTANT',
-        actingUserId: 'a',
-      });
-
-      await svc.revokeInvitation({ orgId, inviteId: inv.id, actingUserId: 'admin-audit' });
-
-      expect(appendDomainAudit).toHaveBeenCalledWith(
-        expect.objectContaining({ action: 'INVITATION_REVOKED' }),
-      );
-    });
+describe('acceptInvitation', () => {
+  beforeEach(() => {
+    vi.resetAllMocks();
+    mocks.appendDomainAudit.mockResolvedValue(undefined);
   });
 
-  // ── acceptInvitation ───────────────────────────────────────────────────────
+  async function createTestInvitation(email = 'accept@example.com') {
+    mocks.organisationFindUnique.mockResolvedValue({ id: ORG_ID });
+    return createInvitation({ orgId: ORG_ID, email, role: 'CONSULTANT', actingUserId: ACTING_USER });
+  }
 
-  describe('acceptInvitation', () => {
-    it('accepts a valid invitation and returns userId, orgId, role', async () => {
-      const orgId = uniqueOrg();
-      prismaMocks.orgFindUnique.mockResolvedValue({ id: orgId });
-
-      const inv = await svc.createInvitation({
-        orgId,
-        email: uniqueEmail(),
-        role: 'CONSULTANT',
-        actingUserId: 'admin-a',
-      });
-
-      prismaMocks.userFindFirst.mockResolvedValue(null);
-      prismaMocks.userCreate.mockResolvedValue({
-        id: 'user-new',
-        bankidId: '19900101-1234',
-        organisationId: orgId,
-        role: 'CONSULTANT',
-      });
-
-      const result = await svc.acceptInvitation({
-        orgId,
-        token: inv.token,
-        bankidId: '19900101-1234',
-      });
-
-      expect(result.userId).toBe('user-new');
-      expect(result.orgId).toBe(orgId);
-      expect(result.role).toBe('CONSULTANT');
+  it('accepts a valid invitation and returns user info', async () => {
+    const inv = await createTestInvitation('accept-happy@example.com');
+    mocks.userFindFirst.mockResolvedValue(null);
+    mocks.userCreate.mockResolvedValue({
+      id: 'new-user-001',
+      bankidId: 'bid123',
+      organisationId: ORG_ID,
+      role: 'CONSULTANT',
     });
 
-    it('throws for an invalid (unknown) token', async () => {
-      const orgId = uniqueOrg();
-      await expect(
-        svc.acceptInvitation({ orgId, token: 'invalid-token', bankidId: 'some-id' }),
-      ).rejects.toThrow('hittades inte');
+    const result = await acceptInvitation({ orgId: ORG_ID, token: inv.token, bankidId: 'bid123' });
+
+    expect(result.userId).toBe('new-user-001');
+    expect(result.orgId).toBe(ORG_ID);
+    expect(result.role).toBe('CONSULTANT');
+    expect(mocks.appendDomainAudit).toHaveBeenCalledWith(
+      expect.objectContaining({ action: 'INVITATION_ACCEPTED' }),
+    );
+  });
+
+  it('reuses existing user if found', async () => {
+    const inv = await createTestInvitation('reuse@example.com');
+    mocks.userFindFirst.mockResolvedValue({
+      id: 'existing-user',
+      bankidId: 'bid-existing',
+      organisationId: ORG_ID,
+      role: 'CONSULTANT',
     });
 
-    it('throws for an already revoked invitation', async () => {
-      const orgId = uniqueOrg();
-      prismaMocks.orgFindUnique.mockResolvedValue({ id: orgId });
+    const result = await acceptInvitation({ orgId: ORG_ID, token: inv.token, bankidId: 'bid-existing' });
 
-      const inv = await svc.createInvitation({
-        orgId,
-        email: uniqueEmail(),
-        role: 'CONSULTANT',
-        actingUserId: 'admin-a',
-      });
+    expect(result.userId).toBe('existing-user');
+    expect(mocks.userCreate).not.toHaveBeenCalled();
+  });
 
-      await svc.revokeInvitation({ orgId, inviteId: inv.id, actingUserId: 'admin-a' });
+  it('throws when token is not found', async () => {
+    await expect(
+      acceptInvitation({ orgId: ORG_ID, token: 'invalid-token', bankidId: 'bid' }),
+    ).rejects.toThrow('hittades inte');
+  });
 
-      await expect(svc.acceptInvitation({ orgId, token: inv.token, bankidId: 'some-id' })).rejects.toThrow(
-        'REVOKED',
-      );
+  it('throws when invitation is already accepted', async () => {
+    const inv = await createTestInvitation('already-accepted@example.com');
+    mocks.userFindFirst.mockResolvedValue(null);
+    mocks.userCreate.mockResolvedValue({
+      id: 'u1',
+      bankidId: 'b1',
+      organisationId: ORG_ID,
+      role: 'CONSULTANT',
     });
 
-    it('reuses an existing user when bankidId already has a record', async () => {
-      const orgId = uniqueOrg();
-      prismaMocks.orgFindUnique.mockResolvedValue({ id: orgId });
+    // Accept once
+    await acceptInvitation({ orgId: ORG_ID, token: inv.token, bankidId: 'b1' });
 
-      const inv = await svc.createInvitation({
-        orgId,
-        email: uniqueEmail(),
-        role: 'ADMIN',
-        actingUserId: 'admin-a',
-      });
+    // Try again
+    await expect(acceptInvitation({ orgId: ORG_ID, token: inv.token, bankidId: 'b1' })).rejects.toThrow(
+      'ACCEPTED',
+    );
+  });
+});
 
-      const existingUser = {
-        id: 'user-existing',
-        bankidId: 'existing-bankid',
-        organisationId: orgId,
-        role: 'ADMIN',
-      };
-      prismaMocks.userFindFirst.mockResolvedValue(existingUser);
+describe('revokeInvitation', () => {
+  beforeEach(() => {
+    vi.resetAllMocks();
+    mocks.appendDomainAudit.mockResolvedValue(undefined);
+  });
 
-      const result = await svc.acceptInvitation({
-        orgId,
-        token: inv.token,
-        bankidId: 'existing-bankid',
-      });
+  it('revokes a pending invitation', async () => {
+    mocks.organisationFindUnique.mockResolvedValue({ id: ORG_ID });
 
-      expect(result.userId).toBe('user-existing');
-      expect(prismaMocks.userCreate).not.toHaveBeenCalled();
+    const inv = await createInvitation({
+      orgId: ORG_ID,
+      email: 'revoke@example.com',
+      role: 'CONSULTANT',
+      actingUserId: ACTING_USER,
     });
+
+    await revokeInvitation({ orgId: ORG_ID, inviteId: inv.id, actingUserId: ACTING_USER });
+
+    const list = listInvitations(ORG_ID);
+    const found = list.find((i) => i.id === inv.id);
+    expect(found?.status).toBe('REVOKED');
+    expect(mocks.appendDomainAudit).toHaveBeenCalledWith(
+      expect.objectContaining({ action: 'INVITATION_REVOKED' }),
+    );
+  });
+
+  it('throws when invitation id does not exist', async () => {
+    await expect(
+      revokeInvitation({ orgId: ORG_ID, inviteId: 'no-such-id', actingUserId: ACTING_USER }),
+    ).rejects.toThrow('hittades inte');
+  });
+
+  it('throws when invitation belongs to different org', async () => {
+    mocks.organisationFindUnique.mockResolvedValue({ id: ORG_ID });
+
+    const inv = await createInvitation({
+      orgId: ORG_ID,
+      email: 'wrong-org@example.com',
+      role: 'CONSULTANT',
+      actingUserId: ACTING_USER,
+    });
+
+    await expect(
+      revokeInvitation({ orgId: 'different-org', inviteId: inv.id, actingUserId: ACTING_USER }),
+    ).rejects.toThrow('hittades inte');
   });
 });

@@ -1,17 +1,20 @@
-import { prisma } from "../db/prisma";
-import type { ProjectPlan } from "../../types";
+import { prisma } from '../db/prisma';
+import type { ProjectPlan } from '../../types';
 
 const db = prisma as any;
 
-export async function getStoredProjectPlan(projectId: string, organisationId: string): Promise<Partial<ProjectPlan> | null> {
+export async function getStoredProjectPlan(
+  projectId: string,
+  organisationId: string,
+): Promise<Partial<ProjectPlan> | null> {
   const row = await db.projectPlanState.findFirst({
-    where: { 
+    where: {
       projectId,
-      project: { organisationId }
+      project: { organisationId },
     },
     select: { plan: true },
   });
-  if (!row?.plan || typeof row.plan !== "object") {
+  if (!row?.plan || typeof row.plan !== 'object') {
     return null;
   }
   return row.plan as Partial<ProjectPlan>;
@@ -24,10 +27,10 @@ export async function upsertStoredProjectPlan(input: {
   plan: ProjectPlan;
 }) {
   const project = await db.project.findFirst({
-    where: { id: input.projectId, organisationId: input.organisationId }
+    where: { id: input.projectId, organisationId: input.organisationId },
   });
   if (!project) {
-    throw new Error("Project not found or access denied");
+    throw new Error('Project not found or access denied');
   }
 
   return db.projectPlanState.upsert({

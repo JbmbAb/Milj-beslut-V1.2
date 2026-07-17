@@ -15,7 +15,7 @@ const genMock = generateMarketingSummary as ReturnType<typeof vi.fn>;
 
 const basePermits: Permit[] = [
   {
-    id: 1,
+    id: '1',
     filename: 'test.pdf',
     checksum: 'abc123',
     received_date: '2024-01-01',
@@ -101,6 +101,6 @@ describe('MarketingHub', () => {
     genMock.mockRejectedValue(new Error('API down'));
     render(<MarketingHub permits={basePermits} />);
     await user.click(screen.getByRole('button', { name: /Kör Trend-motor/i }));
-    await waitFor(() => expect(screen.getByText(/Offline-lage/i)).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByText(/saknar verifierad extern kalla/i)).toBeInTheDocument());
   });
 });

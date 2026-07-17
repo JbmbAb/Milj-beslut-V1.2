@@ -32,7 +32,9 @@ function extractError(payload: unknown, fallback: string): string {
   return fallback;
 }
 
-export async function uploadProjectDocument(input: UploadProjectDocumentInput): Promise<ProjectDocumentUploadResult> {
+export async function uploadProjectDocument(
+  input: UploadProjectDocumentInput,
+): Promise<ProjectDocumentUploadResult> {
   const projectId = String(input.projectId || '').trim();
   const token = String(input.token || '').trim();
   const originalName = String(input.file?.name || '').trim();
@@ -60,7 +62,10 @@ export async function uploadProjectDocument(input: UploadProjectDocumentInput): 
     body: input.file,
   });
 
-  const payload = (await response.json().catch(() => null)) as ProjectDocumentUploadResult | { ok?: false; error?: string } | null;
+  const payload = (await response.json().catch(() => null)) as
+    | ProjectDocumentUploadResult
+    | { ok?: false; error?: string }
+    | null;
   if (!response.ok || !payload || payload.ok !== true) {
     throw new Error(extractError(payload, `HTTP ${response.status}`));
   }

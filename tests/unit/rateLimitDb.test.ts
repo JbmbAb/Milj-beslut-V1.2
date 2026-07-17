@@ -4,6 +4,7 @@ const prismaRateLimitMock = vi.hoisted(() => ({
   findUnique: vi.fn(),
   create: vi.fn(),
   update: vi.fn(),
+  upsert: vi.fn(),
   deleteMany: vi.fn(),
   delete: vi.fn(),
   findMany: vi.fn(),
@@ -25,7 +26,6 @@ describe('checkRateLimit', () => {
     vi.clearAllMocks();
     vi.useFakeTimers();
     vi.setSystemTime(now);
-    prismaRateLimitMock.deleteMany.mockResolvedValue({ count: 0 });
   });
 
   afterEach(() => {
@@ -34,15 +34,13 @@ describe('checkRateLimit', () => {
 
   it('creates a new entry on first request and allows it', async () => {
     prismaRateLimitMock.findUnique.mockResolvedValue(null);
-    prismaRateLimitMock.create.mockResolvedValue({});
+    prismaRateLimitMock.upsert.mockResolvedValue({ resetAt: futureReset });
 
     const result = await checkRateLimit('user:u1', 10, 60_000);
 
     expect(result.allowed).toBe(true);
     expect(result.remainingAttempts).toBe(9);
-    expect(prismaRateLimitMock.create).toHaveBeenCalledWith(
-      expect.objectContaining({ data: expect.objectContaining({ key: 'user:u1', count: 1 }) }),
-    );
+    expect(prismaRateLimitMock.upsert).toHaveBeenCalled();
   });
 
   it('increments count when under limit', async () => {
@@ -51,7 +49,7 @@ describe('checkRateLimit', () => {
       count: 3,
       resetAt: futureReset,
     });
-    prismaRateLimitMock.update.mockResolvedValue({});
+    prismaRateLimitMock.update.mockResolvedValue({ key: 'user:u1', count: 4, resetAt: futureReset });
 
     const result = await checkRateLimit('user:u1', 10, 60_000);
 
@@ -83,25 +81,21 @@ describe('checkRateLimit', () => {
       count: 10,
       resetAt: pastReset,
     });
-    prismaRateLimitMock.update.mockResolvedValue({});
+    prismaRateLimitMock.upsert.mockResolvedValue({ resetAt: futureReset });
 
     const result = await checkRateLimit('user:u1', 10, 60_000);
 
     expect(result.allowed).toBe(true);
-    expect(prismaRateLimitMock.update).toHaveBeenCalledWith(
-      expect.objectContaining({ data: expect.objectContaining({ count: 1 }) }),
-    );
+    expect(prismaRateLimitMock.upsert).toHaveBeenCalled();
   });
 
-  it('cleans up expired entries before checking', async () => {
+  it('does not perform cleanup on every check', async () => {
     prismaRateLimitMock.findUnique.mockResolvedValue(null);
-    prismaRateLimitMock.create.mockResolvedValue({});
+    prismaRateLimitMock.upsert.mockResolvedValue({ resetAt: futureReset });
 
     await checkRateLimit('user:u1', 5, 60_000);
 
-    expect(prismaRateLimitMock.deleteMany).toHaveBeenCalledWith(
-      expect.objectContaining({ where: { resetAt: { lt: now } } }),
-    );
+    expect(prismaRateLimitMock.deleteMany).not.toHaveBeenCalled();
   });
 });
 

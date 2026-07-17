@@ -1,19 +1,19 @@
-/**
+﻿﻿/**
  * notificationService.ts
  *
- * Stage-gate och projektnotifieringar.
+ * Stage-gate- och projektnotifieringar.
  *
  * Notiser levereras på två sätt:
  *  1. Alltid: loggad via appendDomainAudit med action="PROJECT_NOTIFICATION"
  *  2. Valfritt: via SMTP om SMTP_HOST + SMTP_USER + SMTP_PASS är konfigurerade
  *
- * SMTP-konfigurationsvariabler (lägg till i .env.example):
- *   SMTP_HOST      — t.ex. smtp.sendgrid.net
- *   SMTP_PORT      — t.ex. 587
- *   SMTP_SECURE    — true/false
- *   SMTP_USER      — användarnamn
- *   SMTP_PASS      — lösenord
- *   NOTIFICATION_FROM_EMAIL — avsändaradress
+ * SMTP-konfigurationsvariabler (lÃ¤gg till i .env.example):
+ *   SMTP_HOST      â€” t.ex. smtp.sendgrid.net
+ *   SMTP_PORT      â€” t.ex. 587
+ *   SMTP_SECURE    â€” true/false
+ *   SMTP_USER      â€” anvÃ¤ndarnamn
+ *   SMTP_PASS      â€” lÃ¶senord
+ *   NOTIFICATION_FROM_EMAIL â€” avsÃ¤ndaradress
  */
 
 import { prisma } from '../db/prisma';
@@ -35,7 +35,7 @@ export interface ProjectNotification {
   message: string;
 }
 
-// ── SMTP-sändare (valfri) ─────────────────────────────────────────────────
+// ─── SMTP-sändare (valfri) ───────────────────────────────────────────────────
 
 let _transporter: unknown = null;
 
@@ -52,9 +52,9 @@ async function getTransporter() {
   }
 
   try {
-    // Dynamisk import av nodemailer (ej prod-beroende — installeras separat vid behov)
-    // @ts-expect-error – nodemailer är valfritt beroende, installeras separat om SMTP används
-    const nm = await import('nodemailer').catch(() => null) as null | {
+    // Dynamisk import av nodemailer (ej prod-beroende â€” installeras separat vid behov)
+    // Use @vite-ignore to keep nodemailer optional (avoid Vite import-analysis resolution failures in tests/builds).
+    const nm = (await import(/* @vite-ignore */ 'nodemailer').catch(() => null)) as null | {
       createTransport: (opts: object) => {
         sendMail: (opts: object) => Promise<unknown>;
       };
@@ -76,25 +76,51 @@ async function getTransporter() {
   }
 }
 
-async function sendSmtpEmail(params: {
+interface EmailParams {
   to: string;
   subject: string;
-  text: string;
-}): Promise<boolean> {
+  body: string;
+  attachments?: Array<{
+    filename: string;
+    content: string | Buffer;
+    contentType: string;
+  }>;
+}
+
+async function sendSmtpEmail(params: EmailParams): Promise<boolean> {
   const transporter = await getTransporter();
   if (!transporter) return false;
 
   try {
     const from = process.env.NOTIFICATION_FROM_EMAIL ?? 'noreply@miljobeslut.se';
     const t = transporter as { sendMail: (opts: object) => Promise<unknown> };
-    await t.sendMail({ from, ...params });
+    await t.sendMail({
+      from,
+      to: params.to,
+      subject: params.subject,
+      text: params.body,
+      attachments: params.attachments,
+    });
     return true;
   } catch {
     return false;
   }
 }
 
-// ── Publik API ─────────────────────────────────────────────────────────────
+/**
+ * Skickar ett generiskt e-postmeddelande till en specifik mottagare.
+ * Används för direkta utskick som inte är kopplade till projektmedlemmar.
+ */
+export async function sendEmailNotification(params: EmailParams): Promise<boolean> {
+  const transporter = await getTransporter();
+  if (!transporter) {
+    // Logga att SMTP inte är konfigurerat om det behövs
+    return false;
+  }
+  return sendSmtpEmail(params);
+}
+
+// ─── Publik API ───────────────────────────────────────────────────────────────
 
 /**
  * Skicka projektnotis till alla projektmedlemmar.
@@ -118,7 +144,7 @@ export async function sendProjectNotification(notif: ProjectNotification): Promi
     },
   });
 
-  // 2. Hämta e-postadresser för alla projektmedlemmar (om SMTP är konfigurerat)
+  // 2. HÃ¤mta e-postadresser fÃ¶r alla projektmedlemmar (om SMTP Ã¤r konfigurerat)
   const transporter = await getTransporter();
   if (!transporter) {
     return { auditId: auditRecord.id, emailsSent: 0 };
@@ -139,7 +165,7 @@ export async function sendProjectNotification(notif: ProjectNotification): Promi
     MEMBER_REMOVED: 'Projektmedlem borttagen',
   };
 
-  const subject = `[Miljöbeslut] ${eventLabel[notif.event]} — projekt ${notif.projectId}`;
+  const subject = `[Miljöbeslut] ${eventLabel[notif.event]} - projekt ${notif.projectId}`;
 
   let emailsSent = 0;
   for (const member of members) {
@@ -148,7 +174,7 @@ export async function sendProjectNotification(notif: ProjectNotification): Promi
     // Här skickar vi bara om bankidId innehåller @-tecken (test/mock-scenario).
     const addr = member.user.bankidId.includes('@') ? member.user.bankidId : null;
     if (!addr) continue;
-    const sent = await sendSmtpEmail({ to: addr, subject, text: notif.message });
+    const sent = await sendSmtpEmail({ to: addr, subject, body: notif.message });
     if (sent) emailsSent++;
   }
 
@@ -156,7 +182,7 @@ export async function sendProjectNotification(notif: ProjectNotification): Promi
 }
 
 /**
- * Notifieringsfacade för stage-gate-evaluering.
+ * Notifieringsfasad för stage-gate-evaluering.
  * Anropas automatiskt av stage-gate-routen efter en lyckad utvärdering.
  */
 export async function notifyStageGate(params: {
@@ -169,8 +195,8 @@ export async function notifyStageGate(params: {
     params.status === 'PASSED'
       ? 'STAGE_GATE_PASSED'
       : params.status === 'FAILED'
-      ? 'STAGE_GATE_FAILED'
-      : 'STAGE_GATE_BLOCKED';
+        ? 'STAGE_GATE_FAILED'
+        : 'STAGE_GATE_BLOCKED';
 
   const eventMessages: Record<NotificationEvent, string> = {
     STAGE_GATE_PASSED: `Stage Gate "${params.gateId}" har godkänts för projekt ${params.projectId}.`,

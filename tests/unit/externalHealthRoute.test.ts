@@ -89,6 +89,10 @@ vi.mock('../../server/repositories/adminReportRepository', () => ({
   getExternalHealth: vi.fn(async () => mockReport),
 }));
 
+vi.mock('../../server/services/externalHealthService', () => ({
+  getExternalHealthReport: vi.fn(async () => mockReport),
+}));
+
 const app = createApp();
 
 function adminAuthHeader() {

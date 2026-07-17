@@ -1,514 +1,640 @@
-import "dotenv/config";
-
-import { PrismaClient } from "@prisma/client";
-
-type JsonObject = Record<string, unknown>;
-
-type LayerName = "grundlager" | "jordskred-raviner";
-
-interface CliOptions {
-  layer: LayerName | "all";
-  bbox?: string;
-  allowNational: boolean;
-  pageSize: number;
-  maxPages?: number;
-  maxFeatures?: number;
-  dryRun: boolean;
-  verbose: boolean;
-}
-
-interface OgcFeature {
-  id?: string | number;
-  geometry?: JsonObject | null;
-  properties?: JsonObject;
-}
-
-interface OgcFeatureCollection {
-  features?: OgcFeature[];
-  links?: Array<{ href?: string; rel?: string }>;
-  numberMatched?: number;
-}
-
-interface GroundLayerStageRow {
-  source_key: string;
-  source_object_id: number | null;
-  layer_code: number | null;
-  layer_label: string | null;
-  mapping_name: string | null;
-  map_type: number | null;
-  symbol: number | null;
-  area_sqm: number | null;
-  length_m: number | null;
-  raw_properties: JsonObject;
-  geom_geojson: JsonObject;
-}
-
-interface LandslideStageRow {
-  source_key: string;
-  source_object_id: number | null;
-  feature_code: number | null;
-  feature_label: string | null;
-  symbol: number | null;
-  length_m: number | null;
-  raw_properties: JsonObject;
-  geom_geojson: JsonObject;
-}
+import { PrismaClient } from '@prisma/client';
+import pg from 'pg';
+import { from as copyFrom } from 'pg-copy-streams';
+import { pipeline } from 'node:stream/promises';
+import { Readable } from 'node:stream';
 
 const prisma = new PrismaClient();
 
-const LAYER_CONFIG = {
-  grundlager: {
-    baseUrl: "https://api.sgu.se/oppnadata/jordarter1miljon/ogc/features/v1",
-    collection: "grundlager",
-    stageTable: "stage.sgu_ground_layer_raw",
-    datasetLabel: "SGU jordarter 1 miljon / grundlager",
-  },
-  "jordskred-raviner": {
-    baseUrl: "https://api.sgu.se/oppnadata/jordskred-raviner/ogc/features/v1",
-    collection: "jordskred-raviner",
-    stageTable: "stage.sgu_landslide_feature_raw",
-    datasetLabel: "SGU jordskred-raviner",
-  },
-} as const;
+const SGU_APIS = {
+  ground_1m: 'https://api.sgu.se/oppnadata/jordarter1miljon/ogc/features/v1/collections/grundlager/items',
+  landslide:
+    'https://api.sgu.se/oppnadata/jordskred-raviner/ogc/features/v1/collections/jordskred-raviner/items',
+  soil_25k_100k: 'https://api.sgu.se/oppnadata/jordarter25k-100k/ogc/features/v1/collections/ytlager/items',
+  groundwater:
+    'https://api.sgu.se/oppnadata/grundvattenmagasin/ogc/features/v1/collections/grundvattenmagasin/items',
+  wells: 'https://api.sgu.se/oppnadata/brunnar/ogc/features/v1/collections/brunnar/items',
+  aktsam_efterarbetad:
+    'https://api.sgu.se/oppnadata/forutsattningar-skred-finkornig-jordart/ogc/features/v1/collections/aktsam-efterarbetad/items',
+  aktsam_strandnara:
+    'https://api.sgu.se/oppnadata/forutsattningar-skred-finkornig-jordart/ogc/features/v1/collections/aktsam-strandnara/items',
+  aktiv_erosion:
+    'https://api.sgu.se/oppnadata/stranderosion-kust/ogc/features/v1/collections/aktiv-erosion/items',
+  erosionsindex:
+    'https://api.sgu.se/oppnadata/stranderosion-kust/ogc/features/v1/collections/erosionsindex/items',
+  vattenyta_prognos:
+    'https://api.sgu.se/oppnadata/stranderosion-kust/ogc/features/v1/collections/vattenyta-prognos/items',
+  strander_eroderbarhet:
+    'https://api.sgu.se/oppnadata/stranders-jordart-eroderbarhet/ogc/features/v1/collections/strander/items',
+  fastmark: 'https://api.sgu.se/oppnadata/fastmark/ogc/features/v1/collections/fastmark/items',
+};
 
-function printUsage(): void {
-  console.log(`
-Usage:
-  npx tsx scripts/import/import-sgu-risk-layers.ts --layer grundlager [options]
-  npx tsx scripts/import/import-sgu-risk-layers.ts --layer jordskred-raviner [options]
-  npx tsx scripts/import/import-sgu-risk-layers.ts --layer all [options]
+const DEFAULT_PAGE_SIZE = 5000;
 
-Examples:
-  npx tsx scripts/import/import-sgu-risk-layers.ts --layer grundlager --bbox 12.1,56.2,12.7,56.6
-  npx tsx scripts/import/import-sgu-risk-layers.ts --layer jordskred-raviner --allow-national --max-features 200 --dry-run
+type ImportTarget = keyof typeof SGU_APIS | 'all';
 
-Options:
-  --layer <name>             grundlager | jordskred-raviner | all
-  --bbox <minLng,minLat,maxLng,maxLat>
-                             Spatialt scope i WGS84. Rekommenderas.
-  --allow-national           Tillat nationellt scope. Anvand alltid med max-features/max-pages om du inte avser full import.
-  --page-size <n>            Features per request (default 500)
-  --max-pages <n>            Stop after n pages
-  --max-features <n>         Stop after n imported features
-  --dry-run                  Fetch and map but do not write to database
-  --verbose                  Log each page URL
-  --help                     Show this help
-`.trim());
-}
+type CliOptions = {
+  target: ImportTarget;
+  stageOnly: boolean;
+  pageSize: number;
+  limit: number | null;
+  resume: boolean;
+};
 
-function parsePositiveInt(value: string, flagName: string): number {
-  const parsed = Number.parseInt(value, 10);
-  if (!Number.isFinite(parsed) || parsed <= 0) {
-    throw new Error(`${flagName} must be a positive integer.`);
-  }
-  return parsed;
-}
+type GeoJsonGeometry = {
+  type: string;
+  coordinates: any;
+};
 
-function parseArgs(argv: string[]): CliOptions {
+type GeoJsonFeature = {
+  id?: string | number;
+  geometry: GeoJsonGeometry | null;
+  properties?: Record<string, any>;
+};
+
+type FeatureCollectionResponse = {
+  type: 'FeatureCollection';
+  features: GeoJsonFeature[];
+  numberMatched?: number;
+  numberReturned?: number;
+};
+
+function parseCliOptions(argv: string[]): CliOptions {
   const options: CliOptions = {
-    layer: "all",
-    allowNational: false,
-    pageSize: 500,
-    dryRun: false,
-    verbose: false,
+    target: 'all',
+    stageOnly: false,
+    pageSize: DEFAULT_PAGE_SIZE,
+    limit: null,
+    resume: false,
   };
 
-  for (let i = 0; i < argv.length; i += 1) {
+  for (let i = 0; i < argv.length; i++) {
     const arg = argv[i];
+    if (arg === '--ground-1m') options.target = 'ground_1m';
+    if (arg === '--landslide') options.target = 'landslide';
+    if (arg === '--soil-25k-100k') options.target = 'soil_25k_100k';
+    if (arg === '--groundwater') options.target = 'groundwater';
+    if (arg === '--wells') options.target = 'wells';
+    if (arg === '--aktsam-efterarbetad') options.target = 'aktsam_efterarbetad';
+    if (arg === '--aktsam-strandnara') options.target = 'aktsam_strandnara';
+    if (arg === '--aktiv-erosion') options.target = 'aktiv_erosion';
+    if (arg === '--erosionsindex') options.target = 'erosionsindex';
+    if (arg === '--vattenyta-prognos') options.target = 'vattenyta_prognos';
+    if (arg === '--strander-eroderbarhet') options.target = 'strander_eroderbarhet';
+    if (arg === '--fastmark') options.target = 'fastmark';
 
-    if (arg === "--help" || arg === "-h") {
-      printUsage();
-      process.exit(0);
-    }
+    if (arg === '--aktsam-strandnara') options.target = 'aktsam_strandnara';
+    if (arg === '--aktiv-erosion') options.target = 'aktiv_erosion';
+    if (arg === '--erosionsindex') options.target = 'erosionsindex';
+    if (arg === '--vattenyta-prognos') options.target = 'vattenyta_prognos';
+    if (arg === '--strander-eroderbarhet') options.target = 'strander_eroderbarhet';
+    if (arg === '--fastmark') options.target = 'fastmark';
 
-    const next = argv[i + 1];
-    const requireValue = (flagName: string): string => {
-      if (!next || next.startsWith("--")) {
-        throw new Error(`${flagName} requires a value.`);
-      }
-      i += 1;
-      return next;
-    };
-
-    switch (arg) {
-      case "--layer": {
-        const value = requireValue(arg).trim() as CliOptions["layer"];
-        if (!["grundlager", "jordskred-raviner", "all"].includes(value)) {
-          throw new Error("--layer must be grundlager, jordskred-raviner or all.");
-        }
-        options.layer = value;
-        break;
-      }
-      case "--bbox":
-        options.bbox = requireValue(arg).trim();
-        break;
-      case "--allow-national":
-        options.allowNational = true;
-        break;
-      case "--page-size":
-        options.pageSize = parsePositiveInt(requireValue(arg), arg);
-        break;
-      case "--max-pages":
-        options.maxPages = parsePositiveInt(requireValue(arg), arg);
-        break;
-      case "--max-features":
-        options.maxFeatures = parsePositiveInt(requireValue(arg), arg);
-        break;
-      case "--dry-run":
-        options.dryRun = true;
-        break;
-      case "--verbose":
-        options.verbose = true;
-        break;
-      default:
-        throw new Error(`Unknown argument: ${arg}`);
-    }
-  }
-
-  if (!options.bbox && !options.allowNational) {
-    throw new Error("Either --bbox or --allow-national is required. Full national scope must be explicit.");
+    if (arg === '--stage-only') options.stageOnly = true;
+    if (arg === '--resume') options.resume = true;
+    if (arg === '--page-size') options.pageSize = parseInt(argv[++i]);
+    if (arg === '--limit') options.limit = parseInt(argv[++i]);
   }
 
   return options;
 }
 
-function safeString(value: unknown): string | null {
-  if (typeof value === "string") {
-    const trimmed = value.trim();
-    return trimmed.length > 0 ? trimmed : null;
-  }
-  if (typeof value === "number" && Number.isFinite(value)) {
-    return String(value);
-  }
-  return null;
-}
-
-function safeNumber(value: unknown): number | null {
-  const num = typeof value === "number" ? value : Number(value);
-  return Number.isFinite(num) ? num : null;
-}
-
-function buildSourceKey(feature: OgcFeature, properties: JsonObject): string | null {
-  return safeString(feature.id) ?? safeString(properties.objectid);
-}
-
-function mapGroundLayerFeature(feature: OgcFeature): GroundLayerStageRow | null {
-  const properties = feature.properties ?? {};
-  const geometry = feature.geometry;
-  const sourceKey = buildSourceKey(feature, properties);
-
-  if (!geometry || typeof geometry !== "object" || !sourceKey) {
-    return null;
-  }
-
-  return {
-    source_key: sourceKey,
-    source_object_id: safeNumber(properties.objectid),
-    layer_code: safeNumber(properties.jg2),
-    layer_label: safeString(properties.jg2_tx),
-    mapping_name: safeString(properties.kartering),
-    map_type: safeNumber(properties.karttyp),
-    symbol: safeNumber(properties.symbol),
-    area_sqm: safeNumber(properties.geom_area),
-    length_m: safeNumber(properties.geom_length),
-    raw_properties: properties,
-    geom_geojson: geometry,
-  };
-}
-
-function mapLandslideFeature(feature: OgcFeature): LandslideStageRow | null {
-  const properties = feature.properties ?? {};
-  const geometry = feature.geometry;
-  const sourceKey = buildSourceKey(feature, properties);
-
-  if (!geometry || typeof geometry !== "object" || !sourceKey) {
-    return null;
-  }
-
-  return {
-    source_key: sourceKey,
-    source_object_id: safeNumber(properties.objectid),
-    feature_code: safeNumber(properties.sl),
-    feature_label: safeString(properties.sl_tx),
-    symbol: safeNumber(properties.symbol),
-    length_m: safeNumber(properties.geom_length),
-    raw_properties: properties,
-    geom_geojson: geometry,
-  };
-}
-
-async function assertStageTableExists(tableName: string): Promise<void> {
-  const result = (await prisma.$queryRaw<Array<{ regclass: string | null }>>`
-    SELECT to_regclass(${tableName})::text AS regclass
-  `) as Array<{ regclass: string | null }>;
-
-  if (!result[0]?.regclass) {
-    throw new Error(`Missing ${tableName}. Run scripts/enable_postgis.sql and scripts/db/create_sgu_layers_pipeline.sql first.`);
-  }
-}
-
-async function upsertGroundLayerBatch(rows: GroundLayerStageRow[]): Promise<void> {
+async function copyToPostgres(client: pg.Client, tableName: string, rows: any[]) {
   if (rows.length === 0) return;
-  const payload = JSON.stringify(rows);
 
-  await prisma.$executeRaw`
-    WITH payload AS (
-      SELECT *
-      FROM jsonb_to_recordset(${payload}::jsonb) AS x(
-        source_key text,
-        source_object_id bigint,
-        layer_code integer,
-        layer_label text,
-        mapping_name text,
-        map_type integer,
-        symbol integer,
-        area_sqm double precision,
-        length_m double precision,
-        raw_properties jsonb,
-        geom_geojson jsonb
-      )
-    )
-    INSERT INTO stage.sgu_ground_layer_raw (
-      source_key,
-      source_object_id,
-      layer_code,
-      layer_label,
-      mapping_name,
-      map_type,
-      symbol,
-      area_sqm,
-      length_m,
-      raw_properties,
-      geom,
-      imported_at
-    )
-    SELECT
-      p.source_key,
-      p.source_object_id,
-      p.layer_code,
-      p.layer_label,
-      p.mapping_name,
-      p.map_type,
-      p.symbol,
-      p.area_sqm,
-      p.length_m,
-      p.raw_properties,
-      ST_Multi(
-        ST_CollectionExtract(
-          ST_MakeValid(
-            ST_Transform(
-              ST_SetSRID(ST_GeomFromGeoJSON(p.geom_geojson::text), 4326),
-              3006
-            )
-          ),
-          3
-        )
-      )::geometry(MultiPolygon, 3006),
-      now()
-    FROM payload p
-    ON CONFLICT (source_key) DO UPDATE
-    SET
-      source_object_id = EXCLUDED.source_object_id,
-      layer_code = EXCLUDED.layer_code,
-      layer_label = EXCLUDED.layer_label,
-      mapping_name = EXCLUDED.mapping_name,
-      map_type = EXCLUDED.map_type,
-      symbol = EXCLUDED.symbol,
-      area_sqm = EXCLUDED.area_sqm,
-      length_m = EXCLUDED.length_m,
-      raw_properties = EXCLUDED.raw_properties,
-      geom = EXCLUDED.geom,
-      imported_at = now()
-  `;
-}
-
-async function upsertLandslideBatch(rows: LandslideStageRow[]): Promise<void> {
-  if (rows.length === 0) return;
-  const payload = JSON.stringify(rows);
-
-  await prisma.$executeRaw`
-    WITH payload AS (
-      SELECT *
-      FROM jsonb_to_recordset(${payload}::jsonb) AS x(
-        source_key text,
-        source_object_id bigint,
-        feature_code integer,
-        feature_label text,
-        symbol integer,
-        length_m double precision,
-        raw_properties jsonb,
-        geom_geojson jsonb
-      )
-    )
-    INSERT INTO stage.sgu_landslide_feature_raw (
-      source_key,
-      source_object_id,
-      feature_code,
-      feature_label,
-      symbol,
-      length_m,
-      raw_properties,
-      geom,
-      imported_at
-    )
-    SELECT
-      p.source_key,
-      p.source_object_id,
-      p.feature_code,
-      p.feature_label,
-      p.symbol,
-      p.length_m,
-      p.raw_properties,
-      ST_Multi(
-        ST_CollectionExtract(
-          ST_MakeValid(
-            ST_Transform(
-              ST_SetSRID(ST_GeomFromGeoJSON(p.geom_geojson::text), 4326),
-              3006
-            )
-          ),
-          2
-        )
-      )::geometry(MultiLineString, 3006),
-      now()
-    FROM payload p
-    ON CONFLICT (source_key) DO UPDATE
-    SET
-      source_object_id = EXCLUDED.source_object_id,
-      feature_code = EXCLUDED.feature_code,
-      feature_label = EXCLUDED.feature_label,
-      symbol = EXCLUDED.symbol,
-      length_m = EXCLUDED.length_m,
-      raw_properties = EXCLUDED.raw_properties,
-      geom = EXCLUDED.geom,
-      imported_at = now()
-  `;
-}
-
-function trimToMaxFeatures<T>(rows: T[], options: CliOptions, importedCount: number): T[] {
-  if (!options.maxFeatures) return rows;
-  const remaining = options.maxFeatures - importedCount;
-  if (remaining <= 0) return [];
-  return rows.slice(0, remaining);
-}
-
-function shouldStop(totalRows: number, pageCount: number, options: CliOptions): boolean {
-  if (options.maxFeatures && totalRows >= options.maxFeatures) return true;
-  if (options.maxPages && pageCount >= options.maxPages) return true;
-  return false;
-}
-
-function summarizeRows(rows: Array<GroundLayerStageRow | LandslideStageRow>): string {
-  return rows
-    .slice(0, 5)
-    .map((row) => {
-      if ("layer_label" in row) {
-        return `${row.layer_label || "okand"} [${row.source_key}]`;
-      }
-      return `${row.feature_label || "okand"} [${row.source_key}]`;
-    })
-    .join("; ");
-}
-
-async function importLayer(layer: LayerName, options: CliOptions): Promise<void> {
-  const config = LAYER_CONFIG[layer];
-  await assertStageTableExists(config.stageTable);
-
-  const params = new URLSearchParams({ limit: String(options.pageSize), f: "application/geo+json" });
-  if (options.bbox) {
-    params.set("bbox", options.bbox);
-  }
-
-  let nextUrl = `${config.baseUrl}/collections/${encodeURIComponent(config.collection)}/items?${params.toString()}`;
-  let pageCount = 0;
-  let importedCount = 0;
-  let matchedCount: number | undefined;
-
-  console.log(`SGU import: ${config.datasetLabel}`);
-  console.log(`Mode: ${options.dryRun ? "dry-run" : "stage upsert"}`);
-  console.log(`Scope: ${options.bbox ? `bbox=${options.bbox}` : "national (explicitly allowed)"}`);
-
-  while (nextUrl) {
-    console.log(options.verbose ? `Fetching page ${pageCount + 1}: ${nextUrl}` : `Fetching page ${pageCount + 1}...`);
-
-    const response = await fetch(nextUrl, {
-      headers: { Accept: "application/geo+json, application/json" },
-    });
-
-    if (!response.ok) {
-      throw new Error(`SGU request failed (${response.status}): ${await response.text()}`);
-    }
-
-    const data = (await response.json()) as OgcFeatureCollection;
-    matchedCount = matchedCount ?? data.numberMatched;
-
-    if (layer === "grundlager") {
-      const rows = (data.features ?? [])
-        .map(mapGroundLayerFeature)
-        .filter((row): row is GroundLayerStageRow => row !== null);
-      const boundedRows = trimToMaxFeatures(rows, options, importedCount);
-
-      if (boundedRows.length > 0) {
-        if (options.dryRun) {
-          console.log(`Dry-run page ${pageCount + 1}: mapped ${boundedRows.length} rows.`);
-          console.log(`Sample: ${summarizeRows(boundedRows)}`);
-        } else {
-          await upsertGroundLayerBatch(boundedRows);
-          console.log(`Upserted ${boundedRows.length} rows into stage.sgu_ground_layer_raw.`);
-        }
-        importedCount += boundedRows.length;
-      }
-    } else {
-      const rows = (data.features ?? [])
-        .map(mapLandslideFeature)
-        .filter((row): row is LandslideStageRow => row !== null);
-      const boundedRows = trimToMaxFeatures(rows, options, importedCount);
-
-      if (boundedRows.length > 0) {
-        if (options.dryRun) {
-          console.log(`Dry-run page ${pageCount + 1}: mapped ${boundedRows.length} rows.`);
-          console.log(`Sample: ${summarizeRows(boundedRows)}`);
-        } else {
-          await upsertLandslideBatch(boundedRows);
-          console.log(`Upserted ${boundedRows.length} rows into stage.sgu_landslide_feature_raw.`);
-        }
-        importedCount += boundedRows.length;
-      }
-    }
-
-    pageCount += 1;
-    if (shouldStop(importedCount, pageCount, options)) {
-      break;
-    }
-
-    const nextHref = data.links?.find((link) => link.rel === "next")?.href;
-    nextUrl = nextHref ?? "";
-  }
-
-  console.log(
-    `Done (${layer}). Pages: ${pageCount}, rows ${options.dryRun ? "mapped" : "upserted"}: ${importedCount}${
-      matchedCount !== undefined ? `, numberMatched: ${matchedCount}` : ""
-    }`,
+  const columns = Object.keys(rows[0]);
+  const stream = client.query(
+    copyFrom(
+      `COPY ${tableName} (${columns.join(', ')}) FROM STDIN WITH (FORMAT CSV, HEADER FALSE, QUOTE '"', ESCAPE '"')`,
+    ),
   );
+
+  const csvContent =
+    rows
+      .map((row) =>
+        columns
+          .map((col) => {
+            const val = row[col];
+            if (val === null || val === undefined) return '';
+            const strVal = typeof val === 'object' ? JSON.stringify(val) : String(val);
+            return '"' + strVal.replace(/"/g, '""') + '"';
+          })
+          .join(','),
+      )
+      .join('\n') + '\n';
+
+  const readable = Readable.from([csvContent]);
+  await pipeline(readable, stream);
 }
 
-async function main(): Promise<void> {
-  const options = parseArgs(process.argv.slice(2));
-  const layers: LayerName[] =
-    options.layer === "all" ? ["grundlager", "jordskred-raviner"] : [options.layer];
+async function ensurePipelineTables(): Promise<void> {
+  console.log('Ensuring schemas and tables exist...');
+  await prisma.$executeRawUnsafe(`CREATE SCHEMA IF NOT EXISTS stage;`);
+  await prisma.$executeRawUnsafe(`CREATE SCHEMA IF NOT EXISTS env;`);
 
-  for (const layer of layers) {
-    await importLayer(layer, options);
+  const tables = [
+    {
+      name: 'sgu_ground_layer_raw',
+      cols: 'source_key TEXT, source_object_id INTEGER, layer_code INTEGER, layer_label TEXT, mapping_name TEXT, map_type INTEGER, symbol INTEGER, area_sqm NUMERIC, length_m NUMERIC, raw_properties JSONB, geom_json TEXT',
+    },
+    {
+      name: 'sgu_landslide_raw',
+      cols: 'source_key TEXT, source_object_id INTEGER, feature_code INTEGER, feature_label TEXT, symbol INTEGER, length_m NUMERIC, raw_properties JSONB, geom_json TEXT',
+    },
+    {
+      name: 'sgu_soil_25k_raw',
+      cols: 'source_key TEXT, source_object_id INTEGER, soil_code INTEGER, soil_label TEXT, mapping_name TEXT, map_type INTEGER, symbol INTEGER, area_sqm NUMERIC, length_m NUMERIC, raw_properties JSONB, geom_json TEXT',
+    },
+    {
+      name: 'sgu_groundwater_raw',
+      cols: 'source_key TEXT, unique_id TEXT, internal_id INTEGER, name TEXT, formation_type TEXT, aquifer_type TEXT, position_desc TEXT, genesis TEXT, geom_area NUMERIC, geom_length NUMERIC, raw_properties JSONB, geom_json TEXT',
+    },
+    {
+      name: 'sgu_well_raw',
+      cols: 'source_key TEXT, well_id INTEGER, obs_id TEXT, property_designation TEXT, capacity NUMERIC, depth NUMERIC, soil_depth NUMERIC, use_type TEXT, raw_properties JSONB, geom_json TEXT',
+    },
+    {
+      name: 'sgu_aktsamhet_raw',
+      cols: 'source_key TEXT, source_object_id INTEGER, feature_label TEXT, area_sqm NUMERIC, length_m NUMERIC, raw_properties JSONB, geom_json TEXT',
+    },
+    {
+      name: 'sgu_erosion_raw',
+      cols: 'source_key TEXT, source_object_id INTEGER, feature_label TEXT, value NUMERIC, unit TEXT, area_sqm NUMERIC, length_m NUMERIC, raw_properties JSONB, geom_json TEXT',
+    },
+    {
+      name: 'sgu_fastmark_raw',
+      cols: 'source_key TEXT, source_object_id INTEGER, stability_class TEXT, stability_label TEXT, raw_properties JSONB, geom_json TEXT',
+    },
+  ];
+
+  const envTables = [
+    {
+      name: 'env.sgu_ground_layer',
+      cols: 'id SERIAL PRIMARY KEY, source_key TEXT, source_object_id INTEGER, layer_code INTEGER, layer_label TEXT, mapping_name TEXT, map_type INTEGER, symbol INTEGER, area_sqm NUMERIC, length_m NUMERIC, raw_properties JSONB, geom GEOMETRY(MULTIPOLYGON, 3006), grid_id INTEGER, UNIQUE(source_key, grid_id)',
+    },
+    {
+      name: 'env.sgu_landslide_feature',
+      cols: 'id SERIAL PRIMARY KEY, source_key TEXT UNIQUE, source_object_id INTEGER, feature_code INTEGER, feature_label TEXT, symbol INTEGER, length_m NUMERIC, raw_properties JSONB, geom GEOMETRY(GEOMETRY, 3006)',
+    },
+    {
+      name: 'env.sgu_soil_type',
+      cols: 'id SERIAL PRIMARY KEY, jordart_kod TEXT, jordart_namn TEXT, beskrivning TEXT, geom GEOMETRY(MULTIPOLYGON, 3006)',
+    },
+    {
+      name: 'env.env_sgu_grundvatten_sarbarhet',
+      cols: 'id SERIAL PRIMARY KEY, klass TEXT, beskrivning TEXT, geom GEOMETRY(MULTIPOLYGON, 3006)',
+    },
+    {
+      name: 'env.sgu_well',
+      cols: 'id SERIAL PRIMARY KEY, well_id INTEGER, property_designation TEXT, capacity NUMERIC, depth NUMERIC, use_type TEXT, geom GEOMETRY(POINT, 3006)',
+    },
+    {
+      name: 'env.sgu_aktsamhetsomrade',
+      cols: 'id SERIAL PRIMARY KEY, source_key TEXT UNIQUE, source_object_id INTEGER, feature_label TEXT, area_sqm NUMERIC, length_m NUMERIC, raw_properties JSONB, geom GEOMETRY(MULTIPOLYGON, 3006)',
+    },
+    {
+      name: 'env.sgu_erosion_feature',
+      cols: 'id SERIAL PRIMARY KEY, source_key TEXT UNIQUE, source_object_id INTEGER, feature_label TEXT, value NUMERIC, unit TEXT, area_sqm NUMERIC, length_m NUMERIC, raw_properties JSONB, geom GEOMETRY(GEOMETRY, 3006)',
+    },
+    {
+      name: 'env.sgu_fastmark_stabilitet',
+      cols: 'id SERIAL PRIMARY KEY, source_key TEXT UNIQUE, source_object_id INTEGER, stability_class TEXT, stability_label TEXT, raw_properties JSONB, geom GEOMETRY(MULTIPOLYGON, 3006)',
+    },
+  ];
+
+  console.log('Ensuring staging tables exist in schema "stage"...');
+  for (const table of tables) {
+    await prisma.$executeRawUnsafe(`DROP TABLE IF EXISTS stage.${table.name} CASCADE;`);
+    await prisma.$executeRawUnsafe(`CREATE TABLE stage.${table.name} (${table.cols});`);
+  }
+  console.log('Ensuring production tables exist in schema "env"...');
+  for (const table of envTables) {
+    await prisma.$executeRawUnsafe(`CREATE TABLE IF NOT EXISTS ${table.name} (${table.cols});`);
+  }
+}
+
+async function fetchCollectionPage(
+  url: string,
+  limit: number,
+  startIndex: number,
+): Promise<FeatureCollectionResponse> {
+  const targetUrl = new URL(url);
+  targetUrl.searchParams.set('limit', limit.toString());
+  targetUrl.searchParams.set('startIndex', startIndex.toString());
+  targetUrl.searchParams.set('f', 'json');
+
+  const res = await fetch(targetUrl, { headers: { Accept: 'application/geo+json' } });
+  if (!res.ok) throw new Error(`Fetch failed: ${res.status}`);
+  return (await res.json()) as FeatureCollectionResponse;
+}
+
+async function genericImport(
+  client: pg.Client,
+  label: string,
+  apiUrl: string,
+  stageTable: string,
+  targetTable: string,
+  options: CliOptions,
+  mapper: (f: GeoJsonFeature) => any,
+  targetInsertSql: string,
+) {
+  let imported = 0;
+  let startIndex = 0;
+
+  if (options.resume) {
+    const result = await prisma.$queryRawUnsafe<any[]>(`SELECT count(*) as count FROM ${targetTable}`);
+    startIndex = Number(result[0].count);
+    console.log(`Resuming ${label} import from index ${startIndex}...`);
   }
 
-  console.log("Reviewed merge remains a separate step via scripts/db/merge_sgu_layers_stage_to_env.sql.");
+  while (true) {
+    const remaining =
+      options.limit === null ? options.pageSize : Math.min(options.pageSize, options.limit - imported);
+    if (remaining <= 0) break;
+
+    console.log(`Fetching ${label} batch starting at ${startIndex}...`);
+    const page = await fetchCollectionPage(apiUrl, remaining, startIndex);
+    if (page.features.length === 0) break;
+
+    const copyRows = page.features.map(mapper);
+    await copyToPostgres(client, `stage.${stageTable}`, copyRows);
+
+    if (!options.stageOnly) {
+      await prisma.$executeRawUnsafe(targetInsertSql);
+      await prisma.$executeRawUnsafe(`TRUNCATE stage.${stageTable};`);
+    }
+
+    imported += page.features.length;
+    startIndex += page.features.length;
+    console.log(`[${label}] Processed ${imported} rows...`);
+
+    if (page.features.length < remaining) break;
+  }
+}
+
+async function main() {
+  const options = parseCliOptions(process.argv.slice(2));
+  const client = new pg.Client({ connectionString: process.env.DATABASE_URL });
+
+  try {
+    await client.connect();
+    console.log('Database client connected for high-volume COPY.');
+
+    await ensurePipelineTables();
+
+    const tasks = [
+      {
+        id: 'ground_1m',
+        label: 'Ground Layer 1M',
+        api: SGU_APIS.ground_1m,
+        stage: 'sgu_ground_layer_raw',
+        target: 'env.sgu_ground_layer',
+        mapper: (f: GeoJsonFeature) => {
+          const p = f.properties || {};
+          return {
+            source_key: f.id || p.objectid,
+            source_object_id: p.objectid,
+            layer_code: p.jg2,
+            layer_label: p.jg2_tx,
+            mapping_name: p.kartering,
+            map_type: p.karttyp,
+            symbol: p.symbol,
+            area_sqm: p.geom_area,
+            length_m: p.geom_length,
+            raw_properties: JSON.stringify(p),
+            geom_json: JSON.stringify(f.geometry),
+          };
+        },
+        sql: `
+        INSERT INTO env.sgu_ground_layer (source_key, source_object_id, layer_code, layer_label, mapping_name, map_type, symbol, area_sqm, length_m, raw_properties, geom, grid_id)
+        SELECT source_key, source_object_id, layer_code, layer_label, mapping_name, map_type, symbol, area_sqm, length_m, raw_properties, 
+               ST_Multi(ST_Transform(ST_SetSRID(ST_GeomFromGeoJSON(geom_json), 4326), 3006)),
+               (floor(ST_X(ST_Centroid(ST_Transform(ST_SetSRID(ST_GeomFromGeoJSON(geom_json), 4326), 3006)))/100000)*100 + floor(ST_Y(ST_Centroid(ST_Transform(ST_SetSRID(ST_GeomFromGeoJSON(geom_json), 4326), 3006)))/100000))::int
+        FROM stage.sgu_ground_layer_raw ON CONFLICT (source_key, grid_id) DO NOTHING;
+      `,
+      },
+      {
+        id: 'landslide',
+        label: 'Landslide',
+        api: SGU_APIS.landslide,
+        stage: 'sgu_landslide_raw',
+        target: 'env.sgu_landslide_feature',
+        mapper: (f: GeoJsonFeature) => {
+          const p = f.properties || {};
+          return {
+            source_key: f.id || p.objectid,
+            source_object_id: p.objectid,
+            feature_code: p.sl,
+            feature_label: p.sl_tx,
+            symbol: p.symbol,
+            length_m: p.geom_length,
+            raw_properties: JSON.stringify(p),
+            geom_json: JSON.stringify(f.geometry),
+          };
+        },
+        sql: `
+        INSERT INTO env.sgu_landslide_feature (source_key, source_object_id, feature_code, feature_label, symbol, length_m, raw_properties, geom)
+        SELECT source_key, source_object_id, feature_code, feature_label, symbol, length_m, raw_properties, 
+               ST_Transform(ST_SetSRID(ST_GeomFromGeoJSON(geom_json), 4326), 3006)
+        FROM stage.sgu_landslide_raw ON CONFLICT (source_key) DO NOTHING;
+      `,
+      },
+      {
+        id: 'soil_25k_100k',
+        label: 'Soil Type 25k-100k',
+        api: SGU_APIS.soil_25k_100k,
+        stage: 'sgu_soil_25k_raw',
+        target: 'env.sgu_soil_type',
+        mapper: (f: GeoJsonFeature) => {
+          const p = f.properties || {};
+          return {
+            source_key: f.id || p.objectid,
+            source_object_id: p.objectid,
+            soil_code: p.jy1,
+            soil_label: p.jy1_tx,
+            mapping_name: p.kartering,
+            map_type: p.karttyp,
+            symbol: p.symbol,
+            area_sqm: p.geom_area,
+            length_m: p.geom_length,
+            raw_properties: JSON.stringify(p),
+            geom_json: JSON.stringify(f.geometry),
+          };
+        },
+        sql: `
+          INSERT INTO env.sgu_soil_type (jordart_kod, jordart_namn, beskrivning, geom)
+          SELECT soil_code::text, soil_label, mapping_name, 
+                 ST_Multi(ST_Transform(ST_SetSRID(ST_GeomFromGeoJSON(geom_json), 4326), 3006))
+          FROM stage.sgu_soil_25k_raw;
+        `,
+      },
+      {
+        id: 'groundwater',
+        label: 'Groundwater Reservoirs',
+        api: SGU_APIS.groundwater,
+        stage: 'sgu_groundwater_raw',
+        target: 'env.env_sgu_grundvatten_sarbarhet',
+        mapper: (f: GeoJsonFeature) => {
+          const p = f.properties || {};
+          return {
+            source_key: f.id,
+            unique_id: p.unik_magasinsidentitet,
+            internal_id: p.magasinsidentitet,
+            name: p.magasinsnamn,
+            formation_type: p.grvbildningstyp,
+            aquifer_type: p.akvifertyp,
+            position_desc: p.magasinsposition,
+            genesis: p.genes,
+            geom_area: p.geom_area,
+            geom_length: p.geom_length,
+            raw_properties: JSON.stringify(p),
+            geom_json: JSON.stringify(f.geometry),
+          };
+        },
+        sql: `
+          INSERT INTO env.env_sgu_grundvatten_sarbarhet (klass, beskrivning, geom)
+          SELECT formation_type, name || ' - ' || genesis, 
+                 ST_Multi(ST_Transform(ST_SetSRID(ST_GeomFromGeoJSON(geom_json), 4326), 3006))
+          FROM stage.sgu_groundwater_raw;
+        `,
+      },
+      {
+        id: 'wells',
+        label: 'Wells',
+        api: SGU_APIS.wells,
+        stage: 'sgu_well_raw',
+        target: 'env.sgu_well',
+        mapper: (f: GeoJsonFeature) => {
+          const p = f.properties || {};
+          return {
+            source_key: f.id,
+            well_id: p.brunnsid,
+            obs_id: p.obsplatsid,
+            property_designation: p.fastighet,
+            capacity: p.kapacitet,
+            depth: p.totaldjup,
+            soil_depth: p.jorddjup,
+            use_type: p.anvandning,
+            raw_properties: JSON.stringify(p),
+            geom_json: JSON.stringify(f.geometry),
+          };
+        },
+        sql: `
+          INSERT INTO env.sgu_well (well_id, property_designation, capacity, depth, use_type, geom)
+          SELECT well_id, property_designation, capacity, depth, use_type, 
+                 ST_Transform(ST_SetSRID(ST_GeomFromGeoJSON(geom_json), 4326), 3006)
+          FROM stage.sgu_well_raw;
+        `,
+      },
+      {
+        id: 'aktsam_efterarbetad',
+        label: 'Landslide Caution (Refined)',
+        api: SGU_APIS.aktsam_efterarbetad,
+        stage: 'sgu_aktsamhet_raw',
+        target: 'env.sgu_aktsamhetsomrade',
+        mapper: (f: GeoJsonFeature) => {
+          const p = f.properties || {};
+          return {
+            source_key: f.id || p.objectid,
+            source_object_id: p.objectid,
+            feature_label: p.aktsamhet_tx || p.label,
+            area_sqm: p.geom_area,
+            length_m: p.geom_length,
+            raw_properties: JSON.stringify(p),
+            geom_json: JSON.stringify(f.geometry),
+          };
+        },
+        sql: `
+          INSERT INTO env.sgu_aktsamhetsomrade (source_key, source_object_id, feature_label, area_sqm, length_m, raw_properties, geom)
+          SELECT source_key, source_object_id, feature_label, area_sqm, length_m, raw_properties,
+                 ST_Multi(ST_Transform(ST_SetSRID(ST_GeomFromGeoJSON(geom_json), 4326), 3006))
+          FROM stage.sgu_aktsamhet_raw ON CONFLICT (source_key) DO NOTHING;
+        `,
+      },
+      {
+        id: 'aktsam_strandnara',
+        label: 'Landslide Caution (Coastal)',
+        api: SGU_APIS.aktsam_strandnara,
+        stage: 'sgu_aktsamhet_raw',
+        target: 'env.sgu_aktsamhetsomrade',
+        mapper: (f: GeoJsonFeature) => {
+          const p = f.properties || {};
+          return {
+            source_key: f.id || p.objectid,
+            source_object_id: p.objectid,
+            feature_label: p.aktsamhet_tx || p.label || 'Strandnära',
+            area_sqm: p.geom_area,
+            length_m: p.geom_length,
+            raw_properties: JSON.stringify(p),
+            geom_json: JSON.stringify(f.geometry),
+          };
+        },
+        sql: `
+          INSERT INTO env.sgu_aktsamhetsomrade (source_key, source_object_id, feature_label, area_sqm, length_m, raw_properties, geom)
+          SELECT source_key, source_object_id, feature_label, area_sqm, length_m, raw_properties,
+                 ST_Multi(ST_Transform(ST_SetSRID(ST_GeomFromGeoJSON(geom_json), 4326), 3006))
+          FROM stage.sgu_aktsamhet_raw ON CONFLICT (source_key) DO NOTHING;
+        `,
+      },
+      {
+        id: 'aktiv_erosion',
+        label: 'Active Coastal Erosion',
+        api: SGU_APIS.aktiv_erosion,
+        stage: 'sgu_erosion_raw',
+        target: 'env.sgu_erosion_feature',
+        mapper: (f: GeoJsonFeature) => {
+          const p = f.properties || {};
+          return {
+            source_key: f.id || p.objectid,
+            source_object_id: p.objectid,
+            feature_label: 'Aktiv erosion',
+            value: null,
+            unit: null,
+            area_sqm: p.geom_area,
+            length_m: p.geom_length,
+            raw_properties: JSON.stringify(p),
+            geom_json: JSON.stringify(f.geometry),
+          };
+        },
+        sql: `
+          INSERT INTO env.sgu_erosion_feature (source_key, source_object_id, feature_label, value, unit, area_sqm, length_m, raw_properties, geom)
+          SELECT source_key, source_object_id, feature_label, value, unit, area_sqm, length_m, raw_properties,
+                 ST_Transform(ST_SetSRID(ST_GeomFromGeoJSON(geom_json), 4326), 3006)
+          FROM stage.sgu_erosion_raw ON CONFLICT (source_key) DO NOTHING;
+        `,
+      },
+      {
+        id: 'erosionsindex',
+        label: 'Coastal Erosion Index',
+        api: SGU_APIS.erosionsindex,
+        stage: 'sgu_erosion_raw',
+        target: 'env.sgu_erosion_feature',
+        mapper: (f: GeoJsonFeature) => {
+          const p = f.properties || {};
+          return {
+            source_key: f.id || p.objectid,
+            source_object_id: p.objectid,
+            feature_label: 'Erosionsindex: ' + (p.erosionsindex_tx || ''),
+            value: p.erosionsindex,
+            unit: 'index',
+            area_sqm: p.geom_area,
+            length_m: p.geom_length,
+            raw_properties: JSON.stringify(p),
+            geom_json: JSON.stringify(f.geometry),
+          };
+        },
+        sql: `
+          INSERT INTO env.sgu_erosion_feature (source_key, source_object_id, feature_label, value, unit, area_sqm, length_m, raw_properties, geom)
+          SELECT source_key, source_object_id, feature_label, value, unit, area_sqm, length_m, raw_properties,
+                 ST_Transform(ST_SetSRID(ST_GeomFromGeoJSON(geom_json), 4326), 3006)
+          FROM stage.sgu_erosion_raw ON CONFLICT (source_key) DO NOTHING;
+        `,
+      },
+      {
+        id: 'vattenyta_prognos',
+        label: 'Water Surface Prognosis',
+        api: SGU_APIS.vattenyta_prognos,
+        stage: 'sgu_erosion_raw',
+        target: 'env.sgu_erosion_feature',
+        mapper: (f: GeoJsonFeature) => {
+          const p = f.properties || {};
+          return {
+            source_key: f.id || p.objectid,
+            source_object_id: p.objectid,
+            feature_label: 'Vattenyta prognos: ' + (p.prognos_tx || ''),
+            value: p.meter_over_havet,
+            unit: 'm',
+            area_sqm: p.geom_area,
+            length_m: p.geom_length,
+            raw_properties: JSON.stringify(p),
+            geom_json: JSON.stringify(f.geometry),
+          };
+        },
+        sql: `
+          INSERT INTO env.sgu_erosion_feature (source_key, source_object_id, feature_label, value, unit, area_sqm, length_m, raw_properties, geom)
+          SELECT source_key, source_object_id, feature_label, value, unit, area_sqm, length_m, raw_properties,
+                 ST_Transform(ST_SetSRID(ST_GeomFromGeoJSON(geom_json), 4326), 3006)
+          FROM stage.sgu_erosion_raw ON CONFLICT (source_key) DO NOTHING;
+        `,
+      },
+      {
+        id: 'strander_eroderbarhet',
+        label: 'Erosion Susceptibility (Coastal)',
+        api: SGU_APIS.strander_eroderbarhet,
+        stage: 'sgu_erosion_raw',
+        target: 'env.sgu_erosion_feature',
+        mapper: (f: GeoJsonFeature) => {
+          const p = f.properties || {};
+          return {
+            source_key: f.id || p.objectid,
+            source_object_id: p.objectid,
+            feature_label: 'Eroderbarhet: ' + (p.eroderbarhet_tx || ''),
+            value: p.eroderbarhetsklass,
+            unit: 'klass',
+            area_sqm: p.geom_area,
+            length_m: p.geom_length,
+            raw_properties: JSON.stringify(p),
+            geom_json: JSON.stringify(f.geometry),
+          };
+        },
+        sql: `
+          INSERT INTO env.sgu_erosion_feature (source_key, source_object_id, feature_label, value, unit, area_sqm, length_m, raw_properties, geom)
+          SELECT source_key, source_object_id, feature_label, value, unit, area_sqm, length_m, raw_properties,
+                 ST_Transform(ST_SetSRID(ST_GeomFromGeoJSON(geom_json), 4326), 3006)
+          FROM stage.sgu_erosion_raw ON CONFLICT (source_key) DO NOTHING;
+        `,
+      },
+      {
+        id: 'fastmark',
+        label: 'Soil Stability (Fastmark)',
+        api: SGU_APIS.fastmark,
+        stage: 'sgu_fastmark_raw',
+        target: 'env.sgu_fastmark_stabilitet',
+        mapper: (f: GeoJsonFeature) => {
+          const p = f.properties || {};
+          return {
+            source_key: f.id || p.objectid,
+            source_object_id: p.objectid,
+            stability_class: p.fastmark,
+            stability_label: p.fastmark_tx,
+            raw_properties: JSON.stringify(p),
+            geom_json: JSON.stringify(f.geometry),
+          };
+        },
+        sql: `
+          INSERT INTO env.sgu_fastmark_stabilitet (source_key, source_object_id, stability_class, stability_label, raw_properties, geom)
+          SELECT source_key, source_object_id, stability_class, stability_label, raw_properties,
+                 ST_Multi(ST_Transform(ST_SetSRID(ST_GeomFromGeoJSON(geom_json), 4326), 3006))
+          FROM stage.sgu_fastmark_raw ON CONFLICT (source_key) DO NOTHING;
+        `,
+      },
+    ];
+
+    for (const task of tasks) {
+      if (options.target === 'all' || options.target === task.id) {
+        await genericImport(
+          client,
+          task.label,
+          task.api,
+          task.stage,
+          task.target,
+          options,
+          task.mapper,
+          task.sql,
+        );
+      }
+    }
+
+    console.log('Import completed successfully.');
+  } finally {
+    await client.end();
+    console.log('Database client disconnected.');
+  }
 }
 
 main()
-  .catch((error) => {
-    console.error(error instanceof Error ? error.message : String(error));
-    process.exitCode = 1;
+  .catch((err) => {
+    console.error('An error occurred during the import process:', err);
+    process.exit(1);
   })
-  .finally(async () => {
-    await prisma.$disconnect();
-  });
+  .finally(() => prisma.$disconnect());

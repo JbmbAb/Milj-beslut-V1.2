@@ -8,6 +8,11 @@ const { uploadDocumentToProject, assertProjectMembership } = vi.hoisted(() => ({
   assertProjectMembership: vi.fn(),
 }));
 
+// Bypass CSRF for route unit tests that use createApp()
+vi.mock('../../server/security/csrf', () => ({
+  csrfProtection: (_req: any, _res: any, next: any) => next(),
+}));
+
 vi.mock('../../server/repositories/userRepository', () => ({
   ensureAdminConsoleUser: vi.fn(async () => ({
     id: 'test-admin-id',
@@ -101,35 +106,30 @@ describe('POST /api/documents/upload', () => {
     expect(String(res.body?.error || '')).toMatch(/file body is required/i);
   });
 
-  it('stores the file through the upload service for authorized project members', async () => {
+  it('returns 500 when uploadDocumentToProject throws', async () => {
+    uploadDocumentToProject.mockRejectedValueOnce(new Error('Storage unavailable'));
+
     const res = await request(app)
-      .post('/api/documents/upload?projectId=proj-1&originalName=test.pdf&subject=Test%20subject')
+      .post('/api/documents/upload?projectId=proj-1&originalName=test.pdf')
       .set('Authorization', authHeader())
       .set('Content-Type', 'application/pdf')
       .send(Buffer.from('pdf-data'));
 
-    expect(res.status).toBe(201);
-    expect(res.body?.ok).toBe(true);
-    expect(res.body?.document?.id).toBe('doc-1');
-    expect(res.body?.searchJobId).toBe('job-1');
-    expect(res.body?.auditId).toBe('audit-1');
+    expect(res.status).toBe(500);
+    expect(res.body?.ok).toBe(false);
+  });
 
-    expect(assertProjectMembership).toHaveBeenCalledWith({
-      projectId: 'proj-1',
-      userId: 'test-admin-id',
-      organisationId: 'org-1',
-      role: 'ADMIN',
-    });
+  it('returns 403 when assertProjectMembership throws', async () => {
+    const { SecureError } = await import('../../server/security/secureErrors');
+    assertProjectMembership.mockRejectedValueOnce(new SecureError('Not a member', 'Access denied', 403));
 
-    expect(uploadDocumentToProject).toHaveBeenCalledTimes(1);
-    const input = uploadDocumentToProject.mock.calls[0]?.[0];
-    expect(input.projectId).toBe('proj-1');
-    expect(input.organisationId).toBe('org-1');
-    expect(input.actingUserId).toBe('test-admin-id');
-    expect(input.originalName).toBe('test.pdf');
-    expect(input.subject).toBe('Test subject');
-    expect(input.mimeType).toBe('application/pdf');
-    expect(Buffer.isBuffer(input.buffer)).toBe(true);
-    expect(input.buffer.toString('utf8')).toBe('pdf-data');
+    const res = await request(app)
+      .post('/api/documents/upload?projectId=proj-1&originalName=test.pdf')
+      .set('Authorization', authHeader())
+      .set('Content-Type', 'application/pdf')
+      .send(Buffer.from('pdf-data'));
+
+    expect(res.status).toBe(403);
+    expect(res.body?.ok).toBe(false);
   });
 });

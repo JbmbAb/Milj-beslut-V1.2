@@ -15,6 +15,7 @@
 import { logger } from '../logger';
 import { prisma } from '../db/prisma';
 import { appendDomainAudit } from '../security/auditTrail';
+import { readStorageFile } from './documentObjectStorage';
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -51,25 +52,16 @@ export async function extractTextFromDocument(
   // 1. Try pdf-parse on the stored file
   try {
     const { readFileSync } = await import('node:fs');
-    const moduleValue = await import('pdf-parse');
-    const PDFParse = (moduleValue as { PDFParse?: unknown }).PDFParse;
-    if (typeof PDFParse !== 'function') {
-      throw new Error('pdf-parse PDFParse constructor is unavailable');
-    }
+    // pdf-parse exports differently in ESM vs CJS — handle both
+    const pdfParseModule = await import('pdf-parse');
+    const pdfParse =
+      (pdfParseModule as unknown as { default: (b: Buffer) => Promise<{ text: string; numpages: number }> })
+        .default ?? (pdfParseModule as unknown as (b: Buffer) => Promise<{ text: string; numpages: number }>);
 
     const buffer = readFileSync(doc.absolutePath);
-    const parser = new (PDFParse as new (input: { data: Buffer }) => {
-      getText(): Promise<{ text?: string; total?: number; numpages?: number }>;
-      destroy?(): Promise<void>;
-    })({ data: buffer });
-    let parsed: { text?: string; total?: number; numpages?: number } | null = null;
-    try {
-      parsed = await parser.getText();
-    } finally {
-      await parser.destroy?.();
-    }
-    extractedText = parsed?.text?.trim() ?? '';
-    pageCount = parsed?.numpages ?? parsed?.total ?? 0;
+    const parsed = await pdfParse(buffer);
+    extractedText = parsed.text?.trim() ?? '';
+    pageCount = parsed.numpages ?? 0;
 
     if (extractedText.length > 0) {
       method = 'pdf-parse';
@@ -82,8 +74,7 @@ export async function extractTextFromDocument(
   // 2. If no text found and external OCR endpoint is configured
   if (extractedText.length < 10 && process.env.OCR_ENDPOINT) {
     try {
-      const { readFileSync } = await import('node:fs');
-      const buffer = readFileSync(doc.absolutePath);
+      const buffer = await readStorageFile(doc.absolutePath);
 
       const resp = await fetch(process.env.OCR_ENDPOINT, {
         method: 'POST',

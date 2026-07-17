@@ -79,17 +79,19 @@ describe('ApplicationWizard', () => {
     const user = userEvent.setup({ delay: null });
     render(<ApplicationWizard />);
     await user.click(screen.getByRole('button', { name: /Fortsatt manuell kontroll/i }));
-    expect(await screen.findByTestId('location-audit-step')).toBeInTheDocument();
-  });
+    expect(
+      await screen.findByTestId('location-audit-step', undefined, { timeout: 15000 }),
+    ).toBeInTheDocument();
+  }, 15000);
 
   it('returns to step 1 when back button is clicked on step 2', async () => {
     const user = userEvent.setup({ delay: null });
     render(<ApplicationWizard />);
     await user.click(screen.getByRole('button', { name: /Fortsatt manuell kontroll/i }));
-    await screen.findByTestId('location-audit-step');
+    await screen.findByTestId('location-audit-step', undefined, { timeout: 15000 });
     await user.click(screen.getByRole('button', { name: /Tillbaka/i }));
     expect(screen.getByText('Identitet och ansvar')).toBeInTheDocument();
-  });
+  }, 15000);
 
   // ── BankID error handling ───────────────────────────────────────────────────
 

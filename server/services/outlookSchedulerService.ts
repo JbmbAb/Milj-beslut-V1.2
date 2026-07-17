@@ -19,6 +19,7 @@
 import crypto from 'node:crypto';
 import { logger } from '../logger';
 import { runIngestion } from './outlookIngestionService';
+import { fetchRecentEmailsFromOutlook } from './outlookGraphClient';
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -54,18 +55,43 @@ async function runOnce(): Promise<void> {
   const storageRoot = process.env.OUTLOOK_STORAGE_ROOT ?? '/tmp/outlook-attachments';
   const folderPath = process.env.OUTLOOK_FOLDER_PATH;
 
-  if (!folderPath) {
-    logger.info('outlook-scheduler: OUTLOOK_FOLDER_PATH not set — simulating empty run');
-    _status.lastRunResult = { emailsProcessed: 0, emailsSkipped: 0, attachmentsSaved: 0, errors: [] };
-    return;
-  }
-
   try {
-    // In production, a parser (node-mapi / MailParser) converts the Outlook
-    // export into RawEmail objects here. For now we run with an empty array
-    // to demonstrate the scheduler fires correctly.
+    // Primär väg: MS Graph-klient (om OUTLOOK_GRAPH_* är konfigurerat).
+    // Sekundär väg: filsystem-export via OUTLOOK_FOLDER_PATH (lämnas orörd
+    // fram till att en verklig MAPI/EML-parser kopplas in).
+    let emails: Awaited<ReturnType<typeof fetchRecentEmailsFromOutlook>>['emails'] = [];
+    const graphResult = await fetchRecentEmailsFromOutlook().catch((err) => {
+      logger.warn('outlook-scheduler: Graph-hämtning misslyckades', {
+        error: err instanceof Error ? err.message : String(err),
+      });
+      return null;
+    });
+    if (graphResult?.config) {
+      emails = graphResult.emails;
+      logger.info('outlook-scheduler: Graph-klient levererade mail', {
+        emails: emails.length,
+        user: graphResult.config.user,
+        folder: graphResult.config.folder,
+      });
+    } else if (!folderPath) {
+      logger.info(
+        'outlook-scheduler: varken OUTLOOK_GRAPH_* eller OUTLOOK_FOLDER_PATH är konfigurerat — simulerar tom körning',
+      );
+      _status.lastRunResult = {
+        emailsProcessed: 0,
+        emailsSkipped: 0,
+        attachmentsSaved: 0,
+        errors: [],
+      };
+      return;
+    } else {
+      logger.info('outlook-scheduler: OUTLOOK_FOLDER_PATH satt utan Graph-config — parser ej implementerad', {
+        folderPath,
+      });
+    }
+
     const result = await runIngestion({
-      emails: [],
+      emails,
       storageRoot,
     });
 
@@ -131,10 +157,7 @@ export async function triggerIngestionWebhook(params: {
   const secret = process.env.OUTLOOK_WEBHOOK_SECRET;
 
   if (secret && params.signature) {
-    const expected = crypto
-      .createHmac('sha256', secret)
-      .update(params.rawBody)
-      .digest('base64');
+    const expected = crypto.createHmac('sha256', secret).update(params.rawBody).digest('base64');
 
     const sigBuffer = Buffer.from(params.signature, 'base64');
     const expBuffer = Buffer.from(expected, 'base64');

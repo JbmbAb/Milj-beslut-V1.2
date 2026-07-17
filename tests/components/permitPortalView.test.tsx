@@ -2,17 +2,52 @@ import React from 'react';
 import { render, screen } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 
-// Mock lazy-loaded panels
-vi.mock('../../components/PermitPortalApplyPanel', () => ({
+vi.mock('../../components/MapView', () => ({
   default: ({ permits }: { permits: unknown[] }) => (
-    <div data-testid="apply-panel">Apply Panel ({permits.length} permits)</div>
+    <div data-testid="map-view">Map View ({permits.length} permits)</div>
   ),
 }));
 
-vi.mock('../../components/PermitPortalMapPanel', () => ({
-  default: ({ permits }: { permits: unknown[] }) => (
-    <div data-testid="map-panel">Map Panel ({permits.length} permits)</div>
+vi.mock('../../components/WeatherRisk', () => ({
+  default: ({ municipality }: { municipality: string }) => (
+    <div data-testid="weather-risk">Weather Risk ({municipality})</div>
   ),
+}));
+
+vi.mock('../../components/RequirementChecklist', () => ({
+  default: ({ code }: { code: { code: string } }) => (
+    <div data-testid="requirement-checklist">Requirement Checklist ({code.code})</div>
+  ),
+}));
+
+vi.mock('../../components/ProjectStructureContext', () => ({
+  useProjectStructure: () => ({
+    plan: {
+      mapLayerSelection: { enabled: [] },
+    },
+    setPlan: vi.fn(),
+    addArchiveDocument: vi.fn(),
+    evaluateGate: vi.fn().mockResolvedValue({ status: 'READY', changed: false }),
+    markModuleReady: vi.fn(),
+  }),
+}));
+
+vi.mock('../../services/coreApiClient', () => ({
+  callApi: vi.fn().mockResolvedValue({
+    ok: true,
+    state: 'ready',
+    codes: [
+      { code: '17 05 04', name: 'Jord och sten', type: 'EWC' },
+      { code: '90.131', name: 'Miljöfarlig verksamhet', type: 'SNI' },
+    ],
+  }),
+}));
+
+vi.mock('../../services/projectStructure', () => ({
+  applyPermitCodeSelection: vi.fn().mockReturnValue({
+    plan: { mapLayerSelection: { enabled: [] } },
+    profile: { regulatoryTrack: 'TEST_TRACK' },
+  }),
 }));
 
 import PermitPortalView from '../../components/PermitPortalView';
@@ -20,7 +55,7 @@ import { type Permit, DecisionType } from '../../types';
 
 const samplePermits: Permit[] = [
   {
-    id: 1,
+    id: '1',
     filename: 'permit-001.pdf',
     checksum: 'abc123',
     received_date: '2024-01-01',
@@ -34,44 +69,45 @@ const samplePermits: Permit[] = [
 ];
 
 describe('PermitPortalView', () => {
-  // ── Map mode (default) ───────────────────────────────────────────────────
-
-  it('renders map panel in default map mode', async () => {
+  it('renders map view in default map mode', async () => {
     render(<PermitPortalView permits={samplePermits} />);
-    expect(await screen.findByTestId('map-panel')).toBeInTheDocument();
+    expect(await screen.findByTestId('map-view')).toBeInTheDocument();
   });
 
-  it('does not render apply panel in map mode', async () => {
+  it('shows legacy deprecation banner', async () => {
     render(<PermitPortalView permits={samplePermits} />);
-    await screen.findByTestId('map-panel');
-    expect(screen.queryByTestId('apply-panel')).not.toBeInTheDocument();
+    expect(await screen.findByText(/Legacy — Provningsportal/i)).toBeInTheDocument();
   });
 
-  it('passes permits to map panel', async () => {
+  it('does not render apply content in map mode', async () => {
     render(<PermitPortalView permits={samplePermits} />);
-    expect(await screen.findByText('Map Panel (1 permits)')).toBeInTheDocument();
+    await screen.findByTestId('map-view');
+    expect(screen.queryByText(/Juridiskt säker ansökan med smart kodväljare/i)).not.toBeInTheDocument();
   });
 
-  // ── Apply mode ────────────────────────────────────────────────────────────
-
-  it('renders apply panel in apply mode', async () => {
-    render(<PermitPortalView permits={samplePermits} mode="apply" />);
-    expect(await screen.findByTestId('apply-panel')).toBeInTheDocument();
+  it('passes permits to the map view', async () => {
+    render(<PermitPortalView permits={samplePermits} />);
+    expect(await screen.findByText('Map View (1 permits)')).toBeInTheDocument();
   });
 
-  it('does not render map panel in apply mode', async () => {
+  it('renders apply mode content', async () => {
     render(<PermitPortalView permits={samplePermits} mode="apply" />);
-    await screen.findByTestId('apply-panel');
-    expect(screen.queryByTestId('map-panel')).not.toBeInTheDocument();
+    expect(await screen.findByText(/Juridiskt säker ansökan med smart kodväljare/i)).toBeInTheDocument();
   });
 
-  it('passes permits to apply panel', async () => {
+  it('does not render map view in apply mode', async () => {
     render(<PermitPortalView permits={samplePermits} mode="apply" />);
-    expect(await screen.findByText('Apply Panel (1 permits)')).toBeInTheDocument();
+    await screen.findByText(/Juridiskt säker ansökan med smart kodväljare/i);
+    expect(screen.queryByTestId('map-view')).not.toBeInTheDocument();
+  });
+
+  it('shows the code selector in apply mode', async () => {
+    render(<PermitPortalView permits={samplePermits} mode="apply" />);
+    expect(await screen.findByText(/Kodväljare \(SNI & EWC\)/i)).toBeInTheDocument();
   });
 
   it('renders with empty permits array', async () => {
     render(<PermitPortalView permits={[]} />);
-    expect(await screen.findByTestId('map-panel')).toBeInTheDocument();
+    expect(await screen.findByText('Map View (0 permits)')).toBeInTheDocument();
   });
 });

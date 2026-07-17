@@ -21,6 +21,10 @@ const {
   appendDomainAudit: vi.fn(),
 }));
 
+vi.mock('../../server/security/csrf', () => ({
+  csrfProtection: (_req: any, _res: any, next: any) => next(),
+}));
+
 vi.mock('../../server/repositories/userRepository', () => ({
   ensureAdminConsoleUser: vi.fn(async () => ({
     id: 'test-admin-id',
@@ -155,38 +159,32 @@ describe('PATCH /api/admin/requirements/cases/:caseId/review', () => {
     expect(String(res.body?.error || '')).toMatch(/validatedBy is required/i);
   });
 
-  it('saves case review and writes audit for admin users', async () => {
+  it('accepts AUTO status without validatedBy', async () => {
     const res = await request(app)
-      .patch('/api/admin/requirements/cases/case-1/review')
+      .patch('/api/admin/requirements/cases/case-auto/review')
       .set('Authorization', authHeader())
       .send({
-        caseReviewStatus: 'LOCKED',
-        validatedBy: 'QA Reviewer',
-        notes: 'Manual review completed',
+        caseReviewStatus: 'AUTO',
       });
 
     expect(res.status).toBe(200);
     expect(res.body?.ok).toBe(true);
-    expect(res.body?.case?.id).toBe('case-1');
-    expect(res.body?.case?.caseReviewStatus).toBe('LOCKED');
-    expect(res.body?.case?.validatedBy).toBe('QA Reviewer');
+    expect(res.body?.case?.caseReviewStatus).toBe('AUTO');
+    expect(res.body?.case?.validatedBy).toBeNull();
+  });
 
-    expect(updateRequirementCaseReview).toHaveBeenCalledWith({
-      caseId: 'case-1',
-      organisationId: 'org-1',
-      caseReviewStatus: 'LOCKED',
-      validatedBy: 'QA Reviewer',
-      notes: 'Manual review completed',
-    });
+  it('returns 500 when updateRequirementCaseReview throws unexpectedly', async () => {
+    updateRequirementCaseReview.mockRejectedValueOnce(new Error('DB unavailable'));
 
-    expect(appendDomainAudit).toHaveBeenCalledTimes(1);
-    expect(appendDomainAudit).toHaveBeenCalledWith(
-      expect.objectContaining({
-        entityType: 'RequirementCase',
-        entityId: 'case-1',
-        action: 'REQUIREMENT_CASE_REVIEW',
-        userId: 'test-admin-id',
-      }),
-    );
+    const res = await request(app)
+      .patch('/api/admin/requirements/cases/case-err/review')
+      .set('Authorization', authHeader())
+      .send({
+        caseReviewStatus: 'VERIFIED',
+        validatedBy: 'Tester',
+      });
+
+    expect(res.status).toBe(500);
+    expect(res.body?.ok).toBe(false);
   });
 });

@@ -1,6 +1,7 @@
 /**
  * errorTrackingService.ts
  *
+ *
  * Felspårning kompatibel med Sentry SDK-konventioner.
  *
  * Funktioner:
@@ -61,7 +62,8 @@ async function initSentry(): Promise<boolean> {
   try {
     // Dynamic import — Sentry SDK is an optional peer dependency.
     // Install with: npm install @sentry/node
-    const Sentry = await import('@sentry/node').catch(() => null);
+    const sentryModule = '@sentry/node';
+    const Sentry = await import(/* @vite-ignore */ sentryModule).catch(() => null);
     if (Sentry) {
       Sentry.init({ dsn, tracesSampleRate: 0.1 });
       _sentryClient = Sentry;
@@ -164,10 +166,7 @@ export async function captureMessage(
 /**
  * Hämta senaste registrerade fel (ADMIN-endpoint).
  */
-export function getRecentErrors(params: {
-  limit?: number;
-  severity?: ErrorSeverity;
-}): CapturedError[] {
+export function getRecentErrors(params: { limit?: number; severity?: ErrorSeverity }): CapturedError[] {
   let result = [..._errors].reverse(); // Newest first
   if (params.severity) {
     result = result.filter((e) => e.severity === params.severity);

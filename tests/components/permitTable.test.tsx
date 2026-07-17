@@ -12,7 +12,7 @@ vi.mock('../../services/geminiService', () => ({
 import { generateMarketingSummary } from '../../services/geminiService';
 
 const makePermit = (overrides: Partial<Permit> = {}): Permit => ({
-  id: 1,
+  id: '1',
   filename: 'beslut_001.pdf',
   checksum: 'abc123',
   received_date: '2024-03-01',
@@ -27,9 +27,9 @@ const makePermit = (overrides: Partial<Permit> = {}): Permit => ({
 });
 
 const twoPermits: Permit[] = [
-  makePermit({ id: 1, property_id: 'GBG-001', municipality: 'Göteborg', applicant_company: 'GBG Miljö' }),
+  makePermit({ id: '1', property_id: 'GBG-001', municipality: 'Göteborg', applicant_company: 'GBG Miljö' }),
   makePermit({
-    id: 2,
+    id: '2',
     property_id: 'MLM-001',
     municipality: 'Malmö',
     decision_type: DecisionType.AVSLAG,

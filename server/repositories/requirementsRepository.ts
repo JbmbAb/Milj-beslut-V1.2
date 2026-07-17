@@ -1,9 +1,29 @@
-import { prisma } from "../db/prisma";
+import { prisma } from '../db/prisma';
+import { assertTransitionAllowed } from '../domain/requirementLifecycle';
+import { SecureError } from '../security/secureErrors';
+import { inc } from '../observability/metrics';
+import { createCaseSnapshot } from '../modules/evidence/public';
 
 const db = prisma as any;
 
-export type RequirementVerificationStatus = "AUTO" | "REVIEWED" | "VERIFIED" | "REJECTED";
-export type RequirementCaseReviewStatus = "AUTO" | "NEEDS_REVIEW" | "VERIFIED" | "LOCKED";
+async function withSystemOverride<T>(
+  requirementCaseId: string | undefined,
+  fn: (tx: any) => Promise<T>,
+): Promise<T> {
+  return db.$transaction(async (tx: any) => {
+    await tx.$executeRaw`SELECT set_config('miljobeslut.system_override','1', true)`;
+    if (requirementCaseId) {
+      const n = await tx.evidenceExport.count({ where: { requirementCaseId } });
+      if (n > 0) {
+        inc('evidence.governance.system_override_with_prior_export', 1);
+      }
+    }
+    return fn(tx);
+  });
+}
+
+export type RequirementVerificationStatus = 'AUTO' | 'REVIEWED' | 'VERIFIED' | 'REJECTED';
+export type RequirementCaseReviewStatus = 'AUTO' | 'NEEDS_REVIEW' | 'VERIFIED' | 'LOCKED';
 
 export interface PaginationInput {
   page?: number;
@@ -24,7 +44,7 @@ export interface RequirementsFilterInput extends PaginationInput {
 }
 
 function normalizeText(value?: string): string | undefined {
-  const normalized = String(value || "").trim();
+  const normalized = String(value || '').trim();
   return normalized || undefined;
 }
 
@@ -36,18 +56,18 @@ function normalizePagination(input?: PaginationInput) {
 }
 
 function mapCaseReviewStatusToVerificationStatus(
-  caseReviewStatus: RequirementCaseReviewStatus
+  caseReviewStatus: RequirementCaseReviewStatus,
 ): RequirementVerificationStatus {
   switch (caseReviewStatus) {
-    case "AUTO":
-      return "AUTO";
-    case "NEEDS_REVIEW":
-      return "REVIEWED";
-    case "VERIFIED":
-    case "LOCKED":
-      return "VERIFIED";
+    case 'AUTO':
+      return 'AUTO';
+    case 'NEEDS_REVIEW':
+      return 'REVIEWED';
+    case 'VERIFIED':
+    case 'LOCKED':
+      return 'VERIFIED';
     default:
-      return "AUTO";
+      return 'AUTO';
   }
 }
 
@@ -55,10 +75,12 @@ function caseWhere(input: RequirementsFilterInput): Record<string, unknown> {
   const where: Record<string, unknown> = {};
   const municipality = normalizeText(input.municipality);
   const documentType = normalizeText(input.documentType);
-  const verificationStatus = normalizeText(input.verificationStatus) as RequirementVerificationStatus | undefined;
+  const verificationStatus = normalizeText(input.verificationStatus) as
+    | RequirementVerificationStatus
+    | undefined;
 
   if (municipality) {
-    where.municipality = { contains: municipality, mode: "insensitive" };
+    where.municipality = { contains: municipality, mode: 'insensitive' };
   }
   if (documentType) {
     where.documentType = documentType;
@@ -69,7 +91,7 @@ function caseWhere(input: RequirementsFilterInput): Record<string, unknown> {
 
   // Enforce organisationId (MANDATORY)
   where.organisationId = input.organisationId;
-  
+
   // Optional projectId filter
   if (input.projectId) {
     where.projectId = input.projectId;
@@ -84,13 +106,15 @@ function requirementWhere(input: RequirementsFilterInput): Record<string, unknow
   const requirementCode = normalizeText(input.requirementCode);
   const category = normalizeText(input.category);
   const ewcCode = normalizeText(input.ewcCode);
-  const verificationStatus = normalizeText(input.verificationStatus) as RequirementVerificationStatus | undefined;
+  const verificationStatus = normalizeText(input.verificationStatus) as
+    | RequirementVerificationStatus
+    | undefined;
   const municipality = normalizeText(input.municipality);
   const documentType = normalizeText(input.documentType);
   const includePreliminary = Boolean(input.includePreliminary);
 
   if (!includePreliminary && !verificationStatus) {
-    where.verificationStatus = "VERIFIED";
+    where.verificationStatus = 'VERIFIED';
   } else if (verificationStatus) {
     where.verificationStatus = verificationStatus;
   }
@@ -101,7 +125,7 @@ function requirementWhere(input: RequirementsFilterInput): Record<string, unknow
   if (ewcCode) where.ewcCode = ewcCode;
   if (municipality || documentType) {
     where.case = {
-      ...(municipality ? { municipality: { contains: municipality, mode: "insensitive" } } : {}),
+      ...(municipality ? { municipality: { contains: municipality, mode: 'insensitive' } } : {}),
       ...(documentType ? { documentType } : {}),
     };
   }
@@ -110,7 +134,7 @@ function requirementWhere(input: RequirementsFilterInput): Record<string, unknow
   where.project = {
     organisationId: input.organisationId,
   };
-  
+
   if (input.projectId) {
     where.projectId = input.projectId;
   }
@@ -121,12 +145,14 @@ function requirementWhere(input: RequirementsFilterInput): Record<string, unknow
 function citationWhere(input: RequirementsFilterInput): Record<string, unknown> {
   const where: Record<string, unknown> = {};
   const requirementCode = normalizeText(input.requirementCode);
-  const verificationStatus = normalizeText(input.verificationStatus) as RequirementVerificationStatus | undefined;
+  const verificationStatus = normalizeText(input.verificationStatus) as
+    | RequirementVerificationStatus
+    | undefined;
   const includePreliminary = Boolean(input.includePreliminary);
 
   if (!includePreliminary && !verificationStatus) {
     where.requirement = {
-      verificationStatus: "VERIFIED",
+      verificationStatus: 'VERIFIED',
     };
   }
   if (verificationStatus) {
@@ -146,7 +172,7 @@ function citationWhere(input: RequirementsFilterInput): Record<string, unknown> 
       organisationId: input.organisationId,
     },
   };
-  
+
   if (input.projectId) {
     where.requirement = {
       ...(where.requirement as Record<string, unknown> | undefined),
@@ -165,7 +191,7 @@ export async function listRequirementCases(input: RequirementsFilterInput) {
     db.requirementCase.count({ where }),
     db.requirementCase.findMany({
       where,
-      orderBy: [{ documentDate: "desc" }, { createdAt: "desc" }],
+      orderBy: [{ documentDate: 'desc' }, { createdAt: 'desc' }, { id: 'desc' }],
       skip,
       take,
     }),
@@ -185,7 +211,7 @@ export async function listRequirementRows(input: RequirementsFilterInput) {
       include: {
         case: true,
       },
-      orderBy: [{ updatedAt: "desc" }, { createdAt: "desc" }],
+      orderBy: [{ updatedAt: 'desc' }, { createdAt: 'desc' }, { id: 'desc' }],
       skip,
       take,
     }),
@@ -206,7 +232,7 @@ export async function listRequirementCitations(input: RequirementsFilterInput) {
         requirement: true,
         case: true,
       },
-      orderBy: [{ createdAt: "desc" }],
+      orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
       skip,
       take,
     }),
@@ -217,9 +243,9 @@ export async function listRequirementCitations(input: RequirementsFilterInput) {
 
 export async function getRequirementByCode(requirementCode: string, organisationId: string) {
   return db.requirementRecord.findFirst({
-    where: { 
+    where: {
       requirementCode,
-      project: { organisationId }
+      project: { organisationId },
     },
     include: {
       case: true,
@@ -230,11 +256,11 @@ export async function getRequirementByCode(requirementCode: string, organisation
 
 export async function getCitationByCode(citationCode: string, organisationId: string) {
   return db.requirementCitation.findFirst({
-    where: { 
+    where: {
       citationCode,
       requirement: {
-        project: { organisationId }
-      }
+        project: { organisationId },
+      },
     },
     include: {
       requirement: true,
@@ -245,9 +271,9 @@ export async function getCitationByCode(citationCode: string, organisationId: st
 
 export async function getRequirementCaseById(caseId: string, organisationId: string) {
   return db.requirementCase.findFirst({
-    where: { 
+    where: {
       id: caseId,
-      organisationId
+      organisationId,
     },
   });
 }
@@ -259,34 +285,51 @@ export async function updateRequirementCaseReview(input: {
   validatedBy?: string | null;
   validatedAt?: Date | null;
   notes?: string | null;
+  actorKind?: 'system' | 'user' | 'ai';
 }) {
   const requirementCase = await getRequirementCaseById(input.caseId, input.organisationId);
   if (!requirementCase) {
-    throw new Error("Requirement case not found");
+    throw new Error('Requirement case not found');
+  }
+
+  const currentStatus = String(requirementCase.caseReviewStatus || '').toUpperCase();
+  const actorKind = input.actorKind ?? 'user';
+  if (currentStatus === 'LOCKED' && actorKind !== 'system') {
+    inc('cases.denied.locked', 1);
+    throw new Error('REQUIREMENT_LOCKED: Case is locked; only system can modify.');
   }
 
   const normalizedValidatedBy = normalizeText(input.validatedBy);
-  if (input.caseReviewStatus !== "AUTO" && !normalizedValidatedBy) {
-    throw new Error("validatedBy is required when setting a manual case review status");
+  if (input.caseReviewStatus !== 'AUTO' && !normalizedValidatedBy) {
+    throw new Error('validatedBy is required when setting a manual case review status');
   }
 
-  const nextValidatedAt =
-    input.caseReviewStatus === "AUTO"
-      ? null
-      : input.validatedAt || new Date();
+  // LOCKED => mandatory snapshot. If snapshot fails, we do NOT lock.
+  if (String(input.caseReviewStatus || '').toUpperCase() === 'LOCKED' && currentStatus !== 'LOCKED') {
+    await createCaseSnapshot({
+      requirementCaseId: requirementCase.id,
+      organisationId: input.organisationId,
+      createdBy: normalizedValidatedBy || 'system',
+      snapshotType: 'LOCK',
+    });
+  }
 
-  return db.requirementCase.update({
-    where: {
-      id: requirementCase.id,
-    },
-    data: {
-      caseReviewStatus: input.caseReviewStatus,
-      reviewStatus: mapCaseReviewStatusToVerificationStatus(input.caseReviewStatus),
-      validatedBy: normalizedValidatedBy || null,
-      validatedAt: nextValidatedAt,
-      notes: normalizeText(input.notes) || null,
-    },
-  });
+  const nextValidatedAt = input.caseReviewStatus === 'AUTO' ? null : input.validatedAt || new Date();
+
+  const updater = (tx: any) =>
+    tx.requirementCase.update({
+      where: {
+        id: requirementCase.id,
+      },
+      data: {
+        caseReviewStatus: input.caseReviewStatus,
+        reviewStatus: mapCaseReviewStatusToVerificationStatus(input.caseReviewStatus),
+        validatedBy: normalizedValidatedBy || null,
+        validatedAt: nextValidatedAt,
+        notes: normalizeText(input.notes) || null,
+      },
+    });
+  return actorKind === 'system' ? withSystemOverride(requirementCase.id, updater) : updater(db);
 }
 
 export async function updateRequirementVerification(input: {
@@ -297,48 +340,94 @@ export async function updateRequirementVerification(input: {
   verifiedAt?: Date | null;
   errorType?: string | null;
   validationComment?: string | null;
+  /** 'system' används i bakgrundsjobb; routes är normalt 'user'. */
+  actorKind?: 'system' | 'user' | 'ai';
 }) {
   const requirement = await getRequirementByCode(input.requirementCode, input.organisationId);
   if (!requirement) {
-    throw new Error("Requirement not found");
+    throw new Error('Requirement not found');
   }
 
-  if (input.verificationStatus === "VERIFIED") {
+  // Enforce locked case: när requirement-case är LOCKED ska endast system få ändra.
+  const locked = String(requirement?.case?.caseReviewStatus || '').toUpperCase() === 'LOCKED';
+  const actorKind = input.actorKind ?? 'user';
+  if (locked && actorKind !== 'system') {
+    inc('requirements.denied.locked', 1);
+    throw new Error('REQUIREMENT_LOCKED: Case is locked; only system can modify.');
+  }
+
+  // Enforce lifecycle transitions (mapped onto verificationStatus).
+  // AUTO ≈ DRAFT, REVIEWED ≈ IN_REVIEW, VERIFIED ≈ APPROVED, REJECTED ≈ REJECTED.
+  const currentVerification: RequirementVerificationStatus =
+    (requirement.verificationStatus as RequirementVerificationStatus) || 'AUTO';
+  assertTransitionAllowed({
+    current: {
+      status:
+        currentVerification === 'AUTO'
+          ? 'DRAFT'
+          : currentVerification === 'REVIEWED'
+            ? 'IN_REVIEW'
+            : currentVerification === 'VERIFIED'
+              ? 'APPROVED'
+              : 'REJECTED',
+      source: 'MANUAL',
+      version: 1,
+      systemLocked: locked,
+    },
+    nextStatus:
+      input.verificationStatus === 'AUTO'
+        ? 'DRAFT'
+        : input.verificationStatus === 'REVIEWED'
+          ? 'IN_REVIEW'
+          : input.verificationStatus === 'VERIFIED'
+            ? 'APPROVED'
+            : 'REJECTED',
+    actor: { kind: actorKind },
+  });
+
+  if (input.verificationStatus === 'VERIFIED') {
     const missingReviewer = !normalizeText(input.verifiedBy);
     if (missingReviewer) {
-      throw new Error("verifiedBy is required when setting VERIFIED");
+      throw new Error('verifiedBy is required when setting VERIFIED');
     }
     const hasValidCitation = Array.isArray(requirement.citations)
-      ? requirement.citations.every((citation: { verificationStatus: RequirementVerificationStatus }) =>
-          citation.verificationStatus === "VERIFIED" || citation.verificationStatus === "REVIEWED"
+      ? requirement.citations.every(
+          (citation: { verificationStatus: RequirementVerificationStatus }) =>
+            citation.verificationStatus === 'VERIFIED' || citation.verificationStatus === 'REVIEWED',
         )
       : false;
     if (!hasValidCitation) {
-      throw new Error("All citations must be REVIEWED or VERIFIED before requirement can be VERIFIED");
+      throw new SecureError(
+        'All citations must be REVIEWED or VERIFIED before requirement can be VERIFIED',
+        'All citations must be REVIEWED or VERIFIED before requirement can be VERIFIED',
+        400,
+      );
     }
   }
 
   const nextVerifiedAt =
-    input.verificationStatus === "VERIFIED"
-      ? input.verifiedAt || new Date()
-      : input.verifiedAt || null;
+    input.verificationStatus === 'VERIFIED' ? input.verifiedAt || new Date() : input.verifiedAt || null;
 
-  return db.requirementRecord.update({
-    where: {
-      id: requirement.id,
-    },
-    data: {
-      verificationStatus: input.verificationStatus,
-      verifiedBy: normalizeText(input.verifiedBy) || null,
-      verifiedAt: nextVerifiedAt,
-      errorType: normalizeText(input.errorType) || null,
-      validationComment: normalizeText(input.validationComment) || null,
-    },
-    include: {
-      case: true,
-      citations: true,
-    },
-  });
+  const updater = (tx: any) =>
+    tx.requirementRecord.update({
+      where: {
+        id: requirement.id,
+      },
+      data: {
+        verificationStatus: input.verificationStatus,
+        verifiedBy: normalizeText(input.verifiedBy) || null,
+        verifiedAt: nextVerifiedAt,
+        errorType: normalizeText(input.errorType) || null,
+        validationComment: normalizeText(input.validationComment) || null,
+      },
+      include: {
+        case: true,
+        citations: true,
+      },
+    });
+  return actorKind === 'system'
+    ? withSystemOverride((requirement as { case?: { id?: string } })?.case?.id, updater)
+    : updater(db);
 }
 
 export async function updateCitationVerification(input: {
@@ -351,78 +440,77 @@ export async function updateCitationVerification(input: {
   charStart?: number | null;
   charEnd?: number | null;
   comment?: string | null;
+  actorKind?: 'system' | 'user' | 'ai';
 }) {
   const citation = await getCitationByCode(input.citationCode, input.organisationId);
   if (!citation) {
-    throw new Error("Citation not found");
+    throw new Error('Citation not found');
   }
 
-  if (input.verificationStatus === "VERIFIED") {
+  const locked = String((citation as any)?.case?.caseReviewStatus || '').toUpperCase() === 'LOCKED';
+  const actorKind = input.actorKind ?? 'user';
+  if (locked && actorKind !== 'system') {
+    inc('citations.denied.locked', 1);
+    throw new Error('REQUIREMENT_LOCKED: Case is locked; only system can modify.');
+  }
+
+  if (input.verificationStatus === 'VERIFIED') {
     const verifiedBy = normalizeText(input.verifiedBy);
     const nextComment = normalizeText(input.comment) || normalizeText(citation.comment);
     const nextPageNumber =
-      typeof input.pageNumber === "number"
+      typeof input.pageNumber === 'number'
         ? input.pageNumber
-        : typeof citation.pageNumber === "number"
+        : typeof citation.pageNumber === 'number'
           ? citation.pageNumber
           : null;
 
     if (!verifiedBy) {
-      throw new Error("verifiedBy is required when setting VERIFIED");
+      throw new Error('verifiedBy is required when setting VERIFIED');
     }
     if (nextPageNumber == null && !nextComment) {
-      throw new Error("pageNumber or comment is required when setting VERIFIED");
+      throw new Error('pageNumber or comment is required when setting VERIFIED');
     }
   }
 
   const nextVerifiedAt =
-    input.verificationStatus === "VERIFIED"
-      ? input.verifiedAt || new Date()
-      : input.verifiedAt || null;
+    input.verificationStatus === 'VERIFIED' ? input.verifiedAt || new Date() : input.verifiedAt || null;
 
-  return db.requirementCitation.update({
-    where: {
-      id: citation.id,
-    },
-    data: {
-      verificationStatus: input.verificationStatus,
-      verifiedBy: normalizeText(input.verifiedBy) || null,
-      verifiedAt: nextVerifiedAt,
-      pageNumber:
-        typeof input.pageNumber === "number"
-          ? input.pageNumber
-          : input.pageNumber === null
-            ? null
-            : undefined,
-      charStart:
-        typeof input.charStart === "number"
-          ? input.charStart
-          : input.charStart === null
-            ? null
-            : undefined,
-      charEnd:
-        typeof input.charEnd === "number"
-          ? input.charEnd
-          : input.charEnd === null
-            ? null
-            : undefined,
-      comment:
-        input.comment == null
-          ? undefined
-          : normalizeText(input.comment) || null,
-    },
-    include: {
-      requirement: true,
-      case: true,
-    },
-  });
+  const updater = (tx: any) =>
+    tx.requirementCitation.update({
+      where: {
+        id: citation.id,
+      },
+      data: {
+        verificationStatus: input.verificationStatus,
+        verifiedBy: normalizeText(input.verifiedBy) || null,
+        verifiedAt: nextVerifiedAt,
+        pageNumber:
+          typeof input.pageNumber === 'number'
+            ? input.pageNumber
+            : input.pageNumber === null
+              ? null
+              : undefined,
+        charStart:
+          typeof input.charStart === 'number' ? input.charStart : input.charStart === null ? null : undefined,
+        charEnd:
+          typeof input.charEnd === 'number' ? input.charEnd : input.charEnd === null ? null : undefined,
+        comment: input.comment == null ? undefined : normalizeText(input.comment) || null,
+      },
+      include: {
+        requirement: true,
+        case: true,
+      },
+    });
+  return actorKind === 'system'
+    ? withSystemOverride((citation as { case?: { id?: string } })?.case?.id, updater)
+    : updater(db);
 }
 
 export async function getDocumentById(documentId: string, organisationId: string) {
   return db.documentRecord.findFirst({
-    where: { 
+    where: {
       id: documentId,
-      organisationId
+      organisationId,
     },
     select: {
       id: true,
@@ -433,19 +521,17 @@ export async function getDocumentById(documentId: string, organisationId: string
   });
 }
 
-export async function getRequirementReportRows(input: { 
-  organisationId: string; 
+export async function getRequirementReportRows(input: {
+  organisationId: string;
   projectId?: string;
-  includePreliminary?: boolean; 
+  includePreliminary?: boolean;
 }) {
   const includePreliminary = Boolean(input.includePreliminary);
-  const where: any = includePreliminary
-    ? {}
-    : { verificationStatus: "VERIFIED" };
-  
-  where.project = { 
+  const where: any = includePreliminary ? {} : { verificationStatus: 'VERIFIED' };
+
+  where.project = {
     organisationId: input.organisationId,
-    ...(input.projectId ? { id: input.projectId } : {})
+    ...(input.projectId ? { id: input.projectId } : {}),
   };
 
   return db.requirementRecord.findMany({
@@ -454,41 +540,41 @@ export async function getRequirementReportRows(input: {
       case: true,
       citations: true,
     },
-    orderBy: [{ createdAt: "asc" }],
+    orderBy: [{ createdAt: 'asc' }],
   });
 }
 
 export async function getRequirementReportCases(
-  caseIds: string[], 
-  filter: { organisationId: string; projectId?: string }
+  caseIds: string[],
+  filter: { organisationId: string; projectId?: string },
 ) {
   if (!Array.isArray(caseIds) || caseIds.length === 0) return [];
   return db.requirementCase.findMany({
-    where: { 
+    where: {
       id: { in: caseIds },
       organisationId: filter.organisationId,
-      ...(filter.projectId ? { projectId: filter.projectId } : {})
+      ...(filter.projectId ? { projectId: filter.projectId } : {}),
     },
-    orderBy: [{ documentDate: "asc" }, { createdAt: "asc" }],
+    orderBy: [{ documentDate: 'asc' }, { createdAt: 'asc' }],
   });
 }
 
 export async function getRequirementReportCitations(
-  requirementIds: string[], 
-  filter: { organisationId: string; projectId?: string }
+  requirementIds: string[],
+  filter: { organisationId: string; projectId?: string },
 ) {
   if (!Array.isArray(requirementIds) || requirementIds.length === 0) return [];
   return db.requirementCitation.findMany({
     where: {
       requirementId: { in: requirementIds },
-      verificationStatus: { in: ["REVIEWED", "VERIFIED"] },
+      verificationStatus: { in: ['REVIEWED', 'VERIFIED'] },
       requirement: {
-        project: { 
+        project: {
           organisationId: filter.organisationId,
-          ...(filter.projectId ? { id: filter.projectId } : {})
-        }
-      }
+          ...(filter.projectId ? { id: filter.projectId } : {}),
+        },
+      },
     },
-    orderBy: [{ createdAt: "asc" }],
+    orderBy: [{ createdAt: 'asc' }],
   });
 }

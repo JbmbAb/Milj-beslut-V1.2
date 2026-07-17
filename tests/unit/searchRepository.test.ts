@@ -89,12 +89,21 @@ import {
   replaceDocumentChunks,
   requeueFailedJobs,
   upsertDocumentFromManifest,
+  updateChunkVector,
+  setChunkEmbeddingJson,
+  listChunksForProject,
+  queryTopSemanticChunks,
+  findDocumentsForProject,
+  getDocumentById,
+  listChunksForDocument,
+  upsertDocumentContent,
 } from '../../server/repositories/searchRepository';
 
 describe('searchRepository', () => {
   beforeEach(() => {
     vi.clearAllMocks();
 
+    mocks.queryRawUnsafe.mockResolvedValue([{ exists: true }]);
     mocks.documentRecordUpsert.mockResolvedValue({ id: 'doc-1' });
     mocks.searchJobFindMany.mockResolvedValue([]);
     mocks.searchJobCreate.mockResolvedValue({ id: 'job-1', status: 'PENDING' });
@@ -335,5 +344,65 @@ describe('searchRepository', () => {
 
     expect(created.created).toBe(true);
     expect(created.project.id).toBe('project-2');
+  });
+
+  it('probes for vector type and column availability', async () => {
+    mocks.queryRawUnsafe.mockResolvedValueOnce([{ exists: true }]); // type
+    mocks.queryRawUnsafe.mockResolvedValueOnce([{ exists: true }]); // column
+
+    await queryTopSemanticChunks({
+      queryEmbedding: [0.1, 0.2],
+      organisationId: 'org-1',
+      projectId: 'p-1',
+      limit: 5,
+    });
+    expect(mocks.queryRawUnsafe).toHaveBeenCalled();
+  });
+
+  it('updates chunk vectors and embedding JSON', async () => {
+    await updateChunkVector('chunk-1', '[0.5, 0.6]');
+    expect(mocks.executeRawUnsafe).toHaveBeenCalled();
+
+    await setChunkEmbeddingJson('chunk-1', [0.5, 0.6]);
+    expect(mocks.documentChunkUpdate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { id: 'chunk-1' },
+        data: { embeddingJson: [0.5, 0.6] },
+      }),
+    );
+  });
+
+  it('lists chunks for project or document', async () => {
+    mocks.documentChunkFindMany.mockResolvedValueOnce([{ id: 'c-1' }]);
+    const projectChunks = await listChunksForProject('p-1', 10);
+    expect(projectChunks.length).toBe(1);
+
+    mocks.documentChunkFindMany.mockResolvedValueOnce([{ id: 'c-2' }]);
+    const docChunks = await listChunksForDocument('d-1', 5);
+    expect(docChunks.length).toBe(1);
+  });
+
+  it('manages document content and metadata lookups', async () => {
+    await upsertDocumentContent({
+      documentId: 'd-1',
+      searchText: 'some text',
+      contentCiphertext: 'cipher',
+      contentIv: 'iv',
+      contentTag: 'tag',
+      keyVersion: 1,
+    });
+    expect(mocks.documentContentUpsert).toHaveBeenCalled();
+
+    mocks.documentRecordFindMany.mockResolvedValueOnce([{ id: 'd-1' }]);
+    const docs = await findDocumentsForProject({
+      organisationId: 'org-1',
+      projectId: 'p-1',
+      take: 10,
+    });
+    expect(docs.length).toBe(1);
+
+    mocks.documentRecordFindUnique.mockResolvedValueOnce({ id: 'd-1' });
+    const doc = await getDocumentById('d-1');
+    expect(doc?.id).toBe('d-1');
   });
 });

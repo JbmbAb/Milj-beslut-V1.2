@@ -1,15 +1,87 @@
 import path from 'path';
+import type { Plugin } from 'vite';
 import { defineConfig, loadEnv } from 'vite';
 import react from '@vitejs/plugin-react';
 
+const pnorm = (s: string) => s.replace(/\\/g, '/');
+
+/**
+ * I webbundlen: ersätt moduler under `server/**` så Vite aldrig följer
+ * @google-cloud/vertexai / node-fetch. Node/Express använder samma sökvägar
+ * via tsx — denna plugin körs enbart från `vite` / `vite build`.
+ */
+function serverModulesBrowserStubsPlugin(): Plugin {
+  const vertStub = path.resolve(__dirname, 'stubs/browser/vertexAiService.ts');
+  const cbStub = path.resolve(__dirname, 'stubs/browser/circuit-breaker-stub.ts');
+  return {
+    name: 'server-modules-browser-stubs',
+    enforce: 'pre',
+    resolveId(id, importer) {
+      const n = pnorm(id);
+      if (n.includes('server/services/vertexAiService')) {
+        return vertStub;
+      }
+      if (n.includes('server/utils/circuitBreaker')) {
+        return cbStub;
+      }
+      if (importer) {
+        const joined = pnorm(path.join(path.dirname(importer), id));
+        if (joined.includes('server/services/vertexAiService')) {
+          return vertStub;
+        }
+        if (joined.includes('server/utils/circuitBreaker')) {
+          return cbStub;
+        }
+      }
+      return null;
+    },
+  };
+}
+
 export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, '.', '');
-  const apiTarget = env.VITE_API_BASE_URL || 'http://localhost:8787';
+  const defaultApiTarget = 'http://localhost:8787';
+  let apiTarget = env.VITE_API_BASE_URL || defaultApiTarget;
+
+  // Guard against accidental self-proxy loops when Vite points /api to port 3000.
+  try {
+    const parsed = new URL(apiTarget);
+    const resolvedPort = parsed.port || (parsed.protocol === 'https:' ? '443' : '80');
+    const isLocalHost = ['localhost', '127.0.0.1', '0.0.0.0'].includes(parsed.hostname);
+    if (isLocalHost && resolvedPort === '3000') {
+       
+      console.warn(
+        '[vite] VITE_API_BASE_URL pekar mot Vite-servern (3000). Byter till http://localhost:8787 för att undvika API/auth-loop.',
+      );
+      apiTarget = defaultApiTarget;
+    }
+  } catch {
+    // Non-URL values are left as-is; proxy setup will report invalid targets if needed.
+  }
+
+  /** En gemensam källa: VITE_ vinner om satt, annars serverns LANTMATERIET_OPEN_SUBSCRIPTION_KEY (förhindrar dubbla rader i .env). */
+  const viteLantm = String(env.VITE_LANTMATERIET_OPEN_SUBSCRIPTION_KEY ?? '').trim();
+  const serverLantm = String(env.LANTMATERIET_OPEN_SUBSCRIPTION_KEY ?? '').trim();
+  if (viteLantm && serverLantm && viteLantm !== serverLantm) {
+     
+    console.warn(
+      '[vite] Lantmäteriet: VITE_LANTMATERIET_OPEN_SUBSCRIPTION_KEY skiljer sig från LANTMATERIET_OPEN_SUBSCRIPTION_KEY — använder VITE-värdet i klienten.',
+    );
+  }
+  const lantmaterietClientSubscriptionKey = viteLantm || serverLantm;
 
   return {
+    define: {
+      'import.meta.env.VITE_LANTMATERIET_OPEN_SUBSCRIPTION_KEY': JSON.stringify(
+        lantmaterietClientSubscriptionKey,
+      ),
+    },
     server: {
       port: 3000,
       host: '0.0.0.0',
+      watch: {
+        ignored: ['**/Database/**', '**/logs/**', '**/*.log'],
+      },
       proxy: {
         '/api': {
           target: apiTarget,
@@ -18,11 +90,7 @@ export default defineConfig(({ mode }) => {
         },
       },
     },
-    plugins: [react()],
-    define: {
-      'process.env.API_KEY': JSON.stringify(env.GEMINI_API_KEY),
-      'process.env.GEMINI_API_KEY': JSON.stringify(env.GEMINI_API_KEY),
-    },
+    plugins: [serverModulesBrowserStubsPlugin(), react()],
     resolve: {
       alias: {
         '@': path.resolve(__dirname, '.'),
@@ -63,11 +131,7 @@ export default defineConfig(({ mode }) => {
               if (id.includes('leaflet')) {
                 return 'map-vendor';
               }
-              if (
-                id.includes('react') ||
-                id.includes('react-dom') ||
-                id.includes('scheduler')
-              ) {
+              if (id.includes('react') || id.includes('react-dom') || id.includes('scheduler')) {
                 return 'react-vendor';
               }
             }

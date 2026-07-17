@@ -41,7 +41,7 @@ describe('openProjectDocument', () => {
       expect(init?.headers).toMatchObject({
         Authorization: 'Bearer token-1',
       });
-      return new Response(new Blob(['pdf-data'], { type: 'application/pdf' }), {
+      return new Response(new Uint8Array([1, 2, 3, 4]), {
         status: 200,
         headers: { 'Content-Type': 'application/pdf' },
       });
@@ -106,7 +106,7 @@ describe('openProjectDocument', () => {
     const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       expect(String(input)).toBe('/api/documents/doc-2/download');
       expect(init?.method).toBe('GET');
-      return new Response(new Blob(['pdf-data'], { type: 'application/pdf' }), {
+      return new Response(new Uint8Array([1, 2, 3, 4]), {
         status: 200,
         headers: {
           'Content-Type': 'application/pdf',

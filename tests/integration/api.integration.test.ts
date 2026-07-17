@@ -25,7 +25,7 @@ describe.skipIf(!hasDatabaseIntegration)('secure API integration', () => {
       .post('/api/admin/auth/login')
       .send({
         username: process.env.ADMIN_CONSOLE_USERNAME || 'admin',
-        password: process.env.ADMIN_CONSOLE_PASSWORD || 'admin-test-password',
+        password: process.env.ADMIN_CONSOLE_PASSWORD || 'admin',
       });
 
     expect(loginRes.status).toBe(200);
@@ -48,15 +48,30 @@ describe.skipIf(!hasDatabaseIntegration)('secure API integration', () => {
     await prisma.$disconnect();
   });
 
-  it('returns health status for liveness checks', async () => {
+  it('returns liveness on /health', async () => {
     const res = await request(app).get('/health');
 
     expect(res.status).toBe(200);
     expect(res.body).toEqual(
       expect.objectContaining({
         ok: true,
+        liveness: 'up',
         service: 'miljobeslut-secure-backend',
-        db: 'ok',
+      }),
+    );
+    expect(typeof res.body?.version).toBe('string');
+    expect(typeof res.body?.ts).toBe('string');
+  });
+
+  it('returns readiness with database on /ready', async () => {
+    const res = await request(app).get('/ready');
+
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual(
+      expect.objectContaining({
+        ok: true,
+        database: 'ok',
+        service: 'miljobeslut-secure-backend',
       }),
     );
     expect(typeof res.body?.version).toBe('string');

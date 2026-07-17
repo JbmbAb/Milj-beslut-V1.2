@@ -1,21 +1,22 @@
-﻿import crypto from "node:crypto";
-import bodyParser from "body-parser";
-import express from "express";
+import crypto from 'node:crypto';
+import bodyParser from 'body-parser';
+import express from 'express';
 import {
   getRequirementByCode,
   listRequirementCases,
   listRequirementCitations,
   listRequirementRows,
   type RequirementVerificationStatus,
-} from "./repositories/requirementsRepository";
-import { rateLimitByUser } from "./security/rateLimit";
-import { requestLogger } from "./security/requestLogging";
+} from './repositories/requirementsRepository';
+import { rateLimitByUser } from './security/rateLimit';
+import { requestLogger } from './security/requestLogging';
+import { toSafeErrorResponse } from './security/secureErrors';
 
 const router = express.Router();
-router.use(bodyParser.json({ limit: "256kb" }));
+router.use(bodyParser.json({ limit: '256kb' }));
 router.use(requestLogger);
 
-const requirementStatuses: RequirementVerificationStatus[] = ["AUTO", "REVIEWED", "VERIFIED", "REJECTED"];
+const requirementStatuses: RequirementVerificationStatus[] = ['AUTO', 'REVIEWED', 'VERIFIED', 'REJECTED'];
 
 interface GeminiDbQueryFilters {
   page: number;
@@ -43,13 +44,13 @@ function parsePositiveInt(value: unknown, fallback: number, min: number, max: nu
 function parseBoolean(value: unknown, fallback: boolean = false): boolean {
   if (value == null) return fallback;
   const normalized = String(firstQueryValue(value)).trim().toLowerCase();
-  if (["1", "true", "yes", "ja"].includes(normalized)) return true;
-  if (["0", "false", "no", "nej"].includes(normalized)) return false;
+  if (['1', 'true', 'yes', 'ja'].includes(normalized)) return true;
+  if (['0', 'false', 'no', 'nej'].includes(normalized)) return false;
   return fallback;
 }
 
 function parseOptionalText(value: unknown): string | undefined {
-  const text = String(firstQueryValue(value) ?? "").trim();
+  const text = String(firstQueryValue(value) ?? '').trim();
   return text || undefined;
 }
 
@@ -61,7 +62,7 @@ function parseOptionalRequirementStatus(value: unknown): RequirementVerification
     : undefined;
 }
 
-function parseFilters(query: express.Request["query"]): GeminiDbQueryFilters {
+function parseFilters(query: express.Request['query']): GeminiDbQueryFilters {
   return {
     page: parsePositiveInt(query.page, 1, 1, 10_000),
     pageSize: parsePositiveInt(query.pageSize, 50, 1, 200),
@@ -89,35 +90,35 @@ function requireOrganisationId(res: express.Response, filters: GeminiDbQueryFilt
 }
 
 function isLoopbackRequest(req: express.Request): boolean {
-  const ip = String(req.ip || "");
-  return ip === "::1" || ip === "127.0.0.1" || ip.startsWith("::ffff:127.0.0.1");
+  const ip = String(req.ip || '');
+  return ip === '::1' || ip === '127.0.0.1' || ip.startsWith('::ffff:127.0.0.1');
 }
 
 function allowRemoteGeminiDbAccess(): boolean {
-  return String(process.env.GEMINI_DB_ALLOW_REMOTE || "").trim().toLowerCase() === "true";
+  return (
+    String(process.env.GEMINI_DB_ALLOW_REMOTE || '')
+      .trim()
+      .toLowerCase() === 'true'
+  );
 }
 
 function getExpectedGeminiDbKey(): string {
-  return String(process.env.GEMINI_DB_API_KEY || "").trim();
+  return String(process.env.GEMINI_DB_API_KEY || '').trim();
 }
 
 function getProvidedGeminiDbKey(req: express.Request): string {
-  const xKey = req.header("x-gemini-db-key");
-  if (typeof xKey === "string" && xKey.trim()) {
-    return xKey.trim();
+  const authHeader = req.header('authorization');
+  if (authHeader?.startsWith('Bearer ')) {
+    return authHeader.slice('Bearer '.length).trim();
   }
 
-  const authorization = req.header("authorization");
-  if (typeof authorization === "string" && authorization.startsWith("Bearer ")) {
-    return authorization.slice("Bearer ".length).trim();
-  }
-
-  return "";
+  const xKeyHeader = req.header('x-gemini-db-key');
+  return xKeyHeader?.trim() ?? '';
 }
 
 function timingSafeEquals(left: string, right: string): boolean {
-  const leftBuffer = Buffer.from(left, "utf8");
-  const rightBuffer = Buffer.from(right, "utf8");
+  const leftBuffer = Buffer.from(left, 'utf8');
+  const rightBuffer = Buffer.from(right, 'utf8');
 
   if (leftBuffer.length !== rightBuffer.length) {
     return false;
@@ -127,11 +128,16 @@ function timingSafeEquals(left: string, right: string): boolean {
 }
 
 router.use((req, res, next) => {
+  if (!req.path.startsWith('/api/gemini-db')) {
+    next();
+    return;
+  }
+
   const expectedKey = getExpectedGeminiDbKey();
   if (!expectedKey) {
     res.status(503).json({
       ok: false,
-      error: "Gemini DB API is not configured. Set GEMINI_DB_API_KEY in server env.",
+      error: 'Gemini DB API is not configured. Set GEMINI_DB_API_KEY in server env.',
     });
     return;
   }
@@ -139,14 +145,14 @@ router.use((req, res, next) => {
   if (!allowRemoteGeminiDbAccess() && !isLoopbackRequest(req)) {
     res.status(403).json({
       ok: false,
-      error: "Gemini DB API is restricted to localhost unless GEMINI_DB_ALLOW_REMOTE=true.",
+      error: 'Gemini DB API is restricted to localhost unless GEMINI_DB_ALLOW_REMOTE=true.',
     });
     return;
   }
 
   const providedKey = getProvidedGeminiDbKey(req);
   if (!providedKey || !timingSafeEquals(providedKey, expectedKey)) {
-    res.status(401).json({ ok: false, error: "Invalid Gemini DB API key" });
+    res.status(401).json({ ok: false, error: 'Invalid Gemini DB API key' });
     return;
   }
 
@@ -155,21 +161,21 @@ router.use((req, res, next) => {
 
 router.use(rateLimitByUser(120, 60_000));
 
-router.get("/api/gemini-db/health", (_req, res) => {
+router.get('/api/gemini-db/health', (_req, res) => {
   res.json({
     ok: true,
     readOnly: true,
     remoteAccessEnabled: allowRemoteGeminiDbAccess(),
     endpoints: [
-      "/api/gemini-db/requirements/cases",
-      "/api/gemini-db/requirements/rows",
-      "/api/gemini-db/requirements/rows/:requirementCode",
-      "/api/gemini-db/requirements/citations",
+      '/api/gemini-db/requirements/cases',
+      '/api/gemini-db/requirements/rows',
+      '/api/gemini-db/requirements/rows/:requirementCode',
+      '/api/gemini-db/requirements/citations',
     ],
   });
 });
 
-router.get("/api/gemini-db/requirements/cases", async (req, res) => {
+router.get('/api/gemini-db/requirements/cases', async (req, res) => {
   try {
     const filters = parseFilters(req.query);
     const organisationId = requireOrganisationId(res, filters);
@@ -183,13 +189,13 @@ router.get("/api/gemini-db/requirements/cases", async (req, res) => {
       verificationStatus: filters.verificationStatus,
     });
 
-    res.json({ ok: true, ...payload, scope: "READ_ONLY" });
+    res.json({ ok: true, ...payload, scope: 'READ_ONLY' });
   } catch (error: unknown) {
-    res.status(400).json({ ok: false, error: error instanceof Error ? error.message : "Failed to read requirement cases" });
+    res.status(400).json(toSafeErrorResponse(error));
   }
 });
 
-router.get("/api/gemini-db/requirements/rows", async (req, res) => {
+router.get('/api/gemini-db/requirements/rows', async (req, res) => {
   try {
     const filters = parseFilters(req.query);
     const organisationId = requireOrganisationId(res, filters);
@@ -211,39 +217,39 @@ router.get("/api/gemini-db/requirements/rows", async (req, res) => {
       ok: true,
       ...payload,
       includePreliminary: filters.includePreliminary,
-      scope: filters.includePreliminary ? "ALL" : "VERIFIED_ONLY",
+      scope: filters.includePreliminary ? 'ALL' : 'VERIFIED_ONLY',
     });
   } catch (error: unknown) {
-    res.status(400).json({ ok: false, error: error instanceof Error ? error.message : "Failed to read requirement rows" });
+    res.status(400).json(toSafeErrorResponse(error));
   }
 });
 
-router.get("/api/gemini-db/requirements/rows/:requirementCode", async (req, res) => {
+router.get('/api/gemini-db/requirements/rows/:requirementCode', async (req, res) => {
   try {
-    const requirementCode = String(req.params.requirementCode || "").trim();
+    const requirementCode = String(req.params.requirementCode || '').trim();
     const organisationId = parseOptionalText(req.query.organisationId);
     if (!requirementCode) {
-      res.status(400).json({ ok: false, error: "requirementCode is required" });
+      res.status(400).json({ ok: false, error: 'requirementCode is required' });
       return;
     }
     if (!organisationId) {
-      res.status(400).json({ ok: false, error: "organisationId is required" });
+      res.status(400).json({ ok: false, error: 'organisationId is required' });
       return;
     }
 
     const row = await getRequirementByCode(requirementCode, organisationId);
     if (!row) {
-      res.status(404).json({ ok: false, error: "Requirement not found" });
+      res.status(404).json({ ok: false, error: 'Requirement not found' });
       return;
     }
 
-    res.json({ ok: true, row, scope: "READ_ONLY" });
+    res.json({ ok: true, row, scope: 'READ_ONLY' });
   } catch (error: unknown) {
-    res.status(400).json({ ok: false, error: error instanceof Error ? error.message : "Failed to read requirement" });
+    res.status(400).json(toSafeErrorResponse(error));
   }
 });
 
-router.get("/api/gemini-db/requirements/citations", async (req, res) => {
+router.get('/api/gemini-db/requirements/citations', async (req, res) => {
   try {
     const filters = parseFilters(req.query);
     const organisationId = requireOrganisationId(res, filters);
@@ -261,10 +267,10 @@ router.get("/api/gemini-db/requirements/citations", async (req, res) => {
       ok: true,
       ...payload,
       includePreliminary: filters.includePreliminary,
-      scope: filters.includePreliminary ? "ALL" : "VERIFIED_ONLY",
+      scope: filters.includePreliminary ? 'ALL' : 'VERIFIED_ONLY',
     });
   } catch (error: unknown) {
-    res.status(400).json({ ok: false, error: error instanceof Error ? error.message : "Failed to read requirement citations" });
+    res.status(400).json(toSafeErrorResponse(error));
   }
 });
 

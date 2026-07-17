@@ -18,8 +18,8 @@
  *   AUDIT_VERIFY_ALERT_WEBHOOK — valfri URL för alert-utskick vid tampering
  */
 
-import { logger } from "../logger";
-import { verifyAuditTrail } from "../security/auditTrail";
+import { logger } from '../logger';
+import { verifyAuditTrail } from '../security/auditTrail';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -58,35 +58,29 @@ async function sendTamperingAlert(invalidIndex: number): Promise<void> {
   if (!webhookUrl) {
     logger.warn(
       `audit-verification: VARNING – audit trail-tampering detekterat vid index ${invalidIndex}. ` +
-        "Sätt AUDIT_VERIFY_ALERT_WEBHOOK för automatisk avisering.",
+        'Sätt AUDIT_VERIFY_ALERT_WEBHOOK för automatisk avisering.',
     );
     return;
   }
 
   try {
     const payload = JSON.stringify({
-      event: "AUDIT_TRAIL_TAMPERING_DETECTED",
+      event: 'AUDIT_TRAIL_TAMPERING_DETECTED',
       invalidIndex,
       detectedAt: new Date().toISOString(),
     });
     const response = await fetch(webhookUrl, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
       body: payload,
     });
     if (!response.ok) {
-      logger.error(
-        `audit-verification: Alert-webhook svarade med HTTP ${response.status}`,
-      );
+      logger.error(`audit-verification: Alert-webhook svarade med HTTP ${response.status}`);
     } else {
-      logger.info(
-        `audit-verification: Alert skickat till webhook (index ${invalidIndex}).`,
-      );
+      logger.info(`audit-verification: Alert skickat till webhook (index ${invalidIndex}).`);
     }
   } catch (err) {
-    logger.error(
-      `audit-verification: Kunde inte skicka alert-webhook: ${String(err)}`,
-    );
+    logger.error(`audit-verification: Kunde inte skicka alert-webhook: ${String(err)}`);
   }
 }
 
@@ -104,9 +98,7 @@ export async function runAuditVerificationOnce(): Promise<AuditVerificationResul
 
     if (verification.ok) {
       _status.consecutiveFailures = 0;
-      logger.info(
-        `audit-verification: OK – audit trail integritet verifierad (${durationMs} ms).`,
-      );
+      logger.info(`audit-verification: OK – audit trail integritet verifierad (${durationMs} ms).`);
       result = { ok: true, checkedAt, durationMs };
     } else {
       _status.consecutiveFailures++;
@@ -125,9 +117,7 @@ export async function runAuditVerificationOnce(): Promise<AuditVerificationResul
   } catch (err) {
     const durationMs = Date.now() - startTs;
     _status.consecutiveFailures++;
-    logger.error(
-      `audit-verification: Oväntat fel under verifiering: ${String(err)}`,
-    );
+    logger.error(`audit-verification: Oväntat fel under verifiering: ${String(err)}`);
     result = { ok: false, checkedAt, durationMs };
   }
 
@@ -139,18 +129,14 @@ export async function runAuditVerificationOnce(): Promise<AuditVerificationResul
 
 export function startAuditVerificationScheduler(): void {
   if (_timer !== null) {
-    logger.info("audit-verification: Schemaläggaren är redan igång.");
+    logger.info('audit-verification: Schemaläggaren är redan igång.');
     return;
   }
 
   _status.running = true;
-  _status.nextRunAt = new Date(
-    Date.now() + _status.intervalMs,
-  ).toISOString();
+  _status.nextRunAt = new Date(Date.now() + _status.intervalMs).toISOString();
 
-  logger.info(
-    `audit-verification: Schemaläggaren startad (intervall ${_status.intervalMs} ms).`,
-  );
+  logger.info(`audit-verification: Schemaläggaren startad (intervall ${_status.intervalMs} ms).`);
 
   // Kör direkt vid start
   runAuditVerificationOnce().catch((err) =>
@@ -158,13 +144,9 @@ export function startAuditVerificationScheduler(): void {
   );
 
   _timer = setInterval(() => {
-    _status.nextRunAt = new Date(
-      Date.now() + _status.intervalMs,
-    ).toISOString();
+    _status.nextRunAt = new Date(Date.now() + _status.intervalMs).toISOString();
     runAuditVerificationOnce().catch((err) =>
-      logger.error(
-        `audit-verification: Schemalagd verifiering misslyckades: ${String(err)}`,
-      ),
+      logger.error(`audit-verification: Schemalagd verifiering misslyckades: ${String(err)}`),
     );
   }, _status.intervalMs);
 }
@@ -176,7 +158,7 @@ export function stopAuditVerificationScheduler(): void {
   }
   _status.running = false;
   _status.nextRunAt = null;
-  logger.info("audit-verification: Schemaläggaren stoppad.");
+  logger.info('audit-verification: Schemaläggaren stoppad.');
 }
 
 export function getAuditVerificationStatus(): Readonly<AuditVerificationSchedulerStatus> {

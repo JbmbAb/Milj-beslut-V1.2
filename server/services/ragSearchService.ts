@@ -17,6 +17,8 @@ import { embedText } from './searchService';
 import { queryTopSemanticChunks } from '../repositories/searchRepository';
 import { searchGraph } from './knowledgeGraphService';
 import { logger } from '../logger';
+import { DEFAULT_AI_POLICY, ragSystemInstruction } from '../modules/ai/policy';
+import { getAiProvider } from './aiProviderImplementation';
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -41,12 +43,37 @@ export interface RagSearchResult {
   queryEmbeddingModel: string;
   generatedAt: string;
   fallback: boolean;
+  explanation?: {
+    searchMetadata: {
+      embeddingModel: string;
+      chunkCount: number;
+      topScore: number;
+    };
+    contextSummary: string;
+  };
 }
 
 // ─── Main function ────────────────────────────────────────────────────────────
 
 /**
- * Kör RAG-sökning mot kunskapsbasen och generera ett svar.
+ * Kör en fullständig RAG-sökning (Retrieval-Augmented Generation).
+ *
+ * Processen består av följande steg:
+ * 1. Embedding: Konverterar användarens fråga till en vektor via Vertex AI.
+ * 2. Retrieval: Söker efter de mest relevanta dokumentfragmenten (chunks) i databasen baserat på vektorsimilaritet.
+ * 3. Contextualization: Hämtar relaterad information från kunskapsgrafen (municipality, waste types, etc.).
+ * 4. Augmentation: Kombinerar dokumentchunks och graf-data till en prompt.
+ * 5. Generation: Skickar prompten till Gemini för att generera ett faktabaserat svar med källhänvisningar.
+ *
+ * @param params Sökparametrar inkl. fråga, organisations-ID och valfritt projekt-ID.
+ * @param params.query Användarens sökfråga i fritext.
+ * @param params.organisationId Organisationens ID för att begränsa sökrymden.
+ * @param params.projectId Valfritt projekt-ID för att prioritera dokument inom ett specifikt projekt.
+ * @param params.limit Antal källor att hämta (standard 10).
+ * @param params.language Svarsspråk ('sv' eller 'en').
+ * @param params.explain Om true, inkluderas detaljerad metadata om sökningen i svaret.
+ *
+ * @returns Ett objekt som innehåller det genererade svaret, källhänvisningar och (om explain=true) sökmetadata.
  */
 export async function runRagSearch(params: {
   query: string;
@@ -54,13 +81,20 @@ export async function runRagSearch(params: {
   projectId?: string;
   limit?: number;
   language?: 'sv' | 'en';
+  explain?: boolean;
 }): Promise<RagSearchResult> {
   const limit = Math.min(params.limit ?? 10, 20);
   const generatedAt = new Date().toISOString();
   const lang = params.language ?? 'sv';
+  const shouldExplain = params.explain ?? false;
 
   // Step 1: Embed query
-  const embedding = await embedText(params.query);
+  let embedding: any = null;
+  try {
+    embedding = await embedText(params.query);
+  } catch (err) {
+    logger.warn('rag-search: embedding failed', { err: String(err) });
+  }
   const embeddingModel = embedding?.model ?? 'none';
 
   // Step 2: Semantic document search
@@ -88,7 +122,7 @@ export async function runRagSearch(params: {
   let graphNodes: RagGraphNode[] = [];
   try {
     const graphResult = await searchGraph({ query: params.query, limit: 15 });
-    graphNodes = graphResult.nodes.map((n) => ({
+    graphNodes = (graphResult.nodes || []).map((n: any) => ({
       id: n.id,
       nodeType: n.nodeType,
       name: n.name,
@@ -107,19 +141,14 @@ export async function runRagSearch(params: {
     .map((n) => `${n.nodeType}: ${n.name}`)
     .join(', ');
 
-  const apiKey = process.env.GEMINI_API_KEY ?? process.env.VITE_GEMINI_API_KEY;
   let answer = '';
   let fallback = false;
 
-  if (apiKey && (context || graphContext)) {
+  if (process.env.VERTEX_PROJECT_ID?.trim() && (context || graphContext)) {
     try {
-      const { GoogleGenAI } = await import('@google/genai');
-      const ai = new GoogleGenAI({ apiKey });
-
       const systemLang = lang === 'sv' ? 'svenska' : 'English';
-      const prompt = `Du är en expert på svensk miljörätt och miljöbeslut.
-Svara på följande fråga baserat ENBART på den givna kontexten. Svara på ${systemLang}.
-Om kontexten inte innehåller svaret, säg det tydligt.
+      const systemInstruction = ragSystemInstruction(DEFAULT_AI_POLICY);
+      const prompt = `Svara på ${systemLang}.
 
 Fråga: ${params.query}
 
@@ -128,26 +157,28 @@ ${context || '(inga dokumentfragment funna)'}
 
 Relevanta noder i kunskapsgrafen: ${graphContext || '(inga)'}
 
-Svar (max 400 ord):`;
+Returnera ett svar med korta punkter och inkludera källhänvisningar (Källa 1, Källa 2...) när du använder dem.`;
 
-      const response = await ai.models.generateContent({
-        model: 'gemini-2.0-flash',
-        contents: prompt,
+      const aiProvider = getAiProvider();
+      const response = await aiProvider.generateText(prompt, {
+        profile: 'fast',
+        systemInstruction,
       });
-      answer = response.text?.trim() ?? '';
+      answer = response.text.trim();
     } catch (err) {
-      logger.warn('rag-search: Gemini generation failed', { err: String(err) });
+      logger.warn('rag-search: AI generation failed', { err: String(err) });
     }
   }
 
   if (!answer) {
     fallback = true;
-    answer = sources.length > 0
-      ? `Baserat på tillgängliga dokument: ${sources[0].snippet.slice(0, 300)}…`
-      : `Inga relevanta dokument hittades för frågan "${params.query}". Kontrollera att dokument är indexerade.`;
+    answer =
+      sources.length > 0
+        ? `Baserat på tillgängliga dokument: ${sources[0].snippet.slice(0, 300)}…`
+        : `Inga relevanta dokument hittades för frågan "${params.query}". Kontrollera att dokument är indexerade.`;
   }
 
-  return {
+  const result: RagSearchResult = {
     answer,
     sources,
     graphNodes,
@@ -155,4 +186,17 @@ Svar (max 400 ord):`;
     generatedAt,
     fallback,
   };
+
+  if (shouldExplain) {
+    result.explanation = {
+      searchMetadata: {
+        embeddingModel,
+        chunkCount: sources.length,
+        topScore: sources.length > 0 ? sources[0].score : 0,
+      },
+      contextSummary: `Inkluderade ${sources.length} dokumentsegment och ${graphNodes.length} kunskapsnoder.`,
+    };
+  }
+
+  return result;
 }

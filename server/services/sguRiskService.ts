@@ -1,7 +1,10 @@
-import { prisma } from "../db/prisma";
-import type { GeologicalData } from "./sguService";
+import { Prisma } from '@prisma/client';
 
-export type SguCoverageMode = "sample" | "complete";
+import { prisma } from '../db/prisma';
+import type { GeologicalData } from './sguService';
+
+export type SguCoverageMode = 'sample' | 'complete';
+const SGU_GROUND_LAYER_TABLE = 'env.sgu_soil_type_25k_100k';
 
 export interface SguGroundLayerHit {
   sourceKey: string;
@@ -21,7 +24,7 @@ export interface SguLandslideFeatureHit {
 export interface SguRiskAudit {
   coverageMode: SguCoverageMode;
   manualReviewRequired: boolean;
-  riskLevel: "LOW" | "MEDIUM" | "HIGH";
+  riskLevel: 'LOW' | 'MEDIUM' | 'HIGH';
   groundLayer: {
     intersects: boolean;
     hit: SguGroundLayerHit | null;
@@ -56,81 +59,85 @@ type LandslideFeatureRow = {
 export const SGU_LANDSLIDE_REVIEW_BUFFER_METERS = 150;
 
 function getCoverageMode(): SguCoverageMode {
-  return String(process.env.SGU_DB_COVERAGE_MODE || "sample").trim().toLowerCase() === "complete"
-    ? "complete"
-    : "sample";
+  return String(process.env.SGU_DB_COVERAGE_MODE || 'sample')
+    .trim()
+    .toLowerCase() === 'complete'
+    ? 'complete'
+    : 'sample';
 }
 
 function buildGroundLayerAdvisory(hit: SguGroundLayerHit | null): string {
   if (!hit) {
-    return "Ingen träff i lokal SGU-grundlagerdatabas. Negativ slutsats får inte dras utan fortsatt manuell kontroll.";
+    return 'Ingen träff i lokal SGU-grundlagerdatabas. Negativ slutsats får inte dras utan fortsatt manuell kontroll.';
   }
 
-  return `Översiktligt SGU-grundlager (${hit.sourceScale}) anger ${hit.layerLabel || "okänt lager"} för platsen. Detta är screening, inte fastighetsprecis markbedömning.`;
+  return `Översiktligt SGU-grundlager (${hit.sourceScale}) anger ${hit.layerLabel || 'okänt lager'} för platsen. Detta är screening, inte fastighetsprecis markbedömning.`;
 }
 
 function buildLandslideAdvisory(hits: SguLandslideFeatureHit[], coverageMode: SguCoverageMode): string {
   if (hits.length === 0) {
-    if (coverageMode === "sample") {
-      return "Ingen träff i lokal stickprovsimport för SGU skred/raviner. Frånvaro av träff är inte ett frikännande och kräver fortsatt manuell kontroll.";
+    if (coverageMode === 'sample') {
+      return 'Ingen träff i lokal stickprovsimport för SGU skred/raviner. Frånvaro av träff är inte ett frikännande och kräver fortsatt manuell kontroll.';
     }
-    return "Ingen SGU-träff för skred/ravin inom vald granskningsradie i den lokala databasen.";
+    return 'Ingen SGU-träff för skred/ravin inom vald granskningsradie i den lokala databasen.';
   }
 
   const nearest = hits[0];
-  return `SGU-indikator ${nearest.featureLabel || "okänt objekt"} finns inom ${Math.round(nearest.distanceMeters)} m. Detta är rådgivande geotekniskt beslutsstöd och ska alltid verifieras manuellt.`;
+  return `SGU-indikator ${nearest.featureLabel || 'okänt objekt'} finns inom ${Math.round(nearest.distanceMeters)} m. Detta är rådgivande geotekniskt beslutsstöd och ska alltid verifieras manuellt.`;
 }
 
-function deriveRiskLevel(hits: SguLandslideFeatureHit[]): "LOW" | "MEDIUM" | "HIGH" {
+function deriveRiskLevel(hits: SguLandslideFeatureHit[]): 'LOW' | 'MEDIUM' | 'HIGH' {
   const nearest = hits[0];
-  if (!nearest) return "LOW";
+  if (!nearest) return 'LOW';
 
-  const label = String(nearest.featureLabel || "").toLowerCase();
-  if (nearest.distanceMeters <= 50 && (label.includes("skred") || label.includes("ravin"))) {
-    return "HIGH";
+  const label = String(nearest.featureLabel || '').toLowerCase();
+  if (nearest.distanceMeters <= 50 && (label.includes('skred') || label.includes('ravin'))) {
+    return 'HIGH';
   }
-  if (label.includes("skredväg") || label.includes("skredärr") || label.includes("ravin")) {
-    return "MEDIUM";
+  if (label.includes('skredväg') || label.includes('skredärr') || label.includes('ravin')) {
+    return 'MEDIUM';
   }
-  return "LOW";
+  return 'LOW';
 }
 
 export async function auditSguRiskAtPoint(lat: number, lng: number): Promise<SguRiskAudit> {
   const coverageMode = getCoverageMode();
 
-  const groundLayerRows = await prisma.$queryRaw<GroundLayerRow[]>`
-    SELECT
-      source_key,
-      layer_code,
-      layer_label,
-      map_type,
-      source_scale
-    FROM env.sgu_ground_layer
-    WHERE ST_Covers(
-      geom,
-      ST_Transform(ST_SetSRID(ST_MakePoint(${lng}, ${lat}), 4326), 3006)
-    )
-    LIMIT 1;
-  `;
-
-  const landslideRows = await prisma.$queryRaw<LandslideFeatureRow[]>`
-    SELECT
-      source_key,
-      feature_code,
-      feature_label,
-      ST_Distance(
+  // Kör både grundlager- och skredsökning parallellt för bättre prestanda
+  const [groundLayerRows, landslideRows] = await Promise.all([
+    prisma.$queryRaw<GroundLayerRow[]>(Prisma.sql`
+      SELECT
+        id::text AS source_key,
+        jy1 AS layer_code,
+        jy1_tx AS layer_label,
+        karttyp AS map_type,
+        '1:25 000-1:100 000'::text AS source_scale
+      FROM ${Prisma.raw(SGU_GROUND_LAYER_TABLE)}
+      WHERE ST_Covers(
         geom,
         ST_Transform(ST_SetSRID(ST_MakePoint(${lng}, ${lat}), 4326), 3006)
-      ) AS distance_meters
-    FROM env.sgu_landslide_feature
-    WHERE ST_DWithin(
-      geom,
-      ST_Transform(ST_SetSRID(ST_MakePoint(${lng}, ${lat}), 4326), 3006),
-      ${SGU_LANDSLIDE_REVIEW_BUFFER_METERS}
-    )
-    ORDER BY distance_meters ASC
-    LIMIT 10;
-  `;
+      )
+      LIMIT 1;
+    `),
+    prisma.$queryRaw<LandslideFeatureRow[]>`
+      SELECT
+        id::text AS source_key,
+        sl AS feature_code,
+        sl_tx AS feature_label,
+        ST_Distance(
+          geom,
+          ST_Transform(ST_SetSRID(ST_MakePoint(${lng}, ${lat}), 4326), 3006)
+        ) AS distance_meters
+      FROM env.sgu_landslide_feature
+      WHERE ST_DWithin(
+        geom,
+        ST_Transform(ST_SetSRID(ST_MakePoint(${lng}, ${lat}), 4326), 3006),
+        ${SGU_LANDSLIDE_REVIEW_BUFFER_METERS}
+      )
+      ORDER BY distance_meters ASC
+      LIMIT 10;
+    `,
+  ]);
 
   const groundHit = groundLayerRows[0]
     ? {
@@ -157,20 +164,24 @@ export async function auditSguRiskAtPoint(lat: number, lng: number): Promise<Sgu
     flags.push(
       ...landslideHits
         .slice(0, 3)
-        .map((hit) => `sgu:${(hit.featureLabel || "okänt").toLowerCase()}:${Math.round(hit.distanceMeters)}m`),
+        .map(
+          (hit) => `sgu:${(hit.featureLabel || 'okänt').toLowerCase()}:${Math.round(hit.distanceMeters)}m`,
+        ),
     );
-  } else if (coverageMode === "sample") {
-    flags.push("sgu:sample-coverage");
+  } else if (coverageMode === 'sample') {
+    flags.push('sgu:sample-coverage');
   }
 
   const riskLevel = deriveRiskLevel(landslideHits);
-  const manualReviewRequired = landslideHits.length > 0 || coverageMode === "sample";
+  const manualReviewRequired = landslideHits.length > 0 || coverageMode === 'sample';
   const groundLayerAdvisory = buildGroundLayerAdvisory(groundHit);
   const landslideAdvisory = buildLandslideAdvisory(landslideHits, coverageMode);
 
   const summaryParts = [groundLayerAdvisory, landslideAdvisory];
-  if (coverageMode === "sample") {
-    summaryParts.push("Lokal SGU-databas är i testläge med stickprovsimport. Full nationell täckning är inte verifierad.");
+  if (coverageMode === 'sample') {
+    summaryParts.push(
+      'Lokal SGU-databas är i testläge med stickprovsimport. Full nationell täckning är inte verifierad.',
+    );
   }
 
   return {
@@ -190,21 +201,21 @@ export async function auditSguRiskAtPoint(lat: number, lng: number): Promise<Sgu
       advisory: landslideAdvisory,
     },
     flags,
-    summary: summaryParts.join(" "),
+    summary: summaryParts.join(' '),
   };
 }
 
 export function toGeologicalData(audit: SguRiskAudit): GeologicalData {
   return {
-    soilType: audit.groundLayer.hit?.layerLabel || "Okänd",
-    groundLayerScale: audit.groundLayer.hit?.sourceScale || "1:1 000 000",
+    soilType: audit.groundLayer.hit?.layerLabel || 'Okänd',
+    groundLayerScale: audit.groundLayer.hit?.sourceScale || '1:1 000 000',
     landslideFeatureHits: audit.landslideFeatures.hits.map((hit) => ({
       featureCode: hit.featureCode,
-      featureLabel: hit.featureLabel || "Okänt objekt",
+      featureLabel: hit.featureLabel || 'Okänt objekt',
       distanceMeters: hit.distanceMeters,
     })),
     landslideRiskLevel:
-      audit.riskLevel === "HIGH" ? "HIGH" : audit.riskLevel === "MEDIUM" ? "ADVISORY" : "NONE",
+      audit.riskLevel === 'HIGH' ? 'HIGH' : audit.riskLevel === 'MEDIUM' ? 'ADVISORY' : 'NONE',
     manualReviewRequired: audit.manualReviewRequired,
     coverageMode: audit.coverageMode,
     riskDescription: audit.summary,

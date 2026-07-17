@@ -1,14 +1,14 @@
-import crypto from "node:crypto";
-import { logger } from "../logger";
+import crypto from 'node:crypto';
+import { logger } from '../logger';
 import type {
   DispatchProvider,
   DispatchQuote,
   DriverJournalEntry,
   DriverJournalStatus,
   TransportBooking,
-} from "../../types";
-import * as transportRepo from "../repositories/transportRepository";
-import { prisma } from "../db/prisma";
+} from '../../types';
+import * as transportRepo from '../repositories/transportRepository';
+import { prisma } from '../db/prisma';
 
 const EMISSION_FACTOR_KG_CO2E_PER_TON_KM = Number(process.env.LOGISTICS_EMISSION_FACTOR || 0.12);
 const BASE_RATE_SEK_PER_TON_KM = Number(process.env.LOGISTICS_BASE_RATE || 2.4);
@@ -17,7 +17,7 @@ const DEFAULT_DISTANCE_KM = Number(process.env.LOGISTICS_DEFAULT_DISTANCE || 15)
 const AVERAGE_SPEED_KMH = Number(process.env.LOGISTICS_AVERAGE_SPEED || 60);
 const warnedProviderFallbacks = new Set<string>();
 
-export type DispatchProviderRuntimeValue = DispatchProvider | "NOT_CONFIGURED";
+export type DispatchProviderRuntimeValue = DispatchProvider | 'NOT_CONFIGURED';
 
 export type DispatchProviderRuntimeStatus = {
   requestedProvider: DispatchProviderRuntimeValue;
@@ -47,14 +47,14 @@ function stableTrackHash(input: {
   odometerStartKm: number;
 }): string {
   const seed = `${input.bookingId}|${input.vehicleId}|${input.startedAt}|${input.odometerStartKm}`;
-  return crypto.createHash("sha256").update(seed).digest("hex");
+  return crypto.createHash('sha256').update(seed).digest('hex');
 }
 
 function _deriveJournalStatus(entry: DriverJournalEntry): DriverJournalStatus {
-  if (entry.signedByDriver && entry.signedByReviewer && entry.endedAt) return "VERIFIED";
-  if (entry.signedByReviewer && !entry.signedByDriver) return "REJECTED";
-  if (entry.endedAt || entry.signedByDriver) return "SUBMITTED";
-  return "DRAFT";
+  if (entry.signedByDriver && entry.signedByReviewer && entry.endedAt) return 'VERIFIED';
+  if (entry.signedByReviewer && !entry.signedByDriver) return 'REJECTED';
+  if (entry.endedAt || entry.signedByDriver) return 'SUBMITTED';
+  return 'DRAFT';
 }
 
 function warnProviderFallbackOnce(message: string): void {
@@ -66,44 +66,52 @@ function warnProviderFallbackOnce(message: string): void {
 }
 
 function parseRequestedDispatchProvider(): DispatchProviderRuntimeValue {
-  const rawProvider = String(process.env.DISPATCH_PROVIDER_MODE || "")
+  const rawProvider = String(process.env.DISPATCH_PROVIDER_MODE || '')
     .trim()
     .toUpperCase();
-  return rawProvider === "TIMOCOM"
-    ? "TIMOCOM"
-    : rawProvider === "TRANS_EU"
-      ? "TRANS_EU"
-      : rawProvider === "MOCK_FRAKTBORS"
-        ? "MOCK_FRAKTBORS"
-        : "NOT_CONFIGURED";
+  return rawProvider === 'TIMOCOM'
+    ? 'TIMOCOM'
+    : rawProvider === 'TRANS_EU'
+      ? 'TRANS_EU'
+      : rawProvider === 'MOCK_FRAKTBORS'
+        ? 'MOCK_FRAKTBORS'
+        : 'NOT_CONFIGURED';
 }
 
-function resolveDispatchProvider(requestedProvider: DispatchProviderRuntimeValue): DispatchProviderRuntimeValue {
-  if (requestedProvider === "NOT_CONFIGURED") {
-    return "NOT_CONFIGURED";
+function resolveDispatchProvider(
+  requestedProvider: DispatchProviderRuntimeValue,
+): DispatchProviderRuntimeValue {
+  if (requestedProvider === 'NOT_CONFIGURED') {
+    return 'NOT_CONFIGURED';
   }
 
-  if (requestedProvider === "MOCK_FRAKTBORS") {
-    return "MOCK_FRAKTBORS";
+  if (requestedProvider === 'MOCK_FRAKTBORS') {
+    if (process.env.NODE_ENV === 'test') {
+      return 'MOCK_FRAKTBORS';
+    }
+    warnProviderFallbackOnce(
+      'DISPATCH_PROVIDER_MODE=MOCK_FRAKTBORS ar inte tillaten i operativ drift. Transportflodet blockeras tills TIMOCOM eller TRANS_EU ar konfigurerat.',
+    );
+    return 'NOT_CONFIGURED';
   }
 
-  if (requestedProvider === "TIMOCOM") {
-    const hasCredentials = Boolean(String(process.env.TIMOCOM_API_KEY || "").trim());
+  if (requestedProvider === 'TIMOCOM') {
+    const hasCredentials = Boolean(String(process.env.TIMOCOM_API_KEY || '').trim());
     if (!hasCredentials) {
       warnProviderFallbackOnce(
-        "DISPATCH_PROVIDER_MODE=TIMOCOM saknar TIMOCOM_API_KEY. Transportflodet blockeras tills credential ar satt."
+        'DISPATCH_PROVIDER_MODE=TIMOCOM saknar TIMOCOM_API_KEY. Transportflodet blockeras tills credential ar satt.',
       );
-      return "NOT_CONFIGURED";
+      return 'NOT_CONFIGURED';
     }
   }
 
-  if (requestedProvider === "TRANS_EU") {
-    const hasCredentials = Boolean(String(process.env.TRANS_EU_API_KEY || "").trim());
+  if (requestedProvider === 'TRANS_EU') {
+    const hasCredentials = Boolean(String(process.env.TRANS_EU_API_KEY || '').trim());
     if (!hasCredentials) {
       warnProviderFallbackOnce(
-        "DISPATCH_PROVIDER_MODE=TRANS_EU saknar TRANS_EU_API_KEY. Transportflodet blockeras tills credential ar satt."
+        'DISPATCH_PROVIDER_MODE=TRANS_EU saknar TRANS_EU_API_KEY. Transportflodet blockeras tills credential ar satt.',
       );
-      return "NOT_CONFIGURED";
+      return 'NOT_CONFIGURED';
     }
   }
 
@@ -118,21 +126,21 @@ export function getDispatchProviderRuntimeStatus(): DispatchProviderRuntimeStatu
     activeProvider,
     fallbackActive: requestedProvider !== activeProvider,
     credentials: {
-      timocomConfigured: Boolean(String(process.env.TIMOCOM_API_KEY || "").trim()),
-      transEuConfigured: Boolean(String(process.env.TRANS_EU_API_KEY || "").trim()),
+      timocomConfigured: Boolean(String(process.env.TIMOCOM_API_KEY || '').trim()),
+      transEuConfigured: Boolean(String(process.env.TRANS_EU_API_KEY || '').trim()),
     },
   };
 }
 
 function externalReferencePrefix(provider: DispatchProvider): string {
-  if (provider === "TIMOCOM") return "TC";
-  if (provider === "TRANS_EU") return "TEU";
-  if (provider === "MOCK_FRAKTBORS") return "MFB";
-  return "FB";
+  if (provider === 'TIMOCOM') return 'TC';
+  if (provider === 'TRANS_EU') return 'TEU';
+  if (provider === 'MOCK_FRAKTBORS') return 'MFB';
+  return 'FB';
 }
 
 export function isHazardousWasteCode(wasteCode: string): boolean {
-  return String(wasteCode || "").includes("*");
+  return String(wasteCode || '').includes('*');
 }
 
 export function createDispatchQuote(input: {
@@ -143,9 +151,9 @@ export function createDispatchQuote(input: {
   distanceKm?: number;
 }): DispatchQuote {
   const runtime = getDispatchProviderRuntimeStatus();
-  if (runtime.activeProvider === "NOT_CONFIGURED") {
+  if (runtime.activeProvider === 'NOT_CONFIGURED') {
     throw new Error(
-      "Transportprovider ar inte konfigurerad. Satt DISPATCH_PROVIDER_MODE till TIMOCOM eller TRANS_EU och lagg in motsvarande API-nyckel."
+      'Transportprovider ar inte konfigurerad. Satt DISPATCH_PROVIDER_MODE till TIMOCOM eller TRANS_EU och lagg in motsvarande API-nyckel.',
     );
   }
   const tons = Math.max(0.1, Number(input.tons || 0));
@@ -160,17 +168,20 @@ export function createDispatchQuote(input: {
     provider: runtime.activeProvider,
     receiverId: input.receiverId.trim(),
     receiverName: input.receiverName.trim(),
-    wasteCode: String(input.wasteCode || "").trim(),
+    wasteCode: String(input.wasteCode || '').trim(),
     tons,
     distanceKm,
     estimatedCostSek,
     etaHours,
-    currency: "SEK",
+    currency: 'SEK',
     createdAt: nowIso(),
   };
 }
 
-export async function createTransportBooking(quote: DispatchQuote, input?: { plannedPickupAt?: string }): Promise<TransportBooking> {
+export async function createTransportBooking(
+  quote: DispatchQuote,
+  input?: { plannedPickupAt?: string },
+): Promise<TransportBooking> {
   const pickup = parseIsoOrNow(input?.plannedPickupAt);
   const pickupDate = new Date(pickup);
   const deliveryDate = new Date(pickupDate.getTime() + quote.etaHours * 60 * 60 * 1000);
@@ -178,7 +189,7 @@ export async function createTransportBooking(quote: DispatchQuote, input?: { pla
   const row = await transportRepo.createTransportBooking({
     quoteId: quote.id,
     provider: quote.provider,
-    status: "BOOKED",
+    status: 'BOOKED',
     receiverId: quote.receiverId,
     receiverName: quote.receiverName,
     wasteCode: quote.wasteCode,
@@ -196,7 +207,7 @@ export async function createTransportBooking(quote: DispatchQuote, input?: { pla
     status: row.status as any,
     plannedPickupAt: row.plannedPickupAt.toISOString(),
     plannedDeliveryAt: row.plannedDeliveryAt.toISOString(),
-    externalReference: row.externalReference || "",
+    externalReference: row.externalReference || '',
     createdAt: row.createdAt.toISOString(),
     updatedAt: row.updatedAt.toISOString(),
   };
@@ -211,7 +222,7 @@ export async function getTransportBooking(id: string): Promise<TransportBooking 
     status: row.status as any,
     plannedPickupAt: row.plannedPickupAt.toISOString(),
     plannedDeliveryAt: row.plannedDeliveryAt.toISOString(),
-    externalReference: row.externalReference || "",
+    externalReference: row.externalReference || '',
     createdAt: row.createdAt.toISOString(),
     updatedAt: row.updatedAt.toISOString(),
   };
@@ -237,8 +248,9 @@ export async function upsertDriverJournal(input: {
 }): Promise<DriverJournalEntry> {
   const startedAt = parseIsoOrNow(input.journal.startedAt);
   const odometerStartKm = Math.max(0, Number(input.journal.odometerStartKm || 0));
-  
-  const gpsTrackHash = input.journal.gpsTrackHash?.trim() || 
+
+  const gpsTrackHash =
+    input.journal.gpsTrackHash?.trim() ||
     stableTrackHash({
       bookingId: input.journal.bookingId.trim(),
       vehicleId: input.journal.vehicleId.trim(),
@@ -265,7 +277,7 @@ export async function upsertDriverJournal(input: {
       startedAt: new Date(startedAt),
       odometerStartKm,
       gpsTrackHash,
-      status: input.journal.status || "DRAFT",
+      status: input.journal.status || 'DRAFT',
     });
   }
 
@@ -278,31 +290,31 @@ export async function upsertDriverJournal(input: {
     reviewerSignatureId: row.reviewerSignatureId || null,
     createdAt: row.createdAt.toISOString(),
     updatedAt: row.updatedAt.toISOString(),
-    gpsTrackHash: row.gpsTrackHash || "",
+    gpsTrackHash: row.gpsTrackHash?.trim() || gpsTrackHash,
   };
 }
 
 export async function signDriverJournal(input: {
   journalId: string;
-  signerRole: "DRIVER" | "REVIEWER";
+  signerRole: 'DRIVER' | 'REVIEWER';
   signatureId: string;
 }): Promise<DriverJournalEntry> {
   const row = await prisma.driverJournal.findUnique({ where: { id: input.journalId } });
-  if (!row) throw new Error("Journal not found");
+  if (!row) throw new Error('Journal not found');
 
   const signatureId = input.signatureId.trim();
-  if (!signatureId) throw new Error("signatureId is required");
+  if (!signatureId) throw new Error('signatureId is required');
 
-  if (input.signerRole === "REVIEWER" && !row.signedByDriver) {
-    throw new Error("Driver signature is required before reviewer signature");
+  if (input.signerRole === 'REVIEWER' && !row.signedByDriver) {
+    throw new Error('Driver signature is required before reviewer signature');
   }
 
   const updated = await transportRepo.updateDriverJournal(input.journalId, {
-    signedByDriver: input.signerRole === "DRIVER" ? true : undefined,
-    driverSignatureId: input.signerRole === "DRIVER" ? signatureId : undefined,
-    signedByReviewer: input.signerRole === "REVIEWER" ? true : undefined,
-    reviewerSignatureId: input.signerRole === "REVIEWER" ? signatureId : undefined,
-    status: input.signerRole === "REVIEWER" ? "VERIFIED" : "SUBMITTED",
+    signedByDriver: input.signerRole === 'DRIVER' ? true : undefined,
+    driverSignatureId: input.signerRole === 'DRIVER' ? signatureId : undefined,
+    signedByReviewer: input.signerRole === 'REVIEWER' ? true : undefined,
+    reviewerSignatureId: input.signerRole === 'REVIEWER' ? signatureId : undefined,
+    status: input.signerRole === 'REVIEWER' ? 'VERIFIED' : 'SUBMITTED',
   });
 
   return {
@@ -314,6 +326,6 @@ export async function signDriverJournal(input: {
     reviewerSignatureId: updated.reviewerSignatureId || null,
     createdAt: updated.createdAt.toISOString(),
     updatedAt: updated.updatedAt.toISOString(),
-    gpsTrackHash: updated.gpsTrackHash || "",
+    gpsTrackHash: updated.gpsTrackHash || '',
   };
 }

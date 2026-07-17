@@ -1,8 +1,4 @@
-export type PermitAuthorityStatus =
-  | 'SUBMITTED'
-  | 'RECEIVED'
-  | 'PENDING_REVIEW'
-  | 'REJECTED';
+export type PermitAuthorityStatus = 'SUBMITTED' | 'RECEIVED' | 'PENDING_REVIEW' | 'REJECTED';
 
 export type PermitAuthorityFailureMode =
   | 'missing_endpoint'
@@ -26,7 +22,7 @@ export interface PermitAuthorityAdapterInput {
 }
 
 export interface PermitAuthorityAdapterResult {
-  providerMode: 'unconfigured' | 'external';
+  providerMode: 'unconfigured' | 'external' | 'mock';
   status: PermitAuthorityStatus;
   externalRef?: string;
   responseCode: number | null;
@@ -58,7 +54,8 @@ function mapExternalStatus(rawStatus: string | null, responseCode: number): Perm
   const normalized = trim(rawStatus).toUpperCase();
   if (normalized === 'SUBMITTED' || normalized === 'SENT' || normalized === 'QUEUED') return 'SUBMITTED';
   if (normalized === 'RECEIVED' || normalized === 'ACCEPTED') return 'RECEIVED';
-  if (normalized === 'PENDING_REVIEW' || normalized === 'PENDING' || normalized === 'UNDER_REVIEW') return 'PENDING_REVIEW';
+  if (normalized === 'PENDING_REVIEW' || normalized === 'PENDING' || normalized === 'UNDER_REVIEW')
+    return 'PENDING_REVIEW';
   if (normalized === 'REJECTED' || normalized === 'DENIED' || normalized === 'INVALID') return 'REJECTED';
   if (responseCode >= 200 && responseCode < 300) return 'SUBMITTED';
   if (responseCode >= 400 && responseCode < 500) return 'REJECTED';
@@ -99,14 +96,36 @@ async function parseAuthorityResponse(response: Response): Promise<AuthorityResp
 }
 
 function getExternalReference(payload: AuthorityResponsePayload): string | undefined {
-  return trim(payload.ref) || trim(payload.externalRef) || trim(payload.referenceId) || trim(payload.caseNumber) || undefined;
+  return (
+    trim(payload.ref) ||
+    trim(payload.externalRef) ||
+    trim(payload.referenceId) ||
+    trim(payload.caseNumber) ||
+    undefined
+  );
 }
 
 export async function submitToConfiguredAuthority(
-  input: PermitAuthorityAdapterInput
+  input: PermitAuthorityAdapterInput,
 ): Promise<PermitAuthorityAdapterResult> {
   const endpoint = trim(process.env.AUTHORITY_SUBMIT_ENDPOINT);
   if (!endpoint) {
+    // Mock-adapter: AUTHORITY_MOCK_MODE=true aktiverar ett deterministiskt
+    // SUBMITTED-svar så E2E-flöden kan testas. Eftersom endast BankID får
+    // mockas i produktion är mock-läget spärrat utanför dev/test.
+    const mockRequested = trim(process.env.AUTHORITY_MOCK_MODE).toLowerCase() === 'true';
+    const nodeEnv = (process.env.NODE_ENV ?? '').toLowerCase();
+    const mockAllowed = nodeEnv !== 'production';
+    if (mockRequested && mockAllowed) {
+      return {
+        providerMode: 'mock',
+        status: 'SUBMITTED',
+        externalRef: `MOCK-${input.referenceId}`,
+        responseCode: 202,
+        rawStatus: 'MOCK_SUBMITTED',
+        failureMode: null,
+      };
+    }
     return {
       providerMode: 'unconfigured',
       status: 'PENDING_REVIEW',

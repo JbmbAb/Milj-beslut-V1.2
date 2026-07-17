@@ -183,4 +183,17 @@ describe('ai.routes – executive summary', () => {
     const res = await request(app).get('/api/projects/proj-1/exec-summary/jobs');
     expect(res.status).toBe(401);
   });
+
+  it('returns 400 on listJobs when assertPermission throws', async () => {
+    mocks.assertPermission.mockRejectedValueOnce(new Error('no access'));
+    const res = await request(app)
+      .get('/api/projects/proj-1/exec-summary/jobs')
+      .set('Authorization', authHeader());
+    expect(res.status).toBe(400);
+  });
+
+  it('returns 401 on status without auth', async () => {
+    const res = await request(app).get('/api/projects/proj-1/exec-summary/status/job-1');
+    expect(res.status).toBe(401);
+  });
 });

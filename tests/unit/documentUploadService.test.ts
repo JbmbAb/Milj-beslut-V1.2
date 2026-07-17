@@ -3,20 +3,20 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 // ─── Mocks ────────────────────────────────────────────────────────────────────
 
 const mocks = vi.hoisted(() => ({
-  fsMkdir: vi.fn(),
-  fsWriteFile: vi.fn(),
-  fsUnlink: vi.fn(),
+  writeStorageFile: vi.fn(),
+  deleteStorageFile: vi.fn(),
+  gcsDocumentsEnabled: vi.fn(() => false),
+  buildGcsObjectUri: vi.fn(),
   upsertDocumentFromManifest: vi.fn(),
   enqueueSearchJob: vi.fn(),
   appendDomainAudit: vi.fn(),
 }));
 
-vi.mock('node:fs/promises', () => ({
-  default: {
-    mkdir: mocks.fsMkdir,
-    writeFile: mocks.fsWriteFile,
-    unlink: mocks.fsUnlink,
-  },
+vi.mock('../../server/services/documentObjectStorage', () => ({
+  writeStorageFile: mocks.writeStorageFile,
+  deleteStorageFile: mocks.deleteStorageFile,
+  gcsDocumentsEnabled: mocks.gcsDocumentsEnabled,
+  buildGcsObjectUri: mocks.buildGcsObjectUri,
 }));
 
 vi.mock('../../server/repositories/searchRepository', () => ({
@@ -47,8 +47,7 @@ function makeInput(overrides: Partial<Parameters<typeof uploadDocumentToProject>
 }
 
 function setupHappyPath() {
-  mocks.fsMkdir.mockResolvedValue(undefined);
-  mocks.fsWriteFile.mockResolvedValue(undefined);
+  mocks.writeStorageFile.mockResolvedValue(undefined);
   mocks.upsertDocumentFromManifest.mockResolvedValue({
     id: 'doc-1',
     projectId: 'proj-1',
@@ -75,8 +74,7 @@ describe('documentUploadService – uploadDocumentToProject', () => {
 
     const result = await uploadDocumentToProject(makeInput());
 
-    expect(mocks.fsMkdir).toHaveBeenCalledOnce();
-    expect(mocks.fsWriteFile).toHaveBeenCalledOnce();
+    expect(mocks.writeStorageFile).toHaveBeenCalledOnce();
     expect(mocks.upsertDocumentFromManifest).toHaveBeenCalledOnce();
     expect(mocks.enqueueSearchJob).toHaveBeenCalledWith(
       expect.objectContaining({ type: 'EXTRACT_TEXT', projectId: 'proj-1' }),
@@ -95,7 +93,7 @@ describe('documentUploadService – uploadDocumentToProject', () => {
       'Upload body is empty',
     );
 
-    expect(mocks.fsWriteFile).not.toHaveBeenCalled();
+    expect(mocks.writeStorageFile).not.toHaveBeenCalled();
   });
 
   it('sanitises malicious filenames', async () => {
@@ -138,14 +136,13 @@ describe('documentUploadService – uploadDocumentToProject', () => {
   });
 
   it('deletes the written file when upsertDocumentFromManifest fails', async () => {
-    mocks.fsMkdir.mockResolvedValue(undefined);
-    mocks.fsWriteFile.mockResolvedValue(undefined);
+    mocks.writeStorageFile.mockResolvedValue(undefined);
     mocks.upsertDocumentFromManifest.mockRejectedValue(new Error('DB error'));
-    mocks.fsUnlink.mockResolvedValue(undefined);
+    mocks.deleteStorageFile.mockResolvedValue(undefined);
 
     await expect(uploadDocumentToProject(makeInput())).rejects.toThrow('DB error');
 
-    expect(mocks.fsUnlink).toHaveBeenCalledOnce();
+    expect(mocks.deleteStorageFile).toHaveBeenCalledOnce();
   });
 
   it('uses provided receivedTime in the result', async () => {
@@ -162,8 +159,8 @@ describe('documentUploadService – uploadDocumentToProject', () => {
 
     await uploadDocumentToProject(makeInput({ projectId: 'proj-XYZ' }));
 
-    const mkdirArg = mocks.fsMkdir.mock.calls[0][0] as string;
-    expect(mkdirArg).toContain('proj-XYZ');
+    const writeArg = mocks.writeStorageFile.mock.calls[0][0] as string;
+    expect(writeArg).toContain('proj-XYZ');
   });
 
   it('uses subject from input if provided', async () => {

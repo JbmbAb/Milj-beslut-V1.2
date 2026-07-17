@@ -2,43 +2,99 @@ import { render, screen, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import IntegrationsDashboard from '../../components/IntegrationsDashboard';
 
-const successPayload = {
+vi.mock('../../services/coreApiClient', () => ({
+  getToken: vi.fn(() => 'test-token'),
+}));
+
+vi.mock('../../components/SystemStatus', () => ({
+  SystemStatus: () => <div data-testid="system-status" />,
+}));
+
+const catalogPayload = {
   ok: true,
-  summary: {
-    cards: [
-      {
-        id: 'nvr',
-        name: 'Skyddad natur',
-        provider: 'Naturvardsverket',
-        dataType: 'API',
-        status: 'CONNECTED',
-        lastSync: '2024-01-01T00:00:00Z',
-        complexity: 3,
-        reason: 'OK',
-        activation: 'IMMEDIATE',
-        latencyMs: 120,
-      },
-      {
-        id: 'sgu',
-        name: 'SGU risklager',
-        provider: 'SGU',
-        dataType: 'PostGIS',
-        status: 'DISCONNECTED',
-        lastSync: 'Fallback',
-        complexity: 4,
-        reason: 'Saknar tillstånd',
-        activation: 'PERMIT_REQUIRED',
-      },
-    ],
-    dispatch: {
-      requestedProvider: 'MOCK_FRAKTBORS',
-      activeProvider: 'MOCK_FRAKTBORS',
-      fallbackActive: false,
-      credentials: { timocomConfigured: false, transEuConfigured: false },
+  sources: [
+    {
+      name: 'Skyddad natur',
+      activation: 'IMMEDIATE',
+      reason: 'OK',
+      implementationKey: 'naturvardsverket',
     },
-    checkedAt: '2024-01-01T00:00:00Z',
-  },
+    {
+      name: 'SGU risklager',
+      activation: 'PERMIT_REQUIRED',
+      reason: 'Saknar tillstånd',
+      implementationKey: 'sgu',
+    },
+  ],
 };
+
+const lantPayload = {
+  ok: true,
+  message: 'Lantmäteriet verifierat',
+  status: 200,
+};
+
+const sluPayload = {
+  ok: true,
+  products: [{ product: 'artdata', hasApiKey: true, hasBasePath: true }],
+};
+
+const dispatchPayload = {
+  ok: true,
+  dispatch: {
+    requestedProvider: 'MOCK_FRAKTBORS',
+    activeProvider: 'MOCK_FRAKTBORS',
+    fallbackActive: false,
+    credentials: { timocomConfigured: false, transEuConfigured: false },
+  },
+  checkedAt: '2024-01-01T00:00:00Z',
+};
+
+const openSyncPayload = {
+  ok: true,
+  results: [
+    {
+      source: 'naturvardsverket',
+      status: 200,
+      ok: true,
+      endpoint: 'https://example.test/nvr',
+      details: 'Connected',
+    },
+    {
+      source: 'sgu',
+      status: 503,
+      ok: false,
+      endpoint: 'https://example.test/sgu',
+      details: 'Saknar tillstånd',
+    },
+  ],
+};
+
+function successFetch(path: string) {
+  if (path.includes('/api/datasources/catalog')) {
+    return Promise.resolve({ ok: true, json: async () => catalogPayload });
+  }
+  if (path.includes('/api/datasources/lantmateriet')) {
+    return Promise.resolve({ ok: true, json: async () => lantPayload });
+  }
+  if (path.includes('/api/datasources/slu/status')) {
+    return Promise.resolve({ ok: true, json: async () => sluPayload });
+  }
+  if (path.includes('/api/admin/dispatch/provider')) {
+    return Promise.resolve({ ok: true, json: async () => dispatchPayload });
+  }
+  if (path.includes('/api/datasources/open/sync')) {
+    return Promise.resolve({ ok: true, json: async () => openSyncPayload });
+  }
+  return Promise.reject(new Error(`Unhandled fetch path: ${path}`));
+}
+
+function partialFailureFetch(path: string) {
+  if (path.includes('/api/datasources/open/sync')) {
+    return Promise.reject(new Error('network down'));
+  }
+  return successFetch(path);
+}
 
 describe('IntegrationsDashboard', () => {
   beforeEach(() => {
@@ -50,74 +106,101 @@ describe('IntegrationsDashboard', () => {
     vi.restoreAllMocks();
   });
 
-  // ── Loading / initial state ─────────────────────────────────────────────────
-
   it('renders the main heading', async () => {
     vi.stubGlobal('fetch', vi.fn().mockReturnValue(new Promise(() => {})));
     render(<IntegrationsDashboard />);
     expect(screen.getByText(/Systemarkitektur och API/i)).toBeInTheDocument();
   });
 
-  // ── Success state ───────────────────────────────────────────────────────────
-
   it('shows integration cards from API response', async () => {
-    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: true, json: async () => successPayload }));
+    vi.stubGlobal(
+      'fetch',
+      vi.fn((input) => successFetch(String(input))),
+    );
     render(<IntegrationsDashboard />);
-    await waitFor(() => expect(screen.getByText('Skyddad natur')).toBeInTheDocument());
-    expect(screen.getByText('SGU risklager')).toBeInTheDocument();
+    await waitFor(() => expect(screen.getAllByText('Skyddad natur').length).toBeGreaterThan(0));
+    expect(screen.getAllByText('SGU risklager').length).toBeGreaterThan(0);
   });
 
   it('shows CONNECTED badge', async () => {
-    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: true, json: async () => successPayload }));
+    vi.stubGlobal(
+      'fetch',
+      vi.fn((input) => successFetch(String(input))),
+    );
     render(<IntegrationsDashboard />);
     await waitFor(() => expect(screen.getByText('Aktiv')).toBeInTheDocument());
   });
 
-  it('shows DISCONNECTED badge', async () => {
-    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: true, json: async () => successPayload }));
+  it('shows non-verified badge for permit-gated integrations', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn((input) => successFetch(String(input))),
+    );
     render(<IntegrationsDashboard />);
-    await waitFor(() => expect(screen.getByText('Krav saknas')).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByText('Ej verifierad')).toBeInTheDocument());
   });
 
   it('shows success info message after load', async () => {
-    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: true, json: async () => successPayload }));
-    render(<IntegrationsDashboard />);
-    await waitFor(() => expect(screen.getByText(/Publik integrationssammanstallning/)).toBeInTheDocument());
-  });
-
-  // ── Fallback/error state ────────────────────────────────────────────────────
-
-  it('shows fallback cards when fetch fails', async () => {
-    vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new Error('network down')));
-    render(<IntegrationsDashboard />);
-    await waitFor(() => expect(screen.getByText('Skyddad natur')).toBeInTheDocument());
-  });
-
-  it('shows error info when fetch fails', async () => {
-    vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new Error('timeout')));
-    render(<IntegrationsDashboard />);
-    await waitFor(() => expect(screen.getByText(/Fallbackvy aktiv/)).toBeInTheDocument());
-  });
-
-  it('shows fallback cards when API returns !ok', async () => {
     vi.stubGlobal(
       'fetch',
-      vi.fn().mockResolvedValue({
-        ok: false,
-        status: 503,
-        json: async () => ({ ok: false, error: 'Service unavailable' }),
+      vi.fn((input) => successFetch(String(input))),
+    );
+    render(<IntegrationsDashboard />);
+    await waitFor(() => expect(screen.getByText(/Integrationskatalog laddad\./i)).toBeInTheDocument());
+  });
+
+  it('keeps initial cards visible before a failing livecheck is triggered', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn((input) => partialFailureFetch(String(input))),
+    );
+    render(<IntegrationsDashboard />);
+    await waitFor(() => expect(screen.getAllByText('Skyddad natur').length).toBeGreaterThan(0));
+  });
+
+  it('shows backend error state when livecheck fails', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn((input) => partialFailureFetch(String(input))),
+    );
+    render(<IntegrationsDashboard />);
+    await waitFor(() => expect(screen.getByRole('button', { name: /Kor livecheck/i })).toBeInTheDocument());
+    screen.getByRole('button', { name: /Kor livecheck/i }).click();
+    await waitFor(() => expect(screen.getByText(/network down/i)).toBeInTheDocument());
+    expect(
+      screen.getByText(/Integrationsstatus kunde inte verifieras utan giltig API-session\./i),
+    ).toBeInTheDocument();
+  });
+
+  it('shows catalog error message when catalog request returns !ok', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn((input) => {
+        const path = String(input);
+        if (path.includes('/api/datasources/catalog')) {
+          return Promise.resolve({
+            ok: false,
+            status: 503,
+            json: async () => ({ ok: false, error: 'Service unavailable' }),
+          });
+        }
+        return successFetch(path);
       }),
     );
     render(<IntegrationsDashboard />);
-    await waitFor(() => expect(screen.getByText('Skyddad natur')).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByText(/Service unavailable/i)).toBeInTheDocument());
+    expect(
+      screen.getByText(/Integrationsstatus kunde inte verifieras utan giltig API-session\./i),
+    ).toBeInTheDocument();
   });
 
-  // ── Uppdatera button ────────────────────────────────────────────────────────
-
   it('has an "Uppdatera" button', async () => {
-    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: true, json: async () => successPayload }));
+    vi.stubGlobal(
+      'fetch',
+      vi.fn((input) => successFetch(String(input))),
+    );
     render(<IntegrationsDashboard />);
-    await waitFor(() => screen.getByText('Skyddad natur'));
+    await waitFor(() => expect(screen.getAllByText('Skyddad natur').length).toBeGreaterThan(0));
     expect(screen.getByRole('button', { name: /Uppdatera/i })).toBeInTheDocument();
   });
 });

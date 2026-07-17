@@ -1,4 +1,4 @@
-import { prisma } from "../db/prisma";
+import { prisma } from '../db/prisma';
 
 export async function createLimsReport(data: {
   bookingId?: string | null;
@@ -21,12 +21,15 @@ export async function getLimsReport(id: string) {
   });
 }
 
-export async function verifyLimsReport(id: string, data: {
-  reviewer: string;
-  reviewerSignatureId: string;
-  verifiedAt: Date;
-  passed: boolean;
-}) {
+export async function verifyLimsReport(
+  id: string,
+  data: {
+    reviewer: string;
+    reviewerSignatureId: string;
+    verifiedAt: Date;
+    passed: boolean;
+  },
+) {
   return prisma.limsReport.update({
     where: { id },
     data: {
@@ -39,13 +42,13 @@ export async function verifyLimsReport(id: string, data: {
 export async function listLimsReportsBySample(sampleId: string) {
   return prisma.limsReport.findMany({
     where: { sampleId },
-    orderBy: { createdAt: "desc" },
+    orderBy: { createdAt: 'desc' },
   });
 }
 
 export async function listLimsReportsByBooking(bookingId: string) {
   return prisma.limsReport.findMany({
     where: { bookingId },
-    orderBy: { createdAt: "desc" },
+    orderBy: { createdAt: 'desc' },
   });
 }

@@ -1,150 +1,160 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { describe, it, expect, vi, beforeEach } from 'vitest';
 
-// ─── Prisma mock ─────────────────────────────────────────────────────────────
-
-const prismaMocks = vi.hoisted(() => ({
-  projectCount: vi.fn().mockResolvedValue(10),
-  documentCount: vi.fn().mockResolvedValue(50),
-  userCount: vi.fn().mockResolvedValue(5),
-  orgCount: vi.fn().mockResolvedValue(2),
+const mocks = vi.hoisted(() => ({
+  projectCount: vi.fn(),
+  documentRecordCount: vi.fn(),
+  userCount: vi.fn(),
+  organisationCount: vi.fn(),
 }));
 
 vi.mock('../../server/db/prisma', () => ({
   prisma: {
-    project: { count: prismaMocks.projectCount },
-    documentRecord: { count: prismaMocks.documentCount },
-    user: { count: prismaMocks.userCount },
-    organisation: { count: prismaMocks.orgCount },
+    project: { count: mocks.projectCount },
+    documentRecord: { count: mocks.documentRecordCount },
+    user: { count: mocks.userCount },
+    organisation: { count: mocks.organisationCount },
   },
 }));
 
-// ─── Module under test ────────────────────────────────────────────────────────
-
-// Use resetModules so each test starts with fresh in-process counters.
-let svc: typeof import('../../server/services/metricsService');
-
-beforeEach(async () => {
-  vi.clearAllMocks();
-  vi.resetModules();
-  svc = await import('../../server/services/metricsService');
-});
-
-// ─── Tests ────────────────────────────────────────────────────────────────────
-
 describe('metricsService', () => {
-  // ── recordRequest ──────────────────────────────────────────────────────────
+  // Fresh module instance per test to reset in-process counters and histograms
+  let recordRequest: (method: string, route: string, statusCode: number, durationMs: number) => void;
+  let recordDbQuery: (operation: string, durationMs: number, failed?: boolean) => void;
+  let recordError: (type: string) => void;
+  let getMetricsText: () => Promise<string>;
+
+  beforeEach(async () => {
+    vi.resetAllMocks();
+    vi.resetModules();
+
+    mocks.projectCount.mockResolvedValue(5);
+    mocks.documentRecordCount.mockResolvedValue(20);
+    mocks.userCount.mockResolvedValue(3);
+    mocks.organisationCount.mockResolvedValue(2);
+
+    const mod = await import('../../server/services/metricsService');
+    recordRequest = mod.recordRequest;
+    recordDbQuery = mod.recordDbQuery;
+    recordError = mod.recordError;
+    getMetricsText = mod.getMetricsText;
+  });
 
   describe('recordRequest', () => {
-    it('does not throw for valid inputs', () => {
-      expect(() => svc.recordRequest('GET', '/api/test', 200, 100)).not.toThrow();
+    it('appears in http_requests_total output after being called', async () => {
+      recordRequest('GET', '/api/projects', 200, 45);
+
+      const text = await getMetricsText();
+
+      expect(text).toContain('http_requests_total');
+      expect(text).toContain('method="GET"');
+      expect(text).toContain('route="/api/projects"');
+      expect(text).toContain('status="200"');
     });
 
-    it('accepts any HTTP method, route and status code', () => {
-      expect(() => svc.recordRequest('POST', '/api/items', 201, 45)).not.toThrow();
-      expect(() => svc.recordRequest('DELETE', '/api/items/1', 404, 5)).not.toThrow();
+    it('accumulates multiple calls in the counter', async () => {
+      recordRequest('GET', '/api/projects', 200, 10);
+      recordRequest('GET', '/api/projects', 200, 20);
+
+      const text = await getMetricsText();
+
+      expect(text).toMatch(/http_requests_total\{[^}]*\} 2/);
+    });
+
+    it('tracks http request duration in summary output', async () => {
+      recordRequest('POST', '/api/docs', 201, 100);
+
+      const text = await getMetricsText();
+
+      expect(text).toContain('http_request_duration_ms{quantile="0.5"}');
+      expect(text).toContain('http_request_duration_ms_count 1');
     });
   });
-
-  // ── recordDbQuery ──────────────────────────────────────────────────────────
 
   describe('recordDbQuery', () => {
-    it('does not throw for normal query', () => {
-      expect(() => svc.recordDbQuery('findMany', 15)).not.toThrow();
+    it('appears in db_queries_total output', async () => {
+      recordDbQuery('findMany', 15);
+
+      const text = await getMetricsText();
+
+      expect(text).toContain('db_queries_total');
+      expect(text).toContain('operation="findMany"');
+      expect(text).toContain('failed="false"');
     });
 
-    it('accepts a failed flag', () => {
-      expect(() => svc.recordDbQuery('create', 200, true)).not.toThrow();
+    it('marks failed queries correctly', async () => {
+      recordDbQuery('upsert', 5, true);
+
+      const text = await getMetricsText();
+
+      expect(text).toContain('failed="true"');
     });
   });
-
-  // ── recordError ────────────────────────────────────────────────────────────
 
   describe('recordError', () => {
-    it('does not throw for any error type string', () => {
-      expect(() => svc.recordError('VALIDATION')).not.toThrow();
-      expect(() => svc.recordError('UNHANDLED')).not.toThrow();
-    });
-  });
+    it('appears in app_errors_total output', async () => {
+      recordError('VALIDATION');
 
-  // ── getMetricsText ─────────────────────────────────────────────────────────
+      const text = await getMetricsText();
 
-  describe('getMetricsText', () => {
-    it('returns a non-empty string ending with newline', async () => {
-      const text = await svc.getMetricsText();
-      expect(typeof text).toBe('string');
-      expect(text.length).toBeGreaterThan(0);
-      expect(text.endsWith('\n')).toBe(true);
-    });
-
-    it('contains process uptime metric', async () => {
-      const text = await svc.getMetricsText();
-      expect(text).toContain('# HELP process_uptime_seconds');
-      expect(text).toContain('# TYPE process_uptime_seconds gauge');
-      expect(text).toMatch(/process_uptime_seconds \d+/);
-    });
-
-    it('contains nodejs heap metric', async () => {
-      const text = await svc.getMetricsText();
-      expect(text).toContain('# HELP nodejs_heap_used_bytes');
-      expect(text).toContain('# TYPE nodejs_heap_used_bytes gauge');
-    });
-
-    it('includes http_requests_total counter after recordRequest', async () => {
-      svc.recordRequest('GET', '/api/projects', 200, 50);
-      const text = await svc.getMetricsText();
-      expect(text).toContain('# HELP http_requests_total');
-      expect(text).toContain('http_requests_total{');
-      expect(text).toContain('method="GET"');
-    });
-
-    it('includes http_request_duration_ms summary', async () => {
-      svc.recordRequest('GET', '/api/health', 200, 12);
-      svc.recordRequest('POST', '/api/projects', 201, 200);
-      const text = await svc.getMetricsText();
-      expect(text).toContain('http_request_duration_ms{quantile="0.5"}');
-      expect(text).toContain('http_request_duration_ms{quantile="0.9"}');
-      expect(text).toContain('http_request_duration_ms{quantile="0.99"}');
-      expect(text).toContain('http_request_duration_ms_count 2');
-    });
-
-    it('includes db_queries_total counter after recordDbQuery', async () => {
-      svc.recordDbQuery('findMany', 10);
-      const text = await svc.getMetricsText();
-      expect(text).toContain('# HELP db_queries_total');
-      expect(text).toContain('db_queries_total{');
-    });
-
-    it('includes app_errors_total counter after recordError', async () => {
-      svc.recordError('VALIDATION');
-      const text = await svc.getMetricsText();
-      expect(text).toContain('# HELP app_errors_total');
-      expect(text).toContain('app_errors_total{');
+      expect(text).toContain('app_errors_total');
       expect(text).toContain('type="VALIDATION"');
     });
 
-    it('includes business metrics from DB', async () => {
-      const text = await svc.getMetricsText();
-      expect(text).toContain('# HELP miljobeslut_projects_total');
-      expect(text).toContain('miljobeslut_projects_total 10');
-      expect(text).toContain('miljobeslut_documents_total 50');
-      expect(text).toContain('miljobeslut_users_total 5');
+    it('counts multiple errors of the same type', async () => {
+      recordError('DB_ERROR');
+      recordError('DB_ERROR');
+      recordError('DB_ERROR');
+
+      const text = await getMetricsText();
+
+      expect(text).toMatch(/app_errors_total\{[^}]*type="DB_ERROR"[^}]*\} 3/);
+    });
+  });
+
+  describe('getMetricsText', () => {
+    it('always contains process uptime', async () => {
+      const text = await getMetricsText();
+
+      expect(text).toContain('process_uptime_seconds');
+      expect(text).toMatch(/process_uptime_seconds \d+/);
+    });
+
+    it('always contains nodejs heap used bytes', async () => {
+      const text = await getMetricsText();
+
+      expect(text).toContain('nodejs_heap_used_bytes');
+    });
+
+    it('includes business metrics from the database', async () => {
+      const text = await getMetricsText();
+
+      expect(text).toContain('miljobeslut_projects_total 5');
+      expect(text).toContain('miljobeslut_documents_total 20');
+      expect(text).toContain('miljobeslut_users_total 3');
       expect(text).toContain('miljobeslut_organisations_total 2');
     });
 
-    it('emits error comment when DB is unavailable', async () => {
-      prismaMocks.projectCount.mockRejectedValueOnce(new Error('DB unavailable'));
-      const text = await svc.getMetricsText();
+    it('gracefully handles DB errors in business metrics', async () => {
+      mocks.projectCount.mockRejectedValue(new Error('DB connection lost'));
+
+      const text = await getMetricsText();
+
       expect(text).toContain('# ERROR could not collect business metrics from DB');
     });
 
-    it('multiple recordRequest calls accumulate correctly', async () => {
-      svc.recordRequest('GET', '/api/test', 200, 30);
-      svc.recordRequest('GET', '/api/test', 200, 60);
-      svc.recordRequest('GET', '/api/test', 500, 5);
-      const text = await svc.getMetricsText();
-      // Two 200 calls to same route
-      expect(text).toContain('status="200"');
-      expect(text).toContain('status="500"');
+    it('ends with a newline character', async () => {
+      const text = await getMetricsText();
+
+      expect(text.endsWith('\n')).toBe(true);
+    });
+
+    it('emits correct Prometheus HELP and TYPE headers', async () => {
+      const text = await getMetricsText();
+
+      expect(text).toContain('# HELP http_requests_total');
+      expect(text).toContain('# TYPE http_requests_total counter');
+      expect(text).toContain('# HELP db_queries_total Total DB queries');
+      expect(text).toContain('# TYPE db_queries_total counter');
     });
   });
 });

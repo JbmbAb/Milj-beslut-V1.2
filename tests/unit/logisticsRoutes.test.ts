@@ -24,13 +24,13 @@ vi.mock('../../server/repositories/tokenRepository', () => ({
   cleanupExpiredTokenRevocations: vi.fn(async () => 0),
 }));
 
-vi.mock('../../server/services/gpsTrackingService', () => ({
+vi.mock('../../legacy/experimental/gpsTrackingService', () => ({
   addGpsPosition: mocks.addGpsPosition,
   getGpsTrack: mocks.getGpsTrack,
   getLatestPosition: mocks.getLatestGpsPosition,
 }));
 
-vi.mock('../../server/services/marketIntelService', () => ({
+vi.mock('../../legacy/experimental/marketIntelService', () => ({
   getMarketSnapshot: mocks.getMarketSnapshot,
   invalidateMarketCache: mocks.invalidateMarketCache,
 }));
@@ -227,5 +227,56 @@ describe('logistics.routes', () => {
       signatureId: 'sig-lims',
       approved: true,
     });
+  });
+
+  it('returns 401 when no auth token on gps update', async () => {
+    const res = await request(app)
+      .post('/api/projects/project-1/transport/booking-1/gps/update')
+      .send({ lat: 59.0, lng: 18.0 });
+
+    expect(res.status).toBe(401);
+    expect(mocks.addGpsPosition).not.toHaveBeenCalled();
+  });
+
+  it('returns 400 when transport service throws on booking creation', async () => {
+    mocks.createTransportBooking.mockRejectedValueOnce(new Error('Bokningsfel'));
+
+    const res = await request(app)
+      .post('/api/transport/bookings')
+      .set('Authorization', authHeader())
+      .send({ quote: { id: 'q-1' }, plannedPickupAt: '2026-01-01T10:00:00.000Z' });
+
+    expect(res.status).toBe(400);
+  });
+
+  it('defaults signerRole to DRIVER when role is omitted', async () => {
+    const res = await request(app)
+      .post('/api/transport/journals/journal-1/sign')
+      .set('Authorization', authHeader())
+      .send({ signatureId: 'sig-no-role' });
+
+    expect(res.status).toBe(200);
+    expect(mocks.signDriverJournal).toHaveBeenCalledWith(expect.objectContaining({ signerRole: 'DRIVER' }));
+  });
+
+  it('returns 400 when lims createLimsReport throws', async () => {
+    mocks.createLimsReport.mockRejectedValueOnce(new Error('LIMS DB error'));
+
+    const res = await request(app)
+      .post('/api/lims/reports')
+      .set('Authorization', authHeader())
+      .send({ sampleId: 'bad-sample' });
+
+    expect(res.status).toBe(400);
+  });
+
+  it('returns 400 when getGpsTrack throws', async () => {
+    mocks.getGpsTrack.mockRejectedValueOnce(new Error('GPS DB error'));
+
+    const res = await request(app)
+      .get('/api/projects/project-1/transport/booking-1/gps')
+      .set('Authorization', authHeader());
+
+    expect(res.status).toBe(400);
   });
 });

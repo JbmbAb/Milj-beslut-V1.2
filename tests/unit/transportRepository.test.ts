@@ -1,212 +1,425 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-// ─── Prisma mock ───────────────────────────────────────────────────────────────
-
-const transportBookingMock = vi.hoisted(() => ({
-  create: vi.fn(),
-  findUnique: vi.fn(),
-  update: vi.fn(),
-}));
-
-const driverJournalMock = vi.hoisted(() => ({
-  create: vi.fn(),
-  update: vi.fn(),
-  findMany: vi.fn(),
+const mocks = vi.hoisted(() => ({
+  transportBookingCreate: vi.fn(),
+  transportBookingFindUnique: vi.fn(),
+  transportBookingUpdate: vi.fn(),
+  driverJournalCreate: vi.fn(),
+  driverJournalUpdate: vi.fn(),
+  driverJournalFindMany: vi.fn(),
 }));
 
 vi.mock('../../server/db/prisma', () => ({
   prisma: {
-    transportBooking: transportBookingMock,
-    driverJournal: driverJournalMock,
+    transportBooking: {
+      create: mocks.transportBookingCreate,
+      findUnique: mocks.transportBookingFindUnique,
+      update: mocks.transportBookingUpdate,
+    },
+    driverJournal: {
+      create: mocks.driverJournalCreate,
+      update: mocks.driverJournalUpdate,
+      findMany: mocks.driverJournalFindMany,
+    },
   },
 }));
 
-// ─── Module under test ─────────────────────────────────────────────────────────
-
 import {
-  createDriverJournal,
   createTransportBooking,
   getTransportBooking,
-  listJournalsForBooking,
-  updateDriverJournal,
   updateTransportBookingStatus,
+  createDriverJournal,
+  updateDriverJournal,
+  listJournalsForBooking,
 } from '../../server/repositories/transportRepository';
 
-// ─── Tests ─────────────────────────────────────────────────────────────────────
-
-beforeEach(() => {
-  vi.clearAllMocks();
-});
-
 describe('transportRepository', () => {
-  // ── createTransportBooking ─────────────────────────────────────────────────
+  beforeEach(() => {
+    vi.resetAllMocks();
+  });
 
   describe('createTransportBooking', () => {
-    it('calls prisma.transportBooking.create with correct data', async () => {
-      const data = {
-        quoteId: 'q-1',
-        provider: 'Ragn-Sells',
-        status: 'BOOKED',
+    it('creates a transport booking with required fields', async () => {
+      const input = {
+        quoteId: 'quote-1',
+        provider: 'TransCo',
+        status: 'PENDING',
         receiverId: 'recv-1',
-        receiverName: 'Mottagaren AB',
-        wasteCode: '17 05 04',
-        tons: 10.5,
+        receiverName: 'Receiver AB',
+        wasteCode: 'EWC-01',
+        tons: 5.0,
         distanceKm: 120,
-        co2EstimateKg: 85,
-        plannedPickupAt: new Date('2024-07-01'),
-        plannedDeliveryAt: new Date('2024-07-02'),
-        externalReference: 'EXT-001',
+        co2EstimateKg: 60,
+        plannedPickupAt: new Date('2024-04-01'),
+        plannedDeliveryAt: new Date('2024-04-02'),
       };
+      const created = { id: 'booking-1', ...input };
+      mocks.transportBookingCreate.mockResolvedValue(created);
 
-      const created = { id: 'bk-1', ...data };
-      transportBookingMock.create.mockResolvedValue(created);
+      const result = await createTransportBooking(input);
 
-      const result = await createTransportBooking(data);
-
-      expect(transportBookingMock.create).toHaveBeenCalledWith({ data });
-      expect(result).toBe(created);
+      expect(mocks.transportBookingCreate).toHaveBeenCalledWith({ data: input });
+      expect(result).toEqual(created);
     });
 
-    it('works without optional externalReference', async () => {
-      const data = {
-        quoteId: 'q-2',
-        provider: 'SITA',
-        status: 'PENDING',
+    it('creates a transport booking with optional externalReference', async () => {
+      const input = {
+        quoteId: 'quote-2',
+        provider: 'FreightLtd',
+        status: 'CONFIRMED',
         receiverId: 'recv-2',
-        receiverName: 'Mottagare 2',
-        wasteCode: '17 04 05',
-        tons: 5,
-        distanceKm: 50,
-        co2EstimateKg: 30,
-        plannedPickupAt: new Date(),
-        plannedDeliveryAt: new Date(),
+        receiverName: 'Depot AB',
+        wasteCode: 'EWC-02',
+        tons: 10.0,
+        distanceKm: 200,
+        co2EstimateKg: 100,
+        plannedPickupAt: new Date('2024-05-01'),
+        plannedDeliveryAt: new Date('2024-05-03'),
+        externalReference: 'EXT-REF-999',
       };
+      mocks.transportBookingCreate.mockResolvedValue({ id: 'booking-2', ...input });
 
-      transportBookingMock.create.mockResolvedValue({ id: 'bk-2' });
-      await createTransportBooking(data);
-      expect(transportBookingMock.create).toHaveBeenCalledTimes(1);
+      await createTransportBooking(input);
+
+      expect(mocks.transportBookingCreate).toHaveBeenCalledWith({ data: input });
     });
   });
 
-  // ── getTransportBooking ────────────────────────────────────────────────────
-
   describe('getTransportBooking', () => {
-    it('calls findUnique with id and includes journals + limsReports', async () => {
-      const booking = { id: 'bk-get', journals: [], limsReports: [] };
-      transportBookingMock.findUnique.mockResolvedValue(booking);
+    it('returns booking with journals and limsReports included', async () => {
+      const booking = {
+        id: 'booking-1',
+        status: 'PENDING',
+        journals: [],
+        limsReports: [],
+      };
+      mocks.transportBookingFindUnique.mockResolvedValue(booking);
 
-      const result = await getTransportBooking('bk-get');
+      const result = await getTransportBooking('booking-1');
 
-      expect(transportBookingMock.findUnique).toHaveBeenCalledWith({
-        where: { id: 'bk-get' },
+      expect(mocks.transportBookingFindUnique).toHaveBeenCalledWith({
+        where: { id: 'booking-1' },
         include: { journals: true, limsReports: true },
       });
-      expect(result).toBe(booking);
+      expect(result).toEqual(booking);
     });
 
     it('returns null when booking is not found', async () => {
-      transportBookingMock.findUnique.mockResolvedValue(null);
-      const result = await getTransportBooking('no-such');
+      mocks.transportBookingFindUnique.mockResolvedValue(null);
+
+      const result = await getTransportBooking('nonexistent');
+
       expect(result).toBeNull();
     });
   });
 
-  // ── updateTransportBookingStatus ───────────────────────────────────────────
-
   describe('updateTransportBookingStatus', () => {
     it('updates status and sets updatedAt', async () => {
-      transportBookingMock.update.mockResolvedValue({ id: 'bk-upd', status: 'DELIVERED' });
+      const updated = { id: 'booking-1', status: 'COMPLETED' };
+      mocks.transportBookingUpdate.mockResolvedValue(updated);
 
-      const result = await updateTransportBookingStatus('bk-upd', 'DELIVERED');
+      const before = new Date();
+      const result = await updateTransportBookingStatus('booking-1', 'COMPLETED');
+      const after = new Date();
 
-      expect(transportBookingMock.update).toHaveBeenCalledWith({
-        where: { id: 'bk-upd' },
-        data: expect.objectContaining({ status: 'DELIVERED', updatedAt: expect.any(Date) }),
-      });
-      expect(result).toEqual({ id: 'bk-upd', status: 'DELIVERED' });
+      expect(mocks.transportBookingUpdate).toHaveBeenCalledOnce();
+      const callArg = mocks.transportBookingUpdate.mock.calls[0][0];
+      expect(callArg.where).toEqual({ id: 'booking-1' });
+      expect(callArg.data.status).toBe('COMPLETED');
+      expect(callArg.data.updatedAt).toBeInstanceOf(Date);
+      expect(callArg.data.updatedAt.getTime()).toBeGreaterThanOrEqual(before.getTime());
+      expect(callArg.data.updatedAt.getTime()).toBeLessThanOrEqual(after.getTime());
+      expect(result).toEqual(updated);
     });
   });
-
-  // ── createDriverJournal ────────────────────────────────────────────────────
 
   describe('createDriverJournal', () => {
-    it('calls prisma.driverJournal.create with the provided data', async () => {
-      const data = {
-        bookingId: 'bk-dj-1',
-        driverName: 'Lars Larsson',
-        vehicleId: 'VH-001',
-        origin: 'Stockholm',
-        destination: 'Göteborg',
-        wasteCode: '17 05 04',
-        tons: 8,
-        startedAt: new Date('2024-07-01T08:00:00Z'),
-        endedAt: new Date('2024-07-01T14:00:00Z'),
+    it('creates a driver journal with required fields', async () => {
+      const input = {
+        bookingId: 'booking-1',
+        driverName: 'Lars Svensson',
+        vehicleId: 'vehicle-abc',
+        origin: 'Göteborg',
+        destination: 'Stockholm',
+        wasteCode: 'EWC-01',
+        tons: 3.5,
+        startedAt: new Date('2024-04-01T08:00:00'),
         odometerStartKm: 10000,
-        odometerEndKm: 10450,
-        gpsTrackHash: 'gps-hash-123',
+        status: 'IN_PROGRESS',
+      };
+      const created = { id: 'journal-1', ...input };
+      mocks.driverJournalCreate.mockResolvedValue(created);
+
+      const result = await createDriverJournal(input);
+
+      expect(mocks.driverJournalCreate).toHaveBeenCalledWith({ data: input });
+      expect(result).toEqual(created);
+    });
+
+    it('creates a driver journal with all optional fields', async () => {
+      const input = {
+        bookingId: 'booking-2',
+        driverName: 'Erik Johansson',
+        vehicleId: 'vehicle-xyz',
+        origin: 'Malmö',
+        destination: 'Lund',
+        wasteCode: 'EWC-05',
+        tons: 2.0,
+        startedAt: new Date('2024-04-02T07:00:00'),
+        endedAt: new Date('2024-04-02T10:00:00'),
+        odometerStartKm: 5000,
+        odometerEndKm: 5100,
+        gpsTrackHash: 'hash-abc123',
         status: 'COMPLETED',
       };
+      mocks.driverJournalCreate.mockResolvedValue({ id: 'journal-2', ...input });
 
-      const created = { id: 'dj-1', ...data };
-      driverJournalMock.create.mockResolvedValue(created);
+      await createDriverJournal(input);
 
-      const result = await createDriverJournal(data);
-
-      expect(driverJournalMock.create).toHaveBeenCalledWith({ data });
-      expect(result).toBe(created);
+      expect(mocks.driverJournalCreate).toHaveBeenCalledWith({ data: input });
     });
   });
-
-  // ── updateDriverJournal ────────────────────────────────────────────────────
 
   describe('updateDriverJournal', () => {
-    it('calls prisma.driverJournal.update with id, partial data and updatedAt', async () => {
-      const partial = { status: 'SIGNED', signedByDriver: true };
-      driverJournalMock.update.mockResolvedValue({ id: 'dj-upd', ...partial });
+    it('updates partial journal fields and sets updatedAt', async () => {
+      const updateData = { status: 'COMPLETED', odometerEndKm: 10150 };
+      const updated = { id: 'journal-1', ...updateData };
+      mocks.driverJournalUpdate.mockResolvedValue(updated);
 
-      await updateDriverJournal('dj-upd', partial);
+      const before = new Date();
+      const result = await updateDriverJournal('journal-1', updateData);
+      const after = new Date();
 
-      expect(driverJournalMock.update).toHaveBeenCalledWith({
-        where: { id: 'dj-upd' },
-        data: expect.objectContaining({
-          status: 'SIGNED',
-          signedByDriver: true,
-          updatedAt: expect.any(Date),
-        }),
-      });
+      expect(mocks.driverJournalUpdate).toHaveBeenCalledOnce();
+      const callArg = mocks.driverJournalUpdate.mock.calls[0][0];
+      expect(callArg.where).toEqual({ id: 'journal-1' });
+      expect(callArg.data.status).toBe('COMPLETED');
+      expect(callArg.data.odometerEndKm).toBe(10150);
+      expect(callArg.data.updatedAt).toBeInstanceOf(Date);
+      expect(callArg.data.updatedAt.getTime()).toBeGreaterThanOrEqual(before.getTime());
+      expect(callArg.data.updatedAt.getTime()).toBeLessThanOrEqual(after.getTime());
+      expect(result).toEqual(updated);
     });
 
-    it('supports updating odometerEndKm and endedAt', async () => {
-      const partial = { odometerEndKm: 10500, endedAt: new Date('2024-07-01T15:00:00Z') };
-      driverJournalMock.update.mockResolvedValue({ id: 'dj-end' });
+    it('updates signature fields for driver sign-off', async () => {
+      const updateData = { signedByDriver: true, driverSignatureId: 'sig-drv-1' };
+      mocks.driverJournalUpdate.mockResolvedValue({ id: 'journal-2', ...updateData });
 
-      await updateDriverJournal('dj-end', partial);
+      await updateDriverJournal('journal-2', updateData);
 
-      const call = driverJournalMock.update.mock.calls[0][0];
-      expect(call.data.odometerEndKm).toBe(10500);
+      const callArg = mocks.driverJournalUpdate.mock.calls[0][0];
+      expect(callArg.data.signedByDriver).toBe(true);
+      expect(callArg.data.driverSignatureId).toBe('sig-drv-1');
     });
   });
 
-  // ── listJournalsForBooking ─────────────────────────────────────────────────
-
   describe('listJournalsForBooking', () => {
-    it('calls findMany with bookingId filter and ascending startedAt order', async () => {
-      driverJournalMock.findMany.mockResolvedValue([]);
+    it('returns journals ordered by startedAt asc', async () => {
+      const journals = [
+        { id: 'j1', bookingId: 'booking-1', startedAt: new Date('2024-04-01') },
+        { id: 'j2', bookingId: 'booking-1', startedAt: new Date('2024-04-02') },
+      ];
+      mocks.driverJournalFindMany.mockResolvedValue(journals);
 
-      await listJournalsForBooking('bk-list');
+      const result = await listJournalsForBooking('booking-1');
 
-      expect(driverJournalMock.findMany).toHaveBeenCalledWith({
-        where: { bookingId: 'bk-list' },
+      expect(mocks.driverJournalFindMany).toHaveBeenCalledWith({
+        where: { bookingId: 'booking-1' },
         orderBy: { startedAt: 'asc' },
       });
+      expect(result).toEqual(journals);
     });
 
-    it('returns sorted journals', async () => {
-      const journals = [{ id: 'j1' }, { id: 'j2' }];
-      driverJournalMock.findMany.mockResolvedValue(journals);
+    it('returns empty array when booking has no journals', async () => {
+      mocks.driverJournalFindMany.mockResolvedValue([]);
 
-      const result = await listJournalsForBooking('bk-j');
-      expect(result).toEqual(journals);
+      const result = await listJournalsForBooking('booking-empty');
+
+      expect(result).toEqual([]);
+    });
+  });
+
+  describe('error handling and edge cases', () => {
+    it('propagates database errors during booking creation', async () => {
+      mocks.transportBookingCreate.mockRejectedValue(new Error('constraint violation'));
+
+      await expect(
+        createTransportBooking({
+          quoteId: 'quote-fail',
+          provider: 'TransCo',
+          status: 'PENDING',
+          receiverId: 'recv-1',
+          receiverName: 'Receiver AB',
+          wasteCode: 'EWC-01',
+          tons: 5.0,
+          distanceKm: 120,
+          co2EstimateKg: 60,
+          plannedPickupAt: new Date(),
+          plannedDeliveryAt: new Date(),
+        }),
+      ).rejects.toThrow('constraint violation');
+    });
+
+    it('propagates database errors during booking retrieval', async () => {
+      mocks.transportBookingFindUnique.mockRejectedValue(new Error('query timeout'));
+
+      await expect(getTransportBooking('booking-1')).rejects.toThrow('query timeout');
+    });
+
+    it('propagates database errors during status update', async () => {
+      mocks.transportBookingUpdate.mockRejectedValue(new Error('update failed'));
+
+      await expect(updateTransportBookingStatus('booking-1', 'COMPLETED')).rejects.toThrow('update failed');
+    });
+
+    it('propagates database errors during journal creation', async () => {
+      mocks.driverJournalCreate.mockRejectedValue(new Error('creation failed'));
+
+      await expect(
+        createDriverJournal({
+          bookingId: 'booking-1',
+          driverName: 'Test Driver',
+          vehicleId: 'vehicle-1',
+          origin: 'Stockholm',
+          destination: 'Göteborg',
+          wasteCode: 'EWC-01',
+          tons: 5.0,
+          startedAt: new Date(),
+          odometerStartKm: 1000,
+          status: 'IN_PROGRESS',
+        }),
+      ).rejects.toThrow('creation failed');
+    });
+
+    it('propagates database errors during journal update', async () => {
+      mocks.driverJournalUpdate.mockRejectedValue(new Error('update error'));
+
+      await expect(updateDriverJournal('journal-1', { status: 'COMPLETED' })).rejects.toThrow('update error');
+    });
+
+    it('propagates database errors during journal listing', async () => {
+      mocks.driverJournalFindMany.mockRejectedValue(new Error('list error'));
+
+      await expect(listJournalsForBooking('booking-1')).rejects.toThrow('list error');
+    });
+
+    it('handles empty string booking IDs', async () => {
+      mocks.driverJournalFindMany.mockResolvedValue([]);
+
+      const result = await listJournalsForBooking('');
+
+      expect(result).toEqual([]);
+    });
+
+    it('handles very large odometer readings', async () => {
+      mocks.driverJournalUpdate.mockResolvedValue({
+        id: 'journal-1',
+        odometerStartKm: 999999999,
+        odometerEndKm: 999999999,
+      });
+
+      await updateDriverJournal('journal-1', {
+        odometerEndKm: 999999999,
+      });
+
+      expect(mocks.driverJournalUpdate).toHaveBeenCalled();
+    });
+
+    it('handles very small or negative ton values', async () => {
+      mocks.driverJournalCreate.mockResolvedValue({
+        id: 'journal-micro',
+        tons: 0.001,
+      });
+
+      await createDriverJournal({
+        bookingId: 'booking-1',
+        driverName: 'Test',
+        vehicleId: 'v-1',
+        origin: 'A',
+        destination: 'B',
+        wasteCode: 'EWC-01',
+        tons: 0.001,
+        startedAt: new Date(),
+        odometerStartKm: 0,
+        status: 'IN_PROGRESS',
+      });
+
+      expect(mocks.driverJournalCreate).toHaveBeenCalled();
+    });
+
+    it('handles Swedish names and places in transport data', async () => {
+      mocks.transportBookingCreate.mockResolvedValue({
+        id: 'booking-swedish',
+        provider: 'TransportAB',
+        receiverName: 'Förpackningsåtervinning Sverige',
+      });
+
+      await createTransportBooking({
+        quoteId: 'quote-swe',
+        provider: 'TransportAB',
+        status: 'PENDING',
+        receiverId: 'recv-swe',
+        receiverName: 'Förpackningsåtervinning Sverige',
+        wasteCode: 'EWC-01',
+        tons: 5.0,
+        distanceKm: 120,
+        co2EstimateKg: 60,
+        plannedPickupAt: new Date(),
+        plannedDeliveryAt: new Date(),
+      });
+
+      expect(mocks.transportBookingCreate).toHaveBeenCalled();
+    });
+
+    it('handles special characters in provider names and locations', async () => {
+      mocks.driverJournalCreate.mockResolvedValue({
+        id: 'journal-special',
+        driverName: "O'Brien & Söhne",
+        origin: 'Saint-Étienne',
+      });
+
+      await createDriverJournal({
+        bookingId: 'booking-1',
+        driverName: "O'Brien & Söhne",
+        vehicleId: 'v-special',
+        origin: 'Saint-Étienne',
+        destination: 'Zürich',
+        wasteCode: 'EWC-01',
+        tons: 3.5,
+        startedAt: new Date(),
+        odometerStartKm: 50000,
+        status: 'IN_PROGRESS',
+      });
+
+      expect(mocks.driverJournalCreate).toHaveBeenCalled();
+    });
+
+    it('handles very long journey durations', async () => {
+      const start = new Date('2024-01-01T00:00:00');
+      const end = new Date('2024-12-31T23:59:59');
+
+      mocks.driverJournalCreate.mockResolvedValue({
+        id: 'journal-long',
+        startedAt: start,
+        endedAt: end,
+      });
+
+      await createDriverJournal({
+        bookingId: 'booking-1',
+        driverName: 'Marathon Driver',
+        vehicleId: 'v-endurance',
+        origin: 'Start',
+        destination: 'End',
+        wasteCode: 'EWC-01',
+        tons: 10.0,
+        startedAt: start,
+        endedAt: end,
+        odometerStartKm: 0,
+        odometerEndKm: 50000,
+        status: 'COMPLETED',
+      });
+
+      expect(mocks.driverJournalCreate).toHaveBeenCalled();
     });
   });
 });

@@ -58,6 +58,14 @@ describe('geo.routes', () => {
     mocks.getTerrainData.mockResolvedValue({ points: [], resolution: 32, source: 'synthetic' });
   });
 
+  it('rejects unauthenticated requests for both endpoints', async () => {
+    const markcover = await request(app).get('/api/geo/markcover?bbox=15.2,60.1,15.4,60.3');
+    expect(markcover.status).toBe(401);
+
+    const terrain = await request(app).get('/api/geo/terrain?bbox=15.2,60.1,15.4,60.3');
+    expect(terrain.status).toBe(401);
+  });
+
   it('rejects invalid bbox values for mark cover requests', async () => {
     mocks.parseBbox.mockReturnValueOnce(null);
 
@@ -119,5 +127,21 @@ describe('geo.routes', () => {
 
     expect(failed.status).toBe(400);
     expect(String(failed.body?.error || '')).toBe('An error occurred processing your request');
+  });
+
+  it('rejects invalid bbox for terrain and surfaces terrain service failures', async () => {
+    mocks.parseBbox.mockReturnValueOnce(null);
+
+    const badTerrain = await request(app).get('/api/geo/terrain?bbox=bad').set('Authorization', authHeader());
+
+    expect(badTerrain.status).toBe(400);
+    expect(String(badTerrain.body?.error || '')).toMatch(/bbox/i);
+
+    mocks.getTerrainData.mockRejectedValueOnce(new Error('terrain DEM unavailable'));
+    const failed = await request(app)
+      .get('/api/geo/terrain?bbox=15.2,60.1,15.4,60.3')
+      .set('Authorization', authHeader());
+
+    expect(failed.status).toBe(400);
   });
 });

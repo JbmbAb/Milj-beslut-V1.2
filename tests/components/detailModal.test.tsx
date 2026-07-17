@@ -1,6 +1,6 @@
 import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import DetailModal from '../../components/DetailModal';
 import { DecisionType } from '../../types';
 import type { Permit } from '../../types';
@@ -13,7 +13,7 @@ vi.mock('../../services/geminiService', () => ({
 import { analyzePermitRisk, chatWithPermit } from '../../services/geminiService';
 
 const mockPermit: Permit = {
-  id: 1,
+  id: '1',
   filename: 'beslut_2024_001.pdf',
   checksum: 'abc123def456',
   received_date: '2024-01-15',
@@ -32,6 +32,31 @@ const mockPermit: Permit = {
 const user = userEvent.setup({ delay: null });
 
 describe('DetailModal', () => {
+  beforeEach(() => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn((input, init) => {
+        const method = init?.method ?? 'GET';
+        if (String(input).includes('/notes') && method === 'POST') {
+          return Promise.resolve({
+            ok: true,
+            json: async () => ({
+              id: 'saved-note-1',
+              text: JSON.parse(String(init?.body ?? '{}')).text,
+              author: 'Jag',
+              timestamp: '2026-04-02T12:00:00.000Z',
+            }),
+          });
+        }
+
+        return Promise.resolve({
+          ok: true,
+          json: async () => [],
+        });
+      }),
+    );
+  });
+
   afterEach(() => {
     vi.restoreAllMocks();
   });

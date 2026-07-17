@@ -33,7 +33,7 @@ function filenameFromDisposition(header: string | null, fallback: string): strin
 async function fetchProjectDocumentBlob(
   path: string,
   token: string,
-  fallbackFilename: string
+  fallbackFilename: string,
 ): Promise<{ blob: Blob; filename: string }> {
   const response = await fetch(path, {
     method: 'GET',
@@ -78,7 +78,7 @@ export async function openProjectDocument(input: OpenProjectDocumentInput): Prom
   const { blob, filename } = await fetchProjectDocumentBlob(
     `/api/documents/${encodeURIComponent(documentId)}/view`,
     token,
-    input.filename || 'document'
+    input.filename || 'document',
   );
 
   const blobUrl = window.URL.createObjectURL(blob);
@@ -110,7 +110,7 @@ export async function downloadProjectDocument(input: DownloadProjectDocumentInpu
   const { blob, filename } = await fetchProjectDocumentBlob(
     `/api/documents/${encodeURIComponent(documentId)}/download`,
     token,
-    input.filename || 'document'
+    input.filename || 'document',
   );
 
   const blobUrl = window.URL.createObjectURL(blob);
@@ -132,7 +132,9 @@ export interface DeleteProjectDocumentResult {
   fileDeleted: boolean;
 }
 
-export async function deleteProjectDocument(input: DeleteProjectDocumentInput): Promise<DeleteProjectDocumentResult> {
+export async function deleteProjectDocument(
+  input: DeleteProjectDocumentInput,
+): Promise<DeleteProjectDocumentResult> {
   const documentId = String(input.documentId || '').trim();
   const token = String(input.token || '').trim();
 

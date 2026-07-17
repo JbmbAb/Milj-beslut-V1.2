@@ -1,13 +1,24 @@
-import { prisma } from "../db/prisma";
-import type { AdminDatabaseDumpResponse, AdminExamSummary, AppCompletionResponse, AppStatusResponse, DbAnalysisResponse, DbContentsResponse, DbStatsResponse, ExternalHealthReport, ProjectStageGate } from "../../types";
-import { getPublicDatasourceSummary } from "../services/publicUiService";
-import { getAppCompletion as computeAppCompletion } from "../services/completionService";
-import { getExternalHealthReport } from "../services/externalHealthService";
+import { prisma } from '../db/prisma';
+import type {
+  AdminDatabaseDumpResponse,
+  AdminDashboardSummary,
+  AppCompletionResponse,
+  AppStatusResponse,
+  DbAnalysisResponse,
+  DbContentsResponse,
+  DbStatsResponse,
+  ExternalHealthReport,
+  ProjectStageGate,
+} from '../../types';
+import { getPublicDatasourceSummary } from '../services/publicUiService';
+import { getAppCompletion as computeAppCompletion } from '../services/completionService';
+import { getOperationalCoverage } from '../services/operationalCoverageService';
+import { getExternalHealthReport } from '../services/externalHealthService';
 
-const db = prisma as any;
+const db = prisma;
 
 function isGate(value: unknown): value is ProjectStageGate {
-  if (!value || typeof value !== "object") return false;
+  if (!value || typeof value !== 'object') return false;
   const candidate = value as Partial<ProjectStageGate>;
   return Boolean(candidate.type) && Boolean(candidate.status);
 }
@@ -20,7 +31,24 @@ function asRounded(value: number): number {
   return Number(value.toFixed(1));
 }
 
-export async function getAdminExamSummary(): Promise<AdminExamSummary> {
+function resolveExtractedRequirementMunicipality(row: {
+  municipality?: string | null;
+  attachment?: {
+    document?: {
+      municipalityNormalized?: string | null;
+      municipality?: string | null;
+    } | null;
+  } | null;
+}): string {
+  return (
+    row.attachment?.document?.municipalityNormalized ??
+    row.attachment?.document?.municipality ??
+    row.municipality ??
+    '(okänd)'
+  );
+}
+
+export async function getAdminDashboardSummary(): Promise<AdminDashboardSummary> {
   const [
     organisationCount,
     userCount,
@@ -40,25 +68,25 @@ export async function getAdminExamSummary(): Promise<AdminExamSummary> {
     db.organisation.count(),
     db.user.count(),
     db.project.count(),
-    db.project.count({ where: { status: "ACTIVE" } }),
+    db.project.count({ where: { status: 'ACTIVE' } }),
     db.documentRecord.findMany({
       select: { projectId: true },
-      distinct: ["projectId"],
+      distinct: ['projectId'],
     }),
     db.documentRecord.count(),
     db.searchQueryLog.count(),
     db.auditTrail.count(),
     db.projectPlanState.count(),
     db.documentRecord.groupBy({
-      by: ["status"],
+      by: ['status'],
       _count: { _all: true },
     }),
     db.searchJob.groupBy({
-      by: ["status"],
+      by: ['status'],
       _count: { _all: true },
     }),
     db.searchJob.groupBy({
-      by: ["type"],
+      by: ['type'],
       _count: { _all: true },
     }),
     db.searchQueryLog.aggregate({
@@ -95,12 +123,19 @@ export async function getAdminExamSummary(): Promise<AdminExamSummary> {
   let taxonomyEligibleProjects = 0;
   let taxonomyAlignedProjects = 0;
 
+  // Constants for readiness score calculation
+  const GATE_PASS_RATE_WEIGHT = 45;
+  const VERIFIED_DOC_RATIO_WEIGHT = 25;
+  const CARBON_READY_PENALTY = 10;
+  const DOCUMENT_GATE_PENALTY = 10;
+  const BLOCKED_GATES_PENALTY = 10;
+
   for (const row of planStates) {
     const plan = row.plan as Record<string, unknown> | null;
-    if (!plan || typeof plan !== "object") continue;
+    if (!plan || typeof plan !== 'object') continue;
     bankAssessedProjects += 1;
 
-    const templateId = typeof plan.templateId === "string" ? plan.templateId : "";
+    const templateId = typeof plan.templateId === 'string' ? plan.templateId : '';
     if (templateId) {
       projectsWithTemplate += 1;
       templateUsage.set(templateId, (templateUsage.get(templateId) || 0) + 1);
@@ -113,18 +148,18 @@ export async function getAdminExamSummary(): Promise<AdminExamSummary> {
       if (!gateCandidate.required) continue;
       requiredStageGates.push(gateCandidate);
       gatesRequired += 1;
-      if (gateCandidate.status === "PASSED") gatesPassed += 1;
-      if (gateCandidate.status === "BLOCKED") gatesBlocked += 1;
+      if (gateCandidate.status === 'PASSED') gatesPassed += 1;
+      if (gateCandidate.status === 'BLOCKED') gatesBlocked += 1;
     }
     const requiredCount = requiredStageGates.length;
-    const passedCount = requiredStageGates.filter((gate) => gate.status === "PASSED").length;
-    const blockedCount = requiredStageGates.filter((gate) => gate.status === "BLOCKED").length;
+    const passedCount = requiredStageGates.filter((gate) => gate.status === 'PASSED').length;
+    const blockedCount = requiredStageGates.filter((gate) => gate.status === 'BLOCKED').length;
     const gatePassRate = requiredCount > 0 ? passedCount / requiredCount : 0;
 
     const archive = Array.isArray(plan.documentArchive) ? plan.documentArchive : [];
     const verifiedArchive = archive.filter((doc) => {
-      if (!doc || typeof doc !== "object") return false;
-      return String((doc as Record<string, unknown>).status || "").toUpperCase() === "VERIFIED";
+      if (!doc || typeof doc !== 'object') return false;
+      return String((doc as Record<string, unknown>).status || '').toUpperCase() === 'VERIFIED';
     });
     const archiveCount = archive.length;
     const verifiedArchiveCount = verifiedArchive.length;
@@ -138,16 +173,16 @@ export async function getAdminExamSummary(): Promise<AdminExamSummary> {
       carbonReadyProjects += 1;
     }
 
-    const documentControlGate = requiredStageGates.find((gate) => gate.type === "DOCUMENT_CONTROL");
-    const documentGatePassed = Boolean(documentControlGate && documentControlGate.status === "PASSED");
+    const documentControlGate = requiredStageGates.find((gate) => gate.type === 'DOCUMENT_CONTROL');
+    const documentGatePassed = Boolean(documentControlGate && documentControlGate.status === 'PASSED');
     const noBlockedRequiredGates = blockedCount === 0;
 
     let readinessScore = 100;
-    readinessScore -= (1 - gatePassRate) * 45;
-    readinessScore -= (1 - verifiedDocRatio) * 25;
-    if (!carbonReady) readinessScore -= 10;
-    if (!documentGatePassed) readinessScore -= 10;
-    if (!noBlockedRequiredGates) readinessScore -= 10;
+    readinessScore -= (1 - gatePassRate) * GATE_PASS_RATE_WEIGHT;
+    readinessScore -= (1 - verifiedDocRatio) * VERIFIED_DOC_RATIO_WEIGHT;
+    if (!carbonReady) readinessScore -= CARBON_READY_PENALTY;
+    if (!documentGatePassed) readinessScore -= DOCUMENT_GATE_PENALTY;
+    if (!noBlockedRequiredGates) readinessScore -= BLOCKED_GATES_PENALTY;
     const boundedReadiness = clampScore(readinessScore);
     bankReadinessSum += boundedReadiness;
 
@@ -198,7 +233,9 @@ export async function getAdminExamSummary(): Promise<AdminExamSummary> {
     searchPerformance: {
       avgElapsedMs: Number(searchAggregate?._avg?.elapsedMs || 0),
       avgResults: Number(searchAggregate?._avg?.resultCount || 0),
-      latestQueryAt: searchAggregate?._max?.createdAt ? new Date(searchAggregate._max.createdAt).toISOString() : null,
+      latestQueryAt: searchAggregate?._max?.createdAt
+        ? new Date(searchAggregate._max.createdAt).toISOString()
+        : null,
     },
     planning: {
       projectsWithTemplate,
@@ -208,7 +245,7 @@ export async function getAdminExamSummary(): Promise<AdminExamSummary> {
       carbonReadyProjects,
     },
     bankRisk: {
-      modelVersion: "bank-risk-v1",
+      modelVersion: 'bank-risk-v1',
       assessedProjects: bankAssessedProjects,
       averageReadinessScore: asRounded(averageReadinessScore),
       gatePassRatePct: asRounded(gatePassRatePct),
@@ -220,7 +257,7 @@ export async function getAdminExamSummary(): Promise<AdminExamSummary> {
       },
     },
     euTaxonomy: {
-      modelVersion: "eu-taxonomy-screen-v1",
+      modelVersion: 'eu-taxonomy-screen-v1',
       eligibleProjects: taxonomyEligibleProjects,
       alignedProjects: taxonomyAlignedProjects,
       alignmentPct: asRounded(taxonomyAlignmentPct),
@@ -237,21 +274,28 @@ export async function getAdminExamSummary(): Promise<AdminExamSummary> {
   };
 }
 
+export async function getAdminExamSummary(): Promise<AdminDashboardSummary> {
+  return getAdminDashboardSummary();
+}
+
 function toJsonSafe<T>(value: T): T {
   return JSON.parse(
-    JSON.stringify(value, (_key, currentValue) => (typeof currentValue === "bigint" ? String(currentValue) : currentValue))
+    JSON.stringify(value, (_key, currentValue) =>
+      typeof currentValue === 'bigint' ? String(currentValue) : currentValue,
+    ),
   ) as T;
 }
 
-function normalizeLimit(limitPerTable?: number): number | undefined {
+function normalizeLimit(limitPerTable?: number): number {
+  const SAFE_MAX_LIMIT = 5000; // Förhindrar OOM-krascher genom att aldrig tillåta obegränsade in-memory dumps
   if (!Number.isFinite(Number(limitPerTable))) {
-    return undefined;
+    return SAFE_MAX_LIMIT;
   }
   const normalized = Number(limitPerTable);
   if (normalized <= 0) {
-    return undefined;
+    return SAFE_MAX_LIMIT;
   }
-  return Math.min(Math.floor(normalized), 100_000);
+  return Math.min(Math.floor(normalized), SAFE_MAX_LIMIT);
 }
 
 export async function getAdminDatabaseDump(input?: {
@@ -263,76 +307,88 @@ export async function getAdminDatabaseDump(input?: {
   const includeSearchText = input?.includeSearchText !== false;
   const includeChunkText = input?.includeChunkText !== false;
 
-  const [organisations, users, projects, projectMembers, propertyAccessLogs, auditTrail, projectPlanStates, documentRecords, documentContents, documentChunks, searchJobs, searchQueryLogs] =
-    await Promise.all([
-      db.organisation.findMany({
-        ...(take ? { take } : {}),
-        orderBy: { createdAt: "desc" },
-      }),
-      db.user.findMany({
-        ...(take ? { take } : {}),
-        orderBy: { createdAt: "desc" },
-      }),
-      db.project.findMany({
-        ...(take ? { take } : {}),
-        orderBy: { createdAt: "desc" },
-      }),
-      db.projectMember.findMany({
-        ...(take ? { take } : {}),
-        orderBy: { createdAt: "desc" },
-      }),
-      db.propertyAccessLog.findMany({
-        ...(take ? { take } : {}),
-        orderBy: { timestamp: "desc" },
-      }),
-      db.auditTrail.findMany({
-        ...(take ? { take } : {}),
-        orderBy: { timestamp: "desc" },
-      }),
-      db.projectPlanState.findMany({
-        ...(take ? { take } : {}),
-        orderBy: { updatedAt: "desc" },
-      }),
-      db.documentRecord.findMany({
-        ...(take ? { take } : {}),
-        orderBy: { updatedAt: "desc" },
-      }),
-      db.documentContent.findMany({
-        ...(take ? { take } : {}),
-        orderBy: { updatedAt: "desc" },
-        select: {
-          id: true,
-          documentId: true,
-          contentCiphertext: true,
-          contentIv: true,
-          contentTag: true,
-          keyVersion: true,
-          ...(includeSearchText ? { searchText: true } : {}),
-          createdAt: true,
-          updatedAt: true,
-        },
-      }),
-      db.documentChunk.findMany({
-        ...(take ? { take } : {}),
-        orderBy: [{ documentId: "asc" }, { chunkIndex: "asc" }],
-        select: {
-          id: true,
-          documentId: true,
-          chunkIndex: true,
-          ...(includeChunkText ? { chunkText: true } : {}),
-          embeddingJson: true,
-          createdAt: true,
-        },
-      }),
-      db.searchJob.findMany({
-        ...(take ? { take } : {}),
-        orderBy: { createdAt: "desc" },
-      }),
-      db.searchQueryLog.findMany({
-        ...(take ? { take } : {}),
-        orderBy: { createdAt: "desc" },
-      }),
-    ]);
+  const [
+    organisations,
+    users,
+    projects,
+    projectMembers,
+    propertyAccessLogs,
+    auditTrail,
+    projectPlanStates,
+    documentRecords,
+    documentContents,
+    documentChunks,
+    searchJobs,
+    searchQueryLogs,
+  ] = await Promise.all([
+    db.organisation.findMany({
+      ...(take ? { take } : {}),
+      orderBy: { createdAt: 'desc' },
+    }),
+    db.user.findMany({
+      ...(take ? { take } : {}),
+      orderBy: { createdAt: 'desc' },
+    }),
+    db.project.findMany({
+      ...(take ? { take } : {}),
+      orderBy: { createdAt: 'desc' },
+    }),
+    db.projectMember.findMany({
+      ...(take ? { take } : {}),
+      orderBy: { createdAt: 'desc' },
+    }),
+    db.propertyAccessLog.findMany({
+      ...(take ? { take } : {}),
+      orderBy: { timestamp: 'desc' },
+    }),
+    db.auditTrail.findMany({
+      ...(take ? { take } : {}),
+      orderBy: { timestamp: 'desc' },
+    }),
+    db.projectPlanState.findMany({
+      ...(take ? { take } : {}),
+      orderBy: { updatedAt: 'desc' },
+    }),
+    db.documentRecord.findMany({
+      ...(take ? { take } : {}),
+      orderBy: { updatedAt: 'desc' },
+    }),
+    db.documentContent.findMany({
+      ...(take ? { take } : {}),
+      orderBy: { updatedAt: 'desc' },
+      select: {
+        id: true,
+        documentId: true,
+        contentCiphertext: true,
+        contentIv: true,
+        contentTag: true,
+        keyVersion: true,
+        ...(includeSearchText ? { searchText: true } : {}),
+        createdAt: true,
+        updatedAt: true,
+      },
+    }),
+    db.documentChunk.findMany({
+      ...(take ? { take } : {}),
+      orderBy: [{ documentId: 'asc' }, { chunkIndex: 'asc' }],
+      select: {
+        id: true,
+        documentId: true,
+        chunkIndex: true,
+        ...(includeChunkText ? { chunkText: true } : {}),
+        embeddingJson: true,
+        createdAt: true,
+      },
+    }),
+    db.searchJob.findMany({
+      ...(take ? { take } : {}),
+      orderBy: { createdAt: 'desc' },
+    }),
+    db.searchQueryLog.findMany({
+      ...(take ? { take } : {}),
+      orderBy: { createdAt: 'desc' },
+    }),
+  ]);
 
   const tables: Record<string, unknown[]> = toJsonSafe({
     organisations,
@@ -360,9 +416,9 @@ export async function getAdminDatabaseDump(input?: {
 
 // ─── Threshold constants ─────────────────────────────────────────────────────
 // Can be overridden via environment variables at deploy time.
-const MIN_REQUIREMENTS   = Number(process.env.DB_STATS_MIN_REQUIREMENTS   ?? 41_000);
+const MIN_REQUIREMENTS = Number(process.env.DB_STATS_MIN_REQUIREMENTS ?? 41_000);
 const MIN_MUNICIPALITIES = Number(process.env.DB_STATS_MIN_MUNICIPALITIES ?? 260);
-const MIN_DOCUMENTS      = Number(process.env.DB_STATS_MIN_DOCUMENTS      ?? 3_000);
+const MIN_DOCUMENTS = Number(process.env.DB_STATS_MIN_DOCUMENTS ?? 3_000);
 
 export async function getDbStats(): Promise<DbStatsResponse> {
   const [
@@ -371,7 +427,13 @@ export async function getDbStats(): Promise<DbStatsResponse> {
     totalRequirementsExtracted,
     documentsByMunicipality,
     requirementCaseRows,
-    extractedMunicipalityRows,
+    extractedRequirementRows,
+    lmMarkRows,
+    lmByggnadRows,
+    sguSoilTypeRows,
+    sguBlockighetRows,
+    sguPunktobjektRows,
+    partitionRows,
   ] = await Promise.all([
     // Documents
     db.documentRecord.count(),
@@ -384,9 +446,8 @@ export async function getDbStats(): Promise<DbStatsResponse> {
 
     // Documents grouped by normalised municipality
     db.documentRecord.groupBy({
-      by: ["municipalityNormalized"],
+      by: ['municipalityNormalized'],
       _count: { _all: true },
-      orderBy: { _count: { _all: "desc" } },
     }),
 
     // Requirements → municipality via their case
@@ -398,18 +459,66 @@ export async function getDbStats(): Promise<DbStatsResponse> {
       },
     }),
 
-    // Distinct municipalities from the extraction pipeline
+    // Resolve municipalities from either the extracted row itself or the linked document.
     db.extractedRequirement.findMany({
-      where: { municipality: { not: null } },
-      select: { municipality: true },
-      distinct: ["municipality"],
+      select: {
+        municipality: true,
+        attachment: {
+          select: {
+            document: {
+              select: {
+                municipalityNormalized: true,
+                municipality: true,
+              },
+            },
+          },
+        },
+      },
     }),
+
+    // Raw Geodata Counts (LM & SGU)
+    db.$queryRaw<any[]>`SELECT count(*)::int as count FROM public.env_lm_marktacke`.catch(() => [{ count: 0 }]),
+    db.$queryRaw<any[]>`SELECT count(*)::int as count FROM core.property_unit`.catch(() => [{ count: 0 }]),
+    db.$queryRaw<any[]>`SELECT count(*)::int as count FROM env.env_sgu_jordarter`.catch(() => [{ count: 0 }]),
+    db.$queryRaw<any[]>`SELECT count(*)::int as count FROM env.env_sgu_grundvatten_sarbarhet`.catch(() => [{ count: 0 }]),
+    db.$queryRaw<any[]>`SELECT count(*)::int as count FROM public.env_viss_vattenforekomster`.catch(() => [{ count: 0 }]),
+
+    // Partition Stats (PostgreSQL specific metadata)
+    db.$queryRaw<any[]>`
+      SELECT
+          nmsp_parent.nspname AS schema_name,
+          rel_parent.relname AS table_name,
+          rel_child.relname AS partition_name,
+          pg_get_partkeydef(rel_parent.oid) AS partition_key,
+          reltuples::bigint AS row_count,
+          pg_total_relation_size(rel_child.oid) AS size_bytes
+      FROM pg_inherits
+      JOIN pg_class rel_parent ON pg_inherits.inhparent = rel_parent.oid
+      JOIN pg_class rel_child ON pg_inherits.inhrelid = rel_child.oid
+      JOIN pg_namespace nmsp_parent ON nmsp_parent.oid = rel_parent.relnamespace
+      WHERE rel_parent.relkind = 'p'
+      ORDER BY table_name, partition_name;
+    `.catch(() => []),
   ]);
+
+  const lmMarkCount = Number(lmMarkRows?.[0]?.count ?? 0);
+  const lmByggnadCount = Number(lmByggnadRows?.[0]?.count ?? 0);
+  const sguJordarterCount = Number(sguSoilTypeRows?.[0]?.count ?? 0);
+  const sguBlockighetCount = Number(sguBlockighetRows?.[0]?.count ?? 0);
+  const sguPunktobjektCount = Number(sguPunktobjektRows?.[0]?.count ?? 0);
+
+  const partitions = partitionRows.map((row) => ({
+    tableName: row.table_name,
+    partitionName: row.partition_name,
+    partitionKey: row.partition_key,
+    rowCount: Number(row.row_count),
+    sizeBytes: Number(row.size_bytes),
+  }));
 
   // ── Build per-municipality document counts ───────────────────────────────
   const docMap = new Map<string, number>();
   for (const row of documentsByMunicipality) {
-    const key: string = (row.municipalityNormalized as string | null) ?? "(okänd)";
+    const key: string = (row.municipalityNormalized as string | null) ?? '(okänd)';
     docMap.set(key, Number(row._count._all));
   }
 
@@ -417,28 +526,22 @@ export async function getDbStats(): Promise<DbStatsResponse> {
   const reqMap = new Map<string, number>();
   // From RequirementRecord (via case)
   for (const row of requirementCaseRows) {
-    const mun: string = (row.case?.municipality as string | null) ?? "(okänd)";
+    const mun: string = (row.case?.municipality as string | null) ?? '(okänd)';
     reqMap.set(mun, (reqMap.get(mun) ?? 0) + 1);
   }
-  // From ExtractedRequirement – only municipality names are used to enrich the
-  // municipality set.  Per-municipality requirement counts are not incremented here
-  // because ExtractedRequirement has no documentId-based join to DocumentRecord yet.
-  // TODO: once the pipeline links ExtractedRequirement rows to DocumentRecord, add
-  //       per-municipality counts from this source as well.
-  const extractedMunicipalities = new Set<string>(
-    extractedMunicipalityRows
-      .map((r: { municipality: string | null }) => r.municipality)
-      .filter((m): m is string => Boolean(m))
-  );
+  // From ExtractedRequirement – count against the same municipality view as documents
+  // by preferring the linked document's normalized municipality when available.
+  const extractedMunicipalities = new Set<string>();
+  for (const row of extractedRequirementRows) {
+    const municipality = resolveExtractedRequirementMunicipality(row);
+    extractedMunicipalities.add(municipality);
+    reqMap.set(municipality, (reqMap.get(municipality) ?? 0) + 1);
+  }
 
   // ── Combine municipality sets ────────────────────────────────────────────
-  const allMunicipalities = new Set<string>([
-    ...docMap.keys(),
-    ...reqMap.keys(),
-    ...extractedMunicipalities,
-  ]);
+  const allMunicipalities = new Set<string>([...docMap.keys(), ...reqMap.keys(), ...extractedMunicipalities]);
 
-  const perMunicipality: DbStatsResponse["perMunicipality"] = Array.from(allMunicipalities)
+  const perMunicipality: DbStatsResponse['perMunicipality'] = Array.from(allMunicipalities)
     .map((mun) => ({
       municipality: mun,
       documents: docMap.get(mun) ?? 0,
@@ -446,13 +549,13 @@ export async function getDbStats(): Promise<DbStatsResponse> {
     }))
     .sort((a, b) => b.documents + b.requirements - (a.documents + a.requirements));
 
-  const totalMunicipalities = perMunicipality.filter((r) => r.municipality !== "(okänd)").length;
+  const totalMunicipalities = perMunicipality.filter((r) => r.municipality !== '(okänd)').length;
   const totalRequirements = totalRequirementsFromCases + totalRequirementsExtracted;
 
   // ── Threshold validation ─────────────────────────────────────────────────
-  const requirementsOk   = totalRequirements   >= MIN_REQUIREMENTS;
+  const requirementsOk = totalRequirements >= MIN_REQUIREMENTS;
   const municipalitiesOk = totalMunicipalities >= MIN_MUNICIPALITIES;
-  const documentsOk      = totalDocuments      >= MIN_DOCUMENTS;
+  const documentsOk = totalDocuments >= MIN_DOCUMENTS;
 
   return {
     generatedAt: new Date().toISOString(),
@@ -464,15 +567,22 @@ export async function getDbStats(): Promise<DbStatsResponse> {
       municipalities: totalMunicipalities,
     },
     thresholds: {
-      minRequirements:   MIN_REQUIREMENTS,
+      minRequirements: MIN_REQUIREMENTS,
       minMunicipalities: MIN_MUNICIPALITIES,
-      minDocuments:      MIN_DOCUMENTS,
+      minDocuments: MIN_DOCUMENTS,
       requirementsOk,
       municipalitiesOk,
       documentsOk,
       allOk: requirementsOk && municipalitiesOk && documentsOk,
     },
     perMunicipality,
+    geodata: {
+      lmMarkCount,
+      lmByggnadCount,
+      sguJordarterCount,
+      sguBlockighetCount,
+      sguPunktobjektCount,
+    },
   };
 }
 
@@ -496,10 +606,12 @@ export async function getDbAnalysis(): Promise<DbAnalysisResponse> {
 
     // Coverage: how many documents have at least one RequirementRecord
     docsWithReqs,
+    docsWithExtractedReqs,
 
     // Per-municipality sets for gap analysis
     docMunicipalityRows,
     reqMunicipalityRows,
+    extractedRequirementRowsForCoverage,
 
     // ExtractedRequirement analytics
     extByCategory,
@@ -507,19 +619,19 @@ export async function getDbAnalysis(): Promise<DbAnalysisResponse> {
     extConfidenceRows,
   ] = await Promise.all([
     // ── RequirementRecord analytics ────────────────────────────────────────
-    db.requirementRecord.groupBy({ by: ["category"], _count: { _all: true }, orderBy: { _count: { _all: "desc" } } }),
-    db.requirementRecord.groupBy({ by: ["codingConfidence"], _count: { _all: true }, orderBy: { _count: { _all: "desc" } } }),
-    db.requirementRecord.groupBy({ by: ["level"], _count: { _all: true }, orderBy: { _count: { _all: "desc" } } }),
-    db.requirementRecord.groupBy({ by: ["statusInNotification"], _count: { _all: true }, orderBy: { _count: { _all: "desc" } } }),
+    db.requirementRecord.groupBy({ by: ['category'], _count: { _all: true } }),
+    db.requirementRecord.groupBy({ by: ['codingConfidence'], _count: { _all: true } }),
+    db.requirementRecord.groupBy({ by: ['level'], _count: { _all: true } }),
+    db.requirementRecord.groupBy({ by: ['statusInNotification'], _count: { _all: true } }),
     db.requirementRecord.count({ where: { municipalitySpecific: true } }),
     db.requirementRecord.count({ where: { minimumRequirement: true } }),
     db.requirementCitation.count(),
-    db.requirementCitation.findMany({ select: { requirementId: true }, distinct: ["requirementId"] }),
+    db.requirementCitation.findMany({ select: { requirementId: true }, distinct: ['requirementId'] }),
 
     // ── DocumentRecord analytics ───────────────────────────────────────────
-    db.documentRecord.groupBy({ by: ["status"], _count: { _all: true }, orderBy: { _count: { _all: "desc" } } }),
-    db.documentRecord.groupBy({ by: ["decisionType"], _count: { _all: true }, orderBy: { _count: { _all: "desc" } } }),
-    db.documentRecord.groupBy({ by: ["legalStatus"], _count: { _all: true }, orderBy: { _count: { _all: "desc" } } }),
+    db.documentRecord.groupBy({ by: ['status'], _count: { _all: true } }),
+    db.documentRecord.groupBy({ by: ['decisionType'], _count: { _all: true } }),
+    db.documentRecord.groupBy({ by: ['legalStatus'], _count: { _all: true } }),
     db.documentRecord.findMany({ select: { municipalityConfidence: true } }),
 
     // ── Coverage analysis ─────────────────────────────────────────────────
@@ -527,20 +639,56 @@ export async function getDbAnalysis(): Promise<DbAnalysisResponse> {
       select: { id: true },
       where: { requirements: { some: {} } },
     }),
+    db.extractedRequirement.findMany({
+      where: {
+        attachment: {
+          document: {
+            isNot: null,
+          },
+        },
+      },
+      select: {
+        attachment: {
+          select: {
+            documentId: true,
+            document: {
+              select: {
+                municipalityNormalized: true,
+                municipality: true,
+              },
+            },
+          },
+        },
+      },
+    }),
 
     // Per-municipality for gap analysis
     db.documentRecord.findMany({
       where: { municipalityNormalized: { not: null } },
       select: { municipalityNormalized: true },
-      distinct: ["municipalityNormalized"],
+      distinct: ['municipalityNormalized'],
     }),
     db.requirementRecord.findMany({
       select: { case: { select: { municipality: true } } },
     }),
-
+    db.extractedRequirement.findMany({
+      select: {
+        municipality: true,
+        attachment: {
+          select: {
+            document: {
+              select: {
+                municipalityNormalized: true,
+                municipality: true,
+              },
+            },
+          },
+        },
+      },
+    }),
     // ── ExtractedRequirement analytics ────────────────────────────────────
-    db.extractedRequirement.groupBy({ by: ["category"], _count: { _all: true }, orderBy: { _count: { _all: "desc" } } }),
-    db.extractedRequirement.groupBy({ by: ["requirementLevel"], _count: { _all: true }, orderBy: { _count: { _all: "desc" } } }),
+    db.extractedRequirement.groupBy({ by: ['category'], _count: { _all: true } }),
+    db.extractedRequirement.groupBy({ by: ['requirementLevel'], _count: { _all: true } }),
     db.extractedRequirement.findMany({ select: { confidence: true } }),
   ]);
 
@@ -548,37 +696,64 @@ export async function getDbAnalysis(): Promise<DbAnalysisResponse> {
   const withCitationsCount = citationDistinctReqIds.length;
 
   // ── Documents – confidence buckets ──────────────────────────────────────
-  let confHigh = 0, confMedium = 0, confLow = 0, confMissing = 0;
+  let confHigh = 0,
+    confMedium = 0,
+    confLow = 0,
+    confMissing = 0;
   for (const row of docConfidenceRows) {
     const v = row.municipalityConfidence as number | null;
-    if (v === null || v === undefined) { confMissing++; }
-    else if (v >= 0.8) { confHigh++; }
-    else if (v >= 0.5) { confMedium++; }
-    else { confLow++; }
+    if (v === null || v === undefined) {
+      confMissing++;
+    } else if (v >= 0.8) {
+      confHigh++;
+    } else if (v >= 0.5) {
+      confMedium++;
+    } else {
+      confLow++;
+    }
   }
 
   // ── Coverage ─────────────────────────────────────────────────────────────
+  // Affärsrelevans: Dessa KPI:er mäter plattformens kärnvärde – förmågan att
+  // omvandla ostrukturerad data till strukturerad "Regulatorisk Intelligence".
   const totalDocuments = docConfidenceRows.length;
-  const documentsWithRequirements = docsWithReqs.length;
+  const documentsWithRequirements = new Set<string>([
+    ...docsWithReqs.map((row: { id: string }) => row.id),
+    ...docsWithExtractedReqs
+      .map((row: { attachment?: { documentId?: string | null } | null }) => row.attachment?.documentId)
+      .filter((id): id is string => Boolean(id)),
+  ]).size;
   const documentsWithoutRequirements = totalDocuments - documentsWithRequirements;
   const coverageRatioPct =
     totalDocuments > 0 ? Number(((documentsWithRequirements / totalDocuments) * 100).toFixed(1)) : 0;
   const avgRequirementsPerCoveredDocument =
     documentsWithRequirements > 0
-      ? Number((reqByCategory.reduce((s: number, r: { _count: { _all: number } }) => s + Number(r._count._all), 0) / documentsWithRequirements).toFixed(1))
+      ? Number(
+          (
+            reqByCategory.reduce(
+              (s: number, r: { category: string; _count: { _all: number } }) => s + r._count._all,
+              0,
+            ) / documentsWithRequirements
+          ).toFixed(1),
+        )
       : 0;
 
   // ── Gap analysis ─────────────────────────────────────────────────────────
+  // Identifierar "vita fläckar" i marknadspenetrationen per kommun.
   const docMuns = new Set<string>(
     docMunicipalityRows
-      .map((r: { municipalityNormalized: string | null }) => r.municipalityNormalized)
-      .filter((m: string | null): m is string => Boolean(m))
+      .filter((r): r is { municipalityNormalized: string } => Boolean(r.municipalityNormalized))
+      .map((r) => r.municipalityNormalized),
   );
   const reqMuns = new Set<string>(
     reqMunicipalityRows
-      .map((r: { case: { municipality: string | null } | null }) => r.case?.municipality)
-      .filter((m: string | null | undefined): m is string => Boolean(m))
+      .filter((r): r is { case: { municipality: string } } => Boolean(r.case?.municipality))
+      .map((r) => r.case!.municipality),
   );
+  for (const row of extractedRequirementRowsForCoverage) {
+    reqMuns.add(resolveExtractedRequirementMunicipality(row));
+  }
+  // Union av alla kommuner som nämns i antingen dokument eller krav för att hitta diskrepanser.
   const allNamedMuns = new Set<string>([...docMuns, ...reqMuns]);
   const municipalitiesWithBoth = [...allNamedMuns].filter((m) => docMuns.has(m) && reqMuns.has(m)).length;
   const municipalitiesDocumentsOnly = [...allNamedMuns]
@@ -589,31 +764,59 @@ export async function getDbAnalysis(): Promise<DbAnalysisResponse> {
     .sort();
 
   // ── ExtractedRequirement – confidence buckets ────────────────────────────
-  let extHigh = 0, extMedium = 0, extLow = 0;
+  let extHigh = 0,
+    extMedium = 0,
+    extLow = 0;
   for (const row of extConfidenceRows) {
     const v = row.confidence as number;
-    if (v >= 0.8) { extHigh++; }
-    else if (v >= 0.5) { extMedium++; }
-    else { extLow++; }
+    if (v >= 0.8) {
+      extHigh++;
+    } else if (v >= 0.5) {
+      extMedium++;
+    } else {
+      extLow++;
+    }
   }
 
   return {
     generatedAt: new Date().toISOString(),
     requirements: {
-      byCategory: reqByCategory.map((r: any) => ({ category: String(r.category), count: Number(r._count._all) })),
-      byCodingConfidence: reqByCodingConfidence.map((r: any) => ({ confidence: String(r.codingConfidence), count: Number(r._count._all) })),
-      byLevel: reqByLevel.map((r: any) => ({ level: String(r.level), count: Number(r._count._all) })),
-      byStatus: reqByStatus.map((r: any) => ({ status: String(r.statusInNotification), count: Number(r._count._all) })),
+      byCategory: reqByCategory
+        .map((r: any) => ({ category: String(r.category), count: Number(r._count._all) }))
+        .sort((a, b) => b.count - a.count),
+      byCodingConfidence: reqByCodingConfidence
+        .map((r: any) => ({ confidence: String(r.codingConfidence), count: Number(r._count._all) }))
+        .sort((a, b) => b.count - a.count),
+      byLevel: reqByLevel
+        .map((r: any) => ({ level: String(r.level), count: Number(r._count._all) }))
+        .sort((a, b) => b.count - a.count),
+      byStatus: reqByStatus
+        .map((r: any) => ({ status: String(r.statusInNotification), count: Number(r._count._all) }))
+        .sort((a, b) => b.count - a.count),
       municipalitySpecificCount,
       minimumRequirementCount,
       withCitationsCount,
       citationsTotal,
     },
     documents: {
-      byStatus: docByStatus.map((r: any) => ({ status: String(r.status), count: Number(r._count._all) })),
-      byDecisionType: docByDecisionType.map((r: any) => ({ decisionType: String(r.decisionType ?? "(okänd)"), count: Number(r._count._all) })),
-      byLegalStatus: docByLegalStatus.map((r: any) => ({ legalStatus: String(r.legalStatus ?? "(okänd)"), count: Number(r._count._all) })),
-      municipalityConfidenceBuckets: { high: confHigh, medium: confMedium, low: confLow, missing: confMissing },
+      byStatus: docByStatus
+        .map((r: any) => ({ status: String(r.status), count: Number(r._count._all) }))
+        .sort((a, b) => b.count - a.count),
+      byDecisionType: docByDecisionType
+        .map((r: any) => ({
+          decisionType: String(r.decisionType ?? '(okänd)'),
+          count: Number(r._count._all),
+        }))
+        .sort((a, b) => b.count - a.count),
+      byLegalStatus: docByLegalStatus
+        .map((r: any) => ({ legalStatus: String(r.legalStatus ?? '(okänd)'), count: Number(r._count._all) }))
+        .sort((a, b) => b.count - a.count),
+      municipalityConfidenceBuckets: {
+        high: confHigh,
+        medium: confMedium,
+        low: confLow,
+        missing: confMissing,
+      },
     },
     coverage: {
       documentsWithRequirements,
@@ -625,8 +828,12 @@ export async function getDbAnalysis(): Promise<DbAnalysisResponse> {
       municipalitiesRequirementsOnly,
     },
     extractedRequirements: {
-      byCategory: extByCategory.map((r: any) => ({ category: String(r.category), count: Number(r._count._all) })),
-      byLevel: extByLevel.map((r: any) => ({ level: String(r.requirementLevel), count: Number(r._count._all) })),
+      byCategory: extByCategory
+        .map((r: any) => ({ category: String(r.category), count: Number(r._count._all) }))
+        .sort((a, b) => b.count - a.count),
+      byLevel: extByLevel
+        .map((r: any) => ({ level: String(r.requirementLevel), count: Number(r._count._all) }))
+        .sort((a, b) => b.count - a.count),
       confidenceBuckets: { high: extHigh, medium: extMedium, low: extLow },
     },
   };
@@ -636,20 +843,28 @@ export async function getDbContents(limit = 10): Promise<DbContentsResponse> {
   const safeLimit = Math.min(Math.max(1, limit), 50);
 
   const [
-    orgTotal, orgRows,
-    projTotal, projRows,
-    docTotal, docRows,
-    caseTotal, caseRows,
-    reqTotal, reqRows,
-    extTotal, extRows,
-    emailTotal, emailRows,
-    pipeTotal, pipeRows,
+    orgTotal,
+    orgRows,
+    projTotal,
+    projRows,
+    docTotal,
+    docRows,
+    caseTotal,
+    caseRows,
+    reqTotal,
+    reqRows,
+    extTotal,
+    extRows,
+    emailTotal,
+    emailRows,
+    pipeTotal,
+    pipeRows,
   ] = await Promise.all([
     // Organisations
     db.organisation.count(),
     db.organisation.findMany({
       take: safeLimit,
-      orderBy: { createdAt: "desc" },
+      orderBy: { createdAt: 'desc' },
       select: {
         id: true,
         name: true,
@@ -663,7 +878,7 @@ export async function getDbContents(limit = 10): Promise<DbContentsResponse> {
     db.project.count(),
     db.project.findMany({
       take: safeLimit,
-      orderBy: { createdAt: "desc" },
+      orderBy: { createdAt: 'desc' },
       select: {
         id: true,
         propertyDesignation: true,
@@ -678,7 +893,7 @@ export async function getDbContents(limit = 10): Promise<DbContentsResponse> {
     db.documentRecord.count(),
     db.documentRecord.findMany({
       take: safeLimit,
-      orderBy: { createdAt: "desc" },
+      orderBy: { createdAt: 'desc' },
       select: {
         id: true,
         subject: true,
@@ -695,7 +910,7 @@ export async function getDbContents(limit = 10): Promise<DbContentsResponse> {
     db.requirementCase.count(),
     db.requirementCase.findMany({
       take: safeLimit,
-      orderBy: { createdAt: "desc" },
+      orderBy: { createdAt: 'desc' },
       select: {
         id: true,
         caseKey: true,
@@ -712,7 +927,7 @@ export async function getDbContents(limit = 10): Promise<DbContentsResponse> {
     db.requirementRecord.count(),
     db.requirementRecord.findMany({
       take: safeLimit,
-      orderBy: { createdAt: "desc" },
+      orderBy: { createdAt: 'desc' },
       select: {
         id: true,
         requirementCode: true,
@@ -730,10 +945,21 @@ export async function getDbContents(limit = 10): Promise<DbContentsResponse> {
     db.extractedRequirement.count(),
     db.extractedRequirement.findMany({
       take: safeLimit,
-      orderBy: { parsedAt: "desc" },
+      orderBy: { parsedAt: 'desc' },
       select: {
         id: true,
         municipality: true,
+        attachment: {
+          select: {
+            documentId: true,
+            document: {
+              select: {
+                municipalityNormalized: true,
+                municipality: true,
+              },
+            },
+          },
+        },
         category: true,
         subcategory: true,
         requirementLevel: true,
@@ -746,7 +972,7 @@ export async function getDbContents(limit = 10): Promise<DbContentsResponse> {
     db.emailMessage.count(),
     db.emailMessage.findMany({
       take: safeLimit,
-      orderBy: { receivedAt: "desc" },
+      orderBy: { receivedAt: 'desc' },
       select: {
         messageId: true,
         sender: true,
@@ -761,12 +987,12 @@ export async function getDbContents(limit = 10): Promise<DbContentsResponse> {
     db.pipelineRun.count(),
     db.pipelineRun.findMany({
       take: safeLimit,
-      orderBy: { startedAt: "desc" },
+      orderBy: { startedAt: 'desc' },
       select: {
-        id: true,
+        runId: true,
         status: true,
-        messagesIngested: true,
-        requirementsExtracted: true,
+        processedCount: true,
+        errorCount: true,
         startedAt: true,
         finishedAt: true,
       },
@@ -795,7 +1021,7 @@ export async function getDbContents(limit = 10): Promise<DbContentsResponse> {
         id: r.id,
         propertyDesignation: r.propertyDesignation,
         status: String(r.status),
-        organisationName: r.organisation?.name ?? "(okänd)",
+        organisationName: r.organisation?.name ?? '(okänd)',
         createdAt: r.createdAt.toISOString(),
         documentCount: r._count.documents,
         requirementCount: r._count.requirements,
@@ -849,7 +1075,8 @@ export async function getDbContents(limit = 10): Promise<DbContentsResponse> {
       total: extTotal,
       rows: extRows.map((r: any) => ({
         id: r.id,
-        municipality: r.municipality ?? null,
+        municipality: resolveExtractedRequirementMunicipality(r),
+        documentId: r.attachment?.documentId ?? null,
         category: r.category,
         subcategory: r.subcategory ?? null,
         requirementLevel: r.requirementLevel,
@@ -873,10 +1100,12 @@ export async function getDbContents(limit = 10): Promise<DbContentsResponse> {
     pipelineRuns: {
       total: pipeTotal,
       rows: pipeRows.map((r: any) => ({
-        id: r.id,
+        id: r.runId,
         status: r.status,
-        messagesIngested: r.messagesIngested ?? null,
-        requirementsExtracted: r.requirementsExtracted ?? null,
+        messagesIngested: r.processedCount ?? null,
+        // Note: 'requirementsExtracted' is not directly available in PipelineRun model.
+        // The previous mapping of 'errorCount' to 'requirementsExtracted' was semantically incorrect.
+        errors: r.errorCount ?? null, // Represents the number of errors during the pipeline run
         startedAt: r.startedAt.toISOString(),
         finishedAt: r.finishedAt ? r.finishedAt.toISOString() : null,
       })),
@@ -895,7 +1124,8 @@ export async function getAppStatus(): Promise<AppStatusResponse> {
     await db.$queryRaw`SELECT 1`;
     dbLatencyMs = Date.now() - t0;
     dbStatus = 'ok';
-  } catch {
+  } catch (e) {
+    console.error('Database health check failed:', e);
     // dbStatus stays 'error'
   }
 
@@ -913,18 +1143,16 @@ export async function getAppStatus(): Promise<AppStatusResponse> {
     dsErrors = cards.filter((c: any) => c.status === 'ERROR').length;
     dsPermitRequired = cards.filter((c: any) => c.activation === 'PERMIT_REQUIRED').length;
     const immediateCards = cards.filter((c: any) => c.activation === 'IMMEDIATE');
-    allOpenSourcesActive = immediateCards.length === 0 || immediateCards.every((c: any) => c.status === 'CONNECTED');
-  } catch {
+    allOpenSourcesActive =
+      immediateCards.length === 0 || immediateCards.every((c: any) => c.status === 'CONNECTED');
+  } catch (e) {
+    console.error('Hämtning av datakällans sammanfattning misslyckades:', e);
     // datasource summary is best-effort
   }
 
   // ── 3. Overall health ───────────────────────────────────────────────────
   const overall: 'ok' | 'degraded' | 'error' =
-    dbStatus === 'error'
-      ? 'error'
-      : !allOpenSourcesActive || dsErrors > 0
-      ? 'degraded'
-      : 'ok';
+    dbStatus === 'error' ? 'error' : !allOpenSourcesActive || dsErrors > 0 ? 'degraded' : 'ok';
 
   return {
     checkedAt,
@@ -950,7 +1178,11 @@ export async function getAppStatus(): Promise<AppStatusResponse> {
 }
 
 export async function getAppCompletion(): Promise<AppCompletionResponse> {
-  return computeAppCompletion();
+  const [base, operationalCoverage] = await Promise.all([
+    Promise.resolve(computeAppCompletion()),
+    getOperationalCoverage(),
+  ]);
+  return { ...base, operationalCoverage };
 }
 
 export async function getExternalHealth(): Promise<ExternalHealthReport> {

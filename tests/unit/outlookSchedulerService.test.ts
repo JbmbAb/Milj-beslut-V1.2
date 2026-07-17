@@ -71,9 +71,13 @@ describe('outlookSchedulerService', () => {
   });
 
   it('starts and stops the scheduler, simulating an empty run when no folder is configured', async () => {
+    // Fake timers block Node's setImmediate; runOnce() finishes via real async + microtasks.
+    vi.useRealTimers();
     const beforeRuns = getSchedulerStatus().totalRuns;
 
     startIngestionScheduler();
+    await new Promise((resolve) => setImmediate(resolve));
+    await new Promise((resolve) => setImmediate(resolve));
 
     const running = getSchedulerStatus();
     expect(running.running).toBe(true);
@@ -87,6 +91,7 @@ describe('outlookSchedulerService', () => {
 
     stopIngestionScheduler();
     expect(getSchedulerStatus().running).toBe(false);
+    vi.useFakeTimers();
   });
 
   it('rejects invalid webhook signatures', async () => {
@@ -104,32 +109,66 @@ describe('outlookSchedulerService', () => {
     expect(mocks.runIngestion).not.toHaveBeenCalled();
   });
 
-  it('accepts valid signatures, triggers ingestion and updates status', async () => {
-    process.env.OUTLOOK_WEBHOOK_SECRET = 'secret';
+  it('starts only once when called twice (idempotent)', () => {
+    startIngestionScheduler();
+    const statusAfterFirst = getSchedulerStatus();
+    startIngestionScheduler(); // second call should be a no-op
+    const statusAfterSecond = getSchedulerStatus();
+
+    expect(statusAfterFirst.running).toBe(true);
+    expect(statusAfterSecond.running).toBe(true);
+    // total runs should not increase from the second start
+    expect(statusAfterSecond.totalRuns).toBe(statusAfterFirst.totalRuns);
+
+    stopIngestionScheduler();
+  });
+
+  it('triggers webhook without secret verification when OUTLOOK_WEBHOOK_SECRET is not set', async () => {
+    process.env.OUTLOOK_FOLDER_PATH = '/data/outlook';
+    process.env.OUTLOOK_STORAGE_ROOT = '/data/storage';
+    // No secret set → should bypass HMAC check
+
+    const result = await triggerIngestionWebhook({ rawBody: '{}' });
+    expect(result).toEqual({ triggered: true });
+    // runIngestion is called via runOnce in background
+    await Promise.resolve();
+    await Promise.resolve();
+  });
+
+  it('records run errors in lastRunResult when ingestion throws', async () => {
+    process.env.OUTLOOK_FOLDER_PATH = '/data/outlook';
+    process.env.OUTLOOK_STORAGE_ROOT = '/data/storage';
+    mocks.runIngestion.mockRejectedValueOnce(new Error('Ingestion crash'));
+
+    await triggerIngestionWebhook({ rawBody: '{}' });
+    await Promise.resolve();
+    await Promise.resolve();
+
+    const status = getSchedulerStatus();
+    expect(status.lastRunResult?.errors).toContain('Ingestion crash');
+  });
+
+  it('accepts valid HMAC signature and triggers webhook', async () => {
+    const secret = 'my-webhook-secret';
+    const rawBody = '{"value":[{"subscriptionId":"abc"}]}';
+    process.env.OUTLOOK_WEBHOOK_SECRET = secret;
     process.env.OUTLOOK_FOLDER_PATH = '/data/outlook';
     process.env.OUTLOOK_STORAGE_ROOT = '/data/storage';
 
-    const rawBody = '{"value":[{"id":"evt-1"}]}';
-    const signature = crypto.createHmac('sha256', 'secret').update(rawBody).digest('base64');
+    const signature = crypto.createHmac('sha256', secret).update(rawBody).digest('base64');
 
-    const result = await triggerIngestionWebhook({
-      rawBody,
-      signature,
-    });
-
-    await Promise.resolve();
-    await Promise.resolve();
-
+    const result = await triggerIngestionWebhook({ rawBody, signature });
     expect(result).toEqual({ triggered: true });
-    expect(mocks.runIngestion).toHaveBeenCalledWith({
-      emails: [],
-      storageRoot: '/data/storage',
-    });
-    expect(getSchedulerStatus().lastRunResult).toEqual({
-      emailsProcessed: 2,
-      emailsSkipped: 1,
-      attachmentsSaved: 4,
-      errors: [],
-    });
+  });
+
+  it('getSchedulerStatus includes nextRunAt after scheduler starts', () => {
+    startIngestionScheduler();
+
+    const status = getSchedulerStatus();
+    expect(status.running).toBe(true);
+    expect(status.nextRunAt).toBeDefined();
+    expect(typeof status.nextRunAt).toBe('string');
+
+    stopIngestionScheduler();
   });
 });

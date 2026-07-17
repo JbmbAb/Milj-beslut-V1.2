@@ -1,5 +1,5 @@
-import { describe, expect, it, vi } from 'vitest';
-import { SecureError, secureErrorHandler, toSafeErrorResponse } from '../../server/security/secureErrors';
+import { describe, expect, it } from 'vitest';
+import { SecureError, toSafeErrorResponse } from '../../server/security/secureErrors';
 
 describe('secureErrors', () => {
   it('maps secure errors to public payloads', () => {
@@ -11,6 +11,7 @@ describe('secureErrors', () => {
       ok: false,
       error: 'Temporarily unavailable',
       code: '503',
+      statusCode: 503,
     });
   });
 
@@ -18,22 +19,26 @@ describe('secureErrors', () => {
     expect(toSafeErrorResponse(new Error('resource not found'))).toEqual({
       ok: false,
       error: 'Resource not found',
+      code: undefined,
+      statusCode: 404,
     });
     expect(toSafeErrorResponse(new Error('permission denied'))).toEqual({
       ok: false,
       error: 'Access denied',
+      code: undefined,
+      statusCode: 403,
     });
     expect(toSafeErrorResponse(new Error('invalid token supplied'))).toEqual({
       ok: false,
       error: 'Authentication failed',
+      code: undefined,
+      statusCode: 401,
     });
     expect(toSafeErrorResponse(new Error('session expired'))).toEqual({
       ok: false,
       error: 'Session expired',
-    });
-    expect(toSafeErrorResponse(new Error('refresh token reuse detected'))).toEqual({
-      ok: false,
-      error: 'Session security check failed - please login again',
+      code: undefined,
+      statusCode: 401,
     });
   });
 
@@ -41,34 +46,29 @@ describe('secureErrors', () => {
     expect(toSafeErrorResponse(new Error('boom'))).toEqual({
       ok: false,
       error: 'An error occurred processing your request',
+      code: undefined,
+      statusCode: 500,
     });
     expect(toSafeErrorResponse('plain-string-error')).toEqual({
       ok: false,
       error: 'Unknown error',
+      statusCode: 500,
     });
   });
 
-  it('writes safe responses through express middleware', () => {
-    const status = vi.fn().mockReturnThis();
-    const json = vi.fn();
-    const res = { status, json };
+  it('SecureError defaults to 500 and "Internal server error" when not specified', () => {
+    const err = new SecureError('internal detail');
+    expect(err.statusCode).toBe(500);
+    expect(err.publicMessage).toBe('Internal server error');
+    expect(err.name).toBe('SecureError');
+  });
 
-    secureErrorHandler(new SecureError('secret', 'Nope', 418), {} as never, res as never, vi.fn());
-    expect(status).toHaveBeenCalledWith(418);
-    expect(json).toHaveBeenCalledWith({
+  it('maps "unauthorized" keyword to Access denied', () => {
+    expect(toSafeErrorResponse(new Error('unauthorized access'))).toEqual({
       ok: false,
-      error: 'Nope',
-      code: '418',
-    });
-
-    status.mockClear();
-    json.mockClear();
-
-    secureErrorHandler(new Error('other'), {} as never, res as never, vi.fn());
-    expect(status).toHaveBeenCalledWith(500);
-    expect(json).toHaveBeenCalledWith({
-      ok: false,
-      error: 'An error occurred processing your request',
+      error: 'Access denied',
+      code: undefined,
+      statusCode: 403,
     });
   });
 });

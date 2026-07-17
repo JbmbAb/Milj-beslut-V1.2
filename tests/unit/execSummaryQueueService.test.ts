@@ -1,136 +1,198 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { describe, it, expect, vi, beforeEach } from 'vitest';
 
-// ─── Mocks ────────────────────────────────────────────────────────────────────
+const mocks = vi.hoisted(() => ({
+  appendDomainAudit: vi.fn(),
+  loggerInfo: vi.fn(),
+  loggerWarn: vi.fn(),
+}));
 
 vi.mock('../../server/security/auditTrail', () => ({
-  appendDomainAudit: vi.fn().mockResolvedValue({ id: 'audit-1' }),
+  appendDomainAudit: mocks.appendDomainAudit,
 }));
 
 vi.mock('../../server/logger', () => ({
-  logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
+  logger: {
+    info: mocks.loggerInfo,
+    warn: mocks.loggerWarn,
+  },
 }));
 
-// Ensure Gemini is never called (no key set)
-vi.mock('@google/genai', () => ({
-  GoogleGenAI: vi.fn(function (this: Record<string, unknown>) {
-    return {
-      models: {
-        generateContent: vi.fn().mockRejectedValue(new Error('no key')),
-      },
-    };
-  }),
-}));
-
-// ─── Module under test ─────────────────────────────────────────────────────────
-
-// resetModules per test to get a clean in-memory job store.
-let svc: typeof import('../../server/services/execSummaryQueueService');
-
-beforeEach(async () => {
-  vi.clearAllMocks();
-  vi.resetModules();
-  svc = await import('../../server/services/execSummaryQueueService');
-});
-
-// ─── Tests ────────────────────────────────────────────────────────────────────
+// Flush all pending microtasks/macrotasks so the async worker finishes
+const flushAsync = () => new Promise<void>((resolve) => setTimeout(resolve, 50));
 
 describe('execSummaryQueueService', () => {
-  // ── getJobStatus ───────────────────────────────────────────────────────────
+  let enqueueExecSummary: (params: { projectId: string; userId: string }) => Promise<unknown>;
+  let getJobStatus: (jobId: string) => unknown;
+  let listJobsForProject: (projectId: string) => unknown[];
 
-  describe('getJobStatus', () => {
-    it('returns undefined for an unknown jobId', () => {
-      expect(svc.getJobStatus('does-not-exist')).toBeUndefined();
-    });
+  async function waitForJobStatus(jobId: string, status: string, timeoutMs = 1000) {
+    const started = Date.now();
+    while (Date.now() - started < timeoutMs) {
+      const job = getJobStatus(jobId) as { status?: string } | undefined;
+      if (job?.status === status) return job;
+      await new Promise<void>((resolve) => setTimeout(resolve, 10));
+    }
+    return getJobStatus(jobId);
+  }
 
-    it('returns the job after it has been enqueued', async () => {
-      const job = await svc.enqueueExecSummary({ projectId: 'proj-gs-1', userId: 'user-1' });
-      const found = svc.getJobStatus(job.id);
-      expect(found).toBeDefined();
-      expect(found?.id).toBe(job.id);
-    });
+  beforeEach(async () => {
+    vi.resetAllMocks();
+    vi.resetModules();
 
-    it('returned job has correct projectId and userId', async () => {
-      const job = await svc.enqueueExecSummary({ projectId: 'proj-gs-2', userId: 'user-42' });
-      const found = svc.getJobStatus(job.id);
-      expect(found?.projectId).toBe('proj-gs-2');
-      expect(found?.userId).toBe('user-42');
-    });
+    // Ensure no Gemini key is present so the deterministic fallback is always used
+    delete process.env.GEMINI_API_KEY;
+    delete process.env.VITE_GEMINI_API_KEY;
+
+    mocks.appendDomainAudit.mockResolvedValue({ id: 'audit-abc' });
+
+    const mod = await import('../../server/services/execSummaryQueueService');
+    enqueueExecSummary = mod.enqueueExecSummary;
+    getJobStatus = mod.getJobStatus;
+    listJobsForProject = mod.listJobsForProject;
   });
-
-  // ── listJobsForProject ─────────────────────────────────────────────────────
-
-  describe('listJobsForProject', () => {
-    it('returns empty array when no jobs exist for project', () => {
-      expect(svc.listJobsForProject('proj-empty')).toHaveLength(0);
-    });
-
-    it('returns only jobs belonging to the requested projectId', async () => {
-      await svc.enqueueExecSummary({ projectId: 'proj-lj-1', userId: 'u1' });
-      await svc.enqueueExecSummary({ projectId: 'proj-lj-other', userId: 'u2' });
-
-      const jobs = svc.listJobsForProject('proj-lj-1');
-      expect(jobs.every((j) => j.projectId === 'proj-lj-1')).toBe(true);
-    });
-  });
-
-  // ── enqueueExecSummary ─────────────────────────────────────────────────────
 
   describe('enqueueExecSummary', () => {
-    it('returns a job with the correct structure', async () => {
-      const job = await svc.enqueueExecSummary({ projectId: 'proj-eq-1', userId: 'u-eq' });
+    it('creates a new job and returns it with QUEUED status initially', async () => {
+      const job = (await enqueueExecSummary({ projectId: 'proj-1', userId: 'user-1' })) as {
+        id: string;
+        status: string;
+        projectId: string;
+        userId: string;
+      };
 
       expect(job.id).toBeTruthy();
-      expect(job.projectId).toBe('proj-eq-1');
-      expect(job.userId).toBe('u-eq');
-      expect(job.createdAt).toBeTruthy();
-      // createdAt should be an ISO timestamp
-      expect(new Date(job.createdAt).getTime()).not.toBeNaN();
+      expect(job.projectId).toBe('proj-1');
+      expect(job.userId).toBe('user-1');
+      // status may already have advanced to DONE by the time we check
+      expect(['QUEUED', 'RUNNING', 'DONE']).toContain(job.status);
     });
 
-    it('assigns a unique uuid id', async () => {
-      const job1 = await svc.enqueueExecSummary({ projectId: 'proj-eq-2', userId: 'u1' });
-      // After resetModules a fresh store is created; job1 has a unique id
-      expect(typeof job1.id).toBe('string');
-      expect(job1.id.length).toBeGreaterThan(10);
-    });
+    it('calls appendDomainAudit with EXEC_SUMMARY_ENQUEUED action', async () => {
+      await enqueueExecSummary({ projectId: 'proj-2', userId: 'user-2' });
+      await flushAsync();
 
-    it('records an audit event on enqueue', async () => {
-      const { appendDomainAudit } = await import('../../server/security/auditTrail');
-      await svc.enqueueExecSummary({ projectId: 'proj-eq-3', userId: 'u-audit' });
-      expect(appendDomainAudit).toHaveBeenCalledWith(
+      expect(mocks.appendDomainAudit).toHaveBeenCalledWith(
         expect.objectContaining({
-          action: 'EXEC_SUMMARY_ENQUEUED',
           entityType: 'EXEC_SUMMARY',
-          userId: 'u-audit',
+          action: 'EXEC_SUMMARY_ENQUEUED',
+          userId: 'user-2',
         }),
       );
     });
 
-    it('deduplicates: second call returns the same job while first is still active', async () => {
-      const job1 = await svc.enqueueExecSummary({ projectId: 'proj-dedup', userId: 'u1' });
+    it('deduplicates: returns existing job when QUEUED or RUNNING job already exists for the project', async () => {
+      const first = (await enqueueExecSummary({ projectId: 'proj-dedup', userId: 'user-1' })) as {
+        id: string;
+        status: string;
+      };
 
-      // Manually mark as QUEUED to simulate that the worker hasn't started yet
-      // (dedup checks for QUEUED or RUNNING)
-      // Use getJobStatus to verify the job still exists; then re-enqueue immediately
-      const job1Status = svc.getJobStatus(job1.id);
-      if (job1Status && (job1Status.status === 'QUEUED' || job1Status.status === 'RUNNING')) {
-        const job2 = await svc.enqueueExecSummary({ projectId: 'proj-dedup', userId: 'u2' });
-        expect(job2.id).toBe(job1.id);
+      // Only deduplicate while the job is still QUEUED/RUNNING – after DONE a new job is allowed.
+      if (first.status === 'QUEUED' || first.status === 'RUNNING') {
+        const second = (await enqueueExecSummary({ projectId: 'proj-dedup', userId: 'user-1' })) as {
+          id: string;
+        };
+        expect(second.id).toBe(first.id);
       } else {
-        // Worker completed fast – a new job will be created; just assert it's valid
-        const job2 = await svc.enqueueExecSummary({ projectId: 'proj-dedup', userId: 'u2' });
-        expect(job2.id).toBeTruthy();
+        // Worker already completed — new job should be issued
+        const second = (await enqueueExecSummary({ projectId: 'proj-dedup', userId: 'user-1' })) as {
+          id: string;
+        };
+        expect(second.id).not.toBe(first.id);
+      }
+    });
+
+    it('worker eventually sets the job to DONE with a result', async () => {
+      const job = (await enqueueExecSummary({ projectId: 'proj-worker', userId: 'user-1' })) as {
+        id: string;
+      };
+      await flushAsync();
+
+      const updated = (await waitForJobStatus(job.id, 'DONE')) as {
+        status: string;
+        result?: { summary: string; complianceScore: number; keyRisks: string[]; recommendations: string[] };
+      };
+
+      expect(updated.status).toBe('DONE');
+      expect(updated.result).toBeDefined();
+      expect(typeof updated.result!.summary).toBe('string');
+      expect(updated.result!.complianceScore).toBeGreaterThan(0);
+      expect(Array.isArray(updated.result!.keyRisks)).toBe(true);
+      expect(Array.isArray(updated.result!.recommendations)).toBe(true);
+    });
+
+    it('logs info after a job is enqueued', async () => {
+      await enqueueExecSummary({ projectId: 'proj-log', userId: 'user-log' });
+
+      expect(mocks.loggerInfo).toHaveBeenCalledWith(
+        'exec-summary-queue: job enqueued',
+        expect.objectContaining({ projectId: 'proj-log' }),
+      );
+    });
+  });
+
+  describe('getJobStatus', () => {
+    it('returns undefined for an unknown job id', () => {
+      const result = getJobStatus('no-such-id');
+      expect(result).toBeUndefined();
+    });
+
+    it('returns the job for a known job id', async () => {
+      const job = (await enqueueExecSummary({ projectId: 'proj-3', userId: 'user-3' })) as {
+        id: string;
+      };
+
+      const found = getJobStatus(job.id);
+      expect(found).toBeDefined();
+    });
+  });
+
+  describe('listJobsForProject', () => {
+    it('returns an empty array when no jobs exist for the project', () => {
+      const result = listJobsForProject('proj-unknown');
+      expect(result).toEqual([]);
+    });
+
+    it('returns only jobs for the specified project', async () => {
+      await enqueueExecSummary({ projectId: 'proj-A', userId: 'u1' });
+      await flushAsync();
+      await enqueueExecSummary({ projectId: 'proj-B', userId: 'u2' });
+      await flushAsync();
+
+      const resultsA = listJobsForProject('proj-A') as Array<{ projectId: string }>;
+      expect(resultsA.length).toBeGreaterThan(0);
+      for (const j of resultsA) {
+        expect(j.projectId).toBe('proj-A');
+      }
+    });
+
+    it('returns jobs sorted by createdAt descending', async () => {
+      await enqueueExecSummary({ projectId: 'proj-sort', userId: 'u1' });
+      await flushAsync();
+      await enqueueExecSummary({ projectId: 'proj-sort', userId: 'u1' });
+      await flushAsync();
+
+      const jobs = listJobsForProject('proj-sort') as Array<{ createdAt: string }>;
+      if (jobs.length > 1) {
+        expect(jobs[0].createdAt >= jobs[1].createdAt).toBe(true);
       }
     });
   });
 
-  // ── type exports ───────────────────────────────────────────────────────────
+  describe('worker audit trail', () => {
+    it('calls appendDomainAudit with EXEC_SUMMARY_COMPLETED after job finishes', async () => {
+      const job = (await enqueueExecSummary({ projectId: 'proj-audit', userId: 'u-audit' })) as {
+        id: string;
+      };
+      await waitForJobStatus(job.id, 'DONE');
 
-  describe('ExecSummaryJobStatus type values', () => {
-    it('job status is one of the defined union values', async () => {
-      const job = await svc.enqueueExecSummary({ projectId: 'proj-type', userId: 'u-t' });
-      const validStatuses = ['QUEUED', 'RUNNING', 'DONE', 'FAILED'];
-      expect(validStatuses).toContain(job.status);
+      expect(mocks.appendDomainAudit).toHaveBeenCalledWith(
+        expect.objectContaining({
+          entityType: 'EXEC_SUMMARY',
+          action: 'EXEC_SUMMARY_COMPLETED',
+          userId: 'u-audit',
+          entityId: job.id,
+        }),
+      );
     });
   });
 });

@@ -14,13 +14,16 @@ import type {
   PermitCodeProfile,
   ProjectArchiveDocument,
   ProjectPlan,
+  ProjectStorageArea,
   ProjectStageGate,
   ProjectTemplatePack,
   ProjectType,
+  StorageAreaContents,
   TransportBooking,
   SamplingPreparation,
   StageGateType,
 } from '../types';
+import { resolvePermitCodeProfile } from './mpfEngine';
 
 export const PROJECT_STRUCTURE_STORAGE_KEY = 'miljobeslut_project_structure_v2';
 export const PROJECT_STRUCTURE_SCHEMA_VERSION = 2;
@@ -54,7 +57,7 @@ const DEFAULT_SAMPLING_CHECKLIST = [
   { id: 'S3', label: 'Prepare chain-of-custody document template', done: false },
 ];
 
-const TEMPLATE_PACKS: ProjectTemplatePack[] = [
+export const TEMPLATE_PACKS: ProjectTemplatePack[] = [
   {
     id: 'ENV_PERMIT_CORE',
     name: 'Miljötillstånd',
@@ -138,98 +141,6 @@ const TRANSPORT_FACTORS: Record<CarbonInput['transportMode'], Record<CarbonInput
   SHIP: { SOIL: 0.015, ROCK: 0.014, WASTE: 0.02, MIXED: 0.017 },
 };
 
-interface PermitCodeRule {
-  code: string;
-  codeType: PermitCodeProfile['codeType'];
-  legalReference: string;
-  regulatoryTrack: PermitCodeProfile['regulatoryTrack'];
-  thresholdTon: number | null;
-  thresholdScope: PermitCodeProfile['thresholdScope'];
-  riskTier: PermitCodeProfile['riskTier'];
-  requiredMapLayers: MapLayerKey[];
-  timelineBufferWeeks: number;
-}
-
-const MPF_CODE_RULES: PermitCodeRule[] = [
-  {
-    code: '90.131',
-    codeType: 'SNI',
-    legalReference: 'Miljöprövningsförordningen 29 kap. 31 par.',
-    regulatoryTrack: 'NOTIFICATION',
-    thresholdTon: null,
-    thresholdScope: null,
-    riskTier: 'LOW',
-    requiredMapLayers: ['CADASTRE', 'FLOOD_RISK'],
-    timelineBufferWeeks: 0,
-  },
-  {
-    code: '90.30',
-    codeType: 'SNI',
-    legalReference: 'Miljöprövningsförordningen 29 kap. 30 par.',
-    regulatoryTrack: 'NOTIFICATION',
-    thresholdTon: 10,
-    thresholdScope: 'AT_ONCE',
-    riskTier: 'MEDIUM',
-    requiredMapLayers: ['CADASTRE', 'FLOOD_RISK', 'GROUNDWATER'],
-    timelineBufferWeeks: 1,
-  },
-  {
-    code: '90.50',
-    codeType: 'SNI',
-    legalReference: 'Miljöprövningsförordningen 29 kap. 50 par.',
-    regulatoryTrack: 'NOTIFICATION',
-    thresholdTon: 25,
-    thresholdScope: 'AT_ONCE',
-    riskTier: 'HIGH',
-    requiredMapLayers: ['CADASTRE', 'FLOOD_RISK', 'GROUNDWATER', 'NATURA2000'],
-    timelineBufferWeeks: 2,
-  },
-  {
-    code: '90.80',
-    codeType: 'SNI',
-    legalReference: 'Miljöprövningsförordningen 29 kap. 80 par.',
-    regulatoryTrack: 'NOTIFICATION',
-    thresholdTon: 1000,
-    thresholdScope: 'PER_YEAR',
-    riskTier: 'MEDIUM',
-    requiredMapLayers: ['CADASTRE', 'FLOOD_RISK', 'NOISE'],
-    timelineBufferWeeks: 1,
-  },
-  {
-    code: '90.110',
-    codeType: 'SNI',
-    legalReference: 'Miljöprövningsförordningen 29 kap. 110 par.',
-    regulatoryTrack: 'NOTIFICATION',
-    thresholdTon: 10000,
-    thresholdScope: 'PER_YEAR',
-    riskTier: 'MEDIUM',
-    requiredMapLayers: ['CADASTRE', 'FLOOD_RISK', 'NOISE'],
-    timelineBufferWeeks: 1,
-  },
-  {
-    code: '17 05 04',
-    codeType: 'EWC',
-    legalReference: 'Avfallsförordningen bilaga 3',
-    regulatoryTrack: 'NOTIFICATION',
-    thresholdTon: null,
-    thresholdScope: null,
-    riskTier: 'LOW',
-    requiredMapLayers: ['CADASTRE', 'SOIL'],
-    timelineBufferWeeks: 0,
-  },
-  {
-    code: '17 05 03*',
-    codeType: 'EWC',
-    legalReference: 'Avfallsförordningen bilaga 3',
-    regulatoryTrack: 'PERMIT',
-    thresholdTon: null,
-    thresholdScope: null,
-    riskTier: 'HIGH',
-    requiredMapLayers: ['CADASTRE', 'SOIL', 'GROUNDWATER', 'NATURA2000'],
-    timelineBufferWeeks: 2,
-  },
-];
-
 const DEFAULT_TEMPLATE_ID = 'ENV_PERMIT_CORE';
 
 function dedupeLayers(input: MapLayerKey[]): MapLayerKey[] {
@@ -254,70 +165,18 @@ function normalizeMapLayerList(input: unknown): MapLayerKey[] {
   return dedupeLayers(input.filter(asMapLayer));
 }
 
-function normalizePermitCode(code: string): string {
-  return String(code || '')
-    .trim()
-    .replace(/\s+/g, '')
-    .toUpperCase();
-}
-
-function findPermitCodeRule(code: string, codeType?: PermitCodeProfile['codeType']): PermitCodeRule | null {
-  const normalizedCode = normalizePermitCode(code);
-  if (!normalizedCode) return null;
-
-  const rule = MPF_CODE_RULES.find((candidate) => {
-    if (codeType && candidate.codeType !== codeType) return false;
-    return normalizePermitCode(candidate.code) === normalizedCode;
-  });
-  return rule || null;
-}
-
 export function buildPermitCodeProfile(input: {
   code: string;
   codeType: PermitCodeProfile['codeType'];
   municipality?: string;
 }): PermitCodeProfile {
-  const rule = findPermitCodeRule(input.code, input.codeType);
-
-  if (!rule) {
-    return {
-      code: input.code,
-      codeType: input.codeType,
-      legalReference: 'Manual legal verification required',
-      regulatoryTrack: 'NONE',
-      thresholdTon: null,
-      thresholdScope: null,
-      riskTier: 'MEDIUM',
-      requiresGeofencing: true,
-      requiredMapLayers: input.codeType === 'EWC' ? ['CADASTRE', 'SOIL'] : ['CADASTRE', 'FLOOD_RISK'],
-      timelineBufferWeeks: 1,
-      humanReviewRequired: true,
-      reviewNote: 'Auto classification is advisory only and must be approved by a human legal reviewer.',
-      municipality: input.municipality || null,
-    };
-  }
-
-  return {
-    code: rule.code,
-    codeType: rule.codeType,
-    legalReference: rule.legalReference,
-    regulatoryTrack: rule.regulatoryTrack,
-    thresholdTon: rule.thresholdTon,
-    thresholdScope: rule.thresholdScope,
-    riskTier: rule.riskTier,
-    requiresGeofencing: rule.requiredMapLayers.length > 0,
-    requiredMapLayers: dedupeLayers(rule.requiredMapLayers),
-    timelineBufferWeeks: Math.max(0, rule.timelineBufferWeeks),
-    humanReviewRequired: true,
-    reviewNote: 'Auto classification is advisory only and must be approved by a human legal reviewer.',
-    municipality: input.municipality || null,
-  };
+  return resolvePermitCodeProfile(input);
 }
 
 function adjustPhasesForPermitProfile(
   phases: ProjectPlan['phases'],
   profile: PermitCodeProfile,
-  previousTimelineBufferWeeks: number
+  previousTimelineBufferWeeks: number,
 ): ProjectPlan['phases'] {
   const deltaWeeks = profile.timelineBufferWeeks - Math.max(0, previousTimelineBufferWeeks);
 
@@ -372,7 +231,7 @@ export function applyPermitCodeSelection(
     code: string;
     codeType: PermitCodeProfile['codeType'];
     municipality?: string;
-  }
+  },
 ): { plan: ProjectPlan; profile: PermitCodeProfile } {
   const profile = buildPermitCodeProfile(input);
   const previousProfile = plan.permitCodeProfile;
@@ -380,7 +239,7 @@ export function applyPermitCodeSelection(
 
   const baseLayers = recommendMapLayers(plan.projectType).base;
   const enabledWithoutPreviousProfileLayers = plan.mapLayerSelection.enabled.filter(
-    (layer) => !previousRequiredLayers.includes(layer)
+    (layer) => !previousRequiredLayers.includes(layer),
   );
   const nextEnabledLayers = dedupeLayers([
     ...enabledWithoutPreviousProfileLayers,
@@ -389,13 +248,13 @@ export function applyPermitCodeSelection(
   ]);
 
   const nextUnavailable = plan.mapLayerSelection.unavailable.filter(
-    (layer) => !profile.requiredMapLayers.includes(layer)
+    (layer) => !profile.requiredMapLayers.includes(layer),
   );
 
   const nextPhases = adjustPhasesForPermitProfile(
     plan.phases,
     profile,
-    previousProfile?.timelineBufferWeeks || 0
+    previousProfile?.timelineBufferWeeks || 0,
   );
 
   return {
@@ -481,7 +340,14 @@ function createDefaultPhasesForProjectType(projectType: ProjectType) {
       isLocked: false,
       requiresSignature: false,
       tasks: [
-        { id: `${projectType}-T1`, title: 'Scope and stakeholder mapping', startWeek: 1, duration: 1, type: 'ADMIN' as const, status: 'ONGOING' as const },
+        {
+          id: `${projectType}-T1`,
+          title: 'Scope and stakeholder mapping',
+          startWeek: 1,
+          duration: 1,
+          type: 'ADMIN' as const,
+          status: 'ONGOING' as const,
+        },
       ],
     },
     {
@@ -491,7 +357,14 @@ function createDefaultPhasesForProjectType(projectType: ProjectType) {
       isLocked: false,
       requiresSignature: true,
       tasks: [
-        { id: `${projectType}-T2`, title: 'Prepare controls and compliance package', startWeek: 2, duration: 2, type: 'LEGAL' as const, status: 'TODO' as const },
+        {
+          id: `${projectType}-T2`,
+          title: 'Prepare controls and compliance package',
+          startWeek: 2,
+          duration: 2,
+          type: 'LEGAL' as const,
+          status: 'TODO' as const,
+        },
       ],
     },
     {
@@ -501,7 +374,14 @@ function createDefaultPhasesForProjectType(projectType: ProjectType) {
       isLocked: true,
       requiresSignature: false,
       tasks: [
-        { id: `${projectType}-T3`, title: 'Execute and monitor KPI', startWeek: 4, duration: 2, type: 'TECHNICAL' as const, status: 'TODO' as const },
+        {
+          id: `${projectType}-T3`,
+          title: 'Execute and monitor KPI',
+          startWeek: 4,
+          duration: 2,
+          type: 'TECHNICAL' as const,
+          status: 'TODO' as const,
+        },
       ],
     },
   ];
@@ -516,7 +396,7 @@ function createTemplateDocuments(template: ProjectTemplatePack): ProjectArchiveD
       module: doc.module,
       status: 'DRAFT',
       tags: ['template', template.projectType.toLowerCase()],
-    })
+    }),
   );
 }
 
@@ -535,7 +415,7 @@ export function createDefaultProjectPlan(): ProjectPlan {
     complianceScore: 0,
     auditTrail: [],
     branding: {
-      organizationName: 'Miljöbeslut.se',
+      organizationName: 'Miljobeslut.se',
       logoUrl: '/logo.png',
       layoutTemplate: 'CORPORATE',
       primaryColor: '#0f172a',
@@ -548,6 +428,7 @@ export function createDefaultProjectPlan(): ProjectPlan {
     permitCodeProfile: null,
     dispatchQuotes: [],
     transportBookings: [],
+    storageAreas: [],
     driverJournals: [],
     limsReports: [],
     carbonSummary: createDefaultCarbonSummary(),
@@ -590,7 +471,10 @@ const normalizeModuleIntegrations = (candidate?: ModuleIntegrationStatus[]): Mod
     const found = existing.get(module);
     return {
       module,
-      readiness: (found?.readiness || (module === 'PROJECT_MANAGER' || module === 'PERMIT_PORTAL' ? 'READY' : 'NOT_READY')) as ModuleReadiness,
+      readiness: (found?.readiness ||
+        (module === 'PROJECT_MANAGER' || module === 'PERMIT_PORTAL'
+          ? 'READY'
+          : 'NOT_READY')) as ModuleReadiness,
       dependencyNote: found?.dependencyNote?.trim() || DEFAULT_MODULE_NOTES[module],
     };
   });
@@ -691,7 +575,7 @@ const normalizeDispatchProvider = (candidate: unknown): DispatchQuote['provider'
   if (candidate === 'TIMOCOM' || candidate === 'TRANS_EU') {
     return candidate;
   }
-  return 'MOCK_FRAKTBORS';
+  return 'NOT_CONFIGURED';
 };
 
 const normalizeDispatchQuotes = (candidate: unknown): DispatchQuote[] => {
@@ -724,7 +608,9 @@ const normalizeTransportBookings = (candidate: unknown): TransportBooking[] => {
     .filter((item) => item && typeof item === 'object')
     .map((item, index) => {
       const typed = item as Partial<TransportBooking>;
-      const status = allowed.includes(String(typed.status || '')) ? (typed.status as TransportBooking['status']) : 'BOOKED';
+      const status = allowed.includes(String(typed.status || ''))
+        ? (typed.status as TransportBooking['status'])
+        : 'BOOKED';
       return {
         id: typed.id || `BOOKING-${index + 1}`,
         quoteId: String(typed.quoteId || ''),
@@ -746,6 +632,46 @@ const normalizeTransportBookings = (candidate: unknown): TransportBooking[] => {
     .filter((item) => item.receiverId && item.receiverName && item.wasteCode);
 };
 
+const normalizeStorageAreaContents = (candidate: unknown): StorageAreaContents => {
+  if (!candidate || typeof candidate !== 'object' || Array.isArray(candidate)) {
+    return {};
+  }
+
+  return Object.entries(candidate as Record<string, unknown>).reduce<StorageAreaContents>(
+    (acc, [key, value]) => {
+      const numeric = Number(value);
+      if (key && Number.isFinite(numeric) && numeric > 0) {
+        acc[key] = numeric;
+      }
+      return acc;
+    },
+    {},
+  );
+};
+
+const normalizeStorageAreas = (candidate: unknown): ProjectStorageArea[] => {
+  if (!Array.isArray(candidate)) return [];
+
+  return candidate
+    .filter((item) => item && typeof item === 'object')
+    .map((item, index) => {
+      const typed = item as Partial<ProjectStorageArea>;
+      const createdAt = typed.createdAt || new Date().toISOString();
+      return {
+        id: typed.id || `STORAGE-${index + 1}`,
+        projectId: String(typed.projectId || ''),
+        name: String(typed.name || '').trim(),
+        description: typed.description == null ? null : String(typed.description),
+        capacityM3: Math.max(0, Number(typed.capacityM3 || 0)),
+        contents: normalizeStorageAreaContents(typed.contents),
+        geometry: typed.geometry,
+        createdAt,
+        updatedAt: typed.updatedAt || createdAt,
+      };
+    })
+    .filter((item) => item.projectId && item.name);
+};
+
 const normalizeDriverJournals = (candidate: unknown): DriverJournalEntry[] => {
   if (!Array.isArray(candidate)) return [];
   const allowed = ['DRAFT', 'SUBMITTED', 'VERIFIED', 'REJECTED'];
@@ -753,7 +679,9 @@ const normalizeDriverJournals = (candidate: unknown): DriverJournalEntry[] => {
     .filter((item) => item && typeof item === 'object')
     .map((item, index) => {
       const typed = item as Partial<DriverJournalEntry>;
-      const status = allowed.includes(String(typed.status || '')) ? (typed.status as DriverJournalEntry['status']) : 'DRAFT';
+      const status = allowed.includes(String(typed.status || ''))
+        ? (typed.status as DriverJournalEntry['status'])
+        : 'DRAFT';
       return {
         id: typed.id || `JOURNAL-${index + 1}`,
         bookingId: String(typed.bookingId || ''),
@@ -787,23 +715,25 @@ const normalizeLimsReports = (candidate: unknown): LimsReport[] => {
     .filter((item) => item && typeof item === 'object')
     .map((item, index) => {
       const typed = item as Partial<LimsReport>;
-      const source = sources.includes(String(typed.source || '')) ? (typed.source as LimsReport['source']) : 'MANUAL';
+      const source = sources.includes(String(typed.source || ''))
+        ? (typed.source as LimsReport['source'])
+        : 'MANUAL';
       const metrics = Array.isArray(typed.metrics)
         ? typed.metrics
-          .filter((metric) => metric && typeof metric === 'object')
-          .map((metric) => {
-            const metricTyped = metric as any;
-            const value = Number(metricTyped.value || 0);
-            const maxAllowed = metricTyped.maxAllowed == null ? null : Number(metricTyped.maxAllowed);
-            return {
-              key: String(metricTyped.key || ''),
-              value,
-              unit: String(metricTyped.unit || ''),
-              maxAllowed: maxAllowed == null ? null : maxAllowed,
-              exceeded: maxAllowed == null ? false : value > maxAllowed,
-            };
-          })
-          .filter((metric) => metric.key)
+            .filter((metric) => metric && typeof metric === 'object')
+            .map((metric) => {
+              const metricTyped = metric as any;
+              const value = Number(metricTyped.value || 0);
+              const maxAllowed = metricTyped.maxAllowed == null ? null : Number(metricTyped.maxAllowed);
+              return {
+                key: String(metricTyped.key || ''),
+                value,
+                unit: String(metricTyped.unit || ''),
+                maxAllowed: maxAllowed == null ? null : maxAllowed,
+                exceeded: maxAllowed == null ? false : value > maxAllowed,
+              };
+            })
+            .filter((metric) => metric.key)
         : [];
 
       return {
@@ -847,7 +777,8 @@ export function normalizeProjectPlan(candidate?: Partial<ProjectPlan> | null): P
     },
     goals: Array.isArray(candidate.goals) ? candidate.goals : defaults.goals,
     stakeholders: Array.isArray(candidate.stakeholders) ? candidate.stakeholders : defaults.stakeholders,
-    phases: Array.isArray(candidate.phases) && candidate.phases.length > 0 ? candidate.phases : defaults.phases,
+    phases:
+      Array.isArray(candidate.phases) && candidate.phases.length > 0 ? candidate.phases : defaults.phases,
     auditTrail: Array.isArray(candidate.auditTrail) ? candidate.auditTrail : defaults.auditTrail,
     moduleIntegrations: normalizeModuleIntegrations(candidate.moduleIntegrations),
     documentArchive: normalizeArchive(candidate.documentArchive),
@@ -857,6 +788,7 @@ export function normalizeProjectPlan(candidate?: Partial<ProjectPlan> | null): P
     permitCodeProfile: normalizePermitCodeProfile(candidate.permitCodeProfile),
     dispatchQuotes: normalizeDispatchQuotes(candidate.dispatchQuotes),
     transportBookings: normalizeTransportBookings(candidate.transportBookings),
+    storageAreas: normalizeStorageAreas(candidate.storageAreas),
     driverJournals: normalizeDriverJournals(candidate.driverJournals),
     limsReports: normalizeLimsReports(candidate.limsReports),
     carbonSummary: normalizeCarbonSummary(candidate.carbonSummary),
@@ -896,12 +828,15 @@ export const createArchiveDocument = (input: {
   };
 };
 
-export function mergeArchiveDocument(archive: ProjectArchiveDocument[], nextDoc: ProjectArchiveDocument): ProjectArchiveDocument[] {
+export function mergeArchiveDocument(
+  archive: ProjectArchiveDocument[],
+  nextDoc: ProjectArchiveDocument,
+): ProjectArchiveDocument[] {
   const duplicate = archive.find(
     (doc) =>
       doc.name.toLowerCase() === nextDoc.name.toLowerCase() &&
       doc.module === nextDoc.module &&
-      doc.category === nextDoc.category
+      doc.category === nextDoc.category,
   );
 
   if (duplicate) return archive;
@@ -931,7 +866,10 @@ export function recommendMapLayers(projectType: ProjectType): MapLayerSelection 
 export function applyTemplate(plan: ProjectPlan, templateId: string): ProjectPlan {
   const template = getTemplateById(templateId);
   const requiredDocs = createTemplateDocuments(template);
-  const mergedDocs = requiredDocs.reduce((acc, doc) => mergeArchiveDocument(acc, doc), [...plan.documentArchive]);
+  const mergedDocs = requiredDocs.reduce(
+    (acc, doc) => mergeArchiveDocument(acc, doc),
+    [...plan.documentArchive],
+  );
 
   const checklist = template.defaultChecklist.map((label, index) => ({
     id: `TMP-${template.id}-${index + 1}`,
@@ -1001,16 +939,22 @@ export function evaluateStageGate(
     permitSubmitted?: boolean;
     mapLayerAvailable?: MapLayerKey[];
     note?: string;
-  }
+  },
 ): { plan: ProjectPlan; gate: ProjectStageGate; changed: boolean } {
-  const existing = plan.stageGates.find((gate) => gate.id === gateId || gate.type === (gateId as StageGateType));
+  const existing = plan.stageGates.find(
+    (gate) => gate.id === gateId || gate.type === (gateId as StageGateType),
+  );
   if (!existing) {
     throw new Error('Unknown stage gate');
   }
 
   const gate = { ...existing, label: existing.label || resolveGateLabel(existing.type) };
   if (!gate.required) {
-    const next = { ...gate, status: 'NOT_REQUIRED' as const, reason: 'Gate not required by selected template.' };
+    const next = {
+      ...gate,
+      status: 'NOT_REQUIRED' as const,
+      reason: 'Gate not required by selected template.',
+    };
     const unchanged = gate.status === next.status && gate.reason === next.reason;
     const nextGates = unchanged ? plan.stageGates : upsertGate(plan.stageGates, next);
     const nextPhases = unchanged ? plan.phases : recomputePhaseLocksFromGates(plan, nextGates);
@@ -1026,10 +970,10 @@ export function evaluateStageGate(
   const riskDocs = plan.documentArchive.filter((doc) => doc.category === 'RISK');
   const signatureEvents = (plan.auditTrail || []).filter((entry) => Boolean(entry.signatureId));
   const activeTransportBookings = plan.transportBookings.filter(
-    (booking) => booking.status !== 'CANCELLED' && booking.status !== 'BLOCKED'
+    (booking) => booking.status !== 'CANCELLED' && booking.status !== 'BLOCKED',
   );
   const verifiedJournals = plan.driverJournals.filter(
-    (journal) => journal.status === 'VERIFIED' && journal.signedByDriver && journal.signedByReviewer
+    (journal) => journal.status === 'VERIFIED' && journal.signedByDriver && journal.signedByReviewer,
   );
   const unresolvedJournalBookingIds = activeTransportBookings
     .filter((booking) => !verifiedJournals.some((journal) => journal.bookingId === booking.id))
@@ -1038,24 +982,25 @@ export function evaluateStageGate(
     .filter((booking) => String(booking.wasteCode || '').includes('*'))
     .map((booking) => booking.id);
   const verifiedLimsReports = plan.limsReports.filter(
-    (report) => report.verifiedByHuman && Boolean(report.reviewerSignatureId)
+    (report) => report.verifiedByHuman && Boolean(report.reviewerSignatureId),
   );
   const failedHazardousLimsBookingIds = hazardousBookingIds.filter((bookingId) =>
-    verifiedLimsReports.some((report) => report.bookingId === bookingId && report.passed === false)
+    verifiedLimsReports.some((report) => report.bookingId === bookingId && report.passed === false),
   );
   const missingHazardousLimsBookingIds = hazardousBookingIds.filter(
-    (bookingId) => !verifiedLimsReports.some((report) => report.bookingId === bookingId && report.passed)
+    (bookingId) => !verifiedLimsReports.some((report) => report.bookingId === bookingId && report.passed),
   );
   const contextMapLayerAvailable = normalizeMapLayerList(context?.mapLayerAvailable || []);
   const resolvedMapLayers =
     contextMapLayerAvailable.length > 0 ? contextMapLayerAvailable : plan.mapLayerSelection.enabled;
-  const contextCodeType = context?.codeType === 'SNI' || context?.codeType === 'EWC' ? context.codeType : undefined;
+  const contextCodeType =
+    context?.codeType === 'SNI' || context?.codeType === 'EWC' ? context.codeType : undefined;
   const permitProfile = context?.permitType
     ? buildPermitCodeProfile({
-      code: context.permitType,
-      codeType: contextCodeType || plan.permitCodeProfile?.codeType || 'SNI',
-      municipality: plan.permitCodeProfile?.municipality || undefined,
-    })
+        code: context.permitType,
+        codeType: contextCodeType || plan.permitCodeProfile?.codeType || 'SNI',
+        municipality: plan.permitCodeProfile?.municipality || undefined,
+      })
     : plan.permitCodeProfile;
   const requiredPermitLayers = permitProfile?.requiredMapLayers || [];
   const missingPermitLayers = requiredPermitLayers.filter((layer) => !resolvedMapLayers.includes(layer));
@@ -1154,7 +1099,7 @@ export function evaluateStageGate(
 
   const hashSeed = JSON.stringify(evaluationPayload);
   const nextHash = `h${Math.abs(
-    hashSeed.split('').reduce((acc, char) => ((acc << 5) - acc + char.charCodeAt(0)) | 0, 0)
+    hashSeed.split('').reduce((acc, char) => ((acc << 5) - acc + char.charCodeAt(0)) | 0, 0),
   )}`;
 
   const nextGate: ProjectStageGate = {
@@ -1183,7 +1128,8 @@ export function evaluateStageGate(
     },
   };
 
-  const unchanged = gate.lastEvaluationHash === nextGate.lastEvaluationHash && gate.status === nextGate.status;
+  const unchanged =
+    gate.lastEvaluationHash === nextGate.lastEvaluationHash && gate.status === nextGate.status;
   const nextGates = unchanged ? plan.stageGates : upsertGate(plan.stageGates, nextGate);
   const nextPhases = unchanged ? plan.phases : recomputePhaseLocksFromGates(plan, nextGates);
 
@@ -1191,10 +1137,10 @@ export function evaluateStageGate(
     plan: unchanged
       ? plan
       : {
-        ...plan,
-        stageGates: nextGates,
-        phases: nextPhases,
-      },
+          ...plan,
+          stageGates: nextGates,
+          phases: nextPhases,
+        },
     gate: nextGate,
     changed: !unchanged,
   };

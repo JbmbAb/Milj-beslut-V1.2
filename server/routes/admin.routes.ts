@@ -13,17 +13,20 @@ import {
   getDbContents,
   getAdminExamSummary,
   getAdminDatabaseDump,
-} from '../repositories/adminReportRepository';
-import { listProjectsForAdmin, createOrGetAdminProject } from '../repositories/searchRepository';
-import { getDispatchProviderRuntimeStatus } from '../services/transportDispatchService';
-import {
-  getSchedulerStatus as getOutlookSchedulerStatus,
+  listProjectsForAdmin,
+  createOrGetAdminProject,
+  getDispatchProviderRuntimeStatus,
+  getOutlookSchedulerStatus,
   triggerIngestionWebhook,
-} from '../services/outlookSchedulerService';
-import { getMetricsText } from '../services/metricsService';
-import { getRecentErrors, captureException } from '../services/errorTrackingService';
-import { runBackup, listBackups, getBackup } from '../services/backupService';
-import { extractTextFromDocument, batchExtractPendingDocuments } from '../services/ocrService';
+  getMetricsText,
+  getRecentErrors,
+  captureException,
+  runBackup,
+  listBackups,
+  getBackup,
+  extractTextFromDocument,
+  batchExtractPendingDocuments,
+} from '../modules/platform/public';
 import { parseOptionalText, routeParam } from '../utils/routeUtils';
 
 const router = express.Router();
@@ -382,6 +385,35 @@ router.get('/api/admin/dispatch/provider', requireAuth, rateLimitByUser(30, 60_0
     }
     const dispatch = getDispatchProviderRuntimeStatus();
     res.json({ ok: true, dispatch, checkedAt: new Date().toISOString() });
+  } catch (error: unknown) {
+    res.status(400).json(toSafeErrorResponse(error));
+  }
+});
+
+// MPF Rules
+router.get('/api/admin/mpf/thresholds', requireAuth, rateLimitByUser(60, 60_000), async (req, res) => {
+  try {
+    if (!req.authUser || req.authUser.role !== 'ADMIN') {
+      res.status(403).json({ ok: false, error: 'Admin role required' });
+      return;
+    }
+    const { getEffectiveMpfThresholds } = await import('../services/mpfRuleRegistryService');
+    const thresholds = await getEffectiveMpfThresholds();
+    res.json({ ok: true, items: thresholds });
+  } catch (error: unknown) {
+    res.status(500).json(toSafeErrorResponse(error));
+  }
+});
+
+router.post('/api/admin/mpf/thresholds', requireAuth, rateLimitByUser(10, 60_000), async (req, res) => {
+  try {
+    if (!req.authUser || req.authUser.role !== 'ADMIN') {
+      res.status(403).json({ ok: false, error: 'Admin role required' });
+      return;
+    }
+    const { upsertMpfRule } = await import('../services/mpfRuleRegistryService');
+    await upsertMpfRule(req.body);
+    res.json({ ok: true });
   } catch (error: unknown) {
     res.status(400).json(toSafeErrorResponse(error));
   }

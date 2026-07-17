@@ -36,8 +36,7 @@ const originalEnv = { ...process.env };
 
 function restoreRelevantEnv() {
   const managedKeys = [
-    'OPENAI_API_KEY',
-    'GEMINI_API_KEY',
+    'VERTEX_PROJECT_ID',
     'VISS_API_KEY',
     'VISS_API_BASE_URL',
     'LANTMATERIET_ACCESS_TOKEN',
@@ -114,13 +113,14 @@ describe('getExternalHealthReport', () => {
   });
 
   it('builds a mixed external health report from live probes and config states', async () => {
-    process.env.OPENAI_API_KEY = 'openai-key';
-    process.env.GEMINI_API_KEY = 'gemini-key';
+    process.env.VERTEX_PROJECT_ID = 'vertex-proj-1';
+    process.env.GEMINI_API_KEY = 'test-gemini-key';
     process.env.VISS_API_KEY = 'viss-key';
     process.env.VISS_API_BASE_URL = 'https://viss.test/api';
     process.env.LANTMATERIET_CONSUMER_KEY = 'consumer';
     process.env.LANTMATERIET_CONSUMER_SECRET = 'secret';
     process.env.LANTMATERIET_BASE_URL = 'https://lant.test/ogc-features/v1';
+    process.env.LANTMATERIET_TOKEN_URL = 'https://lant.test/token';
     process.env.LANTMATERIET_LOOKUP_MODE = 'ogc';
     process.env.SLU_API_BASE_URL = 'https://slu.test';
     process.env.MARKET_INTEL_ENDPOINT = 'https://market.test/health';
@@ -190,20 +190,6 @@ describe('getExternalHealthReport', () => {
     const fetchMock = vi.mocked(global.fetch);
     fetchMock.mockImplementation(async (input: string | URL | Request) => {
       const url = String(input);
-      if (url === 'https://api.openai.com/v1/models') {
-        return {
-          ok: true,
-          status: 200,
-          json: async () => ({ data: [{ id: 'gpt-5.4' }] }),
-        } as Response;
-      }
-      if (url.startsWith('https://generativelanguage.googleapis.com/v1beta/models')) {
-        return {
-          ok: false,
-          status: 429,
-          text: async () => 'rate limited',
-        } as Response;
-      }
       if (url.startsWith('https://viss.test/api?')) {
         return {
           ok: true,
@@ -259,15 +245,10 @@ describe('getExternalHealthReport', () => {
       configured: false,
       responseCode: 401,
     });
-    expect(checksByKey.get('openai')).toMatchObject({
+    expect(checksByKey.get('vertex_ai')).toMatchObject({
       status: 'healthy',
-      mode: 'live',
-      responseCode: 200,
-    });
-    expect(checksByKey.get('gemini')).toMatchObject({
-      status: 'error',
-      mode: 'live',
-      responseCode: 429,
+      mode: 'config',
+      configured: true,
     });
     expect(checksByKey.get('viss')).toMatchObject({
       status: 'healthy',
@@ -333,6 +314,11 @@ describe('getExternalHealthReport', () => {
   });
 
   it('marks integrations as not configured when credentials are missing', async () => {
+    delete process.env.VERTEX_PROJECT_ID;
+    delete process.env.VISS_API_KEY;
+    delete process.env.LANTMATERIET_CONSUMER_KEY;
+    delete process.env.LANTMATERIET_CONSUMER_SECRET;
+
     mocks.getLantmaterietOpenMapStatus.mockResolvedValue({
       ok: false,
       status: 503,
@@ -356,8 +342,7 @@ describe('getExternalHealthReport', () => {
 
     expect(report.checkedAt).toBe('2026-03-21T12:00:00.000Z');
     expect(report.overall).toBe('error');
-    expect(checksByKey.get('openai')).toMatchObject({ status: 'not_configured', mode: 'config' });
-    expect(checksByKey.get('gemini')).toMatchObject({ status: 'not_configured', mode: 'config' });
+    expect(checksByKey.get('vertex_ai')).toMatchObject({ status: 'not_configured', mode: 'config' });
     expect(checksByKey.get('viss')).toMatchObject({ status: 'not_configured', mode: 'config' });
     expect(checksByKey.get('lantmateriet_licensed')).toMatchObject({
       status: 'not_configured',

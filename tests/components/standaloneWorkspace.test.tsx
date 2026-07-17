@@ -14,8 +14,9 @@ vi.mock('../../components/LegalSupportCenter', () => ({
   default: () => <div data-testid="legal-support" />,
 }));
 
-vi.mock('../../components/MvpDemoInterface', () => ({
-  default: () => <div data-testid="mvp-demo-interface" />,
+vi.mock('../../components/CoreWorkflowView', () => ({
+  default: () => <div data-testid="core-workflow-view" />,
+  CoreWorkflowView: () => <div data-testid="core-workflow-view" />,
 }));
 
 vi.mock('../../components/AdminMetadataReview', () => ({
@@ -36,11 +37,11 @@ const baseProps = {
 };
 
 describe('StandaloneWorkspace', () => {
-  // ── MVP_WORKFLOW mode ─────────────────────────────────────────────────────
+  // ── Core_WORKFLOW mode ─────────────────────────────────────────────────────
 
-  it('renders MvpDemoInterface for MVP_WORKFLOW mode', async () => {
-    render(<StandaloneWorkspace {...baseProps} mode="MVP_WORKFLOW" />);
-    expect(await screen.findByTestId('mvp-demo-interface')).toBeInTheDocument();
+  it('renders CoreWorkflowView for Core_WORKFLOW mode', async () => {
+    render(<StandaloneWorkspace {...baseProps} mode="Core_WORKFLOW" />);
+    expect(await screen.findByTestId('core-workflow-view')).toBeInTheDocument();
   });
 
   // ── ADMIN_CONSOLE mode ────────────────────────────────────────────────────
@@ -61,7 +62,7 @@ describe('StandaloneWorkspace', () => {
   });
 
   it('renders LegalSupportCenter when activeTab is legal', async () => {
-    render(<StandaloneWorkspace {...baseProps} mode="MVP_WORKFLOW" activeTab="legal" />);
+    render(<StandaloneWorkspace {...baseProps} mode="Core_WORKFLOW" activeTab="legal" />);
     expect(await screen.findByTestId('legal-support')).toBeInTheDocument();
   });
 

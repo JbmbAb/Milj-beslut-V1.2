@@ -21,23 +21,21 @@ vi.mock('../../server/repositories/tokenRepository', () => ({
   cleanupExpiredTokenRevocations: vi.fn(async () => 0),
 }));
 
-vi.mock('../../server/services/searchService', () => ({
+vi.mock('../../server/modules/search/public', () => ({
   getSearchConfig: mocks.getSearchConfig,
   runSearchQuery: mocks.runSearchQuery,
-}));
-
-vi.mock('../../server/repositories/searchRepository', () => ({
   enqueueSearchJob: mocks.enqueueSearchJob,
   getSearchStatus: mocks.getSearchStatus,
   recoverStaleRunningJobs: mocks.recoverStaleRunningJobs,
   requeueFailedJobs: mocks.requeueFailedJobs,
-}));
-
-vi.mock('../../server/services/searchWorker', () => ({
   processSearchJobsOnce: mocks.processSearchJobsOnce,
+  getDocumentById: vi.fn(),
+  deleteDocumentById: vi.fn(),
+  listProjectsForAdmin: vi.fn(),
+  createOrGetAdminProject: vi.fn(),
 }));
 
-vi.mock('../../server/repositories/projectAccessRepository', () => ({
+vi.mock('../../server/modules/project/public', () => ({
   assertProjectMembership: mocks.assertProjectMembership,
 }));
 
@@ -169,7 +167,7 @@ describe('search.routes', () => {
     const admin = await request(app).get('/api/search/status').set('Authorization', authHeader('ADMIN'));
 
     expect(admin.status).toBe(200);
-    expect(mocks.getSearchStatus).toHaveBeenCalledWith(undefined);
+    expect(mocks.getSearchStatus).toHaveBeenCalledWith('org-1', undefined);
 
     const scoped = await request(app)
       .get('/api/search/status/project-1')
@@ -182,7 +180,7 @@ describe('search.routes', () => {
       organisationId: 'org-1',
       role: 'CONSULTANT',
     });
-    expect(mocks.getSearchStatus).toHaveBeenLastCalledWith('project-1');
+    expect(mocks.getSearchStatus).toHaveBeenLastCalledWith('org-1', 'project-1');
   });
 
   it('clamps recover-stale parameters and processes requeued work', async () => {
@@ -229,5 +227,70 @@ describe('search.routes', () => {
     expect(res.status).toBe(200);
     expect(mocks.requeueFailedJobs).toHaveBeenCalledWith('project-1', 500);
     expect(mocks.processSearchJobsOnce).toHaveBeenCalledWith(2);
+  });
+
+  it('returns search info metadata on GET /api/search/info', async () => {
+    const res = await request(app).get('/api/search/info').set('Authorization', authHeader('CONSULTANT'));
+
+    expect(res.status).toBe(200);
+    expect(res.body.ok).toBe(true);
+    expect(Array.isArray(res.body.info?.modes)).toBe(true);
+  });
+
+  it('allows admin query without projectId (global search)', async () => {
+    const res = await request(app)
+      .post('/api/search/query')
+      .set('Authorization', authHeader('ADMIN'))
+      .send({ query: 'miljö' });
+
+    expect(res.status).toBe(200);
+    expect(mocks.assertProjectMembership).not.toHaveBeenCalled();
+    expect(mocks.runSearchQuery).toHaveBeenCalledWith(expect.objectContaining({ projectId: undefined }));
+  });
+
+  it('catches service errors in query and status routes', async () => {
+    mocks.runSearchQuery.mockRejectedValueOnce(new Error('search engine failure'));
+    const queryErr = await request(app)
+      .post('/api/search/query')
+      .set('Authorization', authHeader('ADMIN'))
+      .send({ query: 'test' });
+    expect(queryErr.status).toBe(400);
+
+    mocks.getSearchStatus.mockRejectedValueOnce(new Error('db down'));
+    const statusErr = await request(app).get('/api/search/status').set('Authorization', authHeader('ADMIN'));
+    expect(statusErr.status).toBe(400);
+  });
+
+  it('uses custom manifestPath and outlookBaseDir from request body', async () => {
+    const res = await request(app)
+      .post('/api/search/sync-manifest')
+      .set('Authorization', authHeader('ADMIN'))
+      .send({
+        projectId: 'project-1',
+        manifestPath: '/custom/manifest.json',
+        outlookBaseDir: '/custom/outlook',
+      });
+
+    expect(res.status).toBe(200);
+    expect(mocks.enqueueSearchJob).toHaveBeenCalledWith(
+      expect.objectContaining({
+        payload: expect.objectContaining({
+          manifestPath: '/custom/manifest.json',
+          outlookBaseDir: '/custom/outlook',
+        }),
+      }),
+    );
+  });
+
+  it('allows recover-stale with projectId for non-admin user', async () => {
+    const res = await request(app)
+      .post('/api/search/recover-stale')
+      .set('Authorization', authHeader('CONSULTANT'))
+      .send({ projectId: 'project-1' });
+
+    expect(res.status).toBe(200);
+    expect(mocks.assertProjectMembership).toHaveBeenCalledWith(
+      expect.objectContaining({ projectId: 'project-1' }),
+    );
   });
 });

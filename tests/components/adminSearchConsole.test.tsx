@@ -81,13 +81,20 @@ describe('AdminSearchConsole', () => {
   it('shows error when login fails', async () => {
     vi.stubGlobal(
       'fetch',
-      vi.fn().mockResolvedValue({
-        ok: false,
-        json: vi.fn().mockResolvedValue({ error: 'Ogiltiga uppgifter' }),
-      }),
+      vi
+        .fn()
+        .mockResolvedValueOnce({
+          ok: true,
+          json: vi.fn().mockResolvedValue({ csrfToken: 'csrf-123' }),
+        })
+        .mockResolvedValueOnce({
+          ok: false,
+          json: vi.fn().mockResolvedValue({ error: 'Ogiltiga uppgifter' }),
+        }),
     );
     render(<AdminSearchConsole />);
     const loginBtn = await screen.findByTestId('admin-login-button');
+    await user.type(screen.getByTestId('admin-password-input'), 'wrong-password');
     await user.click(loginBtn);
     await waitFor(() => expect(screen.getByText(/Ogiltiga uppgifter/i)).toBeInTheDocument());
   });

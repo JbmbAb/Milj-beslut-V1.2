@@ -1,3 +1,4 @@
+import React from 'react';
 import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, describe, expect, it, vi } from 'vitest';
@@ -51,6 +52,8 @@ describe('TechnicalSluExpert', () => {
   it('shows loading indicator when scanning', async () => {
     analyzesMock.mockReturnValue(new Promise(() => {}));
     render(<TechnicalSluExpert />);
+    await user.type(screen.getByPlaceholderText('Lat'), '60.67');
+    await user.type(screen.getByPlaceholderText('Lng'), '17.14');
     await user.click(screen.getByRole('button', { name: /Starta Scan/i }));
     await waitFor(() => expect(screen.getByText(/Analyserar/i)).toBeInTheDocument());
   });
@@ -64,6 +67,8 @@ describe('TechnicalSluExpert', () => {
       protectedAreas: [],
     });
     render(<TechnicalSluExpert />);
+    await user.type(screen.getByPlaceholderText('Lat'), '60.67');
+    await user.type(screen.getByPlaceholderText('Lng'), '17.14');
     await user.click(screen.getByRole('button', { name: /Starta Scan/i }));
     await waitFor(() => expect(screen.getByText('Inga hotade arter funna.')).toBeInTheDocument());
   });
@@ -75,6 +80,8 @@ describe('TechnicalSluExpert', () => {
       protectedAreas: [],
     });
     render(<TechnicalSluExpert />);
+    await user.type(screen.getByPlaceholderText('Lat'), '60.67');
+    await user.type(screen.getByPlaceholderText('Lng'), '17.14');
     await user.click(screen.getByRole('button', { name: /Starta Scan/i }));
     await waitFor(() => expect(screen.getByText('Flygekorren')).toBeInTheDocument());
   });
@@ -84,7 +91,9 @@ describe('TechnicalSluExpert', () => {
   it('shows offline fallback on error', async () => {
     analyzesMock.mockRejectedValue(new Error('network error'));
     render(<TechnicalSluExpert />);
+    await user.type(screen.getByPlaceholderText('Lat'), '60.67');
+    await user.type(screen.getByPlaceholderText('Lng'), '17.14');
     await user.click(screen.getByRole('button', { name: /Starta Scan/i }));
-    await waitFor(() => expect(screen.getByText(/Offline-läge/i)).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByText(/saknar verifierad kalla/i)).toBeInTheDocument());
   });
 });

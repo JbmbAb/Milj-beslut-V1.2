@@ -8,7 +8,21 @@ vi.mock('../../server/security/auditTrail', () => ({
   appendDomainAudit,
 }));
 
-import { submitPermitToAuthority } from '../../server/services/permitAuthorityService';
+vi.mock('../../server/logger', () => ({
+  logger: { warn: vi.fn(), info: vi.fn() },
+}));
+
+vi.mock('../../server/modules/evidence/public', () => ({
+  createCaseSnapshot: vi.fn(),
+  exportFromSnapshot: vi.fn(),
+  resolveRequirementCaseIdForProject: vi.fn().mockResolvedValue(null),
+}));
+
+import {
+  submitPermitToAuthority,
+  getSubmission,
+  listSubmissionsForProject,
+} from '../../server/services/permitAuthorityService';
 
 describe('permitAuthorityService', () => {
   const originalEnv = { ...process.env };
@@ -51,7 +65,8 @@ describe('permitAuthorityService', () => {
     expect(submission.providerMode).toBe('unconfigured');
     expect(submission.failureMode).toBe('missing_endpoint');
     expect(submission.responseCode).toBeNull();
-    expect(appendDomainAudit).toHaveBeenCalledTimes(1);
+    // PERMIT_SUBMITTED_TO_AUTHORITY + SUBMISSION_CREATED + SUBMISSION_SENT
+    expect(appendDomainAudit).toHaveBeenCalledTimes(3);
   });
 
   it('maps successful external submit responses', async () => {
@@ -151,5 +166,45 @@ describe('permitAuthorityService', () => {
     expect(submission.providerMode).toBe('external');
     expect(submission.responseCode).toBeNull();
     expect(submission.failureMode).toBe('timeout');
+  });
+
+  it('maps generic network errors to PENDING_REVIEW', async () => {
+    process.env.AUTHORITY_SUBMIT_ENDPOINT = 'https://authority.example.invalid/submit';
+    process.env.AUTHORITY_SUBMIT_MAX_RETRIES = '0';
+
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => Promise.reject(new Error('ECONNREFUSED'))),
+    );
+
+    const submission = await submit();
+
+    expect(submission.status).toBe('PENDING_REVIEW');
+    expect(submission.failureMode).toBe('network');
+  });
+
+  it('getSubmission returns the stored submission by referenceId', async () => {
+    appendDomainAudit.mockResolvedValue({ id: 'audit-get-1' });
+
+    const submitted = await submit();
+    const found = getSubmission(submitted.referenceId);
+
+    expect(found).toBeDefined();
+    expect(found?.caseNumber).toBe(submitted.caseNumber);
+    expect(found?.auditId).toBe('audit-get-1');
+  });
+
+  it('getSubmission returns undefined for unknown referenceId', () => {
+    expect(getSubmission('non-existent-uuid')).toBeUndefined();
+  });
+
+  it('listSubmissionsForProject returns array including submitted records', async () => {
+    appendDomainAudit.mockResolvedValue({ id: 'audit-list-1' });
+
+    await submit();
+    const list = listSubmissionsForProject('proj-1');
+
+    expect(Array.isArray(list)).toBe(true);
+    expect(list.length).toBeGreaterThan(0);
   });
 });

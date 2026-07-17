@@ -43,7 +43,7 @@ import MarketIntelView from '../../components/MarketIntelView';
 
 const samplePermits: Permit[] = [
   {
-    id: 1,
+    id: '1',
     filename: 'permit-001.pdf',
     checksum: 'abc123',
     received_date: '2024-01-01',
@@ -55,7 +55,7 @@ const samplePermits: Permit[] = [
     processed_at: '2024-01-02',
   },
   {
-    id: 2,
+    id: '2',
     filename: 'permit-002.pdf',
     checksum: 'def456',
     received_date: '2024-06-01',
@@ -120,6 +120,10 @@ describe('MarketIntelView – logistics mode', () => {
 
   it('shows transport flow blocked warning when remoteSync disabled', () => {
     render(<MarketIntelView permits={samplePermits} onSelectPermit={vi.fn()} mode="logistics" />);
-    expect(screen.getByText(/Transportflodet ar blockerat/i)).toBeInTheDocument();
+    expect(
+      screen.getByText(
+        /Operativt transportflode ar blockerat tills giltig backend-session och aktivt projekt finns\./i,
+      ),
+    ).toBeInTheDocument();
   });
 });

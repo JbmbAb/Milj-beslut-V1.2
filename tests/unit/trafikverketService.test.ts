@@ -1,14 +1,12 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-// ─── Module under test (dynamically imported to allow env-var injection) ─────
-
 type TrafikverketModule = typeof import('../../services/trafikverketService');
 let svc: TrafikverketModule;
 
 beforeEach(async () => {
   vi.resetModules();
   vi.unstubAllGlobals();
-  process.env.TRAFIKVERKET_API_BASE_URL = 'https://api.trafikverket.se/v2/data.json';
+  process.env.TRAFIKVERKET_API_BASE_URL = 'https://api.trafikinfo.trafikverket.se/v2/data.json';
   process.env.TRAFIKVERKET_API_KEY = 'test-api-key-123';
   svc = await import('../../services/trafikverketService');
 });
@@ -19,27 +17,25 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
-// ─── fetchTrafikverketData ────────────────────────────────────────────────────
-
-describe('fetchTrafikverketData', () => {
+describe('TrafikverketService.getRoadData', () => {
   it('sends a POST request to the configured API_URL', async () => {
     const fetchMock = vi.fn(
       async () =>
-        new Response(JSON.stringify({ RESPONSE: { RESULT: [{ TrainStation: [] }] } }), {
+        new Response(JSON.stringify({ RESPONSE: { RESULT: [{ PavementData: [] }] } }), {
           status: 200,
           headers: { 'Content-Type': 'application/json' },
         }),
     );
     vi.stubGlobal('fetch', fetchMock);
 
-    await svc.fetchTrafikverketData('<REQUEST/>');
+    await svc.trafikverketService.getRoadData(59.33, 18.06, 500);
 
     const [url, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
-    expect(url).toBe('https://api.trafikverket.se/v2/data.json');
+    expect(url).toBe('https://api.trafikinfo.trafikverket.se/v2/data.json');
     expect(init.method).toBe('POST');
   });
 
-  it('sends correct headers including API key', async () => {
+  it('sends correct XML payload including coordinates', async () => {
     const fetchMock = vi.fn(
       async () =>
         new Response(JSON.stringify({ RESPONSE: { RESULT: [{}] } }), {
@@ -49,72 +45,25 @@ describe('fetchTrafikverketData', () => {
     );
     vi.stubGlobal('fetch', fetchMock);
 
-    await svc.fetchTrafikverketData('<REQUEST/>');
+    await svc.trafikverketService.getRoadData(59.33, 18.06, 500);
 
     const [, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
-    const headers = init.headers as Record<string, string>;
-    expect(headers['Content-Type']).toBe('text/xml');
-    expect(headers['Trafikverket-Api-Key']).toBe('test-api-key-123');
+    const body = init.body as string;
+    expect(body).toContain('<LOGIN authenticationkey="test-api-key-123" />');
+    expect(body).toContain('value="18.06 59.33" radius="500m"');
+    expect(body).toContain('<INCLUDE>AADT</INCLUDE>');
   });
 
-  it('sends the provided query as request body', async () => {
-    const xmlQuery = '<REQUEST><LOGIN authenticationkey="test-api-key-123"/></REQUEST>';
-    const fetchMock = vi.fn(
-      async () =>
-        new Response(JSON.stringify({ RESPONSE: { RESULT: [{}] } }), {
-          status: 200,
-          headers: { 'Content-Type': 'application/json' },
-        }),
-    );
-    vi.stubGlobal('fetch', fetchMock);
-
-    await svc.fetchTrafikverketData(xmlQuery);
-
-    const [, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
-    expect(init.body).toBe(xmlQuery);
-  });
-
-  it('returns the first RESULT element when present', async () => {
-    const result = { TrainStation: [{ Name: 'Stockholm C' }] };
-    const fetchMock = vi.fn(
-      async () =>
-        new Response(JSON.stringify({ RESPONSE: { RESULT: [result] } }), {
-          status: 200,
-          headers: { 'Content-Type': 'application/json' },
-        }),
-    );
-    vi.stubGlobal('fetch', fetchMock);
-
-    const data = await svc.fetchTrafikverketData<typeof result>('<REQUEST/>');
-    expect(data.TrainStation[0].Name).toBe('Stockholm C');
-  });
-
-  it('returns an empty object when RESULT is missing', async () => {
-    const fetchMock = vi.fn(
-      async () =>
-        new Response(JSON.stringify({}), {
-          status: 200,
-          headers: { 'Content-Type': 'application/json' },
-        }),
-    );
-    vi.stubGlobal('fetch', fetchMock);
-
-    const data = await svc.fetchTrafikverketData('<REQUEST/>');
-    expect(data).toEqual({});
-  });
-
-  it('returns an empty object when RESULT array is empty', async () => {
-    const fetchMock = vi.fn(
-      async () =>
-        new Response(JSON.stringify({ RESPONSE: { RESULT: [] } }), {
-          status: 200,
-          headers: { 'Content-Type': 'application/json' },
-        }),
-    );
-    vi.stubGlobal('fetch', fetchMock);
-
-    const data = await svc.fetchTrafikverketData('<REQUEST/>');
-    expect(data).toEqual({});
+  it('returns pending mock data if API key is missing', async () => {
+    delete process.env.TRAFIKVERKET_API_KEY;
+    // We need to re-import the module because it sets API_KEY at the module level!
+    // Wait, since we are doing dynamic import after `process.env.TRAFIKVERKET_API_KEY` delete,
+    vi.resetModules();
+    const svcWithoutKey = await import('../../services/trafikverketService');
+    
+    const data = await svcWithoutKey.trafikverketService.getRoadData(59.33, 18.06);
+    expect(data.status).toBe('pending_auth');
+    expect(data.mockData).toBeDefined();
   });
 
   it('throws when the API response status is not ok', async () => {
@@ -127,26 +76,6 @@ describe('fetchTrafikverketData', () => {
     );
     vi.stubGlobal('fetch', fetchMock);
 
-    await expect(svc.fetchTrafikverketData('<REQUEST/>')).rejects.toThrow(/503/);
-  });
-
-  it('re-throws network errors', async () => {
-    const fetchMock = vi.fn(async () => {
-      throw new Error('Network failure');
-    });
-    vi.stubGlobal('fetch', fetchMock);
-
-    await expect(svc.fetchTrafikverketData('<REQUEST/>')).rejects.toThrow(/Network failure/i);
-  });
-});
-
-// ─── getAllTrainStationsQuery ──────────────────────────────────────────────────
-
-describe('getAllTrainStationsQuery', () => {
-  it('is a non-empty XML string', () => {
-    expect(typeof svc.getAllTrainStationsQuery).toBe('string');
-    expect(svc.getAllTrainStationsQuery.trim().length).toBeGreaterThan(0);
-    expect(svc.getAllTrainStationsQuery).toContain('<REQUEST>');
-    expect(svc.getAllTrainStationsQuery).toContain('TrainStation');
+    await expect(svc.trafikverketService.getRoadData(59.33, 18.06)).rejects.toThrow(/503/);
   });
 });

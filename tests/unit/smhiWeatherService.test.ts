@@ -5,6 +5,31 @@ import {
   summarizeSmhiForecast,
 } from '../../server/services/smhiWeatherService';
 
+vi.mock('../../server/logger', () => ({
+  logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
+}));
+
+function makeForecast(gustMs: number, precipMmH: number, thunderPct: number) {
+  return {
+    approvedTime: '2026-03-17T18:33:07Z',
+    referenceTime: '2026-03-17T18:00:00Z',
+    timeSeries: [
+      {
+        validTime: '2026-03-17T19:00:00Z',
+        parameters: [
+          { name: 't', values: [5.0] },
+          { name: 'ws', values: [6.0] },
+          { name: 'gust', values: [gustMs] },
+          { name: 'pmean', values: [precipMmH] },
+          { name: 'pmax', values: [precipMmH * 1.5] },
+          { name: 'tstm', values: [thunderPct] },
+          { name: 'Wsymb2', values: [3] },
+        ],
+      },
+    ],
+  };
+}
+
 const sampleForecast = {
   approvedTime: '2026-03-17T18:33:07Z',
   referenceTime: '2026-03-17T18:00:00Z',
@@ -88,6 +113,61 @@ describe('smhiWeatherService', () => {
       await getSmhiWeatherRisk({ lat: 59.3293, lng: 18.0686, municipality: 'Haninge' });
 
       expect(fetchMock).toHaveBeenCalledTimes(1);
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
+
+  it('returns Medel risk when gust is 12–17 m/s', () => {
+    // maxGust = 13, thunder < 15, precip < 2.5 → Medel
+    const result = summarizeSmhiForecast(makeForecast(13, 0.5, 8), {
+      lat: 59.0,
+      lng: 15.0,
+      municipality: 'Örebro',
+    });
+
+    expect(result.level).toBe('Medel');
+    expect(result.action).toContain('kontrollera pumpning');
+    expect(result.description).toMatch(/Örebro/i);
+  });
+
+  it('returns Låg risk when all metrics are below thresholds', () => {
+    // gust=5, precip=0.1, thunder=3 → all below Medel/Hög thresholds
+    const result = summarizeSmhiForecast(makeForecast(5, 0.1, 3), {
+      lat: 58.0,
+      lng: 14.0,
+    });
+
+    expect(result.level).toBe('Låg');
+    expect(result.action).toContain('Normal arbetsberedning');
+  });
+
+  it('uses "för vald plats" when no municipality is provided', () => {
+    const result = summarizeSmhiForecast(makeForecast(13, 0.5, 8), {
+      lat: 59.0,
+      lng: 15.0,
+    });
+
+    expect(result.description).toContain('för vald plats');
+    expect(result.municipality).toBeUndefined();
+  });
+
+  it('throws when timeSeries is empty', () => {
+    expect(() => summarizeSmhiForecast({ timeSeries: [] }, { lat: 59.0, lng: 15.0 })).toThrow(
+      'SMHI forecast response did not contain any time series data',
+    );
+  });
+
+  it('throws when SMHI API returns non-ok response', async () => {
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = vi.fn(
+      async () => new Response('Not Found', { status: 404 }),
+    ) as unknown as typeof fetch;
+
+    try {
+      await expect(getSmhiWeatherRisk({ lat: 59.3293, lng: 18.0686 })).rejects.toThrow(
+        'SMHI weather request failed with status 404',
+      );
     } finally {
       globalThis.fetch = originalFetch;
     }

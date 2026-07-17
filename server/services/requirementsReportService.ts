@@ -1,13 +1,24 @@
-import { PassThrough } from "node:stream";
-import { Buffer } from "node:buffer";
-import path from "node:path";
-import { Document, HeadingLevel, Packer, Paragraph, Table, TableCell, TableRow, TextRun, WidthType } from "docx";
-import yazl from "yazl";
+import { PassThrough } from 'node:stream';
+import { Buffer } from 'node:buffer';
+import path from 'node:path';
+import {
+  Document,
+  HeadingLevel,
+  Packer,
+  Paragraph,
+  Table,
+  TableCell,
+  TableRow,
+  TextRun,
+  WidthType,
+} from 'docx';
+import yazl from 'yazl';
 import {
   getRequirementReportCases,
   getRequirementReportCitations,
   getRequirementReportRows,
-} from "../repositories/requirementsRepository";
+} from '../repositories/requirementsRepository';
+import { buildSimplePdfBuffer } from './pdfExportService';
 
 type RequirementWithRelations = Awaited<ReturnType<typeof getRequirementReportRows>>[number];
 type RequirementCase = Awaited<ReturnType<typeof getRequirementReportCases>>[number];
@@ -15,7 +26,7 @@ type RequirementCitation = Awaited<ReturnType<typeof getRequirementReportCitatio
 
 export interface RequirementsReportSummary {
   generatedAt: string;
-  scope: "VERIFIED_ONLY" | "INCLUDE_PRELIMINARY";
+  scope: 'VERIFIED_ONLY' | 'INCLUDE_PRELIMINARY';
   warning: string | null;
   totals: {
     requirements: number;
@@ -58,33 +69,39 @@ function asPct(part: number, total: number): number {
 }
 
 function normalize(value: unknown): string {
-  const text = String(value || "").trim();
+  const text = String(value || '').trim();
   return text;
 }
 
 function toCsvCell(value: string): string {
-  const clean = String(value || "").replace(/\r?\n/g, " ").trim();
-  if (clean.includes(";") || clean.includes('"')) {
+  const clean = String(value || '')
+    .replace(/\r?\n/g, ' ')
+    .trim();
+  if (clean.includes(';') || clean.includes('"')) {
     return `"${clean.replace(/"/g, '""')}"`;
   }
   return clean;
 }
 
 function csvFromRows(rows: Array<Record<string, unknown>>, headers: string[]): string {
-  const lines = [headers.join(";")];
+  const lines = [headers.join(';')];
   for (const row of rows) {
-    lines.push(headers.map((header) => toCsvCell(String(row[header] ?? ""))).join(";"));
+    lines.push(headers.map((header) => toCsvCell(String(row[header] ?? ''))).join(';'));
   }
-  return `${lines.join("\n")}\n`;
+  return `${lines.join('\n')}\n`;
 }
 
-function toTableRows(headers: string[], rows: Array<Record<string, unknown>>, maxRows: number = 20): TableRow[] {
+function toTableRows(
+  headers: string[],
+  rows: Array<Record<string, unknown>>,
+  maxRows: number = 20,
+): TableRow[] {
   const headerRow = new TableRow({
     children: headers.map(
       (header) =>
         new TableCell({
           children: [new Paragraph({ children: [new TextRun({ text: header, bold: true })] })],
-        })
+        }),
     ),
   });
 
@@ -94,10 +111,10 @@ function toTableRows(headers: string[], rows: Array<Record<string, unknown>>, ma
         children: headers.map(
           (header) =>
             new TableCell({
-              children: [new Paragraph(String(row[header] ?? ""))],
-            })
+              children: [new Paragraph(String(row[header] ?? ''))],
+            }),
         ),
-      })
+      }),
   );
 
   return [headerRow, ...bodyRows];
@@ -118,64 +135,66 @@ export async function buildRequirementsReportSummary(input?: {
   const projectId = input?.projectId;
 
   if (!organisationId) {
-    throw new Error("organisationId is required for report generation");
+    throw new Error('organisationId is required for report generation');
   }
 
-  const requirements = await getRequirementReportRows({ 
+  const requirements = await getRequirementReportRows({
     includePreliminary,
     organisationId,
-    projectId
+    projectId,
   });
   const allRequirements = includePreliminary
     ? requirements
-    : await getRequirementReportRows({ 
+    : await getRequirementReportRows({
         includePreliminary: true,
         organisationId,
-        projectId
+        projectId,
       });
   const caseIds: string[] = Array.from(
     new Set(
       (requirements as Array<{ caseId?: string }>)
-        .map((row) => String(row.caseId || ""))
-        .filter((value) => value.length > 0)
-    )
+        .map((row) => String(row.caseId || ''))
+        .filter((value) => value.length > 0),
+    ),
   );
   const requirementIds: string[] = Array.from(
     new Set(
       (requirements as Array<{ id?: string }>)
-        .map((row) => String(row.id || ""))
-        .filter((value) => value.length > 0)
-    )
+        .map((row) => String(row.id || ''))
+        .filter((value) => value.length > 0),
+    ),
   );
   const [cases, citations] = await Promise.all([
     getRequirementReportCases(caseIds, { organisationId, projectId }),
     getRequirementReportCitations(requirementIds, { organisationId, projectId }),
   ]);
 
-  const verifiedRequirements = allRequirements.filter((row) => row.verificationStatus === "VERIFIED").length;
-  const rejectedRequirements = requirements.filter((row) => row.verificationStatus === "REJECTED").length;
-  const excludedRequirements = includePreliminary ? 0 : Math.max(0, allRequirements.length - requirements.length);
+  const verifiedRequirements = allRequirements.filter((row) => row.verificationStatus === 'VERIFIED').length;
+  const rejectedRequirements = requirements.filter((row) => row.verificationStatus === 'REJECTED').length;
+  const excludedRequirements = includePreliminary
+    ? 0
+    : Math.max(0, allRequirements.length - requirements.length);
   const municipalityCoverage = cases.filter((row) => normalize(row.municipality).length > 0).length;
   const authorityCoverage = cases.filter((row) => normalize(row.authorityName).length > 0).length;
 
   const tableAMap = new Map<string, number>();
   for (const row of cases) {
-    const authorityType = normalize(row.authorityType) || "Okand";
-    const authorityName = normalize(row.authorityName) || "Okand";
-    const documentType = normalize(row.documentType) || "Okand";
+    const authorityType = normalize(row.authorityType) || 'Okand';
+    const authorityName = normalize(row.authorityName) || 'Okand';
+    const documentType = normalize(row.documentType) || 'Okand';
     const key = `${authorityType}|${authorityName}|${documentType}`;
     tableAMap.set(key, (tableAMap.get(key) || 0) + 1);
   }
   const tableA = [...tableAMap.entries()]
     .map(([key, caseCount]) => {
-      const [authorityType, authorityName, documentType] = key.split("|");
+      const [authorityType, authorityName, documentType] = key.split('|');
       return { authorityType, authorityName, documentType, caseCount };
     })
     .sort((a, b) => b.caseCount - a.caseCount || a.authorityName.localeCompare(b.authorityName));
 
   const tableBMap = new Map<string, number>();
   for (const row of requirements) {
-    const category = normalize(row.category) || "Okand";
+    const category = normalize(row.category) || 'Okand';
     tableBMap.set(category, (tableBMap.get(category) || 0) + 1);
   }
   const tableB = [...tableBMap.entries()]
@@ -184,11 +203,11 @@ export async function buildRequirementsReportSummary(input?: {
 
   const tableCMap = new Map<string, { ytkonstruktion: number; dagvattenLakvatten: number }>();
   for (const row of requirements) {
-    const municipality = normalize(row.case?.municipality) || "Okand";
+    const municipality = normalize(row.case?.municipality) || 'Okand';
     const category = normalize(row.category);
     const bucket = tableCMap.get(municipality) || { ytkonstruktion: 0, dagvattenLakvatten: 0 };
-    if (category === "Ytkonstruktion") bucket.ytkonstruktion += 1;
-    if (category === "DagvattenLakvatten") bucket.dagvattenLakvatten += 1;
+    if (category === 'Ytkonstruktion') bucket.ytkonstruktion += 1;
+    if (category === 'DagvattenLakvatten') bucket.dagvattenLakvatten += 1;
     tableCMap.set(municipality, bucket);
   }
   const tableC = [...tableCMap.entries()]
@@ -201,30 +220,30 @@ export async function buildRequirementsReportSummary(input?: {
     .sort(
       (a, b) =>
         b.ytkonstruktion + b.dagvattenLakvatten - (a.ytkonstruktion + a.dagvattenLakvatten) ||
-        a.municipality.localeCompare(b.municipality)
+        a.municipality.localeCompare(b.municipality),
     );
 
   const tableDMap = new Map<string, number>();
   for (const row of requirements) {
-    const wasteType = normalize(row.wasteType) || "Okand";
-    const ewcCode = normalize(row.ewcCode) || "Okand";
+    const wasteType = normalize(row.wasteType) || 'Okand';
+    const ewcCode = normalize(row.ewcCode) || 'Okand';
     const key = `${wasteType}|${ewcCode}`;
     tableDMap.set(key, (tableDMap.get(key) || 0) + 1);
   }
   const tableD = [...tableDMap.entries()]
     .map(([key, requirementCount]) => {
-      const [wasteType, ewcCode] = key.split("|");
+      const [wasteType, ewcCode] = key.split('|');
       return { wasteType, ewcCode, requirementCount };
     })
     .sort((a, b) => b.requirementCount - a.requirementCount || a.wasteType.localeCompare(b.wasteType));
 
   const warning = includePreliminary
-    ? "Varning: preliminara rader ingar i underlaget. Slutrapport ska baseras pa VERIFIED."
+    ? 'Varning: preliminara rader ingar i underlaget. Slutrapport ska baseras pa VERIFIED.'
     : null;
 
   const summary: RequirementsReportSummary = {
     generatedAt: new Date().toISOString(),
-    scope: includePreliminary ? "INCLUDE_PRELIMINARY" : "VERIFIED_ONLY",
+    scope: includePreliminary ? 'INCLUDE_PRELIMINARY' : 'VERIFIED_ONLY',
     warning,
     totals: {
       requirements: requirements.length,
@@ -254,39 +273,39 @@ function caseRowsToExport(rows: RequirementCase[]) {
     DocumentId: row.documentId,
     ProjectId: row.projectId,
     OrganisationId: row.organisationId,
-    Kommun: row.municipality || "",
-    Myndighetstyp: row.authorityType || "",
-    Myndighet: row.authorityName || "",
-    Diarienummer: row.diarienummer || "",
-    Dokumenttyp: row.documentType || "",
-    Dokumentdatum: row.documentDate ? new Date(row.documentDate).toISOString().slice(0, 10) : "",
+    Kommun: row.municipality || '',
+    Myndighetstyp: row.authorityType || '',
+    Myndighet: row.authorityName || '',
+    Diarienummer: row.diarienummer || '',
+    Dokumenttyp: row.documentType || '',
+    Dokumentdatum: row.documentDate ? new Date(row.documentDate).toISOString().slice(0, 10) : '',
     KallaFil: row.sourceFile,
-    Kallrubrik: row.sourceSubject || "",
+    Kallrubrik: row.sourceSubject || '',
     ReviewStatus: row.reviewStatus,
-    ValidatedBy: row.validatedBy || "",
-    ValidatedAt: row.validatedAt ? new Date(row.validatedAt).toISOString() : "",
-    Notes: row.notes || "",
+    ValidatedBy: row.validatedBy || '',
+    ValidatedAt: row.validatedAt ? new Date(row.validatedAt).toISOString() : '',
+    Notes: row.notes || '',
   }));
 }
 
 function requirementRowsToExport(rows: RequirementWithRelations[]) {
   return rows.map((row) => ({
     RequirementId: row.requirementCode,
-    CaseId: row.case?.caseKey || "",
+    CaseId: row.case?.caseKey || '',
     DocumentId: row.documentId,
     ProjectId: row.projectId,
     Kravkategori: row.category,
     Kravsubkategori: row.subcategory,
     Kravniva: row.level,
-    RattsligHanvisning: row.legalReference || "",
+    RattsligHanvisning: row.legalReference || '',
     KravtextCitat: row.requirementTextQuote,
     TolkadKravtext: row.interpretedRequirement,
-    Avfallsslag: row.wasteType || "",
-    EWC: row.ewcCode || "",
+    Avfallsslag: row.wasteType || '',
+    EWC: row.ewcCode || '',
     VerificationStatus: row.verificationStatus,
-    VerifiedBy: row.verifiedBy || "",
-    VerifiedAt: row.verifiedAt ? new Date(row.verifiedAt).toISOString() : "",
-    ValidationComment: row.validationComment || "",
+    VerifiedBy: row.verifiedBy || '',
+    VerifiedAt: row.verifiedAt ? new Date(row.verifiedAt).toISOString() : '',
+    ValidationComment: row.validationComment || '',
   }));
 }
 
@@ -297,17 +316,17 @@ function citationRowsToExport(rows: RequirementCitation[]) {
     CaseId: row.caseId,
     DocumentId: row.documentId,
     QuoteText: row.quoteText,
-    PageNumber: row.pageNumber ?? "",
-    CharStart: row.charStart ?? "",
-    CharEnd: row.charEnd ?? "",
+    PageNumber: row.pageNumber ?? '',
+    CharStart: row.charStart ?? '',
+    CharEnd: row.charEnd ?? '',
     VerificationStatus: row.verificationStatus,
-    VerifiedBy: row.verifiedBy || "",
-    VerifiedAt: row.verifiedAt ? new Date(row.verifiedAt).toISOString() : "",
-    Comment: row.comment || "",
+    VerifiedBy: row.verifiedBy || '',
+    VerifiedAt: row.verifiedAt ? new Date(row.verifiedAt).toISOString() : '',
+    Comment: row.comment || '',
   }));
 }
 
-export async function buildRequirementsExportCsvZip(input?: { 
+export async function buildRequirementsExportCsvZip(input?: {
   organisationId?: string;
   projectId?: string;
   includePreliminary?: boolean;
@@ -321,72 +340,72 @@ export async function buildRequirementsExportCsvZip(input?: {
   zip.addBuffer(
     Buffer.from(
       csvFromRows(caseRows, [
-        "CaseId",
-        "DocumentId",
-        "ProjectId",
-        "OrganisationId",
-        "Kommun",
-        "Myndighetstyp",
-        "Myndighet",
-        "Diarienummer",
-        "Dokumenttyp",
-        "Dokumentdatum",
-        "KallaFil",
-        "Kallrubrik",
-        "ReviewStatus",
-        "ValidatedBy",
-        "ValidatedAt",
-        "Notes",
+        'CaseId',
+        'DocumentId',
+        'ProjectId',
+        'OrganisationId',
+        'Kommun',
+        'Myndighetstyp',
+        'Myndighet',
+        'Diarienummer',
+        'Dokumenttyp',
+        'Dokumentdatum',
+        'KallaFil',
+        'Kallrubrik',
+        'ReviewStatus',
+        'ValidatedBy',
+        'ValidatedAt',
+        'Notes',
       ]),
-      "utf8"
+      'utf8',
     ),
-    "cases.csv"
+    'cases.csv',
   );
   zip.addBuffer(
     Buffer.from(
       csvFromRows(requirementRows, [
-        "RequirementId",
-        "CaseId",
-        "DocumentId",
-        "ProjectId",
-        "Kravkategori",
-        "Kravsubkategori",
-        "Kravniva",
-        "RattsligHanvisning",
-        "KravtextCitat",
-        "TolkadKravtext",
-        "Avfallsslag",
-        "EWC",
-        "VerificationStatus",
-        "VerifiedBy",
-        "VerifiedAt",
-        "ValidationComment",
+        'RequirementId',
+        'CaseId',
+        'DocumentId',
+        'ProjectId',
+        'Kravkategori',
+        'Kravsubkategori',
+        'Kravniva',
+        'RattsligHanvisning',
+        'KravtextCitat',
+        'TolkadKravtext',
+        'Avfallsslag',
+        'EWC',
+        'VerificationStatus',
+        'VerifiedBy',
+        'VerifiedAt',
+        'ValidationComment',
       ]),
-      "utf8"
+      'utf8',
     ),
-    "requirements_verified.csv"
+    'requirements_verified.csv',
   );
   zip.addBuffer(
     Buffer.from(
       csvFromRows(citationRows, [
-        "CitationId",
-        "RequirementId",
-        "CaseId",
-        "DocumentId",
-        "QuoteText",
-        "PageNumber",
-        "CharStart",
-        "CharEnd",
-        "VerificationStatus",
-        "VerifiedBy",
-        "VerifiedAt",
-        "Comment",
+        'CitationId',
+        'RequirementId',
+        'CaseId',
+        'DocumentId',
+        'QuoteText',
+        'PageNumber',
+        'CharStart',
+        'CharEnd',
+        'VerificationStatus',
+        'VerifiedBy',
+        'VerifiedAt',
+        'Comment',
       ]),
-      "utf8"
+      'utf8',
     ),
-    "citations_verified.csv"
+    'citations_verified.csv',
   );
-  zip.addBuffer(Buffer.from(`${JSON.stringify(summary, null, 2)}\n`, "utf8"), "summary.json");
+  zip.addBuffer(Buffer.from(`${JSON.stringify(summary, null, 2)}\n`, 'utf8'), 'summary.json');
   zip.end();
 
   const stream = new PassThrough();
@@ -394,7 +413,7 @@ export async function buildRequirementsExportCsvZip(input?: {
   return stream;
 }
 
-export async function buildRequirementsDocxBuffer(input?: { 
+export async function buildRequirementsDocxBuffer(input?: {
   organisationId?: string;
   projectId?: string;
   includePreliminary?: boolean;
@@ -407,41 +426,57 @@ export async function buildRequirementsDocxBuffer(input?: {
         children: [
           new Paragraph({
             heading: HeadingLevel.TITLE,
-            text: "Examensrapportutkast - Kravanalys mellanlagringsplattor",
+            text: 'Kravrapportutkast - Kravanalys mellanlagringsplattor',
           }),
-          new Paragraph(`Genererad: ${new Date(summary.generatedAt).toLocaleString("sv-SE")}`),
+          new Paragraph(`Genererad: ${new Date(summary.generatedAt).toLocaleString('sv-SE')}`),
           new Paragraph(`Scope: ${summary.scope}`),
-          ...(summary.warning ? [new Paragraph({ children: [new TextRun({ text: summary.warning, bold: true })] })] : []),
-          new Paragraph({ heading: HeadingLevel.HEADING_1, text: "Metod och avgransning" }),
-          new Paragraph("Datakalla: normaliserad kravmodell (RequirementCase/RequirementRecord/RequirementCitation)."),
-          new Paragraph("Verifieringspolicy: endast VERIFIED-rader ingar i rapportresultat som standard."),
-          new Paragraph({ heading: HeadingLevel.HEADING_1, text: "Kvalitetsmatning" }),
+          ...(summary.warning
+            ? [new Paragraph({ children: [new TextRun({ text: summary.warning, bold: true })] })]
+            : []),
+          new Paragraph({ heading: HeadingLevel.HEADING_1, text: 'Metod och avgransning' }),
+          new Paragraph(
+            'Datakalla: normaliserad kravmodell (RequirementCase/RequirementRecord/RequirementCitation).',
+          ),
+          new Paragraph('Verifieringspolicy: endast VERIFIED-rader ingar i rapportresultat som standard.'),
+          new Paragraph({ heading: HeadingLevel.HEADING_1, text: 'Kvalitetsmatning' }),
           new Paragraph(`Totalt kravrader: ${summary.totals.requirements}`),
           new Paragraph(`Verifierade kravrader: ${summary.totals.verifiedRequirements}`),
           new Paragraph(`Kommuntackning: ${summary.quality.municipalityCoveragePct}%`),
           new Paragraph(`Myndighetstackning: ${summary.quality.authorityCoveragePct}%`),
-          new Paragraph({ heading: HeadingLevel.HEADING_1, text: "Resultat - Tabell A (arenden per myndighet/dokumenttyp)" }),
+          new Paragraph({
+            heading: HeadingLevel.HEADING_1,
+            text: 'Resultat - Tabell A (arenden per myndighet/dokumenttyp)',
+          }),
           new Table({
             width: { size: 100, type: WidthType.PERCENTAGE },
-            rows: toTableRows(["authorityType", "authorityName", "documentType", "caseCount"], summary.tableA),
+            rows: toTableRows(
+              ['authorityType', 'authorityName', 'documentType', 'caseCount'],
+              summary.tableA,
+            ),
           }),
-          new Paragraph({ heading: HeadingLevel.HEADING_1, text: "Resultat - Tabell B (kravfrekvens per kategori)" }),
+          new Paragraph({
+            heading: HeadingLevel.HEADING_1,
+            text: 'Resultat - Tabell B (kravfrekvens per kategori)',
+          }),
           new Table({
             width: { size: 100, type: WidthType.PERCENTAGE },
-            rows: toTableRows(["category", "requirementCount"], summary.tableB),
+            rows: toTableRows(['category', 'requirementCount'], summary.tableB),
           }),
-          new Paragraph({ heading: HeadingLevel.HEADING_1, text: "Resultat - Tabell C (kommunskillnader)" }),
+          new Paragraph({ heading: HeadingLevel.HEADING_1, text: 'Resultat - Tabell C (kommunskillnader)' }),
           new Table({
             width: { size: 100, type: WidthType.PERCENTAGE },
-            rows: toTableRows(["municipality", "ytkonstruktion", "dagvattenLakvatten"], summary.tableC),
+            rows: toTableRows(['municipality', 'ytkonstruktion', 'dagvattenLakvatten'], summary.tableC),
           }),
-          new Paragraph({ heading: HeadingLevel.HEADING_1, text: "Resultat - Tabell D (krav per avfallsslag/EWC)" }),
+          new Paragraph({
+            heading: HeadingLevel.HEADING_1,
+            text: 'Resultat - Tabell D (krav per avfallsslag/EWC)',
+          }),
           new Table({
             width: { size: 100, type: WidthType.PERCENTAGE },
-            rows: toTableRows(["wasteType", "ewcCode", "requirementCount"], summary.tableD),
+            rows: toTableRows(['wasteType', 'ewcCode', 'requirementCount'], summary.tableD),
           }),
-          new Paragraph({ heading: HeadingLevel.HEADING_1, text: "Bilaga" }),
-          new Paragraph("Exportmetadata och auditreferens hanteras i separat CSV/JSON-paket."),
+          new Paragraph({ heading: HeadingLevel.HEADING_1, text: 'Bilaga' }),
+          new Paragraph('Exportmetadata och auditreferens hanteras i separat CSV/JSON-paket.'),
         ],
       },
     ],
@@ -450,8 +485,61 @@ export async function buildRequirementsDocxBuffer(input?: {
   return Packer.toBuffer(doc);
 }
 
+export async function buildRequirementsReportPdfBuffer(input?: {
+  organisationId?: string;
+  projectId?: string;
+  includePreliminary?: boolean;
+}): Promise<Buffer> {
+  const { summary } = await buildRequirementsReportSummary(input);
+
+  const blocks: string[] = [
+    `Scope: ${summary.scope}`,
+    summary.warning ? summary.warning : '',
+    [
+      'Metod och avgränsning',
+      'Datakälla: normaliserad kravmodell (RequirementCase/RequirementRecord/RequirementCitation).',
+      'Verifieringspolicy: endast VERIFIED-rader ingår i rapportresultat som standard.',
+    ].join('\n'),
+    [
+      'Kvalitetsmätning',
+      `Totalt kravrader: ${summary.totals.requirements}`,
+      `Verifierade kravrader: ${summary.totals.verifiedRequirements}`,
+      `Kommun-täckning: ${summary.quality.municipalityCoveragePct}%`,
+      `Myndighets-täckning: ${summary.quality.authorityCoveragePct}%`,
+    ].join('\n'),
+    [
+      'Tabell A (ärenden per myndighet/dokumenttyp)',
+      ...summary.tableA.map(
+        (r) => `${r.authorityType} | ${r.authorityName} | ${r.documentType}: ${r.caseCount}`,
+      ),
+    ].join('\n'),
+    [
+      'Tabell B (kravfrekvens per kategori)',
+      ...summary.tableB.map((r) => `${r.category}: ${r.requirementCount}`),
+    ].join('\n'),
+    [
+      'Tabell C (kommunskillnader)',
+      ...summary.tableC.map(
+        (r) =>
+          `${r.municipality}: ytkonstruktion ${r.ytkonstruktion}, dagvatten/lakvatten ${r.dagvattenLakvatten}`,
+      ),
+    ].join('\n'),
+    [
+      'Tabell D (krav per avfallsslag/EWC)',
+      ...summary.tableD.map((r) => `${r.wasteType} (${r.ewcCode}): ${r.requirementCount}`),
+    ].join('\n'),
+    'Bilaga: detaljerade rader finns i CSV/JSON-exportpaketet.',
+  ].filter(Boolean);
+
+  return buildSimplePdfBuffer({
+    title: 'Kravrapportutkast – kravanalys',
+    subtitle: `Genererad: ${new Date(summary.generatedAt).toLocaleString('sv-SE')}`,
+    body: blocks.join('\n\n'),
+  });
+}
+
 export function exportFilename(prefix: string, extension: string): string {
-  const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
-  const safePrefix = path.basename(prefix).replace(/[^a-zA-Z0-9-_]/g, "-");
+  const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+  const safePrefix = path.basename(prefix).replace(/[^a-zA-Z0-9-_]/g, '-');
   return `${safePrefix}-${timestamp}.${extension}`;
 }

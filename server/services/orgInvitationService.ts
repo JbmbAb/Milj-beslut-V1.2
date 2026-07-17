@@ -44,10 +44,7 @@ const INVITE_TTL_MS = 72 * 60 * 60 * 1000; // 72 hours
 
 function generateToken(inviteId: string, orgId: string): string {
   const secret = process.env.JWT_SECRET ?? 'dev-secret';
-  return crypto
-    .createHmac('sha256', secret)
-    .update(`${inviteId}|${orgId}`)
-    .digest('hex');
+  return crypto.createHmac('sha256', secret).update(`${inviteId}|${orgId}`).digest('hex');
 }
 
 function verifyToken(token: string, inviteId: string, orgId: string): boolean {

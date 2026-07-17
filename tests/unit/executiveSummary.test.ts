@@ -60,6 +60,47 @@ describe('ExecutiveSummary', () => {
 
     const html = renderToStaticMarkup(React.createElement(ExecutiveSummary, { mode: 'reports' }));
     expect(html).toContain('Risk- och genomforandestatus');
-    expect(html).toContain('LOKAL FALLBACK');
+    expect(html).toMatch(/Remote sync:.*LOKAL/s);
+  });
+
+  it('renders score mode with circular progress element', () => {
+    mockContext.plan = {
+      ...createDefaultProjectPlan(),
+      complianceScore: 75,
+    };
+    mockContext.gateStats = { blocked: 0, passed: 3 };
+
+    const html = renderToStaticMarkup(React.createElement(ExecutiveSummary, { mode: 'score' }));
+    expect(html).toContain('Regelefterlevnadspoäng');
+    expect(html).toContain('75');
+    expect(html).toContain('Kontrollpunkter');
+  });
+
+  it('uses default summary mode when no mode prop is provided', () => {
+    mockContext.plan = { ...createDefaultProjectPlan(), complianceScore: 50 };
+    mockContext.gateStats = { blocked: 0, passed: 0 };
+
+    // No mode prop → should default to 'summary'
+    const html = renderToStaticMarkup(React.createElement(ExecutiveSummary, {}));
+    expect(html).toContain('Regelefterlevnadspoäng');
+    expect(html).toContain('50/100');
+  });
+
+  it('shows remote sync session info when remoteSync is enabled', () => {
+    mockContext.plan = { ...createDefaultProjectPlan(), complianceScore: 60 };
+    mockContext.gateStats = { blocked: 0, passed: 1 };
+    mockContext.remoteSync = {
+      enabled: true,
+      projectId: 'remote-proj-1',
+      syncing: false,
+      lastLoadedAt: '2026-01-01T10:00:00Z',
+      lastSavedAt: '2026-01-01T10:05:00Z',
+      error: '',
+    };
+
+    const html = renderToStaticMarkup(React.createElement(ExecutiveSummary, { mode: 'summary' }));
+    expect(html).toContain('Regelefterlevnadspoäng');
+    // Remote sync enabled with projectId → should not show LOKAL FALLBACK in summary mode
+    expect(html).not.toContain('LOKAL FALLBACK');
   });
 });

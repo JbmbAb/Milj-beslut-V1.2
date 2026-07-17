@@ -18,8 +18,10 @@
  */
 
 import crypto from 'node:crypto';
+import { readStorageFile } from './documentObjectStorage';
 import { appendDomainAudit } from '../security/auditTrail';
 import { logger } from '../logger';
+import { getDocumentById } from '../repositories/searchRepository';
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -62,15 +64,32 @@ export async function signDocumentEidas(
   const format = params.format ?? 'PAdES';
   const requestedLevel = params.level ?? 'ADVANCED';
 
-  // Compute document-agnostic signature hash (in production this hashes actual PDF bytes)
-  const sigPayload = [
+  // Hash baseras primärt på PDF-byte-innehåll (krav för kvalificerad signatur).
+  // Om dokumentet inte kan läsas från disk faller vi tillbaka till ett
+  // metadata-hash som tydligt markeras som sådant i audit-spåret.
+  let pdfHash: string | null = null;
+  try {
+    const doc = await getDocumentById(params.documentId);
+    if (doc?.absolutePath) {
+      const bytes = await readStorageFile(doc.absolutePath);
+      pdfHash = crypto.createHash('sha256').update(bytes).digest('hex');
+    }
+  } catch (err) {
+    logger.warn('eidas: kunde inte läsa PDF-bytes för hash', {
+      documentId: params.documentId,
+      err: String(err),
+    });
+  }
+
+  const sigPayloadParts = [
     params.documentId,
     params.signerPersonalNumber,
     params.signerName,
     signedAt,
     signatureId,
-  ].join('|');
-  const signatureHash = crypto.createHash('sha256').update(sigPayload).digest('hex');
+  ];
+  if (pdfHash) sigPayloadParts.push(`pdf:${pdfHash}`);
+  const signatureHash = crypto.createHash('sha256').update(sigPayloadParts.join('|')).digest('hex');
 
   let level: SignatureLevel = requestedLevel;
   let qtspRef: string | undefined;
@@ -93,6 +112,8 @@ export async function signDocumentEidas(
           signerPersonalNumber: params.signerPersonalNumber,
           signerName: params.signerName,
           signatureHash,
+          documentSha256: pdfHash,
+          hashAlgorithm: 'SHA-256',
           signatureText: params.signatureText ?? `Signerat av ${params.signerName} via Miljöbeslut`,
           format,
         }),
@@ -132,6 +153,8 @@ export async function signDocumentEidas(
       level,
       format,
       signatureHash,
+      pdfSha256: pdfHash,
+      pdfHashSource: pdfHash ? 'pdf-bytes' : 'metadata-fallback',
       qtspRef: qtspRef ?? null,
       status,
     },

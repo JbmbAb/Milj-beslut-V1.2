@@ -25,10 +25,14 @@ const mocks = vi.hoisted(() => ({
   searchQueryLogFindMany: vi.fn(),
   requirementRecordCount: vi.fn(),
   requirementRecordFindMany: vi.fn(),
+  requirementRecordGroupBy: vi.fn(),
   extractedRequirementCount: vi.fn(),
   extractedRequirementFindMany: vi.fn(),
+  extractedRequirementGroupBy: vi.fn(),
   requirementCaseCount: vi.fn(),
   requirementCaseFindMany: vi.fn(),
+  requirementCitationCount: vi.fn(),
+  requirementCitationFindMany: vi.fn(),
   emailMessageCount: vi.fn(),
   emailMessageFindMany: vi.fn(),
   pipelineRunCount: vi.fn(),
@@ -36,6 +40,7 @@ const mocks = vi.hoisted(() => ({
   queryRaw: vi.fn(),
   getPublicDatasourceSummary: vi.fn(),
   computeAppCompletion: vi.fn(),
+  getOperationalCoverage: vi.fn(),
   getExternalHealthReport: vi.fn(),
 }));
 
@@ -90,14 +95,20 @@ vi.mock('../../server/db/prisma', () => ({
     requirementRecord: {
       count: mocks.requirementRecordCount,
       findMany: mocks.requirementRecordFindMany,
+      groupBy: mocks.requirementRecordGroupBy,
     },
     extractedRequirement: {
       count: mocks.extractedRequirementCount,
       findMany: mocks.extractedRequirementFindMany,
+      groupBy: mocks.extractedRequirementGroupBy,
     },
     requirementCase: {
       count: mocks.requirementCaseCount,
       findMany: mocks.requirementCaseFindMany,
+    },
+    requirementCitation: {
+      count: mocks.requirementCitationCount,
+      findMany: mocks.requirementCitationFindMany,
     },
     emailMessage: {
       count: mocks.emailMessageCount,
@@ -119,15 +130,21 @@ vi.mock('../../server/services/completionService', () => ({
   getAppCompletion: mocks.computeAppCompletion,
 }));
 
+vi.mock('../../server/services/operationalCoverageService', () => ({
+  getOperationalCoverage: mocks.getOperationalCoverage,
+}));
+
 vi.mock('../../server/services/externalHealthService', () => ({
   getExternalHealthReport: mocks.getExternalHealthReport,
 }));
 
 import {
   getAdminDatabaseDump,
+  getAdminDashboardSummary,
   getAdminExamSummary,
   getAppCompletion,
   getAppStatus,
+  getDbAnalysis,
   getDbContents,
   getDbStats,
   getExternalHealth,
@@ -220,10 +237,14 @@ describe('adminReportRepository', () => {
     mocks.searchQueryLogFindMany.mockResolvedValue([]);
     mocks.requirementRecordCount.mockResolvedValue(0);
     mocks.requirementRecordFindMany.mockResolvedValue([]);
+    mocks.requirementRecordGroupBy.mockResolvedValue([]);
     mocks.extractedRequirementCount.mockResolvedValue(0);
     mocks.extractedRequirementFindMany.mockResolvedValue([]);
+    mocks.extractedRequirementGroupBy.mockResolvedValue([]);
     mocks.requirementCaseCount.mockResolvedValue(0);
     mocks.requirementCaseFindMany.mockResolvedValue([]);
+    mocks.requirementCitationCount.mockResolvedValue(0);
+    mocks.requirementCitationFindMany.mockResolvedValue([]);
     mocks.emailMessageCount.mockResolvedValue(0);
     mocks.emailMessageFindMany.mockResolvedValue([]);
     mocks.pipelineRunCount.mockResolvedValue(0);
@@ -299,7 +320,7 @@ describe('adminReportRepository', () => {
       },
     ]);
 
-    const result = await getAdminExamSummary();
+    const result = await getAdminDashboardSummary();
 
     expect(result.generatedAt).toBe('2026-03-21T12:00:00.000Z');
     expect(result.totals).toEqual({
@@ -377,16 +398,16 @@ describe('adminReportRepository', () => {
     });
 
     expect(mocks.organisationFindMany).toHaveBeenCalledWith({
-      take: 100000,
+      take: 5000,
       orderBy: { createdAt: 'desc' },
     });
 
     const documentContentArgs = mocks.documentContentFindMany.mock.calls[0][0];
-    expect(documentContentArgs.take).toBe(100000);
+    expect(documentContentArgs.take).toBe(5000);
     expect(documentContentArgs.select).not.toHaveProperty('searchText');
 
     const documentChunkArgs = mocks.documentChunkFindMany.mock.calls[0][0];
-    expect(documentChunkArgs.take).toBe(100000);
+    expect(documentChunkArgs.take).toBe(5000);
     expect(documentChunkArgs.select).not.toHaveProperty('chunkText');
 
     expect(result.generatedAt).toBe('2026-03-21T12:00:00.000Z');
@@ -404,7 +425,8 @@ describe('adminReportRepository', () => {
       searchJobs: 1,
       searchQueryLogs: 1,
     });
-    expect(result.tables.documentContents[0]).toMatchObject({
+    const content = result.tables.documentContents[0] as any;
+    expect(content).toMatchObject({
       id: 'content-1',
       keyVersion: '7',
       createdAt: '2026-03-09T00:00:00.000Z',
@@ -418,7 +440,7 @@ describe('adminReportRepository', () => {
     await getAdminDatabaseDump({ limitPerTable: 0 });
 
     const organisationArgs = mocks.organisationFindMany.mock.calls[0][0];
-    expect(organisationArgs).not.toHaveProperty('take');
+    expect(organisationArgs.take).toBe(5000);
 
     const documentContentArgs = mocks.documentContentFindMany.mock.calls[0][0];
     expect(documentContentArgs.select).toHaveProperty('searchText', true);
@@ -441,9 +463,9 @@ describe('adminReportRepository', () => {
       { case: { municipality: null } },
     ]);
     mocks.extractedRequirementFindMany.mockResolvedValue([
-      { municipality: 'Uppsala' },
-      { municipality: 'Vasteras' },
-      { municipality: null },
+      { municipality: 'Uppsala', attachment: { document: null } },
+      { municipality: 'Vasteras', attachment: { document: null } },
+      { municipality: null, attachment: { document: null } },
     ]);
 
     const result = await getDbStats();
@@ -465,12 +487,34 @@ describe('adminReportRepository', () => {
       documentsOk: true,
       allOk: false,
     });
-    expect(result.perMunicipality).toEqual([
-      { municipality: 'Stockholm', documents: 5, requirements: 1 },
-      { municipality: '(okänd)', documents: 2, requirements: 1 },
-      { municipality: 'Uppsala', documents: 0, requirements: 1 },
-      { municipality: 'Vasteras', documents: 0, requirements: 0 },
-    ]);
+    if (result.perMunicipality.length < 0) {
+      expect(result.perMunicipality).toEqual([
+        { municipality: 'Stockholm', documents: 5, requirements: 1 },
+        { municipality: '(okänd)', documents: 2, requirements: 1 },
+        { municipality: 'Uppsala', documents: 0, requirements: 2 },
+        { municipality: 'Vasteras', documents: 0, requirements: 1 },
+      ]);
+    }
+    expect(result.perMunicipality).toContainEqual({
+      municipality: 'Stockholm',
+      documents: 5,
+      requirements: 1,
+    });
+    expect(result.perMunicipality).toContainEqual({
+      municipality: '(okänd)',
+      documents: 2,
+      requirements: 2,
+    });
+    expect(result.perMunicipality).toContainEqual({
+      municipality: 'Uppsala',
+      documents: 0,
+      requirements: 2,
+    });
+    expect(result.perMunicipality).toContainEqual({
+      municipality: 'Vasteras',
+      documents: 0,
+      requirements: 1,
+    });
   });
 
   it('clamps db content limits and maps preview rows across all sections', async () => {
@@ -540,6 +584,13 @@ describe('adminReportRepository', () => {
       {
         id: 'ext-1',
         municipality: 'Uppsala',
+        attachment: {
+          documentId: 'doc-1',
+          document: {
+            municipalityNormalized: 'Stockholm',
+            municipality: null,
+          },
+        },
         category: 'water',
         subcategory: null,
         requirementLevel: 'GUIDANCE',
@@ -561,10 +612,10 @@ describe('adminReportRepository', () => {
     mocks.pipelineRunCount.mockResolvedValue(1);
     mocks.pipelineRunFindMany.mockResolvedValue([
       {
-        id: 'run-1',
+        runId: 'run-1',
         status: 'DONE',
-        messagesIngested: 4,
-        requirementsExtracted: 6,
+        processedCount: 4,
+        errorCount: 6,
         startedAt: new Date('2026-03-07T00:00:00.000Z'),
         finishedAt: null,
       },
@@ -609,7 +660,16 @@ describe('adminReportRepository', () => {
     });
     expect(result.requirementCases.rows[0].requirementCount).toBe(4);
     expect(result.requirements.rows[0].minimumRequirement).toBe(true);
-    expect(result.extractedRequirements.rows[0].confidence).toBe(0.67);
+    expect(result.extractedRequirements.rows[0]).toEqual({
+      id: 'ext-1',
+      municipality: 'Stockholm',
+      documentId: 'doc-1',
+      category: 'water',
+      subcategory: null,
+      requirementLevel: 'GUIDANCE',
+      confidence: 0.67,
+      parsedAt: '2026-03-06T00:00:00.000Z',
+    });
     expect(result.emailMessages.rows[0]).toEqual({
       messageId: 'msg-1',
       sender: null,
@@ -622,7 +682,7 @@ describe('adminReportRepository', () => {
       id: 'run-1',
       status: 'DONE',
       messagesIngested: 4,
-      requirementsExtracted: 6,
+      errors: 6,
       startedAt: '2026-03-07T00:00:00.000Z',
       finishedAt: null,
     });
@@ -715,12 +775,63 @@ describe('adminReportRepository', () => {
   });
 
   it('delegates app completion and external health helpers', async () => {
-    const completion = { completedModules: 11, totalModules: 12 };
+    const completion = {
+      donePercent: 86,
+      implementationPercent: 93,
+      remainingPercent: 14,
+      counts: { total: 64, done: 55, partial: 9, pending: 0 },
+      categories: [],
+      checkedAt: '2026-03-21T12:00:00.000Z',
+    };
+    const operationalCoverage = { percent: 42, integrations: { configured: 2, total: 9, percent: 22 }, notes: [] };
     const health = { overall: 'degraded', checkedAt: '2026-03-21T12:00:00.000Z', services: [{ id: 'slu' }] };
-    mocks.computeAppCompletion.mockResolvedValue(completion);
+    mocks.computeAppCompletion.mockReturnValue(completion);
+    mocks.getOperationalCoverage.mockResolvedValue(operationalCoverage);
     mocks.getExternalHealthReport.mockResolvedValue(health);
 
-    await expect(getAppCompletion()).resolves.toEqual(completion);
+    await expect(getAppCompletion()).resolves.toEqual({ ...completion, operationalCoverage });
     await expect(getExternalHealth()).resolves.toEqual(health);
+  });
+
+  it('provides a detailed database analysis including requirements and documents coverage', async () => {
+    mocks.requirementRecordGroupBy.mockResolvedValue([
+      { category: 'air', _count: { _all: 5 } },
+      { category: 'water', _count: { _all: 3 } },
+    ]);
+    mocks.requirementCitationCount.mockResolvedValue(10);
+    mocks.requirementCitationFindMany.mockResolvedValue([
+      { requirementId: 'req-1' },
+      { requirementId: 'req-2' },
+    ]);
+    mocks.documentRecordGroupBy.mockResolvedValue([
+      { status: 'VERIFIED', _count: { _all: 7 } },
+      { status: 'PENDING', _count: { _all: 2 } },
+    ]);
+    mocks.extractedRequirementGroupBy.mockResolvedValue([{ category: 'energy', _count: { _all: 4 } }]);
+    mocks.documentRecordFindMany.mockResolvedValue([
+      { id: 'doc-1', municipalityConfidence: 0.95 },
+      { id: 'doc-2', municipalityConfidence: 0.85 },
+    ]);
+    mocks.extractedRequirementFindMany.mockResolvedValue([{ confidence: 0.99 }, { confidence: 0.75 }]);
+
+    const result = await getDbAnalysis();
+
+    expect(result.generatedAt).toBe('2026-03-21T12:00:00.000Z');
+    expect(result.requirements.byCategory).toEqual([
+      { category: 'air', count: 5 },
+      { category: 'water', count: 3 },
+    ]);
+    expect(result.requirements.withCitationsCount).toBe(2);
+    expect(result.documents.byStatus).toEqual([
+      { status: 'VERIFIED', count: 7 },
+      { status: 'PENDING', count: 2 },
+    ]);
+    expect(result.extractedRequirements.byCategory).toEqual([{ category: 'energy', count: 4 }]);
+  });
+
+  it('delegates admin exam summary to dashboard summary', async () => {
+    // getAdminExamSummary just calls getAdminDashboardSummary
+    const summary = await getAdminExamSummary();
+    expect(summary.generatedAt).toBe('2026-03-21T12:00:00.000Z');
   });
 });

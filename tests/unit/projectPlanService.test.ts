@@ -347,4 +347,37 @@ describe('projectPlanService', () => {
     expect(payload.report.verifiedByHuman).toBe(true);
     expect(payload.plan.auditTrail.at(-1)?.action).toBe('LIMS_REPORT_VERIFY');
   });
+
+  it('returns null from getProjectPlanSnapshot when nothing cached and DB returns null', async () => {
+    mocks.getStoredProjectPlan.mockResolvedValue(null);
+    const service = await loadService();
+    const result = await service.getProjectPlanSnapshot('new-project', 'org-1');
+    expect(result).toBeNull();
+  });
+
+  it('returns cached plan from getProjectPlanSnapshot on second call', async () => {
+    const service = await loadService();
+    await service.saveProjectPlanSnapshot({
+      projectId: 'cached-project',
+      organisationId: 'org-1',
+      plan: { name: 'Cached Plan' },
+    });
+    const result = await service.getProjectPlanSnapshot('cached-project', 'org-1');
+    expect(result?.name).toBe('Cached Plan');
+  });
+
+  it('falls back to memory when DB throws during persist', async () => {
+    mocks.prisma.projectPlanState.upsert.mockRejectedValue(new Error('DB connection lost'));
+    const service = await loadService();
+    const result = await service.saveProjectPlanSnapshot({
+      projectId: 'fallback-project',
+      organisationId: 'org-1',
+      plan: { name: 'Fallback' },
+    });
+    expect(result.name).toBe('Fallback');
+    expect(mocks.logger.warn).toHaveBeenCalledWith(
+      expect.stringContaining('storage unavailable'),
+      expect.any(Object),
+    );
+  });
 });

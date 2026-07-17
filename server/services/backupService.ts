@@ -78,14 +78,37 @@ export async function runBackup(actingUserId: string): Promise<BackupManifest> {
   // Collect all tables via Prisma
   const tableExports: Array<[string, Promise<unknown[]>]> = [
     ['organisations', prisma.organisation.findMany()],
-    ['users', prisma.user.findMany({ omit: { bankidId: false } })],
+    [
+      'users',
+      prisma.user.findMany({
+        select: {
+          id: true,
+          organisationId: true,
+          bankidId: true,
+          role: true,
+          createdAt: true,
+        },
+      }),
+    ],
     ['projects', prisma.project.findMany()],
     ['projectMembers', prisma.projectMember.findMany()],
-    ['documentRecords', prisma.documentRecord.findMany({ select: {
-      id: true, projectId: true, organisationId: true, entryId: true,
-      subject: true, originalName: true, status: true, mimeType: true,
-      fileSize: true, receivedTime: true,
-    }})],
+    [
+      'documentRecords',
+      prisma.documentRecord.findMany({
+        select: {
+          id: true,
+          projectId: true,
+          organisationId: true,
+          entryId: true,
+          subject: true,
+          originalName: true,
+          status: true,
+          mimeType: true,
+          fileSize: true,
+          receivedTime: true,
+        },
+      }),
+    ],
     ['auditTrail', prisma.auditTrail.findMany({ take: 10_000, orderBy: { timestamp: 'desc' } })],
     ['requirementCases', prisma.requirementCase.findMany()],
     ['searchQueryLogs', prisma.searchQueryLog.findMany({ take: 5_000 })],
@@ -173,7 +196,11 @@ async function uploadToS3(manifest: BackupManifest, filePath: string, bucket: st
   try {
     // Dynamic import of AWS SDK v3 (optional peer dependency)
     // Install with: npm install @aws-sdk/client-s3
-    const { S3Client, PutObjectCommand } = await import('@aws-sdk/client-s3').catch(() => ({ S3Client: null, PutObjectCommand: null }));
+    const awsModule = '@aws-sdk/client-s3';
+    const { S3Client, PutObjectCommand } = await import(/* @vite-ignore */ awsModule).catch(() => ({
+      S3Client: null,
+      PutObjectCommand: null,
+    }));
     if (!S3Client || !PutObjectCommand) return '';
 
     const client = new S3Client({});

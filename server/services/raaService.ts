@@ -1,12 +1,13 @@
-﻿import crypto from "node:crypto";
-import { logger } from "../logger";
+﻿import crypto from 'node:crypto';
+import { logger } from '../logger';
+import { tryFetchLocalRaaData } from './hybridGeoService';
 
 function calculateDistance(lat1: number, lon1: number, lat2: number, lon2: number): number {
   const earthRadiusMeters = 6371e3;
-  const phi1 = lat1 * Math.PI / 180;
-  const phi2 = lat2 * Math.PI / 180;
-  const deltaPhi = (lat2 - lat1) * Math.PI / 180;
-  const deltaLambda = (lon2 - lon1) * Math.PI / 180;
+  const phi1 = (lat1 * Math.PI) / 180;
+  const phi2 = (lat2 * Math.PI) / 180;
+  const deltaPhi = ((lat2 - lat1) * Math.PI) / 180;
+  const deltaLambda = ((lon2 - lon1) * Math.PI) / 180;
   const a =
     Math.sin(deltaPhi / 2) * Math.sin(deltaPhi / 2) +
     Math.cos(phi1) * Math.cos(phi2) * Math.sin(deltaLambda / 2) * Math.sin(deltaLambda / 2);
@@ -30,32 +31,32 @@ function geometryReferencePoint(geometry: GeoJsonGeometry | null | undefined): [
   if (!geometry) return null;
   const { type, coordinates } = geometry;
 
-  if (type === "Point" && Array.isArray(coordinates) && coordinates.length >= 2) {
+  if (type === 'Point' && Array.isArray(coordinates) && coordinates.length >= 2) {
     return [Number(coordinates[0]), Number(coordinates[1])];
   }
 
-  if (type === "LineString" && Array.isArray(coordinates) && coordinates.length > 0) {
+  if (type === 'LineString' && Array.isArray(coordinates) && coordinates.length > 0) {
     const point = coordinates[0] as number[];
     if (Array.isArray(point) && point.length >= 2) {
       return [Number(point[0]), Number(point[1])];
     }
   }
 
-  if (type === "Polygon" && Array.isArray(coordinates) && coordinates.length > 0) {
+  if (type === 'Polygon' && Array.isArray(coordinates) && coordinates.length > 0) {
     const ring = coordinates[0] as number[][];
     if (Array.isArray(ring) && ring.length > 0 && ring[0].length >= 2) {
       return [Number(ring[0][0]), Number(ring[0][1])];
     }
   }
 
-  if (type === "MultiPolygon" && Array.isArray(coordinates) && coordinates.length > 0) {
+  if (type === 'MultiPolygon' && Array.isArray(coordinates) && coordinates.length > 0) {
     const polygon = coordinates[0] as number[][][];
     if (Array.isArray(polygon) && polygon.length > 0 && polygon[0].length > 0 && polygon[0][0].length >= 2) {
       return [Number(polygon[0][0][0]), Number(polygon[0][0][1])];
     }
   }
 
-  if (type === "MultiLineString" && Array.isArray(coordinates) && coordinates.length > 0) {
+  if (type === 'MultiLineString' && Array.isArray(coordinates) && coordinates.length > 0) {
     const line = coordinates[0] as number[][];
     if (Array.isArray(line) && line.length > 0 && line[0].length >= 2) {
       return [Number(line[0][0]), Number(line[0][1])];
@@ -66,6 +67,22 @@ function geometryReferencePoint(geometry: GeoJsonGeometry | null | undefined): [
 }
 
 export async function fetchAncientMonuments(lat: number, lng: number): Promise<Monument[]> {
+  // 1. Try local PostGIS first
+  try {
+    const local = await tryFetchLocalRaaData(lat, lng);
+    if (local && local.length > 0) {
+      return local.map((r) => ({
+        id: r.id,
+        name: r.namn || 'Fornlamning',
+        type: r.typ || 'Kulturarv',
+        distance: Math.round(r.distance),
+      }));
+    }
+  } catch (err) {
+    logger.warn('RAA local lookup failed, falling back to WFS', { err });
+  }
+
+  // 2. Fallback to external WFS
   const radiusInDegrees = 0.005;
   const bbox = `${lng - radiusInDegrees},${lat - radiusInDegrees},${lng + radiusInDegrees},${lat + radiusInDegrees},urn:ogc:def:crs:EPSG::4326`;
   const url = `https://pub.raa.se/visning/lamningar_v1/wfs?service=WFS&version=2.0.0&request=GetFeature&typeNames=lamningar_v1:fornlamning&outputFormat=application/json&bbox=${bbox}`;
@@ -84,8 +101,8 @@ export async function fetchAncientMonuments(lat: number, lng: number): Promise<M
         const properties = feature.properties || {};
         return {
           id: String(feature.id || properties.lamningsnummer || properties.raa_nummer || crypto.randomUUID()),
-          name: String(properties.namn || properties.lamningstyp || "Fornlamning"),
-          type: String(properties.antikvarisk_bedomning || properties.lamningstyp || "Kulturarv"),
+          name: String(properties.namn || properties.lamningstyp || 'Fornlamning'),
+          type: String(properties.antikvarisk_bedomning || properties.lamningstyp || 'Kulturarv'),
           distance: calculateDistance(lat, lng, featureLat, featureLng),
         } satisfies Monument;
       })

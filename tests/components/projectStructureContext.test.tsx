@@ -171,7 +171,7 @@ describe('ProjectStructureProvider / useProjectStructure', () => {
 
   // ── Persisting to localStorage ──────────────────────────────────────────────
 
-  it('saves plan to localStorage on state change', async () => {
+  it('updates state without writing legacy localStorage when no remote session is active', async () => {
     const { getByRole } = render(
       <ProjectStructureProvider>
         <Consumer />
@@ -182,10 +182,9 @@ describe('ProjectStructureProvider / useProjectStructure', () => {
       getByRole('button', { name: /Byt namn/i }).click();
     });
 
+    expect(screen.getByTestId('project-name').textContent).toBe('Nytt projektnamn');
     const stored = localStorage.getItem('miljobeslut_project_structure_v2');
-    expect(stored).not.toBeNull();
-    const parsed = JSON.parse(stored!);
-    expect(parsed.plan.name).toBe('Nytt projektnamn');
+    expect(stored).toBeNull();
   });
 
   // ── useProjectStructure outside provider ────────────────────────────────────

@@ -1,7 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-// ─── Prisma mock ─────────────────────────────────────────────────────────────
-
 const mocks = vi.hoisted(() => ({
   propertyAccessLogCreate: vi.fn(),
   auditTrailFindMany: vi.fn(),
@@ -29,146 +27,314 @@ import {
   writePropertyAccessLog,
 } from '../../server/repositories/auditRepository';
 
-// ─── Tests ───────────────────────────────────────────────────────────────────
+beforeEach(() => {
+  vi.resetAllMocks();
+});
 
-describe('auditRepository', () => {
-  beforeEach(() => {
-    vi.clearAllMocks();
-  });
+describe('writePropertyAccessLog', () => {
+  it('calls prisma.propertyAccessLog.create with the event fields', async () => {
+    mocks.propertyAccessLogCreate.mockResolvedValue(undefined);
 
-  describe('writePropertyAccessLog', () => {
-    it('creates a property access log entry', async () => {
-      mocks.propertyAccessLogCreate.mockResolvedValue({ id: 'log-1' });
+    await writePropertyAccessLog({
+      userId: 'user-1',
+      projectId: 'project-1',
+      propertyDesignation: 'Test 1:1',
+      purpose: 'inspection',
+      responseClass: 'geometry',
+    });
 
-      await writePropertyAccessLog({
+    expect(mocks.propertyAccessLogCreate).toHaveBeenCalledOnce();
+    expect(mocks.propertyAccessLogCreate).toHaveBeenCalledWith({
+      data: {
         userId: 'user-1',
-        projectId: 'proj-1',
-        propertyDesignation: 'Stockholm Centrum 1:1',
-        purpose: 'ENV_PERMIT',
+        projectId: 'project-1',
+        propertyDesignation: 'Test 1:1',
+        purpose: 'inspection',
         responseClass: 'geometry',
-      });
-
-      expect(mocks.propertyAccessLogCreate).toHaveBeenCalledOnce();
-      expect(mocks.propertyAccessLogCreate).toHaveBeenCalledWith({
-        data: {
-          userId: 'user-1',
-          projectId: 'proj-1',
-          propertyDesignation: 'Stockholm Centrum 1:1',
-          purpose: 'ENV_PERMIT',
-          responseClass: 'geometry',
-        },
-      });
-    });
-
-    it('propagates prisma errors', async () => {
-      mocks.propertyAccessLogCreate.mockRejectedValue(new Error('DB error'));
-
-      await expect(
-        writePropertyAccessLog({
-          userId: 'user-1',
-          projectId: 'proj-1',
-          propertyDesignation: 'X',
-          purpose: 'TEST',
-          responseClass: 'boundaries',
-        }),
-      ).rejects.toThrow('DB error');
+      },
     });
   });
 
-  describe('getAuditExportRows', () => {
-    it('returns rows ordered by timestamp ascending', async () => {
-      const rows = [
-        { id: 'a1', entityType: 'DOCUMENT', entityId: 'd1', action: 'UPLOAD', timestamp: new Date() },
-        { id: 'a2', entityType: 'PROJECT', entityId: 'p1', action: 'CREATE', timestamp: new Date() },
-      ];
-      mocks.auditTrailFindMany.mockResolvedValue(rows);
+  it('propagates errors thrown by prisma', async () => {
+    mocks.propertyAccessLogCreate.mockRejectedValue(new Error('db error'));
 
-      const result = await getAuditExportRows(100);
+    await expect(
+      writePropertyAccessLog({
+        userId: 'u',
+        projectId: 'p',
+        propertyDesignation: 'X 1:1',
+        purpose: 'test',
+        responseClass: 'boundaries',
+      }),
+    ).rejects.toThrow('db error');
+  });
+});
 
-      expect(mocks.auditTrailFindMany).toHaveBeenCalledWith({
-        orderBy: [{ timestamp: 'asc' }, { id: 'asc' }],
-        take: 100,
-      });
-      expect(result).toHaveLength(2);
+describe('getAuditExportRows', () => {
+  it('returns rows ordered by timestamp asc with default limit 5000', async () => {
+    const rows = [
+      { id: 'a1', timestamp: new Date('2026-01-01') },
+      { id: 'a2', timestamp: new Date('2026-01-02') },
+    ];
+    mocks.auditTrailFindMany.mockResolvedValue(rows);
+
+    const result = await getAuditExportRows();
+
+    expect(mocks.auditTrailFindMany).toHaveBeenCalledWith({
+      orderBy: [{ timestamp: 'asc' }, { id: 'asc' }],
+      take: 5000,
+    });
+    expect(result).toEqual(rows);
+  });
+
+  it('respects a custom limit', async () => {
+    mocks.auditTrailFindMany.mockResolvedValue([]);
+
+    await getAuditExportRows(100);
+
+    expect(mocks.auditTrailFindMany).toHaveBeenCalledWith({
+      orderBy: [{ timestamp: 'asc' }, { id: 'asc' }],
+      take: 100,
+    });
+  });
+});
+
+describe('getLatestAuditRow', () => {
+  it('returns the most recent audit row', async () => {
+    const row = { id: 'latest', timestamp: new Date('2026-03-10') };
+    mocks.auditTrailFindFirst.mockResolvedValue(row);
+
+    const result = await getLatestAuditRow();
+
+    expect(mocks.auditTrailFindFirst).toHaveBeenCalledWith({
+      orderBy: [{ timestamp: 'desc' }, { id: 'desc' }],
+    });
+    expect(result).toEqual(row);
+  });
+
+  it('returns null when there are no audit rows', async () => {
+    mocks.auditTrailFindFirst.mockResolvedValue(null);
+
+    const result = await getLatestAuditRow();
+
+    expect(result).toBeNull();
+  });
+});
+
+describe('appendAuditTrailRow', () => {
+  it('calls prisma.auditTrail.create with all provided fields', async () => {
+    mocks.auditTrailCreate.mockResolvedValue(undefined);
+
+    const input = {
+      entityType: 'project',
+      entityId: 'proj-42',
+      action: 'UPDATE',
+      userId: 'user-7',
+      timestamp: new Date('2026-03-15T12:00:00.000Z'),
+      payloadHash: 'abc123',
+      prevHash: 'def456',
+      chainHash: 'ghi789',
+    };
+
+    await appendAuditTrailRow(input);
+
+    expect(mocks.auditTrailCreate).toHaveBeenCalledOnce();
+    expect(mocks.auditTrailCreate).toHaveBeenCalledWith({ data: input });
+  });
+
+  it('handles null prevHash correctly', async () => {
+    mocks.auditTrailCreate.mockResolvedValue(undefined);
+
+    await appendAuditTrailRow({
+      entityType: 'document',
+      entityId: 'doc-1',
+      action: 'CREATE',
+      timestamp: new Date(),
+      payloadHash: 'h1',
+      prevHash: null,
+      chainHash: 'h2',
     });
 
-    it('uses default limit of 5000', async () => {
+    const callArg = mocks.auditTrailCreate.mock.calls[0][0];
+    expect(callArg.data.prevHash).toBeNull();
+  });
+
+  it('omits userId when not provided', async () => {
+    mocks.auditTrailCreate.mockResolvedValue(undefined);
+
+    await appendAuditTrailRow({
+      entityType: 'user',
+      entityId: 'u-99',
+      action: 'DELETE',
+      timestamp: new Date(),
+      payloadHash: 'ph',
+      prevHash: null,
+      chainHash: 'ch',
+    });
+
+    const callArg = mocks.auditTrailCreate.mock.calls[0][0];
+    expect(callArg.data.userId).toBeUndefined();
+  });
+});
+
+// Additional tests for 100% coverage
+describe('auditRepository - Error Handling & Edge Cases', () => {
+  describe('getAuditExportRows (error handling)', () => {
+    it('propagates database errors from prisma', async () => {
+      mocks.auditTrailFindMany.mockRejectedValue(new Error('connection timeout'));
+
+      await expect(getAuditExportRows(500)).rejects.toThrow('connection timeout');
+    });
+
+    it('handles empty audit trail', async () => {
       mocks.auditTrailFindMany.mockResolvedValue([]);
 
-      await getAuditExportRows();
+      const result = await getAuditExportRows();
 
-      expect(mocks.auditTrailFindMany).toHaveBeenCalledWith(expect.objectContaining({ take: 5000 }));
+      expect(result).toEqual([]);
+    });
+
+    it('returns large result set correctly', async () => {
+      const largeSet = Array.from({ length: 5000 }, (_, i) => ({
+        id: `audit-${i}`,
+        timestamp: new Date(),
+      }));
+      mocks.auditTrailFindMany.mockResolvedValue(largeSet);
+
+      const result = await getAuditExportRows(5000);
+
+      expect(result).toHaveLength(5000);
     });
   });
 
-  describe('getLatestAuditRow', () => {
-    it('returns the latest row by timestamp desc', async () => {
-      const row = { id: 'a1', timestamp: new Date(), chainHash: 'abc' };
-      mocks.auditTrailFindFirst.mockResolvedValue(row);
+  describe('getLatestAuditRow (error handling)', () => {
+    it('propagates database errors from prisma', async () => {
+      mocks.auditTrailFindFirst.mockRejectedValue(new Error('db unavailable'));
 
-      const result = await getLatestAuditRow();
-
-      expect(mocks.auditTrailFindFirst).toHaveBeenCalledWith({
-        orderBy: [{ timestamp: 'desc' }, { id: 'desc' }],
-      });
-      expect(result).toBe(row);
+      await expect(getLatestAuditRow()).rejects.toThrow('db unavailable');
     });
 
-    it('returns null when audit trail is empty', async () => {
+    it('handles empty result gracefully', async () => {
       mocks.auditTrailFindFirst.mockResolvedValue(null);
 
       const result = await getLatestAuditRow();
+
       expect(result).toBeNull();
     });
   });
 
-  describe('appendAuditTrailRow', () => {
-    it('writes a complete audit trail row', async () => {
-      mocks.auditTrailCreate.mockResolvedValue({ id: 'row-1' });
+  describe('writePropertyAccessLog (error handling)', () => {
+    it('propagates database constraint errors', async () => {
+      mocks.propertyAccessLogCreate.mockRejectedValue(new Error('unique constraint violation'));
 
-      const now = new Date();
-      await appendAuditTrailRow({
-        entityType: 'DOCUMENT',
-        entityId: 'doc-1',
-        action: 'UPLOAD',
+      await expect(
+        writePropertyAccessLog({
+          userId: 'user-1',
+          projectId: 'project-1',
+          propertyDesignation: 'Samma 1:1',
+          purpose: 'inspection',
+          responseClass: 'geometry',
+        }),
+      ).rejects.toThrow('unique constraint violation');
+    });
+
+    it('handles Swedish property designations', async () => {
+      mocks.propertyAccessLogCreate.mockResolvedValue(undefined);
+
+      await writePropertyAccessLog({
         userId: 'user-1',
-        timestamp: now,
-        payloadHash: 'hash-abc',
-        prevHash: null,
-        chainHash: 'chain-hash',
+        projectId: 'project-1',
+        propertyDesignation: 'STOCKHOLM 1:1',
+        purpose: 'inspektöring',
+        responseClass: 'boundaries',
       });
 
-      expect(mocks.auditTrailCreate).toHaveBeenCalledWith({
+      expect(mocks.propertyAccessLogCreate).toHaveBeenCalledWith({
         data: {
-          entityType: 'DOCUMENT',
-          entityId: 'doc-1',
-          action: 'UPLOAD',
           userId: 'user-1',
-          timestamp: now,
-          payloadHash: 'hash-abc',
-          prevHash: null,
-          chainHash: 'chain-hash',
+          projectId: 'project-1',
+          propertyDesignation: 'STOCKHOLM 1:1',
+          purpose: 'inspektöring',
+          responseClass: 'boundaries',
         },
       });
     });
+  });
 
-    it('supports anonymous actions (no userId)', async () => {
-      mocks.auditTrailCreate.mockResolvedValue({ id: 'row-2' });
+  describe('appendAuditTrailRow (error handling & edge cases)', () => {
+    it('propagates database errors during creation', async () => {
+      mocks.auditTrailCreate.mockRejectedValue(new Error('foreign key constraint'));
 
-      await appendAuditTrailRow({
-        entityType: 'SYSTEM',
-        entityId: 'sys-1',
-        action: 'STARTUP',
-        userId: undefined,
+      await expect(
+        appendAuditTrailRow({
+          entityType: 'projekt',
+          entityId: 'proj-999',
+          action: 'UPDATE',
+          userId: 'invalid-user',
+          timestamp: new Date(),
+          payloadHash: 'h1',
+          prevHash: null,
+          chainHash: 'h2',
+        }),
+      ).rejects.toThrow('foreign key constraint');
+    });
+
+    it('handles empty strings in required fields', async () => {
+      mocks.auditTrailCreate.mockResolvedValue({
+        id: 'audit-empty',
+        entityType: '',
+        entityId: '',
+        action: '',
         timestamp: new Date(),
-        payloadHash: 'h',
-        prevHash: 'prev',
-        chainHash: 'chain',
       });
 
-      expect(mocks.auditTrailCreate).toHaveBeenCalledWith(
-        expect.objectContaining({ data: expect.objectContaining({ userId: undefined }) }),
-      );
+      await appendAuditTrailRow({
+        entityType: '',
+        entityId: '',
+        action: '',
+        timestamp: new Date(),
+        payloadHash: '',
+        prevHash: null,
+        chainHash: '',
+      });
+
+      expect(mocks.auditTrailCreate).toHaveBeenCalledOnce();
+    });
+
+    it('handles very long hash values', async () => {
+      const longHash = 'a'.repeat(10000);
+      mocks.auditTrailCreate.mockResolvedValue(undefined);
+
+      await appendAuditTrailRow({
+        entityType: 'entity',
+        entityId: 'id-long',
+        action: 'ACTION',
+        userId: 'user-xyz',
+        timestamp: new Date(),
+        payloadHash: longHash,
+        prevHash: longHash,
+        chainHash: longHash,
+      });
+
+      expect(mocks.auditTrailCreate).toHaveBeenCalled();
+    });
+
+    it('handles multiple sequential creations', async () => {
+      mocks.auditTrailCreate.mockResolvedValue(undefined);
+
+      for (let i = 0; i < 5; i++) {
+        await appendAuditTrailRow({
+          entityType: 'project',
+          entityId: `proj-${i}`,
+          action: 'CREATE',
+          timestamp: new Date(),
+          payloadHash: `hash-${i}`,
+          prevHash: i > 0 ? `hash-${i - 1}` : null,
+          chainHash: `chain-${i}`,
+        });
+      }
+
+      expect(mocks.auditTrailCreate).toHaveBeenCalledTimes(5);
     });
   });
 });

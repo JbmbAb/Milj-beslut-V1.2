@@ -1,5 +1,5 @@
-import { prisma } from "../db/prisma";
-import type { PropertyAccessAuditEvent } from "../security/types";
+import { prisma } from '../db/prisma';
+import type { PropertyAccessAuditEvent } from '../security/types';
 
 export async function writePropertyAccessLog(event: PropertyAccessAuditEvent): Promise<void> {
   await prisma.propertyAccessLog.create({
@@ -15,14 +15,14 @@ export async function writePropertyAccessLog(event: PropertyAccessAuditEvent): P
 
 export async function getAuditExportRows(limit: number = 5000) {
   return prisma.auditTrail.findMany({
-    orderBy: [{ timestamp: "asc" }, { id: "asc" }],
+    orderBy: [{ timestamp: 'asc' }, { id: 'asc' }],
     take: limit,
   });
 }
 
 export async function getLatestAuditRow() {
   return prisma.auditTrail.findFirst({
-    orderBy: [{ timestamp: "desc" }, { id: "desc" }],
+    orderBy: [{ timestamp: 'desc' }, { id: 'desc' }],
   });
 }
 

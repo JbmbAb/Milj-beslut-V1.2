@@ -1,7 +1,7 @@
-import crypto from "node:crypto";
-import { promises as fs } from "node:fs";
-import path from "node:path";
-import { logger } from "../logger";
+import crypto from 'node:crypto';
+import { promises as fs } from 'node:fs';
+import path from 'node:path';
+import { logger } from '../logger';
 import {
   enqueueSearchJob,
   findDocumentByDiskName,
@@ -17,31 +17,38 @@ import {
   updateChunkVector,
   upsertDocumentContent,
   upsertDocumentFromManifest,
-} from "../repositories/searchRepository";
+} from '../repositories/searchRepository';
+import { checkGeospatialRisks, type GeoRiskStatus } from './geoService';
+import { prisma } from '../db/prisma';
+import { Prisma } from '@prisma/client';
+import { embedTextWithVertexPredict } from './vertexEmbeddingService';
+import { generateTextWithVertexAndInlineData } from './vertexAiService';
+import { readStorageFile, statStorageFile } from './documentObjectStorage';
 
-const EMBEDDING_MODEL = String(process.env.EMBEDDING_MODEL || "gemini-embedding-001").trim();
-const EMBEDDING_FALLBACK_MODELS = String(
-  process.env.EMBEDDING_FALLBACK_MODELS || "gemini-embedding-001,text-embedding-004"
-)
-  .split(",")
-  .map((model) => model.trim())
-  .filter(Boolean);
+/** Värdelabel / logg; faktisk modell väljs via `VERTEX_EMBEDDING_MODEL` i Vertex. */
+const EMBEDDING_MODEL = String(
+  process.env.VERTEX_EMBEDDING_MODEL || process.env.EMBEDDING_MODEL || 'text-multilingual-embedding-002',
+).trim();
 const EMBEDDING_DIM = Math.max(64, Number(process.env.EMBEDDING_DIM || 768));
-const EMBEDDING_TIMEOUT_MS = Math.max(5_000, Number(process.env.EMBEDDING_TIMEOUT_MS || 25_000));
 const MAX_TEXT_BYTES = 2_000_000;
 const CHUNK_WORDS = 180;
 const CHUNK_OVERLAP = 40;
-const LEGACY_PDF_PLACEHOLDER_MARKER = "binart format (.pdf)";
-const OCR_MODEL = process.env.GEMINI_OCR_MODEL || process.env.OCR_MODEL || "gemini-2.5-flash";
+const LEGACY_PDF_PLACEHOLDER_MARKER = 'binart format (.pdf)';
+const OCR_MODEL =
+  process.env.VERTEX_OCR_MODEL ||
+  process.env.GEMINI_OCR_MODEL ||
+  process.env.OCR_MODEL ||
+  process.env.VERTEX_FAST_MODEL ||
+  'gemini-1.5-flash';
 const OCR_MIN_TEXT_CHARS = Math.max(1, Number(process.env.SEARCH_OCR_MIN_TEXT_CHARS || 120));
 const OCR_MAX_FILE_BYTES = Math.max(1_000_000, Number(process.env.SEARCH_OCR_MAX_FILE_BYTES || 12_000_000));
-const OCR_IMAGE_EXTENSIONS = new Set([".png", ".jpg", ".jpeg", ".bmp", ".tif", ".tiff", ".webp", ".gif"]);
-const OCR_CAPABLE_EXTENSIONS = new Set([".pdf", ...Array.from(OCR_IMAGE_EXTENSIONS)]);
+const OCR_IMAGE_EXTENSIONS = new Set(['.png', '.jpg', '.jpeg', '.bmp', '.tif', '.tiff', '.webp', '.gif']);
+const OCR_CAPABLE_EXTENSIONS = new Set(['.pdf', ...Array.from(OCR_IMAGE_EXTENSIONS)]);
 let warnedEmbeddingFallback = false;
 
 type ManifestRow = Record<string, string>;
 
-export type SearchMode = "semantic" | "lexical" | "hybrid";
+export type SearchMode = 'semantic' | 'lexical' | 'hybrid';
 
 export interface SearchFilters {
   municipality?: string;
@@ -79,19 +86,20 @@ export interface SearchResultRow {
     hazardousFlag: boolean | null;
     legalStatus: string | null;
     status: string;
+    geoRisk?: GeoRiskStatus | null;
   };
 }
 
 export interface SearchQueryResult {
   mode: SearchMode;
-  scope: "project" | "global";
+  scope: 'project' | 'global';
   elapsedMs: number;
   totalCandidates: number;
   guardrails: {
     strictEvidence: boolean;
     evidenceFilteredOut: number;
     citationCoveragePct: number;
-    semanticEngine: "pgvector" | "json-fallback" | "disabled";
+    semanticEngine: 'pgvector' | 'json-fallback' | 'disabled';
     draftWatermark: string;
   };
   results: SearchResultRow[];
@@ -105,16 +113,19 @@ export interface ManifestSyncResult {
 
 export function getSearchConfig() {
   return {
-    outlookBaseDir: process.env.OUTLOOK_BASE_DIR || "",
-    manifestPath: process.env.OUTLOOK_MANIFEST_PATH || "",
-    localDbRoot: process.env.LOCAL_DB_ROOT || "",
+    outlookBaseDir: process.env.OUTLOOK_BASE_DIR || '',
+    manifestPath: process.env.OUTLOOK_MANIFEST_PATH || '',
+    localDbRoot: process.env.LOCAL_DB_ROOT || '',
     embeddingModel: EMBEDDING_MODEL,
     embeddingDim: EMBEDDING_DIM,
   };
 }
 
 function normalizeKey(key: string): string {
-  return key.trim().toLowerCase().replace(/[\s_-]+/g, "");
+  return key
+    .trim()
+    .toLowerCase()
+    .replace(/[\s_-]+/g, '');
 }
 
 function readField(row: ManifestRow, candidates: string[]): string {
@@ -122,16 +133,16 @@ function readField(row: ManifestRow, candidates: string[]): string {
     const expected = normalizeKey(candidate);
     for (const [key, value] of Object.entries(row)) {
       if (normalizeKey(key) === expected) {
-        return String(value || "").trim();
+        return String(value || '').trim();
       }
     }
   }
-  return "";
+  return '';
 }
 
-function parseDelimitedLine(line: string, delimiter: string = ";"): string[] {
+function parseDelimitedLine(line: string, delimiter: string = ';'): string[] {
   const cells: string[] = [];
-  let current = "";
+  let current = '';
   let inQuotes = false;
 
   for (let i = 0; i < line.length; i += 1) {
@@ -149,7 +160,7 @@ function parseDelimitedLine(line: string, delimiter: string = ";"): string[] {
 
     if (ch === delimiter && !inQuotes) {
       cells.push(current);
-      current = "";
+      current = '';
       continue;
     }
 
@@ -170,14 +181,14 @@ function parseManifestCsv(csvRaw: string): ManifestRow[] {
     return [];
   }
 
-  const headers = parseDelimitedLine(lines[0], ";");
+  const headers = parseDelimitedLine(lines[0], ';');
   const rows: ManifestRow[] = [];
 
   for (let i = 1; i < lines.length; i += 1) {
-    const values = parseDelimitedLine(lines[i], ";");
+    const values = parseDelimitedLine(lines[i], ';');
     const row: ManifestRow = {};
     headers.forEach((header, index) => {
-      row[header] = values[index] || "";
+      row[header] = values[index] || '';
     });
     rows.push(row);
   }
@@ -192,7 +203,7 @@ function decodeManifestCsv(buffer: Buffer): string {
 
     // UTF-16 LE BOM
     if (b0 === 0xff && b1 === 0xfe) {
-      return buffer.toString("utf16le").replace(/^\uFEFF/, "");
+      return buffer.toString('utf16le').replace(/^\uFEFF/, '');
     }
 
     // UTF-16 BE BOM
@@ -202,17 +213,17 @@ function decodeManifestCsv(buffer: Buffer): string {
         swapped[i - 2] = buffer[i + 1];
         swapped[i - 1] = buffer[i];
       }
-      return swapped.toString("utf16le").replace(/^\uFEFF/, "");
+      return swapped.toString('utf16le').replace(/^\uFEFF/, '');
     }
   }
 
-  const utf8 = buffer.toString("utf8");
+  const utf8 = buffer.toString('utf8');
   const nullCount = (utf8.match(/\u0000/g) || []).length;
   if (nullCount > utf8.length * 0.05) {
-    return buffer.toString("utf16le").replace(/^\uFEFF/, "");
+    return buffer.toString('utf16le').replace(/^\uFEFF/, '');
   }
 
-  return utf8.replace(/^\uFEFF/, "");
+  return utf8.replace(/^\uFEFF/, '');
 }
 
 function parseDateOrNull(value: string): Date | null {
@@ -228,28 +239,23 @@ function parseBooleanOrNull(value: string): boolean | null {
   if (!normalized) {
     return null;
   }
-  if (["true", "1", "ja", "yes", "y"].includes(normalized)) {
+  if (['true', '1', 'ja', 'yes', 'y'].includes(normalized)) {
     return true;
   }
-  if (["false", "0", "nej", "no", "n"].includes(normalized)) {
+  if (['false', '0', 'nej', 'no', 'n'].includes(normalized)) {
     return false;
   }
   return null;
 }
 
 async function statSafe(filePath: string): Promise<{ size: bigint; mtimeMs: number } | null> {
-  try {
-    const stat = await fs.stat(filePath);
-    return { size: BigInt(stat.size), mtimeMs: stat.mtimeMs };
-  } catch {
-    return null;
-  }
+  return statStorageFile(filePath);
 }
 
 function extractSearchText(raw: string): string {
   return raw
-    .replace(/\u0000/g, " ")
-    .replace(/\s+/g, " ")
+    .replace(/\u0000/g, ' ')
+    .replace(/\s+/g, ' ')
     .trim();
 }
 
@@ -262,108 +268,75 @@ type PdfParserConstructor = new (options: { data: Buffer }) => PdfParserInstance
 
 function mimeTypeFromExtension(ext: string): string | null {
   switch (ext) {
-    case ".pdf":
-      return "application/pdf";
-    case ".png":
-      return "image/png";
-    case ".jpg":
-    case ".jpeg":
-      return "image/jpeg";
-    case ".bmp":
-      return "image/bmp";
-    case ".tif":
-    case ".tiff":
-      return "image/tiff";
-    case ".webp":
-      return "image/webp";
-    case ".gif":
-      return "image/gif";
+    case '.pdf':
+      return 'application/pdf';
+    case '.png':
+      return 'image/png';
+    case '.jpg':
+    case '.jpeg':
+      return 'image/jpeg';
+    case '.bmp':
+      return 'image/bmp';
+    case '.tif':
+    case '.tiff':
+      return 'image/tiff';
+    case '.webp':
+      return 'image/webp';
+    case '.gif':
+      return 'image/gif';
     default:
       return null;
   }
 }
 
-function parseGeminiText(payload: Record<string, unknown>): string {
-  const candidates = Array.isArray(payload.candidates) ? (payload.candidates as Record<string, unknown>[]) : [];
-  const parts = candidates
-    .map((candidate) => candidate?.content as Record<string, unknown> | undefined)
-    .flatMap((content) => (Array.isArray(content?.parts) ? (content?.parts as Record<string, unknown>[]) : []));
-  const text = parts
-    .map((part) => (typeof part.text === "string" ? part.text : ""))
-    .filter(Boolean)
-    .join("\n");
-  return extractSearchText(text);
-}
-
-async function runGeminiOcr(fileBuffer: Buffer, mimeType: string, modelOverride?: string): Promise<string | null> {
-  const apiKey = String(process.env.GEMINI_API_KEY || "").trim();
-  if (!apiKey) {
-    return null;
-  }
+export async function runGeminiOcr(
+  fileBuffer: Buffer,
+  mimeType: string,
+  modelOverride?: string,
+): Promise<string | null> {
   if (fileBuffer.length > OCR_MAX_FILE_BYTES) {
     return null;
   }
 
   const model = modelOverride || OCR_MODEL;
-  const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(
-    model
-  )}:generateContent?key=${encodeURIComponent(apiKey)}`;
+  const prompt =
+    'Extrahera all lasbar text ordagrant ur dokumentet. Returnera enbart textinnehall utan forklaringar.';
 
-  try {
-    const response = await fetch(endpoint, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        contents: [
-          {
-            parts: [
-              {
-                text:
-                  "Extrahera all lasbar text ordagrant ur dokumentet. Returnera enbart textinnehall utan forklaringar.",
-              },
-              {
-                inline_data: {
-                  mime_type: mimeType,
-                  data: fileBuffer.toString("base64"),
-                },
-              },
-            ],
-          },
-        ],
-        generationConfig: {
-          temperature: 0,
-          topP: 0.1,
-          maxOutputTokens: 8192,
-        },
-      }),
-    });
-
-    if (!response.ok) {
+  if (process.env.VERTEX_PROJECT_ID?.trim()) {
+    try {
+      const text = await generateTextWithVertexAndInlineData(
+        prompt,
+        { mimeType, dataBase64: fileBuffer.toString('base64') },
+        { model, profile: 'fast', temperature: 0, maxOutputTokens: 8192 },
+      );
+      return extractSearchText(text) || null;
+    } catch (err) {
+      console.error('Vertex OCR error:', err);
       return null;
     }
-
-    const payload = (await response.json()) as Record<string, unknown>;
-    const text = parseGeminiText(payload);
-    return text || null;
-  } catch {
-    return null;
   }
+
+  return null;
 }
 
-async function loadPdfText(filePath: string, fallbackTitle: string, forceOcr = false): Promise<string> {
+export async function loadPdfText(
+  filePath: string,
+  fallbackTitle: string,
+  forceOcr = false,
+): Promise<string> {
   let fileBuffer: Buffer;
   try {
-    fileBuffer = await fs.readFile(filePath);
+    fileBuffer = await readStorageFile(filePath);
   } catch {
     return `Dokument: ${fallbackTitle}. Kunde inte lasa PDF-innehall.`;
   }
 
-  let parsedText = "";
+  let parsedText = '';
   if (!forceOcr) {
     try {
-      const moduleValue = await import("pdf-parse");
+      const moduleValue = await import('pdf-parse');
       const PDFParse = (moduleValue as { PDFParse?: unknown }).PDFParse;
-      if (typeof PDFParse === "function") {
+      if (typeof PDFParse === 'function') {
         const parser = new (PDFParse as PdfParserConstructor)({ data: fileBuffer });
         let parsed: PdfParseResult | null = null;
         try {
@@ -371,7 +344,7 @@ async function loadPdfText(filePath: string, fallbackTitle: string, forceOcr = f
         } finally {
           await parser.destroy?.();
         }
-        parsedText = extractSearchText(String(parsed?.text || ""));
+        parsedText = extractSearchText(String(parsed?.text || ''));
       }
     } catch {
       // Continue with OCR fallback below.
@@ -382,8 +355,14 @@ async function loadPdfText(filePath: string, fallbackTitle: string, forceOcr = f
     return parsedText;
   }
 
-  const model = forceOcr ? "gemini-2.5-pro" : "gemini-2.5-flash";
-  const ocrText = await runGeminiOcr(fileBuffer, "application/pdf", model);
+  const proModel = String(
+    process.env.VERTEX_OCR_MODEL_PRO || process.env.VERTEX_TEXT_MODEL || 'gemini-1.5-pro',
+  ).trim();
+  const fastModel = String(
+    process.env.VERTEX_OCR_MODEL || process.env.VERTEX_FAST_MODEL || 'gemini-1.5-flash',
+  ).trim();
+  const model = forceOcr ? proModel : fastModel;
+  const ocrText = await runGeminiOcr(fileBuffer, 'application/pdf', model);
   if (ocrText) {
     if (parsedText && !ocrText.includes(parsedText)) {
       return extractSearchText(`${parsedText}\n${ocrText}`);
@@ -398,15 +377,26 @@ async function loadPdfText(filePath: string, fallbackTitle: string, forceOcr = f
   return `Dokument: ${fallbackTitle}. PDF utan extraherbar text/OCR - metadataindexerad.`;
 }
 
-async function loadImageTextWithOcr(filePath: string, ext: string, fallbackTitle: string, forceOcr = false): Promise<string> {
+async function loadImageTextWithOcr(
+  filePath: string,
+  ext: string,
+  fallbackTitle: string,
+  forceOcr = false,
+): Promise<string> {
   const mimeType = mimeTypeFromExtension(ext);
   if (!mimeType) {
-    return `Dokument: ${fallbackTitle}. Binart format (${ext || "okant"}) - metadataindexerad.`;
+    return `Dokument: ${fallbackTitle}. Binart format (${ext || 'okant'}) - metadataindexerad.`;
   }
 
   try {
-    const fileBuffer = await fs.readFile(filePath);
-    const model = forceOcr ? "gemini-2.5-pro" : "gemini-2.5-flash";
+    const fileBuffer = await readStorageFile(filePath);
+    const proModel = String(
+      process.env.VERTEX_OCR_MODEL_PRO || process.env.VERTEX_TEXT_MODEL || 'gemini-1.5-pro',
+    ).trim();
+    const fastModel = String(
+      process.env.VERTEX_OCR_MODEL || process.env.VERTEX_FAST_MODEL || 'gemini-1.5-flash',
+    ).trim();
+    const model = forceOcr ? proModel : fastModel;
     const ocrText = await runGeminiOcr(fileBuffer, mimeType, model);
     if (ocrText) {
       return ocrText;
@@ -417,21 +407,16 @@ async function loadImageTextWithOcr(filePath: string, ext: string, fallbackTitle
   }
 }
 
-async function loadDocumentText(filePath: string, fallbackTitle: string, forceOcr = false): Promise<string> {
-  const ext = path.extname(filePath).toLowerCase();
-  const textExtensions = new Set([
-    ".txt",
-    ".md",
-    ".csv",
-    ".json",
-    ".xml",
-    ".html",
-    ".htm",
-    ".log",
-    ".eml",
-  ]);
+async function loadDocumentText(
+  filePath: string,
+  fallbackTitle: string,
+  forceOcr = false,
+  nameForExtension?: string,
+): Promise<string> {
+  const ext = path.extname(String(nameForExtension || filePath)).toLowerCase();
+  const textExtensions = new Set(['.txt', '.md', '.csv', '.json', '.xml', '.html', '.htm', '.log', '.eml']);
 
-  if (ext === ".pdf") {
+  if (ext === '.pdf') {
     return loadPdfText(filePath, fallbackTitle, forceOcr);
   }
 
@@ -440,41 +425,46 @@ async function loadDocumentText(filePath: string, fallbackTitle: string, forceOc
   }
 
   if (!textExtensions.has(ext)) {
-    return `Dokument: ${fallbackTitle}. Binart format (${ext || "okant"}) - metadataindexerad.`;
+    return `Dokument: ${fallbackTitle}. Binart format (${ext || 'okant'}) - metadataindexerad.`;
   }
 
   try {
-    const fileBuffer = await fs.readFile(filePath);
+    const fileBuffer = await readStorageFile(filePath);
     const sliced = fileBuffer.subarray(0, MAX_TEXT_BYTES);
-    return extractSearchText(sliced.toString("utf8"));
+    return extractSearchText(sliced.toString('utf8'));
   } catch {
     return `Dokument: ${fallbackTitle}. Kunde inte lasa filinnehall.`;
   }
 }
 
 function getEncryptionKey(): Buffer {
-  const base64 = process.env.SEARCH_ENCRYPTION_KEY_BASE64 || "";
+  const base64 = process.env.SEARCH_ENCRYPTION_KEY_BASE64 || '';
   if (base64) {
-    const key = Buffer.from(base64, "base64");
+    const key = Buffer.from(base64, 'base64');
     if (key.length === 32) {
       return key;
     }
   }
 
-  const fallbackSecret = process.env.JWT_ACCESS_SECRET || "local-search-dev-key";
-  return crypto.createHash("sha256").update(fallbackSecret).digest();
+  const fallbackSecret = process.env.JWT_ACCESS_SECRET || 'local-search-dev-key';
+  return crypto.createHash('sha256').update(fallbackSecret).digest();
 }
 
-function encryptContent(plainText: string): { ciphertext: string; iv: string; tag: string; keyVersion: number } {
+export function encryptContent(plainText: string): {
+  ciphertext: string;
+  iv: string;
+  tag: string;
+  keyVersion: number;
+} {
   const key = getEncryptionKey();
   const iv = crypto.randomBytes(12);
-  const cipher = crypto.createCipheriv("aes-256-gcm", key, iv);
-  const ciphertext = Buffer.concat([cipher.update(plainText, "utf8"), cipher.final()]);
+  const cipher = crypto.createCipheriv('aes-256-gcm', key, iv);
+  const ciphertext = Buffer.concat([cipher.update(plainText, 'utf8'), cipher.final()]);
   const tag = cipher.getAuthTag();
   return {
-    ciphertext: ciphertext.toString("base64"),
-    iv: iv.toString("base64"),
-    tag: tag.toString("base64"),
+    ciphertext: ciphertext.toString('base64'),
+    iv: iv.toString('base64'),
+    tag: tag.toString('base64'),
     keyVersion: 1,
   };
 }
@@ -482,7 +472,7 @@ function encryptContent(plainText: string): { ciphertext: string; iv: string; ta
 function chunkText(source: string): Array<{ chunkIndex: number; chunkText: string }> {
   const words = source.split(/\s+/).filter(Boolean);
   if (words.length === 0) {
-    return [{ chunkIndex: 0, chunkText: "" }];
+    return [{ chunkIndex: 0, chunkText: '' }];
   }
 
   const chunks: Array<{ chunkIndex: number; chunkText: string }> = [];
@@ -494,7 +484,7 @@ function chunkText(source: string): Array<{ chunkIndex: number; chunkText: strin
     const chunkWords = words.slice(start, end);
     chunks.push({
       chunkIndex,
-      chunkText: chunkWords.join(" "),
+      chunkText: chunkWords.join(' '),
     });
     if (end >= words.length) {
       break;
@@ -506,7 +496,7 @@ function chunkText(source: string): Array<{ chunkIndex: number; chunkText: strin
   return chunks;
 }
 
-function cosineSimilarity(a: number[], b: number[]): number {
+export function cosineSimilarity(a: number[], b: number[]): number {
   if (a.length === 0 || b.length === 0 || a.length !== b.length) {
     return 0;
   }
@@ -555,7 +545,7 @@ function lexicalScore(query: string, text: string): number {
 function buildSnippet(text: string, query: string): string {
   const compact = extractSearchText(text);
   if (!compact) {
-    return "";
+    return '';
   }
   const lower = compact.toLowerCase();
   const q = query.trim().toLowerCase();
@@ -573,75 +563,40 @@ function buildSnippet(text: string, query: string): string {
   return compact.slice(start, end);
 }
 
-function getEmbeddingModelCandidates(): string[] {
-  const unique = new Set<string>();
-  if (EMBEDDING_MODEL) unique.add(EMBEDDING_MODEL);
-  for (const fallbackModel of EMBEDDING_FALLBACK_MODELS) {
-    unique.add(fallbackModel);
-  }
-  return Array.from(unique);
-}
-
 export async function embedText(text: string): Promise<{ values: number[]; model: string } | null> {
-  const apiKey = process.env.GEMINI_API_KEY || "";
-  if (!apiKey) {
+  if (process.env.USE_MOCK_AI === 'true') {
+    return {
+      values: new Array(768).fill(0).map(() => Math.random()),
+      model: 'mock-embedding-v1',
+    };
+  }
+
+  if (!process.env.VERTEX_PROJECT_ID?.trim()) {
     return null;
   }
 
-  for (const model of getEmbeddingModelCandidates()) {
-    const url = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(
-      model
-    )}:embedContent?key=${encodeURIComponent(apiKey)}`;
-
-    try {
-      const controller = new AbortController();
-      const timeoutHandle = setTimeout(() => controller.abort(), EMBEDDING_TIMEOUT_MS);
-      let response: Response;
-      try {
-        response = await fetch(url, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          signal: controller.signal,
-          body: JSON.stringify({
-            model: `models/${model}`,
-            content: {
-              parts: [{ text: text.slice(0, 8000) }],
-            },
-          }),
-        });
-      } finally {
-        clearTimeout(timeoutHandle);
-      }
-
-      if (!response.ok) {
-        continue;
-      }
-
-      const payload = (await response.json()) as { embedding?: { values?: number[] } };
-      const values = payload.embedding?.values;
-      if (!Array.isArray(values) || values.length === 0) {
-        continue;
-      }
-
-      if (model !== EMBEDDING_MODEL && !warnedEmbeddingFallback) {
+  try {
+    const vertexResult = await embedTextWithVertexPredict(text, EMBEDDING_DIM);
+    if (vertexResult) {
+      if (vertexResult.model !== EMBEDDING_MODEL && !warnedEmbeddingFallback) {
         warnedEmbeddingFallback = true;
-        logger.warn('search: embedding fallback active', { fallbackModel: model, primaryModel: EMBEDDING_MODEL });
+        logger.warn('search: vertex embedding model', {
+          model: vertexResult.model,
+          embeddingModelEnv: EMBEDDING_MODEL,
+        });
       }
-
-      return {
-        values: values.length === EMBEDDING_DIM ? values : values.slice(0, EMBEDDING_DIM),
-        model,
-      };
-    } catch {
-      continue;
+      const values = vertexResult.values.slice(0, EMBEDDING_DIM);
+      return { values, model: vertexResult.model };
     }
+  } catch {
+    return null;
   }
 
   return null;
 }
 
 function vectorLiteral(values: number[]): string {
-  return `[${values.map((value) => (Number.isFinite(value) ? value : 0)).join(",")}]`;
+  return `[${values.map((value) => (Number.isFinite(value) ? value : 0)).join(',')}]`;
 }
 
 export async function syncManifestMetadata(input: {
@@ -650,14 +605,14 @@ export async function syncManifestMetadata(input: {
   manifestPath?: string;
   outlookBaseDir?: string;
 }): Promise<ManifestSyncResult> {
-  const manifestPath = input.manifestPath || process.env.OUTLOOK_MANIFEST_PATH || "";
-  const outlookBaseDir = input.outlookBaseDir || process.env.OUTLOOK_BASE_DIR || "";
+  const manifestPath = input.manifestPath || process.env.OUTLOOK_MANIFEST_PATH || '';
+  const outlookBaseDir = input.outlookBaseDir || process.env.OUTLOOK_BASE_DIR || '';
 
   if (!manifestPath) {
-    throw new Error("OUTLOOK_MANIFEST_PATH saknas");
+    throw new Error('OUTLOOK_MANIFEST_PATH saknas');
   }
   if (!outlookBaseDir) {
-    throw new Error("OUTLOOK_BASE_DIR saknas");
+    throw new Error('OUTLOOK_BASE_DIR saknas');
   }
 
   const csvRaw = decodeManifestCsv(await fs.readFile(manifestPath));
@@ -667,13 +622,13 @@ export async function syncManifestMetadata(input: {
   let skippedRows = 0;
 
   for (const row of rows) {
-    const diskName = readField(row, ["DiskName", "disk_name", "filename", "file_name"]);
+    const diskName = readField(row, ['DiskName', 'disk_name', 'filename', 'file_name']);
     if (!diskName) {
       skippedRows += 1;
       continue;
     }
 
-    const relativePath = readField(row, ["RelativePath", "Path", "FilePath"]);
+    const relativePath = readField(row, ['RelativePath', 'Path', 'FilePath']);
     const resolvedAbsolutePath = relativePath
       ? path.resolve(outlookBaseDir, relativePath)
       : path.resolve(outlookBaseDir, diskName);
@@ -681,35 +636,40 @@ export async function syncManifestMetadata(input: {
     const stat = await statSafe(resolvedAbsolutePath);
     const fileSize = stat?.size ?? null;
 
-    const subject = readField(row, ["Subject", "subject"]) || diskName;
-    const entryId = readField(row, ["EntryID", "EntryId", "message_id", "MessageId"]) || diskName;
-    const receivedTime = parseDateOrNull(readField(row, ["ReceivedTime", "received_date", "Date", "received"]));
-    const mimeType = readField(row, ["MimeType", "mime_type", "ContentType"]) || null;
-    const fileSha256 = readField(row, ["Sha256", "Checksum", "Hash"]) || null;
-    const municipality = readField(row, ["Municipality", "kommun"]) || null;
-    const decisionType = readField(row, ["DecisionType", "beslutstyp"]) || null;
-    const wasteType = readField(row, ["WasteType", "waste_codes", "avfallstyp"]) || null;
-    const legalStatus = readField(row, ["LegalStatus", "status"]) || null;
-    const hazardousFlag = parseBooleanOrNull(readField(row, ["Hazardous", "hazardous_flag", "farligt"]));
-    const originalName = readField(row, ["OriginalName", "filename", "FileName"]) || diskName;
+    const subject = readField(row, ['Subject', 'subject']) || diskName;
+    const entryId = readField(row, ['EntryID', 'EntryId', 'message_id', 'MessageId']) || diskName;
+    const receivedTime = parseDateOrNull(
+      readField(row, ['ReceivedTime', 'received_date', 'Date', 'received']),
+    );
+    const mimeType = readField(row, ['MimeType', 'mime_type', 'ContentType']) || null;
+    const fileSha256 = readField(row, ['Sha256', 'Checksum', 'Hash']) || null;
+    const municipality = readField(row, ['Municipality', 'kommun', 'kommunnamn']) || null;
+    const decisionType = readField(row, ['DecisionType', 'beslutstyp']) || null;
+    const wasteType = readField(row, ['WasteType', 'waste_codes', 'avfallstyp', 'avfallstyp_namn']) || null;
+    const legalStatus = readField(row, ['LegalStatus', 'status']) || null;
+    const hazardousFlag = parseBooleanOrNull(
+      readField(row, ['Hazardous', 'hazardous_flag', 'farligt', 'farligt_avfall']),
+    );
+    const originalName = readField(row, ['OriginalName', 'filename', 'FileName']) || diskName;
 
     const existing = await findDocumentByDiskName(diskName);
     const ext = path.extname(resolvedAbsolutePath).toLowerCase();
     const legacyBinaryMarker = `binart format (${ext}) - metadataindexerad.`;
     const hasLegacyPdfPlaceholder =
-      ext === ".pdf" &&
-      typeof existing?.content?.searchText === "string" &&
+      ext === '.pdf' &&
+      typeof existing?.content?.searchText === 'string' &&
       existing.content.searchText.toLowerCase().includes(LEGACY_PDF_PLACEHOLDER_MARKER);
     const hasLegacyBinaryPlaceholder =
       OCR_CAPABLE_EXTENSIONS.has(ext) &&
-      typeof existing?.content?.searchText === "string" &&
+      typeof existing?.content?.searchText === 'string' &&
       existing.content.searchText.toLowerCase().includes(legacyBinaryMarker);
-    const missingOcrCapableContent = OCR_CAPABLE_EXTENSIONS.has(ext) && Boolean(existing) && !existing?.content;
+    const missingOcrCapableContent =
+      OCR_CAPABLE_EXTENSIONS.has(ext) && Boolean(existing) && !existing?.content;
     const changed =
       !existing ||
-      String(existing.absolutePath || "") !== resolvedAbsolutePath ||
-      String(existing.fileSha256 || "") !== String(fileSha256 || "") ||
-      String(existing.fileSize || "") !== String(fileSize || "") ||
+      String(existing.absolutePath || '') !== resolvedAbsolutePath ||
+      String(existing.fileSha256 || '') !== String(fileSha256 || '') ||
+      String(existing.fileSize || '') !== String(fileSize || '') ||
       hasLegacyPdfPlaceholder ||
       hasLegacyBinaryPlaceholder ||
       missingOcrCapableContent;
@@ -737,7 +697,7 @@ export async function syncManifestMetadata(input: {
 
     if (changed) {
       await enqueueSearchJob({
-        type: "EXTRACT_TEXT",
+        type: 'EXTRACT_TEXT',
         projectId: input.projectId,
         payload: { documentId: String(document.id) },
       });
@@ -750,13 +710,21 @@ export async function syncManifestMetadata(input: {
   return { processedRows, queuedExtractionJobs, skippedRows };
 }
 
-export async function extractDocumentTextAndChunk(documentId: string, forceOcr = false): Promise<{ chunks: number }> {
+export async function extractDocumentTextAndChunk(
+  documentId: string,
+  forceOcr = false,
+): Promise<{ chunks: number }> {
   const target = await getDocumentById(documentId);
   if (!target) {
     throw new Error(`Document not found: ${documentId}`);
   }
 
-  const rawText = await loadDocumentText(String(target.absolutePath || ""), String(target.originalName || target.diskName || "dokument"), forceOcr);
+  const rawText = await loadDocumentText(
+    String(target.absolutePath || ''),
+    String(target.originalName || target.diskName || 'dokument'),
+    forceOcr,
+    String(target.originalName || target.diskName || 'dokument'),
+  );
   const searchText = extractSearchText(rawText);
   const encrypted = encryptContent(rawText);
 
@@ -775,9 +743,9 @@ export async function extractDocumentTextAndChunk(documentId: string, forceOcr =
     chunks: chunks.map((chunk) => ({ ...chunk, embeddingJson: null })),
   });
 
-  await setDocumentStatus(documentId, "TEXT_EXTRACTED");
+  await setDocumentStatus(documentId, 'TEXT_EXTRACTED');
   await enqueueSearchJob({
-    type: "EMBED_DOC",
+    type: 'EMBED_DOC',
     projectId: target.projectId,
     payload: { documentId },
   });
@@ -785,7 +753,9 @@ export async function extractDocumentTextAndChunk(documentId: string, forceOcr =
   return { chunks: chunks.length };
 }
 
-export async function embedDocumentChunks(documentId: string): Promise<{ embeddedChunks: number; model: string }> {
+export async function embedDocumentChunks(
+  documentId: string,
+): Promise<{ embeddedChunks: number; model: string }> {
   const document = await getDocumentById(documentId);
   if (!document) {
     throw new Error(`Document not found: ${documentId}`);
@@ -796,7 +766,7 @@ export async function embedDocumentChunks(documentId: string): Promise<{ embedde
   let embeddedChunks = 0;
   let usedModel = EMBEDDING_MODEL;
   for (const chunk of docChunks) {
-    const embedding = await embedText(String(chunk.chunkText || ""));
+    const embedding = await embedText(String(chunk.chunkText || ''));
     if (!embedding || embedding.values.length === 0) {
       continue;
     }
@@ -808,7 +778,7 @@ export async function embedDocumentChunks(documentId: string): Promise<{ embedde
     embeddedChunks += 1;
   }
 
-  await setDocumentStatus(documentId, embeddedChunks > 0 ? "EMBEDDED" : "TEXT_EXTRACTED");
+  await setDocumentStatus(documentId, embeddedChunks > 0 ? 'EMBEDDED' : 'TEXT_EXTRACTED');
   return { embeddedChunks, model: usedModel };
 }
 
@@ -823,39 +793,44 @@ export async function runSearchQuery(input: {
   filters?: SearchFilters;
 }): Promise<SearchQueryResult> {
   const startedAt = Date.now();
-  const mode: SearchMode = input.mode || "hybrid";
+  const mode: SearchMode = input.mode || 'hybrid';
   const topK = Math.max(1, Math.min(100, Number(input.topK || 20)));
-  const query = String(input.query || "").trim();
+  const query = String(input.query || '').trim();
   const strictEvidence = Boolean(input.strictEvidence);
-  const projectId = String(input.projectId || "").trim() || undefined;
-  const scope: "project" | "global" = projectId ? "project" : "global";
+  const projectId = String(input.projectId || '').trim() || undefined;
+  const scope: 'project' | 'global' = projectId ? 'project' : 'global';
   const filters = input.filters || {};
+
+  let queryEmbedding: number[] | null = null;
+  if ((mode === 'semantic' || mode === 'hybrid') && query) {
+    const queryEmbeddingResult = await embedText(query);
+    queryEmbedding = queryEmbeddingResult?.values || null;
+  }
+
+  const fallbackTextQuery =
+    mode === 'lexical' || ((mode === 'semantic' || mode === 'hybrid') && query && !queryEmbedding)
+      ? query
+      : undefined;
 
   const candidates = await findDocumentsForProject({
     organisationId: input.organisationId,
     projectId,
-    query: (mode === "semantic" || mode === "hybrid") ? undefined : query || undefined,
+    query: fallbackTextQuery,
     municipality: filters.municipality,
     decisionType: filters.decisionType,
     wasteType: filters.wasteType,
     status: filters.status,
     legalStatus: filters.legalStatus,
     hazardousFlag: filters.hazardousFlag,
-    dateFrom: parseDateOrNull(filters.dateFrom || ""),
-    dateTo: parseDateOrNull(filters.dateTo || ""),
-    take: 600,
+    dateFrom: parseDateOrNull(filters.dateFrom || ''),
+    dateTo: parseDateOrNull(filters.dateTo || ''),
+    take: projectId ? 3000 : 8000,
   });
-
-  let queryEmbedding: number[] | null = null;
-  if ((mode === "semantic" || mode === "hybrid") && query) {
-    const queryEmbeddingResult = await embedText(query);
-    queryEmbedding = queryEmbeddingResult?.values || null;
-  }
 
   const semanticByDoc = new Map<string, number>();
   const semanticEvidenceByDoc = new Map<string, { quote: string; chunkIndex: number; confidence: number }>();
-  let semanticEngine: "pgvector" | "json-fallback" | "disabled" = "disabled";
-  if ((mode === "semantic" || mode === "hybrid") && queryEmbedding) {
+  let semanticEngine: 'pgvector' | 'json-fallback' | 'disabled' = 'disabled';
+  if ((mode === 'semantic' || mode === 'hybrid') && queryEmbedding) {
     const semanticLimit = projectId ? 12_000 : 20_000;
     const vectorRows = await queryTopSemanticChunks({
       organisationId: input.organisationId,
@@ -865,7 +840,7 @@ export async function runSearchQuery(input: {
     });
 
     if (vectorRows.length > 0) {
-      semanticEngine = "pgvector";
+      semanticEngine = 'pgvector';
       for (const row of vectorRows) {
         const key = String(row.documentId);
         const similarity = clampScore(Number(row.similarity || 0));
@@ -874,7 +849,8 @@ export async function runSearchQuery(input: {
           continue;
         }
         semanticByDoc.set(key, similarity);
-        const quote = buildSnippet(String(row.chunkText || ""), query) || String(row.chunkText || "").slice(0, 220);
+        const quote =
+          buildSnippet(String(row.chunkText || ''), query) || String(row.chunkText || '').slice(0, 220);
         semanticEvidenceByDoc.set(key, {
           quote,
           chunkIndex: Number(row.chunkIndex || 0),
@@ -883,11 +859,11 @@ export async function runSearchQuery(input: {
       }
     } else {
       const allChunks = await listChunksForProject(projectId, semanticLimit);
-      // NOTE: listChunksForProject currently doesn't filter by organisationId but 
-      // it is only called here if vector search fails. 
+      // NOTE: listChunksForProject currently doesn't filter by organisationId but
+      // it is only called here if vector search fails.
       // We should ideally update listChunksForProject as well if we want 100% isolation.
       if (allChunks.length > 0) {
-        semanticEngine = "json-fallback";
+        semanticEngine = 'json-fallback';
       }
 
       for (const chunk of allChunks) {
@@ -900,7 +876,8 @@ export async function runSearchQuery(input: {
         const previous = semanticByDoc.get(key) ?? 0;
         if (similarity > previous) {
           semanticByDoc.set(key, similarity);
-          const quote = buildSnippet(String(chunk.chunkText || ""), query) || String(chunk.chunkText || "").slice(0, 220);
+          const quote =
+            buildSnippet(String(chunk.chunkText || ''), query) || String(chunk.chunkText || '').slice(0, 220);
           semanticEvidenceByDoc.set(key, {
             quote,
             chunkIndex: Number(chunk.chunkIndex),
@@ -913,26 +890,52 @@ export async function runSearchQuery(input: {
 
   let evidenceFilteredOut = 0;
 
+  // 1. Gather all unique property designations from candidates to fetch risks in bulk
+  const uniqueDesignations = Array.from(
+    new Set(candidates.map((c) => c.project?.propertyDesignation).filter((d): d is string => Boolean(d))),
+  );
+
+  // 2. Resolve coords and check risks for these properties
+  const geoRiskMap = new Map<string, GeoRiskStatus | null>();
+  if (uniqueDesignations.length > 0) {
+    const propertyData = await prisma.$queryRaw<any[]>`
+      SELECT designation, ST_Y(ST_Transform(geom, 4326)) as lat, ST_X(ST_Transform(geom, 4326)) as lng
+      FROM core.property_unit
+      WHERE designation IN (${Prisma.join(uniqueDesignations)})
+    `;
+
+    for (const prop of propertyData) {
+      if (prop.lat && prop.lng) {
+        const risks = await checkGeospatialRisks(prop.lat, prop.lng);
+        geoRiskMap.set(prop.designation, risks);
+      }
+    }
+  }
+
   const ranked: SearchResultRow[] = candidates
     .map((candidate) => {
       const documentId = String(candidate.id);
-      const textBlob = `${candidate.subject || ""} ${candidate.originalName || ""} ${candidate.content?.searchText || ""}`;
+      const textBlob = `${candidate.subject || ''} ${candidate.originalName || ''} ${candidate.content?.searchText || ''}`;
       const lex = lexicalScore(query, textBlob);
       const semantic = clampScore(semanticByDoc.get(documentId) ?? 0);
 
       let score = lex;
-      let whyMatched = "Lexical match in metadata/text";
+      let whyMatched = 'Lexical match in metadata/text';
 
-      if (mode === "semantic") {
+      if (mode === 'semantic') {
         score = semantic > 0 ? semantic : lex * 0.8;
-        whyMatched = semantic > 0 ? `Semantic chunk similarity (${semanticEngine})` : "Fallback lexical score";
-      } else if (mode === "hybrid") {
+        whyMatched =
+          semantic > 0 ? `Semantic chunk similarity (${semanticEngine})` : 'Fallback lexical score';
+      } else if (mode === 'hybrid') {
         score = semantic > 0 ? semantic * 0.65 + lex * 0.35 : lex;
-        whyMatched = semantic > 0 ? `Hybrid semantic+lexical ranking (${semanticEngine})` : "Lexical fallback (embedding saknas)";
+        whyMatched =
+          semantic > 0
+            ? `Hybrid semantic+lexical ranking (${semanticEngine})`
+            : 'Lexical fallback (embedding saknas)';
       }
 
-      const sourceLabel = String(candidate.subject || candidate.originalName || "Dokument");
-      const citations: SearchResultRow["citations"] = [];
+      const sourceLabel = String(candidate.subject || candidate.originalName || 'Dokument');
+      const citations: SearchResultRow['citations'] = [];
       const semanticEvidence = semanticEvidenceByDoc.get(documentId);
       if (semanticEvidence?.quote) {
         citations.push({
@@ -943,7 +946,7 @@ export async function runSearchQuery(input: {
           confidence: semanticEvidence.confidence,
         });
       } else {
-        const lexicalQuote = buildSnippet(String(candidate.content?.searchText || ""), query);
+        const lexicalQuote = buildSnippet(String(candidate.content?.searchText || ''), query);
         if (lexicalQuote) {
           citations.push({
             citationId: `${documentId}:lexical`,
@@ -963,32 +966,41 @@ export async function runSearchQuery(input: {
       return {
         documentId,
         score: Number(clampScore(score).toFixed(4)),
-        snippet: buildSnippet(candidate.content?.searchText || candidate.subject || "", query),
+        snippet: buildSnippet(candidate.content?.searchText || candidate.subject || '', query),
         whyMatched,
         citations,
         metadata: {
           projectId: candidate.project?.id ? String(candidate.project.id) : null,
-          projectName: candidate.project?.propertyDesignation ? String(candidate.project.propertyDesignation) : null,
-          organisationName: candidate.project?.organisation?.name ? String(candidate.project.organisation.name) : null,
-          subject: String(candidate.subject || ""),
-          originalName: String(candidate.originalName || ""),
+          projectName: candidate.project?.propertyDesignation
+            ? String(candidate.project.propertyDesignation)
+            : null,
+          organisationName: candidate.project?.organisation?.name
+            ? String(candidate.project.organisation.name)
+            : null,
+          subject: String(candidate.subject || ''),
+          originalName: String(candidate.originalName || ''),
           receivedTime: candidate.receivedTime ? new Date(candidate.receivedTime).toISOString() : null,
           municipality: candidate.municipality ? String(candidate.municipality) : null,
           decisionType: candidate.decisionType ? String(candidate.decisionType) : null,
           wasteType: candidate.wasteType ? String(candidate.wasteType) : null,
           hazardousFlag: candidate.hazardousFlag ?? null,
           legalStatus: candidate.legalStatus ? String(candidate.legalStatus) : null,
-          status: String(candidate.status || "METADATA_ONLY"),
+          status: String(candidate.status || 'METADATA_ONLY'),
+          geoRisk: candidate.project?.propertyDesignation
+            ? geoRiskMap.get(candidate.project.propertyDesignation)
+            : null,
         },
       };
     })
     .filter((row): row is SearchResultRow => Boolean(row))
+    .filter((row) => !query || row.score > 0)
     .sort((a, b) => b.score - a.score)
     .slice(0, topK);
 
   const elapsedMs = Date.now() - startedAt;
   const citedCount = ranked.filter((row) => row.citations.length > 0).length;
-  const citationCoveragePct = ranked.length === 0 ? 0 : Number(((citedCount / ranked.length) * 100).toFixed(1));
+  const citationCoveragePct =
+    ranked.length === 0 ? 0 : Number(((citedCount / ranked.length) * 100).toFixed(1));
   if (projectId) {
     await logSearchQuery({
       userId: input.userId,
@@ -1011,7 +1023,7 @@ export async function runSearchQuery(input: {
       evidenceFilteredOut,
       citationCoveragePct,
       semanticEngine,
-      draftWatermark: process.env.SEARCH_DRAFT_WATERMARK || "Miljöbeslut.se - GRANSKAD PRODUKTIONSDATA",
+      draftWatermark: process.env.SEARCH_DRAFT_WATERMARK || 'Miljobeslut.se - GRANSKAD PRODUKTIONSDATA',
     },
     results: ranked,
   };

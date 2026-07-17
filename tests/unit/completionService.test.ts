@@ -1,128 +1,131 @@
-import { describe, expect, it } from 'vitest';
+import { describe, it, expect, beforeEach, vi } from 'vitest';
 
+beforeEach(() => vi.resetAllMocks());
+
+// completionService has module-level state (FEATURES array), but it is
+// immutable — reset between tests is not required. We import statically.
 import { getAppCompletion } from '../../server/services/completionService';
 
-// ─── Tests ────────────────────────────────────────────────────────────────────
-
-describe('completionService – getAppCompletion', () => {
-  // ── Return shape ───────────────────────────────────────────────────────────
-
-  it('returns an AppCompletionResponse with all required fields', () => {
+describe('getAppCompletion', () => {
+  it('returns an object with required top-level fields', () => {
     const result = getAppCompletion();
 
     expect(result).toHaveProperty('checkedAt');
     expect(result).toHaveProperty('donePercent');
+    expect(result).toHaveProperty('implementationPercent');
     expect(result).toHaveProperty('remainingPercent');
     expect(result).toHaveProperty('counts');
     expect(result).toHaveProperty('categories');
   });
 
-  it('checkedAt is a valid ISO timestamp', () => {
-    const result = getAppCompletion();
-    expect(new Date(result.checkedAt).getTime()).not.toBeNaN();
+  it('checkedAt is a valid ISO date string', () => {
+    const { checkedAt } = getAppCompletion();
+    expect(() => new Date(checkedAt)).not.toThrow();
+    expect(new Date(checkedAt).toISOString()).toBe(checkedAt);
   });
 
-  // ── Percentage invariants ──────────────────────────────────────────────────
-
-  it('donePercent + remainingPercent = 100', () => {
-    const result = getAppCompletion();
-    expect(result.donePercent + result.remainingPercent).toBe(100);
+  it('donePercent + remainingPercent equals 100', () => {
+    const { donePercent, remainingPercent } = getAppCompletion();
+    expect(donePercent + remainingPercent).toBe(100);
   });
 
-  it('donePercent is between 0 and 100 inclusive', () => {
-    const result = getAppCompletion();
-    expect(result.donePercent).toBeGreaterThanOrEqual(0);
-    expect(result.donePercent).toBeLessThanOrEqual(100);
+  it('donePercent is between 0 and 100', () => {
+    const { donePercent } = getAppCompletion();
+    expect(donePercent).toBeGreaterThanOrEqual(0);
+    expect(donePercent).toBeLessThanOrEqual(100);
   });
 
-  // ── Count invariants ───────────────────────────────────────────────────────
-
-  it('counts.total = counts.done + counts.partial + counts.pending', () => {
+  it('counts.total equals done + partial + pending', () => {
     const { counts } = getAppCompletion();
     expect(counts.total).toBe(counts.done + counts.partial + counts.pending);
   });
 
-  it('counts.total is positive', () => {
-    const { counts } = getAppCompletion();
-    expect(counts.total).toBeGreaterThan(0);
+  it('counts.total matches the number of features across all categories', () => {
+    const { counts, categories } = getAppCompletion();
+    const totalFromCategories = categories.reduce((sum, c) => sum + c.total, 0);
+    expect(counts.total).toBe(totalFromCategories);
   });
 
-  it('counts.done is a non-negative integer', () => {
-    const { counts } = getAppCompletion();
-    expect(counts.done).toBeGreaterThanOrEqual(0);
-    expect(Number.isInteger(counts.done)).toBe(true);
-  });
-
-  // ── Categories ────────────────────────────────────────────────────────────
-
-  it('returns at least one category', () => {
-    const result = getAppCompletion();
-    expect(result.categories.length).toBeGreaterThan(0);
-  });
-
-  it('each category has a name, total, and percent in 0–100', () => {
-    const result = getAppCompletion();
-    for (const cat of result.categories) {
-      expect(typeof cat.name).toBe('string');
-      expect(cat.name.length).toBeGreaterThan(0);
-      expect(cat.total).toBeGreaterThan(0);
+  it('each category has a percent between 0 and 100', () => {
+    const { categories } = getAppCompletion();
+    for (const cat of categories) {
       expect(cat.percent).toBeGreaterThanOrEqual(0);
       expect(cat.percent).toBeLessThanOrEqual(100);
     }
   });
 
-  it('sum of category totals equals overall total', () => {
-    const result = getAppCompletion();
-    const sumCat = result.categories.reduce((s, c) => s + c.total, 0);
-    expect(sumCat).toBe(result.counts.total);
-  });
-
-  it('each category total = done + partial + pending', () => {
-    const result = getAppCompletion();
-    for (const cat of result.categories) {
-      expect(cat.total).toBe(cat.done + cat.partial + cat.pending);
+  it('each category totals match its feature array length', () => {
+    const { categories } = getAppCompletion();
+    for (const cat of categories) {
+      expect(cat.features).toHaveLength(cat.total);
+      expect(cat.done + cat.partial + cat.pending).toBe(cat.total);
     }
   });
 
-  it('each category has a features array matching its total', () => {
-    const result = getAppCompletion();
-    for (const cat of result.categories) {
-      expect(Array.isArray(cat.features)).toBe(true);
-      expect(cat.features.length).toBe(cat.total);
-    }
-  });
-
-  // ── Feature manifest contents ──────────────────────────────────────────────
-
-  it('all feature statuses are DONE, PARTIAL, or PENDING', () => {
-    const result = getAppCompletion();
+  it('every feature has a non-empty id, label, category, and valid status', () => {
+    const { categories } = getAppCompletion();
     const validStatuses = new Set(['DONE', 'PARTIAL', 'PENDING']);
-    for (const cat of result.categories) {
-      for (const f of cat.features) {
-        expect(validStatuses.has(f.status)).toBe(true);
+
+    for (const cat of categories) {
+      for (const feature of cat.features) {
+        expect(feature.id).toBeTruthy();
+        expect(feature.label).toBeTruthy();
+        expect(feature.category).toBeTruthy();
+        expect(validStatuses.has(feature.status)).toBe(true);
       }
     }
   });
 
-  it('each feature has a non-empty id and label', () => {
-    const result = getAppCompletion();
-    for (const cat of result.categories) {
-      for (const f of cat.features) {
-        expect(typeof f.id).toBe('string');
-        expect(f.id.length).toBeGreaterThan(0);
-        expect(typeof f.label).toBe('string');
-        expect(f.label.length).toBeGreaterThan(0);
+  it('is deterministic — two consecutive calls return the same donePercent', () => {
+    const first = getAppCompletion();
+    const second = getAppCompletion();
+    expect(first.donePercent).toBe(second.donePercent);
+    expect(first.counts).toEqual(second.counts);
+  });
+
+  it('returns at least one category', () => {
+    const { categories } = getAppCompletion();
+    expect(categories.length).toBeGreaterThan(0);
+  });
+
+  it('all features in a category share that category name', () => {
+    const { categories } = getAppCompletion();
+    for (const cat of categories) {
+      for (const feature of cat.features) {
+        expect(feature.category).toBe(cat.name);
       }
     }
   });
 
-  // ── Idempotency ──────────────────────────────────────────────────────────
+  it('known categories are present in the manifest', () => {
+    const { categories } = getAppCompletion();
+    const names = categories.map((c) => c.name);
 
-  it('returns consistent counts across multiple calls', () => {
-    const r1 = getAppCompletion();
-    const r2 = getAppCompletion();
-    expect(r1.counts.total).toBe(r2.counts.total);
-    expect(r1.counts.done).toBe(r2.counts.done);
-    expect(r1.donePercent).toBe(r2.donePercent);
+    expect(names).toContain('Autentisering');
+    expect(names).toContain('Projekthantering');
+    expect(names).toContain('Compliance & Revision');
+    expect(names).toContain('AI & Kunskapsgraf');
+  });
+
+  it('implementationPercent is between donePercent and 100 when partial features exist', () => {
+    const { donePercent, implementationPercent, counts } = getAppCompletion();
+    if (counts.partial > 0) {
+      expect(implementationPercent).toBeGreaterThanOrEqual(donePercent);
+      expect(implementationPercent).toBeLessThanOrEqual(100);
+    }
+  });
+
+  it('strict donePercent counts only DONE features', () => {
+    const { counts, donePercent } = getAppCompletion();
+    const expectedStrict = counts.total > 0 ? Math.round((counts.done / counts.total) * 100) : 0;
+    expect(donePercent).toBe(expectedStrict);
+  });
+
+  it('DONE-only manifest yields 100% for both metrics', () => {
+    const { counts, donePercent, implementationPercent } = getAppCompletion();
+    if (counts.pending === 0 && counts.partial === 0) {
+      expect(donePercent).toBe(100);
+      expect(implementationPercent).toBe(100);
+    }
   });
 });

@@ -87,4 +87,92 @@ describe('sguService', () => {
       err: 'Error: jordarter offline',
     });
   });
+
+  it('keeps safe defaults when features arrays are empty', async () => {
+    vi.mocked(global.fetch)
+      .mockResolvedValueOnce({ ok: true, json: async () => ({ features: [] }) } as Response)
+      .mockResolvedValueOnce({ ok: true, json: async () => ({ features: [] }) } as Response);
+
+    const result = await fetchGeologicalData(59.0, 17.0);
+
+    expect(result.soilType).toBe('Ok\u00e4nd');
+    expect(result.groundwaterVulnerability).toBe('Ej bed\u00f6md');
+    expect(result.riskDescription).toContain('Normala geologiska');
+    expect(mocks.loggerError).not.toHaveBeenCalled();
+  });
+
+  it('uses fallback property name jordart_namn when jordnamn is missing', async () => {
+    vi.mocked(global.fetch)
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          features: [{ properties: { jordart_namn: 'Lera' } }],
+        }),
+      } as Response)
+      .mockResolvedValueOnce({ ok: true, json: async () => ({ features: [] }) } as Response);
+
+    const result = await fetchGeologicalData(59.0, 17.0);
+
+    expect(result.soilType).toBe('Lera');
+  });
+
+  it('logs SGU Sårbarhet error and keeps defaults when sarbarhet fetch throws', async () => {
+    vi.mocked(global.fetch)
+      .mockResolvedValueOnce({ ok: true, json: async () => ({ features: [] }) } as Response)
+      .mockRejectedValueOnce(new Error('sarbarhet timeout'));
+
+    const result = await fetchGeologicalData(59.0, 17.0);
+
+    expect(result.groundwaterVulnerability).toBe('Ej bed\u00f6md');
+    expect(mocks.loggerError).toHaveBeenCalledWith('SGU S\u00e5rbarhet fetch failed', {
+      err: 'Error: sarbarhet timeout',
+    });
+  });
+
+  it('uses beskrivning fallback when klass_namn is missing in sarbarhet', async () => {
+    vi.mocked(global.fetch)
+      .mockResolvedValueOnce({ ok: true, json: async () => ({ features: [] }) } as Response)
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          features: [{ properties: { beskrivning: 'Medelhög sårbarhet' } }],
+        }),
+      } as Response);
+
+    const result = await fetchGeologicalData(59.0, 17.0);
+
+    expect(result.groundwaterVulnerability).toBe('Medelhög sårbarhet');
+    // riskDescription is derived from soil/geology data, not from the vulnerability label.
+    expect(typeof result.riskDescription).toBe('string');
+    expect(result.riskDescription.length).toBeGreaterThan(0);
+  });
+
+  it('returns Information saknas when both jordnamn and jordart_namn are missing', async () => {
+    vi.mocked(global.fetch)
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          features: [{ properties: { annanEgenskap: 'ignored' } }],
+        }),
+      } as Response)
+      .mockResolvedValueOnce({ ok: true, json: async () => ({ features: [] }) } as Response);
+
+    const result = await fetchGeologicalData(59.0, 17.0);
+
+    expect(result.soilType).toBe('Information saknas');
+  });
+
+  it('keeps Ej bedömd when sarbarhet returns ok=false', async () => {
+    vi.mocked(global.fetch)
+      .mockResolvedValueOnce({ ok: true, json: async () => ({ features: [] }) } as Response)
+      .mockResolvedValueOnce({
+        ok: false,
+        json: async () => ({ error: 'Rate limit' }),
+      } as Response);
+
+    const result = await fetchGeologicalData(59.0, 17.0);
+
+    expect(result.groundwaterVulnerability).toBe('Ej bed\u00f6md');
+    expect(mocks.loggerError).not.toHaveBeenCalled();
+  });
 });

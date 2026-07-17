@@ -7,7 +7,17 @@ import type { AppCompletionResponse } from '../../types';
 const completion: AppCompletionResponse = {
   checkedAt: '2024-06-01T12:00:00.000Z',
   donePercent: 72,
+  implementationPercent: 80,
   remainingPercent: 28,
+  operationalCoverage: {
+    percent: 45,
+    integrations: { configured: 3, total: 9, percent: 33 },
+    datasources: { connected: 4, total: 10, percent: 40 },
+    municipalities: { covered: 42, target: 290, productionTarget: 260, percent: 16 },
+    documentRequirementCoveragePct: 38,
+    sguCoverageMode: 'sample',
+    notes: ['SGU körs i sample-läge (SGU_DB_COVERAGE_MODE=sample) — inte full geotäckning.'],
+  },
   counts: { total: 50, done: 36, partial: 4, pending: 10 },
   categories: [
     {
@@ -53,6 +63,11 @@ describe('CompletionTracker', () => {
   it('shows remaining percentage text', () => {
     render(<CompletionTracker appCompletion={completion} hasActiveSession />);
     expect(screen.getByText(/28% återstår/)).toBeInTheDocument();
+  });
+
+  it('shows operational coverage when present', () => {
+    render(<CompletionTracker appCompletion={completion} hasActiveSession />);
+    expect(screen.getByText(/45% operativ täckning/)).toBeInTheDocument();
   });
 
   it('renders the completion bar', () => {

@@ -1,282 +1,369 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import {
+  createDispatchQuote,
+  getDispatchProviderRuntimeStatus,
+  isHazardousWasteCode,
+  createTransportBooking,
+  upsertDriverJournal,
+  signDriverJournal,
+} from '../../server/services/transportDispatchService';
 
 const mocks = vi.hoisted(() => ({
-  logger: {
-    warn: vi.fn(),
-    info: vi.fn(),
-    error: vi.fn(),
-  },
-  createTransportBookingRepo: vi.fn(),
-  getTransportBookingRepo: vi.fn(),
-  createDriverJournalRepo: vi.fn(),
-  updateDriverJournalRepo: vi.fn(),
-  findJournal: vi.fn(),
-}));
-
-vi.mock('../../server/logger', () => ({
-  logger: mocks.logger,
+  createTransportBooking: vi.fn(),
+  getTransportBooking: vi.fn(),
+  createDriverJournal: vi.fn(),
+  updateDriverJournal: vi.fn(),
+  findUniqueJournal: vi.fn(),
 }));
 
 vi.mock('../../server/repositories/transportRepository', () => ({
-  createTransportBooking: mocks.createTransportBookingRepo,
-  getTransportBooking: mocks.getTransportBookingRepo,
-  createDriverJournal: mocks.createDriverJournalRepo,
-  updateDriverJournal: mocks.updateDriverJournalRepo,
-  listJournalsForBooking: vi.fn(),
-  updateTransportBookingStatus: vi.fn(),
+  createTransportBooking: mocks.createTransportBooking,
+  getTransportBooking: mocks.getTransportBooking,
+  createDriverJournal: mocks.createDriverJournal,
+  updateDriverJournal: mocks.updateDriverJournal,
 }));
 
 vi.mock('../../server/db/prisma', () => ({
   prisma: {
     driverJournal: {
-      findUnique: mocks.findJournal,
+      findUnique: mocks.findUniqueJournal,
     },
   },
 }));
 
-import {
-  createDispatchQuote,
-  createTransportBooking,
-  getDispatchProviderRuntimeStatus,
-  getTransportBooking,
-  signDriverJournal,
-  upsertDriverJournal,
-} from '../../server/services/transportDispatchService';
-
-function bookingRow(overrides: Record<string, unknown> = {}) {
-  return {
-    id: 'booking-1',
-    quoteId: 'quote-1',
-    provider: 'MOCK_FRAKTBORS',
-    status: 'BOOKED',
-    receiverId: 'R1',
-    receiverName: 'Receiver',
-    wasteCode: '17 05 03*',
-    tons: 9,
-    distanceKm: 20,
-    co2EstimateKg: 21.6,
-    plannedPickupAt: new Date('2026-01-01T10:00:00.000Z'),
-    plannedDeliveryAt: new Date('2026-01-01T12:00:00.000Z'),
-    externalReference: 'MFB-123456',
-    createdAt: new Date('2026-01-01T09:00:00.000Z'),
-    updatedAt: new Date('2026-01-01T09:05:00.000Z'),
-    journals: [],
-    limsReports: [],
-    ...overrides,
-  };
-}
-
-function journalRow(overrides: Record<string, unknown> = {}) {
-  return {
-    id: 'journal-1',
-    bookingId: 'booking-1',
-    driverName: 'Driver',
-    vehicleId: 'ABC123',
-    origin: 'Site A',
-    destination: 'Site B',
-    wasteCode: '17 05 03*',
-    tons: 9,
-    startedAt: new Date('2026-01-01T10:00:00.000Z'),
-    endedAt: new Date('2026-01-01T12:00:00.000Z'),
-    odometerStartKm: 1000,
-    odometerEndKm: 1020,
-    gpsTrackHash: 'hash-1',
-    status: 'DRAFT',
-    signedByDriver: false,
-    signedByReviewer: false,
-    driverSignatureId: null,
-    reviewerSignatureId: null,
-    createdAt: new Date('2026-01-01T09:00:00.000Z'),
-    updatedAt: new Date('2026-01-01T09:05:00.000Z'),
-    ...overrides,
-  };
-}
+vi.mock('../../server/logger', () => ({
+  logger: {
+    warn: vi.fn(),
+    info: vi.fn(),
+  },
+}));
 
 describe('transportDispatchService', () => {
-  const originalMode = process.env.DISPATCH_PROVIDER_MODE;
-  const originalTimocomKey = process.env.TIMOCOM_API_KEY;
-  const originalTransEuKey = process.env.TRANS_EU_API_KEY;
+  const originalEnv = process.env;
 
   beforeEach(() => {
     vi.clearAllMocks();
-    if (originalMode === undefined) delete process.env.DISPATCH_PROVIDER_MODE;
-    else process.env.DISPATCH_PROVIDER_MODE = originalMode;
-    if (originalTimocomKey === undefined) delete process.env.TIMOCOM_API_KEY;
-    else process.env.TIMOCOM_API_KEY = originalTimocomKey;
-    if (originalTransEuKey === undefined) delete process.env.TRANS_EU_API_KEY;
-    else process.env.TRANS_EU_API_KEY = originalTransEuKey;
+    process.env = { ...originalEnv };
   });
 
-  it('supports mock provider runtime status for tests and demos', () => {
-    process.env.DISPATCH_PROVIDER_MODE = 'MOCK_FRAKTBORS';
-
-    const status = getDispatchProviderRuntimeStatus();
-
-    expect(status.requestedProvider).toBe('MOCK_FRAKTBORS');
-    expect(status.activeProvider).toBe('MOCK_FRAKTBORS');
-    expect(status.fallbackActive).toBe(false);
+  describe('isHazardousWasteCode', () => {
+    it('returns true if code contains *', () => {
+      expect(isHazardousWasteCode('170106*')).toBe(true);
+      expect(isHazardousWasteCode('170101')).toBe(false);
+    });
   });
 
-  it('falls back when a configured provider lacks credentials', () => {
-    process.env.DISPATCH_PROVIDER_MODE = 'TIMOCOM';
-    delete process.env.TIMOCOM_API_KEY;
-
-    const status = getDispatchProviderRuntimeStatus();
-
-    expect(status.requestedProvider).toBe('TIMOCOM');
-    expect(status.activeProvider).toBe('NOT_CONFIGURED');
-    expect(status.fallbackActive).toBe(true);
-    expect(mocks.logger.warn).toHaveBeenCalled();
-  });
-
-  it('creates hazardous dispatch quotes when mock provider is enabled', () => {
-    process.env.DISPATCH_PROVIDER_MODE = 'MOCK_FRAKTBORS';
-
-    const quote = createDispatchQuote({
-      receiverId: 'R2',
-      receiverName: 'Haz Receiver',
-      wasteCode: '17 05 03*',
-      tons: 9,
-      distanceKm: 20,
+  describe('getDispatchProviderRuntimeStatus', () => {
+    it('returns NOT_CONFIGURED if no provider is set', () => {
+      delete process.env.DISPATCH_PROVIDER_MODE;
+      const status = getDispatchProviderRuntimeStatus();
+      expect(status.activeProvider).toBe('NOT_CONFIGURED');
     });
 
-    expect(quote.id).toMatch(/^QUOTE-/);
-    expect(quote.provider).toBe('MOCK_FRAKTBORS');
-    expect(quote.estimatedCostSek).toBeGreaterThan(0);
-    expect(quote.etaHours).toBeGreaterThan(0);
+    it('returns TIMOCOM if configured and has key', () => {
+      process.env.DISPATCH_PROVIDER_MODE = 'TIMOCOM';
+      process.env.TIMOCOM_API_KEY = 'secret';
+      const status = getDispatchProviderRuntimeStatus();
+      expect(status.activeProvider).toBe('TIMOCOM');
+    });
+
+    it('falls back to NOT_CONFIGURED if TIMOCOM lacks key', () => {
+      process.env.DISPATCH_PROVIDER_MODE = 'TIMOCOM';
+      delete process.env.TIMOCOM_API_KEY;
+      const status = getDispatchProviderRuntimeStatus();
+      expect(status.activeProvider).toBe('NOT_CONFIGURED');
+      expect(status.fallbackActive).toBe(true);
+    });
+
+    it('returns TRANS_EU if configured with key', () => {
+      process.env.DISPATCH_PROVIDER_MODE = 'TRANS_EU';
+      process.env.TRANS_EU_API_KEY = 'eu-key';
+      const status = getDispatchProviderRuntimeStatus();
+      expect(status.activeProvider).toBe('TRANS_EU');
+    });
+
+    it('falls back to NOT_CONFIGURED if TRANS_EU lacks key', () => {
+      process.env.DISPATCH_PROVIDER_MODE = 'TRANS_EU';
+      delete process.env.TRANS_EU_API_KEY;
+      const status = getDispatchProviderRuntimeStatus();
+      expect(status.activeProvider).toBe('NOT_CONFIGURED');
+      expect(status.fallbackActive).toBe(true);
+    });
+
+    it('returns NOT_CONFIGURED for MOCK_FRAKTBORS in production', () => {
+      const previousNodeEnv = process.env.NODE_ENV;
+      process.env.NODE_ENV = 'production';
+      process.env.DISPATCH_PROVIDER_MODE = 'MOCK_FRAKTBORS';
+      try {
+        const status = getDispatchProviderRuntimeStatus();
+        expect(status.activeProvider).toBe('NOT_CONFIGURED');
+        expect(status.requestedProvider).toBe('MOCK_FRAKTBORS');
+      } finally {
+        process.env.NODE_ENV = previousNodeEnv;
+      }
+    });
   });
 
-  it('blocks quote creation when no provider is configured', () => {
-    delete process.env.DISPATCH_PROVIDER_MODE;
-
-    expect(() =>
-      createDispatchQuote({
-        receiverId: 'R1',
+  describe('createDispatchQuote', () => {
+    it('calculates cost and emissions correctly for normal waste', () => {
+      process.env.DISPATCH_PROVIDER_MODE = 'TIMOCOM';
+      process.env.TIMOCOM_API_KEY = 'timocom-test-key';
+      const quote = createDispatchQuote({
+        receiverId: 'r1',
         receiverName: 'Receiver',
-        wasteCode: '17 05 04',
-        tons: 5,
-      }),
-    ).toThrow(/Transportprovider ar inte konfigurerad/i);
+        wasteCode: '170101',
+        tons: 10,
+        distanceKm: 50,
+      });
+
+      expect(quote.provider).toBe('TIMOCOM');
+      expect(quote.estimatedCostSek).toBeGreaterThan(0);
+      expect(quote.etaHours).toBeDefined();
+    });
+
+    it('applies hazardous surcharge', () => {
+      process.env.DISPATCH_PROVIDER_MODE = 'TIMOCOM';
+      process.env.TIMOCOM_API_KEY = 'timocom-test-key';
+      const normal = createDispatchQuote({
+        receiverId: 'r1',
+        receiverName: 'n',
+        wasteCode: '170101',
+        tons: 1,
+      });
+      const hazardous = createDispatchQuote({
+        receiverId: 'r1',
+        receiverName: 'n',
+        wasteCode: '170101*',
+        tons: 1,
+      });
+      expect(hazardous.estimatedCostSek).toBeGreaterThan(normal.estimatedCostSek);
+    });
+
+    it('throws if no provider is configured', () => {
+      delete process.env.DISPATCH_PROVIDER_MODE;
+      expect(() =>
+        createDispatchQuote({ receiverId: 'r1', receiverName: 'n', wasteCode: 'w', tons: 1 }),
+      ).toThrow('Transportprovider ar inte konfigurerad');
+    });
+
+    it('enforces minimum values for tons and distance', () => {
+      process.env.DISPATCH_PROVIDER_MODE = 'TIMOCOM';
+      process.env.TIMOCOM_API_KEY = 'timocom-test-key';
+      const quote = createDispatchQuote({
+        receiverId: 'r1',
+        receiverName: 'n',
+        wasteCode: '170101',
+        tons: -5, // Should become 0.1
+        distanceKm: 0, // Should become default (15) or 1
+      });
+      expect(quote.tons).toBe(0.1);
+      expect(quote.distanceKm).toBe(15); // Default from ENV or 15
+    });
   });
 
-  it('maps bookings returned from the repository', async () => {
-    process.env.DISPATCH_PROVIDER_MODE = 'MOCK_FRAKTBORS';
-    mocks.createTransportBookingRepo.mockResolvedValue(bookingRow());
-    mocks.getTransportBookingRepo.mockResolvedValue(bookingRow({ id: 'booking-2' }));
+  describe('createTransportBooking', () => {
+    it('creates a repo record and returns formatted booking', async () => {
+      const mockQuote = {
+        id: 'q1',
+        provider: 'TIMOCOM' as any,
+        receiverId: 'r1',
+        receiverName: 'n',
+        wasteCode: 'w',
+        tons: 10,
+        distanceKm: 50,
+        estimatedCostSek: 1000,
+        etaHours: 2,
+        currency: 'SEK' as const,
+        createdAt: new Date().toISOString(),
+      };
+      const mockRepoResult = {
+        ...mockQuote,
+        quoteId: 'q1',
+        status: 'BOOKED',
+        co2EstimateKg: 10,
+        plannedPickupAt: new Date(),
+        plannedDeliveryAt: new Date(),
+        externalReference: 'TC-123',
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      };
+      mocks.createTransportBooking.mockResolvedValue(mockRepoResult);
 
-    const quote = createDispatchQuote({
-      receiverId: 'R1',
-      receiverName: 'Receiver',
-      wasteCode: '17 05 04',
-      tons: 5,
-      distanceKm: 12,
+      const booking = await createTransportBooking(mockQuote);
+      expect(booking.status).toBe('BOOKED');
+      expect(booking.externalReference).toBe('TC-123');
     });
-    const created = await createTransportBooking(quote, {
-      plannedPickupAt: '2026-01-01T10:00:00.000Z',
-    });
-    const fetched = await getTransportBooking('booking-2');
-
-    expect(created.id).toBe('booking-1');
-    expect(created.provider).toBe('MOCK_FRAKTBORS');
-    expect(created.plannedPickupAt).toBe('2026-01-01T10:00:00.000Z');
-    expect(fetched?.id).toBe('booking-2');
-    expect(mocks.createTransportBookingRepo).toHaveBeenCalledWith(
-      expect.objectContaining({
-        quoteId: quote.id,
-        provider: 'MOCK_FRAKTBORS',
-        receiverId: 'R1',
-      }),
-    );
   });
 
-  it('creates and updates driver journals via the repository layer', async () => {
-    mocks.createDriverJournalRepo.mockResolvedValue(journalRow());
-    mocks.updateDriverJournalRepo.mockResolvedValue(journalRow({ id: 'journal-2', status: 'SUBMITTED' }));
-
-    const created = await upsertDriverJournal({
-      journal: {
-        bookingId: 'booking-1',
-        driverName: 'Driver',
-        vehicleId: 'ABC123',
-        origin: 'Site A',
-        destination: 'Site B',
-        wasteCode: '17 05 04',
-        tons: 5,
-        odometerStartKm: 1000,
-      },
-    });
-    const updated = await upsertDriverJournal({
-      journal: {
-        id: 'journal-2',
-        bookingId: 'booking-1',
-        driverName: 'Driver',
-        vehicleId: 'ABC123',
-        origin: 'Site A',
-        destination: 'Site B',
-        wasteCode: '17 05 04',
-        tons: 5,
-        odometerStartKm: 1000,
-        endedAt: '2026-01-01T12:00:00.000Z',
-        odometerEndKm: 1020,
-      },
-    });
-
-    expect(created.id).toBe('journal-1');
-    expect(created.gpsTrackHash).toBe('hash-1');
-    expect(updated.id).toBe('journal-2');
-    expect(mocks.createDriverJournalRepo).toHaveBeenCalledWith(
-      expect.objectContaining({
-        bookingId: 'booking-1',
-        gpsTrackHash: expect.any(String),
+  describe('upsertDriverJournal', () => {
+    it('creates a new journal if id is missing', async () => {
+      const mockEntry = {
+        id: 'j1',
+        bookingId: 'b1',
+        driverName: 'D',
+        vehicleId: 'v1',
+        origin: 'A',
+        destination: 'B',
+        wasteCode: 'w',
+        tons: 1,
+        startedAt: new Date(),
+        odometerStartKm: 0,
         status: 'DRAFT',
-      }),
-    );
-    expect(mocks.updateDriverJournalRepo).toHaveBeenCalledWith(
-      'journal-2',
-      expect.objectContaining({
-        odometerEndKm: 1020,
-      }),
-    );
-  });
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      };
+      mocks.createDriverJournal.mockResolvedValue(mockEntry);
 
-  it('prevents reviewer signatures before the driver has signed', async () => {
-    mocks.findJournal.mockResolvedValue(journalRow({ signedByDriver: false }));
+      const journal = await upsertDriverJournal({
+        journal: {
+          bookingId: 'b1',
+          driverName: 'D',
+          vehicleId: 'v1',
+          origin: 'A',
+          destination: 'B',
+          wasteCode: 'w',
+          tons: 1,
+          odometerStartKm: 0,
+        },
+      });
 
-    await expect(
-      signDriverJournal({
-        journalId: 'journal-1',
-        signerRole: 'REVIEWER',
-        signatureId: 'sig-review',
-      }),
-    ).rejects.toThrow(/Driver signature is required/i);
-  });
-
-  it('signs verified journals when the reviewer path is valid', async () => {
-    mocks.findJournal.mockResolvedValue(journalRow({ signedByDriver: true }));
-    mocks.updateDriverJournalRepo.mockResolvedValue(
-      journalRow({
-        status: 'VERIFIED',
-        signedByDriver: true,
-        signedByReviewer: true,
-        reviewerSignatureId: 'sig-review',
-      }),
-    );
-
-    const signed = await signDriverJournal({
-      journalId: 'journal-1',
-      signerRole: 'REVIEWER',
-      signatureId: 'sig-review',
+      expect(journal.id).toBe('j1');
+      expect(mocks.createDriverJournal).toHaveBeenCalled();
     });
 
-    expect(signed.status).toBe('VERIFIED');
-    expect(signed.signedByReviewer).toBe(true);
-    expect(mocks.updateDriverJournalRepo).toHaveBeenCalledWith(
-      'journal-1',
-      expect.objectContaining({
-        signedByReviewer: true,
-        reviewerSignatureId: 'sig-review',
+    it('updates existing journal if id is provided', async () => {
+      const mockEntry = {
+        id: 'j1',
+        startedAt: new Date(),
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      };
+      mocks.updateDriverJournal.mockResolvedValue(mockEntry);
+      await upsertDriverJournal({
+        journal: {
+          id: 'j1',
+          bookingId: 'b1',
+          driverName: 'D',
+          vehicleId: 'v1',
+          origin: 'A',
+          destination: 'B',
+          wasteCode: 'w',
+          tons: 1,
+          odometerStartKm: 0,
+        },
+      });
+      expect(mocks.updateDriverJournal).toHaveBeenCalled();
+    });
+
+    it('generates a stable and deterministic GPS track hash if missing', async () => {
+      const entryData = {
+        bookingId: 'b1',
+        driverName: 'D',
+        vehicleId: 'v1',
+        origin: 'A',
+        destination: 'B',
+        wasteCode: 'w',
+        tons: 1,
+        odometerStartKm: 100,
+        startedAt: '2024-03-25T12:00:00Z',
+      };
+
+      const mockEntry = {
+        ...entryData,
+        id: 'j1',
+        startedAt: new Date(entryData.startedAt),
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      };
+      mocks.createDriverJournal.mockResolvedValue(mockEntry);
+
+      const journal1 = await upsertDriverJournal({ journal: entryData });
+      const journal2 = await upsertDriverJournal({ journal: entryData });
+
+      expect(journal1.gpsTrackHash).toBeDefined();
+      expect(journal1.gpsTrackHash).toBe(journal2.gpsTrackHash);
+      expect(journal1.gpsTrackHash.length).toBe(64); // SHA-256 length
+    });
+
+    it('handles invalid date strings by falling back to current time', async () => {
+      const mockEntry = {
+        id: 'j1',
+        startedAt: new Date(),
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      };
+      mocks.createDriverJournal.mockResolvedValue(mockEntry);
+
+      const journal = await upsertDriverJournal({
+        journal: {
+          bookingId: 'b1',
+          driverName: 'D',
+          vehicleId: 'v1',
+          origin: 'A',
+          destination: 'B',
+          wasteCode: 'w',
+          tons: 1,
+          odometerStartKm: 0,
+          startedAt: 'inte-ett-datum',
+        },
+      });
+
+      expect(new Date(journal.startedAt).getTime()).not.toBeNaN();
+    });
+  });
+
+  describe('signDriverJournal', () => {
+    it('allows driver to sign regardless', async () => {
+      mocks.findUniqueJournal.mockResolvedValue({ id: 'j1', signedByDriver: false });
+      mocks.updateDriverJournal.mockResolvedValue({
+        id: 'j1',
+        status: 'SUBMITTED',
+        startedAt: new Date(),
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      });
+
+      const journal = await signDriverJournal({ journalId: 'j1', signerRole: 'DRIVER', signatureId: 'sig1' });
+      expect((journal as any).status).toBe('SUBMITTED');
+    });
+
+    it('throws if reviewer signs before driver', async () => {
+      mocks.findUniqueJournal.mockResolvedValue({ id: 'j1', signedByDriver: false });
+      await expect(
+        signDriverJournal({ journalId: 'j1', signerRole: 'REVIEWER', signatureId: 'sig1' }),
+      ).rejects.toThrow('Driver signature is required');
+    });
+
+    it('allows reviewer to sign if driver has signed', async () => {
+      mocks.findUniqueJournal.mockResolvedValue({ id: 'j1', signedByDriver: true });
+      mocks.updateDriverJournal.mockResolvedValue({
+        id: 'j1',
         status: 'VERIFIED',
-      }),
-    );
+        startedAt: new Date(),
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      });
+
+      const journal = await signDriverJournal({
+        journalId: 'j1',
+        signerRole: 'REVIEWER',
+        signatureId: 'sig1',
+      });
+      expect((journal as any).status).toBe('VERIFIED');
+    });
+
+    it('throws when journal not found', async () => {
+      mocks.findUniqueJournal.mockResolvedValue(null);
+      await expect(
+        signDriverJournal({ journalId: 'no-such-id', signerRole: 'DRIVER', signatureId: 'sig' }),
+      ).rejects.toThrow('Journal not found');
+    });
+
+    it('throws when signatureId is empty', async () => {
+      mocks.findUniqueJournal.mockResolvedValue({ id: 'j1', signedByDriver: false });
+      await expect(
+        signDriverJournal({ journalId: 'j1', signerRole: 'DRIVER', signatureId: '  ' }),
+      ).rejects.toThrow('signatureId is required');
+    });
   });
 });

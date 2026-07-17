@@ -17,6 +17,21 @@ vi.mock('../../server/services/lantmaterietService', () => ({
   })),
 }));
 
+vi.mock('../../src/platform/master', () => ({
+  platform: {
+    geo: {
+      getProperty: vi.fn(async (data: { designation?: string }) => ({
+        id: 'mock-property-id',
+        designation: data.designation || 'TEST 1:1',
+        municipality: 'STOCKHOLM',
+        areaM2: 1500,
+        ownerName: 'Mock Owner AB',
+        centroid: { lat: 59.0, lng: 18.0 },
+      })),
+    },
+  },
+}));
+
 vi.mock('../../server/services/sluService', () => ({
   getSluProductStatus: vi.fn(() => [{ product: 'taxonomy', configured: true }]),
   pingSluProduct: vi.fn(async () => ({ ok: true, status: 200 })),
@@ -76,7 +91,7 @@ describe('external datasource endpoints use mocks in integration tests', () => {
       .post('/api/admin/auth/login')
       .send({
         username: process.env.ADMIN_CONSOLE_USERNAME || 'admin',
-        password: process.env.ADMIN_CONSOLE_PASSWORD || 'admin-test-password',
+        password: process.env.ADMIN_CONSOLE_PASSWORD || 'admin',
       });
 
     expect(loginRes.status).toBe(200);
@@ -118,9 +133,8 @@ describe('external datasource endpoints use mocks in integration tests', () => {
       .post('/api/property/lookup')
       .set('Authorization', `Bearer ${adminToken}`)
       .send({
+        designation: 'TEST 1:1',
         projectId,
-        propertyDesignation: 'TEST 1:1',
-        purpose: 'integration test',
       });
 
     expect(res.status).toBe(200);

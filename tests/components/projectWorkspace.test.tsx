@@ -1,5 +1,5 @@
 import React from 'react';
-import { render, screen } from '@testing-library/react';
+import { render, screen, waitFor } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 
 vi.mock('../../components/WorkspaceScaffold', () => ({
@@ -26,8 +26,8 @@ vi.mock('../../components/MarketIntelView', () => ({
   default: ({ mode }: { mode: string }) => <div data-testid={`market-intel-${mode}`} />,
 }));
 
-vi.mock('../../components/PermitPortalView', () => ({
-  default: ({ mode }: { mode: string }) => <div data-testid={`permit-portal-${mode}`} />,
+vi.mock('../../components/admin/modules/c-notification-mass/CNotificationMassUI', () => ({
+  CNotificationMassUI: () => <div data-testid="c-notification-mass-ui" />,
 }));
 
 vi.mock('../../components/AssetTriage', () => ({
@@ -102,7 +102,9 @@ describe('ProjectWorkspace', () => {
 
   it('renders ExecutiveSummary for LOGISTICS_MARKET archive tab', async () => {
     render(<ProjectWorkspace {...baseProps} activeTab="archive" />);
-    expect(await screen.findByTestId('executive-summary')).toBeInTheDocument();
+    await waitFor(() => {
+      expect(screen.getByTestId('executive-summary')).toBeInTheDocument();
+    });
   });
 
   it('renders AssetTriage for LOGISTICS_MARKET triage tab', async () => {
@@ -112,9 +114,11 @@ describe('ProjectWorkspace', () => {
 
   // ── Guide tab ─────────────────────────────────────────────────────────────
 
-  it('renders Guide for guide activeTab', async () => {
+  it('renders guide loading fallback for guide activeTab', async () => {
     render(<ProjectWorkspace {...baseProps} activeTab="guide" />);
-    expect(await screen.findByTestId('guide-LOGISTICS_MARKET')).toBeInTheDocument();
+    await waitFor(() => {
+      expect(screen.getByTestId('guide-LOGISTICS_MARKET')).toBeInTheDocument();
+    });
   });
 
   // ── Legal tab ─────────────────────────────────────────────────────────────
@@ -124,18 +128,18 @@ describe('ProjectWorkspace', () => {
     expect(await screen.findByTestId('legal-support-center')).toBeInTheDocument();
   });
 
-  // ── PERMIT_PORTAL tabs ────────────────────────────────────────────────────
+  // ── Legacy PERMIT_PORTAL handoff ──────────────────────────────────────────
 
-  it('renders PermitPortalView for PERMIT_PORTAL mode', async () => {
+  it('routes PERMIT_PORTAL mode to canonical C-anmalan mass module', async () => {
     render(<ProjectWorkspace {...baseProps} mode="PERMIT_PORTAL" activeTab="map" />);
-    expect(await screen.findByTestId('permit-portal-map')).toBeInTheDocument();
+    expect(await screen.findByTestId('c-notification-mass-ui', {}, { timeout: 10_000 })).toBeInTheDocument();
   });
 
   // ── COMPLIANCE_AUDIT tabs ─────────────────────────────────────────────────
 
   it('renders IntegrationsDashboard for COMPLIANCE_AUDIT default tab', async () => {
     render(<ProjectWorkspace {...baseProps} mode="COMPLIANCE_AUDIT" activeTab="other" />);
-    expect(await screen.findByTestId('integrations-dashboard')).toBeInTheDocument();
+    expect(await screen.findByTestId('integrations-dashboard', {}, { timeout: 10_000 })).toBeInTheDocument();
   });
 
   // ── Fallback for unknown mode ─────────────────────────────────────────────
