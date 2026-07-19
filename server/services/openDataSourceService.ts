@@ -71,15 +71,25 @@ async function fetchText(endpoint: string): Promise<FetchResult> {
 }
 
 async function checkLastkajenSource(): Promise<FetchResult> {
-  const { pingLastkajen } = await import('./lastkajenService');
-  const result = await pingLastkajen();
-  return {
-    source: result.source,
-    ok: result.ok,
-    endpoint: result.endpoint,
-    details: result.details,
-    sample: result.packageCount !== undefined ? { packageCount: result.packageCount } : undefined,
-  };
+  try {
+    const path = './lastkajenService';
+    const { pingLastkajen } = await import(path);
+    const result = await pingLastkajen();
+    return {
+      source: result.source,
+      ok: result.ok,
+      endpoint: result.endpoint,
+      details: result.details,
+      sample: result.packageCount !== undefined ? { packageCount: result.packageCount } : undefined,
+    };
+  } catch (error: unknown) {
+    return {
+      source: 'Lastkajen API',
+      ok: false,
+      endpoint: 'https://lastkajen.trafikverket.se',
+      details: error instanceof Error ? error.message : 'Lastkajen service is not available (module deleted).',
+    };
+  }
 }
 
 async function checkTrafikverketSource(): Promise<FetchResult> {

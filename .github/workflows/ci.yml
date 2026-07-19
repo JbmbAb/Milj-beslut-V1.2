@@ -1,9 +1,13 @@
 name: CI
 
 on:
-  pull_request:
   push:
     branches: [main, master]
+  pull_request:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 
 # ─── Shared configuration ───────────────────────────────────────────────────
 
@@ -11,6 +15,8 @@ on:
 # that only do static analysis / build).
 env:
   NODE_VERSION: '22'
+  # Centralize the database connection string to avoid repetition and simplify updates.
+  DATABASE_URL: postgresql://riskguard:password@localhost:5432/riskguard_test
 
 # ─── Jobs ────────────────────────────────────────────────────────────────────
 
@@ -18,6 +24,7 @@ jobs:
   # ── 1. Static analysis – runs without a database ─────────────────────────
   typecheck:
     name: Typecheck
+    timeout-minutes: 5
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -32,6 +39,7 @@ jobs:
 
   lint:
     name: Lint
+    timeout-minutes: 5
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -46,6 +54,7 @@ jobs:
 
   format:
     name: Format check
+    timeout-minutes: 5
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -58,11 +67,27 @@ jobs:
       - run: npm ci
       - run: npm run format:check
 
+  audit:
+    name: Security audit
+    timeout-minutes: 5
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+      - run: npm ci
+      - run: npm audit --fail-on=high
+
   # ── 2. Unit tests – no database needed ───────────────────────────────────
   test-unit:
+    # This job now depends on the fastest static checks to fail early.
     name: Unit tests
     runs-on: ubuntu-latest
-    needs: [typecheck]
+    needs: [typecheck, lint, format, audit]
     permissions:
       contents: read
     env:
@@ -77,8 +102,7 @@ jobs:
       LANTMATERIET_BASE_URL: https://example.invalid
       SLU_API_BASE_URL: https://example.invalid
       SLU_API_KEY: ci-slu-key
-      SEARCH_WORKER_ENABLED: 'false'
-      DATABASE_URL: postgresql://riskguard:password@localhost:5432/riskguard_test
+      SEARCH_WORKER_ENABLED: 'false' # Already defined in env
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -101,7 +125,7 @@ jobs:
   test-integration:
     name: Integration tests
     runs-on: ubuntu-latest
-    needs: [typecheck]
+    needs: [typecheck, lint, format, audit]
     permissions:
       contents: read
     services:
@@ -123,7 +147,6 @@ jobs:
           --health-retries 15
     env:
       NODE_ENV: test
-      DATABASE_URL: postgresql://riskguard:password@localhost:5432/riskguard_test
       JWT_ACCESS_SECRET: ci-access-secret
       JWT_REFRESH_SECRET: ci-refresh-secret
       ADMIN_CONSOLE_USERNAME: admin
@@ -162,7 +185,7 @@ jobs:
   build:
     name: Build
     runs-on: ubuntu-latest
-    needs: [typecheck, lint, format]
+    needs: [test-unit, test-integration]
     permissions:
       contents: read
     steps:
@@ -185,7 +208,7 @@ jobs:
   test-e2e:
     name: E2E tests
     runs-on: ubuntu-latest
-    needs: [build, test-integration]
+    needs: [build]
     permissions:
       contents: read
     services:
@@ -204,7 +227,6 @@ jobs:
           --health-retries 15
     env:
       NODE_ENV: test
-      DATABASE_URL: postgresql://riskguard:password@localhost:5432/riskguard_test
       JWT_ACCESS_SECRET: ci-access-secret
       JWT_REFRESH_SECRET: ci-refresh-secret
       ADMIN_CONSOLE_USERNAME: admin

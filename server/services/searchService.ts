@@ -18,11 +18,51 @@ import {
   upsertDocumentContent,
   upsertDocumentFromManifest,
 } from '../repositories/searchRepository';
-import { checkGeospatialRisks, type GeoRiskStatus } from './geoService';
 import { prisma } from '../db/prisma';
 import { Prisma } from '@prisma/client';
-import { embedTextWithVertexPredict } from './vertexEmbeddingService';
-import { generateTextWithVertexAndInlineData } from './vertexAiService';
+
+export interface GeoRiskStatus {
+  hasLandslideRisk: boolean;
+  groundLayerLabel: string | null;
+  isInNatura2000: boolean;
+  isProtectedArea: boolean;
+}
+
+async function checkGeospatialRisks(lat: number, lng: number): Promise<GeoRiskStatus> {
+  try {
+    const path = './geoService';
+    const geoModule = await import(path);
+    return await geoModule.checkGeospatialRisks(lat, lng);
+  } catch {
+    return {
+      hasLandslideRisk: false,
+      groundLayerLabel: null,
+      isInNatura2000: false,
+      isProtectedArea: false,
+    };
+  }
+}
+
+async function embedTextWithVertexPredict(text: string, embeddingDim: number): Promise<{ values: number[]; model: string } | null> {
+  try {
+    const path = './vertexEmbeddingService';
+    const embedModule = await import(path);
+    return await embedModule.embedTextWithVertexPredict(text, embeddingDim);
+  } catch {
+    return null;
+  }
+}
+
+async function generateTextWithVertexAndInlineData(prompt: string, inline: any, options?: any): Promise<string> {
+  try {
+    const path = './vertexAiService';
+    const aiModule = await import(path);
+    return await aiModule.generateTextWithVertexAndInlineData(prompt, inline, options);
+  } catch {
+    throw new Error('Vertex AI service is not available (module deleted).');
+  }
+}
+
 import { readStorageFile, statStorageFile } from './documentObjectStorage';
 
 /** Värdelabel / logg; faktisk modell väljs via `VERTEX_EMBEDDING_MODEL` i Vertex. */

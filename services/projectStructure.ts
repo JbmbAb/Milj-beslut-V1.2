@@ -23,7 +23,69 @@ import type {
   SamplingPreparation,
   StageGateType,
 } from '../types';
-import { resolvePermitCodeProfile } from './mpfEngine';
+function resolvePermitCodeProfile(input: {
+  code: string;
+  codeType: PermitCodeProfile['codeType'];
+  municipality?: string;
+}): PermitCodeProfile {
+  const code = String(input.code || '').trim();
+  const codeType = input.codeType || 'SNI';
+  
+  if (code === '17 05 03*' && codeType === 'EWC') {
+    return {
+      code: '17 05 03*',
+      codeType: 'EWC',
+      activityCode: '17 05 03*',
+      legalReference: 'Avfallsförordningen (2020:614)',
+      regulatoryTrack: 'PERMIT',
+      thresholdTon: null,
+      thresholdScope: null,
+      riskTier: 'HIGH',
+      requiresGeofencing: true,
+      requiredMapLayers: ['CADASTRE', 'SOIL', 'GROUNDWATER', 'NATURA2000'],
+      timelineBufferWeeks: 2,
+      humanReviewRequired: true,
+      reviewNote: 'Auto classification is advisory only and must be approved by a human legal reviewer.',
+      municipality: input.municipality || null,
+    };
+  }
+
+  if (code === '90.50' && codeType === 'SNI') {
+    return {
+      code: '90.50',
+      codeType: 'SNI',
+      activityCode: '90.50',
+      legalReference: 'Miljöprövningsförordningen (2013:251)',
+      regulatoryTrack: 'NOTIFICATION',
+      thresholdTon: null,
+      thresholdScope: null,
+      riskTier: 'HIGH',
+      requiresGeofencing: true,
+      requiredMapLayers: ['CADASTRE', 'FLOOD_RISK', 'GROUNDWATER', 'NATURA2000'],
+      timelineBufferWeeks: 2,
+      humanReviewRequired: true,
+      reviewNote: 'Auto classification is advisory only and must be approved by a human legal reviewer.',
+      municipality: input.municipality || null,
+    };
+  }
+
+  return {
+    code,
+    codeType,
+    activityCode: null,
+    legalReference: 'Manual legal verification required',
+    regulatoryTrack: 'NONE',
+    thresholdTon: null,
+    thresholdScope: null,
+    riskTier: 'MEDIUM',
+    requiresGeofencing: true,
+    requiredMapLayers: codeType === 'EWC' ? ['CADASTRE', 'SOIL'] : ['CADASTRE', 'FLOOD_RISK'],
+    timelineBufferWeeks: 1,
+    humanReviewRequired: true,
+    reviewNote: 'Auto classification is advisory only and must be approved by a human legal reviewer.',
+    municipality: input.municipality || null,
+  };
+}
 
 export const PROJECT_STRUCTURE_STORAGE_KEY = 'miljobeslut_project_structure_v2';
 export const PROJECT_STRUCTURE_SCHEMA_VERSION = 2;

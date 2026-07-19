@@ -1,23 +1,23 @@
-version: "3.9"
+version: '3.8'
 
 services:
-  postgres:
-    image: pgvector/pgvector:pg16
-    container_name: miljobeslut-postgres
-    restart: unless-stopped
+  postgres-test:
+    # Använder exakt samma avbildning som i CI/CD för konsistens.
+    image: ghcr.io/jbmbab/milj-beslut-postgres-test:16
+    container_name: miljobeslut-postgres-test
     environment:
-      POSTGRES_DB: miljobeslut
-      POSTGRES_USER: miljobeslut
+      # Samma credentials som används i ci.yml och playwright.config.ts
+      POSTGRES_DB: riskguard_test
+      POSTGRES_USER: riskguard
       POSTGRES_PASSWORD: password
     ports:
-      - "5432:5432"
+      # Mappar port 5432 i containern till 5432 på din lokala maskin.
+      # Ändra den första siffran om du redan har en annan PostgreSQL-instans på den porten.
+      - '5432:5432'
     volumes:
-      - type: bind
-        source: ${LOCAL_DB_ROOT:-./Database}
-        target: /var/lib/postgresql/data
-      - ./scripts/db/init-search.sql:/docker-entrypoint-initdb.d/init-search.sql:ro
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U miljobeslut -d miljobeslut"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
+      # (Valfritt) Behåll datan mellan omstarter för snabbare testkörningar.
+      # Ta bort denna sektion för att få en helt ny, fräsch databas varje gång.
+      - postgres-test-data:/var/lib/postgresql/data
+
+volumes:
+  postgres-test-data:
