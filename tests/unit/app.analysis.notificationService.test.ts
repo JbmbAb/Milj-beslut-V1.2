@@ -10,6 +10,7 @@ vi.mock('../../db.server', () => ({
   },
 }));
 
+
 describe('app analysis notificationService', () => {
   beforeEach(() => {
     vi.clearAllMocks();

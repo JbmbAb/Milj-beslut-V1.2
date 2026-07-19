@@ -1,0 +1,13 @@
+{
+  "schema_version": "2.0",
+  "provider": "LM",
+  "dataset": "Fastighetsindelning/Registerenhetsomradesytor",
+  "version": "1",
+  "total_bytes": 486,
+  "files": [
+    "parcel.geojson"
+  ],
+  "content_bundle_sha256": "a1b2c3d4e5f6789012345678901234567890abcdef1234567890abcdef123456",
+  "provenance": "test",
+  "qa_status": "pending"
+}
