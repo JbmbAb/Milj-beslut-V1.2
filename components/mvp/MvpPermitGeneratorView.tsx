@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useState } from 'react';
 import { Download, FileText } from 'lucide-react';
 import { callMvp } from '../../services/mvpApiClient';
 import type { Project } from './mvpDemoModel';
@@ -37,6 +37,7 @@ type MvpPermitGeneratorViewProps = {
 };
 
 const MvpPermitGeneratorView: React.FC<MvpPermitGeneratorViewProps> = ({ project }) => {
+  const [prevProject, setPrevProject] = useState(project);
   const [formData, setFormData] = useState<PermitFormData>({
     businessName: 'Återvinningsbolaget AB',
     municipality: getProjectMunicipality(project.propertyDesignation),
@@ -51,14 +52,15 @@ const MvpPermitGeneratorView: React.FC<MvpPermitGeneratorViewProps> = ({ project
   const [result, setResult] = useState<PermitDraftResponse | null>(null);
   const [loading, setLoading] = useState(false);
 
-  useEffect(() => {
+  if (project !== prevProject) {
     const municipality = getProjectMunicipality(project.propertyDesignation);
+    setPrevProject(project);
     setFormData((current) => ({
       ...current,
       property: project.propertyDesignation,
       municipality: project.coverage.municipality > 0 ? municipality : current.municipality,
     }));
-  }, [project]);
+  }
 
   const generate = async () => {
     setLoading(true);

@@ -18,7 +18,6 @@ import {
   getDispatchProviderRuntimeStatus,
   getOutlookSchedulerStatus,
   triggerIngestionWebhook,
-  getMetricsText,
   getRecentErrors,
   captureException,
   runBackup,
@@ -28,6 +27,7 @@ import {
   batchExtractPendingDocuments,
 } from '../modules/platform/public';
 import { parseOptionalText, routeParam } from '../utils/routeUtils';
+import { handleMetricsRequest } from '../security/metricsAccess';
 
 const router = express.Router();
 
@@ -230,29 +230,7 @@ router.get('/api/admin/outlook/scheduler/status', requireAuth, rateLimitByUser(2
 });
 
 // Metrics
-router.get('/metrics', async (req, res) => {
-  const metricsToken = process.env.METRICS_BEARER_TOKEN;
-  if (metricsToken) {
-    const authHeader = req.headers.authorization ?? '';
-    if (authHeader !== `Bearer ${metricsToken}`) {
-      res.status(401).set('WWW-Authenticate', 'Bearer').end();
-      return;
-    }
-  } else {
-    const clientIp = req.ip ?? req.socket.remoteAddress ?? '';
-    const isLocal = clientIp === '127.0.0.1' || clientIp === '::1' || clientIp === '::ffff:127.0.0.1';
-    if (!isLocal) {
-      res.status(403).end();
-      return;
-    }
-  }
-  try {
-    const text = await getMetricsText();
-    res.status(200).type('text/plain; version=0.0.4; charset=utf-8').send(text);
-  } catch {
-    res.status(500).end();
-  }
-});
+router.get('/metrics', handleMetricsRequest);
 
 // Errors
 router.get('/api/admin/errors/recent', requireAuth, rateLimitByUser(20, 60_000), (req, res) => {

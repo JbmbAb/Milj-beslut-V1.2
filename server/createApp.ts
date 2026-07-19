@@ -26,11 +26,13 @@ import sewageApplicationsRouter from './routes/sewage.applications.routes';
 import sewageLegacyAliasRouter from './routes/sewage.legacy-alias.routes';
 import cNotificationMassRouter from './routes/cNotificationMass.routes';
 import hydroRouter from './routes/hydro.routes';
+import tilesRouter from './routes/tiles.routes';
 import pdfExportRouter from './routes/pdf-export.routes';
 import bankComplianceRouter from './routes/bankCompliance.routes';
 import erpSyncRouter from './routes/erpSync.routes';
 import helmet from 'helmet';
 import rateLimit from 'express-rate-limit';
+import compression from 'compression';
 import { traceMiddleware } from './observability/trace';
 import { propertyLookupRouter } from './integrations/propertyLookup';
 import { initializeSentry } from './sentry';
@@ -40,9 +42,14 @@ import { secureErrorHandler } from './security/secureErrors';
 import internalBackgroundRouter from './routes/internal.background.routes';
 import { getReadinessPayload } from './services/readinessService';
 import interactionsPrototypeRouter from './modules/ai/interactions/interactionsPrototype.routes';
+import { handleMetricsRequest } from './security/metricsAccess';
 
 export function createApp() {
   const app = express();
+
+  if (process.env.NODE_ENV === 'production') {
+    app.set('trust proxy', 1);
+  }
 
   // Initialize Sentry error tracking
   initializeSentry(app);
@@ -69,6 +76,7 @@ export function createApp() {
   // Trace ID across all routes (AI→audit→submission)
   app.use(traceMiddleware());
 
+  app.use(compression());
   app.use(express.json({ limit: '10mb' }));
 
   const corsAllowList = String(process.env.CORS_ALLOW_ORIGINS || '')
@@ -153,20 +161,13 @@ export function createApp() {
   app.use(sewageDocumentRouter);
   app.use(cNotificationMassRouter);
   app.use(hydroRouter);
+  app.use(tilesRouter);
   app.use(propertyLookupRouter);
   app.use(bankComplianceRouter);
   app.use(erpSyncRouter);
 
-  // Legacy alias for Prometheus metrics
-  app.get('/metrics', async (_req, res, next) => {
-    try {
-      const { getMetricsText } = await import('./services/metricsService');
-      const metrics = await getMetricsText();
-      res.type('text/plain').send(metrics);
-    } catch (error) {
-      next(error);
-    }
-  });
+  // Legacy alias for Prometheus metrics (bearer token or localhost only)
+  app.get('/metrics', handleMetricsRequest);
 
   // GIS & Legal Domain
   app.use(gisRouter);

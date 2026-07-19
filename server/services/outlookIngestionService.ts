@@ -12,10 +12,8 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import * as crypto from 'crypto';
-import { PrismaClient } from '@prisma/client';
+import { prisma } from '../db/prisma';
 import { logger } from '../logger';
-
-const prisma = new PrismaClient();
 
 // ─── Types ──────────────────────────────────────────────────────────────────
 
@@ -186,7 +184,6 @@ export async function runIngestion(opts: IngestionOptions): Promise<IngestionRes
     },
   });
 
-  await prisma.$disconnect();
   return result;
 }
 

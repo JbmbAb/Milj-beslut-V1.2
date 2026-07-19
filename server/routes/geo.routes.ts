@@ -2,9 +2,8 @@ import express from 'express';
 import { requireAuth } from '../security/auth';
 import { rateLimitByUser } from '../security/rateLimit';
 import { toSafeErrorResponse } from '../security/secureErrors';
-import { parseBbox, getMarkCoverLayer, getTerrainData } from '../modules/gis/public';
+import { parseBbox, getMarkCoverLayer, getTerrainData, auditInSarRiskAtPoint } from '../modules/gis/public';
 import { asBboxTuple } from '../utils/routeUtils';
-import { auditInSarRiskAtPoint } from '../services/sgiInSarService';
 
 const router = express.Router();
 

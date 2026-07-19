@@ -105,7 +105,7 @@ describe('userRepository', () => {
 
       expect(mocks.organisationUpsert).toHaveBeenCalledWith({
         where: { orgNumber: '999999-0001' },
-        create: { name: 'Miljöbeslut Admin', orgNumber: '999999-0001' },
+        create: { name: 'Miljöbeslut Admin', orgNumber: '999999-0001', role: 'AUTHORITY' },
         update: { name: 'Miljöbeslut Admin' },
         select: { id: true },
       });
@@ -138,7 +138,7 @@ describe('userRepository', () => {
 
       expect(mocks.organisationUpsert).toHaveBeenCalledWith({
         where: { orgNumber: '123456-7890' },
-        create: { name: 'Custom Org', orgNumber: '123456-7890' },
+        create: { name: 'Custom Org', orgNumber: '123456-7890', role: 'AUTHORITY' },
         update: { name: 'Custom Org' },
         select: { id: true },
       });

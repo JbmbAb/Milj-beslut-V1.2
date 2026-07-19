@@ -41,6 +41,9 @@
     "prisma:migrate": "prisma migrate dev"
   },
   "dependencies": {
+    "@google-cloud/billing-budgets": "^6.1.2",
+    "@google-cloud/storage": "^7.21.0",
+    "@google-cloud/vertexai": "^1.12.0",
     "@google/genai": "^1.41.0",
     "@google/generative-ai": "^0.24.1",
     "@loaders.gl/core": "^4.1.0",
@@ -83,8 +86,8 @@
     "eslint-plugin-react-refresh": "^0.5.2",
     "jsdom": "^26.1.0",
     "prettier": "^3.8.1",
-    "rimraf": "^5.0.10",
     "prisma": "^5.17.0",
+    "rimraf": "^5.0.10",
     "supertest": "^7.2.2",
     "tsx": "^4.16.2",
     "typescript": "~5.8.2",

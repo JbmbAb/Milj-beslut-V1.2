@@ -241,6 +241,7 @@ export async function initiateBankIdAuth(
   const payload = {
     endUserIp,
     ...(personalNumber ? { personalNumber } : {}),
+    userVisibleData: Buffer.from("Identifiering för Miljöbeslut").toString('base64'),
     userNonVisibleData: nonce,
   };
   const response = await postBankId<typeof payload, BankIdAuthResponse>('/auth', payload);

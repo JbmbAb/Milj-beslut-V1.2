@@ -11,10 +11,10 @@ import {
   initiateBankIdAuth,
   normalizeBankIdPersonalNumber,
   refreshSession,
-} from '../services/bankIdService';
+  ensureAdminConsoleUser,
+} from '../modules/auth/public';
 import { getBankIdConfigurationStatus } from '../security/env';
 import { createTokenPair } from '../security/auth';
-import { ensureAdminConsoleUser } from '../repositories/userRepository';
 
 const router = express.Router();
 

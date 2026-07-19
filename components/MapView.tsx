@@ -11,6 +11,7 @@ interface MapViewProps {
   geoJsonData?: unknown;
   bufferDistance?: number;
   highlightLayer?: string;
+  onLocationChange?: (lat: string, lng: string) => void;
 }
 
 type MunicipalityContext = {
@@ -141,6 +142,7 @@ const MapView: React.FC<MapViewProps> = ({
   geoJsonData,
   bufferDistance,
   highlightLayer,
+  onLocationChange,
 }) => {
   const mapContainerRef = useRef<HTMLDivElement>(null);
   const mapRef = useRef<any>(null);
@@ -151,6 +153,11 @@ const MapView: React.FC<MapViewProps> = ({
   const bufferLayerRef = useRef<any>(null);
   const activeOverlaysRef = useRef<string[]>([]);
   const dynamicLayerRequestRef = useRef<Record<string, number>>({});
+  const onLocationChangeRef = useRef(onLocationChange);
+
+  useEffect(() => {
+    onLocationChangeRef.current = onLocationChange;
+  }, [onLocationChange]);
 
   const [baseLayer, setBaseLayer] = useState<"osm" | "topo" | "orto">("topo");
   const [activeOverlays, setActiveOverlays] = useState<string[]>([]);
@@ -409,8 +416,13 @@ const MapView: React.FC<MapViewProps> = ({
     mapRef.current.on("moveend", refreshVisibleDynamicLayers);
 
     mapRef.current.on("click", async (event: any) => {
-      if (activeOverlaysRef.current.length === 0) return;
       const { lat, lng } = event.latlng;
+      if (onLocationChangeRef.current) {
+        onLocationChangeRef.current(lat.toFixed(6), lng.toFixed(6));
+        return;
+      }
+
+      if (activeOverlaysRef.current.length === 0) return;
       const popup = L.popup()
         .setLatLng(event.latlng)
         .setContent(
@@ -468,18 +480,55 @@ const MapView: React.FC<MapViewProps> = ({
 
     if (geoJsonData && typeof geoJsonData === "object") {
       try {
-        geoJsonLayerRef.current = L.geoJSON(geoJsonData, {
-          style: { color: "#2563eb", weight: 3, fillOpacity: 0.2, fillColor: "#3b82f6" },
-        }).addTo(mapRef.current);
+        const features = (geoJsonData as any).features || [];
+        const firstFeature = features[0];
+        const isPoint = firstFeature?.geometry?.type === "Point";
 
-        if (bufferDistance) {
-          bufferLayerRef.current = L.geoJSON(geoJsonData, {
-            style: { color: "#ef4444", weight: 1, dashArray: "5,5", fillOpacity: 0.1, fillColor: "#f87171" },
+        if (isPoint && onLocationChange) {
+          const coords = firstFeature.geometry.coordinates;
+          const latLng = [coords[1], coords[0]] as [number, number];
+
+          const icon = L.divIcon({
+            className: "target-pin",
+            html: `<div style="background:#2563eb;width:24px;height:24px;border:3px solid white;border-radius:50%;box-shadow:0 4px 10px rgba(0,0,0,0.3);cursor:move;"></div>`,
+          });
+
+          const targetMarker = L.marker(latLng, { icon, draggable: true }).addTo(mapRef.current);
+          targetMarker.bindPopup('<div class="p-2 text-xs font-bold text-center">Dra markören eller klicka på kartan för att flytta positionen</div>').openPopup();
+
+          targetMarker.on("dragend", (e: any) => {
+            const newLatLng = e.target.getLatLng();
+            onLocationChange(newLatLng.lat.toFixed(6), newLatLng.lng.toFixed(6));
+          });
+
+          markersRef.current.push(targetMarker);
+
+          if (bufferDistance) {
+            bufferLayerRef.current = L.circle(latLng, {
+              radius: bufferDistance,
+              color: "#ef4444",
+              weight: 1.5,
+              dashArray: "5,5",
+              fillOpacity: 0.1,
+              fillColor: "#f87171"
+            }).addTo(mapRef.current);
+          }
+
+          mapRef.current.setView(latLng, 15);
+        } else {
+          geoJsonLayerRef.current = L.geoJSON(geoJsonData, {
+            style: { color: "#2563eb", weight: 3, fillOpacity: 0.2, fillColor: "#3b82f6" },
           }).addTo(mapRef.current);
-        }
 
-        const bounds = geoJsonLayerRef.current.getBounds();
-        if (bounds?.isValid?.()) mapRef.current.fitBounds(bounds, { padding: [50, 50] });
+          if (bufferDistance) {
+            bufferLayerRef.current = L.geoJSON(geoJsonData, {
+              style: { color: "#ef4444", weight: 1, dashArray: "5,5", fillOpacity: 0.1, fillColor: "#f87171" },
+            }).addTo(mapRef.current);
+          }
+
+          const bounds = geoJsonLayerRef.current.getBounds();
+          if (bounds?.isValid?.()) mapRef.current.fitBounds(bounds, { padding: [50, 50] });
+        }
       } catch {
         setMapNotice("GeoJSON kunde inte renderas pa kartan.");
       }
@@ -515,7 +564,7 @@ const MapView: React.FC<MapViewProps> = ({
       marker.on("click", () => onSelectReceiver && onSelectReceiver(receiver));
       markersRef.current.push(marker);
     });
-  }, [permits, receivers, selectedReceiverId, geoJsonData, bufferDistance, onSelectPermit, onSelectReceiver]);
+  }, [permits, receivers, selectedReceiverId, geoJsonData, bufferDistance, onSelectPermit, onSelectReceiver, onLocationChange]);
 
   const handlePointCloudUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
@@ -584,7 +633,7 @@ const MapView: React.FC<MapViewProps> = ({
     }
   };
 
-  const handleContextFetch = async (permit: Permit) => {
+  async function handleContextFetch(permit: Permit) {
     setIsLoadingContext(true);
     setSelectedContext(null);
     try {

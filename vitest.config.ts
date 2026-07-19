@@ -5,6 +5,7 @@ export default defineConfig({
   test: {
     globalSetup: 'tests/setup/database.ts',
     globals: true,
+    setupFiles: ['tests/setup/env.ts'],
     coverage: {
       provider: 'v8',
       reporter: ['text', 'html', 'lcov'],
@@ -22,7 +23,7 @@ export default defineConfig({
         plugins: [react()],
         test: {
           name: 'unit',
-          include: ['tests/unit/**/*.test.ts', 'tests/unit/**/*.test.tsx'],
+          include: ['**/unit/**/*.test.ts', '**/unit/**/*.test.tsx'],
           exclude: ['tests/unit/server.services.bankIdService.test.ts'],
           environment: 'jsdom',
           setupFiles: ['tests/setup/env.ts'],

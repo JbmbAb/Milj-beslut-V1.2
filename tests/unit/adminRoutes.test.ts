@@ -70,6 +70,10 @@ vi.mock('../../server/security/auditTrail', () => ({
   verifyAuditTrail: mocks.verifyAuditTrail,
 }));
 
+vi.mock('../../server/services/metricsService', () => ({
+  getMetricsText: mocks.getMetricsText,
+}));
+
 vi.mock('../../server/security/projectAccess', () => ({
   assertPermission: mocks.assertPermission,
 }));

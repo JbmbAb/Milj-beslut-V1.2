@@ -342,16 +342,94 @@ model DocumentContent {
 }
 
 model DocumentChunk {
-  id              String         @id @default(cuid())
-  documentId      String
-  chunkIndex      Int
-  chunkText       String
-  embeddingJson   Json?
-  createdAt       DateTime       @default(now())
-  document        DocumentRecord @relation(fields: [documentId], references: [id], onDelete: Cascade)
+  id                  String           @id @default(cuid())
+  documentId          String
+  chunkIndex          Int
+  chunkText           String           @db.Text
+  embeddingJson       Json?
+  createdAt           DateTime         @default(now())
+  document            DocumentRecord   @relation(fields: [documentId], references: [id], onDelete: Cascade)
+  
+  // New relationship for extracted relational values
+  extractedLimits     KravParametrar[]
+
+  // Checkpointing flag
+  parametersExtracted Boolean          @default(false) @map("parameters_extracted")
 
   @@unique([documentId, chunkIndex])
   @@index([documentId])
+}
+
+model KravParametrar {
+  id                 String             @id @default(cuid())
+  chunkId            String             @map("chunk_id")
+  chunk              DocumentChunk      @relation(fields: [chunkId], references: [id], onDelete: Cascade)
+  
+  parameterTyp       ParameterType      @map("parameter_typ")
+  gransvarde         Float              @map("gransvarde")
+  enhet              ParameterUnit      @map("enhet")
+  comparisonOperator ComparisonOperator @map("comparison_operator")
+  
+  // Traceability & Auditing
+  sourceText         String?            @map("source_text") @db.Text
+  charStart          Int?               @map("char_start")
+  charEnd            Int?               @map("char_end")
+  confidence         Float?             @map("confidence")
+  pageNumber         Int?               @map("page_number")
+  originalValue      String?            @map("original_value")
+  
+  // Metadata
+  extractedBy        String             @default("gemini-pipeline") @map("extracted_by")
+  modelVersion       String             @map("model_version")
+  promptVersion      String             @map("prompt_version")
+  processedAt        DateTime           @default(now()) @map("processed_at")
+
+  @@unique([chunkId, parameterTyp, gransvarde, enhet, comparisonOperator])
+  @@index([parameterTyp, gransvarde])
+  @@map("krav_parametrar")
+}
+
+enum ParameterType {
+  PFAS_4
+  PFAS_11
+  BLY
+  ZINK
+  KOBOLT
+  KADMIUM
+  ARSENIK
+  KOPPAR
+  NICKEL
+  KROM
+  KVICKSILVER
+  BENS_A_PYREN
+  PAH_H
+  PAH_M
+  PAH_L
+  OLJA
+  TOC
+  VOLYM_SCHAKT
+  MELLANLAGRING_VOLYM
+  MELLANLAGRING_TID
+  BULLER
+}
+
+enum ComparisonOperator {
+  LT
+  LTE
+  GT
+  GTE
+  EQ
+  BETWEEN
+}
+
+enum ParameterUnit {
+  UG_L
+  MG_KG_TS
+  TON
+  DBA
+  MANADER
+  AR
+  M3
 }
 
 model SearchJob {
@@ -724,4 +802,32 @@ model CaseNote {
 
   @@index([caseId, createdAt])
   @@map("case_notes")
+}
+
+model SatelliteScene {
+  id                   String              @id @default(cuid())
+  sceneId              String              @unique @map("scene_id")
+  capturedAt           DateTime            @map("captured_at")
+  cloudCoverPercentage Float               @map("cloud_cover_percentage")
+  platform             String
+  productType          String              @map("product_type")
+  thumbnailUrl         String?             @map("thumbnail_url")
+  bbox                 Json
+  analyses             SatelliteAnalysis[]
+  createdAt            DateTime            @default(now()) @map("created_at")
+
+  @@map("satellite_scenes")
+}
+
+model SatelliteAnalysis {
+  id             String         @id @default(cuid())
+  projectId      String         @map("project_id")
+  sceneId        String         @map("scene_id")
+  scene          SatelliteScene @relation(fields: [sceneId], references: [id], onDelete: Cascade)
+  analysisType   String         @map("analysis_type")
+  resultMetadata Json           @map("result_metadata")
+  observedAt     DateTime       @map("observed_at")
+  createdAt      DateTime       @default(now()) @map("created_at")
+
+  @@map("satellite_analyses")
 }

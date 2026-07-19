@@ -22,6 +22,7 @@ import {
   assertProjectMembership,
   notifyStageGate,
   sendProjectNotification,
+  buildProjectRiskMetrics,
 } from '../modules/project/public';
 import { appendDomainAudit } from '../security/auditTrail';
 import {
@@ -34,7 +35,6 @@ import {
 } from '../utils/routeUtils';
 import { StageGateType, ProjectAccessRole, ProjectMemberRecord, CarbonInput } from '../../types';
 import { prisma } from '../db/prisma';
-import { buildProjectRiskMetrics } from '../services/projectRiskMetrics';
 
 const router = express.Router();
 

@@ -73,7 +73,7 @@ describe('gdprComplianceService', () => {
       expect(count).toBe(5);
       expect(prisma.project.updateMany).toHaveBeenCalledWith({
         where: {
-          status: 'CLOSED',
+          status: 'COMPLETED',
           retentionUntil: {
             lt: expect.any(Date),
           },

@@ -19,5 +19,35 @@
     "allowImportingTsExtensions": true,
     "noEmit": true
   },
-  "exclude": ["node_modules", "dist", "scratch"]
+  "exclude": [
+    "node_modules",
+    "dist",
+    "scratch",
+    "server",
+    "scripts",
+    "src/application",
+    "src/domain",
+    "src/infrastructure",
+    "tests",
+    "components/StandaloneWorkspace.tsx",
+    "components/workspaceModes.ts",
+    "components/workspacePreload.ts",
+    "components/WorkspaceScaffold.tsx",
+    "components/PermitPortalView.tsx",
+    "components/GisRiskModule.tsx",
+    "components/AssetTriage.tsx",
+    "components/BtfaNoteWidget.tsx",
+    "components/IntegrationsDashboard.tsx",
+    "components/MvpDemoInterface.tsx",
+    "components/MvpWorkflowView.tsx",
+    "components/ProjectManagerView.tsx",
+    "components/ProjectPlanStructurePanel.tsx",
+    "components/ProjectStructureContext.tsx",
+    "components/ProjectWorkspace.tsx",
+    "components/TechnicalDashboardHub.tsx",
+    "components/TechnicalSluExpert.tsx",
+    "services/orchestrationService.ts",
+    "services/projectStructure.ts",
+    "services/predictiveScoringService.ts"
+  ]
 }

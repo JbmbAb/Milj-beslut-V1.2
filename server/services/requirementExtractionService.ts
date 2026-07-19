@@ -10,12 +10,10 @@
  *   4. Upsert to ExtractedRequirement table
  */
 
-import { PrismaClient } from '@prisma/client';
 import path from 'node:path';
+import { prisma } from '../db/prisma';
 import { readStorageFile } from './documentObjectStorage';
 import { markAttachmentParsed, markAttachmentFailed } from './outlookIngestionService';
-
-const prisma = new PrismaClient();
 
 // ─── Constants ──────────────────────────────────────────────────────────────
 
@@ -322,7 +320,6 @@ export async function processPendingAttachments(limit = 50): Promise<{
     }
   }
 
-  await prisma.$disconnect();
   return stats;
 }
 

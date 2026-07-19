@@ -547,6 +547,23 @@ export const askGeneralAssistant = async (message: string, history: HistoryItem[
   const apiResult = await callGeminiApi<string>('askGeneralAssistant', { message, history });
   if (apiResult) return apiResult;
 
+  if (isNodeRuntime()) {
+    try {
+      const { VertexOrkester } = await import('../server/modules/ai/orchestrator/VertexOrkester');
+      const projectId = process.env.VERTEX_PROJECT_ID || 'miljobeslut-v2';
+      const orkester = new VertexOrkester(projectId);
+      
+      // We can also add a special hint to the prompt to ensure it uses the search results and provides links
+      const augmentedPrompt = `${message}\n\nVIKTIGT: Om du hittar relevanta domar eller lagrum via dina verktyg, inkludera alltid en klickbar länk till originaldokumentet. Använd formatet: [Titel/Målnummer](/api/legal/view/ID_HÄR) om det är en intern fil, eller [Titel](EXTERN_URL) om det är en extern länk.`;
+      
+      const response = await orkester.ask(augmentedPrompt);
+      return response;
+    } catch (err) {
+      console.error('VertexOrkester failed in askGeneralAssistant:', err);
+      // fallback to basic generation if orkester fails
+    }
+  }
+
   const serverResult = await serverGenerateFromParts([
     ...history.map((item) => ({ text: `${item.role}: ${item.content}` })),
     { text: message },

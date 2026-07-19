@@ -1,5 +1,7 @@
-import React, { Suspense, lazy, useEffect, useMemo, useState } from 'react';
+import React, { Suspense, lazy, useEffect, useMemo, useState, useRef } from 'react';
+import { ShieldAlert, CheckCircle, FileText, ArrowRight, ArrowLeft, Search, Check } from 'lucide-react';
 
+// Lazy-loaded step views for performance and decoupling
 const LocationAuditStep = lazy(() =>
   import('./applicationWizard/ApplicationWizardDeferredViews').then((module) => ({
     default: module.LocationAuditStep,
@@ -10,22 +12,15 @@ const RiskSummaryStep = lazy(() =>
     default: module.RiskSummaryStep,
   }))
 );
-const ManualGateStep = lazy(() =>
-  import('./applicationWizard/ApplicationWizardDeferredViews').then((module) => ({
-    default: module.ManualGateStep,
-  }))
-);
 
 const ACCESS_TOKEN_KEY = 'miljobeslut_admin_bearer';
 const REFRESH_TOKEN_KEY = 'miljobeslut_admin_refresh';
-const DEFAULT_COORDS = { lat: '64.1107808', lng: '19.01208091' };
-const STOCKHOLM_COORDS = { lat: '59.3293', lng: '18.0686' };
+const DEFAULT_COORDS = { lat: '59.186', lng: '18.131' }; // Defaulting to Haninge (Länna 1:45)
 const MAX_BANKID_POLLS = 60;
 
-type StepId = 1 | 2 | 3 | 4;
-type BankIdStatus = 'idle' | 'starting' | 'pending' | 'complete' | 'manual_review' | 'failed';
-type RiskLevel = 'LOW' | 'MEDIUM' | 'HIGH';
-type SourceRef = { web?: { title: string; uri: string } };
+export type ModuleType = 'ENSKILT_AVLOPP' | 'C_ANMALAN' | 'LU';
+export type StepId = 1 | 2 | 3;
+export type BankIdStatus = 'idle' | 'starting' | 'pending' | 'complete' | 'manual_review' | 'failed';
 
 type BankIdState = {
   status: BankIdStatus;
@@ -48,18 +43,37 @@ type AuditBundle = {
   issues: string[];
 };
 
-type SummaryCardModel = {
-  title: string;
-  tone: 'ok' | 'warn' | 'critical' | 'manual';
-  status: string;
-  description: string;
+type WizardState = {
+  moduleType: ModuleType;
+  propertyId: string;
+  municipality: string;
+  lat: string;
+  lng: string;
+
+  // Enskilt Avlopp specific
+  peCount: number;
+  systemType: string;
+  recipient: string;
+  soilType: string;
+
+  // C-anmälan specific
+  activityCode: string;
+  ewcCode: string;
+  volumeTons: number;
+  projectDescription: string;
+
+  // LU (Lokaliseringsutredning) specific
+  activityCodeLU: string;
+  luProjectDescription: string;
+  luAlternatives: string;
+  luWaterImpact: string;
+  luSensitiveReceptors: string;
 };
 
 const STEPS: Array<{ id: StepId; title: string; icon: string }> = [
-  { id: 1, title: 'Identitet', icon: 'fa-fingerprint' },
-  { id: 2, title: 'Plats', icon: 'fa-location-crosshairs' },
-  { id: 3, title: 'Auditsvar', icon: 'fa-shield-check' },
-  { id: 4, title: 'Manuell grind', icon: 'fa-user-check' },
+  { id: 1, title: 'Grunduppgifter', icon: 'fa-file-lines' },
+  { id: 2, title: 'Karta & Analys', icon: 'fa-map-location-dot' },
+  { id: 3, title: 'Sammanställning', icon: 'fa-file-export' },
 ];
 
 const StepFallback: React.FC<{ label: string }> = ({ label }) => (
@@ -71,24 +85,13 @@ const StepFallback: React.FC<{ label: string }> = ({ label }) => (
   </div>
 );
 
-function parseCoordinate(value: string): number | null {
-  const normalized = value.trim().replace(',', '.');
-  if (!normalized) return null;
-  const parsed = Number(normalized);
-  return Number.isFinite(parsed) ? parsed : null;
-}
-
-function coordinatesAreValid(lat: number | null, lng: number | null): lat is number {
-  return lat !== null && lng !== null && lat >= -90 && lat <= 90 && lng >= -180 && lng <= 180;
-}
-
-function extractError(payload: unknown, fallback: string): string {
-  if (!payload || typeof payload !== 'object') return fallback;
-  const record = payload as Record<string, unknown>;
-  if (typeof record.error === 'string' && record.error.trim()) return record.error;
-  if (typeof record.details === 'string' && record.details.trim()) return record.details;
-  return fallback;
-}
+// Mock property data for local verification
+const MOCK_PROPERTIES = [
+  { name: 'Länna 1:45', municipality: 'Haninge', lat: '59.186', lng: '18.131' },
+  { name: 'Segeltorp 4:12', municipality: 'Huddinge', lat: '59.270', lng: '17.935' },
+  { name: 'Orminge 7:8', municipality: 'Nacka', lat: '59.327', lng: '18.258' },
+  { name: 'Orsa Stackmora 3:12', municipality: 'Orsa', lat: '61.134', lng: '14.665' },
+];
 
 async function postJson<T>(url: string, body: unknown): Promise<T> {
   const response = await fetch(url, {
@@ -98,188 +101,138 @@ async function postJson<T>(url: string, body: unknown): Promise<T> {
   });
   const payload = await response.json().catch(() => null);
   if (!response.ok) {
-    throw new Error(extractError(payload, `HTTP ${response.status}`));
+    throw new Error(payload?.error || `HTTP ${response.status}`);
   }
   return payload as T;
 }
 
-function bankIdDeepLink(autoStartToken: string | null): string | null {
-  if (!autoStartToken) return null;
-  return `bankid:///?autostarttoken=${encodeURIComponent(autoStartToken)}&redirect=null`;
-}
-
-function formatDistance(distance: number | null | undefined): string {
-  if (distance == null || !Number.isFinite(distance)) return 'okant avstand';
-  if (distance < 1000) return `${Math.round(distance)} m`;
-  return `${(distance / 1000).toFixed(1)} km`;
-}
-
-function riskLabel(risk: RiskLevel | null): string {
-  if (risk === 'HIGH') return 'Hog';
-  if (risk === 'MEDIUM') return 'Medel';
-  if (risk === 'LOW') return 'Lag';
-  return 'Okand';
-}
-
-function cardToneFromRisk(risk: RiskLevel): SummaryCardModel['tone'] {
-  if (risk === 'HIGH') return 'critical';
-  if (risk === 'MEDIUM') return 'warn';
-  return 'ok';
-}
-
-function computeOverallRisk(bundle: AuditBundle | null): RiskLevel | null {
-  if (!bundle) return null;
-  if (bundle.spatial?.isProtected) return 'HIGH';
-  if (bundle.spatial?.sgu?.riskLevel === 'HIGH') return 'HIGH';
-  if (bundle.climate?.isFlooded) return 'HIGH';
-  if (bundle.heritage?.hasHeritageRisk || bundle.water?.hasWaterRisk || bundle.spatial?.sgu?.riskLevel === 'MEDIUM') return 'MEDIUM';
-  return 'LOW';
-}
-
-function buildSourceList(bundle: AuditBundle | null): SourceRef[] {
-  if (!bundle) return [];
-  const sources: SourceRef[] = [...(bundle.spatial?.sources || [])];
-  if (bundle.heritage?.source === 'raa_live' || bundle.heritage?.source === 'local_postgis') {
-    sources.push({
-      web: {
-        title: 'RAA lamningar',
-        uri: 'https://pub.raa.se/visning/lamningar_v1/wfs?service=WFS&request=GetCapabilities',
-      },
-    });
-  }
-  if (bundle.climate?.source === 'msb_live' || bundle.climate?.source === 'local_postgis') {
-    sources.push({
-      web: {
-        title: 'MSB oversvamningskartering',
-        uri: 'https://inspire.msb.se/geoserver/oversvamning/wms?service=WMS&request=GetCapabilities',
-      },
-    });
-  }
-  const seen = new Set<string>();
-  return sources.filter((source) => {
-    const uri = source.web?.uri;
-    if (!uri || seen.has(uri)) return false;
-    seen.add(uri);
-    return true;
-  });
-}
-
-function buildSummaryCards(bundle: AuditBundle | null): SummaryCardModel[] {
-  if (!bundle) return [];
-  const cards: SummaryCardModel[] = [];
-  if (bundle.spatial) {
-    cards.push({
-      title: 'Skyddad natur',
-      tone: !bundle.spatial.protectedAreaAvailable ? 'manual' : bundle.spatial.isProtected ? 'critical' : 'ok',
-      status: !bundle.spatial.protectedAreaAvailable ? 'Manuell kontroll' : bundle.spatial.isProtected ? 'Traff' : 'Ingen traff',
-      description: !bundle.spatial.protectedAreaAvailable
-        ? bundle.spatial.protectedAreaWarning || 'Skyddad natur kunde inte verifieras lokalt.'
-        : bundle.spatial.isProtected
-          ? `Platsen overlappar ${bundle.spatial.hits.length} skyddat omrade.`
-          : 'Ingen overlapptreff mot lokal NVR/Natura 2000.',
-    });
-
-    const nearestSgu = bundle.spatial.sgu?.landslideFeatures?.hits?.[0];
-    cards.push({
-      title: 'SGU georisk',
-      tone: bundle.spatial.sgu?.coverageMode === 'sample' && !nearestSgu ? 'manual' : cardToneFromRisk(bundle.spatial.sgu?.riskLevel || 'LOW'),
-      status: `${riskLabel(bundle.spatial.sgu?.riskLevel || null)} risk`,
-      description: nearestSgu
-        ? `${nearestSgu.featureLabel || 'Geotekniskt objekt'} inom ${formatDistance(nearestSgu.distanceMeters)}. ${bundle.spatial.sgu?.groundLayer?.hit?.layerLabel || 'Grundlager okant'}.`
-        : bundle.spatial.sgu?.summary || 'Ingen SGU-sammanfattning tillganglig.',
-    });
-  }
-
-  if (bundle.water) {
-    const nearestWater = bundle.water.hits?.[0];
-    cards.push({
-      title: 'Vatten',
-      tone: bundle.water.hasWaterRisk ? 'warn' : bundle.water.sourceAvailable ? 'ok' : 'manual',
-      status: bundle.water.hasWaterRisk ? 'Nara vatten' : bundle.water.sourceAvailable ? 'Ingen nara traff' : 'Manuell kontroll',
-      description: bundle.water.hasWaterRisk && nearestWater
-        ? `${nearestWater.name || 'Vattenforekomst'} inom ${formatDistance(nearestWater.distance)}. Ekologisk status: ${nearestWater.status_ecological || 'okand'}.`
-        : bundle.water.warning || 'Ingen vattenrisk inom granskningsradie.',
-    });
-  }
-
-  if (bundle.heritage) {
-    const nearestHeritage = bundle.heritage.hits?.[0];
-    cards.push({
-      title: 'Kulturmiljo',
-      tone: bundle.heritage.hasHeritageRisk ? 'warn' : bundle.heritage.sourceAvailable ? 'ok' : 'manual',
-      status: bundle.heritage.hasHeritageRisk ? 'Traff inom skyddsavstand' : bundle.heritage.sourceAvailable ? 'Ingen nara traff' : 'Manuell kontroll',
-      description: bundle.heritage.hasHeritageRisk && nearestHeritage
-        ? `${nearestHeritage.object_type} ${formatDistance(nearestHeritage.distance)} fran platsen.`
-        : bundle.heritage.warning || 'Ingen fornlarnings- eller kulturmiljotraff i aktuell radie.',
-    });
-  }
-
-  if (bundle.climate) {
-    cards.push({
-      title: 'Klimat och flode',
-      tone: bundle.climate.isFlooded ? 'critical' : bundle.climate.sourceAvailable ? 'ok' : 'manual',
-      status: bundle.climate.isFlooded ? 'Oversvamningssignal' : bundle.climate.sourceAvailable ? 'Ingen traff' : 'Manuell kontroll',
-      description: bundle.climate.isFlooded
-        ? `MSB signalerar oversvamningsrisk i provpunkten. Traffar: ${bundle.climate.hitCount}.`
-        : bundle.climate.warning || 'Ingen MSB-traff registrerad for provpunkten.',
-    });
-  }
-
-  return cards;
-}
-
 const ApplicationWizard: React.FC = () => {
   const [step, setStep] = useState<StepId>(1);
-  const [latInput, setLatInput] = useState(DEFAULT_COORDS.lat);
-  const [lngInput, setLngInput] = useState(DEFAULT_COORDS.lng);
   const [loading, setLoading] = useState(false);
   const [analysisStatus, setAnalysisStatus] = useState<string[]>([]);
   const [auditBundle, setAuditBundle] = useState<AuditBundle | null>(null);
-  const [bankId, setBankId] = useState<BankIdState>({ status: 'idle', orderRef: null, autoStartToken: null, qrPayload: null, hintCode: null, pollCount: 0, error: null, user: null });
 
-  const parsedLat = useMemo(() => parseCoordinate(latInput), [latInput]);
-  const parsedLng = useMemo(() => parseCoordinate(lngInput), [lngInput]);
-  const coordinatesValid = useMemo(() => coordinatesAreValid(parsedLat, parsedLng), [parsedLat, parsedLng]);
-  const overallRisk = useMemo(() => computeOverallRisk(auditBundle), [auditBundle]);
-  const summaryCards = useMemo(() => buildSummaryCards(auditBundle), [auditBundle]);
-  const sources = useMemo(() => buildSourceList(auditBundle), [auditBundle]);
+  const auditIdRef = useRef(0);
+  const debounceTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
-  const manualReviewRequired = useMemo(() => {
-    if (!auditBundle) return true;
-    return (
-      bankId.status !== 'complete' ||
-      Boolean(auditBundle.issues.length) ||
-      Boolean(auditBundle.spatial?.manualReviewRequired) ||
-      Boolean(auditBundle.water?.manualReviewRequired) ||
-      Boolean(auditBundle.heritage?.manualReviewRequired) ||
-      Boolean(auditBundle.climate?.manualReviewRequired)
-    );
-  }, [auditBundle, bankId.status]);
+  useEffect(() => {
+    return () => {
+      if (debounceTimeoutRef.current) {
+        clearTimeout(debounceTimeoutRef.current);
+      }
+    };
+  }, []);
+  
+  // BankID Authentication State
+  const [bankId, setBankId] = useState<BankIdState>({
+    status: 'idle',
+    orderRef: null,
+    autoStartToken: null,
+    qrPayload: null,
+    hintCode: null,
+    pollCount: 0,
+    error: null,
+    user: null,
+  });
 
+  // Wizard state with default form values
+  const [wizardState, setWizardState] = useState<WizardState>({
+    moduleType: 'C_ANMALAN',
+    propertyId: '',
+    municipality: '',
+    lat: DEFAULT_COORDS.lat,
+    lng: DEFAULT_COORDS.lng,
+
+    peCount: 5,
+    systemType: 'Infiltration',
+    recipient: 'Mark/Grundvatten',
+    soilType: 'Sand/Grus',
+
+    activityCode: '90.30',
+    ewcCode: '17 05 04',
+    volumeTons: 1500,
+    projectDescription: 'Mellanlagringsplatta för rena schaktmassor.',
+
+    activityCodeLU: 'Krossning/Sortering',
+    luProjectDescription: 'Etablering av kross- och sorteringsanläggning med tillhörande fordonsrörelser.',
+    luAlternatives: 'Alternativplats A (Orminge 7:8) samt nollalternativet har utretts.',
+    luWaterImpact: 'Låg påverkan; dagvatten leds via sedimenteringsdamm till intilliggande dike.',
+    luSensitiveReceptors: 'Närmaste bostadsfastighet ligger 280 m nordost om utredningsområdet.',
+  });
+
+  const [propertyQuery, setPropertyQuery] = useState('');
+  const [propertySearchResult, setPropertySearchResult] = useState<string | null>(null);
+
+  // Search property and auto-fill coordinates + municipality
+  const handlePropertySearch = () => {
+    const query = propertyQuery.trim().toLowerCase();
+    const hit = MOCK_PROPERTIES.find((p) => p.name.toLowerCase().includes(query));
+    if (hit) {
+      setWizardState((prev) => ({
+        ...prev,
+        propertyId: hit.name,
+        municipality: hit.municipality,
+        lat: hit.lat,
+        lng: hit.lng,
+      }));
+      setPropertySearchResult(`Träff: ${hit.name} i ${hit.municipality} kommun. Koordinater laddade.`);
+      void runFullGeofenceAudit(Number(hit.lat), Number(hit.lng));
+    } else {
+      setPropertySearchResult('Ingen verifierad fastighetstext matchade. Standardkoordinater används.');
+    }
+  };
+
+  // Poll BankID
   useEffect(() => {
     if (bankId.status !== 'pending' || !bankId.orderRef) return;
     if (bankId.pollCount >= MAX_BANKID_POLLS) {
-      setBankId((current) => ({ ...current, status: 'failed', error: 'BankID svarade inte inom rimlig tid. Fortsatt manuell kontroll kravs.' }));
+      setBankId((current) => ({
+        ...current,
+        status: 'failed',
+        error: 'BankID svarade inte inom rimlig tid. Fortsätt med manuell identitetskontroll.',
+      }));
       return;
     }
 
     const timerId = window.setTimeout(async () => {
       try {
-        const payload = await postJson<BankIdCollectResponse>('/api/auth/bankid/collect', { orderRef: bankId.orderRef });
+        const payload = await postJson<any>('/api/auth/bankid/collect', { orderRef: bankId.orderRef });
         if (payload.status === 'complete' && payload.accessToken) {
           window.localStorage.setItem(ACCESS_TOKEN_KEY, payload.accessToken);
           if (payload.refreshToken) window.localStorage.setItem(REFRESH_TOKEN_KEY, payload.refreshToken);
-          setBankId({ status: 'complete', orderRef: bankId.orderRef, autoStartToken: bankId.autoStartToken, qrPayload: bankId.qrPayload, hintCode: null, pollCount: bankId.pollCount, error: null, user: payload.user || null });
-          setStep(2);
+          setBankId({
+            status: 'complete',
+            orderRef: bankId.orderRef,
+            autoStartToken: bankId.autoStartToken,
+            qrPayload: bankId.qrPayload,
+            hintCode: null,
+            pollCount: bankId.pollCount,
+            error: null,
+            user: payload.user || null,
+          });
           return;
         }
         if (payload.status === 'failed') {
-          setBankId((current) => ({ ...current, status: 'failed', hintCode: payload.hintCode || current.hintCode, error: payload.hintCode ? `BankID stoppad: ${payload.hintCode}` : 'BankID misslyckades.' }));
+          setBankId((current) => ({
+            ...current,
+            status: 'failed',
+            hintCode: payload.hintCode || current.hintCode,
+            error: payload.hintCode ? `BankID stoppad: ${payload.hintCode}` : 'BankID misslyckades.',
+          }));
           return;
         }
-        setBankId((current) => ({ ...current, status: 'pending', hintCode: payload.hintCode || current.hintCode, pollCount: current.pollCount + 1 }));
+        setBankId((current) => ({
+          ...current,
+          status: 'pending',
+          hintCode: payload.hintCode || current.hintCode,
+          pollCount: current.pollCount + 1,
+        }));
       } catch (error) {
-        setBankId((current) => ({ ...current, status: 'failed', error: error instanceof Error ? error.message : 'BankID collect misslyckades.' }));
+        setBankId((current) => ({
+          ...current,
+          status: 'failed',
+          error: error instanceof Error ? error.message : 'BankID collect misslyckades.',
+        }));
       }
     }, 2000);
 
@@ -287,215 +240,478 @@ const ApplicationWizard: React.FC = () => {
   }, [bankId.autoStartToken, bankId.orderRef, bankId.pollCount, bankId.qrPayload, bankId.status]);
 
   async function startBankId(): Promise<void> {
-    setBankId({ status: 'starting', orderRef: null, autoStartToken: null, qrPayload: null, hintCode: null, pollCount: 0, error: null, user: null });
+    setBankId({
+      status: 'starting',
+      orderRef: null,
+      autoStartToken: null,
+      qrPayload: null,
+      hintCode: null,
+      pollCount: 0,
+      error: null,
+      user: null,
+    });
     try {
-      const payload = await postJson<BankIdInitResponse>('/api/auth/bankid/init', {});
+      const payload = await postJson<any>('/api/auth/bankid/init', {});
       if (!payload.ok || !payload.orderRef) throw new Error(payload.error || 'BankID kunde inte startas.');
-      setBankId({ status: 'pending', orderRef: payload.orderRef, autoStartToken: payload.autoStartToken || null, qrPayload: payload.qrPayload || null, hintCode: null, pollCount: 0, error: null, user: null });
+      setBankId({
+        status: 'pending',
+        orderRef: payload.orderRef,
+        autoStartToken: payload.autoStartToken || null,
+        qrPayload: payload.qrPayload || null,
+        hintCode: null,
+        pollCount: 0,
+        error: null,
+        user: null,
+      });
     } catch (error) {
-      setBankId({ status: 'failed', orderRef: null, autoStartToken: null, qrPayload: null, hintCode: null, pollCount: 0, error: error instanceof Error ? error.message : 'BankID kunde inte startas.', user: null });
+      setBankId({
+        status: 'failed',
+        orderRef: null,
+        autoStartToken: null,
+        qrPayload: null,
+        hintCode: null,
+        pollCount: 0,
+        error: error instanceof Error ? error.message : 'BankID kunde inte startas.',
+        user: null,
+      });
     }
   }
 
   async function continueWithManualReview(): Promise<void> {
     if (bankId.orderRef) void postJson('/api/auth/bankid/cancel', { orderRef: bankId.orderRef }).catch(() => null);
     setBankId((current) => ({ ...current, status: 'manual_review' }));
-    setStep(2);
   }
 
-  async function runAuditRequest<T>(label: string, url: string, lat: number, lng: number): Promise<AuditRequestResult<T>> {
+  async function runAuditRequest<T>(label: string, url: string, lat: number, lng: number): Promise<{ data: T | null; error: string | null }> {
     setAnalysisStatus((current) => [...current, `${label}: startad`]);
     try {
       const data = await postJson<T>(url, { lat, lng });
       setAnalysisStatus((current) => [...current, `${label}: klar`]);
       return { data, error: null };
     } catch (error) {
-      const message = error instanceof Error ? error.message : 'Okant fel';
+      const message = error instanceof Error ? error.message : 'Okänt fel';
       setAnalysisStatus((current) => [...current, `${label}: ${message}`]);
       return { data: null, error: message };
     }
   }
 
-  async function runFullAudit(): Promise<void> {
-    if (!coordinatesValid || parsedLng === null) {
-      setAnalysisStatus(['Koordinater saknas eller ar ogiltiga.']);
-      return;
-    }
+  async function runFullGeofenceAudit(customLat?: number, customLng?: number): Promise<void> {
+    const latNum = customLat ?? Number(wizardState.lat);
+    const lngNum = customLng ?? Number(wizardState.lng);
+
+    const auditId = auditIdRef.current + 1;
+    auditIdRef.current = auditId;
 
     setLoading(true);
     setAuditBundle(null);
-    setAnalysisStatus(['Forbereder auditkorning...']);
+    setAnalysisStatus(['Förbereder spatial geofence-granskning...']);
 
-    const spatial = await runAuditRequest<any>('Skyddad natur och SGU', '/api/spatial-audit', parsedLat, parsedLng);
-    const climate = await runAuditRequest<any>('Klimat och flode', '/api/climate/smhi-audit', parsedLat, parsedLng);
-    const heritage = await runAuditRequest<any>('Kulturmiljo', '/api/culture/heritage-audit', parsedLat, parsedLng);
-    const water = await runAuditRequest<any>('Hydrologi och vatten', '/api/hydro/water-audit', parsedLat, parsedLng);
+    const isStale = () => auditId !== auditIdRef.current;
+
+    const spatial = await runAuditRequest<any>('Skyddad natur och SGU', '/api/spatial-audit', latNum, lngNum);
+    if (isStale()) return;
+
+    const climate = await runAuditRequest<any>('Klimat och översvämning', '/api/climate/smhi-audit', latNum, lngNum);
+    if (isStale()) return;
+
+    const heritage = await runAuditRequest<any>('Kulturmiljö (RAÄ)', '/api/culture/heritage-audit', latNum, lngNum);
+    if (isStale()) return;
+
+    const water = await runAuditRequest<any>('Hydrologi och vatten (VISS)', '/api/hydro/water-audit', latNum, lngNum);
+    if (isStale()) return;
 
     const issues = [spatial.error, climate.error, heritage.error, water.error].filter((value): value is string => Boolean(value));
-    setAuditBundle({ lat: parsedLat, lng: parsedLng, spatial: spatial.data, climate: climate.data, heritage: heritage.data, water: water.data, issues });
-    setStep(3);
+    
+    setAuditBundle({
+      lat: latNum,
+      lng: lngNum,
+      spatial: spatial.data,
+      climate: climate.data,
+      heritage: heritage.data,
+      water: water.data,
+      issues,
+    });
     setLoading(false);
   }
 
-  const bankIdUrl = bankIdDeepLink(bankId.autoStartToken);
+  const handleLocationChange = (newLat: string, newLng: string) => {
+    // Instantly update the coordinates so map renders smoothly
+    setWizardState((prev) => ({ ...prev, lat: newLat, lng: newLng }));
+
+    if (debounceTimeoutRef.current) {
+      clearTimeout(debounceTimeoutRef.current);
+    }
+  };
+
+  const isFormValid = wizardState.propertyId !== '';
 
   return (
     <div className="mx-auto max-w-5xl space-y-8 animate-in fade-in slide-in-from-bottom-6 duration-500">
+      {/* Wizard Header Progress Bar */}
       <div className="relative flex items-center justify-between px-6 md:px-10">
         <div className="absolute left-0 top-1/2 h-1 w-full -translate-y-1/2 rounded-full bg-slate-200" />
-        <div className="absolute left-0 top-1/2 h-1 -translate-y-1/2 rounded-full bg-emerald-600 transition-all duration-500" style={{ width: `${((step - 1) / (STEPS.length - 1)) * 100}%` }} />
+        <div
+          className="absolute left-0 top-1/2 h-1 -translate-y-1/2 rounded-full bg-emerald-600 transition-all duration-500"
+          style={{ width: `${((step - 1) / (STEPS.length - 1)) * 100}%` }}
+        />
         {STEPS.map((currentStep) => (
           <div key={currentStep.id} className="relative z-10 flex flex-col items-center gap-3">
-            <div className={`flex h-14 w-14 items-center justify-center rounded-2xl border-4 transition-all ${step >= currentStep.id ? 'border-emerald-100 bg-emerald-600 text-white shadow-xl' : 'border-slate-100 bg-white text-slate-300'}`}>
+            <button
+              onClick={() => step > currentStep.id && setStep(currentStep.id)}
+              disabled={step < currentStep.id}
+              className={`flex h-14 w-14 items-center justify-center rounded-2xl border-4 transition-all ${
+                step >= currentStep.id
+                  ? 'border-emerald-100 bg-emerald-600 text-white shadow-xl hover:bg-emerald-700'
+                  : 'border-slate-100 bg-white text-slate-300 cursor-not-allowed'
+              }`}
+            >
               <i className={`fas ${currentStep.icon} text-lg`} />
-            </div>
-            <span className={`text-[10px] font-black uppercase tracking-[0.2em] ${step >= currentStep.id ? 'text-emerald-700' : 'text-slate-400'}`}>{currentStep.title}</span>
+            </button>
+            <span
+              className={`text-[10px] font-black uppercase tracking-[0.2em] ${
+                step >= currentStep.id ? 'text-emerald-700' : 'text-slate-400'
+              }`}
+            >
+              {currentStep.title}
+            </span>
           </div>
         ))}
       </div>
 
+      {/* Main Wizard Content Area */}
       <div className="overflow-hidden rounded-[2.5rem] border border-slate-200 bg-white shadow-2xl">
-        {loading ? (
-          <div className="flex min-h-[560px] flex-col items-center justify-center gap-8 bg-slate-50/50 p-10">
-            <div className="h-16 w-16 animate-spin rounded-full border-4 border-emerald-600 border-t-transparent" />
-            <div className="w-full max-w-xl space-y-3 rounded-3xl border border-slate-200 bg-white p-6">
-              {analysisStatus.map((line, index) => (
-                <div key={`${line}-${index}`} className="flex items-center gap-3 text-sm text-slate-700">
-                  <i className="fas fa-circle-check text-emerald-500" />
-                  <span>{line}</span>
-                </div>
-              ))}
+        {step === 1 && (
+          <section className="flex flex-col gap-8 p-10 md:p-16">
+            <div className="text-center">
+              <h3 className="text-3xl font-black tracking-tight text-slate-900">Skapa Ansökningsunderlag</h3>
+              <p className="mx-auto mt-2 max-w-2xl text-sm text-slate-600">
+                Detta enhetliga flöde förbereder din anmälan. Börja med identitetskontroll, välj fastighet och fyll i ärendespecifika val.
+              </p>
             </div>
-          </div>
-        ) : (
-          <>
-            {step === 1 && (
-              <section className="flex min-h-[560px] flex-col justify-center gap-8 p-10 md:p-16">
-                <div className="text-center">
-                  <div className="mx-auto mb-6 flex h-20 w-20 items-center justify-center rounded-3xl bg-emerald-50 text-emerald-600"><i className="fas fa-fingerprint text-4xl" /></div>
-                  <h3 className="text-3xl font-black tracking-tight text-slate-900">Identitet och ansvar</h3>
-                  <p className="mx-auto mt-3 max-w-2xl text-sm text-slate-600">BankID korning ar verklig om certifikat och behorig anvandare finns. Om det inte gar fortsatter flodet med manuell kontroll. Ingen automatisk slutsats eller inskickning sker utan manniska i loopen.</p>
+
+            {/* Sub-section: BankID Identity Check */}
+            <div className="rounded-3xl border border-slate-100 bg-slate-50/50 p-6 space-y-4">
+              <div className="flex items-center justify-between">
+                <h4 className="text-sm font-black uppercase tracking-[0.14em] text-slate-700">Identitetskontroll (BankID)</h4>
+                <span className={`rounded-full px-3 py-1 text-xs font-black uppercase tracking-[0.1em] ${
+                  bankId.status === 'complete' ? 'bg-emerald-100 text-emerald-800' : 'bg-amber-100 text-amber-800'
+                }`}>
+                  {bankId.status === 'complete' ? 'Autentiserad' : bankId.status === 'manual_review' ? 'Manuell granskning' : 'Ej verifierad'}
+                </span>
+              </div>
+
+              {bankId.status !== 'complete' && bankId.status !== 'manual_review' ? (
+                <div className="grid gap-4 md:grid-cols-[1.5fr_1fr]">
+                  <div className="text-xs text-slate-500 leading-5">
+                    För att registrera ansökan digitalt krävs e-legitimation eller att handläggaren väljer manuell kontroll. 
+                    Inga beslut eller inskick sker automatiskt.
+                  </div>
+                  <div className="flex flex-col gap-2">
+                    <button
+                      type="button"
+                      onClick={() => void startBankId()}
+                      disabled={bankId.status === 'starting' || bankId.status === 'pending'}
+                      className="rounded-xl bg-slate-900 py-3 text-xs font-black uppercase tracking-[0.12em] text-white transition hover:bg-black disabled:opacity-50"
+                    >
+                      {bankId.status === 'starting' ? 'Startar...' : bankId.status === 'pending' ? 'Väntar...' : 'Starta BankID'}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => void continueWithManualReview()}
+                      className="rounded-xl border border-slate-300 bg-white py-3 text-xs font-black uppercase tracking-[0.12em] text-slate-700 transition hover:bg-slate-50"
+                    >
+                      Fortsätt manuell kontroll
+                    </button>
+                    {bankId.error && (
+                      <p className="mt-2 text-xs font-semibold text-rose-600 bg-rose-50 border border-rose-100 p-2.5 rounded-xl">
+                        {bankId.error}
+                      </p>
+                    )}
+                  </div>
+                </div>
+              ) : (
+                <div className="flex items-center gap-3 text-sm text-emerald-700 bg-emerald-50 border border-emerald-100 p-4 rounded-xl">
+                  <CheckCircle size={18} />
+                  <span>Identitetskontroll klar. Du kan nu gå vidare och fylla i ansökningsuppgifterna.</span>
+                </div>
+              )}
+            </div>
+
+            {/* Sub-section: Property Search & Module Selection (Unlocked by ID verification) */}
+            {(bankId.status === 'complete' || bankId.status === 'manual_review') && (
+              <div className="space-y-8 animate-in fade-in duration-500">
+                <hr className="border-slate-100" />
+                
+                {/* Property Search */}
+                <div className="space-y-3">
+                  <label className="text-[11px] font-black uppercase tracking-[0.14em] text-slate-600 block">Sök Fastighet</label>
+                  <div className="flex gap-2">
+                    <div className="relative flex-1">
+                      <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400" size={16} />
+                      <input
+                        type="text"
+                        placeholder="T.ex. Länna 1:45, Segeltorp 4:12..."
+                        value={propertyQuery}
+                        onChange={(e) => setPropertyQuery(e.target.value)}
+                        className="w-full rounded-2xl border border-slate-300 py-3.5 pl-11 pr-4 text-sm font-semibold text-slate-900 outline-none focus:border-emerald-500"
+                      />
+                    </div>
+                    <button
+                      type="button"
+                      onClick={handlePropertySearch}
+                      className="rounded-2xl bg-emerald-600 px-6 font-black text-xs uppercase tracking-[0.12em] text-white hover:bg-emerald-700 transition"
+                    >
+                      Sök
+                    </button>
+                  </div>
+                  {propertySearchResult && (
+                    <p className="text-xs font-semibold text-slate-600 bg-slate-50 p-3 rounded-xl border border-slate-100">
+                      {propertySearchResult}
+                    </p>
+                  )}
                 </div>
 
-                <div className="grid gap-6 md:grid-cols-[1.4fr,1fr]">
-                  <div className="rounded-3xl border border-slate-200 bg-slate-50 p-6">
-                    <h4 className="text-sm font-black uppercase tracking-[0.14em] text-slate-700">BankID-status</h4>
-                    <div className="mt-4 space-y-3">
-                      <StatusRow label="Status" value={bankId.status === 'manual_review' ? 'Manuell kontroll' : bankId.status} />
-                      <StatusRow label="OrderRef" value={bankId.orderRef || 'Ej startad'} />
-                      <StatusRow label="HintCode" value={bankId.hintCode || 'Ingen'} />
-                      <StatusRow label="Anvandare" value={bankId.user ? `${bankId.user.role} / ${bankId.user.organisationId}` : 'Ej autentiserad'} />
-                    </div>
-                    {bankId.error && <p className="mt-4 rounded-2xl bg-rose-50 p-4 text-sm text-rose-700">{bankId.error}</p>}
-                    {bankId.qrPayload && <div className="mt-4 rounded-2xl border border-slate-200 bg-white p-4"><p className="text-[10px] font-black uppercase tracking-[0.14em] text-slate-500">QR payload</p><p className="mt-2 break-all font-mono text-[11px] text-slate-700">{bankId.qrPayload}</p></div>}
-                  </div>
-
-                  <div className="rounded-3xl border border-slate-200 bg-white p-6">
-                    <h4 className="text-sm font-black uppercase tracking-[0.14em] text-slate-700">Val</h4>
-                    <div className="mt-4 space-y-3">
-                      <button type="button" onClick={() => void startBankId()} disabled={bankId.status === 'starting' || bankId.status === 'pending'} className="w-full rounded-2xl bg-slate-900 px-4 py-4 text-xs font-black uppercase tracking-[0.14em] text-white disabled:opacity-50">{bankId.status === 'starting' ? 'Startar...' : bankId.status === 'pending' ? 'Vantar pa svar...' : 'Starta BankID'}</button>
-                      {bankIdUrl && <a href={bankIdUrl} className="flex w-full items-center justify-center rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-4 text-xs font-black uppercase tracking-[0.14em] text-emerald-700">Oppna BankID-appen</a>}
-                      <button type="button" onClick={() => void continueWithManualReview()} className="w-full rounded-2xl border border-slate-300 bg-white px-4 py-4 text-xs font-black uppercase tracking-[0.14em] text-slate-700">Fortsatt manuell kontroll</button>
-                    </div>
-                    <p className="mt-4 text-xs text-slate-500">BankID ar en identitetskontroll, inte ett godkannande av plats eller regeluppfyllelse.</p>
+                {/* Module Selector tabs */}
+                <div className="space-y-3">
+                  <label className="text-[11px] font-black uppercase tracking-[0.14em] text-slate-600 block">Välj Ärendetyp</label>
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                    {[
+                      { type: 'ENSKILT_AVLOPP', label: 'Enskilt Avlopp', desc: 'Inrättande av enskild avloppsanläggning för hushåll.' },
+                      { type: 'C_ANMALAN', label: 'C-anmälan (Mellanlagring)', desc: 'Mellanlagring av schaktmassor, ballast eller avfall.' },
+                      { type: 'LU', label: 'LU (Lokaliseringsutredning)', desc: 'Utredning av alternativa platser och projektetablering.' },
+                    ].map((mod) => (
+                      <button
+                        key={mod.type}
+                        type="button"
+                        onClick={() => setWizardState((prev) => ({ ...prev, moduleType: mod.type as ModuleType }))}
+                        className={`rounded-2xl border p-5 text-left transition-all ${
+                          wizardState.moduleType === mod.type
+                            ? 'border-emerald-600 bg-emerald-50/50 shadow-md ring-2 ring-emerald-500/20'
+                            : 'border-slate-200 bg-white hover:border-slate-300'
+                        }`}
+                      >
+                        <p className="text-sm font-black text-slate-900">{mod.label}</p>
+                        <p className="mt-2 text-xs text-slate-500 leading-5">{mod.desc}</p>
+                      </button>
+                    ))}
                   </div>
                 </div>
-              </section>
-            )}
 
-            {step === 2 && (
-              <Suspense fallback={<StepFallback label="Laddar platsvy" />}>
-                <LocationAuditStep
-                  identityStatus={bankId.status === 'complete' ? 'BankID klar' : 'Manuell kontroll'}
-                  latInput={latInput}
-                  lngInput={lngInput}
-                  coordinatesValid={coordinatesValid}
-                  onLatChange={setLatInput}
-                  onLngChange={setLngInput}
-                  onUseSguDemo={() => {
-                    setLatInput(DEFAULT_COORDS.lat);
-                    setLngInput(DEFAULT_COORDS.lng);
-                  }}
-                  onUseStockholmDemo={() => {
-                    setLatInput(STOCKHOLM_COORDS.lat);
-                    setLngInput(STOCKHOLM_COORDS.lng);
-                  }}
-                  onBack={() => setStep(1)}
-                  onRunAudit={() => {
-                    void runFullAudit();
-                  }}
-                />
-              </Suspense>
-            )}
+                {/* Module Specific Form Fields */}
+                <div className="rounded-3xl border border-slate-200 p-6 md:p-8 space-y-6">
+                  <h4 className="text-sm font-black uppercase tracking-[0.14em] text-slate-700">Ärendespecifika uppgifter</h4>
+                  
+                  {wizardState.moduleType === 'ENSKILT_AVLOPP' && (
+                    <div className="grid gap-6 md:grid-cols-2 animate-in fade-in duration-300">
+                      <label className="space-y-2">
+                        <span className="text-[11px] font-black uppercase tracking-[0.14em] text-slate-600 block">Antal anslutna (PE)</span>
+                        <input
+                          type="number"
+                          value={wizardState.peCount}
+                          onChange={(e) => setWizardState((prev) => ({ ...prev, peCount: Number(e.target.value) }))}
+                          className="w-full rounded-xl border border-slate-300 px-4 py-2.5 text-sm outline-none focus:border-emerald-500"
+                        />
+                      </label>
+                      <label className="space-y-2">
+                        <span className="text-[11px] font-black uppercase tracking-[0.14em] text-slate-600 block">Anläggningstyp</span>
+                        <select
+                          value={wizardState.systemType}
+                          onChange={(e) => setWizardState((prev) => ({ ...prev, systemType: e.target.value }))}
+                          className="w-full rounded-xl border border-slate-300 px-4 py-2.5 text-sm outline-none focus:border-emerald-500"
+                        >
+                          <option>Infiltration</option>
+                          <option>Markbädd</option>
+                          <option>Minireningsverk</option>
+                          <option>Sluten tank</option>
+                        </select>
+                      </label>
+                      <label className="space-y-2">
+                        <span className="text-[11px] font-black uppercase tracking-[0.14em] text-slate-600 block">Mottagare (Recipient)</span>
+                        <select
+                          value={wizardState.recipient}
+                          onChange={(e) => setWizardState((prev) => ({ ...prev, recipient: e.target.value }))}
+                          className="w-full rounded-xl border border-slate-300 px-4 py-2.5 text-sm outline-none focus:border-emerald-500"
+                        >
+                          <option>Mark/Grundvatten</option>
+                          <option>Sjö/Vattendrag</option>
+                          <option>Dike/Dagvatten</option>
+                        </select>
+                      </label>
+                      <label className="space-y-2">
+                        <span className="text-[11px] font-black uppercase tracking-[0.14em] text-slate-600 block">Jordart (SGU screening)</span>
+                        <select
+                          value={wizardState.soilType}
+                          onChange={(e) => setWizardState((prev) => ({ ...prev, soilType: e.target.value }))}
+                          className="w-full rounded-xl border border-slate-300 px-4 py-2.5 text-sm outline-none focus:border-emerald-500"
+                        >
+                          <option>Sand/Grus</option>
+                          <option>Morän</option>
+                          <option>Lera/Silt</option>
+                          <option>Berg i dagen</option>
+                        </select>
+                      </label>
+                    </div>
+                  )}
 
-            {step === 3 && auditBundle && (
-              <Suspense fallback={<StepFallback label="Laddar risksammanfattning" />}>
-                <RiskSummaryStep
-                  auditBundle={auditBundle}
-                  overallRisk={overallRisk}
-                  overallRiskLabel={riskLabel(overallRisk)}
-                  summaryCards={summaryCards}
-                  manualReviewRequired={manualReviewRequired}
-                  sources={sources}
-                  onChangeCoordinates={() => setStep(2)}
-                  onContinue={() => setStep(4)}
-                />
-              </Suspense>
-            )}
+                  {wizardState.moduleType === 'C_ANMALAN' && (
+                    <div className="space-y-6 animate-in fade-in duration-300">
+                      <div className="grid gap-6 md:grid-cols-3">
+                        <label className="space-y-2">
+                          <span className="text-[11px] font-black uppercase tracking-[0.14em] text-slate-600 block">Verksamhetskod (MPF)</span>
+                          <select
+                            value={wizardState.activityCode}
+                            onChange={(e) => setWizardState((prev) => ({ ...prev, activityCode: e.target.value }))}
+                            className="w-full rounded-xl border border-slate-300 px-4 py-2.5 text-sm outline-none focus:border-emerald-500"
+                          >
+                            <option value="90.30">90.30 - Mellanlagring icke-farligt</option>
+                            <option value="90.130">90.130 - Återvinning</option>
+                            <option value="90.131">90.131 - Ringa risk</option>
+                            <option value="90.50">90.50 - Farligt avfall</option>
+                          </select>
+                        </label>
+                        <label className="space-y-2">
+                          <span className="text-[11px] font-black uppercase tracking-[0.14em] text-slate-600 block">EWC Avfallskod</span>
+                          <select
+                            value={wizardState.ewcCode}
+                            onChange={(e) => setWizardState((prev) => ({ ...prev, ewcCode: e.target.value }))}
+                            className="w-full rounded-xl border border-slate-300 px-4 py-2.5 text-sm outline-none focus:border-emerald-500"
+                          >
+                            <option value="17 05 04">17 05 04 - Jord & Sten (icke farligt)</option>
+                            <option value="17 05 03*">17 05 03* - Farligt avfall (schakt/lera)</option>
+                          </select>
+                        </label>
+                        <label className="space-y-2">
+                          <span className="text-[11px] font-black uppercase tracking-[0.14em] text-slate-600 block">Maxvolym (ton)</span>
+                          <input
+                            type="number"
+                            value={wizardState.volumeTons}
+                            onChange={(e) => setWizardState((prev) => ({ ...prev, volumeTons: Number(e.target.value) }))}
+                            className="w-full rounded-xl border border-slate-300 px-4 py-2.5 text-sm outline-none focus:border-emerald-500"
+                          />
+                        </label>
+                      </div>
+                      <label className="space-y-2 block">
+                        <span className="text-[11px] font-black uppercase tracking-[0.14em] text-slate-600 block">Projektbeskrivning</span>
+                        <textarea
+                          rows={4}
+                          value={wizardState.projectDescription}
+                          onChange={(e) => setWizardState((prev) => ({ ...prev, projectDescription: e.target.value }))}
+                          className="w-full rounded-xl border border-slate-300 px-4 py-3 text-sm outline-none focus:border-emerald-500"
+                        />
+                      </label>
+                    </div>
+                  )}
 
-            {step === 4 && auditBundle && (
-              <Suspense fallback={<StepFallback label="Laddar manuell grind" />}>
-                <ManualGateStep
-                  auditBundle={auditBundle}
-                  identityStatus={bankId.status === 'complete' ? 'BankID verifierad' : 'Manuell identitetskontroll'}
-                  overallRiskLabel={riskLabel(overallRisk)}
-                  manualReviewRequired={manualReviewRequired}
-                  onBack={() => setStep(3)}
-                  onReset={() => {
-                    setAuditBundle(null);
-                    setAnalysisStatus([]);
-                    setStep(2);
-                  }}
-                />
-              </Suspense>
+                  {wizardState.moduleType === 'LU' && (
+                    <div className="space-y-6 animate-in fade-in duration-300">
+                      <div className="grid gap-6 md:grid-cols-2">
+                        <label className="space-y-2">
+                          <span className="text-[11px] font-black uppercase tracking-[0.14em] text-slate-600 block">Typ av Verksamhet / Projekt</span>
+                          <input
+                            type="text"
+                            value={wizardState.activityCodeLU}
+                            onChange={(e) => setWizardState((prev) => ({ ...prev, activityCodeLU: e.target.value }))}
+                            className="w-full rounded-xl border border-slate-300 px-4 py-2.5 text-sm outline-none focus:border-emerald-500"
+                          />
+                        </label>
+                        <label className="space-y-2">
+                          <span className="text-[11px] font-black uppercase tracking-[0.14em] text-slate-600 block">Känsliga Skyddsobjekt i närheten</span>
+                          <input
+                            type="text"
+                            value={wizardState.luSensitiveReceptors}
+                            onChange={(e) => setWizardState((prev) => ({ ...prev, luSensitiveReceptors: e.target.value }))}
+                            className="w-full rounded-xl border border-slate-300 px-4 py-2.5 text-sm outline-none focus:border-emerald-500"
+                          />
+                        </label>
+                      </div>
+
+                      <label className="space-y-2 block">
+                        <span className="text-[11px] font-black uppercase tracking-[0.14em] text-slate-600 block">LU Projektbeskrivning</span>
+                        <textarea
+                          rows={3}
+                          value={wizardState.luProjectDescription}
+                          onChange={(e) => setWizardState((prev) => ({ ...prev, luProjectDescription: e.target.value }))}
+                          className="w-full rounded-xl border border-slate-300 px-4 py-3 text-sm outline-none focus:border-emerald-500"
+                          placeholder="Beskriv projektets omfattning och syfte..."
+                        />
+                      </label>
+                      <label className="space-y-2 block">
+                        <span className="text-[11px] font-black uppercase tracking-[0.14em] text-slate-600 block">Utredda Alternativ (Lokaliseringsalternativ)</span>
+                        <textarea
+                          rows={3}
+                          value={wizardState.luAlternatives}
+                          onChange={(e) => setWizardState((prev) => ({ ...prev, luAlternatives: e.target.value }))}
+                          className="w-full rounded-xl border border-slate-300 px-4 py-3 text-sm outline-none focus:border-emerald-500"
+                          placeholder="Beskriv vilka andra platser/fastigheter som har utretts och varför denna valdes..."
+                        />
+                      </label>
+                      <label className="space-y-2 block">
+                        <span className="text-[11px] font-black uppercase tracking-[0.14em] text-slate-600 block">Vattenpåverkan & Dagvattenrecipient</span>
+                        <textarea
+                          rows={3}
+                          value={wizardState.luWaterImpact}
+                          onChange={(e) => setWizardState((prev) => ({ ...prev, luWaterImpact: e.target.value }))}
+                          className="w-full rounded-xl border border-slate-300 px-4 py-3 text-sm outline-none focus:border-emerald-500"
+                          placeholder="Beskriv eventuell påverkan på intilliggande sjöar, vattendrag och grundvatten..."
+                        />
+                      </label>
+                    </div>
+                  )}
+                </div>
+
+                {/* Continue button */}
+                <div className="flex justify-end pt-4">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (isFormValid) {
+                        void runFullGeofenceAudit();
+                        setStep(2);
+                      }
+                    }}
+                    disabled={!isFormValid}
+                    className="flex items-center gap-2 rounded-2xl bg-emerald-600 px-8 py-4 font-black text-xs uppercase tracking-[0.14em] text-white hover:bg-emerald-700 disabled:opacity-50 disabled:cursor-not-allowed transition"
+                  >
+                    Fortsätt till karta & analys <ArrowRight size={16} />
+                  </button>
+                </div>
+              </div>
             )}
-          </>
+          </section>
+        )}
+
+        {step === 2 && (
+          <Suspense fallback={<StepFallback label="Laddar lokaliseringskarta..." />}>
+            <LocationAuditStep
+              wizardState={wizardState}
+              loading={loading}
+              analysisStatus={analysisStatus}
+              auditBundle={auditBundle}
+              onBack={() => setStep(1)}
+              onContinue={() => setStep(3)}
+              onReRunAudit={() => void runFullGeofenceAudit()}
+              onLocationChange={handleLocationChange}
+            />
+          </Suspense>
+        )}
+
+        {step === 3 && auditBundle && (
+          <Suspense fallback={<StepFallback label="Sammanställer ansökan..." />}>
+            <RiskSummaryStep
+              wizardState={wizardState}
+              auditBundle={auditBundle}
+              onBack={() => setStep(2)}
+              onReset={() => {
+                setAuditBundle(null);
+                setAnalysisStatus([]);
+                setStep(1);
+              }}
+            />
+          </Suspense>
         )}
       </div>
     </div>
   );
-};
-
-type AuditRequestResult<T> = {
-  data: T | null;
-  error: string | null;
-};
-
-function StatusRow({ label, value }: { label: string; value: string }) {
-  return (
-    <div className="flex items-start justify-between gap-4 rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm">
-      <span className="font-black uppercase tracking-[0.12em] text-slate-500">{label}</span>
-      <span className="text-right font-semibold text-slate-800">{value}</span>
-    </div>
-  );
-}
-
-type BankIdInitResponse = {
-  ok: boolean;
-  orderRef?: string;
-  autoStartToken?: string | null;
-  qrPayload?: string | null;
-  error?: string;
-};
-
-type BankIdCollectResponse = {
-  ok: boolean;
-  status: 'pending' | 'complete' | 'failed';
-  hintCode?: string | null;
-  accessToken?: string;
-  refreshToken?: string | null;
-  user?: { id: string; organisationId: string; role: string } | null;
-  error?: string;
 };
 
 export default ApplicationWizard;

@@ -175,7 +175,7 @@ export const DEFAULT_PHASES: ProjectPhase[] = [
 
 export const MOCK_PERMITS: Permit[] = [
   {
-    id: 1,
+    id: "1",
     filename: "Beslut_Haninge_2023_001.pdf",
     checksum: "sha256_88321903",
     received_date: "2023-10-15",
@@ -190,7 +190,7 @@ export const MOCK_PERMITS: Permit[] = [
     applicant_company: "Länna Mark & Schakt AB"
   },
   {
-    id: 2,
+    id: "2",
     filename: "Avslag_Huddinge_Fastighet_A.pdf",
     checksum: "sha256_55219011",
     received_date: "2024-01-12",
@@ -205,7 +205,7 @@ export const MOCK_PERMITS: Permit[] = [
     applicant_company: "KemRisk Logistics"
   },
   {
-    id: 3,
+    id: "3",
     filename: "Permit_Nacka_Industrial_Zone.pdf",
     checksum: "sha256_12239401",
     received_date: "2023-11-22",
@@ -220,7 +220,7 @@ export const MOCK_PERMITS: Permit[] = [
     applicant_company: "ByggRetur Nacka AB"
   },
   {
-    id: 4,
+    id: "4",
     filename: "Beslut_Orsa_Stackmora_2024.pdf",
     checksum: "sha256_orsa_312",
     received_date: "2024-03-01",

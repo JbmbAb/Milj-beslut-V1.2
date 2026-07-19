@@ -5,7 +5,7 @@ import type { SpeciesObservation } from '../types';
 import type { ProtectedArea } from '../server/services/nvrService';
 import type { GeologicalData } from '../server/services/sguService';
 import type { Monument } from '../server/services/raaService';
-import type { SiteAnalysis } from '../server/services/complianceRuleEngine';
+import type { SiteAnalysis } from '../src/types/geo';
 import { Bug, Search, Loader2, ShieldAlert, CheckCircle2, MapPin, Waves, Mountain, Gavel, Landmark } from 'lucide-react';
 
 export const TechnicalSluExpert: React.FC = () => {

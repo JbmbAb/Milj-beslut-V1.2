@@ -78,6 +78,7 @@ export async function ensureAdminConsoleUser(username: string): Promise<AuthUser
     create: {
       name: orgName,
       orgNumber,
+      role: 'AUTHORITY',
     },
     update: {
       name: orgName,
@@ -128,6 +129,7 @@ export async function ensureMockAuthUser(bankidId: string): Promise<AuthUser> {
     create: {
       name: orgName,
       orgNumber,
+      role: 'CLIENT',
     },
     update: {
       name: orgName,

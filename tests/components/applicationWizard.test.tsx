@@ -7,31 +7,34 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 vi.mock('../../components/applicationWizard/ApplicationWizardDeferredViews', () => ({
   LocationAuditStep: (props: {
     onBack: () => void;
-    onRunAudit: () => void;
-    latInput: string;
-    lngInput: string;
+    onContinue: () => void;
+    wizardState: any;
   }) => (
     <div data-testid="location-audit-step">
-      <span data-testid="lat-value">{props.latInput}</span>
+      <span data-testid="lat-value">{props.wizardState.lat}</span>
       <button type="button" onClick={props.onBack}>
         Tillbaka
       </button>
-      <button type="button" onClick={props.onRunAudit}>
-        Kor audit
-      </button>
-    </div>
-  ),
-  RiskSummaryStep: (props: { onContinue: () => void; onChangeCoordinates: () => void }) => (
-    <div data-testid="risk-summary-step">
       <button type="button" onClick={props.onContinue}>
-        Fortsatt
-      </button>
-      <button type="button" onClick={props.onChangeCoordinates}>
-        Andra koordinater
+        Fortsätt
       </button>
     </div>
   ),
-  ManualGateStep: () => <div data-testid="manual-gate-step" />,
+  RiskSummaryStep: (props: { onReset: () => void; onBack: () => void }) => (
+    <div data-testid="risk-summary-step">
+      <button type="button" onClick={props.onBack}>
+        Tillbaka
+      </button>
+      <button type="button" onClick={props.onReset}>
+        Börja om
+      </button>
+    </div>
+  ),
+}));
+
+// Mock MapView inside tests since Leaflet references window objects that might fail in jsdom
+vi.mock('../MapView', () => ({
+  default: () => <div data-testid="mock-map-view" />
 }));
 
 import ApplicationWizard from '../../components/ApplicationWizard';
@@ -43,24 +46,23 @@ describe('ApplicationWizard', () => {
 
   // ── Step indicator ──────────────────────────────────────────────────────────
 
-  it('renders all 4 step titles in the progress bar', () => {
+  it('renders all 3 step titles in the progress bar', () => {
     render(<ApplicationWizard />);
-    expect(screen.getByText('Identitet')).toBeInTheDocument();
-    expect(screen.getByText('Plats')).toBeInTheDocument();
-    expect(screen.getByText('Auditsvar')).toBeInTheDocument();
-    expect(screen.getByText('Manuell grind')).toBeInTheDocument();
+    expect(screen.getByText('Grunduppgifter')).toBeInTheDocument();
+    expect(screen.getByText('Karta & Analys')).toBeInTheDocument();
+    expect(screen.getByText('Sammanställning')).toBeInTheDocument();
   });
 
   // ── Step 1 – initial render ─────────────────────────────────────────────────
 
-  it('shows Identitet och ansvar heading on step 1', () => {
+  it('shows Skapa Ansökningsunderlag heading on step 1', () => {
     render(<ApplicationWizard />);
-    expect(screen.getByText('Identitet och ansvar')).toBeInTheDocument();
+    expect(screen.getByText('Skapa Ansökningsunderlag')).toBeInTheDocument();
   });
 
-  it('shows BankID-status label on step 1', () => {
+  it('shows Identitetskontroll (BankID) label on step 1', () => {
     render(<ApplicationWizard />);
-    expect(screen.getByText('BankID-status')).toBeInTheDocument();
+    expect(screen.getByText('Identitetskontroll (BankID)')).toBeInTheDocument();
   });
 
   it('shows Starta BankID button initially', () => {
@@ -70,15 +72,33 @@ describe('ApplicationWizard', () => {
 
   it('shows Fortsatt manuell kontroll button on step 1', () => {
     render(<ApplicationWizard />);
-    expect(screen.getByRole('button', { name: /Fortsatt manuell kontroll/i })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /Fortsätt manuell kontroll/i })).toBeInTheDocument();
   });
 
   // ── Step navigation ─────────────────────────────────────────────────────────
 
-  it('advances to step 2 (LocationAuditStep) after clicking manual review', async () => {
+  it('allows manual review and entering property search to advance to step 2', async () => {
     const user = userEvent.setup({ delay: null });
     render(<ApplicationWizard />);
-    await user.click(screen.getByRole('button', { name: /Fortsatt manuell kontroll/i }));
+
+    // Click Manual review to unlock search
+    await user.click(screen.getByRole('button', { name: /Fortsätt manuell kontroll/i }));
+    
+    // Check that property search is now visible
+    const searchInput = screen.getByPlaceholderText(/T.ex. Länna 1:45/i);
+    expect(searchInput).toBeInTheDocument();
+
+    // Type property and search
+    await user.type(searchInput, 'Länna 1:45');
+    await user.click(screen.getByRole('button', { name: 'Sök' }));
+
+    // Verify search was successful
+    expect(screen.getByText(/Träff: Länna 1:45 i Haninge kommun/i)).toBeInTheDocument();
+
+    // Now proceed button should be active. Click it to advance to Step 2
+    await user.click(screen.getByRole('button', { name: /Fortsätt till karta & analys/i }));
+
+    // Wait and verify we arrived at Step 2
     expect(
       await screen.findByTestId('location-audit-step', undefined, { timeout: 15000 }),
     ).toBeInTheDocument();
@@ -87,10 +107,17 @@ describe('ApplicationWizard', () => {
   it('returns to step 1 when back button is clicked on step 2', async () => {
     const user = userEvent.setup({ delay: null });
     render(<ApplicationWizard />);
-    await user.click(screen.getByRole('button', { name: /Fortsatt manuell kontroll/i }));
+
+    await user.click(screen.getByRole('button', { name: /Fortsätt manuell kontroll/i }));
+    const searchInput = screen.getByPlaceholderText(/T.ex. Länna 1:45/i);
+    await user.type(searchInput, 'Länna 1:45');
+    await user.click(screen.getByRole('button', { name: 'Sök' }));
+
+    await user.click(screen.getByRole('button', { name: /Fortsätt till karta & analys/i }));
     await screen.findByTestId('location-audit-step', undefined, { timeout: 15000 });
+    
     await user.click(screen.getByRole('button', { name: /Tillbaka/i }));
-    expect(screen.getByText('Identitet och ansvar')).toBeInTheDocument();
+    expect(screen.getByText('Skapa Ansökningsunderlag')).toBeInTheDocument();
   }, 15000);
 
   // ── BankID error handling ───────────────────────────────────────────────────

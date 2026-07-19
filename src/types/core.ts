@@ -19,7 +19,8 @@ export type InterfaceMode =
   | 'PROJECT_MANAGER'
   | 'COMPLIANCE_AUDIT'
   | 'ADMIN_CONSOLE'
-  | 'Core_WORKFLOW';
+  | 'Core_WORKFLOW'
+  | 'MVP_WORKFLOW';
 
 export interface User {
   id: string;

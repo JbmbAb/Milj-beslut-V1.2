@@ -28,6 +28,7 @@ const WeatherRisk: React.FC<{ municipality: string; coordinates?: { lat: number;
             action: 'Valj ett arende med karta eller komplettera koordinater innan vaderbedomning anvands i beslut.',
             source: 'manual_review',
             municipality,
+            fetchedAt: new Date().toISOString(),
           });
           setLoading(false);
         }
@@ -53,6 +54,7 @@ const WeatherRisk: React.FC<{ municipality: string; coordinates?: { lat: number;
             source: 'manual_review',
             municipality,
             coordinates,
+            fetchedAt: new Date().toISOString(),
           });
         }
       } finally {

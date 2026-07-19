@@ -42,6 +42,7 @@ describe('execSummaryQueueService', () => {
     // Ensure no Gemini key is present so the deterministic fallback is always used
     delete process.env.GEMINI_API_KEY;
     delete process.env.VITE_GEMINI_API_KEY;
+    process.env.EXEC_SUMMARY_MOCK_MODE = 'true';
 
     mocks.appendDomainAudit.mockResolvedValue({ id: 'audit-abc' });
 

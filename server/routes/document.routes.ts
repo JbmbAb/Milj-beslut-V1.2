@@ -7,7 +7,7 @@ import { getDocumentById as getSearchDocumentById, deleteDocumentById } from '..
 import { assertProjectMembership } from '../modules/project/public';
 import { appendDomainAudit } from '../security/auditTrail';
 import { parseOptionalText } from '../utils/routeUtils';
-import { createStorageReadStream, storageFileExists } from '../services/documentObjectStorage';
+import { createStorageReadStream, storageFileExists } from '../modules/documents/public';
 
 const router = express.Router();
 

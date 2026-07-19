@@ -8,18 +8,10 @@ import {
   getGpsTrack,
   getLatestPosition as getLatestGpsPosition,
 } from '../../legacy/experimental/gpsTrackingService';
-async function getMarketSnapshot(): Promise<{ prices: any[]; supply: any[]; fetchedAt: string; source: string }> {
-  return {
-    prices: [],
-    supply: [],
-    fetchedAt: new Date().toISOString(),
-    source: 'not_configured',
-  };
-}
-
-function invalidateMarketCache(): void {
-  // no-op
-}
+import {
+  getMarketSnapshot,
+  invalidateMarketCache,
+} from '../../legacy/experimental/marketIntelService';
 import { transportService, limsService } from '../modules/logistics/public';
 import { routeParam } from '../utils/routeUtils';
 import {

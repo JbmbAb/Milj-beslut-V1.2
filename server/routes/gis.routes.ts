@@ -2,14 +2,15 @@ import path from 'node:path';
 import express from 'express';
 import { SOURCE_CATALOG } from '../datasources/catalog';
 import { MAP_LAYER_CATALOG, MAP_LAYER_DEFAULT_DOCUMENTATION_URLS } from '../datasources/mapLayerCatalog';
-import { getOgcCatalogLayers, listOgcCatalogSummaries } from '../services/ogcCapabilitiesService';
 import {
+  getOgcCatalogLayers,
+  listOgcCatalogSummaries,
   downloadDataPackageFileToPath,
   getLastkajenStatus,
   listDataPackageFiles,
   listPublishedDataPackages,
   pingLastkajen,
-} from '../services/lastkajenService';
+} from '../modules/gis/public';
 import { logger } from '../logger';
 import { requireAuth } from '../security/auth';
 import { rateLimitByUser } from '../security/rateLimit';
@@ -38,6 +39,7 @@ import {
   getWaterCatchmentLayer,
   getMainCatchmentLayer,
   getDatasetMapLayer,
+  getArcGisLayerAsGeoJson,
   getMarkCoverLayer,
   queryMarkCoverAtPoint,
   getPropertyLayer,
@@ -59,6 +61,7 @@ import {
   type SluProduct,
 } from '../modules/gis/public';
 import { parsePositiveInt, parseBooleanFlag } from '../utils/routeUtils';
+import { NATIONAL_ENVIRONMENTAL_LAYERS } from '../datasources/nationalEnvironmentalLayers';
 
 const router = express.Router();
 
@@ -446,6 +449,10 @@ router.get('/api/layers/dataset/:layerKey', rateLimitByUser(30, 60_000), async (
     }
     const limit = parsePositiveInt(req.query.limit, 1500, 1, 3000);
     const collection = await getDatasetMapLayer(layerKey, bbox, limit);
+    if (collection.meta?.available === false) {
+      res.status(503).json(collection);
+      return;
+    }
     res.json(collection);
   } catch (error: unknown) {
     const safe = toSafeErrorResponse(error);
@@ -1039,6 +1046,37 @@ router.get('/api/layers/topo10/:layerName', rateLimitByUser(30, 60_000), async (
     res.json(collection);
   } catch (error: unknown) {
     res.status(500).json(toSafeErrorResponse(error));
+  }
+});
+
+router.get('/api/layers/external/lst-vm/:layerKey', rateLimitByUser(30, 60_000), async (req, res) => {
+  try {
+    const { layerKey } = req.params;
+    const layer = NATIONAL_ENVIRONMENTAL_LAYERS.find((l) => l.key === layerKey);
+    if (!layer) {
+      res.status(404).json({ error: `Okänt nationellt lager: ${layerKey}` });
+      return;
+    }
+
+    const rawBbox = typeof req.query.bbox === 'string' ? req.query.bbox : null;
+    const bbox = parseBbox(rawBbox);
+    if (!bbox) {
+      res.status(400).json({ error: 'bbox is required' });
+      return;
+    }
+
+    const limit = parsePositiveInt(req.query.limit, 1000, 1, 2000);
+    const collection = await getArcGisLayerAsGeoJson(layer.restUrl, bbox, limit);
+    res.json(collection);
+  } catch (error: unknown) {
+    const safe = toSafeErrorResponse(error);
+    res
+      .status(200)
+      .json(
+        featureCollectionFallback(
+          String(safe.error || 'Externt nationellt miljöunderlag kunde inte laddas.'),
+        ),
+      );
   }
 });
 
