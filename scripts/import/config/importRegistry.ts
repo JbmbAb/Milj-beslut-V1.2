@@ -580,6 +580,14 @@ export const IMPORT_REGISTRY: Record<string, Record<string, ImportRegistryEntry>
       source_url:
         'https://opendata-view.smhi.se/SMHI_vatten_RiverBasin/HY.PhysicalWaters.Catchments/wfs',
     }),
+    water_catchment_svar_2022: entry({
+      target_schema: 'hydro',
+      target_table: 'water_catchment',
+      expected_columns: ['varoid', 'ms_cd', 'name', 'category', 'area'],
+      tier: 1,
+      ogr_layer: 'SVAR2022_Vattenförekomstavrinningsområden_2022',
+      primary_format: 'gpkg',
+    }),
   },
   LST: {
     EBH_Potentiellt_fororenade_omraden: entry({

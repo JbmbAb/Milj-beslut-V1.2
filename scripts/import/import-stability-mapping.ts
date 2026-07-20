@@ -17,24 +17,35 @@ const DATABASE_URL = process.env.DATABASE_URL || '';
 const OGR2OGR_PATH = process.env.OGR2OGR_PATH ?? 'C:\\Program Files\\GDAL\\ogr2ogr.exe';
 const GEO_INLARNING_DIR = process.env.GEO_INLARNING_DIR ?? path.join(PATHS.DATA, 'MCF'); // Point to harvested MCF data
 
-/** Rekursivt i rot + en nivå undermappar (Lastkaj-kategorier). */
 function listZipFiles(dir: string): string[] {
-  const results: string[] = [];
-  if (!fs.existsSync(dir)) return results;
-  for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
-    const full = path.join(dir, entry.name);
-    if (entry.isFile() && entry.name.toLowerCase().endsWith('.zip')) {
-      results.push(full);
-    }
-    if (entry.isDirectory()) {
-      for (const sub of fs.readdirSync(full, { withFileTypes: true })) {
-        if (sub.isFile() && sub.name.toLowerCase().endsWith('.zip')) {
-          results.push(path.join(full, sub.name));
+  if (!fs.existsSync(dir)) return [];
+  try {
+    // PowerShell's native Win32 search API is incredibly fast over Google Drive File Stream (3 seconds vs 5+ minutes for recursive fs.readdirSync)
+    // We set [Console]::OutputEncoding to UTF8 so Swedish characters like 'ö' are preserved in the returned string
+    const stdout = execSync(`powershell -Command "[Console]::OutputEncoding = [System.Text.Encoding]::UTF8; Get-ChildItem -Path '${dir}' -Filter '*.zip' -Recurse | Select-Object -ExpandProperty FullName"`, {
+      encoding: 'utf8',
+      maxBuffer: 100 * 1024 * 1024,
+    });
+    return stdout
+      .split(/\r?\n/)
+      .map((line) => line.trim())
+      .filter((line) => line.toLowerCase().endsWith('.zip'));
+  } catch (err) {
+    console.warn('PowerShell ZIP search failed, falling back to slow recursive walk...', err);
+    const results: string[] = [];
+    function walk(current: string) {
+      const stat = fs.statSync(current);
+      if (stat.isFile() && current.toLowerCase().endsWith('.zip')) {
+        results.push(current);
+      } else if (stat.isDirectory()) {
+        for (const name of fs.readdirSync(current)) {
+          walk(path.join(current, name));
         }
       }
     }
+    walk(dir);
+    return results;
   }
-  return results;
 }
 
 function findShpPathsInZip(zipPath: string, suffix: string): string[] {
