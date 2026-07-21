@@ -3,6 +3,57 @@
   "git.autofetchPeriod": 180,
   "git.rebaseWhenSync": true,
   "git.confirmSync": false,
+  "vitest.enable": true,
+  "vitest.commandLine": "npm run test:unit --",
+  "playwright.showTrace": true,
+  "testing.automaticallyOpenPeekView": "failureVisible",
   "editor.formatOnSave": true,
-  "editor.defaultFormatter": "esbenp.prettier-vscode"
+  "editor.defaultFormatter": "esbenp.prettier-vscode",
+  "[typescript]": {
+    "editor.defaultFormatter": "esbenp.prettier-vscode"
+  },
+  "[typescriptreact]": {
+    "editor.defaultFormatter": "esbenp.prettier-vscode"
+  },
+  "[prisma]": {
+    "editor.defaultFormatter": "Prisma.prisma"
+  },
+  "typescript.tsdk": "node_modules/typescript/lib",
+  "typescript.enablePromptUseWorkspaceTsdk": true,
+  "coverage-gutters.showLineCoverage": true,
+  "coverage-gutters.showBranchCoverage": true,
+  "coverage-gutters.lcovname": "coverage/lcov.info",
+  "prisma.pinToPrisma6": true,
+  "[jsonc]": {
+    "editor.defaultFormatter": "esbenp.prettier-vscode"
+  },
+  "supermaven.allowGitignore": true,
+  "editor.codeActionsOnSave": {
+    "source.fixAll.eslint": "explicit"
+  },
+  "editor.quickSuggestions": {
+    "strings": true
+  },
+  "tailwindCSS.emmetCompletions": true,
+  "sqltools.connections": [
+    {
+      "name": "Miljöbeslut Postgres 5432",
+      "driver": "PostgreSQL",
+      "connectionMethod": "Server and Port",
+      "server": "127.0.0.1",
+      "port": 5432,
+      "database": "miljobeslut",
+      "username": "miljobeslut",
+      "usePassword": "Ask on connect",
+      "askForPassword": true,
+      "previewLimit": 100,
+      "connectionTimeout": 15,
+      "pgOptions": {
+        "enableSsl": "Disabled"
+      },
+      "ssh": "Disabled"
+    }
+  ],
+  "mcpFigma.autoStartWebSocket": false,
+  "gemini-cli.debug.logging.enabled": true
 }
