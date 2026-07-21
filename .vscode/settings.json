@@ -54,5 +54,6 @@
       "ssh": "Disabled"
     }
   ],
-  "mcpFigma.autoStartWebSocket": false
+  "mcpFigma.autoStartWebSocket": false,
+  "gemini-cli.debug.logging.enabled": true
 }
