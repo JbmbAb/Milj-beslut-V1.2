@@ -59,9 +59,50 @@ En policy för att säkerställa en stabil testsvit.
 5.  **Åtgärd:** Målet med att fixa ett "flaky" test är att göra det deterministiskt. Detta kan innebära bättre mockning, förbättrad testdata-setup eller andra tekniker.
 6.  **Återintroduktion:** När testet är fixat ska det återaktiveras och övervakas för att säkerställa att det inte längre är instabilt.
 
-## Pull Requests
+## Pull Requests & Git Workflow
 
-1. Skapa en branch från `main`
-2. Gör dina ändringar med tillhörande tester
-3. Kör `npm run typecheck && npm run lint && npm run test:unit`
-4. Öppna en PR mot `main` med en beskrivande titel
+**Se [`docs/GIT_WORKFLOW.md`](docs/GIT_WORKFLOW.md) för fullständig guide.**
+
+Kort sammanfattning:
+
+1. **Skapa branch från main**
+   ```bash
+   git fetch origin
+   git checkout -b feat/min-feature main
+   ```
+
+2. **Gör ändringar & commit**
+   ```bash
+   git add .
+   git commit -m "feat: beskriv vad du gör"
+   ```
+
+3. **Rebase innan push** (viktigt!)
+   ```bash
+   git fetch origin
+   git rebase origin/main
+   git push origin feat/min-feature
+   ```
+
+4. **Tester & linting**
+   ```bash
+   npm run typecheck && npm run lint && npm run test:unit
+   ```
+
+5. **Öppna PR** med beskrivande titel
+   - GitHub Actions körs automatiskt
+   - Vänta på review
+   - Merge via **"Squash and merge"** när godkänd
+
+### Rebase Strategy
+
+Vi använder **Rebase + Squash Merge** för:
+- ✅ Linear history på main
+- ✅ Clean git log (bisect, blame)
+- ✅ Färre konflikter
+
+Se `docs/GIT_WORKFLOW.md` för:
+- Konflikthantering
+- Best practices
+- Troubleshooting
+- Commit message standard (Conventional Commits)
