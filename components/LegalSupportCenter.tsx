@@ -68,10 +68,15 @@ const LegalSupportCenter: React.FC = () => {
   return (
     <div className="mx-auto max-w-6xl space-y-8 animate-in fade-in duration-500">
       <section className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
-        <p className="text-[11px] font-black uppercase tracking-[0.18em] text-slate-500">Juridik och support</p>
-        <h2 className="mt-2 text-3xl font-black tracking-tight text-slate-900">GDPR, kontakt och integrerad hjälp</h2>
+        <p className="text-[11px] font-black uppercase tracking-[0.18em] text-slate-500">
+          Juridik och support
+        </p>
+        <h2 className="mt-2 text-3xl font-black tracking-tight text-slate-900">
+          GDPR, kontakt och integrerad hjälp
+        </h2>
         <p className="mt-3 max-w-3xl text-sm text-slate-600">
-          Denna vy samlar juridisk minimikravsnivå for webbtjänsten samt hur anvandare far hjälp och kontaktar ansvarig funktion.
+          Denna vy samlar juridisk minimikravsnivå for webbtjänsten samt hur anvandare far hjälp och kontaktar
+          ansvarig funktion.
         </p>
       </section>
 
@@ -92,14 +97,20 @@ const LegalSupportCenter: React.FC = () => {
 
       <section className="grid grid-cols-1 gap-6 xl:grid-cols-[1.2fr_1fr]">
         <div className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
-          <p className="text-[11px] font-black uppercase tracking-[0.18em] text-slate-500">Integrerad hjälp</p>
+          <p className="text-[11px] font-black uppercase tracking-[0.18em] text-slate-500">
+            Integrerad hjälp
+          </p>
           <h3 className="mt-2 text-xl font-black text-slate-900">Supportflöde i tjänsten</h3>
           <p className="mt-2 text-sm text-slate-600">
-            Chatbot och guide kompletteras med manuell support for incidenter, juridiska frågor och dataskyddsfrågor.
+            Chatbot och guide kompletteras med manuell support for incidenter, juridiska frågor och
+            dataskyddsfrågor.
           </p>
           <div className="mt-4 grid grid-cols-1 gap-2 sm:grid-cols-2">
             {HELP_TOPICS.map((topic) => (
-              <div key={topic} className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-xs font-semibold text-slate-700">
+              <div
+                key={topic}
+                className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-xs font-semibold text-slate-700"
+              >
                 {topic}
               </div>
             ))}
@@ -107,16 +118,24 @@ const LegalSupportCenter: React.FC = () => {
         </div>
 
         <div className="rounded-3xl border border-slate-800 bg-slate-900 p-6 text-white shadow-sm">
-          <p className="text-[11px] font-black uppercase tracking-[0.18em] text-slate-400">Kontaktinformation</p>
+          <p className="text-[11px] font-black uppercase tracking-[0.18em] text-slate-400">
+            Kontaktinformation
+          </p>
           <div className="mt-4 space-y-3 text-sm">
             <p>
               Bolag: <span className="font-black">{CONTACT.companyName}</span>
             </p>
             <p>
-              Support: <a href={`mailto:${CONTACT.supportEmail}`} className="font-black text-blue-300">{CONTACT.supportEmail}</a>
+              Support:{' '}
+              <a href={`mailto:${CONTACT.supportEmail}`} className="font-black text-blue-300">
+                {CONTACT.supportEmail}
+              </a>
             </p>
             <p>
-              Legal/DPO: <a href={`mailto:${CONTACT.legalEmail}`} className="font-black text-blue-300">{CONTACT.legalEmail}</a>
+              Legal/DPO:{' '}
+              <a href={`mailto:${CONTACT.legalEmail}`} className="font-black text-blue-300">
+                {CONTACT.legalEmail}
+              </a>
             </p>
             <p>
               Telefon: <span className="font-black">{CONTACT.phone}</span>
@@ -129,7 +148,8 @@ const LegalSupportCenter: React.FC = () => {
             </p>
           </div>
           <p className="mt-4 rounded-xl border border-white/20 bg-white/10 px-3 py-2 text-xs text-slate-200">
-            Uppdatera kontaktfälten via `VITE_SUPPORT_EMAIL`, `VITE_LEGAL_EMAIL`, `VITE_SUPPORT_PHONE` och `VITE_COMPANY_ADDRESS`.
+            Uppdatera kontaktfälten via `VITE_SUPPORT_EMAIL`, `VITE_LEGAL_EMAIL`, `VITE_SUPPORT_PHONE` och
+            `VITE_COMPANY_ADDRESS`.
           </p>
         </div>
       </section>

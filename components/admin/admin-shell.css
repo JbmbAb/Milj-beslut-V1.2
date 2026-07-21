@@ -1,0 +1,58 @@
+/* AdminShell Layout Styles */
+
+.admin-shell {
+  display: flex;
+  height: 100vh;
+  background-color: var(--color-bg-light);
+  overflow: hidden;
+}
+
+.admin-main {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  overflow: hidden;
+}
+
+.admin-content {
+  flex: 1;
+  overflow-y: auto;
+  overflow-x: hidden;
+  padding: var(--spacing-xl);
+  background-color: var(--color-bg-light);
+}
+
+/* Scrollbar styling */
+.admin-content::-webkit-scrollbar {
+  width: 8px;
+}
+
+.admin-content::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.admin-content::-webkit-scrollbar-thumb {
+  background: var(--color-border-dark);
+  border-radius: var(--border-radius-md-digg);
+}
+
+.admin-content::-webkit-scrollbar-thumb:hover {
+  background: var(--color-text-secondary-digg);
+}
+
+/* Responsive design */
+@media (max-width: 1024px) {
+  .admin-shell {
+    flex-direction: column;
+  }
+
+  .admin-content {
+    padding: var(--spacing-lg);
+  }
+}
+
+@media (max-width: 640px) {
+  .admin-content {
+    padding: var(--spacing-md);
+  }
+}

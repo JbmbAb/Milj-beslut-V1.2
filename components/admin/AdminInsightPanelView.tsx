@@ -22,7 +22,7 @@ const AdminRequirementsStudio = lazy(() => import('../AdminRequirementsStudio'))
 type SecureRequest = <T>(
   path: string,
   method: 'GET' | 'POST',
-  payload?: Record<string, unknown>
+  payload?: Record<string, unknown>,
 ) => Promise<T>;
 
 interface AdminInsightPanelViewProps {
@@ -49,7 +49,10 @@ interface AdminInsightPanelViewProps {
   onInfo: React.Dispatch<React.SetStateAction<string>>;
 }
 
-const DeferredSectionFallback: React.FC<{ label: string; loading?: boolean }> = ({ label, loading = false }) => (
+const DeferredSectionFallback: React.FC<{ label: string; loading?: boolean }> = ({
+  label,
+  loading = false,
+}) => (
   <div className="rounded-3xl border border-slate-200 bg-white/80 p-6 text-center text-slate-500 shadow-sm">
     {loading ? (
       <div className="mx-auto mb-4 h-8 w-8 animate-spin rounded-full border-4 border-slate-200 border-t-slate-900" />
@@ -75,7 +78,7 @@ const DeferredSection: React.FC<{ label: string; children: React.ReactNode }> = 
           observer.disconnect();
         }
       },
-      { rootMargin: '360px 0px' }
+      { rootMargin: '360px 0px' },
     );
 
     observer.observe(node);
@@ -85,7 +88,9 @@ const DeferredSection: React.FC<{ label: string; children: React.ReactNode }> = 
   return (
     <div ref={sectionRef} className="min-h-[220px]">
       {shouldRender ? (
-        <Suspense fallback={<DeferredSectionFallback label={`Laddar ${label}`} loading />}>{children}</Suspense>
+        <Suspense fallback={<DeferredSectionFallback label={`Laddar ${label}`} loading />}>
+          {children}
+        </Suspense>
       ) : (
         <DeferredSectionFallback label={`${label} laddas nar sektionen narmar sig`} />
       )}
@@ -175,7 +180,9 @@ const AdminInsightPanelView: React.FC<AdminInsightPanelViewProps> = ({
       <section className="space-y-6">
         <div className="flex items-center gap-3">
           <span className="h-2 w-2 rounded-full bg-emerald-600" />
-          <h2 className="text-xl font-black uppercase tracking-widest text-slate-800">Bank-scoring & Compliance</h2>
+          <h2 className="text-xl font-black uppercase tracking-widest text-slate-800">
+            Bank-scoring & Compliance
+          </h2>
         </div>
         <ProjectScoringDashboard projectId={projectId} token={token} />
       </section>
@@ -185,7 +192,9 @@ const AdminInsightPanelView: React.FC<AdminInsightPanelViewProps> = ({
       <section className="space-y-6">
         <div className="flex items-center gap-3">
           <span className="h-2 w-2 rounded-full bg-indigo-600" />
-          <h2 className="text-xl font-black uppercase tracking-widest text-slate-800">Organisationsinbjudningar</h2>
+          <h2 className="text-xl font-black uppercase tracking-widest text-slate-800">
+            Organisationsinbjudningar
+          </h2>
         </div>
         <OrganizationInvitations orgId={organisationId} secure={secure} />
       </section>

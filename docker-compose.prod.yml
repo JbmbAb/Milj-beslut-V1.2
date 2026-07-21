@@ -9,10 +9,10 @@ services:
     container_name: miljobeslut-app
     restart: unless-stopped
     ports:
-      - "3000:3000"
+      - '3000:3000'
     environment:
       - NODE_ENV=production
-      - DATABASE_URL=postgresql://riskguard:password@db:5432/riskguard_prod
+      - DATABASE_URL=postgresql://miljobeslut:password@db:5432/miljobeslut_prod
       # Resten av miljövariablerna (.env) bör kopplas in via env_file eller direkt
     env_file:
       - .env.production
@@ -25,15 +25,15 @@ services:
     container_name: miljobeslut-db
     restart: unless-stopped
     environment:
-      - POSTGRES_USER=riskguard
+      - POSTGRES_USER=miljobeslut
       - POSTGRES_PASSWORD=password
-      - POSTGRES_DB=riskguard_prod
+      - POSTGRES_DB=miljobeslut_prod
     ports:
-      - "5432:5432"
+      - '5432:5432'
     volumes:
       - pgdata_prod:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U riskguard -d riskguard_prod"]
+      test: ['CMD-SHELL', 'pg_isready -U miljobeslut -d miljobeslut_prod']
       interval: 10s
       timeout: 5s
       retries: 5

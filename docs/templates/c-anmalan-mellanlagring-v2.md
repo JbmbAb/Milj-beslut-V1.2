@@ -25,6 +25,7 @@ Kort beskrivning av anmälan (2–4 meningar):
 ## 2. Verksamhetsbeskrivning
 
 Beskriv:
+
 1. Vad som ska mellanlagras.
 2. Var på fastigheten lagringen ska ske.
 3. Hur lagringen sker (containrar, fack, yta på platta, invallning).
@@ -32,6 +33,7 @@ Beskriv:
 5. Förväntad starttidpunkt.
 
 Ange verksamhetskod och klassning:
+
 - Verksamhetskod:
 - Typ av verksamhet:
 - Bedömning (C‑anmälan):
@@ -41,6 +43,7 @@ Ange verksamhetskod och klassning:
 ## 3. Lokalisering och platsförutsättningar
 
 Redovisa:
+
 1. Karta med markerad lagringsyta.
 2. Avstånd till närmsta bostad, vattendrag, dagvattenbrunn, skyddsområde.
 3. Markanvändning enligt planförutsättningar.
@@ -53,10 +56,10 @@ Sammanfattning av platsens lämplighet:
 ## 4. Avfallsslag, mängder och lagringstid
 
 | Avfallsslag | EWC-kod | Farligt avfall (Ja/Nej) | Max mängd samtidigt (ton) | Årsmängd (ton/år) | Max lagringstid | Kommentar |
-|---|---|---|---:|---:|---|---|
-|  |  |  |  |  |  |  |
-|  |  |  |  |  |  |  |
-|  |  |  |  |  |  |  |
+| ----------- | ------- | ----------------------- | ------------------------: | ----------------: | --------------- | --------- |
+|             |         |                         |                           |                   |                 |           |
+|             |         |                         |                           |                   |                 |           |
+|             |         |                         |                           |                   |                 |           |
 
 Beskriv sortering och intern separation mellan avfallsslag:
 
@@ -77,6 +80,7 @@ Beskriv sortering och intern separation mellan avfallsslag:
 ### 5.2 Funktion och kontroll
 
 Beskriv:
+
 1. Hur ytan förhindrar infiltration till mark.
 2. Hur ytan styr avrinning mot uppsamlingspunkt.
 3. Hur skador/sprickor upptäcks och åtgärdas.
@@ -88,6 +92,7 @@ Beskriv:
 ### 6.1 Principlösning
 
 Beskriv systemet steg för steg:
+
 1. Separering av rent/förorenat vatten.
 2. Uppsamlingspunkter och ledningsdragning.
 3. Buffertvolym/utjämning.
@@ -114,6 +119,7 @@ Beskriv systemet steg för steg:
 ## 7. Drift, egenkontroll och journalföring
 
 Beskriv rutiner för:
+
 1. Mottagningskontroll av avfall.
 2. Klassning/omklassning av avfall.
 3. Daglig visuell tillsyn av yta och vattensystem.
@@ -122,6 +128,7 @@ Beskriv rutiner för:
 6. Journalföring av mängder, lagringstid, transporter, incidenter.
 
 Ansvar:
+
 - Driftansvarig:
 - Miljöansvarig:
 - Stand‑in vid frånvaro:
@@ -131,16 +138,17 @@ Ansvar:
 ## 8. Riskbedömning och skyddsåtgärder
 
 | Riskhändelse | Sannolikhet (L/M/H) | Konsekvens (L/M/H) | Förebyggande åtgärd | Beredskapsåtgärd |
-|---|---|---|---|---|
-|  |  |  |  |  |
-|  |  |  |  |  |
-|  |  |  |  |  |
+| ------------ | ------------------- | ------------------ | ------------------- | ---------------- |
+|              |                     |                    |                     |                  |
+|              |                     |                    |                     |                  |
+|              |                     |                    |                     |                  |
 
 ---
 
 ## 9. Transporter och logistik
 
 Redovisa:
+
 1. Antal transporter per dag/vecka.
 2. Transportvägar in/ut.
 3. Lastnings-/lossningsyta.
@@ -151,6 +159,7 @@ Redovisa:
 ## 10. Miljöpåverkan och försiktighetsmått
 
 Sammanfatta bedömd påverkan på:
+
 - Mark
 - Grundvatten
 - Ytvatten
@@ -164,6 +173,7 @@ Sammanfatta valda försiktighetsmått:
 ## 11. Avveckling och efterbehandling
 
 Beskriv:
+
 1. Hur ytan avvecklas.
 2. Hur kvarvarande avfall och restvatten hanteras.
 3. Hur eventuell kontroll av mark/ytor genomförs vid avslut.
@@ -183,6 +193,7 @@ Beskriv:
 ## 13. Juridiska referenser
 
 Tillsynsbeslut och anmälan grundar sig på:
+
 - Miljöbalken (MB)
 - Avfallsförordningen
 - Miljöprövningsförordningen
@@ -193,6 +204,7 @@ Tillsynsbeslut och anmälan grundar sig på:
 ## 14. Geodata (GIS-data)
 
 Redovisa:
+
 - Koordinater:
 - Avstånd till vattendrag:
 - Avstånd till dagvattenbrunn:

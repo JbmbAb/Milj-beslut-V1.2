@@ -3,21 +3,26 @@ import type { InterfaceMode, Permit } from '../types';
 import { ProjectStructureProvider, useProjectStructure } from './ProjectStructureContext';
 import { countReadyModules } from '../services/projectStructure';
 import WorkspaceScaffold from './WorkspaceScaffold';
+import LegalSupportCenter from './LegalSupportCenter';
 
 const MarketIntelView = lazy(() => import('./MarketIntelView'));
-const PermitPortalView = lazy(() => import('./PermitPortalView'));
 const ExecutiveSummary = lazy(() => import('./ExecutiveSummary'));
 const DetailModal = lazy(() => import('./DetailModal'));
 const ChatBot = lazy(() => import('./ChatBot'));
-const FormManager = lazy(() => import('./FormManager'));
-const SluExpert = lazy(() => import('./SluExpert'));
 const IntegrationsDashboard = lazy(() => import('./IntegrationsDashboard'));
 const ApplicationWizard = lazy(() => import('./ApplicationWizard'));
 const AssetTriage = lazy(() => import('./AssetTriage'));
 const FieldAssistant = lazy(() => import('./FieldAssistant'));
 const Guide = lazy(() => import('./Guide'));
 const GisRiskModule = lazy(() => import('./GisRiskModule'));
-const LegalSupportCenter = lazy(() => import('./LegalSupportCenter'));
+const CNotificationMassUI = lazy(() =>
+  import('./admin/modules/c-notification-mass/CNotificationMassUI').then((module) => ({
+    default: module.CNotificationMassUI,
+  })),
+);
+const PermitPortalView = lazy(() => import('./PermitPortalView'));
+const FormManager = lazy(() => import('./FormManager'));
+const SluExpert = lazy(() => import('./SluExpert'));
 
 type ProjectWorkspaceProps = {
   mode: InterfaceMode;
@@ -50,43 +55,49 @@ const ProjectWorkspaceInner: React.FC<ProjectWorkspaceProps> = ({
   const readyModuleCount = useMemo(() => countReadyModules(plan), [plan]);
   const blockedModuleCount = useMemo(
     () => plan.moduleIntegrations.filter((item) => item.readiness === 'BLOCKED').length,
-    [plan]
+    [plan],
   );
-  const requiredGateCount = useMemo(
-    () => plan.stageGates.filter((gate) => gate.required).length,
-    [plan]
-  );
+  const requiredGateCount = useMemo(() => plan.stageGates.filter((gate) => gate.required).length, [plan]);
   const passedGateCount = useMemo(
     () => plan.stageGates.filter((gate) => gate.required && gate.status === 'PASSED').length,
-    [plan]
+    [plan],
   );
   const carbonReady = Boolean(plan.carbonSummary.lastResult);
+  const normalizedMode = mode === 'PERMIT_PORTAL' ? 'Core_WORKFLOW' : mode;
+  const normalizedTab =
+    mode === 'PERMIT_PORTAL'
+      ? activeTab === 'apply'
+        ? 'c-notification-mass'
+        : activeTab === 'map' ||
+            activeTab === 'forms' ||
+            activeTab === 'biodiversity' ||
+            activeTab === 'risks'
+          ? 'core'
+          : activeTab
+      : activeTab;
 
   const renderContent = () => {
-    if (activeTab === 'guide') return <Guide mode={mode} onNavigate={onSetActiveTab} />;
-    if (activeTab === 'legal') return <LegalSupportCenter />;
+    if (normalizedTab === 'guide') return <Guide mode={normalizedMode} onNavigate={onSetActiveTab} />;
+    if (normalizedTab === 'legal') return <LegalSupportCenter />;
 
-    switch (mode) {
+    switch (normalizedMode) {
       case 'LOGISTICS_MARKET':
-        if (activeTab === 'archive') return <ExecutiveSummary />;
-        if (activeTab === 'logistics') {
+        if (normalizedTab === 'archive') return <ExecutiveSummary />;
+        if (normalizedTab === 'logistics') {
           return <MarketIntelView permits={permits} onSelectPermit={setSelectedPermit} mode="logistics" />;
         }
-        if (activeTab === 'triage') return <AssetTriage />;
+        if (normalizedTab === 'triage') return <AssetTriage />;
         return <ExecutiveSummary />;
-      case 'PERMIT_PORTAL':
-        if (activeTab === 'map') return <PermitPortalView permits={permits} mode="map" />;
-        if (activeTab === 'apply') return <PermitPortalView permits={permits} mode="apply" />;
-        if (activeTab === 'forms') return <FormManager />;
-        if (activeTab === 'biodiversity') return <SluExpert />;
-        if (activeTab === 'risks') return <GisRiskModule />;
-        return <PermitPortalView permits={permits} mode="map" />;
+      case 'Core_WORKFLOW':
+        if (normalizedTab === 'c-notification-mass') return <CNotificationMassUI />;
+        if (normalizedTab === 'score') return <GisRiskModule />;
+        return <CNotificationMassUI />;
       case 'PROJECT_MANAGER':
-        if (activeTab === 'plan') return <ApplicationWizard />;
-        if (activeTab === 'field') return <FieldAssistant />;
+        if (normalizedTab === 'plan') return <ApplicationWizard />;
+        if (normalizedTab === 'field') return <FieldAssistant />;
         return <ApplicationWizard />;
       case 'COMPLIANCE_AUDIT':
-        if (activeTab === 'score') return <GisRiskModule />;
+        if (normalizedTab === 'score') return <GisRiskModule />;
         return <IntegrationsDashboard />;
       default:
         return (

@@ -1,21 +1,19 @@
-
 import React from 'react';
 import { Task, ProjectPhase } from '../types';
 
-const _MOCK_TASKS: Task[] = [
-  { id: '1', title: 'Inledande platsspecifik riskanalys', startWeek: 2, duration: 4, type: 'TECHNICAL', status: 'DONE' },
-  { id: '2', title: 'Samråd med närboende & intressenter', startWeek: 6, duration: 3, type: 'LEGAL', status: 'ONGOING' },
-  { id: '3', title: 'Fältundersökning: PAH & Markprover', startWeek: 8, duration: 2, type: 'FIELD', status: 'TODO' },
-  { id: '4', title: 'MKB - Miljökonsekvensbeskrivning', startWeek: 10, duration: 8, type: 'LEGAL', status: 'TODO' },
-  { id: '5', title: 'Ansökan enligt 90-serien (90.131)', startWeek: 18, duration: 1, type: 'ADMIN', status: 'TODO' },
-  { id: '6', title: 'Myndighetshandläggning (Estimerad)', startWeek: 19, duration: 12, type: 'LEGAL', status: 'TODO' },
-];
-
 const MONTHS = [
-  { name: 'Jan', weeks: 4 }, { name: 'Feb', weeks: 4 }, { name: 'Mar', weeks: 5 },
-  { name: 'Apr', weeks: 4 }, { name: 'Maj', weeks: 4 }, { name: 'Jun', weeks: 4 },
-  { name: 'Jul', weeks: 5 }, { name: 'Aug', weeks: 4 }, { name: 'Sep', weeks: 4 },
-  { name: 'Okt', weeks: 4 }, { name: 'Nov', weeks: 5 }, { name: 'Dec', weeks: 5 }
+  { name: 'Jan', weeks: 4 },
+  { name: 'Feb', weeks: 4 },
+  { name: 'Mar', weeks: 5 },
+  { name: 'Apr', weeks: 4 },
+  { name: 'Maj', weeks: 4 },
+  { name: 'Jun', weeks: 4 },
+  { name: 'Jul', weeks: 5 },
+  { name: 'Aug', weeks: 4 },
+  { name: 'Sep', weeks: 4 },
+  { name: 'Okt', weeks: 4 },
+  { name: 'Nov', weeks: 5 },
+  { name: 'Dec', weeks: 5 },
 ];
 
 interface GanttChartProps {
@@ -27,11 +25,16 @@ const GanttChart: React.FC<GanttChartProps> = ({ phases }) => {
 
   const getTypeColor = (type?: string) => {
     switch (type) {
-      case 'LEGAL': return 'bg-rose-500';
-      case 'TECHNICAL': return 'bg-blue-500';
-      case 'FIELD': return 'bg-emerald-500';
-      case 'ADMIN': return 'bg-slate-500';
-      default: return 'bg-slate-400';
+      case 'LEGAL':
+        return 'bg-rose-500';
+      case 'TECHNICAL':
+        return 'bg-blue-500';
+      case 'FIELD':
+        return 'bg-emerald-500';
+      case 'ADMIN':
+        return 'bg-slate-500';
+      default:
+        return 'bg-slate-400';
     }
   };
 
@@ -45,18 +48,22 @@ const GanttChart: React.FC<GanttChartProps> = ({ phases }) => {
 
   // Flatten phases and tasks into a single viewable list
   type TaskWithPhase = Task & { phaseId: string; phaseTitle: string };
-  const allTasks: TaskWithPhase[] = phases.flatMap(phase => phase.tasks.map((task: Task) => ({
-    ...task,
-    phaseId: phase.id,
-    phaseTitle: phase.title
-  })));
+  const allTasks: TaskWithPhase[] = phases.flatMap((phase) =>
+    phase.tasks.map((task: Task) => ({
+      ...task,
+      phaseId: phase.id,
+      phaseTitle: phase.title,
+    })),
+  );
 
   return (
     <div className="bg-white rounded-[3rem] border border-slate-200 shadow-sm overflow-hidden flex flex-col animate-in fade-in duration-700">
       <header className="p-8 border-b border-slate-100 flex justify-between items-center bg-slate-50/50">
         <div>
           <h3 className="text-2xl font-black text-slate-900 tracking-tighter italic">Projekt-Tidplan</h3>
-          <p className="text-slate-400 text-[10px] font-black uppercase tracking-widest mt-1 italic">Baserad på myndighetskrav & prövningsprocess</p>
+          <p className="text-slate-400 text-[10px] font-black uppercase tracking-widest mt-1 italic">
+            Baserad på myndighetskrav & prövningsprocess
+          </p>
         </div>
         <div className="flex gap-4">
           <LegendItem color="bg-rose-500" label="Juridisk process" />
@@ -69,10 +76,16 @@ const GanttChart: React.FC<GanttChartProps> = ({ phases }) => {
         <div className="min-w-[1200px]">
           {/* Header Row: Months */}
           <div className="flex border-b border-slate-100 bg-white sticky top-0 z-10">
-            <div className="w-64 shrink-0 p-4 border-r border-slate-100 font-black text-[10px] uppercase text-slate-400">Aktivitet / Vecka</div>
+            <div className="w-64 shrink-0 p-4 border-r border-slate-100 font-black text-[10px] uppercase text-slate-400">
+              Aktivitet / Vecka
+            </div>
             <div className="flex flex-1">
               {MONTHS.map((m, i) => (
-                <div key={i} className="flex-1 text-center py-4 border-r border-slate-50 font-black text-[10px] uppercase text-slate-400 bg-slate-50/30" style={{ flexGrow: m.weeks }}>
+                <div
+                  key={i}
+                  className="flex-1 text-center py-4 border-r border-slate-50 font-black text-[10px] uppercase text-slate-400 bg-slate-50/30"
+                  style={{ flexGrow: m.weeks }}
+                >
                   {m.name}
                 </div>
               ))}
@@ -82,12 +95,21 @@ const GanttChart: React.FC<GanttChartProps> = ({ phases }) => {
           {/* Grid View */}
           <div className="relative">
             {allTasks.map((task: TaskWithPhase) => (
-              <div key={task.id} className="flex border-b border-slate-50 hover:bg-slate-50/50 transition-colors group">
+              <div
+                key={task.id}
+                className="flex border-b border-slate-50 hover:bg-slate-50/50 transition-colors group"
+              >
                 <div className="w-64 shrink-0 p-4 border-r border-slate-100 flex items-center gap-3">
-                  <div className={`w-2 h-2 rounded-full ${task.status === 'DONE' ? 'bg-emerald-500' : task.status === 'ONGOING' ? 'bg-blue-500 animate-pulse' : 'bg-slate-200'}`}></div>
+                  <div
+                    className={`w-2 h-2 rounded-full ${task.status === 'DONE' ? 'bg-emerald-500' : task.status === 'ONGOING' ? 'bg-blue-500 animate-pulse' : 'bg-slate-200'}`}
+                  ></div>
                   <div className="flex flex-col truncate">
-                    <span className="text-[9px] font-black text-slate-400 uppercase tracking-widest">{task.phaseTitle}</span>
-                    <span className="text-xs font-bold text-slate-700 truncate group-hover:text-blue-600 transition-colors">{task.title}</span>
+                    <span className="text-[9px] font-black text-slate-400 uppercase tracking-widest">
+                      {task.phaseTitle}
+                    </span>
+                    <span className="text-xs font-bold text-slate-700 truncate group-hover:text-blue-600 transition-colors">
+                      {task.title}
+                    </span>
                   </div>
                 </div>
                 <div className="flex-1 relative h-12 flex items-center">
@@ -102,10 +124,12 @@ const GanttChart: React.FC<GanttChartProps> = ({ phases }) => {
                     style={{
                       // Provide defaults if startWeek/duration are missing from DB
                       left: `${((task.startWeek || 1) / totalWeeks) * 100}%`,
-                      width: `${((task.duration || 2) / totalWeeks) * 100}%`
+                      width: `${((task.duration || 2) / totalWeeks) * 100}%`,
                     }}
                   >
-                    <span className="text-[8px] font-black text-white uppercase tracking-tighter truncate">{task.duration || 2} v</span>
+                    <span className="text-[8px] font-black text-white uppercase tracking-tighter truncate">
+                      {task.duration || 2} v
+                    </span>
                   </div>
                 </div>
               </div>
@@ -146,7 +170,34 @@ const GanttChart: React.FC<GanttChartProps> = ({ phases }) => {
             </p>
           </div>
         </div>
-        <button className="px-6 py-2 bg-white/10 hover:bg-white/20 border border-white/10 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all">
+        <button
+          type="button"
+          onClick={() => {
+            const rows = [
+              ['Fas', 'Aktivitet', 'Typ', 'Status', 'Startvecka', 'Varaktighet (veckor)', 'Slutvecka'],
+              ...allTasks.map((t: TaskWithPhase) => [
+                t.phaseTitle,
+                t.title,
+                t.type ?? '',
+                t.status ?? '',
+                String(t.startWeek ?? ''),
+                String(t.duration ?? ''),
+                String((t.startWeek ?? 1) + (t.duration ?? 2) - 1),
+              ]),
+            ];
+            const csv = rows
+              .map((r) => r.map((v) => `"${String(v).replace(/"/g, '""')}"`).join(','))
+              .join('\n');
+            const blob = new Blob(['\uFEFF' + csv], { type: 'text/csv;charset=utf-8;' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = `projekt-tidplan-${new Date().toISOString().slice(0, 10)}.csv`;
+            a.click();
+            URL.revokeObjectURL(url);
+          }}
+          className="px-6 py-2 bg-white/10 hover:bg-white/20 border border-white/10 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all"
+        >
           Exportera till Excel / MSP
         </button>
       </footer>

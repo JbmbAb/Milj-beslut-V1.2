@@ -1,9 +1,13 @@
 FROM node:22-alpine AS base
 
-# Uppdatera och installera curl och openssl för Prisma
-RUN apk update && apk add --no-cache openssl curl
+# Uppdatera och installera curl och openssl för Prisma, plus chromium för ERD-generatorn
+RUN apk update && apk add --no-cache openssl curl chromium
 
-# Skapa non-root användare (används i production-stadiet)
+# Konfigurera Puppeteer för att använda den Alpine-installerade Chromium
+ENV PUPPETEER_SKIP_CHROMIUM_DOWNLOAD=true \
+    PUPPETEER_EXECUTABLE_PATH=/usr/bin/chromium-browser
+
+# Skapa non-root användare
 RUN addgroup -S appgroup && adduser -S appuser -G appgroup
 
 WORKDIR /app
@@ -12,40 +16,58 @@ WORKDIR /app
 FROM base AS builder
 COPY package*.json ./
 COPY tsconfig.json ./
-# Installera alla beroenden (även dev)
-RUN npm ci
+# Installera alla beroenden
+RUN npm ci --legacy-peer-deps
 
 COPY prisma ./prisma
-RUN npx prisma generate
+RUN mkdir -p /app/docs/architecture && DATABASE_URL=postgresql://localhost npx prisma generate
 
 # Kopiera källkod
 COPY . .
 
-# Bygg frontend (Remix)
+# Bygg frontend (Vite)
 RUN npm run build
-# Bygg backend (tsc) if needed, if it has a separate build script. Otherwise, omit.
 
-# Steg 2: Produktionsmiljö
-FROM base AS production
+# Steg 2: Produktionsbas (gemensam för alla slutliga images)
+FROM base AS production-base
 ENV NODE_ENV=production
 
 COPY package*.json ./
-# tsx är en runtime-executor för TypeScript-servern och krävs i produktion.
-# npm ci installerar alla beroenden inklusive tsx (se package.json dependencies).
-RUN npm ci
+# Installera endast produktionsberoenden
+RUN npm ci --omit=dev --legacy-peer-deps
 
-# Kopiera Prisma och generera klient
+# Kopiera byggartefakter och källkod som behövs i produktion
 COPY prisma ./prisma
-RUN npx prisma generate
-
-# Kopiera det byggda från builder
-COPY --from=builder /app/build ./build
+COPY --from=builder /app/node_modules/.prisma ./node_modules/.prisma
+COPY --from=builder /app/node_modules/@prisma/client ./node_modules/@prisma/client
+COPY --from=builder /app/dist ./dist
 COPY --from=builder /app/server ./server
+COPY --from=builder /app/src ./src
+COPY --from=builder /app/app ./app
+COPY --from=builder /app/config ./config
+COPY --from=builder /app/types ./types
+COPY --from=builder /app/stubs ./stubs
+COPY --from=builder /app/*.ts ./
 
 # Sätt non-root ägare och byt användare
 RUN chown -R appuser:appgroup /app
 USER appuser
 
-EXPOSE 3000
-
+# --- Slutsteg: Webbserver (default) ---
+# Cloud Run sätter PORT=8080; lokalt dev använder PORT=8787 via .env
+FROM production-base AS web
+ENV PORT=8080
+EXPOSE 8080
 CMD ["npm", "start"]
+
+# --- Slutsteg: GDPR Worker ---
+FROM production-base AS gdpr-worker
+CMD ["npx", "tsx", "server/workers/gdpr-maintenance-worker.ts"]
+
+# --- Slutsteg: Search Indexer Worker ---
+FROM production-base AS search-indexer-worker
+CMD ["npx", "tsx", "server/workers/search-indexer-worker.ts"]
+
+# --- Slutsteg: Domstol RSS Worker ---
+FROM production-base AS domstol-rss-worker
+CMD ["npx", "tsx", "server/workers/domstol-rss-worker.ts"]

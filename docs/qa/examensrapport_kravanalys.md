@@ -5,7 +5,7 @@
 
 ## 1. Inledning
 
-Denna sammanställning besvarar frågeställningen kring hur svenska kommuner utformar sina kravspecifikationer för mellanlagring av avfall. Analysen baseras på data exporterad från _Miljöbeslut.se_ (Examensmatris).
+Denna sammanställning besvarar frågeställningen kring hur svenska kommuner utformar sina kravspecifikationer för mellanlagring av avfall. Analysen baseras på data exporterad från _Miljobeslut.se_ (utvecklingsmatris).
 
 ## 2. Frågeställning
 
@@ -57,4 +57,4 @@ Vid etablering i ny kommun bör ansökan proaktivt adressera:
 
 ---
 
-_Genererad från Examensmatris_Sammanställning_2026-03-02.xlsx_
+_Genererad från utvecklingsmatris_Sammanställning_2026-03-02.xlsx_

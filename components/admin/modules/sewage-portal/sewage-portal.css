@@ -1,0 +1,274 @@
+/* Sewage Portal View Styles */
+
+.sewage-portal-view {
+  background: #ffffff;
+}
+
+/* Progress Bar */
+.sewage-progress-bar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: var(--spacing-2xl);
+  padding: var(--spacing-lg);
+  background: #f9f9f9;
+  border-radius: 8px;
+  border: 1px solid #e0e0e0;
+}
+
+.sewage-progress-step {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  position: relative;
+  flex: 1;
+}
+
+.sewage-progress-icon {
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: #e0e0e0;
+  color: #999;
+  margin-bottom: var(--spacing-sm);
+  border: 2px solid #ddd;
+}
+
+.sewage-progress-icon.active {
+  background: #0066cc;
+  color: white;
+  border-color: #0066cc;
+  box-shadow: 0 0 0 4px rgba(0, 102, 204, 0.1);
+}
+
+.sewage-progress-icon.done {
+  background: #4caf50;
+  color: white;
+  border-color: #4caf50;
+}
+
+.sewage-progress-label {
+  font-size: 12px;
+  text-align: center;
+  font-weight: 500;
+  color: #666;
+}
+
+.sewage-progress-connector {
+  position: absolute;
+  top: 20px;
+  left: 50%;
+  width: 100%;
+  height: 2px;
+  background: #ddd;
+  transform: translateX(50%);
+  z-index: -1;
+}
+
+/* Step Container */
+.sewage-step-container {
+  animation: fadeIn 0.3s ease-in;
+}
+
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* Form Styles */
+.sewage-form {
+  background: #f9f9f9;
+  padding: var(--spacing-xl);
+  border-radius: 8px;
+  margin-bottom: var(--spacing-xl);
+}
+
+.sewage-form-group {
+  margin-bottom: var(--spacing-lg);
+}
+
+.sewage-form-group label {
+  display: block;
+  font-weight: 600;
+  margin-bottom: var(--spacing-sm);
+  color: #333;
+  font-size: 14px;
+}
+
+.sewage-form-group input,
+.sewage-form-group select {
+  width: 100%;
+  padding: var(--spacing-md);
+  border: 1px solid #ddd;
+  border-radius: 4px;
+  font-size: 14px;
+  font-family: inherit;
+  transition: border-color 0.2s;
+}
+
+.sewage-form-group input:focus,
+.sewage-form-group select:focus {
+  outline: none;
+  border-color: #0066cc;
+  box-shadow: 0 0 0 3px rgba(0, 102, 204, 0.1);
+}
+
+.sewage-form-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--spacing-lg);
+}
+
+@media (max-width: 768px) {
+  .sewage-form-row {
+    grid-template-columns: 1fr;
+  }
+}
+
+.sewage-pe-input {
+  position: relative;
+}
+
+.sewage-pe-helper {
+  position: absolute;
+  right: var(--spacing-md);
+  top: 50%;
+  transform: translateY(-50%);
+  color: #999;
+  font-size: 12px;
+  pointer-events: none;
+}
+
+/* Buttons */
+.sewage-button {
+  padding: var(--spacing-md) var(--spacing-lg);
+  border: none;
+  border-radius: 4px;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s;
+  display: inline-flex;
+  align-items: center;
+  gap: var(--spacing-sm);
+}
+
+.sewage-button-primary {
+  background: #0066cc;
+  color: white;
+}
+
+.sewage-button-primary:hover {
+  background: #0052a3;
+  box-shadow: 0 2px 8px rgba(0, 102, 204, 0.2);
+}
+
+.sewage-button-primary:active {
+  transform: scale(0.98);
+}
+
+.sewage-button-secondary {
+  background: #f0f0f0;
+  color: #333;
+  border: 1px solid #ddd;
+}
+
+.sewage-button-secondary:hover {
+  background: #e8e8e8;
+}
+
+/* Info Box */
+.sewage-info-box {
+  display: flex;
+  gap: var(--spacing-lg);
+  padding: var(--spacing-lg);
+  background: #e8f4fd;
+  border-left: 4px solid #0066cc;
+  border-radius: 4px;
+  margin-top: var(--spacing-xl);
+}
+
+.sewage-info-box strong {
+  color: #0066cc;
+  display: block;
+  margin-bottom: var(--spacing-sm);
+}
+
+.sewage-info-box ul {
+  margin: var(--spacing-md) 0;
+  padding-left: var(--spacing-lg);
+}
+
+.sewage-info-box li {
+  margin: var(--spacing-sm) 0;
+  color: #333;
+}
+
+/* Analysis Results */
+.sewage-analysis-results {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+  gap: var(--spacing-lg);
+  margin-bottom: var(--spacing-2xl);
+}
+
+.sewage-result-card {
+  background: #f9f9f9;
+  padding: var(--spacing-lg);
+  border-radius: 8px;
+  border: 1px solid #e0e0e0;
+}
+
+.sewage-result-card h3 {
+  margin: 0 0 var(--spacing-md) 0;
+  color: #333;
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.sewage-result-card p {
+  margin: var(--spacing-sm) 0;
+  color: #666;
+  font-size: 13px;
+}
+
+/* Confirmation */
+.sewage-confirmation {
+  text-align: center;
+  padding: var(--spacing-2xl);
+}
+
+.sewage-confirmation h2 {
+  color: #4caf50;
+  margin: var(--spacing-lg) 0;
+  font-size: 24px;
+}
+
+.sewage-confirmation p {
+  color: #666;
+  margin: var(--spacing-md) 0;
+  font-size: 14px;
+}
+
+.sewage-reference {
+  font-weight: 600;
+  color: #0066cc;
+  font-size: 16px;
+  font-family: monospace;
+}
+
+.sewage-timeline {
+  background: #f0f8ff;
+  padding: var(--spacing-md);
+  border-radius: 4px;
+  margin: var(--spacing-lg) 0;
+}

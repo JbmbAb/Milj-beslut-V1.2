@@ -25,7 +25,11 @@ const KpiCard: React.FC<{ label: string; value: string }> = ({ label, value }) =
 
 export const ExternalHealthPanel: React.FC<{ report: ExternalHealthReport | null }> = ({ report }) => {
   if (!report) {
-    return <p className="mt-3 text-sm text-slate-500">Klicka "Extern API health" for att kontrollera integrationerna live.</p>;
+    return (
+      <p className="mt-3 text-sm text-slate-500">
+        Klicka "Extern API health" for att kontrollera integrationerna live.
+      </p>
+    );
   }
 
   return (
@@ -41,14 +45,19 @@ export const ExternalHealthPanel: React.FC<{ report: ExternalHealthReport | null
 
       <p className="mt-3 text-xs text-slate-500">
         Kontrollerad: {new Date(report.checkedAt).toLocaleString('sv-SE')} · Overgripande status:{' '}
-        <span className={`font-black ${report.overall === 'ok' ? 'text-emerald-700' : report.overall === 'degraded' ? 'text-amber-700' : 'text-red-700'}`}>
+        <span
+          className={`font-black ${report.overall === 'ok' ? 'text-emerald-700' : report.overall === 'degraded' ? 'text-amber-700' : 'text-red-700'}`}
+        >
           {report.overall}
         </span>
       </p>
 
       <div className="mt-4 flex flex-wrap gap-2">
         {report.categories.map((category) => (
-          <span key={category.name} className="rounded-full border border-slate-200 bg-slate-50 px-3 py-1 text-[11px] font-bold text-slate-600">
+          <span
+            key={category.name}
+            className="rounded-full border border-slate-200 bg-slate-50 px-3 py-1 text-[11px] font-bold text-slate-600"
+          >
             {category.name}: {category.healthy}/{category.total} healthy
           </span>
         ))}
@@ -74,17 +83,19 @@ export const ExternalHealthPanel: React.FC<{ report: ExternalHealthReport | null
                 </td>
                 <td className="px-3 py-2">
                   <div className="flex flex-wrap gap-2">
-                    <span className={`rounded-full px-2 py-0.5 text-[10px] font-black uppercase ${statusPillClass[check.status]}`}>
+                    <span
+                      className={`rounded-full px-2 py-0.5 text-[10px] font-black uppercase ${statusPillClass[check.status]}`}
+                    >
                       {check.status}
                     </span>
-                    <span className={`rounded-full px-2 py-0.5 text-[10px] font-black uppercase ${modePillClass[check.mode]}`}>
+                    <span
+                      className={`rounded-full px-2 py-0.5 text-[10px] font-black uppercase ${modePillClass[check.mode]}`}
+                    >
                       {check.mode}
                     </span>
                   </div>
                 </td>
-                <td className="px-3 py-2 text-slate-600">
-                  {check.activation || '-'}
-                </td>
+                <td className="px-3 py-2 text-slate-600">{check.activation || '-'}</td>
                 <td className="px-3 py-2 text-slate-700">
                   {check.detail}
                   {typeof check.responseCode === 'number' && (
@@ -92,7 +103,13 @@ export const ExternalHealthPanel: React.FC<{ report: ExternalHealthReport | null
                   )}
                 </td>
                 <td className="px-3 py-2 text-slate-500">
-                  {check.endpoint ? <span className="block max-w-[280px] truncate" title={check.endpoint}>{check.endpoint}</span> : '-'}
+                  {check.endpoint ? (
+                    <span className="block max-w-[280px] truncate" title={check.endpoint}>
+                      {check.endpoint}
+                    </span>
+                  ) : (
+                    '-'
+                  )}
                 </td>
               </tr>
             ))}
@@ -110,15 +127,21 @@ interface ExternalHealthSectionProps {
   onLoad: () => void;
 }
 
-const ExternalHealthSection: React.FC<ExternalHealthSectionProps> = ({ externalHealth, busy, token, onLoad }) => {
+const ExternalHealthSection: React.FC<ExternalHealthSectionProps> = ({
+  externalHealth,
+  busy,
+  token,
+  onLoad,
+}) => {
   return (
     <section className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
       <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
         <div>
           <p className="text-[11px] uppercase tracking-[0.18em] text-slate-500 font-black">Extern health</p>
-          <h3 className="text-lg font-black text-slate-900">Livebild av externa API:er och fallback-floden</h3>
+          <h3 className="text-lg font-black text-slate-900">Livebild av externa API:er</h3>
           <p className="mt-1 text-xs text-slate-500">
-            Healthy betyder verifierad liveprobe. Degraded betyder konfigurerad eller fallback, men inte fullt verifierad.
+            Healthy betyder verifierad liveprobe. Degraded betyder att källan kräver åtgärd innan resultat
+            används.
           </p>
         </div>
         <button

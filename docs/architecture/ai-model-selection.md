@@ -7,12 +7,12 @@ baserat på kontextfönsterstorlek och modellegenskaper.
 
 ## TL;DR – snabbval
 
-| Uppgift | Verktyg | Modell |
-|---|---|---|
-| Daglig kodgenerering (1–10 filer) | Cursor / Copilot Agent | Claude 3.5 Sonnet |
-| Helikopteranalys av hela kodbasen | Google AI Studio | Gemini 1.5 Pro |
-| Komplex logisk bugg i GIS/AI-motor | OpenAI web | o1 / o3-mini |
-| CI/CD, tester, commit | GitHub Copilot Agent | – (primär, se AGENTS.md) |
+| Uppgift                            | Verktyg                | Modell                   |
+| ---------------------------------- | ---------------------- | ------------------------ |
+| Daglig kodgenerering (1–10 filer)  | Cursor / Copilot Agent | Claude 3.5 Sonnet        |
+| Helikopteranalys av hela kodbasen  | Google AI Studio       | Gemini 1.5 Pro           |
+| Komplex logisk bugg i GIS/AI-motor | OpenAI web             | o1 / o3-mini             |
+| CI/CD, tester, commit              | GitHub Copilot Agent   | – (primär, se AGENTS.md) |
 
 ---
 
@@ -21,12 +21,14 @@ baserat på kontextfönsterstorlek och modellegenskaper.
 **Kontextfönster:** upp till **2 000 000 tokens** (~100 000+ rader kod)
 
 Välj Gemini 1.5 Pro när du behöver:
+
 - Läsa **hela backend-mappen** + alla markdown-dokument + databasschemat samtidigt
 - Identifiera **glapp mellan dokumentation och faktisk kod**
 - Göra en fullständig **funktions- och täckningsanalys** (se prompt-mall nedan)
 - Analysera **migrationshistorik** mot nuvarande schema
 
 **Hur du använder det:**
+
 1. Kör `npx repomix` i repots root (se `repomix.config.json`)
 2. Öppna [Google AI Studio](https://aistudio.google.com)
 3. Välj modell: **Gemini 1.5 Pro**
@@ -42,12 +44,14 @@ Välj Gemini 1.5 Pro när du behöver:
 **Kontextfönster:** **200 000 tokens** (~10 000 rader)
 
 Välj Claude 3.5 Sonnet när du behöver:
+
 - Förstå hur **5–10 komplexa filer** interagerar (repositories + services)
 - Generera ny källkod med hög kvalitet
 - Implementera en spec från Figma Make eller AI Studio
 - Snabb refactoring av en specifik modul
 
 **Hur du använder det i Cursor:**
+
 ```
 1. Öppna Cursor-inställningar → Model → välj claude-3-5-sonnet-20241022
 2. Aktivera: Settings → Features → Codebase Indexing (ON)
@@ -59,7 +63,7 @@ Välj Claude 3.5 Sonnet när du behöver:
    - @AGENTS.md  → AI-direktiv och flödesregler
 ```
 
-**Tänk på:** Claude 3.5 Sonnet är bättre på att generera *korrekt* kod än att hålla hela arkitekturen i minnet. Kombinera med `@Codebase` för bästa resultat.
+**Tänk på:** Claude 3.5 Sonnet är bättre på att generera _korrekt_ kod än att hålla hela arkitekturen i minnet. Kombinera med `@Codebase` för bästa resultat.
 
 ---
 
@@ -68,11 +72,13 @@ Välj Claude 3.5 Sonnet när du behöver:
 **Kontextfönster:** 128 000 tokens (o1), 200 000 tokens (o1-pro)
 
 Välj o1/o3-mini när du behöver:
+
 - Lösa en **extremt svår logisk bugg** i GIS-analysmotor, embedding-pipeline eller vektorsökning
 - Verifiera ett komplext **PostgreSQL-index** eller Prisma-query
 - Analysera ett race condition i `searchWorker.ts` eller `errorTrackingService.ts`
 
 **Hur du använder det:**
+
 - Direkt i [ChatGPT](https://chatgpt.com) med modell `o1` eller `o3-mini`
 - Klistra in den relevanta filen + felmeddelandet
 

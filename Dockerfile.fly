@@ -1,0 +1,74 @@
+# Dockerfile.fly — produktionsimage för deploy på Fly.io / Railway.
+# Baseras på node:22-alpine. Bygger Vite-frontend till dist/ och kör
+# Express-servern via tsx från server/index.ts.
+#
+# Byggs via:
+#   docker build -f Dockerfile.fly -t miljobeslut:latest .
+# eller via `flyctl deploy --dockerfile Dockerfile.fly`.
+
+FROM node:22-alpine AS base
+RUN apk update && apk add --no-cache openssl curl
+WORKDIR /app
+
+# ─── Build stage ──────────────────────────────────────────────────────────────
+FROM base AS builder
+
+COPY package*.json ./
+COPY tsconfig.json ./
+COPY prisma ./prisma
+
+# Installera alla dev + prod deps så Vite + TypeScript kan bygga.
+RUN npm ci --no-audit --prefer-offline
+
+RUN npx prisma generate
+
+COPY . .
+
+# Vite-build producerar dist/
+RUN npm run build
+
+# ─── Production stage ─────────────────────────────────────────────────────────
+FROM base AS production
+
+ENV NODE_ENV=production
+ENV PORT=8080
+
+RUN addgroup -S appgroup && adduser -S appuser -G appgroup
+
+COPY package*.json ./
+COPY tsconfig.json ./
+
+# Installera PROD-deps + tsx (runtime TS-executor).
+# tsx ligger i devDependencies men behövs för `node --import tsx server/index.ts`.
+RUN npm ci --omit=dev --no-audit --prefer-offline \
+  && npm install --no-save tsx@4 \
+  && npm cache clean --force
+
+# Prisma-klienten behöver genereras i produktionsbilden också eftersom den
+# är platform-specifik (binärerna matchar alpine).
+COPY prisma ./prisma
+RUN npx prisma generate
+
+# Kopiera server-källan (kör via tsx — ingen tsc-byggd dist behövs).
+COPY --from=builder /app/server ./server
+# Kopiera sharedsource som servern importerar.
+COPY --from=builder /app/src ./src
+COPY --from=builder /app/services ./services
+COPY --from=builder /app/types.ts ./types.ts
+COPY --from=builder /app/db.server.ts ./db.server.ts
+COPY --from=builder /app/constants.ts ./constants.ts
+# Kopiera SPA-byggresultat.
+COPY --from=builder /app/dist ./dist
+# Kopiera scripts (för on-demand db:spatial, smoketest i containern).
+COPY --from=builder /app/scripts ./scripts
+
+RUN chown -R appuser:appgroup /app
+USER appuser
+
+EXPOSE 8080
+
+# Healthcheck: /health endpoint finns i createApp.ts (rad 67+).
+HEALTHCHECK --interval=30s --timeout=5s --retries=3 \
+  CMD curl -fsS http://localhost:${PORT:-8080}/health || exit 1
+
+CMD ["node", "--import", "tsx", "server/index.ts"]

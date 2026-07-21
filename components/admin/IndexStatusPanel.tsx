@@ -12,23 +12,39 @@ const IndexStatusPanel: React.FC<IndexStatusPanelProps> = ({ searchStatus }) => 
 
   return (
     <section className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
-      <p className="text-[11px] uppercase tracking-[0.18em] text-slate-500 font-black">Globalt Index-status</p>
+      <p className="text-[11px] uppercase tracking-[0.18em] text-slate-500 font-black">
+        Globalt Index-status
+      </p>
       <div className="mt-6 flex flex-wrap gap-8">
         <div className="flex flex-col">
-          <span className="text-3xl font-black text-slate-900">{summary.documentsTotal.toLocaleString('sv-SE')}</span>
-          <span className="text-[10px] font-black uppercase tracking-widest text-slate-400">Totalt dokument</span>
+          <span className="text-3xl font-black text-slate-900">
+            {summary.documentsTotal.toLocaleString('sv-SE')}
+          </span>
+          <span className="text-[10px] font-black uppercase tracking-widest text-slate-400">
+            Totalt dokument
+          </span>
         </div>
         <div className="flex flex-col">
-          <span className="text-3xl font-black text-teal-600">{summary.embeddedChunks.toLocaleString('sv-SE')}</span>
-          <span className="text-[10px] font-black uppercase tracking-widest text-teal-500">Vektoriserade Chunks</span>
+          <span className="text-3xl font-black text-teal-600">
+            {summary.embeddedChunks.toLocaleString('sv-SE')}
+          </span>
+          <span className="text-[10px] font-black uppercase tracking-widest text-teal-500">
+            Vektoriserade Chunks
+          </span>
         </div>
         <div className="flex flex-col">
           <span className="text-3xl font-black text-indigo-600">{summary.chunkEmbeddingCoveragePct}%</span>
-          <span className="text-[10px] font-black uppercase tracking-widest text-indigo-500">Täckningsgrad</span>
+          <span className="text-[10px] font-black uppercase tracking-widest text-indigo-500">
+            Täckningsgrad
+          </span>
         </div>
         <div className="flex flex-col">
-          <span className="text-3xl font-black text-amber-600">{summary.jobsPending + summary.jobsRunning}</span>
-          <span className="text-[10px] font-black uppercase tracking-widest text-amber-500">Aktiva kö-jobb</span>
+          <span className="text-3xl font-black text-amber-600">
+            {summary.jobsPending + summary.jobsRunning}
+          </span>
+          <span className="text-[10px] font-black uppercase tracking-widest text-amber-500">
+            Aktiva kö-jobb
+          </span>
         </div>
       </div>
 

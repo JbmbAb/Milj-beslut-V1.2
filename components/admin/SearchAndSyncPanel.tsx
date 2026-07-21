@@ -17,8 +17,12 @@ export const SearchInfo: React.FC<{ status: SearchStatusResponse | null }> = ({ 
           {status.summary && (
             <div className="mt-2 border-t border-slate-200 pt-2 text-[10px] text-slate-400 space-y-0.5">
               <p>Totalt: {status.summary.documentsTotal}</p>
-              <p>Embedded: {status.summary.embeddedDocuments} ({status.summary.chunkEmbeddingCoveragePct}%)</p>
-              <p>Chunks: {status.summary.totalChunks} (E: {status.summary.embeddedChunks})</p>
+              <p>
+                Embedded: {status.summary.embeddedDocuments} ({status.summary.chunkEmbeddingCoveragePct}%)
+              </p>
+              <p>
+                Chunks: {status.summary.totalChunks} (E: {status.summary.embeddedChunks})
+              </p>
             </div>
           )}
         </div>
@@ -32,7 +36,11 @@ export const SearchInfo: React.FC<{ status: SearchStatusResponse | null }> = ({ 
             status.jobs.map((j) => (
               <div key={j.status} className="flex items-center justify-between text-xs">
                 <span className="font-medium text-slate-600">{j.status}</span>
-                <span className={`font-black ${j.status === 'done' ? 'text-emerald-600' : j.status === 'failed' ? 'text-red-500' : 'text-amber-600'}`}>{j.count}</span>
+                <span
+                  className={`font-black ${j.status === 'done' ? 'text-emerald-600' : j.status === 'failed' ? 'text-red-500' : 'text-amber-600'}`}
+                >
+                  {j.count}
+                </span>
               </div>
             ))
           )}
@@ -70,27 +78,37 @@ interface SearchAndSyncPanelProps {
 }
 
 const SearchAndSyncPanel: React.FC<SearchAndSyncPanelProps> = ({
-  query, setQuery,
-  searchMode, setSearchMode,
-  topK, setTopK,
-  strictEvidence, setStrictEvidence,
-  filters, setFilters,
+  query,
+  setQuery,
+  searchMode,
+  setSearchMode,
+  topK,
+  setTopK,
+  strictEvidence,
+  setStrictEvidence,
+  filters,
+  setFilters,
   projectId,
   busy,
   token,
   runSearch,
   syncRegistry,
   syncStatus,
-  searchStatus
+  searchStatus,
 }) => {
   return (
     <section className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
       <div className="flex flex-col gap-4">
         <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
           <div>
-            <p className="text-[11px] uppercase tracking-[0.18em] text-slate-500 font-black">AI Sök & Webbindexering</p>
+            <p className="text-[11px] uppercase tracking-[0.18em] text-slate-500 font-black">
+              AI Sök & Webbindexering
+            </p>
             <h3 className="text-lg font-black text-slate-900">Hybrid sökning i dokument & krav</h3>
-            <p className="mt-1 text-xs text-slate-500">Kör semantisk (AI) eller lexikal sökning i databasen. Kan köras mot specifikt projekt eller globalt för admin.</p>
+            <p className="mt-1 text-xs text-slate-500">
+              Kör semantisk (AI) eller lexikal sökning i databasen. Kan köras mot specifikt projekt eller
+              globalt för admin.
+            </p>
           </div>
           <button
             data-testid="admin-sync-button"
@@ -98,7 +116,7 @@ const SearchAndSyncPanel: React.FC<SearchAndSyncPanelProps> = ({
             disabled={Boolean(busy) || syncStatus === 'RUNNING' || !token}
             onClick={syncRegistry}
           >
-            {syncStatus === 'RUNNING' ? 'Synkar...' : 'Synka från miljöbeslut.se'}
+            {syncStatus === 'RUNNING' ? 'Synkar...' : 'Synka från Miljobeslut.se'}
           </button>
         </div>
 
@@ -147,14 +165,14 @@ const SearchAndSyncPanel: React.FC<SearchAndSyncPanelProps> = ({
               className="rounded-xl border border-slate-200 px-3 py-2 text-xs placeholder:text-slate-400"
               placeholder="Kommun-filter"
               value={filters.municipality || ''}
-              onChange={(e) => setFilters(prev => ({ ...prev, municipality: e.target.value || undefined }))}
+              onChange={(e) => setFilters((prev) => ({ ...prev, municipality: e.target.value || undefined }))}
             />
 
             <input
               className="rounded-xl border border-slate-200 px-3 py-2 text-xs placeholder:text-slate-400"
               placeholder="Avfallskod-filter"
               value={filters.wasteType || ''}
-              onChange={(e) => setFilters(prev => ({ ...prev, wasteType: e.target.value || undefined }))}
+              onChange={(e) => setFilters((prev) => ({ ...prev, wasteType: e.target.value || undefined }))}
             />
 
             <button
@@ -172,7 +190,8 @@ const SearchAndSyncPanel: React.FC<SearchAndSyncPanelProps> = ({
 
         {!projectId && (
           <div className="rounded-2xl border border-amber-200 bg-amber-50 p-3 text-xs text-amber-800">
-            <span className="font-black">ADMIN-LÄGE:</span> Sökning körs mot hela miljöbeslut-databasen (globalt).
+            <span className="font-black">ADMIN-LÄGE:</span> Sökning körs mot hela miljöbeslut-databasen
+            (globalt).
           </div>
         )}
       </div>

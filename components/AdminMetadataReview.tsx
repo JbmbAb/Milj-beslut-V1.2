@@ -57,6 +57,7 @@ const AdminMetadataReview: React.FC = () => {
   };
 
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     void fetchQueue();
   }, []);
 
@@ -130,13 +131,16 @@ const AdminMetadataReview: React.FC = () => {
   };
 
   if (loading) return <div className="p-10 font-bold text-slate-500">Laddar granskningskö...</div>;
-  if (error) return <div className="rounded-xl border border-red-200 bg-red-50 p-10 text-red-600">{error}</div>;
+  if (error)
+    return <div className="rounded-xl border border-red-200 bg-red-50 p-10 text-red-600">{error}</div>;
 
   return (
     <div className="space-y-6">
       <header className="flex justify-between items-end">
         <div>
-          <p className="text-[11px] font-black uppercase tracking-[0.18em] text-slate-400">Systemadministration</p>
+          <p className="text-[11px] font-black uppercase tracking-[0.18em] text-slate-400">
+            Systemadministration
+          </p>
           <h2 className="text-2xl font-black text-slate-900">Kvalitetssäkring av metadata</h2>
           <p className="mt-1 text-sm text-slate-500">
             Granska och åtgärda konflikter eller låg tillförlitlighet i extraherad data.
@@ -187,7 +191,9 @@ const AdminMetadataReview: React.FC = () => {
                   >
                     {item.queueType === 'DISAGREEMENT' ? 'Konflikt' : 'Låg tillförlitlighet'}
                   </span>
-                  <span className="text-xs text-slate-400">Skapad: {new Date(item.createdAt).toLocaleDateString('sv-SE')}</span>
+                  <span className="text-xs text-slate-400">
+                    Skapad: {new Date(item.createdAt).toLocaleDateString('sv-SE')}
+                  </span>
                 </div>
 
                 <div>

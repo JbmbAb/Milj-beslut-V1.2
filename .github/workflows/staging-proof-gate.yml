@@ -1,0 +1,56 @@
+name: Staging Proof Gate
+
+on:
+  pull_request:
+    types: [opened, edited, synchronize, reopened, ready_for_review]
+
+jobs:
+  staging-proof:
+    name: Require staging proof in PR
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: read
+    steps:
+      - name: Validate PR body contains staging proof
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const body = String(context.payload.pull_request?.body || '');
+
+            const hasStagingChecked = /- \[x\] I validated affected flow\(s\) in staging \(not local\)\./i.test(body);
+            const hasMocksOffChecked = /- \[x\] I verified mock\/demo flags are OFF in staging during validation\./i.test(body);
+            const hasNaChecked = /- \[x\] N\/A: this PR does not affect Lokaliseringsutredning, C-anmälan or Enskilt avlopp flows\./i.test(body);
+
+            const evidenceMatch = body.match(/Staging evidence links[\s\S]*?Validated scope:/i);
+            const scopeMatch = body.match(/Validated scope:[\s\S]*$/i);
+
+            const evidenceText = evidenceMatch ? evidenceMatch[0].replace(/Staging evidence links[\s\S]*?:/i, '').replace(/Validated scope:/i, '').trim() : '';
+            const scopeText = scopeMatch ? scopeMatch[0].replace(/Validated scope:/i, '').trim() : '';
+
+            const normalize = (value) =>
+              value
+                .split(/\r?\n/)
+                .map((line) => line.replace(/^\s*[-*]\s*/, '').trim())
+                .filter((line) => line.length > 0)
+                .join(' ')
+                .trim();
+
+            const hasEvidence = normalize(evidenceText).length > 2;
+            const hasScope = normalize(scopeText).length > 2;
+
+            if (hasNaChecked) {
+              if (!hasScope) {
+                core.setFailed('PR marked as N/A for staging proof, but "Validated scope" is empty. Add clear scope/justification.');
+              }
+              return;
+            }
+
+            if (!hasStagingChecked || !hasMocksOffChecked) {
+              core.setFailed('Missing mandatory staging checkboxes in PR template.');
+              return;
+            }
+
+            if (!hasEvidence || !hasScope) {
+              core.setFailed('Missing staging evidence link(s) or validated scope in PR body.');
+            }

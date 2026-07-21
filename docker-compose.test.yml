@@ -1,0 +1,18 @@
+services:
+  test-runner:
+    image: node:22-alpine
+    container_name: miljobeslut-test-runner
+    working_dir: /app
+    volumes:
+      - .:/app
+    environment:
+      - DATABASE_URL=postgresql://miljobeslut:password@db:5432/miljobeslut?sslmode=disable
+      - NODE_ENV=development
+    command: npm run smoke
+    networks:
+      - miljobeslut-net
+
+networks:
+  miljobeslut-net:
+    name: miljobeslut-platform-recovery_miljobeslut-net
+    external: true

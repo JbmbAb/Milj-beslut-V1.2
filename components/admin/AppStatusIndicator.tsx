@@ -16,10 +16,10 @@ const AppStatusIndicator: React.FC<AppStatusIndicatorProps> = ({ appStatus, hasA
         !appStatus
           ? 'border-slate-200 bg-slate-50 text-slate-500'
           : appStatus.overall === 'ok'
-          ? 'border-green-200 bg-green-50 text-green-800'
-          : appStatus.overall === 'degraded'
-          ? 'border-yellow-200 bg-yellow-50 text-yellow-800'
-          : 'border-red-200 bg-red-50 text-red-800'
+            ? 'border-green-200 bg-green-50 text-green-800'
+            : appStatus.overall === 'degraded'
+              ? 'border-yellow-200 bg-yellow-50 text-yellow-800'
+              : 'border-red-200 bg-red-50 text-red-800'
       }`}
     >
       {/* Pulsindikator */}
@@ -29,10 +29,10 @@ const AppStatusIndicator: React.FC<AppStatusIndicatorProps> = ({ appStatus, hasA
             !appStatus
               ? 'bg-slate-300'
               : appStatus.overall === 'ok'
-              ? 'animate-ping bg-green-500'
-              : appStatus.overall === 'degraded'
-              ? 'animate-ping bg-yellow-500'
-              : 'bg-red-500'
+                ? 'animate-ping bg-green-500'
+                : appStatus.overall === 'degraded'
+                  ? 'animate-ping bg-yellow-500'
+                  : 'bg-red-500'
           }`}
         />
         <span
@@ -40,10 +40,10 @@ const AppStatusIndicator: React.FC<AppStatusIndicatorProps> = ({ appStatus, hasA
             !appStatus
               ? 'bg-slate-300'
               : appStatus.overall === 'ok'
-              ? 'bg-green-500'
-              : appStatus.overall === 'degraded'
-              ? 'bg-yellow-500'
-              : 'bg-red-500'
+                ? 'bg-green-500'
+                : appStatus.overall === 'degraded'
+                  ? 'bg-yellow-500'
+                  : 'bg-red-500'
           }`}
         />
       </span>
@@ -53,16 +53,14 @@ const AppStatusIndicator: React.FC<AppStatusIndicatorProps> = ({ appStatus, hasA
         {!appStatus
           ? 'Kontrollerar appstatus…'
           : appStatus.overall === 'ok'
-          ? 'Appen är igång'
-          : appStatus.overall === 'degraded'
-          ? 'Appen är igång (degraderad)'
-          : 'Appen har fel'}
+            ? 'Appen är igång'
+            : appStatus.overall === 'degraded'
+              ? 'Appen är igång (degraderad)'
+              : 'Appen har fel'}
       </span>
 
       {/* Divider */}
-      {appStatus && (
-        <span className="hidden text-slate-300 md:inline">|</span>
-      )}
+      {appStatus && <span className="hidden text-slate-300 md:inline">|</span>}
 
       {/* DB-status */}
       {appStatus && (
@@ -88,7 +86,8 @@ const AppStatusIndicator: React.FC<AppStatusIndicatorProps> = ({ appStatus, hasA
       {/* Uptime */}
       {appStatus && (
         <span className="hidden lg:inline">
-          Uptime: {Math.floor(appStatus.app.uptimeSeconds / 3600)}h {Math.floor((appStatus.app.uptimeSeconds % 3600) / 60)}m
+          Uptime: {Math.floor(appStatus.app.uptimeSeconds / 3600)}h{' '}
+          {Math.floor((appStatus.app.uptimeSeconds % 3600) / 60)}m
         </span>
       )}
 

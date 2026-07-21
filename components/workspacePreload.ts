@@ -4,39 +4,38 @@ import { MODE_CARDS } from './workspaceModes';
 const loadProjectWorkspace = () => import('./ProjectWorkspace');
 const loadStandaloneWorkspace = () => import('./StandaloneWorkspace');
 const loadExecutiveSummary = () => import('./ExecutiveSummary');
-const loadPermitPortalView = () => import('./PermitPortalView');
-const loadPermitPortalMapPanel = () => import('./PermitPortalMapPanel');
 const loadApplicationWizard = () => import('./ApplicationWizard');
 const loadGisRiskModule = () => import('./GisRiskModule');
 const loadAdminSearchConsole = () => import('./AdminSearchConsole');
 const loadAdminSessionConsole = () => import('./admin/AdminSessionConsole');
 const loadAdminSearchPanelView = () => import('./admin/AdminSearchPanelView');
-const loadMvpDemoInterface = () => import('./MvpDemoInterface');
+const loadCoreWorkflowView = () => import('./CoreWorkflowView');
 
 function needsProjectStructure(mode: InterfaceMode, activeTab: string): boolean {
+  const normalizedMode = mode === 'PERMIT_PORTAL' ? 'Core_WORKFLOW' : mode;
+
   if (activeTab === 'guide') return true;
   return (
-    mode === 'LOGISTICS_MARKET' ||
-    mode === 'PERMIT_PORTAL' ||
-    mode === 'PROJECT_MANAGER' ||
-    mode === 'COMPLIANCE_AUDIT'
+    normalizedMode === 'LOGISTICS_MARKET' ||
+    normalizedMode === 'PROJECT_MANAGER' ||
+    normalizedMode === 'COMPLIANCE_AUDIT'
   );
 }
 
 function preloadDefaultView(mode: InterfaceMode): Promise<unknown> {
-  switch (mode) {
+  const normalizedMode = mode === 'PERMIT_PORTAL' ? 'Core_WORKFLOW' : mode;
+
+  switch (normalizedMode) {
     case 'LOGISTICS_MARKET':
       return loadExecutiveSummary();
-    case 'PERMIT_PORTAL':
-      return Promise.all([loadPermitPortalView(), loadPermitPortalMapPanel()]);
     case 'PROJECT_MANAGER':
       return loadApplicationWizard();
     case 'COMPLIANCE_AUDIT':
       return loadGisRiskModule();
     case 'ADMIN_CONSOLE':
       return Promise.all([loadAdminSearchConsole(), loadAdminSessionConsole(), loadAdminSearchPanelView()]);
-    case 'MVP_WORKFLOW':
-      return loadMvpDemoInterface();
+    case 'Core_WORKFLOW':
+      return loadCoreWorkflowView();
     default:
       return Promise.resolve();
   }

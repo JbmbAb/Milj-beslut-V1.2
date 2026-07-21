@@ -14,15 +14,15 @@
 2. De kvarstar i checklistan med ordinarie status, men ska inte driva implementation i detta pass.
 3. For blockers till "Fardig saljbar produkt" i denna korning ignoreras avtalssparrade BankID/Lantmateriet-punkter.
 
-## MVP-notering (2026-03-13)
+## Core-notering (2026-03-13)
 
 1. Ovriga publika UI-korrigeringar ar stangda i den senaste korningen.
-2. BankID kvarstar som sista oppna punkt innan MVP-lansering.
+2. BankID kvarstar som sista oppna punkt innan Core-lansering.
 3. Human in the loop kvarstar som tvingande princip aven efter BankID-aktivering.
 
 ## Prioriteringsordning
 
-1. `P0` MVP-karna: Ansokningsportal + Projektledning + sakerhetsgrunder.
+1. `P0` Core-karna: Ansokningsportal + Projektledning + sakerhetsgrunder.
 2. `P1` V2 Logistik: fraktflode, korjournal, LIMS, dispatch-adapter.
 3. `P2` V2.1 Gronkoll + kommersialisering: bankerapporter, taxonomi, driftbar/saljbar paketering.
 
@@ -30,7 +30,7 @@
 
 | #   | Pri | Funktion och syfte                                                     | Status  | Evidens (`path:line` + `test/ref`)                                                                                                                                                                                                | Blockerare                                                       |
 | --- | --- | ---------------------------------------------------------------------- | ------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------- |
-| 1   | P0  | Scope last enligt affarsplanens MVP-avgransning                        | KLAR    | `docs/qa/mvp-scope-lock.md:1`; `ref:MVP_SCOPE_LOCK_V1_2026-03-02`                                                                                                                                                                 | -                                                                |
+| 1   | P0  | Scope last enligt affarsplanens Core-avgransning                       | KLAR    | `docs/qa/core-scope-lock.md:1`; `ref:Core_SCOPE_LOCK_V1_2026-03-02`                                                                                                                                                               | -                                                                |
 | 2   | P0  | Human-in-the-loop som tvingande princip                                | KLAR    | `services/projectStructure.ts:1025`, `services/projectStructure.ts:1106`; `tests/unit/projectStructure.test.ts:153` (`T2`)                                                                                                        | -                                                                |
 | 3   | P0  | RAG med strict evidence                                                | KLAR    | `server/services/searchService.ts:824`, `server/services/searchService.ts:948`, `server/secureApi.express.ts:388`; `tests/integration/api.integration.test.ts:226`, `tests/integration/api.integration.test.ts:282` (`T3`)        | -                                                                |
 | 4   | P0  | Kallhanvisningsmotor med citat/hover                                   | KLAR    | `components/AdminSearchConsole.tsx:984`, `components/AdminSearchConsole.tsx:985`, `server/services/searchService.ts:925`; `tests/integration/api.integration.test.ts:226`, `tests/integration/api.integration.test.ts:287` (`T3`) | -                                                                |

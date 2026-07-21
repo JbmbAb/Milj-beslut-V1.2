@@ -1,6 +1,7 @@
 # Outlook Triage: Operativt Underlag
 
 ## 1. Arbetsordning
+
 Syfte: skydda tidskritiska handlingar, hålla handläggardialogen fungerande och bygga en användbar databas för fortsatt analys.
 
 Daglig arbetsordning:
@@ -42,6 +43,7 @@ Operativ princip:
 ## 2. Tre mejlmallar
 
 ### A. Svar på avgiftsmejl
+
 Hej,
 
 Tack för återkopplingen.
@@ -54,6 +56,7 @@ Vänliga hälsningar,
 Jimmy Bruce
 
 ### B. Svar på fråga om syfte eller återkoppling
+
 Hej,
 
 Tack för ert svar och för att ni återkopplar.
@@ -68,6 +71,7 @@ Vänliga hälsningar,
 Jimmy Bruce
 
 ### C. Standardiserad ny begäran
+
 Hej,
 
 Jag arbetar med en sammanställning av hur C-anmälningar för mellanlagring av avfall och liknande verksamheter hanteras i praktiken i olika kommuner.
@@ -84,6 +88,7 @@ Jimmy Bruce
 ## 3. Slutlig CSV-kolumnlista
 
 ### Basidentitet
+
 - `TriageRunId`
 - `FolderPath`
 - `EntryID`
@@ -96,6 +101,7 @@ Jimmy Bruce
 - `Subject`
 
 ### Innehåll och struktur
+
 - `HasAttachments`
 - `AttachmentCount`
 - `AttachmentTypes`
@@ -106,6 +112,7 @@ Jimmy Bruce
 - `Keywords`
 
 ### Triage och risk
+
 - `NeedsFeedback`
 - `FeeMentioned`
 - `TimeSensitive`
@@ -117,6 +124,7 @@ Jimmy Bruce
 - `CategorySuggestion`
 
 ### Nya kolumner som bör till för avvikande mejl
+
 - `ResponseType`
 - `IsMunicipalSender`
 - `IsBulkMail`
@@ -138,6 +146,7 @@ Jimmy Bruce
 - `ThreadRootId`
 
 ### Rekommenderade värden i `ResponseType`
+
 - `material_mottaget`
 - `material_via_lank`
 - `avgift`
@@ -152,41 +161,36 @@ Jimmy Bruce
 
 Filer som jämförts:
 
-- `C:\Users\jimmy\Desktop\OutlookExport\manifest.csv`
-- `C:\Users\jimmy\Desktop\OutlookExport\outlook_email_triage_report.csv`
-- `C:\Users\jimmy\Desktop\OutlookExport\outlook_email_triage_actionable_2026-03-07T09-29-13.csv`
-- `C:\Users\jimmy\Desktop\OutlookExport\outlook_email_triage_actionable_2026-03-07T09-41-31.csv`
+- `C:\Users\jimmy\Desktop\OutlookExport\manifest.csv` (rådata)
+- `C:\Users\jimmy\Desktop\OutlookExport\outlook_email_triage_report.csv` (huvudfil för triage)
+- `C:\Users\jimmy\Desktop\OutlookExport\outlook_email_triage_actionable_2026-03-07T09-29-13.csv` (urval)
 
 ### Faktiska skillnader
 
 `manifest.csv`
+
 - 2838 rader
 - 8 kolumner
 - rå export/loggnivå
 
 `outlook_email_triage_report.csv`
+
 - 1044 rader
 - 25 kolumner
 - triagefil med prioritering, länkar, bilagor och riskindikatorer
 
 `outlook_email_triage_actionable_2026-03-07T09-29-13.csv`
+
 - 137 rader
 - 25 kolumner
-
-`outlook_email_triage_actionable_2026-03-07T09-41-31.csv`
-- 137 rader
-- 25 kolumner
-
-Jämförelse mellan de två actionable-filerna:
-- samma antal rader
-- samma kolumner
-- inga skillnader i `EntryID`
 
 Slutsats:
-- de två actionable-filerna är i praktiken identiska
-- de utgör ingen ny dataversion, bara samma urval exporterad två gånger
+
+- `outlook_email_triage_report.csv` är den kompletta arbetsfilen.
+- Den "actionable"-filen är ett filtrerat urval från huvudfilen. Flera exporter av denna fil var identiska och tillförde ingen ny information.
 
 ### Faktiska observationer i `outlook_email_triage_report.csv`
+
 - `P1`: 529 rader
 - `P2`: 79 rader
 - `P3`: 436 rader
@@ -197,6 +201,7 @@ Slutsats:
 Det finns tydliga felträffar, exempelvis marknadsmejl från `marknad@westudents.se` som klassats som avgiftsrelevanta eftersom ord som `50%` eller datum triggar regeln.
 
 Slutsats:
+
 - nuvarande triage fångar mycket, men överskattar `FeeMentioned` och delvis `TimeSensitive`
 - avvikande mejl behöver bättre klassning av avsändartyp och falska positiva träffar
 
@@ -234,6 +239,7 @@ För att hantera avvikande mejl praktiskt saknas framför allt:
 ## 6. Exakt operativ sortering
 
 ### Med nuvarande CSV direkt i Excel
+
 1. Filtrera bort:
    - `SenderEmail` som innehåller tydlig marknadsföring
    - `ExternalLinkDomain` med uppenbart irrelevanta domäner
@@ -247,6 +253,7 @@ För att hantera avvikande mejl praktiskt saknas framför allt:
    - `ReceivedTime` fallande
 
 ### Med förbättrad CSV
+
 1. `ManualExclude = FALSE`
 2. `ActionStatus` där `open` kommer först
 3. `ResponseType` i denna ordning:
@@ -284,6 +291,7 @@ Jag arbetar med en sammanstallning av hur C-anmalningar och narliggande tillsyns
 Syftet ar att identifiera vilka tekniska och miljomassiga krav som normalt stalls, exempelvis kring lagringsytor, dagvattenhantering, egenkontroll och forsiktighetsmatt. Ambitionen ar att bidra till tydligare och mer kompletta underlag i framtida arenden och darigenom minska behovet av kompletteringar.
 
 For att minska arbetsinsatsen hos er far ni garna avgransa sokningen till arenden under de senaste 24 manaderna som bedoms mest relevanta for:
+
 - mellanlagring av avfall
 - sortering eller mekanisk bearbetning av avfall
 - anvandning av avfall for anlaggningsandamal
@@ -299,6 +307,7 @@ Jimmy Bruce
 ## 9. Mejlforslag till domstolssparet
 
 ### A. Mark- och miljoedomstol
+
 Hej,
 
 Jag arbetar med en kartlaggning av hur arenden om mellanlagring, sortering, behandling och anvandning av avfall for anlaggningsandamal hanteras i praktiken, med fokus pa vilka krav som stalls i underlag och beslut.
@@ -313,6 +322,7 @@ Vanliga halsningar,
 Jimmy Bruce
 
 ### B. Mark- och miljooverdomstolen
+
 Hej,
 
 Jag arbetar med en sammanstallning av hur krav i arenden om mellanlagring och narliggande avfallshantering utformas och provas i praktiken. For att komplettera myndighetsmaterialet onskar jag ta del av avgoranden eller andra relevanta handlingar som belyser hur fragor om lagringsytor, tekniska skyddsatgarder, dagvatten eller anvandning av avfall for anlaggningsandamal bedomts.
@@ -327,6 +337,7 @@ Jimmy Bruce
 ## 10. Strategi for maximal datainhamtning med minimal belastning
 
 Princip:
+
 - begar smalt men smart
 - be om de mest relevanta arendena, inte allt
 - ge mottagaren ratt att foresla avgransning
@@ -335,27 +346,33 @@ Princip:
 Rekommenderad stegordning:
 
 1. Kommuner
+
 - fokusera pa de kommuner som redan svarat eller visat forstaelse for syftet
 - be i forsta hand om beslut, anmalan och tekniska bilagor
 
 2. Lansstyrelser
+
 - anvand dem for oversikt, hanvisningar, overklaganden och kompletterande arenden
 - be om diarienummer eller mest relevanta arenden om full sokning blir tung
 
 3. Domstolar
+
 - anvand domstolssparet for praxis, konfliktytor och motiveringar
 - det ger hog kvalitet men mindre volym
 
 4. Uppfoljning
+
 - skicka kort tack eller bekräftelse
 - fraga bara efter mer material om det finns tydlig relevans
 
 Handlaggarvanliga formuleringar:
+
 - "Om begaran ar for bred far ni garna foresla en mer traffsaker avgransning."
 - "Om handlingarna redan finns digitalt tar jag garna emot lank eller bilaga."
 - "Om det ar enklare far ni garna skicka diarienummer for de mest relevanta arendena."
 
 Detta minskar belastningen eftersom mottagaren kan:
+
 - valja ut de mest relevanta arendena
 - undvika full manuell genomgang av hela diariet
 - svara stegvis
@@ -365,30 +382,38 @@ Detta minskar belastningen eftersom mottagaren kan:
 Anvand dessa parallellt med mejlsparet for att oka traffsakerheten och minska beroendet av individuell handlaggning.
 
 1. Diarier och arendelistor
+
 - be om diarielista for aktuell period for att sedan precisera en andra, smalare begaran
 - detta ar ofta mindre betungande an att direkt begara fulla akter
 
 2. Kommunernas e-tjanster och beslutsdatabaser
+
 - vissa kommuner publicerar beslut, protokoll eller kungorelser
 - sok pa verksamhetskod, avfall, mellanlagring, anmalan, miljofarlig verksamhet
 
 3. Namndprotokoll och delegationsbeslut
+
 - ger ofta spar till relevanta diarienummer och beslut
 
 4. Domstolsdatabaser och avgorandesok
+
 - bra for att hitta overklagade eller principiellt intressanta arenden
 
 5. Lansstyrelsens och kommunens registratorspar
+
 - om miljohandlaggaren inte har materialet, be registratorn om diarienummer eller formell avgransning
 
 6. Verksamhetsutovare och konsulter
+
 - kan ge anmalningsunderlag, ritningar och tekniska beskrivningar som kompletterar myndighetsakten
 - bor anvandas som komplement, inte ersattning for myndighetsmaterial
 
 7. Offentliga upphandlingar, samradshandlingar och planunderlag
+
 - kan ge tekniska beskrivningar av ytor, dagvatten, invallning och materialval
 
 8. Overklaganden och yttranden
+
 - sarskilt vardeffulla for att se vilka fragor som faktiskt blivit tvistiga
 
 ## 12. Praktisk rekommendation efter detta

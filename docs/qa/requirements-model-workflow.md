@@ -67,14 +67,14 @@ npm run prisma:migrate
 npm run prisma:generate
 ```
 
-## Adminlage: Examensrapport Studio
+## Adminlage: utvecklingsrapport Studio
 
 Adminpanelen innehaller nu en verifieringsdriven rapportstudio som anvander samma modell.
 
 Flode:
 
 1. Oppna `Admin Console` och logga in som admin.
-2. I sektionen `Examensrapport Studio`, filtrera verifieringskon.
+2. I sektionen `utvecklingsrapport Studio`, filtrera verifieringskon.
 3. Valj kravrad, granska citat och oppna PDF via `DocumentId`-route.
 4. Satt citat till `REVIEWED` eller `VERIFIED`.
 5. Satt kravrad till `VERIFIED` med `verifiedBy`.

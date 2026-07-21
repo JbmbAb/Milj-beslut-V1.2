@@ -1,10 +1,5 @@
 import React from 'react';
-import type {
-  SearchFilters,
-  SearchMode,
-  SearchQueryResponse,
-  SearchStatusResponse,
-} from '../../types';
+import type { SearchFilters, SearchMode, SearchQueryResponse, SearchStatusResponse } from '../../types';
 import SearchAndSyncPanel from './SearchAndSyncPanel';
 import SearchResultsTable from './SearchResultsTable';
 import IndexStatusPanel from './IndexStatusPanel';

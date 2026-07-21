@@ -1,0 +1,58 @@
+# fly.toml — Miljöbeslut backend + SPA i samma app.
+# Skapades som del av helikopter-åtgärd spår 9 (2026-04-19).
+#
+# Uppdatera `app`-namnet och `primary_region` till din egen.
+# Sekret-injektion (Lantmäteriet, BankID, GEMINI_API_KEY m.fl.) hanteras
+# utanför filen via `flyctl secrets set ...` — aldrig i repo.
+
+app = "miljobeslut"
+primary_region = "arn"  # Stockholm
+
+[build]
+  dockerfile = "Dockerfile.fly"
+
+[env]
+  PORT = "8080"
+  NODE_ENV = "production"
+  # Scheduler-flaggor — standardvärden. Kan överskrivas via secrets.
+  DOMSTOL_RSS_ENABLED = "true"
+  SEARCH_WORKER_ENABLED = "true"
+  # Property lookup: hybrid (PostGIS → öppen OGC → betalt live).
+  PROPERTY_LOOKUP_MODE = "hybrid"
+
+[http_service]
+  internal_port = 8080
+  force_https = true
+  auto_stop_machines = false    # WebSocket + scheduler kräver långlevande process.
+  auto_start_machines = true
+  min_machines_running = 1      # Håll alltid en instans aktiv för schemaläggning.
+
+  [http_service.concurrency]
+    type = "requests"
+    hard_limit = 400
+    soft_limit = 250
+
+  [[http_service.checks]]
+    interval = "30s"
+    grace_period = "30s"
+    method = "GET"
+    path = "/health"
+    protocol = "http"
+    timeout = "5s"
+
+# Volym för Outlook-bilagor + backupartefakter.
+[mounts]
+  source = "miljobeslut_data"
+  destination = "/app/data"
+
+[[vm]]
+  # 1 GB RAM / 1 CPU räcker för pilot med ~10-50 aktiva användare.
+  # Skala upp via `flyctl scale vm` när volymen ökar.
+  cpu_kind = "shared"
+  cpus = 1
+  memory = "1gb"
+
+# Deploys triggas via GitHub Actions eller `flyctl deploy`.
+# Release-kommando: kör Prisma-migrations + PostGIS-bootstrap före start.
+[deploy]
+  release_command = "sh -c 'npx prisma migrate deploy && npx tsx scripts/db/spatial-bootstrap.ts'"

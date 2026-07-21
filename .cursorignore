@@ -1,15 +1,12 @@
-# ─────────────────────────────────────────────────────────────────────────────
-# .cursorignore – Cursor / VS Code AI-indexeringsregler
+# ----------------------------------------------------------------------------
+# .cursorignore - Cursor / VS Code AI indexing rules
 #
-# Filer och mappar som INTE ska indexeras i Cursors vektordatabas (RAG-index).
-# Syftet är att hålla kontextfönstret rent – AI:n ska se källkod, inte brus.
-#
-# Regler för att lägga till:
-#   ✅ Lägg hit: allt som är autogenererat, binärt, stort eller ej källkod
-#   ❌ Lägg INTE hit: TypeScript-källfiler, Prisma-schema, docs, tester
-# ─────────────────────────────────────────────────────────────────────────────
+# Files and folders that should not be indexed in the local AI vector database.
+# Keep source code, schemas, docs and tests available; exclude generated output,
+# binaries, large datasets and archival noise.
+# ----------------------------------------------------------------------------
 
-# ── Node.js / byggmappar ──────────────────────────────────────────────────────
+# Node.js / build output
 node_modules/
 dist/
 build/
@@ -18,12 +15,12 @@ coverage/
 .nyc_output/
 tmp/
 
-# ── Pakethanterarlås (äter tiotusentals tokens i onödan) ─────────────────────
+# Package manager locks
 package-lock.json
 yarn.lock
 pnpm-lock.yaml
 
-# ── Databas / datastora filer ─────────────────────────────────────────────────
+# Large data and archived support material
 *.csv
 *.xlsx
 *.xls
@@ -31,14 +28,13 @@ pnpm-lock.yaml
 *.dump
 *.sqlite
 *.db
-Sammanställning/
-examensrepo/
+archive/examensarbete/
 
-# ── Genererade typdeklarationer ───────────────────────────────────────────────
+# Generated type declarations
 **/*.d.ts
 prisma/generated/
 
-# ── Binärfiler och media ──────────────────────────────────────────────────────
+# Binary assets and media
 *.png
 *.jpg
 *.jpeg
@@ -53,22 +49,22 @@ prisma/generated/
 *.zip
 *.tar.gz
 
-# ── Sourcemaps och minifierad kod ─────────────────────────────────────────────
+# Sourcemaps and minified bundles
 **/*.map
 **/*.min.js
 **/*.min.css
 
-# ── Git-interna filer ─────────────────────────────────────────────────────────
+# Git internals
 .git/
 
-# ── Repomix-output (ska inte indexeras) ──────────────────────────────────────
+# Repomix output
 repomix-output.xml
 repomix-output.txt
 
-# ── Miljöfiler med hemligheter ────────────────────────────────────────────────
+# Environment files
 .env
 .env.local
 .env.*.local
 
-# ── Stitch / metrics-artefakter ──────────────────────────────────────────────
+# Stitch / metrics artifacts
 stitch.json

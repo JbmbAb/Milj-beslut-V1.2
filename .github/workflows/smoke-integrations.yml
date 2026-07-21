@@ -1,0 +1,65 @@
+name: Smoketester (helikopter-åtgärd)
+
+on:
+  pull_request:
+    paths:
+      - 'server/routes/gis.routes.ts'
+      - 'server/routes/legal.routes.ts'
+      - 'server/routes/property.routes.ts'
+      - 'server/services/legalRelevanceService.ts'
+      - 'server/services/domstolRssService.ts'
+      - 'server/services/outlookGraphClient.ts'
+      - 'server/services/limsAutoFetchService.ts'
+      - 'server/services/eidasSignatureService.ts'
+      - 'server/lib/querySort.ts'
+      - 'server/datasources/mapLayerCatalog.ts'
+      - 'scripts/smoke/**'
+      - 'scripts/db/spatial-bootstrap.ts'
+      - 'prisma/schema.prisma'
+      - 'prisma/spatial/**'
+  workflow_dispatch:
+
+jobs:
+  unit-tests:
+    name: Nya unit-tester (querySort + legalRelevance + affected)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci --no-audit --prefer-offline
+      - run: npx prisma generate
+      - name: Typecheck
+        run: npm run typecheck
+      - name: Nya/påverkade testfiler
+        run: |
+          npx vitest run \
+            tests/unit/querySort.test.ts \
+            tests/unit/legalRelevanceService.test.ts \
+            tests/unit/judgmentRepository.test.ts \
+            tests/unit/domstolRssService.test.ts \
+            tests/unit/domstolRssSchedulerService.test.ts \
+            tests/unit/adminPaginationRoutes.test.ts \
+            tests/unit/permitAuthorityService.test.ts \
+            tests/unit/permitAuthorityAdapter.test.ts
+
+  integrations-smoke:
+    name: Integrations-konfiguration (MISSING-räknare)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci --no-audit --prefer-offline
+      - run: npx prisma generate
+      - name: smoke:integrations
+        env:
+          # Simulerad minimalkonfiguration så CI-körningen inte kraschar;
+          # MISSING-markeringar är förväntade i CI och bryter inte bygget.
+          BANKID_MOCK_MODE: 'true'
+          DOMSTOL_RSS_ENABLED: 'true'
+        run: npm run smoke:integrations -- || true

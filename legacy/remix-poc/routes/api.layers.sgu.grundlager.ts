@@ -65,33 +65,40 @@ export async function loader({ request }: LoaderFunctionArgs) {
   }
 
   try {
-    const rows = await prisma.$queryRaw<GroundLayerRow[]>`
-      SELECT
-        source_key,
-        layer_code,
-        layer_label,
-        map_type,
-        source_scale,
-        ST_AsGeoJSON(
-          ST_Transform(
-            ST_SimplifyPreserveTopology(geom, 100),
-            4326
-          )
-        ) AS geojson
-      FROM env.sgu_ground_layer
-      WHERE geom && ST_Transform(
-        ST_MakeEnvelope(${bbox.minLng}, ${bbox.minLat}, ${bbox.maxLng}, ${bbox.maxLat}, 4326),
-        3006
-      )
-      AND ST_Intersects(
-        geom,
-        ST_Transform(
-          ST_MakeEnvelope(${bbox.minLng}, ${bbox.minLat}, ${bbox.maxLng}, ${bbox.maxLat}, 4326),
+    const rows = await prisma.$queryRawUnsafe<GroundLayerRow[]>(
+      `
+        SELECT
+          id::text AS source_key,
+          jg2 AS layer_code,
+          jg2_tx AS layer_label,
+          karttyp AS map_type,
+          '1:25 000-1:100 000'::text AS source_scale,
+          ST_AsGeoJSON(
+            ST_Transform(
+              ST_SimplifyPreserveTopology(geom, 100),
+              4326
+            )
+          ) AS geojson
+        FROM env.sgu_soil_type_25k_100k
+        WHERE geom && ST_Transform(
+          ST_MakeEnvelope($1, $2, $3, $4, 4326),
           3006
         )
-      )
-      LIMIT ${FEATURE_LIMIT};
-    `;
+        AND ST_Intersects(
+          geom,
+          ST_Transform(
+            ST_MakeEnvelope($1, $2, $3, $4, 4326),
+            3006
+          )
+        )
+        LIMIT $5;
+      `,
+      bbox.minLng,
+      bbox.minLat,
+      bbox.maxLng,
+      bbox.maxLat,
+      FEATURE_LIMIT,
+    );
 
     return json(toFeatureCollection(rows));
   } catch (error) {

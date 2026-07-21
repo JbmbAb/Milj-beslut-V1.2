@@ -3,13 +3,15 @@
 Det har repot har nu ett konkret GIS-spar for snabb fastighetssokning och kontrollerad import till PostGIS.
 
 **Filer**
-- Extensions och bas-scheman: [enable_postgis.sql](C:\Users\jimmy\Desktop\Examens arbete\Kod\Ny mapp\remix_-copy-of-miljobeslut.se-portal\scripts\enable_postgis.sql)
-- Property pipeline: [create_property_unit_pipeline.sql](C:\Users\jimmy\Desktop\Examens arbete\Kod\Ny mapp\remix_-copy-of-miljobeslut.se-portal\scripts\db\create_property_unit_pipeline.sql)
-- Merge staging till core: [merge_property_unit_stage_to_core.sql](C:\Users\jimmy\Desktop\Examens arbete\Kod\Ny mapp\remix_-copy-of-miljobeslut.se-portal\scripts\db\merge_property_unit_stage_to_core.sql)
-- Scoped OGC-import till staging: [import-lantmateriet-property-units.ts](C:\Users\jimmy\Desktop\Examens arbete\Kod\Ny mapp\remix_-copy-of-miljobeslut.se-portal\scripts\import\import-lantmateriet-property-units.ts)
-- Rasterimport marktacke: [import_lm_marktacke.py](C:\Users\jimmy\Desktop\Examens arbete\Kod\Ny mapp\remix_-copy-of-miljobeslut.se-portal\scripts\import_lm_marktacke.py)
+
+- Extensions och bas-scheman: [enable_postgis.sql](C:\Users\jimmy\Desktop\utvecklings arbete\Kod\Ny mapp\remix\_-copy-of-miljobeslut.se-portal\scripts\enable_postgis.sql)
+- Property pipeline: [create_property_unit_pipeline.sql](C:\Users\jimmy\Desktop\utvecklings arbete\Kod\Ny mapp\remix\_-copy-of-miljobeslut.se-portal\scripts\db\create_property_unit_pipeline.sql)
+- Merge staging till core: [merge_property_unit_stage_to_core.sql](C:\Users\jimmy\Desktop\utvecklings arbete\Kod\Ny mapp\remix\_-copy-of-miljobeslut.se-portal\scripts\db\merge_property_unit_stage_to_core.sql)
+- Scoped OGC-import till staging: [import-lantmateriet-property-units.ts](C:\Users\jimmy\Desktop\utvecklings arbete\Kod\Ny mapp\remix\_-copy-of-miljobeslut.se-portal\scripts\import\import-lantmateriet-property-units.ts)
+- Rasterimport marktacke: [import_lm_marktacke.py](C:\Users\jimmy\Desktop\utvecklings arbete\Kod\Ny mapp\remix\_-copy-of-miljobeslut.se-portal\scripts\import_lm_marktacke.py)
 
 **Mal**
+
 - exakt fastighetsuppslag forst
 - fuzzy fallback bara nar exakt uppslag missar
 - snabb punkt-i-fastighet for kartklick
@@ -24,6 +26,7 @@ Kor manuellt:
 ```
 
 Detta ger:
+
 - `postgis`
 - `pg_trgm`
 - `unaccent`
@@ -37,6 +40,7 @@ Kor manuellt:
 ```
 
 Detta skapar:
+
 - `stage.property_unit_raw`
 - `core.property_unit`
 - normaliseringsfunktion `core.normalize_designation(text)`
@@ -84,6 +88,7 @@ npm run import:property-units -- --filter "kommunkod = '0182' AND trakt = 'ORMIN
 ```
 
 Skriptet:
+
 - anvander samma OGC-auth som appen
 - upsertar bara till `stage.property_unit_raw`
 - bygger full beteckning av `kommunnamn + trakt + etikett`
@@ -144,6 +149,7 @@ For staging med WKT eller CSV gar det ocksa, men da bor du sjalv materialisera t
 
 **7. Rasterimport marktacke**
 `import_lm_marktacke.py` gor nu:
+
 - sakerstaller `postgis` och `env`-schema
 - anvander temporar katalog
 - kor `raster2pgsql -> psql`
@@ -151,6 +157,7 @@ For staging med WKT eller CSV gar det ocksa, men da bor du sjalv materialisera t
 - kor `ANALYZE env.marktacke`
 
 Miljovariabler:
+
 - `DATABASE_URL`
 - `LM_MARKTACKE_TILE_SIZE`
 - `PGOPTIONS`
@@ -163,16 +170,19 @@ python scripts/import_lm_marktacke.py
 ```
 
 **8. Juridik och drift**
+
 - lagra bara det som behovs for andamalet
 - hall `stage.*` separerat fran `core.*`
 - lat merge till `core.*` vara ett manuellt, granskat steg
 - bygg inte personkopplade registerutdrag i samma flode utan uttryckligt stod i beslut eller avtal
 
 **9. Aktuella backend-routes**
+
 - `GET /api/system/postgis`
 - `POST /api/property/lookup/postgis`
 
 `/api/property/lookup/postgis` gor:
+
 1. exakt `designation_norm`
 2. fuzzy fallback vid miss
 3. auditloggning och projektkontroll innan svar

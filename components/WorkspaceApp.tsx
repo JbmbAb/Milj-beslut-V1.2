@@ -28,10 +28,13 @@ const WorkspaceApp: React.FC<WorkspaceAppProps> = ({ initialMode, onExitToDashbo
   });
 
   const modeCardMap = useMemo(() => {
-    return MODE_CARDS.reduce<Record<InterfaceMode, (typeof MODE_CARDS)[number]>>((acc, item) => {
-      acc[item.mode] = item;
-      return acc;
-    }, {} as Record<InterfaceMode, (typeof MODE_CARDS)[number]>);
+    return MODE_CARDS.reduce<Record<InterfaceMode, (typeof MODE_CARDS)[number]>>(
+      (acc, item) => {
+        acc[item.mode] = item;
+        return acc;
+      },
+      {} as Record<InterfaceMode, (typeof MODE_CARDS)[number]>,
+    );
   }, []);
 
   const openMode = (nextMode: InterfaceMode) => {
@@ -42,7 +45,9 @@ const WorkspaceApp: React.FC<WorkspaceAppProps> = ({ initialMode, onExitToDashbo
   const projectAware = needsProjectStructure(mode, activeTab);
 
   return (
-    <Suspense fallback={<WorkspaceFallback label={projectAware ? 'Laddar projektvy' : 'Laddar fristaende vy'} />}>
+    <Suspense
+      fallback={<WorkspaceFallback label={projectAware ? 'Laddar projektvy' : 'Laddar fristaende vy'} />}
+    >
       {projectAware ? (
         <ProjectWorkspace
           mode={mode}

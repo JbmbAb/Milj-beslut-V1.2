@@ -11,3 +11,16 @@ tmp-*.log
 .env
 .env.example
 .env.test
+package-lock.json
+archive
+storage
+legacy
+.quarantine
+repomix-output.xml
+repomix-output.txt
+figma-raw.json
+public
+prisma/migrations
+logs
+cloudbuild.yaml
+scratch

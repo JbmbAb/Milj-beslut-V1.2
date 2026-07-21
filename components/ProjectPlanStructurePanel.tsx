@@ -2,7 +2,11 @@ import React, { useMemo, useState } from 'react';
 import { ArchiveCategory, CoreModuleKey, ModuleReadiness, ProjectPlan } from '../types';
 import { createArchiveDocument, mergeArchiveDocument } from '../services/projectStructure';
 import { uploadProjectDocument } from '../services/documentUploadClient';
-import { deleteProjectDocument, downloadProjectDocument, openProjectDocument } from '../services/documentAccessClient';
+import {
+  deleteProjectDocument,
+  downloadProjectDocument,
+  openProjectDocument,
+} from '../services/documentAccessClient';
 
 interface ProjectPlanStructurePanelProps {
   plan: ProjectPlan;
@@ -14,7 +18,7 @@ const MODULE_OPTIONS: CoreModuleKey[] = [
   'PERMIT_PORTAL',
   'LOGISTICS_MARKET',
   'COMPLIANCE_AUDIT',
-  'FIELD_SAMPLING'
+  'FIELD_SAMPLING',
 ];
 
 const CATEGORY_OPTIONS: ArchiveCategory[] = ['PROJECT_PLAN', 'PERMIT', 'RISK', 'FIELD', 'FINANCE', 'OTHER'];
@@ -48,14 +52,14 @@ const ProjectPlanStructurePanel: React.FC<ProjectPlanStructurePanelProps> = ({ p
   const updateModuleReadiness = (module: CoreModuleKey, readiness: ModuleReadiness) => {
     onUpdatePlan(
       'moduleIntegrations',
-      plan.moduleIntegrations.map((item) => (item.module === module ? { ...item, readiness } : item))
+      plan.moduleIntegrations.map((item) => (item.module === module ? { ...item, readiness } : item)),
     );
   };
 
   const updateDependencyNote = (module: CoreModuleKey, dependencyNote: string) => {
     onUpdatePlan(
       'moduleIntegrations',
-      plan.moduleIntegrations.map((item) => (item.module === module ? { ...item, dependencyNote } : item))
+      plan.moduleIntegrations.map((item) => (item.module === module ? { ...item, dependencyNote } : item)),
     );
   };
 
@@ -70,7 +74,7 @@ const ProjectPlanStructurePanel: React.FC<ProjectPlanStructurePanelProps> = ({ p
         category: draftCategory,
         status: 'DRAFT',
         tags: [draftCategory.toLowerCase(), draftModule.toLowerCase()],
-      })
+      }),
     );
 
     onUpdatePlan('documentArchive', nextArchive);
@@ -197,14 +201,20 @@ const ProjectPlanStructurePanel: React.FC<ProjectPlanStructurePanelProps> = ({ p
       return;
     }
 
-    if (!window.confirm(isPersistedDocument ? 'Delete this uploaded document from the server and archive?' : 'Remove this archive entry?')) {
+    if (
+      !window.confirm(
+        isPersistedDocument
+          ? 'Delete this uploaded document from the server and archive?'
+          : 'Remove this archive entry?',
+      )
+    ) {
       return;
     }
 
     if (!isPersistedDocument) {
       onUpdatePlan(
         'documentArchive',
-        plan.documentArchive.filter((doc) => doc.id !== documentId)
+        plan.documentArchive.filter((doc) => doc.id !== documentId),
       );
       setUploadMessage('Archive entry removed.');
       return;
@@ -223,7 +233,7 @@ const ProjectPlanStructurePanel: React.FC<ProjectPlanStructurePanelProps> = ({ p
       await deleteProjectDocument({ documentId, token });
       onUpdatePlan(
         'documentArchive',
-        plan.documentArchive.filter((doc) => doc.id !== documentId)
+        plan.documentArchive.filter((doc) => doc.id !== documentId),
       );
       setUploadMessage('Document removed from the server and archive.');
     } catch (error) {
@@ -237,8 +247,8 @@ const ProjectPlanStructurePanel: React.FC<ProjectPlanStructurePanelProps> = ({ p
     onUpdatePlan('samplingPreparation', {
       ...plan.samplingPreparation,
       checklist: plan.samplingPreparation.checklist.map((item) =>
-        item.id === checkId ? { ...item, done: !item.done } : item
-      )
+        item.id === checkId ? { ...item, done: !item.done } : item,
+      ),
     });
   };
 
@@ -280,7 +290,9 @@ const ProjectPlanStructurePanel: React.FC<ProjectPlanStructurePanelProps> = ({ p
       </section>
 
       <section className="space-y-5">
-        <h4 className="text-xl font-black text-slate-900 italic tracking-tight">Integrated Module Readiness</h4>
+        <h4 className="text-xl font-black text-slate-900 italic tracking-tight">
+          Integrated Module Readiness
+        </h4>
         <div className="space-y-4">
           {MODULE_OPTIONS.map((module) => {
             const moduleState = plan.moduleIntegrations.find((item) => item.module === module);
@@ -316,7 +328,9 @@ const ProjectPlanStructurePanel: React.FC<ProjectPlanStructurePanelProps> = ({ p
 
       <section className="space-y-5">
         <div className="flex items-center justify-between">
-          <h4 className="text-xl font-black text-slate-900 italic tracking-tight">Structured Document Archive</h4>
+          <h4 className="text-xl font-black text-slate-900 italic tracking-tight">
+            Structured Document Archive
+          </h4>
           <div className="text-xs font-black uppercase tracking-widest text-slate-500">
             {archiveStats.total} total / {archiveStats.verified} verified / {archiveStats.archived} archived
           </div>
@@ -355,7 +369,9 @@ const ProjectPlanStructurePanel: React.FC<ProjectPlanStructurePanelProps> = ({ p
 
         <div className="grid grid-cols-1 gap-3 md:grid-cols-[1.4fr_auto_auto]">
           <label className="flex cursor-pointer items-center justify-between rounded-xl border border-dashed border-slate-300 bg-slate-50 px-4 py-3 text-xs font-bold text-slate-600">
-            <span className="truncate pr-3">{uploadFile ? uploadFile.name : 'Välj fil för riktig uppladdning'}</span>
+            <span className="truncate pr-3">
+              {uploadFile ? uploadFile.name : 'Välj fil för riktig uppladdning'}
+            </span>
             <span className="rounded-lg bg-white px-3 py-1 text-[10px] font-black uppercase tracking-widest text-slate-700">
               Bläddra
             </span>
@@ -422,7 +438,11 @@ const ProjectPlanStructurePanel: React.FC<ProjectPlanStructurePanelProps> = ({ p
                     disabled={deletingDocumentId === doc.id}
                     className="rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-[10px] font-black uppercase tracking-widest text-rose-700 transition hover:border-rose-300 hover:bg-rose-100 disabled:opacity-50"
                   >
-                    {deletingDocumentId === doc.id ? 'Deleting...' : String(doc.id).startsWith('DOC-') ? 'Remove' : 'Delete'}
+                    {deletingDocumentId === doc.id
+                      ? 'Deleting...'
+                      : String(doc.id).startsWith('DOC-')
+                        ? 'Remove'
+                        : 'Delete'}
                   </button>
                 </div>
               </div>
@@ -437,31 +457,37 @@ const ProjectPlanStructurePanel: React.FC<ProjectPlanStructurePanelProps> = ({ p
       </section>
 
       <section className="space-y-5">
-        <h4 className="text-xl font-black text-slate-900 italic tracking-tight">Sampling Service Preparation</h4>
+        <h4 className="text-xl font-black text-slate-900 italic tracking-tight">
+          Sampling Service Preparation
+        </h4>
 
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           <label className="flex items-center justify-between p-4 bg-slate-50 border border-slate-200 rounded-xl">
-            <span className="text-xs font-black uppercase tracking-widest text-slate-700">Sampling service active</span>
+            <span className="text-xs font-black uppercase tracking-widest text-slate-700">
+              Sampling service active
+            </span>
             <input
               type="checkbox"
               checked={plan.samplingPreparation.enabled}
               onChange={(e) =>
                 onUpdatePlan('samplingPreparation', {
                   ...plan.samplingPreparation,
-                  enabled: e.target.checked
+                  enabled: e.target.checked,
                 })
               }
             />
           </label>
           <label className="flex items-center justify-between p-4 bg-slate-50 border border-slate-200 rounded-xl">
-            <span className="text-xs font-black uppercase tracking-widest text-slate-700">Prep required now</span>
+            <span className="text-xs font-black uppercase tracking-widest text-slate-700">
+              Prep required now
+            </span>
             <input
               type="checkbox"
               checked={plan.samplingPreparation.requiresPreparationNow}
               onChange={(e) =>
                 onUpdatePlan('samplingPreparation', {
                   ...plan.samplingPreparation,
-                  requiresPreparationNow: e.target.checked
+                  requiresPreparationNow: e.target.checked,
                 })
               }
             />
@@ -476,7 +502,7 @@ const ProjectPlanStructurePanel: React.FC<ProjectPlanStructurePanelProps> = ({ p
             onChange={(e) =>
               onUpdatePlan('samplingPreparation', {
                 ...plan.samplingPreparation,
-                protocolTemplate: e.target.value
+                protocolTemplate: e.target.value,
               })
             }
           />
@@ -487,7 +513,7 @@ const ProjectPlanStructurePanel: React.FC<ProjectPlanStructurePanelProps> = ({ p
             onChange={(e) =>
               onUpdatePlan('samplingPreparation', {
                 ...plan.samplingPreparation,
-                chainOfCustodyTemplate: e.target.value
+                chainOfCustodyTemplate: e.target.value,
               })
             }
           />
@@ -498,7 +524,7 @@ const ProjectPlanStructurePanel: React.FC<ProjectPlanStructurePanelProps> = ({ p
             onChange={(e) =>
               onUpdatePlan('samplingPreparation', {
                 ...plan.samplingPreparation,
-                plannedServiceWindow: e.target.value
+                plannedServiceWindow: e.target.value,
               })
             }
           />
@@ -511,7 +537,11 @@ const ProjectPlanStructurePanel: React.FC<ProjectPlanStructurePanelProps> = ({ p
           <div className="space-y-2">
             {plan.samplingPreparation.checklist.map((item) => (
               <label key={item.id} className="flex items-center gap-3 text-sm text-slate-700">
-                <input type="checkbox" checked={item.done} onChange={() => toggleSamplingChecklist(item.id)} />
+                <input
+                  type="checkbox"
+                  checked={item.done}
+                  onChange={() => toggleSamplingChecklist(item.id)}
+                />
                 <span className={item.done ? 'line-through opacity-60' : ''}>{item.label}</span>
               </label>
             ))}

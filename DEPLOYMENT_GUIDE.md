@@ -9,6 +9,7 @@
 ## 📋 PRE-DEPLOYMENT CHECKLIST
 
 ### Code Quality
+
 - [x] `npm run typecheck` → ✅ PASSED
 - [x] `npm run lint` → ✅ PASSED (0 new errors)
 - [x] `npm run build` → ✅ SUCCESS (445KB)
@@ -16,6 +17,7 @@
 - [x] Git status clean
 
 ### Security Review
+
 - [x] Token revocation DB-backed
 - [x] Admin bypass removed (all users need membership)
 - [x] Error messages sanitized
@@ -24,6 +26,7 @@
 - [x] Audit logs sanitized for PII
 
 ### Database
+
 - [x] Migration files created
 - [x] Schema validated
 - [x] Indexes designed
@@ -36,7 +39,7 @@
 ### Phase 1: Pre-Deployment Verification (15 min)
 
 ```powershell
-cd "C:\Users\jimmy\Desktop\Examens arbete\Kod\Ny mapp\remix_-copy-of-miljöbeslut.se-portal"
+cd "C:\Users\jimmy\Desktop\utvecklings arbete\Kod\Ny mapp\remix_-copy-of-Miljobeslut.se-portal"
 
 # 1. Verify build artifacts
 ls dist/
@@ -47,7 +50,8 @@ ls dist/
 
 ### Phase 2: Database Preparation (30 min)
 
-**BACKUP FIRST**
+#### BACKUP FIRST
+
 ```bash
 # 1. Backup production database
 pg_dump -h prod-db.example.com -U postgres -d miljobeslut > backup_20260315_pre_migration.sql
@@ -56,7 +60,8 @@ pg_dump -h prod-db.example.com -U postgres -d miljobeslut > backup_20260315_pre_
 psql -h staging-db.example.com -U postgres -d miljobeslut < backup_20260315_pre_migration.sql
 ```
 
-**APPLY MIGRATIONS**
+#### APPLY MIGRATIONS
+
 ```bash
 # 1. Connect to prod database
 # (Set DATABASE_URL in .env)
@@ -158,7 +163,8 @@ psql -c "SELECT COUNT(*) FROM \"RateLimitEntry\";"
 ## 📦 DEPLOYMENT ARTIFACTS
 
 ### New Files Included
-```
+
+```text
 server/
 ├── repositories/
 │   └── tokenRepository.ts ← DB-backed token tracking
@@ -184,8 +190,9 @@ tests/
 │   └── propertyLookup.test.ts ← NEW authorization tests
 ```
 
-### Changed Files  
-```
+### Changed Files
+
+```text
 server/
 ├── security/auth.ts ← async token rotation
 ├── security/projectAccess.ts ← NO admin bypass now
@@ -197,17 +204,22 @@ server/
 ## ⚠️ KNOWN LIMITATIONS
 
 ### Unit Tests Require DB
+
 ```javascript
 // auth.test.ts now mocks Prisma:
 vi.mock('../../server/db/prisma', () => ({
   prisma: {
-    tokenRevocation: { /* mocked */ }
-  }
+    tokenRevocation: {
+      /* mocked */
+    },
+  },
 }));
 ```
+
 This is EXPECTED - integration tests use real DB.
 
 ### Rate Limiting Keys
+
 ```typescript
 // Format: "user:{userId}" or "org:{orgId}"
 // Cleanup runs automatically at migration/startup
@@ -240,7 +252,7 @@ psql -h prod-db -U postgres -d miljobeslut < backup_20260315_pre_migration.sql
 
 ## 📊 DEPLOYMENT CHECKLIST
 
-```
+```text
 PRE-DEPLOYMENT:
 ☐ All tests pass locally
 ☐ npm run build succeeds
@@ -279,18 +291,19 @@ WITHIN 24h:
 
 ## 📞 SUPPORT CONTACTS
 
-| Issue | Contact | WhatsApp |
-|-------|---------|----------|
-| Database crashed | DBA | 07XX-XXXXXX |
-| Permission denied | DevOps | 07XX-XXXXXX |
-| Code errors | Backend team | 07XX-XXXXXX |
-| User locked out | Support | 07XX-XXXXXX |
+| Issue             | Contact      | WhatsApp    |
+| ----------------- | ------------ | ----------- |
+| Database crashed  | DBA          | 07XX-XXXXXX |
+| Permission denied | DevOps       | 07XX-XXXXXX |
+| Code errors       | Backend team | 07XX-XXXXXX |
+| User locked out   | Support      | 07XX-XXXXXX |
 
 ---
 
 ## ✅ SUCCESS CRITERIA
 
 Deployment is successful when:
+
 1. ✅ Health check returns 200 OK
 2. ✅ Property lookups work with new auth
 3. ✅ Token refresh works (DB-tracked)
@@ -304,10 +317,11 @@ Deployment is successful when:
 
 ## 🎯 VERSION SUMMARY
 
-**Miljöbeslut 2.0.0**
+### Miljöbeslut 2.0.0
+
 - 🔒 Security: Token tracking + resource auth + error sanitization
 - 📊 Compliance: GDPR features added
 - 🗄️ Database: 2 new tables for distributed systems
 - 🧪 Testing: 66+ unit tests, property lookup authorization tests
 
-**Ready for production deployment with this guide.**
+> **Ready for production deployment with this guide.**

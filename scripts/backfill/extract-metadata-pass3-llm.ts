@@ -38,16 +38,27 @@ async function callLlmWithTimeout(prompt: string, modelName: 'gemini' | 'openai'
             const text = result.response.text();
             return parseJsonResponse(text);
         } else {
-            // OpenAI fallback
-            const { default: OpenAI } = await import('openai');
-            const client = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
-            const response = await client.chat.completions.create({
-                model: 'gpt-4o-mini',
-                messages: [{ role: 'user', content: prompt }],
-                response_format: { type: 'json_object' },
-                max_tokens: 512,
+            const response = await fetch('https://api.openai.com/v1/chat/completions', {
+                method: 'POST',
+                signal: controller.signal,
+                headers: {
+                    'Content-Type': 'application/json',
+                    Authorization: `Bearer ${process.env.OPENAI_API_KEY ?? ''}`,
+                },
+                body: JSON.stringify({
+                    model: 'gpt-4o-mini',
+                    messages: [{ role: 'user', content: prompt }],
+                    response_format: { type: 'json_object' },
+                    max_tokens: 512,
+                }),
             });
-            return parseJsonResponse(response.choices[0]?.message?.content ?? '{}');
+            if (!response.ok) {
+                throw new Error(`OpenAI HTTP ${response.status}`);
+            }
+            const payload = await response.json() as {
+                choices?: Array<{ message?: { content?: string | null } }>;
+            };
+            return parseJsonResponse(payload.choices?.[0]?.message?.content ?? '{}');
         }
     } finally {
         clearTimeout(timer);

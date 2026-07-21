@@ -11,22 +11,18 @@
 const STATIC_CACHE_NAME = 'miljobeslut-static-v1';
 const API_CACHE_NAME = 'miljobeslut-api-v1';
 
-const STATIC_ASSETS = [
-  '/',
-  '/index.html',
-  '/index.css',
-  '/design-system.css',
-  '/logo.png',
-  '/manifest.json',
-];
+const STATIC_ASSETS = ['/', '/index.html', '/index.css', '/design-system.css', '/logo.png', '/manifest.json'];
 
 // ─── Install ──────────────────────────────────────────────────────────────────
 
 self.addEventListener('install', (event) => {
   event.waitUntil(
-    caches.open(STATIC_CACHE_NAME).then((cache) => {
-      return cache.addAll(STATIC_ASSETS.map((url) => new Request(url, { cache: 'reload' })));
-    }).then(() => self.skipWaiting())
+    caches
+      .open(STATIC_CACHE_NAME)
+      .then((cache) => {
+        return cache.addAll(STATIC_ASSETS.map((url) => new Request(url, { cache: 'reload' })));
+      })
+      .then(() => self.skipWaiting()),
   );
 });
 
@@ -34,13 +30,14 @@ self.addEventListener('install', (event) => {
 
 self.addEventListener('activate', (event) => {
   event.waitUntil(
-    caches.keys().then((keys) =>
-      Promise.all(
-        keys
-          .filter((k) => k !== STATIC_CACHE_NAME && k !== API_CACHE_NAME)
-          .map((k) => caches.delete(k))
+    caches
+      .keys()
+      .then((keys) =>
+        Promise.all(
+          keys.filter((k) => k !== STATIC_CACHE_NAME && k !== API_CACHE_NAME).map((k) => caches.delete(k)),
+        ),
       )
-    ).then(() => self.clients.claim())
+      .then(() => self.clients.claim()),
   );
 });
 
@@ -77,7 +74,7 @@ async function networkFirstWithCache(request, cacheName) {
     if (cached) return cached;
     return new Response(
       JSON.stringify({ ok: false, error: 'Offline — använder cachad data', offline: true }),
-      { status: 503, headers: { 'Content-Type': 'application/json' } }
+      { status: 503, headers: { 'Content-Type': 'application/json' } },
     );
   }
 }
@@ -128,8 +125,10 @@ async function syncPendingFieldData() {
 }
 
 // Placeholder IDB helpers (implementation in app layer)
-async function getPendingFieldDataFromIDB() { return []; }
-async function removePendingFieldDataFromIDB() { }
+async function getPendingFieldDataFromIDB() {
+  return [];
+}
+async function removePendingFieldDataFromIDB() {}
 
 // ─── Push Notifications ───────────────────────────────────────────────────────
 
@@ -145,7 +144,7 @@ self.addEventListener('push', (event) => {
         badge: '/logo.png',
         data: data.url ? { url: data.url } : undefined,
         tag: data.tag || 'miljobeslut-notification',
-      })
+      }),
     );
   } catch {
     // Ignore malformed push data
@@ -160,6 +159,6 @@ self.addEventListener('notificationclick', (event) => {
       const existing = clients.find((c) => c.url === url && 'focus' in c);
       if (existing) return existing.focus();
       return self.clients.openWindow(url);
-    })
+    }),
   );
 });

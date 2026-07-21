@@ -38,6 +38,20 @@ export function isExternalE2E(): boolean {
   return Boolean(trim(process.env.PLAYWRIGHT_BASE_URL) || trim(process.env.STAGING_URL));
 }
 
+function envFlag(name: string): boolean {
+  return ['1', 'true', 'yes'].includes(String(process.env[name] ?? '').trim().toLowerCase());
+}
+
+/** Modul-E2E: moln-staging eller lokal fullstack när E2E_ALLOW_LOCAL=true. */
+export function isStagingModuleE2ETarget(): boolean {
+  if (envFlag('E2E_ALLOW_LOCAL')) {
+    return true;
+  }
+  const apiBase = getE2EApiBaseUrl();
+  const isLocal = /127\.0\.0\.1|localhost/i.test(apiBase);
+  return isExternalE2E() && !isLocal;
+}
+
 export async function createApiContext(): Promise<APIRequestContext> {
   return playwrightRequest.newContext({
     baseURL: getE2EApiBaseUrl(),
@@ -179,4 +193,38 @@ export async function waitForHubModuleReady(page: Page, moduleId: string): Promi
 
 export async function parseJson<T>(response: APIResponse): Promise<T> {
   return (await response.json()) as T;
+}
+
+/** PDF-ready acceptance: verifierar utskriftsbar PDF (magic bytes + content-type). */
+export async function assertPrintablePdfResponse(
+  response: APIResponse,
+  label: string,
+): Promise<Buffer> {
+  const status = response.status();
+  expect(status, `${label}: HTTP ${status}`).toBe(200);
+  const contentType = response.headers()['content-type'] ?? '';
+  expect(contentType, `${label}: content-type`).toContain('application/pdf');
+  const body = Buffer.from(await response.body());
+  expect(body.length, `${label}: tom PDF`).toBeGreaterThan(100);
+  expect(body.subarray(0, 4).toString('ascii'), `${label}: PDF-magic`).toBe('%PDF');
+  return body;
+}
+
+/** Tvärgående staging-krav: human-in-the-loop ska synas i underlag (JSON/text). */
+export function assertHumanInTheLoopText(text: string, label = 'human-in-the-loop'): void {
+  const normalized = text.toLowerCase();
+  const hasMarker =
+    normalized.includes('verifiera') ||
+    normalized.includes('granska') ||
+    normalized.includes('handläggare') ||
+    normalized.includes('human in the loop');
+  expect(hasMarker, `${label}: saknar human-in-the-loop-markör`).toBeTruthy();
+}
+
+/** Staging får inte använda demo/mock-fallback i beslutskritiska flöden. */
+export function assertNoDemoOrFallback(payload: unknown, label = 'demo/fallback'): void {
+  const json = JSON.stringify(payload).toLowerCase();
+  expect(json.includes('"demo":true'), `${label}: demo-flag`).toBeFalsy();
+  expect(json.includes('"_demo":true'), `${label}: _demo-flag`).toBeFalsy();
+  expect(json.includes('mock_fallback'), `${label}: mock fallback`).toBeFalsy();
 }

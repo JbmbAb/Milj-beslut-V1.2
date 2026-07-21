@@ -12,7 +12,10 @@ export const KpiCard: React.FC<{ label: string; value: string }> = ({ label, val
 export const StatusBanner: React.FC<{ error?: string; info?: string }> = ({ error, info }) => {
   if (!error && !info) return null;
   return (
-    <section data-testid="admin-status-banner" className="rounded-2xl border border-slate-200 bg-white p-3 text-xs">
+    <section
+      data-testid="admin-status-banner"
+      className="rounded-2xl border border-slate-200 bg-white p-3 text-xs"
+    >
       {error && (
         <p data-testid="admin-status-error" className="font-bold text-rose-600">
           {error}

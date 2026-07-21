@@ -48,33 +48,29 @@ export const SystemStatus: React.FC = () => {
   if (!data) return null;
 
   const isOk = data.ok;
-  const containerClass = isOk 
-    ? "bg-emerald-50 border-emerald-100" 
-    : "bg-rose-50 border-rose-100";
-  
-  const textClass = isOk ? "text-emerald-800" : "text-rose-800";
-  const iconClass = isOk ? "text-emerald-600" : "text-rose-600";
-  const icon = isOk ? "fa-database" : "fa-triangle-exclamation";
+  const containerClass = isOk ? 'bg-emerald-50 border-emerald-100' : 'bg-rose-50 border-rose-100';
+
+  const textClass = isOk ? 'text-emerald-800' : 'text-rose-800';
+  const iconClass = isOk ? 'text-emerald-600' : 'text-rose-600';
+  const icon = isOk ? 'fa-database' : 'fa-triangle-exclamation';
 
   return (
     <div className={`rounded-xl border p-4 shadow-sm ${containerClass}`}>
       <div className="flex items-center gap-3 mb-3">
-        <div className={`w-10 h-10 rounded-xl bg-white flex items-center justify-center ${iconClass} shadow-sm`}>
+        <div
+          className={`w-10 h-10 rounded-xl bg-white flex items-center justify-center ${iconClass} shadow-sm`}
+        >
           <i className={`fas ${icon} text-lg`}></i>
         </div>
         <div>
-          <h4 className={`text-xs font-black uppercase tracking-widest ${textClass}`}>
-            PostGIS Motor
-          </h4>
+          <h4 className={`text-xs font-black uppercase tracking-widest ${textClass}`}>PostGIS Motor</h4>
           <span className={`text-[10px] font-bold ${isOk ? 'text-emerald-600' : 'text-rose-600'}`}>
             {isOk ? 'ONLINE' : 'OFFLINE'}
           </span>
         </div>
       </div>
-      
-      <p className={`text-xs font-medium mb-3 ${textClass}`}>
-        {data.message}
-      </p>
+
+      <p className={`text-xs font-medium mb-3 ${textClass}`}>{data.message}</p>
 
       {data.version && (
         <div className="bg-white/60 rounded-lg px-3 py-2 border border-emerald-100/50">

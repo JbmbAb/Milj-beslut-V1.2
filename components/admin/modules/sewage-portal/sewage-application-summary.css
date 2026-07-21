@@ -1,0 +1,267 @@
+/* Sewage Application Summary Styles */
+
+.sewage-application-summary {
+  padding: var(--spacing-xl);
+}
+
+/* Summary Sections */
+.sewage-summary-sections {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+  gap: var(--spacing-lg);
+  margin-bottom: var(--spacing-2xl);
+}
+
+.sewage-summary-card {
+  background: #f9f9f9;
+  border: 1px solid #e0e0e0;
+  border-radius: 8px;
+  padding: var(--spacing-lg);
+}
+
+.sewage-summary-card h3 {
+  margin: 0 0 var(--spacing-lg) 0;
+  color: #333;
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.sewage-summary-field {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: var(--spacing-md) 0;
+  border-bottom: 1px solid #e0e0e0;
+  font-size: 13px;
+}
+
+.sewage-summary-field:last-child {
+  border-bottom: none;
+}
+
+.sewage-summary-label {
+  font-weight: 600;
+  color: #666;
+}
+
+.sewage-summary-value {
+  color: #333;
+  font-weight: 600;
+}
+
+.sewage-summary-badge {
+  padding: 4px 8px;
+  border-radius: 3px;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.sewage-summary-badge.high {
+  background: #ffebee;
+  color: #c62828;
+}
+
+.sewage-summary-badge.normal {
+  background: #e8f5e9;
+  color: #2e7d32;
+}
+
+/* Checklist Card */
+.sewage-checklist-card {
+  grid-column: 1 / -1;
+}
+
+.sewage-checklist-item {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-md);
+  padding: var(--spacing-md) 0;
+  border-bottom: 1px solid #e0e0e0;
+  color: #666;
+  font-size: 13px;
+}
+
+.sewage-checklist-item:last-child {
+  border-bottom: none;
+}
+
+.sewage-checklist-item.completed {
+  color: #2e7d32;
+  font-weight: 600;
+}
+
+.sewage-checklist-item.pending {
+  color: #e65100;
+}
+
+/* Legal Card */
+.sewage-legal-card {
+  grid-column: 1 / -1;
+}
+
+.sewage-legal-item {
+  margin-bottom: var(--spacing-lg);
+}
+
+.sewage-legal-item:last-child {
+  margin-bottom: 0;
+}
+
+.sewage-legal-item strong {
+  display: block;
+  color: #0066cc;
+  margin-bottom: var(--spacing-sm);
+}
+
+.sewage-legal-item p {
+  margin: 0;
+  color: #666;
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+/* Terms & Conditions */
+.sewage-summary-terms {
+  background: #fff3e0;
+  padding: var(--spacing-lg);
+  border-radius: 8px;
+  border-left: 4px solid #ff9800;
+  margin-bottom: var(--spacing-xl);
+}
+
+.sewage-terms-checkbox {
+  display: flex;
+  gap: var(--spacing-md);
+  cursor: pointer;
+  font-size: 13px;
+  color: #333;
+  line-height: 1.4;
+}
+
+.sewage-terms-checkbox input[type='checkbox'] {
+  width: 20px;
+  height: 20px;
+  cursor: pointer;
+  flex-shrink: 0;
+  margin-top: 2px;
+}
+
+.sewage-terms-checkbox input[type='checkbox']:checked {
+  accent-color: #ff9800;
+}
+
+/* Documents */
+.sewage-summary-documents {
+  margin-bottom: var(--spacing-2xl);
+}
+
+.sewage-summary-documents h3 {
+  margin: 0 0 var(--spacing-lg) 0;
+  color: #333;
+  font-size: 16px;
+  font-weight: 600;
+}
+
+.sewage-documents-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: var(--spacing-lg);
+}
+
+.sewage-document-item {
+  background: #e8f4fd;
+  border: 1px solid #0066cc;
+  border-radius: 8px;
+  padding: var(--spacing-lg);
+  text-align: center;
+}
+
+.sewage-document-item p {
+  margin: var(--spacing-sm) 0;
+  color: #333;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.sewage-document-status {
+  color: #0066cc;
+  font-size: 12px;
+  font-weight: normal;
+}
+
+/* Actions */
+.sewage-summary-actions {
+  text-align: center;
+  margin-bottom: var(--spacing-2xl);
+}
+
+.sewage-button-large {
+  padding: var(--spacing-lg) var(--spacing-2xl);
+  font-size: 15px;
+  min-width: 300px;
+}
+
+.sewage-button-primary:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.sewage-spinner {
+  display: inline-block;
+  width: 14px;
+  height: 14px;
+  border: 2px solid rgba(255, 255, 255, 0.3);
+  border-top: 2px solid white;
+  border-radius: 50%;
+  animation: spin 1s linear infinite;
+  margin-right: 8px;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.sewage-submission-info {
+  margin-top: var(--spacing-lg);
+  color: #666;
+  font-size: 13px;
+  line-height: 1.4;
+}
+
+/* References */
+.sewage-summary-references {
+  background: #f5f5f5;
+  padding: var(--spacing-lg);
+  border-radius: 8px;
+}
+
+.sewage-summary-references h4 {
+  margin: 0 0 var(--spacing-md) 0;
+  color: #333;
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.sewage-summary-references ul {
+  margin: 0;
+  padding-left: var(--spacing-lg);
+  list-style: none;
+}
+
+.sewage-summary-references li {
+  margin: var(--spacing-sm) 0;
+  color: #666;
+  font-size: 12px;
+  position: relative;
+  padding-left: var(--spacing-md);
+  line-height: 1.4;
+}
+
+.sewage-summary-references li:before {
+  content: '→';
+  position: absolute;
+  left: 0;
+  color: #0066cc;
+}

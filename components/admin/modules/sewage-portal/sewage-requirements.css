@@ -1,0 +1,237 @@
+/* Sewage Requirement Checklist Styles */
+
+.sewage-requirement-checklist {
+  padding: var(--spacing-xl);
+}
+
+/* Progress Bar */
+.sewage-checklist-progress {
+  position: relative;
+  height: 40px;
+  background: #f0f0f0;
+  border-radius: 4px;
+  overflow: hidden;
+  margin-bottom: var(--spacing-xl);
+}
+
+.sewage-progress-fill {
+  height: 100%;
+  background: linear-gradient(90deg, #0066cc, #0052a3);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: white;
+  font-weight: 600;
+  font-size: 12px;
+  transition: width 0.3s ease;
+}
+
+.sewage-progress-text {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  color: #333;
+  font-weight: 600;
+  font-size: 14px;
+  margin: 0;
+}
+
+/* Categories */
+.sewage-checklist-categories {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: var(--spacing-xl);
+}
+
+.sewage-requirement-category {
+  background: #f9f9f9;
+  border: 1px solid #e0e0e0;
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.sewage-category-title {
+  padding: var(--spacing-lg);
+  margin: 0;
+  background: #f0f0f0;
+  font-size: 14px;
+  font-weight: 600;
+  color: #333;
+  border-bottom: 1px solid #e0e0e0;
+}
+
+/* Requirement Items */
+.sewage-requirement-items {
+  display: flex;
+  flex-direction: column;
+}
+
+.sewage-requirement-item {
+  display: flex;
+  gap: var(--spacing-lg);
+  padding: var(--spacing-lg);
+  border-bottom: 1px solid #e0e0e0;
+  cursor: pointer;
+  transition: background-color 0.2s;
+  align-items: flex-start;
+}
+
+.sewage-requirement-item:last-child {
+  border-bottom: none;
+}
+
+.sewage-requirement-item:hover:not(.blocked) {
+  background: #f5f5f5;
+}
+
+.sewage-requirement-item.completed {
+  background: #f0f8f4;
+}
+
+.sewage-requirement-item.blocked {
+  background: #fff3e0;
+  cursor: not-allowed;
+  opacity: 0.8;
+}
+
+/* Checkbox */
+.sewage-requirement-checkbox {
+  flex-shrink: 0;
+  width: 24px;
+  height: 24px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin-top: 2px;
+}
+
+.sewage-checkbox-empty {
+  width: 20px;
+  height: 20px;
+  border: 2px solid #ddd;
+  border-radius: 3px;
+  background: white;
+}
+
+.sewage-requirement-item:hover:not(.blocked) .sewage-checkbox-empty {
+  border-color: #0066cc;
+  background: #f0f6ff;
+}
+
+/* Content */
+.sewage-requirement-content {
+  flex: 1;
+  min-width: 0;
+}
+
+.sewage-requirement-text {
+  margin: 0;
+  font-weight: 600;
+  color: #333;
+  font-size: 14px;
+  line-height: 1.4;
+}
+
+.sewage-requirement-reason {
+  margin: var(--spacing-sm) 0 0 0;
+  color: #666;
+  font-size: 13px;
+  line-height: 1.4;
+}
+
+.sewage-requirement-reference {
+  margin: var(--spacing-sm) 0 0 0;
+  color: #999;
+  font-size: 12px;
+  font-style: italic;
+}
+
+.sewage-requirement-blocker,
+.sewage-requirement-warning {
+  margin: var(--spacing-sm) 0 0 0;
+  padding: var(--spacing-sm);
+  background: #fff3cd;
+  border-left: 3px solid #ff9800;
+  color: #856404;
+  font-size: 12px;
+}
+
+/* Summary */
+.sewage-checklist-summary {
+  margin-top: var(--spacing-2xl);
+  padding: var(--spacing-lg);
+  border-radius: 8px;
+  text-align: center;
+}
+
+.sewage-summary-success {
+  background: #f0f8f4;
+  border: 1px solid #4caf50;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--spacing-lg);
+}
+
+.sewage-summary-success p {
+  color: #2e7d32;
+  font-weight: 600;
+  margin: 0;
+}
+
+.sewage-summary-pending {
+  background: #fff3e0;
+  border: 1px solid #ff9800;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--spacing-lg);
+}
+
+.sewage-summary-pending p {
+  color: #e65100;
+  font-weight: 600;
+  margin: 0;
+}
+
+.sewage-summary-detail {
+  font-size: 13px;
+  font-weight: normal;
+}
+
+/* Legal Reference */
+.sewage-legal-reference {
+  margin-top: var(--spacing-2xl);
+  padding: var(--spacing-lg);
+  background: #f5f5f5;
+  border-radius: 4px;
+  border-left: 4px solid #0066cc;
+}
+
+.sewage-legal-reference h4 {
+  margin: 0 0 var(--spacing-md) 0;
+  color: #0066cc;
+  font-size: 14px;
+}
+
+.sewage-legal-reference ul {
+  margin: 0;
+  padding-left: var(--spacing-lg);
+  list-style: none;
+}
+
+.sewage-legal-reference li {
+  margin: var(--spacing-sm) 0;
+  color: #666;
+  font-size: 13px;
+  position: relative;
+  padding-left: var(--spacing-md);
+}
+
+.sewage-legal-reference li:before {
+  content: '→';
+  position: absolute;
+  left: 0;
+  color: #0066cc;
+}

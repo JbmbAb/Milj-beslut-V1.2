@@ -1,0 +1,7 @@
+<OGRVRTDataSource>
+    <OGRVRTLayer name="{{LAYER_NAME}}">
+        <SrcDataSource>{{FILE_PATH}}</SrcDataSource>
+        <GeometryType>wkbPoint</GeometryType>
+        <GeometryField encoding="PointFromColumns" x="field_1" y="field_2" z="field_3"/>
+    </OGRVRTLayer>
+</OGRVRTDataSource>

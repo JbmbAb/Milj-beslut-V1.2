@@ -1,0 +1,32 @@
+[
+  {
+    "key": "ctrl+shift+t",
+    "command": "workbench.action.tasks.runTask",
+    "args": "Test: Watch Current File",
+    "when": "editorTextFocus"
+  },
+  {
+    "key": "ctrl+shift+u",
+    "command": "workbench.action.tasks.runTask",
+    "args": "Test: Unit Tests",
+    "when": "editorTextFocus"
+  },
+  {
+    "key": "ctrl+shift+c",
+    "command": "workbench.action.tasks.runTask",
+    "args": "Test: Coverage Report",
+    "when": "editorTextFocus"
+  },
+  {
+    "key": "ctrl+shift+q",
+    "command": "workbench.action.tasks.runTask",
+    "args": "Test: Full QA Pipeline",
+    "when": "editorTextFocus"
+  },
+  {
+    "key": "ctrl+shift+l",
+    "command": "workbench.action.tasks.runTask",
+    "args": "QA: Lint",
+    "when": "editorTextFocus"
+  }
+]
