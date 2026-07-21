@@ -1,84 +1,33 @@
 generator client {
-  provider = "prisma-client-js"
+  provider        = "prisma-client-js"
+  previewFeatures = ["multiSchema"]
+}
+
+generator erd {
+  provider = "prisma-erd-generator"
+  output   = "../docs/architecture/er-diagram.svg"
+  theme    = "forest"
 }
 
 datasource db {
   provider = "postgresql"
-  url      = env("DATABASE_URL")
+  schemas  = ["public", "env", "topo10", "core"]
 }
 
-enum UserRole {
-  ADMIN
-  CONSULTANT
-  AUDITOR
-  BANK
-}
-
-enum ProjectStatus {
-  ACTIVE
-  CLOSED
-  ARCHIVED
-}
-
-enum ProjectAccessRole {
-  OWNER
-  CONTRIBUTOR
-  REVIEWER
-  AUDITOR
-}
-
-enum PropertyResponseClass {
-  geometry
-  boundaries
-  ownership_redacted
-}
-
-enum DocumentProcessingStatus {
-  METADATA_ONLY
-  TEXT_EXTRACTED
-  CHUNKED
-  EMBEDDED
-  FAILED
-}
-
-enum SearchJobType {
-  SYNC_MANIFEST
-  EXTRACT_TEXT
-  EMBED_DOC
-}
-
-enum SearchJobStatus {
-  PENDING
-  RUNNING
-  DONE
-  FAILED
-}
-
-enum SearchMode {
-  semantic
-  lexical
-  hybrid
-}
-
-enum RequirementVerificationStatus {
-  AUTO
-  NEEDS_REVIEW
-  REVIEWED
-  VERIFIED
-  REJECTED
-  LOCKED
-}
-
+/// Core user entity. Handles authentication links (BankID) and role-based access control.
 model User {
-  id             String          @id @default(cuid())
-  organisationId String
-  bankidId       String          @unique
-  role           UserRole
-  createdAt      DateTime        @default(now())
-  organisation   Organisation    @relation(fields: [organisationId], references: [id], onDelete: Restrict)
-  memberships    ProjectMember[]
-  accessLogs     PropertyAccessLog[]
-  searchQueries  SearchQueryLog[]
+  id                           String                        @id @default(cuid())
+  organisationId               String
+  bankidId                     String                        @unique
+  role                         UserRole
+  createdAt                    DateTime                      @default(now())
+  memberships                  ProjectMember[]
+  accessLogs                   PropertyAccessLog[]
+  searchQueries                SearchQueryLog[]
+  organisation                 Organisation                  @relation(fields: [organisationId], references: [id])
+  interactionPrototypeSessions InteractionPrototypeSession[]
+
+  @@schema("public")
 }
 
 model TokenRevocation {
@@ -90,6 +39,7 @@ model TokenRevocation {
 
   @@index([userId, revokedAt])
   @@index([expiresAt])
+  @@schema("public")
 }
 
 model RateLimitEntry {
@@ -99,39 +49,181 @@ model RateLimitEntry {
   resetAt DateTime
 
   @@index([resetAt])
+  @@schema("public")
 }
 
+/// Root entity for multi-tenancy. Every user and project belongs to exactly one organisation.
 model Organisation {
-  id        String    @id @default(cuid())
-  name      String
-  orgNumber String    @unique
-  createdAt DateTime  @default(now())
-  users     User[]
-  projects  Project[]
-  documents DocumentRecord[]
+  id                           String                        @id @default(cuid())
+  name                         String
+  orgNumber                    String                        @unique
+  role                         OrganizationRole
+  contactEmail                 String?
+  phone                        String?
+  address                      Json?
+  createdAt                    DateTime                      @default(now())
+  updatedAt                    DateTime                      @updatedAt
+  authorityInboxEvents         AuthorityInboxEvent[]
+  CaseSnapshot                 CaseSnapshot[]
+  documents                    DocumentRecord[]
+  EvidenceExport               EvidenceExport[]
+  projects                     Project[]
+  RequirementCase              RequirementCase[]
+  submissions                  Submission[]
+  users                        User[]
+  cNotificationChemicals       CNotificationChemical[]
+  permitApplicationDrafts      PermitApplicationDraft[]
+  interactionPrototypeSessions InteractionPrototypeSession[]
+
+  @@schema("public")
 }
 
+/// The central container for all environmental permit work. 
+/// Tracks status, compliance scores, and ties together documents, requirements, and members.
 model Project {
-  id                  String              @id @default(cuid())
-  organisationId      String
-  propertyDesignation String
-  status              ProjectStatus
-  createdAt           DateTime            @default(now())
-  closedAt            DateTime?
-  retentionUntil      DateTime?
-  organisation        Organisation        @relation(fields: [organisationId], references: [id], onDelete: Restrict)
-  members             ProjectMember[]
-  accessLogs          PropertyAccessLog[]
-  documents           DocumentRecord[]
-  searchQueries       SearchQueryLog[]
-  requirementCases    RequirementCase[]
-  requirements        RequirementRecord[]
-  planState           ProjectPlanState?
-  complianceScore     Float?
-  fundingRating       String?
-  regulatoryRiskScore Float?
-  environmentalScore  Float?
+  id                           String                        @id @default(cuid())
+  organisationId               String
+  propertyDesignation          String
+  status                       ProjectStatus
+  createdAt                    DateTime                      @default(now())
+  closedAt                     DateTime?
+  retentionUntil               DateTime?
+  complianceScore              Float?
+  environmentalScore           Float?
+  fundingRating                String?
+  regulatoryRiskScore          Float?
+  authorityInboxEvents         AuthorityInboxEvent[]
+  CaseSnapshot                 CaseSnapshot[]
+  documents                    DocumentRecord[]
+  EvidenceExport               EvidenceExport[]
+  organisation                 Organisation                  @relation(fields: [organisationId], references: [id])
+  members                      ProjectMember[]
+  planState                    ProjectPlanState?
+  accessLogs                   PropertyAccessLog[]
+  requirementCases             RequirementCase[]
+  requirements                 RequirementRecord[]
+  searchQueries                SearchQueryLog[]
+  submissions                  Submission[]
+  cNotificationChemicals       CNotificationChemical[]
+  permitApplicationDrafts      PermitApplicationDraft[]
+  satelliteAnalyses            SatelliteAnalysis[]
+  geoAnalysisLayers            GeoAnalysisLayer[]
+  components                   ProjectComponent[]
+  interactionPrototypeSessions InteractionPrototypeSession[]
+
   @@index([organisationId, status])
+  @@schema("public")
+}
+
+model SatelliteScene {
+  id                   String              @id @default(cuid())
+  sceneId              String              @unique // Copernicus Product ID
+  capturedAt           DateTime
+  cloudCoverPercentage Float
+  platform             String // t.ex. "Sentinel-2A"
+  productType          String // t.ex. "L2A"
+  thumbnailUrl         String?
+  bbox                 Json // [minX, minY, maxX, maxY]
+  createdAt            DateTime            @default(now())
+  analyses             SatelliteAnalysis[]
+
+  @@map("satellite_scenes")
+  @@schema("public")
+}
+
+/// Results of processing satellite scenes (e.g., NDVI, RGB) for a specific project.
+model SatelliteAnalysis {
+  id             String   @id @default(cuid())
+  projectId      String   @map("project_id")
+  sceneId        String   @map("scene_id")
+  analysisType   String   @map("analysis_type") // t.ex. "NDVI", "RGB", "NDWI"
+  resultMetadata Json     @map("result_metadata") // t.ex. { mean: 0.5, max: 0.8 }
+  imageDiskPath  String?  @map("image_disk_path") // Relativ sökväg i storage (PNG/GeoTIFF)
+  observedAt     DateTime @map("observed_at")
+  createdAt      DateTime @default(now()) @map("created_at")
+
+  project Project        @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  scene   SatelliteScene @relation(fields: [sceneId], references: [id], onDelete: Cascade)
+
+  @@index([projectId, analysisType])
+  @@index([sceneId])
+  @@map("satellite_analyses")
+  @@schema("public")
+}
+
+/// Represents a source of geospatial data, e.g., Lantmäteriet, SGU, Copernicus.
+model GeoSource {
+  id          String             @id @default(cuid())
+  provider    String // e.g., "Lantmäteriet", "SGU", "Copernicus"
+  product     String // e.g., "Markhöjdmodell Nedladdning, grid 2+", "Ortofoto"
+  licenceType String             @default("OpenData")
+  sourceUrl   String?
+  createdAt   DateTime           @default(now())
+  analyses    GeoAnalysisLayer[]
+
+  @@unique([provider, product])
+  @@map("geo_sources")
+  @@schema("public")
+}
+
+/// Represents a specific analysis layer generated for a project from a geospatial source.
+model GeoAnalysisLayer {
+  id             String   @id @default(cuid())
+  projectId      String   @map("project_id")
+  geoSourceId    String   @map("geo_source_id")
+  analysisType   String   @map("analysis_type") // e.g., "NDVI", "TERRAIN_SLOPE", "WATERSHED"
+  analysisResult Json     @map("analysis_result") // Could be stats, vector data, or references
+  imageDiskPath  String?  @map("image_disk_path") // Path to generated GeoTIFF/PNG
+  createdAt      DateTime @default(now()) @map("created_at")
+
+  project   Project   @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  geoSource GeoSource @relation(fields: [geoSourceId], references: [id], onDelete: Restrict)
+
+  @@index([projectId, analysisType])
+  @@map("geo_analysis_layers")
+  @@schema("public")
+}
+
+/// C-anmälan: kemikalieförteckning (tabell skapad via migration 20260426120000)
+model CNotificationChemical {
+  id                      String   @id @default(cuid())
+  organisationId          String   @map("organisation_id")
+  projectId               String?  @map("project_id")
+  name                    String
+  annualConsumption       String?  @map("annual_consumption")
+  storageNote             String?  @map("storage_note")
+  hazardCode              String?  @map("hazard_code")
+  requiresSafetyDataSheet Boolean  @default(false) @map("requires_safety_data_sheet")
+  reviewStatus            String   @default("DRAFT") @map("review_status")
+  createdAt               DateTime @default(now()) @map("created_at")
+  updatedAt               DateTime @updatedAt @map("updated_at")
+
+  organisation Organisation @relation(fields: [organisationId], references: [id], onDelete: Cascade)
+  project      Project?     @relation(fields: [projectId], references: [id], onDelete: SetNull)
+
+  @@index([organisationId, updatedAt])
+  @@index([projectId])
+  @@map("c_notification_chemicals")
+  @@schema("public")
+}
+
+/// Tillståndsansökan: sparat utkast per projekt (API /api/projects/:id/permit)
+model PermitApplicationDraft {
+  id                  String       @id @default(cuid())
+  projectId           String
+  organisationId      String
+  application         Json
+  generatedAt         DateTime?
+  sourceTracking      Json         @default("[]")
+  externalSourcesUsed Json         @default("[]")
+  createdAt           DateTime     @default(now())
+  updatedAt           DateTime     @updatedAt
+  project             Project      @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  organisation        Organisation @relation(fields: [organisationId], references: [id], onDelete: Cascade)
+
+  @@index([projectId, updatedAt])
+  @@index([organisationId])
+  @@schema("public")
 }
 
 model ProjectPlanState {
@@ -144,8 +236,10 @@ model ProjectPlanState {
   project       Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
 
   @@index([updatedAt])
+  @@schema("public")
 }
 
+/// Junction table for project access control, defining the role of a user within a specific project.
 model ProjectMember {
   id         String            @id @default(cuid())
   projectId  String
@@ -154,7 +248,9 @@ model ProjectMember {
   createdAt  DateTime          @default(now())
   project    Project           @relation(fields: [projectId], references: [id], onDelete: Cascade)
   user       User              @relation(fields: [userId], references: [id], onDelete: Cascade)
+
   @@unique([projectId, userId])
+  @@schema("public")
 }
 
 model PropertyAccessLog {
@@ -165,27 +261,100 @@ model PropertyAccessLog {
   timestamp           DateTime              @default(now())
   purpose             String
   responseClass       PropertyResponseClass
-  user                User                  @relation(fields: [userId], references: [id], onDelete: Restrict)
-  project             Project               @relation(fields: [projectId], references: [id], onDelete: Restrict)
+  project             Project               @relation(fields: [projectId], references: [id])
+  user                User                  @relation(fields: [userId], references: [id])
+
   @@index([projectId, timestamp])
   @@index([userId, timestamp])
+  @@schema("public")
 }
 
+model BackgroundJob {
+  id          String    @id @default(cuid())
+  type        String // e.g., 'GDPR_MAINTENANCE', 'SEARCH_INDEXING'
+  status      String    @default("PENDING") // PENDING, RUNNING, COMPLETED, FAILED
+  payload     Json?
+  result      Json?
+  error       String?
+  startedAt   DateTime?
+  completedAt DateTime?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  @@index([status, type])
+  @@schema("public")
+}
+
+/// C-anmälan schaktmassor — canonical ärende.
+model CNotificationMassCase {
+  id                    String   @id
+  referenceNumber       String   @unique @map("reference_number")
+  organisationId        String   @map("organisation_id")
+  createdByUserId       String   @map("created_by_user_id")
+  projectId             String   @map("project_id")
+  propertyDesignation   String   @map("property_designation")
+  status                String   @default("DRAFT")
+  municipalityReference String?  @map("municipality_reference")
+  payload               Json     @default("{}")
+  createdAt             DateTime @default(now()) @map("created_at")
+  updatedAt             DateTime @updatedAt @map("updated_at")
+
+  @@index([organisationId])
+  @@index([projectId])
+  @@map("c_notification_mass_cases")
+  @@schema("public")
+}
+
+/// Enskilt avlopp — canonical ärende (staging/produktion).
+model SewageApplicationCase {
+  id                    String   @id
+  referenceNumber       String   @unique @map("reference_number")
+  organisationId        String   @map("organisation_id")
+  createdByUserId       String   @map("created_by_user_id")
+  projectId             String?  @map("project_id")
+  municipalityCode      String?  @map("municipality_code")
+  pe                    Float    @default(5)
+  propertyDesignation   String   @map("property_designation")
+  latitude              Float
+  longitude             Float
+  applicantName         String   @map("applicant_name")
+  applicantEmail        String   @map("applicant_email")
+  systemType            String   @map("system_type")
+  purpose               String?
+  status                String   @default("DRAFT")
+  decisionNote          String?  @map("decision_note")
+  municipalityReference String?  @map("municipality_reference")
+  payload               Json     @default("{}")
+  createdAt             DateTime @default(now()) @map("created_at")
+  updatedAt             DateTime @updatedAt @map("updated_at")
+
+  @@index([organisationId])
+  @@index([referenceNumber])
+  @@map("sewage_application_cases")
+  @@schema("public")
+}
+
+/// Immutable security log. Stores a chain of hashes to ensure data integrity and track all administrative actions.
 model AuditTrail {
-  id          String   @id @default(cuid())
-  entityType  String
-  entityId    String
-  action      String
-  userId      String?
-  timestamp   DateTime @default(now())
-  payloadHash String
-  prevHash    String?
-  chainHash   String   @unique
+  id              String   @id @default(cuid())
+  entityType      String
+  entityId        String
+  action          String
+  userId          String?
+  timestamp       DateTime @default(now())
+  referenceNumber String?  @map("reference_number")
+  payloadHash     String
+  prevHash        String?
+  chainHash       String   @unique
+
+  @@index([referenceNumber])
   @@index([entityType, timestamp])
+  @@schema("public")
 }
 
+/// Represents a waste transport order. Tracks logistics from origin to receiver, including CO2 estimates and regulatory status.
 model TransportBooking {
-  id                String   @id @default(cuid())
+  id                String          @id @default(cuid())
   quoteId           String
   provider          String
   status            String
@@ -198,18 +367,19 @@ model TransportBooking {
   plannedPickupAt   DateTime
   plannedDeliveryAt DateTime
   externalReference String?
-  createdAt         DateTime @default(now())
-  updatedAt         DateTime @updatedAt
+  createdAt         DateTime        @default(now())
+  updatedAt         DateTime        @updatedAt
   journals          DriverJournal[]
-  limsReports       LimsReport[]
   gpsPositions      GpsPosition[]
+  limsReports       LimsReport[]
 
   @@index([status])
   @@index([receiverId])
+  @@schema("public")
 }
 
 model DriverJournal {
-  id                  String   @id @default(cuid())
+  id                  String           @id @default(cuid())
   bookingId           String
   driverName          String
   vehicleId           String
@@ -222,41 +392,45 @@ model DriverJournal {
   odometerStartKm     Float
   odometerEndKm       Float?
   gpsTrackHash        String?
-  status              String   @default("DRAFT")
-  signedByDriver      Boolean  @default(false)
-  signedByReviewer    Boolean  @default(false)
+  status              String           @default("DRAFT")
+  signedByDriver      Boolean          @default(false)
+  signedByReviewer    Boolean          @default(false)
   driverSignatureId   String?
   reviewerSignatureId String?
-  createdAt           DateTime @default(now())
-  updatedAt           DateTime @updatedAt
+  createdAt           DateTime         @default(now())
+  updatedAt           DateTime         @updatedAt
   booking             TransportBooking @relation(fields: [bookingId], references: [id], onDelete: Cascade)
 
   @@index([driverName])
   @@index([status])
+  @@schema("public")
 }
 
+/// Lab analysis results (Laboratory Information Management System). Tied to waste bookings for compliance verification.
 model LimsReport {
-  id                 String   @id @default(cuid())
-  bookingId          String?
-  sampleId           String
-  labName            String
-  source             String   @default("MANUAL")
-  analyzedAt         DateTime
-  rawReference       String
-  metrics            Json     // Storing as JSON for flexibility in dev
-  passed             Boolean
-  verifiedByHuman    Boolean  @default(false)
-  reviewer           String?
+  id                  String            @id @default(cuid())
+  bookingId           String?
+  sampleId            String
+  labName             String
+  source              String            @default("MANUAL")
+  analyzedAt          DateTime
+  rawReference        String
+  metrics             Json
+  passed              Boolean
+  verifiedByHuman     Boolean           @default(false)
+  reviewer            String?
   reviewerSignatureId String?
-  verifiedAt         DateTime?
-  createdAt          DateTime @default(now())
-  booking            TransportBooking? @relation(fields: [bookingId], references: [id], onDelete: SetNull)
+  verifiedAt          DateTime?
+  createdAt           DateTime          @default(now())
+  booking             TransportBooking? @relation(fields: [bookingId], references: [id])
 
   @@index([sampleId])
+  @@schema("public")
 }
 
+/// High-frequency GPS tracking points for transport vehicles. Used for geo-fencing and route validation.
 model GpsPosition {
-  id        String   @id @default(cuid())
+  id        String           @id @default(cuid())
   bookingId String
   lat       Float
   lng       Float
@@ -264,61 +438,69 @@ model GpsPosition {
   speedKmh  Float?
   heading   Float?
   accuracy  Float?
-  timestamp DateTime @default(now())
+  timestamp DateTime         @default(now())
   hash      String
   prevHash  String?
   booking   TransportBooking @relation(fields: [bookingId], references: [id], onDelete: Cascade)
 
   @@index([bookingId, timestamp])
+  @@schema("public")
 }
 
+/// Metadata for an uploaded or ingested document. Tracks processing status, AI-extracted field confidence, and ownership. This is the main entry point for document-related workflows.
 model DocumentRecord {
-  id                        String                   @id @default(cuid())
-  projectId                 String
-  organisationId            String
-  entryId                   String
-  receivedTime              DateTime?
-  subject                   String
-  originalName              String
-  diskName                  String                   @unique
-  absolutePath              String
-  fileSize                  BigInt?
-  fileSha256                String?
-  mimeType                  String?
-  status                    DocumentProcessingStatus @default(METADATA_ONLY)
-  // Legacy field kept for compatibility – normalised value preferred
-  municipality              String?
-  municipalityRaw           String?
-  municipalityNormalized    String?
-  municipalityConfidence    Float?
-  municipalitySource        String?
-  decisionType              String?
-  decisionTypeConfidence    Float?
-  decisionTypeSource        String?
-  activityCode              String?
-  activityCodeConfidence    Float?
-  activityCodeSource        String?
-  wasteType                 String?
-  wasteTypeConfidence       Float?
-  wasteTypeSource           String?
-  hazardousFlag             Boolean?
-  legalStatus               String?
-  diarieConfidence          Float?
-  diarieSource              String?
-  metadataReviewStatus      String                   @default("AUTO")
-  fieldExtractorVersion     Json?
-  createdAt                 DateTime                 @default(now())
-  updatedAt                 DateTime                 @updatedAt
-  manifestMeta              Json?
-  project                   Project                  @relation(fields: [projectId], references: [id], onDelete: Cascade)
-  organisation              Organisation             @relation(fields: [organisationId], references: [id], onDelete: Cascade)
-  content                   DocumentContent?
-  chunks                    DocumentChunk[]
-  requirementCase           RequirementCase?
-  requirements              RequirementRecord[]
-  requirementCitations      RequirementCitation[]
-  metadataEvidence          DocumentMetadataEvidence[]
-  reviewQueue               MetadataReviewQueue[]
+  id                     String                         @id @default(cuid())
+  projectId              String
+  organisationId         String
+  entryId                String
+  receivedTime           DateTime?
+  subject                String
+  originalName           String
+  diskName               String                         @unique
+  absolutePath           String
+  fileSize               BigInt?
+  fileSha256             String?
+  mimeType               String?
+  status                 DocumentProcessingStatus       @default(METADATA_ONLY)
+  decisionType           String?
+  municipality           String?
+  wasteType              String?
+  hazardousFlag          Boolean?
+  legalStatus            String?
+  createdAt              DateTime                       @default(now())
+  updatedAt              DateTime                       @updatedAt
+  manifestMeta           Json?
+  activityCode           String?
+  activityCodeConfidence Float?
+  activityCodeSource     String?
+  decisionTypeConfidence Float?
+  decisionTypeSource     String?
+  diarieConfidence       Float?
+  diarieSource           String?
+  fieldExtractorVersion  Json?
+  metadataReviewStatus   String                         @default("AUTO")
+  municipalityConfidence Float?
+  municipalityNormalized String?
+  municipalityRaw        String?
+  municipalitySource     String?
+  wasteTypeConfidence    Float?
+  wasteTypeSource        String?
+  authorityInboxEvents   AuthorityInboxEvent[]
+  classifications        ClassificationRecommendation[]
+  chunks                 DocumentChunk[]
+  content                DocumentContent?
+  metadataEvidence       DocumentMetadataEvidence[]
+  organisation           Organisation                   @relation(fields: [organisationId], references: [id], onDelete: Cascade)
+  project                Project                        @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  reviewQueue            MetadataReviewQueue[]
+  requirementCase        RequirementCase?
+  requirementCitations   RequirementCitation[]
+  RequirementMatrixRow   RequirementMatrixRow[]
+  requirements           RequirementRecord[]
+  submissionArtifacts    SubmissionArtifact[]
+  OutlookAttachment      OutlookAttachment[]
+  decision_cases         decision_cases[]
+  decision_requirements  decision_requirements[]
 
   @@index([projectId, receivedTime])
   @@index([organisationId, receivedTime])
@@ -326,8 +508,10 @@ model DocumentRecord {
   @@index([municipalityNormalized, decisionType])
   @@index([metadataReviewStatus, updatedAt])
   @@index([legalStatus])
+  @@schema("public")
 }
 
+/// Sensitive text content extracted from documents. Stored encrypted at rest with per-document IVs. Used as the primary source for semantic search and LLM context.
 model DocumentContent {
   id                String         @id @default(cuid())
   documentId        String         @unique
@@ -339,19 +523,23 @@ model DocumentContent {
   createdAt         DateTime       @default(now())
   updatedAt         DateTime       @updatedAt
   document          DocumentRecord @relation(fields: [documentId], references: [id], onDelete: Cascade)
+
+  @@schema("public")
 }
 
+/// Granular text segments used for vector-based semantic search (RAG). Each chunk is indexed with an embedding for fast retrieval.
 model DocumentChunk {
-  id              String         @id @default(cuid())
-  documentId      String
-  chunkIndex      Int
-  chunkText       String
-  embeddingJson   Json?
-  createdAt       DateTime       @default(now())
-  document        DocumentRecord @relation(fields: [documentId], references: [id], onDelete: Cascade)
+  id            String         @id @default(cuid())
+  documentId    String
+  chunkIndex    Int
+  chunkText     String
+  embeddingJson Json?
+  createdAt     DateTime       @default(now())
+  document      DocumentRecord @relation(fields: [documentId], references: [id], onDelete: Cascade)
 
   @@unique([documentId, chunkIndex])
   @@index([documentId])
+  @@schema("public")
 }
 
 model SearchJob {
@@ -368,8 +556,10 @@ model SearchJob {
 
   @@index([status, createdAt])
   @@index([type, status])
+  @@schema("public")
 }
 
+/// Audit log for all AI and lexical searches. Stores parameters and performance metrics for relevance tuning.
 model SearchQueryLog {
   id          String     @id @default(cuid())
   userId      String
@@ -380,47 +570,59 @@ model SearchQueryLog {
   resultCount Int        @default(0)
   elapsedMs   Int        @default(0)
   createdAt   DateTime   @default(now())
-  user        User       @relation(fields: [userId], references: [id], onDelete: Restrict)
   project     Project    @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  user        User       @relation(fields: [userId], references: [id])
 
   @@index([projectId, createdAt])
   @@index([userId, createdAt])
+  @@schema("public")
 }
 
+/// A specific legal case (e.g., a permit decision) that has been parsed into individual requirements.
 model RequirementCase {
-  id                String              @id @default(cuid())
-  caseKey           String              @unique
-  projectId         String
-  documentId        String              @unique
-  organisationId    String
-  municipality      String?
-  authorityType     String?
-  authorityName     String?
-  diarienummer      String?
-  documentType      String?
-  documentDate      DateTime?
-  sourceFile        String
-  sourceSubject     String?
-  reviewStatus      RequirementVerificationStatus @default(AUTO)
-  caseReviewStatus  String              @default("AUTO") // AUTO | NEEDS_REVIEW | VERIFIED | LOCKED
-  validatedBy       String?
-  validatedAt       DateTime?
-  notes             String?
-  createdAt         DateTime            @default(now())
-  updatedAt         DateTime            @updatedAt
-  project           Project             @relation(fields: [projectId], references: [id], onDelete: Cascade)
-  document          DocumentRecord      @relation(fields: [documentId], references: [id], onDelete: Cascade)
-  requirements      RequirementRecord[]
-  citations         RequirementCitation[]
+  id                           String                         @id @default(cuid())
+  caseKey                      String                         @unique
+  projectId                    String
+  documentId                   String                         @unique
+  organisationId               String
+  municipality                 String?
+  authorityType                String?
+  authorityName                String?
+  diarienummer                 String?
+  documentType                 String?
+  documentDate                 DateTime?
+  sourceFile                   String
+  sourceSubject                String?
+  reviewStatus                 RequirementVerificationStatus  @default(AUTO)
+  validatedBy                  String?
+  validatedAt                  DateTime?
+  notes                        String?
+  createdAt                    DateTime                       @default(now())
+  updatedAt                    DateTime                       @updatedAt
+  caseReviewStatus             String                         @default("AUTO")
+  authorityInboxEvents         AuthorityInboxEvent[]
+  CaseSnapshot                 CaseSnapshot[]
+  ClassificationRecommendation ClassificationRecommendation[]
+  EvidenceExport               EvidenceExport[]
+  document                     DocumentRecord                 @relation(fields: [documentId], references: [id], onDelete: Cascade)
+  organisation                 Organisation                   @relation(fields: [organisationId], references: [id])
+  project                      Project                        @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  citations                    RequirementCitation[]
+  RequirementMatrixRow         RequirementMatrixRow[]
+  requirements                 RequirementRecord[]
+  submissions                  Submission[]
+  CaseNote                     CaseNote[]
+  decision_cases               decision_cases[]
 
   @@index([projectId, documentDate])
   @@index([municipality, authorityType])
+  @@schema("public")
 }
 
+/// An individual legal requirement (villkor) extracted from a decision. Includes deadlines, categories, and verification status.
 model RequirementRecord {
   id                     String                        @id @default(cuid())
   requirementCode        String                        @unique
-  requirementHash        String?
   caseId                 String
   documentId             String
   projectId              String
@@ -451,228 +653,212 @@ model RequirementRecord {
   statusInNotification   String                        @default("Ej behandlad")
   comment                String?
   codingConfidence       String                        @default("LOW")
-  verificationStatus     RequirementVerificationStatus @default(AUTO)
   verifiedBy             String?
   verifiedAt             DateTime?
   errorType              String?
   validationComment      String?
   createdAt              DateTime                      @default(now())
   updatedAt              DateTime                      @updatedAt
+  requirementHash        String?
+  verificationStatus     RequirementVerificationStatus @default(AUTO)
+  citations              RequirementCitation[]
+  RequirementMatrixRow   RequirementMatrixRow[]
   case                   RequirementCase               @relation(fields: [caseId], references: [id], onDelete: Cascade)
   document               DocumentRecord                @relation(fields: [documentId], references: [id], onDelete: Cascade)
   project                Project                       @relation(fields: [projectId], references: [id], onDelete: Cascade)
-  citations              RequirementCitation[]
 
   @@index([documentId])
   @@index([requirementHash])
   @@index([projectId, category])
+  @@schema("public")
 }
 
+/// Direct text evidence (citations) from the source document that supports a specific requirement.
 model RequirementCitation {
-  id                  String            @id @default(cuid())
-  citationCode        String            @unique
-  requirementId       String
-  caseId              String
-  documentId          String
-  quoteText           String
-  pageNumber          Int?
-  charStart           Int?
-  charEnd             Int?
-  extractor           String?
-  verificationStatus  RequirementVerificationStatus @default(AUTO)
-  verifiedBy          String?
-  verifiedAt          DateTime?
-  comment             String?
-  createdAt           DateTime          @default(now())
-  requirement         RequirementRecord @relation(fields: [requirementId], references: [id], onDelete: Cascade)
-  case                RequirementCase   @relation(fields: [caseId], references: [id], onDelete: Cascade)
-  document            DocumentRecord    @relation(fields: [documentId], references: [id], onDelete: Cascade)
+  id                 String                        @id @default(cuid())
+  citationCode       String                        @unique
+  requirementId      String
+  caseId             String
+  documentId         String
+  quoteText          String
+  pageNumber         Int?
+  charStart          Int?
+  charEnd            Int?
+  extractor          String?
+  verifiedBy         String?
+  verifiedAt         DateTime?
+  comment            String?
+  createdAt          DateTime                      @default(now())
+  verificationStatus RequirementVerificationStatus @default(AUTO)
+  case               RequirementCase               @relation(fields: [caseId], references: [id], onDelete: Cascade)
+  document           DocumentRecord                @relation(fields: [documentId], references: [id], onDelete: Cascade)
+  requirement        RequirementRecord             @relation(fields: [requirementId], references: [id], onDelete: Cascade)
+  matrixRows         RequirementMatrixRow[]
 
   @@index([documentId, pageNumber])
   @@index([requirementId])
+  @@schema("public")
 }
 
-// ═══════════════════════════════════════════════════════════
-// IDEMPOTENT OUTLOOK INGESTION PIPELINE
-// ═══════════════════════════════════════════════════════════
-
-/// Tracks every ingested Outlook message. message_id is the unique Outlook Message-ID header.
 model EmailMessage {
-  messageId       String             @id @map("message_id")
-  sender          String?
-  subject         String?
-  receivedAt      DateTime?          @map("received_at")
-  processedAt     DateTime?          @map("processed_at")
-  status          String             @default("NEW")
-  runId           String?            @map("run_id")
-  rawEmlPath      String?            @map("raw_eml_path")
-  
-  attachments     OutlookAttachment[] @relation("CanonicalMessage")
-  occurrences     AttachmentOccurrence[]
-  
+  messageId   String                 @id @map("message_id")
+  sender      String?
+  subject     String?
+  receivedAt  DateTime?              @map("received_at")
+  processedAt DateTime?              @map("processed_at")
+  status      String                 @default("NEW")
+  runId       String?                @map("run_id")
+  rawEmlPath  String?                @map("raw_eml_path")
+  occurrences AttachmentOccurrence[]
+  attachments OutlookAttachment[]    @relation("CanonicalMessage")
+  run         PipelineRun?           @relation(fields: [runId], references: [runId])
+
   @@map("email_messages")
+  @@schema("public")
 }
 
 model OutlookAttachment {
-  attachmentHash     String               @id @map("attachment_hash")
-  canonicalMessageId String               @map("canonical_message_id")
+  attachmentHash     String                 @id @map("attachment_hash")
+  canonicalMessageId String                 @map("canonical_message_id")
   filename           String
   filesize           BigInt?
-  checksumSha256     String               @map("checksum_sha256")
-  storedPath         String?              @map("stored_path")
-  parsed             Boolean              @default(false)
-  extractedText      String?              @map("extracted_text")
-  parseFailureReason String?              @map("parse_failure_reason")
-  documentId         String?              @map("document_id")
-  createdAt          DateTime             @default(now()) @map("created_at")
-  updatedAt          DateTime             @default(now()) @updatedAt @map("updated_at")
-
-  canonicalMessage   EmailMessage         @relation("CanonicalMessage", fields: [canonicalMessageId], references: [messageId])
+  checksumSha256     String                 @map("checksum_sha256")
+  storedPath         String?                @map("stored_path")
+  parsed             Boolean                @default(false)
+  documentId         String?                @map("document_id")
+  createdAt          DateTime               @default(now()) @map("created_at")
+  updatedAt          DateTime               @default(now()) @updatedAt @map("updated_at")
+  extractedText      String?                @map("extracted_text")
+  parseFailureReason String?                @map("parse_failure_reason")
   occurrences        AttachmentOccurrence[]
+  canonicalMessage   EmailMessage           @relation("CanonicalMessage", fields: [canonicalMessageId], references: [messageId])
+  document           DocumentRecord?        @relation(fields: [documentId], references: [id])
   requirements       ExtractedRequirement[]
-  
+
   @@index([parsed])
   @@index([documentId])
+  @@index([documentId], map: "idx_attachments_document")
+  @@index([parsed], map: "idx_attachments_parsed")
   @@map("attachments")
+  @@schema("public")
 }
 
 model AttachmentOccurrence {
-  messageId       String               @map("message_id")
-  attachmentHash  String               @map("attachment_hash")
-  firstSeenAt     DateTime             @default(now()) @map("first_seen_at")
-
-  message         EmailMessage         @relation(fields: [messageId], references: [messageId])
-  attachment      OutlookAttachment    @relation(fields: [attachmentHash], references: [attachmentHash])
+  messageId      String            @map("message_id")
+  attachmentHash String            @map("attachment_hash")
+  firstSeenAt    DateTime          @default(now()) @map("first_seen_at")
+  attachment     OutlookAttachment @relation(fields: [attachmentHash], references: [attachmentHash])
+  message        EmailMessage      @relation(fields: [messageId], references: [messageId])
 
   @@id([messageId, attachmentHash])
   @@map("attachment_occurrences")
+  @@schema("public")
 }
 
 model PipelineRun {
-  runId          String    @id @map("run_id")
-  runType        String    @map("run_type")
-  stageName      String?   @map("stage_name")
-  startedAt      DateTime  @default(now()) @map("started_at")
-  finishedAt     DateTime? @map("finished_at")
-  status         String    @default("RUNNING") // RUNNING | SUCCESS | FAILED
-  processedCount Int       @default(0) @map("processed_count")
-  errorCount     Int       @default(0) @map("error_count")
-  configSnapshot Json?     @map("config_snapshot")
-  notes          String?   @db.Text
+  runId          String         @id @map("run_id")
+  runType        String         @map("run_type")
+  stageName      String?        @map("stage_name")
+  startedAt      DateTime       @default(now()) @map("started_at")
+  finishedAt     DateTime?      @map("finished_at")
+  status         String         @default("RUNNING")
+  processedCount Int            @default(0) @map("processed_count")
+  errorCount     Int            @default(0) @map("error_count")
+  configSnapshot Json?          @map("config_snapshot")
+  notes          String?
+  EmailMessage   EmailMessage[]
 
   @@map("ingest_runs")
+  @@schema("public")
 }
 
-// ═══════════════════════════════════════════════════════════
-// REQUIREMENT EXTRACTION
-// ═══════════════════════════════════════════════════════════
-
-/// A single extracted requirement from a PDF document.
-model ExtractedRequirement {
-  id               String   @id @default(cuid())
-  attachmentHash   String   @map("attachment_hash")
-  attachment       OutlookAttachment @relation(fields: [attachmentHash], references: [attachmentHash])
-  municipality     String?
-  caseNumber       String?  @map("case_number")
-  requirementText  String   @map("requirement_text") @db.Text
-  category         String
-  subcategory      String?
-  requirementLevel String   @default("mandatory") @map("requirement_level")
-  legalReference   String?  @map("legal_reference")
-  confidence       Float    @default(0.0)
-  pageNumber       Int?     @map("page_number")
-  sourceSegment    String?  @map("source_segment") @db.Text
-  parsedAt         DateTime @default(now()) @map("parsed_at")
-  knowledgeNodeId  String?  @map("knowledge_node_id")
-
-  @@index([attachmentHash])
-  @@index([municipality, category])
-  @@index([category, requirementLevel])
-  @@map("extracted_requirements")
-}
-
-// ═══════════════════════════════════════════════════════════
-// KNOWLEDGE GRAPH
-// ═══════════════════════════════════════════════════════════
-
-enum KnowledgeNodeType {
-  MUNICIPALITY
-  CASE
-  ACTIVITY
-  WASTE_CODE
-  REQUIREMENT
-  RISK
-  LEGAL_RULE
-  TECHNICAL_MEASURE
-  RESTRICTION
-}
-
-/// A node in the knowledge graph.
 model KnowledgeNode {
-  id          String            @id @default(cuid())
-  nodeType    KnowledgeNodeType @map("node_type")
-  name        String
-  metadata    Json              @default("{}")
-  outEdges    KnowledgeEdge[]   @relation("SourceEdges")
-  inEdges     KnowledgeEdge[]   @relation("TargetEdges")
-  createdAt   DateTime          @default(now())
+  id                    String                 @id @default(cuid())
+  nodeType              KnowledgeNodeType      @map("node_type")
+  name                  String
+  metadata              Json                   @default("{}")
+  createdAt             DateTime               @default(now())
+  extractedRequirements ExtractedRequirement[]
+  outEdges              KnowledgeEdge[]        @relation("SourceEdges")
+  inEdges               KnowledgeEdge[]        @relation("TargetEdges")
 
   @@unique([nodeType, name])
   @@index([nodeType])
   @@map("knowledge_nodes")
+  @@schema("public")
 }
 
-/// A directed typed edge between two knowledge graph nodes.
 model KnowledgeEdge {
-  id           String        @id @default(cuid())
-  sourceId     String        @map("source_id")
-  targetId     String        @map("target_id")
-  relation     String        // e.g. "requires", "generates", "motivates", "handles"
-  weight       Float         @default(1.0)
-  metadata     Json          @default("{}")
-  source       KnowledgeNode @relation("SourceEdges", fields: [sourceId], references: [id])
-  target       KnowledgeNode @relation("TargetEdges", fields: [targetId], references: [id])
-  createdAt    DateTime      @default(now())
+  id        String        @id @default(cuid())
+  sourceId  String        @map("source_id")
+  targetId  String        @map("target_id")
+  relation  String
+  weight    Float         @default(1.0)
+  metadata  Json          @default("{}")
+  createdAt DateTime      @default(now())
+  source    KnowledgeNode @relation("SourceEdges", fields: [sourceId], references: [id])
+  target    KnowledgeNode @relation("TargetEdges", fields: [targetId], references: [id])
 
   @@unique([sourceId, targetId, relation])
   @@index([sourceId, relation])
   @@index([targetId, relation])
   @@map("knowledge_edges")
+  @@schema("public")
 }
 
-// ═══════════════════════════════════════════════════════════
-// METADATA EVIDENCE & REVIEW PIPELINE
-// ═══════════════════════════════════════════════════════════
+model ExtractedRequirement {
+  id               String            @id @default(cuid())
+  attachmentHash   String            @map("attachment_hash")
+  municipality     String?
+  caseNumber       String?           @map("case_number")
+  requirementText  String            @map("requirement_text")
+  category         String
+  subcategory      String?
+  requirementLevel String            @default("mandatory") @map("requirement_level")
+  legalReference   String?           @map("legal_reference")
+  confidence       Float             @default(0.0)
+  pageNumber       Int?              @map("page_number")
+  sourceSegment    String?           @map("source_segment")
+  parsedAt         DateTime          @default(now()) @map("parsed_at")
+  knowledgeNodeId  String?           @map("knowledge_node_id")
+  attachment       OutlookAttachment @relation(fields: [attachmentHash], references: [attachmentHash], onDelete: Cascade)
+  knowledgeNode    KnowledgeNode?    @relation(fields: [knowledgeNodeId], references: [id])
 
-/// Append-only ledger of every field extraction attempt.
+  @@index([attachmentHash])
+  @@index([municipality, category])
+  @@index([category, requirementLevel])
+  @@map("extracted_requirements")
+  @@schema("public")
+}
+
 model DocumentMetadataEvidence {
   id               String         @id @default(cuid())
   documentId       String
-  fieldName        String         // 'municipality' | 'legalStatus' | 'decisionType' | 'activityCode' | 'wasteType'
+  fieldName        String
   fieldValue       String?
   confidence       Float
-  sourceType       String         // 'subject_regex' | 'filename_regex' | 'text_regex' | 'llm_inference' | 'manual'
+  sourceType       String
   extractorVersion String         @default("1.0")
   rawEvidence      String?
   llmPromptHash    String?
-  llmResponse      String?        @db.Text
+  llmResponse      String?
   modelName        String?
   createdAt        DateTime       @default(now())
   document         DocumentRecord @relation(fields: [documentId], references: [id], onDelete: Cascade)
 
   @@index([documentId, fieldName, createdAt])
+  @@schema("public")
 }
 
-/// Queue for low-confidence or conflicting field values requiring human review.
 model MetadataReviewQueue {
   id            String         @id @default(cuid())
   documentId    String
-  queueType     String         // 'LOW_CONFIDENCE' | 'DISAGREEMENT'
+  queueType     String
   fieldName     String
   proposedValue String?
   confidence    Float?
   reason        String?
-  status        String         @default("OPEN") // 'OPEN' | 'APPROVED' | 'REJECTED' | 'RESOLVED'
+  status        String         @default("OPEN")
   reviewedBy    String?
   reviewedAt    DateTime?
   createdAt     DateTime       @default(now())
@@ -680,16 +866,9 @@ model MetadataReviewQueue {
 
   @@index([status, queueType, createdAt])
   @@index([documentId])
+  @@schema("public")
 }
 
-// ═══════════════════════════════════════════════════════════
-// CASE CANDIDATE STAGING
-// ═══════════════════════════════════════════════════════════
-
-/// Staging table for grouping documents into case candidates before materialization.
-/// caseConfidence formula (locked):
-///   diarieMatch: 0.45, diarieUnique bonus: +0.15, entryIdMatch: 0.25,
-///   subjectDate: 0.20, municipalityConsistency: 0.10  → clamped [0,1]
 model CaseCandidate {
   id             String   @id @default(cuid())
   caseKey        String   @unique
@@ -702,26 +881,926 @@ model CaseCandidate {
   wasteType      String?
   caseConfidence Float    @default(0)
   reasoning      Json     @default("{}")
-  status         String   @default("CANDIDATE") // 'CANDIDATE' | 'MATERIALIZED' | 'REJECTED'
+  status         String   @default("CANDIDATE")
   createdAt      DateTime @default(now())
   updatedAt      DateTime @updatedAt
 
   @@index([status, caseConfidence])
   @@index([diarie])
+  @@schema("public")
 }
 
-// ═══════════════════════════════════════════════════════════
-// CASE NOTES
-// ═══════════════════════════════════════════════════════════
-
-/// Notes attached to a case (project) by handlers.
 model CaseNote {
-  id        String   @id @default(cuid())
-  caseId    String   @map("case_id")
+  id        String          @id @default(cuid())
+  caseId    String          @map("case_id")
   text      String
   author    String
-  createdAt DateTime @default(now()) @map("created_at")
+  createdAt DateTime        @default(now()) @map("created_at")
+  case      RequirementCase @relation(fields: [caseId], references: [id], onDelete: Cascade)
 
   @@index([caseId, createdAt])
   @@map("case_notes")
+  @@schema("public")
+}
+
+model graph_runs {
+  run_id      String    @id
+  started_at  DateTime  @default(now()) @db.Timestamptz(6)
+  finished_at DateTime? @db.Timestamptz(6)
+  status      String    @default("RUNNING")
+  notes       String?
+
+  @@schema("public")
+}
+
+model BankIdSession {
+  id            String   @id @default(cuid())
+  orderRef      String   @unique
+  nonce         String
+  ipAddress     String
+  status        String   @default("PENDING")
+  bankidId      String?
+  signatureHash String?  @unique
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+  expiresAt     DateTime
+
+  @@index([orderRef])
+  @@index([expiresAt])
+  @@schema("public")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model spatial_ref_sys {
+  srid      Int     @id
+  auth_name String? @db.VarChar(256)
+  auth_srid Int?
+  srtext    String? @db.VarChar(2048)
+  proj4text String? @db.VarChar(2048)
+
+  @@schema("public")
+}
+
+model RequirementMatrixRow {
+  id              String                        @id @default(cuid())
+  requirementId   String?                       @map("requirement_id")
+  citationId      String?                       @map("citation_id")
+  caseId          String?                       @map("case_id")
+  documentId      String?                       @map("document_id")
+  category        String
+  ruleText        String
+  sourceText      String?
+  reviewStatus    RequirementVerificationStatus @default(AUTO)
+  reviewedBy      String?
+  reviewedAt      DateTime?
+  comments        String?
+  isAutoSuggested Boolean                       @default(true)
+  createdAt       DateTime                      @default(now())
+  updatedAt       DateTime                      @updatedAt
+  legalSourceId   String?                       @unique @map("legal_source_id")
+  case            RequirementCase?              @relation(fields: [caseId], references: [id])
+  citation        RequirementCitation?          @relation(fields: [citationId], references: [id])
+  document        DocumentRecord?               @relation(fields: [documentId], references: [id])
+  legalSource     LegalSourceRecord?            @relation(fields: [legalSourceId], references: [id])
+  requirement     RequirementRecord?            @relation(fields: [requirementId], references: [id])
+
+  @@index([caseId, category])
+  @@index([legalSourceId])
+  @@index([reviewStatus])
+  @@schema("public")
+}
+
+model JudgmentRecord {
+  id                String              @id @default(cuid())
+  guid              String              @unique
+  title             String
+  link              String
+  description       String?
+  pubDate           DateTime
+  sourceFeed        String              @default("DOMSTOL_RSS")
+  legalArea         String?             @default("miljo")
+  authorityName     String?
+  authorityType     String?
+  createdAt         DateTime            @default(now())
+  updatedAt         DateTime            @updatedAt
+  corpusRecords     LegalCorpusRecord[]
+  legalSourceRecord LegalSourceRecord?
+
+  @@index([pubDate])
+  @@index([sourceFeed, pubDate])
+  @@map("judgment_records")
+  @@schema("public")
+}
+
+model LegalSourceRecord {
+  id              String                @id @default(cuid())
+  sourceSystem    String
+  sourceType      String
+  externalId      String
+  title           String
+  summary         String?
+  sourceUrl       String
+  normalizedUrl   String?
+  providerId      String?
+  providerLabel   String?
+  authorityName   String?
+  authorityType   String?
+  municipality    String?
+  diarienummer    String?
+  legalArea       String?
+  mimeType        String?
+  formatHint      String?
+  decisionDate    DateTime?
+  publishedAt     DateTime?
+  storageTarget   LegalStorageTarget
+  postgisSchema   String?
+  postgisTable    String?
+  matrixCategory  String?
+  matrixSuggested Boolean               @default(false)
+  payload         Json                  @default("{}")
+  judgmentId      String?               @unique @map("judgment_id")
+  createdAt       DateTime              @default(now())
+  updatedAt       DateTime              @updatedAt
+  corpusRecords   LegalCorpusRecord[]
+  matrixRows      RequirementMatrixRow?
+  judgment        JudgmentRecord?       @relation(fields: [judgmentId], references: [id])
+
+  @@unique([sourceSystem, externalId])
+  @@index([storageTarget, matrixSuggested])
+  @@index([municipality, authorityType])
+  @@index([providerId, storageTarget])
+  @@map("legal_source_records")
+  @@schema("public")
+}
+
+model LegalCorpusRecord {
+  id            String                   @id @default(cuid())
+  recordKey     String                   @unique @map("record_key")
+  canonicalKey  String                   @map("canonical_key")
+  sourceFamily  String                   @map("source_family")
+  sourceType    String                   @map("source_type")
+  sourceSystem  String                   @map("source_system")
+  externalId    String?                  @map("external_id")
+  title         String
+  summary       String?
+  authorityName String?                  @map("authority_name")
+  authorityType String?                  @map("authority_type")
+  court         String?
+  courtLevel    String?                  @map("court_level")
+  municipality  String?
+  legalArea     String?                  @map("legal_area")
+  language      String                   @default("sv")
+  mimeType      String?                  @map("mime_type")
+  formatHint    String?                  @map("format_hint")
+  sourceUrl     String?                  @map("source_url")
+  normalizedUrl String?                  @map("normalized_url")
+  sourcePath    String                   @map("source_path")
+  publishedAt   DateTime?                @map("published_at")
+  decisionDate  DateTime?                @map("decision_date")
+  year          Int?
+  caseNumber    String?                  @map("case_number")
+  documentText  String?                  @map("document_text")
+  searchText    String                   @map("search_text")
+  metadata      Json                     @default("{}")
+  tags          Json                     @default("[]")
+  contentHash   String?                  @map("content_hash")
+  byteSize      Int?                     @map("byte_size")
+  judgmentId    String?                  @map("judgment_id")
+  legalSourceId String?                  @map("legal_source_id")
+  createdAt     DateTime                 @default(now()) @map("created_at")
+  updatedAt     DateTime                 @updatedAt @map("updated_at")
+  searchVector  Unsupported("tsvector")? @map("search_vector")
+  judgment      JudgmentRecord?          @relation(fields: [judgmentId], references: [id], onDelete: SetNull)
+  legalSource   LegalSourceRecord?       @relation(fields: [legalSourceId], references: [id], onDelete: SetNull)
+  chunks        LegalCorpusChunk[]
+
+  @@index([canonicalKey])
+  @@index([sourceFamily, sourceType, publishedAt])
+  @@index([sourceSystem, externalId])
+  @@index([authorityType, legalArea, publishedAt])
+  @@index([courtLevel, decisionDate])
+  @@index([judgmentId])
+  @@index([legalSourceId])
+  @@map("legal_corpus_records")
+  @@schema("public")
+}
+
+/// Chunkat textavsnitt ur ett LegalCorpusRecord, redo för RAG-retrieval.
+/// chunk_version spårar vilken chunknings-logik som använts (idempotent backfill).
+model LegalCorpusChunk {
+  id              String            @id @default(cuid())
+  recordId        String            @map("record_id")
+  chunkIndex      Int               @map("chunk_index")
+  chunkText       String            @map("chunk_text")
+
+  /// Vektordimension matchar EMBEDDING_DIM=768 i searchService.ts
+  embeddingVector Unsupported("vector(768)")? @map("embedding_vector")
+
+  /// chunk_version spårar chunkningslogikens version (används för idempotent backfill)
+  chunkVersion    String            @default("v2.2") @map("chunk_version")
+
+  /// Denormaliserade sökfält (kopierade från LegalCorpusRecord vid ingest)
+  documentType    String            @default("other") @map("document_type") // 'lag' | 'dom' | 'beslut' | 'other'
+  lawName         String?           @map("law_name")
+
+  /// Lagrum-metadata (enbart för dokumenttyp 'lag')
+  chapter         String?
+  paragraph       String?
+
+  /// Sektionstyp (enbart för domar och beslut): DOMSKÄL, DOMSLUT, YRKANDEN
+  section         String?
+
+  record          LegalCorpusRecord @relation(fields: [recordId], references: [id], onDelete: Cascade)
+
+  @@unique([recordId, chunkIndex])
+  @@index([documentType, lawName, chapter, paragraph])
+  @@map("legal_corpus_chunks")
+  @@schema("public")
+}
+
+
+/// Record of an official submission (anmälan/ansökan) sent to an authority.
+model Submission {
+  id                   String                  @id @default(cuid())
+  submissionKey        String                  @unique
+  projectId            String
+  organisationId       String
+  requirementCaseId    String?
+  domain               String
+  authorityName        String
+  authorityType        String?
+  recipientCode        String?
+  recipientChannel     SubmissionChannel
+  providerMode         SubmissionProviderMode  @default(UNCONFIGURED)
+  status               SubmissionStatus        @default(PREPARED)
+  externalReference    String?
+  caseNumber           String?
+  submittedBy          String?
+  submittedAt          DateTime?
+  lastStatusAt         DateTime?
+  responseCode         Int?
+  failureMode          SubmissionFailureMode?
+  payload              Json                    @default("{}")
+  createdAt            DateTime                @default(now())
+  updatedAt            DateTime                @updatedAt
+  authorityInboxEvents AuthorityInboxEvent[]
+  CaseSnapshot         CaseSnapshot[]
+  organisation         Organisation            @relation(fields: [organisationId], references: [id], onDelete: Cascade)
+  project              Project                 @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  requirementCase      RequirementCase?        @relation(fields: [requirementCaseId], references: [id])
+  artifacts            SubmissionArtifact[]
+  statusEvents         SubmissionStatusEvent[]
+
+  @@index([projectId, createdAt])
+  @@index([organisationId, createdAt])
+  @@index([requirementCaseId, createdAt])
+  @@index([status, recipientChannel, createdAt])
+  @@schema("public")
+}
+
+model SubmissionArtifact {
+  id           String                 @id @default(cuid())
+  submissionId String
+  documentId   String?
+  role         SubmissionArtifactRole
+  label        String?
+  diskPath     String?
+  mimeType     String?
+  fileSha256   String?
+  sizeBytes    BigInt?
+  sourceType   String?
+  createdAt    DateTime               @default(now())
+  document     DocumentRecord?        @relation(fields: [documentId], references: [id])
+  submission   Submission             @relation(fields: [submissionId], references: [id], onDelete: Cascade)
+
+  @@index([submissionId, role])
+  @@index([documentId])
+  @@schema("public")
+}
+
+model SubmissionStatusEvent {
+  id                String           @id @default(cuid())
+  submissionId      String
+  status            SubmissionStatus
+  sourceSystem      String
+  summary           String?
+  externalReference String?
+  responseCode      Int?
+  payload           Json             @default("{}")
+  createdBy         String?
+  occurredAt        DateTime         @default(now())
+  submission        Submission       @relation(fields: [submissionId], references: [id], onDelete: Cascade)
+
+  @@index([submissionId, occurredAt])
+  @@index([status, occurredAt])
+  @@schema("public")
+}
+
+model AuthorityInboxEvent {
+  id                     String                     @id @default(cuid())
+  eventKey               String                     @unique
+  projectId              String
+  organisationId         String
+  requirementCaseId      String?
+  submissionId           String?
+  documentId             String?
+  sourceSystem           String
+  sourceChannel          SubmissionChannel
+  authorityName          String?
+  authorityType          String?
+  municipality           String?
+  externalReference      String?
+  caseNumber             String?
+  eventType              AuthorityInboxEventType
+  reviewStatus           AuthorityInboxReviewStatus @default(RECEIVED)
+  bindingEffectSuggested Boolean                    @default(false)
+  requiresHumanReview    Boolean                    @default(true)
+  summary                String
+  payload                Json                       @default("{}")
+  receivedAt             DateTime
+  classifiedAt           DateTime?
+  classifiedBy           String?
+  createdAt              DateTime                   @default(now())
+  updatedAt              DateTime                   @updatedAt
+  document               DocumentRecord?            @relation(fields: [documentId], references: [id])
+  organisation           Organisation               @relation(fields: [organisationId], references: [id], onDelete: Cascade)
+  project                Project                    @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  requirementCase        RequirementCase?           @relation(fields: [requirementCaseId], references: [id])
+  submission             Submission?                @relation(fields: [submissionId], references: [id])
+
+  @@index([projectId, receivedAt])
+  @@index([organisationId, receivedAt])
+  @@index([submissionId, receivedAt])
+  @@index([requirementCaseId, receivedAt])
+  @@index([reviewStatus, eventType, receivedAt])
+  @@schema("public")
+}
+
+model ClassificationRecommendation {
+  id                    String               @id @default(cuid())
+  caseId                String
+  documentId            String
+  sourceDocumentHash    String
+  status                ClassificationStatus @default(SUGGESTED)
+  aiClassification      String
+  aiConfidence          ConfidenceLevel      @default(LOW)
+  aiReasoning           String?
+  sourceTextSegment     String
+  charStart             Int?
+  charEnd               Int?
+  suggestedConditions   Json?
+  suggestedRequirements Json?
+  reviewedBy            String?
+  reviewedAt            DateTime?
+  reviewNotes           String?
+  reviewDecision        String?
+  appliedAt             DateTime?
+  appliedBy             String?
+  appliedWithChanges    Boolean              @default(false)
+  appliedChangesNotes   String?
+  createdAt             DateTime             @default(now())
+  updatedAt             DateTime             @updatedAt
+  approvalLog           ApprovalLog[]
+  case                  RequirementCase      @relation(fields: [caseId], references: [id], onDelete: Cascade)
+  document              DocumentRecord       @relation(fields: [documentId], references: [id], onDelete: Cascade)
+
+  @@unique([caseId, documentId, charStart, charEnd])
+  @@index([caseId, status])
+  @@index([status, createdAt])
+  @@index([reviewedBy, reviewedAt])
+  @@schema("public")
+}
+
+model ApprovalLog {
+  id                             String                       @id @default(cuid())
+  classificationRecommendationId String
+  action                         String
+  actor                          String
+  actorRole                      String?
+  timestamp                      DateTime                     @default(now())
+  reason                         String?
+  metadata                       Json?
+  recommendation                 ClassificationRecommendation @relation(fields: [classificationRecommendationId], references: [id], onDelete: Cascade)
+
+  @@index([classificationRecommendationId, timestamp])
+  @@index([actor, timestamp])
+  @@schema("public")
+}
+
+model HumanApprovalGate {
+  id                          String    @id @default(cuid())
+  caseId                      String
+  documentId                  String
+  pendingRecommendationsCount Int       @default(0)
+  reviewedCount               Int       @default(0)
+  approvedCount               Int       @default(0)
+  rejectedCount               Int       @default(0)
+  isOpen                      Boolean   @default(true)
+  lockedBy                    String?
+  lockedAt                    DateTime?
+  finalizedAt                 DateTime?
+  createdAt                   DateTime  @default(now())
+  updatedAt                   DateTime  @updatedAt
+
+  @@unique([caseId, documentId])
+  @@index([caseId])
+  @@index([isOpen, updatedAt])
+  @@schema("public")
+}
+
+model CaseSnapshot {
+  id                           String           @id
+  requirementCaseId            String
+  projectId                    String
+  organisationId               String
+  submissionId                 String?
+  snapshotType                 String
+  status                       String           @default("READY")
+  snapshotVersion              Int              @default(1)
+  createdBy                    String
+  createdAt                    DateTime         @default(now())
+  auditAnchorHash              String
+  auditAnchorId                String?
+  auditAnchorAt                DateTime?
+  auditTrailRowCountAtSnapshot Int?
+  contentHash                  String
+  payload                      Json
+  Organisation                 Organisation     @relation(fields: [organisationId], references: [id], onDelete: Cascade)
+  Project                      Project          @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  RequirementCase              RequirementCase  @relation(fields: [requirementCaseId], references: [id], onDelete: Cascade)
+  Submission                   Submission?      @relation(fields: [submissionId], references: [id])
+  EvidenceExport               EvidenceExport[]
+
+  @@index([organisationId, createdAt])
+  @@index([projectId, createdAt])
+  @@index([requirementCaseId, snapshotVersion])
+  @@index([submissionId, createdAt])
+  @@schema("public")
+}
+
+model EvidenceExport {
+  id                String          @id
+  snapshotId        String
+  requirementCaseId String
+  projectId         String
+  organisationId    String
+  format            String
+  createdBy         String
+  createdAt         DateTime        @default(now())
+  manifest          Json
+  Organisation      Organisation    @relation(fields: [organisationId], references: [id], onDelete: Cascade)
+  Project           Project         @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  RequirementCase   RequirementCase @relation(fields: [requirementCaseId], references: [id], onDelete: Cascade)
+  CaseSnapshot      CaseSnapshot    @relation(fields: [snapshotId], references: [id], onDelete: Cascade)
+
+  @@index([organisationId, createdAt])
+  @@index([projectId, createdAt])
+  @@index([requirementCaseId, createdAt])
+  @@index([snapshotId, createdAt])
+  @@schema("public")
+}
+
+model decision_cases {
+  id                      String                   @id
+  external_case_key       String?                  @unique
+  municipality            String
+  county                  String?
+  activity_type           String?
+  ewc_codes               String[]                 @default([])
+  volume_ton              Float?
+  received_date           DateTime?
+  decision_date           DateTime?
+  processing_days         Int?
+  outcome                 String?
+  has_completion_request  Boolean                  @default(false)
+  has_injunction          Boolean                  @default(false)
+  has_approval            Boolean                  @default(false)
+  data_source             String                   @default("IMPORT")
+  source_document_id      String?
+  app_requirement_case_id String?
+  created_at              DateTime                 @default(now())
+  updated_at              DateTime
+  RequirementCase         RequirementCase?         @relation(fields: [app_requirement_case_id], references: [id])
+  DocumentRecord          DocumentRecord?          @relation(fields: [source_document_id], references: [id])
+  decision_requirements   decision_requirements[]
+  decision_risk_features  decision_risk_features[]
+
+  @@index([municipality, decision_date])
+  @@index([municipality, received_date])
+  @@index([outcome])
+  @@schema("public")
+}
+
+model decision_requirements {
+  id                 String          @id
+  decision_case_id   String
+  requirement_type   String
+  requirement_text   String
+  source_document_id String?
+  confidence         Float?
+  created_at         DateTime        @default(now())
+  decision_cases     decision_cases  @relation(fields: [decision_case_id], references: [id], onDelete: Cascade)
+  DocumentRecord     DocumentRecord? @relation(fields: [source_document_id], references: [id])
+
+  @@index([decision_case_id, requirement_type])
+  @@index([source_document_id])
+  @@schema("public")
+}
+
+model decision_risk_features {
+  id                        String         @id
+  decision_case_id          String
+  has_sampling_plan         Boolean?
+  has_recipient_description Boolean?
+  has_site_plan             Boolean?
+  near_water_protection     Boolean?
+  near_natura2000           Boolean?
+  volume_bucket             String?
+  ewc_category              String?
+  created_at                DateTime       @default(now())
+  decision_cases            decision_cases @relation(fields: [decision_case_id], references: [id], onDelete: Cascade)
+
+  @@index([decision_case_id])
+  @@index([ewc_category, volume_bucket])
+  @@schema("public")
+}
+
+model municipality_decision_profile {
+  municipality             String   @id
+  total_cases              Int      @default(0)
+  completion_rate          Float?
+  avg_processing_days      Float?
+  common_requirement_types Json?
+  strictness_score         Float?
+  updated_at               DateTime
+
+  @@schema("public")
+}
+
+model spatial_migrations {
+  id         Int       @id @default(autoincrement())
+  fileName   String    @db.VarChar(255)
+  appliedAt  DateTime? @default(now()) @db.Timestamptz(6)
+  durationMs Int?
+
+  @@schema("public")
+}
+
+enum UserRole {
+  ADMIN
+  CONSULTANT
+  AUDITOR
+  BANK
+
+  @@schema("public")
+}
+
+enum ProjectStatus {
+  DRAFT
+  ACTIVE
+  ARCHIVED
+  COMPLETED
+
+  @@schema("public")
+}
+
+enum ProjectType {
+  ENV_PERMIT
+  REMEDIATION
+  INFRA
+  ENERGY
+  VA
+
+  @@schema("public")
+}
+
+enum ProjectAccessRole {
+  OWNER
+  CONTRIBUTOR
+  REVIEWER
+  AUDITOR
+
+  @@schema("public")
+}
+
+enum OrganizationRole {
+  CLIENT
+  AUTHORITY
+  CONTRACTOR
+  PARTNER
+
+  @@schema("public")
+}
+
+enum RequirementSourceType {
+  LAW
+  REGULATION
+  COURT_RULING
+  STANDARD
+  INTERNAL
+  PROJECT_SPECIFIC
+
+  @@schema("public")
+}
+
+enum IntegrationHealth {
+  HEALTHY
+  DEGRADED
+  UNHEALTHY
+  UNKNOWN
+
+  @@schema("public")
+}
+
+enum TransportStatus {
+  PLANNED
+  IN_TRANSIT
+  DELIVERED
+  CANCELLED
+
+  @@schema("public")
+}
+
+enum PropertyResponseClass {
+  geometry
+  boundaries
+  ownership_redacted
+
+  @@schema("public")
+}
+
+enum DocumentProcessingStatus {
+  METADATA_ONLY
+  TEXT_EXTRACTED
+  EMBEDDED
+  FAILED
+  CHUNKED
+
+  @@schema("public")
+}
+
+enum SearchJobType {
+  SYNC_MANIFEST
+  EXTRACT_TEXT
+  EMBED_DOC
+
+  @@schema("public")
+}
+
+enum SearchJobStatus {
+  PENDING
+  RUNNING
+  DONE
+  FAILED
+
+  @@schema("public")
+}
+
+enum SearchMode {
+  semantic
+  lexical
+  hybrid
+
+  @@schema("public")
+}
+
+enum RequirementVerificationStatus {
+  AUTO
+  REVIEWED
+  VERIFIED
+  REJECTED
+  NEEDS_REVIEW
+  LOCKED
+
+  @@schema("public")
+}
+
+enum KnowledgeNodeType {
+  MUNICIPALITY
+  CASE
+  ACTIVITY
+  WASTE_CODE
+  REQUIREMENT
+  RISK
+  LEGAL_RULE
+  TECHNICAL_MEASURE
+  RESTRICTION
+
+  @@schema("public")
+}
+
+enum LegalStorageTarget {
+  PRISMA
+  POSTGIS
+  FILESYSTEM
+  REVIEW_QUEUE
+
+  @@schema("public")
+}
+
+enum SubmissionChannel {
+  REST
+  EMAIL
+  WEBHOOK
+  PORTAL
+  MANUAL
+
+  @@schema("public")
+}
+
+enum SubmissionProviderMode {
+  UNCONFIGURED
+  EXTERNAL
+
+  @@schema("public")
+}
+
+enum SubmissionStatus {
+  PREPARED
+  DISPATCHED
+  DELIVERED
+  RECEIVED
+  PENDING_REVIEW
+  REJECTED
+  FAILED
+
+  @@schema("public")
+}
+
+enum SubmissionFailureMode {
+  MISSING_ENDPOINT
+  HTTP_4XX
+  HTTP_5XX
+  TIMEOUT
+  NETWORK
+  VALIDATION
+
+  @@schema("public")
+}
+
+enum SubmissionArtifactRole {
+  PRIMARY_DOCUMENT
+  ATTACHMENT
+  RECEIPT
+  DECISION
+  INJUNCTION
+  COMPLEMENT_REQUEST
+  OTHER
+
+  @@schema("public")
+}
+
+enum AuthorityInboxEventType {
+  ACKNOWLEDGEMENT
+  STATUS_UPDATE
+  DECISION
+  INJUNCTION
+  COMPLEMENT_REQUEST
+  GENERAL_MESSAGE
+
+  @@schema("public")
+}
+
+enum AuthorityInboxReviewStatus {
+  RECEIVED
+  REVIEW_REQUIRED
+  CLASSIFIED
+  LINKED
+  REJECTED
+
+  @@schema("public")
+}
+
+enum ClassificationStatus {
+  SUGGESTED
+  REVIEWING
+  APPROVED
+  REJECTED
+  APPLIED
+
+  @@schema("public")
+}
+
+enum ConfidenceLevel {
+  LOW
+  MEDIUM
+  HIGH
+
+  @@schema("public")
+}
+
+
+model ComponentTemplate {
+  id               String             @id @default(cuid())
+  name             String
+  category         String
+  subcategory      String
+  manufacturer     String?
+  modelNumber      String?
+  dimensions       Json?
+  requirements     Json?
+  geometryTemplate Json?
+  instances        ProjectComponent[]
+
+  @@map("component_templates")
+  @@schema("public")
+}
+
+model ProjectComponent {
+  id         String   @id @default(cuid())
+  projectId  String   @map("project_id")
+  templateId String?  @map("template_id")
+  name       String?
+  status     String   @default("PLANNED")
+  geometry   Json
+  attributes Json?
+  createdAt  DateTime @default(now()) @map("created_at")
+  updatedAt  DateTime @updatedAt @map("updated_at")
+
+  project  Project            @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  template ComponentTemplate? @relation(fields: [templateId], references: [id], onDelete: SetNull)
+
+  @@index([projectId])
+  @@map("project_components")
+  @@schema("public")
+}
+
+model MpfRule {
+  id                      String   @id @default(cuid())
+  code                    String   @unique
+  codeType                String // EWC or SNI
+  description             String
+  permitClass             String // A, B, C, U
+  thresholdValue          Float
+  sensitiveThresholdValue Float?
+  sensitivePermitClass    String?
+  thresholdUnit           String   @default("ton/år")
+  mpfReference            String
+  requiresEia             Boolean  @default(false)
+  createdAt               DateTime @default(now())
+  updatedAt               DateTime @updatedAt
+
+  @@index([codeType])
+  @@map("mpf_rules")
+  @@schema("public")
+}
+
+model InteractionPrototypeSession {
+  id                String   @id @default(cuid())
+  userId            String
+  organisationId    String
+  projectId         String?
+  lastInteractionId String?
+  model             String   @default("gemini-3.5-flash")
+  purpose           String   @default("INTERACTIONS_PROTOTYPE")
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  user         User         @relation(fields: [userId], references: [id])
+  organisation Organisation @relation(fields: [organisationId], references: [id])
+  project      Project?     @relation(fields: [projectId], references: [id])
+
+  @@index([userId, createdAt])
+  @@index([organisationId])
+  @@index([projectId])
+  @@schema("public")
+}
+
+model HarvestBatch {
+  id                    String               @id @default(uuid())
+  provider              String
+  dataset               String
+  harvested_at          DateTime             @default(now())
+  source_url            String?
+  source_archive_sha256 String?
+  content_bundle_sha256 String
+  status                String
+  importBatches         PostgisImportBatch[]
+
+  @@schema("public")
+}
+
+model PostgisImportBatch {
+  id                    String       @id @default(uuid())
+  harvest_batch_id      String?
+  target_schema         String
+  target_table          String
+  imported_at           DateTime     @default(now())
+  row_count             Int?
+  dataset_version       String?
+  
+  // V2.0 Ingester Fields
+  status                String       @default("PLANNED")
+  manifest_path         String?
+  content_bundle_sha256 String       @default("")
+  source_runtime_path   String?
+  ogr2ogr_version       String?
+  started_at            DateTime     @default(now())
+  completed_at          DateTime?
+  error_message         String?
+  import_mode           String       @default("plan")
+
+  harvestBatch          HarvestBatch? @relation(fields: [harvest_batch_id], references: [id])
+
+  @@schema("public")
 }
