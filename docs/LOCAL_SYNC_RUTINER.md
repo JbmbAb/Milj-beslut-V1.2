@@ -138,14 +138,14 @@ git rebase origin/main
 
 ## Snabbreferens – dagliga kommandon
 
-| Situation | Kommando |
-|---|---|
-| Börja jobba | `git pull --rebase origin main` |
-| Spara arbete | `git add -p && git commit -m "..."` |
-| Sync mid-session | `git fetch && git rebase origin/main` |
-| Avsluta session | `git pull --rebase && npm run typecheck && git push` |
-| Agent har committat | `git pull --rebase origin main` |
-| Konflikt uppstod | Se Rutin E ovan |
+| Situation           | Kommando                                             |
+| ------------------- | ---------------------------------------------------- |
+| Börja jobba         | `git pull --rebase origin main`                      |
+| Spara arbete        | `git add -p && git commit -m "..."`                  |
+| Sync mid-session    | `git fetch && git rebase origin/main`                |
+| Avsluta session     | `git pull --rebase && npm run typecheck && git push` |
+| Agent har committat | `git pull --rebase origin main`                      |
+| Konflikt uppstod    | Se Rutin E ovan                                      |
 
 ---
 
@@ -176,4 +176,4 @@ Lägg i `.vscode/settings.json` (om filen saknas, skapa den):
 
 ---
 
-*Senast uppdaterad: 2026-03-29*
+_Senast uppdaterad: 2026-03-29_

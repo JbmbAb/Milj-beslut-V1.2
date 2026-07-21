@@ -1,5 +1,6 @@
 import { PrismaClient } from '@prisma/client';
 import { promises as fs } from 'node:fs';
+import { fileURLToPath } from 'node:url';
 
 const prisma = new PrismaClient();
 
@@ -16,7 +17,7 @@ async function main() {
     console.log('Dropping existing incomplete tables...');
     await prisma.$executeRawUnsafe(dropSQL);
 
-    const pipelinePath = 'c:/Users/jimmy/Desktop/Examens arbete/Kod/Ny mapp/remix_-copy-of-miljöbeslut.se-portal/scripts/db/create_sgu_layers_pipeline.sql';
+    const pipelinePath = fileURLToPath(new URL('./db/create_sgu_layers_pipeline.sql', import.meta.url));
     const pipelineSQL = await fs.readFile(pipelinePath, 'utf8');
     
     const statements = pipelineSQL

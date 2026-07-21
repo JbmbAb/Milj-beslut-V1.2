@@ -29,12 +29,12 @@ interface AdminSessionConsoleProps {
   panel?: 'search' | 'insight' | 'invitations';
   username: string;
   setUsername: (value: string) => void;
-  password: string;
-  setPassword: (value: string) => void;
+  password?: string;
+  setPassword?: (value: string) => void;
   token: string;
   refreshToken: string;
   organisationId: string;
-  onLogin: () => Promise<void>;
+  onLogin?: () => Promise<void>;
   onRefresh: () => Promise<void>;
   onLogout: () => void;
 }
@@ -55,12 +55,12 @@ const AdminSessionConsole: React.FC<AdminSessionConsoleProps> = ({
   panel = 'search',
   username,
   setUsername,
-  password,
-  setPassword,
+  password = '',
+  setPassword = () => {},
   token,
   refreshToken,
   organisationId,
-  onLogin,
+  onLogin = async () => {},
   onRefresh,
   onLogout,
 }) => {
@@ -117,7 +117,10 @@ const AdminSessionConsole: React.FC<AdminSessionConsoleProps> = ({
       body: method === 'POST' ? JSON.stringify(payload || {}) : undefined,
     });
     const json = await response.json();
-    if (response.status === 401 || /bearer token|invalid token|access token/i.test(String(json?.error || ''))) {
+    if (
+      response.status === 401 ||
+      /bearer token|invalid token|access token/i.test(String(json?.error || ''))
+    ) {
       throw new Error('Adminsessionen har gatt ut. Logga in igen.');
     }
     if (!response.ok || !json?.ok) throw new Error(json?.error || `HTTP ${response.status}`);
@@ -145,6 +148,7 @@ const AdminSessionConsole: React.FC<AdminSessionConsoleProps> = ({
   }, [token]);
 
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     void loadProjects();
   }, [loadProjects]);
 
@@ -246,7 +250,7 @@ const AdminSessionConsole: React.FC<AdminSessionConsoleProps> = ({
       const data = await secure<{ ok: true; project: AdminProjectSummary; created: boolean }>(
         '/api/admin/projects',
         'POST',
-        { propertyDesignation: newProjectDesignation.trim() || undefined }
+        { propertyDesignation: newProjectDesignation.trim() || undefined },
       );
       setProjectId(data.project.id);
       if (!newProjectDesignation.trim()) setNewProjectDesignation(data.project.propertyDesignation);
@@ -254,7 +258,7 @@ const AdminSessionConsole: React.FC<AdminSessionConsoleProps> = ({
       setInfo(
         data.created
           ? `Projekt skapat (${data.project.propertyDesignation}).`
-          : `Projekt finns redan (${data.project.propertyDesignation}).`
+          : `Projekt finns redan (${data.project.propertyDesignation}).`,
       );
     } catch (createError) {
       setError(createError instanceof Error ? createError.message : 'Create project failed');
@@ -315,7 +319,10 @@ const AdminSessionConsole: React.FC<AdminSessionConsoleProps> = ({
     setError('');
     setBusy('externalhealth');
     try {
-      const data = await secure<{ ok: true; report: ExternalHealthReport }>('/api/admin/external-health', 'GET');
+      const data = await secure<{ ok: true; report: ExternalHealthReport }>(
+        '/api/admin/external-health',
+        'GET',
+      );
       setExternalHealth(data.report);
     } catch (healthError) {
       setError(healthError instanceof Error ? healthError.message : 'Health check failed');
@@ -341,7 +348,10 @@ const AdminSessionConsole: React.FC<AdminSessionConsoleProps> = ({
     setError('');
     setBusy('dbcontents');
     try {
-      const data = await secure<{ ok: true; contents: DbContentsResponse }>('/api/admin/db-contents?limit=10', 'GET');
+      const data = await secure<{ ok: true; contents: DbContentsResponse }>(
+        '/api/admin/db-contents?limit=10',
+        'GET',
+      );
       setDbContents(data.contents);
     } catch (contentsError) {
       setError(contentsError instanceof Error ? contentsError.message : 'Innehall misslyckades');
@@ -367,7 +377,10 @@ const AdminSessionConsole: React.FC<AdminSessionConsoleProps> = ({
     setError('');
     setBusy('dbdump');
     try {
-      const data = await secure<{ ok: true; dump: AdminDatabaseDumpResponse }>('/api/admin/database-dump', 'GET');
+      const data = await secure<{ ok: true; dump: AdminDatabaseDumpResponse }>(
+        '/api/admin/database-dump',
+        'GET',
+      );
       setDatabaseDump(data.dump);
     } catch (dumpError) {
       setError(dumpError instanceof Error ? dumpError.message : 'Dump failed');
@@ -395,8 +408,8 @@ const AdminSessionConsole: React.FC<AdminSessionConsoleProps> = ({
               Operativ Konsol
             </h1>
             <p className="mt-3 text-sm font-medium text-slate-500 max-w-xl">
-              Centraliserad kontrollpanel for miljo-beslut.se-portalens ekosystem. Hantera projekt,
-              overvaka systemhalsa och utfor avancerad databasanalys.
+              Centraliserad kontrollpanel for miljo-beslut.se-portalens ekosystem. Hantera projekt, overvaka
+              systemhalsa och utfor avancerad databasanalys.
             </p>
           </div>
           <AppStatusIndicator appStatus={appStatus} hasActiveSession={Boolean(token)} />
@@ -497,7 +510,7 @@ const AdminSessionConsole: React.FC<AdminSessionConsoleProps> = ({
           <div className="flex flex-col gap-6 md:flex-row md:items-center md:justify-between">
             <div>
               <p className="text-xs font-black text-slate-400 uppercase tracking-widest">
-                Miljobeslut Admin Dashboard
+                Miljöbeslut Admin Dashboard
               </p>
               <p className="mt-1 text-xs text-slate-500">
                 Data isolerad per organisation. Administratorsatkomst loggas i audit-trail.

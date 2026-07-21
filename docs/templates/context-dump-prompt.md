@@ -72,6 +72,7 @@ Format: numrerad lista per sprint med [Uppgift | Fil(er) att ändra | Uppskattad
 ## Snabbvarianter
 
 ### Variant A – Säkerhetsgranskning
+
 ```
 Fokusera enbart på säkerhetsaspekter i kodbasen:
 1. JWT-hantering: kontrollera att access/refresh-tokens hanteras korrekt i alla routes
@@ -84,6 +85,7 @@ Svara med en riskmatris: [Risk | Fil | CVSS-uppskattning | Åtgärd]
 ```
 
 ### Variant B – Databas- och prestandaanalys
+
 ```
 Analysera Prisma-schema och migrationshistoriken:
 1. Saknade index: vilka foreign keys och filtreringsfält saknar index?
@@ -95,6 +97,7 @@ Svara med konkreta Prisma-migreringsförslag.
 ```
 
 ### Variant C – Testluckor
+
 ```
 Analysera tests/-mappen mot server/-mappen:
 1. Lista alla filer i server/services/ som SAKNAR motsvarande test i tests/unit/
@@ -110,6 +113,6 @@ Svara med en prioriterad att-göra-lista.
 
 1. **Modell:** Välj alltid `Gemini 1.5 Pro` (inte Flash) för fullständig kodbas
 2. **Temperature:** Sätt till `0.2` för analyser (mer deterministisk)
-3. **System instruction:** Lägg in rollen ("Du är Senior Systemarkitekt...") som *System Instruction*, inte i prompten
+3. **System instruction:** Lägg in rollen ("Du är Senior Systemarkitekt...") som _System Instruction_, inte i prompten
 4. **Filuppladdning:** Ladda upp `repomix-output.xml` via paperclip-ikonen
 5. **Iterera:** Kör Del 1 först, granska, kör sedan Del 3 separat för djupare analys

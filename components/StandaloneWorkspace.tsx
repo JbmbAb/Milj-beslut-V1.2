@@ -4,7 +4,7 @@ import WorkspaceScaffold from './WorkspaceScaffold';
 
 const ChatBot = lazy(() => import('./ChatBot'));
 const LegalSupportCenter = lazy(() => import('./LegalSupportCenter'));
-const MvpDemoInterface = lazy(() => import('./MvpDemoInterface'));
+const CoreWorkflowView = lazy(() => import('./CoreWorkflowView'));
 const AdminMetadataReview = lazy(() => import('./AdminMetadataReview'));
 const AdminSearchConsole = lazy(() => import('./AdminSearchConsole'));
 
@@ -36,8 +36,8 @@ const StandaloneWorkspace: React.FC<StandaloneWorkspaceProps> = ({
     if (activeTab === 'legal') return <LegalSupportCenter />;
 
     switch (mode) {
-      case 'MVP_WORKFLOW':
-        return <MvpDemoInterface />;
+      case 'Core_WORKFLOW':
+        return <CoreWorkflowView />;
       case 'ADMIN_CONSOLE':
         if (activeTab === 'admin-review') return <AdminMetadataReview />;
         if (activeTab === 'admin-search') return <AdminSearchConsole panel="search" />;

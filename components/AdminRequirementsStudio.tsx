@@ -1,15 +1,23 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import { csrfFetch } from '../services/csrfClient';
+import { triggerBrowserDownload } from '../services/pdfExportClient';
 import type {
   AdminRequirementCase,
   AdminRequirementCitation,
   AdminRequirementRow,
-  AdminReviewRequirementCasePayload,
   AdminRequirementsSummary,
   AdminVerifyCitationPayload,
   AdminVerifyRequirementPayload,
-  RequirementCaseReviewStatus,
   RequirementVerificationStatus,
 } from '../types';
+
+type RequirementCaseReviewStatus = 'AUTO' | 'NEEDS_REVIEW' | 'VERIFIED' | 'LOCKED';
+
+interface AdminReviewRequirementCasePayload {
+  caseReviewStatus: RequirementCaseReviewStatus;
+  validatedBy?: string;
+  notes?: string;
+}
 
 type StatusFilter = RequirementVerificationStatus | 'ALL';
 
@@ -85,17 +93,17 @@ const AdminRequirementsStudio: React.FC<AdminRequirementsStudioProps> = ({ token
 
   const selectedRow = useMemo(
     () => rows.find((item) => item.requirementCode === selectedRequirementCode) || null,
-    [rows, selectedRequirementCode]
+    [rows, selectedRequirementCode],
   );
 
   const selectedCase = useMemo(
     () => cases.find((item) => item.id === selectedCaseId) || null,
-    [cases, selectedCaseId]
+    [cases, selectedCaseId],
   );
 
   const selectedCitation = useMemo(
     () => citations.find((item) => item.citationCode === selectedCitationCode) || null,
-    [citations, selectedCitationCode]
+    [citations, selectedCitationCode],
   );
 
   const fetchJson = useCallback(
@@ -129,7 +137,7 @@ const AdminRequirementsStudio: React.FC<AdminRequirementsStudioProps> = ({ token
       }
       return json as T;
     },
-    [token]
+    [token],
   );
 
   const loadRows = useCallback(async () => {
@@ -167,7 +175,17 @@ const AdminRequirementsStudio: React.FC<AdminRequirementsStudioProps> = ({ token
     } finally {
       setBusy('');
     }
-  }, [token, page, statusFilter, municipalityFilter, categoryFilter, documentTypeFilter, selectedRequirementCode, fetchJson, onError]);
+  }, [
+    token,
+    page,
+    statusFilter,
+    municipalityFilter,
+    categoryFilter,
+    documentTypeFilter,
+    selectedRequirementCode,
+    fetchJson,
+    onError,
+  ]);
 
   const loadCases = useCallback(async () => {
     if (!token) return;
@@ -180,7 +198,7 @@ const AdminRequirementsStudio: React.FC<AdminRequirementsStudioProps> = ({ token
       if (documentTypeFilter.trim()) params.set('documentType', documentTypeFilter.trim());
 
       const data = await fetchJson<{ ok: true; total: number; items: AdminRequirementCase[] }>(
-        `/api/admin/requirements/cases?${params.toString()}`
+        `/api/admin/requirements/cases?${params.toString()}`,
       );
       setCases(data.items || []);
       setCasesTotal(Number(data.total || 0));
@@ -245,13 +263,16 @@ const AdminRequirementsStudio: React.FC<AdminRequirementsStudioProps> = ({ token
   }, [token, includePreliminarySummary, fetchJson, onError]);
 
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setPage(1);
   }, [statusFilter, municipalityFilter, categoryFilter, documentTypeFilter]);
 
   useEffect(() => {
     if (!token) return;
     const timeoutId = window.setTimeout(() => {
+       
       loadRows();
+       
       loadCases();
     }, 350);
     return () => window.clearTimeout(timeoutId);
@@ -259,38 +280,48 @@ const AdminRequirementsStudio: React.FC<AdminRequirementsStudioProps> = ({ token
 
   useEffect(() => {
     if (!token) return;
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     loadSummary();
   }, [token, includePreliminarySummary, loadSummary]);
 
   useEffect(() => {
     if (!token) return;
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     loadCitations();
   }, [token, selectedRequirementCode, loadCitations]);
 
   useEffect(() => {
     if (!selectedRow) return;
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setRequirementStatusDraft(selectedRow.verificationStatus);
+     
     setValidationComment(selectedRow.validationComment || '');
+     
     setRequirementErrorType(selectedRow.errorType || '');
   }, [selectedRow]);
 
   useEffect(() => {
     if (!selectedCase) return;
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setCaseStatusDraft(selectedCase.caseReviewStatus);
+     
     setCaseNotesDraft(selectedCase.notes || '');
   }, [selectedCase]);
 
   useEffect(() => {
     if (!selectedCitation) return;
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setCitationStatusDraft(selectedCitation.verificationStatus);
+     
     setCitationPageNumber(selectedCitation.pageNumber != null ? String(selectedCitation.pageNumber) : '');
+     
     setCitationComment(selectedCitation.comment || '');
   }, [selectedCitation]);
 
   const allCitationsReviewed = useMemo(() => {
     if (!citations.length) return false;
     return citations.every(
-      (citation) => citation.verificationStatus === 'REVIEWED' || citation.verificationStatus === 'VERIFIED'
+      (citation) => citation.verificationStatus === 'REVIEWED' || citation.verificationStatus === 'VERIFIED',
     );
   }, [citations]);
 
@@ -301,7 +332,9 @@ const AdminRequirementsStudio: React.FC<AdminRequirementsStudioProps> = ({ token
   const parsedCitationPageNumber = citationPageNumber.trim() ? Number(citationPageNumber.trim()) : undefined;
   const canSetCitationVerified =
     verifiedBy.trim().length > 0 &&
-    ((parsedCitationPageNumber != null && Number.isFinite(parsedCitationPageNumber) && parsedCitationPageNumber > 0) ||
+    ((parsedCitationPageNumber != null &&
+      Number.isFinite(parsedCitationPageNumber) &&
+      parsedCitationPageNumber > 0) ||
       citationComment.trim().length > 0 ||
       Boolean(selectedCitation?.comment) ||
       selectedCitation?.pageNumber != null);
@@ -331,7 +364,7 @@ const AdminRequirementsStudio: React.FC<AdminRequirementsStudioProps> = ({ token
         {
           method: 'PATCH',
           body: JSON.stringify(payload),
-        }
+        },
       );
 
       onInfo(`Kravrad ${selectedRow.requirementCode} uppdaterad (${requirementStatusDraft}).`);
@@ -363,13 +396,10 @@ const AdminRequirementsStudio: React.FC<AdminRequirementsStudioProps> = ({ token
         notes: caseNotesDraft.trim() || undefined,
       };
 
-      await fetchJson(
-        `/api/admin/requirements/cases/${encodeURIComponent(selectedCase.id)}/review`,
-        {
-          method: 'PATCH',
-          body: JSON.stringify(payload),
-        }
-      );
+      await fetchJson(`/api/admin/requirements/cases/${encodeURIComponent(selectedCase.id)}/review`, {
+        method: 'PATCH',
+        body: JSON.stringify(payload),
+      });
 
       onInfo(`Arende ${selectedCase.caseKey} uppdaterat (${caseStatusDraft}).`);
       await Promise.all([loadCases(), loadRows(), loadSummary()]);
@@ -399,7 +429,9 @@ const AdminRequirementsStudio: React.FC<AdminRequirementsStudioProps> = ({ token
         verifiedBy: verifiedBy.trim() || undefined,
         comment: citationComment.trim() || undefined,
         pageNumber:
-          parsedCitationPageNumber != null && Number.isFinite(parsedCitationPageNumber) && parsedCitationPageNumber > 0
+          parsedCitationPageNumber != null &&
+          Number.isFinite(parsedCitationPageNumber) &&
+          parsedCitationPageNumber > 0
             ? Math.trunc(parsedCitationPageNumber)
             : undefined,
       };
@@ -409,7 +441,7 @@ const AdminRequirementsStudio: React.FC<AdminRequirementsStudioProps> = ({ token
         {
           method: 'PATCH',
           body: JSON.stringify(payload),
-        }
+        },
       );
 
       onInfo(`Citat ${selectedCitation.citationCode} uppdaterat (${citationStatusDraft}).`);
@@ -428,9 +460,12 @@ const AdminRequirementsStudio: React.FC<AdminRequirementsStudioProps> = ({ token
     setBusy('document');
     setLocalError('');
     try {
-      const response = await fetch(`/api/admin/requirements/documents/${encodeURIComponent(documentId)}/view`, {
-        headers: { Authorization: `Bearer ${token}` },
-      });
+      const response = await fetch(
+        `/api/admin/requirements/documents/${encodeURIComponent(documentId)}/view`,
+        {
+          headers: { Authorization: `Bearer ${token}` },
+        },
+      );
       if (!response.ok) {
         let message = `HTTP ${response.status}`;
         try {
@@ -455,18 +490,58 @@ const AdminRequirementsStudio: React.FC<AdminRequirementsStudioProps> = ({ token
     }
   };
 
+  const downloadPdfReport = async () => {
+    if (!token) return;
+    setBusy('export');
+    setLocalError('');
+    try {
+      const response = await csrfFetch('/api/admin/requirements/reports/export.pdf', {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${token}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ includePreliminary: includePreliminarySummary }),
+      });
+      if (!response.ok) {
+        let message = `HTTP ${response.status}`;
+        try {
+          const json = (await response.json()) as { error?: string };
+          message = json.error || message;
+        } catch {
+          /* ignore */
+        }
+        throw new Error(message);
+      }
+      const blob = await response.blob();
+      const filename = parseFilenameFromDisposition(
+        response.headers.get('content-disposition'),
+        'kravrapport.pdf',
+      );
+      triggerBrowserDownload(blob, filename);
+      onInfo('Kravrapport som PDF har laddats ner.');
+    } catch (e) {
+      const message = e instanceof Error ? e.message : 'PDF-export misslyckades.';
+      setLocalError(message);
+      onError(message);
+    } finally {
+      setBusy('');
+    }
+  };
+
   const downloadBinary = async (url: string, method: 'GET' | 'POST', fallbackFilename: string) => {
     if (!token) return;
     setBusy('export');
     setLocalError('');
     try {
-      const response = await fetch(url, {
+      const response = await csrfFetch(url, {
         method,
         headers: {
           Authorization: `Bearer ${token}`,
           ...(method === 'POST' ? { 'Content-Type': 'application/json' } : {}),
         },
-        body: method === 'POST' ? JSON.stringify({ includePreliminary: includePreliminarySummary }) : undefined,
+        body:
+          method === 'POST' ? JSON.stringify({ includePreliminary: includePreliminarySummary }) : undefined,
       });
       if (!response.ok) {
         let message = `HTTP ${response.status}`;
@@ -480,7 +555,10 @@ const AdminRequirementsStudio: React.FC<AdminRequirementsStudioProps> = ({ token
       }
 
       const blob = await response.blob();
-      const filename = parseFilenameFromDisposition(response.headers.get('content-disposition'), fallbackFilename);
+      const filename = parseFilenameFromDisposition(
+        response.headers.get('content-disposition'),
+        fallbackFilename,
+      );
       const objectUrl = URL.createObjectURL(blob);
       const anchor = document.createElement('a');
       anchor.href = objectUrl;
@@ -505,8 +583,12 @@ const AdminRequirementsStudio: React.FC<AdminRequirementsStudioProps> = ({ token
     <section className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
       <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
         <div>
-          <p className="text-[11px] uppercase tracking-[0.18em] text-slate-500 font-black">Examensrapport Studio</p>
-          <h3 className="mt-1 text-lg font-black text-slate-900">Verifieringsko, dokumentvisning och rapportexport</h3>
+          <p className="text-[11px] uppercase tracking-[0.18em] text-slate-500 font-black">
+            Kravrapport Studio
+          </p>
+          <h3 className="mt-1 text-lg font-black text-slate-900">
+            Verifieringsko, dokumentvisning och rapportexport
+          </h3>
           <p className="mt-1 text-xs text-slate-500">
             Human-in-the-loop: inga auto-uppgraderingar till VERIFIED tillats.
           </p>
@@ -584,7 +666,9 @@ const AdminRequirementsStudio: React.FC<AdminRequirementsStudioProps> = ({ token
                     <td className="px-3 py-2 text-slate-700">{item.municipality || '-'}</td>
                     <td className="px-3 py-2 text-slate-700">{item.diarienummer || '-'}</td>
                     <td className="px-3 py-2">
-                      <span className={`rounded-lg border px-2 py-1 text-[10px] font-black ${caseStatusTone[item.caseReviewStatus]}`}>
+                      <span
+                        className={`rounded-lg border px-2 py-1 text-[10px] font-black ${caseStatusTone[item.caseReviewStatus]}`}
+                      >
                         {item.caseReviewStatus}
                       </span>
                     </td>
@@ -592,20 +676,28 @@ const AdminRequirementsStudio: React.FC<AdminRequirementsStudioProps> = ({ token
                 ))}
               </tbody>
             </table>
-            {cases.length === 0 && <p className="px-3 py-6 text-center text-sm text-slate-500">Inga arenden matchar filter.</p>}
+            {cases.length === 0 && (
+              <p className="px-3 py-6 text-center text-sm text-slate-500">Inga arenden matchar filter.</p>
+            )}
           </div>
         </div>
 
         <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
           <p className="text-[11px] uppercase tracking-[0.14em] text-slate-500 font-black">Casegranskning</p>
-          {!selectedCase && <p className="mt-2 text-sm text-slate-500">Valj ett arende for manuell granskning.</p>}
+          {!selectedCase && (
+            <p className="mt-2 text-sm text-slate-500">Valj ett arende for manuell granskning.</p>
+          )}
           {selectedCase && (
             <>
               <div className="mt-2 flex flex-wrap items-center gap-2">
-                <span className={`rounded-lg border px-2 py-1 text-[10px] font-black ${caseStatusTone[selectedCase.caseReviewStatus]}`}>
+                <span
+                  className={`rounded-lg border px-2 py-1 text-[10px] font-black ${caseStatusTone[selectedCase.caseReviewStatus]}`}
+                >
                   {selectedCase.caseReviewStatus}
                 </span>
-                <span className={`rounded-lg border px-2 py-1 text-[10px] font-black ${statusTone[selectedCase.reviewStatus]}`}>
+                <span
+                  className={`rounded-lg border px-2 py-1 text-[10px] font-black ${statusTone[selectedCase.reviewStatus]}`}
+                >
                   {selectedCase.reviewStatus}
                 </span>
               </div>
@@ -667,7 +759,9 @@ const AdminRequirementsStudio: React.FC<AdminRequirementsStudioProps> = ({ token
       <div className="mt-4 grid grid-cols-1 gap-6 xl:grid-cols-[1.2fr_1fr]">
         <div className="overflow-hidden rounded-2xl border border-slate-200">
           <div className="flex items-center justify-between border-b border-slate-200 bg-slate-50 px-3 py-2 text-xs font-bold text-slate-600">
-            <span>Verifieringsko ({rowsTotal} kravrader, {casesTotal} arenden)</span>
+            <span>
+              Verifieringsko ({rowsTotal} kravrader, {casesTotal} arenden)
+            </span>
             <span>
               Sida {page}/{totalPages}
             </span>
@@ -696,7 +790,9 @@ const AdminRequirementsStudio: React.FC<AdminRequirementsStudioProps> = ({ token
                     <td className="px-3 py-2 text-slate-700">{row.case?.municipality || '-'}</td>
                     <td className="px-3 py-2 text-slate-700">{row.category}</td>
                     <td className="px-3 py-2">
-                      <span className={`rounded-lg border px-2 py-1 text-[10px] font-black ${statusTone[row.verificationStatus]}`}>
+                      <span
+                        className={`rounded-lg border px-2 py-1 text-[10px] font-black ${statusTone[row.verificationStatus]}`}
+                      >
                         {row.verificationStatus}
                       </span>
                     </td>
@@ -715,7 +811,9 @@ const AdminRequirementsStudio: React.FC<AdminRequirementsStudioProps> = ({ token
                 ))}
               </tbody>
             </table>
-            {rows.length === 0 && <p className="px-3 py-6 text-center text-sm text-slate-500">Ingen rad matchar filter.</p>}
+            {rows.length === 0 && (
+              <p className="px-3 py-6 text-center text-sm text-slate-500">Ingen rad matchar filter.</p>
+            )}
           </div>
           <div className="flex items-center justify-between border-t border-slate-200 px-3 py-2 text-xs">
             <button
@@ -742,7 +840,8 @@ const AdminRequirementsStudio: React.FC<AdminRequirementsStudioProps> = ({ token
             {selectedRow && (
               <>
                 <p className="mt-2 text-xs text-slate-600">
-                  {selectedRow.case?.authorityName || 'Okand myndighet'} | {selectedRow.case?.municipality || 'Okand kommun'}
+                  {selectedRow.case?.authorityName || 'Okand myndighet'} |{' '}
+                  {selectedRow.case?.municipality || 'Okand kommun'}
                 </p>
                 <p className="mt-2 rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs text-slate-700">
                   {selectedRow.requirementTextQuote}
@@ -753,7 +852,9 @@ const AdminRequirementsStudio: React.FC<AdminRequirementsStudioProps> = ({ token
                   <select
                     className="rounded-lg border border-slate-200 px-3 py-2 text-sm"
                     value={requirementStatusDraft}
-                    onChange={(event) => setRequirementStatusDraft(event.target.value as RequirementVerificationStatus)}
+                    onChange={(event) =>
+                      setRequirementStatusDraft(event.target.value as RequirementVerificationStatus)
+                    }
                   >
                     {STATUS_OPTIONS.map((status) => (
                       <option key={status} value={status}>
@@ -787,7 +888,9 @@ const AdminRequirementsStudio: React.FC<AdminRequirementsStudioProps> = ({ token
 
           <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
             <p className="text-[11px] uppercase tracking-[0.14em] text-slate-500 font-black">Citat</p>
-            {citations.length === 0 && <p className="mt-2 text-sm text-slate-500">Ingen citation kopplad till kravraden.</p>}
+            {citations.length === 0 && (
+              <p className="mt-2 text-sm text-slate-500">Ingen citation kopplad till kravraden.</p>
+            )}
             {citations.length > 0 && (
               <>
                 <div className="mt-2 max-h-28 space-y-2 overflow-auto">
@@ -803,11 +906,16 @@ const AdminRequirementsStudio: React.FC<AdminRequirementsStudioProps> = ({ token
                     >
                       <div className="flex items-center justify-between gap-2">
                         <span className="font-bold text-slate-800">{citation.citationCode}</span>
-                        <span className={`rounded border px-2 py-0.5 text-[10px] font-black ${statusTone[citation.verificationStatus]}`}>
+                        <span
+                          className={`rounded border px-2 py-0.5 text-[10px] font-black ${statusTone[citation.verificationStatus]}`}
+                        >
                           {citation.verificationStatus}
                         </span>
                       </div>
-                      <p className="mt-1 text-slate-600">{citation.quoteText.slice(0, 110)}{citation.quoteText.length > 110 ? '...' : ''}</p>
+                      <p className="mt-1 text-slate-600">
+                        {citation.quoteText.slice(0, 110)}
+                        {citation.quoteText.length > 110 ? '...' : ''}
+                      </p>
                     </button>
                   ))}
                 </div>
@@ -820,7 +928,9 @@ const AdminRequirementsStudio: React.FC<AdminRequirementsStudioProps> = ({ token
                     <select
                       className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm"
                       value={citationStatusDraft}
-                      onChange={(event) => setCitationStatusDraft(event.target.value as RequirementVerificationStatus)}
+                      onChange={(event) =>
+                        setCitationStatusDraft(event.target.value as RequirementVerificationStatus)
+                      }
                     >
                       {STATUS_OPTIONS.map((status) => (
                         <option key={status} value={status}>
@@ -884,7 +994,7 @@ const AdminRequirementsStudio: React.FC<AdminRequirementsStudioProps> = ({ token
                 downloadBinary(
                   `/api/admin/requirements/reports/export.csv?includePreliminary=${includePreliminarySummary ? 'true' : 'false'}`,
                   'GET',
-                  'kravrapport.zip'
+                  'kravrapport.zip',
                 )
               }
             >
@@ -893,9 +1003,18 @@ const AdminRequirementsStudio: React.FC<AdminRequirementsStudioProps> = ({ token
             <button
               className="rounded-lg bg-blue-700 px-3 py-2 text-xs font-bold text-white disabled:opacity-50"
               disabled={busy === 'export'}
-              onClick={() => downloadBinary('/api/admin/requirements/reports/export.docx', 'POST', 'kravrapport.docx')}
+              onClick={() =>
+                downloadBinary('/api/admin/requirements/reports/export.docx', 'POST', 'kravrapport.docx')
+              }
             >
               Export DOCX
+            </button>
+            <button
+              className="rounded-lg bg-rose-700 px-3 py-2 text-xs font-bold text-white disabled:opacity-50"
+              disabled={busy === 'export'}
+              onClick={() => void downloadPdfReport()}
+            >
+              Export PDF
             </button>
           </div>
         </div>
@@ -920,7 +1039,9 @@ const AdminRequirementsStudio: React.FC<AdminRequirementsStudioProps> = ({ token
               <SimpleTable
                 title="Tabell A - myndighet/dokumenttyp"
                 headers={['Myndighetstyp', 'Myndighet', 'Doktyp', 'Antal']}
-                rows={summary.tableA.slice(0, 8).map((row) => [row.authorityType, row.authorityName, row.documentType, row.caseCount])}
+                rows={summary.tableA
+                  .slice(0, 8)
+                  .map((row) => [row.authorityType, row.authorityName, row.documentType, row.caseCount])}
               />
               <SimpleTable
                 title="Tabell B - kravfrekvens kategori"
@@ -930,12 +1051,16 @@ const AdminRequirementsStudio: React.FC<AdminRequirementsStudioProps> = ({ token
               <SimpleTable
                 title="Tabell C - kommunskillnader"
                 headers={['Kommun', 'Ytkonstruktion', 'DagvattenLakvatten']}
-                rows={summary.tableC.slice(0, 8).map((row) => [row.municipality, row.ytkonstruktion, row.dagvattenLakvatten])}
+                rows={summary.tableC
+                  .slice(0, 8)
+                  .map((row) => [row.municipality, row.ytkonstruktion, row.dagvattenLakvatten])}
               />
               <SimpleTable
                 title="Tabell D - avfallsslag/EWC"
                 headers={['Avfallsslag', 'EWC', 'Antal']}
-                rows={summary.tableD.slice(0, 8).map((row) => [row.wasteType, row.ewcCode, row.requirementCount])}
+                rows={summary.tableD
+                  .slice(0, 8)
+                  .map((row) => [row.wasteType, row.ewcCode, row.requirementCount])}
               />
             </div>
           </>
@@ -965,7 +1090,9 @@ const SimpleTable: React.FC<{ title: string; headers: string[]; rows: Array<Arra
   rows,
 }) => (
   <div className="overflow-hidden rounded-xl border border-slate-200">
-    <div className="border-b border-slate-200 bg-slate-50 px-3 py-2 text-xs font-black text-slate-700">{title}</div>
+    <div className="border-b border-slate-200 bg-slate-50 px-3 py-2 text-xs font-black text-slate-700">
+      {title}
+    </div>
     <div className="max-h-56 overflow-auto">
       <table className="w-full text-left text-xs">
         <thead className="bg-slate-50 text-[10px] uppercase tracking-[0.1em] text-slate-500">

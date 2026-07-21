@@ -1,0 +1,103 @@
+/* Logistics Dashboard */
+
+.logistics-kpi-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+  gap: var(--spacing-xl);
+  margin-bottom: var(--spacing-xl);
+}
+
+.logistics-kpi-card {
+  background-color: var(--color-bg-digg);
+  border: 1px solid var(--color-border-digg);
+  border-radius: var(--border-radius-lg-digg);
+  padding: var(--spacing-xl);
+  box-shadow: var(--shadow-sm);
+  transition: all var(--transition-base);
+}
+
+.logistics-kpi-card:hover {
+  border-color: var(--color-primary-digg);
+  box-shadow: var(--shadow-md);
+  transform: translateY(-4px);
+}
+
+.logistics-kpi-label {
+  font-size: var(--font-size-xs-digg);
+  color: var(--color-text-muted-digg);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  margin-bottom: var(--spacing-md);
+}
+
+.logistics-kpi-value {
+  font-size: var(--font-size-3xl-digg);
+  font-weight: var(--font-weight-bold);
+  color: var(--color-text-primary-digg);
+  margin-bottom: var(--spacing-md);
+}
+
+.logistics-kpi-unit {
+  font-size: var(--font-size-sm-digg);
+  color: var(--color-text-secondary-digg);
+}
+
+.logistics-kpi-trend {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-sm);
+  font-size: var(--font-size-sm-digg);
+  color: var(--color-success-digg);
+}
+
+.logistics-transport-list {
+  background-color: var(--color-bg-light);
+  border-radius: var(--border-radius-lg-digg);
+  padding: var(--spacing-xl);
+}
+
+.logistics-transport-item {
+  display: grid;
+  grid-template-columns: 1fr 1fr 1fr auto;
+  gap: var(--spacing-lg);
+  align-items: center;
+  padding: var(--spacing-lg);
+  background-color: var(--color-bg-digg);
+  border-radius: var(--border-radius-md-digg);
+  margin-bottom: var(--spacing-md);
+}
+
+.logistics-transport-item:last-child {
+  margin-bottom: 0;
+}
+
+.logistics-status-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: var(--spacing-sm) var(--spacing-lg);
+  border-radius: var(--border-radius-md-digg);
+  font-size: var(--font-size-xs-digg);
+  font-weight: var(--font-weight-semibold);
+  background-color: #ecfdf5;
+  color: var(--color-success-digg);
+}
+
+.logistics-status-badge.pending {
+  background-color: #fef3c7;
+  color: var(--color-warning-digg);
+}
+
+.logistics-status-badge.error {
+  background-color: #fee2e2;
+  color: var(--color-danger-digg);
+}
+
+@media (max-width: 768px) {
+  .logistics-transport-item {
+    grid-template-columns: 1fr;
+  }
+
+  .logistics-kpi-grid {
+    grid-template-columns: 1fr;
+  }
+}

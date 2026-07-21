@@ -1,0 +1,114 @@
+name: Staging E2E Proof
+
+on:
+  workflow_dispatch:
+    inputs:
+      base_url:
+        description: 'Optional staging frontend URL (falls back to repository variable STAGING_URL)'
+        required: false
+        type: string
+      include_vertex_flows:
+        description: 'Include Vertex-heavy flow in the staging run'
+        required: false
+        default: false
+        type: boolean
+
+concurrency:
+  group: staging-e2e-proof
+  cancel-in-progress: false
+
+jobs:
+  run-staging-e2e:
+    name: Run staging core flows
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+
+    env:
+      PLAYWRIGHT_BASE_URL: ${{ inputs.base_url || vars.STAGING_URL }}
+      PLAYWRIGHT_API_BASE_URL: ${{ vars.STAGING_API_BASE_URL || inputs.base_url || vars.STAGING_URL }}
+      E2E_ADMIN_USERNAME: ${{ secrets.STAGING_E2E_ADMIN_USERNAME || secrets.ADMIN_CONSOLE_USERNAME }}
+      E2E_ADMIN_PASSWORD: ${{ secrets.STAGING_E2E_ADMIN_PASSWORD || secrets.ADMIN_CONSOLE_PASSWORD }}
+      E2E_INCLUDE_VERTEX_FLOWS: ${{ inputs.include_vertex_flows && 'true' || 'false' }}
+      E2E_SKIP_VERTEX_FLOWS: ${{ inputs.include_vertex_flows && 'false' || 'true' }}
+      STAGING_VERIFY_ALLOW_BANKID_PENDING: 'true'
+
+    steps:
+      - name: Validate required inputs/secrets
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ -z "${PLAYWRIGHT_BASE_URL}" ]; then
+            echo "Missing staging URL. Set workflow input 'base_url' or repository variable 'STAGING_URL'."
+            exit 1
+          fi
+          if [ -z "${E2E_ADMIN_USERNAME}" ] || [ -z "${E2E_ADMIN_PASSWORD}" ]; then
+            echo "Missing staging admin credentials. Set STAGING_E2E_ADMIN_USERNAME/STAGING_E2E_ADMIN_PASSWORD (or ADMIN_CONSOLE_*)."
+            exit 1
+          fi
+
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+
+      - run: npm ci
+
+      - name: Install Playwright browser
+        run: npx playwright install --with-deps chromium
+
+      - name: Verify staging environment (mock-flags + nycklar)
+        run: npm run smoke:staging-verify
+        continue-on-error: false
+        env:
+          STAGING_URL: ${{ inputs.base_url || vars.STAGING_URL }}
+          DATABASE_URL: ${{ secrets.STAGING_DATABASE_URL }}
+          JWT_ACCESS_SECRET: ${{ secrets.STAGING_JWT_ACCESS_SECRET }}
+          JWT_REFRESH_SECRET: ${{ secrets.STAGING_JWT_REFRESH_SECRET }}
+          ADMIN_CONSOLE_PASSWORD: ${{ secrets.STAGING_E2E_ADMIN_PASSWORD || secrets.ADMIN_CONSOLE_PASSWORD }}
+          LANTMATERIET_CONSUMER_KEY: ${{ secrets.STAGING_LANTMATERIET_CONSUMER_KEY }}
+          LANTMATERIET_CONSUMER_SECRET: ${{ secrets.STAGING_LANTMATERIET_CONSUMER_SECRET }}
+          LANTMATERIET_OPEN_SUBSCRIPTION_KEY: ${{ secrets.STAGING_LANTMATERIET_OPEN_SUBSCRIPTION_KEY }}
+          LANTMATERIET_API_KEY: ${{ secrets.STAGING_LANTMATERIET_API_KEY }}
+          SLU_API_KEY: ${{ secrets.STAGING_SLU_API_KEY }}
+          VERTEX_PROJECT_ID: ${{ secrets.GCP_PROJECT_ID }}
+          VERTEX_LOCATION: ${{ vars.GCP_REGION || 'europe-west1' }}
+          BANKID_MOCK_MODE: 'false'
+          AUTHORITY_MOCK_MODE: 'false'
+          LANTMATERIET_DEMO_MODE: 'false'
+
+      - name: Run staging core flows (Lokaliseringsutredning)
+        run: npm run e2e:staging
+
+      - name: Run staging Enskilt avlopp flows
+        run: npm run e2e:staging:avlopp
+
+      - name: Run staging C-anmälan schaktmassor
+        run: npm run e2e:staging:c-mass
+
+      - name: Run staging Lokaliseringsutredning
+        run: npm run e2e:staging:localization
+
+      - name: Upload Playwright report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: staging-e2e-playwright-report
+          path: |
+            playwright-report
+            test-results
+          if-no-files-found: ignore
+
+      - name: Add workflow summary
+        if: always()
+        shell: bash
+        run: |
+          {
+            echo "## Staging E2E Proof";
+            echo "";
+            echo "- Base URL: ${PLAYWRIGHT_BASE_URL}";
+            echo "- Included Vertex flows: ${E2E_INCLUDE_VERTEX_FLOWS}";
+            echo "- Artifacts: staging-e2e-playwright-report";
+          } >> "$GITHUB_STEP_SUMMARY"

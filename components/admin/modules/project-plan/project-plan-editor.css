@@ -1,0 +1,393 @@
+/**
+ * Project Plan Editor Styles
+ * Interactive CRUD interface with drag-and-drop support
+ */
+
+.plan-editor-container {
+  display: flex;
+  flex-direction: column;
+  background: white;
+  border-radius: 8px;
+  overflow: hidden;
+  border: 1px solid #e5e7eb;
+}
+
+/* Tabs */
+.editor-tabs {
+  display: flex;
+  border-bottom: 2px solid #e5e7eb;
+  background: #f9fafb;
+}
+
+.editor-tab {
+  flex: 1;
+  padding: 1rem;
+  border: none;
+  background: transparent;
+  font-weight: 500;
+  color: #6b7280;
+  cursor: pointer;
+  transition: all 0.2s;
+  border-bottom: 3px solid transparent;
+  margin-bottom: -2px;
+}
+
+.editor-tab:hover {
+  color: #005293;
+  background: #f3f4f6;
+}
+
+.editor-tab.active {
+  color: #005293;
+  border-bottom-color: #005293;
+}
+
+/* Content Area */
+.editor-content {
+  flex: 1;
+  padding: 2rem;
+  max-height: 600px;
+  overflow-y: auto;
+}
+
+/* Messages */
+.editor-message {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 1rem;
+  border-radius: 6px;
+  margin-bottom: 1.5rem;
+  font-size: 0.95rem;
+}
+
+.editor-message.error {
+  background: #fee2e2;
+  border: 1px solid #fecaca;
+  color: #dc2626;
+}
+
+.editor-message.success {
+  background: #dcfce7;
+  border: 1px solid #bbf7d0;
+  color: #15803d;
+}
+
+.editor-message button {
+  background: none;
+  border: none;
+  color: inherit;
+  cursor: pointer;
+  padding: 0;
+  font-size: 1.2rem;
+}
+
+/* Section */
+.editor-section {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.section-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+}
+
+.section-header h3 {
+  margin: 0;
+  font-size: 1.1rem;
+  color: #1a1a1a;
+  flex: 1;
+}
+
+.btn-add {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.6rem 1rem;
+  background: linear-gradient(135deg, #005293 0%, #003d6b 100%);
+  color: white;
+  border: none;
+  border-radius: 6px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.btn-add:hover {
+  background: linear-gradient(135deg, #003d6b 0%, #002d4f 100%);
+  box-shadow: 0 2px 8px rgba(0, 82, 147, 0.2);
+}
+
+/* Items List */
+.editor-items {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.empty-message {
+  text-align: center;
+  color: #9ca3af;
+  padding: 2rem;
+  font-style: italic;
+}
+
+/* Single Item */
+.editor-item {
+  display: flex;
+  gap: 1rem;
+  padding: 1rem;
+  background: #f9fafb;
+  border: 1px solid #e5e7eb;
+  border-radius: 6px;
+  transition: all 0.2s;
+}
+
+.editor-item:hover {
+  background: #f3f4f6;
+  border-color: #d1d5db;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05);
+}
+
+.editor-item.dragging {
+  opacity: 0.5;
+  border-color: #005293;
+  background: #eff6ff;
+}
+
+.item-handle {
+  display: flex;
+  align-items: center;
+  color: #9ca3af;
+  cursor: grab;
+  flex-shrink: 0;
+  padding-top: 0.25rem;
+}
+
+.item-handle:active {
+  cursor: grabbing;
+}
+
+.item-content {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.input-title {
+  font-size: 1rem;
+  font-weight: 600;
+  border: none;
+  background: transparent;
+  color: #1a1a1a;
+  padding: 0;
+  border-bottom: 2px solid transparent;
+  transition: border-color 0.2s;
+}
+
+.input-title:focus {
+  outline: none;
+  border-bottom-color: #005293;
+}
+
+.input-description,
+.input-field {
+  padding: 0.5rem;
+  border: 1px solid #d1d5db;
+  border-radius: 4px;
+  font-family: inherit;
+  font-size: 0.9rem;
+  background: white;
+  transition: all 0.2s;
+}
+
+.input-description:focus,
+.input-field:focus {
+  outline: none;
+  border-color: #005293;
+  box-shadow: 0 0 0 3px rgba(0, 82, 147, 0.1);
+}
+
+.item-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.75rem;
+}
+
+.grid-item {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+.grid-item label {
+  font-size: 0.8rem;
+  font-weight: 500;
+  color: #6b7280;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.btn-remove {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 40px;
+  height: 40px;
+  background: #fee2e2;
+  color: #dc2626;
+  border: none;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: all 0.2s;
+  flex-shrink: 0;
+}
+
+.btn-remove:hover {
+  background: #fecaca;
+  box-shadow: 0 2px 4px rgba(220, 38, 38, 0.2);
+}
+
+/* Action Buttons */
+.editor-actions {
+  display: flex;
+  gap: 1rem;
+  padding: 1.5rem 2rem;
+  border-top: 1px solid #e5e7eb;
+  background: #f9fafb;
+  justify-content: flex-end;
+}
+
+.btn-cancel,
+.btn-save {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.75rem 1.5rem;
+  border: none;
+  border-radius: 6px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.btn-cancel {
+  background: #f3f4f6;
+  color: #6b7280;
+  border: 1px solid #d1d5db;
+}
+
+.btn-cancel:hover:not(:disabled) {
+  background: #e5e7eb;
+  border-color: #9ca3af;
+}
+
+.btn-save {
+  background: linear-gradient(135deg, #005293 0%, #003d6b 100%);
+  color: white;
+}
+
+.btn-save:hover:not(:disabled) {
+  background: linear-gradient(135deg, #003d6b 0%, #002d4f 100%);
+  box-shadow: 0 4px 12px rgba(0, 82, 147, 0.3);
+}
+
+.btn-export-pdf {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.75rem 1.5rem;
+  border: 1px solid #b91c1c;
+  border-radius: 6px;
+  font-weight: 500;
+  cursor: pointer;
+  background: #fff;
+  color: #b91c1c;
+  transition: all 0.2s;
+}
+
+.btn-export-pdf:hover:not(:disabled) {
+  background: #fef2f2;
+}
+
+.btn-export-pdf:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.btn-save:disabled,
+.btn-cancel:disabled {
+  opacity: 0.7;
+  cursor: not-allowed;
+}
+
+.spinner-small {
+  display: inline-block;
+  width: 14px;
+  height: 14px;
+  border: 2px solid rgba(255, 255, 255, 0.3);
+  border-top-color: white;
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* Responsive */
+@media (max-width: 768px) {
+  .editor-content {
+    padding: 1rem;
+    max-height: 400px;
+  }
+
+  .editor-item {
+    flex-direction: column;
+  }
+
+  .item-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .btn-remove {
+    width: 100%;
+  }
+
+  .editor-actions {
+    flex-direction: column;
+    padding: 1rem;
+  }
+
+  .btn-cancel,
+  .btn-export-pdf,
+  .btn-save {
+    width: 100%;
+    justify-content: center;
+  }
+}
+
+/* Scrollbar styling */
+.editor-content::-webkit-scrollbar {
+  width: 6px;
+}
+
+.editor-content::-webkit-scrollbar-track {
+  background: #f3f4f6;
+}
+
+.editor-content::-webkit-scrollbar-thumb {
+  background: #d1d5db;
+  border-radius: 3px;
+}
+
+.editor-content::-webkit-scrollbar-thumb:hover {
+  background: #9ca3af;
+}

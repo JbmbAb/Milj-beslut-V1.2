@@ -26,17 +26,27 @@ interface AdminAuthPanelProps {
 }
 
 const AdminAuthPanel: React.FC<AdminAuthPanelProps> = ({
-  username, setUsername,
-  password, setPassword,
-  token, refreshToken,
-  projectId, setProjectId,
-  newProjectDesignation, setNewProjectDesignation,
+  username,
+  setUsername,
+  password,
+  setPassword,
+  token,
+  refreshToken,
+  projectId,
+  setProjectId,
+  newProjectDesignation,
+  setNewProjectDesignation,
   projects,
   busy,
-  login, refresh, logout,
-  loadProjects, createProject,
-  loadMapAndDataStatus, loadExternalHealth,
-  loadExamSummary, loadDatabaseDump
+  login,
+  refresh,
+  logout,
+  loadProjects,
+  createProject,
+  loadMapAndDataStatus,
+  loadExternalHealth,
+  loadExamSummary,
+  loadDatabaseDump,
 }) => {
   return (
     <section className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
@@ -110,7 +120,7 @@ const AdminAuthPanel: React.FC<AdminAuthPanelProps> = ({
           disabled={Boolean(busy) || !token}
           onClick={loadExamSummary}
         >
-          {busy === 'exam' ? 'Arbetar...' : 'Examensrapport'}
+          {busy === 'exam' ? 'Arbetar...' : 'Plattformsrapport'}
         </button>
         <button
           className="rounded-xl bg-sky-700 px-4 py-2 text-xs font-bold text-white disabled:opacity-60"
@@ -119,10 +129,7 @@ const AdminAuthPanel: React.FC<AdminAuthPanelProps> = ({
         >
           {busy === 'dbdump' ? 'Arbetar...' : 'Databasdump'}
         </button>
-        <button
-          className="rounded-xl bg-slate-700 px-4 py-2 text-xs font-bold text-white"
-          onClick={logout}
-        >
+        <button className="rounded-xl bg-slate-700 px-4 py-2 text-xs font-bold text-white" onClick={logout}>
           Logga ut
         </button>
       </div>
@@ -137,7 +144,8 @@ const AdminAuthPanel: React.FC<AdminAuthPanelProps> = ({
           <option value="">Valj projekt</option>
           {projects.map((project) => (
             <option key={project.id} value={project.id}>
-              {project.propertyDesignation} ({project.organisation.name})
+              {project.propertyDesignation || project.id} (
+              {project.organisation?.name || 'Organisation saknas'})
             </option>
           ))}
         </select>
@@ -154,7 +162,9 @@ const AdminAuthPanel: React.FC<AdminAuthPanelProps> = ({
           onChange={(event) => setNewProjectDesignation(event.target.value)}
         />
       </div>
-      <p className="mt-2 text-xs text-slate-500">Lamna projekt tomt for fri sokning i hela databasen (adminlage).</p>
+      <p className="mt-2 text-xs text-slate-500">
+        Lamna projekt tomt for fri sokning i hela databasen (adminlage).
+      </p>
     </section>
   );
 };

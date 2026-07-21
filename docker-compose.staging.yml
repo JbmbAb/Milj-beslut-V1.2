@@ -1,0 +1,50 @@
+version: '3.9'
+
+services:
+  app:
+    build:
+      context: .
+      target: production
+    container_name: miljobeslut-staging-app
+    restart: unless-stopped
+    ports:
+      - '8787:8787'
+    env_file:
+      - .env.staging
+    environment:
+      NODE_ENV: production
+      DATABASE_URL: postgresql://miljobeslut:password@db:5432/miljobeslut_staging
+      SEARCH_WORKER_ENABLED: 'true'
+      PORT: '8787'
+    depends_on:
+      db:
+        condition: service_healthy
+    networks:
+      - staging-net
+
+  db:
+    image: ghcr.io/jbmbab/milj-beslut-postgres-test:16
+    container_name: miljobeslut-staging-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: miljobeslut_staging
+      POSTGRES_USER: miljobeslut
+      POSTGRES_PASSWORD: password
+    ports:
+      - '5433:5432'
+    volumes:
+      - db-staging-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U miljobeslut -d miljobeslut_staging']
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    networks:
+      - staging-net
+
+volumes:
+  db-staging-data:
+
+networks:
+  staging-net:
+    driver: bridge

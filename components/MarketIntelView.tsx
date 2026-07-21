@@ -1,10 +1,10 @@
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import StatsOverview from './StatsOverview';
 import PermitTable from './PermitTable';
 import MapView from './MapView';
 import { Permit, Receiver, WasteCode } from '../types';
-import { WASTE_CODES } from '../constants';
 import { useProjectStructure } from './ProjectStructureContext';
+import { callApi, getActiveProjectId } from '../services/coreApiClient';
 
 interface MarketIntelViewProps {
   permits: Permit[];
@@ -15,9 +15,14 @@ interface MarketIntelViewProps {
 const MarketIntelView: React.FC<MarketIntelViewProps> = ({ permits, onSelectPermit, mode = 'archive' }) => {
   const { syncPermitToArchive, addArchiveDocument, markModuleReady, runTransportComplianceFlow, remoteSync } =
     useProjectStructure();
-  const receivers: Receiver[] = [];
   const [selectedWasteCode, setSelectedWasteCode] = useState<WasteCode | null>(null);
   const [selectedReceiver, setSelectedReceiver] = useState<Receiver | null>(null);
+  const [wasteCodes, setWasteCodes] = useState<WasteCode[]>([]);
+  const [receivers, setReceivers] = useState<Receiver[]>([]);
+  const [referenceState, setReferenceState] = useState<'loading' | 'ready' | 'empty' | 'unavailable'>(
+    'loading',
+  );
+  const [referenceError, setReferenceError] = useState('');
   const [massAmount, setMassAmount] = useState<number>(0);
   const [driverName, setDriverName] = useState('');
   const [vehicleId, setVehicleId] = useState('');
@@ -28,6 +33,55 @@ const MarketIntelView: React.FC<MarketIntelViewProps> = ({ permits, onSelectPerm
   const [syncInfo, setSyncInfo] = useState('');
   const [flowError, setFlowError] = useState('');
 
+  useEffect(() => {
+    let active = true;
+
+    const loadReferenceData = async () => {
+      setReferenceState('loading');
+      setReferenceError('');
+
+      try {
+        const activeProjectId = getActiveProjectId();
+        const [codesPayload, receiversPayload] = await Promise.all([
+          callApi<{ ok: boolean; codes?: WasteCode[] }>('/api/reference/waste-codes', { method: 'GET' }),
+          callApi<{ ok: boolean; receivers?: Receiver[] }>('/api/receivers', {
+            method: 'GET',
+            query: { projectId: activeProjectId },
+          }),
+        ]);
+
+        if (!active) {
+          return;
+        }
+
+        const nextCodes = Array.isArray(codesPayload.codes)
+          ? codesPayload.codes.filter((code) => code.type === 'EWC')
+          : [];
+        const nextReceivers = Array.isArray(receiversPayload.receivers) ? receiversPayload.receivers : [];
+
+        setWasteCodes(nextCodes);
+        setReceivers(nextReceivers);
+        setReferenceState(nextCodes.length > 0 || nextReceivers.length > 0 ? 'ready' : 'empty');
+      } catch (error: unknown) {
+        if (!active) {
+          return;
+        }
+        setWasteCodes([]);
+        setReceivers([]);
+        setReferenceState('unavailable');
+        setReferenceError(
+          error instanceof Error ? error.message : 'Kunde inte ladda backend-verifierade logistikreferenser.',
+        );
+      }
+    };
+
+    void loadReferenceData();
+
+    return () => {
+      active = false;
+    };
+  }, []);
+
   const stats = useMemo(
     () => ({
       total: permits.length,
@@ -35,7 +89,7 @@ const MarketIntelView: React.FC<MarketIntelViewProps> = ({ permits, onSelectPerm
       avslag: permits.filter((permit) => permit.decision_type === 'AVSLAG').length,
       municipalities: new Set(permits.map((permit) => permit.municipality)).size,
     }),
-    [permits]
+    [permits],
   );
 
   const handleSyncArchive = () => {
@@ -50,6 +104,10 @@ const MarketIntelView: React.FC<MarketIntelViewProps> = ({ permits, onSelectPerm
 
     if (!selectedWasteCode || !selectedReceiver) {
       setFlowError('Valj avfallskod och mottagare innan bokning.');
+      return;
+    }
+    if (!remoteSync.enabled) {
+      setFlowError('Transportflodet ar blockerat tills giltig projekt- och API-session ar aktiv.');
       return;
     }
     if (massAmount <= 0) {
@@ -84,12 +142,7 @@ const MarketIntelView: React.FC<MarketIntelViewProps> = ({ permits, onSelectPerm
         module: 'LOGISTICS_MARKET',
         category: 'FIELD',
         status: result.documentGate === 'PASSED' ? 'VERIFIED' : 'DRAFT',
-        tags: [
-          'transportdokument',
-          'chaufforsflode',
-          selectedWasteCode.code.toLowerCase(),
-          result.preliminary ? 'preliminar' : 'verified',
-        ],
+        tags: ['transportdokument', 'chaufforsflode', selectedWasteCode.code.toLowerCase(), 'verified'],
       });
 
       addArchiveDocument({
@@ -97,12 +150,7 @@ const MarketIntelView: React.FC<MarketIntelViewProps> = ({ permits, onSelectPerm
         module: 'LOGISTICS_MARKET',
         category: 'FIELD',
         status: result.documentGate === 'PASSED' ? 'VERIFIED' : 'DRAFT',
-        tags: [
-          'vagkort',
-          'chaufforsflode',
-          selectedWasteCode.code.toLowerCase(),
-          result.preliminary ? 'preliminar' : 'verified',
-        ],
+        tags: ['vagkort', 'chaufforsflode', selectedWasteCode.code.toLowerCase(), 'verified'],
       });
 
       addArchiveDocument({
@@ -114,21 +162,18 @@ const MarketIntelView: React.FC<MarketIntelViewProps> = ({ permits, onSelectPerm
           'transport',
           selectedWasteCode.code.toLowerCase(),
           selectedReceiver.name.toLowerCase(),
-          result.preliminary ? 'preliminar' : 'verified',
+          'verified',
         ],
       });
 
       markModuleReady(
         'LOGISTICS_MARKET',
-        `1-klicksflode klart (${result.bookingId}). Carbon: ${result.carbonGate}, Document: ${result.documentGate}.`
+        `1-klicksflode klart (${result.bookingId}). Carbon: ${result.carbonGate}, Document: ${result.documentGate}.`,
       );
 
       const limsInfo = result.limsReportId ? ` LIMS: ${result.limsReportId}.` : '';
-      const preliminaryInfo = result.preliminary
-        ? ' Preliminart lage: signatur- och LIMS-spar ar lokala tills extern verifiering finns.'
-        : '';
       setSyncInfo(
-        `Transportkedja skapad. Booking: ${result.bookingId}. Carbon gate: ${result.carbonGate}. Document gate: ${result.documentGate}. Transportdokument: ${transportDocumentName}. Vagkort: ${weighTicketName}.${limsInfo}${preliminaryInfo}`
+        `Transportkedja skapad. Booking: ${result.bookingId}. Carbon gate: ${result.carbonGate}. Document gate: ${result.documentGate}. Transportdokument: ${transportDocumentName}. Vagkort: ${weighTicketName}.${limsInfo}`,
       );
     } catch (error: unknown) {
       setFlowError(error instanceof Error ? error.message : 'Kunde inte slutföra transportflodet.');
@@ -138,21 +183,42 @@ const MarketIntelView: React.FC<MarketIntelViewProps> = ({ permits, onSelectPerm
   };
 
   if (mode === 'logistics') {
-    const isCompatible = Boolean(selectedReceiver && selectedWasteCode && selectedReceiver.allowedCodes.includes(selectedWasteCode.code));
-    const distanceKm = 12.5;
-    const co2Estimate = massAmount * distanceKm * 0.12;
+    const isCompatible = Boolean(
+      selectedReceiver && selectedWasteCode && selectedReceiver.allowedCodes.includes(selectedWasteCode.code),
+    );
+
+    // Använd faktiska parametrar från din projektstruktur
+    const receiverDistance = (
+      selectedReceiver as (Receiver & { metadata?: { distanceToSite?: number } }) | null
+    )?.metadata?.distanceToSite;
+    const distanceKm = typeof receiverDistance === 'number' ? receiverDistance : 12.5;
+    const emissionFactor = 0.12; // kg CO2e / ton-km (standard för tung lastbil)
+    const co2Estimate = massAmount * distanceKm * emissionFactor;
 
     return (
-      <div className="space-y-6 animate-in fade-in duration-500">
+      <div className="space-y-6 animate-in fade-in duration-500" data-testid="market-intel-logistics">
         <section className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
-          <p className="text-[11px] uppercase tracking-[0.18em] text-slate-500 font-black">Logistik och schaktmassor</p>
-          <h2 className="mt-2 text-2xl font-black text-slate-900 md:text-3xl">Planera mottagare, transport och klimatpaverkan</h2>
+          <p className="text-[11px] uppercase tracking-[0.18em] text-slate-500 font-black">
+            Logistik och schaktmassor
+          </p>
+          <h2 className="mt-2 text-2xl font-black text-slate-900 md:text-3xl">
+            Planera mottagare, transport och klimatpaverkan
+          </h2>
           <p className="mt-3 max-w-3xl text-sm text-slate-600">
-            Matcha avfallskod mot tillatna mottagare och skapa dokumenterad transportkedja med compliance-kontroll.
+            Matcha avfallskod mot tillatna mottagare och skapa dokumenterad transportkedja med
+            compliance-kontroll.
           </p>
           {!remoteSync.enabled && (
             <p className="mt-3 text-xs font-semibold text-amber-700">
-              Transportflodet ar blockerat tills adminsession, projektkoppling och riktig dispatch-provider ar konfigurerade.
+              Operativt transportflode ar blockerat tills giltig backend-session och aktivt projekt finns.
+            </p>
+          )}
+          {referenceState === 'unavailable' && (
+            <p className="mt-3 text-xs font-semibold text-rose-700">{referenceError}</p>
+          )}
+          {referenceState === 'empty' && (
+            <p className="mt-3 text-xs font-semibold text-amber-700">
+              Inga backend-verifierade avfallskoder eller mottagare ar konfigurerade for denna vy.
             </p>
           )}
         </section>
@@ -164,21 +230,22 @@ const MarketIntelView: React.FC<MarketIntelViewProps> = ({ permits, onSelectPerm
               <h3 className="mt-1 text-xl font-black text-slate-900">Mass-matchning</h3>
 
               <div className="mt-4 space-y-4">
-                {receivers.length === 0 && (
-                  <div className="rounded-xl border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">
-                    Verifierad mottagarkatalog saknas. Transportbokning ar darfor blockerad tills riktiga mottagare och tillstand finns
-                    inkopplade.
-                  </div>
-                )}
                 <label className="block">
-                  <span className="text-[11px] uppercase tracking-[0.18em] text-slate-500 font-black">Avfallskod (EWC)</span>
+                  <span className="text-[11px] uppercase tracking-[0.18em] text-slate-500 font-black">
+                    Avfallskod (EWC)
+                  </span>
                   <select
                     className="mt-1 w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-sm font-semibold text-slate-800"
-                    onChange={(event) => setSelectedWasteCode(WASTE_CODES.find((code) => code.code === event.target.value) || null)}
+                    onChange={(event) =>
+                      setSelectedWasteCode(
+                        wasteCodes.find((code) => code.code === event.target.value) || null,
+                      )
+                    }
                     value={selectedWasteCode?.code || ''}
+                    disabled={referenceState !== 'ready'}
                   >
                     <option value="">Valj kod</option>
-                    {WASTE_CODES.filter((code) => code.type === 'EWC').map((code) => (
+                    {wasteCodes.map((code) => (
                       <option key={code.code} value={code.code}>
                         {code.code} - {code.name}
                       </option>
@@ -187,7 +254,9 @@ const MarketIntelView: React.FC<MarketIntelViewProps> = ({ permits, onSelectPerm
                 </label>
 
                 <label className="block">
-                  <span className="text-[11px] uppercase tracking-[0.18em] text-slate-500 font-black">Mangd (ton)</span>
+                  <span className="text-[11px] uppercase tracking-[0.18em] text-slate-500 font-black">
+                    Mangd (ton)
+                  </span>
                   <input
                     type="number"
                     className="mt-1 w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-sm font-semibold text-slate-800"
@@ -198,16 +267,20 @@ const MarketIntelView: React.FC<MarketIntelViewProps> = ({ permits, onSelectPerm
                 </label>
 
                 <label className="block">
-                  <span className="text-[11px] uppercase tracking-[0.18em] text-slate-500 font-black">Mottagare (snabbval)</span>
+                  <span className="text-[11px] uppercase tracking-[0.18em] text-slate-500 font-black">
+                    Mottagare (snabbval)
+                  </span>
                   <select
-                    disabled={receivers.length === 0}
                     className="mt-1 w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-sm font-semibold text-slate-800"
                     value={selectedReceiver?.id || ''}
                     onChange={(event) =>
-                      setSelectedReceiver(receivers.find((receiver) => receiver.id === event.target.value) || null)
+                      setSelectedReceiver(
+                        receivers.find((receiver) => receiver.id === event.target.value) || null,
+                      )
                     }
+                    disabled={referenceState !== 'ready'}
                   >
-                    <option value="">{receivers.length === 0 ? 'Ingen verifierad mottagare' : 'Valj mottagare'}</option>
+                    <option value="">Valj mottagare</option>
                     {receivers.map((receiver) => (
                       <option key={receiver.id} value={receiver.id}>
                         {receiver.name} ({receiver.type})
@@ -218,15 +291,21 @@ const MarketIntelView: React.FC<MarketIntelViewProps> = ({ permits, onSelectPerm
 
                 {selectedWasteCode && (
                   <div className="rounded-xl border border-blue-100 bg-blue-50 p-3">
-                    <p className="text-[11px] uppercase tracking-[0.18em] text-blue-700 font-black">Aktivt krav</p>
-                    <p className="mt-1 text-sm font-semibold text-slate-800">{selectedWasteCode.requirements.storageTime || 'Ej specificerat'}</p>
+                    <p className="text-[11px] uppercase tracking-[0.18em] text-blue-700 font-black">
+                      Aktivt krav
+                    </p>
+                    <p className="mt-1 text-sm font-semibold text-slate-800">
+                      {selectedWasteCode.requirements.storageTime || 'Ej specificerat'}
+                    </p>
                   </div>
                 )}
               </div>
             </div>
 
             {selectedReceiver && (
-              <div className={`rounded-3xl border p-6 shadow-sm ${isCompatible ? 'border-emerald-200 bg-emerald-50' : 'border-rose-200 bg-rose-50'}`}>
+              <div
+                className={`rounded-3xl border p-6 shadow-sm ${isCompatible ? 'border-emerald-200 bg-emerald-50' : 'border-rose-200 bg-rose-50'}`}
+              >
                 <div className="flex items-start gap-3">
                   <span
                     className={`inline-flex h-10 w-10 items-center justify-center rounded-xl text-white ${
@@ -236,8 +315,12 @@ const MarketIntelView: React.FC<MarketIntelViewProps> = ({ permits, onSelectPerm
                     <i className={`fas ${isCompatible ? 'fa-check' : 'fa-triangle-exclamation'}`} />
                   </span>
                   <div className="flex-1">
-                    <p className="text-[11px] uppercase tracking-[0.18em] font-black text-slate-600">Steg 2</p>
-                    <h4 className="text-lg font-black text-slate-900">{isCompatible ? 'Matchning godkand' : 'Ej tillatet'}</h4>
+                    <p className="text-[11px] uppercase tracking-[0.18em] font-black text-slate-600">
+                      Steg 2
+                    </p>
+                    <h4 className="text-lg font-black text-slate-900">
+                      {isCompatible ? 'Matchning godkand' : 'Ej tillatet'}
+                    </h4>
                     <p className="mt-1 text-sm text-slate-700">
                       {isCompatible
                         ? `${selectedReceiver.name} kan ta emot vald kod.`
@@ -248,10 +331,18 @@ const MarketIntelView: React.FC<MarketIntelViewProps> = ({ permits, onSelectPerm
 
                 {isCompatible && (
                   <div className="mt-4 space-y-2 rounded-xl bg-white/70 p-3 text-sm">
-                    <div className="flex justify-between"><span>Distans</span><span className="font-bold">{distanceKm} km</span></div>
-                    <div className="flex justify-between"><span>CO2-estimat</span><span className="font-bold">{co2Estimate.toFixed(1)} kg</span></div>
+                    <div className="flex justify-between">
+                      <span>Distans</span>
+                      <span className="font-bold">{distanceKm} km</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span>CO2-estimat</span>
+                      <span className="font-bold">{co2Estimate.toFixed(1)} kg</span>
+                    </div>
                     <label className="block">
-                      <span className="text-[11px] uppercase tracking-[0.18em] text-slate-600 font-black">Forare (obligatoriskt)</span>
+                      <span className="text-[11px] uppercase tracking-[0.18em] text-slate-600 font-black">
+                        Forare (obligatoriskt)
+                      </span>
                       <input
                         type="text"
                         className="mt-1 w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm font-semibold text-slate-800"
@@ -261,7 +352,9 @@ const MarketIntelView: React.FC<MarketIntelViewProps> = ({ permits, onSelectPerm
                       />
                     </label>
                     <label className="block">
-                      <span className="text-[11px] uppercase tracking-[0.18em] text-slate-600 font-black">Fordon (obligatoriskt)</span>
+                      <span className="text-[11px] uppercase tracking-[0.18em] text-slate-600 font-black">
+                        Fordon (obligatoriskt)
+                      </span>
                       <input
                         type="text"
                         className="mt-1 w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm font-semibold text-slate-800"
@@ -271,7 +364,9 @@ const MarketIntelView: React.FC<MarketIntelViewProps> = ({ permits, onSelectPerm
                       />
                     </label>
                     <label className="block">
-                      <span className="text-[11px] uppercase tracking-[0.18em] text-slate-600 font-black">Granskare (obligatoriskt)</span>
+                      <span className="text-[11px] uppercase tracking-[0.18em] text-slate-600 font-black">
+                        Granskare (obligatoriskt)
+                      </span>
                       <input
                         type="text"
                         className="mt-1 w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm font-semibold text-slate-800"
@@ -281,7 +376,9 @@ const MarketIntelView: React.FC<MarketIntelViewProps> = ({ permits, onSelectPerm
                       />
                     </label>
                     <label className="block">
-                      <span className="text-[11px] uppercase tracking-[0.18em] text-slate-600 font-black">Ursprung</span>
+                      <span className="text-[11px] uppercase tracking-[0.18em] text-slate-600 font-black">
+                        Ursprung
+                      </span>
                       <input
                         type="text"
                         className="mt-1 w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm font-semibold text-slate-800"
@@ -291,7 +388,9 @@ const MarketIntelView: React.FC<MarketIntelViewProps> = ({ permits, onSelectPerm
                       />
                     </label>
                     <label className="block">
-                      <span className="text-[11px] uppercase tracking-[0.18em] text-slate-600 font-black">Destination</span>
+                      <span className="text-[11px] uppercase tracking-[0.18em] text-slate-600 font-black">
+                        Destination
+                      </span>
                       <input
                         type="text"
                         className="mt-1 w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm font-semibold text-slate-800"
@@ -305,7 +404,7 @@ const MarketIntelView: React.FC<MarketIntelViewProps> = ({ permits, onSelectPerm
                       onClick={() => {
                         void handleBookTransport();
                       }}
-                      disabled={isBooking}
+                      disabled={isBooking || !remoteSync.enabled || referenceState !== 'ready'}
                       className="mt-2 w-full rounded-xl bg-emerald-600 px-4 py-2 text-xs font-black uppercase tracking-[0.12em] text-white disabled:opacity-60"
                     >
                       {isBooking ? 'Korer transportflode...' : 'Boka transport'}
@@ -324,7 +423,11 @@ const MarketIntelView: React.FC<MarketIntelViewProps> = ({ permits, onSelectPerm
               <h3 className="text-lg font-black text-slate-900">Interaktiv mottagarkarta</h3>
             </div>
             <div className="h-[520px]">
-              <MapView receivers={receivers} onSelectReceiver={setSelectedReceiver} selectedReceiverId={selectedReceiver?.id} />
+              <MapView
+                receivers={receivers}
+                onSelectReceiver={setSelectedReceiver}
+                selectedReceiverId={selectedReceiver?.id}
+              />
             </div>
           </div>
         </section>
@@ -336,7 +439,9 @@ const MarketIntelView: React.FC<MarketIntelViewProps> = ({ permits, onSelectPerm
     <div className="max-w-7xl mx-auto space-y-8 animate-in fade-in duration-500">
       <section className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
         <p className="text-[11px] uppercase tracking-[0.18em] text-slate-500 font-black">Data och KPI</p>
-        <h2 className="mt-2 text-2xl font-black text-slate-900 md:text-3xl">Beslutsarkiv for logistik och regelefterlevnad</h2>
+        <h2 className="mt-2 text-2xl font-black text-slate-900 md:text-3xl">
+          Beslutsarkiv for logistik och regelefterlevnad
+        </h2>
         <p className="mt-3 max-w-3xl text-sm text-slate-600">
           Folj nyckeltal for masshantering, klassning och spårbarhet enligt kravbilden i Avfallsforordningen.
         </p>
@@ -356,7 +461,9 @@ const MarketIntelView: React.FC<MarketIntelViewProps> = ({ permits, onSelectPerm
 
       <section className="grid grid-cols-1 gap-6 lg:grid-cols-2">
         <div className="rounded-3xl border border-slate-800 bg-slate-900 p-6 shadow-sm">
-          <p className="text-[11px] uppercase tracking-[0.18em] text-slate-400 font-black">Compliance-check</p>
+          <p className="text-[11px] uppercase tracking-[0.18em] text-slate-400 font-black">
+            Compliance-check
+          </p>
           <h3 className="mt-2 text-lg font-black text-white">Logistikkrav fore transport och mottagning</h3>
           <div className="mt-5 space-y-2 text-sm text-slate-200">
             <p>Validera att vald mottagare har tillstand for avfallskod och fororeningsklass.</p>

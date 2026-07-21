@@ -1,0 +1,424 @@
+
+
+<!DOCTYPE html>
+<html lang="sv" prefix="og:http://opengraphprotocol.org/schema/">
+<head>
+	<meta property="og:url" content="http://viss.lansstyrelsen.se"/>
+	<meta property="og:image" content="http://viss.lansstyrelsen.se/images/vissvi/viss-fb-logo.png?v=2"/>
+	<meta property="og:image:secure_url" content="https://viss.lansstyrelsen.se/images/vissvi/viss-fb-logo.png?v=2"/>
+	<meta property="og:title" content="VISS-Vatteninformationssystem Sverige"/>
+	<meta property="og:description" content="VISS (VattenInformationsSystem Sverige) är en databas som har utvecklats av vattenmyndigheterna, länsstyrelserna och Havs och vattenmyndigheten. VISS förvaltas idag av Länsstyrelsen i Jönköping."/>
+	<title>Välkommen till VISS</title>
+	<meta charset="utf-8" />
+	<meta http-equiv="X-UA-Compatible" content="IE=edge" />
+	<link rel="shortcut icon" href="/favicon.ico" />
+	<link rel="stylesheet" href="/Static/app.css?version=2025.9.2.1"/>
+	
+	
+	<script type="text/javascript">
+
+		
+
+			var _paq = window._paq = window._paq || [];
+
+			/* tracker methods like "setCustomDimension" should be called before "trackPageView" */
+			_paq.push(['trackPageView']);
+			_paq.push(['enableLinkTracking']);
+
+			(function () {
+
+				var u = "https://analytics.lansstyrelsen.se/";
+
+				_paq.push(['setTrackerUrl', u + 'matomo.php']);
+				_paq.push(['setSiteId', '65']);
+
+				var d = document, g = d.createElement('script'), s = d.getElementsByTagName('script')[0];
+
+				g.async = true; g.src = u + 'matomo.js'; s.parentNode.insertBefore(g, s);
+
+			})();
+
+		
+
+	</script>
+	
+</head>
+<body  class="default">
+	
+	<div class="site-wrapper">
+		<header class="site-header">
+			
+			<a href="/" title="Vatteninformationssystem Sverige">
+				<img class="logotype" alt="VISS" src="/Images/vissvi/logotype.gif" />
+			</a>
+			
+			<div class="site-header__tools">
+				
+					
+					
+			<a href="#" onclick="return setSelectedLanguage( 'EN' )">English</a>
+			
+<script type="text/javascript">
+//<![CDATA[
+function setSelectedLanguage( lang ){
+	if( lang ){
+		saveCookieValue("waterCharacteristicsSelectedLanguage", lang, true);
+		var l = "" + location.href;
+		if( l.indexOf( "#" ) > -1 ) {
+			var before = l.substring( 0, l.indexOf( "#" ) );
+			var after = l.substring( l.indexOf( "#" ) + 1 );
+			l = before;
+			if( l.indexOf( "?" ) == -1 ) {
+				l += "?timeStamp=" + getTimestamp();
+			} else {
+				l += "&timeStamp=" + getTimestamp();
+			}
+			l += '#' + after;
+		}
+		location.href = l;
+	}
+	return false;
+}
+//]]>
+</script>
+					
+				
+				
+					
+    <div class="login">
+		<div>
+	        <a class="button" rel="nofollow" href="https://viss.lansstyrelsen.se/Login.aspx?returnURL=%2fdefault.aspx">Logga in</a>
+		</div>
+    </div>
+
+<script type="text/javascript">
+	//<![CDATA[
+	function focusInput( that, isPassword ){
+		if( !that.wasChanged ){
+			that.value = "";
+		}
+		if( isPassword ){
+			//that.type = "password";
+		}
+	}
+	function blurInput( that, isPassword ){
+		if( that.wasChanged ){
+			if( that.value == "" ){
+				that.value = isPassword ? "Lösenord" : "E-post";
+				that.wasChanged = false;
+			}
+		} else {
+			that.value = isPassword ? "Lösenord" : "E-post";
+		}
+
+	}
+	function keyDownInput( e, that ){
+		if( e.keyCode == 13 ){
+			validateLoginInputs( that.form, false );
+			return;
+		}
+		that.wasChanged = true;
+	}
+	function validateLoginInputs( f, warnIfMissingInfo ){
+		var un = f.elements[ "userEMail" ];
+		var pw = f.elements[ "userPassword" ];
+		if( un.value && pw.value ){
+			if( f.elements[ "__VIEWSTATE" ] ){
+				f.elements[ "__VIEWSTATE" ].value = "";
+			}
+			//f.action = "/Login.aspx?returnURL=%2fdefault.aspx";
+			f.submit();
+		} else {
+			if( warnIfMissingInfo ){
+				alert( "Du måste ange användarnamn och lösenord för att logga in!" );
+			}
+		}
+	}
+	//]]>
+</script>
+
+				
+			</div>
+			
+
+		</header>
+		
+		
+		
+<h2 class="structural">Meny</h2>
+<ul class="level1">
+
+	<li class="topmenuli" title="">
+		<a href="/Search.aspx" class="topmenutitle">Avancerad sök</a>
+		
+	</li>
+
+	<li class="topmenuli" title="">
+		<a href="/Maps.aspx" class="topmenutitle">Kartor</a>
+		
+	</li>
+
+	<li class="topmenuli" title="">
+		<a href="/Search.aspx?searchType=Areas" class="topmenutitle">Områdestatistik</a>
+		
+	</li>
+
+	<li class="topmenuli" title="">
+		<a href="/Exports.aspx" class="topmenutitle">Hämta data</a>
+		
+	</li>
+
+	<li class="topmenuli" title="">
+		<a href="/About.aspx" class="topmenutitle">Om VISS</a>
+		
+	</li>
+
+</ul>
+
+		
+		
+		<main class="main-content">
+			
+			
+			
+			<!-- SPEAKIT_START -->
+			
+	<div id="wrap">
+		<div id="quicksearch">
+			
+
+<div class="search-control">
+	<form action="/SearchResults.aspx" method="get">
+	<div>
+	
+	<input type="hidden" name="ViewType" value="0" />
+	<label class="structural" for="searchquery">Sök i Viss</label>
+	<input id="searchquery" type="text" name="q" value="" maxlength="50"/>
+	<input type="submit" class="button" name="s" value="Sök" />
+	
+		
+		<div class="search-help-container">
+			<button class="search-help" onclick="$('.search-help-text').toggle(); return false;">Söktips</button>
+			<span class="search-help-text">
+				<p>M&aring;nga sj&ouml;ar och vattendrag har samma namn i Sverige. F&ouml;r att l&auml;ttare hitta det vatten du s&ouml;ker skriv &auml;ven kommunen som vattnet ligger i, till exempel <em>Lill&aring;n Aneby kommun. </em></p>
+<p>Hittar du inte det vatten du s&ouml;ker s&aring; kan vattnet vara f&ouml;r litet. Prova d&aring; att s&ouml;ka under fliken Avancerad s&ouml;k.</p>
+			</span>
+		</div>
+		
+	</div>
+	</form>
+</div>
+
+		</div>
+	</div>
+	<div class="container">
+		<div class="six columns">
+			<h2>Senaste nytt i VISS</h2>
+			
+
+<ul class="news-list">
+	
+	<li id="n452">
+		
+		<a href="/News.aspx?newsItemID=452">
+		
+		<span class="img-wrapper">
+			<img src="/TeaserImages/NewsImages/59b8d44a-5bd7-411e-9bb7-273f02a55f13.PNG" alt="">
+		</span>
+		
+		<span class="text-wrapper">
+			<span class="subject">Störningar i kartor torsdag 7/5 kl16-17</span>
+			<span class="date">2026-05-05</span>
+			
+			<span class="preamble">Länsstyrelsernas externa GIS-miljö kommer att vara tillfälligt oåtkomlig torsdag 7 maj klockan 16–17. Orsaken är ett planerat underhåll.</span>
+			
+		</span>
+		
+		</a>
+		
+	</li>
+	
+	<li id="n451">
+		
+		<a href="/News.aspx?newsItemID=451">
+		
+		<span class="img-wrapper">
+			<img src="/TeaserImages/NewsImages/cf773ed7-cfcb-4249-a53a-63b0a967ddca.jpg" alt="">
+		</span>
+		
+		<span class="text-wrapper">
+			<span class="subject">VISS 2.0 stängt för uppdatering 26/2</span>
+			<span class="date">2026-02-17</span>
+			
+			<span class="preamble">Mellan kl 11 och 12 uppdaterar vi systemet och installerar leverans 13. Då kan du inte komma åt data eller importera.</span>
+			
+		</span>
+		
+		</a>
+		
+	</li>
+	
+	<li id="n450">
+		
+		<a href="/News.aspx?newsItemID=450">
+		
+		<span class="img-wrapper">
+			<img src="/TeaserImages/NewsImages/eb17f025-9add-45ab-bbf9-5fd1cd3ce4ce.png" alt="">
+		</span>
+		
+		<span class="text-wrapper">
+			<span class="subject">VISS 2.0 stängt för uppdatering 29/1</span>
+			<span class="date">2026-01-16</span>
+			
+			<span class="preamble">Mellan kl 11 och 12 uppdaterar vi systemet och installerar leverans 12. Då kan du inte komma åt data eller importera.</span>
+			
+		</span>
+		
+		</a>
+		
+	</li>
+	
+	<li id="n449">
+		
+		<a href="/News.aspx?newsItemID=449">
+		
+		<span class="img-wrapper">
+			<img src="/TeaserImages/NewsImages/5f6980e0-6d82-4996-b770-ca8ac9125375.JPG" alt="">
+		</span>
+		
+		<span class="text-wrapper">
+			<span class="subject">VISS öppet igen</span>
+			<span class="date">2026-01-12</span>
+			
+			<span class="preamble">Efter en tids nedstängning är VISS nu öppet igen. Meddela gärna VISS-support om du hittar något som inte fungerar som det ska.</span>
+			
+		</span>
+		
+		</a>
+		
+	</li>
+	
+</ul>
+
+	<a href="/News.aspx" class="news-archive">Mera nyheter...</a>
+
+		</div>
+		<div class="six columns">
+			<h2>Aktuellt</h2>
+			
+<ul class="info-box teaser-list">
+	
+	<li>
+		
+		<a href="/FirstPageTeaser.aspx?firstPageTeaserID=2">
+		
+			<span class="title">Lär dig söka i VISS</span>
+			
+			<span class="img-wrapper">
+				<img src="/TeaserImages/878528e6-10c8-47f0-b4e1-c1f630567ae1.jpg" alt="" />
+			</span>
+			
+		</a>
+		
+	</li>
+
+	<li>
+		
+		<a href="/FirstPageTeaser.aspx?firstPageTeaserID=1">
+		
+			<span class="title">Hämta data och kartor</span>
+			
+			<span class="img-wrapper">
+				<img src="/TeaserImages/bfc59730-54d2-4730-860e-f7c894504cbc.jpg" alt="" />
+			</span>
+			
+		</a>
+		
+	</li>
+
+	<li>
+		
+		<a href="/FirstPageTeaser.aspx?firstPageTeaserID=19">
+		
+			<span class="title">VISS nyhetsbrev</span>
+			
+			<span class="img-wrapper">
+				<img src="/TeaserImages/22d6780d-fea4-4f37-9319-248ba3231940.jpg" alt="" />
+			</span>
+			
+		</a>
+		
+	</li>
+
+	<li>
+		
+		<a target="_blank" href="https://ext-geoportal.lansstyrelsen.se/arcgis/apps/storymaps/collections/4b2c652f971e4618a8be3a6b0ea63158">
+		
+			<span class="title">Digitalt underlag för åtgärder</span>
+			
+			<span class="img-wrapper">
+				<img src="/TeaserImages/a897f569-dda6-449a-9f3b-955a5bbb6035.png" alt="" />
+			</span>
+			
+		</a>
+		
+	</li>
+
+	<li>
+		
+		<a href="/FirstPageTeaser.aspx?firstPageTeaserID=18">
+		
+			<span class="title">Projekt VISS 2.0</span>
+			
+			<span class="img-wrapper">
+				<img src="/TeaserImages/23d9669a-8865-450a-9aaa-eebf37b42921.png" alt="" />
+			</span>
+			
+		</a>
+		
+	</li>
+
+	<li>
+		
+		<a target="_blank" href="http://viss.lansstyrelsen.se/About.aspx?aboutPageID=3">
+		
+			<span class="title">Kontakta oss</span>
+			
+			<span class="img-wrapper description-wrapper">
+				<span><p>Har du tekniska fr&aring;gor om hur systemet och kartan fungerar, ta kontakt med VISS-support.</p></span>
+			</span>
+			
+		</a>
+		
+	</li>
+
+</ul>
+		</div>
+	</div>
+
+			<!-- SPEAKIT_STOP -->
+		</main>
+		<footer class="site-footer">
+			<div id="havochvatten"><a href="http://www.havochvatten.se/" target="_blank"><img src="/images/vissvi/HaV_cyan_svart_138x55px.png" alt="Havs- och vattenmyndigheten" /></a></div>
+			<div id="lanstyrelserna"><a href="http://www.lansstyrelsen.se/" target="_blank"><img src="/images/vissvi/Lansstyrelserna_LOGO_Primar_FARG.gif" style="width:120px; height:57px" alt="Länsstyrelsen" /></a></div>
+			<div id="vattenmyndigheterna"><a href="http://www.vattenmyndigheterna.se" target="_blank"><img src="/images/vissvi/vattenmyndigheterna_color.png" width="134px" height="32px" alt="Vattenmyndigheterna"/></a></div>
+			
+<div class="links">
+
+<span class="contact">
+	Webbmaster: <a href="mailto:viss-support@lansstyrelsen.se">
+        viss-support@lansstyrelsen.se</a> <br />
+	<a href="/cookiepolicy/">Cookiepolicy</a>&nbsp;<a href="/API">VISS Öppna API</a>
+</span>
+</div>
+
+
+
+
+
+
+		</footer>
+	</div>
+	<script src="/static/app.js?version=2025.9.2.1"></script>
+</body>
+</html>

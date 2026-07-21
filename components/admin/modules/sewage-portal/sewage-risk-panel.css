@@ -1,0 +1,305 @@
+/* Sewage Risk Panel Styles */
+
+.sewage-risk-panel {
+  background: #ffffff;
+  padding: var(--spacing-xl);
+  border-radius: 8px;
+  border: 1px solid #e0e0e0;
+}
+
+.sewage-risk-title {
+  margin: 0 0 var(--spacing-xl) 0;
+  color: #333;
+  font-size: 18px;
+  font-weight: 600;
+}
+
+/* Risk Gauges */
+.sewage-risk-gauges {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: var(--spacing-xl);
+  margin-bottom: var(--spacing-2xl);
+}
+
+.sewage-gauge {
+  text-align: center;
+}
+
+.sewage-gauge-circle {
+  width: 120px;
+  height: 120px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin: 0 auto var(--spacing-md) auto;
+  box-shadow: inset 0 0 0 8px white;
+}
+
+.sewage-gauge-inner {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  width: 100px;
+  height: 100px;
+  background: white;
+  border-radius: 50%;
+}
+
+.sewage-gauge-value {
+  font-size: 24px;
+  font-weight: bold;
+  color: #333;
+}
+
+.sewage-gauge-label {
+  font-size: 11px;
+  color: #999;
+  margin-top: 4px;
+}
+
+.sewage-gauge-status {
+  margin: 0;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+/* Soil Profile */
+.sewage-soil-profile {
+  background: #f9f9f9;
+  padding: var(--spacing-lg);
+  border-radius: 6px;
+  margin-bottom: var(--spacing-xl);
+}
+
+.sewage-soil-profile h3 {
+  margin: 0 0 var(--spacing-lg) 0;
+  color: #333;
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.sewage-soil-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: var(--spacing-md) 0;
+  border-bottom: 1px solid #e0e0e0;
+  font-size: 13px;
+}
+
+.sewage-soil-item:last-of-type {
+  border-bottom: none;
+}
+
+.sewage-soil-item label {
+  font-weight: 500;
+  color: #666;
+}
+
+.sewage-soil-value {
+  color: #333;
+  font-weight: 600;
+}
+
+.sewage-capacity-badge {
+  padding: 4px 8px;
+  border-radius: 3px;
+  color: white;
+  font-size: 12px;
+}
+
+/* Soil Visual */
+.sewage-soil-visual {
+  margin: var(--spacing-lg) 0;
+  border: 1px solid #ddd;
+  border-radius: 4px;
+  overflow: hidden;
+  background: #fafafa;
+}
+
+.sewage-soil-layer {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: white;
+  font-size: 12px;
+  font-weight: 600;
+  border-bottom: 1px solid #ddd;
+  position: relative;
+  padding: var(--spacing-sm);
+}
+
+.sewage-soil-layer:last-child {
+  border-bottom: none;
+}
+
+.sewage-layer-label,
+.sewage-layer-depth {
+  display: block;
+  color: #333;
+}
+
+.sewage-layer-label {
+  font-weight: 600;
+}
+
+.sewage-layer-depth {
+  font-size: 11px;
+  color: #666;
+  margin-top: 4px;
+}
+
+.sewage-soil-layer {
+  background: #d4a574;
+  flex-direction: column;
+}
+
+.sewage-water-table {
+  background: linear-gradient(180deg, #b3d9ff 0%, #7fb3d5 100%);
+  color: white;
+}
+
+.sewage-rock {
+  background: #999;
+  color: white;
+}
+
+/* Environmental Risks */
+.sewage-environmental-risks {
+  background: #fff3e0;
+  padding: var(--spacing-lg);
+  border-radius: 6px;
+  border-left: 4px solid #ff9800;
+  margin-bottom: var(--spacing-xl);
+}
+
+.sewage-environmental-risks h3 {
+  margin: 0 0 var(--spacing-lg) 0;
+  color: #e65100;
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.sewage-risk-item {
+  margin-bottom: var(--spacing-lg);
+}
+
+.sewage-risk-item:last-child {
+  margin-bottom: 0;
+}
+
+.sewage-risk-header {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-md);
+  font-weight: 600;
+  color: #333;
+  font-size: 13px;
+  margin-bottom: var(--spacing-sm);
+}
+
+.sewage-risk-description {
+  margin: 0;
+  color: #666;
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+.sewage-risk-warning {
+  margin-top: var(--spacing-sm);
+  padding: var(--spacing-sm);
+  background: #ffe0b2;
+  border-left: 3px solid #f44336;
+  color: #c62828;
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+/* Reasoning */
+.sewage-reasoning {
+  background: #e8f4fd;
+  padding: var(--spacing-lg);
+  border-radius: 6px;
+  border-left: 4px solid #0066cc;
+  margin-bottom: var(--spacing-xl);
+}
+
+.sewage-reasoning h3 {
+  margin: 0 0 var(--spacing-lg) 0;
+  color: #0066cc;
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.sewage-reasoning-item {
+  display: flex;
+  gap: var(--spacing-md);
+  margin-bottom: var(--spacing-md);
+  font-size: 13px;
+  color: #333;
+  line-height: 1.4;
+}
+
+.sewage-reasoning-item:last-child {
+  margin-bottom: 0;
+}
+
+.sewage-reasoning-marker {
+  color: #0066cc;
+  font-weight: bold;
+  flex-shrink: 0;
+}
+
+.sewage-reasoning-item p {
+  margin: 0;
+}
+
+/* Recommendations */
+.sewage-recommendations {
+  background: #f0f8f4;
+  padding: var(--spacing-lg);
+  border-radius: 6px;
+  border-left: 4px solid #4caf50;
+}
+
+.sewage-recommendations h3 {
+  margin: 0 0 var(--spacing-lg) 0;
+  color: #2e7d32;
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.sewage-recommendations p {
+  margin: 0 0 var(--spacing-md) 0;
+  color: #333;
+  font-weight: 600;
+  font-size: 13px;
+}
+
+.sewage-recommendations ul {
+  margin: 0;
+  padding-left: var(--spacing-lg);
+  list-style: none;
+}
+
+.sewage-recommendations li {
+  margin: var(--spacing-sm) 0;
+  color: #333;
+  font-size: 13px;
+  position: relative;
+  padding-left: var(--spacing-md);
+}
+
+.sewage-recommendations li:before {
+  content: '';
+  position: absolute;
+  left: 0;
+  color: #4caf50;
+}
+
+.sewage-blocked-system {
+  color: #c62828;
+}

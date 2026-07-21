@@ -1,0 +1,316 @@
+/**
+ * Logistics Generator Styles
+ */
+
+.logistics-generator-container {
+  padding: 2rem;
+  background: linear-gradient(135deg, #f5f7fa 0%, #e8eef6 100%);
+  border-radius: 8px;
+  margin-bottom: 2rem;
+}
+
+.logistics-generator-header {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  margin-bottom: 2rem;
+  padding-bottom: 1rem;
+  border-bottom: 2px solid #005293;
+}
+
+.logistics-generator-header h2 {
+  font-size: 1.5rem;
+  font-weight: 600;
+  color: #1a1a1a;
+  margin: 0;
+}
+
+.logistics-generator-header p {
+  font-size: 0.875rem;
+  color: #666;
+  margin: 0.25rem 0 0 0;
+}
+
+.logistics-generator-form {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 1.5rem;
+  margin-bottom: 2rem;
+}
+
+.form-group {
+  display: flex;
+  flex-direction: column;
+}
+
+.form-group label {
+  font-weight: 500;
+  color: #1a1a1a;
+  margin-bottom: 0.5rem;
+  font-size: 0.95rem;
+}
+
+.form-input,
+.form-select {
+  padding: 0.75rem;
+  border: 1px solid #d1d5db;
+  border-radius: 6px;
+  font-family: inherit;
+  font-size: 0.95rem;
+  background: white;
+  transition:
+    border-color 0.2s,
+    box-shadow 0.2s;
+}
+
+.form-input:focus,
+.form-select:focus {
+  outline: none;
+  border-color: #005293;
+  box-shadow: 0 0 0 3px rgba(0, 82, 147, 0.1);
+}
+
+.contaminants-input {
+  display: flex;
+  gap: 0.5rem;
+  margin-bottom: 0.75rem;
+}
+
+.contaminants-input .form-input {
+  flex: 1;
+}
+
+.btn-add-small {
+  padding: 0.75rem 1rem;
+  background: #005293;
+  color: white;
+  border: none;
+  border-radius: 6px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.btn-add-small:hover {
+  background: #003d6b;
+}
+
+.contaminants-quick {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin-bottom: 0.75rem;
+}
+
+.contaminant-tag {
+  padding: 0.5rem 0.75rem;
+  background: #f3f4f6;
+  border: 1px solid #d1d5db;
+  border-radius: 4px;
+  cursor: pointer;
+  transition: all 0.2s;
+  font-size: 0.9rem;
+}
+
+.contaminant-tag:hover {
+  background: #e5e7eb;
+  border-color: #005293;
+}
+
+.contaminant-tag.selected {
+  background: #dbeafe;
+  border-color: #005293;
+  color: #005293;
+  font-weight: 500;
+}
+
+.contaminants-selected {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+.contaminant-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.5rem 0.75rem;
+  background: #dbeafe;
+  border: 1px solid #005293;
+  border-radius: 20px;
+  font-size: 0.85rem;
+  color: #005293;
+}
+
+.contaminant-chip button {
+  background: none;
+  border: none;
+  color: #005293;
+  cursor: pointer;
+  padding: 0;
+  font-size: 1rem;
+}
+
+.form-error {
+  grid-column: 1 / -1;
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 1rem;
+  background: #fee2e2;
+  border: 1px solid #fecaca;
+  border-radius: 6px;
+  color: #dc2626;
+  font-size: 0.95rem;
+}
+
+.form-error svg {
+  flex-shrink: 0;
+}
+
+.form-success {
+  grid-column: 1 / -1;
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 1rem;
+  background: #dcfce7;
+  border: 1px solid #bbf7d0;
+  border-radius: 6px;
+  color: #15803d;
+  font-size: 0.95rem;
+}
+
+.form-success svg {
+  flex-shrink: 0;
+  color: #22c55e;
+}
+
+.form-button-submit {
+  grid-column: 1 / -1;
+  padding: 0.75rem 1.5rem;
+  background: linear-gradient(135deg, #005293 0%, #003d6b 100%);
+  color: white;
+  border: none;
+  border-radius: 6px;
+  font-weight: 600;
+  font-size: 0.95rem;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  transition: all 0.3s;
+}
+
+.form-button-submit:hover:not(:disabled) {
+  background: linear-gradient(135deg, #003d6b 0%, #002d4f 100%);
+  box-shadow: 0 4px 12px rgba(0, 82, 147, 0.3);
+  transform: translateY(-2px);
+}
+
+.form-button-pdf {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  width: 100%;
+  padding: 0.85rem 1.25rem;
+  margin-bottom: 0.75rem;
+  border: 2px solid #b91c1c;
+  border-radius: 8px;
+  background: #fff;
+  color: #b91c1c;
+  font-weight: 600;
+  font-size: 1rem;
+  cursor: pointer;
+  transition: background 0.2s, color 0.2s;
+}
+
+.form-button-pdf:hover:not(:disabled) {
+  background: #fef2f2;
+}
+
+.form-button-pdf:disabled {
+  opacity: 0.65;
+  cursor: not-allowed;
+}
+
+.form-button-submit:disabled {
+  opacity: 0.7;
+  cursor: not-allowed;
+}
+
+.spinner {
+  display: inline-block;
+  width: 16px;
+  height: 16px;
+  border: 2px solid rgba(255, 255, 255, 0.3);
+  border-top-color: white;
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.logistics-generator-info {
+  background: white;
+  border: 1px solid #e5e7eb;
+  border-radius: 6px;
+  padding: 1.5rem;
+}
+
+.logistics-generator-info h3 {
+  margin: 0 0 1rem 0;
+  font-size: 1.1rem;
+  color: #1a1a1a;
+}
+
+.logistics-generator-info ul {
+  list-style: none;
+  padding: 0;
+  margin: 0 0 1rem 0;
+}
+
+.logistics-generator-info li {
+  padding: 0.5rem 0;
+  color: #4b5563;
+  font-size: 0.95rem;
+}
+
+.logistics-generator-note {
+  margin: 1rem 0 0 0;
+  padding: 1rem;
+  background: #f0f4f8;
+  border-left: 3px solid #005293;
+  border-radius: 4px;
+  font-size: 0.9rem;
+  color: #4b5563;
+}
+
+@media (max-width: 768px) {
+  .logistics-generator-form {
+    grid-template-columns: 1fr;
+  }
+
+  .logistics-generator-header {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+
+  .logistics-generator-header h2 {
+    font-size: 1.25rem;
+  }
+
+  .contaminants-input {
+    flex-direction: column;
+  }
+
+  .contaminants-input .form-input {
+    width: 100%;
+  }
+}

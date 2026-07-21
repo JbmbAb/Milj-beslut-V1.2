@@ -3,12 +3,17 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Miljobeslut AI Starter</title>
+    <title>Miljöbeslut AI Starter</title>
     <style>
       body {
         margin: 0;
         padding: 14px;
-        font: 12px/1.4 Inter, system-ui, -apple-system, Segoe UI, sans-serif;
+        font:
+          12px/1.4 Inter,
+          system-ui,
+          -apple-system,
+          Segoe UI,
+          sans-serif;
         background: #f7f9fc;
         color: #1d2433;
       }
@@ -70,7 +75,7 @@
     </style>
   </head>
   <body>
-    <h1>Miljobeslut AI Starter</h1>
+    <h1>Miljöbeslut AI Starter</h1>
 
     <label for="prompt">Prompt</label>
     <textarea id="prompt" placeholder="Skapa ett UX-forslag for denna vy"></textarea>
@@ -104,47 +109,50 @@
     </div>
 
     <div id="status"></div>
-    <div class="hint">Plugin sends prompt to /api/figma/ai and creates one frame with response text. On localhost, token can be empty.</div>
+    <div class="hint">
+      Plugin sends prompt to /api/figma/ai and creates one frame with response text. On localhost, token can
+      be empty.
+    </div>
 
     <script>
-      const promptEl = document.getElementById("prompt");
-      const contextEl = document.getElementById("context");
-      const styleEl = document.getElementById("style");
-      const modeEl = document.getElementById("mode");
-      const endpointEl = document.getElementById("endpoint");
-      const tokenEl = document.getElementById("token");
-      const statusEl = document.getElementById("status");
-      const useStructureBtn = document.getElementById("use-structure");
-      const generateBtn = document.getElementById("generate");
-      const closeBtn = document.getElementById("close");
+      const promptEl = document.getElementById('prompt');
+      const contextEl = document.getElementById('context');
+      const styleEl = document.getElementById('style');
+      const modeEl = document.getElementById('mode');
+      const endpointEl = document.getElementById('endpoint');
+      const tokenEl = document.getElementById('token');
+      const statusEl = document.getElementById('status');
+      const useStructureBtn = document.getElementById('use-structure');
+      const generateBtn = document.getElementById('generate');
+      const closeBtn = document.getElementById('close');
 
       const STRUCTURE_PROMPT =
-        "Skapa Home-frame i Figma, men folj exakt den befintliga kodstrukturen i projektet. " +
-        "Bygg endast UI for existerande komponenter och mode-floden.";
+        'Skapa Home-frame i Figma, men folj exakt den befintliga kodstrukturen i projektet. ' +
+        'Bygg endast UI for existerande komponenter och mode-floden.';
 
       const STRUCTURE_CONTEXT = [
-        "Struktur-kontrakt (maste foljas):",
-        "1) Top shell + mode navigation -> components/App.tsx",
-        "2) Permit portal-vy -> components/PermitPortalView.tsx",
-        "3) Market/logistik-vy -> components/MarketIntelView.tsx",
-        "4) Admin-vy -> components/AdminSearchConsole.tsx",
-        "",
-        "Regler:",
-        "- Ingen ny toppniva-arkitektur eller nya mode-nycklar.",
-        "- Bevara befintlig affarslogik/API/state-flode.",
-        "- Responsive desktop+mobile.",
-        "- Anvand befintliga tokens (tokens.css/tokens.json).",
-        "",
-        "Mode-ordning i appen:",
-        "- LOGISTICS_MARKET",
-        "- PERMIT_PORTAL",
-        "- PROJECT_MANAGER",
-        "- COMPLIANCE_AUDIT",
-        "- ADMIN_CONSOLE",
-      ].join("\n");
+        'Struktur-kontrakt (maste foljas):',
+        '1) Top shell + mode navigation -> components/App.tsx',
+        '2) Permit portal-vy -> components/PermitPortalView.tsx',
+        '3) Market/logistik-vy -> components/MarketIntelView.tsx',
+        '4) Admin-vy -> components/AdminSearchConsole.tsx',
+        '',
+        'Regler:',
+        '- Ingen ny toppniva-arkitektur eller nya mode-nycklar.',
+        '- Bevara befintlig affarslogik/API/state-flode.',
+        '- Responsive desktop+mobile.',
+        '- Anvand befintliga tokens (tokens.css/tokens.json).',
+        '',
+        'Mode-ordning i appen:',
+        '- LOGISTICS_MARKET',
+        '- PERMIT_PORTAL',
+        '- PROJECT_MANAGER',
+        '- COMPLIANCE_AUDIT',
+        '- ADMIN KONSOL',
+      ].join('\n');
 
       function setStatus(text) {
-        statusEl.textContent = text || "";
+        statusEl.textContent = text || '';
       }
 
       function applyStructureTemplate() {
@@ -152,24 +160,24 @@
           promptEl.value = STRUCTURE_PROMPT;
         }
         contextEl.value = STRUCTURE_CONTEXT;
-        setStatus("Project structure template loaded.");
+        setStatus('Project structure template loaded.');
       }
 
       async function fetchAiData(endpoint, token, payload) {
-        const headers = { "Content-Type": "application/json" };
+        const headers = { 'Content-Type': 'application/json' };
         if (token) {
-          headers.Authorization = "Bearer " + token;
+          headers.Authorization = 'Bearer ' + token;
         }
 
         const res = await fetch(endpoint, {
-          method: "POST",
+          method: 'POST',
           headers,
-          body: JSON.stringify(payload)
+          body: JSON.stringify(payload),
         });
 
         const data = await res.json().catch(() => ({}));
         if (!res.ok || data.ok === false) {
-          const details = data && typeof data.error === "string" ? data.error : "HTTP " + res.status;
+          const details = data && typeof data.error === 'string' ? data.error : 'HTTP ' + res.status;
           throw new Error(details);
         }
 
@@ -180,53 +188,53 @@
         const prompt = promptEl.value.trim();
         const context = contextEl.value.trim();
         const style = styleEl.value;
-        const mode = modeEl.value === "text" ? "text" : "ui";
+        const mode = modeEl.value === 'text' ? 'text' : 'ui';
         const endpoint = endpointEl.value.trim();
         const token = tokenEl.value.trim();
 
         if (!prompt) {
-          setStatus("Write a prompt first.");
+          setStatus('Write a prompt first.');
           return;
         }
         if (!endpoint) {
-          setStatus("Set backend endpoint first.");
+          setStatus('Set backend endpoint first.');
           return;
         }
         generateBtn.disabled = true;
-        setStatus("Generating...");
+        setStatus('Generating...');
 
-        let aiText = "";
+        let aiText = '';
         let uiSpec = null;
         try {
           const data = await fetchAiData(endpoint, token, { prompt, context, style, mode });
-          if (mode === "ui") {
-            uiSpec = data && typeof data.spec === "object" ? data.spec : null;
+          if (mode === 'ui') {
+            uiSpec = data && typeof data.spec === 'object' ? data.spec : null;
           } else {
-            aiText = typeof data.text === "string" ? data.text : JSON.stringify(data);
+            aiText = typeof data.text === 'string' ? data.text : JSON.stringify(data);
           }
-          setStatus("AI response received.");
+          setStatus('AI response received.');
         } catch (err) {
-          aiText = "[AI error] " + String(err);
-          setStatus("AI request failed. Creating frame with error text.");
+          aiText = '[AI error] ' + String(err);
+          setStatus('AI request failed. Creating frame with error text.');
         } finally {
           parent.postMessage(
             {
               pluginMessage: {
-                type: "generate",
+                type: 'generate',
                 mode,
                 prompt,
                 aiText,
-                uiSpec
-              }
+                uiSpec,
+              },
             },
-            "*"
+            '*',
           );
           generateBtn.disabled = false;
         }
       };
 
       closeBtn.onclick = () => {
-        parent.postMessage({ pluginMessage: { type: "cancel" } }, "*");
+        parent.postMessage({ pluginMessage: { type: 'cancel' } }, '*');
       };
 
       useStructureBtn.onclick = () => {

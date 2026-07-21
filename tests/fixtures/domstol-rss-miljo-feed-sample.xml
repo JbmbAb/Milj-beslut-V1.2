@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<rss version="2.0">
+  <channel>
+    <title>Domstol sample feed (fixture)</title>
+    <item>
+      <guid isPermaLink="false">160013</guid>
+      <link>https://www.domstol.se/example-judgment</link>
+      <title>Mål: F 11878-24</title>
+      <description><![CDATA[MÖD har undanröjt LM:s beslut och returnerat ärendet.]]></description>
+      <pubDate>Mon, 10 Mar 2025 00:00:00 +0100</pubDate>
+    </item>
+  </channel>
+</rss>

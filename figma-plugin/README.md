@@ -1,6 +1,6 @@
 # Figma AI Starter
 
-This is a minimal Figma plugin starter that can run without a build step and call the same backend AI motor as Miljobeslut.
+This is a minimal Figma plugin starter that can run without a build step and call the same backend AI motor as Miljöbeslut.
 
 ## Files
 
@@ -13,7 +13,7 @@ This is a minimal Figma plugin starter that can run without a build step and cal
 1. Open Figma desktop app.
 2. Go to Plugins -> Development -> Import plugin from manifest...
 3. Select `figma-plugin/manifest.json`.
-4. Run from Plugins -> Development -> Miljobeslut AI Starter.
+4. Run from Plugins -> Development -> Miljöbeslut AI Starter.
 
 ## Backend integration
 

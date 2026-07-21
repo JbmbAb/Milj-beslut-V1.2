@@ -60,7 +60,7 @@ gcloud artifacts repositories create miljobeslut \
 ## Steg 3 – Skapa Cloud SQL (PostgreSQL 15 + PostGIS + pgvector)
 
 ```bash
-# Skapa instansen (db-f1-micro räcker för staging/MVP)
+# Skapa instansen (db-f1-micro räcker för staging/Core)
 gcloud sql instances create miljobeslut-db \
   --database-version=POSTGRES_15 \
   --tier=db-f1-micro \
@@ -72,10 +72,10 @@ gcloud sql instances create miljobeslut-db \
   --database-flags=cloudsql.enable_pgvector=on
 
 # Skapa databas och användare
-gcloud sql databases create riskguard_prod --instance=miljobeslut-db
+gcloud sql databases create miljobeslut_prod --instance=miljobeslut-db
 # Sätt lösenord säkert utan att exponera det i shell-historiken
 read -s -p "Ange databaslösenord: " DB_PASS && echo
-gcloud sql users create riskguard --instance=miljobeslut-db --password="$DB_PASS"
+gcloud sql users create miljobeslut --instance=miljobeslut-db --password="$DB_PASS"
 
 # Aktivera PostGIS och pgvector (kör en gång via Cloud SQL Studio eller psql)
 # CREATE EXTENSION IF NOT EXISTS postgis;
@@ -93,7 +93,7 @@ gcloud sql users create riskguard --instance=miljobeslut-db --password="$DB_PASS
 # Skapa DATABASE_URL med Cloud SQL Unix-socket
 # Läs lösenordet säkert från stdin för att undvika shell-historik
 read -s -p "Databaslösenord: " DB_PASS && echo
-printf "postgresql://riskguard:%s@localhost/riskguard_prod?host=/cloudsql/%s:europe-west1:miljobeslut-db" \
+printf "postgresql://miljobeslut:%s@localhost/miljobeslut_prod?host=/cloudsql/%s:europe-west1:miljobeslut-db" \
   "$DB_PASS" "$PROJECT_ID" \
   | gcloud secrets create DATABASE_URL --data-file=-
 
@@ -123,7 +123,7 @@ echo -n "ADMIN_LÖSENORD"          | gcloud secrets create ADMIN_CONSOLE_PASSWOR
 
 ```bash
 gcloud iam service-accounts create miljobeslut-sa \
-  --display-name="Miljobeslut Cloud Run SA"
+  --display-name="Miljöbeslut Cloud Run SA"
 
 SA="miljobeslut-sa@$PROJECT_ID.iam.gserviceaccount.com"
 
@@ -171,7 +171,7 @@ docker push europe-west1-docker.pkg.dev/$PROJECT_ID/miljobeslut/miljobeslut:late
 
 ```bash
 # Kör Prisma migrate mot Cloud SQL (med Cloud SQL Auth Proxy lokalt eller via cloudbuild)
-DATABASE_URL="postgresql://riskguard:LÖSENORD@localhost/riskguard_prod?host=/cloudsql/$PROJECT_ID:europe-west1:miljobeslut-db" \
+DATABASE_URL="postgresql://miljobeslut:LÖSENORD@localhost/miljobeslut_prod?host=/cloudsql/$PROJECT_ID:europe-west1:miljobeslut-db" \
   npx prisma migrate deploy
 
 # Deploya service
@@ -189,6 +189,7 @@ gcloud run services add-iam-policy-binding miljobeslut \
 ## Steg 9 – Konfigurera CI/CD (GitHub Actions)
 
 1. Skapa ett service account för CI:
+
 ```bash
 gcloud iam service-accounts create github-ci-sa \
   --display-name="GitHub Actions CI/CD"
@@ -210,6 +211,7 @@ gcloud projects add-iam-policy-binding $PROJECT_ID \
 ```
 
 2. Aktivera Workload Identity Federation (rekommenderat – ingen JSON-nyckel):
+
 ```bash
 gcloud iam workload-identity-pools create github-pool \
   --location=global --display-name="GitHub Actions Pool"
@@ -241,9 +243,11 @@ gcloud iam service-accounts add-iam-policy-binding $CI_SA \
 ## Health check
 
 Cloud Run och GitHub Actions kör hälsokontroll mot:
+
 ```
 GET /api/health
 ```
+
 Endpointen returnerar Tier 1–3 readiness (kod, DB, externa API:er).
 Returnerar HTTP 200 så länge Tier 1 (kodkvalitet) är OK.
 
@@ -251,10 +255,10 @@ Returnerar HTTP 200 så länge Tier 1 (kodkvalitet) är OK.
 
 ## Vanliga problem
 
-| Problem | Lösning |
-|---|---|
-| `connection refused` mot DB | Kontrollera `--add-cloudsql-instances` och att `DATABASE_URL` har `?host=/cloudsql/...` |
-| `permission denied` Secret Manager | Ge `roles/secretmanager.secretAccessor` till Cloud Run SA |
-| Prisma generate misslyckas | Kontrollera att `openssl` finns i base-image (finns i nuvarande Dockerfile) |
-| pgvector saknas | Kör `CREATE EXTENSION IF NOT EXISTS vector;` en gång mot Cloud SQL-instansen |
-| Cold-start > 10s | Öka `initialDelaySeconds` i `startupProbe` eller sätt `minScale: "1"` |
+| Problem                            | Lösning                                                                                 |
+| ---------------------------------- | --------------------------------------------------------------------------------------- |
+| `connection refused` mot DB        | Kontrollera `--add-cloudsql-instances` och att `DATABASE_URL` har `?host=/cloudsql/...` |
+| `permission denied` Secret Manager | Ge `roles/secretmanager.secretAccessor` till Cloud Run SA                               |
+| Prisma generate misslyckas         | Kontrollera att `openssl` finns i base-image (finns i nuvarande Dockerfile)             |
+| pgvector saknas                    | Kör `CREATE EXTENSION IF NOT EXISTS vector;` en gång mot Cloud SQL-instansen            |
+| Cold-start > 10s                   | Öka `initialDelaySeconds` i `startupProbe` eller sätt `minScale: "1"`                   |

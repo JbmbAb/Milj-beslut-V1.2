@@ -25,7 +25,8 @@ const WeatherRisk: React.FC<{ municipality: string; coordinates?: { lat: number;
           setRisk({
             level: 'Medel',
             description: `SMHI-prognos kraver punktkoordinater. Ingen verifierad platsdata hittades for ${municipality}.`,
-            action: 'Valj ett arende med karta eller komplettera koordinater innan vaderbedomning anvands i beslut.',
+            action:
+              'Valj ett arende med karta eller komplettera koordinater innan vaderbedomning anvands i beslut.',
             source: 'manual_review',
             municipality,
             fetchedAt: new Date().toISOString(),
@@ -50,7 +51,8 @@ const WeatherRisk: React.FC<{ municipality: string; coordinates?: { lat: number;
           setRisk({
             level: 'Medel',
             description: `Kunde inte hamta SMHI-prognos for ${municipality}. Kontroll kravs manuellt innan vaderberoende arbete startas.`,
-            action: 'Kontrollera SMHI manuellt och dokumentera nederbord, vind och eventuella driftbegransningar.',
+            action:
+              'Kontrollera SMHI manuellt och dokumentera nederbord, vind och eventuella driftbegransningar.',
             source: 'manual_review',
             municipality,
             coordinates,
@@ -102,7 +104,9 @@ const WeatherRisk: React.FC<{ municipality: string; coordinates?: { lat: number;
       </div>
       <div className="flex-1">
         <div className="flex items-center gap-3 mb-1">
-          <span className="text-[10px] font-black text-slate-500 uppercase tracking-widest">SMHI Prediktion</span>
+          <span className="text-[10px] font-black text-slate-500 uppercase tracking-widest">
+            SMHI Prediktion
+          </span>
           <span
             className={`text-[9px] font-black px-2 py-0.5 rounded uppercase ${
               risk?.level === 'Hög' ? 'bg-rose-500 text-white' : 'text-slate-400 border border-slate-700'

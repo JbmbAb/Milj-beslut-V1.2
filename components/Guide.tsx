@@ -2,6 +2,8 @@ import React, { useMemo } from 'react';
 import type { InterfaceMode } from '../types';
 import { countReadyModules } from '../services/projectStructure';
 import { useProjectStructure } from './ProjectStructureContext';
+import { MetricCard } from './ui/MetricCard';
+import { ActionCard } from './ui/ActionCard';
 
 interface GuideProps {
   mode?: InterfaceMode | null;
@@ -65,14 +67,24 @@ function resolveModeTabs(mode: InterfaceMode | null | undefined): {
 const Guide: React.FC<GuideProps> = ({ mode = null, onNavigate }) => {
   const { plan, gateStats, remoteSync } = useProjectStructure();
 
-  const totalRequiredGates = useMemo(() => plan.stageGates.filter((gate) => gate.required).length, [plan.stageGates]);
+  const totalRequiredGates = useMemo(
+    () => plan.stageGates.filter((gate) => gate.required).length,
+    [plan.stageGates],
+  );
   const blockedRequiredGates = gateStats.blocked;
   const passedRequiredGates = gateStats.passed;
-  const gateCompletionPct = totalRequiredGates > 0 ? Math.round((passedRequiredGates / totalRequiredGates) * 100) : 0;
+  const gateCompletionPct =
+    totalRequiredGates > 0 ? Math.round((passedRequiredGates / totalRequiredGates) * 100) : 0;
 
   const totalDocs = plan.documentArchive.length;
-  const draftDocs = useMemo(() => plan.documentArchive.filter((doc) => doc.status === 'DRAFT').length, [plan.documentArchive]);
-  const verifiedDocs = useMemo(() => plan.documentArchive.filter((doc) => doc.status === 'VERIFIED').length, [plan.documentArchive]);
+  const draftDocs = useMemo(
+    () => plan.documentArchive.filter((doc) => doc.status === 'DRAFT').length,
+    [plan.documentArchive],
+  );
+  const verifiedDocs = useMemo(
+    () => plan.documentArchive.filter((doc) => doc.status === 'VERIFIED').length,
+    [plan.documentArchive],
+  );
   const readyModules = useMemo(() => countReadyModules(plan), [plan]);
   const carbonReady = Boolean(plan.carbonSummary.lastResult);
 
@@ -96,7 +108,7 @@ const Guide: React.FC<GuideProps> = ({ mode = null, onNavigate }) => {
             desc: `Gate completion ${gateCompletionPct}%. Verifiera att nasta fas har ratt indata.`,
             tab: tabs.planTab,
             tone: 'ok',
-          }
+          },
     );
 
     next.push(
@@ -114,7 +126,7 @@ const Guide: React.FC<GuideProps> = ({ mode = null, onNavigate }) => {
             desc: `${verifiedDocs}/${totalDocs} dokument verifierade. Fortsatt med risk- och rapportsteg.`,
             tab: tabs.docsTab,
             tone: 'ok',
-          }
+          },
     );
 
     next.push(
@@ -132,7 +144,7 @@ const Guide: React.FC<GuideProps> = ({ mode = null, onNavigate }) => {
             desc: 'Kor CO2-kalkyl och utvardera CARBON_CHECK innan signering.',
             tab: tabs.riskTab,
             tone: 'warn',
-          }
+          },
     );
 
     if (!remoteSync.enabled) {
@@ -171,40 +183,48 @@ const Guide: React.FC<GuideProps> = ({ mode = null, onNavigate }) => {
             </p>
           </div>
           <div className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-2 text-xs font-bold text-slate-600">
-            {remoteSync.enabled ? `DB sync aktiv (${remoteSync.projectId})` : 'DB sync lokal fallback'}
+            {remoteSync.enabled ? `DB sync aktiv (${remoteSync.projectId})` : 'DB sync lokal'}
           </div>
         </div>
       </header>
 
       <section className="grid grid-cols-2 gap-3 md:grid-cols-4 lg:grid-cols-6">
-        <MetricTile label="Gates" value={`${passedRequiredGates}/${totalRequiredGates}`} />
-        <MetricTile label="Blockers" value={String(blockedRequiredGates)} tone={blockedRequiredGates > 0 ? 'warn' : 'ok'} />
-        <MetricTile label="Docs" value={`${verifiedDocs}/${totalDocs}`} />
-        <MetricTile label="Draft" value={String(draftDocs)} tone={draftDocs > 0 ? 'warn' : 'ok'} />
-        <MetricTile label="Moduler redo" value={String(readyModules)} />
-        <MetricTile label="Carbon" value={carbonReady ? 'READY' : 'MISSING'} tone={carbonReady ? 'ok' : 'warn'} />
+        <MetricCard label="Gates" value={`${passedRequiredGates}/${totalRequiredGates}`} />
+        <MetricCard
+          label="Blockers"
+          value={String(blockedRequiredGates)}
+          tone={blockedRequiredGates > 0 ? 'warn' : 'ok'}
+        />
+        <MetricCard label="Docs" value={`${verifiedDocs}/${totalDocs}`} />
+        <MetricCard label="Draft" value={String(draftDocs)} tone={draftDocs > 0 ? 'warn' : 'ok'} />
+        <MetricCard label="Moduler redo" value={String(readyModules)} />
+        <MetricCard
+          label="Carbon"
+          value={carbonReady ? 'READY' : 'MISSING'}
+          tone={carbonReady ? 'ok' : 'warn'}
+        />
       </section>
 
       <section className="space-y-4">
         <h3 className="text-lg font-black text-slate-900">Prioriterade atgarder</h3>
         <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
           {actions.map((item) => (
-            <ActionItem
+            <ActionCard
               key={item.id}
               title={item.title}
-              desc={item.desc}
+              description={item.desc}
               tone={item.tone}
-              onOpen={() => {
+              onAction={() => {
                 if (onNavigate) onNavigate(item.tab);
               }}
-              openLabel={`Oppna ${item.tab}`}
+              actionLabel={`Oppna ${item.tab}`}
             />
           ))}
         </div>
       </section>
 
       <section className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
-        <h3 className="text-lg font-black text-slate-900">Arbetsordning for examensunderlag</h3>
+        <h3 className="text-lg font-black text-slate-900">Arbetsordning for beslutsunderlag</h3>
         <div className="mt-4 space-y-3 text-sm text-slate-700">
           <StepRow
             num="1"
@@ -223,55 +243,6 @@ const Guide: React.FC<GuideProps> = ({ mode = null, onNavigate }) => {
           />
         </div>
       </section>
-    </div>
-  );
-};
-
-const MetricTile: React.FC<{ label: string; value: string; tone?: 'default' | 'ok' | 'warn' }> = ({
-  label,
-  value,
-  tone = 'default',
-}) => {
-  const toneClass =
-    tone === 'ok'
-      ? 'border-emerald-200 bg-emerald-50 text-emerald-800'
-      : tone === 'warn'
-        ? 'border-amber-200 bg-amber-50 text-amber-800'
-        : 'border-slate-200 bg-white text-slate-800';
-
-  return (
-    <div className={`rounded-xl border px-3 py-2 shadow-sm ${toneClass}`}>
-      <p className="text-[10px] font-black uppercase tracking-[0.12em] opacity-70">{label}</p>
-      <p className="mt-1 text-sm font-black">{value}</p>
-    </div>
-  );
-};
-
-const ActionItem: React.FC<{
-  title: string;
-  desc: string;
-  tone: 'default' | 'ok' | 'warn';
-  openLabel: string;
-  onOpen: () => void;
-}> = ({ title, desc, tone, openLabel, onOpen }) => {
-  const toneClass =
-    tone === 'ok'
-      ? 'border-emerald-200 bg-emerald-50'
-      : tone === 'warn'
-        ? 'border-amber-200 bg-amber-50'
-        : 'border-slate-200 bg-white';
-
-  return (
-    <div className={`rounded-2xl border p-4 shadow-sm ${toneClass}`}>
-      <p className="text-sm font-black text-slate-900">{title}</p>
-      <p className="mt-2 text-xs leading-relaxed text-slate-700">{desc}</p>
-      <button
-        type="button"
-        onClick={onOpen}
-        className="mt-4 rounded-lg border border-slate-300 bg-white px-3 py-2 text-[10px] font-black uppercase tracking-[0.12em] text-slate-700"
-      >
-        {openLabel}
-      </button>
     </div>
   );
 };

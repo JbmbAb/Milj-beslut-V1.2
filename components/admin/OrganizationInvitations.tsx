@@ -27,10 +27,10 @@ const OrganizationInvitations: React.FC<OrganizationInvitationsProps> = ({ orgId
     setLoading(true);
     setError('');
     try {
-      const data = await secure<{ ok: true; invitations: Invitation[] }>(
-        `/api/orgs/${orgId}/invitations`,
-        'GET'
-      );
+      const data = (await secure(`/api/orgs/${orgId}/invitations`, 'GET')) as {
+        ok: true;
+        invitations: Invitation[];
+      };
       setInvitations(data.invitations);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Kunde inte hämta inbjudningar');
@@ -48,7 +48,7 @@ const OrganizationInvitations: React.FC<OrganizationInvitationsProps> = ({ orgId
     try {
       await secure(`/api/orgs/${orgId}/invitations`, 'POST', {
         email: newEmail,
-        role: newRole
+        role: newRole,
       });
       setSuccess(`Inbjudan skickad till ${newEmail}`);
       setNewEmail('');
@@ -75,6 +75,7 @@ const OrganizationInvitations: React.FC<OrganizationInvitationsProps> = ({ orgId
 
   useEffect(() => {
     if (orgId) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       void fetchInvitations();
     }
   }, [orgId, fetchInvitations]);
@@ -88,13 +89,17 @@ const OrganizationInvitations: React.FC<OrganizationInvitationsProps> = ({ orgId
           </div>
           <div>
             <h3 className="text-lg font-bold text-slate-900">Bjud in nya medarbetare</h3>
-            <p className="text-xs text-slate-500 text-pretty">Inbjudan skickas via e-post och är giltig i 72 timmar.</p>
+            <p className="text-xs text-slate-500 text-pretty">
+              Inbjudan skickas via e-post och är giltig i 72 timmar.
+            </p>
           </div>
         </div>
 
         <form onSubmit={handleCreateInvitation} className="flex flex-wrap gap-4">
           <div className="flex-1 min-w-[200px]">
-            <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1.5 px-1">E-postadress</label>
+            <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1.5 px-1">
+              E-postadress
+            </label>
             <div className="relative">
               <LucideMail className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={16} />
               <input
@@ -109,7 +114,9 @@ const OrganizationInvitations: React.FC<OrganizationInvitationsProps> = ({ orgId
           </div>
 
           <div className="w-48">
-            <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1.5 px-1">Roll</label>
+            <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1.5 px-1">
+              Roll
+            </label>
             <select
               value={newRole}
               onChange={(e) => setNewRole(e.target.value)}
@@ -127,23 +134,40 @@ const OrganizationInvitations: React.FC<OrganizationInvitationsProps> = ({ orgId
               disabled={loading || !newEmail}
               className="px-6 py-2 bg-indigo-600 text-white rounded-lg text-sm font-bold hover:bg-indigo-700 transition-colors disabled:opacity-50 flex items-center gap-2"
             >
-              {loading ? <LucideRefreshCw size={16} className="animate-spin" /> : <LucideUserPlus size={16} />}
+              {loading ? (
+                <LucideRefreshCw size={16} className="animate-spin" />
+              ) : (
+                <LucideUserPlus size={16} />
+              )}
               Skicka inbjudan
             </button>
           </div>
         </form>
 
-        {error && <div className="mt-4 p-3 bg-rose-50 border border-rose-100 text-rose-600 text-xs font-bold rounded-lg">{error}</div>}
-        {success && <div className="mt-4 p-3 bg-emerald-50 border border-emerald-100 text-emerald-600 text-xs font-bold rounded-lg">{success}</div>}
+        {error && (
+          <div className="mt-4 p-3 bg-rose-50 border border-rose-100 text-rose-600 text-xs font-bold rounded-lg">
+            {error}
+          </div>
+        )}
+        {success && (
+          <div className="mt-4 p-3 bg-emerald-50 border border-emerald-100 text-emerald-600 text-xs font-bold rounded-lg">
+            {success}
+          </div>
+        )}
       </div>
 
       <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
         <div className="p-6 border-b border-slate-100 flex justify-between items-center">
           <h3 className="text-lg font-bold text-slate-900 flex items-center gap-2">
             Aktiva inbjudningar
-            <span className="text-[10px] px-2 py-0.5 rounded-full bg-slate-100 text-slate-500 font-black">{invitations.length}</span>
+            <span className="text-[10px] px-2 py-0.5 rounded-full bg-slate-100 text-slate-500 font-black">
+              {invitations.length}
+            </span>
           </h3>
-          <button onClick={fetchInvitations} className="p-2 text-slate-400 hover:text-indigo-600 transition-colors">
+          <button
+            onClick={fetchInvitations}
+            className="p-2 text-slate-400 hover:text-indigo-600 transition-colors"
+          >
             <LucideRefreshCw size={18} className={loading ? 'animate-spin' : ''} />
           </button>
         </div>
@@ -152,11 +176,21 @@ const OrganizationInvitations: React.FC<OrganizationInvitationsProps> = ({ orgId
           <table className="w-full text-left border-collapse">
             <thead>
               <tr className="bg-slate-50/50">
-                <th className="px-6 py-4 text-[10px] font-black text-slate-400 uppercase tracking-widest border-b border-slate-100">E-post</th>
-                <th className="px-6 py-4 text-[10px] font-black text-slate-400 uppercase tracking-widest border-b border-slate-100">Roll</th>
-                <th className="px-6 py-4 text-[10px] font-black text-slate-400 uppercase tracking-widest border-b border-slate-100">Status</th>
-                <th className="px-6 py-4 text-[10px] font-black text-slate-400 uppercase tracking-widest border-b border-slate-100">Går ut</th>
-                <th className="px-6 py-4 text-[10px] font-black text-slate-400 uppercase tracking-widest border-b border-slate-100 text-right">Åtgärder</th>
+                <th className="px-6 py-4 text-[10px] font-black text-slate-400 uppercase tracking-widest border-b border-slate-100">
+                  E-post
+                </th>
+                <th className="px-6 py-4 text-[10px] font-black text-slate-400 uppercase tracking-widest border-b border-slate-100">
+                  Roll
+                </th>
+                <th className="px-6 py-4 text-[10px] font-black text-slate-400 uppercase tracking-widest border-b border-slate-100">
+                  Status
+                </th>
+                <th className="px-6 py-4 text-[10px] font-black text-slate-400 uppercase tracking-widest border-b border-slate-100">
+                  Går ut
+                </th>
+                <th className="px-6 py-4 text-[10px] font-black text-slate-400 uppercase tracking-widest border-b border-slate-100 text-right">
+                  Åtgärder
+                </th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
@@ -187,7 +221,9 @@ const OrganizationInvitations: React.FC<OrganizationInvitationsProps> = ({ orgId
                       <StatusBadge status={invite.status} />
                     </td>
                     <td className="px-6 py-4">
-                      <span className="text-xs text-slate-500 font-medium">{new Date(invite.expiresAt).toLocaleString('sv-SE')}</span>
+                      <span className="text-xs text-slate-500 font-medium">
+                        {new Date(invite.expiresAt).toLocaleString('sv-SE')}
+                      </span>
                     </td>
                     <td className="px-6 py-4 text-right">
                       {invite.status === 'PENDING' && (
@@ -221,7 +257,9 @@ const StatusBadge: React.FC<{ status: Invitation['status'] }> = ({ status }) => 
   const config = configs[status] || configs.PENDING;
 
   return (
-    <span className={`text-[10px] px-2 py-0.5 rounded-full border ${config.bg} font-black uppercase tracking-tight`}>
+    <span
+      className={`text-[10px] px-2 py-0.5 rounded-full border ${config.bg} font-black uppercase tracking-tight`}
+    >
       {config.label}
     </span>
   );

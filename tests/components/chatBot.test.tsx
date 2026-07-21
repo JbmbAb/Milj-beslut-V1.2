@@ -21,7 +21,7 @@ describe('ChatBot', () => {
 
   it('chat panel is not visible when closed', () => {
     render(<ChatBot />);
-    expect(screen.queryByText('Miljöbeslut AI-assistent')).not.toBeInTheDocument();
+    expect(screen.queryByText('Legal AI Assistant')).not.toBeInTheDocument();
   });
 
   // ── Open state ──────────────────────────────────────────────────────────────
@@ -30,14 +30,14 @@ describe('ChatBot', () => {
     render(<ChatBot />);
     const toggleBtn = screen.getAllByRole('button')[0];
     await user.click(toggleBtn);
-    expect(screen.getByText('Miljöbeslut AI-assistent')).toBeInTheDocument();
+    expect(screen.getByText('Legal AI Assistant')).toBeInTheDocument();
   });
 
   it('shows empty-state prompt text when no messages', async () => {
     render(<ChatBot />);
     const toggleBtn = screen.getAllByRole('button')[0];
     await user.click(toggleBtn);
-    expect(screen.getByText(/Hej! Jag svarar enbart/)).toBeInTheDocument();
+    expect(screen.getByText(/Jag svarar enbart baserat på/)).toBeInTheDocument();
   });
 
   it('shows textarea and send button when open', async () => {
@@ -53,11 +53,11 @@ describe('ChatBot', () => {
   it('closes panel when × button clicked', async () => {
     render(<ChatBot />);
     await user.click(screen.getAllByRole('button')[0]);
-    expect(screen.getByText('Miljöbeslut AI-assistent')).toBeInTheDocument();
+    expect(screen.getByText('Legal AI Assistant')).toBeInTheDocument();
     // Find close button (inside header)
     const closeBtn = screen.getAllByRole('button').find((b) => b.className.includes('hover:bg-white/10'));
     if (closeBtn) await user.click(closeBtn);
-    expect(screen.queryByText('Miljöbeslut AI-assistent')).not.toBeInTheDocument();
+    expect(screen.queryByText('Legal AI Assistant')).not.toBeInTheDocument();
   });
 
   // ── Sending a message ───────────────────────────────────────────────────────

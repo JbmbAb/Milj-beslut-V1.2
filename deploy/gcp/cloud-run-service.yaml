@@ -21,10 +21,10 @@ spec:
         # Ersätt <PROJECT_ID> med ditt faktiska GCP-projekt-ID (se README.md steg 6)
         run.googleapis.com/cloudsql-instances: <PROJECT_ID>:europe-west1:miljobeslut-db
         # Skalning: minst 1 instans igång (förhindrar cold-start för BankID/Lantmäteriet)
-        autoscaling.knative.dev/minScale: "1"
-        autoscaling.knative.dev/maxScale: "10"
+        autoscaling.knative.dev/minScale: '1'
+        autoscaling.knative.dev/maxScale: '10'
         # Starttidsgräns – ger Prisma tid att ladda vid cold-start
-        run.googleapis.com/startup-cpu-boost: "true"
+        run.googleapis.com/startup-cpu-boost: 'true'
     spec:
       # Dedikerat service account med minsta behörighet (se README.md för roller)
       serviceAccountName: miljobeslut-sa@<PROJECT_ID>.iam.gserviceaccount.com
@@ -38,7 +38,7 @@ spec:
           resources:
             limits:
               memory: 1Gi
-              cpu: "1"
+              cpu: '1'
           env:
             - name: NODE_ENV
               value: production

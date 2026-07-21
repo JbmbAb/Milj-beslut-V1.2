@@ -1,0 +1,122 @@
+# ==============================================================================
+# .agyignore - Konfigurationsfil för Antigravity (Gemini) kontext
+#
+# Syfte: Att strikt begränsa vilka filer AI-agenten får läsa.
+# Detta är kritiskt för prestanda, kostnad och relevans.
+# Filen är inspirerad av .gitignore men är mer aggressiv mot datafiler.
+# ==============================================================================
+
+# 1. Loggar och rapporter
+# Dessa är ointressanta för kodgenerering och slösar tokens.
+logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+lerna-debug.log*
+coverage/
+playwright-report/
+test-results/
+
+# 2. Beroenden och virtuella miljöer
+# Enorma mappar som aldrig ska läsas.
+node_modules/
+venv/
+
+# 3. Bygg-artefakter och kompilerad kod
+# Agenten ska läsa källkoden, inte resultatet.
+dist/
+dist-ssr/
+
+# 4. Hemligheter och lokala miljövariabler
+# Kritiskt för säkerheten.
+*.local
+.env
+.secrets/
+.env.test
+.env.local
+.env.*.local
+.env.supabase
+.env.production
+.env.staging
+
+# 5. Rådata, dumpar och stora filer (EXTREMT VIKTIGT)
+# Blockera alla vanliga dataformat för att undvika token-slöseri.
+*.json
+*.geojson
+*.sql
+*.csv
+*.xml
+*.zip
+*.gz
+*.tar
+*.pdf
+*.docx
+*.xlsx
+*.txt
+
+# 6. Undantag: Tillåt specifika konfigurationsfiler
+# Dessa definierar projektets struktur och är viktiga för kontexten.
+!package.json
+!package-lock.json
+!tsconfig.json
+!vite.config.ts
+!vitest.config.ts
+!playwright.config.ts
+!postcss.config.mjs
+!tailwind.config.ts
+!stitch.json
+!figma-raw.json
+!vercel.json
+!*.md
+!public/manifest.json
+
+# 7. Python-cache
+__pycache__/
+*.pyc
+
+# 8. Lokala debug- och AI-artefakter
+# Meta-data från andra verktyg är bara brus.
+.codex-logs/
+.postqode/
+.gemini/
+.kombai/
+.copilot-*.ts
+cred.err
+cred.out
+push.err
+push.out
+
+# 9. Genererade dumpar och analyser
+repomix-output.xml
+repomix-output.txt
+Analysis/
+scratch/
+output/
+dossiers/
+
+# 10. Runtime-data och lagring
+# Innehåller uppladdningar, databaser, cache etc.
+/storage/
+Database/
+downloads/
+
+# 11. Test- och editor-specifika filer
+.playwright-cli/
+.idea/
+.vscode/*
+!.vscode/extensions.json
+!.vscode/settings.json
+!.vscode/tasks.json
+!.vscode/keybindings.example.json
+.DS_Store
+*.suo
+*.sln
+*.sw?
+
+# 12. Lokalt "brus" och temporära filer
+*.session.sql
+Examensmatris*.xlsx
+Sammanställning/
+training/

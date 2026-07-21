@@ -1,0 +1,87 @@
+/**
+ * Green Check Generator with Editor - Workflow Styling
+ */
+
+.green-check-generator-with-editor {
+  width: 100%;
+}
+
+/* Success State */
+.green-check-success-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: var(--spacing-xl) var(--spacing-lg);
+  background: linear-gradient(135deg, #f0fdf4 0%, #ecfdf5 100%);
+  border-radius: 8px;
+  text-align: center;
+}
+
+.green-check-success-icon {
+  animation: pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+  margin-bottom: var(--spacing-lg);
+}
+
+@keyframes pulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.5;
+  }
+}
+
+.green-check-success-state h2 {
+  font-size: var(--font-size-xl-digg);
+  font-weight: 600;
+  color: #065f46;
+  margin: 0 0 var(--spacing-sm) 0;
+}
+
+.success-message {
+  font-size: var(--font-size-sm-digg);
+  color: var(--color-text-secondary-digg);
+  margin: 0 0 var(--spacing-lg) 0;
+  max-width: 500px;
+}
+
+.green-check-success-details {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: var(--spacing-md);
+  width: 100%;
+  max-width: 800px;
+  margin-bottom: var(--spacing-lg);
+}
+
+.detail-item {
+  background: #fff;
+  padding: var(--spacing-md);
+  border-radius: 6px;
+  text-align: left;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
+}
+
+.detail-item strong {
+  display: block;
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  color: var(--color-text-muted-digg);
+  margin-bottom: 4px;
+}
+
+.detail-item {
+  font-size: var(--font-size-sm-digg);
+  font-weight: 500;
+  color: var(--color-text-primary-digg);
+}
+
+.loading-message {
+  font-size: var(--font-size-xs-digg);
+  color: var(--color-text-muted-digg);
+  margin: 0;
+  animation: pulse 1.5s ease-in-out infinite;
+}

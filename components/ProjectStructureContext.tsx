@@ -2,28 +2,22 @@ import React, { createContext, useCallback, useContext, useEffect, useMemo, useR
 import type {
   CarbonInput,
   CoreModuleKey,
+  DispatchQuote,
+  DriverJournalEntry,
   MapLayerKey,
   Permit,
   ProjectArchiveDocument,
   ProjectPlan,
+  TransportBooking,
 } from '../types';
 import {
-  PROJECT_STRUCTURE_SCHEMA_VERSION,
-  PROJECT_STRUCTURE_STORAGE_KEY,
-  applyCarbonToPlan,
-  applyTemplate,
-  calculateCarbon,
   countBlockedGates,
   countPassedGates,
   createArchiveDocument,
-  createDefaultProjectPlan,
   createPermitArchiveDocument,
-  evaluateStageGate,
   mergeArchiveDocument,
   normalizeProjectPlan,
-  recommendMapLayers,
 } from '../services/projectStructure';
-import type { runRemoteTransportComplianceFlow as RunRemoteTransportComplianceFlow } from './projectTransportComplianceFlow';
 
 interface AddArchiveInput {
   name: string;
@@ -81,7 +75,7 @@ interface ProjectStructureContextValue {
       permitSubmitted?: boolean;
       mapLayerAvailable?: MapLayerKey[];
       note?: string;
-    }
+    },
   ) => Promise<{ changed: boolean; status: string }>;
   runCarbonCalculation: (input: CarbonInput) => Promise<void>;
   runTransportComplianceFlow: (input: TransportComplianceInput) => Promise<TransportComplianceResult>;
@@ -102,6 +96,14 @@ const TOKEN_KEY = 'miljobeslut_admin_bearer';
 const PROJECT_KEY = 'miljobeslut_admin_project';
 const REMOTE_SYNC_DEBOUNCE_MS = 1200;
 
+function isHazardousWasteCode(wasteCode: string): boolean {
+  return String(wasteCode || '').includes('*');
+}
+
+function nowIso(): string {
+  return new Date().toISOString();
+}
+
 function resolveRemoteCredentials(): { token: string; projectId: string } | null {
   if (typeof window === 'undefined') return null;
   const token = String(window.localStorage.getItem(TOKEN_KEY) || '').trim();
@@ -111,7 +113,7 @@ function resolveRemoteCredentials(): { token: string; projectId: string } | null
 }
 
 export const ProjectStructureProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  const [plan, setPlan] = useState<ProjectPlan>(() => createDefaultProjectPlan());
+  const [plan, setPlan] = useState<ProjectPlan>(() => normalizeProjectPlan());
   const [remoteSync, setRemoteSync] = useState<RemoteSyncState>({
     enabled: false,
     projectId: '',
@@ -167,16 +169,22 @@ export const ProjectStructureProvider: React.FC<{ children: React.ReactNode }> =
   }, []);
   */
 
-  useEffect(() => {
-    if (typeof window === 'undefined') return;
-    window.localStorage.setItem(
-      PROJECT_STRUCTURE_STORAGE_KEY,
-      JSON.stringify({
-        version: PROJECT_STRUCTURE_SCHEMA_VERSION,
-        plan,
-      })
-    );
-  }, [plan]);
+  const requireRemoteCredentials = useCallback(
+    (actionLabel: string): { token: string; projectId: string } => {
+      const credentials = resolveRemoteCredentials();
+      if (credentials) return credentials;
+
+      setRemoteSync((prev) => ({
+        ...prev,
+        enabled: false,
+        projectId: '',
+        syncing: false,
+        error: `${actionLabel} kräver inloggad session och aktivt projekt.`,
+      }));
+      throw new Error(`${actionLabel} kräver inloggad session och aktivt projekt.`);
+    },
+    [],
+  );
 
   const loadPlanFromServer = useCallback(async () => {
     const credentials = resolveRemoteCredentials();
@@ -207,7 +215,11 @@ export const ProjectStructureProvider: React.FC<{ children: React.ReactNode }> =
           'Content-Type': 'application/json',
         },
       });
-      const json = (await response.json()) as { ok?: boolean; error?: string; plan?: Partial<ProjectPlan> | null };
+      const json = (await response.json()) as {
+        ok?: boolean;
+        error?: string;
+        plan?: Partial<ProjectPlan> | null;
+      };
       if (!response.ok || !json.ok) {
         throw new Error(json.error || `HTTP ${response.status}`);
       }
@@ -238,7 +250,16 @@ export const ProjectStructureProvider: React.FC<{ children: React.ReactNode }> =
 
   const savePlanToServer = useCallback(async () => {
     const credentials = resolveRemoteCredentials();
-    if (!credentials) return;
+    if (!credentials) {
+      setRemoteSync((prev) => ({
+        ...prev,
+        enabled: false,
+        projectId: '',
+        syncing: false,
+        error: 'Sparning kräver inloggad session och aktivt projekt.',
+      }));
+      return;
+    }
 
     const currentPlan = normalizeProjectPlan(planRef.current);
     setRemoteSync((prev) => ({
@@ -318,7 +339,7 @@ export const ProjectStructureProvider: React.FC<{ children: React.ReactNode }> =
     };
   }, [plan, remoteBootstrapped, savePlanToServer]);
 
-  const updatePlan = <K extends keyof ProjectPlan,>(key: K, value: ProjectPlan[K]) => {
+  const updatePlan = <K extends keyof ProjectPlan>(key: K, value: ProjectPlan[K]) => {
     setPlan((prev) => ({ ...prev, [key]: value }));
   };
 
@@ -331,8 +352,8 @@ export const ProjectStructureProvider: React.FC<{ children: React.ReactNode }> =
           documentArchive: mergeArchiveDocument(prev.documentArchive, nextDoc),
         },
         'Document added',
-        `${nextDoc.name} (${nextDoc.category}) added from ${nextDoc.module}.`
-      )
+        `${nextDoc.name} (${nextDoc.category}) added from ${nextDoc.module}.`,
+      ),
     );
   }, []);
 
@@ -345,14 +366,14 @@ export const ProjectStructureProvider: React.FC<{ children: React.ReactNode }> =
           documentArchive: mergeArchiveDocument(prev.documentArchive, nextDoc),
         },
         'Permit synced',
-        `${permit.filename} synced to project archive.`
-      )
+        `${permit.filename} synced to project archive.`,
+      ),
     );
   }, []);
 
-  const applyTemplatePack = useCallback<ProjectStructureContextValue['applyTemplatePack']>(async (templateId) => {
-    const credentials = resolveRemoteCredentials();
-    if (credentials) {
+  const applyTemplatePack = useCallback<ProjectStructureContextValue['applyTemplatePack']>(
+    async (templateId) => {
+      const credentials = requireRemoteCredentials('Mallpaket');
       setRemoteSync((prev) => ({
         ...prev,
         enabled: true,
@@ -361,17 +382,20 @@ export const ProjectStructureProvider: React.FC<{ children: React.ReactNode }> =
         error: '',
       }));
       try {
-        const response = await fetch(`/api/projects/${encodeURIComponent(credentials.projectId)}/template/apply`, {
-          method: 'POST',
-          headers: {
-            Authorization: `Bearer ${credentials.token}`,
-            'Content-Type': 'application/json',
+        const response = await fetch(
+          `/api/projects/${encodeURIComponent(credentials.projectId)}/template/apply`,
+          {
+            method: 'POST',
+            headers: {
+              Authorization: `Bearer ${credentials.token}`,
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+              templateId,
+              plan: normalizeProjectPlan(planRef.current),
+            }),
           },
-          body: JSON.stringify({
-            templateId,
-            plan: normalizeProjectPlan(planRef.current),
-          }),
-        });
+        );
         const json = (await response.json()) as { ok?: boolean; error?: string; plan?: Partial<ProjectPlan> };
         if (!response.ok || !json.ok) {
           throw new Error(json.error || `HTTP ${response.status}`);
@@ -388,7 +412,6 @@ export const ProjectStructureProvider: React.FC<{ children: React.ReactNode }> =
           lastSavedAt: new Date().toISOString(),
           error: '',
         }));
-        return;
       } catch (error: unknown) {
         setRemoteSync((prev) => ({
           ...prev,
@@ -397,21 +420,15 @@ export const ProjectStructureProvider: React.FC<{ children: React.ReactNode }> =
           syncing: false,
           error: error instanceof Error ? error.message : 'Template apply failed',
         }));
+        throw error instanceof Error ? error : new Error('Template apply failed');
       }
-    }
+    },
+    [requireRemoteCredentials],
+  );
 
-    setPlan((prev) =>
-      appendLocalAudit(
-        applyTemplate(prev, templateId),
-        'Template applied',
-        `Template ${templateId} was applied to project plan.`
-      )
-    );
-  }, []);
-
-  const evaluateGate = useCallback<ProjectStructureContextValue['evaluateGate']>(async (gateId, context) => {
-    const credentials = resolveRemoteCredentials();
-    if (credentials) {
+  const evaluateGate = useCallback<ProjectStructureContextValue['evaluateGate']>(
+    async (gateId, context) => {
+      const credentials = requireRemoteCredentials('Gate-utvardering');
       setRemoteSync((prev) => ({
         ...prev,
         enabled: true,
@@ -436,7 +453,7 @@ export const ProjectStructureProvider: React.FC<{ children: React.ReactNode }> =
               mapLayerAvailable: context?.mapLayerAvailable,
               note: context?.note,
             }),
-          }
+          },
         );
         const json = (await response.json()) as {
           ok?: boolean;
@@ -472,26 +489,15 @@ export const ProjectStructureProvider: React.FC<{ children: React.ReactNode }> =
           syncing: false,
           error: error instanceof Error ? error.message : 'Stage gate evaluation failed',
         }));
+        throw error instanceof Error ? error : new Error('Stage gate evaluation failed');
       }
-    }
+    },
+    [requireRemoteCredentials],
+  );
 
-    let result = { changed: false, status: 'PENDING' };
-    setPlan((prev) => {
-      const evaluated = evaluateStageGate(prev, gateId, context);
-      result = { changed: evaluated.changed, status: evaluated.gate.status };
-      if (!evaluated.changed) return evaluated.plan;
-      return appendLocalAudit(
-        evaluated.plan,
-        'Stage gate evaluated',
-        `${evaluated.gate.type} evaluated as ${evaluated.gate.status}.`
-      );
-    });
-    return result;
-  }, []);
-
-  const runCarbonCalculation = useCallback<ProjectStructureContextValue['runCarbonCalculation']>(async (input) => {
-    const credentials = resolveRemoteCredentials();
-    if (credentials) {
+  const runCarbonCalculation = useCallback<ProjectStructureContextValue['runCarbonCalculation']>(
+    async (input) => {
+      const credentials = requireRemoteCredentials('Koldioxidberakning');
       setRemoteSync((prev) => ({
         ...prev,
         enabled: true,
@@ -500,17 +506,20 @@ export const ProjectStructureProvider: React.FC<{ children: React.ReactNode }> =
         error: '',
       }));
       try {
-        const response = await fetch(`/api/projects/${encodeURIComponent(credentials.projectId)}/carbon/calculate`, {
-          method: 'POST',
-          headers: {
-            Authorization: `Bearer ${credentials.token}`,
-            'Content-Type': 'application/json',
+        const response = await fetch(
+          `/api/projects/${encodeURIComponent(credentials.projectId)}/carbon/calculate`,
+          {
+            method: 'POST',
+            headers: {
+              Authorization: `Bearer ${credentials.token}`,
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+              plan: normalizeProjectPlan(planRef.current),
+              carbonInput: input,
+            }),
           },
-          body: JSON.stringify({
-            plan: normalizeProjectPlan(planRef.current),
-            carbonInput: input,
-          }),
-        });
+        );
         const json = (await response.json()) as { ok?: boolean; error?: string; plan?: Partial<ProjectPlan> };
         if (!response.ok || !json.ok) {
           throw new Error(json.error || `HTTP ${response.status}`);
@@ -527,7 +536,6 @@ export const ProjectStructureProvider: React.FC<{ children: React.ReactNode }> =
           lastSavedAt: new Date().toISOString(),
           error: '',
         }));
-        return;
       } catch (error: unknown) {
         setRemoteSync((prev) => ({
           ...prev,
@@ -536,56 +544,40 @@ export const ProjectStructureProvider: React.FC<{ children: React.ReactNode }> =
           syncing: false,
           error: error instanceof Error ? error.message : 'Carbon calculation failed',
         }));
+        throw error instanceof Error ? error : new Error('Carbon calculation failed');
       }
-    }
-
-    setPlan((prev) => {
-      const result = calculateCarbon(input);
-      return appendLocalAudit(
-        applyCarbonToPlan(prev, input, result),
-        'Carbon calculated',
-        `Carbon result ${result.totalKgCo2e.toFixed(2)} kgCO2e (${result.quality}).`
-      );
-    });
-  }, []);
+    },
+    [requireRemoteCredentials],
+  );
 
   const runTransportComplianceFlow = useCallback<ProjectStructureContextValue['runTransportComplianceFlow']>(
     async (input) => {
-      const credentials = resolveRemoteCredentials();
-
-      if (credentials) {
-        const { runRemoteTransportComplianceFlow }: { runRemoteTransportComplianceFlow: typeof RunRemoteTransportComplianceFlow } =
-          await import('./projectTransportComplianceFlow');
-
-        return runRemoteTransportComplianceFlow({
-          credentials,
-          input,
-          getCurrentPlan: () => planRef.current,
-          normalizeProjectPlan,
-          applyRemotePlan: (candidate) => {
-            skipNextAutoSave.current = true;
-            setPlan(normalizeProjectPlan(candidate || null));
+      const credentials = requireRemoteCredentials('Transportflode');
+      const callProjectApi = async <TResponse extends object>(
+        path: string,
+        body: Record<string, unknown>,
+      ): Promise<TResponse> => {
+        const response = await fetch(`/api/projects/${encodeURIComponent(credentials.projectId)}${path}`, {
+          method: 'POST',
+          headers: {
+            Authorization: `Bearer ${credentials.token}`,
+            'Content-Type': 'application/json',
           },
-          setRemoteSync,
+          body: JSON.stringify(body),
         });
-      }
 
-      setRemoteSync((prev) => ({
-        ...prev,
-        enabled: false,
-        syncing: false,
-        error: 'Transportflodet ar blockerat tills adminsession, projektkoppling och riktig dispatch-provider ar konfigurerade.',
-      }));
-      throw new Error(
-        'Transportflodet ar blockerat tills adminsession, projektkoppling och riktig dispatch-provider ar konfigurerade.'
-      );
-    },
-    []
-  );
+        const json = (await response.json()) as {
+          ok?: boolean;
+          error?: string;
+        } & TResponse;
 
-  const applyMapLayerRecommendation = useCallback<ProjectStructureContextValue['applyMapLayerRecommendation']>(async () => {
-    const credentials = resolveRemoteCredentials();
-    if (credentials) {
+        if (!response.ok || !json.ok) {
+          throw new Error(json.error || `HTTP ${response.status}`);
+        }
+
+        return json;
+      };
+
       setRemoteSync((prev) => ({
         ...prev,
         enabled: true,
@@ -593,8 +585,86 @@ export const ProjectStructureProvider: React.FC<{ children: React.ReactNode }> =
         syncing: true,
         error: '',
       }));
+
       try {
-        const response = await fetch(`/api/projects/${encodeURIComponent(credentials.projectId)}/map-layers/recommend`, {
+        const quotePayload = await callProjectApi<{ quote: DispatchQuote }>('/dispatch/quote', {
+          receiverId: input.receiverId,
+          receiverName: input.receiverName,
+          wasteCode: input.wasteCode,
+          tons: input.tons,
+          distanceKm: input.distanceKm,
+        });
+
+        const bookingPayload = await callProjectApi<{ booking: TransportBooking }>('/dispatch/book', {
+          quoteId: quotePayload.quote.id,
+        });
+
+        const carbonPayload = await callProjectApi<{ plan?: Partial<ProjectPlan> }>('/carbon/calculate', {
+          carbonInput: {
+            tons: input.tons,
+            distanceKm: input.distanceKm,
+            transportMode: 'TRUCK',
+            materialType: isHazardousWasteCode(input.wasteCode) ? 'WASTE' : 'SOIL',
+          },
+        });
+        if (carbonPayload.plan) {
+          skipNextAutoSave.current = true;
+          setPlan(normalizeProjectPlan(carbonPayload.plan));
+        }
+
+        const startedAt = bookingPayload.booking.plannedPickupAt || nowIso();
+        const endedAt = bookingPayload.booking.plannedDeliveryAt || nowIso();
+        const _journalPayload = await callProjectApi<{ journal: DriverJournalEntry }>(
+          '/driver-journals/upsert',
+          {
+            journal: {
+              bookingId: bookingPayload.booking.id,
+              driverName: input.driverName,
+              vehicleId: input.vehicleId,
+              origin: input.origin?.trim() || 'Projektplats',
+              destination: input.destination?.trim() || input.receiverName,
+              wasteCode: input.wasteCode,
+              tons: input.tons,
+              startedAt,
+              endedAt,
+              odometerStartKm: 10000,
+              odometerEndKm: 10000 + Math.max(1, Math.round(input.distanceKm)),
+            },
+          },
+        );
+
+        throw new Error(
+          `Transportbokning ${bookingPayload.booking.id} skapades men flodet stoppades: juridiskt bindande forar-/granskningssignatur och verifierad LIMS-kedja maste komma fran riktig integration.`,
+        );
+      } catch (error: unknown) {
+        setRemoteSync((prev) => ({
+          ...prev,
+          enabled: true,
+          projectId: credentials.projectId,
+          syncing: false,
+          error: error instanceof Error ? error.message : 'Transport compliance flow failed',
+        }));
+        throw error instanceof Error ? error : new Error('Transport compliance flow failed');
+      }
+    },
+    [requireRemoteCredentials],
+  );
+
+  const applyMapLayerRecommendation = useCallback<
+    ProjectStructureContextValue['applyMapLayerRecommendation']
+  >(async () => {
+    const credentials = requireRemoteCredentials('Kartlagerrekommendation');
+    setRemoteSync((prev) => ({
+      ...prev,
+      enabled: true,
+      projectId: credentials.projectId,
+      syncing: true,
+      error: '',
+    }));
+    try {
+      const response = await fetch(
+        `/api/projects/${encodeURIComponent(credentials.projectId)}/map-layers/recommend`,
+        {
           method: 'POST',
           headers: {
             Authorization: `Bearer ${credentials.token}`,
@@ -604,46 +674,35 @@ export const ProjectStructureProvider: React.FC<{ children: React.ReactNode }> =
             projectType: planRef.current.projectType,
             plan: normalizeProjectPlan(planRef.current),
           }),
-        });
-        const json = (await response.json()) as { ok?: boolean; error?: string; plan?: Partial<ProjectPlan> };
-        if (!response.ok || !json.ok) {
-          throw new Error(json.error || `HTTP ${response.status}`);
-        }
-        if (json.plan) {
-          skipNextAutoSave.current = true;
-          setPlan(normalizeProjectPlan(json.plan));
-        }
-        setRemoteSync((prev) => ({
-          ...prev,
-          enabled: true,
-          projectId: credentials.projectId,
-          syncing: false,
-          lastSavedAt: new Date().toISOString(),
-          error: '',
-        }));
-        return;
-      } catch (error: unknown) {
-        setRemoteSync((prev) => ({
-          ...prev,
-          enabled: true,
-          projectId: credentials.projectId,
-          syncing: false,
-          error: error instanceof Error ? error.message : 'Map layer recommendation failed',
-        }));
-      }
-    }
-
-    setPlan((prev) =>
-      appendLocalAudit(
-        {
-          ...prev,
-          mapLayerSelection: recommendMapLayers(prev.projectType),
         },
-        'Map layers recommended',
-        `Map layers refreshed for ${prev.projectType}.`
-      )
-    );
-  }, []);
+      );
+      const json = (await response.json()) as { ok?: boolean; error?: string; plan?: Partial<ProjectPlan> };
+      if (!response.ok || !json.ok) {
+        throw new Error(json.error || `HTTP ${response.status}`);
+      }
+      if (json.plan) {
+        skipNextAutoSave.current = true;
+        setPlan(normalizeProjectPlan(json.plan));
+      }
+      setRemoteSync((prev) => ({
+        ...prev,
+        enabled: true,
+        projectId: credentials.projectId,
+        syncing: false,
+        lastSavedAt: new Date().toISOString(),
+        error: '',
+      }));
+    } catch (error: unknown) {
+      setRemoteSync((prev) => ({
+        ...prev,
+        enabled: true,
+        projectId: credentials.projectId,
+        syncing: false,
+        error: error instanceof Error ? error.message : 'Map layer recommendation failed',
+      }));
+      throw error instanceof Error ? error : new Error('Map layer recommendation failed');
+    }
+  }, [requireRemoteCredentials]);
 
   const markModuleReady = (module: CoreModuleKey, note?: string) => {
     setPlan((prev) => ({
@@ -655,7 +714,7 @@ export const ProjectStructureProvider: React.FC<{ children: React.ReactNode }> =
               readiness: 'READY',
               dependencyNote: note?.trim() || item.dependencyNote,
             }
-          : item
+          : item,
       ),
     }));
   };
@@ -693,7 +752,7 @@ export const ProjectStructureProvider: React.FC<{ children: React.ReactNode }> =
       runCarbonCalculation,
       runTransportComplianceFlow,
       applyMapLayerRecommendation,
-    ]
+    ],
   );
 
   return <ProjectStructureContext.Provider value={value}>{children}</ProjectStructureContext.Provider>;

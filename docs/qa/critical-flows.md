@@ -1,61 +1,56 @@
 ﻿# Critical Flows (Production Gate)
 
-This file defines the minimum critical user/business flows that must be validated before merge.
+This file defines the minimum module-specific flows that must be validated before merge.
 
-## Flow 1 - Admin login
+## Shared prerequisite - Admin login and active project
 
 - Precondition: `ADMIN_CONSOLE_PASSWORD` is configured.
 - Steps:
-  1. Open app landing page.
-  2. Enter admin username and password in Admin Console.
-  3. Submit login.
+  1. Open the landing page.
+  2. Sign in through Admin Console.
+  3. Create or select an active project.
 - Expected:
   - Access token and refresh token are returned.
-  - Admin session can call protected endpoints.
+  - Active project ID is available to downstream module flows.
 
-## Flow 2 - Project create/select
+## Flow 1 - Lokaliseringsutredning
 
-- Precondition: Logged in as admin.
+- Precondition: Logged in admin + active project + live GIS integrations.
 - Steps:
-  1. Open project list.
-  2. Create a project with a designation.
-  3. Select project as active.
+  1. Search/select property and open map context.
+  2. Choose one or more site alternatives.
+  3. Run localization analysis.
+  4. Review risk/rule result and generate decision support.
 - Expected:
-  - Project is persisted and selectable.
-  - Active project ID is used in downstream operations.
+  - Alternatives are analyzed against live data sources.
+  - Result contains traceable risk/rule basis and can be exported.
+  - Audit trail is created for critical analysis steps.
 
-## Flow 3 - Project plan load/save
+## Flow 2 - C-anmälan
 
-- Precondition: Active project + valid token.
+- Precondition: Logged in admin + active project + module data sources available.
 - Steps:
-  1. Load `/api/projects/:projectId/plan`.
-  2. Update plan payload.
-  3. Save `/api/projects/:projectId/plan/save`.
-  4. Reload plan.
+  1. Create or open a C-anmälan case.
+  2. Complete classification/requirement steps for the activity.
+  3. Generate the case basis and submission/export material.
+  4. Verify submission-ready state or tracked export result.
 - Expected:
-  - Saved values roundtrip without data loss.
-  - Persisted plan is returned on subsequent load.
+  - Case data is persisted without fallback/demo mode.
+  - Requirement and submission state are traceable per project.
+  - Audit trail is created for submission-relevant steps.
 
-## Flow 4 - Template apply + stage gate evaluate
+## Flow 3 - Enskilt avlopp
 
-- Precondition: Active project + valid token.
+- Precondition: Logged in admin + active project or application context.
 - Steps:
-  1. Apply template (`/template/apply`).
-  2. Evaluate stage gate (`/stage-gates/:gateId/evaluate`) twice with same input.
+  1. Create a sewage application with property and coordinates.
+  2. Validate mandatory fields and coordinate rules.
+  3. Move status through review/decision.
+  4. Export supporting material.
 - Expected:
-  - First evaluation can change gate and plan state.
-  - Second identical evaluation is idempotent.
-
-## Flow 5 - Carbon calculate + persistence
-
-- Precondition: Active project + valid token.
-- Steps:
-  1. Submit carbon input (`/carbon/calculate`).
-  2. Save plan.
-  3. Reload plan.
-- Expected:
-  - Carbon result exists in `plan.carbonSummary.lastResult`.
-  - Carbon history is retained.
+  - Application persists with valid status transitions.
+  - Validation rejects incomplete or invalid input.
+  - Export and audit trail remain traceable.
 
 ## Human-in-the-loop requirement
 

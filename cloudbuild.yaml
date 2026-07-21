@@ -1,80 +1,228 @@
-# ─────────────────────────────────────────────────────────────────────────────
-# Google Cloud Build – Miljobeslut.se
-# Bygger Docker-image, pushar till Artifact Registry och deployar till Cloud Run.
+# cloudbuild.yaml — build → push → Prisma/PostGIS (Cloud Run Job) → deploy Cloud Run
+# Bygger separata images för webbserver och bakgrundsarbetare.
 #
-# Sätt dessa substitutions i Cloud Build-triggern (eller via --substitutions):
-#   _REGION            Region för Artifact Registry + Cloud Run, t.ex. europe-west1
-#   _REPO              Artifact Registry repo-namn,              t.ex. miljobeslut
-#   _SERVICE           Cloud Run service-namn,                   t.ex. miljobeslut
-#   _CLOUDSQL_INSTANCE Cloud SQL connection name,                t.ex. PROJECT:europe-west1:miljobeslut-db
-# ─────────────────────────────────────────────────────────────────────────────
+# gcloud builds submit --config=cloudbuild.yaml --substitutions=SHORT_SHA=$(git rev-parse --short HEAD)
+#
+# Sätt minst: _CLOUDSQL, _VPC_CONNECTOR, _GCS_DOCUMENTS_BUCKET (rekommenderat).
+# Förbered: Secret Manager (DATABASE_URL, JWT_*, SEARCH_ENCRYPTION_KEY_BASE64, …), migrate-jobb, VPC.
+# Se docs/deploy/DEPLOY_GCP.md och docs/deploy/GCP_P2_PLATFORM.md
+#
+# Dockerfile-targets (måste matcha): web, gdpr-worker, search-indexer-worker, domstol-rss-worker
 
 substitutions:
-  _REGION: europe-west1
+  _REGION: europe-north1
+  _SERVICE_WEB: miljobeslut-web
+  _SERVICE_GDPR_WORKER: miljobeslut-gdpr-worker
+  _SERVICE_SEARCH_WORKER: miljobeslut-search-worker
+  _SERVICE_DOMSTOL_WORKER: miljobeslut-domstol-worker
   _REPO: miljobeslut
-  _SERVICE: miljobeslut
-  _CLOUDSQL_INSTANCE: MUST_BE_SET_IN_TRIGGER  # Ersätt med PROJECT_ID:europe-west1:miljobeslut-db i triggern
-
-steps:
-  # ── 1. Bygg Docker-image (multi-stage, target=production) ─────────────────
-  - name: gcr.io/cloud-builders/docker
-    id: build
-    args:
-      - build
-      - --target=production
-      - --tag=${_REGION}-docker.pkg.dev/$PROJECT_ID/${_REPO}/${_SERVICE}:$COMMIT_SHA
-      - --tag=${_REGION}-docker.pkg.dev/$PROJECT_ID/${_REPO}/${_SERVICE}:latest
-      - --cache-from=${_REGION}-docker.pkg.dev/$PROJECT_ID/${_REPO}/${_SERVICE}:latest
-      - .
-
-  # ── 2. Pusha till Artifact Registry ───────────────────────────────────────
-  - name: gcr.io/cloud-builders/docker
-    id: push
-    waitFor: [build]
-    args:
-      - push
-      - --all-tags
-      - ${_REGION}-docker.pkg.dev/$PROJECT_ID/${_REPO}/${_SERVICE}
-
-  # ── 3. Kör Prisma migrate mot Cloud SQL via Cloud SQL Auth Proxy ──────────
-  #    DATABASE_URL hämtas från Secret Manager och pekar på Cloud SQL-socket.
-  - name: ${_REGION}-docker.pkg.dev/$PROJECT_ID/${_REPO}/${_SERVICE}:$COMMIT_SHA
-    id: migrate
-    waitFor: [push]
-    entrypoint: npx
-    args: [prisma, migrate, deploy]
-    env:
-      - DATABASE_URL=$$DATABASE_URL
-    secretEnv: [DATABASE_URL]
-
-  # ── 4. Deploya till Cloud Run ─────────────────────────────────────────────
-  - name: gcr.io/google.com/cloudsdktool/cloud-sdk
-    id: deploy
-    waitFor: [migrate]
-    entrypoint: gcloud
-    args:
-      - run
-      - deploy
-      - ${_SERVICE}
-      - --image=${_REGION}-docker.pkg.dev/$PROJECT_ID/${_REPO}/${_SERVICE}:$COMMIT_SHA
-      - --region=${_REGION}
-      - --platform=managed
-      - --add-cloudsql-instances=${_CLOUDSQL_INSTANCE}
-      - --update-secrets=DATABASE_URL=DATABASE_URL:latest,JWT_ACCESS_SECRET=JWT_ACCESS_SECRET:latest,JWT_REFRESH_SECRET=JWT_REFRESH_SECRET:latest,GEMINI_API_KEY=GEMINI_API_KEY:latest,OPENAI_API_KEY=OPENAI_API_KEY:latest,BANKID_PFX_PASSPHRASE=BANKID_PFX_PASSPHRASE:latest,LANTMATERIET_API_KEY=LANTMATERIET_API_KEY:latest,SLU_API_KEY=SLU_API_KEY:latest,SEARCH_ENCRYPTION_KEY_BASE64=SEARCH_ENCRYPTION_KEY_BASE64:latest,ADMIN_CONSOLE_PASSWORD=ADMIN_CONSOLE_PASSWORD:latest
-      - --set-env-vars=NODE_ENV=production
-      - --no-allow-unauthenticated
-
-# Secrets som hämtas från Secret Manager under bygget (steg 3)
-availableSecrets:
-  secretManager:
-    - versionName: projects/$PROJECT_ID/secrets/DATABASE_URL/versions/latest
-      env: DATABASE_URL
-
-# Images som sparas i Artifact Registry
-images:
-  - ${_REGION}-docker.pkg.dev/$PROJECT_ID/${_REPO}/${_SERVICE}:$COMMIT_SHA
-  - ${_REGION}-docker.pkg.dev/$PROJECT_ID/${_REPO}/${_SERVICE}:latest
+  _CLOUDSQL: ''
+  _DB_MIGRATE_JOB: miljobeslut-migrate
+  _VPC_CONNECTOR: miljobeslut-vpc
+  _RUNTIME_SA: miljobeslut-runtime
+  _GCS_DOCUMENTS_BUCKET: ''
 
 options:
   logging: CLOUD_LOGGING_ONLY
   machineType: E2_HIGHCPU_8
+  substitution_option: ALLOW_LOOSE
+
+images:
+  - '${_REGION}-docker.pkg.dev/${PROJECT_ID}/${_REPO}/${_SERVICE_WEB}:${SHORT_SHA}'
+  - '${_REGION}-docker.pkg.dev/${PROJECT_ID}/${_REPO}/${_SERVICE_WEB}:latest'
+  - '${_REGION}-docker.pkg.dev/${PROJECT_ID}/${_REPO}/${_SERVICE_GDPR_WORKER}:${SHORT_SHA}'
+  - '${_REGION}-docker.pkg.dev/${PROJECT_ID}/${_REPO}/${_SERVICE_GDPR_WORKER}:latest'
+  - '${_REGION}-docker.pkg.dev/${PROJECT_ID}/${_REPO}/${_SERVICE_SEARCH_WORKER}:${SHORT_SHA}'
+  - '${_REGION}-docker.pkg.dev/${PROJECT_ID}/${_REPO}/${_SERVICE_SEARCH_WORKER}:latest'
+  - '${_REGION}-docker.pkg.dev/${PROJECT_ID}/${_REPO}/${_SERVICE_DOMSTOL_WORKER}:${SHORT_SHA}'
+  - '${_REGION}-docker.pkg.dev/${PROJECT_ID}/${_REPO}/${_SERVICE_DOMSTOL_WORKER}:latest'
+
+steps:
+  - id: build-web
+    name: gcr.io/cloud-builders/docker
+    args:
+      - build
+      - '-f'
+      - Dockerfile
+      - '--target=web'
+      - '-t'
+      - '${_REGION}-docker.pkg.dev/${PROJECT_ID}/${_REPO}/${_SERVICE_WEB}:${SHORT_SHA}'
+      - '-t'
+      - '${_REGION}-docker.pkg.dev/${PROJECT_ID}/${_REPO}/${_SERVICE_WEB}:latest'
+      - '.'
+
+  - id: build-gdpr-worker
+    name: gcr.io/cloud-builders/docker
+    args:
+      - build
+      - '-f'
+      - Dockerfile
+      - '--target=gdpr-worker'
+      - '-t'
+      - '${_REGION}-docker.pkg.dev/${PROJECT_ID}/${_REPO}/${_SERVICE_GDPR_WORKER}:${SHORT_SHA}'
+      - '-t'
+      - '${_REGION}-docker.pkg.dev/${PROJECT_ID}/${_REPO}/${_SERVICE_GDPR_WORKER}:latest'
+      - '.'
+
+  - id: build-search-worker
+    name: gcr.io/cloud-builders/docker
+    args:
+      - build
+      - '-f'
+      - Dockerfile
+      - '--target=search-indexer-worker'
+      - '-t'
+      - '${_REGION}-docker.pkg.dev/${PROJECT_ID}/${_REPO}/${_SERVICE_SEARCH_WORKER}:${SHORT_SHA}'
+      - '-t'
+      - '${_REGION}-docker.pkg.dev/${PROJECT_ID}/${_REPO}/${_SERVICE_SEARCH_WORKER}:latest'
+      - '.'
+
+  - id: build-domstol-worker
+    name: gcr.io/cloud-builders/docker
+    args:
+      - build
+      - '-f'
+      - Dockerfile
+      - '--target=domstol-rss-worker'
+      - '-t'
+      - '${_REGION}-docker.pkg.dev/${PROJECT_ID}/${_REPO}/${_SERVICE_DOMSTOL_WORKER}:${SHORT_SHA}'
+      - '-t'
+      - '${_REGION}-docker.pkg.dev/${PROJECT_ID}/${_REPO}/${_SERVICE_DOMSTOL_WORKER}:latest'
+      - '.'
+
+  - id: push-web
+    name: gcr.io/cloud-builders/docker
+    args:
+      - push
+      - '--all-tags'
+      - '${_REGION}-docker.pkg.dev/${PROJECT_ID}/${_REPO}/${_SERVICE_WEB}'
+
+  - id: push-gdpr-worker
+    name: gcr.io/cloud-builders/docker
+    args: ['push', '--all-tags', '${_REGION}-docker.pkg.dev/${PROJECT_ID}/${_REPO}/${_SERVICE_GDPR_WORKER}']
+
+  - id: push-search-worker
+    name: gcr.io/cloud-builders/docker
+    args: ['push', '--all-tags', '${_REGION}-docker.pkg.dev/${PROJECT_ID}/${_REPO}/${_SERVICE_SEARCH_WORKER}']
+
+  - id: push-domstol-worker
+    name: gcr.io/cloud-builders/docker
+    args: ['push', '--all-tags', '${_REGION}-docker.pkg.dev/${PROJECT_ID}/${_REPO}/${_SERVICE_DOMSTOL_WORKER}']
+
+  - id: migrate
+    name: gcr.io/google.com/cloudsdktool/cloud-sdk:slim
+    entrypoint: bash
+    args:
+      - '-c'
+      - |
+        set -euo pipefail
+        # Ensure the script exits immediately if a command fails.
+        # The command to be executed by the migration job.
+        # It first applies Prisma migrations, then runs the spatial bootstrap script.
+        MIGRATE_COMMAND="set -e; npx prisma migrate deploy && npx tsx scripts/db/spatial-bootstrap.ts"
+        gcloud run jobs update ${_DB_MIGRATE_JOB} \
+          --region=${_REGION} \
+          --image=${_REGION}-docker.pkg.dev/${PROJECT_ID}/${_REPO}/${_SERVICE_WEB}:${SHORT_SHA} \
+          --service-account=${_RUNTIME_SA}@${PROJECT_ID}.iam.gserviceaccount.com \
+          --command=/bin/sh \
+          --args='-c',"$MIGRATE_COMMAND" \
+          --set-cloudsql-instances=${_CLOUDSQL} \
+          --vpc-connector=${_VPC_CONNECTOR} \
+          --set-secrets=DATABASE_URL=DATABASE_URL:latest \
+          --quiet
+        gcloud run jobs execute ${_DB_MIGRATE_JOB} --region=${_REGION} --wait
+
+  - id: deploy
+    name: gcr.io/google.com/cloudsdktool/cloud-sdk:slim
+    entrypoint: bash
+    args:
+      - '-c'
+      - |
+        set -euo pipefail
+        IMAGE='${_REGION}-docker.pkg.dev/${PROJECT_ID}/${_REPO}/${_SERVICE_WEB}:${SHORT_SHA}'
+        ENV_VARS="NODE_ENV=production,VERTEX_PROJECT_ID=${PROJECT_ID},VERTEX_LOCATION=${_REGION},PROPERTY_LOOKUP_MODE=postgis_first,START_WORKERS_IN_PROCESS=false"
+        SECRETS="DATABASE_URL=DATABASE_URL:latest,JWT_ACCESS_SECRET=JWT_ACCESS_SECRET:latest,JWT_REFRESH_SECRET=JWT_REFRESH_SECRET:latest,SEARCH_ENCRYPTION_KEY_BASE64=SEARCH_ENCRYPTION_KEY_BASE64:latest,INTERNAL_CRON_TOKEN=INTERNAL_CRON_TOKEN:latest,METRICS_BEARER_TOKEN=METRICS_BEARER_TOKEN:latest,LANTMATERIET_CONSUMER_KEY=LANTMATERIET_CONSUMER_KEY:latest,LANTMATERIET_CONSUMER_SECRET=LANTMATERIET_CONSUMER_SECRET:latest,GOOGLE_CLIENT_ID=GOOGLE_CLIENT_ID:latest,GOOGLE_CLIENT_SECRET=GOOGLE_CLIENT_SECRET:latest,GOOGLE_CALLBACK_URL=GOOGLE_CALLBACK_URL:latest"
+
+        if [ -n "${_GCS_DOCUMENTS_BUCKET}" ]; then
+          ENV_VARS="${ENV_VARS},GCS_DOCUMENTS_BUCKET=${_GCS_DOCUMENTS_BUCKET},GCS_DOCUMENTS_PREFIX=documents"
+        fi
+
+        gcloud run deploy ${_SERVICE_WEB} \
+          --region=${_REGION} \
+          --image="${IMAGE}" \
+          --platform=managed \
+          --allow-unauthenticated \
+          --port=8080 \
+          --cpu=1 \
+          --memory=1Gi \
+          --min-instances=1 \
+          --max-instances=10 \
+          --timeout=3600 \
+          --session-affinity \
+          --service-account=${_RUNTIME_SA}@${PROJECT_ID}.iam.gserviceaccount.com \
+          --vpc-connector=${_VPC_CONNECTOR} \
+          --vpc-egress=private-ranges-only \
+          --set-cloudsql-instances=${_CLOUDSQL} \
+          --set-env-vars="${ENV_VARS}" \
+          --set-secrets="${SECRETS}" \
+          --quiet
+        echo "Klart. Webbservern är driftsatt."
+
+  - id: deploy-gdpr-worker-job
+    name: gcr.io/google.com/cloudsdktool/cloud-sdk:slim
+    entrypoint: bash
+    args:
+      - '-c'
+      - |
+        set -euo pipefail
+        echo "Deploying GDPR worker as a Cloud Run Job..."
+        gcloud run jobs update ${_SERVICE_GDPR_WORKER} \
+          --region=${_REGION} \
+          --image=${_REGION}-docker.pkg.dev/${PROJECT_ID}/${_REPO}/${_SERVICE_GDPR_WORKER}:${SHORT_SHA} \
+          --service-account=${_RUNTIME_SA}@${PROJECT_ID}.iam.gserviceaccount.com \
+          --set-cloudsql-instances=${_CLOUDSQL} \
+          --vpc-connector=${_VPC_CONNECTOR} \
+          --set-secrets=DATABASE_URL=DATABASE_URL:latest \
+          --quiet
+        echo "Cloud Run Job '${_SERVICE_GDPR_WORKER}' has been created/updated. Anropa det via Cloud Scheduler."
+
+  - id: deploy-search-worker
+    name: gcr.io/google.com/cloudsdktool/cloud-sdk:slim
+    entrypoint: bash
+    args:
+      - '-c'
+      - |
+        set -euo pipefail
+        echo "Deploying search indexer worker as a Cloud Run service..."
+        gcloud run deploy ${_SERVICE_SEARCH_WORKER} \
+          --region=${_REGION} \
+          --image=${_REGION}-docker.pkg.dev/${PROJECT_ID}/${_REPO}/${_SERVICE_SEARCH_WORKER}:${SHORT_SHA} \
+          --service-account=${_RUNTIME_SA}@${PROJECT_ID}.iam.gserviceaccount.com \
+          --set-cloudsql-instances=${_CLOUDSQL} \
+          --vpc-connector=${_VPC_CONNECTOR} \
+          --vpc-egress=private-ranges-only \
+          --set-secrets=DATABASE_URL=DATABASE_URL:latest \
+          --set-env-vars='NODE_ENV=production' \
+          --min-instances=1 \
+          --max-instances=1 \
+          --no-allow-unauthenticated \
+          --quiet
+        echo "Cloud Run service '${_SERVICE_SEARCH_WORKER}' has been deployed."
+
+  - id: deploy-domstol-worker-job
+    name: gcr.io/google.com/cloudsdktool/cloud-sdk:slim
+    entrypoint: bash
+    args:
+      - '-c'
+      - |
+        set -euo pipefail
+        echo "Deploying Domstol RSS worker as a Cloud Run Job..."
+        gcloud run jobs update ${_SERVICE_DOMSTOL_WORKER} \
+          --region=${_REGION} \
+          --image=${_REGION}-docker.pkg.dev/${PROJECT_ID}/${_REPO}/${_SERVICE_DOMSTOL_WORKER}:${SHORT_SHA} \
+          --service-account=${_RUNTIME_SA}@${PROJECT_ID}.iam.gserviceaccount.com \
+          --set-cloudsql-instances=${_CLOUDSQL} \
+          --vpc-connector=${_VPC_CONNECTOR} \
+          --set-secrets=DATABASE_URL=DATABASE_URL:latest \
+          --quiet
+        echo "Cloud Run Job '${_SERVICE_DOMSTOL_WORKER}' has been created/updated. Anropa det via Cloud Scheduler."

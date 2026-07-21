@@ -1,7 +1,8 @@
 import React from 'react';
 import { render, screen, fireEvent } from '@testing-library/react';
-import { describe, it, expect, vi, beforeAll } from 'vitest';
+import { describe, it, expect, vi, beforeAll, beforeEach, afterEach } from 'vitest';
 import { TechnicalDashboardHub } from '../../components/TechnicalDashboardHub';
+import { featureFlags } from '../../src/infrastructure/feature-flags';
 
 vi.mock('../../components/TechnicalSluExpert', () => ({
   TechnicalSluExpert: () => <div data-testid="technical-slu-expert" />,
@@ -20,6 +21,14 @@ beforeAll(() => {
 });
 
 describe('TechnicalDashboardHub', () => {
+  beforeEach(() => {
+    vi.spyOn(featureFlags, 'isEnabled').mockReturnValue(true);
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
   it('renders branding text', () => {
     render(<TechnicalDashboardHub onSelectModule={vi.fn()} />);
     expect(screen.getAllByText(/Miljöbeslut/i).length).toBeGreaterThanOrEqual(1);

@@ -99,18 +99,8 @@ jobs:
             --region=${{ env.REGION }} \
             --platform=managed \
             --add-cloudsql-instances=${{ env.CLOUDSQL_INSTANCE }} \
-            --update-secrets="\
-              DATABASE_URL=DATABASE_URL:latest,\
-              JWT_ACCESS_SECRET=JWT_ACCESS_SECRET:latest,\
-              JWT_REFRESH_SECRET=JWT_REFRESH_SECRET:latest,\
-              GEMINI_API_KEY=GEMINI_API_KEY:latest,\
-              OPENAI_API_KEY=OPENAI_API_KEY:latest,\
-              BANKID_PFX_PASSPHRASE=BANKID_PFX_PASSPHRASE:latest,\
-              LANTMATERIET_API_KEY=LANTMATERIET_API_KEY:latest,\
-              SLU_API_KEY=SLU_API_KEY:latest,\
-              SEARCH_ENCRYPTION_KEY_BASE64=SEARCH_ENCRYPTION_KEY_BASE64:latest,\
-              ADMIN_CONSOLE_PASSWORD=ADMIN_CONSOLE_PASSWORD:latest" \
-            --set-env-vars="NODE_ENV=production,CORS_ALLOW_ORIGINS=${{ vars.GCP_CORS_ORIGINS }}" \
+            --update-secrets="DATABASE_URL=DATABASE_URL:latest,JWT_ACCESS_SECRET=JWT_ACCESS_SECRET:latest,JWT_REFRESH_SECRET=JWT_REFRESH_SECRET:latest,GEMINI_API_KEY=GEMINI_API_KEY:latest,OPENAI_API_KEY=OPENAI_API_KEY:latest,SEARCH_ENCRYPTION_KEY_BASE64=SEARCH_ENCRYPTION_KEY_BASE64:latest,ADMIN_CONSOLE_PASSWORD=ADMIN_CONSOLE_PASSWORD:latest,BANKID_PFX_PASSPHRASE=BANKID_PFX_PASSPHRASE:latest,BANKID_PFX_CONTENT=BANKID_PFX_CONTENT:latest,LANTMATERIET_API_KEY=LANTMATERIET_API_KEY:latest,LANTMATERIET_CONSUMER_KEY=LANTMATERIET_CONSUMER_KEY:latest,LANTMATERIET_CONSUMER_SECRET=LANTMATERIET_CONSUMER_SECRET:latest,LANTMATERIET_OPEN_SUBSCRIPTION_KEY=LANTMATERIET_OPEN_SUBSCRIPTION_KEY:latest,SLU_API_KEY=SLU_API_KEY:latest,TRAFIKVERKET_API_KEY=TRAFIKVERKET_API_KEY:latest,VISS_API_KEY=VISS_API_KEY:latest" \
+            --set-env-vars="NODE_ENV=production,CORS_ALLOW_ORIGINS=${{ vars.GCP_CORS_ORIGINS }},VERTEX_PROJECT_ID=${{ secrets.GCP_PROJECT_ID }},VERTEX_LOCATION=${{ vars.GCP_REGION || 'europe-west1' }}" \
             --no-allow-unauthenticated \
             --format="value(status.url)"
 
@@ -128,7 +118,7 @@ jobs:
 
           STATUS=$(curl -s -o /dev/null -w "%{http_code}" \
             -H "Authorization: Bearer $(gcloud auth print-identity-token)" \
-            "$SERVICE_URL/api/health")
+            "$SERVICE_URL/health")
 
           if [ "$STATUS" != "200" ]; then
             echo "Hälsokontroll misslyckades – HTTP $STATUS"

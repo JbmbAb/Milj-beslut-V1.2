@@ -1,4 +1,3 @@
-
 import React from 'react';
 
 interface MunicipalityAvatarProps {
@@ -10,12 +9,12 @@ interface MunicipalityAvatarProps {
 const MunicipalityAvatar: React.FC<MunicipalityAvatarProps> = ({ name, size = 'md', className = '' }) => {
   // Rensa namnet för att matcha Wikipedia-standard (t.ex. "Haninge kommun" -> "Haninge")
   const cleanName = name.split(' ')[0].trim();
-  
+
   // Storleksmappning
   const sizeClasses = {
     sm: 'w-6 h-6 text-[10px]',
     md: 'w-10 h-10 text-xs',
-    lg: 'w-16 h-16 text-base'
+    lg: 'w-16 h-16 text-base',
   };
 
   // URL till svenska kommunvapen på Wikimedia (standardiserat format)
@@ -30,9 +29,11 @@ const MunicipalityAvatar: React.FC<MunicipalityAvatarProps> = ({ name, size = 'm
         <div className="absolute top-full left-1/2 -translate-x-1/2 -mt-1 border-4 border-transparent border-t-slate-800"></div>
       </div>
 
-      <div className={`relative flex-shrink-0 flex items-center justify-center rounded-xl bg-white border border-slate-200 overflow-hidden shadow-sm ${sizeClasses[size]}`}>
-        <img 
-          src={heraldryUrl} 
+      <div
+        className={`relative flex-shrink-0 flex items-center justify-center rounded-xl bg-white border border-slate-200 overflow-hidden shadow-sm ${sizeClasses[size]}`}
+      >
+        <img
+          src={heraldryUrl}
           alt={`${name} vapen`}
           className="w-full h-full object-contain p-1.5"
           onError={(e) => {

@@ -10,8 +10,6 @@ async function main() {
     documents: await prisma.documentRecord.count(),
     plans: await prisma.projectPlanState.count(),
     requirements: await prisma.requirementRecord.count(),
-    knowledgeNodes: await prisma.knowledgeNode.count(),
-    knowledgeEdges: await prisma.knowledgeEdge.count(),
   };
 
   console.log(JSON.stringify(counts, null, 2));

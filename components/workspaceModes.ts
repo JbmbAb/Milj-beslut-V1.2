@@ -20,8 +20,8 @@ export const MODE_CARDS: ModeCardConfig[] = [
   },
   {
     mode: 'PERMIT_PORTAL',
-    title: 'Provningsportal',
-    description: 'Sök tillstånd, bygg ansökan och validera regelkrav.',
+    title: 'Provningsportal (legacy)',
+    description: 'Kart- och riskstöd. C-anmälan schaktmassor finns under Huvudmoduler.',
     icon: 'fa-file-shield',
     accent: 'bg-emerald-600',
     defaultTab: 'map',
@@ -51,17 +51,17 @@ export const MODE_CARDS: ModeCardConfig[] = [
     defaultTab: 'admin-search',
   },
   {
-    mode: 'MVP_WORKFLOW',
+    mode: 'Core_WORKFLOW',
     title: 'Ärendeportal',
     description: 'Beslutsstöd för miljöärenden: Dashboard → Sök → Granskning → Anmälan.',
     icon: 'fa-folder-open',
     accent: 'bg-indigo-600',
-    defaultTab: 'mvp',
+    defaultTab: 'core',
   },
 ];
 
 export function resolveInterfaceModeFromModuleId(id: string): InterfaceMode | null {
-  if (id === 'mvp' || id === 'ansokan') return 'MVP_WORKFLOW';
+  if (id === 'core' || id === 'ansokan') return 'Core_WORKFLOW';
   if (id === 'logistik') return 'LOGISTICS_MARKET';
   if (id === 'projekt') return 'PROJECT_MANAGER';
   if (id === 'gronkoll') return 'COMPLIANCE_AUDIT';
