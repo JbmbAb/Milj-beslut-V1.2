@@ -2,16 +2,21 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { PrismaClient } from '@prisma/client';
 import { AlphaevolveSearchService, SearchChunkResult } from '../../server/services/searchService';
 
-// Mocka PrismaClient
+// Mocka PrismaClient med vi.hoisted och en konstruerbar klass
+const mocks = vi.hoisted(() => ({
+  $queryRaw: vi.fn().mockResolvedValue([]),
+  searchQueryLogCreate: vi.fn().mockResolvedValue({ id: 'mock-log-id' }),
+}));
+
 vi.mock('@prisma/client', () => {
-  const mPrisma = {
-    $queryRaw: vi.fn(),
-    searchQueryLog: {
-      create: vi.fn().mockResolvedValue({ id: 'mock-log-id' }),
-    },
-  };
   return {
-    PrismaClient: vi.fn(() => mPrisma),
+    PrismaClient: class PrismaClient {
+      static raw = vi.fn((sql) => sql);
+      $queryRaw = mocks.$queryRaw;
+      searchQueryLog = {
+        create: mocks.searchQueryLogCreate,
+      };
+    },
   };
 });
 
@@ -55,8 +60,8 @@ describe('AlphaevolveSearchService - Automated Tests', () => {
     // Verifiera parallellitet och snabb I/O-latens (under 50ms för minnesfrågor)
     expect(duration).toBeLessThan(50);
 
-    // Kontrollera att $queryRaw har anropats exakt 2 gånger (parallellt)
-    expect(prismaMock.$queryRaw).toHaveBeenCalledTimes(2);
+    // Kontrollera att $queryRaw har anropats 5 gånger (FTS + Vector + 3x Graph Expansion)
+    expect(prismaMock.$queryRaw).toHaveBeenCalledTimes(5);
 
     // Kontrollera att RRF-fusionsalgoritmen har slagit ihop dubbletter (chunk-2 finns i båda)
     expect(results.length).toBe(3); // chunk-1, chunk-2, chunk-3
@@ -89,7 +94,7 @@ describe('AlphaevolveSearchService - Automated Tests', () => {
     // Kontrollera att det spatiala filtret kördes och filtrerade bort chunk-2 (Enköping)
     expect(results.length).toBe(1);
     expect(results[0].id).toBe('chunk-1');
-    expect(prismaMock.$queryRaw).toHaveBeenCalledTimes(3); // FTS + Vector + Spatial ST_Intersects
+    expect(prismaMock.$queryRaw).toHaveBeenCalledTimes(4); // FTS + Vector + Spatial + 1x Graph Expansion
   });
 
   // ---------------------------------------------------------------------------
@@ -100,6 +105,7 @@ describe('AlphaevolveSearchService - Automated Tests', () => {
 
     const mockFtsResults: SearchChunkResult[] = [
       { id: 'chunk-1', chunkText: 'Lantmäteriet registerenhet.', documentId: 'doc-A', documentTitle: 'Fastighet A', ftsRank: 0.99 },
+      { id: 'chunk-2', chunkText: 'SGU jordlager och krossmaterial analyseras.', documentId: 'doc-B', documentTitle: 'Beslut B', ftsRank: 0.88 },
     ];
 
     prismaMock.$queryRaw
@@ -115,6 +121,8 @@ describe('AlphaevolveSearchService - Automated Tests', () => {
       .mockResolvedValueOnce(mockFtsResults)
       .mockResolvedValueOnce([]);
     const resultsWithRerank = await searchService.search(query, { config: { CROSS_ENCODER_ENABLED: true } });
+    
+    // Verifiera att det första elementet (index 0, som nu är sorterat först på grund av högre finalScore efter rerank) har modifierats
     expect(resultsWithRerank[0].finalScore).not.toBe(resultsWithRerank[0].rrfScore);
   });
 });
