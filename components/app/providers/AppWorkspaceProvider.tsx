@@ -49,8 +49,8 @@ export function AppWorkspaceProvider({ children }: { children: ReactNode }) {
 
     const timer = window.setTimeout(() => {
       hasAutoOpenedWorkspaceRef.current = true;
-      setMode('Core_WORKFLOW');
-      setActiveTab('core');
+      setMode('PERMIT_PORTAL');
+      setActiveTab('map');
     }, 0);
 
     return () => window.clearTimeout(timer);
@@ -78,9 +78,8 @@ export function AppWorkspaceProvider({ children }: { children: ReactNode }) {
 
   const openMode = useCallback(
     (nextMode: InterfaceMode) => {
-      const normalizedMode = nextMode === 'PERMIT_PORTAL' ? 'Core_WORKFLOW' : nextMode;
-      setMode(normalizedMode);
-      setActiveTab(modeCardMap[normalizedMode].defaultTab);
+      setMode(nextMode);
+      setActiveTab(modeCardMap[nextMode].defaultTab);
     },
     [modeCardMap],
   );

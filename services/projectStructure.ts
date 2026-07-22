@@ -50,6 +50,25 @@ function resolvePermitCodeProfile(input: {
     };
   }
 
+  if (code === '17 05 04' && codeType === 'EWC') {
+    return {
+      code: '17 05 04',
+      codeType: 'EWC',
+      activityCode: '17 05 04',
+      legalReference: 'Avfallsförordningen (2020:614)',
+      regulatoryTrack: 'NOTIFICATION',
+      thresholdTon: null,
+      thresholdScope: null,
+      riskTier: 'LOW',
+      requiresGeofencing: true,
+      requiredMapLayers: ['CADASTRE', 'SOIL'],
+      timelineBufferWeeks: 1,
+      humanReviewRequired: true,
+      reviewNote: 'Auto classification is advisory only and must be approved by a human legal reviewer.',
+      municipality: input.municipality || null,
+    };
+  }
+
   if (code === '90.50' && codeType === 'SNI') {
     return {
       code: '90.50',

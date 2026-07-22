@@ -1,12 +1,13 @@
+import { prisma } from '../../server/db/prisma';
 import { describe, it, expect, beforeEach, afterAll, beforeAll, vi } from 'vitest';
-import { PrismaClient } from '@prisma/client';
+
 import {
   processPendingAttachments,
   queryRequirements,
   getRequirementStats,
 } from '../../server/services/requirementExtractionService';
 
-const prisma = new PrismaClient();
+
 
 // This test suite requires a real PostgreSQL database.
 // Set DATABASE_INTEGRATION=true (and a valid DATABASE_URL) to run it.

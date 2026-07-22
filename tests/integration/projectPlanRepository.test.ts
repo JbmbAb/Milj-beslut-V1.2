@@ -1,5 +1,6 @@
+import { prisma } from '../../server/db/prisma';
 import { describe, it, expect, beforeAll, afterAll, beforeEach } from 'vitest';
-import { PrismaClient } from '@prisma/client';
+
 import {
   getStoredProjectPlan,
   upsertStoredProjectPlan,
@@ -7,7 +8,7 @@ import {
 import { ProjectPlan } from '../../types';
 import { describeIfDatabaseIntegration } from './integrationTestEnv';
 
-const prisma = new PrismaClient();
+
 
 describeIfDatabaseIntegration('projectPlanRepository Integration', () => {
   let testOrgId: string;

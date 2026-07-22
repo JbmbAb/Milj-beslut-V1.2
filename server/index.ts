@@ -1,5 +1,5 @@
+import './loadEnvFirst';
 import http from 'http';
-import { loadEnvFile } from './loadEnv';
 import { logger } from './logger';
 import { createApp } from './createApp';
 import { initializeWebSocketServer } from './websocket';
@@ -7,12 +7,6 @@ import { warnProductionDevFlags } from './warnProductionDevFlags';
 import { shouldStartWorkersInProcess, startInProcessWorkers } from './workers/registry';
 import { assertSecurityEnv } from './security/env';
 
-loadEnvFile();
-const preserveRuntimeEnv =
-  process.env.PRESERVE_RUNTIME_ENV === 'true' ||
-  Boolean(process.env.PLAYWRIGHT_LOCAL_API_PORT) ||
-  process.env.NODE_ENV === 'test';
-loadEnvFile('.env.local', { overrideExisting: !preserveRuntimeEnv });
 warnProductionDevFlags();
 
 if (process.env.NODE_ENV === 'production') {

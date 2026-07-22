@@ -1,9 +1,10 @@
+import { prisma } from '../../server/db/prisma';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import request from 'supertest';
-import { PrismaClient } from '@prisma/client';
+
 import { createApp } from '../../server/createApp';
 
-const prisma = new PrismaClient();
+
 const app = createApp();
 
 const hasDatabaseIntegration = process.env.DATABASE_INTEGRATION === 'true';

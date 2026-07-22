@@ -1,10 +1,9 @@
-import dotenv from 'dotenv';
-dotenv.config();
-import { PrismaClient } from '@prisma/client';
-
-const p = new PrismaClient();
+import { loadEnvFile } from '../../server/loadEnv';
+loadEnvFile();
+loadEnvFile('.env.local', { overrideExisting: true });
 
 async function main() {
+  const { prisma: p } = await import('../../server/db/prisma');
   // Kolla om raster_registration_log finns och vad den innehåller
   try {
     const rows = await p.$queryRawUnsafe<any[]>(

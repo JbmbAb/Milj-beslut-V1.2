@@ -32,7 +32,7 @@ async function getVectorColumnName(): Promise<string | null> {
     const columns = await prisma.$queryRawUnsafe<any[]>(
       `SELECT column_name
        FROM information_schema.columns
-       WHERE table_name = 'legal_corpus_records'
+       WHERE table_name = 'legal_corpus_chunks'
          AND (udt_name = 'vector' OR column_name IN ('embedding', 'embeddingVector', 'embedding_vector'))
        LIMIT 1;`
     );
@@ -42,7 +42,7 @@ async function getVectorColumnName(): Promise<string | null> {
       cachedVectorColumnName = null;
     }
   } catch (err) {
-    console.error('Error checking vector column on legal_corpus_records:', err);
+    console.error('Error checking vector column on legal_corpus_chunks:', err);
     cachedVectorColumnName = null;
   }
   return cachedVectorColumnName;
@@ -123,9 +123,7 @@ export async function searchLegalCorpusHandler(args: { query: string; legalArea?
     }
     ftsQuery += ` ORDER BY rank DESC LIMIT 30;`;
 
-    const ftsResults = await prisma.$queryRawUnsafe<any[]>(ftsQuery, ...ftsParams);
-
-    // 2. Substring LIKE fallback query (in case FTS returns nothing)
+    // 2. Substring LIKE fallback query (in case FTS and Vector both return nothing)
     let likeQuery = `
       SELECT id
       FROM legal_corpus_records
@@ -140,32 +138,47 @@ export async function searchLegalCorpusHandler(args: { query: string; legalArea?
     }
     likeQuery += ` LIMIT 10;`;
 
-    // 3. Vector search query (only if vector column is available)
-    let vectorResults: any[] = [];
-    const vectorColumn = await getVectorColumnName();
-    if (vectorColumn) {
-      try {
-        const embedResult = await embedText(query);
-        if (embedResult && embedResult.values) {
-          const vectorLiteral = `[${embedResult.values.join(',')}]`;
-          let vectorSql = `
-            SELECT id,
-                   1 - ("${vectorColumn}" <=> $1::vector) as similarity
-            FROM legal_corpus_records
-            WHERE "${vectorColumn}" IS NOT NULL
-          `;
-          const vectorParams: any[] = [vectorLiteral];
-          if (legalArea) {
-            vectorSql += ` AND legal_area ILIKE $2`;
-            vectorParams.push(legalArea);
+    // 3. Parallel Execution of FTS & Vector Search (using Promise.all)
+    const startTime = Date.now();
+    const [ftsResults, vectorResults] = await Promise.all([
+      // Execute FTS
+      prisma.$queryRawUnsafe<any[]>(ftsQuery, ...ftsParams),
+      
+      // Execute Vector search on legal_corpus_chunks table
+      (async (): Promise<any[]> => {
+        const vectorColumn = await getVectorColumnName();
+        if (!vectorColumn) return [];
+        try {
+          const embedResult = await embedText(query);
+          if (embedResult && embedResult.values) {
+            const vectorLiteral = `[${embedResult.values.join(',')}]`;
+            let vectorSql = `
+              SELECT c.record_id AS id,
+                     1 - MIN(c."${vectorColumn}" <=> $1::vector) as similarity
+              FROM public.legal_corpus_chunks c
+              JOIN public.legal_corpus_records r ON c.record_id = r.id
+              WHERE c."${vectorColumn}" IS NOT NULL
+            `;
+            const vectorParams: any[] = [vectorLiteral];
+            if (legalArea) {
+              vectorSql += ` AND r.legal_area ILIKE $2`;
+              vectorParams.push(legalArea);
+            }
+            vectorSql += `
+              GROUP BY c.record_id
+              ORDER BY MIN(c."${vectorColumn}" <=> $1::vector) ASC
+              LIMIT 30;
+            `;
+            return await prisma.$queryRawUnsafe<any[]>(vectorSql, ...vectorParams);
           }
-          vectorSql += ` ORDER BY "${vectorColumn}" <=> $1::vector LIMIT 30;`;
-          vectorResults = await prisma.$queryRawUnsafe<any[]>(vectorSql, ...vectorParams);
+        } catch (vectorErr) {
+          console.warn('Vector search failed, continuing with lexical search only:', vectorErr);
         }
-      } catch (vectorErr) {
-        console.warn('Vector search failed, continuing with lexical search only:', vectorErr);
-      }
-    }
+        return [];
+      })()
+    ]);
+    const duration = Date.now() - startTime;
+    console.log(`[RAG Search] Latency: ${duration}ms, FTS candidates: ${ftsResults.length}, Vector candidates: ${vectorResults.length}`);
 
     // 4. Reciprocal Rank Fusion (RRF) — sammanväger alla tre armar
     // Formel: RRF(d) = Σ 1/(k + rank_i), k=60 (standard)

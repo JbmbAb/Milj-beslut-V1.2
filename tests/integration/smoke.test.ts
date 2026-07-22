@@ -1,3 +1,4 @@
+import { prisma } from '../../server/db/prisma';
 /**
  * Smoke Tests – Miljöbeslut API (riktig test-DB, inga Prisma-mocks)
  *
@@ -8,11 +9,11 @@
 import { afterAll, expect, it } from 'vitest';
 import request from 'supertest';
 import type { Express } from 'express';
-import { PrismaClient } from '@prisma/client';
+
 import { createApp } from '../../server/createApp';
 import { describeIfDatabaseIntegration } from './integrationTestEnv';
 
-const prisma = new PrismaClient();
+
 const app: Express = createApp();
 
 afterAll(async () => {

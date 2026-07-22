@@ -28,7 +28,7 @@ export const AppSidebar: React.FC<AppSidebarProps> = ({
   openMode,
   setShowUpload: _setShowUpload,
 }) => {
-  const primaryModeCards = modeCards.filter((item) => item.mode !== 'PERMIT_PORTAL');
+  const primaryModeCards = modeCards;
   const { caseId } = useOperationsCenter();
 
   return (
@@ -192,6 +192,46 @@ export const AppSidebar: React.FC<AppSidebarProps> = ({
                   </div>
                   <span className="text-xs font-bold truncate opacity-0 group-hover:opacity-100 transition-opacity duration-300 whitespace-nowrap">
                     C-anmälan massor
+                  </span>
+                </button>
+              </>
+            )}
+
+            {mode === 'PERMIT_PORTAL' && (
+              <>
+                <button
+                  type="button"
+                  onClick={() => setActiveTab('map')}
+                  title="Karta & Riskstöd"
+                  className={`w-full flex items-center gap-3 p-2.5 rounded-xl text-left transition-all duration-150 ${
+                    activeTab === 'map'
+                      ? 'bg-cyan-950/40 text-cyan-400 border border-cyan-800/30 shadow-[inset_0_0_12px_rgba(6,182,212,0.05)]'
+                      : 'text-slate-400 hover:bg-slate-900 hover:text-slate-200 border border-transparent'
+                  }`}
+                >
+                  <div className="w-5 h-5 flex items-center justify-center shrink-0">
+                    <i className={`fas fa-map-location-dot text-sm ${activeTab === 'map' ? 'text-cyan-400' : 'text-slate-500'}`} />
+                  </div>
+                  <span className="text-xs font-bold truncate opacity-0 group-hover:opacity-100 transition-opacity duration-300 whitespace-nowrap">
+                    Karta & Riskstöd
+                  </span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => setActiveTab('apply')}
+                  title="Ansökningsportal"
+                  className={`w-full flex items-center gap-3 p-2.5 rounded-xl text-left transition-all duration-150 ${
+                    activeTab === 'apply'
+                      ? 'bg-cyan-950/40 text-cyan-400 border border-cyan-800/30 shadow-[inset_0_0_12px_rgba(6,182,212,0.05)]'
+                      : 'text-slate-400 hover:bg-slate-900 hover:text-slate-200 border border-transparent'
+                  }`}
+                >
+                  <div className="w-5 h-5 flex items-center justify-center shrink-0">
+                    <i className={`fas fa-file-pen text-sm ${activeTab === 'apply' ? 'text-cyan-400' : 'text-slate-500'}`} />
+                  </div>
+                  <span className="text-xs font-bold truncate opacity-0 group-hover:opacity-100 transition-opacity duration-300 whitespace-nowrap">
+                    Ansökningsportal
                   </span>
                 </button>
               </>

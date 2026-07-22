@@ -7,7 +7,11 @@ const mocks = vi.hoisted(() => {
   const docInstance = {
     x: 10,
     y: 20,
-    page: { height: 842 },
+    page: {
+      height: 842,
+      width: 595,
+      margins: { left: 50, right: 50, top: 50, bottom: 50 },
+    },
     pipe: vi.fn(),
     fontSize: vi.fn().mockReturnThis(),
     fillColor: vi.fn().mockReturnThis(),
@@ -20,7 +24,8 @@ const mocks = vi.hoisted(() => {
     stroke: vi.fn().mockReturnThis(),
     addPage: vi.fn().mockReturnThis(),
     font: vi.fn().mockReturnThis(),
-    bufferedPageRange: vi.fn(() => ({ count: 1 })),
+    registerFont: vi.fn().mockReturnThis(),
+    bufferedPageRange: vi.fn(() => ({ count: 2 })),
     switchToPage: vi.fn().mockReturnThis(),
     end: vi.fn(() => {
       ended = true;
@@ -120,5 +125,26 @@ describe('generateSewageDossierPdf', () => {
 
     expect(mocks.textCalls.join(' ')).toContain('Normal skyddsnivå');
     expect(mocks.textCalls.join(' ')).toContain('INFILTRATION');
+  });
+
+  it('writes legal traceability metadata into the PDF footer', async () => {
+    const { generateSewageDossierPdf } = await import('../../server/services/sewagePdfService');
+
+    await generateSewageDossierPdf(baseApplication as any, 'C:\\temp\\dossier-trace.pdf', {
+      traceability: {
+        operator: 'Ada Testsson',
+        modelId: 'gemini-test',
+        correlationId: 'corr-avlopp-1',
+        gitCommit: 'cafebabe',
+        dbMigrationVersion: '20260512055145_init',
+        datasetVersions: { topo10: 'vatten' },
+      },
+    });
+
+    const joined = mocks.textCalls.join(' ');
+    expect(joined).toContain('Op: Ada Testsson');
+    expect(joined).toContain('Model: gemini-test');
+    expect(joined).toContain('Corr: corr-avlopp-1');
+    expect(joined).toContain('Git: cafebabe');
   });
 });

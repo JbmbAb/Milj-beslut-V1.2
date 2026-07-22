@@ -17,7 +17,10 @@
  *   --record-id  Bearbeta ett specifikt LegalCorpusRecord-id.
  */
 
-import '../../server/loadEnv';
+import { loadEnvFile } from '../../server/loadEnv';
+loadEnvFile();
+loadEnvFile('.env.local', { overrideExisting: true });
+
 import { prisma } from '../../server/db/prisma';
 import { embedText } from '../../server/services/searchService';
 import { routeToCorrectChunker } from '../../server/modules/legal/services/semanticChunker';

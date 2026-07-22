@@ -10,7 +10,7 @@ vi.mock('../../server/db/prisma', () => ({
     documentChunk: { updateMany: vi.fn(), deleteMany: vi.fn() },
     requirementRecord: { updateMany: vi.fn(), deleteMany: vi.fn() },
     requirementCitation: { deleteMany: vi.fn(), updateMany: vi.fn() },
-    requirementCase: { deleteMany: vi.fn() },
+    requirementCase: { deleteMany: vi.fn(), findMany: vi.fn(() => Promise.resolve([])) },
     projectPlanState: { deleteMany: vi.fn() },
     projectMember: { findMany: vi.fn(), deleteMany: vi.fn() },
     propertyAccessLog: { updateMany: vi.fn(), deleteMany: vi.fn(), findMany: vi.fn() },
@@ -73,7 +73,7 @@ describe('gdprComplianceService', () => {
       expect(count).toBe(5);
       expect(prisma.project.updateMany).toHaveBeenCalledWith({
         where: {
-          status: 'COMPLETED',
+          status: 'CLOSED',
           retentionUntil: {
             lt: expect.any(Date),
           },

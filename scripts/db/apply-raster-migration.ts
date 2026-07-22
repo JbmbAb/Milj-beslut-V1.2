@@ -1,13 +1,12 @@
 import * as fs from 'node:fs';
 import * as path from 'node:path';
-import dotenv from 'dotenv';
-import { PrismaClient } from '@prisma/client';
+import { loadEnvFile } from '../../server/loadEnv';
 
-dotenv.config();
-
-const p = new PrismaClient();
+loadEnvFile();
+loadEnvFile('.env.local', { overrideExisting: true });
 
 async function main() {
+  const { prisma: p } = await import('../../server/db/prisma');
   const migrationFile = path.join(process.cwd(), 'prisma', 'migrations', '20260628_raster_outdb_infrastructure.sql');
   console.log(`Reading migration from: ${migrationFile}`);
   

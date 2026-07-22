@@ -1,5 +1,6 @@
+import { prisma } from '../../server/db/prisma';
 import { it, expect, beforeAll, afterAll, beforeEach } from 'vitest';
-import { PrismaClient } from '@prisma/client';
+
 import {
   cleanupExpiredTokenRevocations,
   isTokenRevoked,
@@ -9,7 +10,7 @@ import {
 } from '../../server/repositories/tokenRepository';
 import { describeIfDatabaseIntegration } from './integrationTestEnv';
 
-const prisma = new PrismaClient();
+
 
 describeIfDatabaseIntegration('tokenRepository Integration', () => {
   beforeAll(async () => {

@@ -60,3 +60,55 @@ export async function csrfFetch(input: RequestInfo | URL, init: RequestInit = {}
     credentials: init.credentials ?? 'same-origin',
   });
 }
+
+// Global window.fetch patch to ensure all API calls receive credentials and CSRF tokens automatically
+if (typeof window !== 'undefined' && !(window as any).__csrf_patched__ && (typeof process === 'undefined' || process.env?.NODE_ENV !== 'test')) {
+  const originalFetch = window.fetch;
+
+  window.fetch = async function (input: RequestInfo | URL, init?: RequestInit): Promise<Response> {
+    let urlString = '';
+    if (typeof input === 'string') {
+      urlString = input;
+    } else if (input instanceof URL) {
+      urlString = input.toString();
+    } else if (input && typeof input === 'object' && 'url' in input) {
+      urlString = (input as Request).url || '';
+    }
+
+    const isApiCall = urlString.includes('/api/');
+
+    // Avoid infinite recursion on the CSRF token endpoint itself
+    if (urlString.includes('/api/csrf-token')) {
+      return originalFetch.call(this, input, init);
+    }
+
+    if (isApiCall) {
+      const method = String(init?.method || 'GET').trim().toUpperCase();
+      const isMutating = ['POST', 'PUT', 'PATCH', 'DELETE'].includes(method);
+      const nextInit: RequestInit = init ? { ...init } : {};
+
+      // Force same-origin credentials for all API calls to ensure cookies are sent/received correctly
+      if (nextInit.credentials === undefined) {
+        nextInit.credentials = 'same-origin';
+      }
+
+      if (isMutating) {
+        try {
+          const token = await getCsrfToken();
+          const headers = new Headers(nextInit.headers || {});
+          headers.set('x-csrf-token', token);
+          nextInit.headers = headers;
+        } catch (err) {
+          console.error('[CSRF Client Patch Error] Failed to inject CSRF token:', err);
+        }
+      }
+
+      return originalFetch.call(this, input, nextInit);
+    }
+
+    return originalFetch.call(this, input, init);
+  };
+
+  (window as any).__csrf_patched__ = true;
+}
+

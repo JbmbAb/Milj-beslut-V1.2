@@ -1,5 +1,6 @@
+import { prisma } from '../../server/db/prisma';
 import { it, expect, beforeAll, afterAll, beforeEach } from 'vitest';
-import { PrismaClient } from '@prisma/client';
+
 import {
   createTransportBooking,
   getTransportBooking,
@@ -10,7 +11,7 @@ import {
 } from '../../server/repositories/transportRepository';
 import { describeIfDatabaseIntegration } from './integrationTestEnv';
 
-const prisma = new PrismaClient();
+
 
 describeIfDatabaseIntegration('transportRepository Integration', () => {
   beforeAll(async () => {

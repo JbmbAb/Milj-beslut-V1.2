@@ -1,4 +1,4 @@
-﻿import { beforeAll, describe, expect, it, vi } from 'vitest';
+import { beforeAll, describe, expect, it, vi } from 'vitest';
 import request from 'supertest';
 
 vi.mock('../../server/services/lantmaterietService', () => ({
@@ -49,7 +49,7 @@ vi.mock('../../server/repositories/userRepository', () => ({
   findAuthUserByBankId: vi.fn(async () => null),
 }));
 
-vi.mock('../../server/repositories/searchRepository', () => ({
+vi.mock('../../server/modules/search/adapters/searchRepository', () => ({
   createOrGetAdminProject: vi.fn(async () => ({
     project: {
       id: 'mock-project-id',

@@ -23,6 +23,7 @@ import { CNotificationMassUI } from './admin/modules/c-notification-mass/CNotifi
 import { PriorityModulePortfolio } from './PriorityModulePortfolio';
 import SewagePortalView from './admin/modules/sewage-portal/SewagePortalView';
 import { DossierDashboard } from './DossierDashboard';
+import PermitPortalView from './PermitPortalView';
 
 export interface AppContentRouterProps {
   mode: InterfaceMode | null;
@@ -41,18 +42,8 @@ export const AppContentRouter: React.FC<AppContentRouterProps> = ({
   setActiveTab,
   onOpenMassModule: _onOpenMassModule,
 }) => {
-  const normalizedMode = mode === 'PERMIT_PORTAL' ? 'Core_WORKFLOW' : mode;
-  const normalizedTab =
-    mode === 'PERMIT_PORTAL'
-      ? activeTab === 'apply'
-        ? 'c-notification-mass'
-        : activeTab === 'map' ||
-            activeTab === 'forms' ||
-            activeTab === 'biodiversity' ||
-            activeTab === 'risks'
-          ? 'core'
-          : activeTab
-      : activeTab;
+  const normalizedMode = mode;
+  const normalizedTab = activeTab;
 
   if (normalizedTab === 'guide') return <Guide mode={normalizedMode} onNavigate={setActiveTab} />;
   if (normalizedTab === 'legal') return <LegalSupportCenter />;
@@ -60,6 +51,16 @@ export const AppContentRouter: React.FC<AppContentRouterProps> = ({
   if (normalizedTab === 'dossier') return <DossierDashboard />;
 
   switch (normalizedMode) {
+    case 'PERMIT_PORTAL':
+      if (normalizedTab === 'apply') {
+        return <CNotificationMassUI />;
+      }
+      return (
+        <PermitPortalView
+          permits={permits}
+          mode="map"
+        />
+      );
     case 'Core_WORKFLOW':
       if (normalizedTab === 'sewage-application') return <SewagePortalView />;
       if (normalizedTab === 'localization') return <LocalizationStudyUI />;

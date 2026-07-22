@@ -1,5 +1,6 @@
+import { prisma } from '../../server/db/prisma';
 import { it, expect, beforeAll, afterAll, beforeEach } from 'vitest';
-import { PrismaClient } from '@prisma/client';
+
 import {
   addGpsPosition,
   getGpsTrack,
@@ -8,7 +9,7 @@ import {
 } from '../../server/repositories/gpsRepository';
 import { describeIfDatabaseIntegration } from './integrationTestEnv';
 
-const prisma = new PrismaClient();
+
 
 describeIfDatabaseIntegration('gpsRepository Integration', () => {
   let testBookingId: string;

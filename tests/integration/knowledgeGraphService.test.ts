@@ -1,4 +1,4 @@
-import { it, expect, beforeAll } from 'vitest';
+import { it, expect, beforeAll, afterAll } from 'vitest';
 import { prisma } from '../../server/db/prisma';
 import {
   upsertNode,
@@ -11,6 +11,10 @@ import { describeIfDatabaseIntegration } from './integrationTestEnv';
 describeIfDatabaseIntegration('knowledgeGraphService integration tests (REAL DB)', () => {
   beforeAll(async () => {
     await prisma.$connect();
+  });
+
+  afterAll(async () => {
+    await prisma.$disconnect();
   });
 
   it('should persist a REAL node in the database and retrieve it', async () => {

@@ -1,12 +1,13 @@
+import { prisma } from '../../server/db/prisma';
 import { it, expect, beforeAll, afterAll, beforeEach, vi } from 'vitest';
-import { PrismaClient } from '@prisma/client';
+
 import { ingestDomstolRssFeed } from '../../server/services/domstolRssService';
 import { getJudgmentByGuid } from '../../server/repositories/judgmentRepository';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import { describeIfDatabaseIntegration } from './integrationTestEnv';
 
-const prisma = new PrismaClient();
+
 
 describeIfDatabaseIntegration('domstolRssService Integration', () => {
   const mockRssFeedPath = path.join(__dirname, '../fixtures/domstol-rss-miljo-feed-sample.xml');

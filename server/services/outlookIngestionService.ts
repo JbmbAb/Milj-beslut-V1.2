@@ -218,3 +218,35 @@ export async function markAttachmentFailed(hash: string, reason: string) {
     data: { parsed: true, parseFailureReason: reason },
   });
 }
+
+/** Dead Letter Queue: attachments with OCR/extract failures. */
+export async function listDlqAttachments(limit = 100) {
+  return prisma.outlookAttachment.findMany({
+    where: {
+      parsed: true,
+      parseFailureReason: { not: null },
+    },
+    orderBy: { updatedAt: 'desc' },
+    take: limit,
+  });
+}
+
+/**
+ * Soft-delete an email (status SOFT_DELETED) without removing attachment rows.
+ * Re-ingestion skips COMPLETE; soft-deleted can be reopened by resetting status.
+ */
+export async function softDeleteEmail(messageId: string) {
+  return prisma.emailMessage.update({
+    where: { messageId },
+    data: { status: 'SOFT_DELETED', processedAt: new Date() },
+  });
+}
+
+/** Verify SHA-256 duplicate detection would skip an already-stored attachment. */
+export async function isDuplicateAttachment(data: Buffer): Promise<boolean> {
+  const hash = sha256(data);
+  const existing = await prisma.outlookAttachment.findUnique({
+    where: { attachmentHash: hash },
+  });
+  return Boolean(existing);
+}
