@@ -5,8 +5,9 @@ import { AlphaevolveSearchService, SearchChunkResult } from '../../server/servic
 const mocks = vi.hoisted(() => ({
   $queryRaw: vi.fn().mockResolvedValue([]),
   searchQueryLogCreate: vi.fn().mockResolvedValue({ id: 'mock-log-id' }),
-  embedContent: vi.fn().mockResolvedValue({
-    embedding: { values: new Array(768).fill(0.1) },
+  embedTextWithVertexPredict: vi.fn().mockResolvedValue({
+    values: new Array(768).fill(0.1),
+    model: 'text-multilingual-embedding-002',
   }),
   generateContent: vi.fn().mockResolvedValue({
     response: {
@@ -17,6 +18,10 @@ const mocks = vi.hoisted(() => ({
         ]),
     },
   }),
+}));
+
+vi.mock('../../server/services/vertexEmbeddingService', () => ({
+  embedTextWithVertexPredict: mocks.embedTextWithVertexPredict,
 }));
 
 vi.mock('@prisma/client', () => {
@@ -35,7 +40,6 @@ vi.mock('@google/generative-ai', () => ({
   GoogleGenerativeAI: class GoogleGenerativeAI {
     getGenerativeModel() {
       return {
-        embedContent: mocks.embedContent,
         generateContent: mocks.generateContent,
       };
     }
@@ -57,10 +61,14 @@ describe('AlphaevolveSearchService - Automated Tests', () => {
   let prismaMock: InstanceType<typeof PrismaClient>;
   let searchService: AlphaevolveSearchService;
   const originalGeminiKey = process.env.GEMINI_API_KEY;
+  const originalVertexProject = process.env.VERTEX_PROJECT_ID;
+  const originalMockAi = process.env.USE_MOCK_AI;
 
   beforeEach(() => {
     vi.clearAllMocks();
     process.env.GEMINI_API_KEY = 'test-key';
+    process.env.VERTEX_PROJECT_ID = 'test-project';
+    delete process.env.USE_MOCK_AI;
     prismaMock = new PrismaClient();
     searchService = new AlphaevolveSearchService(prismaMock);
   });
@@ -70,6 +78,16 @@ describe('AlphaevolveSearchService - Automated Tests', () => {
       delete process.env.GEMINI_API_KEY;
     } else {
       process.env.GEMINI_API_KEY = originalGeminiKey;
+    }
+    if (originalVertexProject === undefined) {
+      delete process.env.VERTEX_PROJECT_ID;
+    } else {
+      process.env.VERTEX_PROJECT_ID = originalVertexProject;
+    }
+    if (originalMockAi === undefined) {
+      delete process.env.USE_MOCK_AI;
+    } else {
+      process.env.USE_MOCK_AI = originalMockAi;
     }
   });
 
@@ -114,7 +132,7 @@ describe('AlphaevolveSearchService - Automated Tests', () => {
 
     const results = await searchService.search(query, { config: { FINAL_TOP_K: 5 } });
 
-    expect(mocks.embedContent).toHaveBeenCalledTimes(1);
+    expect(mocks.embedTextWithVertexPredict).toHaveBeenCalledTimes(1);
     expect(prismaMock.$queryRaw).toHaveBeenCalledTimes(5);
 
     expect(results.length).toBe(3);

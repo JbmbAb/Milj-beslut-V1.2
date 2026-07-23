@@ -1,6 +1,53 @@
-import { PrismaClient, Prisma } from '@prisma/client';
+import { PrismaClient } from '@prisma/client';
 import { EventEmitter } from 'events';
 import { GoogleGenerativeAI } from '@google/generative-ai';
+import { logger } from '../logger';
+import { embedTextWithVertexPredict } from './vertexEmbeddingService';
+
+/** Värdelabel / logg; faktisk modell väljs via `VERTEX_EMBEDDING_MODEL` i Vertex. */
+const EMBEDDING_MODEL = String(
+  process.env.VERTEX_EMBEDDING_MODEL || process.env.EMBEDDING_MODEL || 'text-multilingual-embedding-002',
+).trim();
+const EMBEDDING_DIM = Math.max(64, Number(process.env.EMBEDDING_DIM || 768));
+let warnedEmbeddingFallback = false;
+
+/**
+ * Delad Vertex-embedding (samma modellrum som legal_corpus_chunks).
+ * Behålls som kompatibilitetsexport för RAG/rechunk/orchestrator-verktyg.
+ */
+export async function embedText(text: string): Promise<{ values: number[]; model: string } | null> {
+  if (process.env.USE_MOCK_AI === 'true') {
+    return {
+      values: new Array(EMBEDDING_DIM).fill(0).map(() => Math.random()),
+      model: 'mock-embedding-v1',
+    };
+  }
+
+  if (!process.env.VERTEX_PROJECT_ID?.trim()) {
+    return null;
+  }
+
+  try {
+    const vertexResult = await embedTextWithVertexPredict(text, EMBEDDING_DIM);
+    if (vertexResult) {
+      if (vertexResult.model !== EMBEDDING_MODEL && !warnedEmbeddingFallback) {
+        warnedEmbeddingFallback = true;
+        logger.warn('search: vertex embedding model', {
+          model: vertexResult.model,
+          embeddingModelEnv: EMBEDDING_MODEL,
+        });
+      }
+      return {
+        values: vertexResult.values.slice(0, EMBEDDING_DIM),
+        model: vertexResult.model,
+      };
+    }
+  } catch {
+    return null;
+  }
+
+  return null;
+}
 
 // =============================================================================
 // KONFIGURERING & PARAMETRAR (Fas A2 - Centraliserad sökrymds-tweak)
@@ -139,25 +186,17 @@ export class AlphaevolveSearchService extends EventEmitter {
   }
 
   /**
-   * Genererar en verklig 768-dimensionell embedding via Gemini API (text-embedding-004)
-   * Om API-nyckel saknas (offline-testläge), faller den tillbaka graciöst på en deterministisk vektor.
+   * Query-embedding i samma modellrum som legal_corpus_chunks (Vertex via embedText).
+   * Fallback: deterministisk vektor för offline/tester.
    */
   private async generateQueryEmbedding(query: string): Promise<number[]> {
-    if (!process.env.GEMINI_API_KEY) {
-      this.emit('search:warning', 'GEMINI_API_KEY saknas i .env. Använder offline fallback-vektor.');
-      return this.generateDeterministicVector(query);
-    }
-
     try {
-      const embedModel = this.genAI.getGenerativeModel({ model: 'text-embedding-004' });
-      const result = await embedModel.embedContent({
-        content: { parts: [{ text: query }] }
-      });
-      
-      if (result && result.embedding && result.embedding.values) {
-        return result.embedding.values;
+      const result = await embedText(query);
+      if (result?.values?.length) {
+        return result.values;
       }
-      throw new Error('Ett tomt embeddings-svar togs emot från Gemini API');
+      this.emit('search:warning', 'embedText returnerade null. Använder offline fallback-vektor.');
+      return this.generateDeterministicVector(query);
     } catch (error) {
       this.emit('search:error', { context: 'generateQueryEmbedding', error });
       return this.generateDeterministicVector(query);

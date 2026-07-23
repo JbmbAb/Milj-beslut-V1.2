@@ -3,6 +3,15 @@ import { embedText } from '../../../../services/searchService';
 import { prisma } from '../../../../db/prisma';
 import { parseLegalReference } from '../../../legal/services/legalReferenceParser';
 
+/** Alphaevolve A1 — chunk-nivå hybrid retrieval (utan Cross-Encoder / Query Planner). */
+const RRF_K_EXACT = 30;
+const RRF_K = 60;
+const EXACT_LIMIT = 20;
+const FTS_CANDIDATE_LIMIT = 50;
+const VECTOR_CANDIDATE_LIMIT = 50;
+const FINAL_TOP_K = 30;
+const LIKE_FALLBACK_LIMIT = 10;
+
 export const searchLegalCorpusDeclaration: FunctionDeclaration = {
   name: 'searchLegalCorpus',
   description: 'Söker efter relevanta miljödomar, prejudikat och kunskapsartiklar i Legal Corpus. Använd detta för att ta reda på svensk miljöjuridik, praxis och tillsynsmetodik.',
@@ -22,25 +31,45 @@ export const searchLegalCorpusDeclaration: FunctionDeclaration = {
   },
 };
 
+type ChunkCandidate = {
+  chunkId: string;
+  recordId: string;
+  chunkText: string;
+  chapter: string | null;
+  paragraph: string | null;
+  section: string | null;
+  similarity?: number;
+  rank?: number;
+};
+
+type RrfEntry = {
+  rrf: number;
+  similarity?: number;
+  rank?: number;
+  candidate?: ChunkCandidate;
+};
+
 let cachedVectorColumnName: string | null | undefined = undefined;
+
+/** Test-hjälp: nollställ cache mellan tester. */
+export function resetLegalCorpusVectorColumnCache(): void {
+  cachedVectorColumnName = undefined;
+}
 
 async function getVectorColumnName(): Promise<string | null> {
   if (cachedVectorColumnName !== undefined) {
     return cachedVectorColumnName;
   }
   try {
-    const columns = await prisma.$queryRawUnsafe<any[]>(
+    const columns = await prisma.$queryRawUnsafe<Array<{ column_name: string }>>(
       `SELECT column_name
        FROM information_schema.columns
-       WHERE table_name = 'legal_corpus_chunks'
+       WHERE table_schema = 'public'
+         AND table_name = 'legal_corpus_chunks'
          AND (udt_name = 'vector' OR column_name IN ('embedding', 'embeddingVector', 'embedding_vector'))
        LIMIT 1;`
     );
-    if (columns.length > 0) {
-      cachedVectorColumnName = columns[0].column_name;
-    } else {
-      cachedVectorColumnName = null;
-    }
+    cachedVectorColumnName = columns.length > 0 ? columns[0].column_name : null;
   } catch (err) {
     console.error('Error checking vector column on legal_corpus_chunks:', err);
     cachedVectorColumnName = null;
@@ -48,29 +77,179 @@ async function getVectorColumnName(): Promise<string | null> {
   return cachedVectorColumnName;
 }
 
-function buildSnippet(text: string, query: string, windowSize = 1000): string {
-  if (!text) return '';
-  const compact = text.replace(/\s+/g, ' ').trim();
-  const lowerText = compact.toLowerCase();
-  const lowerQuery = query.toLowerCase();
+function mapChunkRows(rows: Array<Record<string, unknown>>): ChunkCandidate[] {
+  return rows.map((row) => ({
+    chunkId: String(row.chunk_id ?? row.id),
+    recordId: String(row.record_id),
+    chunkText: String(row.chunk_text ?? ''),
+    chapter: row.chapter == null ? null : String(row.chapter),
+    paragraph: row.paragraph == null ? null : String(row.paragraph),
+    section: row.section == null ? null : String(row.section),
+    similarity: row.similarity == null ? undefined : Number(row.similarity),
+    rank: row.rank == null ? undefined : Number(row.rank),
+  }));
+}
 
-  const index = lowerText.indexOf(lowerQuery);
-  if (index === -1) {
-    const firstWord = lowerQuery.split(' ').find(w => w.length > 2);
-    if (firstWord) {
-      const wIndex = lowerText.indexOf(firstWord);
-      if (wIndex !== -1) {
-        const start = Math.max(0, wIndex - Math.floor(windowSize / 3));
-        const end = Math.min(compact.length, start + windowSize);
-        return compact.substring(start, end);
-      }
+function addArmToRrf(
+  rrfScores: Map<string, RrfEntry>,
+  candidates: ChunkCandidate[],
+  k: number,
+  scoreField?: 'similarity' | 'rank',
+): void {
+  candidates.forEach((candidate, index) => {
+    const current = rrfScores.get(candidate.chunkId) || { rrf: 0 };
+    current.rrf += 1 / (k + index + 1);
+    current.candidate = current.candidate ?? candidate;
+    if (scoreField === 'similarity' && candidate.similarity != null) {
+      current.similarity = candidate.similarity;
     }
-    return compact.substring(0, windowSize);
+    if (scoreField === 'rank' && candidate.rank != null) {
+      current.rank = candidate.rank;
+    }
+    rrfScores.set(candidate.chunkId, current);
+  });
+}
+
+async function runExactArm(query: string): Promise<ChunkCandidate[]> {
+  const legalRef = parseLegalReference(query);
+
+  if (legalRef?.chapter && legalRef?.paragraph) {
+    const rows = await prisma.$queryRawUnsafe<Array<Record<string, unknown>>>(
+      `SELECT c.id AS chunk_id,
+              c.record_id,
+              c.chunk_text,
+              c.chapter,
+              c.paragraph,
+              c.section
+       FROM public.legal_corpus_chunks c
+       WHERE c.chapter = $1
+         AND c.paragraph = $2
+       ORDER BY c.chunk_index ASC
+       LIMIT $3`,
+      legalRef.chapter,
+      legalRef.paragraph,
+      EXACT_LIMIT,
+    );
+    return mapChunkRows(rows);
   }
-  
-  const start = Math.max(0, index - Math.floor(windowSize / 3));
-  const end = Math.min(compact.length, start + windowSize);
-  return compact.substring(start, end);
+
+  if (legalRef?.lawName) {
+    const rows = await prisma.$queryRawUnsafe<Array<Record<string, unknown>>>(
+      `SELECT c.id AS chunk_id,
+              c.record_id,
+              c.chunk_text,
+              c.chapter,
+              c.paragraph,
+              c.section
+       FROM public.legal_corpus_chunks c
+       JOIN public.legal_corpus_records r ON r.id = c.record_id
+       WHERE r.title ILIKE $1
+          OR c.law_name ILIKE $1
+       ORDER BY c.chunk_index ASC
+       LIMIT $2`,
+      `%${legalRef.lawName}%`,
+      EXACT_LIMIT,
+    );
+    return mapChunkRows(rows);
+  }
+
+  return [];
+}
+
+async function runFtsArm(query: string, legalArea?: string): Promise<ChunkCandidate[]> {
+  let sql = `
+    SELECT c.id AS chunk_id,
+           c.record_id,
+           c.chunk_text,
+           c.chapter,
+           c.paragraph,
+           c.section,
+           ts_rank_cd(r.search_vector, websearch_to_tsquery('swedish', $1)) AS rank
+    FROM public.legal_corpus_records r
+    JOIN public.legal_corpus_chunks c ON c.record_id = r.id
+    WHERE r.search_vector @@ websearch_to_tsquery('swedish', $1)
+      AND r.search_text IS NOT NULL
+  `;
+  const params: unknown[] = [query];
+  if (legalArea) {
+    sql += ` AND r.legal_area ILIKE $2`;
+    params.push(legalArea);
+  }
+  sql += `
+    ORDER BY rank DESC, c.chunk_index ASC
+    LIMIT ${legalArea ? '$3' : '$2'}
+  `;
+  params.push(FTS_CANDIDATE_LIMIT);
+  const rows = await prisma.$queryRawUnsafe<Array<Record<string, unknown>>>(sql, ...params);
+  return mapChunkRows(rows);
+}
+
+async function runVectorArm(query: string, legalArea?: string): Promise<ChunkCandidate[]> {
+  const vectorColumn = await getVectorColumnName();
+  if (!vectorColumn) return [];
+
+  try {
+    const embedResult = await embedText(query);
+    if (!embedResult?.values?.length) return [];
+
+    const vectorLiteral = `[${embedResult.values.join(',')}]`;
+    let sql = `
+      SELECT c.id AS chunk_id,
+             c.record_id,
+             c.chunk_text,
+             c.chapter,
+             c.paragraph,
+             c.section,
+             1 - (c."${vectorColumn}" <=> $1::vector) AS similarity
+      FROM public.legal_corpus_chunks c
+      JOIN public.legal_corpus_records r ON r.id = c.record_id
+      WHERE c."${vectorColumn}" IS NOT NULL
+    `;
+    const params: unknown[] = [vectorLiteral];
+    if (legalArea) {
+      sql += ` AND r.legal_area ILIKE $2`;
+      params.push(legalArea);
+    }
+    sql += `
+      ORDER BY c."${vectorColumn}" <=> $1::vector ASC
+      LIMIT ${legalArea ? '$3' : '$2'}
+    `;
+    params.push(VECTOR_CANDIDATE_LIMIT);
+    const rows = await prisma.$queryRawUnsafe<Array<Record<string, unknown>>>(sql, ...params);
+    return mapChunkRows(rows);
+  } catch (vectorErr) {
+    console.warn('Vector search failed, continuing with lexical search only:', vectorErr);
+    return [];
+  }
+}
+
+async function runLikeFallback(query: string, legalArea?: string): Promise<ChunkCandidate[]> {
+  let sql = `
+    SELECT c.id AS chunk_id,
+           c.record_id,
+           c.chunk_text,
+           c.chapter,
+           c.paragraph,
+           c.section
+    FROM public.legal_corpus_records r
+    JOIN public.legal_corpus_chunks c ON c.record_id = r.id
+    WHERE (r.case_number ILIKE $1
+       OR r.title ILIKE $1
+       OR r.search_text ILIKE $1
+       OR c.chunk_text ILIKE $1)
+  `;
+  const params: unknown[] = [`%${query}%`];
+  if (legalArea) {
+    sql += ` AND r.legal_area ILIKE $2`;
+    params.push(legalArea);
+  }
+  sql += `
+    ORDER BY c.chunk_index ASC
+    LIMIT ${legalArea ? '$3' : '$2'}
+  `;
+  params.push(LIKE_FALLBACK_LIMIT);
+  const rows = await prisma.$queryRawUnsafe<Array<Record<string, unknown>>>(sql, ...params);
+  return mapChunkRows(rows);
 }
 
 export async function searchLegalCorpusHandler(args: { query: string; legalArea?: string }) {
@@ -81,187 +260,82 @@ export async function searchLegalCorpusHandler(args: { query: string; legalArea?
   }
 
   try {
-    // ① LegalReferenceParser — extrahera strukturerat lagrum ur query
-    const legalRef = parseLegalReference(query);
+    const trimmedQuery = query.trim();
 
-    // ① Exact SQL arm — precisionsuppslag på chapter + paragraph i legal_corpus_chunks
-    //   Körs när parsern identifierat ett lagrum. Ger hög precision för kända hänvisningar.
-    let exactResults: any[] = [];
-    if (legalRef?.chapter && legalRef?.paragraph) {
-      exactResults = await prisma.$queryRawUnsafe<any[]>(
-        `SELECT DISTINCT record_id AS id
-         FROM public.legal_corpus_chunks
-         WHERE chapter = $1
-           AND paragraph = $2
-         LIMIT 20`,
-        legalRef.chapter,
-        legalRef.paragraph,
-      );
-    } else if (legalRef?.lawName) {
-      // Enbart lagnamn — sök i legal_corpus_records
-      exactResults = await prisma.$queryRawUnsafe<any[]>(
-        `SELECT id
-         FROM public.legal_corpus_records
-         WHERE title ILIKE $1
-         LIMIT 20`,
-        `%${legalRef.lawName}%`,
-      );
-    }
-
-    // ② Full-Text Search (FTS) query using websearch_to_tsquery
-    let ftsQuery = `
-      SELECT id,
-             ts_rank_cd(search_vector, websearch_to_tsquery('swedish', $1)) as rank
-      FROM legal_corpus_records
-      WHERE search_vector @@ websearch_to_tsquery('swedish', $1)
-        AND search_text IS NOT NULL
-    `;
-    const ftsParams: any[] = [query];
-    if (legalArea) {
-      ftsQuery += ` AND legal_area ILIKE $2`;
-      ftsParams.push(legalArea);
-    }
-    ftsQuery += ` ORDER BY rank DESC LIMIT 30;`;
-
-    // 2. Substring LIKE fallback query (in case FTS and Vector both return nothing)
-    let likeQuery = `
-      SELECT id
-      FROM legal_corpus_records
-      WHERE (case_number ILIKE $1
-         OR title ILIKE $1
-         OR search_text ILIKE $1)
-    `;
-    const likeParams: any[] = [`%${query}%`];
-    if (legalArea) {
-      likeQuery += ` AND legal_area ILIKE $2`;
-      likeParams.push(legalArea);
-    }
-    likeQuery += ` LIMIT 10;`;
-
-    // 3. Parallel Execution of FTS & Vector Search (using Promise.all)
+    // Exact körs parallellt med FTS ‖ Vector (A1).
     const startTime = Date.now();
-    const [ftsResults, vectorResults] = await Promise.all([
-      // Execute FTS
-      prisma.$queryRawUnsafe<any[]>(ftsQuery, ...ftsParams),
-      
-      // Execute Vector search on legal_corpus_chunks table
-      (async (): Promise<any[]> => {
-        const vectorColumn = await getVectorColumnName();
-        if (!vectorColumn) return [];
-        try {
-          const embedResult = await embedText(query);
-          if (embedResult && embedResult.values) {
-            const vectorLiteral = `[${embedResult.values.join(',')}]`;
-            let vectorSql = `
-              SELECT c.record_id AS id,
-                     1 - MIN(c."${vectorColumn}" <=> $1::vector) as similarity
-              FROM public.legal_corpus_chunks c
-              JOIN public.legal_corpus_records r ON c.record_id = r.id
-              WHERE c."${vectorColumn}" IS NOT NULL
-            `;
-            const vectorParams: any[] = [vectorLiteral];
-            if (legalArea) {
-              vectorSql += ` AND r.legal_area ILIKE $2`;
-              vectorParams.push(legalArea);
-            }
-            vectorSql += `
-              GROUP BY c.record_id
-              ORDER BY MIN(c."${vectorColumn}" <=> $1::vector) ASC
-              LIMIT 30;
-            `;
-            return await prisma.$queryRawUnsafe<any[]>(vectorSql, ...vectorParams);
-          }
-        } catch (vectorErr) {
-          console.warn('Vector search failed, continuing with lexical search only:', vectorErr);
-        }
-        return [];
-      })()
+    const [exactResults, ftsResults, vectorResults] = await Promise.all([
+      runExactArm(trimmedQuery),
+      runFtsArm(trimmedQuery, legalArea),
+      runVectorArm(trimmedQuery, legalArea),
     ]);
     const duration = Date.now() - startTime;
-    console.log(`[RAG Search] Latency: ${duration}ms, FTS candidates: ${ftsResults.length}, Vector candidates: ${vectorResults.length}`);
+    console.log(
+      `[RAG Search] Latency: ${duration}ms, Exact: ${exactResults.length}, FTS: ${ftsResults.length}, Vector: ${vectorResults.length}`,
+    );
 
-    // 4. Reciprocal Rank Fusion (RRF) — sammanväger alla tre armar
-    // Formel: RRF(d) = Σ 1/(k + rank_i), k=60 (standard)
-    const rrfScores = new Map<string, { rrf: number; similarity?: number; rank?: number }>();
+    const rrfScores = new Map<string, RrfEntry>();
+    addArmToRrf(rrfScores, exactResults, RRF_K_EXACT);
+    addArmToRrf(rrfScores, vectorResults, RRF_K, 'similarity');
+    addArmToRrf(rrfScores, ftsResults, RRF_K, 'rank');
 
-    // ① Exact SQL: precision-arm (högt värde vid match)
-    if (exactResults.length > 0) {
-      exactResults.forEach((row, index) => {
-        const docId = row.id;
-        const current = rrfScores.get(docId) || { rrf: 0 };
-        // Exact-arm ges dubbel vikt (k=30 istf 60) — hög precision motiverar boost
-        current.rrf += 1 / (30 + index + 1);
-        rrfScores.set(docId, current);
-      });
+    if (rrfScores.size === 0) {
+      const fallback = await runLikeFallback(trimmedQuery, legalArea);
+      addArmToRrf(rrfScores, fallback, RRF_K);
     }
 
-    // ③ Vector arm
-    if (vectorResults && vectorResults.length > 0) {
-      vectorResults.forEach((row, index) => {
-        const docId = row.id;
-        const current = rrfScores.get(docId) || { rrf: 0 };
-        current.rrf += 1 / (60 + index + 1);
-        current.similarity = Number(row.similarity || 0);
-        rrfScores.set(docId, current);
-      });
-    }
-
-    // ② FTS arm
-    if (ftsResults && ftsResults.length > 0) {
-      ftsResults.forEach((row, index) => {
-        const docId = row.id;
-        const current = rrfScores.get(docId) || { rrf: 0 };
-        current.rrf += 1 / (60 + index + 1);
-        current.rank = Number(row.rank || 0);
-        rrfScores.set(docId, current);
-      });
-    } else if (vectorResults.length === 0 && exactResults.length === 0) {
-      // Alla tre armar tomma — LIKE-fallback
-      const fallbackResults = await prisma.$queryRawUnsafe<any[]>(likeQuery, ...likeParams);
-      fallbackResults.forEach((row, index) => {
-        const docId = row.id;
-        rrfScores.set(docId, { rrf: 1 / (60 + index + 1) });
-      });
-    }
-
-    const sortedIds = Array.from(rrfScores.keys())
+    const sortedChunkIds = Array.from(rrfScores.keys())
       .sort((a, b) => (rrfScores.get(b)?.rrf || 0) - (rrfScores.get(a)?.rrf || 0))
-      .slice(0, 5);
+      .slice(0, FINAL_TOP_K);
 
-    if (sortedIds.length === 0) {
+    if (sortedChunkIds.length === 0) {
       return {
-        message: `Inga miljödomar eller lagrum hittades som matchade sökningen "${query}".`,
-        results: []
+        message: `Inga miljödomar eller lagrum hittades som matchade sökningen "${trimmedQuery}".`,
+        results: [],
       };
     }
 
-    const details = await prisma.$queryRawUnsafe<any[]>(
-      `SELECT id, title, case_number, published_at, decision_date, authority_name, legal_area, document_text, metadata, source_url, source_path
-       FROM legal_corpus_records
-       WHERE id IN (${sortedIds.map((_, i) => `$${i + 1}`).join(', ')});`,
-      ...sortedIds
+    const recordIds = Array.from(
+      new Set(
+        sortedChunkIds
+          .map((chunkId) => rrfScores.get(chunkId)?.candidate?.recordId)
+          .filter((id): id is string => Boolean(id)),
+      ),
     );
 
-    const mappedResults = sortedIds.map(id => {
-      const detail = details.find(d => d.id === id);
+    const details = recordIds.length
+      ? await prisma.$queryRawUnsafe<Array<Record<string, unknown>>>(
+          `SELECT id, title, case_number, published_at, decision_date, authority_name, legal_area, metadata, source_url, source_path
+           FROM public.legal_corpus_records
+           WHERE id IN (${recordIds.map((_, i) => `$${i + 1}`).join(', ')})`,
+          ...recordIds,
+        )
+      : [];
+
+    const mappedResults = sortedChunkIds.map((chunkId) => {
+      const rrfInfo = rrfScores.get(chunkId);
+      const candidate = rrfInfo?.candidate;
+      if (!candidate) return null;
+
+      const detail = details.find((d) => d.id === candidate.recordId);
       if (!detail) return null;
 
-      const rrfInfo = rrfScores.get(id);
-      const snippet = buildSnippet(detail.document_text || '', query, 1000);
-
-      // Structured metadata extraction
-      const meta = detail.metadata || {};
+      const meta = (detail.metadata as Record<string, unknown> | null) || {};
       const structuredMeta = {
         lagrum: meta.lagrumLista || [],
         forarbeten: meta.forarbeteLista || [],
         malnummer: meta.malNummerLista || [],
         nyckelord: meta.nyckelordLista || [],
         referatNummer: meta.referatNummerLista || [],
-        avgorandedatum: meta.avgorandedatum || detail.decision_date || null
+        avgorandedatum: meta.avgorandedatum || detail.decision_date || null,
+        chapter: candidate.chapter,
+        paragraph: candidate.paragraph,
+        section: candidate.section,
       };
 
       return {
-        id: detail.id,
+        id: candidate.recordId,
+        chunkId: candidate.chunkId,
         title: detail.title,
         caseNumber: detail.case_number,
         decisionDate: detail.decision_date,
@@ -270,19 +344,29 @@ export async function searchLegalCorpusHandler(args: { query: string; legalArea?
         legalArea: detail.legal_area,
         sourceUrl: detail.source_url,
         sourcePath: detail.source_path,
-        snippet,
+        // Chunk-text är grounding för Gemini — inte hela document_text.
+        snippet: candidate.chunkText,
+        chunkText: candidate.chunkText,
         metadata: structuredMeta,
         score: rrfInfo?.rrf ? Number(rrfInfo.rrf.toFixed(6)) : 0,
         similarity: rrfInfo?.similarity,
-        rank: rrfInfo?.rank
+        rank: rrfInfo?.rank,
       };
     }).filter(Boolean);
 
     return {
-      results: mappedResults
+      results: mappedResults,
+      meta: {
+        topK: FINAL_TOP_K,
+        exactCount: exactResults.length,
+        ftsCount: ftsResults.length,
+        vectorCount: vectorResults.length,
+        latencyMs: duration,
+      },
     };
-  } catch (err: any) {
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : String(err);
     console.error('searchLegalCorpus error:', err);
-    return { error: 'Databasfel vid sökning i korpusen.', details: err.message };
+    return { error: 'Databasfel vid sökning i korpusen.', details: message };
   }
 }
