@@ -333,8 +333,10 @@ model DocumentRecord {
   requirementCitations      RequirementCitation[]
   metadataEvidence          DocumentMetadataEvidence[]
   reviewQueue               MetadataReviewQueue[]
-  matrixRows                RequirementMatrixRow[]
-  attachments               OutlookAttachment[]
+  matrixRows                    RequirementMatrixRow[]
+  attachments                   OutlookAttachment[]
+  classificationRecommendations ClassificationRecommendation[]
+  humanApprovalGates           HumanApprovalGate[]
 
   @@index([projectId, receivedTime])
   @@index([organisationId, receivedTime])
@@ -504,9 +506,11 @@ model RequirementCase {
   updatedAt         DateTime            @updatedAt
   project           Project             @relation(fields: [projectId], references: [id], onDelete: Cascade)
   document          DocumentRecord      @relation(fields: [documentId], references: [id], onDelete: Cascade)
-  requirements      RequirementRecord[]
-  citations         RequirementCitation[]
-  matrixRows        RequirementMatrixRow[]
+  requirements                  RequirementRecord[]
+  citations                     RequirementCitation[]
+  matrixRows                    RequirementMatrixRow[]
+  classificationRecommendations ClassificationRecommendation[]
+  humanApprovalGates           HumanApprovalGate[]
 
   @@index([projectId, documentDate])
   @@index([municipality, authorityType])
@@ -1060,4 +1064,85 @@ model BankIdSession {
   @@index([orderRef])
   @@index([expiresAt])
   @@map("BankIdSession")
+}
+
+enum ClassificationStatus {
+  SUGGESTED
+  REVIEWING
+  APPROVED
+  REJECTED
+  APPLIED
+}
+
+enum ConfidenceLevel {
+  HIGH
+  MEDIUM
+  LOW
+}
+
+model ClassificationRecommendation {
+  id                    String               @id @default(cuid())
+  caseId                String               @map("case_id")
+  documentId            String               @map("document_id")
+  sourceDocumentHash    String               @map("source_document_hash")
+  status                ClassificationStatus @default(SUGGESTED)
+  aiClassification      String               @map("ai_classification")
+  aiConfidence          ConfidenceLevel      @map("ai_confidence")
+  aiReasoning           String?              @map("ai_reasoning") @db.Text
+  sourceTextSegment     String               @map("source_text_segment") @db.Text
+  charStart             Int?                 @map("char_start")
+  charEnd               Int?                 @map("char_end")
+  suggestedConditions   String?              @map("suggested_conditions") @db.Text
+  suggestedRequirements String?              @map("suggested_requirements") @db.Text
+  reviewedBy            String?              @map("reviewed_by")
+  reviewedAt            DateTime?            @map("reviewed_at")
+  reviewNotes           String?              @map("review_notes") @db.Text
+  reviewDecision        String?              @map("review_decision")
+  appliedWithChanges    Boolean              @default(false) @map("applied_with_changes")
+  appliedChangesNotes   String?              @map("applied_changes_notes") @db.Text
+  appliedAt             DateTime?            @map("applied_at")
+  appliedBy             String?              @map("applied_by")
+  createdAt             DateTime             @default(now()) @map("created_at")
+  updatedAt             DateTime             @updatedAt @map("updated_at")
+
+  case                  RequirementCase      @relation(fields: [caseId], references: [id], onDelete: Cascade)
+  document              DocumentRecord       @relation(fields: [documentId], references: [id], onDelete: Cascade)
+  approvalLogs          ApprovalLog[]
+
+  @@index([caseId])
+  @@index([documentId])
+  @@map("classification_recommendations")
+}
+
+model ApprovalLog {
+  id                             String                       @id @default(cuid())
+  classificationRecommendationId String                       @map("classification_recommendation_id")
+  action                         String
+  actor                          String
+  reason                         String?                      @db.Text
+  timestamp                      DateTime                     @default(now())
+  createdAt                      DateTime                     @default(now()) @map("created_at")
+
+  recommendation                 ClassificationRecommendation @relation(fields: [classificationRecommendationId], references: [id], onDelete: Cascade)
+
+  @@index([classificationRecommendationId])
+  @@map("approval_logs")
+}
+
+model HumanApprovalGate {
+  id          String    @id @default(cuid())
+  caseId      String    @map("case_id")
+  documentId  String    @map("document_id")
+  isOpen      Boolean   @default(true) @map("is_open")
+  lockedBy    String?   @map("locked_by")
+  lockedAt    DateTime? @map("locked_at")
+  finalizedAt DateTime? @map("finalized_at")
+  createdAt   DateTime  @default(now()) @map("created_at")
+  updatedAt   DateTime  @updatedAt @map("updated_at")
+
+  case        RequirementCase @relation(fields: [caseId], references: [id], onDelete: Cascade)
+  document    DocumentRecord  @relation(fields: [documentId], references: [id], onDelete: Cascade)
+
+  @@unique([caseId, documentId], name: "caseId_documentId")
+  @@map("human_approval_gates")
 }

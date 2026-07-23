@@ -194,6 +194,24 @@ export const AppSidebar: React.FC<AppSidebarProps> = ({
                     C-anmälan massor
                   </span>
                 </button>
+
+                <button
+                  type="button"
+                  onClick={() => setActiveTab('mimer-search')}
+                  title="Mimers AI-Sök (Alphaevolve RAG)"
+                  className={`w-full flex items-center gap-3 p-2.5 rounded-xl text-left transition-all duration-150 ${
+                    activeTab === 'mimer-search'
+                      ? 'bg-cyan-950/40 text-cyan-400 border border-cyan-800/30 shadow-[inset_0_0_12px_rgba(6,182,212,0.05)]'
+                      : 'text-slate-400 hover:bg-slate-900 hover:text-slate-200 border border-transparent'
+                  }`}
+                >
+                  <div className="w-5 h-5 flex items-center justify-center shrink-0">
+                    <i className={`fas fa-brain text-sm ${activeTab === 'mimer-search' ? 'text-cyan-400' : 'text-slate-500'}`} />
+                  </div>
+                  <span className="text-xs font-bold truncate opacity-0 group-hover:opacity-100 transition-opacity duration-300 whitespace-nowrap">
+                    Mimers AI-Sök
+                  </span>
+                </button>
               </>
             )}
 

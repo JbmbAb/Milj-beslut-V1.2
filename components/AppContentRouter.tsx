@@ -24,6 +24,7 @@ import { PriorityModulePortfolio } from './PriorityModulePortfolio';
 import SewagePortalView from './admin/modules/sewage-portal/SewagePortalView';
 import { DossierDashboard } from './DossierDashboard';
 import PermitPortalView from './PermitPortalView';
+import { MimerSearchUI } from './MimerSearchUI';
 
 export interface AppContentRouterProps {
   mode: InterfaceMode | null;
@@ -66,6 +67,7 @@ export const AppContentRouter: React.FC<AppContentRouterProps> = ({
       if (normalizedTab === 'localization') return <LocalizationStudyUI />;
       if (normalizedTab === 'c-notification-mass') return <CNotificationMassUI />;
       if (normalizedTab === 'c-notification-chemicals') return <CNotificationUI />;
+      if (normalizedTab === 'mimer-search') return <MimerSearchUI />;
       return <PriorityModulePortfolio onNavigate={setActiveTab} />;
     case 'LOGISTICS_MARKET':
       if (normalizedTab === 'archive') return <ExecutiveSummary />;
