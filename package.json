@@ -38,7 +38,7 @@
     "tokens:build": "node scripts/build-tokens-css.mjs",
     "preview": "vite preview",
     "prisma:generate": "prisma generate",
-    "postinstall": "prisma generate",
+    "postinstall": "node scripts/postinstall-prisma-generate.mjs",
     "prisma:migrate": "prisma migrate dev",
     "worker:search": "node --import tsx server/workers/search-indexer-worker.ts",
     "outlook:verify": "tsx scripts/backfill/verify-outlook-integrity.ts",

@@ -14,7 +14,9 @@ const envTestPath = path.resolve(process.cwd(), '.env.test');
 if (fs.existsSync(envTestPath)) {
   const envTestConfig = dotenv.parse(fs.readFileSync(envTestPath, 'utf-8'));
   for (const k in envTestConfig) {
-    process.env[k] = envTestConfig[k];
+    if (process.env[k] === undefined) {
+      process.env[k] = envTestConfig[k];
+    }
   }
 }
 

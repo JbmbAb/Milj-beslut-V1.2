@@ -8,7 +8,7 @@ const { Client } = pkg;
 // Align with tests/setup/env.ts so globalSetup mutates the same DATABASE_URL as integration tests.
 const envTestPath = path.resolve(process.cwd(), '.env.test');
 if (fs.existsSync(envTestPath)) {
-  dotenv.config({ path: envTestPath, override: true });
+  dotenv.config({ path: envTestPath, override: false });
 }
 dotenv.config();
 
