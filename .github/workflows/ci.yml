@@ -16,7 +16,7 @@ concurrency:
 env:
   NODE_VERSION: '22'
   # Centralize the database connection string to avoid repetition and simplify updates.
-  DATABASE_URL: postgresql://riskguard:password@localhost:5432/riskguard_test
+  DATABASE_URL: postgresql://riskguard:password@localhost:5432/riskguard_test?sslmode=disable
 
 # ─── Jobs ────────────────────────────────────────────────────────────────────
 

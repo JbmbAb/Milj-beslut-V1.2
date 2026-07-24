@@ -55,6 +55,7 @@ tmp_*
 !vercel.json
 !*.md
 !public/manifest.json
+!tests/fixtures/**/*.json
 !.vscode/extensions.json
 !.vscode/settings.json
 !.vscode/tasks.json

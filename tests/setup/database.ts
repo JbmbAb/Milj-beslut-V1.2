@@ -20,7 +20,10 @@ export default async () => {
   const { prisma } = await import('../../server/db/prisma');
 
   // Pre-clean public schema to avoid Prisma P3005 (database not empty) error
-  const preClient = new Client({ connectionString: process.env.DATABASE_URL });
+  const preClient = new Client({
+    connectionString: process.env.DATABASE_URL,
+    ssl: false,
+  });
   await preClient.connect();
   try {
     const publicTables = await preClient.query(`
@@ -84,7 +87,10 @@ export default async () => {
   }
 
   // MANUALLY RE-APPLY GIS STUBS (since they are not in schema.prisma and migrate reset drops them)
-  const client = new Client({ connectionString: process.env.DATABASE_URL });
+  const client = new Client({
+    connectionString: process.env.DATABASE_URL,
+    ssl: false,
+  });
   await client.connect();
   try {
     await client.query('DROP EXTENSION IF EXISTS postgis_raster CASCADE');

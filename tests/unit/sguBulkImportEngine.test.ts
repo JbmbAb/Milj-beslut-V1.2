@@ -2,6 +2,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { beforeAll, describe, expect, it, vi } from 'vitest';
 import type { SguBulkImportJob } from '../../server/datasources/sguBulkImportManifest';
+import { testTmpDir } from '../helpers/testPaths';
 
 const fixtureManifest = path.join(
   path.dirname(fileURLToPath(import.meta.url)),
@@ -26,7 +27,7 @@ describe('sguBulkImportEngine', () => {
       (j) => j.zipFile === 'jordarter25k-100k.zip' && j.layer === 'grundlager',
     );
     expect(job).toBeDefined();
-    const src = resolveSguSourcePath('C:/Users/jimmy/Downloads', job!);
+    const src = resolveSguSourcePath(testTmpDir('sgu-downloads'), job!);
     expect(src).toContain('/vsizip/');
     expect(src).toContain('jordarter25k-100k.zip');
     expect(src).toContain('jordarter25k_100k.gpkg');
