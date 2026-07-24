@@ -20,6 +20,8 @@ const forceFreshSetting = trim(process.env.PLAYWRIGHT_FORCE_FRESH_SERVER).toLowe
 const requireFreshLocalServers = forceFreshSetting === '' ? false : forceFreshSetting === 'true';
 const testEnv = loadEnv('test', process.cwd(), '');
 
+const geminiApiKey = trim(testEnv.GEMINI_API_KEY) || (process.env.CI ? 'ci-gemini-key' : '');
+
 const serverEnv = {
   NODE_ENV: 'development',
   PORT: String(localApiPort),
@@ -46,7 +48,9 @@ const serverEnv = {
   DOMSTOL_RSS_ENABLED: 'false',
   DISABLE_DB_RATE_LIMIT: 'true',
   SEARCH_WORKER_ENABLED: 'false',
-} as const;
+  VERTEX_PROJECT_ID: trim(testEnv.VERTEX_PROJECT_ID) || 'miljointelligens',
+  ...(geminiApiKey ? { GEMINI_API_KEY: geminiApiKey } : {}),
+};
 
 function applyLocalTestProcessEnv(): void {
   // Keep test worker and webServer process aligned to avoid credential/port drift.
