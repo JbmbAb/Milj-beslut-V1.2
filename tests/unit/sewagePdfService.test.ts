@@ -73,7 +73,7 @@ vi.mock('../../src/infrastructure/geo/static-map-generator', () => {
       drawMapToPdf() {
         return Promise.resolve(['Natura 2000: Mockområde']);
       }
-    }
+    },
   };
 });
 

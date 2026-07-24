@@ -18,8 +18,22 @@ vi.mock('../../services/coreApiClient', () => ({
 vi.mock('../../components/admin/hooks/useMassGisAnalysis', () => ({
   useMassGisAnalysis: (options?: {
     onSuccess?: (data: {
-      analysis: { propertyDesignation: string; centroid: { lat: number; lng: number }; overallRiskScore: number; logisticsSuitability: string; siteConstraints: []; warnings: []; reasoning: []; timestamp: string };
-      siteProfile: { propertyDesignation: string; centroid: { lat: number; lng: number }; recommendedZones: Array<{ id: string; label: string; operationType: string; offsetM: number }>; source: string };
+      analysis: {
+        propertyDesignation: string;
+        centroid: { lat: number; lng: number };
+        overallRiskScore: number;
+        logisticsSuitability: string;
+        siteConstraints: [];
+        warnings: [];
+        reasoning: [];
+        timestamp: string;
+      };
+      siteProfile: {
+        propertyDesignation: string;
+        centroid: { lat: number; lng: number };
+        recommendedZones: Array<{ id: string; label: string; operationType: string; offsetM: number }>;
+        source: string;
+      };
       propertySource: string;
     }) => void;
   }) => ({
@@ -53,11 +67,9 @@ vi.mock('../../components/admin/hooks/useMassGisAnalysis', () => ({
 }));
 
 vi.mock('../../components/admin/modules/c-notification-mass/MassMapView', () => ({
-  default: ({
-    requiredMapLayers,
-  }: {
-    requiredMapLayers?: string[];
-  }) => <div data-testid="mass-map-view">MPF-lager: {(requiredMapLayers ?? []).join(', ')}</div>,
+  default: ({ requiredMapLayers }: { requiredMapLayers?: string[] }) => (
+    <div data-testid="mass-map-view">MPF-lager: {(requiredMapLayers ?? []).join(', ')}</div>
+  ),
 }));
 
 import { CNotificationMassUI } from '../../components/admin/modules/c-notification-mass/CNotificationMassUI';
@@ -90,17 +102,19 @@ describe('CNotificationMassUI', () => {
 
   it('renders mass module header and step navigation', () => {
     render(<CNotificationMassUI />);
-    expect(screen.getByText(/Anmälan om mellanlagring, sortering och återvinning av schaktmassor/i)).toBeInTheDocument();
+    expect(
+      screen.getByText(/Anmälan om mellanlagring, sortering och återvinning av schaktmassor/i),
+    ).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /Spara delbeslut/i })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /Exportera PDF/i })).toBeInTheDocument();
   });
 
   it('runs GIS analysis from property step', async () => {
     render(<CNotificationMassUI />);
-    
+
     const input = screen.getByPlaceholderText(/Fastighetsbeteckning\.\.\./i);
     await user.type(input, 'STOCKHOLM 1:1');
-    
+
     await user.click(screen.getByRole('button', { name: /Kör ny GIS-analys/i }));
 
     await waitFor(() => {
@@ -129,7 +143,7 @@ describe('CNotificationMassUI', () => {
     });
 
     render(<CNotificationMassUI />);
-    
+
     const input = screen.getByPlaceholderText(/Fastighetsbeteckning\.\.\./i);
     await user.type(input, 'STOCKHOLM 1:1');
     await user.click(screen.getByRole('button', { name: /Kör ny GIS-analys/i }));

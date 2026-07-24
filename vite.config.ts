@@ -92,9 +92,7 @@ export default defineConfig(({ mode }) => {
     },
     plugins: [serverModulesBrowserStubsPlugin(), react()],
     optimizeDeps: {
-      esbuildOptions: {
-        external: ['@math.gl/types'],
-      },
+      exclude: ['@math.gl/types'],
     },
     resolve: {
       alias: {

@@ -344,7 +344,7 @@ const CONCEPT_SYNONYMS: Record<string, string[]> = {
 export function extractExpandedSearchTerms(query: string): string[] {
   const words = query
     .toLowerCase()
-    .replace(/[^a-z0-9åäöé\-]/g, ' ')
+    .replace(/[^a-z0-9åäöé-]/g, ' ')
     .split(/\s+/)
     .map(w => w.trim())
     .filter(w => w.length > 2 && !SWEDISH_STOPWORDS.has(w));

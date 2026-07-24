@@ -11,8 +11,6 @@ import {
 } from '../../server/repositories/transportRepository';
 import { describeIfDatabaseIntegration } from './integrationTestEnv';
 
-
-
 describeIfDatabaseIntegration('transportRepository Integration', () => {
   beforeAll(async () => {
     await prisma.$connect();

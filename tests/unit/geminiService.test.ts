@@ -13,7 +13,6 @@ vi.mock('../../server/services/vertexAiService', () => ({
   __resetVertexClientForTest: vi.fn(),
 }));
 
-
 // ─── Module under test ────────────────────────────────────────────────────────
 
 // Import after mocks are in place

@@ -8,9 +8,7 @@ async function main() {
   console.log('==================================================');
 
   // Hämta alla scheman och tabeller
-  const tables = await prisma.$queryRaw<
-    Array<{ schemaname: string; tablename: string }>
-  >`
+  const tables = await prisma.$queryRaw<Array<{ schemaname: string; tablename: string }>>`
     SELECT schemaname, tablename 
     FROM pg_tables 
     WHERE schemaname IN ('public', 'core', 'env', 'topo10')
@@ -24,7 +22,7 @@ async function main() {
   for (const { schemaname, tablename } of tables) {
     try {
       const countRes = await prisma.$queryRawUnsafe<Array<{ count: bigint }>>(
-        `SELECT COUNT(*)::bigint AS count FROM "${schemaname}"."${tablename}"`
+        `SELECT COUNT(*)::bigint AS count FROM "${schemaname}"."${tablename}"`,
       );
       const count = Number(countRes[0]?.count ?? 0n);
       results.push({ schema: schemaname, table: tablename, rows: count });

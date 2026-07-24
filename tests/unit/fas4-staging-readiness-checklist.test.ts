@@ -86,11 +86,7 @@ describe('Fas 4 — Staging E2E Readiness Checklist', () => {
   describe('Module Readiness: Mass (c-anmalan)', () => {
     it('should have gate-based orchestration', () => {
       // From massOrchestrator.ts
-      const gates = [
-        'SHIPMENT_CONTROL',
-        'ENVIRONMENTAL_CLASSIFICATION',
-        'REGULATORY_COMPLIANCE',
-      ];
+      const gates = ['SHIPMENT_CONTROL', 'ENVIRONMENTAL_CLASSIFICATION', 'REGULATORY_COMPLIANCE'];
       expect(gates.length).toBeGreaterThan(0);
     });
 
@@ -103,7 +99,11 @@ describe('Fas 4 — Staging E2E Readiness Checklist', () => {
   describe('Module Readiness: Localization (lokaliseringsutredning)', () => {
     it('should have site alternative evaluation', () => {
       // From localizationOrchestrator.ts
-      const capabilities = ['parseSiteAlternatives', 'assertStrictReportUsable', 'generateLocalizationReport'];
+      const capabilities = [
+        'parseSiteAlternatives',
+        'assertStrictReportUsable',
+        'generateLocalizationReport',
+      ];
       expect(capabilities.length).toBeGreaterThan(0);
     });
 

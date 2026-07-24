@@ -8,8 +8,6 @@ import {
 import { ProjectPlan } from '../../types';
 import { describeIfDatabaseIntegration } from './integrationTestEnv';
 
-
-
 describeIfDatabaseIntegration('projectPlanRepository Integration', () => {
   let testOrgId: string;
   let testUserId: string;

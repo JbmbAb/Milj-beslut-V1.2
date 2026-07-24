@@ -50,9 +50,7 @@ describeIfDatabaseIntegration('import-librarian-manifest integration (offline)',
     }
 
     expect(logs.some((l) => l.includes('Registry Target: env.registerenhetsomradesytor'))).toBe(true);
-    expect(logs.some((l) => l.includes('[DRY-RUN]') || l.includes('Would look for primary file'))).toBe(
-      true,
-    );
+    expect(logs.some((l) => l.includes('[DRY-RUN]') || l.includes('Would look for primary file'))).toBe(true);
   });
 
   it('skips import when content_bundle_sha256 already SUCCESS in database', async () => {
@@ -89,15 +87,15 @@ describeIfDatabaseIntegration('import-librarian-manifest integration (offline)',
       fs.mkdirSync(unknownDir, { recursive: true });
     }
     const mockManifest = {
-      schema_version: "2.0",
-      provider: "Okand",
-      dataset: "Pony",
-      version: "1",
+      schema_version: '2.0',
+      provider: 'Okand',
+      dataset: 'Pony',
+      version: '1',
       total_bytes: 100,
-      files: ["pony.geojson"],
-      content_bundle_sha256: "0000000000000000000000000000000000000000000000000000000000000000",
-      provenance: "test",
-      qa_status: "pending"
+      files: ['pony.geojson'],
+      content_bundle_sha256: '0000000000000000000000000000000000000000000000000000000000000000',
+      provenance: 'test',
+      qa_status: 'pending',
     };
     fs.writeFileSync(UNKNOWN_MANIFEST, JSON.stringify(mockManifest, null, 2), 'utf8');
 

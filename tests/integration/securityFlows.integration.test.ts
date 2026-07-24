@@ -4,7 +4,6 @@ import request from 'supertest';
 
 import { createApp } from '../../server/createApp';
 
-
 const app = createApp();
 
 const hasDatabaseIntegration = process.env.DATABASE_INTEGRATION === 'true';

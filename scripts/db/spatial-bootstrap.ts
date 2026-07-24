@@ -22,11 +22,7 @@ import { Pool } from 'pg';
 
 const SPATIAL_DIR = resolve(process.cwd(), 'prisma', 'spatial');
 
-async function tableHasColumn(
-  pool: Pool,
-  table: string,
-  column: string,
-): Promise<boolean> {
+async function tableHasColumn(pool: Pool, table: string, column: string): Promise<boolean> {
   const { rows } = await pool.query<{ exists: boolean }>(
     `SELECT EXISTS (
        SELECT 1
@@ -97,11 +93,7 @@ async function applyMigration(pool: Pool, file: MigrationFile): Promise<void> {
     [file.fileName],
   );
 
-  if (
-    existing.rowCount &&
-    existing.rows[0].checksum &&
-    existing.rows[0].checksum === file.checksum
-  ) {
+  if (existing.rowCount && existing.rows[0].checksum && existing.rows[0].checksum === file.checksum) {
     console.log(`[=] ${file.fileName} (oförändrad, skippas)`);
     return;
   }

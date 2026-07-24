@@ -4,8 +4,6 @@ import { it, expect, beforeAll, afterAll } from 'vitest';
 import { assertProjectMembership } from '../../server/repositories/projectAccessRepository';
 import { describeIfDatabaseIntegration } from './integrationTestEnv';
 
-
-
 describeIfDatabaseIntegration('projectAccessRepository Integration', () => {
   let org1Id: string;
   let user1Id: string;

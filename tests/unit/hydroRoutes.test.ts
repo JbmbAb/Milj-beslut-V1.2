@@ -29,27 +29,23 @@ function authHeader() {
 
 describe('hydro.routes', () => {
   it('rejects unauthenticated requests', async () => {
-    const p110 = await request(app)
-      .post('/api/hydro/svenskt-vatten/p110')
-      .send({
-        areaM2: 5000,
-        runoffCoefficient: 0.8,
-        returnPeriodYears: 5,
-        durationMinutes: 15,
-        climateFactor: 1.25,
-      });
+    const p110 = await request(app).post('/api/hydro/svenskt-vatten/p110').send({
+      areaM2: 5000,
+      runoffCoefficient: 0.8,
+      returnPeriodYears: 5,
+      durationMinutes: 15,
+      climateFactor: 1.25,
+    });
     expect(p110.status).toBe(401);
 
-    const klimat = await request(app)
-      .post('/api/hydro/svenskt-vatten/klimat-va')
-      .send({
-        trenchLengthM: 100,
-        trenchWidthM: 1,
-        trenchDepthM: 1.5,
-        reusePercentage: 50,
-        pipes: [],
-        transportDistanceKm: 15,
-      });
+    const klimat = await request(app).post('/api/hydro/svenskt-vatten/klimat-va').send({
+      trenchLengthM: 100,
+      trenchWidthM: 1,
+      trenchDepthM: 1.5,
+      reusePercentage: 50,
+      pipes: [],
+      transportDistanceKm: 15,
+    });
     expect(klimat.status).toBe(401);
   });
 
@@ -103,7 +99,7 @@ describe('hydro.routes', () => {
             material: 'PVC',
             diameterMm: 220,
             lengthM: 200,
-          }
+          },
         ],
         transportDistanceKm: 15,
       });

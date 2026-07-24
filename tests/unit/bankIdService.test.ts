@@ -361,7 +361,10 @@ describe('bankIdService', () => {
       userVisibleData: Buffer.from('Skriv under dokument').toString('base64'),
       userNonVisibleData: 'nonce-sign-1',
     });
-    expect(mocks.persistentReplayProtection.registerSession).toHaveBeenCalledWith('sign-order-1', '127.0.0.1');
+    expect(mocks.persistentReplayProtection.registerSession).toHaveBeenCalledWith(
+      'sign-order-1',
+      '127.0.0.1',
+    );
   });
 
   it('initiates mock sign and stores replay session without mtls', async () => {
@@ -374,7 +377,10 @@ describe('bankIdService', () => {
 
     expect(result.orderRef).toMatch(/^mock-order-/);
     expect(result.launchMode).toBe('mock');
-    expect(mocks.persistentReplayProtection.registerSession).toHaveBeenCalledWith(result.orderRef, '127.0.0.1');
+    expect(mocks.persistentReplayProtection.registerSession).toHaveBeenCalledWith(
+      result.orderRef,
+      '127.0.0.1',
+    );
     expect(mocks.request).not.toHaveBeenCalled();
   });
 

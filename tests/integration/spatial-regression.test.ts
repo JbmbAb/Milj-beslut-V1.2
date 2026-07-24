@@ -16,7 +16,9 @@ describe('Spatial Regression Tests (30-50 Reference Properties)', () => {
     await prisma.$executeRawUnsafe(`TRUNCATE TABLE topo10.vatten CASCADE;`);
 
     // Alter topo10.vatten to generic geometry type so it accepts both LineStrings and Polygons from the fixtures
-    await prisma.$executeRawUnsafe(`ALTER TABLE topo10.vatten ALTER COLUMN geom TYPE geometry(Geometry, 3006);`);
+    await prisma.$executeRawUnsafe(
+      `ALTER TABLE topo10.vatten ALTER COLUMN geom TYPE geometry(Geometry, 3006);`,
+    );
 
     // Insert each fixture into core.property_unit and topo10.vatten
     for (const [index, fixture] of fixtures.entries()) {
@@ -26,7 +28,7 @@ describe('Spatial Regression Tests (30-50 Reference Properties)', () => {
           `INSERT INTO core.property_unit (designation, geom)
            VALUES ($1, ST_Multi(ST_GeomFromText($2, 3006)));`,
           fixture.designation,
-          fixture.property_wkt
+          fixture.property_wkt,
         );
       }
       if (fixture.water_wkt) {
@@ -34,7 +36,7 @@ describe('Spatial Regression Tests (30-50 Reference Properties)', () => {
           `INSERT INTO topo10.vatten (objektidentitet, geom)
            VALUES ($1, ST_GeomFromText($2, 3006));`,
           `water-ref-${index}`,
-          fixture.water_wkt
+          fixture.water_wkt,
         );
       }
     }
@@ -46,7 +48,7 @@ describe('Spatial Regression Tests (30-50 Reference Properties)', () => {
     const fixtures = JSON.parse(fs.readFileSync(fixturesPath, 'utf8'));
 
     console.log(`Running regression check on ${fixtures.length} reference properties...`);
-    
+
     for (const ref of fixtures) {
       // Query PostGIS directly to calculate minimum distance to nearest water body (topo10.vatten)
       const result = await prisma.$queryRawUnsafe<any[]>(
@@ -57,7 +59,7 @@ describe('Spatial Regression Tests (30-50 Reference Properties)', () => {
            AND w.geom IS NOT NULL
          ORDER BY pu.geom <-> w.geom
          LIMIT 1;`,
-        ref.designation
+        ref.designation,
       );
 
       expect(result.length).toBeGreaterThan(0);
@@ -65,7 +67,7 @@ describe('Spatial Regression Tests (30-50 Reference Properties)', () => {
       const difference = Math.abs(actualDistance - ref.expected_distance);
 
       console.log(
-        `Property: ${ref.designation.padEnd(40)} | Expected: ${ref.expected_distance.toFixed(2)}m | Actual: ${actualDistance.toFixed(2)}m | Diff: ${difference.toFixed(2)}m`
+        `Property: ${ref.designation.padEnd(40)} | Expected: ${ref.expected_distance.toFixed(2)}m | Actual: ${actualDistance.toFixed(2)}m | Diff: ${difference.toFixed(2)}m`,
       );
 
       expect(difference).toBeLessThanOrEqual(0.5);

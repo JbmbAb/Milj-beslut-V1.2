@@ -63,26 +63,34 @@ describe('validateSewageApplicationRegulations', () => {
 
   describe('brunnsavstånd (50 m – Miljöbalken 32:4)', () => {
     it('kräver violation när brunn är 30 m bort och system är INFILTRATION', () => {
-      const profile = makeProfile({ nearestWell: { distance: 30, owner: 'NEIGHBOR', coordinates: { lat: 60, lng: 17 } } });
+      const profile = makeProfile({
+        nearestWell: { distance: 30, owner: 'NEIGHBOR', coordinates: { lat: 60, lng: 17 } },
+      });
       const result = validateSewageApplicationRegulations(makeApp(), profile);
       expect(result.isCompliant).toBe(false);
       expect(result.violations.some((v) => v.includes('30m') && v.includes('50m'))).toBe(true);
     });
 
     it('kräver violation vid exakt 49 m (under tröskeln)', () => {
-      const profile = makeProfile({ nearestWell: { distance: 49, owner: 'NEIGHBOR', coordinates: { lat: 60, lng: 17 } } });
+      const profile = makeProfile({
+        nearestWell: { distance: 49, owner: 'NEIGHBOR', coordinates: { lat: 60, lng: 17 } },
+      });
       const result = validateSewageApplicationRegulations(makeApp(), profile);
       expect(result.violations.some((v) => v.includes('49m'))).toBe(true);
     });
 
     it('ingen violation vid exakt 50 m (på tröskeln)', () => {
-      const profile = makeProfile({ nearestWell: { distance: 50, owner: 'NEIGHBOR', coordinates: { lat: 60, lng: 17 } } });
+      const profile = makeProfile({
+        nearestWell: { distance: 50, owner: 'NEIGHBOR', coordinates: { lat: 60, lng: 17 } },
+      });
       const result = validateSewageApplicationRegulations(makeApp(), profile);
       expect(result.violations.some((v) => v.includes('50m') && v.includes('brunn'))).toBe(false);
     });
 
     it('ingen brunnsavståndsviolation för CLOSED_TANK (ej i applicableTo)', () => {
-      const profile = makeProfile({ nearestWell: { distance: 10, owner: 'NEIGHBOR', coordinates: { lat: 60, lng: 17 } } });
+      const profile = makeProfile({
+        nearestWell: { distance: 10, owner: 'NEIGHBOR', coordinates: { lat: 60, lng: 17 } },
+      });
       const app = makeApp({ selectedSystemType: 'CLOSED_TANK' });
       const result = validateSewageApplicationRegulations(app, profile);
       // CLOSED_TANK triggrar INTE brunnsavståndsregeln i INFILTRATION/SOIL_BED-grenen
@@ -106,7 +114,10 @@ describe('validateSewageApplicationRegulations', () => {
 
   describe('markundersökning (HVMFS 2016:17)', () => {
     it('violation för INFILTRATION utan soilTest', () => {
-      const result = validateSewageApplicationRegulations(makeApp({ soilTestCompleted: false }), makeProfile());
+      const result = validateSewageApplicationRegulations(
+        makeApp({ soilTestCompleted: false }),
+        makeProfile(),
+      );
       expect(result.violations.some((v) => v.includes('perkolationsprov'))).toBe(true);
     });
 
@@ -175,7 +186,9 @@ describe('validateSewageApplicationRegulations', () => {
         makeApp({ neighborConsentObtained: true }),
         profile,
       );
-      expect(result.violations.some((v) => v.includes('Grannemedgivande') && v.includes('OBLIGATORISKT'))).toBe(false);
+      expect(
+        result.violations.some((v) => v.includes('Grannemedgivande') && v.includes('OBLIGATORISKT')),
+      ).toBe(false);
     });
 
     it('ingen consent-violation när brunn är 80 m bort', () => {
@@ -190,7 +203,13 @@ describe('validateSewageApplicationRegulations', () => {
   describe('varningar', () => {
     it('varning för låg infiltrationskapacitet', () => {
       const profile = makeProfile({
-        soilProfile: { soilType: 'Lera', depthToRock: 1, groundwaterLevel: 0.5, infiltrationCapacity: 'LOW', permeability: 5 },
+        soilProfile: {
+          soilType: 'Lera',
+          depthToRock: 1,
+          groundwaterLevel: 0.5,
+          infiltrationCapacity: 'LOW',
+          permeability: 5,
+        },
       });
       const result = validateSewageApplicationRegulations(makeApp(), profile);
       expect(result.warnings.some((w) => w.includes('infiltrationskapacitet'))).toBe(true);

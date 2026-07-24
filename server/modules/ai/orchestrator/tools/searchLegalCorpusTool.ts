@@ -437,13 +437,13 @@ export async function searchLegalCorpusHandler(args: { query: string; legalArea?
           // Chunk-text är grounding för Gemini — inte hela document_text.
           snippet: candidate.chunkText,
           chunkText: candidate.chunkText,
-          metadata: structuredMeta,
+          metadata: structuredMeta as Record<string, unknown>,
           score: rrfInfo?.rrf ? Number(rrfInfo.rrf.toFixed(6)) : 0,
           similarity: rrfInfo?.similarity,
           rank: rrfInfo?.rank,
         };
       })
-      .filter((row): row is MappedResult => row != null);
+      .filter((row) => row != null);
 
     let finalResults = mappedResults;
     let rerankerStatus: 'disabled' | 'skipped_gap' | 'applied' = 'disabled';

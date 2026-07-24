@@ -46,7 +46,9 @@ export default async () => {
     await preClient.query('DROP SCHEMA IF EXISTS "climate" CASCADE');
     await preClient.query('DROP SCHEMA IF EXISTS "lm_staging" CASCADE');
     await preClient.query('DROP SCHEMA IF EXISTS "hydro" CASCADE');
-    console.log('Pre-cleaned public, env, core, topo10, climate, lm_staging, hydro schemas in test database.');
+    console.log(
+      'Pre-cleaned public, env, core, topo10, climate, lm_staging, hydro schemas in test database.',
+    );
   } catch (err) {
     console.warn('Failed to pre-clean public schema in test database:', err);
   } finally {
@@ -549,4 +551,3 @@ export default async () => {
   await ensureAdminConsoleUser(adminUsername);
   console.log(`Test database is ready (admin: ${adminUsername}).`);
 };
-

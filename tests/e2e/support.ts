@@ -39,7 +39,11 @@ export function isExternalE2E(): boolean {
 }
 
 function envFlag(name: string): boolean {
-  return ['1', 'true', 'yes'].includes(String(process.env[name] ?? '').trim().toLowerCase());
+  return ['1', 'true', 'yes'].includes(
+    String(process.env[name] ?? '')
+      .trim()
+      .toLowerCase(),
+  );
 }
 
 /** Modul-E2E: moln-staging eller lokal fullstack när E2E_ALLOW_LOCAL=true. */
@@ -196,10 +200,7 @@ export async function parseJson<T>(response: APIResponse): Promise<T> {
 }
 
 /** PDF-ready acceptance: verifierar utskriftsbar PDF (magic bytes + content-type). */
-export async function assertPrintablePdfResponse(
-  response: APIResponse,
-  label: string,
-): Promise<Buffer> {
+export async function assertPrintablePdfResponse(response: APIResponse, label: string): Promise<Buffer> {
   const status = response.status();
   expect(status, `${label}: HTTP ${status}`).toBe(200);
   const contentType = response.headers()['content-type'] ?? '';

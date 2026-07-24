@@ -60,6 +60,7 @@ export async function generateSewageDossierPdf(
   outputPath: string,
   options: SewagePdfOptions = {},
 ): Promise<string> {
+  // eslint-disable-next-line no-async-promise-executor
   return new Promise(async (resolve, reject) => {
     try {
       const meta = buildReportTraceability({

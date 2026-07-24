@@ -130,9 +130,11 @@ describe('searchLegalCorpusTool — Alphaevolve A1', () => {
     expect(sqlCalls.some((sql) => sql.includes('legal_corpus_chunks') && sql.includes('<=>'))).toBe(true);
     expect(sqlCalls.some((sql) => /FROM\s+legal_corpus_records[\s\S]*<=>/i.test(sql))).toBe(false);
 
-    const results = (result as {
-      results: Array<{ chunkId: string; snippet: string; score: number }>;
-    }).results;
+    const results = (
+      result as {
+        results: Array<{ chunkId: string; snippet: string; score: number }>;
+      }
+    ).results;
 
     expect(results.length).toBeGreaterThanOrEqual(2);
     expect(results.every((r) => typeof r.chunkId === 'string')).toBe(true);
@@ -308,7 +310,9 @@ describe('searchLegalCorpusTool — Alphaevolve A2', () => {
     );
   });
 
-  function mockHybridCorpus(chunks: Array<{ chunk_id: string; record_id: string; chunk_text: string; rank: number }>) {
+  function mockHybridCorpus(
+    chunks: Array<{ chunk_id: string; record_id: string; chunk_text: string; rank: number }>,
+  ) {
     mocks.queryRawUnsafe.mockImplementation(async (sql: string, ...params: unknown[]) => {
       const text = String(sql);
       if (text.includes('information_schema.columns')) {

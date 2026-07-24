@@ -61,7 +61,10 @@ const fullGis: SewageGISAnalysis = {
   propertyId: 'prop-1',
   timestamp: '2026-05-01T10:00:00.000Z',
   sguJordartData: { soilType: 'Morän', depthToRock: 3, groundwaterLevel: 2, loadingCapacity: 'MEDIUM' },
-  sguBrunnarData: { nearestNeighborWells: [], nearestOwnWell: { distance: 80, coordinates: { lat: 60.67, lng: 17.14 } } },
+  sguBrunnarData: {
+    nearestNeighborWells: [],
+    nearestOwnWell: { distance: 80, coordinates: { lat: 60.67, lng: 17.14 } },
+  },
   protectedAreas: [],
   propertyBoundaries: { area: 2500, perimeter: 200, nearestNeighbor: 8 },
   floodRiskZone: { level: 'LOW', floodFrequency: '1:100 år' },
@@ -209,7 +212,15 @@ describe('resolveDomainContext', () => {
 
   describe('gates', () => {
     it('uses body currentGates when provided', () => {
-      const customGates = [{ id: 'gate-custom', name: 'Custom', description: '', status: 'COMPLETED' as const, priority: 'HIGH' as const }];
+      const customGates = [
+        {
+          id: 'gate-custom',
+          name: 'Custom',
+          description: '',
+          status: 'COMPLETED' as const,
+          priority: 'HIGH' as const,
+        },
+      ];
       const { application } = resolveDomainContext(makeRecord(), {
         protectionProfile: fullProfile,
         application: { currentGates: customGates },
@@ -226,7 +237,11 @@ describe('resolveDomainContext', () => {
     it('builds default DOCUMENTATION gate as COMPLETED when situationPlanSVG present', () => {
       const record = makeRecord({
         domainSnapshot: {
-          generatedDocuments: { situationPlanSVG: '<svg/>', crossSectionSVG: '<svg/>', generatedAt: '2026-05-01T10:00:00.000Z' },
+          generatedDocuments: {
+            situationPlanSVG: '<svg/>',
+            crossSectionSVG: '<svg/>',
+            generatedAt: '2026-05-01T10:00:00.000Z',
+          },
         },
       });
       const { application } = resolveDomainContext(record, { protectionProfile: fullProfile });

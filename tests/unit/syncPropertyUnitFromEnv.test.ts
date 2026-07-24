@@ -14,10 +14,7 @@ describe('syncPropertyUnitFromEnv', () => {
       $executeRawUnsafe: executeRawUnsafe,
     } as unknown as Parameters<typeof syncPropertyUnitFromEnv>[0];
 
-    vi.spyOn(
-      { countRows: async () => 0 },
-      'countRows',
-    );
+    vi.spyOn({ countRows: async () => 0 }, 'countRows');
 
     // countRows is internal — mock via queryRawUnsafe for table counts
     queryRaw.mockImplementation(async (strings: TemplateStringsArray, ...values: unknown[]) => {

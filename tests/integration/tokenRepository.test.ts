@@ -10,8 +10,6 @@ import {
 } from '../../server/repositories/tokenRepository';
 import { describeIfDatabaseIntegration } from './integrationTestEnv';
 
-
-
 describeIfDatabaseIntegration('tokenRepository Integration', () => {
   beforeAll(async () => {
     await prisma.$connect();

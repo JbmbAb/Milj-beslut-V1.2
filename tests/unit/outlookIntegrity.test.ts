@@ -34,9 +34,7 @@ describe('outlook integrity helpers', () => {
   });
 
   it('detects SHA-256 duplicate attachments', async () => {
-    const { sha256, isDuplicateAttachment } = await import(
-      '../../server/services/outlookIngestionService'
-    );
+    const { sha256, isDuplicateAttachment } = await import('../../server/services/outlookIngestionService');
     const data = Buffer.from('same-bytes');
     const hash = sha256(data);
     mocks.findUniqueAttachment.mockResolvedValue({ attachmentHash: hash });
@@ -62,9 +60,8 @@ describe('outlook integrity helpers', () => {
   });
 
   it('lists DLQ attachments with parseFailureReason', async () => {
-    const { listDlqAttachments, markAttachmentFailed } = await import(
-      '../../server/services/outlookIngestionService'
-    );
+    const { listDlqAttachments, markAttachmentFailed } =
+      await import('../../server/services/outlookIngestionService');
     mocks.updateAttachment.mockResolvedValue({});
     mocks.findManyAttachments.mockResolvedValue([
       { attachmentHash: 'h1', parseFailureReason: 'OCR failed', parsed: true },

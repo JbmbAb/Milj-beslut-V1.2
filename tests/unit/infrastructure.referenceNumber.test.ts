@@ -80,7 +80,7 @@ describe('Reference number consistency — Fas 3 infrastructure', () => {
         timestamp: '2026-05-21T10:00:00Z',
       };
       const submissionEntry = {
-        referenceNumber: appRefNum,  // Same reference number used
+        referenceNumber: appRefNum, // Same reference number used
         action: 'APPLICATION_SUBMITTED',
         timestamp: '2026-05-21T11:00:00Z',
       };
@@ -96,4 +96,3 @@ describe('Reference number consistency — Fas 3 infrastructure', () => {
     });
   });
 });
-

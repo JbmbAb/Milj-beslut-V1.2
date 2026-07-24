@@ -51,10 +51,7 @@ function mockRetrieval(
   fts: SearchChunkResult[],
   vector: SearchChunkResult[] = [],
 ) {
-  prismaMock.$queryRaw
-    .mockResolvedValueOnce(fts)
-    .mockResolvedValueOnce(vector)
-    .mockResolvedValue([]);
+  prismaMock.$queryRaw.mockResolvedValueOnce(fts).mockResolvedValueOnce(vector).mockResolvedValue([]);
 }
 
 describe('AlphaevolveSearchService - Automated Tests', () => {

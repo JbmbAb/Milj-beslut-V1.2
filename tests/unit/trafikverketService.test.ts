@@ -60,7 +60,7 @@ describe('TrafikverketService.getRoadData', () => {
     // Wait, since we are doing dynamic import after `process.env.TRAFIKVERKET_API_KEY` delete,
     vi.resetModules();
     const svcWithoutKey = await import('../../services/trafikverketService');
-    
+
     const data = await svcWithoutKey.trafikverketService.getRoadData(59.33, 18.06);
     expect(data.status).toBe('pending_auth');
     expect(data.mockData).toBeDefined();

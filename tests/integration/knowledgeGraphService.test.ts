@@ -70,9 +70,9 @@ describeIfDatabaseIntegration('knowledgeGraphService integration tests (REAL DB)
     // 2. Search using natural language containing synonym word 'sanering'
     // 'Kan kommunen kräva sanering?' should trigger expansion to include 'förorenad mark'
     const searchResult = await searchGraph({ query: 'Kan kommunen kräva sanering?' });
-    
+
     // 3. Verify it found the 'förorenad mark' node
-    const foundNames = searchResult.nodes.map(n => n.name);
+    const foundNames = searchResult.nodes.map((n) => n.name);
     expect(foundNames).toContain(uniqueSynonymName);
   });
 });

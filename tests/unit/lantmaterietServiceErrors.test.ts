@@ -128,7 +128,9 @@ describe('lantmaterietService errors and live policy', () => {
     });
 
     const { lookupPropertyByDesignation } = await loadService();
-    await expect(lookupPropertyByDesignation(mockInput, mockUser)).rejects.toThrow(/Uppslagsendpoint hittades inte/);
+    await expect(lookupPropertyByDesignation(mockInput, mockUser)).rejects.toThrow(
+      /Uppslagsendpoint hittades inte/,
+    );
   });
 
   it('throws a generic HTTP error for HTTP 500', async () => {
@@ -273,7 +275,9 @@ describe('lantmaterietService errors and live policy', () => {
       ok: true,
       json: () =>
         Promise.resolve({
-          features: [{ properties: { etikett: 'GAVLE BRYNAS 1:1' }, geometry: { type: 'Polygon', coordinates: [] } }],
+          features: [
+            { properties: { etikett: 'GAVLE BRYNAS 1:1' }, geometry: { type: 'Polygon', coordinates: [] } },
+          ],
         }),
     });
 
@@ -296,7 +300,10 @@ describe('lantmaterietService errors and live policy', () => {
     stubOgcSuccess('GAVLE BRYNAS 2:1');
 
     const { lookupPropertyByDesignation } = await loadService();
-    const result = await lookupPropertyByDesignation({ ...mockInput, propertyDesignation: 'GAVLE BRYNAS 2:1' }, mockUser);
+    const result = await lookupPropertyByDesignation(
+      { ...mockInput, propertyDesignation: 'GAVLE BRYNAS 2:1' },
+      mockUser,
+    );
 
     expect(result.source).toBe('live');
     expect(fetchMock).toHaveBeenCalledTimes(3);
@@ -312,7 +319,10 @@ describe('lantmaterietService errors and live policy', () => {
     stubOgcSuccess('GAVLE BRYNAS 2:1');
 
     const { lookupPropertyByDesignation } = await loadService();
-    const result = await lookupPropertyByDesignation({ ...mockInput, propertyDesignation: 'GAVLE BRYNAS 2:1' }, mockUser);
+    const result = await lookupPropertyByDesignation(
+      { ...mockInput, propertyDesignation: 'GAVLE BRYNAS 2:1' },
+      mockUser,
+    );
 
     expect(result.source).toBe('live');
     expect(fetchMock).toHaveBeenCalledTimes(3);

@@ -70,7 +70,7 @@ function postToStitch(body) {
 function stripOutputSchema(response) {
   if (response?.result?.tools && Array.isArray(response.result.tools)) {
     response.result.tools = response.result.tools.map((tool) => {
-      const { outputSchema, ...rest } = tool;
+      const { outputSchema: _outputSchema, ...rest } = tool;
       return rest;
     });
   }

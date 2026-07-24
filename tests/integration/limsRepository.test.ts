@@ -10,8 +10,6 @@ import {
 } from '../../server/repositories/limsRepository';
 import { describeIfDatabaseIntegration } from './integrationTestEnv';
 
-
-
 describeIfDatabaseIntegration('limsRepository Integration', () => {
   beforeAll(async () => {
     await prisma.$connect();

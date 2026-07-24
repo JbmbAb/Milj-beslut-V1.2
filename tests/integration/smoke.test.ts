@@ -13,7 +13,6 @@ import type { Express } from 'express';
 import { createApp } from '../../server/createApp';
 import { describeIfDatabaseIntegration } from './integrationTestEnv';
 
-
 const app: Express = createApp();
 
 afterAll(async () => {

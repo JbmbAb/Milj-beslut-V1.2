@@ -7,9 +7,14 @@ loadEnvFile('.env.local', { overrideExisting: true });
 
 async function main() {
   const { prisma: p } = await import('../../server/db/prisma');
-  const migrationFile = path.join(process.cwd(), 'prisma', 'migrations', '20260628_raster_outdb_infrastructure.sql');
+  const migrationFile = path.join(
+    process.cwd(),
+    'prisma',
+    'migrations',
+    '20260628_raster_outdb_infrastructure.sql',
+  );
   console.log(`Reading migration from: ${migrationFile}`);
-  
+
   if (!fs.existsSync(migrationFile)) {
     console.error('Migration file not found!');
     process.exit(1);
@@ -20,15 +25,15 @@ async function main() {
   // Split SQL by semicolon, clean up comments and empty statements
   const statements = sql
     .split(';')
-    .map(stmt => stmt.trim())
-    .filter(stmt => {
+    .map((stmt) => stmt.trim())
+    .filter((stmt) => {
       // Remove SQL comments
       const cleaned = stmt.replace(/--.*$/gm, '').trim();
       return cleaned.length > 0;
     });
 
   console.log(`Applying ${statements.length} migration statements...`);
-  
+
   try {
     for (let i = 0; i < statements.length; i++) {
       const stmt = statements[i];

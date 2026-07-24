@@ -106,12 +106,7 @@ test.describe('Staging: Lokaliseringsutredning (PDF-ready)', () => {
   test('geodata-prober: soil och protected-nature svarar FeatureCollection eller degraded', async () => {
     const api = await createApiContext();
     try {
-      const bbox = [
-        SITE.lng - 0.05,
-        SITE.lat - 0.05,
-        SITE.lng + 0.05,
-        SITE.lat + 0.05,
-      ].join(',');
+      const bbox = [SITE.lng - 0.05, SITE.lat - 0.05, SITE.lng + 0.05, SITE.lat + 0.05].join(',');
       for (const path of ['/api/geodata/soil', '/api/geodata/protected-nature']) {
         const res = await api.get(`${path}?bbox=${encodeURIComponent(bbox)}`);
         const text = await res.text();

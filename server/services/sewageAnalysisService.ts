@@ -39,8 +39,8 @@ export async function analyzeSewageProperty(request: SewageAnalysisRequest): Pro
     };
 
     // Use coordinates from request if available, otherwise from property record
-    let lat = request.latitude;
-    let lng = request.longitude;
+    const lat = request.latitude;
+    const lng = request.longitude;
     
     // If property was found but no lat/lng provided, we could extract centroid from GeoJSON if needed
     // For now we trust the request coords or use defaults

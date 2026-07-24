@@ -4,7 +4,13 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 vi.mock('../../server/db/prisma', () => ({
   prisma: {
     $transaction: vi.fn((cb) => cb(prisma)),
-    project: { findUnique: vi.fn(), update: vi.fn(), updateMany: vi.fn(), findMany: vi.fn(), delete: vi.fn() },
+    project: {
+      findUnique: vi.fn(),
+      update: vi.fn(),
+      updateMany: vi.fn(),
+      findMany: vi.fn(),
+      delete: vi.fn(),
+    },
     documentRecord: { findMany: vi.fn(), updateMany: vi.fn(), deleteMany: vi.fn() },
     documentContent: { updateMany: vi.fn(), deleteMany: vi.fn() },
     documentChunk: { updateMany: vi.fn(), deleteMany: vi.fn() },

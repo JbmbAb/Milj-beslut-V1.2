@@ -29,9 +29,7 @@ describe('operationalCoverageService', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     vi.mocked(prisma.$queryRaw).mockResolvedValue([{ count: 12 }]);
-    vi.mocked(prisma.documentRecord.count)
-      .mockResolvedValueOnce(25)
-      .mockResolvedValueOnce(100);
+    vi.mocked(prisma.documentRecord.count).mockResolvedValueOnce(25).mockResolvedValueOnce(100);
     vi.mocked(getPublicDatasourceSummary).mockResolvedValue({
       cards: [
         { name: 'NVR', status: 'CONNECTED', activation: 'AUTO' },

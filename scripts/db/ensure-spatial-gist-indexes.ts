@@ -173,7 +173,9 @@ async function main(): Promise<void> {
         `ON ${qualifiedTable} USING GIST (${quotedColumn})`;
 
       if (!apply) {
-        console.log(`[DRY RUN] ${candidate.schemaname}.${candidate.tablename} (${candidate.geom_col}, ca ${approxRows} rader)`);
+        console.log(
+          `[DRY RUN] ${candidate.schemaname}.${candidate.tablename} (${candidate.geom_col}, ca ${approxRows} rader)`,
+        );
         console.log(`          ${createIndexSql};`);
         continue;
       }

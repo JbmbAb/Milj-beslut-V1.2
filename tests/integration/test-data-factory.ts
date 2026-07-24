@@ -76,7 +76,12 @@ export class TestDataFactory {
     });
   }
 
-  async createRequirementCase(projectId: string, documentId: string, organisationId: string, overrides: any = {}) {
+  async createRequirementCase(
+    projectId: string,
+    documentId: string,
+    organisationId: string,
+    overrides: any = {},
+  ) {
     return this.prisma.requirementCase.create({
       data: {
         caseKey: `CASE-${Date.now()}`,

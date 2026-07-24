@@ -124,7 +124,8 @@ describe('sewageApplicationService', () => {
     } as any;
 
     vi.mocked(getSewageApplicationById).mockResolvedValue(mockApp);
-    const { validateSewageApplicationRegulations } = await import('../../src/application/evaluate-sewage-regulations.usecase');
+    const { validateSewageApplicationRegulations } =
+      await import('../../src/application/evaluate-sewage-regulations.usecase');
 
     await validateApplicationForSubmission('app-3');
 

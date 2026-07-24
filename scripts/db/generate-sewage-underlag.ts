@@ -3,7 +3,7 @@ const prisma = new PrismaClient();
 
 async function main() {
   const propertyDesignation = 'ORSA STACKMORA 3:12';
-  
+
   // 1. Get Property Data
   const property = await prisma.$queryRaw<any[]>`
     SELECT 
@@ -43,7 +43,7 @@ async function main() {
   console.log(`Total areal: ${Math.round(total_area_sqm)} m²`);
   console.log('\n1. FASTIGHETENS FÖRUTSÄTTNINGAR');
   console.log(`Platsen består av:`);
-  landCover.forEach(lc => {
+  landCover.forEach((lc) => {
     console.log(`  - ${lc.objekttyp}: ${Math.round(lc.area_sqm)} m²`);
   });
 

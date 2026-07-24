@@ -40,7 +40,9 @@ async function getColumns(client: pg.Client, schema: string, table: string): Pro
 }
 
 async function getRowCount(client: pg.Client, schema: string, table: string): Promise<number> {
-  const result = await client.query<{ count: string }>(`SELECT count(1) AS count FROM ${qualified(schema, table)};`);
+  const result = await client.query<{ count: string }>(
+    `SELECT count(1) AS count FROM ${qualified(schema, table)};`,
+  );
   return Number(result.rows[0]?.count ?? 0);
 }
 
@@ -70,7 +72,11 @@ async function main(): Promise<void> {
   const client = new Client({ connectionString: databaseUrl });
   await client.connect();
   try {
-    const tables = await client.query<{ table_schema: string; table_name: string; geom_column: string | null }>(
+    const tables = await client.query<{
+      table_schema: string;
+      table_name: string;
+      geom_column: string | null;
+    }>(
       `
         SELECT c.table_schema, c.table_name, max(CASE WHEN c.column_name = 'geom' THEN c.column_name END) AS geom_column
         FROM information_schema.columns c
@@ -85,7 +91,9 @@ async function main(): Promise<void> {
     const candidates: CandidateTable[] = [];
     for (const table of tables.rows) {
       const columns = await getColumns(client, table.table_schema, table.table_name);
-      const interestingColumns = columns.filter((column) => IDENTIFIER_COLUMNS.includes(column.toLowerCase()));
+      const interestingColumns = columns.filter((column) =>
+        IDENTIFIER_COLUMNS.includes(column.toLowerCase()),
+      );
       if (interestingColumns.length === 0 && table.table_schema !== 'hydro') continue;
 
       candidates.push({

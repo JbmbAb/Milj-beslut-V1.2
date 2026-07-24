@@ -26,7 +26,9 @@ describe('mergeGateDecisions', () => {
   });
 
   it('NOTIFICATION_REQUIRED beats UNKNOWN_CODE', () => {
-    expect(mergeGateDecisions(['UNKNOWN_CODE', 'NOTIFICATION_REQUIRED', 'EXEMPT'])).toBe('NOTIFICATION_REQUIRED');
+    expect(mergeGateDecisions(['UNKNOWN_CODE', 'NOTIFICATION_REQUIRED', 'EXEMPT'])).toBe(
+      'NOTIFICATION_REQUIRED',
+    );
   });
 
   it('UNKNOWN_CODE beats EXEMPT', () => {
@@ -48,7 +50,9 @@ describe('mergeGateDecisions', () => {
   it('full priority ordering: PERMIT > NOTIFICATION > UNKNOWN > EXEMPT', () => {
     const all = ['EXEMPT', 'UNKNOWN_CODE', 'NOTIFICATION_REQUIRED', 'PERMIT_REQUIRED'] as const;
     expect(mergeGateDecisions([...all])).toBe('PERMIT_REQUIRED');
-    expect(mergeGateDecisions(['EXEMPT', 'UNKNOWN_CODE', 'NOTIFICATION_REQUIRED'])).toBe('NOTIFICATION_REQUIRED');
+    expect(mergeGateDecisions(['EXEMPT', 'UNKNOWN_CODE', 'NOTIFICATION_REQUIRED'])).toBe(
+      'NOTIFICATION_REQUIRED',
+    );
     expect(mergeGateDecisions(['EXEMPT', 'UNKNOWN_CODE'])).toBe('UNKNOWN_CODE');
   });
 });

@@ -15,7 +15,7 @@ npm run e2e:staging:avlopp
 
 # Expected output (on success):
 #   ✓ 1. API-flöde: skapa ansökan utan mock
-#   ✓ 2. Statusövergång: utkast → handläggning  
+#   ✓ 2. Statusövergång: utkast → handläggning
 #   ✓ 2. Statusövergång: handläggning → beslut
 #   ✓ 3. Validering: saknade obligatoriska fält
 #   ✓ 3. Validering: ogiltiga koordinater
@@ -62,6 +62,7 @@ npm test -- tests/unit/localizationOrchestrator.e2e.test.ts
 ### Troubleshooting
 
 **Tests skipped**: No `PLAYWRIGHT_BASE_URL` set
+
 ```bash
 # Check if set:
 echo $PLAYWRIGHT_BASE_URL
@@ -71,6 +72,7 @@ export PLAYWRIGHT_BASE_URL="https://staging.example.com"
 ```
 
 **Tests timeout**: Staging server unreachable or slow
+
 ```bash
 # Increase timeout in playwright.config.ts:
 #   timeout: 30000  (default)
@@ -78,6 +80,7 @@ export PLAYWRIGHT_BASE_URL="https://staging.example.com"
 ```
 
 **Authentication fails**: Check credentials
+
 ```bash
 # Verify admin can login:
 curl -X POST "$PLAYWRIGHT_BASE_URL/api/auth/login" \
@@ -86,15 +89,15 @@ curl -X POST "$PLAYWRIGHT_BASE_URL/api/auth/login" \
 
 ### Critical Dependencies for Staging
 
-| Service | Used By | Fallback | Status |
-|---------|---------|----------|--------|
-| NVR API | Sewage water protection | Mock data | ✓ Mocked in unit tests |
-| RAA API | Sewage monuments | Mock data | ✓ Mocked in unit tests |
-| VISS API | Sewage water status | Mock response | ✓ Mocked in unit tests |
-| SLU Species | Sewage biodiversity | Disabled if no key | ✓ Optional |
-| Municipality REST API | Sewage submission | Email fallback | ✓ Both paths tested |
-| MPF Registry | Mass operation codes | Cached data | ✓ Local in staging |
-| PostGIS | All spatial queries | Docker volume | ✓ Requires staging DB |
+| Service               | Used By                 | Fallback           | Status                 |
+| --------------------- | ----------------------- | ------------------ | ---------------------- |
+| NVR API               | Sewage water protection | Mock data          | ✓ Mocked in unit tests |
+| RAA API               | Sewage monuments        | Mock data          | ✓ Mocked in unit tests |
+| VISS API              | Sewage water status     | Mock response      | ✓ Mocked in unit tests |
+| SLU Species           | Sewage biodiversity     | Disabled if no key | ✓ Optional             |
+| Municipality REST API | Sewage submission       | Email fallback     | ✓ Both paths tested    |
+| MPF Registry          | Mass operation codes    | Cached data        | ✓ Local in staging     |
+| PostGIS               | All spatial queries     | Docker volume      | ✓ Requires staging DB  |
 
 ---
 

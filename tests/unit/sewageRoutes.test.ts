@@ -112,8 +112,8 @@ const mockRecord = {
   municipalityCode: '2180',
   status: 'DRAFT',
   domainSnapshot: {
-    protectionProfile: { timelineEstimateWeeks: 8 }
-  }
+    protectionProfile: { timelineEstimateWeeks: 8 },
+  },
 };
 
 describe('sewage.routes', () => {
@@ -126,7 +126,7 @@ describe('sewage.routes', () => {
     mocks.submitApplicationToMunicipality.mockResolvedValue({
       success: true,
       referenceNumber: 'REF-2025-001',
-      estimatedProcessingTime: 8
+      estimatedProcessingTime: 8,
     });
     mocks.handleMunicipalityWebhook.mockResolvedValue({ ok: true });
     mocks.getStatusHistory.mockResolvedValue([]);
@@ -154,18 +154,14 @@ describe('sewage.routes', () => {
 
     it('GET /sewage/applications - listar ansökningar', async () => {
       mocks.listSewageApplicationsByOrg.mockResolvedValue([mockRecord]);
-      const res = await request(app)
-        .get('/sewage/applications')
-        .set('Authorization', authHeader());
+      const res = await request(app).get('/sewage/applications').set('Authorization', authHeader());
 
       expect(res.status).toBe(200);
       expect(res.body).toHaveLength(1);
     });
 
     it('GET /sewage/application/:id - hämtar en ansökan', async () => {
-      const res = await request(app)
-        .get('/sewage/application/app-1')
-        .set('Authorization', authHeader());
+      const res = await request(app).get('/sewage/application/app-1').set('Authorization', authHeader());
 
       expect(res.status).toBe(200);
       expect(res.body.id).toBe('app-1');

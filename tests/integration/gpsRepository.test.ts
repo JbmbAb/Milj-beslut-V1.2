@@ -9,8 +9,6 @@ import {
 } from '../../server/repositories/gpsRepository';
 import { describeIfDatabaseIntegration } from './integrationTestEnv';
 
-
-
 describeIfDatabaseIntegration('gpsRepository Integration', () => {
   let testBookingId: string;
 

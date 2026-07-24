@@ -127,14 +127,14 @@ Detta underlag täcker fyra obligatoriska driftspår:
 
 ### Operational runbook-integration
 
-| Procedur | Kommando / plats |
-|----------|------------------|
-| Search indexer worker | `npm run worker:search` |
-| Outlook integrity verify | `npm run outlook:verify` |
-| Outlook full backfill | `npm run outlook:backfill:all` (bekräfta före körning) |
-| RAG eval demo | `npm run rag:eval:demo` |
-| Stage 5 load harness | `npm run load:stage5` |
-| Driftpaket | detta dokument |
+| Procedur                 | Kommando / plats                                       |
+| ------------------------ | ------------------------------------------------------ |
+| Search indexer worker    | `npm run worker:search`                                |
+| Outlook integrity verify | `npm run outlook:verify`                               |
+| Outlook full backfill    | `npm run outlook:backfill:all` (bekräfta före körning) |
+| RAG eval demo            | `npm run rag:eval:demo`                                |
+| Stage 5 load harness     | `npm run load:stage5`                                  |
+| Driftpaket               | detta dokument                                         |
 
 ### Verifiering
 

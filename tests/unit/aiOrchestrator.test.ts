@@ -43,10 +43,9 @@ describe('AI Orchestrator & Guardrails', () => {
     });
 
     it('blockerar prompter med live nätverkssökningar under OFFLINE_ONLY policy', () => {
-      const res = policyValidator.validate(
-        'Hämta information från https://www.havochvatten.se/avlopp',
-        ['OFFLINE_ONLY']
-      );
+      const res = policyValidator.validate('Hämta information från https://www.havochvatten.se/avlopp', [
+        'OFFLINE_ONLY',
+      ]);
       expect(res.valid).toBe(false);
       expect(res.reason).toContain('OFFLINE_ONLY');
     });
@@ -100,7 +99,9 @@ describe('AI Orchestrator & Guardrails', () => {
 
       const res = await responseValidator.validate(response);
       expect(res.valid).toBe(false);
-      expect(res.errors).toContain('AI-svar refererar till ogrundade internetkällor (direkta externa URL:er i texten).');
+      expect(res.errors).toContain(
+        'AI-svar refererar till ogrundade internetkällor (direkta externa URL:er i texten).',
+      );
     });
 
     it('genererar varning om källhänvisningen pekar på okänt dokument', async () => {

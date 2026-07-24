@@ -680,7 +680,10 @@ describe('server/repositories/requirementsRepository', () => {
     });
 
     it('fetches citation by code with org filter', async () => {
-      vi.mocked(prisma.requirementCitation.findFirst).mockResolvedValue({ id: 'cit1', citationCode: 'CIT-001' } as any);
+      vi.mocked(prisma.requirementCitation.findFirst).mockResolvedValue({
+        id: 'cit1',
+        citationCode: 'CIT-001',
+      } as any);
 
       const result = await getCitationByCode('CIT-001', 'org1');
 
@@ -690,7 +693,10 @@ describe('server/repositories/requirementsRepository', () => {
     });
 
     it('fetches requirement case by id with organisation guard', async () => {
-      vi.mocked(prisma.requirementCase.findFirst).mockResolvedValue({ id: 'case1', organisationId: 'org1' } as any);
+      vi.mocked(prisma.requirementCase.findFirst).mockResolvedValue({
+        id: 'case1',
+        organisationId: 'org1',
+      } as any);
 
       const result = await getRequirementCaseById('case1', 'org1');
 
@@ -700,7 +706,10 @@ describe('server/repositories/requirementsRepository', () => {
     });
 
     it('fetches document by id with selected fields', async () => {
-      vi.mocked(prisma.documentRecord.findFirst).mockResolvedValue({ id: 'doc1', originalName: 'fil.pdf' } as any);
+      vi.mocked(prisma.documentRecord.findFirst).mockResolvedValue({
+        id: 'doc1',
+        originalName: 'fil.pdf',
+      } as any);
 
       const result = await getDocumentById('doc1', 'org1');
 

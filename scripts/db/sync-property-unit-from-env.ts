@@ -223,13 +223,14 @@ async function runSpotChecks(
     results.push({
       designation,
       found: Boolean(hit),
-      matchType: hit?.source_dataset === 'lm_fastighetsytor_merged'
-        ? 'merged'
-        : hit?.source_dataset === 'lm_fastighetsytor'
-          ? 'part'
-          : hit
-            ? 'exact'
-            : undefined,
+      matchType:
+        hit?.source_dataset === 'lm_fastighetsytor_merged'
+          ? 'merged'
+          : hit?.source_dataset === 'lm_fastighetsytor'
+            ? 'part'
+            : hit
+              ? 'exact'
+              : undefined,
     });
   }
 
@@ -273,14 +274,10 @@ export async function syncPropertyUnitFromEnv(
   }
 
   const kindBefore = await relKind(prisma);
-  const coreRowsBefore =
-    kindBefore === 'missing' ? 0 : await countRows(prisma, 'core.property_unit');
+  const coreRowsBefore = kindBefore === 'missing' ? 0 : await countRows(prisma, 'core.property_unit');
 
   if (!execute) {
-    const splitParts = await countRows(
-      prisma,
-      "env.registerenhetsomradesytor WHERE etikett LIKE '%>%'",
-    );
+    const splitParts = await countRows(prisma, "env.registerenhetsomradesytor WHERE etikett LIKE '%>%'");
     return {
       mode: 'plan',
       phase,
@@ -310,7 +307,9 @@ export async function syncPropertyUnitFromEnv(
     const lans = await distinctLans(prisma);
 
     if (phase === 'all' || phase === 'individual') {
-      log(`[Batch A] Individual 1:1 sync — ${lans.length} län, ~${envRows.toLocaleString('sv-SE')} källrader`);
+      log(
+        `[Batch A] Individual 1:1 sync — ${lans.length} län, ~${envRows.toLocaleString('sv-SE')} källrader`,
+      );
       individualInserted = await insertByLanBatches(pool, INDIVIDUAL_INSERT_SQL, lans, 'Batch A', log);
       log(`[Batch A] Klar: ${individualInserted.toLocaleString('sv-SE')} rader`);
     }
@@ -394,7 +393,10 @@ async function main(): Promise<void> {
   const execute = args.includes('--execute');
   const phase = parsePhase(args);
   const spotChecks = args.includes('--spot-check')
-    ? args[args.indexOf('--spot-check') + 1]?.split(',').map((s) => s.trim()).filter(Boolean)
+    ? args[args.indexOf('--spot-check') + 1]
+        ?.split(',')
+        .map((s) => s.trim())
+        .filter(Boolean)
     : undefined;
 
   const prisma = new DefaultPrismaClient();

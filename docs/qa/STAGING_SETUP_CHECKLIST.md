@@ -11,6 +11,7 @@
 ### Infrastructure Setup
 
 - [ ] **PostGIS Database**
+
   ```bash
   createdb miljobeslut_staging
   psql miljobeslut_staging < prisma/schema.sql
@@ -19,6 +20,7 @@
   ```
 
 - [ ] **Environment Variables** (.env.staging)
+
   ```bash
   PLAYWRIGHT_BASE_URL=https://staging.example.com
   E2E_ADMIN_USERNAME=staging-admin
@@ -67,6 +69,7 @@ npm run e2e:staging:all
 ### Expected Results
 
 #### Sewage (enskilt avlopp) — 9 tests
+
 ```
 ✓ 1. API-flöde: skapa ansökan utan mock
 ✓ 2. Statusövergång: utkast → handläggning
@@ -82,6 +85,7 @@ npm run e2e:staging:all
 ```
 
 #### Mass (C-anmälan) — 8 tests
+
 ```
 ✓ Full flow: operations → documents → export → submit
 ✓ Gate evaluation: permit/notification/unknown
@@ -92,6 +96,7 @@ npm run e2e:staging:all
 ```
 
 #### Localization (lokaliseringsutredning) — 7 tests
+
 ```
 ✓ Site alternative parsing and validation
 ✓ Coordinate bounds checking
@@ -109,6 +114,7 @@ npm run e2e:staging:all
 After each module passes E2E:
 
 ### Sewage Module
+
 - [ ] Application created with unique reference number (AVLOPP-*)
 - [ ] Audit trail has ≥3 entries (creation, validation, submission)
 - [ ] Municipality received submission (or email fallback worked)
@@ -116,6 +122,7 @@ After each module passes E2E:
 - [ ] Documents (DOCX, SVG) generated correctly
 
 ### Mass Module
+
 - [ ] Case created with operations evaluated
 - [ ] Gates show correct priority order (PERMIT > NOTIFICATION > UNKNOWN > EXEMPT)
 - [ ] Operational codes classified against MPF registry
@@ -123,6 +130,7 @@ After each module passes E2E:
 - [ ] Municipality reference created
 
 ### Localization Module
+
 - [ ] Multiple site alternatives parsed and compared
 - [ ] Each site has compliance assessment (isCompliant: true/false)
 - [ ] External data sources logged (NVR, RAA, VISS, SLU)
@@ -134,24 +142,31 @@ After each module passes E2E:
 ## Troubleshooting
 
 ### Tests Timeout (5000ms)
+
 **Solution**: Increase timeout in `playwright.config.ts`
+
 ```typescript
-timeout: 30000  // instead of 5000
+timeout: 30000; // instead of 5000
 ```
 
 ### 403 Unauthorized
+
 **Check**:
+
 1. Admin credentials in .env.staging
 2. CSRF tokens are being passed
 3. Auth middleware is configured
 
 ### NVR/RAA/VISS APIs Return Errors
+
 **Expected**: Tests have fallback logic
+
 - If NVR down → status: "unavailable", warnings logged
 - If RAA down → status: "unavailable", compliance still possible
 - If VISS down → water status not available, but process continues
 
 ### Database Connection Refused
+
 ```bash
 # Verify PostGIS is running
 psql -U postgres -d miljobeslut_staging -c "SELECT version();"
@@ -179,12 +194,12 @@ When all three modules pass Fas 4:
 
 ## Production Readiness Gate
 
-| Component | Ready? | Notes |
-|-----------|--------|-------|
-| Unit tests (Fas 1) | ✅ | 3275 passing, 9 modules ≥85% coverage |
-| Local E2E (Fas 2) | ✅ | In-memory orchestrator flows verified |
-| Infrastructure (Fas 3) | ✅ | Reference numbers consistent |
-| Staging E2E (Fas 4) | 🔄 | Awaiting environment |
+| Component              | Ready? | Notes                                 |
+| ---------------------- | ------ | ------------------------------------- |
+| Unit tests (Fas 1)     | ✅     | 3275 passing, 9 modules ≥85% coverage |
+| Local E2E (Fas 2)      | ✅     | In-memory orchestrator flows verified |
+| Infrastructure (Fas 3) | ✅     | Reference numbers consistent          |
+| Staging E2E (Fas 4)    | 🔄     | Awaiting environment                  |
 
 **When Fas 4 passes → Promote to production**
 

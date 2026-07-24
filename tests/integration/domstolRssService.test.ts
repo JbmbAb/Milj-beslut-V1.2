@@ -7,8 +7,6 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import { describeIfDatabaseIntegration } from './integrationTestEnv';
 
-
-
 describeIfDatabaseIntegration('domstolRssService Integration', () => {
   const mockRssFeedPath = path.join(__dirname, '../fixtures/domstol-rss-miljo-feed-sample.xml');
   let originalFetch: typeof globalThis.fetch;

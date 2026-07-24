@@ -74,7 +74,7 @@ async function main() {
     const coords =
       geom?.type === 'Polygon' || geom?.type === 'MultiPolygon'
         ? JSON.stringify(geom.coordinates).slice(0, 80) + '…'
-        : geom?.type ?? 'none';
+        : (geom?.type ?? 'none');
 
     const ok = res.status === 200 && res.body?.ok === true && geom;
     if (!ok) failed += 1;

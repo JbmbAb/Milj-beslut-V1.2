@@ -21,6 +21,8 @@ vi.mock('../../server/repositories/tokenRepository', () => ({
 
 // Mock searchService
 vi.mock('../../server/services/searchService', () => {
+  // Vitest hoists mocks; require() keeps EventEmitter out of ESM init order.
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
   const { EventEmitter } = require('events');
   class MockAlphaevolveSearchService extends EventEmitter {
     public async search(query: string, options: any = {}) {
@@ -65,9 +67,7 @@ describe('Alphaevolve Search and Recommendation Routes', () => {
 
   describe('GET /api/search', () => {
     it('returns 400 if query parameter is missing', async () => {
-      const res = await request(app)
-        .get('/api/search')
-        .set('Authorization', authHeader('ADMIN'));
+      const res = await request(app).get('/api/search').set('Authorization', authHeader('ADMIN'));
 
       expect(res.status).toBe(400);
       expect(res.body.error).toContain('Query parameter is required');

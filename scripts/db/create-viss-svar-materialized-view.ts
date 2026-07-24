@@ -135,7 +135,9 @@ async function main(): Promise<void> {
     await client.query(`CREATE INDEX viss_svar_kombinerad_uuid_idx ON ${TARGET_VIEW} (viss_uuid);`);
     await client.query(`CREATE INDEX viss_svar_kombinerad_category_idx ON ${TARGET_VIEW} (vattenkategori);`);
     await client.query(`CREATE INDEX viss_svar_kombinerad_geom_idx ON ${TARGET_VIEW} USING GIST (geom);`);
-    await client.query(`CREATE INDEX viss_svar_kombinerad_point_geom_idx ON ${TARGET_VIEW} USING GIST (viss_point_geom);`);
+    await client.query(
+      `CREATE INDEX viss_svar_kombinerad_point_geom_idx ON ${TARGET_VIEW} USING GIST (viss_point_geom);`,
+    );
     await client.query(`ANALYZE ${TARGET_VIEW};`);
 
     const result = await client.query<{

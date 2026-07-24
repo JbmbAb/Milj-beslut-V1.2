@@ -281,8 +281,8 @@ export class AlphaevolveSearchService extends EventEmitter {
     });
 
     return Object.values(registry).map(({ chunk, ftsRank, vecRank }) => {
-      let ftsScore = ftsRank !== -1 ? 1 / (k + ftsRank) : 0;
-      let vecScore = vecRank !== -1 ? 1 / (k + vecRank) : 0;
+      const ftsScore = ftsRank !== -1 ? 1 / (k + ftsRank) : 0;
+      const vecScore = vecRank !== -1 ? 1 / (k + vecRank) : 0;
       const rrfScore = ftsScore + vecScore;
 
       return {
@@ -1220,6 +1220,7 @@ export async function runSearchQuery(input: {
   topK?: number;
   strictEvidence?: boolean;
   filters?: SearchFilters;
+  organisationId?: string;
 }): Promise<SearchQueryResult> {
   const startedAt = Date.now();
   const mode: SearchMode = input.mode || "hybrid";
@@ -1257,6 +1258,7 @@ export async function runSearchQuery(input: {
   if ((mode === "semantic" || mode === "hybrid") && queryEmbedding) {
     const semanticLimit = projectId ? 12_000 : 20_000;
     const vectorRows = await queryTopSemanticChunks({
+      organisationId: String(input.organisationId || '').trim(),
       projectId,
       queryEmbedding,
       limit: semanticLimit,

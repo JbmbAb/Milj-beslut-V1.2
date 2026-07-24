@@ -20,7 +20,7 @@ async function buildSpatialIndexes() {
 
     console.log(`Building index for ${tableName}...`);
     try {
-      // Vi använder CONCURRENTLY om vi vill undvika att låsa tabellen helt, 
+      // Vi använder CONCURRENTLY om vi vill undvika att låsa tabellen helt,
       // men för en massimport är det snabbare utan det om ingen annan använder datan.
       // Här kör vi standard CREATE INDEX för maximal hastighet.
       await prisma.$executeRawUnsafe(`

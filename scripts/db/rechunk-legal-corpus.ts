@@ -43,13 +43,15 @@ async function getRecordsToProcess() {
     ...(targetRecordId ? { id: targetRecordId } : {}),
     documentText: { not: null },
     // Hoppa över poster som redan har aktuell version (om inte --force är satt)
-    ...(isForce ? {} : {
-      NOT: {
-        chunks: {
-          some: { chunkVersion: CURRENT_VERSION },
-        },
-      },
-    }),
+    ...(isForce
+      ? {}
+      : {
+          NOT: {
+            chunks: {
+              some: { chunkVersion: CURRENT_VERSION },
+            },
+          },
+        }),
   } as Parameters<typeof prisma.legalCorpusRecord.findMany>[0]['where'];
 
   return prisma.legalCorpusRecord.findMany({

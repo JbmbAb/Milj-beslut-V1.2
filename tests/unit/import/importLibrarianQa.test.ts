@@ -103,10 +103,9 @@ Geometry Column = geom
   });
 
   it('columnsForPromote excludes staging id (SERIAL conflict)', () => {
-    expect(columnsForPromote(['id', 'geom', 'kommun_namn'], ['id', 'geom', 'kommun_namn', 'ogc_fid'])).toEqual([
-      'geom',
-      'kommun_namn',
-    ]);
+    expect(
+      columnsForPromote(['id', 'geom', 'kommun_namn'], ['id', 'geom', 'kommun_namn', 'ogc_fid']),
+    ).toEqual(['geom', 'kommun_namn']);
   });
 
   it('pickBrinColumnFromNames prefers ogc_fid then fid', () => {

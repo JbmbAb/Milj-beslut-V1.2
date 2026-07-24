@@ -101,9 +101,7 @@ describe('dispatchSubmissionToRecipient', () => {
   it('kastar Error när submission inte hittas', async () => {
     mockFindById.mockResolvedValueOnce(null);
 
-    await expect(dispatchSubmissionToRecipient(DISPATCH_PARAMS)).rejects.toThrow(
-      'not found',
-    );
+    await expect(dispatchSubmissionToRecipient(DISPATCH_PARAMS)).rejects.toThrow('not found');
   });
 
   it('kastar Error när submission inte är i PENDING_REVIEW status', async () => {
@@ -303,9 +301,7 @@ describe('submitSewageApplicationToMunicipality — REST success med requirement
   it('REST success och evidence chain körs när requirementCaseId finns', async () => {
     const { resolveRequirementCaseIdForSubmission, createCaseSnapshot, exportFromSnapshot } =
       await import('../../../server/modules/evidence/public');
-    (resolveRequirementCaseIdForSubmission as ReturnType<typeof vi.fn>).mockResolvedValueOnce(
-      'req-case-1',
-    );
+    (resolveRequirementCaseIdForSubmission as ReturnType<typeof vi.fn>).mockResolvedValueOnce('req-case-1');
     fetchMock.mockResolvedValueOnce({ ok: true, status: 200 });
 
     const result = await submitSewageApplicationToMunicipality(
@@ -439,12 +435,9 @@ describe('submitSewageApplicationToMunicipality — evidence catch', () => {
   });
 
   it('loggar varning och fortsätter när evidence-chain kastar', async () => {
-    const { resolveRequirementCaseIdForSubmission, createCaseSnapshot } = await import(
-      '../../../server/modules/evidence/public'
-    );
-    (resolveRequirementCaseIdForSubmission as ReturnType<typeof vi.fn>).mockResolvedValueOnce(
-      'req-1',
-    );
+    const { resolveRequirementCaseIdForSubmission, createCaseSnapshot } =
+      await import('../../../server/modules/evidence/public');
+    (resolveRequirementCaseIdForSubmission as ReturnType<typeof vi.fn>).mockResolvedValueOnce('req-1');
     (createCaseSnapshot as ReturnType<typeof vi.fn>).mockRejectedValueOnce(
       new Error('Snapshot service down'),
     );
@@ -462,5 +455,3 @@ describe('submitSewageApplicationToMunicipality — evidence catch', () => {
     expect(result.ok).toBe(true);
   });
 });
-
-

@@ -162,11 +162,21 @@ async function insertBatch(client: pg.Client, sourceFile: string, records: VissW
 }
 
 async function createIndexes(client: pg.Client): Promise<void> {
-  await client.query(`CREATE UNIQUE INDEX IF NOT EXISTS viss_status_cycle_3_eu_cd_idx ON ${TARGET_TABLE} (eu_cd);`);
-  await client.query(`CREATE UNIQUE INDEX IF NOT EXISTS viss_status_cycle_3_ms_cd_idx ON ${TARGET_TABLE} (ms_cd);`);
-  await client.query(`CREATE UNIQUE INDEX IF NOT EXISTS viss_status_cycle_3_uuid_idx ON ${TARGET_TABLE} (uuid);`);
-  await client.query(`CREATE INDEX IF NOT EXISTS viss_status_cycle_3_category_idx ON ${TARGET_TABLE} (category);`);
-  await client.query(`CREATE INDEX IF NOT EXISTS viss_status_cycle_3_raw_gin_idx ON ${TARGET_TABLE} USING GIN (raw);`);
+  await client.query(
+    `CREATE UNIQUE INDEX IF NOT EXISTS viss_status_cycle_3_eu_cd_idx ON ${TARGET_TABLE} (eu_cd);`,
+  );
+  await client.query(
+    `CREATE UNIQUE INDEX IF NOT EXISTS viss_status_cycle_3_ms_cd_idx ON ${TARGET_TABLE} (ms_cd);`,
+  );
+  await client.query(
+    `CREATE UNIQUE INDEX IF NOT EXISTS viss_status_cycle_3_uuid_idx ON ${TARGET_TABLE} (uuid);`,
+  );
+  await client.query(
+    `CREATE INDEX IF NOT EXISTS viss_status_cycle_3_category_idx ON ${TARGET_TABLE} (category);`,
+  );
+  await client.query(
+    `CREATE INDEX IF NOT EXISTS viss_status_cycle_3_raw_gin_idx ON ${TARGET_TABLE} USING GIN (raw);`,
+  );
   await client.query(`ANALYZE ${TARGET_TABLE};`);
 }
 

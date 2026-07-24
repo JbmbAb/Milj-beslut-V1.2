@@ -123,7 +123,10 @@ test.describe('Staging: C-anmälan schaktmassor (PDF-ready)', () => {
       });
       expect([200, 404, 503]).toContain(res.status());
       if (res.ok()) {
-        const body = await parseJson<{ ok?: boolean; analysis?: { centroid?: { lat: number; lng: number } } }>(res);
+        const body = await parseJson<{
+          ok?: boolean;
+          analysis?: { centroid?: { lat: number; lng: number } };
+        }>(res);
         expect(body.ok).toBe(true);
         expect(body.analysis?.centroid?.lat).toBeTruthy();
       }
@@ -234,8 +237,7 @@ test.describe('Staging: C-anmälan schaktmassor (PDF-ready)', () => {
       assertHumanInTheLoopText(body.export?.humanInTheLoop ?? '', 'mass JSON export');
       expect(body.export?.status).not.toBe('SUBMITTED');
       const totalOps =
-        (body.export?.decisions?.mellanlagring ?? []).length +
-        (body.export?.decisions?.deponi ?? []).length;
+        (body.export?.decisions?.mellanlagring ?? []).length + (body.export?.decisions?.deponi ?? []).length;
       expect(totalOps).toBeGreaterThanOrEqual(2);
     } finally {
       await api.dispose();
