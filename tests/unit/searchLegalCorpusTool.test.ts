@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const mocks = vi.hoisted(() => ({
   queryRawUnsafe: vi.fn(),
@@ -21,19 +21,34 @@ vi.mock('../../server/modules/legal/services/legalReferenceParser', () => ({
 }));
 
 import {
+  getLegalCorpusSearchConfig,
+  localLexicalRerank,
   resetLegalCorpusVectorColumnCache,
   searchLegalCorpusHandler,
+  shouldSkipReranker,
 } from '../../server/modules/ai/orchestrator/tools/searchLegalCorpusTool';
 
 describe('searchLegalCorpusTool — Alphaevolve A1', () => {
+  const originalReranker = process.env.LEGAL_RERANKER;
+  const originalGap = process.env.LEGAL_RERANKER_RELATIVE_GAP;
+
   beforeEach(() => {
     vi.clearAllMocks();
     resetLegalCorpusVectorColumnCache();
+    delete process.env.LEGAL_RERANKER;
+    delete process.env.LEGAL_RERANKER_RELATIVE_GAP;
     mocks.parseLegalReference.mockReturnValue(null);
     mocks.embedText.mockResolvedValue({
       values: [0.1, 0.2, 0.3],
       model: 'text-multilingual-embedding-002',
     });
+  });
+
+  afterEach(() => {
+    if (originalReranker === undefined) delete process.env.LEGAL_RERANKER;
+    else process.env.LEGAL_RERANKER = originalReranker;
+    if (originalGap === undefined) delete process.env.LEGAL_RERANKER_RELATIVE_GAP;
+    else process.env.LEGAL_RERANKER_RELATIVE_GAP = originalGap;
   });
 
   it('returnerar fel om query är för kort', async () => {
@@ -243,5 +258,146 @@ describe('searchLegalCorpusTool — Alphaevolve A1', () => {
     const row = (result as { results: Array<{ snippet: string; chunkText: string }> }).results[0];
     expect(row.snippet).toBe('Endast denna chunk ska visas.');
     expect(row.chunkText).toBe('Endast denna chunk ska visas.');
+  });
+});
+
+describe('searchLegalCorpusTool — Alphaevolve A2', () => {
+  const originalReranker = process.env.LEGAL_RERANKER;
+  const originalGap = process.env.LEGAL_RERANKER_RELATIVE_GAP;
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    resetLegalCorpusVectorColumnCache();
+    delete process.env.LEGAL_RERANKER;
+    delete process.env.LEGAL_RERANKER_RELATIVE_GAP;
+    mocks.parseLegalReference.mockReturnValue(null);
+    mocks.embedText.mockResolvedValue({
+      values: [0.1, 0.2, 0.3],
+      model: 'text-multilingual-embedding-002',
+    });
+  });
+
+  afterEach(() => {
+    if (originalReranker === undefined) delete process.env.LEGAL_RERANKER;
+    else process.env.LEGAL_RERANKER = originalReranker;
+    if (originalGap === undefined) delete process.env.LEGAL_RERANKER_RELATIVE_GAP;
+    else process.env.LEGAL_RERANKER_RELATIVE_GAP = originalGap;
+  });
+
+  it('läser feature-flagga LEGAL_RERANKER från env', () => {
+    expect(getLegalCorpusSearchConfig({}).rerankerEnabled).toBe(false);
+    expect(getLegalCorpusSearchConfig({ LEGAL_RERANKER: 'on' }).rerankerEnabled).toBe(true);
+    expect(getLegalCorpusSearchConfig({ LEGAL_RERANKER: 'true' }).rerankerEnabled).toBe(true);
+    expect(getLegalCorpusSearchConfig({ LEGAL_RERANKER: '0' }).rerankerEnabled).toBe(false);
+  });
+
+  it('skippar rerank vid dominant relativ RRF-gap', () => {
+    expect(shouldSkipReranker([0.04, 0.02], 0.25)).toBe(true); // gap 50%
+    expect(shouldSkipReranker([0.04, 0.035], 0.25)).toBe(false); // gap 12.5%
+    expect(shouldSkipReranker([0.04], 0.25)).toBe(true);
+  });
+
+  it('höjer score för chunks med stark lexical match', () => {
+    const ranked = localLexicalRerank('fosforrening enskilt avlopp', [
+      { chunkText: 'Krav på fosforrening i enskilt avlopp.', score: 0.02 },
+      { chunkText: 'Allmän text om vägbyggnad.', score: 0.03 },
+    ]);
+    const byText = Object.fromEntries(ranked.map((r) => [r.chunkText, r.finalScore]));
+    expect(byText['Krav på fosforrening i enskilt avlopp.']).toBeGreaterThan(
+      byText['Allmän text om vägbyggnad.'],
+    );
+  });
+
+  function mockHybridCorpus(chunks: Array<{ chunk_id: string; record_id: string; chunk_text: string; rank: number }>) {
+    mocks.queryRawUnsafe.mockImplementation(async (sql: string, ...params: unknown[]) => {
+      const text = String(sql);
+      if (text.includes('information_schema.columns')) {
+        return [{ column_name: 'embedding_vector' }];
+      }
+      if (text.includes('websearch_to_tsquery')) {
+        return chunks.map((c) => ({
+          ...c,
+          chapter: null,
+          paragraph: null,
+          section: null,
+        }));
+      }
+      if (text.includes('<=>')) {
+        return [];
+      }
+      if (text.includes('WHERE id IN')) {
+        return params.map((id) => ({
+          id,
+          title: `Title ${id}`,
+          case_number: null,
+          published_at: null,
+          decision_date: null,
+          authority_name: null,
+          legal_area: null,
+          metadata: {},
+          source_url: null,
+          source_path: null,
+        }));
+      }
+      return [];
+    });
+  }
+
+  it('med LEGAL_RERANKER=on och stort gap: skippar rerank och returnerar top 8', async () => {
+    process.env.LEGAL_RERANKER = 'on';
+    process.env.LEGAL_RERANKER_RELATIVE_GAP = '0.25';
+
+    // Endast en stark FTS-träff → length < 2 ⇒ skip
+    mockHybridCorpus([
+      {
+        chunk_id: 'chunk-strong',
+        record_id: 'rec-1',
+        chunk_text: 'Dominant träff om fosforrening.',
+        rank: 0.99,
+      },
+    ]);
+
+    const result = await searchLegalCorpusHandler({ query: 'fosforrening' });
+    const body = result as {
+      results: Array<{ chunkId: string; rerankApplied?: boolean }>;
+      meta: { rerankerStatus: string; topK: number };
+    };
+
+    expect(body.meta.rerankerStatus).toBe('skipped_gap');
+    expect(body.meta.topK).toBe(8);
+    expect(body.results.length).toBe(1);
+    expect(body.results[0].rerankApplied).toBe(false);
+  });
+
+  it('med LEGAL_RERANKER=on och litet gap: applicerar lexical rerank till top 8', async () => {
+    process.env.LEGAL_RERANKER = 'on';
+    process.env.LEGAL_RERANKER_RELATIVE_GAP = '0.25';
+
+    // Många chunks med liknande FTS-rank → litet RRF-gap mellan #1 och #2 (samma arm)
+    // Actually with only FTS arm, ranks are 1/(60+1), 1/(60+2), ... relative gap between first two:
+    // (1/61 - 1/62) / (1/61) = 1 - 61/62 ≈ 0.016 → well below 0.25
+    mockHybridCorpus(
+      Array.from({ length: 12 }, (_, i) => ({
+        chunk_id: `chunk-${i}`,
+        record_id: `rec-${i}`,
+        chunk_text:
+          i === 5
+            ? 'Fosforrening i enskilt avlopp enligt föreskrift.'
+            : `Generell miljötext nummer ${i} utan nyckelord.`,
+        rank: 1 - i * 0.01,
+      })),
+    );
+
+    const result = await searchLegalCorpusHandler({ query: 'fosforrening enskilt avlopp' });
+    const body = result as {
+      results: Array<{ chunkId: string; rerankApplied?: boolean; finalScore?: number }>;
+      meta: { rerankerStatus: string; topK: number };
+    };
+
+    expect(body.meta.rerankerStatus).toBe('applied');
+    expect(body.meta.topK).toBe(8);
+    expect(body.results.length).toBe(8);
+    expect(body.results.every((r) => r.rerankApplied === true)).toBe(true);
+    expect(body.results[0].chunkId).toBe('chunk-5');
   });
 });

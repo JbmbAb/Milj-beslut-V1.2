@@ -862,6 +862,9 @@ async function collectOpenSourceSweepRecords(
   const manifest = await readJsonFile<{ entries?: Array<{ id: string; url: string; fileName: string }> }>(
     manifestPath,
   );
+  if (!manifest) {
+    return [];
+  }
 
   const results = await Promise.all(
     (manifest.entries || []).map((entry) =>

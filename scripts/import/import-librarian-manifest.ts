@@ -446,7 +446,9 @@ async function processManifest(manifestPath: string) {
             await prisma.$transaction([
               prisma.$executeRawUnsafe(`TRUNCATE ${target_schema}.${target_table};`),
               prisma.$executeRawUnsafe(insertSql),
-            ]);
+            ], {
+              timeout: 600000,
+            });
           }
         } else {
           logger.info(`   - Prod table missing — bootstrapping from staging...`);

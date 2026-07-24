@@ -41,6 +41,7 @@ test-results
 figma-raw.json
 
 # Temporary files
+.temp_import_cache/
 .tmp-*
 tmp_*
 *.txt

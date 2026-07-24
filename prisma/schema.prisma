@@ -1146,3 +1146,25 @@ model HumanApprovalGate {
   @@unique([caseId, documentId], name: "caseId_documentId")
   @@map("human_approval_gates")
 }
+
+model RasterRegistrationLog {
+  id            Int      @id @default(autoincrement())
+  provider      String
+  dataset       String
+  version       String
+  filePath      String   @unique @map("file_path")
+  sha256        String?
+  sizeBytes     BigInt?  @map("size_bytes")
+  epsgCode      Int?     @default(3006) @map("epsg_code")
+  tileSize      String?  @default("256x256") @map("tile_size")
+  tableRef      String   @map("table_ref")
+  bboxWkt       String?  @map("bbox_wkt")
+  bandCount     Int?     @map("band_count")
+  pixelWidth    Float?   @map("pixel_width")
+  pixelHeight   Float?   @map("pixel_height")
+  tileCount     Int?     @map("tile_count")
+  registeredAt  DateTime @default(now()) @map("registered_at") @db.Timestamptz
+  updatedAt     DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
+
+  @@map("raster_registration_log")
+}

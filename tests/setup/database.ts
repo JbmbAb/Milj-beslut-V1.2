@@ -107,6 +107,8 @@ export default async () => {
       DROP TABLE IF EXISTS env.sgu_landslide_feature CASCADE;
       DROP TABLE IF EXISTS env.sgu_punktobjekt CASCADE;
       DROP TABLE IF EXISTS env.sgu_well CASCADE;
+      DROP TABLE IF EXISTS env.sgu_borrhal CASCADE;
+      DROP TABLE IF EXISTS env.ebh_potentiellt_fororenade_omraden CASCADE;
       DROP TABLE IF EXISTS core.lm_mark CASCADE;
       DROP TABLE IF EXISTS env.marktacke CASCADE;
       DROP TABLE IF EXISTS topo10.byggnad CASCADE;
@@ -190,6 +192,18 @@ export default async () => {
       CREATE TABLE IF NOT EXISTS "env"."sgu_well" (
           id SERIAL PRIMARY KEY,
           geom geometry(Point, 3006)
+      );
+
+      CREATE TABLE IF NOT EXISTS "env"."sgu_borrhal" (
+          id SERIAL PRIMARY KEY,
+          depth_from NUMERIC,
+          tot_depth NUMERIC,
+          geom geometry(Point, 3006)
+      );
+
+      CREATE TABLE IF NOT EXISTS "env"."ebh_potentiellt_fororenade_omraden" (
+          id SERIAL PRIMARY KEY,
+          geom geometry(MultiPolygon, 3006)
       );
 
       CREATE TABLE IF NOT EXISTS "core"."lm_mark" (
@@ -419,6 +433,109 @@ export default async () => {
 
       ALTER TABLE env.sgu_landslide_feature ADD COLUMN IF NOT EXISTS sl INTEGER;
       ALTER TABLE env.sgu_landslide_feature ADD COLUMN IF NOT EXISTS sl_tx TEXT;
+
+      CREATE OR REPLACE FUNCTION public.get_ml_features(
+          property_id TEXT DEFAULT NULL,
+          geometry geometry(geometry, 3006) DEFAULT NULL,
+          buffer_distance DOUBLE PRECISION DEFAULT 0.0,
+          feature_version INTEGER DEFAULT 1
+      )
+      RETURNS JSONB AS $$
+      DECLARE
+          active_geom geometry(geometry, 3006);
+          prop_designation TEXT := NULL;
+          found_flag BOOLEAN := false;
+          result JSONB;
+      BEGIN
+          -- 1. Determine base geometry
+          IF geometry IS NOT NULL THEN
+              active_geom := ST_Transform(geometry, 3006);
+              found_flag := true;
+          ELSIF property_id IS NOT NULL AND property_id <> '' THEN
+              SELECT geom, designation INTO active_geom, prop_designation
+              FROM core.property_unit
+              WHERE source_key = property_id
+                 OR designation_norm = core.normalize_designation(property_id)
+                 OR designation = property_id
+              LIMIT 1;
+              
+              IF active_geom IS NOT NULL THEN
+                  found_flag := true;
+              END IF;
+          END IF;
+
+          -- If no geometry resolved, return standard negative response
+          IF active_geom IS NULL THEN
+              RETURN jsonb_build_object(
+                  'found', false,
+                  'property_id', property_id,
+                  'feature_version', feature_version
+              );
+          END IF;
+
+          -- 2. Apply buffer distance if requested (> 0)
+          IF buffer_distance > 0.0 THEN
+              active_geom := ST_Buffer(active_geom, buffer_distance);
+          END IF;
+
+          -- 3. Query spatial intersections and distances
+          WITH soils AS (
+              SELECT 
+                  s.jy1 AS layer_code,
+                  s.jy1_tx AS layer_label,
+                  s.karttyp AS map_type,
+                  CASE 
+                    WHEN ST_Area(active_geom) = 0 THEN 0.0
+                    ELSE ST_Area(ST_Intersection(s.geom, active_geom)) / ST_Area(active_geom)
+                  END AS overlap_ratio
+              FROM env.sgu_soil_type_25k_100k s
+              WHERE ST_Intersects(s.geom, active_geom)
+          ),
+          landslides AS (
+              SELECT 
+                  l.id::text AS source_key,
+                  l.sl AS feature_code,
+                  l.sl_tx AS feature_label,
+                  ST_Distance(l.geom, active_geom) AS distance_meters
+              FROM env.sgu_landslide_feature l
+              WHERE ST_DWithin(l.geom, active_geom, 500)
+              ORDER BY distance_meters ASC
+              LIMIT 5
+          ),
+          contaminated AS (
+              SELECT 
+                  e.id::text AS object_id,
+                  ST_Distance(e.geom, active_geom) AS distance_meters
+              FROM env.ebh_potentiellt_fororenade_omraden e
+              WHERE ST_DWithin(e.geom, active_geom, 250)
+              ORDER BY distance_meters ASC
+              LIMIT 5
+          ),
+          protected AS (
+              SELECT 
+                  p.nvr_id,
+                  p.name,
+                  p.protection_type,
+                  ST_Distance(p.geom, active_geom) AS distance_meters
+              FROM env.protected_area p
+              WHERE ST_DWithin(p.geom, active_geom, 250)
+          )
+          SELECT jsonb_build_object(
+              'found', found_flag,
+              'property_id', property_id,
+              'property_designation', prop_designation,
+              'buffer_distance', buffer_distance,
+              'feature_version', feature_version,
+              'soils', COALESCE((SELECT jsonb_agg(jsonb_build_object('layer_code', layer_code, 'layer_label', layer_label, 'map_type', map_type, 'overlap_ratio', overlap_ratio)) FROM soils), '[]'::jsonb),
+              'landslides', COALESCE((SELECT jsonb_agg(jsonb_build_object('source_key', source_key, 'feature_code', feature_code, 'feature_label', feature_label, 'distance_meters', distance_meters)) FROM landslides), '[]'::jsonb),
+              'contaminated_sites', COALESCE((SELECT jsonb_agg(jsonb_build_object('object_id', object_id, 'distance_meters', distance_meters)) FROM contaminated), '[]'::jsonb),
+              'protected_areas', COALESCE((SELECT jsonb_agg(jsonb_build_object('nvr_id', nvr_id, 'name', name, 'protection_type', protection_type, 'distance_meters', distance_meters)) FROM protected), '[]'::jsonb)
+          ) INTO result;
+
+          RETURN result;
+      END;
+      $$ LANGUAGE plpgsql;
+    
     `);
     console.log('GIS stubs and functions re-applied.');
   } catch (err) {

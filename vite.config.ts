@@ -91,6 +91,11 @@ export default defineConfig(({ mode }) => {
       },
     },
     plugins: [serverModulesBrowserStubsPlugin(), react()],
+    optimizeDeps: {
+      esbuildOptions: {
+        external: ['@math.gl/types'],
+      },
+    },
     resolve: {
       alias: {
         '@': path.resolve(__dirname, '.'),
@@ -100,6 +105,7 @@ export default defineConfig(({ mode }) => {
     },
     build: {
       rollupOptions: {
+        external: ['@math.gl/types'],
         output: {
           manualChunks(id) {
             if (id.includes('node_modules')) {

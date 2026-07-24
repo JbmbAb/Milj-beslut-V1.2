@@ -151,8 +151,23 @@ def run_import(dataset_key):
 
     print(f"=== LM RESUME: {dataset_key} -> {table} ===")
     
-    items = fetch_all_items(coll)
-    print(f"  Found {len(items)} items. {len(completed)} already done.")
+    try:
+        items = fetch_all_items(coll)
+        print(f"  Found {len(items)} items (from live STAC API). {len(completed)} already done.")
+    except Exception as e:
+        print(f"  [WARN] Failed to fetch live STAC items: {e}. Falling back to local offline files under {COLL_DIR}...")
+        items = []
+        if COLL_DIR.exists():
+            for path in COLL_DIR.glob("*.zip"):
+                items.append({
+                    "id": path.stem,
+                    "assets": {
+                        "data": {
+                            "href": ""
+                        }
+                    }
+                })
+        print(f"  Found {len(items)} items in local archive. {len(completed)} already done.")
 
     # Check if table exists to decide -overwrite vs -append
     # We'll use ogrinfo to check if the table exists in the DB

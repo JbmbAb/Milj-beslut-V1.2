@@ -46,6 +46,15 @@ interface GraphStorageStats {
     edges: number;
   };
   driftDetected: boolean;
+  byType?: Record<string, number>;
+
+  // Legacy fields for backward compatibility
+  totalNodes?: number;
+  totalEdges?: number;
+  searchableNodes?: number;
+  searchableEdges?: number;
+  nodesByType?: Array<{ nodeType: string; count: number }>;
+  storage?: any;
 }
 
 export interface RequirementInput {
@@ -245,7 +254,7 @@ export async function getTypicalRequirements(params: {
   return { requirements, risks: Array.from(risks), legalRules: Array.from(legalRules) };
 }
 
-export async function getGraphStats() {
+export async function getGraphStats(): Promise<GraphStorageStats> {
   const [counts, totalEdges, totalNodes, legacy] = await Promise.all([
     prisma.knowledgeNode.groupBy({
       by: ['nodeType'],
@@ -260,41 +269,105 @@ export async function getGraphStats() {
   const effectiveBackend: 'knowledge' | 'graph' =
     hasLegacyTables && (legacy.nodes > totalNodes || legacy.edges > totalEdges) ? 'graph' : 'knowledge';
 
-  const storage: GraphStorageStats = {
-    preferred: {
-      backend: 'knowledge',
-      nodes: totalNodes,
-      edges: totalEdges,
-    },
-    legacy: hasLegacyTables
-      ? {
-          backend: 'graph',
-          nodes: legacy.nodes,
-          edges: legacy.edges,
-        }
-      : null,
-    effective: {
-      backend: effectiveBackend,
-      nodes: effectiveBackend === 'graph' ? legacy.nodes : totalNodes,
-      edges: effectiveBackend === 'graph' ? legacy.edges : totalEdges,
-    },
-    driftDetected: hasLegacyTables && (legacy.nodes !== totalNodes || legacy.edges !== totalEdges),
+  const preferred = {
+    backend: 'knowledge' as const,
+    nodes: totalNodes,
+    edges: totalEdges,
+  };
+
+  const legacyObj = hasLegacyTables
+    ? {
+        backend: 'graph' as const,
+        nodes: legacy.nodes,
+        edges: legacy.edges,
+      }
+    : null;
+
+  const effective = {
+    backend: effectiveBackend,
+    nodes: effectiveBackend === 'graph' ? legacy.nodes : totalNodes,
+    edges: effectiveBackend === 'graph' ? legacy.edges : totalEdges,
+  };
+
+  const driftDetected = hasLegacyTables && (legacy.nodes !== totalNodes || legacy.edges !== totalEdges);
+
+  const byType = counts.reduce((acc, curr) => {
+    acc[curr.nodeType] = curr._count.id;
+    return acc;
+  }, {} as Record<string, number>);
+
+  const nodesByType = counts.map((r) => ({ nodeType: r.nodeType, count: r._count.id }));
+
+  const storage = {
+    preferred,
+    legacy: legacyObj,
+    effective,
+    driftDetected,
   };
 
   return {
-    totalNodes: storage.effective.nodes,
-    totalEdges: storage.effective.edges,
+    preferred,
+    legacy: legacyObj,
+    effective,
+    driftDetected,
+    byType,
+    totalNodes: effective.nodes,
+    totalEdges: effective.edges,
     searchableNodes: totalNodes,
     searchableEdges: totalEdges,
-    nodesByType: counts.map((r) => ({ nodeType: r.nodeType, count: r._count.id })),
+    nodesByType,
     storage,
   };
 }
 
-// ─── Full-text search ────────────────────────────────────────────────────────
+// ─── Full-text search with synonym-expanding lexical match ──────────────────
+
+const SWEDISH_STOPWORDS = new Set([
+  'och', 'i', 'att', 'en', 'ett', 'ska', 'som', 'men', 'om', 'med', 'de', 'den', 'det', 'på', 'av', 'för', 'till', 'eller', 'har', 'inte', 'under', 'över', 'vid', 'hur', 'vad', 'var', 'vem', 'vilka', 'vilken', 'vilket', 'finns', 'är', 'kan', 'kräva', 'planerad', 'nära', 'risk', 'kommunen'
+]);
+
+const CONCEPT_SYNONYMS: Record<string, string[]> = {
+  sanering: ['sanering', 'förorenad mark', 'ebh', 'mifo', 'markförorening', 'föroreningar', 'miljöskuld'],
+  bygglov: ['bygglov', 'lov', 'detaljplan', 'pbl', 'plan- och bygglagen', 'byggnation', 'bygga'],
+  vattenskydd: ['vattenskydd', 'skyddsområde', 'grundvatten', 'vattentäkt', 'dricksvatten', 'vattenrening'],
+  avfall: ['avfall', 'farligt avfall', 'avfallsförordningen', 'deponi', 'återvinning', 'skrot'],
+  strandskydd: ['strandskydd', 'strand', 'vattendrag', 'sjö', 'hav', 'miljöbalken 7 kap'],
+  dagvatten: ['dagvatten', 'avrinning', 'lakvatten', 'brunn', 'dagvattenavrinning', 'skyfall', 'dränering'],
+  skred: ['skred', 'skredrisk', 'ravin', 'lera', 'sluttning', 'ras', 'markstabilitet'],
+  buller: ['buller', 'bullernivå', 'bullerskydd', 'ljud', 'trafikbuller', 'industribuller']
+};
 
 /**
- * searchGraph — sök noder vars namn matchar sökfrasen (case-insensitive ILIKE).
+ * Splits query phrases into normalized words, filters out Swedish stopwords,
+ * and expands terms using synonym mapping.
+ */
+export function extractExpandedSearchTerms(query: string): string[] {
+  const words = query
+    .toLowerCase()
+    .replace(/[^a-z0-9åäöé\-]/g, ' ')
+    .split(/\s+/)
+    .map(w => w.trim())
+    .filter(w => w.length > 2 && !SWEDISH_STOPWORDS.has(w));
+
+  const expanded = new Set<string>();
+  for (const word of words) {
+    expanded.add(word);
+    
+    // Expand using synonyms
+    for (const [key, synonyms] of Object.entries(CONCEPT_SYNONYMS)) {
+      if (word === key || synonyms.includes(word)) {
+        synonyms.forEach(syn => expanded.add(syn));
+      }
+    }
+  }
+
+  return Array.from(expanded);
+}
+
+/**
+ * searchGraph — sök noder vars namn matchar sökfrasen.
+ * Använder en exakt/standard ILIKE-sökning först, och faller tillbaka på synonym- och stoppords-expanderad OR-sökning
+ * för optimal RAG-berikning på naturligt språk.
  * Returnerar matchande noder + deras direkta kanter (1 hop).
  */
 export async function searchGraph(params: {
@@ -305,7 +378,7 @@ export async function searchGraph(params: {
   const limit = Math.min(params.limit ?? 50, 200);
   const query = params.query.trim();
 
-  const nodeRows = await prisma.knowledgeNode.findMany({
+  let nodeRows = await prisma.knowledgeNode.findMany({
     where: {
       name: { contains: query, mode: 'insensitive' },
       ...(params.nodeTypes ? { nodeType: { in: params.nodeTypes as KnowledgeNodeType[] } } : {}),
@@ -317,6 +390,27 @@ export async function searchGraph(params: {
       inEdges: { take: 100 },
     },
   });
+
+  // Fallback to synonym and stopword expanded search if exact match is empty
+  if (nodeRows.length === 0) {
+    const expandedTerms = extractExpandedSearchTerms(query);
+    if (expandedTerms.length > 0) {
+      nodeRows = await prisma.knowledgeNode.findMany({
+        where: {
+          OR: expandedTerms.map(term => ({
+            name: { contains: term, mode: 'insensitive' }
+          })),
+          ...(params.nodeTypes ? { nodeType: { in: params.nodeTypes as KnowledgeNodeType[] } } : {}),
+        },
+        take: limit,
+        orderBy: [{ name: 'asc' }, { id: 'desc' }],
+        include: {
+          outEdges: { take: 100 },
+          inEdges: { take: 100 },
+        },
+      });
+    }
+  }
 
   if (nodeRows.length === 0) {
     return { nodes: [], edges: [] };

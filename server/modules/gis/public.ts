@@ -49,3 +49,6 @@ export {
   calculateVaProjectClimate,
 } from '../../services/svensktVattenService';
 export type { StormwaterCalculationInput, VaClimateInput } from '../../services/svensktVattenService';
+export { calculateGeoKalkyl } from '../../services/geoKalkylService';
+export type { GeoKalkylInput, GeoKalkylResult, GeoKalkylSegment } from '../../services/geoKalkylService';
+

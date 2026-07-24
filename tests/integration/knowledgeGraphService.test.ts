@@ -59,6 +59,20 @@ describeIfDatabaseIntegration('knowledgeGraphService integration tests (REAL DB)
     await upsertNode('Risktyp', `Brand_Test_${Date.now()}`);
 
     const statsAfter = await getGraphStats();
-    expect(statsAfter.totalNodes).toBeGreaterThan(statsBefore.totalNodes);
+    expect(statsAfter.effective.nodes).toBeGreaterThan(statsBefore.effective.nodes);
+  });
+
+  it('should search graph with Swedish natural language questions using stopword filtering and synonym expansion', async () => {
+    // 1. Create a node for 'förorenad mark' which is a synonym of 'sanering'
+    const uniqueSynonymName = `förorenad mark ${Date.now()}`;
+    await upsertNode('Risktyp', uniqueSynonymName);
+
+    // 2. Search using natural language containing synonym word 'sanering'
+    // 'Kan kommunen kräva sanering?' should trigger expansion to include 'förorenad mark'
+    const searchResult = await searchGraph({ query: 'Kan kommunen kräva sanering?' });
+    
+    // 3. Verify it found the 'förorenad mark' node
+    const foundNames = searchResult.nodes.map(n => n.name);
+    expect(foundNames).toContain(uniqueSynonymName);
   });
 });

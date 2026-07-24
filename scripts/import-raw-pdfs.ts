@@ -1,11 +1,9 @@
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
-import { PrismaClient } from '@prisma/client';
+import { prisma } from '../server/db/prisma';
 import { extractCorpusContent } from '../server/modules/legal/services/legalCorpusTextExtractor';
 import crypto from 'node:crypto';
 import { PATHS } from './import/config/mimersBrunn';
-
-const prisma = new PrismaClient();
 
 async function walk(dir: string): Promise<string[]> {
   let files: string[] = [];
@@ -38,14 +36,24 @@ async function main() {
     ? process.argv[process.argv.indexOf('--root-dir') + 1] 
     : PATHS.DOCUMENTS;
 
+  const limitIndex = process.argv.indexOf('--limit');
+  const limit = limitIndex !== -1 ? parseInt(process.argv[limitIndex + 1], 10) : undefined;
+
   console.log(`Skannar ${rootDir} efter PDF-filer...`);
   const pdfs = await walk(rootDir);
   console.log(`Hittade ${pdfs.length} PDF-filer.`);
+  if (limit) console.log(`Begränsar import till max ${limit} filer.`);
 
   let processed = 0;
   let errors = 0;
+  let importedCount = 0;
 
   for (const pdfPath of pdfs) {
+    if (limit && importedCount >= limit) {
+      console.log(`Begränsning nådd: Stoppar efter ${limit} bearbetade filer.`);
+      break;
+    }
+
     const relPath = path.relative(rootDir, pdfPath).replace(/\\/g, '/');
     const fileName = path.basename(pdfPath);
     const folderName = path.basename(path.dirname(pdfPath));
@@ -103,6 +111,7 @@ async function main() {
       });
       
       processed++;
+      importedCount++;
     } catch (err: any) {
       console.error(`Fel vid import av ${fileName}:`, err.message);
       errors++;
