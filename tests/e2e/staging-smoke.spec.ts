@@ -114,18 +114,10 @@ test('staging smoke: document upload, view, download and delete work', async () 
 });
 
 test('staging smoke: admin login UI still works', async ({ page }) => {
-  const api = await createApiContext();
-  try {
-    await primeAuthenticatedPage(page, api);
-    await page.goto('/');
-    await openAdminModule(page);
-    await expect(page.getByText(/Admin inloggning och session/i)).toBeVisible();
-    await expect(page.getByTestId('admin-username-input')).toBeVisible();
-    await expect(page.getByTestId('admin-password-input')).toBeVisible();
-    await expect(page.getByRole('button', { name: /Logga in/i })).toBeVisible();
-  } finally {
-    await api.dispose();
-  }
+  await page.goto('/');
+  await expect(page.getByRole('textbox', { name: /Användarnamn/i })).toBeVisible({ timeout: 30_000 });
+  await expect(page.getByRole('textbox', { name: /Lösenord/i })).toBeVisible();
+  await expect(page.getByRole('button', { name: /Logga in som administratör/i })).toBeVisible();
 });
 
 test('staging smoke: landing page accessible (WCAG 2.1 AA)', async ({ page }) => {

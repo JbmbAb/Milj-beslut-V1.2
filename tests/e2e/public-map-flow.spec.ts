@@ -1,5 +1,5 @@
 import { expect, test, type Page } from '@playwright/test';
-import { createApiContext, primeAuthenticatedPage } from './support';
+import { createApiContext, primeAuthenticatedPage, waitForHubModuleReady } from './support';
 
 async function openLogisticsModule(page: Page): Promise<void> {
   await expect(page).toHaveTitle(/Milj.*beslut/i);
@@ -67,6 +67,7 @@ test.describe('Public Map and Project Verification', () => {
     try {
       await primeAuthenticatedPage(page, api);
       await page.goto('/');
+      await waitForHubModuleReady(page, 'logistik');
       await openLogisticsModule(page);
 
       const panel = page.getByTestId('map-overlay-panel');

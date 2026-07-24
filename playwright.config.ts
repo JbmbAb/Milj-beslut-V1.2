@@ -25,6 +25,7 @@ const serverEnv = {
   PORT: String(localApiPort),
   DATABASE_URL:
     trim(process.env.PLAYWRIGHT_DATABASE_URL) ||
+    trim(process.env.DATABASE_URL) ||
     trim(testEnv.DATABASE_URL) ||
     'postgresql://miljobeslut:miljobeslut@localhost:5432/miljobeslut_test',
   JWT_ACCESS_SECRET: trim(testEnv.JWT_ACCESS_SECRET) || 'test-access-secret',

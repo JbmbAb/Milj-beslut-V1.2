@@ -1,10 +1,10 @@
 import { expect, test, type Page } from '@playwright/test';
-import { createApiContext, primeAuthenticatedPage } from './support';
+import { createApiContext, primeAuthenticatedPage, waitForHubModuleReady } from './support';
 
 const BROWSER_TIMEOUT = 180_000;
 
 async function openProjectModule(page: Page): Promise<void> {
-  await expect(page).toHaveTitle(/Milj.*beslut/i, { timeout: BROWSER_TIMEOUT });
+  await waitForHubModuleReady(page, 'projekt');
   const projectCard = page.getByTestId('landing-open-projekt');
   await expect(projectCard).toBeVisible({ timeout: BROWSER_TIMEOUT });
   await expect(projectCard).toBeEnabled();

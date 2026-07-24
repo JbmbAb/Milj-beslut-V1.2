@@ -19,7 +19,7 @@ test.describe('Executive Summary Queue', () => {
     });
 
     // 1. Gå till ett befintligt projekt (ID från seed-data)
-    await page.goto('/projects/clxodd6wg000008l463w1d2f4');
+    await page.goto('/projects/test-project-001');
 
     // Hitta "Exekutiv Sammanfattning"-sektionen
     const summaryCard = page.getByTestId('exec-summary-card');
@@ -45,7 +45,7 @@ test.describe('Executive Summary Queue', () => {
 
     // Innehållet ska matcha exakt det vi definierade i `execSummaryQueueService.ts`
     await expect(summaryText).toContainText(
-      'Detta är en mock-sammanfattning för projekt clxodd6wg000008l463w1d2f4.',
+      'Detta är en mock-sammanfattning för projekt test-project-001.',
     );
     await expect(keyRisksList.getByRole('listitem').first()).toContainText(
       'Mock-risk: Beroende av externa system',
