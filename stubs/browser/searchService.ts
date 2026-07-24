@@ -115,3 +115,28 @@ export async function embedDocumentChunks(): Promise<any> {
 export async function runSearchQuery(): Promise<any> {
   return clientBundleError();
 }
+
+export interface SearchChunkResult {
+  id: string;
+  chunkText: string;
+  documentId: string;
+  documentTitle: string;
+  ftsRank?: number;
+  vectorDistance?: number;
+  rrfScore?: number;
+  finalScore?: number;
+  category?: string;
+  documentReference?: string;
+}
+
+export class AlphaevolveSearchService {
+  constructor(_prisma?: unknown) {}
+
+  on(): this {
+    return this;
+  }
+
+  async search(): Promise<SearchChunkResult[]> {
+    return clientBundleError();
+  }
+}

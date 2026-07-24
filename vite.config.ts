@@ -13,27 +13,46 @@ const pnorm = (s: string) => s.replace(/\\/g, '/');
 function serverModulesBrowserStubsPlugin(): Plugin {
   const vertStub = path.resolve(__dirname, 'stubs/browser/vertexAiService.ts');
   const cbStub = path.resolve(__dirname, 'stubs/browser/circuit-breaker-stub.ts');
+  const searchStub = path.resolve(__dirname, 'stubs/browser/searchService.ts');
+  const orkesterStub = path.resolve(__dirname, 'stubs/browser/VertexOrkester.ts');
+
+  const resolveServerStub = (id: string, importer?: string): string | null => {
+    const n = pnorm(id);
+    if (n.includes('server/services/searchService')) {
+      return searchStub;
+    }
+    if (n.includes('server/modules/ai/orchestrator/VertexOrkester')) {
+      return orkesterStub;
+    }
+    if (n.includes('server/services/vertexAiService')) {
+      return vertStub;
+    }
+    if (n.includes('server/utils/circuitBreaker')) {
+      return cbStub;
+    }
+    if (importer) {
+      const joined = pnorm(path.join(path.dirname(importer), id));
+      if (joined.includes('server/services/searchService')) {
+        return searchStub;
+      }
+      if (joined.includes('server/modules/ai/orchestrator/VertexOrkester')) {
+        return orkesterStub;
+      }
+      if (joined.includes('server/services/vertexAiService')) {
+        return vertStub;
+      }
+      if (joined.includes('server/utils/circuitBreaker')) {
+        return cbStub;
+      }
+    }
+    return null;
+  };
+
   return {
     name: 'server-modules-browser-stubs',
     enforce: 'pre',
     resolveId(id, importer) {
-      const n = pnorm(id);
-      if (n.includes('server/services/vertexAiService')) {
-        return vertStub;
-      }
-      if (n.includes('server/utils/circuitBreaker')) {
-        return cbStub;
-      }
-      if (importer) {
-        const joined = pnorm(path.join(path.dirname(importer), id));
-        if (joined.includes('server/services/vertexAiService')) {
-          return vertStub;
-        }
-        if (joined.includes('server/utils/circuitBreaker')) {
-          return cbStub;
-        }
-      }
-      return null;
+      return resolveServerStub(id, importer ?? undefined);
     },
   };
 }
