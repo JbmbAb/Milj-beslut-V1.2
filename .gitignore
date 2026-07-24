@@ -66,6 +66,10 @@ tmp_*
 __pycache__/
 *.pyc
 
+# AlphaEvolve local checkout (secrets + venv)
+alphaevolve-on-googlecloud/.venv
+alphaevolve-on-googlecloud/.env
+
 # Local debug artifacts
 .codex-logs/
 .postqode/
