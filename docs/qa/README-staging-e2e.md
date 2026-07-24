@@ -15,11 +15,11 @@ Målet är **PDF-ready end-to-end**: varje fokusmodul ska kunna verifieras mot *
 
 ## Fokusmoduler (PDF-ready)
 
-| Modul | Slutsteg | Submit |
-| ----- | -------- | ------ |
-| Lokaliseringsutredning | `POST /api/localization/export-pdf` | Deferred |
+| Modul                  | Slutsteg                                          | Submit   |
+| ---------------------- | ------------------------------------------------- | -------- |
+| Lokaliseringsutredning | `POST /api/localization/export-pdf`               | Deferred |
 | C-anmälan schaktmassor | `GET /api/c-notification/mass/:caseId/export-pdf` | Deferred |
-| Enskilt avlopp | `GET /api/sewage/applications/:id/dossier` | Deferred |
+| Enskilt avlopp         | `GET /api/sewage/applications/:id/dossier`        | Deferred |
 
 Tvärgående krav i alla tre specar:
 

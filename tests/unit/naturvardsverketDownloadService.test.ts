@@ -1,9 +1,11 @@
+import path from 'node:path';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import {
   downloadNaturvardsverketKnowledge,
   resolveNaturvardsverketDownloadDirectory,
 } from '../../server/modules/legal/services/naturvardsverketDownloadService';
+import { testTmpDir } from '../helpers/testPaths';
 
 const { rmMock, mkdirMock, writeFileMock } = vi.hoisted(() => ({
   rmMock: vi.fn(),
@@ -23,6 +25,8 @@ vi.mock('node:fs/promises', () => ({
 }));
 
 describe('naturvardsverketDownloadService', () => {
+  const outputDir = testTmpDir('naturvardsverket');
+
   beforeEach(() => {
     vi.clearAllMocks();
   });
@@ -76,7 +80,7 @@ describe('naturvardsverketDownloadService', () => {
     });
 
     const result = await downloadNaturvardsverketKnowledge({
-      outputDir: 'C:\\tmp\\naturvardsverket',
+      outputDir,
       fetchImpl,
       now: () => new Date('2026-04-27T18:30:00.000Z'),
     });
@@ -87,16 +91,16 @@ describe('naturvardsverketDownloadService', () => {
       'naturvardsregistret-wfs-capabilities.xml',
       'broschyrer/manifest.json',
     ]);
-    expect(rmMock).toHaveBeenCalledWith('C:\\tmp\\naturvardsverket', { recursive: true, force: true });
-    expect(mkdirMock).toHaveBeenCalledWith('C:\\tmp\\naturvardsverket', { recursive: true });
+    expect(rmMock).toHaveBeenCalledWith(outputDir, { recursive: true, force: true });
+    expect(mkdirMock).toHaveBeenCalledWith(outputDir, { recursive: true });
     expect(writeFileMock).toHaveBeenCalledTimes(6);
     expect(writeFileMock).toHaveBeenCalledWith(
-      'C:\\tmp\\naturvardsverket\\manifest.json',
+      path.join(outputDir, 'manifest.json'),
       expect.stringContaining('"legacyEbhProbe"'),
       'utf8',
     );
     expect(writeFileMock).toHaveBeenCalledWith(
-      'C:\\tmp\\naturvardsverket\\broschyrer\\manifest.json',
+      path.join(outputDir, 'broschyrer', 'manifest.json'),
       expect.stringContaining('"downloads"'),
       'utf8',
     );

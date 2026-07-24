@@ -34,8 +34,8 @@ describe('Legal View API Verification', () => {
         sourceType: 'TEST_TYPE',
         sourceSystem: 'TEST_SYSTEM',
         sourcePath: '/test/path.pdf',
-        language: 'sv'
-      }
+        language: 'sv',
+      },
     });
 
     const res = await request.get(`/api/legal/view/${testRecord.id}`);

@@ -783,7 +783,11 @@ describe('adminReportRepository', () => {
       categories: [],
       checkedAt: '2026-03-21T12:00:00.000Z',
     };
-    const operationalCoverage = { percent: 42, integrations: { configured: 2, total: 9, percent: 22 }, notes: [] };
+    const operationalCoverage = {
+      percent: 42,
+      integrations: { configured: 2, total: 9, percent: 22 },
+      notes: [],
+    };
     const health = { overall: 'degraded', checkedAt: '2026-03-21T12:00:00.000Z', services: [{ id: 'slu' }] };
     mocks.computeAppCompletion.mockReturnValue(completion);
     mocks.getOperationalCoverage.mockResolvedValue(operationalCoverage);

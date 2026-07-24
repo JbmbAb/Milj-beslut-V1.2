@@ -4,13 +4,19 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 vi.mock('../../server/db/prisma', () => ({
   prisma: {
     $transaction: vi.fn((cb) => cb(prisma)),
-    project: { findUnique: vi.fn(), update: vi.fn(), updateMany: vi.fn(), findMany: vi.fn(), delete: vi.fn() },
+    project: {
+      findUnique: vi.fn(),
+      update: vi.fn(),
+      updateMany: vi.fn(),
+      findMany: vi.fn(),
+      delete: vi.fn(),
+    },
     documentRecord: { findMany: vi.fn(), updateMany: vi.fn(), deleteMany: vi.fn() },
     documentContent: { updateMany: vi.fn(), deleteMany: vi.fn() },
     documentChunk: { updateMany: vi.fn(), deleteMany: vi.fn() },
     requirementRecord: { updateMany: vi.fn(), deleteMany: vi.fn() },
     requirementCitation: { deleteMany: vi.fn(), updateMany: vi.fn() },
-    requirementCase: { deleteMany: vi.fn() },
+    requirementCase: { deleteMany: vi.fn(), findMany: vi.fn(() => Promise.resolve([])) },
     projectPlanState: { deleteMany: vi.fn() },
     projectMember: { findMany: vi.fn(), deleteMany: vi.fn() },
     propertyAccessLog: { updateMany: vi.fn(), deleteMany: vi.fn(), findMany: vi.fn() },
@@ -73,7 +79,7 @@ describe('gdprComplianceService', () => {
       expect(count).toBe(5);
       expect(prisma.project.updateMany).toHaveBeenCalledWith({
         where: {
-          status: 'COMPLETED',
+          status: 'CLOSED',
           retentionUntil: {
             lt: expect.any(Date),
           },

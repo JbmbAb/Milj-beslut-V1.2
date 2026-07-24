@@ -63,3 +63,37 @@ export async function seedSguWell(prisma: PrismaClient, lng: number, lat: number
     VALUES (ST_Transform(ST_SetSRID(ST_MakePoint(${lng}, ${lat}), 4326), 3006));
   `;
 }
+
+/** Shared Brynäs bbox soil fixture — includes jordart for sewageAnalysisService. */
+export async function seedGavleBrynasSguMoran(
+  prisma: PrismaClient,
+  params?: { id?: number; jy1?: number; jy1Tx?: string; karttyp?: number },
+): Promise<void> {
+  const id = params?.id ?? 99999;
+  const jy1 = params?.jy1 ?? 1;
+  const jy1Tx = params?.jy1Tx ?? 'Lera';
+  const karttyp = params?.karttyp ?? 1;
+
+  await prisma.$executeRaw`
+    INSERT INTO env.sgu_soil_type_25k_100k (id, jordart, jg2_tx, jy1, jy1_tx, karttyp, geom)
+    VALUES (
+      ${id},
+      'Morän',
+      'Medel permeabilitet',
+      ${jy1},
+      ${jy1Tx},
+      ${karttyp},
+      ST_Multi(ST_Transform(
+        ST_SetSRID(ST_GeomFromText('POLYGON((17.13 60.66, 17.15 60.66, 17.15 60.68, 17.13 60.68, 17.13 60.66))'), 4326),
+        3006
+      ))
+    )
+    ON CONFLICT (id) DO UPDATE SET
+      jordart = EXCLUDED.jordart,
+      jg2_tx = EXCLUDED.jg2_tx,
+      jy1 = EXCLUDED.jy1,
+      jy1_tx = EXCLUDED.jy1_tx,
+      karttyp = EXCLUDED.karttyp,
+      geom = EXCLUDED.geom;
+  `;
+}

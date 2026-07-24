@@ -87,11 +87,11 @@ describe('Clean Architecture Observability Framework', () => {
     it('should calculate cost accurately based on the pricing model', () => {
       // gemini-1.5-pro: input $1.25 / 1M, output $5.00 / 1M
       const costPro = calculateLLMCost('gemini-1.5-pro', 100_000, 20_000);
-      expect(costPro).toBe((100_000 / 1_000_000) * 1.25 + (20_000 / 1_000_000) * 5.00);
+      expect(costPro).toBe((100_000 / 1_000_000) * 1.25 + (20_000 / 1_000_000) * 5.0);
 
       // gemini-2.0-flash: input $0.075 / 1M, output $0.30 / 1M
       const costFlash = calculateLLMCost('gemini-2.0-flash', 1_000_000, 2_000_000);
-      expect(costFlash).toBe((1_000_000 / 1_000_000) * 0.075 + (2_000_000 / 1_000_000) * 0.30);
+      expect(costFlash).toBe((1_000_000 / 1_000_000) * 0.075 + (2_000_000 / 1_000_000) * 0.3);
     });
 
     it('should record LLM call details and compute costs dynamically', () => {
@@ -119,7 +119,9 @@ describe('Clean Architecture Observability Framework', () => {
       recordError('DATABASE_CONNECTION_TIMEOUT');
 
       const metricsText = getMetricsText();
-      expect(metricsText).toContain('http_requests_total{method="POST",route="/api/sewage/assess",status="201"} 1');
+      expect(metricsText).toContain(
+        'http_requests_total{method="POST",route="/api/sewage/assess",status="201"} 1',
+      );
       expect(metricsText).toContain('db_queries_total{failed="false",operation="findUnique"} 1');
       expect(metricsText).toContain('app_errors_total{type="DATABASE_CONNECTION_TIMEOUT"} 1');
     });

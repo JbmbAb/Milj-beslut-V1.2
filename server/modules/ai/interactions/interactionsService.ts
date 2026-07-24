@@ -12,8 +12,7 @@ export async function generateWithInteractions(input: InteractionInput): Promise
 
   console.log(`[Interactions API] Calling interactions.create with model ${modelName}, store=${store}`);
 
-  // @ts-ignore - The interactions API might be marked as experimental or missing from types in older versions of the SDK,
-  // but we verified it exists at runtime in v2.7.0.
+  // @ts-expect-error interactions API may be missing from SDK types at compile time
   const interaction = await client.interactions.create({
     model: modelName,
     input: input.prompt,

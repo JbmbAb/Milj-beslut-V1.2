@@ -159,7 +159,7 @@ const MapView: React.FC<MapViewProps> = ({
     onLocationChangeRef.current = onLocationChange;
   }, [onLocationChange]);
 
-  const [baseLayer, setBaseLayer] = useState<"osm" | "topo" | "orto">("topo");
+  const [baseLayer, setBaseLayer] = useState<"osm" | "topo" | "orto">("osm");
   const [activeOverlays, setActiveOverlays] = useState<string[]>([]);
   const [selectedContext, setSelectedContext] = useState<MunicipalityContext | null>(null);
   const [isLoadingContext, setIsLoadingContext] = useState(false);
@@ -237,7 +237,7 @@ const MapView: React.FC<MapViewProps> = ({
       attribution: "&copy; Lantmateriet",
     });
 
-    layersRef.current.topo.addTo(mapRef.current);
+    layersRef.current.osm.addTo(mapRef.current);
 
     layersRef.current.raa_fornsok = L.tileLayer.wms("https://pub.raa.se/visning/lamningar_v1/wms", {
       layers: "fornlamning",

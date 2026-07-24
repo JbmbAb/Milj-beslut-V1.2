@@ -18,10 +18,7 @@ describe('importRegistry', () => {
   });
 
   it('resolves STAC national merge dataset with profile', () => {
-    const entry = getRegistryEntry(
-      'Lantmateriet',
-      'Fastighetsindelning_Nationell/Registerenhetsomradesytor',
-    );
+    const entry = getRegistryEntry('Lantmateriet', 'Fastighetsindelning_Nationell/Registerenhetsomradesytor');
     expect(entry.stac_merge?.stac_archive_folder).toBe('fastighetsindelning');
     expect(entry.stac_merge?.output_gpkg).toBe('registerenhetsomradesytor_nationell.gpkg');
     expect(entry.ogr_layer).toBe('registerenhetsomradesyta');

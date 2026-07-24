@@ -31,7 +31,7 @@ export async function archiveExpiredProjects(): Promise<number> {
 
   const result = await prisma.project.updateMany({
     where: {
-      status: 'COMPLETED',
+      status: 'CLOSED',
       retentionUntil: {
         lt: now,
       },
@@ -64,8 +64,14 @@ export async function permanentlyDeleteProjectData(
     if (!project) return;
 
     // 1. Delete all requirement related data
+    const cases = await tx.requirementCase.findMany({
+      where: { projectId },
+      select: { id: true },
+    });
+    const caseIds = cases.map(c => c.id);
+
     await tx.requirementCitation.deleteMany({
-      where: { case: { projectId } },
+      where: { caseId: { in: caseIds } },
     });
     await tx.requirementRecord.deleteMany({
       where: { projectId },
@@ -190,8 +196,14 @@ export async function scrubProjectData(projectId: string): Promise<void> {
     },
   });
 
+  const cases = await db.requirementCase.findMany({
+    where: { projectId },
+    select: { id: true },
+  });
+  const caseIds = cases.map(c => c.id);
+
   await db.requirementCitation.updateMany({
-    where: { case: { projectId } },
+    where: { caseId: { in: caseIds } },
     data: {
       quoteText: SCRUB_TEXT,
     },
@@ -199,7 +211,7 @@ export async function scrubProjectData(projectId: string): Promise<void> {
 
   // Anonymize case notes which might contain sensitive discussion
   await db.caseNote.updateMany({
-    where: { case: { projectId } },
+    where: { caseId: { in: caseIds } },
     data: { text: SCRUB_TEXT, author: 'anonymized' },
   });
 

@@ -5,13 +5,13 @@ const prisma = new PrismaClient();
 
 async function verifySpatialPartitions(options: { strict: boolean }) {
   console.log('--- Phase 2: Spatial Grid Partition Verification ---');
-  
+
   const tables = [
     { name: 'registerenhetsomradesytor', schema: 'env' },
     { name: 'lm_mark', schema: 'core' },
-    { name: 'lm_byggnad', schema: 'core' }
+    { name: 'lm_byggnad', schema: 'core' },
   ];
-  
+
   let allOk = true;
 
   for (const table of tables) {
@@ -51,18 +51,26 @@ async function verifySpatialPartitions(options: { strict: boolean }) {
     // 3. Data Integrity Check (Legacy vs New)
     const legacyTableName = `${table.name}_legacy`;
     try {
-      const legacyCount = await prisma.$queryRawUnsafe<any[]>(`SELECT count(*) FROM "${table.schema}"."${legacyTableName}"`);
-      const newCount = await prisma.$queryRawUnsafe<any[]>(`SELECT count(*) FROM "${table.schema}"."${table.name}"`);
+      const legacyCount = await prisma.$queryRawUnsafe<any[]>(
+        `SELECT count(*) FROM "${table.schema}"."${legacyTableName}"`,
+      );
+      const newCount = await prisma.$queryRawUnsafe<any[]>(
+        `SELECT count(*) FROM "${table.schema}"."${table.name}"`,
+      );
 
       const diff = Number(legacyCount[0].count) - Number(newCount[0].count);
       if (diff === 0) {
         console.log(`✅ OK: Row counts match (${newCount[0].count}).`);
       } else {
-        console.error(`❌ ERROR: Row count mismatch! Legacy: ${legacyCount[0].count}, New: ${newCount[0].count} (Diff: ${diff})`);
+        console.error(
+          `❌ ERROR: Row count mismatch! Legacy: ${legacyCount[0].count}, New: ${newCount[0].count} (Diff: ${diff})`,
+        );
         allOk = false;
       }
     } catch {
-      console.warn(`⚠️ Warning: Could not find legacy table ${table.schema}.${legacyTableName} to compare counts.`);
+      console.warn(
+        `⚠️ Warning: Could not find legacy table ${table.schema}.${legacyTableName} to compare counts.`,
+      );
     }
   }
 
@@ -78,7 +86,7 @@ program
   .option('--strict', 'Exit with non-zero code on failure', false)
   .action((options) => {
     verifySpatialPartitions(options)
-      .catch(err => {
+      .catch((err) => {
         console.error('Fatal verification error:', err);
         process.exit(1);
       })

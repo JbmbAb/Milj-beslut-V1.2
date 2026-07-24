@@ -1,7 +1,5 @@
-import { PrismaClient } from '@prisma/client';
+import { prisma } from '../../server/db/prisma';
 import { extractRequirementsFromText } from '../../server/services/requirementExtractionService';
-
-const prisma = new PrismaClient();
 
 async function main() {
   console.log('--- BATCH REQUIREMENT EXTRACTION ---');

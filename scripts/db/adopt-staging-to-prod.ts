@@ -21,27 +21,31 @@ const DRY_RUN = !EXECUTE;
 
 // Mappning av staging-tabell-prefix till produktionstabell och schema
 const TABLE_MAPPINGS: Record<string, { schema: string; table: string; geom_col?: string }> = {
-  'byggnad':                         { schema: 'topo10',  table: 'byggnad',                     geom_col: 'geom' },
-  'registerenhetsomradesytor':      { schema: 'env',     table: 'registerenhetsomradesytor',   geom_col: 'geom' },
-  'registerenhetsomradeslinjer':     { schema: 'env',     table: 'registerenhetsomradeslinjer',  geom_col: 'geom' },
-  'belagenhetsadress':               { schema: 'env',     table: 'belagenhetsadress',           geom_col: 'geom' },
-  'marktacke':                       { schema: 'env',     table: 'marktacke',                   geom_col: 'geom' },
-  'ortnamn':                         { schema: 'core',    table: 'ortnamn',                     geom_col: 'geom' },
-  'kommuner':                        { schema: 'core',    table: 'kommuner',                    geom_col: 'geom' },
-  'lan':                             { schema: 'core',    table: 'lan',                         geom_col: 'geom' },
-  'rike':                            { schema: 'core',    table: 'rike',                        geom_col: 'geom' },
-  'huvudavrinningsomraden':          { schema: 'hydro',   table: 'huvudavrinningsomraden',      geom_col: 'geom' },
-  'sgu_fastmark_stabilitet':         { schema: 'env',     table: 'sgu_fastmark_stabilitet',     geom_col: 'geom' },
-  'sgu_soil_type_25k_100k':          { schema: 'env',     table: 'sgu_soil_type_25k_100k',      geom_col: 'geom' },
-  'sgu_jorddjupsmodell_10m':         { schema: 'env',     table: 'sgu_jorddjupsmodell_10m',     geom_col: 'geom' },
-  'sgu_well':                        { schema: 'env',     table: 'sgu_well',                    geom_col: 'geom' },
-  'sgu_landslide_feature':           { schema: 'env',     table: 'sgu_landslide_feature',       geom_col: 'geom' },
-  'sgu_aktsamhet_efterarbetad':      { schema: 'env',     table: 'sgu_aktsamhet_efterarbetad',  geom_col: 'geom' },
-  'ebh_potentiellt_fororenade_omraden': { schema: 'env',  table: 'ebh_potentiellt_fororenade_omraden', geom_col: 'geom' },
-  'env_sgu_grundvatten_sarbarhet':   { schema: 'env',     table: 'env_sgu_grundvatten_sarbarhet', geom_col: 'geom' },
-  'flood_risk_area':                 { schema: 'climate', table: 'flood_risk_area',             geom_col: 'geom' },
-  'msb_stabilitetszon':              { schema: 'env',     table: 'msb_stabilitetszon',          geom_col: 'geom' },
-  'msb_stabilitetszon_mcf_pilot':    { schema: 'env',     table: 'msb_stabilitetszon_mcf_pilot', geom_col: 'geom' }
+  byggnad: { schema: 'topo10', table: 'byggnad', geom_col: 'geom' },
+  registerenhetsomradesytor: { schema: 'env', table: 'registerenhetsomradesytor', geom_col: 'geom' },
+  registerenhetsomradeslinjer: { schema: 'env', table: 'registerenhetsomradeslinjer', geom_col: 'geom' },
+  belagenhetsadress: { schema: 'env', table: 'belagenhetsadress', geom_col: 'geom' },
+  marktacke: { schema: 'env', table: 'marktacke', geom_col: 'geom' },
+  ortnamn: { schema: 'core', table: 'ortnamn', geom_col: 'geom' },
+  kommuner: { schema: 'core', table: 'kommuner', geom_col: 'geom' },
+  lan: { schema: 'core', table: 'lan', geom_col: 'geom' },
+  rike: { schema: 'core', table: 'rike', geom_col: 'geom' },
+  huvudavrinningsomraden: { schema: 'hydro', table: 'huvudavrinningsomraden', geom_col: 'geom' },
+  sgu_fastmark_stabilitet: { schema: 'env', table: 'sgu_fastmark_stabilitet', geom_col: 'geom' },
+  sgu_soil_type_25k_100k: { schema: 'env', table: 'sgu_soil_type_25k_100k', geom_col: 'geom' },
+  sgu_jorddjupsmodell_10m: { schema: 'env', table: 'sgu_jorddjupsmodell_10m', geom_col: 'geom' },
+  sgu_well: { schema: 'env', table: 'sgu_well', geom_col: 'geom' },
+  sgu_landslide_feature: { schema: 'env', table: 'sgu_landslide_feature', geom_col: 'geom' },
+  sgu_aktsamhet_efterarbetad: { schema: 'env', table: 'sgu_aktsamhet_efterarbetad', geom_col: 'geom' },
+  ebh_potentiellt_fororenade_omraden: {
+    schema: 'env',
+    table: 'ebh_potentiellt_fororenade_omraden',
+    geom_col: 'geom',
+  },
+  env_sgu_grundvatten_sarbarhet: { schema: 'env', table: 'env_sgu_grundvatten_sarbarhet', geom_col: 'geom' },
+  flood_risk_area: { schema: 'climate', table: 'flood_risk_area', geom_col: 'geom' },
+  msb_stabilitetszon: { schema: 'env', table: 'msb_stabilitetszon', geom_col: 'geom' },
+  msb_stabilitetszon_mcf_pilot: { schema: 'env', table: 'msb_stabilitetszon_mcf_pilot', geom_col: 'geom' },
 };
 
 async function tableExists(schema: string, name: string): Promise<boolean> {
@@ -50,25 +54,31 @@ async function tableExists(schema: string, name: string): Promise<boolean> {
        SELECT FROM information_schema.tables 
        WHERE table_schema = $1 AND table_name = $2
      ) AS exists`,
-    schema, name
+    schema,
+    name,
   );
   return exists;
 }
 
-async function getCommonColumns(schema1: string, table1: string, schema2: string, table2: string): Promise<string[]> {
+async function getCommonColumns(
+  schema1: string,
+  table1: string,
+  schema2: string,
+  table2: string,
+): Promise<string[]> {
   const cols1 = await p.$queryRawUnsafe<{ column_name: string }[]>(
     `SELECT column_name FROM information_schema.columns WHERE table_schema = $1 AND table_name = $2`,
-    schema1, table1
+    schema1,
+    table1,
   );
   const cols2 = await p.$queryRawUnsafe<{ column_name: string }[]>(
     `SELECT column_name FROM information_schema.columns WHERE table_schema = $1 AND table_name = $2`,
-    schema2, table2
+    schema2,
+    table2,
   );
-  
-  const set2 = new Set(cols2.map(c => c.column_name.toLowerCase()));
-  return cols1
-    .map(c => c.column_name)
-    .filter(c => c.toLowerCase() !== 'id' && set2.has(c.toLowerCase())); // Hoppa över auto-increment ID
+
+  const set2 = new Set(cols2.map((c) => c.column_name.toLowerCase()));
+  return cols1.map((c) => c.column_name).filter((c) => c.toLowerCase() !== 'id' && set2.has(c.toLowerCase())); // Hoppa över auto-increment ID
 }
 
 async function main() {
@@ -86,7 +96,7 @@ async function main() {
 
   for (const stg of stagingTables) {
     const stgTable = stg.table_name;
-    
+
     // Identifiera prefixet för att matcha mot TABLE_MAPPINGS
     // T.ex. byggnad_45ee5ff0 -> prefix: byggnad
     let matchedPrefix = '';
@@ -112,9 +122,9 @@ async function main() {
 
     // Hämta rader i staging
     const [{ count: stgCount }] = await p.$queryRawUnsafe<[{ count: bigint }]>(
-      `SELECT COUNT(*)::bigint as count FROM lm_staging."${stgTable}"`
+      `SELECT COUNT(*)::bigint as count FROM lm_staging."${stgTable}"`,
     );
-    
+
     if (Number(stgCount) === 0) {
       console.log(`  ⏭️  Skipping empty staging table: ${fullStg}`);
       continue;
@@ -124,17 +134,17 @@ async function main() {
 
     // Kontrollera om produktionstabellen finns
     const prodExists = await tableExists(prodSchema, prodTable);
-    
+
     if (!prodExists) {
       console.log(`  🚧 Production table ${fullProd} does not exist. Creating schema structure first...`);
       if (EXECUTE) {
         // Skapa tom produktionstabell med samma struktur som staging
         await p.$executeRawUnsafe(
-          `CREATE TABLE ${prodSchema}.${prodTable} AS SELECT * FROM lm_staging."${stgTable}" LIMIT 0`
+          `CREATE TABLE ${prodSchema}.${prodTable} AS SELECT * FROM lm_staging."${stgTable}" LIMIT 0`,
         );
         // Lägg till primärnyckel
         await p.$executeRawUnsafe(
-          `ALTER TABLE ${prodSchema}.${prodTable} ADD COLUMN IF NOT EXISTS id SERIAL PRIMARY KEY`
+          `ALTER TABLE ${prodSchema}.${prodTable} ADD COLUMN IF NOT EXISTS id SERIAL PRIMARY KEY`,
         );
         console.log(`  ✓ Table structure created.`);
       }
@@ -147,9 +157,9 @@ async function main() {
         console.error(`  ❌ No common columns found between ${fullStg} and ${fullProd}. Skipping.`);
         continue;
       }
-      
-      const colString = commonCols.map(c => `"${c}"`).join(', ');
-      
+
+      const colString = commonCols.map((c) => `"${c}"`).join(', ');
+
       console.log(`  👉 Common columns to copy: ${commonCols.join(', ')}`);
 
       if (EXECUTE) {
@@ -157,7 +167,7 @@ async function main() {
         console.log(`  📡 Transferring rows to ${fullProd}...`);
         await p.$transaction([
           p.$executeRawUnsafe(`TRUNCATE ${fullProd} CASCADE`),
-          p.$executeRawUnsafe(`INSERT INTO ${fullProd} (${colString}) SELECT ${colString} FROM ${fullStg}`)
+          p.$executeRawUnsafe(`INSERT INTO ${fullProd} (${colString}) SELECT ${colString} FROM ${fullStg}`),
         ]);
         console.log(`  ✓ Transferred rows successfully.`);
 
@@ -166,7 +176,7 @@ async function main() {
           console.log(`  📐 Creating spatial index on ${fullProd}...`);
           try {
             await p.$executeRawUnsafe(
-              `CREATE INDEX IF NOT EXISTS idx_${prodTable}_geom ON ${fullProd} USING gist(${mapping.geom_col})`
+              `CREATE INDEX IF NOT EXISTS idx_${prodTable}_geom ON ${fullProd} USING gist(${mapping.geom_col})`,
             );
             console.log(`  ✓ Spatial index active.`);
           } catch (err: any) {
@@ -185,9 +195,11 @@ async function main() {
   console.log('\n🎉 Staging adoption process finished successfully!');
 }
 
-main().catch(err => {
-  console.error('Fatalt fel i adoptionspipelinen:', err);
-  process.exit(1);
-}).finally(async () => {
-  await p.$disconnect();
-});
+main()
+  .catch((err) => {
+    console.error('Fatalt fel i adoptionspipelinen:', err);
+    process.exit(1);
+  })
+  .finally(async () => {
+    await p.$disconnect();
+  });

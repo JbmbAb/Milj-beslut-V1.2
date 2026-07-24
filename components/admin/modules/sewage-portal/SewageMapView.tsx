@@ -22,12 +22,7 @@ interface SewageMapViewProps {
 const SewageMapView: React.FC<SewageMapViewProps> = ({ analysis, protectionProfile, onPositionLocked }) => {
   const { addAiActivity, setInspectorData } = useOperationsCenter();
   const { isDark } = useTheme();
-
-  // Call useAppWorkspace defensively in try-catch
-  let workspace: any = null;
-  try {
-    workspace = useAppWorkspace();
-  } catch (e) {}
+  const workspace = useAppWorkspace();
 
   const mapWidth = 800;
   const mapHeight = 500;

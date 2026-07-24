@@ -93,6 +93,18 @@ vi.mock('../../server/services/publicUiService', () => ({
 
 vi.mock('../../server/repositories/requirementsRepository', () => ({}));
 
+vi.mock('../../server/db/prisma', () => ({
+  prisma: {
+    project: {
+      findUnique: vi.fn().mockResolvedValue({
+        complianceScore: 80,
+        environmentalScore: 70,
+        regulatoryRiskScore: 20,
+      }),
+    },
+  },
+}));
+
 import projectRouter from '../../server/routes/project.routes';
 
 function buildApp() {

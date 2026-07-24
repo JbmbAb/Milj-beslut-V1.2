@@ -1,10 +1,9 @@
-import dotenv from 'dotenv';
-dotenv.config();
-import { PrismaClient } from '@prisma/client';
-
-const p = new PrismaClient();
+import { loadEnvFile } from '../../server/loadEnv';
+loadEnvFile();
+loadEnvFile('.env.local', { overrideExisting: true });
 
 async function main() {
+  const { prisma: p } = await import('../../server/db/prisma');
   // Kolla om raster_registration_log finns och vad den innehåller
   try {
     const rows = await p.$queryRawUnsafe<any[]>(
@@ -18,31 +17,41 @@ async function main() {
          MAX(registered_at)::text                               AS senast
        FROM public.raster_registration_log
        GROUP BY provider, dataset
-       ORDER BY provider, dataset`
+       ORDER BY provider, dataset`,
     );
 
     if (rows.length === 0) {
       console.log('STATUS: raster_registration_log är tom — inga raster registrerade ännu.');
     } else {
       console.log('\n=== Raster Out-of-DB Registration Status ===\n');
-      console.log('Provider'.padEnd(20) + 'Dataset'.padEnd(40) + 'Filer'.padEnd(8) + 'SHA256 OK'.padEnd(12) + 'Saknas'.padEnd(10) + 'GB'.padEnd(10) + 'Senast');
+      console.log(
+        'Provider'.padEnd(20) +
+          'Dataset'.padEnd(40) +
+          'Filer'.padEnd(8) +
+          'SHA256 OK'.padEnd(12) +
+          'Saknas'.padEnd(10) +
+          'GB'.padEnd(10) +
+          'Senast',
+      );
       console.log('─'.repeat(104));
       let totalMissing = 0;
       for (const r of rows) {
         totalMissing += r.saknar_sha256;
-        const ok    = r.saknar_sha256 === 0 ? '✅' : '❌';
+        const ok = r.saknar_sha256 === 0 ? '✅' : '❌';
         console.log(
           String(r.provider).padEnd(20) +
-          String(r.dataset).slice(0,38).padEnd(40) +
-          String(r.filer).padEnd(8) +
-          `${ok} ${r.med_sha256}`.padEnd(12) +
-          String(r.saknar_sha256).padEnd(10) +
-          String(r.gb ?? '?').padEnd(10) +
-          (r.senast ?? '').slice(0, 10)
+            String(r.dataset).slice(0, 38).padEnd(40) +
+            String(r.filer).padEnd(8) +
+            `${ok} ${r.med_sha256}`.padEnd(12) +
+            String(r.saknar_sha256).padEnd(10) +
+            String(r.gb ?? '?').padEnd(10) +
+            (r.senast ?? '').slice(0, 10),
         );
       }
       console.log('─'.repeat(104));
-      console.log(`\nDefinition of Done: checksum_missing = ${totalMissing === 0 ? '✅ 0' : `❌ ${totalMissing} (ej klar!)`}`);
+      console.log(
+        `\nDefinition of Done: checksum_missing = ${totalMissing === 0 ? '✅ 0' : `❌ ${totalMissing} (ej klar!)`}`,
+      );
     }
   } catch (e: any) {
     if (e.message?.includes('does not exist')) {

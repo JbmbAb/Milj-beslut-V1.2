@@ -79,10 +79,34 @@ const READY_SNAPSHOT: SewageDomainSnapshot = {
     generatedAt: '2026-05-21T10:00:00Z',
   },
   gates: [
-    { id: 'gate-SEWAGE_PROTECTION_LEVEL', name: 'Skyddsnivå', description: '', status: 'COMPLETED', priority: 'HIGH' },
-    { id: 'gate-SOIL_TEST_COMPLETED', name: 'Markundersökning', description: '', status: 'COMPLETED', priority: 'HIGH' },
-    { id: 'gate-NEIGHBOR_CONSENT', name: 'Grannemedgivande', description: '', status: 'COMPLETED', priority: 'MEDIUM' },
-    { id: 'gate-DOCUMENTATION_COMPLETE', name: 'Dokumentation', description: '', status: 'COMPLETED', priority: 'HIGH' },
+    {
+      id: 'gate-SEWAGE_PROTECTION_LEVEL',
+      name: 'Skyddsnivå',
+      description: '',
+      status: 'COMPLETED',
+      priority: 'HIGH',
+    },
+    {
+      id: 'gate-SOIL_TEST_COMPLETED',
+      name: 'Markundersökning',
+      description: '',
+      status: 'COMPLETED',
+      priority: 'HIGH',
+    },
+    {
+      id: 'gate-NEIGHBOR_CONSENT',
+      name: 'Grannemedgivande',
+      description: '',
+      status: 'COMPLETED',
+      priority: 'MEDIUM',
+    },
+    {
+      id: 'gate-DOCUMENTATION_COMPLETE',
+      name: 'Dokumentation',
+      description: '',
+      status: 'COMPLETED',
+      priority: 'HIGH',
+    },
   ],
 };
 
@@ -181,9 +205,8 @@ describe('applicationOrchestrator — felfall och saknade grenar', () => {
     it('returnerar 400 när projectId saknas och record har unassigned', async () => {
       const app = await createApp();
       // Override projectId till unassigned via db
-      const { updateSewageApplicationRecord } = await import(
-        '../../server/repositories/sewageApplicationRepository'
-      );
+      const { updateSewageApplicationRecord } =
+        await import('../../server/repositories/sewageApplicationRepository');
       await updateSewageApplicationRecord(app.id, { projectId: 'unassigned' });
 
       const result = await submitSewageApplication(app.id, AUTH, {
@@ -197,9 +220,8 @@ describe('applicationOrchestrator — felfall och saknade grenar', () => {
     });
 
     it('returnerar 503 när municipality-integration kastar endpoint-fel', async () => {
-      const { submitSewageApplicationToMunicipality } = await import(
-        '../../server/services/municipalitySubmissionService'
-      );
+      const { submitSewageApplicationToMunicipality } =
+        await import('../../server/services/municipalitySubmissionService');
       (submitSewageApplicationToMunicipality as ReturnType<typeof vi.fn>).mockRejectedValueOnce(
         new Error('Municipality endpoint not configured for this environment'),
       );
@@ -235,9 +257,8 @@ describe('applicationOrchestrator — felfall och saknade grenar', () => {
     });
 
     it('kastar vidare okänt fel (icke endpoint-fel)', async () => {
-      const { submitSewageApplicationToMunicipality } = await import(
-        '../../server/services/municipalitySubmissionService'
-      );
+      const { submitSewageApplicationToMunicipality } =
+        await import('../../server/services/municipalitySubmissionService');
       (submitSewageApplicationToMunicipality as ReturnType<typeof vi.fn>).mockRejectedValueOnce(
         new Error('Databaskoppling bruten'),
       );
@@ -248,9 +269,8 @@ describe('applicationOrchestrator — felfall och saknade grenar', () => {
     });
 
     it('hanterar icke-Error throw (String-gren i felfångst)', async () => {
-      const { submitSewageApplicationToMunicipality } = await import(
-        '../../server/services/municipalitySubmissionService'
-      );
+      const { submitSewageApplicationToMunicipality } =
+        await import('../../server/services/municipalitySubmissionService');
       (submitSewageApplicationToMunicipality as ReturnType<typeof vi.fn>).mockRejectedValueOnce(
         'Municipality endpoint is missing',
       );
@@ -419,4 +439,3 @@ describe('resolveDomainContext — snapshot-grenar (via validateSewageApplicatio
     expect([200, 200, 422].includes(result.ok ? 200 : result.status)).toBe(true);
   });
 });
-

@@ -103,9 +103,7 @@ describeIfDatabaseIntegration('routesCoverage integration (createApp, no mocks)'
       const prev = process.env.INTERNAL_CRON_TOKEN;
       delete process.env.INTERNAL_CRON_TOKEN;
 
-      const res = await request(app)
-        .post('/api/internal/background/search-worker/tick')
-        .send({ maxJobs: 1 });
+      const res = await request(app).post('/api/internal/background/search-worker/tick').send({ maxJobs: 1 });
 
       expect(res.status).toBe(503);
 

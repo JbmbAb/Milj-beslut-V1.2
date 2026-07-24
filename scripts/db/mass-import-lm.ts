@@ -34,12 +34,12 @@ async function importFile(filePath: string, schema: string, overwrite: boolean) 
   const baseName = fileName.replace(/_\d+$/, '').toLowerCase();
   const targetTable = `lm_${baseName}`;
   const fullTableName = `${schema}.${targetTable}`;
-  
+
   const isFirstForTable = !importedTables.has(fullTableName);
   const shouldOverwrite = overwrite && isFirstForTable;
-  
+
   console.log(`Importing ${filePath} to ${fullTableName} (Overwrite: ${shouldOverwrite})...`);
-  
+
   // Parse DB_URL for ogr2ogr
   const urlMatch = DB_URL.match(/postgresql:\/\/([^:]+):([^@]+)@([^:]+):(\d+)\/(.+)/);
   if (!urlMatch) throw new Error('Invalid DATABASE_URL format');
@@ -47,7 +47,7 @@ async function importFile(filePath: string, schema: string, overwrite: boolean) 
 
   const mode = shouldOverwrite ? '-lco OVERWRITE=YES' : '-append';
   const cmd = `"${OGR2OGR}" -f PostgreSQL "PG:dbname='${dbname}' host='${host}' user='${user}' password='${password}' port='${port}'" "${filePath}" -nln ${fullTableName} -lco SCHEMA=${schema} ${mode} -skipfailures -nlt PROMOTE_TO_MULTI --config GML_SKIP_RESOLVE_ELEMS ALL`;
-  
+
   try {
     execSync(cmd, { stdio: 'inherit' });
     console.log(`Successfully imported ${fileName}`);
@@ -61,7 +61,7 @@ async function main() {
   const target = process.argv[2];
   const schema = process.argv[3] || 'core';
   const overwrite = process.argv.includes('--overwrite');
-  
+
   if (!target) {
     console.log('Usage: npx ts-node mass-import-lm.ts <directory> <schema> [--overwrite]');
     process.exit(1);

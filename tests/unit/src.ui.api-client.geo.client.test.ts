@@ -104,14 +104,12 @@ describe('src/ui/api-client/geo.client', () => {
   });
 
   it('loads the map layer catalog and validates the response shape', async () => {
-    global.fetch = vi
-      .fn()
-      .mockResolvedValueOnce({
-        ok: true,
-        json: async () => ({
-          layers: [{ key: 'postgis_nvr', label: 'Skyddad natur', endpoint: '/api/layers/nvr' }],
-        }),
-      }) as unknown as typeof fetch;
+    global.fetch = vi.fn().mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({
+        layers: [{ key: 'postgis_nvr', label: 'Skyddad natur', endpoint: '/api/layers/nvr' }],
+      }),
+    }) as unknown as typeof fetch;
 
     await expect(fetchMapLayerCatalog()).resolves.toEqual([
       { key: 'postgis_nvr', label: 'Skyddad natur', endpoint: '/api/layers/nvr' },

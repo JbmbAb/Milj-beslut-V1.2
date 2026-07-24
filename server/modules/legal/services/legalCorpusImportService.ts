@@ -132,7 +132,10 @@ export async function collectDownloadedLegalCorpus(
     collectBoverketRecords(rootDir, options),
   ]);
 
-  return groups.flat().sort((a, b) => a.recordKey.localeCompare(b.recordKey));
+  return groups
+    .flat()
+    .filter((r): r is StructuredLegalCorpusRecord => !!r)
+    .sort((a, b) => a.recordKey.localeCompare(b.recordKey));
 }
 
 export async function importDownloadedLegalCorpus(
@@ -264,6 +267,7 @@ async function collectFoundationRecords(
 ): Promise<StructuredLegalCorpusRecord[]> {
   const manifestPath = path.join(rootDir, 'legal', 'foundation-sources', 'manifest.json');
   const manifest = await readJsonFile<{ downloads?: ManifestDownload[] }>(manifestPath);
+  if (!manifest) return [];
   const downloads = manifest.downloads || [];
 
   const results = await Promise.all(
@@ -304,6 +308,7 @@ async function collectCuratedRecords(
 ): Promise<StructuredLegalCorpusRecord[]> {
   const manifestPath = path.join(rootDir, 'legal', 'curated-downloads', 'manifest.json');
   const manifest = await readJsonFile<{ downloads?: ManifestDownload[] }>(manifestPath);
+  if (!manifest) return [];
   const downloads = manifest.downloads || [];
 
   const results = await Promise.all(
@@ -418,6 +423,10 @@ async function collectDomstolHistoryRecords(
     }>(manifestPath);
   } catch (e) {
     return []; // No history downloaded yet
+  }
+
+  if (!manifest) {
+    return [];
   }
 
   const results = await Promise.all(
@@ -853,6 +862,9 @@ async function collectOpenSourceSweepRecords(
   const manifest = await readJsonFile<{ entries?: Array<{ id: string; url: string; fileName: string }> }>(
     manifestPath,
   );
+  if (!manifest) {
+    return [];
+  }
 
   const results = await Promise.all(
     (manifest.entries || []).map((entry) =>
@@ -1748,8 +1760,15 @@ function uniqueStrings(values: string[]): string[] {
   return Array.from(new Set(values.map((value) => normalizeExternalText(value)).filter(Boolean))) as string[];
 }
 
-async function readJsonFile<T>(filePath: string): Promise<T> {
-  return JSON.parse(await fs.readFile(filePath, 'utf8')) as T;
+async function readJsonFile<T>(filePath: string): Promise<T | null> {
+  try {
+    return JSON.parse(await fs.readFile(filePath, 'utf8')) as T;
+  } catch (error: any) {
+    if (error?.code === 'ENOENT') {
+      return null;
+    }
+    throw error;
+  }
 }
 
 async function fileExists(filePath: string): Promise<boolean> {

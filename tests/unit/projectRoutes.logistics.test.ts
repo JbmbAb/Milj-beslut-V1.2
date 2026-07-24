@@ -68,6 +68,18 @@ vi.mock('../../server/services/notificationService', () => ({
   sendProjectNotification: mocks.sendProjectNotification,
 }));
 
+vi.mock('../../server/db/prisma', () => ({
+  prisma: {
+    project: {
+      findUnique: vi.fn().mockResolvedValue({
+        complianceScore: 80,
+        environmentalScore: 70,
+        regulatoryRiskScore: 20,
+      }),
+    },
+  },
+}));
+
 import projectRoutes from '../../server/routes/project.routes';
 
 const app = express();

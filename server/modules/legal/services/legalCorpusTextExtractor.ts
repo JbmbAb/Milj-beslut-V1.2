@@ -179,12 +179,25 @@ function flattenJsonValues(value: unknown): string[] {
 async function extractPdfBufferText(buffer: Buffer): Promise<string | undefined> {
   try {
     const pdfParseModule = await import('pdf-parse');
+    
+    // Check if it's the modern class-based pdf-parse (e.g. mehmet-kozan/pdf-parse)
+    if ('PDFParse' in pdfParseModule && typeof pdfParseModule.PDFParse === 'function') {
+      const PDFParseClass = pdfParseModule.PDFParse as any;
+      const uint8Array = new Uint8Array(buffer);
+      const parser = new PDFParseClass(uint8Array);
+      await parser.load();
+      const result = await parser.getText();
+      return normalizeExternalText(result?.text);
+    }
+    
+    // Fallback to legacy function-based pdf-parse
     const pdfParse =
-      (pdfParseModule as unknown as { default: (input: Buffer) => Promise<{ text?: string }> }).default ??
-      (pdfParseModule as unknown as (input: Buffer) => Promise<{ text?: string }>);
+      (pdfParseModule as any).default ??
+      (pdfParseModule as any);
     const parsed = await pdfParse(buffer);
-    return normalizeExternalText(parsed.text);
-  } catch {
+    return normalizeExternalText(parsed?.text);
+  } catch (err: any) {
+    console.error('Error in extractPdfBufferText:', err.message);
     return undefined;
   }
 }

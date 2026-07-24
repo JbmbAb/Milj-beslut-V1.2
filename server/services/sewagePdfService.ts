@@ -3,18 +3,79 @@ import * as fs from 'fs';
 import { SewageApplicationRecord } from '../repositories/sewageApplicationRepository';
 import { logger } from '../logger';
 import { StaticMapGenerator } from '../../src/infrastructure/geo/static-map-generator';
+import { applyUnicodeFont } from './pdfUnicodeFont';
+import {
+  buildReportTraceability,
+  formatTraceabilityFooter,
+  type ReportTraceabilityInput,
+} from './reportTraceability';
+
+export interface SewagePdfOptions {
+  traceability?: ReportTraceabilityInput;
+}
+
+type PdfDocLike = {
+  page: {
+    margins: { left: number; right: number; top: number; bottom: number };
+    width: number;
+    height: number;
+  };
+  x: number;
+  y: number;
+  rect: (x: number, y: number, w: number, h: number) => { stroke: (color: string) => unknown };
+  fontSize: (n: number) => PdfDocLike;
+  fillColor: (c: string) => PdfDocLike;
+  text: (t: string, x?: number, y?: number, opts?: object) => unknown;
+  addPage: () => unknown;
+};
+
+function drawKeyValueTable(doc: PdfDocLike, rows: Array<[string, string]>, startY?: number): void {
+  const x = doc.page.margins.left;
+  let y = startY ?? doc.y;
+  const col1 = 160;
+  const col2 = doc.page.width - doc.page.margins.right - x - col1;
+  const rowH = 18;
+
+  for (const [key, value] of rows) {
+    if (y + rowH > doc.page.height - doc.page.margins.bottom - 60) {
+      doc.addPage();
+      y = doc.page.margins.top;
+    }
+    doc.rect(x, y, col1 + col2, rowH).stroke('#cccccc');
+    doc.fontSize(9).fillColor('#333').text(key, x + 4, y + 4, { width: col1 - 8 });
+    doc.fillColor('#000').text(value, x + col1 + 4, y + 4, { width: col2 - 8 });
+    y += rowH;
+  }
+  doc.y = y + 8;
+  doc.x = x;
+}
 
 /**
  * SewagePdfService
  * Genererar en professionell PDF-dossier för enskilt avlopp.
- * Inkluderar teknisk sammanfattning och plats för ritningar.
+ * Inkluderar teknisk sammanfattning, tabeller, sidbrytningar och spårbarhetsfot.
  */
 export async function generateSewageDossierPdf(
   application: SewageApplicationRecord,
-  outputPath: string
+  outputPath: string,
+  options: SewagePdfOptions = {},
 ): Promise<string> {
+  // eslint-disable-next-line no-async-promise-executor
   return new Promise(async (resolve, reject) => {
     try {
+      const meta = buildReportTraceability({
+        operator: options.traceability?.operator ?? application.applicantName,
+        modelId: options.traceability?.modelId,
+        datasetVersions: options.traceability?.datasetVersions ?? {
+          topo10: 'vatten',
+          property: 'core.property_unit',
+        },
+        correlationId: options.traceability?.correlationId ?? application.referenceNumber,
+        gitCommit: options.traceability?.gitCommit,
+        dbMigrationVersion: options.traceability?.dbMigrationVersion,
+      });
+      const traceFooter = formatTraceabilityFooter(meta);
+
       const doc = new PDFDocument({
         margin: 50,
         size: 'A4',
@@ -22,8 +83,12 @@ export async function generateSewageDossierPdf(
         info: {
           Title: `Miljöbeslut Dossier - ${application.propertyDesignation}`,
           Author: 'Miljöbeslut.se',
-        }
+          Keywords: traceFooter,
+          Subject: `Spårbarhet: ${traceFooter}`,
+        },
       });
+
+      applyUnicodeFont(doc);
 
       const stream = fs.createWriteStream(outputPath);
       doc.pipe(stream);
@@ -37,54 +102,56 @@ export async function generateSewageDossierPdf(
       doc.fontSize(28).fillColor('#000').text('Dossier: Enskilt Avlopp', { align: 'left' });
       doc.fontSize(18).fillColor('#444').text(application.propertyDesignation, { align: 'left' });
       doc.moveDown(1);
-      
+
       doc.fontSize(12).fillColor('#000').text(`Datum: ${new Date().toLocaleDateString('sv-SE')}`);
       doc.text(`Referensnummer: ${application.referenceNumber}`);
       doc.text(`Status: ${application.status}`);
       doc.moveDown(2);
 
-      // --- 1. Fastighetsinformation ---
+      // --- 1. Fastighetsinformation (table) ---
       doc.fontSize(16).fillColor('#1a5f7a').text('1. Fastighetsinformation', { underline: true });
       doc.moveDown(0.5);
-      doc.fontSize(11).fillColor('#333');
-      doc.text(`Sökande: ${application.applicantName}`);
-      doc.text(`E-post: ${application.applicantEmail}`);
-      doc.text(`Koordinater: ${application.latitude}, ${application.longitude}`);
-      doc.text(`Dimensionering: ${application.pe} personekvivalenter (PE)`);
-      doc.text(`Vald systemtyp: ${application.systemType}`);
-      doc.moveDown(2);
+      drawKeyValueTable(doc, [
+        ['Sökande', String(application.applicantName ?? '')],
+        ['E-post', String(application.applicantEmail ?? '')],
+        ['Koordinater', `${application.latitude}, ${application.longitude}`],
+        ['Dimensionering', `${application.pe} personekvivalenter (PE)`],
+        ['Vald systemtyp', String(application.systemType ?? '')],
+        ['Fastighet', String(application.propertyDesignation ?? '')],
+      ]);
+      doc.moveDown(1);
 
       // --- 2. Tekniska förutsättningar ---
       doc.fontSize(16).fillColor('#1a5f7a').text('2. Tekniska förutsättningar', { underline: true });
       doc.moveDown(0.5);
-      
+
       const profile = application.domainSnapshot?.protectionProfile;
       if (profile) {
-        doc.fontSize(11).fillColor('#000').text(`Skyddsnivå: ${profile.protectionLevel === 'HIGH' ? 'HÖG' : 'NORMAL'}`);
-        doc.fontSize(10).fillColor('#444').text(`Motivering: ${profile.reason || 'Baserat på GIS-analys'}`);
-        doc.moveDown(0.5);
-        doc.text(`Avstånd till närmaste brunn: ${profile.nearestWell?.distance}m`);
-        doc.text(`Avstånd till ytvatten: ${profile.nearestWaterCourse?.distance}m`);
-        doc.text(`Avstånd till tomtgräns: ${profile.distanceToPropertyLine}m`);
+        drawKeyValueTable(doc, [
+          ['Skyddsnivå', profile.protectionLevel === 'HIGH' ? 'HÖG' : 'NORMAL'],
+          ['Motivering', String(profile.reason || 'Baserat på GIS-analys')],
+          ['Avstånd till närmaste brunn', `${profile.nearestWell?.distance ?? '–'} m`],
+          ['Avstånd till ytvatten', `${profile.nearestWaterCourse?.distance ?? '–'} m`],
+          ['Avstånd till tomtgräns', `${profile.distanceToPropertyLine ?? '–'} m`],
+        ]);
       } else {
-        doc.fontSize(11).text('Teknisk profil saknas i utkastet.');
+        doc.fontSize(11).fillColor('#000').text('Teknisk profil saknas i utkastet.');
       }
-      doc.moveDown(2);
+      doc.moveDown(1);
 
-      // --- 3. Ritningar ---
+      // Explicit page break before drawings
       doc.addPage();
       doc.fontSize(16).fillColor('#1a5f7a').text('3. Tekniskt Underlag & Ritningar', { underline: true });
       doc.moveDown(1);
 
       const docs = application.domainSnapshot?.generatedDocuments;
-      
-      // Situationsplan placeholder/info
+
       doc.fontSize(12).fillColor('#000').text('3.1 Situationsplan');
       doc.moveDown(0.5);
-      
+
       const currentX = doc.x;
       const currentY = doc.y;
-      
+
       try {
         const generator = new StaticMapGenerator();
         const intersectingZones = await generator.drawMapToPdf(
@@ -94,34 +161,33 @@ export async function generateSewageDossierPdf(
           currentY,
           450,
           250,
-          25
+          25,
         );
-        
+
         logger.info(`Intersecting zones for ${application.propertyDesignation}: ${intersectingZones.join(', ')}`);
-        
-        // Advance doc.y past the map (height = 250) + padding
+
         doc.y = currentY + 265;
-        
-        // Also list intersecting zones if any found
+
         if (intersectingZones.length > 0) {
           doc.fontSize(10).fillColor('#d9534f').text(`Varning - Miljöskyddszoner som berörs:`, currentX, doc.y);
-          intersectingZones.forEach(zone => {
+          intersectingZones.forEach((zone) => {
             doc.fontSize(9).fillColor('#333333').text(`• ${zone}`, { indent: 10 });
           });
           doc.moveDown(1);
         } else {
-          doc.fontSize(10).fillColor('#5cb85c').text('Inga överlappande miljöskyddszoner identifierades i kartanalysen.', currentX, doc.y);
+          doc
+            .fontSize(10)
+            .fillColor('#5cb85c')
+            .text('Inga överlappande miljöskyddszoner identifierades i kartanalysen.', currentX, doc.y);
           doc.moveDown(1);
         }
       } catch (mapErr: any) {
         logger.error(`Misslyckades att generera statisk karta i PDF: ${mapErr.message}`);
-        // Fallback till en enkel ruta
         doc.rect(currentX, currentY, 450, 250).stroke('#ccc');
         doc.fontSize(10).fillColor('#900').text(`Kunde inte rita karta: ${mapErr.message}`, currentX + 10, currentY + 110);
         doc.y = currentY + 265;
       }
 
-      // Tvärsektion placeholder/info
       doc.fontSize(12).fillColor('#000').text('3.2 Tvärsektion / Jordprofil');
       doc.moveDown(0.5);
       if (docs?.crossSectionSVG) {
@@ -131,16 +197,20 @@ export async function generateSewageDossierPdf(
         doc.fontSize(10).fillColor('#900').text('Varning: Tvärsektion ej genererad.');
       }
 
-      // --- Footer ---
+      // --- Footer with legal traceability on every page ---
       const pages = doc.bufferedPageRange();
       for (let i = 0; i < pages.count; i++) {
         doc.switchToPage(i);
-        doc.fontSize(8).fillColor('#999').text(
+        doc.fontSize(7).fillColor('#999').text(
           `Sida ${i + 1} av ${pages.count} | Miljöbeslut.se - Referens: ${application.referenceNumber}`,
           50,
-          doc.page.height - 50,
-          { align: 'center' }
+          doc.page.height - 55,
+          { align: 'center', width: doc.page.width - 100 },
         );
+        doc.fontSize(6).fillColor('#888').text(traceFooter, 50, doc.page.height - 42, {
+          align: 'center',
+          width: doc.page.width - 100,
+        });
       }
 
       doc.end();

@@ -40,7 +40,6 @@ vi.mock('../../../server/services/vertexAiService', () => ({
   __resetVertexClientForTest: vi.fn(),
 }));
 
-
 describe('geminiService', () => {
   const originalEnv = process.env;
   const mockFetch = vi.fn();

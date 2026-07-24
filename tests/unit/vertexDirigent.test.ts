@@ -3,11 +3,11 @@ import {
   runComplianceWorkflowWithToolTrace,
   type OrchestrationRequest,
 } from '../../services/orchestrationService';
+import { toolTraceContentHash, summarizeVerifiedToolTrace } from '../../server/services/vertexDirigent';
 import {
-  toolTraceContentHash,
-  summarizeVerifiedToolTrace,
-} from '../../server/services/vertexDirigent';
-import { evaluateProjectCompliance, type ComplianceMetrics } from '../../server/services/complianceRuleEngine';
+  evaluateProjectCompliance,
+  type ComplianceMetrics,
+} from '../../server/services/complianceRuleEngine';
 
 vi.mock('../../services/geminiService', () => ({
   validateLabData: vi.fn(),
@@ -79,7 +79,11 @@ describe('bevis: toolTrace = källa, inte LLM', () => {
 
   it('tre verktyg i ordning; innehålls-hash stabil för samma spår', async () => {
     const r = await runComplianceWorkflowWithToolTrace(baseRequest());
-    expect(r.toolTrace.map((t) => t.toolId)).toEqual(['lab_validate', 'rule_engine_evaluate', 'logistics_analyze']);
+    expect(r.toolTrace.map((t) => t.toolId)).toEqual([
+      'lab_validate',
+      'rule_engine_evaluate',
+      'logistics_analyze',
+    ]);
     const h1 = toolTraceContentHash(r.toolTrace);
     const h2 = toolTraceContentHash(r.toolTrace);
     expect(h1).toBe(h2);
@@ -88,7 +92,9 @@ describe('bevis: toolTrace = källa, inte LLM', () => {
   it('summarizeVerifiedToolTrace utan Vertex lämnar riskScore synlig oförändrad från spåret (ingen hallucination yta)', async () => {
     const r = await runComplianceWorkflowWithToolTrace(baseRequest({ volumeTons: 500 }));
     const text = await summarizeVerifiedToolTrace(r.toolTrace);
-    const rule = r.toolTrace.find((t) => t.toolId === 'rule_engine_evaluate')?.output as { riskScore: string };
+    const rule = r.toolTrace.find((t) => t.toolId === 'rule_engine_evaluate')?.output as {
+      riskScore: string;
+    };
     expect(text).toContain('rule_engine riskScore: ' + rule.riskScore);
     expect(text).toContain('[offline/utan Vertex]');
   });

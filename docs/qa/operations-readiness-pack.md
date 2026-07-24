@@ -104,12 +104,50 @@ Detta underlag täcker fyra obligatoriska driftspår:
 
 - Ref: `OPS_SLA_BASELINE_V1`
 
+## 5) Secrets vault, DR-drill, telemetri och runbook (Stage 5)
+
+### On-prem secrets vault
+
+1. Produktionshemligheter lagras i vault (t.ex. HashiCorp Vault / Windows DPAPI + ACL), inte i git.
+2. Runtime läser via miljövariabler injicerade vid start (`DATABASE_URL`, Vertex credentials, Outlook paths).
+3. Rotation: dokumentera ägare och intervall i lokal runbook.
+
+### Disaster recovery — nightly restore drill
+
+1. Nattlig backup enligt avsnitt 3.
+2. Månadsvis (minst) restore-drill i isolerad miljö; logga RPO/RTO.
+3. Smoke efter restore: `GET /health`, `GET /ready`, admin login, en property lookup.
+
+### SLA/SLO-mätning och telemetri
+
+1. Liveness/readiness: `/health`, `/ready`.
+2. Request-id i `X-Request-Id` (se `server/security/requestLogging.ts`).
+3. Spårbarhet i PDF-fot: operator, model, dataset versions, git commit, DB migration, correlation id.
+4. Lastprofil (Stage 5 harness): `npm run load:stage5` (100 sök / 10 RAG / 50 PDF).
+
+### Operational runbook-integration
+
+| Procedur                 | Kommando / plats                                       |
+| ------------------------ | ------------------------------------------------------ |
+| Search indexer worker    | `npm run worker:search`                                |
+| Outlook integrity verify | `npm run outlook:verify`                               |
+| Outlook full backfill    | `npm run outlook:backfill:all` (bekräfta före körning) |
+| RAG eval demo            | `npm run rag:eval:demo`                                |
+| Stage 5 load harness     | `npm run load:stage5`                                  |
+| Driftpaket               | detta dokument                                         |
+
+### Verifiering
+
+- Ref: `OPS_STAGE5_VAULT_DR_TELEMETRY_V1`
+
 ## Godkannandekriterium for punkt #33
 
 1. Dokumentet finns i repo.
 2. Alla fyra delomraden ar definierade.
 3. Verifieringsrader finns for respektive delomrade.
+4. Stage 5 vault/DR/telemetri/runbook-tabell ar ifylld.
 
 ## Verifieringsrad
 
 Ref: `OPS_READINESS_PACK_V1_2026-03-02`
+Ref: `OPS_STAGE5_VAULT_DR_TELEMETRY_V1`

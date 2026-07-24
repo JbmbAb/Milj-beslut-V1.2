@@ -84,8 +84,6 @@ describe('normalizeLantmaterietDesignationNotation', () => {
 
   it('ändrar inte beteckning med (text) i mitten', () => {
     // Endast avslutande parentes med siffra ska normaliseras
-    expect(normalizeLantmaterietDesignationNotation('GÄVLE (centrum) 1:1')).toBe(
-      'GÄVLE (centrum) 1:1',
-    );
+    expect(normalizeLantmaterietDesignationNotation('GÄVLE (centrum) 1:1')).toBe('GÄVLE (centrum) 1:1');
   });
 });

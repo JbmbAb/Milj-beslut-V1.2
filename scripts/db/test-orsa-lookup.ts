@@ -4,7 +4,7 @@ const prisma = new PrismaClient();
 async function main() {
   const propertyDesignation = 'ORSA STACKMORA 3:12';
   console.log(`Searching for: ${propertyDesignation}`);
-  
+
   const exactRows = await prisma.$queryRaw<any[]>`
     WITH q AS (
       SELECT core.normalize_designation(${propertyDesignation}) AS designation_norm

@@ -57,7 +57,9 @@ describe('legalCorpusImportService', () => {
     expect(records).toHaveLength(15);
     expect(records.some((record) => record.sourceFamily === 'JUDGMENT')).toBe(true);
     expect(records.some((record) => record.sourceFamily === 'BOVERKET')).toBe(true);
-    expect(records.find((record) => record.sourceType === 'WFS_CAPABILITIES')?.postgisSchemaOverride).toBe('env');
+    expect(records.find((record) => record.sourceType === 'WFS_CAPABILITIES')?.postgisSchemaOverride).toBe(
+      'env',
+    );
 
     const result = await importDownloadedLegalCorpus({
       rootDir,
@@ -231,9 +233,18 @@ async function seedKnowledgeBase(rootDir: string) {
     trycklovad: '1988-11-07',
     dokumentlank: 'https://rinfo.boverket.se/BFS1988-11/pdf/BFS1988-11.pdf',
   });
-  await writeBinary(path.join(rootDir, 'boverket', 'forfattningar', 'dokument', 'bfs1988-11.pdf'), 'fake pdf');
   await writeBinary(
-    path.join(rootDir, 'boverket', 'forfattningar', 'ovriga-dokument', 'bfs1988-11__01__konsekvensutredning.pdf'),
+    path.join(rootDir, 'boverket', 'forfattningar', 'dokument', 'bfs1988-11.pdf'),
+    'fake pdf',
+  );
+  await writeBinary(
+    path.join(
+      rootDir,
+      'boverket',
+      'forfattningar',
+      'ovriga-dokument',
+      'bfs1988-11__01__konsekvensutredning.pdf',
+    ),
     'fake attachment',
   );
 }

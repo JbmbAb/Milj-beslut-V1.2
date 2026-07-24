@@ -57,22 +57,22 @@ async function main() {
   console.log('\n--- ANALYSIS SUMMARY ---');
   console.log(`Property: ORSA STACKMORA 3:12`);
   console.log(`Coordinates: ${lat.toFixed(5)}, ${lng.toFixed(5)}`);
-  
+
   if (protectedHits.length > 0) {
-    console.log(`⚠️  Inom skyddad natur: ${protectedHits.map(h => h.name).join(', ')}`);
+    console.log(`⚠️  Inom skyddad natur: ${protectedHits.map((h) => h.name).join(', ')}`);
   } else {
     console.log(`✅ Utanför skyddad natur (baserat på aktuellt data)`);
   }
 
   if (landCover.length > 0) {
     console.log(`Marktäckning (dominanta typer):`);
-    landCover.forEach(lc => console.log(`  - ${lc.objekttyp}: ${Math.round(lc.area_sqm)} m²`));
+    landCover.forEach((lc) => console.log(`  - ${lc.objekttyp}: ${Math.round(lc.area_sqm)} m²`));
   } else {
     console.log(`ℹ️ Ingen marktäckningsdata hittades för detta område.`);
   }
 
   if (waterDist[0]) {
-     console.log(`Närmaste vatten: ${Math.round(waterDist[0].distance_m)} meter.`);
+    console.log(`Närmaste vatten: ${Math.round(waterDist[0].distance_m)} meter.`);
   }
 }
 

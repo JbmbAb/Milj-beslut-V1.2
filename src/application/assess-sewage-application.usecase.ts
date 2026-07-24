@@ -474,7 +474,7 @@ export class AssessSewageApplicationUseCase {
       };
     }
 
-    let projectId = body.projectId ?? record.projectId;
+    const projectId = body.projectId ?? record.projectId;
     if (!projectId || projectId === 'unassigned') {
       return {
         ok: false as const,

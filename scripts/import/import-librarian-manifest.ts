@@ -1,7 +1,7 @@
 import * as fs from 'fs';
 import path from 'path';
 import { spawnSync } from 'child_process';
-import { PrismaClient } from '@prisma/client';
+import { prisma } from '../../server/db/prisma';
 import { getRegistryEntry } from './config/importRegistry';
 import {
   assertExpectedColumnsPresent,
@@ -42,7 +42,7 @@ import { syncPropertyUnitFromEnv } from '../db/sync-property-unit-from-env';
 
 dotenv.config();
 
-const prisma = new PrismaClient();
+
 
 const OGR2OGR_PATH = process.env.OGR2OGR_PATH || 'C:\\Program Files\\GDAL\\ogr2ogr.exe';
 const OGRINFO_PATH = process.env.OGRINFO_PATH || 'C:\\Program Files\\GDAL\\ogrinfo.exe';
@@ -446,7 +446,9 @@ async function processManifest(manifestPath: string) {
             await prisma.$transaction([
               prisma.$executeRawUnsafe(`TRUNCATE ${target_schema}.${target_table};`),
               prisma.$executeRawUnsafe(insertSql),
-            ]);
+            ], {
+              timeout: 600000,
+            });
           }
         } else {
           logger.info(`   - Prod table missing — bootstrapping from staging...`);

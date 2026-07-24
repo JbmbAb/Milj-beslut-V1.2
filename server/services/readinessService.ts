@@ -6,6 +6,7 @@
 import { prisma } from '../db/prisma';
 import { gcsDocumentsEnabled } from './documentObjectStorage';
 import { vertexConfigStatus } from './vertexAiService';
+import { logger } from '../logger';
 
 export type IntegrationState = 'ok' | 'error' | 'degraded' | 'not_configured' | 'warning';
 
@@ -59,7 +60,8 @@ export async function getReadinessPayload(): Promise<ReadinessPayload> {
   try {
     await prisma.$queryRaw`SELECT 1`;
     database = 'ok';
-  } catch {
+  } catch (err) {
+    logger.error('Readiness check: database query failed', { error: String(err) });
     database = 'error';
   }
 

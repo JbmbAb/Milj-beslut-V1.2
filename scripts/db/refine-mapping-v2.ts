@@ -29,4 +29,6 @@ async function main() {
   console.log('Mapping refined with suffix stripping.');
 }
 
-main().catch(console.error).finally(() => prisma.$disconnect());
+main()
+  .catch(console.error)
+  .finally(() => prisma.$disconnect());

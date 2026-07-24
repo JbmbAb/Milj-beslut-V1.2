@@ -6,7 +6,10 @@
  */
 
 import { describe, it, expect } from 'vitest';
-import { parseLegalReference, normalizeParagraph } from '../../server/modules/legal/services/legalReferenceParser';
+import {
+  parseLegalReference,
+  normalizeParagraph,
+} from '../../server/modules/legal/services/legalReferenceParser';
 
 describe('parseLegalReference', () => {
   // ─── SFS-nummer ──────────────────────────────────────────────────────────

@@ -58,8 +58,10 @@ import {
   runSpatialAudit,
   getPostgisExtendedHealth,
   getTopo10Layer,
+  calculateGeoKalkyl,
   type SluProduct,
 } from '../modules/gis/public';
+
 import { parsePositiveInt, parseBooleanFlag } from '../utils/routeUtils';
 import { NATIONAL_ENVIRONMENTAL_LAYERS } from '../datasources/nationalEnvironmentalLayers';
 
@@ -660,6 +662,22 @@ router.post('/api/climate/smhi-audit', rateLimitByUser(30, 60_000), async (req, 
     const result = await runClimateAudit(lat, lng);
     res.json(result);
   } catch (error: unknown) {
+    res.status(500).json(toSafeErrorResponse(error));
+  }
+});
+
+router.post('/api/gis/geokalkyl', rateLimitByUser(30, 60_000), async (req, res) => {
+  try {
+    const { geometry, pipeDepth, baseCost } = req.body ?? {};
+    if (!geometry) {
+      res.status(400).json({ error: 'Missing pipeline geometry' });
+      return;
+    }
+
+    const result = await calculateGeoKalkyl({ geometry, pipeDepth, baseCost });
+    res.json(result);
+  } catch (error: unknown) {
+    logger.error('Geokalkyl route failure:', error);
     res.status(500).json(toSafeErrorResponse(error));
   }
 });

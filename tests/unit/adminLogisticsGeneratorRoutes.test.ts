@@ -206,4 +206,4 @@ describe('admin.logistics-generator routes', () => {
       expect(res.body.plan.projectId).toBe('proj-1');
     });
   });
-});
+});

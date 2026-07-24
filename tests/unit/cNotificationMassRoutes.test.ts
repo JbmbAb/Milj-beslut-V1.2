@@ -204,7 +204,7 @@ describe('cNotificationMass.routes', () => {
       .get(`/api/c-notification/mass/${caseId}/export`)
       .set('Authorization', authHeader());
     expect(exp.status).toBe(200);
-    
+
     const exported = exp.body?.export;
     expect(exported).toBeTruthy();
     expect(exported.decisions).toBeTruthy();

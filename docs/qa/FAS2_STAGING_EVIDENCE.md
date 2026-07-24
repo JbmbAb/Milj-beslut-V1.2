@@ -2,10 +2,10 @@
 
 ## Lokal verifiering
 
-| Kommando | Resultat |
-| -------- | -------- |
-| `npx vitest run tests/unit/cNotificationMassRoutes.test.ts` | 5/5 passerade |
-| `npx prisma migrate deploy` | `20260520130000_c_notification_mass_case` |
+| Kommando                                                    | Resultat                                  |
+| ----------------------------------------------------------- | ----------------------------------------- |
+| `npx vitest run tests/unit/cNotificationMassRoutes.test.ts` | 5/5 passerade                             |
+| `npx prisma migrate deploy`                                 | `20260520130000_c_notification_mass_case` |
 
 ## Staging
 

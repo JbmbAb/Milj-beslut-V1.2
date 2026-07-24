@@ -105,17 +105,16 @@ describe('MapView', () => {
     const html = container.innerHTML;
 
     const expectedLabels = [
-      'Brunnar',
-      'Grundvattensarbarhet',
-      'Marktacke',
-      'Vattenskydd',
-      'Brunnar (PostGIS)',
-      'Genomslapplighet',
-      'Grundvattenmagasin',
-      'Grundvattenforekomster',
-      'Avrinningsomraden',
-      'SGU grundlager',
-      'Fastighetsgr',
+      'Natura 2000 (NV)',
+      'Naturreservat (NV)',
+      'Oversvamningsrisk (MSB)',
+      'SGU jordart WMS',
+      'SGU grundlager (PostGIS)',
+      'SGU jordskred/raviner',
+      'Vägnät (Trafikverket)',
+      'NVR (PostGIS DB)',
+      'Fastighetsgränser (PostGIS)',
+      'Markfuktighet (DTW)',
     ];
 
     for (const label of expectedLabels) {

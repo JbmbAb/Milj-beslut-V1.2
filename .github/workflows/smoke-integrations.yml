@@ -30,7 +30,7 @@ jobs:
           node-version: 20
           cache: npm
       - run: npm ci --no-audit --prefer-offline
-      - run: npx prisma generate
+      - run: node scripts/postinstall-prisma-generate.mjs
       - name: Typecheck
         run: npm run typecheck
       - name: Nya/påverkade testfiler
@@ -55,7 +55,7 @@ jobs:
           node-version: 20
           cache: npm
       - run: npm ci --no-audit --prefer-offline
-      - run: npx prisma generate
+      - run: node scripts/postinstall-prisma-generate.mjs
       - name: smoke:integrations
         env:
           # Simulerad minimalkonfiguration så CI-körningen inte kraschar;

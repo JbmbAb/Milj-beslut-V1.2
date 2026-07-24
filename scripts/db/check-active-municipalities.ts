@@ -11,9 +11,9 @@ async function main() {
       `SELECT municipality, COUNT(*) as count 
        FROM "RequirementCase" 
        GROUP BY municipality 
-       ORDER BY count DESC`
+       ORDER BY count DESC`,
     );
-    
+
     if (cases.length === 0) {
       console.log('No cases found in RequirementCase table.');
     } else {
@@ -26,4 +26,6 @@ async function main() {
   }
 }
 
-main().catch(console.error).finally(() => p.$disconnect());
+main()
+  .catch(console.error)
+  .finally(() => p.$disconnect());

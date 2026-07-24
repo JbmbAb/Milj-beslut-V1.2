@@ -74,7 +74,7 @@ export function ProjectMap({
 
   return (
     <div className={`overflow-hidden rounded-2xl border border-white/10 shadow-lg ${className}`} style={{ backgroundColor: '#F2F3F5' }}>
-      {/* @ts-ignore */}
+      {/* @ts-expect-error react-leaflet MapContainer children typing */}
       <MapContainer center={center} zoom={zoom} scrollWheelZoom className="h-[480px] w-full bg-transparent">
         <DynamicVectorTileLayers layers={layers} />
       </MapContainer>

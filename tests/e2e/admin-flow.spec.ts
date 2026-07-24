@@ -1,7 +1,6 @@
 import { expect, test } from '@playwright/test';
 import fs from 'node:fs/promises';
 import path from 'node:path';
-import { PrismaClient } from '@prisma/client';
 import {
   adminAuthHeaders,
   createApiContext,
@@ -10,17 +9,7 @@ import {
   primeAuthenticatedPage,
   waitForHubModuleReady,
 } from './support';
-
-const prismaDatabaseUrl =
-  String(process.env.PLAYWRIGHT_DATABASE_URL || process.env.DATABASE_URL || '').trim() ||
-  'postgresql://miljobeslut:miljobeslut@localhost:5432/miljobeslut_test';
-const prisma = new PrismaClient({
-  datasources: {
-    db: {
-      url: prismaDatabaseUrl,
-    },
-  },
-});
+import { prisma } from './prismaClient';
 
 test.afterAll(async () => {
   await prisma.$disconnect();

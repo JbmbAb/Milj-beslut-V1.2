@@ -46,12 +46,14 @@ describe('groundwaterInfluenceService', () => {
   });
 
   it('throws error if R <= rw', () => {
-    expect(() => calculateRadialOpenAquifer({
-      hydraulicConductivityK: 0.001,
-      initialSaturatedThicknessH: 10,
-      waterLevelInExcavationHw: 5,
-      influenceRadiusR: 5,
-      excavationRadiusRw: 5,
-    })).toThrow('Influensradie R måste vara större än anläggningens radie rw');
+    expect(() =>
+      calculateRadialOpenAquifer({
+        hydraulicConductivityK: 0.001,
+        initialSaturatedThicknessH: 10,
+        waterLevelInExcavationHw: 5,
+        influenceRadiusR: 5,
+        excavationRadiusRw: 5,
+      }),
+    ).toThrow('Influensradie R måste vara större än anläggningens radie rw');
   });
 });

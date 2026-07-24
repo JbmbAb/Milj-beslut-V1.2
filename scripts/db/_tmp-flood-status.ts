@@ -8,9 +8,9 @@ async function main(): Promise<void> {
   const client = new Client({ connectionString: process.env.DATABASE_URL });
   await client.connect();
   try {
-    const prod = await client.query<{ rows: number }>(
-      `SELECT count(1)::int AS rows FROM climate.flood_risk_area`,
-    ).catch(() => ({ rows: [{ rows: 0 }] }));
+    const prod = await client
+      .query<{ rows: number }>(`SELECT count(1)::int AS rows FROM climate.flood_risk_area`)
+      .catch(() => ({ rows: [{ rows: 0 }] }));
     const staging = await client.query<{ table_name: string }>(`
       SELECT table_name
       FROM information_schema.tables

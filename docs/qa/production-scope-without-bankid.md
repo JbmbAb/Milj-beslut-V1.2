@@ -4,21 +4,21 @@ Detta dokument avgränsar vad som räknas som **levererbar produktion** när **s
 
 ## Inom scope (BankID-fri prod)
 
-| Område | Beskrivning |
-|--------|-------------|
-| **Admin- och org-tillgång** | Inloggning via admin-konsolen (`/api/admin/auth/login`) med användarnamn/lösenord eller motsvarande som er organisation satt (lösenord i Secret Manager / env). |
-| **Projekt och roller** | Projekt upplägg, medlemskap, roller inom organisation (enligt befintlig RBAC). |
-| **Fastighet / karta / GIS** | Fastighetsuppslag och kartlager enligt konfigurerade källor (`LANTMATERIET_*`, öppna data m.m.) — **inte** BankID-krav. |
-| **Dokument, RAG, tillståndsutkast** | Uppladdning, indexering, semantisk sökning, AI-utkast — drivs av inloggad användare med projektmedlemskap, inte BankID. |
-| **Revision / export** | Domänlogg, audit-export (`AUDIT_EXPORT` för admin/auditor) enligt roller. |
-| **Drift** | `/health`, `/ready`, Cloud Run, databas — oberoende av BankID. |
+| Område                              | Beskrivning                                                                                                                                                     |
+| ----------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Admin- och org-tillgång**         | Inloggning via admin-konsolen (`/api/admin/auth/login`) med användarnamn/lösenord eller motsvarande som er organisation satt (lösenord i Secret Manager / env). |
+| **Projekt och roller**              | Projekt upplägg, medlemskap, roller inom organisation (enligt befintlig RBAC).                                                                                  |
+| **Fastighet / karta / GIS**         | Fastighetsuppslag och kartlager enligt konfigurerade källor (`LANTMATERIET_*`, öppna data m.m.) — **inte** BankID-krav.                                         |
+| **Dokument, RAG, tillståndsutkast** | Uppladdning, indexering, semantisk sökning, AI-utkast — drivs av inloggad användare med projektmedlemskap, inte BankID.                                         |
+| **Revision / export**               | Domänlogg, audit-export (`AUDIT_EXPORT` för admin/auditor) enligt roller.                                                                                       |
+| **Drift**                           | `/health`, `/ready`, Cloud Run, databas — oberoende av BankID.                                                                                                  |
 
 ## Utanför scope (så länge BankID saknas)
 
-| Område | Konsekvens |
-|--------|------------|
-| **BankID för slutanvändare** | Flöden som uttryckligen kräver BankID (t.ex. viss signering enligt affärsplan) är ** ej** en del av “BankID-fri prod” — de förblir avstängda eller mock tills avtal finns. |
-| **eIDAS QTSP / kvalificerad signatur** | Separat checklista (Del I i production-readiness); kan vara delvis oberoende av BankID men kräver egen leverantör. |
+| Område                                 | Konsekvens                                                                                                                                                                 |
+| -------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **BankID för slutanvändare**           | Flöden som uttryckligen kräver BankID (t.ex. viss signering enligt affärsplan) är ** ej** en del av “BankID-fri prod” — de förblir avstängda eller mock tills avtal finns. |
+| **eIDAS QTSP / kvalificerad signatur** | Separat checklista (Del I i production-readiness); kan vara delvis oberoende av BankID men kräver egen leverantör.                                                         |
 
 ## Miljö och policy
 

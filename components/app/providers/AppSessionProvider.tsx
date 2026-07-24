@@ -32,6 +32,8 @@ export function shouldForceReauthentication(error: unknown): boolean {
     message.includes('session expired') ||
     message.includes('token expired') ||
     message.includes('invalid token') ||
+    message.includes('invalid_refresh_token') ||
+    message.includes('invalid-refresh-token') ||
     message.includes('invalid access token') ||
     message.includes('missing bearer token') ||
     message.includes('token has been revoked') ||

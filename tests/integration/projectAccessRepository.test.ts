@@ -1,9 +1,8 @@
+import { prisma } from '../../server/db/prisma';
 import { it, expect, beforeAll, afterAll } from 'vitest';
-import { PrismaClient } from '@prisma/client';
+
 import { assertProjectMembership } from '../../server/repositories/projectAccessRepository';
 import { describeIfDatabaseIntegration } from './integrationTestEnv';
-
-const prisma = new PrismaClient();
 
 describeIfDatabaseIntegration('projectAccessRepository Integration', () => {
   let org1Id: string;

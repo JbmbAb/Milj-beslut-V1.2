@@ -181,4 +181,4 @@ describe('admin.project-plan-generator routes', () => {
       expect(res.body.error).toContain('Missing required fields');
     });
   });
-});
+});

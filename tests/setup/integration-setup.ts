@@ -1,9 +1,9 @@
-import { PrismaClient } from '@prisma/client';
+import { prisma as dbClient } from '../../server/db/prisma';
 import supertest from 'supertest';
 import { createApp } from '../../server/createApp';
 import { TestDataFactory } from '../integration/test-data-factory';
 
-export const prisma = new PrismaClient();
+export const prisma = dbClient;
 export const app = createApp();
 export const request = supertest(app);
 export const factory = new TestDataFactory(prisma);

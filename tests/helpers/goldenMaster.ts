@@ -4,8 +4,8 @@ import * as path from 'path';
 export interface GisResult {
   hitCount: number;
   coordinates: [number, number][]; // Huvudkoordinater för intressepunkter / centroid
-  calculatedAreaSqm?: number;       // Beräknad polygonarea i kvadratmeter
-  bufferDistances?: number[];      // Skyddszoner (t.ex. [10, 50, 100])
+  calculatedAreaSqm?: number; // Beräknad polygonarea i kvadratmeter
+  bufferDistances?: number[]; // Skyddszoner (t.ex. [10, 50, 100])
   metadata?: Record<string, any>;
 }
 

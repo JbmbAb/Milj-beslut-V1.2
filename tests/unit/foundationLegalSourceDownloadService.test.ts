@@ -1,3 +1,4 @@
+import path from 'node:path';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { FOUNDATION_LEGAL_SOURCES } from '../../server/modules/legal/catalogs/foundationLegalSources';
@@ -5,6 +6,7 @@ import {
   downloadFoundationLegalSources,
   resolveFoundationLegalSourceDownloadDirectory,
 } from '../../server/modules/legal/services/foundationLegalSourceDownloadService';
+import { testTmpDir } from '../helpers/testPaths';
 
 const { mkdirMock, writeFileMock } = vi.hoisted(() => ({
   mkdirMock: vi.fn(),
@@ -21,6 +23,8 @@ vi.mock('node:fs/promises', () => ({
 }));
 
 describe('foundationLegalSourceDownloadService', () => {
+  const outputDir = testTmpDir('foundation-downloads');
+
   beforeEach(() => {
     vi.clearAllMocks();
   });
@@ -36,21 +40,18 @@ describe('foundationLegalSourceDownloadService', () => {
     }));
 
     const result = await downloadFoundationLegalSources({
-      outputDir: 'C:\\tmp\\foundation-downloads',
+      outputDir,
       fetchImpl,
       now: () => new Date('2026-04-26T10:00:00.000Z'),
     });
 
     expect(result.processed).toBe(FOUNDATION_LEGAL_SOURCES.length);
     expect(fetchImpl).toHaveBeenCalledTimes(FOUNDATION_LEGAL_SOURCES.length);
-    expect(mkdirMock).toHaveBeenCalledWith('C:\\tmp\\foundation-downloads', { recursive: true });
+    expect(mkdirMock).toHaveBeenCalledWith(outputDir, { recursive: true });
     expect(writeFileMock).toHaveBeenCalledTimes(FOUNDATION_LEGAL_SOURCES.length + 1);
-    expect(writeFileMock).toHaveBeenCalledWith(
-      'C:\\tmp\\foundation-downloads\\sfs-1998-808.html',
-      expect.any(Buffer),
-    );
+    expect(writeFileMock).toHaveBeenCalledWith(path.join(outputDir, 'sfs-1998-808.html'), expect.any(Buffer));
     expect(writeFileMock).toHaveBeenLastCalledWith(
-      'C:\\tmp\\foundation-downloads\\manifest.json',
+      path.join(outputDir, 'manifest.json'),
       expect.stringContaining('"processed": 5'),
       'utf8',
     );

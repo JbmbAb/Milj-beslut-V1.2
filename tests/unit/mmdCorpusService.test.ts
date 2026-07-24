@@ -1,3 +1,4 @@
+import path from 'node:path';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const { rmMock, mkdirMock, writeFileMock } = vi.hoisted(() => ({
@@ -21,8 +22,11 @@ import {
   buildMmdCorpus,
   resolveMmdCorpusDirectory,
 } from '../../server/modules/legal/services/mmdCorpusService';
+import { testTmpDir } from '../helpers/testPaths';
 
 describe('mmdCorpusService', () => {
+  const outputDir = testTmpDir('mmd-corpus');
+
   beforeEach(() => {
     vi.clearAllMocks();
   });
@@ -36,7 +40,7 @@ describe('mmdCorpusService', () => {
     }));
 
     const result = await buildMmdCorpus({
-      outputDir: 'C:\\tmp\\mmd-corpus',
+      outputDir,
       fetchImpl,
       now: () => new Date('2026-04-27T19:20:00.000Z'),
     });
@@ -44,17 +48,17 @@ describe('mmdCorpusService', () => {
     expect(result.processed).toBe(5);
     expect(fetchImpl).toHaveBeenCalledTimes(6);
     expect(writeFileMock).toHaveBeenCalledWith(
-      'C:\\tmp\\mmd-corpus\\overview.html',
+      path.join(outputDir, 'overview.html'),
       expect.stringContaining('har-finns-vi'),
       'utf8',
     );
     expect(writeFileMock).toHaveBeenCalledWith(
-      'C:\\tmp\\mmd-corpus\\pages\\nacka-tingsratt.html',
+      path.join(outputDir, 'pages', 'nacka-tingsratt.html'),
       expect.stringContaining('nacka-tingsratt'),
       'utf8',
     );
     expect(writeFileMock).toHaveBeenCalledWith(
-      'C:\\tmp\\mmd-corpus\\manifest.json',
+      path.join(outputDir, 'manifest.json'),
       expect.stringContaining('"processed": 5'),
       'utf8',
     );

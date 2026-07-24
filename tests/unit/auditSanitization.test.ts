@@ -144,8 +144,8 @@ describe('sanitizeAuditPayload', () => {
         },
       },
     });
-    const nested = (((result.level1 as Record<string, unknown>).level2 as Record<string, unknown>)
-      .level3 as Record<string, unknown>);
+    const nested = ((result.level1 as Record<string, unknown>).level2 as Record<string, unknown>)
+      .level3 as Record<string, unknown>;
     expect(nested.password).toBe('[REDACTED_11_CHARS]');
     expect(nested.email).toBe('[REDACTED]');
     expect(nested.userId).toBe('user123');

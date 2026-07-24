@@ -7,13 +7,14 @@ import {
   mergeManifestQaUpdate,
   resolveManifestRemotePath,
   updateManifestStateLocal,
-} from '../../scripts/import/utils/manifestWriteBack';import { buildArchiveManifestV2 } from '../../scripts/import/types/manifestSchema.ts';
+} from '../../scripts/import/utils/manifestWriteBack';
+import { buildArchiveManifestV2 } from '../../scripts/import/types/manifestSchema.ts';
 
 describe('manifestWriteBack', () => {
   it('resolveManifestRemotePath handles nested dataset paths', () => {
-    expect(
-      resolveManifestRemotePath('Lantmateriet', 'KommunHistorik/krok', '2026-06-22'),
-    ).toBe('drive:GEO_Master_Archive/Data/Lantmateriet/KommunHistorik/krok/2026-06-22/manifest.json');
+    expect(resolveManifestRemotePath('Lantmateriet', 'KommunHistorik/krok', '2026-06-22')).toBe(
+      'drive:GEO_Master_Archive/Data/Lantmateriet/KommunHistorik/krok/2026-06-22/manifest.json',
+    );
   });
 
   it('mergeManifestQaUpdate sets qa fields without dropping core hash', () => {

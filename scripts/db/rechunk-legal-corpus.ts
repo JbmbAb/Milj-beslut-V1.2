@@ -17,7 +17,10 @@
  *   --record-id  Bearbeta ett specifikt LegalCorpusRecord-id.
  */
 
-import '../../server/loadEnv';
+import { loadEnvFile } from '../../server/loadEnv';
+loadEnvFile();
+loadEnvFile('.env.local', { overrideExisting: true });
+
 import { prisma } from '../../server/db/prisma';
 import { embedText } from '../../server/services/searchService';
 import { routeToCorrectChunker } from '../../server/modules/legal/services/semanticChunker';
@@ -27,6 +30,7 @@ const CURRENT_VERSION = 'v2.2';
 // ─── CLI-flaggor ──────────────────────────────────────────────────────────
 const args = process.argv.slice(2);
 const isDryRun = args.includes('--dry-run');
+const isForce = args.includes('--force');
 const limitArg = args.find((a) => a.startsWith('--limit='));
 const limit = limitArg ? parseInt(limitArg.split('=')[1], 10) : undefined;
 const recordIdArg = args.find((a) => a.startsWith('--record-id='));
@@ -38,12 +42,16 @@ async function getRecordsToProcess() {
   const where = {
     ...(targetRecordId ? { id: targetRecordId } : {}),
     documentText: { not: null },
-    // Hoppa över poster som redan har aktuell version
-    NOT: {
-      chunks: {
-        some: { chunkVersion: CURRENT_VERSION },
-      },
-    },
+    // Hoppa över poster som redan har aktuell version (om inte --force är satt)
+    ...(isForce
+      ? {}
+      : {
+          NOT: {
+            chunks: {
+              some: { chunkVersion: CURRENT_VERSION },
+            },
+          },
+        }),
   } as Parameters<typeof prisma.legalCorpusRecord.findMany>[0]['where'];
 
   return prisma.legalCorpusRecord.findMany({
@@ -122,6 +130,7 @@ async function processRecord(record: {
 async function main() {
   console.log(`\n🔄 rechunk-legal-corpus [version ${CURRENT_VERSION}]`);
   console.log(`   Läge: ${isDryRun ? 'DRY RUN (ingen skrivning)' : 'LIVE'}`);
+  console.log(`   Force-reprocess: ${isForce ? 'JA' : 'NEJ'}`);
   if (limit) console.log(`   Limit: ${limit} poster`);
   if (targetRecordId) console.log(`   Record: ${targetRecordId}`);
 

@@ -10,7 +10,6 @@ vi.mock('../../db.server', () => ({
   },
 }));
 
-
 describe('app analysis notificationService', () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -22,7 +21,15 @@ describe('app analysis notificationService', () => {
 
     const geometry = {
       type: 'Polygon',
-      coordinates: [[[18, 59], [18.1, 59], [18.1, 59.1], [18, 59.1], [18, 59]]],
+      coordinates: [
+        [
+          [18, 59],
+          [18.1, 59],
+          [18.1, 59.1],
+          [18, 59.1],
+          [18, 59],
+        ],
+      ],
     };
 
     const result = await screenCNotification(geometry);

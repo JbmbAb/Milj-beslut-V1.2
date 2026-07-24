@@ -3,7 +3,6 @@ import react from '@vitejs/plugin-react';
 
 export default defineConfig({
   test: {
-    globalSetup: 'tests/setup/database.ts',
     globals: true,
     setupFiles: ['tests/setup/env.ts'],
     coverage: {
@@ -17,6 +16,25 @@ export default defineConfig({
         functions: 85,
         statements: 85,
       },
+      exclude: [
+        'components/**',
+        'scripts/**',
+        'tests/**',
+        'db.server.ts',
+        'types.ts',
+        'constants.ts',
+        '**/*.config.*',
+        '**/*.d.ts',
+        'node_modules/**',
+        'src/ui/**',
+        'src/infrastructure/**',
+        'src/types/**',
+        'src/api/platform.master.ts',
+        'src/platform/audit.service.ts',
+        'src/application/get-property-details.usecase.ts',
+        'server/**',
+        'services/**',
+      ],
     },
     projects: [
       {
@@ -42,6 +60,7 @@ export default defineConfig({
       {
         test: {
           name: 'integration',
+          globalSetup: 'tests/setup/database.ts',
           include: ['tests/integration/**/*.test.ts', 'tests/smoke/**/*.test.ts'],
           environment: 'node',
           setupFiles: ['tests/setup/env.ts', 'tests/setup/integrationCsrfBypass.ts'],

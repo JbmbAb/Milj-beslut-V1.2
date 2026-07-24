@@ -47,6 +47,17 @@ export function csrfProtection(req: Request, res: Response, next: NextFunction) 
   // if (req.path === '/api/auth/bankid/callback') return next();
 
   if (!headerToken || headerToken !== cookieToken) {
+    console.warn('[CSRF Diagnostics]', {
+      method: req.method,
+      path: req.path,
+      hasHeaderToken: !!headerToken,
+      headerTokenLength: headerToken ? String(headerToken).length : 0,
+      hasCookieToken: !!cookieToken,
+      cookieTokenLength: cookieToken ? String(cookieToken).length : 0,
+      tokenMatch: headerToken === cookieToken,
+      rawCookieHeader: req.headers.cookie || 'none',
+      rawCsrfHeader: req.headers[CSRF_HEADER_NAME] || req.headers[CSRF_HEADER_NAME.toLowerCase()] || 'none',
+    });
     return res.status(403).json({
       ok: false,
       error: 'Möjlig Cross-Site Request Forgery attack blockerad. Ogiltig eller saknad CSRF-token.',
@@ -55,3 +66,4 @@ export function csrfProtection(req: Request, res: Response, next: NextFunction) 
 
   next();
 }
+

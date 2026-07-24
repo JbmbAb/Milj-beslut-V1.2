@@ -179,9 +179,9 @@ describe('App component', () => {
     });
   });
 
-  it('opens Huvudmoduler by default when an active project exists', async () => {
+  it('opens PermitPortalView by default when an active project exists', async () => {
     renderApp();
-    expect(await screen.findByTestId('priority-module-portfolio')).toBeInTheDocument();
+    expect(await screen.findByTestId('permit-portal-view')).toBeInTheDocument();
   });
 
   it('renders TechnicalDashboardHub when no active project exists', async () => {

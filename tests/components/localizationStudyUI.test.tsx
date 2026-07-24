@@ -10,7 +10,9 @@ const apiMocks = vi.hoisted(() => ({
 }));
 
 vi.mock('react-leaflet', () => ({
-  MapContainer: ({ children }: { children: React.ReactNode }) => <div data-testid="localization-map">{children}</div>,
+  MapContainer: ({ children }: { children: React.ReactNode }) => (
+    <div data-testid="localization-map">{children}</div>
+  ),
   TileLayer: () => null,
   GeoJSON: () => null,
   CircleMarker: () => null,
@@ -64,7 +66,9 @@ describe('LocalizationStudyUI', () => {
         ok: true,
         json: async () => ({
           type: 'FeatureCollection',
-          features: [{ type: 'Feature', geometry: { type: 'Point', coordinates: [18.05, 59.33] }, properties: {} }],
+          features: [
+            { type: 'Feature', geometry: { type: 'Point', coordinates: [18.05, 59.33] }, properties: {} },
+          ],
           meta: { available: true },
         }),
       } as Response;
@@ -103,10 +107,13 @@ describe('LocalizationStudyUI', () => {
   });
 
   it('calls localization report and PDF export APIs after property lookup', async () => {
-    mockGeodataFetch(() => ({
-      ok: true,
-      json: async () => ({ type: 'FeatureCollection', features: [], meta: { available: true } }),
-    } as Response));
+    mockGeodataFetch(
+      () =>
+        ({
+          ok: true,
+          json: async () => ({ type: 'FeatureCollection', features: [], meta: { available: true } }),
+        }) as Response,
+    );
 
     apiMocks.fetchPropertyInfo.mockResolvedValue({
       designation: 'NACKA BOO 1:2',
@@ -126,9 +133,9 @@ describe('LocalizationStudyUI', () => {
               complianceAnalysis: {
                 permitProbability: 0.85,
                 requiredActions: [],
-                notes: []
-              }
-            }
+                notes: [],
+              },
+            },
           ],
           humanInTheLoop: 'Granska rapporten manuellt innan beslut.',
         };

@@ -39,27 +39,27 @@ const DEFAULT_FLAGS: Record<string, FeatureFlagConfig> = {
     rolloutPercentage: 100,
   },
   'new-ai-orchestration': {
-    enabled: false, // Helt avstängd i produktion, aktiv i dev/test
-    environments: ['development', 'test'],
+    enabled: true,
+    environments: ['development', 'test', 'staging', 'production'],
   },
   'show-logistics-workspace': {
-    enabled: false,
-    environments: ['development', 'test'],
+    enabled: true,
+    environments: ['development', 'test', 'staging', 'production'],
     rolloutPercentage: 100,
   },
   'show-project-manager': {
-    enabled: false,
-    environments: ['development', 'test'],
+    enabled: true,
+    environments: ['development', 'test', 'staging', 'production'],
     rolloutPercentage: 100,
   },
   'show-compliance-audit': {
-    enabled: false,
-    environments: ['development', 'test'],
+    enabled: true,
+    environments: ['development', 'test', 'staging', 'production'],
     rolloutPercentage: 100,
   },
   'show-admin-console': {
-    enabled: false,
-    environments: ['development', 'test'],
+    enabled: true,
+    environments: ['development', 'test', 'staging', 'production'],
     rolloutPercentage: 100,
   },
 };

@@ -623,14 +623,14 @@ export async function getProtectedAreaLayer(
             na.site_name AS name,
             ('Natura 2000 ' || na.category) AS protection_type,
             'Natura2000'::text AS source,
-            ST_AsGeoJSON(ST_Transform(ST_SimplifyPreserveTopology(na.geom, 50), 4326)) AS geojson
+            ST_AsGeoJSON(ST_Transform(ST_SimplifyPreserveTopology(na.wkb_geometry, 50), 4326)) AS geojson
           FROM env.natura2000_area na
-          WHERE na.geom && ST_Transform(
+          WHERE na.wkb_geometry && ST_Transform(
             ST_MakeEnvelope(${bbox.minLng}, ${bbox.minLat}, ${bbox.maxLng}, ${bbox.maxLat}, 4326),
             3006
           )
           AND ST_Intersects(
-            na.geom,
+            na.wkb_geometry,
             ST_Transform(
               ST_MakeEnvelope(${bbox.minLng}, ${bbox.minLat}, ${bbox.maxLng}, ${bbox.maxLat}, 4326),
               3006
@@ -657,7 +657,7 @@ export async function getProtectedAreaLayer(
             na.site_name AS name,
             ('Natura 2000 ' || na.category) AS protection_type,
             'Natura2000'::text AS source,
-            ST_AsGeoJSON(ST_Transform(ST_SimplifyPreserveTopology(na.geom, 50), 4326)) AS geojson
+            ST_AsGeoJSON(ST_Transform(ST_SimplifyPreserveTopology(na.wkb_geometry, 50), 4326)) AS geojson
           FROM env.natura2000_area na
         ) protected_hits
         LIMIT ${maxRows};
@@ -703,14 +703,14 @@ export async function getProtectedAreaLayer(
           na.site_name AS name,
           ('Natura 2000 ' || na.category) AS protection_type,
           'Natura2000'::text AS source,
-          ST_AsGeoJSON(ST_Transform(ST_SimplifyPreserveTopology(na.geom, 50), 4326)) AS geojson
+          ST_AsGeoJSON(ST_Transform(ST_SimplifyPreserveTopology(na.wkb_geometry, 50), 4326)) AS geojson
         FROM env.natura2000_area na
-        WHERE na.geom && ST_Transform(
+        WHERE na.wkb_geometry && ST_Transform(
           ST_MakeEnvelope(${bbox.minLng}, ${bbox.minLat}, ${bbox.maxLng}, ${bbox.maxLat}, 4326),
           3006
         )
         AND ST_Intersects(
-          na.geom,
+          na.wkb_geometry,
           ST_Transform(
             ST_MakeEnvelope(${bbox.minLng}, ${bbox.minLat}, ${bbox.maxLng}, ${bbox.maxLat}, 4326),
             3006
@@ -724,7 +724,7 @@ export async function getProtectedAreaLayer(
           na.site_name AS name,
           ('Natura 2000 ' || na.category) AS protection_type,
           'Natura2000'::text AS source,
-          ST_AsGeoJSON(ST_Transform(ST_SimplifyPreserveTopology(na.geom, 50), 4326)) AS geojson
+          ST_AsGeoJSON(ST_Transform(ST_SimplifyPreserveTopology(na.wkb_geometry, 50), 4326)) AS geojson
         FROM env.natura2000_area na
         LIMIT ${maxRows};
       `;
@@ -772,14 +772,14 @@ export async function getNatura2000Layer(
           na.site_name AS name,
           ('Natura 2000 ' || na.category) AS protection_type,
           'Natura2000'::text AS source,
-          ST_AsGeoJSON(ST_Transform(ST_SimplifyPreserveTopology(na.geom, 50), 4326)) AS geojson
+          ST_AsGeoJSON(ST_Transform(ST_SimplifyPreserveTopology(na.wkb_geometry, 50), 4326)) AS geojson
         FROM env.natura2000_area na
-        WHERE na.geom && ST_Transform(
+        WHERE na.wkb_geometry && ST_Transform(
           ST_MakeEnvelope(${bbox.minLng}, ${bbox.minLat}, ${bbox.maxLng}, ${bbox.maxLat}, 4326),
           3006
         )
         AND ST_Intersects(
-          na.geom,
+          na.wkb_geometry,
           ST_Transform(
             ST_MakeEnvelope(${bbox.minLng}, ${bbox.minLat}, ${bbox.maxLng}, ${bbox.maxLat}, 4326),
             3006
@@ -793,7 +793,7 @@ export async function getNatura2000Layer(
           na.site_name AS name,
           ('Natura 2000 ' || na.category) AS protection_type,
           'Natura2000'::text AS source,
-          ST_AsGeoJSON(ST_Transform(ST_SimplifyPreserveTopology(na.geom, 50), 4326)) AS geojson
+          ST_AsGeoJSON(ST_Transform(ST_SimplifyPreserveTopology(na.wkb_geometry, 50), 4326)) AS geojson
         FROM env.natura2000_area na
         LIMIT ${maxRows};
       `;
@@ -914,14 +914,14 @@ export async function getWaterProtectionLayer(
         wpa.tillsynsmh AS authority,
         COALESCE(wpa.sengalldat::text, wpa.ursbesldat::text) AS source_updated_at,
         'water_protection_area'::text AS source,
-        ST_AsGeoJSON(ST_Transform(ST_SimplifyPreserveTopology(wpa.geom, 25), 4326)) AS geojson
+        ST_AsGeoJSON(ST_Transform(ST_SimplifyPreserveTopology(wpa.wkb_geometry, 25), 4326)) AS geojson
       FROM env.water_protection_area wpa
-      WHERE wpa.geom && ST_Transform(
+      WHERE wpa.wkb_geometry && ST_Transform(
         ST_MakeEnvelope(${bbox.minLng}, ${bbox.minLat}, ${bbox.maxLng}, ${bbox.maxLat}, 4326),
         3006
       )
       AND ST_Intersects(
-        wpa.geom,
+        wpa.wkb_geometry,
         ST_Transform(
           ST_MakeEnvelope(${bbox.minLng}, ${bbox.minLat}, ${bbox.maxLng}, ${bbox.maxLat}, 4326),
           3006
@@ -1086,7 +1086,7 @@ export async function getSguGroundLayerLayer(bbox: Bbox): Promise<FeatureCollect
   const rows = await prisma.$queryRawUnsafe<GroundLayerRow[]>(
     `
       SELECT
-        id::text AS source_key,
+        ogc_fid::text AS source_key,
         jg2 AS layer_code,
         jg2_tx AS layer_label,
         karttyp AS map_type,

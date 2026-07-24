@@ -10,7 +10,7 @@ describe('svensktVattenService', () => {
     it('beräknar regnintensitet korrekt för typiska värden', () => {
       // T = 5 år (60 månader), varaktighet = 10 minuter
       const intensity = calculateDahlstromIntensity(60, 10);
-      
+
       // För T=60, d=10:
       // term1 = 190 * (60^(1/3)) = 190 * 3.9148676 = 743.8248
       // term2 = ln(10) / (10^0.98) = 2.302585 / 9.5499258 = 0.241110
@@ -21,7 +21,7 @@ describe('svensktVattenService', () => {
     it('begränsar varaktighet till lägst 5 minuter', () => {
       const intensityUnder5 = calculateDahlstromIntensity(60, 3);
       const intensityAt5 = calculateDahlstromIntensity(60, 5);
-      
+
       expect(intensityUnder5).toBe(intensityAt5);
     });
   });
@@ -29,11 +29,11 @@ describe('svensktVattenService', () => {
   describe('P110 Dagvattenberäkning', () => {
     it('beräknar avrinningsareor och dimensionerande flöde korrekt utan magasinering', () => {
       const result = calculateStormwaterDetention({
-        areaM2: 10000,           // 1 ha
-        runoffCoefficient: 0.5,  // Reducerad area = 0.5 ha
-        returnPeriodYears: 5,    // T = 60 månader
-        durationMinutes: 10,     // i = 181.34 l/(s*ha)
-        climateFactor: 1.25,     // Q = 0.5 * 181.34 * 1.25 = 113.34 l/s
+        areaM2: 10000, // 1 ha
+        runoffCoefficient: 0.5, // Reducerad area = 0.5 ha
+        returnPeriodYears: 5, // T = 60 månader
+        durationMinutes: 10, // i = 181.34 l/(s*ha)
+        climateFactor: 1.25, // Q = 0.5 * 181.34 * 1.25 = 113.34 l/s
       });
 
       expect(result.catchmentAreaHa).toBe(1.0);
@@ -52,41 +52,45 @@ describe('svensktVattenService', () => {
         returnPeriodYears: 5,
         durationMinutes: 10,
         climateFactor: 1.25,
-        allowedOutflowLs: 20.0,  // Tillåtet utflöde 20 l/s
+        allowedOutflowLs: 20.0, // Tillåtet utflöde 20 l/s
       });
 
       // Flöde = 113.34 l/s. Överskott = 113.34 - 20 = 93.34 l/s.
       // Volym för 10 min = 93.34 * 10 * 60 / 1000 = 56.00 m³
       expect(result.allowedOutflowLs).toBe(20.0);
       expect(result.requiredVolumeM3).toBeCloseTo(56.0, 1);
-      
+
       // Kontrollera svepet
       expect(result.criticalDurationMinutes).toBeGreaterThan(0);
       expect(result.maxRequiredVolumeM3).toBeGreaterThanOrEqual(result.requiredVolumeM3!);
       expect(result.volumeCurve).toHaveLength(16);
-      
+
       // Kurvan ska innehålla giltiga värden
-      const curvePoint10 = result.volumeCurve!.find(p => p.durationMinutes === 10);
+      const curvePoint10 = result.volumeCurve!.find((p) => p.durationMinutes === 10);
       expect(curvePoint10).toBeDefined();
       expect(curvePoint10!.volumeM3).toBeCloseTo(56.0, 1);
     });
 
     it('kastar fel för ogiltiga parametrar', () => {
-      expect(() => calculateStormwaterDetention({
-        areaM2: -100,
-        runoffCoefficient: 0.5,
-        returnPeriodYears: 5,
-        durationMinutes: 10,
-        climateFactor: 1.25,
-      })).toThrow();
+      expect(() =>
+        calculateStormwaterDetention({
+          areaM2: -100,
+          runoffCoefficient: 0.5,
+          returnPeriodYears: 5,
+          durationMinutes: 10,
+          climateFactor: 1.25,
+        }),
+      ).toThrow();
 
-      expect(() => calculateStormwaterDetention({
-        areaM2: 10000,
-        runoffCoefficient: 1.5,
-        returnPeriodYears: 5,
-        durationMinutes: 10,
-        climateFactor: 1.25,
-      })).toThrow();
+      expect(() =>
+        calculateStormwaterDetention({
+          areaM2: 10000,
+          runoffCoefficient: 1.5,
+          returnPeriodYears: 5,
+          durationMinutes: 10,
+          climateFactor: 1.25,
+        }),
+      ).toThrow();
     });
   });
 
@@ -95,14 +99,14 @@ describe('svensktVattenService', () => {
       const result = calculateVaProjectClimate({
         trenchLengthM: 100,
         trenchWidthM: 1.0,
-        trenchDepthM: 2.0,       // Volym = 200 m3. Vikt = 360 ton (vid 1.8 ton/m3)
-        reusePercentage: 50,     // 180 ton återanvänds, 180 ton importeras
+        trenchDepthM: 2.0, // Volym = 200 m3. Vikt = 360 ton (vid 1.8 ton/m3)
+        reusePercentage: 50, // 180 ton återanvänds, 180 ton importeras
         pipes: [
           {
             material: 'PP',
             diameterMm: 160,
-            lengthM: 100,        // Vikt = 0.00011 * 160^2 * 100 = 281.6 kg
-          }
+            lengthM: 100, // Vikt = 0.00011 * 160^2 * 100 = 281.6 kg
+          },
         ],
         transportDistanceKm: 20, // Distans = 20 km
       });
@@ -127,14 +131,16 @@ describe('svensktVattenService', () => {
     });
 
     it('kastar fel för ogiltiga schaktmått', () => {
-      expect(() => calculateVaProjectClimate({
-        trenchLengthM: 0,
-        trenchWidthM: 1,
-        trenchDepthM: 1,
-        reusePercentage: 50,
-        pipes: [],
-        transportDistanceKm: 10,
-      })).toThrow();
+      expect(() =>
+        calculateVaProjectClimate({
+          trenchLengthM: 0,
+          trenchWidthM: 1,
+          trenchDepthM: 1,
+          reusePercentage: 50,
+          pipes: [],
+          transportDistanceKm: 10,
+        }),
+      ).toThrow();
     });
   });
 });

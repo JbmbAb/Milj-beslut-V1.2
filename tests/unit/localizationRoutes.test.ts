@@ -48,9 +48,7 @@ vi.mock('../../server/services/spatialAuditService', () => ({
 }));
 
 vi.mock('../../server/services/nvrService', () => ({
-  fetchProtectedAreas: vi.fn(async () => [
-    { id: 'nvr-1', name: 'Testreservat', type: 'Naturreservat' },
-  ]),
+  fetchProtectedAreas: vi.fn(async () => [{ id: 'nvr-1', name: 'Testreservat', type: 'Naturreservat' }]),
 }));
 
 vi.mock('../../server/services/raaService', () => ({

@@ -30,6 +30,8 @@ import tilesRouter from './routes/tiles.routes';
 import pdfExportRouter from './routes/pdf-export.routes';
 import bankComplianceRouter from './routes/bankCompliance.routes';
 import erpSyncRouter from './routes/erpSync.routes';
+import searchRoutes from './routes/searchRoutes';
+import recommendationRoutes from './routes/recommendationRoutes';
 import helmet from 'helmet';
 import rateLimit from 'express-rate-limit';
 import compression from 'compression';
@@ -184,6 +186,8 @@ export function createApp() {
   app.use(logisticsRouter);
   app.use(datasourceRouter);
   app.use(searchRouter);
+  app.use(searchRoutes);
+  app.use(recommendationRoutes);
   app.use(gdprRouter);
   app.use(referenceRouter);
   app.use(adminLegacyRouter);

@@ -41,6 +41,7 @@ test-results
 figma-raw.json
 
 # Temporary files
+.temp_import_cache/
 .tmp-*
 tmp_*
 *.txt
@@ -48,11 +49,14 @@ tmp_*
 !package.json
 !package-lock.json
 !tsconfig.json
+!.prettierrc.json
 !stitch.json
 !figma-raw.json
 !vercel.json
 !*.md
 !public/manifest.json
+!tests/fixtures/**/*.json
+!tests/fixtures/**/*.txt
 !.vscode/extensions.json
 !.vscode/settings.json
 !.vscode/tasks.json

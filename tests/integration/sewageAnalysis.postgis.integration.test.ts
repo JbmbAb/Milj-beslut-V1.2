@@ -1,8 +1,13 @@
-import { describe, expect, it } from 'vitest';
+import { beforeAll, describe, expect, it } from 'vitest';
+import { prisma } from '../../server/db/prisma';
 import { analyzeSewageProperty } from '../../server/services/sewageAnalysisService';
+import { seedGavleBrynasSguMoran } from '../helpers/postgisSeed';
 import { describeIfDatabaseIntegration } from './integrationTestEnv';
 
 describeIfDatabaseIntegration('sewageAnalysisService PostGIS integration', () => {
+  beforeAll(async () => {
+    await seedGavleBrynasSguMoran(prisma);
+  });
   it('reads local property, SGU and protection data without live APIs', async () => {
     const result = await analyzeSewageProperty({
       propertyDesignation: 'GÄVLE BRYNÄS 1:1',

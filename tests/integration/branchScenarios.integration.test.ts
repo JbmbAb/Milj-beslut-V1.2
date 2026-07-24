@@ -67,9 +67,7 @@ describeIfDatabaseIntegration('branch scenarios integration (negative paths, no 
 
     it('GET /api/layers/dataset/invalid_layer_key_xyz returns unavailable collection', async () => {
       const bbox = `${GAVLE_BRYNAS_BBOX.minLng},${GAVLE_BRYNAS_BBOX.minLat},${GAVLE_BRYNAS_BBOX.maxLng},${GAVLE_BRYNAS_BBOX.maxLat}`;
-      const res = await authRequest(adminToken).get(
-        `/api/layers/dataset/invalid_layer_key_xyz?bbox=${bbox}`,
-      );
+      const res = await authRequest(adminToken).get(`/api/layers/dataset/invalid_layer_key_xyz?bbox=${bbox}`);
 
       expect(res.status).toBe(503);
       expect(res.body.meta?.available).toBe(false);

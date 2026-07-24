@@ -188,12 +188,7 @@ function patchGateStatus(
 const SewagePortalView: React.FC = () => {
   const { addAiActivity, setInspectorData } = useOperationsCenter();
   const { isDark } = useTheme();
-
-  // Call useAppWorkspace defensively in try-catch
-  let workspace: any = null;
-  try {
-    workspace = useAppWorkspace();
-  } catch (e) {}
+  const workspace = useAppWorkspace();
 
   // State with pre-populated defaults
   const [currentStep, setCurrentStep] = useState<SewageStep>('property');
@@ -216,7 +211,7 @@ const SewagePortalView: React.FC = () => {
 
   // Dynamic default initialization based on workspace context
   useEffect(() => {
-    const propName = workspace?.activeProjectLabel || workspace?.selectedPermit?.propertyDesignation || '';
+    const propName = workspace?.activeProjectLabel || workspace?.selectedPermit?.property_id || '';
     setPropertyDesignation(propName);
 
     if (propName.toLowerCase().includes('orsa')) {
@@ -228,7 +223,7 @@ const SewagePortalView: React.FC = () => {
       setLatitude(59.329);
       setLongitude(18.068);
     }
-  }, [workspace?.activeProjectLabel, workspace?.selectedPermit?.propertyDesignation]);
+  }, [workspace?.activeProjectLabel, workspace?.selectedPermit?.property_id]);
 
   // Initialize application on mount based on defaults
   useEffect(() => {

@@ -27,16 +27,6 @@ const MODULES = [
     tagColor: 'text-emerald-500 bg-emerald-50 dark:text-emerald-400 dark:bg-emerald-950/40 dark:border-emerald-900/40',
   },
   {
-    id: 'c-notification-chemicals',
-    title: 'C-anmälan kemikalier',
-    subtitle: 'Kemikalier, utsläpp och egenkontroll (separat flöde).',
-    icon: 'fa-flask',
-    status: 'Tillägg',
-    lightAccent: 'text-teal-600 bg-teal-50 border-teal-100',
-    darkAccent: 'text-teal-400 bg-teal-500/10 border-teal-500/20 shadow-[0_0_15px_rgba(45,212,191,0.1)]',
-    tagColor: 'text-teal-500 bg-teal-50 dark:text-teal-400 dark:bg-teal-950/40 dark:border-teal-900/40',
-  },
-  {
     id: 'localization',
     title: 'Lokaliseringsutredning',
     subtitle: 'Alternativa platser, geodata, skyddsavstånd, kartfigurer och rapportgenerering.',
@@ -45,6 +35,26 @@ const MODULES = [
     lightAccent: 'text-indigo-600 bg-indigo-50 border-indigo-100',
     darkAccent: 'text-indigo-400 bg-indigo-500/10 border-indigo-500/20 shadow-[0_0_15px_rgba(129,140,248,0.1)]',
     tagColor: 'text-indigo-500 bg-indigo-50 dark:text-indigo-400 dark:bg-indigo-950/40 dark:border-indigo-900/40',
+  },
+  {
+    id: 'mimer-search',
+    title: 'Mimers AI-Sök',
+    subtitle: 'Lokal hybrid RAG-sökning med pgvector, full-text och Cross-Encoder reranking.',
+    icon: 'fa-brain',
+    status: 'Huvudmodul 4',
+    lightAccent: 'text-cyan-600 bg-cyan-50 border-cyan-100',
+    darkAccent: 'text-cyan-400 bg-cyan-500/10 border-cyan-500/20 shadow-[0_0_15px_rgba(6,182,212,0.1)]',
+    tagColor: 'text-cyan-500 bg-cyan-50 dark:text-cyan-400 dark:bg-cyan-950/40 dark:border-cyan-900/40',
+  },
+  {
+    id: 'c-notification-chemicals',
+    title: 'C-anmälan kemikalier',
+    subtitle: 'Kemikalier, utsläpp och egenkontroll (separat flöde).',
+    icon: 'fa-flask',
+    status: 'Tillägg',
+    lightAccent: 'text-teal-600 bg-teal-50 border-teal-100',
+    darkAccent: 'text-teal-400 bg-teal-500/10 border-teal-500/20 shadow-[0_0_15px_rgba(45,212,191,0.1)]',
+    tagColor: 'text-teal-500 bg-teal-50 dark:text-teal-400 dark:bg-teal-950/40 dark:border-teal-900/40',
   },
 ] as const;
 
@@ -106,7 +116,7 @@ export const PriorityModulePortfolio: React.FC<PriorityModulePortfolioProps> = (
         </header>
 
         {/* Modular Cards Grid */}
-        <div className="grid grid-cols-1 gap-6 sm:grid-cols-2 lg:grid-cols-4">
+        <div className="grid grid-cols-1 gap-6 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-5">
           {MODULES.map((module) => (
             <button
               key={module.id}

@@ -10,10 +10,12 @@ import { ensureAdminConsoleUser } from '../../server/repositories/userRepository
 import { createOrGetAdminProject } from '../../server/modules/search/adapters/searchRepository';
 import { syncManifestMetadata } from '../../server/services/searchService';
 import { processSearchJobsOnce } from '../../server/services/searchWorker';
-import { PrismaClient } from '@prisma/client';
+import { prisma } from '../../server/db/prisma';
 import { extractDocumentTextAndChunk, embedDocumentChunks } from '../../server/services/searchService';
+import { loadEnvFile } from '../../server/loadEnv';
 
-const prisma = new PrismaClient();
+loadEnvFile();
+loadEnvFile('.env.local', { overrideExisting: true });
 
 const OUTLOOK_BASE_DIR = process.env.OUTLOOK_BASE_DIR || 'D:\\Users\\jimmy\\Desktop\\OutlookExport';
 const OUTLOOK_MANIFEST_PATH =

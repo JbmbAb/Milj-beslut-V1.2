@@ -1,12 +1,11 @@
-﻿import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import request from 'supertest';
 import fs from 'node:fs/promises';
 import path from 'node:path';
-import { PrismaClient } from '@prisma/client';
+import { prisma } from '../../server/db/prisma';
 import { createTokenPair } from '../../server/security/auth';
 import { createApp } from '../../server/createApp';
 
-const prisma = new PrismaClient();
 const app = createApp();
 
 // This test suite requires a real PostgreSQL database.

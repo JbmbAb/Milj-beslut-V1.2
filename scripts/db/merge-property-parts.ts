@@ -37,7 +37,7 @@ async function main() {
   `);
 
   console.log('View updated with ST_Union aggregation.');
-  
+
   const check = await prisma.$queryRaw<any[]>`
     SELECT designation, ST_NumGeometries(geom) as parts
     FROM core.property_unit 
@@ -46,4 +46,6 @@ async function main() {
   console.log('Result for ORSA STACKMORA 3:12:', check);
 }
 
-main().catch(console.error).finally(() => prisma.$disconnect());
+main()
+  .catch(console.error)
+  .finally(() => prisma.$disconnect());

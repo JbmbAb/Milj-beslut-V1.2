@@ -10,7 +10,7 @@ async function main() {
     `SELECT table_schema, table_name 
      FROM information_schema.tables 
      WHERE table_schema NOT IN ('pg_catalog', 'information_schema') 
-     ORDER BY table_schema, table_name`
+     ORDER BY table_schema, table_name`,
   );
 
   const schemas: Record<string, string[]> = {};
@@ -27,7 +27,7 @@ async function main() {
       // Försök hämta radantal om det inte är en vy
       try {
         const [{ count }] = await p.$queryRawUnsafe<any[]>(
-          `SELECT COUNT(*) as count FROM "${schema}"."${t}"`
+          `SELECT COUNT(*) as count FROM "${schema}"."${t}"`,
         );
         console.log(`  - ${t.padEnd(50)} : ${Number(count).toLocaleString('sv-SE')} rows`);
       } catch (err: any) {
@@ -37,4 +37,6 @@ async function main() {
   }
 }
 
-main().catch(console.error).finally(() => p.$disconnect());
+main()
+  .catch(console.error)
+  .finally(() => p.$disconnect());

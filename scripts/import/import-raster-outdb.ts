@@ -34,11 +34,11 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import * as crypto from 'node:crypto';
 import { spawnSync, execSync } from 'node:child_process';
-import dotenv from 'dotenv';
-import { PrismaClient } from '@prisma/client';
+import { loadEnvFile } from '../../server/loadEnv';
+loadEnvFile();
+loadEnvFile('.env.local', { overrideExisting: true });
+import type { PrismaClient } from '@prisma/client';
 import { MASTER_ARCHIVE_ROOT } from './config/mimersBrunn';
-
-dotenv.config();
 
 // ─── Konfiguration ────────────────────────────────────────────────────────────
 
@@ -495,7 +495,7 @@ async function printStatus(prisma: PrismaClient): Promise<void> {
 // ─── Main ─────────────────────────────────────────────────────────────────────
 
 async function main() {
-  const prisma      = new PrismaClient();
+  const { prisma } = await import('../../server/db/prisma');
   const databaseUrl = process.env.DATABASE_URL;
 
   if (!databaseUrl) {

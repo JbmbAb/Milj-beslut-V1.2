@@ -34,7 +34,6 @@ describe('TechnicalDashboardHub', () => {
     vi.restoreAllMocks();
   });
 
-
   describe('Header & Branding', () => {
     it('renders the header with Miljöbeslut logo', () => {
       render(<TechnicalDashboardHub onSelectModule={vi.fn()} />);

@@ -88,10 +88,34 @@ const READY_SNAPSHOT: SewageDomainSnapshot = {
   soilTest: { ltar: 15, testDate: '2026-05-21' },
   // gates: alla HIGH-prioritet COMPLETED
   gates: [
-    { id: 'gate-SEWAGE_PROTECTION_LEVEL', name: 'Skyddsnivå', description: '', status: 'COMPLETED', priority: 'HIGH' },
-    { id: 'gate-SOIL_TEST_COMPLETED', name: 'Markundersökning', description: '', status: 'COMPLETED', priority: 'HIGH' },
-    { id: 'gate-NEIGHBOR_CONSENT', name: 'Grannemedgivande', description: '', status: 'COMPLETED', priority: 'MEDIUM' },
-    { id: 'gate-DOCUMENTATION_COMPLETE', name: 'Dokumentation', description: '', status: 'COMPLETED', priority: 'HIGH' },
+    {
+      id: 'gate-SEWAGE_PROTECTION_LEVEL',
+      name: 'Skyddsnivå',
+      description: '',
+      status: 'COMPLETED',
+      priority: 'HIGH',
+    },
+    {
+      id: 'gate-SOIL_TEST_COMPLETED',
+      name: 'Markundersökning',
+      description: '',
+      status: 'COMPLETED',
+      priority: 'HIGH',
+    },
+    {
+      id: 'gate-NEIGHBOR_CONSENT',
+      name: 'Grannemedgivande',
+      description: '',
+      status: 'COMPLETED',
+      priority: 'MEDIUM',
+    },
+    {
+      id: 'gate-DOCUMENTATION_COMPLETE',
+      name: 'Dokumentation',
+      description: '',
+      status: 'COMPLETED',
+      priority: 'HIGH',
+    },
   ],
 };
 
@@ -338,9 +362,8 @@ describe('Sewage enskilt avlopp — intern E2E (in-memory)', () => {
     expect(docsResult.ok).toBe(true);
 
     // Uppdatera gates manuellt till COMPLETED för att reflektera utförda steg
-    const { updateSewageApplicationRecord, getSewageApplicationById: getApp } = await import(
-      '../../server/repositories/sewageApplicationRepository'
-    );
+    const { updateSewageApplicationRecord, getSewageApplicationById: getApp } =
+      await import('../../server/repositories/sewageApplicationRepository');
     const currentApp = await getApp(app.id);
     await updateSewageApplicationRecord(app.id, {
       domainSnapshot: {

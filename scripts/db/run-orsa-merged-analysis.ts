@@ -54,23 +54,23 @@ async function main() {
   console.log('\n--- MERGED ANALYSIS SUMMARY ---');
   console.log(`Property: ${propertyDesignation}`);
   console.log(`Total Area: ${Math.round(total_area_sqm)} m² (~${(total_area_sqm / 10000).toFixed(2)} ha)`);
-  
+
   if (protectedHits.length > 0) {
-    console.log(`⚠️  Inom skyddad natur: ${protectedHits.map(h => h.name).join(', ')}`);
+    console.log(`⚠️  Inom skyddad natur: ${protectedHits.map((h) => h.name).join(', ')}`);
   } else {
     console.log(`✅ Utanför skyddad natur`);
   }
 
   console.log(`Marktäckning (fördelning):`);
-  landCover.forEach(lc => {
+  landCover.forEach((lc) => {
     const pct = ((lc.area_sqm / total_area_sqm) * 100).toFixed(1);
     console.log(`  - ${lc.objekttyp}: ${Math.round(lc.area_sqm)} m² (${pct}%)`);
   });
 
   if (waterDist[0]) {
-     console.log(`Avstånd till närmaste vatten: ${Math.round(waterDist[0].distance_m)} meter.`);
+    console.log(`Avstånd till närmaste vatten: ${Math.round(waterDist[0].distance_m)} meter.`);
   } else {
-     console.log(`ℹ️ Inga vattenförekomster hittades inom sökradien.`);
+    console.log(`ℹ️ Inga vattenförekomster hittades inom sökradien.`);
   }
 }
 

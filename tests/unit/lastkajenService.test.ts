@@ -38,10 +38,10 @@ describe('lastkajenService', () => {
       }
       if (url.includes('/api/DataPackage/GetPublishedDataPackages')) {
         expect(init?.headers).toMatchObject({ Authorization: 'Bearer tok-abc' });
-        return new Response(
-          JSON.stringify([{ id: 99, name: 'Bullerdata', published: true }]),
-          { status: 200, headers: { 'Content-Type': 'application/json' } },
-        );
+        return new Response(JSON.stringify([{ id: 99, name: 'Bullerdata', published: true }]), {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        });
       }
       return new Response('not found', { status: 404 });
     });

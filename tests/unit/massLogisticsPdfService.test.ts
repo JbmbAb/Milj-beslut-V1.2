@@ -132,10 +132,7 @@ describe('generateMassLogisticsPdf', () => {
   it('includes GIS situationsplan content when gisSnapshot exists', async () => {
     const { generateMassLogisticsPdf } = await import('../../server/services/massLogisticsPdfService');
 
-    await generateMassLogisticsPdf(
-      { ...baseRecord, gisSnapshot },
-      'C:\\temp\\mass-logistics-gis.pdf',
-    );
+    await generateMassLogisticsPdf({ ...baseRecord, gisSnapshot }, 'C:\\temp\\mass-logistics-gis.pdf');
 
     const joined = mocks.textCalls.join(' ');
     expect(joined).toContain('GIS & Situationsplan');

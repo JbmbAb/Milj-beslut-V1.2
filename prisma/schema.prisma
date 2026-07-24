@@ -4,7 +4,6 @@ generator client {
 
 datasource db {
   provider = "postgresql"
-  url      = env("DATABASE_URL")
 }
 
 enum UserRole {
@@ -18,7 +17,10 @@ enum ProjectStatus {
   ACTIVE
   CLOSED
   ARCHIVED
+  COMPLETED
+  DRAFT
 }
+
 
 enum ProjectAccessRole {
   OWNER
@@ -102,13 +104,25 @@ model RateLimitEntry {
 }
 
 model Organisation {
-  id        String    @id @default(cuid())
-  name      String
-  orgNumber String    @unique
-  createdAt DateTime  @default(now())
-  users     User[]
-  projects  Project[]
-  documents DocumentRecord[]
+  id           String           @id @default(cuid())
+  name         String
+  orgNumber    String           @unique
+  role         OrganizationRole @default(CLIENT)
+  updatedAt    DateTime         @default(now()) @updatedAt
+  contactEmail String?
+  phone        String?
+  address      Json?
+  createdAt    DateTime         @default(now())
+  users        User[]
+  projects     Project[]
+  documents    DocumentRecord[]
+}
+
+enum OrganizationRole {
+  CLIENT
+  AUTHORITY
+  CONTRACTOR
+  PARTNER
 }
 
 model Project {
@@ -319,6 +333,10 @@ model DocumentRecord {
   requirementCitations      RequirementCitation[]
   metadataEvidence          DocumentMetadataEvidence[]
   reviewQueue               MetadataReviewQueue[]
+  matrixRows                    RequirementMatrixRow[]
+  attachments                   OutlookAttachment[]
+  classificationRecommendations ClassificationRecommendation[]
+  humanApprovalGates           HumanApprovalGate[]
 
   @@index([projectId, receivedTime])
   @@index([organisationId, receivedTime])
@@ -488,8 +506,11 @@ model RequirementCase {
   updatedAt         DateTime            @updatedAt
   project           Project             @relation(fields: [projectId], references: [id], onDelete: Cascade)
   document          DocumentRecord      @relation(fields: [documentId], references: [id], onDelete: Cascade)
-  requirements      RequirementRecord[]
-  citations         RequirementCitation[]
+  requirements                  RequirementRecord[]
+  citations                     RequirementCitation[]
+  matrixRows                    RequirementMatrixRow[]
+  classificationRecommendations ClassificationRecommendation[]
+  humanApprovalGates           HumanApprovalGate[]
 
   @@index([projectId, documentDate])
   @@index([municipality, authorityType])
@@ -540,6 +561,7 @@ model RequirementRecord {
   document               DocumentRecord                @relation(fields: [documentId], references: [id], onDelete: Cascade)
   project                Project                       @relation(fields: [projectId], references: [id], onDelete: Cascade)
   citations              RequirementCitation[]
+  matrixRows             RequirementMatrixRow[]
 
   @@index([documentId])
   @@index([requirementHash])
@@ -565,6 +587,7 @@ model RequirementCitation {
   requirement         RequirementRecord @relation(fields: [requirementId], references: [id], onDelete: Cascade)
   case                RequirementCase   @relation(fields: [caseId], references: [id], onDelete: Cascade)
   document            DocumentRecord    @relation(fields: [documentId], references: [id], onDelete: Cascade)
+  matrixRows          RequirementMatrixRow[]
 
   @@index([documentId, pageNumber])
   @@index([requirementId])
@@ -608,6 +631,7 @@ model OutlookAttachment {
   canonicalMessage   EmailMessage         @relation("CanonicalMessage", fields: [canonicalMessageId], references: [messageId])
   occurrences        AttachmentOccurrence[]
   requirements       ExtractedRequirement[]
+  document           DocumentRecord?      @relation(fields: [documentId], references: [id])
   
   @@index([parsed])
   @@index([documentId])
@@ -830,4 +854,317 @@ model SatelliteAnalysis {
   createdAt      DateTime       @default(now()) @map("created_at")
 
   @@map("satellite_analyses")
+}
+
+enum LegalStorageTarget {
+  PRISMA
+  POSTGIS
+  FILESYSTEM
+  REVIEW_QUEUE
+}
+
+model JudgmentRecord {
+  id            String   @id @default(cuid())
+  guid          String   @unique
+  title         String
+  link          String
+  description   String?
+  pubDate       DateTime
+  sourceFeed    String   @default("DOMSTOL_RSS") @map("sourceFeed")
+  legalArea     String?  @default("miljo") @map("legalArea")
+  authorityName String?  @map("authorityName")
+  authorityType String?  @map("authorityType")
+  createdAt     DateTime @default(now()) @map("createdAt")
+  updatedAt     DateTime @updatedAt @map("updatedAt")
+
+  legalCorpusRecords LegalCorpusRecord[]
+  legalSourceRecords LegalSourceRecord[]
+
+  @@map("judgment_records")
+}
+
+model LegalSourceRecord {
+  id              String             @id @default(cuid())
+  sourceSystem    String
+  sourceType      String
+  externalId      String
+  title           String
+  summary         String?
+  sourceUrl       String
+  normalizedUrl   String?
+  providerId      String?
+  providerLabel   String?
+  authorityName   String?
+  authorityType   String?
+  municipality    String?
+  diarienummer    String?
+  legalArea       String?
+  mimeType        String?
+  formatHint      String?
+  decisionDate    DateTime?
+  publishedAt     DateTime?
+  storageTarget   LegalStorageTarget
+  postgisSchema   String?
+  postgisTable    String?
+  matrixCategory  String?
+  matrixSuggested Boolean            @default(false)
+  payload         Json               @default("{}")
+  judgmentId      String?            @map("judgment_id")
+  createdAt       DateTime           @default(now())
+  updatedAt       DateTime           @updatedAt
+
+  judgment JudgmentRecord? @relation(fields: [judgmentId], references: [id], onDelete: SetNull)
+  legalCorpusRecords LegalCorpusRecord[]
+  matrixRow RequirementMatrixRow?
+
+  @@unique([sourceSystem, externalId])
+  @@map("legal_source_records")
+}
+
+model LegalCorpusRecord {
+  id            String    @id @default(cuid())
+  recordKey     String    @unique @map("record_key")
+  canonicalKey  String    @map("canonical_key")
+  sourceFamily  String    @map("source_family")
+  sourceType    String    @map("source_type")
+  sourceSystem  String    @map("source_system")
+  externalId    String?   @map("external_id")
+  title         String
+  summary       String?
+  authorityName String?   @map("authority_name")
+  authorityType String?   @map("authority_type")
+  court         String?
+  courtLevel    String?   @map("court_level")
+  municipality  String?
+  legalArea     String?   @map("legal_area")
+  language      String    @default("sv")
+  mimeType      String?   @map("mime_type")
+  formatHint    String?   @map("format_hint")
+  sourceUrl     String?   @map("source_url")
+  normalizedUrl String?   @map("normalized_url")
+  sourcePath    String    @map("source_path")
+  publishedAt   DateTime? @map("published_at")
+  decisionDate  DateTime? @map("decision_date")
+  year          Int?
+  caseNumber    String?   @map("case_number")
+  documentText  String?   @map("document_text")
+  searchText    String    @map("search_text")
+  metadata      Json      @default("{}")
+  tags          Json      @default("[]")
+  contentHash   String?   @map("content_hash")
+  byteSize      Int?      @map("byte_size")
+  judgmentId    String?   @map("judgment_id")
+  legalSourceId String?   @map("legal_source_id")
+  createdAt     DateTime  @default(now()) @map("created_at")
+  updatedAt     DateTime  @updatedAt @map("updated_at")
+
+  searchVector Unsupported("tsvector")? @map("search_vector")
+
+  judgment    JudgmentRecord?    @relation(fields: [judgmentId], references: [id], onDelete: SetNull)
+  legalSource LegalSourceRecord? @relation(fields: [legalSourceId], references: [id], onDelete: SetNull)
+  chunks      LegalCorpusChunk[]
+
+  @@index([canonicalKey])
+  @@index([sourceFamily, sourceType, publishedAt])
+  @@index([sourceSystem, externalId])
+  @@index([authorityType, legalArea, publishedAt])
+  @@index([courtLevel, decisionDate])
+  @@index([judgmentId])
+  @@index([legalSourceId])
+  @@map("legal_corpus_records")
+}
+
+model LegalCorpusChunk {
+  id              String                       @id @default(cuid())
+  recordId        String                       @map("record_id")
+  chunkIndex      Int                          @map("chunk_index")
+  chunkText       String                       @map("chunk_text") @db.Text
+  chunkVersion    String                       @default("v2.2") @map("chunk_version")
+  documentType    String                       @default("other") @map("document_type")
+  lawName         String?                      @map("law_name")
+  chapter         String?
+  paragraph       String?
+  section         String?
+  embeddingVector Unsupported("vector")?       @map("embedding_vector")
+  createdAt       DateTime                     @default(now()) @map("created_at")
+  updatedAt       DateTime                     @updatedAt @map("updated_at")
+
+  record LegalCorpusRecord @relation(fields: [recordId], references: [id], onDelete: Cascade)
+
+  @@unique([recordId, chunkIndex, chunkVersion])
+  @@index([recordId])
+  @@index([chapter, paragraph])
+  @@index([chunkVersion])
+  @@map("legal_corpus_chunks")
+}
+
+model RequirementMatrixRow {
+  id              String                        @id @default(cuid())
+  requirementId   String?                       @map("requirement_id")
+  citationId      String?                       @map("citation_id")
+  caseId          String?                       @map("case_id")
+  documentId      String?                       @map("document_id")
+  category        String
+  ruleText        String
+  sourceText      String?
+  reviewStatus    RequirementVerificationStatus @default(AUTO)
+  reviewedBy      String?
+  reviewedAt      DateTime?
+  comments        String?
+  isAutoSuggested Boolean                       @default(true)
+  createdAt       DateTime                      @default(now())
+  updatedAt       DateTime                      @updatedAt
+  legalSourceId   String?                       @unique @map("legal_source_id")
+
+  requirement     RequirementRecord?            @relation(fields: [requirementId], references: [id], onDelete: SetNull)
+  citation        RequirementCitation?          @relation(fields: [citationId], references: [id], onDelete: SetNull)
+  case            RequirementCase?              @relation(fields: [caseId], references: [id], onDelete: SetNull)
+  document        DocumentRecord?               @relation(fields: [documentId], references: [id], onDelete: SetNull)
+  legalSource     LegalSourceRecord?            @relation(fields: [legalSourceId], references: [id], onDelete: SetNull)
+
+  @@index([caseId, category])
+  @@index([legalSourceId])
+  @@index([reviewStatus])
+  @@map("RequirementMatrixRow")
+}
+
+model PostgisImportBatch {
+  id                    String    @id @default(dbgenerated("gen_random_uuid()::text"))
+  harvest_batch_id      String?   @map("harvest_batch_id")
+  target_schema         String    @map("target_schema")
+  target_table          String    @map("target_table")
+  imported_at           DateTime  @default(now()) @map("imported_at")
+  row_count             Int?      @map("row_count")
+  dataset_version       String?   @map("dataset_version")
+  status                String    @default("PLANNED")
+  manifest_path         String?   @map("manifest_path")
+  content_bundle_sha256 String    @default("") @map("content_bundle_sha256")
+  source_runtime_path   String?   @map("source_runtime_path")
+  ogr2ogr_version       String?   @map("ogr2ogr_version")
+  started_at            DateTime  @default(now()) @map("started_at")
+  completed_at          DateTime? @map("completed_at")
+  error_message         String?   @map("error_message")
+  import_mode           String    @default("plan") @map("import_mode")
+
+  @@map("PostgisImportBatch")
+}
+
+model BankIdSession {
+  id            String   @id @default(cuid())
+  orderRef      String   @unique
+  nonce         String
+  ipAddress     String
+  status        String   @default("PENDING")
+  bankidId      String?
+  signatureHash String?  @unique
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+  expiresAt     DateTime
+
+  @@index([orderRef])
+  @@index([expiresAt])
+  @@map("BankIdSession")
+}
+
+enum ClassificationStatus {
+  SUGGESTED
+  REVIEWING
+  APPROVED
+  REJECTED
+  APPLIED
+}
+
+enum ConfidenceLevel {
+  HIGH
+  MEDIUM
+  LOW
+}
+
+model ClassificationRecommendation {
+  id                    String               @id @default(cuid())
+  caseId                String               @map("case_id")
+  documentId            String               @map("document_id")
+  sourceDocumentHash    String               @map("source_document_hash")
+  status                ClassificationStatus @default(SUGGESTED)
+  aiClassification      String               @map("ai_classification")
+  aiConfidence          ConfidenceLevel      @map("ai_confidence")
+  aiReasoning           String?              @map("ai_reasoning") @db.Text
+  sourceTextSegment     String               @map("source_text_segment") @db.Text
+  charStart             Int?                 @map("char_start")
+  charEnd               Int?                 @map("char_end")
+  suggestedConditions   String?              @map("suggested_conditions") @db.Text
+  suggestedRequirements String?              @map("suggested_requirements") @db.Text
+  reviewedBy            String?              @map("reviewed_by")
+  reviewedAt            DateTime?            @map("reviewed_at")
+  reviewNotes           String?              @map("review_notes") @db.Text
+  reviewDecision        String?              @map("review_decision")
+  appliedWithChanges    Boolean              @default(false) @map("applied_with_changes")
+  appliedChangesNotes   String?              @map("applied_changes_notes") @db.Text
+  appliedAt             DateTime?            @map("applied_at")
+  appliedBy             String?              @map("applied_by")
+  createdAt             DateTime             @default(now()) @map("created_at")
+  updatedAt             DateTime             @updatedAt @map("updated_at")
+
+  case                  RequirementCase      @relation(fields: [caseId], references: [id], onDelete: Cascade)
+  document              DocumentRecord       @relation(fields: [documentId], references: [id], onDelete: Cascade)
+  approvalLogs          ApprovalLog[]
+
+  @@index([caseId])
+  @@index([documentId])
+  @@map("classification_recommendations")
+}
+
+model ApprovalLog {
+  id                             String                       @id @default(cuid())
+  classificationRecommendationId String                       @map("classification_recommendation_id")
+  action                         String
+  actor                          String
+  reason                         String?                      @db.Text
+  timestamp                      DateTime                     @default(now())
+  createdAt                      DateTime                     @default(now()) @map("created_at")
+
+  recommendation                 ClassificationRecommendation @relation(fields: [classificationRecommendationId], references: [id], onDelete: Cascade)
+
+  @@index([classificationRecommendationId])
+  @@map("approval_logs")
+}
+
+model HumanApprovalGate {
+  id          String    @id @default(cuid())
+  caseId      String    @map("case_id")
+  documentId  String    @map("document_id")
+  isOpen      Boolean   @default(true) @map("is_open")
+  lockedBy    String?   @map("locked_by")
+  lockedAt    DateTime? @map("locked_at")
+  finalizedAt DateTime? @map("finalized_at")
+  createdAt   DateTime  @default(now()) @map("created_at")
+  updatedAt   DateTime  @updatedAt @map("updated_at")
+
+  case        RequirementCase @relation(fields: [caseId], references: [id], onDelete: Cascade)
+  document    DocumentRecord  @relation(fields: [documentId], references: [id], onDelete: Cascade)
+
+  @@unique([caseId, documentId], name: "caseId_documentId")
+  @@map("human_approval_gates")
+}
+
+model RasterRegistrationLog {
+  id            Int      @id @default(autoincrement())
+  provider      String
+  dataset       String
+  version       String
+  filePath      String   @unique @map("file_path")
+  sha256        String?
+  sizeBytes     BigInt?  @map("size_bytes")
+  epsgCode      Int?     @default(3006) @map("epsg_code")
+  tileSize      String?  @default("256x256") @map("tile_size")
+  tableRef      String   @map("table_ref")
+  bboxWkt       String?  @map("bbox_wkt")
+  bandCount     Int?     @map("band_count")
+  pixelWidth    Float?   @map("pixel_width")
+  pixelHeight   Float?   @map("pixel_height")
+  tileCount     Int?     @map("tile_count")
+  registeredAt  DateTime @default(now()) @map("registered_at") @db.Timestamptz
+  updatedAt     DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
+
+  @@map("raster_registration_log")
 }

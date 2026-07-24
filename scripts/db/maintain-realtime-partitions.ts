@@ -26,7 +26,12 @@ function quoteIdent(value: string): string {
   return `"${value.replaceAll('"', '""')}"`;
 }
 
-function parseArgs(argv: string[]): { apply: boolean; monthsBack: number; monthsForward: number; help: boolean } {
+function parseArgs(argv: string[]): {
+  apply: boolean;
+  monthsBack: number;
+  monthsForward: number;
+  help: boolean;
+} {
   let apply = false;
   let monthsBack = 0;
   let monthsForward = 18;
@@ -159,7 +164,9 @@ async function main(): Promise<void> {
   const { apply, monthsBack, monthsForward, help } = parseArgs(process.argv.slice(2));
 
   if (help) {
-    console.log('Usage: tsx scripts/db/maintain-realtime-partitions.ts [--apply] [--months-back=N] [--months-forward=N]');
+    console.log(
+      'Usage: tsx scripts/db/maintain-realtime-partitions.ts [--apply] [--months-back=N] [--months-forward=N]',
+    );
     console.log('Creates missing monthly partitions for realtime/audit partitioned tables.');
     return;
   }

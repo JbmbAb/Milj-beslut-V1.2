@@ -711,8 +711,19 @@ function normalizeDatasetKey(value: string): string {
   return value.trim().toLowerCase().replace(/\\/g, '/');
 }
 
+function normalizeProvider(provider: string): string {
+  const p = provider.trim().toLowerCase();
+  if (p === 'lm') return 'Lantmateriet';
+  if (p === 'naturvårdsverket' || p === 'naturvardsverket') return 'Naturvardsverket';
+  for (const key of Object.keys(IMPORT_REGISTRY)) {
+    if (key.toLowerCase() === p) return key;
+  }
+  return provider;
+}
+
 function resolveDatasetKey(provider: string, dataset: string): string | null {
-  const providerConfigs = IMPORT_REGISTRY[provider];
+  const normProvider = normalizeProvider(provider);
+  const providerConfigs = IMPORT_REGISTRY[normProvider];
   if (!providerConfigs) return null;
 
   if (providerConfigs[dataset]) return dataset;
@@ -722,7 +733,7 @@ function resolveDatasetKey(provider: string, dataset: string): string | null {
     if (normalizeDatasetKey(key) === normalized) return key;
   }
 
-  const aliasHit = ALIAS_INDEX.get(provider)?.get(normalized);
+  const aliasHit = ALIAS_INDEX.get(normProvider)?.get(normalized);
   if (aliasHit && providerConfigs[aliasHit]) return aliasHit;
 
   return null;
@@ -732,8 +743,9 @@ function resolveDatasetKey(provider: string, dataset: string): string | null {
  * Slår upp full registry-post utifrån provider och dataset name.
  */
 export function getRegistryEntry(provider: string, dataset: string): ImportRegistryEntry {
-  const datasetKey = resolveDatasetKey(provider, dataset);
-  const providerConfigs = IMPORT_REGISTRY[provider];
+  const normProvider = normalizeProvider(provider);
+  const datasetKey = resolveDatasetKey(normProvider, dataset);
+  const providerConfigs = IMPORT_REGISTRY[normProvider];
 
   if (!providerConfigs || !datasetKey) {
     throw new Error(`Dataset "${dataset}" for provider "${provider}" is not registered in Import Registry.`);

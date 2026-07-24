@@ -9,7 +9,16 @@ vi.mock('../../server/services/complianceRuleEngine', () => ({
     overallRisk: 'LOW',
     permitProbability: 70,
     restrictions: [],
-    rules: [{ ruleId: 'MB_7', chapter: '7 kap MB', title: 'Skyddszon', risk: 'LOW', description: '', recommendation: '' }],
+    rules: [
+      {
+        ruleId: 'MB_7',
+        chapter: '7 kap MB',
+        title: 'Skyddszon',
+        risk: 'LOW',
+        description: '',
+        recommendation: '',
+      },
+    ],
     summary: 'Screening klar',
   })),
 }));

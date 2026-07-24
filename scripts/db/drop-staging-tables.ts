@@ -10,10 +10,10 @@ async function main() {
     'sgu_soil_type_25k_100k_2bd32199', // Den fulla jordartskartan i staging (2.95M rader) - nu i env
     'sgu_fastmark_stabilitet_8636a6c2', // Fastmark i staging (2.95M rader) - nu i env
     'sgu_jorddjupsmodell_10m_008be7a3', // Jorddjup i staging (1.73M rader) - nu i env
-    'sgu_well_49202690',                // Brunnar i staging (832k rader) - nu i env
-    'sgu_landslide_feature_744cf007',    // Jordskred i staging (50k rader) - nu i env
-    'sgu_landform_750k_bc352cf5',        // Landformer i staging (2.8k rader) - nu i env
-    'sgu_erosion_aktiv_06dc4ff8'         // Kusterosion i staging (204 rader) - nu i env
+    'sgu_well_49202690', // Brunnar i staging (832k rader) - nu i env
+    'sgu_landslide_feature_744cf007', // Jordskred i staging (50k rader) - nu i env
+    'sgu_landform_750k_bc352cf5', // Landformer i staging (2.8k rader) - nu i env
+    'sgu_erosion_aktiv_06dc4ff8', // Kusterosion i staging (204 rader) - nu i env
   ];
 
   console.log('=== Cleanup Plan: Dropping Staging Tables in lm_staging ===');
@@ -40,4 +40,6 @@ async function main() {
   console.log('\nCleanup completed.');
 }
 
-main().catch(console.error).finally(() => p.$disconnect());
+main()
+  .catch(console.error)
+  .finally(() => p.$disconnect());

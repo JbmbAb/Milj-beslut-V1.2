@@ -166,7 +166,7 @@ test('runGdprMaintenanceJob should archive projects with expired retention polic
     data: {
       organisationId: testUser.organisationId,
       propertyDesignation: 'EXPIRED 1:1',
-      status: 'COMPLETED',
+      status: 'CLOSED',
       retentionUntil: new Date(Date.now() - 24 * 60 * 60 * 1000), // Yesterday
     },
   });
@@ -175,7 +175,7 @@ test('runGdprMaintenanceJob should archive projects with expired retention polic
     data: {
       organisationId: testUser.organisationId,
       propertyDesignation: 'ACTIVE 2:2',
-      status: 'COMPLETED',
+      status: 'CLOSED',
       retentionUntil: new Date(Date.now() + 24 * 60 * 60 * 1000), // Tomorrow
     },
   });
@@ -194,7 +194,7 @@ test('runGdprMaintenanceJob should archive projects with expired retention polic
   const stillClosedProject = await prisma.project.findUnique({
     where: { id: activeProject.id },
   });
-  expect(stillClosedProject?.status).toBe('COMPLETED');
+  expect(stillClosedProject?.status).toBe('CLOSED');
 });
 
 test('runGdprMaintenanceJob should permanently purge archived projects older than 30 days', async () => {

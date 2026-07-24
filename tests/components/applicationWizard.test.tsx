@@ -5,11 +5,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 
 // Mock the lazy-loaded deferred sub-components so Suspense resolves immediately
 vi.mock('../../components/applicationWizard/ApplicationWizardDeferredViews', () => ({
-  LocationAuditStep: (props: {
-    onBack: () => void;
-    onContinue: () => void;
-    wizardState: any;
-  }) => (
+  LocationAuditStep: (props: { onBack: () => void; onContinue: () => void; wizardState: any }) => (
     <div data-testid="location-audit-step">
       <span data-testid="lat-value">{props.wizardState.lat}</span>
       <button type="button" onClick={props.onBack}>
@@ -34,7 +30,7 @@ vi.mock('../../components/applicationWizard/ApplicationWizardDeferredViews', () 
 
 // Mock MapView inside tests since Leaflet references window objects that might fail in jsdom
 vi.mock('../MapView', () => ({
-  default: () => <div data-testid="mock-map-view" />
+  default: () => <div data-testid="mock-map-view" />,
 }));
 
 import ApplicationWizard from '../../components/ApplicationWizard';
@@ -83,7 +79,7 @@ describe('ApplicationWizard', () => {
 
     // Click Manual review to unlock search
     await user.click(screen.getByRole('button', { name: /Fortsätt manuell kontroll/i }));
-    
+
     // Check that property search is now visible
     const searchInput = screen.getByPlaceholderText(/T.ex. Länna 1:45/i);
     expect(searchInput).toBeInTheDocument();
@@ -115,7 +111,7 @@ describe('ApplicationWizard', () => {
 
     await user.click(screen.getByRole('button', { name: /Fortsätt till karta & analys/i }));
     await screen.findByTestId('location-audit-step', undefined, { timeout: 15000 });
-    
+
     await user.click(screen.getByRole('button', { name: /Tillbaka/i }));
     expect(screen.getByText('Skapa Ansökningsunderlag')).toBeInTheDocument();
   }, 15000);
