@@ -115,6 +115,8 @@ export interface SearchOptions {
 export class AlphaevolveSearchService extends EventEmitter {
   private prisma: PrismaClient;
   private genAI: GoogleGenerativeAI;
+  /** Cap hash input so fallback embedding cannot be abused with unbounded user strings (CodeQL). */
+  private static readonly DETERMINISTIC_VECTOR_MAX_INPUT_CHARS = 4096;
 
   constructor(prismaClient: PrismaClient) {
     super();
@@ -471,9 +473,10 @@ ${candidatesToRank.map(c => `ID: ${c.id}\nText: ${c.chunkText}`).join('\n\n')}`;
    */
   private generateDeterministicVector(str: string): number[] {
     const vector = new Array(768).fill(0);
+    const bounded = str.slice(0, AlphaevolveSearchService.DETERMINISTIC_VECTOR_MAX_INPUT_CHARS);
     let hash = 0;
-    for (let i = 0; i < str.length; i++) {
-      hash = str.charCodeAt(i) + ((hash << 5) - hash);
+    for (let i = 0; i < bounded.length; i++) {
+      hash = bounded.charCodeAt(i) + ((hash << 5) - hash);
     }
     for (let j = 0; j < 768; j++) {
       const seed = Math.sin(hash + j) * 10000;
