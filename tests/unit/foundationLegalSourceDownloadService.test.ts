@@ -49,10 +49,7 @@ describe('foundationLegalSourceDownloadService', () => {
     expect(fetchImpl).toHaveBeenCalledTimes(FOUNDATION_LEGAL_SOURCES.length);
     expect(mkdirMock).toHaveBeenCalledWith(outputDir, { recursive: true });
     expect(writeFileMock).toHaveBeenCalledTimes(FOUNDATION_LEGAL_SOURCES.length + 1);
-    expect(writeFileMock).toHaveBeenCalledWith(
-      path.join(outputDir, 'sfs-1998-808.html'),
-      expect.any(Buffer),
-    );
+    expect(writeFileMock).toHaveBeenCalledWith(path.join(outputDir, 'sfs-1998-808.html'), expect.any(Buffer));
     expect(writeFileMock).toHaveBeenLastCalledWith(
       path.join(outputDir, 'manifest.json'),
       expect.stringContaining('"processed": 5'),
