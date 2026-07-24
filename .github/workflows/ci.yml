@@ -159,6 +159,8 @@ jobs:
       SLU_API_KEY: ci-slu-key
       SEARCH_WORKER_ENABLED: 'false'
       DATABASE_INTEGRATION: 'true'
+      VERTEX_PROJECT_ID: ci-vertex-project
+      GEMINI_API_KEY: ci-gemini-key
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
