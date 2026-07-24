@@ -1,7 +1,7 @@
 import { describe, expect, it, beforeAll } from 'vitest';
 import { prisma } from '../../server/db/prisma';
 import { getMlFeatures } from '../../server/services/aiMlFeaturesService';
-import { seedPropertyUnit, seedProtectedArea } from '../helpers/postgisSeed';
+import { seedGavleBrynasSguMoran, seedPropertyUnit, seedProtectedArea } from '../helpers/postgisSeed';
 import { describeIfDatabaseIntegration } from './integrationTestEnv';
 
 describeIfDatabaseIntegration('AI & ML Feature Engine - PostGIS Integration', () => {
@@ -40,21 +40,7 @@ describeIfDatabaseIntegration('AI & ML Feature Engine - PostGIS Integration', ()
       ON CONFLICT DO NOTHING;
     `;
 
-    // Seed soil data
-    await prisma.$executeRaw`
-      INSERT INTO env.sgu_soil_type_25k_100k (id, geom, jy1, jy1_tx, karttyp)
-      VALUES (
-        99999,
-        ST_Multi(ST_Transform(
-          ST_SetSRID(ST_GeomFromText('POLYGON((17.13 60.66, 17.15 60.66, 17.15 60.68, 17.13 60.68, 17.13 60.66))'), 4326),
-          3006
-        )),
-        1,
-        'Lera',
-        1
-      )
-      ON CONFLICT DO NOTHING;
-    `;
+    await seedGavleBrynasSguMoran(prisma, { jy1Tx: 'Lera' });
 
     // Seed landslide hazard data (one inside the property, one close to the eastern boundary)
     await prisma.$executeRaw`
