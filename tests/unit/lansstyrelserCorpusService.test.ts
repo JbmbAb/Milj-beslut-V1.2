@@ -1,3 +1,4 @@
+import path from 'node:path';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const { rmMock, mkdirMock, writeFileMock } = vi.hoisted(() => ({
@@ -21,8 +22,11 @@ import {
   buildLansstyrelserCorpus,
   resolveLansstyrelserCorpusDirectory,
 } from '../../server/modules/legal/services/lansstyrelserCorpusService';
+import { testTmpDir } from '../helpers/testPaths';
 
 describe('lansstyrelserCorpusService', () => {
+  const outputDir = testTmpDir('lansstyrelserna');
+
   beforeEach(() => {
     vi.clearAllMocks();
   });
@@ -36,7 +40,7 @@ describe('lansstyrelserCorpusService', () => {
     }));
 
     const result = await buildLansstyrelserCorpus({
-      outputDir: 'C:\\tmp\\lansstyrelserna',
+      outputDir,
       fetchImpl,
       now: () => new Date('2026-04-27T19:45:00.000Z'),
     });
@@ -44,17 +48,17 @@ describe('lansstyrelserCorpusService', () => {
     expect(result.processed).toBe(21);
     expect(fetchImpl).toHaveBeenCalledTimes(22);
     expect(writeFileMock).toHaveBeenCalledWith(
-      'C:\\tmp\\lansstyrelserna\\homepage.html',
+      path.join(outputDir, 'homepage.html'),
       expect.stringContaining('lansstyrelsen.se/'),
       'utf8',
     );
     expect(writeFileMock).toHaveBeenCalledWith(
-      'C:\\tmp\\lansstyrelserna\\pages\\stockholm.html',
+      path.join(outputDir, 'pages', 'stockholm.html'),
       expect.stringContaining('/stockholm'),
       'utf8',
     );
     expect(writeFileMock).toHaveBeenCalledWith(
-      'C:\\tmp\\lansstyrelserna\\manifest.json',
+      path.join(outputDir, 'manifest.json'),
       expect.stringContaining('"processed": 21'),
       'utf8',
     );

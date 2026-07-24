@@ -1,3 +1,4 @@
+import path from 'node:path';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const { readFileMock, rmMock, mkdirMock, copyFileMock, writeFileMock } = vi.hoisted(() => ({
@@ -27,8 +28,12 @@ import {
   buildModCorpus,
   resolveModCorpusDirectory,
 } from '../../server/modules/legal/services/modCorpusService';
+import { testTmpDir } from '../helpers/testPaths';
 
 describe('modCorpusService', () => {
+  const sourceDir = testTmpDir('domstol-rss');
+  const outputDir = testTmpDir('mod-corpus');
+
   beforeEach(() => {
     vi.clearAllMocks();
   });
@@ -59,18 +64,18 @@ describe('modCorpusService', () => {
     );
 
     const result = await buildModCorpus({
-      sourceDir: 'C:\\tmp\\domstol-rss',
-      outputDir: 'C:\\tmp\\mod-corpus',
+      sourceDir,
+      outputDir,
       now: () => new Date('2026-04-27T19:10:00.000Z'),
     });
 
     expect(result.processed).toBe(1);
     expect(copyFileMock).toHaveBeenCalledWith(
-      'C:\\tmp\\domstol-rss\\pages\\160013.html',
-      'C:\\tmp\\mod-corpus\\pages\\160013.html',
+      path.join(sourceDir, 'pages', '160013.html'),
+      path.join(outputDir, 'pages', '160013.html'),
     );
     expect(writeFileMock).toHaveBeenCalledWith(
-      'C:\\tmp\\mod-corpus\\manifest.json',
+      path.join(outputDir, 'manifest.json'),
       expect.stringContaining('"processed": 1'),
       'utf8',
     );

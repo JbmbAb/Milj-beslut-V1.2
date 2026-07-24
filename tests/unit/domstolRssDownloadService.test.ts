@@ -1,9 +1,11 @@
+import path from 'node:path';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import {
   downloadDomstolRssFeed,
   resolveDomstolRssDownloadDirectory,
 } from '../../server/modules/legal/services/domstolRssDownloadService';
+import { testTmpDir } from '../helpers/testPaths';
 
 const { rmMock, mkdirMock, writeFileMock } = vi.hoisted(() => ({
   rmMock: vi.fn(),
@@ -23,6 +25,8 @@ vi.mock('node:fs/promises', () => ({
 }));
 
 describe('domstolRssDownloadService', () => {
+  const outputDir = testTmpDir('domstol-rss');
+
   beforeEach(() => {
     vi.clearAllMocks();
   });
@@ -62,23 +66,23 @@ describe('domstolRssDownloadService', () => {
     });
 
     const result = await downloadDomstolRssFeed({
-      outputDir: 'C:\\tmp\\domstol-rss',
+      outputDir,
       fetchImpl,
       now: () => new Date('2026-04-27T18:00:00.000Z'),
     });
 
     expect(result.processed).toBe(2);
     expect(fetchImpl).toHaveBeenCalledTimes(3);
-    expect(rmMock).toHaveBeenCalledWith('C:\\tmp\\domstol-rss', { recursive: true, force: true });
-    expect(mkdirMock).toHaveBeenCalledWith('C:\\tmp\\domstol-rss\\pages', { recursive: true });
-    expect(writeFileMock).toHaveBeenCalledWith('C:\\tmp\\domstol-rss\\feed.xml', expect.any(String), 'utf8');
+    expect(rmMock).toHaveBeenCalledWith(outputDir, { recursive: true, force: true });
+    expect(mkdirMock).toHaveBeenCalledWith(path.join(outputDir, 'pages'), { recursive: true });
+    expect(writeFileMock).toHaveBeenCalledWith(path.join(outputDir, 'feed.xml'), expect.any(String), 'utf8');
     expect(writeFileMock).toHaveBeenCalledWith(
-      'C:\\tmp\\domstol-rss\\pages\\dom-1.html',
+      path.join(outputDir, 'pages', 'dom-1.html'),
       expect.stringContaining('https://www.domstol.se/example/dom-1'),
       'utf8',
     );
     expect(writeFileMock).toHaveBeenLastCalledWith(
-      'C:\\tmp\\domstol-rss\\items.json',
+      path.join(outputDir, 'items.json'),
       expect.stringContaining('"processed": 2'),
       'utf8',
     );

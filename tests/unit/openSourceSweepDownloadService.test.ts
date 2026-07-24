@@ -1,9 +1,11 @@
+import path from 'node:path';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import {
   downloadOpenSourceSweep,
   resolveOpenSourceSweepDirectory,
 } from '../../server/services/openSourceSweepDownloadService';
+import { testTmpDir } from '../helpers/testPaths';
 
 const { rmMock, mkdirMock, writeFileMock } = vi.hoisted(() => ({
   rmMock: vi.fn(),
@@ -23,6 +25,8 @@ vi.mock('node:fs/promises', () => ({
 }));
 
 describe('openSourceSweepDownloadService', () => {
+  const outputDir = testTmpDir('open-source-sweep');
+
   beforeEach(() => {
     vi.clearAllMocks();
   });
@@ -47,7 +51,7 @@ describe('openSourceSweepDownloadService', () => {
     });
 
     const result = await downloadOpenSourceSweep({
-      outputDir: 'C:\\tmp\\open-source-sweep',
+      outputDir,
       fetchImpl,
       now: () => new Date('2026-04-27T19:00:00.000Z'),
     });
@@ -55,7 +59,7 @@ describe('openSourceSweepDownloadService', () => {
     expect(result.attempted).toBe(21);
     expect(result.downloaded).toBe(20);
     expect(writeFileMock).toHaveBeenCalledWith(
-      'C:\\tmp\\open-source-sweep\\manifest.json',
+      path.join(outputDir, 'manifest.json'),
       expect.stringContaining('"downloaded": 20'),
       'utf8',
     );

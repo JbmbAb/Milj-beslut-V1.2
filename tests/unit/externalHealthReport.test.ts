@@ -37,6 +37,10 @@ const originalEnv = { ...process.env };
 function restoreRelevantEnv() {
   const managedKeys = [
     'VERTEX_PROJECT_ID',
+    'VERTEX_LOCATION',
+    'GEMINI_API_KEY',
+    'GOOGLE_APPLICATION_CREDENTIALS',
+    'GOOGLE_APPLICATION_CREDENTIALS_JSON',
     'VISS_API_KEY',
     'VISS_API_BASE_URL',
     'LANTMATERIET_ACCESS_TOKEN',
@@ -48,6 +52,7 @@ function restoreRelevantEnv() {
     'LANTMATERIET_LOOKUP_MODE',
     'LANTMATERIET_SCOPE',
     'SLU_API_BASE_URL',
+    'SLU_API_KEY',
     'MARKET_INTEL_ENDPOINT',
     'AUTHORITY_SUBMIT_ENDPOINT',
     'AUTHORITY_API_KEY',
@@ -315,9 +320,27 @@ describe('getExternalHealthReport', () => {
 
   it('marks integrations as not configured when credentials are missing', async () => {
     delete process.env.VERTEX_PROJECT_ID;
+    delete process.env.VERTEX_LOCATION;
+    delete process.env.GEMINI_API_KEY;
+    delete process.env.GOOGLE_APPLICATION_CREDENTIALS;
+    delete process.env.GOOGLE_APPLICATION_CREDENTIALS_JSON;
     delete process.env.VISS_API_KEY;
     delete process.env.LANTMATERIET_CONSUMER_KEY;
     delete process.env.LANTMATERIET_CONSUMER_SECRET;
+    delete process.env.SLU_API_KEY;
+    delete process.env.SLU_API_BASE_URL;
+    delete process.env.BANKID_BASE_URL;
+    delete process.env.BANKID_PFX_PATH;
+    delete process.env.BANKID_CERT_PATH;
+    delete process.env.BANKID_KEY_PATH;
+    delete process.env.OCR_API_KEY;
+    delete process.env.EIDAS_QTSP_ENDPOINT;
+    delete process.env.EIDAS_QTSP_API_KEY;
+    delete process.env.LIMS_API_ENDPOINT;
+    delete process.env.LIMS_API_KEY;
+    delete process.env.MARKET_INTEL_ENDPOINT;
+    delete process.env.AUTHORITY_SUBMIT_ENDPOINT;
+    delete process.env.AUTHORITY_API_KEY;
 
     mocks.getLantmaterietOpenMapStatus.mockResolvedValue({
       ok: false,
