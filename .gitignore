@@ -49,6 +49,7 @@ tmp_*
 !package.json
 !package-lock.json
 !tsconfig.json
+!.prettierrc.json
 !stitch.json
 !figma-raw.json
 !vercel.json
