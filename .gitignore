@@ -57,6 +57,7 @@ tmp_*
 !public/manifest.json
 !tests/fixtures/**/*.json
 !tests/fixtures/**/*.txt
+!scripts/google-adk/requirements.txt
 !.vscode/extensions.json
 !.vscode/settings.json
 !.vscode/tasks.json
@@ -69,6 +70,7 @@ __pycache__/
 # AlphaEvolve local checkout (secrets + venv)
 alphaevolve-on-googlecloud/.venv
 alphaevolve-on-googlecloud/.env
+.venv-adk/
 
 # Local debug artifacts
 .codex-logs/

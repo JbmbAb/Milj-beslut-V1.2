@@ -1,27 +1,32 @@
 #Requires -Version 5.1
 <#
 .SYNOPSIS
-  Idempotent setup for AlphaEvolve (Google Cloud) in the Miljöbeslut workspace.
+  Idempotent AlphaEvolve (Google Cloud) setup for Miljöbeslut.
 
 .DESCRIPTION
-  - Verifies git and uv prerequisites
   - Clones alphaevolve-on-googlecloud if missing
-  - Creates uv venv and installs package with examples/dev extras
-  - Ensures ae CLI via uv tool
-  - Installs Cursor skills to %USERPROFILE%\.cursor\skills
-  - Copies example.env to .env with PROJECT_ID=miljointelligens if .env is missing
+  - uv venv + alpha_evolve[examples,dev]
+  - ae CLI from local skills/ (uv tool install)
+  - Skills → Cursor + Antigravity (Gemini)
+  - Seeds .env with PROJECT_ID (never overwrites existing GE_APP_ID)
 #>
 param(
     [string]$ProjectId = 'miljointelligens',
-    [string]$RepoUrl = 'https://github.com/Google-Cloud-AI/alphaevolve-on-googlecloud.git'
+    [string]$GeAppId = '',
+    [string]$RepoUrl = 'https://github.com/Google-Cloud-AI/alphaevolve-on-googlecloud.git',
+    [switch]$PersistPath
 )
 
 $ErrorActionPreference = 'Stop'
+. (Join-Path $PSScriptRoot '..\google-ai\_path.ps1')
 
 $RepoRoot = Resolve-Path (Join-Path $PSScriptRoot '..\..')
 $AlphaEvolveRoot = Join-Path $RepoRoot 'alphaevolve-on-googlecloud'
 $SkillsSource = Join-Path $AlphaEvolveRoot 'skills'
-$SkillsDest = Join-Path $env:USERPROFILE '.cursor\skills'
+$SkillsDestinations = @(
+    (Join-Path $env:USERPROFILE '.cursor\skills'),
+    (Join-Path $env:USERPROFILE '.gemini\config\skills')
+)
 $VenvPython = Join-Path $AlphaEvolveRoot '.venv\Scripts\python.exe'
 $ExampleEnv = Join-Path $AlphaEvolveRoot 'example.env'
 $DotEnv = Join-Path $AlphaEvolveRoot '.env'
@@ -43,15 +48,18 @@ function Assert-Command {
 }
 
 function Ensure-AeCli {
-    if (Get-Command ae -ErrorAction SilentlyContinue) {
-        return 'ae'
+    param([string]$SkillsDir)
+
+    if (-not (Test-Path $SkillsDir)) {
+        throw "Missing skills directory: $SkillsDir"
     }
 
-    Write-Step 'Installing ae CLI via uv tool'
-    uv tool install ae --force | Out-Null
+    Write-Step 'Installing/updating ae CLI from local skills (uv tool)'
+    uv tool install $SkillsDir --force | Out-Null
+    Ensure-UvToolsOnPath -PersistForUser:$PersistPath
 
     if (-not (Get-Command ae -ErrorAction SilentlyContinue)) {
-        throw 'ae CLI is still unavailable after uv tool install.'
+        throw 'ae CLI unavailable after uv tool install. Add ~/.local/bin to PATH.'
     }
 
     return 'ae'
@@ -60,14 +68,19 @@ function Ensure-AeCli {
 Write-Host '──────────────────────────────────────────────────────────' -ForegroundColor Yellow
 Write-Host ' Miljöbeslut ──► AlphaEvolve setup' -ForegroundColor Yellow
 Write-Host '──────────────────────────────────────────────────────────' -ForegroundColor Yellow
-Write-Host " Repo root:       $RepoRoot" -ForegroundColor White
-Write-Host " AlphaEvolve:     $AlphaEvolveRoot" -ForegroundColor White
-Write-Host " GCP project:     $ProjectId" -ForegroundColor White
+Write-Host " Repo root:   $RepoRoot"
+Write-Host " AlphaEvolve: $AlphaEvolveRoot"
+Write-Host " GCP project: $ProjectId"
 Write-Host '──────────────────────────────────────────────────────────' -ForegroundColor Yellow
 
-Write-Step 'Checking prerequisites (git, uv)'
-Assert-Command -Name 'git' -InstallHint 'Install Git: https://git-scm.com/downloads'
-Assert-Command -Name 'uv' -InstallHint 'Install uv: https://docs.astral.sh/uv/getting-started/installation/'
+Write-Step 'Checking prerequisites (git, uv, gcloud ADC)'
+Assert-Command -Name 'git' -InstallHint 'https://git-scm.com/downloads'
+Assert-Command -Name 'uv' -InstallHint 'https://docs.astral.sh/uv/getting-started/installation/'
+Assert-Command -Name 'gcloud' -InstallHint 'https://cloud.google.com/sdk/docs/install'
+
+if (-not (Test-GcloudAdc)) {
+    Write-Warning 'ADC not configured. Run: gcloud auth application-default login'
+}
 
 if (-not (Test-Path $AlphaEvolveRoot)) {
     Write-Step "Cloning AlphaEvolve repo to $AlphaEvolveRoot"
@@ -80,25 +93,30 @@ else {
     Write-Step 'AlphaEvolve repo already present'
 }
 
-if (-not (Test-Path $VenvPython)) {
-    Write-Step 'Creating uv venv and installing alphaevolve-on-googlecloud[examples,dev]'
-    Push-Location $AlphaEvolveRoot
-    try {
+Push-Location $AlphaEvolveRoot
+try {
+    if (-not (Test-Path $VenvPython)) {
+        Write-Step 'Creating .venv and installing alpha_evolve[examples,dev]'
         uv venv .venv
         uv pip install -e ".[examples,dev]"
     }
-    finally {
-        Pop-Location
+    else {
+        Write-Step 'Syncing alpha_evolve in existing .venv'
+        uv pip install -e ".[examples,dev]"
     }
 }
-else {
-    Write-Step 'Virtual environment already present'
+finally {
+    Pop-Location
 }
 
-$aeCmd = Ensure-AeCli
+$aeCmd = Ensure-AeCli -SkillsDir $SkillsSource
+& $aeCmd version
 
-Write-Step "Installing Cursor skills from $SkillsSource"
-& $aeCmd skills install --source $SkillsSource --dest $SkillsDest --force
+foreach ($SkillsDest in $SkillsDestinations) {
+    Write-Step "Installing AlphaEvolve skills → $SkillsDest"
+    New-Item -ItemType Directory -Force -Path $SkillsDest | Out-Null
+    & $aeCmd skills install --source $SkillsSource --dest $SkillsDest --force
+}
 
 if (-not (Test-Path $DotEnv)) {
     if (-not (Test-Path $ExampleEnv)) {
@@ -107,25 +125,31 @@ if (-not (Test-Path $DotEnv)) {
 
     Write-Step "Creating .env from example.env (PROJECT_ID=$ProjectId)"
     $envContent = Get-Content -Path $ExampleEnv -Raw
-    if ($envContent -match '(?m)^PROJECT_ID=') {
-        $envContent = $envContent -replace '(?m)^PROJECT_ID=.*$', "PROJECT_ID=$ProjectId"
+    $envContent = $envContent -replace '(?m)^PROJECT_ID=.*$', "PROJECT_ID=$ProjectId"
+    if ($GeAppId) {
+        $envContent = $envContent -replace '(?m)^GE_APP_ID=.*$', "GE_APP_ID=$GeAppId"
     }
-    else {
-        $envContent = $envContent.TrimEnd() + "`nPROJECT_ID=$ProjectId`n"
-    }
-    Set-Content -Path $DotEnv -Value $envContent -Encoding utf8 -NoNewline
+    Set-Content -Path $DotEnv -Value ($envContent.TrimEnd() + "`n") -Encoding utf8
 }
 else {
-    Write-Step '.env already present; leaving unchanged'
+    Write-Step '.env exists — updating PROJECT_ID only if placeholder'
+    $envContent = Get-Content -Path $DotEnv -Raw
+    if ($envContent -match '(?m)^PROJECT_ID=your-gcp-project-id') {
+        $envContent = $envContent -replace '(?m)^PROJECT_ID=.*$', "PROJECT_ID=$ProjectId"
+        Set-Content -Path $DotEnv -Value ($envContent.TrimEnd() + "`n") -Encoding utf8
+    }
+    if ($GeAppId -and $envContent -match '(?m)^GE_APP_ID=your-engine-id') {
+        $envContent = Get-Content -Path $DotEnv -Raw
+        $envContent = $envContent -replace '(?m)^GE_APP_ID=.*$', "GE_APP_ID=$GeAppId"
+        Set-Content -Path $DotEnv -Value ($envContent.TrimEnd() + "`n") -Encoding utf8
+    }
 }
 
 Write-Host '──────────────────────────────────────────────────────────' -ForegroundColor Green
 Write-Host '[SUCCESS] AlphaEvolve setup complete.' -ForegroundColor Green
-Write-Host '──────────────────────────────────────────────────────────' -ForegroundColor Green
+Write-Host "  Venv:   $AlphaEvolveRoot\.venv"
+Write-Host "  ae:     $(Get-Command ae | Select-Object -ExpandProperty Source)"
+Write-Host "  Skills: Cursor + Antigravity (Gemini)"
+Write-Host "  .env:   $DotEnv"
 Write-Host ''
-Write-Host "  Repo:    $AlphaEvolveRoot"
-Write-Host "  Venv:    $AlphaEvolveRoot\.venv"
-Write-Host "  Skills:  $SkillsDest"
-Write-Host "  .env:    $DotEnv"
-Write-Host ''
-Write-Host 'Next: set GE_APP_ID in alphaevolve-on-googlecloud\.env (see docs\alphaevolve\SETUP.md).'
+Write-Host 'Activate:  cd alphaevolve-on-googlecloud; .\.venv\Scripts\Activate.ps1' -ForegroundColor White

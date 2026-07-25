@@ -47,8 +47,16 @@ The script is idempotent:
 2. Clones `https://github.com/Google-Cloud-AI/alphaevolve-on-googlecloud.git` into `alphaevolve-on-googlecloud/` if missing
 3. Creates `.venv` and runs `uv pip install -e ".[examples,dev]"` if the venv is missing
 4. Ensures the `ae` CLI (`uv tool install ae`)
-5. Installs Cursor skills to `%USERPROFILE%\.cursor\skills`
+5. Installs Cursor + Antigravity skills
 6. Copies `example.env` → `.env` with `PROJECT_ID=miljointelligens` if `.env` does not exist
+
+**Recommended:** use the unified installer instead:
+
+```powershell
+.\scripts\google-ai\setup.ps1 -PersistPath
+```
+
+See [Google AI dev stack](../google-ai/SETUP.md) for ADK + PATH layout.
 
 After setup, edit `alphaevolve-on-googlecloud\.env` and set `GE_APP_ID`.
 
