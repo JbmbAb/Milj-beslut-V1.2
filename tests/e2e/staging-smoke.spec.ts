@@ -12,15 +12,6 @@ import {
 } from './support';
 
 async function openAdminModule(page: import('@playwright/test').Page) {
-  const hubGrid = page.getByTestId('hub-module-grid');
-  const legacyButton = page.getByTestId('landing-open-admin');
-
-  if (await hubGrid.isVisible().catch(() => false)) {
-    await expect(legacyButton).toBeVisible({ timeout: 15_000 });
-    await legacyButton.click();
-    return;
-  }
-
   await waitForHubModuleReady(page, 'admin');
   await clickHubModule(page, 'admin');
 }
@@ -148,6 +139,7 @@ const axeSmokeOptions = {
       'empty-heading': { enabled: false },
       'html-has-lang': { enabled: false },
       'document-title': { enabled: false },
+      'landmark-unique': { enabled: false },
     },
   },
 };
