@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test';
-import { createApiContext, primeAuthenticatedPage } from './support';
+import { createApiContext, primeAuthenticatedPage, waitForHubModuleReady, clickHubModule } from './support';
 
 /**
  * Konsult/projekt-resa: från start till Core-arbetsyta (teknisk hub).
@@ -12,11 +12,12 @@ test.describe('Role: consultant / office user — Core workspace', () => {
     try {
       await primeAuthenticatedPage(page, api);
       await page.goto('/');
-      await expect(page).toHaveTitle(/Milj.*beslut/i, { timeout: 120_000 });
-
-      await expect(page.getByTestId('landing-open-core')).toBeVisible({ timeout: 120_000 });
-      await page.getByTestId('landing-open-core').click();
-      await expect(page.getByText(/Ansökningsflöde|MODULER REDO/i).first()).toBeVisible({ timeout: 20000 });
+      await waitForHubModuleReady(page, 'core');
+      await clickHubModule(page, 'core');
+      await expect(page.getByTestId('app-workspace-shell')).toBeVisible({ timeout: 60_000 });
+      await expect(page.getByTestId('workspace-active-tab-label')).toContainText('core', {
+        timeout: 60_000,
+      });
     } finally {
       await api.dispose();
     }

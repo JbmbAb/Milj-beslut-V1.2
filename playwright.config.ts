@@ -20,11 +20,14 @@ const forceFreshSetting = trim(process.env.PLAYWRIGHT_FORCE_FRESH_SERVER).toLowe
 const requireFreshLocalServers = forceFreshSetting === '' ? false : forceFreshSetting === 'true';
 const testEnv = loadEnv('test', process.cwd(), '');
 
+const geminiApiKey = trim(testEnv.GEMINI_API_KEY) || (process.env.CI ? 'ci-gemini-key' : '');
+
 const serverEnv = {
   NODE_ENV: 'development',
   PORT: String(localApiPort),
   DATABASE_URL:
     trim(process.env.PLAYWRIGHT_DATABASE_URL) ||
+    trim(process.env.DATABASE_URL) ||
     trim(testEnv.DATABASE_URL) ||
     'postgresql://miljobeslut:miljobeslut@localhost:5432/miljobeslut_test',
   JWT_ACCESS_SECRET: trim(testEnv.JWT_ACCESS_SECRET) || 'test-access-secret',
@@ -45,7 +48,10 @@ const serverEnv = {
   DOMSTOL_RSS_ENABLED: 'false',
   DISABLE_DB_RATE_LIMIT: 'true',
   SEARCH_WORKER_ENABLED: 'false',
-} as const;
+  VERTEX_PROJECT_ID: trim(testEnv.VERTEX_PROJECT_ID) || 'miljointelligens',
+  EXEC_SUMMARY_MOCK_MODE: trim(testEnv.EXEC_SUMMARY_MOCK_MODE) || (process.env.CI ? 'true' : ''),
+  ...(geminiApiKey ? { GEMINI_API_KEY: geminiApiKey } : {}),
+};
 
 function applyLocalTestProcessEnv(): void {
   // Keep test worker and webServer process aligned to avoid credential/port drift.
@@ -92,6 +98,7 @@ export default defineConfig({
           env: {
             ...serverEnv,
             VITE_API_BASE_URL: `http://127.0.0.1:${localApiPort}`,
+            VITE_LOGIN_ADMIN_ONLY: 'true',
           },
         },
       ],

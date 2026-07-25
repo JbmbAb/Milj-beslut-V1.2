@@ -17,13 +17,14 @@
     "test:unit": "vitest run --config vitest.config.ts --project unit --coverage",
     "test:component": "vitest run --config vitest.config.ts --project component",
     "test:integration": "npm run db:test:migrate && npm run db:test:seed && vitest run --config vitest.config.ts --project integration",
-    "test:e2e": "npm run db:test:migrate && npm run db:test:seed && playwright test",
+    "test:e2e": "npm run db:test:migrate && npm run db:test:seed && npm run db:test:seed:gis && playwright test",
     "test:e2e:staging": "node scripts/run-staging-smoke.mjs",
     "test": "npm run test:unit && npm run test:integration",
     "qa": "npm run typecheck && npm run lint && npm run format:check && npm run test",
     "qa:full": "npm run qa && npm run build && npm run test:e2e",
     "db:test:migrate": "dotenv -e .env.test -- prisma migrate deploy",
     "db:test:seed": "dotenv -e .env.test -- prisma db execute --file scripts/db/seed-test.sql",
+    "db:test:seed:gis": "dotenv -e .env.test -- tsx scripts/db/seed-gis-for-e2e.ts",
     "db:test:reset": "dotenv -e .env.test -- prisma migrate reset --force --skip-seed",
     "figma:export": "tsx scripts/export-figma.ts",
     "kravmatris:auto": "tsx scripts/export-kravmatris-from-dump.ts",
@@ -50,7 +51,7 @@
     "@google-cloud/billing-budgets": "^6.1.2",
     "@google-cloud/storage": "^7.21.0",
     "@google-cloud/vertexai": "^1.12.0",
-    "@google/genai": "^1.41.0",
+    "@google/genai": "^1.52.0",
     "@google/generative-ai": "^0.24.1",
     "@loaders.gl/core": "^4.1.0",
     "@loaders.gl/las": "^4.1.0",
@@ -64,6 +65,7 @@
     "body-parser": "^2.2.0",
     "clsx": "^2.1.1",
     "compression": "^1.8.1",
+    "dev-agent": "^0.0.19",
     "docx": "^9.6.0",
     "express": "^5.1.0",
     "express-rate-limit": "^8.6.0",
@@ -71,7 +73,7 @@
     "leaflet": "1.9.4",
     "lru-cache": "^11.5.2",
     "lucide-react": "^0.575.0",
-    "motion": "^12.34.3",
+    "motion": "^12.42.2",
     "nodemailer": "^9.0.3",
     "openai": "^6.27.0",
     "pdf-parse": "^2.4.5",
@@ -123,6 +125,16 @@
     "find-my-way": "^9.7.0",
     "turbo-stream": "^3.0.0",
     "uuid": "^11.1.1",
-    "valibot": "^1.4.2"
+    "valibot": "^1.4.2",
+    "@eslint/config-array": {
+      "minimatch": "^10.2.5"
+    },
+    "@eslint/eslintrc": {
+      "minimatch": "^10.2.5"
+    },
+    "eslint": {
+      "minimatch": "^10.2.5"
+    },
+    "brace-expansion": "^5.0.8"
   }
 }

@@ -112,14 +112,29 @@ export function vertexConfigStatus(): {
   const jsonBlob = Boolean(process.env.GOOGLE_APPLICATION_CREDENTIALS_JSON?.trim());
   const geminiKey = Boolean(process.env.GEMINI_API_KEY?.trim());
   const onGoogleManagedRuntime = Boolean(process.env.K_SERVICE || process.env.GAE_SERVICE);
+  const nodeEnv = process.env.NODE_ENV?.trim() || 'development';
+  const adcDevFallback =
+    nodeEnv !== 'production' &&
+    Boolean(projectId) &&
+    !explicitPath &&
+    !jsonBlob &&
+    !geminiKey &&
+    !onGoogleManagedRuntime;
 
   const missing: string[] = [];
   if (!projectId) {
     missing.push('VERTEX_PROJECT_ID');
   }
-  if (projectId && !explicitPath && !jsonBlob && !geminiKey && !onGoogleManagedRuntime) {
+  if (
+    projectId &&
+    !explicitPath &&
+    !jsonBlob &&
+    !geminiKey &&
+    !onGoogleManagedRuntime &&
+    !adcDevFallback
+  ) {
     missing.push(
-      'GOOGLE_APPLICATION_CREDENTIALS eller GOOGLE_APPLICATION_CREDENTIALS_JSON (lokala nycklar) / GEMINI_API_KEY (dev)',
+      'GOOGLE_APPLICATION_CREDENTIALS eller GOOGLE_APPLICATION_CREDENTIALS_JSON (lokala nycklar) / GEMINI_API_KEY (dev) / ADC (gcloud auth application-default login)',
     );
   }
 

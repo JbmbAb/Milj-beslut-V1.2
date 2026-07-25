@@ -171,6 +171,7 @@ export const TechnicalDashboardHub: React.FC<TechnicalDashboardHubProps> = ({
             <i className="fas fa-magnifying-glass text-slate-600 text-[14px]" />
             <input
               type="text"
+              aria-label="Sok i kunskapsgraf"
               placeholder="Sok i kunskapsgraf..."
               tabIndex={isMdUp ? 0 : -1}
               className="bg-transparent border-none outline-none text-xs font-bold text-slate-300 w-48 placeholder:text-slate-600"

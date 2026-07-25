@@ -1,14 +1,11 @@
 import { expect, test, type Page } from '@playwright/test';
-import { createApiContext, primeAuthenticatedPage } from './support';
+import { createApiContext, primeAuthenticatedPage, waitForHubModuleReady, clickHubModule } from './support';
 
 const BROWSER_TIMEOUT = 180_000;
 
 async function openProjectModule(page: Page): Promise<void> {
-  await expect(page).toHaveTitle(/Milj.*beslut/i, { timeout: BROWSER_TIMEOUT });
-  const projectCard = page.getByTestId('landing-open-projekt');
-  await expect(projectCard).toBeVisible({ timeout: BROWSER_TIMEOUT });
-  await expect(projectCard).toBeEnabled();
-  await projectCard.click();
+  await waitForHubModuleReady(page, 'projekt');
+  await clickHubModule(page, 'projekt');
 }
 
 test.describe('Project manager workspace E2E', () => {
