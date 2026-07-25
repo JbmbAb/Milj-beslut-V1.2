@@ -137,19 +137,47 @@ export async function primeAuthenticatedPage(page: Page, api: APIRequestContext)
   );
 }
 
+/** Admininloggning på landningssidan (BankIDLogin eller AdminAuthPanel). */
+export async function expectAdminLoginScreen(page: Page): Promise<void> {
+  const username = page
+    .getByRole('textbox', { name: /Användarnamn/i })
+    .or(page.getByTestId('admin-username-input'));
+  const password = page
+    .getByRole('textbox', { name: /Lösenord/i })
+    .or(page.getByTestId('admin-password-input'));
+  const loginButton = page
+    .getByRole('button', { name: /Logga in som administratör/i })
+    .or(page.getByTestId('admin-login-button'));
+
+  await expect(username.first()).toBeVisible({ timeout: 30_000 });
+  await expect(password.first()).toBeVisible();
+  await expect(loginButton.first()).toBeVisible();
+}
+
+function hubModuleNavFallback(page: Page, moduleId: string) {
+  if (moduleId === 'logistik') {
+    return page.getByRole('button', { name: /Logistik schaktmassor/i });
+  }
+  if (moduleId === 'projekt') {
+    return page.getByRole('button', { name: /Projektledning/i });
+  }
+  return null;
+}
+
 /** Vänta tills hubben visar efterfrågad modul (bootstrap + aktivt projekt). */
 export async function waitForHubModuleReady(page: Page, moduleId: string): Promise<void> {
   const creds = getE2EAdminCredentials();
   const coreButton = page.getByTestId('landing-open-core');
   const moduleCard = page.getByTestId(`landing-open-${moduleId}`);
-  const moduleNavFallback =
-    moduleId === 'logistik' ? page.getByRole('button', { name: /Logistik schaktmassor/i }) : null;
+  const moduleNavFallback = hubModuleNavFallback(page, moduleId);
   const adminLoginButton = page.getByRole('button', { name: /Logga in som administratör/i });
 
   await expect(page).toHaveTitle(/Milj.*beslut/i);
-  const coreVisibleInitially = await coreButton.isVisible().catch(() => false);
+  const hubVisibleInitially =
+    (await coreButton.isVisible().catch(() => false)) ||
+    (await moduleCard.isVisible().catch(() => false));
 
-  if (!coreVisibleInitially) {
+  if (!hubVisibleInitially) {
     const adminLoginVisible = await adminLoginButton.isVisible().catch(() => false);
     if (adminLoginVisible) {
       const usernameInput = page
@@ -170,12 +198,15 @@ export async function waitForHubModuleReady(page: Page, moduleId: string): Promi
   await expect
     .poll(
       async () => {
-        const coreVisible = await coreButton.isVisible().catch(() => false);
         const moduleVisible = await moduleCard.isVisible().catch(() => false);
         const moduleNavVisible = moduleNavFallback
           ? await moduleNavFallback.isVisible().catch(() => false)
           : false;
-        return coreVisible || moduleVisible || moduleNavVisible;
+        if (moduleId === 'core') {
+          const coreVisible = await coreButton.isVisible().catch(() => false);
+          return coreVisible || moduleVisible;
+        }
+        return moduleVisible || moduleNavVisible;
       },
       {
         timeout: 60_000,
@@ -185,6 +216,7 @@ export async function waitForHubModuleReady(page: Page, moduleId: string): Promi
 
   if (await moduleCard.isVisible().catch(() => false)) {
     await expect(moduleCard).toBeVisible({ timeout: 60_000 });
+    await expect.poll(async () => moduleCard.isEnabled(), { timeout: 60_000 }).toBe(true);
 
     const readyBadge = moduleCard.getByText('READY', { exact: true });
     if ((await readyBadge.count()) > 0) {

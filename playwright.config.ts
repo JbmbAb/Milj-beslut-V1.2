@@ -49,6 +49,7 @@ const serverEnv = {
   DISABLE_DB_RATE_LIMIT: 'true',
   SEARCH_WORKER_ENABLED: 'false',
   VERTEX_PROJECT_ID: trim(testEnv.VERTEX_PROJECT_ID) || 'miljointelligens',
+  EXEC_SUMMARY_MOCK_MODE: trim(testEnv.EXEC_SUMMARY_MOCK_MODE) || (process.env.CI ? 'true' : ''),
   ...(geminiApiKey ? { GEMINI_API_KEY: geminiApiKey } : {}),
 };
 
@@ -97,6 +98,7 @@ export default defineConfig({
           env: {
             ...serverEnv,
             VITE_API_BASE_URL: `http://127.0.0.1:${localApiPort}`,
+            VITE_LOGIN_ADMIN_ONLY: 'true',
           },
         },
       ],

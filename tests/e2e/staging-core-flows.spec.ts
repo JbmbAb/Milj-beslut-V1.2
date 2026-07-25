@@ -111,7 +111,11 @@ test.describe('P3 staging core flows (admin, no BankID)', () => {
       const lookupText = await res.text();
       if (!res.ok()) {
         // Lokal miljö saknar ofta komplett fastighetsdata; staging ska fortsatt kräva live-svar.
-        if (!isExternalTarget && lookupText.includes('PROPERTY_NOT_FOUND')) {
+        if (
+          !isExternalTarget &&
+          (lookupText.includes('PROPERTY_NOT_FOUND') ||
+            lookupText.includes('LIVE_LANTMATERIET_REQUIRED'))
+        ) {
           return;
         }
         expect(res.ok(), lookupText).toBeTruthy();

@@ -243,6 +243,7 @@ jobs:
       DISPATCH_PROVIDER_MODE: 'MOCK_FRAKTBORS'
       VERTEX_PROJECT_ID: miljointelligens
       GEMINI_API_KEY: ci-gemini-key
+      EXEC_SUMMARY_MOCK_MODE: 'true'
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4

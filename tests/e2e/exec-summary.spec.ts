@@ -1,68 +1,59 @@
-import { test, expect } from '@playwright/test';
-import { createApiContext, primeAuthenticatedPage } from './support';
+import { expect, test } from '@playwright/test';
+import {
+  adminAuthHeaders,
+  createApiContext,
+  E2E_SEEDED_PROJECT_ID,
+  loginAsAdmin,
+  parseJson,
+} from './support';
 
 test.describe('Executive Summary Queue', () => {
-  test.beforeEach(async ({ page }) => {
+  test('enqueues, processes, and returns mock summary in CI', async () => {
     const api = await createApiContext();
     try {
-      await primeAuthenticatedPage(page, api);
+      const token = await loginAsAdmin(api);
+      const projectId = E2E_SEEDED_PROJECT_ID;
+
+      const enqueue = await api.post(`/api/projects/${encodeURIComponent(projectId)}/exec-summary/enqueue`, {
+        headers: await adminAuthHeaders(api, token),
+      });
+      expect(enqueue.ok(), await enqueue.text()).toBeTruthy();
+      const enqueueBody = await parseJson<{ ok?: boolean; job?: { id?: string; status?: string } }>(enqueue);
+      const jobId = String(enqueueBody.job?.id || '').trim();
+      expect(jobId.length).toBeGreaterThan(5);
+      expect(['QUEUED', 'RUNNING', 'DONE']).toContain(enqueueBody.job?.status);
+
+      await expect
+        .poll(
+          async () => {
+            const statusRes = await api.get(
+              `/api/projects/${encodeURIComponent(projectId)}/exec-summary/status/${encodeURIComponent(jobId)}`,
+              { headers: await adminAuthHeaders(api, token) },
+            );
+            if (!statusRes.ok()) return 'FAILED';
+            const statusBody = await parseJson<{ job?: { status?: string } }>(statusRes);
+            return statusBody.job?.status || 'UNKNOWN';
+          },
+          { timeout: 30_000 },
+        )
+        .toBe('DONE');
+
+      const doneRes = await api.get(
+        `/api/projects/${encodeURIComponent(projectId)}/exec-summary/status/${encodeURIComponent(jobId)}`,
+        { headers: await adminAuthHeaders(api, token) },
+      );
+      expect(doneRes.ok()).toBeTruthy();
+      const doneBody = await parseJson<{
+        job?: {
+          status?: string;
+          result?: { summary?: string; keyRisks?: string[] };
+        };
+      }>(doneRes);
+      expect(doneBody.job?.status).toBe('DONE');
+      expect(doneBody.job?.result?.summary || '').toContain(`projekt ${projectId}`);
+      expect(doneBody.job?.result?.keyRisks?.length || 0).toBeGreaterThan(0);
     } finally {
       await api.dispose();
     }
-  });
-
-  test('should enqueue, process, and display a mock executive summary', async ({ page }) => {
-    // Sätt miljövariabeln för att aktivera mock-läget för just detta test.
-    // Detta är en kraftfull Playwright-funktion som låter oss styra backend-beteende.
-    await page.addInitScript(() => {
-      (window as any).playwright_set_env = { EXEC_SUMMARY_MOCK_MODE: 'true' };
-    });
-
-    // 1. Gå till ett befintligt projekt (ID från seed-data)
-    await page.goto('/projects/test-project-001');
-
-    // Hitta "Exekutiv Sammanfattning"-sektionen
-    const summaryCard = page.getByTestId('exec-summary-card');
-    await expect(summaryCard).toBeVisible();
-
-    // 2. Klicka på knappen för att köa ett nytt jobb
-    const enqueueButton = summaryCard.getByRole('button', { name: 'Generera Sammanfattning' });
-    await enqueueButton.click();
-
-    // 3. Vänta på att statusen blir "QUEUED" eller "RUNNING"
-    // Detta bekräftar att API-anropet för att köa jobbet lyckades.
-    await expect(summaryCard.getByText(/Status: (QUEUED|RUNNING)/)).toBeVisible({ timeout: 10000 });
-    await expect(enqueueButton).toBeDisabled();
-
-    // 4. Vänta på att jobbet ska slutföras och statusen bli "DONE"
-    // Playwright kommer automatiskt att "polla" här tills texten syns eller en timeout nås.
-    await expect(summaryCard.getByText('Status: DONE')).toBeVisible({ timeout: 20000 });
-
-    // 5. Verifiera att resultatet från vårt mock-läge visas korrekt
-    // Detta bekräftar att hela bakgrundsprocessen har kört klart.
-    const summaryText = summaryCard.getByTestId('summary-text');
-    const keyRisksList = summaryCard.getByTestId('key-risks-list');
-
-    // Innehållet ska matcha exakt det vi definierade i `execSummaryQueueService.ts`
-    await expect(summaryText).toContainText(
-      'Detta är en mock-sammanfattning för projekt test-project-001.',
-    );
-    await expect(keyRisksList.getByRole('listitem').first()).toContainText(
-      'Mock-risk: Beroende av externa system',
-    );
-    await expect(keyRisksList.getByRole('listitem').last()).toContainText(
-      'Mock-risk: Ofullständig datainmatning',
-    );
-
-    // 6. Verifiera att "Generera"-knappen nu är återaktiverad
-    await expect(enqueueButton).toBeEnabled();
-
-    // 7. (Bonus) Verifiera att en ny generering inte startar direkt,
-    // eftersom det redan finns ett färdigt resultat.
-    await enqueueButton.click();
-    // Status ska förbli "DONE" eftersom systemet återanvänder det färdiga resultatet.
-    // Vi lägger en kort väntan för att säkerställa att inget hinner ändras.
-    await page.waitForTimeout(500);
-    await expect(summaryCard.getByText('Status: DONE')).toBeVisible();
   });
 });

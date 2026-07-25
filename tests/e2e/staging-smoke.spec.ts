@@ -3,6 +3,7 @@ import { injectAxe, checkA11y } from 'axe-playwright';
 import {
   adminAuthHeaders,
   createApiContext,
+  expectAdminLoginScreen,
   loginAsAdmin,
   parseJson,
   primeAuthenticatedPage,
@@ -115,9 +116,7 @@ test('staging smoke: document upload, view, download and delete work', async () 
 
 test('staging smoke: admin login UI still works', async ({ page }) => {
   await page.goto('/');
-  await expect(page.getByRole('textbox', { name: /Användarnamn/i })).toBeVisible({ timeout: 30_000 });
-  await expect(page.getByRole('textbox', { name: /Lösenord/i })).toBeVisible();
-  await expect(page.getByRole('button', { name: /Logga in som administratör/i })).toBeVisible();
+  await expectAdminLoginScreen(page);
 });
 
 test('staging smoke: landing page accessible (WCAG 2.1 AA)', async ({ page }) => {

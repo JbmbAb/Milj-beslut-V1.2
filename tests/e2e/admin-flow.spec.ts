@@ -4,6 +4,7 @@ import path from 'node:path';
 import {
   adminAuthHeaders,
   createApiContext,
+  expectAdminLoginScreen,
   loginAsAdmin,
   parseJson,
   primeAuthenticatedPage,
@@ -15,49 +16,13 @@ test.afterAll(async () => {
   await prisma.$disconnect();
 });
 
-async function expectAdminLoginScreen(page: import('@playwright/test').Page) {
-  const loginHeadingCandidates = [
-    page.getByText(/Admin inloggning och session/i),
-    page.getByText(/Administratör \(lösenord\)/i),
-    page.getByText(/Gå vidare utan BankID/i),
-    page.getByText(/Administratörsinloggning/i),
-  ];
-  let headingVisible = false;
-  for (const candidate of loginHeadingCandidates) {
-    if (await candidate.isVisible().catch(() => false)) {
-      headingVisible = true;
-      break;
-    }
-  }
-  expect(headingVisible).toBeTruthy();
-
-  const legacyUsername = page.getByTestId('admin-username-input');
-  if ((await legacyUsername.count()) > 0) {
-    await expect(legacyUsername).toBeVisible();
-  } else {
-    await expect(page.getByRole('textbox', { name: /Användarnamn/i })).toBeVisible();
-  }
-
-  const legacyPassword = page.getByTestId('admin-password-input');
-  if ((await legacyPassword.count()) > 0) {
-    await expect(legacyPassword).toBeVisible();
-  } else {
-    await expect(page.getByRole('textbox', { name: /Lösenord/i })).toBeVisible();
-  }
-
-  const legacyLoginButton = page.getByTestId('admin-login-button');
-  if ((await legacyLoginButton.count()) > 0) {
-    await expect(legacyLoginButton).toBeVisible();
-  } else {
-    await expect(page.getByRole('button', { name: /Logga in som administratör/i })).toBeVisible();
-  }
-}
-
 async function openAdminEntry(page: import('@playwright/test').Page) {
   await page.goto('/');
 
-  const adminLoginHeading = page.getByText(/Admin inloggning och session/i);
-  if (await adminLoginHeading.isVisible().catch(() => false)) {
+  const username = page
+    .getByRole('textbox', { name: /Användarnamn/i })
+    .or(page.getByTestId('admin-username-input'));
+  if (await username.first().isVisible().catch(() => false)) {
     return;
   }
 
@@ -68,7 +33,8 @@ async function openAdminEntry(page: import('@playwright/test').Page) {
   }
 
   const visibleTarget = await Promise.race<null | 'login' | 'landing'>([
-    adminLoginHeading
+    username
+      .first()
       .waitFor({ state: 'visible', timeout: 15_000 })
       .then(() => 'login' as const)
       .catch(() => null),

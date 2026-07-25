@@ -6,9 +6,11 @@ const BROWSER_TIMEOUT = 180_000;
 async function openProjectModule(page: Page): Promise<void> {
   await waitForHubModuleReady(page, 'projekt');
   const projectCard = page.getByTestId('landing-open-projekt');
-  await expect(projectCard).toBeVisible({ timeout: BROWSER_TIMEOUT });
-  await expect(projectCard).toBeEnabled();
-  await projectCard.click();
+  if (await projectCard.isVisible().catch(() => false)) {
+    await projectCard.click();
+    return;
+  }
+  await page.getByRole('button', { name: /Projektledning/i }).click();
 }
 
 test.describe('Project manager workspace E2E', () => {

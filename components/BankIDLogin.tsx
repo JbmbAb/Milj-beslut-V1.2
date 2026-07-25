@@ -373,6 +373,7 @@ const BankIDLogin: React.FC<BankIDLoginProps> = ({ onLogin, adminOnly: adminOnly
         <input
           type="text"
           autoComplete="username"
+          aria-label="Användarnamn"
           value={adminUsername}
           onChange={(e) => setAdminUsername(e.target.value)}
           placeholder="Användarnamn"
@@ -381,6 +382,7 @@ const BankIDLogin: React.FC<BankIDLoginProps> = ({ onLogin, adminOnly: adminOnly
         <input
           type="password"
           autoComplete="current-password"
+          aria-label="Lösenord"
           value={adminPassword}
           onChange={(e) => setAdminPassword(e.target.value)}
           placeholder="Lösenord"

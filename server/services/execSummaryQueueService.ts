@@ -172,8 +172,22 @@ function parseExecSummaryJson(
 
 async function generateSummary(projectId: string): Promise<ExecSummaryResult> {
   const generatedAt = new Date().toISOString();
+  const mockRequested = (process.env.EXEC_SUMMARY_MOCK_MODE ?? '').toLowerCase() === 'true';
 
-  // 1. Try live Vertex AI if configured
+  if (mockRequested) {
+    return {
+      summary: `Detta är en mock-sammanfattning för projekt ${projectId}. Inga live-data har analyserats.`,
+      keyRisks: ['Mock-risk: Beroende av externa system', 'Mock-risk: Ofullständig datainmatning'],
+      recommendations: [
+        'Mock-rekommendation: Verifiera alla datakällor',
+        'Mock-rekommendation: Genomför fullständig live-analys',
+      ],
+      complianceScore: 0.67,
+      generatedAt,
+    };
+  }
+
+  // Try live Vertex AI if configured
   if (process.env.VERTEX_PROJECT_ID?.trim()) {
     try {
       const prompt = `Du är en senior miljökonsult. Generera en exekutiv sammanfattning för miljöprojekt ${projectId}.
@@ -194,21 +208,6 @@ Svara med JSON enligt schema:
     }
   }
 
-  // 2. If no Vertex, check for mock mode (for dev/testing)
-  const mockRequested = (process.env.EXEC_SUMMARY_MOCK_MODE ?? '').toLowerCase() === 'true';
-  if (mockRequested) {
-    return {
-      summary: `Detta är en mock-sammanfattning för projekt ${projectId}. Inga live-data har analyserats.`,
-      keyRisks: ['Mock-risk: Beroende av externa system', 'Mock-risk: Ofullständig datainmatning'],
-      recommendations: [
-        'Mock-rekommendation: Verifiera alla datakällor',
-        'Mock-rekommendation: Genomför fullständig live-analys',
-      ],
-      complianceScore: 0.67,
-      generatedAt,
-    };
-  }
-
-  // 3. If neither live nor mock, it's a configuration error.
+  // If no Vertex, it's a configuration error.
   throw new Error('Vertex AI is not configured. Set VERTEX_PROJECT_ID or EXEC_SUMMARY_MOCK_MODE=true.');
 }
