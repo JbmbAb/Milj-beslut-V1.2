@@ -9,6 +9,7 @@ import {
   parseJson,
   primeAuthenticatedPage,
   waitForHubModuleReady,
+  clickHubModule,
 } from './support';
 import { prisma } from './prismaClient';
 
@@ -55,15 +56,7 @@ async function openAdminEntry(page: import('@playwright/test').Page) {
 }
 
 async function openLogisticsEntry(page: import('@playwright/test').Page) {
-  const landingLogisticsButton = page.getByTestId('landing-open-logistik');
-  if (await landingLogisticsButton.isVisible().catch(() => false)) {
-    await landingLogisticsButton.click();
-    return;
-  }
-
-  const sidebarLogisticsButton = page.getByRole('button', { name: /Logistik schaktmassor/i });
-  await expect(sidebarLogisticsButton).toBeVisible({ timeout: 15_000 });
-  await sidebarLogisticsButton.click();
+  await clickHubModule(page, 'logistik');
 }
 
 async function assertLogisticsReceiverSelectionBlocked(page: import('@playwright/test').Page) {

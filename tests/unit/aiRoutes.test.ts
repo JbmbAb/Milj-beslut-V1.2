@@ -8,7 +8,11 @@ const mocks = vi.hoisted(() => ({
   enqueueExecSummary: vi.fn(),
   getJobStatus: vi.fn(),
   listJobsForProject: vi.fn(),
-  assertPermission: vi.fn(),
+  assertProjectAccess: vi.fn(),
+}));
+
+vi.mock('../../server/security/projectAccess', () => ({
+  assertProjectAccess: mocks.assertProjectAccess,
 }));
 
 vi.mock('../../server/repositories/tokenRepository', () => ({
@@ -26,10 +30,6 @@ vi.mock('../../server/services/execSummaryQueueService', () => ({
   enqueueExecSummary: mocks.enqueueExecSummary,
   getJobStatus: mocks.getJobStatus,
   listJobsForProject: mocks.listJobsForProject,
-}));
-
-vi.mock('../../server/security/projectAccess', () => ({
-  assertPermission: mocks.assertPermission,
 }));
 
 import aiRoutes from '../../server/routes/ai.routes';
@@ -52,7 +52,7 @@ function authHeader(role: 'ADMIN' | 'CONSULTANT' = 'ADMIN') {
 describe('ai.routes – RAG search', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    mocks.assertPermission.mockResolvedValue(undefined);
+    mocks.assertProjectAccess.mockResolvedValue(undefined);
     mocks.runRagSearch.mockResolvedValue({ hits: [], totalCount: 0 });
     mocks.enqueueExecSummary.mockResolvedValue({ jobId: 'job-1', status: 'queued' });
     mocks.getJobStatus.mockReturnValue({ jobId: 'job-1', status: 'done' });
@@ -119,7 +119,7 @@ describe('ai.routes – RAG search', () => {
 describe('ai.routes – executive summary', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    mocks.assertPermission.mockResolvedValue(undefined);
+    mocks.assertProjectAccess.mockResolvedValue(undefined);
     mocks.enqueueExecSummary.mockResolvedValue({ jobId: 'job-1', status: 'queued' });
     mocks.getJobStatus.mockReturnValue({ jobId: 'job-1', status: 'done' });
     mocks.listJobsForProject.mockReturnValue([{ jobId: 'job-1', status: 'done' }]);
@@ -143,8 +143,8 @@ describe('ai.routes – executive summary', () => {
     expect(res.status).toBe(401);
   });
 
-  it('returns 400 on enqueue when assertPermission throws', async () => {
-    mocks.assertPermission.mockRejectedValueOnce(new Error('forbidden'));
+  it('returns 400 on enqueue when assertProjectAccess throws', async () => {
+    mocks.assertProjectAccess.mockRejectedValueOnce(new Error('forbidden'));
     const res = await request(app)
       .post('/api/projects/proj-1/exec-summary/enqueue')
       .set('Authorization', authHeader())
@@ -184,8 +184,8 @@ describe('ai.routes – executive summary', () => {
     expect(res.status).toBe(401);
   });
 
-  it('returns 400 on listJobs when assertPermission throws', async () => {
-    mocks.assertPermission.mockRejectedValueOnce(new Error('no access'));
+  it('returns 400 on listJobs when assertProjectAccess throws', async () => {
+    mocks.assertProjectAccess.mockRejectedValueOnce(new Error('no access'));
     const res = await request(app)
       .get('/api/projects/proj-1/exec-summary/jobs')
       .set('Authorization', authHeader());

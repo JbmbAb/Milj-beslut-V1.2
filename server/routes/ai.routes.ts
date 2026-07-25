@@ -8,7 +8,7 @@ import {
   getExecSummaryJobStatus,
   listExecSummaryJobs,
 } from '../modules/ai/public';
-import { assertPermission } from '../security/projectAccess';
+import { assertProjectAccess } from '../security/projectAccess';
 import { routeParam } from '../utils/routeUtils';
 
 const router = express.Router();
@@ -54,7 +54,11 @@ router.post(
   rateLimitByUser(10, 60_000),
   async (req, res) => {
     try {
-      await assertPermission(req.authUser, routeParam(req.params.projectId));
+      await assertProjectAccess(
+        req.authUser,
+        routeParam(req.params.projectId),
+        req.authUser.organisationId,
+      );
       const job = await enqueueExecSummary({
         projectId: routeParam(req.params.projectId),
         userId: req.authUser.id,
@@ -90,7 +94,11 @@ router.get(
   rateLimitByUser(30, 60_000),
   async (req, res) => {
     try {
-      await assertPermission(req.authUser, routeParam(req.params.projectId));
+      await assertProjectAccess(
+        req.authUser,
+        routeParam(req.params.projectId),
+        req.authUser.organisationId,
+      );
       const jobs = listExecSummaryJobs(routeParam(req.params.projectId));
       res.json({ ok: true, jobs });
     } catch (error: unknown) {

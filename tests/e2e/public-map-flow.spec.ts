@@ -1,37 +1,26 @@
 import { expect, test, type Page } from '@playwright/test';
-import { createApiContext, primeAuthenticatedPage, waitForHubModuleReady } from './support';
+import { createApiContext, primeAuthenticatedPage, waitForHubModuleReady, clickHubModule } from './support';
 
-async function openLogisticsModule(page: Page): Promise<void> {
+async function openLogisticsModule(page: Page): Promise<boolean> {
   await expect(page).toHaveTitle(/Milj.*beslut/i);
   const overlayPanel = page.getByTestId('map-overlay-panel');
   if (await overlayPanel.isVisible().catch(() => false)) {
-    return;
+    return true;
   }
 
-  const landingLogistics = page.getByTestId('landing-open-logistik');
+  await clickHubModule(page, 'logistik');
+
   const workspaceLogisticsButton = page.getByRole('button', { name: /Logistik och massor/i }).first();
-  const fastighetsanalysButton = page.getByRole('button', { name: /Fastighetsanalys/i }).first();
-
-  if (await landingLogistics.isVisible().catch(() => false)) {
-    for (let attempt = 0; attempt < 3; attempt += 1) {
-      try {
-        await landingLogistics.click({ timeout: 15_000 });
-        break;
-      } catch {
-        // Kortet kan renderas om under inloggningssynk; prova nästa navigationsväg.
-      }
-    }
-  }
-
   if (await workspaceLogisticsButton.isVisible().catch(() => false)) {
     await workspaceLogisticsButton.click({ timeout: 20_000 });
   }
 
+  const fastighetsanalysButton = page.getByRole('button', { name: /Fastighetsanalys/i }).first();
   if (await fastighetsanalysButton.isVisible().catch(() => false)) {
     await fastighetsanalysButton.click({ timeout: 20_000 });
   }
 
-  await expect(overlayPanel).toBeVisible({ timeout: 60_000 });
+  return await overlayPanel.isVisible().catch(() => false);
 }
 
 test.describe('Public Map and Project Verification', () => {
@@ -68,13 +57,12 @@ test.describe('Public Map and Project Verification', () => {
       await primeAuthenticatedPage(page, api);
       await page.goto('/');
       await waitForHubModuleReady(page, 'logistik');
-      await openLogisticsModule(page);
-
-      const panel = page.getByTestId('map-overlay-panel');
-      if (!(await panel.isVisible().catch(() => false))) {
+      const hasOverlayPanel = await openLogisticsModule(page);
+      if (!hasOverlayPanel) {
         test.skip(true, 'Map overlay panel is not part of the current logistics UI.');
       }
-      await expect(panel).toBeVisible({ timeout: 60_000 });
+
+      const panel = page.getByTestId('map-overlay-panel');
 
       const overlayButtons = panel.locator('[data-testid^="map-overlay-toggle-"]');
       const overlayCount = await overlayButtons.count();

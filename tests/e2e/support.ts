@@ -155,6 +155,9 @@ export async function expectAdminLoginScreen(page: Page): Promise<void> {
 }
 
 function hubModuleNavFallback(page: Page, moduleId: string) {
+  if (moduleId === 'core') {
+    return page.getByRole('button', { name: /Ärendeportal/i });
+  }
   if (moduleId === 'logistik') {
     return page.getByRole('button', { name: /Logistik schaktmassor/i });
   }
@@ -162,6 +165,24 @@ function hubModuleNavFallback(page: Page, moduleId: string) {
     return page.getByRole('button', { name: /Projektledning/i });
   }
   return null;
+}
+
+/** Klicka hub-kort eller sidopanels-fallback efter waitForHubModuleReady. */
+export async function clickHubModule(page: Page, moduleId: string): Promise<void> {
+  const moduleCard = page.getByTestId(`landing-open-${moduleId}`);
+  if (await moduleCard.isVisible().catch(() => false)) {
+    await expect.poll(async () => moduleCard.isEnabled(), { timeout: 60_000 }).toBe(true);
+    await moduleCard.click();
+    return;
+  }
+
+  const moduleNavFallback = hubModuleNavFallback(page, moduleId);
+  if (moduleNavFallback) {
+    await moduleNavFallback.click();
+    return;
+  }
+
+  throw new Error(`Kunde inte öppna modul "${moduleId}" från hub eller sidopanel.`);
 }
 
 /** Vänta tills hubben visar efterfrågad modul (bootstrap + aktivt projekt). */
@@ -218,7 +239,13 @@ export async function waitForHubModuleReady(page: Page, moduleId: string): Promi
     )
     .toBeTruthy();
 
-  await expect(page.getByTestId('hub-module-grid')).toBeVisible({ timeout: 60_000 });
+  const workspaceShell = page.getByTestId('app-workspace-shell');
+  if (await workspaceShell.isVisible().catch(() => false)) {
+    if (moduleNavFallback) {
+      await expect(moduleNavFallback).toBeVisible({ timeout: 60_000 });
+    }
+    return;
+  }
 
   if (await moduleCard.isVisible().catch(() => false)) {
     await expect(moduleCard).toBeVisible({ timeout: 60_000 });
@@ -228,7 +255,10 @@ export async function waitForHubModuleReady(page: Page, moduleId: string): Promi
     if ((await readyBadge.count()) > 0) {
       await expect(readyBadge).toBeVisible({ timeout: 10_000 });
     }
-  } else if (moduleNavFallback) {
+    return;
+  }
+
+  if (moduleNavFallback) {
     await expect(moduleNavFallback).toBeVisible({ timeout: 60_000 });
   }
 }
