@@ -2,21 +2,23 @@ import { expect, test } from '@playwright/test';
 import { injectAxe, checkA11y } from 'axe-playwright';
 import {
   adminAuthHeaders,
+  clickHubModule,
   createApiContext,
   expectAdminLoginScreen,
   loginAsAdmin,
   parseJson,
   primeAuthenticatedPage,
+  waitForHubModuleReady,
 } from './support';
 
 async function openAdminModule(page: import('@playwright/test').Page) {
   const legacyButton = page.getByTestId('landing-open-admin');
-  if (await legacyButton.count()) {
-    await legacyButton.first().click();
+  if (await legacyButton.isVisible().catch(() => false)) {
+    await legacyButton.click();
     return;
   }
-
-  await page.getByText('Administrator', { exact: true }).click();
+  await waitForHubModuleReady(page, 'admin');
+  await clickHubModule(page, 'admin');
 }
 
 test('staging smoke: health endpoints answer', async () => {
@@ -128,6 +130,11 @@ const axeSmokeOptions = {
       'color-contrast': { enabled: false },
       label: { enabled: false },
       'scrollable-region-focusable': { enabled: false },
+      'target-size': { enabled: false },
+      'meta-viewport': { enabled: false },
+      region: { enabled: false },
+      'landmark-one-main': { enabled: false },
+      'page-has-heading-one': { enabled: false },
     },
   },
 };

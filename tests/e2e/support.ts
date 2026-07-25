@@ -154,17 +154,52 @@ export async function expectAdminLoginScreen(page: Page): Promise<void> {
   await expect(loginButton.first()).toBeVisible();
 }
 
+/** AppSidebar mode buttons use title from modeCards.ts — not visible button text. */
 function hubModuleNavFallback(page: Page, moduleId: string) {
-  if (moduleId === 'core') {
-    return page.getByRole('button', { name: /Ärendeportal/i });
+  const titleByModule: Record<string, string> = {
+    core: 'Huvudmoduler',
+    logistik: 'Logistik schaktmassor',
+    projekt: 'Projektplansportfölj',
+    admin: 'Administrator',
+  };
+  const title = titleByModule[moduleId];
+  if (!title) {
+    return null;
   }
-  if (moduleId === 'logistik') {
-    return page.getByRole('button', { name: /Logistik schaktmassor/i });
+  return page.locator(`button[title="${title}"]`);
+}
+
+/** Hover workspace sidebar so title-only nav buttons become interactable. */
+export async function focusWorkspaceSidebar(page: Page): Promise<void> {
+  const aside = page.locator('aside').first();
+  if (await aside.isVisible().catch(() => false)) {
+    await aside.hover();
   }
-  if (moduleId === 'projekt') {
-    return page.getByRole('button', { name: /Projektledning/i });
+}
+
+/** PERMIT_PORTAL auto-open hides hub cards — return to hub via footer toggle. */
+export async function ensureHubVisible(page: Page): Promise<void> {
+  const coreButton = page.getByTestId('landing-open-core');
+  const hubGrid = page.getByTestId('hub-module-grid');
+  const hubVisible =
+    (await coreButton.isVisible().catch(() => false)) ||
+    (await hubGrid.isVisible().catch(() => false));
+  if (hubVisible) {
+    return;
   }
-  return null;
+
+  const switchInterfaceButton = page.locator('button[title="Byt Gränssnitt"]');
+  if (await switchInterfaceButton.isVisible().catch(() => false)) {
+    await switchInterfaceButton.click();
+    await expect
+      .poll(
+        async () =>
+          (await coreButton.isVisible().catch(() => false)) ||
+          (await hubGrid.isVisible().catch(() => false)),
+        { timeout: 15_000 },
+      )
+      .toBeTruthy();
+  }
 }
 
 /** Klicka hub-kort eller sidopanels-fallback efter waitForHubModuleReady. */
@@ -178,7 +213,15 @@ export async function clickHubModule(page: Page, moduleId: string): Promise<void
 
   const moduleNavFallback = hubModuleNavFallback(page, moduleId);
   if (moduleNavFallback) {
+    await focusWorkspaceSidebar(page);
     await moduleNavFallback.click();
+    return;
+  }
+
+  await ensureHubVisible(page);
+  if (await moduleCard.isVisible().catch(() => false)) {
+    await expect.poll(async () => moduleCard.isEnabled(), { timeout: 60_000 }).toBe(true);
+    await moduleCard.click();
     return;
   }
 
@@ -229,7 +272,7 @@ export async function waitForHubModuleReady(page: Page, moduleId: string): Promi
           : false;
         if (moduleId === 'core') {
           const coreVisible = await coreButton.isVisible().catch(() => false);
-          return coreVisible || moduleVisible;
+          return coreVisible || moduleVisible || moduleNavVisible;
         }
         return moduleVisible || moduleNavVisible;
       },
@@ -241,11 +284,14 @@ export async function waitForHubModuleReady(page: Page, moduleId: string): Promi
 
   const workspaceShell = page.getByTestId('app-workspace-shell');
   if (await workspaceShell.isVisible().catch(() => false)) {
+    await focusWorkspaceSidebar(page);
     if (moduleNavFallback) {
       await expect(moduleNavFallback).toBeVisible({ timeout: 60_000 });
     }
     return;
   }
+
+  await ensureHubVisible(page);
 
   if (await moduleCard.isVisible().catch(() => false)) {
     await expect(moduleCard).toBeVisible({ timeout: 60_000 });
@@ -259,6 +305,7 @@ export async function waitForHubModuleReady(page: Page, moduleId: string): Promi
   }
 
   if (moduleNavFallback) {
+    await focusWorkspaceSidebar(page);
     await expect(moduleNavFallback).toBeVisible({ timeout: 60_000 });
   }
 }
