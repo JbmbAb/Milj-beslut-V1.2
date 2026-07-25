@@ -182,8 +182,7 @@ export async function ensureHubVisible(page: Page): Promise<void> {
   const coreButton = page.getByTestId('landing-open-core');
   const hubGrid = page.getByTestId('hub-module-grid');
   const hubVisible =
-    (await coreButton.isVisible().catch(() => false)) ||
-    (await hubGrid.isVisible().catch(() => false));
+    (await coreButton.isVisible().catch(() => false)) || (await hubGrid.isVisible().catch(() => false));
   if (hubVisible) {
     return;
   }
@@ -194,8 +193,7 @@ export async function ensureHubVisible(page: Page): Promise<void> {
     await expect
       .poll(
         async () =>
-          (await coreButton.isVisible().catch(() => false)) ||
-          (await hubGrid.isVisible().catch(() => false)),
+          (await coreButton.isVisible().catch(() => false)) || (await hubGrid.isVisible().catch(() => false)),
         { timeout: 15_000 },
       )
       .toBeTruthy();
