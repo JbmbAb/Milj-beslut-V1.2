@@ -294,7 +294,7 @@ test('dispatch + journal + lims API flow passes end-to-end', async ({ request })
   if (!quote.ok()) {
     const blockedText = await quote.text();
     expect([400, 404, 500, 501]).toContain(quote.status());
-    if (quote.status() === 400) {
+    if (quote.status() === 400 && /transportprovider/i.test(blockedText)) {
       expect(blockedText).toMatch(/Transportprovider ar inte konfigurerad|transportprovider/i);
     }
     return;

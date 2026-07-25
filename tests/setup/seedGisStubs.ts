@@ -484,3 +484,46 @@ export async function ensureTestAdminUser(): Promise<void> {
   await ensureAdminConsoleUser(adminUsername);
   console.log('Test admin user ready:', adminUsername);
 }
+
+/** Same id as tests/e2e/support.ts — must live in admin org for bootstrap/module access. */
+export async function ensureE2ESeedProject(): Promise<void> {
+  const adminUsername = String(process.env.ADMIN_CONSOLE_USERNAME || 'admin').trim() || 'admin';
+  const { ensureAdminConsoleUser } = await import('../../server/repositories/userRepository.js');
+  const { prisma } = await import('../../server/db/prisma.js');
+  const authUser = await ensureAdminConsoleUser(adminUsername);
+  const projectId = 'test-project-001';
+
+  await prisma.project.upsert({
+    where: { id: projectId },
+    create: {
+      id: projectId,
+      organisationId: authUser.organisationId,
+      propertyDesignation: 'Testfastighet 1:1',
+      status: 'ACTIVE',
+    },
+    update: {
+      organisationId: authUser.organisationId,
+      propertyDesignation: 'Testfastighet 1:1',
+      status: 'ACTIVE',
+    },
+  });
+
+  await prisma.projectMember.upsert({
+    where: {
+      projectId_userId: {
+        projectId,
+        userId: authUser.id,
+      },
+    },
+    create: {
+      projectId,
+      userId: authUser.id,
+      accessRole: 'OWNER',
+    },
+    update: {
+      accessRole: 'OWNER',
+    },
+  });
+
+  console.log('E2E seed project ready:', projectId);
+}

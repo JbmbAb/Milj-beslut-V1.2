@@ -174,7 +174,12 @@ export async function waitForHubModuleReady(page: Page, moduleId: string): Promi
 
   await expect(page).toHaveTitle(/Milj.*beslut/i);
   const hubVisibleInitially =
-    (await coreButton.isVisible().catch(() => false)) || (await moduleCard.isVisible().catch(() => false));
+    (await coreButton.isVisible().catch(() => false)) ||
+    (await moduleCard.isVisible().catch(() => false)) ||
+    (await page
+      .getByTestId('hub-module-grid')
+      .isVisible()
+      .catch(() => false));
 
   if (!hubVisibleInitially) {
     const adminLoginVisible = await adminLoginButton.isVisible().catch(() => false);
@@ -212,6 +217,8 @@ export async function waitForHubModuleReady(page: Page, moduleId: string): Promi
       },
     )
     .toBeTruthy();
+
+  await expect(page.getByTestId('hub-module-grid')).toBeVisible({ timeout: 60_000 });
 
   if (await moduleCard.isVisible().catch(() => false)) {
     await expect(moduleCard).toBeVisible({ timeout: 60_000 });

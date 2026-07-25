@@ -44,6 +44,7 @@ import { secureErrorHandler } from './security/secureErrors';
 import internalBackgroundRouter from './routes/internal.background.routes';
 import { getReadinessPayload } from './services/readinessService';
 import interactionsPrototypeRouter from './modules/ai/interactions/interactionsPrototype.routes';
+import aiRouter from './routes/ai.routes';
 import { handleMetricsRequest } from './security/metricsAccess';
 
 export function createApp() {
@@ -188,6 +189,7 @@ export function createApp() {
   app.use(searchRouter);
   app.use(searchRoutes);
   app.use(recommendationRoutes);
+  app.use(aiRouter);
   app.use(gdprRouter);
   app.use(referenceRouter);
   app.use(adminLegacyRouter);
