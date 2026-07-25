@@ -51,7 +51,7 @@
     "@google-cloud/billing-budgets": "^6.1.2",
     "@google-cloud/storage": "^7.21.0",
     "@google-cloud/vertexai": "^1.12.0",
-    "@google/genai": "^1.41.0",
+    "@google/genai": "^1.52.0",
     "@google/generative-ai": "^0.24.1",
     "@loaders.gl/core": "^4.1.0",
     "@loaders.gl/las": "^4.1.0",
@@ -73,7 +73,7 @@
     "leaflet": "1.9.4",
     "lru-cache": "^11.5.2",
     "lucide-react": "^0.575.0",
-    "motion": "^12.34.3",
+    "motion": "^12.42.2",
     "nodemailer": "^9.0.3",
     "openai": "^6.27.0",
     "pdf-parse": "^2.4.5",
@@ -126,6 +126,15 @@
     "turbo-stream": "^3.0.0",
     "uuid": "^11.1.1",
     "valibot": "^1.4.2",
+    "@eslint/config-array": {
+      "minimatch": "^10.2.5"
+    },
+    "@eslint/eslintrc": {
+      "minimatch": "^10.2.5"
+    },
+    "eslint": {
+      "minimatch": "^10.2.5"
+    },
     "brace-expansion": "^5.0.8"
   }
 }

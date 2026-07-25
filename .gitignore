@@ -68,9 +68,29 @@ __pycache__/
 *.pyc
 
 # AlphaEvolve local checkout (secrets + venv)
-alphaevolve-on-googlecloud/.venv
-alphaevolve-on-googlecloud/.env
+alphaevolve-on-googlecloud/
 .venv-adk/
+
+# Local agent/scratch (not source — Mimers Brunn policy)
+.agents/
+scratch_*.ts
+seed-*-test-data.ts
+task.md
+*.bak
+scripts/temp_*.cjs
+scripts/temp_*.js
+scripts/check_*.cjs
+scripts/fast_*.cjs
+scripts/find_*.cjs
+scripts/inspect_*.cjs
+scripts/list_*.cjs
+scripts/test_discovery.py
+scripts/db/generate-seed-gis-stubs.mjs
+scripts/db/trim-database-setup.mjs
+scripts/import/mimer-smart-*.ts
+scripts/import/mimer-smart-*.cjs
+scripts/import/promote-quarantined-svar.cjs
+scripts/import/seed-mock-knowledge.ts
 
 # Local debug artifacts
 .codex-logs/
