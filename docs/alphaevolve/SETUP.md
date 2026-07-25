@@ -8,30 +8,46 @@ Google [AlphaEvolve](https://docs.cloud.google.com/gemini/enterprise/docs/alphae
 | -------- | ----------------- | ----- |
 | `PROJECT_ID` | `miljointelligens` | Same project as Vertex AI / Discovery Engine elsewhere in this repo |
 | `LOCATION` | `global` | Default from upstream `example.env` |
-| `GE_APP_ID` | **You must set this** | Gemini Enterprise App / Engine ID after AlphaEvolve provisioning |
+| `GE_APP_ID` | `miljobeslut-alphaevolve` | Engine in `default_collection` (provision via script below) |
 
-`GE_APP_ID` is **not** auto-filled. It comes from the Gemini Enterprise app created when AlphaEvolve is provisioned in `miljointelligens`. See [Install and configure AlphaEvolve](https://docs.cloud.google.com/gemini/enterprise/docs/alphaevolve/developer-guide/get-started) and [Gemini Enterprise access](../ops/gemini-enterprise-access.md).
+`GE_APP_ID` lives in `alphaevolve-on-googlecloud/.env` (gitignored). See [Install and configure AlphaEvolve](https://docs.cloud.google.com/gemini/enterprise/docs/alphaevolve/developer-guide/get-started) and [Gemini Enterprise access](../ops/gemini-enterprise-access.md).
 
-Example `.env` fragment after setup:
+Example `.env` fragment:
 
 ```env
 PROJECT_ID=miljointelligens
 LOCATION=global
 COLLECTION=default_collection
-GE_APP_ID=your-engine-id
+GE_APP_ID=miljobeslut-alphaevolve
 ASSISTANT=default_assistant
 BASE_URL=discoveryengine.googleapis.com
 MODEL=gemini-3.5-flash
 ```
 
-Replace `your-engine-id` with the Engine ID shown in Google Cloud Console under your Gemini Enterprise app.
+## GCP provisioning
+
+Verify current state:
+
+```powershell
+pwsh scripts/alphaevolve/verify-gcp.ps1
+```
+
+Create Engine + service account (Cloud Shell or Linux; requires Gemini Enterprise license):
+
+```bash
+export PROJECT_ID=miljointelligens
+export SYSTEM_USER_EMAIL=you@domain.com
+bash scripts/alphaevolve/provision-gcp.sh
+```
+
+The script enables Discovery Engine API, creates `alpha-evolve-client` SA, grants `roles/discoveryengine.admin`, optionally binds impersonation, and creates Engine + `default_assistant`.
 
 ## Prerequisites
 
 - **Git** — clone upstream repo if missing
 - **uv** — Python env and `ae` CLI ([installation](https://docs.astral.sh/uv/getting-started/installation/))
 - **Google Cloud access** — authenticated `gcloud` user or ADC with permissions on `miljointelligens`
-- **AlphaEvolve provisioned** — Gemini Enterprise app with Engine ID (`GE_APP_ID`)
+- **AlphaEvolve provisioned** — Gemini Enterprise Engine (`GE_APP_ID`)
 
 ## One-shot setup
 
@@ -53,26 +69,27 @@ The script is idempotent:
 **Recommended:** use the unified installer instead:
 
 ```powershell
-.\scripts\google-ai\setup.ps1 -PersistPath
+.\scripts\google-ai\setup.ps1 -PersistPath -GeAppId miljobeslut-alphaevolve
 ```
 
 See [Google AI dev stack](../google-ai/SETUP.md) for ADK + PATH layout.
 
-After setup, edit `alphaevolve-on-googlecloud\.env` and set `GE_APP_ID`.
+After setup, confirm `GE_APP_ID` in `alphaevolve-on-googlecloud\.env`.
 
 ## Verify installation
 
 ```powershell
 cd alphaevolve-on-googlecloud
 .\.venv\Scripts\python.exe -m pytest tests
+uv run pytest examples/list_deduplication/tests -v
+pwsh ..\scripts\alphaevolve\verify-gcp.ps1
 ```
-
-Expect the client/library tests to pass. Some upstream evaluator tests may fail on Windows if optional native deps differ; check the summary line for pass/fail counts.
 
 Quick CLI check:
 
 ```powershell
 ae skills list
+ae --json engine list
 ```
 
 ## Cursor skills
@@ -101,25 +118,39 @@ Or re-run `setup.ps1`.
 Do **not** commit local AlphaEvolve secrets or the virtualenv. The Miljöbeslut root `.gitignore` includes:
 
 ```
-alphaevolve-on-googlecloud/.venv
-alphaevolve-on-googlecloud/.env
+alphaevolve-on-googlecloud/
 ```
 
-The upstream clone under `alphaevolve-on-googlecloud/` may be tracked as a nested checkout or submodule depending on how you added it; either way, keep `.env` and `.venv` out of git.
+Keep `.env` and `.venv` out of the main repo. Miljöbeslut-specific experiment **design** lives under `scripts/alphaevolve/experiments/` (tracked). See [EXPERIMENTS.md](./EXPERIMENTS.md).
 
 ## Run an example
 
-After `GE_APP_ID` is set:
+After `GE_APP_ID` is set and `verify-gcp.ps1` passes:
 
 ```powershell
-cd alphaevolve-on-googlecloud\examples\circle_packing
-..\..\..\.venv\Scripts\python.exe run.py
+cd alphaevolve-on-googlecloud
+$env:PROJECT_ID = "miljointelligens"
+$env:GE_APP_ID = "miljobeslut-alphaevolve"
+
+# Upstream circle packing
+.\.venv\Scripts\python.exe -m examples.circle_packing.src.run_evolution
+
+# Miljöbeslut list deduplication
+.\.venv\Scripts\python.exe -m examples.list_deduplication.src.run_evolution
 ```
 
-See upstream `examples/*/README.md` for other workloads (TSP, signal processing, adaptive sort, LLM fine-tuning).
+On Linux/macOS with `make` installed:
+
+```bash
+cd examples/circle_packing && make run
+cd examples/list_deduplication && make run
+```
+
+Other upstream examples: TSP, signal processing, adaptive sort, LLM fine-tuning — see `examples/*/README.md`.
 
 ## Related docs
 
+- [EXPERIMENTS.md](./EXPERIMENTS.md) — experiment catalog and smoke results
 - Upstream README: `alphaevolve-on-googlecloud/README.md`
 - Miljöbeslut Gemini Enterprise: `docs/ops/gemini-enterprise-access.md`
 - GCP deploy defaults: `docs/deploy/DEPLOY_GCP.md`

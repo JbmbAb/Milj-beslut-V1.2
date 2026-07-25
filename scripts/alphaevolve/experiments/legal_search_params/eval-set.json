@@ -1,0 +1,65 @@
+{
+  "version": "1",
+  "description": "Fixed evaluation queries for legal corpus hybrid search parameter tuning.",
+  "source_defaults": {
+    "searchService": {
+      "RRF_K": 60,
+      "FTS_CANDIDATE_LIMIT": 50,
+      "VECTOR_CANDIDATE_LIMIT": 50,
+      "CROSS_ENCODER_LIMIT": 30,
+      "FINAL_TOP_K": 8,
+      "CROSS_ENCODER_ENABLED": false
+    },
+    "searchLegalCorpusTool": {
+      "RRF_K_EXACT": 30,
+      "RRF_K": 60,
+      "RRF_CANDIDATE_LIMIT": 30,
+      "RERANKER_FINAL_K": 8,
+      "LEGAL_RERANKER_RELATIVE_GAP": 0.15
+    }
+  },
+  "cases": [
+    {
+      "id": "avlopp_fosfor",
+      "query": "fosforrening enskilt avlopp",
+      "must_include_terms": ["fosfor", "avlopp"],
+      "min_results": 1
+    },
+    {
+      "id": "miljobalken_krav",
+      "query": "miljöbalken tillståndsprövning",
+      "must_include_terms": ["miljöbalk"],
+      "min_results": 1
+    },
+    {
+      "id": "recipient_vattendrag",
+      "query": "recipient vattendrag förorening",
+      "must_include_terms": ["recipient"],
+      "min_results": 1
+    },
+    {
+      "id": "plan_bestammelse",
+      "query": "detaljplan bestämmelse buller",
+      "must_include_terms": ["plan"],
+      "min_results": 1
+    },
+    {
+      "id": "laga_kraft",
+      "query": "laga kraft dom miljö",
+      "must_include_terms": ["laga"],
+      "min_results": 1
+    }
+  ],
+  "metrics": {
+    "primary": "neg_weighted_recall",
+    "secondary": ["p95_latency_ms", "rerank_skip_rate"]
+  },
+  "constraints": {
+    "RRF_K": { "min": 10, "max": 120 },
+    "FTS_CANDIDATE_LIMIT": { "min": 10, "max": 100 },
+    "VECTOR_CANDIDATE_LIMIT": { "min": 10, "max": 100 },
+    "RRF_CANDIDATE_LIMIT": { "min": 10, "max": 60 },
+    "RERANKER_FINAL_K": { "min": 3, "max": 20 },
+    "LEGAL_RERANKER_RELATIVE_GAP": { "min": 0.05, "max": 0.5 }
+  }
+}
