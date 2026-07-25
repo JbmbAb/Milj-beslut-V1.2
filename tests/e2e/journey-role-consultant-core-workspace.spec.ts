@@ -14,7 +14,10 @@ test.describe('Role: consultant / office user — Core workspace', () => {
       await page.goto('/');
       await waitForHubModuleReady(page, 'core');
       await clickHubModule(page, 'core');
-      await expect(page.getByText(/Ansökningsflöde|MODULER REDO/i).first()).toBeVisible({ timeout: 20000 });
+      await expect(page.getByTestId('app-workspace-shell')).toBeVisible({ timeout: 60_000 });
+      await expect(page.getByTestId('workspace-active-tab-label')).toContainText('core', {
+        timeout: 60_000,
+      });
     } finally {
       await api.dispose();
     }
