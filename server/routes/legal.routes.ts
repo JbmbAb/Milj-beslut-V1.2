@@ -25,6 +25,7 @@ import { parseListQuery } from '../lib/querySort';
 import { prisma } from '../db/prisma';
 import * as fs from 'fs';
 import * as path from 'path';
+import { searchLegalCorpusHandler } from '../modules/ai/orchestrator/tools/searchLegalCorpusTool';
 
 const router = express.Router();
 
@@ -308,6 +309,28 @@ router.post(
     try {
       const result = await ingestDomstolRssFeed();
       res.json({ ok: true, result, ranAt: new Date().toISOString() });
+    } catch (error: unknown) {
+      res.status(500).json(toSafeErrorResponse(error));
+    }
+  },
+);
+
+// POST /api/legal/search — sökning i legal_corpus med hybrid + reranking (requireAuth)
+router.post(
+  '/api/legal/search',
+  requireAuth,
+  rateLimitByUser(30, 60_000),
+  async (req, res) => {
+    try {
+      const { query, legalArea } = req.body as { query?: string; legalArea?: string };
+      if (!query || typeof query !== 'string' || query.trim().length < 2) {
+        return res.status(400).json({ ok: false, error: 'Söksträngen är för kort eller saknas.' });
+      }
+      const result = await searchLegalCorpusHandler({ query, legalArea });
+      if ('error' in result) {
+        return res.status(400).json({ ok: false, error: result.error, details: result.details });
+      }
+      res.json({ ok: true, ...result });
     } catch (error: unknown) {
       res.status(500).json(toSafeErrorResponse(error));
     }

@@ -182,6 +182,78 @@ export const SGU_HARVEST_SOURCES: SguHarvestSource[] = [
     license: 'CC0 1.0',
     apiCollectionUrl: 'https://api.sgu.se/oppnadata/maringeologi25k/ogc/features/v1/collections/ytsubstrat',
   },
+  {
+    id: 'MiljogifterAnalysresultat',
+    registryDataset: 'MiljogifterAnalysresultat',
+    license: 'CC0 1.0',
+    apiCollectionUrl: 'https://api.sgu.se/oppnadata/miljogifter-analysresultat-provplatser/ogc/features/v1/collections/analysresultat',
+    zip: {
+      zipUrl: 'https://resource.sgu.se/data/oppnadata/miljogifter-analysresultat-provplatser/miljogifter-analysresultat-provplatser.zip',
+      zipFileName: 'miljogifter-analysresultat-provplatser.zip',
+      innerGpkg: 'miljogifter_analysresultat_provplatser.gpkg',
+      ogrLayer: 'analysresultat',
+    },
+  },
+  {
+    id: 'MiljogifterProvplatser',
+    registryDataset: 'MiljogifterProvplatser',
+    license: 'CC0 1.0',
+    apiCollectionUrl: 'https://api.sgu.se/oppnadata/miljogifter-analysresultat-provplatser/ogc/features/v1/collections/provplatser',
+    zip: {
+      zipUrl: 'https://resource.sgu.se/data/oppnadata/miljogifter-analysresultat-provplatser/miljogifter-analysresultat-provplatser.zip',
+      zipFileName: 'miljogifter-analysresultat-provplatser.zip',
+      innerGpkg: 'miljogifter_analysresultat_provplatser.gpkg',
+      ogrLayer: 'provplatser',
+    },
+  },
+  {
+    id: 'HypeKlimatindikatorerHistorisk',
+    registryDataset: 'HypeKlimatindikatorerHistorisk',
+    license: 'CC0 1.0',
+    apiCollectionUrl: 'https://api.sgu.se/oppnadata/klimatindikatorer-sgu-hype-omraden/ogc/features/v1/collections/klimatindikatorer-historisk',
+    zip: {
+      zipUrl: 'https://resource.sgu.se/data/oppnadata/klimatindikatorer-sgu-hype-omraden/klimatindikatorer-sgu-hype-omraden.zip',
+      zipFileName: 'klimatindikatorer-sgu-hype-omraden.zip',
+      innerGpkg: 'klimatindikatorer_sgu_hype_omraden.gpkg',
+      ogrLayer: 'klimatindikatorer-historisk',
+    },
+  },
+  {
+    id: 'HypeKlimatindikatorerRcp',
+    registryDataset: 'HypeKlimatindikatorerRcp',
+    license: 'CC0 1.0',
+    apiCollectionUrl: 'https://api.sgu.se/oppnadata/klimatindikatorer-sgu-hype-omraden/ogc/features/v1/collections/klimatindikatorer-rcp',
+    zip: {
+      zipUrl: 'https://resource.sgu.se/data/oppnadata/klimatindikatorer-sgu-hype-omraden/klimatindikatorer-sgu-hype-omraden.zip',
+      zipFileName: 'klimatindikatorer-sgu-hype-omraden.zip',
+      innerGpkg: 'klimatindikatorer_sgu_hype_omraden.gpkg',
+      ogrLayer: 'klimatindikatorer-rcp',
+    },
+  },
+  {
+    id: 'HypeOmraden',
+    registryDataset: 'HypeOmraden',
+    license: 'CC0 1.0',
+    apiCollectionUrl: 'https://api.sgu.se/oppnadata/klimatindikatorer-sgu-hype-omraden/ogc/features/v1/collections/omraden',
+    zip: {
+      zipUrl: 'https://resource.sgu.se/data/oppnadata/klimatindikatorer-sgu-hype-omraden/klimatindikatorer-sgu-hype-omraden.zip',
+      zipFileName: 'klimatindikatorer-sgu-hype-omraden.zip',
+      innerGpkg: 'klimatindikatorer_sgu_hype_omraden.gpkg',
+      ogrLayer: 'omraden',
+    },
+  },
+  {
+    id: 'Genomslapplighet',
+    registryDataset: 'Genomslapplighet',
+    license: 'CC0 1.0',
+    apiCollectionUrl: 'https://api.sgu.se/oppnadata/genomslapplighet/ogc/features/v1/collections/genomslapplighet',
+    zip: {
+      zipUrl: 'https://resource.sgu.se/data/oppnadata/genomslapplighet/genomslapplighet.zip',
+      zipFileName: 'genomslapplighet.zip',
+      innerGpkg: 'genomslapplighet.gpkg',
+      ogrLayer: 'genomslapplighet',
+    },
+  },
 ];
 
 /** Tier 2 wave — verified official ZIP URLs (product PDFs 2024–2025). */

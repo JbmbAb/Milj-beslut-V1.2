@@ -257,7 +257,7 @@ const SewagePortalView: React.FC = () => {
             protectionProfile,
             exportedAt: new Date().toISOString(),
             humanInTheLoop:
-              'Underlaget är AI-assisterat. Handläggare ska verifiera alla uppgifter innan myndighetsinlämning.',
+              'Underlaget är AI-assisterat utredningsstöd. Konsulten ansvarar för verifiering av alla uppgifter inför myndighetsinlämning.',
           },
         },
       });

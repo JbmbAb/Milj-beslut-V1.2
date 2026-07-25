@@ -70,6 +70,27 @@ describeIfDatabaseIntegration('routesCoverage integration (createApp, no mocks)'
 
       await prisma.legalCorpusRecord.delete({ where: { id: record.id } }).catch(() => undefined);
     });
+
+    it('POST /api/legal/search returns 401 if unauthorized', async () => {
+      const res = await request(app).post('/api/legal/search').send({ query: 'strandskydd' });
+      expect(res.status).toBe(401);
+    });
+
+    it('POST /api/legal/search returns 400 if query is too short', async () => {
+      const res = await authRequest(adminToken).post('/api/legal/search').send({ query: 'a' });
+      expect(res.status).toBe(400);
+    });
+
+    it('POST /api/legal/search returns search results and meta with admin token', async () => {
+      const res = await authRequest(adminToken).post('/api/legal/search').send({ query: 'strandskydd' });
+      expect(res.status).toBe(200);
+      expect(res.body.ok).toBe(true);
+      expect(Array.isArray(res.body.results)).toBe(true);
+      expect(res.body.meta).toBeDefined();
+      expect(res.body.meta.rerankerEngine).toBeDefined();
+      expect(res.body.meta.promptVersion).toBeDefined();
+      expect(res.body.meta.rerankerStatus).toBeDefined();
+    });
   });
 
   describe('sewage.legacy-alias.routes', () => {

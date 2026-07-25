@@ -191,7 +191,7 @@ const DetailModal: React.FC<DetailModalProps> = ({ permit, onClose }) => {
               <section className="bg-white border border-slate-200 rounded-[2rem] flex-1 flex flex-col min-h-[400px] shadow-sm overflow-hidden">
                 <div className="p-4 bg-slate-50 border-b border-slate-100 flex items-center justify-between">
                   <h3 className="text-[10px] font-black text-slate-500 uppercase tracking-widest">
-                    Handläggarstöd (AI-Chatt)
+                    Utredningsstöd (AI-Chatt)
                   </h3>
                   <div className="flex gap-1">
                     <div className="w-2 h-2 rounded-full bg-green-500"></div>

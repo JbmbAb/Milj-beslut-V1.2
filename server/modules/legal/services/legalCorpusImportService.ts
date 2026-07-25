@@ -130,6 +130,7 @@ export async function collectDownloadedLegalCorpus(
     collectDivaRecords(rootDir, options),
     collectOpenSourceSweepRecords(rootDir, options),
     collectBoverketRecords(rootDir, options),
+    collectMimersBrunnDocuments(rootDir, options),
   ]);
 
   return groups
@@ -359,7 +360,12 @@ async function collectDomstolRecords(
   const manifest = await readJsonFile<{
     items?: Array<{ guid: string; title: string; link: string; savedAs: string }>;
   }>(itemsPath);
-  const feedEntries = await readDomstolFeed(feedPath);
+  if (!manifest) {
+    return [];
+  }
+  const feedEntries = (await fileExists(feedPath))
+    ? await readDomstolFeed(feedPath)
+    : new Map<string, DomstolFeedItem>();
 
   const results = await Promise.all(
     (manifest.items || []).map((item) => {
@@ -502,9 +508,16 @@ async function collectModCorpusRecords(
   options: CollectDownloadedLegalCorpusOptions,
 ): Promise<StructuredLegalCorpusRecord[]> {
   const manifestPath = path.join(rootDir, 'legal', 'mod-corpus', 'manifest.json');
+  if (!(await fileExists(manifestPath))) {
+    return [];
+  }
   const manifest = await readJsonFile<{
     items?: Array<{ guid: string; title: string; link: string; savedAs: string }>;
   }>(manifestPath);
+
+  if (!manifest) {
+    return [];
+  }
 
   const results = await Promise.all(
     (manifest.items || []).map((item) =>
@@ -551,6 +564,9 @@ async function collectMmdCorpusRecords(
   }>(manifestPath);
 
   const records: StructuredLegalCorpusRecord[] = [];
+  if (!manifest) {
+    return records;
+  }
   const overview = await materializeStructuredRecord(
     rootDir,
     {
@@ -620,6 +636,9 @@ async function collectLansstyrelserRecords(
   const manifest = await readJsonFile<{
     counties?: Array<{ id: string; title: string; url: string; savedAs: string }>;
   }>(manifestPath);
+  if (!manifest) {
+    return [];
+  }
 
   const records: StructuredLegalCorpusRecord[] = [];
   const homepage = await materializeStructuredRecord(
@@ -1156,6 +1175,9 @@ async function collectDivaRecords(
   rootDir: string,
   options: CollectDownloadedLegalCorpusOptions,
 ): Promise<StructuredLegalCorpusRecord[]> {
+  if (!(await fileExists(rootDir))) {
+    return [];
+  }
   const topEntries = await fs.readdir(rootDir, { withFileTypes: true });
   const divaDirs = topEntries.filter((entry) => entry.isDirectory() && /^diva-/i.test(entry.name));
 
@@ -1283,7 +1305,7 @@ async function collectBoverketRecords(
   const documentsDir = path.join(boverketRoot, 'forfattningar', 'dokument');
   const extraDir = path.join(boverketRoot, 'forfattningar', 'ovriga-dokument');
 
-  const metadataFiles = await fs.readdir(metadataDir);
+  const metadataFiles = (await fileExists(metadataDir)) ? await fs.readdir(metadataDir) : [];
   const records: StructuredLegalCorpusRecord[] = [];
 
   for (const metadataFile of metadataFiles) {
@@ -1363,7 +1385,7 @@ async function collectBoverketRecords(
     }
   }
 
-  const extraFiles = await fs.readdir(extraDir);
+  const extraFiles = (await fileExists(extraDir)) ? await fs.readdir(extraDir) : [];
   for (const extraFile of extraFiles) {
     const match = extraFile.match(/^([^_]+)__([0-9]{2})__(.+)\.pdf$/i);
     const baseId = match?.[1]?.toUpperCase() || fileStem(extraFile).toUpperCase();
@@ -1453,6 +1475,130 @@ async function collectBoverketRecords(
         options,
       ),
     );
+  }
+
+  return records;
+}
+
+async function collectMimersBrunnDocuments(
+  rootDir: string,
+  options: CollectDownloadedLegalCorpusOptions,
+): Promise<StructuredLegalCorpusRecord[]> {
+  const sourcesDir = path.join(rootDir, 'Documents', 'Sources');
+  if (!(await fileExists(sourcesDir))) {
+    return [];
+  }
+
+  const KNOWN_DATASETS: Record<string, { title: string; authorityName: string; legalArea: string; tags: string[] }> = {
+    atervinning_avfall_anlaggning_handbok: {
+      title: 'Naturvårdsverkets handbok för återvinning av avfall i anläggningsarbeten (Handbok 2010:1)',
+      authorityName: 'Naturvårdsverket',
+      legalArea: 'Miljö',
+      tags: ['naturvardsverket', 'återvinning', 'avfall', 'anläggningsarbeten', 'handbok', 'rag'],
+    },
+  };
+
+  const records: StructuredLegalCorpusRecord[] = [];
+  try {
+    const providers = await fs.readdir(sourcesDir);
+    for (const provider of providers) {
+      const providerPath = path.join(sourcesDir, provider);
+      const stat = await fs.stat(providerPath).catch(() => null);
+      if (!stat || !stat.isDirectory()) continue;
+
+      const datasets = await fs.readdir(providerPath);
+      for (const dataset of datasets) {
+        const datasetPath = path.join(providerPath, dataset);
+        const datasetStat = await fs.stat(datasetPath).catch(() => null);
+        if (!datasetStat || !datasetStat.isDirectory()) continue;
+
+        const versions = await fs.readdir(datasetPath);
+        for (const version of versions) {
+          const versionPath = path.join(datasetPath, version);
+          const versionStat = await fs.stat(versionPath).catch(() => null);
+          if (!versionStat || !versionStat.isDirectory()) continue;
+
+          const manifestPath = path.join(versionPath, 'manifest.json');
+          if (!(await fileExists(manifestPath))) continue;
+
+          let manifest;
+          try {
+            const raw = await fs.readFile(manifestPath, 'utf8');
+            manifest = JSON.parse(raw);
+          } catch {
+            continue;
+          }
+
+          const rawFileNames: any[] = manifest.files || [];
+          const fileNames: string[] = [];
+          for (const f of rawFileNames) {
+            if (typeof f === 'string') {
+              fileNames.push(f);
+            }
+          }
+          if (fileNames.length === 0) {
+            const allFiles = await fs.readdir(versionPath);
+            for (const f of allFiles) {
+              if (typeof f === 'string') {
+                fileNames.push(f);
+              }
+            }
+          }
+
+          const docFiles = fileNames.filter(f => f.toLowerCase().endsWith('.pdf') || f.toLowerCase().endsWith('.txt'));
+          for (const docFile of docFiles) {
+            const relativeDocPath = path.join('Documents', 'Sources', provider, dataset, version, docFile);
+            const fullDocPath = path.join(rootDir, relativeDocPath);
+            if (!(await fileExists(fullDocPath))) continue;
+
+            const known = KNOWN_DATASETS[dataset];
+            const title = known ? known.title : `${humanizeIdentifier(dataset)}${version ? ` (${version})` : ''}`;
+            const authorityName = known ? known.authorityName : humanizeIdentifier(provider);
+            const legalArea = known ? known.legalArea : inferLegalArea(title);
+            const tags = known ? known.tags : [normalizeSearchToken(provider), 'pdf', 'publikation', 'mimers-brunn'];
+
+            const mimeType = docFile.toLowerCase().endsWith('.pdf') ? 'application/pdf' : 'text/plain';
+            const formatHint = docFile.toLowerCase().endsWith('.pdf') ? 'pdf' : 'txt';
+
+            const record = await materializeStructuredRecord(
+              rootDir,
+              {
+                sourceFamily: provider.toUpperCase(),
+                sourceSystem: provider.toUpperCase(),
+                sourceType: provider.toUpperCase() + '_MIMERS_BRUNN_DOCUMENT',
+                sourcePath: relativeDocPath,
+                recordKey: toKey('mimers-brunn-' + dataset, docFile),
+                canonicalKey: toKey('mimers-brunn', docFile),
+                externalId: docFile,
+                title,
+                summary: title,
+                sourceUrl: manifest.source_url || undefined,
+                normalizedUrl: manifest.source_url || undefined,
+                authorityName,
+                authorityType: 'Myndighet',
+                legalArea,
+                mimeType,
+                formatHint,
+                metadata: {
+                  manifest,
+                  provider,
+                  dataset,
+                  version,
+                },
+                tags,
+              },
+              options,
+            );
+
+            if (record) {
+              records.push(record);
+            }
+          }
+        }
+      }
+    }
+  } catch (error) {
+    console.error('[legalCorpusImportService] Failed to collect Mimers Brunn document records:', error);
   }
 
   return records;

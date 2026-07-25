@@ -68,6 +68,15 @@ const HARVEST_JOBS: HarvestJob[] = [
     fileName: 'handbok-lokalisering.pdf',
     url: 'https://www.naturvardsverket.se/download/18.1587373f150f146a782b6b0c/1474548482618/handbok-lokalisering.pdf',
     description: 'Naturvårdsverkets handbok för lokaliseringsutredningar enligt miljöbalken'
+  },
+  {
+    id: 'nv_atervinning_avfall_anlaggning_2010_1',
+    provider: 'Naturvardsverket',
+    dataset: 'atervinning_avfall_anlaggning_handbok',
+    version: '2010-1',
+    fileName: 'handbok-atervinning-avfall-anlaggning-2010-1.pdf',
+    url: 'https://www.naturvardsverket.se/globalassets/media/publikationer-pdf/0100/978-91-620-0164-3.pdf',
+    description: 'Naturvårdsverkets handbok för återvinning av avfall i anläggningsarbeten (Handbok 2010:1)'
   }
 ];
 

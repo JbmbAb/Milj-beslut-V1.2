@@ -5,6 +5,7 @@ import {
 } from '../../../../services/legalRerankService';
 import { prisma } from '../../../../db/prisma';
 import { parseLegalReference } from '../../../legal/services/legalReferenceParser';
+import { logger } from '../../../../logger';
 
 export { localLexicalRerank } from '../../../../services/legalRerankService';
 
@@ -328,9 +329,32 @@ export async function searchLegalCorpusHandler(args: { query: string; legalArea?
       .slice(0, config.rrfCandidateLimit);
 
     if (sortedChunkIds.length === 0) {
+      logger.info('searchLegalCorpus completed', {
+        rerankerEngine: 'none',
+        rerankerStatus: 'disabled',
+        promptVersion: 'not-triggered',
+        exactCount: exactResults.length,
+        ftsCount: ftsResults.length,
+        vectorCount: vectorResults.length,
+        latencyMs: retrievalMs,
+      });
+
       return {
         message: `Inga miljödomar eller lagrum hittades som matchade sökningen "${trimmedQuery}".`,
         results: [],
+        meta: {
+          topK: config.rerankerEnabled ? config.rerankerFinalK : config.rrfCandidateLimit,
+          rrfCandidateLimit: config.rrfCandidateLimit,
+          exactCount: exactResults.length,
+          ftsCount: ftsResults.length,
+          vectorCount: vectorResults.length,
+          latencyMs: retrievalMs,
+          rerankerEnabled: config.rerankerEnabled,
+          rerankerStatus: 'disabled' as const,
+          rerankerEngine: 'none' as const,
+          promptVersion: 'not-triggered',
+          relativeGapSkip: config.relativeGapSkip,
+        },
       };
     }
 
@@ -466,6 +490,16 @@ export async function searchLegalCorpusHandler(args: { query: string; legalArea?
           .filter((row): row is MappedResult => row != null);
       }
     }
+
+    logger.info('searchLegalCorpus completed', {
+      rerankerEngine,
+      rerankerStatus,
+      promptVersion,
+      exactCount: exactResults.length,
+      ftsCount: ftsResults.length,
+      vectorCount: vectorResults.length,
+      latencyMs: retrievalMs,
+    });
 
     return {
       results: finalResults,

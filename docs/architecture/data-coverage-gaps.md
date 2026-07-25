@@ -26,6 +26,7 @@ Kärndataset som redan är stängda enligt golden rule dokumenteras i `storage/m
 |---------|--------|-------|
 | LM nationell: fastighetsytor, linjer, byggnad, marktäcke | **Klart** | 14/14 verified i `archive-local-verify-registry.json` (2026-06-26) |
 | SGU Tier 1 + Tier 2 kärndataset | **Klart** | Samma audit; Stranderosion + Jordarter750k promotade 2026-06-26 |
+| SGU Miljögifter (analys + provplats), SGU-HYPE Klimatindikatorer (historisk, rcp, områden) & Genomsläpplighet | **Klart** | Integrerade i central importRegistry.ts och sguHarvestSources.ts (2026-07-25) |
 
 ---
 

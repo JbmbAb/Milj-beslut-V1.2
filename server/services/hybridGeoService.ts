@@ -145,3 +145,46 @@ export async function tryFetchLocalProtectionData(lat: number, lng: number): Pro
     return null;
   }
 }
+
+/**
+ * Hämtar de närmaste SGU-brunnarna inom 500m från en viss punkt.
+ */
+export async function tryFetchLocalSguWellData(lat: number, lng: number): Promise<any[] | null> {
+  try {
+    const result = await prisma.$queryRaw<any[]>`
+      SELECT 
+        brunnsid::text AS brunnsid,
+        fastighet,
+        anvandning,
+        totaldjup,
+        kapacitet,
+        ST_Distance(geom, ST_Transform(ST_SetSRID(ST_MakePoint(${lng}, ${lat}), 4326), 3006)) as distance_meters
+      FROM env.sgu_well_actual
+      WHERE geom IS NOT NULL
+        AND ST_DWithin(geom, ST_Transform(ST_SetSRID(ST_MakePoint(${lng}, ${lat}), 4326), 3006), 500)
+      ORDER BY distance_meters ASC
+      LIMIT 10;
+    `;
+    return result.length > 0 ? result : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Hämtar SGU genomsläpplighets-data för en punkt.
+ */
+export async function tryFetchLocalSguPermeabilityData(lat: number, lng: number): Promise<any | null> {
+  try {
+    const result = await prisma.$queryRaw<any[]>`
+      SELECT genomslapp, genomslapp_tx, jg2, jg2_tx
+      FROM env.sgu_permeability
+      WHERE ST_Intersects(geom, ST_Transform(ST_SetSRID(ST_MakePoint(${lng}, ${lat}), 4326), 3006))
+      LIMIT 1;
+    `;
+    return result[0] || null;
+  } catch {
+    return null;
+  }
+}
+

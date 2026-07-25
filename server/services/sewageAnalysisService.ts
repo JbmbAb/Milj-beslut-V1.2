@@ -9,7 +9,9 @@ import type { SewageGISAnalysis, SewageProtectionProfile, SewageSystemTypeId } f
 import { 
   tryFetchLocalPropertyGeometry, 
   tryFetchLocalSguData, 
-  tryFetchLocalProtectionData 
+  tryFetchLocalProtectionData,
+  tryFetchLocalSguWellData,
+  tryFetchLocalSguPermeabilityData
 } from './hybridGeoService';
 import { logger } from '../logger';
 
@@ -41,23 +43,64 @@ export async function analyzeSewageProperty(request: SewageAnalysisRequest): Pro
     // Use coordinates from request if available, otherwise from property record
     const lat = request.latitude;
     const lng = request.longitude;
-    
-    // If property was found but no lat/lng provided, we could extract centroid from GeoJSON if needed
-    // For now we trust the request coords or use defaults
 
-    // 2. Fetch SGU geological data from local PostGIS
+    // 2. Fetch SGU geological & permeability data from local PostGIS
     const localSgu = await tryFetchLocalSguData(lat, lng);
+    const localPermeability = await tryFetchLocalSguPermeabilityData(lat, lng);
+    const permeabilityLabel = localPermeability?.genomslapp_tx || 'Okänd genomsläpplighet';
+    
+    let loadingCapacity: 'LOW' | 'MEDIUM' | 'HIGH' = 'MEDIUM';
+    if (localPermeability) {
+      const tx = (localPermeability.genomslapp_tx || '').toLowerCase();
+      if (tx.includes('mycket hög') || tx.includes('hög') || tx.includes('god')) {
+        loadingCapacity = 'HIGH';
+      } else if (tx.includes('medel') || tx.includes('måttlig')) {
+        loadingCapacity = 'MEDIUM';
+      } else if (tx.includes('låg') || tx.includes('mycket låg') || tx.includes('svag') || tx.includes('tät')) {
+        loadingCapacity = 'LOW';
+      }
+    } else if (localSgu) {
+      const tx = (localSgu.jg2_tx || '').toLowerCase();
+      if (tx.includes('grus') || tx.includes('sand')) {
+        loadingCapacity = 'HIGH';
+      } else if (tx.includes('lera') || tx.includes('silt')) {
+        loadingCapacity = 'LOW';
+      }
+    }
+
     const sguData = {
-      soilType: localSgu?.jordart || 'Okänd',
+      soilType: localPermeability?.jg2_tx || localSgu?.jordart || 'Okänd',
       depthToRock: 0, 
       groundwaterLevel: 0,
-      loadingCapacity: (localSgu?.jg2_tx || '').toLowerCase().includes('hög') ? 'LOW' : 'MEDIUM' as 'LOW'|'MEDIUM'|'HIGH',
+      loadingCapacity,
+      permeabilityLabel,
     };
 
-    // 3. Fetch SGU well/brunn data (Local placeholder for now)
+    // 3. Fetch SGU well/brunn data from local PostGIS
+    const localWells = await tryFetchLocalSguWellData(lat, lng);
+    let nearestOwnWell = { distance: 500, coordinates: { lat, lng }, usage: 'Okänd', totaldjup: 0 };
+    let nearestNeighborWells: any[] = [];
+    
+    if (localWells && localWells.length > 0) {
+      const nearest = localWells[0];
+      nearestOwnWell = {
+        distance: Math.round(Number(nearest.distance_meters)),
+        coordinates: { lat, lng },
+        usage: nearest.anvandning || 'Okänd',
+        totaldjup: Number(nearest.totaldjup) || 0,
+      };
+      
+      nearestNeighborWells = localWells.slice(1).map(w => ({
+        distance: Math.round(Number(w.distance_meters)),
+        fastighet: w.fastighet || 'Okänd fastighet',
+        usage: w.anvandning || 'Okänd',
+        totaldjup: Number(w.totaldjup) || 0,
+      }));
+    }
+
     const brunnarData = {
-      nearestOwnWell: { distance: 60, coordinates: { lat, lng } },
-      nearestNeighborWells: [],
+      nearestOwnWell,
+      nearestNeighborWells,
     };
 
     // 4. Fetch Protected Areas from local PostGIS (NVR + Natura 2000)
@@ -149,10 +192,13 @@ function determineSystemsAndRisks(
   // Check soil capacity
   if (sguData.loadingCapacity === 'HIGH') {
     recommendedSystems.push('INFILTRATION', 'SOIL_BED');
-    reasoning.push('Jorden har god infiltrationskapacitet (PostGIS-match).');
+    reasoning.push(`Jorden (${sguData.soilType}) har hög infiltrationskapacitet (${sguData.permeabilityLabel}). Infiltration eller markbädd rekommenderas.`);
+  } else if (sguData.loadingCapacity === 'MEDIUM') {
+    recommendedSystems.push('SOIL_BED', 'MINI_PLANT_BDTA');
+    reasoning.push(`Jorden (${sguData.soilType}) har måttlig infiltrationskapacitet (${sguData.permeabilityLabel}). Markbädd eller minireningsverk rekommenderas.`);
   } else {
     recommendedSystems.push('MINI_PLANT_BDTA', 'CLOSED_TANK');
-    reasoning.push('Tätare jordart identifierad via SGU-lagret.');
+    reasoning.push(`RISK: Tät jordart identifierad (${sguData.soilType}, ${sguData.permeabilityLabel}). Traditionell infiltration är olämplig.`);
   }
 
   // Check protected areas

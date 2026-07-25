@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { Sparkles, FileText, FileDown, CheckSquare, Send, CheckCircle2, AlertTriangle, ShieldCheck, MapPin, Layers, Scale, Bookmark, Eye, Activity, HelpCircle, RefreshCw, ChevronRight } from 'lucide-react';
+import { Sparkles, FileText, FileDown, CheckSquare, Send, CheckCircle2, AlertTriangle, ShieldCheck, MapPin, Layers, Scale, Bookmark, Eye, Activity, HelpCircle, RefreshCw, ChevronRight, Calculator, Leaf, TrendingUp } from 'lucide-react';
 import { callApi, getActiveProjectId } from '../../../../services/coreApiClient';
 import { isSensitiveAreaFromMassGis } from '../../../../services/massSpatialSensitivity';
 import type { MassGISAnalysis, MassSiteProfile, MpfDecisionSummary } from '../../../../types';
@@ -174,6 +174,190 @@ export const CNotificationMassUI: React.FC = () => {
     { id: 'c3', label: 'Skapa bullerdämpande skyddsvall mot bostäder i söder', checked: false }
   ]);
 
+  // --- Dynamic Inline Calculators State ---
+  // Stormwater Detention P110 States
+  const [p1AreaM2, setP1AreaM2] = useState(15400);
+  const [p1Runoff, setP1Runoff] = useState(0.8);
+  const [p1ReturnPeriod, setP1ReturnPeriod] = useState(10);
+  const [p1ClimateFactor, setP1ClimateFactor] = useState(1.25);
+  const [p1AllowedOutflow, setP1AllowedOutflow] = useState(15);
+
+  // VA Climate & Geokalkyl States
+  const [trenchLength, setTrenchLength] = useState(100);
+  const [trenchWidth, setTrenchWidth] = useState(1.2);
+  const [trenchDepth, setTrenchDepth] = useState(1.8);
+  const [reusePercent, setReusePercent] = useState(60);
+  const [pipeMaterial, setPipeMaterial] = useState<'PVC' | 'PE' | 'PP' | 'CONCRETE' | 'DUCTILE_IRON'>('PE');
+  const [pipeDiameter, setPipeDiameter] = useState(160);
+  const [transportDistance, setTransportDistance] = useState(25);
+  const [localGroundType, setLocalGroundType] = useState<'fast' | 'mellanfast' | 'svag'>('mellanfast');
+
+  // SGU Groundwater Model States
+  const [gwK, setGwK] = useState<number>(0.0001); // K-värde (m/s)
+  const [gwS, setGwS] = useState<number>(1.5); // Avsänkning s (m)
+  const [gwH, setGwH] = useState<number>(5.0); // Magasinstjocklek H (m)
+  const [gwRw, setGwRw] = useState<number>(2.5); // Schaktradie rw (m)
+
+  // LTAR Sewage Infiltration States
+  const [sewagePe, setSewagePe] = useState<number>(5); // Antal personer (PE)
+  const [sewageLtar, setSewageLtar] = useState<number>(15); // LTAR (l/m²/dygn)
+  const [dailyFlowPerPe, setDailyFlowPerPe] = useState<number>(170); // Flöde per PE och dygn (l)
+
+
+  // --- Calculator Mathematical Engines ---
+  const dahlstromIntensity = (months: number, duration: number) => {
+    const d = Math.max(5, duration);
+    const t = Math.max(1, months);
+    return 190 * Math.pow(t, 1/3) * Math.log(d) / Math.pow(d, 0.98) + 2;
+  };
+
+  const getPipeWeightPerMeter = (material: string, diameterMm: number): number => {
+    switch (material) {
+      case 'PVC':
+      case 'PE':
+      case 'PP':
+        return 0.00011 * Math.pow(diameterMm, 2);
+      case 'CONCRETE':
+        return 0.001 * Math.pow(diameterMm, 2);
+      case 'DUCTILE_IRON':
+        return 0.0006 * Math.pow(diameterMm, 2);
+      default:
+        return 0;
+    }
+  };
+
+  const PIPE_EMISSION_FACTORS: Record<string, number> = {
+    PVC: 2.5,
+    PE: 2.0,
+    PP: 1.8,
+    CONCRETE: 0.15,
+    DUCTILE_IRON: 1.6,
+  };
+
+  const calculateLocalStormwater = (areaM2: number, runoff: number, returnPeriod: number, climateFactor: number, allowedOutflow: number) => {
+    const catchmentAreaHa = areaM2 / 10000;
+    const reducedAreaHa = catchmentAreaHa * runoff;
+    const returnPeriodMonths = returnPeriod * 12;
+
+    const sweepDurations = [5, 10, 15, 20, 25, 30, 45, 60, 90, 120, 180, 240, 360, 480, 720, 1440];
+    let maxRequiredVolumeM3 = 0;
+    let criticalDurationMinutes = 5;
+
+    for (const d of sweepDurations) {
+      const intens = dahlstromIntensity(returnPeriodMonths, d);
+      const inflow = reducedAreaHa * intens * climateFactor;
+      const vol = Math.max(0, (inflow - allowedOutflow) * d * 60 / 1000);
+
+      if (vol > maxRequiredVolumeM3) {
+        maxRequiredVolumeM3 = vol;
+        criticalDurationMinutes = d;
+      }
+    }
+
+    const currentIntensity = dahlstromIntensity(returnPeriodMonths, 15);
+    const currentInflow = reducedAreaHa * currentIntensity * climateFactor;
+
+    return {
+      inflowLs: Math.round(currentInflow * 10) / 10,
+      requiredVolumeM3: Math.round(maxRequiredVolumeM3 * 10) / 10,
+      criticalDurationMinutes,
+    };
+  };
+
+  const calculateLocalVaProjectClimate = (
+    trenchLengthM: number,
+    trenchWidthM: number,
+    trenchDepthM: number,
+    reusePercentage: number,
+    pipeMat: string,
+    pipeDiameterMm: number,
+    transportDistanceKm: number
+  ) => {
+    const excavatedVolumeM3 = trenchLengthM * trenchWidthM * trenchDepthM;
+    const soilDensityTonM3 = 1.8;
+    const excavatedWeightTons = excavatedVolumeM3 * soilDensityTonM3;
+
+    const EXCAVATION_FACTOR_KG_CO2E_PER_M3 = 3.5;
+    const excavationEmissionsKgCo2e = excavatedVolumeM3 * EXCAVATION_FACTOR_KG_CO2E_PER_M3;
+
+    const weightPerMeter = getPipeWeightPerMeter(pipeMat, pipeDiameterMm);
+    const totalPipeWeightKg = weightPerMeter * trenchLengthM;
+    const emissionFactor = PIPE_EMISSION_FACTORS[pipeMat] || 2.0;
+    const pipeMaterialEmissionsKgCo2e = totalPipeWeightKg * emissionFactor;
+
+    const massToTransportAwayTons = excavatedWeightTons * (1 - reusePercentage / 100);
+    const massToImportTons = excavatedWeightTons * (1 - reusePercentage / 100);
+    const pipesToImportTons = totalPipeWeightKg / 1000;
+    const totalTransportWeightTons = massToTransportAwayTons + massToImportTons + pipesToImportTons;
+
+    const TRANSPORT_FACTOR_KG_CO2E_PER_TON_KM = 0.08;
+    const transportEmissionsKgCo2e = totalTransportWeightTons * transportDistanceKm * TRANSPORT_FACTOR_KG_CO2E_PER_TON_KM;
+
+    const totalEmissionsKgCo2e = excavationEmissionsKgCo2e + pipeMaterialEmissionsKgCo2e + transportEmissionsKgCo2e;
+
+    return {
+      excavatedVolumeM3: Math.round(excavatedVolumeM3 * 10) / 10,
+      excavationEmissionsKgCo2e: Math.round(excavationEmissionsKgCo2e),
+      pipeMaterialEmissionsKgCo2e: Math.round(pipeMaterialEmissionsKgCo2e),
+      transportEmissionsKgCo2e: Math.round(transportEmissionsKgCo2e),
+      totalEmissionsKgCo2e: Math.round(totalEmissionsKgCo2e),
+      totalPipeWeightKg: Math.round(totalPipeWeightKg),
+    };
+  };
+
+  const calculateLocalGeokalkylCost = (lengthM: number, ground: 'fast' | 'mellanfast' | 'svag') => {
+    const baseCost = 1250;
+    let complexityMultiplier = 1.0;
+
+    if (ground === 'fast') {
+      complexityMultiplier = 1.40;
+    } else if (ground === 'svag') {
+      complexityMultiplier = 1.30;
+    }
+
+    const estimatedCost = lengthM * baseCost * complexityMultiplier;
+    return {
+      multiplier: complexityMultiplier,
+      estimatedCost: Math.round(estimatedCost),
+    };
+  };
+
+  const calculateLocalGroundwaterInfluence = (k: number, s: number, h: number, rw: number) => {
+    // Sichardt's formula for influence radius R
+    const rSichardt = 3000 * s * Math.sqrt(k);
+    
+    // Ensure R is larger than rw
+    const finalR = Math.max(rw + 0.1, rSichardt);
+
+    // Radial flow Dupuit-Thiem Q (m3/s)
+    let flowRateM3s = 0;
+    try {
+      flowRateM3s = (Math.PI * k * (Math.pow(h, 2) - Math.pow(h - s, 2))) / Math.log(finalR / rw);
+    } catch (err) {
+      flowRateM3s = 0;
+    }
+
+    // Convert m3/s to l/m (liters per minute)
+    const flowRateLpm = flowRateM3s * 1000 * 60;
+
+    return {
+      radiusM: Math.round(finalR * 10) / 10,
+      flowRateLpm: Math.round(flowRateLpm * 10) / 10,
+      drawdownM: s,
+    };
+  };
+
+  const calculateLocalSewageInfiltration = (pe: number, ltar: number, flowPerPe: number) => {
+    const dailyFlowL = pe * flowPerPe;
+    const requiredAreaM2 = dailyFlowL / ltar;
+    return {
+      dailyFlowL,
+      requiredAreaM2: Math.round(requiredAreaM2 * 10) / 10,
+    };
+  };
+
+
+
   // Sync active step to Operations Center Context on Mount
   useEffect(() => {
     setActiveStep(4); // 4. Dokumentera (Compliance Mode)
@@ -192,7 +376,7 @@ export const CNotificationMassUI: React.FC = () => {
           'Logistik': gisAnalysis.logisticsSuitability || '—',
         },
         confidence: 96,
-        explainText: 'Detta är handläggarstödet för C-anmälan. Redigera anmälans textblock till höger. Klicka på valfritt stycke för att granska tillämpliga lagar, föreskrifter och Naturvårdsverkets riktvärden live.',
+        explainText: 'Detta är utredningsstödet för C-anmälan (Konsultläge). Redigera anmälans textblock till höger. Klicka på valfritt stycke för att granska tillämpliga lagar, föreskrifter och Naturvårdsverkets riktvärden live.',
         sources: [
           { id: 'nvv-mrr', title: 'Naturvårdsverket MRR-riktlinjer', type: 'Vägledning' },
           { id: 'sgufs-2023', title: 'SGU-FS 2023:1 Brunnsskydd', type: 'Vägledning' }
@@ -210,7 +394,7 @@ export const CNotificationMassUI: React.FC = () => {
           'Logistik': '—',
         },
         confidence: 96,
-        explainText: 'Detta är handläggarstödet för C-anmälan. Ange en fastighetsbeteckning till vänster och kör GIS-analysen för att hämta fastighetsdetaljer, miljörestriktioner och RAG-underlag.',
+        explainText: 'Detta är utredningsstödet för C-anmälan (Konsultläge). Ange en fastighetsbeteckning till vänster och kör GIS-analysen för att hämta fastighetsdetaljer, miljörestriktioner och RAG-underlag.',
         sources: [
           { id: 'nvv-mrr', title: 'Naturvårdsverket MRR-riktlinjer', type: 'Vägledning' },
           { id: 'sgufs-2023', title: 'SGU-FS 2023:1 Brunnsskydd', type: 'Vägledning' }
@@ -707,7 +891,7 @@ export const CNotificationMassUI: React.FC = () => {
                           ...res.export,
                           exportedAt: new Date().toISOString(),
                           humanInTheLoop:
-                            'Underlaget är AI-assisterat. Handläggare ska verifiera uppgifterna innan myndighetsinlämning.',
+                            'Underlaget är AI-assisterat utredningsstöd. Konsulten ansvarar för verifiering av uppgifterna inför myndighetsinlämning.',
                         },
                       },
                     });
@@ -926,9 +1110,9 @@ export const CNotificationMassUI: React.FC = () => {
 
               {/* Notion-style Block 3: Platsanalys */}
               <div 
-                onClick={() => handleBlockSelect('block-gis')}
+                onClick={() => handleBlockSelect('block-gis-desc')}
                 className={`p-3 rounded-xl border cursor-pointer transition-all ${
-                  selectedBlock === 'block-gis' 
+                  selectedBlock === 'block-gis-desc' 
                     ? (isDark ? 'bg-cyan-950/15 border-cyan-500/60 shadow-[0_0_8px_rgba(6,182,212,0.1)]' : 'bg-indigo-50/40 border-indigo-500/50')
                     : (isDark ? 'bg-slate-950/25 border-transparent hover:border-slate-800' : 'bg-slate-50/30 border-transparent hover:border-slate-200')
                 }`}
@@ -947,9 +1131,9 @@ export const CNotificationMassUI: React.FC = () => {
 
               {/* Notion-style Block 4: Skyddsåtgärder */}
               <div 
-                onClick={() => handleBlockSelect('block-precautions')}
+                onClick={() => handleBlockSelect('block-precautions-desc')}
                 className={`p-3 rounded-xl border cursor-pointer transition-all ${
-                  selectedBlock === 'block-precautions' 
+                  selectedBlock === 'block-precautions-desc' 
                     ? (isDark ? 'bg-cyan-950/15 border-cyan-500/60 shadow-[0_0_8px_rgba(6,182,212,0.1)]' : 'bg-indigo-50/40 border-indigo-500/50')
                     : (isDark ? 'bg-slate-950/25 border-transparent hover:border-slate-800' : 'bg-slate-50/30 border-transparent hover:border-slate-200')
                 }`}
@@ -1199,6 +1383,359 @@ export const CNotificationMassUI: React.FC = () => {
                       <CheckSquare size={13} />
                       Infoga AI-förslag
                     </button>
+
+                    {/* Stormwater P110 Interactive Card (Section 3: Platsanalys & Miljöbedömning) */}
+                    {selectedBlock === 'block-gis-desc' && (
+                      <div className={`p-3 rounded-xl border mt-3 space-y-3 ${
+                        isDark ? 'bg-slate-900/40 border-cyan-900/30' : 'bg-slate-50 border-slate-200'
+                      }`}>
+                        <div className="flex items-center gap-1.5 border-b border-slate-800/10 dark:border-slate-800/30 pb-2">
+                          <TrendingUp size={12} className="text-cyan-400" />
+                          <span className="text-[10px] font-black uppercase text-slate-300">P110 Dagvattenkalkyl</span>
+                        </div>
+                        <div className="grid grid-cols-2 gap-2 text-[10px]">
+                          <div>
+                            <label className="text-slate-400 block mb-0.5">Avrinningsyta (m²)</label>
+                            <input
+                              type="number"
+                              value={p1AreaM2}
+                              onChange={(e) => setP1AreaM2(Number(e.target.value))}
+                              className="w-full bg-slate-950/80 border border-slate-800 rounded px-1.5 py-0.5 font-semibold text-slate-200 focus:outline-none"
+                            />
+                          </div>
+                          <div>
+                            <label className="text-slate-400 block mb-0.5">Avrinningskoeff. (φ)</label>
+                            <input
+                              type="number"
+                              step="0.05"
+                              value={p1Runoff}
+                              onChange={(e) => setP1Runoff(Number(e.target.value))}
+                              className="w-full bg-slate-950/80 border border-slate-800 rounded px-1.5 py-0.5 font-semibold text-slate-200 focus:outline-none"
+                            />
+                          </div>
+                          <div>
+                            <label className="text-slate-400 block mb-0.5">Återkomsttid (år)</label>
+                            <input
+                              type="number"
+                              value={p1ReturnPeriod}
+                              onChange={(e) => setP1ReturnPeriod(Number(e.target.value))}
+                              className="w-full bg-slate-950/80 border border-slate-800 rounded px-1.5 py-0.5 font-semibold text-slate-200 focus:outline-none"
+                            />
+                          </div>
+                          <div>
+                            <label className="text-slate-400 block mb-0.5">Tillåtet flöde (l/s)</label>
+                            <input
+                              type="number"
+                              value={p1AllowedOutflow}
+                              onChange={(e) => setP1AllowedOutflow(Number(e.target.value))}
+                              className="w-full bg-slate-950/80 border border-slate-800 rounded px-1.5 py-0.5 font-semibold text-slate-200 focus:outline-none"
+                            />
+                          </div>
+                        </div>
+
+                        {/* Display Results */}
+                        {(() => {
+                          const results = calculateLocalStormwater(p1AreaM2, p1Runoff, p1ReturnPeriod, p1ClimateFactor, p1AllowedOutflow);
+                          return (
+                            <div className="bg-slate-950/40 p-2 rounded border border-slate-850 space-y-1.5 text-[11px]">
+                              <div className="flex justify-between">
+                                <span className="text-slate-400">Erforderlig volym:</span>
+                                <span className="font-bold text-cyan-400 font-mono">{results.requiredVolumeM3} m³</span>
+                              </div>
+                              <div className="flex justify-between">
+                                <span className="text-slate-400">Dimensionerande flöde:</span>
+                                <span className="font-bold text-slate-300 font-mono">{results.inflowLs} l/s</span>
+                              </div>
+                              <div className="flex justify-between">
+                                <span className="text-slate-400">Kritisk regnvaraktighet:</span>
+                                <span className="font-bold text-slate-300 font-mono">{results.criticalDurationMinutes} min</span>
+                              </div>
+
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  const text = `\n\n[Svenskt Vatten P110 dimensionering genomförd: Erforderlig magasinsvolym beräknas till ${results.requiredVolumeM3} m³ baserat på dimensionerande flöde ${results.inflowLs} l/s och tillåtet utflöde ${p1AllowedOutflow} l/s vid kritisk regnvaraktighet ${results.criticalDurationMinutes} min (återkomsttid ${p1ReturnPeriod} år, klimatfaktor ${p1ClimateFactor})].`;
+                                  setBlocks(prev => ({
+                                    ...prev,
+                                    'block-gis-desc': (prev['block-gis-desc'] || '').trim() + text
+                                  }));
+                                  addAiActivity('Infogade dagvattenkalkyl P110 i dokumentavsnitt 3.', 'success');
+                                }}
+                                className="w-full mt-2 py-1 px-2 rounded bg-cyan-950/60 border border-cyan-800 text-[10px] font-bold text-cyan-300 uppercase tracking-wide hover:bg-cyan-900/60 flex items-center justify-center gap-1 transition-all"
+                              >
+                                <Calculator size={11} />
+                                Infoga kalkyl i texten
+                              </button>
+                            </div>
+                          );
+                        })()}
+                      </div>
+                    )}
+
+                    {/* VA Climate & SGI Geokalkyl Interactive Card (Section 2: Clean & Polluted Massor) */}
+                    {(selectedBlock === 'block-ewc-clean-desc' || selectedBlock === 'block-ewc-polluted-desc') && (
+                      <div className={`p-3 rounded-xl border mt-3 space-y-3 ${
+                        isDark ? 'bg-slate-900/40 border-cyan-900/30' : 'bg-slate-50 border-slate-200'
+                      }`}>
+                        <div className="flex items-center gap-1.5 border-b border-slate-800/10 dark:border-slate-800/30 pb-2">
+                          <Leaf size={12} className="text-emerald-400" />
+                          <span className="text-[10px] font-black uppercase text-slate-300">Klimat- & Geokalkyl</span>
+                        </div>
+                        
+                        {/* Grid of Inputs */}
+                        <div className="grid grid-cols-2 gap-2 text-[10px]">
+                          <div>
+                            <label className="text-slate-400 block mb-0.5">Ledningslängd (m)</label>
+                            <input
+                              type="number"
+                              value={trenchLength}
+                              onChange={(e) => setTrenchLength(Number(e.target.value))}
+                              className="w-full bg-slate-950/80 border border-slate-800 rounded px-1.5 py-0.5 font-semibold text-slate-200 focus:outline-none"
+                            />
+                          </div>
+                          <div>
+                            <label className="text-slate-400 block mb-0.5">Återanvändning (%)</label>
+                            <input
+                              type="number"
+                              value={reusePercent}
+                              onChange={(e) => setReusePercent(Number(e.target.value))}
+                              className="w-full bg-slate-950/80 border border-slate-800 rounded px-1.5 py-0.5 font-semibold text-slate-200 focus:outline-none"
+                            />
+                          </div>
+                          <div>
+                            <label className="text-slate-400 block mb-0.5">Rörmaterial</label>
+                            <select
+                              value={pipeMaterial}
+                              onChange={(e: any) => setPipeMaterial(e.target.value)}
+                              className="w-full bg-slate-950 border border-slate-800 rounded px-1.5 py-0.5 font-semibold text-slate-200 focus:outline-none text-[9px]"
+                            >
+                              <option value="PE">PE-HD (Plast)</option>
+                              <option value="PVC">PVC (Standard)</option>
+                              <option value="CONCRETE">Betong</option>
+                              <option value="DUCTILE_IRON">Segjärn</option>
+                            </select>
+                          </div>
+                          <div>
+                            <label className="text-slate-400 block mb-0.5">Markförhållande (SGI)</label>
+                            <select
+                              value={localGroundType}
+                              onChange={(e: any) => setLocalGroundType(e.target.value)}
+                              className="w-full bg-slate-950 border border-slate-800 rounded px-1.5 py-0.5 font-semibold text-slate-200 focus:outline-none text-[9px]"
+                            >
+                              <option value="mellanfast">Mellanfast (Sand/Silt)</option>
+                              <option value="fast">Fast mark (Berg/Morän)</option>
+                              <option value="svag">Svag mark (Lera/Torv)</option>
+                            </select>
+                          </div>
+                        </div>
+
+                        {/* Display Results */}
+                        {(() => {
+                          const clim = calculateLocalVaProjectClimate(trenchLength, trenchWidth, trenchDepth, reusePercent, pipeMaterial, pipeDiameter, transportDistance);
+                          const costRes = calculateLocalGeokalkylCost(trenchLength, localGroundType);
+                          return (
+                            <div className="bg-slate-950/40 p-2 rounded border border-slate-850 space-y-1.5 text-[11px]">
+                              <div className="flex justify-between">
+                                <span className="text-slate-400">Total klimatpåverkan:</span>
+                                <span className="font-bold text-emerald-400 font-mono">{(clim.totalEmissionsKgCo2e / 1000).toFixed(2)} t CO2e</span>
+                              </div>
+                              <div className="flex justify-between text-[10px] pl-2">
+                                <span className="text-slate-500">- Rör & Material:</span>
+                                <span className="text-slate-400 font-mono">{clim.pipeMaterialEmissionsKgCo2e} kg</span>
+                              </div>
+                              <div className="flex justify-between text-[10px] pl-2">
+                                <span className="text-slate-500">- Transport & Maskin:</span>
+                                <span className="text-slate-400 font-mono">{clim.excavationEmissionsKgCo2e + clim.transportEmissionsKgCo2e} kg</span>
+                              </div>
+                              <div className="flex justify-between border-t border-slate-800/40 pt-1">
+                                <span className="text-slate-400">Est. Anläggningskostnad:</span>
+                                <span className="font-bold text-amber-400 font-mono">{costRes.estimatedCost.toLocaleString()} SEK</span>
+                              </div>
+                              <div className="flex justify-between text-[9px] pl-2">
+                                <span className="text-slate-500">- Komplexitetsfaktor (SGI):</span>
+                                <span className="text-slate-400 font-mono">x{costRes.multiplier.toFixed(2)}</span>
+                              </div>
+
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  const activeKey = selectedBlock!;
+                                  const text = `\n\n[Klimatpåverkan beräknas till ${(clim.totalEmissionsKgCo2e / 1000).toFixed(2)} ton CO2e för ${trenchLength}m ledning (${pipeMaterial} DN${pipeDiameter}). Estimerad anläggningskostnad enligt SGI Geokalkyl justerad för ${localGroundType === 'fast' ? 'fast berg (sprängning krävs)' : localGroundType === 'svag' ? 'svag lera (spontning krävs)' : 'mellanfast mark'} uppgår till ${costRes.estimatedCost.toLocaleString()} SEK (faktor x${costRes.multiplier.toFixed(2)})].`;
+                                  setBlocks(prev => ({
+                                    ...prev,
+                                    [activeKey]: (prev[activeKey] || '').trim() + text
+                                  }));
+                                  addAiActivity(`Infogade klimat- & geokalkyl i dokumentavsnitt: ${activeKey}`, 'success');
+                                }}
+                                className="w-full mt-2 py-1 px-2 rounded bg-emerald-950/60 border border-emerald-800 text-[10px] font-bold text-emerald-300 uppercase tracking-wide hover:bg-emerald-900/60 flex items-center justify-center gap-1 transition-all"
+                              >
+                                <Calculator size={11} />
+                                Infoga kalkyl i texten
+                              </button>
+                            </div>
+                          );
+                        })()}
+                      </div>
+                    )}
+                    {/* SGU Analytisk Grundvattensänkning (Section 4: Skyddsåtgärder) */}
+                    {selectedBlock === 'block-precautions-desc' && (
+                      <div className={`p-3 rounded-xl border mt-3 space-y-3 ${
+                        isDark ? 'bg-slate-900/40 border-cyan-900/30' : 'bg-slate-50 border-slate-200'
+                      }`}>
+                        <div className="flex items-center gap-1.5 border-b border-slate-800/10 dark:border-slate-800/30 pb-2">
+                          <Activity size={12} className="text-cyan-400" />
+                          <span className="text-[10px] font-black uppercase text-slate-300">SGU Grundvattensänkning</span>
+                        </div>
+                        <div className="grid grid-cols-2 gap-2 text-[10px]">
+                          <div>
+                            <label className="text-slate-400 block mb-0.5">Avsänkning s (m)</label>
+                            <input
+                              type="number"
+                              step="0.1"
+                              value={gwS}
+                              onChange={(e) => setGwS(Number(e.target.value))}
+                              className="w-full bg-slate-950/80 border border-slate-800 rounded px-1.5 py-0.5 font-semibold text-slate-200 focus:outline-none"
+                            />
+                          </div>
+                          <div>
+                            <label className="text-slate-400 block mb-0.5">Magasinstjocklek H (m)</label>
+                            <input
+                              type="number"
+                              step="0.5"
+                              value={gwH}
+                              onChange={(e) => setGwH(Number(e.target.value))}
+                              className="w-full bg-slate-950/80 border border-slate-800 rounded px-1.5 py-0.5 font-semibold text-slate-200 focus:outline-none"
+                            />
+                          </div>
+                          <div>
+                            <label className="text-slate-400 block mb-0.5">Hydraulisk ledningsf. K</label>
+                            <select
+                              value={gwK}
+                              onChange={(e) => setGwK(Number(e.target.value))}
+                              className="w-full bg-slate-950 border border-slate-800 rounded px-1.5 py-0.5 font-semibold text-slate-200 focus:outline-none text-[9px]"
+                            >
+                              <option value={1e-3}>Grovsand/Grus (10⁻³ m/s)</option>
+                              <option value={1e-4}>Mellansand (10⁻⁴ m/s)</option>
+                              <option value={1e-5}>Finsand (10⁻⁵ m/s)</option>
+                              <option value={1e-6}>Silt (10⁻⁶ m/s)</option>
+                              <option value={1e-9}>Lera (10⁻⁹ m/s)</option>
+                            </select>
+                          </div>
+                          <div>
+                            <label className="text-slate-400 block mb-0.5">Schaktradie rw (m)</label>
+                            <input
+                              type="number"
+                              step="0.5"
+                              value={gwRw}
+                              onChange={(e) => setGwRw(Number(e.target.value))}
+                              className="w-full bg-slate-950/80 border border-slate-800 rounded px-1.5 py-0.5 font-semibold text-slate-200 focus:outline-none"
+                            />
+                          </div>
+                        </div>
+
+                        {/* Display Results */}
+                        {(() => {
+                          const results = calculateLocalGroundwaterInfluence(gwK, gwS, gwH, gwRw);
+                          return (
+                            <div className="bg-slate-950/40 p-2 rounded border border-slate-850 space-y-1.5 text-[11px]">
+                              <div className="flex justify-between">
+                                <span className="text-slate-400">Influensradie R (Sichardt):</span>
+                                <span className="font-bold text-cyan-400 font-mono">{results.radiusM} m</span>
+                              </div>
+                              <div className="flex justify-between">
+                                <span className="text-slate-400">Länshållningsflöde Q:</span>
+                                <span className="font-bold text-slate-300 font-mono">{results.flowRateLpm} l/min</span>
+                              </div>
+
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  const text = `\n\n[Grundvattensänkning beräknad enligt SGU Sichardt & Dupuit-Thiem: Vid en avsänkning på ${gwS}m i jordart med hydraulisk konduktivitet K = ${gwK} m/s beräknas influensradien till ${results.radiusM}m. Det nödvändiga länshållningsflödet för att bibehålla torrt schaktbotten uppgår till ca ${results.flowRateLpm} l/min. Särskilda skyddsåtgärder vidtas för intilliggande dricksvattenbrunnar inom influensområdet.];`;
+                                  setBlocks(prev => ({
+                                    ...prev,
+                                    'block-precautions-desc': (prev['block-precautions-desc'] || '').trim() + text
+                                  }));
+                                  addAiActivity('Infogade SGU grundvattensänkningsanalys i dokumentavsnitt 4.', 'success');
+                                }}
+                                className="w-full mt-2 py-1 px-2 rounded bg-cyan-950/60 border border-cyan-800 text-[10px] font-bold text-cyan-300 uppercase tracking-wide hover:bg-cyan-900/60 flex items-center justify-center gap-1 transition-all"
+                              >
+                                <Calculator size={11} />
+                                Infoga kalkyl i texten
+                              </button>
+                            </div>
+                          );
+                        })()}
+                      </div>
+                    )}
+
+                    {/* LTAR Sewage Infiltration (Section 1: Sökande) */}
+                    {selectedBlock === 'block-applicant' && (
+                      <div className={`p-3 rounded-xl border mt-3 space-y-3 ${
+                        isDark ? 'bg-slate-900/40 border-emerald-900/30' : 'bg-slate-50 border-slate-200'
+                      }`}>
+                        <div className="flex items-center gap-1.5 border-b border-slate-800/10 dark:border-slate-800/30 pb-2">
+                          <CheckCircle2 size={12} className="text-emerald-400" />
+                          <span className="text-[10px] font-black uppercase text-slate-300">Enskilt Avlopp LTAR</span>
+                        </div>
+                        <div className="grid grid-cols-2 gap-2 text-[10px]">
+                          <div>
+                            <label className="text-slate-400 block mb-0.5">Antal personer (PE)</label>
+                            <input
+                              type="number"
+                              value={sewagePe}
+                              onChange={(e) => setSewagePe(Number(e.target.value))}
+                              className="w-full bg-slate-950/80 border border-slate-800 rounded px-1.5 py-0.5 font-semibold text-slate-200 focus:outline-none"
+                            />
+                          </div>
+                          <div>
+                            <label className="text-slate-400 block mb-0.5">Dimensionerande LTAR</label>
+                            <select
+                              value={sewageLtar}
+                              onChange={(e) => setSewageLtar(Number(e.target.value))}
+                              className="w-full bg-slate-950 border border-slate-800 rounded px-1.5 py-0.5 font-semibold text-slate-200 focus:outline-none text-[9px]"
+                            >
+                              <option value={5}>Lera / Tät Silt (LTAR 5)</option>
+                              <option value={15}>Mellansilt / Sandig Morän (LTAR 15)</option>
+                              <option value={30}>Finsand / Grusig Morän (LTAR 30)</option>
+                              <option value={45}>Grovsand / Grus (LTAR 45)</option>
+                            </select>
+                          </div>
+                        </div>
+
+                        {/* Display Results */}
+                        {(() => {
+                          const results = calculateLocalSewageInfiltration(sewagePe, sewageLtar, dailyFlowPerPe);
+                          return (
+                            <div className="bg-slate-950/40 p-2 rounded border border-slate-850 space-y-1.5 text-[11px]">
+                              <div className="flex justify-between">
+                                <span className="text-slate-400">Totalflöde per dygn:</span>
+                                <span className="font-bold text-emerald-400 font-mono">{results.dailyFlowL} liter</span>
+                              </div>
+                              <div className="flex justify-between">
+                                <span className="text-slate-400">Erforderlig infiltrationsyta:</span>
+                                <span className="font-bold text-emerald-400 font-mono">{results.requiredAreaM2} m²</span>
+                              </div>
+
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  const text = `\n\n[Enskilt avlopp dimensionering genomförd: Fastigheten planerar installation av ett enskilt avloppssystem dimensionerat för ${sewagePe} PE. Baserat på lokal SGU-klassning av jordart och LTAR-värde ${sewageLtar} l/m²/dygn uppgår det dimensionerande totalflödet till ${results.dailyFlowL} liter/dygn, vilket kräver en minsta infiltrations- eller spridningsyta på ${results.requiredAreaM2} m² baserat på Naturvårdsverkets riktlinjer.];`;
+                                  setBlocks(prev => ({
+                                    ...prev,
+                                    'block-applicant': (prev['block-applicant'] || '').trim() + text
+                                  }));
+                                  addAiActivity('Infogade LTAR-dimensionering för enskilt avlopp i dokumentavsnitt 1.', 'success');
+                                }}
+                                className="w-full mt-2 py-1 px-2 rounded bg-emerald-950/60 border border-emerald-800 text-[10px] font-bold text-emerald-300 uppercase tracking-wide hover:bg-emerald-900/60 flex items-center justify-center gap-1 transition-all"
+                              >
+                                <Calculator size={11} />
+                                Infoga kalkyl i texten
+                              </button>
+                            </div>
+                          );
+                        })()}
+                      </div>
+                    )}
                   </div>
 
                   {/* Legal Citations List */}
