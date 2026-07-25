@@ -22,7 +22,12 @@ async function openAdminEntry(page: import('@playwright/test').Page) {
   const username = page
     .getByRole('textbox', { name: /Användarnamn/i })
     .or(page.getByTestId('admin-username-input'));
-  if (await username.first().isVisible().catch(() => false)) {
+  if (
+    await username
+      .first()
+      .isVisible()
+      .catch(() => false)
+  ) {
     return;
   }
 

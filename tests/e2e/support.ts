@@ -174,8 +174,7 @@ export async function waitForHubModuleReady(page: Page, moduleId: string): Promi
 
   await expect(page).toHaveTitle(/Milj.*beslut/i);
   const hubVisibleInitially =
-    (await coreButton.isVisible().catch(() => false)) ||
-    (await moduleCard.isVisible().catch(() => false));
+    (await coreButton.isVisible().catch(() => false)) || (await moduleCard.isVisible().catch(() => false));
 
   if (!hubVisibleInitially) {
     const adminLoginVisible = await adminLoginButton.isVisible().catch(() => false);
