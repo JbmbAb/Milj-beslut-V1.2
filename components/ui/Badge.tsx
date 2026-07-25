@@ -23,10 +23,10 @@ export const Badge: React.FC<BadgeProps> = ({
   const baseClasses = `inline-flex items-center gap-2 px-3 py-1.5 rounded-full text-[10px] font-black tracking-widest uppercase`;
 
   const toneClasses: Record<ToneColor, string> = {
-    default: 'bg-slate-500/10 border border-slate-500/20 text-slate-400',
-    ok: 'bg-emerald-500/10 border border-emerald-500/20 text-emerald-400',
-    warn: 'bg-amber-500/10 border border-amber-500/20 text-amber-400',
-    error: 'bg-red-500/10 border border-red-500/20 text-red-400',
+    default: 'bg-tone-default-bg border-tone-default-border text-tone-default-text',
+    ok: 'bg-tone-ok-bg border-tone-ok-border text-tone-ok-text',
+    warn: 'bg-tone-warn-bg border-tone-warn-border text-tone-warn-text',
+    error: 'bg-tone-error-bg border-tone-error-border text-tone-error-text',
   };
 
   return (
