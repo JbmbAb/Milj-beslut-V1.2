@@ -5,6 +5,7 @@ import crypto from 'node:crypto';
 import { promises as fs } from 'node:fs';
 import path from 'node:path';
 import { logger } from '../logger';
+import { RerankPromptService } from './rerankPromptService';
 import { embedTextWithVertexPredict } from './vertexEmbeddingService';
 import {
   enqueueSearchJob,
@@ -115,8 +116,9 @@ export interface SearchOptions {
 export class AlphaevolveSearchService extends EventEmitter {
   private prisma: PrismaClient;
   private genAI: GoogleGenerativeAI;
+  private lastRerankTelemetry: any = null;
   /** Cap hash input so fallback embedding cannot be abused with unbounded user strings (CodeQL). */
-  private static readonly DETERMINISTIC_VECTOR_MAX_INPUT_CHARS = 4096;
+  private static readonly DETERMINISTIC_VECTOR_MAX_INPUT_CHARS = 4046;
 
   constructor(prismaClient: PrismaClient) {
     super();
@@ -132,6 +134,7 @@ export class AlphaevolveSearchService extends EventEmitter {
   public async search(query: string, options: SearchOptions = {}): Promise<SearchChunkResult[]> {
     const startTime = Date.now();
     const config = { ...DEFAULT_CONFIG, ...options.config };
+    this.lastRerankTelemetry = null;
     
     this.emit('search:start', { query, config });
 
@@ -277,6 +280,9 @@ export class AlphaevolveSearchService extends EventEmitter {
     vector.forEach((item, index) => {
       if (registry[item.id]) {
         registry[item.id].vecRank = index + 1;
+        if (item.vectorDistance !== undefined) {
+          registry[item.id].chunk.vectorDistance = item.vectorDistance;
+        }
       } else {
         registry[item.id] = { chunk: item, ftsRank: -1, vecRank: index + 1 };
       }
@@ -325,6 +331,57 @@ export class AlphaevolveSearchService extends EventEmitter {
   }
 
   /**
+   * Avgör om reranker kan eller bör hoppas över för att spara latency och tokens.
+   */
+  private shouldSkipReranker(query: string, candidates: SearchChunkResult[]): { skip: boolean; reason?: string } {
+    if (query.trim().length < 3) {
+      return { skip: true, reason: 'QUERY_TOO_SHORT' };
+    }
+    if (candidates.length === 0) {
+      return { skip: true, reason: 'NO_CANDIDATES' };
+    }
+    if (candidates.length === 1) {
+      return { skip: true, reason: 'SINGLE_CANDIDATE' };
+    }
+    return { skip: false };
+  }
+
+  /**
+   * Beräknar statistiska mått för kandidaternas semantiska vektordistanser.
+   */
+  private calculateSemanticDistanceStats(candidates: SearchChunkResult[]): {
+    min: number;
+    max: number;
+    avg: number;
+    count: number;
+    variance: number;
+  } {
+    const distances = candidates
+      .map(c => c.vectorDistance)
+      .filter((d): d is number => d !== undefined && d !== null);
+
+    if (distances.length === 0) {
+      return { min: 0, max: 0, avg: 0, count: 0, variance: 0 };
+    }
+
+    const min = Math.min(...distances);
+    const max = Math.max(...distances);
+    const sum = distances.reduce((acc, d) => acc + d, 0);
+    const avg = sum / distances.length;
+
+    const sqDiffs = distances.map(d => Math.pow(d - avg, 2));
+    const avgSqDiff = sqDiffs.reduce((acc, d) => acc + d, 0) / distances.length;
+
+    return {
+      min,
+      max,
+      avg,
+      count: distances.length,
+      variance: avgSqDiff,
+    };
+  }
+
+  /**
    * Fas A2: Verklig Reranking via Gemini API (LLM-as-a-Reranker) eller lokal fallback.
    * LÖST PROBLEM 2: Ersatt simulerad Math.sin med skarp, semantisk AI-reranking.
    */
@@ -337,19 +394,57 @@ export class AlphaevolveSearchService extends EventEmitter {
       .sort((a, b) => (b.rrfScore || 0) - (a.rrfScore || 0))
       .slice(0, limit);
 
+    const skipCheck = this.shouldSkipReranker(query, candidatesToRank);
+    const distanceStats = this.calculateSemanticDistanceStats(candidatesToRank);
+
+    if (skipCheck.skip) {
+      logger.info('Hoppar över Gemini Reranking.', {
+        query,
+        reason: skipCheck.reason,
+        candidatesCount: candidatesToRank.length,
+        semanticStats: distanceStats,
+      });
+
+      this.lastRerankTelemetry = {
+        promptVersion: 'skipped',
+        semanticStats: distanceStats,
+        shouldSkipReranker: true,
+        skipReason: skipCheck.reason,
+      };
+
+      return candidatesToRank;
+    }
+
     if (!process.env.GEMINI_API_KEY) {
+      logger.warn('Hoppar över Gemini Reranking på grund av saknad API-nyckel. Kör lokal fallback.');
+      
+      this.lastRerankTelemetry = {
+        promptVersion: 'offline-fallback',
+        semanticStats: distanceStats,
+        shouldSkipReranker: true,
+        skipReason: 'MISSING_GEMINI_API_KEY',
+      };
+
       return this.executeLocalFallbackReranker(candidatesToRank, query);
     }
 
     try {
       // Vi använder gemini-1.5-flash för snabb och kostnadseffektiv semantisk poängsättning
       const model = this.genAI.getGenerativeModel({ model: 'gemini-1.5-flash' });
-      const prompt = `Du är en expert på svensk miljö- och fastighetsanalys. Gradera relevansen för följande textavsnitt i förhållande till sökfrågan: "${query}".
-Returnera en JSON-array med relevanspoäng (mellan 0.0 och 1.0) för varje ID i exakt samma ordning.
-Exempelformat: [{"id": "chunk-1", "score": 0.95}]
+      const { prompt, version } = await RerankPromptService.getFormattedPrompt(query, candidatesToRank);
+      
+      logger.info('Kör Gemini Reranker', {
+        query,
+        promptVersion: version,
+        semanticStats: distanceStats,
+        candidatesCount: candidatesToRank.length,
+      });
 
-Dokumentavsnitt:
-${candidatesToRank.map(c => `ID: ${c.id}\nText: ${c.chunkText}`).join('\n\n')}`;
+      this.lastRerankTelemetry = {
+        promptVersion: version,
+        semanticStats: distanceStats,
+        shouldSkipReranker: false,
+      };
 
       const response = await model.generateContent({
         contents: [{ role: 'user', parts: [{ text: prompt }] }],
@@ -365,6 +460,15 @@ ${candidatesToRank.map(c => `ID: ${c.id}\nText: ${c.chunkText}`).join('\n\n')}`;
         return { ...item, finalScore };
       });
     } catch (error) {
+      logger.error('Kunde inte exekvera Gemini Reranker, faller tillbaka på lokal reranker: ' + (error as Error).message);
+      
+      this.lastRerankTelemetry = {
+        promptVersion: 'error-fallback',
+        semanticStats: distanceStats,
+        shouldSkipReranker: true,
+        skipReason: 'ERROR: ' + (error as Error).message,
+      };
+
       this.emit('search:warning', 'Kunde inte exekvera Gemini Reranker, faller tillbaka på lokal reranker: ' + (error as Error).message);
       return this.executeLocalFallbackReranker(candidatesToRank, query);
     }
@@ -447,9 +551,6 @@ ${candidatesToRank.map(c => `ID: ${c.id}\nText: ${c.chunkText}`).join('\n\n')}`;
     return expandedResults;
   }
 
-  /**
-   * Sparar rå mätdata för framtida datadriven optimering i Fas C
-   */
   private async logSearchMetrics(query: string, metrics: any): Promise<void> {
     try {
       await this.prisma.searchQueryLog.create({
@@ -462,6 +563,18 @@ ${candidatesToRank.map(c => `ID: ${c.id}\nText: ${c.chunkText}`).join('\n\n')}`;
           resultCount: metrics.finalCount,
           elapsedMs: metrics.totalMs,
         }
+      });
+
+      // Logga högupplöst JSON-struktur till stdout så att Cloud Logging kan indexera
+      logger.info('Search query execution metrics and reranker telemetry', {
+        query,
+        metrics,
+        rerankerTelemetry: this.lastRerankTelemetry || {
+          promptVersion: 'not-triggered',
+          semanticStats: { min: 0, max: 0, avg: 0, count: 0, variance: 0 },
+          shouldSkipReranker: true,
+          skipReason: 'CROSS_ENCODER_DISABLED_OR_NOT_REACHED',
+        },
       });
     } catch (error) {
       this.emit('search:warning', 'Misslyckades att spara searchQueryLog: ' + (error as Error).message);

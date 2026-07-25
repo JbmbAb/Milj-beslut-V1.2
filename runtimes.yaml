@@ -1,0 +1,13 @@
+version: "1.0"
+runtimes:
+  cpu_small:
+    cpu_cores: 4
+    ram_gb: 16
+    gpu: null
+  gpu_a100_single:
+    cpu_cores: 8
+    ram_gb: 64
+    gpu:
+      type: "NVIDIA A100"
+      count: 1
+      memory_gb: 40

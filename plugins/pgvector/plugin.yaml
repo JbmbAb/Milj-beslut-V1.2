@@ -1,0 +1,18 @@
+adapters:
+- adapter_id: pgvector_sql_adapter
+  supported_deployments:
+  - docker
+  - kubernetes
+metadata:
+  estimated_cost_per_query: 0.01
+  estimated_latency_ms: 35
+  latency_sigma: 0.35
+  resources:
+    ram_gb: 8
+name: pgvector
+plugin_id: pgvector
+provides:
+  capability: semantic_retrieval
+  execution_engine: sql_executor_v1
+  service: vector_service
+version: 1.2.0

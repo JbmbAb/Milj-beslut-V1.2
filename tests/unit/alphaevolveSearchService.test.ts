@@ -224,6 +224,35 @@ describe('AlphaevolveSearchService - Automated Tests', () => {
         documentTitle: 'Fastighet A',
         ftsRank: 0.99,
       },
+      {
+        id: 'chunk-2',
+        chunkText: 'Anmälningsplikt för massor.',
+        documentId: 'doc-B',
+        documentTitle: 'Fastighet B',
+        ftsRank: 0.88,
+      },
+    ];
+
+    mockRetrieval(prismaMock, mockFtsResults, []);
+    const results = await searchService.search(query, {
+      config: { CROSS_ENCODER_ENABLED: true, FINAL_TOP_K: 2 },
+    });
+
+    expect(mocks.generateContent).not.toHaveBeenCalled();
+    expect(results[0].finalScore!).toBeGreaterThan(results[0].rrfScore!);
+  });
+
+  it('should skip Gemini Reranker when skip criteria are met', async () => {
+    // 1. Single candidate skip check
+    const query = 'miljö';
+    const mockFtsResults: SearchChunkResult[] = [
+      {
+        id: 'chunk-1',
+        chunkText: 'Lantmäteriet registerenhet.',
+        documentId: 'doc-A',
+        documentTitle: 'Fastighet A',
+        ftsRank: 0.99,
+      },
     ];
 
     mockRetrieval(prismaMock, mockFtsResults, []);
@@ -231,7 +260,73 @@ describe('AlphaevolveSearchService - Automated Tests', () => {
       config: { CROSS_ENCODER_ENABLED: true, FINAL_TOP_K: 1 },
     });
 
+    // Should skip since we have exactly 1 candidate
     expect(mocks.generateContent).not.toHaveBeenCalled();
-    expect(results[0].finalScore!).toBeGreaterThan(results[0].rrfScore!);
+    const telemetry = (searchService as any).lastRerankTelemetry;
+    expect(telemetry).toBeDefined();
+    expect(telemetry.shouldSkipReranker).toBe(true);
+    expect(telemetry.skipReason).toBe('SINGLE_CANDIDATE');
+
+    // 2. Short query skip check
+    mockRetrieval(prismaMock, mockFtsResults, [mockFtsResults[0], { ...mockFtsResults[0], id: 'chunk-2' }]);
+    await searchService.search('ab', {
+      config: { CROSS_ENCODER_ENABLED: true, FINAL_TOP_K: 2 },
+    });
+
+    expect(mocks.generateContent).not.toHaveBeenCalled();
+    const shortTelemetry = (searchService as any).lastRerankTelemetry;
+    expect(shortTelemetry.shouldSkipReranker).toBe(true);
+    expect(shortTelemetry.skipReason).toBe('QUERY_TOO_SHORT');
+  });
+
+  it('should correctly calculate semantic distance statistics for vector results', async () => {
+    const candidates: SearchChunkResult[] = [
+      { id: '1', chunkText: 'A', documentId: 'A', documentTitle: 'A', vectorDistance: 0.1 },
+      { id: '2', chunkText: 'B', documentId: 'B', documentTitle: 'B', vectorDistance: 0.3 },
+      { id: '3', chunkText: 'C', documentId: 'C', documentTitle: 'C', vectorDistance: 0.5 },
+    ];
+
+    const stats = (searchService as any).calculateSemanticDistanceStats(candidates);
+    expect(stats.min).toBe(0.1);
+    expect(stats.max).toBe(0.5);
+    expect(stats.avg).toBe(0.3);
+    expect(stats.count).toBe(3);
+    // variance: ((0.1-0.3)^2 + (0.3-0.3)^2 + (0.5-0.3)^2) / 3 = (0.04 + 0 + 0.04) / 3 = 0.08 / 3 ≈ 0.0267
+    expect(stats.variance).toBeCloseTo(0.0267, 4);
+  });
+
+  it('should include reranker telemetry in the logged search metrics', async () => {
+    const query = 'miljötillstånd schaktmassor';
+    const mockFtsResults: SearchChunkResult[] = [
+      {
+        id: 'chunk-1',
+        chunkText: 'Inblandning av schaktmassor kräver miljötillstånd.',
+        documentId: 'doc-A',
+        documentTitle: 'Beslut A',
+        ftsRank: 0.95,
+      },
+      {
+        id: 'chunk-2',
+        chunkText: 'Anmälningsplikt gäller för sortering av massor.',
+        documentId: 'doc-B',
+        documentTitle: 'Beslut B',
+        ftsRank: 0.85,
+        vectorDistance: 0.2,
+      },
+    ];
+
+    mockRetrieval(prismaMock, mockFtsResults, []);
+    await searchService.search(query, {
+      config: { CROSS_ENCODER_ENABLED: true, FINAL_TOP_K: 2 },
+    });
+
+    const telemetry = (searchService as any).lastRerankTelemetry;
+    expect(telemetry).toBeDefined();
+    expect(telemetry.shouldSkipReranker).toBe(false);
+    expect(telemetry.semanticStats.min).toBe(0.2);
+    expect(telemetry.semanticStats.max).toBe(0.2);
+    expect(telemetry.semanticStats.count).toBe(1);
+
+    expect(mocks.searchQueryLogCreate).toHaveBeenCalledTimes(1);
   });
 });

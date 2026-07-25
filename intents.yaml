@@ -1,0 +1,13 @@
+version: "1.0"
+intents:
+  spatial_reasoning:
+    display_name: "Spatial reasoning"
+    recommended_capabilities: ["geospatial_retrieval"]
+capabilities:
+  geospatial_retrieval:
+    services:
+      polygon_search:
+        execution_engines:
+          - sql_executor_v1
+        implementations:
+          - postgis

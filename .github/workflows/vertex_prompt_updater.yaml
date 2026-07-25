@@ -1,0 +1,61 @@
+# .github/workflows/vertex_prompt_updater.yaml
+name: Vertex AI Prompt Sync & Verification
+
+on:
+  workflow_dispatch:
+    inputs:
+      prompt_gcs_uri:
+        description: 'The GCS URI of the optimized best_prompt.txt'
+        required: true
+        default: 'gs://miljobeslut-prompt-optimization-bucket/alphaevolve/list_deduplication/prompt_opt_results/best_prompt.txt'
+  repository_dispatch:
+    types: [vertex_job_completed]
+
+permissions:
+  contents: write
+
+jobs:
+  sync-and-test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v3
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.10'
+
+      - name: Install UV Package Manager
+        run: |
+          curl -LsSf https://astral.sh/uv/install.sh | sh
+          echo "$HOME/.local/bin" >> $GITHUB_PATH
+
+      - name: Authenticate to Google Cloud
+        uses: google-github-actions/auth@v1
+        with:
+          credentials_json: ${{ secrets.GCP_SA_KEY }}
+
+      - name: Set up Cloud SDK
+        uses: google-github-actions/setup-gcloud@v1
+
+      - name: Install Dependencies
+        run: |
+          pip install google-cloud-storage
+
+      - name: Run Update and Smoke Test
+        env:
+          PROMPT_URI: ${{ github.event.inputs.prompt_gcs_uri || github.event.client_payload.prompt_gcs_uri }}
+        run: |
+          # Configure git
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "github-actions[bot]@users.noreply.github.com"
+          
+          # Execute automation
+          bash scripts/ci_update_and_smoke_test.sh "$PROMPT_URI"
+
+      - name: Push Changes
+        run: |
+          git push origin main || echo "No changes to push or branch protected."

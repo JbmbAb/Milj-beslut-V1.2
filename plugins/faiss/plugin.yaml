@@ -1,0 +1,18 @@
+adapters:
+- adapter_id: faiss_docker_adapter
+  supported_deployments:
+  - docker
+  - kubernetes
+metadata:
+  estimated_cost_per_query: 0.005
+  estimated_latency_ms: 12
+  latency_sigma: 0.25
+  resources:
+    ram_gb: 16
+name: faiss
+plugin_id: faiss
+provides:
+  capability: semantic_retrieval
+  execution_engine: faiss_executor
+  service: vector_service
+version: '1.7'

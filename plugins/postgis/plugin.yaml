@@ -1,0 +1,19 @@
+adapters:
+- adapter_id: postgis_adapter
+  supported_deployments:
+  - docker
+  - kubernetes
+  - cloud_sql
+metadata:
+  estimated_cost_per_query: 0.003
+  estimated_latency_ms: 40
+  latency_sigma: 0.4
+  resources:
+    ram_gb: 8
+name: postgis
+plugin_id: postgis
+provides:
+  capability: geospatial_retrieval
+  execution_engine: sql_executor_v1
+  service: polygon_search
+version: '3.1'
