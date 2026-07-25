@@ -21,10 +21,10 @@ export const MetricCard: React.FC<MetricCardProps> = ({
   className = '',
 }) => {
   const toneClasses: Record<ToneColor, string> = {
-    default: 'border-slate-200 bg-white text-slate-800',
-    ok: 'border-emerald-200 bg-emerald-50 text-emerald-800',
-    warn: 'border-amber-200 bg-amber-50 text-amber-800',
-    error: 'border-red-200 bg-red-50 text-red-800',
+    default: 'border-tone-default-border bg-tone-default-bg text-tone-default-text',
+    ok: 'border-tone-ok-border bg-tone-ok-bg text-tone-ok-text',
+    warn: 'border-tone-warn-border bg-tone-warn-bg text-tone-warn-text',
+    error: 'border-tone-error-border bg-tone-error-bg text-tone-error-text',
   };
 
   return (

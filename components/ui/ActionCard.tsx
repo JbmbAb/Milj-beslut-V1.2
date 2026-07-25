@@ -25,17 +25,17 @@ export const ActionCard: React.FC<ActionCardProps> = ({
   className = '',
 }) => {
   const toneClasses: Record<ToneColor, string> = {
-    default: 'border-slate-200 bg-white',
-    ok: 'border-emerald-200 bg-emerald-50',
-    warn: 'border-amber-200 bg-amber-50',
-    error: 'border-red-200 bg-red-50',
+    default: 'border-tone-default-border bg-tone-default-bg',
+    ok: 'border-tone-ok-border bg-tone-ok-bg',
+    warn: 'border-tone-warn-border bg-tone-warn-bg',
+    error: 'border-tone-error-border bg-tone-error-bg',
   };
 
   const buttonToneClasses: Record<ToneColor, string> = {
-    default: 'border-slate-300 bg-white text-slate-700 hover:bg-slate-50',
-    ok: 'border-emerald-300 bg-emerald-100 text-emerald-700 hover:bg-emerald-200',
-    warn: 'border-amber-300 bg-amber-100 text-amber-700 hover:bg-amber-200',
-    error: 'border-red-300 bg-red-100 text-red-700 hover:bg-red-200',
+    default: 'border-tone-default-border bg-tone-default-bg text-tone-default-text',
+    ok: 'border-tone-ok-border bg-tone-ok-bg text-tone-ok-text',
+    warn: 'border-tone-warn-border bg-tone-warn-bg text-tone-warn-text',
+    error: 'border-tone-error-border bg-tone-error-bg text-tone-error-text',
   };
 
   return (
