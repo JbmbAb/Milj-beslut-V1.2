@@ -21,6 +21,8 @@ substitutions:
   _VPC_CONNECTOR: miljobeslut-vpc
   _RUNTIME_SA: miljobeslut-runtime
   _GCS_DOCUMENTS_BUCKET: ''
+  _LEGAL_RERANKER_PROMPT_GCS: ''
+  _LEGAL_RERANKER_PROMPT_VERSION: ''
 
 options:
   logging: CLOUD_LOGGING_ONLY
@@ -145,6 +147,13 @@ steps:
 
         if [ -n "${_GCS_DOCUMENTS_BUCKET}" ]; then
           ENV_VARS="${ENV_VARS},GCS_DOCUMENTS_BUCKET=${_GCS_DOCUMENTS_BUCKET},GCS_DOCUMENTS_PREFIX=documents"
+        fi
+
+        if [ -n "${_LEGAL_RERANKER_PROMPT_GCS}" ]; then
+          ENV_VARS="${ENV_VARS},LEGAL_RERANKER_PROMPT_GCS=${_LEGAL_RERANKER_PROMPT_GCS}"
+        fi
+        if [ -n "${_LEGAL_RERANKER_PROMPT_VERSION}" ]; then
+          ENV_VARS="${ENV_VARS},LEGAL_RERANKER_PROMPT_VERSION=${_LEGAL_RERANKER_PROMPT_VERSION}"
         fi
 
         gcloud run deploy ${_SERVICE_WEB} \

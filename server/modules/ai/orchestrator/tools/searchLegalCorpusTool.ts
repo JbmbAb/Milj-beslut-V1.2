@@ -1,7 +1,12 @@
 import { FunctionDeclaration, Type } from '@google/genai';
 import { embedText } from '../../../../services/searchService';
+import {
+  rerankWithGeminiOrLexical,
+} from '../../../../services/legalRerankService';
 import { prisma } from '../../../../db/prisma';
 import { parseLegalReference } from '../../../legal/services/legalReferenceParser';
+
+export { localLexicalRerank } from '../../../../services/legalRerankService';
 
 /** Alphaevolve A1+A2 — chunk-nivå hybrid retrieval + feature-flaggad rerank. */
 const RRF_K_EXACT = 30;
@@ -43,35 +48,6 @@ export function shouldSkipReranker(sortedRrfScores: number[], relativeGapSkip: n
   const s2 = sortedRrfScores[1];
   if (!(s1 > 0)) return false;
   return (s1 - s2) / s1 >= relativeGapSkip;
-}
-
-/**
- * Lokal lexical reranker (Jaccard-liknande) — CPU-billig fallback tills ONNX CE evalats.
- * Poäng = RRF + densitet av query-termer i chunk-text.
- */
-export function localLexicalRerank<T extends { chunkText: string; score: number }>(
-  query: string,
-  items: T[],
-): Array<T & { finalScore: number; rerankApplied: true }> {
-  const queryWords = query
-    .toLowerCase()
-    .split(/\s+/)
-    .map((w) => w.replace(/[^\p{L}\p{N}]/gu, ''))
-    .filter((w) => w.length > 2);
-
-  return items.map((item) => {
-    const textLower = item.chunkText.toLowerCase();
-    let wordMatches = 0;
-    for (const word of queryWords) {
-      if (textLower.includes(word)) wordMatches += 1;
-    }
-    const relevanceModifier = (wordMatches / (queryWords.length || 1)) * 0.25;
-    return {
-      ...item,
-      finalScore: item.score + relevanceModifier,
-      rerankApplied: true as const,
-    };
-  });
 }
 
 export const searchLegalCorpusDeclaration: FunctionDeclaration = {
@@ -447,6 +423,8 @@ export async function searchLegalCorpusHandler(args: { query: string; legalArea?
 
     let finalResults = mappedResults;
     let rerankerStatus: 'disabled' | 'skipped_gap' | 'applied' = 'disabled';
+    let rerankerEngine: 'none' | 'gemini' | 'lexical' = 'none';
+    let promptVersion = 'not-triggered';
 
     if (config.rerankerEnabled) {
       if (skipReranker) {
@@ -456,16 +434,36 @@ export async function searchLegalCorpusHandler(args: { query: string; legalArea?
           .slice(0, config.rerankerFinalK);
       } else {
         rerankerStatus = 'applied';
-        const reranked = localLexicalRerank(trimmedQuery, mappedResults);
-        finalResults = reranked
-          .sort((a, b) => b.finalScore - a.finalScore)
+        const rerankCandidates = mappedResults.map((row) => ({
+          id: row.chunkId,
+          chunkText: row.chunkText,
+          score: row.score,
+          _row: row,
+        }));
+
+        const rerankOutcome = await rerankWithGeminiOrLexical(
+          trimmedQuery,
+          rerankCandidates.map(({ id, chunkText, score }) => ({ id, chunkText, score })),
+          config.rerankerFinalK,
+        );
+
+        rerankerEngine = rerankOutcome.engine;
+        promptVersion = rerankOutcome.promptVersion;
+
+        const byId = new Map(rerankCandidates.map((c) => [c.id, c._row]));
+        finalResults = rerankOutcome.items
           .slice(0, config.rerankerFinalK)
-          .map((row) => ({
-            ...row,
-            score: Number(row.finalScore.toFixed(6)),
-            finalScore: Number(row.finalScore.toFixed(6)),
-            rerankApplied: true,
-          }));
+          .map((item) => {
+            const row = byId.get(item.id);
+            if (!row) return null;
+            return {
+              ...row,
+              score: Number(item.finalScore.toFixed(6)),
+              finalScore: Number(item.finalScore.toFixed(6)),
+              rerankApplied: item.rerankApplied,
+            };
+          })
+          .filter((row): row is MappedResult => row != null);
       }
     }
 
@@ -480,6 +478,8 @@ export async function searchLegalCorpusHandler(args: { query: string; legalArea?
         latencyMs: retrievalMs,
         rerankerEnabled: config.rerankerEnabled,
         rerankerStatus,
+        rerankerEngine,
+        promptVersion,
         relativeGapSkip: config.relativeGapSkip,
       },
     };

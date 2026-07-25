@@ -9,6 +9,7 @@ describe('RerankPromptService (GCS Integration)', () => {
 
   beforeEach(() => {
     RerankPromptService.clearCache();
+    RerankPromptService.stopHydrationDaemon();
     process.env = { ...originalEnv };
     delete process.env.LEGAL_RERANKER_PROMPT_GCS;
     delete process.env.LEGAL_RERANKER_PROMPT_VERSION;
@@ -16,6 +17,7 @@ describe('RerankPromptService (GCS Integration)', () => {
   });
 
   afterEach(() => {
+    RerankPromptService.stopHydrationDaemon();
     process.env = { ...originalEnv };
   });
 
