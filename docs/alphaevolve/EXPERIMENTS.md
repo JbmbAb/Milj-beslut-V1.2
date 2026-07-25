@@ -40,7 +40,7 @@ bash scripts/alphaevolve/provision-gcp.sh
 | Circle packing | `examples/circle_packing/` | Upstream smoke OK |
 | List deduplication | `examples/list_deduplication/` | Miljöbeslut-exempel; pytest 6/6; GCP smoke OK |
 | TSP | `examples/tsp/` | Upstream |
-| Legal search params | `scripts/alphaevolve/experiments/legal_search_params/` | Design — se README där |
+| Legal search params | `scripts/alphaevolve/experiments/legal_search_params/` | Phase 2 — fixture eval via `run_eval.ts` |
 
 ## Köra exempel
 
