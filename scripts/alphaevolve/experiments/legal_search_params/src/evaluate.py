@@ -12,6 +12,7 @@ from .program import FAILURE_PENALTY, evaluate
 METRIC_NAME = "neg_weighted_recall"
 _EXPERIMENT_ROOT = Path(__file__).resolve().parent.parent
 _EVAL_SET = json.loads((_EXPERIMENT_ROOT / "eval-set.json").read_text(encoding="utf-8"))
+_REPO_ROOT = _EXPERIMENT_ROOT.parents[3]
 
 
 def _load_initial_program() -> str:
@@ -33,6 +34,7 @@ def legal_search_params_evaluation(program_candidate: dict) -> dict:
             "Mapping": dict,
             "Any": Any,
             "_INJECTED_EVAL_SET": _EVAL_SET,
+            "_REPO_ROOT": str(_REPO_ROOT),
         }
         exec(code, exec_namespace)
         eval_func = exec_namespace.get("evaluate")

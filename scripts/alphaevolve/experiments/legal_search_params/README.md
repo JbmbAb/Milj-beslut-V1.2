@@ -9,9 +9,9 @@ Evolve **hybrid legal retrieval parameters** against a fixed eval-set, aligned w
 
 | Phase | Scope | Status |
 |-------|-------|--------|
-| **Design** | Eval-set, constraints, local scorer | Done (this folder) |
-| **Integration** | Wire `evaluate.py` → Vitest/PostGIS golden run | Planned |
-| **AlphaEvolve cloud** | Copy pattern to `alphaevolve-on-googlecloud/examples/` | After integration |
+| **Design** | Eval-set, constraints, local scorer | Done |
+| **Phase 2** | `run_eval.ts` + fixtures → real RRF/rerank helpers | Done |
+| **Integration** | Wire into AlphaEvolve cloud example | Planned |
 
 ## Architecture
 
@@ -44,9 +44,9 @@ flowchart TB
 From Miljöbeslut repo root:
 
 ```powershell
-cd scripts/alphaevolve/experiments/legal_search_params
-python -m pytest tests -v
-python -c "from src.evaluate import legal_search_params_evaluation, INITIAL_PROGRAM_CODE; print(legal_search_params_evaluation({'content':{'files':[{'content':INITIAL_PROGRAM_CODE}]}}))"
+npx vitest run scripts/alphaevolve/experiments/legal_search_params/tests
+echo '{"RRF_K":60,"RRF_K_EXACT":30,"FTS_CANDIDATE_LIMIT":50,"VECTOR_CANDIDATE_LIMIT":50,"RRF_CANDIDATE_LIMIT":30,"RERANKER_FINAL_K":8,"LEGAL_RERANKER_RELATIVE_GAP":0.15,"rerankerEnabled":true}' | npx tsx scripts/alphaevolve/experiments/legal_search_params/run_eval.ts
+python -c "import sys; sys.path.insert(0,'scripts/alphaevolve/experiments/legal_search_params'); from src.evaluate import legal_search_params_evaluation, INITIAL_PROGRAM_CODE; print(legal_search_params_evaluation({'content':{'files':[{'content':INITIAL_PROGRAM_CODE}]}}))"
 ```
 
 ## Primary metric
@@ -56,7 +56,9 @@ python -c "from src.evaluate import legal_search_params_evaluation, INITIAL_PROG
 - +1 per eval case where all `must_include_terms` appear in synthetic hit text
 - Penalty `-1000000` if params violate bounds in `eval-set.json`
 
-**Phase 2** replaces proxy with `run_eval.ts` calling `searchLegalCorpusHandler` against seeded fixtures (same pattern as [`tests/unit/searchLegalCorpusTool.test.ts`](../../../tests/unit/searchLegalCorpusTool.test.ts)).
+**Phase 2** uses [`run_eval.ts`](run_eval.ts) with [`fixtures/eval-chunks.json`](fixtures/eval-chunks.json) and exported helpers from `searchLegalCorpusTool.ts` (RRF fusion + lexical rerank).
+
+**Phase 3 (planned):** DB-backed golden run via Vitest/PostGIS instead of fixtures only.
 
 ## Prod merge policy
 

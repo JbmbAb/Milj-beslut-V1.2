@@ -1,8 +1,10 @@
-"""Legal search parameter seed for AlphaEvolve (design phase)."""
+"""Legal search parameter seed for AlphaEvolve."""
 
 from __future__ import annotations
 
 import json
+import platform
+import subprocess
 import time
 from dataclasses import asdict, dataclass
 from pathlib import Path
@@ -18,6 +20,7 @@ class SearchParams:
     """Mirrors Miljöbeslut searchService + searchLegalCorpusTool defaults."""
 
     RRF_K: int = 60
+    RRF_K_EXACT: int = 30
     FTS_CANDIDATE_LIMIT: int = 50
     VECTOR_CANDIDATE_LIMIT: int = 50
     RRF_CANDIDATE_LIMIT: int = 30
@@ -30,6 +33,13 @@ def build_search_params() -> SearchParams:
 
 
 # EVOLVE-BLOCK-END
+
+
+def _repo_root() -> Path:
+    injected = globals().get("_REPO_ROOT")
+    if injected:
+        return Path(str(injected))
+    return Path(__file__).resolve().parents[5]
 
 
 def _eval_set_path() -> Path:
@@ -54,19 +64,37 @@ def validate_params(params: SearchParams, constraints: dict[str, dict[str, float
     return True
 
 
-def proxy_recall(params: SearchParams, case: dict[str, Any]) -> float:
-    """Design-phase proxy: higher candidate limits imply better recall ceiling."""
-    del case
-    base = 0.55
-    fusion_boost = min(params.RRF_CANDIDATE_LIMIT / 60.0, 1.0) * 0.15
-    fts_boost = min(params.FTS_CANDIDATE_LIMIT / 100.0, 1.0) * 0.1
-    vector_boost = min(params.VECTOR_CANDIDATE_LIMIT / 100.0, 1.0) * 0.1
-    rerank_boost = min(params.RERANKER_FINAL_K / 20.0, 1.0) * 0.05
-    gap_penalty = abs(params.LEGAL_RERANKER_RELATIVE_GAP - 0.15) * 0.2
-    return min(1.0, base + fusion_boost + fts_boost + vector_boost + rerank_boost - gap_penalty)
+def run_fixture_eval(params: SearchParams) -> dict[str, Any]:
+    """Phase 2: score params via run_eval.ts + fixed legal corpus fixtures."""
+    script = _repo_root() / "scripts/alphaevolve/experiments/legal_search_params/run_eval.ts"
+    payload = {**asdict(params), "rerankerEnabled": True}
+    cwd = str(_repo_root())
+    if platform.system() == "Windows":
+        completed = subprocess.run(
+            f'npx tsx "{script}"',
+            input=json.dumps(payload),
+            capture_output=True,
+            text=True,
+            cwd=cwd,
+            shell=True,
+            check=False,
+        )
+    else:
+        completed = subprocess.run(
+            ["npx", "tsx", str(script)],
+            input=json.dumps(payload),
+            capture_output=True,
+            text=True,
+            cwd=cwd,
+            check=False,
+        )
+    if completed.returncode != 0:
+        raise RuntimeError(completed.stderr.strip() or f"run_eval exited {completed.returncode}")
+    return json.loads(completed.stdout.strip())
 
 
 def evaluate(eval_inputs: Mapping[str, Any] | None = None) -> dict[str, Any]:
+    del eval_inputs
     eval_set = load_eval_set()
     constraints = eval_set["constraints"]
     params = build_search_params()
@@ -78,15 +106,22 @@ def evaluate(eval_inputs: Mapping[str, Any] | None = None) -> dict[str, Any]:
         }
 
     start = time.perf_counter()
-    recalls: list[float] = []
-    for case in eval_set["cases"]:
-        recalls.append(proxy_recall(params, case))
-    elapsed_ms = (time.perf_counter() - start) * 1000.0
+    try:
+        result = run_fixture_eval(params)
+    except Exception as exc:
+        return {
+            "neg_weighted_recall": FAILURE_PENALTY,
+            "failure_reason": f"run_eval_failed:{exc}",
+        }
 
-    weighted = sum(recalls) / max(len(recalls), 1)
+    elapsed_ms = (time.perf_counter() - start) * 1000.0
+    mean_recall = float(result.get("mean_recall", result.get("neg_weighted_recall", 0.0)))
+
     return {
-        "neg_weighted_recall": float(weighted),
-        "p95_latency_ms": float(elapsed_ms),
-        "mean_recall": float(weighted),
+        "neg_weighted_recall": mean_recall,
+        "p95_latency_ms": float(result.get("p95_latency_ms", elapsed_ms)),
+        "mean_recall": mean_recall,
+        "per_case": result.get("per_case", []),
         "param_snapshot": asdict(params),
+        "eval_mode": "fixtures_v2",
     }

@@ -1,0 +1,109 @@
+{
+  "avlopp_fosfor": {
+    "fts": [
+      {
+        "chunkId": "c-fosfor-fts",
+        "recordId": "r-avlopp",
+        "chunkText": "Krav på fosforrening vid enskilt avlopp enligt miljöbalken.",
+        "rank": 0.92
+      },
+      {
+        "chunkId": "c-vag",
+        "recordId": "r-vag",
+        "chunkText": "Vägbyggnad och bullerkrav i detaljplan.",
+        "rank": 0.41
+      }
+    ],
+    "vector": [
+      {
+        "chunkId": "c-fosfor-vec",
+        "recordId": "r-avlopp2",
+        "chunkText": "Recipient och fosforbelastning från små avlopp.",
+        "similarity": 0.88
+      },
+      {
+        "chunkId": "c-vag",
+        "recordId": "r-vag",
+        "chunkText": "Vägbyggnad och bullerkrav i detaljplan.",
+        "similarity": 0.35
+      }
+    ],
+    "exact": []
+  },
+  "miljobalken_krav": {
+    "fts": [
+      {
+        "chunkId": "c-mb-fts",
+        "recordId": "r-mb",
+        "chunkText": "Tillståndsprövning enligt miljöbalken kap 9.",
+        "rank": 0.95
+      }
+    ],
+    "vector": [
+      {
+        "chunkId": "c-mb-vec",
+        "recordId": "r-mb2",
+        "chunkText": "Miljöbalken styr verksamhetens tillstånd.",
+        "similarity": 0.9
+      }
+    ],
+    "exact": []
+  },
+  "recipient_vattendrag": {
+    "fts": [
+      {
+        "chunkId": "c-rec-fts",
+        "recordId": "r-vatten",
+        "chunkText": "Recipient i vattendrag och föroreningsstatus.",
+        "rank": 0.89
+      }
+    ],
+    "vector": [
+      {
+        "chunkId": "c-rec-vec",
+        "recordId": "r-vatten2",
+        "chunkText": "Klassning av vattendrag och recipient.",
+        "similarity": 0.86
+      }
+    ],
+    "exact": []
+  },
+  "plan_bestammelse": {
+    "fts": [
+      {
+        "chunkId": "c-plan-fts",
+        "recordId": "r-plan",
+        "chunkText": "Detaljplan bestämmelse om buller nära bostad.",
+        "rank": 0.91
+      }
+    ],
+    "vector": [
+      {
+        "chunkId": "c-plan-vec",
+        "recordId": "r-plan2",
+        "chunkText": "Planbestämmelse och exploatering.",
+        "similarity": 0.84
+      }
+    ],
+    "exact": []
+  },
+  "laga_kraft": {
+    "fts": [
+      {
+        "chunkId": "c-laga-fts",
+        "recordId": "r-dom",
+        "chunkText": "Dom fick laga kraft i miljömålet.",
+        "rank": 0.93
+      }
+    ],
+    "vector": [
+      {
+        "chunkId": "c-laga-vec",
+        "recordId": "r-dom2",
+        "chunkText": "Miljödomstolens avgörande vann laga kraft.",
+        "similarity": 0.87
+      }
+    ],
+    "exact": []
+  }
+}

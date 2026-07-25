@@ -56,6 +56,7 @@
   },
   "constraints": {
     "RRF_K": { "min": 10, "max": 120 },
+    "RRF_K_EXACT": { "min": 10, "max": 80 },
     "FTS_CANDIDATE_LIMIT": { "min": 10, "max": 100 },
     "VECTOR_CANDIDATE_LIMIT": { "min": 10, "max": 100 },
     "RRF_CANDIDATE_LIMIT": { "min": 10, "max": 60 },
