@@ -288,9 +288,7 @@ describe('AlphaevolveSearchService - Automated Tests', () => {
     ];
 
     const stats = computeMinMaxStats(
-      candidates
-        .map((c) => c.vectorDistance)
-        .filter((d): d is number => d !== undefined && d !== null),
+      candidates.map((c) => c.vectorDistance).filter((d): d is number => d !== undefined && d !== null),
     );
     expect(stats.min).toBe(0.1);
     expect(stats.max).toBe(0.5);

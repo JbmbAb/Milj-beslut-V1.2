@@ -552,7 +552,7 @@ describe('searchLegalCorpusTool — Resilience & Telemetry Improvements', () => 
 
     expect(errorSpy).toHaveBeenCalled();
     const calls = errorSpy.mock.calls;
-    const rerankerErrorCall = calls.find(call => call[1]?.event === 'reranker.error');
+    const rerankerErrorCall = calls.find((call) => call[1]?.event === 'reranker.error');
     expect(rerankerErrorCall).toBeDefined();
     expect(rerankerErrorCall![1].retryable).toBe(true);
     expect(rerankerErrorCall![1].errorMessage).toContain('Network timeout');
@@ -569,7 +569,7 @@ describe('searchLegalCorpusTool — Resilience & Telemetry Improvements', () => 
 
     expect(errorSpy).toHaveBeenCalled();
     const calls = errorSpy.mock.calls;
-    const searchFailedCall = calls.find(call => call[1]?.event === 'search.failed');
+    const searchFailedCall = calls.find((call) => call[1]?.event === 'search.failed');
     expect(searchFailedCall).toBeDefined();
     expect(searchFailedCall![1].retryable).toBe(true);
     expect(typeof searchFailedCall![1].totalMs).toBe('number');
@@ -577,9 +577,7 @@ describe('searchLegalCorpusTool — Resilience & Telemetry Improvements', () => 
   });
 
   it('normal sökning returnerar meta med alla latency-fält', async () => {
-    mockHybridCorpus([
-      { chunk_id: 'c-1', record_id: 'r-1', chunk_text: 'Text', rank: 0.9 }
-    ]);
+    mockHybridCorpus([{ chunk_id: 'c-1', record_id: 'r-1', chunk_text: 'Text', rank: 0.9 }]);
     const result = await searchLegalCorpusHandler({ query: 'miljöbalken' });
     const meta = (result as any).meta;
     expect(meta).toBeDefined();
@@ -593,12 +591,10 @@ describe('searchLegalCorpusTool — Resilience & Telemetry Improvements', () => 
 
   it('completed sökning loggar queryHashSaltVersion och läcker inte salt', async () => {
     const infoSpy = vi.spyOn(logger, 'info');
-    mockHybridCorpus([
-      { chunk_id: 'c-1', record_id: 'r-1', chunk_text: 'Text', rank: 0.9 }
-    ]);
+    mockHybridCorpus([{ chunk_id: 'c-1', record_id: 'r-1', chunk_text: 'Text', rank: 0.9 }]);
     await searchLegalCorpusHandler({ query: 'miljöbalken' });
     const calls = infoSpy.mock.calls;
-    const searchCompletedCall = calls.find(call => call[1]?.event === 'search.completed');
+    const searchCompletedCall = calls.find((call) => call[1]?.event === 'search.completed');
     expect(searchCompletedCall).toBeDefined();
     expect(searchCompletedCall![1].queryHashSaltVersion).toBe('v1');
     expect(searchCompletedCall![1].QUERY_HASH_SALT).toBeUndefined();
