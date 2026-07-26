@@ -60,6 +60,6 @@ See `README.md` for file list. `results_schema_version` and `cache_schema_versio
 
 ## Security
 
-- No secrets in repo; use GitHub Secrets (`GCP_SA_KEY`) and GCP Secret Manager in production.
+- No secrets in repo; GitHub Actions auth via WIF (`GCP_WORKLOAD_IDENTITY_PROVIDER`, `GCP_VERTEX_SERVICE_ACCOUNT`). Production app secrets in GCP Secret Manager.
 - Rerank eval URL via `LEGAL_RERANK_EVAL_URL` (staging only).
 - Mock mode: `MOCK_RERANK=1` for CI.

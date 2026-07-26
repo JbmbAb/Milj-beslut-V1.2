@@ -1,4 +1,4 @@
-# Bidra till Milj-beslut-V1.2
+# Bidra till Miljöbeslut (JbmbAb/Milj-beslut-V1.2)
 
 ## Behörigheter och åtkomst
 

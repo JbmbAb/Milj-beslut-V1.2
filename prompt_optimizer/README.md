@@ -85,6 +85,8 @@ python main.py \
 
 Container entrypoint: `python main.py` with args passed by `gcloud_prompt_optimizer.sh` or `.github/workflows/vertex_prompt_optimize.yml`.
 
+GitHub Actions autentiserar via **Workload Identity Federation** (`.github/actions/gcp-wif-auth`) — ingen JSON-nyckel i repo eller secrets.
+
 Set container environment for real Vertex rerank (not mock):
 
 | Variable | Example |

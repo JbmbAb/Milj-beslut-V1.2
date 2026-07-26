@@ -14,8 +14,10 @@ Snabb guide för att sätta upp utvecklingsmiljö med optimal git-konfiguration.
 
 ```bash
 git clone https://github.com/JbmbAb/Milj-beslut-V1.2.git
-cd Milj-beslut-V1.2
+cd Milj-beslut-V1.2   # lokalt mappnamn kan vara t.ex. miljöbeslut — repot är redan initierat, kör inte git init
 ```
+
+> **Canonical repo:** endast `JbmbAb/Milj-beslut-V1.2`. Det finns inget separat `JbmbAb/milj-beslut`-repo.
 
 ### 2. Setup git configuration (automated)
 
