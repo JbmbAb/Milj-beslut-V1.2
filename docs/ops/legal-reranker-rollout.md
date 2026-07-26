@@ -75,6 +75,8 @@ Innan prod: öppna `best_prompt.txt` i GCS och bekräfta:
 
 ## Relaterat
 
+- [staging-observability-secrets.md](staging-observability-secrets.md) — `gcloud`-kommandon för QUERY_HASH_SALT + LEGAL_RERANKER=on
+- [observability-otlp.md](observability-otlp.md) — framtida Cloud Trace / dashboards
 - [legal_rerank_prompt_review_TEMPLATE.md](../eval/legal_rerank_prompt_review_TEMPLATE.md)
 - [EXPERIMENTS.md](../alphaevolve/EXPERIMENTS.md)
 - `scripts/eval/run_legal_rerank_eval.ts`
