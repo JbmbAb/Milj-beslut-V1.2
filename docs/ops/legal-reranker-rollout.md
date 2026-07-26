@@ -8,8 +8,8 @@ Status: **förberedelse** — staging/prod kräver human sign-off (AGENTS.md).
 |-----|-------------------|---------------------|
 | `LEGAL_RERANKER` | `on` | `on` (begränsad rollout) |
 | `LEGAL_RERANKER_RELATIVE_GAP` | `0.15` | `0.15` |
-| `LEGAL_RERANKER_PROMPT_GCS` | `gs://miljobeslut-prompt-optimization-bucket/alphaevolve/list_deduplication/prompt_opt_results/best_prompt.txt` | samma |
-| `LEGAL_RERANKER_PROMPT_VERSION` | `opt-prompt-d900aa00` (hash av prompt) | uppdateras vid ny prompt |
+| `LEGAL_RERANKER_PROMPT_GCS` | `gs://miljobeslut-prompt-optimization-bucket/alphaevolve/list_deduplication/prompt_opt_results/best_prompt.txt` (publiceras från Vertex-run) | samma |
+| `LEGAL_RERANKER_PROMPT_VERSION` | `auto` (läser hash från prompt-header) | `auto` eller explicit hash |
 | `VERTEX_PROJECT_ID` | `miljointelligens` | samma |
 | `VERTEX_LOCATION` | `europe-west1` | samma |
 

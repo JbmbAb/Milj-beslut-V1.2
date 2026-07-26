@@ -72,6 +72,18 @@ describe('RerankPromptService', () => {
     process.env = { ...originalEnv };
   });
 
+  describe('parsePromptFile', () => {
+    it('strips optimizer header and extracts metadata', () => {
+      const raw = `# prompt_version=1 variant=v4 hash=abc123 git=deadbeef
+Rank documents for {{QUERY}}.
+{{DOCUMENTS}}`;
+      const { template, metadata } = RerankPromptService.parsePromptFile(raw);
+      expect(template).toContain('Rank documents');
+      expect(metadata.variant).toBe('v4');
+      expect(metadata.hash).toBe('abc123');
+    });
+  });
+
   describe('parseGsUri', () => {
     it('should correctly parse a standard gs:// URI', () => {
       const parsed = RerankPromptService.parseGsUri('gs://my-bucket/prompts/reranker.txt');

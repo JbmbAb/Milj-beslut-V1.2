@@ -85,6 +85,16 @@ python main.py \
 
 Container entrypoint: `python main.py` with args passed by `gcloud_prompt_optimizer.sh` or `.github/workflows/vertex_prompt_optimize.yml`.
 
+Set container environment for real Vertex rerank (not mock):
+
+| Variable | Example |
+|---|---|
+| `VERTEX_PROJECT_ID` | `miljointelligens` |
+| `GOOGLE_CLOUD_PROJECT` | `miljointelligens` (fallback) |
+| `VERTEX_LOCATION` | `europe-west1` |
+
+Or set `LEGAL_RERANK_EVAL_URL` for HTTP eval mode.
+
 Set `GIT_COMMIT`, `CONTAINER_DIGEST`, and `IMAGE_URI` in the job env for manifest stamping.
 
 ## Tests

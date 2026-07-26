@@ -14,6 +14,16 @@ interface CachedPrompt {
   version: string;
   template: string;
   timestamp: number;
+  variant?: string;
+  hash?: string;
+}
+
+/** Metadata parsed from `# prompt_version=...` header in best_prompt.txt. */
+export interface PromptMetadata {
+  promptVersion?: string;
+  variant?: string;
+  hash?: string;
+  gitCommit?: string;
 }
 
 export class RerankPromptService {
@@ -102,6 +112,50 @@ export class RerankPromptService {
   }
 
   /**
+   * Parses optional metadata header written by prompt_optimizer (best_prompt.txt).
+   */
+  public static parsePromptFile(raw: string): { template: string; metadata: PromptMetadata } {
+    const lines = raw.split('\n');
+    const metadata: PromptMetadata = {};
+    let bodyLines = lines;
+
+    const first = lines[0]?.trim() ?? '';
+    if (first.startsWith('# prompt_version=')) {
+      const header = first.slice(1).trim();
+      for (const token of header.split(/\s+/)) {
+        const eq = token.indexOf('=');
+        if (eq <= 0) continue;
+        const key = token.slice(0, eq);
+        const value = token.slice(eq + 1);
+        if (key === 'prompt_version') metadata.promptVersion = value;
+        if (key === 'variant') metadata.variant = value;
+        if (key === 'hash') metadata.hash = value;
+        if (key === 'git') metadata.gitCommit = value;
+      }
+      bodyLines = lines.slice(1);
+    }
+
+    return {
+      template: bodyLines.join('\n').trim(),
+      metadata,
+    };
+  }
+
+  private static resolveVersion(configVersion: string, metadata: PromptMetadata): string {
+    const trimmed = configVersion.trim();
+    if (trimmed && trimmed !== 'auto') {
+      return trimmed;
+    }
+    if (metadata.hash) {
+      return metadata.hash;
+    }
+    if (metadata.promptVersion) {
+      return metadata.promptVersion;
+    }
+    return trimmed || 'default';
+  }
+
+  /**
    * Loads the prompt template from the configured GCS URI, local file, or environment variable.
    * Leverages in-memory caching with TTL, request coalescing, and retry wrapping.
    */
@@ -143,14 +197,26 @@ export class RerankPromptService {
           const storage = new Storage();
           const { bucket, name } = this.parseGsUri(gcsUri);
           const contentBuffer = await this.downloadWithRetry(storage, bucket, name);
-          const template = contentBuffer.toString('utf8').trim();
+          const raw = contentBuffer.toString('utf8');
+          const { template, metadata } = this.parsePromptFile(raw);
+          const version = this.resolveVersion(configVersion, metadata);
 
-          this.cache = { version: configVersion, template, timestamp: Date.now() };
+          logger.info(
+            `Rerank prompt loaded from GCS (variant=${metadata.variant ?? 'n/a'}, hash=${metadata.hash ?? 'n/a'}, version=${version})`
+          );
+
+          this.cache = {
+            version,
+            template,
+            timestamp: Date.now(),
+            variant: metadata.variant,
+            hash: metadata.hash,
+          };
 
           // Automatically trigger the background hydration daemon if not already running
           this.startHydrationDaemon();
 
-          return { template, version: configVersion };
+          return { template, version };
         } catch (error) {
           logger.error(
             `Misslyckades att ladda prompt från GCS (${gcsUri}) efter omförsök: ${(error as Error).message}. Faller tillbaka.`
@@ -227,10 +293,20 @@ export class RerankPromptService {
         const storage = new Storage();
         const { bucket, name } = this.parseGsUri(gcsUri);
         const contentBuffer = await this.downloadWithRetry(storage, bucket, name);
-        const template = contentBuffer.toString('utf8').trim();
+        const raw = contentBuffer.toString('utf8');
+        const { template, metadata } = this.parsePromptFile(raw);
+        const version = this.resolveVersion(configVersion, metadata);
 
-        this.cache = { version: configVersion, template, timestamp: Date.now() };
-        logger.info(`Bakgrundshydrering lyckades för prompt-version: ${configVersion}`);
+        this.cache = {
+          version,
+          template,
+          timestamp: Date.now(),
+          variant: metadata.variant,
+          hash: metadata.hash,
+        };
+        logger.info(
+          `Bakgrundshydrering lyckades (variant=${metadata.variant ?? 'n/a'}, hash=${metadata.hash ?? 'n/a'}, version=${version})`
+        );
       } catch (error) {
         logger.error(`Misslyckades vid bakgrundshydrering av reranker-prompt: ${(error as Error).message}`);
       }

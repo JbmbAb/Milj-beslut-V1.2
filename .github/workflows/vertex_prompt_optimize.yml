@@ -9,7 +9,7 @@ on:
         type: boolean
         default: false
       max_records:
-        description: 'Cap golden records for dry-run (0 = all)'
+        description: 'Golden records to evaluate (0 = all)'
         type: string
         default: '50'
   push:
@@ -30,6 +30,12 @@ on:
 
 permissions:
   contents: read
+
+env:
+  PROJECT_ID: miljointelligens
+  REGION: europe-west1
+  BUCKET: miljobeslut-prompt-optimization-bucket
+  GOOGLE_CLOUD_PROJECT: miljointelligens
 
 jobs:
   unit-tests:
@@ -111,12 +117,11 @@ jobs:
       - uses: google-github-actions/setup-gcloud@v2
 
       - name: Build and push container
-        env:
-          PROJECT_ID: miljointelligens
         run: |
           gcloud builds submit prompt_optimizer \
-            --tag gcr.io/${PROJECT_ID}/prompt-optimizer:${{ github.sha }} \
-            --project ${PROJECT_ID}
+            --tag gcr.io/${{ env.PROJECT_ID }}/prompt-optimizer:${{ github.sha }} \
+            --tag gcr.io/${{ env.PROJECT_ID }}/prompt-optimizer:latest \
+            --project ${{ env.PROJECT_ID }}
 
   vertex-job:
     if: github.event_name == 'workflow_dispatch' && github.event.inputs.run_vertex_job == 'true'
@@ -132,18 +137,55 @@ jobs:
       - uses: google-github-actions/setup-gcloud@v2
 
       - name: Submit Vertex Custom Job
+        id: submit
         env:
-          PROJECT_ID: miljointelligens
-          REGION: europe-west1
-          BUCKET: miljobeslut-prompt-optimization-bucket
+          MAX_RECORDS: ${{ github.event.inputs.max_records || '50' }}
         run: |
-          IMAGE=gcr.io/${PROJECT_ID}/prompt-optimizer:${{ github.sha }}
-          gcloud ai custom-jobs create \
-            --region=${REGION} \
-            --project=${PROJECT_ID} \
+          IMAGE=gcr.io/${{ env.PROJECT_ID }}/prompt-optimizer:${{ github.sha }}
+          OUTPUT_PREFIX=gs://${{ env.BUCKET }}/alphaevolve/list_deduplication/prompt_opt_results/${{ github.sha }}
+          JOB=$(gcloud ai custom-jobs create \
+            --region=${{ env.REGION }} \
+            --project=${{ env.PROJECT_ID }} \
             --display-name=prompt-opt-${{ github.sha }} \
-            --worker-pool-spec=machine-type=n1-standard-4,replica-count=1,container-image-uri=${IMAGE} \
-            --args=--input_data_path=gs://${BUCKET}/alphaevolve/list_deduplication/golden_v1/golden_v1_2000_records.jsonl \
-            --args=--output_data_path=gs://${BUCKET}/alphaevolve/list_deduplication/prompt_opt_results/${{ github.sha }} \
+            --worker-pool-spec=machine-type=n1-standard-4,replica-count=1,container-image-uri=${IMAGE},environment-variables=VERTEX_PROJECT_ID=${{ env.PROJECT_ID }},GOOGLE_CLOUD_PROJECT=${{ env.PROJECT_ID }},VERTEX_LOCATION=${{ env.REGION }} \
+            --args=--input_data_path=gs://${{ env.BUCKET }}/alphaevolve/list_deduplication/golden_v1/golden_v1_2000_records.jsonl \
+            --args=--output_data_path=${OUTPUT_PREFIX} \
             --args=--target_model=gemini-1.5-flash \
-            --args=--max_iterations=4
+            --args=--max_iterations=4 \
+            --args=--max_records=${MAX_RECORDS} \
+            --format='value(name)')
+          echo "job_name=${JOB}" >> "$GITHUB_OUTPUT"
+          echo "output_prefix=${OUTPUT_PREFIX}" >> "$GITHUB_OUTPUT"
+
+      - name: Wait for Vertex job
+        env:
+          JOB_NAME: ${{ steps.submit.outputs.job_name }}
+        run: |
+          for i in $(seq 1 60); do
+            STATE=$(gcloud ai custom-jobs describe "${JOB_NAME}" \
+              --region=${{ env.REGION }} \
+              --project=${{ env.PROJECT_ID }} \
+              --format='value(state)')
+            echo "Poll ${i}: ${STATE}"
+            case "${STATE}" in
+              JOB_STATE_SUCCEEDED) exit 0 ;;
+              JOB_STATE_FAILED|JOB_STATE_CANCELLED) exit 1 ;;
+            esac
+            sleep 30
+          done
+          echo "Timed out waiting for Vertex job"
+          exit 1
+
+      - name: Validate results in GCS
+        run: |
+          gsutil cp ${{ steps.submit.outputs.output_prefix }}/results_summary.json /tmp/results_summary.json
+          python scripts/ci_validate_results.py /tmp/results_summary.json
+
+      - name: Publish canonical prompt artifacts to bucket root
+        run: |
+          PREFIX=${{ steps.submit.outputs.output_prefix }}
+          ROOT=gs://${{ env.BUCKET }}/alphaevolve/list_deduplication/prompt_opt_results
+          gsutil cp "${PREFIX}/best_prompt.txt" "${ROOT}/best_prompt.txt"
+          gsutil cp "${PREFIX}/manifest.json" "${ROOT}/manifest.json"
+          gsutil cp "${PREFIX}/results_summary.json" "${ROOT}/results_summary.json"
+          echo "Published ${PREFIX} -> ${ROOT}/"

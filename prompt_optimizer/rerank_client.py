@@ -92,7 +92,11 @@ class RerankClient:
         persistent_cache: PersistentCache | None = None,
     ) -> None:
         self.mode = (mode or os.environ.get("RERANK_CLIENT_MODE", "auto")).lower()
-        self.project_id = project_id or os.environ.get("VERTEX_PROJECT_ID", "")
+        self.project_id = (
+            project_id
+            or os.environ.get("VERTEX_PROJECT_ID", "")
+            or os.environ.get("GOOGLE_CLOUD_PROJECT", "")
+        )
         self.location = location or os.environ.get("VERTEX_LOCATION", "europe-west1")
         self.model_name = model or os.environ.get(
             "VERTEX_FAST_MODEL", "gemini-1.5-flash"
