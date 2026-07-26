@@ -140,10 +140,32 @@ jobs:
             --update-secrets="DATABASE_URL=DATABASE_URL:latest,JWT_ACCESS_SECRET=JWT_ACCESS_SECRET:latest,JWT_REFRESH_SECRET=JWT_REFRESH_SECRET:latest,GEMINI_API_KEY=GEMINI_API_KEY:latest,OPENAI_API_KEY=OPENAI_API_KEY:latest,SEARCH_ENCRYPTION_KEY_BASE64=SEARCH_ENCRYPTION_KEY_BASE64:latest,ADMIN_CONSOLE_PASSWORD=ADMIN_CONSOLE_PASSWORD:latest,BANKID_PFX_PASSPHRASE=BANKID_PFX_PASSPHRASE:latest,BANKID_PFX_CONTENT=BANKID_PFX_CONTENT:latest,LANTMATERIET_API_KEY=LANTMATERIET_API_KEY:latest,LANTMATERIET_CONSUMER_KEY=LANTMATERIET_CONSUMER_KEY:latest,LANTMATERIET_CONSUMER_SECRET=LANTMATERIET_CONSUMER_SECRET:latest,LANTMATERIET_OPEN_SUBSCRIPTION_KEY=LANTMATERIET_OPEN_SUBSCRIPTION_KEY:latest,SLU_API_KEY=SLU_API_KEY:latest,TRAFIKVERKET_API_KEY=TRAFIKVERKET_API_KEY:latest,VISS_API_KEY=VISS_API_KEY:latest" \
             --set-env-vars="NODE_ENV=production,START_WORKERS_IN_PROCESS=false,LANTMATERIET_BASE_URL=https://api.lantmateriet.se/ogc-features/v1,LANTMATERIET_OPEN_MODE=true,SLU_API_BASE_URL=https://api.slu.se,CORS_ALLOW_ORIGINS=${{ vars.GCP_CORS_ORIGINS }},VERTEX_PROJECT_ID=${{ secrets.GCP_PROJECT_ID }},VERTEX_LOCATION=${{ vars.GCP_REGION || 'europe-west1' }}" \
             --no-allow-unauthenticated \
-            --wait \
             --format="value(status.url)")
           echo "DEPLOYED_SERVICE_URL=$SERVICE_URL" >> "$GITHUB_ENV"
           echo "Cloud Run URL: $SERVICE_URL"
+
+      - name: Wait for Cloud Run revision
+        run: |
+          set -euo pipefail
+          for attempt in $(seq 1 30); do
+            READY=$(gcloud run services describe "${{ env.SERVICE }}" \
+              --region="${{ env.REGION }}" \
+              --format="value(status.conditions[?type='Ready'].status)")
+            REVISION=$(gcloud run services describe "${{ env.SERVICE }}" \
+              --region="${{ env.REGION }}" \
+              --format="value(status.latestReadyRevisionName)")
+
+            if [ "$READY" = "True" ] && [ -n "$REVISION" ]; then
+              echo "Revision $REVISION är redo (försök $attempt)"
+              exit 0
+            fi
+
+            echo "Väntar på revision... Ready=$READY revision=$REVISION (försök $attempt/30)"
+            sleep 10
+          done
+
+          echo "Timeout: ingen redo revision efter 5 minuter"
+          exit 1
 
       # ── Hälsokontroll (WIF kräver ID-token med Cloud Run-URL som audience) ─
       - name: Health check
