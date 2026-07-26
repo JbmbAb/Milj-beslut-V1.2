@@ -10,6 +10,7 @@ import time
 import urllib.error
 import urllib.request
 from typing import Any
+from urllib.parse import urlparse
 
 from cache import PersistentCache, build_cache_key, candidate_hash
 from rerank_types import LatencyBreakdown, RerankResponse
@@ -189,6 +190,9 @@ class RerankClient:
     def _call_http(
         self, body_bytes: bytes, latency: LatencyBreakdown, timeout: float
     ) -> tuple[list[dict[str, Any]], int, int]:
+        parsed = urlparse(self.http_url)
+        if parsed.scheme not in {"http", "https"}:
+            raise ValueError(f"Unsupported rerank URL scheme: {parsed.scheme!r}")
         req = urllib.request.Request(
             self.http_url,
             data=body_bytes,
@@ -197,7 +201,7 @@ class RerankClient:
         )
         t_http = time.perf_counter()
         try:
-            with urllib.request.urlopen(req, timeout=timeout) as resp:
+            with urllib.request.urlopen(req, timeout=timeout) as resp:  # nosec B310
                 raw_bytes = resp.read()
         except urllib.error.HTTPError as err:
             if err.code in RETRYABLE_HTTP_CODES:
