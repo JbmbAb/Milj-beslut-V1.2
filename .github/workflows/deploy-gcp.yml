@@ -140,35 +140,42 @@ jobs:
             --update-secrets="DATABASE_URL=DATABASE_URL:latest,JWT_ACCESS_SECRET=JWT_ACCESS_SECRET:latest,JWT_REFRESH_SECRET=JWT_REFRESH_SECRET:latest,GEMINI_API_KEY=GEMINI_API_KEY:latest,OPENAI_API_KEY=OPENAI_API_KEY:latest,SEARCH_ENCRYPTION_KEY_BASE64=SEARCH_ENCRYPTION_KEY_BASE64:latest,ADMIN_CONSOLE_PASSWORD=ADMIN_CONSOLE_PASSWORD:latest,BANKID_PFX_PASSPHRASE=BANKID_PFX_PASSPHRASE:latest,BANKID_PFX_CONTENT=BANKID_PFX_CONTENT:latest,LANTMATERIET_API_KEY=LANTMATERIET_API_KEY:latest,LANTMATERIET_CONSUMER_KEY=LANTMATERIET_CONSUMER_KEY:latest,LANTMATERIET_CONSUMER_SECRET=LANTMATERIET_CONSUMER_SECRET:latest,LANTMATERIET_OPEN_SUBSCRIPTION_KEY=LANTMATERIET_OPEN_SUBSCRIPTION_KEY:latest,SLU_API_KEY=SLU_API_KEY:latest,TRAFIKVERKET_API_KEY=TRAFIKVERKET_API_KEY:latest,VISS_API_KEY=VISS_API_KEY:latest" \
             --set-env-vars="NODE_ENV=production,START_WORKERS_IN_PROCESS=false,LANTMATERIET_BASE_URL=https://api.lantmateriet.se/ogc-features/v1,LANTMATERIET_OPEN_MODE=true,SLU_API_BASE_URL=https://api.slu.se,CORS_ALLOW_ORIGINS=${{ vars.GCP_CORS_ORIGINS }},VERTEX_PROJECT_ID=${{ secrets.GCP_PROJECT_ID }},VERTEX_LOCATION=${{ vars.GCP_REGION || 'europe-west1' }}" \
             --no-allow-unauthenticated \
+            --wait \
             --format="value(status.url)")
           echo "DEPLOYED_SERVICE_URL=$SERVICE_URL" >> "$GITHUB_ENV"
           echo "Cloud Run URL: $SERVICE_URL"
 
-      # ── Hälsokontroll ─────────────────────────────────────────────────────
+      # ── Hälsokontroll (WIF kräver ID-token med Cloud Run-URL som audience) ─
       - name: Health check
+        env:
+          SERVICE_URL: ${{ env.DEPLOYED_SERVICE_URL || vars.GCP_SERVICE_URL }}
         run: |
-          SERVICE_URL="${{ vars.GCP_SERVICE_URL }}"
+          set -euo pipefail
+
           if [ -z "$SERVICE_URL" ]; then
-            SERVICE_URL="${DEPLOYED_SERVICE_URL:-}"
-          fi
-          if [ -z "$SERVICE_URL" ]; then
-            echo "GCP_SERVICE_URL inte satt – hoppar över hälsokontroll."
+            echo "Ingen service-URL – hoppar över hälsokontroll."
             exit 0
           fi
 
-          echo "Väntar på att tjänsten ska starta..."
-          sleep 10
+          echo "Hälsokontroll mot $SERVICE_URL/health"
+          TOKEN=$(gcloud auth print-identity-token --audiences="$SERVICE_URL" --include-email)
 
-          STATUS=$(curl -s -o /dev/null -w "%{http_code}" \
-            -H "Authorization: Bearer $(gcloud auth print-identity-token)" \
-            "$SERVICE_URL/health")
+          for attempt in $(seq 1 12); do
+            STATUS=$(curl -s -o /dev/null -w "%{http_code}" \
+              -H "Authorization: Bearer $TOKEN" \
+              "$SERVICE_URL/health" || echo "000")
 
-          if [ "$STATUS" != "200" ]; then
-            echo "Hälsokontroll misslyckades – HTTP $STATUS"
-            exit 1
-          fi
+            if [ "$STATUS" = "200" ]; then
+              echo "Hälsokontroll OK (HTTP $STATUS, försök $attempt)"
+              exit 0
+            fi
 
-          echo "Hälsokontroll OK (HTTP $STATUS)"
+            echo "Försök $attempt/12: HTTP $STATUS – väntar 10s..."
+            sleep 10
+          done
+
+          echo "Hälsokontroll misslyckades efter 12 försök (senaste HTTP $STATUS)"
+          exit 1
 
       - name: Update GCP_SERVICE_URL variable
         if: success() && env.DEPLOYED_SERVICE_URL != ''
