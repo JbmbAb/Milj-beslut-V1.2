@@ -4,6 +4,7 @@ import { GoogleGenerativeAI } from '@google/generative-ai';
 import crypto from 'node:crypto';
 import { promises as fs } from 'node:fs';
 import path from 'node:path';
+import { computeMinMaxStats } from '../lib/stats';
 import { logger } from '../logger';
 import { RerankPromptService } from './rerankPromptService';
 import { embedTextWithVertexPredict } from './vertexEmbeddingService';
@@ -126,6 +127,11 @@ export class AlphaevolveSearchService extends EventEmitter {
     // Initiera den officiella Google Generative AI SDK:n lokalt
     const apiKey = process.env.GEMINI_API_KEY || '';
     this.genAI = new GoogleGenerativeAI(apiKey);
+  }
+
+  /** Senaste rerank-telemetri från search()-anrop (för tester och observability). */
+  public getLastRerankTelemetry(): typeof this.lastRerankTelemetry {
+    return this.lastRerankTelemetry;
   }
 
   /**
@@ -357,28 +363,10 @@ export class AlphaevolveSearchService extends EventEmitter {
     variance: number;
   } {
     const distances = candidates
-      .map(c => c.vectorDistance)
+      .map((c) => c.vectorDistance)
       .filter((d): d is number => d !== undefined && d !== null);
 
-    if (distances.length === 0) {
-      return { min: 0, max: 0, avg: 0, count: 0, variance: 0 };
-    }
-
-    const min = Math.min(...distances);
-    const max = Math.max(...distances);
-    const sum = distances.reduce((acc, d) => acc + d, 0);
-    const avg = sum / distances.length;
-
-    const sqDiffs = distances.map(d => Math.pow(d - avg, 2));
-    const avgSqDiff = sqDiffs.reduce((acc, d) => acc + d, 0) / distances.length;
-
-    return {
-      min,
-      max,
-      avg,
-      count: distances.length,
-      variance: avgSqDiff,
-    };
+    return computeMinMaxStats(distances);
   }
 
   /**
@@ -551,30 +539,32 @@ export class AlphaevolveSearchService extends EventEmitter {
     return expandedResults;
   }
 
-  private async logSearchMetrics(query: string, metrics: any): Promise<void> {
+  private async logSearchMetrics(query: string, metrics: Record<string, unknown>): Promise<void> {
     try {
+      const rerankerTelemetry = this.lastRerankTelemetry ?? {
+        promptVersion: 'not-triggered',
+        semanticStats: { min: 0, max: 0, avg: 0, count: 0, variance: 0 },
+        shouldSkipReranker: true,
+        skipReason: 'CROSS_ENCODER_DISABLED_OR_NOT_REACHED',
+      };
+
       await this.prisma.searchQueryLog.create({
         data: {
           userId: 'system-alphaevolve',
           projectId: 'alphaevolve-log',
-          query: query,
+          query,
           mode: 'hybrid',
-          topK: metrics.finalCount,
-          resultCount: metrics.finalCount,
-          elapsedMs: metrics.totalMs,
-        }
+          topK: metrics.finalCount as number,
+          resultCount: metrics.finalCount as number,
+          elapsedMs: metrics.totalMs as number,
+        },
       });
 
       // Logga högupplöst JSON-struktur till stdout så att Cloud Logging kan indexera
       logger.info('Search query execution metrics and reranker telemetry', {
         query,
         metrics,
-        rerankerTelemetry: this.lastRerankTelemetry || {
-          promptVersion: 'not-triggered',
-          semanticStats: { min: 0, max: 0, avg: 0, count: 0, variance: 0 },
-          shouldSkipReranker: true,
-          skipReason: 'CROSS_ENCODER_DISABLED_OR_NOT_REACHED',
-        },
+        rerankerTelemetry,
       });
     } catch (error) {
       this.emit('search:warning', 'Misslyckades att spara searchQueryLog: ' + (error as Error).message);

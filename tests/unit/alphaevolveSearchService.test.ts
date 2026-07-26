@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { PrismaClient } from '@prisma/client';
 import { AlphaevolveSearchService, SearchChunkResult } from '../../server/services/searchService';
+import { computeMinMaxStats } from '../../server/lib/stats';
 
 const mocks = vi.hoisted(() => ({
   $queryRaw: vi.fn().mockResolvedValue([]),
@@ -262,7 +263,7 @@ describe('AlphaevolveSearchService - Automated Tests', () => {
 
     // Should skip since we have exactly 1 candidate
     expect(mocks.generateContent).not.toHaveBeenCalled();
-    const telemetry = (searchService as any).lastRerankTelemetry;
+    const telemetry = searchService.getLastRerankTelemetry();
     expect(telemetry).toBeDefined();
     expect(telemetry.shouldSkipReranker).toBe(true);
     expect(telemetry.skipReason).toBe('SINGLE_CANDIDATE');
@@ -274,7 +275,7 @@ describe('AlphaevolveSearchService - Automated Tests', () => {
     });
 
     expect(mocks.generateContent).not.toHaveBeenCalled();
-    const shortTelemetry = (searchService as any).lastRerankTelemetry;
+    const shortTelemetry = searchService.getLastRerankTelemetry();
     expect(shortTelemetry.shouldSkipReranker).toBe(true);
     expect(shortTelemetry.skipReason).toBe('QUERY_TOO_SHORT');
   });
@@ -286,7 +287,11 @@ describe('AlphaevolveSearchService - Automated Tests', () => {
       { id: '3', chunkText: 'C', documentId: 'C', documentTitle: 'C', vectorDistance: 0.5 },
     ];
 
-    const stats = (searchService as any).calculateSemanticDistanceStats(candidates);
+    const stats = computeMinMaxStats(
+      candidates
+        .map((c) => c.vectorDistance)
+        .filter((d): d is number => d !== undefined && d !== null),
+    );
     expect(stats.min).toBe(0.1);
     expect(stats.max).toBe(0.5);
     expect(stats.avg).toBe(0.3);
@@ -320,7 +325,7 @@ describe('AlphaevolveSearchService - Automated Tests', () => {
       config: { CROSS_ENCODER_ENABLED: true, FINAL_TOP_K: 2 },
     });
 
-    const telemetry = (searchService as any).lastRerankTelemetry;
+    const telemetry = searchService.getLastRerankTelemetry();
     expect(telemetry).toBeDefined();
     expect(telemetry.shouldSkipReranker).toBe(false);
     expect(telemetry.semanticStats.min).toBe(0.2);
