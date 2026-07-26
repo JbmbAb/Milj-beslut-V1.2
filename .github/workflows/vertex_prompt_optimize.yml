@@ -12,6 +12,13 @@ on:
         description: 'Cap golden records for dry-run (0 = all)'
         type: string
         default: '50'
+  push:
+    branches: [main]
+    paths:
+      - 'prompt_optimizer/**'
+      - 'scripts/vertex_prompt_optimize.py'
+      - 'scripts/ci_validate_results.py'
+      - '.github/workflows/vertex_prompt_optimize.yml'
   pull_request:
     paths:
       - 'prompt_optimizer/**'
@@ -95,15 +102,12 @@ jobs:
       - uses: actions/checkout@v4
 
       - uses: google-github-actions/auth@v2
-        if: ${{ secrets.GCP_SA_KEY != '' }}
         with:
           credentials_json: ${{ secrets.GCP_SA_KEY }}
 
       - uses: google-github-actions/setup-gcloud@v2
-        if: ${{ secrets.GCP_SA_KEY != '' }}
 
       - name: Build and push container
-        if: ${{ secrets.GCP_SA_KEY != '' }}
         env:
           PROJECT_ID: miljointelligens
         run: |
