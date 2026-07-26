@@ -54,7 +54,7 @@ CI guard idag: routes får inte importera `server/services/` direkt. **Nästa st
 
 | Mapp | Beslut |
 |------|--------|
-| `legacy/` | ARKIVERA — flytta till separat repo eller tag `archive/legacy-2026` |
+| `legacy/` | Behåll endast `remix-poc/` (testreferens) och `experimental/bankComplianceProfileService.ts` (test). Produktionslogistik flyttad till `server/modules/logistics/services/`. |
 | `examensrepo/` | Borttaget ur aktiv docs; historik i git om behövs |
 | `.quarantine/` | KASSERA efter inventering |
 | `training/` | ARKIVERA om ej aktiv |

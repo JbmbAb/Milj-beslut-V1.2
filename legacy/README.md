@@ -1,40 +1,40 @@
 # Legacy Code Archive
 
-Detta katalog innehåller kod som inte längre är en del av produktions-kodbas men bevaras för referens.
+Kod som **inte** ingår i produktions-API men bevaras för referens och enstaka enhetstester.
 
-## Struktur
+## Aktiv produktionskod (flyttad)
 
-### experimental/
-Experimentella moduler som aldrig integrerades i produktion.
+GPS-spårning och marknadsintelligens för logistik ligger numera under modulen:
 
-**Innehåll:**
-- `gpsTrackingService.ts` - GPS-spårning för logistik (backend fanns, inget UI)
-- `marketIntelService.ts` - Marknadsdata-integration (backend fanns, inget UI)
-- `bankComplianceProfileService.ts` - ESG-scoring för banker (förberedd men aldrig använd)
+- `server/modules/logistics/services/gpsTrackingService.ts`
+- `server/modules/logistics/services/marketIntelService.ts`
 
-**Beslut:** Arkiverat 2026-04-02
-**Skäl:** Backend-implementation utan frontend-integration i 60+ dagar. Oklart affärscase.
+Routes: `server/routes/logistics.routes.ts` via `server/modules/logistics/public.ts`.
 
-### remix-poc/
-Proof-of-concept Remix routing som aldrig togs i drift.
+## experimental/
 
-**Innehåll:**
-- Hela `/app/routes/` katalogen (11 Remix route-filer)
+| Fil | Status |
+| --- | --- |
+| `bankComplianceProfileService.ts` | Endast testreferens; logik återimplementerad i `src/application/compute-compliance-profile.usecase.ts` |
 
-**Beslut:** Kasserat 2026-04-02
-**Skäl:** Parallell arkitektur till Express routes som aldrig användes i produktion.
+Borttaget 2026-07-26: `gpsTrackingService.ts`, `marketIntelService.ts` (flyttade till logistics-modulen), `complianceRulesEngine_old.ts` (odead kod).
+
+## remix-poc/
+
+Proof-of-concept Remix-routing som aldrig togs i drift.
+
+- Hela `legacy/remix-poc/routes/` (11 filer)
+- Importeras endast från enhetstester (`tests/unit/remixGeminiRoute.test.ts`, `caseNotesRoute.test.ts`)
+
+**Beslut:** Kasserat 2026-04-02 — parallell arkitektur till Express som aldrig användes i produktion.
 
 ---
 
 ## Om du behöver något från legacy/
 
-1. **Kontrollera först** om funktionalitet redan finns i produktions-kod
-2. **Extrahera konceptet**, inte koden direkt
-3. **Skriv om** med nuvarande arkitektur
-4. **Lägg till tester** från början
-5. **Dokumentera** i modulregistret
+1. Kontrollera om funktionalitet redan finns i `server/modules/*` eller `src/`
+2. Extrahera konceptet, skriv om med nuvarande arkitektur
+3. Lägg till tester från början
+4. Uppdatera [modulregister_ombyggnad.md](../docs/architecture/modulregister_ombyggnad.md)
 
----
-
-**Skapad:** 2026-04-02
-**Syfte:** Förhindra att experimentell kod blandas med produktion
+**Skapad:** 2026-04-02 · **Senast sanerad:** 2026-07-26

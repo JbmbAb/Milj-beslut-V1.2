@@ -5,7 +5,7 @@
 
 ## Kontext
 
-Plattformen har flera samexisterande backend-arkitekturer: ett äldre, monolitiskt `server/services`-lager, en pågående modulär migration i `server/modules/*`, och en ny, renare målarkitektur i `src/`. Detta dokumenterades i [platform-styr-och-atgardsrapport-2026-04-02.md](./platform-styr-och-atgardsrapport-2026-04-02.md) och [modulregister_ombyggnad.md](./modulregister_ombyggnad.md).
+Plattformen har flera samexisterande backend-arkitekturer: ett äldre, monolitiskt `server/services`-lager, en pågående modulär migration i `server/modules/*`, och en ny, renare målarkitektur i `src/`. Bakgrund finns i [ombyggnadsstrategi_bygga_nytt_bygga_ratt.md](./ombyggnadsstrategi_bygga_nytt_bygga_ratt.md), [modulregister_ombyggnad.md](./modulregister_ombyggnad.md) och arkiverad [plattformsanalys 2026-04-02](../archive/architecture-snapshots/platform-styr-och-atgardsrapport-2026-04-02.md).
 
 ## Beslut
 

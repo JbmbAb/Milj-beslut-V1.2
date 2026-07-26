@@ -24,13 +24,13 @@ vi.mock('../../server/repositories/tokenRepository', () => ({
   cleanupExpiredTokenRevocations: vi.fn(async () => 0),
 }));
 
-vi.mock('../../legacy/experimental/gpsTrackingService', () => ({
+vi.mock('../../server/modules/logistics/services/gpsTrackingService', () => ({
   addGpsPosition: mocks.addGpsPosition,
   getGpsTrack: mocks.getGpsTrack,
   getLatestPosition: mocks.getLatestGpsPosition,
 }));
 
-vi.mock('../../legacy/experimental/marketIntelService', () => ({
+vi.mock('../../server/modules/logistics/services/marketIntelService', () => ({
   getMarketSnapshot: mocks.getMarketSnapshot,
   invalidateMarketCache: mocks.invalidateMarketCache,
 }));

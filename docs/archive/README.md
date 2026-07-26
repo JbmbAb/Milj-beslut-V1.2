@@ -19,6 +19,8 @@ Historiska leveransplaner och test-push-guider har **tagits bort** från repot (
 
 | Mapp | Innehåll |
 | ---- | -------- |
+| [architecture-snapshots/](./architecture-snapshots/) | Q1–Q2 2026 plattformsanalyser |
+| [vision/](./vision/) | Pausade produktidéer (tillsynsindex, regulatory intelligence) |
 | [millbygard/](./millbygard/) | Sidoprojekt Minecraft — ej plattform |
 | [examens/](./examens/) | Examensmetodik |
 | [prototypes/](./prototypes/) | API-piloter |

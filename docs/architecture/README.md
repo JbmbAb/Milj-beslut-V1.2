@@ -9,8 +9,8 @@ Canonical översikt för Miljöbeslut V2.0. Läs i denna ordning vid onboarding.
 | [development-governance.md](./development-governance.md) | Kvalitetsgates, AI-regler |
 | [ombyggnadsstrategi_bygga_nytt_bygga_ratt.md](./ombyggnadsstrategi_bygga_nytt_bygga_ratt.md) | Strangler/migrering `server/` → `src/` |
 | [modulregister_ombyggnad.md](./modulregister_ombyggnad.md) | Modulstatus (BEHÅLL/ARKIVERA/BYGG OM) |
-| [platform-styr-och-atgardsrapport-2026-04-02.md](./platform-styr-och-atgardsrapport-2026-04-02.md) | Styrande riktning 2026 Q2 |
 | [ARCHITECTURE_DEBT_ROADMAP_2026-06-09.md](./ARCHITECTURE_DEBT_ROADMAP_2026-06-09.md) | Teknisk skuld & faser |
+| [system_architecture_blueprint.md](./system_architecture_blueprint.md) | Teknisk helhetsyta |
 
 ## Data & offline-first
 
@@ -38,6 +38,8 @@ Canonical översikt för Miljöbeslut V2.0. Läs i denna ordning vid onboarding.
 | [PERMIT_PORTAL_LEGACY.md](./PERMIT_PORTAL_LEGACY.md) | Legacy C-anmälan |
 | [PERMIT_PORTAL_RETIREMENT_PLAN.md](./PERMIT_PORTAL_RETIREMENT_PLAN.md) | Avvecklingsplan |
 | [massa_logistik_implementation.md](./massa_logistik_implementation.md) | Schaktmassa/logistik (aktiv kod) |
+| [geo-regulatory-engine.md](./geo-regulatory-engine.md) | Domänpack-förberedelse (`server/geo-regulatory/`) |
+| [submission-spine.md](./submission-spine.md) | Ut-/inbound submission-modeller |
 
 ## ADR
 
@@ -45,10 +47,10 @@ Canonical översikt för Miljöbeslut V2.0. Läs i denna ordning vid onboarding.
 - [ADR-005](./ADR-005-vertex-ai-data-minimization.md) — Vertex dataminimering
 - [ADR-006](./ADR-006-strangler-fig-pattern.md) — strangler fig
 
-## Arkiverat (ej aktiv produkt)
+## Arkiverat
 
-Se [docs/archive/README.md](../archive/README.md) — bl.a. Millbygård, examensmetodik, framtida finans/miljörapportering, Interactions API-prototyp.
-
-## Föråldrad länk i `systembeskrivning.md`
-
-Använd [system_architecture_blueprint.md](./system_architecture_blueprint.md) för teknisk helhetsyta; `systembeskrivning.md` är äldre GovTech-beskrivning med delvis legacy-terminologi (Remix).
+| Mapp | Innehåll |
+| ---- | -------- |
+| [docs/archive/architecture-snapshots/](../archive/architecture-snapshots/) | Q1–Q2 2026-analyser, äldre systembeskrivning |
+| [docs/archive/vision/](../archive/vision/) | Tillsynsindex, regulatorisk intelligence |
+| [docs/archive/README.md](../archive/README.md) | Övriga sidospår (Millbygård, examens, m.m.) |

@@ -9,15 +9,15 @@
  *
  * I produktion ersätts bufferten med en time-series databas (InfluxDB/TimescaleDB).
  *
- * Endpoints (via secureApi.express.ts):
+ * Endpoints (via logistics.routes.ts):
  *   POST /api/projects/:projectId/transport/:bookingId/gps/update
  *   GET  /api/projects/:projectId/transport/:bookingId/gps
  *   GET  /api/projects/:projectId/transport/:bookingId/gps/latest
  */
 
 import crypto from 'node:crypto';
-import { logger } from '../../server/logger';
-import * as gpsRepo from '../../server/repositories/gpsRepository';
+import { logger } from '../../../logger';
+import * as gpsRepo from '../../../repositories/gpsRepository';
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -101,8 +101,6 @@ export async function addGpsPosition(params: {
     timestamp: row.timestamp.toISOString(),
   };
 
-  // Log significant position updates to AuditTrail (e.g. periodically)
-  // We can't easily check array length without a count query, but for now we'll log hash
   logger.debug('gps-tracking: position added', { bookingId, lat, lng, hash });
   
   return position;

@@ -4,15 +4,11 @@ import { rateLimitByUser } from '../security/rateLimit';
 import { paginationSchema } from '../schemas/api.schemas';
 import { toSafeErrorResponse } from '../security/secureErrors';
 import {
-  addGpsPosition,
-  getGpsTrack,
-  getLatestPosition as getLatestGpsPosition,
-} from '../../legacy/experimental/gpsTrackingService';
-import {
-  getMarketSnapshot,
-  invalidateMarketCache,
-} from '../../legacy/experimental/marketIntelService';
-import { transportService, limsService } from '../modules/logistics/public';
+  gpsTrackingService,
+  limsService,
+  marketIntelService,
+  transportService,
+} from '../modules/logistics/public';
 import { routeParam } from '../utils/routeUtils';
 import {
   countTransportBookings,
@@ -46,7 +42,7 @@ router.post(
         return;
       }
 
-      const position = await addGpsPosition({
+      const position = await gpsTrackingService.addGpsPosition({
         bookingId: routeParam(req.params.bookingId),
         projectId: routeParam(req.params.projectId),
         lat,
@@ -70,7 +66,7 @@ router.get(
   rateLimitByUser(60, 60_000),
   async (req, res) => {
     try {
-      const track = await getGpsTrack(routeParam(req.params.bookingId));
+      const track = await gpsTrackingService.getGpsTrack(routeParam(req.params.bookingId));
       res.json({ ok: true, track });
     } catch (error: unknown) {
       res.status(400).json(toSafeErrorResponse(error));
@@ -84,7 +80,7 @@ router.get(
   rateLimitByUser(120, 60_000),
   async (req, res) => {
     try {
-      const position = await getLatestGpsPosition(routeParam(req.params.bookingId));
+      const position = await gpsTrackingService.getLatestPosition(routeParam(req.params.bookingId));
       if (!position) {
         res.status(404).json({ ok: false, error: 'Ingen position registrerad' });
         return;
@@ -99,7 +95,7 @@ router.get(
 // Market Intelligence
 router.get('/api/market-intel/prices', requireAuth, rateLimitByUser(60, 60_000), async (_req, res) => {
   try {
-    const snapshot = await getMarketSnapshot();
+    const snapshot = await marketIntelService.getMarketSnapshot();
     res.json({ ok: true, snapshot });
   } catch (error: unknown) {
     res.status(400).json(toSafeErrorResponse(error));
@@ -111,7 +107,7 @@ router.post('/api/market-intel/cache/invalidate', requireAuth, rateLimitByUser(5
     res.status(403).json({ ok: false, error: 'Admin required' });
     return;
   }
-  invalidateMarketCache();
+  marketIntelService.invalidateMarketCache();
   res.json({ ok: true });
 });
 
