@@ -384,7 +384,15 @@ Main kan recoveras från backup/reflog, men detta är kritiskt.
 
 ### Pre-commit Hooks (optional, i repo)
 
-Planerats: `.git/hooks/pre-push` för att köra tester före push.
+Konfigurerad i `.pre-commit-config.yaml` (black, flake8, bandit för Python):
+
+```bash
+pip install pre-commit
+pre-commit install
+pre-commit run --all-files
+```
+
+Planerats tidigare: `.git/hooks/pre-push` för TypeScript-tester före push.
 
 ### GitHub Actions (CI/CD)
 
@@ -393,6 +401,30 @@ Redan konfigurerad (`.github/workflows/`):
 - ✅ npm run lint
 - ✅ npm run test:unit
 - ✅ Build test
+- ✅ **Python CI:** `.github/workflows/vertex_prompt_optimize.yml` körs parallellt med befintliga TypeScript-checks (prompt optimizer: unittest, mock smoke, valfri Vertex-build)
+
+Detta säkerställer att både promptoptimering (Python) och frontend-/backend-logik (TypeScript) valideras innan merge.
+
+**Branch protection (GitHub, rekommenderat):** Kräv status checks (`CI`, `Vertex Prompt Optimizer`, `Python security scan`) och squash-merge only på `main`. Sätt via repo Settings → Branches eller `gh api` (admin krävs).
+
+**Release:** Tagga `prompt-optimizer-vX.Y.Z` → `.github/workflows/release-prompt-optimizer.yml` bygger och pushar Docker-image.
+
+### Recommended Commands (Day-to-Day Flow)
+
+Optimal väg: rebase lokalt, squash-merge till main, rensa branch.
+
+```bash
+git checkout main
+git pull origin main
+git checkout -b feat/optimizer-day1-exec
+# ... work ...
+git fetch origin && git rebase origin/main
+git push -u origin feat/optimizer-day1-exec --force-if-needed
+gh pr create ...
+gh pr merge --squash --delete-branch   # per policy
+```
+
+Ersätt branch-namnet (`feat/optimizer-day1-exec`) med din feature-gren.
 
 ---
 

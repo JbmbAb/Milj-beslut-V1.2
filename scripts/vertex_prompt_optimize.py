@@ -1,17 +1,18 @@
-# scripts/vertex_prompt_optimize.py
-"""
-Launches the Vertex AI Prompt Optimizer Job via Python SDK.
-Command Line Arguments:
-  --project: Google Cloud Project ID
-  --bucket: GCS bucket URI (gs://your-bucket-name/...)
-  --container: Custom container image path (gcr.io/...)
-  --location: Google Cloud region (e.g., us-central1)
+#!/usr/bin/env python3
+"""Launch Vertex AI Custom Job for prompt optimizer container evaluation.
+
+Command-line arguments:
+    --project: Google Cloud project ID.
+    --bucket: GCS bucket URI (``gs://your-bucket/...``).
+    --container: Custom container image (``gcr.io/...``).
+    --location: GCP region (default ``us-central1``).
 """
 
 import argparse
 from google.cloud import aiplatform
 
 def launch_prompt_optimization_job(project_id, bucket_uri, container_image, location):
+    """Create and run a Vertex Custom Job pointing at the prompt optimizer image."""
     print(f"Initializing Vertex AI SDK on project '{project_id}' in region '{location}'...")
     aiplatform.init(project=project_id, location=location)
 

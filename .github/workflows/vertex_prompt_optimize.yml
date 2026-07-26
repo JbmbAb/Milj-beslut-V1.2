@@ -15,8 +15,11 @@ on:
   pull_request:
     paths:
       - 'prompt_optimizer/**'
+      - 'scripts/vertex_prompt_optimize.py'
+      - 'scripts/ci_validate_results.py'
       - 'scripts/verify_prompt_results.sh'
       - '.github/workflows/vertex_prompt_optimize.yml'
+      - '.pre-commit-config.yaml'
 
 permissions:
   contents: read
@@ -31,13 +34,34 @@ jobs:
         with:
           python-version: '3.10'
 
-      - name: Run prompt optimizer unit tests
+      - name: Install dependencies
+        run: |
+          pip install -r prompt_optimizer/requirements.txt
+          pip install -r prompt_optimizer/requirements-dev.txt
+          pip install google-cloud-aiplatform
+
+      - name: Run prompt optimizer unit tests with coverage
         working-directory: prompt_optimizer
-        run: python -m unittest tests.test_eval -v
+        run: |
+          python -m pytest tests/ -v --cov=. --cov-report=term-missing \
+            --cov-fail-under=70 \
+            --cov-config=.coveragerc
+
+  lint-python:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+      - run: pip install black flake8 bandit
+      - run: black --check prompt_optimizer scripts/vertex_prompt_optimize.py scripts/ci_validate_results.py
+      - run: flake8 prompt_optimizer scripts/vertex_prompt_optimize.py scripts/ci_validate_results.py --max-line-length=120 --extend-ignore=E501,W503
+      - run: bandit -r prompt_optimizer -ll -q
 
   local-eval-smoke:
     runs-on: ubuntu-latest
-    needs: unit-tests
+    needs: [unit-tests, lint-python]
     steps:
       - uses: actions/checkout@v4
 

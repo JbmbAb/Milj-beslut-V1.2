@@ -59,6 +59,8 @@ tmp_*
 !scripts/alphaevolve/experiments/**/*.json
 !tests/fixtures/**/*.txt
 !scripts/google-adk/requirements.txt
+!prompt_optimizer/requirements.txt
+!prompt_optimizer/requirements-dev.txt
 !.vscode/extensions.json
 !.vscode/settings.json
 !.vscode/tasks.json

@@ -1,0 +1,13 @@
+[run]
+omit =
+    tests/*
+    eval_async.py
+    async_*.py
+    metadata.py
+    checkpoint.py
+
+[report]
+exclude_lines =
+    pragma: no cover
+    if __name__ == .__main__.:
+    raise SystemExit

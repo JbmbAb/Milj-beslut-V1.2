@@ -1,0 +1,45 @@
+name: Python security scan
+
+on:
+  pull_request:
+    paths:
+      - 'prompt_optimizer/**'
+      - 'scripts/vertex_prompt_optimize.py'
+      - 'scripts/ci_validate_results.py'
+      - '.github/workflows/python-security.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'prompt_optimizer/**'
+      - 'scripts/vertex_prompt_optimize.py'
+      - 'scripts/ci_validate_results.py'
+
+permissions:
+  contents: read
+
+jobs:
+  bandit:
+    name: bandit (prompt_optimizer)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+      - run: pip install bandit
+      - run: bandit -r prompt_optimizer -ll -q
+
+  trufflehog:
+    name: trufflehog secrets scan
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Scan for verified secrets
+        uses: trufflesecurity/trufflehog@v3.88.0
+        with:
+          path: ./
+          base: ${{ github.event.repository.default_branch }}
+          head: HEAD
+          extra_args: --only-verified

@@ -6,7 +6,7 @@ WORKDIR /app
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-COPY cache.py checkpoint.py constants.py config.py metadata.py manifest.py status.py metrics.py \
+COPY algorithm.py evaluator.py cache.py checkpoint.py constants.py config.py metadata.py manifest.py status.py metrics.py \
      rate_limiter.py rerank_types.py rerank_client.py async_rate_limiter.py async_rerank_client.py \
      eval.py eval_async.py main.py README.md ./
 

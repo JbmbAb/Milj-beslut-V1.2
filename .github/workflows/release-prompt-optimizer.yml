@@ -1,0 +1,90 @@
+name: Release prompt optimizer
+
+on:
+  push:
+    tags:
+      - 'prompt-optimizer-v*'
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Semver tag to build (e.g. prompt-optimizer-v1.0.0)'
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  validate-tag:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.parse.outputs.version }}
+      image_tag: ${{ steps.parse.outputs.image_tag }}
+    steps:
+      - id: parse
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            TAG="${{ github.event.inputs.tag }}"
+          else
+            TAG="${GITHUB_REF_NAME}"
+          fi
+          if ! echo "$TAG" | grep -Eq '^prompt-optimizer-v[0-9]+\.[0-9]+\.[0-9]+$'; then
+            echo "Invalid tag: $TAG (expected prompt-optimizer-vX.Y.Z)"
+            exit 1
+          fi
+          VERSION="${TAG#prompt-optimizer-v}"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "image_tag=$TAG" >> "$GITHUB_OUTPUT"
+
+  test-and-build:
+    needs: validate-tag
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+
+      - name: Install dependencies
+        run: |
+          pip install -r prompt_optimizer/requirements.txt
+          pip install -r prompt_optimizer/requirements-dev.txt
+
+      - name: Run unit tests with coverage
+        working-directory: prompt_optimizer
+        run: |
+          python -m pytest tests/ -v --cov=. --cov-report=term-missing \
+            --cov-fail-under=70 \
+            --cov-config=.coveragerc
+
+      - uses: google-github-actions/auth@v2
+        if: ${{ secrets.GCP_SA_KEY != '' }}
+        with:
+          credentials_json: ${{ secrets.GCP_SA_KEY }}
+
+      - uses: google-github-actions/setup-gcloud@v2
+        if: ${{ secrets.GCP_SA_KEY != '' }}
+
+      - name: Build and push versioned image
+        if: ${{ secrets.GCP_SA_KEY != '' }}
+        env:
+          PROJECT_ID: miljointelligens
+          IMAGE_TAG: ${{ needs.validate-tag.outputs.image_tag }}
+          VERSION: ${{ needs.validate-tag.outputs.version }}
+        run: |
+          gcloud builds submit prompt_optimizer \
+            --tag gcr.io/${PROJECT_ID}/prompt-optimizer:${IMAGE_TAG} \
+            --tag gcr.io/${PROJECT_ID}/prompt-optimizer:${VERSION} \
+            --tag gcr.io/${PROJECT_ID}/prompt-optimizer:latest \
+            --project ${PROJECT_ID}
+
+      - name: Write CHANGELOG entry (informational)
+        run: |
+          echo "## ${{ needs.validate-tag.outputs.image_tag }}" >> release-notes.md
+          echo "Prompt optimizer container published to gcr.io/miljointelligens/prompt-optimizer:${{ needs.validate-tag.outputs.image_tag }}" >> release-notes.md
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: release-notes
+          path: release-notes.md

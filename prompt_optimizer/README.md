@@ -2,6 +2,10 @@
 
 Production-grade rerank prompt evaluation against a golden dataset. Replaces heuristic proxy scoring with real rerank calls, persistent cache/resume, Pareto winner selection, and CI quality gates.
 
+## Architecture
+
+See [ARCHITECTURE.md](./ARCHITECTURE.md) for module dependencies and data flow.
+
 ## Quick start (local mock)
 
 ```bash

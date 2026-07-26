@@ -13,6 +13,7 @@ import time
 from typing import Any
 from urllib.parse import urlparse
 
+from algorithm import build_variants
 from cache import PersistentCache
 from config import get_config, reset_config_cache
 from constants import RESULTS_SCHEMA_VERSION
@@ -27,7 +28,7 @@ from manifest import build_manifest
 from metadata import golden_dataset_meta, records_fingerprint, run_metadata
 from metrics import pareto_frontier
 from rate_limiter import RateLimiter
-from rerank_client import DEFAULT_TEMPLATE, RerankClient
+from rerank_client import RerankClient
 from status import save_status, update_run_status
 
 
@@ -156,28 +157,6 @@ def write_outputs(
             handle.write(content)
         written[name] = path
     return written
-
-
-def build_variants(base_template: str, max_iterations: int) -> list[tuple[str, str]]:
-    seeds = [
-        base_template or DEFAULT_TEMPLATE,
-        (
-            'Du är en svensk miljöexpert. Rangordna dokumenten strikt baserat på '
-            'geografisk närhet, juridisk relevans och miljörelevans för frågan: "{{QUERY}}".\n'
-            'Returnera JSON-array [{"id":"...","score":0.0-1.0}].\n\nDokumentavsnitt:\n{{DOCUMENTS}}'
-        ),
-        (
-            'System: Rangordna följande svenska miljö- och geodatakontext. '
-            'Prioritera direkta träffar mot sökfrågan: "{{QUERY}}".\n'
-            'JSON-format: [{"id":"...","score":0.95}]\n\n{{DOCUMENTS}}'
-        ),
-        (
-            'Rank the following Swedish environmental geodata contexts for query "{{QUERY}}". '
-            'Prioritize direct feature matches, legal references, and proximity.\n'
-            'Output JSON only.\n\n{{DOCUMENTS}}'
-        ),
-    ]
-    return [(f'v{i + 1}', seeds[i % len(seeds)]) for i in range(max_iterations)]
 
 
 def main() -> int:
