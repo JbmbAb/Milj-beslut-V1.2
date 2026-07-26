@@ -1,50 +1,59 @@
 # QA-dokumentation
 
-Denna katalog innehåller **testbevis, staging-gates och scope-lås** — inte arkitektur eller deploy.
+Testbevis, scope-lås och release-gates. **Arkitektur/data-gap:** [docs/architecture/README.md](../architecture/README.md).
 
-## Aktiva checklists (före merge/release)
-
-| Dokument | Syfte |
-| -------- | ----- |
-| [production-readiness-checklist.md](./production-readiness-checklist.md) | Prod-gates |
-| [STAGING_SETUP_CHECKLIST.md](./STAGING_SETUP_CHECKLIST.md) | Staging-miljö |
-| [critical-flows.md](./critical-flows.md) | Kritiska användarflöden |
-| [legal-review-checklist.md](./legal-review-checklist.md) | Juridisk granskning (om filen finns) |
-
-## Scope-lås
+## Innan merge / release
 
 | Dokument | Syfte |
 | -------- | ----- |
-| [core-scope-lock.md](./core-scope-lock.md) | Kärnscope |
-| [mvp-scope-lock.md](./mvp-scope-lock.md) | MVP-gräns |
-| [production-scope-without-bankid.md](./production-scope-without-bankid.md) | Prod utan BankID |
+| [production-readiness-checklist.md](./production-readiness-checklist.md) | Go-live (staging → prod) |
+| [product-readiness-checklist.md](./product-readiness-checklist.md) | Affärskrav per tjänst |
+| [critical-flows.md](./critical-flows.md) | Kritiska flöden |
+| [legal-review-checklist.md](./legal-review-checklist.md) | Juridisk PR-granskning |
+| [branch-protection.md](./branch-protection.md) | GitHub branch protection (canonical) |
 
-## Staging-bevis (historik — behålls för spårbarhet)
+## Scope
 
-| Dokument | Datum/kontext |
-| -------- | ------------- |
-| [FAS1_STAGING_EVIDENCE.md](./FAS1_STAGING_EVIDENCE.md) | Fas 1 |
-| [FAS2_STAGING_EVIDENCE.md](./FAS2_STAGING_EVIDENCE.md) | Fas 2 |
-| [FAS3_STAGING_EVIDENCE.md](./FAS3_STAGING_EVIDENCE.md) | Fas 3 |
-| [FAS_1_4_COMPLETION.md](./FAS_1_4_COMPLETION.md) | Sammanfattning fas 1–4 |
-| [P3_STAGING_EVIDENCE_2026-06-09.md](./P3_STAGING_EVIDENCE_2026-06-09.md) | P3-bevis |
-| [P3_GO_NO_GO_2026-06-09.md](./P3_GO_NO_GO_2026-06-09.md) | Go/no-go |
+| Dokument | Syfte |
+| -------- | ----- |
+| [core-scope-lock.md](./core-scope-lock.md) | **Canonical** Core/MVP-gräns (P0) |
+| [production-scope-without-bankid.md](./production-scope-without-bankid.md) | P3 utan BankID |
 
-## Genererade rapporter (ej i git)
+> `mvp-scope-lock.md` slogs ihop med `core-scope-lock.md` (2026-07-26) — samma innehåll, ett dokument.
 
-Kör lokalt vid behov:
+## Staging & E2E (operativt)
 
-```bash
-npm run analyze:vitest-failures    # → docs/qa/vitest-backlog.md
-npm run report:coverage-gaps       # → docs/qa/coverage-baseline-generated.md
-```
+| Dokument | Syfte |
+| -------- | ----- |
+| [STAGING_SETUP_CHECKLIST.md](./STAGING_SETUP_CHECKLIST.md) | Infra, env, deploy staging |
+| [README-staging-e2e.md](./README-staging-e2e.md) | Playwright PDF-ready moduler |
+| [test-runbook.md](./test-runbook.md) | Testkörning lokalt/CI |
+| [operations-readiness-pack.md](./operations-readiness-pack.md) | Ops/runbook |
 
-Se [coverage-baseline.md](./coverage-baseline.md) för tolkning.
+## Implementation (produkt)
 
-## Arkitektur / data-gap
+| Dokument | Syfte |
+| -------- | ----- |
+| [MODULE_IMPLEMENTATION_PLAN.md](./MODULE_IMPLEMENTATION_PLAN.md) | Tre fokusmoduler (canonical UI/API) |
+| [requirements-model-workflow.md](./requirements-model-workflow.md) | Kravmodell |
+| [commercial-packaging.md](./commercial-packaging.md) | Kommersiell paketering |
 
-Använd **inte** denna mapp — se [docs/architecture/data-coverage-gaps.md](../architecture/data-coverage-gaps.md) och [docs/architecture/future-optimizations-backlog.md](../architecture/future-optimizations-backlog.md).
+## Coverage
+
+| Dokument | Syfte |
+| -------- | ----- |
+| [coverage-baseline.md](./coverage-baseline.md) | Tolkning av coverage |
+| Genererade filer (ej i git) | `npm run analyze:vitest-failures`, `npm run report:coverage-gaps` |
+
+## Staging-bevis (historik / audit)
+
+→ [staging-evidence/README.md](./staging-evidence/README.md)
+
+## Data-gap (ej QA)
+
+Geodata-luckor: [docs/architecture/data-coverage-gaps.md](../architecture/data-coverage-gaps.md)  
+AI-index (kort): [knowledge-base/DATA_COVERAGE_GAPS.md](../../knowledge-base/DATA_COVERAGE_GAPS.md)
 
 ## AI-arbetsflöde
 
-Canonical: [AGENTS.md](../../AGENTS.md) i repots rot.
+[AGENTS.md](../../AGENTS.md)
