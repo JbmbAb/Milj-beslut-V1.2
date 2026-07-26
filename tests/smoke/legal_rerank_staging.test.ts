@@ -22,16 +22,16 @@ describeStaging('legal rerank staging smoke', () => {
         password: process.env.ADMIN_CONSOLE_PASSWORD || 'admin',
       }),
     });
-    
+
     expect(loginRes.ok, `Login to staging failed: ${loginRes.status}`).toBe(true);
-    const loginBody = await loginRes.json() as { accessToken: string };
+    const loginBody = (await loginRes.json()) as { accessToken: string };
     const token = loginBody.accessToken;
 
     const searchRes = await fetch(`${stagingBase}/api/legal/search`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'Authorization': `Bearer ${token}`,
+        Authorization: `Bearer ${token}`,
       },
       body: JSON.stringify({
         query: 'strandskydd dispens enskilt avlopp',
@@ -45,7 +45,7 @@ describeStaging('legal rerank staging smoke', () => {
     expect(typeof requestId).toBe('string');
     expect(requestId!.length).toBeGreaterThan(0);
 
-    const body = await searchRes.json() as {
+    const body = (await searchRes.json()) as {
       ok?: boolean;
       results: Array<unknown>;
       meta: {

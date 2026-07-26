@@ -7,7 +7,7 @@ import {
 } from '../../server/lib/rankingMetrics.ts';
 
 describe('Ranking Metrics', () => {
-  describe('Kendall\'s Tau', () => {
+  describe("Kendall's Tau", () => {
     test('returns 1.0 for identical lists', () => {
       const list = ['a', 'b', 'c', 'd'];
       expect(computeKendallTau(list, list)).toBe(1.0);

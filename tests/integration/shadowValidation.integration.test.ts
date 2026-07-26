@@ -42,18 +42,14 @@ describeIfDatabaseIntegration('Shadow Validation & Telemetry Integration', () =>
 
   describe('POST /api/legal/search - Authorization', () => {
     it('returns 401 if unauthorized', async () => {
-      const res = await request(app)
-        .post('/api/legal/search')
-        .send({ query: 'strandskydd' });
+      const res = await request(app).post('/api/legal/search').send({ query: 'strandskydd' });
       expect(res.status).toBe(401);
     });
   });
 
   describe('POST /api/legal/search - Query Length Validation', () => {
     it('returns 400 if query is too short', async () => {
-      const res = await authRequest(adminToken)
-        .post('/api/legal/search')
-        .send({ query: 'a' });
+      const res = await authRequest(adminToken).post('/api/legal/search').send({ query: 'a' });
       expect(res.status).toBe(400);
       expect(res.body.ok).toBe(false);
       expect(res.body.error).toContain('kort');
@@ -62,17 +58,15 @@ describeIfDatabaseIntegration('Shadow Validation & Telemetry Integration', () =>
 
   describe('POST /api/legal/search - Search Metrics & Shadow Validation', () => {
     it('returns search results and robust metadata', async () => {
-      const res = await authRequest(adminToken)
-        .post('/api/legal/search')
-        .send({ query: 'strandskydd' });
+      const res = await authRequest(adminToken).post('/api/legal/search').send({ query: 'strandskydd' });
 
       expect(res.status).toBe(200);
       expect(res.body.ok).toBe(true);
       expect(Array.isArray(res.body.results)).toBe(true);
-      
+
       const meta = res.body.meta;
       expect(meta).toBeDefined();
-      
+
       // Telemetry (A2): High-precision latencies present in meta
       expect(typeof meta.latencyMs).toBe('number');
       expect(typeof meta.exactMs).toBe('number');
@@ -106,9 +100,7 @@ describeIfDatabaseIntegration('Shadow Validation & Telemetry Integration', () =>
 
       // Rate limit is set to 30 requests per minute
       for (let i = 0; i < 35; i++) {
-        const res = await authRequest(userToken)
-          .post('/api/legal/search')
-          .send({ query: 'strandskydd' });
+        const res = await authRequest(userToken).post('/api/legal/search').send({ query: 'strandskydd' });
 
         lastStatus = res.status;
         if (res.status === 429) {
