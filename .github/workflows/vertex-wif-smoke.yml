@@ -1,0 +1,57 @@
+name: Vertex AI WIF Smoke Test
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/vertex-wif-smoke.yml'
+      - '.github/actions/gcp-wif-auth/**'
+      - 'scripts/vertex_wif_smoke.py'
+
+permissions:
+  contents: read
+  id-token: write
+
+env:
+  PROJECT_ID: miljointelligens
+  REGION: europe-west1
+
+jobs:
+  vertex-connectivity:
+    name: Verify WIF → Vertex AI
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: ./.github/actions/gcp-wif-auth
+        with:
+          workload_identity_provider: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ secrets.GCP_VERTEX_SERVICE_ACCOUNT }}
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+
+      - name: Install Vertex SDK
+        run: pip install google-cloud-aiplatform
+
+      - name: Python Vertex smoke test
+        env:
+          GOOGLE_CLOUD_PROJECT: ${{ env.PROJECT_ID }}
+          VERTEX_PROJECT_ID: ${{ env.PROJECT_ID }}
+          VERTEX_LOCATION: ${{ env.REGION }}
+        run: python scripts/vertex_wif_smoke.py
+
+      - name: gcloud Vertex API smoke test
+        run: |
+          gcloud config set project "${{ env.PROJECT_ID }}"
+          gcloud ai custom-jobs list \
+            --region="${{ env.REGION }}" \
+            --limit=1 \
+            --format='table(name,state)'
+
+      - name: Active identity
+        run: |
+          gcloud auth list --filter=status:ACTIVE --format='value(account)'
+          echo "WIF smoke test passed."

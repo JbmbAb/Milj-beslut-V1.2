@@ -234,9 +234,18 @@ gcloud iam service-accounts add-iam-policy-binding $CI_SA \
 3. Sätt GitHub-secrets (i repository Settings → Secrets):
    - `GCP_PROJECT_ID` – ditt projekt-ID
    - `GCP_WORKLOAD_IDENTITY_PROVIDER` – `$POOL_ID/providers/github-provider`
-   - `GCP_SERVICE_ACCOUNT` – `$CI_SA`
+   - `GCP_SERVICE_ACCOUNT` – `$CI_SA` (Cloud Run deploy)
+   - `GCP_VERTEX_SERVICE_ACCOUNT` – `alpha-evolve-client@miljointelligens.iam.gserviceaccount.com` (Vertex / prompt optimizer)
    - `GCP_CLOUDSQL_INSTANCE` – `$PROJECT_ID:europe-west1:miljobeslut-db`
    - `GCP_REGION` – `europe-west1` (eller som variabel)
+
+4. Verifiera Vertex-anslutning via WIF (ingen JSON-nyckel):
+
+```bash
+gh workflow run vertex-wif-smoke.yml -R JbmbAb/Milj-beslut-V1.2
+```
+
+Miljöbeslut använder composite action `.github/actions/gcp-wif-auth` i Vertex-workflows.
 
 ---
 
