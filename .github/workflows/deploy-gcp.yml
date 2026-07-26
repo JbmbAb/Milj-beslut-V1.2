@@ -48,7 +48,10 @@ jobs:
       REGION: ${{ vars.GCP_REGION || 'europe-west1' }}
       SERVICE: ${{ vars.GCP_SERVICE_NAME || 'miljobeslut' }}
       REPO: ${{ vars.GCP_ARTIFACT_REPO || 'miljobeslut' }}
-      CLOUDSQL_INSTANCE: ${{ secrets.GCP_CLOUDSQL_INSTANCE }}
+      # Connection name: PROJECT:REGION:INSTANCE (repo variable eller secret)
+      CLOUDSQL_INSTANCE: ${{ vars.GCP_CLOUDSQL_INSTANCE || secrets.GCP_CLOUDSQL_INSTANCE }}
+      MIGRATE_JOB: ${{ vars.GCP_MIGRATE_JOB_NAME || 'miljobeslut-migrate' }}
+      RUNTIME_SA: ${{ vars.GCP_RUNTIME_SERVICE_ACCOUNT || 'mil-beslut' }}
 
     steps:
       - uses: actions/checkout@v4
@@ -85,11 +88,44 @@ jobs:
           docker push --all-tags \
             ${{ env.REGION }}-docker.pkg.dev/${{ env.PROJECT_ID }}/${{ env.REPO }}/${{ env.SERVICE }}
 
-      # ── Kör Prisma migrate ────────────────────────────────────────────────
-      - name: Run Prisma migrate
-        run: npx prisma migrate deploy
-        env:
-          DATABASE_URL: ${{ secrets.GCP_DATABASE_URL }}
+      # ── Kör Prisma migrate via Cloud Run Job (Cloud SQL socket + Secret Manager) ─
+      # DATABASE_URL läses från GCP Secret Manager – ingen GitHub-secret behövs.
+      - name: Run Prisma migrate (Cloud Run Job)
+        run: |
+          set -euo pipefail
+
+          if [ -z "$CLOUDSQL_INSTANCE" ]; then
+            echo "GCP_CLOUDSQL_INSTANCE saknas."
+            echo "Sätt repo variable: miljointelligens:europe-west1:miljobeslut-db"
+            exit 1
+          fi
+
+          SA_EMAIL="${RUNTIME_SA}@${PROJECT_ID}.iam.gserviceaccount.com"
+          IMAGE="${REGION}-docker.pkg.dev/${PROJECT_ID}/${REPO}/${SERVICE}:${{ github.sha }}"
+          MIGRATE_COMMAND='set -e; npx prisma migrate deploy && npx tsx scripts/db/spatial-bootstrap.ts'
+
+          JOB_FLAGS=(
+            --region="$REGION"
+            --image="$IMAGE"
+            --service-account="$SA_EMAIL"
+            --command=/bin/sh
+            --args=-c,"$MIGRATE_COMMAND"
+            --set-cloudsql-instances="$CLOUDSQL_INSTANCE"
+            --set-secrets=DATABASE_URL=DATABASE_URL:latest
+            --quiet
+          )
+
+          if [ -n "${{ vars.GCP_VPC_CONNECTOR }}" ]; then
+            JOB_FLAGS+=(--vpc-connector="${{ vars.GCP_VPC_CONNECTOR }}")
+          fi
+
+          if gcloud run jobs describe "$MIGRATE_JOB" --region="$REGION" &>/dev/null; then
+            gcloud run jobs update "$MIGRATE_JOB" "${JOB_FLAGS[@]}"
+          else
+            gcloud run jobs create "$MIGRATE_JOB" "${JOB_FLAGS[@]}"
+          fi
+
+          gcloud run jobs execute "$MIGRATE_JOB" --region="$REGION" --wait
 
       # ── Deploya till Cloud Run ────────────────────────────────────────────
       - name: Deploy to Cloud Run
