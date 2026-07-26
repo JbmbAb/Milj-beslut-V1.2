@@ -144,29 +144,6 @@ jobs:
           echo "DEPLOYED_SERVICE_URL=$SERVICE_URL" >> "$GITHUB_ENV"
           echo "Cloud Run URL: $SERVICE_URL"
 
-      - name: Wait for Cloud Run revision
-        run: |
-          set -euo pipefail
-          for attempt in $(seq 1 30); do
-            READY=$(gcloud run services describe "${{ env.SERVICE }}" \
-              --region="${{ env.REGION }}" \
-              --format="value(status.conditions[?type='Ready'].status)")
-            REVISION=$(gcloud run services describe "${{ env.SERVICE }}" \
-              --region="${{ env.REGION }}" \
-              --format="value(status.latestReadyRevisionName)")
-
-            if [ "$READY" = "True" ] && [ -n "$REVISION" ]; then
-              echo "Revision $REVISION är redo (försök $attempt)"
-              exit 0
-            fi
-
-            echo "Väntar på revision... Ready=$READY revision=$REVISION (försök $attempt/30)"
-            sleep 10
-          done
-
-          echo "Timeout: ingen redo revision efter 5 minuter"
-          exit 1
-
       # ── Hälsokontroll (WIF kräver ID-token med Cloud Run-URL som audience) ─
       - name: Health check
         env:
