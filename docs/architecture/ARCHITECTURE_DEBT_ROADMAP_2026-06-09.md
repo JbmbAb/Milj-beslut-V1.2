@@ -55,7 +55,7 @@ CI guard idag: routes får inte importera `server/services/` direkt. **Nästa st
 | Mapp | Beslut |
 |------|--------|
 | `legacy/` | ARKIVERA — flytta till separat repo eller tag `archive/legacy-2026` |
-| `examensrepo/` | ARKIVERA — redan dokumenterat i `examensrepo-separation.md` |
+| `examensrepo/` | Borttaget ur aktiv docs; historik i git om behövs |
 | `.quarantine/` | KASSERA efter inventering |
 | `training/` | ARKIVERA om ej aktiv |
 
