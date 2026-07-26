@@ -1,5 +1,5 @@
 import React, { Suspense, lazy, useState } from 'react';
-import { AlertTriangle, FileText, LayoutDashboard, Rocket, Search } from 'lucide-react';
+import { AlertTriangle, BookOpen, FileText, LayoutDashboard, Rocket, Search } from 'lucide-react';
 import type { Project } from './mvp/mvpDemoModel';
 
 const ProjectDashboardView = lazy(() => import('./mvp/MvpProjectDashboardView'));
@@ -7,8 +7,9 @@ const DocumentSearchView = lazy(() => import('./mvp/MvpDocumentSearchView'));
 const ClassificationPanelView = lazy(() => import('./mvp/MvpClassificationPanelView'));
 const PermitGeneratorView = lazy(() => import('./mvp/MvpPermitGeneratorView'));
 const MunicipalityInsightPanel = lazy(() => import('./mvp/MvpMunicipalityInsightPanel'));
+const LibrarianView = lazy(() => import('./mvp/MvpLibrarianView'));
 
-type ViewId = 'dashboard' | 'search' | 'classify' | 'generate';
+type ViewId = 'dashboard' | 'librarian' | 'search' | 'classify' | 'generate';
 
 const ViewFallback: React.FC<{ label: string }> = ({ label }) => (
   <div className="flex min-h-[420px] items-center justify-center rounded-3xl border border-slate-200 bg-white/70 p-10 shadow-sm">
@@ -38,6 +39,7 @@ export const MvpDemoInterface: React.FC = () => {
     disabled: boolean;
   }> = [
     { id: 'dashboard', label: 'Projekt', icon: LayoutDashboard, disabled: false },
+    { id: 'librarian', label: 'Bibliotekarie', icon: BookOpen, disabled: false },
     { id: 'search', label: 'Sök kunskap', icon: Search, disabled: !activeProject },
     { id: 'classify', label: 'AI Klassificering', icon: Rocket, disabled: !activeProject },
     { id: 'generate', label: 'C-anmälan', icon: FileText, disabled: !activeProject },
@@ -108,13 +110,18 @@ export const MvpDemoInterface: React.FC = () => {
       <main className="w-full flex-1 overflow-y-auto px-8 py-8">
         <div
           className={`mx-auto grid max-w-7xl gap-8 ${
-            activeProject ? 'lg:grid-cols-[1fr_320px]' : 'grid-cols-1'
+            activeProject && view !== 'librarian' ? 'lg:grid-cols-[1fr_320px]' : 'grid-cols-1'
           }`}
         >
           <div className="space-y-8">
             {view === 'dashboard' ? (
               <Suspense fallback={<ViewFallback label="Laddar projektvy" />}>
                 <ProjectDashboardView onSelect={handleProjectSelect} />
+              </Suspense>
+            ) : null}
+            {view === 'librarian' ? (
+              <Suspense fallback={<ViewFallback label="Laddar bibliotekarie" />}>
+                <LibrarianView />
               </Suspense>
             ) : null}
             {view === 'search' && activeProject ? (
@@ -134,7 +141,7 @@ export const MvpDemoInterface: React.FC = () => {
             ) : null}
           </div>
 
-          {activeProject ? (
+          {activeProject && view !== 'librarian' ? (
             <Suspense fallback={<InsightFallback />}>
               <MunicipalityInsightPanel project={activeProject} />
             </Suspense>
