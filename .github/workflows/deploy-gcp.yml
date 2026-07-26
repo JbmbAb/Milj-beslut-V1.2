@@ -39,6 +39,7 @@ jobs:
     permissions:
       contents: read
       id-token: write # Krävs för Workload Identity Federation
+      actions: write # Krävs för gh variable set GCP_SERVICE_URL
     environment:
       name: ${{ github.event.inputs.environment || 'production' }}
       url: ${{ vars.GCP_SERVICE_URL }}
@@ -185,6 +186,7 @@ jobs:
 
       - name: Update GCP_SERVICE_URL variable
         if: success() && env.DEPLOYED_SERVICE_URL != ''
+        continue-on-error: true
         run: gh variable set GCP_SERVICE_URL --body "$DEPLOYED_SERVICE_URL"
         env:
           GH_TOKEN: ${{ github.token }}
