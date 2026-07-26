@@ -316,6 +316,29 @@ function computeShadowScoreDelta(preTop1: any, postTop1: any, mappedResults: any
   return Number((chosenOriginalScore - originalPreScore).toFixed(6));
 }
 
+export function isTransientError(err: unknown): boolean {
+  if (!err) return false;
+  const msg = String(err instanceof Error ? err.message : err).toLowerCase();
+  const name = err instanceof Error ? err.name : '';
+  return (
+    msg.includes('timeout') ||
+    msg.includes('time out') ||
+    msg.includes('network') ||
+    msg.includes('socket') ||
+    msg.includes('fetch') ||
+    msg.includes('ratelimit') ||
+    msg.includes('rate limit') ||
+    msg.includes('too many requests') ||
+    msg.includes('econnrefused') ||
+    msg.includes('502') ||
+    msg.includes('503') ||
+    msg.includes('504') ||
+    name.includes('Timeout') ||
+    name.includes('PrismaClientInitializationError') ||
+    (name.includes('PrismaClientKnownRequestError') && msg.includes('connection'))
+  );
+}
+
 export async function searchLegalCorpusHandler(args: { query: string; legalArea?: string }) {
   const { query, legalArea } = args;
   const config = getLegalCorpusSearchConfig();
@@ -395,12 +418,12 @@ export async function searchLegalCorpusHandler(args: { query: string; legalArea?
           vectorCount: vectorResults.length,
           returnedCount: 0,
           rerankedCount: 0,
-          totalLatencyMs: exported.totalMs,
-          retrievalLatencyMs: (exported.exactMs || 0) + (exported.ftsMs || 0) + (exported.vectorMs || 0),
-          exactLatencyMs: exported.exactMs || 0,
-          ftsLatencyMs: exported.ftsMs || 0,
-          vectorLatencyMs: exported.vectorMs || 0,
-          rrfLatencyMs: exported.rrfMs || 0,
+          totalMs: exported.totalMs || 0,
+          retrievalMs: (exported.exactMs || 0) + (exported.ftsMs || 0) + (exported.vectorMs || 0),
+          exactMs: exported.exactMs || 0,
+          ftsMs: exported.ftsMs || 0,
+          vectorMs: exported.vectorMs || 0,
+          rrfMs: exported.rrfMs || 0,
           rerankerEngine: 'none',
           rerankerStatus: 'disabled',
           promptVersion: 'not-triggered',
@@ -415,12 +438,12 @@ export async function searchLegalCorpusHandler(args: { query: string; legalArea?
             exactCount: exactResults.length,
             ftsCount: ftsResults.length,
             vectorCount: vectorResults.length,
-            latencyMs: exported.totalMs,
+            latencyMs: exported.totalMs || 0,
             exactMs: exported.exactMs || 0,
             ftsMs: exported.ftsMs || 0,
             vectorMs: exported.vectorMs || 0,
             rrfMs: exported.rrfMs || 0,
-            totalMs: exported.totalMs,
+            totalMs: exported.totalMs || 0,
             rerankerEnabled: config.rerankerEnabled,
             rerankerStatus: 'disabled' as const,
             rerankerEngine: 'none' as const,
@@ -586,7 +609,7 @@ export async function searchLegalCorpusHandler(args: { query: string; legalArea?
               status: 'error',
               errorType: rerankErr instanceof Error ? rerankErr.name : 'Error',
               errorMessage: message,
-              retryable: false,
+              retryable: isTransientError(rerankErr),
             });
             rerankerStatus = 'skipped_gap';
             rerankerEngine = 'none';
@@ -626,13 +649,13 @@ export async function searchLegalCorpusHandler(args: { query: string; legalArea?
         userId,
         queryHash: qHash,
         queryHashSaltVersion,
-        totalLatencyMs: exported.totalMs,
-        retrievalLatencyMs: (exported.exactMs || 0) + (exported.ftsMs || 0) + (exported.vectorMs || 0),
-        exactLatencyMs: exported.exactMs || 0,
-        ftsLatencyMs: exported.ftsMs || 0,
-        vectorLatencyMs: exported.vectorMs || 0,
-        rrfLatencyMs: exported.rrfMs || 0,
-        rerankLatencyMs: exported.rerankMs || 0,
+        totalMs: exported.totalMs || 0,
+        retrievalMs: (exported.exactMs || 0) + (exported.ftsMs || 0) + (exported.vectorMs || 0),
+        exactMs: exported.exactMs || 0,
+        ftsMs: exported.ftsMs || 0,
+        vectorMs: exported.vectorMs || 0,
+        rrfMs: exported.rrfMs || 0,
+        rerankMs: exported.rerankMs || 0,
         exactCount: exactResults.length,
         ftsCount: ftsResults.length,
         vectorCount: vectorResults.length,
@@ -640,9 +663,9 @@ export async function searchLegalCorpusHandler(args: { query: string; legalArea?
         rerankedCount: config.rerankerEnabled && !skipReranker ? mappedResults.length : 0,
         topScore: finalResults[0]?.score ?? 0,
         averageScore: finalResults.reduce((sum, r) => sum + r.score, 0) / Math.max(1, finalResults.length),
-        rerankerEngine,
+        rerankerEngine: (rerankerEngine && rerankerEngine !== 'none') ? rerankerEngine : undefined,
         rerankerStatus,
-        promptVersion,
+        promptVersion: (promptVersion && promptVersion !== 'not-triggered') ? promptVersion : undefined,
         shadowChangedTop1,
         shadowChangedTop5,
         shadowScoreDelta,
@@ -664,17 +687,17 @@ export async function searchLegalCorpusHandler(args: { query: string; legalArea?
           exactCount: exactResults.length,
           ftsCount: ftsResults.length,
           vectorCount: vectorResults.length,
-          latencyMs: exported.totalMs,
+          latencyMs: exported.totalMs || 0,
           exactMs: exported.exactMs || 0,
           ftsMs: exported.ftsMs || 0,
           vectorMs: exported.vectorMs || 0,
           rrfMs: exported.rrfMs || 0,
           rerankMs: exported.rerankMs || 0,
-          totalMs: exported.totalMs,
+          totalMs: exported.totalMs || 0,
           rerankerEnabled: config.rerankerEnabled,
           rerankerStatus,
-          rerankerEngine,
-          promptVersion,
+          rerankerEngine: (rerankerEngine && rerankerEngine !== 'none') ? rerankerEngine : undefined,
+          promptVersion: (promptVersion && promptVersion !== 'not-triggered') ? promptVersion : undefined,
           relativeGapSkip: config.relativeGapSkip,
           shadowChangedTop1,
           shadowChangedTop5,
@@ -702,8 +725,8 @@ export async function searchLegalCorpusHandler(args: { query: string; legalArea?
         status: 'error',
         errorType: innerErr instanceof Error ? innerErr.name : 'Error',
         errorMessage: message,
-        retryable: false,
-        totalLatencyMs: exported.totalMs || 0,
+        retryable: isTransientError(innerErr),
+        totalMs: exported.totalMs || 0,
       });
 
       throw innerErr;

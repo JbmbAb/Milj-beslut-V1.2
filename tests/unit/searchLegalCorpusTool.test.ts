@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { logger } from '../../server/logger';
 
 const mocks = vi.hoisted(() => ({
   queryRawUnsafe: vi.fn(),
@@ -6,6 +7,7 @@ const mocks = vi.hoisted(() => ({
   parseLegalReference: vi.fn(),
   generateJsonWithVertex: vi.fn(),
   vertexConfigStatus: vi.fn(),
+  rerankWithGeminiOrLexical: vi.fn(),
 }));
 
 vi.mock('../../server/db/prisma', () => ({
@@ -27,8 +29,25 @@ vi.mock('../../server/modules/legal/services/legalReferenceParser', () => ({
   parseLegalReference: mocks.parseLegalReference,
 }));
 
+vi.mock('../../server/services/legalRerankService', () => ({
+  rerankWithGeminiOrLexical: mocks.rerankWithGeminiOrLexical,
+  localLexicalRerank: (query: string, items: Array<{ chunkText: string; score: number }>) => {
+    const terms = query.toLowerCase().split(/\s+/).filter(Boolean);
+    const scored = items.map((it) => {
+      let matches = 0;
+      for (const term of terms) {
+        if (it.chunkText.toLowerCase().includes(term)) matches++;
+      }
+      const boost = matches * 0.1;
+      return { ...it, finalScore: it.score + boost };
+    });
+    return scored.sort((a, b) => (b.finalScore || 0) - (a.finalScore || 0));
+  },
+}));
+
 import {
   getLegalCorpusSearchConfig,
+  isTransientError,
   localLexicalRerank,
   resetLegalCorpusVectorColumnCache,
   searchLegalCorpusHandler,
@@ -48,6 +67,19 @@ describe('searchLegalCorpusTool — Alphaevolve A1', () => {
     mocks.embedText.mockResolvedValue({
       values: [0.1, 0.2, 0.3],
       model: 'text-multilingual-embedding-002',
+    });
+    mocks.rerankWithGeminiOrLexical.mockImplementation(async (query, items) => {
+      const sorted = [...items];
+      sorted.sort((a, b) => {
+        const aMatch = a.chunkText.toLowerCase().includes('fosforrening') ? 1 : 0;
+        const bMatch = b.chunkText.toLowerCase().includes('fosforrening') ? 1 : 0;
+        return bMatch - aMatch;
+      });
+      return {
+        engine: 'lexical',
+        promptVersion: 'offline-fallback',
+        items: sorted.map((it) => ({ id: it.id, finalScore: it.score, rerankApplied: true })),
+      };
     });
   });
 
@@ -440,5 +472,133 @@ describe('searchLegalCorpusTool — Alphaevolve A2', () => {
 
     expect(body.meta.rerankerEngine).toBe('lexical');
     expect(body.meta.promptVersion).toBe('offline-fallback');
+  });
+});
+
+describe('searchLegalCorpusTool — Resilience & Telemetry Improvements', () => {
+  function mockHybridCorpus(
+    chunks: Array<{ chunk_id: string; record_id: string; chunk_text: string; rank: number }>,
+  ) {
+    mocks.queryRawUnsafe.mockImplementation(async (sql: string, ...params: unknown[]) => {
+      const text = String(sql);
+      if (text.includes('information_schema.columns')) {
+        return [{ column_name: 'embedding_vector' }];
+      }
+      if (text.includes('websearch_to_tsquery')) {
+        return chunks.map((c) => ({
+          ...c,
+          chapter: null,
+          paragraph: null,
+          section: null,
+        }));
+      }
+      if (text.includes('<=>')) {
+        return [];
+      }
+      if (text.includes('WHERE id IN')) {
+        return params.map((id) => ({
+          id,
+          title: `Title ${id}`,
+          case_number: null,
+          published_at: null,
+          decision_date: null,
+          authority_name: null,
+          legal_area: null,
+          metadata: {},
+          source_url: null,
+          source_path: null,
+        }));
+      }
+      return [];
+    });
+  }
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    resetLegalCorpusVectorColumnCache();
+    delete process.env.LEGAL_RERANKER;
+    delete process.env.LEGAL_RERANKER_RELATIVE_GAP;
+    mocks.parseLegalReference.mockReturnValue(null);
+    mocks.embedText.mockResolvedValue({
+      values: [0.1, 0.2, 0.3],
+      model: 'text-multilingual-embedding-002',
+    });
+  });
+
+  it('verifierar isTransientError funktionalitet', () => {
+    expect(isTransientError(new Error('connection timeout error'))).toBe(true);
+    expect(isTransientError(new Error('network socket hang up'))).toBe(true);
+    expect(isTransientError(new Error('503 Service Unavailable'))).toBe(true);
+    expect(isTransientError(new Error('Syntax error near SELECT'))).toBe(false);
+  });
+
+  it('reranker kastar transient fel -> assert reranker.error loggas med retryable: true', async () => {
+    const errorSpy = vi.spyOn(logger, 'error');
+    process.env.LEGAL_RERANKER = 'on';
+    process.env.LEGAL_RERANKER_RELATIVE_GAP = '0.25';
+
+    mockHybridCorpus([
+      { chunk_id: 'c-1', record_id: 'r-1', chunk_text: 'Avloppstext 1', rank: 0.9 },
+      { chunk_id: 'c-2', record_id: 'r-2', chunk_text: 'Avloppstext 2', rank: 0.89 },
+      { chunk_id: 'c-3', record_id: 'r-3', chunk_text: 'Avloppstext 3', rank: 0.88 },
+      { chunk_id: 'c-4', record_id: 'r-4', chunk_text: 'Avloppstext 4', rank: 0.87 },
+    ]);
+
+    mocks.rerankWithGeminiOrLexical.mockRejectedValue(new Error('Network timeout fetching Gemini'));
+
+    const result = await searchLegalCorpusHandler({ query: 'avlopp' });
+    expect(result).toBeDefined();
+    expect((result as any).results.length).toBe(4);
+
+    expect(errorSpy).toHaveBeenCalled();
+    const calls = errorSpy.mock.calls;
+    const rerankerErrorCall = calls.find((call) => call[1]?.event === 'reranker.error');
+    expect(rerankerErrorCall).toBeDefined();
+    expect(rerankerErrorCall![1].retryable).toBe(true);
+    expect(rerankerErrorCall![1].errorMessage).toContain('Network timeout');
+    errorSpy.mockRestore();
+  });
+
+  it('retrieval kastar -> assert search.failed loggas med retryable: true och totalMs', async () => {
+    const errorSpy = vi.spyOn(logger, 'error');
+    const transientErr = new Error('Prisma database connection lost');
+    transientErr.name = 'PrismaClientInitializationError';
+    mocks.queryRawUnsafe.mockRejectedValueOnce(transientErr);
+
+    await expect(searchLegalCorpusHandler({ query: 'avlopp' })).rejects.toThrow();
+
+    expect(errorSpy).toHaveBeenCalled();
+    const calls = errorSpy.mock.calls;
+    const searchFailedCall = calls.find((call) => call[1]?.event === 'search.failed');
+    expect(searchFailedCall).toBeDefined();
+    expect(searchFailedCall![1].retryable).toBe(true);
+    expect(typeof searchFailedCall![1].totalMs).toBe('number');
+    errorSpy.mockRestore();
+  });
+
+  it('normal sökning returnerar meta med alla latency-fält', async () => {
+    mockHybridCorpus([{ chunk_id: 'c-1', record_id: 'r-1', chunk_text: 'Text', rank: 0.9 }]);
+    const result = await searchLegalCorpusHandler({ query: 'miljöbalken' });
+    const meta = (result as any).meta;
+    expect(meta).toBeDefined();
+    expect(typeof meta.exactMs).toBe('number');
+    expect(typeof meta.ftsMs).toBe('number');
+    expect(typeof meta.vectorMs).toBe('number');
+    expect(typeof meta.rrfMs).toBe('number');
+    expect(typeof meta.rerankMs).toBe('number');
+    expect(typeof meta.totalMs).toBe('number');
+  });
+
+  it('completed sökning loggar queryHashSaltVersion och läcker inte salt', async () => {
+    const infoSpy = vi.spyOn(logger, 'info');
+    mockHybridCorpus([{ chunk_id: 'c-1', record_id: 'r-1', chunk_text: 'Text', rank: 0.9 }]);
+    await searchLegalCorpusHandler({ query: 'miljöbalken' });
+    const calls = infoSpy.mock.calls;
+    const searchCompletedCall = calls.find((call) => call[1]?.event === 'search.completed');
+    expect(searchCompletedCall).toBeDefined();
+    expect(searchCompletedCall![1].queryHashSaltVersion).toBe('v1');
+    expect(searchCompletedCall![1].QUERY_HASH_SALT).toBeUndefined();
+    expect(JSON.stringify(searchCompletedCall![1])).not.toContain('QUERY_HASH_SALT');
+    infoSpy.mockRestore();
   });
 });
