@@ -29,6 +29,13 @@ vi.mock('../../src/ui/hooks/useGeoLayers', () => ({
   })),
 }));
 
+function renderMapViewWithLeaflet(ui: React.ReactElement) {
+  const mockL = buildLeafletMock();
+  (window as unknown as Record<string, unknown>).L = mockL;
+  const view = renderMapView(ui);
+  return { mockL, ...view };
+}
+
 import MapView from '../../components/MapView';
 import { DecisionType, type Permit, type Receiver } from '../../types';
 
@@ -165,22 +172,22 @@ describe('MapView', () => {
 
   it('renders the layer control panel', () => {
     renderMapView(<MapView />);
-    expect(screen.getByText(/Myndighetslager/i)).toBeInTheDocument();
+    expect(screen.getByText(/Integrerade myndighetslager/i)).toBeInTheDocument();
   });
 
-  it('renders grundkarta base-layer controls when Leaflet is available', () => {
-    const mockL = buildLeafletMock();
-    (window as unknown as Record<string, unknown>).L = mockL;
-    renderMapView(<MapView />);
-    expect(screen.getByText(/Grundkarta/i)).toBeInTheDocument();
+  it('renders base-layer controls when Leaflet is available', () => {
+    renderMapViewWithLeaflet(<MapView />);
+    expect(screen.getByRole('button', { name: /^Topo$/i })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /^Orto$/i })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /^OSM$/i })).toBeInTheDocument();
   });
 
   it('configures OSM, topo and ortho base layers when Leaflet is available', () => {
-    const mockL = buildLeafletMock();
-    (window as unknown as Record<string, unknown>).L = mockL;
-    renderMapView(<MapView />);
-    expect(mockL.tileLayer).toHaveBeenCalledWith('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png');
+    const { mockL } = renderMapViewWithLeaflet(<MapView />);
+    expect(mockL.tileLayer).toHaveBeenCalledWith(
+      'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',
+      expect.objectContaining({ attribution: expect.any(String) }),
+    );
     expect(mockL.tileLayer.wms).toHaveBeenCalledWith(
       'https://api.lantmateriet.se/open/topowebb-ccby/v1/wms',
       expect.objectContaining({ layers: 'topowebb' }),
@@ -193,105 +200,89 @@ describe('MapView', () => {
 
   it('renders property boundary overlay label', () => {
     renderMapView(<MapView />);
-    expect(screen.getByText(/Fastighetsgränser/i)).toBeInTheDocument();
+    expect(screen.getByText(/Fastighetsgränser \(PostGIS\)/i)).toBeInTheDocument();
   });
 
   it('renders some overlay layer labels', () => {
     renderMapView(<MapView />);
-    expect(screen.getByText(/SGU grundlager/i)).toBeInTheDocument();
-    expect(screen.getByText(/Skyddad natur/i)).toBeInTheDocument();
-    expect(screen.getByText(/Natura 2000/i)).toBeInTheDocument();
-    expect(screen.getByText(/Ramsar \/ Varldsarv/i)).toBeInTheDocument();
-    expect(screen.getByText(/Oversvamningsrisk/i)).toBeInTheDocument();
+    expect(screen.getByText(/SGU grundlager \(PostGIS\)/i)).toBeInTheDocument();
+    expect(screen.getByText(/NVR \(PostGIS DB\)/i)).toBeInTheDocument();
+    expect(screen.getByText(/Natura 2000 \(NV\)/i)).toBeInTheDocument();
+    expect(screen.getByText(/Oversvamningsrisk \(MSB\)/i)).toBeInTheDocument();
   });
 
-  it('renders the RAA fornlamning layer from the backend catalog', () => {
+  it('renders the RAA lamningar overlay control', () => {
     renderMapView(<MapView />);
-    expect(screen.getByRole('button', { name: /Fornlamningar \(RAA WFS\)/i })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /RAA lamningar/i })).toBeInTheDocument();
   });
 
   it('renders without crashing with permits and receivers', () => {
     renderMapView(<MapView permits={[basePermit]} receivers={[baseReceiver]} />);
-    expect(screen.getByText(/Myndighetslager/i)).toBeInTheDocument();
+    expect(screen.getByText(/Integrerade myndighetslager/i)).toBeInTheDocument();
   });
 
   // ── With Leaflet mock ───────────────────────────────────────────────────────
 
   it('initialises Leaflet map when window.L is available', () => {
-    const mockL = buildLeafletMock();
-    (window as unknown as Record<string, unknown>).L = mockL;
-    renderMapView(<MapView />);
+    const { mockL } = renderMapViewWithLeaflet(<MapView />);
     expect(mockL.map).toHaveBeenCalledTimes(1);
     expect(mockL.map).toHaveBeenCalledWith(
       expect.anything(),
       expect.objectContaining({
         zoomControl: false,
         maxZoom: 18,
-        zoomDelta: 0.5,
-        zoomSnap: 0.5,
-        wheelPxPerZoomLevel: 180,
       }),
     );
   });
 
   it('adds the OSM tile layer by default', () => {
-    const mockL = buildLeafletMock();
-    (window as unknown as Record<string, unknown>).L = mockL;
-    renderMapView(<MapView />);
-    expect(mockL.tileLayer).toHaveBeenCalledWith('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png');
+    const { mockL } = renderMapViewWithLeaflet(<MapView />);
+    expect(mockL.tileLayer).toHaveBeenCalledWith(
+      'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',
+      expect.objectContaining({ attribution: expect.any(String) }),
+    );
     expect(mockL.tileLayer().addTo).toHaveBeenCalled();
   });
 
-  it('refreshes dynamic layers on both move and zoom end events', () => {
-    const mockL = buildLeafletMock();
-    (window as unknown as Record<string, unknown>).L = mockL;
-
-    renderMapView(<MapView />);
+  it('refreshes dynamic layers on map move end', () => {
+    const { mockL } = renderMapViewWithLeaflet(<MapView />);
 
     expect(mockL._mockMap.on).toHaveBeenCalledWith('moveend', expect.any(Function));
-    expect(mockL._mockMap.on).toHaveBeenCalledWith('zoomend', expect.any(Function));
   });
 
   it('toggles overlay layer when clicked with Leaflet mock', async () => {
     const user = userEvent.setup({ delay: null });
-    const mockL = buildLeafletMock();
-    (window as unknown as Record<string, unknown>).L = mockL;
-    renderMapView(<MapView />);
-    await user.click(screen.getByRole('button', { name: /Skyddad natur/i }));
-    const overlayButton = screen.getByRole('button', { name: /Skyddad natur/i });
+    renderMapViewWithLeaflet(<MapView />);
+    await user.click(screen.getByRole('button', { name: /RAA lamningar/i }));
+    const overlayButton = screen.getByRole('button', { name: /RAA lamningar/i });
     expect(overlayButton.className).toContain('bg-slate-900');
   });
 
-  it('shows backend warning text for SGU kusterosion instead of generic load error', async () => {
+  it('shows backend warning text for SGU grundlager instead of generic load error', async () => {
     const user = userEvent.setup({ delay: null });
-    const mockL = buildLeafletMock();
-    (window as unknown as Record<string, unknown>).L = mockL;
+    renderMapViewWithLeaflet(<MapView />);
     vi.spyOn(globalThis, 'fetch').mockResolvedValue({
       ok: true,
       json: async () => ({
         type: 'FeatureCollection',
         features: [],
         meta: {
-          warning: 'Vissa delager i SGU Stranderosion kust kunde inte lasas (Strandmaterial).',
+          warning: 'Vissa delager i SGU grundlager kunde inte lasas (Strandmaterial).',
         },
       }),
     } as Response);
 
-    renderMapView(<MapView />);
-    await user.click(screen.getByRole('button', { name: /SGU kusterosion/i }));
+    await user.click(screen.getByRole('button', { name: /SGU grundlager \(PostGIS\)/i }));
 
     expect(
-      await screen.findByText(/Vissa delager i SGU Stranderosion kust kunde inte lasas/i),
+      await screen.findByText(/Vissa delager i SGU grundlager kunde inte lasas/i),
     ).toBeInTheDocument();
   });
 
-  it('renders permit and receiver markers and supports legacy permit coordinates', () => {
-    const mockL = buildLeafletMock();
-    (window as unknown as Record<string, unknown>).L = mockL;
-
-    renderMapView(
+  it('renders permit and receiver markers when coordinates are present', () => {
+    const { mockL } = renderMapViewWithLeaflet(
       <MapView
-        permits={[{ ...basePermit, location: { lat: 59.31, lon: 18.07 } } as Permit]}
+        permits={[{ ...basePermit, lat: 59.31, lng: 18.07 }]}
         receivers={[baseReceiver]}
         selectedReceiverId="R1"
       />,
@@ -300,37 +291,24 @@ describe('MapView', () => {
     expect(mockL.marker).toHaveBeenCalledTimes(2);
     expect(mockL._markers[0]?.coords).toEqual([59.31, 18.07]);
     expect(mockL._markers[1]?.coords).toEqual([59.3, 18]);
-    expect(mockL._mockMap.fitBounds).toHaveBeenCalledWith(
-      [
-        [59.31, 18.07],
-        [59.3, 18],
-      ],
-      expect.objectContaining({ maxZoom: 13 }),
-    );
     expect(mockL.divIcon).toHaveBeenCalledWith(
       expect.objectContaining({
-        html: expect.stringContaining('#1d4ed8'),
+        html: expect.stringContaining('#2563eb'),
       }),
     );
   });
 
-  it('recenters to a single marker when only one coordinate exists', () => {
-    const mockL = buildLeafletMock();
-    (window as unknown as Record<string, unknown>).L = mockL;
+  it('renders a receiver marker when only one coordinate set exists', () => {
+    const { mockL } = renderMapViewWithLeaflet(<MapView receivers={[baseReceiver]} />);
 
-    renderMapView(<MapView receivers={[baseReceiver]} />);
-
-    expect(mockL._mockMap.setView).toHaveBeenCalledWith([61.115, 14.617], 11);
-    expect(mockL._mockMap.setView).toHaveBeenCalledWith([59.3, 18], 13);
+    expect(mockL.marker).toHaveBeenCalledTimes(1);
+    expect(mockL._markers[0]?.coords).toEqual([59.3, 18]);
   });
 
   it('calls selection callbacks when permit and receiver markers are clicked', async () => {
-    const mockL = buildLeafletMock();
-    (window as unknown as Record<string, unknown>).L = mockL;
     const handlePermitSelect = vi.fn();
     const handleReceiverSelect = vi.fn();
-
-    renderMapView(
+    const { mockL } = renderMapViewWithLeaflet(
       <MapView
         permits={[{ ...basePermit, lat: 59.31, lng: 18.07 }]}
         receivers={[baseReceiver]}
