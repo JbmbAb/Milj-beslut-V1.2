@@ -4,7 +4,6 @@ Datum: 2026-04-02
 
 Detta dokument kompletterar:
 
-- `docs/analysis/platform-total-analysis-2026-04-02.md`
 - `docs/architecture/ombyggnadsstrategi_bygga_nytt_bygga_ratt.md`
 - `docs/architecture/modulregister_ombyggnad.md`
 - `docs/architecture/development-governance.md`

@@ -5,7 +5,7 @@
 
 ## Kontext
 
-Plattformen har flera samexisterande backend-arkitekturer: ett äldre, monolitiskt `server/services`-lager, en pågående modulär migration i `server/modules/*`, och en ny, renare målarkitektur i `src/`. Detta har lett till otydlighet och teknisk skuld. Analysdokumentet `platform-total-analysis-2026-04-02.md` identifierar detta som ett strukturellt problem.
+Plattformen har flera samexisterande backend-arkitekturer: ett äldre, monolitiskt `server/services`-lager, en pågående modulär migration i `server/modules/*`, och en ny, renare målarkitektur i `src/`. Detta dokumenterades i [platform-styr-och-atgardsrapport-2026-04-02.md](./platform-styr-och-atgardsrapport-2026-04-02.md) och [modulregister_ombyggnad.md](./modulregister_ombyggnad.md).
 
 ## Beslut
 

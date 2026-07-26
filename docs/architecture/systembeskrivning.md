@@ -10,7 +10,7 @@ Detta dokument utgör en komplett arkitektonisk och säkerhetsmässig beskrivnin
 
 Systemet evolverar från ett operativt verktyg till en prediktiv motor för miljöintelligence.
 
-- **Systemarkitektur Blueprint**: För en fullständig teknisk överblick över hur AI, GIS, Logistik och Finansmoduler samverkar i en sammanhållen infrastruktur, se dokumentet [Systemarkitektur Blueprint](file:///c:/Users/jimmy/Desktop/utvecklings%20arbete/Kod/Ny%20mapp/remix_-copy-of-milj%C3%B6beslut.se-portal/docs/architecture/system_architecture_blueprint.md).
+- **Systemarkitektur Blueprint**: Se [system_architecture_blueprint.md](./system_architecture_blueprint.md) för teknisk helhetsyta (AI, GIS, logistik).
 - **ESG-integration**: Möjliggör direktkoppling mot banksektorns kreditprocesser för "Grön Finansiering" genom **Compliance Score** och **Risk Rating**.
 - **Riskbaserad tillsyn**: Stödjer myndigheter i att allokera resurser där de gör störst miljönytta baserat på analytiska riskmönster.
 

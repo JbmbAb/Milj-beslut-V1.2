@@ -4,7 +4,7 @@ Detta spår är separat från övrig plattform och avser bara Millbygård: åter
 
 Kompletterande styrdokument för kartlager:
 
-- `docs/millbygard/kartlager-inventering.md`
+- `docs/archive/millbygard/kartlager-inventering.md`
 
 ## Fastighetsidentitet och namnvarianter
 

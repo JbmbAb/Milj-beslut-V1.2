@@ -1,10 +1,10 @@
 # Millbygård: Hämtplan och Produktionssteg
 
-Detta dokument bygger vidare på `docs/millbygard/data-sammanstallning.md` och översätter datalistan till ett konkret arbetsflöde.
+Detta dokument bygger vidare på `docs/archive/millbygard/data-sammanstallning.md` och översätter datalistan till ett konkret arbetsflöde.
 
 Kartlager ska följa huvudspåret i:
 
-- `docs/millbygard/kartlager-inventering.md`
+- `docs/archive/millbygard/kartlager-inventering.md`
 
 ## Objekt som ska inkluderas
 
