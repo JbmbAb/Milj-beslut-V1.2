@@ -55,9 +55,11 @@ gh pr merge --squash
 ### **Setup (första gången)**
 
 ```bash
-# 1. Clone repo
+# 1. Clone repo (endast om du inte redan har en klon)
 git clone https://github.com/JbmbAb/Milj-beslut-V1.2.git
-cd Milj-beslut-V1.2
+cd Milj-beslut-V1.2   # mappnamn lokalt spelar ingen roll (t.ex. C:\miljöbeslut)
+
+# Kör ALDRIG git init — repot finns redan på GitHub.
 
 # 2. Konfigurera lokalt (optional, sparar tangenttryckningar)
 git config user.name "Ditt Namn"
@@ -408,6 +410,8 @@ Detta säkerställer att både promptoptimering (Python) och frontend-/backend-l
 **Branch protection (GitHub, rekommenderat):** Kräv status checks (`CI`, `Vertex Prompt Optimizer`, `Python security scan`) och squash-merge only på `main`. Sätt via repo Settings → Branches eller `gh api` (admin krävs).
 
 **Release:** Tagga `prompt-optimizer-vX.Y.Z` → `.github/workflows/release-prompt-optimizer.yml` bygger och pushar Docker-image.
+
+**GCP / Vertex (WIF):** Använd `.github/workflows/deploy-gcp.yml` (Cloud Run) och `vertex-wif-smoke.yml` (anslutningstest). Det finns ingen `deploy.yml`. Vertex-workflows autentiserar via Workload Identity Federation — inte `GCP_SA_KEY`.
 
 ### Recommended Commands (Day-to-Day Flow)
 

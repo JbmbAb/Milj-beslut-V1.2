@@ -262,6 +262,24 @@ Returnerar HTTP 200 så länge Tier 1 (kodkvalitet) är OK.
 
 ---
 
+## Vanliga missförstånd
+
+| Felaktigt | Rätt |
+| --------- | ---- |
+| `git init` + nytt repo | Repot **finns redan** — `git clone` eller använd befintlig klon |
+| Push till `JbmbAb/milj-beslut` | Endast **`JbmbAb/Milj-beslut-V1.2`** |
+| `.github/workflows/deploy.yml` | **`deploy-gcp.yml`** (Cloud Run) + **`vertex-wif-smoke.yml`** (Vertex-test) |
+| JSON-nyckel `GCP_SA_KEY` i CI | **WIF:** `GCP_WORKLOAD_IDENTITY_PROVIDER` + `GCP_VERTEX_SERVICE_ACCOUNT` |
+| Separat mapp `Milj-beslut-V1.2` måste skapas | Lokalt mappnamn spelar ingen roll (`miljöbeslut` är OK) |
+
+Verifiera Vertex-anslutning:
+
+```bash
+gh workflow run vertex-wif-smoke.yml -R JbmbAb/Milj-beslut-V1.2
+```
+
+---
+
 ## Vanliga problem
 
 | Problem                            | Lösning                                                                                 |
