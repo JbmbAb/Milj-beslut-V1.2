@@ -77,6 +77,7 @@ jobs:
           docker build \
             -f Dockerfile.gcp \
             --target production \
+            --build-arg CACHEBUST=${{ github.sha }} \
             --tag ${{ env.REGION }}-docker.pkg.dev/${{ env.PROJECT_ID }}/${{ env.REPO }}/${{ env.SERVICE }}:${{ github.sha }} \
             --tag ${{ env.REGION }}-docker.pkg.dev/${{ env.PROJECT_ID }}/${{ env.REPO }}/${{ env.SERVICE }}:latest \
             --cache-from ${{ env.REGION }}-docker.pkg.dev/${{ env.PROJECT_ID }}/${{ env.REPO }}/${{ env.SERVICE }}:latest \
@@ -131,20 +132,26 @@ jobs:
       - name: Deploy to Cloud Run
         id: deploy
         run: |
-          gcloud run deploy ${{ env.SERVICE }} \
+          SERVICE_URL=$(gcloud run deploy ${{ env.SERVICE }} \
             --image=${{ env.REGION }}-docker.pkg.dev/${{ env.PROJECT_ID }}/${{ env.REPO }}/${{ env.SERVICE }}:${{ github.sha }} \
             --region=${{ env.REGION }} \
             --platform=managed \
+            --service-account=${{ env.RUNTIME_SA }}@${{ env.PROJECT_ID }}.iam.gserviceaccount.com \
             --add-cloudsql-instances=${{ env.CLOUDSQL_INSTANCE }} \
             --update-secrets="DATABASE_URL=DATABASE_URL:latest,JWT_ACCESS_SECRET=JWT_ACCESS_SECRET:latest,JWT_REFRESH_SECRET=JWT_REFRESH_SECRET:latest,GEMINI_API_KEY=GEMINI_API_KEY:latest,OPENAI_API_KEY=OPENAI_API_KEY:latest,SEARCH_ENCRYPTION_KEY_BASE64=SEARCH_ENCRYPTION_KEY_BASE64:latest,ADMIN_CONSOLE_PASSWORD=ADMIN_CONSOLE_PASSWORD:latest,BANKID_PFX_PASSPHRASE=BANKID_PFX_PASSPHRASE:latest,BANKID_PFX_CONTENT=BANKID_PFX_CONTENT:latest,LANTMATERIET_API_KEY=LANTMATERIET_API_KEY:latest,LANTMATERIET_CONSUMER_KEY=LANTMATERIET_CONSUMER_KEY:latest,LANTMATERIET_CONSUMER_SECRET=LANTMATERIET_CONSUMER_SECRET:latest,LANTMATERIET_OPEN_SUBSCRIPTION_KEY=LANTMATERIET_OPEN_SUBSCRIPTION_KEY:latest,SLU_API_KEY=SLU_API_KEY:latest,TRAFIKVERKET_API_KEY=TRAFIKVERKET_API_KEY:latest,VISS_API_KEY=VISS_API_KEY:latest" \
-            --set-env-vars="NODE_ENV=production,CORS_ALLOW_ORIGINS=${{ vars.GCP_CORS_ORIGINS }},VERTEX_PROJECT_ID=${{ secrets.GCP_PROJECT_ID }},VERTEX_LOCATION=${{ vars.GCP_REGION || 'europe-west1' }}" \
+            --set-env-vars="NODE_ENV=production,START_WORKERS_IN_PROCESS=false,LANTMATERIET_BASE_URL=https://api.lantmateriet.se/ogc-features/v1,LANTMATERIET_OPEN_MODE=true,SLU_API_BASE_URL=https://api.slu.se,CORS_ALLOW_ORIGINS=${{ vars.GCP_CORS_ORIGINS }},VERTEX_PROJECT_ID=${{ secrets.GCP_PROJECT_ID }},VERTEX_LOCATION=${{ vars.GCP_REGION || 'europe-west1' }}" \
             --no-allow-unauthenticated \
-            --format="value(status.url)"
+            --format="value(status.url)")
+          echo "DEPLOYED_SERVICE_URL=$SERVICE_URL" >> "$GITHUB_ENV"
+          echo "Cloud Run URL: $SERVICE_URL"
 
       # ── Hälsokontroll ─────────────────────────────────────────────────────
       - name: Health check
         run: |
           SERVICE_URL="${{ vars.GCP_SERVICE_URL }}"
+          if [ -z "$SERVICE_URL" ]; then
+            SERVICE_URL="${DEPLOYED_SERVICE_URL:-}"
+          fi
           if [ -z "$SERVICE_URL" ]; then
             echo "GCP_SERVICE_URL inte satt – hoppar över hälsokontroll."
             exit 0
@@ -163,6 +170,12 @@ jobs:
           fi
 
           echo "Hälsokontroll OK (HTTP $STATUS)"
+
+      - name: Update GCP_SERVICE_URL variable
+        if: success() && env.DEPLOYED_SERVICE_URL != ''
+        run: gh variable set GCP_SERVICE_URL --body "$DEPLOYED_SERVICE_URL"
+        env:
+          GH_TOKEN: ${{ github.token }}
 
       # ── Rulla tillbaka om deploy misslyckas ───────────────────────────────
       - name: Rollback on failure
