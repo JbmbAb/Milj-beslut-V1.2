@@ -1,17 +1,14 @@
 # prompt_optimizer/Dockerfile
-# Multi-stage/lightweight build for the custom Vertex AI prompt optimizer container.
-
 FROM python:3.10-slim
 
 WORKDIR /app
 
-# Install standard cloud storage and scientific dependencies
-RUN pip install --no-cache-dir \
-    google-cloud-storage>=2.0.0 \
-    numpy>=1.20.0
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
 
-# Copy application files
-COPY main.py .
+COPY cache.py checkpoint.py rate_limiter.py metadata.py metrics.py rerank_client.py eval.py main.py ./
 
-# Entrypoint config
+ENV RERANK_CACHE_PATH=/tmp/rerank_eval_cache.sqlite
+ENV CACHE_DIR=/tmp
+
 ENTRYPOINT ["python", "main.py"]
