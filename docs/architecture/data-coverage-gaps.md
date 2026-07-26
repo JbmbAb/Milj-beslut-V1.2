@@ -64,7 +64,7 @@ Gammal VISS- och SVAR-data klassas som **legacy/unverified**. `Data/VISS` och `D
 
 ## Förorenade områden / EBH (Gap)
 
-Saknas i spatial ryggrad. Nämns i äldre `docs/data_status_report.md` som `env.sgu_ebh_contaminated_site` men ej verifierad i librarian-flöde.
+Saknas i spatial ryggrad. Tabellen `env.sgu_ebh_contaminated_site` är ej verifierad i librarian-flöde.
 
 **Nästa steg:** Bulk-nedladdning via Naturvårdsverket/Dataportal.
 
@@ -135,5 +135,5 @@ Legacy-adoption utan `files_detail`/SHA-256 kostar mer än ren omhämtning. Defa
 |----------|----------|
 | `storage/manifests/archive-local-verify-registry.json` | LM/SGU kärnaudit |
 | `knowledge-base/DATA_COVERAGE_GAPS.md` | Kortversion för Gemini Enterprise |
-| `docs/data_status_report.md` | **Inaktuell** (2026-04-27) |
+| `docs/archive/README.md` | Pekare till canonical docs (legacy-planer borttagna) |
 | `knowledge-base/NATIONAL_HARVESTING_PHASES.md` | LST 2068 dataset (Fas 1–5) |

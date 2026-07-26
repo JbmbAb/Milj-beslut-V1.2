@@ -7,6 +7,7 @@ This is a minimal Figma plugin starter that can run without a build step and cal
 - `manifest.json` plugin definition
 - `code.js` Figma canvas logic
 - `ui.html` prompt UI for `/api/figma/ai`
+- `CONTEXT_MANIFEST.md` recommended file order for Figma Make context ingestion
 
 ## Import in Figma
 
