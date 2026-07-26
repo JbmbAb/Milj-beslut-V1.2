@@ -42,10 +42,23 @@ git push
 
 ## Observability
 
-Logga i Cloud Logging:
+Logga i Cloud Logging (platta fält i root):
 
-- `LEGAL_RERANKER: kör Gemini rerank` — `promptVersion`, `candidatesCount`
-- `searchLegalCorpus` meta: `rerankerEngine`, `rerankerStatus`, `promptVersion`
+| Fält | Beskrivning |
+|------|-------------|
+| `requestId` | Korrelations-ID (`X-Request-Id` header) |
+| `queryHash` | Salted SHA-256 av normaliserad query (GDPR) |
+| `queryHashSaltVersion` | Salt-rotation (`QUERY_HASH_SALT_VERSION`, default `v1`) |
+| `exactLatencyMs` / `ftsLatencyMs` / `vectorLatencyMs` | Per-arm retrieval |
+| `rrfLatencyMs` / `rerankLatencyMs` / `totalLatencyMs` | Fusion + rerank + totalt |
+| `shadowChangedTop1` / `kendallTau` / `ndcg5` | Shadow validation |
+
+Env:
+
+| Env | Beskrivning |
+|-----|-------------|
+| `QUERY_HASH_SALT` | Secret Manager — rotera utan att logga värdet |
+| `QUERY_HASH_SALT_VERSION` | Versionstagg i loggar vid rotation |
 
 **Larm (rekommenderat):**
 

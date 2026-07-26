@@ -39,12 +39,25 @@ describeStaging('legal rerank staging smoke', () => {
     });
 
     expect(searchRes.ok, `Search on staging failed: ${searchRes.status}`).toBe(true);
+
+    const requestId = searchRes.headers.get('x-request-id');
+    expect(requestId, 'Expected X-Request-Id response header').toBeTruthy();
+    expect(typeof requestId).toBe('string');
+    expect(requestId!.length).toBeGreaterThan(0);
+
     const body = await searchRes.json() as {
+      ok?: boolean;
       results: Array<unknown>;
       meta: {
         rerankerEngine: string;
         promptVersion: string;
         rerankerStatus: string;
+        exactMs: number;
+        ftsMs: number;
+        vectorMs: number;
+        totalMs: number;
+        shadowChangedTop1: boolean;
+        kendallTau: number;
       };
     };
 
@@ -53,6 +66,17 @@ describeStaging('legal rerank staging smoke', () => {
     expect(body.meta.rerankerEngine, 'Expected rerankerEngine in meta').toBeDefined();
     expect(body.meta.promptVersion, 'Expected promptVersion in meta').toBeDefined();
     expect(body.meta.rerankerStatus, 'Expected rerankerStatus in meta').toBeDefined();
+
+    // Observability: per-arm latency timers
+    expect(typeof body.meta.exactMs).toBe('number');
+    expect(typeof body.meta.ftsMs).toBe('number');
+    expect(typeof body.meta.vectorMs).toBe('number');
+    expect(typeof body.meta.totalMs).toBe('number');
+    expect(body.meta.totalMs).toBeGreaterThanOrEqual(0);
+
+    // Shadow validation metrics
+    expect(typeof body.meta.shadowChangedTop1).toBe('boolean');
+    expect(typeof body.meta.kendallTau).toBe('number');
   }, 30_000);
 });
 

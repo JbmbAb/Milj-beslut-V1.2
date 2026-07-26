@@ -1,4 +1,5 @@
 import { FunctionDeclaration, Type } from '@google/genai';
+import crypto from 'node:crypto';
 import { embedText } from '../../../../services/searchService';
 import {
   rerankWithGeminiOrLexical,
@@ -6,8 +7,19 @@ import {
 import { prisma } from '../../../../db/prisma';
 import { parseLegalReference } from '../../../legal/services/legalReferenceParser';
 import { logger } from '../../../../logger';
+import { RequestContext } from '../../../../lib/requestContext';
+import { MetricsCollector } from '../../../../lib/metricsCollector';
+import { withSpan } from '../../../../lib/tracing';
+import { getQueryHashSaltVersion, queryHash } from '../../../../lib/queryHash';
+import {
+  computeKendallTau,
+  computeNDCG,
+  computeMRR,
+  computeRecallAtK,
+} from '../../../../lib/rankingMetrics';
 
 export { localLexicalRerank } from '../../../../services/legalRerankService';
+
 
 /** Alphaevolve A1+A2 — chunk-nivå hybrid retrieval + feature-flaggad rerank. */
 const RRF_K_EXACT = 30;
@@ -291,6 +303,19 @@ async function runLikeFallback(query: string, legalArea?: string): Promise<Chunk
   return mapChunkRows(rows);
 }
 
+function arraysEqual(a: string[], b: string[]): boolean {
+  if (a.length !== b.length) return false;
+  return a.every((val, i) => val === b[i]);
+}
+
+function computeShadowScoreDelta(preTop1: any, postTop1: any, mappedResults: any[]): number {
+  if (!preTop1 || !postTop1) return 0;
+  const originalPreScore = preTop1.score;
+  const chosenInPre = mappedResults.find((r) => r.chunkId === postTop1.chunkId);
+  const chosenOriginalScore = chosenInPre ? chosenInPre.score : 0;
+  return Number((chosenOriginalScore - originalPreScore).toFixed(6));
+}
+
 export async function searchLegalCorpusHandler(args: { query: string; legalArea?: string }) {
   const { query, legalArea } = args;
   const config = getLegalCorpusSearchConfig();
@@ -299,227 +324,390 @@ export async function searchLegalCorpusHandler(args: { query: string; legalArea?
     return { error: 'Söksträngen är för kort.' };
   }
 
-  try {
-    const trimmedQuery = query.trim();
+  const ctx = RequestContext.get();
+  const requestId = ctx?.requestId || crypto.randomUUID();
+  const userId = ctx?.userId || 'anonymous';
 
-    // Exact körs parallellt med FTS ‖ Vector (A1).
-    const startTime = Date.now();
-    const [exactResults, ftsResults, vectorResults] = await Promise.all([
-      runExactArm(trimmedQuery),
-      runFtsArm(trimmedQuery, legalArea),
-      runVectorArm(trimmedQuery, legalArea),
-    ]);
-    const retrievalMs = Date.now() - startTime;
-    console.log(
-      `[RAG Search] Latency: ${retrievalMs}ms, Exact: ${exactResults.length}, FTS: ${ftsResults.length}, Vector: ${vectorResults.length}`,
-    );
+  const trimmedQuery = query.trim();
+  const qHash = queryHash(trimmedQuery);
+  const queryHashSaltVersion = getQueryHashSaltVersion();
 
-    const rrfScores = new Map<string, RrfEntry>();
-    addArmToRrf(rrfScores, exactResults, RRF_K_EXACT);
-    addArmToRrf(rrfScores, vectorResults, RRF_K, 'similarity');
-    addArmToRrf(rrfScores, ftsResults, RRF_K, 'rank');
+  const metrics = new MetricsCollector();
+  metrics.start('total');
 
-    if (rrfScores.size === 0) {
-      const fallback = await runLikeFallback(trimmedQuery, legalArea);
-      addArmToRrf(rrfScores, fallback, RRF_K);
-    }
+  return withSpan('searchLegalCorpus', { 'search.request_id': requestId, 'search.query_hash': qHash }, async () => {
+    try {
+      const [exactResults, ftsResults, vectorResults] = await withSpan(
+        'Retrieval',
+        { 'search.legal_area': legalArea || 'all' },
+        async () => {
+          metrics.start('exact');
+          const exactP = withSpan('Exact', {}, () => runExactArm(trimmedQuery)).finally(() =>
+            metrics.stop('exact'),
+          );
 
-    const sortedChunkIds = Array.from(rrfScores.keys())
-      .sort((a, b) => (rrfScores.get(b)?.rrf || 0) - (rrfScores.get(a)?.rrf || 0))
-      .slice(0, config.rrfCandidateLimit);
+          metrics.start('fts');
+          const ftsP = withSpan('FTS', {}, () => runFtsArm(trimmedQuery, legalArea)).finally(() =>
+            metrics.stop('fts'),
+          );
 
-    if (sortedChunkIds.length === 0) {
-      logger.info('searchLegalCorpus completed', {
-        rerankerEngine: 'none',
-        rerankerStatus: 'disabled',
-        promptVersion: 'not-triggered',
+          metrics.start('vector');
+          const vectorP = withSpan('Vector', {}, () => runVectorArm(trimmedQuery, legalArea)).finally(() =>
+            metrics.stop('vector'),
+          );
+
+          return Promise.all([exactP, ftsP, vectorP]);
+        },
+      );
+
+      // Hybrid RRF scoring
+      metrics.start('rrf');
+      const rrfScores = new Map<string, RrfEntry>();
+      addArmToRrf(rrfScores, exactResults, RRF_K_EXACT);
+      addArmToRrf(rrfScores, vectorResults, RRF_K, 'similarity');
+      addArmToRrf(rrfScores, ftsResults, RRF_K, 'rank');
+
+      if (rrfScores.size === 0) {
+        metrics.start('fallback');
+        const fallback = await runLikeFallback(trimmedQuery, legalArea);
+        metrics.stop('fallback');
+        addArmToRrf(rrfScores, fallback, RRF_K);
+      }
+      metrics.stop('rrf');
+
+      const sortedChunkIds = Array.from(rrfScores.keys())
+        .sort((a, b) => (rrfScores.get(b)?.rrf || 0) - (rrfScores.get(a)?.rrf || 0))
+        .slice(0, config.rrfCandidateLimit);
+
+      if (sortedChunkIds.length === 0) {
+        metrics.stop('total');
+        const exported = metrics.export();
+
+        logger.info('searchLegalCorpus completed', {
+          event: 'search.completed',
+          service: 'legal-search-service',
+          requestId,
+          userId,
+          queryHash: qHash,
+          queryHashSaltVersion,
+          exactCount: exactResults.length,
+          ftsCount: ftsResults.length,
+          vectorCount: vectorResults.length,
+          returnedCount: 0,
+          rerankedCount: 0,
+          totalLatencyMs: exported.totalMs,
+          retrievalLatencyMs: (exported.exactMs || 0) + (exported.ftsMs || 0) + (exported.vectorMs || 0),
+          exactLatencyMs: exported.exactMs || 0,
+          ftsLatencyMs: exported.ftsMs || 0,
+          vectorLatencyMs: exported.vectorMs || 0,
+          rrfLatencyMs: exported.rrfMs || 0,
+          rerankerEngine: 'none',
+          rerankerStatus: 'disabled',
+          promptVersion: 'not-triggered',
+        });
+
+        return {
+          message: `Inga miljödomar eller lagrum hittades som matchade sökningen "${trimmedQuery}".`,
+          results: [],
+          meta: {
+            topK: config.rerankerEnabled ? config.rerankerFinalK : config.rrfCandidateLimit,
+            rrfCandidateLimit: config.rrfCandidateLimit,
+            exactCount: exactResults.length,
+            ftsCount: ftsResults.length,
+            vectorCount: vectorResults.length,
+            latencyMs: exported.totalMs,
+            exactMs: exported.exactMs || 0,
+            ftsMs: exported.ftsMs || 0,
+            vectorMs: exported.vectorMs || 0,
+            rrfMs: exported.rrfMs || 0,
+            totalMs: exported.totalMs,
+            rerankerEnabled: config.rerankerEnabled,
+            rerankerStatus: 'disabled' as const,
+            rerankerEngine: 'none' as const,
+            promptVersion: 'not-triggered',
+            relativeGapSkip: config.relativeGapSkip,
+            shadowChangedTop1: false,
+            shadowChangedTop5: false,
+            shadowScoreDelta: 0,
+            kendallTau: 1.0,
+            ndcg5: 1.0,
+            mrr: 0.0,
+            recall10: 1.0,
+            municipalDecisionCount: 0,
+            municipalDecisionTopScore: 0,
+          },
+        };
+      }
+
+      const sortedRrfValues = sortedChunkIds.map((id) => rrfScores.get(id)?.rrf || 0);
+      const skipReranker =
+        !config.rerankerEnabled ||
+        shouldSkipReranker(sortedRrfValues, config.relativeGapSkip);
+
+      const recordIds = Array.from(
+        new Set(
+          sortedChunkIds
+            .map((chunkId) => rrfScores.get(chunkId)?.candidate?.recordId)
+            .filter((id): id is string => Boolean(id)),
+        ),
+      );
+
+      const details = recordIds.length
+        ? await prisma.$queryRawUnsafe<Array<Record<string, unknown>>>(
+            `SELECT id, title, case_number, published_at, decision_date, authority_name, authority_type, legal_area, metadata, source_url, source_path
+             FROM public.legal_corpus_records
+             WHERE id IN (${recordIds.map((_, i) => `$${i + 1}`).join(', ')})`,
+            ...recordIds,
+          )
+        : [];
+
+      type MappedResult = {
+        id: string;
+        chunkId: string;
+        title: unknown;
+        caseNumber: unknown;
+        decisionDate: unknown;
+        publishedAt: unknown;
+        authorityName: unknown;
+        authorityType: unknown;
+        legalArea: unknown;
+        sourceUrl: unknown;
+        sourcePath: unknown;
+        snippet: string;
+        chunkText: string;
+        metadata: Record<string, unknown>;
+        score: number;
+        similarity?: number;
+        rank?: number;
+        finalScore?: number;
+        rerankApplied?: boolean;
+      };
+
+      const mappedResults: MappedResult[] = sortedChunkIds
+        .map((chunkId) => {
+          const rrfInfo = rrfScores.get(chunkId);
+          const candidate = rrfInfo?.candidate;
+          if (!candidate) return null;
+
+          const detail = details.find((d) => d.id === candidate.recordId);
+          if (!detail) return null;
+
+          const meta = (detail.metadata as Record<string, unknown> | null) || {};
+          const structuredMeta = {
+            lagrum: meta.lagrumLista || [],
+            forarbeten: meta.forarbeteLista || [],
+            malnummer: meta.malNummerLista || [],
+            nyckelord: meta.nyckelordLista || [],
+            referatNummer: meta.referatNummerLista || [],
+            avgorandedatum: meta.avgorandedatum || detail.decision_date || null,
+            chapter: candidate.chapter,
+            paragraph: candidate.paragraph,
+            section: candidate.section,
+          };
+
+          return {
+            id: candidate.recordId,
+            chunkId: candidate.chunkId,
+            title: detail.title,
+            caseNumber: detail.case_number,
+            decisionDate: detail.decision_date,
+            publishedAt: detail.published_at,
+            authorityName: detail.authority_name,
+            authorityType: detail.authority_type,
+            legalArea: detail.legal_area,
+            sourceUrl: detail.source_url,
+            sourcePath: detail.source_path,
+            snippet: candidate.chunkText,
+            chunkText: candidate.chunkText,
+            metadata: structuredMeta as Record<string, unknown>,
+            score: rrfInfo?.rrf ? Number(rrfInfo.rrf.toFixed(6)) : 0,
+            similarity: rrfInfo?.similarity,
+            rank: rrfInfo?.rank,
+          };
+        })
+        .filter((row) => row != null) as MappedResult[];
+
+      let finalResults = mappedResults;
+      let rerankerStatus: 'disabled' | 'skipped_gap' | 'applied' = 'disabled';
+      let rerankerEngine: 'none' | 'gemini' | 'lexical' = 'none';
+      let promptVersion = 'not-triggered';
+
+      metrics.start('rerank');
+      if (config.rerankerEnabled) {
+        if (skipReranker) {
+          rerankerStatus = 'skipped_gap';
+          finalResults = mappedResults
+            .map((row) => ({ ...row, finalScore: row.score, rerankApplied: false }))
+            .slice(0, config.rerankerFinalK);
+        } else {
+          try {
+            rerankerStatus = 'applied';
+            const rerankCandidates = mappedResults.map((row) => ({
+              id: row.chunkId,
+              chunkText: row.chunkText,
+              score: row.score,
+              _row: row,
+            }));
+
+            const rerankOutcome = await withSpan('Rerank', { 'search.candidate_count': rerankCandidates.length }, () =>
+              rerankWithGeminiOrLexical(
+                trimmedQuery,
+                rerankCandidates.map(({ id, chunkText, score }) => ({ id, chunkText, score })),
+                config.rerankerFinalK,
+              ),
+            );
+
+            rerankerEngine = rerankOutcome.engine;
+            promptVersion = rerankOutcome.promptVersion;
+
+            const byId = new Map(rerankCandidates.map((c) => [c.id, c._row]));
+            finalResults = rerankOutcome.items
+              .slice(0, config.rerankerFinalK)
+              .map((item) => {
+                const row = byId.get(item.id);
+                if (!row) return null;
+                return {
+                  ...row,
+                  score: Number(item.finalScore.toFixed(6)),
+                  finalScore: Number(item.finalScore.toFixed(6)),
+                  rerankApplied: item.rerankApplied,
+                };
+              })
+              .filter((row) => row != null) as MappedResult[];
+          } catch (rerankErr) {
+            const message = rerankErr instanceof Error ? rerankErr.message : String(rerankErr);
+            logger.error('searchLegalCorpus reranker failed — fallback to RRF order', {
+              event: 'reranker.error',
+              service: 'legal-search-service',
+              requestId,
+              userId,
+              queryHash: qHash,
+              queryHashSaltVersion,
+              status: 'error',
+              errorType: rerankErr instanceof Error ? rerankErr.name : 'Error',
+              errorMessage: message,
+              retryable: false,
+            });
+            rerankerStatus = 'skipped_gap';
+            rerankerEngine = 'none';
+            promptVersion = 'rerank-error-fallback';
+            finalResults = mappedResults.slice(0, config.rerankerFinalK);
+          }
+        }
+      }
+      metrics.stop('rerank');
+
+      metrics.stop('total');
+      const exported = metrics.export();
+
+      // Advanced Shadow Validation Metrics
+      const preTopIds = mappedResults.map((r) => r.chunkId);
+      const postTopIds = finalResults.map((r) => r.chunkId);
+      const preTop1 = mappedResults[0];
+      const postTop1 = finalResults[0];
+
+      const shadowChangedTop1 = preTop1?.chunkId !== postTop1?.chunkId;
+      const shadowChangedTop5 = !arraysEqual(preTopIds.slice(0, 5), postTopIds.slice(0, 5));
+      const shadowScoreDelta = computeShadowScoreDelta(preTop1, postTop1, mappedResults);
+
+      const kendallTau = computeKendallTau(preTopIds, postTopIds);
+      const ndcg5 = computeNDCG(preTopIds, postTopIds, 5);
+      const mrr = computeMRR(preTopIds, postTopIds);
+      const recall10 = computeRecallAtK(preTopIds, postTopIds, 10);
+
+      // Track how many real-world municipal decisions are returned
+      const municipalDecisionCount = finalResults.filter((r) => r.authorityType === 'KOMMUN').length;
+      const municipalDecisionTopScore = finalResults.find((r) => r.authorityType === 'KOMMUN')?.score ?? 0;
+
+      const flatLog = {
+        event: 'search.completed',
+        service: 'legal-search-service',
+        requestId,
+        userId,
+        queryHash: qHash,
+        queryHashSaltVersion,
+        totalLatencyMs: exported.totalMs,
+        retrievalLatencyMs: (exported.exactMs || 0) + (exported.ftsMs || 0) + (exported.vectorMs || 0),
+        exactLatencyMs: exported.exactMs || 0,
+        ftsLatencyMs: exported.ftsMs || 0,
+        vectorLatencyMs: exported.vectorMs || 0,
+        rrfLatencyMs: exported.rrfMs || 0,
+        rerankLatencyMs: exported.rerankMs || 0,
         exactCount: exactResults.length,
         ftsCount: ftsResults.length,
         vectorCount: vectorResults.length,
-        latencyMs: retrievalMs,
-      });
+        returnedCount: finalResults.length,
+        rerankedCount: config.rerankerEnabled && !skipReranker ? mappedResults.length : 0,
+        topScore: finalResults[0]?.score ?? 0,
+        averageScore: finalResults.reduce((sum, r) => sum + r.score, 0) / Math.max(1, finalResults.length),
+        rerankerEngine,
+        rerankerStatus,
+        promptVersion,
+        shadowChangedTop1,
+        shadowChangedTop5,
+        shadowScoreDelta,
+        kendallTau,
+        ndcg5,
+        mrr,
+        recall10,
+        municipalDecisionCount,
+        municipalDecisionTopScore,
+      };
+
+      logger.info('searchLegalCorpus completed', flatLog);
 
       return {
-        message: `Inga miljödomar eller lagrum hittades som matchade sökningen "${trimmedQuery}".`,
-        results: [],
+        results: finalResults,
         meta: {
           topK: config.rerankerEnabled ? config.rerankerFinalK : config.rrfCandidateLimit,
           rrfCandidateLimit: config.rrfCandidateLimit,
           exactCount: exactResults.length,
           ftsCount: ftsResults.length,
           vectorCount: vectorResults.length,
-          latencyMs: retrievalMs,
+          latencyMs: exported.totalMs,
+          exactMs: exported.exactMs || 0,
+          ftsMs: exported.ftsMs || 0,
+          vectorMs: exported.vectorMs || 0,
+          rrfMs: exported.rrfMs || 0,
+          rerankMs: exported.rerankMs || 0,
+          totalMs: exported.totalMs,
           rerankerEnabled: config.rerankerEnabled,
-          rerankerStatus: 'disabled' as const,
-          rerankerEngine: 'none' as const,
-          promptVersion: 'not-triggered',
+          rerankerStatus,
+          rerankerEngine,
+          promptVersion,
           relativeGapSkip: config.relativeGapSkip,
+          shadowChangedTop1,
+          shadowChangedTop5,
+          shadowScoreDelta,
+          kendallTau,
+          ndcg5,
+          mrr,
+          recall10,
+          municipalDecisionCount,
+          municipalDecisionTopScore,
         },
       };
+    } catch (innerErr) {
+      metrics.stop('total');
+      const exported = metrics.export();
+      const message = innerErr instanceof Error ? innerErr.message : String(innerErr);
+
+      logger.error('searchLegalCorpus inner execution failed', {
+        event: 'search.failed',
+        service: 'legal-search-service',
+        requestId,
+        userId,
+        queryHash: qHash,
+        queryHashSaltVersion,
+        status: 'error',
+        errorType: innerErr instanceof Error ? innerErr.name : 'Error',
+        errorMessage: message,
+        retryable: false,
+        totalLatencyMs: exported.totalMs || 0,
+      });
+
+      throw innerErr;
     }
-
-    const sortedRrfValues = sortedChunkIds.map((id) => rrfScores.get(id)?.rrf || 0);
-    const skipReranker =
-      !config.rerankerEnabled ||
-      shouldSkipReranker(sortedRrfValues, config.relativeGapSkip);
-
-    const recordIds = Array.from(
-      new Set(
-        sortedChunkIds
-          .map((chunkId) => rrfScores.get(chunkId)?.candidate?.recordId)
-          .filter((id): id is string => Boolean(id)),
-      ),
-    );
-
-    const details = recordIds.length
-      ? await prisma.$queryRawUnsafe<Array<Record<string, unknown>>>(
-          `SELECT id, title, case_number, published_at, decision_date, authority_name, legal_area, metadata, source_url, source_path
-           FROM public.legal_corpus_records
-           WHERE id IN (${recordIds.map((_, i) => `$${i + 1}`).join(', ')})`,
-          ...recordIds,
-        )
-      : [];
-
-    type MappedResult = {
-      id: string;
-      chunkId: string;
-      title: unknown;
-      caseNumber: unknown;
-      decisionDate: unknown;
-      publishedAt: unknown;
-      authorityName: unknown;
-      legalArea: unknown;
-      sourceUrl: unknown;
-      sourcePath: unknown;
-      snippet: string;
-      chunkText: string;
-      metadata: Record<string, unknown>;
-      score: number;
-      similarity?: number;
-      rank?: number;
-      finalScore?: number;
-      rerankApplied?: boolean;
-    };
-
-    const mappedResults: MappedResult[] = sortedChunkIds
-      .map((chunkId) => {
-        const rrfInfo = rrfScores.get(chunkId);
-        const candidate = rrfInfo?.candidate;
-        if (!candidate) return null;
-
-        const detail = details.find((d) => d.id === candidate.recordId);
-        if (!detail) return null;
-
-        const meta = (detail.metadata as Record<string, unknown> | null) || {};
-        const structuredMeta = {
-          lagrum: meta.lagrumLista || [],
-          forarbeten: meta.forarbeteLista || [],
-          malnummer: meta.malNummerLista || [],
-          nyckelord: meta.nyckelordLista || [],
-          referatNummer: meta.referatNummerLista || [],
-          avgorandedatum: meta.avgorandedatum || detail.decision_date || null,
-          chapter: candidate.chapter,
-          paragraph: candidate.paragraph,
-          section: candidate.section,
-        };
-
-        return {
-          id: candidate.recordId,
-          chunkId: candidate.chunkId,
-          title: detail.title,
-          caseNumber: detail.case_number,
-          decisionDate: detail.decision_date,
-          publishedAt: detail.published_at,
-          authorityName: detail.authority_name,
-          legalArea: detail.legal_area,
-          sourceUrl: detail.source_url,
-          sourcePath: detail.source_path,
-          // Chunk-text är grounding för Gemini — inte hela document_text.
-          snippet: candidate.chunkText,
-          chunkText: candidate.chunkText,
-          metadata: structuredMeta as Record<string, unknown>,
-          score: rrfInfo?.rrf ? Number(rrfInfo.rrf.toFixed(6)) : 0,
-          similarity: rrfInfo?.similarity,
-          rank: rrfInfo?.rank,
-        };
-      })
-      .filter((row) => row != null);
-
-    let finalResults = mappedResults;
-    let rerankerStatus: 'disabled' | 'skipped_gap' | 'applied' = 'disabled';
-    let rerankerEngine: 'none' | 'gemini' | 'lexical' = 'none';
-    let promptVersion = 'not-triggered';
-
-    if (config.rerankerEnabled) {
-      if (skipReranker) {
-        rerankerStatus = 'skipped_gap';
-        finalResults = mappedResults
-          .map((row) => ({ ...row, finalScore: row.score, rerankApplied: false }))
-          .slice(0, config.rerankerFinalK);
-      } else {
-        rerankerStatus = 'applied';
-        const rerankCandidates = mappedResults.map((row) => ({
-          id: row.chunkId,
-          chunkText: row.chunkText,
-          score: row.score,
-          _row: row,
-        }));
-
-        const rerankOutcome = await rerankWithGeminiOrLexical(
-          trimmedQuery,
-          rerankCandidates.map(({ id, chunkText, score }) => ({ id, chunkText, score })),
-          config.rerankerFinalK,
-        );
-
-        rerankerEngine = rerankOutcome.engine;
-        promptVersion = rerankOutcome.promptVersion;
-
-        const byId = new Map(rerankCandidates.map((c) => [c.id, c._row]));
-        finalResults = rerankOutcome.items
-          .slice(0, config.rerankerFinalK)
-          .map((item) => {
-            const row = byId.get(item.id);
-            if (!row) return null;
-            return {
-              ...row,
-              score: Number(item.finalScore.toFixed(6)),
-              finalScore: Number(item.finalScore.toFixed(6)),
-              rerankApplied: item.rerankApplied,
-            };
-          })
-          .filter((row): row is MappedResult => row != null);
-      }
-    }
-
-    logger.info('searchLegalCorpus completed', {
-      rerankerEngine,
-      rerankerStatus,
-      promptVersion,
-      exactCount: exactResults.length,
-      ftsCount: ftsResults.length,
-      vectorCount: vectorResults.length,
-      latencyMs: retrievalMs,
-    });
-
-    return {
-      results: finalResults,
-      meta: {
-        topK: config.rerankerEnabled ? config.rerankerFinalK : config.rrfCandidateLimit,
-        rrfCandidateLimit: config.rrfCandidateLimit,
-        exactCount: exactResults.length,
-        ftsCount: ftsResults.length,
-        vectorCount: vectorResults.length,
-        latencyMs: retrievalMs,
-        rerankerEnabled: config.rerankerEnabled,
-        rerankerStatus,
-        rerankerEngine,
-        promptVersion,
-        relativeGapSkip: config.relativeGapSkip,
-      },
-    };
-  } catch (err: unknown) {
-    const message = err instanceof Error ? err.message : String(err);
-    console.error('searchLegalCorpus error:', err);
-    return { error: 'Databasfel vid sökning i korpusen.', details: message };
-  }
+  });
 }
+
