@@ -306,7 +306,7 @@ export const MvpLibrarianView: React.FC = () => {
       const generatedChunks: ChunkNode[] = paragraphs.map((para, idx) => {
         let header = 'Standard Stycke';
         let tags: string[] = [];
-        let tokens = Math.round(para.length / 4.8) + 12; // Grov uppskattning av tokenlängd
+        const tokens = Math.round(para.length / 4.8) + 12; // Grov uppskattning av tokenlängd
 
         if (parserMode === 'sfs') {
           const match = para.match(/^(\d+\s+kap\.\s+\d+\s+§)/i);
