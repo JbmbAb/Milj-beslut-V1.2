@@ -24,13 +24,15 @@ def build_cache_key(
     schema_version: int | None = None,
 ) -> str:
     sv = schema_version if schema_version is not None else CACHE_SCHEMA_VERSION
-    payload = f'{sv}|{prompt_hash}|{query_id}|{candidate_hash}|{reranker_version}'
-    return hashlib.sha256(payload.encode('utf-8')).hexdigest()
+    payload = f"{sv}|{prompt_hash}|{query_id}|{candidate_hash}|{reranker_version}"
+    return hashlib.sha256(payload.encode("utf-8")).hexdigest()
 
 
 def candidate_hash(candidates: list[dict[str, Any]]) -> str:
-    ids = sorted(str(c.get('id', '')) for c in candidates)
-    return hashlib.sha256(json.dumps(ids, sort_keys=True).encode('utf-8')).hexdigest()[:16]
+    ids = sorted(str(c.get("id", "")) for c in candidates)
+    return hashlib.sha256(json.dumps(ids, sort_keys=True).encode("utf-8")).hexdigest()[
+        :16
+    ]
 
 
 class PersistentCache:
@@ -58,8 +60,10 @@ class PersistentCache:
     """
 
     def __init__(self, db_path: str | None = None) -> None:
-        default = os.path.join(os.environ.get('CACHE_DIR', '.'), 'rerank_eval_cache.sqlite')
-        self.db_path = db_path or os.environ.get('RERANK_CACHE_PATH', default)
+        default = os.path.join(
+            os.environ.get("CACHE_DIR", "."), "rerank_eval_cache.sqlite"
+        )
+        self.db_path = db_path or os.environ.get("RERANK_CACHE_PATH", default)
         os.makedirs(os.path.dirname(os.path.abspath(self.db_path)), exist_ok=True)
         self._lock = threading.Lock()
         self._init_db()
@@ -80,36 +84,38 @@ class PersistentCache:
                 conn.close()
 
     def _migrate(self, conn: sqlite3.Connection) -> None:
-        cols = {row[1] for row in conn.execute('PRAGMA table_info(rerank_cache)')}
-        if 'cache_schema_version' not in cols:
+        cols = {row[1] for row in conn.execute("PRAGMA table_info(rerank_cache)")}
+        if "cache_schema_version" not in cols:
             conn.execute(
-                'ALTER TABLE rerank_cache ADD COLUMN cache_schema_version INTEGER NOT NULL DEFAULT 1'
+                "ALTER TABLE rerank_cache ADD COLUMN cache_schema_version INTEGER NOT NULL DEFAULT 1"
             )
-        if 'prompt_version' not in cols:
-            conn.execute("ALTER TABLE rerank_cache ADD COLUMN prompt_version TEXT DEFAULT ''")
+        if "prompt_version" not in cols:
+            conn.execute(
+                "ALTER TABLE rerank_cache ADD COLUMN prompt_version TEXT DEFAULT ''"
+            )
 
     def get(self, cache_key: str) -> dict[str, Any] | None:
         with self._lock:
             conn = self._connect()
             try:
                 row = conn.execute(
-                    'SELECT * FROM rerank_cache WHERE cache_key = ?',
+                    "SELECT * FROM rerank_cache WHERE cache_key = ?",
                     (cache_key,),
                 ).fetchone()
                 if row is None:
                     return None
                 return {
-                    'cache_schema_version': row['cache_schema_version'],
-                    'ranking': json.loads(row['ranking_json']),
-                    'latency': json.loads(row['latency_json']),
-                    'latency_ms': json.loads(row['latency_json']).get('total_ms', 0),
-                    'tokens_in': row['tokens_in'],
-                    'tokens_out': row['tokens_out'],
-                    'cost_usd': row['cost_usd'],
-                    'engine': row['engine'],
-                    'prompt_version': row['prompt_version'],
-                    'cached_at': row['cached_at'],
-                    'created': row['cached_at'],
+                    "cache_schema_version": row["cache_schema_version"],
+                    "ranking": json.loads(row["ranking_json"]),
+                    "latency": json.loads(row["latency_json"]),
+                    "latency_ms": json.loads(row["latency_json"]).get("total_ms", 0),
+                    "tokens_in": row["tokens_in"],
+                    "tokens_out": row["tokens_out"],
+                    "cost_usd": row["cost_usd"],
+                    "engine": row["engine"],
+                    "prompt_version": row["prompt_version"],
+                    "cached_at": row["cached_at"],
+                    "created": row["cached_at"],
                 }
             finally:
                 conn.close()
@@ -129,10 +135,14 @@ class PersistentCache:
         tokens_out: int,
         cost_usd: float,
         engine: str,
-        prompt_version: str = '',
+        prompt_version: str = "",
         cache_schema_version: int | None = None,
     ) -> None:
-        schema_v = cache_schema_version if cache_schema_version is not None else CACHE_SCHEMA_VERSION
+        schema_v = (
+            cache_schema_version
+            if cache_schema_version is not None
+            else CACHE_SCHEMA_VERSION
+        )
         with self._lock:
             conn = self._connect()
             try:
@@ -171,10 +181,10 @@ class PersistentCache:
             conn = self._connect()
             try:
                 row = conn.execute(
-                    'SELECT COUNT(*) AS n FROM rerank_cache WHERE variant_id = ?',
+                    "SELECT COUNT(*) AS n FROM rerank_cache WHERE variant_id = ?",
                     (variant_id,),
                 ).fetchone()
-                return int(row['n']) if row else 0
+                return int(row["n"]) if row else 0
             finally:
                 conn.close()
 
@@ -183,9 +193,9 @@ class PersistentCache:
             conn = self._connect()
             try:
                 rows = conn.execute(
-                    'SELECT query_id FROM rerank_cache WHERE variant_id = ? AND prompt_hash = ?',
+                    "SELECT query_id FROM rerank_cache WHERE variant_id = ? AND prompt_hash = ?",
                     (variant_id, prompt_hash),
                 ).fetchall()
-                return {str(r['query_id']) for r in rows}
+                return {str(r["query_id"]) for r in rows}
             finally:
                 conn.close()

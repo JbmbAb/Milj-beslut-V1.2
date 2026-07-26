@@ -53,39 +53,39 @@ class ManifestTest(unittest.TestCase):
         manifest = build_manifest(
             cfg=cfg,
             golden_meta={
-                'version': 'v4',
-                'sha256': 'abc123',
-                'n_queries': 100,
-                'candidate_fingerprint': 'cand_hash',
-                'created': '2026-07-26T12:00:00Z',
-                'split': 'validation',
+                "version": "v4",
+                "sha256": "abc123",
+                "n_queries": 100,
+                "candidate_fingerprint": "cand_hash",
+                "created": "2026-07-26T12:00:00Z",
+                "split": "validation",
             },
-            best={'variant_id': 'v2', 'prompt_hash': 'phash'},
-            reranker_version='1.0.0:http-async',
-            engine='http-async',
+            best={"variant_id": "v2", "prompt_hash": "phash"},
+            reranker_version="1.0.0:http-async",
+            engine="http-async",
         )
-        self.assertEqual(manifest['results_schema_version'], 1)
-        self.assertEqual(manifest['cache_schema_version'], 1)
-        self.assertEqual(manifest['golden_dataset']['version'], 'v4')
-        self.assertEqual(manifest['golden_dataset']['candidate_set_hash'], 'cand_hash')
-        self.assertIn('python_version', manifest)
-        self.assertIn('httpx_version', manifest)
-        self.assertEqual(manifest['winner_variant_id'], 'v2')
+        self.assertEqual(manifest["results_schema_version"], 1)
+        self.assertEqual(manifest["cache_schema_version"], 1)
+        self.assertEqual(manifest["golden_dataset"]["version"], "v4")
+        self.assertEqual(manifest["golden_dataset"]["candidate_set_hash"], "cand_hash")
+        self.assertIn("python_version", manifest)
+        self.assertIn("httpx_version", manifest)
+        self.assertEqual(manifest["winner_variant_id"], "v2")
 
 
 class StatusTest(unittest.TestCase):
     def test_save_and_load_status(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
-            path = os.path.join(tmp, 'status.json')
-            os.environ['STATUS_FILE'] = path
+            path = os.path.join(tmp, "status.json")
+            os.environ["STATUS_FILE"] = path
             reset_config_cache()
-            save_status({'status': 'running', 'processed_queries': 10})
+            save_status({"status": "running", "processed_queries": 10})
             loaded = load_status()
             assert loaded is not None
-            self.assertEqual(loaded['status'], 'running')
-            self.assertEqual(loaded['processed_queries'], 10)
-            self.assertIn('updated', loaded)
+            self.assertEqual(loaded["status"], "running")
+            self.assertEqual(loaded["processed_queries"], 10)
+            self.assertIn("updated", loaded)
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     unittest.main()

@@ -20,9 +20,15 @@ class AsyncRateLimiter:
         max_requests_per_minute: int | None = None,
         max_tokens_per_minute: int | None = None,
     ) -> None:
-        self.max_concurrent = max_concurrent or int(os.environ.get('MAX_CONCURRENT_QUERIES', '8'))
-        self.max_requests = max_requests_per_minute or int(os.environ.get('MAX_REQUESTS_PER_MINUTE', '120'))
-        self.max_tokens = max_tokens_per_minute or int(os.environ.get('MAX_TOKENS_PER_MINUTE', '400000'))
+        self.max_concurrent = max_concurrent or int(
+            os.environ.get("MAX_CONCURRENT_QUERIES", "8")
+        )
+        self.max_requests = max_requests_per_minute or int(
+            os.environ.get("MAX_REQUESTS_PER_MINUTE", "120")
+        )
+        self.max_tokens = max_tokens_per_minute or int(
+            os.environ.get("MAX_TOKENS_PER_MINUTE", "400000")
+        )
         self._semaphore = asyncio.Semaphore(self.max_concurrent)
         self._lock = asyncio.Lock()
         self._request_times: deque[float] = deque()
@@ -53,16 +59,22 @@ class AsyncRateLimiter:
                     return
                 wait_s = 0.05
                 if self._request_times:
-                    wait_s = max(wait_s, self._window_s - (now - self._request_times[0]) + 0.01)
+                    wait_s = max(
+                        wait_s, self._window_s - (now - self._request_times[0]) + 0.01
+                    )
                 if self._token_events:
-                    wait_s = max(wait_s, self._window_s - (now - self._token_events[0][0]) + 0.01)
+                    wait_s = max(
+                        wait_s, self._window_s - (now - self._token_events[0][0]) + 0.01
+                    )
             await asyncio.sleep(min(wait_s, 1.0))
 
     async def record_tokens(self, actual_tokens: int, estimated_tokens: int) -> None:
         if actual_tokens <= estimated_tokens:
             return
         async with self._lock:
-            self._token_events.append((time.monotonic(), actual_tokens - estimated_tokens))
+            self._token_events.append(
+                (time.monotonic(), actual_tokens - estimated_tokens)
+            )
 
     @asynccontextmanager
     async def acquire(self, estimated_tokens: int = 0) -> AsyncIterator[None]:

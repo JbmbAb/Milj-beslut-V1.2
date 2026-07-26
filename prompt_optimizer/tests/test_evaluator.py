@@ -17,5 +17,5 @@ class EvaluatorFacadeTest(unittest.TestCase):
             self.assertTrue(hasattr(evaluator, name))
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     unittest.main()

@@ -13,7 +13,9 @@ from rate_limiter import RateLimiter
 
 class RateLimiterTest(unittest.TestCase):
     def test_acquire_within_limits(self) -> None:
-        limiter = RateLimiter(max_requests_per_minute=1000, max_tokens_per_minute=1_000_000)
+        limiter = RateLimiter(
+            max_requests_per_minute=1000, max_tokens_per_minute=1_000_000
+        )
         limiter.acquire(estimated_tokens=100)
         limiter.acquire(estimated_tokens=50)
 
@@ -23,5 +25,5 @@ class RateLimiterTest(unittest.TestCase):
         limiter.record_tokens(actual_tokens=100, estimated_tokens=200)
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     unittest.main()

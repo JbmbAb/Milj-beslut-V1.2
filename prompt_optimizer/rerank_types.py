@@ -17,12 +17,12 @@ class LatencyBreakdown:
 
     def to_dict(self) -> dict[str, float]:
         return {
-            'serialization_ms': round(self.serialization_ms, 3),
-            'queue_ms': round(self.queue_ms, 3),
-            'http_ms': round(self.http_ms, 3),
-            'model_ms': round(self.model_ms, 3),
-            'deserialization_ms': round(self.deserialization_ms, 3),
-            'total_ms': round(self.total_ms, 3),
+            "serialization_ms": round(self.serialization_ms, 3),
+            "queue_ms": round(self.queue_ms, 3),
+            "http_ms": round(self.http_ms, 3),
+            "model_ms": round(self.model_ms, 3),
+            "deserialization_ms": round(self.deserialization_ms, 3),
+            "total_ms": round(self.total_ms, 3),
         }
 
 
