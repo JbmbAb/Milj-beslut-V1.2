@@ -26,11 +26,11 @@ gcloud secrets add-iam-policy-binding QUERY_HASH_SALT `
   --member="serviceAccount:$SA" `
   --role="roles/secretmanager.secretAccessor"
 
-# 3. Uppdatera Cloud Run med secrets + env
+# 3. Uppdatera Cloud Run med secrets + env (Vertex OAuth2 — ingen GEMINI_API_KEY för rerank)
 gcloud run services update $SERVICE `
   --region=$REGION `
   --update-secrets=QUERY_HASH_SALT=QUERY_HASH_SALT:latest `
-  --update-env-vars="QUERY_HASH_SALT_VERSION=v1,LEGAL_RERANKER=on,LEGAL_RERANKER_RELATIVE_GAP=0.15"
+  --update-env-vars="QUERY_HASH_SALT_VERSION=v1,LEGAL_RERANKER=on,LEGAL_RERANKER_RELATIVE_GAP=0.15,VERTEX_PROJECT_ID=miljointelligens,VERTEX_LOCATION=europe-west1"
 
 Write-Host "Done. Verify with: gcloud run services describe $SERVICE --region=$REGION --format='yaml(spec.template.spec.containers[0].env)'"
 ```

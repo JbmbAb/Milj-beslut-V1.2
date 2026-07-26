@@ -1,13 +1,13 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-const generateContent = vi.hoisted(() => vi.fn());
+const mocks = vi.hoisted(() => ({
+  generateJsonWithVertex: vi.fn(),
+  vertexConfigStatus: vi.fn(),
+}));
 
-vi.mock('@google/generative-ai', () => ({
-  GoogleGenerativeAI: class MockGoogleGenerativeAI {
-    getGenerativeModel() {
-      return { generateContent };
-    }
-  },
+vi.mock('../../server/services/vertexAiService', () => ({
+  generateJsonWithVertex: mocks.generateJsonWithVertex,
+  vertexConfigStatus: mocks.vertexConfigStatus,
 }));
 
 vi.mock('../../server/services/rerankPromptService', () => ({
@@ -23,25 +23,23 @@ vi.mock('../../server/services/rerankPromptService', () => ({
 import { localLexicalRerank, rerankWithGeminiOrLexical } from '../../server/services/legalRerankService';
 
 describe('legalRerankService', () => {
-  const originalKey = process.env.GEMINI_API_KEY;
-
   beforeEach(() => {
     vi.clearAllMocks();
-    process.env.GEMINI_API_KEY = 'test-key';
-    generateContent.mockResolvedValue({
-      response: {
-        text: () =>
-          JSON.stringify([
-            { id: 'a', score: 0.95 },
-            { id: 'b', score: 0.4 },
-          ]),
-      },
+    mocks.vertexConfigStatus.mockReturnValue({
+      configured: true,
+      missing: [],
+      projectId: 'miljointelligens',
+      location: 'europe-west1',
+      hasExplicitServiceAccountFile: false,
     });
+    mocks.generateJsonWithVertex.mockResolvedValue([
+      { id: 'a', score: 0.95 },
+      { id: 'b', score: 0.4 },
+    ]);
   });
 
   afterEach(() => {
-    if (originalKey === undefined) delete process.env.GEMINI_API_KEY;
-    else process.env.GEMINI_API_KEY = originalKey;
+    vi.clearAllMocks();
   });
 
   it('localLexicalRerank prioriterar query-termer', () => {
@@ -52,7 +50,7 @@ describe('legalRerankService', () => {
     expect(ranked[0].chunkText).toBe('fosfor i avlopp');
   });
 
-  it('rerankWithGeminiOrLexical använder Gemini när nyckel finns', async () => {
+  it('rerankWithGeminiOrLexical använder Vertex när konfigurerad', async () => {
     const result = await rerankWithGeminiOrLexical(
       'fosfor',
       [
@@ -64,13 +62,19 @@ describe('legalRerankService', () => {
 
     expect(result.engine).toBe('gemini');
     expect(result.promptVersion).toBe('test-prompt-v1');
-    expect(generateContent).toHaveBeenCalledOnce();
+    expect(mocks.generateJsonWithVertex).toHaveBeenCalledOnce();
     expect(result.items[0].id).toBe('a');
     expect(result.items[0].finalScore).toBe(0.95);
   });
 
-  it('rerankWithGeminiOrLexical faller tillbaka till lexical utan API-nyckel', async () => {
-    delete process.env.GEMINI_API_KEY;
+  it('rerankWithGeminiOrLexical faller tillbaka till lexical utan Vertex-konfig', async () => {
+    mocks.vertexConfigStatus.mockReturnValue({
+      configured: false,
+      missing: ['VERTEX_PROJECT_ID'],
+      projectId: null,
+      location: 'europe-west1',
+      hasExplicitServiceAccountFile: false,
+    });
 
     const result = await rerankWithGeminiOrLexical(
       'fosfor avlopp',
@@ -80,6 +84,21 @@ describe('legalRerankService', () => {
 
     expect(result.engine).toBe('lexical');
     expect(result.promptVersion).toBe('offline-fallback');
-    expect(generateContent).not.toHaveBeenCalled();
+    expect(result.skipReason).toBe('MISSING_VERTEX_CONFIG');
+    expect(mocks.generateJsonWithVertex).not.toHaveBeenCalled();
+  });
+
+  it('rerankWithGeminiOrLexical faller tillbaka vid Vertex-fel', async () => {
+    mocks.generateJsonWithVertex.mockRejectedValue(new Error('Vertex timeout'));
+
+    const result = await rerankWithGeminiOrLexical(
+      'fosfor',
+      [{ id: 'a', chunkText: 'fosfor avlopp', score: 0.1 }],
+      8,
+    );
+
+    expect(result.engine).toBe('lexical');
+    expect(result.promptVersion).toBe('error-fallback');
+    expect(result.skipReason).toContain('Vertex timeout');
   });
 });

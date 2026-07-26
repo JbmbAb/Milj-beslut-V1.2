@@ -1,6 +1,6 @@
-import { GoogleGenerativeAI } from '@google/generative-ai';
 import { logger } from '../logger';
 import { RerankPromptService } from './rerankPromptService';
+import { generateJsonWithVertex, vertexConfigStatus } from './vertexAiService';
 
 export type LegalRerankCandidate = {
   id: string;
@@ -14,6 +14,8 @@ export type LegalRerankOutcome<T extends LegalRerankCandidate> = {
   promptVersion: string;
   skipReason?: string;
 };
+
+type RerankScoreRow = { id: string; score: number };
 
 /**
  * Lokal lexical reranker (Jaccard-liknande) — CPU-billig fallback.
@@ -58,8 +60,20 @@ function toLexicalOutcome<T extends LegalRerankCandidate>(
   };
 }
 
+function parseRerankScores(payload: unknown): RerankScoreRow[] | null {
+  if (!Array.isArray(payload)) return null;
+  const rows: RerankScoreRow[] = [];
+  for (const item of payload) {
+    if (!item || typeof item !== 'object') return null;
+    const row = item as Record<string, unknown>;
+    if (typeof row.id !== 'string' || typeof row.score !== 'number') return null;
+    rows.push({ id: row.id, score: row.score });
+  }
+  return rows;
+}
+
 /**
- * Gemini rerank med GCS/lokal prompt via RerankPromptService; lexical fallback vid fel/saknad nyckel.
+ * Gemini rerank via Vertex AI (OAuth2/ADC); lexical fallback vid fel eller saknad Vertex-konfig.
  */
 export async function rerankWithGeminiOrLexical<T extends LegalRerankCandidate>(
   query: string,
@@ -74,33 +88,38 @@ export async function rerankWithGeminiOrLexical<T extends LegalRerankCandidate>(
     return { items: [], engine: 'lexical', promptVersion: 'none', skipReason: 'NO_CANDIDATES' };
   }
 
-  const apiKey = (process.env.GEMINI_API_KEY || '').trim();
-  if (!apiKey) {
-    logger.warn('LEGAL_RERANKER: GEMINI_API_KEY saknas — kör lexical fallback.');
-    return toLexicalOutcome(query, candidates, 'offline-fallback', 'MISSING_GEMINI_API_KEY');
+  const vertexStatus = vertexConfigStatus();
+  if (!vertexStatus.configured) {
+    logger.warn('LEGAL_RERANKER: Vertex AI saknas — kör lexical fallback.', {
+      missing: vertexStatus.missing,
+    });
+    return toLexicalOutcome(query, candidates, 'offline-fallback', 'MISSING_VERTEX_CONFIG');
   }
 
   try {
-    const genAI = new GoogleGenerativeAI(apiKey);
-    const model = genAI.getGenerativeModel({ model: 'gemini-1.5-flash' });
     const { prompt, version } = await RerankPromptService.getFormattedPrompt(
       query,
       candidates.map((c) => ({ id: c.id, chunkText: c.chunkText })),
     );
 
-    logger.info('LEGAL_RERANKER: kör Gemini rerank', {
+    logger.info('LEGAL_RERANKER: kör Vertex Gemini rerank', {
       query,
       promptVersion: version,
       candidatesCount: candidates.length,
+      projectId: vertexStatus.projectId,
+      location: vertexStatus.location,
     });
 
-    const response = await model.generateContent({
-      contents: [{ role: 'user', parts: [{ text: prompt }] }],
-      generationConfig: { responseMimeType: 'application/json' },
+    const scores = await generateJsonWithVertex<RerankScoreRow[]>(prompt, {
+      profile: 'fast',
+      temperature: 0.1,
+      maxOutputTokens: 4096,
+      parse: (payload) => parseRerankScores(payload),
     });
 
-    const text = response.response.text();
-    const scores = JSON.parse(text) as { id: string; score: number }[];
+    if (!scores?.length) {
+      throw new Error('Vertex returnerade tom eller ogiltig rerank-JSON');
+    }
 
     const ranked = candidates
       .map((item) => {
@@ -113,7 +132,7 @@ export async function rerankWithGeminiOrLexical<T extends LegalRerankCandidate>(
     return { items: ranked, engine: 'gemini', promptVersion: version };
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
-    logger.error(`LEGAL_RERANKER: Gemini misslyckades (${message}) — lexical fallback.`);
+    logger.error(`LEGAL_RERANKER: Vertex Gemini misslyckades (${message}) — lexical fallback.`);
     return toLexicalOutcome(query, candidates, 'error-fallback', `ERROR: ${message}`);
   }
 }
