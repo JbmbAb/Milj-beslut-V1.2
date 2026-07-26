@@ -274,9 +274,7 @@ describe('MapView', () => {
 
     await user.click(screen.getByRole('button', { name: /SGU grundlager \(PostGIS\)/i }));
 
-    expect(
-      await screen.findByText(/Vissa delager i SGU grundlager kunde inte lasas/i),
-    ).toBeInTheDocument();
+    expect(await screen.findByText(/Vissa delager i SGU grundlager kunde inte lasas/i)).toBeInTheDocument();
   });
 
   it('renders permit and receiver markers when coordinates are present', () => {
