@@ -12,6 +12,16 @@ Historiska leveransplaner och test-push-guider har **tagits bort** från repot (
 | Miljövariabler | [docs/deploy/ENV_CHECKLIST.md](../deploy/ENV_CHECKLIST.md) |
 | Data & täckning | [docs/architecture/data-coverage-gaps.md](../architecture/data-coverage-gaps.md) |
 | QA / staging | [docs/qa/README.md](../qa/README.md) |
+| Arkitektur (index) | [docs/architecture/README.md](../architecture/README.md) |
 | AI-verktyg | [AGENTS.md](../../AGENTS.md) |
+
+## Undermappar
+
+| Mapp | Innehåll |
+| ---- | -------- |
+| [millbygard/](./millbygard/) | Sidoprojekt Minecraft — ej plattform |
+| [examens/](./examens/) | Examensmetodik |
+| [prototypes/](./prototypes/) | API-piloter |
+| [future-features/](./future-features/) | Pausade produktidéer |
 
 Git-historik innehåller borttagna filer om de behövs för referens.

@@ -4,7 +4,7 @@ Detta dokument sammanfattar vad som faktiskt hämtades via Miljöbeslut-plattfor
 
 Kartlagren som hämtas via plattformen ska därefter in i samma huvudspår som definieras i:
 
-- `docs/millbygard/kartlager-inventering.md`
+- `docs/archive/millbygard/kartlager-inventering.md`
 
 ## Källa i plattformen
 

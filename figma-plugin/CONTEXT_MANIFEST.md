@@ -143,9 +143,10 @@ When the design task is specifically these four areas, use this compact order fi
 
 ## 12) Domain docs for language/tone/context
 
-1. `SERVICES_GEMINI_README.md`
-2. `SECURITY_BACKEND_README.md`
-3. `LANTMATERIET_APPLICATION_SUMMARY.md`
+1. `docs/google-ai/SETUP.md`
+2. `server/services/vertexAiService.ts`
+3. `SECURITY_BACKEND_README.md`
+4. `LANTMATERIET_APPLICATION_SUMMARY.md`
 
 ## Files to skip in Figma context ingestion
 

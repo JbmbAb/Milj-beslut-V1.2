@@ -2,9 +2,9 @@
 
 Detta dokument är ett separat arbetsblad för Millbygård och bygger vidare på:
 
-- `docs/millbygard/data-sammanstallning.md`
-- `docs/millbygard/hamtplan-och-produktionssteg.md`
-- `docs/millbygard/kartlager-inventering.md`
+- `docs/archive/millbygard/data-sammanstallning.md`
+- `docs/archive/millbygard/hamtplan-och-produktionssteg.md`
+- `docs/archive/millbygard/kartlager-inventering.md`
 
 ## Objekt och alias
 
