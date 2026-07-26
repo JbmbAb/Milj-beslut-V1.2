@@ -63,7 +63,7 @@ jobs:
           python-version: '3.10'
       - run: pip install black flake8 bandit
       - run: black --check prompt_optimizer scripts/vertex_prompt_optimize.py scripts/ci_validate_results.py
-      - run: flake8 prompt_optimizer scripts/vertex_prompt_optimize.py scripts/ci_validate_results.py --max-line-length=120 --extend-ignore=E501,W503
+      - run: flake8 prompt_optimizer scripts/vertex_prompt_optimize.py scripts/ci_validate_results.py
       - run: bandit -r prompt_optimizer -ll -q
 
   local-eval-smoke:

@@ -6,7 +6,6 @@ import hashlib
 import json
 import os
 import platform
-import sys
 import time
 from typing import Any
 

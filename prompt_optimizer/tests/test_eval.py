@@ -13,10 +13,8 @@ from cache import CACHE_SCHEMA_VERSION, PersistentCache, build_cache_key
 from metrics import (
     bootstrap_ci,
     kendall_tau,
-    mrr_at_k,
     ndcg_at_k,
     pareto_frontier,
-    percentile,
     pick_winner_pareto,
     recall_at_k,
     spearman_rank,

@@ -22,7 +22,6 @@ from rerank_client import (
     DEFAULT_OUTPUT_USD_PER_TOKEN,
     _estimate_tokens,
     _parse_scores,
-    render_prompt,
 )
 from rerank_types import LatencyBreakdown, RerankResponse
 

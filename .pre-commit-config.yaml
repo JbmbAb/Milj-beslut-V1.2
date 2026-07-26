@@ -24,7 +24,7 @@ repos:
     hooks:
       - id: flake8
         files: ^(prompt_optimizer/|scripts/(vertex_prompt_optimize|ci_validate_results|generate_golden_dataset|update_pipeline_prompt)\.py)
-        args: ['--max-line-length=120', '--extend-ignore=E501,W503']
+        args: ['--config=.flake8']
 
   - repo: https://github.com/PyCQA/bandit
     rev: 1.8.0

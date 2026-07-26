@@ -28,7 +28,7 @@ def launch_prompt_optimization_job(project_id, bucket_uri, container_image, loca
         f"gs://{bucket_name}/alphaevolve/list_deduplication/prompt_opt_results"
     )
 
-    print(f"Uploading config metadata...")
+    print("Uploading config metadata...")
     print(f" GCS Input:  {input_path}")
     print(f" GCS Output: {output_path}")
 

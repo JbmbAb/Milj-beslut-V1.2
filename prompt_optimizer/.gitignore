@@ -1,4 +1,5 @@
 out/
+data/
 *.sqlite
 *.sqlite-journal
 eval_cache.sqlite

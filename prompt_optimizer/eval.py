@@ -10,7 +10,6 @@ import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import Any
 
-from cache import PersistentCache
 from checkpoint import save_checkpoint
 from metrics import (
     bootstrap_ci,
@@ -195,7 +194,7 @@ def score_prompt_variant_sync(
     lock = threading.Lock()
 
     def eval_one(record: dict[str, Any]) -> dict[str, Any]:
-        nonlocal failures, total_token_cost, aborted_cost, aborted_failures
+        nonlocal failures, total_token_cost, aborted_cost, aborted_failures, degraded
 
         with semaphore:
             queue_start = time.perf_counter()
