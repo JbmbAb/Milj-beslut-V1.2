@@ -1,0 +1,118 @@
+# .github/workflows/vertex_prompt_optimize.yml
+name: Vertex Prompt Optimizer
+
+on:
+  workflow_dispatch:
+    inputs:
+      run_vertex_job:
+        description: 'Submit Vertex Custom Job (requires GCP_SA_KEY)'
+        type: boolean
+        default: false
+      max_records:
+        description: 'Cap golden records for dry-run (0 = all)'
+        type: string
+        default: '50'
+  pull_request:
+    paths:
+      - 'prompt_optimizer/**'
+      - 'scripts/verify_prompt_results.sh'
+      - '.github/workflows/vertex_prompt_optimize.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  unit-tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+
+      - name: Run prompt optimizer unit tests
+        working-directory: prompt_optimizer
+        run: python -m unittest tests.test_eval -v
+
+  local-eval-smoke:
+    runs-on: ubuntu-latest
+    needs: unit-tests
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+
+      - name: Mock eval against golden sample
+        env:
+          MOCK_RERANK: '1'
+          EVAL_SEED: '42'
+          BOOTSTRAP_SAMPLES: '100'
+        run: |
+          cd prompt_optimizer
+          python main.py \
+            --input_data_path ../benchmarks/golden_v1_2000_records.jsonl \
+            --output_data_path ./out \
+            --max_iterations 2 \
+            --max_records ${{ github.event.inputs.max_records || '20' }} \
+            --cache_path ./out/eval_cache.sqlite
+
+      - name: Verify results quality gates
+        run: |
+          python scripts/ci_validate_results.py prompt_optimizer/out/results_summary.json
+
+  build-and-push:
+    if: github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    needs: local-eval-smoke
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: google-github-actions/auth@v2
+        if: ${{ secrets.GCP_SA_KEY != '' }}
+        with:
+          credentials_json: ${{ secrets.GCP_SA_KEY }}
+
+      - uses: google-github-actions/setup-gcloud@v2
+        if: ${{ secrets.GCP_SA_KEY != '' }}
+
+      - name: Build and push container
+        if: ${{ secrets.GCP_SA_KEY != '' }}
+        env:
+          PROJECT_ID: miljointelligens
+        run: |
+          gcloud builds submit prompt_optimizer \
+            --tag gcr.io/${PROJECT_ID}/prompt-optimizer:${{ github.sha }} \
+            --project ${PROJECT_ID}
+
+  vertex-job:
+    if: github.event_name == 'workflow_dispatch' && github.event.inputs.run_vertex_job == 'true'
+    runs-on: ubuntu-latest
+    needs: build-and-push
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: google-github-actions/auth@v2
+        with:
+          credentials_json: ${{ secrets.GCP_SA_KEY }}
+
+      - uses: google-github-actions/setup-gcloud@v2
+
+      - name: Submit Vertex Custom Job
+        env:
+          PROJECT_ID: miljointelligens
+          REGION: europe-west1
+          BUCKET: miljobeslut-prompt-optimization-bucket
+        run: |
+          IMAGE=gcr.io/${PROJECT_ID}/prompt-optimizer:${{ github.sha }}
+          gcloud ai custom-jobs create \
+            --region=${REGION} \
+            --project=${PROJECT_ID} \
+            --display-name=prompt-opt-${{ github.sha }} \
+            --worker-pool-spec=machine-type=n1-standard-4,replica-count=1,container-image-uri=${IMAGE} \
+            --args=--input_data_path=gs://${BUCKET}/alphaevolve/list_deduplication/golden_v1/golden_v1_2000_records.jsonl \
+            --args=--output_data_path=gs://${BUCKET}/alphaevolve/list_deduplication/prompt_opt_results/${{ github.sha }} \
+            --args=--target_model=gemini-1.5-flash \
+            --args=--max_iterations=4
