@@ -145,19 +145,26 @@ jobs:
           echo "Cloud Run URL: $SERVICE_URL"
 
       # ── Hälsokontroll (WIF kräver ID-token med Cloud Run-URL som audience) ─
+      - name: Get Cloud Run ID token
+        id: cloud-run-id-token
+        if: env.DEPLOYED_SERVICE_URL != '' || vars.GCP_SERVICE_URL != ''
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ secrets.GCP_SERVICE_ACCOUNT }}
+          token_format: id_token
+          id_token_audience: ${{ env.DEPLOYED_SERVICE_URL || vars.GCP_SERVICE_URL }}
+          id_token_include_email: true
+
       - name: Health check
+        if: steps.cloud-run-id-token.outcome == 'success'
         env:
           SERVICE_URL: ${{ env.DEPLOYED_SERVICE_URL || vars.GCP_SERVICE_URL }}
         run: |
           set -euo pipefail
 
-          if [ -z "$SERVICE_URL" ]; then
-            echo "Ingen service-URL – hoppar över hälsokontroll."
-            exit 0
-          fi
-
           echo "Hälsokontroll mot $SERVICE_URL/health"
-          TOKEN=$(gcloud auth print-identity-token --audiences="$SERVICE_URL" --include-email)
+          TOKEN="${{ steps.cloud-run-id-token.outputs.id_token }}"
 
           for attempt in $(seq 1 12); do
             STATUS=$(curl -s -o /dev/null -w "%{http_code}" \
