@@ -69,4 +69,4 @@ EXPOSE 8080
 # Cloud Run har egen healthcheck — men vi anger tini som PID1 för korrekt
 # signal-hantering vid scale-down.
 ENTRYPOINT ["/sbin/tini", "--"]
-CMD ["node", "--import", "tsx", "server/index.ts"]
+CMD ["./node_modules/.bin/tsx", "server/index.ts"]
