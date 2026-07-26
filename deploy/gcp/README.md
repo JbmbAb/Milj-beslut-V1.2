@@ -231,15 +231,22 @@ gcloud iam service-accounts add-iam-policy-binding $CI_SA \
   --member="principalSet://iam.googleapis.com/$POOL_ID/attribute.repository/JbmbAb/Milj-beslut-V1.2"
 ```
 
-3. Sätt GitHub-secrets (i repository Settings → Secrets):
+3. Sätt GitHub-secrets (Settings → Secrets and variables → Actions → Secrets):
    - `GCP_PROJECT_ID` – ditt projekt-ID
    - `GCP_WORKLOAD_IDENTITY_PROVIDER` – `$POOL_ID/providers/github-provider`
-   - `GCP_SERVICE_ACCOUNT` – `$CI_SA` (Cloud Run deploy)
-   - `GCP_VERTEX_SERVICE_ACCOUNT` – `alpha-evolve-client@miljointelligens.iam.gserviceaccount.com` (Vertex / prompt optimizer)
-   - `GCP_CLOUDSQL_INSTANCE` – `$PROJECT_ID:europe-west1:miljobeslut-db`
-   - `GCP_REGION` – `europe-west1` (eller som variabel)
+   - `GCP_SERVICE_ACCOUNT` – deploy-SA (t.ex. `mil-beslut@miljointelligens.iam.gserviceaccount.com`)
+   - `GCP_VERTEX_SERVICE_ACCOUNT` – `alpha-evolve-client@miljointelligens.iam.gserviceaccount.com` (Vertex)
 
-4. Verifiera Vertex-anslutning via WIF (ingen JSON-nyckel):
+4. Sätt GitHub **variables** (Settings → Secrets and variables → Actions → Variables):
+   - `GCP_CLOUDSQL_INSTANCE` – `$PROJECT_ID:europe-west1:miljobeslut-db` (krävs för migrate-jobb)
+   - `GCP_REGION` – `europe-west1` (valfritt, default i workflow)
+   - `GCP_RUNTIME_SERVICE_ACCOUNT` – runtime-SA utan domän (default `mil-beslut`)
+   - `GCP_VPC_CONNECTOR` – t.ex. `miljobeslut-vpc` (valfritt, om Cloud SQL kräver VPC)
+
+> **DATABASE_URL:** Ska finnas i **GCP Secret Manager** (`DATABASE_URL`), inte som GitHub-secret.
+> Migrate körs via Cloud Run Job med Unix-socket mot Cloud SQL – samma mönster som `cloudbuild.yaml`.
+
+5. Verifiera Vertex-anslutning via WIF (ingen JSON-nyckel):
 
 ```bash
 gh workflow run vertex-wif-smoke.yml -R JbmbAb/Milj-beslut-V1.2
