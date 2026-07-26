@@ -159,7 +159,7 @@ sed -i "s/PROJECT_ID/$PROJECT_ID/g" deploy/gcp/cloud-run-service.yaml
 gcloud auth configure-docker europe-west1-docker.pkg.dev
 
 # Bygg och pusha
-docker build --target production \
+docker build -f Dockerfile.gcp --target production \
   -t europe-west1-docker.pkg.dev/$PROJECT_ID/miljobeslut/miljobeslut:latest .
 
 docker push europe-west1-docker.pkg.dev/$PROJECT_ID/miljobeslut/miljobeslut:latest
