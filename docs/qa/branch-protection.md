@@ -1,38 +1,50 @@
-﻿# Branch Protection and Merge Gates
+﻿# Branch protection & merge gates
 
-Enable branch protection on the default branch with these required checks:
+Canonical guide for `main` on [JbmbAb/Milj-beslut-V1.2](https://github.com/JbmbAb/Milj-beslut-V1.2). Se även [docs/GIT_WORKFLOW.md](../GIT_WORKFLOW.md).
 
-1. Required status checks
+## GitHub UI — steg för steg
 
-- `Typecheck`
-- `Lint`
-- `Format check`
-- `Unit tests`
-- `Integration tests`
-- `Build`
-- `E2E tests`
+1. Öppna: `https://github.com/JbmbAb/Milj-beslut-V1.2/settings/branches`
+2. **Add rule** → pattern: `main`
+3. Aktivera:
+   - Require a pull request (minst **1** approval)
+   - Require conversation resolution
+   - Require status checks to pass + branch up to date
+   - Dismiss stale approvals on new commits
+   - Block force push och branch deletion
+   - Enforce for administrators
 
-> These names match the `name:` fields in `.github/workflows/ci.yml`.
-> Each check runs as a separate job so branch protection can gate on individual results.
+## Required status checks
 
-2. Pull request requirements
+Jobbnamn från `.github/workflows/ci.yml`:
 
-- Require at least 1 approving review.
-- Require review from Code Owners.
-- Dismiss stale approvals on new commits.
+| Check | Jobb |
+| ----- | ---- |
+| `Typecheck` | TypeScript |
+| `Lint` | ESLint |
+| `Format check` | Prettier |
+| `Unit tests` | Vitest unit |
+| `Integration tests` | Vitest integration |
+| `Build` | Vite build |
+| `E2E tests` | Playwright |
 
-3. Human-in-the-loop controls
+Rekommenderat att även kräva **Vertex Prompt Optimizer** och **Python security scan** när de körs på PR (se [docs/qa/README.md](./README.md)).
 
-- PR must include completed legal checklist from `docs/qa/legal-review-checklist.md`.
-- PR must reference validation of `docs/qa/critical-flows.md`.
+## Human-in-the-loop (PR)
 
-4. Merge policy
+- Juridisk checklista: [legal-review-checklist.md](./legal-review-checklist.md)
+- Kritiska flöden: [critical-flows.md](./critical-flows.md)
 
-- No direct pushes to protected branch.
-- No merge when any required check fails.
+## Merge policy
 
-5. Staging deploy gate
+- Squash merge till `main` (standard enligt GIT_WORKFLOW)
+- Inga direkta pushes till `main`
+- Staging deploy: `deploy-staging.yml` väntar på grön CI (`workflow_run`)
 
-- `deploy-staging.yml` is gated on CI passing (via `workflow_run` trigger).
-- Staging environment requires manual approval via GitHub Environments protection rules.
-- See `docs/ops/secrets.md` for the full secrets catalogue used by the deploy workflow.
+Secrets för deploy: [docs/ops/secrets.md](../ops/secrets.md).
+
+## Verifiera
+
+1. Öppna PR → status checks ska köras
+2. Merge utan review → blockeras
+3. Force push till `main` → blockeras

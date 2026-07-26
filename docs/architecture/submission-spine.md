@@ -22,7 +22,7 @@ The schema now includes:
 - `SubmissionStatusEvent`
 - `AuthorityInboxEvent`
 
-These models live in [schema.prisma](/Users/jimmy/Desktop/utvecklings arbete/Kod/Ny mapp/remix*-copy-of-Miljobeslut.se-portal/prisma/schema.prisma), with SQL migration in [migration.sql](/Users/jimmy/Desktop/utvecklings arbete/Kod/Ny mapp/remix*-copy-of-Miljobeslut.se-portal/prisma/migrations/20260403003000_add_submission_spine_models/migration.sql).
+These models live in [schema.prisma](../../prisma/schema.prisma).
 
 ## Intent Of Each Model
 

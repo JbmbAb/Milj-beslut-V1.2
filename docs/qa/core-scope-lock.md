@@ -6,7 +6,7 @@ Status: Lasta och giltig tills ny godkand revision publiceras.
 
 ## Syfte
 
-Detta dokument laser Core-omfanget sa att implementation, test och salj inte driftar utan explicit beslut.
+Detta dokument låser Core-omfånget (samma som historisk "MVP scope lock") så att implementation, test och sälj inte driftar utan explicit beslut.
 
 ## Inom Core (P0)
 

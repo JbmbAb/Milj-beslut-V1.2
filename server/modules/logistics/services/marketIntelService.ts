@@ -9,7 +9,7 @@
  * Priser anges i SEK per ton och uppdateras med 15 min cache.
  */
 
-import { logger } from '../../server/logger';
+import { logger } from '../../../logger';
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 

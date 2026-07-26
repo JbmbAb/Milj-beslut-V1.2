@@ -134,6 +134,6 @@ Legacy-adoption utan `files_detail`/SHA-256 kostar mer än ren omhämtning. Defa
 | Dokument | Innehåll |
 |----------|----------|
 | `storage/manifests/archive-local-verify-registry.json` | LM/SGU kärnaudit |
-| `knowledge-base/DATA_COVERAGE_GAPS.md` | Kortversion för Gemini Enterprise |
+| `knowledge-base/DATA_COVERAGE_GAPS.md` | **Kort AI-index** — håll synkad med detta dokument |
 | `docs/archive/README.md` | Pekare till canonical docs (legacy-planer borttagna) |
 | `knowledge-base/NATIONAL_HARVESTING_PHASES.md` | LST 2068 dataset (Fas 1–5) |

@@ -1,4 +1,4 @@
-/** Demo-seed — använd inte som staging-bevis (se docs/qa/FAS3_STAGING_EVIDENCE.md). */
+/** Demo-seed — använd inte som staging-bevis (se docs/qa/staging-evidence/FAS3_STAGING_EVIDENCE.md). */
 import { prisma } from '../server/db/prisma';
 
 async function seedLocalizationDemo() {
