@@ -35,6 +35,7 @@ dist-ssr
 .env.staging
 coverage
 docs/qa/coverage-baseline-generated.md
+docs/qa/vitest-backlog.md
 playwright-report
 test-results
 .quarantine/

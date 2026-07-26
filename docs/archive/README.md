@@ -11,6 +11,7 @@ Historiska leveransplaner och test-push-guider har **tagits bort** från repot (
 | Vertex / WIF | [deploy/gcp/README.md](../../deploy/gcp/README.md) (Vanliga missförstånd), workflow `vertex-wif-smoke.yml` |
 | Miljövariabler | [docs/deploy/ENV_CHECKLIST.md](../deploy/ENV_CHECKLIST.md) |
 | Data & täckning | [docs/architecture/data-coverage-gaps.md](../architecture/data-coverage-gaps.md) |
-| QA / staging | [docs/qa/](../qa/) |
+| QA / staging | [docs/qa/README.md](../qa/README.md) |
+| AI-verktyg | [AGENTS.md](../../AGENTS.md) |
 
 Git-historik innehåller borttagna filer om de behövs för referens.
