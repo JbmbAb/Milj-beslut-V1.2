@@ -18,15 +18,15 @@ Canonical guide for `main` on [JbmbAb/Milj-beslut-V1.2](https://github.com/JbmbA
 
 Jobbnamn från `.github/workflows/ci.yml`:
 
-| Check | Jobb |
-| ----- | ---- |
-| `Typecheck` | TypeScript |
-| `Lint` | ESLint |
-| `Format check` | Prettier |
-| `Unit tests` | Vitest unit |
+| Check               | Jobb               |
+| ------------------- | ------------------ |
+| `Typecheck`         | TypeScript         |
+| `Lint`              | ESLint             |
+| `Format check`      | Prettier           |
+| `Unit tests`        | Vitest unit        |
 | `Integration tests` | Vitest integration |
-| `Build` | Vite build |
-| `E2E tests` | Playwright |
+| `Build`             | Vite build         |
+| `E2E tests`         | Playwright         |
 
 Rekommenderat att även kräva **Vertex Prompt Optimizer** och **Python security scan** när de körs på PR (se [docs/qa/README.md](./README.md)).
 
