@@ -11,14 +11,19 @@ import time
 from typing import Any
 
 
+CACHE_SCHEMA_VERSION = int(os.environ.get('CACHE_SCHEMA_VERSION', '1'))
+
+
 def build_cache_key(
     *,
     prompt_hash: str,
     query_id: str,
     candidate_hash: str,
     reranker_version: str,
+    schema_version: int | None = None,
 ) -> str:
-    payload = f'{prompt_hash}|{query_id}|{candidate_hash}|{reranker_version}'
+    sv = schema_version if schema_version is not None else CACHE_SCHEMA_VERSION
+    payload = f'{sv}|{prompt_hash}|{query_id}|{candidate_hash}|{reranker_version}'
     return hashlib.sha256(payload.encode('utf-8')).hexdigest()
 
 

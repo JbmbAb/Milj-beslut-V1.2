@@ -13,8 +13,14 @@ import time
 from typing import Any
 from urllib.parse import urlparse
 
-from cache import PersistentCache
-from eval import build_pareto_summary, pick_best_variant, score_prompt_variant
+from cache import CACHE_SCHEMA_VERSION, PersistentCache
+from eval import (
+    HARD_FAILURE_RATE,
+    WARNING_FAILURE_RATE,
+    build_pareto_summary,
+    pick_best_variant,
+    score_prompt_variant,
+)
 from metadata import golden_dataset_meta, records_fingerprint, run_metadata
 from metrics import pareto_frontier
 from rate_limiter import RateLimiter
@@ -68,6 +74,21 @@ def variant_summary_row(row: dict[str, Any]) -> dict[str, Any]:
     return {k: v for k, v in row.items() if k != 'per_query'}
 
 
+def build_manifest(run_meta: dict[str, Any], golden_meta: dict[str, Any], best: dict[str, Any]) -> dict[str, Any]:
+    return {
+        'git_commit': run_meta.get('git_commit'),
+        'container_digest': run_meta.get('container_digest'),
+        'prompt_version': run_meta.get('prompt_version'),
+        'golden_hash': golden_meta.get('sha256'),
+        'reranker_version': run_meta.get('reranker_version'),
+        'seed': run_meta.get('seed'),
+        'cache_schema_version': CACHE_SCHEMA_VERSION,
+        'winner_variant_id': best.get('variant_id'),
+        'winner_prompt_hash': best.get('prompt_hash'),
+        'timestamp': run_meta.get('timestamp'),
+    }
+
+
 def write_outputs(
     output_path: str,
     best_prompt: str,
@@ -79,44 +100,71 @@ def write_outputs(
     run_meta: dict[str, Any],
     evaluation_time_s: float,
     total_cost_usd: float,
-) -> tuple[str, str]:
+) -> dict[str, str]:
     frontier = pareto_frontier(variant_results)
-    payload = {
+    manifest = build_manifest(run_meta, golden_meta, best)
+    all_per_query: list[dict[str, Any]] = []
+    for variant in variant_results:
+        all_per_query.extend(variant.get('per_query') or [])
+
+    summary = {
         'metadata': run_meta,
+        'manifest': manifest,
         'golden_dataset': golden_meta,
         'summary': {
             'winner': best.get('variant_id'),
-            'winner_selection': 'pareto_under_latency_budget',
+            'winner_selection': 'pareto_under_budget',
             'pareto_frontier': frontier,
             'evaluation_time_s': round(evaluation_time_s, 2),
             'total_cost_usd': round(total_cost_usd, 6),
             'records_evaluated': records_count,
             'variants_evaluated': len(variant_results),
+            'degraded': any(v.get('degraded') for v in variant_results),
         },
         'variants': [variant_summary_row(r) for r in variant_results],
         'pareto_frontier': build_pareto_summary(variant_results),
-        'best_prompt_hash': best.get('prompt_hash'),
-        'best_per_query_sample': (best.get('per_query') or [])[:50],
+    }
+
+    full = {
+        'manifest': manifest,
+        'per_query': all_per_query,
+        'variants': variant_results,
+    }
+
+    prompt_header = (
+        f"# prompt_version={manifest.get('prompt_version')} "
+        f"variant={best.get('variant_id')} hash={best.get('prompt_hash')} "
+        f"git={manifest.get('git_commit')}\n"
+    )
+    prompt_body = prompt_header + best_prompt
+
+    files = {
+        'best_prompt.txt': prompt_body,
+        'results_summary.json': json.dumps(summary, indent=2, ensure_ascii=False),
+        'results_full.json': json.dumps(full, indent=2, ensure_ascii=False),
+        'manifest.json': json.dumps(manifest, indent=2, ensure_ascii=False),
+        'results.json': json.dumps(summary, indent=2, ensure_ascii=False),
     }
 
     if output_path.startswith('gs://'):
         base = output_path.rstrip('/')
-        prompt_uri = f'{base}/best_prompt.txt'
-        results_uri = f'{base}/results.json'
-        print(f'Uploading best prompt to: {prompt_uri}')
-        upload_gcs_text(prompt_uri, best_prompt)
-        print(f'Uploading results to: {results_uri}')
-        upload_gcs_text(results_uri, json.dumps(payload, indent=2, ensure_ascii=False), content_type='application/json')
-        return prompt_uri, results_uri
+        written: dict[str, str] = {}
+        for name, content in files.items():
+            uri = f'{base}/{name}'
+            ctype = 'application/json' if name.endswith('.json') else 'text/plain'
+            print(f'Uploading {name} -> {uri}')
+            upload_gcs_text(uri, content, content_type=ctype)
+            written[name] = uri
+        return written
 
     os.makedirs(output_path, exist_ok=True)
-    prompt_file = os.path.join(output_path, 'best_prompt.txt')
-    results_file = os.path.join(output_path, 'results.json')
-    with open(prompt_file, 'w', encoding='utf-8') as handle:
-        handle.write(best_prompt)
-    with open(results_file, 'w', encoding='utf-8') as handle:
-        json.dump(payload, handle, indent=2, ensure_ascii=False)
-    return prompt_file, results_file
+    written = {}
+    for name, content in files.items():
+        path = os.path.join(output_path, name)
+        with open(path, 'w', encoding='utf-8') as handle:
+            handle.write(content)
+        written[name] = path
+    return written
 
 
 def build_variants(base_template: str, max_iterations: int) -> list[tuple[str, str]]:
@@ -151,10 +199,14 @@ def main() -> int:
     parser.add_argument('--max_iterations', type=int, default=4)
     parser.add_argument('--max_records', type=int, default=0)
     parser.add_argument('--cache_path', default='', help='SQLite cache path for resume')
+    parser.add_argument('--eval-mode', choices=('sync', 'async'), default='', help='sync or async evaluation')
+    parser.add_argument('--ci-mode', action='store_true', help='Run CI validation after evaluation')
     args = parser.parse_args()
 
     if args.cache_path:
         os.environ['RERANK_CACHE_PATH'] = args.cache_path
+    if args.eval_mode:
+        os.environ['EVAL_MODE'] = args.eval_mode
 
     max_cost = float(os.environ.get('MAX_EST_COST_USD', '0') or '0') or None
     seed = int(os.environ.get('EVAL_SEED', '42'))
@@ -175,9 +227,16 @@ def main() -> int:
     golden_meta['candidate_fingerprint'] = records_fingerprint(records)
 
     cache = PersistentCache()
-    client = RerankClient(model=args.target_model, persistent_cache=cache)
-    limiter = RateLimiter()
-    print(f'Rerank mode: {client.mode} | version: {client.reranker_version}')
+    eval_mode = os.environ.get('EVAL_MODE', 'sync').lower()
+    if eval_mode == 'async' and os.environ.get('LEGAL_RERANK_EVAL_URL'):
+        from async_rerank_client import AsyncRerankClient
+
+        client = AsyncRerankClient(persistent_cache=cache)
+        limiter = None
+    else:
+        client = RerankClient(model=args.target_model, persistent_cache=cache)
+        limiter = RateLimiter()
+    print(f'Eval mode: {eval_mode} | Rerank: {getattr(client, "mode", "async")} | version: {client.reranker_version}')
 
     run_meta = run_metadata(
         seed=seed,
@@ -203,6 +262,7 @@ def main() -> int:
             client=client,
             max_cost_usd=max_cost,
             rate_limiter=limiter,
+            eval_mode=eval_mode,
         )
         variant_results.append(result)
 
@@ -224,8 +284,10 @@ def main() -> int:
             print('  ABORT: cost limit exceeded.')
             break
         if result.get('aborted_failure_budget'):
-            print(f'  ABORT: failure rate > {float(os.environ.get("MAX_FAILURE_RATE", "0.02")):.0%}.')
+            print(f'  ABORT: failure rate > {HARD_FAILURE_RATE:.0%}.')
             break
+        if result.get('degraded'):
+            print(f'  WARNING: failure rate > {WARNING_FAILURE_RATE:.0%} (degraded run).')
 
     best = pick_best_variant(variant_results)
     best_prompt = next(t for vid, t in variants if vid == best['variant_id'])
@@ -233,7 +295,7 @@ def main() -> int:
     eval_time = time.perf_counter() - t0
 
     print(f"\nWinner: {best['variant_id']} (ndcg={best['mean_ndcg']:.4f}, pareto frontier)")
-    prompt_dest, results_dest = write_outputs(
+    written = write_outputs(
         args.output_data_path,
         best_prompt,
         variant_results,
@@ -245,8 +307,23 @@ def main() -> int:
         eval_time,
         total_cost,
     )
-    print(f'best_prompt.txt -> {prompt_dest}')
-    print(f'results.json -> {results_dest}')
+    for name, path in written.items():
+        print(f'{name} -> {path}')
+
+    if args.ci_mode:
+        summary_path = written.get('results_summary.json') or written.get('results.json')
+        if summary_path and not summary_path.startswith('gs://'):
+            import subprocess
+
+            repo_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
+            script = os.path.join(repo_root, 'scripts', 'ci_validate_results.py')
+            baseline = os.environ.get('CI_BASELINE_JSON', '')
+            cmd = [sys.executable, script, summary_path]
+            if baseline:
+                cmd.extend(['--baseline', baseline])
+            print('Running CI validation...')
+            subprocess.check_call(cmd)
+
     return 0
 
 

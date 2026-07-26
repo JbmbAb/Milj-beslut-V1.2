@@ -26,6 +26,9 @@ RERANK_TIMEOUT = float(os.environ.get('RERANK_TIMEOUT', '6'))
 MAX_WORKERS = int(os.environ.get('MAX_CONCURRENT_QUERIES', '8'))
 NDCG_K = int(os.environ.get('EVAL_NDCG_K', '10'))
 FAILURE_BUDGET = float(os.environ.get('MAX_FAILURE_RATE', '0.02'))
+WARNING_FAILURE_RATE = float(os.environ.get('WARNING_FAILURE_RATE', '0.02'))
+HARD_FAILURE_RATE = float(os.environ.get('HARD_FAILURE_RATE', '0.05'))
+CHECKPOINT_INTERVAL = int(os.environ.get('CHECKPOINT_INTERVAL', '50'))
 BOOTSTRAP_SAMPLES = int(os.environ.get('BOOTSTRAP_SAMPLES', '1000'))
 EVAL_SEED = int(os.environ.get('EVAL_SEED', '42'))
 # ProcessPool requires picklable workers; network-bound rerank uses threads.
@@ -101,7 +104,48 @@ def _aggregate_metric_lists(per_query: list[dict[str, Any]], prefix: str) -> dic
     return out
 
 
-def score_prompt_variant(
+def load_cached_row(
+    record: dict[str, Any],
+    prompt_template: str,
+    variant_id: str,
+    client: Any,
+    k: int = NDCG_K,
+) -> dict[str, Any] | None:
+    from cache import build_cache_key, candidate_hash as cand_hash_fn
+
+    prompt_hash = hashlib.sha256(prompt_template.encode('utf-8')).hexdigest()[:16]
+    cand_hash = cand_hash_fn(record['candidates'])
+    cache_key = build_cache_key(
+        prompt_hash=prompt_hash,
+        query_id=record['query_id'],
+        candidate_hash=cand_hash,
+        reranker_version=client.reranker_version,
+    )
+    cached = client.persistent_cache.get(cache_key)
+    if cached is None:
+        return None
+    ranked_ids = [str(it['id']) for it in sorted(cached['ranking'], key=lambda x: x['score'], reverse=True)]
+    gold = [str(g) for g in record['gold_ranking']]
+    metrics = compute_all_metrics(gold, ranked_ids, k)
+    return {
+        'query_id': record['query_id'],
+        'variant': variant_id,
+        'latency_ms': cached['latency'].get('total_ms', 0),
+        'latency': cached['latency'],
+        'tokens_in': cached['tokens_in'],
+        'tokens_out': cached['tokens_out'],
+        'cost_usd': cached['cost_usd'],
+        'cached': True,
+        'failed': False,
+        'failures': 0,
+        'engine': cached.get('engine', getattr(client, 'mode', 'unknown')),
+        'predicted_ranking': ranked_ids,
+        'gold_ranking': gold,
+        **metrics,
+    }
+
+
+def score_prompt_variant_sync(
     records: list[dict[str, Any]],
     prompt_template: str,
     *,
@@ -132,6 +176,7 @@ def score_prompt_variant(
     total_token_cost = 0.0
     aborted_cost = False
     aborted_failures = False
+    degraded = False
     lock = threading.Lock()
 
     def eval_one(record: dict[str, Any]) -> dict[str, Any]:
@@ -171,6 +216,8 @@ def score_prompt_variant(
                     'failed': False,
                     'failures': 0,
                     'engine': resp.engine,
+                    'predicted_ranking': ranked_ids,
+                    'gold_ranking': gold,
                     **metrics,
                 }
             except Exception as err:
@@ -192,6 +239,8 @@ def score_prompt_variant(
                     'fallback': 'lexical',
                     'error': str(err),
                     'engine': client.mode,
+                    'predicted_ranking': ranked_ids,
+                    'gold_ranking': gold,
                     **metrics,
                 }
 
@@ -204,56 +253,27 @@ def score_prompt_variant(
 
                 n_done = len(per_query)
                 fail_rate = failures / n_done if n_done else 0.0
-                if fail_rate > FAILURE_BUDGET and n_done >= max(10, len(normalized) // 20):
+                if fail_rate > WARNING_FAILURE_RATE and n_done >= max(10, len(normalized) // 20):
+                    degraded = True
+                if fail_rate > HARD_FAILURE_RATE and n_done >= max(10, len(normalized) // 20):
                     aborted_failures = True
                 if max_cost_usd is not None and total_token_cost > max_cost_usd:
                     aborted_cost = True
-                _log_query_row(
-                    row,
-                    per_query_log_path=per_query_log_path,
-                    checkpoint_path=checkpoint_path,
-                    variant_id=variant_id,
-                    processed_count=n_done,
-                )
+                if per_query_log_path:
+                    _append_per_query_log(per_query_log_path, row)
+                if checkpoint_path and n_done % CHECKPOINT_INTERVAL == 0:
+                    save_checkpoint(
+                        variant_id=variant_id,
+                        last_query_id=str(row['query_id']),
+                        processed_count=n_done,
+                        path=checkpoint_path,
+                    )
 
             return row
 
-    def load_cached_row(record: dict[str, Any]) -> dict[str, Any] | None:
-        """Reconstruct per-query metrics from persistent cache without rerank call."""
-        from cache import build_cache_key, candidate_hash as cand_hash_fn
-
-        prompt_hash = hashlib.sha256(prompt_template.encode('utf-8')).hexdigest()[:16]
-        cand_hash = cand_hash_fn(record['candidates'])
-        cache_key = build_cache_key(
-            prompt_hash=prompt_hash,
-            query_id=record['query_id'],
-            candidate_hash=cand_hash,
-            reranker_version=client.reranker_version,
-        )
-        cached = client.persistent_cache.get(cache_key)
-        if cached is None:
-            return None
-        ranked_ids = [str(it['id']) for it in sorted(cached['ranking'], key=lambda x: x['score'], reverse=True)]
-        gold = [str(g) for g in record['gold_ranking']]
-        metrics = compute_all_metrics(gold, ranked_ids, k)
-        return {
-            'query_id': record['query_id'],
-            'variant': variant_id,
-            'latency_ms': cached['latency'].get('total_ms', 0),
-            'latency': cached['latency'],
-            'tokens_in': cached['tokens_in'],
-            'tokens_out': cached['tokens_out'],
-            'cost_usd': cached['cost_usd'],
-            'cached': True,
-            'failed': False,
-            'failures': 0,
-            'engine': cached.get('engine', client.mode),
-            **metrics,
-        }
-
     for rec in normalized:
         if rec['query_id'] in cached_ids:
-            row = load_cached_row(rec)
+            row = load_cached_row(rec, prompt_template, variant_id, client, k)
             if row:
                 per_query.append(row)
                 total_token_cost += row['cost_usd']
@@ -282,6 +302,7 @@ def score_prompt_variant(
 
     ndcg_ci = bootstrap_ci(ndcg_vals, n_resamples=BOOTSTRAP_SAMPLES, seed=EVAL_SEED)
     spearman_ci = bootstrap_ci(spearman_vals, n_resamples=BOOTSTRAP_SAMPLES, seed=EVAL_SEED + 1)
+    latency_ci = bootstrap_ci(latencies, n_resamples=BOOTSTRAP_SAMPLES, seed=EVAL_SEED + 2)
 
     result = {
         'variant_id': variant_id,
@@ -304,18 +325,75 @@ def score_prompt_variant(
         'est_cost_per_query_usd': round(total_token_cost / max(len(successful), 1), 8),
         'failure_rate': failures / n,
         'failures': failures,
+        'degraded': degraded,
         'aborted_cost_limit': aborted_cost,
         'aborted_failure_budget': aborted_failures,
         'confidence_intervals': {
             f'ndcg{k}': ndcg_ci,
             'spearman': spearman_ci,
+            'p95_latency_s': latency_ci,
         },
         'per_query': per_query,
+        'eval_mode': 'sync',
     }
     result.update(_aggregate_metric_lists(successful, prefix='precision'))
     result.update(_aggregate_metric_lists(successful, prefix='recall'))
     result.update(_aggregate_metric_lists(successful, prefix='hit_rate'))
     return result
+
+
+def score_prompt_variant(
+    records: list[dict[str, Any]],
+    prompt_template: str,
+    *,
+    variant_id: str,
+    client: Any,
+    k: int = NDCG_K,
+    max_workers: int = MAX_WORKERS,
+    max_cost_usd: float | None = None,
+    rate_limiter: Any | None = None,
+    per_query_log_path: str | None = None,
+    checkpoint_path: str | None = None,
+    eval_mode: str | None = None,
+) -> dict[str, Any]:
+    """Dispatch to async or sync evaluation."""
+    mode = (eval_mode or os.environ.get('EVAL_MODE', 'sync')).lower()
+    if mode == 'async':
+        import asyncio
+
+        from async_rate_limiter import AsyncRateLimiter
+        from eval_async import score_prompt_variant_async
+        from rerank_client import RerankClient
+
+        async_limiter = rate_limiter if isinstance(rate_limiter, AsyncRateLimiter) else AsyncRateLimiter()
+        sync_client = client if isinstance(client, RerankClient) else None
+        async_client = client if not isinstance(client, RerankClient) else client
+        return asyncio.run(
+            score_prompt_variant_async(
+                records,
+                prompt_template,
+                variant_id=variant_id,
+                client=async_client,
+                k=k,
+                max_cost_usd=max_cost_usd,
+                rate_limiter=async_limiter,
+                per_query_log_path=per_query_log_path,
+                checkpoint_path=checkpoint_path,
+                sync_client=sync_client,
+            )
+        )
+    return score_prompt_variant_sync(
+        records,
+        prompt_template,
+        variant_id=variant_id,
+        client=client,
+        k=k,
+        max_workers=max_workers,
+        max_cost_usd=max_cost_usd,
+        rate_limiter=rate_limiter,
+        per_query_log_path=per_query_log_path,
+        checkpoint_path=checkpoint_path,
+    )
 
 
 def pick_best_variant(results: list[dict[str, Any]]) -> dict[str, Any]:

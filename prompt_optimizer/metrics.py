@@ -229,6 +229,24 @@ def pareto_frontier(variants: list[dict[str, Any]]) -> list[str]:
     return frontier
 
 
+def filter_variants_by_budget(
+    variants: list[dict[str, Any]],
+    *,
+    max_p95_latency_s: float | None = None,
+    max_cost_per_query_usd: float | None = None,
+    max_failure_rate: float | None = None,
+) -> list[dict[str, Any]]:
+    """Filter variants that satisfy hard budget constraints before Pareto selection."""
+    out = variants
+    if max_p95_latency_s is not None:
+        out = [v for v in out if v.get('p95_latency_s', 999) <= max_p95_latency_s]
+    if max_cost_per_query_usd is not None:
+        out = [v for v in out if v.get('est_cost_per_query_usd', 999) <= max_cost_per_query_usd]
+    if max_failure_rate is not None:
+        out = [v for v in out if v.get('failure_rate', 1) <= max_failure_rate]
+    return out or variants
+
+
 def pick_winner_pareto(
     variants: list[dict[str, Any]],
     *,
@@ -241,12 +259,25 @@ def pick_winner_pareto(
     if not variants:
         raise ValueError('No variants to pick from')
 
+    import os
+
+    max_p95 = float(os.environ.get('LATENCY_BUDGET_P95_S', '0') or '0') or None
+    max_cost_q = float(os.environ.get('MAX_COST_PER_QUERY_USD', '0') or '0') or None
+    max_fail = float(os.environ.get('HARD_FAILURE_RATE', '0.05'))
+
+    candidates = filter_variants_by_budget(
+        variants,
+        max_p95_latency_s=max_p95,
+        max_cost_per_query_usd=max_cost_q,
+        max_failure_rate=max_fail,
+    )
+
     budget = latency_budget_s
     if budget is None:
-        budget = float(__import__('os').environ.get('LATENCY_BUDGET_P95_S', '0') or '0') or None
+        budget = max_p95
 
-    frontier_ids = set(pareto_frontier(variants))
-    candidates = [v for v in variants if v['variant_id'] in frontier_ids] or variants
+    frontier_ids = set(pareto_frontier(candidates))
+    candidates = [v for v in candidates if v['variant_id'] in frontier_ids] or candidates
 
     if budget is not None:
         under_budget = [v for v in candidates if v.get('p95_latency_s', 999) <= budget]

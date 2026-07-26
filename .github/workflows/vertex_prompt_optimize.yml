@@ -61,8 +61,7 @@ jobs:
 
       - name: Verify results quality gates
         run: |
-          chmod +x scripts/verify_prompt_results.sh
-          PRODUCTION_NDCG=0.0 PRODUCTION_LATENCY_P95=999 bash scripts/verify_prompt_results.sh prompt_optimizer/out/results.json
+          python scripts/ci_validate_results.py prompt_optimizer/out/results_summary.json
 
   build-and-push:
     if: github.event_name == 'workflow_dispatch'

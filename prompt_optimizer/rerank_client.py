@@ -9,10 +9,10 @@ import random
 import time
 import urllib.error
 import urllib.request
-from dataclasses import dataclass, field
 from typing import Any
 
 from cache import PersistentCache, build_cache_key, candidate_hash
+from rerank_types import LatencyBreakdown, RerankResponse
 
 DEFAULT_TEMPLATE = (
     'Du är en expert på svensk miljö- och fastighetsanalys. Gradera relevansen för '
@@ -27,37 +27,6 @@ DEFAULT_INPUT_USD_PER_TOKEN = 0.075 / 1_000_000
 DEFAULT_OUTPUT_USD_PER_TOKEN = 0.30 / 1_000_000
 
 RETRYABLE_HTTP_CODES = {500, 502, 503, 504}
-
-
-@dataclass
-class LatencyBreakdown:
-    serialization_ms: float = 0.0
-    queue_ms: float = 0.0
-    http_ms: float = 0.0
-    model_ms: float = 0.0
-    deserialization_ms: float = 0.0
-    total_ms: float = 0.0
-
-    def to_dict(self) -> dict[str, float]:
-        return {
-            'serialization_ms': round(self.serialization_ms, 3),
-            'queue_ms': round(self.queue_ms, 3),
-            'http_ms': round(self.http_ms, 3),
-            'model_ms': round(self.model_ms, 3),
-            'deserialization_ms': round(self.deserialization_ms, 3),
-            'total_ms': round(self.total_ms, 3),
-        }
-
-
-@dataclass
-class RerankResponse:
-    items: list[dict[str, Any]]
-    token_cost: float
-    input_tokens: int
-    output_tokens: int
-    engine: str
-    latency: LatencyBreakdown = field(default_factory=LatencyBreakdown)
-    cached: bool = False
 
 
 def render_prompt(template: str, query: str, candidates: list[dict[str, Any]]) -> str:

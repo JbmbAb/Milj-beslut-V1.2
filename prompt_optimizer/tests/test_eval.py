@@ -9,7 +9,7 @@ import unittest
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from cache import PersistentCache, build_cache_key, candidate_hash
+from cache import CACHE_SCHEMA_VERSION, PersistentCache, build_cache_key
 from metrics import (
     bootstrap_ci,
     kendall_tau,
@@ -65,6 +65,11 @@ class MetricsTest(unittest.TestCase):
 
 
 class CacheTest(unittest.TestCase):
+    def test_cache_key_includes_schema_version(self) -> None:
+        key = build_cache_key(prompt_hash='a', query_id='q', candidate_hash='c', reranker_version='v')
+        self.assertEqual(len(key), 64)
+        self.assertEqual(CACHE_SCHEMA_VERSION, 1)
+
     def test_persistent_cache_roundtrip(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             db = os.path.join(tmp, 'cache.sqlite')
@@ -123,6 +128,28 @@ class EvalTest(unittest.TestCase):
             self.assertEqual(r1['n_queries'], 1)
             self.assertEqual(r2['n_resumed_from_cache'], 1)
             self.assertTrue(any(pq.get('cached') for pq in r2['per_query']))
+
+
+    def test_async_mode_mock_via_thread(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            os.environ['MOCK_RERANK'] = '1'
+            os.environ['EVAL_MODE'] = 'async'
+            db = os.path.join(tmp, 'cache.sqlite')
+            cache = PersistentCache(db_path=db)
+            client = RerankClient(mode='mock', persistent_cache=cache)
+            records = [{
+                'id': 'q2',
+                'query': 'naturreservat linkoping',
+                'gold_ranking': ['d1', 'd2'],
+                'context_documents': [
+                    {'doc_id': 'd1', 'text': 'naturreservat linkoping'},
+                    {'doc_id': 'd2', 'text': 'ovrigt'},
+                ],
+            }]
+            template = 'Rank "{{QUERY}}".\n\n{{DOCUMENTS}}'
+            result = score_prompt_variant(records, template, variant_id='v1', client=client, max_workers=1, eval_mode='async')
+            self.assertEqual(result['eval_mode'], 'async')
+            self.assertEqual(result['n_queries'], 1)
 
 
 if __name__ == '__main__':
