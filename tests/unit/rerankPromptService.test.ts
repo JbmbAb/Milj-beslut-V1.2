@@ -6,7 +6,9 @@ import path from 'node:path';
 // Hoist mocks
 const mocks = vi.hoisted(() => {
   return {
-    downloadMock: vi.fn().mockResolvedValue([Buffer.from('Custom optimized prompt: {{QUERY}}\n{{DOCUMENTS}}')]),
+    downloadMock: vi
+      .fn()
+      .mockResolvedValue([Buffer.from('Custom optimized prompt: {{QUERY}}\n{{DOCUMENTS}}')]),
     fileMock: vi.fn(),
     bucketMock: vi.fn(),
   };
@@ -53,7 +55,7 @@ describe('RerankPromptService', () => {
     vi.clearAllMocks();
     RerankPromptService.clearCache();
     RerankPromptService.stopHydrationDaemon();
-    
+
     // Reset process.env before each test
     process.env = { ...originalEnv };
     delete process.env.LEGAL_RERANKER_PROMPT_GCS;
@@ -268,11 +270,11 @@ describe('RerankPromptService', () => {
 
     it('should fallback gracefully if custom GCS template has no placeholders', async () => {
       process.env.LEGAL_RERANKER_PROMPT_GCS = 'gs://test-bucket/prompts/best.txt';
-      mocks.downloadMock.mockResolvedValueOnce([Buffer.from('Prompt without documents but with query {{QUERY}}.')]);
+      mocks.downloadMock.mockResolvedValueOnce([
+        Buffer.from('Prompt without documents but with query {{QUERY}}.'),
+      ]);
 
-      const candidates = [
-        { id: 'chunk-1', chunkText: 'Some doc content.' },
-      ];
+      const candidates = [{ id: 'chunk-1', chunkText: 'Some doc content.' }];
 
       const { prompt } = await RerankPromptService.getFormattedPrompt('water-protection', candidates);
       expect(prompt).toContain('Prompt without documents but with query water-protection.');

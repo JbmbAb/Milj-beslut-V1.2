@@ -36,6 +36,7 @@ import helmet from 'helmet';
 import rateLimit from 'express-rate-limit';
 import compression from 'compression';
 import { traceMiddleware } from './observability/trace';
+import { requestLogger } from './security/requestLogging';
 import { propertyLookupRouter } from './integrations/propertyLookup';
 import { initializeSentry } from './sentry';
 import { logger } from './logger';
@@ -78,6 +79,7 @@ export function createApp() {
 
   // Trace ID across all routes (AI→audit→submission)
   app.use(traceMiddleware());
+  app.use(requestLogger);
 
   app.use(compression());
   app.use(express.json({ limit: '10mb' }));

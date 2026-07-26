@@ -4,6 +4,8 @@ const mocks = vi.hoisted(() => ({
   queryRawUnsafe: vi.fn(),
   embedText: vi.fn(),
   parseLegalReference: vi.fn(),
+  generateJsonWithVertex: vi.fn(),
+  vertexConfigStatus: vi.fn(),
 }));
 
 vi.mock('../../server/db/prisma', () => ({
@@ -14,6 +16,11 @@ vi.mock('../../server/db/prisma', () => ({
 
 vi.mock('../../server/services/searchService', () => ({
   embedText: mocks.embedText,
+}));
+
+vi.mock('../../server/services/vertexAiService', () => ({
+  generateJsonWithVertex: mocks.generateJsonWithVertex,
+  vertexConfigStatus: mocks.vertexConfigStatus,
 }));
 
 vi.mock('../../server/modules/legal/services/legalReferenceParser', () => ({
@@ -266,19 +273,25 @@ describe('searchLegalCorpusTool — Alphaevolve A1', () => {
 describe('searchLegalCorpusTool — Alphaevolve A2', () => {
   const originalReranker = process.env.LEGAL_RERANKER;
   const originalGap = process.env.LEGAL_RERANKER_RELATIVE_GAP;
-  const originalGeminiKey = process.env.GEMINI_API_KEY;
 
   beforeEach(() => {
     vi.clearAllMocks();
     resetLegalCorpusVectorColumnCache();
     delete process.env.LEGAL_RERANKER;
     delete process.env.LEGAL_RERANKER_RELATIVE_GAP;
-    delete process.env.GEMINI_API_KEY;
     mocks.parseLegalReference.mockReturnValue(null);
     mocks.embedText.mockResolvedValue({
       values: [0.1, 0.2, 0.3],
       model: 'text-multilingual-embedding-002',
     });
+    mocks.vertexConfigStatus.mockReturnValue({
+      configured: false,
+      missing: ['VERTEX_PROJECT_ID'],
+      projectId: null,
+      location: 'europe-west1',
+      hasExplicitServiceAccountFile: false,
+    });
+    mocks.generateJsonWithVertex.mockResolvedValue(null);
   });
 
   afterEach(() => {
@@ -286,8 +299,6 @@ describe('searchLegalCorpusTool — Alphaevolve A2', () => {
     else process.env.LEGAL_RERANKER = originalReranker;
     if (originalGap === undefined) delete process.env.LEGAL_RERANKER_RELATIVE_GAP;
     else process.env.LEGAL_RERANKER_RELATIVE_GAP = originalGap;
-    if (originalGeminiKey === undefined) delete process.env.GEMINI_API_KEY;
-    else process.env.GEMINI_API_KEY = originalGeminiKey;
   });
 
   it('läser feature-flagga LEGAL_RERANKER från env', () => {
@@ -412,7 +423,6 @@ describe('searchLegalCorpusTool — Alphaevolve A2', () => {
   it('exponerar rerankerEngine och promptVersion i meta', async () => {
     process.env.LEGAL_RERANKER = 'on';
     process.env.LEGAL_RERANKER_RELATIVE_GAP = '0.25';
-    delete process.env.GEMINI_API_KEY;
 
     mockHybridCorpus(
       Array.from({ length: 4 }, (_, i) => ({

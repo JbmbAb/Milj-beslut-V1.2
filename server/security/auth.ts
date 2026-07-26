@@ -121,6 +121,8 @@ export async function rotateRefreshToken(
 declare module 'express-serve-static-core' {
   interface Request {
     authUser?: AuthUser;
+    /** Correlation id set by requestLogger middleware. */
+    id?: string;
   }
 }
 

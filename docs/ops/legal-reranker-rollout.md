@@ -10,7 +10,8 @@ Status: **förberedelse** — staging/prod kräver human sign-off (AGENTS.md).
 | `LEGAL_RERANKER_RELATIVE_GAP` | `0.15` | `0.15` |
 | `LEGAL_RERANKER_PROMPT_GCS` | `gs://miljobeslut-prompt-optimization-bucket/alphaevolve/list_deduplication/prompt_opt_results/best_prompt.txt` | samma |
 | `LEGAL_RERANKER_PROMPT_VERSION` | `opt-prompt-d900aa00` (hash av prompt) | uppdateras vid ny prompt |
-| `GEMINI_API_KEY` | Secret Manager | Secret Manager |
+| `VERTEX_PROJECT_ID` | `miljointelligens` | samma |
+| `VERTEX_LOCATION` | `europe-west1` | samma |
 
 ## Rollout-steg
 
@@ -42,10 +43,23 @@ git push
 
 ## Observability
 
-Logga i Cloud Logging:
+Logga i Cloud Logging (platta fält i root):
 
-- `LEGAL_RERANKER: kör Gemini rerank` — `promptVersion`, `candidatesCount`
-- `searchLegalCorpus` meta: `rerankerEngine`, `rerankerStatus`, `promptVersion`
+| Fält | Beskrivning |
+|------|-------------|
+| `requestId` | Korrelations-ID (`X-Request-Id` header) |
+| `queryHash` | Salted SHA-256 av normaliserad query (GDPR) |
+| `queryHashSaltVersion` | Salt-rotation (`QUERY_HASH_SALT_VERSION`, default `v1`) |
+| `exactLatencyMs` / `ftsLatencyMs` / `vectorLatencyMs` | Per-arm retrieval |
+| `rrfLatencyMs` / `rerankLatencyMs` / `totalLatencyMs` | Fusion + rerank + totalt |
+| `shadowChangedTop1` / `kendallTau` / `ndcg5` | Shadow validation |
+
+Env:
+
+| Env | Beskrivning |
+|-----|-------------|
+| `QUERY_HASH_SALT` | Secret Manager — rotera utan att logga värdet |
+| `QUERY_HASH_SALT_VERSION` | Versionstagg i loggar vid rotation |
 
 **Larm (rekommenderat):**
 
@@ -62,6 +76,8 @@ Innan prod: öppna `best_prompt.txt` i GCS och bekräfta:
 
 ## Relaterat
 
+- [staging-observability-secrets.md](staging-observability-secrets.md) — `gcloud`-kommandon för QUERY_HASH_SALT + LEGAL_RERANKER=on
+- [observability-otlp.md](observability-otlp.md) — framtida Cloud Trace / dashboards
 - [legal_rerank_prompt_review_TEMPLATE.md](../eval/legal_rerank_prompt_review_TEMPLATE.md)
 - [EXPERIMENTS.md](../alphaevolve/EXPERIMENTS.md)
 - `scripts/eval/run_legal_rerank_eval.ts`

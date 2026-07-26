@@ -63,7 +63,7 @@ describe('RerankPromptService (GCS Integration)', () => {
   it('should correctly fall back to a local file when GCS fails or is omitted', async () => {
     const tempFilePath = path.resolve(__dirname, 'temp_test_prompt.txt');
     const customPromptContent = 'Integrationsprov: {{QUERY}}';
-    
+
     // Create temporary file
     fs.writeFileSync(tempFilePath, customPromptContent, 'utf8');
 

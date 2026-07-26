@@ -12,9 +12,10 @@ describe('legal_search_params fixture eval (Phase 2)', () => {
   const evalSet = JSON.parse(readFileSync(join(root, 'eval-set.json'), 'utf-8')) as {
     cases: Array<{ id: string; query: string; must_include_terms: string[]; min_results: number }>;
   };
-  const fixtures = JSON.parse(
-    readFileSync(join(root, 'fixtures/eval-chunks.json'), 'utf-8'),
-  ) as Record<string, unknown>;
+  const fixtures = JSON.parse(readFileSync(join(root, 'fixtures/eval-chunks.json'), 'utf-8')) as Record<
+    string,
+    unknown
+  >;
 
   const defaults: LegalSearchEvalParams = {
     RRF_K: 60,
