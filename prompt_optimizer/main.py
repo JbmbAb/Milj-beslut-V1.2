@@ -239,7 +239,6 @@ def main() -> int:
         golden_meta['version'] = cfg.golden_version
 
     cache = PersistentCache(db_path=cfg.cache_path)
-    eval_mode = cfg.eval_mode
     if eval_mode == 'async' and os.environ.get('LEGAL_RERANK_EVAL_URL'):
         from async_rerank_client import AsyncRerankClient
 
