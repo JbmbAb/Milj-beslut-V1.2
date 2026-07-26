@@ -47,9 +47,9 @@ Vid en "helikoptervy" av hela repot blir det uppenbart varför plattformen kan u
 - **Åtgärd:** Dölj helt eller arkivera de inaktuella modulerna i sidomenyn och huvudvyn.
 - **Konkret genomförande:** Ändra i `components/app/modeCards.ts` och `components/AppSidebar.tsx` så att endast **Huvudmoduler** (Enskilt avlopp, C-anmälan, Lokaliseringsutredning) och eventuellt **Juridiskt Stöd** visas. Detta ger användaren den utlovade kliniskt rena ytan med 100 % fokus på kärnverksamheten.
 
-### 📁 Dokumentationssanering (Fas 1)
-- **Åtgärd:** Flytta alla inaktuella, över-ambitiösa eller förvirrande planer och rapporter från rotkatalogen samt under `docs/` till en lokal arkivkatalog under `docs/archive/legacy_plans/`.
-- **Effekt:** Rensar upp repot och säkerställer att RAG-motorer (t.ex. vid framtida indexering) inte matas med utdaterade antaganden om systemets scope.
+### 📁 Dokumentationssanering (Fas 1) — ✅ genomförd 2026-07-26
+- **Åtgärd:** Tog bort inaktuella leveransplaner (`docs/archive/legacy_plans/`), föråldrade root-guider (`DEPLOYMENT_GUIDE.md`, `RUN_ME.md`, m.fl.) och vilseledande arkitekturbeskrivningar (`docs/ny-plattform-arv.md`).
+- **Effekt:** Canonical docs pekar via `docs/archive/README.md`; RAG och nya bidragare riskerar inte att följa utdaterade antaganden.
 
 ### 🛡️ Juridisk Hållbarhet & Mimers Brunn (Fas 2)
 - **Åtgärd:** Säkerställ att all dokumentation som skördas i Fas 2 lagras fysiskt i Master-arkivet under `GEO_Master_Archive` med manifest v2, SHA-256 och detaljerad filstorlek.

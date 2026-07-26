@@ -69,6 +69,10 @@ tmp_*
 # Python cache
 __pycache__/
 *.pyc
+.pytest_cache/
+prompt_optimizer/out/
+prompt_optimizer/data/
+prompt_optimizer/.pytest_cache/
 
 # AlphaEvolve local checkout (secrets + venv)
 alphaevolve-on-googlecloud/
