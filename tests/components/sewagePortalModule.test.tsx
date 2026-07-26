@@ -26,6 +26,35 @@ vi.mock('../../services/geminiService', () => ({
   askGeneralAssistant: vi.fn().mockResolvedValue('Placeringen uppfyller avståndskrav.'),
 }));
 
+vi.mock('../../components/context/OperationsCenterContext', () => ({
+  useOperationsCenter: vi.fn(() => ({
+    addAiActivity: vi.fn(),
+    setInspectorData: vi.fn(),
+  })),
+}));
+
+vi.mock('../../components/context/ThemeContext', () => ({
+  useTheme: vi.fn(() => ({ isDark: false })),
+}));
+
+vi.mock('../../components/app/providers/AppWorkspaceProvider', () => ({
+  useAppWorkspace: vi.fn(() => ({
+    mode: null,
+    activeTab: 'summary',
+    setActiveTab: vi.fn(),
+    setMode: vi.fn(),
+    openMode: vi.fn(),
+    permits: [],
+    selectedPermit: null,
+    setSelectedPermit: vi.fn(),
+    showUpload: false,
+    setShowUpload: vi.fn(),
+    modeCardMap: {},
+    activeMode: null,
+    activeProjectLabel: 'Test project',
+  })),
+}));
+
 import SewagePortalModule from '../../components/admin/modules/sewage-portal/SewagePortalModule';
 import SewageMapView from '../../components/admin/modules/sewage-portal/SewageMapView';
 

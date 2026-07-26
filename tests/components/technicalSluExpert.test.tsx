@@ -94,6 +94,10 @@ describe('TechnicalSluExpert', () => {
     await user.type(screen.getByPlaceholderText('Lat'), '60.67');
     await user.type(screen.getByPlaceholderText('Lng'), '17.14');
     await user.click(screen.getByRole('button', { name: /Starta Scan/i }));
-    await waitFor(() => expect(screen.getByText(/saknar verifierad kalla/i)).toBeInTheDocument());
+    await waitFor(() =>
+      expect(
+        screen.getByText(/Offline-läge: Inventering kunde inte hämtas från extern källa/i),
+      ).toBeInTheDocument(),
+    );
   });
 });
