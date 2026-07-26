@@ -7,7 +7,7 @@ Denna mapp är avsedd att indexeras av **Gemini Enterprise**, **Vertex AI Search
 | Fil | Syfte |
 |-----|--------|
 | [MIMER_LIBRARIAN.md](./MIMER_LIBRARIAN.md) | Mandat, Mimers Brunn, harvesting-kontrakt |
-| [DATA_COVERAGE_GAPS.md](./DATA_COVERAGE_GAPS.md) | Kort gap-status (geodata) |
+| [DATA_COVERAGE_GAPS.md](./DATA_COVERAGE_GAPS.md) | **Kort gap-status** — synkas med `docs/architecture/data-coverage-gaps.md` |
 | [NATIONAL_HARVESTING_PHASES.md](./NATIONAL_HARVESTING_PHASES.md) | Länsstyrelsen 2068 dataset |
 | [SEWAGE_HARVESTING_STRATEGY.md](./SEWAGE_HARVESTING_STRATEGY.md) | Enskilt avlopp-data |
 | [DALARNA_HARVESTING_STRATEGY.md](./DALARNA_HARVESTING_STRATEGY.md) | Regional strategi |

@@ -25,7 +25,7 @@ Canonical C-anmälan finns och är aktiv:
 
 - UI: [components/admin/modules/c-notification-mass/CNotificationMassUI.tsx](components/admin/modules/c-notification-mass/CNotificationMassUI.tsx)
 - API: [server/routes/cNotificationMass.routes.ts](server/routes/cNotificationMass.routes.ts)
-- Staging-bevis: [docs/qa/FAS2_STAGING_EVIDENCE.md](docs/qa/FAS2_STAGING_EVIDENCE.md)
+- Staging-bevis: [docs/qa/staging-evidence/FAS2_STAGING_EVIDENCE.md](docs/qa/staging-evidence/FAS2_STAGING_EVIDENCE.md)
 
 Notera att admin-modulen `permit-portal` är en separat tillståndsportal och ska inte blandas ihop med legacy-flödet:
 

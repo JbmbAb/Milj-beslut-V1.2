@@ -227,4 +227,4 @@ git tag -a v1.0.0-prod-recovery -m "Fas 1-4 complete, staging verified"
 
 ---
 
-**Questions?** See `docs/qa/FAS4_QUICK_REFERENCE.md`
+**Questions?** See `docs/qa/staging-evidence/FAS4_QUICK_REFERENCE.md`

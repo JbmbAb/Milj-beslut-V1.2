@@ -46,4 +46,4 @@ Moduläriseringen gav tre canonical produktflöden under `Core_WORKFLOW`:
 
 - `docs/qa/MODULE_IMPLEMENTATION_PLAN.md`
 - `docs/architecture/modulregister_ombyggnad.md`
-- `docs/qa/FAS2_STAGING_EVIDENCE.md`
+- `docs/qa/staging-evidence/FAS2_STAGING_EVIDENCE.md`
