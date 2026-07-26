@@ -49,8 +49,6 @@ ENV DATABASE_URL=postgresql://localhost:5432/docker_build_dummy
 
 ARG CACHEBUST=1
 RUN npm ci --omit=dev --legacy-peer-deps --no-audit --prefer-offline --ignore-scripts \
-  && npm install tsx@4.16.2 --omit=dev --legacy-peer-deps --no-audit \
-  && test -d node_modules/tsx \
   && npx prisma generate \
   && npm cache clean --force
 
