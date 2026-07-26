@@ -10,8 +10,9 @@ import threading
 import time
 from typing import Any
 
+from constants import CACHE_SCHEMA_VERSION as DEFAULT_CACHE_SCHEMA_VERSION
 
-CACHE_SCHEMA_VERSION = int(os.environ.get('CACHE_SCHEMA_VERSION', '1'))
+CACHE_SCHEMA_VERSION = DEFAULT_CACHE_SCHEMA_VERSION
 
 
 def build_cache_key(
@@ -42,6 +43,7 @@ class PersistentCache:
         query_id TEXT NOT NULL,
         candidate_hash TEXT NOT NULL,
         reranker_version TEXT NOT NULL,
+        cache_schema_version INTEGER NOT NULL DEFAULT 1,
         variant_id TEXT,
         ranking_json TEXT NOT NULL,
         latency_json TEXT NOT NULL,
@@ -49,6 +51,7 @@ class PersistentCache:
         tokens_out INTEGER DEFAULT 0,
         cost_usd REAL DEFAULT 0,
         engine TEXT,
+        prompt_version TEXT,
         cached_at REAL NOT NULL
     );
     CREATE INDEX IF NOT EXISTS idx_variant_query ON rerank_cache(variant_id, query_id);
@@ -71,9 +74,19 @@ class PersistentCache:
             conn = self._connect()
             try:
                 conn.executescript(self.SCHEMA)
+                self._migrate(conn)
                 conn.commit()
             finally:
                 conn.close()
+
+    def _migrate(self, conn: sqlite3.Connection) -> None:
+        cols = {row[1] for row in conn.execute('PRAGMA table_info(rerank_cache)')}
+        if 'cache_schema_version' not in cols:
+            conn.execute(
+                'ALTER TABLE rerank_cache ADD COLUMN cache_schema_version INTEGER NOT NULL DEFAULT 1'
+            )
+        if 'prompt_version' not in cols:
+            conn.execute("ALTER TABLE rerank_cache ADD COLUMN prompt_version TEXT DEFAULT ''")
 
     def get(self, cache_key: str) -> dict[str, Any] | None:
         with self._lock:
@@ -86,13 +99,17 @@ class PersistentCache:
                 if row is None:
                     return None
                 return {
+                    'cache_schema_version': row['cache_schema_version'],
                     'ranking': json.loads(row['ranking_json']),
                     'latency': json.loads(row['latency_json']),
+                    'latency_ms': json.loads(row['latency_json']).get('total_ms', 0),
                     'tokens_in': row['tokens_in'],
                     'tokens_out': row['tokens_out'],
                     'cost_usd': row['cost_usd'],
                     'engine': row['engine'],
+                    'prompt_version': row['prompt_version'],
                     'cached_at': row['cached_at'],
+                    'created': row['cached_at'],
                 }
             finally:
                 conn.close()
@@ -112,7 +129,10 @@ class PersistentCache:
         tokens_out: int,
         cost_usd: float,
         engine: str,
+        prompt_version: str = '',
+        cache_schema_version: int | None = None,
     ) -> None:
+        schema_v = cache_schema_version if cache_schema_version is not None else CACHE_SCHEMA_VERSION
         with self._lock:
             conn = self._connect()
             try:
@@ -120,9 +140,9 @@ class PersistentCache:
                     """
                     INSERT OR REPLACE INTO rerank_cache
                     (cache_key, prompt_hash, query_id, candidate_hash, reranker_version,
-                     variant_id, ranking_json, latency_json, tokens_in, tokens_out,
-                     cost_usd, engine, cached_at)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                     cache_schema_version, variant_id, ranking_json, latency_json, tokens_in, tokens_out,
+                     cost_usd, engine, prompt_version, cached_at)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """,
                     (
                         cache_key,
@@ -130,6 +150,7 @@ class PersistentCache:
                         query_id,
                         candidate_hash,
                         reranker_version,
+                        schema_v,
                         variant_id,
                         json.dumps(ranking),
                         json.dumps(latency),
@@ -137,6 +158,7 @@ class PersistentCache:
                         tokens_out,
                         cost_usd,
                         engine,
+                        prompt_version,
                         time.time(),
                     ),
                 )

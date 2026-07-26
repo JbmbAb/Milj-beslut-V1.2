@@ -13,7 +13,9 @@ import time
 from typing import Any
 from urllib.parse import urlparse
 
-from cache import CACHE_SCHEMA_VERSION, PersistentCache
+from cache import PersistentCache
+from config import get_config, reset_config_cache
+from constants import RESULTS_SCHEMA_VERSION
 from eval import (
     HARD_FAILURE_RATE,
     WARNING_FAILURE_RATE,
@@ -21,10 +23,12 @@ from eval import (
     pick_best_variant,
     score_prompt_variant,
 )
+from manifest import build_manifest
 from metadata import golden_dataset_meta, records_fingerprint, run_metadata
 from metrics import pareto_frontier
 from rate_limiter import RateLimiter
 from rerank_client import DEFAULT_TEMPLATE, RerankClient
+from status import save_status, update_run_status
 
 
 def parse_gcs_uri(uri: str) -> tuple[str, str]:
@@ -74,21 +78,6 @@ def variant_summary_row(row: dict[str, Any]) -> dict[str, Any]:
     return {k: v for k, v in row.items() if k != 'per_query'}
 
 
-def build_manifest(run_meta: dict[str, Any], golden_meta: dict[str, Any], best: dict[str, Any]) -> dict[str, Any]:
-    return {
-        'git_commit': run_meta.get('git_commit'),
-        'container_digest': run_meta.get('container_digest'),
-        'prompt_version': run_meta.get('prompt_version'),
-        'golden_hash': golden_meta.get('sha256'),
-        'reranker_version': run_meta.get('reranker_version'),
-        'seed': run_meta.get('seed'),
-        'cache_schema_version': CACHE_SCHEMA_VERSION,
-        'winner_variant_id': best.get('variant_id'),
-        'winner_prompt_hash': best.get('prompt_hash'),
-        'timestamp': run_meta.get('timestamp'),
-    }
-
-
 def write_outputs(
     output_path: str,
     best_prompt: str,
@@ -100,14 +89,15 @@ def write_outputs(
     run_meta: dict[str, Any],
     evaluation_time_s: float,
     total_cost_usd: float,
+    manifest: dict[str, Any],
 ) -> dict[str, str]:
     frontier = pareto_frontier(variant_results)
-    manifest = build_manifest(run_meta, golden_meta, best)
     all_per_query: list[dict[str, Any]] = []
     for variant in variant_results:
         all_per_query.extend(variant.get('per_query') or [])
 
     summary = {
+        'results_schema_version': RESULTS_SCHEMA_VERSION,
         'metadata': run_meta,
         'manifest': manifest,
         'golden_dataset': golden_meta,
@@ -126,6 +116,7 @@ def write_outputs(
     }
 
     full = {
+        'results_schema_version': RESULTS_SCHEMA_VERSION,
         'manifest': manifest,
         'per_query': all_per_query,
         'variants': variant_results,
@@ -203,19 +194,38 @@ def main() -> int:
     parser.add_argument('--ci-mode', action='store_true', help='Run CI validation after evaluation')
     args = parser.parse_args()
 
+    reset_config_cache()
     if args.cache_path:
         os.environ['RERANK_CACHE_PATH'] = args.cache_path
     if args.eval_mode:
         os.environ['EVAL_MODE'] = args.eval_mode
+    if not args.output_data_path.startswith('gs://'):
+        os.environ.setdefault('OUT_DIR', args.output_data_path)
+        os.environ.setdefault('STATUS_FILE', os.path.join(args.output_data_path, 'status.json'))
 
-    max_cost = float(os.environ.get('MAX_EST_COST_USD', '0') or '0') or None
-    seed = int(os.environ.get('EVAL_SEED', '42'))
+    cfg = get_config()
+    cfg.apply_to_environ()
+
+    max_cost = cfg.max_est_cost_usd
+    seed = cfg.seed
+    eval_mode = cfg.eval_mode
 
     print('--- Prompt Optimizer (production rerank evaluation) ---')
-    print(f'Model: {args.target_model} | Variants: {args.max_iterations}')
+    print(f'Model: {args.target_model} | Variants: {args.max_iterations} | Mode: {eval_mode}')
+    print(f'Results schema v{cfg.results_schema_version} | Cache schema v{cfg.cache_schema_version}')
     print(f'Input: {args.input_data_path}')
     print(f'Output: {args.output_data_path}')
-    print(f'Cache: {os.environ.get("RERANK_CACHE_PATH", ".rerank_eval_cache.sqlite")}')
+    print(f'Cache: {cfg.cache_path}')
+
+    run_started = time.time()
+    save_status({
+        'status': 'running',
+        'processed_queries': 0,
+        'remaining_queries': 0,
+        'total_queries': 0,
+        'current_variant': None,
+        'started': run_started,
+    })
 
     t0 = time.perf_counter()
     records, raw_text = load_records(args.input_data_path)
@@ -225,9 +235,11 @@ def main() -> int:
 
     golden_meta = golden_dataset_meta(path=args.input_data_path, records=records, raw_text=raw_text)
     golden_meta['candidate_fingerprint'] = records_fingerprint(records)
+    if cfg.golden_version:
+        golden_meta['version'] = cfg.golden_version
 
-    cache = PersistentCache()
-    eval_mode = os.environ.get('EVAL_MODE', 'sync').lower()
+    cache = PersistentCache(db_path=cfg.cache_path)
+    eval_mode = cfg.eval_mode
     if eval_mode == 'async' and os.environ.get('LEGAL_RERANK_EVAL_URL'):
         from async_rerank_client import AsyncRerankClient
 
@@ -242,8 +254,18 @@ def main() -> int:
         seed=seed,
         target_model=args.target_model,
         reranker_version=client.reranker_version,
-        engine=client.mode,
+        engine=getattr(client, 'mode', eval_mode),
         golden_meta=golden_meta,
+    )
+    run_meta['results_schema_version'] = cfg.results_schema_version
+    run_meta['cache_schema_version'] = cfg.cache_schema_version
+
+    update_run_status(
+        status='running',
+        current_variant='pending',
+        processed_queries=0,
+        total_queries=len(records) * args.max_iterations,
+        started=run_started,
     )
 
     variant_results: list[dict[str, Any]] = []
@@ -266,8 +288,17 @@ def main() -> int:
         )
         variant_results.append(result)
 
+        update_run_status(
+            status='running',
+            current_variant=variant_id,
+            processed_queries=result.get('n_evaluated', 0),
+            total_queries=len(records),
+            started=run_started,
+            extra={'variants_done': len(variant_results), 'degraded': result.get('degraded', False)},
+        )
+
         ci = result.get('confidence_intervals', {}).get('ndcg10') or result.get('confidence_intervals', {}).get(
-            f"ndcg{os.environ.get('EVAL_NDCG_K', '10')}"
+            f'ndcg{cfg.eval_ndcg_k}'
         )
         ci_str = f"{ci['mean']:.3f}+/-{(ci['upper']-ci['lower'])/2:.3f}" if ci else 'n/a'
         print(
@@ -293,6 +324,13 @@ def main() -> int:
     best_prompt = next(t for vid, t in variants if vid == best['variant_id'])
     total_cost = sum(r.get('est_cost_usd', 0) for r in variant_results)
     eval_time = time.perf_counter() - t0
+    manifest = build_manifest(
+        cfg=cfg,
+        golden_meta=golden_meta,
+        best=best,
+        reranker_version=client.reranker_version,
+        engine=getattr(client, 'mode', eval_mode),
+    )
 
     print(f"\nWinner: {best['variant_id']} (ndcg={best['mean_ndcg']:.4f}, pareto frontier)")
     written = write_outputs(
@@ -306,7 +344,18 @@ def main() -> int:
         run_meta,
         eval_time,
         total_cost,
+        manifest,
     )
+    save_status({
+        'status': 'completed',
+        'processed_queries': len(records) * len(variant_results),
+        'remaining_queries': 0,
+        'total_queries': len(records) * args.max_iterations,
+        'current_variant': best['variant_id'],
+        'winner': best['variant_id'],
+        'started': run_started,
+        'evaluation_time_s': round(eval_time, 2),
+    })
     for name, path in written.items():
         print(f'{name} -> {path}')
 

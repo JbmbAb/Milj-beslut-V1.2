@@ -283,6 +283,7 @@ class RerankClient:
                     tokens_out=out_tok,
                     cost_usd=result.token_cost,
                     engine=engine,
+                    prompt_version=os.environ.get('PROMPT_VERSION', '1'),
                 )
                 return result
             except Exception as err:

@@ -182,5 +182,6 @@ class AsyncRerankClient:
             tokens_out=out_tok,
             cost_usd=result.token_cost,
             engine=self.mode,
+            prompt_version=os.environ.get('PROMPT_VERSION', '1'),
         )
         return result

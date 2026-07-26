@@ -10,6 +10,8 @@ import sys
 import time
 from typing import Any
 
+from config import get_config
+
 
 def sha256_text(text: str) -> str:
     return hashlib.sha256(text.encode('utf-8')).hexdigest()
@@ -33,9 +35,9 @@ def golden_dataset_meta(
     if content_hash is None and os.path.isfile(path):
         content_hash = sha256_file(path)
 
-    version = os.environ.get('GOLDEN_DATASET_VERSION', 'v1')
-    split = os.environ.get('GOLDEN_DATASET_SPLIT', 'validation')
-    created = os.environ.get('GOLDEN_DATASET_CREATED', '')
+    version = get_config().golden_version or os.environ.get('GOLDEN_DATASET_VERSION', 'v1')
+    split = get_config().golden_split
+    created = get_config().golden_created or os.environ.get('GOLDEN_DATASET_CREATED', '')
 
     return {
         'version': version,
@@ -55,23 +57,26 @@ def run_metadata(
     engine: str,
     golden_meta: dict[str, Any],
 ) -> dict[str, Any]:
+    cfg = get_config()
     return {
         'python_version': platform.python_version(),
         'platform': platform.platform(),
-        'prompt_version': os.environ.get('PROMPT_VERSION', '1'),
-        'git_commit': os.environ.get('GIT_COMMIT', os.environ.get('SHORT_SHA', 'unknown')),
-        'container_digest': os.environ.get('CONTAINER_DIGEST', os.environ.get('IMAGE_URI', 'unknown')),
+        'prompt_version': cfg.prompt_version,
+        'git_commit': cfg.git_commit or os.environ.get('GIT_COMMIT', os.environ.get('SHORT_SHA', 'unknown')),
+        'container_digest': cfg.container_digest or cfg.image_uri or os.environ.get('CONTAINER_DIGEST', 'unknown'),
         'seed': seed,
         'target_model': target_model,
         'reranker_version': reranker_version,
         'engine': engine,
         'golden_dataset': golden_meta,
         'timestamp': time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime()),
-        'eval_ndcg_k': int(os.environ.get('EVAL_NDCG_K', '10')),
-        'max_concurrent_queries': int(os.environ.get('MAX_CONCURRENT_QUERIES', '8')),
-        'max_requests_per_minute': int(os.environ.get('MAX_REQUESTS_PER_MINUTE', '120')),
-        'max_tokens_per_minute': int(os.environ.get('MAX_TOKENS_PER_MINUTE', '400000')),
-        'cache_path': os.environ.get('RERANK_CACHE_PATH', ''),
+        'eval_ndcg_k': cfg.eval_ndcg_k,
+        'max_concurrent_queries': cfg.max_workers,
+        'max_requests_per_minute': cfg.requests_per_min,
+        'max_tokens_per_minute': cfg.tokens_per_min,
+        'cache_path': cfg.cache_path,
+        'results_schema_version': cfg.results_schema_version,
+        'cache_schema_version': cfg.cache_schema_version,
     }
 
 
