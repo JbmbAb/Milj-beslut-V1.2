@@ -65,6 +65,8 @@ pwsh scripts/ops/verify-prod.ps1
 
 GCP pilot (manuellt): GitHub Actions → **Deploy – Google Cloud Run** → Run workflow.
 
+**Fas 2:** [local-prod-fas2.md](local-prod-fas2.md) — archive audit, schemalagd backup.
+
 ---
 
 ## Relaterade dokument

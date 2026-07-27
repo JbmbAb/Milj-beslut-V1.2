@@ -58,10 +58,14 @@ $NotApplicableSecrets = @(
 )
 
 function Test-PlaceholderSecret {
-  param([string]$Value)
+  param([string]$Value, [string]$Name = "")
   if ([string]::IsNullOrWhiteSpace($Value)) { return $true }
-  if ($Value.Length -eq 64 -and $Value -match '^[0-9a-f]{64}$') { return $true }
   if ($Value -eq "placeholder") { return $true }
+  # JWT ska vara 64 hex — korrekt format efter rotate-prod-secrets, inte bootstrap-placeholder
+  if ($Name -in @("JWT_ACCESS_SECRET", "JWT_REFRESH_SECRET") -and $Value.Length -eq 64 -and $Value -match '^[0-9a-f]{64}$') {
+    return $false
+  }
+  if ($Value.Length -eq 64 -and $Value -match '^[0-9a-f]{64}$') { return $true }
   return $false
 }
 
@@ -72,7 +76,7 @@ function Get-SecretStatus {
     if (-not $value) {
       return @{ Status = "MISSING"; IsPlaceholder = $true; Length = 0 }
     }
-    $isPlaceholder = Test-PlaceholderSecret $value
+    $isPlaceholder = Test-PlaceholderSecret $value $name
     $status = if ($isPlaceholder) { "PLACEHOLDER" } else { "OK" }
     return @{ Status = $status; IsPlaceholder = $isPlaceholder; Length = $value.Length }
   } catch {

@@ -16,11 +16,10 @@ GCP förblir pilot; denna fas rör **inte** molndrift eller datamigrering.
 
 ### Kör på prod-värd (du)
 
-- [ ] `.env.production` från [`.env.production.example`](../.env.production.example)
-- [ ] `pwsh scripts/ops/rotate-prod-secrets.ps1` — JWT 64 hex
-- [ ] Master Archive mount (`IMPORT_ARCHIVE_HOST_PATH` → canonical path)
-- [ ] `pwsh scripts/ops/backup-prod-db.ps1` — daglig rutin
-- [ ] `pwsh scripts/ops/verify-prod.ps1` — efter varje deploy/omstart
+- [x] `.env.production` + JWT-rotering (`rotate-prod-secrets.ps1`)
+- [x] `verify-prod.ps1` + minst en backup
+- [ ] `.env` från `.env.compose.example` (archive mount i compose)
+- [ ] Schemalagd backup (`register-prod-backup-task.ps1`)
 - [ ] (Valfritt) Caddy TLS — [deploy/local/README.md](../../deploy/local/README.md)
 
 ---
@@ -75,9 +74,6 @@ RPO ≤ 24h, RTO ≤ 8h enligt [operations-readiness-pack.md](../qa/operations-r
 
 ---
 
-## Nästa fas (ej Fas 1)
+## Nästa fas
 
-- Dedikerad Linux-server + systemd
-- BankID när avtal finns
-- Trafikverket-token lokalt
-- Harvesting audit (0 % checksum_missing)
+→ [local-prod-fas2.md](local-prod-fas2.md) — archive audit, schemalagd backup, GCP-sync
