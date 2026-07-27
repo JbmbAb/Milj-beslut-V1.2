@@ -16,6 +16,18 @@ param(
 
 $ErrorActionPreference = "Stop"
 
+# Fail fast if gcloud auth is expired (otherwise every secret looks MISSING)
+$authProbe = gcloud secrets list --project=$ProjectId --limit=1 --format="value(name)" 2>&1 | Out-String
+if ($LASTEXITCODE -ne 0) {
+  Write-Host "GCP auth/projektfel — kan inte läsa Secret Manager."
+  if ($authProbe -match 'Reauthentication failed|auth login|not authenticated') {
+    Write-Host "Kör: gcloud auth login"
+  } else {
+    Write-Host $authProbe.Trim()
+  }
+  exit 2
+}
+
 $RequiredSecrets = @(
   "DATABASE_URL",
   "JWT_ACCESS_SECRET",
