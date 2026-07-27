@@ -138,8 +138,8 @@ jobs:
             --platform=managed \
             --service-account=${{ env.RUNTIME_SA }}@${{ env.PROJECT_ID }}.iam.gserviceaccount.com \
             --add-cloudsql-instances=${{ env.CLOUDSQL_INSTANCE }} \
-            --update-secrets="DATABASE_URL=DATABASE_URL:latest,JWT_ACCESS_SECRET=JWT_ACCESS_SECRET:latest,JWT_REFRESH_SECRET=JWT_REFRESH_SECRET:latest,GEMINI_API_KEY=GEMINI_API_KEY:latest,OPENAI_API_KEY=OPENAI_API_KEY:latest,SEARCH_ENCRYPTION_KEY_BASE64=SEARCH_ENCRYPTION_KEY_BASE64:latest,ADMIN_CONSOLE_PASSWORD=ADMIN_CONSOLE_PASSWORD:latest,BANKID_PFX_PASSPHRASE=BANKID_PFX_PASSPHRASE:latest,BANKID_PFX_CONTENT=BANKID_PFX_CONTENT:latest,LANTMATERIET_API_KEY=LANTMATERIET_API_KEY:latest,LANTMATERIET_CONSUMER_KEY=LANTMATERIET_CONSUMER_KEY:latest,LANTMATERIET_CONSUMER_SECRET=LANTMATERIET_CONSUMER_SECRET:latest,LANTMATERIET_OPEN_SUBSCRIPTION_KEY=LANTMATERIET_OPEN_SUBSCRIPTION_KEY:latest,SLU_API_KEY=SLU_API_KEY:latest,TRAFIKVERKET_API_KEY=TRAFIKVERKET_API_KEY:latest,VISS_API_KEY=VISS_API_KEY:latest" \
-            --set-env-vars="NODE_ENV=production,START_WORKERS_IN_PROCESS=false,LANTMATERIET_BASE_URL=https://api.lantmateriet.se/ogc-features/v1,LANTMATERIET_OPEN_MODE=true,SLU_API_BASE_URL=https://api.slu.se,CORS_ALLOW_ORIGINS=${{ vars.GCP_CORS_ORIGINS }},VERTEX_PROJECT_ID=${{ secrets.GCP_PROJECT_ID }},VERTEX_LOCATION=${{ vars.GCP_REGION || 'europe-west1' }}" \
+            --update-secrets="DATABASE_URL=DATABASE_URL:latest,JWT_ACCESS_SECRET=JWT_ACCESS_SECRET:latest,JWT_REFRESH_SECRET=JWT_REFRESH_SECRET:latest,GEMINI_API_KEY=GEMINI_API_KEY:latest,OPENAI_API_KEY=OPENAI_API_KEY:latest,SEARCH_ENCRYPTION_KEY_BASE64=SEARCH_ENCRYPTION_KEY_BASE64:latest,QUERY_HASH_SALT=QUERY_HASH_SALT:latest,ADMIN_CONSOLE_PASSWORD=ADMIN_CONSOLE_PASSWORD:latest,BANKID_PFX_PASSPHRASE=BANKID_PFX_PASSPHRASE:latest,BANKID_PFX_CONTENT=BANKID_PFX_CONTENT:latest,LANTMATERIET_API_KEY=LANTMATERIET_API_KEY:latest,LANTMATERIET_CONSUMER_KEY=LANTMATERIET_CONSUMER_KEY:latest,LANTMATERIET_CONSUMER_SECRET=LANTMATERIET_CONSUMER_SECRET:latest,LANTMATERIET_OPEN_SUBSCRIPTION_KEY=LANTMATERIET_OPEN_SUBSCRIPTION_KEY:latest,SLU_API_KEY=SLU_API_KEY:latest,TRAFIKVERKET_API_KEY=TRAFIKVERKET_API_KEY:latest,VISS_API_KEY=VISS_API_KEY:latest" \
+            --set-env-vars="NODE_ENV=production,START_WORKERS_IN_PROCESS=false,ADMIN_CONSOLE_USERNAME=admin,LANTMATERIET_BASE_URL=https://api.lantmateriet.se/ogc-features/v1,LANTMATERIET_OPEN_MODE=true,SLU_API_BASE_URL=https://api.slu.se,CORS_ALLOW_ORIGINS=${{ vars.GCP_CORS_ORIGINS }},VERTEX_PROJECT_ID=${{ secrets.GCP_PROJECT_ID }},VERTEX_LOCATION=${{ vars.GCP_REGION || 'europe-west1' }},QUERY_HASH_SALT_VERSION=v1,LEGAL_RERANKER=on,LEGAL_RERANKER_RELATIVE_GAP=0.15" \
             --no-allow-unauthenticated \
             --format="value(status.url)")
           echo "DEPLOYED_SERVICE_URL=$SERVICE_URL" >> "$GITHUB_ENV"
@@ -174,7 +174,14 @@ jobs:
 
             if [ "$STATUS" = "200" ]; then
               echo "Hälsokontroll OK (HTTP $STATUS, försök $attempt)"
-              exit 0
+              READY_STATUS=$(curl -s -o /dev/null -w "%{http_code}" \
+                -H "Authorization: Bearer $TOKEN" \
+                "$SERVICE_URL/ready" || echo "000")
+              if [ "$READY_STATUS" = "200" ]; then
+                echo "Readiness OK (HTTP $READY_STATUS)"
+                exit 0
+              fi
+              echo "Readiness HTTP $READY_STATUS – fortsätter vänta..."
             fi
 
             echo "Försök $attempt/12: HTTP $STATUS – väntar 10s..."
