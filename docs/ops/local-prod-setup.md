@@ -2,7 +2,7 @@
 
 **Beslut:** Alternativ A (dual-track). **Primär prod** = egen server. GCP = staging/pilot/demo.
 
-Full spec: [dual-track-a.md](dual-track-a.md) · Relaterat: [local-first-gcp-optional.md](local-first-gcp-optional.md)
+Full spec: [dual-track-a.md](dual-track-a.md) · Fas 1: [local-prod-fas1.md](local-prod-fas1.md) · Relaterat: [local-first-gcp-optional.md](local-first-gcp-optional.md)
 
 ---
 
@@ -32,6 +32,8 @@ docker compose -f docker-compose.prod.yml exec app npx tsx scripts/db/spatial-bo
 curl http://localhost:8080/health
 curl http://localhost:8080/ready
 ```
+
+Operativa scripts (backup, JWT-rotering, verify): [scripts/ops/README.md](../../scripts/ops/README.md) · [local-prod-fas1.md](local-prod-fas1.md)
 
 ---
 

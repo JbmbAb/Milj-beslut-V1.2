@@ -1,0 +1,13 @@
+# Lokal TLS reverse proxy — Dual-track A (primär prod på egen server)
+#
+# Dev/prod-app körs på http://127.0.0.1:8080 (docker-compose.prod.yml)
+# Caddy terminierar TLS och proxar trafik.
+
+localhost {
+	reverse_proxy 127.0.0.1:8080
+}
+
+# När DNS pekar på denna maskin — avkommentera och ersätt domän:
+# miljobeslut.se {
+# 	reverse_proxy 127.0.0.1:8080
+# }

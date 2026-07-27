@@ -139,6 +139,7 @@ public/tiles/
 backup_pre_migration.sql
 backup-*.sql
 backup-.sql
+backups/prod/
 
 # Lokala PostgreSQL-datafiler / runtime-datadir (ej källkod)
 Database/

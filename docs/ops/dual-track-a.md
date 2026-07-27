@@ -55,11 +55,12 @@ Audit: `pwsh scripts/gcp/audit-secrets.ps1`
 
 ## Snabbstart lokal prod
 
-Se [local-prod-setup.md](local-prod-setup.md):
+Se [local-prod-setup.md](local-prod-setup.md) och **Fas 1-hårdning:** [local-prod-fas1.md](local-prod-fas1.md)
 
 ```powershell
 docker compose -f docker-compose.prod.yml up -d --build
 # http://localhost:8080
+pwsh scripts/ops/verify-prod.ps1
 ```
 
 GCP pilot (manuellt): GitHub Actions → **Deploy – Google Cloud Run** → Run workflow.

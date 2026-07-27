@@ -19,6 +19,7 @@ services:
       NODE_ENV: production
       PORT: '3000'
       DATABASE_URL: postgresql://miljobeslut:password@db:5432/miljobeslut_prod?sslmode=disable
+      BACKUP_DIR: /app/storage/backups
       SEARCH_WORKER_ENABLED: 'true'
       GDPR_CRON_IN_PROCESS: 'true'
       START_WORKERS_IN_PROCESS: 'true'
@@ -47,6 +48,7 @@ services:
       - '5434:5432'
     volumes:
       - pgdata_prod:/var/lib/postgresql/data
+      - ./backups/prod:/backups
     healthcheck:
       test: ['CMD-SHELL', 'pg_isready -U miljobeslut -d miljobeslut_prod']
       interval: 10s
