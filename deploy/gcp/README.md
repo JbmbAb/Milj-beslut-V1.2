@@ -93,7 +93,7 @@ gcloud sql users create miljobeslut --instance=miljobeslut-db --password="$DB_PA
 # Skapa DATABASE_URL med Cloud SQL Unix-socket
 # Läs lösenordet säkert från stdin för att undvika shell-historik
 read -s -p "Databaslösenord: " DB_PASS && echo
-printf "postgresql://miljobeslut:%s@localhost/miljobeslut_prod?host=/cloudsql/%s:europe-west1:miljobeslut-db" \
+printf "postgresql://miljobeslut:%s@localhost/miljobeslut_prod?host=/cloudsql/%s:europe-west1:miljobeslut-db&sslmode=disable" \
   "$DB_PASS" "$PROJECT_ID" \
   | gcloud secrets create DATABASE_URL --data-file=-
 

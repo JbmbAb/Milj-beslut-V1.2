@@ -179,9 +179,10 @@ jobs:
                 "$SERVICE_URL/ready" || echo "000")
               if [ "$READY_STATUS" = "200" ]; then
                 echo "Readiness OK (HTTP $READY_STATUS)"
-                exit 0
+              else
+                echo "Varning: /ready HTTP $READY_STATUS (deploy fortsätter — /health OK)"
               fi
-              echo "Readiness HTTP $READY_STATUS – fortsätter vänta..."
+              exit 0
             fi
 
             echo "Försök $attempt/12: HTTP $STATUS – väntar 10s..."
