@@ -28,9 +28,9 @@ docker compose -f docker-compose.prod.yml up -d --build
 docker compose -f docker-compose.prod.yml exec app npx prisma migrate deploy
 docker compose -f docker-compose.prod.yml exec app npx tsx scripts/db/spatial-bootstrap.ts
 
-# 4. Verifiera
-curl http://localhost:3000/health
-curl http://localhost:3000/ready
+# 4. Verifiera (app på 8080 om port 3000 upptagen av Vite dev)
+curl http://localhost:8080/health
+curl http://localhost:8080/ready
 ```
 
 ---
@@ -80,5 +80,7 @@ START_WORKERS_IN_PROCESS=true
 | Symptom | Åtgärd |
 |---------|--------|
 | `/ready` database error | Kör `prisma migrate deploy`; kontrollera `DATABASE_URL` |
+| `extension "vector" is not available` | Bygg om db-image (`docker compose -f docker-compose.prod.yml build db`); prod-Postgres inkluderar pgvector via `docker/postgres-prod` |
+| Port 3000 upptagen | Prod-app lyssnar på **8080**; Postgres på **5434** (se `docker-compose.prod.yml`) |
 | Saknar geo-data | Kontrollera `IMPORT_ARCHIVE_ROOT` mount och harvesting-manifest |
 | Vertex fel | `gcloud auth application-default login` eller service account JSON |

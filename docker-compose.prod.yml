@@ -6,12 +6,13 @@ services:
   app:
     build:
       context: .
+      dockerfile: Dockerfile.gcp
       target: production
     image: miljobeslut-portal:latest
     container_name: miljobeslut-app
     restart: unless-stopped
     ports:
-      - '3000:3000'
+      - '8080:3000'
     env_file:
       - .env.production
     environment:
@@ -21,6 +22,9 @@ services:
       SEARCH_WORKER_ENABLED: 'true'
       GDPR_CRON_IN_PROCESS: 'true'
       START_WORKERS_IN_PROCESS: 'true'
+      LANTMATERIET_BASE_URL: https://api.lantmateriet.se/ogc-features/v1
+      LANTMATERIET_OPEN_MODE: 'true'
+      SLU_API_BASE_URL: https://api.slu.se
     volumes:
       # Master Archive — justera host-path (Mimers Brunn canonical)
       - ${IMPORT_ARCHIVE_HOST_PATH:-./storage}:/data/geo_master:ro
@@ -32,7 +36,10 @@ services:
       - prod-net
 
   db:
-    image: postgis/postgis:15-3.3
+    build:
+      context: ./docker/postgres-prod
+      dockerfile: Dockerfile
+    image: miljobeslut-postgres-prod:15
     container_name: miljobeslut-db
     restart: unless-stopped
     environment:
@@ -40,7 +47,7 @@ services:
       POSTGRES_PASSWORD: password
       POSTGRES_DB: miljobeslut_prod
     ports:
-      - '5432:5432'
+      - '5434:5432'
     volumes:
       - pgdata_prod:/var/lib/postgresql/data
     healthcheck:
