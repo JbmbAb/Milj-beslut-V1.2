@@ -4,10 +4,10 @@ Denna guide beskriver hur Miljobeslut.se driftsätts på Google Cloud med
 **Cloud Run** (serverless containers), **Cloud SQL for PostgreSQL** (PostGIS + pgvector)
 och **Secret Manager** för hemligheter.
 
-> **Dual-track (beslut 2026-07-27):** GCP är **pilot/demo**, inte primär prod.
-> Primär drift sker på egen server — se [docs/ops/local-prod-setup.md](../../docs/ops/local-prod-setup.md).
-> Auto-deploy från CI kräver GitHub-variabeln `GCP_DEPLOY_ENABLED=true` (default: av).
-> Manuell deploy: GitHub Actions → **Deploy – Google Cloud Run** → Run workflow.
+> **Dual-track A:** GCP är **staging/pilot/demo** — **inte** primär prod.
+> Primär drift: egen server — se [docs/ops/dual-track-a.md](../../docs/ops/dual-track-a.md) och [local-prod-setup.md](../../docs/ops/local-prod-setup.md).
+> Auto-deploy: endast **`staging`-branch** + `STAGING_DEPLOY_ENABLED=true` (default: av).
+> Manuell pilot: GitHub Actions → **Deploy – Google Cloud Run** → Run workflow.
 
 ## Arkitekturöversikt
 

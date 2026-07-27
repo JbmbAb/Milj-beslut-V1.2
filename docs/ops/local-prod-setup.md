@@ -1,8 +1,8 @@
 # Lokal prod — egen server (primär drift)
 
-**Beslut:** Alternativ A (dual-track). Denna miljö är **primär prod**; GCP Cloud Run är pilot.
+**Beslut:** Alternativ A (dual-track). **Primär prod** = egen server. GCP = staging/pilot/demo.
 
-Relaterat: [local-first-gcp-optional.md](local-first-gcp-optional.md), [postgis-docker-drift.md](postgis-docker-drift.md).
+Full spec: [dual-track-a.md](dual-track-a.md) · Relaterat: [local-first-gcp-optional.md](local-first-gcp-optional.md)
 
 ---
 
@@ -67,10 +67,11 @@ START_WORKERS_IN_PROCESS=true
 
 ---
 
-## GCP pilot (parallell)
+## GCP pilot (parallell — inte primär prod)
 
-- Auto-deploy till Cloud Run är **av** (`GCP_DEPLOY_ENABLED=false`)
-- Manuell GCP-deploy: GitHub Actions → Deploy – Google Cloud Run
+- **main** triggar **inte** GCP-deploy
+- Auto-deploy till Cloud Run: endast **`staging`-branch** + `STAGING_DEPLOY_ENABLED=true` (default: av)
+- Manuell pilot-deploy: GitHub Actions → Deploy – Google Cloud Run → `workflow_dispatch`
 - Synka hemligheter till Secret Manager vid behov: `scripts/gcp/sync-secrets-from-env.ps1 -SkipDatabaseUrl`
 - Audit enligt policy: `scripts/gcp/audit-secrets.ps1` (LM = consumer key+secret; Trafikverket token lokalt vid behov; OpenAI/BankID ignoreras)
 

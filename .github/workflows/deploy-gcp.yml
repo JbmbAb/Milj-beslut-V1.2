@@ -1,31 +1,35 @@
 name: Deploy – Google Cloud Run
 
-# Dual-track (beslut 2026-07-27): GCP är pilot/staging — inte auto-prod vid varje merge.
-# Auto-deploy efter CI kräver repo variable `GCP_DEPLOY_ENABLED=true`.
-# Manuell deploy: workflow_dispatch (production | staging).
-# Primär prod-drift: egen server — se docs/ops/local-prod-setup.md
+# Dual-track A (beslut 2026-07-27):
+#   Lokal server = primär prod (Master Archive, PostGIS, domänlogik)
+#   GCP = staging/pilot/demo (Vertex-smoke, CI-validering)
+#
+# Triggers:
+#   - workflow_dispatch (manuell pilot-deploy)
+#   - CI på staging-branch + STAGING_DEPLOY_ENABLED=true
+# main/master triggar INTE GCP-deploy.
+#
+# Se docs/ops/dual-track-a.md och docs/ops/local-prod-setup.md
 
 on:
   workflow_run:
     workflows: [CI]
-    branches: [main, master]
+    branches: [staging]
     types: [completed]
   workflow_dispatch:
     inputs:
       environment:
-        description: Målmiljö
+        description: Målmiljö (GCP pilot — inte primär prod)
         required: true
-        default: production
+        default: staging
         type: choice
-        options: [production, staging]
+        options: [staging, production]
 
-# Förhindra parallella deployments till samma miljö
 concurrency:
-  group: deploy-gcp-${{ github.event.inputs.environment || 'production' }}
+  group: deploy-gcp-${{ github.event.inputs.environment || 'staging' }}
   cancel-in-progress: false
 
 jobs:
-  # ── 1. Stoppa om CI inte gick igenom ──────────────────────────────────────
   guard:
     name: Gate on CI success
     runs-on: ubuntu-latest
@@ -34,23 +38,22 @@ jobs:
       github.event_name == 'workflow_dispatch' ||
       github.event.workflow_run.conclusion == 'success'
     steps:
-      - run: echo "CI passed – fortsätter med GCP-deploy"
+      - run: echo "CI passed – fortsätter med GCP pilot-deploy"
 
-  # ── 2. Bygg, pusha och deploya ────────────────────────────────────────────
   deploy-gcp:
     name: Deploy to Cloud Run
     runs-on: ubuntu-latest
     needs: guard
-    # Kör bara när GCP pilot är aktiverat (repo variable) eller manuellt.
+    # Manuell deploy alltid; auto endast staging-branch + gate.
     if: >
       github.event_name == 'workflow_dispatch' ||
-      vars.GCP_DEPLOY_ENABLED == 'true'
+      vars.STAGING_DEPLOY_ENABLED == 'true'
     permissions:
       contents: read
-      id-token: write # Krävs för Workload Identity Federation
-      actions: write # Krävs för gh variable set GCP_SERVICE_URL
+      id-token: write
+      actions: write
     environment:
-      name: ${{ github.event.inputs.environment || 'production' }}
+      name: ${{ github.event.inputs.environment || 'staging' }}
       url: ${{ vars.GCP_SERVICE_URL }}
 
     env:
@@ -58,15 +61,15 @@ jobs:
       REGION: ${{ vars.GCP_REGION || 'europe-west1' }}
       SERVICE: ${{ vars.GCP_SERVICE_NAME || 'miljobeslut' }}
       REPO: ${{ vars.GCP_ARTIFACT_REPO || 'miljobeslut' }}
-      # Connection name: PROJECT:REGION:INSTANCE (repo variable eller secret)
       CLOUDSQL_INSTANCE: ${{ vars.GCP_CLOUDSQL_INSTANCE || secrets.GCP_CLOUDSQL_INSTANCE }}
       MIGRATE_JOB: ${{ vars.GCP_MIGRATE_JOB_NAME || 'miljobeslut-migrate' }}
       RUNTIME_SA: ${{ vars.GCP_RUNTIME_SERVICE_ACCOUNT || 'mil-beslut' }}
 
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.workflow_run.head_sha || github.sha }}
 
-      # ── Autentisera mot GCP via Workload Identity Federation ──────────────
       - name: Authenticate to Google Cloud
         id: auth
         uses: google-github-actions/auth@v2
@@ -77,11 +80,9 @@ jobs:
       - name: Set up Cloud SDK
         uses: google-github-actions/setup-gcloud@v2
 
-      # ── Konfigurera Docker för Artifact Registry ──────────────────────────
       - name: Configure Docker for Artifact Registry
         run: gcloud auth configure-docker ${{ env.REGION }}-docker.pkg.dev --quiet
 
-      # ── Bygg Docker-image ─────────────────────────────────────────────────
       - name: Build Docker image
         run: |
           docker build \
@@ -92,14 +93,11 @@ jobs:
             --tag ${{ env.REGION }}-docker.pkg.dev/${{ env.PROJECT_ID }}/${{ env.REPO }}/${{ env.SERVICE }}:latest \
             .
 
-      # ── Pusha till Artifact Registry ──────────────────────────────────────
       - name: Push to Artifact Registry
         run: |
           docker push --all-tags \
             ${{ env.REGION }}-docker.pkg.dev/${{ env.PROJECT_ID }}/${{ env.REPO }}/${{ env.SERVICE }}
 
-      # ── Kör Prisma migrate via Cloud Run Job (Cloud SQL socket + Secret Manager) ─
-      # DATABASE_URL läses från GCP Secret Manager – ingen GitHub-secret behövs.
       - name: Run Prisma migrate (Cloud Run Job)
         run: |
           set -euo pipefail
@@ -137,7 +135,6 @@ jobs:
 
           gcloud run jobs execute "$MIGRATE_JOB" --region="$REGION" --wait
 
-      # ── Deploya till Cloud Run ────────────────────────────────────────────
       - name: Deploy to Cloud Run
         id: deploy
         run: |
@@ -154,7 +151,6 @@ jobs:
           echo "DEPLOYED_SERVICE_URL=$SERVICE_URL" >> "$GITHUB_ENV"
           echo "Cloud Run URL: $SERVICE_URL"
 
-      # ── Hälsokontroll (WIF kräver ID-token med Cloud Run-URL som audience) ─
       - name: Get Cloud Run ID token
         id: cloud-run-id-token
         if: env.DEPLOYED_SERVICE_URL != '' || vars.GCP_SERVICE_URL != ''
@@ -208,7 +204,6 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
 
-      # ── Rulla tillbaka om deploy misslyckas ───────────────────────────────
       - name: Rollback on failure
         if: failure() && steps.deploy.outcome == 'failure'
         run: |

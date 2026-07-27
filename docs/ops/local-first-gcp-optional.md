@@ -110,12 +110,12 @@ QUERY_HASH_SALT_VERSION=v1
 # IMPORT_ARCHIVE_ROOT=H:\Delade enheter\Miljöbeslut\GEO_Master_Archive
 ```
 
-### GCP pilot (Cloud Run — inte primär prod)
+### GCP pilot (Cloud Run — staging/demo, inte primär prod)
 
-Se [DEPLOY_GCP.md](../deploy/DEPLOY_GCP.md) och [GCP_P2_PLATFORM.md](../deploy/GCP_P2_PLATFORM.md).
+Se [dual-track-a.md](dual-track-a.md), [DEPLOY_GCP.md](../deploy/DEPLOY_GCP.md) och [GCP_P2_PLATFORM.md](../deploy/GCP_P2_PLATFORM.md).
 
-Auto-deploy efter CI är **inaktiverat** som standard (`GCP_DEPLOY_ENABLED=false`).
-Aktivera endast tillfälligt eller kör manuellt via GitHub Actions → Deploy – Google Cloud Run.
+Auto-deploy efter CI på **`staging`-branch** kräver `STAGING_DEPLOY_ENABLED=true` (default: av).
+**`main` deployeras inte till GCP.** Manuell pilot: GitHub Actions → Deploy – Google Cloud Run.
 
 ```env
 DATABASE_URL=postgresql://...@/miljobeslut?host=/cloudsql/PROJECT:europe-west1:miljobeslut-db&sslmode=disable
@@ -258,7 +258,7 @@ Detaljer: se diskussion i team — hybrid (lokal compute + Vertex) är avsedd mo
 | Datum | Beslut |
 |-------|--------|
 | 2026-07-26 | Lokalt först (egen server + Docker). GCP kvar som valfri deploy-target. Master Archive stannar lokalt. Vertex AI gemensam molntjänst. |
-| 2026-07-27 | **Alternativ A (dual-track):** Primär prod = egen server (`docker-compose.prod.yml`). GCP Cloud Run = pilot/demo/Vertex-smoke. Auto-deploy till GCP **av** (`GCP_DEPLOY_ENABLED=false`); manuell deploy via `workflow_dispatch`. Se [local-prod-setup.md](local-prod-setup.md). |
+| 2026-07-27 | **Alternativ A (dual-track):** Primär prod = egen server. GCP = staging/pilot. Auto-deploy GCP endast `staging`-branch + `STAGING_DEPLOY_ENABLED=true`; `main` triggar inte GCP. Se [dual-track-a.md](dual-track-a.md). |
 
 ---
 
@@ -269,6 +269,7 @@ Detaljer: se diskussion i team — hybrid (lokal compute + Vertex) är avsedd mo
 | [docker-compose.staging.yml](../../docker-compose.staging.yml) | Lokal staging |
 | [docker-compose.prod.yml](../../docker-compose.prod.yml) | Lokal prod |
 | [.env.production.example](../../.env.production.example) | Mall lokal prod |
+| [dual-track-a.md](dual-track-a.md) | Beslut och deploy-regler (primär vs GCP) |
 | [local-prod-setup.md](local-prod-setup.md) | Startguide egen server |
 | [scripts/gcp/](../../scripts/gcp/) | Secret audit + sync till GCP pilot |
 | [.env.example](../../.env.example) | Alla env-variabler |
