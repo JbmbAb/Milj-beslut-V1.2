@@ -1,5 +1,10 @@
 name: Deploy – Google Cloud Run
 
+# Dual-track (beslut 2026-07-27): GCP är pilot/staging — inte auto-prod vid varje merge.
+# Auto-deploy efter CI kräver repo variable `GCP_DEPLOY_ENABLED=true`.
+# Manuell deploy: workflow_dispatch (production | staging).
+# Primär prod-drift: egen server — se docs/ops/local-prod-setup.md
+
 on:
   workflow_run:
     workflows: [CI]
@@ -36,6 +41,10 @@ jobs:
     name: Deploy to Cloud Run
     runs-on: ubuntu-latest
     needs: guard
+    # Kör bara när GCP pilot är aktiverat (repo variable) eller manuellt.
+    if: >
+      github.event_name == 'workflow_dispatch' ||
+      vars.GCP_DEPLOY_ENABLED == 'true'
     permissions:
       contents: read
       id-token: write # Krävs för Workload Identity Federation
@@ -139,7 +148,7 @@ jobs:
             --service-account=${{ env.RUNTIME_SA }}@${{ env.PROJECT_ID }}.iam.gserviceaccount.com \
             --add-cloudsql-instances=${{ env.CLOUDSQL_INSTANCE }} \
             --update-secrets="DATABASE_URL=DATABASE_URL:latest,JWT_ACCESS_SECRET=JWT_ACCESS_SECRET:latest,JWT_REFRESH_SECRET=JWT_REFRESH_SECRET:latest,GEMINI_API_KEY=GEMINI_API_KEY:latest,OPENAI_API_KEY=OPENAI_API_KEY:latest,SEARCH_ENCRYPTION_KEY_BASE64=SEARCH_ENCRYPTION_KEY_BASE64:latest,QUERY_HASH_SALT=QUERY_HASH_SALT:latest,ADMIN_CONSOLE_PASSWORD=ADMIN_CONSOLE_PASSWORD:latest,BANKID_PFX_PASSPHRASE=BANKID_PFX_PASSPHRASE:latest,BANKID_PFX_CONTENT=BANKID_PFX_CONTENT:latest,LANTMATERIET_API_KEY=LANTMATERIET_API_KEY:latest,LANTMATERIET_CONSUMER_KEY=LANTMATERIET_CONSUMER_KEY:latest,LANTMATERIET_CONSUMER_SECRET=LANTMATERIET_CONSUMER_SECRET:latest,LANTMATERIET_OPEN_SUBSCRIPTION_KEY=LANTMATERIET_OPEN_SUBSCRIPTION_KEY:latest,SLU_API_KEY=SLU_API_KEY:latest,TRAFIKVERKET_API_KEY=TRAFIKVERKET_API_KEY:latest,VISS_API_KEY=VISS_API_KEY:latest" \
-            --set-env-vars="NODE_ENV=production,START_WORKERS_IN_PROCESS=false,ADMIN_CONSOLE_USERNAME=admin,LANTMATERIET_BASE_URL=https://api.lantmateriet.se/ogc-features/v1,LANTMATERIET_OPEN_MODE=true,SLU_API_BASE_URL=https://api.slu.se,CORS_ALLOW_ORIGINS=${{ vars.GCP_CORS_ORIGINS }},VERTEX_PROJECT_ID=${{ secrets.GCP_PROJECT_ID }},VERTEX_LOCATION=${{ vars.GCP_REGION || 'europe-west1' }},QUERY_HASH_SALT_VERSION=v1,LEGAL_RERANKER=on,LEGAL_RERANKER_RELATIVE_GAP=0.15" \
+            --set-env-vars="NODE_ENV=production,START_WORKERS_IN_PROCESS=false,ADMIN_CONSOLE_USERNAME=admin,LANTMATERIET_BASE_URL=https://api.lantmateriet.se/ogc-features/v1,LANTMATERIET_OPEN_MODE=true,SLU_API_BASE_URL=https://api.slu.se,CORS_ALLOW_ORIGINS=${{ vars.GCP_CORS_ORIGINS }},VERTEX_PROJECT_ID=${{ secrets.GCP_PROJECT_ID }},VERTEX_LOCATION=${{ vars.GCP_REGION || 'europe-west1' }},QUERY_HASH_SALT_VERSION=v1,LEGAL_RERANKER=on,LEGAL_RERANKER_RELATIVE_GAP=0.15,GCS_DOCUMENTS_BUCKET=${{ vars.GCP_DOCUMENTS_BUCKET }},GCS_DOCUMENTS_PREFIX=documents" \
             --no-allow-unauthenticated \
             --format="value(status.url)")
           echo "DEPLOYED_SERVICE_URL=$SERVICE_URL" >> "$GITHUB_ENV"

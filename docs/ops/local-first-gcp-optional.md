@@ -110,13 +110,16 @@ QUERY_HASH_SALT_VERSION=v1
 # IMPORT_ARCHIVE_ROOT=H:\Delade enheter\Miljöbeslut\GEO_Master_Archive
 ```
 
-### GCP prod (referens — aktiveras senare)
+### GCP pilot (Cloud Run — inte primär prod)
 
-Se [DEPLOY_GCP.md](../deploy/DEPLOY_GCP.md) och [GCP_P2_PLATFORM.md](../deploy/GCP_P2_PLATFORM.md):
+Se [DEPLOY_GCP.md](../deploy/DEPLOY_GCP.md) och [GCP_P2_PLATFORM.md](../deploy/GCP_P2_PLATFORM.md).
+
+Auto-deploy efter CI är **inaktiverat** som standard (`GCP_DEPLOY_ENABLED=false`).
+Aktivera endast tillfälligt eller kör manuellt via GitHub Actions → Deploy – Google Cloud Run.
 
 ```env
-DATABASE_URL=postgresql://...@/miljobeslut?host=/cloudsql/PROJECT:europe-west1:miljobeslut-db
-GCS_DOCUMENTS_BUCKET=your-project-documents
+DATABASE_URL=postgresql://...@/miljobeslut?host=/cloudsql/PROJECT:europe-west1:miljobeslut-db&sslmode=disable
+GCS_DOCUMENTS_BUCKET=miljobeslut-documents-miljointelligens
 SEARCH_WORKER_ENABLED=false
 GDPR_CRON_IN_PROCESS=false
 START_WORKERS_IN_PROCESS=false
@@ -255,6 +258,7 @@ Detaljer: se diskussion i team — hybrid (lokal compute + Vertex) är avsedd mo
 | Datum | Beslut |
 |-------|--------|
 | 2026-07-26 | Lokalt först (egen server + Docker). GCP kvar som valfri deploy-target. Master Archive stannar lokalt. Vertex AI gemensam molntjänst. |
+| 2026-07-27 | **Alternativ A (dual-track):** Primär prod = egen server (`docker-compose.prod.yml`). GCP Cloud Run = pilot/demo/Vertex-smoke. Auto-deploy till GCP **av** (`GCP_DEPLOY_ENABLED=false`); manuell deploy via `workflow_dispatch`. Se [local-prod-setup.md](local-prod-setup.md). |
 
 ---
 
@@ -264,6 +268,9 @@ Detaljer: se diskussion i team — hybrid (lokal compute + Vertex) är avsedd mo
 |-----|------|
 | [docker-compose.staging.yml](../../docker-compose.staging.yml) | Lokal staging |
 | [docker-compose.prod.yml](../../docker-compose.prod.yml) | Lokal prod |
+| [.env.production.example](../../.env.production.example) | Mall lokal prod |
+| [local-prod-setup.md](local-prod-setup.md) | Startguide egen server |
+| [scripts/gcp/](../../scripts/gcp/) | Secret audit + sync till GCP pilot |
 | [.env.example](../../.env.example) | Alla env-variabler |
 | [cloudbuild.yaml](../../cloudbuild.yaml) | GCP deploy (dormant) |
 | [docs/deploy/DEPLOY_GCP.md](../deploy/DEPLOY_GCP.md) | Aktivera GCP |

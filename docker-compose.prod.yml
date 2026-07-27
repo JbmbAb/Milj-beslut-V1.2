@@ -1,4 +1,6 @@
-version: '3.8'
+version: '3.9'
+
+# Primär prod — egen server (dual-track A). Se docs/ops/local-prod-setup.md
 
 services:
   app:
@@ -10,24 +12,33 @@ services:
     restart: unless-stopped
     ports:
       - '3000:3000'
-    environment:
-      - NODE_ENV=production
-      - DATABASE_URL=postgresql://miljobeslut:password@db:5432/miljobeslut_prod
-      # Resten av miljövariablerna (.env) bör kopplas in via env_file eller direkt
     env_file:
       - .env.production
+    environment:
+      NODE_ENV: production
+      PORT: '3000'
+      DATABASE_URL: postgresql://miljobeslut:password@db:5432/miljobeslut_prod?sslmode=disable
+      SEARCH_WORKER_ENABLED: 'true'
+      GDPR_CRON_IN_PROCESS: 'true'
+      START_WORKERS_IN_PROCESS: 'true'
+    volumes:
+      # Master Archive — justera host-path (Mimers Brunn canonical)
+      - ${IMPORT_ARCHIVE_HOST_PATH:-./storage}:/data/geo_master:ro
+      - uploads_prod:/app/storage/uploads
     depends_on:
       db:
         condition: service_healthy
+    networks:
+      - prod-net
 
   db:
     image: postgis/postgis:15-3.3
     container_name: miljobeslut-db
     restart: unless-stopped
     environment:
-      - POSTGRES_USER=miljobeslut
-      - POSTGRES_PASSWORD=password
-      - POSTGRES_DB=miljobeslut_prod
+      POSTGRES_USER: miljobeslut
+      POSTGRES_PASSWORD: password
+      POSTGRES_DB: miljobeslut_prod
     ports:
       - '5432:5432'
     volumes:
@@ -36,7 +47,14 @@ services:
       test: ['CMD-SHELL', 'pg_isready -U miljobeslut -d miljobeslut_prod']
       interval: 10s
       timeout: 5s
-      retries: 5
+      retries: 10
+    networks:
+      - prod-net
 
 volumes:
   pgdata_prod:
+  uploads_prod:
+
+networks:
+  prod-net:
+    driver: bridge

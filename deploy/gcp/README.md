@@ -4,6 +4,11 @@ Denna guide beskriver hur Miljobeslut.se driftsätts på Google Cloud med
 **Cloud Run** (serverless containers), **Cloud SQL for PostgreSQL** (PostGIS + pgvector)
 och **Secret Manager** för hemligheter.
 
+> **Dual-track (beslut 2026-07-27):** GCP är **pilot/demo**, inte primär prod.
+> Primär drift sker på egen server — se [docs/ops/local-prod-setup.md](../../docs/ops/local-prod-setup.md).
+> Auto-deploy från CI kräver GitHub-variabeln `GCP_DEPLOY_ENABLED=true` (default: av).
+> Manuell deploy: GitHub Actions → **Deploy – Google Cloud Run** → Run workflow.
+
 ## Arkitekturöversikt
 
 ```
@@ -88,6 +93,16 @@ gcloud sql users create miljobeslut --instance=miljobeslut-db --password="$DB_PA
 ---
 
 ## Steg 4 – Lägg hemligheter i Secret Manager
+
+**Audit och sync (dual-track):**
+
+```powershell
+pwsh scripts/gcp/audit-secrets.ps1
+# Efter .env.production är ifylld på egen server:
+pwsh scripts/gcp/sync-secrets-from-env.ps1
+```
+
+Manuell skapande:
 
 ```bash
 # Skapa DATABASE_URL med Cloud SQL Unix-socket

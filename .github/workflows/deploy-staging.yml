@@ -1,6 +1,7 @@
 name: Deploy – Staging (Vercel, valfri)
 
-# OBS: Primär deploy-väg är Google Cloud Run (.github/workflows/deploy-gcp.yml).
+# OBS: Primär prod-drift är egen server (docker-compose.prod.yml) — se docs/ops/local-prod-setup.md.
+# GCP Cloud Run är pilot/staging — auto-deploy kräver `GCP_DEPLOY_ENABLED=true` (.github/workflows/deploy-gcp.yml).
 # Denna workflow är kvar för team som fortfarande använder Vercel preview/staging.
 # Auto-deploy efter CI kräver repo variable `STAGING_DEPLOY_ENABLED=true` plus secrets (STAGING_DATABASE_URL, VERCEL_TOKEN, …).
 # Fullstack (WebSocket, workers, PostGIS) kräver GCP eller docker-compose.staging.yml — se docs/deploy/DEPLOY_GCP.md.
