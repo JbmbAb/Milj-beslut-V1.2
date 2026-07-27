@@ -22,9 +22,6 @@ services:
       SEARCH_WORKER_ENABLED: 'true'
       GDPR_CRON_IN_PROCESS: 'true'
       START_WORKERS_IN_PROCESS: 'true'
-      LANTMATERIET_BASE_URL: https://api.lantmateriet.se/ogc-features/v1
-      LANTMATERIET_OPEN_MODE: 'true'
-      SLU_API_BASE_URL: https://api.slu.se
     volumes:
       # Master Archive — justera host-path (Mimers Brunn canonical)
       - ${IMPORT_ARCHIVE_HOST_PATH:-./storage}:/data/geo_master:ro

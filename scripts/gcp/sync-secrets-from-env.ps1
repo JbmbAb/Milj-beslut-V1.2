@@ -1,36 +1,42 @@
 # Synka hemligheter från .env.production till GCP Secret Manager
 #
+# Policy (2026-07-27):
+#   - Lantmäteriet: CONSUMER_KEY + CONSUMER_SECRET
+#   - Trafikverket: TRAFIKVERKET_API_KEY (lokal token vid behov, ej GCP-krav)
+#   - OpenAI / legacy LM-nycklar / BankID: synkas endast om satt i env-filen
+#
 # Usage:
 #   pwsh scripts/gcp/sync-secrets-from-env.ps1
 #   pwsh scripts/gcp/sync-secrets-from-env.ps1 -EnvFile .env.production -ProjectId miljointelligens -DryRun
+#   pwsh scripts/gcp/sync-secrets-from-env.ps1 -SkipDatabaseUrl
 #
 # Kräver: gcloud auth, Secret Manager admin (eller secretAccessor + versions add)
 
 param(
   [string]$EnvFile = ".env.production",
   [string]$ProjectId = "miljointelligens",
-  [switch]$DryRun
+  [switch]$DryRun,
+  [switch]$SkipDatabaseUrl
 )
 
 $ErrorActionPreference = "Stop"
 
-# Env key → Secret Manager name (1:1 unless noted)
-$SecretMap = @{
+$SecretMap = [ordered]@{
   "DATABASE_URL" = "DATABASE_URL"
   "JWT_ACCESS_SECRET" = "JWT_ACCESS_SECRET"
   "JWT_REFRESH_SECRET" = "JWT_REFRESH_SECRET"
   "GEMINI_API_KEY" = "GEMINI_API_KEY"
-  "OPENAI_API_KEY" = "OPENAI_API_KEY"
   "SEARCH_ENCRYPTION_KEY_BASE64" = "SEARCH_ENCRYPTION_KEY_BASE64"
   "QUERY_HASH_SALT" = "QUERY_HASH_SALT"
   "ADMIN_CONSOLE_PASSWORD" = "ADMIN_CONSOLE_PASSWORD"
-  "LANTMATERIET_API_KEY" = "LANTMATERIET_API_KEY"
   "LANTMATERIET_CONSUMER_KEY" = "LANTMATERIET_CONSUMER_KEY"
   "LANTMATERIET_CONSUMER_SECRET" = "LANTMATERIET_CONSUMER_SECRET"
-  "LANTMATERIET_OPEN_SUBSCRIPTION_KEY" = "LANTMATERIET_OPEN_SUBSCRIPTION_KEY"
   "SLU_API_KEY" = "SLU_API_KEY"
   "TRAFIKVERKET_API_KEY" = "TRAFIKVERKET_API_KEY"
   "VISS_API_KEY" = "VISS_API_KEY"
+  "OPENAI_API_KEY" = "OPENAI_API_KEY"
+  "LANTMATERIET_API_KEY" = "LANTMATERIET_API_KEY"
+  "LANTMATERIET_OPEN_SUBSCRIPTION_KEY" = "LANTMATERIET_OPEN_SUBSCRIPTION_KEY"
   "BANKID_PFX_PASSPHRASE" = "BANKID_PFX_PASSPHRASE"
   "BANKID_PFX_CONTENT" = "BANKID_PFX_CONTENT"
 }
@@ -55,6 +61,13 @@ $skipped = 0
 foreach ($entry in $SecretMap.GetEnumerator()) {
   $envKey = $entry.Key
   $secretName = $entry.Value
+
+  if ($SkipDatabaseUrl -and $envKey -eq "DATABASE_URL") {
+    Write-Host "SKIP $secretName (SkipDatabaseUrl)"
+    $skipped++
+    continue
+  }
+
   if (-not $envVars.ContainsKey($envKey) -or [string]::IsNullOrWhiteSpace($envVars[$envKey])) {
     Write-Host "SKIP $secretName (no value in $EnvFile for $envKey)"
     $skipped++

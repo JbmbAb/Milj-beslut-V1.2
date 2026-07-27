@@ -71,7 +71,8 @@ START_WORKERS_IN_PROCESS=true
 
 - Auto-deploy till Cloud Run är **av** (`GCP_DEPLOY_ENABLED=false`)
 - Manuell GCP-deploy: GitHub Actions → Deploy – Google Cloud Run
-- Synka hemligheter till Secret Manager vid behov: `scripts/gcp/sync-secrets-from-env.ps1`
+- Synka hemligheter till Secret Manager vid behov: `scripts/gcp/sync-secrets-from-env.ps1 -SkipDatabaseUrl`
+- Audit enligt policy: `scripts/gcp/audit-secrets.ps1` (LM = consumer key+secret; Trafikverket token lokalt vid behov; OpenAI/BankID ignoreras)
 
 ---
 
