@@ -45,7 +45,9 @@
     "outlook:verify": "tsx scripts/backfill/verify-outlook-integrity.ts",
     "outlook:backfill:all": "tsx scripts/backfill/run-outlook-ingest-pipeline.ts --all",
     "load:stage5": "tsx scripts/load/stage5-load-harness.ts",
-    "rag:eval:demo": "tsx scripts/rag/run-rag-eval-demo.ts"
+    "rag:eval:demo": "tsx scripts/rag/run-rag-eval-demo.ts",
+    "otel:generate": "tsx scripts/generate-metric-registry.ts",
+    "otel:check": "tsx scripts/ci-metric-check.ts"
   },
   "dependencies": {
     "@google-cloud/billing-budgets": "^6.1.2",
@@ -87,6 +89,7 @@
     "tailwind-merge": "^3.5.0",
     "tsx": "^4.16.2",
     "valibot": "^1.4.2",
+    "yaml": "^2.9.0",
     "yazl": "^3.3.1",
     "zod": "^3.25.76"
   },

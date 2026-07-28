@@ -1,0 +1,103 @@
+artifact_version: "canonical-metrics.v2"
+schema_version: "mimer-observability.v2"
+metrics_contract_hash: "sha256:TO_BE_FILLED_BY_BUILD"
+meter: mimer-platform.rag
+
+metrics:
+  - name: mimer_request_total
+    type: counter
+    description: Total number of pipeline requests
+    required_labels:
+      - pipeline
+      - pipeline_version
+      - registry_version
+      - observability_schema_version
+      - municipality
+      - case_type
+      - geo_mode
+    allowed_labels: []
+
+  - name: mimer_node_execution_duration
+    type: histogram
+    unit: ms
+    description: Per-node execution duration
+    required_labels:
+      - pipeline
+      - pipeline_version
+      - registry_version
+      - observability_schema_version
+      - node_id
+      - capability_id
+      - status
+    allowed_labels:
+      - municipality
+      - case_type
+
+  - name: mimer_llm_duration
+    type: histogram
+    unit: ms
+    required_labels:
+      - pipeline
+      - pipeline_version
+      - registry_version
+      - observability_schema_version
+      - node_id
+      - capability_id
+      - model_id
+      - provider
+      - status
+    allowed_labels:
+      - municipality
+      - case_type
+
+  - name: mimer_llm_input_tokens_total
+    type: counter
+    required_labels:
+      - pipeline
+      - pipeline_version
+      - registry_version
+      - observability_schema_version
+      - node_id
+      - capability_id
+      - model_id
+      - provider
+      - status
+    allowed_labels: []
+
+  - name: mimer_llm_output_tokens_total
+    type: counter
+    required_labels:
+      - pipeline
+      - pipeline_version
+      - registry_version
+      - observability_schema_version
+      - node_id
+      - capability_id
+      - model_id
+      - provider
+      - status
+    allowed_labels: []
+
+  - name: mimer_llm_cost_estimate
+    type: histogram
+    unit: SEK
+    required_labels:
+      - pipeline
+      - pipeline_version
+      - registry_version
+      - observability_schema_version
+      - node_id
+      - capability_id
+      - model_id
+      - provider
+      - status
+      - currency
+    allowed_labels: []
+
+  - name: mimer_observability_contract_violation_total
+    type: counter
+    required_labels:
+      - metric_name
+      - reason
+      - observability_schema_version
+    allowed_labels: []

@@ -6,11 +6,17 @@ import { initializeWebSocketServer } from './websocket';
 import { warnProductionDevFlags } from './warnProductionDevFlags';
 import { shouldStartWorkersInProcess, startInProcessWorkers } from './workers/registry';
 import { assertSecurityEnv } from './security/env';
+import { ExporterAdapter, validateObservabilityStartup } from './observability';
 
 warnProductionDevFlags();
 
 if (process.env.NODE_ENV === 'production') {
   assertSecurityEnv();
+}
+
+if (process.env.NODE_ENV !== 'test') {
+  validateObservabilityStartup();
+  new ExporterAdapter().start();
 }
 
 export const app = createApp();
