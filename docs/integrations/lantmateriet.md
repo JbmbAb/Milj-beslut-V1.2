@@ -57,9 +57,10 @@ Accept: application/geo+json
 - **Avgiftsfri OGC-featuressökning** använder `lantmaterietOpenDataService`
   och räcker normalt med `LANTMATERIET_OPEN_SUBSCRIPTION_KEY`.
 
-I hybrid-läge (`PROPERTY_LOOKUP_MODE=hybrid`) försöker plattformen först PostGIS,
-sedan **avgiftsfri fastighetsindelning OGC** med `LANTMATERIET_OPEN_SUBSCRIPTION_KEY`,
-och först därefter **OAuth2/betalda** uppslag (`LANTMATERIET_CONSUMER_KEY` m.fl.).
+I hybrid-läge (`PROPERTY_LOOKUP_MODE=hybrid`) och default (`postgis`) använder plattformen
+endast lokalt PostGIS (`core.property_unit`). Ingen live-fallback till Lantmäteriets API.
+
+Explicit `PROPERTY_LOOKUP_MODE=live` krävs för OAuth/OGC mot Lantmäteriet (licensproduktstest).
 
 ## Smoketest
 

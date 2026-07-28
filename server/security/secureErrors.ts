@@ -60,9 +60,13 @@ export function toSafeErrorResponse(error: unknown): {
       statusCode = 503;
       publicMessage = 'Lantmateriet live-uppslag ar inte konfigurerat. Endast BankID far vara mock/demo.';
       code = 'LIVE_LANTMATERIET_REQUIRED';
+    } else if (msg.includes('fastighet hittades inte i postgis') || msg.includes('local_property_not_found')) {
+      statusCode = 404;
+      publicMessage = 'Fastighet hittades inte i lokalt PostGIS-arkiv. Kontrollera import/harvest.';
+      code = 'LOCAL_PROPERTY_NOT_FOUND';
     } else if (msg.includes('fastighet hittades inte')) {
       statusCode = 404;
-      publicMessage = 'Fastighet hittades inte hos Lantmateriet.';
+      publicMessage = 'Fastighet hittades inte.';
       code = 'PROPERTY_NOT_FOUND';
     }
 

@@ -1523,20 +1523,56 @@ export async function getHydroLayer(
     };
   }
 
-  const tableName = kind === 'lakes' ? 'lake' : 'stream';
-  const localTableExists = await tableExists('hydro', tableName);
+  // Mimers Brunn: använd befintlig PostGIS-data — inte saknade hydro.lake/stream.
+  // Sjöar → VISS. Vattendrag → topo10.vatten (LineString Vattendrag).
+  if (kind === 'lakes') {
+    if (await tableExists('viss', 'status_sjoar')) {
+      const rows = await prisma.$queryRaw<LocalNamedGeometryRow[]>`
+        SELECT
+          COALESCE(ms_cd, uuid, objectid::text) AS objid,
+          COALESCE(sjonamn, name_viss, ms_cd) AS namn,
+          COALESCE(category, 'LW') AS kategori,
+          ST_AsGeoJSON(ST_Transform(ST_SimplifyPreserveTopology(geom, 50), 4326)) AS geojson
+        FROM viss.status_sjoar
+        WHERE geom && ST_Transform(
+          ST_MakeEnvelope(${bbox.minLng}, ${bbox.minLat}, ${bbox.maxLng}, ${bbox.maxLat}, 4326),
+          3006
+        )
+        AND ST_Intersects(
+          geom,
+          ST_Transform(
+            ST_MakeEnvelope(${bbox.minLng}, ${bbox.minLat}, ${bbox.maxLng}, ${bbox.maxLat}, 4326),
+            3006
+          )
+        )
+        LIMIT 1500;
+      `;
+      return toFeatureCollection(
+        rows,
+        (row) => ({
+          objid: row.objid,
+          namn: row.namn,
+          kategori: row.kategori,
+          source: 'viss.status_sjoar',
+        }),
+        {
+          source: 'viss.status_sjoar',
+          available: true,
+          manualReviewRequired: false,
+        },
+      );
+    }
 
-  if (localTableExists) {
-    const rows =
-      kind === 'lakes'
-        ? await prisma.$queryRaw<LocalNamedGeometryRow[]>`
-          SELECT
-            objid,
-            namn,
-            kategori,
-            ST_AsGeoJSON(ST_Transform(ST_SimplifyPreserveTopology(geom, 50), 4326)) AS geojson
-          FROM hydro.lake
-          WHERE geom && ST_Transform(
+    if (await tableExists('viss', 'vattenforekomster_ytvatten')) {
+      const rows = await prisma.$queryRaw<LocalNamedGeometryRow[]>`
+        SELECT
+          COALESCE(ms_cd, ogc_fid::text) AS objid,
+          COALESCE(ms_cd, ogc_fid::text) AS namn,
+          category AS kategori,
+          ST_AsGeoJSON(ST_Transform(ST_SimplifyPreserveTopology(geom, 50), 4326)) AS geojson
+        FROM viss.vattenforekomster_ytvatten
+        WHERE category = 'LW'
+          AND geom && ST_Transform(
             ST_MakeEnvelope(${bbox.minLng}, ${bbox.minLat}, ${bbox.maxLng}, ${bbox.maxLat}, 4326),
             3006
           )
@@ -1547,39 +1583,67 @@ export async function getHydroLayer(
               3006
             )
           )
-          LIMIT 1500;
-        `
-        : await prisma.$queryRaw<LocalNamedGeometryRow[]>`
-          SELECT
-            objid,
-            namn,
-            kategori,
-            ST_AsGeoJSON(ST_Transform(ST_SimplifyPreserveTopology(geom, 50), 4326)) AS geojson
-          FROM hydro.stream
-          WHERE geom && ST_Transform(
-            ST_MakeEnvelope(${bbox.minLng}, ${bbox.minLat}, ${bbox.maxLng}, ${bbox.maxLat}, 4326),
-            3006
-          )
-          AND ST_Intersects(
-            geom,
-            ST_Transform(
-              ST_MakeEnvelope(${bbox.minLng}, ${bbox.minLat}, ${bbox.maxLng}, ${bbox.maxLat}, 4326),
-              3006
-            )
-          )
-          LIMIT 2500;
-        `;
+        LIMIT 1500;
+      `;
+      return toFeatureCollection(
+        rows,
+        (row) => ({
+          objid: row.objid,
+          namn: row.namn,
+          kategori: row.kategori,
+          source: 'viss.vattenforekomster_ytvatten',
+        }),
+        {
+          source: 'viss.vattenforekomster_ytvatten',
+          available: true,
+          manualReviewRequired: false,
+        },
+      );
+    }
 
+    return {
+      type: 'FeatureCollection',
+      features: [],
+      meta: {
+        source: 'unavailable',
+        available: false,
+        manualReviewRequired: true,
+        warning: 'VISS-sjotabell saknas i PostGIS (viss.status_sjoar / vattenforekomster_ytvatten).',
+      },
+    };
+  }
+
+  if (await tableExists('topo10', 'vatten')) {
+    const rows = await prisma.$queryRaw<LocalNamedGeometryRow[]>`
+      SELECT
+        COALESCE(objektidentitet, fid::text) AS objid,
+        COALESCE(objekttyp, 'Vattendrag') AS namn,
+        COALESCE(objekttyp, 'Vattendrag') AS kategori,
+        ST_AsGeoJSON(ST_Transform(ST_SimplifyPreserveTopology(geom, 50), 4326)) AS geojson
+      FROM topo10.vatten
+      WHERE geom && ST_Transform(
+        ST_MakeEnvelope(${bbox.minLng}, ${bbox.minLat}, ${bbox.maxLng}, ${bbox.maxLat}, 4326),
+        3006
+      )
+      AND ST_Intersects(
+        geom,
+        ST_Transform(
+          ST_MakeEnvelope(${bbox.minLng}, ${bbox.minLat}, ${bbox.maxLng}, ${bbox.maxLat}, 4326),
+          3006
+        )
+      )
+      LIMIT 2500;
+    `;
     return toFeatureCollection(
       rows,
       (row) => ({
         objid: row.objid,
         namn: row.namn,
         kategori: row.kategori,
-        source: 'local_postgis',
+        source: 'topo10.vatten',
       }),
       {
-        source: 'local_postgis',
+        source: 'topo10.vatten',
         available: true,
         manualReviewRequired: false,
       },
@@ -1593,10 +1657,7 @@ export async function getHydroLayer(
       source: 'unavailable',
       available: false,
       manualReviewRequired: true,
-      warning:
-        kind === 'lakes'
-          ? 'Lokal hydrotabell for sjoar saknas. Officiell VISS API kravs for extern vattenfallback och anvands inte anonymt.'
-          : 'Lokal hydrotabell for vattendrag saknas. Officiell VISS API kravs for extern vattenfallback och anvands inte anonymt.',
+      warning: 'topo10.vatten saknas i PostGIS.',
     },
   };
 }
@@ -2292,8 +2353,8 @@ function resolveTopo10TableName(layerName: string): string {
   return resolved;
 }
 
-// Tables in SRID 3006; all others are 4326
-const TOPO10_SRID_3006 = new Set(['byggnad', 'jarnvag']);
+// topo10-geometri är SWEREF 99 TM (3006)
+const TOPO10_SRID_3006 = new Set(['byggnad', 'jarnvag', 'vatten', 'vag', 'mark', 'anlaggning']);
 
 export async function getTopo10Layer(bbox: Bbox, tableName: string = 'byggnad'): Promise<FeatureCollection> {
   const { minLng, minLat, maxLng, maxLat } = bbox;

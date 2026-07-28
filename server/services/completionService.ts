@@ -264,10 +264,10 @@ const FEATURES: AppFeature[] = [
   },
   {
     id: 'geo-property-lookup',
-    label: 'Fastighetsuppslag (PostGIS + Lantmäteriet)',
+    label: 'Fastighetsuppslag (PostGIS / Mimers Brunn)',
     category: 'Geodata & Kartfunktioner',
-    status: 'PARTIAL',
-    note: 'PropertyRegisterExtract anropar /api/property/lookup. Kräver LANTMATERIET_CONSUMER_KEY+SECRET (OAuth2), LANTMATERIET_ACCESS_TOKEN eller LANTMATERIET_API_KEY för riktig fastighetsdata från Lantmäteriet.',
+    status: 'DONE',
+    note: 'POST /api/property/lookup default PROPERTY_LOOKUP_MODE=postgis — endast core.property_unit. Ingen live-LM-fallback. Explicit mode=live finns för licensproduktstest.',
   },
   {
     id: 'geo-spatial-audit',

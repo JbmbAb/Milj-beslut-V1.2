@@ -12,13 +12,14 @@ export class LantmaterietAdapter implements IGeoProvider {
   private tokenCache: { token: string; expiresAt: number } | null = null;
 
   async fetchPropertyInfo(designation: string): Promise<PropertyInfo | null> {
-    const mode = process.env.PROPERTY_LOOKUP_MODE || 'hybrid';
+    const mode = (process.env.PROPERTY_LOOKUP_MODE || 'postgis').toLowerCase();
 
-    if (mode === 'postgis_first' || mode === 'postgis_only' || mode === 'hybrid') {
+    // Mimers Brunn: PostGIS först. Live LM endast vid explicit mode=live.
+    if (mode !== 'live') {
       try {
         const local = await tryFetchLocalPropertyGeometry(designation);
         if (local) {
-          logger.info('LantmaterietAdapter: Found property in PostGIS (Hybrid)', { designation });
+          logger.info('LantmaterietAdapter: Found property in PostGIS', { designation });
           const props = (local.boundaries as any)?.properties || {};
           return {
             id: designation,
@@ -29,14 +30,13 @@ export class LantmaterietAdapter implements IGeoProvider {
             centroid: undefined,
           };
         }
-        if (mode === 'postgis_only') return null;
+        return null;
       } catch (dbError) {
         logger.error('LantmaterietAdapter: PostGIS lookup failed', { error: dbError });
-        if (mode === 'postgis_only') return null;
+        return null;
       }
     }
 
-    // Fallback to live API
     try {
       const token = await this.getAccessToken();
       const endpoint = process.env.LANTMATERIET_PROPERTY_ENDPOINT;
@@ -46,8 +46,6 @@ export class LantmaterietAdapter implements IGeoProvider {
         return null;
       }
 
-      // Implementation of the actual OGC Features / FAPI call
-      // Based on server/services/lantmaterietService.ts
       const url = `${endpoint}?designation=${encodeURIComponent(designation)}`;
       const response = await fetch(url, {
         headers: {

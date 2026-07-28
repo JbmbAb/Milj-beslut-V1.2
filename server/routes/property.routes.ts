@@ -1,5 +1,4 @@
 import express from 'express';
-import { logger } from '../logger';
 import { requireAuth } from '../security/auth';
 import { normalizePropertyLookupBody } from '../security/propertyLookupNormalize';
 import { rateLimitByUser, rateLimitByOrg } from '../security/rateLimit';
@@ -11,12 +10,14 @@ import {
 
 const router = express.Router();
 
-// Hybrid property-lookup: PostGIS först (lokal och snabb), därefter avgiftsfri
-// OGC med prenumerationsnyckel, sist OAuth/betalda Lantmäteriet-produkter (i lookupPropertyByDesignation).
-// Styrs av PROPERTY_LOOKUP_MODE:
-//   - "hybrid" (default) — PostGIS → öppen OGC → betalt live
-//   - "postgis"          — endast PostGIS
-//   - "live"             — endast Lantmäteriet live (öppen OGC före OAuth i tjänsten)
+/**
+ * Fastighetsuppslag — Mimers Brunn / offline-first.
+ *
+ * PROPERTY_LOOKUP_MODE:
+ *   - "postgis" (default) — endast PostGIS (core.property_unit)
+ *   - "hybrid"            — samma som postgis (behålls för bakåtkompatibilitet; ingen live-fallback)
+ *   - "live"              — explicit Lantmäteriet-API (endast om ni medvetet vill testa licensprodukt)
+ */
 router.post(
   '/api/property/lookup',
   requireAuth,
@@ -29,7 +30,7 @@ router.post(
         return;
       }
       const input = normalizePropertyLookupBody(req.body);
-      const mode = (process.env.PROPERTY_LOOKUP_MODE ?? 'hybrid').toLowerCase();
+      const mode = (process.env.PROPERTY_LOOKUP_MODE ?? 'postgis').toLowerCase();
 
       if (mode === 'live') {
         const result = await lookupPropertyByDesignation(input, req.authUser);
@@ -37,31 +38,9 @@ router.post(
         return;
       }
 
-      if (mode === 'postgis') {
-        const result = await lookupPropertyByDesignationFromPostgis(input, req.authUser);
-        res.json({ ok: true, result, source: 'postgis' });
-        return;
-      }
-
-      // hybrid (default) — PostGIS först, sedan öppen OGC / betalt (se lantmaterietService).
-      try {
-        const result = await lookupPropertyByDesignationFromPostgis(input, req.authUser);
-        if (result) {
-          res.json({ ok: true, result, source: 'postgis' });
-          return;
-        }
-      } catch (err) {
-        logger.info('property-lookup: PostGIS miss, försöker live', {
-          err: err instanceof Error ? err.message : String(err),
-        });
-      }
-
-      const liveResult = await lookupPropertyByDesignation(input, req.authUser);
-      const fallbackSource =
-        typeof liveResult?.source === 'string' && liveResult.source === 'open-ogc'
-          ? 'open-ogc-fallback'
-          : 'live-fallback';
-      res.json({ ok: true, result: liveResult, source: fallbackSource });
+      // postgis | hybrid | okänt → endast lokalt arkiv / PostGIS
+      const result = await lookupPropertyByDesignationFromPostgis(input, req.authUser);
+      res.json({ ok: true, result, source: 'postgis' });
     } catch (error: unknown) {
       res.status(400).json(toSafeErrorResponse(error));
     }
