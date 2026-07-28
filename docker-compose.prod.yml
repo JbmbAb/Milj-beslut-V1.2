@@ -18,7 +18,8 @@ services:
     environment:
       NODE_ENV: production
       PORT: '3000'
-      DATABASE_URL: postgresql://miljobeslut:password@db:5432/miljobeslut_prod?sslmode=disable
+      # Huvud-PostGIS (miljobeslut-postgres :5432, ~61 GB geodata) — inte tomma miljobeslut-db
+      DATABASE_URL: postgresql://miljobeslut:miljobeslut@miljobeslut-postgres:5432/miljobeslut?sslmode=disable
       BACKUP_DIR: /app/storage/backups
       SEARCH_WORKER_ENABLED: 'true'
       GDPR_CRON_IN_PROCESS: 'true'
@@ -27,11 +28,9 @@ services:
       # Master Archive — justera host-path (Mimers Brunn canonical)
       - ${IMPORT_ARCHIVE_HOST_PATH:-./storage}:/data/geo_master:ro
       - uploads_prod:/app/storage/uploads
-    depends_on:
-      db:
-        condition: service_healthy
     networks:
       - prod-net
+      - geodata-net
 
   db:
     build:
@@ -64,3 +63,6 @@ volumes:
 networks:
   prod-net:
     driver: bridge
+  geodata-net:
+    external: true
+    name: miljobeslut-platform-recovery_miljobeslut-net

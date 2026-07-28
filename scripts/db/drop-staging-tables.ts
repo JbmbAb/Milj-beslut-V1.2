@@ -6,14 +6,27 @@ const p = new PrismaClient();
 
 async function main() {
   const tablesToDrop = [
-    'sgu_soil_type_25k_100k_c735cd29', // Den trunkerade jordartskartan (999k rader)
-    'sgu_soil_type_25k_100k_2bd32199', // Den fulla jordartskartan i staging (2.95M rader) - nu i env
-    'sgu_fastmark_stabilitet_8636a6c2', // Fastmark i staging (2.95M rader) - nu i env
-    'sgu_jorddjupsmodell_10m_008be7a3', // Jorddjup i staging (1.73M rader) - nu i env
-    'sgu_well_49202690', // Brunnar i staging (832k rader) - nu i env
-    'sgu_landslide_feature_744cf007', // Jordskred i staging (50k rader) - nu i env
-    'sgu_landform_750k_bc352cf5', // Landformer i staging (2.8k rader) - nu i env
-    'sgu_erosion_aktiv_06dc4ff8', // Kusterosion i staging (204 rader) - nu i env
+    // SGU — redan promote till env
+    'sgu_soil_type_25k_100k_c735cd29',
+    'sgu_soil_type_25k_100k_2bd32199',
+    'sgu_fastmark_stabilitet_8636a6c2',
+    'sgu_jorddjupsmodell_10m_008be7a3',
+    'sgu_well_49202690',
+    'sgu_landslide_feature_744cf007',
+    'sgu_landform_750k_bc352cf5',
+    'sgu_erosion_aktiv_06dc4ff8',
+    // LM / hydro / climate — orphan staging efter promote
+    'belagenhetsadress_6b9262fd',
+    'ortnamn_2ee88b65',
+    'water_catchment_e7cdd777',
+    'flood_risk_area_a53174f3',
+    'kommuner_1f9b2a1d',
+    'kommuner_51160251',
+    'lan_4cc9902a',
+    'lan_51160251',
+    'rike_51160251',
+    'rike_ba723cb7',
+    'ebh_potentiellt_fororenade_omraden_02fccffc',
   ];
 
   console.log('=== Cleanup Plan: Dropping Staging Tables in lm_staging ===');

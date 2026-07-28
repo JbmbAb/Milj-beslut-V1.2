@@ -33,11 +33,11 @@ Fortsättning efter [local-prod-fas1.md](local-prod-fas1.md). Dual-track A oför
 
 | Status | Antal | Dataset |
 |--------|-------|---------|
-| checksum_missing | 4 | LM: fastighetsytor, linjer, byggnad, marktäcke |
+| ~~checksum_missing~~ | **0** | LM: reparerade via `archive-repair-files-detail.mjs --execute` |
 | missing_manifest | 2 | SGU: Brunnar, Grundvatten |
-| verified | 8 | SGU övriga Tier 1/2 |
+| verified | 12 | LM (4) + SGU (8) |
 
-Åtgärd: re-harvest LM eller `archive-repair-files-detail.mjs` + `-Hash`-audit. SGU: kör harvesting enligt `sguHarvestSources.ts`.
+Åtgärd kvar: SGU Brunnar + Grundvatten — harvesting enligt `sguHarvestSources.ts`.
 
 ### Efter audit grön
 

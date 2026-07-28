@@ -19,19 +19,44 @@ const DRY_RUN = process.argv.includes('--dry-run');
 const EXECUTE = process.argv.includes('--execute');
 
 /**
- * SHA-256 via Windows native Get-FileHash — Node createReadStream throws EISDIR
- * on online-only Google Drive (H:) files; Get-FileHash triggers hydration.
+ * SHA-256 via Windows Get-FileHash (pwsh) or certutil — Node createReadStream throws EISDIR
+ * on online-only Google Drive (H:) files; native tools trigger hydration.
  */
 async function sha256File(filePath) {
   const psPath = filePath.replace(/'/g, "''");
-  const out = execFileSync(
-    'powershell',
-    ['-NoProfile', '-Command', `(Get-FileHash -Algorithm SHA256 -LiteralPath '${psPath}').Hash`],
-    { encoding: 'utf8', maxBuffer: 1024 * 1024 },
-  );
-  const hash = out.trim().toLowerCase();
+
+  const tryPwsh = () => {
+    const out = execFileSync(
+      'pwsh',
+      ['-NoProfile', '-Command', `(Get-FileHash -Algorithm SHA256 -LiteralPath '${psPath}').Hash`],
+      { encoding: 'utf8', maxBuffer: 1024 * 1024 },
+    );
+    return out.trim().toLowerCase();
+  };
+
+  const tryCertutil = () => {
+    const out = execFileSync('certutil', ['-hashfile', filePath, 'SHA256'], {
+      encoding: 'utf8',
+      maxBuffer: 1024 * 1024,
+    });
+    const line = out.split(/\r?\n/).find((l) => /^[0-9a-f]{64}$/i.test(l.trim()));
+    if (!line) throw new Error(`certutil parse failed for ${filePath}`);
+    return line.trim().toLowerCase();
+  };
+
+  let hash;
+  try {
+    hash = tryPwsh();
+  } catch {
+    try {
+      hash = tryCertutil();
+    } catch (err) {
+      throw new Error(`sha256 failed for ${filePath}: ${err.message}`);
+    }
+  }
+
   if (!/^[0-9a-f]{64}$/.test(hash)) {
-    throw new Error(`unexpected Get-FileHash output for ${filePath}: ${out.slice(0, 80)}`);
+    throw new Error(`unexpected hash output for ${filePath}: ${hash.slice(0, 80)}`);
   }
   return hash;
 }
