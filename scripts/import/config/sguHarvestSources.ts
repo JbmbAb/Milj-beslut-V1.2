@@ -254,6 +254,12 @@ export const SGU_HARVEST_SOURCES: SguHarvestSource[] = [
       ogrLayer: 'genomslapplighet',
     },
   },
+  {
+    /** Flyg-gamma översiktlig — ASCII XYZ (200 m). Use write-gamma-manifest + CSV→PostGIS, not GPKG zip verify. */
+    id: 'FlygGammaOversiktlig',
+    registryDataset: 'FlygGammaOversiktlig',
+    license: 'CC0 1.0',
+  },
 ];
 
 /** Tier 2 wave — verified official ZIP URLs (product PDFs 2024–2025). */

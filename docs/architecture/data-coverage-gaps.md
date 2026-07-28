@@ -1,139 +1,159 @@
 # Data coverage gaps (Mimers Brunn)
 
-Status: levande dokument. Senast uppdaterad: **2026-06-26**.
+Status: levande dokument. Senast fullverifierad mot PostGIS: **2026-07-28** (`miljobeslut-postgres`).
 
-**Placering:** `docs/architecture/` — beskriver *vad som saknas eller är parkerat* i geodata-ryggraden.  
-**Relaterat:** [future-optimizations-backlog.md](./future-optimizations-backlog.md) (AI/prod), [import-librarian-only-policy.md](./import-librarian-only-policy.md), [gemini-enterprise-access.md](../ops/gemini-enterprise-access.md).
+**Regel:** Läs aldrig detta som sanning utan `COUNT(*)` i DB. Tidigare versioner påstod tomma tabeller som redan var fyllda.
 
-Kärndataset som redan är stängda enligt golden rule dokumenteras i `storage/manifests/archive-local-verify-registry.json` — inte här.
+**Relaterat:** [import-librarian-only-policy.md](./import-librarian-only-policy.md), `storage/manifests/archive-local-verify-registry.json`, [DATA_COVERAGE_GAPS.md](../../knowledge-base/DATA_COVERAGE_GAPS.md).
 
 ## Statusnyckel
 
 | Status | Betydelse |
 |--------|-----------|
-| **Klart** | Stängt enligt golden rule (manifest v2 + SHA-256 + audit) |
-| **Parkerad** | Medvetet uppskjuten; ingen prod-import idag |
-| **Gap** | Saknas eller legacy; kräver arbete |
-| **Optimering** | Finns men bör förbättras |
-
-**Gyllene regel:** Skörda om från källan om källan är tillgänglig och nedladdningen är rimligt snabb. Legacy-adoption endast i undantagsfall. Se `AGENTS.md`.
+| **I PostGIS** | Har rader — ingen re-import |
+| **Tom tabell** | Relation finns, 0 rader |
+| **Saknas** | Ingen tabell / ingen produkt |
+| **Parkerad** | Medvetet uppskjuten |
 
 ---
 
-## Klart (referens)
+## I PostGIS (kärna) — verifierat 2026-07-27
 
-| Dataset | Status | Bevis |
-|---------|--------|-------|
-| LM nationell: fastighetsytor, linjer, byggnad, marktäcke | **Klart** | 14/14 verified i `archive-local-verify-registry.json` (2026-06-26) |
-| SGU Tier 1 + Tier 2 kärndataset | **Klart** | Samma audit; Stranderosion + Jordarter750k promotade 2026-06-26 |
-| SGU Miljögifter (analys + provplats), SGU-HYPE Klimatindikatorer (historisk, rcp, områden) & Genomsläpplighet | **Klart** | Integrerade i central importRegistry.ts och sguHarvestSources.ts (2026-07-25) |
+### Lantmäteriet / fastighet / topo
 
----
+| Tabell | Rader |
+|--------|------:|
+| `core.property_unit` | 4 642 928 |
+| `env.registerenhetsomradesytor` | 4 395 642 |
+| `env.registerenhetsomradeslinjer` | 49 434 |
+| `core.belagenhetsadress` / `env.belagenhetsadress` | 3 938 111 |
+| `core.ortnamn` | 990 623 |
+| `core.kommuner` | 2 766 |
+| `core.lan` | 198 |
+| `core.rike` | 9 |
+| `env.marktacke` | 3 279 185 |
+| `topo10.byggnad` | 9 479 965 |
+| `topo10.mark` | 3 495 247 |
+| `topo10.vag` | 3 023 801 |
+| `topo10.vatten` | 838 935 |
+| `topo10.anlaggning` | 37 180 |
+| `topo50.*` / `topo250.*` / `topo1m.*` | fyllda (vatten/väg/mark m.m.) |
 
-## Raster-pipelinen (Parkerad)
+**LM våg 2–3 (adresser, ortnamn, adm.indelning) är INTE gap** — tidigare docs ljög.
 
-**SGU Jorddjup Bergyta 50 m (GeoTIFF)** hoppades över. Raster hör inte hemma i PostGIS.
+### Vatten / VISS / SMHI / översvämning
 
-**Framtida optimering:** Separat COG-pipeline + tile server. Relaterat: `scripts/db/promote-raster-cog.mjs`, `scripts/import/convert-nmd-to-cog.ts`.
+| Tabell | Rader |
+|--------|------:|
+| `topo10.vatten` | 838 935 |
+| `topo50.vatten` | 696 013 |
+| `viss.vattenforekomster_ytvatten` | 23 804 |
+| `viss.vattenforekomster_grundvatten` | 3 702 |
+| `viss.status_sjoar` / `_vattendrag` / `_grundvatten` | 7 453 / 15 688 / 3 702 |
+| `hydro.svar2022_*` / `water_catchment` | ~24–26k |
+| `hydro.svaro_2016` | 53 538 |
+| `hydro.huvudavrinningsomraden` | 111 |
+| `climate.flood_risk_area` | 225 |
+| `env.water_protection_area` | 6 572 |
+| `env.wetland` | 359 269 |
 
----
+API: `getHydroLayer` → VISS sjöar + `topo10.vatten` (2026-07-27).
 
-## PDF/dokument-arkivet (Parkerad)
+### EBH / skydd / skog / stabilitet
 
-Ostrukturerade och PDF-tunga kommunmappar (t.ex. Göteborgs stabilitetszoner) laddas ner och hashas i Master Archive, men vektoriseras inte.
+| Tabell | Rader |
+|--------|------:|
+| `env.ebh_potentiellt_fororenade_omraden` | 85 429 |
+| `env.protected_area` | 40 928 |
+| `env.natura2000_area` | 13 761 |
+| `env.msb_stabilitetszon` | 1 258 |
+| `env.sks_avverkningsanmalan` | 131 122 |
+| `env.sks_nyckelbiotoper` | 67 097 |
+| `env.sks_biotopskydd` | 9 062 |
+| `env.sks_naturvardsavtal` | 5 576 |
 
-**Framtida optimering:** Separat RAG-pipeline/vektordatabas. Arkiv under `GEO_Master_Archive/Documents/Sources/`.
+### SGU (urval — många fler tabeller fyllda)
 
----
-
-## Ny vatten-harvest (Gap)
-
-Gammal VISS- och SVAR-data klassas som **legacy/unverified**. `Data/VISS` och `Data/SMHI` är tomma; inga `viss.*` / `hydro.*`-tabeller i PostGIS.
-
-| Källa | Script | Källa-URL | Mimers-status |
-|-------|--------|-----------|---------------|
-| VISS, SMED, LST vattenskydd | `harvest-viss-to-master.ts` | WFS ext-geodata.lansstyrelsen.se | WFS → måste materialiseras till GPKG |
-| SMHI SVAR 2022 | `import-smhi-huvudavrinningsomraden.ts` | opendata-view.smhi.se WFS | **Policyavvikelse:** live-WFS |
-| LM Hydrografi | `harvest-lm-hydrografi-to-master.ts` | `api.lantmateriet.se/ogc-features/v1/hydrografi` | **BLOCKERAD (Mimers Brunn-undantag):** Nedladdning vektor ej godkänd för vår LM-app (token=200, `/collections`=200, `/items`=403 kod 900910). Endast **Hydrografi Direkt (visnings-WMS/WFS)** finns → får bara användas som **temporärt live-kartlager**, materialiseras EJ till arkivet. |
-| topo10 vatten (legacy) | `import-topo10-only.ts` | `E:\GIS-Utbildning\...` | Legacy; `topo10.vatten` = 0 rader |
-| topo10 väg | `import-topo10-only.ts` | Legacy `E:\` | `topo10.vag` saknas i DB |
-
-**Nästa steg:** Download-first (Atom/ZIP/OGC Features → GPKG) med manifest v2 + SHA-256.
-
----
-
-## Förorenade områden / EBH (Gap)
-
-Saknas i spatial ryggrad. Tabellen `env.sgu_ebh_contaminated_site` är ej verifierad i librarian-flöde.
-
-**Nästa steg:** Bulk-nedladdning via Naturvårdsverket/Dataportal.
-
----
-
-## Lantmäteriet våg 2 & 3 (Gap)
-
-Våg 0 (fastighetsytor, linjer, byggnader) är säkrad.
-
-**Saknas:**
-
-- Belägenhetsadresser (`belagenhetsadresser` i STAC-vektor)
-- Administrativ indelning (`kommun-lan-rike`)
-- Ortnamn (`ortnamn`)
-- Rättigheter/servitut (FAPI) — när API tillåter
-
----
-
-## MCF stabilitetskartering (Klart — feature freeze)
-
-Nationell stabilitet för **finkorniga jordar** + **översiktlig finkornig** är promotad till `env.msb_stabilitetszon`.
-
-**Parkerat (medvetet):** `moran-grovkorninga-jordar` och `oversiktlig-stabilitetskartering-i-moran-och-grova-jordar` — .gdb/format-träsk, ingen normaliserare-ändring under feature freeze.
-
----
-
-## MSB översvämningskartering (Gap → pågår)
-
-| Domän | Lastkaj (PDF) | Vektor (INSPIRE WFS) | PostGIS |
-|-------|---------------|----------------------|---------|
-| oversvamning-alv | Metod-PDF | `NZ_Oversvamning_100/200/BHF` | `climate.flood_risk_area` |
-| oversvamning-kust | Metod-PDF | samma nationella lager | samma |
-| oversvamning-malaren | Metod-PDF | samma nationella lager | samma |
-| oversvamning-vattendrag | Metod-PDF | samma nationella lager | samma |
-
-**Arkitektur:** Lastkaj-mapparna innehåller **PDF-rapporter** per vattendrag/kust/äl v/Mälaren. Själva **vektorpolygonerna** (100-/200-årsflöden) hämtas download-first från `inspire.msb.se/geoserver/oversvamning/wfs`.
-
-**Scripts:**
-- `harvest-msb-oversvamning-to-master.ts` — WFS → GPKG
-- `prepare-msb-oversvamning-gpkg.ts` — merge → Librarian
-- `harvest-mcf-oversvamning-pdfs-to-master.ts` — PDF → `Documents/Sources/MCF/Oversvamning/`
+| Tabell | Rader |
+|--------|------:|
+| `env.sgu_well` / `sgu_well_actual` | 832 535 |
+| `env.sgu_well_lager` | 1 351 866 |
+| `env.sgu_soil_type_25k_100k` | 2 956 837 |
+| `env.sgu_fastmark_stabilitet` | 2 956 837 |
+| `env.sgu_blockighet` | 1 712 465 |
+| `env.sgu_jorddjupsmodell_10m` | 1 736 629 |
+| `env.sgu_aktsamhet_efterarbetad` | 242 296 |
+| `env.sgu_landslide_feature` | 50 373 |
+| `env.sgu_grundvattenforekomst` | 13 739 |
+| `env.env_sgu_grundvatten_sarbarhet` | 9 340 |
+| `env.sgu_borrhal` / `sgu_kallor` | 36 672 / 14 460 |
+| `env.sgu_erosion_aktiv` | 204 |
+| Plus berggrund BG50k, landform, maringeologi, m.fl. | >0 |
 
 ---
 
-## LM Hydrografi (BLOCKERAD)
+## Tomma / saknade (uppdaterat efter arkiv→PostGIS 2026-07-27)
 
-`https://geodata.naturvardsverket.se/nedladdning/` finns inte i `importRegistry`. Innehåller bl.a. Stomkartor (raster).
+### Fyllda från Master Archive denna session
 
-**Not:** Ersätter inte LM Hydrografi Direkt (vektor).
+| Tabell | Rader |
+|--------|------:|
+| `env.msb_stora_olyckor` | 822 |
+| `env.msb_pfra_pastevent` | 30 |
+| `env.byggnadsminnen` | 2 615 |
+| `env.kulturmiljo_omrade` | 85 424 |
+| `env.nv_naturreservat` | 6 027 |
+| `env.friluftsliv` | 21 568 |
+| `env.friluftsliv_leder` | 12 015 |
+| `env.sgu_permeability` / `_coverage` | 2 956 837 / 896 |
+| `env.sgu_groundwater_magazine` (+7 sidolager) | 9 368 |
+| `env.sgu_hydraulisk_konduktivitet_berg` | 404 903 |
+| `env.sgu_hydraulisk_konduktivitet_berg_rast` | 826 tiles (Out-of-DB, 100 m) |
+| `env.sgu_grundvattenkvalitet_provplats` | 5 013 |
+| `env.sgu_miljogifter_provplats` | 14 105 |
+| `env.sgu_hype_omraden` | 29 597 |
+| `env.sgu_hype_klimatindikatorer_historisk` | 3 310 668 |
+| `env.sgu_hype_klimatindikatorer_rcp` | 9 932 004 |
+| `env.sgu_flyg_gamma_oversiktlig` | 10 221 157 |
+
+### SGU-import avslutad denna session (verifierat COUNT)
+
+| Tabell | Rader |
+|--------|------:|
+| `env.sgu_grundvattenkvalitet_analys` | 1 398 475 |
+| `env.sgu_miljogifter_analys` | 1 997 774 |
+
+`VACUUM (ANALYZE)` körd på nya SGU-kärntabeller.
+
+### SGU-import 2026-07-28 (verifierat COUNT)
+
+| Tabell | Rader |
+|--------|------:|
+| `env.sgu_hype_klimatindikatorer_historisk` | 3 310 668 |
+| `env.sgu_hype_klimatindikatorer_rcp` | 9 932 004 |
+| `env.sgu_flyg_gamma_oversiktlig` | 10 221 157 |
+
+### Kvarstår / parkering
+
+| Område | Status | Kommentar |
+|--------|--------|-----------|
+| LM Hydrografi Direkt | **Parkerad** | efter sommaren; topo10 räcker |
+| FAPI rättigheter/servitut | **Saknas** | avtal/API |
+| `/master-archive` H:-mount i Docker | **Trasig** (Google Shared Drive) | Out-of-DB hydraul-TIFF via `/var/lib/postgresql/geo_rasters/`; kanonisk fil på H: |
+
+**Fyllt 2026-07-28:** HYPE klimatindikatorer (historisk + RCP); flyg-gamma översiktlig (harvest + PostGIS).
 
 ---
 
-## Drive-synk / Master Archive (Gap — drift)
+## Gör inte
 
-8 objekt hamnade i Drive "Hitta utan att leta". **Lokal H: är source of truth** tills synken är åtgärdad.
-
----
-
-## Lärdomar (Batch A)
-
-Legacy-adoption utan `files_detail`/SHA-256 kostar mer än ren omhämtning. Default = skörda om (inristat i `AGENTS.md` 2026-06-26).
-
----
+- Re-import av vatten, EBH, topo, LM adresser/ortnamn/adm, SGU wells/jordarter m.m. “för att docs sa gap”.
+- Live-LM-fallback för fastighetsuppslag (default = PostGIS).
 
 ## Referenser
 
 | Dokument | Innehåll |
 |----------|----------|
-| `storage/manifests/archive-local-verify-registry.json` | LM/SGU kärnaudit |
-| `knowledge-base/DATA_COVERAGE_GAPS.md` | **Kort AI-index** — håll synkad med detta dokument |
-| `docs/archive/README.md` | Pekare till canonical docs (legacy-planer borttagna) |
-| `knowledge-base/NATIONAL_HARVESTING_PHASES.md` | LST 2068 dataset (Fas 1–5) |
+| `storage/manifests/archive-local-verify-registry.json` | Manifest-audit (kompletterar, ersätter inte COUNT) |
+| `knowledge-base/DATA_COVERAGE_GAPS.md` | Kort AI-index — synkad med detta |
+| `scripts/import/config/importRegistry.ts` | Importmål |

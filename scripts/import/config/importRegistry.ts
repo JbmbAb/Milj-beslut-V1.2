@@ -28,7 +28,7 @@ export interface ImportRegistryEntry extends TargetConfig {
   expected_columns: readonly string[];
   tier?: ImportTier;
   ogr_layer?: string;
-  primary_format?: 'gpkg' | 'geojson' | 'shp' | 'tif';
+  primary_format?: 'gpkg' | 'geojson' | 'shp' | 'tif' | 'csv' | 'xyz';
   source_url?: string;
   license?: string;
   stac_merge?: StacMergeProfile;
@@ -458,7 +458,7 @@ export const IMPORT_REGISTRY: Record<string, Record<string, ImportRegistryEntry>
       target_table: 'sgu_hype_klimatindikatorer_historisk',
       expected_columns: [],
       tier: 2,
-      ogr_layer: 'klimatindikatorer-historisk',
+      ogr_layer: 'klimatindikatorer_historisk',
       primary_format: 'gpkg',
       source_url: 'https://api.sgu.se/oppnadata/klimatindikatorer-sgu-hype-omraden/ogc/features/v1/collections/klimatindikatorer-historisk',
       license: 'CC0 1.0',
@@ -468,9 +468,20 @@ export const IMPORT_REGISTRY: Record<string, Record<string, ImportRegistryEntry>
       target_table: 'sgu_hype_klimatindikatorer_rcp',
       expected_columns: [],
       tier: 2,
-      ogr_layer: 'klimatindikatorer-rcp',
+      ogr_layer: 'klimatindikatorer_rcp',
       primary_format: 'gpkg',
       source_url: 'https://api.sgu.se/oppnadata/klimatindikatorer-sgu-hype-omraden/ogc/features/v1/collections/klimatindikatorer-rcp',
+      license: 'CC0 1.0',
+    }),
+    FlygGammaOversiktlig: entry({
+      target_schema: 'env',
+      target_table: 'sgu_flyg_gamma_oversiktlig',
+      expected_columns: ['e_swr99tm', 'n_swr99tm', 'k', 'u', 'th'],
+      tier: 2,
+      ogr_layer: 'geofysik_flyg_gammastralning_oversiktlig',
+      primary_format: 'csv',
+      source_url:
+        'https://resource.sgu.se/data/oppnadata/geofysik-flyg-gammastralning-oversiktlig/geofysik-flyg-gammastralning-oversiktlig.zip',
       license: 'CC0 1.0',
     }),
     HypeOmraden: entry({
