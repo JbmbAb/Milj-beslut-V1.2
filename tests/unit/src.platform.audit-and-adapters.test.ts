@@ -137,6 +137,7 @@ describe('src platform and adapter utilities', () => {
   });
 
   it('returns null and warns when no property endpoint is configured', async () => {
+    vi.stubEnv('PROPERTY_LOOKUP_MODE', 'live');
     const fetchMock = vi.fn().mockResolvedValueOnce({
       ok: true,
       json: async () => ({ access_token: 'token-1', expires_in: 3600 }),
@@ -152,6 +153,7 @@ describe('src platform and adapter utilities', () => {
   });
 
   it('fetches a real property and caches the Lantmäteriet access token', async () => {
+    vi.stubEnv('PROPERTY_LOOKUP_MODE', 'live');
     const fetchMock = vi
       .fn()
       .mockResolvedValueOnce({

@@ -9,6 +9,15 @@ vi.mock('../../db.server', () => ({
   },
 }));
 
+// Mock hybridGeoService to avoid hitting real DB/PostGIS during unit tests
+vi.mock('../../server/services/hybridGeoService', () => ({
+  tryFetchLocalPropertyGeometry: vi.fn(async () => null),
+  tryFetchLocalSguData: vi.fn(async () => null),
+  tryFetchLocalProtectionData: vi.fn(async () => null),
+  tryFetchLocalSguWellData: vi.fn(async () => null),
+  tryFetchLocalSguPermeabilityData: vi.fn(async () => null),
+}));
+
 import {
   analyzeSewageProperty,
   generateSewageProtectionProfile,

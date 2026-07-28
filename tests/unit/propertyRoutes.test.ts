@@ -151,28 +151,42 @@ describe('property.routes', () => {
     expect(String(failure.body?.error || '')).toBe('An error occurred processing your request');
   });
 
-  describe('hybrid mode', () => {
+  describe('postgis / hybrid mode (ingen live-fallback)', () => {
     beforeEach(() => {
       process.env.PROPERTY_LOOKUP_MODE = 'hybrid';
-      mocks.lookupPropertyByDesignationFromPostgis.mockResolvedValue(null);
-      mocks.lookupPropertyByDesignation.mockResolvedValue({
+      mocks.lookupPropertyByDesignationFromPostgis.mockResolvedValue({
         designation: 'Test 1:1',
-        source: 'open-ogc',
+        source: 'postgis',
         geometry: { type: 'Polygon', coordinates: [] },
       });
     });
 
-    it('använder live-fallback när PostGIS saknar träff och markerar öppen OGC-källa', async () => {
+    it('använder endast PostGIS och anropar aldrig live LM', async () => {
       const res = await request(app)
         .post('/api/property/lookup')
         .set('Authorization', authHeader())
         .send({ projectId: 'project-1', propertyDesignation: 'TEST 1:1', purpose: 'lookup' });
 
       expect(res.status).toBe(200);
-      expect(res.body.source).toBe('open-ogc-fallback');
-      expect(res.body.result?.source).toBe('open-ogc');
+      expect(res.body.source).toBe('postgis');
+      expect(res.body.result?.source).toBe('postgis');
       expect(mocks.lookupPropertyByDesignationFromPostgis).toHaveBeenCalled();
-      expect(mocks.lookupPropertyByDesignation).toHaveBeenCalled();
+      expect(mocks.lookupPropertyByDesignation).not.toHaveBeenCalled();
+    });
+
+    it('returnerar LOCAL_PROPERTY_NOT_FOUND när PostGIS saknar träff', async () => {
+      mocks.lookupPropertyByDesignationFromPostgis.mockRejectedValueOnce(
+        new Error('Fastighet hittades inte i PostGIS: TEST 1:1'),
+      );
+
+      const res = await request(app)
+        .post('/api/property/lookup')
+        .set('Authorization', authHeader())
+        .send({ projectId: 'project-1', propertyDesignation: 'TEST 1:1', purpose: 'lookup' });
+
+      expect(res.status).toBe(400);
+      expect(res.body?.code).toBe('LOCAL_PROPERTY_NOT_FOUND');
+      expect(mocks.lookupPropertyByDesignation).not.toHaveBeenCalled();
     });
   });
 });

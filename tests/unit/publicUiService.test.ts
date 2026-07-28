@@ -480,13 +480,13 @@ describe('publicUiService', () => {
   });
 
   describe('getHydroLayer additional branches', () => {
-    it('uses local streams table when it exists', async () => {
+    it('uses topo10.vatten for streams when it exists', async () => {
       (prisma.$queryRaw as Mock)
-        .mockResolvedValueOnce([{ regclass: 'hydro.stream' }]) // tableExists → true
+        .mockResolvedValueOnce([{ regclass: 'topo10.vatten' }]) // tableExists → true
         .mockResolvedValueOnce([
           {
             objid: 'S1',
-            namn: 'Dalälven',
+            namn: 'Vattendrag',
             kategori: 'Vattendrag',
             geojson: '{"type":"LineString","coordinates":[[15,60],[15.1,60.1]]}',
           },
@@ -499,23 +499,42 @@ describe('publicUiService', () => {
         maxLat: 60.2,
       });
       expect(result.features.length).toBeGreaterThan(0);
-      expect((result.meta as any).source).toBe('local_postgis');
+      expect((result.meta as any).source).toBe('topo10.vatten');
     });
 
-    it('returns unavailable for lakes when table missing', async () => {
-      (prisma.$queryRaw as Mock).mockResolvedValueOnce([{ regclass: null }]); // tableExists → false
+    it('uses viss.status_sjoar for lakes when it exists', async () => {
+      (prisma.$queryRaw as Mock)
+        .mockResolvedValueOnce([{ regclass: 'viss.status_sjoar' }])
+        .mockResolvedValueOnce([
+          {
+            objid: 'LW1',
+            namn: 'Siljan',
+            kategori: 'LW',
+            geojson: '{"type":"Polygon","coordinates":[[[15,60],[15.1,60],[15.1,60.1],[15,60]]]}',
+          },
+        ]);
+
+      const result = await getHydroLayer('lakes', { minLng: 14, minLat: 59, maxLng: 15, maxLat: 60 });
+      expect(result.features).toHaveLength(1);
+      expect((result.meta as any).source).toBe('viss.status_sjoar');
+    });
+
+    it('returns unavailable for lakes when VISS tables missing', async () => {
+      (prisma.$queryRaw as Mock)
+        .mockResolvedValueOnce([{ regclass: null }]) // status_sjoar missing
+        .mockResolvedValueOnce([{ regclass: null }]); // vattenforekomster missing
 
       const result = await getHydroLayer('lakes', { minLng: 14, minLat: 59, maxLng: 15, maxLat: 60 });
       expect(result.features).toHaveLength(0);
       expect((result.meta as any).source).toBe('unavailable');
-      expect((result.meta as any).warning).toContain('sjoar');
+      expect((result.meta as any).warning).toContain('VISS');
     });
 
-    it('returns unavailable for streams when table missing', async () => {
-      (prisma.$queryRaw as Mock).mockResolvedValueOnce([{ regclass: null }]); // tableExists → false
+    it('returns unavailable for streams when topo10.vatten missing', async () => {
+      (prisma.$queryRaw as Mock).mockResolvedValueOnce([{ regclass: null }]);
 
       const result = await getHydroLayer('streams', { minLng: 14, minLat: 59, maxLng: 15, maxLat: 60 });
-      expect((result.meta as any).warning).toContain('vattendrag');
+      expect((result.meta as any).warning).toContain('topo10.vatten');
     });
   });
 });

@@ -10,6 +10,11 @@ vi.mock('../../server/logger', () => ({
   },
 }));
 
+vi.mock('../../server/services/hybridGeoService', () => ({
+  tryFetchLocalSguData: vi.fn(async () => null),
+  tryFetchLocalSguPermeabilityData: vi.fn(async () => null),
+}));
+
 import { fetchGeologicalData } from '../../server/services/sguService';
 
 describe('sguService', () => {

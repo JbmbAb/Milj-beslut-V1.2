@@ -10,6 +10,10 @@ vi.mock('../../server/logger', () => ({
   },
 }));
 
+vi.mock('../../server/services/hybridGeoService', () => ({
+  tryFetchLocalRaaData: vi.fn(async () => null),
+}));
+
 import { fetchAncientMonuments } from '../../server/services/raaService';
 
 describe('raaService', () => {

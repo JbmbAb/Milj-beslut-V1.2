@@ -35,8 +35,18 @@ describe('LantmaterietAdapter', () => {
     expect(result?.municipality).toBe('Nacka');
   });
 
-  it('falls back to live API when local lookup is empty', async () => {
+  it('returns null without live API when PostGIS miss (default Mimers-läge)', async () => {
     vi.mocked(tryFetchLocalPropertyGeometry).mockResolvedValue(null);
+    process.env.PROPERTY_LOOKUP_MODE = 'postgis';
+    global.fetch = vi.fn();
+
+    const result = await adapter.fetchPropertyInfo('TEST 1:1');
+    expect(result).toBeNull();
+    expect(global.fetch).not.toHaveBeenCalled();
+  });
+
+  it('använder live API endast vid explicit mode=live', async () => {
+    process.env.PROPERTY_LOOKUP_MODE = 'live';
     process.env.LANTMATERIET_PROPERTY_ENDPOINT = 'http://api.test/property';
     process.env.LANTMATERIET_CLIENT_ID = 'client';
     process.env.LANTMATERIET_CLIENT_SECRET = 'secret';
