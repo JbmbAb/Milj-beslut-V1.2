@@ -152,6 +152,65 @@ describe('Phase 3 evolution stability fixes', () => {
       promotion: { promote: false },
     });
   });
+
+  it('keeps original candidate indexes after constraint filtering', async () => {
+    const store = new FileArtifactStore(await tempDir());
+    const generator: CandidateGenerator = {
+      generate: () => [
+        {
+          definition: pipeline('rejected-first', 32),
+          mutation: { id: 'm0', type: 'too-large' },
+        },
+        {
+          definition: pipeline('accepted-second', 2),
+          mutation: { id: 'm1', type: 'accepted' },
+        },
+      ],
+    };
+    const evaluator: EvaluationEngine = {
+      async compile(definition) {
+        return compilation(definition);
+      },
+      async evaluateBatch(candidates) {
+        return candidates.map(() => ({
+          metricsCandidate: { latencyMs: 8, costSek: 1, qualityScore: 2, errorRate: 0 },
+          metricsBaseline: { latencyMs: 10, costSek: 1, qualityScore: 1, errorRate: 0 },
+          fitnessCandidate: { rawFitness: 2, penalty: 0, fitness: 2 },
+          fitnessBaseline: { rawFitness: 1, penalty: 0, fitness: 1 },
+        }));
+      },
+    };
+    const orchestrator = new EvolutionOrchestrator(
+      generator,
+      evaluator,
+      store,
+      new ParetoFrontier(),
+      {
+        async approve() {
+          return { approved: true, timestamp: 1 };
+        },
+      },
+      { minQualityDelta: 0.5, maxLatencyRegression: 0, maxCostRegression: 0, maxErrorRegression: 0 },
+      new SimpleConstraintSolver(),
+      new EventLedger(store, 'run-sparse'),
+    );
+
+    await orchestrator.evolve(
+      { id: 'run-sparse', seed: 'seed' },
+      pipeline('baseline', 1),
+      1,
+      2,
+      { runtimeCapabilities: { memoryGb: 8 } },
+    );
+
+    expect(await store.get('experiment/run-sparse/run-sparse-g001-c000')).toMatchObject({
+      candidateExecutionHash: 'n/a',
+    });
+    expect(await store.get('experiment/run-sparse/run-sparse-g001-c001')).toMatchObject({
+      candidateExecutionHash: expect.stringMatching(/^sha256:/),
+    });
+    expect(await store.get('promotion-approved/promotion-run-sparse-g001-c001')).toBeDefined();
+  });
 });
 
 async function tempDir(): Promise<string> {
