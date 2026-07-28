@@ -190,7 +190,7 @@ export const MvpLibrarianView: React.FC = () => {
       count: 85429,
       status: 'active',
       harvestDate: '2026-07-18',
-      table: 'lm_staging.ebh_potentiellt_fororenade_omraden_02fccffc',
+      table: 'env.ebh_potentiellt_fororenade_omraden',
       coverage: '85.4k riskobjekt',
     },
     {
