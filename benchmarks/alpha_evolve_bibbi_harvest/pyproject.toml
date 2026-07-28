@@ -1,0 +1,6 @@
+[project]
+name = "bibbi_harvest_orchestrator"
+version = "0.1.0"
+description = "Bibbi Harvest Orchestrator — Inventory-First Scheduling"
+requires-python = ">=3.11"
+dependencies = ["pytest"]
