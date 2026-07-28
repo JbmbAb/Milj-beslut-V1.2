@@ -18,15 +18,16 @@ const prismaClientSingleton = (): PrismaClient => {
   const dbUrl = process.env.DATABASE_URL || '';
   const isAccelerate = dbUrl.startsWith('prisma');
   const isProduction = process.env.NODE_ENV === 'production';
+  const isTest = process.env.NODE_ENV === 'test';
 
   // ──── CONNECTION POOLING CONFIGURATION ────────────────────────────
   const connectionConfig = {
     // Socket/connection timeout (in milliseconds)
     connectionTimeoutMillis: isProduction ? 15000 : 10000,
-    // Maximum connections in pool
-    max: isProduction ? 15 : 5,
+    // Maximum connections in pool (Vitest safe pool limit)
+    max: isProduction ? 15 : (isTest ? 1 : 5),
     // Idle connection timeout (in milliseconds) - reclaim unused connections
-    idleTimeoutMillis: 15000, // 15 seconds
+    idleTimeoutMillis: isProduction ? 15000 : 5000, // 5 seconds in development/testing to release quickly
   };
 
   if (isAccelerate) {
