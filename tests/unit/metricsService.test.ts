@@ -21,6 +21,17 @@ describe('metricsService', () => {
   let recordRequest: (method: string, route: string, statusCode: number, durationMs: number) => void;
   let recordDbQuery: (operation: string, durationMs: number, failed?: boolean) => void;
   let recordError: (type: string) => void;
+  let recordCacheHit: (cache?: string) => void;
+  let recordCacheMiss: (cache?: string) => void;
+  let recordRetrievalDuration: (durationMs: number) => void;
+  let recordRerankDuration: (durationMs: number) => void;
+  let recordLlmDuration: (durationMs: number) => void;
+  let recordTotalDuration: (durationMs: number) => void;
+  let recordRetrievedDocuments: (count: number) => void;
+  let recordRerankedDocuments: (count: number) => void;
+  let recordLlmTokens: (inputTokens: number, outputTokens: number, costUsd: number) => void;
+  let incrementActiveRequests: () => void;
+  let decrementActiveRequests: () => void;
   let getMetricsText: () => Promise<string>;
 
   beforeEach(async () => {
@@ -36,16 +47,28 @@ describe('metricsService', () => {
     recordRequest = mod.recordRequest;
     recordDbQuery = mod.recordDbQuery;
     recordError = mod.recordError;
+    recordCacheHit = mod.recordCacheHit;
+    recordCacheMiss = mod.recordCacheMiss;
+    recordRetrievalDuration = mod.recordRetrievalDuration;
+    recordRerankDuration = mod.recordRerankDuration;
+    recordLlmDuration = mod.recordLlmDuration;
+    recordTotalDuration = mod.recordTotalDuration;
+    recordRetrievedDocuments = mod.recordRetrievedDocuments;
+    recordRerankedDocuments = mod.recordRerankedDocuments;
+    recordLlmTokens = mod.recordLlmTokens;
+    incrementActiveRequests = mod.incrementActiveRequests;
+    decrementActiveRequests = mod.decrementActiveRequests;
     getMetricsText = mod.getMetricsText;
   });
 
   describe('recordRequest', () => {
-    it('appears in http_requests_total output after being called', async () => {
+    it('appears in http_requests_total and request_total output after being called', async () => {
       recordRequest('GET', '/api/projects', 200, 45);
 
       const text = await getMetricsText();
 
       expect(text).toContain('http_requests_total');
+      expect(text).toContain('request_total');
       expect(text).toContain('method="GET"');
       expect(text).toContain('route="/api/projects"');
       expect(text).toContain('status="200"');
@@ -57,7 +80,7 @@ describe('metricsService', () => {
 
       const text = await getMetricsText();
 
-      expect(text).toMatch(/http_requests_total\{[^}]*\} 2/);
+      expect(text).toMatch(/request_total\{[^}]*\} 2/);
     });
 
     it('tracks http request duration in summary output', async () => {
@@ -71,12 +94,13 @@ describe('metricsService', () => {
   });
 
   describe('recordDbQuery', () => {
-    it('appears in db_queries_total output', async () => {
+    it('appears in db_queries_total and db_query_total output', async () => {
       recordDbQuery('findMany', 15);
 
       const text = await getMetricsText();
 
       expect(text).toContain('db_queries_total');
+      expect(text).toContain('db_query_total');
       expect(text).toContain('operation="findMany"');
       expect(text).toContain('failed="false"');
     });
@@ -91,12 +115,13 @@ describe('metricsService', () => {
   });
 
   describe('recordError', () => {
-    it('appears in app_errors_total output', async () => {
+    it('appears in app_errors_total and error_total output', async () => {
       recordError('VALIDATION');
 
       const text = await getMetricsText();
 
       expect(text).toContain('app_errors_total');
+      expect(text).toContain('error_total');
       expect(text).toContain('type="VALIDATION"');
     });
 
@@ -107,7 +132,63 @@ describe('metricsService', () => {
 
       const text = await getMetricsText();
 
-      expect(text).toMatch(/app_errors_total\{[^}]*type="DB_ERROR"[^}]*\} 3/);
+      expect(text).toMatch(/error_total\{[^}]*type="DB_ERROR"[^}]*\} 3/);
+    });
+  });
+
+  describe('Cache Metrics', () => {
+    it('tracks hits and misses with cache labels', async () => {
+      recordCacheHit('legal-docs');
+      recordCacheMiss('legal-docs');
+      recordCacheMiss('legal-docs');
+
+      const text = await getMetricsText();
+
+      expect(text).toContain('cache_hits_total{cache="legal-docs"} 1');
+      expect(text).toContain('cache_misses_total{cache="legal-docs"} 2');
+    });
+  });
+
+  describe('Duration Histograms', () => {
+    it('registers and percentilizes durations', async () => {
+      recordRetrievalDuration(120);
+      recordRerankDuration(45);
+      recordLlmDuration(500);
+      recordTotalDuration(850);
+
+      const text = await getMetricsText();
+
+      expect(text).toContain('retrieval_duration_ms{quantile="0.5"} 120');
+      expect(text).toContain('rerank_duration_ms{quantile="0.5"} 45');
+      expect(text).toContain('llm_duration_ms{quantile="0.5"} 500');
+      expect(text).toContain('total_duration_ms{quantile="0.5"} 850');
+    });
+  });
+
+  describe('Document and LLM Metrics', () => {
+    it('tracks documents, tokens and costs correctly', async () => {
+      recordRetrievedDocuments(12);
+      recordRerankedDocuments(5);
+      recordLlmTokens(1000, 250, 0.015);
+
+      const text = await getMetricsText();
+
+      expect(text).toContain('retrieved_documents 12');
+      expect(text).toContain('reranked_documents 5');
+      expect(text).toContain('input_tokens 1000');
+      expect(text).toContain('output_tokens 250');
+      expect(text).toContain('cost_usd 0.015');
+    });
+  });
+
+  describe('Active Requests Gauge', () => {
+    it('tracks concurrent requests up and down', async () => {
+      incrementActiveRequests();
+      incrementActiveRequests();
+      expect(await getMetricsText()).toContain('active_requests 2');
+
+      decrementActiveRequests();
+      expect(await getMetricsText()).toContain('active_requests 1');
     });
   });
 
@@ -119,10 +200,10 @@ describe('metricsService', () => {
       expect(text).toMatch(/process_uptime_seconds \d+/);
     });
 
-    it('always contains nodejs heap used bytes', async () => {
+    it('always contains V8 heap usage bytes', async () => {
       const text = await getMetricsText();
 
-      expect(text).toContain('nodejs_heap_used_bytes');
+      expect(text).toContain('node_heap_used_bytes');
     });
 
     it('includes business metrics from the database', async () => {
@@ -151,10 +232,12 @@ describe('metricsService', () => {
     it('emits correct Prometheus HELP and TYPE headers', async () => {
       const text = await getMetricsText();
 
-      expect(text).toContain('# HELP http_requests_total');
-      expect(text).toContain('# TYPE http_requests_total counter');
-      expect(text).toContain('# HELP db_queries_total Total DB queries');
-      expect(text).toContain('# TYPE db_queries_total counter');
+      expect(text).toContain('# HELP request_total');
+      expect(text).toContain('# TYPE request_total counter');
+      expect(text).toContain('# HELP db_query_total');
+      expect(text).toContain('# TYPE db_query_total counter');
+      expect(text).toContain('# HELP active_requests');
+      expect(text).toContain('# TYPE active_requests gauge');
     });
   });
 });
