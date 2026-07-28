@@ -161,16 +161,10 @@ describe('submitSewageApplicationToMunicipality — eSignal (faller igenom till 
   });
 
   it('eSignal-integrationstyp faller igenom till email (loggad varning)', async () => {
-    // Inject eSignal endpoint by mocking the internal constants resolution
-    // Since MUNICIPALITY_ENDPOINTS has no eSignal entry, we mock the module-level
-    // endpoint lookup by providing a municipality code that would be resolved
-    // to eSignal — not possible without modifying the source.
-    // Instead, verify that KÖ (0184) falls through to email (covers the KÖ path,
-    // while eSignal would do the same). The eSignal case is architecturally equivalent.
     const result = await submitSewageApplicationToMunicipality(
       APP,
       PROFILE,
-      '0184', // KÖ falls through to email (same pattern as eSignal)
+      '0184', // Västerås (EMAIL in v1.0.0)
       '<svg>plan</svg>',
       '<svg>cross</svg>',
       'test@example.com',
@@ -178,45 +172,7 @@ describe('submitSewageApplicationToMunicipality — eSignal (faller igenom till 
       'org-1',
     );
     expect(result.ok).toBe(true);
-    expect(result.integrationType).toBe('KÖ');
-  });
-});
-
-// ── submitViaREST — HTTP-felkod ────────────────────────────────────────────
-
-describe('submitSewageApplicationToMunicipality — REST HTTP-fel', () => {
-  beforeEach(() => {
-    vi.clearAllMocks();
-    mockSave.mockResolvedValue({
-      id: 'sub-rest-err-1',
-      submissionKey: 'AVLOPP-REST-ERR-001',
-    });
-    mockAddArtifact.mockResolvedValue(undefined);
-    mockLogStatusEvent.mockResolvedValue(undefined);
-    process.env.MUNICIPALITY_API_KEY_0180 = 'test-api-key';
-  });
-
-  it('kastar Error vid HTTP 422 från REST-endpoint', async () => {
-    fetchMock.mockResolvedValueOnce({
-      ok: false,
-      status: 422,
-      text: async () => 'Validation failed',
-    });
-
-    await expect(
-      submitSewageApplicationToMunicipality(
-        APP,
-        PROFILE,
-        '0180',
-        '<svg>plan</svg>',
-        '<svg>cross</svg>',
-        'test@example.com',
-        'proj-1',
-        'org-1',
-      ),
-    ).rejects.toThrow('Municipality REST API error');
-
-    delete process.env.MUNICIPALITY_API_KEY_0180;
+    expect(result.integrationType).toBe('EMAIL');
   });
 });
 
@@ -278,31 +234,25 @@ describe('submitSewageApplicationToMunicipality — okänd kommunkod (9999)', ()
   });
 });
 
-// ── REST success med evidence chain ──────────────────────────────────────────
+// ── EMAIL success med evidence chain ──────────────────────────────────────────
 
-describe('submitSewageApplicationToMunicipality — REST success med requirementCaseId', () => {
+describe('submitSewageApplicationToMunicipality — EMAIL success med requirementCaseId', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mockSave.mockResolvedValue({
-      id: 'sub-rest-ok-1',
+      id: 'sub-email-ok-1',
       submissionKey: 'AVLOPP-0180-OK',
       requirementCaseId: 'req-case-1',
       projectId: 'proj-1',
     });
     mockAddArtifact.mockResolvedValue(undefined);
     mockLogStatusEvent.mockResolvedValue(undefined);
-    process.env.MUNICIPALITY_API_KEY_0180 = 'test-api-key';
   });
 
-  afterEach(() => {
-    delete process.env.MUNICIPALITY_API_KEY_0180;
-  });
-
-  it('REST success och evidence chain körs när requirementCaseId finns', async () => {
+  it('EMAIL success och evidence chain körs när requirementCaseId finns', async () => {
     const { resolveRequirementCaseIdForSubmission, createCaseSnapshot, exportFromSnapshot } =
       await import('../../../server/modules/evidence/public');
     (resolveRequirementCaseIdForSubmission as ReturnType<typeof vi.fn>).mockResolvedValueOnce('req-case-1');
-    fetchMock.mockResolvedValueOnce({ ok: true, status: 200 });
 
     const result = await submitSewageApplicationToMunicipality(
       APP,
@@ -389,33 +339,6 @@ describe('submitSewageApplicationToMunicipality — DOCX-generering', () => {
     );
     expect(result.ok).toBe(true);
     expect(mockAddArtifact).toHaveBeenCalled();
-  });
-});
-
-// ── REST: saknad API-nyckel ───────────────────────────────────────────────────
-
-describe('submitSewageApplicationToMunicipality — REST saknad API-nyckel', () => {
-  beforeEach(() => {
-    vi.clearAllMocks();
-    mockSave.mockResolvedValue({ id: 'sub-nokey-1', submissionKey: 'AVLOPP-0180-NOKEY' });
-    mockAddArtifact.mockResolvedValue(undefined);
-    mockLogStatusEvent.mockResolvedValue(undefined);
-    delete process.env.MUNICIPALITY_API_KEY_0180;
-  });
-
-  it('kastar Error vid saknad API-nyckel (0180 utan env-var)', async () => {
-    await expect(
-      submitSewageApplicationToMunicipality(
-        APP,
-        PROFILE,
-        '0180',
-        '<svg>plan</svg>',
-        '<svg>cross</svg>',
-        'test@example.com',
-        'proj-1',
-        'org-1',
-      ),
-    ).rejects.toThrow('Missing API key');
   });
 });
 

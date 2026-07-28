@@ -82,14 +82,11 @@ describe('MunicipalitySubmissionService', () => {
     expect(prisma.submissionArtifact.create).toHaveBeenCalledTimes(2);
   });
 
-  it('REST channel (Stockholm 0180): calls fetch with API key', async () => {
-    process.env.MUNICIPALITY_API_KEY_0180 = 'sthlm-key';
-    fetchMock.mockResolvedValueOnce({ ok: true });
-
+  it('submits via EMAIL channel for Stockholm 0180', async () => {
     const result = await submitSewageApplicationToMunicipality(
       baseApp,
       baseProfile,
-      '0180',
+      '0180', // Stockholm (EMAIL in v1.0.0)
       '<svg>plan</svg>',
       '<svg>section</svg>',
       'sthlm@example.com',
@@ -98,27 +95,7 @@ describe('MunicipalitySubmissionService', () => {
     );
 
     expect(result.ok).toBe(true);
-    expect(result.integrationType).toBe('REST');
-    expect(fetchMock).toHaveBeenCalledWith(
-      expect.stringContaining('stockholm'),
-      expect.objectContaining({ method: 'POST' }),
-    );
-  });
-
-  it('REST channel throws when API key is missing', async () => {
-    // No MUNICIPALITY_API_KEY_0180 set
-    await expect(
-      submitSewageApplicationToMunicipality(
-        baseApp,
-        baseProfile,
-        '0180',
-        '<svg>plan</svg>',
-        '<svg>section</svg>',
-        'test@example.com',
-        'proj-1',
-        'org-1',
-      ),
-    ).rejects.toThrow(/Missing API key for municipality 0180/);
+    expect(result.integrationType).toBe('EMAIL');
   });
 
   it('unknown municipality code falls back to email and returns ok', async () => {
@@ -138,11 +115,11 @@ describe('MunicipalitySubmissionService', () => {
     expect(result.municipalityCode).toBe('9999');
   });
 
-  it('KÖ channel (Västerås 0184) falls through to email', async () => {
+  it('submits via EMAIL channel for Västerås 0184', async () => {
     const result = await submitSewageApplicationToMunicipality(
       baseApp,
       baseProfile,
-      '0184', // Västerås (KÖ → falls back to email internally)
+      '0184', // Västerås (EMAIL in v1.0.0)
       '<svg>plan</svg>',
       '<svg>section</svg>',
       'vasteras@example.com',
@@ -151,7 +128,7 @@ describe('MunicipalitySubmissionService', () => {
     );
 
     expect(result.ok).toBe(true);
-    expect(result.integrationType).toBe('KÖ');
+    expect(result.integrationType).toBe('EMAIL');
   });
 });
 
