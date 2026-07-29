@@ -8,11 +8,21 @@
 
 ## What the auditor receives
 
-1. Offline archive (or directory) containing:
+1. Prefer a pre-built **audit bundle**:
+
+```bash
+npm run mimers:audit-bundle -- --root /path/to/mimers-root --out ./tmp-artifacts/mimers-audit-bundle
+```
+
+   Bundle contains `cas/`, `ledger/`, `VERIFY_REPORT.json`, `BUNDLE_MANIFEST.json`, `AUDIT_README.md`.
+
+2. Or a raw offline archive with only:
    - `cas/` — FileCASRepository objects
    - `ledger/` — segments + checkpoints (and legacy `events/` if present)
-2. Optional: `BACKUP_MANIFEST.json` from `mimers:backup-restore` (Merkle root + event count)
-3. This repository (or a release tarball) sufficient to run `npm ci` and the verify script
+
+3. Optional: `BACKUP_MANIFEST.json` from `mimers:backup-restore`
+
+4. This repository (or a release tarball) sufficient to run `npm ci` and the verify script
 
 **Out of scope for this checklist:** live NFS failover, production secrets, Vertex/GCP credentials, third-party legal opinion.
 

@@ -70,22 +70,28 @@ Hard links: CAS and ledger use `link(temp, dest)`. `tmp/` and `objects/` / `even
 npm run mimers:backup-restore
 npm run mimers:durability-matrix
 npm run mimers:sovereign
-# Optional NFS cell:
-# MIMERS_NFS_ROOT=/mnt/nfs/mimers-proof npm run mimers:durability-matrix
+# NFS / shared FS (requires real mount):
+# MIMERS_NFS_ROOT=/mnt/mimers-nfs npm run mimers:nfs-proof
+# Also exercises durability-matrix NFS cell:
+# MIMERS_NFS_ROOT=/mnt/mimers-nfs npm run mimers:durability-matrix
 # Linux CI forces strict:
 # MIMERS_REQUIRE_LINUX_STRICT=true npm run mimers:durability-matrix
+# Third-party handoff:
+# npm run mimers:audit-bundle -- --root <mimers-root>
 ```
 
 CI workflow: [`.github/workflows/mimers-sovereign.yml`](../../.github/workflows/mimers-sovereign.yml) (ubuntu-latest).
 
-External auditor: [external-audit-checklist](./mimers-brunn-v9-external-audit-checklist.md).
+External auditor: [external-audit-checklist](./mimers-brunn-v9-external-audit-checklist.md) · `npm run mimers:audit-bundle`.
+
+NFS / shared FS: [nfs-validation](./mimers-brunn-v9-nfs-validation.md) · `MIMERS_NFS_ROOT=… npm run mimers:nfs-proof`.
 
 | Check | Pass criteria |
 | --- | --- |
 | Backup/restore | Offline copy of `cas/`+`ledger/` → wipe live → restore → identical Merkle/hashes + CLEAN |
 | Durability `none` / `best-effort` | Write+reload PROVEN on current OS |
 | Durability `strict` | **PROVEN on Linux CI** ([run 30475536400](https://github.com/JbmbAb/Milj-beslut-V1.2/actions/runs/30475536400)); UNSUPPORTED acceptable on Windows NTFS |
-| NFS/failover | SKIPPED unless `MIMERS_NFS_ROOT` set; then write+reload on that path |
+| NFS/failover | `mimers:nfs-proof` with real mount → `ok: true` + evidence JSON |
 
 ### Fas 4 acceptance gate
 
