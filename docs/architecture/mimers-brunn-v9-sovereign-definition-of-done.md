@@ -36,8 +36,9 @@ Kärnans logiska modell är bevisad. Kvar är främst miljö- och driftberoende 
 | Multi-segment replay | PROVEN | `npm run mimers:ops-proof` · `ops-proof-slice.test.ts` |
 | Checkpoint-baserad recovery | PROVEN | `buildCheckpointAcceleratedPlan` · ops-proof |
 | Merkle-kedjans korrekthet | PROVEN | chained checkpoints + ops-proof root match |
-| Linux strict durability | PARTIAL | Matris i runbook; ej registrerad prod-körning |
-| NFS/failover | PARTIAL | Supportmatris dokumenterad; failover ej kört |
+| Linux strict durability | PARTIAL | Matris-runner: PROVEN på Linux, UNSUPPORTED/PARTIAL på Windows — `mimers:durability-matrix` |
+| NFS/failover | PARTIAL | SKIPPED utan `MIMERS_NFS_ROOT`; opt-in PROVEN när satt |
+| Backup/restore av CAS+ledger | PROVEN | `npm run mimers:backup-restore` |
 | Oberoende tredjepartsrevision | UNPROVEN | Kräver extern miljö/signoff |
 
 Fault injection (korrupt segment / avbruten skrivning / saknad checkpoint) ingår i `mimers:ops-proof` och stödjer §2/§4.
@@ -80,7 +81,7 @@ Fault injection (korrupt segment / avbruten skrivning / saknad checkpoint) ingå
 | WORM policy on `promotion/` | PROVEN | `PolicyEnforcingArtifactStore`, env-and-policy tests |
 | Segment rotation append-only | PROVEN | `file-event-log.test.ts` |
 | L0–L3 never silent-fix | PROVEN | Fel i `AuditReport.errors`; karantän kräver `quarantine: true`; saknad checkpoint: `checkpointPolicy=fail-closed` (Verifier) vs `backfill` (Repair) — `mimers:ops-proof` |
-| Full durability-matris kört på Linux+NFS | UNPROVEN | Matris i runbook; “produktionstestad” endast för körd rad |
+| Full durability-matris kört på Linux+NFS | PARTIAL | `mimers:durability-matrix` bevisar none/best-effort (+ strict på Linux); NFS kräver `MIMERS_NFS_ROOT` |
 
 ---
 
@@ -165,11 +166,11 @@ Fault injection (korrupt segment / avbruten skrivning / saknad checkpoint) ingå
 | --- | --- | --- |
 | Micro-benchmark gate | PROVEN | `npm run mimers:bench` |
 | Multi-segment load metrics | PROVEN | `npm run mimers:ops-proof` |
-| Durability support matrix (dokument) | PROVEN (dok) | [runbook](../ops/mimers-brunn-v9-runbook.md) |
-| Windows lokal best-effort | PARTIAL | Utvecklingsmaskin / CI om Windows |
-| Linux `strict` durability | PARTIAL | Matris i runbook; ej registrerad prod-körning |
-| NFS/failover | PARTIAL | Supportmatris dokumenterad; failover ej kört i gate |
-| Backup/restore av CAS+ledger-träd | UNPROVEN | Driftprocedur utanför kärnbevis |
+| Backup/restore av CAS+ledger-träd | PROVEN | `npm run mimers:backup-restore` · `platform-ops-proofs.test.ts` |
+| Durability support matrix (dokument + runner) | PROVEN (dok) / PARTIAL (plattform) | [runbook](../ops/mimers-brunn-v9-runbook.md) · `mimers:durability-matrix` |
+| Windows lokal best-effort | PROVEN | durability-matrix cell `best-effort` |
+| Linux `strict` durability | PARTIAL | PROVEN när matris körs på Linux; UNSUPPORTED på Windows NTFS |
+| NFS/failover | PARTIAL | SKIPPED utan `MIMERS_NFS_ROOT`; sätt env för opt-in bevis |
 
 ---
 
@@ -180,15 +181,18 @@ npm run mimers:accept          # M1–M7 acceptance
 npm run mimers:verify -- --root <mimers-root>   # extern verify (eller self-seed)
 npm run mimers:cold-start      # cold-start replay proof
 npm run mimers:ops-proof       # multi-segment + checkpoint recovery + fault injection
+npm run mimers:backup-restore  # offline backup → wipe → restore
+npm run mimers:durability-matrix
 npm run mimers:bench
 npm run evolve:integration     # CAS-primary evolve smoke
 npx vitest run tests/unit/mimers/ops-proof-slice.test.ts
+npx vitest run tests/unit/mimers/platform-ops-proofs.test.ts
 npx vitest run tests/unit/mimers/fault-injection.test.ts
 ```
 
 **Sovereign Edition = PROVEN på §1–§5 i denna miljö + dokumenterad körning av §6-matrisraden ni påstår.**
 
-Kärnans logiska modell är bevisad under last och felinjicering. Kvarvarande luckor är främst **miljö- och driftberoende** (Linux strict, NFS, backup/restore, tredjepartsrevision).
+Kärnans logiska modell är bevisad under last och felinjicering. Kvarvarande luckor är främst **miljö- och driftberoende** (Linux `strict` i prod, NFS med `MIMERS_NFS_ROOT`, oberoende tredjepartsrevision).
 
 ---
 

@@ -62,6 +62,22 @@ Wrap ArtifactStore with `PolicyEnforcingArtifactStore` so `promotion/` is WORM (
 
 Hard links: CAS and ledger use `link(temp, dest)`. `tmp/` and `objects/` / `events/` / `segments/` **must** share a filesystem (asserted at CAS init).
 
+### Platform proofs (§6)
+
+```bash
+npm run mimers:backup-restore
+npm run mimers:durability-matrix
+# Optional NFS cell:
+# MIMERS_NFS_ROOT=/mnt/nfs/mimers-proof npm run mimers:durability-matrix
+```
+
+| Check | Pass criteria |
+| --- | --- |
+| Backup/restore | Offline copy of `cas/`+`ledger/` → wipe live → restore → identical Merkle/hashes + CLEAN |
+| Durability `none` / `best-effort` | Write+reload PROVEN on current OS |
+| Durability `strict` | PROVEN on Linux; UNSUPPORTED acceptable on Windows NTFS |
+| NFS/failover | SKIPPED unless `MIMERS_NFS_ROOT` set; then write+reload on that path |
+
 ### Fas 4 acceptance gate
 
 ```bash
@@ -69,6 +85,8 @@ npx vitest run tests/unit/mimers/fas4-acceptance.test.ts
 npm run mimers:verify
 npm run mimers:cold-start
 npm run mimers:ops-proof
+npm run mimers:backup-restore
+npm run mimers:durability-matrix
 npm run mimers:bench
 npm run evolve:integration
 ```
@@ -85,6 +103,8 @@ npm run evolve:integration
 | Cold-start (§3) | Empty node from CAS+ledger only → identical hashes |
 | Multi-segment + ckpt recovery (§3) | `mimers:ops-proof`: Merkle/hashes match; checkpoint ≡ full replay |
 | Fault injection (§2/§4) | Corrupt segment / truncated write / missing ckpt (fail-closed vs backfill) |
+| Backup/restore (§6) | `mimers:backup-restore` identical after wipe |
+| Durability matrix (§6) | `mimers:durability-matrix` platform gate OK |
 
 ## Daily health (fast path)
 
