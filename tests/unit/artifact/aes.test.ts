@@ -90,6 +90,8 @@ describe('AES-1.0 envelope', () => {
         fitness,
         promotedAt: 42,
         sourceExperimentId: 'exp-new',
+        evolutionRunId: 'run-exp-new',
+        approvalRecordId: 'apr-exp-new',
         schemaVersion: 'promotion.v3',
         runtimeFingerprint: 'rt-1',
         policySnapshotRef: 'policy:1',
@@ -127,6 +129,7 @@ describe('AES-1.0 envelope', () => {
     expect(v3.signingKeyId).toBeUndefined();
     expect(v3.migrationNote).toBe('unsigned-after-migration:promotion.v2->promotion.v3');
     expect(v3.pipelineDefinitionRef.startsWith('definition:')).toBe(true);
+    expect(v3.approvalRecordId).toBe('legacy:unlinked:promotion-exp-1');
 
     // Hash must match AES over stripped migrated body (no envelope / no stale sig).
     const expectedHash = hashArtifactPayload({
@@ -139,6 +142,8 @@ describe('AES-1.0 envelope', () => {
       fitness: v3.fitness,
       promotedAt: v3.promotedAt,
       sourceExperimentId: v3.sourceExperimentId,
+      evolutionRunId: v3.evolutionRunId,
+      approvalRecordId: v3.approvalRecordId,
       schemaVersion: 'promotion.v3',
       migrationNote: v3.migrationNote,
     });
@@ -162,6 +167,8 @@ describe('AES-1.0 envelope', () => {
       fitness,
       promotedAt: 1,
       sourceExperimentId: 'e',
+      evolutionRunId: 'run-e',
+      approvalRecordId: 'apr-e',
       schemaVersion: 'promotion.v3',
     });
     expect(registry.migrateToLatest(artifact)).toBe(artifact);

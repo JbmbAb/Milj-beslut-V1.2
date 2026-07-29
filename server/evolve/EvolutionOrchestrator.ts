@@ -1,7 +1,17 @@
+import {
+  approvalStoreKey,
+  createApprovalRecord,
+  createPromotionArtifactV3Async,
+  promotionStoreKey,
+  requirePromotionV3,
+  type ApprovalDecision,
+  type ApprovalRecord,
+  type PromotionArtifactV3,
+  type SigningKeyProvider,
+} from '../artifact';
 import type { ArtifactStore } from '../artifact/ArtifactStore';
-import type { ApprovalDecision, PromotionArtifact } from '../artifact/PromotionArtifact';
 import type { PipelineDefinition } from '../compiler/types';
-import { hashArtifact } from '../utils/hashArtifact';
+import { hashArtifact, hashArtifactPayload } from '../utils/hashArtifact';
 import type { CandidateGenerator, GeneratedCandidate } from './CandidateGenerator';
 import type { ConstraintContext, ConstraintSolver } from './ConstraintSolver';
 import type { EvaluationEngine, EvaluationResult } from './EvaluationEngine';
@@ -11,6 +21,7 @@ import type { ExperimentRecord } from './ExperimentRecord';
 import type { FitnessResult } from './FitnessResult';
 import type { MutationRecord } from './MutationTypes';
 import type { ParetoFrontier, FrontierCandidate } from './ParetoFrontier';
+import type { PromotionCandidate } from './PromotionCandidate';
 import { decidePromotion, type PromotionDecision, type PromotionPolicy } from './PromotionPolicy';
 import type { ShadowMetrics } from './ShadowEvaluator';
 
@@ -18,6 +29,10 @@ interface FeasibleCandidate {
   readonly candidate: GeneratedCandidate;
   readonly candidateIndex: number;
 }
+
+export type ApprovalGate = {
+  approve(candidate: PromotionCandidate): Promise<ApprovalDecision>;
+};
 
 const ZERO_METRICS: ShadowMetrics = {
   latencyMs: 0,
@@ -32,16 +47,21 @@ const REJECTED_FITNESS: FitnessResult = {
   fitness: -9999,
 };
 
+/**
+ * WORM evolve loop: ExperimentRecord always; ApprovalRecord on gate path;
+ * PromotionArtifactV3 only after approval (never mutated in place).
+ */
 export class EvolutionOrchestrator {
   constructor(
     private readonly generator: CandidateGenerator,
     private readonly evaluator: EvaluationEngine,
     private readonly artifactStore: ArtifactStore,
     private readonly frontier: ParetoFrontier,
-    private readonly approvalGate: { approve(artifact: PromotionArtifact): Promise<ApprovalDecision> },
+    private readonly approvalGate: ApprovalGate,
     private readonly promotionPolicy: PromotionPolicy,
     private readonly constraintSolver: ConstraintSolver,
     private readonly eventLedger: EventLedger,
+    private readonly signingKeyProvider?: SigningKeyProvider,
   ) {}
 
   async evolve(
@@ -55,6 +75,7 @@ export class EvolutionOrchestrator {
     await this.eventLedger.record({ type: 'RUN_STARTED', runId: run.id });
 
     let current = baseline;
+    /** Content-addressed parent promotion artifactId (AES V3). */
     let parentPromotionId: string | undefined;
 
     for (let generation = 1; generation <= generations; generation += 1) {
@@ -125,58 +146,131 @@ export class EvolutionOrchestrator {
           promotionDecision,
         });
 
-        const parentPromotion = parentPromotionId
-          ? await this.artifactStore.get<PromotionArtifact>(`promotion-approved/${parentPromotionId}`)
-          : undefined;
-        const mutationChain = [...(parentPromotion?.mutationChain ?? []), item.candidate.mutation];
-        const promotionArtifact = this.createPromotionArtifact({
-          experimentId,
-          candidate: item.candidate,
-          pipelineId: item.compiled.pipeline.id,
-          parentPromotionId,
-          parentExecutionHash: compiledBaseline.pipeline.hashes.executionHash,
-          executionHash: item.compiled.pipeline.hashes.executionHash,
-          mutationChain,
-          fitness: evaluation.fitnessCandidate,
-        });
-
-        await this.artifactStore.put(`promotion/${promotionArtifact.id}`, promotionArtifact);
-        await this.eventLedger.record({
-          type: 'PROMOTION_CREATED',
-          runId: run.id,
-          artifactId: `promotion/${promotionArtifact.id}`,
-          payloadHash: promotionArtifact.artifactHash,
-        });
-
         if (promotionDecision.promote) {
-          const approval = await this.approvalGate.approve(promotionArtifact);
-          const approvedArtifact: PromotionArtifact = {
-            ...promotionArtifact,
-            approvalDecision: approval,
-          };
+          const rawParent = parentPromotionId
+            ? await this.artifactStore.get(`promotion/${parentPromotionId}`)
+            : undefined;
+          const parentPromotion = rawParent ? requirePromotionV3(rawParent) : undefined;
+          const mutationChain = [...(parentPromotion?.mutationChain ?? []), item.candidate.mutation];
 
-          await this.artifactStore.put(`promotion/${promotionArtifact.id}`, approvedArtifact);
-          await this.artifactStore.put(`approval/${promotionArtifact.id}`, approval);
-          await this.eventLedger.record({
-            type: approval.approved ? 'PROMOTION_APPROVED' : 'PROMOTION_REJECTED',
+          const promotionCandidate = this.buildPromotionCandidate({
             runId: run.id,
-            artifactId: `promotion/${promotionArtifact.id}`,
-            payloadHash: hashArtifact(approval),
+            experimentId,
+            candidate: item.candidate,
+            pipelineId: item.compiled.pipeline.id,
+            parentPromotionId,
+            parentExecutionHash: compiledBaseline.pipeline.hashes.executionHash,
+            executionHash: item.compiled.pipeline.hashes.executionHash,
+            mutationChain,
+            fitness: evaluation.fitnessCandidate,
           });
 
-          if (approval.approved) {
-            await this.artifactStore.put(`promotion-approved/${promotionArtifact.id}`, approvedArtifact);
+          const decision = await this.approvalGate.approve(promotionCandidate);
+          const approval = this.writeApprovalRecord(run.id, promotionCandidate.candidateId, decision);
+          await this.artifactStore.put(approvalStoreKey(approval.approvalId), approval);
+          await this.eventLedger.record({
+            type: decision.approved ? 'PROMOTION_APPROVED' : 'PROMOTION_REJECTED',
+            runId: run.id,
+            artifactId: approvalStoreKey(approval.approvalId),
+            payloadHash: approval.artifactHash,
+          });
+
+          if (decision.approved) {
+            const sealed = await this.sealApprovedPromotion(promotionCandidate, approval);
+            const key = promotionStoreKey(sealed);
+            await this.artifactStore.put(key, sealed);
+            await this.eventLedger.record({
+              type: 'PROMOTION_CREATED',
+              runId: run.id,
+              artifactId: key,
+              payloadHash: sealed.artifactHash,
+            });
             current = item.candidate.definition;
-            parentPromotionId = promotionArtifact.id;
+            parentPromotionId = sealed.artifactId;
           }
         }
 
-        this.frontier.add(this.toFrontierCandidate(experimentId, experimentKey, item.compiled.pipeline.hashes.executionHash, evaluation));
+        this.frontier.add(
+          this.toFrontierCandidate(experimentId, experimentKey, item.compiled.pipeline.hashes.executionHash, evaluation),
+        );
         await this.artifactStore.put(`frontier/${run.id}`, this.frontier.list());
       }
     }
 
     return current;
+  }
+
+  private buildPromotionCandidate(args: {
+    readonly runId: string;
+    readonly experimentId: string;
+    readonly candidate: GeneratedCandidate;
+    readonly pipelineId: string;
+    readonly parentPromotionId?: string;
+    readonly parentExecutionHash: string;
+    readonly executionHash: string;
+    readonly mutationChain: readonly MutationRecord[];
+    readonly fitness: FitnessResult;
+  }): PromotionCandidate {
+    const pipelineDefinitionRef = `definition:${hashArtifactPayload(args.candidate.definition)}`;
+    return {
+      candidateId: args.experimentId,
+      experimentId: args.experimentId,
+      evolutionRunId: args.runId,
+      humanId: `promotion-${args.experimentId}`,
+      pipelineId: args.pipelineId,
+      parentPromotionId: args.parentPromotionId,
+      parentExecutionHash: args.parentExecutionHash,
+      executionHash: args.executionHash,
+      pipelineDefinitionRef,
+      pipelineDefinition: args.candidate.definition,
+      mutationChain: args.mutationChain,
+      fitness: args.fitness,
+      metadata: {},
+    };
+  }
+
+  private writeApprovalRecord(
+    evolutionRunId: string,
+    subjectId: string,
+    decision: ApprovalDecision,
+  ): ApprovalRecord {
+    const approvalId = subjectId;
+    return createApprovalRecord({
+      approvalId,
+      subjectId,
+      subjectType: 'promotion-candidate',
+      decision,
+      evolutionRunId,
+      schemaVersion: 'approval.v1',
+      createdAt: Date.now(),
+    });
+  }
+
+  private async sealApprovedPromotion(
+    candidate: PromotionCandidate,
+    approval: ApprovalRecord,
+  ): Promise<PromotionArtifactV3> {
+    return createPromotionArtifactV3Async(
+      {
+        humanId: candidate.humanId,
+        pipelineId: candidate.pipelineId,
+        parentPromotionId: candidate.parentPromotionId,
+        parentExecutionHash: candidate.parentExecutionHash,
+        executionHash: candidate.executionHash,
+        pipelineDefinitionRef: candidate.pipelineDefinitionRef,
+        mutationChain: candidate.mutationChain,
+        fitness: candidate.fitness,
+        promotedAt: Date.now(),
+        sourceExperimentId: candidate.experimentId,
+        evolutionRunId: candidate.evolutionRunId,
+        approvalRecordId: approval.approvalId,
+        schemaVersion: 'promotion.v3',
+        runtimeFingerprint: candidate.runtimeFingerprint,
+        policySnapshotRef: candidate.policySnapshotRef,
+        metadata: candidate.metadata,
+      },
+      { signingKeyProvider: this.signingKeyProvider },
+    );
   }
 
   private async filterFeasible(
@@ -286,36 +380,6 @@ export class EvolutionOrchestrator {
     });
 
     return artifactId;
-  }
-
-  private createPromotionArtifact(args: {
-    readonly experimentId: string;
-    readonly candidate: GeneratedCandidate;
-    readonly pipelineId: string;
-    readonly parentPromotionId?: string;
-    readonly parentExecutionHash: string;
-    readonly executionHash: string;
-    readonly mutationChain: readonly MutationRecord[];
-    readonly fitness: FitnessResult;
-  }): PromotionArtifact {
-    const base = {
-      id: `promotion-${args.experimentId}`,
-      pipelineId: args.pipelineId,
-      parentPromotionId: args.parentPromotionId,
-      parentExecutionHash: args.parentExecutionHash,
-      executionHash: args.executionHash,
-      pipelineDefinition: args.candidate.definition,
-      mutationChain: args.mutationChain,
-      fitness: args.fitness,
-      promotedAt: Date.now(),
-      schemaVersion: 'promotion.v2' as const,
-      sourceExperimentId: args.experimentId,
-    };
-
-    return {
-      ...base,
-      artifactHash: hashArtifact(base),
-    };
   }
 
   private withExperimentHash(record: Omit<ExperimentRecord, 'artifactHash'>): ExperimentRecord {

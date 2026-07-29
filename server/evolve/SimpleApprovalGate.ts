@@ -1,12 +1,13 @@
-import type { ApprovalDecision, PromotionArtifact } from '../artifact/PromotionArtifact';
+import type { ApprovalDecision } from '../artifact/ApprovalRecord';
+import type { PromotionCandidate } from './PromotionCandidate';
 
 /**
  * Smoke approval gate: approves when the latest mutation is tagged `low_risk`.
- * Replace with UI / policy engine in production.
+ * Operates on PromotionCandidate (pre-artifact), never on a sealed PromotionArtifact.
  */
 export class SimpleApprovalGate {
-  async approve(artifact: PromotionArtifact): Promise<ApprovalDecision> {
-    const latest = artifact.mutationChain[artifact.mutationChain.length - 1];
+  async approve(candidate: PromotionCandidate): Promise<ApprovalDecision> {
+    const latest = candidate.mutationChain[candidate.mutationChain.length - 1];
     const lowRisk = latest?.type === 'low_risk';
 
     return {

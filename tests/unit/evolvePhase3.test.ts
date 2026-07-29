@@ -2,8 +2,7 @@ import { mkdtemp } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { FileArtifactStore } from '../../server/artifact';
-import type { PromotionArtifact } from '../../server/artifact';
+import { FileArtifactStore, type ApprovalRecord, type PromotionArtifactV3 } from '../../server/artifact';
 import type { CompilationResult, PipelineDefinition } from '../../server/compiler';
 import {
   EventLedger,
@@ -13,6 +12,7 @@ import {
   dominates,
   type CandidateGenerator,
   type EvaluationEngine,
+  type PromotionCandidate,
 } from '../../server/evolve';
 import { hashArtifact } from '../../server/utils/hashArtifact';
 
@@ -56,7 +56,7 @@ function compilation(definition: PipelineDefinition): CompilationResult {
   };
 }
 
-describe('Phase 3 evolution stability fixes', () => {
+describe('Phase 3/4 WORM evolution', () => {
   it('uses strict Pareto dominance so identical candidates remain non-dominating', () => {
     const a = {
       id: 'a',
@@ -88,11 +88,12 @@ describe('Phase 3 evolution stability fixes', () => {
     expect(generated.prevEventHash).toBe(started.eventHash);
   });
 
-  it('persists experiment records, approval decisions, cumulative lineage and batched shadow evaluation', async () => {
+  it('WORM: seals promotion only after approval; approval points at candidate', async () => {
     const store = new FileArtifactStore(await tempDir());
     const frontier = new ParetoFrontier();
+    const seenCandidates: PromotionCandidate[] = [];
     const generator: CandidateGenerator = {
-      generate: (_baseline, _context, _populationSize) => [
+      generate: () => [
         {
           definition: pipeline('candidate-a', 2),
           mutation: { id: 'm1', type: 'raise-memory' },
@@ -110,7 +111,7 @@ describe('Phase 3 evolution stability fixes', () => {
       },
       async evaluateBatch(candidates, baseline) {
         batchCalls += 1;
-        return candidates.map((_candidate) => ({
+        return candidates.map(() => ({
           metricsCandidate: { latencyMs: 8, costSek: 1, qualityScore: 2, errorRate: 0 },
           metricsBaseline: { latencyMs: 10, costSek: 1, qualityScore: 1, errorRate: 0 },
           fitnessCandidate: { rawFitness: 2, penalty: 0, fitness: 2 },
@@ -125,7 +126,8 @@ describe('Phase 3 evolution stability fixes', () => {
       store,
       frontier,
       {
-        async approve() {
+        async approve(candidate) {
+          seenCandidates.push(candidate);
           return { approved: true, reviewer: 'test', reason: 'ok', timestamp: 1 };
         },
       },
@@ -142,15 +144,83 @@ describe('Phase 3 evolution stability fixes', () => {
       { runtimeCapabilities: { memoryGb: 8 } },
     );
 
-    const approved = await store.get<PromotionArtifact>('promotion-approved/promotion-run-approval-g001-c000');
     expect(batchCalls).toBe(1);
-    expect(approved?.approvalDecision?.approved).toBe(true);
-    expect(approved?.mutationChain.map((mutation) => mutation.id)).toEqual(['m1']);
-    expect(await store.get('approval/promotion-run-approval-g001-c000')).toBeDefined();
+    expect(seenCandidates).toHaveLength(1);
+    expect(seenCandidates[0]?.candidateId).toBe('run-approval-g001-c000');
+
+    const promotions = await store.list('promotion/');
+    expect(promotions).toHaveLength(1);
+    expect(promotions[0]?.startsWith('promotion/sha256:')).toBe(true);
+
+    const sealed = await store.get<PromotionArtifactV3>(promotions[0]!);
+    expect(sealed?.schemaVersion).toBe('promotion.v3');
+    expect(sealed?.approvalRecordId).toBe('run-approval-g001-c000');
+    expect(sealed?.mutationChain.map((m) => m.id)).toEqual(['m1']);
+    expect(sealed?.evolutionRunId).toBe('run-approval');
+
+    const approval = await store.get<ApprovalRecord>('approval/run-approval-g001-c000');
+    expect(approval?.subjectId).toBe('run-approval-g001-c000');
+    expect(approval?.subjectType).toBe('promotion-candidate');
+    expect(approval?.decision.approved).toBe(true);
+
+    expect(await store.list('promotion-approved/')).toEqual([]);
     expect(await store.get('experiment/run-approval/run-approval-g001-c001')).toMatchObject({
       candidateExecutionHash: 'n/a',
       promotion: { promote: false },
     });
+  });
+
+  it('WORM: gate rejection writes ApprovalRecord but no promotion artifact', async () => {
+    const store = new FileArtifactStore(await tempDir());
+    const generator: CandidateGenerator = {
+      generate: () => [
+        {
+          definition: pipeline('candidate-a', 2),
+          mutation: { id: 'm1', type: 'raise-memory' },
+        },
+      ],
+    };
+    const evaluator: EvaluationEngine = {
+      async compile(definition) {
+        return compilation(definition);
+      },
+      async evaluateBatch(candidates, baseline) {
+        return candidates.map(() => ({
+          metricsCandidate: { latencyMs: 8, costSek: 1, qualityScore: 2, errorRate: 0 },
+          metricsBaseline: { latencyMs: 10, costSek: 1, qualityScore: 1, errorRate: 0 },
+          fitnessCandidate: { rawFitness: 2, penalty: 0, fitness: 2 },
+          fitnessBaseline: { rawFitness: 1, penalty: 0, fitness: 1 },
+          baseline,
+        }));
+      },
+    };
+    const orchestrator = new EvolutionOrchestrator(
+      generator,
+      evaluator,
+      store,
+      new ParetoFrontier(),
+      {
+        async approve() {
+          return { approved: false, reviewer: 'test', reason: 'nope', timestamp: 1 };
+        },
+      },
+      { minQualityDelta: 0.5, maxLatencyRegression: 0, maxCostRegression: 0, maxErrorRegression: 0 },
+      new SimpleConstraintSolver(),
+      new EventLedger(store, 'run-reject'),
+    );
+
+    await orchestrator.evolve(
+      { id: 'run-reject', seed: 'seed' },
+      pipeline('baseline', 1),
+      1,
+      1,
+      { runtimeCapabilities: { memoryGb: 8 } },
+    );
+
+    expect(await store.list('promotion/')).toEqual([]);
+    const approval = await store.get<ApprovalRecord>('approval/run-reject-g001-c000');
+    expect(approval?.decision.approved).toBe(false);
+    expect(await store.get('experiment/run-reject/run-reject-g001-c000')).toBeDefined();
   });
 
   it('keeps original candidate indexes after constraint filtering', async () => {
@@ -209,7 +279,9 @@ describe('Phase 3 evolution stability fixes', () => {
     expect(await store.get('experiment/run-sparse/run-sparse-g001-c001')).toMatchObject({
       candidateExecutionHash: expect.stringMatching(/^sha256:/),
     });
-    expect(await store.get('promotion-approved/promotion-run-sparse-g001-c001')).toBeDefined();
+    const promotions = await store.list('promotion/');
+    expect(promotions).toHaveLength(1);
+    expect(await store.list('promotion-approved/')).toEqual([]);
   });
 });
 

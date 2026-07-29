@@ -2,6 +2,8 @@ import crypto from 'node:crypto';
 import { canonicalize } from './canonicalize';
 import { stripEnvelope } from '../artifact/aes';
 
+export { stripEnvelope } from '../artifact/aes';
+
 /**
  * AES-1.0 payload hash:
  *   sha256(canonicalize(stripEnvelope(payload)))

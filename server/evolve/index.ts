@@ -16,4 +16,6 @@ export { decidePromotion, type PromotionDecision, type PromotionPolicy } from '.
 export type { ShadowMetrics } from './ShadowEvaluator';
 export { BatchShadowEvaluator, type ShadowEvaluationResult } from './BatchShadowEvaluator';
 export { SimpleApprovalGate } from './SimpleApprovalGate';
+export type { PromotionCandidate } from './PromotionCandidate';
 export { StubCandidateGenerator } from './StubCandidateGenerator';
+export type { ApprovalGate } from './EvolutionOrchestrator';

@@ -3,6 +3,18 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import type { ArtifactStore } from './ArtifactStore';
 
+/**
+ * Encode logical artifact keys for Windows-safe paths (`:` is illegal in filenames).
+ * Logical keys keep `sha256:…`; on disk they become `sha256%3A…`.
+ */
+export function encodeArtifactKeyForFs(key: string): string {
+  return key.replace(/:/g, '%3A');
+}
+
+export function decodeArtifactKeyFromFs(key: string): string {
+  return key.replace(/%3A/gi, ':');
+}
+
 export class FileArtifactStore implements ArtifactStore {
   constructor(private readonly rootDir: string) {}
 
@@ -55,7 +67,8 @@ export class FileArtifactStore implements ArtifactStore {
       }
       if (entry.isFile() && entry.name.endsWith('.json')) {
         const relative = path.relative(this.rootDir, entryPath).replace(/\\/g, '/');
-        entries.push(relative.slice(0, -'.json'.length));
+        const logical = decodeArtifactKeyFromFs(relative.slice(0, -'.json'.length));
+        entries.push(logical);
       }
     }
   }
@@ -65,7 +78,7 @@ export class FileArtifactStore implements ArtifactStore {
   }
 
   private resolvePrefix(prefix: string): string {
-    const normalized = prefix.replace(/\\/g, '/').replace(/^\/+/, '');
+    const normalized = encodeArtifactKeyForFs(prefix.replace(/\\/g, '/').replace(/^\/+/, ''));
     const fullPath = path.resolve(this.rootDir, normalized);
     const root = path.resolve(this.rootDir);
 

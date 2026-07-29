@@ -40,6 +40,9 @@ export function generateAesKeyPair(): { publicKey: string; privateKey: string } 
   };
 }
 
+/** Alias used by AES approval/signing tests and call sites. */
+export const generateKeypair = generateAesKeyPair;
+
 function loadPrivateKey(material: string): crypto.KeyObject {
   if (material.includes('BEGIN')) {
     return crypto.createPrivateKey(material);

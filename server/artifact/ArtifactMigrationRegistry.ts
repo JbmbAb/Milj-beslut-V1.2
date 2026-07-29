@@ -93,9 +93,12 @@ export const promotionV2ToV3Migrator: ArtifactMigrator<PromotionArtifactV2, Reco
       fitness: v2.fitness,
       promotedAt: v2.promotedAt,
       sourceExperimentId: v2.sourceExperimentId,
+      // V2 had no evolutionRunId; do not invent one by parsing sourceExperimentId.
+      evolutionRunId: 'unknown-pre-v3',
+      // Lazy read path: link to synthetic legacy approval id (bulk WORM migration is separate).
+      approvalRecordId: `legacy:unlinked:${v2.id}`,
       schemaVersion: 'promotion.v3',
-      approvalDecision: v2.approvalDecision,
-      // Intentionally omit artifactHash / signature / signingKeyId —
+      // Intentionally omit artifactHash / signature / signingKeyId / approvalDecision —
       // registry recomputes hash and clears signatures after migrate().
     };
   },
@@ -105,4 +108,25 @@ export function createDefaultArtifactMigrationRegistry(): ArtifactMigrationRegis
   const registry = new ArtifactMigrationRegistry();
   registry.register(promotionV2ToV3Migrator);
   return registry;
+}
+
+/**
+ * Load a parent promotion for lineage. Unmigrated v2 is migrated; unknown
+ * schema versions are rejected. Never pass raw v2 parents into v3 builders.
+ */
+export function requirePromotionV3(
+  raw: unknown,
+  registry: ArtifactMigrationRegistry = createDefaultArtifactMigrationRegistry(),
+): PromotionArtifactV3 {
+  if (!raw || typeof raw !== 'object') {
+    throw new Error('Missing parent promotion artifact');
+  }
+  const schemaVersion = (raw as { schemaVersion?: string }).schemaVersion;
+  if (schemaVersion === 'promotion.v3') {
+    return raw as PromotionArtifactV3;
+  }
+  if (schemaVersion === 'promotion.v2') {
+    return registry.migrateToLatest(raw as PromotionArtifactV2);
+  }
+  throw new Error(`Unsupported parent schemaVersion: ${String(schemaVersion)}`);
 }

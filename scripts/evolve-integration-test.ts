@@ -1,5 +1,5 @@
 /**
- * Local evolution smoke / integration harness.
+ * Local evolution smoke / integration harness (WORM promotions).
  *
  *   npx tsx scripts/evolve-integration-test.ts
  *
@@ -7,6 +7,8 @@
  */
 import path from 'node:path';
 import { FileArtifactStore } from '../server/artifact/FileArtifactStore';
+import type { PromotionArtifactV3 } from '../server/artifact/PromotionArtifact';
+import { LocalPemSigningKeyProvider } from '../server/artifact/signingKeyProvider';
 import { DefaultEvaluationEngine } from '../server/evolve/DefaultEvaluationEngine';
 import { EventLedger } from '../server/evolve/EventLedger';
 import { EvolutionOrchestrator } from '../server/evolve/EvolutionOrchestrator';
@@ -18,11 +20,13 @@ import { SimpleConstraintSolver } from '../server/evolve/ConstraintSolver';
 import { BatchShadowEvaluator } from '../server/evolve/BatchShadowEvaluator';
 import { StubCandidateGenerator } from '../server/evolve/StubCandidateGenerator';
 import type { PipelineDefinition } from '../server/compiler/types';
-import type { PromotionArtifact } from '../server/artifact/PromotionArtifact';
+import { generateAesKeyPair } from '../server/utils/signing';
 
 async function main(): Promise<void> {
   const artifactsDir = path.resolve(process.cwd(), 'tmp-artifacts');
   const store = new FileArtifactStore(artifactsDir);
+  const keys = generateAesKeyPair();
+  const signing = new LocalPemSigningKeyProvider('ed25519:smoke', keys.privateKey, keys.publicKey);
 
   const run: EvolutionRun = {
     id: `evo-test-${Date.now()}`,
@@ -58,7 +62,6 @@ async function main(): Promise<void> {
     frontier,
     approvalGate,
     {
-      // Lenient enough for stub shadow (quality↑ but latency↑).
       minQualityDelta: 0.01,
       maxLatencyRegression: 500,
       maxCostRegression: 1,
@@ -66,6 +69,7 @@ async function main(): Promise<void> {
     },
     constraintSolver,
     eventLedger,
+    signing,
   );
 
   console.log('Starting short evolution run:', run.id);
@@ -75,9 +79,20 @@ async function main(): Promise<void> {
 
   console.log('Evolution finished. Final baseline pipeline id:', finalBaseline.id);
 
-  console.log('Simulating resume: listing promotions and frontier snapshot...');
   const promotions = await store.list('promotion/');
-  console.log('Promotions keys:', promotions);
+  console.log('Promotions keys (WORM approved-only):', promotions);
+
+  for (const key of promotions) {
+    const art = await store.get<PromotionArtifactV3>(key);
+    console.log(
+      'Promotion:',
+      key,
+      'approvalRecordId:',
+      art?.approvalRecordId,
+      'executionHash:',
+      art?.executionHash,
+    );
+  }
 
   const frontierSnapshot = await store.get(`frontier/${run.id}`);
   console.log('Frontier snapshot:', JSON.stringify(frontierSnapshot, null, 2));
@@ -85,19 +100,11 @@ async function main(): Promise<void> {
   const experiments = await store.list(`experiment/${run.id}/`);
   console.log('Experiment keys:', experiments);
 
-  const approved = await store.list('promotion-approved/');
-  for (const key of approved) {
-    const art = await store.get<PromotionArtifact>(key);
-    console.log(
-      'Approved promotion:',
-      key,
-      'executionHash:',
-      art?.executionHash,
-      'artifactHash:',
-      art?.artifactHash,
-    );
-    console.log('Mutation chain length:', (art?.mutationChain ?? []).length);
-  }
+  const approvals = await store.list('approval/');
+  console.log('Approval keys:', approvals);
+
+  const legacyApproved = await store.list('promotion-approved/');
+  console.log('Legacy promotion-approved keys (should be empty for new runs):', legacyApproved);
 
   const events = await store.list(`event/${run.id}/`);
   console.log('Event keys:', events.length);

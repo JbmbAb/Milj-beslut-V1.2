@@ -1,12 +1,8 @@
 import type { FitnessResult } from '../evolve/FitnessResult';
 import type { MutationRecord } from '../evolve/MutationTypes';
+import type { ApprovalDecision } from './ApprovalRecord';
 
-export interface ApprovalDecision {
-  readonly approved: boolean;
-  readonly reviewer?: string;
-  readonly reason?: string;
-  readonly timestamp: number;
-}
+export type { ApprovalDecision } from './ApprovalRecord';
 
 /**
  * Legacy promotion artifact (pre-AES / promotion.v2).
@@ -35,12 +31,17 @@ export interface PromotionArtifactV2 {
 export type PromotionArtifact = PromotionArtifactV2;
 
 /**
- * AES-1.0 promotion artifact (promotion.v3).
+ * AES-1.0 promotion artifact (promotion.v3) — WORM, post-approval only.
+ *
+ * Invariant: `promotion/{artifactId}` contains only approved V3 artifacts.
+ * Rejected candidates have no promotion post; revision = ExperimentRecord + ApprovalRecord.
  *
  * - `artifactId` === `artifactHash` (content-addressed store key).
  * - `humanId` is the readable, non-content-addressed promotion label.
- * - Envelope fields (`artifactHash`, `artifactId`, `signature`, `signingKeyId`)
- *   must never enter payload hash or signature bytes.
+ * - `approvalRecordId` is required and points at the ApprovalRecord that authorized creation.
+ * - Envelope fields must never enter payload hash or signature bytes.
+ *
+ * Rollback (future ActivationController) must be a new RollbackRecord, never a mutation of this artifact.
  */
 export interface PromotionArtifactV3 {
   readonly humanId: string;
@@ -54,10 +55,17 @@ export interface PromotionArtifactV3 {
   readonly fitness: FitnessResult;
   readonly promotedAt: number;
   readonly sourceExperimentId: string;
+  /**
+   * Stable evolution-run identity. Do not parse this from `sourceExperimentId`
+   * (run ids may themselves contain hyphens).
+   */
+  readonly evolutionRunId: string;
+  /** Required — artifact exists only after ApprovalRecord was written. */
+  readonly approvalRecordId: string;
   readonly schemaVersion: 'promotion.v3';
   readonly runtimeFingerprint?: string;
   readonly policySnapshotRef?: string;
-  readonly approvalDecision?: ApprovalDecision;
+  readonly metadata?: Readonly<Record<string, unknown>>;
   /** Set when schema migration cleared a prior signature. */
   readonly migrationNote?: string;
 
