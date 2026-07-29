@@ -2,13 +2,18 @@ export type { GeneratedCandidate, CandidateGenerator } from './CandidateGenerato
 export type { ConstraintContext, ConstraintSolver, ConstraintViolation } from './ConstraintSolver';
 export { SimpleConstraintSolver } from './ConstraintSolver';
 export type { EvaluationEngine, EvaluationResult } from './EvaluationEngine';
+export { DefaultEvaluationEngine } from './DefaultEvaluationEngine';
 export { EventLedger, type EvolutionEvent, type EvolutionEventType } from './EventLedger';
 export { EvolutionOrchestrator } from './EvolutionOrchestrator';
 export type { EvolutionRun } from './EvolutionRun';
 export type { ExperimentRecord } from './ExperimentRecord';
 export type { FitnessResult } from './FitnessResult';
+export { FitnessEngine, DefaultFitnessProfile, type FitnessLimits } from './FitnessEngine';
 export type { MutationContext } from './MutationContext';
 export type { MutationRecord } from './MutationTypes';
 export { ParetoFrontier, dominates, type FrontierCandidate, type ObjectiveVector } from './ParetoFrontier';
 export { decidePromotion, type PromotionDecision, type PromotionPolicy } from './PromotionPolicy';
 export type { ShadowMetrics } from './ShadowEvaluator';
+export { BatchShadowEvaluator, type ShadowEvaluationResult } from './BatchShadowEvaluator';
+export { SimpleApprovalGate } from './SimpleApprovalGate';
+export { StubCandidateGenerator } from './StubCandidateGenerator';

@@ -47,7 +47,8 @@
     "load:stage5": "tsx scripts/load/stage5-load-harness.ts",
     "rag:eval:demo": "tsx scripts/rag/run-rag-eval-demo.ts",
     "otel:generate": "tsx scripts/generate-metric-registry.ts",
-    "otel:check": "tsx scripts/ci-metric-check.ts"
+    "otel:check": "tsx scripts/ci-metric-check.ts",
+    "evolve:integration": "tsx scripts/evolve-integration-test.ts"
   },
   "dependencies": {
     "@google-cloud/billing-budgets": "^6.1.2",
