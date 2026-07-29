@@ -9,7 +9,8 @@ Datum: 2026-07-29
 Kvarvarande begransningar (medvetna):
 
 - Evolve ar **dual-write**: V3 i FileArtifactStore ar fortfarande index; cutover till CAS-only ar inte gjord.
-- L3 **detekterar** bitrot men flyttar inte automatiskt till quarantine/.
+- Opt-in via `MIMERS_ROOT` (se `.env.example`); utan env forblir V3 FileArtifactStore-only.
+- L3 kan **karantanmarkera** korrupta objekt med `auditL3({ quarantine: true })`.
 - blake3 ar reserverad, inte implementerad.
 - Cross-process idempotency bygger pa CAS/ledger-filer, inte separat distributed lock-tjanst.
 - "Produktionstestad" galler endast OS/durability-matris som faktiskt korsts (se [ops-runbook](../ops/mimers-brunn-v9-runbook.md)).

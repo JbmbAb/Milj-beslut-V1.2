@@ -20,8 +20,16 @@
 Create backend:
 
 ```bash
-# programmatic: createPersistentMimersBackend(root, { durabilityMode })
+# env opt-in (recommended for local/prod dual-write)
+# MIMERS_ROOT=./tmp-mimers
+# MIMERS_DURABILITY_MODE=best-effort   # or strict on Linux
+
+# programmatic
+# createPersistentMimersBackend(root, { durabilityMode })
+# resolveMimersBackendFromEnv({ fallbackRoot })
 ```
+
+Wrap ArtifactStore with `PolicyEnforcingArtifactStore` so `promotion/` is WORM (no overwrite/delete).
 
 ## Durability support matrix
 

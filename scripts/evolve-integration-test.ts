@@ -4,10 +4,11 @@
  *   npx tsx scripts/evolve-integration-test.ts
  *   npm run evolve:integration
  *
- * Writes artifacts under ./tmp-artifacts and Mimers CAS/ledger under ./tmp-mimers.
+ * Honours MIMERS_ROOT / MIMERS_DURABILITY_MODE when set; otherwise uses ./tmp-mimers.
+ * Artifact store is wrapped with PolicyEnforcingArtifactStore (WORM on promotion/).
  */
 import path from 'node:path';
-import { RecoveryOrchestrator } from '@miljobeslut/mimers-brunn-core';
+import { ArtifactPolicyViolation, RecoveryOrchestrator } from '@miljobeslut/mimers-brunn-core';
 import { FileArtifactStore } from '../server/artifact/FileArtifactStore';
 import type { PromotionArtifactV3 } from '../server/artifact/PromotionArtifact';
 import { LocalPemSigningKeyProvider } from '../server/artifact/signingKeyProvider';
@@ -22,18 +23,33 @@ import { SimpleConstraintSolver } from '../server/evolve/ConstraintSolver';
 import { BatchShadowEvaluator } from '../server/evolve/BatchShadowEvaluator';
 import { StubCandidateGenerator } from '../server/evolve/StubCandidateGenerator';
 import type { PipelineDefinition } from '../server/compiler/types';
-import { createPersistentMimersBackend } from '../server/mimers';
+import {
+  PolicyEnforcingArtifactStore,
+  resolveMimersBackendFromEnv,
+} from '../server/mimers';
 import { generateAesKeyPair } from '../server/utils/signing';
 
 async function main(): Promise<void> {
   const artifactsDir = path.resolve(process.cwd(), 'tmp-artifacts');
-  const mimersDir = path.resolve(process.cwd(), 'tmp-mimers');
-  const store = new FileArtifactStore(artifactsDir);
+  const fallbackMimers = path.resolve(process.cwd(), 'tmp-mimers');
+  const innerStore = new FileArtifactStore(artifactsDir);
+  const store = new PolicyEnforcingArtifactStore(innerStore);
   const keys = generateAesKeyPair();
   const signing = new LocalPemSigningKeyProvider('ed25519:smoke', keys.privateKey, keys.publicKey);
-  const mimers = await createPersistentMimersBackend(mimersDir, {
-    durabilityMode: process.platform === 'win32' ? 'best-effort' : 'none',
-  });
+  const mimers = await resolveMimersBackendFromEnv({ fallbackRoot: fallbackMimers });
+  if (!mimers) {
+    throw new Error('Expected Mimers backend (set MIMERS_ROOT or use default tmp-mimers fallback)');
+  }
+
+  // WORM smoke: overwrite of an existing promotion key must fail.
+  const probeKey = 'promotion/worm-probe';
+  await store.put(probeKey, { probe: true });
+  try {
+    await store.put(probeKey, { probe: true, again: true });
+    throw new Error('Expected ArtifactPolicyViolation on promotion overwrite');
+  } catch (err) {
+    if (!(err instanceof ArtifactPolicyViolation)) throw err;
+  }
 
   const run: EvolutionRun = {
     id: `evo-test-${Date.now()}`,
@@ -81,7 +97,7 @@ async function main(): Promise<void> {
   );
 
   console.log('Starting short evolution run:', run.id);
-  console.log('Mimers root:', mimersDir);
+  console.log('Mimers root:', mimers.rootDir);
   const finalBaseline = await orchestrator.evolve(run, baseline, 2, 3, {
     runtimeCapabilities: { gpu: false, memoryGb: 8 },
   });
@@ -135,15 +151,15 @@ async function main(): Promise<void> {
   console.log('Experiment keys:', experiments);
 
   const approvals = await store.list('approval/');
-  console.log('Approval keys:', approvals);
+  console.log('Approval keys:', approvals.length);
 
   const legacyApproved = await store.list('promotion-approved/');
-  console.log('Legacy promotion-approved keys (should be empty for new runs):', legacyApproved);
+  console.log('Legacy promotion-approved keys:', legacyApproved.length);
 
   const events = await store.list(`event/${run.id}/`);
   console.log('Event keys:', events.length);
 
-  console.log('Integration test complete. Artifacts:', artifactsDir, 'Mimers:', mimersDir);
+  console.log('Integration test complete. Artifacts:', artifactsDir, 'Mimers:', mimers.rootDir);
 }
 
 main().catch((err) => {

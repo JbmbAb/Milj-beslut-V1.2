@@ -16,6 +16,10 @@ export {
   type PersistentMimersBackend,
 } from './createPersistentMimersBackend';
 export {
+  parseMimersDurabilityMode,
+  resolveMimersBackendFromEnv,
+} from './resolveMimersBackendFromEnv';
+export {
   MIMERS_CAS_MIGRATION_TOOL_VERSION,
   ensurePromotionMimersBinding,
   migrateArtifactStoreToMimersCas,
