@@ -49,7 +49,9 @@
     "otel:generate": "tsx scripts/generate-metric-registry.ts",
     "otel:check": "tsx scripts/ci-metric-check.ts",
     "evolve:integration": "tsx scripts/evolve-integration-test.ts",
-    "artifact:migrate-worm": "tsx scripts/artifact/migrate-promotion-worm-v1.ts"
+    "artifact:migrate-worm": "tsx scripts/artifact/migrate-promotion-worm-v1.ts",
+    "mimers:bench": "tsx scripts/mimers/regression-benchmark.ts",
+    "mimers:migrate-cas": "tsx scripts/mimers/migrate-artifact-store-to-cas.ts"
   },
   "dependencies": {
     "@miljobeslut/mimers-brunn-core": "file:packages/mimers-brunn-core",

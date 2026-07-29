@@ -2,6 +2,20 @@
 
 Datum: 2026-07-29
 
+## Statusuppdatering (2026-07-29, post kärna + integration)
+
+**Produktionsklassad Mimers v9-kärna finns** under `packages/mimers-brunn-core` och `server/mimers/` (CAS, ManifestBuilder, FileEventLog, recovery L0–L3, fault injection, dual-write evolve, ArtifactStore→CAS-migration, ops-runbook + `npm run mimers:bench`).
+
+Kvarvarande begransningar (medvetna):
+
+- Evolve ar **dual-write**: V3 i FileArtifactStore ar fortfarande index; cutover till CAS-only ar inte gjord.
+- L3 **detekterar** bitrot men flyttar inte automatiskt till quarantine/.
+- blake3 ar reserverad, inte implementerad.
+- Cross-process idempotency bygger pa CAS/ledger-filer, inte separat distributed lock-tjanst.
+- "Produktionstestad" galler endast OS/durability-matris som faktiskt korsts (se [ops-runbook](../ops/mimers-brunn-v9-runbook.md)).
+
+Nedan foljer den ursprungliga gap-analysen (historisk kontext); tabellen speglar **fore** karnextraktionen.
+
 ## Sammanfattning
 
 Nuvarande kodbas har tagit ett tydligt steg mot WORM/AES-baserad evolutionsspårning:
