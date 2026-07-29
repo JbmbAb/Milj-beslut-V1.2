@@ -8,3 +8,13 @@ export type {
   LedgerMerkleCheckpoint,
   SignedCheckpoint,
 } from './checkpoints';
+export type { EventLog, LedgerEventInput } from './EventLog';
+export { InMemoryEventLog, newLedgerEventId, verifyLedgerHashChain } from './InMemoryEventLog';
+export { EvolutionLedger, type CommitPromotionResult, type PromotionSignaturePayload } from './EvolutionLedger';
+export {
+  buildCasMerkleCheckpoint,
+  buildIntegrityCheckpoint,
+  buildLedgerMerkleCheckpoint,
+  signIntegrityCheckpoint,
+  verifySignedCheckpoint,
+} from './checkpointBuilder';

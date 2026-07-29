@@ -10,3 +10,5 @@ export * from './ledger';
 export { mapConcurrent, type ConcurrencyOptions } from './concurrency/mapConcurrent';
 export { InMemoryMetrics, type MetricAttributes, type MetricsCollector } from './metrics/MetricsCollector';
 export { MIMERS_METRICS, type MimersMetricName } from './metrics/contract';
+export { OpenTelemetryMetricsAdapter, withMetricDuration } from './metrics/OpenTelemetryMetricsAdapter';
+export { RecoveryOrchestrator, type AuditReport, type AuditStatus } from './recovery/RecoveryOrchestrator';
