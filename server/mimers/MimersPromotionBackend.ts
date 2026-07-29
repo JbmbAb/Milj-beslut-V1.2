@@ -34,8 +34,8 @@ export class MimersPromotionBackend {
   private readonly ledger: EvolutionLedger;
 
   constructor(
-    cas: CASRepository,
-    eventLog: EventLog,
+    readonly cas: CASRepository,
+    readonly eventLog: EventLog,
     private readonly signing?: SigningKeyProvider,
   ) {
     this.builder = new ManifestBuilder(cas);

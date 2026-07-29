@@ -2,6 +2,7 @@ import { canonicalizeStrict, hashCanonicalValue } from '../serialization';
 import { generateUUIDv7 } from './UUIDv7';
 import type { EventLog, LedgerEventInput } from './EventLog';
 import type { MimersLedgerEvent } from './Merkle';
+import { sealLedgerEvent } from './sealLedgerEvent';
 
 /** In-memory EventLog for tests and single-process smoke. */
 export class InMemoryEventLog implements EventLog {
@@ -11,17 +12,7 @@ export class InMemoryEventLog implements EventLog {
   async append(event: LedgerEventInput): Promise<MimersLedgerEvent> {
     const prev = await this.getHead();
     const previousEventHash = prev ? prev.eventHash : null;
-    const corePayload = {
-      sequence: this.nextSequence,
-      previousEventHash,
-      eventId: event.eventId,
-      type: event.type,
-      promotionHash: event.promotionHash,
-      manifestHash: event.manifestHash,
-      timestamp: event.timestamp,
-    };
-    const eventHash = hashCanonicalValue(corePayload);
-    const full: MimersLedgerEvent = { ...corePayload, eventHash };
+    const full = sealLedgerEvent(event, this.nextSequence, previousEventHash);
     this.events.push(full);
     this.nextSequence += 1;
     return full;
@@ -69,7 +60,6 @@ export function verifyLedgerHashChain(events: readonly MimersLedgerEvent[]): {
     if (expected !== event.eventHash) {
       errors.push(`Event hash mismatch at seq ${event.sequence}`);
     }
-    // Touch canonicalize to keep identical serialization contract for debugging.
     void canonicalizeStrict(core);
     prevHash = event.eventHash;
   }

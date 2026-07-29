@@ -10,6 +10,8 @@ export type {
 } from './checkpoints';
 export type { EventLog, LedgerEventInput } from './EventLog';
 export { InMemoryEventLog, newLedgerEventId, verifyLedgerHashChain } from './InMemoryEventLog';
+export { FileEventLog, LedgerCorruptionError } from './FileEventLog';
+export { sealLedgerEvent, parseLedgerEvent } from './sealLedgerEvent';
 export {
   EvolutionLedger,
   verifyPromotionSignature,
