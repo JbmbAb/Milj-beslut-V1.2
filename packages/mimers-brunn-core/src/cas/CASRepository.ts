@@ -30,8 +30,30 @@ export interface CASDescriptorLike {
   readonly size: number;
 }
 
+export type PutBytesOptions = {
+  /** Defaults to repository-configured algorithm (usually sha256). */
+  readonly algorithm?: 'sha256' | 'sha512';
+};
+
+/**
+ * Content-addressed store: opaque bytes only at the core.
+ * JSON helpers (`putCanonical` / `get`) sit one layer above `putBytes` / `getBytes`.
+ */
 export interface CASRepository {
+  /** Format-agnostic put: hash raw bytes and store atomically. */
+  putBytes(bytes: Uint8Array, options?: PutBytesOptions): Promise<PutResult>;
+  /** Format-agnostic get with copy-on-read (never returns a mutable cache reference). */
+  getBytes(hash: string, options?: { verifyHash?: boolean }): Promise<Uint8Array | null>;
+  /** UTF-8 string → putBytes. */
+  putSerialized(serialized: string, options?: PutBytesOptions): Promise<PutResult>;
+  /** canonicalizeStrict → putSerialized (JSON domain). */
+  putCanonical(obj: unknown, options?: PutBytesOptions): Promise<PutResult>;
+  /** @deprecated Prefer putCanonical — thin alias for backward compatibility. */
   put(obj: unknown): Promise<PutResult>;
+  /**
+   * JSON helper: getBytes + JSON.parse.
+   * Invalid for non-UTF8 / non-JSON payloads — use getBytes for binary.
+   */
   get<T = unknown>(hash: string, options?: { verifyHash?: boolean }): Promise<T | null>;
   exists(hash: string): Promise<boolean>;
   existsAuthoritative(hash: string): Promise<boolean>;

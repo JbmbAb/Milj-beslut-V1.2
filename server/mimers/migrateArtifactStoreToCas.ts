@@ -8,14 +8,20 @@ import type { PromotionArtifactV3 } from '../artifact/PromotionArtifact';
 import type { MimersPromotionBackend, MimersSealResult } from './MimersPromotionBackend';
 
 export const MIMERS_CAS_MIGRATION_TOOL_VERSION = 'mimers-cas-migration-v1' as const;
+export const MIMERS_CAS_PRIMARY_TOOL_VERSION = 'mimers-cas-primary-v1' as const;
+
+export type MimersBindingToolVersion =
+  | typeof MIMERS_CAS_MIGRATION_TOOL_VERSION
+  | typeof MIMERS_CAS_PRIMARY_TOOL_VERSION;
 
 export type MimersBinding = {
   readonly artifactHash: string;
   readonly manifestHash: string;
   readonly mimersPromotionHash: string;
   readonly mimersEventId: string;
+  /** ISO timestamp (name kept for migration compatibility; also used by live CAS-primary seal). */
   readonly migratedAt: string;
-  readonly toolVersion: typeof MIMERS_CAS_MIGRATION_TOOL_VERSION;
+  readonly toolVersion: MimersBindingToolVersion;
 };
 
 export type MimersCasMigrationEntry = {
@@ -48,6 +54,32 @@ export type MimersCasMigrationResult = {
 
 export function mimersBindingKey(artifactHash: string): string {
   return `mimers-binding/${artifactHash}`;
+}
+
+/**
+ * Persist V3→CAS index binding after a live Mimers seal (CAS-primary cutover).
+ * Does not mutate the WORM promotion object.
+ */
+export async function writePromotionMimersBinding(
+  store: ArtifactStore,
+  artifact: PromotionArtifactV3,
+  seal: Pick<MimersSealResult, 'manifestHash' | 'promotionHash' | 'eventId'>,
+): Promise<MimersBinding> {
+  if (!artifact.manifestHash || artifact.manifestHash !== seal.manifestHash) {
+    throw new Error(
+      `writePromotionMimersBinding: artifact.manifestHash drift for ${artifact.artifactHash}`,
+    );
+  }
+  const binding: MimersBinding = {
+    artifactHash: artifact.artifactHash,
+    manifestHash: seal.manifestHash,
+    mimersPromotionHash: seal.promotionHash,
+    mimersEventId: seal.eventId,
+    migratedAt: new Date().toISOString(),
+    toolVersion: MIMERS_CAS_PRIMARY_TOOL_VERSION,
+  };
+  await store.put(mimersBindingKey(artifact.artifactHash), binding);
+  return binding;
 }
 
 function generationFromHumanId(humanId: string): number {

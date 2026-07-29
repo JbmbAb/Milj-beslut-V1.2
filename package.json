@@ -51,6 +51,10 @@
     "evolve:integration": "tsx scripts/evolve-integration-test.ts",
     "artifact:migrate-worm": "tsx scripts/artifact/migrate-promotion-worm-v1.ts",
     "mimers:bench": "tsx scripts/mimers/regression-benchmark.ts",
+    "mimers:accept": "vitest run --config vitest.config.ts tests/unit/mimers/fas4-acceptance.test.ts",
+    "mimers:verify": "tsx scripts/mimers/prove-external-verify.ts",
+    "mimers:cold-start": "tsx scripts/mimers/prove-cold-start-replay.ts",
+    "mimers:ops-proof": "tsx scripts/mimers/prove-ops-replay.ts",
     "mimers:migrate-cas": "tsx scripts/mimers/migrate-artifact-store-to-cas.ts"
   },
   "dependencies": {

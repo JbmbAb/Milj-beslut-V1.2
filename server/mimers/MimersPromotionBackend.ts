@@ -43,12 +43,12 @@ export class MimersPromotionBackend {
   }
 
   async seal(input: MimersSealInput): Promise<MimersSealResult> {
-    const { manifest } = await this.builder.build({
-      pipeline: input.pipeline,
-      policySnapshot: input.policySnapshot,
-      runtimeFingerprint: input.runtimeFingerprint,
-      metrics: input.metrics,
-    });
+    const { manifest } = await this.builder
+      .pipeline(input.pipeline)
+      .policy(input.policySnapshot)
+      .runtime(input.runtimeFingerprint)
+      .metrics(input.metrics)
+      .build();
     const committed = await this.ledger.commitPromotion(
       manifest,
       input.parents,

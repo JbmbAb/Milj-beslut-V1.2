@@ -1,5 +1,4 @@
 import { canonicalizeStrict, hashCanonicalValue } from '../serialization';
-import { generateUUIDv7 } from './UUIDv7';
 import type { EventLog, LedgerEventInput } from './EventLog';
 import type { MimersLedgerEvent } from './Merkle';
 import { sealLedgerEvent } from './sealLedgerEvent';
@@ -31,9 +30,7 @@ export class InMemoryEventLog implements EventLog {
   }
 }
 
-export function newLedgerEventId(): string {
-  return generateUUIDv7();
-}
+export { newLedgerEventId } from './UUIDProvider';
 
 export function verifyLedgerHashChain(events: readonly MimersLedgerEvent[]): {
   readonly ok: boolean;

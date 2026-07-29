@@ -19,7 +19,7 @@ import {
   type EvaluationEngine,
   type PromotionCandidate,
 } from '../../server/evolve';
-import { MimersPromotionBackend } from '../../server/mimers';
+import { MimersPromotionBackend, mimersBindingKey, verifyPromotionAgainstBackend } from '../../server/mimers';
 import { hashArtifact } from '../../server/utils/hashArtifact';
 
 function pipeline(id: string, quality = 1): PipelineDefinition {
@@ -291,7 +291,7 @@ describe('Phase 3/4 WORM evolution', () => {
     expect(await store.list('promotion-approved/')).toEqual([]);
   });
 
-  it('dual-writes Mimers manifest+ledger then seals V3 as index', async () => {
+  it('CAS-primary: Mimers ledger is truth; V3 is index with binding', async () => {
     const store = new FileArtifactStore(await tempDir());
     const casDir = await tempDir();
     const cas = new FileCASRepository(casDir, { durabilityMode: 'none' });
@@ -337,6 +337,7 @@ describe('Phase 3/4 WORM evolution', () => {
       new EventLedger(store, 'run-mimers'),
       undefined,
       mimers,
+      true, // requireMimers — CAS-primary
     );
 
     await orchestrator.evolve(
@@ -356,10 +357,55 @@ describe('Phase 3/4 WORM evolution', () => {
     expect(await cas.existsAuthoritative(sealed!.manifestHash!)).toBe(true);
     expect(await cas.existsAuthoritative(String(sealed!.metadata!.mimersPromotionHash))).toBe(true);
 
+    const casCheck = await verifyPromotionAgainstBackend(sealed!, mimers, {
+      store,
+      verifyDescriptors: true,
+      eventLog: mimersLog,
+    });
+    expect(casCheck.ok).toBe(true);
+    expect(casCheck.errors).toEqual([]);
+    expect(await store.get(mimersBindingKey(sealed!.artifactHash))).toMatchObject({
+      manifestHash: sealed!.manifestHash,
+      mimersPromotionHash: sealed!.metadata!.mimersPromotionHash,
+      toolVersion: 'mimers-cas-primary-v1',
+    });
+
     const recovery = new RecoveryOrchestrator(cas, () => mimersLog.getAllEvents());
     expect((await recovery.auditL0()).status).toBe('CLEAN');
     expect((await recovery.auditL1()).status).toBe('CLEAN');
     expect((await recovery.auditL2()).status).toBe('CLEAN');
+  });
+
+  it('requireMimers fails closed without backend', async () => {
+    const store = new FileArtifactStore(await tempDir());
+    const orchestrator = new EvolutionOrchestrator(
+      { generate: () => [] },
+      {
+        async compile(definition) {
+          return compilation(definition);
+        },
+        async evaluateBatch() {
+          return [];
+        },
+      },
+      store,
+      new ParetoFrontier(),
+      { async approve() { return { approved: false, reviewer: 't', reason: 'n', timestamp: 1 }; } },
+      { minQualityDelta: 0.5, maxLatencyRegression: 0, maxCostRegression: 0, maxErrorRegression: 0 },
+      new SimpleConstraintSolver(),
+      new EventLedger(store, 'run-req'),
+      undefined,
+      undefined,
+      true,
+    );
+    await expect(
+      orchestrator.evolve(
+        { id: 'run-req', seed: 's', compilerVersion: 'c', registryVersion: 'r' },
+        pipeline('baseline', 1),
+        1,
+        1,
+      ),
+    ).rejects.toThrow(/requireMimers/);
   });
 });
 

@@ -17,15 +17,25 @@ export {
 } from './createPersistentMimersBackend';
 export {
   parseMimersDurabilityMode,
+  isMimersRequired,
   resolveMimersBackendFromEnv,
+  requireMimersBackendFromEnv,
 } from './resolveMimersBackendFromEnv';
 export {
+  verifyPromotionAgainstCas,
+  verifyPromotionAgainstBackend,
+  type PromotionCasVerifyResult,
+} from './verifyPromotionAgainstCas';
+export {
   MIMERS_CAS_MIGRATION_TOOL_VERSION,
+  MIMERS_CAS_PRIMARY_TOOL_VERSION,
   ensurePromotionMimersBinding,
   migrateArtifactStoreToMimersCas,
   mimersBindingKey,
   sealInputFromPromotionV3,
+  writePromotionMimersBinding,
   type MimersBinding,
+  type MimersBindingToolVersion,
   type MimersCasMigrationEntry,
   type MimersCasMigrationReport,
   type MimersCasMigrationResult,

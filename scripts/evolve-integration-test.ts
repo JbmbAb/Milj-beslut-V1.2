@@ -1,11 +1,13 @@
 /**
- * Local evolution smoke / integration harness (WORM + Mimers dual-write).
+ * Local evolution smoke / integration harness (WORM + Mimers CAS-primary).
  *
  *   npx tsx scripts/evolve-integration-test.ts
  *   npm run evolve:integration
  *
  * Honours MIMERS_ROOT / MIMERS_DURABILITY_MODE when set; otherwise uses ./tmp-mimers.
+ * Fail-closed via requireMimersBackendFromEnv + orchestrator.requireMimers.
  * Artifact store is wrapped with PolicyEnforcingArtifactStore (WORM on promotion/).
+ * Post-run: verifyPromotionAgainstBackend (V3 as index, CAS as truth).
  */
 import path from 'node:path';
 import { ArtifactPolicyViolation, RecoveryOrchestrator } from '@miljobeslut/mimers-brunn-core';
@@ -25,7 +27,8 @@ import { StubCandidateGenerator } from '../server/evolve/StubCandidateGenerator'
 import type { PipelineDefinition } from '../server/compiler/types';
 import {
   PolicyEnforcingArtifactStore,
-  resolveMimersBackendFromEnv,
+  requireMimersBackendFromEnv,
+  verifyPromotionAgainstBackend,
 } from '../server/mimers';
 import { generateAesKeyPair } from '../server/utils/signing';
 
@@ -36,13 +39,10 @@ async function main(): Promise<void> {
   const store = new PolicyEnforcingArtifactStore(innerStore);
   const keys = generateAesKeyPair();
   const signing = new LocalPemSigningKeyProvider('ed25519:smoke', keys.privateKey, keys.publicKey);
-  const mimers = await resolveMimersBackendFromEnv({ fallbackRoot: fallbackMimers });
-  if (!mimers) {
-    throw new Error('Expected Mimers backend (set MIMERS_ROOT or use default tmp-mimers fallback)');
-  }
+  const mimers = await requireMimersBackendFromEnv({ fallbackRoot: fallbackMimers });
 
   // WORM smoke: overwrite of an existing promotion key must fail.
-  const probeKey = 'promotion/worm-probe';
+  const probeKey = `promotion/worm-probe-${Date.now()}`;
   await store.put(probeKey, { probe: true });
   try {
     await store.put(probeKey, { probe: true, again: true });
@@ -94,6 +94,7 @@ async function main(): Promise<void> {
     eventLedger,
     signing,
     mimers.backend,
+    true, // requireMimers — CAS-primary smoke
   );
 
   console.log('Starting short evolution run:', run.id);
@@ -127,8 +128,12 @@ async function main(): Promise<void> {
     if (!art.manifestHash) {
       throw new Error(`Expected Mimers dual-write manifestHash on ${key}`);
     }
-    if (!(await mimers.cas.existsAuthoritative(art.manifestHash))) {
-      throw new Error(`manifestHash missing from CAS: ${art.manifestHash}`);
+    const casCheck = await verifyPromotionAgainstBackend(art, mimers.backend, {
+      store,
+      verifyDescriptors: true,
+    });
+    if (!casCheck.ok) {
+      throw new Error(`CAS-primary verify failed for ${key}: ${casCheck.errors.join('; ')}`);
     }
   }
   if (thisRunPromotions === 0) {

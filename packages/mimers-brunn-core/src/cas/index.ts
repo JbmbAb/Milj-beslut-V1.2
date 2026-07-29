@@ -5,6 +5,7 @@ export type {
   CommitStrategy,
   DurabilityMode,
   ObjectVerifyResult,
+  PutBytesOptions,
   PutResult,
   QuarantineResult,
 } from './CASRepository';

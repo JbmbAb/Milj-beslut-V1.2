@@ -2,18 +2,30 @@
 
 Datum: 2026-07-29
 
-## Statusuppdatering (2026-07-29, post kärna + integration)
+## Statusuppdatering (2026-07-29, Fas 4 M1–M7)
 
-**Produktionsklassad Mimers v9-kärna finns** under `packages/mimers-brunn-core` och `server/mimers/` (CAS, ManifestBuilder, FileEventLog, recovery L0–L3, fault injection, dual-write evolve, ArtifactStore→CAS-migration, ops-runbook + `npm run mimers:bench`).
+**Sovereign Edition v9 kärna + cutover-lager är på plats** under `packages/mimers-brunn-core` och `server/mimers/`:
+
+| Milestone | Status |
+| --- | --- |
+| M1 Byte-CAS (`putBytes`/`getBytes`/`putCanonical`) | Done |
+| M2 DescriptorFactory + fluent ManifestBuilder | Done |
+| M3 CAS-primary cutover (V3 index + binding) | Done |
+| M4 Persistent EventLog segments/rotation | Done |
+| M5 Chained Merkle checkpoints | Done |
+| M6 Verifier → Repair → Recovery | Done |
+| M7 UUIDProvider + acceptance + ops matrix | Done |
 
 Kvarvarande begransningar (medvetna):
 
-- Evolve ar **dual-write**: V3 i FileArtifactStore ar fortfarande index; cutover till CAS-only ar inte gjord.
-- Opt-in via `MIMERS_ROOT` (se `.env.example`); utan env forblir V3 FileArtifactStore-only.
+- Evolve ar **dual-write / CAS-primary-klart**: V3 ar index nar Mimers ar inkopplat; full cutover (ta bort FileArtifactStore som skrivyta) ar inte gjord.
+- Opt-in via `MIMERS_ROOT`; fail-closed via `MIMERS_REQUIRED=true` + `requireMimers` pa orchestratorn.
+- **CAS-primary:** identitetskedja CAS → Manifest → Promotion → Ledger; V3 ar index (`manifestHash` + `mimers-binding/`).
 - L3 kan **karantanmarkera** korrupta objekt med `auditL3({ quarantine: true })`.
 - blake3 ar reserverad, inte implementerad.
 - Cross-process idempotency bygger pa CAS/ledger-filer, inte separat distributed lock-tjanst.
 - "Produktionstestad" galler endast OS/durability-matris som faktiskt korsts (se [ops-runbook](../ops/mimers-brunn-v9-runbook.md)).
+- Acceptance: `tests/unit/mimers/fas4-acceptance.test.ts`.
 
 Nedan foljer den ursprungliga gap-analysen (historisk kontext); tabellen speglar **fore** karnextraktionen.
 

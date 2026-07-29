@@ -8,6 +8,7 @@ export {
   type MigratorFn,
   type MimersBrunnManifest,
 } from './Manifest';
+export { DescriptorFactory, type StoredDescriptor } from './DescriptorFactory';
 export {
   MANIFEST_COMPONENT_MEDIA_TYPES,
   ManifestBuilder,

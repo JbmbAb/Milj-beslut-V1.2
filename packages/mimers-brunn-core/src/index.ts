@@ -13,8 +13,16 @@ export { MIMERS_METRICS, type MimersMetricName } from './metrics/contract';
 export { OpenTelemetryMetricsAdapter, withMetricDuration } from './metrics/OpenTelemetryMetricsAdapter';
 export {
   RecoveryOrchestrator,
+  CasRepair,
+  IntegrityVerifier,
+  SystemRecovery,
+  buildCheckpointAcceleratedPlan,
   type AuditL2Options,
   type AuditL3Options,
   type AuditReport,
   type AuditStatus,
-} from './recovery/RecoveryOrchestrator';
+  type LedgerReplayEntry,
+  type QuarantineBatchResult,
+  type SystemRecoveryReport,
+  type CheckpointAcceleratedPlan,
+} from './recovery';

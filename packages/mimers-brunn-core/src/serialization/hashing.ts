@@ -49,15 +49,23 @@ export function parseHash(hashStr: string): ArtifactHash {
   return { algorithm, digest };
 }
 
+/** Content-address opaque bytes (format-agnostic CAS hashing). */
+export function hashBytes(
+  bytes: Uint8Array,
+  algorithm: SupportedHashAlgorithm = 'sha256',
+  provider: HashProvider = NodeHashProvider,
+): string {
+  const digestBytes = provider.digest(algorithm, bytes);
+  const digestHex = Buffer.from(digestBytes).toString('hex');
+  return `${algorithm}:${digestHex}`;
+}
+
 export function hashSerialized(
   serialized: string,
   algorithm: SupportedHashAlgorithm = 'sha256',
   provider: HashProvider = NodeHashProvider,
 ): string {
-  const bytes = Buffer.from(serialized, 'utf-8');
-  const digestBytes = provider.digest(algorithm, bytes);
-  const digestHex = Buffer.from(digestBytes).toString('hex');
-  return `${algorithm}:${digestHex}`;
+  return hashBytes(Buffer.from(serialized, 'utf-8'), algorithm, provider);
 }
 
 export function hashCanonicalValue(

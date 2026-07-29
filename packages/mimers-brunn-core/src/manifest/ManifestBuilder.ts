@@ -1,4 +1,5 @@
 import type { CASRepository } from '../cas/CASRepository';
+import { DescriptorFactory, type StoredDescriptor } from './DescriptorFactory';
 import {
   MANIFEST_MEDIA_TYPES,
   validateDescriptor,
@@ -19,9 +20,8 @@ export const MANIFEST_COMPONENT_MEDIA_TYPES = {
 export type ManifestComponentKey = keyof typeof MANIFEST_COMPONENT_MEDIA_TYPES;
 
 /**
- * Domain-agnostic inputs for a Mimers Brunn manifest.
- * Evolution (or any producer) supplies plain JSON-serializable values;
- * the builder owns CAS puts + descriptor assembly. Core must not import evolve.
+ * Domain-agnostic inputs for a Mimers Brunn manifest (batch form).
+ * Prefer fluent setters when cutting over EvolutionOrchestrator.
  */
 export interface ManifestBuildInput {
   readonly pipeline: unknown;
@@ -32,17 +32,16 @@ export interface ManifestBuildInput {
   readonly schemaVersion?: ManifestVersion;
 }
 
-export interface SealedComponent extends CASDescriptor {
-  readonly existed: boolean;
-}
+/** @deprecated Prefer StoredDescriptor — alias kept for call-site compatibility. */
+export type SealedComponent = StoredDescriptor;
 
 export interface ManifestBuildResult {
   readonly manifest: MimersBrunnManifest;
   readonly components: {
-    readonly pipeline: SealedComponent;
-    readonly policySnapshot: SealedComponent;
-    readonly runtimeFingerprint: SealedComponent;
-    readonly metrics: SealedComponent;
+    readonly pipeline: StoredDescriptor;
+    readonly policySnapshot: StoredDescriptor;
+    readonly runtimeFingerprint: StoredDescriptor;
+    readonly metrics: StoredDescriptor;
   };
 }
 
@@ -52,28 +51,120 @@ export interface ManifestSealResult extends ManifestBuildResult {
 }
 
 /**
- * Builds a validated MimersBrunnManifest by sealing each component into CAS.
- * This is the Evolution Engine terminus: pipeline/policy/runtime/metrics → manifest DAG.
+ * Fluent builder: domain payloads → DescriptorFactory → validated MimersBrunnManifest.
+ * Callers never touch digest/size/mediaType/canonicalization.
+ *
+ * @example
+ * ```ts
+ * const { manifest } = await new ManifestBuilder(cas)
+ *   .pipeline(pipeline)
+ *   .policy(policy)
+ *   .runtime(runtime)
+ *   .metrics(metrics)
+ *   .build();
+ * ```
  */
 export class ManifestBuilder {
-  constructor(private readonly cas: CASRepository) {}
+  private readonly factory: DescriptorFactory;
+  private readonly cas: CASRepository;
+
+  private pipelinePayload: unknown = undefined;
+  private policyPayload: unknown = undefined;
+  private runtimePayload: unknown = undefined;
+  private metricsPayload: unknown = undefined;
+  private version: ManifestVersion = 'v1.0.0';
+
+  constructor(casOrFactory: CASRepository | DescriptorFactory) {
+    if (casOrFactory instanceof DescriptorFactory) {
+      this.factory = casOrFactory;
+      this.cas = casOrFactory.cas;
+    } else {
+      this.cas = casOrFactory;
+      this.factory = new DescriptorFactory(casOrFactory);
+    }
+  }
+
+  /** Underlying descriptor factory (sole CASDescriptor creator). */
+  get descriptorFactory(): DescriptorFactory {
+    return this.factory;
+  }
+
+  pipeline(payload: unknown): this {
+    this.pipelinePayload = payload;
+    return this;
+  }
+
+  /** Alias for policySnapshot (fluent cutover API). */
+  policy(payload: unknown): this {
+    this.policyPayload = payload;
+    return this;
+  }
+
+  policySnapshot(payload: unknown): this {
+    return this.policy(payload);
+  }
+
+  /** Alias for runtimeFingerprint (fluent cutover API). */
+  runtime(payload: unknown): this {
+    this.runtimePayload = payload;
+    return this;
+  }
+
+  runtimeFingerprint(payload: unknown): this {
+    return this.runtime(payload);
+  }
+
+  metrics(payload: unknown): this {
+    this.metricsPayload = payload;
+    return this;
+  }
+
+  schemaVersion(version: ManifestVersion): this {
+    assertKnownVersion(version);
+    this.version = version;
+    return this;
+  }
 
   /**
-   * Put four components, assemble descriptors, validate.
+   * Seal components via DescriptorFactory and assemble a validated manifest.
    * Does not put the manifest object itself (see {@link buildAndSeal}).
+   * Optional batch `input` applies fluent setters then builds (compat).
    */
-  async build(input: ManifestBuildInput): Promise<ManifestBuildResult> {
-    const schemaVersion = input.schemaVersion ?? 'v1.0.0';
-    assertKnownVersion(schemaVersion);
+  async build(input?: ManifestBuildInput): Promise<ManifestBuildResult> {
+    if (input) {
+      this.pipeline(input.pipeline)
+        .policy(input.policySnapshot)
+        .runtime(input.runtimeFingerprint)
+        .metrics(input.metrics);
+      if (input.schemaVersion) this.schemaVersion(input.schemaVersion);
+    }
 
-    const pipeline = await this.sealComponent('pipeline', input.pipeline);
-    const policySnapshot = await this.sealComponent('policySnapshot', input.policySnapshot);
-    const runtimeFingerprint = await this.sealComponent('runtimeFingerprint', input.runtimeFingerprint);
-    const metrics = await this.sealComponent('metrics', input.metrics);
+    assertKnownVersion(this.version);
+    assertDefined('pipeline', this.pipelinePayload);
+    assertDefined('policySnapshot', this.policyPayload);
+    assertDefined('runtimeFingerprint', this.runtimePayload);
+    assertDefined('metrics', this.metricsPayload);
+
+    const pipeline = await this.factory.store(
+      this.pipelinePayload,
+      MANIFEST_COMPONENT_MEDIA_TYPES.pipeline,
+    );
+    const policySnapshot = await this.factory.store(
+      this.policyPayload,
+      MANIFEST_COMPONENT_MEDIA_TYPES.policySnapshot,
+    );
+    const runtimeFingerprint = await this.factory.store(
+      this.runtimePayload,
+      MANIFEST_COMPONENT_MEDIA_TYPES.runtimeFingerprint,
+    );
+    const metrics = await this.factory.store(
+      this.metricsPayload,
+      MANIFEST_COMPONENT_MEDIA_TYPES.metrics,
+    );
 
     const manifest = validateManifest({
-      mediaType: MANIFEST_MEDIA_TYPES[schemaVersion],
-      schemaVersion,
+      mediaType: MANIFEST_MEDIA_TYPES[this.version],
+      schemaVersion: this.version,
       pipeline: toDescriptor(pipeline),
       policySnapshot: toDescriptor(policySnapshot),
       runtimeFingerprint: toDescriptor(runtimeFingerprint),
@@ -87,19 +178,22 @@ export class ManifestBuilder {
   }
 
   /** {@link build} then put the sealed manifest into CAS (idempotent). */
-  async buildAndSeal(input: ManifestBuildInput): Promise<ManifestSealResult> {
+  async buildAndSeal(input?: ManifestBuildInput): Promise<ManifestSealResult> {
     const built = await this.build(input);
-    const { hash, existed } = await this.cas.put(built.manifest);
+    const sealedManifest = await this.factory.store(
+      built.manifest,
+      MANIFEST_MEDIA_TYPES[built.manifest.schemaVersion],
+    );
     return {
       ...built,
-      manifestHash: hash,
-      manifestExisted: existed,
+      manifestHash: sealedManifest.digest,
+      manifestExisted: sealedManifest.existed,
     };
   }
 
   /**
    * Assemble a manifest from pre-existing CAS descriptors (no puts).
-   * Useful when components were sealed earlier or adopted from migration.
+   * Adoption/migration only — does not create descriptors.
    */
   buildFromDescriptors(
     descriptors: {
@@ -126,27 +220,20 @@ export class ManifestBuilder {
       metrics: validateDescriptor(descriptors.metrics, MANIFEST_COMPONENT_MEDIA_TYPES.metrics),
     });
   }
-
-  private async sealComponent(key: ManifestComponentKey, payload: unknown): Promise<SealedComponent> {
-    if (payload === undefined) {
-      throw new TypeError(`ManifestBuilder: component '${key}' must not be undefined.`);
-    }
-    const { hash, size, existed } = await this.cas.put(payload);
-    return {
-      mediaType: MANIFEST_COMPONENT_MEDIA_TYPES[key],
-      digest: hash,
-      size,
-      existed,
-    };
-  }
 }
 
-function toDescriptor(sealed: SealedComponent): CASDescriptor {
+function toDescriptor(sealed: StoredDescriptor): CASDescriptor {
   return {
     mediaType: sealed.mediaType,
     digest: sealed.digest,
     size: sealed.size,
   };
+}
+
+function assertDefined(name: string, value: unknown): void {
+  if (value === undefined) {
+    throw new TypeError(`ManifestBuilder: component '${name}' must not be undefined.`);
+  }
 }
 
 function assertKnownVersion(version: ManifestVersion): void {

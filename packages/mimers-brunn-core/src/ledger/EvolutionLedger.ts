@@ -67,7 +67,7 @@ export class EvolutionLedger {
     },
   ): Promise<CommitPromotionResult> {
     validateManifest(manifest);
-    const { hash: manifestHash } = await this.cas.put(manifest);
+    const { hash: manifestHash } = await this.cas.putCanonical(manifest);
 
     const metadata =
       options.metadataName !== undefined || options.idempotencyKey !== undefined
@@ -107,7 +107,7 @@ export class EvolutionLedger {
     };
     validateMimersPromotion(promotionArtifact);
 
-    const { hash: promotionHash } = await this.cas.put(promotionArtifact);
+    const { hash: promotionHash } = await this.cas.putCanonical(promotionArtifact);
 
     const existing = await this.eventLog.findByPromotionHash(promotionHash);
     if (existing) {

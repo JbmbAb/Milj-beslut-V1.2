@@ -8,11 +8,27 @@ import {
   type CASRepository,
   type CommitStrategy,
   type DurabilityMode,
+  type PutBytesOptions,
   type PutResult,
 } from './CASRepository';
 import { WeightedLRUCache } from './cache';
-import { canonicalizeStrict, hashSerialized, parseHash, type HashAlgorithm } from '../serialization';
+import {
+  canonicalizeStrict,
+  hashBytes,
+  parseHash,
+  type HashAlgorithm,
+  type SupportedHashAlgorithm,
+} from '../serialization';
 import { InMemoryMetrics, type MetricsCollector } from '../metrics/MetricsCollector';
+
+function copyBytes(bytes: Uint8Array): Uint8Array {
+  return Uint8Array.from(bytes);
+}
+
+function bytesEqual(a: Uint8Array, b: Uint8Array): boolean {
+  if (a.byteLength !== b.byteLength) return false;
+  return Buffer.compare(Buffer.from(a.buffer, a.byteOffset, a.byteLength), Buffer.from(b)) === 0;
+}
 
 export class DefaultCommitStrategy implements CommitStrategy {
   constructor(
@@ -44,6 +60,10 @@ export class DefaultCommitStrategy implements CommitStrategy {
   }
 }
 
+/**
+ * File-backed CAS: opaque bytes at the core (putBytes/getBytes).
+ * JSON helpers (putCanonical/get) sit one layer above.
+ */
 export class FileCASRepository implements CASRepository {
   private readonly baseDir: string;
   private readonly commitStrategy: CommitStrategy;
@@ -121,13 +141,13 @@ export class FileCASRepository implements CASRepository {
     return this.exists(hash);
   }
 
-  async put(obj: unknown): Promise<PutResult> {
-    this.metrics.inc('cas_puts_total', 1, { operation: 'put', algorithm: this.hashAlgorithm });
+  async putBytes(bytes: Uint8Array, options: PutBytesOptions = {}): Promise<PutResult> {
+    const algorithm = (options.algorithm ?? this.hashAlgorithm) as SupportedHashAlgorithm;
+    this.metrics.inc('cas_puts_total', 1, { operation: 'put', algorithm });
 
-    const serializedData = canonicalizeStrict(obj);
-    const bytes = Buffer.from(serializedData, 'utf-8');
-    const size = bytes.byteLength;
-    const hash = hashSerialized(serializedData, this.hashAlgorithm);
+    const stored = copyBytes(bytes);
+    const size = stored.byteLength;
+    const hash = hashBytes(stored, algorithm);
     const destinationPath = this.getFilePath(hash);
 
     const tempRandom = randomBytes(8).toString('hex');
@@ -137,7 +157,7 @@ export class FileCASRepository implements CASRepository {
     let fileHandle: fs.FileHandle | null = null;
     try {
       fileHandle = await fs.open(tempPath, 'w');
-      await fileHandle.write(serializedData, 0, 'utf-8');
+      await fileHandle.write(Buffer.from(stored.buffer, stored.byteOffset, stored.byteLength));
       await fileHandle.datasync();
       await fileHandle.close();
       fileHandle = null;
@@ -145,9 +165,9 @@ export class FileCASRepository implements CASRepository {
       await fs.mkdir(path.dirname(destinationPath), { recursive: true });
       await this.commitStrategy.commit(tempPath, destinationPath);
 
-      this.cache.set(hash, bytes);
+      this.cache.set(hash, stored);
       this.existsCache.set(hash, true);
-      this.metrics.inc('cas_bytes_written', size, { operation: 'put', algorithm: this.hashAlgorithm });
+      this.metrics.inc('cas_bytes_written', size, { operation: 'put', algorithm });
 
       try {
         await fs.unlink(tempPath);
@@ -173,15 +193,15 @@ export class FileCASRepository implements CASRepository {
         this.metrics.inc('cas_collisions_total', 1, {
           operation: 'put',
           result: 'collision',
-          algorithm: this.hashAlgorithm,
+          algorithm,
         });
         const existingBytes = await fs.readFile(destinationPath);
-        if (!existingBytes.equals(bytes)) {
+        if (!bytesEqual(existingBytes, stored)) {
           throw new CASIntegrityError(
             `[P-05] CAS Integrity Collision: File exists but contents differ! Hash: ${hash}`,
           );
         }
-        this.cache.set(hash, bytes);
+        this.cache.set(hash, stored);
         this.existsCache.set(hash, true);
         return { hash, size, existed: true };
       }
@@ -189,43 +209,65 @@ export class FileCASRepository implements CASRepository {
     }
   }
 
-  async get<T = unknown>(hash: string, options?: { verifyHash?: boolean }): Promise<T | null> {
+  async putSerialized(serialized: string, options?: PutBytesOptions): Promise<PutResult> {
+    return this.putBytes(Buffer.from(serialized, 'utf-8'), options);
+  }
+
+  async putCanonical(obj: unknown, options?: PutBytesOptions): Promise<PutResult> {
+    return this.putSerialized(canonicalizeStrict(obj), options);
+  }
+
+  /** @deprecated Prefer putCanonical — thin alias. */
+  async put(obj: unknown): Promise<PutResult> {
+    return this.putCanonical(obj);
+  }
+
+  async getBytes(hash: string, options?: { verifyHash?: boolean }): Promise<Uint8Array | null> {
     const { algorithm } = parseHash(hash);
     this.metrics.inc('cas_gets_total', 1, { operation: 'get', algorithm });
 
     if (this.cache.has(hash)) {
       this.metrics.inc('cas_cache_hits', 1, { operation: 'get', result: 'success', algorithm });
       const cachedBytes = this.cache.get(hash)!;
-      const dataStr = Buffer.from(cachedBytes).toString('utf-8');
       if (options?.verifyHash) {
-        const computed = hashSerialized(dataStr, algorithm);
+        const computed = hashBytes(cachedBytes, algorithm);
         if (computed !== hash) {
           throw new Error(`In-Memory Corruption: cached hash ${computed} != ${hash}`);
         }
       }
-      return JSON.parse(dataStr) as T;
+      return copyBytes(cachedBytes);
     }
+
     this.metrics.inc('cas_cache_misses', 1, { operation: 'get', result: 'miss', algorithm });
 
     try {
       const dataBytes = await fs.readFile(this.getFilePath(hash));
-      const dataStr = dataBytes.toString('utf-8');
       if (options?.verifyHash) {
-        const computed = hashSerialized(dataStr, algorithm);
+        const computed = hashBytes(dataBytes, algorithm);
         if (computed !== hash) {
           throw new CASIntegrityError(
             `Storage Read Corruption: on-disk hash '${computed}' != '${hash}'.`,
           );
         }
       }
-      const parsed = JSON.parse(dataStr) as T;
-      this.cache.set(hash, dataBytes);
+      const stored = copyBytes(dataBytes);
+      this.cache.set(hash, stored);
       this.existsCache.set(hash, true);
-      return parsed;
+      return copyBytes(stored);
     } catch (error: unknown) {
       if (isNodeError(error) && error.code === 'ENOENT') return null;
       throw error;
     }
+  }
+
+  /**
+   * JSON helper: getBytes + JSON.parse.
+   * Invalid for non-UTF8 / non-JSON payloads — use getBytes for binary.
+   */
+  async get<T = unknown>(hash: string, options?: { verifyHash?: boolean }): Promise<T | null> {
+    const bytes = await this.getBytes(hash, options);
+    if (bytes === null) return null;
+    return JSON.parse(Buffer.from(bytes).toString('utf-8')) as T;
   }
 
   /** Windows-safe sharded path: objects/<algo>/<2hex>/<rest> (no ':' in filename). */
@@ -240,8 +282,7 @@ export class FileCASRepository implements CASRepository {
     const { algorithm } = parseHash(hash);
     try {
       const dataBytes = await fs.readFile(this.getFilePath(hash));
-      const dataStr = dataBytes.toString('utf-8');
-      const computed = hashSerialized(dataStr, algorithm);
+      const computed = hashBytes(dataBytes, algorithm);
       if (computed !== hash) {
         this.cache.delete(hash);
         return {

@@ -8,6 +8,8 @@ import {
   InMemoryEventLog,
   LocalPemSigningKeyProvider,
   MIMERS_METRICS,
+  CasRepair,
+  IntegrityVerifier,
   RecoveryOrchestrator,
   buildCasMerkleCheckpoint,
   buildIntegrityCheckpoint,
@@ -126,6 +128,17 @@ describe('P1D–P2 Mimers ledger / attestation / checkpoints', () => {
     expect(l2.status).toBe('CLEAN');
     expect(l3.status).toBe('CLEAN');
     expect(l3.processedCount).toBeGreaterThan(0);
+
+    const restored = await recovery.recoverFromLedger({
+      signing: provider,
+      requireSignatures: true,
+    });
+    expect(restored.status).toBe('CLEAN');
+    expect(restored.recoverableEvents).toBe(1);
+    expect(restored.failedEvents).toBe(0);
+    expect(recovery.verifier).toBeInstanceOf(IntegrityVerifier);
+    expect(recovery.repair).toBeInstanceOf(CasRepair);
+
     expect(MIMERS_METRICS.auditL0Duration).toBe('audit.l0.duration');
     expect(MIMERS_METRICS.auditL3Duration).toBe('audit.l3.duration');
   });

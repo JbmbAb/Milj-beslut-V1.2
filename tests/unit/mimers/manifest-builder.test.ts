@@ -3,6 +3,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import {
+  DescriptorFactory,
   EvolutionLedger,
   FileCASRepository,
   InMemoryEventLog,
@@ -10,6 +11,44 @@ import {
   MANIFEST_COMPONENT_MEDIA_TYPES,
   validateManifest,
 } from '@miljobeslut/mimers-brunn-core';
+
+describe('DescriptorFactory', () => {
+  let dir: string;
+  let cas: FileCASRepository;
+  let factory: DescriptorFactory;
+
+  beforeEach(async () => {
+    dir = await mkdtemp(path.join(os.tmpdir(), 'mimers-df-'));
+    cas = new FileCASRepository(dir, { durabilityMode: 'none' });
+    await cas.initialize();
+    factory = new DescriptorFactory(cas);
+  });
+
+  afterEach(async () => {
+    await rm(dir, { recursive: true, force: true });
+  });
+
+  it('store returns digest/size/mediaType and is idempotent', async () => {
+    const payload = { id: 'pipe-1', nodes: ['a'] };
+    const first = await factory.store(payload, MANIFEST_COMPONENT_MEDIA_TYPES.pipeline);
+    expect(first.mediaType).toBe(MANIFEST_COMPONENT_MEDIA_TYPES.pipeline);
+    expect(first.digest).toMatch(/^sha256:[0-9a-f]{64}$/);
+    expect(first.size).toBeGreaterThan(0);
+    expect(first.existed).toBe(false);
+
+    const second = await factory.store(payload, MANIFEST_COMPONENT_MEDIA_TYPES.pipeline);
+    expect(second.digest).toBe(first.digest);
+    expect(second.existed).toBe(true);
+    expect(await cas.existsAuthoritative(first.digest)).toBe(true);
+  });
+
+  it('rejects undefined payload and empty mediaType', async () => {
+    await expect(factory.store(undefined, MANIFEST_COMPONENT_MEDIA_TYPES.pipeline)).rejects.toThrow(
+      /undefined/,
+    );
+    await expect(factory.store({ ok: true }, '')).rejects.toThrow(/mediaType/);
+  });
+});
 
 describe('ManifestBuilder', () => {
   let dir: string;
@@ -34,7 +73,22 @@ describe('ManifestBuilder', () => {
     metrics: { latencyMs: 120, costSek: 0.01, qualityScore: 0.9, errorRate: 0 },
   });
 
-  it('builds a validated manifest with CAS-backed descriptors', async () => {
+  it('fluent API builds without exposing descriptor assembly', async () => {
+    const sample = sampleInput();
+    const result = await new ManifestBuilder(cas)
+      .pipeline(sample.pipeline)
+      .policy(sample.policySnapshot)
+      .runtime(sample.runtimeFingerprint)
+      .metrics(sample.metrics)
+      .build();
+
+    expect(() => validateManifest(result.manifest)).not.toThrow();
+    expect(result.manifest.pipeline.mediaType).toBe(MANIFEST_COMPONENT_MEDIA_TYPES.pipeline);
+    expect(result.components.pipeline.digest).toMatch(/^sha256:[0-9a-f]{64}$/);
+    expect(await cas.existsAuthoritative(result.components.metrics.digest)).toBe(true);
+  });
+
+  it('builds a validated manifest with CAS-backed descriptors (batch compat)', async () => {
     const result = await builder.build(sampleInput());
     expect(() => validateManifest(result.manifest)).not.toThrow();
     expect(result.manifest.schemaVersion).toBe('v1.0.0');
@@ -110,5 +164,18 @@ describe('ManifestBuilder', () => {
         },
       }),
     ).toThrow(/mediaType/i);
+  });
+
+  it('accepts an injected DescriptorFactory', async () => {
+    const factory = new DescriptorFactory(cas);
+    const sample = sampleInput();
+    const result = await new ManifestBuilder(factory)
+      .pipeline(sample.pipeline)
+      .policy(sample.policySnapshot)
+      .runtime(sample.runtimeFingerprint)
+      .metrics(sample.metrics)
+      .build();
+    expect(result.manifest.pipeline.digest).toMatch(/^sha256:/);
+    expect(new ManifestBuilder(factory).descriptorFactory).toBe(factory);
   });
 });

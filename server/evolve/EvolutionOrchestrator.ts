@@ -12,6 +12,7 @@ import {
 import type { ArtifactStore } from '../artifact/ArtifactStore';
 import type { PipelineDefinition } from '../compiler/types';
 import type { MimersPromotionBackend } from '../mimers/MimersPromotionBackend';
+import { writePromotionMimersBinding } from '../mimers/migrateArtifactStoreToCas';
 import { hashArtifact, hashArtifactPayload } from '../utils/hashArtifact';
 import type { CandidateGenerator, GeneratedCandidate } from './CandidateGenerator';
 import type { ConstraintContext, ConstraintSolver } from './ConstraintSolver';
@@ -52,9 +53,10 @@ const REJECTED_FITNESS: FitnessResult = {
  * WORM evolve loop: ExperimentRecord always; ApprovalRecord on gate path;
  * PromotionArtifactV3 only after approval (never mutated in place).
  *
- * Optional {@link MimersPromotionBackend}: dual-writes Manifest → CAS → Ledger,
- * then seals V3 as an index (`manifestHash` + metadata pointers). Without it,
- * behavior is unchanged (FileArtifactStore-only V3).
+ * Optional {@link MimersPromotionBackend}: CAS-primary path —
+ * ManifestBuilder → CAS → EvolutionLedger, then V3 as index
+ * (`manifestHash` + metadata pointers + mimers-binding/). Without Mimers,
+ * behavior is FileArtifactStore-only V3 unless `requireMimers` is set (fail-closed).
  */
 export class EvolutionOrchestrator {
   constructor(
@@ -68,6 +70,8 @@ export class EvolutionOrchestrator {
     private readonly eventLedger: EventLedger,
     private readonly signingKeyProvider?: SigningKeyProvider,
     private readonly mimersBackend?: MimersPromotionBackend,
+    /** CAS-primary: refuse to evolve without Mimers backend (fail-closed). */
+    private readonly requireMimers: boolean = false,
   ) {}
 
   async evolve(
@@ -77,6 +81,11 @@ export class EvolutionOrchestrator {
     populationSize = 5,
     constraintCtx: ConstraintContext = { runtimeCapabilities: {} },
   ): Promise<PipelineDefinition> {
+    if (this.requireMimers && !this.mimersBackend) {
+      throw new Error(
+        'EvolutionOrchestrator: requireMimers=true but MimersPromotionBackend was not provided',
+      );
+    }
     await this.artifactStore.put(`evolution-run/${run.id}`, run);
     await this.eventLedger.record({ type: 'RUN_STARTED', runId: run.id });
 
@@ -190,8 +199,16 @@ export class EvolutionOrchestrator {
               run,
               parentPromotion,
             });
+            this.assertCasPrimaryIndex(sealed);
             const key = promotionStoreKey(sealed);
             await this.artifactStore.put(key, sealed);
+            if (this.mimersBackend) {
+              await writePromotionMimersBinding(this.artifactStore, sealed, {
+                manifestHash: sealed.manifestHash!,
+                promotionHash: String(sealed.metadata!.mimersPromotionHash),
+                eventId: String(sealed.metadata!.mimersEventId),
+              });
+            }
             await this.eventLedger.record({
               type: 'PROMOTION_CREATED',
               runId: run.id,
@@ -273,23 +290,21 @@ export class EvolutionOrchestrator {
         typeof parentPromotion?.metadata?.mimersPromotionHash === 'string'
           ? parentPromotion.metadata.mimersPromotionHash
           : undefined;
+      // Domain payloads only — DescriptorFactory stamps mediaType on descriptors.
       const sealed = await this.mimersBackend.seal({
         pipeline: candidate.pipelineDefinition,
         policySnapshot: {
-          mediaType: 'application/vnd.mimers.policy.v1+json',
           evolutionRunId: run.id,
           promotionPolicy: this.promotionPolicy,
           policySnapshotRef: candidate.policySnapshotRef ?? null,
         },
         runtimeFingerprint: {
-          mediaType: 'application/vnd.mimers.runtime.v1+json',
           fingerprint: candidate.runtimeFingerprint ?? null,
           compilerVersion: run.compilerVersion ?? null,
           registryVersion: run.registryVersion ?? null,
           executionHash: candidate.executionHash,
         },
         metrics: {
-          mediaType: 'application/vnd.mimers.metrics.v1+json',
           candidate: evaluation.metricsCandidate,
           baseline: evaluation.metricsBaseline,
           fitnessCandidate: evaluation.fitnessCandidate,
@@ -333,6 +348,18 @@ export class EvolutionOrchestrator {
       },
       { signingKeyProvider: this.signingKeyProvider },
     );
+  }
+
+  /** Fail-closed: when Mimers is wired, V3 must carry CAS identity pointers. */
+  private assertCasPrimaryIndex(sealed: PromotionArtifactV3): void {
+    if (!this.mimersBackend) return;
+    const promoHash = sealed.metadata?.mimersPromotionHash;
+    const eventId = sealed.metadata?.mimersEventId;
+    if (!sealed.manifestHash || typeof promoHash !== 'string' || typeof eventId !== 'string') {
+      throw new Error(
+        `CAS-primary incomplete: promotion ${sealed.artifactHash} missing manifestHash/mimersPromotionHash/mimersEventId`,
+      );
+    }
   }
 
   private async filterFeasible(

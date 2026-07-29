@@ -13,6 +13,7 @@ export {
 export {
   NodeHashProvider,
   formatArtifactHash,
+  hashBytes,
   hashCanonicalValue,
   hashSerialized,
   parseArtifactHashToStruct,
