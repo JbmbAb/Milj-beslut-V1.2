@@ -20,9 +20,11 @@ export {
   type ArtifactMigrator,
 } from './ArtifactMigrationRegistry';
 export {
+  approvalRecordFromDecision,
   approvalStoreKey,
   createApprovalRecord,
   type ApprovalDecision,
+  type ApprovalDecisionLiteral,
   type ApprovalRecord,
   type ApprovalRecordBody,
 } from './ApprovalRecord';

@@ -52,6 +52,7 @@
     "artifact:migrate-worm": "tsx scripts/artifact/migrate-promotion-worm-v1.ts"
   },
   "dependencies": {
+    "@miljobeslut/mimers-brunn-core": "file:packages/mimers-brunn-core",
     "@google-cloud/billing-budgets": "^6.1.2",
     "@google-cloud/storage": "^7.21.0",
     "@google-cloud/vertexai": "^1.12.0",

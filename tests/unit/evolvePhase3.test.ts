@@ -161,7 +161,8 @@ describe('Phase 3/4 WORM evolution', () => {
     const approval = await store.get<ApprovalRecord>('approval/run-approval-g001-c000');
     expect(approval?.subjectId).toBe('run-approval-g001-c000');
     expect(approval?.subjectType).toBe('promotion-candidate');
-    expect(approval?.decision.approved).toBe(true);
+    expect(approval?.decision).toBe('approved');
+    expect(approval?.decidedBy).toBe('test');
 
     expect(await store.list('promotion-approved/')).toEqual([]);
     expect(await store.get('experiment/run-approval/run-approval-g001-c001')).toMatchObject({
@@ -219,7 +220,7 @@ describe('Phase 3/4 WORM evolution', () => {
 
     expect(await store.list('promotion/')).toEqual([]);
     const approval = await store.get<ApprovalRecord>('approval/run-reject-g001-c000');
-    expect(approval?.decision.approved).toBe(false);
+    expect(approval?.decision).toBe('rejected');
     expect(await store.get('experiment/run-reject/run-reject-g001-c000')).toBeDefined();
   });
 

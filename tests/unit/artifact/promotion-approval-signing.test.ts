@@ -19,15 +19,12 @@ describe('AES-1.0: WORM approval → create (no post-hoc mutation)', () => {
     approvalId: 'apr-run-1-g001-c000',
     subjectId: 'run-1-g001-c000',
     subjectType: 'promotion-candidate',
-    decision: {
-      approved: true,
-      reviewer: 'auto-gate',
-      reason: 'positive fitness',
-      timestamp: 2000,
-    },
+    decision: 'approved',
+    decidedBy: 'auto-gate',
+    reason: 'positive fitness',
     evolutionRunId: 'run-1',
     schemaVersion: 'approval.v1',
-    createdAt: 2000,
+    createdAt: new Date(2000).toISOString(),
   });
 
   const baseInput = {

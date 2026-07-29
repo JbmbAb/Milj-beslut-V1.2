@@ -53,13 +53,13 @@ describe('WORM one-shot namespace migration', () => {
 
     const dry = await migratePromotionWormV1(store, { dryRun: true });
     expect(dry.dryRun).toBe(true);
-    expect(dry.approvedMigrated).toBe(1);
-    expect(dry.rejectedArchived).toBe(1);
+    expect(dry.migrated).toBe(1);
+    expect(dry.rejected).toBe(1);
     expect(await store.list('legacy-rejected-promotion/')).toEqual([]);
 
     const live = await migratePromotionWormV1(store, { dryRun: false });
-    expect(live.approvedMigrated).toBe(1);
-    expect(live.rejectedArchived).toBe(1);
+    expect(live.migrated).toBe(1);
+    expect(live.rejected).toBe(1);
 
     const archived = await store.get('legacy-rejected-promotion/promotion-no');
     expect(archived).toMatchObject({ id: 'promotion-no', schemaVersion: 'promotion.v2' });
@@ -83,10 +83,11 @@ describe('WORM one-shot namespace migration', () => {
       approvalId: 'apr-1',
       subjectId: 'c1',
       subjectType: 'promotion-candidate',
-      decision: { approved: true, timestamp: 1 },
+      decision: 'approved',
+      decidedBy: 'test',
       evolutionRunId: 'r1',
       schemaVersion: 'approval.v1',
-      createdAt: 1,
+      createdAt: new Date(1).toISOString(),
     });
     const v3 = createPromotionArtifactV3({
       humanId: 'h',
@@ -104,7 +105,7 @@ describe('WORM one-shot namespace migration', () => {
 
     await store.put(`promotion/${v3.artifactHash}`, v3);
     const summary = await migratePromotionWormV1(store, { dryRun: false });
-    expect(summary.rejectedArchived).toBe(0);
+    expect(summary.rejected).toBe(0);
     expect(await store.list('legacy-rejected-promotion/')).toEqual([]);
   });
 });

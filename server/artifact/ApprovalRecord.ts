@@ -10,24 +10,26 @@ export interface ApprovalDecision {
   readonly timestamp: number;
 }
 
+export type ApprovalDecisionLiteral = 'approved' | 'rejected';
+
 /**
- * WORM approval record.
+ * WORM approval record (ADR-042 locked contract).
  *
- * Invariant: ApprovalRecord.subjectId points at a promotion *candidate*
- * (experiment/candidate id), never at a promotion artifact id. PromotionArtifactV3
- * is created only after approval and points back via approvalRecordId.
- *
- * Rejected candidates never get a PromotionArtifactV3; the audit trail is
- * ExperimentRecord + ApprovalRecord alone.
+ * subjectId points at a promotion *candidate*, never a promotion artifact id.
+ * Rejected candidates never get a PromotionArtifactV3.
  */
 export interface ApprovalRecord {
   readonly approvalId: string;
   readonly subjectId: string;
   readonly subjectType: 'promotion-candidate';
-  readonly decision: ApprovalDecision;
+  readonly decision: ApprovalDecisionLiteral;
+  readonly decidedBy: string;
+  readonly reason?: string;
   readonly evolutionRunId: string;
   readonly schemaVersion: 'approval.v1';
-  readonly createdAt: number;
+  /** ISO-8601 timestamp */
+  readonly createdAt: string;
+  /** sha256(canonical body) — content identity, not encryption */
   readonly artifactHash: string;
 }
 
@@ -39,14 +41,39 @@ export function createApprovalRecord(body: ApprovalRecordBody): ApprovalRecord {
     subjectId: body.subjectId,
     subjectType: body.subjectType,
     decision: body.decision,
+    decidedBy: body.decidedBy,
+    reason: body.reason,
     evolutionRunId: body.evolutionRunId,
     schemaVersion: 'approval.v1',
     createdAt: body.createdAt,
   };
+  for (const key of Object.keys(payload)) {
+    if (payload[key] === undefined) delete payload[key];
+  }
   return {
     ...(payload as unknown as ApprovalRecordBody),
     artifactHash: hashArtifactPayload(payload),
   };
+}
+
+/** Map gate ApprovalDecision → locked ApprovalRecord fields. */
+export function approvalRecordFromDecision(args: {
+  readonly approvalId: string;
+  readonly subjectId: string;
+  readonly evolutionRunId: string;
+  readonly gate: ApprovalDecision;
+}): ApprovalRecord {
+  return createApprovalRecord({
+    approvalId: args.approvalId,
+    subjectId: args.subjectId,
+    subjectType: 'promotion-candidate',
+    decision: args.gate.approved ? 'approved' : 'rejected',
+    decidedBy: args.gate.reviewer ?? 'unknown',
+    reason: args.gate.reason,
+    evolutionRunId: args.evolutionRunId,
+    schemaVersion: 'approval.v1',
+    createdAt: new Date(args.gate.timestamp || Date.now()).toISOString(),
+  });
 }
 
 export function approvalStoreKey(approvalId: string): string {

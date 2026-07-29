@@ -1,6 +1,6 @@
 import {
+  approvalRecordFromDecision,
   approvalStoreKey,
-  createApprovalRecord,
   createPromotionArtifactV3Async,
   promotionStoreKey,
   requirePromotionV3,
@@ -234,15 +234,11 @@ export class EvolutionOrchestrator {
     subjectId: string,
     decision: ApprovalDecision,
   ): ApprovalRecord {
-    const approvalId = subjectId;
-    return createApprovalRecord({
-      approvalId,
+    return approvalRecordFromDecision({
+      approvalId: subjectId,
       subjectId,
-      subjectType: 'promotion-candidate',
-      decision,
       evolutionRunId,
-      schemaVersion: 'approval.v1',
-      createdAt: Date.now(),
+      gate: decision,
     });
   }
 

@@ -14,7 +14,9 @@
     "jsx": "react-jsx",
     "paths": {
       "~/*": ["./*"],
-      "@/*": ["./src/*"]
+      "@/*": ["./src/*"],
+      "@miljobeslut/mimers-brunn-core": ["./packages/mimers-brunn-core/src/index.ts"],
+      "@miljobeslut/mimers-brunn-core/*": ["./packages/mimers-brunn-core/src/*"]
     },
     "allowImportingTsExtensions": true,
     "noEmit": true
