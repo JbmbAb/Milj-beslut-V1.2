@@ -109,16 +109,52 @@ describe('P1D–P2 Mimers ledger / attestation / checkpoints', () => {
     expect(await verifySignedCheckpoint(signed, provider)).toBe(true);
   });
 
-  it('RecoveryOrchestrator L0/L1 reports CLEAN for healthy commit', async () => {
+  it('RecoveryOrchestrator L0–L3 reports CLEAN for healthy signed commit', async () => {
+    const log = new InMemoryEventLog();
+    const ledger = new EvolutionLedger(cas, log);
+    const { provider } = LocalPemSigningKeyProvider.generate('audit-key');
+    await ledger.commitPromotion(await sampleManifest(cas), [], 1, { signing: provider });
+
+    const recovery = new RecoveryOrchestrator(cas, () => log.getAllEvents());
+    const l0 = await recovery.auditL0();
+    const l1 = await recovery.auditL1();
+    const l2 = await recovery.auditL2({ signing: provider, requireSignatures: true });
+    const l3 = await recovery.auditL3({ concurrency: 4 });
+
+    expect(l0.status).toBe('CLEAN');
+    expect(l1.status).toBe('CLEAN');
+    expect(l2.status).toBe('CLEAN');
+    expect(l3.status).toBe('CLEAN');
+    expect(l3.processedCount).toBeGreaterThan(0);
+    expect(MIMERS_METRICS.auditL0Duration).toBe('audit.l0.duration');
+    expect(MIMERS_METRICS.auditL3Duration).toBe('audit.l3.duration');
+  });
+
+  it('RecoveryOrchestrator L2 fails closed when required signature is missing', async () => {
     const log = new InMemoryEventLog();
     const ledger = new EvolutionLedger(cas, log);
     await ledger.commitPromotion(await sampleManifest(cas), [], 1);
 
     const recovery = new RecoveryOrchestrator(cas, () => log.getAllEvents());
-    const l0 = await recovery.auditL0();
-    const l1 = await recovery.auditL1();
-    expect(l0.status).toBe('CLEAN');
-    expect(l1.status).toBe('CLEAN');
-    expect(MIMERS_METRICS.auditL0Duration).toBe('audit.l0.duration');
+    const l2 = await recovery.auditL2({ requireSignatures: true });
+    expect(l2.status).toBe('CORRUPTED');
+    expect(l2.errors.some((e) => /missing required signature/i.test(e))).toBe(true);
+  });
+
+  it('RecoveryOrchestrator L3 detects on-disk bitrot', async () => {
+    const log = new InMemoryEventLog();
+    const ledger = new EvolutionLedger(cas, log);
+    const committed = await ledger.commitPromotion(await sampleManifest(cas), [], 1);
+
+    const filePath = cas.getFilePath(committed.manifestHash);
+    const { writeFile } = await import('node:fs/promises');
+    await writeFile(filePath, '{"tampered":true}', 'utf-8');
+
+    const recovery = new RecoveryOrchestrator(cas, () => log.getAllEvents());
+    const l2 = await recovery.auditL2();
+    const l3 = await recovery.auditL3();
+    expect(l2.status).toBe('CORRUPTED');
+    expect(l3.status).toBe('CORRUPTED');
+    expect(l3.errors.some((e) => /bitrot/i.test(e))).toBe(true);
   });
 });

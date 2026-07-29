@@ -23,12 +23,25 @@ export type CommitPromotionResult = {
 /**
  * Idempotent promotion commit into CAS + EventLog (ADR-042 P1D).
  * Retry with the same sealed promotion content returns the existing ledger binding.
+ * In-process commits are serialized so parallel workers with the same promotionHash
+ * cannot double-append (filesystem CAS still provides cross-process content identity).
  */
 export class EvolutionLedger {
+  private commitTail: Promise<unknown> = Promise.resolve();
+
   constructor(
     private readonly cas: CASRepository,
     private readonly eventLog: EventLog,
   ) {}
+
+  private serializeCommit<T>(fn: () => Promise<T>): Promise<T> {
+    const run = this.commitTail.then(fn, fn);
+    this.commitTail = run.then(
+      () => undefined,
+      () => undefined,
+    );
+    return run;
+  }
 
   async commitPromotion(
     manifest: MimersBrunnManifest,
@@ -40,18 +53,37 @@ export class EvolutionLedger {
       readonly idempotencyKey?: string;
     } = {},
   ): Promise<CommitPromotionResult> {
+    return this.serializeCommit(() => this.commitPromotionUnlocked(manifest, parents, generation, options));
+  }
+
+  private async commitPromotionUnlocked(
+    manifest: MimersBrunnManifest,
+    parents: readonly string[],
+    generation: number,
+    options: {
+      readonly signing?: SigningKeyProvider;
+      readonly metadataName?: string;
+      readonly idempotencyKey?: string;
+    },
+  ): Promise<CommitPromotionResult> {
     validateManifest(manifest);
     const { hash: manifestHash } = await this.cas.put(manifest);
+
+    const metadata =
+      options.metadataName !== undefined || options.idempotencyKey !== undefined
+        ? {
+            ...(options.metadataName !== undefined ? { humanName: options.metadataName } : {}),
+            ...(options.idempotencyKey !== undefined
+              ? { idempotencyKey: options.idempotencyKey }
+              : {}),
+          }
+        : undefined;
 
     const basePayload: Omit<MimersPromotionArtifact, 'signatureEnvelope'> = {
       manifestHash,
       parents: [...parents],
       generation,
-      ...(options.metadataName !== undefined
-        ? { metadata: { humanName: options.metadataName, idempotencyKey: options.idempotencyKey } }
-        : options.idempotencyKey !== undefined
-          ? { metadata: { idempotencyKey: options.idempotencyKey } }
-          : {}),
+      ...(metadata !== undefined ? { metadata } : {}),
     };
 
     const coreSerialized = canonicalizeStrict(basePayload);
@@ -102,4 +134,22 @@ export class EvolutionLedger {
       idempotentReplay: false,
     };
   }
+}
+
+/** Verify domain-separated promotion signature (fail-closed when envelope present). */
+export async function verifyPromotionSignature(
+  promotion: MimersPromotionArtifact,
+  signing: SigningKeyProvider,
+): Promise<boolean> {
+  if (!promotion.signatureEnvelope) return false;
+  const { signatureEnvelope, ...core } = promotion;
+  const promotionCoreDigest = hashSerialized(canonicalizeStrict(core), 'sha256');
+  const signaturePayload: PromotionSignaturePayload = {
+    domain: 'mimers-brunn/promotion-signature/v1',
+    mediaType: 'application/vnd.mimers.promotion.v1+json',
+    canonicalization: 'RFC8785',
+    promotionCoreDigest,
+  };
+  const payloadBytes = Buffer.from(canonicalizeStrict(signaturePayload), 'utf-8');
+  return signing.verify(payloadBytes, signatureEnvelope);
 }

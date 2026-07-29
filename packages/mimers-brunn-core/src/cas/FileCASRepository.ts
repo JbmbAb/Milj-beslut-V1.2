@@ -235,4 +235,55 @@ export class FileCASRepository implements CASRepository {
     const rest = digest.substring(2);
     return path.join(this.baseDir, 'objects', algorithm, shard, rest);
   }
+
+  async verifyStoredObject(hash: string): Promise<{ ok: boolean; size?: number; error?: string }> {
+    const { algorithm } = parseHash(hash);
+    try {
+      const dataBytes = await fs.readFile(this.getFilePath(hash));
+      const dataStr = dataBytes.toString('utf-8');
+      const computed = hashSerialized(dataStr, algorithm);
+      if (computed !== hash) {
+        this.cache.delete(hash);
+        return {
+          ok: false,
+          size: dataBytes.byteLength,
+          error: `bitrot: on-disk hash '${computed}' != '${hash}'`,
+        };
+      }
+      return { ok: true, size: dataBytes.byteLength };
+    } catch (error: unknown) {
+      if (isNodeError(error) && error.code === 'ENOENT') {
+        return { ok: false, error: `missing object ${hash}` };
+      }
+      const msg = error instanceof Error ? error.message : String(error);
+      return { ok: false, error: `verify failed for ${hash}: ${msg}` };
+    }
+  }
+
+  async *streamObjectDigests(signal?: AbortSignal): AsyncIterable<string> {
+    for (const algorithm of ['sha256', 'sha512'] as const) {
+      const algoRoot = path.join(this.baseDir, 'objects', algorithm);
+      let shardEntries: Awaited<ReturnType<typeof fs.readdir>>;
+      try {
+        shardEntries = await fs.readdir(algoRoot, { withFileTypes: true });
+      } catch (error: unknown) {
+        if (isNodeError(error) && error.code === 'ENOENT') continue;
+        throw error;
+      }
+
+      for (const shardEntry of shardEntries) {
+        if (signal?.aborted) throw new Error('Operation aborted by user signal.');
+        if (!shardEntry.isDirectory()) continue;
+        if (shardEntry.name.startsWith('.')) continue;
+
+        const shardDir = path.join(algoRoot, shardEntry.name);
+        const files = await fs.readdir(shardDir, { withFileTypes: true });
+        for (const file of files) {
+          if (signal?.aborted) throw new Error('Operation aborted by user signal.');
+          if (!file.isFile() || file.name.startsWith('.')) continue;
+          yield `${algorithm}:${shardEntry.name}${file.name}`;
+        }
+      }
+    }
+  }
 }

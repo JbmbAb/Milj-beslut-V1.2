@@ -11,4 +11,10 @@ export { mapConcurrent, type ConcurrencyOptions } from './concurrency/mapConcurr
 export { InMemoryMetrics, type MetricAttributes, type MetricsCollector } from './metrics/MetricsCollector';
 export { MIMERS_METRICS, type MimersMetricName } from './metrics/contract';
 export { OpenTelemetryMetricsAdapter, withMetricDuration } from './metrics/OpenTelemetryMetricsAdapter';
-export { RecoveryOrchestrator, type AuditReport, type AuditStatus } from './recovery/RecoveryOrchestrator';
+export {
+  RecoveryOrchestrator,
+  type AuditL2Options,
+  type AuditL3Options,
+  type AuditReport,
+  type AuditStatus,
+} from './recovery/RecoveryOrchestrator';

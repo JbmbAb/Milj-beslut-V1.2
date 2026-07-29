@@ -10,7 +10,12 @@ export type {
 } from './checkpoints';
 export type { EventLog, LedgerEventInput } from './EventLog';
 export { InMemoryEventLog, newLedgerEventId, verifyLedgerHashChain } from './InMemoryEventLog';
-export { EvolutionLedger, type CommitPromotionResult, type PromotionSignaturePayload } from './EvolutionLedger';
+export {
+  EvolutionLedger,
+  verifyPromotionSignature,
+  type CommitPromotionResult,
+  type PromotionSignaturePayload,
+} from './EvolutionLedger';
 export {
   buildCasMerkleCheckpoint,
   buildIntegrityCheckpoint,

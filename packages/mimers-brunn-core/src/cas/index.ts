@@ -2,6 +2,7 @@ export type {
   CASRepository,
   CommitStrategy,
   DurabilityMode,
+  ObjectVerifyResult,
   PutResult,
 } from './CASRepository';
 export { CASIntegrityError, DurabilityError, isNodeError } from './CASRepository';
