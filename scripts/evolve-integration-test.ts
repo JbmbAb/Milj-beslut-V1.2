@@ -1,11 +1,13 @@
 /**
- * Local evolution smoke / integration harness (WORM promotions).
+ * Local evolution smoke / integration harness (WORM + Mimers dual-write).
  *
  *   npx tsx scripts/evolve-integration-test.ts
+ *   npm run evolve:integration
  *
- * Writes artifacts under ./tmp-artifacts (gitignored).
+ * Writes artifacts under ./tmp-artifacts and Mimers CAS/ledger under ./tmp-mimers.
  */
 import path from 'node:path';
+import { RecoveryOrchestrator } from '@miljobeslut/mimers-brunn-core';
 import { FileArtifactStore } from '../server/artifact/FileArtifactStore';
 import type { PromotionArtifactV3 } from '../server/artifact/PromotionArtifact';
 import { LocalPemSigningKeyProvider } from '../server/artifact/signingKeyProvider';
@@ -20,13 +22,18 @@ import { SimpleConstraintSolver } from '../server/evolve/ConstraintSolver';
 import { BatchShadowEvaluator } from '../server/evolve/BatchShadowEvaluator';
 import { StubCandidateGenerator } from '../server/evolve/StubCandidateGenerator';
 import type { PipelineDefinition } from '../server/compiler/types';
+import { createPersistentMimersBackend } from '../server/mimers';
 import { generateAesKeyPair } from '../server/utils/signing';
 
 async function main(): Promise<void> {
   const artifactsDir = path.resolve(process.cwd(), 'tmp-artifacts');
+  const mimersDir = path.resolve(process.cwd(), 'tmp-mimers');
   const store = new FileArtifactStore(artifactsDir);
   const keys = generateAesKeyPair();
   const signing = new LocalPemSigningKeyProvider('ed25519:smoke', keys.privateKey, keys.publicKey);
+  const mimers = await createPersistentMimersBackend(mimersDir, {
+    durabilityMode: process.platform === 'win32' ? 'best-effort' : 'none',
+  });
 
   const run: EvolutionRun = {
     id: `evo-test-${Date.now()}`,
@@ -70,9 +77,11 @@ async function main(): Promise<void> {
     constraintSolver,
     eventLedger,
     signing,
+    mimers.backend,
   );
 
   console.log('Starting short evolution run:', run.id);
+  console.log('Mimers root:', mimersDir);
   const finalBaseline = await orchestrator.evolve(run, baseline, 2, 3, {
     runtimeCapabilities: { gpu: false, memoryGb: 8 },
   });
@@ -80,18 +89,43 @@ async function main(): Promise<void> {
   console.log('Evolution finished. Final baseline pipeline id:', finalBaseline.id);
 
   const promotions = await store.list('promotion/');
-  console.log('Promotions keys (WORM approved-only):', promotions);
+  console.log('Promotions keys (all, including prior runs):', promotions.length);
 
+  let thisRunPromotions = 0;
   for (const key of promotions) {
     const art = await store.get<PromotionArtifactV3>(key);
+    if (!art || art.evolutionRunId !== run.id) continue;
+    thisRunPromotions += 1;
     console.log(
       'Promotion:',
       key,
       'approvalRecordId:',
-      art?.approvalRecordId,
+      art.approvalRecordId,
+      'manifestHash:',
+      art.manifestHash,
+      'mimersPromotionHash:',
+      art.metadata?.mimersPromotionHash,
       'executionHash:',
-      art?.executionHash,
+      art.executionHash,
     );
+    if (!art.manifestHash) {
+      throw new Error(`Expected Mimers dual-write manifestHash on ${key}`);
+    }
+    if (!(await mimers.cas.existsAuthoritative(art.manifestHash))) {
+      throw new Error(`manifestHash missing from CAS: ${art.manifestHash}`);
+    }
+  }
+  if (thisRunPromotions === 0) {
+    throw new Error(`Expected at least one promotion for run ${run.id}`);
+  }
+
+  const recovery = new RecoveryOrchestrator(mimers.cas, () => mimers.eventLog.getAllEvents());
+  const l0 = await recovery.auditL0();
+  const l1 = await recovery.auditL1();
+  const l2 = await recovery.auditL2();
+  console.log('Mimers audit:', { l0: l0.status, l1: l1.status, l2: l2.status, events: l0.processedCount });
+  if (l0.status !== 'CLEAN' || l1.status !== 'CLEAN' || l2.status !== 'CLEAN') {
+    throw new Error(`Mimers audit failed: ${JSON.stringify({ l0, l1, l2 })}`);
   }
 
   const frontierSnapshot = await store.get(`frontier/${run.id}`);
@@ -109,7 +143,7 @@ async function main(): Promise<void> {
   const events = await store.list(`event/${run.id}/`);
   console.log('Event keys:', events.length);
 
-  console.log('Integration test complete. Artifacts stored under:', artifactsDir);
+  console.log('Integration test complete. Artifacts:', artifactsDir, 'Mimers:', mimersDir);
 }
 
 main().catch((err) => {

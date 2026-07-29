@@ -14,6 +14,8 @@ export interface AuditReport {
   readonly level: 'L0' | 'L1' | 'L2' | 'L3';
   readonly processedCount: number;
   readonly errors: readonly string[];
+  /** Digests moved out of the live CAS store during L3 quarantine. */
+  readonly quarantined?: readonly string[];
 }
 
 export interface AuditL2Options {
@@ -29,6 +31,8 @@ export interface AuditL3Options {
   readonly signal?: AbortSignal;
   /** Optional resume cursor (exclusive): skip digests until after this hash. */
   readonly afterDigest?: string;
+  /** When true, move corrupt objects under cas/quarantine/ (evidence preserved). */
+  readonly quarantine?: boolean;
 }
 
 function statusFromErrors(errors: readonly string[]): AuditStatus {
@@ -120,6 +124,7 @@ export class RecoveryOrchestrator {
   async auditL3(options: AuditL3Options = {}): Promise<AuditReport> {
     const concurrency = Math.max(1, options.concurrency ?? 8);
     const errors: string[] = [];
+    const quarantined: string[] = [];
     let processed = 0;
     let skipping = options.afterDigest !== undefined;
 
@@ -153,6 +158,14 @@ export class RecoveryOrchestrator {
             const result = await this.cas.verifyStoredObject(digest);
             if (!result.ok) {
               errors.push(`L3 ${result.error ?? `corrupt ${digest}`}`);
+              if (options.quarantine) {
+                const q = await this.cas.quarantineObject(
+                  digest,
+                  result.error ?? 'L3 storage scrub failure',
+                );
+                if (q.quarantined) quarantined.push(digest);
+                else errors.push(`L3 quarantine failed ${digest}: ${q.error ?? 'unknown'}`);
+              }
             }
           } finally {
             release();
@@ -167,6 +180,7 @@ export class RecoveryOrchestrator {
       level: 'L3',
       processedCount: processed,
       errors,
+      quarantined,
     };
   }
 
@@ -267,15 +281,9 @@ export class RecoveryOrchestrator {
         errors.push(`L2 descriptor schema ${desc.digest}: ${msg}`);
         continue;
       }
-      const objVerify = await this.cas.verifyStoredObject(desc.digest);
-      if (!objVerify.ok) {
-        errors.push(`L2 descriptor ${objVerify.error ?? desc.digest}`);
-        continue;
-      }
-      if (objVerify.size !== undefined && objVerify.size !== desc.size) {
-        errors.push(
-          `L2 descriptor size mismatch ${desc.digest}: expected ${desc.size}, got ${objVerify.size}`,
-        );
+      const verified = await this.cas.verifyDescriptor(desc);
+      if (!verified.ok) {
+        errors.push(`L2 descriptor ${desc.digest}: ${verified.error ?? 'verifyDescriptor failed'}`);
       }
     }
 

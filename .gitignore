@@ -46,6 +46,7 @@ figma-raw.json
 .tmp-*
 tmp_*
 tmp-artifacts/
+tmp-mimers/
 *.txt
 *.json
 !package.json

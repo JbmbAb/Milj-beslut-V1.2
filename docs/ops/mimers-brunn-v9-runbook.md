@@ -62,7 +62,12 @@ Symptoms: `LedgerCorruptionError` on reload; L0 `CORRUPTED`.
 
 Symptoms: L2/L3 `bitrot` or descriptor size errors.
 
-1. Quarantine: move corrupt object out of `cas/objects/` (keep bytes).
+1. Run L3 with quarantine (moves corrupt bytes under `cas/quarantine/`, keeps evidence):
+
+```ts
+await recovery.auditL3({ quarantine: true });
+```
+
 2. If content is recoverable from ArtifactStore / upstream, re-`put` via `ManifestBuilder` / `FileCASRepository.put` (idempotent for identical bytes).
 3. Re-run `auditL2` then `auditL3`.
 4. If promotion index points at missing CAS object, run lazy binding: `ensurePromotionMimersBinding`.

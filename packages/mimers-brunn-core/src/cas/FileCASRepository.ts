@@ -260,6 +260,83 @@ export class FileCASRepository implements CASRepository {
     }
   }
 
+  async verifyDescriptor(
+    descriptor: { readonly mediaType: string; readonly digest: string; readonly size: number },
+    expectedMediaType?: string,
+  ): Promise<{
+    ok: boolean;
+    digestValid: boolean;
+    sizeValid: boolean;
+    mediaTypeValid: boolean;
+    error?: string;
+  }> {
+    const mediaTypeValid =
+      typeof descriptor.mediaType === 'string' &&
+      (expectedMediaType === undefined || descriptor.mediaType === expectedMediaType);
+
+    let digestValid = false;
+    let sizeValid = false;
+    let error: string | undefined;
+
+    try {
+      parseHash(descriptor.digest);
+      const stored = await this.verifyStoredObject(descriptor.digest);
+      digestValid = stored.ok;
+      sizeValid = stored.ok && stored.size === descriptor.size;
+      if (!stored.ok) error = stored.error;
+      else if (!sizeValid) {
+        error = `size mismatch: expected ${descriptor.size}, got ${stored.size}`;
+      }
+    } catch (err: unknown) {
+      error = err instanceof Error ? err.message : String(err);
+    }
+
+    if (!mediaTypeValid) {
+      error = `mediaType mismatch: expected '${expectedMediaType}', got '${descriptor.mediaType}'`;
+    }
+
+    return {
+      ok: digestValid && sizeValid && mediaTypeValid,
+      digestValid,
+      sizeValid,
+      mediaTypeValid,
+      error,
+    };
+  }
+
+  async quarantineObject(
+    hash: string,
+    reason: string,
+  ): Promise<{ quarantined: boolean; quarantinePath?: string; error?: string }> {
+    const src = this.getFilePath(hash);
+    const { algorithm, digest } = parseHash(hash);
+    const shard = digest.substring(0, 2);
+    const rest = digest.substring(2);
+    const stamp = new Date().toISOString().replace(/[:.]/g, '-');
+    const quarantineDir = path.join(this.baseDir, 'quarantine', algorithm, shard);
+    const quarantinePath = path.join(quarantineDir, `${rest}.${stamp}`);
+    const metaPath = `${quarantinePath}.json`;
+
+    try {
+      await fs.mkdir(quarantineDir, { recursive: true });
+      await fs.rename(src, quarantinePath);
+      await fs.writeFile(
+        metaPath,
+        JSON.stringify({ hash, reason, quarantinedAt: new Date().toISOString() }, null, 2),
+        'utf-8',
+      );
+      this.cache.delete(hash);
+      this.existsCache.delete(hash);
+      return { quarantined: true, quarantinePath };
+    } catch (error: unknown) {
+      if (isNodeError(error) && error.code === 'ENOENT') {
+        return { quarantined: false, error: `missing object ${hash}` };
+      }
+      const msg = error instanceof Error ? error.message : String(error);
+      return { quarantined: false, error: msg };
+    }
+  }
+
   async *streamObjectDigests(signal?: AbortSignal): AsyncIterable<string> {
     for (const algorithm of ['sha256', 'sha512'] as const) {
       const algoRoot = path.join(this.baseDir, 'objects', algorithm);

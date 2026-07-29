@@ -1,9 +1,12 @@
 export type {
+  CASDescriptorLike,
   CASRepository,
+  CASVerificationResult,
   CommitStrategy,
   DurabilityMode,
   ObjectVerifyResult,
   PutResult,
+  QuarantineResult,
 } from './CASRepository';
 export { CASIntegrityError, DurabilityError, isNodeError } from './CASRepository';
 export { WeightedLRUCache } from './cache';

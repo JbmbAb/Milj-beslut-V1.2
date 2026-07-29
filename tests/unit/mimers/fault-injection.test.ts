@@ -263,6 +263,33 @@ describe('P3 Mimers fault injection / crash recovery', () => {
     expect((await cas.verifyStoredObject(truncHash)).ok).toBe(false);
   });
 
+  it('verifyDescriptor and L3 quarantine move corrupt objects', async () => {
+    const cas = new FileCASRepository(dir, { durabilityMode: 'none' });
+    await cas.initialize();
+    const { hash, size } = await cas.put({ ok: true });
+    const good = await cas.verifyDescriptor({
+      mediaType: 'application/vnd.mimers.pipeline.v1+json',
+      digest: hash,
+      size,
+    });
+    expect(good.ok).toBe(true);
+
+    await writeFile(cas.getFilePath(hash), '{"bitrot":true}', 'utf-8');
+    const bad = await cas.verifyDescriptor({
+      mediaType: 'application/vnd.mimers.pipeline.v1+json',
+      digest: hash,
+      size,
+    });
+    expect(bad.ok).toBe(false);
+    expect(bad.digestValid).toBe(false);
+
+    const recovery = new RecoveryOrchestrator(cas, async () => []);
+    const scrub = await recovery.auditL3({ quarantine: true });
+    expect(scrub.status).toBe('CORRUPTED');
+    expect(scrub.quarantined).toContain(hash);
+    expect(await cas.existsAuthoritative(hash)).toBe(false);
+  });
+
   it('detects missing descriptor target in L2', async () => {
     const cas = new FileCASRepository(dir, { durabilityMode: 'none' });
     await cas.initialize();
