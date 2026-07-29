@@ -82,7 +82,7 @@ External auditor: [external-audit-checklist](./mimers-brunn-v9-external-audit-ch
 | --- | --- |
 | Backup/restore | Offline copy of `cas/`+`ledger/` → wipe live → restore → identical Merkle/hashes + CLEAN |
 | Durability `none` / `best-effort` | Write+reload PROVEN on current OS |
-| Durability `strict` | PROVEN on Linux (CI); UNSUPPORTED acceptable on Windows NTFS |
+| Durability `strict` | **PROVEN on Linux CI** ([run 30475536400](https://github.com/JbmbAb/Milj-beslut-V1.2/actions/runs/30475536400)); UNSUPPORTED acceptable on Windows NTFS |
 | NFS/failover | SKIPPED unless `MIMERS_NFS_ROOT` set; then write+reload on that path |
 
 ### Fas 4 acceptance gate
