@@ -63,6 +63,11 @@ export interface PromotionArtifactV3 {
   /** Required — artifact exists only after ApprovalRecord was written. */
   readonly approvalRecordId: string;
   readonly schemaVersion: 'promotion.v3';
+  /**
+   * Mimers Brunn CAS manifest digest (ADR-042). When set, the sealed promotion
+   * is an index into Manifest → CAS → Ledger; content identity remains artifactHash.
+   */
+  readonly manifestHash?: string;
   readonly runtimeFingerprint?: string;
   readonly policySnapshotRef?: string;
   readonly metadata?: Readonly<Record<string, unknown>>;

@@ -2,6 +2,11 @@ import { mkdtemp } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { describe, expect, it } from 'vitest';
+import {
+  FileCASRepository,
+  InMemoryEventLog,
+  RecoveryOrchestrator,
+} from '@miljobeslut/mimers-brunn-core';
 import { FileArtifactStore, type ApprovalRecord, type PromotionArtifactV3 } from '../../server/artifact';
 import type { CompilationResult, PipelineDefinition } from '../../server/compiler';
 import {
@@ -14,6 +19,7 @@ import {
   type EvaluationEngine,
   type PromotionCandidate,
 } from '../../server/evolve';
+import { MimersPromotionBackend } from '../../server/mimers';
 import { hashArtifact } from '../../server/utils/hashArtifact';
 
 function pipeline(id: string, quality = 1): PipelineDefinition {
@@ -283,6 +289,77 @@ describe('Phase 3/4 WORM evolution', () => {
     const promotions = await store.list('promotion/');
     expect(promotions).toHaveLength(1);
     expect(await store.list('promotion-approved/')).toEqual([]);
+  });
+
+  it('dual-writes Mimers manifest+ledger then seals V3 as index', async () => {
+    const store = new FileArtifactStore(await tempDir());
+    const casDir = await tempDir();
+    const cas = new FileCASRepository(casDir, { durabilityMode: 'none' });
+    await cas.initialize();
+    const mimersLog = new InMemoryEventLog();
+    const mimers = new MimersPromotionBackend(cas, mimersLog);
+
+    const generator: CandidateGenerator = {
+      generate: () => [
+        {
+          definition: pipeline('candidate-a', 2),
+          mutation: { id: 'm1', type: 'raise-memory' },
+        },
+      ],
+    };
+    const evaluator: EvaluationEngine = {
+      async compile(definition) {
+        return compilation(definition);
+      },
+      async evaluateBatch(candidates, baseline) {
+        return candidates.map(() => ({
+          metricsCandidate: { latencyMs: 8, costSek: 1, qualityScore: 2, errorRate: 0 },
+          metricsBaseline: { latencyMs: 10, costSek: 1, qualityScore: 1, errorRate: 0 },
+          fitnessCandidate: { rawFitness: 2, penalty: 0, fitness: 2 },
+          fitnessBaseline: { rawFitness: 1, penalty: 0, fitness: 1 },
+          baseline,
+        }));
+      },
+    };
+
+    const orchestrator = new EvolutionOrchestrator(
+      generator,
+      evaluator,
+      store,
+      new ParetoFrontier(),
+      {
+        async approve() {
+          return { approved: true, reviewer: 'test', reason: 'ok', timestamp: 1 };
+        },
+      },
+      { minQualityDelta: 0.5, maxLatencyRegression: 0, maxCostRegression: 0, maxErrorRegression: 0 },
+      new SimpleConstraintSolver(),
+      new EventLedger(store, 'run-mimers'),
+      undefined,
+      mimers,
+    );
+
+    await orchestrator.evolve(
+      { id: 'run-mimers', seed: 'seed', compilerVersion: 'c1', registryVersion: 'r1' },
+      pipeline('baseline', 1),
+      1,
+      1,
+      { runtimeCapabilities: { memoryGb: 8 } },
+    );
+
+    const promotions = await store.list('promotion/');
+    expect(promotions).toHaveLength(1);
+    const sealed = await store.get<PromotionArtifactV3>(promotions[0]!);
+    expect(sealed?.manifestHash).toMatch(/^sha256:[0-9a-f]{64}$/);
+    expect(sealed?.metadata?.mimersPromotionHash).toMatch(/^sha256:/);
+    expect(sealed?.metadata?.mimersEventId).toBeTruthy();
+    expect(await cas.existsAuthoritative(sealed!.manifestHash!)).toBe(true);
+    expect(await cas.existsAuthoritative(String(sealed!.metadata!.mimersPromotionHash))).toBe(true);
+
+    const recovery = new RecoveryOrchestrator(cas, () => mimersLog.getAllEvents());
+    expect((await recovery.auditL0()).status).toBe('CLEAN');
+    expect((await recovery.auditL1()).status).toBe('CLEAN');
+    expect((await recovery.auditL2()).status).toBe('CLEAN');
   });
 });
 

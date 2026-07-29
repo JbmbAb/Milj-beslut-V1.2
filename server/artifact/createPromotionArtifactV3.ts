@@ -67,6 +67,7 @@ export function createPromotionArtifactV3(
     evolutionRunId: body.evolutionRunId,
     approvalRecordId: body.approvalRecordId,
     schemaVersion: 'promotion.v3',
+    manifestHash: body.manifestHash,
     runtimeFingerprint: body.runtimeFingerprint,
     policySnapshotRef: body.policySnapshotRef,
     metadata: body.metadata,

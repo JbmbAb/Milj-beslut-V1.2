@@ -11,6 +11,7 @@ import {
 } from '../artifact';
 import type { ArtifactStore } from '../artifact/ArtifactStore';
 import type { PipelineDefinition } from '../compiler/types';
+import type { MimersPromotionBackend } from '../mimers/MimersPromotionBackend';
 import { hashArtifact, hashArtifactPayload } from '../utils/hashArtifact';
 import type { CandidateGenerator, GeneratedCandidate } from './CandidateGenerator';
 import type { ConstraintContext, ConstraintSolver } from './ConstraintSolver';
@@ -50,6 +51,10 @@ const REJECTED_FITNESS: FitnessResult = {
 /**
  * WORM evolve loop: ExperimentRecord always; ApprovalRecord on gate path;
  * PromotionArtifactV3 only after approval (never mutated in place).
+ *
+ * Optional {@link MimersPromotionBackend}: dual-writes Manifest → CAS → Ledger,
+ * then seals V3 as an index (`manifestHash` + metadata pointers). Without it,
+ * behavior is unchanged (FileArtifactStore-only V3).
  */
 export class EvolutionOrchestrator {
   constructor(
@@ -62,6 +67,7 @@ export class EvolutionOrchestrator {
     private readonly constraintSolver: ConstraintSolver,
     private readonly eventLedger: EventLedger,
     private readonly signingKeyProvider?: SigningKeyProvider,
+    private readonly mimersBackend?: MimersPromotionBackend,
   ) {}
 
   async evolve(
@@ -176,7 +182,14 @@ export class EvolutionOrchestrator {
           });
 
           if (decision.approved) {
-            const sealed = await this.sealApprovedPromotion(promotionCandidate, approval);
+            const sealed = await this.sealApprovedPromotion({
+              candidate: promotionCandidate,
+              approval,
+              evaluation,
+              generation,
+              run,
+              parentPromotion,
+            });
             const key = promotionStoreKey(sealed);
             await this.artifactStore.put(key, sealed);
             await this.eventLedger.record({
@@ -242,10 +255,59 @@ export class EvolutionOrchestrator {
     });
   }
 
-  private async sealApprovedPromotion(
-    candidate: PromotionCandidate,
-    approval: ApprovalRecord,
-  ): Promise<PromotionArtifactV3> {
+  private async sealApprovedPromotion(args: {
+    readonly candidate: PromotionCandidate;
+    readonly approval: ApprovalRecord;
+    readonly evaluation: EvaluationResult;
+    readonly generation: number;
+    readonly run: EvolutionRun;
+    readonly parentPromotion?: PromotionArtifactV3;
+  }): Promise<PromotionArtifactV3> {
+    const { candidate, approval, evaluation, generation, run, parentPromotion } = args;
+
+    let manifestHash: string | undefined;
+    let mimersMeta: Record<string, unknown> | undefined;
+
+    if (this.mimersBackend) {
+      const parentMimersPromotion =
+        typeof parentPromotion?.metadata?.mimersPromotionHash === 'string'
+          ? parentPromotion.metadata.mimersPromotionHash
+          : undefined;
+      const sealed = await this.mimersBackend.seal({
+        pipeline: candidate.pipelineDefinition,
+        policySnapshot: {
+          mediaType: 'application/vnd.mimers.policy.v1+json',
+          evolutionRunId: run.id,
+          promotionPolicy: this.promotionPolicy,
+          policySnapshotRef: candidate.policySnapshotRef ?? null,
+        },
+        runtimeFingerprint: {
+          mediaType: 'application/vnd.mimers.runtime.v1+json',
+          fingerprint: candidate.runtimeFingerprint ?? null,
+          compilerVersion: run.compilerVersion ?? null,
+          registryVersion: run.registryVersion ?? null,
+          executionHash: candidate.executionHash,
+        },
+        metrics: {
+          mediaType: 'application/vnd.mimers.metrics.v1+json',
+          candidate: evaluation.metricsCandidate,
+          baseline: evaluation.metricsBaseline,
+          fitnessCandidate: evaluation.fitnessCandidate,
+          fitnessBaseline: evaluation.fitnessBaseline,
+        },
+        parents: parentMimersPromotion ? [parentMimersPromotion] : [],
+        generation,
+        metadataName: candidate.humanId,
+        idempotencyKey: `PROMOTION_COMMITTED:${candidate.candidateId}`,
+      });
+      manifestHash = sealed.manifestHash;
+      mimersMeta = {
+        mimersPromotionHash: sealed.promotionHash,
+        mimersEventId: sealed.eventId,
+        mimersIdempotentReplay: sealed.idempotentReplay,
+      };
+    }
+
     return createPromotionArtifactV3Async(
       {
         humanId: candidate.humanId,
@@ -261,9 +323,13 @@ export class EvolutionOrchestrator {
         evolutionRunId: candidate.evolutionRunId,
         approvalRecordId: approval.approvalId,
         schemaVersion: 'promotion.v3',
+        manifestHash,
         runtimeFingerprint: candidate.runtimeFingerprint,
         policySnapshotRef: candidate.policySnapshotRef,
-        metadata: candidate.metadata,
+        metadata: {
+          ...(candidate.metadata ?? {}),
+          ...(mimersMeta ?? {}),
+        },
       },
       { signingKeyProvider: this.signingKeyProvider },
     );
@@ -288,7 +354,13 @@ export class EvolutionOrchestrator {
       }
 
       const experimentId = this.makeExperimentId(run.id, generation, candidateIndex);
-      await this.recordRejectedExperiment(run, generation, experimentId, candidate.mutation, violations.map((v) => v.reason));
+      await this.recordRejectedExperiment(
+        run,
+        generation,
+        experimentId,
+        candidate.mutation,
+        violations.map((v) => v.reason),
+      );
     }
 
     return feasible;

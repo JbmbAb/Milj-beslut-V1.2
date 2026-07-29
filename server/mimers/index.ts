@@ -6,3 +6,8 @@ export {
   PolicyEnforcingArtifactStore,
   type PolicyEnforcingArtifactStoreOptions,
 } from './PolicyEnforcingArtifactStore';
+export {
+  MimersPromotionBackend,
+  type MimersSealInput,
+  type MimersSealResult,
+} from './MimersPromotionBackend';
