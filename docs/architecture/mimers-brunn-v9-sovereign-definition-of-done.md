@@ -36,7 +36,7 @@ Ledger event → promotionHash → CAS bytes
 | Multi-segment replay | PROVEN | `prove-ops-replay.ts` · `ops-proof-slice.test.ts` · `npm run mimers:ops-proof` |
 | Checkpoint-baserad recovery | PROVEN | `buildCheckpointAcceleratedPlan` · ops-proof · [runbook](../ops/mimers-brunn-v9-runbook.md) |
 | Merkle-kedjans korrekthet | PROVEN | chained checkpoints · ops-proof root match · Sovereign Gate |
-| Linux `strict` durability | PROVEN | `mimers:durability-matrix` + `MIMERS_REQUIRE_LINUX_STRICT` · [CI run (success)](https://github.com/JbmbAb/Milj-beslut-V1.2/actions/runs/30475536400) · [workflow](../../.github/workflows/mimers-sovereign.yml) |
+| Linux `strict` durability | PROVEN | `MIMERS_REQUIRE_LINUX_STRICT=true npm run mimers:durability-matrix` via CI (Mimers Sovereign Gate, [run 30475536400](https://github.com/JbmbAb/Milj-beslut-V1.2/actions/runs/30475536400)) · [workflow](../../.github/workflows/mimers-sovereign.yml) |
 | Backup/restore av CAS+ledger | PROVEN | `prove-backup-restore.ts` · `platform-ops-proofs.test.ts` · `npm run mimers:backup-restore` |
 | Extern audit-checklista (procedur) | PROVEN | [external-audit-checklist](../ops/mimers-brunn-v9-external-audit-checklist.md) |
 | NFS/failover | PARTIAL | Matris-cell SKIPPED utan mount; kör `MIMERS_NFS_ROOT=… npm run mimers:durability-matrix` |
@@ -48,7 +48,7 @@ Fault injection (korrupt segment / avbruten skrivning / saknad checkpoint) ingå
 
 1. **NFS/failover** — verklig delad filsystemsmount + durability-matris.  
 2. **Oberoende revision** — extern part verifierar beviskedjan och dokumenterar resultatet.  
-3. *(Klart i detta dokument)* Linux `strict` → PROVEN med CI-bevis.
+3. ~~Linux `strict`~~ — PROVEN via CI.
 
 ---
 
@@ -106,7 +106,7 @@ Varje PROVEN-påstående ska kunna följas till körbart bevis:
 | WORM policy on `promotion/` | PROVEN | `PolicyEnforcingArtifactStore` · `env-and-policy.test.ts` |
 | Segment rotation append-only | PROVEN | `file-event-log.test.ts` |
 | L0–L3 never silent-fix | PROVEN | `AuditReport.errors`; `quarantine: true` opt-in; `checkpointPolicy` · `mimers:ops-proof` |
-| Linux `strict` durability | PROVEN | [CI run 30475536400](https://github.com/JbmbAb/Milj-beslut-V1.2/actions/runs/30475536400) · `MIMERS_REQUIRE_LINUX_STRICT` |
+| Linux `strict` durability | PROVEN | `MIMERS_REQUIRE_LINUX_STRICT=true npm run mimers:durability-matrix` via CI (Mimers Sovereign Gate, [run 30475536400](https://github.com/JbmbAb/Milj-beslut-V1.2/actions/runs/30475536400)) |
 | NFS durability/failover | PARTIAL | Kräver `MIMERS_NFS_ROOT` på delad mount |
 
 ---
@@ -196,7 +196,7 @@ Varje PROVEN-påstående ska kunna följas till körbart bevis:
 | Backup/restore av CAS+ledger-träd | PROVEN | `npm run mimers:backup-restore` · `platform-ops-proofs.test.ts` |
 | Durability matrix runner | PROVEN | `npm run mimers:durability-matrix` · artifact `tmp-artifacts/mimers-durability-matrix.json` |
 | Windows lokal `best-effort` | PROVEN | durability-matrix cell (lokal Windows-körning) |
-| Linux `strict` | PROVEN | [CI run 30475536400](https://github.com/JbmbAb/Milj-beslut-V1.2/actions/runs/30475536400) · workflow `mimers-sovereign.yml` |
+| Linux `strict` | PROVEN | `MIMERS_REQUIRE_LINUX_STRICT=true npm run mimers:durability-matrix` via CI (Mimers Sovereign Gate, [run 30475536400](https://github.com/JbmbAb/Milj-beslut-V1.2/actions/runs/30475536400)) |
 | NFS/failover | PARTIAL | Sätt `MIMERS_NFS_ROOT` på delad mount; se [runbook](../ops/mimers-brunn-v9-runbook.md) |
 
 ---

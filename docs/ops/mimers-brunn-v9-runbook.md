@@ -60,6 +60,8 @@ Wrap ArtifactStore with `PolicyEnforcingArtifactStore` so `promotion/` is WORM (
 | `best-effort` | fsync when possible; log and continue on dir sync errors | **Default for local Windows** — dir `fsync` often `EPERM`/`EINVAL` | Prefer for desktops |
 | `strict` | Dir fsync failure → `DurabilityError` | Not recommended unless verified | **Preferred for Linux production** |
 
+Linux strict: PROVEN på ubuntu-latest via `.github/workflows/mimers-sovereign.yml` ([run 30475536400](https://github.com/JbmbAb/Milj-beslut-V1.2/actions/runs/30475536400)) med `MIMERS_REQUIRE_LINUX_STRICT=true npm run mimers:durability-matrix`.
+
 Hard links: CAS and ledger use `link(temp, dest)`. `tmp/` and `objects/` / `events/` / `segments/` **must** share a filesystem (asserted at CAS init).
 
 ### Platform proofs (§6)
