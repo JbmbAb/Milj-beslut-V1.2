@@ -6,7 +6,7 @@
  *
  *   npm run mimers:durability-matrix
  */
-import { mkdtemp, rm } from 'node:fs/promises';
+import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import {
@@ -210,7 +210,16 @@ export async function proveDurabilityMatrix(): Promise<DurabilityMatrixReport> {
     errors.push('platform gate failed');
   }
 
-  return {
+  const requireLinuxStrict = process.env.MIMERS_REQUIRE_LINUX_STRICT === 'true';
+  if (requireLinuxStrict) {
+    if (!isLinux) {
+      errors.push('MIMERS_REQUIRE_LINUX_STRICT=true but platform is not linux');
+    } else if (strictCell?.status !== 'PROVEN') {
+      errors.push('MIMERS_REQUIRE_LINUX_STRICT=true but strict cell is not PROVEN');
+    }
+  }
+
+  const report: DurabilityMatrixReport = {
     ok: platformGateOk && errors.length === 0,
     platform: `${process.platform}/${os.type()} ${os.release()}`,
     arch: os.arch(),
@@ -219,6 +228,20 @@ export async function proveDurabilityMatrix(): Promise<DurabilityMatrixReport> {
     platformGateOk,
     errors,
   };
+
+  try {
+    const outDir = path.resolve('tmp-artifacts');
+    await mkdir(outDir, { recursive: true });
+    await writeFile(
+      path.join(outDir, 'mimers-durability-matrix.json'),
+      `${JSON.stringify(report, null, 2)}\n`,
+      'utf-8',
+    );
+  } catch {
+    /* best-effort artifact for CI */
+  }
+
+  return report;
 }
 
 async function exerciseModeOnRoot(

@@ -1,0 +1,81 @@
+name: Mimers Sovereign Gate
+
+# Linux proof path for Mimers Brunn v9 Sovereign DoD (§1–§6 subset).
+# Marks durabilityMode=strict as exercisable on ubuntu-latest (unlike Windows NTFS).
+
+on:
+  push:
+    branches: [main, master]
+    paths:
+      - 'packages/mimers-brunn-core/**'
+      - 'scripts/mimers/**'
+      - 'tests/unit/mimers/**'
+      - 'server/mimers/**'
+      - 'docs/architecture/mimers-brunn-v9-sovereign-definition-of-done.md'
+      - 'docs/ops/mimers-brunn-v9-*.md'
+      - 'package.json'
+      - 'package-lock.json'
+      - '.github/workflows/mimers-sovereign.yml'
+  pull_request:
+    paths:
+      - 'packages/mimers-brunn-core/**'
+      - 'scripts/mimers/**'
+      - 'tests/unit/mimers/**'
+      - 'server/mimers/**'
+      - 'package.json'
+      - 'package-lock.json'
+      - '.github/workflows/mimers-sovereign.yml'
+  workflow_dispatch:
+
+concurrency:
+  group: mimers-sovereign-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  NODE_VERSION: '22'
+
+jobs:
+  sovereign-proofs:
+    name: Sovereign proofs (Linux)
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+      - run: npm ci
+
+      - name: Fas 4 acceptance
+        run: npm run mimers:accept
+
+      - name: External verify
+        run: npm run mimers:verify
+
+      - name: Cold-start replay
+        run: npm run mimers:cold-start
+
+      - name: Multi-segment ops proof
+        run: npm run mimers:ops-proof
+
+      - name: Backup/restore
+        run: npm run mimers:backup-restore
+
+      - name: Durability matrix (require strict on Linux)
+        run: npm run mimers:durability-matrix
+        env:
+          MIMERS_REQUIRE_LINUX_STRICT: 'true'
+
+      - name: Platform ops unit proofs
+        run: npx vitest run --config vitest.config.ts tests/unit/mimers/platform-ops-proofs.test.ts tests/unit/mimers/ops-proof-slice.test.ts tests/unit/mimers/sovereign-dod-proofs.test.ts
+
+      - name: Upload durability matrix report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: mimers-durability-matrix
+          path: tmp-artifacts/mimers-durability-matrix.json
+          if-no-files-found: ignore

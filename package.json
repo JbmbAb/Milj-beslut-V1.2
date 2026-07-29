@@ -57,6 +57,7 @@
     "mimers:ops-proof": "tsx scripts/mimers/prove-ops-replay.ts",
     "mimers:backup-restore": "tsx scripts/mimers/prove-backup-restore.ts",
     "mimers:durability-matrix": "tsx scripts/mimers/prove-durability-matrix.ts",
+    "mimers:sovereign": "npm run mimers:accept && npm run mimers:verify && npm run mimers:cold-start && npm run mimers:ops-proof && npm run mimers:backup-restore && npm run mimers:durability-matrix",
     "mimers:migrate-cas": "tsx scripts/mimers/migrate-artifact-store-to-cas.ts"
   },
   "dependencies": {

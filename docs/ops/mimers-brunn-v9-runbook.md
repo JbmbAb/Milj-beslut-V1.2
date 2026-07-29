@@ -67,15 +67,22 @@ Hard links: CAS and ledger use `link(temp, dest)`. `tmp/` and `objects/` / `even
 ```bash
 npm run mimers:backup-restore
 npm run mimers:durability-matrix
+npm run mimers:sovereign
 # Optional NFS cell:
 # MIMERS_NFS_ROOT=/mnt/nfs/mimers-proof npm run mimers:durability-matrix
+# Linux CI forces strict:
+# MIMERS_REQUIRE_LINUX_STRICT=true npm run mimers:durability-matrix
 ```
+
+CI workflow: [`.github/workflows/mimers-sovereign.yml`](../../.github/workflows/mimers-sovereign.yml) (ubuntu-latest).
+
+External auditor: [external-audit-checklist](./mimers-brunn-v9-external-audit-checklist.md).
 
 | Check | Pass criteria |
 | --- | --- |
 | Backup/restore | Offline copy of `cas/`+`ledger/` → wipe live → restore → identical Merkle/hashes + CLEAN |
 | Durability `none` / `best-effort` | Write+reload PROVEN on current OS |
-| Durability `strict` | PROVEN on Linux; UNSUPPORTED acceptable on Windows NTFS |
+| Durability `strict` | PROVEN on Linux (CI); UNSUPPORTED acceptable on Windows NTFS |
 | NFS/failover | SKIPPED unless `MIMERS_NFS_ROOT` set; then write+reload on that path |
 
 ### Fas 4 acceptance gate

@@ -10,7 +10,7 @@ Ledger event → promotionHash → CAS bytes
             → manifestHash → CAS bytes → descriptors → SHA-256
 ```
 
-**Relaterat:** [ops-runbook](../ops/mimers-brunn-v9-runbook.md) · [ADR-042](./ADR-042-mimers-brunn-v9.md) · [hardening-evaluation](./mimers-brunn-v9-sovereign-hardening-evaluation.md)
+**Relaterat:** [ops-runbook](../ops/mimers-brunn-v9-runbook.md) · [external-audit-checklist](../ops/mimers-brunn-v9-external-audit-checklist.md) · [ADR-042](./ADR-042-mimers-brunn-v9.md) · [hardening-evaluation](./mimers-brunn-v9-sovereign-hardening-evaluation.md)
 
 ---
 
@@ -36,10 +36,11 @@ Kärnans logiska modell är bevisad. Kvar är främst miljö- och driftberoende 
 | Multi-segment replay | PROVEN | `npm run mimers:ops-proof` · `ops-proof-slice.test.ts` |
 | Checkpoint-baserad recovery | PROVEN | `buildCheckpointAcceleratedPlan` · ops-proof |
 | Merkle-kedjans korrekthet | PROVEN | chained checkpoints + ops-proof root match |
-| Linux strict durability | PARTIAL | Matris-runner: PROVEN på Linux, UNSUPPORTED/PARTIAL på Windows — `mimers:durability-matrix` |
+| Linux strict durability | PARTIAL → CI-gate | Workflow `mimers-sovereign.yml` + `MIMERS_REQUIRE_LINUX_STRICT`; PROVEN först vid grön ubuntu-körning |
 | NFS/failover | PARTIAL | SKIPPED utan `MIMERS_NFS_ROOT`; opt-in PROVEN när satt |
 | Backup/restore av CAS+ledger | PROVEN | `npm run mimers:backup-restore` |
-| Oberoende tredjepartsrevision | UNPROVEN | Kräver extern miljö/signoff |
+| Extern audit-checklista (procedur) | PROVEN | [external-audit-checklist](../ops/mimers-brunn-v9-external-audit-checklist.md) |
+| Oberoende tredjepartsrevision (signoff) | UNPROVEN | Kräver ifylld checklista från extern part |
 
 Fault injection (korrupt segment / avbruten skrivning / saknad checkpoint) ingår i `mimers:ops-proof` och stödjer §2/§4.
 
@@ -81,7 +82,7 @@ Fault injection (korrupt segment / avbruten skrivning / saknad checkpoint) ingå
 | WORM policy on `promotion/` | PROVEN | `PolicyEnforcingArtifactStore`, env-and-policy tests |
 | Segment rotation append-only | PROVEN | `file-event-log.test.ts` |
 | L0–L3 never silent-fix | PROVEN | Fel i `AuditReport.errors`; karantän kräver `quarantine: true`; saknad checkpoint: `checkpointPolicy=fail-closed` (Verifier) vs `backfill` (Repair) — `mimers:ops-proof` |
-| Full durability-matris kört på Linux+NFS | PARTIAL | `mimers:durability-matrix` bevisar none/best-effort (+ strict på Linux); NFS kräver `MIMERS_NFS_ROOT` |
+| Full durability-matris kört på Linux+NFS | PARTIAL | Linux `strict` via CI/container (`mimers-sovereign`); NFS fortfarande opt-in |
 
 ---
 
@@ -146,8 +147,8 @@ Fault injection (korrupt segment / avbruten skrivning / saknad checkpoint) ingå
 | --- | --- | --- |
 | Offline verify CLI (CAS+ledger only) | PROVEN | `npm run mimers:verify` |
 | Chained Merkle checkpoints + optional sign | PROVEN | FileEventLog checkpoints / M5 · ops-proof Merkle-root match |
-| Audit-manual (mänsklig procedur) | PARTIAL | Denna DoD + [runbook](../ops/mimers-brunn-v9-runbook.md) recovery-nivåer |
-| Oberoende tredje-parts körning dokumenterad | UNPROVEN | Kräver extern miljö/signoff |
+| Audit-manual (mänsklig procedur) | PROVEN | [external-audit-checklist](../ops/mimers-brunn-v9-external-audit-checklist.md) |
+| Oberoende tredje-parts körning dokumenterad | UNPROVEN | Kräver extern signoff på checklistan |
 
 ---
 
@@ -169,7 +170,7 @@ Fault injection (korrupt segment / avbruten skrivning / saknad checkpoint) ingå
 | Backup/restore av CAS+ledger-träd | PROVEN | `npm run mimers:backup-restore` · `platform-ops-proofs.test.ts` |
 | Durability support matrix (dokument + runner) | PROVEN (dok) / PARTIAL (plattform) | [runbook](../ops/mimers-brunn-v9-runbook.md) · `mimers:durability-matrix` |
 | Windows lokal best-effort | PROVEN | durability-matrix cell `best-effort` |
-| Linux `strict` durability | PARTIAL | PROVEN när matris körs på Linux; UNSUPPORTED på Windows NTFS |
+| Linux `strict` durability | PARTIAL → CI-gate | Job `Mimers Sovereign Gate` kräver `strict` PROVEN på ubuntu; UNSUPPORTED på Windows NTFS |
 | NFS/failover | PARTIAL | SKIPPED utan `MIMERS_NFS_ROOT`; sätt env för opt-in bevis |
 
 ---
@@ -180,7 +181,7 @@ Fault injection (korrupt segment / avbruten skrivning / saknad checkpoint) ingå
 npm run mimers:accept          # M1–M7 acceptance
 npm run mimers:verify -- --root <mimers-root>   # extern verify (eller self-seed)
 npm run mimers:cold-start      # cold-start replay proof
-npm run mimers:ops-proof       # multi-segment + checkpoint recovery + fault injection
+npm run mimers:sovereign       # accept + verify + cold-start + ops + backup + durability
 npm run mimers:backup-restore  # offline backup → wipe → restore
 npm run mimers:durability-matrix
 npm run mimers:bench
@@ -190,9 +191,11 @@ npx vitest run tests/unit/mimers/platform-ops-proofs.test.ts
 npx vitest run tests/unit/mimers/fault-injection.test.ts
 ```
 
+CI: `.github/workflows/mimers-sovereign.yml` (ubuntu-latest, requires `strict` PROVEN).
+
 **Sovereign Edition = PROVEN på §1–§5 i denna miljö + dokumenterad körning av §6-matrisraden ni påstår.**
 
-Kärnans logiska modell är bevisad under last och felinjicering. Kvarvarande luckor är främst **miljö- och driftberoende** (Linux `strict` i prod, NFS med `MIMERS_NFS_ROOT`, oberoende tredjepartsrevision).
+Kärnans logiska modell är bevisad under last och felinjicering. Kvarvarande luckor: **NFS med `MIMERS_NFS_ROOT`**, och **oberoende tredjepartssignoff** på audit-checklistan.
 
 ---
 
