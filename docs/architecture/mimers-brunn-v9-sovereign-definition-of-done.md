@@ -39,14 +39,14 @@ Ledger event → promotionHash → CAS bytes
 | Linux `strict` durability | PROVEN | `MIMERS_REQUIRE_LINUX_STRICT=true npm run mimers:durability-matrix` via CI (Mimers Sovereign Gate, [run 30475536400](https://github.com/JbmbAb/Milj-beslut-V1.2/actions/runs/30475536400)) · [workflow](../../.github/workflows/mimers-sovereign.yml) |
 | Backup/restore av CAS+ledger | PROVEN | `prove-backup-restore.ts` · `platform-ops-proofs.test.ts` · `npm run mimers:backup-restore` |
 | Extern audit-checklista (procedur) | PROVEN | [external-audit-checklist](../ops/mimers-brunn-v9-external-audit-checklist.md) |
-| NFS/failover | PARTIAL | Playbook + `npm run mimers:nfs-proof`; PROVEN först med riktig mount + `tmp-artifacts/mimers-nfs-failover.json` — [nfs-validation](../ops/mimers-brunn-v9-nfs-validation.md) |
+| NFS/failover | PROVEN | `MIMERS_NFS_ROOT=… npm run mimers:nfs-proof` on NFSv4 · `npm run mimers:nfs-lab` · evidence `tmp-artifacts/mimers-nfs-failover.json` · [nfs-validation](../ops/mimers-brunn-v9-nfs-validation.md) |
 | Oberoende tredjepartsrevision (signoff) | UNPROVEN | `npm run mimers:audit-bundle` + [external-audit-checklist](../ops/mimers-brunn-v9-external-audit-checklist.md) signoff |
 
 Fault injection (korrupt segment / avbruten skrivning / saknad checkpoint) ingår i `mimers:ops-proof` och stödjer §2/§4.
 
 ### Återstår i praktiken
 
-1. **NFS/failover** — verklig delad filsystemsmount + `MIMERS_NFS_ROOT=… npm run mimers:nfs-proof` ([nfs-validation](../ops/mimers-brunn-v9-nfs-validation.md)).  
+1. ~~NFS/failover~~ — PROVEN via NFSv4 lab (`mimers:nfs-lab` / `mimers-nfs-failover.json`).  
 2. **Oberoende revision** — bygg bundle med `npm run mimers:audit-bundle`, låt extern part signera checklistan.  
 3. ~~Linux `strict`~~ — PROVEN via CI.
 
@@ -109,7 +109,7 @@ Varje PROVEN-påstående ska kunna följas till körbart bevis:
 | Segment rotation append-only | PROVEN | `file-event-log.test.ts` |
 | L0–L3 never silent-fix | PROVEN | `AuditReport.errors`; `quarantine: true` opt-in; `checkpointPolicy` · `mimers:ops-proof` |
 | Linux `strict` durability | PROVEN | `MIMERS_REQUIRE_LINUX_STRICT=true npm run mimers:durability-matrix` via CI (Mimers Sovereign Gate, [run 30475536400](https://github.com/JbmbAb/Milj-beslut-V1.2/actions/runs/30475536400)) |
-| NFS durability/failover | PARTIAL | Kräver `MIMERS_NFS_ROOT` på delad mount |
+| NFS durability/failover | PROVEN | NFSv4 lab · `npm run mimers:nfs-lab` · [nfs-validation](../ops/mimers-brunn-v9-nfs-validation.md) |
 
 ---
 
@@ -199,7 +199,7 @@ Varje PROVEN-påstående ska kunna följas till körbart bevis:
 | Durability matrix runner | PROVEN | `npm run mimers:durability-matrix` · artifact `tmp-artifacts/mimers-durability-matrix.json` |
 | Windows lokal `best-effort` | PROVEN | durability-matrix cell (lokal Windows-körning) |
 | Linux `strict` | PROVEN | `MIMERS_REQUIRE_LINUX_STRICT=true npm run mimers:durability-matrix` via CI (Mimers Sovereign Gate, [run 30475536400](https://github.com/JbmbAb/Milj-beslut-V1.2/actions/runs/30475536400)) |
-| NFS/failover | PARTIAL | [nfs-validation](../ops/mimers-brunn-v9-nfs-validation.md) · `npm run mimers:nfs-proof` |
+| NFS/failover | PROVEN | [nfs-validation](../ops/mimers-brunn-v9-nfs-validation.md) · `npm run mimers:nfs-lab` · `tmp-artifacts/mimers-nfs-failover.json` (`ok: true`, nfs4) |
 
 ---
 
@@ -218,7 +218,7 @@ npx vitest run tests/unit/mimers/fault-injection.test.ts
 CI: [`.github/workflows/mimers-sovereign.yml`](../../.github/workflows/mimers-sovereign.yml) (ubuntu-latest, `MIMERS_REQUIRE_LINUX_STRICT=true`).
 
 **Sovereign Edition (kärna):** §1–§5 PROVEN + Linux `strict` PROVEN i CI.  
-**Kvar till full §6:** NFS/failover + oberoende tredjepartssignoff.
+**Kvar till full §6:** oberoende tredjepartssignoff (checklista + audit-bundle).
 
 ---
 

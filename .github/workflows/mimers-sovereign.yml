@@ -70,7 +70,7 @@ jobs:
           MIMERS_REQUIRE_LINUX_STRICT: 'true'
 
       - name: Platform ops unit proofs
-        run: npx vitest run --config vitest.config.ts tests/unit/mimers/platform-ops-proofs.test.ts tests/unit/mimers/ops-proof-slice.test.ts tests/unit/mimers/sovereign-dod-proofs.test.ts
+        run: npx vitest run --config vitest.config.ts tests/unit/mimers/platform-ops-proofs.test.ts tests/unit/mimers/ops-proof-slice.test.ts tests/unit/mimers/sovereign-dod-proofs.test.ts tests/unit/mimers/remaining-ops-paths.test.ts
 
       - name: Upload durability matrix report
         if: always()
@@ -78,4 +78,22 @@ jobs:
         with:
           name: mimers-durability-matrix
           path: tmp-artifacts/mimers-durability-matrix.json
+          if-no-files-found: ignore
+
+  nfs-failover:
+    name: NFS failover lab (NFSv4)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - name: Run NFS lab proof
+        run: npm run mimers:nfs-lab
+      - name: Upload NFS evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: mimers-nfs-failover
+          path: tmp-artifacts/mimers-nfs-failover.json
           if-no-files-found: ignore

@@ -58,6 +58,7 @@
     "mimers:backup-restore": "tsx scripts/mimers/prove-backup-restore.ts",
     "mimers:durability-matrix": "tsx scripts/mimers/prove-durability-matrix.ts",
     "mimers:nfs-proof": "tsx scripts/mimers/prove-nfs-failover.ts",
+    "mimers:nfs-lab": "docker compose -f scripts/mimers/nfs-lab/docker-compose.yml up -d nfs && docker compose -f scripts/mimers/nfs-lab/docker-compose.yml run --rm proof",
     "mimers:audit-bundle": "tsx scripts/mimers/build-audit-bundle.ts",
     "mimers:sovereign": "npm run mimers:accept && npm run mimers:verify && npm run mimers:cold-start && npm run mimers:ops-proof && npm run mimers:backup-restore && npm run mimers:durability-matrix",
     "mimers:migrate-cas": "tsx scripts/mimers/migrate-artifact-store-to-cas.ts"

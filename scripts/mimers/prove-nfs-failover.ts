@@ -164,6 +164,9 @@ export async function proveNfsFailover(options?: {
     if (!verify.ok) errors.push(...verify.errors.map((e) => `external-verify: ${e}`));
 
     const elapsedMs = Number((performance.now() - t0).toFixed(3));
+    const outDir = path.resolve('tmp-artifacts');
+    await mkdir(outDir, { recursive: true });
+    const evidencePath = path.join(outDir, 'mimers-nfs-failover.json');
     const report: NfsFailoverProofReport = {
       ok: errors.length === 0,
       skipped: false,
@@ -177,14 +180,10 @@ export async function proveNfsFailover(options?: {
       recoverStatus: restored.status,
       elapsedMs,
       errors,
-      evidencePath: null,
+      evidencePath,
     };
-
-    const outDir = path.resolve('tmp-artifacts');
-    await mkdir(outDir, { recursive: true });
-    const evidencePath = path.join(outDir, 'mimers-nfs-failover.json');
     await writeFile(evidencePath, `${JSON.stringify(report, null, 2)}\n`, 'utf-8');
-    return { ...report, evidencePath };
+    return report;
   } finally {
     await rm(root, { recursive: true, force: true }).catch(() => undefined);
   }

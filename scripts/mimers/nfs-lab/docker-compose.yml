@@ -1,0 +1,81 @@
+# Ephemeral NFS lab for Mimers Sovereign DoD §6.
+# Usage (from repo root, Docker Desktop / Linux):
+#   docker compose -f scripts/mimers/nfs-lab/docker-compose.yml up -d nfs
+#   docker compose -f scripts/mimers/nfs-lab/docker-compose.yml run --rm proof
+#   docker compose -f scripts/mimers/nfs-lab/docker-compose.yml down -v
+
+services:
+  nfs:
+    image: itsthenetwork/nfs-server-alpine:12
+    privileged: true
+    environment:
+      SHARED_DIRECTORY: /exports
+    volumes:
+      - mimers_nfs_exports:/exports
+    networks:
+      - mimers_nfs
+
+  proof:
+    image: node:22-bookworm
+    privileged: true
+    depends_on:
+      - nfs
+    working_dir: /app
+    volumes:
+      - ../../..:/app
+      - mimers_nfs_npm:/root/.npm
+      # Hide host (Windows) node_modules from the Linux proof container.
+      - mimers_nfs_node_modules:/app/node_modules
+    networks:
+      - mimers_nfs
+    environment:
+      MIMERS_NFS_ROOT: /mnt/mimers-nfs
+      MIMERS_REQUIRE_LINUX_STRICT: 'false'
+    entrypoint: ["/bin/bash", "-lc"]
+    command:
+      - |
+        set -euo pipefail
+        apt-get update -qq
+        DEBIAN_FRONTEND=noninteractive apt-get install -y -qq nfs-common >/dev/null
+        mkdir -p /mnt/mimers-nfs
+        NFS_HOST="$${NFS_HOST:-nfs}"
+        mounted=0
+        for i in 1 2 3 4 5 6 7 8 9 10; do
+          for spec in \
+            "nfs4 $${NFS_HOST}:/" \
+            "nfs4 $${NFS_HOST}:/exports" \
+            "nfs -o nfsvers=4.2,nolock $${NFS_HOST}:/" \
+            "nfs -o nfsvers=4.1,nolock $${NFS_HOST}:/" \
+            "nfs -o nfsvers=4,nolock $${NFS_HOST}:/" \
+            "nfs -o nfsvers=3,nolock $${NFS_HOST}:/exports"
+          do
+            # shellcheck disable=SC2086
+            if mount -t $$spec /mnt/mimers-nfs 2>/tmp/mount.err; then
+              echo "mounted with: mount -t $$spec"
+              mounted=1
+              break 2
+            fi
+          done
+          echo "mount attempt $$i failed: $$(cat /tmp/mount.err)"
+          sleep 2
+        done
+        if [ "$$mounted" != "1" ]; then
+          echo "FATAL: could not mount NFS export"
+          exit 1
+        fi
+        mount | grep mimers-nfs || true
+        df -T /mnt/mimers-nfs
+        npm ci --no-audit --no-fund
+        npm run mimers:nfs-proof
+        mkdir -p /app/tmp-artifacts
+        test -f tmp-artifacts/mimers-nfs-failover.json
+        umount /mnt/mimers-nfs || true
+
+volumes:
+  mimers_nfs_exports:
+  mimers_nfs_npm:
+  mimers_nfs_node_modules:
+
+networks:
+  mimers_nfs:
+    driver: bridge

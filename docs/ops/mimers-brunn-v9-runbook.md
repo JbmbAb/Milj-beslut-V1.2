@@ -91,7 +91,7 @@ NFS / shared FS: [nfs-validation](./mimers-brunn-v9-nfs-validation.md) · `MIMER
 | Backup/restore | Offline copy of `cas/`+`ledger/` → wipe live → restore → identical Merkle/hashes + CLEAN |
 | Durability `none` / `best-effort` | Write+reload PROVEN on current OS |
 | Durability `strict` | **PROVEN on Linux CI** ([run 30475536400](https://github.com/JbmbAb/Milj-beslut-V1.2/actions/runs/30475536400)); UNSUPPORTED acceptable on Windows NTFS |
-| NFS/failover | `mimers:nfs-proof` with real mount → `ok: true` + evidence JSON |
+| NFS/failover | `mimers:nfs-proof` / `mimers:nfs-lab` on NFSv4 → `ok: true` + `tmp-artifacts/mimers-nfs-failover.json` |
 
 ### Fas 4 acceptance gate
 
