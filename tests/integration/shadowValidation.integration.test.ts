@@ -91,6 +91,17 @@ describeIfDatabaseIntegration('Shadow Validation & Telemetry Integration', () =>
   });
 
   describe('POST /api/legal/search - Rate Limiting', () => {
+    let originalDisableDbRateLimit: string | undefined;
+
+    beforeAll(() => {
+      originalDisableDbRateLimit = process.env.DISABLE_DB_RATE_LIMIT;
+      process.env.DISABLE_DB_RATE_LIMIT = 'false';
+    });
+
+    afterAll(() => {
+      process.env.DISABLE_DB_RATE_LIMIT = originalDisableDbRateLimit;
+    });
+
     it('blocks requests and returns 429 when user rate limit is exceeded', async () => {
       // Clear out RateLimitEntry to ensure no spillover
       await prisma.$executeRaw`DELETE FROM "RateLimitEntry"`;

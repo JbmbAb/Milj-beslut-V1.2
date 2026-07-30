@@ -27,6 +27,11 @@ vi.mock('../../server/services/complianceRuleEngine', () => ({
   evaluateProjectCompliance: mocks.evaluateProjectCompliance,
 }));
 
+vi.mock('../../server/services/auditEvents', () => ({
+  auditAiDraftGenerated: vi.fn().mockResolvedValue(undefined),
+  auditAiRequirementsExtracted: vi.fn().mockResolvedValue(undefined),
+}));
+
 vi.mock('../../services/documentTemplateEngine', () => ({
   renderCompliancePlanTemplate: mocks.renderCompliancePlanTemplate,
 }));

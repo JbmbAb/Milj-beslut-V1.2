@@ -2,6 +2,8 @@
 
 **Beslut (team):** Primär drift sker på **egen server** (Docker + PostGIS). **Google Cloud** behålls som **alternativ deploy-target** för staging/prod — samma container, olika miljövariabler. Geo- och dokumentarkiv följer **Mimers Brunn** (offline-first, canonical paths lokalt).
 
+**UI = PostGIS only:** Hubbens inloggning, karta, fastighetssök och logistik-kartflöde använder lokal PostGIS + OSM/`VITE_LOCAL_BASEMAP_*`. Inga runtime-anrop till `*.lantmateriet.se`. LM-nycklar är endast för harvest/import.
+
 Relaterat: [postgis-docker-drift.md](postgis-docker-drift.md), [DEPLOY_GCP.md](../deploy/DEPLOY_GCP.md), [GCP_P2_PLATFORM.md](../deploy/GCP_P2_PLATFORM.md), [staging-observability-secrets.md](staging-observability-secrets.md).
 
 ---

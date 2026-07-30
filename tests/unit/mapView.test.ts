@@ -113,7 +113,7 @@ describe('MapView', () => {
       'SGU jordskred/raviner',
       'Vägnät (Trafikverket)',
       'NVR (PostGIS DB)',
-      'Fastighetsgränser (PostGIS)',
+      'Fastighetsgränser (lokal PostGIS)',
       'Markfuktighet (DTW)',
     ];
 

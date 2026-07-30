@@ -267,7 +267,7 @@ const FEATURES: AppFeature[] = [
     label: 'Fastighetsuppslag (PostGIS / Mimers Brunn)',
     category: 'Geodata & Kartfunktioner',
     status: 'DONE',
-    note: 'POST /api/property/lookup default PROPERTY_LOOKUP_MODE=postgis — endast core.property_unit. Ingen live-LM-fallback. Explicit mode=live finns för licensproduktstest.',
+    note: 'POST /api/property/lookup: endast PostGIS (core.property_unit). PROPERTY_LOOKUP_MODE=live/api avvisas fail-closed (503). UI körs utan Lantmäteriet-API.',
   },
   {
     id: 'geo-spatial-audit',

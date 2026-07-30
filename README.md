@@ -121,8 +121,8 @@ eller att `DATABASE_URL` pekar på körbar PostGIS-instans för DB-tester.
 | Integration                         | Status              | Nycklar                                                                                        |
 | ----------------------------------- | ------------------- | ---------------------------------------------------------------------------------------------- |
 | Vertex AI (Gemini via GCP)          | Live                | `VERTEX_PROJECT_ID`, `VERTEX_LOCATION`, service account eller `GOOGLE_APPLICATION_CREDENTIALS` |
-| Lantmäteriet (avgiftsfria tjänster) | Live                | `LANTMATERIET_OPEN_SUBSCRIPTION_KEY` (räcker för alla öppna produkter)                         |
-| Lantmäteriet (fastighetsuppslag)    | Live (valfritt)     | `LANTMATERIET_CONSUMER_KEY/SECRET` eller `_ACCESS_TOKEN`                                       |
+| Lantmäteriet (avgiftsfria tjänster) | Harvest/import only | `LANTMATERIET_OPEN_SUBSCRIPTION_KEY` (skörd → arkiv/PostGIS; **inte** UI)                      |
+| Lantmäteriet (fastighetsuppslag)    | UI: PostGIS only    | UI via `PROPERTY_LOOKUP_MODE=postgis`. OAuth endast för import/ops                             |
 | SGU                                 | Live (publikt OGC)  | –                                                                                              |
 | SMHI                                | Live (publikt)      | –                                                                                              |
 | Naturvårdsverket (NVR)              | Lokal PostGIS       | importerad data i `env.protected_area`                                                         |

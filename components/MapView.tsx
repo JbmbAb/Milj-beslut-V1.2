@@ -61,7 +61,7 @@ const DYNAMIC_BBOX_LAYER_CONFIG: Record<
   postgis_property: {
     endpoint: "/api/layers/property",
     emptyMessage: "Inga fastighetsgränser hittades i aktuell kartvy.",
-    label: "Fastighetsgränser",
+    label: "Fastighetsgränser (lokal PostGIS)",
   },
 };
 
@@ -159,8 +159,9 @@ const MapView: React.FC<MapViewProps> = ({
     onLocationChangeRef.current = onLocationChange;
   }, [onLocationChange]);
 
-  const [baseLayer, setBaseLayer] = useState<"osm" | "topo" | "orto">("osm");
+  const [baseLayer, setBaseLayer] = useState<"osm" | "local">("osm");
   const [activeOverlays, setActiveOverlays] = useState<string[]>([]);
+  const [hasLocalBasemap, setHasLocalBasemap] = useState(false);
   const [selectedContext, setSelectedContext] = useState<MunicipalityContext | null>(null);
   const [isLoadingContext, setIsLoadingContext] = useState(false);
   const [isUploadingPointCloud, setIsUploadingPointCloud] = useState(false);
@@ -224,18 +225,32 @@ const MapView: React.FC<MapViewProps> = ({
     layersRef.current.osm = L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
       attribution: "&copy; OpenStreetMap",
     });
-    layersRef.current.topo = L.tileLayer.wms("https://api.lantmateriet.se/open/topowebb-ccby/v1/wms", {
-      layers: "topowebb",
-      format: "image/png",
-      version: "1.3.0",
-      attribution: "&copy; Lantmateriet",
-    });
-    layersRef.current.orto = L.tileLayer.wms("https://api.lantmateriet.se/open/ortofoto-ccby/v1/wms", {
-      layers: "Ortofoto_0.5,Ortofoto_0.4,Ortofoto_0.25,Ortofoto_0.16",
-      format: "image/png",
-      version: "1.3.0",
-      attribution: "&copy; Lantmateriet",
-    });
+
+    // Local-only basemap (optional). Never call api.lantmateriet.se from the UI.
+    const localXyz = String(import.meta.env.VITE_LOCAL_BASEMAP_XYZ_URL || "").trim();
+    const localWmsUrl = String(import.meta.env.VITE_LOCAL_BASEMAP_WMS_URL || "").trim();
+    const localWmsLayers = String(import.meta.env.VITE_LOCAL_BASEMAP_WMS_LAYERS || "").trim();
+    const localLabel = String(import.meta.env.VITE_LOCAL_BASEMAP_LABEL || "Lokal grundkarta").trim();
+    const localAttribution = String(
+      import.meta.env.VITE_LOCAL_BASEMAP_ATTRIBUTION || "Lokal basemap (PostGIS/arkiv)",
+    ).trim();
+
+    if (localXyz) {
+      layersRef.current.local = L.tileLayer(localXyz, {
+        attribution: localAttribution,
+        maxZoom: 18,
+      });
+      setHasLocalBasemap(true);
+    } else if (localWmsUrl && localWmsLayers) {
+      layersRef.current.local = L.tileLayer.wms(localWmsUrl, {
+        layers: localWmsLayers,
+        format: "image/png",
+        transparent: false,
+        version: "1.3.0",
+        attribution: `${localAttribution} · ${localLabel}`,
+      });
+      setHasLocalBasemap(true);
+    }
 
     layersRef.current.osm.addTo(mapRef.current);
 
@@ -292,14 +307,6 @@ const MapView: React.FC<MapViewProps> = ({
       format: "image/png",
       transparent: true,
       opacity: 0.8,
-    });
-    layersRef.current.lm_fastighet = L.tileLayer.wms("https://api.lantmateriet.se/open/fastighetsindelning-ccby/v1/wms", {
-      layers: "fastighetsytor,fastighetsgranser,fastighetsbeteckning",
-      format: "image/png",
-      transparent: true,
-      version: "1.3.0",
-      opacity: 0.8,
-      attribution: "&copy; Lantmateriet",
     });
 
     // NMD & Skogliga grunddata (Naturvårdsverket & Skogsstyrelsen)
@@ -386,7 +393,7 @@ const MapView: React.FC<MapViewProps> = ({
       onEachFeature: (feature: any, layer: any) => {
         if (feature.properties) {
           const { designation } = feature.properties;
-          layer.bindPopup(`<b>${designation || "Okänd fastighet"}</b><br><small>Källa: Lokal PostGIS (Lantmäteriet)</small>`);
+          layer.bindPopup(`<b>${designation || "Okänd fastighet"}</b><br><small>Källa: Lokal PostGIS</small>`);
         }
       },
     });
@@ -659,12 +666,13 @@ const MapView: React.FC<MapViewProps> = ({
     }
   };
 
-  const toggleBaseLayer = (layer: "osm" | "topo" | "orto") => {
+  const toggleBaseLayer = (layer: "osm" | "local") => {
     if (!mapRef.current) return;
     mapRef.current.removeLayer(layersRef.current.osm);
-    mapRef.current.removeLayer(layersRef.current.topo);
-    if (layersRef.current.orto) mapRef.current.removeLayer(layersRef.current.orto);
-    layersRef.current[layer].addTo(mapRef.current);
+    if (layersRef.current.local) mapRef.current.removeLayer(layersRef.current.local);
+    const next = layersRef.current[layer];
+    if (!next) return;
+    next.addTo(mapRef.current);
     setBaseLayer(layer);
   };
 
@@ -776,16 +784,9 @@ const MapView: React.FC<MapViewProps> = ({
             <OverlayToggle
               active={activeOverlays.includes("postgis_property")}
               onClick={() => toggleOverlay("postgis_property")}
-              label="Fastighetsgränser (PostGIS)"
+              label="Fastighetsgränser (lokal PostGIS)"
               icon="fa-vector-square"
               color="text-red-500"
-            />
-            <OverlayToggle
-              active={activeOverlays.includes("lm_fastighet")}
-              onClick={() => toggleOverlay("lm_fastighet")}
-              label="Lantm. Fastighetskarta"
-              icon="fa-map-location-dot"
-              color="text-blue-700"
             />
             <OverlayToggle
               active={activeOverlays.includes("nv_nmd_bas")}
@@ -837,24 +838,6 @@ const MapView: React.FC<MapViewProps> = ({
         <div className="flex w-64 gap-1.5 rounded-2xl border border-slate-200 bg-white/95 p-2.5 shadow-xl">
           <button
             type="button"
-            onClick={() => toggleBaseLayer("topo")}
-            className={`flex-1 rounded-lg py-1.5 text-[9px] font-black uppercase tracking-widest transition-all ${
-              baseLayer === "topo" ? "bg-slate-900 text-white" : "bg-slate-50 text-slate-400"
-            }`}
-          >
-            Topo
-          </button>
-          <button
-            type="button"
-            onClick={() => toggleBaseLayer("orto")}
-            className={`flex-1 rounded-lg py-1.5 text-[9px] font-black uppercase tracking-widest transition-all ${
-              baseLayer === "orto" ? "bg-slate-900 text-white" : "bg-slate-50 text-slate-400"
-            }`}
-          >
-            Orto
-          </button>
-          <button
-            type="button"
             onClick={() => toggleBaseLayer("osm")}
             className={`flex-1 rounded-lg py-1.5 text-[9px] font-black uppercase tracking-widest transition-all ${
               baseLayer === "osm" ? "bg-slate-900 text-white" : "bg-slate-50 text-slate-400"
@@ -862,6 +845,17 @@ const MapView: React.FC<MapViewProps> = ({
           >
             OSM
           </button>
+          {hasLocalBasemap && (
+            <button
+              type="button"
+              onClick={() => toggleBaseLayer("local")}
+              className={`flex-1 rounded-lg py-1.5 text-[9px] font-black uppercase tracking-widest transition-all ${
+                baseLayer === "local" ? "bg-slate-900 text-white" : "bg-slate-50 text-slate-400"
+              }`}
+            >
+              Lokal
+            </button>
+          )}
         </div>
       </div>
 

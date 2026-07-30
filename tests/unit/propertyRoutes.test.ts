@@ -4,7 +4,6 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { createTokenPair } from '../../server/security/auth';
 
 const mocks = vi.hoisted(() => ({
-  lookupPropertyByDesignation: vi.fn(),
   lookupPropertyByDesignationFromPostgis: vi.fn(),
 }));
 
@@ -13,10 +12,6 @@ vi.mock('../../server/repositories/tokenRepository', () => ({
   markRefreshTokenAsUsed: vi.fn(async () => undefined),
   revokeRefreshToken: vi.fn(async () => undefined),
   cleanupExpiredTokenRevocations: vi.fn(async () => 0),
-}));
-
-vi.mock('../../server/services/lantmaterietService', () => ({
-  lookupPropertyByDesignation: mocks.lookupPropertyByDesignation,
 }));
 
 vi.mock('../../server/services/propertyUnitService', () => ({
@@ -43,12 +38,7 @@ function authHeader() {
 describe('property.routes', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    // Undvik att PostGIS alltid vinner över mockade live-anrop i dessa tester.
-    process.env.PROPERTY_LOOKUP_MODE = 'live';
-    mocks.lookupPropertyByDesignation.mockResolvedValue({
-      designation: 'Orsa 1:1',
-      source: 'lantmateriet',
-    });
+    process.env.PROPERTY_LOOKUP_MODE = 'postgis';
     mocks.lookupPropertyByDesignationFromPostgis.mockResolvedValue({
       designation: 'Orsa 1:1',
       source: 'postgis',
@@ -71,7 +61,7 @@ describe('property.routes', () => {
     expect(res.status).toBe(401);
   });
 
-  it('looks up properties via Lantmateriet for authenticated users', async () => {
+  it('looks up properties via PostGIS for authenticated users', async () => {
     const res = await request(app)
       .post('/api/property/lookup')
       .set('Authorization', authHeader())
@@ -82,11 +72,11 @@ describe('property.routes', () => {
       ok: true,
       result: {
         designation: 'Orsa 1:1',
-        source: 'lantmateriet',
+        source: 'postgis',
       },
-      source: 'live',
+      source: 'postgis',
     });
-    expect(mocks.lookupPropertyByDesignation).toHaveBeenCalledWith(
+    expect(mocks.lookupPropertyByDesignationFromPostgis).toHaveBeenCalledWith(
       { projectId: 'project-1', propertyDesignation: 'Orsa 1:1', purpose: 'lookup' },
       expect.objectContaining({ id: 'admin-1' }),
     );
@@ -99,37 +89,36 @@ describe('property.routes', () => {
       .send({ projectId: 'project-1', designation: 'GÄVLE 1:1' });
 
     expect(res.status).toBe(200);
-    expect(mocks.lookupPropertyByDesignation).toHaveBeenCalledWith(
+    expect(mocks.lookupPropertyByDesignationFromPostgis).toHaveBeenCalledWith(
       { projectId: 'project-1', propertyDesignation: 'GÄVLE 1:1', purpose: 'API_LOOKUP' },
       expect.objectContaining({ id: 'admin-1' }),
     );
   });
 
-  it('returns 400 on Lantmateriet service error', async () => {
-    mocks.lookupPropertyByDesignation.mockRejectedValueOnce(new Error('Lantmäteriet timeout'));
+  it('rejects live mode fail-closed without calling PostGIS live LM', async () => {
+    process.env.PROPERTY_LOOKUP_MODE = 'live';
 
     const res = await request(app)
       .post('/api/property/lookup')
       .set('Authorization', authHeader())
-      .send({ projectId: 'project-1', propertyDesignation: 'GÄVLE BRYNÄS 1:1', purpose: 'lookup' });
+      .send({ projectId: 'project-1', propertyDesignation: 'Orsa 1:1', purpose: 'lookup' });
 
-    expect(res.status).toBe(400);
-    expect(String(res.body?.error || '')).toBe('An error occurred processing your request');
+    expect(res.status).toBe(503);
+    expect(res.body?.code).toBe('LIVE_LANTMATERIET_DISABLED');
+    expect(String(res.body?.error || '')).toMatch(/avstängt|PostGIS/i);
+    expect(mocks.lookupPropertyByDesignationFromPostgis).not.toHaveBeenCalled();
   });
 
-  it('returns a clear fail-closed error when live Lantmateriet is required', async () => {
-    mocks.lookupPropertyByDesignation.mockRejectedValueOnce(
-      new Error('LIVE_LANTMATERIET_REQUIRED: live credentials missing'),
-    );
+  it('rejects api mode the same as live', async () => {
+    process.env.PROPERTY_LOOKUP_MODE = 'api';
 
     const res = await request(app)
       .post('/api/property/lookup')
       .set('Authorization', authHeader())
-      .send({ projectId: 'project-1', propertyDesignation: 'ORSA STACKMORA 3:12 (2)', purpose: 'lookup' });
+      .send({ projectId: 'project-1', propertyDesignation: 'Orsa 1:1', purpose: 'lookup' });
 
-    expect(res.status).toBe(400);
-    expect(res.body?.code).toBe('LIVE_LANTMATERIET_REQUIRED');
-    expect(String(res.body?.error || '')).toMatch(/live-uppslag/);
+    expect(res.status).toBe(503);
+    expect(res.body?.code).toBe('LIVE_LANTMATERIET_DISABLED');
   });
 
   it('looks up properties from PostGIS and surfaces service errors safely', async () => {
@@ -161,7 +150,7 @@ describe('property.routes', () => {
       });
     });
 
-    it('använder endast PostGIS och anropar aldrig live LM', async () => {
+    it('använder endast PostGIS', async () => {
       const res = await request(app)
         .post('/api/property/lookup')
         .set('Authorization', authHeader())
@@ -171,7 +160,6 @@ describe('property.routes', () => {
       expect(res.body.source).toBe('postgis');
       expect(res.body.result?.source).toBe('postgis');
       expect(mocks.lookupPropertyByDesignationFromPostgis).toHaveBeenCalled();
-      expect(mocks.lookupPropertyByDesignation).not.toHaveBeenCalled();
     });
 
     it('returnerar LOCAL_PROPERTY_NOT_FOUND när PostGIS saknar träff', async () => {
@@ -186,7 +174,6 @@ describe('property.routes', () => {
 
       expect(res.status).toBe(400);
       expect(res.body?.code).toBe('LOCAL_PROPERTY_NOT_FOUND');
-      expect(mocks.lookupPropertyByDesignation).not.toHaveBeenCalled();
     });
   });
 });

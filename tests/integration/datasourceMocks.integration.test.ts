@@ -1,4 +1,4 @@
-import { beforeAll, describe, expect, it, vi } from 'vitest';
+import { beforeAll, afterAll, describe, expect, it, vi } from 'vitest';
 import request from 'supertest';
 
 vi.mock('../../server/services/lantmaterietService', () => ({
@@ -49,6 +49,14 @@ vi.mock('../../server/repositories/userRepository', () => ({
   findAuthUserByBankId: vi.fn(async () => null),
 }));
 
+vi.mock('../../server/repositories/auditRepository', () => ({
+  writePropertyAccessLog: vi.fn(async () => undefined),
+}));
+
+vi.mock('../../server/security/auditTrail', () => ({
+  appendPropertyAudit: vi.fn(async () => undefined),
+}));
+
 vi.mock('../../server/modules/search/adapters/searchRepository', () => ({
   createOrGetAdminProject: vi.fn(async () => ({
     project: {
@@ -85,8 +93,16 @@ const app = createApp();
 describe('external datasource endpoints use mocks in integration tests', () => {
   let adminToken = '';
   let projectId = '';
+  let originalPropertyLookupMode: string | undefined;
 
   beforeAll(async () => {
+    originalPropertyLookupMode = process.env.PROPERTY_LOOKUP_MODE;
+    process.env.PROPERTY_LOOKUP_MODE = 'postgis';
+
+    const { prisma } = await import('../../server/db/prisma');
+    const { seedPropertyUnit } = await import('../helpers/postgisSeed');
+    await seedPropertyUnit(prisma, { designation: 'TEST 1:1', sourceKey: 'test-property-123' });
+
     const loginRes = await request(app)
       .post('/api/admin/auth/login')
       .send({
@@ -105,6 +121,10 @@ describe('external datasource endpoints use mocks in integration tests', () => {
     expect(createProjectRes.status).toBe(200);
     projectId = String(createProjectRes.body?.project?.id || '');
     expect(projectId).not.toBe('');
+  });
+
+  afterAll(() => {
+    process.env.PROPERTY_LOOKUP_MODE = originalPropertyLookupMode;
   });
 
   it('returns mocked Lantmateriet open map status', async () => {

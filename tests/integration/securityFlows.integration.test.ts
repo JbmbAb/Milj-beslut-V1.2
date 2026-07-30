@@ -26,6 +26,17 @@ describe.skipIf(!hasDatabaseIntegration)('Security & Production Flows Integratio
   });
 
   describe('Rate Limiting', () => {
+    let originalDisableDbRateLimit: string | undefined;
+
+    beforeAll(() => {
+      originalDisableDbRateLimit = process.env.DISABLE_DB_RATE_LIMIT;
+      process.env.DISABLE_DB_RATE_LIMIT = 'false';
+    });
+
+    afterAll(() => {
+      process.env.DISABLE_DB_RATE_LIMIT = originalDisableDbRateLimit;
+    });
+
     it('should block excessive requests to /api/admin/auth/login', async () => {
       let lastStatus = 200;
       let blockedCount = 0;

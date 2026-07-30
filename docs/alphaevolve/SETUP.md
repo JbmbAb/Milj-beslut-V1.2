@@ -4,11 +4,11 @@ Google [AlphaEvolve](https://docs.cloud.google.com/gemini/enterprise/docs/alphae
 
 ## Miljöbeslut GCP defaults
 
-| Variable | Miljöbeslut value | Notes |
-| -------- | ----------------- | ----- |
-| `PROJECT_ID` | `miljointelligens` | Same project as Vertex AI / Discovery Engine elsewhere in this repo |
-| `LOCATION` | `global` | Default from upstream `example.env` |
-| `GE_APP_ID` | `miljobeslut-alphaevolve` | Engine in `default_collection` (provision via script below) |
+| Variable     | Miljöbeslut value         | Notes                                                               |
+| ------------ | ------------------------- | ------------------------------------------------------------------- |
+| `PROJECT_ID` | `miljointelligens`        | Same project as Vertex AI / Discovery Engine elsewhere in this repo |
+| `LOCATION`   | `global`                  | Default from upstream `example.env`                                 |
+| `GE_APP_ID`  | `miljobeslut-alphaevolve` | Engine in `default_collection` (provision via script below)         |
 
 `GE_APP_ID` lives in `alphaevolve-on-googlecloud/.env` (gitignored). See [Install and configure AlphaEvolve](https://docs.cloud.google.com/gemini/enterprise/docs/alphaevolve/developer-guide/get-started) and [Gemini Enterprise access](../ops/gemini-enterprise-access.md).
 
@@ -96,14 +96,14 @@ ae --json engine list
 
 Six skills are installed for agent workflows:
 
-| Skill | Role |
-| ----- | ---- |
-| `alpha_evolve_orchestrator` | End-to-end experiment flow |
-| `alpha_evolve_experiment_design` | Design experiments |
-| `alpha_evolve_runner` | Run experiments |
-| `alpha_evolve_monitor` | Monitor progress |
-| `alpha_evolve_post_experiment` | Post-run analysis |
-| `alpha_evolve_consultant` | Guidance / troubleshooting |
+| Skill                            | Role                       |
+| -------------------------------- | -------------------------- |
+| `alpha_evolve_orchestrator`      | End-to-end experiment flow |
+| `alpha_evolve_experiment_design` | Design experiments         |
+| `alpha_evolve_runner`            | Run experiments            |
+| `alpha_evolve_monitor`           | Monitor progress           |
+| `alpha_evolve_post_experiment`   | Post-run analysis          |
+| `alpha_evolve_consultant`        | Guidance / troubleshooting |
 
 Re-install after upstream skill updates:
 

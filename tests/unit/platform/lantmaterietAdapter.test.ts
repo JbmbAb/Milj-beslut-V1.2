@@ -12,7 +12,7 @@ describe('LantmaterietAdapter', () => {
 
   beforeEach(() => {
     process.env = { ...originalEnv };
-    process.env.PROPERTY_LOOKUP_MODE = 'postgis_first';
+    process.env.PROPERTY_LOOKUP_MODE = 'postgis';
     vi.clearAllMocks();
     adapter = new LantmaterietAdapter();
   });
@@ -22,7 +22,7 @@ describe('LantmaterietAdapter', () => {
     vi.restoreAllMocks();
   });
 
-  it('returns local PostGIS hit in postgis_first mode', async () => {
+  it('returns local PostGIS hit', async () => {
     vi.mocked(tryFetchLocalPropertyGeometry).mockResolvedValue({
       designation: 'NACKA BOO 1:1',
       boundaries: { properties: { kommunnamn: 'Nacka', area: 1234 } },
@@ -35,9 +35,8 @@ describe('LantmaterietAdapter', () => {
     expect(result?.municipality).toBe('Nacka');
   });
 
-  it('returns null without live API when PostGIS miss (default Mimers-läge)', async () => {
+  it('returns null without network when PostGIS miss', async () => {
     vi.mocked(tryFetchLocalPropertyGeometry).mockResolvedValue(null);
-    process.env.PROPERTY_LOOKUP_MODE = 'postgis';
     global.fetch = vi.fn();
 
     const result = await adapter.fetchPropertyInfo('TEST 1:1');
@@ -45,26 +44,14 @@ describe('LantmaterietAdapter', () => {
     expect(global.fetch).not.toHaveBeenCalled();
   });
 
-  it('använder live API endast vid explicit mode=live', async () => {
+  it('does not call live API even when mode=live (disabled)', async () => {
     process.env.PROPERTY_LOOKUP_MODE = 'live';
     process.env.LANTMATERIET_PROPERTY_ENDPOINT = 'http://api.test/property';
-    process.env.LANTMATERIET_CLIENT_ID = 'client';
-    process.env.LANTMATERIET_CLIENT_SECRET = 'secret';
-    process.env.LANTMATERIET_TOKEN_URL = 'http://api.test/token';
-
-    global.fetch = vi
-      .fn()
-      .mockResolvedValueOnce({
-        ok: true,
-        json: () => Promise.resolve({ access_token: 'token', expires_in: 3600 }),
-      } as any)
-      .mockResolvedValueOnce({
-        ok: true,
-        json: () => Promise.resolve({ id: 'p1', designation: 'LIVE TEST 1:1', municipality: 'Teststad' }),
-      } as any);
+    global.fetch = vi.fn();
 
     const result = await adapter.fetchPropertyInfo('TEST 1:1');
-    expect(global.fetch).toHaveBeenCalled();
-    expect(result?.designation).toBe('LIVE TEST 1:1');
+    expect(result).toBeNull();
+    expect(global.fetch).not.toHaveBeenCalled();
+    expect(tryFetchLocalPropertyGeometry).not.toHaveBeenCalled();
   });
 });

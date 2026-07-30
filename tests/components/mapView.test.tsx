@@ -177,30 +177,24 @@ describe('MapView', () => {
 
   it('renders base-layer controls when Leaflet is available', () => {
     renderMapViewWithLeaflet(<MapView />);
-    expect(screen.getByRole('button', { name: /^Topo$/i })).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: /^Orto$/i })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /^OSM$/i })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /^Topo$/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /^Orto$/i })).not.toBeInTheDocument();
   });
 
-  it('configures OSM, topo and ortho base layers when Leaflet is available', () => {
+  it('configures OSM basemap and never creates LM WMS URLs', () => {
     const { mockL } = renderMapViewWithLeaflet(<MapView />);
     expect(mockL.tileLayer).toHaveBeenCalledWith(
       'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',
       expect.objectContaining({ attribution: expect.any(String) }),
     );
-    expect(mockL.tileLayer.wms).toHaveBeenCalledWith(
-      'https://api.lantmateriet.se/open/topowebb-ccby/v1/wms',
-      expect.objectContaining({ layers: 'topowebb' }),
-    );
-    expect(mockL.tileLayer.wms).toHaveBeenCalledWith(
-      'https://api.lantmateriet.se/open/ortofoto-ccby/v1/wms',
-      expect.objectContaining({ layers: expect.stringContaining('Ortofoto') }),
-    );
+    const wmsUrls = mockL.tileLayer.wms.mock.calls.map((call: unknown[]) => String(call[0] ?? ''));
+    expect(wmsUrls.every((url: string) => !url.includes('api.lantmateriet.se'))).toBe(true);
   }, 15000);
 
   it('renders property boundary overlay label', () => {
     renderMapView(<MapView />);
-    expect(screen.getByText(/Fastighetsgränser \(PostGIS\)/i)).toBeInTheDocument();
+    expect(screen.getByText(/Fastighetsgränser \(lokal PostGIS\)/i)).toBeInTheDocument();
   });
 
   it('renders some overlay layer labels', () => {

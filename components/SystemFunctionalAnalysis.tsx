@@ -111,20 +111,17 @@ export const SystemFunctionalAnalysis: React.FC = () => {
   const [lastRefresh, setLastRefresh] = useState<Date | null>(null);
   const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
 
-  // Lantmäteriet connection test state
-  const [lantTestLoading, setLantTestLoading] = useState(false);
-  const [lantTestResult, setLantTestResult] = useState<{
+  // PostGIS property/geo ping (UI is local-only; no live Lantmäteriet)
+  const [postgisTestLoading, setPostgisTestLoading] = useState(false);
+  const [postgisTestResult, setPostgisTestResult] = useState<{
     ok: boolean;
-    mode: string;
-    authMethod: string | null;
-    tokenFetched: boolean;
-    sampleLookupOk: boolean | null;
-    sampleDesignation: string;
-    sampleGeometry: unknown;
-    error: string | null;
-    setupGuide: string[];
+    version?: string;
+    sridCount?: number;
+    gistIndexCount?: number;
+    lastSpatialMigration?: string | null;
+    error?: string | null;
   } | null>(null);
-  const [lantTestError, setLantTestError] = useState<string | null>(null);
+  const [postgisTestError, setPostgisTestError] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -140,26 +137,34 @@ export const SystemFunctionalAnalysis: React.FC = () => {
     }
   }, []);
 
-  const runLantTest = useCallback(async () => {
-    setLantTestLoading(true);
-    setLantTestError(null);
-    setLantTestResult(null);
+  const runPostgisPing = useCallback(async () => {
+    setPostgisTestLoading(true);
+    setPostgisTestError(null);
+    setPostgisTestResult(null);
     try {
-      const token = getToken();
-      const res = await fetch('/api/admin/lantmateriet/test', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          ...(token ? { Authorization: 'Bearer ' + token } : {}),
-        },
+      const res = await fetch('/api/system/postgis');
+      const json = (await res.json()) as {
+        ok: boolean;
+        postgis?: { version?: string; sridCount?: number; gistIndexCount?: number };
+        lastSpatialMigration?: string | null;
+        message?: string;
+      };
+      if (!json.ok) {
+        throw new Error(json.message ?? 'PostGIS-ping misslyckades');
+      }
+      setPostgisTestResult({
+        ok: true,
+        version: json.postgis?.version,
+        sridCount: json.postgis?.sridCount,
+        gistIndexCount: json.postgis?.gistIndexCount,
+        lastSpatialMigration: json.lastSpatialMigration ?? null,
+        error: null,
       });
-      const json = (await res.json()) as { ok: boolean; result?: typeof lantTestResult; error?: string };
-      if (!json.ok) throw new Error(json.error ?? 'Test misslyckades');
-      setLantTestResult(json.result ?? null);
     } catch (err) {
-      setLantTestError(err instanceof Error ? err.message : 'Okänt fel');
+      setPostgisTestError(err instanceof Error ? err.message : 'Okänt fel');
+      setPostgisTestResult({ ok: false, error: err instanceof Error ? err.message : 'Okänt fel' });
     } finally {
-      setLantTestLoading(false);
+      setPostgisTestLoading(false);
     }
   }, []);
 
@@ -553,124 +558,67 @@ export const SystemFunctionalAnalysis: React.FC = () => {
             </div>
           </Section>
 
-          {/* Lantmäteriet Anslutningstest */}
-          <Section title="Lantmäteriet — Testa riktiga koordinater" icon="fa-map-location-dot">
+          {/* PostGIS property ping — UI is local-only */}
+          <Section title="PostGIS — Fastighetsdata (lokal)" icon="fa-database">
             <div className="space-y-4">
               <p className="text-xs text-slate-600">
-                Testa om Lantmäteriet-integrationen är korrekt konfigurerad för att hämta{' '}
-                <strong>riktiga koordinater</strong>. Utan livekonfiguration returneras ingen syntetisk
-                geometri.
+                Hubbens karta och fastighetssök använder enbart lokal PostGIS (
+                <code className="font-mono">core.property_unit</code>). Live-anrop till Lantmäteriet är
+                avstängda i UI.
               </p>
 
               <button
-                onClick={() => void runLantTest()}
-                disabled={lantTestLoading}
+                onClick={() => void runPostgisPing()}
+                disabled={postgisTestLoading}
                 className="flex items-center gap-2 px-4 py-2 bg-slate-900 text-white rounded-xl text-xs font-black uppercase tracking-wide hover:bg-slate-700 transition disabled:opacity-50"
               >
-                <i className={`fas ${lantTestLoading ? 'fa-spinner fa-spin' : 'fa-plug'}`} />
-                Testa anslutning nu
+                <i className={`fas ${postgisTestLoading ? 'fa-spinner fa-spin' : 'fa-plug'}`} />
+                Testa PostGIS-anslutning
               </button>
 
-              {lantTestError && (
+              {postgisTestError && (
                 <div className="rounded-xl bg-red-50 border border-red-200 p-3 text-xs text-red-700">
                   <i className="fas fa-triangle-exclamation mr-1" />
-                  {lantTestError}
+                  {postgisTestError}
                 </div>
               )}
 
-              {lantTestResult && (
+              {postgisTestResult && (
                 <div
-                  className={`rounded-xl border p-4 space-y-3 ${lantTestResult.ok ? 'bg-emerald-50 border-emerald-200' : 'bg-amber-50 border-amber-300'}`}
+                  className={`rounded-xl border p-4 space-y-3 ${postgisTestResult.ok ? 'bg-emerald-50 border-emerald-200' : 'bg-amber-50 border-amber-300'}`}
                 >
-                  {/* Status header */}
                   <div className="flex items-center gap-2">
                     <i
-                      className={`fas ${lantTestResult.ok ? 'fa-circle-check text-emerald-600' : 'fa-triangle-exclamation text-amber-600'} text-lg`}
+                      className={`fas ${postgisTestResult.ok ? 'fa-circle-check text-emerald-600' : 'fa-triangle-exclamation text-amber-600'} text-lg`}
                     />
                     <span className="text-sm font-black text-slate-900">
-                      {lantTestResult.ok
-                        ? 'Riktiga koordinater fungerar! ✓'
-                        : lantTestResult.mode === 'not_configured'
-                          ? 'Lantmäteriet ej konfigurerat — inga koordinater'
-                          : 'Anslutning misslyckades'}
+                      {postgisTestResult.ok ? 'PostGIS svarar ✓' : 'PostGIS-ping misslyckades'}
                     </span>
-                    <StatusBadge
-                      status={
-                        lantTestResult.mode === 'not_configured'
-                          ? 'NOT_CONFIGURED'
-                          : lantTestResult.ok
-                            ? 'LIVE'
-                            : 'ERROR'
-                      }
-                    />
+                    <StatusBadge status={postgisTestResult.ok ? 'LIVE' : 'ERROR'} />
                   </div>
 
-                  {/* Details */}
-                  <div className="grid grid-cols-2 gap-2 text-xs">
-                    <div className="bg-white/70 rounded p-2">
-                      <p className="text-slate-500 font-medium mb-0.5">Autentiseringsmetod</p>
-                      <p className="font-semibold text-slate-800">{lantTestResult.authMethod ?? 'Ingen'}</p>
-                    </div>
-                    <div className="bg-white/70 rounded p-2">
-                      <p className="text-slate-500 font-medium mb-0.5">Token hämtad</p>
-                      <p className="font-semibold text-slate-800">
-                        {lantTestResult.tokenFetched ? 'Ja ✓' : 'Nej ✗'}
-                      </p>
-                    </div>
-                    <div className="bg-white/70 rounded p-2">
-                      <p className="text-slate-500 font-medium mb-0.5">
-                        Test-uppslag ({lantTestResult.sampleDesignation})
-                      </p>
-                      <p className="font-semibold text-slate-800">
-                        {lantTestResult.sampleLookupOk === null
-                          ? '—'
-                          : lantTestResult.sampleLookupOk
-                            ? 'Koordinater hittade ✓'
-                            : 'Uppslag OK, fastighet ej hittad'}
-                      </p>
-                    </div>
-                    {lantTestResult.sampleGeometry && (
-                      <div className="bg-white/70 rounded p-2 col-span-2">
-                        <p className="text-slate-500 font-medium mb-0.5">Returnerad geometri (utdrag)</p>
-                        <pre className="font-mono text-[10px] text-slate-700 overflow-auto max-h-20">
-                          {JSON.stringify(lantTestResult.sampleGeometry, null, 2).slice(0, 400)}
-                        </pre>
+                  {postgisTestResult.ok && (
+                    <div className="grid grid-cols-2 gap-2 text-xs">
+                      <div className="bg-white/70 rounded p-2">
+                        <p className="text-slate-500 font-medium mb-0.5">Version</p>
+                        <p className="font-semibold text-slate-800">{postgisTestResult.version ?? '—'}</p>
                       </div>
-                    )}
-                  </div>
-
-                  {/* Error message */}
-                  {lantTestResult.error && (
-                    <div className="text-xs text-amber-800 bg-amber-100 rounded p-2">
-                      <i className="fas fa-info-circle mr-1" />
-                      {lantTestResult.error}
-                    </div>
-                  )}
-
-                  {/* Setup guide */}
-                  {lantTestResult.setupGuide.length > 0 && (
-                    <div className="bg-white/80 rounded p-3 border border-amber-200">
-                      <p className="text-xs font-black text-slate-900 mb-2 uppercase tracking-wide">
-                        Konfigurationsguide
-                      </p>
-                      <ol className="list-decimal list-inside space-y-1">
-                        {lantTestResult.setupGuide.map((step, i) => (
-                          <li key={i} className="text-[11px] text-slate-700">
-                            {step.startsWith('http') ? (
-                              <a
-                                href={step}
-                                target="_blank"
-                                rel="noopener noreferrer"
-                                className="text-blue-600 hover:underline font-medium"
-                              >
-                                {step}
-                              </a>
-                            ) : (
-                              step
-                            )}
-                          </li>
-                        ))}
-                      </ol>
+                      <div className="bg-white/70 rounded p-2">
+                        <p className="text-slate-500 font-medium mb-0.5">SRID-stöd</p>
+                        <p className="font-semibold text-slate-800">{postgisTestResult.sridCount ?? '—'}</p>
+                      </div>
+                      <div className="bg-white/70 rounded p-2">
+                        <p className="text-slate-500 font-medium mb-0.5">GIST-index</p>
+                        <p className="font-semibold text-slate-800">
+                          {postgisTestResult.gistIndexCount ?? '—'}
+                        </p>
+                      </div>
+                      <div className="bg-white/70 rounded p-2">
+                        <p className="text-slate-500 font-medium mb-0.5">Senaste spatial-migration</p>
+                        <p className="font-semibold text-slate-800">
+                          {postgisTestResult.lastSpatialMigration ?? '—'}
+                        </p>
+                      </div>
                     </div>
                   )}
                 </div>

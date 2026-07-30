@@ -4,6 +4,15 @@ vi.mock('../../server/repositories/judgmentRepository', () => ({
   upsertJudgment: vi.fn(),
 }));
 
+vi.mock('../../server/db/prisma', () => ({
+  prisma: {
+    pipelineRun: {
+      create: vi.fn().mockResolvedValue({}),
+      update: vi.fn().mockResolvedValue({}),
+    },
+  },
+}));
+
 vi.mock('../../server/repositories/legalSourceRepository', () => ({
   upsertLegalSourceWithMatrix: vi.fn(),
 }));

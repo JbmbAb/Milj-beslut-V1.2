@@ -136,50 +136,21 @@ describe('src platform and adapter utilities', () => {
     expect(property).toBeNull();
   });
 
-  it('returns null and warns when no property endpoint is configured', async () => {
+  it('returns null and warns when live mode is requested (disabled)', async () => {
     vi.stubEnv('PROPERTY_LOOKUP_MODE', 'live');
-    const fetchMock = vi.fn().mockResolvedValueOnce({
-      ok: true,
-      json: async () => ({ access_token: 'token-1', expires_in: 3600 }),
-    });
-    global.fetch = fetchMock as any;
-    vi.stubEnv('LANTMATERIET_CLIENT_ID', 'client');
-    vi.stubEnv('LANTMATERIET_CLIENT_SECRET', 'secret');
-    vi.stubEnv('LANTMATERIET_TOKEN_URL', 'https://example.test/token');
+    const fetchMock = vi.fn();
+    global.fetch = fetchMock as typeof fetch;
 
     const adapter = new LantmaterietAdapter();
     await expect(adapter.fetchPropertyInfo('fast-1')).resolves.toBeNull();
+    expect(fetchMock).not.toHaveBeenCalled();
     expect(logger.warn).toHaveBeenCalled();
   });
 
-  it('fetches a real property and caches the Lantmäteriet access token', async () => {
+  it('does not call live Lantmäteriet even when endpoint env is set', async () => {
     vi.stubEnv('PROPERTY_LOOKUP_MODE', 'live');
-    const fetchMock = vi
-      .fn()
-      .mockResolvedValueOnce({
-        ok: true,
-        json: async () => ({ access_token: 'token-1', expires_in: 3600 }),
-      })
-      .mockResolvedValueOnce({
-        ok: true,
-        json: async () => ({
-          id: 'property-1',
-          designation: 'FAST-1',
-          municipality: 'Uppsala',
-          area: 1200,
-          owner: 'Ägare AB',
-          centroid: { lat: 59.8, lng: 17.6 },
-        }),
-      })
-      .mockResolvedValueOnce({
-        ok: true,
-        json: async () => ({
-          id: 'property-2',
-          designation: 'FAST-2',
-          municipality: 'Uppsala',
-        }),
-      });
-    global.fetch = fetchMock as any;
+    const fetchMock = vi.fn();
+    global.fetch = fetchMock as typeof fetch;
     vi.stubEnv('LANTMATERIET_CLIENT_ID', 'client');
     vi.stubEnv('LANTMATERIET_CLIENT_SECRET', 'secret');
     vi.stubEnv('LANTMATERIET_TOKEN_URL', 'https://example.test/token');
@@ -189,16 +160,8 @@ describe('src platform and adapter utilities', () => {
     const first = await adapter.fetchPropertyInfo('fast-1');
     const second = await adapter.fetchPropertyInfo('fast-2');
 
-    expect(first).toMatchObject({
-      id: 'property-1',
-      designation: 'FAST-1',
-      municipality: 'Uppsala',
-      ownerName: 'Ägare AB',
-    });
-    expect(second).toMatchObject({
-      id: 'property-2',
-      designation: 'FAST-2',
-    });
-    expect(fetchMock).toHaveBeenCalledTimes(3);
+    expect(first).toBeNull();
+    expect(second).toBeNull();
+    expect(fetchMock).not.toHaveBeenCalled();
   });
 });

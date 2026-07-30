@@ -78,23 +78,10 @@ export default defineConfig(({ mode }) => {
     // Non-URL values are left as-is; proxy setup will report invalid targets if needed.
   }
 
-  /** En gemensam källa: VITE_ vinner om satt, annars serverns LANTMATERIET_OPEN_SUBSCRIPTION_KEY (förhindrar dubbla rader i .env). */
-  const viteLantm = String(env.VITE_LANTMATERIET_OPEN_SUBSCRIPTION_KEY ?? '').trim();
-  const serverLantm = String(env.LANTMATERIET_OPEN_SUBSCRIPTION_KEY ?? '').trim();
-  if (viteLantm && serverLantm && viteLantm !== serverLantm) {
-     
-    console.warn(
-      '[vite] Lantmäteriet: VITE_LANTMATERIET_OPEN_SUBSCRIPTION_KEY skiljer sig från LANTMATERIET_OPEN_SUBSCRIPTION_KEY — använder VITE-värdet i klienten.',
-    );
-  }
-  const lantmaterietClientSubscriptionKey = viteLantm || serverLantm;
+  // UI is local-only: do not inject LANTMATERIET_* keys into the Vite client.
+  // Harvest/import credentials stay server-side (.env / Secret Manager).
 
   return {
-    define: {
-      'import.meta.env.VITE_LANTMATERIET_OPEN_SUBSCRIPTION_KEY': JSON.stringify(
-        lantmaterietClientSubscriptionKey,
-      ),
-    },
     server: {
       port: 3000,
       host: '0.0.0.0',

@@ -1,78 +1,65 @@
-# Lantmäteriet-integrationer
+# Lantmäteriet — skörd → PostGIS (inte UI-runtime)
 
-Miljöbeslut är godkänd för alla **avgiftsfria** Lantmäteriet-tjänster.
-Detta dokument listar varje produkt, format, och vilken miljövariabel som
-behövs.
+Miljöbeslut följer **Mimers Brunn (offline-first)**. Lantmäteriets API används för
+**harvest/import** till Master Archive och PostGIS — **inte** som driftberoende för
+hubbens karta, fastighetssök eller logistik-kartflöde.
 
-> En **enda** prenumerationsnyckel (`LANTMATERIET_OPEN_SUBSCRIPTION_KEY`) räcker
-> normalt för alla OGC Features + WMTS/WMS-produkter. Bulk-Atom-feeds kräver
-> ingen nyckel alls.
+UI-runtime pratar endast med:
 
-## Översikt per produkt
+- `POST /api/property/lookup` → lokal PostGIS (`core.property_unit`)
+- `/api/layers/property`, `/api/tiles/...` → lokala lager/tiles
+- OSM eller `VITE_LOCAL_BASEMAP_*` som basemap
 
-| Produkt                     | Format           | Nyckel krävs? | Default-endpoint                                             |
-| --------------------------- | ---------------- | ------------- | ------------------------------------------------------------ |
-| Fastighetsindelning (öppen) | OGC API Features | Ja            | `api.lantmateriet.se/ogc-features/v1/fastighetsindelning`    |
-| Belägenhetsadress (öppen)   | OGC API Features | Ja            | `api.lantmateriet.se/ogc-features/v1/belagenhetsadress`      |
-| Ortnamn (öppen)             | OGC API Features | Ja            | `api.lantmateriet.se/ogc-features/v1/ortnamn`                |
-| Administrativ indelning     | OGC API Features | Ja            | `api.lantmateriet.se/ogc-features/v1/administrativindelning` |
-| Topografisk webbkarta       | WMTS             | Ja            | `api.lantmateriet.se/open/topowebb-ccby/v1/wmts`             |
-| Ortofoto                    | WMS              | Ja            | `api.lantmateriet.se/open/ortofoto-ccby/v1/wms`              |
-| Terrängskuggning            | WMS              | Ja            | `api.lantmateriet.se/open/terrangskuggning/v1/wms`           |
-| Höjdmodell + laserdata      | Atom feed (bulk) | Nej           | `download-opendata.lantmateriet.se/`                         |
-| Höjdgrid 2+/50+             | Atom feed (bulk) | Nej           | `download-opendata.lantmateriet.se/`                         |
+Attribution i UI: *data ursprungligen från Lantmäteriet* (CC-BY) där det är relevant.
 
-## Konfiguration
+## UI = PostGIS only
 
-I `.env` eller Cloud Run-secrets:
+| Inställning | Betydelse |
+| ----------- | --------- |
+| `PROPERTY_LOOKUP_MODE=postgis` (default) | Endast lokal DB |
+| `PROPERTY_LOOKUP_MODE=hybrid` | Alias för postgis |
+| `PROPERTY_LOOKUP_MODE=live` / `api` | **Avvisas** (503) — live LM disabled |
+
+Hubben behöver **ingen** `LANTMATERIET_OPEN_SUBSCRIPTION_KEY` och ingen OAuth-nyckel
+för normal drift. Vite injicerar **inte** LM-nycklar till webbläsaren.
+
+## Harvest / import (server only)
+
+Prenumerationsnyckel och OAuth behövs när ni **skördar** öppna produkter eller
+betalda API:er till arkivet (`scripts/import/*`). En nyckel räcker oftast för
+avgiftsfria OGC + WMTS/WMS-produkter.
 
 ```bash
-# Enda obligatoriska nyckeln för alla OGC-/WMS-produkter
+# Endast för import/harvest — inte för UI
 LANTMATERIET_OPEN_SUBSCRIPTION_KEY=din-prenumerationsnyckel
-
-# Valfri: endpoints om du vill peka om till annan miljö (beta, proxy etc.)
-LANTMATERIET_OPEN_FASTIGHET_URL=https://api.lantmateriet.se/ogc-features/v1/fastighetsindelning
-# (se .env.example för fullständig lista)
+# (valfria endpoint-overrides — se .env.example)
 ```
 
-## Endpoints i plattformen
+| Produkt                     | Format           | Nyckel? | Typisk användning      |
+| --------------------------- | ---------------- | ------- | ---------------------- |
+| Fastighetsindelning (öppen) | OGC API Features | Ja      | Skörd → PostGIS        |
+| Belägenhetsadress           | OGC API Features | Ja      | Skörd                  |
+| Ortnamn / admin. indelning  | OGC API Features | Ja      | Skörd                  |
+| Topowebb / Ortofoto         | WMTS / WMS       | Ja      | Skörd / lokal basemap  |
+| Höjdmodell + laserdata      | Atom / FTP       | Nej     | Bulk till arkiv        |
 
-- `GET /api/datasources/lantmateriet/open/catalog` — Lista alla produkter (publik).
-- `GET /api/datasources/lantmateriet/open/ping` — Pinga alla produkter samtidigt (admin-auth).
-- `GET /api/datasources/lantmateriet/open/ping/:product` — Ping en specifik produkt.
-- `GET /api/datasources/lantmateriet/open/status` — Enkel status för topowebb WMTS.
+Admin-endpoints för katalog/ping (`/api/datasources/lantmateriet/open/*`) och
+`POST /api/admin/lantmateriet/test` är kvar för **import-/ops-diagnostik**, inte
+som krav för hub-UI. Systemanalysen i admin pingar PostGIS i stället.
 
-## Typisk anropsmall (OGC API Features)
-
-```http
-GET https://api.lantmateriet.se/ogc-features/v1/fastighetsindelning/collections/registerenhetsomradesytor/items?bbox=17.55,59.82,17.75,59.92&limit=10&subscription-key=XXX
-Accept: application/geo+json
-```
-
-## Fastighetsuppslag vs. fri sökning
-
-- **Fastighetsuppslag via beteckning** (betalad produkt `Fastighet och samfällighet Direkt`)
-  använder `lantmaterietService.lookupPropertyByDesignation` och kräver
-  `LANTMATERIET_CONSUMER_KEY + LANTMATERIET_CONSUMER_SECRET` (OAuth2).
-- **Avgiftsfri OGC-featuressökning** använder `lantmaterietOpenDataService`
-  och räcker normalt med `LANTMATERIET_OPEN_SUBSCRIPTION_KEY`.
-
-I hybrid-läge (`PROPERTY_LOOKUP_MODE=hybrid`) och default (`postgis`) använder plattformen
-endast lokalt PostGIS (`core.property_unit`). Ingen live-fallback till Lantmäteriets API.
-
-Explicit `PROPERTY_LOOKUP_MODE=live` krävs för OAuth/OGC mot Lantmäteriet (licensproduktstest).
-
-## Smoketest
+## Smoketest (lokal UI)
 
 ```bash
-# Mot lokal server
-npm run smoke:integrations
-
-# Direkt mot Lantmäteriet via miljövariabler (utan server igång)
-curl "https://api.lantmateriet.se/ogc-features/v1/fastighetsindelning/collections?subscription-key=$LANTMATERIET_OPEN_SUBSCRIPTION_KEY"
+# PostGIS + API
+npm run dev:server
+npm run dev
+# Hub → Logistik / Fastighetsanalys → sök beteckning
+# DevTools: ingen trafik till *.lantmateriet.se
 ```
+
+Direkt LM-curl är endast relevant vid harvest-felsökning, inte för UI DoD.
 
 ## Licens
 
-Öppna data från Lantmäteriet är CC-BY — ange attribution "© Lantmäteriet" vid
-visning i UI.
+Öppna data från Lantmäteriet är CC-BY — ange attribution "© Lantmäteriet" /
+"data ursprungligen från Lantmäteriet" vid visning av härledd lokal data.

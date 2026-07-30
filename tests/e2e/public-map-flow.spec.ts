@@ -76,6 +76,31 @@ test.describe('Public Map and Project Verification', () => {
         await button.click({ force: true });
         await expect(button).not.toHaveClass(/bg-slate-900/);
       }
+
+      await expect(panel.getByText(/Fastighetsgränser \(lokal PostGIS\)/i)).toBeVisible();
+    } finally {
+      await api.dispose();
+    }
+  });
+
+  test('Map/UI requests never hit api.lantmateriet.se', async ({ page }) => {
+    const lmHits: string[] = [];
+    page.on('request', (req) => {
+      const url = req.url();
+      if (/lantmateriet\.se/i.test(url)) lmHits.push(url);
+    });
+
+    const api = await createApiContext();
+    try {
+      await primeAuthenticatedPage(page, api);
+      await page.goto('/');
+      await waitForHubModuleReady(page, 'logistik');
+      const hasOverlayPanel = await openLogisticsModule(page);
+      if (!hasOverlayPanel) {
+        test.skip(true, 'Map overlay panel is not part of the current logistics UI.');
+      }
+      await expect(page.getByTestId('map-overlay-panel')).toBeVisible();
+      expect(lmHits, `Unexpected LM hosts: ${lmHits.join(', ')}`).toEqual([]);
     } finally {
       await api.dispose();
     }

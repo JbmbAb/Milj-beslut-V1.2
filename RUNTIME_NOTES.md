@@ -93,12 +93,11 @@ Copy-Item .env.example .env.local
 
 | Variabel                                                    | Effekt                                                                                                   |
 | ----------------------------------------------------------- | -------------------------------------------------------------------------------------------------------- |
-| `LANTMATERIET_OPEN_SUBSCRIPTION_KEY`                        | Öppnar Lantmäteriet Topo10/Ortofoto. **Saknas** → kartan faller tillbaka på OSM och visar en notis i UI. |
-| `VITE_LOCAL_BASEMAP_XYZ_URL` / `VITE_LOCAL_BASEMAP_WMS_URL` | Egen lokal grundkarta (XYZ eller WMS).                                                                   |
-| `VITE_LANTMATERIET_OPEN_SUBSCRIPTION_KEY`                   | Override när webbläsaren ska få _annat_ värde än servern (oftast onödigt).                               |
+| `PROPERTY_LOOKUP_MODE=postgis`                              | UI-fastighetssök mot lokal PostGIS. `live`/`api` avvisas (503).                                          |
+| `VITE_LOCAL_BASEMAP_XYZ_URL` / `VITE_LOCAL_BASEMAP_WMS_URL` | Valfri lokal grundkarta (XYZ eller WMS). Default-basemap är OSM.                                         |
+| `LANTMATERIET_OPEN_SUBSCRIPTION_KEY`                        | **Import/harvest only** — inte UI-runtime. Vite injicerar den inte till klienten.                        |
 
-Lantmäteriet-nyckel är **inte** ett blocker — OSM räcker för att kartan ska
-visas. Ange den först när du vill ha de svenska topo/ortofoto-lagren.
+Hub-UI = PostGIS only: ingen nätverkstrafik till `*.lantmateriet.se` från karta/fastighetssök.
 
 ---
 

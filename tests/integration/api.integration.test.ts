@@ -20,6 +20,9 @@ describe.skipIf(!hasDatabaseIntegration)('secure API integration', () => {
   beforeAll(async () => {
     await prisma.$connect();
 
+    const { seedPropertyUnit } = await import('../helpers/postgisSeed');
+    await seedPropertyUnit(prisma, { designation: 'TEST 1:1', sourceKey: 'test-property-123' });
+
     const loginRes = await request(app)
       .post('/api/admin/auth/login')
       .send({
@@ -656,6 +659,7 @@ describe.skipIf(!hasDatabaseIntegration)('secure API integration', () => {
     const originalScope = process.env.LANTMATERIET_SCOPE;
     const originalOpenMode = process.env.LANTMATERIET_OPEN_MODE;
     const originalOpenWms = process.env.LANTMATERIET_OPEN_WMS_URL;
+    const originalPropertyLookupMode = process.env.PROPERTY_LOOKUP_MODE;
 
     const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
       const url = String(input);
@@ -717,6 +721,7 @@ describe.skipIf(!hasDatabaseIntegration)('secure API integration', () => {
     process.env.LANTMATERIET_LOOKUP_MODE = 'ogc';
     process.env.LANTMATERIET_SCOPE = 'ogc-features:fastighetsindelning.read';
     process.env.LANTMATERIET_OPEN_WMS_URL = 'https://lantmateriet.mock/wms?service=WMTS';
+    process.env.PROPERTY_LOOKUP_MODE = 'postgis';
 
     try {
       const statusRes = await request(app)
@@ -752,6 +757,7 @@ describe.skipIf(!hasDatabaseIntegration)('secure API integration', () => {
       process.env.LANTMATERIET_SCOPE = originalScope;
       process.env.LANTMATERIET_OPEN_MODE = originalOpenMode;
       process.env.LANTMATERIET_OPEN_WMS_URL = originalOpenWms;
+      process.env.PROPERTY_LOOKUP_MODE = originalPropertyLookupMode;
     }
   });
 
