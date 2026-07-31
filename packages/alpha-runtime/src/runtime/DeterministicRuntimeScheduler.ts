@@ -65,7 +65,13 @@ export class DeterministicRuntimeScheduler {
       step_results,
       outputs: all_outputs,
       started_at,
-      completed_at: new Date().toISOString()
+      completed_at: new Date().toISOString(),
+      
+      // new phase 3.2.4 fields
+      deterministic_seed: manifest.metadata?.deterministic_seed || "default-seed",
+      completed_steps: step_results.map(s => s.step_id),
+      output_references: all_outputs,
+      completed_at_iso: new Date().toISOString()
     };
   }
 }

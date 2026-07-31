@@ -11,6 +11,7 @@ export interface ReplayFingerprintPayload {
   readonly execution_identity_hash: HashDescriptor;
   readonly execution_plan_hash: HashDescriptor;
   readonly dependency_graph_hash: HashDescriptor;
+  readonly deterministic_seed: string;
   readonly completed_steps: readonly string[];
   readonly output_references: readonly CanonicalRegistryReference[];
 }

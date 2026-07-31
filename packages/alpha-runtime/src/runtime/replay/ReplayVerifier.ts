@@ -14,6 +14,7 @@ export class ReplayVerifier {
       execution_identity_hash: replay.execution_identity_hash,
       execution_plan_hash: replay.execution_plan_hash,
       dependency_graph_hash: replay.dependency_resolution.graph_hash,
+      deterministic_seed: replay.deterministic_seed,
       completed_steps: replay.completed_steps,
       output_references: replay.output_references.map(
         RegistryReferenceCanonicalizer.toCanonical

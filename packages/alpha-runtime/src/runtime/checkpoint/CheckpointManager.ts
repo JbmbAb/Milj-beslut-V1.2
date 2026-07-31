@@ -11,6 +11,7 @@ export class CheckpointManager {
       execution_identity_hash: result.execution_identity_hash,
       execution_plan_hash: result.execution_plan_hash,
       dependency_graph_hash: result.dependency_resolution.graph_hash,
+      deterministic_seed: result.deterministic_seed,
       completed_steps: result.completed_steps,
       output_references: result.output_references.map(
         RegistryReferenceCanonicalizer.toCanonical
