@@ -1,0 +1,17 @@
+{
+  "name": "@mimers/alpha-runtime",
+  "version": "1.0.0",
+  "description": "Alpha Runtime DAG and Verification Engine",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "scripts": {
+    "build": "tsc",
+    "test": "vitest run"
+  },
+  "dependencies": {},
+  "devDependencies": {
+    "typescript": "^5.5.0",
+    "vitest": "^2.0.0",
+    "@types/node": "^20.0.0"
+  }
+}
