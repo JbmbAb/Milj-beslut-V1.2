@@ -1,8 +1,55 @@
-# Projektinstruktioner: miljobeslut-platform-recovery
+# Projektinstruktioner: Mimer Platform Recovery
 
-Den här filen innehåller arkitektoniska beslut och konventioner som är specifika för detta projekt.
+Den här filen innehåller arkitektoniska beslut, bevisade plattformsförmågor och konventioner som är specifika för detta projekt.
 
-## Dokumentation och Gemini Enterprise
+## 1. Officiellt namn: Mimer Engine
+
+Plattformens kärna och dess exekverings- och verifieringsmotor heter officiellt **Mimer** (eller **Mimer Replay & Execution Engine**). All design, kodkommentarer och framtida dokumentation ska referera till motorn med detta namn.
+
+---
+
+## 2. Plattformsförmågor (Proven Capabilities)
+
+Mimer-plattformen har framgångsrikt bevisat följande tekniska och kryptografiska förmågor i strikta testmiljöer:
+
+### 2.1 Deterministisk exekvering & Replay-verifiering (Replay Engine)
+- **Kryptografiskt verifierbar replay:** Möjlighet att köra godtyckliga DAG-baserade pipelines (t.ex. PFAS-analyser) och bevisa att körningar är identiska genom att matcha exekveringsidentitet, exekveringsplan, beroendegraf, indata-hashar och det deterministiska fröet (`deterministic_seed`).
+- **Detektering av manipulering (Tamper Detection):** Strikt profilre-verifiering upptäcker omedelbart avvikelser i ordning, miljö, indata, prompter eller utdata med 100 % noggrannhet.
+
+### 2.2 Oförvanskbar datalagring (EvolutionLedger & CAS)
+- **CAS (Content-Addressable Storage):** Garanterar oförvanskbarhet genom adressering av filer med unika SHA-256 hashar efter kanonisk serialisering (RFC8785).
+- **Säker loggkedja (EvolutionLedger):** Alla befordringar (promotions) registreras i en append-only kedja med kryptografiskt länkade hash-kedjor och UUIDv7-tidsstämplar.
+
+### 2.3 Suveränitet och Katastrofåterställning (Disaster Recovery & Sovereign DoD)
+- **Kallstartsåterställning (Cold-Start Replay):** Fullständig återuppbyggnad av systemet (rekonstituering av korrekta hashar) från enbart det fysiska CAS-arkivet och händelseloggen.
+- **Tredjepartsrevisioner (Independent Audit):** Inbyggt stöd för att paketera revisions-bundles (`npm run mimers:audit-bundle`) och verifiera dem fristående.
+- **Failover utan Single Point of Failure:** Verifierad synk och robust failover på distribuerade filsystem (NFSv4) som bevisat i hermetiska labs.
+
+### 2.4 Robust datainhämtning (Mimers Brunn Policy)
+- **Download-First:** Alla geodataset skördas, versioneras och arkiveras fysiskt i Master-arkivet med checksums (SHA-256) innan import sker till PostGIS för att skydda mot extern dataförlust eller radering.
+
+---
+
+## 3. Namngivningspolicy för AI-Agenter (Fornnordisk taxonomi)
+
+För att bevara plattformens identitet och förankra våra autonoma system i ett sammanhängande och robust tema ska alla AI-agenter som skapas, underhålls eller definieras i projektet bära namn hämtade från **Fornnordisk mytologi och religion**, matchat mot deras specifika operativa domän:
+
+| Agentnamn | Roll | Fornnordisk anknytning | Funktion i systemet |
+| :--- | :--- | :--- | :--- |
+| **Mimer** | Detekterings- & Replay-motor | Vishetens jätte vid Mimers Brunn | Garanterar plattformens matematiska och kryptografiska sanning. |
+| **Mimer Bibliotekarie** | Datakoordinator | Ansvarig för Mimers Brunn | Granskar, planerar och optimerar geodataflöden (Mimers Brunn-policyn). |
+| **Heimdall** | Moln- & AI-Arkitekt | Väktaren som ser och hör allt | Övervakar arkitekturen (GCP, Vertex AI), säkerhet, och systemgränser. |
+| **Tor** | Kodimplementör (Copilot Agent) | Den starke beskyddaren | Den primära agenten som skriver, testar, validerar och commitar kod. |
+| **Loke** | Prototypings- & Tvätt-agent | Den listige formskiftaren | Genererar experimentella prompter, prototyper och utför datatvätt. |
+| **Freja** | Gränssnitts- & Styling-agent | Skönhetens och estetikens gudinna | Hanterar frontend-design, layout, tokens och visuella finslipningar. |
+| **Odin** | Forsknings- & Diagnos-agent | Allfader, sökare av djup kunskap | Genomför djupgående kodanalyser, felsökning och systemundersökningar. |
+| **Sleipner** | Migrations- & Failover-agent | Den åttafotade snabbe springaren | Hanterar backup, restore, och failover-procedurer över systemgränser. |
+
+Denna namngivningspolicy är normativ. Inga agenter får namnges med generiska eller moderna namn.
+
+---
+
+## 4. Dokumentation och Gemini Enterprise
 
 | Ämne | Sökväg |
 |------|--------|
@@ -13,13 +60,9 @@ Den här filen innehåller arkitektoniska beslut och konventioner som är specif
 
 **Plattformskod** delas via **Git**. **Geodata** delas via **Drive** (`GEO_Master_Archive`). **PostGIS** delas via schema/SQL i repot — inte Docker-volymen på Drive.
 
-## Mimer Bibliotekarie (Specialiserad AI-Roll)
-Plattformen använder en specialiserad agentroll, **Mimer Bibliotekarie**, för att hantera geodataflöden. 
-- **Mandat:** Granska, planera och optimera dataflöden enligt Mimers Brunn-policyn.
-- **Fullständiga instruktioner:** Se `knowledge-base/MIMER_LIBRARIAN.md`.
+---
 
-## Arkitekturpolicy: Mimers Brunn (Offline-First)
-... (rest of the content)
+## 5. Arkitekturpolicy: Mimers Brunn (Offline-First)
 
 ### Bakgrund och Syfte
 Offentlig miljödata är flyktig. Erfarenhet visar att livsviktig historik (t.ex. grundvattenutredningar från VISS) raderas eller döljs av myndigheter över tid. Ett externt Live-API garanterar inte datans överlevnad.
@@ -39,7 +82,7 @@ För att säkra datans integritet och tillgänglighet måste alla nya skript han
 
 1.  **Versionering (Myndighetsrättelser):**
     - Skriv aldrig över existerande data. Om ny data hämtas för samma dataset, lagra den i en ny tidsstämplad undermapp (t.ex. `.../YYYY-MM-DD/`).
-    - Databasposter ska inkludera ett fält för `download_date` eller `valid_from` så att AI:n kan skilja på historisk och aktuell data.
+    - Databasposter ska inkludera ett fält för `download_date` eller `valid_from` så databasen kan skilja på historisk och aktuell data.
 
 2.  **"Polite Scraping" (Rate-Limiting & Retries):**
     - Implementera alltid fördröjningar (sleep/delay) mellan anrop för att undvika IP-blockering.
@@ -47,7 +90,7 @@ För att säkra datans integritet och tillgänglighet måste alla nya skript han
 
 3.  **Bevis på integritet (Checksums):**
     - Beräkna SHA-256 hash för varje nedladdad fil.
-    - Lagra hashen i en metadatafil (t.ex. `checksums.txt` eller `metadata.json`) i samma mapp som datan. Detta bevisar att datan är oförvanskad.
+    - Lagra hashen i en metadatafil (t.ex. `checksums.txt` eller `metadata.json`) i samma mapp som datan. Detta bevisar datan är oförvanskad.
 
 ### Instruktion för Agenter
 Vid utveckling av nya datainhämtningsmoduler (under `scripts/import/`), följ strikt denna policy. Fokusera på att bygga robusta nedladdnings-pipelines ("Harvesting") som säkrar datan på H-disken. Målet är att fylla Mimers Brunn.
