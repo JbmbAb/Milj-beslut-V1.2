@@ -9,6 +9,18 @@ export default defineConfig({
         __dirname,
         'packages/mimers-brunn-core/src/index.ts',
       ),
+      '@miljobeslut/mps-core': path.resolve(
+        __dirname,
+        'packages/mps-core/src/index.ts',
+      ),
+      '@miljobeslut/mps-artifact-store': path.resolve(
+        __dirname,
+        'packages/mps-artifact-store/src/index.ts',
+      ),
+      '@miljobeslut/mps-replay': path.resolve(
+        __dirname,
+        'packages/mps-replay/src/index.ts',
+      ),
     },
   },
   test: {

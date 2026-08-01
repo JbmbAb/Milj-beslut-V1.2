@@ -65,6 +65,11 @@
   },
   "dependencies": {
     "@miljobeslut/mimers-brunn-core": "file:packages/mimers-brunn-core",
+    "@miljobeslut/mps-core": "file:packages/mps-core",
+    "@miljobeslut/mps-artifact-store": "file:packages/mps-artifact-store",
+    "@miljobeslut/mps-replay": "file:packages/mps-replay",
+    "@miljobeslut/mps-registry": "file:packages/mps-registry",
+    "@miljobeslut/mps-runtime": "file:packages/mps-runtime",
     "@google-cloud/billing-budgets": "^6.1.2",
     "@google-cloud/storage": "^7.21.0",
     "@google-cloud/vertexai": "^1.12.0",
