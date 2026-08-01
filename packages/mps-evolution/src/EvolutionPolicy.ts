@@ -1,4 +1,4 @@
-import type { MutatedCodeArtifact, ScoreArtifact } from "./EvolutionTypes";
+import type { EvolutionArtifact } from "./EvolutionTypes";
 
 export interface EvolutionPolicy {
   readonly allowed_models: readonly string[];
@@ -11,23 +11,14 @@ export interface EvolutionPolicy {
 }
 
 export interface EvolutionPolicySet {
-  readonly policy_id: string;
-  readonly policy: EvolutionPolicy;
+  readonly schema_version: "evolution.policy.v1";
+  readonly policies: EvolutionPolicy;
 }
+
+export type EvolutionPromotionDecision = "PROMOTE" | "REJECT";
 
 export interface EvolutionPolicyEngine {
-  evaluate(candidate: MutatedCodeArtifact, score: ScoreArtifact): boolean;
-}
-
-export class DefaultEvolutionPolicyEngine implements EvolutionPolicyEngine {
-  constructor(private readonly policySet: EvolutionPolicySet) {}
-
-  evaluate(candidate: MutatedCodeArtifact, score: ScoreArtifact): boolean {
-    const p = this.policySet.policy;
-
-    if (score.score < p.min_quality_gain) return false;
-    if (score.metrics["latency"] > p.max_regression_latency) return false;
-
-    return true;
-  }
+  decide(
+    artifact: EvolutionArtifact
+  ): Promise<EvolutionPromotionDecision>;
 }

@@ -50,6 +50,10 @@ class MockReplayEngine implements ReplayEngine {
       steps: [],
       failures: [],
       completed: true,
+      execution_match: true,
+      artifact_match: true,
+      policy_match: true,
+      policy_diffs: [],
     };
   }
 }
