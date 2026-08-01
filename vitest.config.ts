@@ -37,6 +37,14 @@ export default defineConfig({
         __dirname,
         'packages/mps-evolution/src/index.ts',
       ),
+      '@miljobeslut/mps-canonical': path.resolve(
+        __dirname,
+        'packages/mps-canonical/src/index.ts',
+      ),
+      '@miljobeslut/mps-benchmark': path.resolve(
+        __dirname,
+        'packages/mps-benchmark/src/index.ts',
+      ),
     },
   },
   test: {

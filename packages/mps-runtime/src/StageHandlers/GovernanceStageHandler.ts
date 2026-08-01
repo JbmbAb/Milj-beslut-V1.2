@@ -44,7 +44,7 @@ export class GovernanceStageHandler
     return {
       stage: input.stage,
       reference: input.reference,
-      artifact_id: stored.reference.id,
+      artifact_id: stored.id || stored.reference?.id,
       artifact,
       runtime_id,
       registry_snapshot_id: ctx.registry.snapshot_id,
