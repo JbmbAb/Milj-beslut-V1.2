@@ -45,6 +45,14 @@ export default defineConfig({
         __dirname,
         'packages/mps-benchmark/src/index.ts',
       ),
+      '@miljobeslut/mps-control-plane': path.resolve(
+        __dirname,
+        'packages/mps-control-plane/src/index.ts',
+      ),
+      '@miljobeslut/mps-console': path.resolve(
+        __dirname,
+        'packages/mps-console/src/index.ts',
+      ),
     },
   },
   test: {
