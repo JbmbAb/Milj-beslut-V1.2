@@ -34,9 +34,19 @@ export interface ReplayFailure {
   readonly violation_class: string; // e.g. "HashVerificationViolation"
 }
 
+export interface PolicyMismatch {
+  readonly decision_id: string;
+  readonly expected_hash: string;
+  readonly actual_hash: string;
+}
+
 export interface ReplayResult {
   readonly context: ReplayContext;
   readonly steps: readonly ReplayStepResult<unknown>[];
   readonly failures: readonly ReplayFailure[];
   readonly completed: boolean;
+  readonly execution_match: boolean;
+  readonly artifact_match: boolean;
+  readonly policy_match: boolean;
+  readonly policy_diffs: readonly PolicyMismatch[];
 }

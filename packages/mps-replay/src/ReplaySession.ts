@@ -62,6 +62,10 @@ export class ReplaySession {
       steps: this.steps,
       failures: this.failures,
       completed: this.failures.length === 0,
+      execution_match: this.failures.length === 0,
+      artifact_match: this.failures.length === 0,
+      policy_match: true,
+      policy_diffs: [],
     };
   }
 }

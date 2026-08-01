@@ -29,6 +29,14 @@ export default defineConfig({
         __dirname,
         'packages/mps-telemetry/src/index.ts',
       ),
+      '@miljobeslut/mps-policy': path.resolve(
+        __dirname,
+        'packages/mps-policy/src/index.ts',
+      ),
+      '@miljobeslut/mps-evolution': path.resolve(
+        __dirname,
+        'packages/mps-evolution/src/index.ts',
+      ),
     },
   },
   test: {

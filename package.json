@@ -72,6 +72,8 @@
     "@miljobeslut/mps-runtime": "file:packages/mps-runtime",
     "@miljobeslut/mps-audit": "file:packages/mps-audit",
     "@miljobeslut/mps-telemetry": "file:packages/mps-telemetry",
+    "@miljobeslut/mps-policy": "file:packages/mps-policy",
+    "@miljobeslut/mps-evolution": "file:packages/mps-evolution",
     "@google-cloud/billing-budgets": "^6.1.2",
     "@google-cloud/storage": "^7.21.0",
     "@google-cloud/vertexai": "^1.12.0",
