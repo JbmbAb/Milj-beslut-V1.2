@@ -21,6 +21,14 @@ export default defineConfig({
         __dirname,
         'packages/mps-replay/src/index.ts',
       ),
+      '@miljobeslut/mps-audit': path.resolve(
+        __dirname,
+        'packages/mps-audit/src/index.ts',
+      ),
+      '@miljobeslut/mps-telemetry': path.resolve(
+        __dirname,
+        'packages/mps-telemetry/src/index.ts',
+      ),
     },
   },
   test: {

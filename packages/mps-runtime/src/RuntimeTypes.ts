@@ -1,5 +1,6 @@
 import type {
   ContentReference,
+  VerificationResult,
 } from "@miljobeslut/mps-core";
 
 import type {
@@ -23,6 +24,7 @@ export interface StageOutput<TArtifact> {
   readonly artifact: TArtifact;
   readonly runtime_id: string;
   readonly registry_snapshot_id: string;
+  readonly verified?: VerificationResult;
 }
 
 export interface ExecutionManifestStage {

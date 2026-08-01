@@ -48,6 +48,7 @@ export class PromotionStageHandler
       artifact,
       runtime_id,
       registry_snapshot_id: ctx.registry.snapshot_id,
+      verified: verification,
     };
   }
 }
