@@ -1,4 +1,4 @@
-import type { ContentReference } from "@miljobeslut/mps-core";
+import type { ContentReference } from '@miljobeslut/mps-core';
 
 export interface ArtifactStore {
   get<T>(reference: ContentReference): Promise<T>;

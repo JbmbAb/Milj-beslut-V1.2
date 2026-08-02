@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { CanonicalSerializer } from "@miljobeslut/mps-canonical";
+import { DefaultCanonicalPipeline } from "@miljobeslut/mps-canonical";
 import {
   ArtifactIdentityBuilder,
   toContentReference,
@@ -47,7 +47,7 @@ import type {
 // --- Integration Mocks & Stores ---
 
 class CryptoHashEngine implements CanonicalHashEngine {
-  constructor(private readonly serializer: CanonicalSerializer) {}
+  constructor(private readonly serializer: DefaultCanonicalPipeline) {}
   hash(bytes: Uint8Array): any {
     const text = new TextDecoder().decode(bytes);
     let h = 0;
@@ -142,8 +142,11 @@ class InMemoryAuditStore {
 describe("MPS Complete End-to-End Determinism Proof", () => {
   it("should run complete pipeline and replay it to verify bit-for-bit determinism", async () => {
     // 1. Initialiseringsfas
-    const serializer = new CanonicalSerializer();
-    const hashEngine = new CryptoHashEngine(serializer);
+    const basePipeline = new DefaultCanonicalPipeline();
+    const serializer = {
+      serialize: (obj: any) => basePipeline.canonicalize(obj, 'JSON')
+    } as any;
+    const hashEngine = new CryptoHashEngine(basePipeline);
     const signer = new CryptoSigner();
     const sigVerifier = new CryptoVerifier();
     const identityStrategy = new CustomIdentityStrategy();
@@ -237,22 +240,20 @@ describe("MPS Complete End-to-End Determinism Proof", () => {
 
     // 4.5 Seeda prov-ref-1 och prov-ref-2 i lagret så att ReplayEngine kan verifiera dem
     const envelope1 = { value: "provenance-data-1" };
-    const hash1 = hashEngine.hash(serializer.serialize(envelope1));
+    const hash1 = hashEngine.hash(basePipeline.canonicalize(envelope1, 'JSON'));
     const mockProvenance1 = {
       artifact_id: "prov-ref-1",
-      content_hash: hash1,
       ...envelope1,
     };
-    await backend.put("prov-ref-1", serializer.serialize(mockProvenance1));
+    await backend.put("prov-ref-1", basePipeline.canonicalize(mockProvenance1, 'JSON'));
 
     const envelope2 = { value: "provenance-data-2" };
-    const hash2 = hashEngine.hash(serializer.serialize(envelope2));
+    const hash2 = hashEngine.hash(basePipeline.canonicalize(envelope2, 'JSON'));
     const mockProvenance2 = {
       artifact_id: "prov-ref-2",
-      content_hash: hash2,
       ...envelope2,
     };
-    await backend.put("prov-ref-2", serializer.serialize(mockProvenance2));
+    await backend.put("prov-ref-2", basePipeline.canonicalize(mockProvenance2, 'JSON'));
 
     // 5. Exekvera första körningen (Execution 1)
     const stages = [
@@ -290,8 +291,8 @@ describe("MPS Complete End-to-End Determinism Proof", () => {
     const report2 = await runtime2.run(stages);
 
     // Verifiera att ExecutionReports är identiska bit-för-bit!
-    const serializedReport1 = serializer.serialize(report1);
-    const serializedReport2 = serializer.serialize(report2);
+    const serializedReport1 = basePipeline.canonicalize(report1, 'JSON');
+    const serializedReport2 = basePipeline.canonicalize(report2, 'JSON');
     expect(serializedReport1).toEqual(serializedReport2);
 
     // Verifiera att de producerade hasharna och revisionsrekorden i revisionskedjan är helt identiska!

@@ -56,9 +56,7 @@ vi.mock('../../components/BankIDLogin', () => ({
 vi.mock('../../components/MarketIntelView', () => ({
   default: () => <div data-testid="market-intel-view" />,
 }));
-vi.mock('../../components/PermitPortalView', () => ({
-  default: () => <div data-testid="permit-portal-view" />,
-}));
+
 vi.mock('../../components/DetailModal', () => ({ default: () => <div data-testid="detail-modal" /> }));
 vi.mock('../../components/FormManager', () => ({ default: () => <div data-testid="form-manager" /> }));
 vi.mock('../../components/SluExpert', () => ({ default: () => <div data-testid="slu-expert" /> }));

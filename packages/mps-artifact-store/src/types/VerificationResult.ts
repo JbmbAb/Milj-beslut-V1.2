@@ -1,0 +1,1 @@
+export interface VerificationResult { readonly isValid: boolean; readonly errors?: string[]; }

@@ -5,9 +5,7 @@ import { AppContentRouter } from '../../components/AppContentRouter';
 vi.mock('../../components/MarketIntelView', () => ({
   default: () => <div data-testid="market-intel-view" />,
 }));
-vi.mock('../../components/PermitPortalView', () => ({
-  default: () => <div data-testid="permit-portal-view" />,
-}));
+
 vi.mock('../../components/ExecutiveSummary', () => ({
   default: () => <div data-testid="executive-summary" />,
 }));

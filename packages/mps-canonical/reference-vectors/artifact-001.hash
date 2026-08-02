@@ -1,0 +1,16 @@
+{
+  "json_hash": {
+    "algorithm": "blake3",
+    "digest": "1c849d6d86cbd6c5b635638bffc8635625f53d77758ded2c3d069b6d5becc3c5",
+    "encoding": "hex",
+    "version": "1.0",
+    "length": 87
+  },
+  "cbor_hash": {
+    "algorithm": "blake3",
+    "digest": "338fb46c731e6d489e717f4ffd0c7f34f2687b2498e83919a06a4d7289a39607",
+    "encoding": "hex",
+    "version": "1.0",
+    "length": 69
+  }
+}

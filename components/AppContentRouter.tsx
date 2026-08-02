@@ -1,14 +1,12 @@
 import React from 'react';
 import { InterfaceMode, Permit } from '../types';
+import RequirementChecklist from './RequirementChecklist';
 
-import MarketIntelView from './MarketIntelView';
 import ExecutiveSummary from './ExecutiveSummary';
 import IntegrationsDashboard from './IntegrationsDashboard';
 import AssetTriage from './AssetTriage';
 import FieldAssistant from './FieldAssistant';
-import Guide from './Guide';
 import GisRiskModule from './GisRiskModule';
-import LegalSupportCenter from './LegalSupportCenter';
 import AdminMetadataReview from './AdminMetadataReview';
 import AdminSearchConsole from './AdminSearchConsole';
 import AdminGdprPanel from './AdminGdprPanel';
@@ -23,7 +21,7 @@ import { CNotificationMassUI } from './admin/modules/c-notification-mass/CNotifi
 import { PriorityModulePortfolio } from './PriorityModulePortfolio';
 import SewagePortalView from './admin/modules/sewage-portal/SewagePortalView';
 import { DossierDashboard } from './DossierDashboard';
-import PermitPortalView from './PermitPortalView';
+
 import { MimerSearchUI } from './MimerSearchUI';
 
 export interface AppContentRouterProps {
@@ -46,8 +44,7 @@ export const AppContentRouter: React.FC<AppContentRouterProps> = ({
   const normalizedMode = mode;
   const normalizedTab = activeTab;
 
-  if (normalizedTab === 'guide') return <Guide mode={normalizedMode} onNavigate={setActiveTab} />;
-  if (normalizedTab === 'legal') return <LegalSupportCenter />;
+  if (normalizedTab === 'requirements') return <RequirementChecklist mode={normalizedMode} onNavigate={setActiveTab} />;
   if (normalizedTab === 'integrations') return <IntegrationsDashboard />;
   if (normalizedTab === 'dossier') return <DossierDashboard />;
 
@@ -57,10 +54,9 @@ export const AppContentRouter: React.FC<AppContentRouterProps> = ({
         return <CNotificationMassUI />;
       }
       return (
-        <PermitPortalView
-          permits={permits}
-          mode="map"
-        />
+        <div className="flex flex-col items-center justify-center h-full text-slate-400">
+          <p className="text-sm">Legacy-vy borttagen</p>
+        </div>
       );
     case 'Core_WORKFLOW':
       if (normalizedTab === 'sewage-application') return <SewagePortalView />;
@@ -72,7 +68,7 @@ export const AppContentRouter: React.FC<AppContentRouterProps> = ({
     case 'LOGISTICS_MARKET':
       if (normalizedTab === 'archive') return <ExecutiveSummary />;
       if (normalizedTab === 'logistics')
-        return <MarketIntelView permits={permits} onSelectPermit={setSelectedPermit} mode="logistics" />;
+        return <div className="p-4 text-slate-500">Logistics (Legacy) view removed. Use MpsConsole.</div>;
       if (normalizedTab === 'triage') return <AssetTriage />;
       if (normalizedTab === 'marketing') return <MarketingHub permits={permits} fullView />;
       return <ExecutiveSummary />;

@@ -4,14 +4,6 @@ import React from 'react';
 import ProjectWorkspace from '../../components/ProjectWorkspace';
 import type { InterfaceMode } from '../../types';
 
-// Mock child components - lazy loaded
-vi.mock('../../components/MarketIntelView', () => ({
-  default: () => <div data-testid="market-intel">Market Intel View</div>,
-}));
-
-vi.mock('../../components/PermitPortalView', () => ({
-  default: () => <div data-testid="permit-portal">Permit Portal View</div>,
-}));
 
 vi.mock('../../components/admin/modules/c-notification-mass/CNotificationMassUI', () => ({
   CNotificationMassUI: () => <div data-testid="c-notification-mass-ui">C-anmalan mass</div>,
@@ -53,16 +45,9 @@ vi.mock('../../components/FieldAssistant', () => ({
   default: () => <div data-testid="field-assistant">Field Assistant</div>,
 }));
 
-vi.mock('../../components/Guide', () => ({
-  default: () => <div data-testid="guide">Guide</div>,
-}));
 
 vi.mock('../../components/GisRiskModule', () => ({
   default: () => <div data-testid="gis-risk">GIS Risk Module</div>,
-}));
-
-vi.mock('../../components/LegalSupportCenter', () => ({
-  default: () => <div data-testid="legal-support">Legal Support Center</div>,
 }));
 
 vi.mock('../../components/ProjectStructureContext', () => ({
@@ -107,21 +92,6 @@ describe('ProjectWorkspace', () => {
     });
   });
 
-  it('should render guide view when activeTab is guide', async () => {
-    render(<ProjectWorkspace {...defaultProps} activeTab="guide" />);
-
-    await waitFor(() => {
-      expect(screen.getByTestId('guide')).toBeInTheDocument();
-    });
-  });
-
-  it('should render legal support center when activeTab is legal', async () => {
-    render(<ProjectWorkspace {...defaultProps} activeTab="legal" />);
-
-    await waitFor(() => {
-      expect(screen.getByTestId('legal-support')).toBeInTheDocument();
-    });
-  });
 
   it('should render permit portal for PERMIT_PORTAL mode with map tab', async () => {
     render(<ProjectWorkspace {...defaultProps} mode="PERMIT_PORTAL" activeTab="map" />);
@@ -163,13 +133,6 @@ describe('ProjectWorkspace', () => {
     });
   });
 
-  it('should render logistics market view for LOGISTICS_MARKET mode with logistics tab', async () => {
-    render(<ProjectWorkspace {...defaultProps} mode="LOGISTICS_MARKET" activeTab="logistics" />);
-
-    await waitFor(() => {
-      expect(screen.getByTestId('market-intel')).toBeInTheDocument();
-    });
-  });
 
   it('should render executive summary for LOGISTICS_MARKET mode with archive tab', async () => {
     render(<ProjectWorkspace {...defaultProps} mode="LOGISTICS_MARKET" activeTab="archive" />);

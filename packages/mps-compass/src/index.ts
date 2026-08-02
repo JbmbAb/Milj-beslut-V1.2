@@ -108,3 +108,4 @@ export function buildCompassSvgSpec(geom: CompassGeometry): CompassSvgSpec {
 }
 
 export const DEFAULT_COMPASS_SVG_SPEC = buildCompassSvgSpec(buildCompassGeometry());
+export * from './MpsCompass';

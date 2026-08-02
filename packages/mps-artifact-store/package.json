@@ -9,6 +9,7 @@
     ".": "./src/index.ts"
   },
   "dependencies": {
+    "@miljobeslut/mps-canonical": "file:../mps-canonical",
     "@miljobeslut/mps-core": "file:../mps-core"
   },
   "devDependencies": {

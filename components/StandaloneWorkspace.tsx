@@ -1,9 +1,9 @@
 import React, { Suspense, lazy } from 'react';
 import type { InterfaceMode } from '../types';
 import WorkspaceScaffold from './WorkspaceScaffold';
-
+import RequirementChecklist from './RequirementChecklist';
 const ChatBot = lazy(() => import('./ChatBot'));
-const LegalSupportCenter = lazy(() => import('./LegalSupportCenter'));
+const FieldAssistant = lazy(() => import('./FieldAssistant'));
 const CoreWorkflowView = lazy(() => import('./CoreWorkflowView'));
 const AdminMetadataReview = lazy(() => import('./AdminMetadataReview'));
 const AdminSearchConsole = lazy(() => import('./AdminSearchConsole'));
@@ -33,7 +33,7 @@ const StandaloneWorkspace: React.FC<StandaloneWorkspaceProps> = ({
   onExitToDashboard,
 }) => {
   const renderContent = () => {
-    if (activeTab === 'legal') return <LegalSupportCenter />;
+    if (activeTab === 'requirements') return <RequirementChecklist mode="standalone" onNavigate={setActiveTab} />;
 
     switch (mode) {
       case 'Core_WORKFLOW':

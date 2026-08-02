@@ -3,9 +3,9 @@ import type { InterfaceMode, Permit } from '../types';
 import { ProjectStructureProvider, useProjectStructure } from './ProjectStructureContext';
 import { countReadyModules } from '../services/projectStructure';
 import WorkspaceScaffold from './WorkspaceScaffold';
-import LegalSupportCenter from './LegalSupportCenter';
+import AdminSearchConsole from './AdminSearchConsole';
 
-const MarketIntelView = lazy(() => import('./MarketIntelView'));
+
 const ExecutiveSummary = lazy(() => import('./ExecutiveSummary'));
 const DetailModal = lazy(() => import('./DetailModal'));
 const ChatBot = lazy(() => import('./ChatBot'));
@@ -13,14 +13,13 @@ const IntegrationsDashboard = lazy(() => import('./IntegrationsDashboard'));
 const ApplicationWizard = lazy(() => import('./ApplicationWizard'));
 const AssetTriage = lazy(() => import('./AssetTriage'));
 const FieldAssistant = lazy(() => import('./FieldAssistant'));
-const Guide = lazy(() => import('./Guide'));
 const GisRiskModule = lazy(() => import('./GisRiskModule'));
 const CNotificationMassUI = lazy(() =>
   import('./admin/modules/c-notification-mass/CNotificationMassUI').then((module) => ({
     default: module.CNotificationMassUI,
   })),
 );
-const PermitPortalView = lazy(() => import('./PermitPortalView'));
+
 const FormManager = lazy(() => import('./FormManager'));
 const SluExpert = lazy(() => import('./SluExpert'));
 
@@ -77,15 +76,11 @@ const ProjectWorkspaceInner: React.FC<ProjectWorkspaceProps> = ({
       : activeTab;
 
   const renderContent = () => {
-    if (normalizedTab === 'guide') return <Guide mode={normalizedMode} onNavigate={onSetActiveTab} />;
-    if (normalizedTab === 'legal') return <LegalSupportCenter />;
+    if (normalizedTab === 'requirements') return <RequirementChecklist mode={normalizedMode} onNavigate={onSetActiveTab} />;
 
     switch (normalizedMode) {
       case 'LOGISTICS_MARKET':
         if (normalizedTab === 'archive') return <ExecutiveSummary />;
-        if (normalizedTab === 'logistics') {
-          return <MarketIntelView permits={permits} onSelectPermit={setSelectedPermit} mode="logistics" />;
-        }
         if (normalizedTab === 'triage') return <AssetTriage />;
         return <ExecutiveSummary />;
       case 'Core_WORKFLOW':

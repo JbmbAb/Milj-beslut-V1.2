@@ -1,0 +1,1 @@
+export interface ArtifactReference { readonly artifactId: string; }

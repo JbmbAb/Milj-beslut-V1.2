@@ -1,8 +1,8 @@
 import React, { useMemo } from 'react';
 import { AppContentRouter } from '../AppContentRouter';
+import { MpsConsoleApp, uiConfig, MpsProjectionApi } from '@miljobeslut/mps-console';
 import { AppSidebar } from '../AppSidebar';
 import { AppHeader } from '../AppHeader';
-import BankIDLogin from '../BankIDLogin';
 import ChatBot from '../ChatBot';
 import DetailModal from '../DetailModal';
 import { TechnicalDashboardHub } from '../TechnicalDashboardHub';
@@ -62,6 +62,13 @@ export const AppShell: React.FC = () => {
     return MODE_CARDS.filter((card) => !card.flag || featureFlags.isEnabled(card.flag));
   }, []);
 
+  if (!uiConfig.enableLegacyUi) {
+    // Stub api implementation for now until backend is connected
+    const dummyApi: MpsProjectionApi = {} as any;
+    return <MpsConsoleApp api={dummyApi} />;
+  }
+
+
   if (sessionState === 'loading') {
     return (
       <div className="min-h-screen flex items-center justify-center bg-slate-950 text-white">
@@ -76,7 +83,16 @@ export const AppShell: React.FC = () => {
   }
 
   if (sessionState === 'unauthenticated') {
-    return <BankIDLogin onLogin={onLoginSuccess} />;
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-slate-950 text-white">
+        <div className="text-center">
+          <p className="text-xs font-black uppercase tracking-[0.2em] text-slate-400">
+            Logga in (Legacy borttagen)
+          </p>
+          <button onClick={onLoginSuccess} className="mt-4 p-2 bg-blue-500 rounded">Logga In Dummy</button>
+        </div>
+      </div>
+    );
   }
 
   if (sessionState === 'error') {

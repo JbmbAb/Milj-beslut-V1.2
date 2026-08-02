@@ -145,3 +145,13 @@ export interface MimerIdentitySpec {
   readonly designTokens: DesignTokens;
   readonly consoleTheme: ConsoleTheme;
 }
+
+export const designTokens = {
+  colors: {
+    surfaceDarkStone: { hex: '#1C1C1E' },
+    coreTurquoise: { hex: '#40E0D0' },
+    flowLightCyan: { hex: '#E0FFFF' },
+    coreGraphite: { hex: '#2C2C2E' },
+    statusAudit: { hex: '#F0E68C' }
+  }
+} as any;

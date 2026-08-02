@@ -74,6 +74,10 @@ export class ContentAddressedArtifactStore {
     return artifact as T;
   }
 
+  async has(reference: ContentReference): Promise<boolean> {
+    return this.backend.exists(reference.id);
+  }
+
   async put<TEnvelope>(
     envelope: TEnvelope
   ): Promise<
