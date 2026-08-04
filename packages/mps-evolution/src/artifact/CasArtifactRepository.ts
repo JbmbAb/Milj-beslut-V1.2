@@ -21,6 +21,11 @@ export class CasArtifactRepository implements ArtifactRepository {
     }
 
     async put<T extends CanonicalArtifact>(artifact: T): Promise<ContentReference> {
+        if (!artifact.signature || !artifact.signature.value) {
+            throw new Error("SIGNATURE_REQUIRED");
+        }
+
+        // CAS will do hash match, signature validation, deduplication and WORM
         return this.cas.put(artifact);
     }
 }

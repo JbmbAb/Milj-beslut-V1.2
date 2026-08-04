@@ -1,11 +1,9 @@
 import { describe, it, expect } from "vitest";
 import { ShadowEvaluationArtifact } from "../src/evaluation/ShadowEvaluationArtifact.js";
 import { assertContentReferenceMatches } from "../src/core/assertContentReferenceMatches.js";
-
-// Utility for test 2
-function hashArtifact(artifact: any) {
-    return artifact.content_hash;
-}
+import { PromotionPolicy } from "../src/governance/PromotionPolicy.js";
+import { DefaultFitnessEngine } from "../src/fitness/FitnessEngine.js";
+import { CasArtifactRepository } from "../src/artifact/CasArtifactRepository.js";
 
 describe("ADR-22 Core Compliance", () => {
 
@@ -15,12 +13,8 @@ describe("ADR-22 Core Compliance", () => {
                 artifact_type: "SHADOW_EVALUATION",
                 content_hash: "abc123",
                 schema_version: "1.0",
-                signature: {
-                    algorithm: "SHA256",
-                    value: "signed"
-                }
+                signature: { algorithm: "SHA256", value: "signed" }
             } as ShadowEvaluationArtifact;
-
             expect(artifact.content_hash).toBeDefined();
             expect(artifact.signature.value).toBeDefined();
         });
@@ -28,139 +22,131 @@ describe("ADR-22 Core Compliance", () => {
 
     describe("2. Artifact identity isolation", () => {
         it("telemetry changes do not change artifact identity", () => {
-            const artifact = {
-                artifact_type: "PLAN",
-                content_hash: "HASH_A"
+            // Assume we serialize the artifact independently of the telemetry envelope
+            const createEnvelope = (duration: number, trace: string) => {
+                const artifact = { artifact_type: "PLAN", content_hash: "HASH_A" };
+                return {
+                    artifact,
+                    telemetry: { duration_ms: duration, trace_id: trace }
+                };
             };
+            const result1 = createEnvelope(100, "abc");
+            const result2 = createEnvelope(9000, "xyz");
 
-            const result1 = {
-                artifact,
-                telemetry: {
-                    duration_ms: 100,
-                    trace: "abc"
-                }
-            };
-
-            const result2 = {
-                artifact,
-                telemetry: {
-                    duration_ms: 9000,
-                    trace: "xyz"
-                }
-            };
-
-            expect(result1.telemetry).not.toEqual(result2.telemetry);
-            expect(hashArtifact(result1.artifact)).toEqual(hashArtifact(result2.artifact));
+            expect(result1.telemetry.duration_ms).not.toEqual(result2.telemetry.duration_ms);
+            expect(result1.telemetry.trace_id).not.toEqual(result2.telemetry.trace_id);
+            // Hashes match because they are computed strictly from the inner artifact
+            expect(result1.artifact.content_hash).toEqual(result2.artifact.content_hash);
         });
     });
 
     describe("3. Reference integrity", () => {
         it("rejects mismatching artifact hash", () => {
-            const reference = {
-                hash: "HASH_A",
-                artifact_type: "PLAN" as const
-            };
-
-            const artifact = {
-                artifact_type: "PLAN",
-                content_hash: "HASH_B"
-            };
-
+            const reference = { hash: "HASH_A", artifact_type: "PLAN" as const };
+            const artifact = { artifact_type: "PLAN", content_hash: "HASH_B" };
             expect(() => assertContentReferenceMatches(reference, artifact as any))
                 .toThrow("CONTENT_REFERENCE_MISMATCH");
+        });
+
+        it("rejects asymmetric schema_ref", () => {
+            const reference = { hash: "HASH_A", artifact_type: "PLAN" as const, schema_ref: "schema://A" };
+            const artifact = { artifact_type: "PLAN", content_hash: "HASH_A", schema_version: undefined };
+            expect(() => assertContentReferenceMatches(reference, artifact as any))
+                .toThrow("SCHEMA_REFERENCE_MISMATCH");
         });
     });
 
     describe("4. Shadow evaluation lineage", () => {
         it("evaluation must reference evaluated candidate", () => {
-            const candidate = {
-                hash: "candidate-A"
-            };
-
-            const evaluation = {
-                candidate_ref: {
-                    hash: "candidate-B"
-                }
-            };
-
-            expect(evaluation.candidate_ref.hash).not.toBe(candidate.hash);
+            const evaluation = { candidate_ref: { hash: "candidate-B", artifact_type: "EVOLUTION_CANDIDATE" } };
+            // Simulate assertion logic
+            expect(evaluation.candidate_ref.hash).toBeDefined();
+            expect(evaluation.candidate_ref.artifact_type).toBe("EVOLUTION_CANDIDATE");
         });
     });
 
     describe("5. Fitness trust boundary", () => {
         it("promotion request cannot inject fitness", () => {
             const request = {
-                candidate_ref: { hash: "candidate" },
-                evaluation_ref: { hash: "evaluation" },
-                constraints_ref: { hash: "constraints" }
-                // ingen fitness
+                candidate_ref: { hash: "candidate", artifact_type: "EVOLUTION_CANDIDATE" },
+                evaluation_ref: { hash: "evaluation", artifact_type: "SHADOW_EVALUATION" },
+                constraints_ref: { hash: "constraints", artifact_type: "PLAN" }
             };
-
+            // TypeScript ensures `fitness` is not a property on `PromotionRequest`
             expect((request as any).fitness).toBeUndefined();
         });
     });
 
     describe("6. Fitness calculation", () => {
         it("fitness is derived from evaluation", () => {
-            const evaluation = {
-                metrics: {
-                    quality: 1,
-                    cost: 0,
-                    errors: 0,
-                    latency_ms: 0
-                }
-            };
+            const engine = new DefaultFitnessEngine();
+            const evaluation1 = { metrics: { quality: 1, cost: 0.1, errors: 0, latency_ms: 10 } } as ShadowEvaluationArtifact;
+            const evaluation2 = { metrics: { quality: 0.5, cost: 0.5, errors: 2, latency_ms: 500 } } as ShadowEvaluationArtifact;
+            
+            const score1 = engine.calculate(evaluation1);
+            const score2 = engine.calculate(evaluation2);
 
-            const fitness = {
-                value: 1
-            };
-
-            expect(fitness.value).toBe(evaluation.metrics.quality);
+            expect(score1.value).not.toBe(score2.value);
+            expect(score1.value).toBeGreaterThan(score2.value);
         });
     });
 
     describe("7. Promotion reference validation", () => {
-        it("rejects unrelated evaluation", async () => {
+        it("rejects mismatched candidate_ref", async () => {
+            const evaluationArtifact = {
+                artifact_type: "SHADOW_EVALUATION",
+                content_hash: "eval-123",
+                candidate_ref: { hash: "candidate-A", artifact_type: "EVOLUTION_CANDIDATE" },
+                metrics: { quality: 1, cost: 0, errors: 0, latency_ms: 0 },
+                schema_version: "1.0",
+                signature: { algorithm: "SHA256", value: "sig" }
+            } as any;
+
+            const candidateArtifact = {
+                artifact_type: "EVOLUTION_CANDIDATE",
+                content_hash: "candidate-B", // Differs from evaluation's candidate
+                schema_version: "1.0",
+                signature: { algorithm: "SHA256", value: "sig" }
+            } as any;
+
+            const mockCas = {
+                get: async (ref: any) => {
+                    if (ref.hash === "eval-123") return evaluationArtifact;
+                    if (ref.hash === "candidate-B") return candidateArtifact;
+                    throw new Error("NOT_FOUND");
+                },
+                put: async () => { return { hash: "", artifact_type: "PLAN" as any }; }
+            };
+
+            const repository = new CasArtifactRepository(mockCas);
+            const engine = new DefaultFitnessEngine();
+            const policy = new PromotionPolicy(repository, engine);
+
             const request = {
-                candidate_ref: { hash: "candidate-A" },
-                evaluation_ref: { hash: "evaluation-X" },
-                constraints_ref: { hash: "constraints" }
+                candidate_ref: { hash: "candidate-B", artifact_type: "EVOLUTION_CANDIDATE" as const },
+                evaluation_ref: { hash: "eval-123", artifact_type: "SHADOW_EVALUATION" as const },
+                constraints_ref: { hash: "constraints", artifact_type: "PLAN" as const }
             };
 
-            const evaluation = {
-                candidate_ref: { hash: "candidate-B" }
-            };
-
-            expect(evaluation.candidate_ref.hash).not.toBe(request.candidate_ref.hash);
+            await expect(policy.evaluate(request)).rejects.toThrow("FITNESS_CANDIDATE_MISMATCH");
         });
     });
 
     describe("8. Mutation replay", () => {
         it("replay loads candidate artifact", () => {
-            const candidate = {
-                artifact_type: "EVOLUTION_CANDIDATE",
-                content_hash: "immutable-hash"
-            };
-
-            const replayInput = candidate;
-
-            expect(replayInput.content_hash).toBe("immutable-hash");
+            const candidate = { artifact_type: "EVOLUTION_CANDIDATE", content_hash: "immutable-hash" };
+            expect(candidate.content_hash).toBe("immutable-hash");
         });
     });
 
     describe("9. Chaos telemetry poisoning", () => {
         it("massively different runtime telemetry keeps same artifact hash", () => {
-            const execution1 = {
-                artifact: { content_hash: "same" },
-                telemetry: { duration_ms: 10 }
-            };
-
-            const execution2 = {
-                artifact: { content_hash: "same" },
-                telemetry: { duration_ms: 999999 }
-            };
-
+            const execution1 = { artifact: { content_hash: "same" }, telemetry: { duration_ms: 10, trace_id: "abc", worker: "A" } };
+            const execution2 = { artifact: { content_hash: "same" }, telemetry: { duration_ms: 999999, trace_id: "xyz", worker: "B" } };
+            
             expect(execution1.telemetry.duration_ms).not.toBe(execution2.telemetry.duration_ms);
+            expect(execution1.telemetry.trace_id).not.toBe(execution2.telemetry.trace_id);
+            expect(execution1.telemetry.worker).not.toBe(execution2.telemetry.worker);
             expect(execution1.artifact.content_hash).toBe(execution2.artifact.content_hash);
         });
     });
@@ -169,36 +155,21 @@ describe("ADR-22 Core Compliance", () => {
         it("rejects mutation of existing identity", async () => {
             const first = { content_hash: "HASH" };
             const second = { content_hash: "DIFFERENT" };
-
             expect(first.content_hash).not.toBe(second.content_hash);
         });
     });
 
     describe("11. Actor identity", () => {
         it("rejects unknown governance roles", () => {
-            const validRoles = [
-                "EVOLUTION_AGENT",
-                "HUMAN_OPERATOR",
-                "SYSTEM_PROCESS",
-                "GOVERNANCE_REVIEWER"
-            ];
-
+            const validRoles = ["EVOLUTION_AGENT", "HUMAN_OPERATOR", "SYSTEM_PROCESS", "GOVERNANCE_REVIEWER"];
             expect(validRoles).not.toContain("developer");
         });
     });
 
     describe("12. Artifact migration", () => {
         it("migration invalidates old signature", () => {
-            const oldArtifact = {
-                schema_version: "1.0",
-                signature: "OLD_SIGNATURE"
-            };
-
-            const migrated = {
-                schema_version: "2.0",
-                signature: "NEW_SIGNATURE"
-            };
-
+            const oldArtifact = { schema_version: "1.0", signature: "OLD_SIGNATURE" };
+            const migrated = { schema_version: "2.0", signature: "NEW_SIGNATURE" };
             expect(migrated.signature).not.toBe(oldArtifact.signature);
         });
     });

@@ -11,4 +11,9 @@ export function assertContentReferenceMatches(
     if (reference.artifact_type !== artifact.artifact_type) {
         throw new Error("ARTIFACT_TYPE_MISMATCH");
     }
+
+    // Protect against asymmetric schema_ref
+    if (reference.schema_ref !== undefined && reference.schema_ref !== artifact.schema_version) {
+        throw new Error("SCHEMA_REFERENCE_MISMATCH");
+    }
 }

@@ -123,6 +123,13 @@ export default defineConfig({
           maxConcurrency: 1,
         },
       },
+      {
+        test: {
+          name: 'compliance',
+          include: ['packages/mps-compliance/**/*.test.ts', 'packages/mps-runtime/**/*.test.ts', 'packages/mps-artifact-store/**/*.test.ts', 'packages/mps-lu/**/*.test.ts'],
+          environment: 'node',
+        },
+      },
 
     ],
   },
