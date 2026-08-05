@@ -38,7 +38,7 @@ Canonical översikt för Miljöbeslut V2.0. Läs i denna ordning vid onboarding.
 | [LU-Flow.md](./LU-Flow.md) | LU-flöde + default UI (`MimerProductShell`; rollback `VITE_ENABLE_LEGACY_UI=1`) |
 | [ADR-30](./ADR-30-LU-Runtime-v1-Freeze-ExecutionKernel-Cutover.md) | **Execution Kernel v1.0 – LU Cutover Complete** (normativ LU-runtime) |
 | [ADR-31](./ADR-31-Post-LU-Platform-Infrastructure-Focus.md) | Epoch II — **Execution Platform** v1 |
-| [MPS-Epoch-Roadmap.md](./MPS-Epoch-Roadmap.md) | Epoch I ✅ / II 🟡 / IIIA–D 🔵 / IV ⚪ |
+| [MPS-Epoch-Roadmap.md](./MPS-Epoch-Roadmap.md) | Planning-frozen Epoch I–IV (domain-agnostic Execution Platform) |
 | [PERMIT_PORTAL_LEGACY.md](./PERMIT_PORTAL_LEGACY.md) | Legacy C-anmälan |
 | [PERMIT_PORTAL_RETIREMENT_PLAN.md](./PERMIT_PORTAL_RETIREMENT_PLAN.md) | Avvecklingsplan |
 | [massa_logistik_implementation.md](./massa_logistik_implementation.md) | Schaktmassa/logistik (aktiv kod) |
