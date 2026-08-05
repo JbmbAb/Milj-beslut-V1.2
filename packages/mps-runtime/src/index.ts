@@ -16,7 +16,13 @@ export * from "./kernel/ExecutionKernel";
 export * from "./kernel/FrozenAdmissionAdapter";
 export * from "./kernel/RuntimeAdmissionKernel";
 export * from "./repository/InMemoryArtifactRepository";
-export * from "./repository/CasBackedArtifactRepository";
+export {
+  MemoryByteStorageBackend,
+  CasBackedArtifactRepository,
+  type ByteStorageBackend,
+} from "./repository/CasBackedArtifactRepository";
 export * from "./repository/MimersByteStorageBackend";
 export * from "./repository/createKernelArtifactRepository";
+/** Epoch II §2.4 — Mimers Integration */
+export * from "./mimers/index";
 export * from "./replay/DefaultReplayEngine";

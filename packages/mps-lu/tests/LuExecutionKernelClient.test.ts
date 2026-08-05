@@ -46,6 +46,7 @@ describe("LuExecutionKernelClient", () => {
     expect(clientSrc).toContain("runLuAssessmentViaKernel");
     expect(clientSrc).toContain("createLuRegistryRuntime");
     expect(clientSrc).toContain("implementation_ref");
+    expect(clientSrc).toContain("MimersIntegration");
     expect(clientSrc).not.toContain("lu-rule-engine:");
   });
 });

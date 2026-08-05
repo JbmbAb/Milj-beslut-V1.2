@@ -8,7 +8,7 @@ import {
   type CapabilityExecutorPort,
 } from "../../../mps-runtime/src/kernel/ExecutionKernel.js";
 import { FrozenAdmissionAdapter } from "../../../mps-runtime/src/kernel/FrozenAdmissionAdapter.js";
-import { createKernelArtifactRepository } from "../../../mps-runtime/src/repository/createKernelArtifactRepository.js";
+import { MimersIntegration } from "../../../mps-runtime/src/mimers/index.js";
 import { DefaultReplayEngine } from "../../../mps-runtime/src/replay/DefaultReplayEngine.js";
 import type { FrozenExecutionManifestIdentity } from "../../../mps-runtime/src/contracts/freeze/FrozenIdentities.js";
 import type { ArtifactReference } from "../../../mps-compliance/src/artifacts/ArtifactReference.js";
@@ -69,7 +69,8 @@ export interface LuKernelRunResult {
 export async function runLuAssessmentViaKernel(
   input: LuKernelRunInput,
 ): Promise<LuKernelRunResult> {
-  const repo = await createKernelArtifactRepository();
+  const mimers = await MimersIntegration.create();
+  const repo = mimers.artifactRepository;
   const registry = input.registry ?? createLuRegistryRuntime();
   const capability = registry.resolveCapabilityByKey(LU_SITE_ASSESSMENT_CAPABILITY_KEY);
   if (!capability) {

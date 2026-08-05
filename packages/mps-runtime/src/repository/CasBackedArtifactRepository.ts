@@ -1,13 +1,14 @@
-import { createHash } from "node:crypto";
-import { promises as fs } from "node:fs";
-import path from "node:path";
 import type { ContentHash } from "../../../mps-compliance/src/artifacts/ContentHash.js";
 import type { ArtifactReference } from "../../../mps-compliance/src/artifacts/ArtifactReference.js";
 import type { ArtifactRepositoryPort } from "../kernel/ExecutionKernel.js";
+import {
+  CasArtifactResolver,
+  type ArtifactResolverPort,
+} from "../mimers/ArtifactResolver.js";
 
 /**
  * Content-addressed ArtifactRepositoryPort backed by a byte store (Mimers-compatible shape).
- * Wraps CAS get/put without coupling kernel to mps-core serializer graph.
+ * Put writes envelopes; resolve delegates to ArtifactResolver → CAS.
  */
 export interface ByteStorageBackend {
   get(id: string): Promise<Uint8Array | null>;
@@ -38,60 +39,13 @@ export class MemoryByteStorageBackend implements ByteStorageBackend {
   }
 }
 
-/**
- * @deprecated Use MimersByteStorageBackend via createKernelArtifactRepository.
- * Kept for isolated unit tests only — not a product CAS path (no .data/mps-cas).
- */
-export class FileByteStorageBackend implements ByteStorageBackend {
-  private readonly rootDir: string;
-
-  constructor(rootDir: string) {
-    this.rootDir = rootDir;
-  }
-
-  private fileFor(id: string): string {
-    const safe = createHash("sha256").update(id).digest("hex");
-    return path.join(this.rootDir, `${safe}.cas`);
-  }
-
-  async get(id: string): Promise<Uint8Array | null> {
-    try {
-      return await fs.readFile(this.fileFor(id));
-    } catch {
-      return null;
-    }
-  }
-
-  async put(id: string, bytes: Uint8Array): Promise<void> {
-    await fs.mkdir(this.rootDir, { recursive: true });
-    const file = this.fileFor(id);
-    try {
-      const existing = await fs.readFile(file);
-      if (Buffer.compare(existing, Buffer.from(bytes)) !== 0) {
-        throw new Error(`WORM violation: ${id}`);
-      }
-      return;
-    } catch (err: any) {
-      if (err?.message?.startsWith("WORM")) throw err;
-    }
-    await fs.writeFile(file, bytes);
-  }
-
-  async exists(id: string): Promise<boolean> {
-    try {
-      await fs.access(this.fileFor(id));
-      return true;
-    } catch {
-      return false;
-    }
-  }
-}
-
 export class CasBackedArtifactRepository implements ArtifactRepositoryPort {
   private readonly backend: ByteStorageBackend;
+  readonly resolver: ArtifactResolverPort;
 
   constructor(backend: ByteStorageBackend) {
     this.backend = backend;
+    this.resolver = new CasArtifactResolver(backend);
   }
 
   async put(artifact: {
@@ -109,8 +63,7 @@ export class CasBackedArtifactRepository implements ArtifactRepositoryPort {
   }
 
   async resolve<T>(ref: ArtifactReference): Promise<T> {
-    const envelope = await this.resolveEnvelope<T>(ref);
-    return envelope.body;
+    return this.resolver.resolve<T>(ref);
   }
 
   async resolveEnvelope<T>(ref: ArtifactReference): Promise<{
@@ -118,15 +71,6 @@ export class CasBackedArtifactRepository implements ArtifactRepositoryPort {
     content_hash: ContentHash;
     body: T;
   }> {
-    const bytes = await this.backend.get(ref.artifact_id);
-    if (!bytes) {
-      throw new Error(`Artifact not found: ${ref.artifact_id}`);
-    }
-    const envelope = JSON.parse(Buffer.from(bytes).toString("utf8")) as {
-      artifact_id: string;
-      body: T;
-      content_hash: ContentHash;
-    };
-    return envelope;
+    return this.resolver.resolveEnvelope<T>(ref);
   }
 }

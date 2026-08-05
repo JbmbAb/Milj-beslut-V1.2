@@ -128,7 +128,7 @@ Sole runtime source of truth:
 
 **Code:** `packages/mps-runtime/src/registry/` — `RegistryRuntime` facade; LU seeds via `createLuRegistryRuntime` and binds invoke handlers to `implementation_ref`.
 
-### 2.4 Mimers Brunn Integration
+### 2.4 Mimers Brunn Integration ✅
 
 Kernel SHALL never talk directly to PostGIS or files:
 
@@ -137,6 +137,15 @@ ArtifactRepository → Resolver → CAS → Mimers Brunn
 ```
 
 Providers and harvest sit *outside* the platform; they produce artifacts that enter CAS. Capability/Workflow runtimes consume only repository ports backed by Mimers.
+
+| Component | Responsibility | Code |
+|-----------|----------------|------|
+| **MimersIntegration** | Sole facade: create / assertReady / rebuildIndex | `mps-runtime/src/mimers/MimersIntegration` |
+| **ArtifactResolver** | Read-by-ref → CAS envelope | `CasArtifactResolver` |
+| **CasBackedArtifactRepository** | Put + compose resolver | `repository/CasBackedArtifactRepository` |
+| **MimersByteStorageBackend** | artifact_id ↔ Mimers hash index | `repository/MimersByteStorageBackend` |
+
+**Invariant:** Product path obtains storage only via `MimersIntegration` (or thin `createKernelArtifactRepository` alias). `MIMERS_REQUIRED` fail-closed.
 
 ### 2.5 Capability Runtime
 
