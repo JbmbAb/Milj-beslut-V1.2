@@ -1,41 +1,45 @@
 # MPS Execution Motor — Implementation Plan
 
-See the full multi-epoch plan: **[MPS-Epoch-Roadmap.md](./MPS-Epoch-Roadmap.md)**.
+Full roadmap: **[MPS-Epoch-Roadmap.md](./MPS-Epoch-Roadmap.md)**.
 
 Governing ADRs:
 
-- [ADR-29](./ADR-29-Runtime-Contract-Freeze-ExecutionKernel.md) — identity freeze  
+- [ADR-29](./ADR-29-Runtime-Contract-Freeze-ExecutionKernel.md) — identity / Execution Model freeze  
 - [ADR-30](./ADR-30-LU-Runtime-v1-Freeze-ExecutionKernel-Cutover.md) — LU Runtime v1 / Kernel v1.0  
-- [ADR-31](./ADR-31-Post-LU-Platform-Infrastructure-Focus.md) — Epoch II Platform Kernel focus  
+- [ADR-31](./ADR-31-Post-LU-Platform-Infrastructure-Focus.md) — Epoch II **Execution Platform** focus  
 
 ## Epoch status
 
 | Epoch | Goal | Status |
 |-------|------|--------|
 | I — Frozen + LU | Single spine; LU = reference client | ✅ Closed |
-| II — Platform Kernel | **Execution Platform v1** (universal motor) | 🟡 Active |
-| III — Knowledge Platform | Mimers expansion, assessments library, evolution | 🔵 Later |
+| II — **Execution Platform** | Universal platform (not “kernel-only”) | 🟡 Active |
+| III — Knowledge Platform | IIIA foundation → IIIB assessments → IIIC evolution → IIID adaptive | 🔵 Later |
+| IV — Ecosystem Platform | APIs, plugins, partners, multi-client | ⚪ Long-term |
 
-## Epoch II — Active workstreams
+## Epoch II — Active workstreams (build order)
 
-| # | Track | First concrete target |
-|---|--------|------------------------|
-| 2.1 | Execution Infrastructure | ExecutionQueue + LeaseManager + Retry + Idempotency + Crash Recovery + Replay Scheduler |
-| 2.2 | Workflow Runtime | Deterministic multi-step WorkflowEngine + workflow replay |
-| 2.3 | Capability Runtime | Domain-agnostic invoke path (no domain imports in runtime) |
-| 2.4 | Registry Runtime | Capability / Workflow / Rule / Provider / Release as truth |
-| 2.5 | Mimers Integration | Kernel → ArtifactRepository → Resolver → CAS only |
-| 2.6 | Observability | Graph / lineage / replay logs / tracing (non-mutating) |
+| # | Track | Notes |
+|---|--------|--------|
+| 2.1 | Execution Infrastructure | Queue, Lease, Retry, Idempotency, Crash Recovery, Replay Scheduler |
+| 2.2 | Execution Model | Manifest, Attempt, Outcome, Session, ReplayIdentity, TicketIdentity |
+| 2.3 | Registry Runtime | Sole truth before capability/workflow go general |
+| 2.4 | Capability Runtime | No domain imports in runtime |
+| 2.5 | Workflow Runtime | Multi-step + workflow replay (needs registry) |
+| 2.6 | Mimers Integration | ArtifactRepository → Resolver → CAS only |
+| 2.7 | Projection Layer | `Execution → Artifacts → Projection → UI` |
+| 2.8 | Runtime Observability | Non-mutating graph / lineage / tracing |
 
-**Start here:** 2.1 — result: executions resume after crash without information loss.
+**Start here:** 2.1 — resume after crash without information loss.
 
-## Locked invariants (all epochs)
+## Locked invariants
 
-- ExecutionKernel is the only client-facing motor API.  
-- Admit before execute; CapabilityExecutor does not know RuleEngines.  
+- Execution Platform ≠ ExecutionKernel alone.  
+- Admit before execute; no domain RuleEngines inside runtime.  
+- Registry is the sole implementation truth.  
 - Replay reads CAS via ArtifactRepository.  
-- Mimers CAS is the sole artifact store for kernel writes.  
-- Evolution: admitted + replayable only; never direct production mutation; never self-edit Frozen Core.  
+- UI via Projection — never Execution → UI.  
+- Evolution (IIIC) ≠ Adaptive self-optimization (IIID).  
 - Do not reopen LU Runtime v1 for motor churn.
 
 ## Reference client (frozen — Epoch I)
