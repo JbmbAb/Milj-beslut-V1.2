@@ -17,14 +17,14 @@ export type ArtifactLoaderFunction = (ref: ArtifactReference) => Promise<any>;
  * Maps logical layer names to their corresponding PostGIS tables.
  */
 const LAYER_TABLE_MAP: Record<string, string> = {
-  "water": "env.sgu_water_layer", // example placeholder table
-  "ebh": "env.nv_ebh_sites",      // example placeholder table
-  "protected_area": "env.protected_area",
+  "water": "env.sgu_well_actual",
+  "ebh": "env.ebh_potentiellt_fororenade_omraden",
+  "protected_area": "env.natura2000_area",
 };
 
 /**
  * PostGIS implementation of ISpatialProvider for the LU Module.
- * Uses a dependency-injected query function to execute ST_Intersects 
+ * Uses a dependency-injected query function to execute ST_DWithin
  * and an artifact loader to retrieve the property coordinates.
  */
 export class PostgisSpatialProvider implements ISpatialProvider {
@@ -53,13 +53,11 @@ export class PostgisSpatialProvider implements ISpatialProvider {
         continue;
       }
 
-      // We assume SWEREF99 TM (3006) for the coordinates in the DB.
-      // e.g. [lat, lng] is actually [N, E] or [Y, X]. 
-      // If lat=6612345, lng=591234, X=lng, Y=lat.
+      // We use ST_DWithin with 500 meters search distance to match both points (wells) and polygons.
       const sql = `
         SELECT 1 
         FROM ${tableName} 
-        WHERE ST_Intersects(geom, ST_SetSRID(ST_MakePoint($1, $2), 3006)) 
+        WHERE ST_DWithin(geom, ST_SetSRID(ST_MakePoint($1, $2), 3006), 500) 
         LIMIT 1
       `;
 

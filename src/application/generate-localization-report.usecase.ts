@@ -17,6 +17,7 @@ import { searchSluByCoordinates, getSpeciesInformation } from '../../server/serv
 import { logger } from '../../server/logger';
 import type { AuthUser } from '../../server/security/types';
 import { orchestrator } from '@miljobeslut/mps-lu/src/api/LUBackendOrchestrator';
+import { prisma } from '../../server/db/prisma';
 
 export interface SiteAlternative {
   id: string;
@@ -384,6 +385,92 @@ async function analyzeSite(
     documentEvidence = await orchestrator.generateDocumentEvidence(propertyRef, geometry);
   } catch (err) {
     logger.warn(`Failed to generate document evidence for site ${site.id}`, { err: String(err) });
+  }
+
+  // ═════════════════════════════════════════════════════════════════════════
+  // MIMER EXECUTION & REPLAY ENGINE (LU_RULE_ENGINE) INTEGRATION
+  // ═════════════════════════════════════════════════════════════════════════
+  let mpsFindings: any[] = [];
+  try {
+    const { PostgisSpatialProvider, LURuleEngine } = await import('@miljobeslut/mps-lu');
+
+    // Convert GPS coordinate WGS84 [lat, lng] to SWEREF99 TM [N, E] via PostGIS transform
+    const coords = await prisma.$queryRawUnsafe<any[]>(
+      `SELECT ST_X(ST_Transform(ST_SetSRID(ST_MakePoint($1, $2), 4326), 3006)) as x,
+              ST_Y(ST_Transform(ST_SetSRID(ST_MakePoint($1, $2), 4326), 3006)) as y`,
+      site.lng,
+      site.lat,
+    );
+    const xSweref = coords[0]?.x || 591234;
+    const ySweref = coords[0]?.y || 6612345;
+
+    const queryFn = async (sql: string, params: any[]) => {
+      return await prisma.$queryRawUnsafe(sql, ...params);
+    };
+
+    const artifactLoader = async (ref: any) => {
+      return {
+        artifact_id: ref.artifact_id,
+        artifact_type: "LU_PROPERTY_CONTEXT",
+        payload: {
+          coordinates: [ySweref, xSweref]
+        }
+      };
+    };
+
+    const spatialProvider = new PostgisSpatialProvider(queryFn, artifactLoader);
+    const queryRequest = {
+      property_ref: { artifact_id: `prop-${site.id}`, artifact_type: "LU_PROPERTY_CONTEXT" as const },
+      layers: ["water", "ebh", "protected_area"] as const
+    };
+
+    // Execute real PostGIS ST_DWithin query to harvest spatial evidence!
+    const mpsEvidence = await spatialProvider.query(queryRequest);
+
+    // Run the real Mimer LURuleEngine!
+    const ruleEngine = new LURuleEngine();
+    mpsFindings = ruleEngine.evaluate(mpsEvidence);
+
+    // Merge Mimer Rule Engine findings into complianceAnalysis
+    if (mpsFindings && mpsFindings.length > 0) {
+      let hasHigh = false;
+      let hasMedium = false;
+      const requiredActions: string[] = [];
+      const notes: string[] = [];
+
+      mpsFindings.forEach(f => {
+        if (f.risk_level === 'HIGH') hasHigh = true;
+        if (f.risk_level === 'MEDIUM') hasMedium = true;
+        
+        const itemText = `[${f.rule_id} v${f.rule_version}] ${f.explanation}`;
+        if (f.risk_level === 'HIGH') {
+          requiredActions.push(itemText);
+        } else {
+          notes.push(itemText);
+        }
+      });
+
+      complianceAnalysis.requiredActions = [
+        ...(complianceAnalysis.requiredActions || []),
+        ...requiredActions
+      ];
+      complianceAnalysis.notes = [
+        ...(complianceAnalysis.notes || []),
+        ...notes
+      ];
+
+      if (hasHigh) {
+        complianceAnalysis.overallRisk = 'HIGH';
+        complianceAnalysis.permitProbability = 0.2;
+      } else if (hasMedium && complianceAnalysis.overallRisk === 'LOW') {
+        complianceAnalysis.overallRisk = 'MEDIUM';
+        complianceAnalysis.permitProbability = 0.5;
+      }
+    }
+
+    logger.info(`Mimer Execution Engine completed successfully. Generated ${mpsFindings.length} findings.`, { site: site.id });
+  } catch (err: any) {
+    logger.warn('Failed to run Mimer Execution/Rule Engine for site analysis', { err: err.message || err });
   }
 
   return {

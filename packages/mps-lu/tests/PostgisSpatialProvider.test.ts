@@ -49,11 +49,11 @@ describe("PostgisSpatialProvider", () => {
     expect(mockQueryFn).toHaveBeenCalledTimes(2); // unknown_layer should be skipped
 
     // Verify first query was for water
-    expect(mockQueryFn.mock.calls[0][0]).toContain("env.sgu_water_layer");
+    expect(mockQueryFn.mock.calls[0][0]).toContain("env.sgu_well_actual");
     expect(mockQueryFn.mock.calls[0][1]).toEqual([591234, 6612345]); // [lng, lat] -> [E, N]
 
     // Verify second query was for ebh
-    expect(mockQueryFn.mock.calls[1][0]).toContain("env.nv_ebh_sites");
+    expect(mockQueryFn.mock.calls[1][0]).toContain("env.ebh_potentiellt_fororenade_omraden");
     expect(mockQueryFn.mock.calls[1][1]).toEqual([591234, 6612345]); // [E, N]
 
     // Verify evidence is mapped correctly
