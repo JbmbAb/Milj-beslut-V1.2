@@ -1,9 +1,8 @@
 import { resolveExecutionTicketQueue } from "./resolve-execution-ticket-queue.js";
 
 /**
- * Persist admitted LU manifests to durable ExecutionTicket queue.
- * Default: Prisma (restart-safe). Fallback: file queue when LU_MPS_TICKETS=file
- * or when Prisma is unavailable.
+ * Persist admitted LU manifests to durable Execution Infrastructure (2.1).
+ * Default: Prisma queue + ExecutionInfrastructure. Fallback: file.
  */
 export async function enqueueAdmittedLuTicket(manifestId: string): Promise<string | null> {
   if (process.env.NODE_ENV === "test" || process.env.VITEST) {
@@ -17,16 +16,17 @@ export async function enqueueAdmittedLuTicket(manifestId: string): Promise<strin
   };
 
   try {
-    const { createPendingTicket, AdmittedTicketWorker } = await import(
+    const { createExecutionInfrastructure, AdmittedTicketWorker } = await import(
       "@miljobeslut/mps-control-plane"
     );
-    const ticket = createPendingTicket(ticketId, manifestRef);
     const { queue } = await resolveExecutionTicketQueue();
+    const infra = createExecutionInfrastructure(queue);
 
-    await queue.enqueue(ticket);
+    await infra.recover();
+    await infra.enqueueIdempotent(`lu-admit:${manifestId}`, ticketId, manifestRef);
 
     const worker = new AdmittedTicketWorker(
-      queue,
+      infra,
       { isAdmitted: async () => true },
       {
         runAdmittedManifest: async () => {
@@ -36,7 +36,7 @@ export async function enqueueAdmittedLuTicket(manifestId: string): Promise<strin
       "lu-report-worker",
     );
     await worker.processNext();
-    return ticket.ticket_id;
+    return ticketId;
   } catch {
     return null;
   }

@@ -1,8 +1,9 @@
 import type { FrozenExecutionTicket } from "../../mps-runtime/src/contracts/freeze/FrozenIdentities.js";
 import type { ExecutionTicketQueue } from "./ExecutionTicketQueue.js";
+import type { ExecutionInfrastructure } from "./execution-infrastructure/ExecutionInfrastructure.js";
 
 /**
- * Worker that only runs tickets whose manifests were admitted (Fas 4).
+ * Worker that only runs tickets whose manifests were admitted.
  * Domain/ExecutionKernel is injected — control-plane never imports LU.
  */
 export interface AdmittedTicketRunner {
@@ -15,17 +16,24 @@ export interface AdmissionGate {
 
 export class AdmittedTicketWorker {
   private readonly queue: ExecutionTicketQueue;
+  private readonly infra: ExecutionInfrastructure | null;
   private readonly admission: AdmissionGate;
   private readonly runner: AdmittedTicketRunner;
   private readonly worker_id: string;
 
   constructor(
-    queue: ExecutionTicketQueue,
+    queueOrInfra: ExecutionTicketQueue | ExecutionInfrastructure,
     admission: AdmissionGate,
     runner: AdmittedTicketRunner,
     worker_id: string,
   ) {
-    this.queue = queue;
+    if ("enqueueIdempotent" in queueOrInfra) {
+      this.infra = queueOrInfra;
+      this.queue = queueOrInfra.queue;
+    } else {
+      this.infra = null;
+      this.queue = queueOrInfra;
+    }
     this.admission = admission;
     this.runner = runner;
     this.worker_id = worker_id;
@@ -35,21 +43,35 @@ export class AdmittedTicketWorker {
    * Reserve one ticket; skip/fail if not admitted; otherwise run via kernel.
    */
   async processNext(): Promise<FrozenExecutionTicket | null> {
-    const ticket = await this.queue.reserve(this.worker_id);
+    const ticket = this.infra
+      ? await this.infra.reserve(this.worker_id)
+      : await this.queue.reserve(this.worker_id);
     if (!ticket) return null;
 
     const admitted = await this.admission.isAdmitted(ticket.manifest_ref.artifact_id);
     if (!admitted) {
-      await this.queue.fail(ticket.ticket_id, "manifest_not_admitted");
+      if (this.infra) {
+        await this.infra.failAndMaybeRetry(ticket.ticket_id, "manifest_not_admitted");
+      } else {
+        await this.queue.fail(ticket.ticket_id, "manifest_not_admitted");
+      }
       return (await this.queue.get(ticket.ticket_id)) ?? ticket;
     }
 
     try {
       await this.runner.runAdmittedManifest(ticket.manifest_ref);
-      await this.queue.complete(ticket.ticket_id);
+      if (this.infra) {
+        await this.infra.complete(ticket.ticket_id);
+      } else {
+        await this.queue.complete(ticket.ticket_id);
+      }
     } catch (err) {
       const reason = err instanceof Error ? err.message : "worker_error";
-      await this.queue.fail(ticket.ticket_id, reason);
+      if (this.infra) {
+        await this.infra.failAndMaybeRetry(ticket.ticket_id, reason);
+      } else {
+        await this.queue.fail(ticket.ticket_id, reason);
+      }
     }
 
     return (await this.queue.get(ticket.ticket_id)) ?? ticket;

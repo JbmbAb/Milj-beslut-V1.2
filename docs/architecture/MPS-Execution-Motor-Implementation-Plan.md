@@ -23,17 +23,17 @@ Execution Platform SHALL remain domain-agnostic. Domain logic = capabilities, wo
 
 ## Epoch II build order
 
-| # | Track |
-|---|--------|
-| 2.1 | Execution Infrastructure |
-| 2.2 | Execution Contracts & Model |
-| 2.3 | Registry Runtime |
-| 2.4 | Mimers Integration |
-| 2.5 | Capability Runtime |
-| 2.6 | Workflow Runtime |
-| 2.7 | Projection Layer |
-| 2.8 | Runtime Observability |
-| 2.9 | Execution Platform Security |
+| # | Track | Status |
+|---|--------|--------|
+| 2.1 | Execution Infrastructure | Active — `ExecutionInfrastructure` facade |
+| 2.2 | Execution Contracts & Model | Next |
+| 2.3 | Registry Runtime | Pending |
+| 2.4 | Mimers Integration | Pending |
+| 2.5 | Capability Runtime | Pending |
+| 2.6 | Workflow Runtime | Pending |
+| 2.7 | Projection Layer | Pending |
+| 2.8 | Runtime Observability | Pending |
+| 2.9 | Execution Platform Security | Pending |
 
 **Start:** 2.1 — crash-resume without information loss.
 

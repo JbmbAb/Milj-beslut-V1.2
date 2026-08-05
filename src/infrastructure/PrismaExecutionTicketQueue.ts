@@ -189,4 +189,28 @@ export class PrismaExecutionTicketQueue implements ExecutionTicketQueue {
     const row = await this.db.executionTicket.findUnique({ where: { id: ticket_id } });
     return row ? toFrozen(row) : undefined;
   }
+
+  async list(status?: ExecutionTicketStatus): Promise<FrozenExecutionTicket[]> {
+    const rows = await this.db.executionTicket.findMany({
+      where: status ? { status: toDbStatus(status) } : undefined,
+      orderBy: { createdAt: "asc" },
+    });
+    return rows.map(toFrozen);
+  }
+
+  async reclaimExpiredLeases(): Promise<number> {
+    const cutoff = new Date(this.now().getTime() - this.leaseTimeoutMs);
+    const result = await this.db.executionTicket.updateMany({
+      where: {
+        status: "LEASED",
+        leasedAt: { lte: cutoff },
+      },
+      data: {
+        status: "PENDING",
+        leaseRef: null,
+        leasedAt: null,
+      },
+    });
+    return result.count;
+  }
 }

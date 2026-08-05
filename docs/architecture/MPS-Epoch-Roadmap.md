@@ -79,14 +79,16 @@ Inte LU-arbete. LU är referensklient / Assessment Capability.
 
 ### 2.1 Execution Infrastructure
 
-| Component | Responsibility |
-|-----------|----------------|
-| **ExecutionQueue v1** | Durable ticket ingress / ordering |
-| **LeaseManager** | Worker leases with timeout reclaim |
-| **RetryEngine** | Deterministic retry policy |
-| **IdempotencyManager** | Duplicate-safe enqueue / complete |
-| **Crash Recovery** | Resume after process death without information loss |
-| **Replay Scheduler** | Schedule / drive replay without mutating domain logic |
+| Component | Responsibility | Code |
+|-----------|----------------|------|
+| **ExecutionQueue v1** | Durable ticket ingress / ordering | `ExecutionTicketQueue` + Prisma/file |
+| **LeaseManager** | Worker leases with timeout reclaim | `execution-infrastructure/LeaseManager` |
+| **RetryEngine** | Deterministic retry policy | `execution-infrastructure/RetryEngine` |
+| **IdempotencyManager** | Duplicate-safe enqueue / complete | `execution-infrastructure/IdempotencyManager` |
+| **Crash Recovery** | Resume after process death without information loss | `CrashRecovery` + `recover()` |
+| **Replay Scheduler** | Schedule / drive replay without mutating domain logic | `ReplayScheduler` |
+
+**Facade:** `ExecutionInfrastructure` in `@miljobeslut/mps-control-plane`.
 
 **Resultatinvariant:** En execution SHALL kunna återupptas efter processkrasch utan informationsförlust.
 

@@ -105,6 +105,28 @@ export class FileDurableExecutionTicketQueue implements ExecutionTicketQueue {
     return full;
   }
 
+  async reclaimExpiredLeases(): Promise<number> {
+    const tickets = this.readAll();
+    let count = 0;
+    const cutoff = this.now().getTime() - this.leaseTimeoutMs;
+    for (let i = 0; i < tickets.length; i++) {
+      const t = tickets[i];
+      if (t.status !== "leased" || !t.leased_at) continue;
+      const leasedAt = Date.parse(t.leased_at);
+      if (Number.isFinite(leasedAt) && leasedAt <= cutoff) {
+        tickets[i] = {
+          ...t,
+          status: "pending",
+          lease_ref: null,
+          leased_at: null,
+        };
+        count += 1;
+      }
+    }
+    if (count > 0) this.writeAll(tickets);
+    return count;
+  }
+
   async reserve(worker_id: string): Promise<FrozenExecutionTicket | null> {
     const tickets = this.readAll();
     const reclaimed = this.reclaimExpired(tickets);
@@ -122,6 +144,11 @@ export class FileDurableExecutionTicketQueue implements ExecutionTicketQueue {
     tickets[idx] = leased;
     this.writeAll(tickets);
     return leased;
+  }
+
+  async list(status?: ExecutionTicketStatus): Promise<FrozenExecutionTicket[]> {
+    const all = this.readAll();
+    return status ? all.filter((t) => t.status === status) : all;
   }
 
   async complete(ticket_id: string): Promise<void> {

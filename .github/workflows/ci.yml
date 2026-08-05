@@ -123,6 +123,7 @@ jobs:
           packages/mps-runtime/src/unit/ExecutionKernel.test.ts
           packages/mps-runtime/src/unit/mps-end-to-end-determinism.test.ts
           packages/mps-control-plane/src/unit/DurableTicketQueue.adversarial.test.ts
+          packages/mps-control-plane/src/unit/ExecutionInfrastructure.test.ts
           packages/mps-lu/tests/LuExecutionKernelClient.test.ts
           packages/mps-lu/tests/LUMagicMoment.test.ts
           packages/mps-lu/src/unit/LuRuntimeFreeze.test.ts

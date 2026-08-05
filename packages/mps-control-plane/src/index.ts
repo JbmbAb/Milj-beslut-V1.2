@@ -7,3 +7,5 @@ export * from "./FileDurableExecutionTicketQueue";
 export * from "./AdmittedTicketWorker";
 export * from "./ExecutionContextFactory";
 export * from "./AgentController";
+/** Epoch II §2.1 — Execution Infrastructure */
+export * from "./execution-infrastructure/index";
