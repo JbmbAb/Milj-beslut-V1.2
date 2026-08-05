@@ -127,7 +127,6 @@ jobs:
           packages/mps-runtime/src/observability/ObservabilityRuntime.test.ts
           packages/mps-runtime/src/security/SecurityRuntime.test.ts
           packages/mps-runtime/src/unit/ExecutionKernel.test.ts
-
           packages/mps-runtime/src/unit/mps-end-to-end-determinism.test.ts
           packages/mps-runtime/src/contracts/freeze/ContractFreeze.test.ts
           packages/mps-runtime/src/contracts/model/ExecutionContracts.test.ts
@@ -140,6 +139,17 @@ jobs:
           src/infrastructure/unit/PrismaExecutionTicketQueue.test.ts
           src/application/unit/resolve-execution-ticket-queue.test.ts
           src/application/unit/LuCutoverSinglePath.test.ts
+      - name: MPS Epoch II verification gates (Architecture + Generality)
+        run: >
+          npx vitest run --config vitest.config.ts
+          packages/mps-runtime/src/verification/architecture/ExecutionDeterminism.test.ts
+          packages/mps-runtime/src/verification/architecture/ReplayDeterminism.test.ts
+          packages/mps-runtime/src/verification/architecture/IdentityIsolation.test.ts
+          packages/mps-runtime/src/verification/architecture/CrossPlatformReplay.test.ts
+          packages/mps-runtime/src/verification/architecture/ExecutionGraphOrdering.test.ts
+          packages/mps-runtime/src/verification/generality/DummyCapability.test.ts
+          packages/mps-runtime/src/verification/generality/SyntheticWorkflow.test.ts
+          packages/mps-runtime/src/verification/generality/GeneralityProof.test.ts
       - name: Upload coverage
         if: always()
         uses: actions/upload-artifact@v4

@@ -35,4 +35,6 @@ export * from "./projection/index";
 export * from "./observability/index";
 /** Epoch II §2.9 — Execution Platform Security */
 export * from "./security/index";
+/** Epoch II Verification harness */
+export * from "./verification/index";
 export * from "./replay/DefaultReplayEngine";

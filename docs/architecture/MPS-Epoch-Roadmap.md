@@ -24,7 +24,7 @@ This is the governing principle for Epochs II–IV.
 | Epoch | Name | Goal | Status |
 |-------|------|------|--------|
 | **I** | Frozen Core + LU Runtime | First domain on a single execution spine | ✅ **Closed** |
-| **II** | **Execution Platform** | Universal, domain-agnostic execution platform | ✅ **Closed** (v1) |
+| **II** | **Execution Platform** | Universal, domain-agnostic execution platform | 🟡 **Verification in progress** |
 | **III** | Knowledge Platform | Data → assessments → evolution → adaptive | 🔵 **Later** |
 | **IV** | Ecosystem Platform | External APIs, plugins, partners, multi-client | ⚪ **Long-term** |
 
@@ -44,12 +44,21 @@ This is the governing principle for Epochs II–IV.
 
 ---
 
-## Epoch II ✅ — Execution Platform v1
+## Epoch II — Execution Platform v1
+
+```
+Execution Platform
+──────────────────
+Implementation  ✅ Complete   (tracks 2.1–2.9)
+Verification    🟡 In Progress
+Release         🔒 Pending
+```
 
 **Mål:** en **generell, domänagnostisk exekveringsplattform**.  
 Inte LU-arbete. LU är referensklient / Assessment Capability.
 
-**Definition of Done:** *Execution Platform v1* — vilken miljöprocess som helst kan köras via samma plattform utan domänkod i runtime. **Met** — tracks 2.1–2.9 closed.
+**Implementation DoD:** tracks 2.1–2.9 closed.  
+**Release DoD:** [MPS-Epoch-II-Verification-Charter.md](./MPS-Epoch-II-Verification-Charter.md) — Architecture Invariants + Generality (LU + Dummy + Synthetic Workflow) + remaining blocking gates green.
 
 ### Normative build order
 
@@ -240,7 +249,7 @@ Scope: execution-path trust. Not: full org IAM, SSO product surface, or partner 
 | **CapabilityGrant** | Principal ↔ capability entitlement | `SecurityContracts` |
 | **OutcomeAttestation** | HMAC attest over outcome content_hash | `HmacSigningKeyProvider` |
 
-**Epoch II Definition of Done:** *Execution Platform v1* — tracks 2.1–2.9 closed. Domain logic remains outside the platform (capabilities / workflows / rules / projections only).
+**Implementation complete (2.1–2.9).** Release readiness is governed by the [Verification Charter](./MPS-Epoch-II-Verification-Charter.md). Domain logic remains outside the platform (capabilities / workflows / rules / projections only).
 
 ---
 

@@ -8,6 +8,8 @@ Governing ADRs:
 - [ADR-30](./ADR-30-LU-Runtime-v1-Freeze-ExecutionKernel-Cutover.md) — LU reference Assessment Capability  
 - [ADR-31](./ADR-31-Post-LU-Platform-Infrastructure-Focus.md) — Epoch II Execution Platform  
 
+Verification (release readiness): [MPS-Epoch-II-Verification-Charter.md](./MPS-Epoch-II-Verification-Charter.md)
+
 ## Principle
 
 Execution Platform SHALL remain domain-agnostic. Domain logic = capabilities, workflows, rules, projections only.
@@ -17,8 +19,8 @@ Execution Platform SHALL remain domain-agnostic. Domain logic = capabilities, wo
 | Epoch | Goal | Status |
 |-------|------|--------|
 | I | Frozen + LU reference Assessment Capability | ✅ Closed |
-| II | **Execution Platform** v1 | ✅ Closed |
-| III | IIIA→IIID Knowledge Platform | 🔵 Next when ready |
+| II | **Execution Platform** v1 | Implementation ✅ / Verification 🟡 / Release 🔒 |
+| III | IIIA→IIID Knowledge Platform | 🔵 After Epoch II Release |
 | IV | Ecosystem Platform | ⚪ Long-term |
 
 ## Epoch II build order
@@ -35,7 +37,7 @@ Execution Platform SHALL remain domain-agnostic. Domain logic = capabilities, wo
 | 2.8 | Runtime Observability | ✅ Done — `mps-runtime/observability` |
 | 2.9 | Execution Platform Security | ✅ Done — `mps-runtime/security` |
 
-**Epoch II complete.** Next epoch when starting Knowledge work: **IIIA Knowledge Foundation** (harvester / document & spatial intelligence) — not before human green-light.
+**Implementation complete.** Verification in progress per charter (Architecture Invariants + Generality Proof landed first). Epoch III starts only after Verification → Release.
 
 ## Key invariants (quick ref)
 
