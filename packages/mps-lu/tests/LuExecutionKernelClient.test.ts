@@ -26,10 +26,14 @@ describe("LuExecutionKernelClient", () => {
     expect(result.admitted).toBe(true);
     expect(result.attempt_id).toContain("attempt-");
     expect(result.finding_ids.length).toBeGreaterThan(0);
+    expect(result.findings.length).toBe(result.finding_ids.length);
+    expect(result.manifest_id).toContain("lu-manifest-");
   });
 
-  it("reads LU_MPS_MOTOR flag", () => {
+  it("defaults motor ON; opt-out with 0/false", () => {
+    expect(isLuMpsMotorEnabled({})).toBe(true);
     expect(isLuMpsMotorEnabled({ LU_MPS_MOTOR: "1" })).toBe(true);
     expect(isLuMpsMotorEnabled({ LU_MPS_MOTOR: "0" })).toBe(false);
+    expect(isLuMpsMotorEnabled({ LU_MPS_MOTOR: "false" })).toBe(false);
   });
 });

@@ -56,6 +56,13 @@ enum SearchJobStatus {
   FAILED
 }
 
+enum ExecutionTicketStatus {
+  PENDING
+  LEASED
+  COMPLETED
+  FAILED
+}
+
 enum SearchMode {
   semantic
   lexical
@@ -1167,4 +1174,23 @@ model RasterRegistrationLog {
   updatedAt     DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
 
   @@map("raster_registration_log")
+}
+
+/// Durable MPS ExecutionTicket queue (restart-safe). Status names map to FrozenExecutionTicket.
+model ExecutionTicket {
+  id           String                @id
+  status       ExecutionTicketStatus @default(PENDING)
+  manifestId   String                @map("manifest_id")
+  manifestType String                @default("execution_manifest") @map("manifest_type")
+  attemptRef   String?               @map("attempt_ref")
+  leaseRef     String?               @map("lease_ref")
+  failReason   String?               @map("fail_reason")
+  createdAt    DateTime              @default(now()) @map("created_at")
+  updatedAt    DateTime              @updatedAt @map("updated_at")
+  leasedAt     DateTime?             @map("leased_at")
+  completedAt  DateTime?             @map("completed_at")
+
+  @@index([status, createdAt])
+  @@index([manifestId])
+  @@map("execution_tickets")
 }

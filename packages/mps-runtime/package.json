@@ -12,7 +12,8 @@
     "@miljobeslut/mps-core": "file:../mps-core",
     "@miljobeslut/mps-artifact-store": "file:../mps-artifact-store",
     "@miljobeslut/mps-replay": "file:../mps-replay",
-    "@miljobeslut/mps-registry": "file:../mps-registry"
+    "@miljobeslut/mps-registry": "file:../mps-registry",
+    "@miljobeslut/mimers-brunn-core": "file:../mimers-brunn-core"
   },
   "devDependencies": {
     "typescript": "^5.5.0",

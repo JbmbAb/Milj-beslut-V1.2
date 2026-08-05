@@ -53,6 +53,14 @@ export default defineConfig({
         __dirname,
         'packages/mps-console/src/index.ts',
       ),
+      '@miljobeslut/mps-compass': path.resolve(
+        __dirname,
+        'packages/mps-compass/src/index.ts',
+      ),
+      '@miljobeslut/mps-identity': path.resolve(
+        __dirname,
+        'packages/mps-identity/src/index.ts',
+      ),
       '@miljobeslut/mps-lu': path.resolve(
         __dirname,
         'packages/mps-lu/src/index.ts',

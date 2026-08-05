@@ -38,6 +38,10 @@ export class MemoryByteStorageBackend implements ByteStorageBackend {
   }
 }
 
+/**
+ * @deprecated Use MimersByteStorageBackend via createKernelArtifactRepository.
+ * Kept for isolated unit tests only — not a product CAS path (no .data/mps-cas).
+ */
 export class FileByteStorageBackend implements ByteStorageBackend {
   private readonly rootDir: string;
 
@@ -105,14 +109,24 @@ export class CasBackedArtifactRepository implements ArtifactRepositoryPort {
   }
 
   async resolve<T>(ref: ArtifactReference): Promise<T> {
+    const envelope = await this.resolveEnvelope<T>(ref);
+    return envelope.body;
+  }
+
+  async resolveEnvelope<T>(ref: ArtifactReference): Promise<{
+    artifact_id: string;
+    content_hash: ContentHash;
+    body: T;
+  }> {
     const bytes = await this.backend.get(ref.artifact_id);
     if (!bytes) {
       throw new Error(`Artifact not found: ${ref.artifact_id}`);
     }
     const envelope = JSON.parse(Buffer.from(bytes).toString("utf8")) as {
+      artifact_id: string;
       body: T;
       content_hash: ContentHash;
     };
-    return envelope.body;
+    return envelope;
   }
 }

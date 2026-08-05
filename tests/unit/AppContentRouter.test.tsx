@@ -44,8 +44,8 @@ vi.mock('../../components/MarketingHub', () => ({ default: () => <div data-testi
 vi.mock('../../components/ProjectManagerView', () => ({
   default: () => <div data-testid="project-manager-view" />,
 }));
-vi.mock('../../components/LocalizationStudyUI', () => ({
-  LocalizationStudyUI: () => <div data-testid="localization-study-ui" />,
+vi.mock('../../components/app/lu/LuWorkspace', () => ({
+  LuWorkspace: () => <div data-testid="lu-workspace" />,
 }));
 vi.mock('../../components/CNotificationUI', () => ({
   CNotificationUI: () => <div data-testid="c-notification-ui" />,
@@ -79,9 +79,9 @@ describe('AppContentRouter', () => {
     expect(screen.getByTestId('c-notification-ui')).toBeInTheDocument();
   });
 
-  it('renders separate lokaliseringsutredning flow', () => {
+  it('renders LuWorkspace for lokaliseringsutredning', () => {
     render(<AppContentRouter {...baseProps} activeTab="localization" />);
-    expect(screen.getByTestId('localization-study-ui')).toBeInTheDocument();
+    expect(screen.getByTestId('lu-workspace')).toBeInTheDocument();
   });
 
   it('routes legacy PERMIT_PORTAL apply tab to C-anmalan mass', () => {

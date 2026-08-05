@@ -106,6 +106,9 @@ export default defineConfig(({ mode }) => {
         child_process: path.resolve(__dirname, 'stubs/browser/child-process.ts'),
         'node:child_process': path.resolve(__dirname, 'stubs/browser/child-process.ts'),
         '@miljobeslut/mps-lu': path.resolve(__dirname, 'packages/mps-lu/src/index.ts'),
+        '@miljobeslut/mps-console': path.resolve(__dirname, 'packages/mps-console/src/index.ts'),
+        '@miljobeslut/mps-compass': path.resolve(__dirname, 'packages/mps-compass/src/index.ts'),
+        '@miljobeslut/mps-identity': path.resolve(__dirname, 'packages/mps-identity/src/index.ts'),
       },
     },
     build: {

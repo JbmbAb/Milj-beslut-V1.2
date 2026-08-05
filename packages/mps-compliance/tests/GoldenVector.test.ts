@@ -1,25 +1,28 @@
 import { describe, it, expect } from "vitest";
 import * as fs from "fs";
 import * as path from "path";
-import { FrozenCoreReleaseManifestArtifact } from "../../mps-governance/src/release/FrozenCoreReleaseManifestArtifact";
+import { FROZEN_CORE_V1_MANIFEST } from "../../mps-governance/src/release/reference/FrozenCoreV1";
+import { createFrozenCoreReleaseProjection } from "../../mps-governance/src/release/FrozenCoreReleaseManifestProjectionFactory";
+import { sha256CanonicalJson } from "../src/canonical/sha256Canonical";
 
 describe("Commit 13.5 - Golden Vector / Determinism Lock", () => {
-  it("Frozen Core v1 golden vector remains stable", () => {
+  it("Canonical Projection → SHA-256 → golden hash → EXACT MATCH", () => {
     const goldenJsonPath = path.join(__dirname, "golden", "frozen-core-v1.json");
     const goldenHashPath = path.join(__dirname, "golden", "frozen-core-v1.hash");
 
-    const manifestRaw = fs.readFileSync(goldenJsonPath, "utf-8");
-    const manifest: FrozenCoreReleaseManifestArtifact = JSON.parse(manifestRaw);
-    
     const goldenHash = fs.readFileSync(goldenHashPath, "utf-8").trim();
+    const goldenManifest = JSON.parse(fs.readFileSync(goldenJsonPath, "utf-8"));
+    const projection = createFrozenCoreReleaseProjection(FROZEN_CORE_V1_MANIFEST);
+    const recomputed = sha256CanonicalJson(projection);
 
-    // Since we mock the hash generation right now, we just verify the manifest structure
-    // hasn't drifted and its hash matches the genesis hash.
-    // In a real canonical environment, we would use the CanonicalSerializer to re-hash the object here.
-    
-    // For our simulated environment, the mock hash should equal goldenHash
-    const generatedHash = manifest.release_hash.value;
+    expect(recomputed).toBe(goldenHash);
+    expect(FROZEN_CORE_V1_MANIFEST.release_hash.value).toBe(goldenHash);
+    expect(goldenManifest.release_hash.value).toBe(goldenHash);
 
-    expect(generatedHash).toBe(goldenHash);
+    const drifted = sha256CanonicalJson({
+      ...projection,
+      matrix_id: projection.matrix_id + "\0",
+    });
+    expect(drifted).not.toBe(goldenHash);
   });
 });

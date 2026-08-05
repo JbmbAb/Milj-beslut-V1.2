@@ -35,23 +35,23 @@ export class AdmittedTicketWorker {
    * Reserve one ticket; skip/fail if not admitted; otherwise run via kernel.
    */
   async processNext(): Promise<FrozenExecutionTicket | null> {
-    const ticket = this.queue.reserve(this.worker_id);
+    const ticket = await this.queue.reserve(this.worker_id);
     if (!ticket) return null;
 
     const admitted = await this.admission.isAdmitted(ticket.manifest_ref.artifact_id);
     if (!admitted) {
-      this.queue.fail(ticket.ticket_id, "manifest_not_admitted");
-      return this.queue.get(ticket.ticket_id) ?? ticket;
+      await this.queue.fail(ticket.ticket_id, "manifest_not_admitted");
+      return (await this.queue.get(ticket.ticket_id)) ?? ticket;
     }
 
     try {
       await this.runner.runAdmittedManifest(ticket.manifest_ref);
-      this.queue.complete(ticket.ticket_id);
+      await this.queue.complete(ticket.ticket_id);
     } catch (err) {
       const reason = err instanceof Error ? err.message : "worker_error";
-      this.queue.fail(ticket.ticket_id, reason);
+      await this.queue.fail(ticket.ticket_id, reason);
     }
 
-    return this.queue.get(ticket.ticket_id) ?? ticket;
+    return (await this.queue.get(ticket.ticket_id)) ?? ticket;
   }
 }

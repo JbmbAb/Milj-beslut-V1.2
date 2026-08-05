@@ -1,3 +1,7 @@
+/**
+ * @deprecated Product LU UI is `components/app/lu/LuWorkspace.tsx`.
+ * This file is not on the default product path; kept only for isolated legacy tests.
+ */
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import L from 'leaflet';
 import { CircleMarker, GeoJSON, MapContainer, TileLayer, Tooltip, useMap, useMapEvents } from 'react-leaflet';

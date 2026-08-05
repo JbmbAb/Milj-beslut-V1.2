@@ -1,5 +1,16 @@
 # LU v1.0 – Konsultflöde (Frozen)
 
+## 0. UI entry (default)
+
+Default produkt-UI är `MimerProductShell` (via `AppShell`) — inte `TechnicalDashboardHub`.
+
+| Flagga | Effekt |
+|--------|--------|
+| *(ingen)* | MimerProductShell: Start / Lokalisering (`LuWorkspace`) / Admin-konsol |
+| `VITE_ENABLE_LEGACY_UI=1` | Rollback till TechnicalDashboardHub + legacy mode-kort |
+
+LU-produkt-UI är **`LuWorkspace`** — inte `LocalizationStudyUI` (legacy, ej produktväg).
+
 ## 1. Skapa uppdrag
 Konsulten initierar ett nytt LU-projekt.
 
@@ -18,18 +29,18 @@ Document Provider → DocumentEvidenceArtifact[]
 
 ## 5. LU Assessment Engine
 
-### Legacy (default)
+### ExecutionKernel (default)
 ```
-Evidence → LURuleEngine → Findings → LocalizationAssessmentArtifact
+Evidence → Manifest → ExecutionKernel.admit
+        → CapabilityExecutor → invoke LURuleEngine
+        → Artifacts → Mimers CAS (en källa)
+        → Findings + Attempt/Outcome (+ Prisma ExecutionTicket)
+        → LuWorkspace visar executionMotor-meta
 ```
 
-### ExecutionKernel strangler (`LU_MPS_MOTOR=1`)
-```
-Evidence → build Manifest → ExecutionKernel.admit
-        → CapabilityExecutor (ImplementationResolver → invoke LURuleEngine)
-        → Attempt/Outcome in ArtifactRepository
-        → Findings projection for report UI
-```
+Opt-out: `LU_MPS_MOTOR=0` (RuleEngine utan admit).  
+CAS: `MIMERS_ROOT` (fallback `.data/mimers`); tickets: Prisma default, `LU_MPS_TICKETS=file` fallback.  
+Evolution-produktloop: **av** tills det finns tillräckligt med verkliga körningar/replaybara artifacts.
 
 Se [ADR-29](./ADR-29-Runtime-Contract-Freeze-ExecutionKernel.md) och [MPS-Execution-Motor-Implementation-Plan.md](./MPS-Execution-Motor-Implementation-Plan.md).
 

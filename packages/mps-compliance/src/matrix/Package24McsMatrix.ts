@@ -8,6 +8,8 @@ import { createPackage24CapabilityProfile } from "../profiles/Package24Capabilit
 import { createPackage24RetentionProfile } from "../profiles/Package24RetentionProfile";
 import { createPackage24ReplayProfile } from "../profiles/Package24ReplayProfile";
 import { ConformanceMatrixSnapshot } from "./ConformanceMatrixSnapshot";
+import { createConformanceMatrixProjection } from "./ConformanceMatrixProjectionFactory";
+import { sha256CanonicalJson } from "../canonical/sha256Canonical";
 
 export function createPackage24Mcs001Matrix(
   registry: RuleRegistrySnapshot
@@ -45,5 +47,18 @@ export function createPackage24Mcs001Matrix(
     builder.register(entry);
   }
 
-  return builder.freeze({ matrix_id: "Package24Mcs001", content_hash: { algorithm: "sha256", value: "hash" } }, "1.0");
+  const pending = builder.freeze(
+    { matrix_id: "Package24Mcs001", content_hash: { algorithm: "sha256", value: "pending" } },
+    "1.0",
+  );
+  const projection = createConformanceMatrixProjection(pending);
+  const content_hash = {
+    algorithm: "sha256" as const,
+    value: sha256CanonicalJson(projection),
+  };
+  return new ConformanceMatrixSnapshot(
+    { matrix_id: "Package24Mcs001", content_hash },
+    pending.version,
+    pending.entries,
+  );
 }

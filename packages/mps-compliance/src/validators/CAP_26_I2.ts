@@ -14,7 +14,11 @@ export const CAP_26_I2: ValidationRule = {
 
   validate(context: ValidationContext): ValidationResult {
     const withHash = context.artifacts.filter(
-      (a) => a.content_hash && a.content_hash.value && a.content_hash.value !== "mock-hash",
+      (a) =>
+        a.content_hash &&
+        a.content_hash.value &&
+        a.content_hash.value.length === 64 &&
+        /^[a-f0-9]+$/i.test(a.content_hash.value),
     );
     const passed =
       context.artifacts.length === 0 ||

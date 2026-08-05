@@ -69,6 +69,20 @@ describe("ExecutionKernel", () => {
     );
     expect(replay.artifact_type).toBe("REPLAY");
     expect(replay.equivalence_proof.algorithm).toBe("sha256");
+
+    const outcome = await repo.resolve<typeof result.outcome>(
+      result.outcome
+        ? { artifact_id: result.outcome.outcome_id, artifact_type: "execution_outcome" }
+        : { artifact_id: "missing", artifact_type: "execution_outcome" },
+    );
+    expect(outcome?.content_hash).toEqual(result.outcome?.content_hash);
+
+    const replay2 = await new DefaultReplayEngine(repo).replay(
+      { artifact_id: manifest.manifest_id, artifact_type: "execution_manifest" },
+      result.state,
+    );
+    expect(replay2.content_hash).toEqual(replay.content_hash);
+    expect(replay2.equivalence_proof).toEqual(replay.equivalence_proof);
   });
 
   it("denies when verification context missing and bypass disabled", async () => {

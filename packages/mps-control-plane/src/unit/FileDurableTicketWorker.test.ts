@@ -24,9 +24,9 @@ describe("FileDurableExecutionTicketQueue", () => {
     rmSync(dir, { recursive: true, force: true });
   });
 
-  it("persists enqueue/reserve/complete across instances", () => {
+  it("persists enqueue/reserve/complete across instances", async () => {
     const q1 = new FileDurableExecutionTicketQueue(file);
-    q1.enqueue(
+    await q1.enqueue(
       createPendingTicket("t-dur-1", {
         artifact_id: "m-1",
         artifact_type: "execution_manifest",
@@ -34,19 +34,19 @@ describe("FileDurableExecutionTicketQueue", () => {
     );
 
     const q2 = new FileDurableExecutionTicketQueue(file);
-    const leased = q2.reserve("w1");
+    const leased = await q2.reserve("w1");
     expect(leased?.ticket_id).toBe("t-dur-1");
     expect(leased?.status).toBe("leased");
 
-    q2.complete("t-dur-1");
-    expect(q2.get("t-dur-1")?.status).toBe("completed");
+    await q2.complete("t-dur-1");
+    expect((await q2.get("t-dur-1"))?.status).toBe("completed");
   });
 });
 
 describe("AdmittedTicketWorker", () => {
   it("fails ticket when manifest is not admitted", async () => {
     const q = new InMemoryExecutionTicketQueue();
-    q.enqueue(
+    await q.enqueue(
       createPendingTicket("t1", {
         artifact_id: "m-denied",
         artifact_type: "execution_manifest",
@@ -66,7 +66,7 @@ describe("AdmittedTicketWorker", () => {
 
   it("completes ticket when admitted and runner succeeds", async () => {
     const q = new InMemoryExecutionTicketQueue();
-    q.enqueue(
+    await q.enqueue(
       createPendingTicket("t2", {
         artifact_id: "m-ok",
         artifact_type: "execution_manifest",

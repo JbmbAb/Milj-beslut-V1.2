@@ -18,6 +18,7 @@ import { logger } from '../../server/logger';
 import type { AuthUser } from '../../server/security/types';
 import { orchestrator } from '@miljobeslut/mps-lu/src/api/LUBackendOrchestrator';
 import { prisma } from '../../server/db/prisma';
+import { enqueueAdmittedLuTicket } from './enqueue-lu-execution-ticket';
 
 export interface SiteAlternative {
   id: string;
@@ -41,6 +42,16 @@ export type DataSourceStatus = {
   detail?: string;
 };
 
+export interface ExecutionMotorMeta {
+  admitted: boolean;
+  reason_codes: string[];
+  attempt_id: string | null;
+  outcome_id: string | null;
+  manifest_id: string | null;
+  ticket_id: string | null;
+  finding_ids: string[];
+}
+
 export interface SiteAnalysisResult {
   site: SiteAlternative;
   spatialAudit: SpatialAuditSummary;
@@ -52,6 +63,7 @@ export interface SiteAnalysisResult {
   warnings: string[];
   sluObservationCount: number;
   documentEvidence?: any[];
+  executionMotor?: ExecutionMotorMeta;
 }
 
 export interface LocalizationReport {
@@ -388,14 +400,14 @@ async function analyzeSite(
   }
 
   // ═════════════════════════════════════════════════════════════════════════
-  // EXECUTION KERNEL (admit → capability) when LU_MPS_MOTOR=1
+  // EXECUTION KERNEL (default ON — opt out LU_MPS_MOTOR=0)
   // ═════════════════════════════════════════════════════════════════════════
   let mpsFindings: any[] = [];
+  let executionMotor: ExecutionMotorMeta | undefined;
   try {
     const { PostgisSpatialProvider, LURuleEngine, isLuMpsMotorEnabled, runLuAssessmentViaKernel } =
       await import('@miljobeslut/mps-lu');
 
-    // Convert GPS coordinate WGS84 [lat, lng] to SWEREF99 TM [N, E] via PostGIS transform
     const coords = await prisma.$queryRawUnsafe<any[]>(
       `SELECT ST_X(ST_Transform(ST_SetSRID(ST_MakePoint($1, $2), 4326), 3006)) as x,
               ST_Y(ST_Transform(ST_SetSRID(ST_MakePoint($1, $2), 4326), 3006)) as y`,
@@ -433,30 +445,48 @@ async function analyzeSite(
         deterministic_seed: `lu-seed-${site.id}`,
         evidence: mpsEvidence,
       });
-      if (!kernelResult.admitted) {
-        logger.warn('LU ExecutionKernel denied admission', {
-          site: site.id,
-          reasons: kernelResult.reason_codes,
-        });
-      } else {
-        // Rebuild findings from evidence via RuleEngine only after admit (domain side).
-        const ruleEngine = new LURuleEngine();
-        mpsFindings = ruleEngine.evaluate(mpsEvidence);
+      let ticket_id: string | null = null;
+      if (kernelResult.admitted) {
+        ticket_id = await enqueueAdmittedLuTicket(kernelResult.manifest_id);
+        mpsFindings = [...kernelResult.findings];
         logger.info(
           `ExecutionKernel admitted LU assessment. findings=${mpsFindings.length} attempt=${kernelResult.attempt_id}`,
           { site: site.id },
         );
+      } else {
+        logger.warn('LU ExecutionKernel denied admission', {
+          site: site.id,
+          reasons: kernelResult.reason_codes,
+        });
+        warnings.push(`ExecutionKernel denied: ${kernelResult.reason_codes.join(', ') || 'unknown'}`);
       }
+      executionMotor = {
+        admitted: kernelResult.admitted,
+        reason_codes: [...kernelResult.reason_codes],
+        attempt_id: kernelResult.attempt_id,
+        outcome_id: kernelResult.outcome_id,
+        manifest_id: kernelResult.manifest_id,
+        ticket_id,
+        finding_ids: [...kernelResult.finding_ids],
+      };
     } else {
-      // Legacy path: RuleEngine without admit (strangler fallback)
+      // Explicit opt-out only
       const ruleEngine = new LURuleEngine();
       mpsFindings = ruleEngine.evaluate(mpsEvidence);
-      logger.info(`Legacy LURuleEngine completed. Generated ${mpsFindings.length} findings.`, {
+      executionMotor = {
+        admitted: false,
+        reason_codes: ['LU_MPS_MOTOR_DISABLED'],
+        attempt_id: null,
+        outcome_id: null,
+        manifest_id: null,
+        ticket_id: null,
+        finding_ids: [],
+      };
+      logger.info(`LU_MPS_MOTOR disabled — RuleEngine without admit. findings=${mpsFindings.length}`, {
         site: site.id,
       });
     }
 
-    // Merge findings into complianceAnalysis
     if (mpsFindings && mpsFindings.length > 0) {
       let hasHigh = false;
       let hasMedium = false;
@@ -507,6 +537,7 @@ async function analyzeSite(
     warnings,
     sluObservationCount: observations.length,
     documentEvidence,
+    executionMotor,
   };
 }
 

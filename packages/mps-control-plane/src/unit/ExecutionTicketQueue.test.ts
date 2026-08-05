@@ -5,24 +5,24 @@ import {
 } from "../ExecutionTicketQueue.js";
 
 describe("ExecutionTicketQueue", () => {
-  it("reserves pending tickets with lease_ref and supports retry", () => {
+  it("reserves pending tickets with lease_ref and supports retry", async () => {
     const q = new InMemoryExecutionTicketQueue();
-    q.enqueue(
+    await q.enqueue(
       createPendingTicket("t1", {
         artifact_id: "m-1",
         artifact_type: "execution_manifest",
       }),
     );
 
-    const leased = q.reserve("worker-a");
+    const leased = await q.reserve("worker-a");
     expect(leased?.status).toBe("leased");
     expect(leased?.lease_ref).toContain("worker-a");
 
-    q.fail("t1", "boom");
-    expect(q.get("t1")?.status).toBe("failed");
+    await q.fail("t1", "boom");
+    expect((await q.get("t1"))?.status).toBe("failed");
 
-    q.retry("t1");
-    expect(q.get("t1")?.status).toBe("pending");
-    expect(q.get("t1")?.lease_ref).toBeNull();
+    await q.retry("t1");
+    expect((await q.get("t1"))?.status).toBe("pending");
+    expect((await q.get("t1"))?.lease_ref).toBeNull();
   });
 });

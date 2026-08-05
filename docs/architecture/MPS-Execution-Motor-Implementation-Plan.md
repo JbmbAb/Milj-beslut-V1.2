@@ -12,54 +12,54 @@ See also: [ADR-29-Runtime-Contract-Freeze-ExecutionKernel.md](./ADR-29-Runtime-C
 - CapabilityExecutor SHALL NOT know RuleEngine (ImplementationResolver → invoke).
 - ReplayEngine reads CAS; is not part of CAS.
 - Queue uses **ExecutionTicket**.
-- Evolution: Manifest → Admission → Evolution only.
+- Evolution: Manifest → Admission → Evolution only — **product loop stays off** until real runs + replayable artifacts exist.
 
 ## Phases
 
 | Phase | Deliverable | Status in codebase |
 |-------|-------------|-------------------|
 | −1 Contract Freeze | Frozen identities + type-lock tests + ADR-29 | Done |
-| 0 Kernel skeleton | `ExecutionKernel`, `RuntimeState`, LU client flag | Done |
+| 0 Kernel skeleton | `ExecutionKernel`, `RuntimeState`, LU client | Done |
 | 1 Destub bottom | Admit hashes, ImplementationResolver, CasBackedArtifactRepository | Done |
-| 2 LU MVP strangler | `LU_MPS_MOTOR=1` path in localization usecase | Done |
-| 3 Workflow | Workflow freeze fields + `LuSiteAssessmentRegistry` snapshot | Done |
-| 4 Ticket queue | In-memory + `FileDurableExecutionTicketQueue` + `AdmittedTicketWorker` | Done (Prisma deferred) |
-| 5 Document providers | `NullDocumentProvider` default; UI `ExecutionResultPresentationAdapter` | Done |
-| 6 Cutover + evolution | `AdmittedOnlyEvolutionExecutor`; EXE-25-I5/I7 non-vacuous | Partial (legacy dual-path until parity) |
+| 2 LU MVP strangler | Motor path in localization usecase | Done |
+| 3 Workflow | Workflow freeze fields + `LuSiteAssessmentRegistry` | Done |
+| 4 Ticket queue | Prisma `ExecutionTicket` (+ file fallback) + AdmittedTicketWorker | Done |
+| 5 Document providers | NullDocumentProvider default; UI adapter | Done |
+| 6 Cutover | Motor **default ON**; findings from kernel; EXE/CAP/REPLAY non-vacuous | Done |
+| Infra: Mimers CAS | Single store; index rebuild; `MIMERS_REQUIRED` fail-closed + tests | Done |
+| Infra: Frozen Core hashes | Projection → SHA-256 → golden **exact match** (CI gate) | Done |
+| Infra: Ticket queue | Prisma + file; lease timeout; dup/idempotent/crash tests | Done |
+| Evolution product loop | `AdmittedOnlyEvolutionExecutor` in product path | **Deferred** |
 
 ## Feature flags
 
 | Flag | Effect |
 |------|--------|
-| `LU_MPS_MOTOR=1` | Localization report uses ExecutionKernel admit path |
-| `LU_DOC_PROVIDER=mock` | Opt-in MockDocumentProvider; default is Null |
+| *(default)* | `LU_MPS_MOTOR` on — ExecutionKernel admit path |
+| `LU_MPS_MOTOR=0` | Explicit opt-out (RuleEngine without admit) |
+| `LU_MPS_CAS=memory` | In-memory CAS (tests / explicit) |
+| `MIMERS_ROOT` | Mimers CAS root (default fallback `.data/mimers`) |
+| `MIMERS_REQUIRED=1` | Fail closed if `MIMERS_ROOT` missing |
+| `LU_MPS_TICKETS=prisma` | Prisma ticket queue (default) |
+| `LU_MPS_TICKETS=file` | File JSON queue fallback |
+| `LU_DOC_PROVIDER=mock` | Opt-in MockDocumentProvider |
 
 ## Key paths
 
 - Freeze: `packages/mps-runtime/src/contracts/freeze/`
 - Kernel: `packages/mps-runtime/src/kernel/ExecutionKernel.ts`
 - LU client: `packages/mps-lu/src/execution/LuExecutionKernelClient.ts`
-- Tickets: `packages/mps-control-plane/src/ExecutionTicketQueue.ts`, `FileDurableExecutionTicketQueue.ts`
-- Worker: `packages/mps-control-plane/src/AdmittedTicketWorker.ts`
-- CAS port: `packages/mps-runtime/src/repository/CasBackedArtifactRepository.ts`
-- LU registry: `packages/mps-lu/src/registry/LuSiteAssessmentRegistry.ts`
-- Evolution: `packages/mps-evolution/src/AdmittedOnlyEvolutionExecutor.ts`
+- CAS: `createKernelArtifactRepository` → Mimers `FileCASRepository` + id→hash index
+- Tickets: `src/application/enqueue-lu-execution-ticket.ts` → `PrismaExecutionTicketQueue`
+- Frozen Core: `packages/mps-governance/src/release/reference/FrozenCoreV1.ts`
+- UI: `components/app/lu/LuWorkspace.tsx` shows `executionMotor` meta
 
-## Architecture
+## Evolution gate (explicit)
 
-```text
-Domain client (LU)
-        ↓
-  ExecutionKernel
-        ↓
-  ArtifactRepository → CAS
-  ReplayEngine (reads CAS)
-```
+Do **not** wire product evolution until:
 
-## Next hardening (post-MVP)
+1. Production LU runs routinely through ExecutionKernel.
+2. Artifacts land in Mimers CAS and are replay-verifiable.
+3. Ticket queue shows stable admit → complete under restart.
 
-1. Swap `MemoryByteStorageBackend` for Mimers file CAS in production composition root.
-2. Persist ExecutionTicket via Prisma / Cloud Tasks (requires migration approval).
-3. Remove legacy RuleEngine path when parity proven under `LU_MPS_MOTOR=1`.
-4. Complete remaining CAP/REPLAY/SIG validators (EXE-25-I5/I7 done).
-5. Align FrozenCoreV1 mock hashes carefully with FROZEN_CORE_I7 without breaking Package24.
+Until then, keep `AdmittedOnlyEvolutionExecutor` out of the product path so evolution does not optimize a still-moving motor.

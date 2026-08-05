@@ -1,0 +1,48 @@
+{
+  "artifact_id": "frozen-core-release-v1.0.0",
+  "artifact_type": "frozen_core_release_manifest",
+  "release_id": "frozen-core-v1",
+  "release_version": "1.0.0",
+  "matrix_id": "mcs-001",
+  "matrix_hash": {
+    "algorithm": "sha256",
+    "value": "2e9ba1ca13fa00eb218ff582a977d6430ea7b36d0d23e5ae9d1ee48fd742ac90"
+  },
+  "registry_hash": {
+    "algorithm": "sha256",
+    "value": "e9ba741a6c46ef3d79c2901f1fbe5ab8d804d2446b7799355da41cbf17d7be3c"
+  },
+  "canonical_rules_version": "1.0.0",
+  "package_versions": [
+    {
+      "package_name": "mps-compliance",
+      "version": "1.0.0"
+    },
+    {
+      "package_name": "mps-governance",
+      "version": "1.0.0"
+    },
+    {
+      "package_name": "mps-runtime",
+      "version": "1.0.0"
+    }
+  ],
+  "dependency_graph_hash": {
+    "algorithm": "sha256",
+    "value": "7a53ff80cc6c7cbd7dc54bd5064f9567ac804d92e47b281bf802cf62ae4a230b"
+  },
+  "compliance_evaluation_ref": {
+    "artifact_id": "eval-v1",
+    "artifact_type": "compliance_evaluation"
+  },
+  "released_at": "2026-08-04T00:00:00Z",
+  "references": [],
+  "release_hash": {
+    "algorithm": "sha256",
+    "value": "15faea952758873e5b24bf452fb9be5078aa3fbb90dee7424fea8e178784ed87"
+  },
+  "content_hash": {
+    "algorithm": "sha256",
+    "value": "15faea952758873e5b24bf452fb9be5078aa3fbb90dee7424fea8e178784ed87"
+  }
+}

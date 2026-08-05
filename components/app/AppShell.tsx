@@ -1,6 +1,6 @@
 import React, { useMemo, useState } from 'react';
 import { AppContentRouter } from '../AppContentRouter';
-import { MpsConsoleApp, uiConfig, MpsProjectionApi } from '@miljobeslut/mps-console';
+import { uiConfig } from '@miljobeslut/mps-console';
 import { AppSidebar } from '../AppSidebar';
 import { AppHeader } from '../AppHeader';
 import ChatBot from '../ChatBot';
@@ -12,12 +12,11 @@ import { countReadyModules } from '../../services/projectStructure';
 import { MODE_CARDS } from './modeCards';
 import { useAppSession } from './providers/AppSessionProvider';
 import { useAppWorkspace } from './providers/AppWorkspaceProvider';
-import { useOperationsCenter } from '../context/OperationsCenterContext';
 import { useTheme } from '../context/ThemeContext';
 import { CommandPalette, InspectorPanel } from '../ui';
 import { featureFlags } from '../../src/infrastructure/feature-flags';
 import { setSession, callApi } from '../../services/coreApiClient';
-
+import { MimerProductShell } from './MimerProductShell';
 
 export const AppShell: React.FC = () => {
   const [isLoggingIn, setIsLoggingIn] = useState(false);
@@ -34,6 +33,7 @@ export const AppShell: React.FC = () => {
       }
     }
   }, []);
+
   const {
     sessionState,
     sessionError,
@@ -44,11 +44,6 @@ export const AppShell: React.FC = () => {
     clearSessionAndReset,
   } = useAppSession();
   const { isDark } = useTheme();
-
-  const [isLUProjectSetup, setIsLUProjectSetup] = useState(false);
-  const [luProjectName, setLuProjectName] = useState('');
-  const [luProjectDescription, setLuProjectDescription] = useState('');
-  const [luDesignation, setLuDesignation] = useState('');
 
   const {
     mode,
@@ -70,7 +65,10 @@ export const AppShell: React.FC = () => {
     () => plan.moduleIntegrations.filter((item) => item.readiness === 'BLOCKED').length,
     [plan],
   );
-  const requiredGateCount = useMemo(() => plan.stageGates.filter((gate) => gate.required).length, [plan]);
+  const requiredGateCount = useMemo(
+    () => plan.stageGates.filter((gate) => gate.required).length,
+    [plan],
+  );
   const passedGateCount = useMemo(
     () => plan.stageGates.filter((gate) => gate.required && gate.status === 'PASSED').length,
     [plan],
@@ -80,13 +78,6 @@ export const AppShell: React.FC = () => {
   const filteredModeCards = useMemo(() => {
     return MODE_CARDS.filter((card) => !card.flag || featureFlags.isEnabled(card.flag));
   }, []);
-
-  if (!uiConfig.enableLegacyUi) {
-    // Stub api implementation for now until backend is connected
-    const dummyApi: MpsProjectionApi = {} as any;
-    return <MpsConsoleApp api={dummyApi} />;
-  }
-
 
   if (sessionState === 'loading') {
     return (
@@ -105,22 +96,27 @@ export const AppShell: React.FC = () => {
     const handleLogin = async () => {
       setIsLoggingIn(true);
       try {
-        const payload = await callApi<{ ok: boolean; accessToken: string; refreshToken: string; user: any }>('/api/admin/auth/login', {
+        const payload = await callApi<{
+          ok: boolean;
+          accessToken: string;
+          refreshToken: string;
+          user: { id: string };
+        }>('/api/admin/auth/login', {
           method: 'POST',
           body: { username: 'admin', password: 'dev' },
-          auth: false
+          auth: false,
         });
         if (payload.ok) {
           setSession({
             accessToken: payload.accessToken,
             refreshToken: payload.refreshToken,
-            activeProjectId: 'cmsfmguf30002zsf7pfdffk7b'
+            activeProjectId: 'cmsfmguf30002zsf7pfdffk7b',
           });
           onLoginSuccess({
             id: payload.user.id,
             name: 'Admin Developer',
             personalNumber: '198001011234',
-            isAuthenticated: true
+            isAuthenticated: true,
           });
         } else {
           setIsLoggingIn(false);
@@ -132,10 +128,13 @@ export const AppShell: React.FC = () => {
     };
 
     return (
-      <div className="min-h-screen flex items-center justify-center bg-slate-950 text-white">
+      <div
+        data-testid="app-login"
+        className="min-h-screen flex items-center justify-center bg-slate-950 text-white"
+      >
         <div className="text-center">
           <p className="text-xs font-black uppercase tracking-[0.2em] text-slate-400">
-            Logga in (Legacy borttagen)
+            Logga in
           </p>
           {isLoggingIn ? (
             <div className="mt-6">
@@ -143,7 +142,12 @@ export const AppShell: React.FC = () => {
               <p className="mt-2 text-xs text-slate-400">Loggar in via backenden...</p>
             </div>
           ) : (
-            <button onClick={handleLogin} className="mt-4 p-3 bg-indigo-600 hover:bg-indigo-700 transition-colors font-bold text-sm px-6 rounded-xl shadow-lg">
+            <button
+              type="button"
+              data-testid="dev-login"
+              onClick={handleLogin}
+              className="mt-4 p-3 bg-indigo-600 hover:bg-indigo-700 transition-colors font-bold text-sm px-6 rounded-xl shadow-lg"
+            >
               Logga In Dummy
             </button>
           )}
@@ -184,6 +188,17 @@ export const AppShell: React.FC = () => {
     );
   }
 
+  // Default product UI — TechnicalDashboardHub only via VITE_ENABLE_LEGACY_UI=1
+  if (!uiConfig.enableLegacyUi) {
+    return (
+      <MimerProductShell
+        userName={sessionUser?.name || bootstrap?.user.displayName || 'Verifierad användare'}
+        organisationName={bootstrap?.organisation.name}
+        activeProjectLabel={activeProjectLabel}
+      />
+    );
+  }
+
   if (!mode) {
     return (
       <TechnicalDashboardHub
@@ -217,36 +232,6 @@ export const AppShell: React.FC = () => {
     return null;
   }
 
-  if (mode === 'Core_WORKFLOW' && activeTab === 'localization' && !isLUProjectSetup) {
-    return (
-      <div className={`min-h-screen w-full flex items-center justify-center font-['Plus_Jakarta_Sans'] transition-colors duration-150 overflow-hidden ${
-        isDark ? 'bg-slate-950 text-slate-100' : 'bg-slate-50 text-slate-900'
-      }`}>
-        <div className="flex-1 max-w-4xl p-4 md:p-6 custom-scrollbar relative">
-          <AppContentRouter
-            mode={mode}
-            activeTab={activeTab}
-            permits={permits}
-            setSelectedPermit={setSelectedPermit}
-            setActiveTab={setActiveTab}
-            onOpenMassModule={() => {
-              setMode('Core_WORKFLOW');
-              setActiveTab('c-notification-mass');
-            }}
-            isLUProjectSetup={isLUProjectSetup}
-            setIsLUProjectSetup={setIsLUProjectSetup}
-            luProjectName={luProjectName}
-            setLuProjectName={setLuProjectName}
-            luProjectDescription={luProjectDescription}
-            setLuProjectDescription={setLuProjectDescription}
-            luDesignation={luDesignation}
-            setLuDesignation={setLuDesignation}
-          />
-        </div>
-      </div>
-    );
-  }
-
   return (
     <div
       data-testid="app-workspace-shell"
@@ -254,7 +239,6 @@ export const AppShell: React.FC = () => {
         isDark ? 'bg-slate-950 text-slate-100' : 'bg-slate-50 text-slate-900'
       }`}
     >
-      {/* 1. Navigator (Left Sidebar - Width 72px collapsed, 256px expanded) */}
       <AppSidebar
         mode={mode}
         activeTab={activeTab}
@@ -267,7 +251,6 @@ export const AppShell: React.FC = () => {
         setShowUpload={setShowUpload}
       />
 
-      {/* 2. Workspace (Middle Main Pane - Flex Center Split) */}
       <main className="flex-1 flex flex-col h-screen overflow-hidden border-r border-slate-850">
         <AppHeader
           activeTab={activeTab}
@@ -292,23 +275,12 @@ export const AppShell: React.FC = () => {
               setMode('Core_WORKFLOW');
               setActiveTab('c-notification-mass');
             }}
-            isLUProjectSetup={isLUProjectSetup}
-            setIsLUProjectSetup={setIsLUProjectSetup}
-            luProjectName={luProjectName}
-            setLuProjectName={setLuProjectName}
-            luProjectDescription={luProjectDescription}
-            setLuProjectDescription={setLuProjectDescription}
-            luDesignation={luDesignation}
-            setLuDesignation={setLuDesignation}
           />
         </div>
         <ChatBot />
       </main>
 
-      {/* 3. Inspector (Right Panel - Width 320px) */}
       <InspectorPanel />
-
-      {/* 4. Global Command Palette (Ctrl+K overlay) */}
       <CommandPalette />
 
       {selectedPermit && <DetailModal permit={selectedPermit} onClose={() => setSelectedPermit(null)} />}

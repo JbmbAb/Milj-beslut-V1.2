@@ -35,6 +35,7 @@ Canonical översikt för Miljöbeslut V2.0. Läs i denna ordning vid onboarding.
 | Dokument | Syfte |
 | -------- | ----- |
 | [docs/qa/MODULE_IMPLEMENTATION_PLAN.md](../qa/MODULE_IMPLEMENTATION_PLAN.md) | Tre fokusmoduler |
+| [LU-Flow.md](./LU-Flow.md) | LU-flöde + default UI (`MimerProductShell`; rollback `VITE_ENABLE_LEGACY_UI=1`) |
 | [PERMIT_PORTAL_LEGACY.md](./PERMIT_PORTAL_LEGACY.md) | Legacy C-anmälan |
 | [PERMIT_PORTAL_RETIREMENT_PLAN.md](./PERMIT_PORTAL_RETIREMENT_PLAN.md) | Avvecklingsplan |
 | [massa_logistik_implementation.md](./massa_logistik_implementation.md) | Schaktmassa/logistik (aktiv kod) |

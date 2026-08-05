@@ -13,4 +13,6 @@ export * from "./kernel/FrozenAdmissionAdapter";
 export * from "./kernel/RuntimeAdmissionKernel";
 export * from "./repository/InMemoryArtifactRepository";
 export * from "./repository/CasBackedArtifactRepository";
+export * from "./repository/MimersByteStorageBackend";
+export * from "./repository/createKernelArtifactRepository";
 export * from "./replay/DefaultReplayEngine";

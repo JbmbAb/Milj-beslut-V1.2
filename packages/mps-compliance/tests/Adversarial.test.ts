@@ -80,7 +80,8 @@ describe("Commit 13 - Adversarial Compliance Test Suite", () => {
       implementation_hash: "v1",
       validate: (ctx: any) => {
         // Simulated hash check
-        const passed = ctx.release_manifest.matrix_hash.value === "mock-matrix-hash"; // assuming valid
+        const passed =
+          ctx.release_manifest.matrix_hash.value === FROZEN_CORE_V1_MANIFEST.matrix_hash.value;
         return { rule_id: "HASH_CHECK", passed, evidence: [] };
       }
     };

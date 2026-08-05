@@ -6,24 +6,26 @@ import type { ArtifactReference } from "../../mps-compliance/src/artifacts/Artif
 
 /**
  * Durable-oriented ticket queue (Fas 4).
- * In-memory impl for tests; Prisma/Cloud Tasks swap behind same interface.
+ * Async so Prisma / Cloud Tasks can persist without sync wrappers.
  */
 export interface ExecutionTicketQueue {
-  enqueue(ticket: Omit<FrozenExecutionTicket, "status"> & { status?: ExecutionTicketStatus }): FrozenExecutionTicket;
-  reserve(worker_id: string): FrozenExecutionTicket | null;
-  complete(ticket_id: string): void;
-  fail(ticket_id: string, reason: string): void;
-  retry(ticket_id: string): void;
-  get(ticket_id: string): FrozenExecutionTicket | undefined;
+  enqueue(
+    ticket: Omit<FrozenExecutionTicket, "status"> & { status?: ExecutionTicketStatus },
+  ): Promise<FrozenExecutionTicket>;
+  reserve(worker_id: string): Promise<FrozenExecutionTicket | null>;
+  complete(ticket_id: string): Promise<void>;
+  fail(ticket_id: string, reason: string): Promise<void>;
+  retry(ticket_id: string): Promise<void>;
+  get(ticket_id: string): Promise<FrozenExecutionTicket | undefined>;
 }
 
 export class InMemoryExecutionTicketQueue implements ExecutionTicketQueue {
   private readonly tickets = new Map<string, FrozenExecutionTicket>();
   private readonly order: string[] = [];
 
-  enqueue(
+  async enqueue(
     ticket: Omit<FrozenExecutionTicket, "status"> & { status?: ExecutionTicketStatus },
-  ): FrozenExecutionTicket {
+  ): Promise<FrozenExecutionTicket> {
     const full: FrozenExecutionTicket = {
       ticket_id: ticket.ticket_id,
       manifest_ref: ticket.manifest_ref,
@@ -36,7 +38,7 @@ export class InMemoryExecutionTicketQueue implements ExecutionTicketQueue {
     return full;
   }
 
-  reserve(worker_id: string): FrozenExecutionTicket | null {
+  async reserve(worker_id: string): Promise<FrozenExecutionTicket | null> {
     for (const id of this.order) {
       const t = this.tickets.get(id);
       if (t && t.status === "pending") {
@@ -52,19 +54,19 @@ export class InMemoryExecutionTicketQueue implements ExecutionTicketQueue {
     return null;
   }
 
-  complete(ticket_id: string): void {
+  async complete(ticket_id: string): Promise<void> {
     const t = this.tickets.get(ticket_id);
     if (!t) return;
     this.tickets.set(ticket_id, { ...t, status: "completed" });
   }
 
-  fail(ticket_id: string, _reason: string): void {
+  async fail(ticket_id: string, _reason: string): Promise<void> {
     const t = this.tickets.get(ticket_id);
     if (!t) return;
     this.tickets.set(ticket_id, { ...t, status: "failed" });
   }
 
-  retry(ticket_id: string): void {
+  async retry(ticket_id: string): Promise<void> {
     const t = this.tickets.get(ticket_id);
     if (!t) return;
     this.tickets.set(ticket_id, {
@@ -75,7 +77,7 @@ export class InMemoryExecutionTicketQueue implements ExecutionTicketQueue {
     });
   }
 
-  get(ticket_id: string): FrozenExecutionTicket | undefined {
+  async get(ticket_id: string): Promise<FrozenExecutionTicket | undefined> {
     return this.tickets.get(ticket_id);
   }
 }

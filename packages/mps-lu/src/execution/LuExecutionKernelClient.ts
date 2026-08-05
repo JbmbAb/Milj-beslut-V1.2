@@ -8,10 +8,7 @@ import {
   type CapabilityExecutorPort,
 } from "../../../mps-runtime/src/kernel/ExecutionKernel.js";
 import { FrozenAdmissionAdapter } from "../../../mps-runtime/src/kernel/FrozenAdmissionAdapter.js";
-import {
-  CasBackedArtifactRepository,
-  MemoryByteStorageBackend,
-} from "../../../mps-runtime/src/repository/CasBackedArtifactRepository.js";
+import { createKernelArtifactRepository } from "../../../mps-runtime/src/repository/createKernelArtifactRepository.js";
 import { DefaultReplayEngine } from "../../../mps-runtime/src/replay/DefaultReplayEngine.js";
 import type { FrozenExecutionManifestIdentity } from "../../../mps-runtime/src/contracts/freeze/FrozenIdentities.js";
 import type { ArtifactReference } from "../../../mps-compliance/src/artifacts/ArtifactReference.js";
@@ -46,22 +43,40 @@ export interface LuKernelRunResult {
   readonly admitted: boolean;
   readonly reason_codes: readonly string[];
   readonly finding_ids: readonly string[];
+  readonly findings: readonly AssessmentFinding[];
   readonly attempt_id: string | null;
   readonly outcome_id: string | null;
+  readonly manifest_id: string;
 }
 
 /**
- * LU as ExecutionKernel client (composition root on domain side).
+ * Motor default ON. Opt out with LU_MPS_MOTOR=0|false|no|off.
+ */
+export function isLuMpsMotorEnabled(env: NodeJS.ProcessEnv = process.env): boolean {
+  const v = (env.LU_MPS_MOTOR ?? env.VITE_LU_MPS_MOTOR ?? "1").toLowerCase();
+  if (v === "0" || v === "false" || v === "no" || v === "off") return false;
+  return true;
+}
+
+/**
+ * LU as ExecutionKernel client — admit → capability invoke → findings (single path).
+ * Artifacts persist via Mimers CAS (single store); memory only under test / LU_MPS_CAS=memory.
  */
 export async function runLuAssessmentViaKernel(
   input: LuKernelRunInput,
 ): Promise<LuKernelRunResult> {
-  const repo = new CasBackedArtifactRepository(new MemoryByteStorageBackend());
+  const repo = await createKernelArtifactRepository();
+  const engine = new LURuleEngine();
+  let findings: AssessmentFinding[] = [];
+
   const handlers = new Map<
     string,
     (inputs: readonly ContentReference[]) => Promise<readonly ContentReference[]>
   >();
-  handlers.set(`lu-rule-engine:${input.site_id}`, createLuRuleEngineInvokeHandler(input.evidence));
+  handlers.set(`lu-rule-engine:${input.site_id}`, async () => {
+    findings = engine.evaluate(input.evidence);
+    return findings.map((f) => ({ artifact_id: f.finding_id }));
+  });
 
   const capabilityExecutor: CapabilityExecutorPort = {
     async execute(args: {
@@ -141,19 +156,17 @@ export async function runLuAssessmentViaKernel(
   });
 
   const result = await kernel.execute(manifest);
+  const admitted = result.admission.decision === "admitted";
   const finding_ids =
     result.capability_executions[0]?.output_refs.map((r) => r.artifact_id) ?? [];
 
   return {
-    admitted: result.admission.decision === "admitted",
+    admitted,
     reason_codes: result.admission.reason_codes,
     finding_ids,
+    findings: admitted ? findings : [],
     attempt_id: result.attempt?.attempt_id ?? null,
     outcome_id: result.outcome?.outcome_id ?? null,
+    manifest_id: manifest.manifest_id,
   };
-}
-
-export function isLuMpsMotorEnabled(env: NodeJS.ProcessEnv = process.env): boolean {
-  const v = env.LU_MPS_MOTOR ?? env.VITE_LU_MPS_MOTOR;
-  return v === "1" || v === "true" || v === "yes";
 }
