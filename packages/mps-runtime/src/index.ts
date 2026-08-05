@@ -7,6 +7,8 @@ export * from "./PipelineRuntime";
 
 // Fas −1 / 0 — ExecutionKernel contracts
 export * from "./contracts/freeze/FrozenIdentities";
+/** Epoch II §2.2 — Execution Contracts & Model */
+export * from "./contracts/model/index";
 export * from "./kernel/RuntimeState";
 export * from "./kernel/ExecutionKernel";
 export * from "./kernel/FrozenAdmissionAdapter";

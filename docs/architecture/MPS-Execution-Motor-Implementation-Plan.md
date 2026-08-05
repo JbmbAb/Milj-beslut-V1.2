@@ -25,9 +25,9 @@ Execution Platform SHALL remain domain-agnostic. Domain logic = capabilities, wo
 
 | # | Track | Status |
 |---|--------|--------|
-| 2.1 | Execution Infrastructure | Active — `ExecutionInfrastructure` facade |
-| 2.2 | Execution Contracts & Model | Next |
-| 2.3 | Registry Runtime | Pending |
+| 2.1 | Execution Infrastructure | ✅ Done — `ExecutionInfrastructure` facade |
+| 2.2 | Execution Contracts & Model | ✅ Done — `mps-runtime/contracts/model` |
+| 2.3 | Registry Runtime | Next |
 | 2.4 | Mimers Integration | Pending |
 | 2.5 | Capability Runtime | Pending |
 | 2.6 | Workflow Runtime | Pending |
@@ -35,7 +35,7 @@ Execution Platform SHALL remain domain-agnostic. Domain logic = capabilities, wo
 | 2.8 | Runtime Observability | Pending |
 | 2.9 | Execution Platform Security | Pending |
 
-**Start:** 2.1 — crash-resume without information loss.
+**Next:** 2.3 Registry Runtime — sole truth for resolve; remove hard-coded bindings.
 
 ## Key invariants (quick ref)
 

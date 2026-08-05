@@ -109,6 +109,7 @@ export const FROZEN_ARTIFACT_TYPES = [
   "execution_manifest",
   "execution_attempt",
   "execution_outcome",
+  "execution_session",
   "CAPABILITY_EXECUTION",
   "WORKFLOW_EXECUTION",
   "REPLAY",

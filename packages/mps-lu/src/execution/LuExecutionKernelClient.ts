@@ -17,6 +17,12 @@ import {
   LU_REGISTRY_SNAPSHOT,
   LU_SITE_ASSESSMENT_CAPABILITY_KEY,
 } from "../registry/LuSiteAssessmentRegistry.js";
+import {
+  createExecutionSession,
+  appendAttemptToSession,
+  bindOutcomeToSession,
+  type ExecutionSession,
+} from "../../../mps-runtime/src/contracts/model/index.js";
 
 /**
  * Domain registers LURuleEngine as an invoke handler — kernel never imports it.
@@ -47,6 +53,8 @@ export interface LuKernelRunResult {
   readonly attempt_id: string | null;
   readonly outcome_id: string | null;
   readonly manifest_id: string;
+  /** Execution Contracts & Model — correlates ticket/attempt/outcome/replay. */
+  readonly session: ExecutionSession | null;
 }
 
 /**
@@ -154,6 +162,34 @@ export async function runLuAssessmentViaKernel(
   const finding_ids =
     result.capability_executions[0]?.output_refs.map((r) => r.artifact_id) ?? [];
 
+  let session: ExecutionSession | null = null;
+  if (admitted) {
+    session = createExecutionSession({
+      session_id: `session-${manifest.manifest_id}`,
+      manifest_ref: {
+        artifact_id: manifest.manifest_id,
+        artifact_type: "execution_manifest",
+      },
+    });
+    if (result.attempt) {
+      session = appendAttemptToSession(session, {
+        artifact_id: result.attempt.attempt_id,
+        artifact_type: "execution_attempt",
+      });
+    }
+    if (result.outcome) {
+      session = bindOutcomeToSession(session, {
+        artifact_id: result.outcome.outcome_id,
+        artifact_type: "execution_outcome",
+      });
+    }
+    await repo.put({
+      artifact_id: session.session_id,
+      content_hash: session.content_hash,
+      body: session,
+    });
+  }
+
   return {
     admitted,
     reason_codes: result.admission.reason_codes,
@@ -162,5 +198,6 @@ export async function runLuAssessmentViaKernel(
     attempt_id: result.attempt?.attempt_id ?? null,
     outcome_id: result.outcome?.outcome_id ?? null,
     manifest_id: manifest.manifest_id,
+    session,
   };
 }

@@ -122,6 +122,8 @@ jobs:
           packages/mps-runtime/src/unit/NoParallelCasPath.test.ts
           packages/mps-runtime/src/unit/ExecutionKernel.test.ts
           packages/mps-runtime/src/unit/mps-end-to-end-determinism.test.ts
+          packages/mps-runtime/src/contracts/freeze/ContractFreeze.test.ts
+          packages/mps-runtime/src/contracts/model/ExecutionContracts.test.ts
           packages/mps-control-plane/src/unit/DurableTicketQueue.adversarial.test.ts
           packages/mps-control-plane/src/unit/ExecutionInfrastructure.test.ts
           packages/mps-lu/tests/LuExecutionKernelClient.test.ts

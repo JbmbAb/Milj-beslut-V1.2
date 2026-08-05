@@ -77,7 +77,7 @@ Inte LU-arbete. LU är referensklient / Assessment Capability.
 
 **Why Registry before Mimers/Capability:** Registry is the sole truth for what may be resolved; hard-coded bindings are removed in this epoch.
 
-### 2.1 Execution Infrastructure
+### 2.1 Execution Infrastructure ✅
 
 | Component | Responsibility | Code |
 |-----------|----------------|------|
@@ -92,7 +92,7 @@ Inte LU-arbete. LU är referensklient / Assessment Capability.
 
 **Resultatinvariant:** En execution SHALL kunna återupptas efter processkrasch utan informationsförlust.
 
-### 2.2 Execution Contracts & Model
+### 2.2 Execution Contracts & Model ✅
 
 Semantic **objects** and governing **contracts/policies**:
 
@@ -108,7 +108,9 @@ Semantic **objects** and governing **contracts/policies**:
 | **AdmissionPolicy** | Who/what may be admitted |
 | **RetryPolicy** | Deterministic retry behaviour |
 
-Objects describe *what happened*. Policies describe *what is allowed*. Both are part of the frozen semantic surface (extends ADR-29).
+Objects describe *what happened*. Policies describe *what is allowed*. Both are part of the frozen semantic surface (extends ADR-29; additive `execution_session`).
+
+**Code:** `packages/mps-runtime/src/contracts/model/` — policies shared with Execution Infrastructure; LU kernel client persists `ExecutionSession` after admit.
 
 ### 2.3 Registry Runtime
 

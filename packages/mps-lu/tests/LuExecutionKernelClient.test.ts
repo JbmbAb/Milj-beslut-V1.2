@@ -30,6 +30,10 @@ describe("LuExecutionKernelClient", () => {
     expect(result.finding_ids.length).toBeGreaterThan(0);
     expect(result.findings.length).toBe(result.finding_ids.length);
     expect(result.manifest_id).toContain("lu-manifest-");
+    expect(result.session?.artifact_type).toBe("execution_session");
+    expect(result.session?.manifest_ref.artifact_id).toBe(result.manifest_id);
+    expect(result.session?.attempt_refs[0]?.artifact_id).toBe(result.attempt_id);
+    expect(result.session?.outcome_ref?.artifact_id).toBe(result.outcome_id);
   });
 
   it("cutover: no LU_MPS_MOTOR opt-out and no RuleEngine bypass export", () => {

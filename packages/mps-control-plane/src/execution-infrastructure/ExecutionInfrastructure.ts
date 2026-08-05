@@ -19,7 +19,7 @@ import type {
   ReplayScheduleJob,
   RetryPolicy,
 } from "./types.js";
-import { DEFAULT_RETRY_POLICY } from "./types.js";
+import { DEFAULT_EXECUTION_POLICY } from "../../../mps-runtime/src/contracts/model/ExecutionPolicies.js";
 
 export type ExecutionInfrastructureOptions = {
   readonly leaseTimeoutMs?: number;
@@ -46,11 +46,12 @@ export class ExecutionInfrastructure {
     options: ExecutionInfrastructureOptions = {},
   ) {
     this.clock = { now: options.now ?? (() => new Date()) };
+    const policy = DEFAULT_EXECUTION_POLICY;
     this.leaseManager = new LeaseManager(
-      options.leaseTimeoutMs ?? 5 * 60 * 1000,
+      options.leaseTimeoutMs ?? policy.lease_timeout_ms,
       this.clock,
     );
-    this.retryEngine = new RetryEngine(options.retryPolicy ?? DEFAULT_RETRY_POLICY);
+    this.retryEngine = new RetryEngine(options.retryPolicy ?? policy.retry);
     this.idempotency = new IdempotencyManager(new MemoryIdempotencyStore());
     this.attempts = options.attemptStore ?? new MemoryAttemptCounterStore();
     this.replayScheduler = new ReplayScheduler(

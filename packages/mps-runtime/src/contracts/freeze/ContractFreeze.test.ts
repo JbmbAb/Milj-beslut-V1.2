@@ -21,6 +21,7 @@ const FROZEN_SCHEMA_CANONICAL = JSON.stringify({
     "WorkflowExecution:execution_refs,execution_order,workflow_hash,workflow_definition_hash,content_hash",
     "Replay:manifest_ref,replayed_outcome_ref,equivalence_proof,content_hash",
     "ExecutionTicket:ticket_id,manifest_ref,attempt_ref,lease_ref,status",
+    "ExecutionSession:session_id,manifest_ref,ticket_ref,attempt_refs,outcome_ref,replay_refs,policy_id,content_hash",
     "RuntimeState:RegistrySnapshot,AdmissionResult,Manifest,Attempt,ExecutionGraph,WorkflowState",
   ],
 });
@@ -35,6 +36,7 @@ describe("Runtime Contract Freeze", () => {
 
   it("locks frozen artifact type set", () => {
     expect(FROZEN_ARTIFACT_TYPES).toContain("execution_manifest");
+    expect(FROZEN_ARTIFACT_TYPES).toContain("execution_session");
     expect(FROZEN_ARTIFACT_TYPES).toContain("WORKFLOW_EXECUTION");
     expect(FROZEN_ARTIFACT_TYPES).toContain("REPLAY");
   });

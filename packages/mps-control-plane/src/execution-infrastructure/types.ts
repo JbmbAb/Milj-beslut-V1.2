@@ -1,17 +1,8 @@
 import type { ArtifactReference } from "../../../mps-compliance/src/artifacts/ArtifactReference.js";
+import type { RetryPolicy } from "../../../mps-runtime/src/contracts/model/ExecutionPolicies.js";
 
-/** Deterministic retry policy (Execution Platform 2.1). */
-export type RetryPolicy = {
-  readonly max_attempts: number;
-  /** Fixed delay between retries (ms). Deterministic — no jitter in v1. */
-  readonly delay_ms: number;
-  readonly retryable_reason_prefixes?: readonly string[];
-};
-
-export const DEFAULT_RETRY_POLICY: RetryPolicy = {
-  max_attempts: 3,
-  delay_ms: 0,
-};
+export type { RetryPolicy };
+export { DEFAULT_RETRY_POLICY } from "../../../mps-runtime/src/contracts/model/ExecutionPolicies.js";
 
 export type LeaseDecision =
   | { readonly action: "hold" }
