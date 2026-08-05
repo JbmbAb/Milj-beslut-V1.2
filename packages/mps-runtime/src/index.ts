@@ -33,4 +33,6 @@ export * from "./workflow/index";
 export * from "./projection/index";
 /** Epoch II §2.8 — Runtime Observability */
 export * from "./observability/index";
+/** Epoch II §2.9 — Execution Platform Security */
+export * from "./security/index";
 export * from "./replay/DefaultReplayEngine";

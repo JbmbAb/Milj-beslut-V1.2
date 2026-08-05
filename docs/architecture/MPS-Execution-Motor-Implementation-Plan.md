@@ -17,8 +17,8 @@ Execution Platform SHALL remain domain-agnostic. Domain logic = capabilities, wo
 | Epoch | Goal | Status |
 |-------|------|--------|
 | I | Frozen + LU reference Assessment Capability | ✅ Closed |
-| II | **Execution Platform** v1 | 🟡 Active |
-| III | IIIA→IIID Knowledge Platform | 🔵 Later |
+| II | **Execution Platform** v1 | ✅ Closed |
+| III | IIIA→IIID Knowledge Platform | 🔵 Next when ready |
 | IV | Ecosystem Platform | ⚪ Long-term |
 
 ## Epoch II build order
@@ -33,9 +33,9 @@ Execution Platform SHALL remain domain-agnostic. Domain logic = capabilities, wo
 | 2.6 | Workflow Runtime | ✅ Done — `mps-runtime/workflow` |
 | 2.7 | Projection Layer | ✅ Done — `mps-runtime/projection` |
 | 2.8 | Runtime Observability | ✅ Done — `mps-runtime/observability` |
-| 2.9 | Execution Platform Security | Next |
+| 2.9 | Execution Platform Security | ✅ Done — `mps-runtime/security` |
 
-**Next:** 2.9 Execution Platform Security — Identity → Admission → Authorization → Capability Invocation → Artifact Signing.
+**Epoch II complete.** Next epoch when starting Knowledge work: **IIIA Knowledge Foundation** (harvester / document & spatial intelligence) — not before human green-light.
 
 ## Key invariants (quick ref)
 

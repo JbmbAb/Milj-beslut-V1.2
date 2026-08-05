@@ -6,9 +6,9 @@ import {
   ExecutionKernel,
   sha256ContentHash,
 } from "../../../mps-runtime/src/kernel/ExecutionKernel.js";
-import { FrozenAdmissionAdapter } from "../../../mps-runtime/src/kernel/FrozenAdmissionAdapter.js";
 import { MimersIntegration } from "../../../mps-runtime/src/mimers/index.js";
 import { CapabilityRuntime } from "../../../mps-runtime/src/capability/index.js";
+import { SecurityRuntime } from "../../../mps-runtime/src/security/index.js";
 import { DefaultReplayEngine } from "../../../mps-runtime/src/replay/DefaultReplayEngine.js";
 import type { FrozenExecutionManifestIdentity } from "../../../mps-runtime/src/contracts/freeze/FrozenIdentities.js";
 import {
@@ -18,8 +18,12 @@ import {
   type ExecutionSession,
 } from "../../../mps-runtime/src/contracts/model/index.js";
 import type { RegistryRuntime } from "../../../mps-runtime/src/registry/index.js";
+import type { OutcomeAttestation } from "../../../mps-runtime/src/security/index.js";
 import { createLuRegistryRuntime } from "../registry/createLuRegistryRuntime.js";
 import { LU_SITE_ASSESSMENT_CAPABILITY_KEY } from "../registry/LuSiteAssessmentRegistry.js";
+
+/** LU reference principal — domain composition root identity binding. */
+export const LU_EXECUTION_PRINCIPAL_ID = "lu.site_assessment.actor" as const;
 
 /**
  * Domain registers LURuleEngine as an invoke handler — kernel never imports it.
@@ -54,14 +58,16 @@ export interface LuKernelRunResult {
   readonly manifest_id: string;
   /** Execution Contracts & Model — correlates ticket/attempt/outcome/replay. */
   readonly session: ExecutionSession | null;
+  /** Outcome attestation from SecurityRuntime (null if denied). */
+  readonly attestation: OutcomeAttestation | null;
 }
 
 /**
- * LU as ExecutionKernel client — admit → CapabilityRuntime → findings.
+ * LU as ExecutionKernel client — Security → admit → CapabilityRuntime → findings.
  * This is the only product assessment path (LU cutover complete).
  *
- * Domain composition root: registry seed + implementation handler registration.
- * Platform: MimersIntegration + CapabilityRuntime + ExecutionKernel.
+ * Domain composition root: registry seed + grants + implementation handlers.
+ * Platform: MimersIntegration + SecurityRuntime + CapabilityRuntime + ExecutionKernel.
  */
 export async function runLuAssessmentViaKernel(
   input: LuKernelRunInput,
@@ -91,10 +97,27 @@ export async function runLuAssessmentViaKernel(
 
   const capabilityRuntime = CapabilityRuntime.create({ registry, handlers });
 
+  const security = SecurityRuntime.create({
+    bootstrapAdmit: true,
+    bindSeed: input.deterministic_seed,
+    grants: [
+      {
+        principal_id: LU_EXECUTION_PRINCIPAL_ID,
+        capability_id: capability.artifact_id,
+      },
+    ],
+  });
+  security.bindPrincipal(LU_EXECUTION_PRINCIPAL_ID, {
+    artifact_id: `lu-identity-${input.site_id}`,
+    artifact_type: "execution_identity",
+  });
+
   const snapshot = registry.getReleaseSnapshot();
   const kernel = new ExecutionKernel({
-    admission: new FrozenAdmissionAdapter(null, true),
-    capabilityExecutor: capabilityRuntime.asExecutorPort(),
+    admission: security.asAdmissionPort(),
+    capabilityExecutor: security.asAuthorizedExecutorPort(
+      capabilityRuntime.asExecutorPort(),
+    ),
     artifactRepository: repo,
     replayEngine: new DefaultReplayEngine(repo),
     registrySnapshot: registry.toSnapshotView(),
@@ -146,6 +169,7 @@ export async function runLuAssessmentViaKernel(
     result.capability_executions[0]?.output_refs.map((r) => r.artifact_id) ?? [];
 
   let session: ExecutionSession | null = null;
+  let attestation: OutcomeAttestation | null = null;
   if (admitted) {
     session = createExecutionSession({
       session_id: `session-${manifest.manifest_id}`,
@@ -165,6 +189,12 @@ export async function runLuAssessmentViaKernel(
         artifact_id: result.outcome.outcome_id,
         artifact_type: "execution_outcome",
       });
+      attestation = security.attestOutcome(result.outcome.content_hash);
+      await repo.put({
+        artifact_id: attestation.attestation_id,
+        content_hash: attestation.content_hash,
+        body: attestation,
+      });
     }
     await repo.put({
       artifact_id: session.session_id,
@@ -182,5 +212,6 @@ export async function runLuAssessmentViaKernel(
     outcome_id: result.outcome?.outcome_id ?? null,
     manifest_id: manifest.manifest_id,
     session,
+    attestation,
   };
 }

@@ -34,6 +34,8 @@ describe("LuExecutionKernelClient", () => {
     expect(result.session?.manifest_ref.artifact_id).toBe(result.manifest_id);
     expect(result.session?.attempt_refs[0]?.artifact_id).toBe(result.attempt_id);
     expect(result.session?.outcome_ref?.artifact_id).toBe(result.outcome_id);
+    expect(result.attestation?.artifact_type).toBe("outcome_attestation");
+    expect(result.attestation?.signature).toMatch(/^[a-f0-9]{64}$/);
   });
 
   it("cutover: no LU_MPS_MOTOR opt-out and no RuleEngine bypass export", () => {
@@ -49,6 +51,10 @@ describe("LuExecutionKernelClient", () => {
     expect(clientSrc).toContain("MimersIntegration");
     expect(clientSrc).toContain("CapabilityRuntime");
     expect(clientSrc).toContain("asExecutorPort");
+    expect(clientSrc).toContain("SecurityRuntime");
+    expect(clientSrc).toContain("asAdmissionPort");
+    expect(clientSrc).toContain("asAuthorizedExecutorPort");
+    expect(clientSrc).not.toContain("FrozenAdmissionAdapter(null, true)");
     expect(clientSrc).not.toContain("lu-rule-engine:");
     expect(clientSrc).not.toContain("CapabilityExecutorPort = {");
   });

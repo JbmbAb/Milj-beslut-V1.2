@@ -24,7 +24,7 @@ This is the governing principle for Epochs II–IV.
 | Epoch | Name | Goal | Status |
 |-------|------|------|--------|
 | **I** | Frozen Core + LU Runtime | First domain on a single execution spine | ✅ **Closed** |
-| **II** | **Execution Platform** | Universal, domain-agnostic execution platform | 🟡 **Active** |
+| **II** | **Execution Platform** | Universal, domain-agnostic execution platform | ✅ **Closed** (v1) |
 | **III** | Knowledge Platform | Data → assessments → evolution → adaptive | 🔵 **Later** |
 | **IV** | Ecosystem Platform | External APIs, plugins, partners, multi-client | ⚪ **Long-term** |
 
@@ -44,12 +44,12 @@ This is the governing principle for Epochs II–IV.
 
 ---
 
-## Epoch II — Execution Platform
+## Epoch II ✅ — Execution Platform v1
 
 **Mål:** en **generell, domänagnostisk exekveringsplattform**.  
 Inte LU-arbete. LU är referensklient / Assessment Capability.
 
-**Definition of Done:** *Execution Platform v1* — vilken miljöprocess som helst kan köras via samma plattform utan domänkod i runtime.
+**Definition of Done:** *Execution Platform v1* — vilken miljöprocess som helst kan köras via samma plattform utan domänkod i runtime. **Met** — tracks 2.1–2.9 closed.
 
 ### Normative build order
 
@@ -217,7 +217,7 @@ Side channel / projection — not a second source of truth.
 
 **Invariant:** Observability MUST NOT `put` CAS or mutate frozen artifact identity. Ops telemetry (`mps-telemetry`) remains orthogonal.
 
-### 2.9 Execution Platform Security
+### 2.9 Execution Platform Security ✅
 
 Security is part of the **execution platform**, not the Knowledge Platform and not a full IAM product in this epoch:
 
@@ -233,6 +233,14 @@ Identity → Admission → Authorization → Capability Invocation → Artifact 
 | Artifact Signing | Integrity of persisted outcomes / attestations |
 
 Scope: execution-path trust. Not: full org IAM, SSO product surface, or partner federation (those belong later / Epoch IV).
+
+| Component | Responsibility | Code |
+|-----------|----------------|------|
+| **SecurityRuntime** | bindPrincipal → admit → authorize → attest | `mps-runtime/src/security/SecurityRuntime` |
+| **CapabilityGrant** | Principal ↔ capability entitlement | `SecurityContracts` |
+| **OutcomeAttestation** | HMAC attest over outcome content_hash | `HmacSigningKeyProvider` |
+
+**Epoch II Definition of Done:** *Execution Platform v1* — tracks 2.1–2.9 closed. Domain logic remains outside the platform (capabilities / workflows / rules / projections only).
 
 ---
 
