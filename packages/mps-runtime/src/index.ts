@@ -31,4 +31,6 @@ export * from "./capability/index";
 export * from "./workflow/index";
 /** Epoch II §2.7 — Projection Layer */
 export * from "./projection/index";
+/** Epoch II §2.8 — Runtime Observability */
+export * from "./observability/index";
 export * from "./replay/DefaultReplayEngine";

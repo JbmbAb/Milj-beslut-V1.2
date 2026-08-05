@@ -201,13 +201,21 @@ Same principle as Governance: UI and audit views are derived; CAS artifacts rema
 | **ArtifactProjectionView** | Frozen body + `projection_hash` | `ProjectionContracts` |
 | **UI adapter** | View → presentation DTO (no CAS) | `mps-ui-contract/RuntimeProjectionAdapter` |
 
-### 2.8 Runtime Observability
+### 2.8 Runtime Observability ✅
 
 Without mutating artifact identity:
 
 - Replay logs · execution graph · lineage · deterministic tracing  
 
 Side channel / projection — not a second source of truth.
+
+| Component | Responsibility | Code |
+|-----------|----------------|------|
+| **ObservabilityRuntime** | Collect side-channel bundle from RuntimeState / replay / workflow | `mps-runtime/src/observability/ObservabilityRuntime` |
+| **DeterministicTrace** | `trace_id` / spans from content hashes (no wall-clock) | `ObservabilityContracts` |
+| **ObservabilityBundle** | Frozen graph + lineage + optional replay_log + `bundle_hash` | same |
+
+**Invariant:** Observability MUST NOT `put` CAS or mutate frozen artifact identity. Ops telemetry (`mps-telemetry`) remains orthogonal.
 
 ### 2.9 Execution Platform Security
 

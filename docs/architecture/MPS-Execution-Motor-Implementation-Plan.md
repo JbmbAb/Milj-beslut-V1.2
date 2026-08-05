@@ -32,10 +32,10 @@ Execution Platform SHALL remain domain-agnostic. Domain logic = capabilities, wo
 | 2.5 | Capability Runtime | ✅ Done — `mps-runtime/capability` |
 | 2.6 | Workflow Runtime | ✅ Done — `mps-runtime/workflow` |
 | 2.7 | Projection Layer | ✅ Done — `mps-runtime/projection` |
-| 2.8 | Runtime Observability | Next |
-| 2.9 | Execution Platform Security | Pending |
+| 2.8 | Runtime Observability | ✅ Done — `mps-runtime/observability` |
+| 2.9 | Execution Platform Security | Next |
 
-**Next:** 2.8 Runtime Observability — replay logs / graph / lineage as side channel; never mutates artifact identity.
+**Next:** 2.9 Execution Platform Security — Identity → Admission → Authorization → Capability Invocation → Artifact Signing.
 
 ## Key invariants (quick ref)
 
