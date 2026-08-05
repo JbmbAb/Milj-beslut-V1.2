@@ -37,6 +37,7 @@ Canonical översikt för Miljöbeslut V2.0. Läs i denna ordning vid onboarding.
 | [docs/qa/MODULE_IMPLEMENTATION_PLAN.md](../qa/MODULE_IMPLEMENTATION_PLAN.md) | Tre fokusmoduler |
 | [LU-Flow.md](./LU-Flow.md) | LU-flöde + default UI (`MimerProductShell`; rollback `VITE_ENABLE_LEGACY_UI=1`) |
 | [ADR-30](./ADR-30-LU-Runtime-v1-Freeze-ExecutionKernel-Cutover.md) | **Execution Kernel v1.0 – LU Cutover Complete** (normativ LU-runtime) |
+| [ADR-31](./ADR-31-Post-LU-Platform-Infrastructure-Focus.md) | Epoch II — gemensam runtime (Queue → Workflow → Registry) |
 | [PERMIT_PORTAL_LEGACY.md](./PERMIT_PORTAL_LEGACY.md) | Legacy C-anmälan |
 | [PERMIT_PORTAL_RETIREMENT_PLAN.md](./PERMIT_PORTAL_RETIREMENT_PLAN.md) | Avvecklingsplan |
 | [massa_logistik_implementation.md](./massa_logistik_implementation.md) | Schaktmassa/logistik (aktiv kod) |
@@ -50,6 +51,7 @@ Canonical översikt för Miljöbeslut V2.0. Läs i denna ordning vid onboarding.
 - [ADR-006](./ADR-006-strangler-fig-pattern.md) — strangler fig
 - [ADR-29](./ADR-29-Runtime-Contract-Freeze-ExecutionKernel.md) — Runtime Contract Freeze & ExecutionKernel
 - [ADR-30](./ADR-30-LU-Runtime-v1-Freeze-ExecutionKernel-Cutover.md) — LU Runtime v1 Freeze (Execution Kernel v1.0)
+- [ADR-31](./ADR-31-Post-LU-Platform-Infrastructure-Focus.md) — Epoch II: shared runtime infra (Queue → Workflow → Registry)
 - [MPS-Execution-Motor-Implementation-Plan.md](./MPS-Execution-Motor-Implementation-Plan.md) — Execution motor roadmap (post-cutover: shared infra)
 
 ## Arkiverat

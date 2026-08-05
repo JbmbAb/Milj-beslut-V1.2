@@ -1,44 +1,49 @@
 # MPS Execution Motor — Implementation Plan
 
-Canonical plan for making **ExecutionKernel** the active, general execution motor.
+Canonical plan for **ExecutionKernel** as the production execution motor.
 
-See also: [ADR-29-Runtime-Contract-Freeze-ExecutionKernel.md](./ADR-29-Runtime-Contract-Freeze-ExecutionKernel.md)
+See also:
+
+- [ADR-29](./ADR-29-Runtime-Contract-Freeze-ExecutionKernel.md) — identity freeze  
+- [ADR-30](./ADR-30-LU-Runtime-v1-Freeze-ExecutionKernel-Cutover.md) — LU Runtime v1 / Kernel v1.0  
+- [ADR-31](./ADR-31-Post-LU-Platform-Infrastructure-Focus.md) — **Epoch II: shared infrastructure focus**
+
+## Epoch status
+
+| Epoch | Scope | Status |
+|-------|--------|--------|
+| I — Execution model | Frozen Core, LU cutover, ADR-30 freeze | **Closed** |
+| II — Shared runtime | Queue, Workflow, Registry, Kernel generalization | **Active** |
+| III — Evolution | Metrics → Fitness → Candidates → Replay → Promotion | **Deferred** |
 
 ## Locked approach
 
-- **ExecutionKernel** is the client API (LU / tillsyn / dispens are clients).
-- Package24 identities frozen at **v1.0.0** before further shape changes.
+- **ExecutionKernel** is the client API (LU is the reference client; other domains follow).
+- Package24 / ADR-29 identities frozen at **v1.0.0**.
 - Order: ArtifactStore → **Admission** → Hash → CapabilityExecutor.
 - CapabilityExecutor SHALL NOT know RuleEngine (ImplementationResolver → invoke).
-- ReplayEngine reads CAS; is not part of CAS.
+- ReplayEngine reads CAS via ArtifactRepository; Replay is not part of CAS.
 - Queue uses **ExecutionTicket**.
-- Evolution: Manifest → Admission → Evolution only — **product loop stays off** until real runs + replayable artifacts exist.
+- Evolution: Manifest → Admission → Evolution only — product loop **off** until real history exists.
+- **Do not reopen LU Runtime v1** for motor churn (ADR-30 / ADR-31).
 
-## Phases
+## Epoch I — Done
 
-| Phase | Deliverable | Status in codebase |
-|-------|-------------|-------------------|
-| −1 Contract Freeze | Frozen identities + type-lock tests + ADR-29 | Done |
-| 0 Kernel skeleton | `ExecutionKernel`, `RuntimeState`, LU client | Done |
-| 1 Destub bottom | Admit hashes, ImplementationResolver, CasBackedArtifactRepository | Done |
-| 2 LU MVP strangler | Motor path in localization usecase | Done |
-| 3 Workflow | Workflow freeze fields + `LuSiteAssessmentRegistry` | Done |
-| 4 Ticket queue | Prisma `ExecutionTicket` (+ file fallback) + AdmittedTicketWorker | Done |
-| 5 Document providers | NullDocumentProvider default; UI adapter | Done |
-| Infra: Mimers CAS | Single store; index rebuild; `MIMERS_REQUIRED` fail-closed + tests | Done |
-| Infra: Frozen Core hashes | Projection → SHA-256 → golden **exact match** (CI gate) | Done |
-| Infra: Ticket queue | Prisma + file; lease timeout; dup/idempotent/crash tests | Done |
-| **7 LU Cutover** | **Single path:** Report → Kernel → Artifacts → UI (no RuleEngine bypass) | **Done** |
-| **8 LU Runtime v1 Freeze** | ADR-30 — Execution Kernel v1.0 normative model | **Done** |
-| Evolution product loop | Metrics → Fitness → Candidates → Replay → Promotion | **Deferred** |
+| Phase | Deliverable | Status |
+|-------|-------------|--------|
+| −1…6 | Contract freeze → LU strangler → tickets → CAS → cutover | Done |
+| 7 LU Cutover | Single path Report → Kernel → Artifacts → UI | Done (`dff5efa`) |
+| 8 LU Runtime v1 Freeze | ADR-30 — Execution Kernel v1.0 | Done (`48bb5f5`) |
 
-## Post-freeze focus (shared infrastructure — not LU motor churn)
+## Epoch II — Active priority
 
-1. ExecutionQueue — durable leases, recovery under load  
-2. WorkflowEngine — multi-step domains on the same kernel  
-3. ExecutionKernel generalization — next domains (avlopp, C-anmälan, …)  
-4. Capability Registry — shared resolution surface  
-5. Evolution — only after real admitted production history exists
+| Priority | Deliverable | Scope |
+|----------|-------------|--------|
+| 1 | **ExecutionQueue v1** | Leases, retry, recovery, deterministic tickets |
+| 2 | **WorkflowEngine v1** | Multi-capability graph, deterministic order, workflow replay |
+| 3 | **Capability Registry v1** | Versioned definitions, release-bound snapshots, runtime resolution |
+| 4 | **ExecutionKernel generalization** | LU = client only; avlopp / C-anmälan / … same core |
+| 5 | **Evolution** (Epoch III) | Only after real admitted + replayable artifacts |
 
 ## Feature flags
 
@@ -54,28 +59,22 @@ See also: [ADR-29-Runtime-Contract-Freeze-ExecutionKernel.md](./ADR-29-Runtime-C
 
 Removed: `LU_MPS_MOTOR` opt-out (cutover complete).
 
-## Key paths
+## Reference client (frozen)
 
-- Freeze: `packages/mps-runtime/src/contracts/freeze/`
 - Kernel: `packages/mps-runtime/src/kernel/ExecutionKernel.ts`
 - LU client: `packages/mps-lu/src/execution/LuExecutionKernelClient.ts`
+- Freeze marks: `packages/mps-lu/src/runtime/LuRuntimeFreeze.ts`
 - Report: `src/application/generate-localization-report.usecase.ts` → `runLuAssessmentViaKernel` only
-- CAS: `createKernelArtifactRepository` → Mimers `FileCASRepository` + id→hash index
-- Tickets: `src/application/enqueue-lu-execution-ticket.ts` → `PrismaExecutionTicketQueue`
-- UI: `components/app/lu/LuWorkspace.tsx`
+- CAS: `createKernelArtifactRepository` → Mimers
+- Tickets (baseline): `PrismaExecutionTicketQueue` + file fallback
+- Guard: `src/application/unit/LuCutoverSinglePath.test.ts`
 
-## Next focus (not more packages)
-
-1. ~~Replace last legacy LU execution path~~ **Done**
-2. Gather real production runs + replayable Mimers artifacts
-3. Then activate evolution: Execution Metrics → Fitness → Candidates → Replay → Promotion
-
-## Evolution gate (explicit)
+## Evolution gate (Epoch III)
 
 Do **not** wire product evolution until:
 
-1. Production LU runs routinely through ExecutionKernel.
-2. Artifacts land in Mimers CAS and are replay-verifiable.
-3. Ticket queue shows stable admit → complete under restart.
+1. Production runs routinely through ExecutionKernel.  
+2. Artifacts land in Mimers CAS and are replay-verifiable.  
+3. ExecutionQueue shows stable admit → complete under restart / lease recovery.  
 
 Until then, keep `AdmittedOnlyEvolutionExecutor` out of the product path.

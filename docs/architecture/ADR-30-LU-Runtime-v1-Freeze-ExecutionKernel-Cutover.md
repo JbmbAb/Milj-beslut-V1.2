@@ -88,6 +88,7 @@ Breaking any frozen invariant requires:
 ## References
 
 - Commit: `dff5efa` — `feat(runtime): complete LU ExecutionKernel cutover`
+- [ADR-31-Post-LU-Platform-Infrastructure-Focus.md](./ADR-31-Post-LU-Platform-Infrastructure-Focus.md) — next epoch (shared infra; LU stays reference client)
 - [ADR-29-Runtime-Contract-Freeze-ExecutionKernel.md](./ADR-29-Runtime-Contract-Freeze-ExecutionKernel.md)
 - [ADR-27-LU-Architecture-Charter.md](./ADR-27-LU-Architecture-Charter.md)
 - [LU-Flow.md](./LU-Flow.md)
