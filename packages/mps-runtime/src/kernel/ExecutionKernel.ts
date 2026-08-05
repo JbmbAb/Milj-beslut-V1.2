@@ -1,0 +1,184 @@
+import { createHash } from "node:crypto";
+import type { ContentHash } from "../../../mps-compliance/src/artifacts/ContentHash.js";
+import type { ArtifactReference } from "../../../mps-compliance/src/artifacts/ArtifactReference.js";
+import type {
+  FrozenAdmissionResult,
+  FrozenCapabilityExecutionArtifact,
+  FrozenExecutionAttemptIdentity,
+  FrozenExecutionManifestIdentity,
+  FrozenExecutionOutcomeIdentity,
+  FrozenReplayArtifact,
+} from "../contracts/freeze/FrozenIdentities.js";
+import {
+  createEmptyRuntimeState,
+  type RuntimeState,
+  type RegistrySnapshotView,
+} from "./RuntimeState.js";
+
+export interface ArtifactRepositoryPort {
+  put(artifact: { artifact_id: string; content_hash: ContentHash; body: unknown }): Promise<void>;
+  resolve<T>(ref: ArtifactReference): Promise<T>;
+}
+
+export interface AdmissionPort {
+  admit(manifest: FrozenExecutionManifestIdentity, state: RuntimeState): Promise<FrozenAdmissionResult>;
+}
+
+export interface CapabilityExecutorPort {
+  execute(args: {
+    capability_ref: ArtifactReference;
+    input_refs: readonly ArtifactReference[];
+    state: RuntimeState;
+  }): Promise<FrozenCapabilityExecutionArtifact>;
+}
+
+export interface WorkflowExecutorPort {
+  execute(args: {
+    workflow_definition_ref: ArtifactReference;
+    input_refs: readonly ArtifactReference[];
+    state: RuntimeState;
+  }): Promise<import("../contracts/freeze/FrozenIdentities.js").FrozenWorkflowExecutionArtifact>;
+}
+
+export interface ReplayEnginePort {
+  /**
+   * Replay reads CAS via repository; Replay is NOT part of CAS.
+   */
+  replay(manifest_ref: ArtifactReference, state: RuntimeState): Promise<FrozenReplayArtifact>;
+}
+
+export interface ExecutionKernelDeps {
+  readonly admission: AdmissionPort;
+  readonly capabilityExecutor: CapabilityExecutorPort;
+  readonly workflowExecutor?: WorkflowExecutorPort;
+  readonly artifactRepository: ArtifactRepositoryPort;
+  readonly replayEngine?: ReplayEnginePort;
+  readonly registrySnapshot?: RegistrySnapshotView;
+  /** Deterministic clock for identity timestamps. */
+  readonly nowIso: () => string;
+}
+
+export interface ExecutionResult {
+  readonly admission: FrozenAdmissionResult;
+  readonly attempt: FrozenExecutionAttemptIdentity | null;
+  readonly outcome: FrozenExecutionOutcomeIdentity | null;
+  readonly capability_executions: readonly FrozenCapabilityExecutionArtifact[];
+  readonly state: RuntimeState;
+}
+
+export function sha256ContentHash(canonicalPayload: unknown): ContentHash {
+  const bytes = Buffer.from(JSON.stringify(canonicalPayload), "utf8");
+  return {
+    algorithm: "sha256",
+    value: createHash("sha256").update(bytes).digest("hex"),
+  };
+}
+
+/**
+ * ExecutionKernel — central general motor.
+ * Domain packages (LU, etc.) are clients; kernel never imports domain.
+ */
+export class ExecutionKernel {
+  private readonly deps: ExecutionKernelDeps;
+
+  constructor(deps: ExecutionKernelDeps) {
+    this.deps = deps;
+  }
+
+  async execute(manifest: FrozenExecutionManifestIdentity): Promise<ExecutionResult> {
+    const state = createEmptyRuntimeState();
+    state.registry_snapshot = this.deps.registrySnapshot ?? null;
+    state.manifest = manifest;
+
+    const admission = await this.deps.admission.admit(manifest, state);
+    state.admission = admission;
+
+    if (admission.decision !== "admitted") {
+      return {
+        admission,
+        attempt: null,
+        outcome: null,
+        capability_executions: [],
+        state,
+      };
+    }
+
+    const attemptPayload = {
+      manifest_id: manifest.manifest_id,
+      attempt_number: 1,
+      started_at: this.deps.nowIso(),
+    };
+    const attempt: FrozenExecutionAttemptIdentity = {
+      attempt_id: `attempt-${manifest.manifest_id}-1`,
+      artifact_type: "execution_attempt",
+      manifest_ref: {
+        artifact_id: manifest.manifest_id,
+        artifact_type: "execution_manifest",
+      },
+      attempt_number: 1,
+      started_at: attemptPayload.started_at,
+      content_hash: sha256ContentHash(attemptPayload),
+    };
+    state.attempt = attempt;
+
+    await this.deps.artifactRepository.put({
+      artifact_id: attempt.attempt_id,
+      content_hash: attempt.content_hash,
+      body: attempt,
+    });
+
+    const capability_ref = manifest.capability_resolution_ref;
+    const capabilityExecution = await this.deps.capabilityExecutor.execute({
+      capability_ref,
+      input_refs: [],
+      state,
+    });
+
+    await this.deps.artifactRepository.put({
+      artifact_id: capabilityExecution.artifact_id,
+      content_hash: capabilityExecution.content_hash,
+      body: capabilityExecution,
+    });
+
+    state.execution_graph = {
+      nodes: [
+        {
+          node_id: "cap-0",
+          kind: "capability",
+          ref: { artifact_id: capabilityExecution.artifact_id, artifact_type: "CAPABILITY_EXECUTION" },
+        },
+      ],
+      edges: [],
+    };
+
+    const outcomePayload = {
+      attempt_id: attempt.attempt_id,
+      result: "success" as const,
+      capability_execution_id: capabilityExecution.artifact_id,
+    };
+    const outcome: FrozenExecutionOutcomeIdentity = {
+      outcome_id: `outcome-${attempt.attempt_id}`,
+      artifact_type: "execution_outcome",
+      attempt_ref: {
+        artifact_id: attempt.attempt_id,
+        artifact_type: "execution_attempt",
+      },
+      result: "success",
+      content_hash: sha256ContentHash(outcomePayload),
+    };
+
+    await this.deps.artifactRepository.put({
+      artifact_id: outcome.outcome_id,
+      content_hash: outcome.content_hash,
+      body: outcome,
+    });
+
+    return {
+      admission,
+      attempt,
+      outcome,
+      capability_executions: [capabilityExecution],
+      state,
+    };
+  }
+}

@@ -17,9 +17,21 @@ Document Provider → DocumentEvidenceArtifact[]
 ```
 
 ## 5. LU Assessment Engine
+
+### Legacy (default)
 ```
-Evidence → LU-regler → Findings → LocalizationAssessmentArtifact (immutable)
+Evidence → LURuleEngine → Findings → LocalizationAssessmentArtifact
 ```
+
+### ExecutionKernel strangler (`LU_MPS_MOTOR=1`)
+```
+Evidence → build Manifest → ExecutionKernel.admit
+        → CapabilityExecutor (ImplementationResolver → invoke LURuleEngine)
+        → Attempt/Outcome in ArtifactRepository
+        → Findings projection for report UI
+```
+
+Se [ADR-29](./ADR-29-Runtime-Contract-Freeze-ExecutionKernel.md) och [MPS-Execution-Motor-Implementation-Plan.md](./MPS-Execution-Motor-Implementation-Plan.md).
 
 ## 6. Findings-granskning
 Konsulten ser exakt:

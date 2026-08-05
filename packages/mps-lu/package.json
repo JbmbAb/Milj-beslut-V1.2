@@ -9,7 +9,8 @@
     "test": "vitest run"
   },
   "dependencies": {
-    "@miljobeslut/mps-compliance": "file:../mps-compliance"
+    "@miljobeslut/mps-compliance": "file:../mps-compliance",
+    "@miljobeslut/mps-runtime": "file:../mps-runtime"
   },
   "devDependencies": {
     "typescript": "^5.0.0",

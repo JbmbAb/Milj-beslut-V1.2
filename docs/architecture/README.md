@@ -46,6 +46,8 @@ Canonical översikt för Miljöbeslut V2.0. Läs i denna ordning vid onboarding.
 - [ADR-004](./ADR-004-verified-tool-trace.md) — verified tool trace
 - [ADR-005](./ADR-005-vertex-ai-data-minimization.md) — Vertex dataminimering
 - [ADR-006](./ADR-006-strangler-fig-pattern.md) — strangler fig
+- [ADR-29](./ADR-29-Runtime-Contract-Freeze-ExecutionKernel.md) — Runtime Contract Freeze & ExecutionKernel
+- [MPS-Execution-Motor-Implementation-Plan.md](./MPS-Execution-Motor-Implementation-Plan.md) — Execution motor roadmap
 
 ## Arkiverat
 

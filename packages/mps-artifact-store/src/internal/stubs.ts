@@ -10,8 +10,24 @@ export class AppendOnlyStore {
 }
 
 export class ContentAddressResolver implements ArtifactResolver {
-  constructor(private readonly store: AppendOnlyStore, private readonly deserializer: CanonicalDeserializer) {}
-  async resolve<T>(ref: ArtifactReference): Promise<Readonly<T>> { throw new Error('stub'); }
+  private readonly byId = new Map<string, unknown>();
+
+  constructor(
+    private readonly store: AppendOnlyStore,
+    private readonly deserializer: CanonicalDeserializer,
+  ) {}
+
+  seed(artifact_id: string, body: unknown): void {
+    this.byId.set(artifact_id, body);
+  }
+
+  async resolve<T>(ref: ArtifactReference): Promise<Readonly<T>> {
+    const hit = this.byId.get(ref.artifact_id);
+    if (hit === undefined) {
+      throw new Error(`Artifact not found: ${ref.artifact_id}`);
+    }
+    return hit as Readonly<T>;
+  }
 }
 
 export class HashVerifier { constructor(ctx: VerificationContext) {} }

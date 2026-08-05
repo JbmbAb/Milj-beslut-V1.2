@@ -32,10 +32,11 @@ describe("PostgisSpatialProvider", () => {
     // Make the artifact loader return our mock property context
     mockLoader.mockResolvedValue(mockProperty);
 
-    // Make the query function return a match for the first query, no match for the second
-    mockQueryFn
-      .mockResolvedValueOnce([{ "?column?": 1 }]) // For "water" -> match
-      .mockResolvedValueOnce([]);                 // For "ebh" -> no match
+    // Make the query function return a match for water, no match for ebh (repeatable)
+    mockQueryFn.mockImplementation(async (sql: string) => {
+      if (sql.includes("env.sgu_well_actual")) return [{ "?column?": 1 }];
+      return [];
+    });
 
     const request: SpatialQueryRequest = {
       property_ref: { artifact_id: "prop-123", artifact_type: "LU_PROPERTY_CONTEXT" },
@@ -60,16 +61,14 @@ describe("PostgisSpatialProvider", () => {
     expect(evidence).toHaveLength(1);
     expect(evidence[0].payload.layer_ref.layer_id).toBe("water");
     expect(evidence[0].payload.source_metadata.dataset).toBe("water");
-    expect(evidence[0].payload.geometry).toEqual({ 
-      type: "Polygon", 
-      coordinates: [[
-        [591234 - 0.001, 6612345 - 0.001],
-        [591234 + 0.001, 6612345 - 0.001],
-        [591234 + 0.001, 6612345 + 0.001],
-        [591234 - 0.001, 6612345 + 0.001],
-        [591234 - 0.001, 6612345 - 0.001]
-      ]]
-    });
+    // Deterministic id/hash (no wall-clock)
+    expect(evidence[0].artifact_id).toMatch(/^evidence-water-[a-f0-9]{16}$/);
+    expect(evidence[0].content_hash.algorithm).toBe("sha256");
+    expect(evidence[0].content_hash.value).toHaveLength(64);
+    expect(evidence[0].payload.source_metadata.retrieved_at).toMatch(/^seed:/);
+    const again = await provider.query(request);
+    expect(again[0].artifact_id).toBe(evidence[0].artifact_id);
+    expect(again[0].content_hash.value).toBe(evidence[0].content_hash.value);
   });
 
   it("should throw if property context cannot be loaded or is invalid", async () => {

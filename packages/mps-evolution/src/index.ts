@@ -2,6 +2,7 @@ export * from "./ContentIdentityEngine";
 export * from "./EvolutionTypes";
 export * from "./MutationSandbox";
 export * from "./EvolutionExecutor";
+export * from "./AdmittedOnlyEvolutionExecutor";
 export * from "./EvaluationEngine";
 export * from "./SelectionEngine";
 export * from "./EvolutionPolicy";

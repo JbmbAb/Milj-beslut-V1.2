@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { ExecutionManifestArtifact } from "../execution/ExecutionManifestArtifact";
 import { ExecutionAttemptArtifact } from "../execution/ExecutionAttemptArtifact";
 import { ExecutionIdentityArtifact } from "../execution/ExecutionIdentityArtifact";
@@ -41,18 +42,32 @@ export class RuntimeAdmissionKernel {
       throw new AdmissionError("DENIED: Compliance rule CAP-26-I1 missing or registry tampered");
     }
 
-    // Construct the attempt. The timestamp must be deterministic for replay testing or supplied safely.
-    // For replay determinism, we use the manifest's deterministic seed if present, otherwise ISO string.
+    // Deterministic started_at: seed from parameters only (never wall-clock in identity).
+    const started_at =
+      manifest.parameters && typeof manifest.parameters["deterministic_seed"] === "string"
+        ? (manifest.parameters["deterministic_seed"] as string)
+        : `seed:${manifest.artifact_id}:1`;
+
+    const hashValue = createHash("sha256")
+      .update(
+        JSON.stringify({
+          manifest_id: manifest.artifact_id,
+          attempt_number: 1,
+          started_at,
+          identity: manifest.execution_identity_ref.artifact_id,
+          capability: manifest.capability_resolution_ref.artifact_id,
+        }),
+      )
+      .digest("hex");
+
     return {
       artifact_id: `attempt-${manifest.artifact_id}`,
       artifact_type: "execution_attempt",
       manifest_ref: { artifact_id: manifest.artifact_id, artifact_type: "execution_manifest" },
       attempt_number: 1,
-      started_at: (manifest.parameters && manifest.parameters["deterministic_seed"]) 
-                  ? (manifest.parameters["deterministic_seed"] as string) 
-                  : new Date().toISOString(),
-      content_hash: { algorithm: "sha256", value: "mock-hash" },
-      references: []
+      started_at,
+      content_hash: { algorithm: "sha256", value: hashValue },
+      references: [],
     };
   }
 }

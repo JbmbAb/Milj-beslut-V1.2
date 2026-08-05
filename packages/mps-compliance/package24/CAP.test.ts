@@ -49,16 +49,18 @@ describe("CAP-001 -> CAP-008 Capability Compliance", () => {
   // CAP-002 Repository Enforcement
   it("CAP-002 Repository Enforcement (A) - requires artifact resolution through ArtifactRepository", async () => {
     const repository = {
-      resolve: async () => ({
-        artifact_type: "CAPABILITY_DEFINITION",
-        artifact_id: "capability-123",
-        capability_key: "environment-analysis",
-        capability_version: "1.0.0",
-        input_types: [],
-        output_types: [],
-        required_permissions: [],
-        implementation_ref: { artifact_id: "impl-123" }
-      })
+      resolver: {
+        resolve: async () => ({
+          artifact_type: "CAPABILITY_DEFINITION",
+          artifact_id: "capability-123",
+          capability_key: "environment-analysis",
+          capability_version: "1.0.0",
+          input_types: [],
+          output_types: [],
+          required_permissions: [],
+          implementation_ref: { artifact_id: "impl-123" },
+        }),
+      },
     };
 
     const resolver = new RepositoryBackedCapabilityResolver(repository as any);
@@ -97,17 +99,15 @@ describe("CAP-001 -> CAP-008 Capability Compliance", () => {
 
   // CAP-004 Replay Determinism
   it("CAP-004 Replay Determinism (B) - same capability and input produce identical execution artifact", async () => {
-    const repository = {
-      resolve: async () => ({
-        artifact_type: "IMPLEMENTATION_ARTIFACT",
-        artifact_id: "impl-123",
-        implementation_key: "env-analysis-impl",
-        implementation_version: "1.0.0",
-        source_ref: { artifact_id: "build-456" }
-      })
+    const resolver = {
+      resolve: async (capability: any) => ({
+        implementation_id: capability.implementation_ref.artifact_id,
+        invoke: async (inputs: any[]) =>
+          inputs.map((i: any) => ({ artifact_id: `output-${i.artifact_id}` })),
+      }),
     };
 
-    const executor = new DeterministicCapabilityExecutor(repository as any);
+    const executor = new DeterministicCapabilityExecutor(resolver as any);
     const validator = new DefaultReplayValidator();
 
     const capability = {

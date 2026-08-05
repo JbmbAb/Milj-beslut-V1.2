@@ -16,6 +16,15 @@ export * from "./services/LUProjectContextService";
 
 // Providers
 export * from "./providers/PostgisSpatialProvider";
+export * from "./providers/DocumentProviderContract";
+export * from "./providers/NullDocumentProvider";
+
+// Rules
+export * from "./rules/LURuleEngine";
+
+// ExecutionKernel client
+export * from "./execution/LuExecutionKernelClient";
+export * from "./registry/LuSiteAssessmentRegistry";
 
 // API
 export * from "./api/LUBackendOrchestrator";

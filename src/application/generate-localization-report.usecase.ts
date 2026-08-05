@@ -388,11 +388,12 @@ async function analyzeSite(
   }
 
   // ═════════════════════════════════════════════════════════════════════════
-  // MIMER EXECUTION & REPLAY ENGINE (LU_RULE_ENGINE) INTEGRATION
+  // EXECUTION KERNEL (admit → capability) when LU_MPS_MOTOR=1
   // ═════════════════════════════════════════════════════════════════════════
   let mpsFindings: any[] = [];
   try {
-    const { PostgisSpatialProvider, LURuleEngine } = await import('@miljobeslut/mps-lu');
+    const { PostgisSpatialProvider, LURuleEngine, isLuMpsMotorEnabled, runLuAssessmentViaKernel } =
+      await import('@miljobeslut/mps-lu');
 
     // Convert GPS coordinate WGS84 [lat, lng] to SWEREF99 TM [N, E] via PostGIS transform
     const coords = await prisma.$queryRawUnsafe<any[]>(
@@ -424,14 +425,38 @@ async function analyzeSite(
       layers: ["water", "ebh", "protected_area"] as const
     };
 
-    // Execute real PostGIS ST_DWithin query to harvest spatial evidence!
     const mpsEvidence = await spatialProvider.query(queryRequest);
 
-    // Run the real Mimer LURuleEngine!
-    const ruleEngine = new LURuleEngine();
-    mpsFindings = ruleEngine.evaluate(mpsEvidence);
+    if (isLuMpsMotorEnabled()) {
+      const kernelResult = await runLuAssessmentViaKernel({
+        site_id: site.id,
+        deterministic_seed: `lu-seed-${site.id}`,
+        evidence: mpsEvidence,
+      });
+      if (!kernelResult.admitted) {
+        logger.warn('LU ExecutionKernel denied admission', {
+          site: site.id,
+          reasons: kernelResult.reason_codes,
+        });
+      } else {
+        // Rebuild findings from evidence via RuleEngine only after admit (domain side).
+        const ruleEngine = new LURuleEngine();
+        mpsFindings = ruleEngine.evaluate(mpsEvidence);
+        logger.info(
+          `ExecutionKernel admitted LU assessment. findings=${mpsFindings.length} attempt=${kernelResult.attempt_id}`,
+          { site: site.id },
+        );
+      }
+    } else {
+      // Legacy path: RuleEngine without admit (strangler fallback)
+      const ruleEngine = new LURuleEngine();
+      mpsFindings = ruleEngine.evaluate(mpsEvidence);
+      logger.info(`Legacy LURuleEngine completed. Generated ${mpsFindings.length} findings.`, {
+        site: site.id,
+      });
+    }
 
-    // Merge Mimer Rule Engine findings into complianceAnalysis
+    // Merge findings into complianceAnalysis
     if (mpsFindings && mpsFindings.length > 0) {
       let hasHigh = false;
       let hasMedium = false;
@@ -467,10 +492,8 @@ async function analyzeSite(
         complianceAnalysis.permitProbability = 0.5;
       }
     }
-
-    logger.info(`Mimer Execution Engine completed successfully. Generated ${mpsFindings.length} findings.`, { site: site.id });
   } catch (err: any) {
-    logger.warn('Failed to run Mimer Execution/Rule Engine for site analysis', { err: err.message || err });
+    logger.warn('Failed to run ExecutionKernel/Rule Engine for site analysis', { err: err.message || err });
   }
 
   return {

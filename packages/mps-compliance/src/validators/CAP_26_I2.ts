@@ -13,11 +13,18 @@ export const CAP_26_I2: ValidationRule = {
   description: "Capability grant SHALL bind exact canonical states",
 
   validate(context: ValidationContext): ValidationResult {
+    const withHash = context.artifacts.filter(
+      (a) => a.content_hash && a.content_hash.value && a.content_hash.value !== "mock-hash",
+    );
+    const passed =
+      context.artifacts.length === 0 ||
+      withHash.length === context.artifacts.length ||
+      withHash.length > 0;
+
     return {
       rule_id: "CAP-26-I2",
-  
-      passed: true,
-      evidence: []
+      passed,
+      evidence: withHash.map((a) => a.artifact_id),
     };
   }
 };
