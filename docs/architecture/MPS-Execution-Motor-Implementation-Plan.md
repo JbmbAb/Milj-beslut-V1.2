@@ -1,80 +1,54 @@
 # MPS Execution Motor — Implementation Plan
 
-Canonical plan for **ExecutionKernel** as the production execution motor.
+See the full multi-epoch plan: **[MPS-Epoch-Roadmap.md](./MPS-Epoch-Roadmap.md)**.
 
-See also:
+Governing ADRs:
 
 - [ADR-29](./ADR-29-Runtime-Contract-Freeze-ExecutionKernel.md) — identity freeze  
 - [ADR-30](./ADR-30-LU-Runtime-v1-Freeze-ExecutionKernel-Cutover.md) — LU Runtime v1 / Kernel v1.0  
-- [ADR-31](./ADR-31-Post-LU-Platform-Infrastructure-Focus.md) — **Epoch II: shared infrastructure focus**
+- [ADR-31](./ADR-31-Post-LU-Platform-Infrastructure-Focus.md) — Epoch II Platform Kernel focus  
 
 ## Epoch status
 
-| Epoch | Scope | Status |
-|-------|--------|--------|
-| I — Execution model | Frozen Core, LU cutover, ADR-30 freeze | **Closed** |
-| II — Shared runtime | Queue, Workflow, Registry, Kernel generalization | **Active** |
-| III — Evolution | Metrics → Fitness → Candidates → Replay → Promotion | **Deferred** |
+| Epoch | Goal | Status |
+|-------|------|--------|
+| I — Frozen + LU | Single spine; LU = reference client | ✅ Closed |
+| II — Platform Kernel | **Execution Platform v1** (universal motor) | 🟡 Active |
+| III — Knowledge Platform | Mimers expansion, assessments library, evolution | 🔵 Later |
 
-## Locked approach
+## Epoch II — Active workstreams
 
-- **ExecutionKernel** is the client API (LU is the reference client; other domains follow).
-- Package24 / ADR-29 identities frozen at **v1.0.0**.
-- Order: ArtifactStore → **Admission** → Hash → CapabilityExecutor.
-- CapabilityExecutor SHALL NOT know RuleEngine (ImplementationResolver → invoke).
-- ReplayEngine reads CAS via ArtifactRepository; Replay is not part of CAS.
-- Queue uses **ExecutionTicket**.
-- Evolution: Manifest → Admission → Evolution only — product loop **off** until real history exists.
-- **Do not reopen LU Runtime v1** for motor churn (ADR-30 / ADR-31).
+| # | Track | First concrete target |
+|---|--------|------------------------|
+| 2.1 | Execution Infrastructure | ExecutionQueue + LeaseManager + Retry + Idempotency + Crash Recovery + Replay Scheduler |
+| 2.2 | Workflow Runtime | Deterministic multi-step WorkflowEngine + workflow replay |
+| 2.3 | Capability Runtime | Domain-agnostic invoke path (no domain imports in runtime) |
+| 2.4 | Registry Runtime | Capability / Workflow / Rule / Provider / Release as truth |
+| 2.5 | Mimers Integration | Kernel → ArtifactRepository → Resolver → CAS only |
+| 2.6 | Observability | Graph / lineage / replay logs / tracing (non-mutating) |
 
-## Epoch I — Done
+**Start here:** 2.1 — result: executions resume after crash without information loss.
 
-| Phase | Deliverable | Status |
-|-------|-------------|--------|
-| −1…6 | Contract freeze → LU strangler → tickets → CAS → cutover | Done |
-| 7 LU Cutover | Single path Report → Kernel → Artifacts → UI | Done (`dff5efa`) |
-| 8 LU Runtime v1 Freeze | ADR-30 — Execution Kernel v1.0 | Done (`48bb5f5`) |
+## Locked invariants (all epochs)
 
-## Epoch II — Active priority
+- ExecutionKernel is the only client-facing motor API.  
+- Admit before execute; CapabilityExecutor does not know RuleEngines.  
+- Replay reads CAS via ArtifactRepository.  
+- Mimers CAS is the sole artifact store for kernel writes.  
+- Evolution: admitted + replayable only; never direct production mutation; never self-edit Frozen Core.  
+- Do not reopen LU Runtime v1 for motor churn.
 
-| Priority | Deliverable | Scope |
-|----------|-------------|--------|
-| 1 | **ExecutionQueue v1** | Leases, retry, recovery, deterministic tickets |
-| 2 | **WorkflowEngine v1** | Multi-capability graph, deterministic order, workflow replay |
-| 3 | **Capability Registry v1** | Versioned definitions, release-bound snapshots, runtime resolution |
-| 4 | **ExecutionKernel generalization** | LU = client only; avlopp / C-anmälan / … same core |
-| 5 | **Evolution** (Epoch III) | Only after real admitted + replayable artifacts |
+## Reference client (frozen — Epoch I)
 
-## Feature flags
+- `packages/mps-lu/src/execution/LuExecutionKernelClient.ts`  
+- `packages/mps-lu/src/runtime/LuRuntimeFreeze.ts`  
+- Guard: `src/application/unit/LuCutoverSinglePath.test.ts`  
+
+## Feature flags (current)
 
 | Flag | Effect |
 |------|--------|
-| `LU_MPS_CAS=memory` | In-memory CAS (tests / explicit) |
-| `MIMERS_ROOT` | Mimers CAS root (default fallback `.data/mimers`) |
-| `MIMERS_REQUIRED=1` | Fail closed if Mimers cannot initialize |
-| `LU_MPS_TICKETS=prisma` | Prisma ticket queue (default) |
-| `LU_MPS_TICKETS=file` | File JSON queue fallback |
-| `LU_DOC_PROVIDER=mock` | Opt-in MockDocumentProvider |
-| `VITE_ENABLE_LEGACY_UI=1` | UI rollback to TechnicalDashboardHub only |
-
-Removed: `LU_MPS_MOTOR` opt-out (cutover complete).
-
-## Reference client (frozen)
-
-- Kernel: `packages/mps-runtime/src/kernel/ExecutionKernel.ts`
-- LU client: `packages/mps-lu/src/execution/LuExecutionKernelClient.ts`
-- Freeze marks: `packages/mps-lu/src/runtime/LuRuntimeFreeze.ts`
-- Report: `src/application/generate-localization-report.usecase.ts` → `runLuAssessmentViaKernel` only
-- CAS: `createKernelArtifactRepository` → Mimers
-- Tickets (baseline): `PrismaExecutionTicketQueue` + file fallback
-- Guard: `src/application/unit/LuCutoverSinglePath.test.ts`
-
-## Evolution gate (Epoch III)
-
-Do **not** wire product evolution until:
-
-1. Production runs routinely through ExecutionKernel.  
-2. Artifacts land in Mimers CAS and are replay-verifiable.  
-3. ExecutionQueue shows stable admit → complete under restart / lease recovery.  
-
-Until then, keep `AdmittedOnlyEvolutionExecutor` out of the product path.
+| `LU_MPS_CAS=memory` | In-memory CAS (tests) |
+| `MIMERS_ROOT` / `MIMERS_REQUIRED=1` | Mimers CAS root / fail-closed |
+| `LU_MPS_TICKETS=prisma\|file` | Ticket queue backend |
+| `VITE_ENABLE_LEGACY_UI=1` | UI rollback only |
