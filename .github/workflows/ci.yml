@@ -125,6 +125,7 @@ jobs:
           packages/mps-control-plane/src/unit/DurableTicketQueue.adversarial.test.ts
           packages/mps-lu/tests/LuExecutionKernelClient.test.ts
           packages/mps-lu/tests/LUMagicMoment.test.ts
+          packages/mps-lu/src/unit/LuRuntimeFreeze.test.ts
           src/infrastructure/unit/PrismaExecutionTicketQueue.test.ts
           src/application/unit/resolve-execution-ticket-queue.test.ts
           src/application/unit/LuCutoverSinglePath.test.ts

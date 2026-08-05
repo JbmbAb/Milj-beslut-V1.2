@@ -29,7 +29,16 @@ See also: [ADR-29-Runtime-Contract-Freeze-ExecutionKernel.md](./ADR-29-Runtime-C
 | Infra: Frozen Core hashes | Projection → SHA-256 → golden **exact match** (CI gate) | Done |
 | Infra: Ticket queue | Prisma + file; lease timeout; dup/idempotent/crash tests | Done |
 | **7 LU Cutover** | **Single path:** Report → Kernel → Artifacts → UI (no RuleEngine bypass) | **Done** |
+| **8 LU Runtime v1 Freeze** | ADR-30 — Execution Kernel v1.0 normative model | **Done** |
 | Evolution product loop | Metrics → Fitness → Candidates → Replay → Promotion | **Deferred** |
+
+## Post-freeze focus (shared infrastructure — not LU motor churn)
+
+1. ExecutionQueue — durable leases, recovery under load  
+2. WorkflowEngine — multi-step domains on the same kernel  
+3. ExecutionKernel generalization — next domains (avlopp, C-anmälan, …)  
+4. Capability Registry — shared resolution surface  
+5. Evolution — only after real admitted production history exists
 
 ## Feature flags
 

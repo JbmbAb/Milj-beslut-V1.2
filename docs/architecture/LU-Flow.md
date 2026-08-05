@@ -1,5 +1,8 @@
 # LU v1.0 – Konsultflöde (Frozen)
 
+**Runtime freeze:** [ADR-30](./ADR-30-LU-Runtime-v1-Freeze-ExecutionKernel-Cutover.md) — *Execution Kernel v1.0 – LU Cutover Complete* (`lu-runtime-v1`).  
+Ändra inte den normativa exekveringsmodellen utan ny ADR.
+
 ## 0. UI entry (default)
 
 Default produkt-UI är `MimerProductShell` (via `AppShell`) — inte `TechnicalDashboardHub`.
@@ -43,7 +46,7 @@ Ingen parallell RuleEngine-bypass. `LURuleEngine` körs **bara** som invoke-hand
 CAS: `MIMERS_ROOT` (fallback `.data/mimers`); tickets: Prisma default, `LU_MPS_TICKETS=file` fallback.  
 Evolution-produktloop: **av** tills det finns tillräckligt med verkliga produktionskörningar.
 
-Se [ADR-29](./ADR-29-Runtime-Contract-Freeze-ExecutionKernel.md) och [MPS-Execution-Motor-Implementation-Plan.md](./MPS-Execution-Motor-Implementation-Plan.md).
+Se [ADR-30](./ADR-30-LU-Runtime-v1-Freeze-ExecutionKernel-Cutover.md) (normativ runtime), [ADR-29](./ADR-29-Runtime-Contract-Freeze-ExecutionKernel.md) (identitetsfreeze) och [MPS-Execution-Motor-Implementation-Plan.md](./MPS-Execution-Motor-Implementation-Plan.md).
 
 ## 6. Findings-granskning
 Konsulten ser exakt:

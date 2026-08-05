@@ -31,9 +31,11 @@ MPS Frozen Core had dual manifest models, stub hashes, and LU invoking `LURuleEn
 - Identity-breaking changes require a new freeze major and golden test update.
 - `PipelineRuntime` stage pipeline remains a post-outcome lifecycle detail, not the primary client API.
 - LU cutover complete: Localization Report → ExecutionKernel is the only product assessment path (no `LU_MPS_MOTOR` RuleEngine bypass).
+- Behavioral freeze of that cutover is recorded in **ADR-30** (Execution Kernel v1.0 – LU Cutover Complete).
 
 ## References
 
+- [ADR-30-LU-Runtime-v1-Freeze-ExecutionKernel-Cutover.md](./ADR-30-LU-Runtime-v1-Freeze-ExecutionKernel-Cutover.md)
 - [MPS-Execution-Motor-Implementation-Plan.md](./MPS-Execution-Motor-Implementation-Plan.md)
 - Package24 ADRs 24-25 / 24-26
 - LU Architecture Charter (ADR-27)
