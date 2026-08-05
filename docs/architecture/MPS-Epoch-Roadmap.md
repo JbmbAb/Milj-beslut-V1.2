@@ -159,7 +159,7 @@ Capabilities are fully generic. Domains (LU, avlopp, C-anmälan, …) register i
 | **asExecutorPort** | `CapabilityExecutorPort` for ExecutionKernel | same |
 | **Domain composition root** | Register handlers (e.g. LURuleEngine) | `mps-lu` / other domains |
 
-### 2.6 Workflow Runtime
+### 2.6 Workflow Runtime ✅
 
 Real WorkflowEngine:
 
@@ -168,6 +168,14 @@ Workflow → Step 1 → Step 2 → Step 3 → Artifacts → Replay
 ```
 
 Registry-backed step resolution, deterministic order, full-workflow replay — against Mimers-backed ArtifactRepository.
+
+| Component | Responsibility | Code |
+|-----------|----------------|------|
+| **WorkflowRuntime** | Ordered steps → CapabilityRuntime → frozen workflow exec | `mps-runtime/src/workflow/WorkflowRuntime` |
+| **asExecutorPort** | `WorkflowExecutorPort` for ExecutionKernel | same |
+| **replay** | Re-run + content_hash equivalence | same |
+
+**Note:** LU product path remains capability-only (ADR-30); workflow seed is exercised by platform tests. Kernel `execute()` still capability-primary until a workflow entrypoint ADR.
 
 ### 2.7 Projection Layer
 

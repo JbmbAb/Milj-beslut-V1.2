@@ -27,4 +27,6 @@ export * from "./repository/createKernelArtifactRepository";
 export * from "./mimers/index";
 /** Epoch II §2.5 — Capability Runtime */
 export * from "./capability/index";
+/** Epoch II §2.6 — Workflow Runtime */
+export * from "./workflow/index";
 export * from "./replay/DefaultReplayEngine";

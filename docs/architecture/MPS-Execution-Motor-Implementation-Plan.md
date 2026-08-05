@@ -30,12 +30,12 @@ Execution Platform SHALL remain domain-agnostic. Domain logic = capabilities, wo
 | 2.3 | Registry Runtime | ✅ Done — `mps-runtime/registry` |
 | 2.4 | Mimers Integration | ✅ Done — `mps-runtime/mimers` |
 | 2.5 | Capability Runtime | ✅ Done — `mps-runtime/capability` |
-| 2.6 | Workflow Runtime | Next |
-| 2.7 | Projection Layer | Pending |
+| 2.6 | Workflow Runtime | ✅ Done — `mps-runtime/workflow` |
+| 2.7 | Projection Layer | Next |
 | 2.8 | Runtime Observability | Pending |
 | 2.9 | Execution Platform Security | Pending |
 
-**Next:** 2.6 Workflow Runtime — registry-backed steps, deterministic order, full-workflow replay on Mimers.
+**Next:** 2.7 Projection Layer — Execution → Artifacts → Projection → UI (projection never source of truth).
 
 ## Key invariants (quick ref)
 

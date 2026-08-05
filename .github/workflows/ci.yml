@@ -122,6 +122,7 @@ jobs:
           packages/mps-runtime/src/unit/NoParallelCasPath.test.ts
           packages/mps-runtime/src/mimers/MimersIntegration.test.ts
           packages/mps-runtime/src/capability/CapabilityRuntime.test.ts
+          packages/mps-runtime/src/workflow/WorkflowRuntime.test.ts
           packages/mps-runtime/src/unit/ExecutionKernel.test.ts
           packages/mps-runtime/src/unit/mps-end-to-end-determinism.test.ts
           packages/mps-runtime/src/contracts/freeze/ContractFreeze.test.ts
