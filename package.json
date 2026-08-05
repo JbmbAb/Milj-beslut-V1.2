@@ -99,7 +99,7 @@
     "dev-agent": "^0.0.19",
     "docx": "^9.6.0",
     "express": "^5.1.0",
-    "express-rate-limit": "^8.6.0",
+    "express-rate-limit": "^8.6.1",
     "helmet": "^8.3.0",
     "leaflet": "1.9.4",
     "lru-cache": "^11.5.2",
