@@ -44,5 +44,8 @@ describe("LuExecutionKernelClient", () => {
     expect(clientSrc).not.toContain("isLuMpsMotorEnabled");
     expect(clientSrc).not.toContain("LU_MPS_MOTOR");
     expect(clientSrc).toContain("runLuAssessmentViaKernel");
+    expect(clientSrc).toContain("createLuRegistryRuntime");
+    expect(clientSrc).toContain("implementation_ref");
+    expect(clientSrc).not.toContain("lu-rule-engine:");
   });
 });

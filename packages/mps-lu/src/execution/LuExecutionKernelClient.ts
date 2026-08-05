@@ -14,15 +14,14 @@ import type { FrozenExecutionManifestIdentity } from "../../../mps-runtime/src/c
 import type { ArtifactReference } from "../../../mps-compliance/src/artifacts/ArtifactReference.js";
 import type { RuntimeState } from "../../../mps-runtime/src/kernel/RuntimeState.js";
 import {
-  LU_REGISTRY_SNAPSHOT,
-  LU_SITE_ASSESSMENT_CAPABILITY_KEY,
-} from "../registry/LuSiteAssessmentRegistry.js";
-import {
   createExecutionSession,
   appendAttemptToSession,
   bindOutcomeToSession,
   type ExecutionSession,
 } from "../../../mps-runtime/src/contracts/model/index.js";
+import type { RegistryRuntime } from "../../../mps-runtime/src/registry/index.js";
+import { createLuRegistryRuntime } from "../registry/createLuRegistryRuntime.js";
+import { LU_SITE_ASSESSMENT_CAPABILITY_KEY } from "../registry/LuSiteAssessmentRegistry.js";
 
 /**
  * Domain registers LURuleEngine as an invoke handler — kernel never imports it.
@@ -43,6 +42,8 @@ export interface LuKernelRunInput {
   readonly site_id: string;
   readonly deterministic_seed: string;
   readonly evidence: SpatialEvidenceArtifact[];
+  /** Optional injected registry (tests); defaults to LU release seed. */
+  readonly registry?: RegistryRuntime;
 }
 
 export interface LuKernelRunResult {
@@ -62,12 +63,21 @@ export interface LuKernelRunResult {
  * This is the only product assessment path (LU cutover complete).
  * Artifacts persist via Mimers CAS; memory only under test / LU_MPS_CAS=memory.
  *
- * LURuleEngine runs only as the capability invoke handler — never outside Admission.
+ * Capability invoke is bound via RegistryRuntime → implementation_ref,
+ * never via hard-coded site handler keys.
  */
 export async function runLuAssessmentViaKernel(
   input: LuKernelRunInput,
 ): Promise<LuKernelRunResult> {
   const repo = await createKernelArtifactRepository();
+  const registry = input.registry ?? createLuRegistryRuntime();
+  const capability = registry.resolveCapabilityByKey(LU_SITE_ASSESSMENT_CAPABILITY_KEY);
+  if (!capability) {
+    throw new Error(
+      `LU capability not registered: ${LU_SITE_ASSESSMENT_CAPABILITY_KEY}`,
+    );
+  }
+
   const engine = new LURuleEngine();
   let findings: AssessmentFinding[] = [];
 
@@ -75,7 +85,7 @@ export async function runLuAssessmentViaKernel(
     string,
     (inputs: readonly ContentReference[]) => Promise<readonly ContentReference[]>
   >();
-  handlers.set(`lu-rule-engine:${input.site_id}`, async () => {
+  handlers.set(capability.implementation_ref.artifact_id, async () => {
     findings = engine.evaluate(input.evidence);
     return findings.map((f) => ({ artifact_id: f.finding_id }));
   });
@@ -86,22 +96,35 @@ export async function runLuAssessmentViaKernel(
       input_refs: readonly ArtifactReference[];
       state: RuntimeState;
     }) {
-      const handler = handlers.get(`lu-rule-engine:${input.site_id}`);
+      const resolved =
+        registry.resolveCapabilityByRef(args.capability_ref.artifact_id) ??
+        registry.resolveCapabilityByKey(LU_SITE_ASSESSMENT_CAPABILITY_KEY);
+      if (!resolved) {
+        throw new Error(
+          `Capability not in registry: ${args.capability_ref.artifact_id}`,
+        );
+      }
+      const handler = handlers.get(resolved.implementation_ref.artifact_id);
       if (!handler) {
-        throw new Error("LU rule handler not registered");
+        throw new Error(
+          `No invoke handler for implementation: ${resolved.implementation_ref.artifact_id}`,
+        );
       }
       const outputs = await handler(
         args.input_refs.map((r) => ({ artifact_id: r.artifact_id })),
       );
       const payload = {
-        capability: args.capability_ref.artifact_id,
+        capability: resolved.artifact_id,
         outputs: outputs.map((o) => o.artifact_id),
       };
       const content_hash = sha256ContentHash(payload);
       return {
         artifact_id: `exec-lu-${input.site_id}-${content_hash.value.slice(0, 12)}`,
         artifact_type: "CAPABILITY_EXECUTION",
-        capability_ref: args.capability_ref,
+        capability_ref: {
+          artifact_id: resolved.artifact_id,
+          artifact_type: "CAPABILITY_DEFINITION",
+        },
         input_refs: args.input_refs,
         output_refs: outputs.map((o) => ({
           artifact_id: o.artifact_id,
@@ -112,15 +135,13 @@ export async function runLuAssessmentViaKernel(
     },
   };
 
+  const snapshot = registry.getReleaseSnapshot();
   const kernel = new ExecutionKernel({
     admission: new FrozenAdmissionAdapter(null, true),
     capabilityExecutor,
     artifactRepository: repo,
     replayEngine: new DefaultReplayEngine(repo),
-    registrySnapshot: {
-      snapshot_id: LU_REGISTRY_SNAPSHOT.snapshot_id,
-      registry_hash: LU_REGISTRY_SNAPSHOT.registry_hash.value,
-    },
+    registrySnapshot: registry.toSnapshotView(),
     nowIso: () => input.deterministic_seed,
   });
 
@@ -132,8 +153,8 @@ export async function runLuAssessmentViaKernel(
       artifact_type: "execution_identity",
     },
     capability_resolution_ref: {
-      artifact_id: `lu-cap-resolution-${input.site_id}`,
-      artifact_type: "capability_resolution",
+      artifact_id: capability.artifact_id,
+      artifact_type: "CAPABILITY_DEFINITION",
     },
     parameters: { deterministic_seed: input.deterministic_seed, site_id: input.site_id },
     content_hash: sha256ContentHash({
@@ -143,12 +164,18 @@ export async function runLuAssessmentViaKernel(
   };
 
   await repo.put({
-    artifact_id: LU_REGISTRY_SNAPSHOT.snapshot_id,
-    content_hash: LU_REGISTRY_SNAPSHOT.content_hash,
+    artifact_id: snapshot.snapshot_id,
+    content_hash: snapshot.content_hash,
     body: {
-      ...LU_REGISTRY_SNAPSHOT,
-      capability_key: LU_SITE_ASSESSMENT_CAPABILITY_KEY,
+      ...snapshot,
+      capability_key: capability.capability_key,
     },
+  });
+
+  await repo.put({
+    artifact_id: capability.artifact_id,
+    content_hash: sha256ContentHash(capability),
+    body: capability,
   });
 
   await repo.put({

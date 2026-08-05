@@ -112,7 +112,7 @@ Objects describe *what happened*. Policies describe *what is allowed*. Both are 
 
 **Code:** `packages/mps-runtime/src/contracts/model/` — policies shared with Execution Infrastructure; LU kernel client persists `ExecutionSession` after admit.
 
-### 2.3 Registry Runtime
+### 2.3 Registry Runtime ✅
 
 Sole runtime source of truth:
 
@@ -125,6 +125,8 @@ Sole runtime source of truth:
 | Release Registry | Release-bound snapshots |
 
 **Invariant:** ExecutionKernel SHALL NOT know concrete implementations — only resolve via registry + ports.
+
+**Code:** `packages/mps-runtime/src/registry/` — `RegistryRuntime` facade; LU seeds via `createLuRegistryRuntime` and binds invoke handlers to `implementation_ref`.
 
 ### 2.4 Mimers Brunn Integration
 

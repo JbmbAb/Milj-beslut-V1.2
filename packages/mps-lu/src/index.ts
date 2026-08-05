@@ -25,6 +25,7 @@ export * from "./rules/LURuleEngine";
 // ExecutionKernel client
 export * from "./execution/LuExecutionKernelClient";
 export * from "./registry/LuSiteAssessmentRegistry";
+export * from "./registry/createLuRegistryRuntime";
 
 // LU Runtime v1 Freeze (ADR-30)
 export * from "./runtime/LuRuntimeFreeze";

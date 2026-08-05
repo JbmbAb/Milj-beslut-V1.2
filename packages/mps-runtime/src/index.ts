@@ -9,6 +9,8 @@ export * from "./PipelineRuntime";
 export * from "./contracts/freeze/FrozenIdentities";
 /** Epoch II §2.2 — Execution Contracts & Model */
 export * from "./contracts/model/index";
+/** Epoch II §2.3 — Registry Runtime */
+export * from "./registry/index";
 export * from "./kernel/RuntimeState";
 export * from "./kernel/ExecutionKernel";
 export * from "./kernel/FrozenAdmissionAdapter";
