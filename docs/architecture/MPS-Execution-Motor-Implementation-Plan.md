@@ -31,11 +31,11 @@ Execution Platform SHALL remain domain-agnostic. Domain logic = capabilities, wo
 | 2.4 | Mimers Integration | ✅ Done — `mps-runtime/mimers` |
 | 2.5 | Capability Runtime | ✅ Done — `mps-runtime/capability` |
 | 2.6 | Workflow Runtime | ✅ Done — `mps-runtime/workflow` |
-| 2.7 | Projection Layer | Next |
-| 2.8 | Runtime Observability | Pending |
+| 2.7 | Projection Layer | ✅ Done — `mps-runtime/projection` |
+| 2.8 | Runtime Observability | Next |
 | 2.9 | Execution Platform Security | Pending |
 
-**Next:** 2.7 Projection Layer — Execution → Artifacts → Projection → UI (projection never source of truth).
+**Next:** 2.8 Runtime Observability — replay logs / graph / lineage as side channel; never mutates artifact identity.
 
 ## Key invariants (quick ref)
 

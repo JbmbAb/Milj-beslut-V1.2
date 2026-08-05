@@ -29,4 +29,6 @@ export * from "./mimers/index";
 export * from "./capability/index";
 /** Epoch II §2.6 — Workflow Runtime */
 export * from "./workflow/index";
+/** Epoch II §2.7 — Projection Layer */
+export * from "./projection/index";
 export * from "./replay/DefaultReplayEngine";

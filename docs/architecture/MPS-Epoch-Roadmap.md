@@ -177,7 +177,7 @@ Registry-backed step resolution, deterministic order, full-workflow replay — a
 
 **Note:** LU product path remains capability-only (ADR-30); workflow seed is exercised by platform tests. Kernel `execute()` still capability-primary until a workflow entrypoint ADR.
 
-### 2.7 Projection Layer
+### 2.7 Projection Layer ✅
 
 ```
 Execution → Artifacts → Projection → UI
@@ -194,6 +194,12 @@ Projection SHALL be reproducible from immutable artifacts.
 ```
 
 Same principle as Governance: UI and audit views are derived; CAS artifacts remain authoritative. Aligns with `mps-ui-contract` adapters.
+
+| Component | Responsibility | Code |
+|-----------|----------------|------|
+| **ProjectionRuntime** | Read-only views via ArtifactResolver | `mps-runtime/src/projection/ProjectionRuntime` |
+| **ArtifactProjectionView** | Frozen body + `projection_hash` | `ProjectionContracts` |
+| **UI adapter** | View → presentation DTO (no CAS) | `mps-ui-contract/RuntimeProjectionAdapter` |
 
 ### 2.8 Runtime Observability
 
