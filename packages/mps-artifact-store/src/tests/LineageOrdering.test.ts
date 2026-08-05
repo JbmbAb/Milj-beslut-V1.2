@@ -9,7 +9,8 @@
 import { describe, expect, it } from "vitest";
 import {
   createRepository,
-  createLineageGraph
+  createLineageGraph,
+  createCanonicalArtifact
 } from "./helpers/index.js";
 
 describe("Lineage ordering", () => {
@@ -17,6 +18,8 @@ describe("Lineage ordering", () => {
   it("SHALL return deterministic ordering", async () => {
 
     const repository = createRepository();
+
+    const artifact1 = createCanonicalArtifact();
 
     const graph = createLineageGraph(repository);
 

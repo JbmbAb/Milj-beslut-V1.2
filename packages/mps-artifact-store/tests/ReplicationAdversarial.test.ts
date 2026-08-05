@@ -28,7 +28,7 @@ describe("Distributed State Closure (MPS-19)", () => {
   let nodeAStorage: SecureArtifactStorage;
   let protocolA: ArtifactSyncProtocol;
   let resolver: ConflictResolver;
-  const RELEASE_HASH = "release-1.0-frozen-core";
+  const RELEASE_HASH: any = { algorithm: "sha256", value: "release-1.0-frozen-core" };
 
   beforeEach(async () => {
     pipeline = new DefaultCanonicalPipeline();
@@ -47,7 +47,9 @@ describe("Distributed State Closure (MPS-19)", () => {
     parent_hash: null,
     sequence: seq,
     created_by: { artifact_id: "node", artifact_type: "node_identity" },
-    lineage_root_hash: "root-hash"
+    lineage_root_hash: { algorithm: "sha256", value: "root-hash" } as any,
+    content_hash: { algorithm: "sha256", value: "hash" } as any,
+    references: []
   });
 
   const createManifest = (
@@ -61,22 +63,24 @@ describe("Distributed State Closure (MPS-19)", () => {
   ): ReplicationManifestArtifact => ({
       artifact_id: id,
       artifact_type: "replication_manifest",
-      release_hash: release,
-      root_hash: root,
+      release_hash: release as any,
+      root_hash: root as any,
       lineage_ref: { artifact_id: lineageId, artifact_type: "artifact_lineage" },
       governance_epoch: epoch,
       signature_trust_level: trust,
       artifact_count: contents.length,
-      contents: contents
+      contents: contents,
+      content_hash: { algorithm: "sha256", value: "hash" } as any,
+      references: []
   });
 
   it("Attack 1: Replay old valid artifact (Stale State) produces ReplicationViolationArtifact", () => {
     const localLineage = createLineage("lin-local", 5);
-    const localManifest = createManifest("man-local", "lin-local", 1, 10, "rootA", RELEASE_HASH, []);
+    const localManifest = createManifest("man-local", "lin-local", 1, 10, "rootA", RELEASE_HASH as any, []);
     protocolA.setLocalState(localManifest, localLineage);
 
     const incomingLineage = createLineage("lin-incoming", 4);
-    const incomingManifest = createManifest("man-incoming", "lin-incoming", 1, 10, "rootB", RELEASE_HASH, []);
+    const incomingManifest = createManifest("man-incoming", "lin-incoming", 1, 10, "rootB", RELEASE_HASH as any, []);
 
     try {
         protocolA.receivePush(incomingManifest, incomingLineage, []);
@@ -93,7 +97,7 @@ describe("Distributed State Closure (MPS-19)", () => {
 
   it("Attack 2: Manifest substitution (Wrong Release Binding) produces ReplicationViolationArtifact", () => {
     const localLineage = createLineage("lin-local", 5);
-    const localManifest = createManifest("man-local", "lin-local", 1, 10, "rootA", RELEASE_HASH, []);
+    const localManifest = createManifest("man-local", "lin-local", 1, 10, "rootA", RELEASE_HASH as any, []);
     protocolA.setLocalState(localManifest, localLineage);
 
     const incomingLineage = createLineage("lin-incoming", 6);
@@ -111,10 +115,10 @@ describe("Distributed State Closure (MPS-19)", () => {
   });
 
   it("Attack 3: Fork attack (Deterministic Conflict Resolution) over 1000 iterations", () => {
-    const manifestA = createManifest("manA", "linA", 1, 50, "hash-ZZZ", RELEASE_HASH, []);
+    const manifestA = createManifest("manA", "linA", 1, 50, "hash-ZZZ", RELEASE_HASH as any, []);
     const lineageA = createLineage("linA", 5);
 
-    const manifestB = createManifest("manB", "linB", 1, 50, "hash-AAA", RELEASE_HASH, []);
+    const manifestB = createManifest("manB", "linB", 1, 50, "hash-AAA", RELEASE_HASH as any, []);
     const lineageB = createLineage("linB", 5);
     
     // Test: A is local, B is incoming. B should win because hash-AAA < hash-ZZZ
@@ -130,14 +134,16 @@ describe("Distributed State Closure (MPS-19)", () => {
 
   it("Attack 4: Partial replication produces ReplicationViolationArtifact", () => {
     const incomingLineage = createLineage("lin-incoming", 1);
-    const incomingManifest = createManifest("man-incoming", "lin-incoming", 1, 50, "rootA", RELEASE_HASH, [
+    const incomingManifest = createManifest("man-incoming", "lin-incoming", 1, 50, "rootA", RELEASE_HASH as any, [
         { artifact_id: "art-1", expected_hash: "hash1" },
         { artifact_id: "art-2", expected_hash: "hash2" }
     ]);
     
     const payload: ArtifactContract[] = [{
         artifact_id: "art-1",
-        artifact_type: "evidence"
+        artifact_type: "evidence",
+        content_hash: { algorithm: "sha256", value: "hash" } as any,
+        references: []
     }];
 
     try {
@@ -155,19 +161,19 @@ describe("Distributed State Closure (MPS-19)", () => {
       const artifactX: ArtifactContract = {
         artifact_id: "art-x",
         artifact_type: "evidence",
-        content: "Valid evidence"
+        content_hash: { algorithm: "sha256", value: "hash" }, references: []
       };
       const genuineHash = pipeline.hashCanonical(artifactX, "JSON").digest;
 
       const incomingLineage = createLineage("lin-incoming", 1);
-      const manifest = createManifest("man-incoming", "lin-incoming", 1, 50, "rootA", RELEASE_HASH, [
+      const manifest = createManifest("man-incoming", "lin-incoming", 1, 50, "rootA", RELEASE_HASH as any, [
         { artifact_id: "art-x", expected_hash: genuineHash }
       ]);
       
       const corruptedPayload: ArtifactContract[] = [{
         artifact_id: "art-x",
         artifact_type: "evidence",
-        content: "EVIL PAYLOAD"
+        content_hash: { algorithm: "sha256", value: "hash" }, references: []
       }];
   
       try {

@@ -1,4 +1,4 @@
-import React, { useMemo } from 'react';
+import React, { useMemo, useState } from 'react';
 import { AppContentRouter } from '../AppContentRouter';
 import { MpsConsoleApp, uiConfig, MpsProjectionApi } from '@miljobeslut/mps-console';
 import { AppSidebar } from '../AppSidebar';
@@ -16,10 +16,24 @@ import { useOperationsCenter } from '../context/OperationsCenterContext';
 import { useTheme } from '../context/ThemeContext';
 import { CommandPalette, InspectorPanel } from '../ui';
 import { featureFlags } from '../../src/infrastructure/feature-flags';
+import { setSession, callApi } from '../../services/coreApiClient';
 
 
 export const AppShell: React.FC = () => {
+  const [isLoggingIn, setIsLoggingIn] = useState(false);
   const { plan } = useProjectStructure();
+
+  React.useEffect(() => {
+    if (typeof window !== 'undefined') {
+      const token = window.localStorage.getItem('miljobeslut_admin_bearer');
+      if (token === 'dummy-token') {
+        window.localStorage.removeItem('miljobeslut_admin_bearer');
+        window.localStorage.removeItem('miljobeslut_admin_refresh');
+        window.localStorage.removeItem('miljobeslut_admin_project');
+        window.location.reload();
+      }
+    }
+  }, []);
   const {
     sessionState,
     sessionError,
@@ -30,6 +44,11 @@ export const AppShell: React.FC = () => {
     clearSessionAndReset,
   } = useAppSession();
   const { isDark } = useTheme();
+
+  const [isLUProjectSetup, setIsLUProjectSetup] = useState(false);
+  const [luProjectName, setLuProjectName] = useState('');
+  const [luProjectDescription, setLuProjectDescription] = useState('');
+  const [luDesignation, setLuDesignation] = useState('');
 
   const {
     mode,
@@ -83,13 +102,51 @@ export const AppShell: React.FC = () => {
   }
 
   if (sessionState === 'unauthenticated') {
+    const handleLogin = async () => {
+      setIsLoggingIn(true);
+      try {
+        const payload = await callApi<{ ok: boolean; accessToken: string; refreshToken: string; user: any }>('/api/admin/auth/login', {
+          method: 'POST',
+          body: { username: 'admin', password: 'dev' },
+          auth: false
+        });
+        if (payload.ok) {
+          setSession({
+            accessToken: payload.accessToken,
+            refreshToken: payload.refreshToken,
+            activeProjectId: 'cmsfmguf30002zsf7pfdffk7b'
+          });
+          onLoginSuccess({
+            id: payload.user.id,
+            name: 'Admin Developer',
+            personalNumber: '198001011234',
+            isAuthenticated: true
+          });
+        } else {
+          setIsLoggingIn(false);
+        }
+      } catch (err) {
+        console.error('Login failed', err);
+        setIsLoggingIn(false);
+      }
+    };
+
     return (
       <div className="min-h-screen flex items-center justify-center bg-slate-950 text-white">
         <div className="text-center">
           <p className="text-xs font-black uppercase tracking-[0.2em] text-slate-400">
             Logga in (Legacy borttagen)
           </p>
-          <button onClick={onLoginSuccess} className="mt-4 p-2 bg-blue-500 rounded">Logga In Dummy</button>
+          {isLoggingIn ? (
+            <div className="mt-6">
+              <div className="mx-auto h-8 w-8 animate-spin rounded-full border-4 border-white/10 border-t-indigo-500" />
+              <p className="mt-2 text-xs text-slate-400">Loggar in via backenden...</p>
+            </div>
+          ) : (
+            <button onClick={handleLogin} className="mt-4 p-3 bg-indigo-600 hover:bg-indigo-700 transition-colors font-bold text-sm px-6 rounded-xl shadow-lg">
+              Logga In Dummy
+            </button>
+          )}
         </div>
       </div>
     );
@@ -160,6 +217,36 @@ export const AppShell: React.FC = () => {
     return null;
   }
 
+  if (mode === 'Core_WORKFLOW' && activeTab === 'localization' && !isLUProjectSetup) {
+    return (
+      <div className={`min-h-screen w-full flex items-center justify-center font-['Plus_Jakarta_Sans'] transition-colors duration-150 overflow-hidden ${
+        isDark ? 'bg-slate-950 text-slate-100' : 'bg-slate-50 text-slate-900'
+      }`}>
+        <div className="flex-1 max-w-4xl p-4 md:p-6 custom-scrollbar relative">
+          <AppContentRouter
+            mode={mode}
+            activeTab={activeTab}
+            permits={permits}
+            setSelectedPermit={setSelectedPermit}
+            setActiveTab={setActiveTab}
+            onOpenMassModule={() => {
+              setMode('Core_WORKFLOW');
+              setActiveTab('c-notification-mass');
+            }}
+            isLUProjectSetup={isLUProjectSetup}
+            setIsLUProjectSetup={setIsLUProjectSetup}
+            luProjectName={luProjectName}
+            setLuProjectName={setLuProjectName}
+            luProjectDescription={luProjectDescription}
+            setLuProjectDescription={setLuProjectDescription}
+            luDesignation={luDesignation}
+            setLuDesignation={setLuDesignation}
+          />
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div
       data-testid="app-workspace-shell"
@@ -205,6 +292,14 @@ export const AppShell: React.FC = () => {
               setMode('Core_WORKFLOW');
               setActiveTab('c-notification-mass');
             }}
+            isLUProjectSetup={isLUProjectSetup}
+            setIsLUProjectSetup={setIsLUProjectSetup}
+            luProjectName={luProjectName}
+            setLuProjectName={setLuProjectName}
+            luProjectDescription={luProjectDescription}
+            setLuProjectDescription={setLuProjectDescription}
+            luDesignation={luDesignation}
+            setLuDesignation={setLuDesignation}
           />
         </div>
         <ChatBot />

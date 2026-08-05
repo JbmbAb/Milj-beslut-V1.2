@@ -1,4 +1,4 @@
-import { ArtifactContract, ArtifactReference } from "@miljobeslut/mps-compliance/artifacts/ArtifactContract";
+import { ArtifactContract, ArtifactReference } from "@miljobeslut/mps-compliance/src/artifacts/ArtifactContract";
 
 export interface LUPropertyContextPayload {
   readonly property_ref: string; // The external fastighetsbeteckning identifier (e.g. "ABC 1:123")

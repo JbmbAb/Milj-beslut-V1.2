@@ -1,4 +1,4 @@
-import { CapabilityExecutionArtifact } from "../contracts/CapabilityExecutionArtifact.js";
+import { CapabilityExecutionArtifact } from "../artifacts/CapabilityExecutionArtifact.js";
 import { DefaultCanonicalPipeline } from "@miljobeslut/mps-canonical";
 
 async function canonicalHash(obj: any): Promise<string> {

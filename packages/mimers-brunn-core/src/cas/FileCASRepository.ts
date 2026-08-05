@@ -143,11 +143,11 @@ export class FileCASRepository implements CASRepository {
 
   async putBytes(bytes: Uint8Array, options: PutBytesOptions = {}): Promise<PutResult> {
     const algorithm = (options.algorithm ?? this.hashAlgorithm) as SupportedHashAlgorithm;
-    this.metrics.inc('cas_puts_total', 1, { operation: 'put', algorithm });
+    this.metrics.inc('cas_puts_total', 1, { operation: 'put', algorithm: algorithm as any });
 
     const stored = copyBytes(bytes);
     const size = stored.byteLength;
-    const hash = hashBytes(stored, algorithm);
+    const hash = hashBytes(stored, algorithm as any);
     const destinationPath = this.getFilePath(hash);
 
     const tempRandom = randomBytes(8).toString('hex');
@@ -167,7 +167,7 @@ export class FileCASRepository implements CASRepository {
 
       this.cache.set(hash, stored);
       this.existsCache.set(hash, true);
-      this.metrics.inc('cas_bytes_written', size, { operation: 'put', algorithm });
+      this.metrics.inc('cas_bytes_written', size, { operation: 'put', algorithm: algorithm as any });
 
       try {
         await fs.unlink(tempPath);
@@ -223,14 +223,14 @@ export class FileCASRepository implements CASRepository {
   }
 
   async getBytes(hash: string, options?: { verifyHash?: boolean }): Promise<Uint8Array | null> {
-    const { algorithm } = parseHash(hash);
-    this.metrics.inc('cas_gets_total', 1, { operation: 'get', algorithm });
+    const { algorithm } = parseHash(hash) as any;
+    this.metrics.inc('cas_gets_total', 1, { operation: 'get', algorithm: algorithm as any });
 
     if (this.cache.has(hash)) {
-      this.metrics.inc('cas_cache_hits', 1, { operation: 'get', result: 'success', algorithm });
+      this.metrics.inc('cas_cache_hits', 1, { operation: 'get', result: 'success', algorithm: algorithm as any });
       const cachedBytes = this.cache.get(hash)!;
       if (options?.verifyHash) {
-        const computed = hashBytes(cachedBytes, algorithm);
+        const computed = hashBytes(cachedBytes, algorithm as any);
         if (computed !== hash) {
           throw new Error(`In-Memory Corruption: cached hash ${computed} != ${hash}`);
         }
@@ -238,12 +238,12 @@ export class FileCASRepository implements CASRepository {
       return copyBytes(cachedBytes);
     }
 
-    this.metrics.inc('cas_cache_misses', 1, { operation: 'get', result: 'miss', algorithm });
+    this.metrics.inc('cas_cache_misses', 1, { operation: 'get', result: 'miss', algorithm: algorithm as any });
 
     try {
       const dataBytes = await fs.readFile(this.getFilePath(hash));
       if (options?.verifyHash) {
-        const computed = hashBytes(dataBytes, algorithm);
+        const computed = hashBytes(dataBytes, algorithm as any);
         if (computed !== hash) {
           throw new CASIntegrityError(
             `Storage Read Corruption: on-disk hash '${computed}' != '${hash}'.`,
@@ -279,10 +279,10 @@ export class FileCASRepository implements CASRepository {
   }
 
   async verifyStoredObject(hash: string): Promise<{ ok: boolean; size?: number; error?: string }> {
-    const { algorithm } = parseHash(hash);
+    const { algorithm } = parseHash(hash) as any;
     try {
       const dataBytes = await fs.readFile(this.getFilePath(hash));
-      const computed = hashBytes(dataBytes, algorithm);
+      const computed = hashBytes(dataBytes, algorithm as any);
       if (computed !== hash) {
         this.cache.delete(hash);
         return {
@@ -381,7 +381,7 @@ export class FileCASRepository implements CASRepository {
   async *streamObjectDigests(signal?: AbortSignal): AsyncIterable<string> {
     for (const algorithm of ['sha256', 'sha512'] as const) {
       const algoRoot = path.join(this.baseDir, 'objects', algorithm);
-      let shardEntries: Awaited<ReturnType<typeof fs.readdir>>;
+      let shardEntries: any[];
       try {
         shardEntries = await fs.readdir(algoRoot, { withFileTypes: true });
       } catch (error: unknown) {

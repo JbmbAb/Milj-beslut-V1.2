@@ -18,7 +18,7 @@ describe("Commit 13 - Adversarial Compliance Test Suite", () => {
     {
       rule_id: "FROZEN_CORE_I7",
       implementation_hash: "v1-hash",
-      validate: (context) => ({
+      validate: (context: any) => ({
         rule_id: "FROZEN_CORE_I7",
         passed: true,
         evidence: [
@@ -39,7 +39,7 @@ describe("Commit 13 - Adversarial Compliance Test Suite", () => {
     artifactResolver: { resolve: () => undefined },
     matrixResolver: { resolve: () => validMatrix },
     ruleRegistry: validRegistry,
-    canonicalSerializer: { serialize: () => new Uint8Array() }
+    canonicalSerializer: { serialize: () => ({ bytes: new Uint8Array(), encoding: 'hex' } as any) }
   };
 
   it("matrix mutation attempts should throw", () => {
@@ -59,7 +59,7 @@ describe("Commit 13 - Adversarial Compliance Test Suite", () => {
             profile_id: "FAKE",
             version: "v1",
             rule_ids: ["NON_EXISTENT_RULE"]
-          } as ValidationProfileSnapshot
+          } as unknown as ValidationProfileSnapshot
         }
       ]
     };
@@ -78,7 +78,7 @@ describe("Commit 13 - Adversarial Compliance Test Suite", () => {
     const ruleThatChecksHash: ValidationRule = {
       rule_id: "HASH_CHECK",
       implementation_hash: "v1",
-      validate: (ctx) => {
+      validate: (ctx: any) => {
         // Simulated hash check
         const passed = ctx.release_manifest.matrix_hash.value === "mock-matrix-hash"; // assuming valid
         return { rule_id: "HASH_CHECK", passed, evidence: [] };

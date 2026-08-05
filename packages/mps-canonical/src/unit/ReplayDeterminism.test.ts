@@ -23,6 +23,6 @@ describe("ReplayDeterminism", () => {
         
         // MÅSTE ge identiskt resultat (Replay Determinism)
         expect(artifact1.content_hash).toEqual(artifact2.content_hash);
-        expect(artifact1.bytes).toEqual(artifact2.bytes);
+        expect(Buffer.from(artifact1.bytes).toString('hex')).toEqual(Buffer.from(artifact2.bytes).toString('hex'));
     });
 });

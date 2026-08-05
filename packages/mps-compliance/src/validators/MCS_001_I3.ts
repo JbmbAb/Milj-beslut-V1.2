@@ -11,7 +11,7 @@ export const MCS_001_I3: ValidationRule = {
   validate(context: ValidationContext): ValidationResult {
     return {
       rule_id: "MCS-001-I3",
-  implementation_hash: "v1-hash",
+  
       passed: true,
       evidence: []
     };

@@ -1,12 +1,13 @@
-import { ArtifactRepository, ContentReference } from "@miljobeslut/mps-evolution/src/core/types.js";
+import { ArtifactRepository } from "@miljobeslut/mps-artifact-store";
+import { ContentReference } from "@miljobeslut/mps-evolution";
 import { CapabilityDefinition } from "../contracts/CapabilityDefinition.js";
-import { CapabilityExecutionArtifact } from "../contracts/CapabilityExecutionArtifact.js";
+import { CapabilityExecutionArtifact } from "../artifacts/CapabilityExecutionArtifact.js";
 
 export class DeterministicCapabilityExecutor {
   constructor(private readonly repository: ArtifactRepository) {}
 
   async execute(capability: CapabilityDefinition, inputs: ContentReference[]): Promise<CapabilityExecutionArtifact> {
-    const impl = await this.repository.resolve(capability.implementation_ref);
+    const impl = await this.repository.resolver.resolve(capability.implementation_ref as any);
     
     // Simulate deterministic execution producing an artifact
     return {
@@ -14,7 +15,7 @@ export class DeterministicCapabilityExecutor {
       artifact_id: `exec-${capability.artifact_id}`,
       capability_ref: { artifact_id: capability.artifact_id },
       input_refs: inputs,
-      output_refs: [{ artifact_id: `output-${impl.artifact_id}` }]
+      output_refs: [{ artifact_id: `output-${(impl as any).artifact_id}` }]
     } as any;
   }
 }

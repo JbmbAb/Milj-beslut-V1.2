@@ -1,4 +1,5 @@
 import { ArtifactContract, ArtifactReference } from "./ArtifactContract";
+import { ContentHash } from "./ContentHash";
 
 /**
  * ViewerCapabilityArtifact

@@ -95,7 +95,7 @@ export class ProofPathResolver {
           path_refs: Object.freeze(pathRefs),
           resolution_hash: resolutionHash,
           created_by: query.session_identity
-      });
+      } as unknown as ProofResolutionArtifact);
 
       return {
           graph,

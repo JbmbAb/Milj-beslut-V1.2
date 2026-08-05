@@ -1,0 +1,21 @@
+{
+  "name": "@miljobeslut/mps-compliance",
+  "version": "1.0.0",
+  "description": "Compliance definitions",
+  "main": "./src/index.ts",
+  "types": "./src/index.ts",
+  "type": "module",
+  "scripts": {
+    "build": "tsc",
+    "test": "vitest run"
+  },
+  "exports": {
+    ".": "./src/index.ts",
+    "./*": "./*"
+  },
+  "dependencies": {},
+  "devDependencies": {
+    "typescript": "^5.0.0",
+    "vitest": "^4.1.10"
+  }
+}

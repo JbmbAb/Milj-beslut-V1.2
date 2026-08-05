@@ -45,5 +45,5 @@ export function createPackage24Mcs001Matrix(
     builder.register(entry);
   }
 
-  return builder.freeze("1.0");
+  return builder.freeze({ matrix_id: "Package24Mcs001", content_hash: { algorithm: "sha256", value: "hash" } }, "1.0");
 }

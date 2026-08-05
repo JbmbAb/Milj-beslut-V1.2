@@ -2,11 +2,10 @@
   "extends": "../../tsconfig.json",
   "compilerOptions": {
     "outDir": "./dist",
-    "composite": true,
-    "paths": {
-      "@miljobeslut/mps-compliance": ["../mps-compliance/src/index.ts"],
-      "@miljobeslut/mps-compliance/*": ["../mps-compliance/src/*"]
-    }
+    "composite": true
   },
-  "include": ["src/**/*"]
+  "include": [
+    "src/**/*",
+    "tests/**/*"
+  ]
 }

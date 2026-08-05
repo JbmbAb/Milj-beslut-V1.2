@@ -23,7 +23,7 @@ export class DefaultScheduler implements Scheduler {
       priority: "NORMAL" as const, // Bestäms av scheduleringspolicy/indata
     };
 
-    const bytes = this.serializer.serialize(baseScheduled);
+    const bytes = this.serializer.serializeCanonical(baseScheduled, "JSON");
     const scheduled_hash = `sha256-${crypto.createHash("sha256").update(bytes).digest("hex")}`;
 
     return {

@@ -1,55 +1,46 @@
 # LU v1.0 – Konsultflöde (Frozen)
 
-## Steg 1 — Projektbeskrivning
-Formulär:
-- Projekt: "Ny industrietablering"
-- Verksamhet: "Tillverkning av komponenter"
-- Planerad omfattning: "5 000 m² byggnad, 50 anställda"
-- Övrigt: "Kemikalier kan förekomma"
+## 1. Skapa uppdrag
+Konsulten initierar ett nytt LU-projekt.
 
-`UI → LUProjectContextCreateRequest`
-`↓`
-`LU Application → LUProjectContextArtifact`
+## 2. Välj fastighet
+Systemet hämtar geometri och metadata. property_ref skapas.
 
-## Steg 2 — Fastighet
-Sök fastighet: [__________]
-[Visa på karta]
+## 3. Spatial Evidence Collection
+```
+UI → SpatialQueryRequest → Spatial Engine → Provider → SpatialEvidenceArtifact[]
+```
 
-Vald fastighet:
-ABC 1:123
-Geometri verifierad (SWEREF99 TM)
+## 4. Document Evidence Collection
+```
+Document Provider → DocumentEvidenceArtifact[]
+```
 
-`UI → LUPropertyContextCreateRequest`
-`↓`
-`LU Application → LUPropertyContextArtifact`
+## 5. LU Assessment Engine
+```
+Evidence → LU-regler → Findings → LocalizationAssessmentArtifact (immutable)
+```
 
-## Steg 3 — Starta LU
-`UI → LUCreateRequest`
-`↓`
-LU Application:
-- binder projektkontext + property_ref
-- kör SpatialQueryContract
-- skapar SpatialEvidenceArtifact[]
-- hämtar dokument → DocumentEvidenceArtifact[]
-- kör LU Assessment Engine
-- skapar LocalizationAssessmentArtifact (immutable)
+## 6. Findings-granskning
+Konsulten ser exakt:
+- vilket bevis
+- vilken regel
+- vilken motivering
 
-## Steg 4 — GIS‑granskning
-Klick på karta → evidence + regel + finding.
+## 7. GIS-granskning
+Klick på polygon → evidence + regel + finding.
 
-## Steg 5 — Resultat och Samrådsunderlag
-Resultat presenteras för konsulten i två vyer:
+## 8. Consultant Commentary
+Konsulten skriver egen kommentar (separerad från system_summary).
 
-1. **LU-resultat (Intern riskbedömning)**
-   - Risker: Vattenskyddsområde, EBH-objekt, etc.
-   - Intressen: Närliggande bostäder, skyddad natur
-2. **Samrådsunderlag (`LU Consultation Projection`)**
-   - Projektbeskrivning, karta, identifierade miljöfrågor, berörda intressen, frågor inför samråd.
-   - Kan exporteras som HTML/PDF för kund.
+## 9. Audit-graf validering
+Systemet verifierar:
+- evidensclosure
+- regelversioner
+- release_hash
+- invariants
 
-## Steg 6 — Consultant Commentary
-Separat artifact: `ConsultantNoteArtifact`
-Assessment refererar den via `consultant_commentary_ref`.
-
-## Steg 7 — Rapport
-Artifacts → ReportProjection → HTML → PDF
+## 10. Rapportgenerering
+```
+LocalizationAssessmentArtifact → ReportProjection → HTML → PDF
+```

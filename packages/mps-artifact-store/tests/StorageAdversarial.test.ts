@@ -62,14 +62,18 @@ describe("Artifact Storage Integrity Suite (MPS-17)", () => {
   it("Attack 2: Repository Lies (Artifact Identity mismatch)", () => {
     const targetArtifact: ArtifactContract = {
       artifact_id: "target-123",
-      artifact_type: "execution_manifest"
+      artifact_type: "execution_manifest",
+      content_hash: { algorithm: "sha256", value: "hash" } as any,
+      references: []
     };
     secureStorage.commit(targetArtifact);
 
     // Adversary tricks repository into serving a completely different, but internally valid artifact
     const decoyArtifact: ArtifactContract = {
       artifact_id: "decoy-456",
-      artifact_type: "execution_manifest"
+      artifact_type: "execution_manifest",
+      content_hash: { algorithm: "sha256", value: "hash" } as any,
+      references: []
     };
     // Map the requested ID to the decoy artifact
     rawStorage.corrupt("target-123", decoyArtifact);

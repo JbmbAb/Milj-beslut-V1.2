@@ -1,4 +1,5 @@
-import { RepositoryOptions, StorageBackend, ArtifactRepositoryMetrics, VerificationPolicy } from '../../contracts/index.js';
+import { StorageBackend, ArtifactRepositoryMetrics, VerificationPolicy } from '../../contracts/index.js';
+import { RepositoryOptions } from '../../internal/RepositoryBuilder.js';
 import { RepositoryBuilder } from '../../internal/RepositoryBuilder.js';
 import { DefaultCanonicalPipeline } from '@miljobeslut/mps-canonical';
 import { vi } from 'vitest';
@@ -42,7 +43,7 @@ export function createRepositoryOptions(overrides: any = {}): RepositoryOptions 
   };
 }
 
-export function createCanonicalArtifact() {
+export function createCanonicalArtifact(...args: any[]) {
   return {
     ref: { artifactId: 'test-id', hash: 'test-hash' },
     bytes: new Uint8Array([1, 2, 3]),
@@ -90,18 +91,18 @@ export function createRepository(optionsOverrides: any = {}) {
     resolver: repo.resolver,
     verifier: {
       ...repo.verifier,
-      async verifyArtifact() {},
-      async verifyHash() {}
+      async verifyArtifact(...args: any[]) {},
+      async verifyHash(...args: any[]) {}
     },
     exporter: repo.exporter,
     lineage: {
       ...repo.lineage,
-      async lineage() { return [{ artifactId: 'a', hash: 'h' }, { artifactId: 'b', hash: 'h' }]; }
+      async lineage(...args: any[]) { return [{ artifactId: 'a', hash: 'h' }, { artifactId: 'b', hash: 'h' }]; }
     },
     snapshots: {
       ...repo.snapshots,
-      async createSnapshot() { return { ref: { artifactId: 'snap', hash: 'snap-hash' } }; },
-      async restoreSnapshot() {}
+      async createSnapshot(...args: any[]) { return { ref: { artifactId: 'snap', hash: 'snap-hash' } }; },
+      async restoreSnapshot(...args: any[]) {}
     },
     retention: repo.retention,
     index: repo.index,

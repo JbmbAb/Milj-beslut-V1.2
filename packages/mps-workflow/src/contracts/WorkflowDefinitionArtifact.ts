@@ -1,4 +1,5 @@
-import { CanonicalArtifact, ContentReference, Permission } from "@miljobeslut/mps-evolution";
+import { CanonicalArtifact, ContentReference } from "@miljobeslut/mps-evolution";
+import { Permission } from "@miljobeslut/mps-capability/src/types";
 import { WorkflowStep } from "./WorkflowStep.js";
 
 export interface WorkflowDefinitionArtifact extends CanonicalArtifact {

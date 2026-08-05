@@ -15,7 +15,7 @@ export const CAP_26_I3: ValidationRule = {
   validate(context: ValidationContext): ValidationResult {
     return {
       rule_id: "CAP-26-I3",
-  implementation_hash: "v1-hash",
+  
       passed: true,
       evidence: []
     };

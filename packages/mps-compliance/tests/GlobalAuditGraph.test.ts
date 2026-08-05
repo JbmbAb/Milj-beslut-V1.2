@@ -82,8 +82,8 @@ describe("Phase 20: Global Audit Graph (AUDIT-20)", () => {
   it("Attack 3: Layout poisoning (Topological Determinism)", () => {
       store.write(createOutcome("outcome-1", "attempt-1", [{ evidence_id: "ev-1" }]));
       store.write(createAttempt("attempt-1", "manifest-1"));
-      store.write({ artifact_id: "manifest-1", artifact_type: "execution_manifest", execution_identity: { artifact_id: "id-1", artifact_type: "any" } });
-      store.write({ artifact_id: "id-1", artifact_type: "execution_identity" });
+      store.write({ artifact_id: "manifest-1", artifact_type: "execution_manifest", execution_identity: { artifact_id: "id-1", artifact_type: "any" } } as any);
+      store.write({ artifact_id: "id-1", artifact_type: "execution_identity" } as any);
 
       const graph = resolver.resolve({ artifact_id: "outcome-1", artifact_type: "execution_outcome" });
 

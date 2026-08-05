@@ -7,9 +7,9 @@ import { ValidationRule } from '../src/conformance/ValidationRule';
 describe('Phase 1 - Immutable MCS Kernel (Optimized)', () => {
   it('should compile and structure validators purely', () => {
     const mockRule: ValidationRule = {
-      rule_id: 'test-rule-01',
-      validate: (artifact, context) => ({
-        rule_id: 'test-rule-01',
+      rule_id: 'test-rule-01', implementation_hash: 'v1',
+      validate: (context) => ({
+        rule_id: 'test-rule-01', implementation_hash: 'v1',
         passed: true,
         evidence: []
       })

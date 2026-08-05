@@ -18,6 +18,14 @@ const TechnicalSluExpert = lazy(() =>
 
 const MODULES = [
   {
+    id: 'lu-workspace',
+    title: '✨ Ny Lokaliseringsutredning',
+    description: 'Morgondagens Lokaliseringsutredning (LU v1.0). Skapa projekt, sök fastighet och se magin direkt.',
+    iconClassName: 'fa-wand-magic-sparkles text-indigo-400 animate-pulse',
+    badge: 'LU v1.0',
+    accent: 'glow-indigo',
+  },
+  {
     id: 'core',
     title: 'Core Workflow',
     description: 'Snabbspar for klassificering och anmalan (Miljobeslut.se Core).',

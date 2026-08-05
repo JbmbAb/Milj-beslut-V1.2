@@ -8,6 +8,6 @@ export const EXE_25_I3: ValidationRule = {
 
   validate(context: ValidationContext) {
     return { rule_id: "EXE-25-I3",
-  implementation_hash: "v1-hash", passed: true, evidence: [] };
+  passed: true, evidence: [] };
   }
 };

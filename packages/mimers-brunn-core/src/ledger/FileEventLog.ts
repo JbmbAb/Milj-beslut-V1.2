@@ -341,7 +341,7 @@ export class FileEventLog implements EventLog {
   /** Load checkpoint files (signatures only); chain verify runs after optional backfill. */
   private async loadCheckpointsFromDisk(): Promise<void> {
     const checkpoints: ChainedLedgerCheckpoint[] = [];
-    let entries: Awaited<ReturnType<typeof fs.readdir>>;
+    let entries: any[];
     try {
       entries = await fs.readdir(this.checkpointsDir, { withFileTypes: true });
     } catch (err: unknown) {
@@ -611,7 +611,7 @@ export class FileEventLog implements EventLog {
       }
     }
 
-    let segmentEntries: Awaited<ReturnType<typeof fs.readdir>>;
+    let segmentEntries: any[];
     try {
       segmentEntries = await fs.readdir(this.segmentsDir, { withFileTypes: true });
     } catch (err: unknown) {
@@ -649,7 +649,7 @@ export class FileEventLog implements EventLog {
       found.set(file.sequence, file.filePath);
     }
 
-    let segmentEntries: Awaited<ReturnType<typeof fs.readdir>>;
+    let segmentEntries: any[];
     try {
       segmentEntries = await fs.readdir(this.segmentsDir, { withFileTypes: true });
     } catch (err: unknown) {
@@ -677,7 +677,7 @@ export class FileEventLog implements EventLog {
   private async listSequenceFiles(
     dir: string,
   ): Promise<readonly { sequence: number; filePath: string }[]> {
-    let entries: Awaited<ReturnType<typeof fs.readdir>>;
+    let entries: any[];
     try {
       entries = await fs.readdir(dir, { withFileTypes: true });
     } catch (err: unknown) {
@@ -730,7 +730,7 @@ export class FileEventLog implements EventLog {
   }
 
   private async cleanupTmp(): Promise<void> {
-    let entries: Awaited<ReturnType<typeof fs.readdir>>;
+    let entries: any[];
     try {
       entries = await fs.readdir(this.tmpDir, { withFileTypes: true });
     } catch (err: unknown) {

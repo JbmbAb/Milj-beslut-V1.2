@@ -45,7 +45,7 @@ export class ArtifactSyncProtocol {
       rejected_hash: rejectedHash,
       detected_by: { artifact_id: "local-node", artifact_type: "node_identity" },
       evidence_refs: refs.map(id => ({ artifact_id: id, artifact_type: "any" }))
-    };
+    } as unknown as ReplicationViolationArtifact;
   }
 
   /**
@@ -62,7 +62,7 @@ export class ArtifactSyncProtocol {
   ): void {
     
     // 0. Verify Release Binding (Attack 2 Defense)
-    if (manifest.release_hash !== this.expectedReleaseHash) {
+    if ((manifest.release_hash as any) !== this.expectedReleaseHash) {
         const violation = this.createViolation("WRONG_RELEASE_BINDING", manifest.root_hash, [manifest.artifact_id]);
         throw new SyncProtocolError("REJECTED_WRONG_RELEASE_BINDING: Manifest belongs to another release.", violation);
     }

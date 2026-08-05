@@ -1,10 +1,10 @@
 import { describe, it, expect, beforeEach } from "vitest";
 import { RuntimeAdmissionKernel, AdmissionError } from "../src/kernel/RuntimeAdmissionKernel";
-import { FrozenCoreVerificationContext } from "../../../mps-compliance/src/conformance/FrozenCoreVerificationContext";
+import { FrozenCoreVerificationContext } from "../../mps-compliance/src/conformance/FrozenCoreVerificationContext";
 import { ExecutionManifestArtifact } from "../src/execution/ExecutionManifestArtifact";
 import { ExecutionOutcomeArtifact, ExecutionOutcomeStatus } from "../src/execution/ExecutionOutcomeArtifact";
-import { ValidationRule } from "../../../mps-compliance/src/conformance/ValidationRule";
-import { ArtifactContract } from "../../../mps-compliance/src/artifacts/ArtifactContract";
+import { ValidationRule } from "../../mps-compliance/src/conformance/ValidationRule";
+import { ArtifactContract } from "../../mps-compliance/src/artifacts/ArtifactContract";
 
 describe("Runtime Adversarial Suite (MPS-25)", () => {
   let mockContext: FrozenCoreVerificationContext;
@@ -40,7 +40,7 @@ describe("Runtime Adversarial Suite (MPS-25)", () => {
         rules: [CAP_26_I1, EXE_25_I7]
       },
       canonicalSerializer: {
-        serialize: (obj) => JSON.stringify(obj)
+        serialize: (obj) => ({ bytes: new Uint8Array(), encoding: "utf-8" } as any)
       }
     };
 
@@ -54,7 +54,9 @@ describe("Runtime Adversarial Suite (MPS-25)", () => {
       artifact_type: "execution_manifest",
       execution_identity_ref: { artifact_id: "missing-id", artifact_type: "execution_identity" },
       capability_resolution_ref: { artifact_id: "missing-cap", artifact_type: "capability_resolution" },
-      parameters: {}
+      parameters: {},
+      content_hash: { algorithm: "sha256", value: "mock-hash" },
+      references: []
     };
 
     expect(() => kernel.admit(rogueManifest)).toThrowError(AdmissionError);
@@ -68,7 +70,9 @@ describe("Runtime Adversarial Suite (MPS-25)", () => {
       artifact_type: "execution_outcome",
       attempt_ref: { artifact_id: "never-happened-attempt", artifact_type: "execution_attempt" },
       status: "success",
-      result_code: "OK"
+      result_code: "OK",
+      content_hash: { algorithm: "sha256", value: "mock-hash" },
+      references: []
     };
 
     // The validator EXE-25-I7 should catch this in the verification phase.
@@ -80,8 +84,8 @@ describe("Runtime Adversarial Suite (MPS-25)", () => {
 
   it("Attack 3: Runtime Replay Drift", () => {
     // Setting up a valid baseline
-    mockStore.set("valid-id", { artifact_id: "valid-id", artifact_type: "execution_identity" });
-    mockStore.set("valid-cap", { artifact_id: "valid-cap", artifact_type: "capability_resolution" });
+    mockStore.set("valid-id", { artifact_id: "valid-id", artifact_type: "execution_identity", content_hash: { algorithm: "sha256", value: "hash" }, references: [] });
+    mockStore.set("valid-cap", { artifact_id: "valid-cap", artifact_type: "capability_resolution", content_hash: { algorithm: "sha256", value: "hash" }, references: [] });
 
     const deterministicManifest: ExecutionManifestArtifact = {
       artifact_id: "manifest-xyz",
@@ -90,7 +94,9 @@ describe("Runtime Adversarial Suite (MPS-25)", () => {
       capability_resolution_ref: { artifact_id: "valid-cap", artifact_type: "capability_resolution" },
       parameters: {
         "deterministic_seed": "2026-08-04T12:00:00Z"
-      }
+      },
+      content_hash: { algorithm: "sha256", value: "mock-hash" },
+      references: []
     };
 
     // Execution 1
@@ -107,8 +113,8 @@ describe("Runtime Adversarial Suite (MPS-25)", () => {
   });
 
   it("Attack 4: Runtime Crash Recovery", () => {
-    mockStore.set("valid-id", { artifact_id: "valid-id", artifact_type: "execution_identity" });
-    mockStore.set("valid-cap", { artifact_id: "valid-cap", artifact_type: "capability_resolution" });
+    mockStore.set("valid-id", { artifact_id: "valid-id", artifact_type: "execution_identity", content_hash: { algorithm: "sha256", value: "hash" }, references: [] });
+    mockStore.set("valid-cap", { artifact_id: "valid-cap", artifact_type: "capability_resolution", content_hash: { algorithm: "sha256", value: "hash" }, references: [] });
 
     const manifest: ExecutionManifestArtifact = {
       artifact_id: "crash-manifest",
@@ -117,7 +123,9 @@ describe("Runtime Adversarial Suite (MPS-25)", () => {
       capability_resolution_ref: { artifact_id: "valid-cap", artifact_type: "capability_resolution" },
       parameters: {
         "deterministic_seed": "2026-08-04T12:00:00Z"
-      }
+      },
+      content_hash: { algorithm: "sha256", value: "mock-hash" },
+      references: []
     };
 
     // 1st Attempt creates lease but crashes (never produces outcome)

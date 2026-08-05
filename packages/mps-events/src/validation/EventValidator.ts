@@ -9,7 +9,7 @@ import {
 } from "../contracts/EventArtifact.js";
 
 function isCanonicalRef(ref: ContentReference): boolean {
-  return !!ref.artifact_id;
+  return !!ref.hash;
 }
 
 function createsProvenanceCycle(_event: EventArtifact): boolean {
@@ -59,7 +59,7 @@ export function validateEventOrdering(events: readonly OrderedEventArtifact[]): 
 
 export function validateEventCausality(event: CausalEventArtifact): void {
   for (const ref of event.causality.caused_by) {
-    if (!ref.artifact_id) {
+    if (!ref.hash) {
       throw new Error("EVENT_CAUSALITY_VIOLATION: non-canonical causal ref");
     }
   }
@@ -73,7 +73,7 @@ export const DefaultEventDeduplicationValidator: EventDeduplicationValidator = {
   validate(previous, candidate) {
     if (
       previous.identity.idempotency_key === candidate.identity.idempotency_key &&
-      previous.artifact_id !== candidate.artifact_id
+      previous.content_hash !== candidate.content_hash
     ) {
       throw new Error("EVENT_DEDUPLICATION_VIOLATION: conflicting artifacts");
     }
@@ -107,7 +107,7 @@ export const DefaultEventStreamValidator: EventStreamValidator = {
       throw new Error("EVENT_STREAM_CANONICALIZATION_VIOLATION: empty stream");
     }
 
-    const ids = stream.event_refs.map((ref) => ref.artifact_id);
+    const ids = stream.event_refs.map((ref) => ref.hash);
     const unique = new Set(ids);
 
     if (unique.size !== ids.length) {

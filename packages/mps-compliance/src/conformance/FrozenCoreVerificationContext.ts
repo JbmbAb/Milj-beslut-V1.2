@@ -20,5 +20,5 @@ export interface FrozenCoreVerificationContext {
   readonly artifactResolver: ArtifactResolver;
   readonly matrixResolver: MatrixResolver;
   readonly ruleRegistry: RuleRegistrySnapshot;
-  readonly canonicalSerializer: CanonicalSerializer;
+  readonly canonicalSerializer: CanonicalSerializer<any>;
 }

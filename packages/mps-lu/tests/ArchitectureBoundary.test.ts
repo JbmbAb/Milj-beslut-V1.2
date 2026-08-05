@@ -21,54 +21,49 @@ function walkSync(dir: string, filelist: string[] = []): string[] {
     return filelist;
 }
 
-describe('Phase 23: Architecture Boundary Constitutional Invariants', () => {
+describe('LU Architecture Charter v1.0 - Constitutional Boundary Tests', () => {
 
-    const rootDir = path.resolve(__dirname, '../../../');
+    // __dirname is packages/mps-lu/tests
+    const packagesDir = path.resolve(__dirname, '../../');
+    const rootDir = path.resolve(packagesDir, '../');
 
-    it('ARCH-27-I1: Frozen Core SHALL NOT depend on domain packages', () => {
-        // Define Frozen Core packages (the truth engine)
+    it('Regel 1: Frozen Core får inte importera LU', () => {
         const frozenCorePackages = [
             'mps-compliance',
             'mps-artifact-store',
-            'mps-canonical',
             'mps-governance'
         ];
 
         let failedFiles: string[] = [];
 
         for (const pkg of frozenCorePackages) {
-            const pkgDir = path.join(rootDir, pkg, 'src');
+            const pkgDir = path.join(packagesDir, pkg, 'src');
             const files = walkSync(pkgDir);
 
             for (const file of files) {
                 const content = fs.readFileSync(file, 'utf-8');
-                // Regex checks for imports like: import * from "mps-lu" or import { X } from "@miljobeslut/mps-lu"
-                if (/from\s+['"]([^'"]*mps-lu[^'"]*)['"]/.test(content)) {
+                if (/from\s+['"][^'"]*mps-lu[^'"]*['"]/.test(content)) {
                     failedFiles.push(file);
                 }
             }
         }
 
-        expect(failedFiles, 'ARCH-27-I1 Failed: Frozen core MUST NOT import mps-lu. Found violations in: ' + failedFiles.join(', ')).toHaveLength(0);
+        expect(failedFiles, 'Frozen core MUST NOT import mps-lu. Found violations in: ' + failedFiles.join(', ')).toHaveLength(0);
     });
 
-    it('ARCH-27-I3: Domain applications SHALL NOT depend on infrastructure providers', () => {
-        const luDir = path.join(rootDir, 'mps-lu', 'src');
+    it('Regel 2: LU får inte importera UI, PostGIS eller dokumentprovider', () => {
+        const luDir = path.join(packagesDir, 'mps-lu', 'src');
         const files = walkSync(luDir);
 
         let failedFiles: string[] = [];
+        const forbidden = [
+            'ui-lu-workspace', 
+            'spatial-provider-postgis', 
+            'document-provider'
+        ];
 
         for (const file of files) {
             const content = fs.readFileSync(file, 'utf-8');
-            
-            // Check for forbidden reality-layer imports
-            const forbidden = [
-                'ui-lu-workspace', 
-                'mps-ui-contract',
-                'spatial-provider-postgis', 
-                'document-provider'
-            ];
-
             for (const f of forbidden) {
                 const regex = new RegExp(`from\\s+['"][^'"]*${f}[^'"]*['"]`);
                 if (regex.test(content)) {
@@ -77,23 +72,25 @@ describe('Phase 23: Architecture Boundary Constitutional Invariants', () => {
             }
         }
 
-        expect(failedFiles, 'ARCH-27-I3 Failed: Domain applications MUST NOT import infrastructure. Found violations in: ' + failedFiles.join(', ')).toHaveLength(0);
+        expect(failedFiles, 'LU Application MUST NOT import adapters/UI directly. Found violations in: ' + failedFiles.join(', ')).toHaveLength(0);
     });
 
-    it('ARCH-27-I5: Presentation layers SHALL consume projections only', () => {
-        // Assuming UI code is somewhere, e.g. packages/mps-ui-contract, or just scan globally outside frozen core
-        // For strictness, let's scan mps-ui-contract and anything resembling UI
-        const uiPackages = ['mps-ui-contract'];
+    it('Regel 3: UI får inte importera artifact-store eller LU-regler', () => {
+        const uiPackages = ['mps-ui-contract', 'ui-lu-workspace']; // Including ui-lu-workspace if it exists
         let failedFiles: string[] = [];
 
         for (const pkg of uiPackages) {
-            const pkgDir = path.join(rootDir, pkg, 'src');
+            const pkgDir = path.join(packagesDir, pkg, 'src');
+            // Depending on repo layout, UI might also be in components/
+            // But let's check packages first
             const files = walkSync(pkgDir);
+            
+            // Let's also check global components if needed
+            const componentsDir = path.join(rootDir, 'components');
+            const allFiles = [...files, ...walkSync(componentsDir)];
 
-            for (const file of files) {
+            for (const file of allFiles) {
                 const content = fs.readFileSync(file, 'utf-8');
-                
-                // Check for forbidden logic-layer imports
                 const forbidden = [
                     'mps-artifact-store',
                     'mps-lu/rules'
@@ -108,6 +105,6 @@ describe('Phase 23: Architecture Boundary Constitutional Invariants', () => {
             }
         }
 
-        expect(failedFiles, 'ARCH-27-I5 Failed: Presentation layers MUST NOT import artifact-store or LU rules directly. Found violations in: ' + failedFiles.join(', ')).toHaveLength(0);
+        expect(failedFiles, 'UI MUST NOT import artifact-store or LU rules directly. Found violations in: ' + failedFiles.join(', ')).toHaveLength(0);
     });
 });

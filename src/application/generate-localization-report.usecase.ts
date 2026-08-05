@@ -16,6 +16,7 @@ import { auditTrail } from '../../server/services/auditTrailService';
 import { searchSluByCoordinates, getSpeciesInformation } from '../../server/services/sluService';
 import { logger } from '../../server/logger';
 import type { AuthUser } from '../../server/security/types';
+import { orchestrator } from '@miljobeslut/mps-lu/src/api/LUBackendOrchestrator';
 
 export interface SiteAlternative {
   id: string;
@@ -49,6 +50,7 @@ export interface SiteAnalysisResult {
   dataSources: DataSourceStatus[];
   warnings: string[];
   sluObservationCount: number;
+  documentEvidence?: any[];
 }
 
 export interface LocalizationReport {
@@ -363,6 +365,27 @@ async function analyzeSite(
     distanceForCompliance ?? 200,
   );
 
+  let documentEvidence: any[] = [];
+  try {
+    const propertyRef = {
+      artifact_id: `prop-${site.id}`,
+      artifact_type: "LU_PROPERTY_CONTEXT" as const
+    };
+    const geometry = {
+      type: "Polygon" as const,
+      coordinates: [[
+        [site.lng - 0.001, site.lat - 0.001],
+        [site.lng + 0.001, site.lat - 0.001],
+        [site.lng + 0.001, site.lat + 0.001],
+        [site.lng - 0.001, site.lat + 0.001],
+        [site.lng - 0.001, site.lat - 0.001]
+      ]] as number[][][]
+    };
+    documentEvidence = await orchestrator.generateDocumentEvidence(propertyRef, geometry);
+  } catch (err) {
+    logger.warn(`Failed to generate document evidence for site ${site.id}`, { err: String(err) });
+  }
+
   return {
     site,
     spatialAudit,
@@ -373,6 +396,7 @@ async function analyzeSite(
     dataSources,
     warnings,
     sluObservationCount: observations.length,
+    documentEvidence,
   };
 }
 

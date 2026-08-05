@@ -2,17 +2,17 @@
   "name": "@miljobeslut/mps-lu",
   "version": "1.0.0",
   "description": "Lokaliseringsutredning (LU) application running on Frozen Core",
-  "main": "dist/index.js",
-  "types": "dist/index.d.ts",
+  "main": "./src/index.ts",
+  "types": "./src/index.ts",
   "scripts": {
     "build": "tsc",
     "test": "vitest run"
   },
   "dependencies": {
-    "@miljobeslut/mps-compliance": "workspace:*"
+    "@miljobeslut/mps-compliance": "file:../mps-compliance"
   },
   "devDependencies": {
     "typescript": "^5.0.0",
-    "vitest": "^0.34.0"
+    "vitest": "^4.1.10"
   }
 }

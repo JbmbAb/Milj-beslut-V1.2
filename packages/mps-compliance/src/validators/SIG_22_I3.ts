@@ -8,6 +8,6 @@ export const SIG_22_I3: ValidationRule = {
 
   validate(context: ValidationContext) {
     return { rule_id: "SIG-22-I3",
-  implementation_hash: "v1-hash", passed: true, evidence: [] };
+  passed: true, evidence: [] };
   }
 };

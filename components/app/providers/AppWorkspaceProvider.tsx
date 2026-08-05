@@ -49,8 +49,8 @@ export function AppWorkspaceProvider({ children }: { children: ReactNode }) {
 
     const timer = window.setTimeout(() => {
       hasAutoOpenedWorkspaceRef.current = true;
-      setMode('PERMIT_PORTAL');
-      setActiveTab('map');
+      setMode('Core_WORKFLOW');
+      setActiveTab('localization');
     }, 0);
 
     return () => window.clearTimeout(timer);

@@ -1,7 +1,7 @@
 import { ValidationRule } from "../conformance/ValidationRule";
 import { ValidationContext } from "../conformance/ValidationContext";
 import { ValidationResult } from "../conformance/ValidationResult";
-import { createFrozenCoreReleaseProjection } from "../../mps-governance/src/release/FrozenCoreReleaseManifestProjectionFactory";
+import { createFrozenCoreReleaseProjection } from "../../../mps-governance/src/release/FrozenCoreReleaseManifestProjectionFactory";
 
 export const FROZEN_CORE_I7: ValidationRule = {
   rule_id: "FROZEN-CORE-I7",
@@ -21,7 +21,7 @@ export const FROZEN_CORE_I7: ValidationRule = {
 
     return {
       rule_id: "FROZEN-CORE-I7",
-  implementation_hash: "v1-hash",
+  
       passed,
       evidence: []
     };

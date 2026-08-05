@@ -7,6 +7,6 @@ export const RET_24_I3: ValidationRule = {
   description: "TombstoneArtifact SHALL reference valid RetentionDecisionArtifact",
   validate(context: ValidationContext) {
     return { rule_id: "RET-24-I3",
-  implementation_hash: "v1-hash", passed: true, evidence: [] };
+  passed: true, evidence: [] };
   }
 };

@@ -107,6 +107,12 @@ export async function callApi<T>(endpoint: string, options: ApiCallOptions = {})
   });
 
   if (!response.ok) {
+    if (response.status === 401) {
+      if (typeof window !== 'undefined') {
+        clearSession();
+        window.location.reload();
+      }
+    }
     const err = (await response.json().catch(() => ({}))) as {
       error?: string | { message?: string };
       message?: string;

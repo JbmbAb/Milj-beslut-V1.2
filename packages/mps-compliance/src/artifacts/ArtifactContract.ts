@@ -2,6 +2,7 @@ import { ArtifactId } from "./ArtifactId";
 import { ArtifactType } from "./ArtifactType";
 import { ContentHash } from "./ContentHash";
 import { ArtifactReference } from "./ArtifactReference";
+export type { ArtifactReference };
 
 /**
  * Pure representation boundary.

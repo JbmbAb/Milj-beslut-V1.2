@@ -1,4 +1,4 @@
-import { ArtifactContract, ArtifactReference } from "@miljobeslut/mps-compliance/artifacts/ArtifactContract";
+import { ArtifactContract, ArtifactReference } from "@miljobeslut/mps-compliance/src/artifacts/ArtifactContract";
 
 export type ReleaseHash = string;
 

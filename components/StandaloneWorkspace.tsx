@@ -33,7 +33,7 @@ const StandaloneWorkspace: React.FC<StandaloneWorkspaceProps> = ({
   onExitToDashboard,
 }) => {
   const renderContent = () => {
-    if (activeTab === 'requirements') return <RequirementChecklist mode="standalone" onNavigate={setActiveTab} />;
+    if (activeTab === 'requirements') return <RequirementChecklist code={{ code: "dummy", name: "dummy" } as any} />;
 
     switch (mode) {
       case 'Core_WORKFLOW':

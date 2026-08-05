@@ -21,7 +21,7 @@ export const MCS_001_I2: ValidationRule = {
 
     return {
       rule_id: "MCS-001-I2",
-  implementation_hash: "v1-hash",
+  
       passed,
       evidence: []
     };

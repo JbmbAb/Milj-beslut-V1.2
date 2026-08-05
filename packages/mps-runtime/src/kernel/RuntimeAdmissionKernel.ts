@@ -50,7 +50,9 @@ export class RuntimeAdmissionKernel {
       attempt_number: 1,
       started_at: (manifest.parameters && manifest.parameters["deterministic_seed"]) 
                   ? (manifest.parameters["deterministic_seed"] as string) 
-                  : new Date().toISOString()
+                  : new Date().toISOString(),
+      content_hash: { algorithm: "sha256", value: "mock-hash" },
+      references: []
     };
   }
 }

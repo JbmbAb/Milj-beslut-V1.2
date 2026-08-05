@@ -16,7 +16,7 @@ import type {
   ScheduledPlanArtifact,
   ExecutionContext,
 } from "../index";
-import { DefaultCanonicalPipeline } from "@miljobeslut/mps-canonical";
+import { DefaultCanonicalSerializer } from "@miljobeslut/mps-canonical";
 
 // --- Mock Helpers ---
 
@@ -40,7 +40,7 @@ const mockWorker: WorkerIdentity = {
 };
 
 describe("Mimer Control Plane & Governance Layer Suite", () => {
-  const serializer = new DefaultCanonicalPipeline();
+  const serializer = new DefaultCanonicalSerializer();
 
   describe("DefaultPlanBuilder & DefaultScheduler (Pure Determinism)", () => {
     it("PlanBuilder should always build identical PlanArtifact given identical PlannerInputArtifact", () => {

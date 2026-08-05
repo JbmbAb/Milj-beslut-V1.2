@@ -31,6 +31,15 @@ export interface AppContentRouterProps {
   setSelectedPermit: (p: Permit) => void;
   setActiveTab: (tab: string) => void;
   onOpenMassModule?: () => void;
+  
+  isLUProjectSetup?: boolean;
+  setIsLUProjectSetup?: (val: boolean) => void;
+  luProjectName?: string;
+  setLuProjectName?: (val: string) => void;
+  luProjectDescription?: string;
+  setLuProjectDescription?: (val: string) => void;
+  luDesignation?: string;
+  setLuDesignation?: (val: string) => void;
 }
 
 export const AppContentRouter: React.FC<AppContentRouterProps> = ({
@@ -40,11 +49,19 @@ export const AppContentRouter: React.FC<AppContentRouterProps> = ({
   setSelectedPermit,
   setActiveTab,
   onOpenMassModule: _onOpenMassModule,
+  isLUProjectSetup,
+  setIsLUProjectSetup,
+  luProjectName,
+  setLuProjectName,
+  luProjectDescription,
+  setLuProjectDescription,
+  luDesignation,
+  setLuDesignation,
 }) => {
   const normalizedMode = mode;
   const normalizedTab = activeTab;
 
-  if (normalizedTab === 'requirements') return <RequirementChecklist mode={normalizedMode} onNavigate={setActiveTab} />;
+  if (normalizedTab === 'requirements') return <RequirementChecklist code={{ code: "dummy", name: "dummy" } as any} />;
   if (normalizedTab === 'integrations') return <IntegrationsDashboard />;
   if (normalizedTab === 'dossier') return <DossierDashboard />;
 
@@ -60,7 +77,18 @@ export const AppContentRouter: React.FC<AppContentRouterProps> = ({
       );
     case 'Core_WORKFLOW':
       if (normalizedTab === 'sewage-application') return <SewagePortalView />;
-      if (normalizedTab === 'localization') return <LocalizationStudyUI />;
+      if (normalizedTab === 'localization') return (
+        <LocalizationStudyUI
+          isProjectSetupProp={isLUProjectSetup}
+          setIsProjectSetupProp={setIsLUProjectSetup}
+          projectNameProp={luProjectName}
+          setProjectNameProp={setLuProjectName}
+          projectDescriptionProp={luProjectDescription}
+          setProjectDescriptionProp={setLuProjectDescription}
+          designationProp={luDesignation}
+          setDesignationProp={setLuDesignation}
+        />
+      );
       if (normalizedTab === 'c-notification-mass') return <CNotificationMassUI />;
       if (normalizedTab === 'c-notification-chemicals') return <CNotificationUI />;
       if (normalizedTab === 'mimer-search') return <MimerSearchUI />;

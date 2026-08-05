@@ -68,6 +68,14 @@ class ApiClient {
       const data = (await response.json()) as T;
 
       if (!response.ok) {
+        if (response.status === 401) {
+          if (typeof window !== 'undefined') {
+            window.localStorage.removeItem('miljobeslut_admin_bearer');
+            window.localStorage.removeItem('miljobeslut_admin_refresh');
+            window.localStorage.removeItem('miljobeslut_admin_project');
+            window.location.reload();
+          }
+        }
         throw new Error(`HTTP ${response.status}: ${JSON.stringify(data)}`);
       }
 

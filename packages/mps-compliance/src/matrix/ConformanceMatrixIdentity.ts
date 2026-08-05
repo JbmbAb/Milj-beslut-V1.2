@@ -1,4 +1,4 @@
-import { ContentHash } from "../../mps-compliance/src/artifacts/ContentHash";
+import { ContentHash } from "../artifacts/ContentHash";
 
 /**
  * Conformance matrix identity.

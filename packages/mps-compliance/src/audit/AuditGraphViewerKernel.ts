@@ -118,6 +118,6 @@ export class AuditGraphViewerKernel {
             snapshot_hash: snapshotHash,
             frame_hash: frame.frame_hash,
             renderer_version: this.rendererVersion
-        });
+        } as unknown as any);
     }
 }

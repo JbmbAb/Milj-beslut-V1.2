@@ -1,4 +1,4 @@
-import { ArtifactReference } from "@miljobeslut/mps-compliance/artifacts/ArtifactContract";
+import { ArtifactReference } from "@miljobeslut/mps-compliance/src/artifacts/ArtifactContract";
 import { SpatialEvidenceArtifact } from "../artifacts/SpatialEvidenceArtifact";
 
 /**

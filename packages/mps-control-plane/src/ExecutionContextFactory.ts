@@ -33,7 +33,7 @@ export class DefaultExecutionContextFactory implements ExecutionContextFactory {
       scheduler_hash: scheduled.scheduler_hash,
     };
 
-    const bytes = this.serializer.serialize(baseContext);
+    const bytes = this.serializer.serializeCanonical(baseContext, "JSON");
     const context_hash = `sha256-${crypto.createHash("sha256").update(bytes).digest("hex")}`;
 
     return {

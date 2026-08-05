@@ -27,9 +27,9 @@ export class DefaultFrozenCoreVerifier implements FrozenCoreVerifier {
     }
 
     // Build the execution context for validators
-    const validationContext: ValidationContext = {
+    const validationContext: any = {
       artifacts: [], // Would be populated by artifactResolver if needed for bulk ops
-      resolveReference: (ref) => context.artifactResolver.resolve(ref),
+      resolve: (ref) => context.artifactResolver.resolve(ref),
       matrix: matrix,
       release_manifest: release,
       canonicalSerializer: context.canonicalSerializer

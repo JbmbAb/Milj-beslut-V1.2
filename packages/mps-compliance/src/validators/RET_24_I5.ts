@@ -7,6 +7,6 @@ export const RET_24_I5: ValidationRule = {
   description: "EvidencePreservationArtifact SHALL reference valid RetentionDecisionArtifact",
   validate(context: ValidationContext) {
     return { rule_id: "RET-24-I5",
-  implementation_hash: "v1-hash", passed: true, evidence: [] };
+  passed: true, evidence: [] };
   }
 };

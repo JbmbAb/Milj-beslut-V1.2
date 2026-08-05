@@ -1,7 +1,7 @@
 import { WorkflowEngine } from "./WorkflowEngine.js";
 import { WorkflowResolver } from "../resolver/WorkflowResolver.js";
-import { CapabilityResolver } from "../../mps-capability/src/resolver/CapabilityResolver.js";
-import { CapabilityExecutor } from "../../mps-capability/src/executor/CapabilityExecutor.js";
+import { CapabilityResolver } from "../../../mps-capability/src/resolver/CapabilityResolver.js";
+import { CapabilityExecutor } from "../../../mps-capability/src/executor/CapabilityExecutor.js";
 import { ContentReference } from "@miljobeslut/mps-evolution";
 import { WorkflowExecutionArtifact } from "../artifacts/WorkflowExecutionArtifact.js";
 
@@ -20,7 +20,9 @@ export class DeterministicWorkflowEngine implements WorkflowEngine {
     
     return {
       artifact_type: "WORKFLOW_EXECUTION",
-      artifact_id: "exec-1", // stub
+      content_hash: "exec-hash", // stub
+      schema_version: "1.0",
+      signature: { algorithm: "SHA256", value: "sig-hash" },
       workflow_definition_ref: workflow_ref,
       capability_execution_refs: [], // stub for tests
       input_refs,

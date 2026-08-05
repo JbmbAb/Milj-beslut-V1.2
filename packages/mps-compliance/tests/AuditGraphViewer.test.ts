@@ -46,7 +46,7 @@ describe("Phase 21: Audit Graph Presentation Contract (VIEW-21)", () => {
     const graph = resolver.resolve({ artifact_id: "outcome-1", artifact_type: "execution_outcome" });
     const renderable = layouter.project(graph);
 
-    const snapshot: AuditRenderSnapshotArtifact = {
+    const snapshot: AuditRenderSnapshotArtifact = { content_hash: { algorithm: "sha256", value: "hash" }, references: [],
         artifact_id: "snapshot-1",
         artifact_type: "audit_render_snapshot",
         release_hash: renderable.release_hash,

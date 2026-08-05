@@ -45,7 +45,7 @@ export class AgentController {
       report,
     };
 
-    const bytes = this.serializer.serialize(eventCore);
+    const bytes = this.serializer.serializeCanonical(eventCore, "JSON");
     const event_hash = `sha256-${crypto.createHash("sha256").update(bytes).digest("hex")}`;
 
     const event: ExecutionCompletedEvent = {

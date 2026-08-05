@@ -1,4 +1,4 @@
-import { CapabilityExecutionArtifact } from "../contracts/CapabilityExecutionArtifact.js";
+import { CapabilityExecutionArtifact } from "../artifacts/CapabilityExecutionArtifact.js";
 
 export class DefaultCapabilityExecutionValidator {
   validateExecutionArtifact(artifact: CapabilityExecutionArtifact): void {

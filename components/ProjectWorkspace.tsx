@@ -4,6 +4,8 @@ import { ProjectStructureProvider, useProjectStructure } from './ProjectStructur
 import { countReadyModules } from '../services/projectStructure';
 import WorkspaceScaffold from './WorkspaceScaffold';
 import AdminSearchConsole from './AdminSearchConsole';
+import RequirementChecklist from './RequirementChecklist';
+
 
 
 const ExecutiveSummary = lazy(() => import('./ExecutiveSummary'));
@@ -76,7 +78,7 @@ const ProjectWorkspaceInner: React.FC<ProjectWorkspaceProps> = ({
       : activeTab;
 
   const renderContent = () => {
-    if (normalizedTab === 'requirements') return <RequirementChecklist mode={normalizedMode} onNavigate={onSetActiveTab} />;
+    if (normalizedTab === 'requirements') return <RequirementChecklist code={{ code: "dummy", name: "dummy" } as any} />;
 
     switch (normalizedMode) {
       case 'LOGISTICS_MARKET':

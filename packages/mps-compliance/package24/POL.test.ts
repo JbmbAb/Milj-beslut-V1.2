@@ -19,7 +19,7 @@ async function canonicalHash(obj: any): Promise<string> {
 describe("POL-001 -> POL-004 Policy Compliance", () => {
   // POL-001 Policy Identity Isolation
   it("POL-001 Policy Identity Isolation (A) - policy metadata does not affect identity", async () => {
-    const base: PolicyArtifact = {
+    const base: any = {
       artifact_type: "POLICY_ARTIFACT",
       artifact_id: "policy-123",
       policy_key: "environment-policy",
@@ -29,7 +29,7 @@ describe("POL-001 -> POL-004 Policy Compliance", () => {
       ]
     } as any;
 
-    const renamed: PolicyArtifact = {
+    const renamed: any = {
       ...base,
       policy_key: "environment-policy-v2",
       policy_version: "99.0.0"
@@ -64,7 +64,7 @@ describe("POL-001 -> POL-004 Policy Compliance", () => {
 
   // POL-003 Policy Replay Determinism
   it("POL-003 Policy Replay Determinism (B) - same policy rules produce identical policy artifact", async () => {
-    const base: PolicyArtifact = {
+    const base: any = {
       artifact_type: "POLICY_ARTIFACT",
       artifact_id: "policy-123",
       policy_key: "environment-policy",
@@ -75,7 +75,7 @@ describe("POL-001 -> POL-004 Policy Compliance", () => {
       ]
     } as any;
 
-    const replay: PolicyArtifact = {
+    const replay: any = {
       ...base
     };
 
@@ -84,7 +84,7 @@ describe("POL-001 -> POL-004 Policy Compliance", () => {
 
   // POL-004 Policy Rule Integrity
   it("POL-004 Policy Rule Integrity (A) - canonical rule set is preserved byte-for-byte", async () => {
-    const policy: PolicyArtifact = {
+    const policy: any = {
       artifact_type: "POLICY_ARTIFACT",
       artifact_id: "policy-123",
       policy_key: "environment-policy",
@@ -95,7 +95,7 @@ describe("POL-001 -> POL-004 Policy Compliance", () => {
       ]
     } as any;
 
-    const replay: PolicyArtifact = {
+    const replay: any = {
       ...policy
     };
 
@@ -103,7 +103,7 @@ describe("POL-001 -> POL-004 Policy Compliance", () => {
   });
 
   it("POL-004 Policy Rule Integrity (A) - mutated rule set changes canonical identity", async () => {
-    const base: PolicyArtifact = {
+    const base: any = {
       artifact_type: "POLICY_ARTIFACT",
       artifact_id: "policy-123",
       policy_key: "environment-policy",
@@ -114,7 +114,7 @@ describe("POL-001 -> POL-004 Policy Compliance", () => {
       ]
     } as any;
 
-    const mutated: PolicyArtifact = {
+    const mutated: any = {
       ...base,
       rules: [
         { rule_key: "r1", expression: "x > 0" },

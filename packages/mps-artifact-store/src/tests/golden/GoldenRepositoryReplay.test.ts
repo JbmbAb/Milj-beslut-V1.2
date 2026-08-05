@@ -10,7 +10,7 @@
 
 import { describe, expect, it } from "vitest";
 import { createRepositoryOptions, createRepository, createCanonicalArtifact } from "../helpers/index.js";
-import { RepositoryBuilder } from "../../../internal/RepositoryBuilder.js";
+import { RepositoryBuilder } from "../../internal/RepositoryBuilder.js";
 import { DefaultCanonicalPipeline } from "@miljobeslut/mps-canonical";
 import * as fs from "fs";
 import * as path from "path";
@@ -36,7 +36,7 @@ describe("Golden Repository Replay", () => {
         await repo.append(artifactB);
 
         // 2. "Resolve lineage"
-        const lineage = await repo.lineage.lineage(artifactB.ref);
+        const lineage = await repo.lineage.ancestors(artifactB.ref);
 
         // 3. "Export"
         const exporter = repo.exporter as any;

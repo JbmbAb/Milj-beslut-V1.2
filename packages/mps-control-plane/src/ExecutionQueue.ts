@@ -80,7 +80,7 @@ export class DefaultExecutionQueue implements ExecutionQueue {
       expires_at,
     };
 
-    const bytes = this.serializer.serialize(eventCore);
+    const bytes = this.serializer.serializeCanonical(eventCore, "JSON");
     const lease_event_hash = `sha256-${crypto.createHash("sha256").update(bytes).digest("hex")}`;
 
     const eventArtifact: LeaseIssuedArtifact = {
@@ -117,7 +117,7 @@ export class DefaultExecutionQueue implements ExecutionQueue {
       released_at: { iso8601: this.clock.now().toISOString() },
     };
 
-    const bytes = this.serializer.serialize(eventCore);
+    const bytes = this.serializer.serializeCanonical(eventCore, "JSON");
     const lease_event_hash = `sha256-${crypto.createHash("sha256").update(bytes).digest("hex")}`;
 
     const eventArtifact: LeaseReleasedArtifact = {
@@ -161,7 +161,7 @@ export class DefaultExecutionQueue implements ExecutionQueue {
       heartbeat_at: { iso8601: this.clock.now().toISOString() },
     };
 
-    const bytes = this.serializer.serialize(eventCore);
+    const bytes = this.serializer.serializeCanonical(eventCore, "JSON");
     const lease_event_hash = `sha256-${crypto.createHash("sha256").update(bytes).digest("hex")}`;
 
     const eventArtifact: LeaseHeartbeatArtifact = {
@@ -200,7 +200,7 @@ export class DefaultExecutionQueue implements ExecutionQueue {
       new_expires_at,
     };
 
-    const bytes = this.serializer.serialize(eventCore);
+    const bytes = this.serializer.serializeCanonical(eventCore, "JSON");
     const lease_event_hash = `sha256-${crypto.createHash("sha256").update(bytes).digest("hex")}`;
 
     const eventArtifact: LeaseExtendedArtifact = {

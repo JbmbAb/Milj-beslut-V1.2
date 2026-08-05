@@ -53,6 +53,10 @@ export default defineConfig({
         __dirname,
         'packages/mps-console/src/index.ts',
       ),
+      '@miljobeslut/mps-lu': path.resolve(
+        __dirname,
+        'packages/mps-lu/src/index.ts',
+      ),
     },
   },
   test: {
@@ -73,6 +77,7 @@ export default defineConfig({
         'components/**',
         'scripts/**',
         'tests/**',
+        'packages/**',
         'db.server.ts',
         'types.ts',
         'constants.ts',

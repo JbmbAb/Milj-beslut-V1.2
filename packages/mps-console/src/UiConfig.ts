@@ -3,5 +3,5 @@ export interface UiConfig {
 }
 
 export const uiConfig: UiConfig = {
-  enableLegacyUi: false,
+  enableLegacyUi: true,
 };

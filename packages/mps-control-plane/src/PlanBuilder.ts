@@ -25,7 +25,7 @@ export class DefaultPlanBuilder implements PlanBuilder {
       created_at: plannerInput.clock_instant,
     };
 
-    const planBytes = this.serializer.serialize(basePlan);
+    const planBytes = this.serializer.serializeCanonical(basePlan, "JSON");
     const plan_hash = `sha256-${crypto.createHash("sha256").update(planBytes).digest("hex")}`;
 
     return {

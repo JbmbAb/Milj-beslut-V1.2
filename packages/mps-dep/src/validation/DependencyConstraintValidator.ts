@@ -32,8 +32,8 @@ export const DefaultDependencyConstraintValidator: DependencyConstraintValidator
                 artifact_type: "DEPENDENCY_VIOLATION_ARTIFACT",
                 artifact_id: "viol-1",
                 dependency_ref: analysis.dependency_refs[0],
-                constraint_ref: { artifact_id: "const-mock" } as ContentReference,
-                evaluation_ref: { artifact_id: "eval-temp" } as ContentReference,
+                constraint_ref: { hash: "const-mock" } as ContentReference,
+                evaluation_ref: { hash: "eval-temp" } as ContentReference,
                 violation_code: "MOCK_ARCHITECTURE_VIOLATION"
             } as DependencyViolationArtifact);
         }
@@ -42,11 +42,14 @@ export const DefaultDependencyConstraintValidator: DependencyConstraintValidator
     const evaluation: DependencyConstraintEvaluationArtifact = {
       artifact_type: "DEPENDENCY_CONSTRAINT_EVALUATION_ARTIFACT",
       artifact_id: "eval-1",
-      analysis_ref: { artifact_id: analysis.artifact_id } as ContentReference,
-      profile_ref: { artifact_id: architectureProfile.artifact_id } as ContentReference,
+      analysis_ref: { hash: analysis.artifact_id } as ContentReference,
+      profile_ref: { hash: architectureProfile.artifact_id } as ContentReference,
       evaluator_version: "1.0.0",
       status,
-      violation_refs: violations.map(v => ({ artifact_id: v.artifact_id } as ContentReference)),
+      violation_refs: violations.map(v => ({ hash: v.artifact_id } as ContentReference)),
+      content_hash: { algorithm: "sha256", value: "hash" } as any,
+      schema_version: "1.0",
+      signature: "mock-signature" as any
     };
 
     return { evaluation, violations };

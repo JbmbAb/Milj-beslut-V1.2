@@ -6,3 +6,6 @@ export * from "./EvaluationEngine";
 export * from "./SelectionEngine";
 export * from "./EvolutionPolicy";
 export * from "./EvolutionController";
+export * from "./core/types";
+
+export * from "./artifact/CasArtifactRepository";

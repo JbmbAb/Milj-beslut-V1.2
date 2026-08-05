@@ -1,4 +1,4 @@
-import { ArtifactReference } from "@miljobeslut/mps-compliance/artifacts/ArtifactContract";
+import { ArtifactReference } from "@miljobeslut/mps-compliance/src/artifacts/ArtifactContract";
 
 export type RuleId = string;
 export type RuleVersion = string;

@@ -79,8 +79,9 @@ describe('TechnicalDashboardHub', () => {
   });
 
   describe('Module Cards', () => {
-    it('renders all six module cards', () => {
+    it('renders all seven module cards', () => {
       render(<TechnicalDashboardHub onSelectModule={vi.fn()} />);
+      expect(screen.getByTestId('landing-open-lu-workspace')).toBeInTheDocument();
       expect(screen.getByTestId('landing-open-core')).toBeInTheDocument();
       expect(screen.getByTestId('landing-open-ansokan')).toBeInTheDocument();
       expect(screen.getByTestId('landing-open-logistik')).toBeInTheDocument();
@@ -128,7 +129,7 @@ describe('TechnicalDashboardHub', () => {
       const user = userEvent.setup();
       render(<TechnicalDashboardHub onSelectModule={selectSpy} />);
 
-      const moduleIds = ['core', 'ansokan', 'logistik', 'projekt', 'gronkoll', 'admin'];
+      const moduleIds = ['lu-workspace', 'core', 'ansokan', 'logistik', 'projekt', 'gronkoll', 'admin'];
       for (const moduleId of moduleIds) {
         selectSpy.mockClear();
         await user.click(screen.getByTestId(`landing-open-${moduleId}`));
@@ -151,12 +152,12 @@ describe('TechnicalDashboardHub', () => {
       const user = userEvent.setup();
       render(<TechnicalDashboardHub onSelectModule={vi.fn()} onPreviewModule={previewSpy} />);
 
-      const coreCard = screen.getByTestId('landing-open-core');
+      const luCard = screen.getByTestId('landing-open-lu-workspace');
       await user.tab();
       await waitFor(() => {
-        expect(coreCard).toHaveFocus();
+        expect(luCard).toHaveFocus();
       });
-      expect(previewSpy).toHaveBeenCalledWith('core');
+      expect(previewSpy).toHaveBeenCalledWith('lu-workspace');
     });
   });
 
@@ -203,11 +204,11 @@ describe('TechnicalDashboardHub', () => {
     it('cards are keyboard focusable', async () => {
       const user = userEvent.setup();
       render(<TechnicalDashboardHub onSelectModule={vi.fn()} />);
-      const coreCard = screen.getByTestId('landing-open-core');
+      const luCard = screen.getByTestId('landing-open-lu-workspace');
 
       await user.tab();
       await waitFor(() => {
-        expect(coreCard).toHaveFocus();
+        expect(luCard).toHaveFocus();
       });
     });
   });

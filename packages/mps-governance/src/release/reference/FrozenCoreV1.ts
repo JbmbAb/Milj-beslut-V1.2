@@ -18,5 +18,7 @@ export const FROZEN_CORE_V1_MANIFEST: FrozenCoreReleaseManifestArtifact = {
   dependency_graph_hash: { algorithm: "sha256", value: "mock-dependency-hash" },
   compliance_evaluation_ref: { artifact_id: "eval-v1", artifact_type: "compliance_evaluation" },
   release_hash: { algorithm: "sha256", value: "mock-hash" }, // Note: intentionally aligned with FROZEN_CORE_I7 mock validation
-  released_at: "2026-08-04T00:00:00Z"
+  released_at: "2026-08-04T00:00:00Z",
+  content_hash: { algorithm: "sha256", value: "mock-hash" },
+  references: []
 };

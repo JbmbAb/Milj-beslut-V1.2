@@ -1,6 +1,6 @@
 import { ContentReference } from "../types.js";
-import { PromotionDecisionArtifact } from "@miljobeslut/mps-evolution/src/governance/PromotionDecisionArtifact.js";
-import { ArtifactRepository } from "@miljobeslut/mps-evolution/src/artifact/ArtifactRepository.js";
+import { PromotionDecisionArtifact } from "@miljobeslut/mps-evolution/src/governance/PromotionDecisionArtifact";
+import { ArtifactRepository } from "@miljobeslut/mps-evolution/src/artifact/CasArtifactRepository";
 
 export interface DecisionVisualization {
     candidate_ref: ContentReference;

@@ -1,6 +1,6 @@
-import { ArtifactContract } from "../../mps-compliance/src/artifacts/ArtifactContract";
-import { ArtifactReference } from "../../mps-compliance/src/artifacts/ArtifactReference";
-import { CanonicalPipeline } from "../../mps-canonical/src/CanonicalPipeline";
+import { ArtifactContract } from "../../../mps-compliance/src/artifacts/ArtifactContract";
+import { ArtifactReference } from "../../../mps-compliance/src/artifacts/ArtifactReference";
+import { CanonicalPipeline } from "../../../mps-canonical/src/CanonicalPipeline";
 
 export class StorageIntegrityError extends Error {
   constructor(message: string) {

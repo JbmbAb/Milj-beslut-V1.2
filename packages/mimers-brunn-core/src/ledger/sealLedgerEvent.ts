@@ -54,7 +54,7 @@ export function parseLedgerEvent(raw: unknown): MimersLedgerEvent {
       timestamp: e.timestamp,
     },
     e.sequence,
-    e.previousEventHash,
+    e.previousEventHash as string,
   );
   if (sealed.eventHash !== e.eventHash) {
     throw new Error(`Ledger event hash mismatch at sequence ${e.sequence}`);
