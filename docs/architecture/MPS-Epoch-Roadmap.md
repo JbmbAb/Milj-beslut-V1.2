@@ -147,11 +147,17 @@ Providers and harvest sit *outside* the platform; they produce artifacts that en
 
 **Invariant:** Product path obtains storage only via `MimersIntegration` (or thin `createKernelArtifactRepository` alias). `MIMERS_REQUIRED` fail-closed.
 
-### 2.5 Capability Runtime
+### 2.5 Capability Runtime ✅
 
 Capabilities are fully generic. Domains (LU, avlopp, C-anmälan, …) register implementations.
 
 **Invariant:** No domain-specific logic inside the Execution Platform.
+
+| Component | Responsibility | Code |
+|-----------|----------------|------|
+| **CapabilityRuntime** | Registry resolve → `implementation_ref` → handler → frozen exec artifact | `mps-runtime/src/capability/CapabilityRuntime` |
+| **asExecutorPort** | `CapabilityExecutorPort` for ExecutionKernel | same |
+| **Domain composition root** | Register handlers (e.g. LURuleEngine) | `mps-lu` / other domains |
 
 ### 2.6 Workflow Runtime
 

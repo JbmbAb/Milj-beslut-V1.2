@@ -47,6 +47,9 @@ describe("LuExecutionKernelClient", () => {
     expect(clientSrc).toContain("createLuRegistryRuntime");
     expect(clientSrc).toContain("implementation_ref");
     expect(clientSrc).toContain("MimersIntegration");
+    expect(clientSrc).toContain("CapabilityRuntime");
+    expect(clientSrc).toContain("asExecutorPort");
     expect(clientSrc).not.toContain("lu-rule-engine:");
+    expect(clientSrc).not.toContain("CapabilityExecutorPort = {");
   });
 });

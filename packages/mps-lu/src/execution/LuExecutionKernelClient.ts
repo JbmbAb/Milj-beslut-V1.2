@@ -5,14 +5,12 @@ import { LURuleEngine } from "../rules/LURuleEngine.js";
 import {
   ExecutionKernel,
   sha256ContentHash,
-  type CapabilityExecutorPort,
 } from "../../../mps-runtime/src/kernel/ExecutionKernel.js";
 import { FrozenAdmissionAdapter } from "../../../mps-runtime/src/kernel/FrozenAdmissionAdapter.js";
 import { MimersIntegration } from "../../../mps-runtime/src/mimers/index.js";
+import { CapabilityRuntime } from "../../../mps-runtime/src/capability/index.js";
 import { DefaultReplayEngine } from "../../../mps-runtime/src/replay/DefaultReplayEngine.js";
 import type { FrozenExecutionManifestIdentity } from "../../../mps-runtime/src/contracts/freeze/FrozenIdentities.js";
-import type { ArtifactReference } from "../../../mps-compliance/src/artifacts/ArtifactReference.js";
-import type { RuntimeState } from "../../../mps-runtime/src/kernel/RuntimeState.js";
 import {
   createExecutionSession,
   appendAttemptToSession,
@@ -59,12 +57,11 @@ export interface LuKernelRunResult {
 }
 
 /**
- * LU as ExecutionKernel client — admit → capability invoke → findings.
+ * LU as ExecutionKernel client — admit → CapabilityRuntime → findings.
  * This is the only product assessment path (LU cutover complete).
- * Artifacts persist via Mimers CAS; memory only under test / LU_MPS_CAS=memory.
  *
- * Capability invoke is bound via RegistryRuntime → implementation_ref,
- * never via hard-coded site handler keys.
+ * Domain composition root: registry seed + implementation handler registration.
+ * Platform: MimersIntegration + CapabilityRuntime + ExecutionKernel.
  */
 export async function runLuAssessmentViaKernel(
   input: LuKernelRunInput,
@@ -82,64 +79,22 @@ export async function runLuAssessmentViaKernel(
   const engine = new LURuleEngine();
   let findings: AssessmentFinding[] = [];
 
-  const handlers = new Map<
-    string,
-    (inputs: readonly ContentReference[]) => Promise<readonly ContentReference[]>
-  >();
-  handlers.set(capability.implementation_ref.artifact_id, async () => {
-    findings = engine.evaluate(input.evidence);
-    return findings.map((f) => ({ artifact_id: f.finding_id }));
-  });
+  const handlers = new Map([
+    [
+      capability.implementation_ref.artifact_id,
+      async () => {
+        findings = engine.evaluate(input.evidence);
+        return findings.map((f) => ({ artifact_id: f.finding_id }));
+      },
+    ],
+  ]);
 
-  const capabilityExecutor: CapabilityExecutorPort = {
-    async execute(args: {
-      capability_ref: ArtifactReference;
-      input_refs: readonly ArtifactReference[];
-      state: RuntimeState;
-    }) {
-      const resolved =
-        registry.resolveCapabilityByRef(args.capability_ref.artifact_id) ??
-        registry.resolveCapabilityByKey(LU_SITE_ASSESSMENT_CAPABILITY_KEY);
-      if (!resolved) {
-        throw new Error(
-          `Capability not in registry: ${args.capability_ref.artifact_id}`,
-        );
-      }
-      const handler = handlers.get(resolved.implementation_ref.artifact_id);
-      if (!handler) {
-        throw new Error(
-          `No invoke handler for implementation: ${resolved.implementation_ref.artifact_id}`,
-        );
-      }
-      const outputs = await handler(
-        args.input_refs.map((r) => ({ artifact_id: r.artifact_id })),
-      );
-      const payload = {
-        capability: resolved.artifact_id,
-        outputs: outputs.map((o) => o.artifact_id),
-      };
-      const content_hash = sha256ContentHash(payload);
-      return {
-        artifact_id: `exec-lu-${input.site_id}-${content_hash.value.slice(0, 12)}`,
-        artifact_type: "CAPABILITY_EXECUTION",
-        capability_ref: {
-          artifact_id: resolved.artifact_id,
-          artifact_type: "CAPABILITY_DEFINITION",
-        },
-        input_refs: args.input_refs,
-        output_refs: outputs.map((o) => ({
-          artifact_id: o.artifact_id,
-          artifact_type: "localization_assessment" as const,
-        })),
-        content_hash,
-      };
-    },
-  };
+  const capabilityRuntime = CapabilityRuntime.create({ registry, handlers });
 
   const snapshot = registry.getReleaseSnapshot();
   const kernel = new ExecutionKernel({
     admission: new FrozenAdmissionAdapter(null, true),
-    capabilityExecutor,
+    capabilityExecutor: capabilityRuntime.asExecutorPort(),
     artifactRepository: repo,
     replayEngine: new DefaultReplayEngine(repo),
     registrySnapshot: registry.toSnapshotView(),

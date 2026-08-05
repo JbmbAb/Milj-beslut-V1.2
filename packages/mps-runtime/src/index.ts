@@ -25,4 +25,6 @@ export * from "./repository/MimersByteStorageBackend";
 export * from "./repository/createKernelArtifactRepository";
 /** Epoch II §2.4 — Mimers Integration */
 export * from "./mimers/index";
+/** Epoch II §2.5 — Capability Runtime */
+export * from "./capability/index";
 export * from "./replay/DefaultReplayEngine";
