@@ -25,34 +25,41 @@ See also: [ADR-29-Runtime-Contract-Freeze-ExecutionKernel.md](./ADR-29-Runtime-C
 | 3 Workflow | Workflow freeze fields + `LuSiteAssessmentRegistry` | Done |
 | 4 Ticket queue | Prisma `ExecutionTicket` (+ file fallback) + AdmittedTicketWorker | Done |
 | 5 Document providers | NullDocumentProvider default; UI adapter | Done |
-| 6 Cutover | Motor **default ON**; findings from kernel; EXE/CAP/REPLAY non-vacuous | Done |
 | Infra: Mimers CAS | Single store; index rebuild; `MIMERS_REQUIRED` fail-closed + tests | Done |
 | Infra: Frozen Core hashes | Projection → SHA-256 → golden **exact match** (CI gate) | Done |
 | Infra: Ticket queue | Prisma + file; lease timeout; dup/idempotent/crash tests | Done |
-| Evolution product loop | `AdmittedOnlyEvolutionExecutor` in product path | **Deferred** |
+| **7 LU Cutover** | **Single path:** Report → Kernel → Artifacts → UI (no RuleEngine bypass) | **Done** |
+| Evolution product loop | Metrics → Fitness → Candidates → Replay → Promotion | **Deferred** |
 
 ## Feature flags
 
 | Flag | Effect |
 |------|--------|
-| *(default)* | `LU_MPS_MOTOR` on — ExecutionKernel admit path |
-| `LU_MPS_MOTOR=0` | Explicit opt-out (RuleEngine without admit) |
 | `LU_MPS_CAS=memory` | In-memory CAS (tests / explicit) |
 | `MIMERS_ROOT` | Mimers CAS root (default fallback `.data/mimers`) |
-| `MIMERS_REQUIRED=1` | Fail closed if `MIMERS_ROOT` missing |
+| `MIMERS_REQUIRED=1` | Fail closed if Mimers cannot initialize |
 | `LU_MPS_TICKETS=prisma` | Prisma ticket queue (default) |
 | `LU_MPS_TICKETS=file` | File JSON queue fallback |
 | `LU_DOC_PROVIDER=mock` | Opt-in MockDocumentProvider |
+| `VITE_ENABLE_LEGACY_UI=1` | UI rollback to TechnicalDashboardHub only |
+
+Removed: `LU_MPS_MOTOR` opt-out (cutover complete).
 
 ## Key paths
 
 - Freeze: `packages/mps-runtime/src/contracts/freeze/`
 - Kernel: `packages/mps-runtime/src/kernel/ExecutionKernel.ts`
 - LU client: `packages/mps-lu/src/execution/LuExecutionKernelClient.ts`
+- Report: `src/application/generate-localization-report.usecase.ts` → `runLuAssessmentViaKernel` only
 - CAS: `createKernelArtifactRepository` → Mimers `FileCASRepository` + id→hash index
 - Tickets: `src/application/enqueue-lu-execution-ticket.ts` → `PrismaExecutionTicketQueue`
-- Frozen Core: `packages/mps-governance/src/release/reference/FrozenCoreV1.ts`
-- UI: `components/app/lu/LuWorkspace.tsx` shows `executionMotor` meta
+- UI: `components/app/lu/LuWorkspace.tsx`
+
+## Next focus (not more packages)
+
+1. ~~Replace last legacy LU execution path~~ **Done**
+2. Gather real production runs + replayable Mimers artifacts
+3. Then activate evolution: Execution Metrics → Fitness → Candidates → Replay → Promotion
 
 ## Evolution gate (explicit)
 
@@ -62,4 +69,4 @@ Do **not** wire product evolution until:
 2. Artifacts land in Mimers CAS and are replay-verifiable.
 3. Ticket queue shows stable admit → complete under restart.
 
-Until then, keep `AdmittedOnlyEvolutionExecutor` out of the product path so evolution does not optimize a still-moving motor.
+Until then, keep `AdmittedOnlyEvolutionExecutor` out of the product path.

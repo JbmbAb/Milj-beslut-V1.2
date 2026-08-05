@@ -27,20 +27,21 @@ UI → SpatialQueryRequest → Spatial Engine → Provider → SpatialEvidenceAr
 Document Provider → DocumentEvidenceArtifact[]
 ```
 
-## 5. LU Assessment Engine
+## 5. LU Assessment Engine (enda väg — cutover klar)
 
-### ExecutionKernel (default)
 ```
-Evidence → Manifest → ExecutionKernel.admit
+Localization Report
+        → Evidence
+        → ExecutionKernel.admit
         → CapabilityExecutor → invoke LURuleEngine
-        → Artifacts → Mimers CAS (en källa)
+        → Artifacts (Mimers CAS)
         → Findings + Attempt/Outcome (+ Prisma ExecutionTicket)
-        → LuWorkspace visar executionMotor-meta
+        → LuWorkspace
 ```
 
-Opt-out: `LU_MPS_MOTOR=0` (RuleEngine utan admit).  
+Ingen parallell RuleEngine-bypass. `LURuleEngine` körs **bara** som invoke-handler under Admission.  
 CAS: `MIMERS_ROOT` (fallback `.data/mimers`); tickets: Prisma default, `LU_MPS_TICKETS=file` fallback.  
-Evolution-produktloop: **av** tills det finns tillräckligt med verkliga körningar/replaybara artifacts.
+Evolution-produktloop: **av** tills det finns tillräckligt med verkliga produktionskörningar.
 
 Se [ADR-29](./ADR-29-Runtime-Contract-Freeze-ExecutionKernel.md) och [MPS-Execution-Motor-Implementation-Plan.md](./MPS-Execution-Motor-Implementation-Plan.md).
 

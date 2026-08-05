@@ -113,7 +113,7 @@ jobs:
       - run: cp .env.test.example .env.test
       - name: Unit tests
         run: npm run test:unit
-      - name: MPS infra gates (Frozen Core exact hash + Mimers + tickets)
+      - name: MPS infra gates (Frozen Core + Mimers + tickets + LU cutover + replay)
         run: >
           npx vitest run --config vitest.config.ts
           packages/mps-compliance/src/unit/FrozenCoreGoldenHash.test.ts
@@ -121,9 +121,13 @@ jobs:
           packages/mps-runtime/src/unit/MimersCasRepository.test.ts
           packages/mps-runtime/src/unit/NoParallelCasPath.test.ts
           packages/mps-runtime/src/unit/ExecutionKernel.test.ts
+          packages/mps-runtime/src/unit/mps-end-to-end-determinism.test.ts
           packages/mps-control-plane/src/unit/DurableTicketQueue.adversarial.test.ts
+          packages/mps-lu/tests/LuExecutionKernelClient.test.ts
+          packages/mps-lu/tests/LUMagicMoment.test.ts
           src/infrastructure/unit/PrismaExecutionTicketQueue.test.ts
           src/application/unit/resolve-execution-ticket-queue.test.ts
+          src/application/unit/LuCutoverSinglePath.test.ts
       - name: Upload coverage
         if: always()
         uses: actions/upload-artifact@v4

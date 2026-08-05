@@ -399,14 +399,11 @@ async function analyzeSite(
     logger.warn(`Failed to generate document evidence for site ${site.id}`, { err: String(err) });
   }
 
-  // ═════════════════════════════════════════════════════════════════════════
-  // EXECUTION KERNEL (default ON — opt out LU_MPS_MOTOR=0)
-  // ═════════════════════════════════════════════════════════════════════════
+  // Single path: Evidence → ExecutionKernel → Artifacts → findings (no RuleEngine bypass).
   let mpsFindings: any[] = [];
   let executionMotor: ExecutionMotorMeta | undefined;
   try {
-    const { PostgisSpatialProvider, LURuleEngine, isLuMpsMotorEnabled, runLuAssessmentViaKernel } =
-      await import('@miljobeslut/mps-lu');
+    const { PostgisSpatialProvider, runLuAssessmentViaKernel } = await import('@miljobeslut/mps-lu');
 
     const coords = await prisma.$queryRawUnsafe<any[]>(
       `SELECT ST_X(ST_Transform(ST_SetSRID(ST_MakePoint($1, $2), 4326), 3006)) as x,
@@ -438,56 +435,39 @@ async function analyzeSite(
     };
 
     const mpsEvidence = await spatialProvider.query(queryRequest);
+    const kernelResult = await runLuAssessmentViaKernel({
+      site_id: site.id,
+      deterministic_seed: `lu-seed-${site.id}`,
+      evidence: mpsEvidence,
+    });
 
-    if (isLuMpsMotorEnabled()) {
-      const kernelResult = await runLuAssessmentViaKernel({
-        site_id: site.id,
-        deterministic_seed: `lu-seed-${site.id}`,
-        evidence: mpsEvidence,
-      });
-      let ticket_id: string | null = null;
-      if (kernelResult.admitted) {
-        ticket_id = await enqueueAdmittedLuTicket(kernelResult.manifest_id);
-        mpsFindings = [...kernelResult.findings];
-        logger.info(
-          `ExecutionKernel admitted LU assessment. findings=${mpsFindings.length} attempt=${kernelResult.attempt_id}`,
-          { site: site.id },
-        );
-      } else {
-        logger.warn('LU ExecutionKernel denied admission', {
-          site: site.id,
-          reasons: kernelResult.reason_codes,
-        });
-        warnings.push(`ExecutionKernel denied: ${kernelResult.reason_codes.join(', ') || 'unknown'}`);
-      }
-      executionMotor = {
-        admitted: kernelResult.admitted,
-        reason_codes: [...kernelResult.reason_codes],
-        attempt_id: kernelResult.attempt_id,
-        outcome_id: kernelResult.outcome_id,
-        manifest_id: kernelResult.manifest_id,
-        ticket_id,
-        finding_ids: [...kernelResult.finding_ids],
-      };
+    let ticket_id: string | null = null;
+    if (kernelResult.admitted) {
+      ticket_id = await enqueueAdmittedLuTicket(kernelResult.manifest_id);
+      mpsFindings = [...kernelResult.findings];
+      logger.info(
+        `ExecutionKernel admitted LU assessment. findings=${mpsFindings.length} attempt=${kernelResult.attempt_id}`,
+        { site: site.id },
+      );
     } else {
-      // Explicit opt-out only
-      const ruleEngine = new LURuleEngine();
-      mpsFindings = ruleEngine.evaluate(mpsEvidence);
-      executionMotor = {
-        admitted: false,
-        reason_codes: ['LU_MPS_MOTOR_DISABLED'],
-        attempt_id: null,
-        outcome_id: null,
-        manifest_id: null,
-        ticket_id: null,
-        finding_ids: [],
-      };
-      logger.info(`LU_MPS_MOTOR disabled — RuleEngine without admit. findings=${mpsFindings.length}`, {
+      logger.warn('LU ExecutionKernel denied admission', {
         site: site.id,
+        reasons: kernelResult.reason_codes,
       });
+      warnings.push(`ExecutionKernel denied: ${kernelResult.reason_codes.join(', ') || 'unknown'}`);
     }
 
-    if (mpsFindings && mpsFindings.length > 0) {
+    executionMotor = {
+      admitted: kernelResult.admitted,
+      reason_codes: [...kernelResult.reason_codes],
+      attempt_id: kernelResult.attempt_id,
+      outcome_id: kernelResult.outcome_id,
+      manifest_id: kernelResult.manifest_id,
+      ticket_id,
+      finding_ids: [...kernelResult.finding_ids],
+    };
+
+    if (mpsFindings.length > 0) {
       let hasHigh = false;
       let hasMedium = false;
       const requiredActions: string[] = [];
@@ -496,7 +476,7 @@ async function analyzeSite(
       mpsFindings.forEach(f => {
         if (f.risk_level === 'HIGH') hasHigh = true;
         if (f.risk_level === 'MEDIUM') hasMedium = true;
-        
+
         const itemText = `[${f.rule_id} v${f.rule_version}] ${f.explanation}`;
         if (f.risk_level === 'HIGH') {
           requiredActions.push(itemText);
@@ -523,7 +503,18 @@ async function analyzeSite(
       }
     }
   } catch (err: any) {
-    logger.warn('Failed to run ExecutionKernel/Rule Engine for site analysis', { err: err.message || err });
+    const msg = err?.message || String(err);
+    logger.warn('ExecutionKernel LU assessment failed', { err: msg, site: site.id });
+    warnings.push(`ExecutionKernel error: ${msg}`);
+    executionMotor = {
+      admitted: false,
+      reason_codes: ['EXECUTION_KERNEL_ERROR'],
+      attempt_id: null,
+      outcome_id: null,
+      manifest_id: null,
+      ticket_id: null,
+      finding_ids: [],
+    };
   }
 
   return {

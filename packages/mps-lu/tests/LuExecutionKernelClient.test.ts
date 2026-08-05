@@ -1,9 +1,11 @@
 import { describe, it, expect } from "vitest";
-import {
-  runLuAssessmentViaKernel,
-  isLuMpsMotorEnabled,
-} from "../src/execution/LuExecutionKernelClient";
+import { readFileSync } from "node:fs";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
+import { runLuAssessmentViaKernel } from "../src/execution/LuExecutionKernelClient";
 import type { SpatialEvidenceArtifact } from "../src/artifacts/SpatialEvidenceArtifact";
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 describe("LuExecutionKernelClient", () => {
   it("admits and returns finding ids via ExecutionKernel", async () => {
@@ -30,10 +32,13 @@ describe("LuExecutionKernelClient", () => {
     expect(result.manifest_id).toContain("lu-manifest-");
   });
 
-  it("defaults motor ON; opt-out with 0/false", () => {
-    expect(isLuMpsMotorEnabled({})).toBe(true);
-    expect(isLuMpsMotorEnabled({ LU_MPS_MOTOR: "1" })).toBe(true);
-    expect(isLuMpsMotorEnabled({ LU_MPS_MOTOR: "0" })).toBe(false);
-    expect(isLuMpsMotorEnabled({ LU_MPS_MOTOR: "false" })).toBe(false);
+  it("cutover: no LU_MPS_MOTOR opt-out and no RuleEngine bypass export", () => {
+    const clientSrc = readFileSync(
+      path.join(__dirname, "../src/execution/LuExecutionKernelClient.ts"),
+      "utf8",
+    );
+    expect(clientSrc).not.toContain("isLuMpsMotorEnabled");
+    expect(clientSrc).not.toContain("LU_MPS_MOTOR");
+    expect(clientSrc).toContain("runLuAssessmentViaKernel");
   });
 });

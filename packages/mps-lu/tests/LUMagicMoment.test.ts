@@ -3,11 +3,11 @@ import { LUProjectContextPayload, LUProjectContextArtifact } from "../src/artifa
 import { LUPropertyContextPayload, LUPropertyContextArtifact } from "../src/artifacts/LUPropertyContextArtifact";
 import { SpatialEvidenceArtifact } from "../src/artifacts/SpatialEvidenceArtifact";
 import { LocalizationAssessmentArtifact } from "../src/artifacts/LocalizationAssessmentArtifact";
-import { LURuleEngine } from "../src/rules/LURuleEngine";
+import { runLuAssessmentViaKernel } from "../src/execution/LuExecutionKernelClient";
 import { ArtifactReference } from "@miljobeslut/mps-compliance/src/artifacts/ArtifactContract";
 
 describe("LU Domain - The Magic Moment", () => {
-  it("should go from project context and property to a verifiable LU assessment", () => {
+  it("should go from project context and property to a verifiable LU assessment", async () => {
     // 1. Konsult skapar ett projekt (Project Context)
     const projectContext: LUProjectContextArtifact = {
       artifact_id: "art_ctx_001",
@@ -105,9 +105,16 @@ describe("LU Domain - The Magic Moment", () => {
 
     const spatialEvidence = [evidenceWater, evidenceEbh];
 
-    // 4. LURuleEngine utvärderar evidens till Findings
-    const engine = new LURuleEngine();
-    const findings = engine.evaluate(spatialEvidence);
+    // 4. ExecutionKernel admit → capability invoke → findings (enda produktväg)
+    const kernelResult = await runLuAssessmentViaKernel({
+      site_id: "magic-site",
+      deterministic_seed: "seed:magic-moment",
+      evidence: spatialEvidence,
+    });
+    expect(kernelResult.admitted).toBe(true);
+    expect(kernelResult.attempt_id).toBeTruthy();
+    expect(kernelResult.outcome_id).toBeTruthy();
+    const findings = [...kernelResult.findings];
 
     expect(findings.length).toBe(2);
     expect(findings[0].rule_id).toBe("LU-WATER-001");

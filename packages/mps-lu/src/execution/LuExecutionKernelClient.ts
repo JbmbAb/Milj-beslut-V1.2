@@ -50,17 +50,11 @@ export interface LuKernelRunResult {
 }
 
 /**
- * Motor default ON. Opt out with LU_MPS_MOTOR=0|false|no|off.
- */
-export function isLuMpsMotorEnabled(env: NodeJS.ProcessEnv = process.env): boolean {
-  const v = (env.LU_MPS_MOTOR ?? env.VITE_LU_MPS_MOTOR ?? "1").toLowerCase();
-  if (v === "0" || v === "false" || v === "no" || v === "off") return false;
-  return true;
-}
-
-/**
- * LU as ExecutionKernel client — admit → capability invoke → findings (single path).
- * Artifacts persist via Mimers CAS (single store); memory only under test / LU_MPS_CAS=memory.
+ * LU as ExecutionKernel client — admit → capability invoke → findings.
+ * This is the only product assessment path (LU cutover complete).
+ * Artifacts persist via Mimers CAS; memory only under test / LU_MPS_CAS=memory.
+ *
+ * LURuleEngine runs only as the capability invoke handler — never outside Admission.
  */
 export async function runLuAssessmentViaKernel(
   input: LuKernelRunInput,

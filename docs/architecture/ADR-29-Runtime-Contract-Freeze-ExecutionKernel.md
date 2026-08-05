@@ -30,7 +30,7 @@ MPS Frozen Core had dual manifest models, stub hashes, and LU invoking `LURuleEn
 
 - Identity-breaking changes require a new freeze major and golden test update.
 - `PipelineRuntime` stage pipeline remains a post-outcome lifecycle detail, not the primary client API.
-- Feature flag `LU_MPS_MOTOR=1` enables LU strangler onto ExecutionKernel.
+- LU cutover complete: Localization Report → ExecutionKernel is the only product assessment path (no `LU_MPS_MOTOR` RuleEngine bypass).
 
 ## References
 
