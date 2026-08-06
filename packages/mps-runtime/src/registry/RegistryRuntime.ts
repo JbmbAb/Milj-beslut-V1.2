@@ -104,10 +104,19 @@ class InMemoryRegistryRuntime implements RegistryRuntime {
  * Fail-closed on duplicate keys / empty capability set.
  */
 export function createRegistryRuntime(seed: RegistrySeedInput): RegistryRuntime {
-  const capabilities = Object.freeze([...seed.capabilities]);
-  const workflows = Object.freeze([...seed.workflows]);
-  const rules = Object.freeze([...(seed.rules ?? [])]);
-  const providers = Object.freeze([...(seed.providers ?? [])]);
+  // Sort for order-independent registry_hash (YAML / seed insertion order MUST NOT matter).
+  const capabilities = Object.freeze(
+    [...seed.capabilities].sort((a, b) => a.artifact_id.localeCompare(b.artifact_id)),
+  );
+  const workflows = Object.freeze(
+    [...seed.workflows].sort((a, b) => a.artifact_id.localeCompare(b.artifact_id)),
+  );
+  const rules = Object.freeze(
+    [...(seed.rules ?? [])].sort((a, b) => a.artifact_id.localeCompare(b.artifact_id)),
+  );
+  const providers = Object.freeze(
+    [...(seed.providers ?? [])].sort((a, b) => a.artifact_id.localeCompare(b.artifact_id)),
+  );
 
   if (capabilities.length === 0) {
     throw new Error("RegistryRuntime: release must register at least one capability");

@@ -150,6 +150,11 @@ jobs:
           packages/mps-runtime/src/verification/generality/DummyCapability.test.ts
           packages/mps-runtime/src/verification/generality/SyntheticWorkflow.test.ts
           packages/mps-runtime/src/verification/generality/GeneralityProof.test.ts
+          packages/mps-runtime/src/verification/integrity/RegistryHashGolden.test.ts
+          packages/mps-runtime/src/verification/integrity/RegistryFreeze.test.ts
+          packages/mps-runtime/src/verification/integrity/ReleaseIsolation.test.ts
+          packages/mps-runtime/src/verification/integrity/CasReplay.test.ts
+          packages/mps-runtime/src/verification/integrity/CasCorruption.test.ts
       - name: Upload coverage
         if: always()
         uses: actions/upload-artifact@v4

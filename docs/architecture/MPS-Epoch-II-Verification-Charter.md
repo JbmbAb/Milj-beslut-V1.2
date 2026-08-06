@@ -151,7 +151,7 @@ Single CI gate aggregating:
 | Charter | ✅ |
 | Architecture Invariants | ✅ (`mps-runtime/src/verification/architecture`) |
 | Generality Proof | ✅ (`mps-runtime/src/verification/generality`) |
-| Registry + Mimers | ⚪ |
+| Registry + Mimers | ✅ (`mps-runtime/src/verification/integrity`) |
 | Workflow depth | ⚪ |
 | Projection rebuild | ⚪ |
 | Adversarial gate | ⚪ |
