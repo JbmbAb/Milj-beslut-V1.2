@@ -163,6 +163,7 @@ jobs:
           packages/mps-runtime/src/verification/projection/ProjectionRebuild.test.ts
           packages/mps-runtime/src/verification/projection/ProjectionPurity.test.ts
           packages/mps-runtime/src/verification/adversarial/AdversarialGate.test.ts
+          packages/mps-runtime/src/verification/performance/ReleasePerformanceGate.test.ts
       - name: Upload coverage
         if: always()
         uses: actions/upload-artifact@v4

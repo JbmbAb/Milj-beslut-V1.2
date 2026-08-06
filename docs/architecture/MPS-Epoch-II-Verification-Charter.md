@@ -4,14 +4,15 @@
 **Scope:** Execution Platform verification only (not Epoch III Knowledge).  
 **Companion:** [MPS-Epoch-Roadmap.md](./MPS-Epoch-Roadmap.md)
 
-Implementation of tracks 2.1–2.9 is **complete**. This charter defines when the platform is **verified** and thus releasable.
+Implementation of tracks 2.1–2.9 is **complete**. This charter defines when the platform is **verified** and **qualified** for release — not merely “implementation closed”.
 
 ```
 Execution Platform
 ──────────────────
 Implementation  ✅ Complete
-Verification    🟡 In Progress
-Release         🔒 Pending
+Verification    ✅ Complete   (Fas 1–7 + 8A)
+Qualification   ✅ Fas 9 — Qualified for Knowledge Platform
+Release         🔒 Pending human promote (not Epoch III start gate)
 ```
 
 ---
@@ -27,12 +28,14 @@ Epoch II SHALL NOT be marked Release-ready until **all** of the following are de
 5. **CAS sole truth** — Artifacts persist/read only via Mimers CAS path (no PostGIS in replay).
 6. **Projection purity** — Projections can be deleted and rebuilt to an identical result from artifacts.
 7. **Adversarial gate** — Unified adversarial suite is green (blocking for release).
+8. **Performance gate (Fas 8A)** — Release Performance Gate green against golden baselines in CI.
 
-Performance suites are **not** DoD blockers; they are regression/release quality signals.
+**Fas 8B Scalability Qualification** is **not** a release blocker.  
+**Fas 9 Platform Qualification** is the formal close-out that records all gates before Epoch III.
 
 ---
 
-## Nine verification levels
+## Nine verification levels (+ qualification)
 
 | # | Level | Purpose |
 |---|--------|---------|
@@ -43,16 +46,19 @@ Performance suites are **not** DoD blockers; they are regression/release quality
 | 5 | Workflow Runtime | Ordering, replay, failure recovery, nested/parallel |
 | 6 | Mimers Integration | CAS round-trip, rebuild, corruption, CAS-only replay |
 | 7 | Projection Layer | Never source of truth; rebuild identity |
-| 8 | Performance | Throughput/scale — must not drive architecture |
+| 8A | Release Performance Gate | CI regression ceilings + golden baselines |
+| 8B | Scalability Qualification | Optional large-scale / endurance (not every commit) |
 | 9 | Adversarial | Tamper / wrong release / flood / replay attack / fake capability |
+| **Q** | **Platform Qualification** | Formal checklist close-out (Fas 9) |
 
 ### Blocking vs recommended vs performance
 
 | Class | Meaning | Levels / suites |
 |-------|---------|-----------------|
-| **Blocking** | Must be 100% green for Release | L1 Architecture; Generality (LU+Dummy+Synthetic); L3 integrity (freeze/release/hash); L6 CasCorruption/CasReplay; L7 ProjectionRebuild; L9 Adversarial gate; crash/lease/retry from L2 |
+| **Blocking** | Must be 100% green for Release | L1 Architecture; Generality (LU+Dummy+Synthetic); L3 integrity (freeze/release/hash); L6 CasCorruption/CasReplay; L7 ProjectionRebuild; L9 Adversarial gate; L8A Performance Gate; crash/lease/retry from L2 |
 | **Recommended** | Strong quality; land before Release if feasible | L2 QueueDeterminism golden; L5 Nested/Parallel; CrossPlatform OS CI matrix; L4 extra domain fixtures |
-| **Performance / regression** | Never architectural gates | L8 (10k executions, workers, CAS/queue benches) |
+| **Scalability (8B)** | Optional qualification; never CI-every-commit | 1M artifacts/replay, 1k workers, endurance, leak/GC |
+| **Qualification (Fas 9)** | Formal release close-out | Single checklist → “Qualified for Knowledge Platform” |
 
 ---
 
@@ -109,15 +115,47 @@ CasRoundTrip · CasRebuild · CasCorruption · CasReplay (CAS only — never Pos
 ## Level 7 — Projection Layer
 
 | Suite | Class | Proves |
-|-------|-------|--------|
+|-------|--------|-------|
 | ProjectionPurity | Blocking | Projection never mutates CAS |
 | **ProjectionRebuild** | **Blocking** | `DELETE` all projections → rebuild from artifacts → identical `batch_hash` / UI hashes |
 
 **Code:** `packages/mps-runtime/src/verification/projection/` + `EphemeralProjectionStore`
 
-## Level 8 — Performance (last)
+## Level 8A — Release Performance Gate (blocking for release CI)
 
-Scale/regression only. Architecture decisions SHALL NOT be driven by these numbers.
+**Purpose:** Catch performance regressions before release. Not enormous; always runnable in CI.  
+**Shall not** drive architecture decisions — ceilings exist only to detect regressions.
+
+| Benchmark | Scale (counts in golden) |
+|-----------|--------------------------|
+| ExecutionManifests | 10 000 |
+| Replay | 10 000 |
+| Concurrent workers | 100 |
+| CAS lookups | 100 000 |
+| Registry resolve | 100 000 |
+| Queue | 10 000 ops |
+| Workflow | 1 000 runs |
+
+**Golden baselines:** `packages/mps-runtime/src/verification/performance/baselines/release-gate.v1.json`  
+**Suite:** `packages/mps-runtime/src/verification/performance/ReleasePerformanceGate.test.ts`  
+**Update baselines (intentional):** `MPS_UPDATE_PERF_BASELINE=1` then re-run the suite.
+
+CI asserts `ceilings_ms`; `measured_ms_reference` records the last intentional capture for human comparison.
+
+## Level 8B — Scalability Qualification (optional)
+
+**Purpose:** “Can the platform grow?” — not a every-commit / every-PR requirement.
+
+Examples (manual / scheduled / dedicated runners):
+
+- 1 000 000 artifacts  
+- 1 000 000 replay  
+- 1 000 concurrent workers  
+- 24 h endurance  
+- Long-lived lease recovery  
+- Memory leak / GC stability  
+
+Results MAY be archived as qualification evidence; failures do **not** block Fas 8A or Fas 9 unless product owners elevate them.
 
 ## Level 9 — Adversarial (blocking release gate)
 
@@ -134,6 +172,35 @@ Single CI gate: `packages/mps-runtime/src/verification/adversarial/AdversarialGa
 
 ---
 
+## Fas 9 — Platform Qualification
+
+Final verification close-out. Not an implementation track — a **qualification record**.
+
+When every item below is ✅, Epoch II may be declared:
+
+> **Execution Platform v1.0 – Qualified for Knowledge Platform**
+
+| Gate | Status |
+|------|--------|
+| Architecture Invariants | ✅ |
+| Infrastructure | ✅ |
+| Registry Integrity | ✅ |
+| Capability Generality | ✅ |
+| Workflow Recovery | ✅ |
+| Mimers Integrity | ✅ |
+| Projection Purity | ✅ |
+| Adversarial Gate | ✅ |
+| Performance Gate (8A) | ✅ |
+
+### Qualification record
+
+**Execution Platform v1.0 – Qualified for Knowledge Platform**
+
+Recorded: 2026-08-06 · Evidence: verification suites under `packages/mps-runtime/src/verification/` + CI gate “MPS Epoch II verification gates”.  
+Fas 8B Scalability Qualification remains optional post-qualify evidence.
+
+---
+
 ## Verification build order (normative)
 
 ```
@@ -144,7 +211,9 @@ Single CI gate: `packages/mps-runtime/src/verification/adversarial/AdversarialGa
 5  Workflow (FailureRecovery first)
 6  Projection rebuild
 7  Adversarial unified gate
-8  Performance
+8A Release Performance Gate      ← CI release regression
+8B Scalability Qualification     ← optional / scheduled
+9  Platform Qualification        ← formal “Qualified for Knowledge Platform”
 ```
 
 ---
@@ -152,8 +221,10 @@ Single CI gate: `packages/mps-runtime/src/verification/adversarial/AdversarialGa
 ## CI policy
 
 - **Blocking verification** suites SHALL be listed under MPS infra / verification gates in `.github/workflows/ci.yml`.
-- Adversarial gate SHALL be blocking for release once introduced.
-- Performance suites MAY run on schedule or manual workflow — not required for every PR.
+- Adversarial gate SHALL be blocking for release.
+- **Fas 8A Performance Gate SHALL run in CI** (release regression).
+- Fas 8B SHALL NOT run on every commit; use schedule/manual workflow.
+- Fas 9 is a documentation/status close-out after 8A (and blocking gates) are green.
 
 ---
 
@@ -168,6 +239,8 @@ Single CI gate: `packages/mps-runtime/src/verification/adversarial/AdversarialGa
 | Workflow depth | ✅ Blocking 5.1–5.3 green; Nested/Parallel recommended (landed, non-blocking) |
 | Projection rebuild | ✅ (`mps-runtime/src/verification/projection`) |
 | Adversarial gate | ✅ (`mps-runtime/src/verification/adversarial/AdversarialGate.test.ts`) |
-| Performance | ⚪ Recommended / regression only |
+| Performance Gate (8A) | ✅ (`mps-runtime/src/verification/performance/ReleasePerformanceGate.test.ts`) |
+| Scalability Qualification (8B) | ⚪ Optional — not every commit |
+| Platform Qualification (Fas 9) | ✅ Qualified for Knowledge Platform |
 | Cross-platform OS matrix | ⚪ Recommended CI matrix (local env-neutral suite exists) |
-| **Release** | 🔒 Pending — Performance optional; remaining recommended gates before promote |
+| **Release / promote** | 🔒 Pending human approval |

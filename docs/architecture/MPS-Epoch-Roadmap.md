@@ -24,7 +24,7 @@ This is the governing principle for Epochs II–IV.
 | Epoch | Name | Goal | Status |
 |-------|------|------|--------|
 | **I** | Frozen Core + LU Runtime | First domain on a single execution spine | ✅ **Closed** |
-| **II** | **Execution Platform** | Universal, domain-agnostic execution platform | 🟡 **Verification in progress** |
+| **II** | **Execution Platform** | Universal, domain-agnostic execution platform | ✅ **Qualified (Fas 9)** — promote pending |
 | **III** | Knowledge Platform | Data → assessments → evolution → adaptive | 🔵 **Later** |
 | **IV** | Ecosystem Platform | External APIs, plugins, partners, multi-client | ⚪ **Long-term** |
 
@@ -50,15 +50,18 @@ This is the governing principle for Epochs II–IV.
 Execution Platform
 ──────────────────
 Implementation  ✅ Complete   (tracks 2.1–2.9)
-Verification    🟡 In Progress   (Fas 1–7 green; Performance optional)
-Release         🔒 Pending
+Verification    ✅ Complete   (Fas 1–7 + 8A Release Performance Gate)
+Qualification   ✅ Fas 9 — Execution Platform v1.0 Qualified for Knowledge Platform
+Release         🔒 Pending human promote
 ```
+
 
 **Mål:** en **generell, domänagnostisk exekveringsplattform**.  
 Inte LU-arbete. LU är referensklient / Assessment Capability.
 
 **Implementation DoD:** tracks 2.1–2.9 closed.  
-**Release DoD:** [MPS-Epoch-II-Verification-Charter.md](./MPS-Epoch-II-Verification-Charter.md) — blocking gates green (Architecture, Generality, Integrity, Workflow recovery, Projection rebuild, Adversarial).
+**Release DoD:** [MPS-Epoch-II-Verification-Charter.md](./MPS-Epoch-II-Verification-Charter.md) — blocking gates green including **Fas 8A Performance Gate**, then **Fas 9 Platform Qualification** (“Qualified for Knowledge Platform”).  
+**Not Release DoD:** Fas 8B Scalability Qualification (optional / scheduled).
 
 ### Normative build order
 
@@ -251,11 +254,23 @@ Scope: execution-path trust. Not: full org IAM, SSO product surface, or partner 
 
 **Implementation complete (2.1–2.9).** Release readiness is governed by the [Verification Charter](./MPS-Epoch-II-Verification-Charter.md). Domain logic remains outside the platform (capabilities / workflows / rules / projections only).
 
+### Verification → Qualification (normative close-out)
+
+| Phase | Role | Class |
+|-------|------|-------|
+| Fas 1–7 | Architecture → Adversarial | Blocking |
+| **Fas 8A** | Release Performance Gate (golden ceilings in CI) | **Blocking for release** |
+| Fas 8B | Scalability Qualification (1M / endurance / leak) | Optional — not every commit |
+| **Fas 9** | Platform Qualification checklist | Formal close-out |
+
+Fas 9 ends with: **Execution Platform v1.0 – Qualified for Knowledge Platform**  
+That is distinct from “Implementation Closed”.
+
 ---
 
 ## Epoch III — Knowledge Platform
 
-**Start only when Epoch II’s Execution Platform v1 is done.**
+**Start only when Epoch II is Platform-Qualified (Fas 9)** — not merely implementation-complete.
 
 ### IIIA — Knowledge Foundation (data layer)
 
