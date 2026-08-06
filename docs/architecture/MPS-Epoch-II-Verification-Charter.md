@@ -92,10 +92,15 @@ Lifecycle for each: Admit → Capability/Workflow → Artifacts → Replay — n
 
 ## Level 5 — Workflow Runtime
 
-| Priority | Suite |
-|----------|--------|
-| High | FailureRecovery, Replay, Ordering |
-| Later / costlier | Nested, Parallel |
+| # | Suite | Class | Proves |
+|---|--------|-------|--------|
+| 5.1 | **WorkflowFailureRecovery** | **Blocking** | Crash at step N → resume at N (not 1); `execution_order` preserved; completed artifacts reused; no new identities for completed steps; no duplicate capability runs |
+| 5.2 | **WorkflowReplay** | **Blocking** | Workflow → Artifacts → Replay → identical content_hash / graph order |
+| 5.3 | **WorkflowOrdering** | **Blocking** | A→B→C never becomes A→C→B |
+| 5.4 | NestedWorkflow | Recommended | After 5.1–5.3 green |
+| 5.5 | ParallelCapability | Recommended | After 5.1–5.3 green — higher complexity |
+
+**Code:** `packages/mps-runtime/src/verification/workflow/`
 
 ## Level 6 — Mimers Integration
 
@@ -152,7 +157,7 @@ Single CI gate aggregating:
 | Architecture Invariants | ✅ (`mps-runtime/src/verification/architecture`) |
 | Generality Proof | ✅ (`mps-runtime/src/verification/generality`) |
 | Registry + Mimers | ✅ (`mps-runtime/src/verification/integrity`) |
-| Workflow depth | ✅ (`mps-runtime/src/verification/workflow`) — FailureRecovery, Replay, Nested, Parallel |
+| Workflow depth | ✅ Blocking 5.1–5.3 green; Nested/Parallel recommended (landed, non-blocking) |
 | Projection rebuild | ⚪ |
 | Adversarial gate | ⚪ |
 | Performance | ⚪ |

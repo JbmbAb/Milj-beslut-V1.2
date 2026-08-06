@@ -157,6 +157,7 @@ jobs:
           packages/mps-runtime/src/verification/integrity/CasCorruption.test.ts
           packages/mps-runtime/src/verification/workflow/WorkflowFailureRecovery.test.ts
           packages/mps-runtime/src/verification/workflow/WorkflowReplay.test.ts
+          packages/mps-runtime/src/verification/workflow/WorkflowOrdering.test.ts
           packages/mps-runtime/src/verification/workflow/NestedWorkflow.test.ts
           packages/mps-runtime/src/verification/workflow/ParallelCapability.test.ts
       - name: Upload coverage
