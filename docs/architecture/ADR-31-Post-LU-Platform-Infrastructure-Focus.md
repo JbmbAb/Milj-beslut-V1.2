@@ -37,9 +37,11 @@ The Execution Platform SHALL NOT contain domain-specific logic.
 | Epoch | Name | Status |
 |-------|------|--------|
 | **I** | Frozen Core + LU Runtime | **Closed** |
-| **II** | **Execution Platform** v1 | **Active** |
-| **III** | Knowledge Platform (IIIA→IIID) | **Deferred** |
+| **II** | **Execution Platform** v1 | **Qualified (Fas 9)** → Architecture Freeze next |
+| **III** | Knowledge Platform (IIIA→IIID) | **After Architecture Freeze** (Knowledge Foundation first) |
 | **IV** | Ecosystem Platform | **Long-term** |
+
+LU is a **client** / reference Assessment Capability — not the product. Platform stack: Frozen Core → Execution Platform → Assessment Platform → Knowledge Platform.
 
 ### Epoch II tracks (build order)
 

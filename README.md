@@ -13,6 +13,16 @@ Välkommen till den ledande plattformen för digitalisering av miljöbeslut och 
 - **AI-Klassificering**: Automatiserad extraktion av krav och risker direkt från dokument.
 - **Kvalitetsmål**: `typecheck`, `lint`, tester, `build` och integrationssmoke ska vara gröna innan produktion; kör dem lokalt — _”produktionsredo” är alltså bevis via dessa gates, inte en statisk etikett._
 
+## MPS Execution Platform (arkitektur)
+
+Produktfunktioner (t.ex. lokaliseringsutredning) är **klienter** ovanpå en domänagnostisk Execution Platform. Canonical läsning:
+
+- [docs/architecture/MPS-Epoch-Roadmap.md](docs/architecture/MPS-Epoch-Roadmap.md) — Epoch I–IV, Architecture Freeze före Knowledge Platform  
+- [docs/architecture/MPS-Epoch-II-Verification-Charter.md](docs/architecture/MPS-Epoch-II-Verification-Charter.md) — verifieringsmodell (determinism, replay, CAS, adversarial, performance)  
+- [docs/architecture/ADR-30-LU-Runtime-v1-Freeze-ExecutionKernel-Cutover.md](docs/architecture/ADR-30-LU-Runtime-v1-Freeze-ExecutionKernel-Cutover.md) · [ADR-31](docs/architecture/ADR-31-Post-LU-Platform-Infrastructure-Focus.md)
+
+Stack: Frozen Core → Execution Platform → Assessment Platform → Knowledge Platform.
+
 ## Arkitekturöversikt: Separerade Tjänster
 
 Plattformen är designad för robust och skalbar drift i molnet genom att separera webbservern från tunga bakgrundsjobb. Detta minskar risker och möjliggör oberoende skalning av varje del.

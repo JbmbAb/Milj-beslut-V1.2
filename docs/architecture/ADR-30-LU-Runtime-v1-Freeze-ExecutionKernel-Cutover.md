@@ -70,9 +70,10 @@ Breaking any frozen invariant requires:
 
 ## Consequences
 
-- LU is **frozen as the first production domain** on ExecutionKernel — prefer not to reopen the motor for LU-only experiments.
-- Next platform focus SHOULD shift to shared infrastructure: ExecutionQueue, WorkflowEngine, Kernel generalization, Capability Registry — then Evolution.
+- LU is **frozen as the first production domain** on ExecutionKernel — a **client** of the Execution Platform, not the product itself. Prefer not to reopen the motor for LU-only experiments.
+- Platform focus after ADR-30 is Epoch II Execution Platform (ADR-31), then Architecture Freeze, then Epoch III **Knowledge Foundation** before Evolution.
 - New domains (avlopp, C-anmälan, kontrollplan, …) SHOULD reuse the same spine without inventing a second architecture.
+
 - Guard tests (`LuCutoverSinglePath`, Mimers CAS, Frozen Core golden, ExecutionKernel replay) remain the CI proof of this freeze.
 
 ## Achieved goals (as of this ADR)

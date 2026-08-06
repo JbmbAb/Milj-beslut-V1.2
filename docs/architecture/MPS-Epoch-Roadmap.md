@@ -25,7 +25,7 @@ This is the governing principle for Epochs II–IV.
 |-------|------|------|--------|
 | **I** | Frozen Core + LU Runtime | First domain on a single execution spine | ✅ **Closed** |
 | **II** | **Execution Platform** | Universal, domain-agnostic execution platform | ✅ **Qualified (Fas 9)** |
-| — | Release Candidate → Architecture Freeze | Stabilize before Knowledge Platform | 🟡 **Next** |
+| — | Architecture Freeze | Stabilize governance surface before Knowledge Platform | 🟡 **Next** |
 | **III** | Knowledge Platform | Knowledge Foundation → assessments → evolution → adaptive | 🔵 **After Architecture Freeze** |
 | **IV** | Ecosystem Platform | External APIs, plugins, partners, multi-client | ⚪ **Long-term** |
 
@@ -47,22 +47,19 @@ That separation is the point of the platform: domain value sits above a verified
 
 ### Bridge before Epoch III (normative)
 
-Do **not** start Epoch III immediately after Fas 9. Insert an explicit stabilization bridge:
+Do **not** start Epoch III immediately after Fas 9. This is an **architectural qualification bridge**, not a product “Release Candidate” (RC in the shipping sense).
 
 ```
 Execution Platform v1.0 (Qualified)
         │
         ▼
-Release Candidate
+Architecture Freeze   (= governance freeze of the runtime surface)
         │
         ▼
-Architecture Freeze
-        │
-        ▼
-Epoch III — Knowledge Foundation first
+Knowledge Platform (Epoch III) — Knowledge Foundation first
 ```
 
-**Architecture Freeze means:**
+**Architecture Freeze (governance freeze) means:**
 
 | Allowed | Forbidden |
 |---------|-----------|
@@ -71,7 +68,23 @@ Epoch III — Knowledge Foundation first
 | Docs / ops clarification | New identity fields |
 | Fas 8B optional evidence | New registry principles |
 
-Git milestone tag (local/remote reference point): `execution-platform-v1.0-qualified`
+Git milestone tag (create/push only after clean-checkout + doc revision + freeze review): `execution-platform-v1.0-qualified`
+
+### Pre-tag freeze review (runtime surface)
+
+Question: *Is there anything here we already expect to break in Epoch III?*
+
+| Surface | Freeze basis | Epoch III expectation |
+|---------|--------------|------------------------|
+| Runtime contracts (`EXECUTION_CONTRACT_FREEZE_VERSION` 1.0.0) | ADR-29 identities + model | **No break** — Knowledge/Assessment add capabilities & artifacts above the motor |
+| Identity fields (`FrozenIdentities`) | Required members frozen | **No break** — new knowledge types are new artifact majors, not widened execution identities |
+| Registry principles (sole resolve, release-bound snapshot, `registry_hash`) | ADR-31 / §2.3 | **No break** — new domains register; principles stay |
+| CAS / Mimers path | Sole artifact store for execution writes | **No break** — Knowledge Foundation writes more CAS content; path remains CAS-only |
+| Workflow contracts (ordered refs, nested/`parallel_group`) | Registry + WorkflowRuntime | **No break** — composition already domain-agnostic |
+
+**Watch (additive, not a forced break):** `ProviderKind` (`spatial` \| `document` \| `external`) may gain kinds for Knowledge Foundation — treat as **additive registry entry evolution** under a minor registry version, not as rewriting resolve/freeze principles.
+
+**Verdict:** Architecture Freeze is real — Epoch III SHOULD NOT require breaking the Execution Platform v1.0 surface.
 
 ---
 
@@ -97,8 +110,7 @@ Execution Platform
 Implementation  ✅ Complete   (tracks 2.1–2.9)
 Verification    ✅ Complete   (Fas 1–7 + 8A Release Performance Gate)
 Qualification   ✅ Fas 9 — Execution Platform v1.0 Qualified for Knowledge Platform
-Release Candidate  🟡 Next (stabilize)
-Architecture Freeze  🔒 Then — bugfixes only on runtime surface
+Architecture Freeze  🟡 Next — bugfixes only on runtime surface (not a product RC)
 ```
 
 **Mål:** en **generell, domänagnostisk exekveringsplattform**.  
@@ -107,7 +119,7 @@ Inte LU-arbete. LU är **klient** / referens-Assessment Capability — inte prod
 **Implementation DoD:** tracks 2.1–2.9 closed.  
 **Qualification DoD:** [MPS-Epoch-II-Verification-Charter.md](./MPS-Epoch-II-Verification-Charter.md) — Fas 1–7 + 8A + Fas 9.  
 **Not Qualification DoD:** Fas 8B Scalability Qualification (optional / scheduled).  
-**Epoch III start gate:** Architecture Freeze after Release Candidate — not “tests green” alone.
+**Epoch III start gate:** Architecture Freeze — not “tests green” and not a product Release Candidate.
 
 ### Normative build order
 
@@ -318,7 +330,7 @@ That is distinct from “Implementation Closed” and from “Epoch III started�
 
 ## Epoch III — Knowledge Platform
 
-**Start only after Architecture Freeze** (post–Release Candidate). Qualification (Fas 9) is necessary but not sufficient.
+**Start only after Architecture Freeze.** Qualification (Fas 9) is necessary but not sufficient.
 
 **Do not begin with Evolution.** Evolution needs large volumes of real, replayable artifacts. Normative order:
 
