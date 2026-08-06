@@ -1,0 +1,34 @@
+{
+  "version": 1,
+  "suite": "release-performance-gate",
+  "description": "Fas 8A — CI release regression ceilings (ms). Update via MPS_UPDATE_PERF_BASELINE=1 after intentional perf work.",
+  "regression_factor": 2,
+  "counts": {
+    "manifests": 10000,
+    "replays": 10000,
+    "concurrent_workers": 100,
+    "cas_lookups": 100000,
+    "registry_resolves": 100000,
+    "queue_ops": 10000,
+    "workflow_runs": 1000
+  },
+  "ceilings_ms": {
+    "manifests_10k": 60000,
+    "replay_10k": 60000,
+    "workers_100": 30000,
+    "cas_lookups_100k": 60000,
+    "registry_resolve_100k": 15000,
+    "queue_10k": 60000,
+    "workflow_1k": 60000
+  },
+  "measured_ms_reference": {
+    "note": "Captured 2026-08-06T00:11:05.077Z",
+    "manifests_10k": 366,
+    "replay_10k": 230,
+    "workers_100": 47,
+    "cas_lookups_100k": 918,
+    "registry_resolve_100k": 5,
+    "queue_10k": 5463,
+    "workflow_1k": 21
+  }
+}

@@ -60,6 +60,7 @@ tmp-mimers/
 !public/manifest.json
 !tests/fixtures/**/*.json
 !packages/mps-compliance/tests/golden/**/*.json
+!packages/mps-runtime/src/verification/performance/baselines/**/*.json
 !scripts/alphaevolve/experiments/**/*.json
 !tests/fixtures/**/*.txt
 !scripts/google-adk/requirements.txt
