@@ -121,13 +121,16 @@ Scale/regression only. Architecture decisions SHALL NOT be driven by these numbe
 
 ## Level 9 — Adversarial (blocking release gate)
 
-Single CI gate aggregating:
+Single CI gate: `packages/mps-runtime/src/verification/adversarial/AdversarialGate.test.ts`
 
-- Tampered Artifact / Registry  
-- Wrong Release  
-- Fake Capability  
-- Duplicate Ticket Flood  
-- Replay Attack  
+| Attack | Expected |
+|--------|----------|
+| Tampered Artifact | WORM / hash verify fail |
+| Tampered Registry | Freeze reject; evil key unresolved |
+| Wrong Release | Admit denied; no capability exec |
+| Fake Capability | Registry + admission reject |
+| Duplicate Ticket Flood | 100 keys → 1 ticket |
+| Replay Attack | Original attempt/outcome identities unchanged |
 
 ---
 
@@ -164,6 +167,7 @@ Single CI gate aggregating:
 | Registry + Mimers | ✅ (`mps-runtime/src/verification/integrity`) |
 | Workflow depth | ✅ Blocking 5.1–5.3 green; Nested/Parallel recommended (landed, non-blocking) |
 | Projection rebuild | ✅ (`mps-runtime/src/verification/projection`) |
-| Adversarial gate | ⚪ |
-| Performance | ⚪ |
-| **Release** | 🔒 Pending |
+| Adversarial gate | ✅ (`mps-runtime/src/verification/adversarial/AdversarialGate.test.ts`) |
+| Performance | ⚪ Recommended / regression only |
+| Cross-platform OS matrix | ⚪ Recommended CI matrix (local env-neutral suite exists) |
+| **Release** | 🔒 Pending — Performance optional; remaining recommended gates before promote |

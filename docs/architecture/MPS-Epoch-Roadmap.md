@@ -50,7 +50,7 @@ This is the governing principle for Epochs II–IV.
 Execution Platform
 ──────────────────
 Implementation  ✅ Complete   (tracks 2.1–2.9)
-Verification    🟡 In Progress
+Verification    🟡 In Progress   (Fas 1–7 green; Performance optional)
 Release         🔒 Pending
 ```
 
@@ -58,7 +58,7 @@ Release         🔒 Pending
 Inte LU-arbete. LU är referensklient / Assessment Capability.
 
 **Implementation DoD:** tracks 2.1–2.9 closed.  
-**Release DoD:** [MPS-Epoch-II-Verification-Charter.md](./MPS-Epoch-II-Verification-Charter.md) — Architecture Invariants + Generality (LU + Dummy + Synthetic Workflow) + remaining blocking gates green.
+**Release DoD:** [MPS-Epoch-II-Verification-Charter.md](./MPS-Epoch-II-Verification-Charter.md) — blocking gates green (Architecture, Generality, Integrity, Workflow recovery, Projection rebuild, Adversarial).
 
 ### Normative build order
 
