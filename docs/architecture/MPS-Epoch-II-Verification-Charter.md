@@ -108,7 +108,12 @@ CasRoundTrip · CasRebuild · CasCorruption · CasReplay (CAS only — never Pos
 
 ## Level 7 — Projection Layer
 
-ProjectionPurity · **ProjectionRebuild** (`DELETE` → rebuild → identical)
+| Suite | Class | Proves |
+|-------|-------|--------|
+| ProjectionPurity | Blocking | Projection never mutates CAS |
+| **ProjectionRebuild** | **Blocking** | `DELETE` all projections → rebuild from artifacts → identical `batch_hash` / UI hashes |
+
+**Code:** `packages/mps-runtime/src/verification/projection/` + `EphemeralProjectionStore`
 
 ## Level 8 — Performance (last)
 
@@ -158,7 +163,7 @@ Single CI gate aggregating:
 | Generality Proof | ✅ (`mps-runtime/src/verification/generality`) |
 | Registry + Mimers | ✅ (`mps-runtime/src/verification/integrity`) |
 | Workflow depth | ✅ Blocking 5.1–5.3 green; Nested/Parallel recommended (landed, non-blocking) |
-| Projection rebuild | ⚪ |
+| Projection rebuild | ✅ (`mps-runtime/src/verification/projection`) |
 | Adversarial gate | ⚪ |
 | Performance | ⚪ |
 | **Release** | 🔒 Pending |
