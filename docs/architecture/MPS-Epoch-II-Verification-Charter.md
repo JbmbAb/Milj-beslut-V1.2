@@ -12,8 +12,11 @@ Execution Platform
 Implementation  ✅ Complete
 Verification    ✅ Complete   (Fas 1–7 + 8A)
 Qualification   ✅ Fas 9 — Qualified for Knowledge Platform
-Release         🔒 Pending human promote (not Epoch III start gate)
+Release Candidate / Architecture Freeze  🟡 Next bridge before Epoch III
 ```
+
+**Milestone tag:** `execution-platform-v1.0-qualified`  
+Epoch III SHALL NOT start until Architecture Freeze (bugfixes-only on the runtime surface). See [MPS-Epoch-Roadmap.md](./MPS-Epoch-Roadmap.md).
 
 ---
 
@@ -243,4 +246,5 @@ Fas 8B Scalability Qualification remains optional post-qualify evidence.
 | Scalability Qualification (8B) | ⚪ Optional — not every commit |
 | Platform Qualification (Fas 9) | ✅ Qualified for Knowledge Platform |
 | Cross-platform OS matrix | ⚪ Recommended CI matrix (local env-neutral suite exists) |
-| **Release / promote** | 🔒 Pending human approval |
+| **Release Candidate → Architecture Freeze** | 🟡 Next — then Epoch III (Knowledge Foundation first) |
+| **Milestone tag** | `execution-platform-v1.0-qualified` |

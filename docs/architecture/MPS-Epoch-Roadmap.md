@@ -24,9 +24,54 @@ This is the governing principle for Epochs II–IV.
 | Epoch | Name | Goal | Status |
 |-------|------|------|--------|
 | **I** | Frozen Core + LU Runtime | First domain on a single execution spine | ✅ **Closed** |
-| **II** | **Execution Platform** | Universal, domain-agnostic execution platform | ✅ **Qualified (Fas 9)** — promote pending |
-| **III** | Knowledge Platform | Data → assessments → evolution → adaptive | 🔵 **Later** |
+| **II** | **Execution Platform** | Universal, domain-agnostic execution platform | ✅ **Qualified (Fas 9)** |
+| — | Release Candidate → Architecture Freeze | Stabilize before Knowledge Platform | 🟡 **Next** |
+| **III** | Knowledge Platform | Knowledge Foundation → assessments → evolution → adaptive | 🔵 **After Architecture Freeze** |
 | **IV** | Ecosystem Platform | External APIs, plugins, partners, multi-client | ⚪ **Long-term** |
+
+### Platform stack (normative)
+
+Earlier, LU was the product. Now LU is a **client** of the platform.
+
+```
+Knowledge Platform
+        ▲
+Assessment Platform   ← LU is a reference Assessment Capability / client
+        ▲
+Execution Platform    ← domain-agnostic motor (qualified v1.0)
+        ▲
+Frozen Core
+```
+
+That separation is the point of the platform: domain value sits above a verified, frozen execution foundation.
+
+### Bridge before Epoch III (normative)
+
+Do **not** start Epoch III immediately after Fas 9. Insert an explicit stabilization bridge:
+
+```
+Execution Platform v1.0 (Qualified)
+        │
+        ▼
+Release Candidate
+        │
+        ▼
+Architecture Freeze
+        │
+        ▼
+Epoch III — Knowledge Foundation first
+```
+
+**Architecture Freeze means:**
+
+| Allowed | Forbidden |
+|---------|-----------|
+| Bug fixes | New runtime features |
+| Test / verification hardening | New execution contracts |
+| Docs / ops clarification | New identity fields |
+| Fas 8B optional evidence | New registry principles |
+
+Git milestone tag (local/remote reference point): `execution-platform-v1.0-qualified`
 
 ---
 
@@ -52,16 +97,17 @@ Execution Platform
 Implementation  ✅ Complete   (tracks 2.1–2.9)
 Verification    ✅ Complete   (Fas 1–7 + 8A Release Performance Gate)
 Qualification   ✅ Fas 9 — Execution Platform v1.0 Qualified for Knowledge Platform
-Release         🔒 Pending human promote
+Release Candidate  🟡 Next (stabilize)
+Architecture Freeze  🔒 Then — bugfixes only on runtime surface
 ```
 
-
 **Mål:** en **generell, domänagnostisk exekveringsplattform**.  
-Inte LU-arbete. LU är referensklient / Assessment Capability.
+Inte LU-arbete. LU är **klient** / referens-Assessment Capability — inte produkten.
 
 **Implementation DoD:** tracks 2.1–2.9 closed.  
-**Release DoD:** [MPS-Epoch-II-Verification-Charter.md](./MPS-Epoch-II-Verification-Charter.md) — blocking gates green including **Fas 8A Performance Gate**, then **Fas 9 Platform Qualification** (“Qualified for Knowledge Platform”).  
-**Not Release DoD:** Fas 8B Scalability Qualification (optional / scheduled).
+**Qualification DoD:** [MPS-Epoch-II-Verification-Charter.md](./MPS-Epoch-II-Verification-Charter.md) — Fas 1–7 + 8A + Fas 9.  
+**Not Qualification DoD:** Fas 8B Scalability Qualification (optional / scheduled).  
+**Epoch III start gate:** Architecture Freeze after Release Candidate — not “tests green” alone.
 
 ### Normative build order
 
@@ -264,13 +310,33 @@ Scope: execution-path trust. Not: full org IAM, SSO product surface, or partner 
 | **Fas 9** | Platform Qualification checklist | Formal close-out |
 
 Fas 9 ends with: **Execution Platform v1.0 – Qualified for Knowledge Platform**  
-That is distinct from “Implementation Closed”.
+That is distinct from “Implementation Closed” and from “Epoch III started”.
+
+**Milestone tag:** `execution-platform-v1.0-qualified` — fixed reference for a verified Execution Platform. Prefer this over commit archaeology when Evolution / Knowledge later needs a known-good base.
 
 ---
 
 ## Epoch III — Knowledge Platform
 
-**Start only when Epoch II is Platform-Qualified (Fas 9)** — not merely implementation-complete.
+**Start only after Architecture Freeze** (post–Release Candidate). Qualification (Fas 9) is necessary but not sufficient.
+
+**Do not begin with Evolution.** Evolution needs large volumes of real, replayable artifacts. Normative order:
+
+```
+IIIA  Knowledge Foundation
+        Mimers Brunn as national knowledge base
+        Document Intelligence
+        Spatial Intelligence
+        Evidence relations
+        Knowledge Graph
+        Knowledge Index
+        ↓
+IIIB  Assessment Library / Assessment Platform
+        ↓
+IIIC  Evolution
+        ↓
+IIID  Adaptive Platform
+```
 
 ### IIIA — Knowledge Foundation (data layer)
 
