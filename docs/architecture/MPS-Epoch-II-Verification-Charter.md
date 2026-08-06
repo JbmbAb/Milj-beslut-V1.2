@@ -152,7 +152,7 @@ Single CI gate aggregating:
 | Architecture Invariants | ✅ (`mps-runtime/src/verification/architecture`) |
 | Generality Proof | ✅ (`mps-runtime/src/verification/generality`) |
 | Registry + Mimers | ✅ (`mps-runtime/src/verification/integrity`) |
-| Workflow depth | ⚪ |
+| Workflow depth | ✅ (`mps-runtime/src/verification/workflow`) — FailureRecovery, Replay, Nested, Parallel |
 | Projection rebuild | ⚪ |
 | Adversarial gate | ⚪ |
 | Performance | ⚪ |

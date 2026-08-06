@@ -31,9 +31,20 @@ export type CapabilityRegistryEntry = {
   readonly output_types: readonly string[];
 };
 
+/**
+ * Workflow step — capability, nested workflow, or parallel fan-out group.
+ * Exactly one of capability_ref / workflow_ref SHALL be set.
+ */
 export type WorkflowStepEntry = {
   readonly step_id: string;
-  readonly capability_ref: ArtifactIdRef;
+  readonly capability_ref?: ArtifactIdRef;
+  /** Nested workflow (domain-agnostic composition). */
+  readonly workflow_ref?: ArtifactIdRef;
+  /**
+   * Consecutive steps sharing the same parallel_group fan-out from the same
+   * inputs; outputs merge in deterministic step_id order.
+   */
+  readonly parallel_group?: string;
 };
 
 export type WorkflowRegistryEntry = {

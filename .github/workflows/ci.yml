@@ -155,6 +155,10 @@ jobs:
           packages/mps-runtime/src/verification/integrity/ReleaseIsolation.test.ts
           packages/mps-runtime/src/verification/integrity/CasReplay.test.ts
           packages/mps-runtime/src/verification/integrity/CasCorruption.test.ts
+          packages/mps-runtime/src/verification/workflow/WorkflowFailureRecovery.test.ts
+          packages/mps-runtime/src/verification/workflow/WorkflowReplay.test.ts
+          packages/mps-runtime/src/verification/workflow/NestedWorkflow.test.ts
+          packages/mps-runtime/src/verification/workflow/ParallelCapability.test.ts
       - name: Upload coverage
         if: always()
         uses: actions/upload-artifact@v4

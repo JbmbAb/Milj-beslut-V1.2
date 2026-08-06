@@ -32,13 +32,17 @@ export type HarnessCapability = {
   readonly handler: CapabilityInvokeHandler;
 };
 
+export type HarnessWorkflowStep = {
+  readonly step_id: string;
+  readonly capability_id?: string;
+  readonly workflow_id?: string;
+  readonly parallel_group?: string;
+};
+
 export type HarnessWorkflow = {
   readonly artifact_id: string;
   readonly workflow_key: string;
-  readonly steps: readonly {
-    readonly step_id: string;
-    readonly capability_id: string;
-  }[];
+  readonly steps: readonly HarnessWorkflowStep[];
 };
 
 export type PlatformHarness = {
@@ -76,7 +80,13 @@ export function createPlatformHarness(input: {
       workflow_version: "1.0.0",
       steps: w.steps.map((s) => ({
         step_id: s.step_id,
-        capability_ref: { artifact_id: s.capability_id },
+        ...(s.capability_id
+          ? { capability_ref: { artifact_id: s.capability_id } }
+          : {}),
+        ...(s.workflow_id
+          ? { workflow_ref: { artifact_id: s.workflow_id } }
+          : {}),
+        ...(s.parallel_group ? { parallel_group: s.parallel_group } : {}),
       })),
     })),
   });
