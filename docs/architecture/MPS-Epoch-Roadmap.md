@@ -25,8 +25,8 @@ This is the governing principle for Epochs II–IV.
 |-------|------|------|--------|
 | **I** | Frozen Core + LU Runtime | First domain on a single execution spine | ✅ **Closed** |
 | **II** | **Execution Platform** | Universal, domain-agnostic execution platform | ✅ **Qualified (Fas 9)** |
-| — | Architecture Freeze | Stabilize governance surface before Knowledge Platform | 🟡 **Next** |
-| **III** | Knowledge Platform | Knowledge Foundation → assessments → evolution → adaptive | 🔵 **After Architecture Freeze** |
+| — | Architecture Freeze | Governance freeze of the runtime surface | ✅ **In effect** |
+| **III** | Knowledge Platform | Knowledge Foundation → assessments → evolution → adaptive | ⏳ **Ready to start** (Knowledge Foundation first) |
 | **IV** | Ecosystem Platform | External APIs, plugins, partners, multi-client | ⚪ **Long-term** |
 
 ### Platform stack (normative)
@@ -68,7 +68,14 @@ Knowledge Platform (Epoch III) — Knowledge Foundation first
 | Docs / ops clarification | New identity fields |
 | Fas 8B optional evidence | New registry principles |
 
-Git milestone tag (create/push only after clean-checkout + doc revision + freeze review): `execution-platform-v1.0-qualified`
+### Milestone tag policy
+
+| Step | Status |
+|------|--------|
+| Local annotated tag `execution-platform-v1.0-qualified` | ✅ Created (points at freeze/docs sync) |
+| `git push origin execution-platform-v1.0-qualified` | ⏳ **Deferred** |
+
+**Push the tag only when** the first real Knowledge Foundation component runs on the frozen Execution Platform **without** changing ExecutionKernel, Registry, or CAS contracts — e.g. Mimers Harvester → CAS, first Document Intelligence pipeline, or first Knowledge Graph ingest. That proves the freeze holds under the next layer, not only under verification suites.
 
 ### Pre-tag freeze review (runtime surface)
 
@@ -109,8 +116,11 @@ Execution Platform
 ──────────────────
 Implementation  ✅ Complete   (tracks 2.1–2.9)
 Verification    ✅ Complete   (Fas 1–7 + 8A Release Performance Gate)
-Qualification   ✅ Fas 9 — Execution Platform v1.0 Qualified for Knowledge Platform
-Architecture Freeze  🟡 Next — bugfixes only on runtime surface (not a product RC)
+Qualification         ✅ Fas 9 — Execution Platform v1.0 Qualified
+Architecture Freeze   ✅ In effect (bugfixes only on runtime surface)
+Local tag             ✅ execution-platform-v1.0-qualified (not pushed)
+Epoch III             ⏳ Knowledge Foundation next
+Remote tag push       ⏳ After first KF component runs without contract changes
 ```
 
 **Mål:** en **generell, domänagnostisk exekveringsplattform**.  
@@ -119,7 +129,7 @@ Inte LU-arbete. LU är **klient** / referens-Assessment Capability — inte prod
 **Implementation DoD:** tracks 2.1–2.9 closed.  
 **Qualification DoD:** [MPS-Epoch-II-Verification-Charter.md](./MPS-Epoch-II-Verification-Charter.md) — Fas 1–7 + 8A + Fas 9.  
 **Not Qualification DoD:** Fas 8B Scalability Qualification (optional / scheduled).  
-**Epoch III start gate:** Architecture Freeze — not “tests green” and not a product Release Candidate.
+**Architecture Freeze:** in effect. Epoch III may begin at Knowledge Foundation; remote tag push waits for freeze proof under real KF load.
 
 ### Normative build order
 

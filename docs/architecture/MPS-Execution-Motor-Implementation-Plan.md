@@ -21,8 +21,8 @@ LU is a **client** / reference Assessment Capability — not the product.
 |-------|------|--------|
 | I | Frozen + LU reference Assessment Capability | ✅ Closed |
 | II | **Execution Platform** v1 | Implementation ✅ / Verification ✅ / Qualified (Fas 9) ✅ |
-| — | Architecture Freeze | 🟡 Next (bugfixes only; not a product RC) |
-| III | IIIA→IIID Knowledge Platform | 🔵 After Architecture Freeze (Knowledge Foundation first) |
+| — | Architecture Freeze | ✅ In effect · local tag `execution-platform-v1.0-qualified` · push deferred |
+| III | IIIA→IIID Knowledge Platform | ⏳ Ready — Knowledge Foundation first |
 | IV | Ecosystem Platform | ⚪ Long-term |
 
 ## Epoch II build order

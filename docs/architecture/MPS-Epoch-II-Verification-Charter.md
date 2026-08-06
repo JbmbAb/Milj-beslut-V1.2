@@ -11,12 +11,13 @@ Execution Platform
 ──────────────────
 Implementation  ✅ Complete
 Verification    ✅ Complete   (Fas 1–7 + 8A)
-Qualification   ✅ Fas 9 — Qualified for Knowledge Platform
-Architecture Freeze  🟡 Next bridge before Epoch III (not a product RC)
+Qualification         ✅ Fas 9 — Qualified for Knowledge Platform
+Architecture Freeze   ✅ In effect (not a product RC)
+Local milestone tag   ✅ execution-platform-v1.0-qualified
+Remote tag push       ⏳ After first Knowledge Foundation component runs without EP contract changes
 ```
 
-**Milestone tag:** `execution-platform-v1.0-qualified` (push only after clean-checkout + doc revision + freeze review).  
-Epoch III SHALL NOT start until Architecture Freeze (bugfixes-only on the runtime surface). This is architectural governance — not a product Release Candidate. See [MPS-Epoch-Roadmap.md](./MPS-Epoch-Roadmap.md).
+**Milestone tag:** `execution-platform-v1.0-qualified` — local annotated tag created; **do not push** until the first Knowledge Foundation function (e.g. Harvester→CAS, Document Intelligence, or Knowledge Graph ingest) runs on the frozen platform without changing ExecutionKernel / Registry / CAS contracts. See [MPS-Epoch-Roadmap.md](./MPS-Epoch-Roadmap.md).
 
 ---
 
@@ -246,5 +247,6 @@ Fas 8B Scalability Qualification remains optional post-qualify evidence.
 | Scalability Qualification (8B) | ⚪ Optional — not every commit |
 | Platform Qualification (Fas 9) | ✅ Qualified for Knowledge Platform |
 | Cross-platform OS matrix | ⚪ Recommended CI matrix (local env-neutral suite exists) |
-| **Architecture Freeze** | 🟡 Next — then Epoch III (Knowledge Foundation first); not a product RC |
-| **Milestone tag** | `execution-platform-v1.0-qualified` (local until pre-tag checks pass) |
+| **Architecture Freeze** | ✅ In effect — Epoch III may start (Knowledge Foundation first) |
+| **Milestone tag (local)** | ✅ `execution-platform-v1.0-qualified` |
+| **Milestone tag (remote)** | ⏳ Push after first KF component proves freeze under load |
