@@ -2,6 +2,7 @@ import { describe, expect, it, vi, beforeAll, afterAll } from 'vitest';
 import * as os from 'os';
 import * as fs from 'fs';
 import * as path from 'path';
+import { getNationalArchiveCasePath } from '../../../scripts/import/config/mimersBrunn';
 
 describe('🜂 Loke Harvest Agent — Ingestion & Contract (LSF-02)', () => {
   let tempDir: string;
@@ -17,6 +18,9 @@ describe('🜂 Loke Harvest Agent — Ingestion & Contract (LSF-02)', () => {
     process.env.SKIP_DISK_SPACE_CHECK = 'true';
     process.env.SKIP_DISK_CHECK = 'true';
     process.env.NODE_ENV = 'test';
+
+    // Rensa modul-cachen för att garantera att lokeRuntime läser av det nya tillståndet
+    vi.resetModules();
 
     // Importera Loke dynamiskt
     const mod = await import('../../../scripts/import/loke/lokeRuntime');
@@ -103,5 +107,24 @@ describe('🜂 Loke Harvest Agent — Ingestion & Contract (LSF-02)', () => {
     const files = fs.readdirSync(path.join(caseDir, 'original'));
     expect(files.length).toBe(5); // 4 original + 1 ändrad kopia = 5 filer!
     expect(files.some(f => f.includes('beslut_changed_'))).toBe(true);
+  });
+
+  it('downloads and archives MÖD (Svea hovrätt) judgements and MKB documents', async () => {
+    const result = await executeLokeHarvestForSource('mod_svea', { execute: true });
+
+    expect(result.status).toBe('completed');
+    expect(result.documents_found).toBe(2);
+    expect(result.documents_new).toBe(2);
+
+    const caseDir = getNationalArchiveCasePath('Mark- och miljööverdomstolen', 2026, 'Mora', 'MÖD-M-1456-26');
+    expect(fs.existsSync(caseDir)).toBe(true);
+
+    // Verifiera att dom och MKB laddades ner deterministiskt
+    expect(fs.existsSync(path.join(caseDir, 'original', 'beslut.txt'))).toBe(true);
+    expect(fs.existsSync(path.join(caseDir, 'original', 'miljokonsekvensbeskrivning_mkb.txt'))).toBe(true);
+
+    const content = fs.readFileSync(path.join(caseDir, 'original', 'beslut.txt'), 'utf8');
+    expect(content).toContain('DOMSTOL: MARK- OCH MILJÖÖVERDOMSTOLEN (MÖD) VID SVEA HOVRÄTT');
+    expect(content).toContain('VILLKOR 1 (PFAS-bevakning)');
   });
 });

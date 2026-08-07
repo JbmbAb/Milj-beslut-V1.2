@@ -17,6 +17,7 @@ import * as crypto from 'crypto';
 import { getNationalArchiveCasePath, checkDiskSpaceSafety } from '../config/mimersBrunn';
 import { MmdAdapter } from './adapters/mmdAdapter';
 import { MpdAdapter } from './adapters/mpdAdapter';
+import { ModAdapter } from './adapters/modAdapter';
 import { HarvestCandidate, SourceAdapter, HarvestArtifact, HarvestRunArtifact } from './contract';
 import { getSourceDefinition, isUrlAllowedForSource } from '../../../server/modules/harvest/source-registry/registry';
 
@@ -39,6 +40,9 @@ export function createAdapterForSource(sourceId: string): SourceAdapter | null {
   }
   if (sourceDef.adapter === 'mpd_lansstyrelsen_v1') {
     return new MpdAdapter(sourceId);
+  }
+  if (sourceDef.adapter === 'mod_v1') {
+    return new ModAdapter(sourceId);
   }
 
   return null; // Övriga plattformar t.ex. Castor/Evolution/W3D3 byggs i Phase 2

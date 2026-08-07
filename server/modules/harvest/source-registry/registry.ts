@@ -60,6 +60,16 @@ const SOURCE_REGISTRY: Record<string, SourceDefinition> = {
     artifactTypes: ['decision']
   },
 
+  // Mark- och miljööverdomstolen (MÖD) - Sista instans för miljö- och planmål
+  'mod_svea': {
+    sourceId: 'mod_svea',
+    authority: { name: 'Mark- och miljööverdomstolen vid Svea hovrätt', type: 'court' },
+    adapter: 'mod_v1',
+    frequency: 'daily',
+    allowedDomains: ['domstol.se'],
+    artifactTypes: ['decision', 'mkb', 'technical_description', 'control_program']
+  },
+
   // Phase 1: Miljöprövningsdelegationer (MPD)
   'mpd_dalarna': {
     sourceId: 'mpd_dalarna',
