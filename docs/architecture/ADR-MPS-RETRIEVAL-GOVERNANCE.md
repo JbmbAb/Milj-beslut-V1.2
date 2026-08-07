@@ -90,6 +90,6 @@ Raw Evidence → Evidence Verification → Materialization Pipeline (ONLY write 
 - Policy is deterministic and versionable (`ret-policy-1`)
 - Tests prove forbidden paths
 
-## Next (not in this freeze)
+## Next
 
-Query Budget with MIMER-BUD-I01 Isolation, MIMER-BUD-I02 Budget Cannot Affect Identity, MIMER-BUD-I03 Soft Failure First.
+[ADR-MPS-QUERY-BUDGET](./ADR-MPS-QUERY-BUDGET.md) — MIMER-BUD-I01..I04 (operational cost over authorized plans).

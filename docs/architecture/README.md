@@ -60,6 +60,7 @@ Canonical översikt för Miljöbeslut V2.0. Läs i denna ordning vid onboarding.
 - [ADR-MPS-022](./ADR-MPS-022-Diagnostic-Governance-Layer.md) — **FROZEN** Package 22 Diagnostic Governance (22.1–22.4 in `packages/mps-diagnostics`; 22.5 paused)
 - [ADR-MPS-CONSTITUTIONAL](./ADR-MPS-CONSTITUTIONAL-INVARIANTS.md) — **FROZEN** identity layers vs implementation details; Materialization Pipeline v1 in `packages/mps-materialization`
 - [ADR-MPS-RETRIEVAL](./ADR-MPS-RETRIEVAL-GOVERNANCE.md) — **FROZEN** Retrieval Governance (MIMER-RET-I01–I03) in `packages/mps-retrieval-governance`
+- [ADR-MPS-QUERY-BUDGET](./ADR-MPS-QUERY-BUDGET.md) — **FROZEN** Query Budget (MIMER-BUD-I01–I04) in `packages/mps-query-budget`
 - [ADR-MPS-EVIDENCE Lineage Slot](./ADR-MPS-EVIDENCE-LINEAGE-SLOT.md) — **FROZEN** LINEAGE_SLOT_UNIQUENESS / SEQUENCE_AMBIGUITY
 - [MPS-Epoch-Roadmap.md](./MPS-Epoch-Roadmap.md) — Epoch I–IV roadmap (Execution Platform → Knowledge → Ecosystem)
 - [MPS-Execution-Motor-Implementation-Plan.md](./MPS-Execution-Motor-Implementation-Plan.md) — Active Execution Platform plan

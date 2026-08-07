@@ -158,6 +158,7 @@ export default defineConfig({
             'packages/mps-diagnostics/**/*.test.ts',
             'packages/mps-materialization/**/*.test.ts',
             'packages/mps-retrieval-governance/**/*.test.ts',
+            'packages/mps-query-budget/**/*.test.ts',
           ],
           environment: 'node',
         },
