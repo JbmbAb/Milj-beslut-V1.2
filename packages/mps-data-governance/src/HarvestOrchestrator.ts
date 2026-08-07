@@ -21,6 +21,7 @@ import type {
 
 import type { ImportGate } from "./ImportGate";
 import type { HarvestCheckpointStore } from "./HarvestCheckpointStore";
+import { HarvestExecutionStateMachine } from "./HarvestExecutionStateMachine";
 
 /**
  * 🜃 HarvestOrchestrator (ORCH-001)
@@ -33,7 +34,7 @@ import type { HarvestCheckpointStore } from "./HarvestCheckpointStore";
  *   2. Ingen intern tolkning av approval-artefakter (delegeras till ImportGate).
  *   3. Separation av requested_at (begäran) och evaluated_at (ImportGate).
  *   4. Ingen Object.values()-baserad sökning; allt returneras i strikt typade strukturer.
- *   5. ORCH-007: Strikt sekventiell tillståndsverifiering.
+ *   5. ORCH-007: Strikt sekventiell tillståndsverifiering via HarvestExecutionStateMachine.
  */
 export class HarvestOrchestrator {
   constructor(
@@ -71,6 +72,15 @@ export class HarvestOrchestrator {
         return this.runCompliance(request, checkpoint!.manifest_ref!, checkpoint!.approval_ref!);
 
       case "COMPLIANCE_CHECK":
+        // Övergå först till IMPORT_GATE (sekventiell ordning) och kör sedan dörrvakten
+        await this.transitionTo(request.execution_id, "IMPORT_GATE", {
+          manifest_ref: checkpoint!.manifest_ref!,
+          approval_ref: checkpoint!.approval_ref!,
+          compliance_results: checkpoint!.compliance_results!,
+        });
+        return this.runImportGate(request, checkpoint!.manifest_ref!, checkpoint!.approval_ref!, checkpoint!.compliance_results!);
+
+      case "IMPORT_GATE":
         return this.runImportGate(request, checkpoint!.manifest_ref!, checkpoint!.approval_ref!, checkpoint!.compliance_results!);
 
       case "ALLOW_IMPORT":
@@ -86,41 +96,31 @@ export class HarvestOrchestrator {
   }
 
   /**
-   * ORCH-007: Strikt sekventiell tillståndsverifiering och sparas.
-   * Förhindrar icke-sekventiella tillståndsövergångar (state-drift).
+   * ORCH-007: Strikt sekventiell tillståndsövergång med inbyggd karantäns-automatik.
+   * Delegerar all tillståndsvalidering till den rena HarvestExecutionStateMachine-klassen.
    */
   private async transitionTo(
     executionId: string,
     targetState: HarvestExecutionState,
-    checkpointData: Omit<HarvestExecutionCheckpoint, "state">
+    checkpointData: Omit<HarvestExecutionCheckpoint, "state" | "checkpoint_version" | "execution_id" | "updated_at">
   ): Promise<HarvestExecutionCheckpoint> {
     const current = await this.checkpointStore.load(executionId);
     const currentState = current?.state ?? "CREATED";
 
-    const allowedTransitions: Record<HarvestExecutionState, readonly HarvestExecutionState[]> = {
-      CREATED: ["HARVESTED", "QUARANTINED"],
-      HARVESTED: ["VERIFIED", "QUARANTINED"],
-      VERIFIED: ["AWAITING_APPROVAL", "APPROVED", "ARCHIVED"],
-      AWAITING_APPROVAL: ["APPROVED", "ARCHIVED"],
-      APPROVED: ["COMPLIANCE_CHECK", "BLOCKED"],
-      COMPLIANCE_CHECK: ["ALLOW_IMPORT", "BLOCKED"],
-      ALLOW_IMPORT: ["POSTGIS_PROJECTION", "BLOCKED"],
-      POSTGIS_PROJECTION: ["READY_FOR_LU", "BLOCKED"],
-      READY_FOR_LU: [],
-      QUARANTINED: [],
-      BLOCKED: [],
-      ARCHIVED: []
-    };
-
-    const allowed = allowedTransitions[currentState];
-    if (!allowed || !allowed.includes(targetState)) {
+    try {
+      // Verifiera tillståndsövergången (ORCH-007) via den rena tillståndsmaskinen
+      HarvestExecutionStateMachine.assertTransition(currentState, targetState);
+    } catch (err: any) {
       // Överträdelse av sekventiell integritet (ORCH-007) -> Karantän omedelbart!
       const quarantinedCheckpoint: HarvestExecutionCheckpoint = {
+        checkpoint_version: current?.checkpoint_version ?? 1,
+        execution_id: executionId,
+        updated_at: new Date().toISOString(),
         ...current,
         state: "QUARANTINED"
       };
       await this.checkpointStore.save(executionId, quarantinedCheckpoint);
-      throw new Error(`[ORCH-007 Violation] Illegal state transition attempted: '${currentState}' -> '${targetState}'. Execution quarantined.`);
+      throw new Error(`[ORCH-007 Violation] Illegal state transition attempted: '${currentState}' -> '${targetState}'. Execution quarantined. Error: ${err.message}`);
     }
 
     const nextCheckpoint: HarvestExecutionCheckpoint = {
@@ -142,8 +142,13 @@ export class HarvestOrchestrator {
   private async runHarvesting(
     request: HarvestExecutionRequest,
   ): Promise<HarvestExecutionResult> {
+    // 1. Övergång till aktivt skördande tillstånd (transitional state)
+    await this.transitionTo(request.execution_id, "HARVESTING", {});
+
+    // 2. Exekvera skördejobbet
     const manifest_ref = await this.harvestExecutor.execute(request);
 
+    // 3. Slutför skörden
     const checkpoint = await this.transitionTo(request.execution_id, "HARVESTED", {
       manifest_ref,
     });
@@ -160,8 +165,13 @@ export class HarvestOrchestrator {
     manifest_ref: ContentReference,
   ): Promise<HarvestExecutionResult> {
     try {
+      // 1. Övergång till aktiv verifiering (transitional state)
+      await this.transitionTo(request.execution_id, "VERIFYING", { manifest_ref });
+
+      // 2. Exekvera verifiering
       const verification_ref = await this.verificationExecutor.verify(manifest_ref);
 
+      // 3. Spara grön verifiering
       const checkpoint = await this.transitionTo(request.execution_id, "VERIFIED", {
         manifest_ref,
         verification_ref,
@@ -169,6 +179,7 @@ export class HarvestOrchestrator {
 
       return this.awaitApproval(request, manifest_ref, verification_ref);
     } catch {
+      // Integritetsfel vid verifiering -> Quarantined!
       const checkpoint = await this.transitionTo(request.execution_id, "QUARANTINED", {
         manifest_ref,
       });
@@ -235,7 +246,15 @@ export class HarvestOrchestrator {
       return this.buildResult("BLOCKED", checkpoint);
     }
 
-    const checkpoint = await this.transitionTo(request.execution_id, "COMPLIANCE_CHECK", {
+    // 1. Spara resultat för compliance check
+    await this.transitionTo(request.execution_id, "COMPLIANCE_CHECK", {
+      manifest_ref,
+      approval_ref,
+      compliance_results,
+    });
+
+    // 2. Övergå till det efterföljande IMPORT_GATE steget (enligt tillståndsmaskinen)
+    await this.transitionTo(request.execution_id, "IMPORT_GATE", {
       manifest_ref,
       approval_ref,
       compliance_results,
