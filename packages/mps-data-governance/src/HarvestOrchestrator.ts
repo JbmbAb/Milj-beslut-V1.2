@@ -45,6 +45,16 @@ export class HarvestOrchestrator {
     const checkpoint = await this.checkpointStore.load(request.execution_id);
     const state: HarvestExecutionState = checkpoint?.state ?? "CREATED";
 
+    /**
+     * A terminal state is the final truth about a run, so re-invocation
+     * observes it rather than resuming from it. Without this guard the
+     * guarantee would rest on QUARANTINED happening to fall through to
+     * `default`, which is not a guarantee.
+     */
+    if (HarvestExecutionStateMachine.isTerminal(state)) {
+      return this.terminalResult(state, checkpoint ?? {});
+    }
+
     switch (state) {
       case "CREATED":
         return this.runHarvesting(request);
@@ -311,7 +321,12 @@ export class HarvestOrchestrator {
     const previous = await this.checkpointStore.load(execution_id);
 
     if (previous) {
-      HarvestExecutionStateMachine.assertTransition(previous.state, next.state!);
+      try {
+        HarvestExecutionStateMachine.assertTransition(previous.state, next.state!);
+      } catch (error) {
+        await this.quarantine(execution_id, previous);
+        throw error;
+      }
     }
 
     const checkpoint: HarvestExecutionCheckpoint = {
@@ -330,6 +345,32 @@ export class HarvestOrchestrator {
     };
 
     await this.checkpointStore.save(execution_id, checkpoint);
+  }
+
+  /**
+   * ORCH-007. An illegal transition means the run's recorded state no longer
+   * describes what happened, so the run is quarantined rather than left where
+   * it was. Raising the error alone is not enough: the exception travels up
+   * the call stack and disappears, while the checkpoint — the only durable
+   * account of the run — would still claim a state the run is not in, and the
+   * next invocation would resume from it.
+   *
+   * The write deliberately bypasses the state machine. The transition into
+   * quarantine is the very one it just rejected, so consulting it again would
+   * throw a second time and leave nothing persisted.
+   *
+   * Prior lineage is preserved. Quarantine records how far the run got before
+   * it became untrustworthy; discarding that would destroy the evidence.
+   */
+  private async quarantine(
+    execution_id: string,
+    previous: HarvestExecutionCheckpoint,
+  ): Promise<void> {
+    await this.checkpointStore.save(execution_id, {
+      ...previous,
+      state: "QUARANTINED",
+      updated_at: this.clock.now(),
+    });
   }
 
   private terminalResult(

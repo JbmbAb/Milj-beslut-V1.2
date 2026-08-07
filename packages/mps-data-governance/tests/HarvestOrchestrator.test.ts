@@ -157,26 +157,81 @@ describe('🜃 HarvestOrchestrator & Ingestion State Machine (ORCH-001 / ORCH-00
     expect(cp.lu_ref).toEqual(luRef);
   });
 
-  it('ORCH-007: immediately quarantines execution and throws upon out-of-order state transitions', async () => {
-    // Spara ingen manuell checkpoint på förhand (börjar som CREATED).
-    
-    // Om mockHarvestExecutor sparar en checkpoint som är 'COMPLIANCE_CHECK' (hoppar över steg!)
-    mockHarvestExecutor.execute.mockImplementation(async () => {
-      checkpointDb.set(request.execution_id, {
-        checkpoint_version: 1,
-        execution_id: request.execution_id,
-        updated_at: '2026-08-07T00:00:00Z',
-        state: 'COMPLIANCE_CHECK'
-      }); // Hack!
-      return manifestRef;
+  describe('ORCH-007: illegal transitions are quarantined, not merely thrown', () => {
+    /**
+     * Corrupts the run mid-flight: the harvest executor rewrites the checkpoint
+     * to COMPLIANCE_CHECK, so the orchestrator's next save (HARVESTED) arrives
+     * from a state it cannot legally come from.
+     */
+    function corruptCheckpointDuringHarvest() {
+      mockHarvestExecutor.execute.mockImplementation(async () => {
+        checkpointDb.set(request.execution_id, {
+          checkpoint_version: 1,
+          execution_id: request.execution_id,
+          updated_at: '2026-08-07T00:00:00Z',
+          state: 'COMPLIANCE_CHECK'
+        });
+        return manifestRef;
+      });
+    }
+
+    it('persists QUARANTINED rather than leaving the checkpoint in its old state', async () => {
+      corruptCheckpointDuringHarvest();
+
+      await expect(orchestrator.execute(request)).rejects.toThrow('Illegal transition');
+
+      // The exception alone proves nothing: it disappears up the call stack.
+      // The durable account of the run must say QUARANTINED.
+      const cp = checkpointDb.get(request.execution_id)!;
+      expect(cp.state).toBe('QUARANTINED');
     });
 
-    await expect(
-      orchestrator.execute(request)
-    ).rejects.toThrow('Illegal transition');
+    it('produces no authority: no compliance, no gate, no projection, no LU init', async () => {
+      corruptCheckpointDuringHarvest();
 
-    // Kontrollera att tillståndet omedelbart har försatts i karantän!
-    const cp = checkpointDb.get(request.execution_id)!;
-    expect(cp.state).toBe('QUARANTINED');
+      await expect(orchestrator.execute(request)).rejects.toThrow('Illegal transition');
+
+      expect(mockComplianceRunner.run).not.toHaveBeenCalled();
+      expect(mockImportGate.evaluate).not.toHaveBeenCalled();
+      expect(mockProjectionExecutor.project).not.toHaveBeenCalled();
+      expect(mockLuInitializer.initialize).not.toHaveBeenCalled();
+    });
+
+    it('is terminal: re-execution observes QUARANTINED without resuming the pipeline', async () => {
+      corruptCheckpointDuringHarvest();
+      await expect(orchestrator.execute(request)).rejects.toThrow('Illegal transition');
+
+      mockHarvestExecutor.execute.mockClear();
+
+      const result = await orchestrator.execute(request);
+
+      expect(result.state).toBe('QUARANTINED');
+      expect(checkpointDb.get(request.execution_id)!.state).toBe('QUARANTINED');
+      expect(mockHarvestExecutor.execute).not.toHaveBeenCalled();
+      expect(mockProjectionExecutor.project).not.toHaveBeenCalled();
+      expect(mockLuInitializer.initialize).not.toHaveBeenCalled();
+    });
+
+    it('cannot be released by a governance approval arriving afterwards', async () => {
+      corruptCheckpointDuringHarvest();
+      await expect(orchestrator.execute(request)).rejects.toThrow('Illegal transition');
+
+      await expect(
+        orchestrator.resumeWithApproval(request.execution_id, approvalRef)
+      ).rejects.toThrow(/QUARANTINED/);
+
+      expect(checkpointDb.get(request.execution_id)!.state).toBe('QUARANTINED');
+    });
+
+    it('preserves the lineage reached before the violation', async () => {
+      corruptCheckpointDuringHarvest();
+
+      await expect(orchestrator.execute(request)).rejects.toThrow('Illegal transition');
+
+      // Quarantine records how far the run got; it does not erase the evidence.
+      const cp = checkpointDb.get(request.execution_id)!;
+      expect(cp.execution_id).toBe(request.execution_id);
+      expect(cp.checkpoint_version).toBe(1);
+    });
   });
 });
