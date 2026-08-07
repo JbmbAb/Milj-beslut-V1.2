@@ -21,7 +21,6 @@ enum ProjectStatus {
   DRAFT
 }
 
-
 enum ProjectAccessRole {
   OWNER
   CONTRIBUTOR
@@ -79,12 +78,12 @@ enum RequirementVerificationStatus {
 }
 
 model User {
-  id             String          @id @default(cuid())
+  id             String              @id @default(cuid())
   organisationId String
-  bankidId       String          @unique
+  bankidId       String              @unique
   role           UserRole
-  createdAt      DateTime        @default(now())
-  organisation   Organisation    @relation(fields: [organisationId], references: [id], onDelete: Restrict)
+  createdAt      DateTime            @default(now())
+  organisation   Organisation        @relation(fields: [organisationId], references: [id], onDelete: Restrict)
   memberships    ProjectMember[]
   accessLogs     PropertyAccessLog[]
   searchQueries  SearchQueryLog[]
@@ -152,6 +151,7 @@ model Project {
   fundingRating       String?
   regulatoryRiskScore Float?
   environmentalScore  Float?
+
   @@index([organisationId, status])
 }
 
@@ -175,6 +175,7 @@ model ProjectMember {
   createdAt  DateTime          @default(now())
   project    Project           @relation(fields: [projectId], references: [id], onDelete: Cascade)
   user       User              @relation(fields: [userId], references: [id], onDelete: Cascade)
+
   @@unique([projectId, userId])
 }
 
@@ -188,6 +189,7 @@ model PropertyAccessLog {
   responseClass       PropertyResponseClass
   user                User                  @relation(fields: [userId], references: [id], onDelete: Restrict)
   project             Project               @relation(fields: [projectId], references: [id], onDelete: Restrict)
+
   @@index([projectId, timestamp])
   @@index([userId, timestamp])
 }
@@ -202,11 +204,12 @@ model AuditTrail {
   payloadHash String
   prevHash    String?
   chainHash   String   @unique
+
   @@index([entityType, timestamp])
 }
 
 model TransportBooking {
-  id                String   @id @default(cuid())
+  id                String          @id @default(cuid())
   quoteId           String
   provider          String
   status            String
@@ -219,8 +222,8 @@ model TransportBooking {
   plannedPickupAt   DateTime
   plannedDeliveryAt DateTime
   externalReference String?
-  createdAt         DateTime @default(now())
-  updatedAt         DateTime @updatedAt
+  createdAt         DateTime        @default(now())
+  updatedAt         DateTime        @updatedAt
   journals          DriverJournal[]
   limsReports       LimsReport[]
   gpsPositions      GpsPosition[]
@@ -230,7 +233,7 @@ model TransportBooking {
 }
 
 model DriverJournal {
-  id                  String   @id @default(cuid())
+  id                  String           @id @default(cuid())
   bookingId           String
   driverName          String
   vehicleId           String
@@ -243,13 +246,13 @@ model DriverJournal {
   odometerStartKm     Float
   odometerEndKm       Float?
   gpsTrackHash        String?
-  status              String   @default("DRAFT")
-  signedByDriver      Boolean  @default(false)
-  signedByReviewer    Boolean  @default(false)
+  status              String           @default("DRAFT")
+  signedByDriver      Boolean          @default(false)
+  signedByReviewer    Boolean          @default(false)
   driverSignatureId   String?
   reviewerSignatureId String?
-  createdAt           DateTime @default(now())
-  updatedAt           DateTime @updatedAt
+  createdAt           DateTime         @default(now())
+  updatedAt           DateTime         @updatedAt
   booking             TransportBooking @relation(fields: [bookingId], references: [id], onDelete: Cascade)
 
   @@index([driverName])
@@ -257,27 +260,27 @@ model DriverJournal {
 }
 
 model LimsReport {
-  id                 String   @id @default(cuid())
-  bookingId          String?
-  sampleId           String
-  labName            String
-  source             String   @default("MANUAL")
-  analyzedAt         DateTime
-  rawReference       String
-  metrics            Json     // Storing as JSON for flexibility in dev
-  passed             Boolean
-  verifiedByHuman    Boolean  @default(false)
-  reviewer           String?
+  id                  String            @id @default(cuid())
+  bookingId           String?
+  sampleId            String
+  labName             String
+  source              String            @default("MANUAL")
+  analyzedAt          DateTime
+  rawReference        String
+  metrics             Json // Storing as JSON for flexibility in dev
+  passed              Boolean
+  verifiedByHuman     Boolean           @default(false)
+  reviewer            String?
   reviewerSignatureId String?
-  verifiedAt         DateTime?
-  createdAt          DateTime @default(now())
-  booking            TransportBooking? @relation(fields: [bookingId], references: [id], onDelete: SetNull)
+  verifiedAt          DateTime?
+  createdAt           DateTime          @default(now())
+  booking             TransportBooking? @relation(fields: [bookingId], references: [id], onDelete: SetNull)
 
   @@index([sampleId])
 }
 
 model GpsPosition {
-  id        String   @id @default(cuid())
+  id        String           @id @default(cuid())
   bookingId String
   lat       Float
   lng       Float
@@ -285,7 +288,7 @@ model GpsPosition {
   speedKmh  Float?
   heading   Float?
   accuracy  Float?
-  timestamp DateTime @default(now())
+  timestamp DateTime         @default(now())
   hash      String
   prevHash  String?
   booking   TransportBooking @relation(fields: [bookingId], references: [id], onDelete: Cascade)
@@ -294,56 +297,56 @@ model GpsPosition {
 }
 
 model DocumentRecord {
-  id                        String                   @id @default(cuid())
-  projectId                 String
-  organisationId            String
-  entryId                   String
-  receivedTime              DateTime?
-  subject                   String
-  originalName              String
-  diskName                  String                   @unique
-  absolutePath              String
-  fileSize                  BigInt?
-  fileSha256                String?
-  mimeType                  String?
-  status                    DocumentProcessingStatus @default(METADATA_ONLY)
+  id                            String                         @id @default(cuid())
+  projectId                     String
+  organisationId                String
+  entryId                       String
+  receivedTime                  DateTime?
+  subject                       String
+  originalName                  String
+  diskName                      String                         @unique
+  absolutePath                  String
+  fileSize                      BigInt?
+  fileSha256                    String?
+  mimeType                      String?
+  status                        DocumentProcessingStatus       @default(METADATA_ONLY)
   // Legacy field kept for compatibility – normalised value preferred
-  municipality              String?
-  municipalityRaw           String?
-  municipalityNormalized    String?
-  municipalityConfidence    Float?
-  municipalitySource        String?
-  decisionType              String?
-  decisionTypeConfidence    Float?
-  decisionTypeSource        String?
-  activityCode              String?
-  activityCodeConfidence    Float?
-  activityCodeSource        String?
-  wasteType                 String?
-  wasteTypeConfidence       Float?
-  wasteTypeSource           String?
-  hazardousFlag             Boolean?
-  legalStatus               String?
-  diarieConfidence          Float?
-  diarieSource              String?
-  metadataReviewStatus      String                   @default("AUTO")
-  fieldExtractorVersion     Json?
-  createdAt                 DateTime                 @default(now())
-  updatedAt                 DateTime                 @updatedAt
-  manifestMeta              Json?
-  project                   Project                  @relation(fields: [projectId], references: [id], onDelete: Cascade)
-  organisation              Organisation             @relation(fields: [organisationId], references: [id], onDelete: Cascade)
-  content                   DocumentContent?
-  chunks                    DocumentChunk[]
-  requirementCase           RequirementCase?
-  requirements              RequirementRecord[]
-  requirementCitations      RequirementCitation[]
-  metadataEvidence          DocumentMetadataEvidence[]
-  reviewQueue               MetadataReviewQueue[]
+  municipality                  String?
+  municipalityRaw               String?
+  municipalityNormalized        String?
+  municipalityConfidence        Float?
+  municipalitySource            String?
+  decisionType                  String?
+  decisionTypeConfidence        Float?
+  decisionTypeSource            String?
+  activityCode                  String?
+  activityCodeConfidence        Float?
+  activityCodeSource            String?
+  wasteType                     String?
+  wasteTypeConfidence           Float?
+  wasteTypeSource               String?
+  hazardousFlag                 Boolean?
+  legalStatus                   String?
+  diarieConfidence              Float?
+  diarieSource                  String?
+  metadataReviewStatus          String                         @default("AUTO")
+  fieldExtractorVersion         Json?
+  createdAt                     DateTime                       @default(now())
+  updatedAt                     DateTime                       @updatedAt
+  manifestMeta                  Json?
+  project                       Project                        @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  organisation                  Organisation                   @relation(fields: [organisationId], references: [id], onDelete: Cascade)
+  content                       DocumentContent?
+  chunks                        DocumentChunk[]
+  requirementCase               RequirementCase?
+  requirements                  RequirementRecord[]
+  requirementCitations          RequirementCitation[]
+  metadataEvidence              DocumentMetadataEvidence[]
+  reviewQueue                   MetadataReviewQueue[]
   matrixRows                    RequirementMatrixRow[]
   attachments                   OutlookAttachment[]
   classificationRecommendations ClassificationRecommendation[]
-  humanApprovalGates           HumanApprovalGate[]
+  humanApprovalGates            HumanApprovalGate[]
 
   @@index([projectId, receivedTime])
   @@index([organisationId, receivedTime])
@@ -367,47 +370,47 @@ model DocumentContent {
 }
 
 model DocumentChunk {
-  id                  String           @id @default(cuid())
-  documentId          String
-  chunkIndex          Int
-  chunkText           String           @db.Text
-  embeddingJson       Json?
-  createdAt           DateTime         @default(now())
-  document            DocumentRecord   @relation(fields: [documentId], references: [id], onDelete: Cascade)
-  
+  id            String         @id @default(cuid())
+  documentId    String
+  chunkIndex    Int
+  chunkText     String         @db.Text
+  embeddingJson Json?
+  createdAt     DateTime       @default(now())
+  document      DocumentRecord @relation(fields: [documentId], references: [id], onDelete: Cascade)
+
   // New relationship for extracted relational values
-  extractedLimits     KravParametrar[]
+  extractedLimits KravParametrar[]
 
   // Checkpointing flag
-  parametersExtracted Boolean          @default(false) @map("parameters_extracted")
+  parametersExtracted Boolean @default(false) @map("parameters_extracted")
 
   @@unique([documentId, chunkIndex])
   @@index([documentId])
 }
 
 model KravParametrar {
-  id                 String             @id @default(cuid())
-  chunkId            String             @map("chunk_id")
-  chunk              DocumentChunk      @relation(fields: [chunkId], references: [id], onDelete: Cascade)
-  
+  id      String        @id @default(cuid())
+  chunkId String        @map("chunk_id")
+  chunk   DocumentChunk @relation(fields: [chunkId], references: [id], onDelete: Cascade)
+
   parameterTyp       ParameterType      @map("parameter_typ")
   gransvarde         Float              @map("gransvarde")
   enhet              ParameterUnit      @map("enhet")
   comparisonOperator ComparisonOperator @map("comparison_operator")
-  
+
   // Traceability & Auditing
-  sourceText         String?            @map("source_text") @db.Text
-  charStart          Int?               @map("char_start")
-  charEnd            Int?               @map("char_end")
-  confidence         Float?             @map("confidence")
-  pageNumber         Int?               @map("page_number")
-  originalValue      String?            @map("original_value")
-  
+  sourceText    String? @map("source_text") @db.Text
+  charStart     Int?    @map("char_start")
+  charEnd       Int?    @map("char_end")
+  confidence    Float?  @map("confidence")
+  pageNumber    Int?    @map("page_number")
+  originalValue String? @map("original_value")
+
   // Metadata
-  extractedBy        String             @default("gemini-pipeline") @map("extracted_by")
-  modelVersion       String             @map("model_version")
-  promptVersion      String             @map("prompt_version")
-  processedAt        DateTime           @default(now()) @map("processed_at")
+  extractedBy   String   @default("gemini-pipeline") @map("extracted_by")
+  modelVersion  String   @map("model_version")
+  promptVersion String   @map("prompt_version")
+  processedAt   DateTime @default(now()) @map("processed_at")
 
   @@unique([chunkId, parameterTyp, gransvarde, enhet, comparisonOperator])
   @@index([parameterTyp, gransvarde])
@@ -491,33 +494,33 @@ model SearchQueryLog {
 }
 
 model RequirementCase {
-  id                String              @id @default(cuid())
-  caseKey           String              @unique
-  projectId         String
-  documentId        String              @unique
-  organisationId    String
-  municipality      String?
-  authorityType     String?
-  authorityName     String?
-  diarienummer      String?
-  documentType      String?
-  documentDate      DateTime?
-  sourceFile        String
-  sourceSubject     String?
-  reviewStatus      RequirementVerificationStatus @default(AUTO)
-  caseReviewStatus  String              @default("AUTO") // AUTO | NEEDS_REVIEW | VERIFIED | LOCKED
-  validatedBy       String?
-  validatedAt       DateTime?
-  notes             String?
-  createdAt         DateTime            @default(now())
-  updatedAt         DateTime            @updatedAt
-  project           Project             @relation(fields: [projectId], references: [id], onDelete: Cascade)
-  document          DocumentRecord      @relation(fields: [documentId], references: [id], onDelete: Cascade)
+  id                            String                         @id @default(cuid())
+  caseKey                       String                         @unique
+  projectId                     String
+  documentId                    String                         @unique
+  organisationId                String
+  municipality                  String?
+  authorityType                 String?
+  authorityName                 String?
+  diarienummer                  String?
+  documentType                  String?
+  documentDate                  DateTime?
+  sourceFile                    String
+  sourceSubject                 String?
+  reviewStatus                  RequirementVerificationStatus  @default(AUTO)
+  caseReviewStatus              String                         @default("AUTO") // AUTO | NEEDS_REVIEW | VERIFIED | LOCKED
+  validatedBy                   String?
+  validatedAt                   DateTime?
+  notes                         String?
+  createdAt                     DateTime                       @default(now())
+  updatedAt                     DateTime                       @updatedAt
+  project                       Project                        @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  document                      DocumentRecord                 @relation(fields: [documentId], references: [id], onDelete: Cascade)
   requirements                  RequirementRecord[]
   citations                     RequirementCitation[]
   matrixRows                    RequirementMatrixRow[]
   classificationRecommendations ClassificationRecommendation[]
-  humanApprovalGates           HumanApprovalGate[]
+  humanApprovalGates            HumanApprovalGate[]
 
   @@index([projectId, documentDate])
   @@index([municipality, authorityType])
@@ -576,25 +579,25 @@ model RequirementRecord {
 }
 
 model RequirementCitation {
-  id                  String            @id @default(cuid())
-  citationCode        String            @unique
-  requirementId       String
-  caseId              String
-  documentId          String
-  quoteText           String
-  pageNumber          Int?
-  charStart           Int?
-  charEnd             Int?
-  extractor           String?
-  verificationStatus  RequirementVerificationStatus @default(AUTO)
-  verifiedBy          String?
-  verifiedAt          DateTime?
-  comment             String?
-  createdAt           DateTime          @default(now())
-  requirement         RequirementRecord @relation(fields: [requirementId], references: [id], onDelete: Cascade)
-  case                RequirementCase   @relation(fields: [caseId], references: [id], onDelete: Cascade)
-  document            DocumentRecord    @relation(fields: [documentId], references: [id], onDelete: Cascade)
-  matrixRows          RequirementMatrixRow[]
+  id                 String                        @id @default(cuid())
+  citationCode       String                        @unique
+  requirementId      String
+  caseId             String
+  documentId         String
+  quoteText          String
+  pageNumber         Int?
+  charStart          Int?
+  charEnd            Int?
+  extractor          String?
+  verificationStatus RequirementVerificationStatus @default(AUTO)
+  verifiedBy         String?
+  verifiedAt         DateTime?
+  comment            String?
+  createdAt          DateTime                      @default(now())
+  requirement        RequirementRecord             @relation(fields: [requirementId], references: [id], onDelete: Cascade)
+  case               RequirementCase               @relation(fields: [caseId], references: [id], onDelete: Cascade)
+  document           DocumentRecord                @relation(fields: [documentId], references: [id], onDelete: Cascade)
+  matrixRows         RequirementMatrixRow[]
 
   @@index([documentId, pageNumber])
   @@index([requirementId])
@@ -606,52 +609,52 @@ model RequirementCitation {
 
 /// Tracks every ingested Outlook message. message_id is the unique Outlook Message-ID header.
 model EmailMessage {
-  messageId       String             @id @map("message_id")
-  sender          String?
-  subject         String?
-  receivedAt      DateTime?          @map("received_at")
-  processedAt     DateTime?          @map("processed_at")
-  status          String             @default("NEW")
-  runId           String?            @map("run_id")
-  rawEmlPath      String?            @map("raw_eml_path")
-  
-  attachments     OutlookAttachment[] @relation("CanonicalMessage")
-  occurrences     AttachmentOccurrence[]
-  
+  messageId   String    @id @map("message_id")
+  sender      String?
+  subject     String?
+  receivedAt  DateTime? @map("received_at")
+  processedAt DateTime? @map("processed_at")
+  status      String    @default("NEW")
+  runId       String?   @map("run_id")
+  rawEmlPath  String?   @map("raw_eml_path")
+
+  attachments OutlookAttachment[]    @relation("CanonicalMessage")
+  occurrences AttachmentOccurrence[]
+
   @@map("email_messages")
 }
 
 model OutlookAttachment {
-  attachmentHash     String               @id @map("attachment_hash")
-  canonicalMessageId String               @map("canonical_message_id")
+  attachmentHash     String   @id @map("attachment_hash")
+  canonicalMessageId String   @map("canonical_message_id")
   filename           String
   filesize           BigInt?
-  checksumSha256     String               @map("checksum_sha256")
-  storedPath         String?              @map("stored_path")
-  parsed             Boolean              @default(false)
-  extractedText      String?              @map("extracted_text")
-  parseFailureReason String?              @map("parse_failure_reason")
-  documentId         String?              @map("document_id")
-  createdAt          DateTime             @default(now()) @map("created_at")
-  updatedAt          DateTime             @default(now()) @updatedAt @map("updated_at")
+  checksumSha256     String   @map("checksum_sha256")
+  storedPath         String?  @map("stored_path")
+  parsed             Boolean  @default(false)
+  extractedText      String?  @map("extracted_text")
+  parseFailureReason String?  @map("parse_failure_reason")
+  documentId         String?  @map("document_id")
+  createdAt          DateTime @default(now()) @map("created_at")
+  updatedAt          DateTime @default(now()) @updatedAt @map("updated_at")
 
-  canonicalMessage   EmailMessage         @relation("CanonicalMessage", fields: [canonicalMessageId], references: [messageId])
-  occurrences        AttachmentOccurrence[]
-  requirements       ExtractedRequirement[]
-  document           DocumentRecord?      @relation(fields: [documentId], references: [id])
-  
+  canonicalMessage EmailMessage           @relation("CanonicalMessage", fields: [canonicalMessageId], references: [messageId])
+  occurrences      AttachmentOccurrence[]
+  requirements     ExtractedRequirement[]
+  document         DocumentRecord?        @relation(fields: [documentId], references: [id])
+
   @@index([parsed])
   @@index([documentId])
   @@map("attachments")
 }
 
 model AttachmentOccurrence {
-  messageId       String               @map("message_id")
-  attachmentHash  String               @map("attachment_hash")
-  firstSeenAt     DateTime             @default(now()) @map("first_seen_at")
+  messageId      String   @map("message_id")
+  attachmentHash String   @map("attachment_hash")
+  firstSeenAt    DateTime @default(now()) @map("first_seen_at")
 
-  message         EmailMessage         @relation(fields: [messageId], references: [messageId])
-  attachment      OutlookAttachment    @relation(fields: [attachmentHash], references: [attachmentHash])
+  message    EmailMessage      @relation(fields: [messageId], references: [messageId])
+  attachment OutlookAttachment @relation(fields: [attachmentHash], references: [attachmentHash])
 
   @@id([messageId, attachmentHash])
   @@map("attachment_occurrences")
@@ -678,21 +681,21 @@ model PipelineRun {
 
 /// A single extracted requirement from a PDF document.
 model ExtractedRequirement {
-  id               String   @id @default(cuid())
-  attachmentHash   String   @map("attachment_hash")
+  id               String            @id @default(cuid())
+  attachmentHash   String            @map("attachment_hash")
   attachment       OutlookAttachment @relation(fields: [attachmentHash], references: [attachmentHash])
   municipality     String?
-  caseNumber       String?  @map("case_number")
-  requirementText  String   @map("requirement_text") @db.Text
+  caseNumber       String?           @map("case_number")
+  requirementText  String            @map("requirement_text") @db.Text
   category         String
   subcategory      String?
-  requirementLevel String   @default("mandatory") @map("requirement_level")
-  legalReference   String?  @map("legal_reference")
-  confidence       Float    @default(0.0)
-  pageNumber       Int?     @map("page_number")
-  sourceSegment    String?  @map("source_segment") @db.Text
-  parsedAt         DateTime @default(now()) @map("parsed_at")
-  knowledgeNodeId  String?  @map("knowledge_node_id")
+  requirementLevel String            @default("mandatory") @map("requirement_level")
+  legalReference   String?           @map("legal_reference")
+  confidence       Float             @default(0.0)
+  pageNumber       Int?              @map("page_number")
+  sourceSegment    String?           @map("source_segment") @db.Text
+  parsedAt         DateTime          @default(now()) @map("parsed_at")
+  knowledgeNodeId  String?           @map("knowledge_node_id")
 
   @@index([attachmentHash])
   @@index([municipality, category])
@@ -718,13 +721,13 @@ enum KnowledgeNodeType {
 
 /// A node in the knowledge graph.
 model KnowledgeNode {
-  id          String            @id @default(cuid())
-  nodeType    KnowledgeNodeType @map("node_type")
-  name        String
-  metadata    Json              @default("{}")
-  outEdges    KnowledgeEdge[]   @relation("SourceEdges")
-  inEdges     KnowledgeEdge[]   @relation("TargetEdges")
-  createdAt   DateTime          @default(now())
+  id        String            @id @default(cuid())
+  nodeType  KnowledgeNodeType @map("node_type")
+  name      String
+  metadata  Json              @default("{}")
+  outEdges  KnowledgeEdge[]   @relation("SourceEdges")
+  inEdges   KnowledgeEdge[]   @relation("TargetEdges")
+  createdAt DateTime          @default(now())
 
   @@unique([nodeType, name])
   @@index([nodeType])
@@ -733,15 +736,15 @@ model KnowledgeNode {
 
 /// A directed typed edge between two knowledge graph nodes.
 model KnowledgeEdge {
-  id           String        @id @default(cuid())
-  sourceId     String        @map("source_id")
-  targetId     String        @map("target_id")
-  relation     String        // e.g. "requires", "generates", "motivates", "handles"
-  weight       Float         @default(1.0)
-  metadata     Json          @default("{}")
-  source       KnowledgeNode @relation("SourceEdges", fields: [sourceId], references: [id])
-  target       KnowledgeNode @relation("TargetEdges", fields: [targetId], references: [id])
-  createdAt    DateTime      @default(now())
+  id        String        @id @default(cuid())
+  sourceId  String        @map("source_id")
+  targetId  String        @map("target_id")
+  relation  String // e.g. "requires", "generates", "motivates", "handles"
+  weight    Float         @default(1.0)
+  metadata  Json          @default("{}")
+  source    KnowledgeNode @relation("SourceEdges", fields: [sourceId], references: [id])
+  target    KnowledgeNode @relation("TargetEdges", fields: [targetId], references: [id])
+  createdAt DateTime      @default(now())
 
   @@unique([sourceId, targetId, relation])
   @@index([sourceId, relation])
@@ -757,10 +760,10 @@ model KnowledgeEdge {
 model DocumentMetadataEvidence {
   id               String         @id @default(cuid())
   documentId       String
-  fieldName        String         // 'municipality' | 'legalStatus' | 'decisionType' | 'activityCode' | 'wasteType'
+  fieldName        String // 'municipality' | 'legalStatus' | 'decisionType' | 'activityCode' | 'wasteType'
   fieldValue       String?
   confidence       Float
-  sourceType       String         // 'subject_regex' | 'filename_regex' | 'text_regex' | 'llm_inference' | 'manual'
+  sourceType       String // 'subject_regex' | 'filename_regex' | 'text_regex' | 'llm_inference' | 'manual'
   extractorVersion String         @default("1.0")
   rawEvidence      String?
   llmPromptHash    String?
@@ -776,7 +779,7 @@ model DocumentMetadataEvidence {
 model MetadataReviewQueue {
   id            String         @id @default(cuid())
   documentId    String
-  queueType     String         // 'LOW_CONFIDENCE' | 'DISAGREEMENT'
+  queueType     String // 'LOW_CONFIDENCE' | 'DISAGREEMENT'
   fieldName     String
   proposedValue String?
   confidence    Float?
@@ -920,9 +923,9 @@ model LegalSourceRecord {
   createdAt       DateTime           @default(now())
   updatedAt       DateTime           @updatedAt
 
-  judgment JudgmentRecord? @relation(fields: [judgmentId], references: [id], onDelete: SetNull)
+  judgment           JudgmentRecord?       @relation(fields: [judgmentId], references: [id], onDelete: SetNull)
   legalCorpusRecords LegalCorpusRecord[]
-  matrixRow RequirementMatrixRow?
+  matrixRow          RequirementMatrixRow?
 
   @@unique([sourceSystem, externalId])
   @@map("legal_source_records")
@@ -982,19 +985,19 @@ model LegalCorpusRecord {
 }
 
 model LegalCorpusChunk {
-  id              String                       @id @default(cuid())
-  recordId        String                       @map("record_id")
-  chunkIndex      Int                          @map("chunk_index")
-  chunkText       String                       @map("chunk_text") @db.Text
-  chunkVersion    String                       @default("v2.2") @map("chunk_version")
-  documentType    String                       @default("other") @map("document_type")
-  lawName         String?                      @map("law_name")
+  id              String                 @id @default(cuid())
+  recordId        String                 @map("record_id")
+  chunkIndex      Int                    @map("chunk_index")
+  chunkText       String                 @map("chunk_text") @db.Text
+  chunkVersion    String                 @default("v2.2") @map("chunk_version")
+  documentType    String                 @default("other") @map("document_type")
+  lawName         String?                @map("law_name")
   chapter         String?
   paragraph       String?
   section         String?
-  embeddingVector Unsupported("vector")?       @map("embedding_vector")
-  createdAt       DateTime                     @default(now()) @map("created_at")
-  updatedAt       DateTime                     @updatedAt @map("updated_at")
+  embeddingVector Unsupported("vector")? @map("embedding_vector")
+  createdAt       DateTime               @default(now()) @map("created_at")
+  updatedAt       DateTime               @updatedAt @map("updated_at")
 
   record LegalCorpusRecord @relation(fields: [recordId], references: [id], onDelete: Cascade)
 
@@ -1023,11 +1026,11 @@ model RequirementMatrixRow {
   updatedAt       DateTime                      @updatedAt
   legalSourceId   String?                       @unique @map("legal_source_id")
 
-  requirement     RequirementRecord?            @relation(fields: [requirementId], references: [id], onDelete: SetNull)
-  citation        RequirementCitation?          @relation(fields: [citationId], references: [id], onDelete: SetNull)
-  case            RequirementCase?              @relation(fields: [caseId], references: [id], onDelete: SetNull)
-  document        DocumentRecord?               @relation(fields: [documentId], references: [id], onDelete: SetNull)
-  legalSource     LegalSourceRecord?            @relation(fields: [legalSourceId], references: [id], onDelete: SetNull)
+  requirement RequirementRecord?   @relation(fields: [requirementId], references: [id], onDelete: SetNull)
+  citation    RequirementCitation? @relation(fields: [citationId], references: [id], onDelete: SetNull)
+  case        RequirementCase?     @relation(fields: [caseId], references: [id], onDelete: SetNull)
+  document    DocumentRecord?      @relation(fields: [documentId], references: [id], onDelete: SetNull)
+  legalSource LegalSourceRecord?   @relation(fields: [legalSourceId], references: [id], onDelete: SetNull)
 
   @@index([caseId, category])
   @@index([legalSourceId])
@@ -1112,9 +1115,9 @@ model ClassificationRecommendation {
   createdAt             DateTime             @default(now()) @map("created_at")
   updatedAt             DateTime             @updatedAt @map("updated_at")
 
-  case                  RequirementCase      @relation(fields: [caseId], references: [id], onDelete: Cascade)
-  document              DocumentRecord       @relation(fields: [documentId], references: [id], onDelete: Cascade)
-  approvalLogs          ApprovalLog[]
+  case         RequirementCase @relation(fields: [caseId], references: [id], onDelete: Cascade)
+  document     DocumentRecord  @relation(fields: [documentId], references: [id], onDelete: Cascade)
+  approvalLogs ApprovalLog[]
 
   @@index([caseId])
   @@index([documentId])
@@ -1122,15 +1125,15 @@ model ClassificationRecommendation {
 }
 
 model ApprovalLog {
-  id                             String                       @id @default(cuid())
-  classificationRecommendationId String                       @map("classification_recommendation_id")
+  id                             String   @id @default(cuid())
+  classificationRecommendationId String   @map("classification_recommendation_id")
   action                         String
   actor                          String
-  reason                         String?                      @db.Text
-  timestamp                      DateTime                     @default(now())
-  createdAt                      DateTime                     @default(now()) @map("created_at")
+  reason                         String?  @db.Text
+  timestamp                      DateTime @default(now())
+  createdAt                      DateTime @default(now()) @map("created_at")
 
-  recommendation                 ClassificationRecommendation @relation(fields: [classificationRecommendationId], references: [id], onDelete: Cascade)
+  recommendation ClassificationRecommendation @relation(fields: [classificationRecommendationId], references: [id], onDelete: Cascade)
 
   @@index([classificationRecommendationId])
   @@map("approval_logs")
@@ -1147,31 +1150,31 @@ model HumanApprovalGate {
   createdAt   DateTime  @default(now()) @map("created_at")
   updatedAt   DateTime  @updatedAt @map("updated_at")
 
-  case        RequirementCase @relation(fields: [caseId], references: [id], onDelete: Cascade)
-  document    DocumentRecord  @relation(fields: [documentId], references: [id], onDelete: Cascade)
+  case     RequirementCase @relation(fields: [caseId], references: [id], onDelete: Cascade)
+  document DocumentRecord  @relation(fields: [documentId], references: [id], onDelete: Cascade)
 
   @@unique([caseId, documentId], name: "caseId_documentId")
   @@map("human_approval_gates")
 }
 
 model RasterRegistrationLog {
-  id            Int      @id @default(autoincrement())
-  provider      String
-  dataset       String
-  version       String
-  filePath      String   @unique @map("file_path")
-  sha256        String?
-  sizeBytes     BigInt?  @map("size_bytes")
-  epsgCode      Int?     @default(3006) @map("epsg_code")
-  tileSize      String?  @default("256x256") @map("tile_size")
-  tableRef      String   @map("table_ref")
-  bboxWkt       String?  @map("bbox_wkt")
-  bandCount     Int?     @map("band_count")
-  pixelWidth    Float?   @map("pixel_width")
-  pixelHeight   Float?   @map("pixel_height")
-  tileCount     Int?     @map("tile_count")
-  registeredAt  DateTime @default(now()) @map("registered_at") @db.Timestamptz
-  updatedAt     DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
+  id           Int      @id @default(autoincrement())
+  provider     String
+  dataset      String
+  version      String
+  filePath     String   @unique @map("file_path")
+  sha256       String?
+  sizeBytes    BigInt?  @map("size_bytes")
+  epsgCode     Int?     @default(3006) @map("epsg_code")
+  tileSize     String?  @default("256x256") @map("tile_size")
+  tableRef     String   @map("table_ref")
+  bboxWkt      String?  @map("bbox_wkt")
+  bandCount    Int?     @map("band_count")
+  pixelWidth   Float?   @map("pixel_width")
+  pixelHeight  Float?   @map("pixel_height")
+  tileCount    Int?     @map("tile_count")
+  registeredAt DateTime @default(now()) @map("registered_at") @db.Timestamptz
+  updatedAt    DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
 
   @@map("raster_registration_log")
 }
@@ -1193,4 +1196,67 @@ model ExecutionTicket {
   @@index([status, createdAt])
   @@index([manifestId])
   @@map("execution_tickets")
+}
+
+// -----------------------------------------------------------------------------
+// TIER 1: BUNDLE INDEX (Case Metadata & Geometry)
+// -----------------------------------------------------------------------------
+model EnvironmentalCase {
+  id           String                                   @id @default(cuid())
+  caseId       String                                   @unique @map("case_id") // e.g. MPD-W-2026-0812
+  authority    String
+  decisionDate DateTime?                                @map("decision_date")
+  activityCode String?                                  @map("activity_code")
+  operator     String?
+  geometry     Unsupported("geometry(Geometry, 3006)")?
+  createdAt    DateTime                                 @default(now()) @map("created_at")
+  updatedAt    DateTime                                 @updatedAt @map("updated_at")
+
+  evidence CaseEvidence[]
+
+  @@index([authority])
+  @@index([activityCode])
+  @@map("environmental_cases")
+}
+
+// -----------------------------------------------------------------------------
+// TIER 2: EVIDENCE INDEX (Document Roles & Provenance)
+// -----------------------------------------------------------------------------
+model CaseEvidence {
+  id           String   @id @default(cuid())
+  caseId       String   @map("case_id")
+  documentType String   @map("document_type") // decision, mkb, technical, control_program
+  legalWeight  String   @map("legal_weight") // primary, evidence, technical, compliance
+  fileHash     String   @map("file_hash")
+  sourceFile   String   @map("source_file") // e.g. beslut.txt
+  createdAt    DateTime @default(now()) @map("created_at")
+
+  case   EnvironmentalCase @relation(fields: [caseId], references: [id], onDelete: Cascade)
+  chunks EvidenceChunk[]
+
+  @@unique([caseId, fileHash])
+  @@index([documentType])
+  @@index([legalWeight])
+  @@map("case_evidence")
+}
+
+// -----------------------------------------------------------------------------
+// TIER 3: SEMANTIC INDEX (Vector & Relations)
+// -----------------------------------------------------------------------------
+model EvidenceChunk {
+  id             String         @id @default(cuid())
+  evidenceId     String         @map("evidence_id")
+  section        String?
+  content        String
+  // PostGIS/pgvector requires the pgvector extension. 
+  // We use Unsupported to let Prisma know the type exists in the DB.
+  contentVector  Unsupported("vector(768)")? @map("content_vector")
+  relations      Json?          // e.g. [{"type": "controlled_by", "target": "..."}]
+  createdAt      DateTime       @default(now()) @map("created_at")
+
+  evidence       CaseEvidence   @relation(fields: [evidenceId], references: [id], onDelete: Cascade)
+
+  @@index([evidenceId])
+  // Note: HNSW/IVFFlat indexes for vectors should be created via raw SQL migrations.
+  @@map("evidence_chunks")
 }

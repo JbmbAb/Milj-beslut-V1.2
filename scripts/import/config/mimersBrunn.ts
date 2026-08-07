@@ -13,7 +13,7 @@ export const MASTER_ARCHIVE_ROOT =
   process.env.MASTER_ARCHIVE_ROOT ??
   'H:\\Delade enheter\\Miljöbeslut\\GEO_Master_Archive';
 
-// Subdirectories according to policy
+// Subdirectories according to legacy policy
 export const PATHS = {
   DATA: path.join(MASTER_ARCHIVE_ROOT, 'Data'),
   VECTORS: path.join(MASTER_ARCHIVE_ROOT, 'Vectors'),
@@ -21,8 +21,50 @@ export const PATHS = {
   DOCUMENTS: path.join(MASTER_ARCHIVE_ROOT, 'Documents', 'Sources'),
 };
 
+export type ArchiveLayer = 'original' | 'extracted' | 'hashes' | 'manifest';
+
 /**
- * Helper to generate a timestamped folder path according to policy:
+ * National Environmental Archive (Mimers Brunn v9)
+ * 
+ * Enforces the strict immutable directory structure:
+ * <MasterArchive>/<Authority>/<Year>/<Municipality>/<CaseId>/[Layer]
+ * 
+ * Layers:
+ *  - original: Raw PDF/Doc files
+ *  - extracted: Converted text files
+ *  - hashes: Cryptographic checksums
+ */
+export function getNationalArchiveCasePath(
+  authority: string,
+  year: string | number,
+  municipality: string,
+  caseId: string,
+  layer?: ArchiveLayer
+): string {
+  // Sanitize inputs to prevent path traversal or bad characters
+  const safeAuthority = authority.replace(/[^a-z0-9_ÅÄÖåäö-]/gi, '_');
+  const safeYear = String(year);
+  const safeMunicipality = municipality.replace(/[^a-z0-9_ÅÄÖåäö-]/gi, '_');
+  const safeCaseId = caseId.replace(/[^a-z0-9_ÅÄÖåäö-]/gi, '_');
+
+  const basePath = path.join(
+    MASTER_ARCHIVE_ROOT,
+    'National_Archive',
+    safeAuthority,
+    safeYear,
+    safeMunicipality,
+    safeCaseId
+  );
+
+  if (layer && layer !== 'manifest') {
+    return path.join(basePath, layer);
+  }
+
+  return basePath; // Return base dir if layer is omitted or is 'manifest'
+}
+
+/**
+ * Helper to generate a timestamped folder path according to legacy policy:
  * <Root>\<Provider>\<Dataset>\<YYYY-MM-DD_HHmm>\
  */
 export function getHarvestPath(provider: string, dataset: string, category: keyof typeof PATHS = 'DATA'): string {
