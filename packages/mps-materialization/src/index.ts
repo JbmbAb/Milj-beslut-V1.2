@@ -27,11 +27,18 @@ export {
 
 export {
   assertMaterializationAuthority,
+  assertSingleMaterializationAuthority,
+  CANONICAL_MATERIALIZATION_AUTHORITY,
+  isRegisteredMaterializationAuthority,
+  listMaterializationAuthorities,
+  MAT_I05,
   MATERIALIZATION_AUTHORITY_CREATORS,
   MATERIALIZATION_AUTHORITY_FORBIDDEN,
   MaterializationAuthorityError,
   MIMER_MAT_I01,
+  registerMaterializationAuthority,
   type AuthorityActor,
+  type MaterializationAuthorityRegistration,
 } from "./MaterializationAuthority.js";
 
 export {

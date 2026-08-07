@@ -2,7 +2,7 @@ import { expect, describe, it } from "vitest";
 import { DeterministicRuntimeScheduler } from "../runtime/DeterministicRuntimeScheduler";
 import { DependencyResolver } from "../runtime/DependencyResolver";
 import { ExecutionContextBuilder } from "../runtime/ExecutionContextBuilder";
-import { ArtifactMaterializer } from "../runtime/ArtifactMaterializer";
+import { ArtifactProjectionBuilder } from "../runtime/ArtifactProjectionBuilder";
 import { createPfasExecutionManifest } from "./fixtures/createPfasExecutionManifest";
 import { createPfasDagPlan } from "./fixtures/createPfasDagPlan";
 import { createCapabilityRegistry } from "./fixtures/createCapabilityRegistry";
@@ -17,13 +17,13 @@ describe("PFAS Phase-3.2.3 deterministic DAG execution", () => {
     const dependencyResolver = new DependencyResolver();
     const contextBuilder = new ExecutionContextBuilder();
     const artifactFactory = createArtifactFactory();
-    const materializer = new ArtifactMaterializer(artifactFactory);
+    const projectionBuilder = new ArtifactProjectionBuilder(artifactFactory);
 
     const scheduler = new DeterministicRuntimeScheduler(
       capabilityRegistry,
       dependencyResolver,
       contextBuilder,
-      materializer
+      projectionBuilder
     );
 
     const run1 = await scheduler.execute(manifest, plan);

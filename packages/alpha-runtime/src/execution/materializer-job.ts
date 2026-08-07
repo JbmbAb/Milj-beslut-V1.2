@@ -5,6 +5,19 @@ import { createHash } from 'crypto';
 const prisma = new PrismaClient();
 const repo = new DecisionArtifactRepository(prisma);
 
+/**
+ * QUARANTINED under MAT-I05 (Single Materialization Authority).
+ *
+ * This job is a second, unregistered truth producer: it mints its own artifact hash
+ * with an ad-hoc JSON.stringify, bakes `extraction_model` into that hash (MAT-I04
+ * violation), hardcodes lineage_sequence and bypasses lineage closure entirely.
+ *
+ * Its write path now fails at the repository gate. Migration path is Alternative A:
+ * build a VerifiedEvidenceSet from the case and delegate to mps-materialization's
+ * MaterializationPipeline, letting runtime orchestrate and materialization own authority.
+ *
+ * @deprecated Do not extend. See docs/architecture/ADR-MPS-SINGLE-MATERIALIZATION-AUTHORITY.md
+ */
 export class MaterializerJob {
   /**
    * Materializes a completed EnvironmentalCase or RequirementCase into a concise DecisionCase
@@ -60,12 +73,16 @@ export class MaterializerJob {
     const evidenceRefs = envCase.evidence.map(e => e.id);
     const sourceArtifactHashes = envCase.evidence.map(e => e.fileHash);
 
+    // Compute facts hash
+    const factsPayload = JSON.stringify(decisionFacts);
+    const factsHash = createHash('sha256').update(factsPayload).digest('hex');
+
     // Compute canonical payload hash
     const canonicalPayload = JSON.stringify({
       decision_ref: decisionCase.id,
       release_hash: 'RELEASE_SIMULATION_HASH', // Should be drawn from the current system release version
       municipality_id: municipality,
-      decision_facts: decisionFacts,
+      decision_facts_hash: factsHash,
       evidence_refs: evidenceRefs,
       source_artifact_hashes: sourceArtifactHashes,
       semantic_version: '1.0.0',
@@ -88,15 +105,16 @@ export class MaterializerJob {
       artifact_hash: artifactHash,
       release_hash: 'RELEASE_SIMULATION_HASH',
       municipality_id: municipality,
-      decision_facts: decisionFacts,
+      decision_facts_hash: factsHash,
       evidence_refs: evidenceRefs,
       source_artifact_hashes: sourceArtifactHashes,
       semantic_version: '1.0.0',
       materialization_version: 'v2',
       extraction_model: 'gemini-1.5-pro',
       rule_version: '1.0.0',
-      verification_status: 'VERIFIED'
-    });
+      verification_status: 'VERIFIED',
+      lineage_sequence: 1 // Start sequence for new facts
+    }, decisionFacts);
 
     // Update the Municipality Profile (Aggregated stats)
     await this.updateMunicipalityProfile(municipality);

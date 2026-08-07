@@ -7,7 +7,7 @@ import { CheckpointManager } from "../../../runtime/checkpoint/CheckpointManager
 import { ReplayVerifierProfiles } from "../../../runtime/replay/ReplayVerifierProfiles";
 import { DependencyResolver } from "../../../runtime/DependencyResolver";
 import { ExecutionContextBuilder } from "../../../runtime/ExecutionContextBuilder";
-import { ArtifactMaterializer } from "../../../runtime/ArtifactMaterializer";
+import { ArtifactProjectionBuilder } from "../../../runtime/ArtifactProjectionBuilder";
 import { createCapabilityRegistry } from "../../fixtures/createCapabilityRegistry";
 
 describe("pfas-execution-v6.e2e — persisted replay", () => {
@@ -19,8 +19,8 @@ describe("pfas-execution-v6.e2e — persisted replay", () => {
     const dependencyResolver = new DependencyResolver();
     const contextBuilder = new ExecutionContextBuilder();
     const artifactFactoryA = createArtifactFactory();
-    const materializer = new ArtifactMaterializer(artifactFactoryA);
-    const schedulerA = new DeterministicRuntimeScheduler(capabilityRegistry, dependencyResolver, contextBuilder, materializer);
+    const projectionBuilderA = new ArtifactProjectionBuilder(artifactFactoryA);
+    const schedulerA = new DeterministicRuntimeScheduler(capabilityRegistry, dependencyResolver, contextBuilder, projectionBuilderA);
 
     const checkpointManagerA = new CheckpointManager();
 
@@ -30,8 +30,8 @@ describe("pfas-execution-v6.e2e — persisted replay", () => {
     const serialized = JSON.stringify(checkpoint);
 
     const artifactFactoryB = createArtifactFactory();
-    const materializerB = new ArtifactMaterializer(artifactFactoryB);
-    const schedulerB = new DeterministicRuntimeScheduler(capabilityRegistry, dependencyResolver, contextBuilder, materializerB);
+    const projectionBuilderB = new ArtifactProjectionBuilder(artifactFactoryB);
+    const schedulerB = new DeterministicRuntimeScheduler(capabilityRegistry, dependencyResolver, contextBuilder, projectionBuilderB);
 
     const checkpointReloaded = JSON.parse(serialized);
 

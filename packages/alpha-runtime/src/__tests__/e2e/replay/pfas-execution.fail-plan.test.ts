@@ -4,7 +4,7 @@ import { createPfasDagPlan } from "../../fixtures/createPfasDagPlan";
 import { DeterministicRuntimeScheduler } from "../../../runtime/DeterministicRuntimeScheduler";
 import { DependencyResolver } from "../../../runtime/DependencyResolver";
 import { ExecutionContextBuilder } from "../../../runtime/ExecutionContextBuilder";
-import { ArtifactMaterializer } from "../../../runtime/ArtifactMaterializer";
+import { ArtifactProjectionBuilder } from "../../../runtime/ArtifactProjectionBuilder";
 import { createCapabilityRegistry } from "../../fixtures/createCapabilityRegistry";
 import { createArtifactFactory } from "../../fixtures/createArtifactFactory";
 import { CheckpointManager } from "../../../runtime/checkpoint/CheckpointManager";
@@ -20,8 +20,8 @@ describe("pfas-execution-v6.e2e — plan/graph mismatch", () => {
     const dependencyResolver = new DependencyResolver();
     const contextBuilder = new ExecutionContextBuilder();
     const artifactFactory = createArtifactFactory();
-    const materializer = new ArtifactMaterializer(artifactFactory);
-    const scheduler = new DeterministicRuntimeScheduler(capabilityRegistry, dependencyResolver, contextBuilder, materializer);
+    const projectionBuilder = new ArtifactProjectionBuilder(artifactFactory);
+    const scheduler = new DeterministicRuntimeScheduler(capabilityRegistry, dependencyResolver, contextBuilder, projectionBuilder);
     const checkpointManager = new CheckpointManager();
     const verifier = ReplayVerifierProfiles.strict();
 

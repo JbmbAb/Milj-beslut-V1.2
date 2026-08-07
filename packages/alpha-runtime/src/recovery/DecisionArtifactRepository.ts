@@ -1,12 +1,13 @@
 import { PrismaClient } from '@prisma/client';
 import { createHash } from 'crypto';
+import { assertSingleMaterializationAuthority } from '../../../mps-materialization/src/MaterializationAuthority';
 
 export interface DecisionImpactArtifactInput {
   artifact_hash: string;
   decision_ref: string;
   release_hash: string;
   municipality_id: string;
-  decision_facts: any;
+  decision_facts_hash: string;
   evidence_refs: any;
   source_artifact_hashes: any;
   semantic_version: string;
@@ -14,17 +15,34 @@ export interface DecisionImpactArtifactInput {
   extraction_model: string;
   rule_version: string;
   verification_status: string;
+  lineage_sequence: number;
 }
 
 export class DecisionArtifactRepository {
   constructor(private prisma: PrismaClient) {}
 
   /**
-   * Saves a new DecisionImpactArtifact
+   * Saves a new DecisionImpactArtifact.
+   * MAT-I05: the caller must be a registered materialization authority.
    */
-  async save(artifact: DecisionImpactArtifactInput) {
-    return this.prisma.decisionImpactArtifact.create({
-      data: artifact,
+  async save(
+    artifact: DecisionImpactArtifactInput,
+    decision_facts: any,
+    authority?: string,
+  ) {
+    assertSingleMaterializationAuthority(authority);
+    return this.prisma.$transaction(async (tx) => {
+      await tx.decisionFactsArtifact.upsert({
+        where: { artifact_hash: artifact.decision_facts_hash },
+        update: {},
+        create: {
+          artifact_hash: artifact.decision_facts_hash,
+          facts: decision_facts
+        }
+      });
+      return tx.decisionImpactArtifact.create({
+        data: artifact,
+      });
     });
   }
 
@@ -52,7 +70,7 @@ export class DecisionArtifactRepository {
       decision_ref: artifact.decision_ref,
       release_hash: artifact.release_hash,
       municipality_id: artifact.municipality_id,
-      decision_facts: artifact.decision_facts,
+      decision_facts_hash: artifact.decision_facts_hash,
       evidence_refs: artifact.evidence_refs,
       source_artifact_hashes: artifact.source_artifact_hashes,
       semantic_version: artifact.semantic_version,
@@ -66,9 +84,16 @@ export class DecisionArtifactRepository {
   }
 
   /**
-   * Supersedes an old artifact with a new one
+   * Supersedes an old artifact with a new one.
+   * MAT-I05: the caller must be a registered materialization authority.
    */
-  async supersede(oldHash: string, newArtifact: DecisionImpactArtifactInput) {
+  async supersede(
+    oldHash: string,
+    newArtifact: DecisionImpactArtifactInput,
+    decision_facts: any,
+    authority?: string,
+  ) {
+    assertSingleMaterializationAuthority(authority);
     return this.prisma.$transaction(async (tx) => {
       const old = await tx.decisionImpactArtifact.findUnique({
         where: { artifact_hash: oldHash },
@@ -83,10 +108,19 @@ export class DecisionArtifactRepository {
         data: { verification_status: 'SUPERSEDED' },
       });
 
+      await tx.decisionFactsArtifact.upsert({
+        where: { artifact_hash: newArtifact.decision_facts_hash },
+        update: {},
+        create: {
+          artifact_hash: newArtifact.decision_facts_hash,
+          facts: decision_facts
+        }
+      });
+
       return tx.decisionImpactArtifact.create({
         data: {
           ...newArtifact,
-          supersedes: old.artifact_hash,
+          supersedes_hash: old.artifact_hash,
         },
       });
     });

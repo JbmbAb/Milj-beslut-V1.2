@@ -2,7 +2,7 @@ import { ExecutionManifest } from "../execution/ExecutionManifest";
 import { ExecutionPlanArtifact } from "../execution/ExecutionPlanArtifact";
 import { DependencyResolver } from "./DependencyResolver";
 import { ExecutionContextBuilder } from "./ExecutionContextBuilder";
-import { ArtifactMaterializer } from "./ArtifactMaterializer";
+import { ArtifactProjectionBuilder } from "./ArtifactProjectionBuilder";
 import { RegistryReference } from "../types";
 
 export class DeterministicRuntimeScheduler {
@@ -10,7 +10,7 @@ export class DeterministicRuntimeScheduler {
     private capabilityRegistry: any,
     private dependencyResolver: DependencyResolver,
     private contextBuilder: ExecutionContextBuilder,
-    private materializer: ArtifactMaterializer
+    private projectionBuilder: ArtifactProjectionBuilder
   ) {}
 
   async execute(manifest: ExecutionManifest, plan: ExecutionPlanArtifact) {
@@ -33,7 +33,7 @@ export class DeterministicRuntimeScheduler {
         const context = this.contextBuilder.build(manifest, plan, step);
         
         const capabilityOutput = await adapter.execute(context);
-        const produced_outputs = await this.materializer.materialize(capabilityOutput);
+        const produced_outputs = await this.projectionBuilder.project(capabilityOutput);
         
         all_outputs.push(...produced_outputs);
         
