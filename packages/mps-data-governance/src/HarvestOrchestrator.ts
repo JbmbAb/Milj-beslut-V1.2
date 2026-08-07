@@ -283,7 +283,7 @@ export class HarvestOrchestrator {
 
   private async runLUInitialization(
     request: HarvestExecutionRequest,
-    projection_ref: ContentReference,
+    projection_ref: ArtifactReference,
   ): Promise<HarvestExecutionResult> {
     const lu_ref = await this.luInitializer.initialize(projection_ref);
 
@@ -347,10 +347,14 @@ export class HarvestOrchestrator {
   }
 
   private isContentRef(v: any): v is ContentReference {
-    return v && typeof v === "object" && "content_hash" in v;
+    return this.isRef(v) && "id" in v && !("artifact_id" in v);
   }
 
   private isArtifactRef(v: any): v is ArtifactReference {
-    return v && typeof v === "object" && "id" in v && "content_hash" in v;
+    return this.isRef(v) && "artifact_id" in v && "artifact_type" in v;
+  }
+
+  private isRef(v: any): boolean {
+    return Boolean(v) && typeof v === "object" && "content_hash" in v;
   }
 }

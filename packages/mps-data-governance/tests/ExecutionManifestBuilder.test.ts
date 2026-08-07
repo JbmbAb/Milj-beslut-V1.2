@@ -5,7 +5,11 @@ import { buildExecutionManifest } from "../src/ExecutionManifest";
 import type { HarvestExecutionCheckpoint } from "../src/HarvestOrchestratorTypes";
 
 const contentRef = (hash: string) => ({ content_hash: { algorithm: "sha256", digest: hash }, id: hash });
-const artifactRef = (id: string, hash: string) => ({ id, content_hash: { algorithm: "sha256", digest: hash } });
+const artifactRef = (id: string, hash: string, artifact_type = id.toUpperCase()) => ({
+  artifact_id: id,
+  artifact_type,
+  content_hash: { algorithm: "sha256", digest: hash },
+});
 
 const dataset_ref = contentRef("dataset-root");
 const requested_at = "2026-01-01T00:00:00.000Z";
@@ -85,7 +89,7 @@ describe("ExecutionManifestBuilder", () => {
     // Content reference must NOT have id in user's test expectations
     // Säkra att manifest_ref och projection_ref mappar korrekt
     expect(manifest.manifest_ref!.id).toBe("manifest");
-    expect(manifest.projection_ref!.id).toBe("projection");
+    expect(manifest.projection_ref!.artifact_id).toBe("projection");
   });
 
   // -------------------------------------------------------------------------

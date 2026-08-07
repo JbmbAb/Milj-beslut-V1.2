@@ -2,7 +2,7 @@
 
 import type { ExecutionManifest } from "./ExecutionManifest";
 import type { HarvestExecutionResult } from "./HarvestOrchestratorTypes";
-import type { ContentReference, ArtifactReference } from "../../mps-core/src/types";
+import type { ArtifactReference } from "../../mps-core/src/types";
 
 /**
  * ReplayEngine
@@ -46,8 +46,8 @@ export class ReplayEngine {
    */
   private static collectProducedArtifacts(
     manifest: ExecutionManifest,
-  ): readonly ContentReference[] {
-    const out: ContentReference[] = [];
+  ): readonly ArtifactReference[] {
+    const out: ArtifactReference[] = [];
 
     if (manifest.projection_ref) {
       out.push(manifest.projection_ref);

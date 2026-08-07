@@ -32,7 +32,12 @@ export interface HarvestExecutionRequest {
 
 export interface HarvestExecutionResult {
   readonly state: HarvestExecutionState;
-  readonly produced_artifacts: readonly ContentReference[];
+  /**
+   * A run yields both harvested content, which carries no authority, and
+   * governed artifacts, which do. Both are "produced", so the union is the
+   * honest type; use `evidence_refs` when only decisions matter.
+   */
+  readonly produced_artifacts: readonly (ContentReference | ArtifactReference)[];
   readonly evidence_refs: readonly ArtifactReference[];
 }
 
@@ -60,8 +65,8 @@ export interface HarvestExecutionCheckpoint {
   readonly verification_ref?: ArtifactReference;
   readonly approval_ref?: ArtifactReference;
   readonly gate_evidence_ref?: ArtifactReference;
-  readonly projection_ref?: ContentReference;
-  readonly lu_ref?: ContentReference;
+  readonly projection_ref?: ArtifactReference;
+  readonly lu_ref?: ArtifactReference;
 
   readonly compliance_results?: readonly ComplianceCheckResult[];
 }

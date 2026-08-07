@@ -6,7 +6,11 @@ import { buildExecutionManifest } from "../src/ExecutionManifest";
 import type { HarvestExecutionCheckpoint, HarvestExecutionState } from "../src/HarvestOrchestratorTypes";
 
 const contentRef = (hash: string) => ({ content_hash: { algorithm: "sha256", digest: hash }, id: hash });
-const artifactRef = (id: string, hash: string) => ({ id, content_hash: { algorithm: "sha256", digest: hash } });
+const artifactRef = (id: string, hash: string, artifact_type = id.toUpperCase()) => ({
+  artifact_id: id,
+  artifact_type,
+  content_hash: { algorithm: "sha256", digest: hash },
+});
 
 const dataset_ref = contentRef("dataset");
 const requested_at = "2026-01-01T00:00:00.000Z";

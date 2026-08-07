@@ -29,26 +29,31 @@ describe('🜃 HarvestOrchestrator & Ingestion State Machine (ORCH-001 / ORCH-00
 
   const verificationRef: ArtifactReference = {
     artifact_id: 'verify-evidence',
-    artifact_type: 'VERIFICATION_EVIDENCE' as any
+    artifact_type: 'VERIFICATION_EVIDENCE',
+    content_hash: { algorithm: 'sha256', digest: 'verify-hash' }
   };
 
   const approvalRef: ArtifactReference = {
     artifact_id: 'approval-artifact',
-    artifact_type: 'DATASET_APPROVAL' as any
+    artifact_type: 'DATASET_APPROVAL',
+    content_hash: { algorithm: 'sha256', digest: 'approval-hash' }
   };
 
   const gateEvidenceRef: ArtifactReference = {
     artifact_id: 'gate-evidence',
-    artifact_type: 'IMPORT_GATE_EVIDENCE' as any
+    artifact_type: 'IMPORT_GATE_EVIDENCE',
+    content_hash: { algorithm: 'sha256', digest: 'gate-hash' }
   };
 
-  const projectionRef: ContentReference = {
-    id: 'projection-artifact',
+  const projectionRef: ArtifactReference = {
+    artifact_id: 'projection-artifact',
+    artifact_type: 'POSTGIS_PROJECTION',
     content_hash: { algorithm: 'sha256', digest: 'projection-hash' }
   };
 
-  const luRef: ContentReference = {
-    id: 'lu-artifact',
+  const luRef: ArtifactReference = {
+    artifact_id: 'lu-artifact',
+    artifact_type: 'LU_RUNTIME_INIT',
     content_hash: { algorithm: 'sha256', digest: 'lu-hash' }
   };
 
@@ -73,15 +78,23 @@ describe('🜃 HarvestOrchestrator & Ingestion State Machine (ORCH-001 / ORCH-00
       save: async (id: string, checkpoint: any) => {
         checkpointDb.set(id, checkpoint);
       },
-      loadApproval: async (ref: any) => ({
+      loadApproval: async (ref: any): Promise<DatasetApprovalArtifact> => ({
         artifact_id: 'approval-1',
         artifact_type: 'DATASET_APPROVAL',
+        content_hash: { algorithm: 'sha256', digest: 'approval-hash' },
+        signature: { algorithm: 'ed25519', signature: 'sig:approval-hash' },
         approved_ref: manifestRef,
         decision: 'APPROVED',
-        actor_ref: { actor_id: 'revisor', role: 'GOVERNANCE_REVIEWER' },
+        actor_ref: {
+          identity_ref: {
+            id: 'revisor',
+            content_hash: { algorithm: 'sha256', digest: 'revisor-identity' }
+          },
+          role: 'GOVERNANCE_REVIEWER'
+        },
         decision_at: '2026-08-07T02:00:00Z',
         reason: 'Godkänt'
-      } as DatasetApprovalArtifact)
+      })
     };
 
     orchestrator = new HarvestOrchestrator(

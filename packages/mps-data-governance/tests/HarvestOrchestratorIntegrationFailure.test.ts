@@ -6,9 +6,14 @@ import type {
   HarvestExecutionRequest,
   HarvestExecutionCheckpoint,
 } from "../src/HarvestOrchestratorTypes";
+import type { DatasetApprovalArtifact } from "../src/DatasetApprovalArtifact";
 
 const contentRef = (hash: string) => ({ content_hash: { algorithm: "sha256", digest: hash }, id: hash });
-const artifactRef = (id: string, hash: string) => ({ id, content_hash: { algorithm: "sha256", digest: hash } });
+const artifactRef = (id: string, hash: string, artifact_type = id.toUpperCase()) => ({
+  artifact_id: id,
+  artifact_type,
+  content_hash: { algorithm: "sha256", digest: hash },
+});
 
 const fixedClock = { now: () => "2026-01-01T00:00:00.000Z" };
 
@@ -22,12 +27,17 @@ function mockCheckpointStore() {
     remove: vi.fn(async (id: string) => {
       delete store[id];
     }),
-    loadApproval: vi.fn(async (ref: any) => ({
+    loadApproval: vi.fn(async (ref: any): Promise<DatasetApprovalArtifact> => ({
       artifact_id: 'approval-1',
-      artifact_type: 'DATASET_APPROVAL' as any,
+      artifact_type: 'DATASET_APPROVAL',
+      content_hash: { algorithm: "sha256", digest: "approval-hash" },
+      signature: { algorithm: "ed25519", signature: "sig:approval-hash" },
       approved_ref: contentRef("manifest"),
-      decision: ref.id === "rejected-approval" ? "REJECTED" : "APPROVED",
-      actor_ref: { actor_id: 'revisor', role: 'GOVERNANCE_REVIEWER' as any },
+      decision: ref.artifact_id === "rejected-approval" ? "REJECTED" : "APPROVED",
+      actor_ref: {
+        identity_ref: contentRef("revisor-identity"),
+        role: 'GOVERNANCE_REVIEWER'
+      },
       decision_at: '2026-08-07T02:00:00Z',
       reason: 'Beslut'
     })),

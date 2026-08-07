@@ -34,9 +34,9 @@ export interface ProjectionExecutor {
   project(input: {
     readonly gate_evidence_ref: ArtifactReference;
     readonly archive_refs: readonly ContentReference[];
-  }): Promise<ContentReference>;
+  }): Promise<ArtifactReference>;
 }
 
 export interface LURuntimeInitializer {
-  initialize(projection_ref: ContentReference): Promise<ContentReference>;
+  initialize(projection_ref: ArtifactReference): Promise<ArtifactReference>;
 }

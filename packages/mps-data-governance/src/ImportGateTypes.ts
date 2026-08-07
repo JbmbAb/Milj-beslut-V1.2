@@ -1,6 +1,7 @@
 // packages/mps-data-governance/src/ImportGateTypes.ts
 
 import type {
+  ArtifactReference,
   CanonicalArtifact,
   ContentReference,
   Timestamp,
@@ -38,7 +39,7 @@ export interface ImportGateEvidenceEnvelope {
  * evaluated_at SHALL NOT participate in canonical identity.
  */
 export interface ImportGateEvidenceArtifact
-  extends CanonicalArtifact,
+  extends Omit<CanonicalArtifact, "artifact_type">,
     ImportGateEvidenceEnvelope {
   readonly evaluated_at: Timestamp;
 }
@@ -57,5 +58,5 @@ export interface ImportGateResult {
   readonly approval_ref: ContentReference | null;
   readonly failed_controls: readonly string[];
   readonly evaluated_at: Timestamp;
-  readonly evidence_ref: ContentReference;
+  readonly evidence_ref: ArtifactReference;
 }
