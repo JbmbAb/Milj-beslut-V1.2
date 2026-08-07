@@ -280,11 +280,13 @@ export class HarvestOrchestrator {
       projection_ref,
     });
 
-    return {
-      state: "POSTGIS_PROJECTION",
-      produced_artifacts: archive_refs,
-      evidence_refs: [gate_evidence_ref, projection_ref],
-    };
+    /**
+     * POSTGIS_PROJECTION is a transitional state, like HARVESTING and
+     * VERIFYING. Every other stage continues into the next one; stopping here
+     * left READY_FOR_LU reachable only by invoking the orchestrator again, so
+     * a run that had passed every gate still reported as unfinished.
+     */
+    return this.runLUInitialization(request, projection_ref);
   }
 
   // -------------------------------
@@ -305,7 +307,7 @@ export class HarvestOrchestrator {
 
     return {
       state: "READY_FOR_LU",
-      produced_artifacts: [],
+      produced_artifacts: [projection_ref, lu_ref],
       evidence_refs: [projection_ref, lu_ref],
     };
   }
