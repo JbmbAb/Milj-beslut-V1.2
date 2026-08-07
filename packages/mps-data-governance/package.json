@@ -1,0 +1,19 @@
+{
+  "name": "@miljobeslut/mps-data-governance",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "main": "./src/ImportGate.ts",
+  "types": "./src/ImportGate.ts",
+  "exports": {
+    ".": "./src/ImportGate.ts"
+  },
+  "dependencies": {
+    "@miljobeslut/mps-core": "file:../mps-core",
+    "@miljobeslut/mps-artifact-store": "file:../mps-artifact-store"
+  },
+  "devDependencies": {
+    "typescript": "^5.5.0",
+    "vitest": "^4.1.10"
+  }
+}
