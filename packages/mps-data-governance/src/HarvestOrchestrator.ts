@@ -12,6 +12,7 @@ import type {
   ComplianceRunner,
   ProjectionExecutor,
   LURuntimeInitializer,
+  Clock,
 } from "./HarvestOrchestratorContracts";
 
 import type {
@@ -29,12 +30,14 @@ import { HarvestExecutionStateMachine } from "./HarvestExecutionStateMachine";
  * En formell, deterministisk och replay-kompatibel tillståndsmaskin och
  * orkestreringsmotor för Mimers Brunn.
  * 
- * Följer strikt de 5 designjusteringarna:
+ * Följer strikt alla 5 designjusteringar samt frysta driftsinvarianter:
  *   1. Event-driven asynkron resume för mänskligt godkännande (pollApproval).
  *   2. Ingen intern tolkning av approval-artefakter (delegeras till ImportGate).
  *   3. Separation av requested_at (begäran) och evaluated_at (ImportGate).
  *   4. Ingen Object.values()-baserad sökning; allt returneras i strikt typade strukturer.
  *   5. ORCH-007: Strikt sekventiell tillståndsverifiering via HarvestExecutionStateMachine.
+ *   6. IMPORT-TIME-001: Ingen intern tidsstämpel-generering (använder injicerad Clock).
+ *   7. Semantisk separation av ContentReference och ArtifactReference.
  */
 export class HarvestOrchestrator {
   constructor(
@@ -46,6 +49,7 @@ export class HarvestOrchestrator {
     private readonly projectionExecutor: ProjectionExecutor,
     private readonly luInitializer: LURuntimeInitializer,
     private readonly checkpointStore: HarvestCheckpointStore,
+    private readonly clock: Clock, // Injicerad klocka för 100% deterministiska körtidsstämplar (IMPORT-TIME-001)
   ) {}
 
   /**
@@ -115,7 +119,7 @@ export class HarvestOrchestrator {
       const quarantinedCheckpoint: HarvestExecutionCheckpoint = {
         checkpoint_version: current?.checkpoint_version ?? 1,
         execution_id: executionId,
-        updated_at: new Date().toISOString(),
+        updated_at: this.clock.now(),
         ...current,
         state: "QUARANTINED"
       };
@@ -126,7 +130,7 @@ export class HarvestOrchestrator {
     const nextCheckpoint: HarvestExecutionCheckpoint = {
       checkpoint_version: current?.checkpoint_version ?? 1,
       execution_id: executionId,
-      updated_at: new Date().toISOString(),
+      updated_at: this.clock.now(),
       ...checkpointData,
       state: targetState
     };
@@ -195,7 +199,7 @@ export class HarvestOrchestrator {
   private async awaitApproval(
     request: HarvestExecutionRequest,
     manifest_ref: ContentReference,
-    verification_ref: ContentReference,
+    verification_ref: ArtifactReference,
   ): Promise<HarvestExecutionResult> {
     // Poll efter asynkront godkännandebeslut (Event/Resume)
     const approval_ref = await this.governanceAwaiter.pollApproval(manifest_ref);
@@ -227,7 +231,7 @@ export class HarvestOrchestrator {
   private async runCompliance(
     request: HarvestExecutionRequest,
     manifest_ref: ContentReference,
-    approval_ref: ContentReference,
+    approval_ref: ArtifactReference,
   ): Promise<HarvestExecutionResult> {
     const compliance_results = await this.complianceRunner.run(
       manifest_ref,
@@ -270,14 +274,14 @@ export class HarvestOrchestrator {
   private async runImportGate(
     request: HarvestExecutionRequest,
     manifest_ref: ContentReference,
-    approval_ref: ContentReference,
+    approval_ref: ArtifactReference,
     compliance_results: readonly any[],
   ): Promise<HarvestExecutionResult> {
     // 1. Ladda godkännandeartefakten genom butiken (Handoff till Gate)
     const approval_artifact = await this.checkpointStore.loadApproval(approval_ref);
 
     // 2. Evaluera ImportGate. Separera requested_at från evaluated_at (t.ex. med nuvarande tid)
-    const evaluatedAt = new Date().toISOString();
+    const evaluatedAt = this.clock.now();
     const gateResult = await this.importGate.evaluate(
       { manifest_ref, approval_artifact, compliance_results },
       evaluatedAt,
@@ -311,7 +315,7 @@ export class HarvestOrchestrator {
 
   private async runProjection(
     request: HarvestExecutionRequest,
-    gate_evidence_ref: ContentReference,
+    gate_evidence_ref: ArtifactReference,
     archive_refs: readonly ContentReference[],
   ): Promise<HarvestExecutionResult> {
     const projection_ref = await this.projectionExecutor.project({
@@ -347,7 +351,7 @@ export class HarvestOrchestrator {
   }
 
   /**
-   * Bygger ett strikt typat, deterministiskt resultat utifrån explicit data.
+   * Bygger ett sanningsekologiskt resultat utifrån explicit data.
    * Inga Object.values()-baserade elementsökningar är tillåtna!
    */
   private buildResult(
@@ -362,16 +366,10 @@ export class HarvestOrchestrator {
     if (checkpoint.lu_ref) produced.push(checkpoint.lu_ref);
 
     if (checkpoint.verification_ref) {
-      evidence.push({
-        artifact_id: "verification-evidence",
-        artifact_type: "VERIFICATION_EVIDENCE" as any,
-      });
+      evidence.push(checkpoint.verification_ref);
     }
     if (checkpoint.gate_evidence_ref) {
-      evidence.push({
-        artifact_id: "import-gate-evidence",
-        artifact_type: "IMPORT_GATE_EVIDENCE" as any,
-      });
+      evidence.push(checkpoint.gate_evidence_ref);
     }
 
     return {

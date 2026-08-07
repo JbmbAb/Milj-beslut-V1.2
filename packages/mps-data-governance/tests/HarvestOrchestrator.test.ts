@@ -2,7 +2,7 @@ import { describe, expect, it, vi, beforeEach } from 'vitest';
 import { HarvestOrchestrator } from '../src/HarvestOrchestrator';
 import { HarvestExecutionCheckpoint, HarvestExecutionRequest } from '../src/HarvestOrchestratorTypes';
 import type { DatasetApprovalArtifact } from '../src/DatasetApprovalArtifact';
-import type { ContentReference } from '../../mps-core/src/types';
+import type { ContentReference, ArtifactReference } from '../../mps-core/src/types';
 
 describe('🜃 HarvestOrchestrator & Ingestion State Machine (ORCH-001 / ORCH-007)', () => {
   let mockHarvestExecutor: any;
@@ -13,6 +13,7 @@ describe('🜃 HarvestOrchestrator & Ingestion State Machine (ORCH-001 / ORCH-00
   let mockProjectionExecutor: any;
   let mockLuInitializer: any;
   let mockCheckpointStore: any;
+  let mockClock: any;
   let checkpointDb: Map<string, HarvestExecutionCheckpoint>;
   let orchestrator: HarvestOrchestrator;
 
@@ -27,19 +28,19 @@ describe('🜃 HarvestOrchestrator & Ingestion State Machine (ORCH-001 / ORCH-00
     requested_at: '2026-08-07T00:00:00Z'
   };
 
-  const verificationRef: ContentReference = {
-    id: 'verify-evidence',
-    content_hash: { algorithm: 'sha256', digest: 'verify-hash' }
+  const verificationRef: ArtifactReference = {
+    artifact_id: 'verify-evidence',
+    artifact_type: 'VERIFICATION_EVIDENCE' as any
   };
 
-  const approvalRef: ContentReference = {
-    id: 'approval-artifact',
-    content_hash: { algorithm: 'sha256', digest: 'approval-hash' }
+  const approvalRef: ArtifactReference = {
+    artifact_id: 'approval-artifact',
+    artifact_type: 'DATASET_APPROVAL' as any
   };
 
-  const gateEvidenceRef: ContentReference = {
-    id: 'gate-evidence',
-    content_hash: { algorithm: 'sha256', digest: 'gate-evidence-hash' }
+  const gateEvidenceRef: ArtifactReference = {
+    artifact_id: 'gate-evidence',
+    artifact_type: 'IMPORT_GATE_EVIDENCE' as any
   };
 
   const projectionRef: ContentReference = {
@@ -67,6 +68,7 @@ describe('🜃 HarvestOrchestrator & Ingestion State Machine (ORCH-001 / ORCH-00
     };
     mockProjectionExecutor = { project: vi.fn().mockResolvedValue(projectionRef) };
     mockLuInitializer = { initialize: vi.fn().mockResolvedValue(luRef) };
+    mockClock = { now: () => '2026-08-07T00:00:00Z' };
 
     mockCheckpointStore = {
       load: async (id: string) => checkpointDb.get(id) || null,
@@ -92,7 +94,8 @@ describe('🜃 HarvestOrchestrator & Ingestion State Machine (ORCH-001 / ORCH-00
       mockImportGate,
       mockProjectionExecutor,
       mockLuInitializer,
-      mockCheckpointStore
+      mockCheckpointStore,
+      mockClock
     );
   });
 
@@ -107,7 +110,7 @@ describe('🜃 HarvestOrchestrator & Ingestion State Machine (ORCH-001 / ORCH-00
     // Orkestreringen ska pausa vid AWAITING_APPROVAL
     expect(result.state).toBe('AWAITING_APPROVAL');
     expect(result.produced_artifacts).toEqual([manifestRef]);
-    expect(result.evidence_refs[0]!.artifact_id).toBe('verification-evidence');
+    expect(result.evidence_refs[0]!.artifact_id).toBe('verify-evidence');
 
     // Kontrollera sparat checkpoint
     const cp = checkpointDb.get(request.execution_id)!;
@@ -150,7 +153,12 @@ describe('🜃 HarvestOrchestrator & Ingestion State Machine (ORCH-001 / ORCH-00
     
     // Om mockHarvestExecutor sparar en checkpoint som är 'COMPLIANCE_CHECK' (hoppar över steg!)
     mockHarvestExecutor.execute.mockImplementation(async () => {
-      checkpointDb.set(request.execution_id, { state: 'COMPLIANCE_CHECK' }); // Hack!
+      checkpointDb.set(request.execution_id, {
+        checkpoint_version: 1,
+        execution_id: request.execution_id,
+        updated_at: '2026-08-07T00:00:00Z',
+        state: 'COMPLIANCE_CHECK'
+      }); // Hack!
       return manifestRef;
     });
 
