@@ -37,3 +37,9 @@ export {
   type BudgetEvaluationInput,
   type BudgetEvaluationStatus,
 } from "./QueryBudgetEvaluator.js";
+
+export {
+  executeQueryBudget,
+  SCALE_I01,
+  type BudgetExecuteRequest,
+} from "./QueryBudgetGateway.js";

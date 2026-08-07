@@ -73,6 +73,18 @@ export default defineConfig({
         __dirname,
         'packages/mps-diagnostics/src/index.ts',
       ),
+      '@miljobeslut/mps-retrieval-governance': path.resolve(
+        __dirname,
+        'packages/mps-retrieval-governance/src/index.ts',
+      ),
+      '@miljobeslut/mps-query-budget': path.resolve(
+        __dirname,
+        'packages/mps-query-budget/src/index.ts',
+      ),
+      '@miljobeslut/mps-retrieval-trace': path.resolve(
+        __dirname,
+        'packages/mps-retrieval-trace/src/index.ts',
+      ),
     },
   },
   test: {
@@ -156,9 +168,9 @@ export default defineConfig({
             'packages/mps-decision-governance/**/*.test.ts',
             'packages/mps-materialization/**/*.test.ts',
             'packages/mps-diagnostics/**/*.test.ts',
-            'packages/mps-materialization/**/*.test.ts',
             'packages/mps-retrieval-governance/**/*.test.ts',
             'packages/mps-query-budget/**/*.test.ts',
+            'packages/mps-retrieval-trace/**/*.test.ts',
           ],
           environment: 'node',
         },

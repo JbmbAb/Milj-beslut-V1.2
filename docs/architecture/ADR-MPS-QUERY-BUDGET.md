@@ -68,3 +68,12 @@ mps-query-budget/           ← operational cost (this ADR)
 ```
 
 Do not merge these packages.
+
+---
+
+## SCALE-I01 — End-to-end negative boundary
+
+`executeQueryBudget({ artifactClass: "RawDocumentChunk", target: "DecisionImpactArtifact" })`  
+SHALL throw `AUTHORITY_BOUNDARY_VIOLATION`.
+
+Budget MUST NOT become an alternate path around Materialization / Retrieval authority.
