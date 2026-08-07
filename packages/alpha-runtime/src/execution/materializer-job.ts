@@ -62,7 +62,7 @@ export class MaterializerJob {
 
     // Compute canonical payload hash
     const canonicalPayload = JSON.stringify({
-      decision_id: decisionCase.id,
+      decision_ref: decisionCase.id,
       release_hash: 'RELEASE_SIMULATION_HASH', // Should be drawn from the current system release version
       municipality_id: municipality,
       decision_facts: decisionFacts,
@@ -70,6 +70,8 @@ export class MaterializerJob {
       source_artifact_hashes: sourceArtifactHashes,
       semantic_version: '1.0.0',
       materialization_version: 'v2',
+      extraction_model: 'gemini-1.5-pro',
+      rule_version: '1.0.0'
     });
     
     const artifactHash = createHash('sha256').update(canonicalPayload).digest('hex');
@@ -82,7 +84,7 @@ export class MaterializerJob {
     }
 
     await repo.save({
-      decision_id: decisionCase.id,
+      decision_ref: decisionCase.id,
       artifact_hash: artifactHash,
       release_hash: 'RELEASE_SIMULATION_HASH',
       municipality_id: municipality,
@@ -91,6 +93,8 @@ export class MaterializerJob {
       source_artifact_hashes: sourceArtifactHashes,
       semantic_version: '1.0.0',
       materialization_version: 'v2',
+      extraction_model: 'gemini-1.5-pro',
+      rule_version: '1.0.0',
       verification_status: 'VERIFIED'
     });
 

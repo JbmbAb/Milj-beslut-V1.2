@@ -2,8 +2,8 @@ import { PrismaClient } from '@prisma/client';
 import { createHash } from 'crypto';
 
 export interface DecisionImpactArtifactInput {
-  decision_id: string;
   artifact_hash: string;
+  decision_ref: string;
   release_hash: string;
   municipality_id: string;
   decision_facts: any;
@@ -11,6 +11,8 @@ export interface DecisionImpactArtifactInput {
   source_artifact_hashes: any;
   semantic_version: string;
   materialization_version: string;
+  extraction_model: string;
+  rule_version: string;
   verification_status: string;
 }
 
@@ -30,7 +32,7 @@ export class DecisionArtifactRepository {
    * Retrieves an artifact by its CAS hash
    */
   async get(hash: string) {
-    return this.prisma.decisionImpactArtifact.findFirst({
+    return this.prisma.decisionImpactArtifact.findUnique({
       where: { artifact_hash: hash },
     });
   }
@@ -47,7 +49,7 @@ export class DecisionArtifactRepository {
     // A canonical serialization would normally be used here, matching the artifact generation.
     // Assuming deterministic stringify for now.
     const canonicalPayload = JSON.stringify({
-      decision_id: artifact.decision_id,
+      decision_ref: artifact.decision_ref,
       release_hash: artifact.release_hash,
       municipality_id: artifact.municipality_id,
       decision_facts: artifact.decision_facts,
@@ -55,6 +57,8 @@ export class DecisionArtifactRepository {
       source_artifact_hashes: artifact.source_artifact_hashes,
       semantic_version: artifact.semantic_version,
       materialization_version: artifact.materialization_version,
+      extraction_model: artifact.extraction_model,
+      rule_version: artifact.rule_version,
     });
 
     const computedHash = createHash('sha256').update(canonicalPayload).digest('hex');
@@ -66,7 +70,7 @@ export class DecisionArtifactRepository {
    */
   async supersede(oldHash: string, newArtifact: DecisionImpactArtifactInput) {
     return this.prisma.$transaction(async (tx) => {
-      const old = await tx.decisionImpactArtifact.findFirst({
+      const old = await tx.decisionImpactArtifact.findUnique({
         where: { artifact_hash: oldHash },
       });
 
@@ -75,14 +79,14 @@ export class DecisionArtifactRepository {
       }
 
       await tx.decisionImpactArtifact.update({
-        where: { id: old.id },
+        where: { artifact_hash: old.artifact_hash },
         data: { verification_status: 'SUPERSEDED' },
       });
 
       return tx.decisionImpactArtifact.create({
         data: {
           ...newArtifact,
-          supersedes: old.id,
+          supersedes: old.artifact_hash,
         },
       });
     });
