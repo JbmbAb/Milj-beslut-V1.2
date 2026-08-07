@@ -22,7 +22,8 @@ describe("🜃 Materialization Pipeline & Determinism (MAT-I01 to MAT-I04)", () 
       ],
       schema_version: 1,
       lineage_sequence: 10,
-      previous_evidence_set_hash: undefined
+      previous_evidence_set_hash: undefined,
+      lineage_scope: { jurisdiction_level: "COUNTY", decision_type: "ENVIRONMENTAL_PERMIT" }
     },
     metadata: {
       created_at: "2026-08-07T00:00:00Z",
@@ -79,7 +80,8 @@ describe("🜃 Materialization Pipeline & Determinism (MAT-I01 to MAT-I04)", () 
         documents: [{ document_hash: "doc-1" }],
         schema_version: 1,
         lineage_sequence: 5, // Regression! (sequence 5 efter sequence 10)
-        previous_evidence_set_hash: "ev-set-A" // Refererar till A som har sekvens 10!
+        previous_evidence_set_hash: "ev-set-A", // Refererar till A som har sekvens 10!
+        lineage_scope: { jurisdiction_level: "COUNTY", decision_type: "ENVIRONMENTAL_PERMIT" }
       },
       metadata: evidenceSet.metadata
     };
