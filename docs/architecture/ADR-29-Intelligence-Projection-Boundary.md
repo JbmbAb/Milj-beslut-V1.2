@@ -1,7 +1,7 @@
 # ADR-29: Intelligence Projection Boundary
 
 **Date**: 2026-08-07
-**Status**: Accepted
+**Status**: FROZEN
 
 ## Context
 Mimer Platform Edition is expanding to support hundreds of millions of environmental records, documents, and spatial artifacts. Historically, AI models have directly queried the raw `DocumentChunk` and `LegalCorpusChunk` evidence layers. This turns the AI into an implicit OLAP engine, leading to exponential increases in token costs, latency, and context-window saturation as the dataset grows. Furthermore, relying on AI to summarize raw evidence dynamically at inference time breaks the deterministic replayability and verification guarantees of the platform.
@@ -29,6 +29,68 @@ The architecture strictly enforces three distinct lifecycles:
 - Projections MAY be superseded.
 - Projections MAY be verified.
 - Projections **SHALL NEVER** mutate the source evidence.
+
+### Knowledge Plane Boundary Invariant
+
+> **MIMER-SCALE-I02**: 
+> General analytical retrieval SHALL begin from Decision artifacts.
+> Raw Evidence SHALL only be expanded when required for verification, citation, or drill-down.
+
+This ensures the QueryPlanner is the sole component choosing between `DecisionImpactArtifact`, `EvidenceSet`, and `Raw Evidence`. No other part of the AI layer may bypass this and directly query `DocumentChunk`.
+
+## Belastningsmodell (Scalability Proof)
+
+To prove the scaling invariant, we contrast the legacy architecture with the new Knowledge Plane:
+
+### Före (Exponential AI Cost)
+```text
+User Query -> DocumentChunk Retrieval (10M chunks) -> LLM Synthesis
+```
+**Problemet**: AI becomes a history engine, aggregation engine, and database query engine. Token cost and latency scale linearly with historical data volume.
+
+### Efter (Constant AI Cost)
+```text
+User Query -> Query Planner -> DecisionImpactArtifact -> EvidenceSetArtifact & targeted expansion -> LLM reasoning
+```
+**Lösningen**: The LLM works strictly with pre-materialized decision facts + verifiable evidence. It does **not** process the entire raw history. Token cost remains roughly constant regardless of total historical volume, shifting the load curve from AI back to the database.
+
+## Executable retrieval contract
+
+Frozen in `packages/mps-decision-governance/src/DecisionRetrievalContract.ts` (version `"1"`):
+
+**Allowed:**
+
+```text
+GENERAL QUERY
+        ↓
+DecisionImpactArtifact
+        ↓
+(optional) EvidenceSet
+        ↓
+(optional) Raw Evidence
+```
+
+**Forbidden:**
+
+```text
+GENERAL QUERY
+        ↓
+Raw Evidence
+```
+
+**Invariant (executable MIMER-SCALE-I01):**  
+Raw Evidence SHALL NOT be the initial retrieval target for analytical queries.  
+Raw expansion MUST pass through EvidenceSet (no DecisionImpact → Raw skip).  
+AI MUST NOT use raw material as the primary knowledge source as data volume grows.
+
+Modules:
+
+| Module | Responsibility |
+| --- | --- |
+| `DecisionKnowledgeRepository` | CAS: hash → artifact (no AI) |
+| `DecisionKnowledgeResolver` | Traversal: Impact → EvidenceSet → documents (no LLM) |
+| `DecisionExpansionPlanner` | Bounded expansion plan/execute |
+| `DecisionRetrievalContract` | Frozen pipeline + I01 checks |
 
 ## Consequences
 - **Positive**: AI cost and latency decouple from data volume. The AI only reads heavily distilled, mathematically verified `DecisionImpactArtifacts`.

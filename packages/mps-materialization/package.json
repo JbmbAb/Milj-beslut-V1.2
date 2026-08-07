@@ -1,0 +1,19 @@
+{
+  "name": "@miljobeslut/mps-materialization",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "main": "./src/MaterializationPipeline.ts",
+  "types": "./src/MaterializationPipeline.ts",
+  "exports": {
+    ".": "./src/MaterializationPipeline.ts"
+  },
+  "dependencies": {
+    "@miljobeslut/mps-core": "file:../mps-core",
+    "@miljobeslut/mps-decision-governance": "file:../mps-decision-governance"
+  },
+  "devDependencies": {
+    "typescript": "^5.5.0",
+    "vitest": "^4.1.10"
+  }
+}

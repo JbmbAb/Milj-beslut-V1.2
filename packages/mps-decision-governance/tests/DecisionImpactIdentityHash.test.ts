@@ -18,7 +18,12 @@ describe("DecisionImpactIdentity & EvidenceSet Hash Determinism", () => {
       ],
       schema_version: 1,
       lineage_sequence: 5,
-      previous_evidence_set_hash: "prev-hash-999"
+      previous_evidence_set_hash: "prev-hash-999",
+      lineage_scope: { jurisdiction_level: "MUNICIPALITY", decision_type: "WASTEWATER" }
+    };
+        jurisdiction_level: "MUNICIPALITY",
+        decision_type: "WASTEWATER",
+      },
     };
 
     test("same facts produce identical hash", () => {

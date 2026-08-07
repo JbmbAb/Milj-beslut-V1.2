@@ -15,13 +15,14 @@ const makeArtifact = (
 ): EvidenceSetArtifact => ({
   evidence_set_hash: hash,
   identity: {
-    documents: [
-      { document_hash: "d1" },
-      { document_hash: "d2" },
-    ],
+    documents: [{ document_hash: "d1" }, { document_hash: "d2" }],
     schema_version: 1,
     lineage_sequence: seq,
     previous_evidence_set_hash: prev,
+    lineage_scope: {
+      jurisdiction_level: "MUNICIPALITY",
+      decision_type: "WASTEWATER",
+    },
   },
   metadata: {
     created_at: "2026-01-01T00:00:00.000Z",
@@ -57,7 +58,7 @@ describe("EvidenceSetLineage validation", () => {
   });
 
   test("missing previous → error", () => {
-    const b = makeArtifact("B", 2, "X"); // X does not exist
+    const b = makeArtifact("B", 2, "X");
 
     expect(() => validateEvidenceSetLineage(b, resolver)).toThrow(
       EvidenceSetLineageError,
@@ -81,6 +82,10 @@ describe("EvidenceSetLineage validation", () => {
         schema_version: 1,
         lineage_sequence: 1,
         previous_evidence_set_hash: undefined,
+        lineage_scope: {
+          jurisdiction_level: "MUNICIPALITY",
+          decision_type: "WASTEWATER",
+        },
       },
       metadata: {
         created_at: "2026-01-01T00:00:00.000Z",
@@ -93,9 +98,13 @@ describe("EvidenceSetLineage validation", () => {
       evidence_set_hash: "B",
       identity: {
         documents: [{ document_hash: "d1" }],
-        schema_version: 2, // scope change
+        schema_version: 1,
         lineage_sequence: 2,
         previous_evidence_set_hash: "A",
+        lineage_scope: {
+          jurisdiction_level: "MUNICIPALITY",
+          decision_type: "BUILDING_PERMIT",
+        },
       },
       metadata: {
         created_at: "2026-01-01T00:00:00.000Z",
