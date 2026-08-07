@@ -33,7 +33,7 @@ export class DecisionArtifactRepository {
 
   /**
    * Sparar en DecisionImpactIdentity som ett omutligt, innehålls-adresserat artefakt.
-   * Garanterar atomisk deduplicering (DFL-I7 & DFL-I8).
+   * Garanterar atomisk deduplicering (DFL-I7 & DFL-I8) samt WORM-oföränderlighet.
    */
   async save(
     identity: DecisionImpactIdentity,
@@ -56,7 +56,17 @@ export class DecisionArtifactRepository {
     try {
       // DFL-I7: CAS-idempotens — om artefakten redan finns fysiskt, returnera den direkt
       if (this.store.has(impactId)) {
-        return this.store.get(impactId)!;
+        const existing = this.store.get(impactId)!;
+        
+        // WORM-kontrakt: Om hashen är densamma men payload skiljer sig åt, kasta ett allvarligt oföränderlighetsfel!
+        if (JSON.stringify(existing.identity) !== JSON.stringify(identity)) {
+          throw new DecisionArtifactRepositoryError(
+            "IMMUTABILITY_VIOLATION",
+            `WORM Violation: Cannot overwrite existing artifact '${impactId}' with a different payload (collision attempt).`
+          );
+        }
+        
+        return existing;
       }
 
       // Verifiera att inga supersedes-cykler bildas (Cykelförebyggande)
@@ -107,16 +117,28 @@ export class DecisionArtifactRepository {
   }
 
   /**
-   * Avvisar sparande om det skulle bilda en cykel i supersedes-kedjan.
+   * Avvisar sparande om det skulle bilda en cykel i supersedes-kedjan eller om sökdjupet
+   * överskrider MAX_LINEAGE_DEPTH = 100 för att förhindra oändlig traversal (B).
    */
   private assertNoSupersedesCycles(identity: DecisionImpactIdentity, currentHash: string): void {
     const visited = new Set<string>([currentHash]);
+    const MAX_LINEAGE_DEPTH = 100;
     
     // Vi utgår från de evidence set hashar som ingår för att spåra historiska beroenden
     // och förhindra loopar där en ny rapport spårar tillbaka till sig själv
     for (const parentHash of identity.evidence_set_hashes) {
       let nextHash: string | undefined = parentHash;
+      let depth = 0;
+
       while (nextHash) {
+        depth++;
+        if (depth > MAX_LINEAGE_DEPTH) {
+          throw new DecisionArtifactRepositoryError(
+            "LINEAGE_DEPTH_EXCEEDED",
+            `Lineage Depth Exceeded: Traversal depth exceeded limits (MAX_LINEAGE_DEPTH = 100). Possible infinite recursion or extremely nested lineage detected.`
+          );
+        }
+
         if (visited.has(nextHash)) {
           throw new DecisionArtifactRepositoryError(
             "SUPERSEDES_CYCLE_DETECTED",

@@ -1,6 +1,6 @@
 // packages/mps-decision-governance/tests/DecisionImpactProperty.test.ts
 
-import { describe, test, expect, beforeEach } from "vitest";
+import { describe, test, expect, beforeEach, vi } from "vitest";
 import { DecisionArtifactRepository, DecisionArtifactRepositoryError } from "../src/DecisionArtifactRepository";
 import { hashDecisionImpactIdentity } from "../src/CanonicalDecisionImpactHash";
 import { canonicalizeStrict } from "../../mimers-brunn-core/src/serialization/canonicalize";
@@ -177,11 +177,70 @@ describe("🜃 Decision Knowledge Plane — Core Invariants (DFL-I1 to DFL-I8)",
     const idC = { ...sampleIdentity, evidence_set_hashes: [artB.impact_id] };
     const hashC = hashDecisionImpactIdentity(idC);
 
-    // För att bilda cykeln låter vi B referera till C:s framtida hash!
+    // För avsikt att bilda cykeln låter vi B referera till C:s framtida hash!
     (artB as any).identity.evidence_set_hashes = [hashC];
 
     await expect(
       repository.save(idC, sampleMetadata)
     ).rejects.toThrowError("Circular Dependency Detected"); // Cykeln stoppas preventivt!
+  });
+
+  test("WORM Invariant: rejects saving a different identity under an already occupied hash key (IMMUTABILITY_VIOLATION)", async () => {
+    // Spara först en giltig identitet
+    const art1 = await repository.save(sampleIdentity, sampleMetadata);
+
+    // Vi simulerar fientlig lagring där vi tvingar in en modifierad identity under samma existerande impact_id
+    // Genom att tvinga save() att försöka registrera en muterad variant, men hashen styrs av spara-logiken.
+    // Eftersom save() räknar om hashen internt, kan vi testa WORM genom att simulera ett hash-kollisions- eller överlappsscenario i butiken
+    // (t.ex. om vi muterar minnet för existerande nyckel, och därefter försöker spara samma nyckel igen med ny identitet).
+    
+    // Vi lägger in en falsk post i map:en som har nyckeln 'COLLISION-KEY' men en annan identitet
+    const collisionKey = "collision-key";
+    (repository as any).store.set(collisionKey, {
+      impact_id: collisionKey,
+      identity: { ...sampleIdentity, derivation_version: "original-version" },
+      metadata: sampleMetadata
+    });
+
+    // Försök nu spara en helt annan identitet (med annan derivation_version) under samma nyckel
+    // För att tvinga fram hashen mockar vi hashDecisionImpactIdentity med ES Module spyOn
+    const hashModule = await import("../src/CanonicalDecisionImpactHash");
+    
+    try {
+      vi.spyOn(hashModule, "hashDecisionImpactIdentity").mockReturnValue(collisionKey);
+
+      await expect(
+        repository.save({ ...sampleIdentity, derivation_version: "HACKED-version" }, sampleMetadata)
+      ).rejects.toThrowError("WORM Violation: Cannot overwrite existing artifact");
+    } finally {
+      // Återställ
+      vi.restoreAllMocks();
+    }
+  });
+
+  test("MAX_LINEAGE_DEPTH Invariant: rejects saving an identity exceeding a traversal depth of 100 levels", async () => {
+    // Skapa en djupt kapslad linjär kedja med 101 nivåer (0 till 100)
+    let prevHash = "ev-set-hash-0";
+    
+    // Fyll butiken med 101 föräldra-artefakter för att simulera den djupa tidslinjen
+    for (let i = 1; i <= 101; i++) {
+      const parentId = `parent-hash-${i}`;
+      (repository as any).store.set(prevHash, {
+        impact_id: prevHash,
+        identity: { ...sampleIdentity, evidence_set_hashes: [parentId] },
+        metadata: sampleMetadata
+      });
+      prevHash = parentId;
+    }
+
+    // Försök nu spara en ny identitet som refererar till startpunkten på denna 101-nivåer djupa tidslinje!
+    const deepIdentity = {
+      ...sampleIdentity,
+      evidence_set_hashes: ["ev-set-hash-0"]
+    };
+
+    await expect(
+      repository.save(deepIdentity, sampleMetadata)
+    ).rejects.toThrowError("Lineage Depth Exceeded"); // Djupgränsen utlöses direkt!
   });
 });
