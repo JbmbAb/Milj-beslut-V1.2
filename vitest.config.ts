@@ -85,6 +85,10 @@ export default defineConfig({
         __dirname,
         'packages/mps-retrieval-trace/src/index.ts',
       ),
+      '@miljobeslut/mps-cas-boundary': path.resolve(
+        __dirname,
+        'packages/mps-cas-boundary/src/index.ts',
+      ),
     },
   },
   test: {
@@ -171,6 +175,8 @@ export default defineConfig({
             'packages/mps-retrieval-governance/**/*.test.ts',
             'packages/mps-query-budget/**/*.test.ts',
             'packages/mps-retrieval-trace/**/*.test.ts',
+            'packages/mps-runtime-snapshot/**/*.test.ts',
+            'packages/mps-cas-boundary/**/*.test.ts',
           ],
           environment: 'node',
         },
