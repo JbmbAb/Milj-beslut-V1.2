@@ -16,15 +16,15 @@ describe('🜃 HarvestOrchestrator & Ingestion State Machine (ORCH-001 / ORCH-00
   let checkpointDb: Map<string, HarvestExecutionCheckpoint>;
   let orchestrator: HarvestOrchestrator;
 
-  const request: HarvestExecutionRequest = {
-    execution_id: 'orch-run-2026',
-    source_id: 'mmd_vaxjo',
-    requested_at: '2026-08-07T00:00:00Z'
-  };
-
   const manifestRef: ContentReference = {
     id: 'manifest-sgu',
     content_hash: { algorithm: 'sha256', digest: 'manifest-hash' }
+  };
+
+  const request: HarvestExecutionRequest = {
+    dataset_ref: manifestRef,
+    execution_id: 'orch-run-2026',
+    requested_at: '2026-08-07T00:00:00Z'
   };
 
   const verificationRef: ContentReference = {

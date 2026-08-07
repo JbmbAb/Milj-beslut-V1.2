@@ -124,6 +124,9 @@ export class HarvestOrchestrator {
     }
 
     const nextCheckpoint: HarvestExecutionCheckpoint = {
+      checkpoint_version: current?.checkpoint_version ?? 1,
+      execution_id: executionId,
+      updated_at: new Date().toISOString(),
       ...checkpointData,
       state: targetState
     };

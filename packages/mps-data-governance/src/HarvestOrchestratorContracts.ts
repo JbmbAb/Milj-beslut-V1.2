@@ -1,9 +1,9 @@
 import type { ContentReference } from "../../mps-core/src/types";
-import type { HarvestExecutionRequest, ComplianceCheckResult } from "./ImportGateTypes";
-import type { DatasetApprovalArtifact } from "./DatasetApprovalArtifact";
+import type { HarvestExecutionRequest } from "./HarvestOrchestratorTypes";
+import type { ComplianceCheckResult } from "./ImportGateTypes";
 
 export interface HarvestExecutor {
-  execute(request: { readonly source_id: string }): Promise<ContentReference>;
+  execute(request: HarvestExecutionRequest): Promise<ContentReference>;
 }
 
 export interface VerificationExecutor {
