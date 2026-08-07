@@ -1,0 +1,18 @@
+{
+  "name": "@miljobeslut/mps-decision-governance",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "main": "./src/CanonicalDecisionImpactHash.ts",
+  "types": "./src/CanonicalDecisionImpactHash.ts",
+  "exports": {
+    ".": "./src/CanonicalDecisionImpactHash.ts"
+  },
+  "dependencies": {
+    "@miljobeslut/mps-core": "file:../mps-core"
+  },
+  "devDependencies": {
+    "typescript": "^5.5.0",
+    "vitest": "^4.1.10"
+  }
+}

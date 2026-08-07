@@ -69,6 +69,10 @@ export default defineConfig({
         __dirname,
         'packages/mps-data-governance/src/ImportGate.ts',
       ),
+      '@miljobeslut/mps-diagnostics': path.resolve(
+        __dirname,
+        'packages/mps-diagnostics/src/index.ts',
+      ),
     },
   },
   test: {
@@ -148,7 +152,9 @@ export default defineConfig({
             'packages/mps-runtime/**/*.test.ts',
             'packages/mps-artifact-store/**/*.test.ts',
             'packages/mps-lu/**/*.test.ts',
-            'packages/mps-data-governance/**/*.test.ts'
+            'packages/mps-data-governance/**/*.test.ts',
+            'packages/mps-decision-governance/**/*.test.ts',
+            'packages/mps-diagnostics/**/*.test.ts',
           ],
           environment: 'node',
         },
