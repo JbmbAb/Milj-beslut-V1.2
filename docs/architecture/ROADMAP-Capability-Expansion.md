@@ -137,12 +137,15 @@ inherit the governance table strategy from TV-3.0.
 
 ---
 
-## Phase 3 — TV-S5 Environmental Simulation Layer (reserved)
+## Phase 3 — TV-S5 Evidence Fusion Layer (reserved)
 
-Not to be implemented. The slot is reserved so that later work has a defined shape:
+*Also known as: Evidence Fusion & Derived Assessment Contract*
+
+Not to be implemented yet. The slot is reserved so that later work has a defined shape. 
+This layer provides the generic mechanism to combine evidence from multiple capabilities without creating new authority. It explicitly separates AI "reasoning" (which consumes evidence) from strict "fusion" (which combines evidence artifacts in a deterministic, verifiable way).
 
 ```
-Spatial Evidence → Simulation Capability → Simulation Artifact → CAS
+Capability Evidence (LU / Spatial / Hydraulic) → TV-S5 Fusion → Derived Assessment → Review → CAS
 ```
 
 Candidate capabilities, by domain:
@@ -163,6 +166,121 @@ given Svenskt Vatten publication edition (P110, P105) and a given rainfall inten
 formula must record which edition it used, exactly as `rule_version` works for decisions.
 When the recommendation is revised, old calculations must remain reproducible instead of
 silently changing.
+
+### Dimensionality is a model choice; 3D is a platform requirement
+
+Full 3D is a requirement on the platform's physical modelling capability and on the final
+runtime. It SHALL NOT be reduced to presentation.
+
+Solver dimension is nevertheless chosen per phenomenon, on physical grounds. Network
+hydraulics is 1D because a pipe network is a graph; surface flooding is 2D shallow water;
+full 3D is used where the phenomenon genuinely requires it, such as local structures,
+stratification, and volumetric transport. Choosing a higher dimension than the physics
+demands buys cost, not accuracy — and choosing a lower one where it does demand it is
+simply wrong. The contract therefore carries the dimension as a declared property of the
+model rather than a property of the platform.
+
+Two consequences follow, and both are cheap now and expensive after the first artifact.
+
+**A field is not a geometry.** A 3D result is a volumetric field — velocity, depth,
+pressure, concentration over a grid or mesh — and `SpatialEvidenceArtifact` cannot hold
+it, because it carries `CanonicalGeometry`. The field payload follows the raster split
+already frozen in TV-4.3 SPC-R02: the payload is archived in CAS and addressed by content
+digest, while the artifact holds grid definition, CRS, vertical datum, units, axis order
+and nodata encoding alongside that digest. A field also needs its own canonical form, as
+SV-I07 gives geometry one. Without it two runs that agree physically will disagree by
+hash, and identity becomes meaningless.
+
+**Solver identity binds inputs, not outputs.** Numerical solvers are not bit-reproducible.
+Parallel reduction order, GPU versus CPU, BLAS version and compiler flags all change the
+last bits, and floating-point addition is not associative. If a flow artifact takes its
+identity from a hash over the result field, replay will fail while nothing is wrong.
+Identity SHALL bind inputs, solver fingerprint and configuration — the same construction
+as SV-I03 for the geometry stack — and result equivalence SHALL be verified against a
+declared physical tolerance rather than bit equality. This must be settled before a solver
+is chosen, because it constrains which solvers are admissible at all.
+
+Renderer independence is unchanged by any of this. Cesium, QGIS and Blender are runtime
+and production tools; none of them may enter the identity domain (TV-S1 SV-I01).
+
+---
+
+## Positioning — orchestration, not replacement
+
+The defensible claim is not that Mimer computes better than established domain tools. Those
+carry decades of validation in real projects. The claim is that Mimer orchestrates several
+independent domain engines inside one evidence and decision model:
+
+```
+              Decision Knowledge Plane
+                        │
+              Capability Orchestrator
+   ┌───────────┬───────────┬───────────┬───────────┐
+ Spatial     Hydraulic    Climate    Economics
+ QGIS        EPANET       Models     Models
+ GDAL        SWMM         ML         LCA
+ PostGIS
+                        │
+                Evidence Artifacts
+                        │
+                       CAS
+                        │
+             Human Review & Governance
+```
+
+No engine is "the smartest" here. Each contributes evidence. Mimer owns orchestration,
+provenance, replay, governance, and the decision basis.
+
+This is close to a digital twin, but of **decisions** rather than of an asset: the physical
+world is represented by data and models, every calculation is reproducible, every
+conclusion has traceable evidence, and every decision can be reviewed and replayed.
+
+Note what that term commits to. A twin makes a claim about state over time, which is
+unbuildable without the time dimension in §2.3. Use the framing only once `valid_from`,
+`observed_at`, and `created_at` are separated.
+
+---
+
+## Architecture proof (PoC)
+
+The proof must be falsifiable, not promotional. The claim under test:
+
+> Mimer can take evidence from several independent domain engines and produce a
+> reproducible, auditable decision basis.
+
+**The cheapest valid proof is LU itself.** LU already draws on three independent evidence
+sources — spatial (PostGIS), document, and rule — which is enough to demonstrate
+orchestration. What is missing is not a fourth engine; it is enforcement and replay across
+the chain that already exists.
+
+```
+Property → SpatialEvidence + DocumentEvidence + RuleEvidence → Assessment → Review → CAS
+```
+
+### Acceptance criteria
+
+| Criterion | Falsifiable test |
+| --- | --- |
+| Reproducibility | Re-execution reproduces every identity hash |
+| Sensitivity | Changing any input changes the identity |
+| Review binding | Removing or altering evidence invalidates the review |
+| Failure semantics | A failed engine yields a failure artifact, never silence |
+| Substitutability | Swapping a provider yields a new identity, not silent equality |
+
+### What a hydraulic scenario would add later
+
+A contamination event in a municipal water network — sensor observation → detection →
+hydraulic simulation → spatial evidence → decision — is the natural second step. It adds
+three things LU cannot demonstrate:
+
+1. A capability whose output is **not** geometry.
+2. A solver whose result depends on convergence tolerance and iteration limits, which must
+   therefore enter the identity domain alongside the engine version (SV-I03).
+3. Sensor observation ingest, which requires the CAS-at-ingest decision in §2.4.
+
+It does not need to prove that the solver is better than an established product. It needs
+to prove that a numerical result from an independent engine can carry the same evidentiary
+weight as a spatial one.
 
 ---
 
@@ -228,8 +346,9 @@ capability interface, and the source artifact contract. Then wait.
 | `pgrouting` absent from image | Network analysis is an image decision, not `CREATE EXTENSION` | TV-4.3 §9 |
 | Telemetry enters CAS at ingest | Otherwise PostgreSQL silently becomes authority | §2.4 |
 | Rule-set edition as identity input | Recalculation must survive a revised recommendation | §Phase 3 |
+| Canonical form for field results | Without one, two physically identical runs hash differently and field identity is undefined | §Phase 3 |
+| Solver identity binds inputs, not outputs | Bit equality over floating-point results makes replay fail spuriously; this constrains which solvers are admissible | §Phase 3 |
 | Time columns before identity is fixed | Adding time later rewrites hashes | §2.3 |
-| Resolve duplicate TV-S1 document | Two frozen documents contradict each other on replay | — |
 
 ---
 
