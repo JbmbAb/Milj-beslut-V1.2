@@ -139,6 +139,20 @@ hash(dg-canonical-1 || A) ≠ hash(dg-canonical-2 || A)
 
 Constant: `DECISION_GOVERNANCE_CANONICAL_VERSION` (`dg-canonical-1`) in `CanonicalDecisionImpactHash.ts`
 
+### Canonical version namespace ownership
+
+C-02 only holds if a canonical version id denotes exactly one algorithm across the whole
+platform. The `dg-` namespace is therefore owned solely by `mps-decision-governance`.
+
+| Namespace | Owner | Meaning |
+| :-- | :-- | :-- |
+| `dg-*` | `mps-decision-governance` | Decision Authority identity |
+| `runtime-projection-*` | `alpha-runtime` | Runtime projection identity (no authority) |
+
+Any other registry that resolves a `dg-` id rejects it with `CANONICALIZER_NAMESPACE_VIOLATION`.
+Database columns named `canonicalizer_id` hold governance-owned ids only.
+See `ADR-MPS-SINGLE-MATERIALIZATION-AUTHORITY.md`.
+
 ---
 
 ## 5b. Lineage closure before authority (constitutional)

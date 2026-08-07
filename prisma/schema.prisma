@@ -1290,18 +1290,20 @@ model DecisionCase {
 
 model DecisionImpactArtifact {
   artifact_hash           String   @id // CAS hash som primär identitet
+  canonicalizer_id        String   // Ägs av mps-decision-governance; dg-namnrymden är reserverad (MAT-I05)
   decision_ref            String
   release_hash            String
   municipality_id         String
-  decision_facts          Json
+  decision_facts_hash     String
   evidence_refs           Json
   semantic_version        String
   materialization_version String
-  extraction_model        String   // Materialization Contract
-  rule_version            String   // Materialization Contract
+  extraction_model        String   // Provenance metadata (NOT identity input)
+  rule_version            String   // Materialization Contract (identity input)
   source_artifact_hashes  Json
   verification_status     String
-  supersedes              String?
+  supersedes_hash         String?
+  lineage_sequence        Int
   created_at              DateTime @default(now())
 
   decisionCase            DecisionCase @relation(fields: [decision_ref], references: [id], onDelete: Cascade)
@@ -1309,6 +1311,15 @@ model DecisionImpactArtifact {
   @@index([decision_ref])
   @@index([municipality_id])
   @@map("decision_impact_artifacts")
+}
+
+model DecisionFactsArtifact {
+  artifact_hash    String @id
+  canonicalizer_id String   // Ägs av mps-decision-governance; dg-namnrymden är reserverad (MAT-I05)
+  facts            Json
+  created_at       DateTime @default(now())
+
+  @@map("decision_facts_artifacts")
 }
 
 model MunicipalityDecisionProfile {

@@ -8,6 +8,9 @@ import type { EvidenceSetIdentity } from "./EvidenceSetArtifact";
 /**
  * C-02: the canonical version is part of the hash domain, not sidecar metadata.
  * Two canonicalization algorithms therefore can never collapse into one identity.
+ *
+ * MAT-I05: the `dg-` namespace is owned by this package. No other layer may register or
+ * resolve a `dg-` id; runtime projections use the `runtime-projection-` namespace.
  * @see docs/architecture/ADR-MPS-CONSTITUTIONAL-INVARIANTS.md
  */
 export const DECISION_GOVERNANCE_CANONICAL_VERSION = "dg-canonical-1" as const;

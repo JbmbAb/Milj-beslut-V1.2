@@ -97,10 +97,12 @@ Identitet ägs av governance-lagret och lånas ut till materialiseringen:
 | Identity | EvidenceSetIdentitySnapshot | grön |
 | Identity | CanonicalIdentity | grön |
 
-## Kvarstående observation
+## Uppföljning (avslutad i H.4)
 
-`packages/alpha-runtime/src/runtime/ArtifactMaterializer.ts` tillsammans med
-`CanonicalIdentityProvider` utgör en tredje väg som producerar beslutsidentitet.
-Den är grön och testad (`MaterializationIdentity.test.ts`) men ligger utanför
-`mps-materialization`. Den bör konsolideras eller uttryckligen deklareras som
-runtime-projektion utan auktoritet innan fler lager byggs ovanpå.
+Denna ADR lämnade en öppen observation: en tredje kodväg i `alpha-runtime` såg ut att
+producera beslutsidentitet. Utredningen i H.4 visade att den vägen byggde
+runtime-projektioner, medan den verkliga andra sanningsskaparen var `MaterializerJob`.
+
+Frågan är avgjord av `ADR-MPS-SINGLE-MATERIALIZATION-AUTHORITY.md` (MAT-I05).
+`ArtifactMaterializer` heter numera `ArtifactProjectionBuilder`, och alla skrivvägar mot
+Decision Authority går genom det registrerade materialiseringskontraktet.
