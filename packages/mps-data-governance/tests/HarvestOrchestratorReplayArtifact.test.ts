@@ -26,130 +26,146 @@ const baseCheckpoint: HarvestExecutionCheckpoint = {
   compliance_results: [],
 };
 
-describe("HarvestOrchestratorReplayArtifact — ReplayEngine consumes lineage only", () => {
+describe("HarvestOrchestratorReplayArtifact — ReplayEngine Lineage Consistency", () => {
 
   // ---------------------------------------------------------------------------
-  // 1. Replay SHALL NOT generate new artifacts
+  // POSITIVE PATHS: Giltig och konsekvent lineage accepteras deterministiskt
   // ---------------------------------------------------------------------------
-
-  test("Replay returns exactly the artifacts stored in manifest", () => {
-    const manifest = buildExecutionManifest(baseCheckpoint, dataset_ref, requested_at);
-    const result = ReplayEngine.replay(manifest);
-
-    expect(result.evidence_refs).toEqual([
-      artifactRef("verification", "vhash"),
-      artifactRef("approval", "ahash"),
-      artifactRef("gate", "ghash"),
-      artifactRef("projection", "phash"),
-      artifactRef("lu", "lhash"),
-    ]);
-
-    expect(result.produced_artifacts).toEqual([
-      artifactRef("projection", "phash"),
-      artifactRef("lu", "lhash"),
-    ]);
-  });
-
-  // ---------------------------------------------------------------------------
-  // 2. manifest_ref och archive_refs får ALDRIG bli produced_artifacts
-  // ---------------------------------------------------------------------------
-
-  test("manifest_ref and archive_refs are NOT produced artifacts", () => {
-    const manifest = buildExecutionManifest(baseCheckpoint, dataset_ref, requested_at);
-    const result = ReplayEngine.replay(manifest);
-
-    expect(result.produced_artifacts).not.toContainEqual(contentRef("manifest"));
-    expect(result.produced_artifacts).not.toContainEqual(contentRef("dataset"));
-  });
-
-  // ---------------------------------------------------------------------------
-  // 3. Replay SHALL NOT modify timestamps
-  // ---------------------------------------------------------------------------
-
-  test("Replay preserves updated_at exactly", () => {
-    const manifest = buildExecutionManifest(baseCheckpoint, dataset_ref, requested_at);
-    const result = ReplayEngine.replay(manifest);
-
-    expect(manifest.updated_at).toBe("2026-01-01T00:00:00.000Z");
-  });
-
-  // ---------------------------------------------------------------------------
-  // 4. Replay SHALL preserve state exactly
-  // ---------------------------------------------------------------------------
-
-  const states: HarvestExecutionState[] = [
-    "READY_FOR_LU",
-    "BLOCKED",
-    "ARCHIVED",
-    "QUARANTINED",
-    "AWAITING_APPROVAL",
-  ];
-
-  for (const state of states) {
-    test(`Replay preserves state '${state}'`, () => {
-      const cp = { ...baseCheckpoint, state };
-      const manifest = buildExecutionManifest(cp, dataset_ref, requested_at);
+  describe("Positive Paths (Valid Dynamic Lineage)", () => {
+    test("Replay returns exactly the artifacts stored in manifest", () => {
+      const manifest = buildExecutionManifest(baseCheckpoint, dataset_ref, requested_at);
       const result = ReplayEngine.replay(manifest);
 
-      expect(result.state).toBe(state);
+      expect(result.evidence_refs).toEqual([
+        artifactRef("verification", "vhash"),
+        artifactRef("approval", "ahash"),
+        artifactRef("gate", "ghash"),
+        artifactRef("projection", "phash"),
+        artifactRef("lu", "lhash"),
+      ]);
+
+      expect(result.produced_artifacts).toEqual([
+        artifactRef("projection", "phash"),
+        artifactRef("lu", "lhash"),
+      ]);
     });
-  }
 
-  // ---------------------------------------------------------------------------
-  // 5. Replay SHALL NOT invent artifacts when lineage is missing
-  // ---------------------------------------------------------------------------
+    test("manifest_ref and archive_refs are NOT produced artifacts", () => {
+      const manifest = buildExecutionManifest(baseCheckpoint, dataset_ref, requested_at);
+      const result = ReplayEngine.replay(manifest);
 
-  test("Replay does not invent artifacts when lineage is missing", () => {
-    const cp = {
-      ...baseCheckpoint,
-      projection_ref: undefined,
-      lu_ref: undefined,
-      gate_evidence_ref: undefined,
-      approval_ref: undefined,
-    };
-    const manifest = buildExecutionManifest(cp, dataset_ref, requested_at);
-    const result = ReplayEngine.replay(manifest);
+      expect(result.produced_artifacts).not.toContainEqual(contentRef("manifest"));
+      expect(result.produced_artifacts).not.toContainEqual(contentRef("dataset"));
+    });
 
-    expect(result.produced_artifacts).toEqual([]);
-    expect(result.evidence_refs).toEqual([
-      artifactRef("verification", "vhash"),
-    ]);
+    test("Replay preserves updated_at and state exactly", () => {
+      const manifest = buildExecutionManifest(baseCheckpoint, dataset_ref, requested_at);
+      const result = ReplayEngine.replay(manifest);
+
+      expect(manifest.updated_at).toBe("2026-01-01T00:00:00.000Z");
+      expect(result.state).toBe("READY_FOR_LU");
+    });
+
+    const consistentStates: HarvestExecutionState[] = [
+      "READY_FOR_LU",
+      "BLOCKED",
+      "ARCHIVED",
+      "QUARANTINED",
+      "AWAITING_APPROVAL",
+    ];
+
+    for (const state of consistentStates) {
+      test(`Replay preserves state '${state}' with consistent lineage`, () => {
+        const cp = { ...baseCheckpoint, state };
+        
+        if (state === "AWAITING_APPROVAL" || state === "QUARANTINED") {
+          (cp as any).approval_ref = undefined;
+          (cp as any).gate_evidence_ref = undefined;
+          (cp as any).projection_ref = undefined;
+          (cp as any).lu_ref = undefined;
+        } else if (state === "BLOCKED") {
+          (cp as any).projection_ref = undefined;
+          (cp as any).lu_ref = undefined;
+        }
+
+        const manifest = buildExecutionManifest(cp, dataset_ref, requested_at);
+        const result = ReplayEngine.replay(manifest);
+
+        expect(result.state).toBe(state);
+      });
+    }
+
+    test("Replay is deterministic: same manifest → same result", () => {
+      const manifest = buildExecutionManifest(baseCheckpoint, dataset_ref, requested_at);
+      const r1 = ReplayEngine.replay(manifest);
+      const r2 = ReplayEngine.replay(manifest);
+
+      expect(r1).toEqual(r2);
+    });
   });
 
   // ---------------------------------------------------------------------------
-  // 6. Replay SHALL NOT bypass governance boundary
+  // NEGATIVE PATHS: Manipulerad eller inkonsekvent lineage avvisas hårt
   // ---------------------------------------------------------------------------
+  describe("Negative Paths (Lineage Consistency Violations - assertLineageConsistency)", () => {
+    test("Rejects post-governance approval artifacts in AWAITING_APPROVAL state", () => {
+      const manipulatedCp = {
+        ...baseCheckpoint,
+        state: "AWAITING_APPROVAL" as const,
+        // En pågående granskning får ALDRIG innehålla ett färdigt godkännande (Violates boundary!)
+        approval_ref: artifactRef("approval", "ahash"),
+      };
 
-  test("Replay from VERIFIED returns only verification evidence", () => {
-    const cp = {
-      ...baseCheckpoint,
-      state: "VERIFIED" as const,
-      approval_ref: undefined,
-      gate_evidence_ref: undefined,
-      projection_ref: undefined,
-      lu_ref: undefined,
-    };
-    const manifest = buildExecutionManifest(cp, dataset_ref, requested_at);
-    const result = ReplayEngine.replay(manifest);
+      const manifest = buildExecutionManifest(manipulatedCp, dataset_ref, requested_at);
 
-    expect(result.state).toBe("VERIFIED");
-    expect(result.evidence_refs).toEqual([
-      artifactRef("verification", "vhash"),
-    ]);
-    expect(result.produced_artifacts).toEqual([]);
-  });
+      expect(() => {
+        ReplayEngine.replay(manifest);
+      }).toThrow("governance boundary violated for AWAITING_APPROVAL");
+    });
 
-  // ---------------------------------------------------------------------------
-  // 7. Replay SHALL be deterministic
-  // ---------------------------------------------------------------------------
+    test("Rejects approval or gate evidence artifacts in VERIFIED state", () => {
+      const manipulatedCp = {
+        ...baseCheckpoint,
+        state: "VERIFIED" as const,
+        // VERIFIED får aldrig innehålla efterföljande beslut
+        gate_evidence_ref: artifactRef("gate", "ghash"),
+      };
 
-  test("Replay is deterministic: same manifest → same result", () => {
-    const manifest = buildExecutionManifest(baseCheckpoint, dataset_ref, requested_at);
-    const r1 = ReplayEngine.replay(manifest);
-    const r2 = ReplayEngine.replay(manifest);
-    const r3 = ReplayEngine.replay(manifest);
+      const manifest = buildExecutionManifest(manipulatedCp, dataset_ref, requested_at);
 
-    expect(r1).toEqual(r2);
-    expect(r2).toEqual(r3);
+      expect(() => {
+        ReplayEngine.replay(manifest);
+      }).toThrow("VERIFIED state contains post-governance artifacts");
+    });
+
+    test("Rejects terminal states containing approval but missing verification (monotonicity check)", () => {
+      const manipulatedCp = {
+        ...baseCheckpoint,
+        state: "BLOCKED" as const,
+        verification_ref: undefined, // Fel! Godkännande finns men inte verifiering!
+        approval_ref: artifactRef("approval", "ahash"),
+      };
+
+      const manifest = buildExecutionManifest(manipulatedCp, dataset_ref, requested_at);
+
+      expect(() => {
+        ReplayEngine.replay(manifest);
+      }).toThrow("approval without verification in terminal state");
+    });
+
+    test("Rejects terminal states containing projection but missing gate evidence (monotonicity check)", () => {
+      const manipulatedCp = {
+        ...baseCheckpoint,
+        state: "BLOCKED" as const,
+        gate_evidence_ref: undefined, // Fel! Projektion finns men dörrvaktsbevis saknas!
+        projection_ref: artifactRef("projection", "phash"),
+      };
+
+      const manifest = buildExecutionManifest(manipulatedCp, dataset_ref, requested_at);
+
+      expect(() => {
+        ReplayEngine.replay(manifest);
+      }).toThrow("projection/LU without gate evidence in terminal state");
+    });
   });
 });
