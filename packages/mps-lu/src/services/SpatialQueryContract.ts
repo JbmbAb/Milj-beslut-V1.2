@@ -7,7 +7,11 @@ import { SpatialEvidenceArtifact } from "../artifacts/SpatialEvidenceArtifact";
  */
 export interface SpatialQueryRequest {
   readonly property_ref: ArtifactReference; // Points to the property context/geometry
-  readonly layers: readonly string[]; // e.g. ["water", "protected_area", "ebh"]
+  readonly layers: readonly {
+    readonly name: string;
+    readonly version_hash: string;
+  }[]; // e.g. [{name: "water", version_hash: "abc123"}]
+  readonly buffer_distance_meters?: number;
 }
 
 /**

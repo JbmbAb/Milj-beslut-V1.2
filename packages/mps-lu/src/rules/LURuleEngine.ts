@@ -7,6 +7,10 @@ export class LURuleEngine {
     const findings: AssessmentFinding[] = [];
 
     for (const ev of evidence) {
+      if (!ev.payload.geometry) {
+        continue; // Skip negative evidence (absence of risk)
+      }
+      
       const layer = ev.payload.source_metadata.dataset;
       
       if (layer === "water") {

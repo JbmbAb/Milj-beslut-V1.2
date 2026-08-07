@@ -7,6 +7,7 @@ export * from "./domain/RelevantDocument";
 export * from "./artifacts/DocumentEvidenceArtifact";
 export * from "./artifacts/LocalizationAssessmentArtifact";
 export * from "./artifacts/SpatialEvidenceArtifact";
+export * from "./artifacts/SpatialEvidenceIdentity";
 export * from "./artifacts/LUProjectContextArtifact";
 export * from "./artifacts/LUPropertyContextArtifact";
 

@@ -7,7 +7,16 @@ export interface SpatialEvidencePayload {
     readonly layer_id: string;
     readonly layer_version: string;
   };
-  readonly geometry: CanonicalGeometry;
+  /** Coordinate reference system of `geometry`; SWEREF99 TM is 3006. */
+  readonly srid: number;
+  /** What was computed, and by which engine (TV-S1 SV-I03). */
+  readonly operation: {
+    readonly algorithm: string;
+    readonly engine: string;
+    readonly engine_fingerprint: Record<string, string>;
+  };
+  readonly geometry: CanonicalGeometry | null;
+  /** `retrieved_at` is provenance and stays outside the identity domain (SV-I06). */
   readonly source_metadata: {
     readonly provider: string;
     readonly dataset: string;

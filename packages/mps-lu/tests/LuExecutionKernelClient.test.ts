@@ -15,6 +15,7 @@ describe("LuExecutionKernelClient", () => {
         artifact_type: "SPATIAL_EVIDENCE",
         payload: {
           source_metadata: { dataset: "water" },
+          geometry: { type: "Polygon", coordinates: [[[0,0], [1,1], [0,1], [0,0]]] }
         },
       },
     ] as unknown as SpatialEvidenceArtifact[];
