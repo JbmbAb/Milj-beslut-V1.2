@@ -1,19 +1,17 @@
 /**
- * DecisionImpactBuilder — identity + version-bound hash from DecisionFacts + EvidenceSet.
+ * DecisionImpactBuilder — identity payloads from DecisionFacts.
+ * All hashing is delegated to the injected identity provider (MAT-I02).
  */
 
 import {
   buildDecisionImpactIdentityPayload,
-  DECISION_GOVERNANCE_CANONICAL_VERSION,
-  hashDecisionImpactIdentity,
-  hashEvidenceSetIdentity,
-  serializeCanonicalPayload,
   type DecisionImpactArtifact,
   type DecisionImpactIdentity,
   type EvidenceSetArtifact,
   type EvidenceSetIdentity,
 } from "../../mps-decision-governance/src/index.js";
 import type { DecisionFacts } from "./DecisionFactsBuilder.js";
+import type { MaterializationIdentityProvider } from "./ports/MaterializationIdentityProvider.js";
 
 export type BuiltImpact = {
   readonly evidence_set: EvidenceSetArtifact;
@@ -22,8 +20,15 @@ export type BuiltImpact = {
   readonly canonical_version: string;
 };
 
+/** Metadata is audit-only and never enters identity, so it is fixed and boring. */
+const DETERMINISTIC_METADATA = {
+  created_at: "1970-01-01T00:00:00.000Z",
+  generated_by: "mps-materialization",
+} as const;
+
 export function buildEvidenceSetFromFacts(
   facts: DecisionFacts,
+  identity: MaterializationIdentityProvider,
   lineage_sequence = 1,
 ): EvidenceSetArtifact {
   const documents = [
@@ -34,18 +39,16 @@ export function buildEvidenceSetFromFacts(
         county_code?: string;
         country_code?: string;
       } = { document_hash };
-      if (facts.municipality_code !== undefined) {
-        ref.municipality_code = facts.municipality_code;
-      }
+      if (facts.municipality_code !== undefined) ref.municipality_code = facts.municipality_code;
       if (facts.county_code !== undefined) ref.county_code = facts.county_code;
       if (facts.country_code !== undefined) ref.country_code = facts.country_code;
       return ref;
     }),
-    // Facts themselves are content-addressed into the set (identity).
+    // Facts themselves are content-addressed into the set.
     { document_hash: facts.facts_hash },
   ];
 
-  const identity: EvidenceSetIdentity = {
+  const evidenceIdentity: EvidenceSetIdentity = {
     documents,
     schema_version: 1,
     lineage_sequence,
@@ -56,12 +59,11 @@ export function buildEvidenceSetFromFacts(
   };
 
   return {
-    evidence_set_hash: hashEvidenceSetIdentity(identity),
-    identity,
+    evidence_set_hash: identity.hashEvidenceSet(evidenceIdentity),
+    identity: evidenceIdentity,
     metadata: {
-      created_at: "1970-01-01T00:00:00.000Z",
+      ...DETERMINISTIC_METADATA,
       materialization_version: facts.materialization_version,
-      generated_by: "mps-materialization",
     },
   };
 }
@@ -69,8 +71,9 @@ export function buildEvidenceSetFromFacts(
 export function buildDecisionImpactFromFacts(
   facts: DecisionFacts,
   evidence_set: EvidenceSetArtifact,
+  identity: MaterializationIdentityProvider,
 ): BuiltImpact {
-  const identity: DecisionImpactIdentity = {
+  const impactIdentity: DecisionImpactIdentity = {
     jurisdiction_level: facts.jurisdiction_level,
     decision_type: facts.decision_type,
     ...(facts.municipality_code !== undefined
@@ -84,25 +87,21 @@ export function buildDecisionImpactFromFacts(
     derivation_version: `${facts.rule_version}+${facts.materialization_version}`,
   };
 
-  const impact_id = hashDecisionImpactIdentity(identity);
-  const canonical_payload = serializeCanonicalPayload(
-    buildDecisionImpactIdentityPayload(identity),
-  );
-
   const impact: DecisionImpactArtifact = {
-    impact_id,
-    identity,
+    impact_id: identity.hashDecisionImpact(impactIdentity),
+    identity: impactIdentity,
     metadata: {
-      created_at: "1970-01-01T00:00:00.000Z",
+      ...DETERMINISTIC_METADATA,
       materialization_version: facts.materialization_version,
-      generated_by: "mps-materialization",
     },
   };
 
   return {
     evidence_set,
     impact,
-    canonical_payload,
-    canonical_version: DECISION_GOVERNANCE_CANONICAL_VERSION,
+    canonical_payload: identity.canonicalPayload(
+      buildDecisionImpactIdentityPayload(impactIdentity),
+    ),
+    canonical_version: identity.canonical_version,
   };
 }

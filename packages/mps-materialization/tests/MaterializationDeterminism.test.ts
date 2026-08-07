@@ -1,156 +1,146 @@
-// packages/mps-materialization/tests/MaterializationDeterminism.test.ts
+/**
+ * MAT-I01 – MAT-I04 on the reconciled Materialization Boundary (Commit H.3).
+ * One contract: injected dependencies + materialize(evidenceSet).
+ */
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
+import { describe, expect, it } from "vitest";
+import {
+  hashEvidenceSetIdentity,
+  InMemoryEvidenceSetLineageStore,
+  type EvidenceSetArtifact,
+  type EvidenceSetIdentity,
+} from "../../mps-decision-governance/src/index.js";
+import {
+  assertNoAiInMaterializationCore,
+  CasMaterializationRepository,
+  createSetEvidenceResolver,
+  decisionGovernanceIdentityProvider,
+  LineageValidator,
+  MaterializationContractError,
+  MaterializationPipeline,
+  type VerifiedEvidenceSet,
+} from "../src/index.js";
 
-import { describe, test, expect, beforeEach, vi } from "vitest";
-import { MaterializationPipeline } from "../src/MaterializationPipeline";
-import { DecisionArtifactRepository } from "../../mps-decision-governance/src/DecisionArtifactRepository";
-import type { EvidenceSetArtifact } from "../../mps-decision-governance/src/EvidenceSetArtifact";
-import type { MaterializationContext } from "../src/MaterializationContract";
+const evidence: VerifiedEvidenceSet = {
+  source_artifact_hashes: ["sha256:doc-1", "sha256:doc-2"],
+  jurisdiction_level: "COUNTY",
+  decision_type: "ENVIRONMENTAL_PERMIT",
+  county_code: "17",
+  verified_attributes: { count: 2, domain: "environmental" },
+};
 
-describe("🜃 Materialization Pipeline & Determinism (MAT-I01 to MAT-I04)", () => {
-  let repository: DecisionArtifactRepository;
-  let mockEvidenceResolver: any;
-  let mockLineageResolver: any;
-  let pipeline: MaterializationPipeline;
-  let store: Map<string, EvidenceSetArtifact>;
-
-  const evidenceSet: EvidenceSetArtifact = {
-    evidence_set_hash: "ev-set-A",
-    identity: {
-      documents: [
-        { document_hash: "doc-1" },
-        { document_hash: "doc-2" }
-      ],
-      schema_version: 1,
-      lineage_sequence: 10,
-      previous_evidence_set_hash: undefined,
-      lineage_scope: { jurisdiction_level: "COUNTY", decision_type: "ENVIRONMENTAL_PERMIT" }
+function evidenceArtifact(
+  lineage_sequence: number,
+  previous_evidence_set_hash?: string,
+): EvidenceSetArtifact {
+  const identity: EvidenceSetIdentity = {
+    documents: [{ document_hash: `doc-seq-${lineage_sequence}` }],
+    schema_version: 1,
+    lineage_sequence,
+    ...(previous_evidence_set_hash !== undefined ? { previous_evidence_set_hash } : {}),
+    lineage_scope: {
+      jurisdiction_level: "COUNTY",
+      decision_type: "ENVIRONMENTAL_PERMIT",
     },
+  };
+
+  return {
+    evidence_set_hash: hashEvidenceSetIdentity(identity),
+    identity,
     metadata: {
-      created_at: "2026-08-07T00:00:00Z",
-      materialization_version: "v1.0.0",
-      generated_by: "Ingest Pipeline"
+      created_at: "1970-01-01T00:00:00.000Z",
+      materialization_version: "mat-1",
+      generated_by: "test",
+    },
+  };
+}
+
+describe("MAT-I01: Authority Boundary", () => {
+  it("evidence that cannot be resolved never reaches materialization", () => {
+    const pipeline = new MaterializationPipeline({
+      evidenceResolver: createSetEvidenceResolver(["sha256:doc-1"]),
+    });
+
+    expect(() => pipeline.materialize(evidence)).toThrowError("EVIDENCE_NOT_RESOLVABLE");
+  });
+
+  it("lineage regression closes the door before authority is granted", () => {
+    const store = new InMemoryEvidenceSetLineageStore();
+    const parent = evidenceArtifact(10);
+    store.append(parent);
+
+    const regressed = evidenceArtifact(5, parent.evidence_set_hash);
+    const lineage = new LineageValidator(store);
+
+    expect(() => lineage.commitAfterClosure(regressed)).toThrowError(
+      MaterializationContractError,
+    );
+    try {
+      lineage.commitAfterClosure(regressed);
+    } catch (e) {
+      expect((e as MaterializationContractError).code).toBe("LINEAGE_NOT_CLOSED");
+      expect((e as Error).message).toContain("lineage_sequence must strictly increase");
     }
-  };
+  });
+});
 
-  const context: MaterializationContext = {
-    jurisdiction_level: "COUNTY",
-    decision_type: "ENVIRONMENTAL_PERMIT",
-    municipality_code: "01",
-    schema_version: 1
-  };
+describe("MAT-I02: Deterministic Materialization", () => {
+  it("same inputs always yield an identical artifact hash", () => {
+    const runA = new MaterializationPipeline({
+      repository: new CasMaterializationRepository(),
+      lineageValidator: new LineageValidator(),
+    }).materialize(evidence);
 
-  beforeEach(() => {
-    store = new Map<string, EvidenceSetArtifact>();
-    repository = new DecisionArtifactRepository();
-    
-    mockEvidenceResolver = {
-      resolve: async (hash: string) => store.get(hash) || null
-    };
+    const runB = new MaterializationPipeline({
+      repository: new CasMaterializationRepository(),
+      lineageValidator: new LineageValidator(),
+    }).materialize(evidence);
 
-    mockLineageResolver = {
-      resolve: (hash: string) => store.get(hash)
-    };
-
-    pipeline = new MaterializationPipeline(
-      "ww-risk-model-canonicalizer",
-      "ww-risk-model-2.0",
-      "rule-release-v12",
-      mockEvidenceResolver,
-      repository,
-      mockLineageResolver
-    );
+    expect(runA.artifact.impact_id).toBe(runB.artifact.impact_id);
+    expect(runA.evidence_set_hash).toBe(runB.evidence_set_hash);
   });
 
-  // -------------------------------------------------------------------------
-  // MAT-I01: Authority Boundary
-  // -------------------------------------------------------------------------
-  test("MAT-I01: Authority Boundary — cannot materialize unless lineage closure succeeds", async () => {
-    // 1. Om evidenssetet saknas helt i resolvern, misslyckas materialiseringen direkt!
-    await expect(
-      pipeline.materialize(evidenceSet, context)
-    ).rejects.toThrow("must be resolved in repository before materialization");
+  it("the pipeline calculates no identity of its own and infers nothing", () => {
+    const core = ["MaterializationPipeline.ts", "DecisionFactsBuilder.ts", "DecisionImpactBuilder.ts"];
 
-    // 2. Lägg till evidenssetet på disk
-    store.set("ev-set-A", evidenceSet);
+    for (const file of core) {
+      const source = readFileSync(join(__dirname, "../src", file), "utf8");
+      expect(source).not.toContain("createHash");
+      expect(source).not.toContain("sha256");
+      expect(() => assertNoAiInMaterializationCore(source, file)).not.toThrow();
+    }
+  });
+});
 
-    // 3. Om det bär en cykel eller ogiltig historik, ska lineage-kontrollen avvisa det preventivt!
-    const manipulatedEvidenceSet: EvidenceSetArtifact = {
-      evidence_set_hash: "ev-set-B",
-      identity: {
-        documents: [{ document_hash: "doc-1" }],
-        schema_version: 1,
-        lineage_sequence: 5, // Regression! (sequence 5 efter sequence 10)
-        previous_evidence_set_hash: "ev-set-A", // Refererar till A som har sekvens 10!
-        lineage_scope: { jurisdiction_level: "COUNTY", decision_type: "ENVIRONMENTAL_PERMIT" }
+describe("MAT-I03: Restart Determinism", () => {
+  it("a fresh process reproduces identical outputs", () => {
+    const before = new MaterializationPipeline().materialize(evidence);
+
+    // Restart: new pipeline, new CAS, new lineage store.
+    const after = new MaterializationPipeline().materialize(evidence);
+
+    expect(after.artifact.impact_id).toBe(before.artifact.impact_id);
+    expect(after.canonical_payload).toBe(before.canonical_payload);
+    expect(after.evidence_set_hash).toBe(before.evidence_set_hash);
+  });
+});
+
+describe("MAT-I04: Provenance Isolation", () => {
+  it("changing metadata or provenance leaves the identity hash untouched", () => {
+    const result = new MaterializationPipeline().materialize(evidence);
+
+    const reProvenanced = {
+      ...result.artifact,
+      metadata: {
+        created_at: "2026-08-07T13:00:00.000Z",
+        materialization_version: result.versions.materialization_version,
+        generated_by: "some-other-runner",
       },
-      metadata: evidenceSet.metadata
     };
 
-    store.set("ev-set-B", manipulatedEvidenceSet);
-
-    await expect(
-      pipeline.materialize(manipulatedEvidenceSet, context)
-    ).rejects.toThrow("lineage_sequence must strictly increase"); // Lineage-kontrollen stänger dörren!
-  });
-
-  // -------------------------------------------------------------------------
-  // MAT-I02: Deterministic Materialization
-  // -------------------------------------------------------------------------
-  test("MAT-I02: Deterministic Materialization — same inputs always yield identical artifact hash", async () => {
-    store.set("ev-set-A", evidenceSet);
-
-    const art1 = await pipeline.materialize(evidenceSet, context);
-    
-    // Töm CAS-lagret för att simulera en fristående körning
-    repository.clear();
-
-    const art2 = await pipeline.materialize(evidenceSet, context);
-
-    expect(art1.impact_id).toBe(art2.impact_id); // De båda oberoende körningarna enas om EXAKT samma hash!
-  });
-
-  // -------------------------------------------------------------------------
-  // MAT-I03: Restart Determinism
-  // -------------------------------------------------------------------------
-  test("MAT-I03: Restart Determinism — process restarts reproduce identical outputs", async () => {
-    store.set("ev-set-A", evidenceSet);
-
-    const art1 = await pipeline.materialize(evidenceSet, context);
-
-    // Återskapa hela pipelinen och rensa cachen (simulerar en fullständig omstart av servern)
-    const newRepository = new DecisionArtifactRepository();
-    const newPipeline = new MaterializationPipeline(
-      "ww-risk-model-canonicalizer",
-      "ww-risk-model-2.0",
-      "rule-release-v12",
-      mockEvidenceResolver,
-      newRepository,
-      mockLineageResolver
+    expect(decisionGovernanceIdentityProvider.hashDecisionImpact(reProvenanced.identity)).toBe(
+      result.artifact.impact_id,
     );
-
-    const art2 = await newPipeline.materialize(evidenceSet, context);
-
-    expect(art1.impact_id).toBe(art2.impact_id); // Byte-identisk reproducerbarhet efter omstart!
-  });
-
-  // -------------------------------------------------------------------------
-  // MAT-I04: Provenance Isolation
-  // -------------------------------------------------------------------------
-  test("MAT-I04: Provenance Isolation — changing provenance or metadata leaves identity hash untouched", async () => {
-    store.set("ev-set-A", evidenceSet);
-
-    const art1 = await pipeline.materialize(evidenceSet, context);
-
-    // Målet: Vi skapar en NY pipeline-instans som har en annan rule_version eller materialization_version?
-    // Vänta! Om materialization_version ändras, så ingår den i identiteten (derivation_version), så hashen SKA ändras!
-    // Men om yttre kördetaljer eller metadata (t.ex. datum eller exekverings-id) ändras, så ska hashen vara oförändrad!
-    // Eftersom save() i MaterializationPipeline läser in tiden från `new Date().toISOString()`,
-    // kan vi bevisa att hashen blir exakt densamma trots att `created_at` i metadata skiljer sig!
-    
-    // Vi rensar och sparar igen under en annan sekund, vilket ger en annan created_at i metadata under huven
-    repository.clear();
-    const art2 = await pipeline.materialize(evidenceSet, context);
-
-    expect(art1.impact_id).toBe(art2.impact_id); // Hashen är identisk trots förändrad skapandetid!
   });
 });

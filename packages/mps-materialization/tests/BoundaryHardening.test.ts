@@ -79,11 +79,11 @@ describe("Cross-process determinism", () => {
     // Simulate isolated containers: independent pipelines + CAS + lineage.
     const containerA = new MaterializationPipeline({
       repository: new CasMaterializationRepository(),
-      lineage: new LineageValidator(),
+      lineageValidator: new LineageValidator(),
     });
     const containerB = new MaterializationPipeline({
       repository: new CasMaterializationRepository(),
-      lineage: new LineageValidator(),
+      lineageValidator: new LineageValidator(),
     });
 
     const a = containerA.materialize(evidenceA);

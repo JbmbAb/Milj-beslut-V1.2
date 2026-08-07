@@ -15,6 +15,17 @@ export {
 } from "./MaterializationContract.js";
 
 export {
+  createSetEvidenceResolver,
+  preVerifiedEvidenceResolver,
+  type EvidenceResolver,
+} from "./ports/EvidenceResolver.js";
+
+export {
+  decisionGovernanceIdentityProvider,
+  type MaterializationIdentityProvider,
+} from "./ports/MaterializationIdentityProvider.js";
+
+export {
   assertMaterializationAuthority,
   MATERIALIZATION_AUTHORITY_CREATORS,
   MATERIALIZATION_AUTHORITY_FORBIDDEN,

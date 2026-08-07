@@ -36,7 +36,7 @@ describe("LineageClosure", () => {
 
     const pipe = new MaterializationPipeline({
       repository: repo,
-      lineage: new LineageValidator(rejecting),
+      lineageValidator: new LineageValidator(rejecting),
     });
 
     expect(() => pipe.materialize(evidence)).toThrow(MaterializationContractError);

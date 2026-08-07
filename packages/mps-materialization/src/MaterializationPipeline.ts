@@ -1,75 +1,95 @@
-// packages/mps-materialization/src/MaterializationPipeline.ts
+/**
+ * MaterializationPipeline — the only code path that creates Decision Authority.
+ *
+ * Constitutional order:
+ *   resolve evidence → build facts → build EvidenceSet → lineage closure → build
+ *   DecisionImpact → commit to CAS.
+ *
+ * Nothing becomes authoritative before lineage closure succeeds (C-03), and the
+ * pipeline never computes identity itself (MAT-I02).
+ */
 
-import type { EvidenceSetArtifact } from "../../mps-decision-governance/src/EvidenceSetArtifact";
-import type { DecisionImpactArtifact, DecisionImpactIdentity, DecisionImpactMetadata } from "../../mps-decision-governance/src/DecisionImpactIdentity";
-import { validateEvidenceSetLineage, EvidenceSetLineageResolver } from "../../mps-decision-governance/src/validation/validateEvidenceSetLineage";
-import { MaterializationContract, MaterializationContext } from "./MaterializationContract";
-import { DecisionFactsBuilder } from "./DecisionFactsBuilder";
-import { DecisionImpactFactory } from "./DecisionImpactFactory";
-import { EvidenceResolver } from "./ports/EvidenceResolver";
-import { DecisionRepository } from "./ports/DecisionRepository";
+import { buildDecisionFacts } from "./DecisionFactsBuilder.js";
+import {
+  buildDecisionImpactFromFacts,
+  buildEvidenceSetFromFacts,
+} from "./DecisionImpactBuilder.js";
+import { LineageValidator } from "./LineageValidator.js";
+import {
+  MATERIALIZATION_VERSION,
+  MaterializationContractError,
+  RULE_VERSION,
+  type MaterializationContract,
+  type MaterializationResult,
+  type MaterializationVersions,
+  type VerifiedEvidenceSet,
+} from "./MaterializationContract.js";
+import {
+  CasMaterializationRepository,
+  type MaterializationRepository,
+} from "./MaterializationRepository.js";
+import { preVerifiedEvidenceResolver, type EvidenceResolver } from "./ports/EvidenceResolver.js";
+import {
+  decisionGovernanceIdentityProvider,
+  type MaterializationIdentityProvider,
+} from "./ports/MaterializationIdentityProvider.js";
+
+export type MaterializationPipelineOptions = {
+  readonly evidenceResolver?: EvidenceResolver;
+  readonly lineageValidator?: LineageValidator;
+  readonly identityProvider?: MaterializationIdentityProvider;
+  readonly repository?: MaterializationRepository;
+  readonly rule_version?: string;
+  readonly materialization_version?: string;
+};
 
 export class MaterializationPipeline implements MaterializationContract {
-  constructor(
-    readonly canonicalizer_id: string,
-    readonly materialization_version: string,
-    readonly rule_version: string,
-    private readonly evidenceResolver: EvidenceResolver,
-    private readonly decisionRepository: DecisionRepository,
-    private readonly lineageResolver: EvidenceSetLineageResolver
-  ) {}
+  private readonly evidenceResolver: EvidenceResolver;
+  private readonly lineageValidator: LineageValidator;
+  private readonly identityProvider: MaterializationIdentityProvider;
+  private readonly repository: MaterializationRepository;
+  readonly versions: MaterializationVersions;
 
-  /**
-   * Materialiserar ett fryst evidensset till ett omutligt beslutsfakta-artefakt.
-   * Följer strikt plattformens 8-stegade ordnings-invariant (Pipeline Invariant).
-   */
-  async materialize(
-    evidenceSet: EvidenceSetArtifact,
-    context: MaterializationContext
-  ): Promise<DecisionImpactArtifact> {
-    
-    // --- STEG 1: Resolve evidence references ---
-    const resolvedEvidence = await this.evidenceResolver.resolve(evidenceSet.evidence_set_hash);
-    if (!resolvedEvidence) {
-      throw new Error(`[MAT Violation] Evidence set '${evidenceSet.evidence_set_hash}' must be resolved in repository before materialization.`);
-    }
-
-    // --- STEG 2: Verify artifacts ---
-    // Verifiera att det mottagna evidenssetets interna hash stämmer
-    if (resolvedEvidence.evidence_set_hash !== evidenceSet.evidence_set_hash) {
-      throw new Error(`[MAT Violation] Integrity mismatch in resolved evidence set.`);
-    }
-
-    // --- STEG 3: Validate lineage closure (MAT-I01) ---
-    // Detta garanterar att hela historiken och sekvensordningen är intakt före godkännande!
-    validateEvidenceSetLineage(resolvedEvidence, this.lineageResolver);
-
-    // --- STEG 4: Build DecisionFacts ---
-    const indicators = DecisionFactsBuilder.buildIndicators(resolvedEvidence, this.rule_version);
-
-    // --- STEG 5: Create DecisionImpact payload ---
-    const identity = DecisionImpactFactory.createIdentity({
-      jurisdiction_level: context.jurisdiction_level,
-      decision_type: context.decision_type,
-      municipality_code: context.municipality_code,
-      evidence_set_hashes: [resolvedEvidence.evidence_set_hash],
-      indicators,
-      schema_version: context.schema_version,
-      derivation_version: this.materialization_version
-    });
-
-    // --- STEG 6 & 7: Request identity & CAS Save ---
-    // Vi skickar identiteten och metadata till vårt strama DecisionArtifactRepository (CAS-lager).
-    // Det är där och ENDAST där som den kanoniska hashen beräknas och registreras!
-    const metadata: DecisionImpactMetadata = {
-      created_at: new Date().toISOString(),
-      materialization_version: this.materialization_version,
-      generated_by: `Materializer Pipeline v${this.materialization_version}`
+  constructor(options: MaterializationPipelineOptions = {}) {
+    this.evidenceResolver = options.evidenceResolver ?? preVerifiedEvidenceResolver;
+    this.lineageValidator = options.lineageValidator ?? new LineageValidator();
+    this.identityProvider = options.identityProvider ?? decisionGovernanceIdentityProvider;
+    this.repository = options.repository ?? new CasMaterializationRepository();
+    this.versions = {
+      canonical_version: this.identityProvider.canonical_version,
+      rule_version: options.rule_version ?? RULE_VERSION,
+      materialization_version: options.materialization_version ?? MATERIALIZATION_VERSION,
     };
+  }
 
-    const artifact = await this.decisionRepository.save(identity, metadata);
+  materialize(evidenceSet: VerifiedEvidenceSet): MaterializationResult {
+    for (const hash of evidenceSet.source_artifact_hashes) {
+      if (!this.evidenceResolver.has(hash)) {
+        throw new MaterializationContractError(
+          "EVIDENCE_NOT_RESOLVABLE",
+          `source artifact '${hash}' must be resolvable before materialization`,
+        );
+      }
+    }
 
-    // --- STEG 8: Return artifact reference ---
-    return artifact;
+    const facts = buildDecisionFacts(evidenceSet, this.versions, this.identityProvider);
+    const evidence_set = buildEvidenceSetFromFacts(facts, this.identityProvider);
+
+    // C-03: authority is granted only after lineage closure succeeds.
+    this.lineageValidator.commitAfterClosure(evidence_set);
+
+    const built = buildDecisionImpactFromFacts(facts, evidence_set, this.identityProvider);
+
+    this.repository.putEvidenceSet(evidence_set);
+    this.repository.putImpact(built.impact);
+
+    return {
+      status: "CREATED",
+      artifact: built.impact,
+      evidence_set,
+      evidence_set_hash: evidence_set.evidence_set_hash,
+      canonical_payload: built.canonical_payload,
+      versions: this.versions,
+    };
   }
 }
