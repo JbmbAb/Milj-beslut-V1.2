@@ -180,28 +180,54 @@ demands buys cost, not accuracy — and choosing a lower one where it does deman
 simply wrong. The contract therefore carries the dimension as a declared property of the
 model rather than a property of the platform.
 
-Two consequences follow, and both are cheap now and expensive after the first artifact.
+Two constraints follow. Neither is a design to build now: per the TV-S5 rule above, the
+artifact shape SHALL be derived from the first concrete capability's actual output. They
+are recorded because a capability designed in ignorance of them would lock the platform.
 
 **A field is not a geometry.** A 3D result is a volumetric field — velocity, depth,
 pressure, concentration over a grid or mesh — and `SpatialEvidenceArtifact` cannot hold
-it, because it carries `CanonicalGeometry`. The field payload follows the raster split
-already frozen in TV-4.3 SPC-R02: the payload is archived in CAS and addressed by content
-digest, while the artifact holds grid definition, CRS, vertical datum, units, axis order
-and nodata encoding alongside that digest. A field also needs its own canonical form, as
-SV-I07 gives geometry one. Without it two runs that agree physically will disagree by
-hash, and identity becomes meaningless.
-
-**Solver identity binds inputs, not outputs.** Numerical solvers are not bit-reproducible.
-Parallel reduction order, GPU versus CPU, BLAS version and compiler flags all change the
-last bits, and floating-point addition is not associative. If a flow artifact takes its
-identity from a hash over the result field, replay will fail while nothing is wrong.
-Identity SHALL bind inputs, solver fingerprint and configuration — the same construction
-as SV-I03 for the geometry stack — and result equivalence SHALL be verified against a
-declared physical tolerance rather than bit equality. This must be settled before a solver
-is chosen, because it constrains which solvers are admissible at all.
+it, because it carries `CanonicalGeometry`. A field also needs its own canonical form the
+way SV-I07 gives geometry one; without it two runs that agree physically disagree by hash
+and identity becomes meaningless. The relevant precedent is the raster split in TV-4.3
+SPC-R02, where a heavy payload is archived digest-addressed and the artifact carries the
+metadata beside it. Whether a field follows that precedent is for the first volumetric
+capability to decide, not for this document.
 
 Renderer independence is unchanged by any of this. Cesium, QGIS and Blender are runtime
 and production tools; none of them may enter the identity domain (TV-S1 SV-I01).
+
+### Gate — determinism model before the first numerical solver
+
+This is a hard precondition, not an open question.
+
+**No solver SHALL be chosen and no solver code SHALL be written before the identity,
+solver-fingerprint, configuration and tolerance-based verification model has been decided.**
+
+Numerical solvers are not bit-reproducible. Parallel reduction order, GPU versus CPU, BLAS
+version and compiler flags all change the last bits, and floating-point addition is not
+associative. The same solver on the same input can produce two results that are both
+physically correct and not byte-equal. An artifact taking its identity from a hash over
+the result field would therefore fail replay while nothing is wrong.
+
+Replayability for simulation consequently cannot mean a bit-identical floating-point
+result. It means that the same defined computation contract is verifiable within a stated
+numerical tolerance. That requires separating two things which are one thing for ordinary
+artifacts:
+
+| Simulation identity — what was computed | Result verification — whether it is acceptable |
+| :-- | :-- |
+| input artifact identities | conservation and error checks |
+| solver identity and version | numerical tolerances |
+| solver fingerprint | physical invariants |
+| numerical configuration | regression reference |
+| mesh or model identity | acceptable deviation |
+| boundary conditions | |
+| execution profile | |
+
+Identity binds the left column, using the same construction as SV-I03 for the geometry
+stack. Verification asserts the right. The gate exists because this constrains which
+solvers are admissible at all: one that cannot report a usable fingerprint, or whose
+configuration cannot be captured, cannot be governed and therefore cannot be used.
 
 ---
 
@@ -347,7 +373,7 @@ capability interface, and the source artifact contract. Then wait.
 | Telemetry enters CAS at ingest | Otherwise PostgreSQL silently becomes authority | §2.4 |
 | Rule-set edition as identity input | Recalculation must survive a revised recommendation | §Phase 3 |
 | Canonical form for field results | Without one, two physically identical runs hash differently and field identity is undefined | §Phase 3 |
-| Solver identity binds inputs, not outputs | Bit equality over floating-point results makes replay fail spuriously; this constrains which solvers are admissible | §Phase 3 |
+| Determinism model before any solver | Hard gate, not an open question: bit equality over floating-point results makes replay fail spuriously, and it decides which solvers can be governed at all | §Phase 3 gate |
 | Time columns before identity is fixed | Adding time later rewrites hashes | §2.3 |
 
 ---
@@ -365,3 +391,14 @@ Create the registries.
 Guarantee lineage.
 Add domain engines when the market demands them.
 ```
+
+Specifically not now, however attractive the direction: no Flow Engine, no general flow or
+simulation contract, no general `FlowSimulationArtifact`, no solver, no CFD architecture,
+no Cesium implementation, no Blender integration.
+
+Each of these is a generic layer built ahead of the capability that would give it shape,
+which is what the TV-S5 rule forbids. When the first real water capability is implemented,
+its contract is derived from actual physics and actual inputs and outputs — including
+volumetric fields if that capability needs them.
+
+The current work is ingest and the six unimplemented orchestrator ports.
