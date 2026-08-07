@@ -145,10 +145,19 @@ match the manifest presented for import, or when the decision is not
 `APPROVED`. The orchestrator maps `BLOCK_IMPORT` to `BLOCKED` and never reaches
 projection.
 
-**Caveat.** `ImportGate` cannot run in production today: its
-`ArtifactRepository` import does not resolve, and its inline serializer does not
-satisfy `CanonicalArtifactSerializer`. Both are pre-existing type errors. The
-barrier is real in design and currently unreachable in execution.
+**Resolved by `26be14a`.** The gate was unreachable for two reasons, and the
+second was worse than the type error it presented as. `ArtifactRepository` did
+not merely resolve to the wrong path: `mps-artifact-store` exports an interface
+of that name which is a read facade with no write side, so the port the gate
+needed did not exist anywhere. It now owns a narrow `ImportGateEvidenceStore`.
+
+The inline serializer was `JSON.stringify(obj, Object.keys(obj).sort())`, on the
+assumption that the second argument sorts keys. It is a replacer allowlist,
+applied recursively, so `manifest_ref` serialized as `{}` and the signed
+evidence was blind to which manifest had been gated — two different datasets
+blocked for the same reason produced the same content hash and signature. The
+serializer is now injected, and a regression test gates two manifests and
+asserts their evidence hashes differ.
 
 ### 6. Altered artifact → replay does not verify
 
@@ -232,25 +241,30 @@ These four hold on the real execution path and are covered in
 | 2 | Policy violation | absent | — |
 | 3 | Tampered payload | present | **no** — opt-in flag, off by default |
 | 4 | Failed derivation | absent | — |
-| 5 | Missing approval | present | blocked by unrelated type errors |
+| 5 | Missing approval | present | yes, since `26be14a` |
 | 6 | Altered artifact | wrong property verified | — |
 | 7 | Source unavailable | present | yes |
 | 8 | Loke creates authority | present | **no** — Loke bypasses it |
 
-Only case 7 can be proven today against production code, and only weakly until
-a source delivers real bytes.
+Cases 5 and 7 can be proven today against production code. Case 7 remains weak
+until a source delivers real bytes.
 
 Three cases — 3, 5 and 8 — do not need new barriers. They need existing
 barriers placed on the path that ingest actually takes. That is a smaller and
 more valuable piece of work than building four new gates, and it should come
-first.
+first. Case 5 is done; 3 and 8 remain.
 
 ## A structural observation
 
 The six orchestrator ports — `HarvestExecutor`, `VerificationExecutor`,
 `ComplianceRunner`, `ProjectionExecutor`, `LURuntimeInitializer`,
-`HarvestCheckpointStore` — have **no implementations anywhere in the
-repository**. Only test mocks satisfy them.
+`HarvestCheckpointStore` — had **no implementations anywhere in the
+repository**. Only test mocks satisfied them.
+
+`8174992` landed the first: `FileCheckpointStore`. Five remain, and the five
+that remain are the ones that touch the outside world — fetching, verifying,
+running controls, projecting into PostGIS, initialising LU. The checkpoint store
+was the only one that could be built without first deciding on a source.
 
 One near-miss is worth recording, because it is the naming hazard again.
 `packages/alpha-runtime/src/verification/VerificationExecutor.ts` exports a
