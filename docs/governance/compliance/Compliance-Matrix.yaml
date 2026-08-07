@@ -1,0 +1,43 @@
+# Mimers Brunn v2.0.1 — Compliance Matrix (Data Governance Domain)
+# Status: ACTIVE
+# Owner: Architecture Governance
+
+- id: MB-006
+  name: Dataset Approval Integrity
+  domain: DATA_GOVERNANCE
+  owner: GOVERNANCE
+  status: ACTIVE
+  version: 1.0
+
+  inputs:
+    - HarvestManifestArtifact
+    - DatasetApprovalArtifact
+
+  verification:
+    description: >
+      Verifies that only authorized, cryptographically valid governance
+      decisions can approve a specific harvested dataset version for import.
+
+    controls:
+      - MB006-REF-001
+      - MB006-REF-002
+      - MB006-ACTOR-001
+      - MB006-ACTOR-002
+      - MB006-DECISION-001
+      - MB006-TIME-001
+      - MB006-ID-001
+
+  evidence:
+    artifact: DatasetApprovalVerificationEvidence
+    file: dataset-approval.json
+
+  gate:
+    name: Import Gate
+
+    allows_when:
+      - control_result == PASS
+      - decision == APPROVED
+
+    blocks_when:
+      - control_result == FAIL
+      - decision == REJECTED
