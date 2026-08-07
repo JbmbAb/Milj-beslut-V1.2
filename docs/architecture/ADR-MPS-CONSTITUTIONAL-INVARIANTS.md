@@ -148,6 +148,7 @@ platform. The `dg-` namespace is therefore owned solely by `mps-decision-governa
 | :-- | :-- | :-- |
 | `dg-*` | `mps-decision-governance` | Decision Authority identity |
 | `runtime-projection-*` | `alpha-runtime` | Runtime projection identity (no authority) |
+| `sv-*` | Spatial Governance Domain | Canonical geometry form ([TV-S1](./TV-S1-Spatial-Verification-Layer.md), SV-I07) |
 
 Any other registry that resolves a `dg-` id rejects it with `CANONICALIZER_NAMESPACE_VIOLATION`.
 Database columns named `canonicalizer_id` hold governance-owned ids only.
