@@ -1212,7 +1212,8 @@ model EnvironmentalCase {
   createdAt    DateTime                                 @default(now()) @map("created_at")
   updatedAt    DateTime                                 @updatedAt @map("updated_at")
 
-  evidence CaseEvidence[]
+  evidence      CaseEvidence[]
+  decisionCases DecisionCase[]
 
   @@index([authority])
   @@index([activityCode])
@@ -1259,4 +1260,77 @@ model EvidenceChunk {
   @@index([evidenceId])
   // Note: HNSW/IVFFlat indexes for vectors should be created via raw SQL migrations.
   @@map("evidence_chunks")
+}
+
+// -----------------------------------------------------------------------------
+// TIER 4: DECISION FACT LAYER & SNAPSHOTS (AI Optimization)
+// -----------------------------------------------------------------------------
+
+model DecisionCase {
+  id                    String    @id @default(cuid())
+  municipality          String
+  timelineStart         DateTime?
+  timelineEnd           DateTime?
+  outcome               String?   // "APPROVED", "REJECTED", "CONDITIONED"
+  ewcCode               String?
+  volumeClass           String?
+  hasComplementaryReq   Boolean   @default(false)
+  hasInjunction         Boolean   @default(false)
+  createdAt             DateTime  @default(now()) @map("created_at")
+  updatedAt             DateTime  @updatedAt @map("updated_at")
+
+  impactArtifacts       DecisionImpactArtifact[]
+  environmentalCaseId   String?   @map("environmental_case_id")
+  environmentalCase     EnvironmentalCase? @relation(fields: [environmentalCaseId], references: [id], onDelete: SetNull)
+
+  @@index([municipality])
+  @@index([ewcCode])
+  @@map("decision_cases")
+}
+
+model DecisionImpactArtifact {
+  id                      String   @id @default(cuid())
+  decision_id             String
+  artifact_hash           String
+  release_hash            String
+  municipality_id         String
+  decision_facts          Json
+  evidence_refs           Json
+  source_artifact_hashes  Json
+  semantic_version        String
+  materialization_version String
+  verification_status     String
+  supersedes              String?
+  created_at              DateTime @default(now())
+
+  decisionCase            DecisionCase @relation(fields: [decision_id], references: [id], onDelete: Cascade)
+
+  @@index([decision_id])
+  @@index([municipality_id])
+  @@index([artifact_hash])
+  @@map("decision_impact_artifacts")
+}
+
+model MunicipalityDecisionProfile {
+  id                  String   @id @default(cuid())
+  municipality        String   @unique
+  completionRate      Float?   // E.g., % of cases requiring complementary info
+  avgProcessingDays   Int?
+  commonEwcCodes      Json?
+  lastCalculatedAt    DateTime @default(now()) @map("last_calculated_at")
+
+  @@map("municipality_decision_profiles")
+}
+
+model RuntimeSnapshot {
+  id                  String   @id @default(cuid())
+  caseId              String   @map("case_id")
+  snapshotVersion     Int      @default(1)
+  stateVector         Json     // The compacted state representing all past events
+  signature           String?  // UUIDv7 or cryptographic signature for Sovereign DoD
+  createdAt           DateTime @default(now()) @map("created_at")
+
+  @@unique([caseId, snapshotVersion])
+  @@index([caseId])
+  @@map("runtime_snapshots")
 }
