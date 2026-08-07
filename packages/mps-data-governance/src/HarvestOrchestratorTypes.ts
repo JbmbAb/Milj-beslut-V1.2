@@ -42,7 +42,7 @@ export interface HarvestExecutionResult {
  * This is operational state only, used for replay/resume.
  */
 export interface HarvestExecutionCheckpoint {
-  readonly checkpoint_version: number; // Stödjer framtida schema-migrationer (Mimers Brunn v2.0.1)
+  readonly checkpoint_version: 1;
 
   readonly execution_id: string;
   readonly state: HarvestExecutionState;
@@ -56,13 +56,12 @@ export interface HarvestExecutionCheckpoint {
 
   readonly manifest_ref?: ContentReference;
   readonly archive_refs?: readonly ContentReference[];
-  
-  // Stark semantisk separation (ArtifactReference för bevis/revisionsartefakter)
+
   readonly verification_ref?: ArtifactReference;
   readonly approval_ref?: ArtifactReference;
   readonly gate_evidence_ref?: ArtifactReference;
-  readonly projection_ref?: ArtifactReference;
-  readonly lu_ref?: ArtifactReference;
+  readonly projection_ref?: ContentReference;
+  readonly lu_ref?: ContentReference;
 
   readonly compliance_results?: readonly ComplianceCheckResult[];
 }
