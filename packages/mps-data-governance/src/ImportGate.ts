@@ -6,17 +6,17 @@ import type {
   ImportGateSignableEnvelope,
   ImportGateEvidenceArtifact,
   ImportGateEvidenceEnvelope,
+  ImportGateEvidenceStore,
 } from "./ImportGateTypes";
 
 import type {
   ContentReference,
+  CanonicalArtifactSerializer,
   CanonicalHashEngine,
   Signer,
   Timestamp,
   ArtifactIdentityStrategy,
 } from "../../mps-core/src/types";
-
-import type { ArtifactRepository } from "../../mps-artifact-store/src/ArtifactRepository";
 
 import {
   ArtifactIdentityBuilder,
@@ -29,21 +29,30 @@ import { GovernanceIntegrityViolation } from "../../mps-core/src/errors";
 export class ImportGate {
   private readonly builder: ArtifactIdentityBuilder;
 
+  /**
+   * The serializer is injected rather than constructed here.
+   *
+   * It was previously built inline as
+   * `JSON.stringify(obj, Object.keys(obj).sort())`, on the assumption that the
+   * second argument sorts keys. It does not: it is a replacer allowlist,
+   * applied recursively. Every nested object was reduced to the top-level key
+   * names, so `manifest_ref` serialized as `{}` and the signed evidence was
+   * blind to which manifest had been gated. Two imports of entirely different
+   * datasets produced the same content hash. Canonicalization is a boundary
+   * concern and belongs to whoever owns the hash domain, not to this gate.
+   */
   constructor(
-    private readonly hashEngine: CanonicalHashEngine,
-    private readonly signer: Signer,
-    private readonly identityStrategy: ArtifactIdentityStrategy,
-    private readonly repository: ArtifactRepository,
+    serializer: CanonicalArtifactSerializer,
+    hashEngine: CanonicalHashEngine,
+    signer: Signer,
+    identityStrategy: ArtifactIdentityStrategy,
+    private readonly store: ImportGateEvidenceStore,
   ) {
-    // Skapa en enkel deterministisk serializer på plats för att driva signeringen
-    const serializer = {
-      serialize: (obj: any) => JSON.stringify(obj, Object.keys(obj).sort())
-    };
     this.builder = new ArtifactIdentityBuilder(
       serializer,
-      this.hashEngine,
-      this.signer,
-      this.identityStrategy
+      hashEngine,
+      signer,
+      identityStrategy,
     );
   }
 
@@ -137,17 +146,10 @@ export class ImportGate {
       this.builder,
     );
 
-    const artifact_id = this.identityStrategy.createArtifactId(
-      signed.content_hash,
-    );
-
     const artifact: ImportGateEvidenceArtifact = {
       ...signed,
-      artifact_id,
       evaluated_at: evaluatedAt,
     };
-
-    const stored = await this.repository.put(artifact);
 
     return {
       decision,
@@ -155,7 +157,7 @@ export class ImportGate {
       approval_ref,
       failed_controls,
       evaluated_at: evaluatedAt,
-      evidence_ref: stored.reference,
+      evidence_ref: await this.store.put(artifact),
     };
   }
 }

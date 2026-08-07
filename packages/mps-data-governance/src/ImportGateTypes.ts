@@ -52,6 +52,21 @@ export type ImportGateSignableEnvelope = Omit<
   "artifact_id" | "content_hash" | "signature" | "evaluated_at"
 >;
 
+/**
+ * Where the gate persists its evidence.
+ *
+ * Deliberately narrow, and deliberately not called `ArtifactRepository`.
+ * `mps-artifact-store` already exports an interface of that name, and it is a
+ * read facade — resolver, verifier, exporter, lineage, snapshots, retention,
+ * index — with no write side at all. The gate needs exactly one capability:
+ * persist one evidence artifact and return a reference to it. Reaching for the
+ * larger name would have coupled the gate to six unrelated concerns and
+ * repeated the collision that `CanonicalArtifact` caused across four packages.
+ */
+export interface ImportGateEvidenceStore {
+  put(artifact: ImportGateEvidenceArtifact): Promise<ArtifactReference>;
+}
+
 export interface ImportGateResult {
   readonly decision: ImportGateDecision;
   readonly manifest_ref: ContentReference;
