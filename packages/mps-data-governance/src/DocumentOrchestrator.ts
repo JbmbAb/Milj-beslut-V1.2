@@ -48,7 +48,7 @@ export class LocalFilePdfExtractor implements PdfExtractor {
       const dataBuffer = fs.readFileSync(filePath);
       const parser = new PDFParse({ data: dataBuffer });
       const textResult = await parser.getText();
-      text = textResult.text || '';
+      text = (textResult.text || '').replace(/\0/g, '');
       pageCount = textResult.total || 1;
     } else {
       throw new Error(`UNSUPPORTED_FORMAT: ${ext}`);
@@ -87,19 +87,20 @@ export class PrismaDatabaseIndexer implements Indexer {
   public async index(documentId: string, chunks: string[]): Promise<string> {
     const hash = crypto.createHash('sha256');
 
-    await prisma.$transaction(
-      chunks.map((text, index) => {
-        hash.update(text);
-        return prisma.documentChunk.create({
-          data: {
-            documentId,
-            chunkIndex: index,
-            chunkText: text,
-            embeddingJson: {}, // Ready for future embedding step
-          },
-        });
-      })
-    );
+    const data = chunks.map((text, index) => {
+      hash.update(text);
+      return {
+        documentId,
+        chunkIndex: index,
+        chunkText: text,
+        embeddingJson: {}, // Ready for future embedding step
+      };
+    });
+
+    await prisma.documentChunk.createMany({
+      data,
+      skipDuplicates: true,
+    });
 
     return hash.digest('hex');
   }
