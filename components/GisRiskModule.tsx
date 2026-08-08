@@ -1,5 +1,9 @@
-﻿import React, { useMemo, useState } from 'react';
+﻿import React, { useMemo, useState, Suspense } from 'react';
 import { AnimatePresence, motion } from 'motion/react';
+
+const CesiumMapView = React.lazy(() => import('./CesiumMapView'));
+import EvidenceDetailsPanel from './cesium/EvidenceDetailsPanel';
+import type { CesiumEvidenceMode } from './cesium/types';
 import type { MapLayerKey, Permit } from '../types';
 import { csrfFetch } from '../services/csrfClient';
 import { getActiveProjectId, getToken } from '../services/coreApiClient';
@@ -133,6 +137,9 @@ const GisRiskModule: React.FC<GisRiskModuleProps> = ({ permits = [] }) => {
   const [highlightedLayer, setHighlightedLayer] = useState<string | undefined>(undefined);
   const [message, setMessage] = useState('');
   const [fileError, setFileError] = useState('');
+  const [mapMode, setMapMode] = useState<'2d' | '3d'>('2d');
+  const [selectedEvidence, setSelectedEvidence] = useState<any | null>(null);
+  const [cesiumEvidenceMode, setCesiumEvidenceMode] = useState<CesiumEvidenceMode>('fixture');
 
   const featureCount = useMemo(() => {
     if (!uploadedData?.features || !Array.isArray(uploadedData.features)) return 0;
@@ -246,6 +253,51 @@ const GisRiskModule: React.FC<GisRiskModuleProps> = ({ permits = [] }) => {
     setMessage(`Riskanalys klar. Gate RISK_REVIEW: ${gate.status}.`);
     setIsAnalyzing(false);
   };
+
+  // Centroid calculation for property geometry (WGS84)
+  const propertyCoordinates = useMemo<[number, number] | null>(() => {
+    if (!propertyResult?.geometry) return null;
+    const geom = propertyResult.geometry as any;
+    if (geom.type === 'Point' && Array.isArray(geom.coordinates)) {
+      return [geom.coordinates[1], geom.coordinates[0]]; // [lat, lng]
+    }
+    if (geom.type === 'Polygon' && Array.isArray(geom.coordinates) && Array.isArray(geom.coordinates[0])) {
+      const coords = geom.coordinates[0];
+      let sumLat = 0;
+      let sumLng = 0;
+      let count = 0;
+      coords.forEach((c: any) => {
+        if (Array.isArray(c) && typeof c[0] === 'number' && typeof c[1] === 'number') {
+          sumLng += c[0];
+          sumLat += c[1];
+          count++;
+        }
+      });
+      if (count > 0) {
+        return [sumLat / count, sumLng / count]; // [lat, lng]
+      }
+    }
+    if (geom.type === 'MultiPolygon' && Array.isArray(geom.coordinates)) {
+      const firstPoly = geom.coordinates[0];
+      if (Array.isArray(firstPoly) && Array.isArray(firstPoly[0])) {
+        const coords = firstPoly[0];
+        let sumLat = 0;
+        let sumLng = 0;
+        let count = 0;
+        coords.forEach((c: any) => {
+          if (Array.isArray(c) && typeof c[0] === 'number' && typeof c[1] === 'number') {
+            sumLng += c[0];
+            sumLat += c[1];
+            count++;
+          }
+        });
+        if (count > 0) {
+          return [sumLat / count, sumLng / count];
+        }
+      }
+    }
+    return null;
+  }, [propertyResult]);
 
   return (
     <div className="flex h-full flex-col gap-8 animate-in fade-in duration-500 lg:flex-row">
@@ -511,24 +563,90 @@ const GisRiskModule: React.FC<GisRiskModuleProps> = ({ permits = [] }) => {
 
       <div
         data-testid="gis-risk-map"
-        className="relative min-h-[600px] flex-1 overflow-hidden rounded-[3rem] border border-slate-200 bg-white shadow-sm"
+        className="relative min-h-[650px] flex-1 overflow-hidden rounded-[3rem] border border-slate-200 bg-white shadow-sm flex flex-col"
       >
-        <MapView
-          permits={permits}
-          geoJsonData={mapData}
-          bufferDistance={riskParameters.bufferDistance}
-          highlightLayer={highlightedLayer}
-        />
-        {isAnalyzing && (
-          <div className="absolute inset-0 z-[2000] flex items-center justify-center bg-slate-900/20 backdrop-blur-[2px]">
-            <div className="flex flex-col items-center gap-4 rounded-[2rem] bg-white p-8 shadow-2xl">
-              <div className="h-12 w-12 animate-spin rounded-full border-4 border-blue-600 border-t-transparent" />
-              <p className="text-xs font-black uppercase tracking-widest text-slate-900">
-                Spatial korsreferenskorning...
-              </p>
+        {/* Toggle Bar at the top of the map container */}
+        <div className="absolute top-4 right-4 z-[1000] bg-white/90 backdrop-blur-md px-2 py-1.5 rounded-2xl shadow-lg border border-slate-100 flex items-center gap-1">
+          <button
+            type="button"
+            onClick={() => {
+              setMapMode('2d');
+              setSelectedEvidence(null);
+            }}
+            className={`px-3 py-1.5 rounded-xl text-[10px] font-black uppercase tracking-wider transition-all ${
+              mapMode === '2d'
+                ? 'bg-blue-600 text-white shadow-md'
+                : 'text-slate-500 hover:text-slate-800 bg-transparent hover:bg-slate-50'
+            }`}
+          >
+            2D Karta
+          </button>
+          <button
+            type="button"
+            onClick={() => setMapMode('3d')}
+            className={`px-3 py-1.5 rounded-xl text-[10px] font-black uppercase tracking-wider transition-all ${
+              mapMode === '3d'
+                ? 'bg-blue-600 text-white shadow-md'
+                : 'text-slate-500 hover:text-slate-800 bg-transparent hover:bg-slate-50'
+            }`}
+          >
+            3D Tvilling
+          </button>
+        </div>
+
+        <div className="flex-1 w-full h-full relative">
+          {mapMode === '3d' ? (
+            <Suspense
+              fallback={
+                <div className="w-full h-full absolute inset-0 flex flex-col items-center justify-center bg-slate-900 text-white rounded-[3rem] gap-3" style={{ minHeight: '600px' }}>
+                  <div className="h-10 w-10 animate-spin rounded-full border-4 border-cyan-400 border-t-transparent" />
+                  <p className="text-xs font-black uppercase tracking-widest text-slate-400">
+                    Laddar Cesium 3D-motorn...
+                  </p>
+                </div>
+              }
+            >
+              <CesiumMapView
+                propertyGeometry={propertyResult?.geometry}
+                propertyCoordinates={propertyCoordinates}
+                evidenceMode={cesiumEvidenceMode}
+                onEvidenceModeChange={(next) => {
+                  setCesiumEvidenceMode(next);
+                  setSelectedEvidence(null);
+                }}
+                onEvidenceClick={(props) => {
+                  setSelectedEvidence(props);
+                }}
+              />
+            </Suspense>
+          ) : (
+            <MapView
+              permits={permits}
+              geoJsonData={mapData}
+              bufferDistance={riskParameters.bufferDistance}
+              highlightLayer={highlightedLayer}
+            />
+          )}
+
+          {isAnalyzing && (
+            <div className="absolute inset-0 z-[2000] flex items-center justify-center bg-slate-900/20 backdrop-blur-[2px]">
+              <div className="flex flex-col items-center gap-4 rounded-[2rem] bg-white p-8 shadow-2xl">
+                <div className="h-12 w-12 animate-spin rounded-full border-4 border-blue-600 border-t-transparent" />
+                <p className="text-xs font-black uppercase tracking-widest text-slate-900">
+                  Spatial korsreferenskorning...
+                </p>
+              </div>
             </div>
-          </div>
-        )}
+          )}
+
+          {selectedEvidence && mapMode === '3d' && (
+            <EvidenceDetailsPanel
+              evidence={selectedEvidence}
+              evidenceMode={cesiumEvidenceMode}
+              onClose={() => setSelectedEvidence(null)}
+            />
+          )}
+        </div>
       </div>
     </div>
   );
