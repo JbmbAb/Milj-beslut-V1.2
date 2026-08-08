@@ -1,0 +1,5 @@
+Internt PM om dokumenthantering.
+
+Detta dokument beskriver hur filer ska namnges i projektet.
+Inga särskilda juridiska sektionsrubriker används här.
+Texten är avsedd att falla till standardchunkern.

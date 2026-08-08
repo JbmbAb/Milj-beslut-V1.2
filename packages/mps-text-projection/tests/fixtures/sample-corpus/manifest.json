@@ -1,0 +1,68 @@
+[
+  {
+    "id": "sample-legal",
+    "file": "legal.txt",
+    "doc_name": "Miljöbalken",
+    "source_system": "sfs",
+    "expected_class": "law",
+    "expected_chunk_kind": "law"
+  },
+  {
+    "id": "sample-court",
+    "file": "court.txt",
+    "doc_name": "M 1234-20 Mark- och miljööverdomstolen",
+    "source_system": "domstol",
+    "expected_class": "court",
+    "expected_chunk_kind": "court"
+  },
+  {
+    "id": "sample-decision",
+    "file": "decision.txt",
+    "doc_name": "beslut-mpd.pdf",
+    "source_system": "upload",
+    "evidence_doc_type": "decision",
+    "expected_class": "evidence_decision",
+    "expected_chunk_kind": "evidence"
+  },
+  {
+    "id": "sample-mkb",
+    "file": "mkb.txt",
+    "doc_name": "mkb.pdf",
+    "evidence_doc_type": "mkb",
+    "expected_class": "evidence_mkb",
+    "expected_chunk_kind": "evidence"
+  },
+  {
+    "id": "sample-technical",
+    "file": "technical.txt",
+    "doc_name": "teknisk-beskrivning.pdf",
+    "evidence_doc_type": "technical_description",
+    "expected_class": "evidence_technical",
+    "expected_chunk_kind": "evidence"
+  },
+  {
+    "id": "sample-control",
+    "file": "control_program.txt",
+    "doc_name": "kontrollprogram.pdf",
+    "evidence_doc_type": "control_program",
+    "expected_class": "evidence_control",
+    "expected_chunk_kind": "evidence"
+  },
+  {
+    "id": "sample-standard",
+    "file": "standard.txt",
+    "doc_name": "allmant-pm.txt",
+    "source_system": "upload",
+    "expected_class": "standard",
+    "expected_chunk_kind": "standard"
+  },
+  {
+    "id": "sample-ocr",
+    "file": "ocr_scan.txt",
+    "doc_name": "skannad-bilaga.pdf",
+    "source_system": "upload",
+    "force_ocr_path": true,
+    "expected_class": "standard",
+    "expected_chunk_kind": "standard"
+  }
+]

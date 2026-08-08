@@ -1,0 +1,6 @@
+DENNA TEXT SIMULERAR OCR-RESULTAT FRÅN EN SKANNAD BILAGA.
+Sidan saknade inbäddad text och behövde OCR-fallback.
+Innehållet beskriver besiktningsanteckningar från platsbesök.
+Ytterligare stycken finns för att nå completeness-tröskeln.
+Ytterligare stycken finns för att nå completeness-tröskeln.
+Ytterligare stycken finns för att nå completeness-tröskeln.

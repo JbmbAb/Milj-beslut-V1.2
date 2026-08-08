@@ -1,0 +1,7 @@
+Teknisk beskrivning av anläggningen.
+
+1. PROCESSBESKRIVNING
+Krossning och sortering sker i slutna system med stoftavskiljning.
+
+2. RENINGSTEKNIK OCH FILTER
+Filterbyten dokumenteras i egenkontrollen.
