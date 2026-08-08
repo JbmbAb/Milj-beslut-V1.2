@@ -4,6 +4,9 @@
 
 **ACCEPTED / SEQUENCE FROZEN** — rebuild not started.
 
+**Active gate:** [ADR-POSTGIS-ADMIT-V1.md](./ADR-POSTGIS-ADMIT-V1.md)  
+(Empty PostGIS blocked until Admit v1 is frozen.)
+
 PostGIS is a **rebuildable projection** of `GEO_Master_Archive` (Mimers Brunn v2.0.1).
 The existing PostGIS instance must be **sanitized and replaced**, not incrementally patched.
 

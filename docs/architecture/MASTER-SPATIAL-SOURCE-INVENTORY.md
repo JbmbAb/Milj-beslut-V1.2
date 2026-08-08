@@ -77,10 +77,12 @@ Plus property foundation: LM registerytor → `core.property_unit`.
 
 ## Next freeze steps (still no empty PostGIS)
 
-1. Walk master `Data/<Provider>` for SHA/manifest completeness on **Admit v1 = yes/candidate** rows  
-2. Resolve vattenskydd dual source (NV vs LST)  
-3. Register RAA/kulturmiljö in IMPORT_REGISTRY **or** demote LU-värde until harvest exists  
-4. Freeze admit-set v1 as a short table of `layer_id` + contract fields  
+Active gate document: [ADR-POSTGIS-ADMIT-V1.md](./ADR-POSTGIS-ADMIT-V1.md)
+
+1. Walk master `Data/<Provider>` — fill `source_path` / version / `source_sha256` per candidate  
+2. Vattenskydd: **one** authority (NV xor LST) — never both until decided  
+3. RAÄ: registry+manifest → `ADMIT` **or** explicit `OUT_OF_SCOPE v1`  
+4. Freeze Admit v1 ledger + `layer_id` contracts (source identity ≠ imported dataset identity)  
 5. Only then: dump HITL → sanitize → cold empty PostGIS → import  
 
 ## Do not
