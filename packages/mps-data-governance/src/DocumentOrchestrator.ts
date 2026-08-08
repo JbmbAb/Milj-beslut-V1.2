@@ -68,7 +68,6 @@ export class LocalFilePdfExtractor implements PdfExtractor {
  */
 export class SentenceLayoutChunker implements Chunker {
   public async chunk(text: string): Promise<string[]> {
-    // Split by double newlines or structural markers to yield clean semantic paragraphs
     const list = text
       .split(/\n\s*\n/)
       .map((p) => p.trim())
@@ -88,7 +87,6 @@ export class PrismaDatabaseIndexer implements Indexer {
   public async index(documentId: string, chunks: string[]): Promise<string> {
     const hash = crypto.createHash('sha256');
 
-    // Transact chunks into database atomically
     await prisma.$transaction(
       chunks.map((text, index) => {
         hash.update(text);
@@ -103,13 +101,14 @@ export class PrismaDatabaseIndexer implements Indexer {
       })
     );
 
-    return hash.digest('hex'); // return fryst index version hash
+    return hash.digest('hex');
   }
 }
 
 /**
  * Facade Document Orchestrator for Mimers Brunn Ingest-pipeline.
  * Sits inside Runtime Kernel / Capability Layer as a governed workflow.
+ * Integrates strict Ingest Quality Gates to prevent database or indexing bloat.
  */
 export class DocumentOrchestrator {
   constructor(
@@ -121,6 +120,7 @@ export class DocumentOrchestrator {
 
   /**
    * Orchestrates a single document through the deterministic pipeline.
+   * Enforces strict quality gates at each step.
    */
   public async executePipeline(
     filePath: string,
@@ -144,6 +144,9 @@ export class DocumentOrchestrator {
       const extraction = await this.extractor.extractText(filePath);
       checkpoint.ocr_required = extraction.ocrRequired;
 
+      // Quality Gate E1: Validate Extraction Integrity
+      this.assertExtractionQuality(extraction.text, extraction.pageCount);
+
       // 2. CLASSIFY
       checkpoint.current_step = 'CLASSIFY';
       checkpoint.classification = this.inferClassification(filePath);
@@ -153,18 +156,70 @@ export class DocumentOrchestrator {
       checkpoint.current_step = 'CHUNK';
       const chunks = await this.chunker.chunk(extraction.text);
 
+      // Quality Gate E2: Validate Chunking Quality
+      this.assertChunkingQuality(chunks, extraction.text);
+
       // 4. INDEX (BM25 + pgvector)
       checkpoint.current_step = 'INDEX';
       await this.indexer.index(checkpoint.document_id, chunks);
 
       // 5. VERIFY
       checkpoint.current_step = 'VERIFY';
+      await this.assertDatabaseIntegrity(checkpoint.document_id, chunks.length);
       
       return checkpoint;
     } catch (err: any) {
       checkpoint.error_message = err.message;
       checkpoint.retries_attempted++;
       throw err;
+    }
+  }
+
+  /**
+   * Quality Gate E1: Checks extraction results for readability, non-emptiness, and page integrity.
+   */
+  private assertExtractionQuality(text: string, pageCount: number): void {
+    if (pageCount <= 0) {
+      throw new Error(`QUALITY_GATE_FAILURE: Extraction reports 0 pages.`);
+    }
+    if (!text || text.trim().length === 0) {
+      throw new Error(`QUALITY_GATE_FAILURE: Extracted text content is completely empty.`);
+    }
+    if (text.trim().length < 10) {
+      throw new Error(`QUALITY_GATE_FAILURE: Extracted text is too short (${text.trim().length} chars) to constitute readable document content.`);
+    }
+  }
+
+  /**
+   * Quality Gate E2: Checks chunks for duplication and boundary issues.
+   */
+  private assertChunkingQuality(chunks: string[], text: string): void {
+    if (text.trim().length > 0 && chunks.length === 0) {
+      throw new Error(`QUALITY_GATE_FAILURE: Document has text, but semantic chunking yielded 0 chunks.`);
+    }
+
+    // Check for duplicate chunks within the same document
+    const seen = new Set<string>();
+    for (const chunk of chunks) {
+      if (seen.has(chunk)) {
+        throw new Error(`QUALITY_GATE_FAILURE: Found duplicate chunks within the same document stream.`);
+      }
+      seen.add(chunk);
+    }
+  }
+
+  /**
+   * Quality Gate E3: Asserts manifest records correspond perfectly with database chunks.
+   */
+  private async assertDatabaseIntegrity(documentId: string, expectedChunkCount: number): Promise<void> {
+    const countInDb = await prisma.documentChunk.count({
+      where: { documentId },
+    });
+
+    if (countInDb !== expectedChunkCount) {
+      throw new Error(
+        `QUALITY_GATE_FAILURE: Database integrity mismatch. Expected ${expectedChunkCount} chunks in DB, found ${countInDb}.`
+      );
     }
   }
 

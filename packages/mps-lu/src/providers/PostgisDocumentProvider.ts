@@ -14,7 +14,7 @@ export class PostgisDocumentProvider implements DocumentProviderContract {
     // 1. Get the municipality from PostGIS spatial query using the geometry
     const res = await prisma.$queryRawUnsafe<Array<{ kommunnamn: string }>>(`
       SELECT DISTINCT name AS kommunnamn
-      FROM env.viss_waterbody
+      FROM hydro.water_catchment
       WHERE geom && ST_Transform(ST_SetSRID(ST_GeomFromGeoJSON($1), 4326), 3006)
       LIMIT 1
     `, [JSON.stringify(geometry)]).catch(() => []);
