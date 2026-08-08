@@ -1,0 +1,21 @@
+{
+  "name": "@miljobeslut/mps-text-projection",
+  "version": "0.1.0",
+  "description": "Frozen TextProjection contract: SourceArtifact → extraction/OCR provenance → classification → chunk handoff",
+  "main": "./src/index.ts",
+  "types": "./src/index.ts",
+  "type": "module",
+  "scripts": {
+    "test": "vitest run"
+  },
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "dependencies": {
+    "@miljobeslut/mps-chunking": "file:../mps-chunking"
+  },
+  "devDependencies": {
+    "typescript": "^5.0.0",
+    "vitest": "^4.1.10"
+  }
+}

@@ -607,12 +607,8 @@ export class AlphaevolveSearchService extends EventEmitter {
 const MAX_TEXT_BYTES = 2_000_000;
 const CHUNK_WORDS = 180;
 const CHUNK_OVERLAP = 40;
-export const OCR_MODEL = process.env.GEMINI_OCR_MODEL || process.env.OCR_MODEL || 'gemini-2.5-flash';
+export { OCR_MODEL, OCR_MAX_FILE_BYTES, runGeminiOcr } from '../text-projection/geminiOcrClient';
 export const OCR_MIN_TEXT_CHARS = Math.max(1, Number(process.env.SEARCH_OCR_MIN_TEXT_CHARS || 120));
-export const OCR_MAX_FILE_BYTES = Math.max(
-  1_000_000,
-  Number(process.env.SEARCH_OCR_MAX_FILE_BYTES || 12_000_000),
-);
 export const OCR_IMAGE_EXTENSIONS = new Set([
   '.png',
   '.jpg',
@@ -623,13 +619,6 @@ export const OCR_IMAGE_EXTENSIONS = new Set([
   '.webp',
   '.gif',
 ]);
-
-type PdfParseResult = { text?: string };
-type PdfParserInstance = {
-  getText: (options?: Record<string, unknown>) => Promise<PdfParseResult>;
-  destroy?: () => Promise<void> | void;
-};
-type PdfParserConstructor = new (options: { data: Buffer }) => PdfParserInstance;
 
 export function cosineSimilarity(a: number[], b: number[]): number {
   if (a.length === 0 || b.length === 0 || a.length !== b.length) {
@@ -738,75 +727,6 @@ function mimeTypeFromExtension(ext: string): string | null {
   }
 }
 
-function parseGeminiText(payload: Record<string, unknown>): string {
-  const candidates = Array.isArray(payload.candidates)
-    ? (payload.candidates as Record<string, unknown>[])
-    : [];
-  const parts = candidates
-    .map((candidate) => candidate?.content as Record<string, unknown> | undefined)
-    .flatMap((content) =>
-      Array.isArray(content?.parts) ? (content?.parts as Record<string, unknown>[]) : [],
-    );
-  const text = parts
-    .map((part) => (typeof part.text === 'string' ? part.text : ''))
-    .filter(Boolean)
-    .join('\n');
-  return extractSearchText(text);
-}
-
-export async function runGeminiOcr(fileBuffer: Buffer, mimeType: string): Promise<string | null> {
-  const apiKey = String(process.env.GEMINI_API_KEY || '').trim();
-  if (!apiKey) {
-    return null;
-  }
-  if (fileBuffer.length > OCR_MAX_FILE_BYTES) {
-    return null;
-  }
-
-  const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(
-    OCR_MODEL,
-  )}:generateContent?key=${encodeURIComponent(apiKey)}`;
-
-  try {
-    const response = await fetch(endpoint, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        contents: [
-          {
-            parts: [
-              {
-                text: 'Extrahera all lasbar text ordagrant ur dokumentet. Returnera enbart textinnehall utan forklaringar.',
-              },
-              {
-                inline_data: {
-                  mime_type: mimeType,
-                  data: fileBuffer.toString('base64'),
-                },
-              },
-            ],
-          },
-        ],
-        generationConfig: {
-          temperature: 0,
-          topP: 0.1,
-          maxOutputTokens: 8192,
-        },
-      }),
-    });
-
-    if (!response.ok) {
-      return null;
-    }
-
-    const payload = (await response.json()) as Record<string, unknown>;
-    const text = parseGeminiText(payload);
-    return text || null;
-  } catch {
-    return null;
-  }
-}
-
 export async function loadPdfText(filePath: string, fallbackTitle: string): Promise<string> {
   let fileBuffer: Buffer;
   try {
@@ -815,38 +735,21 @@ export async function loadPdfText(filePath: string, fallbackTitle: string): Prom
     return `Dokument: ${fallbackTitle}. Kunde inte lasa PDF-innehall.`;
   }
 
-  let parsedText = '';
-  try {
-    const moduleValue = await import('pdf-parse');
-    const PDFParse = (moduleValue as { PDFParse?: unknown }).PDFParse;
-    if (typeof PDFParse === 'function') {
-      const parser = new (PDFParse as PdfParserConstructor)({ data: fileBuffer });
-      let parsed: PdfParseResult | null = null;
-      try {
-        parsed = await parser.getText();
-      } finally {
-        await parser.destroy?.();
-      }
-      parsedText = extractSearchText(String(parsed?.text || ''));
-    }
-  } catch {
-    // Continue with OCR fallback below.
-  }
+  const { extractTextViaPorts } = await import('../text-projection/extractTextViaPorts');
+  const outcome = await extractTextViaPorts({
+    source: {
+      ref: { artifact_id: `path:${filePath}`, artifact_type: 'document_file' },
+      doc_name: fallbackTitle,
+      mime_type: 'application/pdf',
+    },
+    bytes: fileBuffer,
+    min_chars_threshold: OCR_MIN_TEXT_CHARS,
+    enable_ocr_fallback: true,
+  });
 
-  if (parsedText.length >= OCR_MIN_TEXT_CHARS) {
-    return parsedText;
-  }
-
-  const ocrText = await runGeminiOcr(fileBuffer, 'application/pdf');
-  if (ocrText) {
-    if (parsedText && !ocrText.includes(parsedText)) {
-      return extractSearchText(`${parsedText}\n${ocrText}`);
-    }
-    return ocrText;
-  }
-
-  if (parsedText) {
-    return parsedText;
+  const text = extractSearchText(outcome.text);
+  if (text) {
+    return text;
   }
 
   return `Dokument: ${fallbackTitle}. PDF utan extraherbar text/OCR - metadataindexerad.`;
@@ -860,9 +763,20 @@ async function loadImageTextWithOcr(filePath: string, ext: string, fallbackTitle
 
   try {
     const fileBuffer = await fs.readFile(filePath);
-    const ocrText = await runGeminiOcr(fileBuffer, mimeType);
-    if (ocrText) {
-      return ocrText;
+    const { extractTextViaPorts } = await import('../text-projection/extractTextViaPorts');
+    const outcome = await extractTextViaPorts({
+      source: {
+        ref: { artifact_id: `path:${filePath}`, artifact_type: 'document_file' },
+        doc_name: fallbackTitle,
+        mime_type: mimeType,
+      },
+      bytes: fileBuffer,
+      min_chars_threshold: 1,
+      enable_ocr_fallback: true,
+    });
+    const text = extractSearchText(outcome.text);
+    if (text) {
+      return text;
     }
     return `Dokument: ${fallbackTitle}. Bild utan OCR-text - metadataindexerad.`;
   } catch {

@@ -49,57 +49,32 @@ export async function extractTextFromDocument(
   let method: OcrExtractionResult['method'] = 'empty';
   let confidence: number | undefined;
 
-  // 1. Try pdf-parse on the stored file
+  // TEXT-L2: extraction/OCR only via ports (no alternate projection formats)
   try {
-    const { readFileSync } = await import('node:fs');
-    // pdf-parse exports differently in ESM vs CJS — handle both
-    const pdfParseModule = await import('pdf-parse');
-    const pdfParse =
-      (pdfParseModule as unknown as { default: (b: Buffer) => Promise<{ text: string; numpages: number }> })
-        .default ?? (pdfParseModule as unknown as (b: Buffer) => Promise<{ text: string; numpages: number }>);
+    const buffer = await readStorageFile(doc.absolutePath);
+    const { extractTextViaPorts } = await import('../text-projection/extractTextViaPorts');
+    const outcome = await extractTextViaPorts({
+      source: {
+        ref: { artifact_id: documentId, artifact_type: 'document_record' },
+        doc_name: doc.originalName || documentId,
+        mime_type: 'application/pdf',
+      },
+      bytes: buffer,
+      min_chars_threshold: 10,
+      enable_ocr_fallback: true,
+      prefer_external_ocr: true,
+    });
 
-    const buffer = readFileSync(doc.absolutePath);
-    const parsed = await pdfParse(buffer);
-    extractedText = parsed.text?.trim() ?? '';
-    pageCount = parsed.numpages ?? 0;
-
-    if (extractedText.length > 0) {
+    extractedText = outcome.text.trim();
+    if (outcome.ocr_used && outcome.ocr_method === 'ocr_external') {
+      method = 'external-ocr';
+      confidence = 0.85;
+    } else if (extractedText.length > 0) {
       method = 'pdf-parse';
-      confidence = 0.95;
+      confidence = outcome.ocr_used ? 0.8 : 0.95;
     }
-  } catch (parseErr) {
-    logger.warn('ocr: pdf-parse failed', { documentId, err: String(parseErr) });
-  }
-
-  // 2. If no text found and external OCR endpoint is configured
-  if (extractedText.length < 10 && process.env.OCR_ENDPOINT) {
-    try {
-      const buffer = await readStorageFile(doc.absolutePath);
-
-      const resp = await fetch(process.env.OCR_ENDPOINT, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/pdf',
-          ...(process.env.OCR_API_KEY ? { 'Ocp-Apim-Subscription-Key': process.env.OCR_API_KEY } : {}),
-        },
-        body: buffer,
-        signal: AbortSignal.timeout(30_000),
-      });
-
-      if (resp.ok) {
-        const json = (await resp.json()) as {
-          text?: string;
-          pages?: unknown[];
-          confidence?: number;
-        };
-        extractedText = json.text?.trim() ?? '';
-        pageCount = Array.isArray(json.pages) ? json.pages.length : pageCount;
-        confidence = json.confidence;
-        if (extractedText.length > 0) method = 'external-ocr';
-      }
-    } catch (ocrErr) {
-      logger.warn('ocr: external OCR endpoint failed', { documentId, err: String(ocrErr) });
-    }
+  } catch (err) {
+    logger.warn('ocr: port extraction failed', { documentId, err: String(err) });
   }
 
   // 3. Persist extracted text to searchText field if extraction succeeded

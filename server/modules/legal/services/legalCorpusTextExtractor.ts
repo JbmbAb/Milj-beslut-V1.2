@@ -31,7 +31,22 @@ export async function extractCorpusContent(
   const extractPdfText = options.extractPdfText ?? true;
 
   if (extension === '.pdf') {
-    const documentText = extractPdfText ? await extractPdfBufferText(buffer) : undefined;
+    let documentText: string | undefined;
+    if (extractPdfText) {
+      // TEXT-L2: PDF extraction via PdfParseExtractorAdapter port only
+      const { createPdfParseExtractorAdapter } = await import(
+        '../../../text-projection/pdfParseExtractorAdapter'
+      );
+      const extracted = await createPdfParseExtractorAdapter().extract(
+        {
+          ref: { artifact_id: contentHash, artifact_type: 'corpus_file' },
+          doc_name: path.basename(filePath),
+          mime_type: mimeType,
+        },
+        buffer,
+      );
+      documentText = extracted.text || undefined;
+    }
     return {
       contentHash,
       byteSize: buffer.byteLength,
@@ -176,7 +191,8 @@ function flattenJsonValues(value: unknown): string[] {
   return [];
 }
 
-async function extractPdfBufferText(buffer: Buffer): Promise<string | undefined> {
+/** Shared PDF text extract used by legal corpus and TEXT-L1 pdf-parse port. */
+export async function extractPdfBufferText(buffer: Buffer): Promise<string | undefined> {
   try {
     const pdfParseModule = await import('pdf-parse');
     

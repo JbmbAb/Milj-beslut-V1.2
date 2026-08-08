@@ -97,6 +97,10 @@ export default defineConfig({
         __dirname,
         'packages/mps-chunking/src/index.ts',
       ),
+      '@miljobeslut/mps-text-projection': path.resolve(
+        __dirname,
+        'packages/mps-text-projection/src/index.ts',
+      ),
       '@miljobeslut/spatial-provider-postgis': path.resolve(
         __dirname,
         'packages/spatial-provider-postgis/src/index.ts',
@@ -192,6 +196,7 @@ export default defineConfig({
             'packages/mps-cas-boundary/**/*.test.ts',
             'packages/mps-governance-runtime/**/*.test.ts',
             'packages/mps-chunking/**/*.test.ts',
+            'packages/mps-text-projection/**/*.test.ts',
             'packages/spatial-provider-postgis/**/*.test.ts',
             'scripts/audit/**/*.test.ts',
           ],

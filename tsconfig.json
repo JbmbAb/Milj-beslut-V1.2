@@ -74,6 +74,12 @@
       "@miljobeslut/mps-chunking/*": [
         "./packages/mps-chunking/*"
       ],
+      "@miljobeslut/mps-text-projection": [
+        "./packages/mps-text-projection/src/index.ts"
+      ],
+      "@miljobeslut/mps-text-projection/*": [
+        "./packages/mps-text-projection/*"
+      ],
       "@miljobeslut/mps-capability": [
         "./packages/mps-capability/src/index.ts"
       ],

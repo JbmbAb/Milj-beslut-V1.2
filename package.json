@@ -88,6 +88,7 @@
     "@miljobeslut/mps-replay": "file:packages/mps-replay",
     "@miljobeslut/mps-runtime": "file:packages/mps-runtime",
     "@miljobeslut/mps-telemetry": "file:packages/mps-telemetry",
+    "@miljobeslut/mps-text-projection": "file:packages/mps-text-projection",
     "@opentelemetry/api": "^1.9.1",
     "@prisma/adapter-pg": "^7.9.0",
     "@prisma/client": "^7.9.1",
