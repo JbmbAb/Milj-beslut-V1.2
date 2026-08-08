@@ -178,6 +178,22 @@ export default defineConfig({
         },
       },
       {
+        resolve: {
+          alias: {
+            '@miljobeslut/spatial-provider-postgis': path.resolve(
+              __dirname,
+              'packages/spatial-provider-postgis/src/index.ts',
+            ),
+            '@miljobeslut/mps-lu': path.resolve(
+              __dirname,
+              'packages/mps-lu/src/index.ts',
+            ),
+            '@miljobeslut/mps-runtime': path.resolve(
+              __dirname,
+              'packages/mps-runtime/src/index.ts',
+            ),
+          },
+        },
         test: {
           name: 'compliance',
           include: [
@@ -201,6 +217,7 @@ export default defineConfig({
             'scripts/audit/**/*.test.ts',
           ],
           environment: 'node',
+          setupFiles: ['tests/setup/env.ts'],
         },
       },
 

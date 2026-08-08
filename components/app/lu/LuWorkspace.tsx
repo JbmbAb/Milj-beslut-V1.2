@@ -18,6 +18,8 @@ type ExecutionMotorMeta = {
   manifest_id?: string | null;
   ticket_id?: string | null;
   finding_ids?: string[];
+  assessment_artifact_id?: string | null;
+  property_context_id?: string | null;
 };
 
 type SiteAnalysis = {
@@ -216,13 +218,30 @@ export const LuWorkspace: React.FC<{ initialDesignation?: string }> = ({ initial
         >
           <h2 className="text-xl font-bold">Resultat</h2>
           {motor ? (
-            <p data-testid="lu-motor-meta" className="text-xs opacity-70">
-              ExecutionKernel:{' '}
-              {motor.admitted ? 'admitted' : 'denied'}
-              {motor.attempt_id ? ` · attempt ${motor.attempt_id}` : ''}
-              {motor.outcome_id ? ` · outcome ${motor.outcome_id}` : ''}
-              {motor.manifest_id ? ` · manifest ${motor.manifest_id}` : ''}
-            </p>
+            <div data-testid="lu-motor-meta" className="text-xs opacity-70 space-y-1">
+              <p>
+                ExecutionKernel:{' '}
+                {motor.admitted ? 'admitted' : 'denied'}
+                {motor.attempt_id ? ` · attempt ${motor.attempt_id}` : ''}
+                {motor.outcome_id ? ` · outcome ${motor.outcome_id}` : ''}
+                {motor.manifest_id ? ` · manifest ${motor.manifest_id}` : ''}
+              </p>
+              {motor.assessment_artifact_id ? (
+                <p data-testid="lu-assessment-id">
+                  Assessment: {motor.assessment_artifact_id}
+                </p>
+              ) : null}
+              {motor.property_context_id ? (
+                <p data-testid="lu-property-context-id">
+                  Property context: {motor.property_context_id}
+                </p>
+              ) : null}
+              {(motor.finding_ids?.length ?? 0) > 0 ? (
+                <p data-testid="lu-finding-ids">
+                  Findings: {motor.finding_ids!.join(', ')}
+                </p>
+              ) : null}
+            </div>
           ) : null}
           <p className="text-sm">
             Risk:{' '}

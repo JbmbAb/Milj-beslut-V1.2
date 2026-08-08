@@ -89,6 +89,7 @@
     "@miljobeslut/mps-runtime": "file:packages/mps-runtime",
     "@miljobeslut/mps-telemetry": "file:packages/mps-telemetry",
     "@miljobeslut/mps-text-projection": "file:packages/mps-text-projection",
+    "@miljobeslut/spatial-provider-postgis": "file:packages/spatial-provider-postgis",
     "@opentelemetry/api": "^1.9.1",
     "@prisma/adapter-pg": "^7.9.0",
     "@prisma/client": "^7.9.1",

@@ -6,6 +6,7 @@
  * VISS water status, SLU species observations, and audit trail logging.
  */
 
+import { createHash } from 'node:crypto';
 import { runSpatialAudit, type SpatialAuditSummary } from '../../server/services/spatialAuditService';
 import { evaluateComplianceRules, type SiteAnalysis } from '../../server/services/complianceRuleEngine';
 import { fetchProtectedAreas, type ProtectedArea } from '../../server/services/nvrService';
@@ -16,7 +17,8 @@ import { auditTrail } from '../../server/services/auditTrailService';
 import { searchSluByCoordinates, getSpeciesInformation } from '../../server/services/sluService';
 import { logger } from '../../server/logger';
 import type { AuthUser } from '../../server/security/types';
-import { orchestrator } from '@miljobeslut/mps-lu/src/api/LUBackendOrchestrator';
+import { orchestrator, runLuAssessmentViaKernel } from '@miljobeslut/mps-lu';
+import { SpatialProviderPostGIS } from '@miljobeslut/spatial-provider-postgis';
 import { prisma } from '../../server/db/prisma';
 import { enqueueAdmittedLuTicket } from './enqueue-lu-execution-ticket';
 import { MimersIntegration } from '@miljobeslut/mps-runtime';
@@ -51,6 +53,9 @@ export interface ExecutionMotorMeta {
   manifest_id: string | null;
   ticket_id: string | null;
   finding_ids: string[];
+  /** CAS LocalizationAssessmentArtifact id when Magic Moment path succeeds. */
+  assessment_artifact_id: string | null;
+  property_context_id: string | null;
 }
 
 export interface SiteAnalysisResult {
@@ -400,29 +405,100 @@ async function analyzeSite(
     logger.warn(`Failed to generate document evidence for site ${site.id}`, { err: String(err) });
   }
 
-  // Single path: Evidence → ExecutionKernel → Artifacts → findings (no RuleEngine bypass).
+  // Magic Moment path: property CAS → PostGIS SpatialProvider → evidence → kernel → assessment
   let mpsFindings: any[] = [];
   let executionMotor: ExecutionMotorMeta | undefined;
+  let spatialProvider: { close: () => Promise<void> } | undefined;
   try {
-    const { runLuAssessmentViaKernel } = await import('@miljobeslut/mps-lu');
-    const { SpatialProviderPostGIS } = await import('../../packages/spatial-provider-postgis/src/SpatialProviderPostGIS');
-
     const mimers = await MimersIntegration.create();
     const repo = mimers.artifactRepository;
     const dbUrl = process.env.DATABASE_URL || 'postgresql://postgres:postgres@localhost:5432/mimer';
-    const spatialProvider = new SpatialProviderPostGIS(dbUrl, repo);
-    
-    const queryRequest = {
-      property_ref: { artifact_id: `prop-${site.id}`, artifact_type: "LU_PROPERTY_CONTEXT" as const },
-      buffer_distance_meters: distanceForCompliance,
-      layers: [
-        { name: "water", version_hash: "v1.0" },
-        { name: "ebh", version_hash: "v1.0" },
-        { name: "protected_area", version_hash: "v1.0" }
-      ] as const
+    const provider = new SpatialProviderPostGIS(dbUrl, repo);
+    spatialProvider = provider;
+
+    const propertyContextId = `prop-${site.id}`;
+    const projectContextId = `proj-${ctx.projectId}`;
+    const propRef = {
+      artifact_id: propertyContextId,
+      artifact_type: 'LU_PROPERTY_CONTEXT' as const,
+    };
+    const projRef = {
+      artifact_id: projectContextId,
+      artifact_type: 'LU_PROJECT_CONTEXT' as const,
+    };
+    const geomRef = {
+      artifact_id: `geom-${site.id}`,
+      artifact_type: 'CANONICAL_GEOMETRY' as const,
     };
 
-    const mpsEvidence = await spatialProvider.query(queryRequest);
+    const [northing, easting] = await provider.wgs84ToSweref99(site.lat, site.lng);
+    const propertyPayload = {
+      property_ref: site.name || site.id,
+      official_name: site.name || site.id,
+      geometry_ref: geomRef,
+      municipality: 'UNKNOWN',
+      coordinates: [northing, easting] as const,
+    };
+    const propertyHash = {
+      algorithm: 'sha256' as const,
+      value: createHash('sha256')
+        .update(JSON.stringify(propertyPayload))
+        .digest('hex'),
+    };
+    await repo.put({
+      artifact_id: propertyContextId,
+      content_hash: propertyHash,
+      body: {
+        artifact_id: propertyContextId,
+        artifact_type: 'LU_PROPERTY_CONTEXT',
+        content_hash: propertyHash,
+        references: [geomRef],
+        payload: propertyPayload,
+      },
+    });
+
+    const projectPayload = {
+      project_name: ctx.projectId,
+      description: 'Localization Magic Moment',
+      planned_activity: 'localization_assessment',
+      property_refs: [propRef],
+      created_by: ctx.user?.id ?? 'system',
+    };
+    const projectHash = {
+      algorithm: 'sha256' as const,
+      value: createHash('sha256')
+        .update(JSON.stringify(projectPayload))
+        .digest('hex'),
+    };
+    await repo.put({
+      artifact_id: projectContextId,
+      content_hash: projectHash,
+      body: {
+        artifact_id: projectContextId,
+        artifact_type: 'LU_PROJECT_CONTEXT',
+        content_hash: projectHash,
+        references: [propRef],
+        payload: projectPayload,
+      },
+    });
+
+    const queryRequest = {
+      property_ref: propRef,
+      buffer_distance_meters: distanceForCompliance ?? 500,
+      layers: [
+        { name: 'water', version_hash: 'v1.0' },
+        { name: 'ebh', version_hash: 'v1.0' },
+        { name: 'protected_area', version_hash: 'v1.0' },
+      ] as const,
+      budget: {
+        max_layers: 8,
+        max_features_per_layer: 50,
+        max_distance_meters: 2000,
+        timeout_ms: 5000,
+      },
+    };
+
+    const mpsEvidence = await provider.query(queryRequest);
     const kernelResult = await runLuAssessmentViaKernel({
       site_id: site.id,
       deterministic_seed: `lu-seed-${site.id}`,
@@ -430,6 +506,7 @@ async function analyzeSite(
     });
 
     let ticket_id: string | null = null;
+    let assessment_artifact_id: string | null = null;
     if (kernelResult.admitted) {
       ticket_id = await enqueueAdmittedLuTicket(kernelResult.manifest_id);
       mpsFindings = [...kernelResult.findings];
@@ -437,6 +514,40 @@ async function analyzeSite(
         `ExecutionKernel admitted LU assessment. findings=${mpsFindings.length} attempt=${kernelResult.attempt_id}`,
         { site: site.id },
       );
+
+      const evidenceRefs = mpsEvidence.map((ev) => ({
+        artifact_id: ev.artifact_id,
+        artifact_type: ev.artifact_type,
+      }));
+      const assessmentPayload = {
+        project_context_ref: projRef,
+        property_ref: propRef,
+        findings: kernelResult.findings,
+        evidence_refs: evidenceRefs,
+        rule_refs: kernelResult.findings.map((f) => ({
+          rule_id: f.rule_id,
+          rule_version: f.rule_version,
+        })),
+        system_summary: `PostGIS Magic Moment: ${mpsEvidence.length} evidence, ${kernelResult.findings.length} findings.`,
+      };
+      const assessmentHash = {
+        algorithm: 'sha256' as const,
+        value: createHash('sha256')
+          .update(JSON.stringify(assessmentPayload))
+          .digest('hex'),
+      };
+      assessment_artifact_id = `assess-${site.id}-${assessmentHash.value.slice(0, 12)}`;
+      await repo.put({
+        artifact_id: assessment_artifact_id,
+        content_hash: assessmentHash,
+        body: {
+          artifact_id: assessment_artifact_id,
+          artifact_type: 'LOCALIZATION_ASSESSMENT',
+          content_hash: assessmentHash,
+          references: [projRef, propRef, ...evidenceRefs],
+          payload: assessmentPayload,
+        },
+      });
     } else {
       logger.warn('LU ExecutionKernel denied admission', {
         site: site.id,
@@ -453,6 +564,8 @@ async function analyzeSite(
       manifest_id: kernelResult.manifest_id,
       ticket_id,
       finding_ids: [...kernelResult.finding_ids],
+      assessment_artifact_id,
+      property_context_id: propertyContextId,
     };
 
     if (mpsFindings.length > 0) {
@@ -502,7 +615,11 @@ async function analyzeSite(
       manifest_id: null,
       ticket_id: null,
       finding_ids: [],
+      assessment_artifact_id: null,
+      property_context_id: null,
     };
+  } finally {
+    await spatialProvider?.close().catch(() => undefined);
   }
 
   return {

@@ -53,6 +53,15 @@ describe('LuWorkspace', () => {
             requiredActions: ['Kontrollera brunn'],
             notes: ['Nära vatten'],
           },
+          executionMotor: {
+            admitted: true,
+            attempt_id: 'att-1',
+            outcome_id: 'out-1',
+            manifest_id: 'man-1',
+            assessment_artifact_id: 'assess-site-1-abc',
+            property_context_id: 'prop-site-1',
+            finding_ids: ['LU-WATER-001'],
+          },
         },
       ],
       humanInTheLoop: 'Human in the loop',
@@ -69,6 +78,9 @@ describe('LuWorkspace', () => {
     await user.click(screen.getByTestId('lu-run'));
     expect(await screen.findByTestId('lu-results')).toBeInTheDocument();
     expect(screen.getByTestId('lu-risk')).toHaveTextContent('MEDIUM');
+    expect(screen.getByTestId('lu-assessment-id')).toHaveTextContent('assess-site-1-abc');
+    expect(screen.getByTestId('lu-property-context-id')).toHaveTextContent('prop-site-1');
+    expect(screen.getByTestId('lu-finding-ids')).toHaveTextContent('LU-WATER-001');
     expect(callApi).toHaveBeenCalledWith(
       '/api/localization/generate-report',
       expect.objectContaining({ method: 'POST' }),

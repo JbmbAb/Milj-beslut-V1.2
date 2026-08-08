@@ -37,6 +37,7 @@ export type MimersIntegrationOptions = {
 let cachedMimersCas: FileCASRepository | null = null;
 let cachedMimersRoot: string | null = null;
 let cachedMimersBackend: MimersByteStorageBackend | null = null;
+let cachedMemoryMimers: MimersIntegration | null = null;
 
 function isTruthyFlag(raw: string | undefined): boolean {
   return ["1", "true", "yes"].includes((raw ?? "").trim().toLowerCase());
@@ -77,8 +78,11 @@ export class MimersIntegration {
       !required &&
       (env.NODE_ENV === "test" || env.VITEST || env.LU_MPS_CAS === "memory")
     ) {
-      const repo = new CasBackedArtifactRepository(new MemoryByteStorageBackend());
-      return new MimersIntegration(repo, repo.resolver, null);
+      if (!cachedMemoryMimers) {
+        const repo = new CasBackedArtifactRepository(new MemoryByteStorageBackend());
+        cachedMemoryMimers = new MimersIntegration(repo, repo.resolver, null);
+      }
+      return cachedMemoryMimers;
     }
 
     const root = env.MIMERS_ROOT?.trim();

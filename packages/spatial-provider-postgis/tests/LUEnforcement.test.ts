@@ -19,9 +19,41 @@ describe("LU Domain - Enforcement and Replay", () => {
     mimers = await MimersIntegration.create();
     repo = mimers.artifactRepository;
     provider = new SpatialProviderPostGIS(dbUrl, repo);
+
+    // Seed test geometries in PostGIS at the exact coordinates [6612345, 591234]
+    const { Client } = await import("pg");
+    const client = new Client({ connectionString: dbUrl });
+    await client.connect();
+
+    // Clear any leftover test data
+    await client.query("DELETE FROM env.sgu_well WHERE id >= 999800 AND id <= 999899");
+    await client.query("DELETE FROM env.ebh_potentiellt_fororenade_omraden WHERE id >= 999800 AND id <= 999899");
+    await client.query("DELETE FROM env.protected_area WHERE nvr_id = 'NVR-TEST-MAGIC-ENFORCE'");
+
+    // 1. env.sgu_well
+    await client.query(`
+      INSERT INTO env.sgu_well (id, geom)
+      VALUES (999800, ST_SetSRID(ST_MakePoint(591234, 6612345), 3006))
+    `);
+
+    // 2. env.ebh_potentiellt_fororenade_omraden
+    await client.query(`
+      INSERT INTO env.ebh_potentiellt_fororenade_omraden (id, geom)
+      VALUES (999800, ST_Multi(ST_Buffer(ST_SetSRID(ST_MakePoint(591234, 6612345), 3006), 10)))
+    `);
+
+    await client.end();
   });
 
   afterAll(async () => {
+    // Cleanup seeded geometries
+    const { Client } = await import("pg");
+    const client = new Client({ connectionString: dbUrl });
+    await client.connect();
+    await client.query("DELETE FROM env.sgu_well WHERE id >= 999800 AND id <= 999899");
+    await client.query("DELETE FROM env.ebh_potentiellt_fororenade_omraden WHERE id >= 999800 AND id <= 999899");
+    await client.end();
+
     await provider.close();
   });
 
@@ -35,14 +67,26 @@ describe("LU Domain - Enforcement and Replay", () => {
       payload: { project_name: "Test", description: "Test", planned_activity: "Test", property_refs: [], created_by: "Test" }
     };
 
+    await repo.put({
+      artifact_id: projectContext.artifact_id,
+      content_hash: projectContext.content_hash,
+      body: projectContext,
+    });
+
     const geomRef: ArtifactReference = { artifact_id: "geom_1", artifact_type: "CANONICAL_GEOMETRY" };
     const propertyContext: LUPropertyContextArtifact = {
       artifact_id: "art_prop_enforce",
       artifact_type: "LU_PROPERTY_CONTEXT",
       content_hash: { algorithm: "sha256", value: "hash_prop_123" },
       references: [geomRef],
-      payload: { property_ref: "TEST 1:1", official_name: "TEST 1:1", geometry_ref: geomRef, municipality: "Test", coordinates: [0, 0] }
+      payload: { property_ref: "TEST 1:1", official_name: "TEST 1:1", geometry_ref: geomRef, municipality: "Test", coordinates: [6612345, 591234] }
     };
+
+    await repo.put({
+      artifact_id: propertyContext.artifact_id,
+      content_hash: propertyContext.content_hash,
+      body: propertyContext,
+    });
 
     const propRef: ArtifactReference = { artifact_id: propertyContext.artifact_id, artifact_type: propertyContext.artifact_type };
     
@@ -52,11 +96,12 @@ describe("LU Domain - Enforcement and Replay", () => {
       layers: [{ name: "water", version_hash: "v1.0" }]
     });
 
+    expect(spatialEvidence.length).toBeGreaterThanOrEqual(1);
+
     const kernelResult = await runLuAssessmentViaKernel({
       site_id: "enforce-site",
       deterministic_seed: "seed:enforcement",
       evidence: spatialEvidence,
-      repo,
     });
 
     expect(kernelResult.admitted).toBe(true);
@@ -82,6 +127,21 @@ describe("LU Domain - Enforcement and Replay", () => {
 
   it("should fail replay if spatial evidence in CAS has been tampered with (Negative Test)", async () => {
     // Generate new evidence and assessment
+    const geomRef: ArtifactReference = { artifact_id: "geom_1", artifact_type: "CANONICAL_GEOMETRY" };
+    const propertyContext2: LUPropertyContextArtifact = {
+      artifact_id: "art_prop_enforce2",
+      artifact_type: "LU_PROPERTY_CONTEXT",
+      content_hash: { algorithm: "sha256", value: "hash_prop_1234" },
+      references: [geomRef],
+      payload: { property_ref: "TEST 2:2", official_name: "TEST 2:2", geometry_ref: geomRef, municipality: "Test", coordinates: [6612345, 591234] }
+    };
+
+    await repo.put({
+      artifact_id: propertyContext2.artifact_id,
+      content_hash: propertyContext2.content_hash,
+      body: propertyContext2,
+    });
+
     const propRef: ArtifactReference = { artifact_id: "art_prop_enforce2", artifact_type: "LU_PROPERTY_CONTEXT" };
     const spatialEvidence = await provider.query({
       property_ref: propRef,
@@ -89,11 +149,12 @@ describe("LU Domain - Enforcement and Replay", () => {
       layers: [{ name: "ebh", version_hash: "v1.0" }]
     });
 
+    expect(spatialEvidence.length).toBeGreaterThanOrEqual(1);
+
     const kernelResult = await runLuAssessmentViaKernel({
       site_id: "enforce-site-2",
       deterministic_seed: "seed:tampering",
       evidence: spatialEvidence,
-      repo,
     });
 
     expect(kernelResult.admitted).toBe(true);

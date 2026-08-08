@@ -205,6 +205,12 @@
       ],
       "@miljobeslut/mps-workflow/*": [
         "./packages/mps-workflow/*"
+      ],
+      "@miljobeslut/spatial-provider-postgis": [
+        "./packages/spatial-provider-postgis/src/index.ts"
+      ],
+      "@miljobeslut/spatial-provider-postgis/*": [
+        "./packages/spatial-provider-postgis/*"
       ]
     },
     "allowImportingTsExtensions": true,

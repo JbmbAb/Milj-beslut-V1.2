@@ -18,9 +18,53 @@ describe("LU Domain - PostGIS Magic Moment", () => {
     const mimers = await MimersIntegration.create();
     repo = mimers.artifactRepository;
     provider = new SpatialProviderPostGIS(dbUrl, repo);
+
+    // Seed test geometries in PostGIS at the exact coordinates [6612345, 591234]
+    const { Client } = await import("pg");
+    const client = new Client({ connectionString: dbUrl });
+    await client.connect();
+
+    // Clear any leftover test data
+    await client.query("DELETE FROM env.sgu_well WHERE id >= 999900");
+    await client.query("DELETE FROM env.ebh_potentiellt_fororenade_omraden WHERE id >= 999900");
+    await client.query("DELETE FROM env.protected_area WHERE nvr_id = 'NVR-TEST-MAGIC'");
+
+    // 1. env.sgu_well
+    await client.query(`
+      INSERT INTO env.sgu_well (id, geom)
+      VALUES (999900, ST_SetSRID(ST_MakePoint(591234, 6612345), 3006))
+    `);
+
+    // 2. env.ebh_potentiellt_fororenade_omraden
+    await client.query(`
+      INSERT INTO env.ebh_potentiellt_fororenade_omraden (id, geom)
+      VALUES (999900, ST_Multi(ST_Buffer(ST_SetSRID(ST_MakePoint(591234, 6612345), 3006), 10)))
+    `);
+
+    // 3. env.protected_area
+    await client.query(`
+      INSERT INTO env.protected_area (nvr_id, name, protection_type, geom)
+      VALUES (
+        'NVR-TEST-MAGIC',
+        'Magic Protected Area',
+        'Naturreservat',
+        ST_Multi(ST_Buffer(ST_SetSRID(ST_MakePoint(591234, 6612345), 3006), 10))
+      )
+    `);
+
+    await client.end();
   });
 
   afterAll(async () => {
+    // Cleanup the seeded geometries
+    const { Client } = await import("pg");
+    const client = new Client({ connectionString: dbUrl });
+    await client.connect();
+    await client.query("DELETE FROM env.sgu_well WHERE id >= 999900");
+    await client.query("DELETE FROM env.ebh_potentiellt_fororenade_omraden WHERE id >= 999900");
+    await client.query("DELETE FROM env.protected_area WHERE nvr_id = 'NVR-TEST-MAGIC'");
+    await client.end();
+
     await provider.close();
   });
 
@@ -40,6 +84,12 @@ describe("LU Domain - PostGIS Magic Moment", () => {
       }
     };
 
+    await repo.put({
+      artifact_id: projectContext.artifact_id,
+      content_hash: projectContext.content_hash,
+      body: projectContext,
+    });
+
     // 2. Konsult anger fastighetsbeteckning (Property Context)
     const geomRef: ArtifactReference = { artifact_id: "geom_1", artifact_type: "CANONICAL_GEOMETRY" };
     
@@ -56,6 +106,12 @@ describe("LU Domain - PostGIS Magic Moment", () => {
         coordinates: [6612345, 591234],
       }
     };
+
+    await repo.put({
+      artifact_id: propertyContext.artifact_id,
+      content_hash: propertyContext.content_hash,
+      body: propertyContext,
+    });
 
     const propRef: ArtifactReference = {
       artifact_id: propertyContext.artifact_id,
@@ -78,14 +134,40 @@ describe("LU Domain - PostGIS Magic Moment", () => {
       ]
     });
     
-    // Vi borde ha fått åtminstone "water", "ebh" och "protected_area" tillbaka baserat på vår mock query
     expect(spatialEvidence.length).toBeGreaterThanOrEqual(3);
 
-    // Verifiera att de ligger i CAS!
     for (const ev of spatialEvidence) {
+      expect(ev.payload.property_ref.artifact_id).toBe(propRef.artifact_id);
+      expect(ev.content_hash.algorithm).toBe("sha256");
+      expect(ev.content_hash.value).toMatch(/^[a-f0-9]{64}$/);
       const fromCas = await repo.resolve({ artifact_id: ev.artifact_id, artifact_type: ev.artifact_type });
       expect(fromCas).toBeDefined();
     }
+
+    // Identity stability: same request → same content_hash (SV-I06)
+    const again = await provider.query({
+      property_ref: propRef,
+      buffer_distance_meters: 100,
+      layers: [
+        { name: "water", version_hash: "v1.0" },
+        { name: "ebh", version_hash: "v1.0" },
+        { name: "protected_area", version_hash: "v1.0" },
+      ],
+    });
+    expect(again.map((e) => e.content_hash.value).sort()).toEqual(
+      spatialEvidence.map((e) => e.content_hash.value).sort(),
+    );
+
+    await expect(
+      provider.query({
+        property_ref: propRef,
+        layers: Array.from({ length: 20 }, (_, i) => ({
+          name: "water",
+          version_hash: `v${i}`,
+        })),
+        budget: { max_layers: 3, max_features_per_layer: 10, max_distance_meters: 500, timeout_ms: 2000 },
+      }),
+    ).rejects.toThrow(/REJECT_SPATIAL_BUDGET/);
 
     // 4. ExecutionKernel admit → capability invoke → findings
     const kernelResult = await runLuAssessmentViaKernel({
@@ -132,3 +214,4 @@ describe("LU Domain - PostGIS Magic Moment", () => {
     expect(assessment.references.length).toBe(2 + assessment.payload.evidence_refs.length);
   });
 });
+
