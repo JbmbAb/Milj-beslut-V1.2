@@ -74,12 +74,17 @@ CAS put is idempotent by content hash: re-query with the same identity returns t
 
 ## Explicitly paused
 
-- TEXT-L3 v2.3 rechunk
+- TEXT-L3 v2.3 rechunk (until sanerad PostGIS foundation — see rebuild ADR)
 - Cache layers
-- New spatial layers
+- New spatial layers on the **old** PostGIS
 - Blind indexing
 - Full corpus migration
-- Speculative PostGIS “optimization”
+- Speculative PostGIS “optimization” of the dirty DB
+
+**PostGIS rebuild:** existing instance is to be sanitized and replaced. Sequence
+and data contract: [ADR-POSTGIS-REBUILD-DATA-CONTRACT.md](./ADR-POSTGIS-REBUILD-DATA-CONTRACT.md).
+Master inventory: [MASTER-SPATIAL-SOURCE-INVENTORY.md](./MASTER-SPATIAL-SOURCE-INVENTORY.md).
+Do **not** rebuild until the data contract admit-set is frozen.
 
 ## Evidence
 
