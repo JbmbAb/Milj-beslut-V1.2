@@ -4,25 +4,29 @@
  * Loke är plattformens generiska skörde-motor (Harvest Agent).
  * Den är helt frikopplad från källspecifik logik och exekverar via fristående Adaptrar.
  * 
- * Ansvarsområde:
+ * Ansvarsområde (Uppfyller L1-11 Karantänsinvarianter):
  *   - Läsa in och köra Adaptrar enligt det strikta Harvest Contract.
  *   - Genomföra Discovery (skanna efter kandidater utan att ladda ner).
- *   - Genomföra Fetch (hämta rådokument, beräkna hash, spara RawArtifact och HarvestArtifact).
+ *   - Genomföra Fetch (hämta rådokument).
+ *   - Spara det nedladdade rådokumentet i det fysiskt isolerade Quarantine-lagret (får EJ skriva direkt till CAS/Master).
  *   - Skriva ut en samlad HarvestRunArtifact (körningsidentitet) vid avslutad runda.
  */
 
 import * as fs from 'fs';
 import * as path from 'path';
 import * as crypto from 'crypto';
-import { getNationalArchiveCasePath, checkDiskSpaceSafety } from '../config/mimersBrunn';
 import { MmdAdapter } from './adapters/mmdAdapter';
 import { MpdAdapter } from './adapters/mpdAdapter';
 import { ModAdapter } from './adapters/modAdapter';
 import { HarvestCandidate, SourceAdapter, HarvestArtifact, HarvestRunArtifact } from './contract';
 import { getSourceDefinition, isUrlAllowedForSource } from '../../../server/modules/harvest/source-registry/registry';
+import { DiskQuarantineStorage } from '@miljobeslut/mimers-brunn-core';
+import { MASTER_ARCHIVE_ROOT } from '../config/mimersBrunn';
 
-// Standard Master-arkivrot i lokalt gränssnitt
-const MASTER_ARCHIVE_ROOT = process.env.MASTER_ARCHIVE_ROOT || 'C:\\miljöbeslut\\storage\\geo_master_archive';
+// Loke får inte ha en egen arkivrot. Den tidigare lokala fallbacken
+// (C:\miljöbeslut\storage\geo_master_archive) var en andra rot som ingen annan
+// konsument läste: 524 filer och 17 myndighetskataloger hamnade utanför
+// masterarkivet. Roten upplöses nu på ett enda ställe, i config/mimersBrunn.
 
 function calculateHash(content: string): string {
   return crypto.createHash('sha256').update(content, 'utf8').digest('hex');
@@ -45,7 +49,7 @@ export function createAdapterForSource(sourceId: string): SourceAdapter | null {
     return new ModAdapter(sourceId);
   }
 
-  return null; // Övriga plattformar t.ex. Castor/Evolution/W3D3 byggs i Phase 2
+  return null;
 }
 
 export async function executeLokeHarvestForSource(
@@ -108,9 +112,14 @@ export async function executeLokeHarvestForSource(
 
   console.log(`\n🜂 [RUN: ${runId}] Inleder skörd för källa: ${sourceDef.authority.name} (${sourceId})`);
 
+  // Etablera karantänlagring för denna exekvering (Isolerat från CAS)
+  const quarantineRoot = process.env.QUARANTINE_ROOT || path.resolve(MASTER_ARCHIVE_ROOT, '..', '.quarantine');
+  const quarantineStorage = new DiskQuarantineStorage(quarantineRoot);
+
   let documentsFound = 0;
   let documentsNew = 0;
   let documentsChanged = 0;
+  const quarantinedIds: string[] = [];
 
   try {
     // Steg 1: DISCOVER (Hitta kandidater)
@@ -131,63 +140,31 @@ export async function executeLokeHarvestForSource(
         continue;
       }
 
-      // Hämta immutabel katalogstruktur
-      const caseBaseDir = getNationalArchiveCasePath(cand.authority, cand.year, cand.municipality, cand.caseId);
-      const originalDir = path.join(caseBaseDir, 'original');
-      const hashesDir = path.join(caseBaseDir, 'hashes');
-
       // Steg 2: FETCH (Ladda ner rådokument)
       const doc = await adapter.fetch(cand);
-      const hash = calculateHash(doc.content);
-
-      // Verifiera om filen redan existerar och om dess hash har förändrats (No-Overwrite Invariant)
-      const origFilePath = path.join(originalDir, doc.name);
-      let isNew = true;
-      let isChanged = false;
-
-      if (fs.existsSync(origFilePath)) {
-        isNew = false;
-        const existingContent = fs.readFileSync(origFilePath, 'utf8');
-        const existingHash = calculateHash(existingContent);
-        
-        if (existingHash !== hash) {
-          isChanged = true;
-          documentsChanged++;
-          console.log(`      ⚠️ [Förändring detekterad!] Checksumman har ändrats för ${cand.fileName}. Bevarar båda versionerna!`);
-          
-          // Spara med tidsstämpel för att förhindra överskrivning av historik!
-          const timestamp = new Date().toISOString().split('T')[0].replace(/-/g, '');
-          const historicalPath = path.join(originalDir, `${path.basename(doc.name, path.extname(doc.name))}_changed_${timestamp}${path.extname(doc.name)}`);
-          fs.writeFileSync(historicalPath, doc.content, 'utf8');
+      
+      // Steg 3: QUARANTINE (Spara fysiskt isolerat i karantän enligt L1-11)
+      const bytes = new TextEncoder().encode(doc.content);
+      const qResult = await quarantineStorage.put(
+        sourceId,
+        cand.sourceUrl,
+        doc.name,
+        bytes,
+        {
+          authority: cand.authority,
+          year: cand.year,
+          municipality: cand.municipality,
+          caseId: cand.caseId
         }
+      );
+
+      quarantinedIds.push(qResult.quarantine_id);
+
+      if (qResult.is_duplicate) {
+        console.log(`         ⏭️ [SKIP] ${cand.fileName} är redan skördad och oförändrad i karantänen (ID: ${qResult.quarantine_id}).`);
       } else {
         documentsNew++;
-      }
-
-      if (isNew || isChanged) {
-        fs.mkdirSync(originalDir, { recursive: true });
-        fs.mkdirSync(hashesDir, { recursive: true });
-
-        // Spara den primära/nyaste källfilen
-        fs.writeFileSync(origFilePath, doc.content, 'utf8');
-
-        // Spara HarvestArtifact (provenance-bevis)
-        const harvestArtifact: HarvestArtifact = {
-          harvest_id: runId,
-          source_url: doc.sourceUrl,
-          authority: cand.authority,
-          retrieved_at: doc.retrievedAt,
-          content_hash: hash,
-          status: 'raw_received'
-        };
-
-        const harvestArtifactPath = path.join(hashesDir, `harvest_${doc.name}.json`);
-        fs.writeFileSync(harvestArtifactPath, JSON.stringify(harvestArtifact, null, 2), 'utf8');
-        fs.writeFileSync(path.join(hashesDir, `${doc.name}.sha256`), hash, 'utf8');
-
-        console.log(`         💾 Sparat RawArtifact (${doc.content.length} bytes) och skapat HarvestArtifact.`);
-      } else {
-        console.log(`         ⏭️ [SKIP] ${cand.fileName} är redan skördad och oförändrad.`);
+        console.log(`         💾 Quarantined RawObservation: ${cand.fileName} -> ID: ${qResult.quarantine_id} (${bytes.length} bytes)`);
       }
     }
 
@@ -205,11 +182,11 @@ export async function executeLokeHarvestForSource(
     };
 
     if (execute) {
-      // Skriv HarvestRunArtifact till disk
-      const runsDir = path.join(MASTER_ARCHIVE_ROOT, 'National_Archive', 'runs');
+      // Skriv HarvestRunArtifact till det isolerade karantänsarkivets runs/
+      const runsDir = path.join(quarantineRoot, 'runs');
       fs.mkdirSync(runsDir, { recursive: true });
-      fs.writeFileSync(path.join(runsDir, `harvest_run_${runId}.json`), JSON.stringify(runArtifact, null, 2), 'utf8');
-      console.log(`   ✅ HarvestRunArtifact sparat under runs/. Status: completed`);
+      fs.writeFileSync(path.join(runsDir, `harvest_run_${runId}.json`), JSON.stringify({ ...runArtifact, quarantined_ids: quarantinedIds }, null, 2), 'utf8');
+      console.log(`   ✅ HarvestRunArtifact sparat under .quarantine/runs/. Status: completed`);
     }
 
     return runArtifact;
@@ -229,7 +206,7 @@ export async function executeLokeHarvestForSource(
     };
 
     if (execute) {
-      const runsDir = path.join(MASTER_ARCHIVE_ROOT, 'National_Archive', 'runs');
+      const runsDir = path.join(quarantineRoot, 'runs');
       fs.mkdirSync(runsDir, { recursive: true });
       fs.writeFileSync(path.join(runsDir, `harvest_run_${runId}.json`), JSON.stringify(runArtifact, null, 2), 'utf8');
     }

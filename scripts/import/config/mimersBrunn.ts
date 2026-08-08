@@ -9,8 +9,13 @@ import path from 'path';
 
 // Root for the Master Archive — reads from .env first, falls back to canonical H:-drive path.
 // Set MASTER_ARCHIVE_ROOT in your .env to override (e.g. for CI or alternative mounts).
+//
+// This is the only place the archive root may be resolved. GEO_MASTER_ARCHIVE is
+// accepted as an alias because the ops/sanitation scripts were written against
+// that name; both must resolve to one root, or consumers silently diverge.
 export const MASTER_ARCHIVE_ROOT =
   process.env.MASTER_ARCHIVE_ROOT ??
+  process.env.GEO_MASTER_ARCHIVE ??
   'H:\\Delade enheter\\Miljöbeslut\\GEO_Master_Archive';
 
 // Subdirectories according to legacy policy
