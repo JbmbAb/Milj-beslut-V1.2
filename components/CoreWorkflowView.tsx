@@ -626,9 +626,11 @@ const PermitGenerator: React.FC<{ project: Project }> = ({ project }) => {
 };
 
 // ─── MAIN INTERFACE WRAPPER ───────────────────────────────────────────────
+import { LuWorkspace } from './app/lu/LuWorkspace';
+
 export const CoreWorkflowView: React.FC = () => {
   const [activeProject, setActiveProject] = useState<Project | null>(null);
-  const [view, setView] = useState<'dashboard' | 'search' | 'analyze' | 'classify' | 'generate'>('dashboard');
+  const [view, setView] = useState<'dashboard' | 'search' | 'analyze' | 'classify' | 'generate' | 'lu'>('dashboard');
 
   const navItems = [
     { id: 'dashboard', label: 'Projekt', icon: LayoutDashboard },
@@ -636,6 +638,7 @@ export const CoreWorkflowView: React.FC = () => {
     { id: 'search', label: 'Sök kunskap', icon: Search, disabled: !activeProject },
     { id: 'classify', label: 'AI Klassificering', icon: Rocket, disabled: !activeProject },
     { id: 'generate', label: 'C-anmälan', icon: FileText, disabled: !activeProject },
+    { id: 'lu', label: 'Lokaliseringsutredning', icon: MapIcon, disabled: !activeProject },
   ];
 
   return (
@@ -716,6 +719,11 @@ export const CoreWorkflowView: React.FC = () => {
             )}
             {view === 'classify' && activeProject && <ClassificationPanel project={activeProject} />}
             {view === 'generate' && activeProject && <PermitGenerator project={activeProject} />}
+            {view === 'lu' && activeProject && (
+              <div className="bg-[#121212] rounded-3xl overflow-hidden shadow-xl border border-slate-800">
+                 <LuWorkspace initialDesignation={activeProject.propertyDesignation} />
+              </div>
+            )}
           </div>
 
           {activeProject && (

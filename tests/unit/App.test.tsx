@@ -33,13 +33,13 @@ describe('App component', () => {
     vi.clearAllMocks();
   });
 
-  it('renders MpsConsoleApp via AppShell', async () => {
+  it('renders MimerProductShell when legacy UI is disabled', async () => {
     render(
       <ProjectStructureProvider>
         <App />
       </ProjectStructureProvider>
     );
-    expect(await screen.findByText(/Mimer Console/i, {}, { timeout: 10000 })).toBeInTheDocument();
-    expect(await screen.findByText(/Dashboard/i, {}, { timeout: 10000 })).toBeInTheDocument();
+    expect(await screen.findByTestId('mimer-product-shell', {}, { timeout: 10000 })).toBeInTheDocument();
+    expect(await screen.findByText(/Mimer Platform/i, {}, { timeout: 10000 })).toBeInTheDocument();
   }, 15000);
 });

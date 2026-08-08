@@ -24,6 +24,8 @@ import classificationReviewRouter from './routes/classification-review.routes';
 import sewageDocumentRouter from './routes/sewage.routes';
 import sewageApplicationsRouter from './routes/sewage.applications.routes';
 import sewageLegacyAliasRouter from './routes/sewage.legacy-alias.routes';
+import { governanceRouter } from './routes/governance.routes';
+
 import cNotificationMassRouter from './routes/cNotificationMass.routes';
 import hydroRouter from './routes/hydro.routes';
 import tilesRouter from './routes/tiles.routes';
@@ -180,6 +182,7 @@ export function createApp() {
   app.use(geoRouter);
   app.use(localizationRouter);
   app.use(legalRouter);
+  app.use('/api/governance', governanceRouter);
 
   // Refactored V1 Routes
   app.use(authRouter);

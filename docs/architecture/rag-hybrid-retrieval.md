@@ -123,7 +123,8 @@ interface LegalReference {
 | v1 | Enkel styckeindelning (legacy) | Nej |
 | v2.0 | Paragraf-aware för lagtext | Nej |
 | v2.1 | Domstols-sektioner (DOMSKÄL/DOMSLUT) | Nej |
-| **v2.2** | Structure-aware + överlapp | **Ja** |
+| v2.2 | Structure-aware + överlapp | Nej |
+| **v2.3** | Boundary-aware overlap (`@miljobeslut/mps-chunking` text contract) | **Ja** |
 
 Backfill-skriptet (`scripts/db/rechunk-legal-corpus.ts`) är idempotent:
 hoppar automatiskt poster med aktuell `chunk_version`, DELETE+INSERT

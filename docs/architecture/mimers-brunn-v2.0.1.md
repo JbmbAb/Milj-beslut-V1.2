@@ -309,7 +309,7 @@ Runtime path:
 | MB-002 | Hash verification | hash-verification.json | Harvest |
 | MB-003 | Version preservation | version-history.json | Harvest |
 | MB-004 | Runtime validation | mount-validation.json | Infra |
-| MB-005 | Chunk determinism | chunk-verification.json | Harvest |
+| MB-005 | Chunk determinism | chunk-verification.json (`ArchiveChunkVerifier` in `@miljobeslut/mps-chunking`) | Harvest |
 | MB-006 | Approval integrity | dataset-approval.json | Governance |
 
 ---

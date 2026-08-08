@@ -1,0 +1,21 @@
+{
+  "name": "@miljobeslut/mps-chunking",
+  "version": "0.1.0",
+  "description": "Chunking subsystem: shared infra + text/archive contracts",
+  "main": "./src/index.ts",
+  "types": "./src/index.ts",
+  "type": "module",
+  "scripts": {
+    "test": "vitest run"
+  },
+  "exports": {
+    ".": "./src/index.ts",
+    "./text": "./src/text/index.ts",
+    "./archive": "./src/archive/index.ts"
+  },
+  "dependencies": {},
+  "devDependencies": {
+    "typescript": "^5.0.0",
+    "vitest": "^4.1.10"
+  }
+}

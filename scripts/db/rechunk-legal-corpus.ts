@@ -23,9 +23,9 @@ loadEnvFile('.env.local', { overrideExisting: true });
 
 import { prisma } from '../../server/db/prisma';
 import { embedText } from '../../server/services/searchService';
-import { routeToCorrectChunker } from '../../server/modules/legal/services/semanticChunker';
+import { routeToCorrectChunker } from '@miljobeslut/mps-chunking';
 
-const CURRENT_VERSION = 'v2.2';
+const CURRENT_VERSION = 'v2.3';
 
 // ─── CLI-flaggor ──────────────────────────────────────────────────────────
 const args = process.argv.slice(2);

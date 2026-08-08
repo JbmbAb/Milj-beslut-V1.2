@@ -19,6 +19,7 @@ import type { AuthUser } from '../../server/security/types';
 import { orchestrator } from '@miljobeslut/mps-lu/src/api/LUBackendOrchestrator';
 import { prisma } from '../../server/db/prisma';
 import { enqueueAdmittedLuTicket } from './enqueue-lu-execution-ticket';
+import { MimersIntegration } from '@miljobeslut/mps-runtime';
 
 export interface SiteAlternative {
   id: string;
@@ -403,35 +404,22 @@ async function analyzeSite(
   let mpsFindings: any[] = [];
   let executionMotor: ExecutionMotorMeta | undefined;
   try {
-    const { PostgisSpatialProvider, runLuAssessmentViaKernel } = await import('@miljobeslut/mps-lu');
+    const { runLuAssessmentViaKernel } = await import('@miljobeslut/mps-lu');
+    const { SpatialProviderPostGIS } = await import('../../packages/spatial-provider-postgis/src/SpatialProviderPostGIS');
 
-    const coords = await prisma.$queryRawUnsafe<any[]>(
-      `SELECT ST_X(ST_Transform(ST_SetSRID(ST_MakePoint($1, $2), 4326), 3006)) as x,
-              ST_Y(ST_Transform(ST_SetSRID(ST_MakePoint($1, $2), 4326), 3006)) as y`,
-      site.lng,
-      site.lat,
-    );
-    const xSweref = coords[0]?.x || 591234;
-    const ySweref = coords[0]?.y || 6612345;
-
-    const queryFn = async (sql: string, params: any[]) => {
-      return await prisma.$queryRawUnsafe(sql, ...params);
-    };
-
-    const artifactLoader = async (ref: any) => {
-      return {
-        artifact_id: ref.artifact_id,
-        artifact_type: "LU_PROPERTY_CONTEXT",
-        payload: {
-          coordinates: [ySweref, xSweref]
-        }
-      };
-    };
-
-    const spatialProvider = new PostgisSpatialProvider(queryFn, artifactLoader);
+    const mimers = await MimersIntegration.create();
+    const repo = mimers.artifactRepository;
+    const dbUrl = process.env.DATABASE_URL || 'postgresql://postgres:postgres@localhost:5432/mimer';
+    const spatialProvider = new SpatialProviderPostGIS(dbUrl, repo);
+    
     const queryRequest = {
       property_ref: { artifact_id: `prop-${site.id}`, artifact_type: "LU_PROPERTY_CONTEXT" as const },
-      layers: ["water", "ebh", "protected_area"] as const
+      buffer_distance_meters: distanceForCompliance,
+      layers: [
+        { name: "water", version_hash: "v1.0" },
+        { name: "ebh", version_hash: "v1.0" },
+        { name: "protected_area", version_hash: "v1.0" }
+      ] as const
     };
 
     const mpsEvidence = await spatialProvider.query(queryRequest);

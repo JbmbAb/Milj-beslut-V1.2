@@ -68,6 +68,12 @@
       "@miljobeslut/mps-canonical/*": [
         "./packages/mps-canonical/*"
       ],
+      "@miljobeslut/mps-chunking": [
+        "./packages/mps-chunking/src/index.ts"
+      ],
+      "@miljobeslut/mps-chunking/*": [
+        "./packages/mps-chunking/*"
+      ],
       "@miljobeslut/mps-capability": [
         "./packages/mps-capability/src/index.ts"
       ],

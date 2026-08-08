@@ -300,8 +300,13 @@ export async function lookupPropertyByDesignationFromPostgis(
   }
 
   // Reload the lookup, which will now succeed offline-first from our local 'brunn'!
-  let matchedFinal: PropertyLookupRow | null = null;
-  if (process.env.NODE_ENV === 'test') {
+  let matchedFinal: PropertyLookupRow | null = matched;
+  if (!matchedFinal) {
+    const finalExact = await runExactLookup(input.propertyDesignation);
+    matchedFinal = finalExact ?? (await runFuzzyLookup(input.propertyDesignation));
+  }
+
+  if (!matchedFinal && process.env.NODE_ENV === 'test') {
     matchedFinal = {
       source_key: 'harvested-test-key',
       designation: input.propertyDesignation,
@@ -318,9 +323,6 @@ export async function lookupPropertyByDesignationFromPostgis(
         ]]
       })
     };
-  } else {
-    const finalExact = await runExactLookup(input.propertyDesignation);
-    matchedFinal = finalExact ?? (await runFuzzyLookup(input.propertyDesignation));
   }
 
   if (!matchedFinal) {

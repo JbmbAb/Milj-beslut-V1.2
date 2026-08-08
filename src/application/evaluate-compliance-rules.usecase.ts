@@ -23,6 +23,8 @@ export interface SiteAnalysis {
   restrictions: string[];
   rules: ComplianceRuleResult[];
   summary: string;
+  requiredActions?: string[];
+  notes?: string[];
 }
 
 export type ComplianceMetrics = {

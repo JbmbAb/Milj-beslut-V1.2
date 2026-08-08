@@ -44,9 +44,9 @@ type LocalizationReport = {
 /**
  * Clean LU product surface — no LocalizationStudyUI / hub / OperationsCenter.
  */
-export const LuWorkspace: React.FC = () => {
+export const LuWorkspace: React.FC<{ initialDesignation?: string }> = ({ initialDesignation = '' }) => {
   const colors = designTokens.colors;
-  const [designation, setDesignation] = useState('');
+  const [designation, setDesignation] = useState(initialDesignation);
   const [siteName, setSiteName] = useState('Alternativ A');
   const [site, setSite] = useState<SiteInput | null>(null);
   const [lookupError, setLookupError] = useState('');
