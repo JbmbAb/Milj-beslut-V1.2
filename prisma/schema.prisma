@@ -375,6 +375,7 @@ model DocumentChunk {
   chunkIndex    Int
   chunkText     String         @db.Text
   embeddingJson Json?
+  embedding     Unsupported("vector(768)")?
   createdAt     DateTime       @default(now())
   document      DocumentRecord @relation(fields: [documentId], references: [id], onDelete: Cascade)
 
