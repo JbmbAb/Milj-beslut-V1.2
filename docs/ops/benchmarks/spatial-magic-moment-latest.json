@@ -1,0 +1,181 @@
+{
+  "generated_at": "2026-08-08T06:23:56.969Z",
+  "baseline_commit": "9c200a7",
+  "status": "BASELINE ONLY — no optimization performed",
+  "freeze": {
+    "magic_moment": "FROZEN / PROVEN",
+    "magic_moment_commit": "9c200a7",
+    "benchmark": "RECORDED",
+    "postgis_optimization": "NO-GO",
+    "next_gate": "Repeat after realistic spatial layer population; evaluate GiST only then"
+  },
+  "database": "postgresql://riskguard:***@127.0.0.1:5432/riskguard_test?sslmode=disable",
+  "fixture": {
+    "designation": "VÄSTERÅS 1:1",
+    "easting": 591234,
+    "northing": 6612345,
+    "buffer_m": 500,
+    "limit": 50
+  },
+  "table_stats": {
+    "counts": {
+      "property_unit": 1,
+      "sgu_well": 2,
+      "ebh": 1,
+      "protected_area": 2
+    },
+    "indexes": [
+      {
+        "table": "core.property_unit",
+        "index": "property_unit_designation_norm_idx",
+        "gist": false,
+        "def": "CREATE INDEX property_unit_designation_norm_idx ON core.property_unit USING btree (designation_norm)"
+      },
+      {
+        "table": "core.property_unit",
+        "index": "property_unit_designation_norm_trgm_idx",
+        "gist": false,
+        "def": "CREATE INDEX property_unit_designation_norm_trgm_idx ON core.property_unit USING gin (designation_norm gin_trgm_ops)"
+      },
+      {
+        "table": "core.property_unit",
+        "index": "property_unit_pkey",
+        "gist": false,
+        "def": "CREATE UNIQUE INDEX property_unit_pkey ON core.property_unit USING btree (id)"
+      },
+      {
+        "table": "core.property_unit",
+        "index": "property_unit_source_key_key",
+        "gist": false,
+        "def": "CREATE UNIQUE INDEX property_unit_source_key_key ON core.property_unit USING btree (source_key)"
+      },
+      {
+        "table": "env.ebh_potentiellt_fororenade_omraden",
+        "index": "ebh_potentiellt_fororenade_omraden_pkey",
+        "gist": false,
+        "def": "CREATE UNIQUE INDEX ebh_potentiellt_fororenade_omraden_pkey ON env.ebh_potentiellt_fororenade_omraden USING btree (id)"
+      },
+      {
+        "table": "env.protected_area",
+        "index": "protected_area_pkey",
+        "gist": false,
+        "def": "CREATE UNIQUE INDEX protected_area_pkey ON env.protected_area USING btree (nvr_id)"
+      },
+      {
+        "table": "env.sgu_well",
+        "index": "sgu_well_pkey",
+        "gist": false,
+        "def": "CREATE UNIQUE INDEX sgu_well_pkey ON env.sgu_well USING btree (id)"
+      }
+    ]
+  },
+  "queries": [
+    {
+      "name": "property_unit_exact_lookup",
+      "iterations": 51,
+      "warmup": 3,
+      "returned_rows_last": 1,
+      "client_latency_ms": {
+        "p50": 2.1417,
+        "p95": 2.9406,
+        "p99": 3.734,
+        "min": 1.3601,
+        "max": 3.734,
+        "mean": 2.2004450980392165
+      },
+      "explain": {
+        "planning_time_ms": 0.19,
+        "execution_time_ms": 0.092,
+        "scan_kind": "index",
+        "uses_gist": false,
+        "shared_hit_sum": 5,
+        "shared_read_sum": 0,
+        "plan_rows_max": 1,
+        "actual_rows": null
+      }
+    },
+    {
+      "name": "water_st_dwithin",
+      "iterations": 51,
+      "warmup": 3,
+      "returned_rows_last": 1,
+      "client_latency_ms": {
+        "p50": 1.5976,
+        "p95": 2.3159,
+        "p99": 2.6025,
+        "min": 0.9867,
+        "max": 2.6025,
+        "mean": 1.6436470588235295
+      },
+      "explain": {
+        "planning_time_ms": 0.077,
+        "execution_time_ms": 0.039,
+        "scan_kind": "seq",
+        "uses_gist": false,
+        "shared_hit_sum": 2,
+        "shared_read_sum": 0,
+        "plan_rows_max": 1,
+        "actual_rows": null
+      }
+    },
+    {
+      "name": "ebh_st_dwithin",
+      "iterations": 51,
+      "warmup": 3,
+      "returned_rows_last": 1,
+      "client_latency_ms": {
+        "p50": 1.854,
+        "p95": 2.2922,
+        "p99": 2.5709,
+        "min": 1.0948,
+        "max": 2.5709,
+        "mean": 1.8503607843137253
+      },
+      "explain": {
+        "planning_time_ms": 0.089,
+        "execution_time_ms": 0.042,
+        "scan_kind": "seq",
+        "uses_gist": false,
+        "shared_hit_sum": 2,
+        "shared_read_sum": 0,
+        "plan_rows_max": 1,
+        "actual_rows": null
+      }
+    },
+    {
+      "name": "protected_area_st_dwithin",
+      "iterations": 51,
+      "warmup": 3,
+      "returned_rows_last": 1,
+      "client_latency_ms": {
+        "p50": 1.5282,
+        "p95": 2.0547,
+        "p99": 2.3436,
+        "min": 0.7725,
+        "max": 2.3436,
+        "mean": 1.4747725490196077
+      },
+      "explain": {
+        "planning_time_ms": 0.059,
+        "execution_time_ms": 0.031,
+        "scan_kind": "seq",
+        "uses_gist": false,
+        "shared_hit_sum": 2,
+        "shared_read_sum": 0,
+        "plan_rows_max": 1,
+        "actual_rows": null
+      }
+    }
+  ],
+  "plans": {
+    "property_unit_exact_lookup": "Limit  (cost=0.14..21.29 rows=1 width=96) (actual time=0.064..0.065 rows=1 loops=1)\n  Buffers: shared hit=2\n  ->  Index Scan using property_unit_designation_norm_idx on property_unit pu  (cost=0.14..21.29 rows=1 width=96) (actual time=0.063..0.063 rows=1 loops=1)\n        Index Cond: (designation_norm = 'VASTERAS 1 1'::text)\n        Buffers: shared hit=2\nPlanning:\n  Buffers: shared hit=1\nPlanning Time: 0.190 ms\nExecution Time: 0.092 ms",
+    "water_st_dwithin": "Limit  (cost=0.00..15897.70 rows=1 width=4) (actual time=0.022..0.023 rows=1 loops=1)\n  Buffers: shared hit=1\n  ->  Seq Scan on sgu_well  (cost=0.00..15897.70 rows=1 width=4) (actual time=0.021..0.021 rows=1 loops=1)\n        Filter: st_dwithin(geom, '0101000020BE0B000000000000040B2241000000405E395941'::geometry, '500'::double precision)\n        Rows Removed by Filter: 1\n        Buffers: shared hit=1\nPlanning Time: 0.077 ms\nExecution Time: 0.039 ms",
+    "ebh_st_dwithin": "Limit  (cost=0.00..15897.70 rows=1 width=4) (actual time=0.024..0.025 rows=1 loops=1)\n  Buffers: shared hit=1\n  ->  Seq Scan on ebh_potentiellt_fororenade_omraden  (cost=0.00..15897.70 rows=1 width=4) (actual time=0.023..0.023 rows=1 loops=1)\n        Filter: st_dwithin(geom, '0101000020BE0B000000000000040B2241000000405E395941'::geometry, '500'::double precision)\n        Buffers: shared hit=1\nPlanning Time: 0.089 ms\nExecution Time: 0.042 ms",
+    "protected_area_st_dwithin": "Limit  (cost=0.00..4638.70 rows=1 width=4) (actual time=0.019..0.020 rows=1 loops=1)\n  Buffers: shared hit=1\n  ->  Seq Scan on protected_area  (cost=0.00..4638.70 rows=1 width=4) (actual time=0.018..0.019 rows=1 loops=1)\n        Filter: st_dwithin(geom, '0101000020BE0B000000000000040B2241000000405E395941'::geometry, '500'::double precision)\n        Rows Removed by Filter: 1\n        Buffers: shared hit=1\nPlanning Time: 0.059 ms\nExecution Time: 0.031 ms"
+  },
+  "verdict": {
+    "gist_present_on_lu_layers": false,
+    "interpretation": "Seq Scan is expected because test spatial tables contain only 1–2 rows. Benchmark does NOT establish production spatial performance. Does not mean PostGIS is optimized. Does not mean missing GiST is a problem.",
+    "note": "Re-run after realistic spatial layer population before any index/GiST decision."
+  }
+}
