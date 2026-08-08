@@ -1,5 +1,9 @@
 import { loadEnvFile } from './loadEnv';
 
+// Force delete any system-level DATABASE_URL on startup to ensure 
+// local .env and .env.local file settings take absolute precedence!
+delete process.env.DATABASE_URL;
+
 // Säkra att miljövariabler laddas allra först innan några andra moduler importeras (för att undvika ES6 hoisting-problem).
 loadEnvFile();
 const preserveRuntimeEnv =
