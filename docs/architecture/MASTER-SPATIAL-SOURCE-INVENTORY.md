@@ -75,19 +75,21 @@ Plus property foundation: LM registerytor → `core.property_unit`.
 
 ---
 
-## Next freeze steps (still no empty PostGIS)
+## Next freeze steps
 
-Active gate document: [ADR-POSTGIS-ADMIT-V1.md](./ADR-POSTGIS-ADMIT-V1.md)
+Admit v1 is **FROZEN**: [ADR-POSTGIS-ADMIT-V1.md](./ADR-POSTGIS-ADMIT-V1.md) → [admit-v1/ADMIT-V1-SET.md](./admit-v1/ADMIT-V1-SET.md)  
+Next ops (HITL): sanitize → empty PostGIS → import ADMIT only.
 
-1. Walk master `Data/<Provider>` — fill `source_path` / version / `source_sha256` per candidate  
-2. Vattenskydd: **one** authority (NV xor LST) — never both until decided  
-3. RAÄ: registry+manifest → `ADMIT` **or** explicit `OUT_OF_SCOPE v1`  
-4. Freeze Admit v1 ledger + `layer_id` contracts (source identity ≠ imported dataset identity)  
-5. Only then: dump HITL → sanitize → cold empty PostGIS → import  
+1. ~~Walk master + Pass 2 SHA~~  
+2. ~~Vattenskydd NV xor LST~~ → NV ADMIT / LST OUT_OF_SCOPE  
+3. ~~RAÄ~~ → OUT_OF_SCOPE v1  
+4. ~~Freeze Admit v1 + layer_id contracts~~  
+5. **Next:** dump HITL → sanitize → cold empty PostGIS → import ADMIT only → Magic Moment acceptance  
 
 ## Do not
 
-- Rebuild PostGIS before contract freeze  
 - Copy old PostGIS “for safety”  
 - Start L3 / cache / blind indexes  
 - Treat `data-coverage-gaps.md` counts as admit authority  
+- Import OUT_OF_SCOPE / BLOCKED (`lu.raa_culture`, LST vattenskydd, `lu.topo_water`)  
+

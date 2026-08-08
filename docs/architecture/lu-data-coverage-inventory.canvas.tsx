@@ -18,98 +18,113 @@ import {
 
 /**
  * Strategic inventory for sanerad PostGIS rebuild.
- * No rebuild / import / L3 until data contract is frozen.
+ * Admit v1 frozen — empty PostGIS is HITL next (not auto-start).
  */
 
 const SEQUENCE = [
-  { step: "1", name: "Master inventory", state: "IN PROGRESS" },
-  { step: "2", name: "Source authority / provenance", state: "IN PROGRESS" },
+  { step: "1", name: "Master inventory", state: "DONE" },
+  { step: "2", name: "Source authority / provenance", state: "DONE" },
   { step: "3", name: "New PostGIS data contract", state: "FROZEN (ADR)" },
-  { step: "4", name: "Sanerad tom PostGIS", state: "BLOCKED" },
-  { step: "5", name: "Import + validation", state: "BLOCKED" },
-  { step: "6", name: "Spatial layer registry", state: "BLOCKED" },
-  { step: "7", name: "Spatial provider", state: "BLOCKED" },
-  { step: "8", name: "LU broad coverage", state: "BLOCKED" },
-  { step: "9", name: "Performance benchmark", state: "BLOCKED" },
+  { step: "3b", name: "Admit v1 set + layer_id contracts", state: "FROZEN" },
+  { step: "4", name: "Sanerad tom PostGIS", state: "HITL NEXT" },
+  { step: "5", name: "Import + validation", state: "BLOCKED until #4" },
+  { step: "6", name: "Spatial layer registry", state: "BLOCKED until #5" },
+  { step: "7", name: "Spatial provider", state: "BLOCKED until #5" },
+  { step: "8", name: "LU broad coverage", state: "BLOCKED until #5" },
+  { step: "9", name: "Performance benchmark", state: "BLOCKED until #5" },
 ];
 
 const INVENTORY = [
   {
     need: "Fastighet",
-    master: "LM STAC → registerytor → property_unit",
+    master: "LM registerytor 2026-06-28",
     auth: "MASTER",
     lu: "critical",
-    admit: "yes",
+    admit: "ADMIT",
   },
   {
     need: "Brunnar (MM water)",
-    master: "SGU → sgu_well",
+    master: "SGU brunnar 2026-06-19",
     auth: "MASTER",
     lu: "critical",
-    admit: "yes (MM)",
+    admit: "ADMIT (MM)",
   },
   {
     need: "EBH",
-    master: "LST → ebh_potentiellt_fororenade_omraden",
+    master: "LST EBH 2026-07-23",
     auth: "MASTER",
     lu: "critical",
-    admit: "yes (MM)",
+    admit: "ADMIT (MM)",
   },
   {
     need: "Skyddad natur",
-    master: "NV → protected_area",
+    master: "NV Naturreservat legacy-adopted",
     auth: "MASTER",
     lu: "critical",
-    admit: "yes (MM)",
+    admit: "ADMIT (MM)",
   },
   {
     need: "Natura 2000",
-    master: "NV → natura2000_area",
+    master: "NV SPA rikstäckande 2026-05-08",
     auth: "MASTER",
     lu: "high",
-    admit: "candidate",
+    admit: "ADMIT",
   },
   {
     need: "Vattenskydd",
-    master: "NV and/or LST → water_protection_area",
-    auth: "MASTER*",
+    master: "NV VSO only (LST OOS)",
+    auth: "MASTER",
     lu: "high",
-    admit: "resolve dual source",
+    admit: "ADMIT (NV)",
   },
   {
     need: "Översvämning",
-    master: "MSB → climate.flood_risk_area",
+    master: "MSB översvämning nationell",
     auth: "MASTER",
     lu: "high",
-    admit: "candidate",
+    admit: "ADMIT",
   },
   {
     need: "Jord / skred",
     master: "SGU soil + landslide",
     auth: "MASTER",
     lu: "high",
-    admit: "candidate",
+    admit: "ADMIT",
   },
   {
-    need: "VISS",
-    master: "VISS harvest → env/viss",
+    need: "SVAR / avrinningsområde",
+    master: "SMHI SVAR2022 (not live VISS)",
     auth: "MASTER",
     lu: "high",
-    admit: "candidate",
+    admit: "ADMIT",
+  },
+  {
+    need: "SKS nyckelbiotoper",
+    master: "Skogsstyrelsen nyckelbiotoper",
+    auth: "MASTER",
+    lu: "high",
+    admit: "ADMIT",
+  },
+  {
+    need: "Topo water",
+    master: "LM Topografi50 hydrografi",
+    auth: "MASTER",
+    lu: "high",
+    admit: "BLOCKED (no registry)",
   },
   {
     need: "Kulturmiljö / RAÄ",
-    master: "RAA/ folder exists; no IMPORT_REGISTRY",
-    auth: "MISSING",
+    master: "RAA lämningar GPKG (SHA retained)",
+    auth: "MISSING registry",
     lu: "high",
-    admit: "block",
+    admit: "OUT_OF_SCOPE v1",
   },
   {
     need: "FAPI servitut",
     master: "—",
     auth: "MISSING",
     lu: "medium",
-    admit: "parked",
+    admit: "OUT_OF_SCOPE",
   },
   {
     need: "Live API / Millbygård paths",
@@ -126,24 +141,24 @@ export default function LuDataCoverageInventory() {
       <Stack gap={8}>
         <Row gap={12} style={{ alignItems: "center" }}>
           <H1>Master inventory → sanerad PostGIS</H1>
-          <Pill tone="warning">NO REBUILD YET</Pill>
+          <Pill tone="success">ADMIT v1 FROZEN</Pill>
         </Row>
         <Text tone="secondary">
-          PostGIS is a disposable projection. Freeze inventory + authority +
-          contract before any empty database. Magic Moment (9c200a7) stays
-          acceptance test for the new foundation — L3 remains paused.
+          Admit v1 set + layer_id contracts frozen. Empty PostGIS is HITL next.
+          Magic Moment (9c200a7) remains acceptance for the new foundation —
+          L3 stays paused. Docs: admit-v1/ADMIT-V1-SET.md
         </Text>
       </Stack>
 
-      <Callout tone="danger" title="Do not invert">
-        Do not build new PostGIS directly after inventory. Do not copy old
-        tables for safety. Do not treat old PostGIS counts as admit criteria.
+      <Callout tone="warning" title="HITL before empty engine">
+        Do not auto-start sanitize/wipe. Do not copy old tables for safety.
+        Import only ADMIT rows; never OUT_OF_SCOPE / BLOCKED.
       </Callout>
 
       <Grid columns={3} gap={12}>
-        <Stat value="1–3" label="Active phase (inventory → contract)" tone="info" />
-        <Stat value="4–9" label="Blocked until contract freeze" tone="warning" />
-        <Stat value="MM" label="Acceptance test after import" tone="success" />
+        <Stat value="1–3b" label="Inventory → Admit v1" tone="success" />
+        <Stat value="4" label="Empty PostGIS (HITL)" tone="warning" />
+        <Stat value="MM" label="Acceptance after import" tone="success" />
       </Grid>
 
       <H2>Frozen rebuild sequence</H2>
@@ -153,9 +168,11 @@ export default function LuDataCoverageInventory() {
         rowTone={SEQUENCE.map((s) =>
           s.state.startsWith("BLOCKED")
             ? ("neutral" as const)
-            : s.state.includes("FROZEN")
+            : s.state.includes("FROZEN") || s.state === "DONE"
               ? ("success" as const)
-              : ("info" as const),
+              : s.state.includes("HITL")
+                ? ("warning" as const)
+                : ("info" as const),
         )}
       />
 
@@ -176,8 +193,12 @@ export default function LuDataCoverageInventory() {
           r.admit,
         ])}
         rowTone={INVENTORY.map((r) => {
-          if (r.admit.startsWith("yes")) return "success" as const;
-          if (r.auth === "MISSING" || r.admit === "no auto-carry")
+          if (r.admit.startsWith("ADMIT")) return "success" as const;
+          if (
+            r.admit.startsWith("OUT_OF_SCOPE") ||
+            r.admit.startsWith("BLOCKED") ||
+            r.admit === "no auto-carry"
+          )
             return "danger" as const;
           return "neutral" as const;
         })}
@@ -204,21 +225,15 @@ export default function LuDataCoverageInventory() {
         </Card>
       </Grid>
 
-      <H3>Next (still no empty PostGIS)</H3>
+      <H3>Next (HITL)</H3>
       <Stack gap={6}>
-        <Text>
-          1. Manifest/SHA completeness on Admit v1 yes/candidate rows
-        </Text>
-        <Text>2. Resolve dual vattenskydd source (NV vs LST)</Text>
-        <Text>
-          3. RAA: register in IMPORT_REGISTRY or keep blocked for v1
-        </Text>
-        <Text>
-          4. Freeze admit-set v1 layer contracts — then sanitize empty engine
-        </Text>
+        <Text>1. Dump unique app/HITL tables</Text>
+        <Text>2. Sanitize relics → cold empty PostGIS</Text>
+        <Text>3. Import ADMIT rows only (identity chain)</Text>
+        <Text>4. Magic Moment E2E against the new DB</Text>
         <Text tone="secondary" size="small">
-          ADR-POSTGIS-REBUILD-DATA-CONTRACT.md ·
-          MASTER-SPATIAL-SOURCE-INVENTORY.md · Magic Moment acceptance unchanged
+          ADMIT-V1-SET.md · LAYER-ID-CONTRACTS-V1.md · skill
+          mimers-postgis-cold-start
         </Text>
       </Stack>
     </Stack>

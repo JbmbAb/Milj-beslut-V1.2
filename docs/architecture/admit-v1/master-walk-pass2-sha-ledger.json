@@ -7,7 +7,7 @@
   "pass1_survey_id": "957f38492c05b159",
   "admit_v1_ref": "docs/architecture/ADR-POSTGIS-ADMIT-V1.md",
   "identity_chain": "source_sha256 → import manifest → dataset/version hash → PostGIS layer",
-  "empty_postgis": "BLOCKED until Admit v1 frozen",
+  "empty_postgis": "ALLOWED after ADMIT-V1-SET + LAYER-ID-CONTRACTS-V1 frozen (HITL sanitize next)",
   "policy": {
     "stream_chunk_bytes": 4194304,
     "hash_full_archive": false,
@@ -20,7 +20,7 @@
       "source_id": "Lantmateriet/Fastighetsindelning_Nationell/Registerenhetsomradesytor/2026-06-28",
       "format": "gpkg",
       "notes": "National register polygons (newer harvest preferred over 2026-06-18)",
-      "admit_status": "SHA_RECORDED",
+      "admit_status": "ADMIT",
       "path": "Data/Lantmateriet/Fastighetsindelning_Nationell/Registerenhetsomradesytor/2026-06-28/raw/registerenhetsomradesytor_nationell.gpkg",
       "absolute_path": "H:\\Delade enheter\\Miljöbeslut\\GEO_Master_Archive\\Data\\Lantmateriet\\Fastighetsindelning_Nationell\\Registerenhetsomradesytor\\2026-06-28\\raw\\registerenhetsomradesytor_nationell.gpkg",
       "source_sha256": "4ed76ac82310f157c1e74732e86514c789d97425971f49a508a78110ca2dfef5",
@@ -39,7 +39,7 @@
       "source_id": "SGU/brunnar/2026-06-19",
       "format": "gpkg",
       "notes": "Prefer non-extracted GPKG over later extracted duplicates",
-      "admit_status": "SHA_RECORDED",
+      "admit_status": "ADMIT",
       "path": "Data/SGU/brunnar/2026-06-19/raw/brunnar.gpkg",
       "absolute_path": "H:\\Delade enheter\\Miljöbeslut\\GEO_Master_Archive\\Data\\SGU\\brunnar\\2026-06-19\\raw\\brunnar.gpkg",
       "source_sha256": "2b4b514f8b18a1a614d9aeac75c32eff8c52a3864c54770be112fd88fa263ddc",
@@ -58,7 +58,7 @@
       "source_id": "LST/EBH_Potentiellt_fororenade_omraden/2026-07-23",
       "format": "gpkg",
       "notes": "Latest dated GPKG harvest",
-      "admit_status": "SHA_RECORDED",
+      "admit_status": "ADMIT",
       "path": "Data/LST/EBH_Potentiellt_fororenade_omraden/2026-07-23/raw/ebh_potentiellt_fororenade_omraden.gpkg",
       "absolute_path": "H:\\Delade enheter\\Miljöbeslut\\GEO_Master_Archive\\Data\\LST\\EBH_Potentiellt_fororenade_omraden\\2026-07-23\\raw\\ebh_potentiellt_fororenade_omraden.gpkg",
       "source_sha256": "02fccffc07abaaf1775c8333d660fa60fdecea0c3bb664335892764c8486d186",
@@ -77,7 +77,7 @@
       "source_id": "Naturvardsverket/SkyddadeOmraden/Naturreservat/legacy-adopted-2026-07-20",
       "format": "shp",
       "notes": "Primary .shp; sidecars listed separately",
-      "admit_status": "SHA_RECORDED",
+      "admit_status": "ADMIT",
       "path": "Data/Naturvardsverket/SkyddadeOmraden/Naturreservat/legacy-adopted-2026-07-20/NR_polygon.shp",
       "absolute_path": "H:\\Delade enheter\\Miljöbeslut\\GEO_Master_Archive\\Data\\Naturvardsverket\\SkyddadeOmraden\\Naturreservat\\legacy-adopted-2026-07-20\\NR_polygon.shp",
       "source_sha256": "983772bf129d14326c43aa5d08f152e65604778d392c28ea4fee0c4e838af9ae",
@@ -122,8 +122,8 @@
       "authority": "Naturvårdsverket",
       "source_id": "Naturvardsverket/Vatten/Vattenskyddsomrade/legacy-adopted-2026-07-20",
       "format": "shp",
-      "notes": "NV candidate only — LST vattenskydd absent in Pass 1; authority still NV xor LST",
-      "admit_status": "BLOCKED",
+      "notes": "ADMIT NV sole authority; LST/VISS lst_vattenskydd OUT_OF_SCOPE v1",
+      "admit_status": "ADMIT",
       "path": "Data/Naturvardsverket/Vatten/Vattenskyddsomrade/legacy-adopted-2026-07-20/VSO_polygon.shp",
       "absolute_path": "H:\\Delade enheter\\Miljöbeslut\\GEO_Master_Archive\\Data\\Naturvardsverket\\Vatten\\Vattenskyddsomrade\\legacy-adopted-2026-07-20\\VSO_polygon.shp",
       "source_sha256": "ba6fdd88fa478d9b930a41153d03b84a34b086de8d6c5aa0f6b63c0b4dd6ff18",
@@ -162,7 +162,7 @@
         "tool": "ogrinfo",
         "error": "spawnSync ogrinfo ENOENT"
       },
-      "block_reason": "authority_decision_required_NV_xor_LST"
+      "authority_decision": "NV_xor_LST → NV"
     },
     {
       "layer_id": "lu.natura2000",
@@ -170,7 +170,7 @@
       "source_id": "Naturvardsverket/Natura2000/2026-05-08/SPA_Rikstackande",
       "format": "shp",
       "notes": "SPA rikstäckande; SCI split files remain additional candidates",
-      "admit_status": "SHA_RECORDED",
+      "admit_status": "ADMIT",
       "path": "Data/Naturvardsverket/Natura2000/2026-05-08/SPA_Rikstackande/SPA_rikstackande.shp",
       "absolute_path": "H:\\Delade enheter\\Miljöbeslut\\GEO_Master_Archive\\Data\\Naturvardsverket\\Natura2000\\2026-05-08\\SPA_Rikstackande\\SPA_rikstackande.shp",
       "source_sha256": "a5d665ae7bfde9ebeaa4883d5db7bbf70aea9cb7ad5a3f621c4cdbc003ad7f02",
@@ -215,8 +215,8 @@
       "authority": "RAÄ",
       "source_id": "RAA/Kulturhistoriska_lamningar/2026-06-29",
       "format": "gpkg",
-      "notes": "Primary lämningar GPKG — ADMIT still requires IMPORT_REGISTRY or OUT_OF_SCOPE",
-      "admit_status": "BLOCKED",
+      "notes": "OUT_OF_SCOPE v1 — SHA retained; no implicit legacy/API",
+      "admit_status": "OUT_OF_SCOPE",
       "path": "Data/RAA/Kulturhistoriska_lamningar/2026-06-29/raw/lämningar_sverige.gpkg",
       "absolute_path": "H:\\Delade enheter\\Miljöbeslut\\GEO_Master_Archive\\Data\\RAA\\Kulturhistoriska_lamningar\\2026-06-29\\raw\\lämningar_sverige.gpkg",
       "source_sha256": "b45ada14aa6807d4ee52b32720666500991d874406ea5849b5143e7c2f5afe11",
@@ -228,7 +228,7 @@
         "tool": "ogrinfo",
         "error": "spawnSync ogrinfo ENOENT"
       },
-      "block_reason": "requires_IMPORT_REGISTRY_or_OUT_OF_SCOPE_v1"
+      "out_of_scope_reason": "no_IMPORT_REGISTRY_explicit_v1"
     },
     {
       "layer_id": "lu.flood_risk",
@@ -236,7 +236,7 @@
       "source_id": "MSB/oversvamning_nationell/2026-07-23",
       "format": "gpkg",
       "notes": "Latest national flood GPKG",
-      "admit_status": "SHA_RECORDED",
+      "admit_status": "ADMIT",
       "path": "Data/MSB/oversvamning_nationell/2026-07-23/raw/msb_oversvamning_nationell.gpkg",
       "absolute_path": "H:\\Delade enheter\\Miljöbeslut\\GEO_Master_Archive\\Data\\MSB\\oversvamning_nationell\\2026-07-23\\raw\\msb_oversvamning_nationell.gpkg",
       "source_sha256": "57a57b47bb6449832a0bc84aea6b748f123a007528b379c3946a2aa531fc5fe6",
@@ -255,7 +255,7 @@
       "source_id": "SGU/Jordarter25k100k/2026-06-13_123533",
       "format": "gpkg",
       "notes": "Full soil GPKG (~1.5 GB); ignore tiny MCF false-positives",
-      "admit_status": "SHA_RECORDED",
+      "admit_status": "ADMIT",
       "path": "Data/SGU/Jordarter25k100k/2026-06-13_123533/raw/Jordarter25k100k.gpkg",
       "absolute_path": "H:\\Delade enheter\\Miljöbeslut\\GEO_Master_Archive\\Data\\SGU\\Jordarter25k100k\\2026-06-13_123533\\raw\\Jordarter25k100k.gpkg",
       "source_sha256": "11bbf1587f67d5383a25cd19030b6e36b98ecdb80e32372fd0c2824736bf561a",
@@ -274,7 +274,7 @@
       "source_id": "SGU/Jordskred/2026-07-06_035736",
       "format": "gpkg",
       "notes": "SGU jordskred/raviner extracted GPKG",
-      "admit_status": "SHA_RECORDED",
+      "admit_status": "ADMIT",
       "path": "Data/SGU/Jordskred/2026-07-06_035736/raw/extracted/jordskred_raviner.gpkg",
       "absolute_path": "H:\\Delade enheter\\Miljöbeslut\\GEO_Master_Archive\\Data\\SGU\\Jordskred\\2026-07-06_035736\\raw\\extracted\\jordskred_raviner.gpkg",
       "source_sha256": "1bd3b614b55bb9975df48c3be92837b21dd2f4980afd453c2f1c1ac8a0fc6afa",
@@ -289,11 +289,11 @@
     },
     {
       "layer_id": "lu.viss_waterbody",
-      "authority": "SMHI/VISS",
+      "authority": "SMHI",
       "source_id": "SMHI/water_catchment_svar_2022/legacy-adopted-2026-07-20",
       "format": "gpkg",
-      "notes": "SVAR2022 catchment — confirm VISS vs SMHI authority labeling before ADMIT",
-      "admit_status": "SHA_RECORDED",
+      "notes": "ADMIT as SMHI SVAR catchment; authority SMHI not live VISS API",
+      "admit_status": "ADMIT",
       "path": "Data/SMHI/water_catchment_svar_2022/legacy-adopted-2026-07-20/SVAR2022_vattenforekomstavrinningsomraden.gpkg",
       "absolute_path": "H:\\Delade enheter\\Miljöbeslut\\GEO_Master_Archive\\Data\\SMHI\\water_catchment_svar_2022\\legacy-adopted-2026-07-20\\SVAR2022_vattenforekomstavrinningsomraden.gpkg",
       "source_sha256": "3b60afd33a7f27c6d5c8e4ed8cf34b8d77204f6443ad9fcc1f9f678f30a0e6fe",
@@ -312,7 +312,7 @@
       "source_id": "Skogsstyrelsen/SksNyckelbiotoper/2026-06-28_121057",
       "format": "gpkg",
       "notes": "Nyckelbiotoper GPKG",
-      "admit_status": "SHA_RECORDED",
+      "admit_status": "ADMIT",
       "path": "Data/Skogsstyrelsen/SksNyckelbiotoper/2026-06-28_121057/raw/nyckelbiotoper.gpkg",
       "absolute_path": "H:\\Delade enheter\\Miljöbeslut\\GEO_Master_Archive\\Data\\Skogsstyrelsen\\SksNyckelbiotoper\\2026-06-28_121057\\raw\\nyckelbiotoper.gpkg",
       "source_sha256": "ac3a7741f6ddcd6faf307625ab560ff61b0a6ddedab1dbbf806ec9b728f48cba",
@@ -330,8 +330,8 @@
       "authority": "Lantmäteriet",
       "source_id": "Lantmateriet/Topografi50/hydrografi_sverige",
       "format": "gpkg",
-      "notes": "Topo50 hydrografi as water foundation candidate",
-      "admit_status": "SHA_RECORDED",
+      "notes": "SHA recorded; BLOCKED until registry entry then re-decide",
+      "admit_status": "BLOCKED",
       "path": "Data/Lantmateriet/Topografi50/hydrografi_sverige/hydrografi_sverige.gpkg",
       "absolute_path": "H:\\Delade enheter\\Miljöbeslut\\GEO_Master_Archive\\Data\\Lantmateriet\\Topografi50\\hydrografi_sverige\\hydrografi_sverige.gpkg",
       "source_sha256": "c563aed7f2d16d1772b4b5941970c2c782d503c944920291fcaaf9b4faac5fd4",
@@ -342,7 +342,15 @@
         "ok": false,
         "tool": "ogrinfo",
         "error": "spawnSync ogrinfo ENOENT"
-      }
+      },
+      "block_reason": "requires_IMPORT_REGISTRY_Topografi50_hydrografi"
     }
-  ]
+  ],
+  "admit_v1_set_ref": "docs/architecture/admit-v1/ADMIT-V1-SET.md",
+  "authority_decisions": {
+    "water_protection": "NV_ADMIT_LST_OUT_OF_SCOPE",
+    "raa_culture": "OUT_OF_SCOPE_v1",
+    "topo_water": "BLOCKED_no_IMPORT_REGISTRY"
+  },
+  "decided_at": "2026-08-08T09:35:01.101Z"
 }

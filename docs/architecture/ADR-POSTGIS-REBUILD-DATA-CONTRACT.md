@@ -4,7 +4,8 @@
 
 **ACCEPTED / SEQUENCE FROZEN** — rebuild not started.
 
-**Active gate:** [ADR-POSTGIS-ADMIT-V1.md](./ADR-POSTGIS-ADMIT-V1.md)  
+**Admit v1:** FROZEN — [ADR-POSTGIS-ADMIT-V1.md](./ADR-POSTGIS-ADMIT-V1.md) / [admit-v1/ADMIT-V1-SET.md](./admit-v1/ADMIT-V1-SET.md)  
+**Next gate:** empty PostGIS (HITL) → import ADMIT → Magic Moment acceptance  
 (Empty PostGIS blocked until Admit v1 is frozen.)
 
 PostGIS is a **rebuildable projection** of `GEO_Master_Archive` (Mimers Brunn v2.0.1).
