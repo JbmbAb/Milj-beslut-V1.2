@@ -234,12 +234,32 @@ enforcement. Case 3 is a flag that defaults to off; case 8 was a document with n
 counterpart in code.
 
 `GovernedWriteCapability` now expresses both chokepoints as an invariant and
-fails the build, by filename, on any new holder. The thirty-two existing paths are
-frozen as `legacy` at an exact count that may shrink and may not grow.
+fails the build, by filename, on any new holder. Both capabilities are policed
+over one shared scope, because enforcement must not depend on where the caller
+lives — closing `script → PostGIS` while leaving `service → PostGIS` open only
+moves the road. The first version of the module made exactly that mistake, and
+widening the scope surfaced eight runtime holders it had never seen.
 
-One legacy entry is worth naming: `scripts/backfill/materialize-cases.ts`
-materializes through raw SQL, outside MAT-I05 entirely. It is inside the frozen
-count, not fixed.
+Four of those are real direct prod writes outside the librarian. The sharpest is
+`server/services/propertyUnitService.ts`: four `INSERT INTO` against
+`core.property_unit`, `env.sgu_well_actual`, `env.natura2000_area` and
+`env.ebh_potentiellt_fororenade_omraden` — permanent geodata written from the
+request path, including the EBH layer LU queries against. The other four hold the
+primitive only for session settings and cannot write data; they are listed rather
+than exempted, and checked against containing no data-modifying statement.
+
+Thirty-six paths are frozen as `legacy` at an exact count that may shrink and may
+not grow. One is worth naming rather than leaving in the pile:
+`scripts/backfill/materialize-cases.ts` materializes through raw SQL, outside
+MAT-I05 entirely.
+
+**Uniqueness, not authorisation.** The invariant establishes that governed
+production state is reachable through two doors and no others. It does not lock
+either door. The librarian and `mimerBindingAgent` write production directly and
+neither references `mps-data-governance`: no approval required, no gate evidence
+produced, nothing quarantined on refusal. They are chokepoints, not gates.
+Narrowing thirty-four write paths to two is what makes locking them tractable; it
+is not the lock. That work belongs to the five remaining orchestrator ports.
 
 ---
 

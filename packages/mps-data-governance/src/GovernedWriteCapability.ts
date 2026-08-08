@@ -22,6 +22,25 @@ import * as path from "path";
  * may create DecisionImpactArtifact authority, and the import path never creates
  * one. Routing ingest through it would mean registering the harvester as a
  * materialization authority — the opposite of what the invariant protects.
+ *
+ * ## What this proves, and what it does not
+ *
+ * This module establishes *uniqueness*: governed production state is reachable
+ * through two doors and no others, and any third door fails the build by name.
+ *
+ * It does not establish *authorisation*: neither door is locked. The librarian
+ * and `mimerBindingAgent` write production directly, and neither references
+ * `mps-data-governance` — no approval is required, no gate evidence is produced,
+ * nothing is quarantined on refusal. Both are chokepoints, not gates.
+ *
+ * The distinction matters because "the invariant holds" must not be read as
+ * "writes are governed". Narrowing thirty-four write paths to two is what makes
+ * locking them tractable; it is not the lock. That is the work the remaining
+ * five orchestrator ports carry, and until it lands the honest claim is:
+ *
+ *     scripts/services -> arbitrary prod write        rejected
+ *     scripts/services -> librarian -> prod write     permitted, ungoverned
+ *     scripts/services -> binding agent -> prod write permitted, ungoverned
  */
 export interface GovernedWriteCapability {
   readonly id: string;
@@ -48,24 +67,79 @@ export interface GovernedWriteCapability {
    */
   readonly legacy: readonly string[];
 
+  /**
+   * Holders that reach the primitive but cannot write data with it, because they
+   * use it only for session configuration — `SET LOCAL statement_timeout`,
+   * `SELECT set_config(...)` — which returns no rows and therefore cannot go
+   * through the query primitive.
+   *
+   * These are listed rather than exempted. An exemption is invisible and would
+   * let a real write appear in the same file unseen; a listed file is checked
+   * further down by `dataModifyingKeywords`, which asserts the file contains no
+   * data-modifying statement at all. The outer capability net still catches any
+   * *new* file, so the keyword check only has to hold for this small frozen set.
+   */
+  readonly sessionOnly: readonly string[];
+
   /** Source patterns that indicate the capability is exercised. */
   readonly markers: readonly RegExp[];
+
+  /**
+   * Statements that modify data. Used only to constrain `sessionOnly`, never to
+   * decide whether a file holds the capability — that decision stays
+   * capability-based so it cannot be evaded by rephrasing a statement.
+   */
+  readonly dataModifyingKeywords: readonly RegExp[];
 }
 
 export interface CapabilityAudit {
   readonly capability: string;
 
-  /** Holders that are neither authorised nor known legacy. New debt. */
+  /** Holders that are neither authorised, known legacy, nor session-only. */
   readonly unauthorised: readonly string[];
 
-  /** Legacy entries that no longer hold the capability. Removable. */
+  /** Listed entries that no longer hold the capability. Removable. */
   readonly stale: readonly string[];
+
+  /**
+   * Files claimed to be session-configuration only that nevertheless contain a
+   * data-modifying statement. The claim is false and the file is a write path.
+   */
+  readonly falseSessionOnly: readonly string[];
 
   /** Every file found holding the capability. */
   readonly holders: readonly string[];
 }
 
 const SOURCE_EXTENSIONS = new Set([".ts", ".mts", ".cts", ".mjs", ".cjs", ".js"]);
+
+/**
+ * One scope for every capability, deliberately shared rather than declared per
+ * capability.
+ *
+ * Enforcement SHALL NOT depend on which directory the caller lives in. The first
+ * version of this module policed raw SQL under `scripts` only while policing the
+ * case graph across the whole tree, which meant a runtime service could hold the
+ * write capability and never be seen. Closing `script → PostGIS` while leaving
+ * `service → PostGIS` open is not a closed boundary; it just moves the road.
+ */
+export const GOVERNED_WRITE_SCOPE: readonly string[] = [
+  "scripts",
+  "server",
+  "src",
+  "services",
+  "packages",
+];
+
+/**
+ * Test sources are not production write paths.
+ *
+ * Applied to every capability rather than as a per-capability exemption, so the
+ * rule stays symmetric: no capability can quietly acquire a different notion of
+ * what counts as production. A test that contains marker text in a fixture is
+ * describing a violation, not committing one.
+ */
+const TEST_SOURCE = /(^|\/)(tests?|__tests__)\/|\.(test|spec)\.[cm]?[jt]s$/;
 
 function collectSourceFiles(root: string, scope: readonly string[]): string[] {
   const found: string[] = [];
@@ -84,7 +158,8 @@ function collectSourceFiles(root: string, scope: readonly string[]): string[] {
       if (entry.isDirectory()) {
         walk(child);
       } else if (SOURCE_EXTENSIONS.has(path.extname(entry.name))) {
-        found.push(path.relative(root, child).split(path.sep).join("/"));
+        const relative = path.relative(root, child).split(path.sep).join("/");
+        if (!TEST_SOURCE.test(relative)) found.push(relative);
       }
     }
   };
@@ -101,23 +176,47 @@ export function auditCapability(
   repoRoot: string,
   capability: GovernedWriteCapability,
 ): CapabilityAudit {
+  const read = (file: string): string =>
+    fs.readFileSync(path.join(repoRoot, file), "utf8");
+
   const holders = collectSourceFiles(repoRoot, capability.scope)
     .filter((file) => !isExempt(file, capability))
-    .filter((file) => {
-      const source = fs.readFileSync(path.join(repoRoot, file), "utf8");
-      return capability.markers.some((marker) => marker.test(source));
-    })
+    .filter((file) => capability.markers.some((marker) => marker.test(read(file))))
     .sort();
 
-  const permitted = new Set([...capability.authorised, ...capability.legacy]);
+  const listed = [
+    ...capability.authorised,
+    ...capability.legacy,
+    ...capability.sessionOnly,
+  ];
+  const permitted = new Set(listed);
 
   return {
     capability: capability.id,
     unauthorised: holders.filter((file) => !permitted.has(file)),
-    stale: capability.legacy.filter((file) => !holders.includes(file)),
+    stale: listed.filter(
+      (file) => !capability.authorised.includes(file) && !holders.includes(file),
+    ),
+    // Only holders are inspected. A listed file that is absent, or that no
+    // longer reaches the primitive, is reported as stale instead.
+    falseSessionOnly: capability.sessionOnly
+      .filter((file) => holders.includes(file))
+      .filter((file) =>
+        capability.dataModifyingKeywords.some((keyword) => keyword.test(read(file))),
+      ),
     holders,
   };
 }
+
+const SQL_DATA_MODIFYING: readonly RegExp[] = [
+  /\bINSERT\s+INTO\b/i,
+  /\bUPDATE\s+["\w.]+\s+SET\b/i,
+  /\bDELETE\s+FROM\b/i,
+  /\bTRUNCATE\b/i,
+  /\bDROP\s+(TABLE|SCHEMA|VIEW)\b/i,
+  /\bALTER\s+TABLE\b/i,
+  /\bCREATE\s+(TABLE|SCHEMA)\b/i,
+];
 
 /**
  * Raw SQL execution against the database.
@@ -133,7 +232,7 @@ export const POSTGIS_RAW_WRITE: GovernedWriteCapability = {
   description:
     "Executes raw SQL against PostGIS. Permanent geodata SHALL enter prod only " +
     "through the librarian import path.",
-  scope: ["scripts"],
+  scope: GOVERNED_WRITE_SCOPE,
   exempt: [
     {
       path: "scripts/db",
@@ -141,12 +240,34 @@ export const POSTGIS_RAW_WRITE: GovernedWriteCapability = {
         "Maintenance is an explicit exception in the policy: index, partition, " +
         "vacuum, schema DDL. These do not import datasets.",
     },
+    {
+      path: "packages/mps-data-governance/src/GovernedWriteCapability.ts",
+      reason:
+        "Declares the markers. Matching itself is a property of the regex, not " +
+        "a write path.",
+    },
   ],
   authorised: [
     "scripts/import/import-librarian-manifest.ts",
     "scripts/import/importLibrarianQa.ts",
   ],
+  sessionOnly: [
+    "server/modules/ai/orchestrator/tools/queryGeodataTool.ts",
+    "server/modules/gis/nmdRasterService.ts",
+    "server/modules/gis/nmdTileService.ts",
+    "server/repositories/requirementsRepository.ts",
+  ],
+  dataModifyingKeywords: SQL_DATA_MODIFYING,
   legacy: [
+    // Runtime services that write prod directly, outside the librarian.
+    // propertyUnitService is the sharpest: four INSERT INTO against
+    // core.property_unit, env.sgu_well_actual, env.natura2000_area and
+    // env.ebh_potentiellt_fororenade_omraden — permanent geodata written from
+    // the request path, including the EBH layer LU queries against.
+    "server/modules/legal/services/evidenceExtractionService.ts",
+    "server/modules/search/adapters/searchRepository.ts",
+    "server/modules/search/services/sleipnerSpatialService.ts",
+    "server/services/propertyUnitService.ts",
     "scripts/add-geom-col.ts",
     "scripts/apply-best-guess-munis.ts",
     "scripts/backfill/_shared.ts",
@@ -195,9 +316,11 @@ export const CASE_GRAPH_WRITE: GovernedWriteCapability = {
   description:
     "Creates or mutates environmentalCase / caseEvidence rows, which are " +
     "materialization input.",
-  scope: ["scripts", "server", "src", "services"],
+  scope: GOVERNED_WRITE_SCOPE,
   exempt: [],
   authorised: ["scripts/import/mimer/mimerBindingAgent.ts"],
+  sessionOnly: [],
+  dataModifyingKeywords: SQL_DATA_MODIFYING,
   legacy: ["server/modules/legal/services/evidenceExtractionService.ts"],
   markers: [
     /(environmentalCase|caseEvidence)\.(create|createMany|upsert|update|updateMany|delete|deleteMany)\s*\(/,

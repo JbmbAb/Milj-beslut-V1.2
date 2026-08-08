@@ -22,7 +22,35 @@ med undantaget längre ned i detta dokument.
 
 Samma invariant bevakar ärendegrafen (`CASE_GRAPH_WRITE`): `environmentalCase`
 och `caseEvidence` är materialiseringsunderlag, och `mimerBindingAgent.ts` är
-strypunkten där.
+strypunkten där. Båda kapabiliteterna bevakas över **samma** omfång
+(`scripts`, `server`, `src`, `services`, `packages`), delat i en enda konstant.
+Enforcement får inte bero på var anroparen bor: att stänga `script → PostGIS`
+men lämna `service → PostGIS` öppen flyttar bara vägen. Första versionen av
+modulen gjorde exakt det felet, och det avslöjade åtta innehavare i runtime som
+det smalare omfånget aldrig såg.
+
+Fyra av dem är verkliga direktskrivningar till prod utanför librarian. Den
+skarpaste är `server/services/propertyUnitService.ts`, som gör fyra
+`INSERT INTO` mot `core.property_unit`, `env.sgu_well_actual`,
+`env.natura2000_area` och `env.ebh_potentiellt_fororenade_omraden` — permanent
+geodata skriven från request-vägen, inklusive EBH-lagret som LU frågar mot. De
+återstående fyra använder primitiven enbart för sessionsinställningar
+(`SET LOCAL statement_timeout`, `SELECT set_config`) och kan inte skriva data.
+De är listade, inte undantagna, och kontrolleras mot att de inte innehåller
+någon datamodifierande sats — en dispens är osynlig, en listad fil är granskad.
+
+## Vad invarianten bevisar, och inte
+
+Den etablerar **unikhet**: styrt produktionstillstånd nås genom två dörrar och
+inga andra, och varje tredje dörr fäller bygget med filnamn.
+
+Den etablerar inte **auktorisation**: ingen av dörrarna är låst. Librarian och
+`mimerBindingAgent` skriver prod direkt, och ingen av dem refererar
+`mps-data-governance` — inget godkännande krävs, ingen gate-evidens produceras,
+inget karantänsätts vid avslag. Båda är strypunkter, inte grindar.
+
+Att smalna trettiofyra skrivvägar till två är vad som gör låsningen möjlig. Det
+är inte låset. Det arbetet bärs av de fem återstående orkestratorportarna.
 
 MAT-I05 är avsiktligt inte spärren här. Den invarianten styr vem som får skapa
 `DecisionImpactArtifact`-auktoritet, och importvägen skapar aldrig en sådan. Att
