@@ -15,7 +15,7 @@ export class PostgisDocumentProvider implements DocumentProviderContract {
     const res = await prisma.$queryRawUnsafe<Array<{ kommunnamn: string }>>(`
       SELECT DISTINCT name AS kommunnamn
       FROM env.viss_waterbody
-      WHERE geom && ST_Transform(ST_GeomFromJSON($1), 3006)
+      WHERE geom && ST_Transform(ST_SetSRID(ST_GeomFromGeoJSON($1), 4326), 3006)
       LIMIT 1
     `, [JSON.stringify(geometry)]).catch(() => []);
 

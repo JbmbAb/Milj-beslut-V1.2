@@ -3,6 +3,7 @@
 import fs from 'fs';
 import path from 'path';
 import crypto from 'crypto';
+import { createRequire } from 'module';
 import { prisma } from '../../../server/db/prisma'; // Prisma is loaded globally
 
 import {
@@ -11,6 +12,8 @@ import {
   DocumentClassification,
   KnowledgeDomain,
 } from './DocumentOrchestratorTypes';
+
+const require = createRequire(import.meta.url);
 
 export interface PdfExtractor {
   extractText(filePath: string): Promise<{ text: string; ocrRequired: boolean; pageCount: number }>;
@@ -41,11 +44,12 @@ export class LocalFilePdfExtractor implements PdfExtractor {
     if (ext === '.txt') {
       text = fs.readFileSync(filePath, 'utf8');
     } else if (ext === '.pdf') {
-      const buf = fs.readFileSync(filePath);
-      text = buf.toString('binary');
-      // Simple page extractor
-      const pageInstances = text.match(/\/Type\s*\/Page\b/g);
-      pageCount = pageInstances ? pageInstances.length : 1;
+      const { PDFParse } = require('pdf-parse');
+      const dataBuffer = fs.readFileSync(filePath);
+      const parser = new PDFParse({ data: dataBuffer });
+      const textResult = await parser.getText();
+      text = textResult.text || '';
+      pageCount = textResult.total || 1;
     } else {
       throw new Error(`UNSUPPORTED_FORMAT: ${ext}`);
     }
@@ -65,10 +69,14 @@ export class LocalFilePdfExtractor implements PdfExtractor {
 export class SentenceLayoutChunker implements Chunker {
   public async chunk(text: string): Promise<string[]> {
     // Split by double newlines or structural markers to yield clean semantic paragraphs
-    return text
+    const list = text
       .split(/\n\s*\n/)
       .map((p) => p.trim())
-      .filter((p) => p.length > 20); // filter out tiny or empty fragments
+      .filter((p) => p.length > 5); // lower limit to 5 characters
+    if (list.length === 0 && text.trim().length > 0) {
+      list.push(text.trim());
+    }
+    return list;
   }
 }
 
