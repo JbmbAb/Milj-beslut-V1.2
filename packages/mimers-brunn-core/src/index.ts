@@ -38,6 +38,8 @@ export {
   assertArchiveProvider,
   assertProviderChangeHasSan,
   isArchiveProvider,
+  DiskQuarantineStorage,
+  QuarantinePromoter,
   type BuildSanitationArtifactInput,
   type DatasetFamily,
   type DatasetFamilyMember,
@@ -49,6 +51,13 @@ export {
   type SanitationReason,
   type ArchiveProvider,
   type TrafikverketCategory,
+  type RawSourceArtifact,
+  type QuarantineStorage,
+  type QuarantinePutResult,
+  type DatasetApprovalIdentity,
+  type DatasetApprovalMetadata,
+  type DatasetApprovalArtifact,
+  type PromotionResult,
 } from './governance';
 export {
   CLASSIFIER_SCHEMA_VERSION,
