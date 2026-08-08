@@ -4,6 +4,7 @@ import type { MapLayerKey, Permit } from '../types';
 import { csrfFetch } from '../services/csrfClient';
 import { getActiveProjectId, getToken } from '../services/coreApiClient';
 import MapView from './MapView';
+import CesiumMapView from './CesiumMapView';
 import PropertyLookupDetails, { type PropertyLookupResult } from './PropertyLookupDetails';
 import { useProjectStructure } from './ProjectStructureContext';
 
@@ -36,6 +37,7 @@ interface GisRiskModuleProps {
 const GisRiskModule: React.FC<GisRiskModuleProps> = ({ permits = [] }) => {
   const { evaluateGate, addArchiveDocument, markModuleReady } = useProjectStructure();
   const [uploadedData, setUploadedData] = useState<UploadedGeoJson | null>(null);
+  const [mapMode, setMapMode] = useState<'2d' | '3d'>('2d');
 
   // Property designation (beteckning) search state
   const [beteckning, setBeteckning] = useState('');
@@ -250,7 +252,7 @@ const GisRiskModule: React.FC<GisRiskModuleProps> = ({ permits = [] }) => {
   return (
     <div className="flex h-full flex-col gap-8 animate-in fade-in duration-500 lg:flex-row">
       <div className="w-full shrink-0 space-y-6 lg:w-96">
-        {/* BeteckningssÃƒÂ¶kning pÃƒÂ¥ karta */}
+        {/* BeteckningssÃ¶kning pÃ¥ karta */}
         <div className="rounded-[2.5rem] border border-blue-100 bg-white p-8 shadow-sm">
           <div className="mb-6 flex items-center gap-4">
             <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-blue-100 text-xl text-blue-600">
@@ -272,7 +274,7 @@ const GisRiskModule: React.FC<GisRiskModuleProps> = ({ permits = [] }) => {
           >
             <label className="text-[10px] font-black uppercase tracking-widest text-slate-400">
               Fastighetsbeteckning
-            </label>
+            </label>\
             <input
               data-testid="property-designation-input"
               type="text"
@@ -355,7 +357,7 @@ const GisRiskModule: React.FC<GisRiskModuleProps> = ({ permits = [] }) => {
                 </div>
                 <input type="file" className="hidden" accept=".json,.geojson" onChange={handleFileUpload} />
               </label>
-              {fileError && <p className="text-xs font-semibold text-rose-600">{fileError}</p>}
+              {fileError && <p className="text-xs font-semibold text-rose-600">{fileError}</p>}\
               {uploadedData && <p className="text-xs text-slate-500">Features: {featureCount}</p>}
             </div>
 
@@ -390,7 +392,7 @@ const GisRiskModule: React.FC<GisRiskModuleProps> = ({ permits = [] }) => {
                   Kanslighetsniva
                 </label>
                 <div className="grid grid-cols-3 gap-2">
-                  {(['Low', 'Medium', 'High'] as const).map((level) => (
+                  {(['Low', 'Medium', 'High'] as const).map((level) => (\
                     <button
                       key={level}
                       type="button"
@@ -474,7 +476,7 @@ const GisRiskModule: React.FC<GisRiskModuleProps> = ({ permits = [] }) => {
                 <div className="space-y-2">
                   <p className="text-[10px] font-black uppercase tracking-widest text-slate-500">
                     Identifierade konflikter
-                  </p>
+                  </p>\
                   <ul className="space-y-2">
                     {analysisResult.conflicts.map((conflict) => (
                       <li
@@ -498,7 +500,7 @@ const GisRiskModule: React.FC<GisRiskModuleProps> = ({ permits = [] }) => {
                 <div className="rounded-2xl border border-white/10 bg-white/5 p-4">
                   <p className="mb-2 text-[10px] font-black uppercase tracking-widest text-emerald-400">
                     Rekommendation
-                  </p>
+                  </p>\
                   <p className="text-xs italic leading-relaxed text-slate-300">
                     "{analysisResult.recommendation}"
                   </p>
@@ -513,12 +515,47 @@ const GisRiskModule: React.FC<GisRiskModuleProps> = ({ permits = [] }) => {
         data-testid="gis-risk-map"
         className="relative min-h-[600px] flex-1 overflow-hidden rounded-[3rem] border border-slate-200 bg-white shadow-sm"
       >
-        <MapView
-          permits={permits}
-          geoJsonData={mapData}
-          bufferDistance={riskParameters.bufferDistance}
-          highlightLayer={highlightedLayer}
-        />
+        {/* Beautiful 2D / 3D Toggle */}
+        <div className="absolute right-6 top-6 z-[1000] flex gap-1 rounded-2xl bg-white/95 p-1 shadow-lg backdrop-blur-md border border-slate-200/80">
+          <button
+            type="button"
+            onClick={() => setMapMode('2d')}
+            className={`rounded-xl px-4 py-2 text-[10px] font-black uppercase tracking-widest transition-all ${
+              mapMode === '2d'
+                ? 'bg-slate-900 text-white shadow-sm'
+                : 'text-slate-600 hover:bg-slate-100'
+            }`}
+          >
+            2D (Leaflet)
+          </button>
+          <button
+            type="button"
+            onClick={() => setMapMode('3d')}
+            className={`rounded-xl px-4 py-2 text-[10px] font-black uppercase tracking-widest transition-all ${
+              mapMode === '3d'
+                ? 'bg-slate-900 text-white shadow-sm'
+                : 'text-slate-600 hover:bg-slate-100'
+            }`}
+          >
+            3D (Cesium)
+          </button>
+        </div>
+
+        {mapMode === '2d' ? (
+          <MapView
+            permits={permits}
+            geoJsonData={mapData}
+            bufferDistance={riskParameters.bufferDistance}
+            highlightLayer={highlightedLayer}
+          />
+        ) : (
+          <CesiumMapView
+            permits={permits}
+            geoJsonData={mapData}
+            bufferDistance={riskParameters.bufferDistance}
+          />
+        )}
+
         {isAnalyzing && (
           <div className="absolute inset-0 z-[2000] flex items-center justify-center bg-slate-900/20 backdrop-blur-[2px]">
             <div className="flex flex-col items-center gap-4 rounded-[2rem] bg-white p-8 shadow-2xl">
@@ -538,19 +575,19 @@ const Toggle: React.FC<{ label: string; active: boolean; onClick: () => void }> 
   label,
   active,
   onClick,
-}) => (
+}) => (\
   <button type="button" onClick={onClick} className="group flex w-full items-center justify-between">
     <span className="text-xs font-bold text-slate-600 transition-colors group-hover:text-slate-900">
       {label}
     </span>
     <div
       className={`relative h-5 w-10 rounded-full transition-all ${active ? 'bg-blue-600' : 'bg-slate-200'}`}
-    >
+    >\
       <div
         className={`absolute top-1 h-3 w-3 rounded-full bg-white transition-all ${active ? 'right-1' : 'left-1'}`}
       />
     </div>
-  </button>
+  </button>\
 );
 
 export default GisRiskModule;
