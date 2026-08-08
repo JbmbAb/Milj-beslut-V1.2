@@ -329,12 +329,12 @@ async function processManifest(manifestPath: string) {
             '-nln', fullStagingTarget,
             '-overwrite',
             '-nlt', 'PROMOTE_TO_MULTI',
+            '-skipfailures',
             '-lco', 'GEOMETRY_NAME=geom',
             '-lco', 'SPATIAL_INDEX=NONE', // Vi skapar GiST index manuellt efteråt
             ...(registryEntry.invert_axis_order
               ? ['-s_srs', 'EPSG:3006', '-t_srs', '+proj=utm +zone=33 +ellps=GRS80 +units=m +no_defs'] as const
               : ['-t_srs', 'EPSG:3006'] as const),
-            '-gt', '65536',
             '--config', 'PG_USE_COPY', 'YES',
             // NV/Swedish SHP attributes are typically CP1252 / Latin-1, not UTF-8
             // Prefer .cpg when present; ISO-8859-1 covers NV SPA/NR Swedish SHP
