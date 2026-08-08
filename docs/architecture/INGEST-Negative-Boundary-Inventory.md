@@ -199,23 +199,47 @@ test would pass because nothing was ever fetched — true for the wrong reason.
 
 | | |
 | :-- | :-- |
-| Enforcement point | MAT-I05 single materialization authority |
-| Exists | **Yes — but not on Loke's path** |
-| Owner | `mps-materialization` |
+| Enforcement point | Librarian-only import policy, and the case graph chokepoint |
+| Exists | **Yes, executable since `d3f1a2c`** |
+| Owner | `mps-data-governance` |
 
-`assertSingleMaterializationAuthority` exists and is enforced, in
-`alpha-runtime/src/recovery/DecisionArtifactRepository.ts` and in
-`mps-retrieval-governance/src/RetrievalDecision.ts`.
+**The original framing was a category error, and correcting it changed the fix.**
 
-Loke never calls either. It writes through `scripts/import/…`, which reaches
-storage without passing any authority check. The gate is real and the road goes
-around it.
+This case was inventoried against MAT-I05. That invariant governs who may create
+`DecisionImpactArtifact` authority, and it has exactly two production call sites,
+both in `alpha-runtime/src/recovery/DecisionArtifactRepository.ts`. Loke never
+creates a `DecisionImpactArtifact`. It writes master-archive bytes, manifests,
+National Archive documents, PostGIS rows and `environmentalCase` / `caseEvidence`.
 
-This is the sharpest finding in the inventory. The case would be proven by
-asserting that Loke's actual write path terminates in an authority check — not
-by asserting that the authority check rejects an unregistered actor, which is
-already covered by `MaterializationAuthorityBoundary.test.ts` and says nothing
-about Loke.
+Routing Loke through MAT-I05 would therefore have required registering it as a
+materialization authority — the opposite of what the invariant protects. The gate
+was not being bypassed; it was the wrong gate.
+
+The guard is also fail-closed and working as designed. `MaterializerJob` calls
+`repo.save(...)` without the authority argument and fails at the gate, which its
+own file header documents as deliberate: it is a deprecated second truth producer,
+fenced off on purpose.
+
+**What was actually ungoverned.** The decision-relevant transition is not bytes
+landing on disk — the archive is raw material — but bytes becoming queryable
+state a decision reads. That happens at two doors: PostGIS promotion and the case
+graph. Both already had a designated chokepoint, and it existed only as prose.
+`docs/architecture/import-librarian-only-policy.md` has said since 2026-06-22
+that permanent geodata reaches PostGIS only through
+`scripts/import/import-librarian-manifest.ts`. Thirty-two other scripts held the
+capability to write anyway.
+
+So case 8 turned out to be the same disease as case 3: policy in place of
+enforcement. Case 3 is a flag that defaults to off; case 8 was a document with no
+counterpart in code.
+
+`GovernedWriteCapability` now expresses both chokepoints as an invariant and
+fails the build, by filename, on any new holder. The thirty-two existing paths are
+frozen as `legacy` at an exact count that may shrink and may not grow.
+
+One legacy entry is worth naming: `scripts/backfill/materialize-cases.ts`
+materializes through raw SQL, outside MAT-I05 entirely. It is inside the frozen
+count, not fixed.
 
 ---
 
@@ -244,15 +268,18 @@ These four hold on the real execution path and are covered in
 | 5 | Missing approval | present | yes, since `26be14a` |
 | 6 | Altered artifact | wrong property verified | — |
 | 7 | Source unavailable | present | yes |
-| 8 | Loke creates authority | present | **no** — Loke bypasses it |
+| 8 | Loke writes governed input | present | yes — but against the librarian chokepoint, not MAT-I05 |
 
-Cases 5 and 7 can be proven today against production code. Case 7 remains weak
-until a source delivers real bytes.
+Cases 5, 7 and 8 can be proven today against production code. Case 7 remains
+weak until a source delivers real bytes.
 
-Three cases — 3, 5 and 8 — do not need new barriers. They need existing
-barriers placed on the path that ingest actually takes. That is a smaller and
-more valuable piece of work than building four new gates, and it should come
-first. Case 5 is done; 3 and 8 remain.
+Three cases — 3, 5 and 8 — did not need new barriers. They needed existing
+barriers placed on the path that ingest actually takes. Cases 5 and 8 are done;
+case 3 remains, and it is the last of the three.
+
+Cases 1, 2, 4 and 6 still have no barrier, or verify the wrong property. Closing
+3 does not finish ingest — it finishes the part that could be closed by wiring up
+what already existed.
 
 ## A structural observation
 

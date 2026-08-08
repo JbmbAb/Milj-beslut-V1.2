@@ -1,6 +1,33 @@
 # Import policy: Librarian-only (legacy sunset)
 
-Status: gällande från 2026-06-22.
+Status: gällande från 2026-06-22. **Körbar sedan 2026-08-08.**
+
+## Enforcement
+
+Policyn var prosa i sexton veckor. Under den tiden höll 34 filer under `scripts/`
+förmågan att köra rå SQL mot databasen; två av dem var librarian-vägen. Ett
+dokument som trettiotvå skript motsäger i kod är inte plattformens importgrind.
+
+Regeln är nu en invariant i `packages/mps-data-governance/src/GovernedWriteCapability.ts`
+med `POSTGIS_RAW_WRITE`, verifierad av `tests/GovernedWriteCapability.test.ts`.
+Den är förmågebaserad: den frågar inte om en enskild sats skriver, utan vilka
+filer som alls kan skriva. Det är ett svagare påstående om varje rad och ett
+betydligt starkare om systemet, eftersom det inte kan kringgås genom att skriva
+om en sats.
+
+De trettiotvå befintliga vägarna är frysta som `legacy` med exakt antal. Listan
+får krympa och får inte växa: varje ny innehavare fäller bygget med filnamn.
+Underhållsskript under `scripts/db/` är undantagna med angivet skäl, i enlighet
+med undantaget längre ned i detta dokument.
+
+Samma invariant bevakar ärendegrafen (`CASE_GRAPH_WRITE`): `environmentalCase`
+och `caseEvidence` är materialiseringsunderlag, och `mimerBindingAgent.ts` är
+strypunkten där.
+
+MAT-I05 är avsiktligt inte spärren här. Den invarianten styr vem som får skapa
+`DecisionImpactArtifact`-auktoritet, och importvägen skapar aldrig en sådan. Att
+leda ingest genom den skulle innebära att skördaren registreras som
+materialization authority — motsatsen till vad spärren skyddar.
 
 ## Beslut
 
