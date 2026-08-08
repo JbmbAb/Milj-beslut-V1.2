@@ -89,6 +89,10 @@ export default defineConfig({
         __dirname,
         'packages/mps-cas-boundary/src/index.ts',
       ),
+      '@miljobeslut/mps-governance-runtime': path.resolve(
+        __dirname,
+        'packages/mps-governance-runtime/src/index.ts',
+      ),
       '@miljobeslut/spatial-provider-postgis': path.resolve(
         __dirname,
         'packages/spatial-provider-postgis/src/index.ts',
@@ -182,6 +186,7 @@ export default defineConfig({
             'packages/mps-retrieval-trace/**/*.test.ts',
             'packages/mps-runtime-snapshot/**/*.test.ts',
             'packages/mps-cas-boundary/**/*.test.ts',
+            'packages/mps-governance-runtime/**/*.test.ts',
             'packages/spatial-provider-postgis/**/*.test.ts',
             'scripts/audit/**/*.test.ts',
           ],

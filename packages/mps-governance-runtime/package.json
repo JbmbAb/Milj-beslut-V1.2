@@ -1,0 +1,19 @@
+{
+  "name": "@miljobeslut/mps-governance-runtime",
+  "version": "0.1.0",
+  "description": "Phase 23B Operational Governance Runtime (observation above Frozen Core)",
+  "main": "./src/index.ts",
+  "types": "./src/index.ts",
+  "type": "module",
+  "scripts": {
+    "test": "vitest run"
+  },
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "dependencies": {},
+  "devDependencies": {
+    "typescript": "^5.0.0",
+    "vitest": "^4.1.10"
+  }
+}
