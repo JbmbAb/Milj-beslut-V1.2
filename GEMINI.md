@@ -169,3 +169,33 @@ DECISION
 
 Denna styrda observationsarkitektur säkerställer att Loke agerar som en disciplinerad observatör (inte en smart crawler). Loke behöver endast kunna bekräfta: *"Det här observerade jag från denna auktoriserade källa, under denna policy, vid denna tidpunkt, med detta innehåll."* All efterföljande verifiering och sanning styrs av Mimer.
 
+---
+
+## 7. Arkitekturpolicy för spatial visualisering och Cesium-integration (Unified Evidence Engine)
+
+För att garantera systemets integritet, undvika motstridiga källor och förhindra allvarliga spatiala prestandaproblem, tillämpas följande frysta principer för all kartintegration och visualisering (t.ex. i CesiumJS och Leaflet):
+
+### 7.1 En enda spatial sanning (Unified Engine)
+- **Cesium är en ren visualisering av bevis, inte en egen GIS-motor.** Kartgränssnittet får inte göra egna förenklade beräkningar eller ha en separat pipeline för dataintag.
+- All spatial sökning och analys styrs av kärnmotorn via det gemensamma gränssnittet **`SpatialQueryContract`**.
+- När en användare klickar på en fastighet eller en punkt i kartvyn anropas samma `SpatialQueryContract` som används av lokaliseringsmotorn (LU). Kontraktet returnerar standardiserade **`SpatialEvidenceArtifact[]`**-tokens. Kartklicket mappar därmed direkt till den verifierade evidensen, bevisrekommendationen och lagrummen.
+
+### 7.2 Optimal spatial indexering (GiST-skydd)
+- **Förbjudet att transformera kolumner dynamiskt i WHERE-villkor.** Att transformera databaskolumnen (t.ex. `WHERE ST_Transform(geom, 4326) && ...`) ogiltigförklarar GiST-indexet på originalgeometrin (som ligger i EPSG:3006).
+- **Korrekt metod:** Sökfönstret (BBox/Envelope) från kartklienten transformeras *till lagrets infödda CRS (3006)* en gång, sökningen körs mot det befintliga GiST-indexet, och därefter transformeras enbart de returnerade resultaten till WGS84 (EPSG:4326).
+  ```sql
+  WHERE geom && ST_Transform(ST_MakeEnvelope($1, $2, $3, $4, 4326), 3006)
+  ```
+
+### 7.3 Skalbar presentationslayout
+För att förhindra prestandakollaps i webbläsaren vid hantering av miljontals fastigheter och byggnader mappar vi presentationsformat till dataenheter baserat på skala:
+- **Fastighetsytor / gränser / byggnader i nationell skala:** Strömmas som **3D Tiles** (ej rå GeoJSON).
+- **Terräng och höjddata:** Strömmas som **Terrain/Elevation Tiles**.
+- **Aktivt LU-resultat / interaktiva buffertzoner:** Renderas dynamiskt som lightweight **GeoJSON / CZML / Entities**.
+- **Evidens, regelverk och findings:** Hämtas och presenteras via **Evidence API**.
+
+### 7.4 Decoupling av Identitet och Geometri
+- Plattformen skiljer strikt på **Property Identity** (`core.property_unit` — metadata, länskoder, identitet) och **Property Geometry** (`env.registerenhetsomradesytor` — tunga polygoner). Detta garanterar att identitets- och replaysökningar förblir blixtsnabba även när de spatiala skikten innehåller tiotals miljoner komplexa ytor.
+- **Millbygård** fungerar som en direkt testklient till samma spatiala PostGIS-databas, vilket ger ett gemensamt testbed för fastighetsgränser, 3D-byggnadsutskjutning och höjdmodellsklippning utan redundanta pipelines.
+
+
