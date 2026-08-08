@@ -1,6 +1,6 @@
 # Import och Harvesting: Mimers Brunn
 
-Nya import- och nedladdningsscripts ska följa [Mimers Brunn offline-first policy](../../docs/architecture/mimers-brunn-offline-first.md).
+Nya import- och nedladdningsscripts ska följa [Mimers Brunn v2.0.1](../../docs/architecture/mimers-brunn-v2.0.1.md) (ACTIVE). Operational path detail: [v1.0 legacy](../../docs/architecture/mimers-brunn-offline-first.md).
 
 ## Obligatorisk checklista för nya harvesting-scripts
 

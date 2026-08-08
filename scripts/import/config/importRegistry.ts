@@ -762,6 +762,56 @@ export const IMPORT_REGISTRY: Record<string, Record<string, ImportRegistryEntry>
       tier: 3,
     }),
   },
+  /**
+   * Trafikverket — county packs live under Data/Trafikverket/{Mätdata,Beläggning,Avvattning,Buller}/.
+   * Per-county dataset keys are folder names; family keys below are canonical product types.
+   * New provider folders require ARCHIVE_PROVIDERS + SAN registration (ProviderInvariant).
+   */
+  Trafikverket: {
+    Matdata: entry({
+      target_schema: 'env',
+      target_table: 'tv_matdata',
+      expected_columns: ['objektidentitet'],
+      tier: 3,
+      primary_format: 'gpkg',
+      license: 'Trafikverket open data',
+      aliases: ['Mätdata', 'matdata'],
+    }),
+    Belaggning: entry({
+      target_schema: 'env',
+      target_table: 'tv_belaggning',
+      expected_columns: ['objektidentitet'],
+      tier: 3,
+      primary_format: 'gpkg',
+      license: 'Trafikverket open data',
+      aliases: ['Beläggning', 'belaggning'],
+    }),
+    Avvattning: entry({
+      target_schema: 'env',
+      target_table: 'tv_avvattning',
+      expected_columns: ['objektidentitet'],
+      tier: 3,
+      primary_format: 'gpkg',
+      license: 'Trafikverket open data',
+      aliases: ['avvattning'],
+    }),
+    Buller: entry({
+      target_schema: 'env',
+      target_table: 'tv_buller',
+      expected_columns: ['objektidentitet'],
+      tier: 3,
+      primary_format: 'gpkg',
+      license: 'Trafikverket open data',
+      aliases: [
+        'HH_NOISE_ROAD_LDEN_gpkg',
+        'HH_NOISE_ROAD_LNIGHT_gpkg',
+        'HH_NOISE_RAIL_LDEN_gpkg',
+        'HH_NOISE_RAIL_LNIGHT_gpkg',
+        'HH_NOISE_AIR_LDEN_gpkg',
+        'HH_NOISE_AIR_LNIGHT_gpkg',
+      ],
+    }),
+  },
 };
 
 /** Reverse lookup: alias → canonical registry key per provider */
@@ -787,6 +837,7 @@ function normalizeProvider(provider: string): string {
   const p = provider.trim().toLowerCase();
   if (p === 'lm') return 'Lantmateriet';
   if (p === 'naturvårdsverket' || p === 'naturvardsverket') return 'Naturvardsverket';
+  if (p === 'trafikverket' || p === 'trv') return 'Trafikverket';
   for (const key of Object.keys(IMPORT_REGISTRY)) {
     if (key.toLowerCase() === p) return key;
   }

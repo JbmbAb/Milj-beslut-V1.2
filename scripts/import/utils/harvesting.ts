@@ -76,3 +76,57 @@ export async function createManifest(
 
   return manifest;
 }
+
+export interface BundleManifestDocument {
+  type: string;
+  legal_weight: string;
+  file: string;
+  hash: string;
+}
+
+export interface BundleManifest {
+  bundle_id: string;
+  bundle_hash: string;
+  source_authority: string;
+  retrieved_at: string;
+  documents: BundleManifestDocument[];
+}
+
+/**
+ * Generates and saves a bundle_manifest.json with strict provenance and semantic roles
+ */
+export async function createBundleManifest(
+  targetDir: string,
+  bundleId: string,
+  sourceAuthority: string,
+  documentsInfo: Omit<BundleManifestDocument, 'hash'>[]
+): Promise<BundleManifest> {
+  const documents: BundleManifestDocument[] = [];
+  const fullPaths: string[] = [];
+
+  for (const doc of documentsInfo) {
+    const filePath = path.join(targetDir, doc.file);
+    if (!fs.existsSync(filePath)) {
+      throw new Error(`File not found for bundle manifest: ${filePath}`);
+    }
+    const hash = await calculateFileHash(filePath);
+    documents.push({ ...doc, hash });
+    fullPaths.push(filePath);
+  }
+
+  // Calculate composite bundle hash
+  const bundle_hash = await calculateBundleHash(fullPaths);
+
+  const manifest: BundleManifest = {
+    bundle_id: bundleId,
+    bundle_hash,
+    source_authority: sourceAuthority,
+    retrieved_at: new Date().toISOString(),
+    documents,
+  };
+
+  fs.writeFileSync(path.join(targetDir, 'bundle_manifest.json'), JSON.stringify(manifest, null, 2));
+
+  return manifest;
+}
+
