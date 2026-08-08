@@ -58,6 +58,7 @@ Denna namngivningspolicy är normativ. Inga agenter får namnges med generiska e
 | Geodata-gap | `docs/architecture/data-coverage-gaps.md` |
 | Framtida optimeringar | `docs/architecture/future-optimizations-backlog.md` |
 | Dela kod + PostGIS-kontext | `docs/ops/gemini-enterprise-access.md` |
+| Kunskapspipeline (ADR) | `docs/architecture/ADR-DOCUMENT-INGESTION-MANIFEST-CONTRACT.md` |
 
 **Plattformskod** delas via **Git**. **Geodata** delas via **Drive** (`GEO_Master_Archive`). **PostGIS** delas via schema/SQL i repot — inte Docker-volymen på Drive.
 
