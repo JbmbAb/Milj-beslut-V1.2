@@ -60,3 +60,14 @@ export interface DocumentEvidenceArtifact {
     legal_references: string[];
   };
 }
+
+export interface DocumentQuarantineRecord {
+  document_sha256: string;
+  source_path: string;
+  pipeline_version: string;
+  gate_id: DocumentPipelineStep;
+  failure_code: string;
+  failure_reason: string;
+  timestamp: string;
+  quarantine_reference: string;
+}

@@ -22,7 +22,7 @@ export class DocumentEvidenceService {
         payload: {
           property_ref: propertyRef,
           document_ref: {
-            artifact_id: `mock-doc-hash-${index}`,
+            artifact_id: doc.metadata?.document_id || `mock-doc-hash-${index}`,
             artifact_type: "EXTERNAL_DOCUMENT"
           },
           relevant_document: doc,

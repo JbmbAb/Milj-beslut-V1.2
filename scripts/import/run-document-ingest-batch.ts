@@ -5,15 +5,16 @@ import path from 'path';
 import crypto from 'crypto';
 import { prisma } from '../../server/db/prisma';
 import { DocumentOrchestrator } from '../../packages/mps-data-governance/src/DocumentOrchestrator';
-import { DocumentKnowledgeRelease, DocumentStateCheckpoint } from '../../packages/mps-data-governance/src/DocumentOrchestratorTypes';
+import { DocumentKnowledgeRelease, DocumentStateCheckpoint, DocumentQuarantineRecord } from '../../packages/mps-data-governance/src/DocumentOrchestratorTypes';
 
 const MANIFEST_PATH = path.join(process.cwd(), 'storage', 'manifests', 'document-inventory-manifest.json');
-const OUTPUT_RELEASE_PATH = path.join(process.cwd(), 'storage', 'manifests', 'document-knowledge-release-batch-v1.json');
-const BATCH_SIZE = 100;
-const CONCURRENCY_LIMIT = 10;
+const OUTPUT_RELEASE_PATH = path.join(process.cwd(), 'storage', 'manifests', 'document-knowledge-release-batch-v2.json');
+const QUARANTINE_LEDGER_PATH = path.join(process.cwd(), 'storage', 'manifests', 'document-quarantine-ledger.json');
+const BATCH_SIZE = 1000;
+const CONCURRENCY_LIMIT = 15;
 
 async function main() {
-  console.log('=== KNOWLEDGE WAVE 1: BATCH INGESTION & DEDUPLICATION ===');
+  console.log('=== KNOWLEDGE WAVE 2: BATCH INGESTION, DEDUPLICATION & QUARANTINE ===');
 
   if (!fs.existsSync(MANIFEST_PATH)) {
     throw new Error(`Inventory manifest not found at ${MANIFEST_PATH}. Run build-document-inventory-manifest.ts first!`);
@@ -40,7 +41,7 @@ async function main() {
   console.log(`  Unique Documents: ${uniqueDocsList.length}`);
   console.log(`  Duplicate Copies: ${duplicateCount}`);
 
-  // Take the first 100 unique documents for Wave 1
+  // Take the first 1000 unique documents for Wave 2
   const batchDocs = uniqueDocsList.slice(0, BATCH_SIZE);
   const totalInBatch = batchDocs.length;
   console.log(`Selected batch size for Ingestion: ${totalInBatch} unique documents.`);
@@ -66,6 +67,7 @@ async function main() {
   const startTime = Date.now();
 
   const results: DocumentStateCheckpoint[] = [];
+  const quarantineLedger: DocumentQuarantineRecord[] = [];
   let processed = 0;
   let failed = 0;
 
@@ -126,9 +128,21 @@ async function main() {
       } catch (err: any) {
         failed++;
         console.error(`[ERROR] Failed to ingest ${doc.source_path}:`, err.message);
+
+        // Formally log failure to Quarantine Ledger (D4 failure provenance)
+        quarantineLedger.push({
+          document_sha256: doc.content_hash,
+          source_path: doc.source_path,
+          pipeline_version: 'v1.0',
+          gate_id: 'EXTRACT', // Default gate failure
+          failure_code: 'GATE_FAILURE',
+          failure_reason: err.message,
+          timestamp: new Date().toISOString(),
+          quarantine_reference: `quarantine-ref-${doc.content_hash.slice(0, 16)}`,
+        });
       } finally {
         processed++;
-        if (processed % 10 === 0 || processed === totalInBatch) {
+        if (processed % 50 === 0 || processed === totalInBatch) {
           console.log(`[INGEST PROGRESS] Processed ${processed}/${totalInBatch} (${((processed/totalInBatch)*100).toFixed(0)}%)`);
         }
       }
@@ -160,7 +174,7 @@ async function main() {
 
   // 2. GENERATE COMPILATION RELEASE (Gate D6)
   const release: DocumentKnowledgeRelease = {
-    release_id: 'knowledge-release-batch-v1.0.0',
+    release_id: 'knowledge-release-batch-v2.0.0',
     generated_at: new Date().toISOString(),
     pipeline_version: 'v1.0',
     document_count: results.length,
@@ -172,12 +186,14 @@ async function main() {
 
   fs.mkdirSync(path.dirname(OUTPUT_RELEASE_PATH), { recursive: true });
   fs.writeFileSync(OUTPUT_RELEASE_PATH, JSON.stringify(release, null, 2), 'utf8');
+  fs.writeFileSync(QUARANTINE_LEDGER_PATH, JSON.stringify(quarantineLedger, null, 2), 'utf8');
 
   console.log('\n[SUCCESS] Knowledge Release generated:');
   console.log(`  Release ID   : ${release.release_id}`);
   console.log(`  Manifest Hash: ${release.manifest_hash}`);
   console.log(`  Index Hash   : ${release.index_version_hash}`);
   console.log(`  Release File : ${OUTPUT_RELEASE_PATH}`);
+  console.log(`  Quarantine   : ${QUARANTINE_LEDGER_PATH} (${quarantineLedger.length} failures logged)`);
 }
 
 main()
