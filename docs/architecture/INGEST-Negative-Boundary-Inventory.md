@@ -200,7 +200,7 @@ test would pass because nothing was ever fetched — true for the wrong reason.
 | | |
 | :-- | :-- |
 | Enforcement point | Librarian-only import policy, and the case graph chokepoint |
-| Exists | **Yes, executable since `d3f1a2c`** |
+| Exists | **Yes, executable since `b6af6c4`** |
 | Owner | `mps-data-governance` |
 
 **The original framing was a category error, and correcting it changed the fix.**
