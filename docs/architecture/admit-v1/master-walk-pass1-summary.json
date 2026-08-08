@@ -1,0 +1,596 @@
+{
+  "survey_id": "957f38492c05b159",
+  "totals": {
+    "top_folders": 19,
+    "files_seen": 225511,
+    "candidates": 65410,
+    "errors": 0
+  },
+  "elapsed_ms": 128081,
+  "byLayer": {
+    "unclassified": 37579,
+    "manifest_sidecar": 1214,
+    "foundation.admin": 2670,
+    "lu.property_unit": 22492,
+    "foundation.byggnad": 297,
+    "foundation.marktacke": 534,
+    "lu.landslide": 62,
+    "lu.stability": 331,
+    "lu.topo_water": 4,
+    "lu.ebh": 9,
+    "lu.soil_type": 91,
+    "lu.flood_risk": 25,
+    "lu.viss_waterbody": 54,
+    "lu.natura2000": 4,
+    "lu.protected_area": 1,
+    "lu.water_protection": 1,
+    "lu.raa_culture": 11,
+    "lu.water_wells": 11,
+    "lu.groundwater": 12,
+    "lu.sks_nature": 8
+  },
+  "byAuthority": {
+    "Göteborg": 76,
+    "Lantmäteriet": 62389,
+    "Länsstyrelsen": 42,
+    "MSB/MCF": 390,
+    "INTERNAL": 9,
+    "Mark- och miljödomstol": 8,
+    "MSB": 194,
+    "Naturvårdsverket": 1586,
+    "RAÄ": 11,
+    "SGU": 247,
+    "Skogsstyrelsen": 48,
+    "SMHI": 48,
+    "Trafikverket": 267,
+    "VISS/LST": 95
+  },
+  "byFormat": {
+    "tif": 59420,
+    "manifest": 1214,
+    "archive": 2873,
+    "json": 59,
+    "gpkg": 520,
+    "tabular": 217,
+    "shp": 1055,
+    "geojson": 8,
+    "gml": 44
+  },
+  "tier_counts": {
+    "1": 25886,
+    "2": 57,
+    "3": 387,
+    "4": 39075,
+    "9": 5
+  },
+  "pass2_seed_examples": {
+    "tier1_property": [
+      {
+        "layer": "foundation.admin",
+        "authority": "Lantmäteriet",
+        "format": "gpkg",
+        "size_bytes": 25472376832,
+        "path": "Data/Lantmateriet/Diken_nationellt_forbattrad_konnektivitet.gpkg/2026-06-22/raw/Diken_nationellt_forbattrad_konnektivitet.gpkg"
+      },
+      {
+        "layer": "lu.property_unit",
+        "authority": "Lantmäteriet",
+        "format": "gpkg",
+        "size_bytes": 2924744704,
+        "path": "Data/Lantmateriet/Fastighetsindelning_Nationell/Registerenhetsomradesytor/2026-06-18/raw/registerenhetsomradesytor_nationell.gpkg"
+      },
+      {
+        "layer": "lu.property_unit",
+        "authority": "Lantmäteriet",
+        "format": "gpkg",
+        "size_bytes": 1602412544,
+        "path": "Data/Lantmateriet/Fastighetsindelning_Nationell/Registerenhetsomradesytor/2026-06-28/raw/registerenhetsomradesytor_nationell.gpkg"
+      },
+      {
+        "layer": "lu.property_unit",
+        "authority": "Lantmäteriet",
+        "format": "gpkg",
+        "size_bytes": 1296576512,
+        "path": "Data/Lantmateriet/Belagenhetsadress_Nationell/Belagenhetsadress/2026-06-26/raw/belagenhetsadress_nationell.gpkg"
+      },
+      {
+        "layer": "lu.property_unit",
+        "authority": "Lantmäteriet",
+        "format": "gpkg",
+        "size_bytes": 1296576512,
+        "path": "Data/Lantmateriet/Belagenhetsadress_Nationell/Belagenhetsadress/2026-07-23/raw/belagenhetsadress_nationell.gpkg"
+      },
+      {
+        "layer": "lu.property_unit",
+        "authority": "Lantmäteriet",
+        "format": "gpkg",
+        "size_bytes": 536285184,
+        "path": "Data/Lantmateriet/Belagenhetsadress_Nationell/Belagenhetsadress/2026-07-06/raw/belagenhetsadress_nationell.gpkg"
+      },
+      {
+        "layer": "foundation.admin",
+        "authority": "Lantmäteriet",
+        "format": "gpkg",
+        "size_bytes": 146784256,
+        "path": "Data/Lantmateriet/Ortnamn_Nationell/Ortnamn/2026-06-26/raw/ortnamn_nationell.gpkg"
+      },
+      {
+        "layer": "foundation.admin",
+        "authority": "Lantmäteriet",
+        "format": "gpkg",
+        "size_bytes": 146784256,
+        "path": "Data/Lantmateriet/Ortnamn_Nationell/Ortnamn/2026-07-06/raw/ortnamn_nationell.gpkg"
+      },
+      {
+        "layer": "foundation.admin",
+        "authority": "Lantmäteriet",
+        "format": "gpkg",
+        "size_bytes": 146784256,
+        "path": "Data/Lantmateriet/Ortnamn_Nationell/Ortnamn/2026-07-23/raw/ortnamn_nationell.gpkg"
+      },
+      {
+        "layer": "foundation.admin",
+        "authority": "Lantmäteriet",
+        "format": "gpkg",
+        "size_bytes": 93642752,
+        "path": "Data/Lantmateriet/AdministrativIndelning_Nationell/Kommun/2026-06-26/raw/kommun_nationell.gpkg"
+      }
+    ],
+    "tier2_magic_moment": [
+      {
+        "layer": "lu.water_wells",
+        "authority": "SGU",
+        "format": "gpkg",
+        "size_bytes": 624590848,
+        "path": "Data/SGU/brunnar/2026-07-06_035755/raw/extracted/brunnar.gpkg"
+      },
+      {
+        "layer": "lu.water_wells",
+        "authority": "SGU",
+        "format": "gpkg",
+        "size_bytes": 624590848,
+        "path": "Data/SGU/brunnar/2026-07-06_040217/raw/extracted/brunnar.gpkg"
+      },
+      {
+        "layer": "lu.water_wells",
+        "authority": "SGU",
+        "format": "gpkg",
+        "size_bytes": 624590848,
+        "path": "Data/SGU/brunnar/2026-07-06_044234/raw/extracted/brunnar.gpkg"
+      },
+      {
+        "layer": "lu.water_wells",
+        "authority": "SGU",
+        "format": "gpkg",
+        "size_bytes": 619614208,
+        "path": "Data/SGU/brunnar/2026-06-19/raw/brunnar.gpkg"
+      },
+      {
+        "layer": "lu.ebh",
+        "authority": "Länsstyrelsen",
+        "format": "gpkg",
+        "size_bytes": 17481728,
+        "path": "Data/LST/EBH_Potentiellt_fororenade_omraden/2026-07-06/raw/ebh_potentiellt_fororenade_omraden.gpkg"
+      },
+      {
+        "layer": "lu.ebh",
+        "authority": "Länsstyrelsen",
+        "format": "gpkg",
+        "size_bytes": 17469440,
+        "path": "Data/LST/EBH_Potentiellt_fororenade_omraden/2026-06-26/raw/ebh_potentiellt_fororenade_omraden.gpkg"
+      },
+      {
+        "layer": "lu.ebh",
+        "authority": "Länsstyrelsen",
+        "format": "gpkg",
+        "size_bytes": 17469440,
+        "path": "Data/LST/EBH_Potentiellt_fororenade_omraden/2026-07-23/raw/ebh_potentiellt_fororenade_omraden.gpkg"
+      },
+      {
+        "layer": "lu.protected_area",
+        "authority": "Naturvårdsverket",
+        "format": "shp",
+        "size_bytes": 18188732,
+        "path": "Data/Naturvardsverket/SkyddadeOmraden/Naturreservat/legacy-adopted-2026-07-20/NR_polygon.shp"
+      },
+      {
+        "layer": "manifest_sidecar",
+        "authority": "Naturvårdsverket",
+        "format": "manifest",
+        "size_bytes": 1438,
+        "path": "Data/Naturvardsverket/SkyddadeOmraden/Naturreservat/legacy-adopted-2026-07-20/manifest.json"
+      },
+      {
+        "layer": "manifest_sidecar",
+        "authority": "Länsstyrelsen",
+        "format": "manifest",
+        "size_bytes": 855,
+        "path": "Data/LST/EBH_Potentiellt_fororenade_omraden/2026-06-26/manifest.json"
+      },
+      {
+        "layer": "manifest_sidecar",
+        "authority": "Länsstyrelsen",
+        "format": "manifest",
+        "size_bytes": 855,
+        "path": "Data/LST/EBH_Potentiellt_fororenade_omraden/2026-07-06/manifest.json"
+      },
+      {
+        "layer": "manifest_sidecar",
+        "authority": "Länsstyrelsen",
+        "format": "manifest",
+        "size_bytes": 855,
+        "path": "Data/LST/EBH_Potentiellt_fororenade_omraden/2026-07-23/manifest.json"
+      },
+      {
+        "layer": "manifest_sidecar",
+        "authority": "Länsstyrelsen",
+        "format": "manifest",
+        "size_bytes": 842,
+        "path": "Data/LST/EBH_Potentiellt_fororenade_omraden/2026-06-26_150103/manifest.json"
+      },
+      {
+        "layer": "manifest_sidecar",
+        "authority": "Länsstyrelsen",
+        "format": "manifest",
+        "size_bytes": 842,
+        "path": "Data/LST/EBH_Potentiellt_fororenade_omraden/2026-06-26_150703/manifest.json"
+      },
+      {
+        "layer": "manifest_sidecar",
+        "authority": "Länsstyrelsen",
+        "format": "manifest",
+        "size_bytes": 842,
+        "path": "Data/LST/EBH_Potentiellt_fororenade_omraden/2026-07-06_032237/manifest.json"
+      }
+    ],
+    "tier3_broad_lu": [
+      {
+        "layer": "lu.flood_risk",
+        "authority": "MSB",
+        "format": "gpkg",
+        "size_bytes": 192106496,
+        "path": "Data/MSB/oversvamning_nationell/2026-06-29/raw/msb_oversvamning_nationell.gpkg"
+      },
+      {
+        "layer": "lu.flood_risk",
+        "authority": "MSB",
+        "format": "gpkg",
+        "size_bytes": 192106496,
+        "path": "Data/MSB/oversvamning_nationell/2026-07-19/raw/msb_oversvamning_nationell.gpkg"
+      },
+      {
+        "layer": "lu.flood_risk",
+        "authority": "MSB",
+        "format": "gpkg",
+        "size_bytes": 192106496,
+        "path": "Data/MSB/oversvamning_nationell/2026-07-23/raw/msb_oversvamning_nationell.gpkg"
+      },
+      {
+        "layer": "lu.flood_risk",
+        "authority": "MSB",
+        "format": "gpkg",
+        "size_bytes": 182329344,
+        "path": "Data/MSB/oversvamning_nationell/2026-06-26/raw/msb_oversvamning_nationell.gpkg"
+      },
+      {
+        "layer": "lu.flood_risk",
+        "authority": "MSB",
+        "format": "gpkg",
+        "size_bytes": 159641600,
+        "path": "Data/MSB/oversvamning_nationell/2026-06-27/raw/msb_oversvamning_nationell.gpkg"
+      },
+      {
+        "layer": "lu.flood_risk",
+        "authority": "MSB",
+        "format": "gpkg",
+        "size_bytes": 64839680,
+        "path": "Data/MSB/oversvamning_nationell/2026-06-26_212134/raw/test_oapi_100.gpkg"
+      },
+      {
+        "layer": "lu.flood_risk",
+        "authority": "MSB",
+        "format": "gpkg",
+        "size_bytes": 64839680,
+        "path": "Data/MSB/oversvamning_nationell/2026-06-26_212529/raw/msb_oversvamning_100ar.gpkg"
+      },
+      {
+        "layer": "lu.flood_risk",
+        "authority": "MSB",
+        "format": "gpkg",
+        "size_bytes": 64839680,
+        "path": "Data/MSB/oversvamning_nationell/2026-06-29_035635/raw/msb_oversvamning_100ar.gpkg"
+      },
+      {
+        "layer": "lu.flood_risk",
+        "authority": "MSB",
+        "format": "gpkg",
+        "size_bytes": 64839680,
+        "path": "Data/MSB/oversvamning_nationell/2026-07-06_033059/raw/msb_oversvamning_100ar.gpkg"
+      },
+      {
+        "layer": "lu.flood_risk",
+        "authority": "MSB",
+        "format": "gpkg",
+        "size_bytes": 64839680,
+        "path": "Data/MSB/oversvamning_nationell/2026-07-23_031228/raw/msb_oversvamning_100ar.gpkg"
+      },
+      {
+        "layer": "lu.flood_risk",
+        "authority": "MSB",
+        "format": "gpkg",
+        "size_bytes": 63127552,
+        "path": "Data/MSB/oversvamning_nationell/2026-06-26_212529/raw/msb_oversvamning_bhf.gpkg"
+      },
+      {
+        "layer": "lu.flood_risk",
+        "authority": "MSB",
+        "format": "gpkg",
+        "size_bytes": 63127552,
+        "path": "Data/MSB/oversvamning_nationell/2026-06-29_035635/raw/msb_oversvamning_bhf.gpkg"
+      },
+      {
+        "layer": "lu.flood_risk",
+        "authority": "MSB",
+        "format": "gpkg",
+        "size_bytes": 63127552,
+        "path": "Data/MSB/oversvamning_nationell/2026-07-06_033059/raw/msb_oversvamning_bhf.gpkg"
+      },
+      {
+        "layer": "lu.flood_risk",
+        "authority": "MSB",
+        "format": "gpkg",
+        "size_bytes": 63127552,
+        "path": "Data/MSB/oversvamning_nationell/2026-07-23_031228/raw/msb_oversvamning_bhf.gpkg"
+      },
+      {
+        "layer": "lu.flood_risk",
+        "authority": "MSB",
+        "format": "gpkg",
+        "size_bytes": 54575104,
+        "path": "Data/MSB/oversvamning_nationell/2026-06-26_212529/raw/msb_oversvamning_200ar.gpkg"
+      },
+      {
+        "layer": "lu.flood_risk",
+        "authority": "MSB",
+        "format": "gpkg",
+        "size_bytes": 54575104,
+        "path": "Data/MSB/oversvamning_nationell/2026-06-29_035635/raw/msb_oversvamning_200ar.gpkg"
+      },
+      {
+        "layer": "lu.flood_risk",
+        "authority": "MSB",
+        "format": "gpkg",
+        "size_bytes": 54575104,
+        "path": "Data/MSB/oversvamning_nationell/2026-07-06_033059/raw/msb_oversvamning_200ar.gpkg"
+      },
+      {
+        "layer": "lu.flood_risk",
+        "authority": "MSB",
+        "format": "gpkg",
+        "size_bytes": 54575104,
+        "path": "Data/MSB/oversvamning_nationell/2026-07-23_031228/raw/msb_oversvamning_200ar.gpkg"
+      },
+      {
+        "layer": "lu.flood_risk",
+        "authority": "MSB",
+        "format": "gpkg",
+        "size_bytes": 12120064,
+        "path": "Data/MSB/oversvamning_nationell/2026-06-27_makevalid/raw/msb_oversvamning_nationell.gpkg"
+      },
+      {
+        "layer": "lu.soil_type",
+        "authority": "MSB/MCF",
+        "format": "gpkg",
+        "size_bytes": 978944,
+        "path": "Data/MCF/stabilitetskartering-nationell/oversiktlig-stabilitetskartering-finkorniga-jordarter/2026-06-26/raw/mcf_stabilitetszon_oversiktlig_stabilitetskartering_finkorniga_jordarter.gpkg"
+      }
+    ]
+  },
+  "water_protection": [
+    {
+      "authority": "Naturvårdsverket",
+      "path": "Data/Naturvardsverket/Vatten/Vattenskyddsomrade/legacy-adopted-2026-07-20/VSO_polygon.shp",
+      "size": 20263912,
+      "format": "shp"
+    }
+  ],
+  "raa": [
+    {
+      "authority": "RAÄ",
+      "path": "Data/RAA/Kulturhistoriska_lamningar/2026-06-29/raw/arkeologiska_uppdrag_grävda_ytor_sverige.gpkg",
+      "size": 105017344,
+      "format": "gpkg"
+    },
+    {
+      "authority": "RAÄ",
+      "path": "Data/RAA/Kulturhistoriska_lamningar/2026-06-29/raw/arkeologiska_uppdrag_undersökningsområden_sverige.gpkg",
+      "size": 81690624,
+      "format": "gpkg"
+    },
+    {
+      "authority": "RAÄ",
+      "path": "Data/RAA/Kulturhistoriska_lamningar/2026-06-29/raw/BU.Buildings.gml",
+      "size": 42937784,
+      "format": "gml"
+    },
+    {
+      "authority": "RAÄ",
+      "path": "Data/RAA/Kulturhistoriska_lamningar/2026-06-29/raw/BU.Ruins.gml",
+      "size": 270733403,
+      "format": "gml"
+    },
+    {
+      "authority": "RAÄ",
+      "path": "Data/RAA/Kulturhistoriska_lamningar/2026-06-29/raw/byggnadsminnen_skyddsomraden_sverige.gpkg",
+      "size": 3887104,
+      "format": "gpkg"
+    },
+    {
+      "authority": "RAÄ",
+      "path": "Data/RAA/Kulturhistoriska_lamningar/2026-06-29/raw/kulturhistoriskt_inventerad_bebyggelse_sverige.gpkg",
+      "size": 60047360,
+      "format": "gpkg"
+    },
+    {
+      "authority": "RAÄ",
+      "path": "Data/RAA/Kulturhistoriska_lamningar/2026-06-29/raw/lämningar_sverige.gpkg",
+      "size": 2287886336,
+      "format": "gpkg"
+    },
+    {
+      "authority": "RAÄ",
+      "path": "Data/RAA/Kulturhistoriska_lamningar/2026-06-29/raw/nationalMonumentsGML.zip",
+      "size": 62038815,
+      "format": "archive"
+    },
+    {
+      "authority": "RAÄ",
+      "path": "Data/RAA/Kulturhistoriska_lamningar/2026-06-29/raw/PS.monuments.gml",
+      "size": 9972537,
+      "format": "gml"
+    },
+    {
+      "authority": "RAÄ",
+      "path": "Data/RAA/Kulturhistoriska_lamningar/2026-06-29/raw/PS.UNESCOWorldHeritageSites.gml",
+      "size": 883797,
+      "format": "gml"
+    },
+    {
+      "authority": "RAÄ",
+      "path": "Data/RAA/Kulturhistoriska_lamningar/2026-06-29/raw/varldsarv_sverige.gpkg",
+      "size": 536576,
+      "format": "gpkg"
+    }
+  ],
+  "protected_area": [
+    {
+      "authority": "Naturvårdsverket",
+      "path": "Data/Naturvardsverket/SkyddadeOmraden/Naturreservat/legacy-adopted-2026-07-20/NR_polygon.shp",
+      "size": 18188732
+    }
+  ],
+  "ebh": [
+    {
+      "authority": "Länsstyrelsen",
+      "path": "Data/LST/EBH_Potentiellt_fororenade_omraden/2026-06-26_150103/raw/EBH_Potentiellt_fororenade_omraden.zip",
+      "size": 5273959,
+      "format": "archive"
+    },
+    {
+      "authority": "Länsstyrelsen",
+      "path": "Data/LST/EBH_Potentiellt_fororenade_omraden/2026-06-26_150703/raw/EBH_Potentiellt_fororenade_omraden.zip",
+      "size": 5273959,
+      "format": "archive"
+    },
+    {
+      "authority": "Länsstyrelsen",
+      "path": "Data/LST/EBH_Potentiellt_fororenade_omraden/2026-06-26/raw/ebh_potentiellt_fororenade_omraden.gpkg",
+      "size": 17469440,
+      "format": "gpkg"
+    },
+    {
+      "authority": "Länsstyrelsen",
+      "path": "Data/LST/EBH_Potentiellt_fororenade_omraden/2026-07-06_032237/raw/EBH_Potentiellt_fororenade_omraden.zip",
+      "size": 5275678,
+      "format": "archive"
+    },
+    {
+      "authority": "Länsstyrelsen",
+      "path": "Data/LST/EBH_Potentiellt_fororenade_omraden/2026-07-06_073055/raw/EBH_Potentiellt_fororenade_omraden.zip",
+      "size": 5275678,
+      "format": "archive"
+    },
+    {
+      "authority": "Länsstyrelsen",
+      "path": "Data/LST/EBH_Potentiellt_fororenade_omraden/2026-07-06/raw/ebh_potentiellt_fororenade_omraden.gpkg",
+      "size": 17481728,
+      "format": "gpkg"
+    },
+    {
+      "authority": "Länsstyrelsen",
+      "path": "Data/LST/EBH_Potentiellt_fororenade_omraden/2026-07-23_022437/raw/EBH_Potentiellt_fororenade_omraden.zip",
+      "size": 5280533,
+      "format": "archive"
+    },
+    {
+      "authority": "Länsstyrelsen",
+      "path": "Data/LST/EBH_Potentiellt_fororenade_omraden/2026-07-23_022930/raw/EBH_Potentiellt_fororenade_omraden.zip",
+      "size": 5280533,
+      "format": "archive"
+    },
+    {
+      "authority": "Länsstyrelsen",
+      "path": "Data/LST/EBH_Potentiellt_fororenade_omraden/2026-07-23/raw/ebh_potentiellt_fororenade_omraden.gpkg",
+      "size": 17469440,
+      "format": "gpkg"
+    }
+  ],
+  "wells": [
+    {
+      "authority": "SGU",
+      "path": "Data/SGU/brunnar/2026-06-19/raw/brunnar.gpkg",
+      "size": 619614208,
+      "format": "gpkg"
+    },
+    {
+      "authority": "SGU",
+      "path": "Data/SGU/brunnar/2026-07-06_035755/raw/brunnar.zip",
+      "size": 231860819,
+      "format": "archive"
+    },
+    {
+      "authority": "SGU",
+      "path": "Data/SGU/brunnar/2026-07-06_035755/raw/extracted/brunnar.gpkg",
+      "size": 624590848,
+      "format": "gpkg"
+    },
+    {
+      "authority": "SGU",
+      "path": "Data/SGU/brunnar/2026-07-06_040217/raw/brunnar.zip",
+      "size": 231860819,
+      "format": "archive"
+    },
+    {
+      "authority": "SGU",
+      "path": "Data/SGU/brunnar/2026-07-06_040217/raw/extracted/brunnar.gpkg",
+      "size": 624590848,
+      "format": "gpkg"
+    },
+    {
+      "authority": "SGU",
+      "path": "Data/SGU/brunnar/2026-07-06_040217/raw/harvest-verify.json",
+      "size": 547,
+      "format": "json"
+    },
+    {
+      "authority": "SGU",
+      "path": "Data/SGU/brunnar/2026-07-06_044234/raw/brunnar.zip",
+      "size": 231860819,
+      "format": "archive"
+    },
+    {
+      "authority": "SGU",
+      "path": "Data/SGU/brunnar/2026-07-06_044234/raw/extracted/brunnar.gpkg",
+      "size": 624590848,
+      "format": "gpkg"
+    },
+    {
+      "authority": "SGU",
+      "path": "Data/SGU/brunnar/2026-07-06_044234/raw/harvest-verify.json",
+      "size": 547,
+      "format": "json"
+    },
+    {
+      "authority": "SGU",
+      "path": "Data/SGU/brunnar/2026-07-27_074203/raw/brunnar.zip",
+      "size": 110902990,
+      "format": "archive"
+    },
+    {
+      "authority": "SGU",
+      "path": "Data/SGU/Legacy_Archive/2026-06-10/raw/brunnar.zip",
+      "size": 229945758,
+      "format": "archive"
+    }
+  ]
+}

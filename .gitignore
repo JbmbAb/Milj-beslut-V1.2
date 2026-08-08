@@ -62,6 +62,7 @@ tmp-mimers/
 !packages/mps-compliance/tests/golden/**/*.json
 !packages/mps-runtime/src/verification/performance/baselines/**/*.json
 !docs/ops/benchmarks/**/*.json
+!docs/architecture/admit-v1/**/*.json
 !scripts/alphaevolve/experiments/**/*.json
 !tests/fixtures/**/*.txt
 !scripts/google-adk/requirements.txt

@@ -153,7 +153,8 @@ Magic Moment acceptance (new DB)
 
 ## Work after this ADR
 
-1. Master walk: fill `source_path`, `source_version`, `source_sha256` for pending rows.  
-2. Decide vattenskydd authority (NV xor LST).  
-3. Decide RAÄ: ADMIT vs OUT_OF_SCOPE v1.  
-4. Freeze Admit v1 ledger + layer_id contracts.  
+1. ~~Master walk Pass 1 (metadata)~~ → [admit-v1/MASTER-WALK-PASS1.md](./admit-v1/MASTER-WALK-PASS1.md) (`957f38492c05b159`)  
+2. Pass 2: stream SHA-256 + geometry/SRID **only** for classified Admit v1 candidates (not full archive).  
+3. Decide vattenskydd authority (NV xor LST) — Pass 1 found NV VSO in archive; no LST vattenskydd path.  
+4. Decide RAÄ: ADMIT vs OUT_OF_SCOPE v1.  
+5. Freeze Admit v1 ledger + layer_id contracts.  
