@@ -1,9 +1,9 @@
-import { createHash } from "node:crypto";
 import { ExecutionManifestArtifact } from "../execution/ExecutionManifestArtifact";
 import { ExecutionAttemptArtifact } from "../execution/ExecutionAttemptArtifact";
 import { ExecutionIdentityArtifact } from "../execution/ExecutionIdentityArtifact";
 import { CapabilityResolutionArtifact } from "../execution/CapabilityResolutionArtifact";
 import { FrozenCoreVerificationContext } from "../../../mps-compliance/src/conformance/FrozenCoreVerificationContext";
+import { sha256ContentHash } from "../../../mps-compliance/src/canonical/sha256Canonical.js";
 
 export class AdmissionError extends Error {
   constructor(message: string) {
@@ -48,17 +48,13 @@ export class RuntimeAdmissionKernel {
         ? (manifest.parameters["deterministic_seed"] as string)
         : `seed:${manifest.artifact_id}:1`;
 
-    const hashValue = createHash("sha256")
-      .update(
-        JSON.stringify({
-          manifest_id: manifest.artifact_id,
-          attempt_number: 1,
-          started_at,
-          identity: manifest.execution_identity_ref.artifact_id,
-          capability: manifest.capability_resolution_ref.artifact_id,
-        }),
-      )
-      .digest("hex");
+    const content_hash = sha256ContentHash({
+      manifest_id: manifest.artifact_id,
+      attempt_number: 1,
+      started_at,
+      identity: manifest.execution_identity_ref.artifact_id,
+      capability: manifest.capability_resolution_ref.artifact_id,
+    });
 
     return {
       artifact_id: `attempt-${manifest.artifact_id}`,
@@ -66,7 +62,7 @@ export class RuntimeAdmissionKernel {
       manifest_ref: { artifact_id: manifest.artifact_id, artifact_type: "execution_manifest" },
       attempt_number: 1,
       started_at,
-      content_hash: { algorithm: "sha256", value: hashValue },
+      content_hash,
       references: [],
     };
   }

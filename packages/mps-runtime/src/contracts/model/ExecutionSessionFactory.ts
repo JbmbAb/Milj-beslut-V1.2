@@ -1,17 +1,7 @@
-import { createHash } from "node:crypto";
 import type { ArtifactReference } from "../../../../mps-compliance/src/artifacts/ArtifactReference.js";
-import type { FrozenContentHash } from "../freeze/FrozenIdentities.js";
+import { sha256ContentHash } from "../../../../mps-compliance/src/canonical/sha256Canonical.js";
 import type { ExecutionSession } from "./ExecutionContracts.js";
 import { DEFAULT_EXECUTION_POLICY } from "./ExecutionPolicies.js";
-
-function sha256ContentHash(payload: unknown): FrozenContentHash {
-  return {
-    algorithm: "sha256",
-    value: createHash("sha256")
-      .update(Buffer.from(JSON.stringify(payload), "utf8"))
-      .digest("hex"),
-  };
-}
 
 export type CreateExecutionSessionInput = {
   readonly session_id: string;

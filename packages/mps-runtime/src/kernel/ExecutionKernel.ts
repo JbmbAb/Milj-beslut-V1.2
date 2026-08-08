@@ -1,6 +1,9 @@
-import { createHash } from "node:crypto";
 import type { ContentHash } from "../../../mps-compliance/src/artifacts/ContentHash.js";
+import { sha256ContentHash } from "../../../mps-compliance/src/canonical/sha256Canonical.js";
 import type { ArtifactReference } from "../../../mps-compliance/src/artifacts/ArtifactReference.js";
+
+/** Canonical artifact identity — RFC 8785 → SHA-256. Re-exported as the kernel enforcement surface. */
+export { sha256ContentHash };
 import type {
   FrozenAdmissionResult,
   FrozenCapabilityExecutionArtifact,
@@ -66,14 +69,6 @@ export interface ExecutionResult {
   readonly state: RuntimeState;
 }
 
-export function sha256ContentHash(canonicalPayload: unknown): ContentHash {
-  const bytes = Buffer.from(JSON.stringify(canonicalPayload), "utf8");
-  return {
-    algorithm: "sha256",
-    value: createHash("sha256").update(bytes).digest("hex"),
-  };
-}
-
 /**
  * ExecutionKernel — central general motor.
  * Domain packages (LU, etc.) are clients; kernel never imports domain.
@@ -94,6 +89,27 @@ export class ExecutionKernel {
     state.admission = admission;
 
     if (admission.decision !== "admitted") {
+      const rejectionPayload = {
+        manifest_id: manifest.manifest_id,
+        reason: admission.reason,
+        denied_at: this.deps.nowIso(),
+      };
+      
+      const rejectionHash = sha256ContentHash(rejectionPayload);
+      const rejectionArtifact = {
+        artifact_id: `rejection-${manifest.manifest_id}`,
+        artifact_type: "GovernanceRejectionArtifact" as const,
+        manifest_ref: { artifact_id: manifest.manifest_id, artifact_type: "execution_manifest" as const },
+        reason: admission.reason,
+        content_hash: rejectionHash,
+      };
+      
+      await this.deps.artifactRepository.put({
+        artifact_id: rejectionArtifact.artifact_id,
+        content_hash: rejectionHash,
+        body: rejectionArtifact,
+      });
+
       return {
         admission,
         attempt: null,

@@ -1,4 +1,4 @@
-import { createHash } from "node:crypto";
+import { sha256ContentHash } from "../../../mps-compliance/src/canonical/sha256Canonical.js";
 
 /**
  * LU Site Assessment workflow + capability registry snapshot (Fas 3).
@@ -6,13 +6,6 @@ import { createHash } from "node:crypto";
  */
 export const LU_SITE_ASSESSMENT_CAPABILITY_KEY = "lu.site_assessment" as const;
 export const LU_SITE_ASSESSMENT_WORKFLOW_KEY = "lu.site_assessment.workflow" as const;
-
-function sha256(value: unknown): { algorithm: "sha256"; value: string } {
-  return {
-    algorithm: "sha256",
-    value: createHash("sha256").update(JSON.stringify(value)).digest("hex"),
-  };
-}
 
 export const LU_CAPABILITY_DEFINITION = {
   artifact_id: "cap-lu-site-assessment-v1",
@@ -47,17 +40,17 @@ export const LU_WORKFLOW_DEFINITION = {
 
 export const LU_REGISTRY_SNAPSHOT = {
   snapshot_id: "lu-registry-snapshot-v1",
-  registry_hash: sha256({
+  registry_hash: sha256ContentHash({
     capabilities: [LU_CAPABILITY_DEFINITION.artifact_id],
     workflows: [LU_WORKFLOW_DEFINITION.artifact_id],
   }),
   capabilities: [LU_CAPABILITY_DEFINITION],
   workflows: [LU_WORKFLOW_DEFINITION],
-  content_hash: sha256({
+  content_hash: sha256ContentHash({
     cap: LU_CAPABILITY_DEFINITION,
     wf: LU_WORKFLOW_DEFINITION,
   }),
 };
 
-export const LU_CAPABILITY_DEFINITION_HASH = sha256(LU_CAPABILITY_DEFINITION);
-export const LU_WORKFLOW_DEFINITION_HASH = sha256(LU_WORKFLOW_DEFINITION);
+export const LU_CAPABILITY_DEFINITION_HASH = sha256ContentHash(LU_CAPABILITY_DEFINITION);
+export const LU_WORKFLOW_DEFINITION_HASH = sha256ContentHash(LU_WORKFLOW_DEFINITION);

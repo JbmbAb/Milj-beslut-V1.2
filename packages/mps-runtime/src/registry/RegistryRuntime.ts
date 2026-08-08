@@ -1,5 +1,4 @@
-import { createHash } from "node:crypto";
-import type { ContentHash } from "../../../mps-compliance/src/artifacts/ContentHash.js";
+import { sha256ContentHash } from "../../../mps-compliance/src/canonical/sha256Canonical.js";
 import type { RegistrySnapshotView } from "../kernel/RuntimeState.js";
 import type {
   CapabilityRegistryEntry,
@@ -9,15 +8,6 @@ import type {
   RuleRegistryEntry,
   WorkflowRegistryEntry,
 } from "./RegistryContracts.js";
-
-function sha256ContentHash(payload: unknown): ContentHash {
-  return {
-    algorithm: "sha256",
-    value: createHash("sha256")
-      .update(Buffer.from(JSON.stringify(payload), "utf8"))
-      .digest("hex"),
-  };
-}
 
 /**
  * Sole runtime resolve surface for Execution Platform.

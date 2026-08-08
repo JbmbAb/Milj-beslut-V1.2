@@ -1,5 +1,5 @@
-import * as crypto from "crypto";
 import { ArtifactReference } from "@miljobeslut/mps-compliance/src/artifacts/ArtifactContract";
+import { sha256CanonicalJson } from "@miljobeslut/mps-compliance/src/canonical/sha256Canonical";
 import { LUProjectContextArtifact, LUProjectContextPayload } from "../artifacts/LUProjectContextArtifact";
 
 /**
@@ -79,18 +79,9 @@ export class LUProjectContextService {
   }
 
   /**
-   * Helper to compute a stable, canonicalized JSON SHA-256 hash of the payload.
+   * Canonical artifact identity: RFC 8785 → SHA-256 (Frozen Core enforcement boundary).
    */
   private computeSha256(payload: LUProjectContextPayload): string {
-    const sortedKeys = Object.keys(payload).sort() as (keyof LUProjectContextPayload)[];
-    const canonicalObj = sortedKeys.reduce((acc, key) => {
-      acc[key] = payload[key];
-      return acc;
-    }, {} as any);
-    
-    return crypto
-      .createHash("sha256")
-      .update(JSON.stringify(canonicalObj))
-      .digest("hex");
+    return sha256CanonicalJson(payload);
   }
 }
