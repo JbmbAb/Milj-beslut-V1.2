@@ -39,6 +39,7 @@ export {
   digestBytes,
   sealCASRepository,
   InMemoryCASRepository,
+  DiskCASRepository,
   CAS_ALLOWED_OPERATIONS,
   CAS_FORBIDDEN_OPERATIONS,
   type CASAllowedOperation,

@@ -1,0 +1,11 @@
+{
+  "name": "mps-runtime-snapshot",
+  "version": "1.0.0",
+  "description": "Runtime snapshot engine for Mimer Decision Knowledge Plane",
+  "main": "src/index.ts",
+  "dependencies": {},
+  "devDependencies": {
+    "typescript": "^5.0.0",
+    "vitest": "^0.34.0"
+  }
+}

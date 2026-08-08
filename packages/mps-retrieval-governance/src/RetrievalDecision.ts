@@ -8,6 +8,9 @@
  * MIMER-RET-I01 Decision First
  * MIMER-RET-I02 Artifact Class Isolation
  * MIMER-RET-I03 Retrieval Cannot Create Authority
+ * MIMER-RET-I04 Retrieval Projection Boundary
+ * MIMER-RET-I05 Raw Chunk Non-Authority
+ * MIMER-RET-I06 Policy Identity
  */
 
 import {

@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { calculateRetrievalTraceIdentity } from '../src/RetrievalTraceIdentity';
 import { ArtifactReference } from '../../mps-retrieval-governance/src/ArtifactReader';
 
-describe('RET-I05: Retrieval Determinism', () => {
+describe('TRACE-I03: Retrieval Determinism', () => {
   it('Should generate exactly the same trace hash for the same inputs, regardless of metadata', () => {
     const query_hash = 'q_123';
     const policy_version = 'v1.0';

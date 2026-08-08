@@ -18,7 +18,9 @@ export const RETRIEVAL_TRACE_CONTRACT_VERSION = "ret-trace-1" as const;
 
 export const TRACE_I01 = "TRACE-I01" as const;
 export const TRACE_I02 = "TRACE-I02" as const;
-export const RET_I05 = "RET-I05" as const;
+/** @deprecated Use TRACE_I03 — renamed to avoid collision with MIMER-RET-I05 (Raw Chunk Non-Authority). */
+export const RET_I05 = "TRACE-I03" as const;
+export const TRACE_I03 = "TRACE-I03" as const;
 
 export type RetrievalTraceIdentity = {
   readonly query_hash: string;

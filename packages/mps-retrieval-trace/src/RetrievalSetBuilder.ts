@@ -1,6 +1,6 @@
 /**
  * Build a deterministic retrieval set + trace from authorized plan + snapshot.
- * RET-I05: same query + policy + snapshot ⇒ same retrieval set / trace_hash.
+ * TRACE-I03: same query + policy + snapshot ⇒ same retrieval set / trace_hash.
  */
 
 import type { RetrievalDecision } from "../../mps-retrieval-governance/src/index.js";

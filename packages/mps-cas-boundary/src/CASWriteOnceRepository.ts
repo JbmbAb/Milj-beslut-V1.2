@@ -1,4 +1,6 @@
 import { createHash } from 'node:crypto';
+import * as fs from 'node:fs';
+import * as path from 'node:path';
 import {
   CASBoundaryViolation,
   CAS_DIGEST_MISMATCH,
@@ -157,5 +159,91 @@ export class InMemoryCASRepository implements WriteOnceCASRepository {
   private normalize(hash: string): string {
     const { algorithm, digest } = parseCASHash(hash);
     return `${algorithm}:${digest}`;
+  }
+}
+
+/**
+ * Fysisk, disk-baserad lagring för CAS (WORM-invarianter enligt L1-10 och L1-11).
+ * Garanterar oföränderlighet och deterministiska sökvägar oavsett plattform/katalogrot.
+ */
+export class DiskCASRepository implements WriteOnceCASRepository {
+  constructor(
+    private readonly root: string,
+    private readonly algorithm: CASAlgorithm = 'sha256'
+  ) {
+    this.root = path.resolve(root);
+  }
+
+  async put(bytes: Uint8Array): Promise<CASPutResult> {
+    const hash = digestBytes(bytes, this.algorithm);
+    const location = resolveObjectPath(hash);
+    const physicalPath = joinCASRoot(this.root, location);
+
+    if (fs.existsSync(physicalPath)) {
+      const existingBytes = fs.readFileSync(physicalPath);
+      // Byte-for-byte kontroll för att garantera immutability (CAS-I02)
+      if (Buffer.compare(existingBytes, Buffer.from(bytes)) !== 0) {
+        throw new CASBoundaryViolation(
+          CAS_IMMUTABILITY_VIOLATION,
+          CAS_I02,
+          `digest ${hash} is already bound to different bytes`
+        );
+      }
+      return { hash, size: bytes.length, existed: true };
+    }
+
+    // Skapa kataloger atomärt på disk
+    const dir = path.dirname(physicalPath);
+    if (!fs.existsSync(dir)) {
+      fs.mkdirSync(dir, { recursive: true });
+    }
+
+    const tmpDir = path.join(this.root, 'tmp');
+    if (!fs.existsSync(tmpDir)) {
+      fs.mkdirSync(tmpDir, { recursive: true });
+    }
+
+    // Skriv temporärt och döp om för att garantera atomära atomiska WORM-skrivningar
+    const tmpFile = path.join(tmpDir, `tmp-${Math.random().toString(36).substring(7)}.bin`);
+    fs.writeFileSync(tmpFile, bytes);
+
+    try {
+      fs.renameSync(tmpFile, physicalPath);
+    } catch (err) {
+      if (fs.existsSync(physicalPath)) {
+        // En annan tråd eller process kan ha hunnit skriva under tiden
+        const existingBytes = fs.readFileSync(physicalPath);
+        if (Buffer.compare(existingBytes, Buffer.from(bytes)) !== 0) {
+          throw new CASBoundaryViolation(
+            CAS_IMMUTABILITY_VIOLATION,
+            CAS_I02,
+            `digest ${hash} is already bound to different bytes`
+          );
+        }
+        return { hash, size: bytes.length, existed: true };
+      }
+      throw err;
+    } finally {
+      if (fs.existsSync(tmpFile)) {
+        try { fs.unlinkSync(tmpFile); } catch {}
+      }
+    }
+
+    return { hash, size: bytes.length, existed: false };
+  }
+
+  async get(hash: string): Promise<Uint8Array | null> {
+    const location = resolveObjectPath(hash);
+    const physicalPath = joinCASRoot(this.root, location);
+    if (!fs.existsSync(physicalPath)) {
+      return null;
+    }
+    return new Uint8Array(fs.readFileSync(physicalPath));
+  }
+
+  async exists(hash: string): Promise<boolean> {
+    const location = resolveObjectPath(hash);
+    const physicalPath = joinCASRoot(this.root, location);
+    return fs.existsSync(physicalPath);
   }
 }

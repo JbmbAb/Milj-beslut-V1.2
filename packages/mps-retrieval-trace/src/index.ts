@@ -10,6 +10,7 @@ export {
 
 export {
   RET_I05,
+  TRACE_I03,
   RETRIEVAL_TRACE_CONTRACT_VERSION,
   TRACE_I01,
   TRACE_I02,

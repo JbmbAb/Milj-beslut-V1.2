@@ -14,6 +14,9 @@ export const RETRIEVAL_POLICY_VERSION = "ret-policy-1" as const;
 export const MIMER_RET_I01 = "MIMER-RET-I01" as const;
 export const MIMER_RET_I02 = "MIMER-RET-I02" as const;
 export const MIMER_RET_I03 = "MIMER-RET-I03" as const;
+export const MIMER_RET_I04 = "MIMER-RET-I04" as const;
+export const MIMER_RET_I05 = "MIMER-RET-I05" as const;
+export const MIMER_RET_I06 = "MIMER-RET-I06" as const;
 
 export type RetrievalPolicy = {
   readonly policy_version: string;
@@ -23,7 +26,7 @@ export type RetrievalPolicy = {
   readonly read_only: true;
   /** Expand to evidence refs after DecisionImpact (policy-gated). */
   readonly allow_evidence_expansion: boolean;
-  /** Expand to raw chunks — never as initial target (MIMER-RET-I01). */
+  /** Expand to raw chunks — never as initial authority surface (MIMER-RET-I05). */
   readonly allow_raw_expansion: boolean;
 };
 
