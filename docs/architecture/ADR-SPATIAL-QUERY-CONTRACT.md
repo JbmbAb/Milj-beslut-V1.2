@@ -1,12 +1,10 @@
 # ADR — Spatial Query Contract (Magic Moment)
 
-## Status
-Accepted (application chain freeze; physical EXPLAIN tuning follows E2E)
+## Magic Moment
 
-## Priority
-Above TEXT-L3 rechunk. Goal: PostGIS → LU → UI product proof.
+**FROZEN / PROVEN**
 
-## Decision
+Commit: `9c200a7` — `feat(lu): productionize PostGIS Magic Moment vertical slice`
 
 ```text
 PostGIS
@@ -18,6 +16,45 @@ PostGIS
   → LU API
   → LuWorkspace
 ```
+
+Application chain is locked. Do not reopen for polish unless a proven product defect appears.
+
+## Benchmark
+
+**Baseline only. No optimization performed.**
+
+| Field | Value |
+|---|---|
+| Artifact | `docs/ops/benchmarks/spatial-magic-moment-latest.json` |
+| Canvas | `docs/ops/benchmarks/spatial-magic-moment-benchmark.canvas.tsx` |
+| Test DB | `riskguard_test` |
+| Property | `VÄSTERÅS 1:1` |
+| Iterations | 51 (+ 3 warmup) |
+| Script | `scripts/benchmark/spatial-magic-moment-bench.mjs` |
+
+### Interpretation
+
+Seq Scan is expected because test spatial tables contain only 1–2 rows.
+This benchmark does **not** establish production spatial performance.
+
+It does **not** mean “PostGIS is optimized.”
+It does **not** mean “missing GiST is a problem.”
+
+It records that the current small test database is fast for the Magic Moment path.
+
+### Next performance gate
+
+1. Repeat benchmark after realistic spatial layer population.
+2. Evaluate GiST / index strategy **only** from that measurement.
+
+Until then:
+
+```text
+PostGIS optimization          ⏸ NO-GO
+Realistic spatial benchmark   ⏳ FUTURE GATE
+```
+
+## Contracts (frozen with Magic Moment)
 
 ### Budget (fail-closed)
 
@@ -35,14 +72,19 @@ Unknown layers → `REJECT_SPATIAL_LAYER`. Over budget → `REJECT_SPATIAL_BUDGE
 
 CAS put is idempotent by content hash: re-query with the same identity returns the existing artifact and does not rewrite wall-clock provenance (WORM).
 
-## Non-goals (now)
+## Explicitly paused
 
-- Full corpus TEXT-L3 rechunk
-- New environmental layers
-- Premature caching / denormalization
-- Index spam without EXPLAIN
+- TEXT-L3 v2.3 rechunk
+- Cache layers
+- New spatial layers
+- Blind indexing
+- Full corpus migration
+- Speculative PostGIS “optimization”
 
 ## Evidence
 
-`packages/spatial-provider-postgis/tests/LUMagicMomentPostGIS.test.ts`  
-Production seed path: `src/application/generate-localization-report.usecase.ts`
+- Backend: `packages/spatial-provider-postgis/tests/LUMagicMomentPostGIS.test.ts`
+- E2E chain: `packages/spatial-provider-postgis/tests/LUMagicMomentE2E.chain.test.ts`
+- UI E2E: `tests/components/luWorkspace.magicMoment.e2e.test.tsx`
+- Usecase: `src/application/generate-localization-report.usecase.ts`
+- Benchmark baseline: `docs/ops/benchmarks/spatial-magic-moment-latest.json`
