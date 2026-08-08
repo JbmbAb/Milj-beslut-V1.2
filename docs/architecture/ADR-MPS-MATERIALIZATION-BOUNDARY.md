@@ -97,6 +97,10 @@ Identitet ägs av governance-lagret och lånas ut till materialiseringen:
 | Identity | EvidenceSetIdentitySnapshot | grön |
 | Identity | CanonicalIdentity | grön |
 
+Frysningen (H.3) lämnade materialization-gränsen entydig. TV-3 kan börja.
+
+**TV-3 status:** [TV-3.0](./TV-3.0-PostgreSQL-Physical-Data-Strategy-Freeze.md) är **FRYST**.
+
 ## Uppföljning (avslutad i H.4)
 
 Denna ADR lämnade en öppen observation: en tredje kodväg i `alpha-runtime` såg ut att

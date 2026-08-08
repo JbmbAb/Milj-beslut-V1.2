@@ -141,6 +141,8 @@ Database indexes
 Frågorna "vilken artifact hash gäller, vilken lineage gäller, vilken replay är korrekt"
 har ett svar. TV-3 kan börja.
 
+**TV-3 status:** [TV-3.0](./TV-3.0-PostgreSQL-Physical-Data-Strategy-Freeze.md) **FRYST**; [TV-3.1](./TV-3.1-Table-Definition-Drafts.md) design-only; [TV-3.2](./TV-3.2-Metrics-Observability-Spec.md) metrics; [TV-3.3](./TV-3.3-Document-Chunk-Partition-Decision-Template.md) decision template (verdict deferred).
+
 ## Kvarstående
 
 `MaterializerJob` är i karantän, inte migrerad. Så länge den ligger kvar är den död kod

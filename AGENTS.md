@@ -18,7 +18,7 @@
 
 ## 2. Arkitekturpolicy: Mimers Brunn (Offline-First)
 
-Se det centrala dokumentet `GEMINI.md` för detaljerade regler gällande datainsamling, checksummor, och masterarkivet.
+Se `docs/architecture/mimers-brunn-v2.0.1.md` (ACTIVE Final Frozen Edition) och `GEMINI.md` för datainsamling, checksummor och masterarkivet.
 
 ---
 

@@ -1,0 +1,56 @@
+# Single local PostGIS engine for Mimers Brunn v2.0.1 prerequisites.
+# Uses existing named volume; does not wipe data.
+#
+# Usage:
+#   docker compose -f docker-compose.geodata.yml up -d
+#   docker compose -f docker-compose.geodata.yml exec postgres \
+#     ls /mnt/geo_master_archive/Data | head
+#
+# Env override:
+#   MASTER_ARCHIVE_HOST_PATH="D:/GEO_Master_Archive_Runtime"
+#
+# Note: H: (Google Shared Drive) is canonical truth but NOT bind-mountable into
+# Docker Desktop. Use NTFS runtime mirror (see docs/ops/postgis-prerequisites-checklist.md).
+
+services:
+  postgres:
+    image: miljobeslut-platform-recovery-db:latest
+    container_name: miljobeslut-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: miljobeslut
+      POSTGRES_PASSWORD: miljobeslut
+      POSTGRES_DB: miljobeslut
+      # Hint for clients / docs — runtime mount per Mimers Brunn v2.0.1
+      MASTER_ARCHIVE_RUNTIME: /mnt/geo_master_archive
+    ports:
+      - '5432:5432'
+    volumes:
+      - miljobeslut-platform-recovery_postgres-data:/var/lib/postgresql/data
+      # Canonical runtime path (v2.0.1 MB-004)
+      - type: bind
+        source: ${MASTER_ARCHIVE_HOST_PATH:-D:/GEO_Master_Archive_Runtime}
+        target: /mnt/geo_master_archive
+        read_only: true
+      # Legacy alias used by older scripts
+      - type: bind
+        source: ${MASTER_ARCHIVE_HOST_PATH:-D:/GEO_Master_Archive_Runtime}
+        target: /master-archive
+        read_only: true
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U miljobeslut -d miljobeslut']
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 20s
+    networks:
+      - geodata-net
+
+volumes:
+  miljobeslut-platform-recovery_postgres-data:
+    external: true
+
+networks:
+  geodata-net:
+    name: miljobeslut-platform-recovery_miljobeslut-net
+    external: true

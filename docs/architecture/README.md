@@ -19,6 +19,10 @@ Canonical översikt för Miljöbeslut V2.0. Läs i denna ordning vid onboarding.
 | [mimers-brunn-v2.0.1.md](./mimers-brunn-v2.0.1.md) | **ACTIVE** — Mimers Brunn Final Frozen Edition (data governance) |
 | [mimers-brunn-offline-first.md](./mimers-brunn-offline-first.md) | LEGACY v1.0 — operational detail / historik |
 | [mimers_brunn_archive_policy.md](./mimers_brunn_archive_policy.md) | AIP / Riksarkivet long-term archive |
+| [TV-3.0 — PostgreSQL Physical Data Strategy Freeze](./TV-3.0-PostgreSQL-Physical-Data-Strategy-Freeze.md) | **FRYST** — Postgres = read model; PHYS-I01–I06; chunk deferral |
+| [TV-3.1 — Table Definition Drafts](./TV-3.1-Table-Definition-Drafts.md) | Design-only DDL (`document_evidence` / `execution_event` / `retrieval_trace`) |
+| [TV-3.2 — Metrics & Observability Spec](./TV-3.2-Metrics-Observability-Spec.md) | Mätkrav före TV-3.3 (`document_chunk` partition decision) |
+| [TV-3.3 — document_chunk Partition Decision](./TV-3.3-Document-Chunk-Partition-Decision-Template.md) | **Template FROZEN** — verdict deferred (A/B/C fail-closed → C) |
 | [data-coverage-gaps.md](./data-coverage-gaps.md) | Aktiva dataluckor |
 | [manifest-schema-v2.md](./manifest-schema-v2.md) | Importmanifest |
 
@@ -59,10 +63,14 @@ Canonical översikt för Miljöbeslut V2.0. Läs i denna ordning vid onboarding.
 - [ADR-MPS-CORE-001](./ADR-MPS-CORE-001.md) — MPS-CORE Review Constitution
 - [ADR-MPS-022](./ADR-MPS-022-Diagnostic-Governance-Layer.md) — **FROZEN** Package 22 Diagnostic Governance (22.1–22.4 in `packages/mps-diagnostics`; 22.5 paused)
 - [ADR-MPS-CONSTITUTIONAL](./ADR-MPS-CONSTITUTIONAL-INVARIANTS.md) — **FROZEN** identity layers vs implementation details; Materialization Pipeline v1 in `packages/mps-materialization`
-- [ADR-MPS-RETRIEVAL](./ADR-MPS-RETRIEVAL-GOVERNANCE.md) — **FROZEN** Retrieval Governance (MIMER-RET-I01–I03) in `packages/mps-retrieval-governance`
-- [ADR-MPS-QUERY-BUDGET](./ADR-MPS-QUERY-BUDGET.md) — **FROZEN** Query Budget (MIMER-BUD-I01–I04) in `packages/mps-query-budget`
-- [ADR-MPS-RETRIEVAL-TRACE](./ADR-MPS-RETRIEVAL-TRACE.md) — **FROZEN** Retrieval Execution Trace (TRACE-I01–I02, RET-I05) in `packages/mps-retrieval-trace`
+- [ADR-MPS-RETRIEVAL](./ADR-MPS-RETRIEVAL-GOVERNANCE.md) — **FROZEN** Retrieval Governance (MIMER-RET-I01–I06) in `packages/mps-retrieval-governance`
+- [ADR-MPS-QUERY-BUDGET](./ADR-MPS-QUERY-BUDGET.md) — **FROZEN** Query Budget (MIMER-BUD-I01–I07) in `packages/mps-query-budget`
+- [ADR-MPS-RETRIEVAL-TRACE](./ADR-MPS-RETRIEVAL-TRACE.md) — **FROZEN** Retrieval Execution Trace (TRACE-I01–I03) in `packages/mps-retrieval-trace`
 - [ADR-MPS-EVIDENCE Lineage Slot](./ADR-MPS-EVIDENCE-LINEAGE-SLOT.md) — **FROZEN** LINEAGE_SLOT_UNIQUENESS / SEQUENCE_AMBIGUITY
+- [ADR-MPS-CAS-STORAGE-BOUNDARY](./ADR-MPS-CAS-STORAGE-BOUNDARY.md) — **FROZEN** CAS identity/authority boundary (unlocks TV-3)
+- [ADR-MPS-MATERIALIZATION-BOUNDARY](./ADR-MPS-MATERIALIZATION-BOUNDARY.md) / [ADR-MPS-SINGLE-MATERIALIZATION-AUTHORITY](./ADR-MPS-SINGLE-MATERIALIZATION-AUTHORITY.md) — **FROZEN** materialization authority (unlocks TV-3)
+- [TV-3.0](./TV-3.0-PostgreSQL-Physical-Data-Strategy-Freeze.md) — **FRYST** PostgreSQL physical data strategy
+- [TV-3.3](./TV-3.3-Document-Chunk-Partition-Decision-Template.md) — `document_chunk` partition decision template (verdict open)
 - [MPS-Epoch-Roadmap.md](./MPS-Epoch-Roadmap.md) — Epoch I–IV roadmap (Execution Platform → Knowledge → Ecosystem)
 - [MPS-Execution-Motor-Implementation-Plan.md](./MPS-Execution-Motor-Implementation-Plan.md) — Active Execution Platform plan
 

@@ -1,6 +1,10 @@
-# Mimers Brunn: Offline-First Data Architecture
+# Mimers Brunn: Offline-First Data Architecture (v1.0)
 
-Status: gällande policy från 2026-06-07.
+Status: **LEGACY** — superseded 2026-08-07 by
+[Mimers Brunn v2.0.1 — Final Frozen Edition](./mimers-brunn-v2.0.1.md).
+
+Behålls som historisk operational detail (sökvägar, manifestfält, script-konsekvenser).
+Normativ data governance = v2.0.1.
 
 ## Syfte
 

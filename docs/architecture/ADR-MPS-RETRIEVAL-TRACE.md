@@ -51,12 +51,15 @@ Same identity fields ⇒ same `trace_hash` regardless of metadata.
 
 RetrievalTrace SHALL NEVER write DecisionImpactArtifact / Decision Truth CAS.
 
-### RET-I05 — Retrieval set stability
+### TRACE-I03 — Retrieval set stability
 
 Same query + policy + artifact snapshot ⇒ same selected refs / `trace_hash`.
+
+Budget parameters recorded under BUD-I06 are **metadata** for audit; they SHALL NOT alter Decision Authority (BUD-I05). Policy identity in the trace follows RET-I06.
 
 ---
 
 ## Related
 
-**SCALE-I01** (in `mps-query-budget`): RawDocumentChunk → Query Budget → DecisionImpactArtifact throws `AUTHORITY_BOUNDARY_VIOLATION`.
+**SCALE-I01** (in `mps-query-budget`): RawDocumentChunk → Query Budget → DecisionImpactArtifact throws `AUTHORITY_BOUNDARY_VIOLATION`.  
+**RET-I05** (governance): Raw chunks are non-authority — see [ADR-MPS-RETRIEVAL-GOVERNANCE](./ADR-MPS-RETRIEVAL-GOVERNANCE.md).

@@ -26,7 +26,8 @@ Mimer-plattformen har framgångsrikt bevisat följande tekniska och kryptografis
 - **Failover utan Single Point of Failure:** Verifierad synk och robust failover på distribuerade filsystem (NFSv4) som bevisat i hermetiska labs.
 
 ### 2.4 Robust datainhämtning (Mimers Brunn Policy)
-- **Download-First:** Alla geodataset skördas, versioneras och arkiveras fysiskt i Master-arkivet med checksums (SHA-256) innan import sker till PostGIS för att skydda mot extern dataförlust eller radering.
+- **Canonical:** [Mimers Brunn v2.0.1 — Final Frozen Edition](docs/architecture/mimers-brunn-v2.0.1.md) (ACTIVE, 2026-08-07).
+- **Download-First / Archive-First:** Alla geodataset skördas, versioneras och arkiveras fysiskt i Master-arkivet med checksums (SHA-256) innan import sker till PostGIS. PostGIS är en projektion, inte sanningskälla. Import kräver DatasetApprovalArtifact (inga self-approvals).
 
 ---
 
@@ -62,35 +63,109 @@ Denna namngivningspolicy är normativ. Inga agenter får namnges med generiska e
 
 ---
 
-## 5. Arkitekturpolicy: Mimers Brunn (Offline-First)
+## 5. Arkitekturpolicy: Mimers Brunn (Offline-First) & National Environmental Archive
+
+**Normativ policy:** [Mimers Brunn v2.0.1 — Final Frozen Edition](docs/architecture/mimers-brunn-v2.0.1.md) (ACTIVE). Nedan är agent-orienterad sammanfattning (ingest / National Archive); lifecycle, approval och MB-kontroller styrs av v2.0.1.
 
 ### Bakgrund och Syfte
-Offentlig miljödata är flyktig. Erfarenhet visar att livsviktig historik (t.ex. grundvattenutredningar från VISS) raderas eller döljs av myndigheter över tid. Ett externt Live-API garanterar inte datans överlevnad.
+Offentlig miljödata är flyktig. Erfarenhet visar att livsviktig historik (t.ex. grundvattenutredningar från VISS) raderas eller döljs av myndigheter över tid. Ett externt Live-API garanterar inte datans överlevnad. För att Mimer (AI:n) ska uppnå sann Miljöintelligens, måste all data ägas och lagras lokalt i ett oförvanskbart råarkiv först.
 
-Därför styrs plattformen av policyn "Mimers Brunn". För att Mimer (AI:n) ska uppnå sann Miljöintelligens, måste all data ägas och lagras lokalt.
+### Den 6-stegade Ingest-Pipelinen (The "Right Model")
+För att bevara kausalitet, tidslinjer och det semantiska nätverket (t.ex. kopplingen mellan ett tillstånd från 2024 och en tillsynsrapport från 2026), damsuger vi aldrig "alla PDF:er direkt in i RAG". Vi använder följande pipeline:
 
-### Grundläggande Regler
-- **Ladda ner framför API (Download-First):** Live-API:er (WMS/WFS/REST) får endast användas som tillfälliga visuella hjälpmedel i frontenden. Den slutgiltiga lösningen för varje dataset MÅSTE vara ett skript som laddar ner rådatan fysiskt.
-- **Direkt till Master-arkivet:** Skriv direkt till den kanoniska strukturen: `H:\Delade enheter\Miljöbeslut\GEO_Master_Archive\Data\<Provider>\<Dataset>\`. Gamla mappar som `D:\GEodata` eller `C:\GEO PDF` är förbjudna.
-- **In-DB eller Out-of-DB:** När datan är säkrad i Master-arkivet:
-    - Importera direkt i PostGIS-tabeller (Vektordata: shp, gpkg).
-    - Registrera i PostGIS via Out-of-DB-länkar (`raster2pgsql -R`) (Rasterdata: tif, asc).
-- **Källhänvisningar och Dokument (PDF):** Rapporter och domar ska laddas ner till `H:\Delade enheter\Miljöbeslut\GEO_Master_Archive\Documents\Sources\<Provider>\`. Appens frontend ska servera filen från detta lokala arkiv.
+1. **Source (Nationella källor):** MPD, MMD, Tillsyn etc.
+2. **Raw Artifact (National Environmental Archive):** Säkra rådatan (PDF, TXT) i en oföränderlig filstruktur.
+3. **Classification (Document Intelligence):** Fastställ dokumentets roll (beslut, mkb, yttrande) och juridiska vikt (primary, evidence).
+4. **Case Binding (Bundle Manifest):** Knyt samman relaterade dokument till ett miljöärende (Bundle).
+5. **Evidence (Case Intelligence Layer):** Semantisk sektionsdetektering och relationsbygge (Evidence Chunks).
+6. **Index (3-Tier Database):** Lagra i Bundle Index (PostgreSQL), Evidence Index (PostGIS), och Semantic Index (pgvector) före RAG.
+
+### Katalogstruktur: National Environmental Archive
+Skriv direkt till den kanoniska strukturen i Master-arkivet:
+`H:\Delade enheter\Miljöbeslut\GEO_Master_Archive\National_Archive\<Authority>\<Year>\<Municipality>\<Case_ID>\`
+
+Inom varje ärendemapp tillämpas strikta lager:
+- `/original/` (Råa PDF:er, Word-dokument)
+- `/extracted/` (Konverterad text)
+- `/manifest.json` (eller `bundle_manifest.json` för paketering och provenance)
+- `/hashes/` (Kryptografiska checksummor)
+
+### Dataprioritering för Inhämtning (Harvesting)
+1. **Fas 1 — Högsta juridiska värde:** Miljöprövning (MPD, Mark- och miljödomstolar, överklaganden, kungörelser).
+2. **Fas 2 — Hög volym & avvikelser:** Kommunal tillsyn (förelägganden, inspektionsrapporter, miljörapporter).
+3. **Fas 3 — Kompletterande evidens:** Vattenärenden, förorenade områden, artskydd, kontrollprogram.
 
 ### Tekniska Krav för Harvesting-logik (scripts/import/)
 För att säkra datans integritet och tillgänglighet måste alla nya skript hantera:
 
 1.  **Versionering (Myndighetsrättelser):**
-    - Skriv aldrig över existerande data. Om ny data hämtas för samma dataset, lagra den i en ny tidsstämplad undermapp (t.ex. `.../YYYY-MM-DD/`).
-    - Databasposter ska inkludera ett fält för `download_date` eller `valid_from` så databasen kan skilja på historisk och aktuell data.
-
+    - Skriv aldrig över existerande data. Om ny data hämtas för samma dataset, lagra den i en ny tidsstämplad undermapp.
 2.  **"Polite Scraping" (Rate-Limiting & Retries):**
-    - Implementera alltid fördröjningar (sleep/delay) mellan anrop för att undvika IP-blockering.
-    - Använd robust felhantering med retries (Exponential Backoff rekommenderas) för nätverksfel.
-
+    - Implementera alltid fördröjningar (sleep/delay) mellan anrop.
+    - Använd robust felhantering med retries.
 3.  **Bevis på integritet (Checksums):**
-    - Beräkna SHA-256 hash för varje nedladdad fil.
-    - Lagra hashen i en metadatafil (t.ex. `checksums.txt` eller `metadata.json`) i samma mapp som datan. Detta bevisar datan är oförvanskad.
+    - Beräkna SHA-256 hash för varje nedladdad fil. Lagra i manifestet.
 
 ### Instruktion för Agenter
-Vid utveckling av nya datainhämtningsmoduler (under `scripts/import/`), följ strikt denna policy. Fokusera på att bygga robusta nedladdnings-pipelines ("Harvesting") som säkrar datan på H-disken. Målet är att fylla Mimers Brunn.
+Vid utveckling av nya datainhämtningsmoduler (under `scripts/import/`), följ strikt denna policy. Fokusera på att bygga robusta nedladdnings-pipelines ("Harvesting") som säkrar datan på H-disken enligt The Right Model (`Source -> Raw Artifact -> Classification -> Case Binding -> Evidence -> Index`). Målet är att bygga ett RAG-system baserat på en komplett evidensgraf, inte bara isolerade textklumpar.
+
+---
+
+## 6. TV-L1 — Freeze Addendum (De tre kontraktsinvarianterna)
+
+TV-L1 är fryst och redo att exekveras. Följande tre kontraktsinvarianter samt pipeline-arkitektur är normativa för hela plattformen:
+
+### 6.1 L1-10 — CAS Canonical Record Semantics (FRYST)
+- **CAS är en kanonisk post av Mimer-godkända artefakter (Mimer-approved artifacts).**
+- CAS är *inte* epistemisk sanning, extern sanning eller myndighetens sanning.
+- CAS bevarar exakt vad som observerades, exakt hur det verifierades, exakt vad som godkändes och exakt under vilken governance-release.
+- CAS garanterar: "Det här dokumentet är godkänt som källa i Mimers evidenskedja." (Det säger inte: "Det här dokumentets innehåll är sant.")
+
+### 6.2 L1-07 — Replay Refers to Captured Observation State (FRYST)
+- **Replay får aldrig försöka göra internet deterministiskt.** Om externa källor ändras över tid ska replay reproducera det infångade tillståndet (ingestion state) från oföränderliga artefakter och exekverings-provenance (`RawSourceArtifact`, `RetrievalPolicyArtifact`, `SourceAuthorityArtifact`, `ExecutionManifest` och derivationskedjan).
+- Replay *skall inte* försöka hämta samma externa URL igen.
+
+### 6.3 L1-11 — Quarantine Storage Semantics (FRYST)
+- **Loke får inte skriva till CAS.** Misslyckad verifiering får inte förstöra eller ändra observationen.
+- Alla råa observationer *skall* lagras i ett styrt karantänlager (governed quarantine layer) innan de befordras till CAS.
+- Karantänlagret är en fysisk lagring utanför CAS med egen identitet, retention-policy, åtkomstregler och governance. Misslyckad proveniens- eller integritetskontroll raderar eller ändrar inte den ursprungliga `RawSourceArtifact`.
+
+### 6.4 Den slutliga TV-L1-kedjan (Governed Observation Architecture)
+Den kompletta ingest-kedjan ser ut enligt följande flöde:
+
+```text
+SOURCE
+  │ authority + policy
+  ▼
+LOKE (Governed Observer - disciplinerad, ej smart)
+  │ observation
+  ▼
+RAW
+  │ verify provenance/integrity
+  ▼
+QUARANTINE
+  │
+  ▼
+DERIVATION
+  │ metadata/document
+  ▼
+HUMAN GOVERNANCE
+  │ approval
+  ▼
+CAS (Approved Artifacts)
+  │
+  ▼
+EVIDENCE
+  │
+  ▼
+ASSESSMENT
+  │
+  ▼
+REVIEW
+  │
+  ▼
+DECISION
+```
+
+Denna styrda observationsarkitektur säkerställer att Loke agerar som en disciplinerad observatör (inte en smart crawler). Loke behöver endast kunna bekräfta: *"Det här observerade jag från denna auktoriserade källa, under denna policy, vid denna tidpunkt, med detta innehåll."* All efterföljande verifiering och sanning styrs av Mimer.
+

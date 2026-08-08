@@ -174,3 +174,5 @@ CAS                Postgres
 
 Först när CAS-I02–CAS-I07 är gröna får TV-3 påbörjas. Då optimeras en databas som redan
 vet exakt vad den är till för.
+
+**Uppföljning:** [TV-3.0 — PostgreSQL Physical Data Strategy Freeze](./TV-3.0-PostgreSQL-Physical-Data-Strategy-Freeze.md) (**FRYST**).

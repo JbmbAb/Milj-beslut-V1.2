@@ -1,0 +1,19 @@
+---
+description: Mimers Brunn v2.0.1 data governance — archive-first, approval before PostGIS import, deterministic chunking
+globs: scripts/import/**/*.{ts,mjs,cjs,js},packages/mimers-brunn-core/**/*.ts,scripts/ops/sanitation*.mjs,scripts/ci/assert-mimers-brunn-policy.ts
+alwaysApply: false
+---
+
+# Mimers Brunn v2.0.1 (ACTIVE)
+
+Canonical policy: `docs/architecture/mimers-brunn-v2.0.1.md`.
+
+When changing harvest/import/chunk/approval code:
+
+- Archive-first; PostGIS is a projection only
+- No overwrite of version directories; collisions rejected + evidenced
+- SHA-256 integrity; paths are operational metadata (not identity)
+- Import only with DatasetApprovalArtifact `APPROVED` by HUMAN_OPERATOR or GOVERNANCE_REVIEWER (not harvest producer / SYSTEM_PROCESS / EVOLUTION_AGENT)
+- Deterministic byte-offset chunking (max 256 MB, stable order, hash per chunk)
+- Lifecycle: HARVESTED → VERIFIED (auto) → APPROVED|REJECTED (governed) → IMPORTED; failures → QUARANTINED
+- Runtime mount: `/mnt/geo_master_archive`
