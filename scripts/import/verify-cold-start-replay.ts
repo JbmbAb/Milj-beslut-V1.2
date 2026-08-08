@@ -22,8 +22,8 @@ async function main() {
     throw new Error('Baseline release manifest contains 0 documents. Cannot perform replay.');
   }
 
-  // Pick up to 3 successful documents to verify
-  const sampleDocs = docs.slice(0, 3);
+  // Pick up to 10 successful documents to verify
+  const sampleDocs = docs.slice(0, 10);
   console.log(`Selected ${sampleDocs.length} sample documents for deterministic replay verification.`);
 
   const orchestrator = new DocumentOrchestrator();
