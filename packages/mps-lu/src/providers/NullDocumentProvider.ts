@@ -22,8 +22,9 @@ export class NullDocumentProvider implements DocumentProviderContract {
  */
 export function resolveDocumentProviderFromEnv(
   env: NodeJS.ProcessEnv = process.env,
-): "null" | "mock" {
-  const v = (env.LU_DOC_PROVIDER ?? "null").toLowerCase();
+): "null" | "mock" | "postgis" {
+  const v = (env.LU_DOC_PROVIDER ?? "postgis").toLowerCase();
   if (v === "mock") return "mock";
-  return "null";
+  if (v === "null") return "null";
+  return "postgis";
 }

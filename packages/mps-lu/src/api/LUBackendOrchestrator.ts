@@ -29,6 +29,11 @@ export class LUBackendOrchestrator {
           "../../../document-provider/src/MockDocumentProvider"
         );
         this.documentEvidenceService = new DocumentEvidenceService(new MockDocumentProvider());
+      } else if (mode === "postgis") {
+        const { PostgisDocumentProvider } = await import(
+          "../providers/PostgisDocumentProvider"
+        );
+        this.documentEvidenceService = new DocumentEvidenceService(new PostgisDocumentProvider());
       } else {
         this.documentEvidenceService = new DocumentEvidenceService(new NullDocumentProvider());
       }
