@@ -3,7 +3,7 @@ import { SpatialProviderPostGIS } from "../src/SpatialProviderPostGIS";
 import { LUProjectContextArtifact } from "@miljobeslut/mps-lu";
 import { LUPropertyContextArtifact } from "@miljobeslut/mps-lu";
 import { runLuAssessmentViaKernel } from "@miljobeslut/mps-lu";
-import { ArtifactReference } from "@miljobeslut/mps-compliance/artifacts/ArtifactContract";
+import { ArtifactReference } from "@miljobeslut/mps-compliance/src/artifacts/ArtifactContract";
 import { MimersIntegration } from "../../mps-runtime/src/mimers/index";
 import { DefaultReplayEngine } from "../../mps-runtime/src/replay/DefaultReplayEngine";
 import { ArtifactRepositoryPort } from "../../mps-runtime/src/kernel/ExecutionKernel";
@@ -27,8 +27,8 @@ describe("LU Domain - Enforcement and Replay", () => {
 
     // Clear any leftover test data
     await client.query("DELETE FROM env.sgu_well WHERE id >= 999800 AND id <= 999899");
-    await client.query("DELETE FROM env.ebh_potentiellt_fororenade_omraden WHERE id >= 999800 AND id <= 999899");
-    await client.query("DELETE FROM env.protected_area WHERE nvr_id = 'NVR-TEST-MAGIC-ENFORCE'");
+    await client.query("DELETE FROM env.ebh_potentiellt_fororenade_omraden WHERE fid >= 999800 AND fid <= 999899");
+    await client.query("DELETE FROM env.protected_area WHERE nvrid = 'NVR-TEST-MAGIC-ENFORCE'");
 
     // 1. env.sgu_well
     await client.query(`
@@ -38,8 +38,8 @@ describe("LU Domain - Enforcement and Replay", () => {
 
     // 2. env.ebh_potentiellt_fororenade_omraden
     await client.query(`
-      INSERT INTO env.ebh_potentiellt_fororenade_omraden (id, geom)
-      VALUES (999800, ST_Multi(ST_Buffer(ST_SetSRID(ST_MakePoint(591234, 6612345), 3006), 10)))
+      INSERT INTO env.ebh_potentiellt_fororenade_omraden (fid, geom)
+      VALUES (999800, ST_Multi(ST_SetSRID(ST_MakePoint(591234, 6612345), 3006)))
     `);
 
     await client.end();
@@ -51,7 +51,7 @@ describe("LU Domain - Enforcement and Replay", () => {
     const client = new Client({ connectionString: dbUrl });
     await client.connect();
     await client.query("DELETE FROM env.sgu_well WHERE id >= 999800 AND id <= 999899");
-    await client.query("DELETE FROM env.ebh_potentiellt_fororenade_omraden WHERE id >= 999800 AND id <= 999899");
+    await client.query("DELETE FROM env.ebh_potentiellt_fororenade_omraden WHERE fid >= 999800 AND fid <= 999899");
     await client.end();
 
     await provider.close();

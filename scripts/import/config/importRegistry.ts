@@ -36,6 +36,8 @@ export interface ImportRegistryEntry extends TargetConfig {
   aliases?: readonly string[];
   /** replace = TRUNCATE+INSERT (default); append = INSERT into existing prod table */
   promote_strategy?: PromoteStrategy;
+  /** Force GDAL/ogr2ogr to invert axis order during import (e.g. for SGU Northing/Easting GPKGs) */
+  invert_axis_order?: boolean;
 }
 
 const LM_FASTIGHET_YTOR_COLUMNS = [
@@ -284,11 +286,13 @@ export const IMPORT_REGISTRY: Record<string, Record<string, ImportRegistryEntry>
       target_table: 'sgu_soil_type_25k_100k',
       expected_columns: SGU_JORDART_25K_COLUMNS,
       tier: 1,
-      ogr_layer: 'grundlager',
+      // Master GPKG layer name (not the older "grundlager" label)
+      ogr_layer: 'Jordarter25k100k',
       primary_format: 'gpkg',
       source_url: 'https://resource.sgu.se/data/oppnadata/jordarter25k-100k/jordarter25k-100k.zip',
       license: 'CC BY 4.0',
       aliases: ['jordarter25k-100k', 'Jordarter25k100k', 'Legacy_Archive/Jordarter25k100k'],
+      invert_axis_order: true,
     }),
     Jorddjup10m: entry({
       target_schema: 'env',
@@ -510,21 +514,25 @@ export const IMPORT_REGISTRY: Record<string, Record<string, ImportRegistryEntry>
     'SkyddadeOmraden/Naturreservat': entry({
       target_schema: 'env',
       target_table: 'protected_area',
-      expected_columns: ['nvr_id', 'namn', 'skyddstyp', 'forvaltare'],
+      // NV SHP uses NVRID/NAMN/SKYDDSTYP/FORVALTARE (case-insensitive match)
+      expected_columns: ['nvrid', 'namn', 'skyddstyp', 'forvaltare'],
       tier: 2,
       primary_format: 'shp',
     }),
     'Natura2000/Omrade': entry({
       target_schema: 'env',
       target_table: 'natura2000_area',
-      expected_columns: ['sitecode', 'sitename', 'spa_code'],
+      // SPA rikstäckande SHP (Admit v1)
+      expected_columns: ['site_code', 'namn'],
       tier: 2,
       primary_format: 'shp',
+      aliases: ['Natura2000/SPA_Rikstackande', 'Natura2000/2026-05-08/SPA_Rikstackande'],
     }),
     'Vatten/Vattenskyddsomrade': entry({
       target_schema: 'env',
       target_table: 'water_protection_area',
-      expected_columns: ['vso_id', 'namn', 'skyddstyp'],
+      // NV VSO SHP — never VISS/lst_vattenskydd
+      expected_columns: ['nvrid', 'namn', 'skyddstyp'],
       tier: 1,
       primary_format: 'shp',
     }),

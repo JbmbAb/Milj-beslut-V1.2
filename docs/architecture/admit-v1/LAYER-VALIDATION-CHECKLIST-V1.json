@@ -1,0 +1,165 @@
+{
+  "checklist_id": "admit.v1.layer-validation.checklist.v1",
+  "status": "FROZEN",
+  "srid_required": 3006,
+  "crs": "EPSG:3006",
+  "authority": "docs/architecture/admit-v1/LAYER-ID-CONTRACTS-V1.md",
+  "admit_set": "docs/architecture/admit-v1/ADMIT-V1-SET.md",
+  "sweden_bbox_3006": {
+    "min_easting": 200000,
+    "max_easting": 1000000,
+    "min_northing": 6100000,
+    "max_northing": 7700000,
+    "note": "Soft envelope for smoke bbox — fail only if centroid entirely outside"
+  },
+  "checks_per_layer": [
+    "table_exists",
+    "srid_is_3006",
+    "row_count_gt_0",
+    "geom_not_null",
+    "bbox_intersects_sweden_envelope",
+    "geometry_type_allowed"
+  ],
+  "forbidden_after_import": [
+    {
+      "id": "lst_vattenskydd_dual",
+      "reason": "NV XOR — must not materialize LST/VISS vattenskydd as water_protection",
+      "deny_tables": [],
+      "deny_layer_ids": ["lu.topo_water", "lu.raa_culture"],
+      "deny_dataset_keys": ["lst_vattenskydd", "VISS/lst_vattenskydd"]
+    }
+  ],
+  "layers": [
+    {
+      "layer_id": "lu.property_unit",
+      "admit_status": "ADMIT",
+      "priority": 1,
+      "postgis_table": "env.registerenhetsomradesytor",
+      "sync_table": "core.property_unit",
+      "geom_column": "geom",
+      "expected_geometry_types": ["ST_MultiPolygon", "ST_Polygon"],
+      "source_sha256": "4ed76ac82310f157c1e74732e86514c789d97425971f49a508a78110ca2dfef5",
+      "logical_ui": null,
+      "notes": "Property master; also validate sync target when live"
+    },
+    {
+      "layer_id": "lu.water_wells",
+      "admit_status": "ADMIT",
+      "priority": 2,
+      "postgis_table": "env.sgu_well",
+      "geom_column": "geom",
+      "expected_geometry_types": ["ST_Point", "ST_MultiPoint"],
+      "source_sha256": "2b4b514f8b18a1a614d9aeac75c32eff8c52a3864c54770be112fd88fa263ddc",
+      "logical_ui": "water",
+      "notes": "Magic Moment layer"
+    },
+    {
+      "layer_id": "lu.ebh",
+      "admit_status": "ADMIT",
+      "priority": 3,
+      "postgis_table": "env.ebh_potentiellt_fororenade_omraden",
+      "geom_column": "geom",
+      "expected_geometry_types": ["ST_MultiPoint", "ST_Point"],
+      "source_sha256": "02fccffc07abaaf1775c8333d660fa60fdecea0c3bb664335892764c8486d186",
+      "logical_ui": "ebh",
+      "notes": "Magic Moment layer"
+    },
+    {
+      "layer_id": "lu.protected_area",
+      "admit_status": "ADMIT",
+      "priority": 4,
+      "postgis_table": "env.protected_area",
+      "geom_column": "geom",
+      "expected_geometry_types": ["ST_MultiPolygon", "ST_Polygon"],
+      "source_sha256": "983772bf129d14326c43aa5d08f152e65604778d392c28ea4fee0c4e838af9ae",
+      "logical_ui": "protected_area",
+      "notes": "Magic Moment layer"
+    },
+    {
+      "layer_id": "lu.water_protection",
+      "admit_status": "ADMIT",
+      "priority": 5,
+      "postgis_table": "env.water_protection_area",
+      "geom_column": "geom",
+      "expected_geometry_types": ["ST_MultiPolygon", "ST_Polygon"],
+      "source_sha256": "ba6fdd88fa478d9b930a41153d03b84a34b086de8d6c5aa0f6b63c0b4dd6ff18",
+      "logical_ui": null,
+      "notes": "NV sole — never LST/VISS substitute"
+    },
+    {
+      "layer_id": "lu.natura2000",
+      "admit_status": "ADMIT",
+      "priority": 6,
+      "postgis_table": "env.natura2000_area",
+      "geom_column": "geom",
+      "expected_geometry_types": ["ST_MultiPolygon", "ST_Polygon"],
+      "source_sha256": "a5d665ae7bfde9ebeaa4883d5db7bbf70aea9cb7ad5a3f621c4cdbc003ad7f02",
+      "logical_ui": null,
+      "notes": "SPA rikstäckande only in v1"
+    },
+    {
+      "layer_id": "lu.flood_risk",
+      "admit_status": "ADMIT",
+      "priority": 7,
+      "postgis_table": "climate.flood_risk_area",
+      "geom_column": "geom",
+      "expected_geometry_types": ["ST_MultiPolygon", "ST_Polygon"],
+      "source_sha256": "57a57b47bb6449832a0bc84aea6b748f123a007528b379c3946a2aa531fc5fe6",
+      "logical_ui": null
+    },
+    {
+      "layer_id": "lu.soil_type",
+      "admit_status": "ADMIT",
+      "priority": 8,
+      "postgis_table": "env.sgu_soil_type_25k_100k",
+      "geom_column": "geom",
+      "expected_geometry_types": ["ST_MultiPolygon", "ST_Polygon"],
+      "source_sha256": "11bbf1587f67d5383a25cd19030b6e36b98ecdb80e32372fd0c2824736bf561a",
+      "logical_ui": null,
+      "notes": "May be gated separately in rebuild board; checklist still records contract"
+    },
+    {
+      "layer_id": "lu.landslide",
+      "admit_status": "ADMIT",
+      "priority": 9,
+      "postgis_table": "env.sgu_landslide_feature",
+      "geom_column": "geom",
+      "expected_geometry_types": ["ST_MultiPolygon", "ST_Polygon", "ST_GeometryCollection", "ST_LineString", "ST_MultiLineString", "ST_Point"],
+      "source_sha256": "1bd3b614b55bb9975df48c3be92837b21dd2f4980afd453c2f1c1ac8a0fc6afa",
+      "logical_ui": null
+    },
+    {
+      "layer_id": "lu.viss_waterbody",
+      "admit_status": "ADMIT",
+      "priority": 10,
+      "postgis_table": "hydro.water_catchment",
+      "geom_column": "geom",
+      "expected_geometry_types": ["ST_MultiPolygon", "ST_Polygon"],
+      "source_sha256": "3b60afd33a7f27c6d5c8e4ed8cf34b8d77204f6443ad9fcc1f9f678f30a0e6fe",
+      "logical_ui": null,
+      "notes": "SMHI SVAR authority — not live VISS WFS"
+    },
+    {
+      "layer_id": "lu.sks_nature",
+      "admit_status": "ADMIT",
+      "priority": 11,
+      "postgis_table": "env.sks_nyckelbiotoper",
+      "geom_column": "geom",
+      "expected_geometry_types": ["ST_MultiPolygon", "ST_Polygon"],
+      "source_sha256": "ac3a7741f6ddcd6faf307625ab560ff61b0a6ddedab1dbbf806ec9b728f48cba",
+      "logical_ui": null
+    }
+  ],
+  "excluded": [
+    {
+      "layer_id": "lu.topo_water",
+      "admit_status": "BLOCKED",
+      "reason": "No IMPORT_REGISTRY; not water_protection substitute"
+    },
+    {
+      "layer_id": "lu.raa_culture",
+      "admit_status": "OUT_OF_SCOPE",
+      "reason": "No IMPORT_REGISTRY in v1"
+    }
+  ]
+}

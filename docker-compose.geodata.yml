@@ -17,6 +17,7 @@ services:
     image: miljobeslut-platform-recovery-db:latest
     container_name: miljobeslut-postgres
     restart: unless-stopped
+    command: postgres -c shared_buffers=1GB -c effective_cache_size=3GB -c work_mem=64MB -c maintenance_work_mem=512MB -c max_wal_size=4GB -c random_page_cost=1.1 -c temp_file_limit=20GB
     environment:
       POSTGRES_USER: miljobeslut
       POSTGRES_PASSWORD: miljobeslut
@@ -37,6 +38,8 @@ services:
         source: ${MASTER_ARCHIVE_HOST_PATH:-D:/GEO_Master_Archive_Runtime}
         target: /master-archive
         read_only: true
+    # Large national GPKG imports need more than default 64MB /dev/shm
+    shm_size: '1gb'
     healthcheck:
       test: ['CMD-SHELL', 'pg_isready -U miljobeslut -d miljobeslut']
       interval: 10s

@@ -53,9 +53,9 @@ describe("E2E LU Magic Moment — PostGIS → assessment (no mocks)", () => {
 
     await client.query("DELETE FROM env.sgu_well WHERE id >= 999910 AND id < 999920");
     await client.query(
-      "DELETE FROM env.ebh_potentiellt_fororenade_omraden WHERE id >= 999910 AND id < 999920",
+      "DELETE FROM env.ebh_potentiellt_fororenade_omraden WHERE fid >= 999910 AND fid < 999920",
     );
-    await client.query("DELETE FROM env.protected_area WHERE nvr_id = 'NVR-E2E-MAGIC'");
+    await client.query("DELETE FROM env.protected_area WHERE nvrid = 'NVR-E2E-MAGIC'");
     await client.query("DELETE FROM core.property_unit WHERE source_key = $1", [SOURCE_KEY]);
 
     // Property at Magic Moment SWEREF point (critical path: designation → geom)
@@ -82,14 +82,14 @@ describe("E2E LU Magic Moment — PostGIS → assessment (no mocks)", () => {
     );
     await client.query(
       `
-      INSERT INTO env.ebh_potentiellt_fororenade_omraden (id, geom)
-      VALUES (999910, ST_Multi(ST_Buffer(ST_SetSRID(ST_MakePoint($1, $2), 3006), 10)))
+      INSERT INTO env.ebh_potentiellt_fororenade_omraden (fid, geom)
+      VALUES (999910, ST_Multi(ST_SetSRID(ST_MakePoint($1, $2), 3006)))
       `,
       [EASTING, NORTHING],
     );
     await client.query(
       `
-      INSERT INTO env.protected_area (nvr_id, name, protection_type, geom)
+      INSERT INTO env.protected_area (nvrid, namn, skyddstyp, geom)
       VALUES (
         'NVR-E2E-MAGIC',
         'E2E Magic Protected Area',
@@ -160,9 +160,9 @@ describe("E2E LU Magic Moment — PostGIS → assessment (no mocks)", () => {
     await client.connect();
     await client.query("DELETE FROM env.sgu_well WHERE id >= 999910 AND id < 999920");
     await client.query(
-      "DELETE FROM env.ebh_potentiellt_fororenade_omraden WHERE id >= 999910 AND id < 999920",
+      "DELETE FROM env.ebh_potentiellt_fororenade_omraden WHERE fid >= 999910 AND fid < 999920",
     );
-    await client.query("DELETE FROM env.protected_area WHERE nvr_id = 'NVR-E2E-MAGIC'");
+    await client.query("DELETE FROM env.protected_area WHERE nvrid = 'NVR-E2E-MAGIC'");
     await client.query("DELETE FROM core.property_unit WHERE source_key = $1", [SOURCE_KEY]);
     await client.end();
 

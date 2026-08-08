@@ -296,10 +296,15 @@ async function processManifest(manifestPath: string) {
           } else {
             ogrinfoArgs.push('-al');
           }
-          const ogrinfoResult = spawnSync(OGRINFO_PATH, ogrinfoArgs, { encoding: 'utf-8' });
+          const ogrinfoResult = spawnSync(OGRINFO_PATH, ogrinfoArgs, {
+            encoding: 'utf-8',
+            env: process.env,
+          });
           
           if (ogrinfoResult.status !== 0) {
-            throw new Error(`ogrinfo failed to read file. Status: ${ogrinfoResult.status}`);
+            throw new Error(
+              `ogrinfo failed to read file. Status: ${ogrinfoResult.status}; cmd=${OGRINFO_PATH} ${ogrinfoArgs.map((a) => JSON.stringify(a)).join(' ')}; stderr=${(ogrinfoResult.stderr || '').slice(0, 800)}; stdout=${(ogrinfoResult.stdout || '').slice(0, 400)}`,
+            );
           }
 
           const output = ogrinfoResult.stdout || '';
@@ -315,6 +320,7 @@ async function processManifest(manifestPath: string) {
           }
 
           const ogrLayer = registryEntry.ogr_layer;
+          const isShapefile = primaryFilePath.toLowerCase().endsWith('.shp');
           const ogrArgs = [
             '-f', 'PostgreSQL',
             pgConn,
@@ -325,9 +331,14 @@ async function processManifest(manifestPath: string) {
             '-nlt', 'PROMOTE_TO_MULTI',
             '-lco', 'GEOMETRY_NAME=geom',
             '-lco', 'SPATIAL_INDEX=NONE', // Vi skapar GiST index manuellt efteråt
-            '-t_srs', 'EPSG:3006',
+            ...(registryEntry.invert_axis_order
+              ? ['-s_srs', 'EPSG:3006', '-t_srs', '+proj=utm +zone=33 +ellps=GRS80 +units=m +no_defs'] as const
+              : ['-t_srs', 'EPSG:3006'] as const),
             '-gt', '65536',
             '--config', 'PG_USE_COPY', 'YES',
+            // NV/Swedish SHP attributes are typically CP1252 / Latin-1, not UTF-8
+            // Prefer .cpg when present; ISO-8859-1 covers NV SPA/NR Swedish SHP
+            ...(isShapefile ? ['--config', 'SHAPE_ENCODING', 'ISO-8859-1'] as const : []),
           ];
 
           logger.info(`   - Running ogr2ogr to ${fullStagingTarget}...`);
@@ -338,6 +349,13 @@ async function processManifest(manifestPath: string) {
           
           if (result.status !== 0) {
             throw new Error(`ogr2ogr failed with status ${result.status}`);
+          }
+
+          if (registryEntry.invert_axis_order) {
+            logger.info(`   - Updating custom PROJ.4 SRID to EPSG:3006...`);
+            await prisma.$executeRawUnsafe(
+              `SELECT UpdateGeometrySRID('${stagingSchema}', '${stagingTable}', 'geom', 3006);`
+            );
           }
 
           const repaired = await repairInvalidGeometries(prisma, fullStagingTarget);
@@ -387,6 +405,7 @@ async function processManifest(manifestPath: string) {
           qa_error: formatQaError(err),
         });
         logger.error(`   ❌ Failed: ${message}`);
+        throw err instanceof Error ? err : new Error(message);
       }
     } else if (mode === 'promote') {
       // Find the STAGING_IMPORTED batch
@@ -554,6 +573,7 @@ async function processManifest(manifestPath: string) {
           qa_error: formatQaError(err),
         });
         logger.error(`   ❌ Promote Failed: ${message}`);
+        throw err instanceof Error ? err : new Error(message);
       }
     } else {
        logger.warn(`Unknown mode: ${mode}`);
@@ -561,6 +581,7 @@ async function processManifest(manifestPath: string) {
 
   } catch (err: any) {
     logger.error(`Failed to process manifest ${manifestPath}: ${err.message}`);
+    throw err;
   }
 }
 
@@ -642,7 +663,10 @@ async function main() {
 
 // Only run if called directly
 if (process.argv[1] === fileURLToPath(import.meta.url)) {
-  main();
+  main().catch((err) => {
+    logger.error(err instanceof Error ? err.message : String(err));
+    process.exit(1);
+  });
 }
 
 export { processManifest, findPrimaryFile };

@@ -4,7 +4,7 @@ import { LUProjectContextArtifact } from "@miljobeslut/mps-lu";
 import { LUPropertyContextArtifact } from "@miljobeslut/mps-lu";
 import { LocalizationAssessmentArtifact } from "@miljobeslut/mps-lu";
 import { runLuAssessmentViaKernel } from "@miljobeslut/mps-lu";
-import { ArtifactReference } from "@miljobeslut/mps-compliance/artifacts/ArtifactContract";
+import { ArtifactReference } from "@miljobeslut/mps-compliance/src/artifacts/ArtifactContract";
 import { MimersIntegration } from "../../mps-runtime/src/mimers/index";
 import { ArtifactRepositoryPort } from "../../mps-runtime/src/kernel/ExecutionKernel";
 
@@ -26,8 +26,8 @@ describe("LU Domain - PostGIS Magic Moment", () => {
 
     // Clear any leftover test data
     await client.query("DELETE FROM env.sgu_well WHERE id >= 999900");
-    await client.query("DELETE FROM env.ebh_potentiellt_fororenade_omraden WHERE id >= 999900");
-    await client.query("DELETE FROM env.protected_area WHERE nvr_id = 'NVR-TEST-MAGIC'");
+    await client.query("DELETE FROM env.ebh_potentiellt_fororenade_omraden WHERE fid >= 999900");
+    await client.query("DELETE FROM env.protected_area WHERE nvrid = 'NVR-TEST-MAGIC'");
 
     // 1. env.sgu_well
     await client.query(`
@@ -37,13 +37,13 @@ describe("LU Domain - PostGIS Magic Moment", () => {
 
     // 2. env.ebh_potentiellt_fororenade_omraden
     await client.query(`
-      INSERT INTO env.ebh_potentiellt_fororenade_omraden (id, geom)
-      VALUES (999900, ST_Multi(ST_Buffer(ST_SetSRID(ST_MakePoint(591234, 6612345), 3006), 10)))
+      INSERT INTO env.ebh_potentiellt_fororenade_omraden (fid, geom)
+      VALUES (999900, ST_Multi(ST_SetSRID(ST_MakePoint(591234, 6612345), 3006)))
     `);
 
     // 3. env.protected_area
     await client.query(`
-      INSERT INTO env.protected_area (nvr_id, name, protection_type, geom)
+      INSERT INTO env.protected_area (nvrid, namn, skyddstyp, geom)
       VALUES (
         'NVR-TEST-MAGIC',
         'Magic Protected Area',
@@ -61,8 +61,8 @@ describe("LU Domain - PostGIS Magic Moment", () => {
     const client = new Client({ connectionString: dbUrl });
     await client.connect();
     await client.query("DELETE FROM env.sgu_well WHERE id >= 999900");
-    await client.query("DELETE FROM env.ebh_potentiellt_fororenade_omraden WHERE id >= 999900");
-    await client.query("DELETE FROM env.protected_area WHERE nvr_id = 'NVR-TEST-MAGIC'");
+    await client.query("DELETE FROM env.ebh_potentiellt_fororenade_omraden WHERE fid >= 999900");
+    await client.query("DELETE FROM env.protected_area WHERE nvrid = 'NVR-TEST-MAGIC'");
     await client.end();
 
     await provider.close();
