@@ -1,0 +1,17 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
+    "strict": true,
+    "esModuleInterop": true,
+    "skipLibCheck": true,
+    "forceConsistentCasingInFileNames": true,
+    "baseUrl": ".",
+    "paths": {
+      "@miljobeslut/mps-compliance/*": ["../mps-compliance/src/*"],
+      "@miljobeslut/mps-lu/*": ["../mps-lu/src/*"]
+    }
+  },
+  "include": ["src/**/*", "tests/**/*"]
+}

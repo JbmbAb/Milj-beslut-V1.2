@@ -146,6 +146,24 @@ export class MmdAdapter implements SourceAdapter {
   async fetch(candidate: HarvestCandidate): Promise<SourceDocument> {
     const court = MMD_COURTS.find(c => c.sourceId === this.sourceId);
     const title = court ? court.title : 'Okänd Domstol';
+
+    // Om URL:en börjar med http/https, gör ett riktigt nätverksanrop (TV-L1 bevis)
+    if (candidate.sourceUrl.startsWith('http://') || candidate.sourceUrl.startsWith('https://')) {
+      console.log(`      [NETWORK] Loke (MMD) anropar extern källa: ${candidate.sourceUrl}`);
+      const response = await fetch(candidate.sourceUrl);
+      if (!response.ok) {
+        throw new Error(`Kunde inte hämta ${candidate.sourceUrl}: HTTP ${response.status}`);
+      }
+      const content = await response.text();
+      return {
+        name: candidate.fileName,
+        content,
+        sourceUrl: candidate.sourceUrl,
+        retrievedAt: new Date().toISOString()
+      };
+    }
+
+    // Annars, fall tillbaka till tillfälligt mock-innehåll (behåller hermetiska tester gröna)
     let content = '';
 
     if (candidate.docType === 'decision') {

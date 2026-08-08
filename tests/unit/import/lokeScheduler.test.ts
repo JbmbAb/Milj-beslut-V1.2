@@ -47,6 +47,13 @@ describe('🜂 Loke Live Ingest — Scheduler & State (LSF P0)', () => {
     vi.restoreAllMocks();
   });
 
+  beforeEach(() => {
+    global.fetch = vi.fn().mockResolvedValue({
+      ok: true,
+      text: async () => 'Mocked document content'
+    }) as any;
+  });
+
   describe('Step 1: HarvestPlan (Immutability & Content-Addressing)', () => {
     it('creates an immutable, content-addressed HarvestPlan', async () => {
       const plan = await createHarvestPlan('mmd_nacka', { priority: 'high' });

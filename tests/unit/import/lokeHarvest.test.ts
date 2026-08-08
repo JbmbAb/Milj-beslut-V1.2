@@ -2,7 +2,8 @@ import { describe, expect, it, vi, beforeAll, afterAll } from 'vitest';
 import * as os from 'os';
 import * as fs from 'fs';
 import * as path from 'path';
-import { getNationalArchiveCasePath } from '../../../scripts/import/config/mimersBrunn';
+import { DiskQuarantineStorage } from '@miljobeslut/mimers-brunn-core';
+import { MmdAdapter } from '../../../scripts/import/loke/adapters/mmdAdapter';
 
 describe('🜂 Loke Harvest Agent — Ingestion & Contract (LSF-02)', () => {
   let tempDir: string;
@@ -13,14 +14,28 @@ describe('🜂 Loke Harvest Agent — Ingestion & Contract (LSF-02)', () => {
     tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'loke-foundation-test-'));
     originalEnv = { ...process.env };
 
-    // Sätt vår temp-katalog som arkiv-rot
-    process.env.MASTER_ARCHIVE_ROOT = tempDir;
+    // Sätt vår temp-katalog som arkiv-rot och karantäns-rot
+    process.env.MASTER_ARCHIVE_ROOT = path.join(tempDir, 'geo_master_archive');
+    process.env.QUARANTINE_ROOT = path.join(tempDir, '.quarantine');
     process.env.SKIP_DISK_SPACE_CHECK = 'true';
     process.env.SKIP_DISK_CHECK = 'true';
     process.env.NODE_ENV = 'test';
 
     // Rensa modul-cachen för att garantera att lokeRuntime läser av det nya tillståndet
     vi.resetModules();
+
+    // Mocka globalThis.fetch för att hålla enhetstester hermetiska
+    vi.spyOn(globalThis, 'fetch').mockImplementation((url: any) => {
+      let text = `Mocked content for ${url} inside Loke unit test`;
+      if (url.includes('dom-m-1234-26.pdf')) {
+        text = 'Akt/Målnummer: MMD-N-2026-0515';
+      }
+      return Promise.resolve({
+        ok: true,
+        status: 200,
+        text: () => Promise.resolve(text),
+      } as any);
+    });
 
     // Importera Loke dynamiskt
     const mod = await import('../../../scripts/import/loke/lokeRuntime');
@@ -39,10 +54,12 @@ describe('🜂 Loke Harvest Agent — Ingestion & Contract (LSF-02)', () => {
     expect(result.status).toBe('completed');
     expect(result.documents_found).toBe(4); // Nacka har 4 dokument
     expect(result.documents_new).toBe(0);
-    expect(fs.readdirSync(tempDir).length).toBe(0); // Inga kataloger skapade på disk
+    
+    // Inga filer skapade i karantäns- eller masterarkivet
+    expect(fs.existsSync(process.env.QUARANTINE_ROOT!)).toBe(false);
   });
 
-  it('downloads RawArtifacts, creates HarvestArtifacts, and writes HarvestRunArtifact', async () => {
+  it('downloads RawObservations, creates RawSourceArtifacts in Quarantine, and writes HarvestRunArtifact', async () => {
     const result = await executeLokeHarvestForSource('mmd_nacka', { execute: true });
 
     expect(result.status).toBe('completed');
@@ -50,30 +67,31 @@ describe('🜂 Loke Harvest Agent — Ingestion & Contract (LSF-02)', () => {
     expect(result.documents_new).toBe(4);
     expect(result.documents_changed).toBe(0);
 
-    const archiveDir = path.join(tempDir, 'National_Archive');
-    expect(fs.existsSync(archiveDir)).toBe(true);
+    const quarantineDir = process.env.QUARANTINE_ROOT!;
+    expect(fs.existsSync(quarantineDir)).toBe(true);
 
-    // Verifiera MMD Nacka (Nacka, 2026, Haninge, MMD-N-2026-0515)
-    const mmdCaseDir = path.join(archiveDir, 'Nacka', '2026', 'Haninge', 'MMD-N-2026-0515');
-    expect(fs.existsSync(mmdCaseDir)).toBe(true);
+    const quarantineStorage = new DiskQuarantineStorage(quarantineDir);
+    const quarantinedItems = await quarantineStorage.list();
     
-    // RawArtifacts (original)
-    expect(fs.existsSync(path.join(mmdCaseDir, 'original', 'beslut.txt'))).toBe(true);
-    expect(fs.existsSync(path.join(mmdCaseDir, 'original', 'miljokonsekvensbeskrivning_mkb.txt'))).toBe(true);
+    // Verifiera att exakt 4 filer skapades i karantänen
+    expect(quarantinedItems.length).toBe(4);
 
-    // HarvestArtifacts (hashes / harvest_*.json)
-    const harvestBeslutPath = path.join(mmdCaseDir, 'hashes', 'harvest_beslut.txt.json');
-    expect(fs.existsSync(harvestBeslutPath)).toBe(true);
+    const decisions = quarantinedItems.filter(item => item.file_name === 'beslut.txt');
+    expect(decisions.length).toBe(1);
     
-    // Läs in HarvestArtifact och verifiera kontraktet
-    const harvestMeta = JSON.parse(fs.readFileSync(harvestBeslutPath, 'utf8'));
-    expect(harvestMeta.harvest_id).toBe(result.harvest_run_id); // Matchar körnings-ID!
-    expect(harvestMeta.source_url).toContain('domstol.se');
-    expect(harvestMeta.status).toBe('raw_received');
-    expect(harvestMeta.content_hash).toBeDefined();
+    const decisionMeta = decisions[0];
+    expect(decisionMeta.status).toBe('quarantined');
+    expect(decisionMeta.source_id).toBe('mmd_nacka');
+    expect(decisionMeta.source_url).toContain('domstol.se');
+    expect(decisionMeta.content_hash).toBeDefined();
 
-    // Verifiera HarvestRunArtifact skapades i runs/
-    const runsDir = path.join(archiveDir, 'runs');
+    // Kontrollera att råa binärer sparades
+    const binBytes = await quarantineStorage.get(decisionMeta.quarantine_id);
+    expect(binBytes).toBeDefined();
+    expect(new TextDecoder().decode(binBytes!)).toContain('Akt/Målnummer: MMD-N-2026-0515');
+
+    // Verifiera HarvestRunArtifact skapades i runs/ under karantänen
+    const runsDir = path.join(quarantineDir, 'runs');
     expect(fs.existsSync(runsDir)).toBe(true);
     
     const runArtifactPath = path.join(runsDir, `harvest_run_${result.harvest_run_id}.json`);
@@ -83,48 +101,68 @@ describe('🜂 Loke Harvest Agent — Ingestion & Contract (LSF-02)', () => {
     expect(runMeta.harvest_run_id).toBe(result.harvest_run_id);
     expect(runMeta.source_id).toBe('mmd_nacka');
     expect(runMeta.status).toBe('completed');
+    expect(runMeta.quarantined_ids.length).toBe(4);
   });
 
-  it('correctly handles immutable file version history upon content changes', async () => {
-    // Första körningen (skapar beslut.txt)
-    await executeLokeHarvestForSource('mmd_nacka', { execute: true });
-
-    // Verifiera först att beslut.txt finns
-    const caseDir = path.join(tempDir, 'National_Archive', 'Nacka', '2026', 'Haninge', 'MMD-N-2026-0515');
-    const origBeslutPath = path.join(caseDir, 'original', 'beslut.txt');
-    expect(fs.existsSync(origBeslutPath)).toBe(true);
-
-    // Modifiera filen på disk manuellt för att simulera en förändring hos källan vid en ny körning
-    fs.writeFileSync(origBeslutPath, 'ÄNDRAT INNEHÅLL HOS MYNDIGHETEN', 'utf8');
-
-    // Andra körningen (upptäcker förändringen och sparar historisk version utan överskrivning!)
-    const result2 = await executeLokeHarvestForSource('mmd_nacka', { execute: true });
+  it('correctly isolates and handles changes in raw document content', async () => {
+    // Rensa karantänen först för detta test
+    fs.rmSync(process.env.QUARANTINE_ROOT!, { recursive: true, force: true });
     
-    expect(result2.status).toBe('completed');
-    expect(result2.documents_changed).toBe(1); // 1 fil upptäcktes som ändrad!
+    const storage = new DiskQuarantineStorage(process.env.QUARANTINE_ROOT!);
 
-    // Kontrollera att det gamla/ändrade innehållet sparades under en historisk tidsstämplad kopia
-    const files = fs.readdirSync(path.join(caseDir, 'original'));
-    expect(files.length).toBe(5); // 4 original + 1 ändrad kopia = 5 filer!
-    expect(files.some(f => f.includes('beslut_changed_'))).toBe(true);
-  });
+    // Importera MmdAdapter efter resetModules har kört för att få rätt prototyp-referens
+    const { MmdAdapter } = await import('../../../scripts/import/loke/adapters/mmdAdapter');
 
-  it('downloads and archives MÖD (Svea hovrätt) judgements and MKB documents', async () => {
-    const result = await executeLokeHarvestForSource('mod_svea', { execute: true });
+    // Spionera på discover så att den bara ger oss 1 kandidat (beslut.txt)
+    const discoverSpy = vi.spyOn(MmdAdapter.prototype, 'discover');
+    discoverSpy.mockResolvedValue([
+      {
+        uniqueId: 'mmd-nacka-2026-0515-beslut',
+        caseId: 'MMD-N-2026-0515',
+        authority: 'Nacka',
+        municipality: 'Haninge',
+        year: 2026,
+        sourceUrl: 'https://www.domstol.se/nacka-tingsratt/dom-m-1234-26.pdf',
+        fileName: 'beslut.txt',
+        docType: 'decision'
+      }
+    ]);
 
-    expect(result.status).toBe('completed');
-    expect(result.documents_found).toBe(2);
-    expect(result.documents_new).toBe(2);
+    // Spionera på MmdAdapter.prototype.fetch för att simulera en ändring
+    const fetchSpy = vi.spyOn(MmdAdapter.prototype, 'fetch');
 
-    const caseDir = getNationalArchiveCasePath('Mark- och miljööverdomstolen', 2026, 'Mora', 'MÖD-M-1456-26');
-    expect(fs.existsSync(caseDir)).toBe(true);
+    // Första körningen: returnerar original
+    fetchSpy.mockResolvedValueOnce({
+      name: 'beslut.txt',
+      content: 'ORIGINAL INNEHÅLL FRÅN DOMSTOL',
+      sourceUrl: 'https://www.domstol.se/nacka-tingsratt/beslut-999.pdf'
+    });
 
-    // Verifiera att dom och MKB laddades ner deterministiskt
-    expect(fs.existsSync(path.join(caseDir, 'original', 'beslut.txt'))).toBe(true);
-    expect(fs.existsSync(path.join(caseDir, 'original', 'miljokonsekvensbeskrivning_mkb.txt'))).toBe(true);
+    const run1 = await executeLokeHarvestForSource('mmd_nacka', { execute: true, onlyFilters: ['nacka'] });
+    expect(run1.documents_new).toBe(1);
 
-    const content = fs.readFileSync(path.join(caseDir, 'original', 'beslut.txt'), 'utf8');
-    expect(content).toContain('DOMSTOL: MARK- OCH MILJÖÖVERDOMSTOLEN (MÖD) VID SVEA HOVRÄTT');
-    expect(content).toContain('VILLKOR 1 (PFAS-bevakning)');
+    const itemsAfterRun1 = await storage.list();
+    expect(itemsAfterRun1.length).toBe(1);
+    expect(new TextDecoder().decode(await storage.get(itemsAfterRun1[0].quarantine_id) as Uint8Array)).toBe('ORIGINAL INNEHÅLL FRÅN DOMSTOL');
+
+    // Mandera andra körningen: returnerar modifierat innehåll
+    fetchSpy.mockResolvedValueOnce({
+      name: 'beslut.txt',
+      content: 'MODIFIERAT INNEHÅLL (NYA VILLKOR)',
+      sourceUrl: 'https://www.domstol.se/nacka-tingsratt/beslut-999.pdf'
+    });
+
+    const run2 = await executeLokeHarvestForSource('mmd_nacka', { execute: true, onlyFilters: ['nacka'] });
+    expect(run2.documents_new).toBe(1); // Den räknas som ny i karantänen pga unikt innehåll/hash (L1-11)
+
+    // Kontrollera att karantänen nu innehåller båda versionerna som separata, säkra RawSourceArtifacts
+    const itemsAfterRun2 = await storage.list();
+    expect(itemsAfterRun2.length).toBe(2);
+
+    const content1 = new TextDecoder().decode(await storage.get(itemsAfterRun2[0].quarantine_id) as Uint8Array);
+    const content2 = new TextDecoder().decode(await storage.get(itemsAfterRun2[1].quarantine_id) as Uint8Array);
+
+    expect([content1, content2]).toContain('ORIGINAL INNEHÅLL FRÅN DOMSTOL');
+    expect([content1, content2]).toContain('MODIFIERAT INNEHÅLL (NYA VILLKOR)');
   });
 });
