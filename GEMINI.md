@@ -198,4 +198,8 @@ För att förhindra prestandakollaps i webbläsaren vid hantering av miljontals 
 - Plattformen skiljer strikt på **Property Identity** (`core.property_unit` — metadata, länskoder, identitet) och **Property Geometry** (`env.registerenhetsomradesytor` — tunga polygoner). Detta garanterar att identitets- och replaysökningar förblir blixtsnabba även när de spatiala skikten innehåller tiotals miljoner komplexa ytor.
 - **Millbygård** fungerar som en direkt testklient till samma spatiala PostGIS-databas, vilket ger ett gemensamt testbed för fastighetsgränser, 3D-byggnadsutskjutning och höjdmodellsklippning utan redundanta pipelines.
 
+### 7.5 Tvingande Invarianter (Hard Enforcement Rules)
+- **SPATIAL-01 — Single Evidence Identity:** A spatial object rendered by any presentation client SHALL reference the canonical SpatialEvidenceArtifact identity produced by the Unified Spatial Engine. Presentation layers SHALL NOT reconstruct, reinterpret, or independently derive evidentiary facts from raw spatial data.
+- **SPATIAL-02 — Presentation Non-Authority:** Cesium, GeoJSON, CZML, 3D Tiles and other presentation formats SHALL NOT constitute sources of truth. They are projections of canonical spatial state and evidence.
+
 
