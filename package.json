@@ -109,7 +109,7 @@
     "json-canonicalize": "^2.0.0",
     "leaflet": "1.9.4",
     "lru-cache": "^11.5.2",
-    "lucide-react": "^0.575.0",
+    "lucide-react": "^1.29.0",
     "motion": "^12.42.2",
     "nodemailer": "^9.0.3",
     "openai": "^6.27.0",
