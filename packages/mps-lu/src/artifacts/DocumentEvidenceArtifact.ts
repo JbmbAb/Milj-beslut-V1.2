@@ -1,6 +1,21 @@
 import { ArtifactContract, ArtifactReference } from "@miljobeslut/mps-compliance/src/artifacts/ArtifactContract";
 import { RelevantDocument } from "../domain/RelevantDocument";
 
+export interface LegalEvidence {
+  readonly source_document: string;
+  readonly source_type: "law" | "regulation" | "guidance" | "judgment" | "decision" | "technical" | "unknown";
+  readonly authority: string;
+  readonly document_date: string; // ISO8601
+  readonly effective_from?: string; // ISO8601 temporal valid bounds
+  readonly effective_to?: string; // ISO8601 temporal valid bounds
+  readonly jurisdiction?: string;
+  readonly chunk_id: string;
+  readonly source_hash: string;
+  readonly claim: string;
+  readonly relation: "SUPPORTED" | "CONTRADICTED" | "INSUFFICIENT";
+  readonly confidence: number; // 0.0 to 1.0
+}
+
 export interface RetrievalCandidate {
   readonly id: string;
   readonly document_id: string;

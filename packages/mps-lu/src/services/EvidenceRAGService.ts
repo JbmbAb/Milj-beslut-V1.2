@@ -156,6 +156,24 @@ export class EvidenceRAGService {
       return "CONTRADICTED";
     }
 
+    // Check Swedish exception vs absolute alignment (P23 undantag)
+    const SwedishExceptions = ['utom', 'undantaget', 'undantag', 'förutom', 'såvida inte', 'begränsat'];
+    const SwedishAbsolutes = ['alltid', 'all', 'alla', 'varje', 'ständigt'];
+
+    const hasClaimAbsolute = SwedishAbsolutes.some(abs => {
+      const regex = new RegExp(`\\b${abs}\\b`, 'i');
+      return regex.test(claimLower);
+    });
+    const hasChunkException = SwedishExceptions.some(exc => {
+      const regex = new RegExp(`\\b${exc}\\b`, 'i');
+      return regex.test(chunkLower);
+    });
+
+    if (hasClaimAbsolute && hasChunkException) {
+      console.log(`      [DEBUG P16 Detail] Exception mismatch! Claim has absolute, chunk has exception.`);
+      return "CONTRADICTED";
+    }
+
     return "SUPPORTED";
   }
 
