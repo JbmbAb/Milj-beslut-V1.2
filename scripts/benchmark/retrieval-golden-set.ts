@@ -1,6 +1,10 @@
 // scripts/benchmark/retrieval-golden-set.ts
 
 import { prisma } from '../../server/db/prisma';
+import { GoogleGenAI } from '@google/genai';
+
+const apiKey = process.env.GEMINI_API_KEY;
+const ai = new GoogleGenAI(apiKey ? { apiKey } : {});
 
 // Re-use the deterministic mock embedding to generate query embeddings
 function generateMockEmbedding(text: string, dimensions: number = 768): number[] {
@@ -17,6 +21,22 @@ function generateMockEmbedding(text: string, dimensions: number = 768): number[]
   }
   const magnitude = Math.sqrt(vector.reduce((sum, val) => sum + val * val, 0));
   return vector.map(val => val / (magnitude || 1));
+}
+
+async function getLiveQueryEmbedding(queryText: string): Promise<number[]> {
+  try {
+    const response = await ai.models.embedContent({
+      model: 'gemini-embedding-2',
+      contents: queryText,
+    });
+    const values = response.embeddings?.[0]?.values?.slice(0, 768);
+    if (values && values.length === 768) {
+      return values;
+    }
+  } catch (err: any) {
+    // Graceful fallback to deterministic mock
+  }
+  return generateMockEmbedding(queryText, 768);
 }
 
 // Our Golden Set for Miljöbalken / Decision retrieval
@@ -65,7 +85,7 @@ async function searchLexical(query: string, topK: number = 10): Promise<SearchRe
 
 // B. Vector Baseline (pgvector)
 async function searchVector(query: string, topK: number = 10): Promise<SearchResult[]> {
-  const queryVector = generateMockEmbedding(query);
+  const queryVector = await getLiveQueryEmbedding(query);
   const vectorStr = `[${queryVector.join(',')}]`;
 
   // Cosine distance '<=>', closer to 0 is better. We convert it to a similarity score 1 - distance.
