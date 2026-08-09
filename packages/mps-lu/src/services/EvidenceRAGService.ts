@@ -24,9 +24,9 @@ export interface LegalAuthorityMetadata {
 
 export class EvidenceRAGService {
   /**
-   * P11: Swedish Lexical/Semantic Heuristic Reranker.
+   * P11 & P17: Authority-Aware Lexical/Semantic Heuristic Reranker.
    * Scores and ranks retrieval candidates based on query token semantic overlap,
-   * exact Swedish word boundary matches, and Swedis-specific keyword proximity heuristics.
+   * keyword proximity, and formally weights them based on their Legal Authority level.
    */
   public rerank(query: string, candidates: RetrievalCandidate[]): RankedEvidence[] {
     const queryTokens = query.toLowerCase()
@@ -56,7 +56,24 @@ export class EvidenceRAGService {
 
       // Length and position bias normalization
       const docLengthNormalize = Math.log(text.length || 1);
-      const rerankScore = score / (docLengthNormalize || 1);
+      let rerankScore = score / (docLengthNormalize || 1);
+
+      // P17 Legal Authority Weighting
+      const meta = this.getAuthorityMetadata(candidate.source_path);
+      const authorityWeights: Record<LegalAuthorityType, number> = {
+        'law': 3.0,
+        'judgment': 2.5,
+        'regulation': 2.0,
+        'guidance': 1.5,
+        'decision': 1.2,
+        'technical': 1.0,
+        'unknown': 0.8
+      };
+      
+      const authorityMultiplier = authorityWeights[meta.authority_type] || 1.0;
+      const temporalPenalty = meta.is_temporally_valid ? 1.0 : 0.5; // Halve score for temporally decayed sources
+
+      rerankScore = rerankScore * authorityMultiplier * temporalPenalty;
 
       return {
         candidate,
