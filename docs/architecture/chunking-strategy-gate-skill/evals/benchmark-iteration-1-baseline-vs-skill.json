@@ -1,0 +1,407 @@
+{
+  "metadata": {
+    "skill_name": "chunking-strategy-gate",
+    "skill_path": "chunking-strategy-gate",
+    "executor_model": "<model-name>",
+    "analyzer_model": "<model-name>",
+    "timestamp": "2026-08-10T14:46:41Z",
+    "evals_run": [
+      0,
+      1,
+      2,
+      3
+    ],
+    "runs_per_configuration": 3
+  },
+  "runs": [
+    {
+      "eval_id": 0,
+      "configuration": "with_skill",
+      "run_number": 1,
+      "result": {
+        "pass_rate": 1.0,
+        "passed": 5,
+        "failed": 0,
+        "total": 5,
+        "time_seconds": 162.2,
+        "tokens": 58915,
+        "tool_calls": 0,
+        "errors": 0
+      },
+      "expectations": [
+        {
+          "text": "Identifierar explicit att court-strategin semantiskt passar dokumenten",
+          "passed": true,
+          "evidence": "\"court-strategin passar semantiskt, inte bara 'det är juridisk text'-resonemang\" med regex-citat från chunkCourtDecision."
+        },
+        {
+          "text": "Föreslår inte en ny chunking-funktion eller ny TextChunkKind",
+          "passed": true,
+          "evidence": "\"Ingen ny chunkningsstrategi, ingen ändring av chunkCourtDecision:s gränslogik...\""
+        },
+        {
+          "text": "Ändrar inte chunkCourtDecision:s regex/rubrikdetektion",
+          "passed": true,
+          "evidence": "Explicit: tillägget är ett routing-villkor, 'inte en ändring av chunkCourtDecision:s gränslogik, så det kräver ingen versionhöjning'."
+        },
+        {
+          "text": "Föreslår en konkret routing-lösning för att fånga den nya källan",
+          "passed": true,
+          "evidence": "Två alternativ: tagga sourceSystem enligt DOMSTOL_*-konvention (föredraget), eller lägg till filnamnsmönster i routeToCorrectChunker."
+        },
+        {
+          "text": "Nämner explicit vilken av de två routing-vägarna förslaget gäller",
+          "passed": true,
+          "evidence": "Nämner både routeToCorrectChunker (live, används av rechunk-legal-corpus.ts) och DocumentClassifier (dormant, ej produktionskopplad) och varför den valde att inte föreslå att koppla in den senare i denna scope."
+        }
+      ],
+      "notes": []
+    },
+    {
+      "eval_id": 3,
+      "configuration": "with_skill",
+      "run_number": 1,
+      "result": {
+        "pass_rate": 1.0,
+        "passed": 5,
+        "failed": 0,
+        "total": 5,
+        "time_seconds": 146.0,
+        "tokens": 35945,
+        "tool_calls": 0,
+        "errors": 0
+      },
+      "expectations": [
+        {
+          "text": "Redigerar inte chunkCourtDecision:s regex direkt utan föregående beslut",
+          "passed": true,
+          "evidence": "\"jag kan inte bredda regexen direkt\" + \"Jag har inte ändrat något i LegalChunker.ts eller ChunkVersion.ts\"."
+        },
+        {
+          "text": "Identifierar explicit att ändringen skulle förändra chunk-output för befintliga dokument",
+          "passed": true,
+          "evidence": "\"sektionsgränserna kommer att flytta sig för redan chunkade domar... ändrar chunk-index, chunk-text och därmed chunk-hash retroaktivt\"."
+        },
+        {
+          "text": "Flaggar att text/v2.3 inte får muteras semantiskt i efterhand",
+          "passed": true,
+          "evidence": "\"Det här är inte en routingändring... det är en ändring av vad text/v2.3-kontraktet faktiskt producerar\", med referens till ChunkVerifier.verifyManifestsEqual."
+        },
+        {
+          "text": "Kräver ett explicit beslut om ny version innan implementation",
+          "passed": true,
+          "evidence": "\"kräver en explicit versionshöjning (text/v2.3 → text/v2.4) och ett medvetet beslut\" + ber om uttryckligt godkännande."
+        },
+        {
+          "text": "Behandlar detta som ett versioneringsproblem, inte som ett routing-problem",
+          "passed": true,
+          "evidence": "Explicit: \"Enligt chunking-strategy-gate-skillet (Step 3c)...\" skiljer tydligt från routing-fallet (Step 3b)."
+        }
+      ],
+      "notes": []
+    },
+    {
+      "eval_id": 2,
+      "configuration": "with_skill",
+      "run_number": 1,
+      "result": {
+        "pass_rate": 1.0,
+        "passed": 4,
+        "failed": 0,
+        "total": 4,
+        "time_seconds": 95.6,
+        "tokens": 44852,
+        "tool_calls": 0,
+        "errors": 0
+      },
+      "expectations": [
+        {
+          "text": "Väljer inte automatiskt law-strategin bara för att det är juridisk text",
+          "passed": true,
+          "evidence": "\"inte bara 'är det juridisk text'\" + explicit disclaimer att domänlikhet inte är samma som strukturell passform."
+        },
+        {
+          "text": "Refererar konkret till att chunkSwedishLaw:s §-regex inte matchar 'Artikel X(Y)'",
+          "passed": true,
+          "evidence": "Citerar regexen `\\d+\\s*[a-z]?\\s*§` och förklarar att den 'helt enkelt aldrig' matchar 'Artikel 5(2)'."
+        },
+        {
+          "text": "Implementerar inte en ändring av LegalChunker/chunkSwedishLaw utan beslut",
+          "passed": true,
+          "evidence": "Ingen kod skriven; endast ADP-utkast med explicit 'Ingen kod ska skrivas förrän detta är beslutat'."
+        },
+        {
+          "text": "Behandlar situationen som ett fit-gap via ADP snarare än 'kör igenom en befintlig strategi'",
+          "passed": true,
+          "evidence": "Fullständigt ADP-dokument med ny föreslagen TextChunkKind 'eu_directive', tydligt skilt från standard/law/court/evidence."
+        }
+      ],
+      "notes": []
+    },
+    {
+      "eval_id": 1,
+      "configuration": "with_skill",
+      "run_number": 1,
+      "result": {
+        "pass_rate": 1.0,
+        "passed": 5,
+        "failed": 0,
+        "total": 5,
+        "time_seconds": 643.8,
+        "tokens": 76111,
+        "tool_calls": 0,
+        "errors": 0
+      },
+      "expectations": [
+        {
+          "text": "Skriver inte någon ny chunking-funktion eller kod som körs mot dokumenten",
+          "passed": true,
+          "evidence": "\"Jag har inte skrivit någon chunker-kod.\" Endast ett ADP-utkast i markdown."
+        },
+        {
+          "text": "Producerar ett tydligt arkitekturbeslutsunderlag/ADP-liknande dokument",
+          "passed": true,
+          "evidence": "Fullständigt ADP med status/scope/6 sektioner enligt adp-template.md, inklusive checkbox-beslut."
+        },
+        {
+          "text": "Motiverar explicit varför standard-strategin INTE anses passa",
+          "passed": true,
+          "evidence": "Tabellrad: 'standard... Skulle platta ut kapitelstruktur, innehållsförteckning och numrerade rekommendationer - exakt den typen av strukturförlust som räknas som inte passar'."
+        },
+        {
+          "text": "Går igenom samtliga fyra befintliga strategier och förklarar varför de inte passar",
+          "passed": true,
+          "evidence": "Tabell med law/court/evidence/standard och konkret motivering för var och en, plus nyanserad delning i två dokumentkategorier (A/B)."
+        },
+        {
+          "text": "Signalerar tydligt att detta är en begäran om beslut, inte färdig implementation",
+          "passed": true,
+          "evidence": "\"Status: Proposed - awaiting human decision... Ingen kod ska skrivas förrän beslut fattats\" + tre explicit checkbox-alternativ (godkänn/avslå/skjut upp)."
+        }
+      ],
+      "notes": []
+    },
+    {
+      "eval_id": 0,
+      "configuration": "without_skill",
+      "run_number": 1,
+      "result": {
+        "pass_rate": 1.0,
+        "passed": 5,
+        "failed": 0,
+        "total": 5,
+        "time_seconds": 161.1,
+        "tokens": 80939,
+        "tool_calls": 0,
+        "errors": 0
+      },
+      "expectations": [
+        {
+          "text": "Identifierar explicit att court-strategin semantiskt passar dokumenten",
+          "passed": true,
+          "evidence": "\"själva chunkningslogiken för domar behöver inte ändras... är helt filnamnsoberoende.\""
+        },
+        {
+          "text": "Föreslår inte en ny chunking-funktion eller ny TextChunkKind",
+          "passed": true,
+          "evidence": "Inget förslag om ny strategi."
+        },
+        {
+          "text": "Ändrar inte chunkCourtDecision:s regex/rubrikdetektion",
+          "passed": true,
+          "evidence": "\"Ingen ändring behövs i chunkCourtDecision()/LegalChunker.ts\"."
+        },
+        {
+          "text": "Föreslår en konkret routing-lösning för att fånga den nya källan",
+          "passed": true,
+          "evidence": "Rekommenderar att sätta sourceSystem enligt DOMSTOL_*-konvention, plus komplettera filnamnsheuristiken i två filer."
+        },
+        {
+          "text": "Nämner explicit vilken av de två routing-vägarna förslaget gäller",
+          "passed": true,
+          "evidence": "Går igenom både routeToCorrectChunker och DocumentClassifier/TextIngestionPipeline i detalj, inklusive confidence-skillnad."
+        }
+      ],
+      "notes": []
+    },
+    {
+      "eval_id": 3,
+      "configuration": "without_skill",
+      "run_number": 1,
+      "result": {
+        "pass_rate": 0.2,
+        "passed": 1,
+        "failed": 4,
+        "total": 5,
+        "time_seconds": 154.3,
+        "tokens": 38919,
+        "tool_calls": 0,
+        "errors": 0
+      },
+      "expectations": [
+        {
+          "text": "Redigerar inte chunkCourtDecision:s regex direkt utan föregående beslut",
+          "passed": true,
+          "evidence": "\"Jag har inte ändrat något i koden\" - men levererar färdig ersättningsregex att klistra in direkt."
+        },
+        {
+          "text": "Identifierar explicit att ändringen skulle förändra chunk-output för befintliga dokument",
+          "passed": false,
+          "evidence": "Ingen diskussion om effekt på redan chunkade/embeddade domar; svaret är rent en regex-bugganalys."
+        },
+        {
+          "text": "Flaggar att text/v2.3 inte får muteras semantiskt i efterhand",
+          "passed": false,
+          "evidence": "text/v2.3, ChunkVersion.ts eller chunk-identitet nämns aldrig i svaret."
+        },
+        {
+          "text": "Kräver ett explicit beslut om ny version innan implementation",
+          "passed": false,
+          "evidence": "Inget krav på versionsbeslut - svaret avslutas med en ren rekommendation om vilken regex-ändring som ger 'störst sannolik vinst', redo att appliceras."
+        },
+        {
+          "text": "Behandlar detta som ett versioneringsproblem, inte som ett routing-problem",
+          "passed": false,
+          "evidence": "Behandlas uteslutande som en regex-bugg att fixa, inte som en kontraktsändring."
+        }
+      ],
+      "notes": []
+    },
+    {
+      "eval_id": 2,
+      "configuration": "without_skill",
+      "run_number": 1,
+      "result": {
+        "pass_rate": 0.5,
+        "passed": 2,
+        "failed": 2,
+        "total": 4,
+        "time_seconds": 478.7,
+        "tokens": 50911,
+        "tool_calls": 0,
+        "errors": 0
+      },
+      "expectations": [
+        {
+          "text": "Väljer inte automatiskt law-strategin bara för att det är juridisk text",
+          "passed": true,
+          "evidence": "Identifierar korrekt att law inte matchar och föreslår istället en ny 'chunkEuDirective'-funktion snarare än att tvinga in i law."
+        },
+        {
+          "text": "Refererar konkret till att chunkSwedishLaw:s §-regex inte matchar 'Artikel X(Y)'",
+          "passed": true,
+          "evidence": "Citerar regexen och förklarar att den aldrig matchar 'Artikel 5', 'Artikel 5(2)' eller 'Artikel 12'."
+        },
+        {
+          "text": "Implementerar inte en ändring av LegalChunker/chunkSwedishLaw utan beslut",
+          "passed": false,
+          "evidence": "Levererar fullständig, klistra-in-färdig TypeScript-implementation av en ny chunkEuDirective-funktion plus konkreta patchinstruktioner för TextStructureChunker.ts, och hävdar felaktigt att 'TEXT_CHUNK_VERSION behöver troligen inte bumpas' - presenterar det som redo att implementera direkt på ett 'säg bara till'-sätt, inte som en beslutsspärrad arkitekturfråga."
+        },
+        {
+          "text": "Behandlar situationen som ett fit-gap via ADP snarare än 'kör igenom en befintlig strategi'",
+          "passed": false,
+          "evidence": "Inget formellt ADP/beslutsdokument - presenteras som ett vanligt, klart-att-implementera funktionsförslag med felaktig (för lättvindig) bedömning av versioneringskonsekvenser."
+        }
+      ],
+      "notes": []
+    },
+    {
+      "eval_id": 1,
+      "configuration": "without_skill",
+      "run_number": 1,
+      "result": {
+        "pass_rate": 0.4,
+        "passed": 2,
+        "failed": 3,
+        "total": 5,
+        "time_seconds": 402.7,
+        "tokens": 85765,
+        "tool_calls": 0,
+        "errors": 0
+      },
+      "expectations": [
+        {
+          "text": "Skriver inte någon ny chunking-funktion eller kod som körs mot dokumenten",
+          "passed": true,
+          "evidence": "Inget kod skrivet i detta svar, men slutet bjuder in till att 'gå vidare och implementera routingregeln (steg 2-4)' vilket inkluderar att utöka chunkSwedishLaw's gränslogik."
+        },
+        {
+          "text": "Producerar ett tydligt arkitekturbeslutsunderlag/ADP-liknande dokument",
+          "passed": false,
+          "evidence": "Ger en numrerad 7-stegs implementationsplan ('Konkret förslag till nästa steg'), inte ett formellt beslutsunderlag med status/checkboxar/väntande-beslut-ram. Inget explicit 'detta kräver ett arkitekturbeslut innan kod skrivs'."
+        },
+        {
+          "text": "Motiverar explicit varför standard-strategin INTE anses passa",
+          "passed": false,
+          "evidence": "Nämner att standard är dagens fallback men föreslår sedan att fria vägledningar hanteras 'troligen närmare chunkStandard, men med rubrik-/avsnittsdetektering' - dvs föreslår att bygga ut/blanda standard med ny logik snarare än att avvisa den som otillräcklig och kräva beslut."
+        },
+        {
+          "text": "Går igenom samtliga fyra befintliga strategier och förklarar varför de inte passar",
+          "passed": false,
+          "evidence": "Nämner law/court/evidence kort i inventeringen men gör ingen strukturerad fit-analys av alla fyra mot NFS-dokumentstruktur; hoppar snabbt till lösningsförslag."
+        },
+        {
+          "text": "Signalerar tydligt att detta är en begäran om beslut, inte färdig implementation",
+          "passed": true,
+          "evidence": "\"Jag har medvetet inte gjort några kodändringar... Säg till om ni vill att jag går vidare och implementerar\" - ber om go-ahead, men ramar in det som ett scope-beslut, inte ett arkitektur-/versionsbeslut."
+        }
+      ],
+      "notes": []
+    }
+  ],
+  "run_summary": {
+    "with_skill": {
+      "pass_rate": {
+        "mean": 1.0,
+        "stddev": 0.0,
+        "min": 1.0,
+        "max": 1.0
+      },
+      "time_seconds": {
+        "mean": 261.9,
+        "stddev": 256.1745,
+        "min": 95.6,
+        "max": 643.8
+      },
+      "tokens": {
+        "mean": 53955.75,
+        "stddev": 17537.7179,
+        "min": 35945,
+        "max": 76111
+      }
+    },
+    "without_skill": {
+      "pass_rate": {
+        "mean": 0.525,
+        "stddev": 0.3403,
+        "min": 0.2,
+        "max": 1.0
+      },
+      "time_seconds": {
+        "mean": 299.2,
+        "stddev": 166.3331,
+        "min": 154.3,
+        "max": 478.7
+      },
+      "tokens": {
+        "mean": 64133.5,
+        "stddev": 22810.4665,
+        "min": 38919,
+        "max": 85765
+      }
+    },
+    "delta": {
+      "pass_rate": "+0.47",
+      "time_seconds": "-37.3",
+      "tokens": "-10178"
+    }
+  },
+  "notes": [
+    "eval-court-new-source-fit: både with_skill och without_skill fick 100% - detta var det 'lätta' testfallet (ren routing-fit) och en stark baslinje-modell klarar det redan utan skill. Delta syns i de tre andra fallen.",
+    "eval-naturvardsverket-brochure-adp: without_skill missar 3/5 (ingen formell ADP, avfärdar inte standard tydligt, ytlig fit-analys) men skriver ingen kod och ber om go-ahead - dvs 'mjuk' brist snarare än en farlig kodändring.",
+    "eval-eu-directive-borderline: without_skill missar 2/4 på ett konkret riskfyllt sätt - den levererar en färdig, klistra-in-färdig ny chunker-funktion (chunkEuDirective) och hävdar felaktigt att ingen versionsbump behövs. Det är exakt det felmönster (tyst ny/blandad strategi) skillen är byggd för att förhindra.",
+    "eval-court-version-discipline: without_skill missar 4/5 - hittar bra tekniska buggar (till och med en som with_skill missade: \\b-gränsen som blockerar bestämd form 'SKÄLEN'/'DOMSKÄLEN') men nämner aldrig chunk-identitet, text/v2.3 eller versionsbeslut. Levererar färdig regex redo att klistra in.",
+    "Kvalitetsobservation (inte ett assertion-fail): with_skill-svaret i eval-court-version-discipline var mer försiktigt men mindre tekniskt grundligt än baslinjen - det hittade bara /i-flagg-buggen, inte \\b-gränsproblemet med bestämd form. Skillen bör uppmuntra samma diagnostiska djup som baslinjen visade, inte bara försiktighet.",
+    "Tids- och tokenskillnaden (with_skill snabbare och billigare i snitt) drivs mestadels av eval-naturvardsverket-brochure-adp där baslinjen grävde ovanligt djupt (643s) i näraliggande men strikt taget irrelevanta filer (NFS-namnkollision med Network File System, källregister-ADR) - inte en generell efficiency-vinst att lita på över fler körningar."
+  ]
+}

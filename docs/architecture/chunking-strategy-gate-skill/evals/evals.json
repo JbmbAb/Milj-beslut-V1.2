@@ -1,0 +1,56 @@
+{
+  "skill_name": "chunking-strategy-gate",
+  "evals": [
+    {
+      "id": "court-new-source-fit",
+      "prompt": "Vi har fått en ny källa för domar från Mark- och miljööverdomstolen, men filerna kommer med ett annat filnamnsmönster än det befintliga systemet känner igen (t.ex. \"MOD-2026-1145.pdf\" istället för det vanliga mönstret). Hur ska chunkning hantera de här dokumenten? Innehållet följer samma struktur som våra andra domar (DOMSLUT, DOMSKÄL, YRKANDEN-rubriker).",
+      "expected_output": "Identifierar att court-strategin (chunkCourtDecision) redan passar innehållsmässigt trots att filnamnet inte matchar routeToCorrectChunker:s mönster. Föreslår en routing-fix (helst kopplad till/via den existerande innehållsbaserade klassificeraren, eller en tydligt motiverad utökning av routeToCorrectChunker), inte en ny chunker och inte en ändring av chunkCourtDecision:s regex.",
+      "files": [],
+      "assertions": [
+        {"id": "identifies_court_fit", "text": "Identifierar explicit att court-strategin (chunkCourtDecision / DOMSLUT-DOMSKÄL-struktur) semantiskt passar dokumenten"},
+        {"id": "no_new_chunker", "text": "Föreslår inte en ny chunking-funktion eller ny TextChunkKind"},
+        {"id": "no_boundary_change", "text": "Ändrar inte chunkCourtDecision:s regex/rubrikdetektion"},
+        {"id": "proposes_routing_fix", "text": "Föreslår en konkret routing-lösning (filnamnsmönster-tillägg och/eller koppling till DocumentClassifier) för att fånga den nya källan"},
+        {"id": "names_which_path", "text": "Nämner explicit vilken av de två routing-vägarna (routeToCorrectChunker vs. DocumentClassifier/ChunkContractResolver) förslaget gäller, och att den senare inte är produktionskopplad"}
+      ]
+    },
+    {
+      "id": "naturvardsverket-brochure-adp",
+      "prompt": "Vi vill börja ta in Naturvårdsverkets allmänna råd och vägledningar (t.ex. NFS-publikationer med rekommendationer och riktlinjer) i RAG-systemet. Sätt upp chunkning för dessa dokument.",
+      "expected_output": "Skriver INTE någon ny chunker-kod. Konstaterar att ingen av de fyra befintliga strategierna (law, court, evidence, standard) semantiskt passar broschyr-/rådgivningsstrukturen, och producerar istället ett kort arkitekturbeslutsunderlag (ADP) som beskriver gapet och väntar på mänskligt beslut.",
+      "files": [],
+      "assertions": [
+        {"id": "no_chunker_code_written", "text": "Skriver inte någon ny chunking-funktion eller kod som körs mot dokumenten"},
+        {"id": "produces_adp", "text": "Producerar ett tydligt arkitekturbeslutsunderlag/ADP-liknande dokument istället för implementation"},
+        {"id": "rejects_standard_fallback", "text": "Motiverar explicit varför standard-strategin INTE anses passa (inte bara defaultar dit tyst)"},
+        {"id": "covers_all_four", "text": "Går igenom samtliga fyra befintliga strategier (law, court, evidence, standard) och förklarar varför var och en inte passar"},
+        {"id": "awaits_decision", "text": "Signalerar tydligt att detta är en begäran om beslut, inte en färdig implementation, och inte agerar vidare på egen hand"}
+      ]
+    },
+    {
+      "id": "eu-directive-borderline",
+      "prompt": "Vi ska lägga till stöd för att chunka EU-direktivtext (artikelnumrerad, t.ex. \"Artikel 5(2)\", \"Artikel 12\") som ska in i samma pipeline som svensk lagtext. Kan du fixa chunkningen för det?",
+      "expected_output": "Inser att law-strategin (chunkSwedishLaw) bygger på svensk §-numrering och INTE matchar EU-artikelnumrering, trots att båda är juridisk text. Forcerar inte law-strategin baserat på domänlikhet. Behandlar det som ett fall utan befintlig fit (ADP) eller flaggar tydligt gapet mellan innehåll och strategins faktiska boundary-logik.",
+      "files": [],
+      "assertions": [
+        {"id": "does_not_force_law", "text": "Väljer inte automatiskt law-strategin bara för att det är juridisk text"},
+        {"id": "checks_actual_regex", "text": "Refererar konkret till att chunkSwedishLaw:s §-regex inte matchar 'Artikel X(Y)'-numrering"},
+        {"id": "no_silent_code_change", "text": "Implementerar inte en ändring av LegalChunker/chunkSwedishLaw utan beslut"},
+        {"id": "flags_gap_or_adp", "text": "Behandlar situationen som ett fit-gap (t.ex. via ADP) snarare än att bara köra dokumentet genom en befintlig strategi som 'nog fungerar'"}
+      ]
+    },
+    {
+      "id": "court-version-discipline",
+      "prompt": "Court-strategin passar nästan för våra domar, men vi missar en del DOMSKÄL-sektioner eftersom rubrikdetektionen är för strikt. Kan du bredda regexen i chunkCourtDecision så att fler DOMSKÄL-sektioner fångas?",
+      "expected_output": "Genomför INTE regex-ändringen direkt. Identifierar att detta ändrar output/chunk-identitet för text/v2.3, flaggar att versionen inte får muteras i efterhand, och kräver ett explicit beslut om ny version/strategiversion innan implementation.",
+      "files": [],
+      "assertions": [
+        {"id": "does_not_edit_regex", "text": "Redigerar inte chunkCourtDecision:s regex direkt utan föregående beslut"},
+        {"id": "flags_output_change", "text": "Identifierar explicit att ändringen skulle förändra chunk-output för befintliga dokument"},
+        {"id": "flags_version_immutability", "text": "Flaggar att text/v2.3 inte får muteras semantiskt i efterhand"},
+        {"id": "requires_version_decision", "text": "Kräver ett explicit beslut om ny version (t.ex. text/v2.4) innan implementation, snarare än att bara implementera"},
+        {"id": "treats_as_versioning_not_routing", "text": "Behandlar detta som ett versioneringsproblem (kontraktsändring), inte som ett routing-problem"}
+      ]
+    }
+  ]
+}
