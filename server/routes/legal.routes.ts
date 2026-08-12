@@ -13,6 +13,7 @@ import { z } from 'zod';
 import { requireAuth } from '../security/auth';
 import { rateLimitByUser } from '../security/rateLimit';
 import { toSafeErrorResponse, SecureError } from '../security/secureErrors';
+import { assertPermission } from '../security/projectAccess';
 import type { Prisma } from '@prisma/client';
 import {
   listJudgments,
@@ -300,17 +301,19 @@ router.get('/api/legal/knowledge/search', rateLimitByUser(60, 60_000), async (re
   }
 });
 
-// POST /api/legal/ingest/domstol-rss/run — manuell körning av domstols-RSS (admin only).
+// POST /api/legal/ingest/domstol-rss/run — manuell körning av domstols-RSS för auktoriserad operator.
 router.post(
   '/api/legal/ingest/domstol-rss/run',
   requireAuth,
   rateLimitByUser(5, 60_000),
-  async (_req, res) => {
+  async (req, res) => {
     try {
+      assertPermission(req.authUser!, 'AUDIT_EXPORT');
       const result = await ingestDomstolRssFeed();
       res.json({ ok: true, result, ranAt: new Date().toISOString() });
     } catch (error: unknown) {
-      res.status(500).json(toSafeErrorResponse(error));
+      const safe = toSafeErrorResponse(error);
+      res.status(safe.statusCode ?? 500).json(safe);
     }
   },
 );

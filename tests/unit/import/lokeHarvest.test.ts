@@ -4,6 +4,10 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { DiskQuarantineStorage } from '@miljobeslut/mimers-brunn-core';
 import { MmdAdapter } from '../../../scripts/import/loke/adapters/mmdAdapter';
+import {
+  installSourceRegistryFixtureEnv,
+  writeVerifiedSourceRegistryFixture,
+} from './sourceRegistryFixture';
 
 describe('🜂 Loke Harvest Agent — Ingestion & Contract (LSF-02)', () => {
   let tempDir: string;
@@ -20,6 +24,7 @@ describe('🜂 Loke Harvest Agent — Ingestion & Contract (LSF-02)', () => {
     process.env.SKIP_DISK_SPACE_CHECK = 'true';
     process.env.SKIP_DISK_CHECK = 'true';
     process.env.NODE_ENV = 'test';
+    installSourceRegistryFixtureEnv(await writeVerifiedSourceRegistryFixture(tempDir));
 
     // Rensa modul-cachen för att garantera att lokeRuntime läser av det nya tillståndet
     vi.resetModules();

@@ -1,0 +1,949 @@
+{
+  "schema_version": 2,
+  "updated_at": "2026-08-11",
+  "status": "DRAFT_BLOCKED",
+  "notes": [
+    "This authority map is an inventory/control draft, not a frozen architecture contract.",
+    "A1-A3 are incorporated: package_class, module_role, and proof_status are separate dimensions.",
+    "required_proof_execution records whether each proof file is actually executed by a Vitest project/lane in the current vitest.config.ts.",
+    "No production code, guardrail, lane split, quarantine move, or deletion is authorized by this draft.",
+    "BLOCKED: no guardrail, proof-split, or authority-related implementation may be frozen until A1-A3 are corrected here AND the open authority decisions are frozen."
+  ],
+
+  // ---------------------------------------------------------------------------------------
+  // Normative rule, owner decision 2026-08-11: PROVEN is a RESULT, not a document label.
+  // An entry may carry proof_status "PROVEN" only if ALL FOUR hold. A test file does not
+  // count as required_proof merely because it exists on disk.
+  // ---------------------------------------------------------------------------------------
+  "proven_criteria": [
+    "invariant_is_explicitly_defined",
+    "test_is_actually_executed_by_a_named_lane",
+    "test_exercises_the_production_path_not_only_a_fixture_or_stub",
+    "test_is_green_in_that_defined_proof_lane"
+  ],
+
+  "jsonc_parser_sanity": {
+    "status": "PASS",
+    "executed_on": "2026-08-12",
+    "tool": "jsonc-parser@3.3.1",
+    "execution_note": "Validated with a temporary npm prefix outside the workspace; no package.json or workspace node_modules dependency change.",
+    "command": "$toolDir = Join-Path $env:TEMP 'codex-jsonc-parser-tool'; npm install --prefix $toolDir jsonc-parser@3.3.1 --no-save --silent; $env:NODE_PATH = Join-Path $toolDir 'node_modules'; node -e \"const fs=require('fs'); const {parse}=require('jsonc-parser'); const text=fs.readFileSync('docs/architecture/architecture-authority-map.jsonc','utf8'); const errors=[]; parse(text, errors, { allowTrailingComma: true }); process.exit(errors.length ? 1 : 0);\""
+  },
+
+  "proof_status_enum": ["PROVEN", "UNPROVEN", "KNOWN_BROKEN"],
+
+  "normative_decisions_2026_08_11": [
+    "ARCHITECTURE DECISION: LU is an active MVP domain/product lane and owns NO promotion or CAS authority.",
+    "A1: QuarantinePromoter.ts was classified LEGACY_AUTHORITY_BYPASS / KNOWN_BROKEN before the enforcement fix. It was NOT to be legitimized as staging CAS. Renaming the bypass did not make it valid; the write was to be removed from the authority path and is now covered by A1_AUTHORITY_ENFORCEMENT_GREEN_PROOF.",
+    "A1: Pre-approval material belongs in non-authoritative quarantine/archive storage. Canonical CAS persistence may occur ONLY through Mimers Brunn's governed promotion path with valid authority and attestation binding.",
+    "A1: An explicit negative/red test is required BEFORE any production code is changed.",
+    "A2: A test file counts as required_proof only when executed by a named, reproducible test/CI lane.",
+    "A3: package_class, module_role and proof_status are separate dimensions; 'legacy' must never be applied to the whole LU product lane when only a specific authority bypass is legacy/sidetrack.",
+    "Task #19 (Source Registry schema convergence) is promoted to a PRE-PROOF-SPLIT BLOCKER."
+  ],
+  "authorities": [
+    {
+      "id": "quarantine-promotion-live",
+      "package_class": "ACTIVE",
+      "module_role": "CANONICAL_AUTHORITY",
+      "proof_status": "PROVEN",
+      "owner_package": "mimers-brunn-core",
+      "file": "packages/mimers-brunn-core/src/governance/DatasetApproval.ts",
+      "authority": "Permanent quarantine-to-CAS promotion",
+      "required_proof": [
+        "tests/unit/mimers/quarantinePromotionAttestation.test.ts",
+        "tests/unit/mimers/approval.test.ts",
+        "tests/unit/mimers/tv-l1-e2e.test.ts",
+        "tests/unit/governanceRoutes.test.ts"
+      ],
+      "required_proof_execution": [
+        {
+          "file": "tests/unit/mimers/quarantinePromotionAttestation.test.ts",
+          "exists": true,
+          "vitest_project": "unit",
+          "include_glob": "**/unit/**/*.test.ts",
+          "execution_status": "EXECUTED_BY_PROJECT",
+          "proof_status": "PROVEN"
+        },
+        {
+          "file": "tests/unit/mimers/approval.test.ts",
+          "exists": true,
+          "vitest_project": "unit",
+          "include_glob": "**/unit/**/*.test.ts",
+          "execution_status": "EXECUTED_BY_PROJECT",
+          "proof_status": "PROVEN"
+        },
+        {
+          "file": "tests/unit/mimers/tv-l1-e2e.test.ts",
+          "exists": true,
+          "vitest_project": "unit",
+          "include_glob": "**/unit/**/*.test.ts",
+          "execution_status": "EXECUTED_BY_PROJECT",
+          "proof_status": "PROVEN"
+        },
+        {
+          "file": "tests/unit/governanceRoutes.test.ts",
+          "exists": true,
+          "vitest_project": "unit",
+          "include_glob": "**/unit/**/*.test.ts",
+          "execution_status": "EXECUTED_BY_PROJECT",
+          "proof_status": "PROVEN"
+        }
+      ],
+      "invariant": "Promotion requires a signed ArtifactAttestation bound to action, artifact id, content hash, governance release, signer key, and approver fields before any CAS write."
+    },
+    {
+      "id": "mps-data-governance-import-gate",
+      "package_class": "ACTIVE",
+      "module_role": "ISOLATED_GATE_NOT_LIVE_ROUTE",
+      "proof_status": "PROVEN",
+      "owner_package": "mps-data-governance",
+      "file": "packages/mps-data-governance/src/ImportGate.ts",
+      "authority": "Isolated import decision gate for manifest approval",
+      "required_proof": [
+        "packages/mps-data-governance/tests/ImportGate.test.ts",
+        "packages/mps-data-governance/tests/FileCheckpointStoreLoadApproval.test.ts"
+      ],
+      "required_proof_execution": [
+        {
+          "file": "packages/mps-data-governance/tests/ImportGate.test.ts",
+          "exists": true,
+          "vitest_project": "compliance",
+          "include_glob": "packages/mps-data-governance/**/*.test.ts",
+          "execution_status": "EXECUTED_BY_PROJECT",
+          "proof_status": "PROVEN"
+        },
+        {
+          "file": "packages/mps-data-governance/tests/FileCheckpointStoreLoadApproval.test.ts",
+          "exists": true,
+          "vitest_project": "compliance",
+          "include_glob": "packages/mps-data-governance/**/*.test.ts",
+          "execution_status": "EXECUTED_BY_PROJECT",
+          "proof_status": "PROVEN"
+        }
+      ],
+      "invariant": "Approval artifacts must be hash/signature verified before role enforcement, but this package is not the live governance route."
+    },
+    {
+      "id": "lu-local-quarantine-promoter",
+      "package_class": "ACTIVE_MVP_NOT_AUTHORITY_OWNER",
+      "module_role": "LU_LOCAL_MATERIALIZER_NOT_AUTHORITY",
+      "proof_status": "PROVEN",
+      "owner_package": "mps-lu",
+      "file": "packages/mps-lu/src/loke/QuarantinePromoter.ts",
+      "authority": "LU-local document evidence materialization from quarantine. Primary export is DocumentEvidenceMaterializer; QuarantinePromoter is deprecated compatibility alias.",
+      "required_proof": [
+        "packages/mps-lu/tests/A1AuthorityEnforcement.test.ts",
+        "packages/mps-lu/tests/LokeIngestion.test.ts"
+      ],
+      "required_proof_execution": [
+        {
+          "file": "packages/mps-lu/tests/A1AuthorityEnforcement.test.ts",
+          "exists": true,
+          "vitest_project": "compliance",
+          "include_glob": "packages/mps-lu/**/*.test.ts",
+          "execution_status": "EXECUTED_BY_PROJECT",
+          "proof_status": "PROVEN"
+        },
+        {
+          "file": "packages/mps-lu/tests/LokeIngestion.test.ts",
+          "exists": true,
+          "vitest_project": "compliance",
+          "include_glob": "packages/mps-lu/**/*.test.ts",
+          "execution_status": "EXECUTED_BY_PROJECT",
+          "proof_status": "PROVEN_FOR_A1_LOCAL_MATERIALIZATION"
+        }
+      ],
+      "proof_registry_integrity_note": {
+        "finding_id": "AUTHORITY_MAP_NONEXISTENT_REQUIRED_PROOF",
+        "status": "RESOLVED_STALE_REFERENCE_REMOVED",
+        "removed_reference": "tests/unit/architectureAuthorityMap.test.ts",
+        "actual_state": {
+          "file_exists": false,
+          "executable": false,
+          "lane_reachable": false
+        },
+        "reason": "The missing file was registered as INVENTORY_ONLY and was not required for A1 red/green enforcement. Creating an empty test to satisfy the registry would have produced false proof integrity.",
+        "does_not_invalidate": [
+          "A1 historical red proof",
+          "A1 enforcement green proof",
+          "SR1 proof",
+          "Domstol RSS proof",
+          "property fallback proof"
+        ]
+      },
+      "proof_reason": "A1_ENFORCEMENT_GREEN_PROOF_EXECUTED",
+      "pre_fix_known_broken_invariant": "A1: QuarantinePromoter.ts:63-67 performed a permanent cas.put(...) with no attestation, and LUEndToEnd.test.ts:18-19,29 injected the REAL MimersIntegration.create().artifactRepository as that cas port. This established a forbidden capability against the canonical repository. Later precision: no production callers were found, so this was a capability/authority violation, not a proven runtime-reachable production incident.",
+      "resolved_decision_2026_08_11": "Section 4.1 is RESOLVED, and NOT in favour of staging. The staging-CAS option is explicitly REJECTED: this module must not be legitimized by renaming its write surface. Pre-approval material belongs in non-authoritative quarantine/archive storage. Canonical CAS persistence may occur ONLY through Mimers Brunn's governed promotion path with valid authority and attestation binding. The write is to be removed from the authority path.",
+      "required_before_production_change": "SATISFIED 2026-08-11 — see executed_red_proof below.",
+      "executed_red_proof": {
+        "proof_id": "A1_AUTHORITY_BYPASS_RED_PROOF",
+        "proof_status": "ESTABLISHED_RED_PROOF",
+        "semantics": "ESTABLISHED_RED_PROOF != PROVEN. What is established is the EXISTENCE of the contract violation — nothing else.",
+        "executed": true,
+        "executed_on": "2026-08-11",
+        "invariant_status": "VIOLATED",
+        "capability_status": "KNOWN_BROKEN",
+        "executed_from_path": "packages/mps-lu/tests/A1AuthorityBypass.red.test.ts",
+        "historical_artifact_path": "packages/mps-lu/tests/A1AuthorityBypass.red.test.ts.historical",
+        "historical_proof": "ESTABLISHED_RED_PROOF",
+        "active_test": false,
+        "historisation_reason": "The prohibited capability reproduced by this test was removed by construction. Re-executing the historical reproducer against the repaired implementation would fail because the old API no longer exists, not because A1 remains violated. Renamed (content byte-identical, 6636 bytes, not edited) so it falls outside every vitest include glob. No vitest.config.ts change was made.",
+        "must_not_be_rewritten_as": "'test passed after fix'. It never did and never will — it reproduces a capability that no longer exists.",
+        "command_as_executed": "npx vitest run packages/mps-lu/tests/A1AuthorityBypass.red.test.ts",
+        "result": {
+          "tests": 1,
+          "passed": 0,
+          "failed": 1,
+          "expected_failure": true,
+          "it_block_crosscheck": "1 it() block in file == 1 test reported — matches"
+        },
+        "failure_reason": "A1 VIOLATED",
+        "evidence": {
+          "canonical_writes": ["doc_ev_doc-a1-red-proof"],
+          "canonical_repository_resolution": true,
+          "attestation_supplied": false,
+          "canonical_promotion_path_used": false
+        },
+        "why_resolution_matters": "canonical_repository_resolution: true separates this from a shallow 'LU called put()' finding. The artifact became genuinely retrievable through the canonical repository facade — the write landed; it was not a no-op, an intercepted call, or a mock assertion.",
+        "proves": "LU can persist a canonical artifact into the Mimers repository without passing the canonical governed promotion/attestation path.",
+        "proof_precision_2026_08_11": {
+          "capability_violation": "PROVEN",
+          "production_reachability": "NOT_PROVEN — no production callers found",
+          "call_graph_evidence": "grep across packages/, server/, scripts/ finds DocumentEvidenceMaterializer constructed ONLY in four test files (A1AuthorityBypass.red, LokeIngestion, LUEndToEnd, VerticalProof) plus two audit tests that reference the filename as a string. No server route, script, or other package constructs it.",
+          "why_this_distinction_matters": "The red proof establishes that the component CAN write directly to the canonical repository facade without attestation. It does NOT establish a currently runtime-reachable production bypass. Both statements must be kept separate so the proof classification stays exact.",
+          "does_not_reduce_severity": "An active LU component must not carry the wrong write capability merely because it currently has no callers. The architectural defect is still to be fixed; only the reachability claim is narrowed."
+        },
+        "does_not_prove": [
+          "that the enforcement fix works",
+          "that P1 is closed",
+          "that LU is PROVEN",
+          "that the broader compliance suite is healthy"
+        ],
+        "program_effect": {
+          "P1_enforcement": "KNOWN_BROKEN",
+          "P1_enforcement_proof": "COMPLETE_RED",
+          "P1_overall": "OPEN"
+        },
+        "next_work_unit": "SUPERSEDED — see enforcement_green_proof below. The original plan (same test red→green) was abandoned for a documented reason: the red test encodes the broken state in a precondition assertion ('the LU-written artifact must actually be present in the canonical repository'), which becomes false by design once the bypass is removed. Rewriting it would have repaired the test instead of the architecture. A separate green target was created instead."
+      },
+      "enforcement_green_proof": {
+        "proof_id": "A1_AUTHORITY_ENFORCEMENT_GREEN_PROOF",
+        "proof_status": "PROVEN",
+        "executed": true,
+        "executed_on": "2026-08-12",
+        "note": "Executed locally in the Windows workspace. This is the separate green enforcement proof; it does not rewrite or replace the historical red proof.",
+        "test": "packages/mps-lu/tests/A1AuthorityEnforcement.test.ts",
+        "it_block_count": 5,
+        "command": "npx vitest run packages/mps-lu/tests/A1AuthorityEnforcement.test.ts",
+        "result": { "test_files": 1, "tests": 5, "passed": 5, "failed": 0 },
+        "it_block_crosscheck": "5 it() blocks counted in the file == 5 tests reported. Verified 2026-08-12. Without this check a reported count can hide tests that were never discovered.",
+        "proven_criteria_check": {
+          "comment": "The four frozen criteria from proven_criteria above, evidenced individually. PROVEN is a result, not a label.",
+          "invariant_is_explicitly_defined": "YES — A1, stated verbatim in the test header and in this entry's invariant field.",
+          "test_is_actually_executed_by_a_named_lane": "YES — packages/mps-lu/**/*.test.ts is in vitest project 'compliance'; the run was executed and reported.",
+          "test_exercises_the_production_path_not_only_a_fixture_or_stub": "YES — real MimersIntegration.create() composition root (the same facade server/index.ts reaches via createKernelArtifactRepository); real canonical QuarantinePromoter over DiskQuarantineStorage + FileCASRepository; plus prototype/source checks against the actual production module.",
+          "test_is_green_in_that_defined_proof_lane": "YES — 5/5, and 30/30 across the 6-file governance regression."
+        },
+        "owner_tightening_after_authoring": "State 3 was extended to assert that neither DocumentEvidenceMaterializer.prototype.promote nor the deprecated LU QuarantinePromoter alias retains or reintroduces promote(). This closes the re-introduction route through the alias, which the authored draft did not cover.",
+        "regression_command": "npx vitest run packages/mps-lu/tests/A1AuthorityEnforcement.test.ts packages/mps-lu/tests/LokeIngestion.test.ts tests/unit/mimers/approval.test.ts tests/unit/mimers/quarantinePromotionAttestation.test.ts tests/unit/mimers/tv-l1-e2e.test.ts tests/unit/governanceRoutes.test.ts",
+        "regression_result": { "test_files": 6, "passed_files": 6, "tests": 30, "passed": 30, "failed": 0 },
+        "broader_lu_regression_note": "A broader exploratory run including packages/mps-lu/tests/LUEndToEnd.test.ts and packages/mps-lu/tests/VerticalProof.test.ts remains red for already separate LU maturity issues: document findings are ignored by the current LU kernel path (F4), ViewerCapabilityArtifact lacks viewer_identity_ref (F8), and replay receives an undefined artifact id (F9). Those failures are not A1 enforcement failures and remain outside this proof.",
+        "proves_three_states": {
+          "1_without_canonical_attestation": "LU performs zero canonical writes AND the materialized artifact is NOT resolvable from the canonical Mimers repository. Plus a structural check that the constructor takes exactly one argument, so a re-introduced write capability fails immediately.",
+          "2_through_canonical_governed_promotion": "Invalid attestation → rejected, item stays 'quarantined', nothing persisted. Valid attestation → promotion succeeds, content retrievable from canonical CAS, status 'promoted'.",
+          "3_no_alternative_lu_write_path": "Source scan of packages/mps-lu/src/loke/QuarantinePromoter.ts plus prototype checks prove the LU document-evidence materializer and its deprecated alias expose no repository-shaped write path and no old promote() bypass API."
+        },
+        "canonical_repository_resolution_semantics": {
+          "red_proof": "unauthorized write → resolvable    = violation proven",
+          "green_proof": "unauthorized write → NOT resolvable = enforcement proven; authorized write → resolvable = governed persistence proven",
+          "note": "The evidence dimension is preserved in both proofs. Only its direction changed."
+        },
+        "scope_honesty": "State 2 proves that the governed route EXISTS and ENFORCES attestation before persistence. It does NOT claim LU rides that route. Under the repaired architecture LU does not own the persistence capability at all, so 'LU uses the promoter' is not a property to prove. The canonical promoter is dataset-approval shaped (promote(quarantineId, attestation, governanceRelease) → DatasetApprovalArtifact); an LU→governed bridge is a separate, not-yet-built work unit.",
+        "production_fix": {
+          "file": "packages/mps-lu/src/loke/QuarantinePromoter.ts",
+          "change": "Removed the ArtifactRepositoryPort constructor parameter and the cas.put(...) call. Renamed promote() → materialize().",
+          "mechanism": "CAPABILITY REMOVAL BY CONSTRUCTION — stronger than keeping the write capability behind a runtime check and hoping every call site validates correctly.",
+          "collateral_required_by_the_fix": [
+            "packages/mps-lu/tests/LokeIngestion.test.ts — 1-arg construction, materialize(), and step 5 inverted: it previously asserted 'verify it now exists in CAS', which was literally an assertion that the bypass worked.",
+            "packages/mps-lu/tests/LUEndToEnd.test.ts — 1-arg construction, materialize().",
+            "packages/mps-lu/tests/VerticalProof.test.ts — 1-arg construction, materialize()."
+          ],
+          "not_touched": "vitest.config.ts, tsconfig.json, spatial code, legal corpus, viewer, CI lanes, the @deprecated QuarantinePromoter alias (FAS 2.2, separate unit)."
+        },
+        "status_after_green": {
+          "A1_historical_violation_proof": "ESTABLISHED_RED_PROOF",
+          "A1_forbidden_capability": "REMOVED_BY_CONSTRUCTION",
+          "A1_enforcement_green_proof": "PROVEN",
+          "production_reachability_of_old_path": "NOT_APPLICABLE / REMOVED",
+          "P1_enforcement": "PROVEN",
+          "P1_overall": "OPEN — see p1_closure_state below. The earlier wording ('still OPEN unless F0D contract closure is also satisfied') is STALE: F0D is frozen, yet P1 must not close.",
+          "P1_overall_stale_wording_replaced_on": "2026-08-12"
+        },
+        "p1_closure_state": {
+          "comment": "P1 is named 'Authority & Governance Convergence' — not 'authority decisions taken'. Closing it while a central authority exists only as a frozen contract would be exactly the over-classification this programme was built to eliminate: design/contract closure mistaken for runtime convergence.",
+          "contract_closure": "SATISFIED — F0D frozen 2026-08-11",
+          "enforcement_proof": "PROVEN — A1 red ESTABLISHED + A1 green PROVEN + forbidden LU capability REMOVED_BY_CONSTRUCTION",
+          "runtime_authority_convergence": "PROVEN_FOR_KNOWN_P1_SURFACES — SR1/Loke is GREEN/PROVEN; open datasource sync is classified/fixed; sync-manifest is classified/fixed as project-scoped operational indexing; Domstol RSS is SourceRegistry/route-policy fixed; property lookup fallback now fails closed without authority-bearing writes.",
+          "P1_overall": "READY_FOR_CLOSURE_REVIEW — owner closure pending; not marked CLOSED by implementation alone.",
+          "remaining_blocker": "None known after C-P1-04. Closure review must confirm no documented P1 surface remains KNOWN_BROKEN.",
+          "what_F0D_freeze_means": "WHAT SourceRegistry must be — frozen. THAT Loke runtime uses it is proven by SR1 green. Known non-Loke source/write blockers are now fixed or scoped for P1.",
+          "gate_model_correction": "The original two-gate model (contract closure + enforcement proof) was too narrow while Source Registry was unimplemented. A third gate is a precision of what P1 already means, not new roadmap scope.",
+          "closure_rule": "P1 CLOSED iff contract closure AND enforcement proof AND system-wide runtime authority convergence.",
+          "system_wide_runtime_convergence_rule": "Every runtime-reachable authority-bearing source-resolution/ingestion path must either (1) resolve through canonical SourceRegistry/F0D authority, or (2) be explicitly classified as non-authoritative/out-of-scope with proof that it cannot establish canonical knowledge state.",
+          "third_gate_requirements": [
+            "1. Canonical SourceRegistry V2/F0D model exists in runtime.",
+            "2. Harvest/source/ingestion runtime resolves source authority through that model wherever the path can establish authority-bearing knowledge state.",
+            "3. The hard-coded parallel registry is no longer an independent authority. It may remain only as migration input/projection if explicitly classified.",
+            "4. Registry approval/identity follows the frozen authority contract.",
+            "5. Runtime-reachable proofs demonstrate the canonical path and the absence/scoping of alternatives.",
+            "6. Negative guardrails prove old parallel authorities cannot be used as alternative authoritative paths.",
+            "7. Loke repair alone was insufficient for P1 closure. The known additional surfaces now have executed green/scoping proofs; P1 is ready for closure review, not automatically closed."
+          ]
+        }
+      },
+      "invariant": "LU owns no promotion or CAS authority. It must not be imported by live server governance routes, must not be treated as permanent governance promotion authority, and its document-evidence materializer must not perform permanent CAS writes. The previous direct write capability is removed by construction and covered by the executed green enforcement proof above."
+    },
+    {
+      "id": "source-registry-parallel-authority",
+      "finding_id": "SOURCE_REGISTRY_PARALLEL_AUTHORITY",
+      "package_class": "ACTIVE",
+      "module_role": "HISTORICAL_LEGACY_AUTHORITY_BYPASS / LEGACY_CATALOG",
+      "proof_status": "PROVEN",
+      "proof_reason": "SR1 green enforcement proof executed 2026-08-12. Loke runtime/scheduler/plan/contract no longer import the hard-coded legacy registry and now require verified F0D SourceRegistryArtifact materialization before adapter dispatch, URL gating, network I/O or quarantine persistence.",
+      "owner_package": "server-import-loke",
+      "file": "server/modules/harvest/source-registry/registry.ts",
+      "authority": "Former hard-coded SOURCE_REGISTRY authority for Loke. It may remain only as a legacy catalog/projection; it is no longer on the Loke operational authority path.",
+      "reachability": {
+        "comment": "Deliberately TWO dimensions, not one boolean. A single `runtime_reachable` flag would let 'not imported by the server' be misread later as 'not production reachable'.",
+        "server_runtime_reachable": "NOT_PROVEN — zero references from server/ to registry.ts, lokeRuntime, lokeScheduler, harvestPlan or executeLokeHarvest. No HTTP surface.",
+        "operational_runtime_reachable": true,
+        "production_reachability": "PROVEN",
+        "reachability_class": "OPERATOR_CLI / SCHEDULED_RUNTIME",
+        "rule_applied": "Operator CLI counts as production reachability when the CLI is an intended operational path that can run against real environment/data and is not explicitly test-only, dev-only or quarantined. P1 is authority convergence, not the HTTP server's import graph.",
+        "reachability_path": "HISTORICAL_RED: operator CLI / scheduler → lokeScheduler.ts:232 → executeLokeHarvestForSource → lokeRuntime.ts:22,39,62,133 getSourceDefinition/isUrlAllowedForSource → legacy hard-coded registry → adapter dispatch → fetch(). GREEN_CURRENT: lokeScheduler/lokeRuntime/harvestPlan/contract → packages/mps-data-governance/src/SourceRegistry.ts verified F0D materialization.",
+        "why_not_blocked_like_the_others": "All five npm-registered harvest scripts (harvest:sfs|regulatory|municipal|court|parallel) throw via assertNotQuarantined() before any registry lookup. Neither lokeScheduler.ts nor lokeRuntime.ts carries any quarantine marker, assertNotQuarantined(), or approval check. The quarantine appears to have been applied to the four workers written last and to have missed the runtime that executes them.",
+        "ci_reachable": false
+      },
+      "authority_impact": "Loke parallel source authority removed. System-wide P1 remains open because other source/write authority surfaces are tracked separately under additional-source-authority-surfaces.",
+      "observed_runtime_surfaces": [
+        "loke_scheduler",
+        "open_datasource_sync",
+        "legal_domstol_rss_ingest",
+        "search_sync_manifest"
+      ],
+      "closure_rule": "P1 runtime authority convergence cannot close merely because the Loke registry path is repaired; every authority-bearing production source-resolution path must either resolve through canonical SourceRegistry/F0D or be explicitly classified as non-authoritative / out-of-scope.",
+      "blocks": {
+        "P1_runtime_authority_convergence": "NO_FOR_LOKE_PATH_ONLY — see additional-source-authority-surfaces for remaining P1 blockers.",
+        "P1_overall": "NO_BY_ITSELF"
+      },
+      "required_proof": [
+        "tests/unit/import/SR1SourceRegistryParallelAuthority.red.test.ts.historical",
+        "tests/unit/import/SR1SourceRegistryAuthorityEnforcement.test.ts"
+      ],
+      "missing_proof": [],
+      "executed_red_proof": {
+        "proof_id": "SR1_SOURCE_REGISTRY_PARALLEL_AUTHORITY_RED_PROOF",
+        "proof_status": "ESTABLISHED_RED_PROOF",
+        "semantics": "ESTABLISHED_RED_PROOF != PROVEN. What is established is the EXISTENCE of the runtime authority-convergence violation.",
+        "executed": true,
+        "executed_on": "2026-08-12",
+        "invariant_status": "VIOLATED",
+        "test": "tests/unit/import/SR1SourceRegistryParallelAuthority.red.test.ts",
+        "historized_path": "tests/unit/import/SR1SourceRegistryParallelAuthority.red.test.ts.historical",
+        "vitest_project": "unit at execution time; historical file is intentionally outside the active include glob after green enforcement.",
+        "include_glob": "**/unit/**/*.test.ts at execution time",
+        "command": "npx vitest run tests/unit/import/SR1SourceRegistryParallelAuthority.red.test.ts",
+        "result": {
+          "test_files": 1,
+          "passed_files": 0,
+          "failed_files": 1,
+          "tests": 1,
+          "passed": 0,
+          "failed": 1,
+          "expected_failure": true,
+          "it_block_crosscheck": "1 it() block in file == 1 test reported — matches"
+        },
+        "failure_reason": "SR1 VIOLATED",
+        "evidence": {
+          "legacy_source_resolved": true,
+          "legacy_adapter_selected": "mmd_v1",
+          "legacy_allowed_domain_gate_used": true,
+          "canonical_source_registry_consulted": false,
+          "canonical_authority_claim_precision": "Canonical authority was not present/consulted on this operational path; no canonical registry-runtime exists to spy on as a negative call.",
+          "outbound_fetch_calls": [
+            "https://www.domstol.se/nacka-tingsratt/dom-m-1234-26.pdf",
+            "https://www.domstol.se/nacka-tingsratt/mkb-m-1234-26.pdf",
+            "https://www.domstol.se/nacka-tingsratt/teknisk-m-1234-26.pdf",
+            "https://www.domstol.se/nacka-tingsratt/kontroll-m-1234-26.pdf"
+          ],
+          "attestation_verified": false,
+          "run_status": "completed",
+          "documents_found": 4
+        },
+        "precondition_held": {
+          "held": true,
+          "why_it_matters": "The test's precondition requires the run to reach outbound I/O. Had documents_found been 0 or fetch never been called, the precondition would have failed FIRST and the invariant would never have been measured — that outcome is UNEXECUTED/INVALID, not ESTABLISHED. Four outbound fetch calls were recorded, so the run reached actual harvest logic AFTER legacy source/adapter/gate selection.",
+          "distinguishes": "ESTABLISHED_RED_PROOF vs UNEXECUTED/INVALID"
+        },
+        "scope_discipline_held": [
+          "No production code changed — the step added exactly one untracked test file.",
+          "lokeScheduler deliberately NOT imported: its self-executing block is SR2 (LOKE_SCHEDULER_IMPORT_SIDE_EFFECT), a separate invariant that must not be collapsed into this failure reason.",
+          "No quarantine marker added to lokeRuntime/lokeScheduler before the run — that would have made the deviation unmeasurable.",
+          "QUARANTINE_ROOT redirected to a temp directory; the real master archive was never touched.",
+          "globalThis.fetch stubbed — no external network I/O; failure attributable to the authority boundary, never to network, DB, keys or archive state."
+        ],
+        "proves": "The operational Loke harvest path can resolve source authority from the legacy hard-coded registry, select its adapter, pass its allowed-domain gate, and reach outbound I/O without a canonical SourceRegistry/F0D authority being present or consulted.",
+        "does_not_prove": [
+          "that the green enforcement fix works",
+          "that P1 is closed",
+          "that all observed runtime surfaces are repaired",
+          "that every direct database or archive write is a governance violation"
+        ],
+        "program_effect": {
+          "SR1_invariant": "VIOLATED",
+          "SR1_red_proof": "ESTABLISHED_RED_PROOF",
+          "parallel_authority_operational_reach": "PROVEN",
+          "P1_runtime_authority_convergence": "KNOWN_BROKEN_AT_RED_TIME",
+          "P1_overall": "OPEN"
+        },
+        "stop_rule": "STOP after registering this failure evidence. Do not quarantine lokeScheduler/lokeRuntime, implement SourceRegistry, or repair SR2/scheduler behavior in the same work unit."
+      },
+      "executed_green_proof": {
+        "proof_id": "SR1_SOURCE_REGISTRY_AUTHORITY_ENFORCEMENT_GREEN_PROOF",
+        "proof_status": "PROVEN",
+        "executed": true,
+        "executed_on": "2026-08-12",
+        "test": "tests/unit/import/SR1SourceRegistryAuthorityEnforcement.test.ts",
+        "vitest_project": "unit",
+        "include_glob": "**/unit/**/*.test.ts",
+        "command": "npx vitest run tests/unit/import/SR1SourceRegistryAuthorityEnforcement.test.ts",
+        "result": {
+          "test_files": 1,
+          "passed_files": 1,
+          "failed_files": 0,
+          "tests": 4,
+          "passed": 4,
+          "failed": 0
+        },
+        "nearest_regression_command": "npx vitest run tests/unit/import/SR1SourceRegistryAuthorityEnforcement.test.ts tests/unit/import/lokeHarvest.test.ts tests/unit/import/lokeScheduler.test.ts tests/unit/import/sourceRegistry.test.ts packages/mps-data-governance/tests/TierSchemas.test.ts tests/unit/mimers/tv-l1-e2e.test.ts",
+        "nearest_regression_result": "6 test files passed, 25 tests passed",
+        "typecheck": "Ad hoc tsc --noEmit over SourceRegistry + touched Loke/test files passed.",
+        "proves": [
+          "No verified SourceRegistryArtifact -> no adapter dispatch, no network I/O, no quarantine persistence.",
+          "Tampered SourceRegistryArtifact -> materialization denied before network I/O.",
+          "Governance-approved SourceRegistryArtifact -> Loke harvest and quarantine persistence allowed.",
+          "lokeRuntime, lokeScheduler, harvestPlan and contract have no import path back to server/modules/harvest/source-registry/registry.ts."
+        ],
+        "program_effect": {
+          "SR1_invariant": "ENFORCED_FOR_LOKE_OPERATIONAL_PATH",
+          "SR1_green_proof": "PROVEN",
+          "legacy_parallel_registry_for_loke": "REMOVED_FROM_OPERATIONAL_AUTHORITY_PATH",
+          "P1_runtime_authority_convergence": "INCOMPLETE — other C2 surfaces remain",
+          "P1_overall": "OPEN"
+        }
+      },
+      "red_test_design_requirement": "The SR1 red test MUST demonstrate an AUTHORITY RESULT, not merely an import chain. It must show: legacy registry selected/resolved a source, the canonical SourceRegistry was NOT consulted, and the operation proceeded far enough to demonstrate authority use. A test that only shows 'lokeScheduler imports registry.ts' is reachability evidence, not authority-bypass evidence. Suggested measurement point: spy on fetch and prove it is called before any attestation verification — the same tamper-before-network pattern used at Level 2.",
+      "do_not_do_before_red_proof": "Do NOT add quarantine markers to lokeScheduler.ts or lokeRuntime.ts before the red proof has been executed. Blocking the path first would make the existing deviation unmeasurable — the same trap as A1's precondition assertion.",
+      "invariant": "SR1 — No harvest execution path SHALL resolve source authority from an implementation that is not a verified materialization of a governance-approved SourceRegistryArtifact."
+    },
+    {
+      "id": "additional-source-authority-surfaces",
+      "finding_id": "C2_RUNTIME_SOURCE_AND_WRITE_AUTHORITY_SURFACES",
+      "package_class": "ACTIVE",
+      "module_role": "RUNTIME_AUTHORITY_CONVERGENCE_EVIDENCE",
+      "proof_status": "PROVEN",
+      "proof_reason": "C2 read-only write-capability audit completed 2026-08-12. All known additional P1 source/write authority surfaces are now fixed, scoped, or guarded: open datasource sync is non-authoritative and route-policy fixed; sync-manifest is project-scoped operational indexing with request-selected path override disabled by default; Domstol RSS is SourceRegistry/route-policy fixed; property lookup fallback now fails closed without authority-bearing writes.",
+      "owner_package": "server-routes / server-services / server-modules-legal",
+      "raised_by": "Owner, 2026-08-12 — 'håll /api/datasources/open/sync, Domstol RSS och sync-manifest kvar i samma P1-riskbild. Att Loke repareras räcker inte för P1 closure om någon av de andra fortfarande fungerar som självständig source authority.'",
+      "c2_audit": {
+        "audit_type": "READ_ONLY_WRITE_CAPABILITY_SCAN",
+        "executed_on": "2026-08-12",
+        "scope_order": [
+          "A. server/ runtime-reachable writes",
+          "B. scripts/import + operator/worker writes",
+          "C. packages/ production-capability writes",
+          "D. test-only and migration-only last"
+        ],
+        "classification_rule": "Prisma/CAS/filesystem write != automatic governance violation. The audit flags the combination of runtime_reachable + authority-bearing state + absent/unclear canonical source/provenance gate.",
+        "no_code_changed": true
+      },
+      "surfaces": [
+        {
+          "surface": "POST /api/datasources/open/sync",
+          "finding_id": "OPEN_DATASOURCE_SYNC_OPERATIONAL_HEALTH_CHECK",
+          "status": "CLASSIFIED_NON_AUTHORITY_OPERATIONAL_HEALTH_CHECK / ROUTE_POLICY_FIXED",
+          "classification": "NON_AUTHORITY_OPERATIONAL_HEALTH_CHECK",
+          "files": [
+            "server/routes/datasource.routes.ts:77",
+            "server/routes/gis.routes.ts:1050"
+          ],
+          "server_runtime_reachable": true,
+          "effective_route_due_to_mount_order": "server/createApp.ts mounts gisRouter at line 180 before datasourceRouter at line 193. The gis.routes.ts handler sends the response and does not call next(), so the datasource.routes.ts AUDIT_EXPORT-gated handler is shadowed for this path.",
+          "guards_present_effective": "requireAuth + rateLimitByUser(10, 60_000) + assertPermission(AUDIT_EXPORT)",
+          "guards_present_shadowed_handler": "requireAuth + rateLimitByUser(10, 60_000) + assertPermission(AUDIT_EXPORT)",
+          "source_selection_without_F0D": true,
+          "writes_permanent_knowledge_state": false,
+          "write_evidence": "No Prisma/CAS/filesystem writes found in fetchImmediateOpenSources(); it performs hard-coded endpoint checks and returns samples/status to the caller.",
+          "initial_observation": "DUPLICATE ROUTE REGISTRATION — the same POST path is registered in two separate route files. The effective handler is the earlier gisRouter registration, which lacks the AUDIT_EXPORT permission check present in datasource.routes.ts.",
+          "closure_condition": "Excluded from P1 runtime authority convergence as non-authoritative/read-only operational health checking. Duplicate route/mount-order remains architectural cleanup, but access-policy drift is fixed on the effective handler.",
+          "audit_status": "CLASSIFIED_AND_ROUTE_POLICY_FIXED_2026_08_12",
+          "executed_proof": {
+            "proof_id": "OPEN_DATASOURCE_SYNC_ROUTE_POLICY_GREEN_PROOF",
+            "proof_status": "PROVEN",
+            "test": "tests/unit/gisRoutes.test.ts",
+            "command": "npx vitest run tests/unit/gisRoutes.test.ts",
+            "result": "1 test file passed, 11 tests passed",
+            "proves": [
+              "Unauthenticated request is denied.",
+              "CONSULTANT is denied before fetchImmediateOpenSources() is called.",
+              "ADMIN may execute the read-only health sync."
+            ]
+          },
+          "blocks": {
+            "P1_closure_review": "NO — non-authority path, no permanent knowledge-state write",
+            "route_access_policy_review": "NO — effective handler now has the same AUDIT_EXPORT gate as the shadowed datasource.routes.ts handler",
+            "route_dedup_cleanup": "YES — duplicate route/mount-order cleanup remains non-P1 architectural hygiene"
+          }
+        },
+        {
+          "surface": "property lookup fallback",
+          "finding_id": "PROPERTY_UNIT_RUNTIME_WRITE_BYPASS",
+          "status": "PROVEN_FIXED / CLOSED_FOR_P1",
+          "classification": "FALLBACK_AUTHORITY_WRITES_REMOVED_BY_CONSTRUCTION",
+          "files": [
+            "server/routes/property.routes.ts:46",
+            "server/routes/property.routes.ts:66",
+            "server/services/propertyUnitService.ts:96"
+          ],
+          "runtime_reachable": true,
+          "runtime_reachability": "HTTP route → requireAuth → PROPERTY_LOOKUP + project membership → lookupPropertyByDesignationFromPostgis → exact/fuzzy PostGIS read-model lookup. On miss, the path now fails closed and performs no fallback materialization writes.",
+          "historical_authority_bearing_writes_removed": [
+            "core.property_unit",
+            "env.sgu_well_actual",
+            "env.natura2000_area",
+            "env.ebh_potentiellt_fororenade_omraden",
+            "documentRecord",
+            "documentContent"
+          ],
+          "historical_write_evidence": [
+            "server/services/propertyUnitService.ts:155 INSERT INTO core.property_unit",
+            "server/services/propertyUnitService.ts:183 INSERT INTO env.sgu_well_actual",
+            "server/services/propertyUnitService.ts:215 INSERT INTO env.natura2000_area",
+            "server/services/propertyUnitService.ts:239 INSERT INTO env.ebh_potentiellt_fororenade_omraden",
+            "server/services/propertyUnitService.ts:273 prisma.documentRecord.create",
+            "server/services/propertyUnitService.ts:290 prisma.documentContent.create"
+          ],
+          "gate_before_write": [
+            "authenticated user",
+            "PROPERTY_LOOKUP permission",
+            "project membership",
+            "PostGIS read-model hit only — no fallback writes remain on miss"
+          ],
+          "canonical_source_provenance_gate": "Not bypassed by this runtime path after fix. The lookup service no longer attempts canonical source ingestion on miss; it only reads existing PostGIS materialization and fails closed when absent.",
+          "why_it_matters": "The previous runtime request path both materialized source/geodata facts and wrote permanent spatial/document read-model state without a proven source/provenance admission. The fix removes the write capability instead of inventing a new parallel ingestion pipeline.",
+          "four_question_resolution": {
+            "external_source_authority_on_postgis_miss": "None allowed after fix. Miss no longer fabricates Lantmateriet/SGU/Natura2000/EBH/doc source facts.",
+            "projection_vs_authority_writes": "Exact/fuzzy PostGIS results are read-model projection reads. The removed fallback writes to core.property_unit, env.*, documentRecord and documentContent were authority-bearing because they established new durable facts.",
+            "governed_provenance_before_writes": "Absent historically; no longer required in this path because writes are removed. Future property/geodata ingestion must use a separate governed ingestion/admission path.",
+            "canonical_replacement_without_parallel_pipeline": "No new runtime pipeline was built. Replacement for lookup-time fallback is fail-closed; governed ingestion is deferred to existing P2/P4 authority tracks."
+          },
+          "cross_links": [
+            "packages/mps-data-governance/src/GovernedWriteCapability.ts:263 calls this the sharpest POSTGIS_RAW_WRITE legacy holder",
+            "packages/mps-data-governance/src/GovernedWriteCapability.ts:270 lists server/services/propertyUnitService.ts as legacy"
+          ],
+          "executed_green_proof": {
+            "proof_id": "PROPERTY_LOOKUP_FALLBACK_AUTHORITY_ENFORCEMENT_GREEN_PROOF",
+            "proof_status": "PROVEN",
+            "test": "tests/unit/propertyLookupFallbackAuthorityEnforcement.test.ts",
+            "vitest_project": "unit",
+            "include_glob": "**/unit/**/*.test.ts",
+            "command": "npx vitest run tests/unit/propertyLookupFallbackAuthorityEnforcement.test.ts",
+            "result": {
+              "test_files": 1,
+              "passed_files": 1,
+              "tests": 2,
+              "passed": 2,
+              "failed": 0
+            },
+            "nearest_regression_command": "npx vitest run tests/unit/propertyLookupFallbackAuthorityEnforcement.test.ts tests/unit/propertyUnitService.test.ts tests/unit/propertyLookup.test.ts tests/unit/server.security.projectAccess.test.ts",
+            "nearest_regression_result": {
+              "test_files": 4,
+              "passed_files": 4,
+              "tests": 54,
+              "passed": 54,
+              "failed": 0
+            },
+            "p1_system_green_command": "npx vitest run packages/mps-lu/tests/A1AuthorityEnforcement.test.ts tests/unit/import/SR1SourceRegistryAuthorityEnforcement.test.ts tests/unit/import/sourceRegistry.test.ts tests/unit/import/lokeHarvest.test.ts tests/unit/import/lokeScheduler.test.ts tests/unit/gisRoutes.test.ts tests/unit/searchRoutes.test.ts tests/unit/legalDomstolRssAuthorityEnforcement.test.ts tests/unit/domstolRssService.test.ts tests/unit/propertyLookupFallbackAuthorityEnforcement.test.ts tests/unit/propertyUnitService.test.ts tests/unit/server.security.projectAccess.test.ts",
+            "p1_system_green_result": {
+              "test_files": 12,
+              "passed_files": 12,
+              "tests": 93,
+              "passed": 93,
+              "failed": 0
+            },
+            "proves": [
+              "PostGIS miss rejects with no $executeRaw writes.",
+              "PostGIS miss rejects with no documentRecord/documentContent writes.",
+              "PostGIS miss does not append successful property-access audit records.",
+              "Exact PostGIS read-model lookup still returns geometry and still audits the successful read."
+            ]
+          },
+          "blocks": {
+            "P1_runtime_authority_convergence": "NO — fallback authority writes removed by construction",
+            "HM-P": "NO for this surface"
+          }
+        },
+        {
+          "surface": "Domstol RSS ingest route",
+          "finding_id": "LEGAL_RSS_SOURCE_AUTHORITY_BYPASS",
+          "status": "PROVEN_FIXED / CLOSED_FOR_P1",
+          "classification": "SOURCE_REGISTRY_AUTHORITY_ENFORCED",
+          "files": [
+            "server/routes/legal.routes.ts:303",
+            "server/services/domstolRssService.ts:87",
+            "server/repositories/legalSourceRepository.ts:16",
+            "server/repositories/legalSourceRepository.ts:94"
+          ],
+          "runtime_reachable": true,
+          "canonical_source_registry_consulted": true,
+          "authority_bearing_writes": [
+            "judgmentRecord",
+            "legalSourceRecord",
+            "requirementMatrixRow",
+            "async RAG ingest trigger"
+          ],
+          "write_evidence": [
+            "server/services/domstolRssService.ts:129 upsertJudgment",
+            "server/services/domstolRssService.ts:145 upsertLegalSourceWithMatrix",
+            "server/repositories/legalSourceRepository.ts:16 legalSourceRecord.upsert",
+            "server/repositories/legalSourceRepository.ts:94 requirementMatrixRow.upsert"
+          ],
+          "gate_before_write": [
+            "requireAuth",
+            "rateLimitByUser(5, 60_000)",
+            "assertPermission(AUDIT_EXPORT)",
+            "verified F0D SourceRegistryArtifact materialization for source_id domstol_rss",
+            "adapter == domstol_rss_v1",
+            "endpoint_url allowed by allowed_domains"
+          ],
+          "canonical_source_provenance_gate": "present — ingestDomstolRssFeed resolves getVerifiedSourceDefinition('domstol_rss') before fetch, judgmentRecord, legalSourceRecord or requirementMatrixRow writes.",
+          "executed_red_proof": {
+            "proof_id": "LEGAL_RSS_SOURCE_AUTHORITY_BYPASS_RED_PROOF",
+            "proof_status": "ESTABLISHED_RED_PROOF",
+            "semantics": "ESTABLISHED_RED_PROOF != PROVEN. What is established is the existence of the reachable source-authority violation.",
+            "executed": true,
+            "executed_on": "2026-08-12",
+            "test": "tests/unit/legalDomstolRssAuthority.red.test.ts",
+            "vitest_project": "unit",
+            "include_glob": "**/unit/**/*.test.ts",
+            "command": "npx vitest run tests/unit/legalDomstolRssAuthority.red.test.ts",
+            "result": {
+              "test_files": 1,
+              "failed_files": 1,
+              "tests": 2,
+              "failed": 2,
+              "expected_failure": true
+            },
+            "failure_reason": "LEGAL_RSS_SOURCE_AUTHORITY_BYPASS VIOLATED",
+            "evidence": {
+              "hard_coded_domstol_feed_used": true,
+              "fetch_call": "https://www.domstol.se/feed/15972/?scope=decision&searchPageId=15972",
+              "judgment_upserts": 1,
+              "legal_source_matrix_upserts": 1,
+              "canonical_source_registry_consulted": false,
+              "canonical_symbols_found": []
+            },
+            "precondition_held": {
+              "held": true,
+              "why_it_matters": "The proof reached both the hard-coded RSS fetch and legal state write mocks before the invariant assertion failed. If fetch or writes had not been reached, the proof would be UNEXECUTED/INVALID rather than ESTABLISHED_RED_PROOF."
+            },
+            "program_effect": {
+              "LEGAL_RSS_SOURCE_AUTHORITY_BYPASS": "VIOLATED",
+              "P1_runtime_authority_convergence": "KNOWN_BROKEN",
+              "P1_overall": "OPEN"
+            },
+            "stop_rule": "STOP after registering red evidence. Do not implement the canonical Domstol RSS convergence fix in the same work unit."
+          },
+          "executed_green_proof": {
+            "proof_id": "LEGAL_RSS_AUTHORITY_ENFORCEMENT_GREEN_PROOF",
+            "proof_status": "PROVEN",
+            "executed": true,
+            "executed_on": "2026-08-12",
+            "test": "tests/unit/legalDomstolRssAuthorityEnforcement.test.ts",
+            "vitest_project": "unit",
+            "include_glob": "**/unit/**/*.test.ts",
+            "command": "npx vitest run tests/unit/legalDomstolRssAuthorityEnforcement.test.ts",
+            "result": {
+              "test_files": 1,
+              "passed_files": 1,
+              "tests": 4,
+              "passed": 4,
+              "failed": 0
+            },
+            "nearest_regression_command": "npx vitest run tests/unit/legalDomstolRssAuthorityEnforcement.test.ts tests/unit/domstolRssService.test.ts tests/unit/domstolRssSchedulerService.test.ts tests/unit/server.security.projectAccess.test.ts",
+            "nearest_regression_result": {
+              "test_files": 4,
+              "passed_files": 4,
+              "tests": 45,
+              "passed": 45,
+              "failed": 0
+            },
+            "historical_red_proof_path": "tests/unit/legalDomstolRssAuthority.red.test.ts.historical",
+            "proves": [
+              "CONSULTANT cannot start POST /api/legal/ingest/domstol-rss/run.",
+              "ADMIN can start the manual Domstol RSS ingest handler.",
+              "Domstol RSS fetch URL is derived from verified SourceRegistry/F0D source_id domstol_rss.",
+              "Without the verified canonical source definition, fetch and legal writes are not reached.",
+              "The old hard-coded RSS URL constant is no longer present in domstolRssService.ts."
+            ]
+          },
+          "blocks": {
+            "P1_runtime_authority_convergence": "NO — SourceRegistry authority enforced for Domstol RSS",
+            "P5_legal_knowledge_maturity": "NO for this surface"
+          }
+        },
+        {
+          "surface": "Domstol RSS route role gate",
+          "finding_id": "LEGAL_RSS_ROUTE_ROLE_GATE_MISMATCH",
+          "status": "PROVEN_FIXED / CLOSED_FOR_P1",
+          "classification": "ROUTE_OPERATOR_PERMISSION_ENFORCED",
+          "files": [
+            "server/routes/legal.routes.ts:303",
+            "server/security/auth.ts:129",
+            "server/createApp.ts:184"
+          ],
+          "observed": [
+            "Historical red proof showed the comment claimed 'admin only' while route code was gated by requireAuth + rateLimitByUser only.",
+            "requireAuth verifies token and assigns req.authUser; it does not enforce role.",
+            "The effective route now calls assertPermission(req.authUser, 'AUDIT_EXPORT') before ingestDomstolRssFeed()."
+          ],
+          "executed_red_proof": {
+            "proof_id": "LEGAL_RSS_ROUTE_ROLE_GATE_RED_PROOF",
+            "proof_status": "ESTABLISHED_RED_PROOF",
+            "executed": true,
+            "executed_on": "2026-08-12",
+            "test": "tests/unit/legalDomstolRssAuthority.red.test.ts",
+            "vitest_project": "unit",
+            "include_glob": "**/unit/**/*.test.ts",
+            "command": "npx vitest run tests/unit/legalDomstolRssAuthority.red.test.ts",
+            "failure_reason": "LEGAL_RSS_ROUTE_ROLE_GATE_MISMATCH VIOLATED",
+            "evidence": {
+              "route": "POST /api/legal/ingest/domstol-rss/run",
+              "comment_claim": "admin only",
+              "middleware": [
+                "requireAuth",
+                "rateLimitByUser(5, 60_000)"
+              ],
+              "caller_role": "CONSULTANT",
+              "response_status": 200,
+              "ingest_called": 1
+            },
+            "precondition_held": {
+              "held": true,
+              "why_it_matters": "The proof confirmed that a CONSULTANT request reached the route and invoked ingestDomstolRssFeed before the invariant assertion failed."
+            },
+            "program_effect": {
+              "LEGAL_RSS_ROUTE_ROLE_GATE_MISMATCH": "VIOLATED",
+              "route_access_policy_review": "KNOWN_BROKEN",
+              "P1_overall": "OPEN"
+            },
+            "stop_rule": "STOP after registering red evidence. The green fix must be a separate work unit."
+          },
+          "executed_green_proof": {
+            "proof_id": "LEGAL_RSS_AUTHORITY_ENFORCEMENT_GREEN_PROOF",
+            "proof_status": "PROVEN",
+            "test": "tests/unit/legalDomstolRssAuthorityEnforcement.test.ts",
+            "command": "npx vitest run tests/unit/legalDomstolRssAuthorityEnforcement.test.ts",
+            "result": "1 test file passed, 4 tests passed",
+            "nearest_regression_result": "4 test files passed, 45 tests passed",
+            "historical_red_proof_path": "tests/unit/legalDomstolRssAuthority.red.test.ts.historical"
+          },
+          "required_next_check": "None for this surface. Route role gate is proven fixed; P1 closure review is now owner-pending after C-P1-04.",
+          "blocks": {
+            "P1_closure_review": "NO for this surface",
+            "route_access_policy_review": "NO for this route",
+            "P5_legal_knowledge_maturity": "NO for this surface"
+          }
+        },
+        {
+          "surface": "sync-manifest",
+          "finding_id": "SEARCH_MANIFEST_WRITE_BOUNDARY",
+          "status": "CLASSIFIED_PROJECT_OPERATIONAL_INDEXING / GUARDRAILS_PROVEN",
+          "classification": "PROJECT_SCOPED_DOCUMENT_INDEX_WRITE_BOUNDARY_NON_F0D",
+          "files": [
+            "server/routes/datasource.routes.ts",
+            "server/services/searchService.ts",
+            "server/services/searchWorker.ts",
+            "server/modules/search/adapters/searchRepository.ts"
+          ],
+          "server_runtime_reachable": true,
+          "runtime_reachability": "POST /api/search/sync-manifest → enqueueSearchJob(SYNC_MANIFEST) → processSearchJobsOnce → syncManifestMetadata/extract/chunk/embed worker chain.",
+          "writes": [
+            "DocumentRecord",
+            "DocumentContent",
+            "DocumentChunk",
+            "SearchJob"
+          ],
+          "manifest_authority": "PROJECT_OPERATIONAL_INDEXING — not a national/canonical SourceRegistry materialization path. manifestPath and outlookBaseDir now come from OUTLOOK_* config by default; request-body path override is rejected unless ALLOW_SEARCH_MANIFEST_PATH_OVERRIDE=true.",
+          "gate_before_write": [
+            "requireAuth",
+            "rateLimitByUser",
+            "rateLimitByOrg",
+            "assertPermission(AUDIT_EXPORT)",
+            "assertProjectMembership(projectId)"
+          ],
+          "write_evidence": [
+            "server/modules/search/adapters/searchRepository.ts:89 documentRecord.upsert",
+            "server/modules/search/adapters/searchRepository.ts:171 searchJob.create",
+            "server/modules/search/adapters/searchRepository.ts:322 documentContent.upsert",
+            "server/modules/search/adapters/searchRepository.ts:339 documentChunk.deleteMany",
+            "server/modules/search/adapters/searchRepository.ts:344 documentChunk.create"
+          ],
+          "canonical_source_authority": "Not applicable for P1/F0D closure after classification: this route is explicitly project-scoped operational document indexing, not canonical national source authority. It must not be used as a National Knowledge Corpus ingestion path.",
+          "current_classification": "Closed for P1 runtime authority convergence as explicitly non-F0D project operational indexing. It writes permanent project search state, so it remains subject to project/document security review, but it is no longer an unresolved SourceRegistry authority blocker.",
+          "executed_proof": {
+            "proof_id": "SEARCH_MANIFEST_PROJECT_INDEXING_GUARDRAIL_GREEN_PROOF",
+            "proof_status": "PROVEN",
+            "test": "tests/unit/searchRoutes.test.ts",
+            "command": "npx vitest run tests/unit/searchRoutes.test.ts",
+            "result": "1 test file passed, 10 tests passed",
+            "nearest_regression_command": "npx vitest run tests/unit/gisRoutes.test.ts tests/unit/searchRoutes.test.ts",
+            "nearest_regression_result": "2 test files passed, 21 tests passed",
+            "proves": [
+              "SYNC_MANIFEST requires AUDIT_EXPORT before enqueueing SearchJob.",
+              "CONSULTANT cannot enqueue/process sync-manifest even with projectId.",
+              "Request-selected manifestPath/outlookBaseDir is rejected by default.",
+              "Explicit env opt-in is required for custom manifest path override."
+            ]
+          },
+          "blocks": {
+            "P1_closure_review": "NO — classified and guardrails proven for P1/F0D purposes",
+            "project_document_security_review": "YES — separate from P1, because the route writes project search state"
+          }
+        }
+      ],
+      "governed_write_capability_cross_link": {
+        "file": "packages/mps-data-governance/src/GovernedWriteCapability.ts",
+        "meaning": "GovernedWriteCapability answers 'who can write?' at capability/chokepoint level. This C2 entry answers whether that write-capability is runtime-reachable, what state it writes, and which authority gate precedes it. Neither entry should be closed alone when both describe the same runtime surface.",
+        "known_legacy_holders": [
+          "server/services/propertyUnitService.ts",
+          "server/modules/legal/services/evidenceExtractionService.ts",
+          "server/modules/search/adapters/searchRepository.ts"
+        ]
+      },
+      "why_this_entry_exists": "P1 is authority CONVERGENCE. Repairing Loke alone does not close P1 if any of these still functions as an independent source/write authority. Recorded now so the SR1 green target is not scoped too narrowly and so these are not silently forgotten.",
+      "blocks": {
+        "P1_runtime_authority_convergence": "NO known remaining blocker after C-P1-04.",
+        "P1_closure_review": "READY — owner closure review may now decide whether P1 can be marked CLOSED."
+      },
+      "next_step": "P1 closure review. Do not touch LU/F0C until owner releases the LU gate.",
+      "invariant": "No route, service or worker SHALL act as an independent source authority outside the canonical governance-approved SourceRegistry contract."
+    },
+    {
+      "id": "loke-scheduler-import-side-effect",
+      "finding_id": "LOKE_SCHEDULER_IMPORT_SIDE_EFFECT",
+      "package_class": "ACTIVE",
+      "module_role": "IMPLICIT_RUNTIME_ACTIVATION",
+      "proof_status": "KNOWN_BROKEN",
+      "program_parent": "P7",
+      "runtime_reachable": true,
+      "owner_package": "server-import-loke",
+      "file": "scripts/import/loke/lokeScheduler.ts",
+      "lines": "293-300",
+      "trigger": "module import when NODE_ENV != 'test'",
+      "evidence": "if (typeof process !== 'undefined' && process.env.NODE_ENV !== 'test') { const execute = process.argv.includes('--execute'); runScheduler({ execute }).catch(...) } — this executes on import, not only on explicit invocation.",
+      "risk": "Scheduler/runtime activation is implicit rather than explicit. An unintentional production import can activate runtime behaviour without any explicit activation or governance gate.",
+      "kept_separate_from": "SOURCE_REGISTRY_PARALLEL_AUTHORITY — these are two different invariants and must not be collapsed into one failure reason. SR1-green proves that the Loke scheduler/runtime source authority path uses canonical F0D SourceRegistry authority; SR2 is therefore runtime lifecycle/operations risk, not a competing source-authority blocker.",
+      "blocks": {
+        "P1": "NO — after SR1-green this does not make a competing source authority reachable",
+        "HM-1": "NO unless LU runtime is later shown to depend on this activation path",
+        "HM-P": "YES"
+      },
+      "invariant": "SR2 — Importing a scheduler/runtime module SHALL NOT cause execution side effects without explicit runtime activation and a governance gate."
+    },
+    {
+      "id": "mps-governance-actor-trust",
+      "package_class": "RETIRED_CANDIDATE",
+      "module_role": "UNWIRED_ACTOR_TRUST_MODEL",
+      "proof_status": "UNPROVEN",
+      "proof_reason": "TEST_EXISTS_BUT_IS_NOT_EXECUTED",
+      "owner_package": "mps-governance",
+      "file": "packages/mps-governance/src/actors/ActorArtifact.ts",
+      "authority": "Potential Level 3 individual actor/trust-anchor authority",
+      "required_proof": [
+        "packages/mps-governance/tests/ADR23Compliance.test.ts"
+      ],
+      "required_proof_execution": [
+        {
+          "file": "packages/mps-governance/tests/ADR23Compliance.test.ts",
+          "exists": true,
+          "vitest_project": null,
+          "include_glob": null,
+          "execution_status": "NO_MATCHING_VITEST_PROJECT_INCLUDE",
+          "proof_status": "UNPROVEN"
+        }
+      ],
+      "invariant": "Must be separately audited and placed in an executable proof lane before it becomes a live trust root for signer-to-actor authority."
+    },
+    {
+      "id": "spatial-presentation-evidence-boundary",
+      "finding": "SPATIAL_PRESENTATION_EVIDENCE_BYPASS",
+      "package_class": "ACTIVE",
+      "module_role": "PRESENTATION_OUTSIDE_EVIDENCE_PATH",
+      "proof_status": "KNOWN_BROKEN",
+      "proof_reason": "PRESENTATION_QUERIES_READ_MODEL_DIRECTLY",
+      "runtime_reachable": true,
+      "owner_package": "server-gis-routes",
+      "file": "server/routes/gis.routes.ts",
+      "authority": "NONE — presentation only. Recorded here because it is the only runtime-reachable spatial path and it sits outside the evidence chain.",
+      "authority_impact": "Presentation/evidence boundary violation — not a forged authority. Deliberately NOT classified as LEGACY_AUTHORITY_BYPASS, which would blur that category.",
+      "evidence": [
+        "server/routes/gis.routes.ts imports only SPATIAL_LAYER_REGISTRY (a constant) from packages/spatial-provider-postgis; it does not use any ISpatialProvider",
+        "route queries prisma directly and renders via GeoPresentationAdapter; produces no SpatialEvidenceArtifact",
+        "grep confirms zero server/ references to SpatialProviderPostGIS or PostgisSpatialProvider — neither provider is runtime-reachable"
+      ],
+      "violates": [
+        "ADR-SPATIAL-PRESENTATION-EVIDENCE-CONTRACT (ACCEPTED/SEQUENCE FROZEN): presentation clients are pure visualizers of verified evidence, not independent GIS query engines",
+        "ADR-29 constitutional invariant: presentation/tool clients may consume and visualize spatial evidence, never determine truth"
+      ],
+      "blocks_p3_hm1": "NO — unless LU evidence/viewer runtime is shown to depend on this route. Requires concrete reachability evidence before it may be treated as an LU blocker.",
+      "blocks_hm_p": "YES",
+      "blocks_spatial_presentation_conformance": "YES",
+      "fallback_semantics_invariant": "featureCollectionFallback() is not forbidden per se. Degraded UI (empty FeatureCollection + explicit warning + evidence-unavailable signal) is acceptable. The binding invariant is narrower: presentation failure SHALL NEVER be semantically equivalent to verified absence of spatial evidence. A DB/query failure rendering as 'inga objekt hittades' would convert unknown/error into negative evidence.",
+      "required_proof": [],
+      "missing_proof": [
+        "No test asserts that this route's output is not treated as evidence.",
+        "No test distinguishes 'query failed' from 'zero features found' at the presentation boundary."
+      ]
+    },
+    {
+      "id": "source-registry-runtime",
+      "package_class": "ACTIVE",
+      "module_role": "CANONICAL_RUNTIME_MATERIALIZATION_FOR_LOKE / LEGACY_PROJECTION_SUPERSEDED",
+      "proof_status": "PROVEN",
+      "owner_package": "mps-data-governance / server-import-loke",
+      "file": "packages/mps-data-governance/src/SourceRegistry.ts",
+      "superseded_legacy_file": "server/modules/harvest/source-registry/registry.ts",
+      "authority": "Canonical F0D SourceRegistry materialization used by Loke runtime before adapter dispatch, URL gating, network I/O or quarantine persistence.",
+      "required_proof": [
+        "tests/unit/import/SR1SourceRegistryAuthorityEnforcement.test.ts"
+      ],
+      "required_proof_execution": [
+        {
+          "file": "tests/unit/import/SR1SourceRegistryAuthorityEnforcement.test.ts",
+          "exists": true,
+          "vitest_project": "unit",
+          "include_glob": "**/unit/**/*.test.ts",
+          "execution_status": "EXECUTED_BY_PROJECT",
+          "proof_status": "PROVEN"
+        }
+      ],
+      "proof_reason": "SR1 green enforcement proof executed 2026-08-12. F0D is frozen and Loke now materializes only verified, governance-approved SourceRegistryArtifact entries. The previous hard-coded registry remains a legacy catalog/projection and is not imported by Loke's operational authority path.",
+      "blocker_class": "RESOLVED_FOR_LOKE_PATH",
+      "same_file_as": "Previously paired with source-registry-parallel-authority when the legacy file was both the desired projection target and the observed bypass. After SR1 green, the canonical runtime is packages/mps-data-governance/src/SourceRegistry.ts; the legacy file is superseded for Loke authority.",
+      "blocker": "Resolved for Loke operational source authority. Additional-source-authority-surfaces now records the known non-Loke P1 surfaces as fixed, scoped, or guarded; P1 overall is READY_FOR_CLOSURE_REVIEW pending release-integrity review.",
+      "invariant": "Loke source authority MUST be a verified materialization of a governance-approved SourceRegistryArtifact before any adapter dispatch, URL gate, network I/O or quarantine persistence."
+    }
+  ]
+}

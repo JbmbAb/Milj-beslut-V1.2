@@ -1,0 +1,185 @@
+import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import * as fs from 'node:fs';
+import * as os from 'node:os';
+import * as path from 'node:path';
+
+import { executeLokeHarvestForSource } from '../../../scripts/import/loke/lokeRuntime';
+
+/**
+ * ⛔ SR1 — EXECUTED RED PROOF. This test is EXPECTED TO FAIL against the current
+ * implementation. It is NOT a regression; it is the executed proof of a known,
+ * classified authority bypass.
+ *
+ *   Invariant under test:
+ *     SR1 — No harvest execution path SHALL resolve source authority from an
+ *           implementation that is not a verified materialization of a
+ *           governance-approved SourceRegistryArtifact.
+ *
+ *   Registered as:  architecture-authority-map.jsonc
+ *                   → id: "source-registry-parallel-authority"
+ *                   → finding_id: SOURCE_REGISTRY_PARALLEL_AUTHORITY
+ *                   → proof_status: KNOWN_BROKEN
+ *                   → production_reachability: PROVEN (OPERATOR_CLI / SCHEDULED_RUNTIME)
+ *
+ *   WHY THIS TARGETS executeLokeHarvestForSource AND NOT registry.ts:
+ *     A test proving only that `lokeScheduler imports registry.ts` is reachability
+ *     evidence, not authority-bypass evidence. This test drives the same entry point the
+ *     operator path drives — lokeScheduler.ts:232 calls
+ *     `executeLokeHarvestForSource(source.sourceId, { execute: true })` — and observes an
+ *     AUTHORITY RESULT: which registry selected the source, which adapter it dispatched,
+ *     and which component gated the outbound URL.
+ *
+ *     lokeScheduler itself is deliberately NOT imported here: it carries a self-executing
+ *     block (lokeScheduler.ts:293-300) that runs on import when NODE_ENV !== 'test'. That
+ *     is a SEPARATE finding (LOKE_SCHEDULER_IMPORT_SIDE_EFFECT / SR2) and must not be
+ *     collapsed into this one. Importing it here would mix two invariants into one
+ *     failure reason.
+ *
+ *   ENVIRONMENT ISOLATION — the failure must be attributable to the authority boundary
+ *   and never to network, DB, keys, or the real archive:
+ *     - `globalThis.fetch` is stubbed. No external network I/O occurs. The stub sits
+ *       exactly where the user specified: after the legacy registry has selected the
+ *       endpoint, before outbound I/O.
+ *     - `QUARANTINE_ROOT` is redirected to a temp directory. The real master archive is
+ *       never touched.
+ *     - MmdAdapter.discover() is synthetic (in-memory candidates), so discovery needs no
+ *       network either.
+ *
+ *   This test does NOT fix anything, does NOT quarantine lokeRuntime/lokeScheduler, and
+ *   does NOT introduce a canonical registry. Per the frozen work order the fix is a
+ *   separate work unit, and marking the path quarantined before this proof runs would
+ *   make the existing deviation unmeasurable — the same trap A1's precondition fell into.
+ *
+ *   @see docs/architecture/SR1-REACHABILITY-TRACE-2026-08-12.md
+ *   @see docs/architecture/F0D-SOURCE-REGISTRY-MINIMAL-CONTRACT-2026-08-11.md  (FROZEN)
+ *   @see docs/architecture/architecture-authority-map.jsonc
+ */
+describe('SR1 — parallel source-registry authority (EXECUTED RED PROOF, expected to fail)', () => {
+  const originalFetch = globalThis.fetch;
+  const originalQuarantineRoot = process.env.QUARANTINE_ROOT;
+  let tempRoot: string;
+  let fetchCalls: string[];
+
+  beforeEach(() => {
+    tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'sr1-red-proof-'));
+    process.env.QUARANTINE_ROOT = tempRoot;
+
+    fetchCalls = [];
+    globalThis.fetch = (async (input: unknown) => {
+      const url = typeof input === 'string' ? input : String((input as { url?: string })?.url ?? input);
+      fetchCalls.push(url);
+      return {
+        ok: true,
+        status: 200,
+        text: async () => 'SR1 red proof — stubbed body, no external network I/O occurred.',
+        arrayBuffer: async () => new TextEncoder().encode('SR1 red proof').buffer,
+      } as unknown as Response;
+    }) as typeof globalThis.fetch;
+  });
+
+  afterEach(() => {
+    globalThis.fetch = originalFetch;
+    if (originalQuarantineRoot === undefined) delete process.env.QUARANTINE_ROOT;
+    else process.env.QUARANTINE_ROOT = originalQuarantineRoot;
+    if (fs.existsSync(tempRoot)) fs.rmSync(tempRoot, { recursive: true, force: true });
+  });
+
+  it('the operational Loke path resolves source authority from the legacy hard-coded registry, with no canonical SourceRegistry consulted', async () => {
+    // Same call the operator path makes (lokeScheduler.ts:232).
+    const run = await executeLokeHarvestForSource('mmd_nacka', { execute: true });
+
+    // ---- AUTHORITY RESULT 1: the legacy registry RESOLVED the source. ----
+    // If it had not, lokeRuntime would return status 'failed' with
+    // "Käll-ID '...' hittades inte i Source Registry" and never reach an adapter.
+    const sourceWasResolvedByLegacyRegistry =
+      !(run.status === 'failed' && /hittades inte i Source Registry/i.test(run.error_message ?? ''));
+
+    // ---- AUTHORITY RESULT 2: the legacy registry DISPATCHED the adapter. ----
+    // adapter_version is taken straight from the hard-coded SOURCE_REGISTRY entry's
+    // `adapter` field (lokeRuntime.ts:38-52, createAdapterForSource).
+    const adapterDispatchedByLegacyRegistry = run.adapter_version === 'mmd_v1';
+
+    // ---- AUTHORITY RESULT 3: the operation proceeded into real harvest logic and the
+    // legacy registry acted as the outbound URL security gate (isUrlAllowedForSource,
+    // lokeRuntime.ts:133). Every URL that got through is on the legacy entry's
+    // allowedDomains. ----
+    const proceededToOutboundIO = fetchCalls.length > 0;
+    const allUrlsGatedByLegacyAllowedDomains =
+      proceededToOutboundIO && fetchCalls.every((u) => u.includes('domstol.se'));
+
+    // ---- AUTHORITY RESULT 4: the canonical authority was never consulted. ----
+    // Structural, because there is nothing behavioural to observe: no canonical
+    // SourceRegistry runtime exists yet (see source-registry-runtime, UNPROVEN). The
+    // executing chain imports no canonical registry artifact and no attestation
+    // verification whatsoever.
+    const chainSources = [
+      'scripts/import/loke/lokeRuntime.ts',
+      'scripts/import/loke/lokeScheduler.ts',
+    ].map((rel) => fs.readFileSync(path.resolve(__dirname, '../../../', rel), 'utf8'));
+
+    const canonicalAuthoritySymbols = [
+      'SourceRegistryArtifact',
+      'verifyArtifactAttestation',
+      'ArtifactAttestation',
+      'VerifiedSourceDefinition',
+    ];
+    const canonicalSymbolsFoundInChain = canonicalAuthoritySymbols.filter((sym) =>
+      chainSources.some((src) => src.includes(sym)),
+    );
+    const canonicalSourceRegistryConsulted = canonicalSymbolsFoundInChain.length > 0;
+
+    const legacyAuthorityUse = [
+      sourceWasResolvedByLegacyRegistry ? 'SOURCE_RESOLVED_BY_LEGACY_REGISTRY' : null,
+      adapterDispatchedByLegacyRegistry ? 'ADAPTER_DISPATCHED_BY_LEGACY_REGISTRY' : null,
+      allUrlsGatedByLegacyAllowedDomains ? 'OUTBOUND_URL_GATED_BY_LEGACY_ALLOWED_DOMAINS' : null,
+      proceededToOutboundIO && !canonicalSourceRegistryConsulted
+        ? 'HARVEST_EXECUTED_WITHOUT_CANONICAL_AUTHORITY'
+        : null,
+    ].filter((x): x is string => x !== null);
+
+    const evidence = {
+      invariant: 'SR1',
+      entrypoint: 'executeLokeHarvestForSource (as called by lokeScheduler.ts:232)',
+      source_id: 'mmd_nacka',
+      run_status: run.status,
+      documents_found: run.documents_found,
+      adapter_version: run.adapter_version,
+      outbound_fetch_calls: fetchCalls,
+      source_resolved_by_legacy_registry: sourceWasResolvedByLegacyRegistry,
+      adapter_dispatched_by_legacy_registry: adapterDispatchedByLegacyRegistry,
+      outbound_url_gated_by_legacy_registry: allUrlsGatedByLegacyAllowedDomains,
+      canonical_source_registry_consulted: canonicalSourceRegistryConsulted,
+      canonical_symbols_found_in_chain: canonicalSymbolsFoundInChain,
+      attestation_verified: false,
+    };
+
+    // Precondition: this proof measures nothing unless the run actually reached harvest
+    // logic. (Expected to PASS — it establishes that the assertion below is meaningful.)
+    expect(
+      proceededToOutboundIO,
+      'Precondition for the SR1 proof: the harvest run must reach outbound I/O, otherwise ' +
+        'no authority was exercised and the assertion below proves nothing.\nEvidence: ' +
+        JSON.stringify(evidence),
+    ).toBe(true);
+
+    // ---- THE INVARIANT. Expected to FAIL until canonical authority convergence. ----
+    expect(
+      legacyAuthorityUse,
+      'SR1 VIOLATED — the operational harvest path exercised source authority from the ' +
+        'legacy hard-coded registry, without any canonical SourceRegistryArtifact being ' +
+        'consulted and without approval/attestation verification.\n' +
+        '  Bypassing authority : server/modules/harvest/source-registry/registry.ts ' +
+        '(hard-coded SOURCE_REGISTRY)\n' +
+        '  Reached via         : lokeScheduler.ts:232 → executeLokeHarvestForSource → ' +
+        'lokeRuntime.ts:22,39,62,133\n' +
+        '  Canonical contract  : F0D-SOURCE-REGISTRY-MINIMAL-CONTRACT-2026-08-11.md (FROZEN) — ' +
+        'runtime must be a verified materialization of a governance-approved artifact\n' +
+        '  Evidence            : ' +
+        JSON.stringify(evidence) +
+        '\n' +
+        "  This failure is EXPECTED. It is the executed red proof for authority-map entry " +
+        "'source-registry-parallel-authority' (proof_status: KNOWN_BROKEN). Do not 'fix' it " +
+        'by weakening this test.',
+    ).toEqual([]);
+  });
+});

@@ -3,7 +3,7 @@ import { runLuAssessmentViaKernel } from "../src/execution/LuExecutionKernelClie
 import { SpatialEvidenceArtifact } from "../src/artifacts/SpatialEvidenceArtifact";
 import { DocumentEvidenceArtifact } from "../src/artifacts/DocumentEvidenceArtifact";
 import { LokeIngestor, InMemoryQuarantineStorage } from "../src/loke/LokeIngestor";
-import { QuarantinePromoter } from "../src/loke/QuarantinePromoter";
+import { DocumentEvidenceMaterializer } from "../src/loke/QuarantinePromoter";
 import { ViewerKernel } from "../src/viewer/ViewerKernel";
 import { MimersIntegration } from "../../mps-runtime/src/mimers";
 import { DefaultReplayEngine } from "../../mps-runtime/src/replay/DefaultReplayEngine";
@@ -39,10 +39,12 @@ describe("The Vertical Proof: Full E2E Governance + CAS + QGIS + Replay", () => 
 
     const quarantine = new InMemoryQuarantineStorage();
     const ingestor = new LokeIngestor(quarantine);
-    const promoter = new QuarantinePromoter(quarantine, casRepo);
+    // A1 ENFORCEMENT (2026-08-11): the materializer no longer takes a repository and no
+    // longer persists. The kernel below receives the artifact by value, which it already did.
+    const promoter = new DocumentEvidenceMaterializer(quarantine);
 
     const rawDoc = await ingestor.ingestFile(filePath, "Länsstyrelsen", "Policy-v2");
-    documentEvidence = await promoter.promote(rawDoc.artifact_id, "prop-vertical", "doc-vertical", "BESLUT");
+    documentEvidence = await promoter.materialize(rawDoc.artifact_id, "prop-vertical", "doc-vertical", "BESLUT");
 
     // 3. PostGIS Engine -> CAS (Canonical Spatial Truth)
     spatialEvidence = {

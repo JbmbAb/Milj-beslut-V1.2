@@ -513,13 +513,20 @@ describe('gis.routes', () => {
     expect(response.body.catalogs.some((c: { id: string }) => c.id === 'lst_geoserver_wms')).toBe(true);
   });
 
-  it('syncs open datasources for authenticated users', async () => {
+  it('requires AUDIT_EXPORT before syncing open datasources', async () => {
     const unauthorized = await request(app).post('/api/datasources/open/sync').send({});
     expect(unauthorized.status).toBe(401);
 
-    const sync = await request(app)
+    const consultant = await request(app)
       .post('/api/datasources/open/sync')
       .set('Authorization', authHeader('CONSULTANT'))
+      .send({});
+    expect(consultant.status).toBe(403);
+    expect(mocks.fetchImmediateOpenSources).not.toHaveBeenCalled();
+
+    const sync = await request(app)
+      .post('/api/datasources/open/sync')
+      .set('Authorization', authHeader('ADMIN'))
       .send({});
     expect(sync.status).toBe(200);
     expect(sync.body).toEqual({

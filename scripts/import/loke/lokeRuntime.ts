@@ -19,7 +19,11 @@ import { MmdAdapter } from './adapters/mmdAdapter';
 import { MpdAdapter } from './adapters/mpdAdapter';
 import { ModAdapter } from './adapters/modAdapter';
 import { HarvestCandidate, SourceAdapter, HarvestArtifact, HarvestRunArtifact } from './contract';
-import { getSourceDefinition, isUrlAllowedForSource } from '../../../server/modules/harvest/source-registry/registry';
+import {
+  getVerifiedSourceDefinition,
+  isUrlAllowedForVerifiedSource,
+  type VerifiedSourceDefinition,
+} from '../../../packages/mps-data-governance/src/SourceRegistry';
 import { DiskQuarantineStorage } from '@miljobeslut/mimers-brunn-core';
 import { MASTER_ARCHIVE_ROOT } from '../config/mimersBrunn';
 
@@ -33,20 +37,17 @@ function calculateHash(content: string): string {
 }
 
 /**
- * Fabrik för att instansiera rätt adapter baserat på dess källtyp i Source Registry
+ * Fabrik för att instansiera rätt adapter baserat på verifierad SourceRegistry-materialisering.
  */
-export function createAdapterForSource(sourceId: string): SourceAdapter | null {
-  const sourceDef = getSourceDefinition(sourceId);
-  if (!sourceDef) return null;
-
+export function createAdapterForSource(sourceDef: VerifiedSourceDefinition): SourceAdapter | null {
   if (sourceDef.adapter === 'mmd_v1') {
-    return new MmdAdapter(sourceId);
+    return new MmdAdapter(sourceDef.sourceId);
   }
   if (sourceDef.adapter === 'mpd_lansstyrelsen_v1') {
-    return new MpdAdapter(sourceId);
+    return new MpdAdapter(sourceDef.sourceId);
   }
   if (sourceDef.adapter === 'mod_v1') {
-    return new ModAdapter(sourceId);
+    return new ModAdapter(sourceDef.sourceId);
   }
 
   return null;
@@ -59,7 +60,24 @@ export async function executeLokeHarvestForSource(
   const startedAt = new Date().toISOString();
   const runId = `loke-run-${new Date().toISOString().split('T')[0].replace(/-/g, '')}-${crypto.randomUUID().substring(0, 6)}`;
   
-  const sourceDef = getSourceDefinition(sourceId);
+  let sourceDef: VerifiedSourceDefinition | null = null;
+  try {
+    sourceDef = await getVerifiedSourceDefinition(sourceId);
+  } catch (err: any) {
+    return {
+      harvest_run_id: runId,
+      source_id: sourceId,
+      started_at: startedAt,
+      completed_at: new Date().toISOString(),
+      adapter_version: 'unknown',
+      documents_found: 0,
+      documents_new: 0,
+      documents_changed: 0,
+      status: 'failed',
+      error_message: `SourceRegistry-materialisering nekades: ${String(err.message || err)}`
+    };
+  }
+
   if (!sourceDef) {
     return {
       harvest_run_id: runId,
@@ -71,12 +89,12 @@ export async function executeLokeHarvestForSource(
       documents_new: 0,
       documents_changed: 0,
       status: 'failed',
-      error_message: `Käll-ID '${sourceId}' hittades inte i Source Registry.`
+      error_message: `Käll-ID '${sourceId}' saknar verifierad SourceRegistryArtifact.`
     };
   }
 
   const execute = options.execute ?? false;
-  const adapter = createAdapterForSource(sourceId);
+  const adapter = createAdapterForSource(sourceDef);
 
   if (!adapter) {
     return {
@@ -130,7 +148,7 @@ export async function executeLokeHarvestForSource(
 
     for (const cand of candidates) {
       // Säkra källsluss (Crawler Leak Protection - LSF-01)
-      if (!isUrlAllowedForSource(sourceId, cand.sourceUrl)) {
+      if (!isUrlAllowedForVerifiedSource(sourceDef, cand.sourceUrl)) {
         console.warn(`   ⚠️ [Crawler Leak Blocked] Nekade att anropa URL '${cand.sourceUrl}' eftersom domänen inte är listad i källans kontrakt.`);
         continue;
       }

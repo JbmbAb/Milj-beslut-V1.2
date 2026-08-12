@@ -1,4 +1,7 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { afterEach, describe, it, expect, vi, beforeEach } from 'vitest';
+import * as fs from 'node:fs';
+import * as os from 'node:os';
+import * as path from 'node:path';
 
 vi.mock('../../server/repositories/judgmentRepository', () => ({
   upsertJudgment: vi.fn(),
@@ -28,6 +31,10 @@ vi.mock('../../server/utils/textEncoding', () => ({
 import { upsertJudgment } from '../../server/repositories/judgmentRepository';
 import { upsertLegalSourceWithMatrix } from '../../server/repositories/legalSourceRepository';
 import { ingestDomstolRssFeed } from '../../server/services/domstolRssService';
+import {
+  installSourceRegistryFixtureEnv,
+  writeVerifiedSourceRegistryFixture,
+} from './import/sourceRegistryFixture';
 
 const mockRssXml = `<?xml version="1.0" encoding="UTF-8"?>
 <rss version="2.0" xmlns:a10="http://www.w3.org/2005/Atom">
@@ -62,9 +69,32 @@ const mockEmptyRssXml = `<?xml version="1.0" encoding="UTF-8"?>
 const now = new Date();
 const createdJudgment = { id: 'j-1', createdAt: now, updatedAt: now };
 const updatedJudgment = { id: 'j-2', createdAt: new Date('2025-01-01'), updatedAt: now };
+const originalSourceRegistryEnv = {
+  SOURCE_REGISTRY_ARTIFACT_PATH: process.env.SOURCE_REGISTRY_ARTIFACT_PATH,
+  SOURCE_REGISTRY_SIGNING_KEY_ID: process.env.SOURCE_REGISTRY_SIGNING_KEY_ID,
+  SOURCE_REGISTRY_SIGNING_PRIVATE_KEY_PEM: process.env.SOURCE_REGISTRY_SIGNING_PRIVATE_KEY_PEM,
+  SOURCE_REGISTRY_SIGNING_PUBLIC_KEY_PEM: process.env.SOURCE_REGISTRY_SIGNING_PUBLIC_KEY_PEM,
+};
 
-beforeEach(() => {
+let tempDirs: string[] = [];
+
+function restoreSourceRegistryEnv(): void {
+  for (const key of Object.keys(originalSourceRegistryEnv) as Array<keyof typeof originalSourceRegistryEnv>) {
+    const value = originalSourceRegistryEnv[key];
+    if (value === undefined) {
+      delete process.env[key];
+    } else {
+      process.env[key] = value;
+    }
+  }
+}
+
+beforeEach(async () => {
   vi.clearAllMocks();
+  restoreSourceRegistryEnv();
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'domstol-rss-service-source-registry-'));
+  tempDirs.push(dir);
+  installSourceRegistryFixtureEnv(await writeVerifiedSourceRegistryFixture(dir, { sources: ['domstol_rss'] }));
   vi.stubGlobal(
     'fetch',
     vi.fn().mockResolvedValue({
@@ -74,6 +104,15 @@ beforeEach(() => {
   );
   vi.mocked(upsertJudgment).mockResolvedValue(createdJudgment as never);
   vi.mocked(upsertLegalSourceWithMatrix).mockResolvedValue(undefined as never);
+});
+
+afterEach(() => {
+  vi.unstubAllGlobals();
+  restoreSourceRegistryEnv();
+  for (const dir of tempDirs) {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+  tempDirs = [];
 });
 
 describe('domstolRssService', () => {

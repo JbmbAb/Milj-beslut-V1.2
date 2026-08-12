@@ -30,6 +30,24 @@ import { parseBooleanFlag } from '../utils/routeUtils';
 
 const router = express.Router();
 
+function resolveManifestSyncPaths(
+  body: unknown,
+  config: { manifestPath: string; outlookBaseDir: string },
+): { manifestPath: string; outlookBaseDir: string } {
+  const payload = body && typeof body === 'object' ? (body as Record<string, unknown>) : {};
+  const manifestPathOverride = payload.manifestPath ? String(payload.manifestPath) : '';
+  const outlookBaseDirOverride = payload.outlookBaseDir ? String(payload.outlookBaseDir) : '';
+
+  if ((manifestPathOverride || outlookBaseDirOverride) && process.env.ALLOW_SEARCH_MANIFEST_PATH_OVERRIDE !== 'true') {
+    throw new Error('Access denied: manifest path override is disabled');
+  }
+
+  return {
+    manifestPath: manifestPathOverride || config.manifestPath,
+    outlookBaseDir: outlookBaseDirOverride || config.outlookBaseDir,
+  };
+}
+
 router.get('/api/datasources/public-summary', rateLimitByUser(20, 60_000), async (req, res, next) => {
   try {
     const refresh = parseBooleanFlag(req.query.refresh, false);
@@ -313,6 +331,8 @@ router.post(
         return;
       }
 
+      assertPermission(req.authUser, 'AUDIT_EXPORT');
+
       await assertProjectMembership({
         projectId,
         userId: req.authUser.id,
@@ -321,10 +341,7 @@ router.post(
       });
 
       const config = getSearchConfig();
-      const manifestPath = req.body?.manifestPath ? String(req.body.manifestPath) : config.manifestPath;
-      const outlookBaseDir = req.body?.outlookBaseDir
-        ? String(req.body.outlookBaseDir)
-        : config.outlookBaseDir;
+      const { manifestPath, outlookBaseDir } = resolveManifestSyncPaths(req.body, config);
 
       const job = await enqueueSearchJob({
         type: 'SYNC_MANIFEST',

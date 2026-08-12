@@ -1,4 +1,5 @@
 import path from 'node:path';
+import { createHash } from 'node:crypto';
 import express from 'express';
 import { SOURCE_CATALOG } from '../datasources/catalog';
 import { MAP_LAYER_CATALOG, MAP_LAYER_DEFAULT_DOCUMENTATION_URLS } from '../datasources/mapLayerCatalog';
@@ -14,6 +15,7 @@ import {
 import { logger } from '../logger';
 import { requireAuth } from '../security/auth';
 import { rateLimitByUser } from '../security/rateLimit';
+import { assertPermission } from '../security/projectAccess';
 import { toSafeErrorResponse } from '../security/secureErrors';
 import {
   parseBbox,
@@ -64,6 +66,10 @@ import {
 
 import { parsePositiveInt, parseBooleanFlag } from '../utils/routeUtils';
 import { NATIONAL_ENVIRONMENTAL_LAYERS } from '../datasources/nationalEnvironmentalLayers';
+import { prisma } from '../db/prisma';
+import { GeoPresentationAdapter, SpatialEvidenceArtifact } from '../services/geoPresentationAdapter';
+import { loadCesiumL0L1FixtureSceneFromDisk } from '../services/cesiumL0L1Fixtures';
+import { SPATIAL_LAYER_REGISTRY } from '../../packages/spatial-provider-postgis/src/SpatialLayerRegistry';
 
 const router = express.Router();
 
@@ -105,6 +111,10 @@ function isLongitude(value: number): boolean {
 
 function isSluProduct(value: unknown): value is SluProduct {
   return ['species_observations', 'taxonomy', 'artfakta', 'metodkatalog'].includes(String(value || ''));
+}
+
+function stableEvidenceHash(value: unknown): string {
+  return `sha256-${createHash('sha256').update(JSON.stringify(value)).digest('hex')}`;
 }
 
 router.get('/api/layers/nvr', rateLimitByUser(30, 60_000), async (req, res) => {
@@ -1038,12 +1048,14 @@ router.post('/api/datasources/slu/proxy', requireAuth, rateLimitByUser(20, 60_00
   }
 });
 
-router.post('/api/datasources/open/sync', requireAuth, rateLimitByUser(10, 60_000), async (_req, res) => {
+router.post('/api/datasources/open/sync', requireAuth, rateLimitByUser(10, 60_000), async (req, res) => {
   try {
+    assertPermission(req.authUser!, 'AUDIT_EXPORT');
     const results = await fetchImmediateOpenSources();
     res.json({ ok: true, results });
   } catch (error: unknown) {
-    res.status(500).json(toSafeErrorResponse(error));
+    const safe = toSafeErrorResponse(error);
+    res.status(safe.statusCode ?? 500).json(safe);
   }
 });
 
@@ -1095,6 +1107,121 @@ router.get('/api/layers/external/lst-vm/:layerKey', rateLimitByUser(30, 60_000),
           String(safe.error || 'Externt nationellt miljöunderlag kunde inte laddas.'),
         ),
       );
+  }
+});
+
+router.get('/api/spatial/evidence', rateLimitByUser(30, 60_000), async (req, res) => {
+  try {
+    const source = typeof req.query.source === 'string' ? req.query.source : 'live';
+    if (source === 'fixture') {
+      const scene = loadCesiumL0L1FixtureSceneFromDisk();
+      res.json({
+        ...scene.evidence,
+        meta: {
+          presentation: 'cesium-l0-l1',
+          source: 'fixture',
+          scene_id: scene.scene_id,
+          srid: scene.srid,
+          governance_status: scene.governance_status,
+          feature_count: scene.evidence.features.length,
+          center: scene.center,
+        },
+      });
+      return;
+    }
+
+    const lat = Number(req.query.lat);
+    const lng = Number(req.query.lng);
+    const propertyId = typeof req.query.propertyId === 'string' ? req.query.propertyId : 'prop-selected';
+
+    if (!Number.isFinite(lat) || !Number.isFinite(lng)) {
+      res.status(400).json({ error: 'lat and lng parameters are required and must be finite numbers' });
+      return;
+    }
+
+    // 1. Transform coordinates WGS84 -> SWEREF99 TM (3006) using PostGIS
+    const coordResult = await prisma.$queryRawUnsafe<any[]>(
+      `SELECT ST_Y(g) AS n, ST_X(g) AS e
+       FROM ST_Transform(ST_SetSRID(ST_MakePoint($1, $2), 4326), 3006) AS g`,
+      lng, lat
+    );
+
+    if (!coordResult || coordResult.length === 0) {
+      throw new Error('Coordinate transformation failed.');
+    }
+
+    const easting = Number(coordResult[0].e);
+    const northing = Number(coordResult[0].n);
+    const bufferDistance = 500; // 500 meters search radius
+
+    const evidenceArtifacts: SpatialEvidenceArtifact[] = [];
+
+    // 2. Query each compliance-layer in PostGIS (spatial provider simulation)
+    for (const [layerId, binding] of Object.entries(SPATIAL_LAYER_REGISTRY)) {
+      // Find intersecting geometry (buffered point query)
+      const querySql = `
+        SELECT ST_AsGeoJSON(ST_Transform(t.geom, 4326)) AS geom_json, t.id::text AS feature_id
+        FROM ${binding.table} t
+        WHERE ST_DWithin(
+          t.geom,
+          ST_SetSRID(ST_MakePoint($1, $2), 3006),
+          $3
+        )
+        LIMIT 5
+      `;
+
+      const hits = await prisma.$queryRawUnsafe<any[]>(querySql, easting, northing, bufferDistance);
+
+      for (const hit of hits) {
+        if (hit.geom_json) {
+          const payload = {
+            property_ref: { artifact_id: propertyId },
+            srid: 4326,
+            geometry: JSON.parse(hit.geom_json),
+            layer_ref: {
+              layer_id: layerId,
+              layer_version: 'v1.0.0_frozen',
+            },
+            source_metadata: {
+              provider: binding.provider,
+              dataset: layerId,
+              dataset_version: 'v1.0.0_frozen',
+              retrieved_at: new Date().toISOString(),
+            },
+          };
+          const content_hash_val = stableEvidenceHash({
+            ...payload,
+            source_metadata: {
+              ...payload.source_metadata,
+              retrieved_at: 'IMPORT_TIME_EXCLUDED',
+            },
+          });
+          const artifact: SpatialEvidenceArtifact = {
+            artifact_id: `evidence-${layerId}-${content_hash_val.slice('sha256-'.length, 'sha256-'.length + 16)}`,
+            artifact_type: 'SPATIAL_EVIDENCE',
+            content_hash: { value: content_hash_val },
+            payload,
+          };
+          evidenceArtifacts.push(artifact);
+        }
+      }
+    }
+
+    // 3. Transform via GeoPresentationAdapter to WGS84 GeoJSON
+    const adapter = new GeoPresentationAdapter();
+    const collection = await adapter.projectEvidenceCollectionToWgs84(evidenceArtifacts);
+    collection.meta = {
+      ...(collection.meta || {}),
+      source: 'live',
+      property_id: propertyId,
+      search_radius_meters: bufferDistance,
+      queried_at: new Date().toISOString(),
+    } as any;
+
+    res.json(collection);
+  } catch (error: unknown) {
+    logger.error('[API Spatial Evidence] Error:', error);
+    res.status(500).json(toSafeErrorResponse(error));
   }
 });
 

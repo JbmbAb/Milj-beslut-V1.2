@@ -22,7 +22,10 @@ import * as fs from 'fs/promises';
 import * as path from 'path';
 import { prisma } from '../../../server/db/prisma';
 import { logger } from '../../../server/logger';
-import { getAllSources, SourceDefinition } from '../../../server/modules/harvest/source-registry/registry';
+import {
+  getAllVerifiedSources,
+  type VerifiedSourceDefinition as SourceDefinition,
+} from '../../../packages/mps-data-governance/src/SourceRegistry';
 import { createHarvestPlan } from './harvestPlan';
 import { startHarvestRun, recordHarvestEvent, completeHarvestRun } from './harvestLedger';
 import { executeLokeHarvestForSource } from './lokeRuntime';
@@ -164,12 +167,18 @@ export function isSourceDue(source: SourceDefinition, state?: SchedulerSourceSta
   const diffMs = now.getTime() - lastSuccess.getTime();
 
   switch (source.frequency) {
+    case 'hourly':
+      return diffMs >= 60 * 60 * 1000;
     case 'daily':
       return diffMs >= 24 * 60 * 60 * 1000;
     case 'weekly':
       return diffMs >= 7 * 24 * 60 * 60 * 1000;
     case 'monthly':
       return diffMs >= 30 * 24 * 60 * 60 * 1000;
+    case 'yearly':
+      return diffMs >= 365 * 24 * 60 * 60 * 1000;
+    case 'on_demand':
+      return false;
     default:
       return true;
   }
@@ -185,7 +194,7 @@ export async function runScheduler(options: { execute?: boolean; onlyFilters?: s
 }> {
   console.log('=== 🜂 Loke Ingest: Scheduler & Orchestrator ===');
   const schedulerState = await loadSchedulerState();
-  const allSources = getAllSources();
+  const allSources = await getAllVerifiedSources();
 
   let triggeredPlansCount = 0;
   let completedRunsCount = 0;

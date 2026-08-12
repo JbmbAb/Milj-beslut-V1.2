@@ -8,7 +8,7 @@
 
 import * as crypto from 'crypto';
 import { HarvestPlan } from './contract';
-import { getSourceDefinition } from '../../../server/modules/harvest/source-registry/registry';
+import { getVerifiedSourceDefinition } from '../../../packages/mps-data-governance/src/SourceRegistry';
 import { canonicalizeStrict } from '../../../packages/mimers-brunn-core/src/serialization/canonicalize';
 
 function calculateSHA256(data: string): string {
@@ -32,9 +32,9 @@ export async function createHarvestPlan(
     maxDocumentsPerRun?: number;
   } = {}
 ): Promise<HarvestPlan> {
-  const sourceDef = getSourceDefinition(sourceId);
+  const sourceDef = await getVerifiedSourceDefinition(sourceId);
   if (!sourceDef) {
-    throw new Error(`Käll-ID '${sourceId}' saknas i Source Registry. Planen kan inte skapas.`);
+    throw new Error(`Käll-ID '${sourceId}' saknar verifierad SourceRegistryArtifact. Planen kan inte skapas.`);
   }
 
   const createdAt = new Date().toISOString();
@@ -60,7 +60,7 @@ export async function createHarvestPlan(
   }
 
   // Säkra käll-snapshotets integritet via dess egen canonical hash
-  const registry_hash = calculateSHA256(canonicalizeStrict(sourceDef));
+  const registry_hash = sourceDef.sourceContentHash;
 
   // Immutable parameter-uppsättning (Payload) som används för innehållsadressering
   const planPayload = {
@@ -68,7 +68,7 @@ export async function createHarvestPlan(
     adapter: sourceDef.adapter,
     budgets,
     capabilities,
-    allowed_domains: sourceDef.allowedDomains,
+    allowed_domains: [...sourceDef.allowedDomains],
     registry_hash,
     schema_ref: 'https://mimer.miljobeslut.se/schemas/harvest/plan/v1.json',
     runtime_version: '1.0.0'
@@ -94,7 +94,7 @@ export async function createHarvestPlan(
     budgets,
     capabilities,
     constraints: {
-      allowed_domains: sourceDef.allowedDomains,
+      allowed_domains: [...sourceDef.allowedDomains],
       cooldown_period_minutes: sourceDef.frequency === 'daily' ? 120 : 720
     },
     content_hash,

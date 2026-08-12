@@ -2,7 +2,11 @@ import { describe, expect, it, vi, beforeAll, afterAll, beforeEach } from 'vites
 import * as os from 'os';
 import * as fs from 'fs';
 import * as path from 'path';
-import { SourceDefinition } from '../../../server/modules/harvest/source-registry/registry';
+import type { VerifiedSourceDefinition as SourceDefinition } from '../../../packages/mps-data-governance/src/SourceRegistry';
+import {
+  installSourceRegistryFixtureEnv,
+  writeVerifiedSourceRegistryFixture,
+} from './sourceRegistryFixture';
 
 describe('🜂 Loke Live Ingest — Scheduler & State (LSF P0)', () => {
   let tempDir: string;
@@ -25,6 +29,7 @@ describe('🜂 Loke Live Ingest — Scheduler & State (LSF P0)', () => {
     process.env.SKIP_DISK_SPACE_CHECK = 'true';
     process.env.SKIP_DISK_CHECK = 'true';
     process.env.NODE_ENV = 'test';
+    installSourceRegistryFixtureEnv(await writeVerifiedSourceRegistryFixture(tempDir));
 
     // Utför dynamiska importer efter att miljövariabeln spikats
     const planMod = await import('../../../scripts/import/loke/harvestPlan');
@@ -110,7 +115,15 @@ describe('🜂 Loke Live Ingest — Scheduler & State (LSF P0)', () => {
       adapter: 'mmd_v1',
       frequency: 'daily',
       allowedDomains: ['domstol.se'],
-      artifactTypes: ['decision']
+      artifactTypes: ['decision'],
+      policy: {
+        rate_limit_requests_per_second: 5,
+        concurrency_limit: 1,
+        politeness_delay_ms: 0,
+        retry_policy: { max_attempts: 1, backoff: 'FIXED' },
+      },
+      registryArtifactId: 'reg-dummy',
+      sourceContentHash: 'dummy-hash'
     };
 
     beforeEach(() => {

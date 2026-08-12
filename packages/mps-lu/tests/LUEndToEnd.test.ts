@@ -3,7 +3,7 @@ import { runLuAssessmentViaKernel } from "../src/execution/LuExecutionKernelClie
 import { SpatialEvidenceArtifact } from "../src/artifacts/SpatialEvidenceArtifact";
 import { DocumentEvidenceArtifact } from "../src/artifacts/DocumentEvidenceArtifact";
 import { LokeIngestor, InMemoryQuarantineStorage } from "../src/loke/LokeIngestor";
-import { QuarantinePromoter } from "../src/loke/QuarantinePromoter";
+import { DocumentEvidenceMaterializer } from "../src/loke/QuarantinePromoter";
 import { MimersIntegration } from "../../mps-runtime/src/mimers";
 import { join } from "node:path";
 import { writeFile, mkdir } from "node:fs/promises";
@@ -26,10 +26,12 @@ describe("First Verified Capability: LU End-to-End Fusion", () => {
 
     const quarantine = new InMemoryQuarantineStorage();
     const ingestor = new LokeIngestor(quarantine);
-    const promoter = new QuarantinePromoter(quarantine, casRepo);
+    // A1 ENFORCEMENT (2026-08-11): the materializer no longer takes a repository and no
+    // longer persists. The kernel below receives the artifact by value, which it already did.
+    const promoter = new DocumentEvidenceMaterializer(quarantine);
 
     const rawDoc = await ingestor.ingestFile(filePath, "Länsstyrelsen", "Policy-v1");
-    documentEvidence = await promoter.promote(rawDoc.artifact_id, "prop-fusion", "doc-fusion", "BESLUT");
+    documentEvidence = await promoter.materialize(rawDoc.artifact_id, "prop-fusion", "doc-fusion", "BESLUT");
 
     // 3. Generate Spatial Evidence (PostGIS -> CAS)
     spatialEvidence = {

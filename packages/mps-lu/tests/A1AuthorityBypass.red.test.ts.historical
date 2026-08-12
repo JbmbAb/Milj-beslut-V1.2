@@ -1,0 +1,128 @@
+import { describe, it, expect } from "vitest";
+import { mkdtemp, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+
+import { MimersIntegration } from "../../mps-runtime/src/mimers";
+import { LokeIngestor, InMemoryQuarantineStorage } from "../src/loke/LokeIngestor";
+import { DocumentEvidenceMaterializer } from "../src/loke/QuarantinePromoter";
+
+/**
+ * ⛔ A1 — EXECUTED RED PROOF. This test is EXPECTED TO FAIL against the current
+ * implementation. It is NOT a regression; it is the executed proof of a known,
+ * documented authority bypass.
+ *
+ *   Invariant under test (frozen):
+ *     A1 — LU SHALL NOT persist/promote a canonical artifact to the production
+ *          Mimers repository without passing the canonical governed promotion
+ *          path and its required approval/attestation checks.
+ *
+ *   Registered as:  architecture-authority-map.jsonc
+ *                   → id: "lu-local-quarantine-promoter"
+ *                   → proof_status: KNOWN_BROKEN
+ *                   → module_role:  LEGACY_AUTHORITY_BYPASS
+ *
+ *   Canonical authority that is being bypassed:
+ *     packages/mimers-brunn-core/src/governance/DatasetApproval.ts
+ *       → QuarantinePromoter.promote(request, attestation)
+ *     Its promote() requires a signed ArtifactAttestation and verifies every
+ *     binding BEFORE any CAS write. LU's DocumentEvidenceMaterializer.promote()
+ *     takes no attestation parameter at all and calls cas.put(...) directly.
+ *
+ *   Why this hits the real composition path, not a mock:
+ *     The repository under test is obtained from MimersIntegration.create() —
+ *     the platform's sole artifact-stack facade. server/index.ts reaches the same
+ *     facade through createKernelArtifactRepository() (a documented thin alias:
+ *     "Kernel / replay / LU clients obtain storage only through this facade").
+ *     Under VITEST the facade selects a memory byte-storage backend, which is
+ *     deliberate: it keeps the failure attributable to the AUTHORITY boundary and
+ *     never to DB auth, missing signing keys, or filesystem/CAS environment.
+ *     The composition root, the port type, and the write method are the real ones.
+ *
+ *   This test does NOT fix anything. Per the frozen work order, the fix comes
+ *   only after this red proof is recorded.
+ *
+ *   @see docs/architecture/LU-MVP-IMPLEMENTATION-PLAN-2026-08-11.md  (§4.1, FAS 1/FAS 2)
+ *   @see docs/architecture/architecture-authority-map.jsonc          (A1)
+ *   @see docs/architecture/ADR-27-LU-Architecture-Charter.md         ("Governance aldrig dupliceras")
+ */
+describe("A1 — LU authority bypass (EXECUTED RED PROOF, expected to fail)", () => {
+  it("LU SHALL NOT reach the production Mimers repository without the canonical governed promotion path", async () => {
+    // ---- Real platform composition root, not a hand-built fake ----
+    const mimers = await MimersIntegration.create();
+    const canonicalRepository = mimers.artifactRepository;
+
+    // Record every canonical write without preventing it. Recording (rather than
+    // blocking) is what makes this a proof of REACHABILITY: we demonstrate that the
+    // write actually lands, we do not merely assert that a method was invoked.
+    const canonicalWrites: Array<{ artifact_id: string }> = [];
+    const realPut = canonicalRepository.put.bind(canonicalRepository);
+    (canonicalRepository as { put: typeof realPut }).put = async (args) => {
+      canonicalWrites.push({ artifact_id: args.artifact_id });
+      return realPut(args);
+    };
+
+    // ---- Drive the LU path exactly as LU's own end-to-end test does ----
+    const dir = await mkdtemp(join(tmpdir(), "a1-red-proof-"));
+    const filePath = join(dir, "beslut.txt");
+    await writeFile(filePath, "Avslag: risk för spridning till vattentäkt", "utf8");
+
+    const quarantine = new InMemoryQuarantineStorage();
+    const ingestor = new LokeIngestor(quarantine);
+
+    // NOTE: no attestation is constructed, offered, or required anywhere below.
+    // DocumentEvidenceMaterializer.promote() has no parameter for one.
+    const materializer = new DocumentEvidenceMaterializer(quarantine, canonicalRepository);
+
+    const raw = await ingestor.ingestFile(filePath, "Länsstyrelsen", "Policy-v1");
+    const evidence = await materializer.promote(
+      raw.artifact_id,
+      "prop-a1-red-proof",
+      "doc-a1-red-proof",
+      "BESLUT",
+    );
+
+    // ---- Evidence gathering (runs before the invariant assertion so that the
+    //      failure message carries the proof, not just a boolean) ----
+    const persisted = await canonicalRepository.resolve({
+      artifact_id: evidence.artifact_id,
+      artifact_type: "DOCUMENT_EVIDENCE",
+    });
+
+    const bypassEvidence = {
+      invariant: "A1",
+      canonical_writes: canonicalWrites.map((w) => w.artifact_id),
+      artifact_is_resolvable_from_canonical_repository: persisted !== undefined && persisted !== null,
+      attestation_supplied: false,
+      attestation_verified: false,
+      canonical_promotion_path_used: false,
+    };
+
+    // Secondary evidence: the bypass is not a no-op. The artifact really is in the
+    // canonical repository. (This assertion is expected to PASS — it establishes the
+    // severity of the invariant violation asserted below.)
+    expect(
+      bypassEvidence.artifact_is_resolvable_from_canonical_repository,
+      "Precondition for the A1 proof: the LU-written artifact must actually be present in the " +
+        "canonical repository. If this fails, the red proof below is measuring nothing.",
+    ).toBe(true);
+
+    // ---- THE INVARIANT. Expected to FAIL until the bypass is removed. ----
+    expect(
+      canonicalWrites,
+      "A1 VIOLATED — LU persisted a canonical artifact to the production Mimers repository " +
+        "without passing the canonical governed promotion path.\n" +
+        "  Bypassing module : packages/mps-lu/src/loke/QuarantinePromoter.ts " +
+        "(DocumentEvidenceMaterializer.promote → cas.put)\n" +
+        "  Canonical path   : mimers-brunn-core QuarantinePromoter.promote(request, attestation), " +
+        "which verifies a signed ArtifactAttestation before any CAS write\n" +
+        "  Attestation      : none supplied, none required by the LU signature\n" +
+        "  Evidence         : " +
+        JSON.stringify(bypassEvidence) +
+        "\n" +
+        "  This failure is EXPECTED. It is the executed red proof for authority-map entry " +
+        "'lu-local-quarantine-promoter' (proof_status: KNOWN_BROKEN). Do not 'fix' it by " +
+        "weakening this test.",
+    ).toHaveLength(0);
+  });
+});

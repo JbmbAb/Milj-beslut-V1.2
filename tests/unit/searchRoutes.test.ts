@@ -70,6 +70,7 @@ describe('search.routes', () => {
     mocks.getSearchStatus.mockResolvedValue({ queued: 1, failed: 0 });
     mocks.recoverStaleRunningJobs.mockResolvedValue(3);
     mocks.requeueFailedJobs.mockResolvedValue(4);
+    delete process.env.ALLOW_SEARCH_MANIFEST_PATH_OVERRIDE;
   });
 
   it('validates sync-manifest and enqueues jobs with config defaults', async () => {
@@ -103,6 +104,16 @@ describe('search.routes', () => {
       },
     });
     expect(mocks.processSearchJobsOnce).toHaveBeenCalledWith(1);
+
+    vi.clearAllMocks();
+    const consultant = await request(app)
+      .post('/api/search/sync-manifest')
+      .set('Authorization', authHeader('CONSULTANT'))
+      .send({ projectId: 'project-1' });
+
+    expect(consultant.status).toBe(403);
+    expect(mocks.enqueueSearchJob).not.toHaveBeenCalled();
+    expect(mocks.processSearchJobsOnce).not.toHaveBeenCalled();
   });
 
   it('requires project membership for query and normalizes filters', async () => {
@@ -261,7 +272,21 @@ describe('search.routes', () => {
     expect(statusErr.status).toBe(400);
   });
 
-  it('uses custom manifestPath and outlookBaseDir from request body', async () => {
+  it('rejects request-selected manifest paths unless override is explicitly enabled', async () => {
+    const blocked = await request(app)
+      .post('/api/search/sync-manifest')
+      .set('Authorization', authHeader('ADMIN'))
+      .send({
+        projectId: 'project-1',
+        manifestPath: '/custom/manifest.json',
+        outlookBaseDir: '/custom/outlook',
+      });
+
+    expect(blocked.status).toBe(403);
+    expect(mocks.enqueueSearchJob).not.toHaveBeenCalled();
+
+    process.env.ALLOW_SEARCH_MANIFEST_PATH_OVERRIDE = 'true';
+
     const res = await request(app)
       .post('/api/search/sync-manifest')
       .set('Authorization', authHeader('ADMIN'))

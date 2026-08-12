@@ -1,0 +1,206 @@
+import express from 'express';
+import request from 'supertest';
+import { describe, expect, it, beforeEach, vi } from 'vitest';
+import * as fs from 'node:fs';
+import * as path from 'node:path';
+
+import { createTokenPair } from '../../server/security/auth';
+
+const mocks = vi.hoisted(() => ({
+  routeIngestDomstolRssFeed: vi.fn(),
+  upsertJudgment: vi.fn(),
+  upsertLegalSourceWithMatrix: vi.fn(),
+  buildJudgmentLegalSourceSeed: vi.fn(),
+  pipelineRunCreate: vi.fn(),
+  pipelineRunUpdate: vi.fn(),
+}));
+
+vi.mock('../../server/repositories/tokenRepository', () => ({
+  isTokenRevoked: vi.fn(async () => false),
+  markRefreshTokenAsUsed: vi.fn(async () => undefined),
+  revokeRefreshToken: vi.fn(async () => undefined),
+  cleanupExpiredTokenRevocations: vi.fn(async () => 0),
+}));
+
+vi.mock('../../server/modules/legal/public', () => ({
+  listJudgments: vi.fn(),
+  ingestDomstolRssFeed: mocks.routeIngestDomstolRssFeed,
+  searchLegalKnowledge: vi.fn(),
+  listJudgmentRecordsPage: vi.fn(),
+  listLegalSourceRecordsPage: vi.fn(),
+}));
+
+vi.mock('../../server/repositories/judgmentRepository', () => ({
+  upsertJudgment: mocks.upsertJudgment,
+}));
+
+vi.mock('../../server/repositories/legalSourceRepository', () => ({
+  upsertLegalSourceWithMatrix: mocks.upsertLegalSourceWithMatrix,
+}));
+
+vi.mock('../../server/services/legalSourceIngestService', () => ({
+  buildJudgmentLegalSourceSeed: mocks.buildJudgmentLegalSourceSeed,
+}));
+
+vi.mock('../../server/db/prisma', () => ({
+  prisma: {
+    pipelineRun: {
+      create: mocks.pipelineRunCreate,
+      update: mocks.pipelineRunUpdate,
+    },
+    legalCorpusRecord: {
+      findUnique: vi.fn(),
+    },
+  },
+}));
+
+vi.mock('../../server/utils/textEncoding', () => ({
+  normalizeExternalText: vi.fn((value: string) => value),
+}));
+
+import legalRoutes from '../../server/routes/legal.routes';
+import { ingestDomstolRssFeed } from '../../server/services/domstolRssService';
+
+const app = express();
+app.use(express.json());
+app.use(legalRoutes);
+
+function authHeader(role: 'ADMIN' | 'CONSULTANT' = 'ADMIN') {
+  return `Bearer ${
+    createTokenPair({
+      id: role === 'ADMIN' ? 'admin-1' : 'consultant-1',
+      organisationId: 'org-1',
+      bankidId: role === 'ADMIN' ? 'admin:one' : 'consultant:one',
+      role,
+    }).accessToken
+  }`;
+}
+
+const rssXml = `<?xml version="1.0" encoding="UTF-8"?>
+<rss version="2.0" xmlns:a10="http://www.w3.org/2005/Atom">
+  <channel>
+    <item>
+      <guid isPermaLink="true">https://www.domstol.se/beslut/2025/1234</guid>
+      <link>https://www.domstol.se/beslut/2025/1234</link>
+      <title>Dom i miljomal</title>
+      <description>Miljorattsligt avgorande</description>
+      <pubDate>Mon, 10 Mar 2025 00:00:00 +0100</pubDate>
+      <a10:updated>2025-03-10T12:34:09+01:00</a10:updated>
+    </item>
+  </channel>
+</rss>`;
+
+describe('C-P1-03 — Domstol RSS authority bypass (EXECUTED RED PROOF, expected to fail)', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mocks.routeIngestDomstolRssFeed.mockResolvedValue({ newJudgments: 1, updatedJudgments: 0 });
+    mocks.pipelineRunCreate.mockResolvedValue({});
+    mocks.pipelineRunUpdate.mockResolvedValue({});
+    const now = new Date('2026-08-12T12:00:00Z');
+    mocks.upsertJudgment.mockResolvedValue({ id: 'judgment-1', createdAt: now, updatedAt: now });
+    mocks.upsertLegalSourceWithMatrix.mockResolvedValue(undefined);
+    mocks.buildJudgmentLegalSourceSeed.mockReturnValue({
+      title: 'Dom i miljomal',
+      link: 'https://www.domstol.se/beslut/2025/1234',
+      sourceFeed: 'https://www.domstol.se/feed/15972/?scope=decision&searchPageId=15972',
+    });
+  });
+
+  it('B: the route comment says admin-only, but a CONSULTANT can reach the manual RSS ingest handler', async () => {
+    const response = await request(app)
+      .post('/api/legal/ingest/domstol-rss/run')
+      .set('Authorization', authHeader('CONSULTANT'))
+      .send({});
+
+    const evidence = {
+      invariant: 'LEGAL_RSS_ROUTE_ROLE_GATE_MISMATCH',
+      route: 'POST /api/legal/ingest/domstol-rss/run',
+      comment_claim: 'admin only',
+      middleware: ['requireAuth', 'rateLimitByUser(5, 60_000)'],
+      caller_role: 'CONSULTANT',
+      response_status: response.status,
+      ingest_called: mocks.routeIngestDomstolRssFeed.mock.calls.length,
+    };
+
+    expect(response.status, `Precondition failed: route must be reachable.\nEvidence: ${JSON.stringify(evidence)}`).toBe(200);
+    expect(
+      mocks.routeIngestDomstolRssFeed,
+      `Precondition failed: ingest handler must be invoked.\nEvidence: ${JSON.stringify(evidence)}`,
+    ).toHaveBeenCalledTimes(1);
+
+    expect(
+      evidence,
+      'LEGAL_RSS_ROUTE_ROLE_GATE_MISMATCH VIOLATED — the effective route accepts a CONSULTANT ' +
+        'for an endpoint documented as admin-only and reaches ingestDomstolRssFeed().\nEvidence: ' +
+        JSON.stringify(evidence),
+    ).toMatchObject({
+      response_status: 403,
+      ingest_called: 0,
+    });
+  });
+
+  it('A: the RSS ingest service establishes legal state from a hard-coded Domstol feed without canonical source/admission authority', async () => {
+    const fetchCalls: string[] = [];
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (input: unknown) => {
+        const url = typeof input === 'string' ? input : String((input as { url?: string })?.url ?? input);
+        fetchCalls.push(url);
+        return {
+          ok: true,
+          statusText: 'OK',
+          text: async () => rssXml,
+        } as Response;
+      }),
+    );
+
+    const result = await ingestDomstolRssFeed();
+    const serviceSource = fs.readFileSync(
+      path.resolve(__dirname, '../../server/services/domstolRssService.ts'),
+      'utf8',
+    );
+    const canonicalAuthoritySymbols = [
+      'SourceRegistryArtifact',
+      'verifySourceRegistryArtifact',
+      'approval_attestation',
+      'ArtifactAttestation',
+      'F0D',
+    ];
+    const canonicalSymbolsFound = canonicalAuthoritySymbols.filter((symbol) => serviceSource.includes(symbol));
+
+    const evidence = {
+      invariant: 'LEGAL_RSS_SOURCE_AUTHORITY_BYPASS',
+      result,
+      fetch_calls: fetchCalls,
+      hard_coded_domstol_feed_used: fetchCalls.some((url) => url.includes('https://www.domstol.se/feed/15972/')),
+      judgment_upserts: mocks.upsertJudgment.mock.calls.length,
+      legal_source_matrix_upserts: mocks.upsertLegalSourceWithMatrix.mock.calls.length,
+      canonical_source_registry_consulted: canonicalSymbolsFound.length > 0,
+      canonical_symbols_found: canonicalSymbolsFound,
+    };
+
+    expect(
+      evidence.hard_coded_domstol_feed_used,
+      `Precondition failed: expected fetch against the hard-coded Domstol RSS feed.\nEvidence: ${JSON.stringify(evidence)}`,
+    ).toBe(true);
+    expect(
+      evidence.judgment_upserts + evidence.legal_source_matrix_upserts,
+      `Precondition failed: expected the run to reach legal-state writes.\nEvidence: ${JSON.stringify(evidence)}`,
+    ).toBeGreaterThan(0);
+
+    const authorityBypassUse = [
+      evidence.hard_coded_domstol_feed_used ? 'HARD_CODED_DOMSTOL_RSS_FEED_USED' : null,
+      evidence.judgment_upserts > 0 ? 'JUDGMENT_RECORD_UPSERT_REACHED' : null,
+      evidence.legal_source_matrix_upserts > 0 ? 'LEGAL_SOURCE_MATRIX_UPSERT_REACHED' : null,
+      !evidence.canonical_source_registry_consulted ? 'NO_CANONICAL_SOURCE_ADMISSION' : null,
+    ].filter((value): value is string => value !== null);
+
+    expect(
+      authorityBypassUse,
+      'LEGAL_RSS_SOURCE_AUTHORITY_BYPASS VIOLATED — Domstol RSS ingest fetched a hard-coded ' +
+        'source and reached canonical-looking legal state writes without verified F0D SourceRegistry ' +
+        'or governed source/admission provenance.\nEvidence: ' +
+        JSON.stringify(evidence),
+    ).toEqual([]);
+  });
+});

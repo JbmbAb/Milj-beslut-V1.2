@@ -14,7 +14,7 @@
  *   - Loke SHALL NOT interpret content and SHALL NOT classify documents.
  */
 
-import { SourceDefinition } from '../../../server/modules/harvest/source-registry/registry';
+import type { VerifiedSourceDefinition as SourceDefinition } from '../../../packages/mps-data-governance/src/SourceRegistry';
 
 export interface HarvestPlan {
   plan_id: string;               // Unikt ID (loke-plan-YYYYMMDD-HHmmss)
@@ -62,6 +62,55 @@ export interface HarvestLedger {
   completed_at: string | null;
   status: HarvestLedgerState;
   events: LedgerEvent[];         // Append-only händelselista med bevarad ordning
+}
+
+export interface ValidationResult {
+  valid: boolean;
+  errors: string[];
+}
+
+export interface HarvestCandidate {
+  uniqueId: string;
+  caseId: string;
+  authority: string;
+  municipality: string;
+  year: number;
+  sourceUrl: string;
+  fileName: string;
+  docType: string;
+}
+
+export interface SourceDocument {
+  name: string;
+  content: string;
+  sourceUrl: string;
+  retrievedAt?: string;
+}
+
+export interface SourceAdapter {
+  validateContract(): ValidationResult;
+  discover(onlyFilter?: string[]): Promise<HarvestCandidate[]>;
+  fetch(candidate: HarvestCandidate): Promise<SourceDocument>;
+}
+
+export interface HarvestArtifact {
+  artifact_id: string;
+  source_id: string;
+  source_url: string;
+  content_hash: string;
+}
+
+export interface HarvestRunArtifact {
+  harvest_run_id: string;
+  source_id: string;
+  started_at: string;
+  completed_at: string;
+  adapter_version: string;
+  documents_found: number;
+  documents_new: number;
+  documents_changed: number;
+  status: 'completed' | 'failed';
+  error_message?: string;
 }
 
 // -----------------------------------------------------------------------------

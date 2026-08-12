@@ -1,16 +1,42 @@
-import { ArtifactRepositoryPort, sha256ContentHash } from "../../../mps-runtime/src/kernel/ExecutionKernel";
+import { sha256ContentHash } from "../../../mps-runtime/src/kernel/ExecutionKernel";
 import { DocumentEvidenceArtifact } from "../artifacts/DocumentEvidenceArtifact";
 import { QuarantineStorage } from "./LokeIngestor";
 
-export class QuarantinePromoter {
-  constructor(
-    private readonly quarantine: QuarantineStorage,
-    private readonly cas: ArtifactRepositoryPort
-  ) {}
+/**
+ * LU-local materializer from quarantined raw document bytes to DOCUMENT_EVIDENCE.
+ *
+ * This is NOT the platform governance promotion authority and holds NO persistence
+ * capability. It builds the evidence artifact and returns it; it cannot write anywhere.
+ *
+ * A1 ENFORCEMENT (2026-08-11) — this class previously took an ArtifactRepositoryPort and
+ * called `cas.put(...)` directly, persisting a canonical artifact with no attestation.
+ * That was a live authority bypass; see the historical reproduction in
+ * `tests/A1AuthorityBypass.red.test.ts` (ESTABLISHED_RED_PROOF) and the repaired-boundary
+ * criterion in `tests/A1AuthorityEnforcement.test.ts` (REQUIRED_GREEN_PROOF).
+ *
+ * Frozen decision (LU-MVP plan §4.1): the staging-CAS reading was explicitly REJECTED —
+ * this module must not be legitimized by renaming its write surface. Pre-approval material
+ * belongs in non-authoritative quarantine/archive storage. Canonical CAS persistence may
+ * occur ONLY through Mimers Brunn's governed promotion path with valid authority and
+ * attestation binding. Per ADR-27 (Frozen, binding): "Governance aldrig dupliceras",
+ * "LU är en applikation, inte en plattform".
+ *
+ * Callers that need canonical persistence must route the returned artifact through the
+ * governed promotion path. That bridge is a separate, not-yet-built work unit; LU deliberately
+ * cannot persist in the meantime rather than persisting unsafely.
+ */
+export class DocumentEvidenceMaterializer {
+  constructor(private readonly quarantine: QuarantineStorage) {}
 
-  async promote(
-    rawArtifactId: string, 
-    propertyRefId: string, 
+  /**
+   * Builds the DOCUMENT_EVIDENCE artifact from quarantined bytes. Pure: performs no write.
+   *
+   * Renamed from `promote()` because the method no longer promotes anything — keeping the
+   * old name would describe a capability this class must not have.
+   */
+  async materialize(
+    rawArtifactId: string,
+    propertyRefId: string,
     documentRefId: string,
     documentType: string
   ): Promise<DocumentEvidenceArtifact> {
@@ -52,13 +78,18 @@ export class QuarantinePromoter {
       payload,
     };
 
-    // Promote to CAS!
-    await this.cas.put({
-      artifact_id: evidenceArtifact.artifact_id,
-      content_hash: evidenceArtifact.content_hash,
-      body: evidenceArtifact,
-    });
-
+    // A1 ENFORCEMENT: no write here, by design. Canonical persistence requires the governed
+    // promotion path and a verified ArtifactAttestation. Returning the artifact without
+    // persisting is the whole point — LU must not hold this capability.
     return evidenceArtifact;
   }
 }
+
+/**
+ * @deprecated Use DocumentEvidenceMaterializer for LU-local evidence materialization.
+ * Do not use this class name for live governance promotion authority — the canonical
+ * QuarantinePromoter lives in `@miljobeslut/mimers-brunn-core` and requires a signed
+ * ArtifactAttestation. This name collision is scheduled for removal in FAS 2.2; it is kept
+ * here only so this A1 enforcement change stays minimal.
+ */
+export class QuarantinePromoter extends DocumentEvidenceMaterializer {}
