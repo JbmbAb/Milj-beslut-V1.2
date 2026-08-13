@@ -3,7 +3,7 @@
 | Field | Value |
 |---|---|
 | Program gate | `HM-1` |
-| Status | `READY_FOR_FINAL_HM1_CLOSURE_REVIEW` |
+| Status | `HM-1 HIGH_MATURITY — CLOSED` |
 | Date | 2026-08-13 |
 | Proof registry | `HM1-PROOF-REGISTRY-2026-08-13.json` |
 | Executable lane | `proof:hm1` / `node scripts/hm1/run-proof-lane.mjs` |
@@ -65,8 +65,27 @@ The two historical proof files are excluded from test discovery and mapped to ex
 tracked replacement proofs. The runner rejects any required proof that is present only as an
 untracked worktree file, and CI invokes the same runner command recorded in the registry.
 
+## Final closure review
+
+Owner-authorized closure executed 2026-08-13.
+
+```text
+HM1-A                              CLOSED
+HM1-B                              CLOSED / PROVEN
+HM1-C                              CLOSED / PROVEN
+HM1-D                              CLOSED / PROVEN
+known HM-1 contradictory blockers  NONE
+final HM-1 result                  HIGH_MATURITY / CLOSED
+```
+
+The final review re-executed `proof:hm1` at 20 files / 116 tests and the broader LU compliance
+regression at 27 files / 124 tests. Remaining `KNOWN_BROKEN` entries are scoped to P7/HM-P,
+retired/unwired models, or presentation paths outside the governed LU evidence chain.
+
+This closure applies only to the admitted `EXISTENCE_WITHIN_DISTANCE_V1` HM-1 capability. It
+does not admit `FEATURE_GEOMETRY`, close P2, or claim broad spatial presentation maturity.
+
 ## Stop rule
 
-HM1-D adds no LU product behavior. After a clean lane run, count cross-validation, JSON/JSONC
-validation, and `git diff --check`, this packet moves to `READY_FOR_FINAL_HM1_CLOSURE_REVIEW`.
-Only the owner may then declare `HM-1 HIGH_MATURITY`.
+HM1-D and the final review add no LU product behavior. Any future expansion of the admitted
+result semantics requires a new owner decision and separate proof before use.

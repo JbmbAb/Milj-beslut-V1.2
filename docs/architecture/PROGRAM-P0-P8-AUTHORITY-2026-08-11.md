@@ -298,11 +298,15 @@ HM1-A authority reconciliation          OWNER-FROZEN / CLOSED
 HM1-B governed document/fact runtime     CLOSED / PROVEN
 HM1-C governed assessment persistence    CLOSED / PROVEN
 HM1-D proof / CI / release closure       CLOSED / PROVEN (20 files, 116/116)
-HM-1                                     READY_FOR_FINAL_CLOSURE_REVIEW
+HM-1                                     HIGH_MATURITY / CLOSED (owner-authorized 2026-08-13)
 ```
 
 HM1-D definierar inga nya produktinvarianter. Den gör de redan exekverade bevisen
 versionskontrollerade och CI-nåbara genom `proof:hm1`, och registrerar gamla ersatta tester som
 historisk evidens utan att räkna dem som aktiva proofs.
+
+Final closure review re-executed `proof:hm1` (20 files, 116/116) and the broader LU compliance
+regression (27 files, 124/124). Closure is restricted to admitted
+`EXISTENCE_WITHIN_DISTANCE_V1`; it does not admit `FEATURE_GEOMETRY`, close P2, or close HM-P.
 
 **Ingen mer roadmap-design efter detta dokument.**

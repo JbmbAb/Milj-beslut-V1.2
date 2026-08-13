@@ -1,13 +1,13 @@
 {
   "schema_version": 2,
-  "updated_at": "2026-08-11",
-  "status": "DRAFT_BLOCKED",
+  "updated_at": "2026-08-13",
+  "status": "ACTIVE_CONTROL_REGISTRY",
   "notes": [
-    "This authority map is an inventory/control draft, not a frozen architecture contract.",
+    "This authority map is the active control/proof registry under PROGRAM-P0-P8-AUTHORITY-2026-08-11.md; it does not independently create architecture contracts.",
     "A1-A3 are incorporated: package_class, module_role, and proof_status are separate dimensions.",
     "required_proof_execution records whether each proof file is actually executed by a Vitest project/lane in the current vitest.config.ts.",
-    "No production code, guardrail, lane split, quarantine move, or deletion is authorized by this draft.",
-    "BLOCKED: no guardrail, proof-split, or authority-related implementation may be frozen until A1-A3 are corrected here AND the open authority decisions are frozen."
+    "A1-A3, P1 closure and HM-1 closure are recorded outcomes; historical red-proof status fields remain historical evidence and are not current blockers.",
+    "Open P2, P7/HM-P, retired-candidate and presentation-boundary findings retain their own explicit scope and are not silently closed by HM-1."
   ],
 
   // ---------------------------------------------------------------------------------------
@@ -285,8 +285,8 @@
           "contract_closure": "SATISFIED — F0D frozen 2026-08-11",
           "enforcement_proof": "PROVEN — A1 red ESTABLISHED + A1 green PROVEN + forbidden LU capability REMOVED_BY_CONSTRUCTION",
           "runtime_authority_convergence": "PROVEN_FOR_KNOWN_P1_SURFACES — SR1/Loke is GREEN/PROVEN; open datasource sync is classified/fixed; sync-manifest is classified/fixed as project-scoped operational indexing; Domstol RSS is SourceRegistry/route-policy fixed; property lookup fallback now fails closed without authority-bearing writes.",
-          "P1_overall": "READY_FOR_CLOSURE_REVIEW — owner closure pending; not marked CLOSED by implementation alone.",
-          "remaining_blocker": "None known after C-P1-04. Closure review must confirm no documented P1 surface remains KNOWN_BROKEN.",
+          "P1_overall": "CLOSED — owner decision 2026-08-12; closure commit 025802e.",
+          "remaining_blocker": "NONE — closure review completed 2026-08-12.",
           "what_F0D_freeze_means": "WHAT SourceRegistry must be — frozen. THAT Loke runtime uses it is proven by SR1 green. Known non-Loke source/write blockers are now fixed or scoped for P1.",
           "gate_model_correction": "The original two-gate model (contract closure + enforcement proof) was too narrow while Source Registry was unimplemented. A third gate is a precision of what P1 already means, not new roadmap scope.",
           "closure_rule": "P1 CLOSED iff contract closure AND enforcement proof AND system-wide runtime authority convergence.",
@@ -837,7 +837,7 @@
         "P1_runtime_authority_convergence": "NO known remaining blocker after C-P1-04.",
         "P1_closure_review": "READY — owner closure review may now decide whether P1 can be marked CLOSED."
       },
-      "next_step": "P1 closure review. Do not touch LU/F0C until owner releases the LU gate.",
+      "next_step": "P1 is CLOSED. SourceRegistry-dependent P2 work proceeds under its own frozen scope and proofs.",
       "invariant": "No route, service or worker SHALL act as an independent source authority outside the canonical governance-approved SourceRegistry contract."
     },
     {
@@ -942,14 +942,14 @@
       "proof_reason": "SR1 green enforcement proof executed 2026-08-12. F0D is frozen and Loke now materializes only verified, governance-approved SourceRegistryArtifact entries. The previous hard-coded registry remains a legacy catalog/projection and is not imported by Loke's operational authority path.",
       "blocker_class": "RESOLVED_FOR_LOKE_PATH",
       "same_file_as": "Previously paired with source-registry-parallel-authority when the legacy file was both the desired projection target and the observed bypass. After SR1 green, the canonical runtime is packages/mps-data-governance/src/SourceRegistry.ts; the legacy file is superseded for Loke authority.",
-      "blocker": "Resolved for Loke operational source authority. Additional-source-authority-surfaces now records the known non-Loke P1 surfaces as fixed, scoped, or guarded; P1 overall is READY_FOR_CLOSURE_REVIEW pending release-integrity review.",
+      "blocker": "NONE FOR P1 — resolved for Loke operational source authority; known non-Loke P1 surfaces are fixed, scoped, or guarded and P1 is CLOSED.",
       "invariant": "Loke source authority MUST be a verified materialization of a governance-approved SourceRegistryArtifact before any adapter dispatch, URL gate, network I/O or quarantine persistence."
     },
     {
       "id": "hm1-governed-lu-chain",
       "package_class": "ACTIVE_MVP",
       "module_role": "HM1_GOVERNED_LU_CAPABILITY",
-      "proof_status": "PROVEN_PENDING_FINAL_OWNER_FREEZE",
+      "proof_status": "PROVEN",
       "owner_package": "mps-lu",
       "file": "docs/architecture/HM1-PROOF-REGISTRY-2026-08-13.json",
       "authority": "HM-1 governed LU chain for the admitted EXISTENCE_WITHIN_DISTANCE_V1 result semantics.",
@@ -966,6 +966,20 @@
         "ci_workflow": ".github/workflows/ci.yml",
         "vitest_project": "compliance",
         "execution_status": "EXECUTED_2026-08-13_20_FILES_116_TESTS_PASS"
+      },
+      "closure": {
+        "status": "HM-1_HIGH_MATURITY",
+        "owner_authorized": true,
+        "closed_on": "2026-08-13",
+        "final_review": "PASS",
+        "focused_lane": "20 files / 116 tests PASS",
+        "broader_lu_regression": "27 files / 124 tests PASS",
+        "does_not_close": [
+          "P2 governed ingestion runtime",
+          "FEATURE_GEOMETRY or S5/R5/R6",
+          "P7/HM-P scheduler lifecycle",
+          "broad spatial presentation conformance"
+        ]
       },
       "supersession": {
         "packages/mps-lu/tests/LUMagicMoment.test.ts.historical": [
