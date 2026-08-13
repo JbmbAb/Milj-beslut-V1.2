@@ -944,6 +944,43 @@
       "same_file_as": "Previously paired with source-registry-parallel-authority when the legacy file was both the desired projection target and the observed bypass. After SR1 green, the canonical runtime is packages/mps-data-governance/src/SourceRegistry.ts; the legacy file is superseded for Loke authority.",
       "blocker": "Resolved for Loke operational source authority. Additional-source-authority-surfaces now records the known non-Loke P1 surfaces as fixed, scoped, or guarded; P1 overall is READY_FOR_CLOSURE_REVIEW pending release-integrity review.",
       "invariant": "Loke source authority MUST be a verified materialization of a governance-approved SourceRegistryArtifact before any adapter dispatch, URL gate, network I/O or quarantine persistence."
+    },
+    {
+      "id": "hm1-governed-lu-chain",
+      "package_class": "ACTIVE_MVP",
+      "module_role": "HM1_GOVERNED_LU_CAPABILITY",
+      "proof_status": "PROVEN_PENDING_FINAL_OWNER_FREEZE",
+      "owner_package": "mps-lu",
+      "file": "docs/architecture/HM1-PROOF-REGISTRY-2026-08-13.json",
+      "authority": "HM-1 governed LU chain for the admitted EXISTENCE_WITHIN_DISTANCE_V1 result semantics.",
+      "scope": {
+        "EXISTENCE_WITHIN_DISTANCE_V1": "ADMITTED_FOR_HM1_V1",
+        "FEATURE_GEOMETRY": "NOT_ADMITTED_FOR_HM1_V1",
+        "S5_R5_R6": "DORMANT_UNTIL_FEATURE_GEOMETRY_ADMISSION"
+      },
+      "required_proof_registry": "docs/architecture/HM1-PROOF-REGISTRY-2026-08-13.json",
+      "required_proof_execution": {
+        "lane": "proof:hm1",
+        "runner": "scripts/hm1/run-proof-lane.mjs",
+        "command": "node scripts/hm1/run-proof-lane.mjs",
+        "ci_workflow": ".github/workflows/ci.yml",
+        "vitest_project": "compliance",
+        "execution_status": "EXECUTED_2026-08-13_20_FILES_116_TESTS_PASS"
+      },
+      "supersession": {
+        "packages/mps-lu/tests/LUMagicMoment.test.ts.historical": [
+          "packages/mps-lu/tests/P4ALU05RealRuntimeEntrypoint.test.ts",
+          "packages/mps-lu/tests/HM1BRealGovernedDocumentChain.test.ts",
+          "packages/mps-lu/tests/HM1CGovernedAssessmentPersistence.test.ts",
+          "packages/mps-lu/tests/VerticalProof.test.ts"
+        ],
+        "packages/mps-lu/tests/LuEnforcementReplay.test.ts.historical": [
+          "packages/mps-lu/tests/F9ReplayContract.test.ts",
+          "packages/mps-lu/tests/HM1CGovernedAssessmentPersistence.test.ts",
+          "packages/mps-lu/tests/VerticalProof.test.ts"
+        ]
+      },
+      "invariant": "The real LU entrypoint must resolve governed evidence, bind findings and assessment to exact evidence/outcome identities, persist only through verified canonical write, replay from captured artifacts, and expose only admitted evidence through an admitted viewer capability."
     }
   ]
 }

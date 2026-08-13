@@ -22,7 +22,9 @@ export class DocumentEvidenceService {
         payload: {
           property_ref: propertyRef,
           document_ref: {
-            artifact_id: doc.metadata?.document_id || `mock-doc-hash-${index}`,
+            // F4B-0A: RelevantDocumentMetadata is a closed descriptive contract and carries no
+            // document_id. A provider-supplied identity belongs in document_ref, not metadata.
+            artifact_id: `mock-doc-hash-${index}`,
             artifact_type: "EXTERNAL_DOCUMENT"
           },
           relevant_document: doc,

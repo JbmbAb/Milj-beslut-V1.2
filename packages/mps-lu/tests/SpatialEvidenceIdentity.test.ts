@@ -5,23 +5,38 @@ import {
 } from "../src/artifacts/SpatialEvidenceIdentity";
 import type { SpatialEvidencePayload } from "../src/artifacts/SpatialEvidenceArtifact";
 
+/**
+ * P4A-LU-S6 migration 2026-08-13: this fixture now declares its result semantics and carries
+ * `geometry: null`. Under the frozen v1 semantics (EXISTENCE_WITHIN_DISTANCE) there is no
+ * result geometry to bind — the executed query retrieves none.
+ *
+ * `engine_fingerprint` was missing here and the fixture did not compile against its own
+ * declared type. Populated with the TV-4.3 §9 verified baseline purely so the fixture is valid;
+ * S1/S3 (wildcard and incomplete stack in the PRODUCTION providers) remain OPEN and untouched.
+ */
 const basePayload: SpatialEvidencePayload = {
-  property_ref: { artifact_id: "prop-123", artifact_type: "LU_PROPERTY_CONTEXT" },
-  layer_ref: { layer_id: "water", layer_version: "v1" },
-  srid: 3006,
-  operation: { algorithm: "spatial.dwithin_existence", engine: "PostGIS" },
-  geometry: {
-    type: "Polygon",
-    coordinates: [
-      [
-        [591234, 6612345],
-        [591235, 6612345],
-        [591235, 6612346],
-        [591234, 6612346],
-        [591234, 6612345],
-      ],
-    ],
+  result_semantics: {
+    kind: "EXISTENCE_WITHIN_DISTANCE",
+    query: {
+      subject_ref: { artifact_id: "prop-123", artifact_type: "LU_PROPERTY_CONTEXT" },
+      srid: 3006,
+      distance_meters: 300,
+    },
+    result: { exists: true, match_count_observed: 2, max_features_per_layer: 50 },
   },
+  property_ref: { artifact_id: "prop-123", artifact_type: "LU_PROPERTY_CONTEXT" },
+  layer_ref: {
+    layer_id: "water",
+    version_hash: "2b4b514f8b18a1a614d9aeac75c32eff8c52a3864c54770be112fd88fa263ddc",
+    layer_version: "v1",
+  },
+  srid: 3006,
+  operation: {
+    algorithm: "spatial.dwithin_existence",
+    engine: "PostGIS",
+    engine_fingerprint: { postgis: "3.4.3", geos: "3.9.0", proj: "7.2.1", gdal: "3.2.2" },
+  },
+  geometry: null,
   source_metadata: {
     provider: "PostGIS",
     dataset: "water",
@@ -66,39 +81,56 @@ describe("Spatial evidence identity (TV-S1 SV-I02 / SV-I06)", () => {
     );
   });
 
-  it("changes when the resulting geometry changes", () => {
-    const moved = withPayload({
-      geometry: {
-        type: "Polygon",
-        coordinates: [
-          [
-            [591334, 6612345],
-            [591335, 6612345],
-            [591335, 6612346],
-            [591334, 6612346],
-            [591334, 6612345],
-          ],
-        ],
+  it("changes when the observed result changes", () => {
+    // Replaces the former "changes when the resulting geometry changes". Same invariant — the
+    // ANSWER is part of the identity — expressed under the frozen v1 semantics, where the
+    // answer is an existence result rather than a geometry.
+    const notFound = withPayload({
+      result_semantics: {
+        ...basePayload.result_semantics,
+        result: { ...basePayload.result_semantics.result, exists: false },
+      },
+    });
+    const differentCount = withPayload({
+      result_semantics: {
+        ...basePayload.result_semantics,
+        result: { ...basePayload.result_semantics.result, match_count_observed: 7 },
       },
     });
 
-    expect(computeSpatialEvidenceHash(moved)).not.toBe(
+    expect(computeSpatialEvidenceHash(notFound)).not.toBe(
+      computeSpatialEvidenceHash(basePayload),
+    );
+    expect(computeSpatialEvidenceHash(differentCount)).not.toBe(
       computeSpatialEvidenceHash(basePayload),
     );
   });
 
-  it("changes when the dataset or layer version changes", () => {
+  it("changes when the dataset version hash changes, not when the human label changes", () => {
     const newDataset = withPayload({
       source_metadata: { ...basePayload.source_metadata, dataset_version: "2026-06-01" },
     });
-    const newLayer = withPayload({
+    const newLayerHash = withPayload({
+      layer_ref: {
+        ...basePayload.layer_ref,
+        version_hash: "02fccffc07abaaf1775c8333d660fa60fdecea0c3bb664335892764c8486d186",
+      },
+      source_metadata: {
+        ...basePayload.source_metadata,
+        dataset_version: "02fccffc07abaaf1775c8333d660fa60fdecea0c3bb664335892764c8486d186",
+      },
+    });
+    const newLayerLabel = withPayload({
       layer_ref: { ...basePayload.layer_ref, layer_version: "v2" },
     });
 
     expect(computeSpatialEvidenceHash(newDataset)).not.toBe(
       computeSpatialEvidenceHash(basePayload),
     );
-    expect(computeSpatialEvidenceHash(newLayer)).not.toBe(
+    expect(computeSpatialEvidenceHash(newLayerHash)).not.toBe(
+      computeSpatialEvidenceHash(basePayload),
+    );
+    expect(computeSpatialEvidenceHash(newLayerLabel)).toBe(
       computeSpatialEvidenceHash(basePayload),
     );
   });

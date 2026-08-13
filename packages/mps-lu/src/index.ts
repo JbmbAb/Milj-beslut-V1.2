@@ -8,15 +8,18 @@ export * from "./artifacts/DocumentEvidenceArtifact";
 export * from "./artifacts/LocalizationAssessmentArtifact";
 export * from "./artifacts/SpatialEvidenceArtifact";
 export * from "./artifacts/SpatialEvidenceIdentity";
+export * from "./artifacts/SpatialResultSemantics";
+export * from "./artifacts/SpatialEngineFingerprint";
 export * from "./artifacts/LUProjectContextArtifact";
 export * from "./artifacts/LUPropertyContextArtifact";
+export * from "./governance/GovernedAssessmentPersistence";
 
 // Services
 export * from "./services/SpatialQueryContract";
 export * from "./services/LUProjectContextService";
 
 // Providers
-export * from "./providers/PostgisSpatialProvider";
+export * from "./providers/SpatialProviderResolver";
 export * from "./providers/DocumentProviderContract";
 export * from "./providers/NullDocumentProvider";
 

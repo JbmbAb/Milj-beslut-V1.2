@@ -134,11 +134,12 @@ jobs:
           packages/mps-control-plane/src/unit/DurableTicketQueue.adversarial.test.ts
           packages/mps-control-plane/src/unit/ExecutionInfrastructure.test.ts
           packages/mps-lu/tests/LuExecutionKernelClient.test.ts
-          packages/mps-lu/tests/LUMagicMoment.test.ts
           packages/mps-lu/src/unit/LuRuntimeFreeze.test.ts
           src/infrastructure/unit/PrismaExecutionTicketQueue.test.ts
           src/application/unit/resolve-execution-ticket-queue.test.ts
           src/application/unit/LuCutoverSinglePath.test.ts
+      - name: HM-1 governed LU proof lane
+        run: node scripts/hm1/run-proof-lane.mjs
       - name: MPS Epoch II verification gates (Architecture + Generality)
         run: >
           npx vitest run --config vitest.config.ts

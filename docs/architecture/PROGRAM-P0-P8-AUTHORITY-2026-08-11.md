@@ -72,8 +72,10 @@ göras beroende av att implementationen redan är färdig:
 | Nivå | Status |
 |---|---|
 | `P4A-LU` contract / gate definition | 🔒 **FROZEN** — sex gates, se `P4A-LU-GATE-CONTRACT-2026-08-11.md` |
-| `P4A-LU` implementation | **KNOWN_BROKEN** — S1–S5 öppna, B1 ounverifierad |
-| `P4A-LU` proof / satisfaction | **NOT_PROVEN** |
+| `P4A-LU` admitted v1 implementation | **TECHNICALLY_CLOSED** — S1–S4 och B1 bevisade för `EXISTENCE_WITHIN_DISTANCE_V1` |
+| `P4A-LU-02` proof scope | **PROVEN_FOR_ADMITTED_EXISTENCE_WITHIN_DISTANCE_V1** |
+| `FEATURE_GEOMETRY` | **NOT_ADMITTED_FOR_HM1_V1** |
+| `S5 / R5 / R6` | **DORMANT_UNTIL_FEATURE_GEOMETRY_ADMISSION** — inte waived |
 
 Samma tredelning gäller `P1`: F0D-kontraktet är fryst och A1:s enforcement-bevis är nu
 exekverat grönt, men P1 overall markeras först efter separat statusavstämning av båda
@@ -234,8 +236,8 @@ THAT known P1 source/write paths do ✅ proven or explicitly scoped
 P1 contract closure        ✅ CLOSED
 P1 enforcement boundary    ✅ PROVEN
 P1 authority convergence   ✅ PROVEN_FOR_KNOWN_P1_SURFACES (12 files, 93/93)
-P1 release authority       ⚠️ STAGED_PENDING_COMMIT_AND_OWNER — Tor preflight clean; staged set still needs commit and owner closure
-P1 overall                  READY_FOR_CLOSURE_REVIEW — owner closure pending
+P1 release authority       ✅ COMMITTED — 025802e chore: close P1 authority convergence
+P1 overall                  CLOSED — owner decision 2026-08-12
 ```
 
 ## 7. Fryst ordning härifrån
@@ -260,8 +262,8 @@ P1 authority enforcement ✅ GREEN PROOF EXECUTED
         ↓
 P2 first governed source   (icke-spatial källa möjlig utan stack-pinning)
         ↓
-P4A-LU runtime wiring + proof   (S1→S5 i ordningen identity → canonicalization
-                                 → fingerprint → version_hash → wiring)
+P4A-LU runtime wiring + proof   (för admitterad EXISTENCE_WITHIN_DISTANCE_V1;
+                                 FEATURE_GEOMETRY och S5/R5/R6 är dormant)
         ↓
 P3 canonical LU chain
         ↓
@@ -270,10 +272,37 @@ F3B / P8 executed proof
 HM-1
 ```
 
-### Enda kvarstående pre-implementation-beslut
+### HM1-A — P4A-LU-06 / S5 authority reconciliation (owner-frozen 2026-08-13)
 
-`SPATIAL_STACK_V1` — exakta versioner av PostGIS/GEOS/PROJ/GDAL. Måste avgöras **innan första
-canonical `SpatialEvidenceArtifact` admitteras** (SPC-R09). Blockerar **inte** ett icke-spatialt
-P2-ingestionsspår. Se `P4A-LU-GATE-CONTRACT-2026-08-11.md` §5.
+```text
+EXISTENCE_WITHIN_DISTANCE_V1   ADMITTED_FOR_HM1_V1
+FEATURE_GEOMETRY               NOT_ADMITTED_FOR_HM1_V1
+S5 / R5 / R6                   DORMANT_UNTIL_FEATURE_GEOMETRY_ADMISSION
+P4A-LU-02                      PROVEN_FOR_ADMITTED_EXISTENCE_WITHIN_DISTANCE_V1
+```
+
+Detta är en scope-reconciliation, inte en waiver och inte ett påstående om generell spatial
+canonicalization. `FEATURE_GEOMETRY` får endast aktiveras genom ett nytt owner-beslut. Beslutet
+aktiverar S5/R5/R6 som blockerande krav och kräver separat implementation och exekverbart proof
+innan resultatsemantiken får användas.
+
+### Spatial stack decision
+
+`SPATIAL_STACK_V1` är fryst och bevisad för den admitterade
+`EXISTENCE_WITHIN_DISTANCE_V1`-kedjan. HM1-A ändrar inte stackbeslutet.
+
+### HM-1 closure status (2026-08-13)
+
+```text
+HM1-A authority reconciliation          OWNER-FROZEN / CLOSED
+HM1-B governed document/fact runtime     CLOSED / PROVEN
+HM1-C governed assessment persistence    CLOSED / PROVEN
+HM1-D proof / CI / release closure       CLOSED / PROVEN (20 files, 116/116)
+HM-1                                     READY_FOR_FINAL_CLOSURE_REVIEW
+```
+
+HM1-D definierar inga nya produktinvarianter. Den gör de redan exekverade bevisen
+versionskontrollerade och CI-nåbara genom `proof:hm1`, och registrerar gamla ersatta tester som
+historisk evidens utan att räkna dem som aktiva proofs.
 
 **Ingen mer roadmap-design efter detta dokument.**

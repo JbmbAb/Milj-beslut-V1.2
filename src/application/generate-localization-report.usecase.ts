@@ -17,17 +17,33 @@ import { auditTrail } from '../../server/services/auditTrailService';
 import { searchSluByCoordinates, getSpeciesInformation } from '../../server/services/sluService';
 import { logger } from '../../server/logger';
 import type { AuthUser } from '../../server/security/types';
-import { orchestrator, runLuAssessmentViaKernel } from '@miljobeslut/mps-lu';
-import { SpatialProviderPostGIS } from '@miljobeslut/spatial-provider-postgis';
-import { prisma } from '../../server/db/prisma';
+import {
+  LU_SPATIAL_CAPABILITY_KEY,
+  orchestrator,
+  runLuAssessmentViaKernel,
+  type DocumentEvidenceArtifact,
+} from '@miljobeslut/mps-lu';
+import {
+  isVerifiedDocumentFact,
+  type DocumentFactCandidateArtifact,
+  type VerifiedDocumentFactArtifact,
+} from '../../packages/mps-data-governance/src/DocumentFactArtifact';
 import { enqueueAdmittedLuTicket } from './enqueue-lu-execution-ticket';
-import { MimersIntegration } from '@miljobeslut/mps-runtime';
+import {
+  createLocalizationSpatialRuntime,
+  type LocalizationSpatialRuntime,
+} from '../../server/modules/localization/createLocalizationSpatialRuntime';
 
 export interface SiteAlternative {
   id: string;
   name?: string;
   lat: number;
   lng: number;
+  /** Canonical, governed DocumentEvidence selected for this site assessment. */
+  documentEvidenceRefs?: readonly {
+    artifact_id: string;
+    artifact_type: 'DOCUMENT_EVIDENCE';
+  }[];
 }
 
 export interface SluObservation {
@@ -82,6 +98,69 @@ export interface LocalizationReport {
   };
   warnings: string[];
   humanInTheLoop: string;
+}
+
+async function resolveCanonicalDocumentEvidence(
+  refs: SiteAlternative['documentEvidenceRefs'],
+  expectedPropertyId: string,
+  repository: LocalizationSpatialRuntime['artifactRepository'],
+): Promise<DocumentEvidenceArtifact[]> {
+  const resolved: DocumentEvidenceArtifact[] = [];
+  for (const ref of refs ?? []) {
+    if (ref.artifact_type !== 'DOCUMENT_EVIDENCE') {
+      throw new Error(`REJECT_DOCUMENT_EVIDENCE: '${ref.artifact_id}' has the wrong artifact type`);
+    }
+    const canonical = await repository.resolve<DocumentEvidenceArtifact>({
+      artifact_id: ref.artifact_id,
+      artifact_type: ref.artifact_type,
+    });
+    if (
+      canonical.artifact_id !== ref.artifact_id ||
+      canonical.artifact_type !== 'DOCUMENT_EVIDENCE'
+    ) {
+      throw new Error(
+        `REJECT_DOCUMENT_EVIDENCE: '${ref.artifact_id}' did not resolve to canonical DocumentEvidence`,
+      );
+    }
+    if (canonical.payload.property_ref.artifact_id !== expectedPropertyId) {
+      throw new Error(
+        `REJECT_DOCUMENT_EVIDENCE: '${ref.artifact_id}' is not bound to '${expectedPropertyId}'`,
+      );
+    }
+    resolved.push(canonical);
+  }
+  return resolved;
+}
+
+async function resolveVerifiedDocumentFacts(
+  documentEvidence: readonly DocumentEvidenceArtifact[],
+  repository: LocalizationSpatialRuntime['artifactRepository'],
+): Promise<VerifiedDocumentFactArtifact[]> {
+  const refs = new Map<string, { artifact_id: string; artifact_type: string }>();
+  for (const evidence of documentEvidence) {
+    for (const ref of evidence.payload.fact_refs ?? []) {
+      if (ref.artifact_type !== 'VERIFIED_DOCUMENT_FACT') {
+        throw new Error(
+          `REJECT_DOCUMENT_FACT: '${ref.artifact_id}' is not a VERIFIED_DOCUMENT_FACT`,
+        );
+      }
+      refs.set(ref.artifact_id, ref);
+    }
+  }
+
+  const facts: VerifiedDocumentFactArtifact[] = [];
+  for (const ref of refs.values()) {
+    const resolved = await repository.resolve<
+      DocumentFactCandidateArtifact | VerifiedDocumentFactArtifact
+    >(ref);
+    if (!isVerifiedDocumentFact(resolved) || resolved.artifact_id !== ref.artifact_id) {
+      throw new Error(
+        `REJECT_DOCUMENT_FACT: '${ref.artifact_id}' did not resolve to the referenced verified fact`,
+      );
+    }
+    facts.push(resolved);
+  }
+  return facts;
 }
 
 export function isLocalizationStrictMode(): boolean {
@@ -328,6 +407,7 @@ function collectWarnings(input: {
 async function analyzeSite(
   site: SiteAlternative,
   ctx: { projectId: string; user?: AuthUser },
+  createSpatialRuntime: () => Promise<LocalizationSpatialRuntime>,
 ): Promise<SiteAnalysisResult> {
   logger.info(`Analyzing site: ${site.id} at (${site.lat}, ${site.lng})`);
   const strict = isLocalizationStrictMode();
@@ -386,35 +466,39 @@ async function analyzeSite(
 
   let documentEvidence: any[] = [];
   try {
-    const propertyRef = {
-      artifact_id: `prop-${site.id}`,
-      artifact_type: "LU_PROPERTY_CONTEXT" as const
-    };
-    const geometry = {
-      type: "Polygon" as const,
-      coordinates: [[
-        [site.lng - 0.001, site.lat - 0.001],
-        [site.lng + 0.001, site.lat - 0.001],
-        [site.lng + 0.001, site.lat + 0.001],
-        [site.lng - 0.001, site.lat + 0.001],
-        [site.lng - 0.001, site.lat - 0.001]
-      ]] as number[][][]
-    };
-    documentEvidence = await orchestrator.generateDocumentEvidence(propertyRef, geometry);
+    // Canonical refs are the only governed rule input. The legacy provider remains a
+    // presentation-only fallback when no governed evidence was selected for this assessment.
+    if (site.documentEvidenceRefs?.length) {
+      documentEvidence = [];
+    } else {
+      const propertyRef = {
+        artifact_id: `prop-${site.id}`,
+        artifact_type: "LU_PROPERTY_CONTEXT" as const
+      };
+      const geometry = {
+        type: "Polygon" as const,
+        coordinates: [[
+          [site.lng - 0.001, site.lat - 0.001],
+          [site.lng + 0.001, site.lat - 0.001],
+          [site.lng + 0.001, site.lat + 0.001],
+          [site.lng - 0.001, site.lat + 0.001],
+          [site.lng - 0.001, site.lat - 0.001]
+        ]] as number[][][]
+      };
+      documentEvidence = await orchestrator.generateDocumentEvidence(propertyRef, geometry);
+    }
   } catch (err) {
     logger.warn(`Failed to generate document evidence for site ${site.id}`, { err: String(err) });
   }
 
-  // Magic Moment path: property CAS → PostGIS SpatialProvider → evidence → kernel → assessment
+  // Magic Moment path: property CAS → registry-resolved spatial provider → evidence → kernel → assessment
   let mpsFindings: any[] = [];
   let executionMotor: ExecutionMotorMeta | undefined;
-  let spatialProvider: { close: () => Promise<void> } | undefined;
+  let spatialRuntime: LocalizationSpatialRuntime | undefined;
   try {
-    const mimers = await MimersIntegration.create();
-    const repo = mimers.artifactRepository;
-    const dbUrl = process.env.DATABASE_URL || 'postgresql://postgres:postgres@localhost:5432/mimer';
-    const provider = new SpatialProviderPostGIS(dbUrl, repo);
-    spatialProvider = provider;
+    spatialRuntime = await createSpatialRuntime();
+    const repo = spatialRuntime.artifactRepository;
+    const provider = spatialRuntime.resolveSpatialProvider(LU_SPATIAL_CAPABILITY_KEY);
 
     const propertyContextId = `prop-${site.id}`;
     const projectContextId = `proj-${ctx.projectId}`;
@@ -431,7 +515,7 @@ async function analyzeSite(
       artifact_type: 'CANONICAL_GEOMETRY' as const,
     };
 
-    const [northing, easting] = await provider.wgs84ToSweref99(site.lat, site.lng);
+    const [northing, easting] = await spatialRuntime.wgs84ToSweref99(site.lat, site.lng);
     const propertyPayload = {
       property_ref: site.name || site.id,
       official_name: site.name || site.id,
@@ -482,9 +566,12 @@ async function analyzeSite(
       },
     });
 
+    // Magic Moment spatial contract: fixed 500 m buffer for water/ebh/protected_area.
+    // Do not inherit legacy distanceToWater fallback (200 m) — that collapses EBH/protected hits.
+    const magicMomentBufferMeters = 500;
     const queryRequest = {
       property_ref: propRef,
-      buffer_distance_meters: distanceForCompliance ?? 500,
+      buffer_distance_meters: magicMomentBufferMeters,
       layers: [
         { name: 'water', version_hash: 'v1.0' },
         { name: 'ebh', version_hash: 'v1.0' },
@@ -499,10 +586,49 @@ async function analyzeSite(
     };
 
     const mpsEvidence = await provider.query(queryRequest);
+    const governedDocumentEvidence = await resolveCanonicalDocumentEvidence(
+      site.documentEvidenceRefs,
+      propertyContextId,
+      repo,
+    );
+    if (site.documentEvidenceRefs?.length) {
+      documentEvidence = governedDocumentEvidence;
+    }
+    const verifiedDocumentFacts = await resolveVerifiedDocumentFacts(governedDocumentEvidence, repo);
+    const assessmentEvidenceRefs = Array.from(
+      new Map(
+        [
+          ...mpsEvidence.map((evidence) => ({
+            artifact_id: evidence.artifact_id,
+            artifact_type: evidence.artifact_type,
+          })),
+          ...governedDocumentEvidence.map((evidence) => ({
+            artifact_id: evidence.artifact_id,
+            artifact_type: evidence.artifact_type,
+          })),
+          ...verifiedDocumentFacts.map((fact) => ({
+            artifact_id: fact.artifact_id,
+            artifact_type: fact.artifact_type,
+          })),
+        ].map((ref) => [`${ref.artifact_type}:${ref.artifact_id}`, ref] as const),
+      ).values(),
+    );
     const kernelResult = await runLuAssessmentViaKernel({
       site_id: site.id,
       deterministic_seed: `lu-seed-${site.id}`,
       evidence: mpsEvidence,
+      document_evidence: governedDocumentEvidence,
+      verified_document_facts: verifiedDocumentFacts,
+      artifact_repository: repo,
+      assessment_draft: {
+        site_id: site.id,
+        project_context_ref: projRef,
+        property_ref: propRef,
+        evidence_refs: assessmentEvidenceRefs,
+        system_summary:
+          `Governed LU assessment: ${mpsEvidence.length} spatial evidence, ` +
+          `${governedDocumentEvidence.length} document evidence.`,
+      },
     });
 
     let ticket_id: string | null = null;
@@ -515,39 +641,7 @@ async function analyzeSite(
         { site: site.id },
       );
 
-      const evidenceRefs = mpsEvidence.map((ev) => ({
-        artifact_id: ev.artifact_id,
-        artifact_type: ev.artifact_type,
-      }));
-      const assessmentPayload = {
-        project_context_ref: projRef,
-        property_ref: propRef,
-        findings: kernelResult.findings,
-        evidence_refs: evidenceRefs,
-        rule_refs: kernelResult.findings.map((f) => ({
-          rule_id: f.rule_id,
-          rule_version: f.rule_version,
-        })),
-        system_summary: `PostGIS Magic Moment: ${mpsEvidence.length} evidence, ${kernelResult.findings.length} findings.`,
-      };
-      const assessmentHash = {
-        algorithm: 'sha256' as const,
-        value: createHash('sha256')
-          .update(JSON.stringify(assessmentPayload))
-          .digest('hex'),
-      };
-      assessment_artifact_id = `assess-${site.id}-${assessmentHash.value.slice(0, 12)}`;
-      await repo.put({
-        artifact_id: assessment_artifact_id,
-        content_hash: assessmentHash,
-        body: {
-          artifact_id: assessment_artifact_id,
-          artifact_type: 'LOCALIZATION_ASSESSMENT',
-          content_hash: assessmentHash,
-          references: [projRef, propRef, ...evidenceRefs],
-          payload: assessmentPayload,
-        },
-      });
+      assessment_artifact_id = kernelResult.assessment?.artifact_id ?? null;
     } else {
       logger.warn('LU ExecutionKernel denied admission', {
         site: site.id,
@@ -619,7 +713,7 @@ async function analyzeSite(
       property_context_id: null,
     };
   } finally {
-    await spatialProvider?.close().catch(() => undefined);
+    await spatialRuntime?.close().catch(() => undefined);
   }
 
   return {
@@ -642,6 +736,11 @@ const HUMAN_IN_THE_LOOP =
   'rekommendationer mot primärkällor innan formellt beslut.';
 
 export class GenerateLocalizationReportUseCase {
+  constructor(
+    private readonly createSpatialRuntime: () => Promise<LocalizationSpatialRuntime> =
+      createLocalizationSpatialRuntime,
+  ) {}
+
   async execute(input: {
     projectId: string;
     siteAlternatives: SiteAlternative[];
@@ -649,7 +748,13 @@ export class GenerateLocalizationReportUseCase {
     user?: AuthUser;
   }): Promise<LocalizationReport> {
     const analyses = await Promise.all(
-      input.siteAlternatives.map((site) => analyzeSite(site, { projectId: input.projectId, user: input.user })),
+      input.siteAlternatives.map((site) =>
+        analyzeSite(
+          site,
+          { projectId: input.projectId, user: input.user },
+          this.createSpatialRuntime,
+        ),
+      ),
     );
 
     const sortedByPermit = [...analyses].sort(

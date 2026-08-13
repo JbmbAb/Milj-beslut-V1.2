@@ -50,9 +50,26 @@ describe("L1 Document Ingestion (TV-L1)", () => {
 
     expect(evidenceArtifact.artifact_type).toBe("DOCUMENT_EVIDENCE");
     expect(evidenceArtifact.payload.raw_source_ref?.artifact_id).toBe(rawArtifact.artifact_id);
-    expect(evidenceArtifact.payload.relevant_document.text_content).toContain(
-      "grundvattenuttag i Karlstad",
-    );
+
+    // F4B-0A — the text assertion moved to the correct boundary.
+    //
+    // This previously read `relevant_document.text_content` — i.e. it asserted that the
+    // document's text lived inside the document DESCRIPTION. Under the frozen contract text is
+    // owned by the canonical text projection (TEXT-L1); RelevantDocument describes the document
+    // as a document. What is asserted here is therefore the description, and the absence of
+    // embedded text.
+    expect(evidenceArtifact.payload.relevant_document.type).toBe("decision");
+    expect(evidenceArtifact.payload.relevant_document.metadata.authority).toBe("VISS");
+    expect(
+      (evidenceArtifact.payload.relevant_document as Record<string, unknown>).text_content,
+      "RelevantDocument must not carry document text — that belongs to the text projection.",
+    ).toBeUndefined();
+
+    // The bytes are still preserved where they belong: in quarantine, unmodified.
+    const quarantined = await quarantine.get(rawArtifact.artifact_id);
+    expect(
+      Buffer.from(quarantined!.payload.content_bytes_base64, "base64").toString("utf8"),
+    ).toContain("grundvattenuttag i Karlstad");
 
     // 5. The chain stops at materialization: still NOT in CAS. This assertion previously
     //    read "verify it now exists in CAS" — that expectation encoded the authority bypass.

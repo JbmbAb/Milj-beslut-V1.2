@@ -1,6 +1,16 @@
 import type { ContentReference } from "@miljobeslut/mps-evolution";
 import type { SpatialEvidenceArtifact } from "../artifacts/SpatialEvidenceArtifact.js";
+import type { DocumentEvidenceArtifact } from "../artifacts/DocumentEvidenceArtifact.js";
 import type { AssessmentFinding } from "../domain/AssessmentFinding.js";
+import type {
+  LocalizationAssessmentArtifact,
+  LocalizationAssessmentDraft,
+} from "../artifacts/LocalizationAssessmentArtifact.js";
+import {
+  createGovernedLocalizationAssessment,
+  GovernedAssessmentPersistence,
+} from "../governance/GovernedAssessmentPersistence.js";
+import type { VerifiedDocumentFactArtifact } from "../../../mps-data-governance/src/DocumentFactArtifact.js";
 import { LURuleEngine } from "../rules/LURuleEngine.js";
 import {
   ExecutionKernel,
@@ -18,6 +28,7 @@ import {
   type ExecutionSession,
 } from "../../../mps-runtime/src/contracts/model/index.js";
 import type { RegistryRuntime } from "../../../mps-runtime/src/registry/index.js";
+import type { RuntimeState } from "../../../mps-runtime/src/kernel/RuntimeState.js";
 import type { OutcomeAttestation } from "../../../mps-runtime/src/security/index.js";
 import { createLuRegistryRuntime } from "../registry/createLuRegistryRuntime.js";
 import { LU_SITE_ASSESSMENT_CAPABILITY_KEY } from "../registry/LuSiteAssessmentRegistry.js";
@@ -30,10 +41,16 @@ export const LU_EXECUTION_PRINCIPAL_ID = "lu.site_assessment.actor" as const;
  */
 export function createLuRuleEngineInvokeHandler(
   evidence: SpatialEvidenceArtifact[],
+  documentEvidence: readonly DocumentEvidenceArtifact[] = [],
+  verifiedDocumentFacts: readonly VerifiedDocumentFactArtifact[] = [],
 ): (inputs: readonly ContentReference[]) => Promise<readonly ContentReference[]> {
   return async () => {
     const engine = new LURuleEngine();
-    const findings = engine.evaluate(evidence);
+    const findings = engine.evaluate({
+      spatial_evidence: evidence,
+      document_evidence: documentEvidence,
+      verified_document_facts: verifiedDocumentFacts,
+    });
     return findings.map((f: AssessmentFinding) => ({
       artifact_id: f.finding_id,
     }));
@@ -44,6 +61,22 @@ export interface LuKernelRunInput {
   readonly site_id: string;
   readonly deterministic_seed: string;
   readonly evidence: SpatialEvidenceArtifact[];
+  /**
+   * F4A: document evidence is now transported to the rule engine. Optional so existing
+   * spatial-only callers are unaffected; normalized to `[]` at the evaluation boundary.
+   */
+  readonly document_evidence?: readonly DocumentEvidenceArtifact[];
+  /**
+   * F4B: the resolved Tier 3 facts the document evidence references. Transported on BOTH kernel
+   * entrypoints deliberately — F4A's defect (cause A) was that only one path carried document
+   * evidence, which made the outcome depend on which path executed. Repeating that asymmetry
+   * here would reproduce the same class of defect one layer up.
+   */
+  readonly verified_document_facts?: readonly VerifiedDocumentFactArtifact[];
+  /** HM1-C: semantic inputs for an assessment created only after governed execution succeeds. */
+  readonly assessment_draft?: LocalizationAssessmentDraft;
+  /** Composition-root repository; production passes the same canonical repository as providers. */
+  readonly artifact_repository?: import("../../../mps-runtime/src/kernel/ExecutionKernel.js").ArtifactRepositoryPort;
   /** Optional injected registry (tests); defaults to LU release seed. */
   readonly registry?: RegistryRuntime;
 }
@@ -56,10 +89,24 @@ export interface LuKernelRunResult {
   readonly attempt_id: string | null;
   readonly outcome_id: string | null;
   readonly manifest_id: string;
+  /**
+   * F9 — the kernel's RuntimeState for this run.
+   *
+   * `ExecutionKernel.execute()` has always produced this and set `state.attempt` on the admitted
+   * path; this client simply never surfaced it. Replay takes `RuntimeState` as its second
+   * argument, so dropping it here made `DefaultReplayEngine.replay()` unreachable through the
+   * only product assessment path — it failed with "Replay requires attempt on RuntimeState".
+   *
+   * Returned unconditionally, including on denial. State is the record of what happened, and a
+   * denied run has a state worth inspecting (admission populated, attempt null).
+   */
+  readonly state: RuntimeState;
   /** Execution Contracts & Model — correlates ticket/attempt/outcome/replay. */
   readonly session: ExecutionSession | null;
   /** Outcome attestation from SecurityRuntime (null if denied). */
   readonly attestation: OutcomeAttestation | null;
+  /** HM1-C: persisted only after outcome/attestation/hash verification. */
+  readonly assessment: LocalizationAssessmentArtifact | null;
 }
 
 /**
@@ -72,8 +119,7 @@ export interface LuKernelRunResult {
 export async function runLuAssessmentViaKernel(
   input: LuKernelRunInput,
 ): Promise<LuKernelRunResult> {
-  const mimers = await MimersIntegration.create();
-  const repo = mimers.artifactRepository;
+  const repo = input.artifact_repository ?? (await MimersIntegration.create()).artifactRepository;
   const registry = input.registry ?? createLuRegistryRuntime();
   const capability = registry.resolveCapabilityByKey(LU_SITE_ASSESSMENT_CAPABILITY_KEY);
   if (!capability) {
@@ -89,7 +135,11 @@ export async function runLuAssessmentViaKernel(
     [
       capability.implementation_ref.artifact_id,
       async () => {
-        findings = engine.evaluate(input.evidence);
+        findings = engine.evaluate({
+          spatial_evidence: input.evidence,
+          document_evidence: input.document_evidence ?? [],
+          verified_document_facts: input.verified_document_facts ?? [],
+        });
         return findings.map((f) => ({ artifact_id: f.finding_id }));
       },
     ],
@@ -170,6 +220,7 @@ export async function runLuAssessmentViaKernel(
 
   let session: ExecutionSession | null = null;
   let attestation: OutcomeAttestation | null = null;
+  let assessment: LocalizationAssessmentArtifact | null = null;
   if (admitted) {
     session = createExecutionSession({
       session_id: `session-${manifest.manifest_id}`,
@@ -195,6 +246,18 @@ export async function runLuAssessmentViaKernel(
         content_hash: attestation.content_hash,
         body: attestation,
       });
+      if (input.assessment_draft) {
+        assessment = createGovernedLocalizationAssessment({
+          draft: input.assessment_draft,
+          findings,
+          outcome: result.outcome,
+          attestation,
+        });
+        await new GovernedAssessmentPersistence(
+          repo,
+          (candidate) => security.verifyAttestation(candidate),
+        ).persist({ artifact: assessment, outcome: result.outcome, attestation });
+      }
     }
     await repo.put({
       artifact_id: session.session_id,
@@ -211,7 +274,9 @@ export async function runLuAssessmentViaKernel(
     attempt_id: result.attempt?.attempt_id ?? null,
     outcome_id: result.outcome?.outcome_id ?? null,
     manifest_id: manifest.manifest_id,
+    state: result.state,
     session,
     attestation,
+    assessment,
   };
 }

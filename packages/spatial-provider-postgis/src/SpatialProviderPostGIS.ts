@@ -7,20 +7,21 @@ import {
   type SpatialQueryRequest,
   type SpatialEvidenceArtifact,
   type LUPropertyContextArtifact,
+  SPATIAL_STACK_V1,
 } from "@miljobeslut/mps-lu";
-import type { ArtifactReference } from "@miljobeslut/mps-compliance/artifacts/ArtifactContract";
+import { ArtifactReference } from "@miljobeslut/mps-compliance/src/artifacts/ArtifactContract";
 import type { ArtifactRepositoryPort } from "../../mps-runtime/src/kernel/ExecutionKernel";
 import { resolveLayerBinding } from "./SpatialLayerRegistry";
 
 const SRID_SWEREF99TM = 3006;
 
+// P4A-LU-S1/S3 2026-08-13: was `{ postgis: "3.x", srid: "3006" }` — the literal wildcard
+// SV-I03 forbids, with the full stack absent and a query parameter (srid) mixed into the
+// execution fingerprint. Now the frozen SPATIAL_STACK_V1.
 const OPERATION = {
   algorithm: "spatial.dwithin_existence",
   engine: "PostGIS",
-  engine_fingerprint: {
-    postgis: "3.x",
-    srid: String(SRID_SWEREF99TM),
-  },
+  engine_fingerprint: SPATIAL_STACK_V1,
 } as const;
 
 /**
@@ -131,11 +132,12 @@ export class SpatialProviderPostGIS implements ISpatialProvider {
             propertyRef: request.property_ref,
             layerName: layer.name,
             layerVersion: layer.version_hash,
+            layerVersionHash: binding.version_hash,
             provider: binding.provider,
             bufferDistance,
-            easting,
-            northing,
             found: true,
+            matchCountObserved: res.rowCount,
+            maxFeaturesPerLayer: budget.max_features_per_layer,
           }),
         );
       }
@@ -169,41 +171,46 @@ export class SpatialProviderPostGIS implements ISpatialProvider {
     propertyRef: ArtifactReference;
     layerName: string;
     layerVersion: string;
+    layerVersionHash: string;
     provider: string;
     bufferDistance: number;
-    easting: number;
-    northing: number;
     found: boolean;
+    matchCountObserved: number;
+    maxFeaturesPerLayer: number;
   }): Promise<SpatialEvidenceArtifact> {
     const retrievedAt = new Date().toISOString();
-    const geometry = input.found
-      ? {
-          type: "Polygon" as const,
-          coordinates: [
-            [
-              [input.easting - 0.001, input.northing - 0.001],
-              [input.easting + 0.001, input.northing - 0.001],
-              [input.easting + 0.001, input.northing + 0.001],
-              [input.easting - 0.001, input.northing + 0.001],
-              [input.easting - 0.001, input.northing - 0.001],
-            ],
-          ],
-        }
-      : null;
 
+    // P4A-LU-S6: the executed query is `SELECT 1 AS hit` — an existence oracle that retrieves
+    // no geometry. This used to fabricate a ±0.001 m envelope around the QUERY POINT and bind
+    // it as the evidence geometry, so the artifact claimed a spatial result it never obtained.
+    // Under EXISTENCE_WITHIN_DISTANCE the honest geometry is null.
     const payload = {
+      result_semantics: {
+        kind: "EXISTENCE_WITHIN_DISTANCE" as const,
+        query: {
+          subject_ref: input.propertyRef,
+          srid: SRID_SWEREF99TM,
+          distance_meters: input.bufferDistance,
+        },
+        result: {
+          exists: input.found,
+          match_count_observed: input.matchCountObserved,
+          max_features_per_layer: input.maxFeaturesPerLayer,
+        },
+      },
       property_ref: input.propertyRef,
       srid: SRID_SWEREF99TM,
       operation: OPERATION,
-      geometry,
+      geometry: null,
       layer_ref: {
         layer_id: input.layerName,
+        version_hash: input.layerVersionHash,
         layer_version: input.layerVersion,
       },
       source_metadata: {
         provider: input.provider,
         dataset: input.layerName,
-        dataset_version: input.layerVersion,
+        dataset_version: input.layerVersionHash,
         retrieved_at: retrievedAt,
       },
       query_context: {

@@ -4,6 +4,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { runLuAssessmentViaKernel } from "../src/execution/LuExecutionKernelClient";
 import type { SpatialEvidenceArtifact } from "../src/artifacts/SpatialEvidenceArtifact";
+import { SPATIAL_STACK_V1 } from "../src/artifacts/SpatialEngineFingerprint";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -14,8 +15,39 @@ describe("LuExecutionKernelClient", () => {
         artifact_id: "ev-water-1",
         artifact_type: "SPATIAL_EVIDENCE",
         payload: {
-          source_metadata: { dataset: "water" },
-          geometry: { type: "Polygon", coordinates: [[[0,0], [1,1], [0,1], [0,0]]] }
+          result_semantics: {
+            kind: "EXISTENCE_WITHIN_DISTANCE",
+            query: {
+              subject_ref: { artifact_id: "prop-client", artifact_type: "PROPERTY" },
+              srid: 3006,
+              distance_meters: 100,
+            },
+            result: { exists: true, match_count_observed: 1, max_features_per_layer: 50 },
+          },
+          property_ref: { artifact_id: "prop-client", artifact_type: "PROPERTY" },
+          source_metadata: {
+            provider: "SGU",
+            dataset: "water",
+            dataset_version: "2b4b514f8b18a1a614d9aeac75c32eff8c52a3864c54770be112fd88fa263ddc",
+            retrieved_at: "2026-08-13T08:00:00.000Z",
+          },
+          geometry: null,
+          srid: 3006,
+          operation: {
+            algorithm: "spatial.dwithin_existence",
+            engine: "PostGIS",
+            engine_fingerprint: SPATIAL_STACK_V1,
+          },
+          layer_ref: {
+            layer_id: "water",
+            version_hash: "2b4b514f8b18a1a614d9aeac75c32eff8c52a3864c54770be112fd88fa263ddc",
+            layer_version: "v1",
+          },
+          query_context: {
+            query_id: "q-client",
+            query_type: "SPATIAL_DWITHIN",
+            parameters: { search_distance_meters: 100 },
+          },
         },
       },
     ] as unknown as SpatialEvidenceArtifact[];

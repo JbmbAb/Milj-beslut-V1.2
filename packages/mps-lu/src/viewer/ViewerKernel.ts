@@ -1,6 +1,10 @@
 import type { ArtifactRepositoryPort } from "../../../mps-runtime/src/kernel/ExecutionKernel.js";
 import type { SpatialEvidenceArtifact } from "../artifacts/SpatialEvidenceArtifact.js";
 import type { ViewerCapabilityArtifact } from "../../../mps-compliance/src/artifacts/ViewerCapabilityArtifact.js";
+import {
+  assertGeometryMatchesSemantics,
+  isAdmittedSemanticsKind,
+} from "../artifacts/SpatialResultSemantics.js";
 
 /**
  * ViewerKernel guarantees that Observation != Authority.
@@ -38,11 +42,21 @@ export class ViewerKernel {
         throw new Error(`Artifact ${artifactId} not found or is not SPATIAL_EVIDENCE.`);
       }
 
-      if (!artifact.payload.geometry) {
-        continue;
+      if (artifact.artifact_type !== "SPATIAL_EVIDENCE") {
+        throw new Error(`Artifact ${artifactId} is not SPATIAL_EVIDENCE.`);
       }
 
-      // 2. Map to GeoJSON Feature
+      const semantics = artifact.payload.result_semantics;
+      if (!semantics || !isAdmittedSemanticsKind(semantics.kind)) {
+        throw new Error(
+          `REJECT_VIEWER_SPATIAL_SEMANTICS: ${artifactId} has no admitted result semantics.`,
+        );
+      }
+      assertGeometryMatchesSemantics(semantics, artifact.payload.geometry);
+
+      // GeoJSON permits `geometry: null`. Under EXISTENCE_WITHIN_DISTANCE this is the honest
+      // representation: the evidence answers whether a match exists but contains no feature
+      // geometry. Presentation metadata carries that answer without inventing a polygon.
       features.push({
         type: "Feature",
         geometry: artifact.payload.geometry,
@@ -53,6 +67,15 @@ export class ViewerKernel {
           version: artifact.payload.source_metadata.dataset_version,
           engine: artifact.payload.operation.engine,
           algorithm: artifact.payload.operation.algorithm,
+          result_semantics_kind: semantics.kind,
+          exists: semantics.result.exists,
+          distance_meters: semantics.query.distance_meters,
+          match_count_observed: semantics.result.match_count_observed,
+          max_features_per_layer: semantics.result.max_features_per_layer,
+          subject_artifact_id: semantics.query.subject_ref.artifact_id,
+          layer_id: artifact.payload.layer_ref.layer_id,
+          layer_version_hash: artifact.payload.layer_ref.version_hash,
+          presentation_mode: "NON_GEOMETRIC_SPATIAL_OBSERVATION",
           // Explicitly mark as an Observation
           governance_status: "VERIFIED_OBSERVATION",
           viewer_capability_id: this.capability.artifact_id,

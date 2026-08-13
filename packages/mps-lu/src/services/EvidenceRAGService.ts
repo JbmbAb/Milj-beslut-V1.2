@@ -29,29 +29,31 @@ export class EvidenceRAGService {
    * keyword proximity, and formally weights them based on their Legal Authority level.
    */
   public rerank(query: string, candidates: RetrievalCandidate[]): RankedEvidence[] {
+    const stopWords = new Set(['och', 'det', 'att', 'i', 'en', 'jag', 'hon', 'som', 'han', 'på', 'den', 'med', 'var', 'sig', 'för', 'så', 'till', 'är', 'men', 'ett', 'om', 'hade', 'de', 'av', 'icke', 'mig', 'du', 'henne', 'då', 'sin', 'nu', 'har', 'inte', 'hans', 'honom', 'skulle', 'hennes', 'där', 'min', 'man', 'ej', 'vid', 'kan', 'något', 'från', 'både', 'får', 'hur', 'ska', 'enligt', 'vilka', 'eller', 'finns', 'några', 'vid']);
+
     const queryTokens = query.toLowerCase()
       .replace(/[?.!,:;]/g, '')
       .split(/\s+/)
-      .filter(t => t.length > 2);
+      .filter(t => t.length > 2 && !stopWords.has(t));
 
-    return candidates.map(candidate => {
+    const ranked = candidates.map(candidate => {
       const text = candidate.chunkText.toLowerCase();
       let score = 0;
 
       // Token overlap
       queryTokens.forEach(token => {
         if (text.includes(token)) {
-          score += 1.0;
+          score += 2.0; // Higher base score for semantic keywords
           // Bonus for exact word boundary match
           const regex = new RegExp(`\\b${token}\\b`, 'i');
-          if (regex.test(text)) score += 0.5;
+          if (regex.test(text)) score += 1.0;
         }
       });
 
       // Bonus for adjacent token sequence matches (n-grams)
       for (let i = 0; i < queryTokens.length - 1; i++) {
         const bigram = `${queryTokens[i]} ${queryTokens[i + 1]}`;
-        if (text.includes(bigram)) score += 2.0;
+        if (text.includes(bigram)) score += 3.0;
       }
 
       // Length and position bias normalization
@@ -69,7 +71,7 @@ export class EvidenceRAGService {
         'technical': 1.0,
         'unknown': 0.8
       };
-      
+
       const authorityMultiplier = authorityWeights[meta.authority_type] || 1.0;
       const temporalPenalty = meta.is_temporally_valid ? 1.0 : 0.5; // Halve score for temporally decayed sources
 
@@ -79,8 +81,12 @@ export class EvidenceRAGService {
         candidate,
         rerank_score: Number(rerankScore.toFixed(3)),
       };
-    })
-    .sort((a, b) => b.rerank_score - a.rerank_score);
+    });
+
+    // P19: Abstention Gate pre-filter - drop completely irrelevant chunks
+    return ranked
+      .filter(r => r.rerank_score > 0.5) // Minimum semantic threshold to be considered evidence
+      .sort((a, b) => b.rerank_score - a.rerank_score);
   }
 
   /**
@@ -139,11 +145,11 @@ export class EvidenceRAGService {
 
     // Swedish negation patterns to identify potential contradictions
     const SwedishNegations = ['inte', 'ej', 'förbjudet', 'aldrig', 'förhindra', 'avvisa', 'obehörigt', 'inte tillåtet'];
-    
+
     // Extracted query keywords
     const keywords = claimLower.replace(/[?.!,:;]/g, '').split(/\s+/).filter(w => w.length > 3);
     let matchedKeywords = 0;
-    
+
     keywords.forEach(kw => {
       if (chunkLower.includes(kw)) matchedKeywords++;
     });
@@ -156,7 +162,7 @@ export class EvidenceRAGService {
     // Check negation alignment to detect contradictions using word boundaries
     const claimMatches: string[] = [];
     const chunkMatches: string[] = [];
-    
+
     SwedishNegations.forEach(neg => {
       const regex = new RegExp(`\\b${neg}\\b`, 'i');
       if (regex.test(claimLower)) claimMatches.push(neg);
@@ -282,28 +288,53 @@ export class EvidenceRAGService {
    * P15: Zero-hallucination Swedish RAG Answer Generator.
    * Formulates a highly-grounded, fact-based response utilizing *only* the chunks
    * present in the EvidenceBundle, appending strict citations.
+   * P3/P4: Structures the answer by Legal Authority Level to separate laws from technical support.
    */
   public generateGroundedAnswer(bundle: EvidenceBundle): string {
     if (bundle.evidence.length === 0) {
       return "Ingen relevant information hittades i beviskedjan för att kunna besvara frågan.";
     }
 
-    const topEvidence = bundle.evidence.slice(0, 3);
-    const clauses: string[] = [];
+    const groups: Record<LegalAuthorityType, string[]> = {
+      'law': [],
+      'regulation': [],
+      'guidance': [],
+      'judgment': [],
+      'decision': [],
+      'technical': [],
+      'unknown': []
+    };
 
-    topEvidence.forEach((item) => {
+    bundle.evidence.slice(0, 5).forEach((item) => {
       const text = item.candidate.chunkText;
       const meta = this.getAuthorityMetadata(item.candidate.source_path);
       const docName = path.basename(item.candidate.source_path);
-      
-      const summarizedText = text.length > 150 ? `${text.slice(0, 150)}...` : text;
-      
-      // Integrate P17 legal authority levels into response
-      clauses.push(`Enligt källan ${docName} (${meta.authority_type}, gällande sedan år ${meta.year}): "${summarizedText}" [Chunk-${item.candidate.id}]`);
+
+      const summarizedText = text.length > 200 ? `${text.slice(0, 200)}...` : text;
+
+      groups[meta.authority_type].push(`Enligt källan ${docName} (${meta.authority_type}, gällande sedan år ${meta.year}): "${summarizedText}" [Chunk-${item.candidate.id}]`);
     });
 
-    return `Sammanfattning av gällande krav för sökningen "${bundle.query}":\n\n` + 
-           clauses.join("\n\n") + 
-           `\n\nKälla: Knowledge Release v2.0.0 (Temportalt verifierad).`;
+    let answer = `Sammanfattning av gällande krav för sökningen "${bundle.query}":\n\n`;
+
+    if (groups.law.length > 0 || groups.regulation.length > 0) {
+      answer += `### Primär rättskälla (Lag & Förordning)\n${groups.law.join('\n\n')}\n${groups.regulation.join('\n\n')}\n\n`;
+    }
+
+    if (groups.judgment.length > 0) {
+      answer += `### Tillämpning & Praxis (Dom)\n${groups.judgment.join('\n\n')}\n\n`;
+    }
+
+    if (groups.decision.length > 0 || groups.guidance.length > 0) {
+      answer += `### Lokalt beslut & Vägledning\n${groups.decision.join('\n\n')}\n${groups.guidance.join('\n\n')}\n\n`;
+    }
+
+    if (groups.technical.length > 0 || groups.unknown.length > 0) {
+      answer += `### Tekniskt stöd & Övrigt underlag\n${groups.technical.join('\n\n')}\n${groups.unknown.join('\n\n')}\n\n`;
+    }
+
+    answer = answer.trim() + `\n\nKälla: Knowledge Release v2.0.0 (Temporalt och Rättsligt verifierad).`;
+
+    return answer;
   }
 }

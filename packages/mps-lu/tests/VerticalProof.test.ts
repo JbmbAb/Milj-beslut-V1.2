@@ -1,11 +1,23 @@
 import { describe, it, expect, beforeAll } from "vitest";
 import { runLuAssessmentViaKernel } from "../src/execution/LuExecutionKernelClient";
 import { SpatialEvidenceArtifact } from "../src/artifacts/SpatialEvidenceArtifact";
+import { SPATIAL_STACK_V1 } from "../src/artifacts/SpatialEngineFingerprint";
 import { DocumentEvidenceArtifact } from "../src/artifacts/DocumentEvidenceArtifact";
 import { LokeIngestor, InMemoryQuarantineStorage } from "../src/loke/LokeIngestor";
 import { DocumentEvidenceMaterializer } from "../src/loke/QuarantinePromoter";
 import { ViewerKernel } from "../src/viewer/ViewerKernel";
+import {
+  buildAdmittedViewerCapability,
+  VIEWER_IDENTITY,
+  VIEWER_RELEASE_HASH,
+} from "./fixtures/admittedViewerCapability";
+import type { ViewerCapabilityArtifact } from "../../mps-compliance/src/artifacts/ViewerCapabilityArtifact";
 import { MimersIntegration } from "../../mps-runtime/src/mimers";
+import {
+  buildVerifiedPriorDecisionFact,
+  withFactRef,
+} from "./fixtures/verifiedDocumentFact";
+import type { VerifiedDocumentFactArtifact } from "../../mps-data-governance/src/DocumentFactArtifact";
 import { DefaultReplayEngine } from "../../mps-runtime/src/replay/DefaultReplayEngine";
 import { ExecutionKernel } from "../../mps-runtime/src/kernel/ExecutionKernel";
 import { join } from "node:path";
@@ -14,7 +26,9 @@ import { writeFile, mkdir } from "node:fs/promises";
 describe("The Vertical Proof: Full E2E Governance + CAS + QGIS + Replay", () => {
   let casRepo: any;
   let viewer: ViewerKernel;
+  let viewerCapability: ViewerCapabilityArtifact;
   let documentEvidence: DocumentEvidenceArtifact;
+  let verifiedFact: VerifiedDocumentFactArtifact;
   let spatialEvidence: SpatialEvidenceArtifact;
   let assessmentManifestId: string;
   let kernelState: import("../../mps-runtime/src/kernel/RuntimeState").RuntimeState;
@@ -24,12 +38,11 @@ describe("The Vertical Proof: Full E2E Governance + CAS + QGIS + Replay", () => 
     const mimers = await MimersIntegration.create();
     casRepo = mimers.artifactRepository;
     
-    const mockCapability: any = {
-      artifact_id: "viewer-cap-mock",
-      artifact_type: "viewer_capability",
-      release_hash: { algorithm: "sha256", value: "mock-release-hash" }
-    };
-    viewer = new ViewerKernel(casRepo, mockCapability);
+    // F8 2026-08-13: was a hand-built `as any` capability with no viewer_identity_ref,
+    // granted_by, policy_ref or validity window — a root of trust invented by the test.
+    // It now comes through the real admission gate.
+    viewerCapability = buildAdmittedViewerCapability("vertical");
+    viewer = new ViewerKernel(casRepo, viewerCapability);
 
     // 2. Source -> Loke -> Quarantine -> CAS (Human Approval)
     const archivePath = join(process.cwd(), "tests", "fixtures", "EndToEnd", "VerticalProof");
@@ -46,6 +59,11 @@ describe("The Vertical Proof: Full E2E Governance + CAS + QGIS + Replay", () => 
     const rawDoc = await ingestor.ingestFile(filePath, "Länsstyrelsen", "Policy-v2");
     documentEvidence = await promoter.materialize(rawDoc.artifact_id, "prop-vertical", "doc-vertical", "BESLUT");
 
+    // E2E FIXTURE RECONCILIATION 2026-08-13 — see LUEndToEnd.test.ts. Tier 3 verification is
+    // now part of the vertical chain; the rule is no longer reachable from document text.
+    verifiedFact = buildVerifiedPriorDecisionFact("vertical");
+    documentEvidence = withFactRef(documentEvidence, verifiedFact);
+
     // 3. PostGIS Engine -> CAS (Canonical Spatial Truth)
     spatialEvidence = {
       artifact_id: "spatial-vertical-1",
@@ -53,11 +71,34 @@ describe("The Vertical Proof: Full E2E Governance + CAS + QGIS + Replay", () => 
       content_hash: { algorithm: "sha256", value: "spatial-hash-vertical" },
       references: [{ artifact_id: "prop-vertical", artifact_type: "PROPERTY" }],
       payload: {
-        geometry: { type: "Polygon", coordinates: [[[0, 0], [1, 1], [0, 1], [0, 0]]] },
+        result_semantics: {
+          kind: "EXISTENCE_WITHIN_DISTANCE",
+          query: {
+            subject_ref: { artifact_id: "prop-vertical", artifact_type: "PROPERTY" },
+            srid: 3006,
+            distance_meters: 100,
+          },
+          result: { exists: true, match_count_observed: 1, max_features_per_layer: 50 },
+        },
+        property_ref: { artifact_id: "prop-vertical", artifact_type: "PROPERTY" },
+        geometry: null,
         srid: 3006,
-        operation: { algorithm: "ST_DWithin", engine: "PostGIS", engine_fingerprint: {} },
-        layer_ref: { layer_id: "water", layer_version: "v1" },
-        source_metadata: { provider: "Naturvårdsverket", dataset: "water", dataset_version: "v1", retrieved_at: new Date().toISOString() },
+        operation: {
+          algorithm: "spatial.dwithin_existence",
+          engine: "PostGIS",
+          engine_fingerprint: SPATIAL_STACK_V1,
+        },
+        layer_ref: {
+          layer_id: "water",
+          version_hash: "2b4b514f8b18a1a614d9aeac75c32eff8c52a3864c54770be112fd88fa263ddc",
+          layer_version: "v1",
+        },
+        source_metadata: {
+          provider: "SGU",
+          dataset: "water",
+          dataset_version: "2b4b514f8b18a1a614d9aeac75c32eff8c52a3864c54770be112fd88fa263ddc",
+          retrieved_at: new Date().toISOString(),
+        },
         query_context: { query_id: "q2", query_type: "SPATIAL_DWITHIN", parameters: { property_ref: { artifact_id: "prop-vertical", artifact_type: "PROPERTY" }, search_distance_meters: 100 } }
       }
     };
@@ -77,11 +118,13 @@ describe("The Vertical Proof: Full E2E Governance + CAS + QGIS + Replay", () => 
       deterministic_seed: "seed:vertical",
       evidence: [spatialEvidence],
       document_evidence: [documentEvidence],
+      verified_document_facts: [verifiedFact],
       repo: casRepo,
     });
 
     expect(kernelResult.admitted).toBe(true);
-    expect(kernelResult.findings).toHaveLength(2); // LU-WATER-001 and LU-DOC-BESLUT-001
+    // LU-WATER-001 (spatial) and LU-DOC-BESLUT-001 (verified Tier 3 fact, not document text).
+    expect(kernelResult.findings).toHaveLength(2);
     assessmentManifestId = kernelResult.manifest_id;
     kernelState = kernelResult.state;
 
@@ -100,10 +143,23 @@ describe("The Vertical Proof: Full E2E Governance + CAS + QGIS + Replay", () => 
     
     // Validate that the CAS trace is included
     const feature = geojson.features[0];
+    expect(feature.geometry).toBeNull();
+    expect(feature.properties.result_semantics_kind).toBe("EXISTENCE_WITHIN_DISTANCE");
+    expect(feature.properties.exists).toBe(true);
+    expect(feature.properties.distance_meters).toBe(100);
+    expect(feature.properties.layer_id).toBe("water");
+    expect(feature.properties.layer_version_hash).toBe(
+      spatialEvidence.payload.layer_ref.version_hash,
+    );
     expect(feature.properties.cas_artifact_id).toBe(spatialEvidence.artifact_id);
     expect(feature.properties.governance_status).toBe("VERIFIED_OBSERVATION");
-    expect(feature.properties.viewer_capability_id).toBe("viewer-cap-mock");
-    expect(feature.properties.viewer_release_hash).toBe("mock-release-hash");
+    expect(feature.properties.viewer_capability_id).toBe(viewerCapability.artifact_id);
+    expect(feature.properties.viewer_release_hash).toBe(VIEWER_RELEASE_HASH);
+    expect(
+      feature.properties.viewer_identity_ref,
+      "F8: the exported observation must name WHO held the capability. Without it the export " +
+        "is attributable to a capability but to no observer.",
+    ).toBe(VIEWER_IDENTITY.artifact_id);
   });
 
   it("should replay the outcome identically from CAS without QGIS or PostGIS", async () => {

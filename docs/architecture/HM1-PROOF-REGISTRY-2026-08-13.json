@@ -1,0 +1,65 @@
+{
+  "schema_version": "hm1-proof-registry-v1",
+  "program_gate": "HM-1",
+  "lane": {
+    "id": "proof:hm1",
+    "runner_file": "scripts/hm1/run-proof-lane.mjs",
+    "command": "node scripts/hm1/run-proof-lane.mjs",
+    "ci_workflow": ".github/workflows/ci.yml",
+    "vitest_project": "compliance"
+  },
+  "scope": {
+    "admitted_spatial_semantics": "EXISTENCE_WITHIN_DISTANCE_V1",
+    "feature_geometry": "NOT_ADMITTED_FOR_HM1_V1",
+    "s5_r5_r6": "DORMANT_UNTIL_FEATURE_GEOMETRY_ADMISSION"
+  },
+  "required_support_files": [
+    "packages/document-provider/src/MockDocumentProvider.ts",
+    "packages/mps-lu/tests/fixtures/spatialLayerHashes.ts"
+  ],
+  "required_proofs": [
+    { "file": "packages/mps-lu/tests/A1AuthorityEnforcement.test.ts", "expected_tests": 5 },
+    { "file": "packages/mps-data-governance/tests/DocumentFactModel.test.ts", "expected_tests": 13 },
+    { "file": "packages/mps-lu/tests/F4ADocumentEvidenceWiring.test.ts", "expected_tests": 4 },
+    { "file": "packages/mps-lu/tests/F4B0ARelevantDocumentContract.test.ts", "expected_tests": 9 },
+    { "file": "packages/mps-lu/tests/F4B0BDocumentEvidenceReferences.test.ts", "expected_tests": 5 },
+    { "file": "packages/mps-lu/tests/F4BDocumentRule.test.ts", "expected_tests": 9 },
+    { "file": "packages/mps-lu/tests/F8ViewerCapabilityAdmission.test.ts", "expected_tests": 6 },
+    { "file": "packages/mps-lu/tests/F9ReplayContract.test.ts", "expected_tests": 6 },
+    { "file": "packages/mps-lu/tests/P4ALU01SpatialProviderResolution.test.ts", "expected_tests": 7 },
+    { "file": "packages/mps-lu/tests/P4ALU03NoAlternateSpatialPath.test.ts", "expected_tests": 4 },
+    { "file": "packages/mps-lu/tests/P4ALU05RealRuntimeEntrypoint.test.ts", "expected_tests": 3 },
+    { "file": "packages/mps-lu/tests/P4ALUS2S3EngineFingerprint.test.ts", "expected_tests": 10 },
+    { "file": "packages/mps-lu/tests/P4ALUS4LayerVersionHash.test.ts", "expected_tests": 6 },
+    { "file": "packages/mps-lu/tests/P4ALUS6ResultSemantics.test.ts", "expected_tests": 7 },
+    { "file": "packages/mps-lu/tests/P4ALUViewerS6Reconciliation.test.ts", "expected_tests": 6 },
+    { "file": "packages/mps-lu/tests/HM1BRealGovernedDocumentChain.test.ts", "expected_tests": 3 },
+    { "file": "packages/mps-lu/tests/HM1CGovernedAssessmentPersistence.test.ts", "expected_tests": 4 },
+    { "file": "packages/mps-lu/tests/VerticalProof.test.ts", "expected_tests": 3 },
+    { "file": "packages/mps-lu/tests/LUEndToEnd.test.ts", "expected_tests": 1 },
+    { "file": "packages/mps-lu/tests/HM1DProofRegistryIntegrity.test.ts", "expected_tests": 5 }
+  ],
+  "superseded_proofs": [
+    {
+      "historical_file": "packages/mps-lu/tests/LUMagicMoment.test.ts.historical",
+      "sha256": "12e0fb17db3217292f4e3970e32043869b5f6bf654065e5e788585cee6f3396d",
+      "reason": "Stale pre-governance fixture and ad hoc assessment construction no longer express the admitted HM-1 runtime contract.",
+      "replacement_proofs": [
+        "packages/mps-lu/tests/P4ALU05RealRuntimeEntrypoint.test.ts",
+        "packages/mps-lu/tests/HM1BRealGovernedDocumentChain.test.ts",
+        "packages/mps-lu/tests/HM1CGovernedAssessmentPersistence.test.ts",
+        "packages/mps-lu/tests/VerticalProof.test.ts"
+      ]
+    },
+    {
+      "historical_file": "packages/mps-lu/tests/LuEnforcementReplay.test.ts.historical",
+      "sha256": "ffd25403649f06673320bb9a02017ddb3e339a3f440d3edf342b01e89537b8db",
+      "reason": "Stale provider/repository APIs made the suite non-executable; its replay and spoof-resistance invariants now have narrower executable proofs.",
+      "replacement_proofs": [
+        "packages/mps-lu/tests/F9ReplayContract.test.ts",
+        "packages/mps-lu/tests/HM1CGovernedAssessmentPersistence.test.ts",
+        "packages/mps-lu/tests/VerticalProof.test.ts"
+      ]
+    }
+  ]
+}

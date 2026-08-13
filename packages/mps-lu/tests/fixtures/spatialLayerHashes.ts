@@ -1,0 +1,8 @@
+export const WATER_LAYER_VERSION_HASH =
+  "2b4b514f8b18a1a614d9aeac75c32eff8c52a3864c54770be112fd88fa263ddc" as const;
+
+export const EBH_LAYER_VERSION_HASH =
+  "02fccffc07abaaf1775c8333d660fa60fdecea0c3bb664335892764c8486d186" as const;
+
+export const PROTECTED_AREA_LAYER_VERSION_HASH =
+  "983772bf129d14326c43aa5d08f152e65604778d392c28ea4fee0c4e838af9ae" as const;

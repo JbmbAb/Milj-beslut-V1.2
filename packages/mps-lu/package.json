@@ -1,6 +1,7 @@
 {
   "name": "@miljobeslut/mps-lu",
   "version": "1.0.0",
+  "type": "module",
   "description": "Lokaliseringsutredning (LU) application running on Frozen Core",
   "main": "./src/index.ts",
   "types": "./src/index.ts",

@@ -24,7 +24,7 @@ describe("SpatialProviderPostGIS Integration", () => {
 
     // Clear any leftover test data
     await client.query("DELETE FROM env.sgu_well WHERE id >= 999700 AND id <= 999799");
-    await client.query("DELETE FROM env.ebh_potentiellt_fororenade_omraden WHERE id >= 999700 AND id <= 999799");
+    await client.query("DELETE FROM env.ebh_potentiellt_fororenade_omraden WHERE fid >= 999700 AND fid <= 999799");
 
     // 1. env.sgu_well
     await client.query(`
@@ -34,8 +34,8 @@ describe("SpatialProviderPostGIS Integration", () => {
 
     // 2. env.ebh_potentiellt_fororenade_omraden
     await client.query(`
-      INSERT INTO env.ebh_potentiellt_fororenade_omraden (id, geom)
-      VALUES (999700, ST_Multi(ST_Buffer(ST_SetSRID(ST_MakePoint(591234, 6612345), 3006), 10)))
+      INSERT INTO env.ebh_potentiellt_fororenade_omraden (fid, geom)
+      VALUES (999700, ST_Multi(ST_SetSRID(ST_MakePoint(591234, 6612345), 3006)))
     `);
 
     await client.end();
@@ -47,7 +47,7 @@ describe("SpatialProviderPostGIS Integration", () => {
     const client = new Client({ connectionString: dbUrl });
     await client.connect();
     await client.query("DELETE FROM env.sgu_well WHERE id >= 999700 AND id <= 999799");
-    await client.query("DELETE FROM env.ebh_potentiellt_fororenade_omraden WHERE id >= 999700 AND id <= 999799");
+    await client.query("DELETE FROM env.ebh_potentiellt_fororenade_omraden WHERE fid >= 999700 AND fid <= 999799");
     await client.end();
 
     await provider.close();

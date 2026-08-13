@@ -50,6 +50,40 @@ export interface DocumentEvidencePayload {
   readonly property_ref: ArtifactReference;
   readonly document_ref: ArtifactReference;
   readonly relevant_document: RelevantDocument;
+  /**
+   * F4B-0 — references to VERIFIED document facts (Tier 3).
+   *
+   * OWNER FREEZE 2026-08-12: DocumentEvidenceArtifact does NOT own legal classification
+   * authority. Legal facts arise in Tier 3 Inventory/classification and are verified there;
+   * this artifact only points at them. Facts are therefore reusable — the same prior decision
+   * can be relevant to several future analyses without re-classifying it per LU project.
+   *
+   * MUST reference `VERIFIED_DOCUMENT_FACT` artifacts only. A `DOCUMENT_FACT_CANDIDATE` is not
+   * a legal fact and must never be referenced here.
+   *
+   * @see packages/mps-data-governance/src/DocumentFactArtifact.ts
+   */
+  readonly fact_refs?: readonly ArtifactReference[];
+  /**
+   * F4B-0A — the canonical text boundary.
+   *
+   * OWNER FREEZE 2026-08-12: document text is owned by the canonical text projection
+   * (TEXT-L1, `packages/mps-text-projection`), never by `RelevantDocument`. Evidence points at
+   * the projection; it does not embed the text.
+   */
+  readonly text_projection_ref?: ArtifactReference;
+  /**
+   * F4B-0B — the Tier 2 origin this evidence was materialized from.
+   *
+   * The producer has always set this and `LokeIngestion.test.ts` has always asserted it, but it
+   * was never declared — the third producer/contract gap in this file, found while deriving
+   * `references`. Declared here because it is the edge that keeps the chain back to the
+   * preserved original traversable.
+   *
+   * Optional because provider-fetched evidence (`DocumentEvidenceService`) has no quarantined
+   * raw source.
+   */
+  readonly raw_source_ref?: ArtifactReference;
   readonly source_metadata: {
     readonly provider: string;
     readonly retrieved_at: string; // ISO8601

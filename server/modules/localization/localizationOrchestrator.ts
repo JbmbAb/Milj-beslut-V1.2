@@ -39,11 +39,24 @@ function parseSiteAlternatives(raw: unknown): SiteAlternative[] | null {
     const lng = Number(row.lng);
     if (!id || !Number.isFinite(lat) || !Number.isFinite(lng)) return null;
     if (lat < 55 || lat > 69.5 || lng < 10 || lng > 25.5) return null;
+    let documentEvidenceRefs: SiteAlternative['documentEvidenceRefs'];
+    if (Array.isArray(row.documentEvidenceRefs)) {
+      const parsedRefs: NonNullable<SiteAlternative['documentEvidenceRefs']>[number][] = [];
+      for (const value of row.documentEvidenceRefs) {
+        if (!value || typeof value !== 'object') return null;
+        const ref = value as Record<string, unknown>;
+        const artifactId = String(ref.artifact_id || '').trim();
+        if (!artifactId || ref.artifact_type !== 'DOCUMENT_EVIDENCE') return null;
+        parsedRefs.push({ artifact_id: artifactId, artifact_type: 'DOCUMENT_EVIDENCE' });
+      }
+      documentEvidenceRefs = parsedRefs;
+    }
     sites.push({
       id,
       name: row.name != null ? String(row.name).trim().slice(0, 120) : undefined,
       lat,
       lng,
+      documentEvidenceRefs,
     });
   }
   return sites.length > 0 ? sites : null;

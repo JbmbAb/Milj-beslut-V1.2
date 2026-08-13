@@ -12,11 +12,12 @@ export interface CanonicalGeometry {
 }
 
 // Relevant Document
-export interface RelevantDocument {
-  title: string;
-  type: "decision" | "injunction" | "notification" | "inspection";
-  metadata: Record<string, any>;
-}
+// OWNER FREEZE 2026-08-12: RelevantDocument has exactly ONE canonical type owner —
+// domain/RelevantDocument.ts. This file previously declared an identical copy; two parallel
+// declarations of one semantic contract can drift apart silently (same pattern as the
+// duplicated AssessmentFinding below, which is registered but out of scope here).
+import type { RelevantDocument } from "./RelevantDocument";
+export type { RelevantDocument, RelevantDocumentMetadata } from "./RelevantDocument";
 
 // Rule Predicate
 export type RulePredicateType =

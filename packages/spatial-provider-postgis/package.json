@@ -1,6 +1,7 @@
 {
   "name": "@miljobeslut/spatial-provider-postgis",
   "version": "1.0.0",
+  "type": "module",
   "description": "PostGIS implementation of ISpatialProvider for Mimer TV-4",
   "main": "./src/index.ts",
   "types": "./src/index.ts",
