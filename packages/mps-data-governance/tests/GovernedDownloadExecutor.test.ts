@@ -63,7 +63,9 @@ describe("P2-DOWNLOAD — governed download pipeline", () => {
   }
 
   function resolverOf(...targets: DownloadTarget[]): DownloadTargetResolver {
-    return { resolve: async () => targets };
+    // P2-EMPTY-PLAN-01: a resolver returns a plan. An empty TARGETS plan is still a rejection;
+    // the empty-plan test below relies on that.
+    return { resolve: async () => ({ kind: "TARGETS", targets }) };
   }
 
   /** Records everything landed; has no promote/CAS surface, exactly like the real port. */
@@ -197,21 +199,41 @@ describe("P2-DOWNLOAD — governed download pipeline", () => {
     ).toBe("quarantined");
   });
 
-  it("the executor holds no promotion surface at all", () => {
+  it("the executor holds no promotion-capable collaborator", () => {
+    // P2-EXEC-01 (owner freeze 2026-08-13): compile-time `private` is the contract. This
+    // previously asserted the runtime method list, which fails for any class with internal
+    // steps — TypeScript's `private` does not remove methods from the prototype. That was the
+    // wrong instrument: `fetchOne` on the prototype is not a promotion path, and its absence
+    // would not have proven anything either.
+    //
+    // What actually makes promotion impossible is that nothing promotion-capable is ever handed
+    // in. The constructor stores exactly six collaborators, and none of them can reach canonical
+    // CAS. Function.length is intentionally not used here: JavaScript stops counting at the
+    // first default parameter, so the defaulted sleep collaborator makes a six-parameter
+    // constructor report an arity of five.
     const exec = build({
       source: source(),
       targets: [target],
       transport: transportOf(() => ({ status: 200, bytes: BYTES })),
     });
 
-    const surface = Object.getOwnPropertyNames(Object.getPrototypeOf(exec)).filter(
-      (n) => n !== "constructor" && !n.startsWith("_"),
-    );
+    // `put` is deliberately NOT in this list: quarantine.put is the landing zone and must
+    // exist. What must not exist is any way to move bytes on from there.
+    const collaborators = Object.values(exec as unknown as Record<string, unknown>);
     expect(
-      surface.filter((n) => !n.startsWith("#")),
-      "P2: the class exposes exactly one operation. Promotion authority is absent by " +
-        "construction — it is given no CAS port, no import gate and no signing key.",
-    ).toEqual(["execute"]);
+      collaborators,
+      "registry, resolver, transport, quarantine, clock, sleep — and nothing else. A CAS " +
+        "repository, import gate or signing key would add another stored collaborator.",
+    ).toHaveLength(6);
+    for (const collaborator of collaborators) {
+      for (const promotionMethod of ["promote", "commit", "sign", "importBatch"]) {
+        expect(
+          typeof (collaborator as Record<string, unknown>)?.[promotionMethod],
+          `P2: no collaborator may expose '${promotionMethod}'. Downloaded bytes land in ` +
+            "quarantine; promotion to canonical CAS is a separate governed decision.",
+        ).not.toBe("function");
+      }
+    }
   });
 
   // -------------------------------------------------------------------- GOVERNANCE

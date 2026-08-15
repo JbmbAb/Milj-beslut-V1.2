@@ -1,7 +1,8 @@
 import { createHash } from "node:crypto";
 
-import { canonicalizeStrict } from "@miljobeslut/mimers-brunn-core";
 import type { QuarantineStorage } from "@miljobeslut/mimers-brunn-core";
+
+import { buildDownloadManifestRef } from "./DownloadManifestIdentity";
 
 import type { ContentReference } from "../../mps-core/src/types";
 import type { HarvestExecutor, Clock } from "./HarvestOrchestratorContracts";
@@ -12,7 +13,7 @@ import {
 } from "./SourceRegistry";
 import {
   GovernedDownloadError,
-  type DownloadManifest,
+  type NoChangesEvidence,
   type DownloadTarget,
   type DownloadTargetResolver,
   type DownloadTransport,
@@ -53,16 +54,38 @@ export class GovernedDownloadExecutor implements HarvestExecutor {
       );
     }
 
-    const targets = await this.resolver.resolve({
+    const plan = await this.resolver.resolve({
       source_id: sourceId,
       execution_id: request.execution_id,
     });
 
+    // P2-EMPTY-PLAN-01. Two kinds of nothing, told apart by what the resolver claims to have
+    // seen — never by which adapter produced it. There is deliberately no source_id or adapter
+    // branch here: the moment the executor knows one source is allowed to come back empty, the
+    // rule stops being a rule.
+    if (plan.kind === "NO_CHANGES") {
+      assertNoChangesEvidence(plan.evidence, sourceId);
+
+      return buildDownloadManifestRef({
+        manifest_version: 1,
+        execution_id: request.execution_id,
+        source_id: sourceId,
+        source_content_hash: source.sourceContentHash,
+        registry_artifact_id: source.registryArtifactId,
+        objects: [],
+        no_changes: plan.evidence,
+        generated_at: this.clock.now(),
+      });
+    }
+
+    const targets = plan.targets;
+
     if (targets.length === 0) {
       throw new GovernedDownloadError(
-        `REJECT_EMPTY_PLAN: source '${sourceId}' resolved to no targets. An empty download is ` +
-          "indistinguishable from a silently failed one, so it is refused rather than " +
-          "manifested as a successful run of nothing.",
+        `REJECT_EMPTY_PLAN: source '${sourceId}' resolved to no targets and did not report a ` +
+          "verified no-change observation. An empty download is indistinguishable from a " +
+          "silently failed one, so it is refused rather than manifested as a successful run " +
+          "of nothing.",
         "REJECT_EMPTY_PLAN",
       );
     }
@@ -88,7 +111,7 @@ export class GovernedDownloadExecutor implements HarvestExecutor {
       objects.push(await this.fetchOne(source, target));
     }
 
-    return this.buildManifestRef({
+    return buildDownloadManifestRef({
       manifest_version: 1,
       execution_id: request.execution_id,
       source_id: sourceId,
@@ -208,23 +231,35 @@ export class GovernedDownloadExecutor implements HarvestExecutor {
     if (delay > 0) await this.sleep(delay);
   }
 
-  /**
-   * The manifest reference is content-addressed over everything EXCEPT `generated_at`.
-   *
-   * That exclusion is what makes idempotency observable: re-running the same execution against
-   * unchanged sources yields the same reference, so the orchestrator can recognise a repeat
-   * rather than treating it as new work.
-   */
-  private buildManifestRef(manifest: DownloadManifest): ContentReference {
-    const { generated_at: _provenance, ...identity } = manifest;
-    const digest = createHash("sha256")
-      .update(canonicalizeStrict(identity), "utf8")
-      .digest("hex");
+}
 
-    return {
-      id: `download-manifest-${manifest.execution_id}-${digest.slice(0, 16)}`,
-      content_hash: { algorithm: "sha256", digest },
-    };
+/**
+ * A no-change claim has to be internally consistent, or it is just a flag an adapter can set.
+ *
+ * This is not verification — the executor never saw the listing. It is the minimum that makes
+ * the claim falsifiable: something was consulted, and nothing came of it.
+ */
+function assertNoChangesEvidence(evidence: NoChangesEvidence, sourceId: string): void {
+  if (evidence.pages_examined < 1) {
+    throw new GovernedDownloadError(
+      `REJECT_NO_CHANGES_EVIDENCE: '${sourceId}' claimed no changes without examining a single ` +
+        "listing page. That is a resolver that did not look, not a source with nothing new.",
+      "REJECT_NO_CHANGES_EVIDENCE",
+    );
+  }
+  if (evidence.targets_produced !== 0) {
+    throw new GovernedDownloadError(
+      `REJECT_NO_CHANGES_EVIDENCE: '${sourceId}' claimed no changes while reporting ` +
+        `${evidence.targets_produced} targets.`,
+      "REJECT_NO_CHANGES_EVIDENCE",
+    );
+  }
+  if (!evidence.listing_url) {
+    throw new GovernedDownloadError(
+      `REJECT_NO_CHANGES_EVIDENCE: '${sourceId}' claimed no changes without naming what it ` +
+        "consulted, so the claim cannot be traced to a scope.",
+      "REJECT_NO_CHANGES_EVIDENCE",
+    );
   }
 }
 

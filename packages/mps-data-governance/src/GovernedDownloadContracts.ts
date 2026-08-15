@@ -76,8 +76,48 @@ export interface DownloadManifest {
   readonly source_content_hash: string;
   readonly registry_artifact_id: string;
   readonly objects: readonly DownloadedObject[];
+  /**
+   * Present only on a verified no-change run.
+   *
+   * This is what makes "ran, nothing new" distinguishable from "never ran": a manifest exists
+   * either way, and this field says which it was. Without it the two are the same absence.
+   */
+  readonly no_changes?: NoChangesEvidence;
   readonly generated_at: Timestamp;
 }
+
+/**
+ * P2-EMPTY-PLAN-01 — evidence that an empty result was OBSERVED, not merely produced.
+ *
+ * A daily legal harvest has ordinary days with nothing new. But an empty array is also what a
+ * broken resolver returns, so emptiness alone cannot mean success. The difference is whether
+ * the source was actually consulted and answered.
+ *
+ * The executor cannot check this for itself — it never sees the listing — so the resolver
+ * asserts it. The assertion is attributable and checked for internal consistency, which is
+ * weaker than verification but is the honest shape: only the component that made the requests
+ * can testify that they succeeded.
+ */
+export interface NoChangesEvidence {
+  /** Listing pages fetched and parsed successfully. Zero would mean nothing was consulted. */
+  readonly pages_examined: number;
+  /** Items the listing returned across those pages. May be > 0 with no downloadable objects. */
+  readonly items_observed: number;
+  /** Targets produced. MUST be 0 — otherwise this is not a no-change run. */
+  readonly targets_produced: number;
+  /** The first listing URL consulted, so the claim can be traced to a scope. */
+  readonly listing_url: string;
+}
+
+/**
+ * What a resolver returns.
+ *
+ * `TARGETS` with an empty array remains a rejection: a resolver that produced nothing without
+ * saying it verified nothing is indistinguishable from a broken one.
+ */
+export type ResolvedDownloadPlan =
+  | { readonly kind: "TARGETS"; readonly targets: readonly DownloadTarget[] }
+  | { readonly kind: "NO_CHANGES"; readonly evidence: NoChangesEvidence };
 
 export interface DownloadTargetResolver {
   /**
@@ -90,7 +130,7 @@ export interface DownloadTargetResolver {
   resolve(input: {
     readonly source_id: string;
     readonly execution_id: string;
-  }): Promise<readonly DownloadTarget[]>;
+  }): Promise<ResolvedDownloadPlan>;
 }
 
 export class GovernedDownloadError extends Error {
