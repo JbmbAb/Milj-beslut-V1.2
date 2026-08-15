@@ -64,6 +64,26 @@ tmp-mimers/
 !docs/ops/benchmarks/**/*.json
 !docs/architecture/admit-v1/**/*.json
 !scripts/alphaevolve/experiments/**/*.json
+# P2-SR-RELEASE-01 — the GOVERNOR-signed production source authority.
+# Tracked deliberately and by exact path: the runtime resolves it from the repo, so if it is
+# only ever installed locally the harvest is not reproducible from a clean checkout. One path,
+# no wildcard — a broader exception would silently pull in untracked local registry files.
+# Its bytes are the signed representation; `*.json text eol=lf` above keeps them LF on checkout.
+!source-registry/national-registry.json
+# SOURCE-REGISTRY-RELEASE-HYGIENE-01 — superseded authorities, kept for provenance and replay.
+# A quarantined object names the exact registry artifact it was acquired under, and that
+# artifact may since have been superseded: the 144 objects harvested before the PUH size
+# reissue resolve to reg-dv-puh-mmod-002, which is no longer in the active registry. Leaving
+# these untracked would make historical verification depend on one machine's working copy and
+# put them one `git clean` from gone.
+# An explicit allowlist, not `legacy/**`: a recursive exception would make every future file
+# dropped into that directory trackable by default, including unverified material. Each
+# historical record is admitted by name after it has been classified. legacy/README.md needs no
+# entry — it is not matched by the *.json rule above — and drafts/ plus the inventories stay
+# ignored pending a separate retention decision.
+!source-registry/legacy/puh-mmod-001-superseded.json
+!source-registry/legacy/puh-mmod-002-superseded.json
+!source-registry/legacy/geo-sources-superseded.json
 !tests/fixtures/**/*.txt
 !scripts/google-adk/requirements.txt
 !prompt_optimizer/requirements.txt

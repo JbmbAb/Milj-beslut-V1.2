@@ -1,0 +1,86 @@
+{
+  "_classification": "LEGACY_SOURCE_DEFINITION",
+  "_authority": "NOT_VERIFIED_SOURCE_AUTHORITY",
+  "_status": "SUPERSEDED_PENDING_REISSUE",
+  "_note": "Preserved verbatim from source-registry/national-registry.json before the P2-SR-AUTHORITY-01 installation. These entries predate the frozen SourceRegistryArtifact contract: every one lacks source_id, producer, channel, allowed_domains, adapter, artifact_types, collection_frequency, change_detection, policy, lifecycle_state and approval_attestation, and carries an older endpoint/approved_by shape instead. They were never verifiable and loadVerifiedSourceRegistry() throws on the first of them. Kept as history, not as authority. Reissue is P2-SR-REISSUE-GEO — one source at a time, to the same standard as PUH/MMOD.",
+  "_preserved_at": "2026-08-14",
+  "_source_file_sha256": "5ee77324eb4696301ed8c07aaeec33033d5ddd57535acb22b9d7e03e3162073d",
+  "_entry_count": 3,
+  "entries": [
+    {
+      "artifact_id": "reg-sgu-001",
+      "artifact_type": "SOURCE_REGISTRY_ENTRY",
+      "endpoint": {
+        "endpoint_id": "ep-sgu-geodata-wfs",
+        "producer_id": "SGU",
+        "url": "https://resource.sgu.se/service/wfs/130/jordarter-25-100-tusen?request=GetCapabilities&service=WFS",
+        "source_type": "WFS",
+        "collection_frequency": "MONTHLY",
+        "policy": {
+          "rate_limit_requests_per_second": 5,
+          "concurrency_limit": 2,
+          "politeness_delay_ms": 1000
+        },
+        "geographic_scope": "Sweden"
+      },
+      "approved_by": {
+        "actor_id": "Heimdall",
+        "role": "GOVERNOR"
+      },
+      "approved_at": {
+        "iso8601": "2026-08-09T16:00:00Z",
+        "unix_ms": 1786291200000
+      }
+    },
+    {
+      "artifact_id": "reg-nv-001",
+      "artifact_type": "SOURCE_REGISTRY_ENTRY",
+      "endpoint": {
+        "endpoint_id": "ep-nv-skyddadnatur-wfs",
+        "producer_id": "Naturvårdsverket",
+        "url": "https://vic-extapi.naturvardsverket.se/inspire/nv/wfs?request=GetCapabilities&service=WFS",
+        "source_type": "WFS",
+        "collection_frequency": "WEEKLY",
+        "policy": {
+          "rate_limit_requests_per_second": 10,
+          "concurrency_limit": 4,
+          "politeness_delay_ms": 500
+        },
+        "geographic_scope": "Sweden"
+      },
+      "approved_by": {
+        "actor_id": "Heimdall",
+        "role": "GOVERNOR"
+      },
+      "approved_at": {
+        "iso8601": "2026-08-09T16:00:00Z",
+        "unix_ms": 1786291200000
+      }
+    },
+    {
+      "artifact_id": "reg-smhi-001",
+      "artifact_type": "SOURCE_REGISTRY_ENTRY",
+      "endpoint": {
+        "endpoint_id": "ep-smhi-opendata-metobs",
+        "producer_id": "SMHI",
+        "url": "https://opendata-download-metobs.smhi.se/api.json",
+        "source_type": "API",
+        "collection_frequency": "DAILY",
+        "policy": {
+          "rate_limit_requests_per_second": 10,
+          "concurrency_limit": 5,
+          "politeness_delay_ms": 200
+        },
+        "geographic_scope": "Sweden"
+      },
+      "approved_by": {
+        "actor_id": "Heimdall",
+        "role": "GOVERNOR"
+      },
+      "approved_at": {
+        "iso8601": "2026-08-09T16:00:00Z",
+        "unix_ms": 1786291200000
+      }
+    }
+  ]
+}

@@ -1,0 +1,62 @@
+{
+  "_classification": "LEGACY_SOURCE_DEFINITION",
+  "_authority": "NOT_VERIFIED_SOURCE_AUTHORITY",
+  "_status": "SUPERSEDED",
+  "_superseded_by": "reg-dv-puh-mmod-003",
+  "entries": [
+    {
+      "artifact_id": "reg-dv-puh-mmod-002",
+      "artifact_type": "SOURCE_REGISTRY_ENTRY",
+      "source_id": "domstolsverket-puh-mmod",
+      "producer": {
+        "producer_id": "DV",
+        "name": "Domstolsverket",
+        "type": "agency"
+      },
+      "channel": {
+        "channel_type": "API",
+        "endpoint_url": "https://rattspraxis.etjanst.domstol.se/api/v1/publiceringar?domstolkod=MMOD&publiceringsformer=DOM_ELLER_BESLUT&publicerad_fran_och_med=2025-03-04",
+        "allowed_domains": [
+          "rattspraxis.etjanst.domstol.se"
+        ]
+      },
+      "adapter": "PUH_RATTSPRAXIS_V1",
+      "artifact_types": [
+        "decision"
+      ],
+      "collection_frequency": "DAILY",
+      "change_detection": {
+        "strategy": "CONTENT_HASH"
+      },
+      "policy": {
+        "rate_limit_requests_per_second": 1,
+        "concurrency_limit": 1,
+        "politeness_delay_ms": 1000,
+        "max_object_size_bytes": 52428800,
+        "retry_policy": {
+          "max_attempts": 3,
+          "backoff": "EXPONENTIAL"
+        }
+      },
+      "geographic_scope": "Sweden",
+      "lifecycle_state": "APPROVED",
+      "approval_attestation": {
+        "subjectDigest": "sha256:0a0f6a550e03605bbd9730ccd9604f0edc1881d2502ed5973c72a72787135a41",
+        "predicateType": "mimers-brunn/source-registry-approval/v1",
+        "predicate": {
+          "action": "source.approve",
+          "source_id": "domstolsverket-puh-mmod",
+          "source_content_hash": "0a0f6a550e03605bbd9730ccd9604f0edc1881d2502ed5973c72a72787135a41",
+          "approver_actor_id": "JbmbAb",
+          "approver_role": "GOVERNANCE_REVIEWER",
+          "attestation_schema_version": 1,
+          "signer_key_id": "ed25519:source-registry-governor-2026-08-14"
+        },
+        "hashAlgorithm": "sha256",
+        "signatureAlgorithm": "Ed25519",
+        "signer": "ed25519:source-registry-governor-2026-08-14",
+        "signature": "ed25519:xE+lbIBygbTpl569gGu3qsoejIOJ7judBa6RKCzIHrlhupgCTlsRqUy5kv+fG22HkV8iW+DQS229lAgkEwYxCA=="
+      }
+    }
+  ]
+}
