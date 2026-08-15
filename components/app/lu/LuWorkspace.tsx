@@ -3,6 +3,19 @@ import { designTokens } from '@miljobeslut/mps-identity';
 import { callApi, getActiveProjectId } from '../../../services/coreApiClient';
 import { fetchPropertyInfo } from '../../../src/ui/api-client/geo.client';
 
+/**
+ * P3-LU-CANONICAL-CHAIN-01 — how an absent LU verdict is shown.
+ *
+ * Never a dash or a blank: in a field labelled "Risk", both read as a low-risk finding. The
+ * caseworker must be able to tell "not assessed" from "assessed as low risk".
+ */
+const NOT_ASSESSED_LABEL: Record<string, string> = {
+  ASSESSED: 'Bedömd',
+  NOT_ASSESSED: 'Ej bedömd',
+  GOVERNANCE_DENIED: 'Ej bedömd – nekad av styrning',
+  EXECUTION_FAILED: 'Ej bedömd – körning misslyckades',
+};
+
 type SiteInput = {
   id: string;
   name: string;
@@ -246,7 +259,9 @@ export const LuWorkspace: React.FC<{ initialDesignation?: string }> = ({ initial
           <p className="text-sm">
             Risk:{' '}
             <span data-testid="lu-risk" className="font-semibold">
-              {compliance.overallRisk ?? '—'}
+              {/* P3-LU-CANONICAL-CHAIN-01: a dash in a field labelled "Risk" reads as "no
+                  risk". An unassessed site must say so explicitly. */}
+              {compliance.overallRisk ?? NOT_ASSESSED_LABEL[motor?.assessment_status ?? 'NOT_ASSESSED']}
             </span>
             {typeof compliance.permitProbability === 'number' ? (
               <span className="opacity-70">

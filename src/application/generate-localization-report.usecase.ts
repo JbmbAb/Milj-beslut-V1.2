@@ -61,6 +61,19 @@ export type DataSourceStatus = {
   detail?: string;
 };
 
+/**
+ * P3-LU-CANONICAL-CHAIN-01 — why a site may carry no verdict.
+ *
+ * A degraded STATUS is permitted. A degraded VERDICT is not. This field says which of the
+ * non-verdict outcomes occurred, so a caller can distinguish "not attempted" from "governance
+ * refused" from "execution broke" without any of them looking like a risk assessment.
+ */
+export type LuAssessmentStatus =
+  | 'ASSESSED'
+  | 'NOT_ASSESSED'
+  | 'GOVERNANCE_DENIED'
+  | 'EXECUTION_FAILED';
+
 export interface ExecutionMotorMeta {
   admitted: boolean;
   reason_codes: string[];
@@ -69,15 +82,35 @@ export interface ExecutionMotorMeta {
   manifest_id: string | null;
   ticket_id: string | null;
   finding_ids: string[];
-  /** CAS LocalizationAssessmentArtifact id when Magic Moment path succeeds. */
+  /** CAS LocalizationAssessmentArtifact id. Null iff assessment_status !== 'ASSESSED'. */
   assessment_artifact_id: string | null;
   property_context_id: string | null;
+  assessment_status: LuAssessmentStatus;
 }
+
+/**
+ * LU_VERDICT_AUTHORITY_V1 — a verdict exists only when a governed assessment does.
+ *
+ * `overallRisk` and `permitProbability` are the verdict-bearing fields. They are stripped from
+ * the result whenever no `LocalizationAssessmentArtifact` was produced, so an ungoverned
+ * compliance evaluation cannot be read as an authoritative LU outcome. The remaining fields
+ * (requiredActions, notes, …) stay: they are observations, not a verdict.
+ */
+export type NonVerdictAnalysis = Omit<SiteAnalysis, 'overallRisk' | 'permitProbability'> &
+  Partial<Pick<SiteAnalysis, 'overallRisk' | 'permitProbability'>>;
+
+/**
+ * How much of the candidate set the comparison actually covers.
+ *
+ * This is metadata ABOUT the comparison, not a second verdict authority. It exists so a
+ * `bestAlternativeId` chosen from a subset cannot be read as "best of all candidates".
+ */
+export type LuComparisonStatus = 'COMPLETE' | 'PARTIAL' | 'UNAVAILABLE';
 
 export interface SiteAnalysisResult {
   site: SiteAlternative;
   spatialAudit: SpatialAuditSummary;
-  complianceAnalysis: SiteAnalysis;
+  complianceAnalysis: NonVerdictAnalysis;
   monuments: Monument[];
   vissWaterStatus: VissWaterStatus | null;
   distanceToWaterMeters: number | null;
@@ -93,8 +126,14 @@ export interface LocalizationReport {
   generatedAt: string;
   siteAnalyses: SiteAnalysisResult[];
   summary: {
+    /** Present iff at least one site carries a governed verdict. */
     bestAlternativeId?: string;
     reasoning: string;
+    comparison_status: LuComparisonStatus;
+    /** Ranking population — sites with a governed LocalizationAssessmentArtifact. */
+    assessed_site_ids: string[];
+    /** Candidates excluded from ranking because they carry no verdict. */
+    unassessed_site_ids: string[];
   };
   warnings: string[];
   humanInTheLoop: string;
@@ -660,6 +699,13 @@ async function analyzeSite(
       finding_ids: [...kernelResult.finding_ids],
       assessment_artifact_id,
       property_context_id: propertyContextId,
+      // Admission alone is not a verdict. The artifact is. An admitted run that produced no
+      // LocalizationAssessmentArtifact is NOT_ASSESSED, not assessed-with-no-findings.
+      assessment_status: !kernelResult.admitted
+        ? 'GOVERNANCE_DENIED'
+        : assessment_artifact_id
+          ? 'ASSESSED'
+          : 'NOT_ASSESSED',
     };
 
     if (mpsFindings.length > 0) {
@@ -711,15 +757,23 @@ async function analyzeSite(
       finding_ids: [],
       assessment_artifact_id: null,
       property_context_id: null,
+      assessment_status: 'EXECUTION_FAILED',
     };
   } finally {
     await spatialRuntime?.close().catch(() => undefined);
   }
 
+  // LU_VERDICT_AUTHORITY_V1 — the single point where a verdict is either bound to a governed
+  // assessment or removed. Stripping here rather than at each failure branch means a future
+  // branch that forgets to fail closed still cannot leak a verdict.
+  const hasGovernedAssessment = executionMotor?.assessment_artifact_id != null;
+
   return {
     site,
     spatialAudit,
-    complianceAnalysis,
+    complianceAnalysis: hasGovernedAssessment
+      ? complianceAnalysis
+      : withoutVerdict(complianceAnalysis),
     monuments,
     vissWaterStatus,
     distanceToWaterMeters,
@@ -727,8 +781,59 @@ async function analyzeSite(
     warnings,
     sluObservationCount: observations.length,
     documentEvidence,
-    executionMotor,
+    executionMotor: executionMotor ?? {
+      admitted: false,
+      reason_codes: [],
+      attempt_id: null,
+      outcome_id: null,
+      manifest_id: null,
+      ticket_id: null,
+      finding_ids: [],
+      assessment_artifact_id: null,
+      property_context_id: null,
+      assessment_status: 'NOT_ASSESSED',
+    },
   };
+}
+
+/**
+ * Removes the verdict-bearing fields, keeping observations.
+ *
+ * Deleted rather than zeroed: `permitProbability: 0` reads as "certainly refused", and
+ * `overallRisk: 'LOW'` reads as an assessment. Absence is the only representation that cannot
+ * be mistaken for a finding.
+ */
+function withoutVerdict(analysis: SiteAnalysis): NonVerdictAnalysis {
+  const { overallRisk: _risk, permitProbability: _probability, ...rest } = analysis;
+  return rest;
+}
+
+/** A site may enter the ranking population only if a governed assessment backs it. */
+function isAssessed(analysis: SiteAnalysisResult): boolean {
+  return (
+    analysis.executionMotor?.assessment_status === 'ASSESSED' &&
+    analysis.executionMotor?.assessment_artifact_id != null &&
+    typeof analysis.complianceAnalysis.permitProbability === 'number'
+  );
+}
+
+/**
+ * The ranking value for an assessed site.
+ *
+ * Throws rather than defaulting. `?? 0` here would be a silent fail-open: if `isAssessed` ever
+ * weakened, an unassessed site would enter the ranking at probability 0 — a verdict — instead
+ * of the population being wrong loudly.
+ */
+function rankedProbability(analysis: SiteAnalysisResult): number {
+  const probability = analysis.complianceAnalysis.permitProbability;
+  if (typeof probability !== 'number') {
+    throw new Error(
+      `LU_VERDICT_AUTHORITY_V1: site '${analysis.site.id}' entered the ranking population ` +
+        'without a governed permitProbability. The ranking filter and the verdict strip point ' +
+        'have diverged.',
+    );
+  }
+  return probability;
 }
 
 const HUMAN_IN_THE_LOOP =
@@ -757,14 +862,31 @@ export class GenerateLocalizationReportUseCase {
       ),
     );
 
-    const sortedByPermit = [...analyses].sort(
-      (a, b) => b.complianceAnalysis.permitProbability - a.complianceAnalysis.permitProbability,
+    // REPORT COMPARISON INVARIANT — the ranking population is the assessed sites only. An
+    // unassessed candidate stays in siteAnalyses with its status, but cannot be ranked and
+    // cannot win.
+    const assessed = analyses.filter(isAssessed);
+    const unassessed = analyses.filter((a) => !isAssessed(a));
+
+    const sortedByPermit = [...assessed].sort(
+      (a, b) => rankedProbability(b) - rankedProbability(a),
     );
     const bestAlternative = sortedByPermit.length > 0 ? sortedByPermit[0] : null;
 
+    const comparisonStatus: LuComparisonStatus =
+      assessed.length === 0 ? 'UNAVAILABLE' : unassessed.length === 0 ? 'COMPLETE' : 'PARTIAL';
+
+    // The qualifier is load-bearing: a winner drawn from a subset must never read as best of
+    // all candidates.
+    const coverageNote =
+      comparisonStatus === 'PARTIAL'
+        ? ` Jämförelsen är partiell: ${assessed.length} av ${analyses.length} alternativ har en governad bedömning. ` +
+          `Ej bedömda alternativ (${unassessed.map((a) => a.site.id).join(', ')}) ingår inte i rangordningen.`
+        : '';
+
     const reasoning = bestAlternative
-      ? `Alternativ ${bestAlternative.site.id} (${bestAlternative.site.name || 'namnlöst'}) har högst tillståndssannolikhet (${(bestAlternative.complianceAnalysis.permitProbability * 100).toFixed(0)}%) baserat på spatial analys, ${bestAlternative.monuments.length} kulturmiljöträffar, ${bestAlternative.sluObservationCount} SLU-observationer, och riskklassning ${bestAlternative.complianceAnalysis.overallRisk}.`
-      : 'Inga alternativ analyserade.';
+      ? `Alternativ ${bestAlternative.site.id} (${bestAlternative.site.name || 'namnlöst'}) har högst tillståndssannolikhet (${(rankedProbability(bestAlternative) * 100).toFixed(0)}%) bland bedömda alternativ, baserat på spatial analys, ${bestAlternative.monuments.length} kulturmiljöträffar, ${bestAlternative.sluObservationCount} SLU-observationer, och riskklassning ${bestAlternative.complianceAnalysis.overallRisk}.${coverageNote}`
+      : `Ingen rangordning tillgänglig: inget av ${analyses.length} alternativ har en governad bedömning (LocalizationAssessmentArtifact saknas).`;
 
     const reportWarnings = analyses.flatMap((a) => a.warnings.map((w) => `${a.site.id}: ${w}`));
 
@@ -775,6 +897,9 @@ export class GenerateLocalizationReportUseCase {
       summary: {
         bestAlternativeId: bestAlternative?.site.id,
         reasoning,
+        comparison_status: comparisonStatus,
+        assessed_site_ids: assessed.map((a) => a.site.id),
+        unassessed_site_ids: unassessed.map((a) => a.site.id),
       },
       warnings: reportWarnings,
       humanInTheLoop: HUMAN_IN_THE_LOOP,
@@ -792,9 +917,24 @@ export class GenerateLocalizationReportUseCase {
           severity: reportWarnings.length > 0 ? 'warning' : 'info',
           details: {
             alternativeCount: input.siteAlternatives.length,
-            bestAlternativeId: bestAlternative?.site.id,
-            bestPermitProbability: bestAlternative?.complianceAnalysis.permitProbability,
-            overallRisk: bestAlternative?.complianceAnalysis.overallRisk,
+            comparison_status: comparisonStatus,
+            assessed_site_ids: assessed.map((a) => a.site.id),
+            // Non-verdict sites are audited by STATUS only. Emitting a risk or probability for
+            // them — even as null or 0 — would put an unbacked verdict into the audit record.
+            unassessed_sites: unassessed.map((a) => ({
+              site_id: a.site.id,
+              assessment_status: a.executionMotor?.assessment_status ?? 'NOT_ASSESSED',
+              reason_codes: a.executionMotor?.reason_codes ?? [],
+            })),
+            ...(bestAlternative
+              ? {
+                  bestAlternativeId: bestAlternative.site.id,
+                  bestAssessmentArtifactId:
+                    bestAlternative.executionMotor?.assessment_artifact_id ?? null,
+                  bestPermitProbability: bestAlternative.complianceAnalysis.permitProbability,
+                  overallRisk: bestAlternative.complianceAnalysis.overallRisk,
+                }
+              : {}),
             warningCount: reportWarnings.length,
             strictMode: isLocalizationStrictMode(),
           },

@@ -654,9 +654,12 @@ export const LocalizationStudyUI: React.FC<LocalizationStudyUIProps> = ({
       title: alt.label,
       subtitle: `${alt.id} • Scout Mode Analys`,
       type: 'alternative',
-      confidence: analysis?.complianceAnalysis?.permitProbability
-        ? Math.round(analysis.complianceAnalysis.permitProbability * 100)
-        : 85,
+      // P3-LU-CANONICAL-CHAIN-01: no fabricated confidence. This previously fell back to 85,
+      // presenting an unassessed site as 85% likely to be permitted.
+      confidence:
+        typeof analysis?.complianceAnalysis?.permitProbability === 'number'
+          ? Math.round(analysis.complianceAnalysis.permitProbability * 100)
+          : undefined,
       status: analysis?.warnings && analysis.warnings.length > 0 ? 'warning' : 'success',
       statusText: analysis?.warnings && analysis.warnings.length > 0 ? `${analysis.warnings.length} varningar` : 'Godkänd i primär analys',
       metadata: {
