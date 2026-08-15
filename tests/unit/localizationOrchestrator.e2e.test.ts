@@ -142,6 +142,10 @@ function makeReport(projectId = PROJECT_ID, siteIds = ['plats-A', 'plats-B']): L
     summary: {
       bestAlternativeId: siteIds[0],
       reasoning: 'Plats A har bäst förutsättningar baserat på GIS och naturvärden.',
+      // P3-LU-CANONICAL-CHAIN-01 — rangordningspopulationen är de bedömda platserna.
+      comparison_status: 'COMPLETE' as const,
+      assessed_site_ids: [...siteIds],
+      unassessed_site_ids: [],
     },
     warnings: [],
     humanInTheLoop: 'Handläggare ska verifiera rapporten innan beslut fattas.',

@@ -67,6 +67,27 @@ function makeCompliance(siteId: string, overrides: Record<string, unknown> = {})
   };
 }
 
+/**
+ * P3-LU-CANONICAL-CHAIN-01 — a site bearing a verdict must also bear the governed assessment
+ * that entitles it to one. `executionMotor` is no longer optional decoration: the PDF reads
+ * `assessment_status` to decide whether a risk figure may be rendered at all.
+ */
+function makeExecutionMotor(id: string, overrides: Record<string, unknown> = {}) {
+  return {
+    admitted: true,
+    reason_codes: [],
+    attempt_id: `attempt-${id}`,
+    outcome_id: `outcome-${id}`,
+    manifest_id: `manifest-${id}`,
+    ticket_id: null,
+    finding_ids: [],
+    assessment_artifact_id: `assessment-${id}`,
+    property_context_id: `prop-${id}`,
+    assessment_status: 'ASSESSED' as const,
+    ...overrides,
+  };
+}
+
 function makeSiteAnalysis(id: string, overrides: Record<string, unknown> = {}) {
   return {
     site: makeSite(id),
@@ -78,6 +99,7 @@ function makeSiteAnalysis(id: string, overrides: Record<string, unknown> = {}) {
     dataSources: [],
     warnings: [],
     sluObservationCount: 0,
+    executionMotor: makeExecutionMotor(id),
     ...overrides,
   };
 }
@@ -87,7 +109,16 @@ function makeReport(overrides: Partial<LocalizationReport> = {}): LocalizationRe
     projectId: 'proj-test',
     generatedAt: '2026-05-21T10:00:00.000Z',
     siteAnalyses: [makeSiteAnalysis('alt-1')],
-    summary: { bestAlternativeId: 'alt-1', reasoning: 'Minst risk' },
+    summary: {
+      bestAlternativeId: 'alt-1',
+      reasoning: 'Minst risk',
+      // Required since P3-LU-CANONICAL-CHAIN-01: the projection reports how much of the
+      // candidate set was actually assessed, so a winner drawn from a subset cannot read as
+      // best of all alternatives.
+      comparison_status: 'COMPLETE' as const,
+      assessed_site_ids: ['alt-1'],
+      unassessed_site_ids: [],
+    },
     warnings: [],
     humanInTheLoop: 'Granska innan beslut.',
     ...overrides,
@@ -112,10 +143,61 @@ describe('buildLocalizationPdfData', () => {
     expect(pdf.summary.reasoning).toBe('Minst risk');
   });
 
-  it('bestAlternativeId faller tillbaka på N/A om undefined', () => {
-    const report = makeReport({ summary: { reasoning: 'ok' } });
+  /**
+   * P3-LU-CANONICAL-CHAIN-01 — this test previously asserted the opposite, that an absent
+   * winner was rendered as the string 'N/A'. That reads in the finished document as though a
+   * comparison had been carried out and produced nothing, which is itself a claim. When no
+   * site carries a governed assessment the key is omitted entirely.
+   */
+  it('utelämnar bestAlternativeId helt när ingen plats är bedömd', () => {
+    const report = makeReport({
+      summary: {
+        reasoning: 'Ingen rangordning tillgänglig',
+        comparison_status: 'UNAVAILABLE' as const,
+        assessed_site_ids: [],
+        unassessed_site_ids: ['alt-1'],
+      },
+    });
     const pdf = buildLocalizationPdfData(report);
-    expect(pdf.summary.bestAlternativeId).toBe('N/A');
+
+    expect(Object.prototype.hasOwnProperty.call(pdf.summary, 'bestAlternativeId')).toBe(false);
+    expect(pdf.summary.comparison_status).toBe('UNAVAILABLE');
+    expect(JSON.stringify(pdf.summary)).not.toMatch(/N\/A|undefined|null/);
+  });
+
+  it('bär comparison_status och rangordningspopulation vidare', () => {
+    const pdf = buildLocalizationPdfData(makeReport());
+    expect(pdf.summary.comparison_status).toBe('COMPLETE');
+    expect(pdf.summary.assessed_site_ids).toEqual(['alt-1']);
+    expect(pdf.summary.unassessed_site_ids).toEqual([]);
+  });
+
+  it('utelämnar verdict-fält för en plats utan governad bedömning', () => {
+    const report = makeReport({
+      siteAnalyses: [
+        makeSiteAnalysis('alt-1', {
+          complianceAnalysis: { restrictions: [], rules: [], summary: 'ej bedömd' },
+          executionMotor: makeExecutionMotor('alt-1', {
+            admitted: false,
+            reason_codes: ['CAPABILITY_DENIED'],
+            assessment_artifact_id: null,
+            assessment_status: 'GOVERNANCE_DENIED' as const,
+          }),
+        }),
+      ],
+      summary: {
+        reasoning: 'Ingen rangordning tillgänglig',
+        comparison_status: 'UNAVAILABLE' as const,
+        assessed_site_ids: [],
+        unassessed_site_ids: ['alt-1'],
+      },
+    });
+    const site = buildLocalizationPdfData(report).sites[0];
+
+    expect(Object.prototype.hasOwnProperty.call(site, 'overallRisk')).toBe(false);
+    expect(Object.prototype.hasOwnProperty.call(site, 'permitProbability')).toBe(false);
+    expect(site.assessment_status).toBe('GOVERNANCE_DENIED');
+    expect(site.assessment_artifact_id).toBeNull();
   });
 
   it('vidarebefordrar reportWarnings', () => {

@@ -122,8 +122,14 @@ describe('generateLocalizationReport', () => {
     expect(report.projectId).toBe('proj-test');
     expect(report.siteAnalyses).toHaveLength(1);
     expect(report.siteAnalyses[0].site.id).toBe('alt-1');
-    expect(report.summary.bestAlternativeId).toBe('alt-1');
     expect(typeof report.humanInTheLoop).toBe('string');
+
+    // P3-LU-CANONICAL-CHAIN-01: this assertion previously read
+    // `expect(report.summary.bestAlternativeId).toBe('alt-1')`. No ExecutionKernel is mocked in
+    // this file, so no LocalizationAssessmentArtifact exists and the site cannot be ranked.
+    // A winner here would mean an ungoverned verdict had been produced.
+    expect(report.summary.bestAlternativeId).toBeUndefined();
+    expect(report.summary.comparison_status).toBe('UNAVAILABLE');
   });
 
   it('returnerar rapport för tom siteAlternatives-lista', async () => {
@@ -137,7 +143,18 @@ describe('generateLocalizationReport', () => {
     expect(report.summary.reasoning).toContain('Inga alternativ');
   });
 
-  it('analyserar flera alternativ och väljer bäst sannolikhet', async () => {
+  /**
+   * P3-LU-CANONICAL-CHAIN-01 — this test previously asserted that the alternative with the
+   * higher `permitProbability` from `evaluateComplianceRules` became `bestAlternativeId`.
+   * That is the alternate decision path the unit closed: an ungoverned rule engine over
+   * ungoverned service data must not determine an authoritative LU outcome. No kernel is
+   * mocked here, so neither site carries a governed assessment and neither may be ranked.
+   *
+   * Ranking itself is still covered — properly, with governed assessments — by RED-5 and
+   * RED-6 in src/application/unit/P3LuVerdictAuthority.red.test.ts. Do not "restore" the old
+   * assertion here; it would re-encode the defect.
+   */
+  it('låter INTE ogovernad sannolikhet avgöra rangordningen', async () => {
     const { evaluateComplianceRules } = await import('../../../server/services/complianceRuleEngine');
     let callCount = 0;
     (evaluateComplianceRules as ReturnType<typeof vi.fn>).mockImplementation(() => {
@@ -164,7 +181,13 @@ describe('generateLocalizationReport', () => {
     });
 
     expect(report.siteAnalyses).toHaveLength(2);
-    expect(report.summary.bestAlternativeId).toBe('alt-high');
+    expect(
+      report.summary.bestAlternativeId,
+      'alt-high hade högst ogovernad permitProbability (0.9). Att den ändå inte vinner är hela ' +
+        'poängen: utan LocalizationAssessmentArtifact finns inget verdict att rangordna.',
+    ).toBeUndefined();
+    expect(report.summary.comparison_status).toBe('UNAVAILABLE');
+    expect(report.summary.unassessed_site_ids).toEqual(['alt-low', 'alt-high']);
   });
 });
 

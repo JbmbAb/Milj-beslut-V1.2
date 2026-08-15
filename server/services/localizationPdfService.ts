@@ -75,6 +75,24 @@ export interface LocalizationPdfData {
  * Transforms a LocalizationReport into a flat structure ready for PDF rendering.
  */
 export function buildLocalizationPdfData(report: LocalizationReport): LocalizationPdfData {
+  // P3-LU-CANONICAL-CHAIN-01 added three required summary fields. A report constructed against
+  // the older shape reaches the spread below and fails as "undefined is not iterable", which
+  // says nothing about what is actually wrong. Naming the violation costs one check and saves
+  // the next person the same debugging session.
+  if (
+    !report.summary ||
+    typeof report.summary.comparison_status !== 'string' ||
+    !Array.isArray(report.summary.assessed_site_ids) ||
+    !Array.isArray(report.summary.unassessed_site_ids)
+  ) {
+    throw new Error(
+      'LocalizationReport.summary is missing the coverage fields required since ' +
+        'P3-LU-CANONICAL-CHAIN-01 (comparison_status, assessed_site_ids, unassessed_site_ids). ' +
+        'A summary without them cannot say how much of the candidate set was assessed, so the ' +
+        'PDF cannot state whether a winner was drawn from all alternatives or a subset.',
+    );
+  }
+
   return {
     title: 'Lokaliseringsutredning – Jämförande platsanalys',
     generatedAt: report.generatedAt,

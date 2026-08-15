@@ -886,7 +886,12 @@ export class GenerateLocalizationReportUseCase {
 
     const reasoning = bestAlternative
       ? `Alternativ ${bestAlternative.site.id} (${bestAlternative.site.name || 'namnlöst'}) har högst tillståndssannolikhet (${(rankedProbability(bestAlternative) * 100).toFixed(0)}%) bland bedömda alternativ, baserat på spatial analys, ${bestAlternative.monuments.length} kulturmiljöträffar, ${bestAlternative.sluObservationCount} SLU-observationer, och riskklassning ${bestAlternative.complianceAnalysis.overallRisk}.${coverageNote}`
-      : `Ingen rangordning tillgänglig: inget av ${analyses.length} alternativ har en governad bedömning (LocalizationAssessmentArtifact saknas).`;
+      : analyses.length === 0
+        ? // Noll kandidater är inte samma sak som kandidater utan bedömning. Att säga
+          // "inget av 0 alternativ har en governad bedömning" beskriver en frånvaro som
+          // aldrig fanns.
+          'Inga alternativ analyserade.'
+        : `Ingen rangordning tillgänglig: inget av ${analyses.length} alternativ har en governad bedömning (LocalizationAssessmentArtifact saknas).`;
 
     const reportWarnings = analyses.flatMap((a) => a.warnings.map((w) => `${a.site.id}: ${w}`));
 
