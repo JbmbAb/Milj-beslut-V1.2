@@ -174,7 +174,19 @@ export class GovernedDownloadExecutor implements HarvestExecutor {
           target.url,
           target.file_name,
           response.bytes,
-          { registry_artifact_id: source.registryArtifactId },
+          {
+            registry_artifact_id: source.registryArtifactId,
+            // Adapter-observed metadata, carried verbatim. The executor never reads it and
+            // knows nothing about its shape — which adapter produced it is deliberately
+            // invisible here.
+            //
+            // NESTED, never spread at the top level: a flat merge would let adapter-controlled
+            // keys overwrite `registry_artifact_id`, the binding that names the authority the
+            // object was acquired under. Adapter data must not be able to forge provenance.
+            ...(target.source_metadata
+              ? { source_metadata: { ...target.source_metadata } }
+              : {}),
+          },
         );
 
         // The storage layer computes its own hash. If the two disagree, the bytes that were

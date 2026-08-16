@@ -40,6 +40,11 @@ interface PuhPublication {
   readonly avgorandedatum?: string;
   readonly domstol?: { readonly domstolKod?: string };
   readonly bilagaLista?: readonly PuhAttachment[];
+  /** PubliceringDTO.typ — e.g. EJ_VAGLEDANDE. Required by the spec; optional here so a
+   *  response missing it is carried as absent rather than crashing the harvest. */
+  readonly typ?: string;
+  /** PubliceringDTO.publiceringsform — e.g. DOM_ELLER_BESLUT. The signed scope filters on it. */
+  readonly publiceringsform?: string;
 }
 
 /**
@@ -108,6 +113,7 @@ export class PuhRattspraxisTargetResolver implements SourceAwareTargetResolver {
           targets.push({
             url: `${origin}/api/v1/bilagor/${encodeURIComponent(attachment.fillagringId)}`,
             file_name: attachmentFileName(publication, attachment),
+            source_metadata: publicationMetadata(publication, attachment),
           });
         }
       }
@@ -189,6 +195,42 @@ export function parsePublications(body: string, sourceUrl: string): readonly Puh
   }
 
   return list as readonly PuhPublication[];
+}
+
+/**
+ * P3-PUH-METADATA-CARRIAGE-01 — the publication fields PUH itself returned, verbatim.
+ *
+ * These are the fields that determine what a document IS, and they were previously discarded:
+ * `DownloadTarget` had nowhere to carry them, so 514 harvested judgments reached quarantine
+ * with nothing but a URL and a file name.
+ *
+ * Carriage only. `typ` and `publiceringsform` are copied exactly as PUH returned them —
+ * `DOM_ELLER_BESLUT` stays `DOM_ELLER_BESLUT` and is NOT translated into any downstream
+ * vocabulary here. That mapping is a separate owner-frozen decision, partly because
+ * "dom eller beslut" is a disjunction that does not correspond one-to-one with any single
+ * downstream class.
+ *
+ * Absent fields are OMITTED rather than defaulted: an empty string or a placeholder would be
+ * indistinguishable from a value the source actually returned.
+ */
+function publicationMetadata(
+  publication: PuhPublication,
+  attachment: PuhAttachment,
+): Readonly<Record<string, string>> {
+  const observed: Record<string, string> = {};
+  const put = (key: string, value: string | undefined) => {
+    if (typeof value === 'string' && value.length > 0) observed[key] = value;
+  };
+
+  put('puh_publication_id', publication.id);
+  put('puh_typ', publication.typ);
+  put('puh_publiceringsform', publication.publiceringsform);
+  put('puh_domstolskod', publication.domstol?.domstolKod);
+  put('puh_avgorandedatum', publication.avgorandedatum);
+  put('puh_fillagring_id', attachment.fillagringId);
+  put('puh_filnamn', attachment.filnamn);
+
+  return observed;
 }
 
 /**

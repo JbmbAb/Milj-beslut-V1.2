@@ -41,6 +41,23 @@ export interface DownloadResponse {
 export interface DownloadTarget {
   readonly url: string;
   readonly file_name: string;
+  /**
+   * P3-PUH-METADATA-CARRIAGE-01 — verbatim metadata the adapter observed on the source's own
+   * response, carried through to quarantine.
+   *
+   * Provenance transport, NOT classification. Every value must be exactly what the source
+   * returned: no normalization into a downstream vocabulary, no parsing of file names, no
+   * inference. Interpretation is a separate, owner-frozen mapping.
+   *
+   * This exists because the information was previously destroyed at acquisition. A PUH
+   * publication carries the fields that determine what a document IS, but `DownloadTarget` had
+   * nowhere to put them, so they were dropped before the executor saw them — leaving 514
+   * harvested judgments that cannot be classified without re-harvesting.
+   *
+   * Excluded from manifest identity by construction: identity hashes `DownloadedObject`, and
+   * this never reaches it. Adding metadata therefore cannot change an existing manifest hash.
+   */
+  readonly source_metadata?: Readonly<Record<string, string>>;
 }
 
 /**
