@@ -12,6 +12,7 @@ import {
 } from "@miljobeslut/mimers-brunn-core";
 
 import { approveSourceRegistryEntry } from "../src/SourceApproval";
+import { unsignedDraftFixture } from "./fixtures/unsignedSourceRegistryDrafts";
 import {
   composeHarvestRuntime,
   PRODUCTION_ADAPTER_RESOLVERS,
@@ -53,8 +54,6 @@ describe("P2-RUNTIME-01 — offline production composition root", () => {
   const REPO_ROOT = resolve(__dirname, "../../..");
   const ROOT_SRC = join(__dirname, "..", "src", "HarvestRuntimeCompositionRoot.ts");
   const AUTHORITY_PATH = join(REPO_ROOT, "source-registry", "national-registry.json");
-  const PUH_DRAFT = join(REPO_ROOT, "source-registry", "drafts", "puh-mmod-unsigned.json");
-  const SFS_DRAFT = join(REPO_ROOT, "source-registry", "drafts", "sfs-1998-808-unsigned.json");
 
   const KEY_ID = "ed25519:test-governor";
   const APPROVER = "governor:test-owner";
@@ -87,8 +86,9 @@ describe("P2-RUNTIME-01 — offline production composition root", () => {
     const generated = LocalPemSigningKeyProvider.generate(KEY_ID);
 
     const approved: SourceRegistryArtifact[] = [];
-    for (const draftPath of [PUH_DRAFT, SFS_DRAFT]) {
-      const draft = JSON.parse(readFileSync(draftPath, "utf8"))[0] as SourceRegistryArtifact;
+    // Tracked fixtures, not source-registry/drafts/: that directory is the owner's signing
+    // workspace and is gitignored, so reading it made this proof fail in a clean checkout.
+    for (const draft of [unsignedDraftFixture("puh"), unsignedDraftFixture("sfs")]) {
       approved.push(
         await approveSourceRegistryEntry({
           entry: draft,

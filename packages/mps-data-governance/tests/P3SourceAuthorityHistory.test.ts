@@ -7,6 +7,7 @@ import { LocalPemSigningKeyProvider, LocalPemVerificationKeyProvider } from '@mi
 
 import { approveSourceRegistryEntry } from '../src/SourceApproval';
 import { loadSourceAuthorityHistory, APPROVED_HISTORICAL_STORES } from '../src/SourceAuthorityHistory';
+import { unsignedDraftFixture } from './fixtures/unsignedSourceRegistryDrafts';
 import type { SourceRegistryArtifact } from '../src/SourceRegistry';
 
 /**
@@ -27,7 +28,6 @@ import type { SourceRegistryArtifact } from '../src/SourceRegistry';
  */
 describe('VERIFIED_SOURCE_AUTHORITY_HISTORY_V1', () => {
   const REPO_ROOT = resolve(__dirname, '../../..');
-  const DRAFT = join(REPO_ROOT, 'source-registry', 'drafts', 'puh-mmod-unsigned.json');
   const KEY_ID = 'ed25519:test-governor';
 
   async function signedStore(): Promise<{
@@ -38,7 +38,8 @@ describe('VERIFIED_SOURCE_AUTHORITY_HISTORY_V1', () => {
     dir: string;
   }> {
     const generated = LocalPemSigningKeyProvider.generate(KEY_ID);
-    const draft = JSON.parse(readFileSync(DRAFT, 'utf8'))[0] as SourceRegistryArtifact;
+    // Tracked fixture, not the gitignored owner signing workspace.
+    const draft = unsignedDraftFixture('puh');
 
     const active = await approveSourceRegistryEntry({
       entry: { ...draft, artifact_id: 'reg-test-002' },
