@@ -2,8 +2,12 @@ export type {
   ArtifactAttestation,
   SignatureEnvelope,
   SigningKeyProvider,
+  VerificationKeyProvider,
 } from './SignatureEnvelope';
-export { LocalPemSigningKeyProvider } from './SigningProvider';
+export {
+  LocalPemSigningKeyProvider,
+  LocalPemVerificationKeyProvider,
+} from './SigningProvider';
 export {
   ATTESTATION_DOMAIN,
   attestationSubjectBinding,

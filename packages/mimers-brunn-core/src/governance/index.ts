@@ -34,9 +34,14 @@ export {
 } from './QuarantineStorage';
 export {
   QuarantinePromoter,
+  GovernanceAttestationError,
+  PROMOTION_ACTION,
+  PROMOTION_ATTESTATION_PREDICATE_TYPE,
+  PROMOTION_ATTESTATION_SCHEMA_VERSION,
   type DatasetApprovalIdentity,
   type DatasetApprovalMetadata,
   type DatasetApprovalArtifact,
   type PromotionResult,
+  type PromotionAttestationPredicate,
 } from './DatasetApproval';
 

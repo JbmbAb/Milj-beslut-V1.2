@@ -40,6 +40,10 @@ export {
   isArchiveProvider,
   DiskQuarantineStorage,
   QuarantinePromoter,
+  GovernanceAttestationError,
+  PROMOTION_ACTION,
+  PROMOTION_ATTESTATION_PREDICATE_TYPE,
+  PROMOTION_ATTESTATION_SCHEMA_VERSION,
   type BuildSanitationArtifactInput,
   type DatasetFamily,
   type DatasetFamilyMember,
@@ -58,6 +62,7 @@ export {
   type DatasetApprovalMetadata,
   type DatasetApprovalArtifact,
   type PromotionResult,
+  type PromotionAttestationPredicate,
 } from './governance';
 export {
   CLASSIFIER_SCHEMA_VERSION,

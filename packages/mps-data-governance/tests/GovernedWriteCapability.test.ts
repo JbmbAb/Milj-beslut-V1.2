@@ -20,6 +20,9 @@ const REPO_ROOT = path.resolve(__dirname, "../../..");
  * quietly in either direction.
  */
 const FROZEN = {
+  // GW-01/GW-02 2026-08-13: registering the pre-existing generate-embeddings.ts write raised
+  // the measured ledger by one; removing the stale propertyUnitService.ts entry lowered it by
+  // one. The resulting count remains 36 while both registry claims now match the code.
   "postgis.raw_write": { legacy: 36, sessionOnly: 4 },
   "case_graph.write": { legacy: 1, sessionOnly: 0 },
 } as const;

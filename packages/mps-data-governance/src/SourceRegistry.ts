@@ -4,10 +4,12 @@ import { resolve } from 'node:path';
 
 import {
   LocalPemSigningKeyProvider,
+  LocalPemVerificationKeyProvider,
   canonicalizeStrict,
   verifyArtifactAttestation,
   type ArtifactAttestation,
   type SigningKeyProvider,
+  type VerificationKeyProvider,
 } from '@miljobeslut/mimers-brunn-core';
 
 export const SOURCE_REGISTRY_APPROVAL_PREDICATE_TYPE =
@@ -117,9 +119,16 @@ export function sourceRegistryArtifactForHash(
   return unsigned;
 }
 
+/**
+ * P2-SR-VERIFY-ONLY-01 — takes a `VerificationKeyProvider`, not a signer.
+ *
+ * Materializing an approved source is a read: it checks that someone with GOVERNOR authority
+ * already signed this entry. It never mints anything. Demanding a signer here was what forced
+ * the private key into every runtime that merely wanted to read the registry.
+ */
 export async function verifySourceRegistryArtifact(
   artifact: SourceRegistryArtifact,
-  signing: SigningKeyProvider,
+  signing: VerificationKeyProvider,
 ): Promise<VerifiedSourceDefinition> {
   assertSourceRegistryShape(artifact);
 
@@ -173,12 +182,24 @@ export async function verifySourceRegistryArtifact(
   };
 }
 
+/**
+ * P2-SR-VERIFY-ONLY-01 — the runtime read path. Verification capability only.
+ *
+ * The default key provider is now verify-only, so a harvest host needs the key id and the PUBLIC
+ * key and nothing else. It previously defaulted to `getSourceRegistrySigningKeyFromEnv()`, which
+ * required `SOURCE_REGISTRY_SIGNING_PRIVATE_KEY_PEM` — meaning any host that could read the
+ * registry could also mint an APPROVED attestation for a source nobody reviewed.
+ *
+ * A signer still satisfies the parameter, because signing extends verification. That is
+ * deliberate: the approval tooling loads the registry back through this same function to
+ * self-verify what it just wrote, and must not need a second code path to do it.
+ */
 export async function loadVerifiedSourceRegistry(args: {
   readonly registryPath?: string;
-  readonly signing?: SigningKeyProvider;
+  readonly signing?: VerificationKeyProvider;
 } = {}): Promise<VerifiedSourceRegistry> {
   const registryPath = args.registryPath ?? getSourceRegistryPathFromEnv();
-  const signing = args.signing ?? getSourceRegistrySigningKeyFromEnv();
+  const signing = args.signing ?? getSourceRegistryVerificationKeyFromEnv();
   const raw = JSON.parse(readFileSync(registryPath, 'utf8')) as SourceRegistryArtifact[];
 
   if (!Array.isArray(raw)) {
@@ -226,6 +247,39 @@ export function getSourceRegistryPathFromEnv(): string {
   return resolve(process.env.SOURCE_REGISTRY_ARTIFACT_PATH ?? 'source-registry/national-registry.json');
 }
 
+/**
+ * P2-SR-VERIFY-ONLY-01 — the runtime key path. No private key, no minting.
+ *
+ * Requires only the key id and the public key. `SOURCE_REGISTRY_SIGNING_PRIVATE_KEY_PEM` is not
+ * read here, so a harvest host configured through this function cannot sign even if the private
+ * key happens to be present in its environment: the returned provider has no `sign` method.
+ *
+ * The key id is required rather than derived, because `verifySourceRegistryArtifact` binds
+ * `attestation.signer === signing.keyId`. Without it, an attestation signed by an unexpected key
+ * would still verify against whatever public key the host happened to be given.
+ */
+export function getSourceRegistryVerificationKeyFromEnv(): VerificationKeyProvider {
+  const keyId = process.env.SOURCE_REGISTRY_SIGNING_KEY_ID;
+  const publicKeyPem = process.env.SOURCE_REGISTRY_SIGNING_PUBLIC_KEY_PEM;
+
+  if (!keyId || !publicKeyPem) {
+    throw new Error(
+      'SourceRegistry verification requires SOURCE_REGISTRY_SIGNING_KEY_ID and ' +
+        'SOURCE_REGISTRY_SIGNING_PUBLIC_KEY_PEM. An unverified registry is not a registry: ' +
+        'without the public key nothing can distinguish an approved source from an invented one.',
+    );
+  }
+
+  return new LocalPemVerificationKeyProvider(keyId, publicKeyPem);
+}
+
+/**
+ * The GOVERNOR minting path. Still requires the private key — see `approveSourceRegistryEntry`.
+ *
+ * Kept separate from `getSourceRegistryVerificationKeyFromEnv` so that the environment a host
+ * needs states its capability: a host with only the public key can read, and only a host
+ * deliberately given the private key can approve.
+ */
 export function getSourceRegistrySigningKeyFromEnv(): SigningKeyProvider {
   const keyId = process.env.SOURCE_REGISTRY_SIGNING_KEY_ID;
   const privateKeyPem = process.env.SOURCE_REGISTRY_SIGNING_PRIVATE_KEY_PEM;

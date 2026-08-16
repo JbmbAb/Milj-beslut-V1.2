@@ -260,14 +260,12 @@ export const POSTGIS_RAW_WRITE: GovernedWriteCapability = {
   dataModifyingKeywords: SQL_DATA_MODIFYING,
   legacy: [
     // Runtime services that write prod directly, outside the librarian.
-    // propertyUnitService is the sharpest: four INSERT INTO against
-    // core.property_unit, env.sgu_well_actual, env.natura2000_area and
-    // env.ebh_potentiellt_fororenade_omraden — permanent geodata written from
-    // the request path, including the EBH layer LU queries against.
+    // P1 commit 025802e removed the four request-path INSERTs previously held by
+    // propertyUnitService. The service remains runtime-reachable, but now performs
+    // read-only property lookups and therefore holds no raw-write capability.
     "server/modules/legal/services/evidenceExtractionService.ts",
     "server/modules/search/adapters/searchRepository.ts",
     "server/modules/search/services/sleipnerSpatialService.ts",
-    "server/services/propertyUnitService.ts",
     "scripts/add-geom-col.ts",
     "scripts/apply-best-guess-munis.ts",
     "scripts/backfill/_shared.ts",
@@ -281,6 +279,21 @@ export const POSTGIS_RAW_WRITE: GovernedWriteCapability = {
     "scripts/import/bulk-import-platform-all.ts",
     "scripts/import/bulk-import-sgu-api-all.ts",
     "scripts/import/bulk-import-sgu.ts",
+    // GW-01 (owner decision 2026-08-13) — REGISTER_EXISTING_LEGACY_WRITE.
+    //
+    // Three `$executeRawUnsafe` UPDATEs setting DocumentChunk.embedding / .embeddingJson.
+    // Registered as legacy rather than authorised, because the authorised set is the librarian
+    // chokepoint and an embedding job does not belong there; calling it authorised would erode
+    // what the word means.
+    //
+    // This writes a DERIVED index representation, not new authority-bearing domain data, and
+    // it is offline tooling rather than the request path.
+    //
+    // The count moved 36 → 37 by DISCOVERY, not by new debt. The write arrived committed in
+    // `1c55ac43 feat(knowledge): implement live Gemini-2 Matryoshka embeddings` and was simply
+    // never entered in the ledger. Nothing was made worse by recording it; it was made visible.
+    // Reducing the raw-write surface here is a separate migration unit.
+    "scripts/import/generate-embeddings.ts",
     "scripts/import/import-d-geodata-vectors.ts",
     "scripts/import/import-downloads-vector.ts",
     "scripts/import/import-heavy-geodata.ts",

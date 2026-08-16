@@ -1,5 +1,10 @@
 import { canonicalizeStrict, hashCanonicalValue, type HashAlgorithmId } from '../serialization';
-import type { SignatureEnvelope, SigningKeyProvider, ArtifactAttestation } from '../signing/SignatureEnvelope';
+import type {
+  SignatureEnvelope,
+  SigningKeyProvider,
+  VerificationKeyProvider,
+  ArtifactAttestation,
+} from '../signing/SignatureEnvelope';
 import type { SignatureAlgorithmId } from '../serialization/algorithms';
 
 export const ATTESTATION_DOMAIN = 'mimers-brunn/artifact-attestation/v1' as const;
@@ -59,9 +64,16 @@ export async function createArtifactAttestation(args: {
   };
 }
 
+/**
+ * P2-SR-VERIFY-ONLY-01 — widened from `SigningKeyProvider` to `VerificationKeyProvider`.
+ *
+ * This function never called `sign`. Requiring a signer was therefore an over-demand that
+ * forced minting capability onto every verifying consumer. Widening is source-compatible:
+ * `SigningKeyProvider extends VerificationKeyProvider`, so existing callers still type-check.
+ */
 export async function verifyArtifactAttestation(
   attestation: ArtifactAttestation,
-  signing: SigningKeyProvider,
+  signing: VerificationKeyProvider,
 ): Promise<boolean> {
   const payload: AttestationPayload = {
     domain: ATTESTATION_DOMAIN,
