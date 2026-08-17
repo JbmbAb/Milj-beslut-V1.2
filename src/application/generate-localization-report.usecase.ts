@@ -95,9 +95,43 @@ export interface ExecutionMotorMeta {
  * the result whenever no `LocalizationAssessmentArtifact` was produced, so an ungoverned
  * compliance evaluation cannot be read as an authoritative LU outcome. The remaining fields
  * (requiredActions, notes, …) stay: they are observations, not a verdict.
+ *
+ * LU_VERDICT_TYPE_BOUNDARY_V1 — the two outcomes are distinct types, discriminated by
+ * `assessment_status`.
+ *
+ * They were previously one type with the verdict fields marked optional. That does not survive
+ * this repository's compiler settings: with neither `strict` nor `strictNullChecks` set,
+ * `RiskLevel | undefined` is assignable to `RiskLevel`, so any consumer reading a verdict field
+ * into a required slot compiled silently. Enforcement rested entirely on the runtime guards in
+ * `src/application/unit/`, which can only cover consumers that already exist.
+ *
+ * Absence is therefore modelled as the field not being in the type at all. Reading
+ * `analysis.overallRisk` off the union is "property does not exist" — an error that needs no
+ * `strictNullChecks` — so a consumer added tomorrow fails to compile until it narrows.
+ *
+ * Proven by src/application/types/LuVerdictTypeBoundary.type-proof.ts.
  */
-export type NonVerdictAnalysis = Omit<SiteAnalysis, 'overallRisk' | 'permitProbability'> &
-  Partial<Pick<SiteAnalysis, 'overallRisk' | 'permitProbability'>>;
+export type GovernedVerdictAnalysis = SiteAnalysis & {
+  assessment_status: 'ASSESSED';
+};
+
+export type NonVerdictAnalysis = Omit<SiteAnalysis, 'overallRisk' | 'permitProbability'> & {
+  assessment_status: Exclude<LuAssessmentStatus, 'ASSESSED'>;
+};
+
+export type LuVerdictAnalysis = GovernedVerdictAnalysis | NonVerdictAnalysis;
+
+/**
+ * The only supported way to reach the verdict fields.
+ *
+ * `assessment_status === 'ASSESSED'` narrows identically; this exists so consumers outside this
+ * module do not have to restate the discriminant literal.
+ */
+export function isGovernedVerdict(
+  analysis: LuVerdictAnalysis,
+): analysis is GovernedVerdictAnalysis {
+  return analysis.assessment_status === 'ASSESSED';
+}
 
 /**
  * How much of the candidate set the comparison actually covers.
@@ -110,7 +144,7 @@ export type LuComparisonStatus = 'COMPLETE' | 'PARTIAL' | 'UNAVAILABLE';
 export interface SiteAnalysisResult {
   site: SiteAlternative;
   spatialAudit: SpatialAuditSummary;
-  complianceAnalysis: NonVerdictAnalysis;
+  complianceAnalysis: LuVerdictAnalysis;
   monuments: Monument[];
   vissWaterStatus: VissWaterStatus | null;
   distanceToWaterMeters: number | null;
@@ -772,8 +806,8 @@ async function analyzeSite(
     site,
     spatialAudit,
     complianceAnalysis: hasGovernedAssessment
-      ? complianceAnalysis
-      : withoutVerdict(complianceAnalysis),
+      ? { ...complianceAnalysis, assessment_status: 'ASSESSED' }
+      : withoutVerdict(complianceAnalysis, executionMotor?.assessment_status),
     monuments,
     vissWaterStatus,
     distanceToWaterMeters,
@@ -803,17 +837,36 @@ async function analyzeSite(
  * `overallRisk: 'LOW'` reads as an assessment. Absence is the only representation that cannot
  * be mistaken for a finding.
  */
-function withoutVerdict(analysis: SiteAnalysis): NonVerdictAnalysis {
+function withoutVerdict(
+  analysis: SiteAnalysis,
+  status: LuAssessmentStatus | undefined,
+): NonVerdictAnalysis {
   const { overallRisk: _risk, permitProbability: _probability, ...rest } = analysis;
-  return rest;
+  if (status === 'ASSESSED') {
+    // Reached only if the artifact check and the status assignment have diverged. Failing here
+    // is the fail-closed choice: silently relabelling would produce a non-verdict result
+    // claiming a governed assessment backs it.
+    throw new Error(
+      'LU_VERDICT_AUTHORITY_V1: verdict stripped from a site whose assessment_status is ' +
+        "'ASSESSED'. The artifact binding and the status assignment have diverged.",
+    );
+  }
+  return { ...rest, assessment_status: status ?? 'NOT_ASSESSED' };
 }
 
-/** A site may enter the ranking population only if a governed assessment backs it. */
-function isAssessed(analysis: SiteAnalysisResult): boolean {
+/**
+ * A site may enter the ranking population only if a governed assessment backs it.
+ *
+ * Narrows `complianceAnalysis` as well as testing it: the return type is what lets
+ * `rankedProbability` and the reasoning string reach the verdict fields at all.
+ */
+function isAssessed(
+  analysis: SiteAnalysisResult,
+): analysis is SiteAnalysisResult & { complianceAnalysis: GovernedVerdictAnalysis } {
   return (
     analysis.executionMotor?.assessment_status === 'ASSESSED' &&
     analysis.executionMotor?.assessment_artifact_id != null &&
-    typeof analysis.complianceAnalysis.permitProbability === 'number'
+    isGovernedVerdict(analysis.complianceAnalysis)
   );
 }
 
@@ -823,17 +876,21 @@ function isAssessed(analysis: SiteAnalysisResult): boolean {
  * Throws rather than defaulting. `?? 0` here would be a silent fail-open: if `isAssessed` ever
  * weakened, an unassessed site would enter the ranking at probability 0 — a verdict — instead
  * of the population being wrong loudly.
+ *
+ * The compiler now also refuses the un-narrowed read (LU_VERDICT_TYPE_BOUNDARY_V1), but this
+ * check stays: the type says what the shape is, not that the ranking filter agrees with the
+ * strip point. Those are separate claims and this one is only observable at runtime.
  */
 function rankedProbability(analysis: SiteAnalysisResult): number {
-  const probability = analysis.complianceAnalysis.permitProbability;
-  if (typeof probability !== 'number') {
+  const { complianceAnalysis } = analysis;
+  if (!isGovernedVerdict(complianceAnalysis)) {
     throw new Error(
       `LU_VERDICT_AUTHORITY_V1: site '${analysis.site.id}' entered the ranking population ` +
         'without a governed permitProbability. The ranking filter and the verdict strip point ' +
         'have diverged.',
     );
   }
-  return probability;
+  return complianceAnalysis.permitProbability;
 }
 
 const HUMAN_IN_THE_LOOP =

@@ -6,9 +6,10 @@
  */
 
 import type { LocalizationReport } from './localizationReportService';
-import type {
-  LuAssessmentStatus,
-  LuComparisonStatus,
+import {
+  isGovernedVerdict,
+  type LuAssessmentStatus,
+  type LuComparisonStatus,
 } from '../../src/application/generate-localization-report.usecase';
 
 export interface LocalizationPdfData {
@@ -118,11 +119,14 @@ export function buildLocalizationPdfData(report: LocalizationReport): Localizati
       lat: analysis.site.lat,
       lng: analysis.site.lng,
       // Same rule as the report: verdict keys are omitted, never rendered as undefined or 0.
-      ...(analysis.complianceAnalysis.overallRisk !== undefined
-        ? { overallRisk: analysis.complianceAnalysis.overallRisk }
-        : {}),
-      ...(analysis.complianceAnalysis.permitProbability !== undefined
-        ? { permitProbability: analysis.complianceAnalysis.permitProbability }
+      // The narrowing is what makes the fields readable at all — LU_VERDICT_TYPE_BOUNDARY_V1
+      // removes them from the non-verdict variant, so an undefined can no longer reach the
+      // caseworker-facing document by way of a field this projection forgot to check.
+      ...(isGovernedVerdict(analysis.complianceAnalysis)
+        ? {
+            overallRisk: analysis.complianceAnalysis.overallRisk,
+            permitProbability: analysis.complianceAnalysis.permitProbability,
+          }
         : {}),
       assessment_status: analysis.executionMotor?.assessment_status ?? 'NOT_ASSESSED',
       assessment_artifact_id: analysis.executionMotor?.assessment_artifact_id ?? null,

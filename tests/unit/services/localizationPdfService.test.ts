@@ -60,6 +60,10 @@ function makeCompliance(siteId: string, overrides: Record<string, unknown> = {})
   return {
     overallRisk: 'LOW' as const,
     permitProbability: 0.8,
+    // LU_VERDICT_TYPE_BOUNDARY_V1 — the discriminant that entitles this analysis to carry a
+    // verdict at all. Without it the projection reads a non-verdict variant, and the verdict
+    // fields above are unreachable.
+    assessment_status: 'ASSESSED' as const,
     restrictions: [],
     rules: [],
     summary: `Sammanfattning ${siteId}`,
@@ -176,7 +180,12 @@ describe('buildLocalizationPdfData', () => {
     const report = makeReport({
       siteAnalyses: [
         makeSiteAnalysis('alt-1', {
-          complianceAnalysis: { restrictions: [], rules: [], summary: 'ej bedömd' },
+          complianceAnalysis: {
+            restrictions: [],
+            rules: [],
+            summary: 'ej bedömd',
+            assessment_status: 'GOVERNANCE_DENIED' as const,
+          },
           executionMotor: makeExecutionMotor('alt-1', {
             admitted: false,
             reason_codes: ['CAPABILITY_DENIED'],

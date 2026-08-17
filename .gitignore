@@ -52,6 +52,10 @@ tmp-mimers/
 !package.json
 !package-lock.json
 !tsconfig.json
+# LU_VERDICT_TYPE_BOUNDARY_V1 — the LU verdict surface's typecheck project. It is a build input,
+# not a local artifact: without it in the checkout, P3LuVerdictTypeBoundary.test.ts cannot run
+# and the boundary reverts to being enforced only at runtime.
+!tsconfig.lu-verdict.json
 !.prettierrc.json
 !stitch.json
 !figma-raw.json

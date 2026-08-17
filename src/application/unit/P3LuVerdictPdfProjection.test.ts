@@ -21,9 +21,11 @@ import type {
  *   worse: `|| 'N/A'` manufactured a summary value where none existed, so a report in which
  *   nothing could be assessed still produced a populated comparison section.
  *
- *   ⚠️ The type system cannot catch this. tsconfig sets neither `strict` nor
- *   `strictNullChecks`, and this service is not in the TS program at all — see the filed
- *   hardening note LU_VERDICT_TYPE_BOUNDARY-01. These runtime assertions are the guard.
+ *   The type system now catches this too. LU_VERDICT_TYPE_BOUNDARY_V1 put the verdict fields on
+ *   a distinct union variant and put this service into a TypeScript program
+ *   (`tsconfig.lu-verdict.json`), so an unnarrowed read fails to compile — see
+ *   `P3LuVerdictTypeBoundary.test.ts`. These runtime assertions stay: the compiler proves the
+ *   shape is unreachable, not that this projection emits the right values when it is reachable.
  */
 
 function site(
@@ -36,6 +38,10 @@ function site(
     spatialAudit: { isProtected: false, protectedAreaHits: [] } as never,
     complianceAnalysis: {
       ...(verdict ?? {}),
+      // LU_VERDICT_TYPE_BOUNDARY_V1 — the discriminant now lives on the analysis itself, and is
+      // what makes the verdict fields readable. A fixture that set only
+      // `executionMotor.assessment_status` would describe a shape the usecase cannot produce.
+      assessment_status: verdict ? "ASSESSED" : "GOVERNANCE_DENIED",
       restrictions: [],
       rules: [],
       requiredActions: [],

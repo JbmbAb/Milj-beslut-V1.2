@@ -189,11 +189,21 @@ describe("NO_ALTERNATE_LU_DECISION_PATH_V1", () => {
   it("the PDF projection emits verdict keys conditionally, never unconditionally", () => {
     const src = readFileSync(join(REPO_ROOT, ...CANONICAL_PDF.split("/")), "utf8");
 
-    expect(src, "conditional overallRisk").toMatch(
-      /\.\.\.\(\s*analysis\.complianceAnalysis\.overallRisk\s*!==\s*undefined/,
-    );
-    expect(src, "conditional permitProbability").toMatch(
-      /\.\.\.\(\s*analysis\.complianceAnalysis\.permitProbability\s*!==\s*undefined/,
+    /*
+     * LU_VERDICT_TYPE_BOUNDARY_V1 changed the idiom this rule watches for, and strengthened it.
+     *
+     * Previously each verdict key was spread behind its own `!== undefined` check. That was the
+     * best available expression while absence was modelled as an optional field, but it was a
+     * convention: nothing stopped a later edit from reading the field directly, because under
+     * this repository's tsconfig `RiskLevel | undefined` is assignable to `RiskLevel`.
+     *
+     * The verdict fields now live only on the `ASSESSED` variant of a discriminated union, so
+     * the narrowing is not a courtesy check — it is the only construct that makes the fields
+     * readable at all. Asserting on the narrowing therefore asserts something the compiler also
+     * enforces, rather than a spelling the compiler is indifferent to.
+     */
+    expect(src, "verdict emission gated by the type-level narrowing").toMatch(
+      /\.\.\.\(\s*isGovernedVerdict\(\s*analysis\.complianceAnalysis\s*\)/,
     );
     expect(src, "conditional bestAlternativeId").toMatch(
       /\.\.\.\(\s*report\.summary\.bestAlternativeId\s*\?/,

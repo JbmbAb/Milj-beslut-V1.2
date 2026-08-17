@@ -1,0 +1,30 @@
+{
+  /*
+   * LU_VERDICT_TYPE_BOUNDARY_V1 — the LU verdict surface, as a compiler-checked program.
+   *
+   * The root `tsconfig.json` excludes `server/` and `src/application/` wholesale, so none of
+   * the files below were in any TypeScript program at all. `tsc --noEmit -p tsconfig.json
+   * --listFiles` returned zero matches for `localizationPdfService.ts` — the projection that
+   * renders a caseworker-facing PDF. This project puts that surface under the compiler.
+   *
+   * Deliberately NOT `strictNullChecks`. Enabling it here would pull the whole transitive
+   * import closure into a strict migration, which is LU_TYPESCRIPT_GATE-01's problem, not this
+   * unit's. The verdict boundary is enforced by making the illegal state unrepresentable — a
+   * discriminated union — which errors under the loose settings this repository ships.
+   *
+   * Driven by src/application/unit/P3LuVerdictTypeBoundary.test.ts, which tolerates the
+   * pre-existing errors elsewhere in the closure and fails on any error in this surface.
+   */
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "noEmit": true
+  },
+  "exclude": [],
+  "include": [
+    "src/application/generate-localization-report.usecase.ts",
+    "src/application/types/LuVerdictTypeBoundary.type-proof.ts",
+    "server/services/localizationPdfService.ts",
+    "server/services/localizationReportService.ts",
+    "server/modules/localization/**/*.ts"
+  ]
+}
