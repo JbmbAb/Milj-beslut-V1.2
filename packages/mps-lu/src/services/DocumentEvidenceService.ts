@@ -27,10 +27,16 @@ export class DocumentEvidenceService {
             artifact_id: `mock-doc-hash-${index}`,
             artifact_type: "EXTERNAL_DOCUMENT"
           },
-          relevant_document: doc,
+          // P3-LU-DOCUMENT-CLASSIFICATION-01C — the provider now returns a descriptor, and a
+          // descriptor is NOT a RelevantDocument. Assigning it here would have re-created the
+          // bypass one layer up: observation carrying its own interpretation. The document class
+          // is decided later, by the classification authority, over this evidence.
           source_metadata: {
             provider: this.provider.getProviderName(),
-            retrieved_at: new Date().toISOString()
+            retrieved_at: new Date().toISOString(),
+            document_title: doc.title,
+            /** OBSERVED SOURCE VALUE. NON-AUTHORITATIVE — never a document class. */
+            source_classification_label: doc.source_classification_label
           }
         },
         content_hash: { algorithm: "sha256", value: "uncalculated" },

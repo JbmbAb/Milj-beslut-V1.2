@@ -52,12 +52,11 @@ function documentEvidence(id: string, title: string, propertyId: string): Docume
     payload: {
       property_ref: { artifact_id: propertyId, artifact_type: "LU_PROPERTY_CONTEXT" },
       document_ref: { artifact_id: `document-${id}`, artifact_type: "EXTERNAL_DOCUMENT" },
-      relevant_document: {
-        title,
-        type: "decision",
-        metadata: { authority: "Länsstyrelsen" },
-      },
-      text_projection_ref: { artifact_id: `projection-${id}`, artifact_type: "TEXT_PROJECTION" },
+      // P3-LU-DOCUMENT-CLASSIFICATION-01C — the legacy relevant_document is dropped rather
+        // than given a fabricated classification_ref. The materializer no longer emits it, so a
+        // fixture still carrying one would assert against a shape production cannot produce.
+        source_document_title: title,
+        text_projection_ref: { artifact_id: `projection-${id}`, artifact_type: "TEXT_PROJECTION" },
       source_metadata: { provider: "HM1-B proof", retrieved_at: "2026-08-13T12:00:00.000Z" },
     },
   } as DocumentEvidenceArtifact;

@@ -169,6 +169,12 @@ describe("F4B-0A — RelevantDocument contract (GREEN PROOF)", () => {
         title: "Tidigare dom (MÖD 2018:14)",
         type: "decision",
         metadata: { court: "Mark- och miljööverdomstolen", document_date: "2018-05-12" },
+        // P3-...-01C: no test-only bypass. A conforming document names the classification
+        // artifact its type came from, exactly as a production one must.
+        classification_ref: {
+          artifact_id: "classification-" + "0".repeat(64),
+          artifact_type: "DOCUMENT_CLASSIFICATION",
+        },
       };
       expect(doc.type).toBe("decision");
       expect(doc.metadata.court).toBe("Mark- och miljööverdomstolen");

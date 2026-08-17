@@ -1,5 +1,5 @@
 import type { DocumentProviderContract } from "./DocumentProviderContract.js";
-import type { RelevantDocument } from "../domain/RelevantDocument.js";
+import type { DocumentDescriptor } from "../domain/DocumentDescriptor.js";
 import type { CanonicalGeometry } from "../domain/CanonicalGeometry.js";
 
 /**
@@ -12,7 +12,7 @@ export class NullDocumentProvider implements DocumentProviderContract {
     return "NullDocumentProvider";
   }
 
-  async fetchDocumentsForGeometry(_geometry: CanonicalGeometry): Promise<RelevantDocument[]> {
+  async fetchDocumentsForGeometry(_geometry: CanonicalGeometry): Promise<DocumentDescriptor[]> {
     return [];
   }
 }
