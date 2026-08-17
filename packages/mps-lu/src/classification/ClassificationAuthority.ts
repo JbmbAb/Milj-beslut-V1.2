@@ -40,6 +40,14 @@ import {
  */
 
 /**
+ * The governed policy in force when nothing else is stated.
+ *
+ * Named explicitly rather than composed into a version string: the policy is its own authority
+ * axis, and a caller must be able to state which one governed an issuance.
+ */
+export const DEFAULT_CLASSIFICATION_POLICY_VERSION = "CLASSIFIER_POLICY_V1";
+
+/**
  * Version of the canonicalization itself.
  *
  * It participates in identity because a change to how the payload is serialised changes what a
@@ -76,6 +84,7 @@ function canonicalBytes(payload: DocumentClassificationPayload): string {
     classification: payload.classification,
     classifier_id: payload.classifier_id,
     classifier_version: payload.classifier_version,
+    policy_version: payload.policy_version,
     classification_basis: payload.classification_basis.map(ref),
   });
 }
@@ -125,6 +134,8 @@ export interface IssueClassificationInput {
   readonly evidence: ClassifiableEvidence;
   readonly classifier: ClassifierContract;
   readonly store: ClassificationStore;
+  /** The governed policy authorising this issuance. Recorded in canonical identity. */
+  readonly policy_version?: string;
 }
 
 /**
@@ -138,17 +149,24 @@ export async function issueClassification(
   input: IssueClassificationInput,
 ): Promise<DocumentClassificationArtifact> {
   const result = classifyDocument({ evidence: input.evidence, classifier: input.classifier });
-  const artifact = artifactFromResult(result);
+  const artifact = artifactFromResult(
+    result,
+    input.policy_version ?? DEFAULT_CLASSIFICATION_POLICY_VERSION,
+  );
   await input.store.put(artifact);
   return artifact;
 }
 
-function artifactFromResult(result: ClassificationResult): DocumentClassificationArtifact {
+function artifactFromResult(
+  result: ClassificationResult,
+  policyVersion: string,
+): DocumentClassificationArtifact {
   const payload: DocumentClassificationPayload = {
     source_document_evidence_ref: result.source_document_evidence_ref,
     classification: admitClassification(result.classification),
     classifier_id: result.classifier_id,
     classifier_version: result.classifier_version,
+    policy_version: policyVersion,
     classification_basis: result.classification_basis,
   };
 

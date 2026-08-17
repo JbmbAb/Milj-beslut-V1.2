@@ -65,6 +65,23 @@ export interface DocumentClassificationPayload {
   readonly classifier_version: string;
 
   /**
+   * DOCUMENT_CLASSIFICATION_POLICY_BINDING_V1 — the governed rule that authorised this class.
+   * REQUIRED, and part of canonical identity.
+   *
+   * Two independent axes. `classifier_version` versions the IMPLEMENTATION; `policy_version`
+   * versions the RULE about which signals may authorise a class at all. They change
+   * independently:
+   *
+   *   same classifier code + CLASSIFIER_POLICY_V1  -> UNCLASSIFIED
+   *   same classifier code + CLASSIFIER_POLICY_V2  -> decision
+   *
+   * Folding the policy into `classifier_version` would force that to be recorded as an
+   * implementation change that never happened — and two different authority policies would
+   * otherwise share one identity space.
+   */
+  readonly policy_version: string;
+
+  /**
    * What the decision was made from. Governed material only.
    *
    * Never a file name, a title, or a heuristic over either: the harvested judgments are named
