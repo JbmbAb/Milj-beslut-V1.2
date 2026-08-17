@@ -3,28 +3,62 @@
 import { DocumentProviderContract } from "./DocumentProviderContract";
 import { DocumentDescriptor } from "../domain/DocumentDescriptor";
 import { CanonicalGeometry } from "../domain/CanonicalGeometry";
+import { resolveMunicipality, type SpatialQueryClient } from "./MunicipalityResolution";
 import { prisma } from "../../../../server/db/prisma";
 
+/** The narrow slice of the database this provider needs, so the fail-closed paths are testable. */
+export interface DocumentQueryClient extends SpatialQueryClient {
+  documentRecord: {
+    findMany(args: unknown): Promise<
+      Array<{
+        id: string;
+        subject: string | null;
+        originalName: string;
+        municipalityNormalized: string;
+        diskName: string;
+        decisionType: string | null;
+        chunks: Array<{ chunkText: string }>;
+      }>
+    >;
+  };
+}
+
 export class PostgisDocumentProvider implements DocumentProviderContract {
+  private readonly client: DocumentQueryClient;
+
+  constructor(client?: DocumentQueryClient) {
+    this.client = client ?? (prisma as unknown as DocumentQueryClient);
+  }
+
   getProviderName(): string {
     return "PostgisDocumentProvider";
   }
 
   public async fetchDocumentsForGeometry(geometry: CanonicalGeometry): Promise<DocumentDescriptor[]> {
-    // 1. Get the municipality from PostGIS spatial query using the geometry
-    const res = await prisma.$queryRawUnsafe<Array<{ kommunnamn: string }>>(`
-      SELECT DISTINCT name AS kommunnamn
-      FROM hydro.water_catchment
-      WHERE geom && ST_Transform(ST_SetSRID(ST_GeomFromGeoJSON($1), 4326), 3006)
-      LIMIT 1
-    `, [JSON.stringify(geometry)]).catch(() => []);
+    // 1. Resolve the municipality. DOCUMENT_PROVIDER_LOCATION_AUTHORITY_V1: a municipality
+    //    identity must come from a successful resolution, and only from one.
+    const resolution = await resolveMunicipality(this.client, geometry);
 
-    const municipality = res[0]?.kommunnamn || "Mora"; // Fallback to Mora for test stability
+    if (resolution.status === "RESOLUTION_FAILED") {
+      // A database failure is not "this geometry matches nothing". Swallowing it into an empty
+      // result is what previously let a fabricated municipality select real documents.
+      throw new Error(
+        `RESOLUTION_FAILED: municipality resolution failed for the supplied geometry — ` +
+          `${resolution.reason}. No document query is issued: documents selected under an ` +
+          `unresolved jurisdiction would be indistinguishable downstream from correctly ` +
+          `selected ones.`,
+      );
+    }
 
-    // 2. Query DocumentRecords that match this municipality!
-    const docs = await prisma.documentRecord.findMany({
+    if (resolution.status === "UNRESOLVED") {
+      // A finding, not an error: the geometry resolved to no municipality. No document query.
+      return [];
+    }
+
+    // 2. Query DocumentRecords for the RESOLVED municipality.
+    const docs = await this.client.documentRecord.findMany({
       where: {
-        municipalityNormalized: municipality,
+        municipalityNormalized: resolution.municipality,
       },
       include: {
         chunks: true,
