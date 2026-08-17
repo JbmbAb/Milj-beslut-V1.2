@@ -49,7 +49,23 @@ export interface EvidenceBundle extends ArtifactContract {
 export interface DocumentEvidencePayload {
   readonly property_ref: ArtifactReference;
   readonly document_ref: ArtifactReference;
-  readonly relevant_document: RelevantDocument;
+  /**
+   * 🔴 LEGACY / NON-AUTHORITATIVE — do not populate in new producers.
+   *
+   * P3-LU-DOCUMENT-CLASSIFICATION-01 made this optional. It was REQUIRED, which meant no
+   * evidence artifact could exist until its document had been classified: observation was
+   * structurally forced to carry its own interpretation, and `materialize()` had to be handed a
+   * `documentType` before any evidence existed.
+   *
+   * A value here MUST NOT authorize a document class or a classified LU rule. The authoritative
+   * path is DocumentClassificationArtifact, which references this evidence rather than being
+   * embedded in it.
+   *
+   * Target state: REMOVED in the next canonical contract version.
+   *
+   * @deprecated Use DocumentClassificationArtifact.
+   */
+  readonly relevant_document?: RelevantDocument;
   /**
    * F4B-0 — references to VERIFIED document facts (Tier 3).
    *

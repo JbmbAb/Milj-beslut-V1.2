@@ -45,7 +45,6 @@ describe("L1 Document Ingestion (TV-L1)", () => {
       rawArtifact.artifact_id,
       "prop-karlstad", // property_ref
       "doc-123",       // document_ref
-      "BESLUT"         // type
     );
 
     expect(evidenceArtifact.artifact_type).toBe("DOCUMENT_EVIDENCE");
@@ -58,12 +57,17 @@ describe("L1 Document Ingestion (TV-L1)", () => {
     // owned by the canonical text projection (TEXT-L1); RelevantDocument describes the document
     // as a document. What is asserted here is therefore the description, and the absence of
     // embedded text.
-    expect(evidenceArtifact.payload.relevant_document.type).toBe("decision");
-    expect(evidenceArtifact.payload.relevant_document.metadata.authority).toBe("VISS");
+    // P3-LU-DOCUMENT-CLASSIFICATION-01 — the assertion moved one boundary further out.
+    //
+    // It previously checked that the emitted relevant_document had type "decision" and no
+    // embedded text. The materializer now emits no relevant_document at all: what a document IS
+    // belongs to DocumentClassificationArtifact, which references this evidence rather than
+    // being carried inside it. Observation must not carry its own interpretation.
     expect(
-      (evidenceArtifact.payload.relevant_document as Record<string, unknown>).text_content,
-      "RelevantDocument must not carry document text — that belongs to the text projection.",
-    ).toBeUndefined();
+      Object.prototype.hasOwnProperty.call(evidenceArtifact.payload, "relevant_document"),
+      "Text belongs to the text projection (TEXT-L1); class belongs to the classification "
+        + "artifact. The evidence carries neither.",
+    ).toBe(false)
 
     // The bytes are still preserved where they belong: in quarantine, unmodified.
     const quarantined = await quarantine.get(rawArtifact.artifact_id);

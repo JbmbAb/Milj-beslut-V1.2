@@ -1,3 +1,5 @@
+import type { ArtifactReference } from "@miljobeslut/mps-compliance/src/artifacts/ArtifactContract";
+
 /**
  * OWNER FREEZE 2026-08-12 — RelevantDocument Contract.
  *
@@ -43,6 +45,19 @@ export interface RelevantDocument {
   readonly title: string;
   readonly type: "decision" | "injunction" | "notification" | "inspection";
   readonly metadata: RelevantDocumentMetadata;
+  /**
+   * P3-LU-DOCUMENT-CLASSIFICATION-01 — the admitted DocumentClassificationArtifact this type
+   * came from. REQUIRED.
+   *
+   * Without it a `type` is a value someone set, indistinguishable downstream from one that was
+   * decided by a governed classifier over governed material. It is not optional: an optional
+   * provenance binding is one that is never actually required, and the invariant would erode to
+   * a convention.
+   *
+   * The vocabulary above stays closed. A document that could not be classified yields no
+   * RelevantDocument at all — UNCLASSIFIED lives on the classification artifact.
+   */
+  readonly classification_ref: ArtifactReference;
 }
 
 /**

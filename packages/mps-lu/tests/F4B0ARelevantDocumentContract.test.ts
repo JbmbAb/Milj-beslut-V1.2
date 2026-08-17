@@ -36,7 +36,7 @@ import { MockDocumentProvider } from "../../document-provider/src/MockDocumentPr
  */
 describe("F4B-0A — RelevantDocument contract (GREEN PROOF)", () => {
   describe("1. The materializer emits a conforming description, never text", () => {
-    async function materialize(documentType: string) {
+    async function materialize() {
       const dir = await mkdtemp(join(tmpdir(), "f4b0a-"));
       const filePath = join(dir, "beslut.txt");
       await writeFile(filePath, "Avslag: risk för spridning till vattentäkt", "utf8");
@@ -50,27 +50,26 @@ describe("F4B-0A — RelevantDocument contract (GREEN PROOF)", () => {
         raw.artifact_id,
         "prop-f4b0a",
         "doc-f4b0a",
-        documentType,
       );
       return { evidence, quarantine, raw };
     }
 
-    it("relevant_document carries no document text", async () => {
-      const { evidence } = await materialize("BESLUT");
-      const doc = evidence.payload.relevant_document as unknown as Record<string, unknown>;
+    it("the materializer emits no document description at all", async () => {
+      const { evidence } = await materialize();
 
+      // P3-LU-DOCUMENT-CLASSIFICATION-01 — this previously asserted that the emitted
+      // relevant_document carried no text. It now asserts something stronger: the materializer
+      // emits no relevant_document whatsoever. Observation must not carry its own
+      // interpretation, and describing a document as a decision is interpretation.
       expect(
-        doc.text_content,
-        "F4B-0A: document text is owned by the canonical text projection (TEXT-L1). Embedding it " +
-          "in the document description is what let raw text look like a rule input.",
-      ).toBeUndefined();
-
-      // Only the three contract fields are present.
-      expect(Object.keys(doc).sort()).toEqual(["metadata", "title", "type"]);
+        Object.prototype.hasOwnProperty.call(evidence.payload, "relevant_document"),
+        "F4B-0A + P3: document text is owned by the text projection (TEXT-L1) and document CLASS " +
+          "is owned by DocumentClassificationArtifact. Neither belongs on the evidence.",
+      ).toBe(false);
     });
 
     it("the raw bytes are still preserved — in quarantine, unmodified", async () => {
-      const { quarantine, raw } = await materialize("BESLUT");
+      const { quarantine, raw } = await materialize();
       const quarantined = await quarantine.get(raw.artifact_id);
 
       expect(
@@ -80,12 +79,16 @@ describe("F4B-0A — RelevantDocument contract (GREEN PROOF)", () => {
       ).toContain("Avslag");
     });
 
-    it("an unmapped document label is rejected rather than defaulted", async () => {
-      await expect(
-        materialize("NÅGOT_OKÄNT"),
+    it("an unmapped document label is still rejected rather than defaulted", () => {
+      // The guard did not disappear — it moved off the acquisition seam. materialize() no longer
+      // takes a document label at all, so there is nothing there to default. The closed
+      // vocabulary is still enforced where a label is actually interpreted.
+      expect(
+        toRelevantDocumentType("NÅGOT_OKÄNT"),
         "F4B-0A: silently defaulting an unrecognised label to 'decision' would let a producer's " +
           "free string become a typed claim about the document.",
-      ).rejects.toThrow(/closed vocabulary/i);
+      ).toBeUndefined();
+      expect(toRelevantDocumentType("BESLUT")).toBe("decision");
     });
 
     it("known labels map onto the closed vocabulary; unknown ones return undefined", () => {

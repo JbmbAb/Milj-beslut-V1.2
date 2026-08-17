@@ -2,7 +2,6 @@ import { sha256ContentHash } from "../../../mps-runtime/src/kernel/ExecutionKern
 import { DocumentEvidenceArtifact } from "../artifacts/DocumentEvidenceArtifact";
 import type { ArtifactReference } from "@miljobeslut/mps-compliance/src/artifacts/ArtifactContract";
 import { QuarantineStorage } from "./LokeIngestor";
-import { toRelevantDocumentType } from "../domain/RelevantDocument";
 
 /**
  * LU-local materializer from quarantined raw document bytes to DOCUMENT_EVIDENCE.
@@ -40,23 +39,12 @@ export class DocumentEvidenceMaterializer {
     rawArtifactId: string,
     propertyRefId: string,
     documentRefId: string,
-    documentType: string
   ): Promise<DocumentEvidenceArtifact> {
     const raw = await this.quarantine.get(rawArtifactId);
     if (!raw) {
       throw new Error(`Quarantine item not found: ${rawArtifactId}`);
     }
 
-    // Fail-closed on an unrecognised document label. Defaulting to "decision" would let a
-    // producer's free string become a typed claim about the document.
-    const relevantType = toRelevantDocumentType(documentType);
-    if (!relevantType) {
-      throw new Error(
-        `Unknown document type '${documentType}'. RelevantDocument.type is a closed vocabulary ` +
-          `(decision | injunction | notification | inspection); it must not be inferred from an ` +
-          `unmapped label.`,
-      );
-    }
 
     // Verify integrity of the raw artifact before promoting
     const expectedHash = sha256ContentHash(raw.payload);
@@ -68,18 +56,6 @@ export class DocumentEvidenceMaterializer {
     const payload = {
       property_ref: { artifact_id: propertyRefId, artifact_type: "PROPERTY" as const },
       document_ref: { artifact_id: documentRefId, artifact_type: "DOCUMENT" as const },
-      // F4B-0A — conforms to the frozen RelevantDocument contract: a structured description of
-      // the document, never its text. The raw bytes stay in quarantine; the canonical text
-      // belongs to a TextProjection (TEXT-L1), referenced via payload.text_projection_ref once
-      // a projection exists. This materializer does not create one.
-      relevant_document: {
-        title: documentRefId,
-        type: relevantType,
-        metadata: {
-          source_url: raw.payload.original_path,
-          authority: raw.payload.authority,
-        },
-      },
       source_metadata: {
         provider: raw.payload.authority,
         retrieved_at: raw.payload.observed_at,
