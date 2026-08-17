@@ -207,9 +207,13 @@ export async function loadVerifiedSourceRegistry(args: {
   }
 
   const sources = await Promise.all(raw.map((entry) => verifySourceRegistryArtifact(entry, signing)));
+  assertNoDuplicateSourceIds(sources, registryPath);
+
   return {
     registryPath,
     sources,
+    // First-match resolution below is unambiguous only because of the guard above: see
+    // P2-SR-DUP-ID-01 in `assertNoDuplicateSourceIds`.
     getSource(sourceId: string): VerifiedSourceDefinition | null {
       return sources.find((source) => source.sourceId === sourceId) ?? null;
     },
@@ -293,6 +297,52 @@ export function getSourceRegistrySigningKeyFromEnv(): SigningKeyProvider {
   }
 
   return new LocalPemSigningKeyProvider(keyId, privateKeyPem, publicKeyPem);
+}
+
+/**
+ * P2-SR-DUP-ID-01 — a source_id resolves to exactly one authority, or the load FAILS CLOSED.
+ *
+ * `getSource` and `isUrlAllowedForSource` resolve by first match. That is only an answer if the
+ * match is unique. Two APPROVED entries sharing a source_id — the shape an authority reissue takes
+ * when the superseded entry is left APPROVED alongside its replacement — would let the harvest run
+ * under whichever happens to sit earlier in the JSON array, quite possibly the stale scope, while
+ * the download manifest binds that entry's `registry_artifact_id` as the thing that authorised the
+ * run. Every signature in the chain would still verify; nothing downstream could tell.
+ *
+ * So ambiguity is refused at load, the same way `verifySourceRegistryArtifact` refuses a
+ * non-APPROVED lifecycle_state: the whole registry fails, rather than one entry being quietly
+ * preferred over another. Reissue therefore means removing (or de-APPROVING) the entry being
+ * replaced, and the registry says so out loud when it has not happened.
+ *
+ * Only APPROVED entries can reach here — a non-APPROVED one has already thrown — so uniqueness
+ * over `sources` is uniqueness over the APPROVED set.
+ */
+function assertNoDuplicateSourceIds(
+  sources: readonly VerifiedSourceDefinition[],
+  registryPath: string,
+): void {
+  const bySourceId = new Map<string, string[]>();
+  for (const source of sources) {
+    const artifactIds = bySourceId.get(source.sourceId);
+    if (artifactIds) artifactIds.push(source.registryArtifactId);
+    else bySourceId.set(source.sourceId, [source.registryArtifactId]);
+  }
+
+  const duplicates = [...bySourceId.entries()].filter(([, artifactIds]) => artifactIds.length > 1);
+  if (duplicates.length === 0) return;
+
+  // Every conflict, not just the first: an operator fixing a reissue needs to see the whole set.
+  const detail = duplicates
+    .map(([sourceId, artifactIds]) => `'${sourceId}' (artifact_ids: ${artifactIds.join(', ')})`)
+    .join('; ');
+
+  throw new Error(
+    `Source Registry at '${registryPath}' has duplicate APPROVED source_id entries: ${detail}. ` +
+      'A source_id must resolve to exactly one approved authority; with more than one, ' +
+      'getSource() would silently return whichever appears first in the file and a harvest could ' +
+      'run under a superseded scope while recording the wrong registry_artifact_id as its ' +
+      'authorisation. Withdraw the superseded entry before approving its replacement.',
+  );
 }
 
 function assertSourceRegistryShape(artifact: SourceRegistryArtifact): void {
