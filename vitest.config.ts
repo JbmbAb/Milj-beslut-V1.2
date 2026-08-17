@@ -2,6 +2,13 @@ import { defineConfig } from 'vitest/config';
 import react from '@vitejs/plugin-react';
 import path from 'node:path';
 
+/**
+ * Paths that are inside the checkout but are NOT this repository's own tests.
+ *
+ * @see tests/unit/testDiscoveryWorktreeIsolation.test.ts
+ */
+const WORKTREE_EXCLUDES = ['**/.claude/worktrees/**', '.claude/worktrees/**'];
+
 export default defineConfig({
   resolve: {
     alias: {
@@ -101,6 +108,10 @@ export default defineConfig({
         __dirname,
         'packages/mps-text-projection/src/index.ts',
       ),
+      '@miljobeslut/mps-legal-corpus': path.resolve(
+        __dirname,
+        'packages/mps-legal-corpus/src/index.ts',
+      ),
       '@miljobeslut/spatial-provider-postgis': path.resolve(
         __dirname,
         'packages/spatial-provider-postgis/src/index.ts',
@@ -110,6 +121,20 @@ export default defineConfig({
   test: {
     globals: true,
     setupFiles: ['tests/setup/env.ts'],
+    /**
+     * TEST_DISCOVERY_WORKTREE_ISOLATION-01 — proof runs must be hermetic.
+     *
+     * `.claude/worktrees/` holds other agents' checkouts of THIS repository, each with a full
+     * copy of the test tree. Collecting them made the discovered set depend on which agent
+     * worktrees happened to exist on the machine: same HEAD, different external state,
+     * different test collection. Every suite result used as a release proof inherited that.
+     *
+     * Declared here rather than as a `--exclude` flag per command, because an isolation rule
+     * each invocation must remember is one some invocation will forget, silently.
+     *
+     * Narrow on purpose: only the path the recon proved. No blanket hidden-directory rule.
+     */
+    exclude: [...WORKTREE_EXCLUDES, '**/node_modules/**', '**/dist/**'],
     coverage: {
       provider: 'v8',
       reporter: ['text', 'html', 'lcov'],
@@ -148,7 +173,8 @@ export default defineConfig({
         test: {
           name: 'unit',
           include: ['**/unit/**/*.test.ts', '**/unit/**/*.test.tsx'],
-          exclude: ['tests/unit/server.services.bankIdService.test.ts'],
+          // merged: a second `exclude` key would override WORKTREE_EXCLUDES silently.
+          exclude: [...WORKTREE_EXCLUDES, 'tests/unit/server.services.bankIdService.test.ts'],
           environment: 'jsdom',
           setupFiles: ['tests/setup/env.ts'],
           testTimeout: 20000,
@@ -158,6 +184,7 @@ export default defineConfig({
         plugins: [react()],
         test: {
           name: 'component',
+          exclude: [...WORKTREE_EXCLUDES],
           include: ['tests/components/**/*.test.tsx'],
           environment: 'jsdom',
           globals: true,
@@ -168,6 +195,7 @@ export default defineConfig({
         test: {
           name: 'integration',
           globalSetup: 'tests/setup/database.ts',
+          exclude: [...WORKTREE_EXCLUDES],
           include: ['tests/integration/**/*.test.ts', 'tests/smoke/**/*.test.ts'],
           environment: 'node',
           setupFiles: ['tests/setup/env.ts', 'tests/setup/integrationCsrfBypass.ts'],
@@ -192,10 +220,28 @@ export default defineConfig({
               __dirname,
               'packages/mps-runtime/src/index.ts',
             ),
+            // Explicit, not inherited: this project already needed its own overrides for the
+            // three aliases above even though they also exist at root level — evidence that
+            // root-level `resolve.alias` does not reliably reach vitest `projects` entries in
+            // this setup. mps-legal-corpus's tests import both of these directly, so they're
+            // added here rather than assumed to fall through from the top-level config.
+            '@miljobeslut/mimers-brunn-core': path.resolve(
+              __dirname,
+              'packages/mimers-brunn-core/src/index.ts',
+            ),
+            '@miljobeslut/mps-core': path.resolve(
+              __dirname,
+              'packages/mps-core/src/index.ts',
+            ),
+            '@miljobeslut/mps-legal-corpus': path.resolve(
+              __dirname,
+              'packages/mps-legal-corpus/src/index.ts',
+            ),
           },
         },
         test: {
           name: 'compliance',
+          exclude: [...WORKTREE_EXCLUDES],
           include: [
             'packages/mps-compliance/**/*.test.ts',
             'packages/mps-runtime/**/*.test.ts',
@@ -213,6 +259,7 @@ export default defineConfig({
             'packages/mps-governance-runtime/**/*.test.ts',
             'packages/mps-chunking/**/*.test.ts',
             'packages/mps-text-projection/**/*.test.ts',
+            'packages/mps-legal-corpus/**/*.test.ts',
             'packages/spatial-provider-postgis/**/*.test.ts',
             'scripts/audit/**/*.test.ts',
           ],
