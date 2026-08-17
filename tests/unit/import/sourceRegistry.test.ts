@@ -5,7 +5,7 @@ import {
   isUrlAllowedForSource
 } from '../../../server/modules/harvest/source-registry/registry';
 
-describe('🜂 Loke Source Registry (LSF-01)', () => {
+describe('🜂 Source Registry (LSF-01)', () => {
   it('correctly retrieves specific source definitions', () => {
     const source = getSourceDefinition('mmd_nacka');
     expect(source).not.toBeNull();

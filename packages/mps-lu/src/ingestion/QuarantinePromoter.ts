@@ -1,7 +1,7 @@
 import { sha256ContentHash } from "../../../mps-runtime/src/kernel/ExecutionKernel";
 import { DocumentEvidenceArtifact } from "../artifacts/DocumentEvidenceArtifact";
 import type { ArtifactReference } from "@miljobeslut/mps-compliance/src/artifacts/ArtifactContract";
-import { QuarantineStorage } from "./LokeIngestor";
+import { QuarantineStorage } from "./RawSourceIngestor";
 
 /**
  * LU-local materializer from quarantined raw document bytes to DOCUMENT_EVIDENCE.

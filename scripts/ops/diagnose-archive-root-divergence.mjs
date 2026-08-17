@@ -2,9 +2,9 @@
  * Diagnose divergence between the two master-archive roots.
  *
  * `scripts/import/config/mimersBrunn.ts` falls back to the canonical shared-drive
- * archive; `scripts/import/loke/lokeRuntime.ts` falls back to a local path under
+ * archive; `scripts/import/harvest/harvestRuntime.ts` falls back to a local path under
  * the repository. Neither MASTER_ARCHIVE_ROOT nor GEO_MASTER_ARCHIVE is set in
- * .env, so both fallbacks are live and Loke has been writing to the local one.
+ * .env, so both fallbacks are live and the harvest runtime has been writing to the local one.
  *
  * Read-only. Moves nothing, writes nothing into either archive
  * (MASTER_ARCHIVE_MANUAL_MOVES_FROZEN). The report lands under storage/.

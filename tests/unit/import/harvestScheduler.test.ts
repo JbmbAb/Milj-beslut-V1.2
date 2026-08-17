@@ -8,7 +8,7 @@ import {
   writeVerifiedSourceRegistryFixture,
 } from './sourceRegistryFixture';
 
-describe('🜂 Loke Live Ingest — Scheduler & State (LSF P0)', () => {
+describe('🜂 Live Ingest — Scheduler & State (LSF P0)', () => {
   let tempDir: string;
   let originalEnv: NodeJS.ProcessEnv;
   
@@ -22,7 +22,7 @@ describe('🜂 Loke Live Ingest — Scheduler & State (LSF P0)', () => {
   let loadSchedulerState: any;
 
   beforeAll(async () => {
-    tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'loke-scheduler-test-'));
+    tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'harvest-scheduler-test-'));
     originalEnv = { ...process.env };
 
     process.env.MASTER_ARCHIVE_ROOT = tempDir;
@@ -32,15 +32,15 @@ describe('🜂 Loke Live Ingest — Scheduler & State (LSF P0)', () => {
     installSourceRegistryFixtureEnv(await writeVerifiedSourceRegistryFixture(tempDir));
 
     // Utför dynamiska importer efter att miljövariabeln spikats
-    const planMod = await import('../../../scripts/import/loke/harvestPlan');
+    const planMod = await import('../../../scripts/import/harvest/harvestPlan');
     createHarvestPlan = planMod.createHarvestPlan;
 
-    const ledgerMod = await import('../../../scripts/import/loke/harvestLedger');
+    const ledgerMod = await import('../../../scripts/import/harvest/harvestLedger');
     startHarvestRun = ledgerMod.startHarvestRun;
     recordHarvestEvent = ledgerMod.recordHarvestEvent;
     completeHarvestRun = ledgerMod.completeHarvestRun;
 
-    const schedMod = await import('../../../scripts/import/loke/lokeScheduler');
+    const schedMod = await import('../../../scripts/import/harvest/harvestScheduler');
     isSourceDue = schedMod.isSourceDue;
     runScheduler = schedMod.runScheduler;
     loadSchedulerState = schedMod.loadSchedulerState;

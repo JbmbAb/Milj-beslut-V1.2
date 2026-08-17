@@ -22,7 +22,7 @@ describe("Final Freeze Audit: Human Governance Interface v1.0", () => {
   it("2. Quarantine -> Approval -> CAS is the only governed ingestion path", () => {
     const files = globSync("packages/**/*.ts", { ignore: "**/node_modules/**" });
     const illegalDirectIngest = files.filter((f) => {
-      if (f.includes("QuarantinePromoter") || f.includes("LokeIngestor") || f.includes("test")) {
+      if (f.includes("QuarantinePromoter") || f.includes("RawSourceIngestor") || f.includes("test")) {
         return false;
       }
       const code = readFileSync(f, "utf8");

@@ -33,7 +33,7 @@ export interface UnresolvedEvidence {
   rawText: string;
   casePath: string; // Absolut sökväg till fallet
   
-  // Extraherad metadata från Lokes RawArtifact
+  // Extraherad metadata från skörderuntimets RawArtifact
   caseId?: string;       // Primär nyckel (diarienummer / mål-nr)
   property?: string;     // Sekundär nyckel (fastighetsbeteckning)
   operator?: string;     // Sekundär nyckel (verksamhetsutövare)
@@ -108,7 +108,7 @@ export async function runMimerEntityResolution(): Promise<{
   const harvestPaths = await findHarvestArtifacts(path.join(MASTER_ARCHIVE_ROOT, 'National_Archive'));
   
   if (harvestPaths.length === 0) {
-    console.log('Mimer: Inga nya HarvestArtifacts hittades. Väntar på att Loke ska skörda.');
+    console.log('Mimer: Inga nya HarvestArtifacts hittades. Väntar på att skörden ska köras.');
     return { unresolvedCount: 0, resolvedCasesCount: 0, dbCasesUpserted: 0, dbEvidenceUpserted: 0 };
   }
 

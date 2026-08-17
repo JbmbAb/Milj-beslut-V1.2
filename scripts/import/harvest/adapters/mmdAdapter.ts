@@ -149,7 +149,7 @@ export class MmdAdapter implements SourceAdapter {
 
     // Om URL:en börjar med http/https, gör ett riktigt nätverksanrop (TV-L1 bevis)
     if (candidate.sourceUrl.startsWith('http://') || candidate.sourceUrl.startsWith('https://')) {
-      console.log(`      [NETWORK] Loke (MMD) anropar extern källa: ${candidate.sourceUrl}`);
+      console.log(`      [NETWORK] Harvest (MMD) anropar extern källa: ${candidate.sourceUrl}`);
       const response = await fetch(candidate.sourceUrl);
       if (!response.ok) {
         throw new Error(`Kunde inte hämta ${candidate.sourceUrl}: HTTP ${response.status}`);

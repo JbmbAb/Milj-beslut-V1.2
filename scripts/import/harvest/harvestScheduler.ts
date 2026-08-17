@@ -1,5 +1,5 @@
 /**
- * 🜂 Loke — Portable Scheduler & State Reconstructor (Step 3)
+ * 🜂 Portable Scheduler & State Reconstructor (Step 3)
  * 
  * Schemaläggaren läser registret, utvärderar "Due-status" mot den lokala
  * tillståndsfilen (scheduler_state.json), skapar en HarvestPlan och
@@ -7,7 +7,7 @@
  * 
  * Särskild egenskap (Pelare 3):
  *   - Schedulern använder scheduler_state.json enbart som en prestanda-cache!
- *   - Om state-filen raderas kan Mimer/Loke bygga upp den igen genom att
+ *   - Om state-filen raderas kan schemaläggaren bygga upp den igen genom att
  *     skanna igenom och tolka alla historiska `harvest_ledger_*.json`-filer.
  * 
  * Regler:
@@ -28,7 +28,7 @@ import {
 } from '../../../packages/mps-data-governance/src/SourceRegistry';
 import { createHarvestPlan } from './harvestPlan';
 import { startHarvestRun, recordHarvestEvent, completeHarvestRun } from './harvestLedger';
-import { executeLokeHarvestForSource } from './lokeRuntime';
+import { executeHarvestForSource } from './harvestRuntime';
 import { HarvestLedger } from './contract';
 
 const MASTER_ARCHIVE_ROOT = process.env.MASTER_ARCHIVE_ROOT || 'C:\\miljöbeslut\\storage\\geo_master_archive';
@@ -192,7 +192,7 @@ export async function runScheduler(options: { execute?: boolean; onlyFilters?: s
   completedRunsCount: number;
   failedRunsCount: number;
 }> {
-  console.log('=== 🜂 Loke Ingest: Scheduler & Orchestrator ===');
+  console.log('=== 🜂 Harvest Ingest: Scheduler & Orchestrator ===');
   const schedulerState = await loadSchedulerState();
   const allSources = await getAllVerifiedSources();
 
@@ -233,12 +233,12 @@ export async function runScheduler(options: { execute?: boolean; onlyFilters?: s
     const ledger = await startHarvestRun(plan);
     console.log(`   🧾 Harvest Ledger öppnat: ${ledger.ledger_id}`);
 
-    // --- STEG 3 & 4: KÖA OCH EXEKVERA SKÖRD (Loke-motor) ---
-    // Schedulern gör inget skördearbete själv; den delegerar exekveringen helt till Loke!
-    await recordHarvestEvent(ledger.ledger_id, 'HarvestStarted', `Orkestrerar och startar Loke Ingest för källa: ${source.sourceId}`);
+    // --- STEG 3 & 4: KÖA OCH EXEKVERA SKÖRD (skördemotorn) ---
+    // Schedulern gör inget skördearbete själv; den delegerar exekveringen helt till skördemotorn.
+    await recordHarvestEvent(ledger.ledger_id, 'HarvestStarted', `Orkestrerar och startar skörd för källa: ${source.sourceId}`);
 
     try {
-      const runResult = await executeLokeHarvestForSource(source.sourceId, { execute: true });
+      const runResult = await executeHarvestForSource(source.sourceId, { execute: true });
 
       if (runResult.status === 'completed') {
         // Uppdatera händelselistan
@@ -262,7 +262,7 @@ export async function runScheduler(options: { execute?: boolean; onlyFilters?: s
           last_run_id: runResult.harvest_run_id
         };
       } else {
-        throw new Error(runResult.error_message || 'Okänt exekveringsfel hos Loke.');
+        throw new Error(runResult.error_message || 'Okänt exekveringsfel i skördemotorn.');
       }
 
     } catch (err: any) {

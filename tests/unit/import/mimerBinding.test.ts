@@ -29,7 +29,7 @@ describe('🜃 Mimer Binding Agent', () => {
   });
 
   it('performs Entity Resolution, binds cases, and generates bundle_manifest.json', async () => {
-    // 1. Skapa en temporär skördad aktstruktur på disk (simulera Lokes output)
+    // 1. Skapa en temporär skördad aktstruktur på disk (simulera skörderuntimets output)
     // National_Archive/<Authority>/<Year>/<Municipality>/<Case_ID>/[original|hashes]
     const caseDir = path.join(tempDir, 'National_Archive', 'Dalarna', '2026', 'Mora', 'MPD-W-2026-0812');
     fs.mkdirSync(path.join(caseDir, 'original'), { recursive: true });

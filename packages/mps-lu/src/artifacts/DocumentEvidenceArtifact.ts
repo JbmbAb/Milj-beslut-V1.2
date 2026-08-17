@@ -91,7 +91,7 @@ export interface DocumentEvidencePayload {
   /**
    * F4B-0B — the Tier 2 origin this evidence was materialized from.
    *
-   * The producer has always set this and `LokeIngestion.test.ts` has always asserted it, but it
+   * The producer has always set this and `RawSourceIngestion.test.ts` has always asserted it, but it
    * was never declared — the third producer/contract gap in this file, found while deriving
    * `references`. Declared here because it is the edge that keeps the chain back to the
    * preserved original traversable.

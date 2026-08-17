@@ -21,11 +21,11 @@ import {
 } from "@miljobeslut/mimers-brunn-core";
 
 import { MimersIntegration } from "../../mps-runtime/src/mimers";
-import { LokeIngestor, InMemoryQuarantineStorage } from "../src/loke/LokeIngestor";
+import { RawSourceIngestor, InMemoryQuarantineStorage } from "../src/ingestion/RawSourceIngestor";
 import {
   DocumentEvidenceMaterializer,
   QuarantinePromoter as LuQuarantinePromoter,
-} from "../src/loke/QuarantinePromoter";
+} from "../src/ingestion/QuarantinePromoter";
 
 /**
  * ✅ A1 — REQUIRED GREEN PROOF. This is the criterion for moving P1 enforcement from
@@ -78,7 +78,7 @@ describe("A1 — repaired authority boundary (REQUIRED GREEN PROOF)", () => {
       await writeFile(filePath, "Avslag: risk för spridning till vattentäkt", "utf8");
 
       const quarantine = new InMemoryQuarantineStorage();
-      const ingestor = new LokeIngestor(quarantine);
+      const ingestor = new RawSourceIngestor(quarantine);
 
       // The materializer no longer accepts a repository at all — the write capability
       // is gone by construction, not merely unused.
@@ -270,7 +270,7 @@ describe("A1 — repaired authority boundary (REQUIRED GREEN PROOF)", () => {
         __dirname,
         "..",
         "src",
-        "loke",
+        "ingestion",
         "QuarantinePromoter.ts",
       );
       const source = fs.readFileSync(materializerSourcePath, "utf8");

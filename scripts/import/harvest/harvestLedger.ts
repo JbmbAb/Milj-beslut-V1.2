@@ -1,5 +1,5 @@
 /**
- * 🜂 Loke — Harvest Ledger (Step 2)
+ * 🜂 Harvest Ledger (Step 2)
  * 
  * Implementerar en strikt, append-only händelselogg (HarvestLedger)
  * som refererar till exakt en HarvestPlan och loggar dess livscykel.

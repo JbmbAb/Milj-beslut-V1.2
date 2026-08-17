@@ -1,5 +1,5 @@
 /**
- * 🜂 Loke — HarvestPlan Generator (Step 1)
+ * 🜂 HarvestPlan Generator (Step 1)
  * 
  * Skapar oföränderliga, innehålls-adresserade och signerade körningsplaner.
  * Använder plattformens officiella RFC8785-kompatibla canonicalizer

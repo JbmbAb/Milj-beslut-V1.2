@@ -7,7 +7,7 @@ import {
   GovernedQuarantineBridge,
   type GovernedQuarantineRecord,
   type VerifiedSourceAuthorityLookup,
-} from "../src/loke/GovernedQuarantineBridge";
+} from "../src/ingestion/GovernedQuarantineBridge";
 
 /**
  * ✅ P3-LU-QUARANTINE-BRIDGE-01 — QUARANTINE_BRIDGE_PROVENANCE_V1.

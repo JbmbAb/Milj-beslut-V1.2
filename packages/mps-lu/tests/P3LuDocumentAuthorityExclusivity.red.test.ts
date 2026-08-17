@@ -32,7 +32,7 @@ import { join, relative, resolve } from "node:path";
  *
  *   ⚠️ OUT OF SCOPE, filed separately — do not widen this unit to reach them:
  *     `res[0]?.kommunnamn || "Mora"`   DOCUMENT_PROVIDER_LOCATION_FAIL_CLOSED-01
- *     LokeIngestor RawSourcePayload    evidence/provenance defect, not classification
+ *     RawSourceIngestor RawSourcePayload    evidence/provenance defect, not classification
  *
  *   ⚠️ THESE TESTS ARE EXPECTED TO FAIL until the bypass is removed. That failure IS the proof.
  */

@@ -160,7 +160,7 @@ describe("🔴 P3-LU-DOCUMENT-CLASSIFICATION-01 — evidence/classification sepa
   // -------------------------------------------------- the materializer seam
 
   it("materialize() no longer demands a class at evidence time", () => {
-    const src = code(join(LU_SRC, "loke", "QuarantinePromoter.ts"));
+    const src = code(join(LU_SRC, "ingestion", "QuarantinePromoter.ts"));
 
     expect(
       /materialize\(\s*[\s\S]{0,200}?documentType\s*:/.test(src),

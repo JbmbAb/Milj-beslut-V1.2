@@ -11,7 +11,7 @@ export interface RawSourcePayload {
    * 🔴 LEGACY / SEMANTICALLY_UNSPECIFIED — do not populate in new producers.
    *
    * This field has never had a defined meaning. It is a bare string supplied by the caller of
-   * `LokeIngestor.ingestFile(filePath, authority, policy)`, and every existing caller passes an
+   * `RawSourceIngestor.ingestFile(filePath, authority, policy)`, and every existing caller passes an
    * arbitrary literal ("Policy-v1", "Policy-v2", "MimersBrunn-v2.0.1"). No document under
    * `docs/` defines it.
    *

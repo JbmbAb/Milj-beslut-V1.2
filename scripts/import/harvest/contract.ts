@@ -1,7 +1,7 @@
 /**
- * 🜂 Loke Live Ingest — Normative Contracts & APIs (LSF P0)
+ * 🜂 Live Ingest — Normative Contracts & APIs (LSF P0)
  * 
- * Detta är det frysta arkitektoniska kontraktet för Loke Live Ingest Foundation.
+ * Detta är det frysta arkitektoniska kontraktet för Live Ingest Foundation.
  * Innehåller strikta TypeScript-gränssnitt och de frysta API-definitionerna.
  * 
  * Normativa regler (SHALL-statements):
@@ -11,7 +11,7 @@
  *   - HarvestPlan SHALL reference immutable Source Registry snapshots.
  *   - HarvestLedger SHALL be append-only and reference exactly one HarvestPlan.
  *   - Scheduler SHALL NOT execute harvest work and SHALL NOT download documents.
- *   - Loke SHALL NOT interpret content and SHALL NOT classify documents.
+ *   - The harvest runtime SHALL NOT interpret content and SHALL NOT classify documents.
  */
 
 import type { VerifiedSourceDefinition as SourceDefinition } from '../../../packages/mps-data-governance/src/SourceRegistry';
@@ -117,7 +117,7 @@ export interface HarvestRunArtifact {
 // FROZEN CORE APIs (Frysta API-kontrakt)
 // -----------------------------------------------------------------------------
 
-export interface LokeIngestAPI {
+export interface SourceHarvestAPI {
   /**
    * Steg 1: Skapa ett oföränderligt, innehålls-adresserat HarvestPlan
    */

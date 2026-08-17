@@ -3,8 +3,8 @@ import { runLuAssessmentViaKernel } from "../src/execution/LuExecutionKernelClie
 import { SpatialEvidenceArtifact } from "../src/artifacts/SpatialEvidenceArtifact";
 import { SPATIAL_STACK_V1 } from "../src/artifacts/SpatialEngineFingerprint";
 import { DocumentEvidenceArtifact } from "../src/artifacts/DocumentEvidenceArtifact";
-import { LokeIngestor, InMemoryQuarantineStorage } from "../src/loke/LokeIngestor";
-import { DocumentEvidenceMaterializer } from "../src/loke/QuarantinePromoter";
+import { RawSourceIngestor, InMemoryQuarantineStorage } from "../src/ingestion/RawSourceIngestor";
+import { DocumentEvidenceMaterializer } from "../src/ingestion/QuarantinePromoter";
 import { MimersIntegration } from "../../mps-runtime/src/mimers";
 import {
   buildVerifiedPriorDecisionFact,
@@ -32,7 +32,7 @@ describe("First Verified Capability: LU End-to-End Fusion", () => {
     await writeFile(filePath, "Avslag: Risk för spridning av EBH till vattentäkt", "utf8");
 
     const quarantine = new InMemoryQuarantineStorage();
-    const ingestor = new LokeIngestor(quarantine);
+    const ingestor = new RawSourceIngestor(quarantine);
     // A1 ENFORCEMENT (2026-08-11): the materializer no longer takes a repository and no
     // longer persists. The kernel below receives the artifact by value, which it already did.
     const promoter = new DocumentEvidenceMaterializer(quarantine);

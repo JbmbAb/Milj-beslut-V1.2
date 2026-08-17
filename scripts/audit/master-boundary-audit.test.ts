@@ -45,7 +45,7 @@ describe("Master Boundary Audit", () => {
 
       // LU Domain (Approved)
       "packages/mps-lu/src/execution/LuExecutionKernelClient.ts",
-      "packages/mps-lu/src/loke/QuarantinePromoter.ts",
+      "packages/mps-lu/src/ingestion/QuarantinePromoter.ts",
       "packages/mps-lu/tests/LuEnforcementReplay.test.ts",
       "packages/mps-lu/tests/QgisIntegration.test.ts",
       "packages/mps-lu/tests/LUEndToEnd.test.ts",

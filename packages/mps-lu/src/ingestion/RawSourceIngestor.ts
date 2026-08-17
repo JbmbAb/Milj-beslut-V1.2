@@ -20,14 +20,14 @@ export class InMemoryQuarantineStorage implements QuarantineStorage {
   }
 }
 
-export class LokeIngestor {
+export class RawSourceIngestor {
   constructor(private readonly quarantine: QuarantineStorage) {}
 
   async ingestFile(filePath: string, authority: string, policy: string): Promise<RawSourceArtifact> {
     const bytes = await readFile(filePath);
     const contentBytesBase64 = bytes.toString("base64");
     
-    // Loke records what it saw.
+    // The ingestor records what it saw.
     const payload = {
       filename: filePath.split(/[\\/]/).pop() || "unknown",
       original_path: filePath,

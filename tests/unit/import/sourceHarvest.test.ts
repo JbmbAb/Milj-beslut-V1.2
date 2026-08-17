@@ -3,19 +3,19 @@ import * as os from 'os';
 import * as fs from 'fs';
 import * as path from 'path';
 import { DiskQuarantineStorage } from '@miljobeslut/mimers-brunn-core';
-import { MmdAdapter } from '../../../scripts/import/loke/adapters/mmdAdapter';
+import { MmdAdapter } from '../../../scripts/import/harvest/adapters/mmdAdapter';
 import {
   installSourceRegistryFixtureEnv,
   writeVerifiedSourceRegistryFixture,
 } from './sourceRegistryFixture';
 
-describe('🜂 Loke Harvest Agent — Ingestion & Contract (LSF-02)', () => {
+describe('🜂 Harvest Runtime — Ingestion & Contract (LSF-02)', () => {
   let tempDir: string;
   let originalEnv: NodeJS.ProcessEnv;
-  let executeLokeHarvestForSource: any;
+  let executeHarvestForSource: any;
 
   beforeAll(async () => {
-    tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'loke-foundation-test-'));
+    tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'harvest-foundation-test-'));
     originalEnv = { ...process.env };
 
     // Sätt vår temp-katalog som arkiv-rot och karantäns-rot
@@ -26,12 +26,12 @@ describe('🜂 Loke Harvest Agent — Ingestion & Contract (LSF-02)', () => {
     process.env.NODE_ENV = 'test';
     installSourceRegistryFixtureEnv(await writeVerifiedSourceRegistryFixture(tempDir));
 
-    // Rensa modul-cachen för att garantera att lokeRuntime läser av det nya tillståndet
+    // Rensa modul-cachen för att garantera att harvestRuntime läser av det nya tillståndet
     vi.resetModules();
 
     // Mocka globalThis.fetch för att hålla enhetstester hermetiska
     vi.spyOn(globalThis, 'fetch').mockImplementation((url: any) => {
-      let text = `Mocked content for ${url} inside Loke unit test`;
+      let text = `Mocked content for ${url} inside harvest unit test`;
       if (url.includes('dom-m-1234-26.pdf')) {
         text = 'Akt/Målnummer: MMD-N-2026-0515';
       }
@@ -42,9 +42,9 @@ describe('🜂 Loke Harvest Agent — Ingestion & Contract (LSF-02)', () => {
       } as any);
     });
 
-    // Importera Loke dynamiskt
-    const mod = await import('../../../scripts/import/loke/lokeRuntime');
-    executeLokeHarvestForSource = mod.executeLokeHarvestForSource;
+    // Importera skörderuntimet dynamiskt
+    const mod = await import('../../../scripts/import/harvest/harvestRuntime');
+    executeHarvestForSource = mod.executeHarvestForSource;
   });
 
   afterAll(() => {
@@ -54,7 +54,7 @@ describe('🜂 Loke Harvest Agent — Ingestion & Contract (LSF-02)', () => {
   });
 
   it('runs successfully in dry-run mode without creating files', async () => {
-    const result = await executeLokeHarvestForSource('mmd_nacka', { execute: false });
+    const result = await executeHarvestForSource('mmd_nacka', { execute: false });
 
     expect(result.status).toBe('completed');
     expect(result.documents_found).toBe(4); // Nacka har 4 dokument
@@ -65,7 +65,7 @@ describe('🜂 Loke Harvest Agent — Ingestion & Contract (LSF-02)', () => {
   });
 
   it('downloads RawObservations, creates RawSourceArtifacts in Quarantine, and writes HarvestRunArtifact', async () => {
-    const result = await executeLokeHarvestForSource('mmd_nacka', { execute: true });
+    const result = await executeHarvestForSource('mmd_nacka', { execute: true });
 
     expect(result.status).toBe('completed');
     expect(result.documents_found).toBe(4);
@@ -116,7 +116,7 @@ describe('🜂 Loke Harvest Agent — Ingestion & Contract (LSF-02)', () => {
     const storage = new DiskQuarantineStorage(process.env.QUARANTINE_ROOT!);
 
     // Importera MmdAdapter efter resetModules har kört för att få rätt prototyp-referens
-    const { MmdAdapter } = await import('../../../scripts/import/loke/adapters/mmdAdapter');
+    const { MmdAdapter } = await import('../../../scripts/import/harvest/adapters/mmdAdapter');
 
     // Spionera på discover så att den bara ger oss 1 kandidat (beslut.txt)
     const discoverSpy = vi.spyOn(MmdAdapter.prototype, 'discover');
@@ -143,7 +143,7 @@ describe('🜂 Loke Harvest Agent — Ingestion & Contract (LSF-02)', () => {
       sourceUrl: 'https://www.domstol.se/nacka-tingsratt/beslut-999.pdf'
     });
 
-    const run1 = await executeLokeHarvestForSource('mmd_nacka', { execute: true, onlyFilters: ['nacka'] });
+    const run1 = await executeHarvestForSource('mmd_nacka', { execute: true, onlyFilters: ['nacka'] });
     expect(run1.documents_new).toBe(1);
 
     const itemsAfterRun1 = await storage.list();
@@ -157,7 +157,7 @@ describe('🜂 Loke Harvest Agent — Ingestion & Contract (LSF-02)', () => {
       sourceUrl: 'https://www.domstol.se/nacka-tingsratt/beslut-999.pdf'
     });
 
-    const run2 = await executeLokeHarvestForSource('mmd_nacka', { execute: true, onlyFilters: ['nacka'] });
+    const run2 = await executeHarvestForSource('mmd_nacka', { execute: true, onlyFilters: ['nacka'] });
     expect(run2.documents_new).toBe(1); // Den räknas som ny i karantänen pga unikt innehåll/hash (L1-11)
 
     // Kontrollera att karantänen nu innehåller båda versionerna som separata, säkra RawSourceArtifacts

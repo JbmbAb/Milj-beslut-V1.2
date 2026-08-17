@@ -3,8 +3,8 @@ import { mkdtemp, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { LokeIngestor, InMemoryQuarantineStorage } from "../src/loke/LokeIngestor";
-import { DocumentEvidenceMaterializer } from "../src/loke/QuarantinePromoter";
+import { RawSourceIngestor, InMemoryQuarantineStorage } from "../src/ingestion/RawSourceIngestor";
+import { DocumentEvidenceMaterializer } from "../src/ingestion/QuarantinePromoter";
 import {
   toRelevantDocumentType,
   type RelevantDocument,
@@ -42,7 +42,7 @@ describe("F4B-0A — RelevantDocument contract (GREEN PROOF)", () => {
       await writeFile(filePath, "Avslag: risk för spridning till vattentäkt", "utf8");
 
       const quarantine = new InMemoryQuarantineStorage();
-      const ingestor = new LokeIngestor(quarantine);
+      const ingestor = new RawSourceIngestor(quarantine);
       const materializer = new DocumentEvidenceMaterializer(quarantine);
 
       const raw = await ingestor.ingestFile(filePath, "Länsstyrelsen", "Policy-v1");

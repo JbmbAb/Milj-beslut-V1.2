@@ -37,7 +37,7 @@ import {
  * Verification capability only. This module never signs and never mutates a registry.
  *
  * @see ./SourceRegistry.ts
- * @see ../../mps-lu/src/loke/GovernedQuarantineBridge.ts (consumes this, structurally)
+ * @see ../../mps-lu/src/ingestion/GovernedQuarantineBridge.ts (consumes this, structurally)
  */
 
 /** The narrow projection a consumer receives. Deliberately not the whole artifact. */

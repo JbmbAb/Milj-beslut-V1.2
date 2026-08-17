@@ -1,7 +1,7 @@
 /**
- * 🜂 Loke Source Registry (LSF-01)
+ * 🜂 Source Registry (LSF-01)
  * 
- * Lokes centrala register över alla tillåtna externa miljödatakällor i Sverige.
+ * Det centrala registret över alla tillåtna externa miljödatakällor i Sverige.
  * Säkrar att inga agenter körs mot oauktoriserade adresser eller okända källor.
  */
 

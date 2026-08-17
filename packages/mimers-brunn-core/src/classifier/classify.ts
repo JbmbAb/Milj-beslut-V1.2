@@ -2,7 +2,7 @@
 
  * Mimer classifier — binds fingerprints to ClassifierArtifacts.
 
- * Responsibility: classify. Not harvest (Loke). Not CAS bind (Mimer core).
+ * Responsibility: classify. Not harvest (the harvest runtime). Not CAS bind (Mimer core).
 
  */
 

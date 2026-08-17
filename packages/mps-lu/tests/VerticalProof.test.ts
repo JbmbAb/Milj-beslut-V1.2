@@ -3,8 +3,8 @@ import { runLuAssessmentViaKernel } from "../src/execution/LuExecutionKernelClie
 import { SpatialEvidenceArtifact } from "../src/artifacts/SpatialEvidenceArtifact";
 import { SPATIAL_STACK_V1 } from "../src/artifacts/SpatialEngineFingerprint";
 import { DocumentEvidenceArtifact } from "../src/artifacts/DocumentEvidenceArtifact";
-import { LokeIngestor, InMemoryQuarantineStorage } from "../src/loke/LokeIngestor";
-import { DocumentEvidenceMaterializer } from "../src/loke/QuarantinePromoter";
+import { RawSourceIngestor, InMemoryQuarantineStorage } from "../src/ingestion/RawSourceIngestor";
+import { DocumentEvidenceMaterializer } from "../src/ingestion/QuarantinePromoter";
 import { ViewerKernel } from "../src/viewer/ViewerKernel";
 import {
   buildAdmittedViewerCapability,
@@ -44,14 +44,14 @@ describe("The Vertical Proof: Full E2E Governance + CAS + QGIS + Replay", () => 
     viewerCapability = buildAdmittedViewerCapability("vertical");
     viewer = new ViewerKernel(casRepo, viewerCapability);
 
-    // 2. Source -> Loke -> Quarantine -> CAS (Human Approval)
+    // 2. Source -> Ingestor -> Quarantine -> CAS (Human Approval)
     const archivePath = join(process.cwd(), "tests", "fixtures", "EndToEnd", "VerticalProof");
     const filePath = join(archivePath, "original", "beslut.txt");
     await mkdir(join(archivePath, "original"), { recursive: true });
     await writeFile(filePath, "Avslag: Risk för översvämning på grund av närhet till vatten", "utf8");
 
     const quarantine = new InMemoryQuarantineStorage();
-    const ingestor = new LokeIngestor(quarantine);
+    const ingestor = new RawSourceIngestor(quarantine);
     // A1 ENFORCEMENT (2026-08-11): the materializer no longer takes a repository and no
     // longer persists. The kernel below receives the artifact by value, which it already did.
     const promoter = new DocumentEvidenceMaterializer(quarantine);

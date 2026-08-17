@@ -1,7 +1,7 @@
 /**
- * 🜂 Loke — National Environmental Harvest Runtime & Engine (LSF-02)
+ * 🜂 National Environmental Harvest Runtime & Engine (LSF-02)
  * 
- * Loke är plattformens generiska skörde-motor (Harvest Agent).
+ * Detta är plattformens generiska skörde-motor.
  * Den är helt frikopplad från källspecifik logik och exekverar via fristående Adaptrar.
  * 
  * Ansvarsområde (Uppfyller L1-11 Karantänsinvarianter):
@@ -27,7 +27,7 @@ import {
 import { DiskQuarantineStorage } from '@miljobeslut/mimers-brunn-core';
 import { MASTER_ARCHIVE_ROOT } from '../config/mimersBrunn';
 
-// Loke får inte ha en egen arkivrot. Den tidigare lokala fallbacken
+// Skördemotorn får inte ha en egen arkivrot. Den tidigare lokala fallbacken
 // (C:\miljöbeslut\storage\geo_master_archive) var en andra rot som ingen annan
 // konsument läste: 524 filer och 17 myndighetskataloger hamnade utanför
 // masterarkivet. Roten upplöses nu på ett enda ställe, i config/mimersBrunn.
@@ -53,7 +53,7 @@ export function createAdapterForSource(sourceDef: VerifiedSourceDefinition): Sou
   return null;
 }
 
-export async function executeLokeHarvestForSource(
+export async function executeHarvestForSource(
   sourceId: string,
   options: { execute?: boolean; onlyFilters?: string[] } = {}
 ): Promise<HarvestRunArtifact> {

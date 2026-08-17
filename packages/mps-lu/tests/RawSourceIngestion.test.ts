@@ -1,8 +1,8 @@
 import { describe, it, expect, beforeAll } from "vitest";
 import { join } from "node:path";
 import { writeFile, mkdir } from "node:fs/promises";
-import { LokeIngestor, InMemoryQuarantineStorage } from "../src/loke/LokeIngestor";
-import { DocumentEvidenceMaterializer } from "../src/loke/QuarantinePromoter";
+import { RawSourceIngestor, InMemoryQuarantineStorage } from "../src/ingestion/RawSourceIngestor";
+import { DocumentEvidenceMaterializer } from "../src/ingestion/QuarantinePromoter";
 import { MimersIntegration } from "../../mps-runtime/src/mimers";
 
 describe("L1 Document Ingestion (TV-L1)", () => {
@@ -14,15 +14,15 @@ describe("L1 Document Ingestion (TV-L1)", () => {
     await writeFile(filePath, "Beslut rörande grundvattenuttag i Karlstad...", "utf8");
   });
 
-  it("should enforce the L1 chain: Source -> Loke -> Quarantine -> CAS", async () => {
+  it("should enforce the L1 chain: Source -> Ingestor -> Quarantine -> CAS", async () => {
     // 1. Setup
     const quarantine = new InMemoryQuarantineStorage();
     const mimers = await MimersIntegration.create();
     const cas = mimers.artifactRepository;
-    const ingestor = new LokeIngestor(quarantine);
+    const ingestor = new RawSourceIngestor(quarantine);
     const promoter = new DocumentEvidenceMaterializer(quarantine);
 
-    // 2. Loke observes and ingests (Source -> Quarantine)
+    // 2. The ingestor observes and ingests (Source -> Quarantine)
     const rawArtifact = await ingestor.ingestFile(filePath, "VISS", "MimersBrunn-v2.0.1");
     
     expect(rawArtifact.artifact_type).toBe("RAW_SOURCE_ARTIFACT");

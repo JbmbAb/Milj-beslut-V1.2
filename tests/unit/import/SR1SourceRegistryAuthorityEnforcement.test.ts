@@ -42,8 +42,8 @@ describe('SR1 — SourceRegistry authority enforcement (green contract)', () => 
     const fetchSpy = vi.fn();
     globalThis.fetch = fetchSpy as unknown as typeof globalThis.fetch;
 
-    const { executeLokeHarvestForSource } = await import('../../../scripts/import/loke/lokeRuntime');
-    const run = await executeLokeHarvestForSource('mmd_nacka', { execute: true });
+    const { executeHarvestForSource } = await import('../../../scripts/import/harvest/harvestRuntime');
+    const run = await executeHarvestForSource('mmd_nacka', { execute: true });
 
     expect(run.status).toBe('failed');
     expect(run.documents_found).toBe(0);
@@ -62,8 +62,8 @@ describe('SR1 — SourceRegistry authority enforcement (green contract)', () => 
     const fetchSpy = vi.fn();
     globalThis.fetch = fetchSpy as unknown as typeof globalThis.fetch;
 
-    const { executeLokeHarvestForSource } = await import('../../../scripts/import/loke/lokeRuntime');
-    const run = await executeLokeHarvestForSource('mmd_nacka', { execute: true });
+    const { executeHarvestForSource } = await import('../../../scripts/import/harvest/harvestRuntime');
+    const run = await executeHarvestForSource('mmd_nacka', { execute: true });
 
     expect(run.status).toBe('failed');
     expect(run.error_message).toMatch(/SourceRegistry-materialisering nekades/i);
@@ -86,8 +86,8 @@ describe('SR1 — SourceRegistry authority enforcement (green contract)', () => 
       } as unknown as Response;
     }) as typeof globalThis.fetch;
 
-    const { executeLokeHarvestForSource } = await import('../../../scripts/import/loke/lokeRuntime');
-    const run = await executeLokeHarvestForSource('mmd_nacka', { execute: true, onlyFilters: ['nacka'] });
+    const { executeHarvestForSource } = await import('../../../scripts/import/harvest/harvestRuntime');
+    const run = await executeHarvestForSource('mmd_nacka', { execute: true, onlyFilters: ['nacka'] });
 
     expect(run.status).toBe('completed');
     expect(run.documents_found).toBe(4);
@@ -99,22 +99,22 @@ describe('SR1 — SourceRegistry authority enforcement (green contract)', () => 
     expect(fs.existsSync(path.join(runsDir, `harvest_run_${run.harvest_run_id}.json`))).toBe(true);
   });
 
-  it('has no Loke runtime import path back to the legacy hard-coded source registry', () => {
+  it('has no harvest runtime import path back to the legacy hard-coded source registry', () => {
     const repoRoot = path.resolve(__dirname, '../../..');
-    const lokeFiles = [
-      'scripts/import/loke/lokeRuntime.ts',
-      'scripts/import/loke/lokeScheduler.ts',
-      'scripts/import/loke/harvestPlan.ts',
-      'scripts/import/loke/contract.ts',
+    const harvestFiles = [
+      'scripts/import/harvest/harvestRuntime.ts',
+      'scripts/import/harvest/harvestScheduler.ts',
+      'scripts/import/harvest/harvestPlan.ts',
+      'scripts/import/harvest/contract.ts',
     ];
 
-    const legacyImportHits = lokeFiles
+    const legacyImportHits = harvestFiles
       .map((rel) => ({
         rel,
         source: fs.readFileSync(path.join(repoRoot, rel), 'utf8'),
       }))
       .filter(({ source }) => source.includes("server/modules/harvest/source-registry/registry"));
 
-    expect(legacyImportHits, 'Loke must not reach the legacy registry as an alternate authority').toEqual([]);
+    expect(legacyImportHits, 'The harvest runtime must not reach the legacy registry as an alternate authority').toEqual([]);
   });
 });
