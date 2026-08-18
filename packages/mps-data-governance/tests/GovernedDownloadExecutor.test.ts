@@ -2,6 +2,7 @@ import { describe, it, expect, beforeEach } from "vitest";
 import { createHash } from "node:crypto";
 
 import { GovernedDownloadExecutor } from "../src/GovernedDownloadExecutor";
+import { InMemoryDownloadManifestStore } from "../src/DownloadManifestStore";
 import { GovernedDownloadError } from "../src/GovernedDownloadContracts";
 import type {
   DownloadTarget,
@@ -157,6 +158,7 @@ describe("P2-DOWNLOAD — governed download pipeline", () => {
       resolverOf(...opts.targets),
       opts.transport,
       q,
+      new InMemoryDownloadManifestStore(),
       clock,
       async (ms) => {
         slept.push(ms);
@@ -207,7 +209,7 @@ describe("P2-DOWNLOAD — governed download pipeline", () => {
     // would not have proven anything either.
     //
     // What actually makes promotion impossible is that nothing promotion-capable is ever handed
-    // in. The constructor stores exactly six collaborators, and none of them can reach canonical
+    // in. The constructor stores exactly seven collaborators, and none of them can reach canonical
     // CAS. Function.length is intentionally not used here: JavaScript stops counting at the
     // first default parameter, so the defaulted sleep collaborator makes a six-parameter
     // constructor report an arity of five.
@@ -223,8 +225,8 @@ describe("P2-DOWNLOAD — governed download pipeline", () => {
     expect(
       collaborators,
       "registry, resolver, transport, quarantine, clock, sleep — and nothing else. A CAS " +
-        "repository, import gate or signing key would add another stored collaborator.",
-    ).toHaveLength(6);
+      "repository, import gate or signing key would add another stored collaborator.",
+    ).toHaveLength(7);
     for (const collaborator of collaborators) {
       for (const promotionMethod of ["promote", "commit", "sign", "importBatch"]) {
         expect(

@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
 
 import { GovernedDownloadExecutor } from "../src/GovernedDownloadExecutor";
+import { InMemoryDownloadManifestStore } from "../src/DownloadManifestStore";
 import { PuhRattspraxisTargetResolver } from "../src/PuhRattspraxisResolver";
 import { DownloadTargetResolverRegistry } from "../src/DownloadTargetResolvers";
 import type {
@@ -155,6 +156,7 @@ describe("P3-PUH-METADATA-CARRIAGE-01", () => {
       }),
       transport,
       quarantine as never,
+      new InMemoryDownloadManifestStore(),
       { now: () => "2026-08-15T00:00:00.000Z" },
     );
 
@@ -200,6 +202,7 @@ describe("P3-PUH-METADATA-CARRIAGE-01", () => {
 
     const executor = new GovernedDownloadExecutor(
       registry, hostileResolver, listingTransport([]), quarantine as never,
+      new InMemoryDownloadManifestStore(),
       { now: () => "2026-08-15T00:00:00.000Z" },
     );
 
@@ -244,6 +247,7 @@ describe("P3-PUH-METADATA-CARRIAGE-01", () => {
       };
       const executor = new GovernedDownloadExecutor(
         registry, resolver, listingTransport([]), mkQuarantine() as never,
+        new InMemoryDownloadManifestStore(),
         { now: () => "2026-08-15T00:00:00.000Z" },
       );
       return executor.execute({

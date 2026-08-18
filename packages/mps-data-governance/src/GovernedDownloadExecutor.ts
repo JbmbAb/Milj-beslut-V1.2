@@ -3,6 +3,7 @@ import { createHash } from "node:crypto";
 import type { QuarantineStorage } from "@miljobeslut/mimers-brunn-core";
 
 import { buildDownloadManifestRef } from "./DownloadManifestIdentity";
+import type { DownloadManifestStore } from "./DownloadManifestStore";
 
 import type { ContentReference } from "../../mps-core/src/types";
 import type { HarvestExecutor, Clock } from "./HarvestOrchestratorContracts";
@@ -17,6 +18,7 @@ import {
   type DownloadTarget,
   type DownloadTargetResolver,
   type DownloadTransport,
+  type DownloadManifest,
   type DownloadedObject,
 } from "./GovernedDownloadContracts";
 
@@ -36,6 +38,7 @@ export class GovernedDownloadExecutor implements HarvestExecutor {
     private readonly resolver: DownloadTargetResolver,
     private readonly transport: DownloadTransport,
     private readonly quarantine: QuarantineStorage,
+    private readonly manifestStore: DownloadManifestStore,
     private readonly clock: Clock,
     private readonly sleep: (ms: number) => Promise<void> = defaultSleep,
   ) {}
@@ -66,7 +69,7 @@ export class GovernedDownloadExecutor implements HarvestExecutor {
     if (plan.kind === "NO_CHANGES") {
       assertNoChangesEvidence(plan.evidence, sourceId);
 
-      return buildDownloadManifestRef({
+      return this.persistManifest({
         manifest_version: 1,
         execution_id: request.execution_id,
         source_id: sourceId,
@@ -111,7 +114,7 @@ export class GovernedDownloadExecutor implements HarvestExecutor {
       objects.push(await this.fetchOne(source, target));
     }
 
-    return buildDownloadManifestRef({
+    return this.persistManifest({
       manifest_version: 1,
       execution_id: request.execution_id,
       source_id: sourceId,
@@ -120,6 +123,53 @@ export class GovernedDownloadExecutor implements HarvestExecutor {
       objects,
       generated_at: this.clock.now(),
     });
+  }
+
+  /**
+   * A returned manifest reference is a replay boundary, not a calculated hint. Persist and
+   * immediately resolve it so an injected store cannot claim success for absent or altered
+   * bytes. P2-M1/P2-M2 exercise both failure modes.
+   */
+  private async persistManifest(manifest: DownloadManifest): Promise<ContentReference> {
+    const expected = buildDownloadManifestRef(manifest);
+    let persisted: ContentReference;
+    let resolved: DownloadManifest | null;
+    try {
+      persisted = await this.manifestStore.persist(manifest);
+      resolved = await this.manifestStore.resolve(persisted);
+    } catch (error) {
+      throw new GovernedDownloadError(
+        `REJECT_MANIFEST_PERSISTENCE: ${error instanceof Error ? error.message : String(error)}`,
+        "REJECT_MANIFEST_PERSISTENCE",
+      );
+    }
+
+    if (
+      persisted.id !== expected.id ||
+      persisted.content_hash.algorithm !== expected.content_hash.algorithm ||
+      persisted.content_hash.digest !== expected.content_hash.digest ||
+      resolved === null
+    ) {
+      throw new GovernedDownloadError(
+        "REJECT_MANIFEST_PERSISTENCE: the persisted manifest reference is not resolvable as the " +
+          "manifest created by this governed execution.",
+        "REJECT_MANIFEST_PERSISTENCE",
+      );
+    }
+
+    const resolvedRef = buildDownloadManifestRef(resolved);
+    if (
+      resolvedRef.id !== expected.id ||
+      resolvedRef.content_hash.digest !== expected.content_hash.digest
+    ) {
+      throw new GovernedDownloadError(
+        "REJECT_MANIFEST_PERSISTENCE: resolved manifest bytes do not recompute to the returned " +
+          "manifest reference.",
+        "REJECT_MANIFEST_PERSISTENCE",
+      );
+    }
+
+    return expected;
   }
 
   /**

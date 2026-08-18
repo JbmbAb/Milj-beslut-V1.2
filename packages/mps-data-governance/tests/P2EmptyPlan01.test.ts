@@ -2,6 +2,7 @@ import { describe, it, expect } from "vitest";
 import { createHash } from "node:crypto";
 
 import { GovernedDownloadExecutor } from "../src/GovernedDownloadExecutor";
+import { InMemoryDownloadManifestStore } from "../src/DownloadManifestStore";
 import {
   DownloadTargetResolverRegistry,
   WfsCapabilitiesTargetResolver,
@@ -115,6 +116,7 @@ describe("P2-EMPTY-PLAN-01 — legitimate empty harvest", () => {
       resolver,
       transport,
       q,
+      new InMemoryDownloadManifestStore(),
       clock,
       async () => {},
     );
