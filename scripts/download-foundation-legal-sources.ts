@@ -1,26 +1,13 @@
 import { loadEnvFile } from '../server/loadEnv';
-import {
-  downloadFoundationLegalSources,
-  resolveFoundationLegalSourceDownloadDirectory,
-} from '../server/modules/legal/services/foundationLegalSourceDownloadService';
+import { rejectLegacyLegalAcquisition } from '../server/modules/legal/services/legalSourceDownloadService';
 
 async function main(): Promise<void> {
   loadEnvFile();
   loadEnvFile('.env.local');
-
-  const result = await downloadFoundationLegalSources();
-  console.log(
-    `Laddade ner ${result.processed} grundförfattningar till ${resolveFoundationLegalSourceDownloadDirectory()}.`,
-  );
-
-  for (const download of result.downloads) {
-    console.log(`- ${download.externalId}: ${download.savedAs} (${download.contentType}, ${download.bytes} byte)`);
-  }
-
-  console.log(`Manifest: ${result.manifestPath}`);
+  rejectLegacyLegalAcquisition('scripts/download-foundation-legal-sources.ts');
 }
 
 main().catch((error) => {
-  console.error('Kunde inte ladda ner grundförfattningar:', error);
+  console.error('Legacy foundation legal acquisition is disabled:', error);
   process.exitCode = 1;
 });

@@ -17,7 +17,18 @@ const NVV_PUBLIC_HEADERS = {
   'Accept-Language': 'sv-SE,sv;q=0.9,en;q=0.8',
 };
 
+export const NVV_BROCHURES_LEGACY_CLASSIFICATION = 'LEGACY_NON_AUTHORITATIVE' as const;
+export const LEGACY_NVV_BROCHURES_ACQUISITION_BLOCKED =
+  'P2-AUTH-03E2-A BLOCKED: the duplicate Naturvardsverket OAI brochure downloader cannot ' +
+  'perform live acquisition. A future OAI channel requires separate product need and authority.';
+
+function rejectLegacyNvvBrochuresAcquisition(): never {
+  throw new Error(LEGACY_NVV_BROCHURES_ACQUISITION_BLOCKED);
+}
+
 async function fetchAllNvvBrochures() {
+  rejectLegacyNvvBrochuresAcquisition();
+
   console.log('🚀 Startar intelligent inhämtning av Naturvårdsverkets PDF-publikationer via DiVA...');
 
   ensureDir(BROCHURES_DIR);

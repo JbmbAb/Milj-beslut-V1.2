@@ -14,6 +14,15 @@ const MANIFEST_PATH = path.join(OUTPUT_DIR, 'manifest.json');
 const MAX_PAGES = Number.parseInt(process.env.SGU_ANVANDARSTOD_MAX_PAGES || '200', 10);
 const FETCH_DELAY_MS = Number.parseInt(process.env.SGU_ANVANDARSTOD_DELAY_MS || '200', 10);
 
+export const SGU_ANVANDARSTOD_LEGACY_CLASSIFICATION = 'LEGACY_NON_AUTHORITATIVE' as const;
+export const LEGACY_SGU_ANVANDARSTOD_ACQUISITION_BLOCKED =
+  'P2-AUTH-03E3-A BLOCKED: the broad SGU guidance crawler cannot act as source authority. ' +
+  'Only exact, individually approved SGU endpoints may use the governed P2 path.';
+
+function rejectLegacySguAnvandarstodAcquisition(): never {
+  throw new Error(LEGACY_SGU_ANVANDARSTOD_ACQUISITION_BLOCKED);
+}
+
 const HEADERS = {
   'User-Agent':
     'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/135.0.0.0 Safari/537.36',
@@ -41,6 +50,8 @@ type SavedPdf = {
 };
 
 async function main(): Promise<void> {
+  rejectLegacySguAnvandarstodAcquisition();
+
   ensureDir(OUTPUT_DIR);
   ensureDir(PAGES_DIR);
   ensureDir(PDF_DIR);

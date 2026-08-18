@@ -23,6 +23,15 @@ const HEADERS = {
   'Accept-Language': 'sv-SE,sv;q=0.9,en;q=0.8',
 };
 
+export const NVV_PUBLICATIONS_SITE_LEGACY_CLASSIFICATION = 'LEGACY_NON_AUTHORITATIVE' as const;
+export const LEGACY_NVV_PUBLICATIONS_SITE_ACQUISITION_BLOCKED =
+  'P2-AUTH-03E2-A BLOCKED: the Naturvardsverket publication website crawler cannot perform ' +
+  'live acquisition. Exact document channels require separate signed source definitions.';
+
+function rejectLegacyNvvPublicationsSiteAcquisition(): never {
+  throw new Error(LEGACY_NVV_PUBLICATIONS_SITE_ACQUISITION_BLOCKED);
+}
+
 type Publication = {
   title: string;
   detailUrl: string;
@@ -40,6 +49,8 @@ type DownloadEntry = {
 };
 
 async function main(): Promise<void> {
+  rejectLegacyNvvPublicationsSiteAcquisition();
+
   ensureDir(BROCHURES_DIR);
 
   console.log('NVV site publications downloader');

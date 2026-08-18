@@ -29,8 +29,13 @@ const BOVERKET_PUBLIC_HEADERS = {
     'Accept-Language': 'sv-SE,sv;q=0.9,en;q=0.8',
 };
 
-if (!fs.existsSync(KNOWLEDGE_DIR)) {
-    fs.mkdirSync(KNOWLEDGE_DIR, { recursive: true });
+export const BOVERKET_LEGACY_CLASSIFICATION = 'LEGACY_NON_AUTHORITATIVE' as const;
+export const LEGACY_BOVERKET_MIXED_ACQUISITION_BLOCKED =
+    'P2-AUTH-03E1 BLOCKED: the mixed Boverket API/web/PDF downloader cannot act as source ' +
+    'authority. Concrete structured channels require separate signed SourceRegistry definitions.';
+
+function rejectLegacyBoverketMixedAcquisition(): never {
+    throw new Error(LEGACY_BOVERKET_MIXED_ACQUISITION_BLOCKED);
 }
 
 interface BoverketExtraDocument {
@@ -49,6 +54,8 @@ interface BoverketForfattning {
 }
 
 async function fetchAllKnowledge() {
+    rejectLegacyBoverketMixedAcquisition();
+
     console.log('🚀 Startar nedladdning av Boverkets Kunskapsbas...');
 
     if (!process.env.BOVERKET_API_KEY) {

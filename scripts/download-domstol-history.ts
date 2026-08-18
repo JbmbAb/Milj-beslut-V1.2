@@ -6,6 +6,12 @@ import fetch from 'node-fetch';
 
 const API_BASE_URL = 'https://rattspraxis.etjanst.domstol.se/api/v1/publiceringar';
 const DELAY_BETWEEN_PAGES = 500; // ms
+const LEGACY_DOMSTOL_HISTORY_DOWNLOAD_BLOCKED =
+  'P2-AUTH-03B BLOCKED: legacy Domstol history download is superseded; use the governed P2/PUH runtime';
+
+function rejectLegacyDomstolHistoryDownload(): never {
+  throw new Error(LEGACY_DOMSTOL_HISTORY_DOWNLOAD_BLOCKED);
+}
 
 async function delay(ms: number) {
   return new Promise(resolve => setTimeout(resolve, ms));
@@ -32,6 +38,8 @@ async function fetchWithRetry(url: string, retries = 3): Promise<any> {
 }
 
 async function main() {
+  rejectLegacyDomstolHistoryDownload();
+
   loadEnvFile();
   
   const outputDir = resolveKnowledgeBasePath('legal', 'domstol-history');

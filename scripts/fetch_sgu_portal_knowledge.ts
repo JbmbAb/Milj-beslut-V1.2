@@ -21,6 +21,15 @@ const HEADERS = {
   'Accept-Language': 'sv-SE,sv;q=0.9,en;q=0.8',
 };
 
+export const SGU_PORTAL_CLASSIFICATION = 'DISCOVERY_ONLY' as const;
+export const LEGACY_SGU_PORTAL_ACQUISITION_BLOCKED =
+  'P2-AUTH-03E1 BLOCKED: the broad SGU portal crawler is discovery-only and cannot acquire or ' +
+  'persist source payloads. Governed SGU acquisition requires exact signed endpoints.';
+
+function rejectLegacySguPortalAcquisition(): never {
+  throw new Error(LEGACY_SGU_PORTAL_ACQUISITION_BLOCKED);
+}
+
 const ALLOWED_PREFIXES = [
   '/produkter-och-tjanster/geologiska-data/',
   '/produkter-och-tjanster/kartor/',
@@ -53,6 +62,8 @@ type SavedPdf = {
 };
 
 async function main(): Promise<void> {
+  rejectLegacySguPortalAcquisition();
+
   ensureDir(OUTPUT_DIR);
   ensureDir(PAGES_DIR);
   ensureDir(PDF_DIR);

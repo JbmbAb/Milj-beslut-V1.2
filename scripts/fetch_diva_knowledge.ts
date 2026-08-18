@@ -36,6 +36,15 @@ const HEADERS = {
   'Accept-Language': 'sv-SE,sv;q=0.9,en;q=0.8',
 };
 
+export const DIVA_LEGACY_CLASSIFICATION = 'LEGACY_NON_AUTHORITATIVE' as const;
+export const LEGACY_DYNAMIC_DIVA_ACQUISITION_BLOCKED =
+  'P2-AUTH-03E1 BLOCKED: operator-selected DIVA_DOMAIN is not admissible source authority. ' +
+  'Each institution requires an explicit signed SourceRegistry definition.';
+
+function rejectLegacyDynamicDivaAcquisition(): never {
+  throw new Error(LEGACY_DYNAMIC_DIVA_ACQUISITION_BLOCKED);
+}
+
 type HarvestedRecord = {
   id: string;
   title: string;
@@ -60,6 +69,8 @@ type HarvestedPdf = {
 };
 
 async function main(): Promise<void> {
+  rejectLegacyDynamicDivaAcquisition();
+
   ensureDir(OUTPUT_DIR);
   ensureDir(RECORDS_DIR);
   ensureDir(PDF_DIR);
