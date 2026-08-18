@@ -132,6 +132,67 @@ describe("ImportGate", () => {
     expect(store.get(a.evidence_ref)!.manifest_ref.content_hash.digest).toBe("digest-a");
   });
 
+  it("blocks import when decision=APPROVED, manifest matches, compliance passes, but approver role is not GOVERNANCE_REVIEWER", async () => {
+    const gate = new ImportGate(serializer, hashEngine, signer, identityStrategy, makeStore());
+    const manifest_ref = fakeManifestRef();
+    const approval_artifact: any = {
+      approved_ref: manifest_ref,
+      decision: "APPROVED",
+      actor_ref: { identity_ref: { id: "actor-1", content_hash: { algorithm: "sha256", digest: "actor-digest" } }, role: "GOVERNOR" },
+    };
+
+    const result = await gate.evaluate(
+      { manifest_ref, approval_artifact, compliance_results: [{ control_id: "MB-006", result: "PASS" }] },
+      "2026-08-07T00:00:00Z",
+    );
+
+    expect(result.decision).toBe("BLOCK_IMPORT");
+    expect(result.failed_controls).toEqual(["IMPORT_GATE_UNAUTHORIZED_APPROVER_ROLE"]);
+  });
+
+  it("allows import when decision=APPROVED, manifest matches, compliance passes, and approver role is GOVERNANCE_REVIEWER", async () => {
+    const gate = new ImportGate(serializer, hashEngine, signer, identityStrategy, makeStore());
+    const manifest_ref = fakeManifestRef();
+    const approval_artifact: any = {
+      approved_ref: manifest_ref,
+      decision: "APPROVED",
+      actor_ref: { identity_ref: { id: "actor-1", content_hash: { algorithm: "sha256", digest: "actor-digest" } }, role: "GOVERNANCE_REVIEWER" },
+    };
+
+    const result = await gate.evaluate(
+      { manifest_ref, approval_artifact, compliance_results: [{ control_id: "MB-006", result: "PASS" }] },
+      "2026-08-07T00:00:00Z",
+    );
+
+    expect(result.decision).toBe("ALLOW_IMPORT");
+    expect(result.failed_controls).toEqual([]);
+  });
+
+  it("blocks (does not throw) when actor_ref or role is missing on an otherwise-approved artifact", async () => {
+    const gate = new ImportGate(serializer, hashEngine, signer, identityStrategy, makeStore());
+    const manifest_ref = fakeManifestRef();
+
+    const missingActorRef: any = { approved_ref: manifest_ref, decision: "APPROVED" };
+    const resultA = await gate.evaluate(
+      { manifest_ref, approval_artifact: missingActorRef, compliance_results: [] },
+      "2026-08-07T00:00:00Z",
+    );
+    expect(resultA.decision).toBe("BLOCK_IMPORT");
+    expect(resultA.failed_controls).toEqual(["IMPORT_GATE_UNAUTHORIZED_APPROVER_ROLE"]);
+
+    const missingRole: any = {
+      approved_ref: manifest_ref,
+      decision: "APPROVED",
+      actor_ref: { identity_ref: { id: "actor-1", content_hash: { algorithm: "sha256", digest: "actor-digest" } } },
+    };
+    const resultB = await gate.evaluate(
+      { manifest_ref, approval_artifact: missingRole, compliance_results: [] },
+      "2026-08-07T00:00:00Z",
+    );
+    expect(resultB.decision).toBe("BLOCK_IMPORT");
+    expect(resultB.failed_controls).toEqual(["IMPORT_GATE_UNAUTHORIZED_APPROVER_ROLE"]);
+  });
+
   it("REGRESSION: programming errors bubble rather than becoming evidence", async () => {
     const brokenHashEngine: CanonicalHashEngine = {
       hash: () => {
