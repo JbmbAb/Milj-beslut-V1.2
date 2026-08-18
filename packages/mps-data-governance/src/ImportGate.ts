@@ -117,6 +117,27 @@ export class ImportGate {
       );
     }
 
+    /**
+     * A signed, matching, APPROVED artifact is still not authority to import.
+     * Signing (createSignedArtifactIdentity) proves the artifact was not
+     * tampered with after creation; it proves nothing about who was allowed to
+     * create it. Only a GOVERNANCE_REVIEWER actor may authorize import — this
+     * is checked defensively (optional chaining, not a thrown error) because
+     * `approval_artifact` here may originate from an untyped store read
+     * (e.g. FileCheckpointStore.loadApproval does a raw JSON.parse), so a
+     * missing `actor_ref` or `role` at runtime must be treated as absent
+     * authorization rather than crash the gate.
+     */
+    if (approval_artifact.actor_ref?.role !== "GOVERNANCE_REVIEWER") {
+      return this.record(
+        "BLOCK_IMPORT",
+        manifest_ref,
+        approval_artifact.approved_ref,
+        ["IMPORT_GATE_UNAUTHORIZED_APPROVER_ROLE"],
+        evaluatedAt,
+      );
+    }
+
     return this.record(
       "ALLOW_IMPORT",
       manifest_ref,
