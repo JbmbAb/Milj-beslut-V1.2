@@ -33,7 +33,16 @@ describe("🛡️ ORCH-007 — Fysisk Quarantine Persistence", () => {
   beforeAll(() => {
     // Skapa en isolerad, unik temporär mapp för master-arkivet på disk
     tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "orch007-quarantine-test-"));
-    fileStore = new FileCheckpointStore(tempDir);
+    // This test never reaches APPROVED / calls loadApproval(), so these three
+    // collaborators are unused stubs — they exist only to satisfy
+    // FileCheckpointStore's constructor after PR 2 (loadApproval signature
+    // verification) added them as required dependencies.
+    fileStore = new FileCheckpointStore(
+      tempDir,
+      { serialize: (v) => new TextEncoder().encode(JSON.stringify(v)) },
+      { hash: () => ({ algorithm: "sha256", digest: "unused" }) },
+      { verify: async () => true },
+    );
 
     mockHarvestExecutor = {
       execute: vi.fn().mockResolvedValue(contentRef("manifest-123"))
