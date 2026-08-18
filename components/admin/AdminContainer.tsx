@@ -11,7 +11,7 @@ import './admin-tokens.css';
 const AdminContainer: React.FC = () => {
   const [activeModule, setActiveModule] = useState<AdminModuleId>(() => {
     const saved = localStorage.getItem('admin-active-module');
-    return (saved as AdminModuleId) || 'permit-portal';
+    return (saved as AdminModuleId) || 'sewage-portal';
   });
 
   useEffect(() => {

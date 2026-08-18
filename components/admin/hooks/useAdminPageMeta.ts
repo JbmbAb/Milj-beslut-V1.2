@@ -8,12 +8,6 @@ interface PageMeta {
 }
 
 const MODULE_META: Record<AdminModuleId, PageMeta> = {
-  'permit-portal': {
-    title: 'Core Tillståndsportal | Miljöbeslut Admin',
-    description:
-      'Hantera miljötillståndsansökningar från initiering till beslut. Spårning, dokumentation och statusöversikt.',
-    keywords: ['tillståndsportal', 'miljötillstånd', 'ansökningar', 'handläggning'],
-  },
   logistics: {
     title: 'Logistik & Massa | Miljöbeslut Admin',
     description:

@@ -38,12 +38,6 @@ const AdminNav: React.FC<AdminNavProps> = ({ activeModule, onModuleChange, isOpe
   const modules: Module[] = useMemo(
     () => [
       {
-        id: 'permit-portal',
-        label: 'Core Tillståndsportal',
-        icon: <FileText size={20} />,
-        description: 'Tillståndshantering och ansökningar',
-      },
-      {
         id: 'logistics',
         label: 'Logistik & Massa',
         icon: <Truck size={20} />,

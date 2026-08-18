@@ -12,7 +12,6 @@ interface AdminHeaderProps {
 }
 
 const MODULE_LABELS: Record<AdminModuleId, string> = {
-  'permit-portal': 'Core Tillståndsportal',
   logistics: 'Logistik & Massa',
   'project-plan': 'Projektplan',
   'green-check': 'Grönkoll för Banker',

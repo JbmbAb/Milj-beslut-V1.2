@@ -4,7 +4,7 @@ import AdminHeader from './AdminHeader';
 import { useAdminPageMeta } from './hooks/useAdminPageMeta';
 import './admin-shell.css';
 
-export type AdminModuleId = 'permit-portal' | 'logistics' | 'project-plan' | 'green-check' | 'sewage-portal' | 'operations';
+export type AdminModuleId = 'logistics' | 'project-plan' | 'green-check' | 'sewage-portal' | 'operations';
 
 interface AdminShellProps {
   activeModule: AdminModuleId;
