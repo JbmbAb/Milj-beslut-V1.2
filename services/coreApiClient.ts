@@ -10,6 +10,7 @@ type ApiCallOptions = {
   query?: Record<string, unknown>;
   auth?: boolean;
   headers?: Record<string, string>;
+  retryOnUnauthorized?: boolean;
 };
 
 function hasWindow(): boolean {
@@ -87,32 +88,42 @@ function buildUrl(endpoint: string, query?: Record<string, unknown>): string {
 }
 
 export async function callApi<T>(endpoint: string, options: ApiCallOptions = {}): Promise<T> {
-  const { method = 'POST', body, query, auth = true, headers: extraHeaders } = options;
-  const token = getToken();
+  const {
+    method = 'POST',
+    body,
+    query,
+    auth = true,
+    headers: extraHeaders,
+    retryOnUnauthorized = true,
+  } = options;
   const url = buildUrl(endpoint, query);
 
-  const headers: Record<string, string> = {
-    'Content-Type': 'application/json',
-    ...(extraHeaders || {}),
+  const request = async () => {
+    const token = getToken();
+    const headers: Record<string, string> = {
+      'Content-Type': 'application/json',
+      ...(extraHeaders || {}),
+    };
+
+    if (auth && token) {
+      headers['Authorization'] = `Bearer ${token}`;
+    }
+
+    return csrfFetch(url, {
+      method,
+      headers,
+      body: body ? JSON.stringify(body) : undefined,
+    });
   };
 
-  if (auth && token) {
-    headers['Authorization'] = `Bearer ${token}`;
+  let response = await request();
+
+  if (response.status === 401 && auth && retryOnUnauthorized && getRefreshToken()) {
+    await refreshAccessSession();
+    response = await request();
   }
 
-  const response = await csrfFetch(url, {
-    method,
-    headers,
-    body: body ? JSON.stringify(body) : undefined,
-  });
-
   if (!response.ok) {
-    if (response.status === 401) {
-      if (typeof window !== 'undefined') {
-        clearSession();
-        window.location.reload();
-      }
-    }
     const err = (await response.json().catch(() => ({}))) as {
       error?: string | { message?: string };
       message?: string;
@@ -158,6 +169,7 @@ export async function refreshAccessSession(): Promise<{ accessToken: string; ref
       {
         method: 'POST',
         auth: false,
+        retryOnUnauthorized: false,
         body: { refreshToken },
       },
     );

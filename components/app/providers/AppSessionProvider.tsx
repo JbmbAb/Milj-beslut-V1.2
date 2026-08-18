@@ -72,6 +72,7 @@ export function AppSessionProvider({ children }: { children: ReactNode }) {
     const payload = await callApi<{ ok: boolean; bootstrap: AppBootstrapResponse }>('/api/app/bootstrap', {
       method: 'GET',
       query: preferredProjectId ? { activeProjectId: preferredProjectId } : undefined,
+      retryOnUnauthorized: false,
     });
     return payload.bootstrap;
   }, []);

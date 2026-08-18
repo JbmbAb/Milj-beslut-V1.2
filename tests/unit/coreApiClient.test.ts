@@ -1,14 +1,19 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { resetCsrfTokenCache } from '../../services/csrfClient';
-import { callCore, getToken } from '../../services/coreApiClient';
+import { callCore, getRefreshToken, getToken } from '../../services/coreApiClient';
 
 const TOKEN_KEY = 'miljobeslut_admin_bearer';
+const REFRESH_TOKEN_KEY = 'miljobeslut_admin_refresh';
 
-function mockLocalStorage(stored: string | null) {
+function mockLocalStorage(stored: string | null, refreshToken: string | null = null) {
+  const values = new Map<string, string>();
+  if (stored !== null) values.set(TOKEN_KEY, stored);
+  if (refreshToken !== null) values.set(REFRESH_TOKEN_KEY, refreshToken);
+
   return {
-    getItem: vi.fn((key: string) => (key === TOKEN_KEY ? stored : null)),
-    setItem: vi.fn(),
-    removeItem: vi.fn(),
+    getItem: vi.fn((key: string) => values.get(key) ?? null),
+    setItem: vi.fn((key: string, value: string) => values.set(key, value)),
+    removeItem: vi.fn((key: string) => values.delete(key)),
     clear: vi.fn(),
   };
 }
@@ -40,6 +45,13 @@ describe('getToken', () => {
   it('trims whitespace from the token', () => {
     vi.stubGlobal('window', { localStorage: mockLocalStorage('  trimmed  ') });
     expect(getToken()).toBe('trimmed');
+  });
+});
+
+describe('getRefreshToken', () => {
+  it('returns the stored refresh token from localStorage', () => {
+    vi.stubGlobal('window', { localStorage: mockLocalStorage(null, 'refresh-token') });
+    expect(getRefreshToken()).toBe('refresh-token');
   });
 });
 
@@ -168,6 +180,56 @@ describe('callCore', () => {
     vi.stubGlobal('fetch', fetchMock);
 
     await expect(callCore('/api/secret')).rejects.toThrow(/Forbidden/i);
+  });
+
+  it('does not clear local session or reload on 401 when refresh is unavailable', async () => {
+    const localStorage = mockLocalStorage('expired-access-token');
+    const reload = vi.fn();
+    vi.stubGlobal('window', { localStorage, location: { origin: 'http://localhost', reload } });
+    const fetchMock = vi.fn().mockResolvedValueOnce(
+      new Response(JSON.stringify({ error: { message: 'token expired' } }), {
+        status: 401,
+        headers: { 'Content-Type': 'application/json' },
+      }),
+    );
+    vi.stubGlobal('fetch', fetchMock);
+
+    await expect(callCore('/api/app/bootstrap', { method: 'GET' })).rejects.toThrow(/token expired/i);
+
+    expect(localStorage.removeItem).not.toHaveBeenCalled();
+    expect(reload).not.toHaveBeenCalled();
+  });
+
+  it('refreshes access session once and retries authenticated calls after 401', async () => {
+    const localStorage = mockLocalStorage('expired-access-token', 'refresh-token');
+    vi.stubGlobal('window', { localStorage, location: { origin: 'http://localhost' } });
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ error: { message: 'token expired' } }), {
+          status: 401,
+          headers: { 'Content-Type': 'application/json' },
+        }),
+      )
+      .mockResolvedValueOnce(jsonResponse({ csrfToken: 'csrf-123' }))
+      .mockResolvedValueOnce(
+        jsonResponse({
+          ok: true,
+          accessToken: 'fresh-access-token',
+          refreshToken: 'fresh-refresh-token',
+        }),
+      )
+      .mockResolvedValueOnce(jsonResponse({ ok: true, data: 'retried' }));
+    vi.stubGlobal('fetch', fetchMock);
+
+    const result = await callCore<{ ok: boolean; data: string }>('/api/app/bootstrap', { method: 'GET' });
+
+    expect(result.data).toBe('retried');
+    expect(localStorage.setItem).toHaveBeenCalledWith(TOKEN_KEY, 'fresh-access-token');
+    expect(localStorage.setItem).toHaveBeenCalledWith(REFRESH_TOKEN_KEY, 'fresh-refresh-token');
+
+    const [, retryInit] = fetchMock.mock.calls[3] as unknown as [string, RequestInit];
+    expect(new Headers(retryInit.headers).get('Authorization')).toBe('Bearer fresh-access-token');
   });
 
   it('throws with HTTP status when response body cannot be parsed', async () => {
