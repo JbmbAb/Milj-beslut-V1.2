@@ -9,6 +9,7 @@ import {
   SingleEndpointTargetResolver,
   type SourceAwareTargetResolver,
 } from "./DownloadTargetResolvers";
+import { FileDownloadManifestStore, type DownloadManifestStore } from "./DownloadManifestStore";
 import { GovernedDownloadError, type DownloadTransport } from "./GovernedDownloadContracts";
 import { GovernedDownloadExecutor } from "./GovernedDownloadExecutor";
 import { HttpDownloadTransport } from "./HttpDownloadTransport";
@@ -23,6 +24,7 @@ import {
 import type { ContentReference } from "../../mps-core/src/types";
 import type { Clock, HarvestExecutor } from "./HarvestOrchestratorContracts";
 import type { HarvestExecutionRequest } from "./HarvestOrchestratorTypes";
+import { join } from "node:path";
 
 /**
  * 🜃 P2-RUNTIME-01 — the production composition root for governed harvesting.
@@ -98,6 +100,10 @@ export interface HarvestRuntimeOptions {
   /** Defaults to `DiskQuarantineStorage` under `.quarantine`. Never CAS. */
   readonly quarantine?: QuarantineStorage;
   readonly quarantineRootPath?: string;
+  /** P2-owned content-addressed store for replayable DownloadManifest bodies. */
+  readonly downloadManifestStore?: DownloadManifestStore;
+  /** Defaults below the quarantine root when the P2 store is not injected. */
+  readonly downloadManifestRootPath?: string;
   readonly clock?: Clock;
   readonly adapters?: Readonly<Record<string, AdapterResolverFactory>>;
   readonly userAgent?: string;
@@ -136,13 +142,19 @@ export async function composeHarvestRuntime(
     signing: options.signing,
   });
 
-  const quarantine =
-    options.quarantine ?? new DiskQuarantineStorage(options.quarantineRootPath);
+  const quarantineRootPath = options.quarantineRootPath ?? join(process.cwd(), ".quarantine");
+  const quarantine = options.quarantine ?? new DiskQuarantineStorage(quarantineRootPath);
+  const manifestStore =
+    options.downloadManifestStore ??
+    new FileDownloadManifestStore(
+      options.downloadManifestRootPath ?? join(quarantineRootPath, "download-manifests"),
+    );
 
   const executor = new GovernedHarvestRuntime(
     registry,
     options.adapters ?? PRODUCTION_ADAPTER_RESOLVERS,
     quarantine,
+    manifestStore,
     options.clock ?? systemClock,
     (source) => transportForSource(source, options),
   );
@@ -183,6 +195,7 @@ class GovernedHarvestRuntime implements HarvestExecutor {
     private readonly registry: VerifiedSourceRegistry,
     private readonly adapters: Readonly<Record<string, AdapterResolverFactory>>,
     private readonly quarantine: QuarantineStorage,
+    private readonly manifestStore: DownloadManifestStore,
     private readonly clock: Clock,
     private readonly transportFactory: (source: VerifiedSourceDefinition) => DownloadTransport,
   ) {}
@@ -216,6 +229,7 @@ class GovernedHarvestRuntime implements HarvestExecutor {
       new DownloadTargetResolverRegistry(this.registry, resolvers),
       transport,
       this.quarantine,
+      this.manifestStore,
       this.clock,
     );
 

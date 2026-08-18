@@ -18,6 +18,7 @@ import {
   PRODUCTION_ADAPTER_RESOLVERS,
   type AdapterResolverFactory,
 } from "../src/HarvestRuntimeCompositionRoot";
+import { InMemoryDownloadManifestStore } from "../src/DownloadManifestStore";
 import {
   getSourceRegistryPathFromEnv,
   getSourceRegistryVerificationKeyFromEnv,
@@ -225,6 +226,7 @@ describe("P2-RUNTIME-01 — offline production composition root", () => {
       registryPath: signed.path,
       signing: verifyOnly(signed),
       quarantine: new MemoryQuarantineStorage(),
+      downloadManifestStore: new InMemoryDownloadManifestStore(),
       clock: fixedClock,
     });
 
@@ -265,6 +267,7 @@ describe("P2-RUNTIME-01 — offline production composition root", () => {
         ),
         registryPath: AUTHORITY_PATH,
         quarantine: new MemoryQuarantineStorage(),
+        downloadManifestStore: new InMemoryDownloadManifestStore(),
       }),
     ).rejects.toThrow(/signature_valid/);
   });
@@ -285,6 +288,7 @@ describe("P2-RUNTIME-01 — offline production composition root", () => {
         // No `signing` and no `registryPath`: exactly the defaults production uses.
         const { executor, registry } = await composeHarvestRuntime({
           quarantine: new MemoryQuarantineStorage(),
+          downloadManifestStore: new InMemoryDownloadManifestStore(),
           clock: fixedClock,
         });
 
@@ -319,6 +323,7 @@ describe("P2-RUNTIME-01 — offline production composition root", () => {
 
         const { registry } = await composeHarvestRuntime({
           quarantine: new MemoryQuarantineStorage(),
+          downloadManifestStore: new InMemoryDownloadManifestStore(),
           clock: fixedClock,
         });
         expect(registry.sources).toHaveLength(2);
@@ -369,6 +374,7 @@ describe("P2-RUNTIME-01 — offline production composition root", () => {
       registryPath: signed.path,
       signing: verifyOnly(signed),
       quarantine: new MemoryQuarantineStorage(),
+      downloadManifestStore: new InMemoryDownloadManifestStore(),
       clock: fixedClock,
       fetchImpl: fetchStub.impl,
       // PUH_RATTSPRAXIS_V1 deliberately withheld.
@@ -392,6 +398,7 @@ describe("P2-RUNTIME-01 — offline production composition root", () => {
       registryPath: signed.path,
       signing: verifyOnly(signed),
       quarantine: new MemoryQuarantineStorage(),
+      downloadManifestStore: new InMemoryDownloadManifestStore(),
       clock: fixedClock,
       fetchImpl: fetchStub.impl,
     });
@@ -419,6 +426,7 @@ describe("P2-RUNTIME-01 — offline production composition root", () => {
       registryPath: signed.path,
       signing: verifyOnly(signed),
       quarantine: new MemoryQuarantineStorage(),
+      downloadManifestStore: new InMemoryDownloadManifestStore(),
       clock: fixedClock,
       fetchImpl: fetchStub.impl,
     });
@@ -458,6 +466,7 @@ describe("P2-RUNTIME-01 — offline production composition root", () => {
       registryPath: signed.path,
       signing: verifyOnly(signed),
       quarantine: new MemoryQuarantineStorage(),
+      downloadManifestStore: new InMemoryDownloadManifestStore(),
       clock: fixedClock,
       fetchImpl: fetchStub.impl,
     });
@@ -524,6 +533,7 @@ describe("P2-RUNTIME-01 — offline production composition root", () => {
       registryPath: signed.path,
       signing: verifyOnly(signed),
       quarantine,
+      downloadManifestStore: new InMemoryDownloadManifestStore(),
       clock: fixedClock,
       fetchImpl: fetchStub.impl,
     });
@@ -551,6 +561,7 @@ describe("P2-RUNTIME-01 — offline production composition root", () => {
         registryPath: signed.path,
         signing: verifyOnly(signed),
         quarantine: new MemoryQuarantineStorage(),
+        downloadManifestStore: new InMemoryDownloadManifestStore(),
         clock: fixedClock,
         fetchImpl: recordingFetch(() => new Response(payload, { status: 200 })).impl,
       });
