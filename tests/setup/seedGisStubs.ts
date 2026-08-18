@@ -1,18 +1,17 @@
-import fs from 'node:fs';
-import path from 'node:path';
-import dotenv from 'dotenv';
 import pkg from 'pg';
+import { admitDisposableGisTestDatabase } from './disposableGisTestDatabase';
 const { Client } = pkg;
 
-const envTestPath = path.resolve(process.cwd(), '.env.test');
-if (fs.existsSync(envTestPath)) {
-  dotenv.config({ path: envTestPath, override: false });
-}
-dotenv.config();
+// DB-0-SAFETY: no dotenv.config() here. Loading .env in this module is what allowed the
+// destructive path below to reach a production-capable database when .env.test was absent.
+// The explicit test environment is read by admitDisposableGisTestDatabase() instead.
 
 export async function applyGisTestStubs(): Promise<void> {
+  // DB-0-SAFETY: admission must succeed before any client is constructed or connected.
+  const admitted = admitDisposableGisTestDatabase();
+
   const client = new Client({
-    connectionString: process.env.DATABASE_URL,
+    connectionString: admitted.databaseUrl,
     ssl: false,
   });
   await client.connect();

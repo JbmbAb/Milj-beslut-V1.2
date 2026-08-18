@@ -1,28 +1,26 @@
 import { execSync } from 'child_process';
-import fs from 'node:fs';
-import path from 'node:path';
-import dotenv from 'dotenv';
 import pkg from 'pg';
+import { admitDisposableGisTestDatabase } from './disposableGisTestDatabase';
 import { applyGisTestStubs, ensureTestAdminUser } from './seedGisStubs';
 const { Client } = pkg;
 
-// Align with tests/setup/env.ts so globalSetup mutates the same DATABASE_URL as integration tests.
-const envTestPath = path.resolve(process.cwd(), '.env.test');
-if (fs.existsSync(envTestPath)) {
-  dotenv.config({ path: envTestPath, override: false });
-}
-dotenv.config();
+// DB-0-SAFETY: no dotenv.config() here either. This globalSetup drops six schemas below,
+// so it is a destructive path in its own right and resolves its target the same guarded way.
+// It runs before tests/setup/env.ts, which is a setupFile and therefore cannot protect it.
 
 /** PostGIS/systemtabeller som inte ska trunceras mellan testkörningar. */
 const TRUNCATE_EXCLUDE = new Set(['_prisma_migrations', 'spatial_ref_sys']);
 
 export default async () => {
+  // DB-0-SAFETY: admission must succeed before prisma is imported or any client is connected.
+  const admitted = admitDisposableGisTestDatabase();
+
   console.log('Setting up test database...');
   const { prisma } = await import('../../server/db/prisma');
 
   // Pre-clean public schema to avoid Prisma P3005 (database not empty) error
   const preClient = new Client({
-    connectionString: process.env.DATABASE_URL,
+    connectionString: admitted.databaseUrl,
     ssl: false,
   });
   await preClient.connect();
