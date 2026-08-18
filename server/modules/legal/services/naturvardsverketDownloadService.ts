@@ -46,9 +46,20 @@ interface DownloadNaturvardsverketKnowledgeOptions {
   now?: () => Date;
 }
 
+export const NATURVARDSVERKET_LEGACY_CLASSIFICATION = 'LEGACY_NON_AUTHORITATIVE' as const;
+export const LEGACY_NATURVARDSVERKET_ACQUISITION_BLOCKED =
+  'P2-AUTH-03E2-A BLOCKED: the mixed Naturvardsverket portal/WFS/OAI downloader cannot act as ' +
+  'source authority. Exact product-relevant channels require separate signed source definitions.';
+
+function rejectLegacyNaturvardsverketAcquisition(): never {
+  throw new Error(LEGACY_NATURVARDSVERKET_ACQUISITION_BLOCKED);
+}
+
 export async function downloadNaturvardsverketKnowledge(
   options: DownloadNaturvardsverketKnowledgeOptions = {},
 ): Promise<DownloadNaturvardsverketKnowledgeResult> {
+  rejectLegacyNaturvardsverketAcquisition();
+
   const outputDir = options.outputDir ?? resolveNaturvardsverketDownloadDirectory();
   const fetchImpl = options.fetchImpl ?? ((input: string, init?: RequestInit) => fetch(input, init));
   const now = options.now ?? (() => new Date());

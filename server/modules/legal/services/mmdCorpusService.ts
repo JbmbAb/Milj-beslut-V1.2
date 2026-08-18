@@ -55,7 +55,18 @@ interface MmdCorpusOptions {
   now?: () => Date;
 }
 
+export const MMD_CORPUS_CLASSIFICATION = 'DISCOVERY_ONLY' as const;
+export const LEGACY_MMD_CORPUS_ACQUISITION_BLOCKED =
+  'P2-AUTH-03E1 BLOCKED: the MMD website catalogue is discovery-only and cannot acquire or ' +
+  'persist source payloads. Governed MMOD decisions use the verified P2/PUH source.';
+
+function rejectLegacyMmdCorpusAcquisition(): never {
+  throw new Error(LEGACY_MMD_CORPUS_ACQUISITION_BLOCKED);
+}
+
 export async function buildMmdCorpus(options: MmdCorpusOptions = {}): Promise<MmdCorpusResult> {
+  rejectLegacyMmdCorpusAcquisition();
+
   const outputDir = options.outputDir ?? resolveMmdCorpusDirectory();
   const fetchImpl = options.fetchImpl ?? ((input: string, init?: RequestInit) => fetch(input, init));
   const now = options.now ?? (() => new Date());

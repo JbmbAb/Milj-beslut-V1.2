@@ -42,6 +42,14 @@ interface OpenSourceSweepOptions {
   now?: () => Date;
 }
 
+export const OPEN_SOURCE_SWEEP_CLASSIFICATION = 'LEGACY_NON_AUTHORITATIVE_QUARANTINE' as const;
+export const LEGACY_OPEN_SOURCE_SWEEP_BLOCKED =
+  'P2-AUTH-03C BLOCKED: openSourceSweep is non-authoritative legacy discovery and cannot perform live acquisition';
+
+function rejectLegacyOpenSourceSweepAcquisition(): never {
+  throw new Error(LEGACY_OPEN_SOURCE_SWEEP_BLOCKED);
+}
+
 const OPEN_SOURCE_SWEEP_ENTRIES: readonly OpenSourceSweepEntry[] = [
   {
     id: 'scb-tables',
@@ -184,6 +192,8 @@ const OPEN_SOURCE_SWEEP_ENTRIES: readonly OpenSourceSweepEntry[] = [
 export async function downloadOpenSourceSweep(
   options: OpenSourceSweepOptions = {},
 ): Promise<OpenSourceSweepResult> {
+  rejectLegacyOpenSourceSweepAcquisition();
+
   const outputDir = options.outputDir ?? resolveOpenSourceSweepDirectory();
   const fetchImpl = options.fetchImpl ?? ((input: string, init?: RequestInit) => fetch(input, init));
   const now = options.now ?? (() => new Date());

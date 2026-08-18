@@ -80,6 +80,13 @@ export interface ImportDownloadedLegalCorpusResult {
   recordKeys: string[];
 }
 
+export const LEGACY_LEGAL_CORPUS_IMPORT_BLOCKED =
+  'P2-AUTH-03A BLOCKED: legacy downloaded material requires canonical CorpusImportGate admission before permanent legal corpus writes';
+
+function rejectLegacyLegalCorpusImport(): never {
+  throw new Error(LEGACY_LEGAL_CORPUS_IMPORT_BLOCKED);
+}
+
 interface DomstolFeedItem {
   guid: string;
   title: string;
@@ -142,6 +149,8 @@ export async function collectDownloadedLegalCorpus(
 export async function importDownloadedLegalCorpus(
   options: ImportDownloadedLegalCorpusOptions = {},
 ): Promise<ImportDownloadedLegalCorpusResult> {
+  rejectLegacyLegalCorpusImport();
+
   const rootDir = options.rootDir ?? resolveKnowledgeBaseDirectory();
   const records = await collectDownloadedLegalCorpus(options);
   const selected = options.limit ? records.slice(0, options.limit) : records;

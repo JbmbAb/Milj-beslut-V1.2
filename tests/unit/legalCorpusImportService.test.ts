@@ -48,7 +48,7 @@ describe('legalCorpusImportService', () => {
     await fs.rm(rootDir, { recursive: true, force: true });
   });
 
-  it('collects and imports a structured corpus across all downloaded source families', async () => {
+  it('collects legacy material but blocks permanent import without canonical admission', async () => {
     const records = await collectDownloadedLegalCorpus({
       rootDir,
       extractPdfText: false,
@@ -61,26 +61,13 @@ describe('legalCorpusImportService', () => {
       'env',
     );
 
-    const result = await importDownloadedLegalCorpus({
-      rootDir,
-      extractPdfText: false,
-    });
+    await expect(
+      importDownloadedLegalCorpus({ rootDir, extractPdfText: false }),
+    ).rejects.toThrow('P2-AUTH-03A BLOCKED');
 
-    expect(result.processed).toBe(15);
-    expect(result.legalSourceRecordsUpserted).toBe(15);
-    expect(result.judgmentRecordsUpserted).toBe(1);
-    expect(legalCorpusUpsertMock).toHaveBeenCalledTimes(15);
-    expect(legalCorpusUpsertMock).toHaveBeenCalledWith(
-      expect.objectContaining({
-        where: expect.objectContaining({
-          recordKey: expect.stringContaining('domstol-rss'),
-        }),
-        create: expect.objectContaining({
-          court: 'Mark- och miljööverdomstolen',
-          sourceFamily: 'JUDGMENT',
-        }),
-      }),
-    );
+    expect(upsertJudgmentMock).not.toHaveBeenCalled();
+    expect(upsertLegalSourceRecordMock).not.toHaveBeenCalled();
+    expect(legalCorpusUpsertMock).not.toHaveBeenCalled();
   });
 });
 

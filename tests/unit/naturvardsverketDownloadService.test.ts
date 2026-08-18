@@ -1,7 +1,8 @@
-import path from 'node:path';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import {
+  LEGACY_NATURVARDSVERKET_ACQUISITION_BLOCKED,
+  NATURVARDSVERKET_LEGACY_CLASSIFICATION,
   downloadNaturvardsverketKnowledge,
   resolveNaturvardsverketDownloadDirectory,
 } from '../../server/modules/legal/services/naturvardsverketDownloadService';
@@ -31,79 +32,22 @@ describe('naturvardsverketDownloadService', () => {
     vi.clearAllMocks();
   });
 
-  it('downloads NVV open data pages and capabilities with manifest', async () => {
-    const fetchImpl = vi.fn(async (input: string) => {
-      if (input.includes('vic-wfs')) {
-        throw new Error('DNS lookup failed');
-      }
+  it('fails closed before legacy NVV acquisition or output creation', async () => {
+    const fetchImpl = vi.fn();
 
-      if (input.includes('dice/oai')) {
-        return {
-          ok: true,
-          status: 200,
-          statusText: 'OK',
-          text: async () => `
-            <OAI-PMH>
-              <ListRecords>
-                <record>
-                  <header><identifier>oai:DiVA.org:naturvardsverket-8882</identifier></header>
-                  <metadata>
-                    <oai_dc:dc>
-                      <dc:title>Handbok 2010:1</dc:title>
-                      <dc:format>application/pdf</dc:format>
-                    </oai_dc:dc>
-                  </metadata>
-                </record>
-              </ListRecords>
-            </OAI-PMH>`,
-          arrayBuffer: async () => new ArrayBuffer(0),
-        };
-      }
+    expect(NATURVARDSVERKET_LEGACY_CLASSIFICATION).toBe('LEGACY_NON_AUTHORITATIVE');
+    await expect(
+      downloadNaturvardsverketKnowledge({
+        outputDir,
+        fetchImpl,
+        now: () => new Date('2026-04-27T18:30:00.000Z'),
+      }),
+    ).rejects.toThrow(LEGACY_NATURVARDSVERKET_ACQUISITION_BLOCKED);
 
-      if (input.includes('FULLTEXT01.pdf')) {
-        return {
-          ok: true,
-          status: 200,
-          statusText: 'OK',
-          text: async () => '',
-          arrayBuffer: async () => new TextEncoder().encode('%PDF-1.4 test').buffer,
-        };
-      }
-
-      return {
-        ok: true,
-        status: 200,
-        statusText: 'OK',
-        text: async () => `<body>${input}</body>`,
-        arrayBuffer: async () => new ArrayBuffer(0),
-      };
-    });
-
-    const result = await downloadNaturvardsverketKnowledge({
-      outputDir,
-      fetchImpl,
-      now: () => new Date('2026-04-27T18:30:00.000Z'),
-    });
-
-    expect(result.files).toEqual([
-      'oppnadata.html',
-      'geodatakatalogen.html',
-      'naturvardsregistret-wfs-capabilities.xml',
-      'broschyrer/manifest.json',
-    ]);
-    expect(rmMock).toHaveBeenCalledWith(outputDir, { recursive: true, force: true });
-    expect(mkdirMock).toHaveBeenCalledWith(outputDir, { recursive: true });
-    expect(writeFileMock).toHaveBeenCalledTimes(6);
-    expect(writeFileMock).toHaveBeenCalledWith(
-      path.join(outputDir, 'manifest.json'),
-      expect.stringContaining('"legacyEbhProbe"'),
-      'utf8',
-    );
-    expect(writeFileMock).toHaveBeenCalledWith(
-      path.join(outputDir, 'broschyrer', 'manifest.json'),
-      expect.stringContaining('"downloads"'),
-      'utf8',
-    );
+    expect(fetchImpl).not.toHaveBeenCalled();
+    expect(rmMock).not.toHaveBeenCalled();
+    expect(mkdirMock).not.toHaveBeenCalled();
+    expect(writeFileMock).not.toHaveBeenCalled();
   });
 
   it('resolves the default NVV output directory', () => {

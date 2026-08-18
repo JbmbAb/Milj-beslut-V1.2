@@ -1,4 +1,3 @@
-import path from 'node:path';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const { rmMock, mkdirMock, writeFileMock } = vi.hoisted(() => ({
@@ -19,6 +18,8 @@ vi.mock('node:fs/promises', () => ({
 }));
 
 import {
+  LANSSTYRELSER_CORPUS_CLASSIFICATION,
+  LEGACY_LANSSTYRELSER_CORPUS_ACQUISITION_BLOCKED,
   buildLansstyrelserCorpus,
   resolveLansstyrelserCorpusDirectory,
 } from '../../server/modules/legal/services/lansstyrelserCorpusService';
@@ -31,37 +32,18 @@ describe('lansstyrelserCorpusService', () => {
     vi.clearAllMocks();
   });
 
-  it('downloads homepage plus 21 county pages', async () => {
-    const fetchImpl = vi.fn(async (input: string) => ({
-      ok: true,
-      status: 200,
-      statusText: 'OK',
-      text: async () => `<html>${input}</html>`,
-    }));
+  it('keeps the portal catalogue discovery-only and blocks acquisition', async () => {
+    const fetchImpl = vi.fn();
 
-    const result = await buildLansstyrelserCorpus({
-      outputDir,
-      fetchImpl,
-      now: () => new Date('2026-04-27T19:45:00.000Z'),
-    });
+    await expect(buildLansstyrelserCorpus({ outputDir, fetchImpl })).rejects.toThrow(
+      LEGACY_LANSSTYRELSER_CORPUS_ACQUISITION_BLOCKED,
+    );
 
-    expect(result.processed).toBe(21);
-    expect(fetchImpl).toHaveBeenCalledTimes(22);
-    expect(writeFileMock).toHaveBeenCalledWith(
-      path.join(outputDir, 'homepage.html'),
-      expect.stringContaining('lansstyrelsen.se/'),
-      'utf8',
-    );
-    expect(writeFileMock).toHaveBeenCalledWith(
-      path.join(outputDir, 'pages', 'stockholm.html'),
-      expect.stringContaining('/stockholm'),
-      'utf8',
-    );
-    expect(writeFileMock).toHaveBeenCalledWith(
-      path.join(outputDir, 'manifest.json'),
-      expect.stringContaining('"processed": 21'),
-      'utf8',
-    );
+    expect(LANSSTYRELSER_CORPUS_CLASSIFICATION).toBe('DISCOVERY_ONLY');
+    expect(fetchImpl).not.toHaveBeenCalled();
+    expect(rmMock).not.toHaveBeenCalled();
+    expect(mkdirMock).not.toHaveBeenCalled();
+    expect(writeFileMock).not.toHaveBeenCalled();
   });
 
   it('resolves the default länsstyrelser directory', () => {

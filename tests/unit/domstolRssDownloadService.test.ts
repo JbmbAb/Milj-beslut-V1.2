@@ -1,4 +1,3 @@
-import path from 'node:path';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import {
@@ -31,7 +30,7 @@ describe('domstolRssDownloadService', () => {
     vi.clearAllMocks();
   });
 
-  it('downloads raw feed and linked decision pages', async () => {
+  it('fails closed before downloading the raw feed or linked decision pages', async () => {
     const fetchImpl = vi.fn(async (input: string) => {
       if (input.includes('/feed/15972/')) {
         return {
@@ -65,27 +64,18 @@ describe('domstolRssDownloadService', () => {
       };
     });
 
-    const result = await downloadDomstolRssFeed({
-      outputDir,
-      fetchImpl,
-      now: () => new Date('2026-04-27T18:00:00.000Z'),
-    });
+    await expect(
+      downloadDomstolRssFeed({
+        outputDir,
+        fetchImpl,
+        now: () => new Date('2026-04-27T18:00:00.000Z'),
+      }),
+    ).rejects.toThrow('P2-AUTH-03B BLOCKED');
 
-    expect(result.processed).toBe(2);
-    expect(fetchImpl).toHaveBeenCalledTimes(3);
-    expect(rmMock).toHaveBeenCalledWith(outputDir, { recursive: true, force: true });
-    expect(mkdirMock).toHaveBeenCalledWith(path.join(outputDir, 'pages'), { recursive: true });
-    expect(writeFileMock).toHaveBeenCalledWith(path.join(outputDir, 'feed.xml'), expect.any(String), 'utf8');
-    expect(writeFileMock).toHaveBeenCalledWith(
-      path.join(outputDir, 'pages', 'dom-1.html'),
-      expect.stringContaining('https://www.domstol.se/example/dom-1'),
-      'utf8',
-    );
-    expect(writeFileMock).toHaveBeenLastCalledWith(
-      path.join(outputDir, 'items.json'),
-      expect.stringContaining('"processed": 2'),
-      'utf8',
-    );
+    expect(fetchImpl).not.toHaveBeenCalled();
+    expect(rmMock).not.toHaveBeenCalled();
+    expect(mkdirMock).not.toHaveBeenCalled();
+    expect(writeFileMock).not.toHaveBeenCalled();
   });
 
   it('resolves the default output directory', () => {

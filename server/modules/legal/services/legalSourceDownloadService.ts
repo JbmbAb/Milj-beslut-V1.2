@@ -1,18 +1,5 @@
-import * as fs from 'node:fs/promises';
-import path from 'node:path';
 import type { DownloadableLegalSourceDefinition } from '../catalogs/curatedLegalDownloadSources';
 import { resolveKnowledgeBasePath } from '../../../services/importPathService';
-
-type FetchResponseLike = {
-  ok: boolean;
-  status: number;
-  headers: {
-    get(name: string): string | null;
-  };
-  arrayBuffer(): Promise<ArrayBuffer>;
-};
-
-type FetchLike = (input: string, init?: RequestInit) => Promise<FetchResponseLike>;
 
 export interface DownloadedLegalSource {
   definitionIds: string[];
@@ -36,146 +23,35 @@ export interface DownloadLegalSourcesResult {
   downloads: DownloadedLegalSource[];
 }
 
-interface DownloadLegalSourcesOptions {
+export interface DownloadLegalSourcesOptions {
   definitions: readonly DownloadableLegalSourceDefinition[];
   outputDir: string;
-  fetchImpl?: FetchLike;
+  fetchImpl?: unknown;
   now?: () => Date;
 }
 
+export const LEGACY_LEGAL_ACQUISITION_BLOCKED =
+  'P2-AUTH-03D3 BLOCKED: curated/foundation legal acquisition is superseded by the verified ' +
+  'SourceRegistry and governed P2 download path. Existing files remain read-only ' +
+  'LEGACY_NON_AUTHORITATIVE material.';
+
+/**
+ * P2-AUTH-03D3 — the legacy acquisition capability has been removed, not modernized.
+ *
+ * The parameter is retained only so old callers fail at this boundary without silently changing
+ * call shape. There is no fetch, archive writer or manifest writer left in this module.
+ */
 export async function downloadLegalSources(
-  options: DownloadLegalSourcesOptions,
+  _options: DownloadLegalSourcesOptions,
 ): Promise<DownloadLegalSourcesResult> {
-  const fetchImpl = options.fetchImpl ?? ((input: string, init?: RequestInit) => fetch(input, init));
-  const now = options.now ?? (() => new Date());
-  const groupedDefinitions = groupDefinitionsByUrl(options.definitions);
-  const slugCounts = new Map<string, number>();
-
-  await fs.mkdir(options.outputDir, { recursive: true });
-
-  const downloads: DownloadedLegalSource[] = [];
-
-  for (const definitions of groupedDefinitions) {
-    const primaryDefinition = definitions[0];
-    if (!primaryDefinition) {
-      continue;
-    }
-
-    const response = await fetchImpl(primaryDefinition.sourceUrl, {
-      headers: {
-        Accept: 'text/html,application/xhtml+xml,application/xml;q=0.9,text/plain;q=0.8,*/*;q=0.1',
-        'User-Agent': 'Miljobeslut Legal Downloader/1.0',
-      },
-    });
-
-    if (!response.ok) {
-      throw new Error(
-        `Kunde inte ladda ner ${primaryDefinition.externalId} från ${primaryDefinition.sourceUrl} (HTTP ${response.status})`,
-      );
-    }
-
-    const savedAt = now().toISOString();
-    const contentType = normalizeContentType(response.headers.get('content-type'));
-    const extension = inferFileExtension(contentType);
-    const fileName = buildUniqueFileName(primaryDefinition.fileSlug, extension, slugCounts);
-    const absolutePath = path.join(options.outputDir, fileName);
-    const body = Buffer.from(await response.arrayBuffer());
-
-    await fs.writeFile(absolutePath, body);
-
-    downloads.push({
-      definitionIds: definitions.map((definition) => definition.id),
-      externalIds: definitions.map((definition) => definition.externalId),
-      titles: definitions.map((definition) => definition.title),
-      authorityNames: definitions.map((definition) => definition.authorityName),
-      sourceSystems: unique(definitions.map((definition) => definition.sourceSystem)),
-      sourceTypes: unique(definitions.map((definition) => definition.sourceType)),
-      collections: unique(definitions.map((definition) => definition.collection)),
-      sourceUrl: primaryDefinition.sourceUrl,
-      contentType,
-      bytes: body.byteLength,
-      savedAs: fileName,
-      savedAt,
-    });
-  }
-
-  const manifestPath = path.join(options.outputDir, 'manifest.json');
-  await fs.writeFile(
-    manifestPath,
-    JSON.stringify(
-      {
-        generatedAt: now().toISOString(),
-        processed: downloads.length,
-        downloads,
-      },
-      null,
-      2,
-    ),
-    'utf8',
-  );
-
-  return {
-    processed: downloads.length,
-    outputDir: options.outputDir,
-    manifestPath,
-    downloads,
-  };
+  return rejectLegacyLegalAcquisition('legalSourceDownloadService');
 }
 
+export function rejectLegacyLegalAcquisition(surface: string): never {
+  throw new Error(`${LEGACY_LEGAL_ACQUISITION_BLOCKED} Surface: ${surface}.`);
+}
+
+/** Read-only location of already downloaded legacy material; no writer remains. */
 export function resolveCuratedLegalDownloadDirectory(): string {
   return resolveKnowledgeBasePath('legal', 'curated-downloads');
-}
-
-function groupDefinitionsByUrl(
-  definitions: readonly DownloadableLegalSourceDefinition[],
-): DownloadableLegalSourceDefinition[][] {
-  const grouped = new Map<string, DownloadableLegalSourceDefinition[]>();
-
-  for (const definition of definitions) {
-    const current = grouped.get(definition.sourceUrl);
-    if (current) {
-      current.push(definition);
-      continue;
-    }
-
-    grouped.set(definition.sourceUrl, [definition]);
-  }
-
-  return [...grouped.values()];
-}
-
-function normalizeContentType(contentType: string | null): string {
-  return contentType?.split(';')[0]?.trim().toLowerCase() || 'application/octet-stream';
-}
-
-function inferFileExtension(contentType: string): string {
-  switch (contentType) {
-    case 'text/html':
-    case 'application/xhtml+xml':
-      return '.html';
-    case 'application/json':
-      return '.json';
-    case 'application/xml':
-    case 'text/xml':
-      return '.xml';
-    case 'text/plain':
-      return '.txt';
-    default:
-      return '.bin';
-  }
-}
-
-function buildUniqueFileName(baseSlug: string, extension: string, slugCounts: Map<string, number>): string {
-  const nextCount = (slugCounts.get(baseSlug) ?? 0) + 1;
-  slugCounts.set(baseSlug, nextCount);
-
-  if (nextCount === 1) {
-    return `${baseSlug}${extension}`;
-  }
-
-  return `${baseSlug}-${nextCount}${extension}`;
-}
-
-function unique(values: readonly string[]): string[] {
-  return [...new Set(values)];
 }

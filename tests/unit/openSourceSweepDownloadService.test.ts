@@ -1,4 +1,3 @@
-import path from 'node:path';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import {
@@ -31,7 +30,7 @@ describe('openSourceSweepDownloadService', () => {
     vi.clearAllMocks();
   });
 
-  it('downloads accessible open sources and records failures in manifest', async () => {
+  it('fails closed before downloading sources or writing a manifest', async () => {
     const fetchImpl = vi.fn(async (input: string) => {
       if (input.includes('smp.lansstyrelsen.se')) {
         return {
@@ -50,19 +49,18 @@ describe('openSourceSweepDownloadService', () => {
       };
     });
 
-    const result = await downloadOpenSourceSweep({
-      outputDir,
-      fetchImpl,
-      now: () => new Date('2026-04-27T19:00:00.000Z'),
-    });
+    await expect(
+      downloadOpenSourceSweep({
+        outputDir,
+        fetchImpl,
+        now: () => new Date('2026-04-27T19:00:00.000Z'),
+      }),
+    ).rejects.toThrow('P2-AUTH-03C BLOCKED');
 
-    expect(result.attempted).toBe(21);
-    expect(result.downloaded).toBe(20);
-    expect(writeFileMock).toHaveBeenCalledWith(
-      path.join(outputDir, 'manifest.json'),
-      expect.stringContaining('"downloaded": 20'),
-      'utf8',
-    );
+    expect(fetchImpl).not.toHaveBeenCalled();
+    expect(rmMock).not.toHaveBeenCalled();
+    expect(mkdirMock).not.toHaveBeenCalled();
+    expect(writeFileMock).not.toHaveBeenCalled();
   });
 
   it('resolves the default sweep output directory', () => {

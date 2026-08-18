@@ -1,4 +1,3 @@
-import path from 'node:path';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const { rmMock, mkdirMock, writeFileMock } = vi.hoisted(() => ({
@@ -19,6 +18,8 @@ vi.mock('node:fs/promises', () => ({
 }));
 
 import {
+  LEGACY_MMD_CORPUS_ACQUISITION_BLOCKED,
+  MMD_CORPUS_CLASSIFICATION,
   buildMmdCorpus,
   resolveMmdCorpusDirectory,
 } from '../../server/modules/legal/services/mmdCorpusService';
@@ -31,37 +32,18 @@ describe('mmdCorpusService', () => {
     vi.clearAllMocks();
   });
 
-  it('downloads overview and five environmental court pages', async () => {
-    const fetchImpl = vi.fn(async (input: string) => ({
-      ok: true,
-      status: 200,
-      statusText: 'OK',
-      text: async () => `<html>${input}</html>`,
-    }));
+  it('keeps the website catalogue discovery-only and blocks acquisition', async () => {
+    const fetchImpl = vi.fn();
 
-    const result = await buildMmdCorpus({
-      outputDir,
-      fetchImpl,
-      now: () => new Date('2026-04-27T19:20:00.000Z'),
-    });
+    await expect(buildMmdCorpus({ outputDir, fetchImpl })).rejects.toThrow(
+      LEGACY_MMD_CORPUS_ACQUISITION_BLOCKED,
+    );
 
-    expect(result.processed).toBe(5);
-    expect(fetchImpl).toHaveBeenCalledTimes(6);
-    expect(writeFileMock).toHaveBeenCalledWith(
-      path.join(outputDir, 'overview.html'),
-      expect.stringContaining('har-finns-vi'),
-      'utf8',
-    );
-    expect(writeFileMock).toHaveBeenCalledWith(
-      path.join(outputDir, 'pages', 'nacka-tingsratt.html'),
-      expect.stringContaining('nacka-tingsratt'),
-      'utf8',
-    );
-    expect(writeFileMock).toHaveBeenCalledWith(
-      path.join(outputDir, 'manifest.json'),
-      expect.stringContaining('"processed": 5'),
-      'utf8',
-    );
+    expect(MMD_CORPUS_CLASSIFICATION).toBe('DISCOVERY_ONLY');
+    expect(fetchImpl).not.toHaveBeenCalled();
+    expect(rmMock).not.toHaveBeenCalled();
+    expect(mkdirMock).not.toHaveBeenCalled();
+    expect(writeFileMock).not.toHaveBeenCalled();
   });
 
   it('resolves the default MMD corpus directory', () => {

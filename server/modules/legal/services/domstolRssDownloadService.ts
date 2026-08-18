@@ -5,6 +5,13 @@ import { resolveKnowledgeBasePath } from '../../../services/importPathService';
 
 const DOMSTOL_RSS_FEED_URL = 'https://www.domstol.se/feed/15972/?scope=decision&searchPageId=15972';
 
+export const LEGACY_DOMSTOL_RSS_DOWNLOAD_BLOCKED =
+  'P2-AUTH-03B BLOCKED: legacy Domstol RSS download is superseded; use the governed P2/PUH runtime';
+
+function rejectLegacyDomstolRssDownload(): never {
+  throw new Error(LEGACY_DOMSTOL_RSS_DOWNLOAD_BLOCKED);
+}
+
 type FetchResponseLike = {
   ok: boolean;
   status: number;
@@ -49,6 +56,8 @@ interface DownloadDomstolRssOptions {
 export async function downloadDomstolRssFeed(
   options: DownloadDomstolRssOptions = {},
 ): Promise<DownloadDomstolRssResult> {
+  rejectLegacyDomstolRssDownload();
+
   const outputDir = options.outputDir ?? resolveDomstolRssDownloadDirectory();
   const fetchImpl = options.fetchImpl ?? ((input: string, init?: RequestInit) => fetch(input, init));
   const now = options.now ?? (() => new Date());

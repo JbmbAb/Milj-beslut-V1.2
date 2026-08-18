@@ -1,4 +1,3 @@
-import path from 'node:path';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { CURATED_LEGAL_DOWNLOAD_SOURCES } from '../../server/modules/legal/catalogs/curatedLegalDownloadSources';
@@ -29,7 +28,7 @@ describe('legalSourceDownloadService', () => {
     vi.clearAllMocks();
   });
 
-  it('deduplicates shared source URLs and writes a manifest', async () => {
+  it('fails closed before network or archive writes for curated legacy sources', async () => {
     const fetchImpl = vi.fn(async (input: string) => ({
       ok: true,
       status: 200,
@@ -39,26 +38,18 @@ describe('legalSourceDownloadService', () => {
       arrayBuffer: async () => Buffer.from(`<html>${input}</html>`) as unknown as ArrayBuffer,
     }));
 
-    const result = await downloadLegalSources({
-      definitions: CURATED_LEGAL_DOWNLOAD_SOURCES,
-      outputDir,
-      fetchImpl,
-      now: () => new Date('2026-04-26T12:00:00.000Z'),
-    });
+    await expect(
+      downloadLegalSources({
+        definitions: CURATED_LEGAL_DOWNLOAD_SOURCES,
+        outputDir,
+        fetchImpl,
+        now: () => new Date('2026-04-26T12:00:00.000Z'),
+      }),
+    ).rejects.toThrow(/P2-AUTH-03D3 BLOCKED/);
 
-    expect(fetchImpl).toHaveBeenCalledTimes(12);
-    expect(result.processed).toBe(12);
-    expect(result.downloads[0]).toMatchObject({
-      definitionIds: ['foundation.mb', 'sewage.mb'],
-      externalIds: ['SFS:1998:808', 'SFS:1998:808'],
-      savedAs: 'sfs-1998-808.html',
-    });
-    expect(writeFileMock).toHaveBeenCalledTimes(13);
-    expect(writeFileMock).toHaveBeenLastCalledWith(
-      path.join(outputDir, 'manifest.json'),
-      expect.stringContaining('"processed": 12'),
-      'utf8',
-    );
+    expect(fetchImpl).not.toHaveBeenCalled();
+    expect(mkdirMock).not.toHaveBeenCalled();
+    expect(writeFileMock).not.toHaveBeenCalled();
   });
 
   it('resolves the curated output directory under dossiers knowledge base', () => {

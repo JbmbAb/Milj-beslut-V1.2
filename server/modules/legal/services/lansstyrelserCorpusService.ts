@@ -49,9 +49,20 @@ interface LansstyrelserCorpusOptions {
   now?: () => Date;
 }
 
+export const LANSSTYRELSER_CORPUS_CLASSIFICATION = 'DISCOVERY_ONLY' as const;
+export const LEGACY_LANSSTYRELSER_CORPUS_ACQUISITION_BLOCKED =
+  'P2-AUTH-03E1 BLOCKED: the Lansstyrelsen portal catalogue is discovery-only and cannot ' +
+  'acquire or persist source payloads. Future authority requires exact signed endpoints.';
+
+function rejectLegacyLansstyrelserCorpusAcquisition(): never {
+  throw new Error(LEGACY_LANSSTYRELSER_CORPUS_ACQUISITION_BLOCKED);
+}
+
 export async function buildLansstyrelserCorpus(
   options: LansstyrelserCorpusOptions = {},
 ): Promise<LansstyrelserCorpusResult> {
+  rejectLegacyLansstyrelserCorpusAcquisition();
+
   const outputDir = options.outputDir ?? resolveLansstyrelserCorpusDirectory();
   const fetchImpl = options.fetchImpl ?? ((input: string, init?: RequestInit) => fetch(input, init));
   const now = options.now ?? (() => new Date());
