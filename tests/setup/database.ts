@@ -1,6 +1,10 @@
 import { execSync } from 'child_process';
 import pkg from 'pg';
 import { admitDisposableGisTestDatabase } from './disposableGisTestDatabase';
+import {
+  assertRequiredSpatialExtensions,
+  MissingSpatialExtensionsError,
+} from './requiredSpatialExtensions';
 import { applyGisTestStubs, ensureTestAdminUser } from './seedGisStubs';
 const { Client } = pkg;
 
@@ -25,6 +29,10 @@ export default async () => {
   });
   await preClient.connect();
   try {
+    // GIS_TEST_DB_EXTENSION_OWNERSHIP-01: this globalSetup drops six schemas below, so it is
+    // destructive in its own right and must not start against an unprovisioned database.
+    await assertRequiredSpatialExtensions(preClient, admitted.databaseName);
+
     const publicTables = await preClient.query(`
       SELECT tablename FROM pg_tables WHERE schemaname = 'public'
     `);
@@ -52,6 +60,10 @@ export default async () => {
       'Pre-cleaned public, env, core, topo10, climate, lm_staging, hydro schemas in test database.',
     );
   } catch (err) {
+    // A missing extension is a provisioning failure, not a pre-clean hiccup. Swallowing it
+    // here would let the run continue into migrate deploy against an unprovisioned database
+    // and surface as an unrelated failure much later.
+    if (err instanceof MissingSpatialExtensionsError) throw err;
     console.warn('Failed to pre-clean public schema in test database:', err);
   } finally {
     await preClient.end();

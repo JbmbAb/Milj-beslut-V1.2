@@ -1,5 +1,6 @@
 import pkg from 'pg';
 import { admitDisposableGisTestDatabase } from './disposableGisTestDatabase';
+import { assertRequiredSpatialExtensions } from './requiredSpatialExtensions';
 const { Client } = pkg;
 
 // DB-0-SAFETY: no dotenv.config() here. Loading .env in this module is what allowed the
@@ -16,12 +17,11 @@ export async function applyGisTestStubs(): Promise<void> {
   });
   await client.connect();
   try {
-    await client.query('DROP EXTENSION IF EXISTS postgis_raster CASCADE');
-    await client.query('DROP EXTENSION IF EXISTS postgis CASCADE');
-    await client.query('CREATE EXTENSION postgis');
-    await client.query('CREATE EXTENSION postgis_raster');
-    await client.query('CREATE EXTENSION IF NOT EXISTS "unaccent";');
-    await client.query('CREATE EXTENSION IF NOT EXISTS "pg_trgm";');
+    // GIS_TEST_DB_EXTENSION_OWNERSHIP-01: extensions belong to provisioning, not to the test
+    // run. This verifies and never mutates them, so the destructive work below cannot start
+    // against a database whose spatial extensions are absent.
+    await assertRequiredSpatialExtensions(client, admitted.databaseName);
+
     await client.query('CREATE SCHEMA IF NOT EXISTS "env";');
     await client.query('CREATE SCHEMA IF NOT EXISTS "core";');
     await client.query('CREATE SCHEMA IF NOT EXISTS "topo10";');

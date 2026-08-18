@@ -107,14 +107,21 @@ const INDEXES = [
 ];
 
 /**
- * Every extension the migrations declare, plus `unaccent` for core.normalize_designation.
+ * Every extension the migrations declare, plus `unaccent` for core.normalize_designation and
+ * `pg_trgm` for the trigram index on core.property_unit.designation_norm.
  *
  * All of these must be created by the admin role BEFORE `migrate deploy` runs. The migrations
  * say `CREATE EXTENSION IF NOT EXISTS`, but they execute as the test role, which is not
  * superuser — so the statement is a permission error unless the extension already exists, in
  * which case it is a harmless no-op.
+ *
+ * GIS_TEST_DB_EXTENSION_OWNERSHIP-01: extensions are a provisioning concern, never a per-test
+ * one. `pg_trgm` and `unaccent` happen to be trusted in PostgreSQL 16 and could technically be
+ * created by the test role, but splitting the lifecycle on whether Postgres marks an extension
+ * trusted would leave two different rules for the same kind of object. All of them are
+ * provisioned here; tests/setup/seedGisStubs.ts only ever verifies that they are present.
  */
-const EXTENSIONS = ['postgis', 'postgis_raster', 'vector', 'unaccent'];
+const EXTENSIONS = ['postgis', 'postgis_raster', 'vector', 'unaccent', 'pg_trgm'];
 
 function readEnvFile(path: string): Record<string, string> {
   try {
