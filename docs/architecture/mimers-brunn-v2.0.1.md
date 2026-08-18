@@ -3,11 +3,12 @@
 | Field | Value |
 | --- | --- |
 | **Type** | DATA_GOVERNANCE_POLICY |
-| **Status** | ACTIVE |
+| **Status** | LEGACY |
 | **Authority** | Architecture Governance |
 | **Revision** | 2.0.1 Integrity Clarification |
 | **Version Date** | 2026-08-07 |
 
+Superseded by: [Mimers Brunn v3.0.0](mimers-brunn-v3.0.0.md).
 Supersedes: Mimers Brunn v1.0 (`mimers-brunn-offline-first.md` → LEGACY).
 
 ---

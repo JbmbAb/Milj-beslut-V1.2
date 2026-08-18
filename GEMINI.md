@@ -26,8 +26,8 @@ Mimer-plattformen har framgångsrikt bevisat följande tekniska och kryptografis
 - **Failover utan Single Point of Failure:** Verifierad synk och robust failover på distribuerade filsystem (NFSv4) som bevisat i hermetiska labs.
 
 ### 2.4 Robust datainhämtning (Mimers Brunn Policy)
-- **Canonical:** [Mimers Brunn v2.0.1 — Final Frozen Edition](docs/architecture/mimers-brunn-v2.0.1.md) (ACTIVE, 2026-08-07).
-- **Download-First / Archive-First:** Alla geodataset skördas, versioneras och arkiveras fysiskt i Master-arkivet med checksums (SHA-256) innan import sker till PostGIS. PostGIS är en projektion, inte sanningskälla. Import kräver DatasetApprovalArtifact (inga self-approvals).
+- **Canonical:** [Mimers Brunn v3.0.0 — National Environmental Knowledge Corpus](docs/architecture/mimers-brunn-v3.0.0.md) (ACTIVE, 2026-08-09).
+- **Download-First / Archive-First:** All miljödata skördas, versioneras och arkiveras oförändrat fysiskt i Master-arkivet med checksums (SHA-256). PostGIS är en projektion, inte sanningskälla. Import kräver DatasetApprovalArtifact (inga self-approvals).
 
 ---
 
@@ -40,8 +40,8 @@ För att bevara plattformens identitet och förankra våra autonoma system i ett
 | **Mimer** | Detekterings- & Replay-motor | Vishetens jätte vid Mimers Brunn | Garanterar plattformens matematiska och kryptografiska sanning. |
 | **Mimer Bibliotekarie** | Datakoordinator | Ansvarig för Mimers Brunn | Granskar, planerar och optimerar geodataflöden (Mimers Brunn-policyn). |
 | **Heimdall** | Moln- & AI-Arkitekt | Väktaren som ser och hör allt | Övervakar arkitekturen (GCP, Vertex AI), säkerhet, och systemgränser. |
-| **Tor** | Kodimplementör (Copilot Agent) | Den starke beskyddaren | Den primära agenten som skriver, testar, validerar och commitar kod. |
-| **Loke** | Prototypings- & Tvätt-agent | Den listige formskiftaren | Genererar experimentella prompter, prototyper och utför datatvätt. |
+| **Tor** | Kodimplementör (Copilot Agent) | Den starke beskyddaren | Implementerar pipeline och index. Får inte ändra källscope implicit, radera Raw Archive eller göra relevansbedömning till destruktiv operation. |
+| **Loke** | Datainsamlare & Tvätt-agent | Den listige formskiftaren | Får hämta från Source Registry, måste följa source-specific limits, måste bevara provenance, får inte permanent filtrera/radera. |
 | **Freja** | Gränssnitts- & Styling-agent | Skönhetens och estetikens gudinna | Hanterar frontend-design, layout, tokens och visuella finslipningar. |
 | **Odin** | Forsknings- & Diagnos-agent | Allfader, sökare av djup kunskap | Genomför djupgående kodanalyser, felsökning och systemundersökningar. |
 | **Sleipner** | Migrations- & Failover-agent | Den åttafotade snabbe springaren | Hanterar backup, restore, och failover-procedurer över systemgränser. |
@@ -64,51 +64,43 @@ Denna namngivningspolicy är normativ. Inga agenter får namnges med generiska e
 
 ---
 
-## 5. Arkitekturpolicy: Mimers Brunn (Offline-First) & National Environmental Archive
+## 5. Arkitekturpolicy: Mimers Brunn (National Environmental Knowledge Corpus)
 
-**Normativ policy:** [Mimers Brunn v2.0.1 — Final Frozen Edition](docs/architecture/mimers-brunn-v2.0.1.md) (ACTIVE). Nedan är agent-orienterad sammanfattning (ingest / National Archive); lifecycle, approval och MB-kontroller styrs av v2.0.1.
+**Normativ policy:** [Mimers Brunn v3.0.0 — National Knowledge Corpus](docs/architecture/mimers-brunn-v3.0.0.md) (ACTIVE). Nedan är agent-orienterad sammanfattning för hur den nationella miljökorpusen samlas in.
 
-### Bakgrund och Syfte
-Offentlig miljödata är flyktig. Erfarenhet visar att livsviktig historik (t.ex. grundvattenutredningar från VISS) raderas eller döljs av myndigheter över tid. Ett externt Live-API garanterar inte datans överlevnad. För att Mimer (AI:n) ska uppnå sann Miljöintelligens, måste all data ägas och lagras lokalt i ett oförvanskbart råarkiv först.
+### Bakgrund och Syfte (Fryst Princip)
+Offentlig miljödata är flyktig. API:er, tjänster och länkar försvinner. Vi bygger inte ett juridiskt arkiv, vi bygger en **Nationell Miljökunskapskorpus**.
+Därför gäller en tvingande insamlingsprincip: **Hämta först. Bevara originalet. Klassificera senare. Filtrera endast genom explicit, versionerad och reversibel policy.**
+Ingen informationsförlust får ske genom tidig relevansfiltrering. Ingen källa får permanent förloras på grund av en agents relevansbedömning. Loke hämtar, Tor implementerar.
 
-### Den 6-stegade Ingest-Pipelinen (The "Right Model")
-För att bevara kausalitet, tidslinjer och det semantiska nätverket (t.ex. kopplingen mellan ett tillstånd från 2024 och en tillsynsrapport från 2026), damsuger vi aldrig "alla PDF:er direkt in i RAG". Vi använder följande pipeline:
+### Den 5-skiktade Kunskapsarkitekturen (The 5-Tier Knowledge Architecture)
+För att förhindra att Mimer drunknar i data separerar vi insamling från indexering i fem frysta skikt:
 
-1. **Source (Nationella källor):** MPD, MMD, Tillsyn etc.
-2. **Raw Artifact (National Environmental Archive):** Säkra rådatan (PDF, TXT) i en oföränderlig filstruktur.
-3. **Classification (Document Intelligence):** Fastställ dokumentets roll (beslut, mkb, yttrande) och juridiska vikt (primary, evidence).
-4. **Case Binding (Bundle Manifest):** Knyt samman relaterade dokument till ett miljöärende (Bundle).
-5. **Evidence (Case Intelligence Layer):** Semantisk sektionsdetektering och relationsbygge (Evidence Chunks).
-6. **Index (3-Tier Database):** Lagra i Bundle Index (PostgreSQL), Evidence Index (PostGIS), och Semantic Index (pgvector) före RAG.
+1. **Tier 1: Source Registry:** Den enda auktoritativa auktorisationspunkten för extern harvesting. Ostrukturerad webbcrawling är förbjuden.
+2. **Tier 2: Raw Archive (Allt inom registret):** Allt hämtas ner. Originalbyte bevaras. Inget raderas på grund av AI-bedömd irrelevans.
+3. **Tier 3: Inventory (Allt klassificerat):** Allt beskrivs (Vad, Vem, Domän, Datum) och tilldelas metadata-relevans.
+4. **Tier 4: Knowledge Corpus (Selekterat):** Ett reproducerbart, versionshanterat urval från Inventory, skapat genom explicit policy. Alla exkluderingar måste vara spårbara.
+5. **Tier 5: RAG / Domain Indexes (Domänspecifik Representation):** Vi tvingar inte in allt i samma RAG. Rätt representation för rätt data (Legal, Spatial, Temporal, Vector).
 
 ### Katalogstruktur: National Environmental Archive
 Skriv direkt till den kanoniska strukturen i Master-arkivet:
-`H:\Delade enheter\Miljöbeslut\GEO_Master_Archive\National_Archive\<Authority>\<Year>\<Municipality>\<Case_ID>\`
+`H:\Delade enheter\Miljöbeslut\GEO_Master_Archive\National_Archive\<Authority>\<Year>\<Municipality>\<Case_ID_or_Dataset>\`
 
-Inom varje ärendemapp tillämpas strikta lager:
-- `/original/` (Råa PDF:er, Word-dokument)
-- `/extracted/` (Konverterad text)
-- `/manifest.json` (eller `bundle_manifest.json` för paketering och provenance)
-- `/hashes/` (Kryptografiska checksummor)
+Inom varje arkiv-mapp tillämpas strikta lager:
+- `/original/` (Rådata, PDF:er, shapefiler)
+- `/extracted/` (Konverterad text/data)
+- `/manifest.json` (Paketering och provenance)
+- `/hashes/` (Kryptografiska checksummor, SHA-256)
 
-### Dataprioritering för Inhämtning (Harvesting)
-1. **Fas 1 — Högsta juridiska värde:** Miljöprövning (MPD, Mark- och miljödomstolar, överklaganden, kungörelser).
-2. **Fas 2 — Hög volym & avvikelser:** Kommunal tillsyn (förelägganden, inspektionsrapporter, miljörapporter).
-3. **Fas 3 — Kompletterande evidens:** Vattenärenden, förorenade områden, artskydd, kontrollprogram.
+### Utökat Producent- och Klass-scope
+Vi inventerar hela miljödatakäll-landskapet, inklusive: SGU, SGI, Naturvårdsverket, SLU, Jordbruksverket, Skogsstyrelsen, SMHI, VISS, HaV, SVA, SCB, SMED, DiVA, Dataportal, Länsstyrelser, Kommuner, Boverket, Trafikverket.
 
 ### Tekniska Krav för Harvesting-logik (scripts/import/)
-För att säkra datans integritet och tillgänglighet måste alla nya skript hantera:
-
-1.  **Versionering (Myndighetsrättelser):**
-    - Skriv aldrig över existerande data. Om ny data hämtas för samma dataset, lagra den i en ny tidsstämplad undermapp.
-2.  **"Polite Scraping" (Rate-Limiting & Retries):**
-    - Implementera alltid fördröjningar (sleep/delay) mellan anrop.
-    - Använd robust felhantering med retries.
-3.  **Bevis på integritet (Checksums):**
-    - Beräkna SHA-256 hash för varje nedladdad fil. Lagra i manifestet.
-
-### Instruktion för Agenter
-Vid utveckling av nya datainhämtningsmoduler (under `scripts/import/`), följ strikt denna policy. Fokusera på att bygga robusta nedladdnings-pipelines ("Harvesting") som säkrar datan på H-disken enligt The Right Model (`Source -> Raw Artifact -> Classification -> Case Binding -> Evidence -> Index`). Målet är att bygga ett RAG-system baserat på en komplett evidensgraf, inte bara isolerade textklumpar.
+Alla nya skript ska hantera:
+1.  **Ingen tidig filtrering:** Ladda ner källan och spara i Raw Archive, oavsett om den vid första anblicken verkar irrelevant.
+2.  **Versionering (Myndighetsrättelser):** Skriv aldrig över. Om ny data hämtas, lagra den i en ny tidsstämplad undermapp.
+3.  **"Polite Scraping":** Implementera fördröjningar och robust felhantering.
+4.  **Bevis på integritet:** SHA-256 hash för varje fil, lagrat i manifestet.
 
 ---
 
