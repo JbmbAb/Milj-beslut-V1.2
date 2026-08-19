@@ -59,7 +59,10 @@ export async function issueExecutionIdentity(input: {
   const attestation = await createArtifactAttestation({
     subjectDigest: identity.content_hash.value,
     predicateType: LU_EXECUTION_IDENTITY_ATTESTATION_PREDICATE_TYPE,
-    predicate,
+    // LU-ISSUER-TYPE-CLOSURE-01: interfaces are not implicitly assignable to
+    // Record<string, unknown> in TypeScript. Spreading into a fresh object literal satisfies the
+    // index-signature type without a cast that would hide a real future field mismatch.
+    predicate: { ...predicate },
     signing: signer,
   });
 
