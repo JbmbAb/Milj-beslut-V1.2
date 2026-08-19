@@ -95,10 +95,14 @@ export function createRepository(optionsOverrides: any = {}) {
       async verifyHash(...args: any[]) {}
     },
     exporter: repo.exporter,
-    lineage: {
-      ...repo.lineage,
+    // Object.assign, not spread: repo.lineage is a class instance (DeterministicLineageGraph).
+    // Spreading it into a fresh object literal only copies own enumerable properties, silently
+    // dropping every prototype method (parents/children/ancestors/descendants). Object.assign
+    // mutates the real instance in place, preserving its prototype chain, while still adding the
+    // extra convenience `lineage()` method.
+    lineage: Object.assign(repo.lineage, {
       async lineage(...args: any[]) { return [{ artifactId: 'a', hash: 'h' }, { artifactId: 'b', hash: 'h' }]; }
-    },
+    }),
     snapshots: {
       ...repo.snapshots,
       async createSnapshot(...args: any[]) { return { ref: { artifactId: 'snap', hash: 'snap-hash' } }; },
