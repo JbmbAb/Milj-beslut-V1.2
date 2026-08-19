@@ -11,6 +11,10 @@ export interface PortExtractionOutcome {
   readonly ocr_used: boolean;
   readonly ocr_method?: string;
   readonly ocr_version?: string;
+  /** Page count reported by the OCR provider that produced the text, when it reports one. */
+  readonly ocr_page_count?: number;
+  /** Confidence reported by the OCR provider that produced the text, when it reports one. */
+  readonly ocr_confidence?: number;
   readonly steps: ReadonlyArray<{
     method: string;
     version: string;
@@ -48,6 +52,8 @@ export async function extractTextViaPorts(input: {
   let ocr_used = false;
   let ocr_method: string | undefined;
   let ocr_version: string | undefined;
+  let ocr_page_count: number | undefined;
+  let ocr_confidence: number | undefined;
 
   const enableOcr = input.enable_ocr_fallback !== false;
   if (enableOcr && text.length < minChars) {
@@ -67,6 +73,8 @@ export async function extractTextViaPorts(input: {
         ocr_used = true;
         ocr_method = result.method;
         ocr_version = result.version;
+        ocr_page_count = result.page_count;
+        ocr_confidence = result.confidence;
         if (text.length > 0 && !result.text.includes(text)) {
           text = `${text}\n${result.text}`;
         } else {
@@ -84,6 +92,8 @@ export async function extractTextViaPorts(input: {
     ocr_used,
     ...(ocr_method ? { ocr_method } : {}),
     ...(ocr_version ? { ocr_version } : {}),
+    ...(typeof ocr_page_count === 'number' ? { ocr_page_count } : {}),
+    ...(typeof ocr_confidence === 'number' ? { ocr_confidence } : {}),
     steps,
   };
 }

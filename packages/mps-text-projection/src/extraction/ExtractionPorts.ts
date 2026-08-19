@@ -11,6 +11,10 @@ export interface ExtractionResult {
   readonly version: string;
   readonly succeeded: boolean;
   readonly notes?: string;
+  /** Page count reported by the provider, when it reports one (e.g. external OCR). */
+  readonly page_count?: number;
+  /** Provider-reported confidence, when it reports one (e.g. external OCR). */
+  readonly confidence?: number;
 }
 
 export interface TextExtractorPort {

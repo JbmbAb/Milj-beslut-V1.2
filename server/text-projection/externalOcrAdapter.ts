@@ -49,7 +49,11 @@ export class ExternalOcrAdapter implements OcrPort {
         };
       }
 
-      const json = (await resp.json()) as { text?: string };
+      const json = (await resp.json()) as {
+        text?: string;
+        pages?: unknown[];
+        confidence?: number;
+      };
       const text = String(json.text || '').trim();
       return {
         text,
@@ -57,6 +61,8 @@ export class ExternalOcrAdapter implements OcrPort {
         version,
         succeeded: text.length > 0,
         notes: text.length === 0 ? 'external OCR empty' : undefined,
+        ...(Array.isArray(json.pages) ? { page_count: json.pages.length } : {}),
+        ...(typeof json.confidence === 'number' ? { confidence: json.confidence } : {}),
       };
     } catch (err) {
       return {

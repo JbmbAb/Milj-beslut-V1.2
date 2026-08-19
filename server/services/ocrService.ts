@@ -68,10 +68,13 @@ export async function extractTextFromDocument(
     extractedText = outcome.text.trim();
     if (outcome.ocr_used && outcome.ocr_method === 'ocr_external') {
       method = 'external-ocr';
-      confidence = 0.85;
+      confidence = outcome.ocr_confidence ?? 0.85;
     } else if (extractedText.length > 0) {
       method = 'pdf-parse';
       confidence = outcome.ocr_used ? 0.8 : 0.95;
+    }
+    if (typeof outcome.ocr_page_count === 'number') {
+      pageCount = outcome.ocr_page_count;
     }
   } catch (err) {
     logger.warn('ocr: port extraction failed', { documentId, err: String(err) });
