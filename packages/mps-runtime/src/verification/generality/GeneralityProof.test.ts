@@ -45,11 +45,25 @@ describe("Generality Proof — LU + Dummy + Synthetic Workflow", () => {
   });
 
   it("LU real domain completes Admit → Capability → Artifacts lifecycle", async () => {
+    // GENERALITY-PROOF-01: LURuleEngine requires payload.result_semantics (EXISTENCE_WITHIN_DISTANCE
+    // + result.exists) on spatial evidence -- the shape already canonical everywhere else this
+    // evidence type is constructed. This fixture predated that requirement.
     const evidence = [
       {
         artifact_id: "ev-gen-1",
         artifact_type: "SPATIAL_EVIDENCE",
-        payload: { source_metadata: { dataset: "water" } },
+        payload: {
+          result_semantics: {
+            kind: "EXISTENCE_WITHIN_DISTANCE",
+            query: {
+              subject_ref: { artifact_id: "gen-proof", artifact_type: "PROPERTY" },
+              srid: 3006,
+              distance_meters: 100,
+            },
+            result: { exists: true, match_count_observed: 1, max_features_per_layer: 50 },
+          },
+          source_metadata: { dataset: "water" },
+        },
       },
     ] as unknown as SpatialEvidenceArtifact[];
 
