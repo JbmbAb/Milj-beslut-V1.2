@@ -131,16 +131,76 @@ divergences discovered during this session's checkpoint proofs (EBH
 `protected_area` `nvrid`/`nvr_id` across `publicUiService.ts` and test
 provisioning).
 
-**The principle is frozen. No further recon is required on which column wins.**
-What remains is explicitly **not yet done**:
+**RC6 STATUS: CLOSED / PROVEN.** The principle above is implemented and
+proofed, not only frozen. Evidence:
 
-- versioned DDL for both tables under the normalized names,
-- a materializer that writes canonical from raw,
-- a migration that carries existing data,
-- runtime and test consumers updated to read canonical only.
+```
+RC6-A  prisma/spatial/005_ebh_potentiellt_fororenade_omraden.sql (3ea8210)
+       env.ebh_potentiellt_fororenade_omraden.fid = canonical identity column,
+       verified against production's actual shape, provision-spatial-test-db.ts,
+       and all four already-committed spatial/LU consumers -- not assumed
 
-None of this exists yet. This document freezes the *decision*; it does not
-claim the *implementation*. Tracked as **RC6** below.
+RC6-B  tests/setup/seedGisStubs.ts, tests/integration/aiMlFeatures.integration.test.ts
+       (fc5b3fb) -- converged the one place "id" existed for EBH (test-schema
+       drift) onto fid
+
+RC6-C  prisma/spatial/006_protected_area_physical_boundary.sql (b138618)
+       physical boundary frozen and implemented:
+         env.protected_area_nvr_raw   source-faithful NVR (ogc_fid/nvrid/namn/skyddstyp)
+         env.protected_area           canonical normalized model
+                                       (nvr_id/name/protection_type/decision_status/
+                                       source_dataset/area_ha)
+
+RC6-D  10 files (7b5826c) -- every committed consumer (governed LU path tests,
+       nvrService.ts, spatialAuditService.ts, queryGeodataTool.ts,
+       audit-app-gis-layers.mjs) converged onto the canonical columns and a
+       single geom name, verified column-by-column against actual query text
+       before editing, not assumed from the table name alone
+
+RC6-E  scripts/db/lib/applyRc6VersionedSpatialDdl.ts (66fcbfe) -- the versioned
+       spatial DDL chain (prisma/spatial/*.sql) is now the single schema
+       authority for these three objects. Both
+       scripts/db/provision-spatial-test-db.ts and tests/setup/seedGisStubs.ts
+       apply the same files instead of each hand-duplicating the definition --
+       closes the "two producers that happen to agree" gap RC6-C/D's own proof
+       had left open
+```
+
+Ten closure criteria, all verified against a full cold-start (`--drop`) of the
+disposable test database, not merely asserted:
+
+```
+1. fresh disposable DB starts empty                          verified
+2. DB-0-SAFETY gate passes before any mutation                verified
+3. required extensions only verified/provisioned via
+   existing lifecycle (no CREATE/DROP EXTENSION reintroduced)  verified
+4. canonical spatial DDL applied from versioned files          verified
+5. EBH schema matches authority (fid, MultiPoint)               verified via
+                                                                 information_schema
+                                                                 introspection
+6. raw protected_area schema matches authority                  verified
+   (ogc_fid/nvrid/namn/skyddstyp)
+7. normalized protected_area schema matches authority            verified
+   (nvr_id/name/protection_type/decision_status/area_ha)
+8. seedGisStubs.ts does not redefine those schemas incompatibly  verified --
+                                                                  re-checked
+                                                                  identical
+                                                                  after its own
+                                                                  DROP+recreate
+9. governed LU + app consumer proofs pass for this scope         verified,
+   3/3+4/4, 1/1+7/7, 4/4+22/22 tests green across the three commits
+10. no production DB mutation was used to obtain proof            verified --
+                                                                    riskguard_test
+                                                                    only
+```
+
+**What RC6 does NOT claim:** `LUMagicMomentE2E.chain.test.ts` remains red.
+RC6 proved the cause is no longer EBH or `protected_area` -- both now pass
+their own seed/query steps in that test. The remaining failure is
+`hydro.water_catchment` and `env.kulturmiljo_omrade`, both missing tables,
+already named in RC5's compliance triage (§2 above, Category C) as a
+separate, pre-existing, out-of-RC6-scope blocker. RC6 did not fix it and
+does not claim to have.
 
 ---
 
@@ -192,23 +252,28 @@ SATISFIED
                                                   altered, only the four
                                                   assertions
   RC5   compliance triage complete, UNKNOWN = 0  §2 above, 12/12 classified
+  RC6   DB-3 EBH + protected_area schema         CLOSED/PROVEN — §3 above,
+        authority, implemented and proofed        RC6-A..E (3ea8210, fc5b3fb,
+                                                    b138618, 7b5826c, 66fcbfe),
+                                                    ten closure criteria
+                                                    verified against a cold
+                                                    start, not asserted
   RC7   UNIT 4 ownership frozen                  §4 above
 
 OPEN
-  RC6   DB-3 versioned canonical schema +
-        materializer + migration                 principle frozen (§3), nothing
-                                                  built yet
   RC8   clean-checkout checkpoint proof           NOT ATTEMPTED
 
 INVARIANT
   RC8 may only become PROVEN by executing the required checkpoint test lanes
   against a fresh clone/checkout of the canonical branch. It MUST NOT be
-  inferred solely from RC6 reporting complete — closing RC6 makes RC8
+  inferred solely from RC6 reporting complete — RC6 closing makes RC8
   attemptable, not true. RC8 is a result of execution, not a deduction from
-  planning. (RC2 and RC4 have already demonstrated why: RC2's own closure
-  surfaced a real canonical defect that looked clean until verified; RC4's
+  planning. (RC2 and RC4 already demonstrated why: RC2's own closure surfaced
+  a real canonical defect that looked clean until verified; RC4's
   investigation could as easily have found a real authority gap as a stale
-  proof. Planning-stage confidence is not evidence.)
+  proof. RC6's own proof pass found and fixed two more pre-existing defects
+  along the way that looked unrelated until run. Planning-stage confidence is
+  not evidence — only RC8's own execution is.)
 ```
 
 ## Required checkpoint test lanes (for RC8, once attempted)
@@ -224,10 +289,11 @@ not change that requirement.
 ## Next order
 
 ```
-RC2 (done) -> RC4 (done) -> UNIT 2 / DB-3 (RC6) -> clean-checkout proof (RC8)
+RC2 (done) -> RC4 (done) -> RC6 (done) -> clean-checkout proof (RC8)
 ```
 
-RC2 and RC4 are closed. UNIT 2's closure/recon pass now starts from a
-documented, definitionally clean state rather than an implicitly-clean one.
-RC6 (DB-3 implementation) is the only architecture work standing between
-here and an attempt at RC8.
+RC2, RC4 and RC6 are closed. RC8 is the only item remaining on this gate.
+UNIT 2's own closure/recon pass, and the rest of the ~20-table spatial
+schema-ownership debt RC6 deliberately did not touch, both remain parked
+outside this gate per the hard scope rule: no new side unit opens before
+RC8 unless it is proven to block RC8 itself.
