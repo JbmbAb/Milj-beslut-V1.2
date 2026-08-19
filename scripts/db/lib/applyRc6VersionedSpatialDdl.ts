@@ -1,5 +1,13 @@
 import { readFileSync } from 'node:fs';
-import { resolve } from 'node:path';
+import { dirname, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
+
+// Anchored to this module's own location (scripts/db/lib/ -> repo root), not process.cwd().
+// A caller may legitimately run with a different cwd -- e.g.
+// tests/unit/requiredSpatialExtensions.test.ts mocks process.cwd() to a temp directory to
+// exercise applyGisTestStubs()'s destructive-path CONTROL in isolation. Resolving against
+// cwd made file lookup fail under that mock; this file's own path never moves.
+const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..', '..');
 
 /**
  * RC6-E — makes the versioned spatial DDL chain (prisma/spatial/*.sql) the single schema
@@ -34,7 +42,7 @@ export type SqlExecutor = { query(sql: string): Promise<unknown> };
 
 export async function applyRc6VersionedSpatialDdl(client: SqlExecutor): Promise<void> {
   for (const file of RC6_OWNED_DDL_FILES) {
-    const sql = readFileSync(resolve(process.cwd(), file), 'utf8');
+    const sql = readFileSync(resolve(REPO_ROOT, file), 'utf8');
     await client.query(sql);
   }
 }
