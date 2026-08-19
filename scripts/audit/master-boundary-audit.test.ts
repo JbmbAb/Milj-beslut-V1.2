@@ -49,9 +49,21 @@ describe("Master Boundary Audit", () => {
       "packages/mps-lu/tests/LuEnforcementReplay.test.ts",
       "packages/mps-lu/tests/QgisIntegration.test.ts",
       "packages/mps-lu/tests/LUEndToEnd.test.ts",
+      // GLOBAL-RC8-PROOF-FABRIC-CLEANUP-01: same pattern as the LU test files immediately
+      // above -- these inject a test-local repository to exercise repository behavior, not a
+      // production CAS bypass. Allowlist maintenance drift (added after the list above), not a
+      // real violation -- confirmed by reading each .put() call site.
+      "packages/mps-lu/tests/VerticalProof.test.ts",
+      "packages/mps-lu/tests/P4ALUViewerS6Reconciliation.test.ts",
+      "packages/mps-lu/tests/F9ReplayContract.test.ts",
+      "packages/mps-lu/tests/F8ViewerCapabilityAdmission.test.ts",
 
       // PostGIS Engine (Approved)
       "packages/spatial-provider-postgis/src/SpatialProviderPostGIS.ts",
+      // Same drift as the LU test files above -- test-local repository injection.
+      "packages/spatial-provider-postgis/tests/SpatialProviderPostGIS.test.ts",
+      "packages/spatial-provider-postgis/tests/LUMagicMomentPostGIS.test.ts",
+      "packages/spatial-provider-postgis/tests/LUEnforcement.test.ts",
     ];
 
     const violations: string[] = [];
