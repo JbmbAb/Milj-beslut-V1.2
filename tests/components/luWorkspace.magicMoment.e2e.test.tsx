@@ -28,6 +28,10 @@ const EASTING = 591234;
 const NORTHING = 6612345;
 const PROJECT_ID = 'proj-e2e-ui-lu-magic';
 
+vi.mock('../../components/CesiumMapView', () => ({
+  default: () => <div data-testid="cesium-map-view" />,
+}));
+
 vi.mock('@miljobeslut/mps-identity', () => ({
   designTokens: {
     colors: {
