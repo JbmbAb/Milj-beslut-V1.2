@@ -31,6 +31,11 @@ export * from "./execution/LuExecutionKernelClient";
 export * from "./registry/LuSiteAssessmentRegistry";
 export * from "./registry/createLuRegistryRuntime";
 
+// PROD-LU-ADMISSION-02 — explicit execution-identity provisioning (issuer side).
+// Deliberately exported: whoever provisions a run ahead of time is expected to be external to
+// this package (a composition-root/operator step, or a test acting as that step).
+export * from "./execution/LuExecutionIdentityIssuer";
+
 // LU Runtime v1 Freeze (ADR-30)
 export * from "./runtime/LuRuntimeFreeze";
 

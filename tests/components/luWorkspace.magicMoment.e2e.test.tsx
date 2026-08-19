@@ -8,6 +8,14 @@ import userEvent from '@testing-library/user-event';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { Client } from 'pg';
 import { config } from 'dotenv';
+import { LocalPemSigningKeyProvider } from '@miljobeslut/mimers-brunn-core';
+import { MimersIntegration } from '@miljobeslut/mps-runtime';
+import {
+  issueExecutionIdentity,
+  LU_EXECUTION_PRINCIPAL_ID,
+  createLuRegistryRuntime,
+  LU_SITE_ASSESSMENT_CAPABILITY_KEY,
+} from '@miljobeslut/mps-lu';
 import { LuWorkspace } from '../../components/app/lu/LuWorkspace';
 
 config({ path: '.env.test' });
@@ -180,6 +188,32 @@ describe('LuWorkspace E2E Magic Moment (real PostGIS)', () => {
         userId: testUser.id,
         accessRole: 'OWNER',
       },
+    });
+
+    // PROD-LU-ADMISSION-02 convergence: real (non-bootstrap) admission requires an
+    // authority-issued execution identity, explicitly provisioned ahead of the run -- never
+    // self-issued inside the production path. site.id is computed by LuWorkspace itself from
+    // the designation (see components/app/lu/LuWorkspace.tsx), so it's reproduced here
+    // identically rather than guessed. MimersIntegration.create() under NODE_ENV=test returns a
+    // process-wide cached in-memory singleton, so the identity issued here is the same
+    // repository runLuAssessmentViaKernel resolves against later.
+    const { publicKey, privateKey } = LocalPemSigningKeyProvider.generate(
+      'ed25519:lu-execution-authority-v1',
+    );
+    process.env.LU_EXECUTION_AUTHORITY_PRIVATE_KEY_PEM = privateKey;
+    process.env.LU_EXECUTION_AUTHORITY_PUBLIC_KEY_PEM = publicKey;
+
+    const siteId = `site-${DESIGNATION.trim().replace(/\s+/g, '-').toLowerCase()}`;
+    const mimers = await MimersIntegration.create();
+    const registry = createLuRegistryRuntime();
+    const capability = registry.resolveCapabilityByKey(LU_SITE_ASSESSMENT_CAPABILITY_KEY)!;
+    await issueExecutionIdentity({
+      site_id: siteId,
+      deterministic_seed: `lu-seed-${siteId}`,
+      actor_ref: { artifact_id: LU_EXECUTION_PRINCIPAL_ID, artifact_type: 'execution_identity' },
+      capability_ref: { artifact_id: capability.artifact_id, artifact_type: capability.artifact_type },
+      release_snapshot_id: registry.getReleaseSnapshot().snapshot_id,
+      artifact_repository: mimers.artifactRepository,
     });
   }, 60_000);
 
