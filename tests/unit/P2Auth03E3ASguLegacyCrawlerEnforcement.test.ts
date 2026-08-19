@@ -109,7 +109,7 @@ describe('P2-AUTH-03E3-A SGU broad crawler enforcement', () => {
       (entry) => entry.source_id === 'sgu-groundwater-influence-analytical-models',
     );
 
-    expect(registry).toHaveLength(9);
+    expect(registry).toHaveLength(11);
     expect(source).toMatchObject({
       adapter: 'SINGLE_ENDPOINT_V1',
       lifecycle_state: 'APPROVED',

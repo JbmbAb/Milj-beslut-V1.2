@@ -154,7 +154,7 @@ describe('P2-AUTH-03E1 legacy discovery acquisition enforcement', () => {
       fs.readFileSync(path.resolve(REPO_ROOT, 'source-registry/national-registry.json'), 'utf8'),
     ) as Array<{ adapter: string; lifecycle_state: string }>;
 
-    expect(registry).toHaveLength(9);
+    expect(registry).toHaveLength(11);
     expect(registry.every((entry) => entry.lifecycle_state === 'APPROVED')).toBe(true);
   });
 

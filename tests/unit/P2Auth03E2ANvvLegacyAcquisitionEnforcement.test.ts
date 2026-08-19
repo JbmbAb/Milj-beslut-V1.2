@@ -144,7 +144,7 @@ describe('P2-AUTH-03E2-A NVV legacy acquisition enforcement', () => {
       'utf8',
     );
 
-    expect(registry).toHaveLength(9);
+    expect(registry).toHaveLength(11);
     expect(registry.every((entry) => entry.lifecycle_state === 'APPROVED')).toBe(true);
     expect(composition).not.toMatch(/^\s*WFS_[A-Z0-9_]*\s*:/m);
   });

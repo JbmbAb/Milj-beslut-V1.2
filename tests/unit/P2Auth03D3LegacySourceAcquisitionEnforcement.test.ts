@@ -92,8 +92,8 @@ describe('P2-AUTH-03D3 - legacy source acquisition containment', () => {
     ) as Array<{ source_id: string; adapter: string; lifecycle_state: string }>;
     const singleEndpoint = registry.filter((entry) => entry.adapter === 'SINGLE_ENDPOINT_V1');
 
-    expect(registry).toHaveLength(9);
-    expect(singleEndpoint).toHaveLength(8);
+    expect(registry).toHaveLength(11);
+    expect(singleEndpoint).toHaveLength(10);
     expect(singleEndpoint.every((entry) => entry.lifecycle_state === 'APPROVED')).toBe(true);
   });
 });
