@@ -13,6 +13,17 @@ export class AdmissionError extends Error {
 }
 
 /**
+ * PROD-LU-ADMISSION-01B — the canonical CAP-26-I1 validator (mps-compliance) already treats
+ * "capability_resolution" and "CAPABILITY_DEFINITION" as equivalent capability artifacts. This
+ * kernel's own pre-check was stricter than the rule it claims to gate for, silently denying any
+ * caller (e.g. LU) whose manifest declares CAPABILITY_DEFINITION. Aligned here, not duplicated
+ * per-domain, so the kernel and the rule it enforces cannot drift again.
+ */
+function isCapabilityResolutionArtifactType(artifact_type: string): boolean {
+  return artifact_type === "capability_resolution" || artifact_type === "CAPABILITY_DEFINITION";
+}
+
+/**
  * RuntimeAdmissionKernel
  *
  * The strict gatekeeper for execution.
@@ -30,7 +41,7 @@ export class RuntimeAdmissionKernel {
 
     // 2. Resolve Capability Resolution
     const resolutionArtifact = this.verificationContext.artifactResolver.resolve(manifest.capability_resolution_ref) as CapabilityResolutionArtifact;
-    if (!resolutionArtifact || resolutionArtifact.artifact_type !== "capability_resolution") {
+    if (!resolutionArtifact || !isCapabilityResolutionArtifactType(resolutionArtifact.artifact_type)) {
       throw new AdmissionError("DENIED: Invalid or missing Capability Resolution");
     }
 
