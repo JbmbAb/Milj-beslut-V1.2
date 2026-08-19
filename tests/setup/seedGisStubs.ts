@@ -133,7 +133,7 @@ export async function applyGisTestStubs(): Promise<void> {
       );
 
       CREATE TABLE IF NOT EXISTS "env"."ebh_potentiellt_fororenade_omraden" (
-          id SERIAL PRIMARY KEY,
+          fid INTEGER PRIMARY KEY,
           geom geometry(MultiPolygon, 3006)
       );
 
@@ -434,8 +434,8 @@ export async function applyGisTestStubs(): Promise<void> {
               LIMIT 5
           ),
           contaminated AS (
-              SELECT 
-                  e.id::text AS object_id,
+              SELECT
+                  e.fid::text AS object_id,
                   ST_Distance(e.geom, active_geom) AS distance_meters
               FROM env.ebh_potentiellt_fororenade_omraden e
               WHERE ST_DWithin(e.geom, active_geom, 250)

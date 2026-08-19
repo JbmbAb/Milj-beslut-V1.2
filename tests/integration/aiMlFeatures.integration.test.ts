@@ -73,7 +73,7 @@ describeIfDatabaseIntegration('AI & ML Feature Engine - PostGIS Integration', ()
 
     // Seed EBH contaminated sites data
     await prisma.$executeRaw`
-      INSERT INTO env.ebh_potentiellt_fororenade_omraden (id, geom)
+      INSERT INTO env.ebh_potentiellt_fororenade_omraden (fid, geom)
       VALUES (
         77777,
         ST_Multi(ST_Buffer(ST_Transform(
