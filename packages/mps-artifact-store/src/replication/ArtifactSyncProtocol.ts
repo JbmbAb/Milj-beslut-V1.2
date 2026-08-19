@@ -1,4 +1,5 @@
 import { ArtifactContract } from "../../../mps-compliance/src/artifacts/ArtifactContract";
+import { ContentHash } from "../../../mps-compliance/src/artifacts/ContentHash";
 import { ReplicationManifestArtifact } from "./ReplicationManifestArtifact";
 import { ConflictResolver } from "./ConflictResolver";
 import { SecureArtifactStorage } from "../kernel/SecureArtifactStorage";
@@ -23,17 +24,21 @@ export class SyncProtocolError extends Error {
 export class ArtifactSyncProtocol {
   private localManifest: ReplicationManifestArtifact | null = null;
   private localLineage: ArtifactLineageArtifact | null = null;
-  private readonly expectedReleaseHash = "release-1.0-frozen-core"; // Mock for Context
 
   constructor(
     private readonly secureStorage: SecureArtifactStorage,
     private readonly conflictResolver: ConflictResolver,
     private readonly canonicalPipeline: CanonicalPipeline
   ) {}
-  
+
   public setLocalState(manifest: ReplicationManifestArtifact, lineage: ArtifactLineageArtifact) {
       this.localManifest = manifest;
       this.localLineage = lineage;
+  }
+
+  /** ContentHash equality by value -- these are plain data objects, never the same reference. */
+  private releaseHashMatches(a: ContentHash, b: ContentHash): boolean {
+    return !!a && !!b && a.algorithm === b.algorithm && a.value === b.value;
   }
 
   private createViolation(code: ReplicationViolationArtifact["violation_code"], rejectedHash: string, refs: string[]): ReplicationViolationArtifact {
@@ -61,8 +66,12 @@ export class ArtifactSyncProtocol {
     payload: ArtifactContract[]
   ): void {
     
-    // 0. Verify Release Binding (Attack 2 Defense)
-    if ((manifest.release_hash as any) !== this.expectedReleaseHash) {
+    // 0. Verify Release Binding (Attack 2 Defense).
+    // The node's release binding is established by whatever state it already holds
+    // (setLocalState), not a hardcoded value -- a node with no local state yet has nothing to
+    // bind against, so its first accepted push establishes the binding rather than being
+    // rejected against a stub that could never match a real ContentHash object.
+    if (this.localManifest && !this.releaseHashMatches(manifest.release_hash, this.localManifest.release_hash)) {
         const violation = this.createViolation("WRONG_RELEASE_BINDING", manifest.root_hash, [manifest.artifact_id]);
         throw new SyncProtocolError("REJECTED_WRONG_RELEASE_BINDING: Manifest belongs to another release.", violation);
     }
