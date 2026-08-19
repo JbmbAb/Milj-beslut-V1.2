@@ -1,4 +1,4 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, beforeEach, afterEach } from "vitest";
 
 import {
   createLuRuleEngineInvokeHandler,
@@ -35,6 +35,15 @@ import type { DocumentEvidenceArtifact } from "../src/artifacts/DocumentEvidence
  *   @see docs/architecture/ADR-28-LU-Definition-Scope.md      (§3 Evidence → Rules → Findings)
  */
 describe("F4A — document evidence reaches rule evaluation (WIRING GREEN PROOF)", () => {
+  // RC8-K: bootstrap admission is opt-in only; no real FrozenCore verification context exists
+  // yet, so tests exercising runLuAssessmentViaKernel declare the opt-in explicitly.
+  beforeEach(() => {
+    process.env.MPS_LU_BOOTSTRAP_ADMIT = "1";
+  });
+  afterEach(() => {
+    delete process.env.MPS_LU_BOOTSTRAP_ADMIT;
+  });
+
   function spatialEvidence(id: string): SpatialEvidenceArtifact {
     return {
       artifact_id: id,

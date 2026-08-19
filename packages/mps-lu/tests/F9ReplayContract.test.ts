@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeAll } from "vitest";
+import { describe, it, expect, beforeAll, beforeEach, afterEach } from "vitest";
 
 import { runLuAssessmentViaKernel } from "../src/execution/LuExecutionKernelClient";
 import type { SpatialEvidenceArtifact } from "../src/artifacts/SpatialEvidenceArtifact";
@@ -27,6 +27,15 @@ import type { ArtifactReference } from "../../mps-compliance/src/artifacts/Artif
  *   separate defect and is deliberately untouched here.
  */
 describe("F9 — replay from captured artifacts (GREEN PROOF)", () => {
+  // RC8-K: bootstrap admission is opt-in only; no real FrozenCore verification context exists
+  // yet, so tests exercising runLuAssessmentViaKernel declare the opt-in explicitly.
+  beforeEach(() => {
+    process.env.MPS_LU_BOOTSTRAP_ADMIT = "1";
+  });
+  afterEach(() => {
+    delete process.env.MPS_LU_BOOTSTRAP_ADMIT;
+  });
+
   let casRepo: ArtifactRepositoryPort;
   let spatialEvidence: SpatialEvidenceArtifact;
 

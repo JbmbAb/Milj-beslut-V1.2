@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeAll, afterAll } from "vitest";
+import { describe, it, expect, beforeAll, afterAll, beforeEach, afterEach } from "vitest";
 import { SpatialProviderPostGIS } from "../src/SpatialProviderPostGIS";
 import { LUProjectContextArtifact } from "@miljobeslut/mps-lu";
 import { LUPropertyContextArtifact } from "@miljobeslut/mps-lu";
@@ -11,6 +11,15 @@ import { ArtifactRepositoryPort } from "../../mps-runtime/src/kernel/ExecutionKe
 const dbUrl = process.env.TEST_DATABASE_URL || "postgresql://riskguard:password@127.0.0.1:5432/riskguard_test?sslmode=disable";
 
 describe("LU Domain - PostGIS Magic Moment", () => {
+  // RC8-K: bootstrap admission is opt-in only; no real FrozenCore verification context exists
+  // yet, so tests exercising runLuAssessmentViaKernel declare the opt-in explicitly.
+  beforeEach(() => {
+    process.env.MPS_LU_BOOTSTRAP_ADMIT = "1";
+  });
+  afterEach(() => {
+    delete process.env.MPS_LU_BOOTSTRAP_ADMIT;
+  });
+
   let provider: SpatialProviderPostGIS;
   let repo: ArtifactRepositoryPort;
 

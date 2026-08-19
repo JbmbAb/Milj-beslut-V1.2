@@ -1,4 +1,4 @@
-import { describe, it, expect } from "vitest";
+import { afterEach, beforeEach, describe, it, expect } from "vitest";
 import { readFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -9,6 +9,15 @@ import { SPATIAL_STACK_V1 } from "../src/artifacts/SpatialEngineFingerprint";
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 describe("LuExecutionKernelClient", () => {
+  // RC8-K: bootstrap admission is opt-in only. This file exercises the kernel client directly
+  // without a real FrozenCore verification context, so it declares the opt-in explicitly.
+  beforeEach(() => {
+    process.env.MPS_LU_BOOTSTRAP_ADMIT = "1";
+  });
+  afterEach(() => {
+    delete process.env.MPS_LU_BOOTSTRAP_ADMIT;
+  });
+
   it("admits and returns finding ids via ExecutionKernel", async () => {
     const evidence = [
       {

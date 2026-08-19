@@ -1,4 +1,4 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import { readFileSync, readdirSync, statSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -35,6 +35,15 @@ function walkTs(dir: string, out: string[] = []): string[] {
  * Three-way generality: real domain (LU) + minimal domain (Dummy) + domain-less workflow.
  */
 describe("Generality Proof — LU + Dummy + Synthetic Workflow", () => {
+  // RC8-K: bootstrap admission is opt-in only; no real FrozenCore verification context exists
+  // yet, so tests exercising runLuAssessmentViaKernel declare the opt-in explicitly.
+  beforeEach(() => {
+    process.env.MPS_LU_BOOTSTRAP_ADMIT = "1";
+  });
+  afterEach(() => {
+    delete process.env.MPS_LU_BOOTSTRAP_ADMIT;
+  });
+
   it("LU real domain completes Admit → Capability → Artifacts lifecycle", async () => {
     const evidence = [
       {

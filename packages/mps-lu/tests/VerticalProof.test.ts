@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeAll } from "vitest";
+import { describe, it, expect, beforeAll, beforeEach, afterEach } from "vitest";
 import { runLuAssessmentViaKernel } from "../src/execution/LuExecutionKernelClient";
 import { SpatialEvidenceArtifact } from "../src/artifacts/SpatialEvidenceArtifact";
 import { SPATIAL_STACK_V1 } from "../src/artifacts/SpatialEngineFingerprint";
@@ -24,6 +24,15 @@ import { join } from "node:path";
 import { writeFile, mkdir } from "node:fs/promises";
 
 describe("The Vertical Proof: Full E2E Governance + CAS + QGIS + Replay", () => {
+  // RC8-K: bootstrap admission is opt-in only; no real FrozenCore verification context exists
+  // yet, so tests exercising runLuAssessmentViaKernel declare the opt-in explicitly.
+  beforeEach(() => {
+    process.env.MPS_LU_BOOTSTRAP_ADMIT = "1";
+  });
+  afterEach(() => {
+    delete process.env.MPS_LU_BOOTSTRAP_ADMIT;
+  });
+
   let casRepo: any;
   let viewer: ViewerKernel;
   let viewerCapability: ViewerCapabilityArtifact;
