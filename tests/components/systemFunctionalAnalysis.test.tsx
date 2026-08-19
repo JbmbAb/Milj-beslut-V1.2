@@ -334,33 +334,33 @@ describe('SystemFunctionalAnalysis', () => {
     });
   });
 
-  // ── Lantmäteriet test section ────────────────────────────────────────────
+  // ── PostGIS ping section (local-only; supersedes the retired live Lantmäteriet test) ──
 
-  it('renders Lantmäteriet test section', async () => {
+  it('renders PostGIS ping section', async () => {
     (fetch as ReturnType<typeof vi.fn>).mockResolvedValue({
       ok: true,
       json: async () => ({ ok: true, report: mockReport }),
     });
     render(<SystemFunctionalAnalysis />);
     await waitFor(() => {
-      expect(screen.getByText(/Lantmäteriet — Testa riktiga koordinater/i)).toBeInTheDocument();
+      expect(screen.getByText(/PostGIS — Fastighetsdata \(lokal\)/i)).toBeInTheDocument();
     });
   });
 
-  it('renders Lantmäteriet test button', async () => {
+  it('renders PostGIS ping button', async () => {
     (fetch as ReturnType<typeof vi.fn>).mockResolvedValue({
       ok: true,
       json: async () => ({ ok: true, report: mockReport }),
     });
     render(<SystemFunctionalAnalysis />);
     await waitFor(() => {
-      expect(screen.getByRole('button', { name: /Testa anslutning nu/i })).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: /Testa PostGIS-anslutning/i })).toBeInTheDocument();
     });
   });
 
-  // ── Lantmäteriet test interaction ────────────────────────────────────────
+  // ── PostGIS ping interaction ──────────────────────────────────────────────
 
-  it('runs Lantmäteriet test when button clicked', async () => {
+  it('runs PostGIS ping when button clicked', async () => {
     const user = userEvent.setup();
     (fetch as ReturnType<typeof vi.fn>)
       .mockResolvedValueOnce({
@@ -371,24 +371,15 @@ describe('SystemFunctionalAnalysis', () => {
         ok: true,
         json: async () => ({
           ok: true,
-          result: {
-            ok: true,
-            mode: 'real',
-            authMethod: 'OAuth2',
-            tokenFetched: true,
-            sampleLookupOk: true,
-            sampleDesignation: '1:1',
-            sampleGeometry: { type: 'Point', coordinates: [0, 0] },
-            error: null,
-            setupGuide: [],
-          },
+          postgis: { version: '3.4', sridCount: 8500, gistIndexCount: 12 },
+          lastSpatialMigration: '005_ebh_potentiellt_fororenade_omraden',
         }),
       });
     render(<SystemFunctionalAnalysis />);
-    const testButton = await screen.findByRole('button', { name: /Testa anslutning nu/i });
+    const testButton = await screen.findByRole('button', { name: /Testa PostGIS-anslutning/i });
     await user.click(testButton);
     await waitFor(() => {
-      expect(screen.getByText(/Riktiga koordinater fungerar!/i)).toBeInTheDocument();
+      expect(screen.getByText(/PostGIS svarar/i)).toBeInTheDocument();
     });
   });
 

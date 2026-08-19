@@ -58,6 +58,8 @@ describe('LocalizationStudyUI', () => {
     vi.clearAllMocks();
   });
 
+  // isProjectSetupProp bypasses the project-setup form added for canonical assessment
+  // verdict authority (7a3148d) so these tests exercise the Scout Mode view directly.
   it('renders geodata layer panel and fetches enabled layers for bbox', async () => {
     const requested: string[] = [];
     mockGeodataFetch((url) => {
@@ -74,7 +76,7 @@ describe('LocalizationStudyUI', () => {
       } as Response;
     });
 
-    render(<LocalizationStudyUI />);
+    render(<LocalizationStudyUI isProjectSetupProp />);
 
     expect(screen.getByText(/Scout Mode/i)).toBeInTheDocument();
 
@@ -101,7 +103,7 @@ describe('LocalizationStudyUI', () => {
       } as Response;
     });
 
-    render(<LocalizationStudyUI />);
+    render(<LocalizationStudyUI isProjectSetupProp />);
 
     expect(await screen.findByText(/Datakälla saknas för: Skyddad natur \(NVR\)/i)).toBeInTheDocument();
   });
@@ -146,7 +148,7 @@ describe('LocalizationStudyUI', () => {
       throw new Error(`Unexpected callApi path: ${path}`);
     });
 
-    render(<LocalizationStudyUI />);
+    render(<LocalizationStudyUI isProjectSetupProp />);
 
     await user.type(screen.getByPlaceholderText(/VÄRMDÖ STACKMORA/i), 'NACKA BOO 1:2');
     await user.click(screen.getByRole('button', { name: /^Hämta$/i }));
