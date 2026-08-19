@@ -1,0 +1,107 @@
+{
+  "schema_version": 1,
+  "updated_at": "2026-08-11",
+  "mount_path": "/api/governance",
+  "source_file": "server/routes/governance.routes.ts",
+  "routes": [
+    {
+      "method": "POST",
+      "path": "/session/start",
+      "exposure_class": "governance_session_mutation",
+      "auth_policy": "AUTHENTICATED_ADMIN_REQUIRED",
+      "authority_boundary": "Starts in-memory governance inspection runtime; does not write CAS or quarantine.",
+      "status": "PROVEN",
+      "notes": "Closed 2026-08-11: governance session creation is ADMIN-only."
+    },
+    {
+      "method": "POST",
+      "path": "/session/:sessionId/inspect",
+      "exposure_class": "governance_session_read",
+      "auth_policy": "AUTHENTICATED_ADMIN_REQUIRED",
+      "authority_boundary": "Reads synchronized Mimers artifacts through active in-memory session.",
+      "status": "PROVEN",
+      "notes": "Closed 2026-08-11: governance inspection is ADMIN-only."
+    },
+    {
+      "method": "POST",
+      "path": "/session/:sessionId/export",
+      "exposure_class": "governance_session_observation_mutation",
+      "auth_policy": "AUTHENTICATED_ADMIN_REQUIRED",
+      "authority_boundary": "Records export observation in active governance runtime session.",
+      "status": "PROVEN",
+      "notes": "Closed 2026-08-11: export observation recording is ADMIN-only."
+    },
+    {
+      "method": "POST",
+      "path": "/session/:sessionId/resolve-proof",
+      "exposure_class": "governance_session_read",
+      "auth_policy": "AUTHENTICATED_ADMIN_REQUIRED",
+      "authority_boundary": "Computes proof-path answer from active governance runtime session.",
+      "status": "PROVEN",
+      "notes": "Closed 2026-08-11: proof-path resolution is ADMIN-only."
+    },
+    {
+      "method": "POST",
+      "path": "/session/:sessionId/close",
+      "exposure_class": "governance_session_mutation",
+      "auth_policy": "AUTHENTICATED_ADMIN_REQUIRED",
+      "authority_boundary": "Closes and deletes an in-memory governance runtime session.",
+      "status": "PROVEN",
+      "notes": "Closed 2026-08-11: session close is ADMIN-only."
+    },
+    {
+      "method": "POST",
+      "path": "/session/:sessionId/terminate",
+      "exposure_class": "governance_session_mutation",
+      "auth_policy": "AUTHENTICATED_ADMIN_REQUIRED",
+      "authority_boundary": "Terminates and deletes an in-memory governance runtime session.",
+      "status": "PROVEN",
+      "notes": "Closed 2026-08-11: session terminate is ADMIN-only."
+    },
+    {
+      "method": "GET",
+      "path": "/quarantine/candidates",
+      "exposure_class": "sensitive_governance_read",
+      "auth_policy": "AUTHENTICATED_ADMIN_REQUIRED",
+      "authority_boundary": "Lists quarantine metadata only; no CAS write.",
+      "status": "PROVEN",
+      "notes": "Closed 2026-08-11: quarantine candidate listing is ADMIN-only."
+    },
+    {
+      "method": "POST",
+      "path": "/quarantine/:id/promote",
+      "exposure_class": "permanent_governance_write",
+      "auth_policy": "AUTHENTICATED_ADMIN_REQUIRED",
+      "authority_boundary": "Canonical mimers-brunn-core QuarantinePromoter with signed ArtifactAttestation before CAS write.",
+      "status": "PROVEN",
+      "notes": "Level 1/2 Windows-proven: requireAuth, ADMIN role, server-derived attestation, promoter re-verifies all bindings."
+    },
+    {
+      "method": "POST",
+      "path": "/quarantine/:id/reject",
+      "exposure_class": "quarantine_status_write",
+      "auth_policy": "AUTHENTICATED_ADMIN_REQUIRED",
+      "authority_boundary": "Updates quarantine status to rejected; no CAS promotion.",
+      "status": "PROVEN",
+      "notes": "Containment Windows-proven: requireAuth plus ADMIN role."
+    },
+    {
+      "method": "GET",
+      "path": "/stats",
+      "exposure_class": "sensitive_governance_read",
+      "auth_policy": "AUTHENTICATED_ADMIN_REQUIRED",
+      "authority_boundary": "Reads quarantine counts, session count, expected release hash.",
+      "status": "PROVEN",
+      "notes": "Closed 2026-08-11: governance stats are ADMIN-only."
+    },
+    {
+      "method": "GET",
+      "path": "/cas/artifact/:hash",
+      "exposure_class": "sensitive_cas_read",
+      "auth_policy": "AUTHENTICATED_ADMIN_REQUIRED",
+      "authority_boundary": "Reads raw CAS bytes by hash; no write.",
+      "status": "PROVEN",
+      "notes": "Closed 2026-08-11: direct CAS artifact reads are ADMIN-only."
+    }
+  ]
+}
