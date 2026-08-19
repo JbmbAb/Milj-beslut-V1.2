@@ -32,6 +32,13 @@ import type { RuntimeState } from "../../../mps-runtime/src/kernel/RuntimeState.
 import type { OutcomeAttestation } from "../../../mps-runtime/src/security/index.js";
 import { createLuRegistryRuntime } from "../registry/createLuRegistryRuntime.js";
 import { LU_SITE_ASSESSMENT_CAPABILITY_KEY } from "../registry/LuSiteAssessmentRegistry.js";
+import type { ExecutionIdentityArtifact } from "../../../mps-runtime/src/execution/ExecutionIdentityArtifact.js";
+import type { FrozenCoreVerificationContext } from "../../../mps-compliance/src/conformance/FrozenCoreVerificationContext.js";
+import { RuleRegistrySnapshot } from "../../../mps-compliance/src/conformance/RuleRegistrySnapshot.js";
+import { CAP_26_I1 } from "../../../mps-compliance/src/validators/CAP_26_I1.js";
+import { buildExecutionIdentityAttestationPredicate } from "./ExecutionIdentityAttestation.js";
+import { preVerifyExecutionIdentityForAdmission } from "./LuAdmissionPreVerification.js";
+import { getLuExecutionAuthorityVerifier } from "./LuExecutionAuthorityVerifier.js";
 
 /** LU reference principal — domain composition root identity binding. */
 export const LU_EXECUTION_PRINCIPAL_ID = "lu.site_assessment.actor" as const;
@@ -127,6 +134,25 @@ function isLuBootstrapAdmitAllowed(): boolean {
 }
 
 /**
+ * PROD-LU-ADMISSION-02D — wraps a (possibly empty) synchronous ArtifactResolver into the full
+ * context RuntimeAdmissionKernel needs. matrixResolver/canonicalSerializer are confirmed unused
+ * on this execution path (only FrozenCoreVerifier reads them, which RuntimeAdmissionKernel
+ * never calls) -- minimal stubs.
+ */
+function buildAdmissionContext(
+  artifactResolver: FrozenCoreVerificationContext["artifactResolver"],
+): FrozenCoreVerificationContext {
+  return {
+    artifactResolver,
+    matrixResolver: { resolve: () => undefined },
+    ruleRegistry: new RuleRegistrySnapshot([CAP_26_I1]),
+    canonicalSerializer: {
+      serialize: () => ({ bytes: new Uint8Array(), encoding: "identity" }),
+    } as FrozenCoreVerificationContext["canonicalSerializer"],
+  };
+}
+
+/**
  * LU as ExecutionKernel client — Security → admit → CapabilityRuntime → findings.
  * This is the only product assessment path (LU cutover complete).
  *
@@ -164,8 +190,70 @@ export async function runLuAssessmentViaKernel(
 
   const capabilityRuntime = CapabilityRuntime.create({ registry, handlers });
 
+  // PROD-LU-ADMISSION-02D: this deterministic ref names WHICH identity a valid prior issuance
+  // would have been persisted under (see LuExecutionIdentityIssuer.ts) -- it is not, itself, an
+  // identity. This module never constructs or signs one.
+  const executionIdentityRef = {
+    artifact_id: `lu-identity-${input.site_id}`,
+    artifact_type: "execution_identity" as const,
+  };
+
+  const bootstrap = isLuBootstrapAdmitAllowed();
+  let verificationContext: FrozenCoreVerificationContext | null = null;
+
+  if (!bootstrap) {
+    // PROD-LU-ADMISSION-02D: consume-only. If an authority-issued identity was explicitly
+    // provisioned ahead of this run (LuExecutionIdentityIssuer.issueExecutionIdentity, called by
+    // something other than this function), resolve and cryptographically pre-verify it. If none
+    // exists, this module does NOT mint one itself -- that would just be self-issuance wearing a
+    // different file name, which PROD-LU-ADMISSION-01C already proved is not a real trust
+    // boundary. No prior issuance means the synchronous resolver simply never contains an
+    // identity, and RuntimeAdmissionKernel denies on its own existing "Invalid or missing
+    // Execution Identity" check -- no new trust is placed in this function to report that
+    // correctly.
+    let resolvedIdentity: ExecutionIdentityArtifact | null = null;
+    try {
+      resolvedIdentity = await repo.resolve<ExecutionIdentityArtifact>(executionIdentityRef);
+    } catch {
+      resolvedIdentity = null;
+    }
+
+    if (resolvedIdentity) {
+      const expectedPredicate = buildExecutionIdentityAttestationPredicate({
+        execution_identity_id: resolvedIdentity.artifact_id,
+        actor_ref: resolvedIdentity.actor_ref,
+        capability_ref: resolvedIdentity.capability_ref,
+        release_snapshot_id: registry.getReleaseSnapshot().snapshot_id,
+        site_id: input.site_id,
+        deterministic_seed: input.deterministic_seed,
+      });
+      const { artifactResolver } = await preVerifyExecutionIdentityForAdmission({
+        identity: resolvedIdentity,
+        capabilityArtifact: capability,
+        resolveAttestation: async (ref) => {
+          try {
+            return await repo.resolve(ref);
+          } catch {
+            return null;
+          }
+        },
+        expectedPredicate,
+        authorityVerifier: getLuExecutionAuthorityVerifier(),
+      });
+      verificationContext = buildAdmissionContext(artifactResolver);
+    } else {
+      verificationContext = buildAdmissionContext({
+        resolve: (ref) =>
+          ref.artifact_id === capability.artifact_id && ref.artifact_type === capability.artifact_type
+            ? capability
+            : undefined,
+      });
+    }
+  }
+
   const security = SecurityRuntime.create({
-    bootstrapAdmit: isLuBootstrapAdmitAllowed(),
+    bootstrapAdmit: bootstrap,
+    verificationContext,
     bindSeed: input.deterministic_seed,
     grants: [
       {
@@ -174,10 +262,7 @@ export async function runLuAssessmentViaKernel(
       },
     ],
   });
-  security.bindPrincipal(LU_EXECUTION_PRINCIPAL_ID, {
-    artifact_id: `lu-identity-${input.site_id}`,
-    artifact_type: "execution_identity",
-  });
+  security.bindPrincipal(LU_EXECUTION_PRINCIPAL_ID, executionIdentityRef);
 
   const snapshot = registry.getReleaseSnapshot();
   const kernel = new ExecutionKernel({
@@ -194,10 +279,7 @@ export async function runLuAssessmentViaKernel(
   const manifest: FrozenExecutionManifestIdentity = {
     manifest_id: `lu-manifest-${input.site_id}`,
     artifact_type: "execution_manifest",
-    execution_identity_ref: {
-      artifact_id: `lu-identity-${input.site_id}`,
-      artifact_type: "execution_identity",
-    },
+    execution_identity_ref: executionIdentityRef,
     capability_resolution_ref: {
       artifact_id: capability.artifact_id,
       artifact_type: "CAPABILITY_DEFINITION",

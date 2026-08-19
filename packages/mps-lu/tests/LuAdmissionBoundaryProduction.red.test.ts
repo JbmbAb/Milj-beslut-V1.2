@@ -71,7 +71,11 @@ describe("RC8-K LU admission boundary — production path", () => {
     });
 
     expect(result.admitted).toBe(false);
-    expect(result.reason_codes).toContain("MISSING_VERIFICATION_CONTEXT");
+    // PROD-LU-ADMISSION-02D: the real (non-bootstrap) path always builds a genuine
+    // FrozenCoreVerificationContext now, so denial comes from RuntimeAdmissionKernel actually
+    // looking for -- and not finding -- an authority-issued identity, not from a context that
+    // was never built at all. Same fail-closed outcome, more precise reason.
+    expect(result.reason_codes.join(" ")).toMatch(/Invalid or missing Execution Identity/);
     expect(result.assessment).toBeNull();
   });
 
