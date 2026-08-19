@@ -30,7 +30,17 @@ export const CAP_26_I1: ValidationRule = {
     return {
       rule_id: "CAP-26-I1",
       passed: hasValidRef && passed,
-      evidence: capabilityLike.map((a) => a.artifact_id),
+      // CAP-26-I1-EVIDENCE-TYPE-01: ValidationResult.evidence is readonly ValidationEvidence[],
+      // not artifact-id strings. ValidationContext carries no deterministic clock, so created_at
+      // is left empty rather than reading wall-clock time (this codebase treats validation as a
+      // deterministic, replayable operation elsewhere -- e.g. ExecutionKernel's nowIso binding).
+      evidence: capabilityLike.map((a) => ({
+        evidence_id: `evidence-CAP-26-I1-${a.artifact_id}`,
+        rule_id: "CAP-26-I1",
+        artifact_ref: { artifact_id: a.artifact_id, artifact_type: a.artifact_type },
+        observation: "capability-like artifact referenced",
+        created_at: "",
+      })),
     };
   }
 };
