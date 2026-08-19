@@ -17,29 +17,50 @@ than living only in conversation.
 ## RC2 answer, by group
 
 ```
-KNOWN + INTENTIONAL, checkpoint-eligible if parked as-is   59 entries
-KNOWN + BROKEN, requires a decision before RC8               5 entries (the harvest:* targets,
-                                                                counted once, within Group 9)
-UNCLASSIFIED DRIFT surfaced while writing this record         5 entries (Group 4)
-GENUINELY ORPHANED                                            1 entry
+KNOWN + INTENTIONAL, checkpoint-eligible if parked as-is   64 entries
+KNOWN + BROKEN, requires a decision before RC8                0 entries (RESOLVED — see below)
+UNCLASSIFIED DRIFT surfaced while writing this record          5 entries (Group 4)
+GENUINELY ORPHANED                                             1 entry
 ```
 
 None of the 70 are unclassified in the sense of "nobody has looked at them."
 Five (Group 4) are unclassified in a stricter sense: doc-sync gaps that
 slipped through Phase A–E's packaging passes and are named here for the
-first time. The five `harvest:*` targets are separately flagged as broken
-rather than merely unclassified — they are named UNIT 3 surface, just not
-committed, and their absence actively breaks a clean checkout.
+first time. The five `harvest:*` script files were flagged as an active
+canonical-reproducibility defect when this record was first written;
+`19c5d1d` resolved it by rollback before RC4, so they now count as ordinary
+parked UNIT 3 surface (self-quarantined evidence, not a live blocker) —
+see "RESOLVED" below, kept for the audit trail rather than deleted.
 
 ---
 
-## URGENT — canonical self-containment defect (found while compiling this record)
+## RESOLVED — canonical self-containment defect (found while compiling this record)
 
 ```
 OWNER          UNIT 3 (P2/P3 governance harvest)
-STATUS         BROKEN, not merely deferred
-MAY EXIST AT CHECKPOINT?   NO — this blocks RC8 by itself if not resolved first
+STATUS         RESOLVED by 19c5d1d — ROLLBACK, not commit
+MAY EXIST AT CHECKPOINT?   YES — no harvest:* aliases remain, so nothing to break
 ```
+
+**Resolution:** each of the five target files was read in full and checked
+against `8bc79eb`'s stated intent before deciding. All five open with an
+identical `QUARANTINED — UNAPPROVED. DO NOT RUN` header, written 2026-08-10,
+explicitly predating the Source Registry approval process this session's
+UNIT 3 work depends on (`Kept as evidence, not as a pipeline. Do not
+extend.`). Each worker's entrypoint calls an unconditional
+`assertNotQuarantined()` as its first statement; `run-parallel-harvest.ts`
+only spawns those four. None of the five do anything except throw a
+self-documented "not approved" error. `8bc79eb`'s commit message claiming
+these scripts "landed in 6d4f988" was itself factually wrong — `6d4f988`
+committed the unrelated legacy-containment `fetch_*`/`download_*` scripts.
+
+Exposing self-declared quarantined evidence as canonical `npm run
+harvest:*` commands would have been actively misleading. `19c5d1d`
+reverts the five-line hunk; canonical `package.json` is now byte-identical
+for that section to its pre-session state. The five script files remain
+in the working tree, still self-quarantined, still parked — unchanged in
+ownership or status, just no longer referenced by any canonical entrypoint.
+Original defect description preserved below for the record.
 
 Commit `8bc79eb` (`chore(governance): expose canonical harvest commands`, part
 of this session's Phase E) added five `package.json` script aliases —
@@ -318,14 +339,14 @@ These two were part of the same recon batch but never actually staged in
 any Phase A–E commit — an oversight, not a deliberate exclusion. Belong
 with UNIT 3.
 
-**Scripts still uncommitted, owner UNIT 3, part of the URGENT finding above:**
+**Scripts still uncommitted, owner UNIT 3:**
 
 ```
-scripts/import/harvest-sfs-all.ts
-scripts/import/harvest-regulatory-all.ts
-scripts/import/harvest-municipal-abva-all.ts
-scripts/import/harvest-court-decisions-all.ts
-scripts/import/run-parallel-harvest.ts
+scripts/import/harvest-sfs-all.ts                  self-quarantined, see RESOLVED above
+scripts/import/harvest-regulatory-all.ts            self-quarantined, see RESOLVED above
+scripts/import/harvest-municipal-abva-all.ts         self-quarantined, see RESOLVED above
+scripts/import/harvest-court-decisions-all.ts        self-quarantined, see RESOLVED above
+scripts/import/run-parallel-harvest.ts               self-quarantined, see RESOLVED above
 scripts/import/classify-inventory-phase1.ts
 scripts/import/generate-inventory-summary.js
 scripts/import/inventory-archive-documents.ts
@@ -335,13 +356,15 @@ source-registry/dataset-inventory.md
 source-registry/drafts/README.md
 ```
 
-(The first five are the dangling `harvest:*` targets already called out
-above. The remaining seven were part of the original UNIT 3 inventory,
-never yet packaged — no proof this session that they are anything other
-than ordinary UNIT 3 surface, but not verified clean either. Distinct from
-the URGENT finding: these are not referenced by any committed `package.json`
-alias, so their absence does not break a clean checkout the way the five
-harvest scripts do.)
+The first five are no longer referenced by any committed `package.json`
+alias (see RESOLVED above) — their own `QUARANTINED — UNAPPROVED. DO NOT
+RUN` headers mean they should stay untracked evidence until a Source
+Registry entry and Heimdall/GOVERNOR approval exist for each, which is a
+UNIT 3 authoring task, not a packaging one. The remaining seven were part
+of the original UNIT 3 inventory, never yet packaged — no proof this
+session that they are anything other than ordinary UNIT 3 surface, but
+not verified clean either. None of the twelve are referenced by any
+committed entrypoint, so none affect RC8 the way the five originally did.
 
 ---
 
@@ -357,16 +380,17 @@ group 6   generated/external, preserve             3   PARK — future fixtures 
 group 7   no owner                                 6   PARK — needs owner assignment
 group 7b  archive-first/ALLOW_LIVE_SEED cluster    3   PARK — needs guard-mechanism check
 group 8   wrong unit                               1   PARK — needs real classification
-group 9   UNIT 3, missed (incl. the 5 URGENT      14   PARK for the other 9; the 5
-          harvest:* targets)                            harvest:* files are BROKEN,
-                                                          not merely parked — see URGENT
+group 9   UNIT 3, missed (incl. the 5 now-        14   PARK — the 5 formerly-urgent
+          resolved harvest:* targets)                   files are ordinary parked
+                                                          self-quarantined evidence now
                                                    --
 TOTAL                                             70
 UNCLASSIFIED REMAINING                             0
 ```
 
 RC2 is closed: every one of the 70 entries has an owner, a status, and an
-explicit answer to "may this exist at checkpoint." The URGENT finding above
-is the one item that changes RC8's timeline — it must be resolved (fix or
-revert) before a clean-checkout proof can succeed, independent of RC4 or
-UNIT 2/RC6.
+explicit answer to "may this exist at checkpoint." The canonical-
+reproducibility defect this record surfaced was resolved (`19c5d1d`,
+rollback) before RC4, exactly as required — no item now blocks RC8 by
+itself; what remains is ordinary parked work awaiting its own unit's
+closure pass.
