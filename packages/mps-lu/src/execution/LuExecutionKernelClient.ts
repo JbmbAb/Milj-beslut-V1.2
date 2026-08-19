@@ -110,6 +110,23 @@ export interface LuKernelRunResult {
 }
 
 /**
+ * RC8-K — LU admission boundary.
+ *
+ * SecurityRuntime documents bootstrapAdmit as an explicit opt-in for when a real FrozenCore
+ * verification context is absent (composition-root / tests); production should leave it false.
+ * This client previously hardcoded `bootstrapAdmit: true` unconditionally, so the one production
+ * LU assessment path always self-admitted regardless of whether any real governed admission
+ * existed -- an environment classification (which callers happen to run under Vitest) is not a
+ * security authority. A real production FrozenCoreVerificationContext is not wired yet (that is
+ * separate, larger work); until it is, admission MUST fail closed rather than silently succeed.
+ *
+ * Bootstrap admission is now reachable only via an explicit capability flag, never implicitly.
+ */
+function isLuBootstrapAdmitAllowed(): boolean {
+  return process.env.MPS_LU_BOOTSTRAP_ADMIT === '1';
+}
+
+/**
  * LU as ExecutionKernel client — Security → admit → CapabilityRuntime → findings.
  * This is the only product assessment path (LU cutover complete).
  *
@@ -148,7 +165,7 @@ export async function runLuAssessmentViaKernel(
   const capabilityRuntime = CapabilityRuntime.create({ registry, handlers });
 
   const security = SecurityRuntime.create({
-    bootstrapAdmit: true,
+    bootstrapAdmit: isLuBootstrapAdmitAllowed(),
     bindSeed: input.deterministic_seed,
     grants: [
       {
