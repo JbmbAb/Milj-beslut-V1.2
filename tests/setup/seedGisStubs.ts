@@ -1,6 +1,7 @@
 import pkg from 'pg';
 import { admitDisposableGisTestDatabase } from './disposableGisTestDatabase';
 import { assertRequiredSpatialExtensions } from './requiredSpatialExtensions';
+import { applyRc6VersionedSpatialDdl } from '../../scripts/db/lib/applyRc6VersionedSpatialDdl';
 const { Client } = pkg;
 
 // DB-0-SAFETY: no dotenv.config() here. Loading .env in this module is what allowed the
@@ -52,6 +53,13 @@ export async function applyGisTestStubs(): Promise<void> {
       DROP TABLE IF EXISTS env.protected_area_nvr_raw CASCADE;
     `);
 
+    // RC6-E: env.ebh_potentiellt_fororenade_omraden, env.protected_area_nvr_raw and
+    // env.protected_area are schema-owned by the versioned spatial DDL chain
+    // (prisma/spatial/*.sql), applied here rather than hand-duplicated below. This runs after
+    // the DROP block above and before the mini-seed INSERT further down in this file, which
+    // needs env.protected_area to already exist.
+    await applyRc6VersionedSpatialDdl(client);
+
     await client.query(`
       CREATE OR REPLACE FUNCTION core.normalize_designation(input_text text)
       RETURNS text AS $$
@@ -60,30 +68,6 @@ export async function applyGisTestStubs(): Promise<void> {
           RETURN trim(regexp_replace(upper(unaccent(input_text)), '[^A-Z0-9]', ' ', 'g'));
       END;
       $$ LANGUAGE plpgsql IMMUTABLE;
-
-      -- RC6-C: canonical normalized read model. The only protected-area
-      -- surface consumers may query. Single geom column -- see RC6-D for
-      -- the two consumers converged off a second "wkb_geometry" name.
-      CREATE TABLE IF NOT EXISTS "env"."protected_area" (
-          nvr_id TEXT PRIMARY KEY,
-          name TEXT,
-          protection_type TEXT,
-          decision_status TEXT,
-          source_dataset TEXT,
-          geom geometry(MultiPolygon, 3006),
-          area_ha DOUBLE PRECISION GENERATED ALWAYS AS (ST_Area(geom) / 10000.0) STORED
-      );
-
-      -- RC6-C: source-faithful NVR materialization. Not queried by name
-      -- from application/test code today; exists so the physical boundary
-      -- is provisionable and provable, matching production's actual shape.
-      CREATE TABLE IF NOT EXISTS "env"."protected_area_nvr_raw" (
-          ogc_fid SERIAL PRIMARY KEY,
-          nvrid TEXT,
-          namn TEXT,
-          skyddstyp TEXT,
-          geom geometry(MultiPolygon, 3006)
-      );
 
       CREATE TABLE IF NOT EXISTS "env"."natura2000_area" (
           external_id TEXT PRIMARY KEY,
@@ -146,11 +130,6 @@ export async function applyGisTestStubs(): Promise<void> {
           depth_from NUMERIC,
           tot_depth NUMERIC,
           geom geometry(Point, 3006)
-      );
-
-      CREATE TABLE IF NOT EXISTS "env"."ebh_potentiellt_fororenade_omraden" (
-          fid INTEGER PRIMARY KEY,
-          geom geometry(MultiPoint, 3006)
       );
 
       CREATE TABLE IF NOT EXISTS "core"."lm_mark" (

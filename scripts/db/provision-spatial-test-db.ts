@@ -26,56 +26,27 @@ import { resolve } from 'node:path';
 
 import { Client } from 'pg';
 
-/** Tables the spatial proofs actually read and write. Nothing else is created. */
+import { applyRc6VersionedSpatialDdl, RC6_OWNED_TABLES } from './lib/applyRc6VersionedSpatialDdl';
+
+/**
+ * Tables the spatial proofs actually read and write, still hand-defined here.
+ *
+ * RC6-E moved ebh_potentiellt_fororenade_omraden, protected_area_nvr_raw and protected_area
+ * out of this list -- they are now created by applyRc6VersionedSpatialDdl() from
+ * prisma/spatial/*.sql, the single schema authority for those three, rather than duplicated
+ * here as a second hand-written definition that happened to agree.
+ *
+ * sgu_well remains hand-defined: it is documented, pre-existing schema-ownership debt
+ * (production types it MULTIPOINT; typing it strictly here would fail the very test this
+ * database exists to run), out of RC6's scope to resolve now.
+ */
 const REQUIRED_TABLES = [
   {
     name: 'sgu_well',
-    // Production types this MULTIPOINT, but SpatialProviderPostGIS.test.ts inserts a bare
-    // ST_MakePoint. Typing it strictly here would fail the very test this database exists to
-    // run, so the geometry type is left open while the SRID — the part that carries spatial
-    // meaning — stays constrained. The divergence is real and worth resolving upstream; see
-    // the unit note in docs/architecture.
     ddl: `
       CREATE TABLE IF NOT EXISTS env.sgu_well (
         id   integer PRIMARY KEY,
         geom geometry(Geometry, 3006)
-      )`,
-  },
-  {
-    name: 'ebh_potentiellt_fororenade_omraden',
-    ddl: `
-      CREATE TABLE IF NOT EXISTS env.ebh_potentiellt_fororenade_omraden (
-        fid  integer PRIMARY KEY,
-        geom geometry(MultiPoint, 3006)
-      )`,
-  },
-  {
-    // RC6-C: source-faithful NVR materialization. Matches production's
-    // actual raw shape. Never queried by name from application/test code --
-    // see prisma/spatial/006_protected_area_physical_boundary.sql.
-    name: 'protected_area_nvr_raw',
-    ddl: `
-      CREATE TABLE IF NOT EXISTS env.protected_area_nvr_raw (
-        ogc_fid   integer PRIMARY KEY,
-        nvrid     varchar,
-        namn      varchar,
-        skyddstyp varchar,
-        geom      geometry(MultiPolygon, 3006)
-      )`,
-  },
-  {
-    // RC6-C: canonical normalized read model. The only protected-area
-    // surface consumers may query.
-    name: 'protected_area',
-    ddl: `
-      CREATE TABLE IF NOT EXISTS env.protected_area (
-        nvr_id          text PRIMARY KEY,
-        name            text,
-        protection_type text,
-        decision_status text,
-        source_dataset  text,
-        geom            geometry(MultiPolygon, 3006),
-        area_ha         double precision GENERATED ALWAYS AS (ST_Area(geom) / 10000.0) STORED
       )`,
   },
 ] as const;
@@ -118,11 +89,10 @@ const CORE_OBJECTS = [
   },
 ] as const;
 
+// RC6-E: no ebh/protected_area/protected_area_nvr_raw entries here -- their GIST indexes are
+// created by prisma/spatial/*.sql itself (applyRc6VersionedSpatialDdl), not duplicated here.
 const INDEXES = [
   'CREATE INDEX IF NOT EXISTS sgu_well_geom_idx ON env.sgu_well USING GIST (geom)',
-  'CREATE INDEX IF NOT EXISTS ebh_geom_idx ON env.ebh_potentiellt_fororenade_omraden USING GIST (geom)',
-  'CREATE INDEX IF NOT EXISTS protected_area_geom_idx ON env.protected_area USING GIST (geom)',
-  'CREATE INDEX IF NOT EXISTS protected_area_nvr_raw_geom_idx ON env.protected_area_nvr_raw USING GIST (geom)',
   'CREATE INDEX IF NOT EXISTS property_unit_geom_idx ON core.property_unit USING GIST (geom)',
 ];
 
@@ -300,6 +270,12 @@ async function main(): Promise<void> {
   await dbClient.connect();
   try {
     await dbClient.query('CREATE SCHEMA IF NOT EXISTS env');
+
+    // RC6-E: the versioned spatial DDL chain is schema authority for these three -- applied
+    // from prisma/spatial/*.sql, not hand-duplicated in this file.
+    await applyRc6VersionedSpatialDdl(dbClient);
+    for (const name of RC6_OWNED_TABLES) console.log(`   ✅ env.${name} (versioned DDL)`);
+
     for (const table of REQUIRED_TABLES) {
       await dbClient.query(table.ddl);
       console.log(`   ✅ env.${table.name}`);
@@ -336,6 +312,9 @@ async function main(): Promise<void> {
   try {
     for (const table of REQUIRED_TABLES) {
       await verify.query(`SELECT 1 FROM env.${table.name} LIMIT 1`);
+    }
+    for (const name of RC6_OWNED_TABLES) {
+      await verify.query(`SELECT 1 FROM env.${name} LIMIT 1`);
     }
     await verify.query(
       'INSERT INTO env.sgu_well (id, geom) VALUES (999999, ST_SetSRID(ST_MakePoint(0,0), 3006)) ' +
