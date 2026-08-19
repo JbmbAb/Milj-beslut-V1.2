@@ -1,3 +1,4 @@
+import '../setup/casTestIsolationRoot';
 import request from 'supertest';
 import { describe, expect, it, vi } from 'vitest';
 import { createTokenPair } from '../../server/security/auth';

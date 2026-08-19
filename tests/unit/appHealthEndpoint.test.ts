@@ -10,6 +10,7 @@
  *   - Tier-strukturen har label, description, checks
  */
 
+import '../setup/casTestIsolationRoot';
 import request from 'supertest';
 import { describe, expect, it, vi } from 'vitest';
 import { createApp } from '../../server/createApp';

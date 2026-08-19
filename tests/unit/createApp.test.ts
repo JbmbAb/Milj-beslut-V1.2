@@ -4,6 +4,7 @@
  * Tests for the Express app factory — health endpoint, CORS, OPTIONS.
  */
 
+import '../setup/casTestIsolationRoot';
 import request from 'supertest';
 import { describe, expect, it, vi, beforeEach } from 'vitest';
 
