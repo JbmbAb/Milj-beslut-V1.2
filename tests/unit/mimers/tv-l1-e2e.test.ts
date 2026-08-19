@@ -6,16 +6,28 @@ import {
   DiskQuarantineStorage,
   FileCASRepository,
   QuarantinePromoter,
+  LocalPemSigningKeyProvider,
+  createArtifactAttestation,
+  PROMOTION_ACTION,
+  PROMOTION_ATTESTATION_PREDICATE_TYPE,
+  PROMOTION_ATTESTATION_SCHEMA_VERSION,
+  type ArtifactAttestation,
+  type SigningKeyProvider,
+  type PromotionAttestationPredicate,
   type DatasetApprovalArtifact
 } from '@miljobeslut/mimers-brunn-core';
-import { MmdAdapter } from '../../../scripts/import/loke/adapters/mmdAdapter';
+import { MmdAdapter } from '../../../scripts/import/harvest/adapters/mmdAdapter';
 import { buildRetrievalPolicy } from '../../../packages/mps-retrieval-governance/src/RetrievalPolicy';
 import { evaluateRetrieval } from '../../../packages/mps-retrieval-governance/src/RetrievalDecision';
+import {
+  installSourceRegistryFixtureEnv,
+  writeVerifiedSourceRegistryFixture,
+} from '../import/sourceRegistryFixture';
 
 describe('TV-L1 End-to-End Proof of Governance against Real Source', () => {
   let tempDir: string;
   let originalEnv: NodeJS.ProcessEnv;
-  let executeLokeHarvestForSource: any;
+  let executeHarvestForSource: any;
 
   let quarantineDir: string;
   let casDir: string;
@@ -33,12 +45,13 @@ describe('TV-L1 End-to-End Proof of Governance against Real Source', () => {
     process.env.SKIP_DISK_SPACE_CHECK = 'true';
     process.env.SKIP_DISK_CHECK = 'true';
     process.env.NODE_ENV = 'test';
+    installSourceRegistryFixtureEnv(await writeVerifiedSourceRegistryFixture(tempDir));
 
     vi.resetModules();
 
-    // Importera Loke
-    const mod = await import('../../../scripts/import/loke/lokeRuntime');
-    executeLokeHarvestForSource = mod.executeLokeHarvestForSource;
+    // Importera skörderuntimet
+    const mod = await import('../../../scripts/import/harvest/harvestRuntime');
+    executeHarvestForSource = mod.executeHarvestForSource;
   });
 
   afterAll(() => {
@@ -52,13 +65,42 @@ describe('TV-L1 End-to-End Proof of Governance against Real Source', () => {
     const cas = new FileCASRepository(casDir, { durabilityMode: 'best-effort' });
     await cas.initialize();
 
-    const promoter = new QuarantinePromoter(quarantine, cas);
+    // ADR-042 Level 2: promotion now requires a signed ArtifactAttestation bound to the exact
+    // operation, not a bare "who approved" string. Build attestations the same way
+    // server/routes/governance.routes.ts does server-side, after its ADMIN check.
+    const signing: SigningKeyProvider = LocalPemSigningKeyProvider.generate('ed25519:test-tv-l1-e2e').provider;
+    async function buildAttestation(args: {
+      quarantineId: string;
+      contentHash: string;
+      governanceRelease: string;
+      approverActorId?: string;
+      approverRole?: string;
+    }): Promise<ArtifactAttestation> {
+      const predicate: PromotionAttestationPredicate = {
+        action: PROMOTION_ACTION,
+        quarantine_artifact_id: args.quarantineId,
+        quarantine_content_hash: args.contentHash,
+        approver_actor_id: args.approverActorId ?? 'jimmy',
+        approver_role: args.approverRole ?? 'ADMIN',
+        governance_release: args.governanceRelease,
+        attestation_schema_version: PROMOTION_ATTESTATION_SCHEMA_VERSION,
+        signer_key_id: signing.keyId,
+      };
+      return createArtifactAttestation({
+        subjectDigest: `sha256:${args.contentHash}`,
+        predicateType: PROMOTION_ATTESTATION_PREDICATE_TYPE,
+        predicate: predicate as unknown as Record<string, unknown>,
+        signing,
+      });
+    }
+
+    const promoter = new QuarantinePromoter(quarantine, cas, signing);
 
     // =========================================================================
     // 1. NEGATIVT TEST: Oauktoriserad källa (Crawler Leak Protection)
     // =========================================================================
     // Vi spionerar på MmdAdapter för att returnera en kandidat med obehörig domän (evil.com)
-    const { MmdAdapter: MockMmdAdapter } = await import('../../../scripts/import/loke/adapters/mmdAdapter');
+    const { MmdAdapter: MockMmdAdapter } = await import('../../../scripts/import/harvest/adapters/mmdAdapter');
     const discoverSpy = vi.spyOn(MockMmdAdapter.prototype, 'discover');
     discoverSpy.mockResolvedValueOnce([
       {
@@ -73,7 +115,7 @@ describe('TV-L1 End-to-End Proof of Governance against Real Source', () => {
       }
     ]);
 
-    const unauthorizedRun = await executeLokeHarvestForSource('mmd_nacka', { execute: true });
+    const unauthorizedRun = await executeHarvestForSource('mmd_nacka', { execute: true });
     expect(unauthorizedRun.documents_new).toBe(0); // Inga dokument skördade pga crawler-spärr!
 
     // =========================================================================
@@ -96,7 +138,7 @@ describe('TV-L1 End-to-End Proof of Governance against Real Source', () => {
     // 3. POSITIVT INGEST-TEST: Hämta Riktigt Dokument från Extern Myndighetskälla
     // =========================================================================
     // Vi använder domstol.se:s riktiga robots.txt som en pålitlig, stabil extern test-källa.
-    // Detta bevisar att Loke faktiskt anropar nätverket och hämtar riktigt, icke-syntetiserat innehåll!
+    // Detta bevisar att skörderuntimet faktiskt anropar nätverket och hämtar riktigt, icke-syntetiserat innehåll!
     discoverSpy.mockResolvedValueOnce([
       {
         uniqueId: 'real-external-robots-txt',
@@ -111,7 +153,7 @@ describe('TV-L1 End-to-End Proof of Governance against Real Source', () => {
     ]);
 
     console.log('\n--- Inleder End-to-End nätverksanrop mot domstol.se ---');
-    const realRun = await executeLokeHarvestForSource('mmd_nacka', { execute: true });
+    const realRun = await executeHarvestForSource('mmd_nacka', { execute: true });
     expect(realRun.status).toBe('completed');
     expect(realRun.documents_new).toBe(1);
 
@@ -139,8 +181,16 @@ describe('TV-L1 End-to-End Proof of Governance against Real Source', () => {
     const physicalBinPath = path.join(quarantineDir, `${robotsItem!.quarantine_id}.bin`);
     fs.writeFileSync(physicalBinPath, badBytes);
 
-    // Försök till promotion måste nu avvisas pga hash-matchningsspärr
-    await expect(promoter.promote(robotsItem!.quarantine_id, 'jimmy', 'gov-release-1'))
+    // Försök till promotion måste nu avvisas pga hash-matchningsspärr. Attestationen är
+    // korrekt bunden till karantänpostens (opåverkade) metadata-hash — det är CAS-skrivningens
+    // egen re-hash av de faktiska (nu korrumperade) bytes som ska fånga avvikelsen (steg 8, efter
+    // att alla 7 bindningskontroller redan passerat).
+    const tamperedRunAttestation = await buildAttestation({
+      quarantineId: robotsItem!.quarantine_id,
+      contentHash: robotsItem!.content_hash,
+      governanceRelease: 'gov-release-1',
+    });
+    await expect(promoter.promote(robotsItem!.quarantine_id, tamperedRunAttestation, 'gov-release-1'))
       .rejects.toThrowError(/matchar inte karantänens förväntade hash/i);
 
     // Återställ originalet för nästa test
@@ -153,7 +203,12 @@ describe('TV-L1 End-to-End Proof of Governance against Real Source', () => {
     await quarantine.updateStatus(robotsItem!.quarantine_id, 'rejected', ['MANUAL_AUDIT_FAILED']);
 
     // Försök till promotion av avvisad fil måste blockeras
-    await expect(promoter.promote(robotsItem!.quarantine_id, 'jimmy', 'gov-release-1'))
+    const rejectedRunAttestation = await buildAttestation({
+      quarantineId: robotsItem!.quarantine_id,
+      contentHash: robotsItem!.content_hash,
+      governanceRelease: 'gov-release-1',
+    });
+    await expect(promoter.promote(robotsItem!.quarantine_id, rejectedRunAttestation, 'gov-release-1'))
       .rejects.toThrowError(/rejected/i);
 
     // Återställ till quarantined för att genomföra lyckad promotion
@@ -165,7 +220,12 @@ describe('TV-L1 End-to-End Proof of Governance against Real Source', () => {
     // =========================================================================
     // 6. POSITIVT TEST: Formellt godkännande och befordran till CAS (L1-10)
     // =========================================================================
-    const promoResult = await promoter.promote(robotsItem!.quarantine_id, 'jimmy', 'gov-release-1');
+    const finalAttestation = await buildAttestation({
+      quarantineId: robotsItem!.quarantine_id,
+      contentHash: robotsItem!.content_hash,
+      governanceRelease: 'gov-release-1',
+    });
+    const promoResult = await promoter.promote(robotsItem!.quarantine_id, finalAttestation, 'gov-release-1');
     expect(promoResult.content_hash).toBe(`sha256:${robotsItem!.content_hash}`);
 
     // Kontrollera att filen nu ligger oföränderlig i CAS
@@ -180,9 +240,11 @@ describe('TV-L1 End-to-End Proof of Governance against Real Source', () => {
     expect(casPayload!.metadata.approved_by).toBe('jimmy');
 
     // =========================================================================
-    // 7. NEGATIVT TEST: Dubbel-promotion blockeras
+    // 7. NEGATIVT TEST: Dubbel-promotion blockeras (även med samma giltiga attestation — replay
+    // av en redan konsumerad attestation ger ett deterministiskt, kontrollerat avslag, inte en
+    // ny CAS-skrivning eller en inkonsekvent identitet).
     // =========================================================================
-    await expect(promoter.promote(robotsItem!.quarantine_id, 'jimmy', 'gov-release-1'))
+    await expect(promoter.promote(robotsItem!.quarantine_id, finalAttestation, 'gov-release-1'))
       .rejects.toThrowError(/redan befordrats/i);
 
     // =========================================================================
