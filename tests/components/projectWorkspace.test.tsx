@@ -22,10 +22,6 @@ vi.mock('../../components/ExecutiveSummary', () => ({
   default: () => <div data-testid="executive-summary" />,
 }));
 
-vi.mock('../../components/MarketIntelView', () => ({
-  default: ({ mode }: { mode: string }) => <div data-testid={`market-intel-${mode}`} />,
-}));
-
 vi.mock('../../components/admin/modules/c-notification-mass/CNotificationMassUI', () => ({
   CNotificationMassUI: () => <div data-testid="c-notification-mass-ui" />,
 }));
@@ -46,12 +42,8 @@ vi.mock('../../components/IntegrationsDashboard', () => ({
   default: () => <div data-testid="integrations-dashboard" />,
 }));
 
-vi.mock('../../components/Guide', () => ({
-  default: ({ mode }: { mode: string }) => <div data-testid={`guide-${mode}`} />,
-}));
-
-vi.mock('../../components/LegalSupportCenter', () => ({
-  default: () => <div data-testid="legal-support-center" />,
+vi.mock('../../components/RequirementChecklist', () => ({
+  default: () => <div data-testid="requirement-checklist" />,
 }));
 
 vi.mock('../../components/ChatBot', () => ({
@@ -112,20 +104,11 @@ describe('ProjectWorkspace', () => {
     expect(await screen.findByTestId('asset-triage')).toBeInTheDocument();
   });
 
-  // ── Guide tab ─────────────────────────────────────────────────────────────
+  // ── Requirements tab (current contract; supersedes the retired guide/legal tabs) ──
 
-  it('renders guide loading fallback for guide activeTab', async () => {
-    render(<ProjectWorkspace {...baseProps} activeTab="guide" />);
-    await waitFor(() => {
-      expect(screen.getByTestId('guide-LOGISTICS_MARKET')).toBeInTheDocument();
-    });
-  });
-
-  // ── Legal tab ─────────────────────────────────────────────────────────────
-
-  it('renders LegalSupportCenter for legal activeTab', async () => {
-    render(<ProjectWorkspace {...baseProps} activeTab="legal" />);
-    expect(await screen.findByTestId('legal-support-center')).toBeInTheDocument();
+  it('renders RequirementChecklist for requirements activeTab', async () => {
+    render(<ProjectWorkspace {...baseProps} activeTab="requirements" />);
+    expect(await screen.findByTestId('requirement-checklist')).toBeInTheDocument();
   });
 
   // ── Legacy PERMIT_PORTAL handoff ──────────────────────────────────────────

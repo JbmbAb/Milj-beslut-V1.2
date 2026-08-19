@@ -10,8 +10,8 @@ vi.mock('../../components/ChatBot', () => ({
   default: () => <div data-testid="chatbot" />,
 }));
 
-vi.mock('../../components/LegalSupportCenter', () => ({
-  default: () => <div data-testid="legal-support" />,
+vi.mock('../../components/RequirementChecklist', () => ({
+  default: () => <div data-testid="requirement-checklist" />,
 }));
 
 vi.mock('../../components/CoreWorkflowView', () => ({
@@ -61,9 +61,9 @@ describe('StandaloneWorkspace', () => {
     expect(await screen.findByTestId('admin-search-insight')).toBeInTheDocument();
   });
 
-  it('renders LegalSupportCenter when activeTab is legal', async () => {
-    render(<StandaloneWorkspace {...baseProps} mode="Core_WORKFLOW" activeTab="legal" />);
-    expect(await screen.findByTestId('legal-support')).toBeInTheDocument();
+  it('renders RequirementChecklist when activeTab is requirements', async () => {
+    render(<StandaloneWorkspace {...baseProps} mode="Core_WORKFLOW" activeTab="requirements" />);
+    expect(await screen.findByTestId('requirement-checklist')).toBeInTheDocument();
   });
 
   // ── Unknown mode ──────────────────────────────────────────────────────────
