@@ -12,9 +12,14 @@
  */
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { Client } from "pg";
+import { LocalPemSigningKeyProvider } from "@miljobeslut/mimers-brunn-core";
 import { GenerateLocalizationReportUseCase } from "../../../src/application/generate-localization-report.usecase";
 import { SpatialProviderPostGIS } from "../src/SpatialProviderPostGIS";
 import { MimersIntegration } from "../../mps-runtime/src/mimers/index";
+import { issueExecutionIdentity } from "../../mps-lu/src/execution/LuExecutionIdentityIssuer";
+import { LU_EXECUTION_PRINCIPAL_ID } from "../../mps-lu/src/execution/LuExecutionKernelClient";
+import { createLuRegistryRuntime } from "../../mps-lu/src/registry/createLuRegistryRuntime";
+import { LU_SITE_ASSESSMENT_CAPABILITY_KEY } from "../../mps-lu/src/registry/LuSiteAssessmentRegistry";
 import { prisma } from "../../../server/db/prisma";
 import { lookupPropertyByDesignationFromPostgis } from "../../../server/services/propertyUnitService";
 import { mapLookupResultToPropertyInfo } from "../../../src/ui/api-client/geo.client";
@@ -202,8 +207,29 @@ describe("E2E LU Magic Moment — PostGIS → assessment (no mocks)", () => {
     expect(siteLng).toBeCloseTo(lng, 2);
 
     // 2) LU API path = GenerateLocalizationReport usecase (production entry)
+    // PROD-LU-ADMISSION-02 convergence: real (non-bootstrap) admission requires an
+    // authority-issued execution identity, explicitly provisioned ahead of the run -- never
+    // self-issued inside the production path. MimersIntegration.create() under NODE_ENV=test
+    // returns a process-wide cached in-memory singleton, so the identity issued here is the
+    // same repository runLuAssessmentViaKernel resolves against below.
     const useCase = new GenerateLocalizationReportUseCase();
     const siteId = "site-e2e-magic-vasteras";
+    const { publicKey, privateKey } = LocalPemSigningKeyProvider.generate(
+      "ed25519:lu-execution-authority-v1",
+    );
+    process.env.LU_EXECUTION_AUTHORITY_PRIVATE_KEY_PEM = privateKey;
+    process.env.LU_EXECUTION_AUTHORITY_PUBLIC_KEY_PEM = publicKey;
+    const identityMimers = await MimersIntegration.create();
+    const luRegistry = createLuRegistryRuntime();
+    const luCapability = luRegistry.resolveCapabilityByKey(LU_SITE_ASSESSMENT_CAPABILITY_KEY)!;
+    await issueExecutionIdentity({
+      site_id: siteId,
+      deterministic_seed: `lu-seed-${siteId}`,
+      actor_ref: { artifact_id: LU_EXECUTION_PRINCIPAL_ID, artifact_type: "execution_identity" },
+      capability_ref: { artifact_id: luCapability.artifact_id, artifact_type: luCapability.artifact_type },
+      release_snapshot_id: luRegistry.getReleaseSnapshot().snapshot_id,
+      artifact_repository: identityMimers.artifactRepository,
+    });
     const report = await useCase.execute({
       projectId: testProjectId,
       userId: testUser.id,
@@ -331,7 +357,7 @@ describe("E2E LU Magic Moment — PostGIS → assessment (no mocks)", () => {
     }
 
     // 6) Shape LuWorkspace renders (assessment / property context / findings)
-    expect(motor!.assessment_artifact_id).toMatch(/^assess-/);
+    expect(motor!.assessment_artifact_id).toMatch(/^assessment-/);
     expect(motor!.property_context_id).toMatch(/^prop-/);
     expect(analysis.complianceAnalysis.overallRisk).toMatch(/HIGH|MEDIUM|LOW/);
   }, 120_000);
