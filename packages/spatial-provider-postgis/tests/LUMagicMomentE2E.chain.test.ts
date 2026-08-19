@@ -290,18 +290,31 @@ describe("E2E LU Magic Moment — PostGIS → assessment (no mocks)", () => {
     expect(ruleIds).toContain("LU-EBH-001");
 
     // 4) Three layers queried for real — evidence in CAS
+    // LU-MAGIC-MOMENT-GEOMETRY-SEMANTICS-01: SpatialProviderPostGIS.createEvidence() (P4A-LU-S6)
+    // deliberately returns geometry: null for EXISTENCE_WITHIN_DISTANCE evidence -- the executed
+    // query is an existence oracle ("SELECT 1 AS hit") that never retrieves geometry. This used
+    // to fabricate a fake ±0.001m envelope around the query point and bind it as evidence, which
+    // was removed as a prior defect (an artifact claiming a spatial result it never obtained).
+    // The correct proof is that the query/result semantics are honest and complete, not that a
+    // geometry exists. Do not reintroduce a synthetic point/envelope to make this assertion pass.
     for (const ref of assessment.payload.evidence_refs) {
       const ev = await mimers.artifactRepository.resolve<{
         artifact_type: string;
         content_hash: { value: string };
-        payload: { layer_ref: { layer_id: string }; geometry: unknown };
+        payload: {
+          layer_ref: { layer_id: string };
+          geometry: unknown;
+          result_semantics: { kind: string; result: { exists: boolean } };
+        };
       }>({
         artifact_id: ref.artifact_id,
         artifact_type: "SPATIAL_EVIDENCE",
       });
       expect(ev.artifact_type).toBe("SPATIAL_EVIDENCE");
       expect(ev.content_hash.value).toMatch(/^[a-f0-9]{64}$/);
-      expect(ev.payload.geometry).toBeTruthy();
+      expect(ev.payload.result_semantics.kind).toBe("EXISTENCE_WITHIN_DISTANCE");
+      expect(ev.payload.result_semantics.result.exists).toBe(true);
+      expect(ev.payload.geometry).toBeNull();
     }
     const layers = new Set(
       (
