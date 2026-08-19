@@ -106,8 +106,8 @@ describe("EVT-001 -> EVT-010 Event Compliance", () => {
       artifact_id: "evt-1",
       event_key: "sys-evt",
       event_version: "1.0.0",
-      subject_ref: { artifact_id: "sub-1" } as any,
-      payload_ref: { artifact_id: "pay-1" } as any,
+      subject_ref: { hash: "hash-sub-1", artifact_type: "EVENT_SUBJECT" } as any,
+      payload_ref: { hash: "hash-pay-1", artifact_type: "EVENT_PAYLOAD" } as any,
     } as any;
 
     expect(() => DefaultEventProvenanceValidator.validate(event)).not.toThrow();
@@ -144,7 +144,7 @@ describe("EVT-001 -> EVT-010 Event Compliance", () => {
   // EVT-007 Event Causality Preservation
   it("EVT-007 Event Causality Preservation (A) - ensures causal refs are canonical", () => {
     const event: CausalEventArtifact = {
-      causality: { caused_by: [{ artifact_id: "cause-1" } as any] },
+      causality: { caused_by: [{ hash: "hash-cause-1", artifact_type: "EVENT_ARTIFACT" } as any] },
     } as any;
     expect(() => validateEventCausality(event)).not.toThrow();
 
@@ -158,11 +158,13 @@ describe("EVT-001 -> EVT-010 Event Compliance", () => {
   it("EVT-008 Event Deduplication Integrity (A) - prevents identical keys with different artifacts", () => {
     const prev: DeduplicatedEventArtifact = {
       artifact_id: "evt-1",
+      content_hash: "hash-1",
       identity: { idempotency_key: "key-1" },
     } as any;
 
     const dup: DeduplicatedEventArtifact = {
       artifact_id: "evt-1",
+      content_hash: "hash-1",
       identity: { idempotency_key: "key-1" },
     } as any;
 
@@ -170,6 +172,7 @@ describe("EVT-001 -> EVT-010 Event Compliance", () => {
 
     const conflict: DeduplicatedEventArtifact = {
       artifact_id: "evt-2",
+      content_hash: "hash-2",
       identity: { idempotency_key: "key-1" },
     } as any;
     expect(() => DefaultEventDeduplicationValidator.validate(prev, conflict)).toThrow("EVENT_DEDUPLICATION_VIOLATION: conflicting artifacts");
@@ -191,7 +194,10 @@ describe("EVT-001 -> EVT-010 Event Compliance", () => {
   // EVT-010 Event Stream Canonicalization
   it("EVT-010 Event Stream Canonicalization (A) - rejects empty streams and duplicates", () => {
     const stream: EventStreamArtifact = {
-      event_refs: [{ artifact_id: "evt-1" } as any, { artifact_id: "evt-2" } as any],
+      event_refs: [
+        { hash: "hash-evt-1", artifact_type: "EVENT_ARTIFACT" } as any,
+        { hash: "hash-evt-2", artifact_type: "EVENT_ARTIFACT" } as any,
+      ],
     } as any;
     expect(() => DefaultEventStreamValidator.validate(stream)).not.toThrow();
 
@@ -199,7 +205,10 @@ describe("EVT-001 -> EVT-010 Event Compliance", () => {
     expect(() => DefaultEventStreamValidator.validate(emptyStream)).toThrow("EVENT_STREAM_CANONICALIZATION_VIOLATION: empty stream");
 
     const dupStream: EventStreamArtifact = {
-      event_refs: [{ artifact_id: "evt-1" } as any, { artifact_id: "evt-1" } as any],
+      event_refs: [
+        { hash: "hash-evt-1", artifact_type: "EVENT_ARTIFACT" } as any,
+        { hash: "hash-evt-1", artifact_type: "EVENT_ARTIFACT" } as any,
+      ],
     } as any;
     expect(() => DefaultEventStreamValidator.validate(dupStream)).toThrow("EVENT_STREAM_CANONICALIZATION_VIOLATION: duplicate refs");
   });
