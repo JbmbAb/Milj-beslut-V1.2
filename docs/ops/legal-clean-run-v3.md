@@ -36,7 +36,7 @@ Smoke-läget gör en begränsad ny hämtning:
 3. `dataportal-harvester-v2.ts`
 4. `dataportal-download-open-v2.ts`
 5. `build-municipal-diary-index.ts`
-6. `download-domstol-rss.ts`
+6. Domstolshämtning körs endast genom den governade P2/PUH-runtimen; `download-domstol-rss.ts` är superseded och fail-closed.
 7. `download-rattspraxis.ts`
 8. `sync-legal-sources.ts`
 

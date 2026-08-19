@@ -105,7 +105,7 @@ describe('LuWorkspace E2E Magic Moment (real PostGIS)', () => {
     await client.connect();
     await client.query('DELETE FROM env.sgu_well WHERE id >= 999920 AND id < 999930');
     await client.query(
-      'DELETE FROM env.ebh_potentiellt_fororenade_omraden WHERE id >= 999920 AND id < 999930',
+      'DELETE FROM env.ebh_potentiellt_fororenade_omraden WHERE fid >= 999920 AND fid < 999930',
     );
     await client.query("DELETE FROM env.protected_area WHERE nvr_id = 'NVR-E2E-UI-MAGIC'");
     await client.query('DELETE FROM core.property_unit WHERE source_key = $1', [SOURCE_KEY]);
@@ -128,7 +128,7 @@ describe('LuWorkspace E2E Magic Moment (real PostGIS)', () => {
       [EASTING, NORTHING],
     );
     await client.query(
-      `INSERT INTO env.ebh_potentiellt_fororenade_omraden (id, geom)
+      `INSERT INTO env.ebh_potentiellt_fororenade_omraden (fid, geom)
        VALUES (999920, ST_Multi(ST_Buffer(ST_SetSRID(ST_MakePoint($1, $2), 3006), 10)))`,
       [EASTING, NORTHING],
     );
@@ -185,7 +185,7 @@ describe('LuWorkspace E2E Magic Moment (real PostGIS)', () => {
     await client.connect();
     await client.query('DELETE FROM env.sgu_well WHERE id >= 999920 AND id < 999930');
     await client.query(
-      'DELETE FROM env.ebh_potentiellt_fororenade_omraden WHERE id >= 999920 AND id < 999930',
+      'DELETE FROM env.ebh_potentiellt_fororenade_omraden WHERE fid >= 999920 AND fid < 999930',
     );
     await client.query("DELETE FROM env.protected_area WHERE nvr_id = 'NVR-E2E-UI-MAGIC'");
     await client.query('DELETE FROM core.property_unit WHERE source_key = $1', [SOURCE_KEY]);
