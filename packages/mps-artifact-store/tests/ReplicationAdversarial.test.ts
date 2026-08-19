@@ -170,10 +170,13 @@ describe("Distributed State Closure (MPS-19)", () => {
         { artifact_id: "art-x", expected_hash: genuineHash }
       ]);
       
+      // Mutated relative to artifactX: same identity, different content_hash.value, so its
+      // canonical hash genuinely differs from genuineHash. The previous fixture was byte-for-byte
+      // identical to artifactX, so there was nothing for verifyHash() to actually catch.
       const corruptedPayload: ArtifactContract[] = [{
         artifact_id: "art-x",
         artifact_type: "evidence",
-        content_hash: { algorithm: "sha256", value: "hash" }, references: []
+        content_hash: { algorithm: "sha256", value: "corrupted-hash" }, references: []
       }];
   
       try {
