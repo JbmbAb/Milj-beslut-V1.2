@@ -215,7 +215,7 @@ describe('LuWorkspace E2E Magic Moment (real PostGIS)', () => {
 
     await user.click(screen.getByTestId('lu-run'));
     expect(await screen.findByTestId('lu-results', {}, { timeout: 120_000 })).toBeInTheDocument();
-    expect(screen.getByTestId('lu-assessment-id')).toHaveTextContent(/^Assessment: assess-/);
+    expect(screen.getByTestId('lu-assessment-id')).toHaveTextContent(/^Assessment: assessment-/);
     expect(screen.getByTestId('lu-property-context-id')).toHaveTextContent(
       /Property context: prop-/,
     );
