@@ -27,7 +27,7 @@ describe("LU Domain - PostGIS Magic Moment", () => {
     // Clear any leftover test data
     await client.query("DELETE FROM env.sgu_well WHERE id >= 999900");
     await client.query("DELETE FROM env.ebh_potentiellt_fororenade_omraden WHERE fid >= 999900");
-    await client.query("DELETE FROM env.protected_area WHERE nvrid = 'NVR-TEST-MAGIC'");
+    await client.query("DELETE FROM env.protected_area WHERE nvr_id = 'NVR-TEST-MAGIC'");
 
     // 1. env.sgu_well
     await client.query(`
@@ -43,7 +43,7 @@ describe("LU Domain - PostGIS Magic Moment", () => {
 
     // 3. env.protected_area
     await client.query(`
-      INSERT INTO env.protected_area (nvrid, namn, skyddstyp, geom)
+      INSERT INTO env.protected_area (nvr_id, name, protection_type, geom)
       VALUES (
         'NVR-TEST-MAGIC',
         'Magic Protected Area',
@@ -62,7 +62,7 @@ describe("LU Domain - PostGIS Magic Moment", () => {
     await client.connect();
     await client.query("DELETE FROM env.sgu_well WHERE id >= 999900");
     await client.query("DELETE FROM env.ebh_potentiellt_fororenade_omraden WHERE fid >= 999900");
-    await client.query("DELETE FROM env.protected_area WHERE nvrid = 'NVR-TEST-MAGIC'");
+    await client.query("DELETE FROM env.protected_area WHERE nvr_id = 'NVR-TEST-MAGIC'");
     await client.end();
 
     await provider.close();

@@ -56,7 +56,7 @@ const ALLOWED_GEO_TABLES: GeoLayerConfig[] = [
     key: 'protected_area',
     schema: 'env',
     table: 'protected_area',
-    geometryColumn: 'wkb_geometry',
+    geometryColumn: 'geom',
     source: 'Naturvårdsverket',
     idExpression: 't.nvr_id',
     typeExpression: "COALESCE(t.protection_type, 'Skyddat område')::text",

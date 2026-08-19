@@ -28,7 +28,7 @@ describe("LU Domain - Enforcement and Replay", () => {
     // Clear any leftover test data
     await client.query("DELETE FROM env.sgu_well WHERE id >= 999800 AND id <= 999899");
     await client.query("DELETE FROM env.ebh_potentiellt_fororenade_omraden WHERE fid >= 999800 AND fid <= 999899");
-    await client.query("DELETE FROM env.protected_area WHERE nvrid = 'NVR-TEST-MAGIC-ENFORCE'");
+    await client.query("DELETE FROM env.protected_area WHERE nvr_id = 'NVR-TEST-MAGIC-ENFORCE'");
 
     // 1. env.sgu_well
     await client.query(`

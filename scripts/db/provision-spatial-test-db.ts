@@ -50,13 +50,32 @@ const REQUIRED_TABLES = [
       )`,
   },
   {
-    name: 'protected_area',
+    // RC6-C: source-faithful NVR materialization. Matches production's
+    // actual raw shape. Never queried by name from application/test code --
+    // see prisma/spatial/006_protected_area_physical_boundary.sql.
+    name: 'protected_area_nvr_raw',
     ddl: `
-      CREATE TABLE IF NOT EXISTS env.protected_area (
-        nvrid     varchar PRIMARY KEY,
+      CREATE TABLE IF NOT EXISTS env.protected_area_nvr_raw (
+        ogc_fid   integer PRIMARY KEY,
+        nvrid     varchar,
         namn      varchar,
         skyddstyp varchar,
         geom      geometry(MultiPolygon, 3006)
+      )`,
+  },
+  {
+    // RC6-C: canonical normalized read model. The only protected-area
+    // surface consumers may query.
+    name: 'protected_area',
+    ddl: `
+      CREATE TABLE IF NOT EXISTS env.protected_area (
+        nvr_id          text PRIMARY KEY,
+        name            text,
+        protection_type text,
+        decision_status text,
+        source_dataset  text,
+        geom            geometry(MultiPolygon, 3006),
+        area_ha         double precision GENERATED ALWAYS AS (ST_Area(geom) / 10000.0) STORED
       )`,
   },
 ] as const;
@@ -103,6 +122,7 @@ const INDEXES = [
   'CREATE INDEX IF NOT EXISTS sgu_well_geom_idx ON env.sgu_well USING GIST (geom)',
   'CREATE INDEX IF NOT EXISTS ebh_geom_idx ON env.ebh_potentiellt_fororenade_omraden USING GIST (geom)',
   'CREATE INDEX IF NOT EXISTS protected_area_geom_idx ON env.protected_area USING GIST (geom)',
+  'CREATE INDEX IF NOT EXISTS protected_area_nvr_raw_geom_idx ON env.protected_area_nvr_raw USING GIST (geom)',
   'CREATE INDEX IF NOT EXISTS property_unit_geom_idx ON core.property_unit USING GIST (geom)',
 ];
 

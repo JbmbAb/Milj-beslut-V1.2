@@ -16,7 +16,7 @@ const UPPSALA_BBOX = { minLng: 17.55, minLat: 59.82, maxLng: 17.75, maxLat: 59.9
 
 /** Tables the app reads directly (gis routes / publicUiService / spatial audit). */
 const DIRECT_APP_TABLES = [
-  { key: 'postgis_nvr', schema: 'env', table: 'protected_area', geom: 'wkb_geometry' },
+  { key: 'postgis_nvr', schema: 'env', table: 'protected_area', geom: 'geom' },
   { key: 'natura2000_area', schema: 'env', table: 'natura2000_area', geom: 'wkb_geometry' },
   { key: 'water_protection', schema: 'env', table: 'water_protection_area', geom: 'wkb_geometry' },
   { key: 'postgis_property', schema: 'env', table: 'registerenhetsomradesytor', geom: 'geom' },

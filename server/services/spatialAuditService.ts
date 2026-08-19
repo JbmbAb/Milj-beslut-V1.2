@@ -38,7 +38,7 @@ async function fetchProtectedAreaHits(lat: number, lng: number): Promise<LocalPr
         protection_type,
         decision_status
       FROM env.protected_area, point
-      WHERE ST_Intersects(env.protected_area.wkb_geometry, point.geom)
+      WHERE ST_Intersects(env.protected_area.geom, point.geom)
 
       UNION ALL
 

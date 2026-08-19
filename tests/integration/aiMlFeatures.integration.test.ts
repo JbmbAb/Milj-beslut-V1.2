@@ -76,10 +76,10 @@ describeIfDatabaseIntegration('AI & ML Feature Engine - PostGIS Integration', ()
       INSERT INTO env.ebh_potentiellt_fororenade_omraden (fid, geom)
       VALUES (
         77777,
-        ST_Multi(ST_Buffer(ST_Transform(
+        ST_Multi(ST_Transform(
           ST_SetSRID(ST_GeomFromText('POINT(17.14 60.67)'), 4326),
           3006
-        ), 1.0))
+        ))
       )
       ON CONFLICT DO NOTHING;
     `;

@@ -34,9 +34,9 @@ export async function fetchProtectedAreas(
           pa.name AS name,
           pa.protection_type AS type,
           pa.area_ha AS area_ha,
-          ST_Distance(pa.wkb_geometry, point.geom) AS distance_m
+          ST_Distance(pa.geom, point.geom) AS distance_m
         FROM env.protected_area pa, point
-        WHERE ST_DWithin(pa.wkb_geometry, point.geom, ${radiusMeters})
+        WHERE ST_DWithin(pa.geom, point.geom, ${radiusMeters})
   
         UNION ALL
   
