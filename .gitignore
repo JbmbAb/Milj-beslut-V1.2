@@ -83,11 +83,29 @@ tmp-mimers/
 # An explicit allowlist, not `legacy/**`: a recursive exception would make every future file
 # dropped into that directory trackable by default, including unverified material. Each
 # historical record is admitted by name after it has been classified. legacy/README.md needs no
-# entry — it is not matched by the *.json rule above — and drafts/ plus the inventories stay
-# ignored pending a separate retention decision.
+# entry — it is not matched by the *.json rule above — and the inventories stay ignored pending
+# a separate retention decision. drafts/ is now partially admitted below, by the same
+# name-by-name discipline, where a committed test requires it.
 !source-registry/legacy/puh-mmod-001-superseded.json
 !source-registry/legacy/puh-mmod-002-superseded.json
 !source-registry/legacy/geo-sources-superseded.json
+# RC8 clean-checkout proof: the "pending a separate retention decision" above was overtaken by
+# events. packages/mps-data-governance/tests/P2Auth03D1UnsignedLegalSources.test.ts,
+# P2Auth03E3BSguWellGuidanceDraft.test.ts and P2Auth03E4BPlanbestammelserDraft.test.ts (5747b93)
+# read these exact files by name; without them a clean checkout cannot run tests that were
+# already committed. Same explicit-allowlist discipline as the legacy/ block above -- named by
+# path, not drafts/**, and only the files those three tests actually require. The three
+# puh-mmod-*-unsigned.json drafts remain ignored: no committed test reads them.
+!source-registry/drafts/sfs-1998-808-unsigned.json
+!source-registry/drafts/sfs-1998-899-unsigned.json
+!source-registry/drafts/sfs-2010-900-unsigned.json
+!source-registry/drafts/sfs-2011-338-unsigned.json
+!source-registry/drafts/sfs-2013-251-unsigned.json
+!source-registry/drafts/sfs-2020-614-unsigned.json
+!source-registry/drafts/hvmfs-2016-17-unsigned.json
+!source-registry/drafts/sgu-groundwater-models-unsigned.json
+!source-registry/drafts/sgu-well-drilling-guidance-unsigned.json
+!source-registry/drafts/boverket-planbestammelser-unsigned.json
 !tests/fixtures/**/*.txt
 !scripts/google-adk/requirements.txt
 !prompt_optimizer/requirements.txt

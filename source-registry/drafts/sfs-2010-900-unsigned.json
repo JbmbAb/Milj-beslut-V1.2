@@ -1,0 +1,26 @@
+[
+  {
+    "artifact_id": "reg-rk-sfs-2010-900-001",
+    "artifact_type": "SOURCE_REGISTRY_ENTRY",
+    "source_id": "regeringskansliet-sfs-2010-900",
+    "producer": { "producer_id": "RK", "name": "Regeringskansliet", "type": "agency" },
+    "channel": {
+      "channel_type": "WEBSITE",
+      "endpoint_url": "https://rkrattsbaser.gov.se/sfst?bet=2010:900",
+      "allowed_domains": ["rkrattsbaser.gov.se"]
+    },
+    "adapter": "SINGLE_ENDPOINT_V1",
+    "artifact_types": ["LAW"],
+    "collection_frequency": "DAILY",
+    "change_detection": { "strategy": "CONTENT_HASH" },
+    "policy": {
+      "rate_limit_requests_per_second": 1,
+      "concurrency_limit": 1,
+      "politeness_delay_ms": 1000,
+      "max_object_size_bytes": 10485760,
+      "retry_policy": { "max_attempts": 3, "backoff": "EXPONENTIAL" }
+    },
+    "geographic_scope": "Sweden",
+    "lifecycle_state": "REGISTERED"
+  }
+]

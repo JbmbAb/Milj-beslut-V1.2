@@ -1,0 +1,26 @@
+[
+  {
+    "artifact_id": "reg-sgu-groundwater-models-001",
+    "artifact_type": "SOURCE_REGISTRY_ENTRY",
+    "source_id": "sgu-groundwater-influence-analytical-models",
+    "producer": { "producer_id": "SGU", "name": "Sveriges geologiska undersökning", "type": "agency" },
+    "channel": {
+      "channel_type": "WEBSITE",
+      "endpoint_url": "https://www.sgu.se/anvandarstod-for-geologiska-fragor/bedomning-av-influensomrade-avseende-grundvatten/berakningsmodeller/analytiska-modeller/",
+      "allowed_domains": ["www.sgu.se"]
+    },
+    "adapter": "SINGLE_ENDPOINT_V1",
+    "artifact_types": ["AGENCY_GUIDANCE"],
+    "collection_frequency": "WEEKLY",
+    "change_detection": { "strategy": "CONTENT_HASH" },
+    "policy": {
+      "rate_limit_requests_per_second": 1,
+      "concurrency_limit": 1,
+      "politeness_delay_ms": 1000,
+      "max_object_size_bytes": 52428800,
+      "retry_policy": { "max_attempts": 3, "backoff": "EXPONENTIAL" }
+    },
+    "geographic_scope": "Sweden",
+    "lifecycle_state": "REGISTERED"
+  }
+]

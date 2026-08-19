@@ -1,0 +1,35 @@
+[
+  {
+    "artifact_id": "reg-boverket-planbestammelser-001",
+    "artifact_type": "SOURCE_REGISTRY_ENTRY",
+    "source_id": "boverket-planbestammelser",
+    "producer": {
+      "producer_id": "BOVERKET",
+      "name": "Boverket",
+      "type": "agency"
+    },
+    "channel": {
+      "channel_type": "API",
+      "endpoint_url": "https://api.boverket.se/planbestammelser/v2/json",
+      "allowed_domains": ["api.boverket.se"]
+    },
+    "adapter": "SINGLE_ENDPOINT_V1",
+    "artifact_types": ["REFERENCE_DATASET"],
+    "collection_frequency": "WEEKLY",
+    "change_detection": {
+      "strategy": "CONTENT_HASH"
+    },
+    "policy": {
+      "rate_limit_requests_per_second": 1,
+      "concurrency_limit": 1,
+      "politeness_delay_ms": 1000,
+      "max_object_size_bytes": 52428800,
+      "retry_policy": {
+        "max_attempts": 3,
+        "backoff": "EXPONENTIAL"
+      }
+    },
+    "geographic_scope": "Sweden",
+    "lifecycle_state": "REGISTERED"
+  }
+]
