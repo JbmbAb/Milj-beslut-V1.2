@@ -129,7 +129,7 @@ describe('LuWorkspace E2E Magic Moment (real PostGIS)', () => {
     );
     await client.query(
       `INSERT INTO env.ebh_potentiellt_fororenade_omraden (fid, geom)
-       VALUES (999920, ST_Multi(ST_Buffer(ST_SetSRID(ST_MakePoint($1, $2), 3006), 10)))`,
+       VALUES (999920, ST_Multi(ST_SetSRID(ST_MakePoint($1, $2), 3006)))`,
       [EASTING, NORTHING],
     );
     await client.query(
