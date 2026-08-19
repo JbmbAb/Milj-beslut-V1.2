@@ -55,8 +55,10 @@ registry):
 - `tests/unit/P2Auth03E2ANvvLegacyAcquisitionEnforcement.test.ts`
 - `tests/unit/P2Auth03E3ASguLegacyCrawlerEnforcement.test.ts`
 
-This is tracked as **RC4** below and is not yet closed by this document —
-freezing the authority is not the same act as updating the four assertions.
+This was tracked as **RC4**, closed by `c279860`: each of the four
+assertions was checked against the registry's actual commit history and the
+two additional entries' approval attestations before being updated — see the
+RC4 entry in the gate definition below for the finding.
 
 ---
 
@@ -168,16 +170,31 @@ owner is and is not allowed to claim.
 STATUS = NOT_REACHED
 
 SATISFIED
-  RC1   canonical branch synchronized           ahead/behind 0/0 at 8bc79eb
+  RC1   canonical branch synchronized           ahead/behind 0/0, most recently
+                                                  reverified at c279860
+  RC2   working-tree parking record              docs/architecture/
+                                                  RC2-WORKTREE-PARKING-RECORD.md
+                                                  (1550ce8, closed 9d338d0) — all
+                                                  70 entries named, one canonical
+                                                  self-containment defect found
+                                                  and resolved (19c5d1d) before RC4
   RC3   registry authority = 11                 frozen in §1 above
+  RC4   stale registry-count proofs, 9 -> 11      resolved c279860 — investigated
+                                                  and confirmed stale test
+                                                  snapshot (tests authored
+                                                  2026-08-14, registry committed
+                                                  2026-08-15 with two entries
+                                                  already carrying signed
+                                                  GOVERNANCE_REVIEWER approval
+                                                  attestations from that same
+                                                  day), not a missing-authority
+                                                  gap — no registry entries
+                                                  altered, only the four
+                                                  assertions
   RC5   compliance triage complete, UNKNOWN = 0  §2 above, 12/12 classified
   RC7   UNIT 4 ownership frozen                  §4 above
 
 OPEN
-  RC2   working-tree parking record              70 entries: mostly classified
-                                                  by unit, not yet recorded as a
-                                                  committed parking document
-  RC4   stale registry-count proofs, 9 -> 11      4 assertions listed in §1
   RC6   DB-3 versioned canonical schema +
         materializer + migration                 principle frozen (§3), nothing
                                                   built yet
@@ -186,9 +203,12 @@ OPEN
 INVARIANT
   RC8 may only become PROVEN by executing the required checkpoint test lanes
   against a fresh clone/checkout of the canonical branch. It MUST NOT be
-  inferred solely from RC4 and RC6 reporting complete — closing RC4 and RC6
-  makes RC8 attemptable, not true. RC8 is a result of execution, not a
-  deduction from planning.
+  inferred solely from RC6 reporting complete — closing RC6 makes RC8
+  attemptable, not true. RC8 is a result of execution, not a deduction from
+  planning. (RC2 and RC4 have already demonstrated why: RC2's own closure
+  surfaced a real canonical defect that looked clean until verified; RC4's
+  investigation could as easily have found a real authority gap as a stale
+  proof. Planning-stage confidence is not evidence.)
 ```
 
 ## Required checkpoint test lanes (for RC8, once attempted)
@@ -204,9 +224,10 @@ not change that requirement.
 ## Next order
 
 ```
-RC2 -> RC4 -> UNIT 2 / DB-3 (RC6) -> clean-checkout proof (RC8)
+RC2 (done) -> RC4 (done) -> UNIT 2 / DB-3 (RC6) -> clean-checkout proof (RC8)
 ```
 
-RC2 and RC4 are small and close before UNIT 2 begins, so UNIT 2's closure/
-recon pass starts from a documented, definitionally clean state rather than
-an implicitly-clean one.
+RC2 and RC4 are closed. UNIT 2's closure/recon pass now starts from a
+documented, definitionally clean state rather than an implicitly-clean one.
+RC6 (DB-3 implementation) is the only architecture work standing between
+here and an attempt at RC8.
