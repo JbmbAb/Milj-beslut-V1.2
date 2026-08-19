@@ -106,6 +106,10 @@ tmp-mimers/
 !source-registry/drafts/sgu-groundwater-models-unsigned.json
 !source-registry/drafts/sgu-well-drilling-guidance-unsigned.json
 !source-registry/drafts/boverket-planbestammelser-unsigned.json
+# RC8-A — tests/unit/cesiumL0L1Fixture.test.ts (already committed) reads this frozen fixture
+# scene by name. Same explicit-allowlist discipline: named by path, not public/cesium/**, so a
+# clean checkout can reproduce the already-committed test.
+!public/cesium/fixtures/l0-l1-scene.wgs84.json
 !tests/fixtures/**/*.txt
 !scripts/google-adk/requirements.txt
 !prompt_optimizer/requirements.txt

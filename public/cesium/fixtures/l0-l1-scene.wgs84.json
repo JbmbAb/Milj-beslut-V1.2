@@ -1,0 +1,112 @@
+{
+  "scene_id": "cesium.l0l1.fixture.v1",
+  "srid": 4326,
+  "governance_status": "FIXTURE_OBSERVATION",
+  "note": "Presentation-only fixture. Not spatial authority. Replace with live GeoPresentationAdapter when Admit v1 PostGIS is ready.",
+  "center": { "lat": 61.1205, "lng": 14.9928 },
+  "property": {
+    "type": "Feature",
+    "id": "fixture-property-orsa-demo",
+    "geometry": {
+      "type": "Polygon",
+      "coordinates": [
+        [
+          [14.9912, 61.1196],
+          [14.9946, 61.1196],
+          [14.9946, 61.1214],
+          [14.9912, 61.1214],
+          [14.9912, 61.1196]
+        ]
+      ]
+    },
+    "properties": {
+      "title": "Fixturefastighet (L0/L1)",
+      "description": "Syntetisk fastighetspolygon för Cesium L0/L1 medan PostGIS fylls.",
+      "designation": "FIXTURE ORSA 1:1"
+    }
+  },
+  "evidence": {
+    "type": "FeatureCollection",
+    "features": [
+      {
+        "type": "Feature",
+        "id": "fixture-evidence-water-1",
+        "geometry": {
+          "type": "Point",
+          "coordinates": [14.9931, 61.1202]
+        },
+        "properties": {
+          "evidence_id": "fixture-evidence-water-1",
+          "cas_artifact_id": "fixture-evidence-water-1",
+          "cas_content_hash": "sha256-fixture-water-l0l1-v1",
+          "layer_id": "water",
+          "layer_version": "fixture.v1",
+          "provider": "SGU",
+          "dataset": "Wells",
+          "retrieved_at": "2026-08-08T00:00:00.000Z",
+          "color": "#3b82f6",
+          "description": "Miljöevidens identifierad.",
+          "title": "WATER Evidens"
+        }
+      },
+      {
+        "type": "Feature",
+        "id": "fixture-evidence-ebh-1",
+        "geometry": {
+          "type": "Polygon",
+          "coordinates": [
+            [
+              [14.9920, 61.1200],
+              [14.9935, 61.1200],
+              [14.9935, 61.1209],
+              [14.9920, 61.1209],
+              [14.9920, 61.1200]
+            ]
+          ]
+        },
+        "properties": {
+          "evidence_id": "fixture-evidence-ebh-1",
+          "cas_artifact_id": "fixture-evidence-ebh-1",
+          "cas_content_hash": "sha256-fixture-ebh-l0l1-v1",
+          "layer_id": "ebh",
+          "layer_version": "fixture.v1",
+          "provider": "LST",
+          "dataset": "EBH",
+          "retrieved_at": "2026-08-08T00:00:00.000Z",
+          "color": "#ef4444",
+          "description": "Potentiellt förorenat område (EBH-klassning).",
+          "title": "EBH Evidens"
+        }
+      },
+      {
+        "type": "Feature",
+        "id": "fixture-evidence-protected-1",
+        "geometry": {
+          "type": "Polygon",
+          "coordinates": [
+            [
+              [14.9938, 61.1198],
+              [14.9952, 61.1198],
+              [14.9952, 61.1211],
+              [14.9938, 61.1211],
+              [14.9938, 61.1198]
+            ]
+          ]
+        },
+        "properties": {
+          "evidence_id": "fixture-evidence-protected-1",
+          "cas_artifact_id": "fixture-evidence-protected-1",
+          "cas_content_hash": "sha256-fixture-protected-l0l1-v1",
+          "layer_id": "protected_area",
+          "layer_version": "fixture.v1",
+          "provider": "Naturvårdsverket",
+          "dataset": "ProtectedArea",
+          "retrieved_at": "2026-08-08T00:00:00.000Z",
+          "color": "#10b981",
+          "description": "Skyddat naturområde eller Natura 2000.",
+          "title": "PROTECTED_AREA Evidens"
+        }
+      }
+    ]
+  }
+}
