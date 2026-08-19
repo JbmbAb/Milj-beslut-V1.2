@@ -28,26 +28,37 @@ describe("LU Domain - PostGIS Magic Moment", () => {
     repo = mimers.artifactRepository;
     provider = new SpatialProviderPostGIS(dbUrl, repo);
 
-    // Seed test geometries in PostGIS at the exact coordinates [6612345, 591234]
+    // Seed test geometries in PostGIS at the exact coordinates [6617345, 596234]
     const { Client } = await import("pg");
     const client = new Client({ connectionString: dbUrl });
     await client.connect();
 
-    // Clear any leftover test data
-    await client.query("DELETE FROM env.sgu_well WHERE id >= 999900");
-    await client.query("DELETE FROM env.ebh_potentiellt_fororenade_omraden WHERE fid >= 999900");
+    // RC8-LU-POSTGIS-ORDER-ISOLATION-01: this file previously shared its coordinate
+    // (591234, 6612345) with LUMagicMomentE2E.chain.test.ts and
+    // luWorkspace.magicMoment.e2e.test.tsx, AND used an unbounded delete range
+    // (`id >= 999900`, no upper bound) against a database shared across concurrently-running
+    // test files/worker processes. The failing assertion runs two provider.query() calls
+    // back-to-back within the same test; if a sibling file's own insert/delete landed at the
+    // identical coordinate in the narrow window between those two calls (all within a 100m
+    // buffer of it), the row set -- and therefore the returned content_hash set -- could differ
+    // between the two calls, purely from shared DB state, not from any instability in canonical
+    // artifact identity itself. Fixed by giving this file its own coordinate, far outside any
+    // buffer distance used here or by siblings, and a bounded delete range matching the pattern
+    // already used elsewhere in this same directory.
+    await client.query("DELETE FROM env.sgu_well WHERE id >= 999900 AND id < 999910");
+    await client.query("DELETE FROM env.ebh_potentiellt_fororenade_omraden WHERE fid >= 999900 AND fid < 999910");
     await client.query("DELETE FROM env.protected_area WHERE nvr_id = 'NVR-TEST-MAGIC'");
 
     // 1. env.sgu_well
     await client.query(`
       INSERT INTO env.sgu_well (id, geom)
-      VALUES (999900, ST_SetSRID(ST_MakePoint(591234, 6612345), 3006))
+      VALUES (999900, ST_SetSRID(ST_MakePoint(596234, 6617345), 3006))
     `);
 
     // 2. env.ebh_potentiellt_fororenade_omraden
     await client.query(`
       INSERT INTO env.ebh_potentiellt_fororenade_omraden (fid, geom)
-      VALUES (999900, ST_Multi(ST_SetSRID(ST_MakePoint(591234, 6612345), 3006)))
+      VALUES (999900, ST_Multi(ST_SetSRID(ST_MakePoint(596234, 6617345), 3006)))
     `);
 
     // 3. env.protected_area
@@ -57,7 +68,7 @@ describe("LU Domain - PostGIS Magic Moment", () => {
         'NVR-TEST-MAGIC',
         'Magic Protected Area',
         'Naturreservat',
-        ST_Multi(ST_Buffer(ST_SetSRID(ST_MakePoint(591234, 6612345), 3006), 10))
+        ST_Multi(ST_Buffer(ST_SetSRID(ST_MakePoint(596234, 6617345), 3006), 10))
       )
     `);
 
@@ -69,8 +80,8 @@ describe("LU Domain - PostGIS Magic Moment", () => {
     const { Client } = await import("pg");
     const client = new Client({ connectionString: dbUrl });
     await client.connect();
-    await client.query("DELETE FROM env.sgu_well WHERE id >= 999900");
-    await client.query("DELETE FROM env.ebh_potentiellt_fororenade_omraden WHERE fid >= 999900");
+    await client.query("DELETE FROM env.sgu_well WHERE id >= 999900 AND id < 999910");
+    await client.query("DELETE FROM env.ebh_potentiellt_fororenade_omraden WHERE fid >= 999900 AND fid < 999910");
     await client.query("DELETE FROM env.protected_area WHERE nvr_id = 'NVR-TEST-MAGIC'");
     await client.end();
 
@@ -112,7 +123,7 @@ describe("LU Domain - PostGIS Magic Moment", () => {
         official_name: "Västerås 1:1",
         geometry_ref: geomRef,
         municipality: "Västerås",
-        coordinates: [6612345, 591234],
+        coordinates: [6617345, 596234],
       }
     };
 
