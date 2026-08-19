@@ -1,4 +1,5 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { LocalPemSigningKeyProvider } from "@miljobeslut/mimers-brunn-core";
 
 vi.mock("../../../server/services/spatialAuditService", () => ({
   runSpatialAudit: vi.fn().mockResolvedValue({
@@ -42,6 +43,30 @@ import { orchestrator, type DocumentEvidenceArtifact, type ISpatialProvider } fr
 import { GenerateLocalizationReportUseCase } from "../../../src/application/generate-localization-report.usecase";
 import type { LocalizationSpatialRuntime } from "../../../server/modules/localization/createLocalizationSpatialRuntime";
 import { buildVerifiedPriorDecisionFact, withFactRef } from "./fixtures/verifiedDocumentFact";
+import { issueExecutionIdentity } from "../src/execution/LuExecutionIdentityIssuer";
+import { LU_EXECUTION_PRINCIPAL_ID } from "../src/execution/LuExecutionKernelClient";
+import { createLuRegistryRuntime } from "../src/registry/createLuRegistryRuntime";
+import { LU_SITE_ASSESSMENT_CAPABILITY_KEY } from "../src/registry/LuSiteAssessmentRegistry";
+import { __resetLuExecutionAuthoritySigningProviderForTests } from "../../../server/security/luExecutionAuthoritySigningKey";
+import { __resetLuExecutionAuthorityVerifierForTests } from "../src/execution/LuExecutionAuthorityVerifier";
+
+// PROD-LU-ADMISSION-02E: explicit authority-issued identity provisioned ahead of the run, via a
+// separate call to issueExecutionIdentity -- see HM1CGovernedAssessmentPersistence.test.ts.
+async function provisionExecutionIdentity(
+  repository: InMemoryArtifactRepository,
+  site_id: string,
+): Promise<void> {
+  const registry = createLuRegistryRuntime();
+  const capability = registry.resolveCapabilityByKey(LU_SITE_ASSESSMENT_CAPABILITY_KEY)!;
+  await issueExecutionIdentity({
+    site_id,
+    deterministic_seed: `lu-seed-${site_id}`,
+    actor_ref: { artifact_id: LU_EXECUTION_PRINCIPAL_ID, artifact_type: "execution_identity" },
+    capability_ref: { artifact_id: capability.artifact_id, artifact_type: capability.artifact_type },
+    release_snapshot_id: registry.getReleaseSnapshot().snapshot_id,
+    artifact_repository: repository,
+  });
+}
 
 function documentEvidence(id: string, title: string, propertyId: string): DocumentEvidenceArtifact {
   return {
@@ -97,12 +122,29 @@ async function seedDocumentEvidence(
 }
 
 describe("HM1-B — real governed document/fact chain", () => {
+  const originalEnv: Record<string, string | undefined> = {};
+
   beforeEach(() => {
     vi.clearAllMocks();
     vi.spyOn(orchestrator, "generateDocumentEvidence").mockResolvedValue([]);
   });
 
+  afterEach(() => {
+    for (const name of ["LU_EXECUTION_AUTHORITY_PRIVATE_KEY_PEM", "LU_EXECUTION_AUTHORITY_PUBLIC_KEY_PEM"] as const) {
+      if (originalEnv[name] === undefined) delete process.env[name];
+      else process.env[name] = originalEnv[name];
+    }
+    __resetLuExecutionAuthoritySigningProviderForTests(null);
+    __resetLuExecutionAuthorityVerifierForTests(null);
+  });
+
   it("carries canonical DocumentEvidence and a resolved verified fact through the real entrypoint into the finding and assessment", async () => {
+    const { publicKey, privateKey } = LocalPemSigningKeyProvider.generate("ed25519:lu-execution-authority-v1");
+    originalEnv.LU_EXECUTION_AUTHORITY_PRIVATE_KEY_PEM = process.env.LU_EXECUTION_AUTHORITY_PRIVATE_KEY_PEM;
+    originalEnv.LU_EXECUTION_AUTHORITY_PUBLIC_KEY_PEM = process.env.LU_EXECUTION_AUTHORITY_PUBLIC_KEY_PEM;
+    process.env.LU_EXECUTION_AUTHORITY_PRIVATE_KEY_PEM = privateKey;
+    process.env.LU_EXECUTION_AUTHORITY_PUBLIC_KEY_PEM = publicKey;
+
     const repository = new InMemoryArtifactRepository();
     const fact = buildVerifiedPriorDecisionFact("hm1b-positive");
     await seedVerifiedFact(repository, fact);
@@ -111,6 +153,7 @@ describe("HM1-B — real governed document/fact chain", () => {
       fact,
     );
     await seedDocumentEvidence(repository, evidence);
+    await provisionExecutionIdentity(repository, "hm1b-positive");
     const useCase = new GenerateLocalizationReportUseCase(
       async () => runtime(repository),
     );
@@ -150,6 +193,12 @@ describe("HM1-B — real governed document/fact chain", () => {
   });
 
   it("does not create LU-DOC-BESLUT-001 when canonical text says avslag but no verified fact is referenced", async () => {
+    const { publicKey, privateKey } = LocalPemSigningKeyProvider.generate("ed25519:lu-execution-authority-v1");
+    originalEnv.LU_EXECUTION_AUTHORITY_PRIVATE_KEY_PEM = process.env.LU_EXECUTION_AUTHORITY_PRIVATE_KEY_PEM;
+    originalEnv.LU_EXECUTION_AUTHORITY_PUBLIC_KEY_PEM = process.env.LU_EXECUTION_AUTHORITY_PUBLIC_KEY_PEM;
+    process.env.LU_EXECUTION_AUTHORITY_PRIVATE_KEY_PEM = privateKey;
+    process.env.LU_EXECUTION_AUTHORITY_PUBLIC_KEY_PEM = publicKey;
+
     const repository = new InMemoryArtifactRepository();
     const evidence = documentEvidence(
       "doc-evidence-hm1b-negative",
@@ -162,6 +211,7 @@ describe("HM1-B — real governed document/fact chain", () => {
       content_hash: { algorithm: "sha256", value: "projection-hash" },
       body: { artifact_type: "TEXT_PROJECTION", text: "Ansökan avslås. Avslag meddelas." },
     });
+    await provisionExecutionIdentity(repository, "hm1b-negative");
     const useCase = new GenerateLocalizationReportUseCase(
       async () => runtime(repository),
     );

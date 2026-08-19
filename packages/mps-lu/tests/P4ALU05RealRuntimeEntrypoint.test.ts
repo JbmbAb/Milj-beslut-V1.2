@@ -1,7 +1,8 @@
 import { readFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { LocalPemSigningKeyProvider } from "@miljobeslut/mimers-brunn-core";
 
 vi.mock("../../../server/services/spatialAuditService", () => ({
   runSpatialAudit: vi.fn().mockResolvedValue({
@@ -78,17 +79,41 @@ import {
   GenerateLocalizationReportUseCase,
 } from "../../../src/application/generate-localization-report.usecase";
 import type { LocalizationSpatialRuntime } from "../../../server/modules/localization/createLocalizationSpatialRuntime";
+import { issueExecutionIdentity } from "../src/execution/LuExecutionIdentityIssuer";
+import { LU_EXECUTION_PRINCIPAL_ID } from "../src/execution/LuExecutionKernelClient";
+import { LU_SITE_ASSESSMENT_CAPABILITY_KEY } from "../src/registry/LuSiteAssessmentRegistry";
+import { __resetLuExecutionAuthoritySigningProviderForTests } from "../../../server/security/luExecutionAuthoritySigningKey";
+import { __resetLuExecutionAuthorityVerifierForTests } from "../src/execution/LuExecutionAuthorityVerifier";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(__dirname, "../../..");
 
 describe("P4A-LU-05 — real runtime entrypoint", () => {
+  const originalEnv: Record<string, string | undefined> = {};
+
   beforeEach(() => {
     vi.clearAllMocks();
     vi.spyOn(orchestrator, "generateDocumentEvidence").mockResolvedValue([]);
   });
 
+  afterEach(() => {
+    for (const name of ["LU_EXECUTION_AUTHORITY_PRIVATE_KEY_PEM", "LU_EXECUTION_AUTHORITY_PUBLIC_KEY_PEM"] as const) {
+      if (originalEnv[name] === undefined) delete process.env[name];
+      else process.env[name] = originalEnv[name];
+    }
+    __resetLuExecutionAuthoritySigningProviderForTests(null);
+    __resetLuExecutionAuthorityVerifierForTests(null);
+  });
+
   it("runs GenerateLocalizationReportUseCase through registry resolution, production provider, evidence, findings and assessment", async () => {
+    // PROD-LU-ADMISSION-02E: explicit authority-issued identity provisioned ahead of the run,
+    // via a separate call to issueExecutionIdentity -- see HM1CGovernedAssessmentPersistence.test.ts.
+    const { publicKey, privateKey } = LocalPemSigningKeyProvider.generate("ed25519:lu-execution-authority-v1");
+    originalEnv.LU_EXECUTION_AUTHORITY_PRIVATE_KEY_PEM = process.env.LU_EXECUTION_AUTHORITY_PRIVATE_KEY_PEM;
+    originalEnv.LU_EXECUTION_AUTHORITY_PUBLIC_KEY_PEM = process.env.LU_EXECUTION_AUTHORITY_PUBLIC_KEY_PEM;
+    process.env.LU_EXECUTION_AUTHORITY_PRIVATE_KEY_PEM = privateKey;
+    process.env.LU_EXECUTION_AUTHORITY_PUBLIC_KEY_PEM = publicKey;
+
     const artifactRepository = new InMemoryArtifactRepository();
     const provider = new SpatialProviderPostGIS(
       "postgresql://unused-by-proof",
@@ -125,6 +150,16 @@ describe("P4A-LU-05 — real runtime entrypoint", () => {
       close: () => provider.close(),
     };
     const useCase = new GenerateLocalizationReportUseCase(async () => runtime);
+
+    const luCapability = registry.resolveCapabilityByKey(LU_SITE_ASSESSMENT_CAPABILITY_KEY)!;
+    await issueExecutionIdentity({
+      site_id: "site-p4a-lu-05",
+      deterministic_seed: "lu-seed-site-p4a-lu-05",
+      actor_ref: { artifact_id: LU_EXECUTION_PRINCIPAL_ID, artifact_type: "execution_identity" },
+      capability_ref: { artifact_id: luCapability.artifact_id, artifact_type: luCapability.artifact_type },
+      release_snapshot_id: registry.getReleaseSnapshot().snapshot_id,
+      artifact_repository: artifactRepository,
+    });
 
     const report = await useCase.execute({
       projectId: "project-p4a-lu-05",

@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("../../../server/services/spatialAuditService", () => ({ runSpatialAudit: vi.fn().mockResolvedValue({ protectedAreaHits: [], protectedAreaAvailable: true, isProtected: false, sgu: { riskLevel: "LOW", manualReviewRequired: false, summary: "OK" }, insar: { riskLevel: "LOW" }, distanceToWaterMeters: 50, distanceToWaterAvailable: true, text: "OK", sources: [] }) }));
 vi.mock("../../../server/services/complianceRuleEngine", () => ({ evaluateComplianceRules: vi.fn().mockReturnValue({ overallRisk: "LOW", permitProbability: 0.8, restrictions: [], rules: [], summary: "OK", violations: [], warnings: [], feasibilityScore: 80, recommendations: [], requiredActions: [], notes: [] }) }));
@@ -11,6 +11,7 @@ vi.mock("../../../server/services/auditTrailService", () => ({ auditTrail: { log
 vi.mock("../../../server/logger", () => ({ logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn() } }));
 vi.mock("../../../src/application/enqueue-lu-execution-ticket", () => ({ enqueueAdmittedLuTicket: vi.fn().mockResolvedValue(null) }));
 
+import { LocalPemSigningKeyProvider } from "@miljobeslut/mimers-brunn-core";
 import { sha256ContentHash } from "../../mps-runtime/src/kernel/ExecutionKernel";
 import { InMemoryArtifactRepository } from "../../mps-runtime/src/repository/InMemoryArtifactRepository";
 import { SecurityRuntime } from "../../mps-runtime/src/security/SecurityRuntime";
@@ -23,6 +24,12 @@ import {
 } from "../src/index";
 import { GenerateLocalizationReportUseCase } from "../../../src/application/generate-localization-report.usecase";
 import type { LocalizationSpatialRuntime } from "../../../server/modules/localization/createLocalizationSpatialRuntime";
+import { issueExecutionIdentity } from "../src/execution/LuExecutionIdentityIssuer";
+import { LU_EXECUTION_PRINCIPAL_ID } from "../src/execution/LuExecutionKernelClient";
+import { createLuRegistryRuntime } from "../src/registry/createLuRegistryRuntime";
+import { LU_SITE_ASSESSMENT_CAPABILITY_KEY } from "../src/registry/LuSiteAssessmentRegistry";
+import { __resetLuExecutionAuthoritySigningProviderForTests } from "../../../server/security/luExecutionAuthoritySigningKey";
+import { __resetLuExecutionAuthorityVerifierForTests } from "../src/execution/LuExecutionAuthorityVerifier";
 
 class RecordingRepository extends InMemoryArtifactRepository {
   readonly writes: Array<{ artifact_id: string; content_hash: { algorithm: "sha256"; value: string }; body: unknown }> = [];
@@ -44,13 +51,45 @@ function runtime(repository: RecordingRepository): LocalizationSpatialRuntime {
 }
 
 describe("HM1-C — governed assessment persistence", () => {
+  const originalEnv: Record<string, string | undefined> = {};
+
   beforeEach(() => {
     vi.clearAllMocks();
     vi.spyOn(orchestrator, "generateDocumentEvidence").mockResolvedValue([]);
   });
 
+  afterEach(() => {
+    for (const name of ["LU_EXECUTION_AUTHORITY_PRIVATE_KEY_PEM", "LU_EXECUTION_AUTHORITY_PUBLIC_KEY_PEM"] as const) {
+      if (originalEnv[name] === undefined) delete process.env[name];
+      else process.env[name] = originalEnv[name];
+    }
+    __resetLuExecutionAuthoritySigningProviderForTests(null);
+    __resetLuExecutionAuthorityVerifierForTests(null);
+  });
+
   it("the real entrypoint writes an assessment canonically bound to the execution outcome and its attestation", async () => {
+    // PROD-LU-ADMISSION-02E: "real entrypoint" now requires an authority-issued execution
+    // identity to be explicitly provisioned ahead of the run -- exactly the production
+    // prerequisite PROD-LU-ADMISSION-02D established. Issuance happens via a separate call to
+    // issueExecutionIdentity, never inside GenerateLocalizationReportUseCase/runLuAssessmentViaKernel.
+    const { publicKey, privateKey } = LocalPemSigningKeyProvider.generate("ed25519:lu-execution-authority-v1");
+    originalEnv.LU_EXECUTION_AUTHORITY_PRIVATE_KEY_PEM = process.env.LU_EXECUTION_AUTHORITY_PRIVATE_KEY_PEM;
+    originalEnv.LU_EXECUTION_AUTHORITY_PUBLIC_KEY_PEM = process.env.LU_EXECUTION_AUTHORITY_PUBLIC_KEY_PEM;
+    process.env.LU_EXECUTION_AUTHORITY_PRIVATE_KEY_PEM = privateKey;
+    process.env.LU_EXECUTION_AUTHORITY_PUBLIC_KEY_PEM = publicKey;
+
     const repository = new RecordingRepository();
+    const registry = createLuRegistryRuntime();
+    const capability = registry.resolveCapabilityByKey(LU_SITE_ASSESSMENT_CAPABILITY_KEY)!;
+    await issueExecutionIdentity({
+      site_id: "hm1c",
+      deterministic_seed: "lu-seed-hm1c",
+      actor_ref: { artifact_id: LU_EXECUTION_PRINCIPAL_ID, artifact_type: "execution_identity" },
+      capability_ref: { artifact_id: capability.artifact_id, artifact_type: capability.artifact_type },
+      release_snapshot_id: registry.getReleaseSnapshot().snapshot_id,
+      artifact_repository: repository,
+    });
+
     const report = await new GenerateLocalizationReportUseCase(async () => runtime(repository)).execute({
       projectId: "project-hm1c",
       siteAlternatives: [{ id: "hm1c", lat: 59.33, lng: 18.07 }],
