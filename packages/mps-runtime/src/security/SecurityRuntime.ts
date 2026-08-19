@@ -19,6 +19,7 @@ import {
   type CapabilityExecutorPort,
 } from "../kernel/ExecutionKernel.js";
 import { FrozenAdmissionAdapter } from "../kernel/FrozenAdmissionAdapter.js";
+import type { FrozenCoreVerificationContext } from "../../../mps-compliance/src/conformance/FrozenCoreVerificationContext.js";
 import type { RuntimeState } from "../kernel/RuntimeState.js";
 import type {
   AuthorizeDecision,
@@ -42,6 +43,13 @@ export type SecurityRuntimeOptions = {
   readonly bootstrapAdmit?: boolean;
   /** Deterministic seed for context binding (not wall-clock). */
   readonly bindSeed?: string;
+  /**
+   * PROD-LU-ADMISSION-01A — real FrozenCore verification context, when the composition root
+   * has one. SecurityRuntime does not construct this itself and stays domain-agnostic; a
+   * caller (e.g. the LU kernel client) builds it from its own canonical artifacts. Omitted or
+   * null preserves prior behavior exactly (bootstrapAdmit governs the no-context path).
+   */
+  readonly verificationContext?: FrozenCoreVerificationContext | null;
 };
 
 /**
@@ -72,7 +80,10 @@ export class SecurityRuntime {
     this.bootstrapAdmit = options.bootstrapAdmit ?? false;
     this.bindSeed = options.bindSeed ?? "security.bind.v1";
     // bootstrapAdmit is explicit opt-in when FrozenCore verification context is absent.
-    this.underlyingAdmit = new FrozenAdmissionAdapter(null, this.bootstrapAdmit);
+    this.underlyingAdmit = new FrozenAdmissionAdapter(
+      options.verificationContext ?? null,
+      this.bootstrapAdmit,
+    );
   }
 
   static create(options: SecurityRuntimeOptions = {}): SecurityRuntime {
