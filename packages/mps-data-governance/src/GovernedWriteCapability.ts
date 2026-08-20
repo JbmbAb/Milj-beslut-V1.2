@@ -250,6 +250,7 @@ export const POSTGIS_RAW_WRITE: GovernedWriteCapability = {
   authorised: [
     "scripts/import/import-librarian-manifest.ts",
     "scripts/import/importLibrarianQa.ts",
+    "packages/mps-data-governance/scripts/materialize-legacy-lm-byggnader-pilot-1762.ts",
   ],
   sessionOnly: [
     "server/modules/ai/orchestrator/tools/queryGeodataTool.ts",

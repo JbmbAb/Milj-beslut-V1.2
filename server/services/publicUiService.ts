@@ -2455,12 +2455,32 @@ export async function getTopo10Layer(bbox: Bbox, tableName: string = 'byggnad'):
   const resolvedTableName = resolveTopo10TableName(tableName);
   const fullTableName = `topo10.${resolvedTableName}`;
   const is3006 = TOPO10_SRID_3006.has(resolvedTableName);
+  const isAdmittedBuilding = resolvedTableName === 'byggnad';
 
   // We use a raw query because the table name is dynamic.
   // WHERE clause must match the table's native SRID to avoid SRID mismatch errors.
   const rows = (await prisma.$queryRawUnsafe(
-    is3006
+    isAdmittedBuilding
       ? `
+    SELECT
+      feature_ref,
+      source_object_id,
+      source_part_key,
+      identity_scope,
+      identity_version,
+      objekttyp AS category,
+      governance_admission_artifact_id,
+      source_registry_artifact_id,
+      admitted_byte_sha256,
+      admission_mode,
+      historical_acquisition_status,
+      ST_AsGeoJSON(ST_Transform(geom, 4326)) AS geojson
+    FROM ${fullTableName}
+    WHERE geom && ST_Transform(ST_MakeEnvelope($1, $2, $3, $4, 4326), 3006)
+    LIMIT 2000
+  `
+      : is3006
+        ? `
     SELECT
       objektidentitet as id,
       objekttyp as category,
@@ -2469,7 +2489,7 @@ export async function getTopo10Layer(bbox: Bbox, tableName: string = 'byggnad'):
     WHERE geom && ST_Transform(ST_MakeEnvelope($1, $2, $3, $4, 4326), 3006)
     LIMIT 2000
   `
-      : `
+        : `
     SELECT
       objektidentitet as id,
       objekttyp as category,
@@ -2482,7 +2502,82 @@ export async function getTopo10Layer(bbox: Bbox, tableName: string = 'byggnad'):
     minLat,
     maxLng,
     maxLat,
-  )) as Array<{ id: string; category: string; geojson: string }>;
+  )) as Array<{
+    id?: string;
+    category: string;
+    geojson: string;
+    feature_ref?: string;
+    source_object_id?: string;
+    source_part_key?: string;
+    identity_scope?: string;
+    identity_version?: string;
+    governance_admission_artifact_id?: string;
+    source_registry_artifact_id?: string;
+    admitted_byte_sha256?: string;
+    admission_mode?: string;
+    historical_acquisition_status?: string;
+  }>;
+
+  if (isAdmittedBuilding) {
+    return {
+      type: 'FeatureCollection',
+      features: rows.map((row) => {
+        if (
+          !row.feature_ref ||
+          !row.source_object_id ||
+          !row.source_part_key ||
+          !row.identity_scope ||
+          !row.identity_version ||
+          !row.governance_admission_artifact_id ||
+          !row.source_registry_artifact_id ||
+          !row.admitted_byte_sha256 ||
+          !row.admission_mode ||
+          !row.historical_acquisition_status
+        ) {
+          throw new Error('TOPO10_BUILDING_READ_MODEL:identity_or_provenance_unavailable');
+        }
+
+        const identity = {
+          layer_id: READ_MODEL_LAYER_ID.TOPO10_BUILDING,
+          identity_kind: 'SOURCE_VERSION_SCOPED_PART',
+          identity_version: row.identity_version,
+          source_namespace: 'lantmateriet-stac-byggnader',
+          source_feature_id: row.source_object_id,
+          source_part_key: row.source_part_key,
+          identity_scope: row.identity_scope,
+          feature_ref: row.feature_ref,
+        };
+
+        return {
+          type: 'Feature',
+          id: row.feature_ref,
+          geometry: JSON.parse(row.geojson),
+          properties: {
+            id: row.source_object_id,
+            category: row.category,
+            feature_ref: row.feature_ref,
+            feature_identity: identity,
+            source_object_id: row.source_object_id,
+            source_part_key: row.source_part_key,
+            identity_scope: row.identity_scope,
+            governance_admission_artifact_id: row.governance_admission_artifact_id,
+            source_registry_artifact_id: row.source_registry_artifact_id,
+            admitted_byte_sha256: row.admitted_byte_sha256,
+            admission_mode: row.admission_mode,
+            historical_acquisition_status: row.historical_acquisition_status,
+            dataset_version: null,
+            source_updated_at: null,
+          },
+        };
+      }),
+      meta: {
+        presentation_kind: 'read_model',
+        read_model_contract_version: 'read-model-feature-collection-v1',
+        layer_id: READ_MODEL_LAYER_ID.TOPO10_BUILDING,
+        provenance_status: 'GOVERNED_LEGACY_MASTER_RECONCILIATION',
+      },
+    };
+  }
 
   return {
     type: 'FeatureCollection',

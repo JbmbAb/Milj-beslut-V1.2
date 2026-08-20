@@ -256,18 +256,40 @@ describe('publicUiService', () => {
 
     it('getTopo10Layer: maps frontend aliases like buildings to the correct table', async () => {
       (prisma.$queryRawUnsafe as Mock).mockResolvedValue([
-        { id: 'topo-1', category: 'byggnad', geojson: '{"type":"Point","coordinates":[18,59]}' },
+        {
+          feature_ref: 'topo10:byggnad:sha256:feature-1',
+          source_object_id: 'topo-1',
+          source_part_key: '42',
+          identity_scope: 'sha256:admitted-bytes',
+          identity_version: 'V1',
+          category: 'byggnad',
+          governance_admission_artifact_id: 'legacy-admission-1',
+          source_registry_artifact_id: 'reg-lantmateriet-stac-byggnader-001',
+          admitted_byte_sha256: 'admitted-bytes',
+          admission_mode: 'LEGACY_MASTER_RECONCILIATION_V1',
+          historical_acquisition_status: 'UNKNOWN',
+          geojson: '{"type":"Point","coordinates":[18,59]}',
+        },
       ]);
 
       const result = await getTopo10Layer({ minLng: 18, minLat: 59, maxLng: 19, maxLat: 60 }, 'buildings');
 
       expect(result.features).toHaveLength(1);
       expect(result.features[0]).toMatchObject({
-        id: 'rmf:v1:source:topo10-building:topo10.byggnad:topo-1',
+        id: 'topo10:byggnad:sha256:feature-1',
+        properties: {
+          feature_ref: 'topo10:byggnad:sha256:feature-1',
+          source_object_id: 'topo-1',
+          source_part_key: '42',
+          historical_acquisition_status: 'UNKNOWN',
+          dataset_version: null,
+          source_updated_at: null,
+        },
       });
       expect(result.meta).toMatchObject({
         presentation_kind: 'read_model',
         layer_id: 'topo10-building',
+        provenance_status: 'GOVERNED_LEGACY_MASTER_RECONCILIATION',
       });
       expect(prisma.$queryRawUnsafe).toHaveBeenCalledWith(
         expect.stringContaining('FROM topo10.byggnad'),
@@ -276,6 +298,16 @@ describe('publicUiService', () => {
         19,
         60,
       );
+    });
+
+    it('getTopo10Layer: rejects buildings without persisted V1 identity and admission provenance', async () => {
+      (prisma.$queryRawUnsafe as Mock).mockResolvedValue([
+        { category: 'byggnad', geojson: '{"type":"Point","coordinates":[18,59]}' },
+      ]);
+
+      await expect(
+        getTopo10Layer({ minLng: 18, minLat: 59, maxLng: 19, maxLat: 60 }, 'buildings'),
+      ).rejects.toThrow('TOPO10_BUILDING_READ_MODEL:identity_or_provenance_unavailable');
     });
 
     it('getTopo10Layer: rejects unknown layer aliases', async () => {
