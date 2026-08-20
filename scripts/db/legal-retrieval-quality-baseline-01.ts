@@ -14,6 +14,7 @@
  * Usage: npx tsx scripts/db/legal-retrieval-quality-baseline-01.ts
  */
 import '../../server/loadEnvFirst';
+import { pathToFileURL } from 'node:url';
 import { prisma } from '../../server/db/prisma';
 import { bindEmbeddingIdentity } from '@miljobeslut/mps-embedding-identity';
 import {
@@ -22,10 +23,9 @@ import {
 } from '@miljobeslut/mps-legal-retrieval-contract';
 import { evaluateLegalRetrieval } from '@miljobeslut/mps-retrieval-governance';
 import { createGeminiEmbeddingProvider } from '../../server/modules/legal/retrieval/GeminiEmbeddingProvider';
-import { fetchGovernedChunkRefs } from '../../server/modules/legal/retrieval/LegalCorpusChunkEmbeddingPersistence';
 
-type Category = 'law' | 'court' | 'court_citation' | 'standard';
-type FailureMode =
+export type Category = 'law' | 'court' | 'court_citation' | 'standard';
+export type FailureMode =
   | 'SEMANTIC_MISS'
   | 'LEXICAL_IDENTIFIER_MISS'
   | 'SOURCE_FAMILY_MISS'
@@ -34,7 +34,7 @@ type FailureMode =
   | 'QUERY_TOO_AMBIGUOUS'
   | 'NONE';
 
-interface QuerySpec {
+export interface QuerySpec {
   readonly query_id: string;
   readonly query: string;
   readonly category: Category;
@@ -47,7 +47,10 @@ interface QuerySpec {
   readonly ambiguous_by_design: boolean;
 }
 
-const QUERIES: QuerySpec[] = [
+// LEGAL-RETRIEVAL-LAW-METADATA-ROUTING-01: exported unchanged so the routing comparison run
+// reuses the EXACT same 24 queries and scoring logic below -- never a hand-tuned rerun, and
+// never a second, drifted copy of the query set.
+export const QUERIES: QuerySpec[] = [
   // ---- LAW (8) ----
   { query_id: 'L1', query: 'Vad är miljöbalkens mål och tillämpningsområde?', category: 'law', expected_family: 'law', expected_logical_source_id: 'regeringskansliet-sfs-1998-808', scope: { type: 'chapter', logicalSourceId: 'regeringskansliet-sfs-1998-808', chapter: '1' }, is_citation_lookup: false, ambiguous_by_design: false },
   { query_id: 'L2', query: 'Bestämmelser om geologisk lagring av koldioxid enligt miljöbalken', category: 'law', expected_family: 'law', expected_logical_source_id: 'regeringskansliet-sfs-1998-808', scope: { type: 'chapter', logicalSourceId: 'regeringskansliet-sfs-1998-808', chapter: '15' }, is_citation_lookup: false, ambiguous_by_design: false },
@@ -81,7 +84,7 @@ const QUERIES: QuerySpec[] = [
   { query_id: 'S6', query: 'Endimensionellt grundvattenflöde till anläggning i magasin med slutna magasinsförhållanden', category: 'standard', expected_family: 'standard', expected_logical_source_id: 'sgu-groundwater-influence-analytical-models', scope: { type: 'materialization', materializationId: '' }, is_citation_lookup: false, ambiguous_by_design: false },
 ];
 
-interface HitRow {
+export interface HitRow {
   fragment_id: string;
   materialization_id: string;
   chapter: string | null;
@@ -101,7 +104,7 @@ async function resolveScopeMaterializationId(spec: QuerySpec): Promise<string | 
   return null;
 }
 
-async function resolveAcceptableFragmentIds(spec: QuerySpec): Promise<Set<string>> {
+export async function resolveAcceptableFragmentIds(spec: QuerySpec): Promise<Set<string>> {
   if (spec.scope.type === 'materialization') {
     const materializationId = await resolveScopeMaterializationId(spec);
     if (!materializationId) return new Set();
@@ -135,7 +138,7 @@ async function search(queryVector: readonly number[], modelId: string, pipelineV
   );
 }
 
-function classifyFailure(spec: QuerySpec, hits: HitRow[], acceptable: Set<string>, firstCorrectRank: number | null): FailureMode {
+export function classifyFailure(spec: QuerySpec, hits: HitRow[], acceptable: Set<string>, firstCorrectRank: number | null): FailureMode {
   if (firstCorrectRank === 1) return 'NONE';
   if (hits.length === 0) return 'SEMANTIC_MISS';
   const top1 = hits[0]!;
@@ -161,15 +164,22 @@ function classifyFailure(spec: QuerySpec, hits: HitRow[], acceptable: Set<string
   return 'SEMANTIC_MISS';
 }
 
-async function provenanceIntact(hit: HitRow, provider: { model_id: string; model_version: string; pipeline_version: string }, policyVersion: string): Promise<boolean> {
+export async function provenanceIntact(hit: HitRow, provider: { model_id: string; model_version: string; pipeline_version: string }, policyVersion: string): Promise<boolean> {
   try {
-    const refs = await fetchGovernedChunkRefs([hit.fragment_id]);
-    if (refs.length === 0) return false;
-    const lookup = createInMemoryGovernedChunkLookup(refs);
     const chunkRow = await prisma.legalCorpusMaterializedChunk.findUnique({
       where: { materializationId_fragmentId: { materializationId: hit.materialization_id, fragmentId: hit.fragment_id } },
     });
     if (!chunkRow) return false;
+    // NOT `fetchGovernedChunkRefs([hit.fragment_id])`: fragment_id is unique only per
+    // (materializationId, fragmentId), not globally -- the known Part G duplicate MMÖD
+    // materialization (see LEGAL-CORPUS-PUH-COURT-SCALE-01-PROVEN.md) shares a fragment_id with
+    // its correctly-labeled counterpart, so a bare fragment_id lookup can return >1 row and the
+    // in-memory Map keyed by fragment_id silently keeps only the last one -- causing a spurious
+    // MATERIALIZATION_MISMATCH when the OTHER row is the one actually being checked. Building the
+    // ref directly from the already compound-keyed chunkRow avoids the ambiguity entirely.
+    const lookup = createInMemoryGovernedChunkLookup([
+      { fragment_id: chunkRow.fragmentId, materialization_id: chunkRow.materializationId, content_hash: chunkRow.contentHash, structure_kind: chunkRow.structureKind as 'law' | 'court' | 'standard' },
+    ]);
     const identity = bindEmbeddingIdentity({
       fragment_id: hit.fragment_id,
       materialization_id: hit.materialization_id,
@@ -271,8 +281,17 @@ async function main() {
   await prisma.$disconnect();
 }
 
-main().catch(async (error) => {
-  console.error('FATAL:', error);
-  await prisma.$disconnect();
-  process.exitCode = 1;
-});
+// LEGAL-RETRIEVAL-LAW-METADATA-ROUTING-01: guarded so importing QUERIES/resolveAcceptable-
+// FragmentIds/classifyFailure/provenanceIntact from another script (the routing comparison run)
+// does not ALSO trigger this file's own full run as a side effect of the import. Comparing
+// against a bare `file://${process.argv[1]}` string is NOT reliable on Windows (import.meta.url
+// percent-encodes non-ASCII path segments like "ö" and always uses three slashes after
+// "file:", neither of which a manual string concat reproduces) -- pathToFileURL normalizes both.
+const isEntryPoint = import.meta.url === pathToFileURL(process.argv[1]!).href;
+if (isEntryPoint) {
+  main().catch(async (error) => {
+    console.error('FATAL:', error);
+    await prisma.$disconnect();
+    process.exitCode = 1;
+  });
+}

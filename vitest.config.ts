@@ -184,6 +184,13 @@ export default defineConfig({
               __dirname,
               'packages/mps-chunking/src/index.ts',
             ),
+            // LEGAL-RETRIEVAL-LAW-METADATA-ROUTING-01: tests/unit/*.test.ts exercising the
+            // routing module's trace integration need this resolvable here too, same reason as
+            // the two aliases above.
+            '@miljobeslut/mps-retrieval-trace': path.resolve(
+              __dirname,
+              'packages/mps-retrieval-trace/src/index.ts',
+            ),
           },
         },
         test: {
