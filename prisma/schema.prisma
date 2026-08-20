@@ -975,6 +975,7 @@ model LegalCorpusRecord {
   legalSource LegalSourceRecord? @relation(fields: [legalSourceId], references: [id], onDelete: SetNull)
   chunks      LegalCorpusChunk[]
   materialization LegalCorpusMaterialization?
+  materializedChunks LegalCorpusMaterializedChunk[]
 
   @@index([canonicalKey])
   @@index([sourceFamily, sourceType, publishedAt])
@@ -1005,6 +1006,7 @@ model LegalCorpusMaterialization {
 
   corpusRecord    LegalCorpusRecord                  @relation(fields: [corpusRecordId], references: [id], onDelete: Restrict)
   manifestEntries LegalCorpusIngestionManifestEntry[]
+  chunks          LegalCorpusMaterializedChunk[]
 
   @@unique([logicalSourceId, registryArtifactId, rawSourceContentHash, textProjectionHash, textProjectionVersion, corpusMaterializationVersion])
   @@index([logicalSourceId])
@@ -1030,6 +1032,53 @@ model LegalCorpusIngestionManifestEntry {
   @@unique([runId, documentId])
   @@index([materializationId])
   @@map("legal_corpus_ingestion_manifest_entries")
+}
+
+/// GOVERNED-LEGAL-CHUNK-SCHEMA-V1.
+///
+/// Deliberately a separate table from the legacy `LegalCorpusChunk` (mutation-tolerant,
+/// position/version-keyed, destructively rechunked by scripts/db/rechunk-legal-corpus.ts's
+/// deleteMany-then-recreate pattern) rather than additive nullable columns on it -- reusing that
+/// table would force one physical table to carry two incompatible contracts, and would risk a
+/// legacy writer touching rows under a semantics that changed out from under it. This table has
+/// no writer except GovernedLegalCorpusMaterializer's own transaction: insert-only, immutable
+/// (no `updatedAt`), content-addressed via `fragmentId`.
+model LegalCorpusMaterializedChunk {
+  id                  String   @id @default(cuid())
+
+  fragmentId          String   @map("fragment_id")
+  materializationId   String   @map("materialization_id")
+  recordId            String   @map("record_id")
+
+  structureKind       String   @map("structure_kind")
+  sequence            Int
+
+  chapter             String?
+  paragraph           String?
+  lawSection          String?  @map("law_section")
+  courtSection        String?  @map("court_section")
+
+  chunkText           String   @db.Text
+  contentHash         String   @map("content_hash")
+  sourceProjectionRef String   @map("source_projection_ref")
+  chunkPolicyVersion  String   @map("chunk_policy_version")
+
+  createdAt           DateTime @default(now()) @map("created_at")
+
+  record          LegalCorpusRecord         @relation(fields: [recordId], references: [id], onDelete: Cascade)
+  materialization LegalCorpusMaterialization @relation(fields: [materializationId], references: [id], onDelete: Cascade)
+
+  // Replay-safe within one materialization: the same fragment re-persisted under the SAME
+  // materialization identity is the same row, not a duplicate. Not globally unique on
+  // fragmentId alone -- fragmentId is already strongly unique by construction (derived from
+  // projection + policy + anchor + sequence + content hash), but a global constraint would be a
+  // second, redundant identity claim on top of the materialization binding that already governs
+  // it. Can be added later if fragmentId is deliberately promoted to a global authority identity.
+  @@unique([materializationId, fragmentId])
+  @@index([recordId])
+  @@index([materializationId, sequence])
+  @@index([chapter, paragraph])
+  @@map("legal_corpus_materialized_chunks")
 }
 
 model LegalCorpusChunk {
