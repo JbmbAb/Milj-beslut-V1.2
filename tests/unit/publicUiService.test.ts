@@ -147,13 +147,21 @@ describe('publicUiService', () => {
       (prisma.$queryRaw as Mock)
         .mockResolvedValueOnce([{ regclass: 'env.protected_area' }])
         .mockResolvedValueOnce([{ regclass: 'env.natura2000_area' }])
-        .mockResolvedValueOnce([{ nvr_id: '1', geojson: '{"type":"Point","coordinates":[1,2]}' }])
+        .mockResolvedValueOnce([
+          { nvr_id: '1', source: 'NVR', geojson: '{"type":"Point","coordinates":[1,2]}' },
+        ])
         .mockResolvedValueOnce([{ regclass: 'env.protected_area' }])
         .mockResolvedValueOnce([{ regclass: 'env.natura2000_area' }])
-        .mockResolvedValueOnce([{ nvr_id: '1', geojson: '{"type":"Point","coordinates":[1,2]}' }]);
+        .mockResolvedValueOnce([
+          { nvr_id: '1', source: 'NVR', geojson: '{"type":"Point","coordinates":[1,2]}' },
+        ]);
 
       const fc = await getProtectedAreaLayer({ minLng: 1, minLat: 1, maxLng: 2, maxLat: 2 });
       expect(fc.features.length).toBe(1);
+      expect(fc.features[0]).toMatchObject({
+        id: 'rmf:v1:source:protected-area:NVR:1',
+        properties: { feature_ref: 'rmf:v1:source:protected-area:NVR:1' },
+      });
       const sqlTexts = vi
         .mocked(prisma.$queryRaw)
         .mock.calls.map((call) => String((call[0] as unknown as string[]).join('')));
@@ -235,6 +243,9 @@ describe('publicUiService', () => {
       const result = await getTopo10Layer({ minLng: 18, minLat: 59, maxLng: 19, maxLat: 60 }, 'buildings');
 
       expect(result.features).toHaveLength(1);
+      expect(result.features[0]).toMatchObject({
+        id: 'rmf:v1:source:topo10-building:topo10.byggnad:topo-1',
+      });
       expect(prisma.$queryRawUnsafe).toHaveBeenCalledWith(
         expect.stringContaining('FROM topo10.byggnad'),
         18,

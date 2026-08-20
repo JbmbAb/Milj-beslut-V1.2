@@ -6,6 +6,11 @@ import { fetchImmediateOpenSources } from './openDataSourceService';
 import { SGU_LANDSLIDE_REVIEW_BUFFER_METERS, type SguCoverageMode } from './sguRiskService';
 import { getDispatchProviderRuntimeStatus } from './transportDispatchService';
 import { getSluProductStatus, pingSluProduct } from './sluService';
+import {
+  createSourceFeatureIdentity,
+  READ_MODEL_LAYER_ID,
+  type ReadModelFeatureIdentityV1,
+} from '../modules/gis/readModelFeatureIdentity';
 
 export { parseBbox, type Bbox } from '../utils/geo/bbox';
 
@@ -18,6 +23,7 @@ type FeatureCollection = {
   type: 'FeatureCollection';
   features: Array<{
     type: 'Feature';
+    id?: string;
     geometry: GeoJsonGeometry | null;
     properties: Record<string, unknown>;
   }>;
@@ -358,15 +364,25 @@ function toFeatureCollection<T extends LocalNamedGeometryRow>(
   rows: T[],
   mapProperties: (row: T) => Record<string, unknown>,
   meta?: Record<string, unknown>,
+  mapIdentity?: (row: T) => ReadModelFeatureIdentityV1,
 ): FeatureCollection {
   return {
     type: 'FeatureCollection',
     features: rows
-      .map((row) => ({
-        type: 'Feature' as const,
-        geometry: safeParseGeometry(row.geojson),
-        properties: mapProperties(row),
-      }))
+      .map((row) => {
+        const identity = mapIdentity?.(row);
+        return {
+          type: 'Feature' as const,
+          ...(identity ? { id: identity.feature_ref } : {}),
+          geometry: safeParseGeometry(row.geojson),
+          properties: {
+            ...mapProperties(row),
+            ...(identity
+              ? { feature_ref: identity.feature_ref, feature_identity: identity }
+              : {}),
+          },
+        };
+      })
       .filter((feature) => feature.geometry),
     meta,
   };
@@ -744,6 +760,12 @@ export async function getProtectedAreaLayer(
       manualReviewRequired: false,
       coverageMode: 'complete',
     },
+    (row) =>
+      createSourceFeatureIdentity({
+        layerId: READ_MODEL_LAYER_ID.PROTECTED_AREA,
+        sourceNamespace: String(row.source),
+        sourceFeatureId: String(row.nvr_id),
+      }),
   );
 }
 
@@ -2392,13 +2414,23 @@ export async function getTopo10Layer(bbox: Bbox, tableName: string = 'byggnad'):
 
   return {
     type: 'FeatureCollection',
-    features: rows.map((r) => ({
-      type: 'Feature',
-      geometry: JSON.parse(r.geojson),
-      properties: {
-        id: r.id,
-        category: r.category,
-      },
-    })),
+    features: rows.map((r) => {
+      const identity = createSourceFeatureIdentity({
+        layerId: READ_MODEL_LAYER_ID.TOPO10_BUILDING,
+        sourceNamespace: `topo10.${resolvedTableName}`,
+        sourceFeatureId: r.id,
+      });
+      return {
+        type: 'Feature',
+        id: identity.feature_ref,
+        geometry: JSON.parse(r.geojson),
+        properties: {
+          id: r.id,
+          category: r.category,
+          feature_ref: identity.feature_ref,
+          feature_identity: identity,
+        },
+      };
+    }),
   };
 }
