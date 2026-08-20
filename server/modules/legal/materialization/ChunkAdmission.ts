@@ -2,6 +2,7 @@ import {
   chunkCourtDecision,
   chunkStandard,
   chunkSwedishLaw,
+  chunkSwedishLawV24,
   detectSections,
   type ExtractedChunk,
 } from '@miljobeslut/mps-chunking';
@@ -114,6 +115,69 @@ export function admitLawChunks(args: {
   // producer, must sort its own output before handing it on. Sorting after fragment_id is
   // assigned is safe: fragment_id is derived from `sequence` (the original document position),
   // not from array position, so re-ordering the array never changes any fragment's identity.
+  return {
+    document_status: admitted.length === 0 ? 'NOT_ADMITTED_TO_PARAGRAPH_CORPUS' : rejected.length > 0 ? 'STRUCTURE_PARTIAL' : 'ADMITTED',
+    admitted: orderChunksDeterministically(admitted),
+    rejected,
+  };
+}
+
+// LEGAL-CHUNKING-LAW-V2.4's own chapterRegex (mps-chunking, frozen text/v2.4): letter-suffix-aware,
+// unlike REAL_CHAPTER_MARKER above (v2.3). Kept as its own constant, deliberately not shared with
+// v2.3's, for the same reason admitLawChunks' verification regex is kept identical to its
+// chunker's: this only verifies what chunkSwedishLawV24 can actually detect.
+const REAL_CHAPTER_MARKER_V24 = /(\d+(?:\s+[a-z])?)\s+kap\./i;
+
+/**
+ * `law`, LEGAL-CHUNKING-LAW-V2.4: same admission contract as `admitLawChunks`, built on
+ * `chunkSwedishLawV24` instead of `chunkSwedishLaw`. A new, separately-named function -- not a
+ * flag branch inside `admitLawChunks` -- because `chunk_policy_version` is identity-bearing
+ * (LEGAL-CORPUS-MATERIALIZATION-IDENTITY-V2): callers select this path explicitly by calling it,
+ * and the resulting materializations get their own distinct identity, never silently replacing or
+ * merging with anything produced by the v2.3 path.
+ */
+export function admitLawChunksV24(args: {
+  readonly text: string;
+  readonly sourceProjectionRef: string;
+  readonly chunkPolicyVersion: string;
+}): ChunkAdmissionResult {
+  if (!REAL_PARAGRAPH_MARKER.test(args.text)) {
+    return { document_status: 'NOT_ADMITTED_TO_PARAGRAPH_CORPUS', admitted: [], rejected: [
+      { reason: 'NOT_ADMITTED_TO_PARAGRAPH_CORPUS: no verified § marker found anywhere in the projected text.', preview: args.text.slice(0, 120) },
+    ] };
+  }
+
+  const hasVerifiedChapterDivision = REAL_CHAPTER_MARKER_V24.test(args.text);
+  const prepared = chunkSwedishLawV24(args.text);
+
+  const admitted: LawChunkIdentityFields[] = [];
+  const rejected: RejectedFragment[] = [];
+  let sequence = 0;
+
+  for (const c of prepared) {
+    if (!c.paragraph) {
+      rejected.push({
+        reason: 'NOT_ADMITTED_TO_PARAGRAPH_CORPUS: no verified § marker for this fragment.',
+        preview: c.chunkText.slice(0, 120),
+      });
+      continue;
+    }
+    const chapter = hasVerifiedChapterDivision ? (c.chapter ?? '1') : NO_CHAPTER_DIVISION;
+    const base: Omit<LawChunkIdentityFields, 'fragment_id'> = {
+      structure_kind: 'law',
+      chapter,
+      paragraph: c.paragraph,
+      section: c.section,
+      full_text: c.chunkText,
+      references_to: [],
+      case_citations: [],
+      chunk_policy_version: args.chunkPolicyVersion,
+      source_projection_ref: args.sourceProjectionRef,
+      sequence: sequence++,
+    };
+    admitted.push({ ...base, fragment_id: computeFragmentId(base) });
+  }
+
   return {
     document_status: admitted.length === 0 ? 'NOT_ADMITTED_TO_PARAGRAPH_CORPUS' : rejected.length > 0 ? 'STRUCTURE_PARTIAL' : 'ADMITTED',
     admitted: orderChunksDeterministically(admitted),

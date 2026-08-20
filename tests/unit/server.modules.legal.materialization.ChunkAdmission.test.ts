@@ -4,6 +4,7 @@ import {
   admitChunks,
   admitCourtChunks,
   admitLawChunks,
+  admitLawChunksV24,
   admitStandardChunks,
 } from '../../server/modules/legal/materialization/ChunkAdmission';
 
@@ -99,6 +100,39 @@ describe('LEGAL-CHUNK-ADMISSION-V1', () => {
 
       expect(isCanonicallyOrdered(result.admitted)).toBe(true);
       expect(() => computeChunkSetContentHash(result.admitted)).not.toThrow();
+    });
+  });
+
+  describe('law v2.4 (LEGAL-CHUNKING-LAW-V2.4)', () => {
+    it('detects a letter-suffixed chapter ("2 a kap.") correctly, unlike v2.3\'s NO_CHAPTER_DIVISION fallback for the same text', () => {
+      const text = '2 a kap. 5 § Text för paragrafen, tillräckligt lång för att räknas som en egen chunk.';
+      const result = admitLawChunksV24({ text, sourceProjectionRef: REF, chunkPolicyVersion: 'legal-chunker-v2.4' });
+
+      const first = result.admitted[0];
+      expect(first?.structure_kind).toBe('law');
+      if (first?.structure_kind === 'law') {
+        expect(first.chapter).toBe('2 a');
+      }
+    });
+
+    it('does not admit a cross-reference ("se 10 kap. 32 §") inside a paragraph body as its own chapter/paragraph fragment', () => {
+      const text =
+        '7 kap. 2 § Text i kapitel sju, med en hänvisning se 10 kap. 32 § för mer information om ' +
+        'ytterligare bestämmelser som gäller i det sammanhanget.\n' +
+        '7 kap. 3 § Ytterligare text i kapitel sju som följer efter hänvisningen till kapitel tio.';
+      const result = admitLawChunksV24({ text, sourceProjectionRef: REF, chunkPolicyVersion: 'legal-chunker-v2.4' });
+
+      expect(result.admitted.some((c) => c.structure_kind === 'law' && c.chapter === '10' && c.paragraph === '32')).toBe(false);
+      expect(isCanonicallyOrdered(result.admitted)).toBe(true);
+      expect(() => computeChunkSetContentHash(result.admitted)).not.toThrow();
+    });
+
+    it('produces a distinct fragment_id from the v2.3 admission of the same underlying text, because chunk_policy_version is identity-bearing', () => {
+      const text = '1 § Text för första paragrafen, tillräckligt lång för att räknas som en egen chunk.';
+      const v23 = admitLawChunks({ text, sourceProjectionRef: REF, chunkPolicyVersion: 'legal-chunker-v2.3' });
+      const v24 = admitLawChunksV24({ text, sourceProjectionRef: REF, chunkPolicyVersion: 'legal-chunker-v2.4' });
+
+      expect(v23.admitted[0]?.fragment_id).not.toBe(v24.admitted[0]?.fragment_id);
     });
   });
 
