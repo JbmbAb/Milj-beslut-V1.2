@@ -1,5 +1,6 @@
 /**
- * LEGAL-RETRIEVAL-LAW-METADATA-ROUTING-01.
+ * LEGAL-RETRIEVAL-LAW-METADATA-ROUTING-01, upgraded by LEGAL-RETRIEVAL-LAW-MULTI-SOURCE-
+ * ROUTING-01.
  *
  * Deterministic, versioned query routing for law-family retrieval, using metadata already
  * present in the governed corpus (logical_source_id, chapter) instead of a heavier general
@@ -8,19 +9,29 @@
  * source, or the RIGHT source with the WRONG chapter ranked first -- neither is a citation-
  * lookup problem, so this targets source/chapter narrowing, not lexical/hybrid search.
  *
- * Hard rule: a constraint is only ever applied when the query text ITSELF names a statute (by a
- * well-known, unambiguous common name, or by explicit SFS number) or explicit chapter. This
- * module never infers "this environmental question is probably about Miljöbalken" -- a query
- * with no such signal gets `source_constraint: null` and searches the full, unconstrained
- * candidate set exactly as before. Fabricating a constraint would silently narrow (and could
- * wrongly exclude) the correct answer.
+ * v1 (single-source, first-match-wins) was proven on LEGAL-RETRIEVAL-LAW-METADATA-HOLDOUT-01 to
+ * work very well on unambiguous queries (unambiguous MRR 0.484 -> 0.843) but to have a real
+ * failure mode on multi-statute queries (H21): a query naming two statutes together got narrowed
+ * to only the first-matched one, excluding the source that actually held the correct answer.
  *
- * A chapter constraint is only ever returned ALONGSIDE a source constraint -- a chapter number
- * alone ("7 kap.") is meaningless without knowing which statute it belongs to, so it is never
- * applied on its own.
+ * v2's canonical rule:
+ *   0 recognized statutes  -> no source constraint (unchanged from v1)
+ *   1 recognized statute   -> source constraint = {that statute} (unchanged from v1)
+ *   2+ recognized statutes -> source constraint = {all recognized statutes}, NEVER first-match
+ *
+ * Hard rule (unchanged from v1): a candidate is only ever added when the query text ITSELF names
+ * that statute (well-known unambiguous common name, or explicit SFS number). Never infers "this
+ * environmental question is probably about Miljöbalken."
+ *
+ * Chapter binding is now source-aware, not blindly applied to every candidate: a chapter mention
+ * binds only to a specific source if the two are textually adjacent (within a small window, no
+ * OTHER recognized source's mention sitting between them) -- "9 kap. miljöbalken och
+ * miljöprövningsförordningen" binds chapter 9 to Miljöbalken only, leaving Miljöprövnings-
+ * förordningen candidate unrestricted (any chapter), rather than either applying chapter 9 to
+ * both or (as v1 did) dropping Miljöprövningsförordningen as a candidate entirely.
  */
 
-export const LAW_SOURCE_ROUTING_VERSION = 'law-source-routing-v1';
+export const LAW_SOURCE_ROUTING_VERSION = 'law-source-routing-v2';
 
 interface KnownLawSource {
   readonly logicalSourceId: string;
@@ -45,60 +56,117 @@ const KNOWN_LAW_SOURCES: readonly KnownLawSource[] = [
   { logicalSourceId: 'regeringskansliet-sfs-1998-899', sfsNumber: '1998:899', namePatterns: [] },
 ];
 
-const CHAPTER_PATTERN = /\b(\d+(?:\s*[a-z])?)\s*kap\.?/i;
+const CHAPTER_PATTERN = /(\d+(?:\s*[a-z])?)\s*kap\.?/gi;
+/** How close (chars) a chapter mention must be to a source mention, with nothing else recognized
+ *  in between, to be considered "bound" to that specific source rather than left unrestricted. */
+const ADJACENCY_WINDOW = 25;
+
+export interface SourceCandidate {
+  readonly logicalSourceId: string;
+  /** null = this source is an admissible candidate with no chapter restriction (any chapter). */
+  readonly chapter_constraint: string | null;
+  readonly matched_signal: string;
+}
 
 export interface RoutingDecision {
   readonly routing_version: string;
-  readonly source_constraint: string | null;
-  readonly chapter_constraint: string | null;
-  readonly matched_signal: string | null;
+  /** Empty array = no constraint at all (0 recognized statutes) -- search stays unconstrained. */
+  readonly source_candidates: readonly SourceCandidate[];
 }
 
-/** Pure, deterministic, no I/O -- the query text is the only input. */
-export function routeLawQuery(query: string): RoutingDecision {
-  let source_constraint: string | null = null;
-  let matched_signal: string | null = null;
+interface TextSpan {
+  readonly index: number;
+  readonly endIndex: number;
+}
 
-  for (const src of KNOWN_LAW_SOURCES) {
-    if (query.includes(src.sfsNumber)) {
-      source_constraint = src.logicalSourceId;
-      matched_signal = `sfs_number:${src.sfsNumber}`;
-      break;
-    }
+interface ChapterMention extends TextSpan {
+  readonly chapter: string;
+}
+
+interface SourceMention extends TextSpan {
+  readonly logicalSourceId: string;
+  readonly matched_signal: string;
+}
+
+function findChapterMentions(query: string): ChapterMention[] {
+  const out: ChapterMention[] = [];
+  for (const m of query.matchAll(CHAPTER_PATTERN)) {
+    out.push({
+      index: m.index!,
+      endIndex: m.index! + m[0].length,
+      chapter: m[1]!.replace(/\s+/g, ' ').trim().toLowerCase(),
+    });
   }
-  if (!source_constraint) {
-    for (const src of KNOWN_LAW_SOURCES) {
-      const hit = src.namePatterns.find((p) => p.test(query));
-      if (hit) {
-        source_constraint = src.logicalSourceId;
-        matched_signal = `name_pattern:${hit.source}`;
+  return out;
+}
+
+/** First mention of each known source in the query -- SFS number takes priority over a common
+ *  name if both happen to appear (the number is unambiguous, the name might be shared). */
+function findSourceMentions(query: string): SourceMention[] {
+  const out: SourceMention[] = [];
+  for (const src of KNOWN_LAW_SOURCES) {
+    const numIdx = query.indexOf(src.sfsNumber);
+    if (numIdx !== -1) {
+      out.push({ logicalSourceId: src.logicalSourceId, index: numIdx, endIndex: numIdx + src.sfsNumber.length, matched_signal: `sfs_number:${src.sfsNumber}` });
+      continue;
+    }
+    for (const pattern of src.namePatterns) {
+      const m = query.match(pattern);
+      if (m && m.index !== undefined) {
+        out.push({ logicalSourceId: src.logicalSourceId, index: m.index, endIndex: m.index + m[0].length, matched_signal: `name_pattern:${pattern.source}` });
         break;
       }
     }
   }
+  return out.sort((a, b) => a.index - b.index);
+}
 
-  let chapter_constraint: string | null = null;
-  if (source_constraint) {
-    const chapMatch = query.match(CHAPTER_PATTERN);
-    if (chapMatch?.[1]) {
-      chapter_constraint = chapMatch[1].replace(/\s+/g, ' ').trim().toLowerCase();
-    }
-  }
+/** True if `chapter` and `source` sit within ADJACENCY_WINDOW of each other (either order) AND
+ *  no OTHER recognized source mention lies textually between them -- this second condition is
+ *  what stops "9 kap. miljöbalken och miljöprövningsförordningen" from binding chapter 9 to
+ *  Miljöprövningsförordningen just because it happens to also be within a generous window: the
+ *  Miljöbalken mention sits between the chapter and it, blocking the bind. */
+function chapterBindsToSource(chapter: ChapterMention, source: SourceMention, allSources: readonly SourceMention[]): boolean {
+  const gapBefore = source.index - chapter.endIndex; // chapter appears before source
+  const gapAfter = chapter.index - source.endIndex; // source appears before chapter (genitive form)
+  const adjacent = (gapBefore >= 0 && gapBefore <= ADJACENCY_WINDOW) || (gapAfter >= 0 && gapAfter <= ADJACENCY_WINDOW);
+  if (!adjacent) return false;
+
+  const spanStart = Math.min(chapter.index, source.index);
+  const spanEnd = Math.max(chapter.endIndex, source.endIndex);
+  const blocked = allSources.some(
+    (other) => other.logicalSourceId !== source.logicalSourceId && other.index >= spanStart && other.index < spanEnd,
+  );
+  return !blocked;
+}
+
+/** Pure, deterministic, no I/O -- the query text is the only input. */
+export function routeLawQuery(query: string): RoutingDecision {
+  const sourceMentions = findSourceMentions(query);
+  const chapterMentions = findChapterMentions(query);
+
+  const candidates: SourceCandidate[] = sourceMentions.map((source) => {
+    const boundChapter = chapterMentions.find((ch) => chapterBindsToSource(ch, source, sourceMentions));
+    return {
+      logicalSourceId: source.logicalSourceId,
+      chapter_constraint: boundChapter ? boundChapter.chapter : null,
+      matched_signal: source.matched_signal,
+    };
+  });
 
   return Object.freeze({
     routing_version: LAW_SOURCE_ROUTING_VERSION,
-    source_constraint,
-    chapter_constraint,
-    matched_signal,
+    source_candidates: Object.freeze(candidates),
   });
 }
 
 /** Human/trace-readable summary of a routing decision, for RetrievalExecutionTrace's
- *  expansion_path -- so the trace records exactly which routing/filter decision was applied,
+ *  expansion_path -- records the exact source candidate set and per-source chapter constraint,
  *  not just that routing exists as a feature. */
 export function describeRoutingDecision(decision: RoutingDecision): string {
-  if (!decision.source_constraint) return `${decision.routing_version}:no_constraint`;
-  const parts = [`${decision.routing_version}:source=${decision.source_constraint}`];
-  if (decision.chapter_constraint) parts.push(`chapter=${decision.chapter_constraint}`);
-  return parts.join(',');
+  if (decision.source_candidates.length === 0) return `${decision.routing_version}:no_constraint`;
+  const parts = decision.source_candidates.map(
+    (c) => `${c.logicalSourceId}${c.chapter_constraint ? `[ch.${c.chapter_constraint}]` : '[any]'}`,
+  );
+  return `${decision.routing_version}:sources=${parts.join('+')}`;
 }

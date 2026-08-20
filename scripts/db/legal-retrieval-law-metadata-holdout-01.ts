@@ -23,7 +23,8 @@ import '../../server/loadEnvFirst';
 import { prisma } from '../../server/db/prisma';
 import { evaluateLegalRetrieval } from '@miljobeslut/mps-retrieval-governance';
 import { createGeminiEmbeddingProvider } from '../../server/modules/legal/retrieval/GeminiEmbeddingProvider';
-import { describeRoutingDecision, routeLawQuery } from '../../server/modules/legal/retrieval/LawSourceRouter';
+import { describeRoutingDecision, routeLawQuery, type RoutingDecision } from '../../server/modules/legal/retrieval/LawSourceRouter';
+import { buildCandidateWhereClause } from '../../server/modules/legal/retrieval/LawSourceRoutingSql';
 
 type Subcategory = 'explicit_source' | 'explicit_source_chapter' | 'implicit_source' | 'multi_statute' | 'ambiguous_by_design';
 
@@ -113,22 +114,13 @@ async function search(
   queryVector: readonly number[],
   modelId: string,
   pipelineVersion: string,
-  constraint: { source_constraint: string | null; chapter_constraint: string | null } | null,
+  decision: RoutingDecision | null,
   topK = 10,
 ): Promise<HitRow[]> {
   const vectorLiteral = `[${queryVector.join(',')}]`;
-  const params: unknown[] = [vectorLiteral, modelId, pipelineVersion];
-  let sourceFilter = '';
-  let chapterFilter = '';
-  if (constraint?.source_constraint) {
-    params.push(constraint.source_constraint);
-    sourceFilter = `AND m.logical_source_id = $${params.length}`;
-  }
-  if (constraint?.chapter_constraint) {
-    params.push(constraint.chapter_constraint);
-    chapterFilter = `AND lower(c.chapter) = $${params.length}`;
-  }
-  params.push(topK);
+  const baseParams: unknown[] = [vectorLiteral, modelId, pipelineVersion];
+  const where = decision ? buildCandidateWhereClause(decision, baseParams.length) : { sql: '', params: [] };
+  const params = [...baseParams, ...where.params, topK];
   const topKParam = `$${params.length}`;
   return prisma.$queryRawUnsafe<HitRow[]>(
     `SELECT e.fragment_id, e.materialization_id, c.chapter, m.logical_source_id,
@@ -137,7 +129,7 @@ async function search(
      JOIN "legal_corpus_materialized_chunks" c ON c.materialization_id = e.materialization_id AND c.fragment_id = e.fragment_id
      JOIN "legal_corpus_materializations" m ON m.id = c.materialization_id
      WHERE e.embedding_model_id = $2 AND e.embedding_pipeline_version = $3
-       ${sourceFilter} ${chapterFilter}
+       ${where.sql}
      ORDER BY e.embedding_vector <=> $1::vector
      LIMIT ${topKParam}`,
     ...params,
