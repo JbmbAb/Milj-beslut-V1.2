@@ -20,8 +20,13 @@ export const ANSWER_MODEL_ID = "gemini-2.5-flash" as const;
 export const ANSWER_MODEL_VERSION = "2.5" as const;
 export const ANSWER_PIPELINE_VERSION = "answer-pipeline-gemini-v1" as const;
 /** Bumped whenever buildPrompt()'s wording changes -- LEGAL-RETRIEVAL-ANSWER-QUALITY-BASELINE-01
- *  freezes this alongside the other answer-configuration versions before its run. */
-export const ANSWER_PROMPT_VERSION = "answer-prompt-v1" as const;
+ *  freezes this alongside the other answer-configuration versions before its run.
+ *  v2 (LEGAL-ANSWER-PROMPT-CALIBRATION-01): calibrates the ANSWER vs INSUFFICIENT_EVIDENCE
+ *  decision -- explicitly permits bounded, scoped synthesis across multiple cited passages
+ *  (targeting the baseline's two FALSE_REFUSAL cases), while explicitly forbidding an
+ *  "always answer if any evidence exists" rule, which would only trade false refusals for
+ *  overclaims. Retrieval, context assembly, and the citation contract are untouched. */
+export const ANSWER_PROMPT_VERSION = "answer-prompt-v2" as const;
 /** Bumped whenever RESPONSE_SCHEMA's shape changes. */
 export const ANSWER_RESPONSE_SCHEMA_VERSION = "answer-response-schema-v1" as const;
 
@@ -101,9 +106,19 @@ function buildPrompt(query: string, context: readonly AnswerContextEntryForModel
     "Du är ett svenskt miljö-/planjuridiskt uppslagsverktyg. Svara ENDAST utifrån de bifogade passagerna nedan.",
     "Du får ALDRIG citera information som inte finns ordagrant i en bifogad passage, och du får ALDRIG hitta på",
     "fragment_id eller materialization_id -- använd bara de exakta värden som står ovanför varje passage.",
-    "Om passagerna inte räcker för att svara på frågan, sätt insufficient_evidence=true och lämna claims tomt.",
-    "Formulera aldrig en svag träff som ett bevisat juridiskt faktum -- svarets säkerhet i tonen får aldrig",
-    "överstiga vad passagerna faktiskt styrker.",
+    "",
+    "Du FÅR och BÖR göra en begränsad syntes när flera bifogade passager tillsammans -- var och en fullt",
+    "korrekt citerad för sig -- ger ett meningsfullt svar på frågan, även om ingen enskild passage ensam",
+    "täcker hela frågan. Ange i så fall svarets omfattning eller begränsning uttryckligen i svarstexten",
+    "(t.ex. \"utifrån de bifogade bestämmelserna...\", \"såvitt framgår av det bifogade materialet...\"),",
+    "snarare än att avstå enbart för att inget enskilt utdrag räcker på egen hand.",
+    "",
+    "Sätt insufficient_evidence=true ENDAST när passagerna genuint saknar innehåll som besvarar frågans",
+    "kärna -- inte bara för att inget enskilt utdrag är en perfekt, fullständig träff. Men anta ALDRIG att",
+    "\"någon relevant passage finns\" i sig räcker för att alltid producera ett svar -- en syntes som går",
+    "längre än vad de citerade passagerna faktiskt säger är lika fel som en obefogad refusal. Formulera",
+    "aldrig en svag träff som ett bevisat juridiskt faktum -- svarets säkerhet i tonen får aldrig överstiga",
+    "vad passagerna faktiskt styrker.",
     "",
     `FRÅGA: ${query}`,
     "",
