@@ -13,6 +13,15 @@ import { FileDownloadManifestStore, type DownloadManifestStore } from "./Downloa
 import { GovernedDownloadError, type DownloadTransport } from "./GovernedDownloadContracts";
 import { GovernedDownloadExecutor } from "./GovernedDownloadExecutor";
 import { HttpDownloadTransport } from "./HttpDownloadTransport";
+import {
+  EnvironmentLantmaterietStacByggnaderCredentialProvider,
+  LantmaterietStacByggnaderAssetTransport,
+  type LantmaterietStacByggnaderCredentialProvider,
+} from "./LantmaterietStacByggnaderAssetTransport";
+import {
+  LantmaterietStacByggnaderTargetResolver,
+  isByggnaderCollectionUrl,
+} from "./LantmaterietStacByggnaderResolver";
 import { PuhRattspraxisTargetResolver } from "./PuhRattspraxisResolver";
 import {
   isUrlAllowedForVerifiedSource,
@@ -85,7 +94,15 @@ export const PRODUCTION_ADAPTER_RESOLVERS: Readonly<Record<string, AdapterResolv
   Object.freeze({
     PUH_RATTSPRAXIS_V1: (transport: DownloadTransport) => new PuhRattspraxisTargetResolver(transport),
     SINGLE_ENDPOINT_V1: () => new SingleEndpointTargetResolver(),
+    LM_STAC_BYGGNADER_V1: (transport: DownloadTransport) => new LantmaterietStacByggnaderTargetResolver(transport),
   });
+
+interface SourceTransportPorts {
+  /** Used solely by the source adapter for discovery/enumeration. */
+  readonly resolver: DownloadTransport;
+  /** Used by the executor for the targets that the adapter already validated. */
+  readonly executor: DownloadTransport;
+}
 
 export interface HarvestRuntimeOptions {
   /** Defaults to `SOURCE_REGISTRY_ARTIFACT_PATH`, then to the repo-resolved authority file. */
@@ -113,6 +130,12 @@ export interface HarvestRuntimeOptions {
    * make. Production leaves it unset and `HttpDownloadTransport` uses the platform `fetch`.
    */
   readonly fetchImpl?: typeof fetch;
+  /**
+   * Only consumed for the signed `LM_STAC_BYGGNADER_V1` source. Supplying it does not widen
+   * any other source's transport: its bearer token is still accepted only by the dedicated
+   * asset transport for `dl1.lantmateriet.se/byggnadsverk/byggnad_knNNNN.zip`.
+   */
+  readonly lantmaterietStacByggnaderCredentialProvider?: LantmaterietStacByggnaderCredentialProvider;
 }
 
 export interface ComposedHarvestRuntime {
@@ -156,7 +179,7 @@ export async function composeHarvestRuntime(
     quarantine,
     manifestStore,
     options.clock ?? systemClock,
-    (source) => transportForSource(source, options),
+    (source) => transportPortsForSource(source, options),
   );
 
   return { executor, registry };
@@ -170,16 +193,39 @@ export async function composeHarvestRuntime(
  * approved domains, and a redirect from one authority onto another authority's host would pass
  * the check while leaving the scope the source was actually approved for.
  */
-function transportForSource(
+function transportPortsForSource(
   source: VerifiedSourceDefinition,
   options: HarvestRuntimeOptions,
-): DownloadTransport {
-  return new HttpDownloadTransport({
+): SourceTransportPorts {
+  const publicTransport = new HttpDownloadTransport({
     isUrlAllowed: (url) => isUrlAllowedForVerifiedSource(source, url),
     maxRedirects: options.maxRedirects,
     userAgent: options.userAgent,
     fetchImpl: options.fetchImpl,
   });
+
+  if (source.adapter !== "LM_STAC_BYGGNADER_V1") {
+    return { resolver: publicTransport, executor: publicTransport };
+  }
+
+  // The registry approves the source and its two hosts; composition narrows the public port
+  // even further to the adapter's fixed collection route. Asset credential use is a separate
+  // port, so an adapter can never make metadata discovery carry a bearer token.
+  const listingTransport = new HttpDownloadTransport({
+    isUrlAllowed: isByggnaderCollectionUrl,
+    maxRedirects: options.maxRedirects,
+    userAgent: options.userAgent,
+    fetchImpl: options.fetchImpl,
+  });
+  const assetTransport = new LantmaterietStacByggnaderAssetTransport({
+    credentialProvider:
+      options.lantmaterietStacByggnaderCredentialProvider ??
+      new EnvironmentLantmaterietStacByggnaderCredentialProvider(),
+    userAgent: options.userAgent,
+    fetchImpl: options.fetchImpl,
+  });
+
+  return { resolver: listingTransport, executor: assetTransport };
 }
 
 /**
@@ -197,7 +243,7 @@ class GovernedHarvestRuntime implements HarvestExecutor {
     private readonly quarantine: QuarantineStorage,
     private readonly manifestStore: DownloadManifestStore,
     private readonly clock: Clock,
-    private readonly transportFactory: (source: VerifiedSourceDefinition) => DownloadTransport,
+    private readonly transportFactory: (source: VerifiedSourceDefinition) => SourceTransportPorts,
   ) {}
 
   async execute(request: HarvestExecutionRequest): Promise<ContentReference> {
@@ -214,20 +260,20 @@ class GovernedHarvestRuntime implements HarvestExecutor {
       );
     }
 
-    const transport = this.transportFactory(source);
+    const transports = this.transportFactory(source);
 
     // Every known adapter is instantiated against this source's transport, not just the one the
     // source names: `DownloadTargetResolverRegistry` reports which adapters were registered when
     // it refuses an unknown one, and that message is only honest if the set is the real one.
     const resolvers: Record<string, SourceAwareTargetResolver> = {};
     for (const [adapter, factory] of Object.entries(this.adapters)) {
-      resolvers[adapter] = factory(transport);
+      resolvers[adapter] = factory(transports.resolver);
     }
 
     const executor = new GovernedDownloadExecutor(
       this.registry,
       new DownloadTargetResolverRegistry(this.registry, resolvers),
-      transport,
+      transports.executor,
       this.quarantine,
       this.manifestStore,
       this.clock,

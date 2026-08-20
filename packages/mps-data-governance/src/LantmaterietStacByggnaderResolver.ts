@@ -147,6 +147,16 @@ export function assertByggnaderCollectionUrl(url: string | undefined): asserts u
   }
 }
 
+/** Boolean form for composition: public discovery may reach only this exact collection scope. */
+export function isByggnaderCollectionUrl(url: string): boolean {
+  try {
+    assertByggnaderCollectionUrl(url);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 export function parseStacFeatureCollection(body: string, sourceUrl: string): StacFeatureCollection & {
   readonly features: readonly StacItem[];
   readonly links: readonly StacLink[];

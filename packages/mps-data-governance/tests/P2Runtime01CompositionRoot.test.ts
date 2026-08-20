@@ -578,6 +578,7 @@ describe("P2-RUNTIME-01 — offline production composition root", () => {
 
   it("registers only adapters that an approved source actually names", () => {
     expect(Object.keys(PRODUCTION_ADAPTER_RESOLVERS).sort()).toEqual([
+      "LM_STAC_BYGGNADER_V1",
       "PUH_RATTSPRAXIS_V1",
       "SINGLE_ENDPOINT_V1",
     ]);
