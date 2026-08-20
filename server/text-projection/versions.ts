@@ -5,3 +5,5 @@
 export const PDF_PARSE_ADAPTER_VERSION = 'pdf-parse@2.4.5';
 export const PLAIN_TEXT_ADAPTER_VERSION = 'plain-text@1.0';
 export const GEMINI_OCR_ADAPTER_VERSION_PREFIX = 'ocr_gemini:';
+/** LEGAL-CORPUS-MATERIALIZATION-V1: tag-stripping HTML -> text, distinct from raw passthrough. */
+export const HTML_EXTRACT_ADAPTER_VERSION = 'html-extract@1.0';

@@ -142,7 +142,13 @@ function extractMarkupDocumentText(input: string): string | undefined {
   return normalizeExternalText(decodeHtmlEntities(withoutTags));
 }
 
-function extractHtmlDocumentText(input: string): {
+/**
+ * Deterministic HTML -> text: strips script/style/noscript blocks, then all remaining tags and
+ * comments, then decodes entities. Presentation markup (including anything embedded in an
+ * attribute, such as a server-generated per-render id) never reaches the returned text -- only
+ * content that was actual tag-external text in the document does.
+ */
+export function extractHtmlDocumentText(input: string): {
   title?: string;
   summary?: string;
   documentText?: string;
