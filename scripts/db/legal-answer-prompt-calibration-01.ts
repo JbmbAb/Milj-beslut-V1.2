@@ -54,7 +54,7 @@ interface Scope {
   readonly materializationId?: string;
 }
 
-type TargetMode = 'ANSWERED' | 'INSUFFICIENT_EVIDENCE' | 'QUERY_UNDERSPECIFIED';
+type TargetMode = 'ANSWERED' | 'INSUFFICIENT_EVIDENCE' | 'QUERY_UNDERSPECIFIED' | 'NAMED_SOURCE_NOT_AVAILABLE';
 
 interface CalQuery {
   readonly id: string;
@@ -78,7 +78,7 @@ const CALIBRATION_SET: CalQuery[] = [
   { id: 'CAL-H18', query: 'Hur förhåller sig avfallsförordningens 2 kap. till miljöbalkens bestämmelser i 2 kap.?', family: 'law', target: 'ANSWERED', note: 'known FALSE_REFUSAL (cross-statute relational synthesis) -- target: becomes ANSWERED', acceptable_scopes: [{ logicalSourceId: AVF, chapter: '2' }, { logicalSourceId: MB, chapter: '2' }] },
   { id: 'CAL-L7', query: 'Förordning om miljöfarlig verksamhet och hälsoskydd enligt 9 kap. miljöbalken', family: 'law', target: 'INSUFFICIENT_EVIDENCE', note: 'known GOOD_REFUSAL -- must remain refused' },
   { id: 'CAL-X1', query: 'Vad är bästa receptet på köttbullar?', family: undefined, target: 'INSUFFICIENT_EVIDENCE', note: 'known GOOD_REFUSAL (out-of-corpus) -- must remain refused' },
-  { id: 'CAL-X2', query: 'Vilka skatteregler gäller för aktiebolag enligt inkomstskattelagen?', family: 'law', target: 'INSUFFICIENT_EVIDENCE', note: 'known GOOD_REFUSAL (uncovered statute) -- must remain refused' },
+  { id: 'CAL-X2', query: 'Vilka skatteregler gäller för aktiebolag enligt inkomstskattelagen?', family: 'law', target: 'NAMED_SOURCE_NOT_AVAILABLE', note: 'known GOOD_REFUSAL (uncovered statute, "inkomstskattelagen") -- LEGAL-ANSWER-NAMED-SOURCE-CONSISTENCY-GATE-01 target: now NAMED_SOURCE_NOT_AVAILABLE specifically, not just generic refusal' },
   { id: 'CAL-X4', query: 'Mark- och miljööverdomstolens dom i mål M 99999-99', family: 'court', target: 'INSUFFICIENT_EVIDENCE', note: 'known GOOD_REFUSAL (fabricated case number) -- must remain refused' },
   { id: 'CAL-L1', query: 'Vad är miljöbalkens mål och tillämpningsområde?', family: 'law', target: 'ANSWERED', note: 'known direct factual answer -- must remain correct/unaffected', acceptable_scopes: [{ logicalSourceId: MB, chapter: '1' }] },
   { id: 'CAL-C6', query: 'Mark- och miljööverdomstolens dom i mål M 307-24', family: 'court', target: 'ANSWERED', note: 'known direct court citation lookup -- must remain correct/unaffected' },
@@ -97,7 +97,7 @@ const NEW_HOLDOUT_SET: CalQuery[] = [
   { id: 'NH7', query: 'Hur samspelar bygglovsprövning enligt 9 kap. plan- och bygglagen med de allmänna hänsynsreglerna i 2 kap. miljöbalken?', family: 'law', target: 'ANSWERED', note: 'NEW cross-statute relational synthesis case -- generalization test beyond CAL-H1/CAL-H18', acceptable_scopes: [{ logicalSourceId: PBL, chapter: '9' }, { logicalSourceId: MB, chapter: '2' }] },
   { id: 'NH8', query: 'Vad krävs för anmälan enligt kapitel 2?', family: 'law', target: 'INSUFFICIENT_EVIDENCE', note: 'ambiguous_by_design (5 sources share ch.2) -- informational, not a hard pass/fail', acceptable_scopes: [{ logicalSourceId: MB, chapter: '2' }, { logicalSourceId: MPF, chapter: '2' }, { logicalSourceId: AVF, chapter: '2' }, { logicalSourceId: MFH_2011, chapter: '2' }, { logicalSourceId: MFH_1998, chapter: '2' }] },
   { id: 'NH9', query: 'Vilka regler gäller för avloppsanordningars anmälningsplikt?', family: 'law', target: 'ANSWERED', note: 'implicit_source, new chapter (MFH_1998 ch.13)', acceptable_scopes: [{ logicalSourceId: MFH_1998, chapter: '13' }] },
-  { id: 'NH10', query: 'Vilka regler gäller för fiske och fiskevård enligt fiskelagen?', family: 'law', target: 'INSUFFICIENT_EVIDENCE', note: 'genuinely uncovered statute (fiskelagen not in this corpus) -- must remain refused' },
+  { id: 'NH10', query: 'Vilka regler gäller för fiske och fiskevård enligt fiskelagen?', family: 'law', target: 'NAMED_SOURCE_NOT_AVAILABLE', note: 'THE key finding this unit exists to fix: genuinely uncovered statute (fiskelagen) -- target: NAMED_SOURCE_NOT_AVAILABLE, not a silent answer from an adjacent real statute' },
 ];
 
 async function resolveScopeFragmentIds(scopes: readonly Scope[]): Promise<Set<string>> {

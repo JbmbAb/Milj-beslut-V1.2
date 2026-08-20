@@ -83,7 +83,7 @@ interface ChapterMention extends TextSpan {
   readonly chapter: string;
 }
 
-interface SourceMention extends TextSpan {
+export interface SourceMention extends TextSpan {
   readonly logicalSourceId: string;
   readonly matched_signal: string;
 }
@@ -102,7 +102,13 @@ function findChapterMentions(query: string): ChapterMention[] {
 
 /** First mention of each known source in the query -- SFS number takes priority over a common
  *  name if both happen to appear (the number is unambiguous, the name might be shared). */
-function findSourceMentions(query: string): SourceMention[] {
+/** Exported for LEGAL-ANSWER-NAMED-SOURCE-CONSISTENCY-GATE-01's mention-overlap check -- routing
+ *  decisions (routeLawQuery) are entirely unchanged by this; this only exposes the same mention
+ *  spans routeLawQuery already computes internally, so the answer layer's generic
+ *  "unrecognized statute mention" detector can tell whether a statute-suffix word it found is one
+ *  routeLawQuery already recognizes (e.g. "bygglagen" inside "plan- och bygglagen") rather than
+ *  re-implementing or drifting from this exact recognition logic. */
+export function findSourceMentions(query: string): SourceMention[] {
   const out: SourceMention[] = [];
   for (const src of KNOWN_LAW_SOURCES) {
     const numIdx = query.indexOf(src.sfsNumber);

@@ -32,3 +32,11 @@ export {
   type QuerySpecificityResult,
   type QuerySpecificityVerdict,
 } from "./QuerySpecificityGate.js";
+
+export {
+  evaluateNamedSourceConsistency,
+  NAMED_SOURCE_CONSISTENCY_GATE_VERSION,
+  type NamedSourceConsistencyInput,
+  type NamedSourceConsistencyResult,
+  type NamedSourceConsistencyVerdict,
+} from "./NamedSourceConsistencyGate.js";

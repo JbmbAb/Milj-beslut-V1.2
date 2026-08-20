@@ -3,6 +3,7 @@ import {
   composeLegalAnswer,
   type ChunkContentLookup,
   type LegalAnswerDeps,
+  type MaterializationSourceLookup,
 } from '../../server/modules/legal/answer/LegalAnswerComposition';
 import type {
   AnswerContextEntryForModel,
@@ -79,6 +80,10 @@ function fakeContentLookup(map: Record<string, string> = { 'frag:a': 'text A', '
   return async (fragmentId) => map[fragmentId] ?? null;
 }
 
+function fakeSourceLookup(map: Record<string, string> = {}): MaterializationSourceLookup {
+  return async (materializationId) => map[materializationId] ?? null;
+}
+
 describe('LEGAL-RETRIEVAL-RAG-ANSWER-COMPOSITION-01', () => {
   it('proof 1+2: valid retrieval results -> answer generated, citation referencing a returned fragment is ACCEPTED', async () => {
     const generation: AnswerGeneration = {
@@ -89,6 +94,7 @@ describe('LEGAL-RETRIEVAL-RAG-ANSWER-COMPOSITION-01', () => {
       retrievalDeps: twoHitRetrievalDeps(),
       answerModel: fakeAnswerModel(generation),
       fetchChunkContent: fakeContentLookup(),
+      lookupMaterializationSourceId: fakeSourceLookup(),
     };
 
     const outcome = await composeLegalAnswer({ query: 'test query', family: undefined }, deps);
@@ -113,6 +119,7 @@ describe('LEGAL-RETRIEVAL-RAG-ANSWER-COMPOSITION-01', () => {
       retrievalDeps: twoHitRetrievalDeps(),
       answerModel: fakeAnswerModel(generation),
       fetchChunkContent: fakeContentLookup(),
+      lookupMaterializationSourceId: fakeSourceLookup(),
     };
 
     const outcome = await composeLegalAnswer({ query: 'legal query text' }, deps);
@@ -136,6 +143,7 @@ describe('LEGAL-RETRIEVAL-RAG-ANSWER-COMPOSITION-01', () => {
       retrievalDeps: twoHitRetrievalDeps(),
       answerModel: fakeAnswerModel(generation),
       fetchChunkContent: fakeContentLookup(),
+      lookupMaterializationSourceId: fakeSourceLookup(),
     };
 
     const outcome = await composeLegalAnswer({ query: 'legal query text' }, deps);
@@ -154,6 +162,7 @@ describe('LEGAL-RETRIEVAL-RAG-ANSWER-COMPOSITION-01', () => {
       answerModel: fakeAnswerModel(generation),
       // frag:a's text cannot be resolved -- only frag:b has real content
       fetchChunkContent: fakeContentLookup({ 'frag:b': 'text B' }),
+      lookupMaterializationSourceId: fakeSourceLookup(),
     };
 
     const outcome = await composeLegalAnswer({ query: 'legal query text' }, deps);
@@ -174,6 +183,7 @@ describe('LEGAL-RETRIEVAL-RAG-ANSWER-COMPOSITION-01', () => {
       retrievalDeps: twoHitRetrievalDeps(),
       answerModel: fakeAnswerModel(generation),
       fetchChunkContent: fakeContentLookup(),
+      lookupMaterializationSourceId: fakeSourceLookup(),
     };
 
     const outcome = await composeLegalAnswer({ query: 'legal query text' }, deps);
@@ -196,6 +206,7 @@ describe('LEGAL-RETRIEVAL-RAG-ANSWER-COMPOSITION-01', () => {
       retrievalDeps: twoHitRetrievalDeps(),
       answerModel,
       fetchChunkContent: fakeContentLookup(),
+      lookupMaterializationSourceId: fakeSourceLookup(),
     };
 
     const outcome = await composeLegalAnswer({ query: 'legal query text' }, deps);
@@ -216,7 +227,7 @@ describe('LEGAL-RETRIEVAL-RAG-ANSWER-COMPOSITION-01', () => {
       searchChunks: async () => [],
       lookupChunkRef: async () => null,
     };
-    const deps: LegalAnswerDeps = { retrievalDeps: emptyRetrievalDeps, answerModel, fetchChunkContent: fakeContentLookup() };
+    const deps: LegalAnswerDeps = { retrievalDeps: emptyRetrievalDeps, answerModel, fetchChunkContent: fakeContentLookup(), lookupMaterializationSourceId: fakeSourceLookup() };
 
     const outcome = await composeLegalAnswer({ query: 'legal query text' }, deps);
 
@@ -234,6 +245,7 @@ describe('LEGAL-RETRIEVAL-RAG-ANSWER-COMPOSITION-01', () => {
       retrievalDeps: twoHitRetrievalDeps(),
       answerModel: fakeAnswerModel(generation),
       fetchChunkContent: fakeContentLookup(),
+      lookupMaterializationSourceId: fakeSourceLookup(),
     });
 
     const outcomeA = await composeLegalAnswer({ query: 'legal query text' }, makeDeps());
@@ -252,6 +264,7 @@ describe('LEGAL-RETRIEVAL-RAG-ANSWER-COMPOSITION-01', () => {
       retrievalDeps: twoHitRetrievalDeps(),
       answerModel: fakeAnswerModel(generation),
       fetchChunkContent: fakeContentLookup(),
+      lookupMaterializationSourceId: fakeSourceLookup(),
     };
 
     const outcome = await composeLegalAnswer({ query: 'legal query text' }, deps);
@@ -277,6 +290,7 @@ describe('LEGAL-RETRIEVAL-RAG-ANSWER-COMPOSITION-01', () => {
       retrievalDeps: twoHitRetrievalDeps(),
       answerModel: fakeAnswerModel(generation),
       fetchChunkContent: fakeContentLookup(),
+      lookupMaterializationSourceId: fakeSourceLookup(),
     };
 
     const outcome = await composeLegalAnswer({ query: 'legal query text' }, deps);
@@ -299,6 +313,7 @@ describe('LEGAL-RETRIEVAL-RAG-ANSWER-COMPOSITION-01', () => {
         retrievalDeps,
         answerModel: fakeAnswerModel({ insufficient_evidence: false, claims: [] }, answerSpy),
         fetchChunkContent: fakeContentLookup(),
+        lookupMaterializationSourceId: fakeSourceLookup(),
       };
 
       const outcome = await composeLegalAnswer({ query: 'Vad gäller?' }, deps);
@@ -321,9 +336,12 @@ describe('LEGAL-RETRIEVAL-RAG-ANSWER-COMPOSITION-01', () => {
         retrievalDeps: twoHitRetrievalDeps(),
         answerModel: fakeAnswerModel(generation),
         fetchChunkContent: fakeContentLookup(),
+        lookupMaterializationSourceId: fakeSourceLookup(),
       };
 
-      const outcome = await composeLegalAnswer({ query: 'Vad säger miljöbalken om avfall?' }, deps);
+      // Deliberately names no specific statute -- this test exercises the specificity gate only;
+      // named-source consistency is covered separately below.
+      const outcome = await composeLegalAnswer({ query: 'Vilka regler gäller för avfallshantering?' }, deps);
 
       expect(outcome.querySpecificity.verdict).toBe('SPECIFIED');
       expect(outcome.mode).toBe('ANSWERED');
@@ -335,6 +353,7 @@ describe('LEGAL-RETRIEVAL-RAG-ANSWER-COMPOSITION-01', () => {
         retrievalDeps: twoHitRetrievalDeps(),
         answerModel: fakeAnswerModel({ insufficient_evidence: false, claims: [] }),
         fetchChunkContent: fakeContentLookup(),
+        lookupMaterializationSourceId: fakeSourceLookup(),
       };
 
       const outcome = await composeLegalAnswer({ query: 'Vad gäller?' }, deps);
@@ -342,6 +361,136 @@ describe('LEGAL-RETRIEVAL-RAG-ANSWER-COMPOSITION-01', () => {
       expect(outcome.answerTrace.mode).toBe('QUERY_UNDERSPECIFIED');
       expect(outcome.answerTrace.query_run_identity).toHaveLength(64);
       expect(outcome.answerTrace.cited_fragment_ids).toEqual([]);
+    });
+  });
+
+  describe('LEGAL-ANSWER-NAMED-SOURCE-CONSISTENCY-GATE-01', () => {
+    const MB = 'regeringskansliet-sfs-1998-808'; // miljöbalken
+    const MPF = 'regeringskansliet-sfs-2013-251'; // miljöprövningsförordningen
+
+    function makeSourceHitDeps(materializationId: string, sourceId: string): { retrievalDeps: LegalRetrievalDeps; sourceMap: Record<string, string> } {
+      const hit = makeHit({ fragment_id: 'frag:src', materialization_id: materializationId, chunk_content_hash: 'hash:src' });
+      const ref = makeRef({ fragment_id: 'frag:src', materialization_id: materializationId, content_hash: 'hash:src' });
+      const retrievalDeps: LegalRetrievalDeps = {
+        embeddingProvider: fakeEmbeddingProvider(),
+        searchChunks: async () => [hit],
+        lookupChunkRef: async (fragmentId) => (fragmentId === 'frag:src' ? ref : null),
+      };
+      return { retrievalDeps, sourceMap: { [materializationId]: sourceId } };
+    }
+
+    it('"fiskelagen" named, no fiskelagen in corpus/context -> NAMED_SOURCE_NOT_AVAILABLE', async () => {
+      const { retrievalDeps, sourceMap } = makeSourceHitDeps('mat:mpf', MPF); // some unrelated real source retrieved
+      const answerSpy = vi.fn();
+      const deps: LegalAnswerDeps = {
+        retrievalDeps,
+        answerModel: fakeAnswerModel({ insufficient_evidence: false, claims: [] }, answerSpy),
+        fetchChunkContent: fakeContentLookup({ 'frag:src': 'some real text' }),
+        lookupMaterializationSourceId: fakeSourceLookup(sourceMap),
+      };
+
+      const outcome = await composeLegalAnswer({ query: 'Vilka regler gäller för fiske enligt fiskelagen?', family: 'law' }, deps);
+
+      expect(outcome.mode).toBe('NAMED_SOURCE_NOT_AVAILABLE');
+      expect(outcome.claims).toHaveLength(0);
+      expect(outcome.namedSourceConsistency!.verdict).toBe('NAMED_SOURCE_NOT_AVAILABLE');
+      expect(outcome.namedSourceConsistency!.unrecognized_statute_mentions).toContain('fiskelagen');
+      expect(answerSpy).not.toHaveBeenCalled(); // never reaches synthesis
+    });
+
+    it('"miljöbalken" named and present in context -> normal answer path, unaffected', async () => {
+      const { retrievalDeps, sourceMap } = makeSourceHitDeps('mat:mb', MB);
+      const generation: AnswerGeneration = {
+        insufficient_evidence: false,
+        claims: [{ text: 'Claim from Miljöbalken.', cited_fragments: [{ fragment_id: 'frag:src', materialization_id: 'mat:mb' }] }],
+      };
+      const deps: LegalAnswerDeps = {
+        retrievalDeps,
+        answerModel: fakeAnswerModel(generation),
+        fetchChunkContent: fakeContentLookup({ 'frag:src': 'real miljöbalken text' }),
+        lookupMaterializationSourceId: fakeSourceLookup(sourceMap),
+      };
+
+      const outcome = await composeLegalAnswer({ query: 'Vad säger miljöbalken om detta?', family: 'law' }, deps);
+
+      expect(outcome.mode).toBe('ANSWERED');
+      expect(outcome.namedSourceConsistency!.verdict).toBe('CONSISTENT');
+    });
+
+    it('query names statute A, only statute B actually retrieved -> NAMED_SOURCE_NOT_AVAILABLE, never a silent substitution', async () => {
+      const { retrievalDeps, sourceMap } = makeSourceHitDeps('mat:mpf', MPF); // only MPF retrieved
+      const answerSpy = vi.fn();
+      const deps: LegalAnswerDeps = {
+        retrievalDeps,
+        answerModel: fakeAnswerModel({ insufficient_evidence: false, claims: [] }, answerSpy),
+        fetchChunkContent: fakeContentLookup({ 'frag:src': 'mpf text' }),
+        lookupMaterializationSourceId: fakeSourceLookup(sourceMap),
+      };
+
+      // query names ONLY miljöbalken (MB), but the fake retrieval only ever returns an MPF hit
+      const outcome = await composeLegalAnswer({ query: 'Vad säger miljöbalken om detta?', family: 'law' }, deps);
+
+      expect(outcome.mode).toBe('NAMED_SOURCE_NOT_AVAILABLE');
+      expect(outcome.namedSourceConsistency!.missing_source_ids).toEqual([MB]);
+      expect(answerSpy).not.toHaveBeenCalled();
+    });
+
+    it('query names no statute at all -> no fabricated source constraint, gate not evaluated', async () => {
+      const { retrievalDeps, sourceMap } = makeSourceHitDeps('mat:mpf', MPF);
+      const generation: AnswerGeneration = {
+        insufficient_evidence: false,
+        claims: [{ text: 'A generic claim.', cited_fragments: [{ fragment_id: 'frag:src', materialization_id: 'mat:mpf' }] }],
+      };
+      const deps: LegalAnswerDeps = {
+        retrievalDeps,
+        answerModel: fakeAnswerModel(generation),
+        fetchChunkContent: fakeContentLookup({ 'frag:src': 'generic text' }),
+        lookupMaterializationSourceId: fakeSourceLookup(sourceMap),
+      };
+
+      const outcome = await composeLegalAnswer({ query: 'Vilka regler gäller för jordbruk och djurhållning?', family: 'law' }, deps);
+
+      expect(outcome.mode).toBe('ANSWERED');
+      expect(outcome.namedSourceConsistency).toBeNull();
+    });
+
+    it('multiple named sources: all required must be accounted for -- one present, one missing still fails', async () => {
+      const { retrievalDeps, sourceMap } = makeSourceHitDeps('mat:mb', MB); // only MB retrieved
+      const answerSpy = vi.fn();
+      const deps: LegalAnswerDeps = {
+        retrievalDeps,
+        answerModel: fakeAnswerModel({ insufficient_evidence: false, claims: [] }, answerSpy),
+        fetchChunkContent: fakeContentLookup({ 'frag:src': 'mb text' }),
+        lookupMaterializationSourceId: fakeSourceLookup(sourceMap),
+      };
+
+      const outcome = await composeLegalAnswer(
+        { query: 'Vad gäller enligt både miljöbalken och miljöprövningsförordningen?', family: 'law' },
+        deps,
+      );
+
+      expect(outcome.mode).toBe('NAMED_SOURCE_NOT_AVAILABLE');
+      expect(outcome.namedSourceConsistency!.missing_source_ids).toEqual([MPF]);
+      expect(answerSpy).not.toHaveBeenCalled();
+    });
+
+    it('the gate is scoped to family="law"/unspecified -- a court-family query naming miljöbalken is unaffected', async () => {
+      const { retrievalDeps, sourceMap } = makeSourceHitDeps('mat:court', 'domstolsverket-puh-mmod');
+      const generation: AnswerGeneration = {
+        insufficient_evidence: false,
+        claims: [{ text: 'A court claim citing 2 kap. 6 § miljöbalken in passing.', cited_fragments: [{ fragment_id: 'frag:src', materialization_id: 'mat:court' }] }],
+      };
+      const deps: LegalAnswerDeps = {
+        retrievalDeps,
+        answerModel: fakeAnswerModel(generation),
+        fetchChunkContent: fakeContentLookup({ 'frag:src': 'court text' }),
+        lookupMaterializationSourceId: fakeSourceLookup(sourceMap),
+      };
+
+      const outcome = await composeLegalAnswer({ query: 'Dom som tillämpar 2 kap. 6 § miljöbalken', family: 'court' }, deps);
+
+      expect(outcome.mode).toBe('ANSWERED');
+      expect(outcome.namedSourceConsistency).toBeNull();
     });
   });
 });

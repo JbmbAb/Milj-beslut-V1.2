@@ -30,12 +30,14 @@ import {
   buildLegalAnswerContext,
   CitationError,
   DEFAULT_ANSWER_CONTEXT_POLICY,
+  evaluateNamedSourceConsistency,
   evaluateQuerySpecificity,
   type AnswerTraceArtifact,
   type CitationRef,
   type LegalAnswerContextPolicy,
   type LegalAnswerContextV1,
   type LegalAnswerMode,
+  type NamedSourceConsistencyResult,
   type QuerySpecificityResult,
   type RetrievalResultWithContent,
 } from "@miljobeslut/mps-legal-answer-contract";
@@ -47,7 +49,9 @@ import {
   type LegalRetrievalDeps,
   type LegalRetrievalOutcome,
 } from "../retrieval/LegalRetrievalComposition";
+import { routeLawQuery } from "../retrieval/LawSourceRouter";
 import { createGeminiAnswerModelProvider, type AnswerModelProvider } from "./GeminiAnswerModelProvider";
+import { findUnrecognizedStatuteMentions } from "./NamedSourceMentionDetector";
 
 export const LEGAL_ANSWER_COMPOSITION_VERSION = "legal-answer-composition-v1";
 
@@ -63,10 +67,15 @@ export interface ChunkContentLookup {
   (fragmentId: string, materializationId: string): Promise<string | null>;
 }
 
+export interface MaterializationSourceLookup {
+  (materializationId: string): Promise<string | null>;
+}
+
 export interface LegalAnswerDeps {
   readonly retrievalDeps: LegalRetrievalDeps;
   readonly answerModel: AnswerModelProvider;
   readonly fetchChunkContent: ChunkContentLookup;
+  readonly lookupMaterializationSourceId: MaterializationSourceLookup;
 }
 
 export interface AdmittedClaim {
@@ -83,6 +92,9 @@ export interface LegalAnswerOutcome {
   readonly retrieval: LegalRetrievalOutcome | null;
   readonly context: LegalAnswerContextV1 | null;
   readonly querySpecificity: QuerySpecificityResult;
+  /** null when the named-source-consistency check was not evaluated for this request -- currently
+   *  only evaluated for family="law" or an unspecified family (see composeLegalAnswer). */
+  readonly namedSourceConsistency: NamedSourceConsistencyResult | null;
 }
 
 function insufficientEvidence(
@@ -90,6 +102,7 @@ function insufficientEvidence(
   answerModel: AnswerModelProvider,
   context: LegalAnswerContextV1 | null,
   querySpecificity: QuerySpecificityResult,
+  namedSourceConsistency: NamedSourceConsistencyResult | null = null,
 ): LegalAnswerOutcome {
   const answerTrace = buildAnswerTrace({
     query_run_identity: retrieval.trace.identity.query_hash,
@@ -100,7 +113,7 @@ function insufficientEvidence(
     answer_model_version: answerModel.model_version,
     answer_pipeline_version: answerModel.pipeline_version,
   });
-  return { mode: "INSUFFICIENT_EVIDENCE", claims: [], answerTrace, retrieval, context, querySpecificity };
+  return { mode: "INSUFFICIENT_EVIDENCE", claims: [], answerTrace, retrieval, context, querySpecificity, namedSourceConsistency };
 }
 
 /**
@@ -132,7 +145,7 @@ export async function composeLegalAnswer(
       answer_model_version: deps.answerModel.model_version,
       answer_pipeline_version: deps.answerModel.pipeline_version,
     });
-    return { mode: "QUERY_UNDERSPECIFIED", claims: [], answerTrace, retrieval: null, context: null, querySpecificity };
+    return { mode: "QUERY_UNDERSPECIFIED", claims: [], answerTrace, retrieval: null, context: null, querySpecificity, namedSourceConsistency: null };
   }
 
   const retrieval = await performLegalRetrieval(
@@ -164,6 +177,43 @@ export async function composeLegalAnswer(
 
   if (context.selected.length === 0) {
     return insufficientEvidence(retrieval, deps.answerModel, context, querySpecificity);
+  }
+
+  // LEGAL-ANSWER-NAMED-SOURCE-CONSISTENCY-GATE-01: runs after context assembly, before synthesis.
+  // Scoped to family="law" or unspecified -- court/standard retrieval is deliberately scoped away
+  // from law-source materializations by family filtering, so a law statute mentioned in passing
+  // inside a court/standard query does not mean the admitted context is expected to carry that
+  // statute's own materialized text; extending this gate to those families is out of scope here.
+  let namedSourceConsistency: NamedSourceConsistencyResult | null = null;
+  if (request.family === "law" || request.family === undefined) {
+    const namedKnownSourceIds = routeLawQuery(request.query).source_candidates.map((c) => c.logicalSourceId);
+    const unrecognizedStatuteMentions = findUnrecognizedStatuteMentions(request.query);
+
+    if (namedKnownSourceIds.length > 0 || unrecognizedStatuteMentions.length > 0) {
+      const contextSourceIds = new Set<string>();
+      for (const entry of context.selected) {
+        const sourceId = await deps.lookupMaterializationSourceId(entry.materialization_id);
+        if (sourceId) contextSourceIds.add(sourceId);
+      }
+      namedSourceConsistency = evaluateNamedSourceConsistency({
+        namedKnownSourceIds,
+        unrecognizedStatuteMentions,
+        contextSourceIds: [...contextSourceIds],
+      });
+
+      if (namedSourceConsistency.verdict === "NAMED_SOURCE_NOT_AVAILABLE") {
+        const answerTrace = buildAnswerTrace({
+          query_run_identity: context.query_run_identity,
+          context_policy_version: context.context_policy_version,
+          mode: "NAMED_SOURCE_NOT_AVAILABLE",
+          cited_fragment_ids: [],
+          answer_model_id: deps.answerModel.model_id,
+          answer_model_version: deps.answerModel.model_version,
+          answer_pipeline_version: deps.answerModel.pipeline_version,
+        });
+        return { mode: "NAMED_SOURCE_NOT_AVAILABLE", claims: [], answerTrace, retrieval, context, querySpecificity, namedSourceConsistency };
+      }
+    }
   }
 
   const generation = await deps.answerModel.generateAnswer(
@@ -209,7 +259,7 @@ export async function composeLegalAnswer(
     answer_pipeline_version: deps.answerModel.pipeline_version,
   });
 
-  return { mode, claims: admittedClaims, answerTrace, retrieval, context, querySpecificity };
+  return { mode, claims: admittedClaims, answerTrace, retrieval, context, querySpecificity, namedSourceConsistency };
 }
 
 /** Real, Prisma/Gemini-backed default dependencies. */
@@ -221,9 +271,15 @@ export function createLegalAnswerComposition(retrievalDeps: LegalRetrievalDeps):
     return row?.chunkText ?? null;
   };
 
+  const lookupMaterializationSourceId: MaterializationSourceLookup = async (materializationId) => {
+    const mat = await prisma.legalCorpusMaterialization.findUnique({ where: { id: materializationId } });
+    return mat?.logicalSourceId ?? null;
+  };
+
   return {
     retrievalDeps,
     answerModel: createGeminiAnswerModelProvider(),
     fetchChunkContent,
+    lookupMaterializationSourceId,
   };
 }
