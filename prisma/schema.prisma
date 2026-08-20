@@ -146,6 +146,7 @@ model Project {
   searchQueries       SearchQueryLog[]
   requirementCases    RequirementCase[]
   requirements        RequirementRecord[]
+  projectContextBindings ProjectContextBinding[]
   planState           ProjectPlanState?
   complianceScore     Float?
   fundingRating       String?
@@ -153,6 +154,25 @@ model Project {
   environmentalScore  Float?
 
   @@index([organisationId, status])
+}
+
+/// Append-only lookup projection for immutable CAS-backed LU project-context bindings.
+/// It is not an authority source: every read is revalidated against the binding artifact in CAS.
+model ProjectContextBinding {
+  id                         String   @id
+  projectId                  String   @map("project_id")
+  bindingArtifactId          String   @unique @map("binding_artifact_id")
+  projectContextArtifactId   String   @map("project_context_artifact_id")
+  projectContextArtifactType String   @map("project_context_artifact_type")
+  bindingVersion             String   @map("binding_version")
+  authorityArtifactId        String   @map("authority_artifact_id")
+  authorityArtifactType      String   @map("authority_artifact_type")
+  createdAt                  DateTime @default(now()) @map("created_at")
+  project                    Project  @relation(fields: [projectId], references: [id], onDelete: Restrict)
+
+  @@unique([projectId, projectContextArtifactId, projectContextArtifactType])
+  @@index([projectId, projectContextArtifactId, projectContextArtifactType])
+  @@map("project_context_bindings")
 }
 
 model ProjectPlanState {
@@ -1070,6 +1090,7 @@ model LegalCorpusMaterializedChunk {
 
   record          LegalCorpusRecord         @relation(fields: [recordId], references: [id], onDelete: Cascade)
   materialization LegalCorpusMaterialization @relation(fields: [materializationId], references: [id], onDelete: Cascade)
+  embeddings      LegalCorpusChunkEmbedding[]
 
   // Replay-safe within one materialization: the same fragment re-persisted under the SAME
   // materialization identity is the same row, not a duplicate. Not globally unique on
@@ -1082,6 +1103,39 @@ model LegalCorpusMaterializedChunk {
   @@index([materializationId, sequence])
   @@index([chapter, paragraph])
   @@map("legal_corpus_materialized_chunks")
+}
+
+/// LEGAL-RETRIEVAL-BOUNDED-PILOT-01. Deliberately a SEPARATE table from
+/// LegalCorpusMaterializedChunk, not an added column: the governed chunk row is the append-only
+/// text/structure fact; an embedding is a versioned DERIVATIVE of it under a specific
+/// model/pipeline, and the SAME chunk legitimately has multiple embedding rows over time as
+/// models change (see mps-embedding-identity). embeddingIdentityHash is the actual identity --
+/// unique, so persisting the exact same (fragment_id, materialization_id, chunk_content_hash,
+/// embedding_model_id, embedding_model_version, embedding_pipeline_version) twice is a genuine
+/// replay (DB-level no-op via ON CONFLICT DO NOTHING), never a duplicate row.
+model LegalCorpusChunkEmbedding {
+  id String @id @default(cuid())
+
+  fragmentId        String @map("fragment_id")
+  materializationId String @map("materialization_id")
+  chunkContentHash  String @map("chunk_content_hash")
+
+  embeddingModelId         String @map("embedding_model_id")
+  embeddingModelVersion    String @map("embedding_model_version")
+  embeddingPipelineVersion String @map("embedding_pipeline_version")
+  embeddingIdentityHash    String @unique @map("embedding_identity_hash")
+
+  /// Unsupported by the Prisma client -- written/read via raw SQL, same pattern as
+  /// DocumentChunk.embedding / LegalCorpusChunk.embeddingVector / EvidenceChunk.contentVector.
+  embeddingVector Unsupported("vector(3072)")?
+
+  createdAt DateTime @default(now()) @map("created_at")
+
+  chunk LegalCorpusMaterializedChunk @relation(fields: [materializationId, fragmentId], references: [materializationId, fragmentId], onDelete: Cascade)
+
+  @@index([fragmentId])
+  @@index([materializationId])
+  @@map("legal_corpus_chunk_embeddings")
 }
 
 model LegalCorpusChunk {

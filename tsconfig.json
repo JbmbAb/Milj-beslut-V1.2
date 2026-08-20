@@ -158,6 +158,24 @@
       "@miljobeslut/mps-lu/*": [
         "./packages/mps-lu/*"
       ],
+      "@miljobeslut/mps-legal-corpus": [
+        "./packages/mps-legal-corpus/src/index.ts"
+      ],
+      "@miljobeslut/mps-legal-corpus/*": [
+        "./packages/mps-legal-corpus/*"
+      ],
+      "@miljobeslut/mps-embedding-identity": [
+        "./packages/mps-embedding-identity/src/index.ts"
+      ],
+      "@miljobeslut/mps-retrieval-governance": [
+        "./packages/mps-retrieval-governance/src/index.ts"
+      ],
+      "@miljobeslut/mps-retrieval-trace": [
+        "./packages/mps-retrieval-trace/src/index.ts"
+      ],
+      "@miljobeslut/mps-legal-retrieval-contract": [
+        "./packages/mps-legal-retrieval-contract/src/index.ts"
+      ],
       "@miljobeslut/mps-policy": [
         "./packages/mps-policy/src/index.ts"
       ],
