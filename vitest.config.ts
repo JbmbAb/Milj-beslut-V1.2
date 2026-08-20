@@ -204,6 +204,11 @@ export default defineConfig({
               __dirname,
               'packages/mps-retrieval-governance/src/index.ts',
             ),
+            // LEGAL-RETRIEVAL-RAG-ANSWER-COMPOSITION-01: same reason again.
+            '@miljobeslut/mps-legal-answer-contract': path.resolve(
+              __dirname,
+              'packages/mps-legal-answer-contract/src/index.ts',
+            ),
           },
         },
         test: {
@@ -293,6 +298,10 @@ export default defineConfig({
               __dirname,
               'packages/mps-legal-retrieval-contract/src/index.ts',
             ),
+            '@miljobeslut/mps-legal-answer-contract': path.resolve(
+              __dirname,
+              'packages/mps-legal-answer-contract/src/index.ts',
+            ),
           },
         },
         test: {
@@ -318,6 +327,7 @@ export default defineConfig({
             'packages/mps-legal-corpus/**/*.test.ts',
             'packages/mps-embedding-identity/**/*.test.ts',
             'packages/mps-legal-retrieval-contract/**/*.test.ts',
+            'packages/mps-legal-answer-contract/**/*.test.ts',
             'packages/spatial-provider-postgis/**/*.test.ts',
             'scripts/audit/**/*.test.ts',
           ],

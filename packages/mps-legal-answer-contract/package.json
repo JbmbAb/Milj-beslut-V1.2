@@ -1,0 +1,22 @@
+{
+  "name": "@miljobeslut/mps-legal-answer-contract",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "main": "./src/index.ts",
+  "types": "./src/index.ts",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "description": "LEGAL-RETRIEVAL-RAG-ANSWER-COMPOSITION-01 -- freezes the invariant that an answer may cite only a governed RetrievalResult returned by the current retrieval run: LegalAnswerContext (narrows, never expands) -> Citation (binds to a selected, provenance-bearing context entry) -> AnswerTrace (binds query_run_identity + cited fragments + answer model identity).",
+  "scripts": {
+    "typecheck": "tsc --noEmit -p tsconfig.json"
+  },
+  "dependencies": {
+    "@miljobeslut/mps-legal-retrieval-contract": "file:../mps-legal-retrieval-contract"
+  },
+  "devDependencies": {
+    "typescript": "^5.5.0",
+    "vitest": "^4.1.10"
+  }
+}

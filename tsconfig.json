@@ -176,6 +176,9 @@
       "@miljobeslut/mps-legal-retrieval-contract": [
         "./packages/mps-legal-retrieval-contract/src/index.ts"
       ],
+      "@miljobeslut/mps-legal-answer-contract": [
+        "./packages/mps-legal-answer-contract/src/index.ts"
+      ],
       "@miljobeslut/mps-policy": [
         "./packages/mps-policy/src/index.ts"
       ],

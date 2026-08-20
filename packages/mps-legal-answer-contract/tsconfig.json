@@ -1,0 +1,15 @@
+{
+  "extends": "../../tsconfig.json",
+  "compilerOptions": {
+    "noEmit": true,
+    "composite": false,
+    "baseUrl": ".",
+    "paths": {
+      "@miljobeslut/mps-legal-retrieval-contract": ["../mps-legal-retrieval-contract/src/index.ts"],
+      "@miljobeslut/mps-embedding-identity": ["../mps-embedding-identity/src/index.ts"],
+      "@miljobeslut/mps-retrieval-governance": ["../mps-retrieval-governance/src/index.ts"],
+      "@miljobeslut/mps-retrieval-trace": ["../mps-retrieval-trace/src/index.ts"]
+    }
+  },
+  "include": ["src/**/*.ts", "tests/**/*.ts"]
+}
