@@ -1,0 +1,35 @@
+[
+  {
+    "artifact_id": "reg-lantmateriet-stac-byggnader-001",
+    "artifact_type": "SOURCE_REGISTRY_ENTRY",
+    "source_id": "lantmateriet-stac-byggnader",
+    "producer": {
+      "producer_id": "LANTMATERIET",
+      "name": "Lantmäteriet",
+      "type": "agency"
+    },
+    "channel": {
+      "channel_type": "DATASET_PORTAL",
+      "endpoint_url": "https://api.lantmateriet.se/stac-vektor/v1/collections/byggnader/items",
+      "allowed_domains": ["api.lantmateriet.se", "dl1.lantmateriet.se"]
+    },
+    "adapter": "LM_STAC_BYGGNADER_V1",
+    "artifact_types": ["SPATIAL_DATASET"],
+    "collection_frequency": "WEEKLY",
+    "change_detection": {
+      "strategy": "CONTENT_HASH"
+    },
+    "policy": {
+      "rate_limit_requests_per_second": 1,
+      "concurrency_limit": 1,
+      "politeness_delay_ms": 1000,
+      "max_object_size_bytes": 52428800,
+      "retry_policy": {
+        "max_attempts": 3,
+        "backoff": "EXPONENTIAL"
+      }
+    },
+    "geographic_scope": "Sweden",
+    "lifecycle_state": "REGISTERED"
+  }
+]

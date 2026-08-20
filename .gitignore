@@ -106,6 +106,10 @@ tmp-mimers/
 !source-registry/drafts/sgu-groundwater-models-unsigned.json
 !source-registry/drafts/sgu-well-drilling-guidance-unsigned.json
 !source-registry/drafts/boverket-planbestammelser-unsigned.json
+# P2-SR-LM-BYGGNADER-01 — exact owner-review artifact for the governed
+# Lantmäteriet STAC building source. This remains an explicit allowlist entry:
+# no other draft becomes trackable merely by residing in drafts/.
+!source-registry/drafts/lantmateriet-stac-byggnader-unsigned.json
 # RC8-A — tests/unit/cesiumL0L1Fixture.test.ts (already committed) reads this frozen fixture
 # scene by name. Same explicit-allowlist discipline: named by path, not public/cesium/**, so a
 # clean checkout can reproduce the already-committed test.
