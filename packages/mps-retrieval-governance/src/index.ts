@@ -40,3 +40,25 @@ export {
   type RetrievalDecision,
   type RetrievalRequest,
 } from "./RetrievalDecision.js";
+
+// LEGAL-RETRIEVAL-POLICY-01 — parallel to the LU exports above, not an extension of them.
+export {
+  getLegalAccessRule,
+  LEGAL_ARTIFACT_ACCESS_RULES,
+  LegalRetrievalGovernanceError,
+  type LegalArtifactAccessRule,
+  type LegalArtifactClass,
+  type LegalQueryType,
+} from "./LegalArtifactAccessRules.js";
+
+export {
+  assertLegalArtifactClassAllowed,
+  assertLegalRetrievalReadOnly,
+  buildLegalRetrievalPolicy,
+  evaluateLegalRetrieval,
+  LEGAL_RET_I01,
+  LEGAL_RET_I02,
+  LEGAL_RET_I03,
+  LEGAL_RETRIEVAL_POLICY_VERSION,
+  type LegalRetrievalPolicy,
+} from "./LegalRetrievalPolicy.js";

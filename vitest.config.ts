@@ -253,6 +253,26 @@ export default defineConfig({
               __dirname,
               'packages/mps-legal-corpus/src/index.ts',
             ),
+            // LEGAL-RETRIEVAL-IDENTITY-CONTRACT-01: mps-legal-retrieval-contract's tests import
+            // these three by package name (cross-package), unlike mps-retrieval-governance's and
+            // mps-retrieval-trace's OWN tests, which only ever use relative '../src/...' imports
+            // and so never needed this alias before now.
+            '@miljobeslut/mps-embedding-identity': path.resolve(
+              __dirname,
+              'packages/mps-embedding-identity/src/index.ts',
+            ),
+            '@miljobeslut/mps-retrieval-governance': path.resolve(
+              __dirname,
+              'packages/mps-retrieval-governance/src/index.ts',
+            ),
+            '@miljobeslut/mps-retrieval-trace': path.resolve(
+              __dirname,
+              'packages/mps-retrieval-trace/src/index.ts',
+            ),
+            '@miljobeslut/mps-legal-retrieval-contract': path.resolve(
+              __dirname,
+              'packages/mps-legal-retrieval-contract/src/index.ts',
+            ),
           },
         },
         test: {
@@ -276,6 +296,8 @@ export default defineConfig({
             'packages/mps-chunking/**/*.test.ts',
             'packages/mps-text-projection/**/*.test.ts',
             'packages/mps-legal-corpus/**/*.test.ts',
+            'packages/mps-embedding-identity/**/*.test.ts',
+            'packages/mps-legal-retrieval-contract/**/*.test.ts',
             'packages/spatial-provider-postgis/**/*.test.ts',
             'scripts/audit/**/*.test.ts',
           ],
