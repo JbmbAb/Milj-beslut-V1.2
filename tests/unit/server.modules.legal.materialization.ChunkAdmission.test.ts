@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { computeChunkSetContentHash, isCanonicallyOrdered } from '@miljobeslut/mps-legal-corpus';
 import {
   admitChunks,
   admitCourtChunks,
@@ -84,6 +85,20 @@ describe('LEGAL-CHUNK-ADMISSION-V1', () => {
         // so no chapter division was verified. Honest, not silently wrong.
         expect(first.chapter).toBe('(ingen kapitelindelning)');
       }
+    });
+
+    it('REGRESSION (found via the real Part G Miljöbalken pilot): output is always in canonical order, even when a chapter/paragraph reference inside a paragraph body confuses chunkSwedishLaw\'s own boundary detection into emitting fragments out of document order', () => {
+      // "se 10 kap. 32 §" inside chapter 7's body is exactly the shape that tripped
+      // chunkSwedishLaw's regex-based boundary detection on the real statute text -- a
+      // cross-reference read as if it were a new chapter/paragraph heading.
+      const text =
+        '7 kap. 2 § Text i kapitel sju, med en hänvisning se 10 kap. 32 § för mer information om ' +
+        'ytterligare bestämmelser som gäller i det sammanhanget.\n' +
+        '7 kap. 3 § Ytterligare text i kapitel sju som följer efter hänvisningen till kapitel tio.';
+      const result = admitLawChunks({ text, sourceProjectionRef: REF, chunkPolicyVersion: POLICY });
+
+      expect(isCanonicallyOrdered(result.admitted)).toBe(true);
+      expect(() => computeChunkSetContentHash(result.admitted)).not.toThrow();
     });
   });
 

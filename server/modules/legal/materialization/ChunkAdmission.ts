@@ -7,6 +7,7 @@ import {
 } from '@miljobeslut/mps-chunking';
 import {
   computeFragmentId,
+  orderChunksDeterministically,
   type ChunkStructureKind,
   type CourtChunkIdentityFields,
   type EvidenceChunkIdentityFields,
@@ -105,9 +106,17 @@ export function admitLawChunks(args: {
     admitted.push({ ...base, fragment_id: computeFragmentId(base) });
   }
 
+  // Canonical order (chapter, then paragraph, both numeric-aware) is NOT guaranteed by the raw
+  // document's own top-to-bottom text order -- a cross-reference like "se 7 kap. 2 §" inside a
+  // paragraph's body can be misread by chunkSwedishLaw's regex as a new boundary, producing an
+  // occasional out-of-sequence fragment. computeChunkSetContentHash requires canonical order and
+  // does not sort for the caller (by design -- see ChunkIdentity.ts), so this admitter, as a
+  // producer, must sort its own output before handing it on. Sorting after fragment_id is
+  // assigned is safe: fragment_id is derived from `sequence` (the original document position),
+  // not from array position, so re-ordering the array never changes any fragment's identity.
   return {
     document_status: admitted.length === 0 ? 'NOT_ADMITTED_TO_PARAGRAPH_CORPUS' : rejected.length > 0 ? 'STRUCTURE_PARTIAL' : 'ADMITTED',
-    admitted,
+    admitted: orderChunksDeterministically(admitted),
     rejected,
   };
 }
@@ -137,7 +146,7 @@ export function admitCourtChunks(args: {
   });
   return {
     document_status: admitted.length === 0 ? 'NOT_ADMITTED_TO_PARAGRAPH_CORPUS' : 'ADMITTED',
-    admitted,
+    admitted: orderChunksDeterministically(admitted),
     rejected: [],
   };
 }
@@ -174,7 +183,7 @@ export function admitEvidenceChunks(args: {
     });
   return {
     document_status: admitted.length === 0 ? 'NOT_ADMITTED_TO_PARAGRAPH_CORPUS' : 'ADMITTED',
-    admitted,
+    admitted: orderChunksDeterministically(admitted),
     rejected: [],
   };
 }
@@ -202,7 +211,7 @@ export function admitStandardChunks(args: {
   });
   return {
     document_status: admitted.length === 0 ? 'NOT_ADMITTED_TO_PARAGRAPH_CORPUS' : 'ADMITTED',
-    admitted,
+    admitted: orderChunksDeterministically(admitted),
     rejected: [],
   };
 }
