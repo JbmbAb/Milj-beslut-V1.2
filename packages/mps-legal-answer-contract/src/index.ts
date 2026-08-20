@@ -25,3 +25,10 @@ export {
   type AnswerTraceInput,
   type LegalAnswerMode,
 } from "./AnswerTrace.js";
+
+export {
+  evaluateQuerySpecificity,
+  QUERY_SPECIFICITY_GATE_VERSION,
+  type QuerySpecificityResult,
+  type QuerySpecificityVerdict,
+} from "./QuerySpecificityGate.js";

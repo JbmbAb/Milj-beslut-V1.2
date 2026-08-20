@@ -115,7 +115,7 @@ describe('LEGAL-RETRIEVAL-RAG-ANSWER-COMPOSITION-01', () => {
       fetchChunkContent: fakeContentLookup(),
     };
 
-    const outcome = await composeLegalAnswer({ query: 'q' }, deps);
+    const outcome = await composeLegalAnswer({ query: 'legal query text' }, deps);
 
     // the whole claim is dropped, since it ends up with zero surviving citations
     expect(outcome.claims).toHaveLength(0);
@@ -138,7 +138,7 @@ describe('LEGAL-RETRIEVAL-RAG-ANSWER-COMPOSITION-01', () => {
       fetchChunkContent: fakeContentLookup(),
     };
 
-    const outcome = await composeLegalAnswer({ query: 'q' }, deps);
+    const outcome = await composeLegalAnswer({ query: 'legal query text' }, deps);
 
     expect(outcome.claims).toHaveLength(0);
     expect(outcome.mode).toBe('INSUFFICIENT_EVIDENCE');
@@ -156,7 +156,7 @@ describe('LEGAL-RETRIEVAL-RAG-ANSWER-COMPOSITION-01', () => {
       fetchChunkContent: fakeContentLookup({ 'frag:b': 'text B' }),
     };
 
-    const outcome = await composeLegalAnswer({ query: 'q' }, deps);
+    const outcome = await composeLegalAnswer({ query: 'legal query text' }, deps);
 
     expect(outcome.mode).toBe('ANSWERED');
     expect(outcome.context!.selection_order).toEqual(['frag:b']);
@@ -176,7 +176,7 @@ describe('LEGAL-RETRIEVAL-RAG-ANSWER-COMPOSITION-01', () => {
       fetchChunkContent: fakeContentLookup(),
     };
 
-    const outcome = await composeLegalAnswer({ query: 'q' }, deps);
+    const outcome = await composeLegalAnswer({ query: 'legal query text' }, deps);
 
     const retrievedFragmentIds = new Set(outcome.retrieval.results.map((r) => r.fragment_id));
     for (const claim of outcome.claims) {
@@ -198,7 +198,7 @@ describe('LEGAL-RETRIEVAL-RAG-ANSWER-COMPOSITION-01', () => {
       fetchChunkContent: fakeContentLookup(),
     };
 
-    const outcome = await composeLegalAnswer({ query: 'q' }, deps);
+    const outcome = await composeLegalAnswer({ query: 'legal query text' }, deps);
 
     expect(outcome.answerTrace.query_run_identity).toBe(outcome.retrieval.trace.identity.query_hash);
     expect(outcome.answerTrace.cited_fragment_ids).toEqual(['frag:a']);
@@ -218,7 +218,7 @@ describe('LEGAL-RETRIEVAL-RAG-ANSWER-COMPOSITION-01', () => {
     };
     const deps: LegalAnswerDeps = { retrievalDeps: emptyRetrievalDeps, answerModel, fetchChunkContent: fakeContentLookup() };
 
-    const outcome = await composeLegalAnswer({ query: 'q' }, deps);
+    const outcome = await composeLegalAnswer({ query: 'legal query text' }, deps);
 
     expect(outcome.mode).toBe('INSUFFICIENT_EVIDENCE');
     expect(outcome.claims).toHaveLength(0);
@@ -236,8 +236,8 @@ describe('LEGAL-RETRIEVAL-RAG-ANSWER-COMPOSITION-01', () => {
       fetchChunkContent: fakeContentLookup(),
     });
 
-    const outcomeA = await composeLegalAnswer({ query: 'q' }, makeDeps());
-    const outcomeB = await composeLegalAnswer({ query: 'q' }, makeDeps());
+    const outcomeA = await composeLegalAnswer({ query: 'legal query text' }, makeDeps());
+    const outcomeB = await composeLegalAnswer({ query: 'legal query text' }, makeDeps());
 
     expect(outcomeA.answerTrace.cited_fragment_ids).toEqual(outcomeB.answerTrace.cited_fragment_ids);
     expect(outcomeA.context!.selection_order).toEqual(outcomeB.context!.selection_order);
@@ -254,7 +254,7 @@ describe('LEGAL-RETRIEVAL-RAG-ANSWER-COMPOSITION-01', () => {
       fetchChunkContent: fakeContentLookup(),
     };
 
-    const outcome = await composeLegalAnswer({ query: 'q' }, deps);
+    const outcome = await composeLegalAnswer({ query: 'legal query text' }, deps);
 
     expect(outcome.mode).toBe('INSUFFICIENT_EVIDENCE');
     expect(outcome.claims).toHaveLength(0);
@@ -279,10 +279,69 @@ describe('LEGAL-RETRIEVAL-RAG-ANSWER-COMPOSITION-01', () => {
       fetchChunkContent: fakeContentLookup(),
     };
 
-    const outcome = await composeLegalAnswer({ query: 'q' }, deps);
+    const outcome = await composeLegalAnswer({ query: 'legal query text' }, deps);
 
     expect(outcome.mode).toBe('ANSWERED');
     expect(outcome.claims[0]!.citations).toHaveLength(1);
     expect(outcome.claims[0]!.citations[0]!.fragment_id).toBe('frag:a');
+  });
+
+  describe('LEGAL-ANSWER-QUERY-SPECIFICITY-GATE-01', () => {
+    it('an underspecified query ("Vad gäller?") never reaches retrieval or the answer model', async () => {
+      const searchSpy = vi.fn(async () => []);
+      const answerSpy = vi.fn();
+      const retrievalDeps: LegalRetrievalDeps = {
+        embeddingProvider: fakeEmbeddingProvider(),
+        searchChunks: searchSpy as unknown as SearchChunks,
+        lookupChunkRef: async () => null,
+      };
+      const deps: LegalAnswerDeps = {
+        retrievalDeps,
+        answerModel: fakeAnswerModel({ insufficient_evidence: false, claims: [] }, answerSpy),
+        fetchChunkContent: fakeContentLookup(),
+      };
+
+      const outcome = await composeLegalAnswer({ query: 'Vad gäller?' }, deps);
+
+      expect(outcome.mode).toBe('QUERY_UNDERSPECIFIED');
+      expect(outcome.claims).toHaveLength(0);
+      expect(outcome.retrieval).toBeNull();
+      expect(outcome.context).toBeNull();
+      expect(outcome.querySpecificity.verdict).toBe('UNDERSPECIFIED');
+      expect(searchSpy).not.toHaveBeenCalled();
+      expect(answerSpy).not.toHaveBeenCalled();
+    });
+
+    it('a well-specified query proceeds through retrieval as normal, with querySpecificity=SPECIFIED on the outcome', async () => {
+      const generation: AnswerGeneration = {
+        insufficient_evidence: false,
+        claims: [{ text: 'Claim about A.', cited_fragments: [{ fragment_id: 'frag:a', materialization_id: 'mat:1' }] }],
+      };
+      const deps: LegalAnswerDeps = {
+        retrievalDeps: twoHitRetrievalDeps(),
+        answerModel: fakeAnswerModel(generation),
+        fetchChunkContent: fakeContentLookup(),
+      };
+
+      const outcome = await composeLegalAnswer({ query: 'Vad säger miljöbalken om avfall?' }, deps);
+
+      expect(outcome.querySpecificity.verdict).toBe('SPECIFIED');
+      expect(outcome.mode).toBe('ANSWERED');
+      expect(outcome.retrieval).not.toBeNull();
+    });
+
+    it('the answer trace still binds a real query_run_identity for an underspecified query, even with no retrieval', async () => {
+      const deps: LegalAnswerDeps = {
+        retrievalDeps: twoHitRetrievalDeps(),
+        answerModel: fakeAnswerModel({ insufficient_evidence: false, claims: [] }),
+        fetchChunkContent: fakeContentLookup(),
+      };
+
+      const outcome = await composeLegalAnswer({ query: 'Vad gäller?' }, deps);
+
+      expect(outcome.answerTrace.mode).toBe('QUERY_UNDERSPECIFIED');
+      expect(outcome.answerTrace.query_run_identity).toHaveLength(64);
+      expect(outcome.answerTrace.cited_fragment_ids).toEqual([]);
+    });
   });
 });

@@ -109,7 +109,7 @@ const DEFAULT_TOP_K = 10;
  *  LAW_SOURCE_ROUTING_VERSION, which versions the routing decision itself. */
 export const LEGAL_RETRIEVAL_COMPOSITION_VERSION = "legal-retrieval-composition-v1";
 
-function hashQuery(query: string): string {
+export function hashQuery(query: string): string {
   return createHash("sha256").update(query, "utf8").digest("hex");
 }
 

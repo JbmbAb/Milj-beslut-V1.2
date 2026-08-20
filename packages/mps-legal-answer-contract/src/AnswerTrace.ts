@@ -16,7 +16,12 @@ import { createHash } from "node:crypto";
 
 export const LEGAL_ANSWER_TRACE_CONTRACT_VERSION = "legal-answer-trace-v1" as const;
 
-export type LegalAnswerMode = "ANSWERED" | "INSUFFICIENT_EVIDENCE";
+/** QUERY_UNDERSPECIFIED (LEGAL-ANSWER-QUERY-SPECIFICITY-GATE-01) is decided BEFORE retrieval even
+ *  runs -- distinct from INSUFFICIENT_EVIDENCE, which is decided AFTER real retrieval, based on
+ *  whether the evidence actually found supports an answer. A query can be well-specified and still
+ *  end in INSUFFICIENT_EVIDENCE (nothing relevant exists); QUERY_UNDERSPECIFIED means the question
+ *  itself never carried enough content to search for in the first place. */
+export type LegalAnswerMode = "ANSWERED" | "INSUFFICIENT_EVIDENCE" | "QUERY_UNDERSPECIFIED";
 
 export interface AnswerModelIdentity {
   readonly answer_model_id: string;

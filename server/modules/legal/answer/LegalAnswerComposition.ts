@@ -30,15 +30,18 @@ import {
   buildLegalAnswerContext,
   CitationError,
   DEFAULT_ANSWER_CONTEXT_POLICY,
+  evaluateQuerySpecificity,
   type AnswerTraceArtifact,
   type CitationRef,
   type LegalAnswerContextPolicy,
   type LegalAnswerContextV1,
   type LegalAnswerMode,
+  type QuerySpecificityResult,
   type RetrievalResultWithContent,
 } from "@miljobeslut/mps-legal-answer-contract";
 import { prisma } from "../../../db/prisma";
 import {
+  hashQuery,
   performLegalRetrieval,
   type LegalFamily,
   type LegalRetrievalDeps,
@@ -75,14 +78,18 @@ export interface LegalAnswerOutcome {
   readonly mode: LegalAnswerMode;
   readonly claims: readonly AdmittedClaim[];
   readonly answerTrace: AnswerTraceArtifact;
-  readonly retrieval: LegalRetrievalOutcome;
+  /** null only for mode=QUERY_UNDERSPECIFIED -- the gate runs BEFORE retrieval, so no retrieval
+   *  ever happened for that query. Every other mode always carries a real retrieval outcome. */
+  readonly retrieval: LegalRetrievalOutcome | null;
   readonly context: LegalAnswerContextV1 | null;
+  readonly querySpecificity: QuerySpecificityResult;
 }
 
 function insufficientEvidence(
   retrieval: LegalRetrievalOutcome,
   answerModel: AnswerModelProvider,
   context: LegalAnswerContextV1 | null,
+  querySpecificity: QuerySpecificityResult,
 ): LegalAnswerOutcome {
   const answerTrace = buildAnswerTrace({
     query_run_identity: retrieval.trace.identity.query_hash,
@@ -93,11 +100,14 @@ function insufficientEvidence(
     answer_model_version: answerModel.model_version,
     answer_pipeline_version: answerModel.pipeline_version,
   });
-  return { mode: "INSUFFICIENT_EVIDENCE", claims: [], answerTrace, retrieval, context };
+  return { mode: "INSUFFICIENT_EVIDENCE", claims: [], answerTrace, retrieval, context, querySpecificity };
 }
 
 /**
  * The real, composed answer call. Every governed boundary fails closed:
+ *   - a query with no content-bearing terms at all -> QUERY_UNDERSPECIFIED, before retrieval even
+ *     runs (LEGAL-ANSWER-QUERY-SPECIFICITY-GATE-01) -- distinct from INSUFFICIENT_EVIDENCE, which
+ *     is decided AFTER real retrieval based on what evidence was actually found
  *   - zero retrieval results -> INSUFFICIENT_EVIDENCE, no model call at all
  *   - a result whose real text cannot be resolved -> excluded before context assembly
  *   - the model itself reporting insufficient_evidence -> INSUFFICIENT_EVIDENCE, claims discarded
@@ -108,6 +118,23 @@ export async function composeLegalAnswer(
   request: LegalAnswerRequest,
   deps: LegalAnswerDeps,
 ): Promise<LegalAnswerOutcome> {
+  // The gate never inspects retrieval results, context, or the answer model -- it is a pure,
+  // deterministic check on the query string alone, and runs first so an underspecified query never
+  // spends an embedding call or a DB round trip.
+  const querySpecificity = evaluateQuerySpecificity(request.query);
+  if (querySpecificity.verdict === "UNDERSPECIFIED") {
+    const answerTrace = buildAnswerTrace({
+      query_run_identity: hashQuery(request.query),
+      context_policy_version: "none",
+      mode: "QUERY_UNDERSPECIFIED",
+      cited_fragment_ids: [],
+      answer_model_id: deps.answerModel.model_id,
+      answer_model_version: deps.answerModel.model_version,
+      answer_pipeline_version: deps.answerModel.pipeline_version,
+    });
+    return { mode: "QUERY_UNDERSPECIFIED", claims: [], answerTrace, retrieval: null, context: null, querySpecificity };
+  }
+
   const retrieval = await performLegalRetrieval(
     {
       query: request.query,
@@ -119,7 +146,7 @@ export async function composeLegalAnswer(
   );
 
   if (retrieval.results.length === 0) {
-    return insufficientEvidence(retrieval, deps.answerModel, null);
+    return insufficientEvidence(retrieval, deps.answerModel, null, querySpecificity);
   }
 
   const withContent: RetrievalResultWithContent[] = [];
@@ -130,13 +157,13 @@ export async function composeLegalAnswer(
   }
 
   if (withContent.length === 0) {
-    return insufficientEvidence(retrieval, deps.answerModel, null);
+    return insufficientEvidence(retrieval, deps.answerModel, null, querySpecificity);
   }
 
   const context = buildLegalAnswerContext(withContent, request.contextPolicy ?? DEFAULT_ANSWER_CONTEXT_POLICY);
 
   if (context.selected.length === 0) {
-    return insufficientEvidence(retrieval, deps.answerModel, context);
+    return insufficientEvidence(retrieval, deps.answerModel, context, querySpecificity);
   }
 
   const generation = await deps.answerModel.generateAnswer(
@@ -149,7 +176,7 @@ export async function composeLegalAnswer(
   );
 
   if (generation.insufficient_evidence) {
-    return insufficientEvidence(retrieval, deps.answerModel, context);
+    return insufficientEvidence(retrieval, deps.answerModel, context, querySpecificity);
   }
 
   const admittedClaims: AdmittedClaim[] = [];
@@ -182,7 +209,7 @@ export async function composeLegalAnswer(
     answer_pipeline_version: deps.answerModel.pipeline_version,
   });
 
-  return { mode, claims: admittedClaims, answerTrace, retrieval, context };
+  return { mode, claims: admittedClaims, answerTrace, retrieval, context, querySpecificity };
 }
 
 /** Real, Prisma/Gemini-backed default dependencies. */

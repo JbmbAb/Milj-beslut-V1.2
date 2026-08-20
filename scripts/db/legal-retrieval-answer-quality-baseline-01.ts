@@ -199,7 +199,10 @@ async function main() {
       continue;
     }
     const acceptableIds = await resolveAcceptableFragmentIds(bq);
-    const retrievedIds = new Set(outcome.retrieval.results.map((r) => r.fragment_id));
+    // outcome.retrieval is null only for mode=QUERY_UNDERSPECIFIED (LEGAL-ANSWER-QUERY-SPECIFICITY-GATE-01,
+    // added after this script was first written and proven) -- guarded here so a future rerun over
+    // a query the gate now catches degrades to an empty retrieved set rather than throwing.
+    const retrievedIds = new Set((outcome.retrieval?.results ?? []).map((r) => r.fragment_id));
     const containment = acceptableIds === null ? null : [...acceptableIds].some((id) => retrievedIds.has(id));
 
     let refusalVerdict: RefusalVerdict = 'N/A';

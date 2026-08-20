@@ -70,11 +70,14 @@ async function main() {
     const outcome = await composeLegalAnswer({ query, family, topK: 6 }, deps);
 
     console.log('mode:', outcome.mode);
-    console.log('retrieval results:', outcome.retrieval.results.length);
+    // outcome.retrieval is null only for mode=QUERY_UNDERSPECIFIED (LEGAL-ANSWER-QUERY-SPECIFICITY-GATE-01,
+    // added after this script was first written and proven) -- guarded here so a future rerun over
+    // a query the gate now catches degrades cleanly rather than throwing.
+    console.log('retrieval results:', outcome.retrieval?.results.length ?? '(none -- query gated before retrieval)');
     console.log('context selected:', outcome.context?.selection_order ?? '(no context -- insufficient evidence before context assembly)');
     console.log('claims admitted:', outcome.claims.length);
 
-    const retrievedFragmentIds = new Set(outcome.retrieval.results.map((r) => r.fragment_id));
+    const retrievedFragmentIds = new Set((outcome.retrieval?.results ?? []).map((r) => r.fragment_id));
     let caseCitationsReal = true;
     let caseCitationsWithinSet = true;
 
@@ -111,7 +114,7 @@ async function main() {
     summary.push({
       label,
       mode: outcome.mode,
-      retrieval_results: outcome.retrieval.results.length,
+      retrieval_results: outcome.retrieval?.results.length ?? 0,
       claims: outcome.claims.length,
       cited_fragments: outcome.answerTrace.cited_fragment_ids.length,
       citations_real: caseCitationsReal,
