@@ -1,6 +1,7 @@
 export {
   chunkSwedishLaw,
   chunkSwedishLawV24,
+  hasGenuineChapterMarkerV24,
   chunkCourtDecision,
   chunkStandard,
   type PreparedLegalChunk,

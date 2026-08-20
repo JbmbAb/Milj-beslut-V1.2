@@ -51,7 +51,7 @@ export function chunkSwedishLaw(text: string): PreparedLegalChunk[] {
  * (LEGAL-CORPUS-MATERIALIZATION-IDENTITY-V2), so v2.3 and v2.4 materializations of the same raw
  * source are distinct, immutable rows -- v2.3's already-governed history is untouched by this.
  *
- * Two changes from v2.3:
+ * Three changes from v2.3:
  *
  *   1. Chapter detection now captures an optional single-letter suffix: "2 kap." -> "2",
  *      "2 a kap." -> "2 a", "10 a kap." -> "10 a" -- never truncated to the bare number.
@@ -68,6 +68,18 @@ export function chunkSwedishLaw(text: string): PreparedLegalChunk[] {
  *      every phrasing. A full fix belongs at the projection layer (preserving block/paragraph
  *      boundaries as newlines during HTML extraction), which is out of scope for this chunking
  *      unit and not done here.
+ *
+ *   3. LEGAL-CHUNKING-LAW-V2.4-CHAPTER-ANCHOR-01: `currentChapter` is only updated by a chapter
+ *      marker judged structurally genuine -- never by one immediately preceded by a Swedish
+ *      reference/list-continuation word (found via the real Miljöbalken text: "...omfattas av 10
+ *      eller 10 a kap. sjölagen (1994:1009)..." is a cross-reference to a DIFFERENT statute's
+ *      chapter, not a Miljöbalken chapter transition, and must never become one). Genuine chapter
+ *      markers are also applied only going FORWARD, to fragments emitted after the marker is
+ *      found -- never retroactively to the very fragment that contains the marker's trailing text
+ *      (a real heading like "17 a kap. Har upphävts genom lag (2021:876)." sits at the END of the
+ *      PRECEDING paragraph's fragment, because splitting only happens at "§" markers, never at
+ *      "kap." headings -- so without this ordering, that fragment's own (earlier, different)
+ *      paragraph content would be mislabeled with the chapter that starts only after it).
  */
 // The split point falls immediately before a paragraph marker ("32 §"), which is normally
 // preceded by "N kap. " (the chapter the reference names) -- so the reference word is typically
@@ -75,26 +87,58 @@ export function chunkSwedishLaw(text: string): PreparedLegalChunk[] {
 // phrase immediately before the split, or a bare ", N[ x] kap." / "och N[ x] kap." continuing a
 // comma-separated list of references (the real Miljöbalken pattern: "7 kap. 32 §, 10 kap. 18 a §
 // och 15 kap. 40 §").
-const CROSS_REFERENCE_LOOKBEHIND = new RegExp(
+const REFERENCE_WORD_LOOKBEHIND = new RegExp(
   '(?:' +
-    '\\b(se|jfr|enligt|framgår av|anges i|föreskrivs i|i)\\s+\\d+(?:\\s+[a-z])?\\s+kap\\.' +
+    '\\b(se|jfr|enligt|framgår av|anges i|föreskrivs i|i|eller)\\s+\\d+(?:\\s+[a-z])?\\s+kap\\.' +
     '|,\\s*\\d+(?:\\s+[a-z])?\\s+kap\\.' +
     '|\\boch\\s+\\d+(?:\\s+[a-z])?\\s+kap\\.' +
   ')\\s*$',
   'i',
 );
 
-function isLikelyCrossReference(text: string, matchIndex: number): boolean {
+function isReferenceWordPreceded(text: string, matchIndex: number): boolean {
   const windowStart = Math.max(0, matchIndex - 50);
   const before = text.slice(windowStart, matchIndex).trimEnd();
-  return CROSS_REFERENCE_LOOKBEHIND.test(before);
+  return REFERENCE_WORD_LOOKBEHIND.test(before);
+}
+
+function isLikelyCrossReference(text: string, matchIndex: number): boolean {
+  return isReferenceWordPreceded(text, matchIndex);
+}
+
+// LEGAL-CHUNKING-LAW-V2.4-CHAPTER-ANCHOR-01: finds the last chapter marker in `text` that is NOT
+// immediately preceded by a reference/list-continuation word (see REFERENCE_WORD_LOOKBEHIND) --
+// i.e. the last one that is structurally plausible as a genuine chapter transition rather than a
+// cross-reference embedded mid-sentence. "Last" because a fragment's trailing text can contain a
+// chain of consecutive headings (e.g. a repealed chapter immediately followed by the next real
+// one -- "17 a kap. Har upphävts genom lag (2021:876). 18 kap. Regeringens prövning...") and only
+// the final one in that chain is the chapter that actually applies to whatever comes next.
+const CHAPTER_MARKER = /(\d+(?:\s+[a-z])?)\s+kap\./gi;
+
+function findGenuineChapterUpdate(text: string): string | undefined {
+  let genuine: string | undefined;
+  for (const match of text.matchAll(CHAPTER_MARKER)) {
+    if (isReferenceWordPreceded(text, match.index)) continue;
+    genuine = match[1]!.replace(/\s+/g, " ").trim();
+  }
+  return genuine;
+}
+
+/**
+ * Document-level check, for callers (e.g. chunk admission) that need to know whether ANY
+ * structurally genuine chapter marker exists anywhere in the raw text -- using the same
+ * reference-word filtering as `chunkSwedishLawV24` itself, so a document containing ONLY a
+ * cross-reference to another statute's chapter (and no real Miljöbalken heading) is correctly
+ * reported as having no verified chapter division.
+ */
+export function hasGenuineChapterMarkerV24(text: string): boolean {
+  const sanitized = sanitizeForChunking(text);
+  return findGenuineChapterUpdate(sanitized) !== undefined;
 }
 
 export function chunkSwedishLawV24(text: string): PreparedLegalChunk[] {
   const sanitized = sanitizeForChunking(text);
   const chunks: PreparedLegalChunk[] = [];
-  // Chapter: optional single-letter suffix captured as part of the same group, e.g. "10 a".
-  const chapterRegex = /(\d+(?:\s+[a-z])?)\s+kap\./i;
   const paragraphSplit = /(?=\b\d+\s*[a-z]?\s*§)/i;
 
   const rawParagraphs = sanitized.split(paragraphSplit);
@@ -124,16 +168,13 @@ export function chunkSwedishLawV24(text: string): PreparedLegalChunk[] {
     const trimmed = para.trim();
     if (!trimmed) continue;
 
-    const chapMatch = trimmed.match(chapterRegex);
-    if (chapMatch?.[1]) {
-      currentChapter = chapMatch[1].replace(/\s+/g, " ").trim();
-    }
-
     const paraNumMatch = trimmed.match(/^(\d+\s*[a-z]?)\s*§/i);
     const paraNum = paraNumMatch
       ? paraNumMatch[1]!.replace(/\s+/g, "").toLowerCase()
       : undefined;
 
+    // Emit this fragment's own chunks under the chapter established BEFORE it -- a genuine
+    // heading trailing at this fragment's own end describes the NEXT chapter, not this one.
     splitWithBoundary(trimmed).forEach((subText) => {
       chunks.push({
         chunkText: subText,
@@ -141,6 +182,9 @@ export function chunkSwedishLawV24(text: string): PreparedLegalChunk[] {
         paragraph: paraNum,
       });
     });
+
+    const genuineUpdate = findGenuineChapterUpdate(trimmed);
+    if (genuineUpdate) currentChapter = genuineUpdate;
   }
 
   return chunks;

@@ -3,6 +3,7 @@ import {
   chunkStandard,
   chunkSwedishLaw,
   chunkSwedishLawV24,
+  hasGenuineChapterMarkerV24,
   detectSections,
   type ExtractedChunk,
 } from '@miljobeslut/mps-chunking';
@@ -122,12 +123,6 @@ export function admitLawChunks(args: {
   };
 }
 
-// LEGAL-CHUNKING-LAW-V2.4's own chapterRegex (mps-chunking, frozen text/v2.4): letter-suffix-aware,
-// unlike REAL_CHAPTER_MARKER above (v2.3). Kept as its own constant, deliberately not shared with
-// v2.3's, for the same reason admitLawChunks' verification regex is kept identical to its
-// chunker's: this only verifies what chunkSwedishLawV24 can actually detect.
-const REAL_CHAPTER_MARKER_V24 = /(\d+(?:\s+[a-z])?)\s+kap\./i;
-
 /**
  * `law`, LEGAL-CHUNKING-LAW-V2.4: same admission contract as `admitLawChunks`, built on
  * `chunkSwedishLawV24` instead of `chunkSwedishLaw`. A new, separately-named function -- not a
@@ -147,7 +142,11 @@ export function admitLawChunksV24(args: {
     ] };
   }
 
-  const hasVerifiedChapterDivision = REAL_CHAPTER_MARKER_V24.test(args.text);
+  // LEGAL-CHUNKING-LAW-V2.4-CHAPTER-ANCHOR-01: uses the SAME genuine-vs-reference filtering as
+  // chunkSwedishLawV24 itself (not a bare regex test), so a document containing only a
+  // cross-reference to a different statute's chapter is correctly NOT treated as having a
+  // verified chapter division.
+  const hasVerifiedChapterDivision = hasGenuineChapterMarkerV24(args.text);
   const prepared = chunkSwedishLawV24(args.text);
 
   const admitted: LawChunkIdentityFields[] = [];
