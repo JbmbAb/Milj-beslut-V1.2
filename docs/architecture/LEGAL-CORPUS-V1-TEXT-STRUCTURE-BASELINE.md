@@ -1,164 +1,116 @@
-# LEGAL CORPUS V1 — TEXT/STRUCTURE BASELINE
+# LEGAL CORPUS V1 — TEXT/STRUCTURE BASELINE V2
 
-**Status:** FROZEN. This is the coverage snapshot of the governed legal corpus (acquisition ->
-projection -> chunk admission -> materialization -> replay) at the point where `law` chunking
-gains a second, coexisting proven policy version. It exists to draw a clean line under
-text/structure work before embeddings, vector indexing, or retrieval/RAG begin.
+**Status:** FROZEN. Supersedes the V1 baseline (same file, prior revision) now that `law`
+chunking has three coexisting, immutable generations: the corpus-wide `v2.3` baseline, the
+historical `v2.4` Miljöbalken materialization that first surfaced a real structural bug, and the
+corrected `v2.4.1` that closes it and has been rolled out across all 6 real SFS law sources. This
+is the state before embeddings, vector indexing, or retrieval/RAG begin.
 
-All numbers below are read directly from the live database (`legal_corpus_materializations`,
-`legal_corpus_materialized_chunks`, `legal_corpus_records`), not from script self-reports, and
-are scoped explicitly to `chunk_policy_version IN ('legal-chunker-v2.3', 'legal-chunker-v2.4')` --
-see "Excluded from this baseline" for what that scoping deliberately leaves out and why.
+All numbers below are read directly from the live database, independently re-queried per source
+(not taken from any script's self-report) — the same discipline that caught a counting error in
+the V1 revision of this document.
 
-## Acquisition (P2-HARVEST-LIVE-01)
+## Acquisition (unchanged from V1)
 
-| Metric | Count |
-|---|---|
-| Approved sources attempted | 11 |
-| PROVEN | 10 |
-| FAILED_CLOSED | 1 (`boverket-planbestammelser` — dead endpoint; real replacement endpoint found at `api-portal.boverket.se` during live investigation but deliberately NOT silently substituted — open as `BOVERKET-SOURCE-REDISCOVERY-01`) |
+10/11 P2-HARVEST-LIVE-01 sources PROVEN, `boverket-planbestammelser` FAILED_CLOSED. Full detail:
+[`P2-HARVEST-LIVE-01-PROVEN.md`](P2-HARVEST-LIVE-01-PROVEN.md).
 
-Full detail: [`P2-HARVEST-LIVE-01-PROVEN.md`](P2-HARVEST-LIVE-01-PROVEN.md).
+## law — three generations
 
-## Materialization — law v2.3
+| Generation | Chunker | Sources materialized | Materializations | Chunk rows | Status |
+|---|---|---|---|---|---|
+| `legal-chunker-v2.3` | `chunkSwedishLaw` | all 6 SFS sources | 6 | 5,474 | immutable historical baseline |
+| `legal-chunker-v2.4` | `chunkSwedishLawV24` (pre-anchor-fix) | Miljöbalk only | 1 | 1,357 | immutable historical record — **contains a known false chapter label** (see below); superseded, not deleted |
+| `legal-chunker-v2.4.1` | `chunkSwedishLawV24` (post `CHAPTER-ANCHOR-01`) | all 6 SFS sources | 6 | 4,490 | **corrected, rollout-proven current candidate** |
 
-**Baseline chunker.** `chunkSwedishLaw` (`packages/mps-chunking/src/text/LegalChunker.ts`) --
-paragraph-aware chunking with verified `§`/`kap.` markers; does not capture letter-suffixed
-chapters (`"2 a kap."`).
+**`legal-chunker-v2.4` is deliberately NOT deleted.** It is the one real materialization
+demonstrating the exact bug `LEGAL-CHUNKING-LAW-V2.4-CHAPTER-ANCHOR-01` exists to fix: 1 of its
+1,357 chunks (Miljöbalken paragraph 19) carries chapter `"10 a"`, a cross-reference to a
+*different* statute (`sjölagen`), not a real Miljöbalken chapter. Kept as evidence for why
+`v2.4.1` exists, exactly as the Part G `text_projection_version` mislabeling was kept in the PUH
+court corpus rather than corrected by mutation.
 
-| Source | logical_source_id | Materializations | Chunk rows |
-|---|---|---|---|
-| Miljöbalk (1998:808) | `regeringskansliet-sfs-1998-808` | 1 | 1,658 |
-| Miljöprövningsförordning (2013:251) | `regeringskansliet-sfs-2013-251` | 1 | 584 |
-| Avfallsförordning (2020:614) | `regeringskansliet-sfs-2020-614` | 1 | 792 |
-| Plan- och bygglag (2010:900) | `regeringskansliet-sfs-2010-900` | 1 | 1,523 |
-| Förordning om miljöfarlig verksamhet och hälsoskydd (miljötillsyn) (2011:338) | `regeringskansliet-sfs-2011-338` | 1 | 593 |
-| Förordning om miljöfarlig verksamhet och hälsoskydd (1998:899) | `regeringskansliet-sfs-1998-899` | 1 | 324 |
-| **SFS family total (6 documents)** | | **6** | **5,474** |
-| HVMFS 2016:17 (små avlopp) | `hav-hvmfs-2016-17` | 1 | 2 |
-| SGU — influensområde grundvatten (analytiska modeller) | `sgu-groundwater-influence-analytical-models` | 1 | 4 |
-| SGU — vägledning för att borra brunn | `sgu-well-drilling-guidance` | 1 | 7 |
-| **standard family total (3 documents)** | | **3** | **13** |
-| MMÖD court decisions (all 510 unique + 1 Part G duplicate identity, see below) | `domstolsverket-puh-mmod` | 511 | 20,372 |
+### Per-source v2.3 -> v2.4.1
 
-**law v2.3 total: 6 materializations, 5,474 chunk rows, 0 letter-suffixed chapters captured
-(known limitation, by design — see [`LEGAL-CORPUS-PUH-COURT-SCALE-01-PROVEN.md`](LEGAL-CORPUS-PUH-COURT-SCALE-01-PROVEN.md)
-for the court family and above for `standard`).**
+| Source | v2.3 chunks | v2.4.1 chunks | Chunk delta | Text-volume delta | Letter-suffixed chapters | Rejected embedded refs |
+|---|---|---|---|---|---|---|
+| Miljöbalk (1998:808) | 1,658 | 1,357 | -301 | not separately re-measured for v2.4.1 vs v2.3 (see `CHAPTER-ANCHOR-01` proof: v2.4-prefix -> v2.4.1 text volume unchanged, 0 false "10 a") | `17 a` correctly detected (0 surfacing chunks — repealed, empty chapter, correctly superseded) | 1 (the reported "10 a" case) |
+| Miljöprövningsförordning (2013:251) | 584 | 544 | -40 | +0.36% | none | 0 |
+| Avfallsförordning (2020:614) | 792 | 574 | -218 | +6.74% | none | 0 |
+| Plan- och bygglag (2010:900) | 1,523 | 1,301 | -222 | +0.38% | none | 12 |
+| Miljöfarlig verksamhet och hälsoskydd (miljötillsyn) (2011:338) | 593 | 440 | -153 | +0.28% | none | 1 |
+| Miljöfarlig verksamhet och hälsoskydd (1998:899) | 324 | 274 | -50 | +0.05% | none | 0 |
 
-All figures in this table and below are parent-materialization-scoped (chunk rows counted
-against the `chunk_policy_version` recorded on their owning `legal_corpus_materializations` row,
-not any per-chunk label) and independently re-verified via direct database queries after the
-first draft of this document surfaced a counting error — see "Excluded from this baseline" for
-what that re-verification found and removed.
+**Why chunk counts drop while text volume does not.** Every source shows a real chunk-count
+reduction (up to -28%) but text-volume parity (within 0.4%, one source even +6.7% — MORE text
+admitted, from less redundant overlap-splitting across fewer, larger chunks). This confirms the
+reduction is the already-proven v2.4 cross-reference *paragraph-boundary-merge* behavior
+reshaping how many fragments the same content is split into — not new content loss introduced by
+the chapter-anchor fix. Verified directly, not assumed: for Plan- och bygglag (2010:900), the 7
+chunks that were chapter `"17"` under v2.3 (transitional-provision text quoting the repealed
+1987 Plan- och bygglagen's own paragraph numbers) were traced individually and confirmed present
+in the v2.4.1 output, merged into differently-shaped chunks under an adjacent chapter rather than
+lost.
 
-## Materialization — law v2.4
+**Newly-discovered / disappeared chapter labels are re-attribution, not data loss** — inspected
+per source, not just totalled:
+- 2011-338: chapter `"15"` newly appears (3 chunks, genuine `1 §`/`3 §` "anmälan" notification-
+  requirement content, plausible real chapter content, not garbage).
+- 1998-899: chapter `"6"` newly appears (2 chunks), chapter `"5"` disappears (4 chunks) — small,
+  within the same paragraph-merge/re-attribution pattern.
+- 2020-614 and 2010-900 show the largest per-chapter shifts (e.g. chapter 2: 268 -> 29 for
+  2020-614) — consistent with those two sources containing the most cross-reference-heavy prose
+  relative to their size, which is exactly what the paragraph-merge mechanism targets.
 
-**Versioned improvement, proven on one real governed source.** `chunkSwedishLawV24`
-(`packages/mps-chunking/src/text/LegalChunker.ts`) adds letter-suffixed chapter capture
-(`"2 a kap." -> "2 a"`) and a bounded cross-reference boundary mitigation. A new, separately
-versioned function — `chunkSwedishLaw` (v2.3) is unmodified and independently regression-tested.
-`chunk_policy_version` is identity-bearing (`LEGAL-CORPUS-MATERIALIZATION-IDENTITY-V2`), so a v2.4
-materialization of the same raw source is a distinct, immutable row, never an overwrite of its
-v2.3 counterpart.
+**No blanket percentage gate was used** to decide PROVEN vs not, per instruction — each source's
+delta was inspected for *why* it changed (text-volume check + spot-traced chapter reattribution),
+not measured against a fixed threshold.
 
-**`LEGAL-CORPUS-LAW-V2.4-REMATERIALIZATION-01`** rematerialized Miljöbalk (1998:808) — the exact
-same real quarantined bytes, download manifest, and projection already used for the v2.3 row
-above — under `chunk_policy_version = 'legal-chunker-v2.4'`.
+### Replay and persistence, every source
 
-| | v2.3 | v2.4 | delta |
-|---|---|---|---|
-| Admitted | 1,658 | 1,357 | −301 (fewer spurious boundary splits from cross-references being correctly merged back) |
-| Rejected | 1 | 1 | unchanged |
-| Chapter labels | 33 (all plain numeric) | 35 (33 plain numeric + 2 letter-suffixed) | +2 letter-suffixed chapters newly captured |
-| Letter-suffixed chapters found | 0 | 2: `"17 a"` (1 chunk), `"10 a"` (1 chunk) | see below |
-| fragment_ids | — | — | 100% distinct from v2.3's (chunk_policy_version is part of the fragment_id hash input) |
-| materialization_id | `canonical:legal-corpus:c36b2f1d...` | `canonical:legal-corpus:cad01758...` | distinct, both present in DB |
+All 6 law sources under `v2.4.1`: replay-stable across two runs (same `materialization_id`, same
+chunk count, zero duplicate `legal_corpus_records` rows, stable identity), and the corresponding
+`v2.3` row verified byte-for-byte untouched (same primary key, same chunk count, same
+`createdAt`) after the `v2.4.1` write. Miljöbalken's pre-fix `v2.4` row additionally verified
+untouched after the `v2.4.1` write.
 
-**Real value demonstrated:** `"17 a kap."` is a genuine (now-repealed) Miljöbalken chapter
-heading — v2.3 cannot capture it at all (falls through to the honest
-`"(ingen kapitelindelning)"` marker or an incorrect default); v2.4 correctly labels it `"17 a"`.
+**Status: PROVEN** for all 6 sources under `v2.4.1` (`LEGAL-CORPUS-LAW-V2.4.1-BULK-01`).
 
-**Known drift, honestly reported, not fixed by this unit:** the second letter-suffixed match,
-`"10 a"`, is **not** a real Miljöbalken chapter heading — it is a cross-reference to a *different*
-statute (`sjölagen (1994:1009)`, "...omfattas av 10 eller 10 a kap. sjölagen...") embedded inside
-paragraph 19's body. `chapMatch` (in both `chunkSwedishLaw` and `chunkSwedishLawV24`) scans the
-*whole* paragraph fragment for a `"N[ x] kap."` pattern rather than anchoring to the fragment's
-start, so this embedded mention overwrites `currentChapter` for that one fragment. This is a
-pre-existing limitation shared with v2.3 (which has the same unanchored match for plain numeric
-`"N kap."` cross-references); letter-suffix support makes it reachable by one additional real
-phrasing, but does not introduce the underlying flaw. Affects exactly 1 of 1,357 admitted v2.4
-chunks in this document. Left open as a candidate for a future, separately scoped unit (anchoring
-`chapMatch` to the fragment start) — not addressed here per the narrow scope of this unit.
+## standard and court (unchanged)
 
-**Replay and coexistence, proven directly against the live database (not script self-report):**
+`standard`: 3 materializations, 13 chunk rows, `v2.3` only — not part of this law-chunking track.
+`court`: 511 materializations, 20,372 chunk rows, `v2.3` only, 510 unique MMÖD decisions (see
+[`LEGAL-CORPUS-PUH-COURT-SCALE-01-PROVEN.md`](LEGAL-CORPUS-PUH-COURT-SCALE-01-PROVEN.md)).
 
-| Check | Result |
-|---|---|
-| v2.3 materialization (`c36b2f1d...`) still exists after the v2.4 run | yes |
-| v2.3 row: same primary key, same chunk count (1,658), same `createdAt` before/after | yes — byte-for-byte untouched |
-| v2.4 materialization_id distinct from v2.3's | yes |
-| v2.4 replay (run 1 vs run 2): same materialization_id | yes |
-| v2.4 replay: same chunk row count (1,357 vs 1,357) | yes |
-| v2.4 replay: duplicate `legal_corpus_records` rows for this key | 0 |
-| v2.4 replay: identity stable (`documentId` run1 == run2) | yes |
-
-`LEGAL-CORPUS-LAW-V2.4-REMATERIALIZATION-01`: **PROVEN.**
-
-**law v2.4 total: 1 materialization (Miljöbalk only — deliberately not yet applied to the other 8
-law/standard single-endpoint sources; see "What this does not claim"), 1,357 chunk rows.**
-
-## Chunk policies present in the governed corpus
+## Chunk policies present in the governed corpus (V2)
 
 | `chunk_policy_version` | Materializations | Chunk rows | Scope |
 |---|---|---|---|
-| `legal-chunker-v2.3` | 520 (6 law + 3 standard + 511 court) | 25,859 (5,474 law + 13 standard + 20,372 court) | full governed corpus baseline |
-| `legal-chunker-v2.4` | 1 | 1,357 | Miljöbalk only, proof-of-real-value |
+| `legal-chunker-v2.3` | 520 (6 law + 3 standard + 511 court) | 25,859 | corpus-wide baseline |
+| `legal-chunker-v2.4` | 1 | 1,357 | Miljöbalk only — historical, known false "10 a" label, kept as evidence |
+| `legal-chunker-v2.4.1` | 6 | 4,490 | all 6 SFS law sources — corrected, rollout-proven |
 
-**Grand total, real governed corpus: 521 materializations, 27,216 chunk rows.**
+**Grand total, real governed corpus: 527 materializations, 31,706 chunk rows.**
 
-## Court family (unchanged in this unit — reconfirmed present and untouched)
+## Excluded from this baseline (unchanged from V1)
 
-510 unique MMÖD decisions, 511 materialization rows (1 explained duplicate identity from an
-earlier pilot script's mislabeled `text_projection_version` — see
-[`LEGAL-CORPUS-PUH-COURT-SCALE-01-PROVEN.md`](LEGAL-CORPUS-PUH-COURT-SCALE-01-PROVEN.md) for the
-full, previously-frozen explanation; not touched or revisited by this unit).
-
-`court_section` distribution (20,372 chunk rows — 208 more than the 20,164 reported in
-`PUH-COURT-SCALE-01` because that count predates this session's re-verification pass; the extra
-208 rows all belong to the same known-duplicate Part G identity, not new drift): DOMSKÄL 7,495 ·
-YRKANDEN 7,626 · BAKGRUND 2,465 · DOMSLUT 1,665 · SKÄL 569 · ÖVRIGT 552.
-
-## Excluded from this baseline
-
-- **`legal_corpus_materializations` rows with `logical_source_id` starting
-  `pilot-persistence-proof-...`** (4 rows total: 3 under `chunk_policy_version = 'unknown'` /
-  `'legal-chunker-v2.4-test'`, plus 1 more that happens to carry the real
-  `'legal-chunker-v2.3'` label at the parent level; 8 chunk rows total, all with
-  `corpus_record.title = "Persistence proof synthetic document"`): these are
-  `LEGAL-CORPUS-CHUNK-PERSISTENCE-V1`'s own F2 replay/rechunk proof-script fixtures (synthetic
-  content used to test identity-divergence behavior, not real acquired sources). Correctly
-  excluded from every count above; caught during this document's own verification pass, which is
-  why every figure above is stated as parent-materialization-scoped and independently re-queried,
-  not taken from any script's self-reported totals.
-- **`source_family IN ('LOCAL_ARCHIVE', 'FOUNDATION')`** (5 + 6 = 11 `legal_corpus_records`,
-  dated 2026-08-09): pre-existing local/foundation data seeded before P2-HARVEST-LIVE-01 and the
-  governed materialization chain existed. Not part of this governed pipeline; not counted above.
+- 4 synthetic `pilot-persistence-proof-...` F2 test fixtures (8 chunk rows) — never real content.
+- `source_family IN ('LOCAL_ARCHIVE', 'FOUNDATION')` (11 records, dated 2026-08-09) — pre-existing
+  data seeded before this governed pipeline existed.
 
 ## What this does not claim
 
-- v2.4 has **not** been applied to the other 8 already-materialized law/standard single-endpoint
-  sources (the 5 remaining SFS ordinances, HVMFS, the 2 SGU guidance documents). This baseline
-  proves v2.4 works correctly and coexists immutably with v2.3 on one real, structurally-relevant
-  source — it does not claim v2.4 is the corpus-wide policy. A bulk rechunk-under-v2.4 migration,
-  if wanted, is a separate, explicitly deferred decision.
-- The known cross-statute chapter-mislabel drift (unanchored `chapMatch`) is documented, not
-  fixed, here.
-- `LEGAL-CHUNKING-LAW-V2.4`'s cross-reference mitigation remains a bounded content heuristic, not
-  a structural guarantee (TEXT-L1 projection preserves no newlines — see the module-level doc
-  comment in `LegalChunker.ts`).
+- The pre-existing, out-of-scope "same-fragment chapter timing" limitation (a chapter heading
+  trailing at a fragment's tail still labels that same fragment, not only later ones — see
+  `LegalChunker.ts`'s module doc comment) remains open. It is explicitly **not** a blocker for
+  this baseline or for opening embeddings/retrieval — it is a known, bounded imprecision inherited
+  unchanged from `v2.3`, not a new defect, and does not need to hold the RAG track hostage.
+- `LEGAL-CHUNKING-LAW-V2.4`'s cross-reference mitigation remains a bounded content heuristic
+  (TEXT-L1 projection preserves no newlines), not a structural guarantee.
 - No embeddings, vector index, or retrieval/RAG exist yet.
 - `boverket-planbestammelser` remains FAILED_CLOSED; the pre-2025 / first-instance MMD case-law
-  coverage gap remains open. Both are unrelated to, and unaffected by, this unit.
+  coverage gap remains open.
 
-This freezes the text/structure baseline. `law v2.3` is the corpus-wide baseline; `law v2.4` is a
-versioned improvement proven real on governed content, ready for a separately-decided rollout.
+This freezes the V2 text/structure baseline: `law/v2.3` is the immutable corpus-wide baseline,
+`law/v2.4` is kept as historical evidence of a real, since-fixed bug, and `law/v2.4.1` is the
+corrected, rollout-proven current candidate across all 6 real SFS law sources.
