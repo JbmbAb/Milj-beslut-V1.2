@@ -17,6 +17,7 @@ import gisRouter from './routes/gis.routes';
 import geodataRouter from './routes/geodata.routes';
 import geoRouter from './routes/geo.routes';
 import legalRouter from './routes/legal.routes';
+import legalRetrievalRouter from './routes/legalRetrieval.routes';
 import localizationRouter from './routes/localization.routes';
 import documentRouter from './routes/document.routes';
 import requirementsRouter from './routes/requirements.routes';
@@ -182,6 +183,7 @@ export function createApp() {
   app.use(geoRouter);
   app.use(localizationRouter);
   app.use(legalRouter);
+  app.use(legalRetrievalRouter);
   app.use('/api/governance', governanceRouter);
 
   // Refactored V1 Routes

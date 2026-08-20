@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
+  LegalRetrievalRequestError,
   performLegalRetrieval,
   type ChunkRefLookup,
   type LegalRetrievalDeps,
@@ -151,5 +152,35 @@ describe('LEGAL-RETRIEVAL-PRODUCTION-COMPOSITION-01', () => {
     expect(outcome.trace.identity.selected_artifact_refs).toEqual(['frag:good']);
     expect(outcome.trace.identity.policy_version).toBe('legal-ret-policy-1');
     expect(outcome.trace.identity.query_hash).toHaveLength(64); // sha256 hex
+  });
+
+  it('a caller-supplied sourceConstraintOverride REPLACES the automatic law router decision entirely', async () => {
+    let capturedRouting: { source_candidates: readonly { logicalSourceId: string }[] } | null = null;
+    const searchChunks: SearchChunks = async (_v, _m, _p, _family, routing) => {
+      capturedRouting = routing;
+      return [];
+    };
+    const deps: LegalRetrievalDeps = { embeddingProvider: fakeProvider(), searchChunks, lookupChunkRef: async () => null };
+
+    await performLegalRetrieval(
+      {
+        query: 'Vad säger miljöbalken om detta?', // would normally auto-route to miljöbalken alone
+        family: 'law',
+        sourceConstraintOverride: ['regeringskansliet-sfs-2010-900', 'regeringskansliet-sfs-2020-614'],
+      },
+      deps,
+    );
+
+    expect(capturedRouting!.source_candidates.map((c) => c.logicalSourceId)).toEqual([
+      'regeringskansliet-sfs-2010-900',
+      'regeringskansliet-sfs-2020-614',
+    ]);
+  });
+
+  it('sourceConstraintOverride for a non-law family is rejected, not silently ignored', async () => {
+    const deps: LegalRetrievalDeps = { embeddingProvider: fakeProvider(), searchChunks: async () => [], lookupChunkRef: async () => null };
+    await expect(
+      performLegalRetrieval({ query: 'x', family: 'court', sourceConstraintOverride: ['a'] }, deps),
+    ).rejects.toThrow(LegalRetrievalRequestError);
   });
 });

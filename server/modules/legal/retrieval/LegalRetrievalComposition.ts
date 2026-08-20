@@ -48,6 +48,25 @@ export interface LegalRetrievalRequest {
   /** Explicit hint, not an inferred classification. Omit to search all families unconstrained. */
   readonly family?: LegalFamily;
   readonly topK?: number;
+  /**
+   * A privileged caller's own explicit source constraint (logical_source_id list), used INSTEAD
+   * of the automatic law metadata router's decision -- never merged, never a suggestion on top of
+   * it. Caller authority is enforced by the serving boundary before this reaches here (this
+   * function does not itself check permissions); only valid for family="law", since no other
+   * family has an equivalent constraint mechanism to override. Providing it for a different
+   * family throws rather than being silently ignored.
+   */
+  readonly sourceConstraintOverride?: readonly string[];
+}
+
+export class LegalRetrievalRequestError extends Error {
+  constructor(
+    readonly code: string,
+    message: string,
+  ) {
+    super(message);
+    this.name = "LegalRetrievalRequestError";
+  }
 }
 
 export interface SearchHit {
@@ -110,9 +129,30 @@ export async function performLegalRetrieval(
   // prior unit in this track has performed before running a search.
   const decision = evaluateLegalRetrieval("LEGAL_CORPUS_SEARCH");
 
+  if (request.sourceConstraintOverride && request.family !== "law") {
+    throw new LegalRetrievalRequestError(
+      "SOURCE_OVERRIDE_REQUIRES_LAW_FAMILY",
+      `sourceConstraintOverride was provided for family=${request.family ?? "unspecified"}, but only "law" has a constraint mechanism to override`,
+    );
+  }
+
   // Law metadata router only engages when family=law -- the frozen production strategy for law,
-  // untouched here. court/standard get routing: null (plain vector-only path).
-  const routing: RoutingDecision | null = request.family === "law" ? routeLawQuery(request.query) : null;
+  // untouched here. court/standard get routing: null (plain vector-only path). A caller-supplied
+  // sourceConstraintOverride REPLACES the automatic router decision entirely (never merged) --
+  // caller authority to set it is enforced by the serving boundary, not here.
+  let routing: RoutingDecision | null = null;
+  if (request.family === "law") {
+    routing = request.sourceConstraintOverride
+      ? {
+          routing_version: LEGAL_RETRIEVAL_COMPOSITION_VERSION,
+          source_candidates: request.sourceConstraintOverride.map((logicalSourceId) => ({
+            logicalSourceId,
+            chapter_constraint: null,
+            matched_signal: "caller_override",
+          })),
+        }
+      : routeLawQuery(request.query);
+  }
   const routingLabel = routing ? describeRoutingDecision(routing) : `${LEGAL_RETRIEVAL_COMPOSITION_VERSION}:family=${request.family ?? "unspecified"}`;
 
   const [queryVector] = await deps.embeddingProvider.embedBatch([request.query]);
