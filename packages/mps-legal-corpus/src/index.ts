@@ -3,6 +3,7 @@ export {
   GovernedLegalCorpusMaterializer,
   type CanonicalLegalCorpusRecordInput,
   type GovernedLegalCorpusMaterializationRequest,
+  type LegalCorpusChunkWrite,
   type LegalCorpusIngestionManifestWrite,
   type LegalCorpusMaterializationPersistence,
   type LegalCorpusMaterializationTransaction,

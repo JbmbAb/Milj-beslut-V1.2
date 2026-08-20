@@ -9,6 +9,7 @@ import {
 } from './LegalCorpusMaterializationIdentity';
 import { CorpusImportGate, type CorpusImportBatchRequest, type LegalChunk } from './CorpusImportGate';
 import type { IngestionManifestEntry } from './IngestionManifest';
+import type { ChunkStructureKind } from './ChunkIdentity';
 
 export const CORPUS_MATERIALIZATION_VERSION = 'corpus-materialization-v1' as const;
 
@@ -46,10 +47,45 @@ export interface LegalCorpusIngestionManifestWrite {
   readonly corpus_import_attestation_ref: ContentReference;
 }
 
+/**
+ * LEGAL-CORPUS-CHUNK-PERSISTENCE-V1 (F2).
+ *
+ * One row per admitted chunk, content-addressed via `fragment_id`. `chapter`/`paragraph` are
+ * present only for `law` chunks; `law_section`/`court_section` are two distinct optional fields
+ * (never one shared "section") so a court section can never be read back as if it were a law
+ * citation or vice versa.
+ */
+export interface LegalCorpusChunkWrite {
+  readonly fragment_id: string;
+  readonly structure_kind: ChunkStructureKind;
+  readonly sequence: number;
+  readonly chapter?: string;
+  readonly paragraph?: string;
+  readonly law_section?: string;
+  readonly court_section?: string;
+  readonly chunk_text: string;
+  readonly content_hash: string;
+  readonly source_projection_ref: string;
+  readonly chunk_policy_version: string;
+}
+
 /** Transaction-only write surface. No pre-gate method is present by construction. */
 export interface LegalCorpusMaterializationTransaction {
   createCanonicalCorpusRecord(input: CanonicalLegalCorpusRecordInput & { readonly record_key: string }): Promise<{ readonly id: string }>;
   createMaterialization(input: LegalCorpusMaterializationWrite & { readonly corpus_record_id: string }): Promise<{ readonly id: string }>;
+  /**
+   * Insert-only, replay-safe by `fragment_id` within `materialization_id` (the persistence
+   * adapter must not error or duplicate rows when the same fragment is re-persisted under the
+   * SAME materialization -- see PrismaLegalCorpusMaterializationPersistence's skipDuplicates).
+   * A different chunk_policy_version produces a different materialization identity upstream, so
+   * it never reaches this method with the same materialization_id -- old chunk rows are
+   * therefore never overwritten, only ever added alongside under their own materialization.
+   */
+  createChunks(input: {
+    readonly materialization_id: string;
+    readonly record_id: string;
+    readonly chunks: readonly LegalCorpusChunkWrite[];
+  }): Promise<void>;
   createIngestionManifestEntry(input: LegalCorpusIngestionManifestWrite & { readonly materialization_id: string }): Promise<void>;
 }
 
@@ -123,6 +159,11 @@ export class GovernedLegalCorpusMaterializer {
         raw_source_ref: request.raw_source_ref,
         corpus_record_id: corpusRecord.id,
       });
+      await tx.createChunks({
+        materialization_id: materialization.id,
+        record_id: corpusRecord.id,
+        chunks: approved.chunks.map(mapChunkForPersistence),
+      });
       await tx.createIngestionManifestEntry({
         run_id: request.gate_request.runId,
         document_id: canonicalRecordKey,
@@ -137,6 +178,29 @@ export class GovernedLegalCorpusMaterializer {
       return { canonical_record_key: canonicalRecordKey, corpus_record_id: corpusRecord.id };
     });
   }
+}
+
+/** `LegalChunk` (identity) -> `LegalCorpusChunkWrite` (persistence). Never fabricates a field the
+ *  chunk's own family doesn't carry -- `chapter`/`paragraph` only exist on `law`, `court_section`
+ *  only exists on `court`, so the destination row's optional columns are left undefined exactly
+ *  where the source chunk itself has no claim to make. */
+function mapChunkForPersistence(chunk: LegalChunk): LegalCorpusChunkWrite {
+  const base = {
+    fragment_id: chunk.fragment_id,
+    structure_kind: chunk.structure_kind,
+    sequence: chunk.sequence,
+    chunk_text: chunk.full_text,
+    content_hash: createHash('sha256').update(chunk.full_text, 'utf8').digest('hex'),
+    source_projection_ref: chunk.source_projection_ref,
+    chunk_policy_version: chunk.chunk_policy_version,
+  };
+  if (chunk.structure_kind === 'law') {
+    return { ...base, chapter: chunk.chapter, paragraph: chunk.paragraph, law_section: chunk.section };
+  }
+  if (chunk.structure_kind === 'court') {
+    return { ...base, court_section: chunk.court_section };
+  }
+  return base;
 }
 
 function buildAttestationReference(attestation: ArtifactAttestation): ContentReference {

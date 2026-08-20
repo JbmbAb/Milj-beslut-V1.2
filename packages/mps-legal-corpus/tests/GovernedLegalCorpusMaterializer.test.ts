@@ -16,6 +16,7 @@ import {
   type CorpusImportBatchRequest,
   type IngestionManifestEntry,
   type LegalChunk,
+  type LegalCorpusChunkWrite,
   type LegalCorpusMaterializationIdentityInput,
   type LegalCorpusMaterializationPersistence,
   type LegalCorpusMaterializationTransaction,
@@ -29,7 +30,7 @@ const chunks: readonly LegalChunk[] = [{
   source_projection_ref: 'sha256:test-projection-ref', sequence: 0,
 }];
 
-function identity(raw = 'a'.repeat(64)): LegalCorpusMaterializationIdentityInput {
+function identity(raw = 'a'.repeat(64), chunkPolicyVersion = 'legal-chunker-v2.3'): LegalCorpusMaterializationIdentityInput {
   return {
     logical_source_id: 'regeringskansliet-sfs-1998-808',
     registry_artifact_id: 'reg-rk-sfs-1998-808-001',
@@ -39,6 +40,7 @@ function identity(raw = 'a'.repeat(64)): LegalCorpusMaterializationIdentityInput
     text_projection_hash: 'c'.repeat(64),
     text_projection_version: 'v1.0',
     corpus_materialization_version: 'corpus-materialization-v1',
+    chunk_policy_version: chunkPolicyVersion,
   };
 }
 
@@ -105,9 +107,11 @@ class SingleEntryManifestStore implements ManifestStore {
 
 class AtomicMemoryPersistence implements LegalCorpusMaterializationPersistence {
   readonly committed: string[] = [];
-  failAt?: 'record' | 'materialization' | 'manifest';
+  readonly committedChunkSets: readonly LegalCorpusChunkWrite[][] = [];
+  failAt?: 'record' | 'materialization' | 'chunks' | 'manifest';
   async transaction<T>(work: (tx: LegalCorpusMaterializationTransaction) => Promise<T>): Promise<T> {
     const staged: string[] = [];
+    const stagedChunkSets: LegalCorpusChunkWrite[][] = [];
     const tx: LegalCorpusMaterializationTransaction = {
       createCanonicalCorpusRecord: async () => {
         if (this.failAt === 'record') throw new Error('record failure');
@@ -117,6 +121,10 @@ class AtomicMemoryPersistence implements LegalCorpusMaterializationPersistence {
         if (this.failAt === 'materialization') throw new Error('materialization failure');
         staged.push('materialization'); return { id: 'materialization-1' };
       },
+      createChunks: async (input) => {
+        if (this.failAt === 'chunks') throw new Error('chunks failure');
+        staged.push('chunks'); stagedChunkSets.push([...input.chunks]);
+      },
       createIngestionManifestEntry: async () => {
         if (this.failAt === 'manifest') throw new Error('manifest failure');
         staged.push('manifest');
@@ -124,6 +132,7 @@ class AtomicMemoryPersistence implements LegalCorpusMaterializationPersistence {
     };
     const result = await work(tx);
     this.committed.push(...staged);
+    (this.committedChunkSets as LegalCorpusChunkWrite[][]).push(...stagedChunkSets);
     return result;
   }
 }
@@ -157,15 +166,22 @@ describe('P2 legal governed materialization', () => {
     const materializer = await materializerFor(input.manifest_entry, persistence);
     const result = await materializer.materialize(input);
     expect(result.canonical_record_key).toBe(buildCanonicalLegalCorpusRecordKey(input.identity));
-    expect(persistence.committed).toEqual(['record', 'materialization', 'manifest']);
+    expect(persistence.committed).toEqual(['record', 'materialization', 'chunks', 'manifest']);
+    expect(persistence.committedChunkSets).toHaveLength(1);
+    expect(persistence.committedChunkSets[0]?.map((c) => c.fragment_id)).toEqual(
+      chunks.map((c) => c.fragment_id),
+    );
   });
 
-  it('ATOMIC_CORPUS_ADMISSION_V1: any post-gate persistence failure commits none of the three writes', async () => {
-    const input = await requestFor();
-    const persistence = new AtomicMemoryPersistence();
-    persistence.failAt = 'manifest';
-    const materializer = await materializerFor(input.manifest_entry, persistence);
-    await expect(materializer.materialize(input)).rejects.toThrow(/manifest failure/);
-    expect(persistence.committed).toEqual([]);
+  it('ATOMIC_CORPUS_ADMISSION_V1: any post-gate persistence failure commits none of the four writes (including chunks)', async () => {
+    for (const failAt of ['record', 'materialization', 'chunks', 'manifest'] as const) {
+      const input = await requestFor();
+      const persistence = new AtomicMemoryPersistence();
+      persistence.failAt = failAt;
+      const materializer = await materializerFor(input.manifest_entry, persistence);
+      await expect(materializer.materialize(input)).rejects.toThrow(new RegExp(`${failAt} failure`));
+      expect(persistence.committed).toEqual([]);
+      expect(persistence.committedChunkSets).toEqual([]);
+    }
   });
 });

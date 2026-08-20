@@ -1001,6 +1001,9 @@ model LegalCorpusMaterialization {
   textProjectionHash           String   @map("text_projection_hash")
   textProjectionVersion        String   @map("text_projection_version")
   corpusMaterializationVersion String   @map("corpus_materialization_version")
+  // LEGAL-CORPUS-MATERIALIZATION-IDENTITY-V2: identity-bearing, same as the app-level hash --
+  // a different chunk policy is a different materialization, never an overwrite of the old one.
+  chunkPolicyVersion           String   @map("chunk_policy_version")
   corpusRecordId               String   @unique @map("corpus_record_id")
   createdAt                    DateTime @default(now()) @map("created_at")
 
@@ -1008,7 +1011,7 @@ model LegalCorpusMaterialization {
   manifestEntries LegalCorpusIngestionManifestEntry[]
   chunks          LegalCorpusMaterializedChunk[]
 
-  @@unique([logicalSourceId, registryArtifactId, rawSourceContentHash, textProjectionHash, textProjectionVersion, corpusMaterializationVersion])
+  @@unique([logicalSourceId, registryArtifactId, rawSourceContentHash, textProjectionHash, textProjectionVersion, corpusMaterializationVersion, chunkPolicyVersion])
   @@index([logicalSourceId])
   @@index([registryArtifactId])
   @@map("legal_corpus_materializations")
@@ -1058,7 +1061,7 @@ model LegalCorpusMaterializedChunk {
   lawSection          String?  @map("law_section")
   courtSection        String?  @map("court_section")
 
-  chunkText           String   @db.Text
+  chunkText           String   @map("chunk_text") @db.Text
   contentHash         String   @map("content_hash")
   sourceProjectionRef String   @map("source_projection_ref")
   chunkPolicyVersion  String   @map("chunk_policy_version")
