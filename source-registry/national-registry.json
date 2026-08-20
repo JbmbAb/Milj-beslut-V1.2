@@ -560,5 +560,60 @@
       "signer": "ed25519:source-registry-governor-2026-08-14",
       "signature": "ed25519:hbYVp8qoGb2qw46NBtrQfpK98Fjsn/kbd1CGBMW10XMCsq04gM0gMUmitiFCy5RkULOyHZ1M2MsiQ/hpfhGOAg=="
     }
+  },
+  {
+    "artifact_id": "reg-lantmateriet-stac-byggnader-001",
+    "artifact_type": "SOURCE_REGISTRY_ENTRY",
+    "source_id": "lantmateriet-stac-byggnader",
+    "producer": {
+      "producer_id": "LANTMATERIET",
+      "name": "Lantmäteriet",
+      "type": "agency"
+    },
+    "channel": {
+      "channel_type": "DATASET_PORTAL",
+      "endpoint_url": "https://api.lantmateriet.se/stac-vektor/v1/collections/byggnader/items",
+      "allowed_domains": [
+        "api.lantmateriet.se",
+        "dl1.lantmateriet.se"
+      ]
+    },
+    "adapter": "LM_STAC_BYGGNADER_V1",
+    "artifact_types": [
+      "SPATIAL_DATASET"
+    ],
+    "collection_frequency": "WEEKLY",
+    "change_detection": {
+      "strategy": "CONTENT_HASH"
+    },
+    "policy": {
+      "rate_limit_requests_per_second": 1,
+      "concurrency_limit": 1,
+      "politeness_delay_ms": 1000,
+      "max_object_size_bytes": 52428800,
+      "retry_policy": {
+        "max_attempts": 3,
+        "backoff": "EXPONENTIAL"
+      }
+    },
+    "geographic_scope": "Sweden",
+    "lifecycle_state": "APPROVED",
+    "approval_attestation": {
+      "subjectDigest": "sha256:6c86f6464d422109bcb7ae3e89a32ccf7bf4fe98ed5b6a10a1c26e634b7e111f",
+      "predicateType": "mimers-brunn/source-registry-approval/v1",
+      "predicate": {
+        "action": "source.approve",
+        "source_id": "lantmateriet-stac-byggnader",
+        "source_content_hash": "6c86f6464d422109bcb7ae3e89a32ccf7bf4fe98ed5b6a10a1c26e634b7e111f",
+        "approver_actor_id": "JbmbAb",
+        "approver_role": "GOVERNANCE_REVIEWER",
+        "attestation_schema_version": 1,
+        "signer_key_id": "ed25519:source-registry-governor-2026-08-14"
+      },
+      "hashAlgorithm": "sha256",
+      "signatureAlgorithm": "Ed25519",
+      "signer": "ed25519:source-registry-governor-2026-08-14",
+      "signature": "ed25519:fDNd4sLhSHM3IFom8PAa2IbI3YV1uTH9zKVYVmHMiWy9gIWcU1fWUxDfiftRF9HbgNK+DIhZc0OBEnfS5mPGBA=="
+    }
   }
 ]
