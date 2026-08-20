@@ -106,8 +106,13 @@ export interface LegalRetrievalOutcome {
 
 const DEFAULT_TOP_K = 10;
 /** Bumped whenever this composed chain's own behavior changes -- distinct from the router's own
- *  LAW_SOURCE_ROUTING_VERSION, which versions the routing decision itself. */
-export const LEGAL_RETRIEVAL_COMPOSITION_VERSION = "legal-retrieval-composition-v1";
+ *  LAW_SOURCE_ROUTING_VERSION, which versions the routing decision itself.
+ *  v2 (LEGAL-ANSWER-MULTISOURCE-RETRIEVAL-BUDGET-01): createLegalRetrievalComposition()'s real
+ *  searchChunks runs one query per candidate source, each at the unchanged per-source topK, when
+ *  routing recognizes 2+ candidates -- 0/1-candidate queries are byte-for-byte unchanged. Retrieval
+ *  POLICY (LEGAL_RETRIEVAL_POLICY_VERSION) and the trace's own shape are untouched; only this
+ *  composed chain's search strategy for the multi-source case changed. */
+export const LEGAL_RETRIEVAL_COMPOSITION_VERSION = "legal-retrieval-composition-v2";
 
 export function hashQuery(query: string): string {
   return createHash("sha256").update(query, "utf8").digest("hex");
@@ -219,7 +224,14 @@ export async function performLegalRetrieval(
 export function createLegalRetrievalComposition(): LegalRetrievalDeps {
   const embeddingProvider = createGeminiEmbeddingProvider();
 
-  const searchChunks: SearchChunks = async (queryVector, modelId, pipelineVersion, family, routing, topK) => {
+  const runSearch = async (
+    queryVector: readonly number[],
+    modelId: string,
+    pipelineVersion: string,
+    family: LegalFamily | undefined,
+    routingForQuery: RoutingDecision | null,
+    limit: number,
+  ): Promise<SearchHit[]> => {
     const vectorLiteral = `[${queryVector.join(",")}]`;
     const baseParams: unknown[] = [vectorLiteral, modelId, pipelineVersion];
     let familyFilter = "";
@@ -227,9 +239,9 @@ export function createLegalRetrievalComposition(): LegalRetrievalDeps {
       baseParams.push(family);
       familyFilter = `AND c.structure_kind = $${baseParams.length}`;
     }
-    const where = routing ? buildCandidateWhereClause(routing, baseParams.length) : { sql: "", params: [] };
-    const params = [...baseParams, ...where.params, topK];
-    const topKParam = `$${params.length}`;
+    const where = routingForQuery ? buildCandidateWhereClause(routingForQuery, baseParams.length) : { sql: "", params: [] };
+    const params = [...baseParams, ...where.params, limit];
+    const limitParam = `$${params.length}`;
 
     return prisma.$queryRawUnsafe<SearchHit[]>(
       `SELECT e.fragment_id, e.materialization_id, e.chunk_content_hash, c.structure_kind,
@@ -241,9 +253,31 @@ export function createLegalRetrievalComposition(): LegalRetrievalDeps {
        WHERE e.embedding_model_id = $2 AND e.embedding_pipeline_version = $3
          ${familyFilter} ${where.sql}
        ORDER BY e.embedding_vector <=> $1::vector
-       LIMIT ${topKParam}`,
+       LIMIT ${limitParam}`,
       ...params,
     );
+  };
+
+  const searchChunks: SearchChunks = async (queryVector, modelId, pipelineVersion, family, routing, topK) => {
+    // LEGAL-ANSWER-MULTISOURCE-RETRIEVAL-BUDGET-01: strictly local to the multi-source case. 0 or
+    // 1 recognized candidates run the exact prior single-query path, byte-for-byte, at the exact
+    // prior budget (topK unchanged). 2+ recognized candidates -- a query the router has already
+    // decided must search ALL of them -- run one query PER candidate, each still at the ORIGINAL
+    // per-source budget (topK unchanged per source, never a blanket topK increase for all
+    // queries), then merge and re-rank by the same single distance metric already used everywhere
+    // else in this chain. No reranker, no BM25, no new relevance signal: same metric, applied once
+    // per source instead of once globally, so a source that would otherwise be crowded out of a
+    // single combined top-K by a more prolific source still gets its own fair top-K search.
+    if (routing && routing.source_candidates.length >= 2) {
+      const perSourceHits = await Promise.all(
+        routing.source_candidates.map((candidate) =>
+          runSearch(queryVector, modelId, pipelineVersion, family, { routing_version: routing.routing_version, source_candidates: [candidate] }, topK),
+        ),
+      );
+      return perSourceHits.flat().sort((a, b) => a.distance - b.distance);
+    }
+
+    return runSearch(queryVector, modelId, pipelineVersion, family, routing, topK);
   };
 
   const lookupChunkRef: ChunkRefLookup = async (fragmentId, materializationId) => {

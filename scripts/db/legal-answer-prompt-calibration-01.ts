@@ -126,7 +126,16 @@ async function runSet(label: string, queries: readonly CalQuery[], deps: ReturnT
     console.log(`\n=== [${cq.id}] ${cq.note} ===`);
     console.log('query:', cq.query, '| family:', cq.family ?? '(none)', '| target:', cq.target);
 
-    const outcome = await composeLegalAnswer({ query: cq.query, family: cq.family, topK: 6 }, deps);
+    let outcome: Awaited<ReturnType<typeof composeLegalAnswer>>;
+    try {
+      outcome = await composeLegalAnswer({ query: cq.query, family: cq.family, topK: 6 }, deps);
+    } catch (error) {
+      // A transient provider error (e.g. Gemini 503 "high demand") is a real, valid observation
+      // for this run -- record it and continue, never abort the whole battery over one query.
+      console.log('!! composeLegalAnswer threw -- recording as MODEL_ERROR and continuing:', error instanceof Error ? error.message : error);
+      rows.push({ id: cq.id, target: cq.target, mode: 'MODEL_ERROR', result: 'MODEL_ERROR', claims: 0, containment: null, provenance_intact: true, citations_within_set: true });
+      continue;
+    }
     const acceptableIds = cq.acceptable_scopes ? await resolveScopeFragmentIds(cq.acceptable_scopes) : null;
     const retrievedIds = new Set((outcome.retrieval?.results ?? []).map((r) => r.fragment_id));
     const containment = acceptableIds === null ? null : [...acceptableIds].some((id) => retrievedIds.has(id));
