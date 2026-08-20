@@ -18,6 +18,14 @@ export const READ_MODEL_LAYER_ID = {
   PROPERTY: 'property',
   TOPO10_BUILDING: 'topo10-building',
   PROTECTED_AREA: 'protected-area',
+  NATURA2000_AREA: 'natura2000-area',
+  INTERNATIONAL_PROTECTION: 'international-protection',
+  WATER_PROTECTION: 'water-protection',
+  SGU_WELL: 'sgu-well',
+  SGU_PERMEABILITY: 'sgu-permeability',
+  SGU_GROUNDWATER_MAGAZINE: 'sgu-groundwater-magazine',
+  SGU_GROUNDWATER_BODY: 'sgu-groundwater-body',
+  TOPO10_STREAM: 'topo10-stream',
 } as const;
 
 function requiredText(value: string, field: string): string {

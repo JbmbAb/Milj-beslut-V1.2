@@ -13,6 +13,10 @@ import {
   getSguCoastalErosionLayer,
   getWaterProtectionLayer,
   getTopo10Layer,
+  getSguWellLayer,
+  getSguPermeabilityLayer,
+  getSguGroundwaterMagazineLayer,
+  getSguGroundwaterBodyLayer,
 } from '../../server/services/publicUiService';
 import { prisma } from '../../server/db/prisma';
 
@@ -211,15 +215,25 @@ describe('publicUiService', () => {
       expect(natura.features[0]?.properties).toMatchObject({
         nvr_id: 'natura-1',
         protection_type: 'Natura 2000 SCI',
+        feature_ref: 'rmf:v1:source:natura2000-area:natura2000_area:natura-1',
       });
-      expect((natura.meta as any).source).toBe('local_postgis');
+      expect(natura.meta).toMatchObject({
+        source: 'local_postgis',
+        presentation_kind: 'read_model',
+        layer_id: 'natura2000-area',
+      });
 
       expect(internationalProtection.features).toHaveLength(1);
       expect(internationalProtection.features[0]?.properties).toMatchObject({
         nvr_id: 'ramsar-1',
         protection_type: 'RAMSAR',
+        feature_ref: 'rmf:v1:source:international-protection:protected_area:ramsar-1',
       });
-      expect((internationalProtection.meta as any).source).toBe('local_postgis');
+      expect(internationalProtection.meta).toMatchObject({
+        source: 'local_postgis',
+        presentation_kind: 'read_model',
+        layer_id: 'international-protection',
+      });
     });
 
     it('getHydroLayer: returns empty if bbox is missing', async () => {
@@ -495,7 +509,14 @@ describe('publicUiService', () => {
         maxLat: 60.2,
       });
       expect(result.features).toHaveLength(1);
-      expect((result.meta as any).source).toBe('local_postgis');
+      expect(result.features[0]).toMatchObject({
+        id: 'rmf:v1:source:water-protection:water_protection_area:wp-1',
+      });
+      expect(result.meta).toMatchObject({
+        source: 'local_postgis',
+        presentation_kind: 'read_model',
+        layer_id: 'water-protection',
+      });
     });
   });
 
@@ -519,7 +540,14 @@ describe('publicUiService', () => {
         maxLat: 60.2,
       });
       expect(result.features.length).toBeGreaterThan(0);
-      expect((result.meta as any).source).toBe('topo10.vatten');
+      expect(result).toMatchObject({
+        meta: {
+          source: 'topo10.vatten',
+          presentation_kind: 'read_model',
+          layer_id: 'topo10-stream',
+        },
+        features: [{ id: 'rmf:v1:source:topo10-stream:topo10.vatten:S1' }],
+      });
     });
 
     it('uses viss.status_sjoar for lakes when it exists', async () => {
@@ -555,6 +583,52 @@ describe('publicUiService', () => {
 
       const result = await getHydroLayer('streams', { minLng: 14, minLat: 59, maxLng: 15, maxLat: 60 });
       expect((result.meta as any).warning).toContain('topo10.vatten');
+    });
+  });
+
+  describe('QGIS breadth read-model identities', () => {
+    const bbox = { minLng: 14.9, minLat: 59.9, maxLng: 15.2, maxLat: 60.2 };
+    const point = '{"type":"Point","coordinates":[15,60]}';
+    const polygon = '{"type":"Polygon","coordinates":[[[15,60],[15.1,60],[15.1,60.1],[15,60]]]}';
+
+    it('projects SGU source identifiers as stable feature references', async () => {
+      (prisma.$queryRaw as Mock)
+        .mockResolvedValueOnce([{ regclass: 'env.sgu_well_actual' }])
+        .mockResolvedValueOnce([{ brunnsid: 'well-1', geojson: point }])
+        .mockResolvedValueOnce([{ regclass: 'env.sgu_permeability' }])
+        .mockResolvedValueOnce([{ objectid: 'perm-1', geojson: polygon }])
+        .mockResolvedValueOnce([{ regclass: 'env.sgu_groundwater_magazine' }])
+        .mockResolvedValueOnce([{ id: 'mag-1', geojson: polygon }])
+        .mockResolvedValueOnce([{ regclass: 'env.sgu_groundwater_body' }])
+        .mockResolvedValueOnce([{ ms_cd: 'body-1', geojson: polygon }]);
+
+      const collections = [
+        await getSguWellLayer(bbox),
+        await getSguPermeabilityLayer(bbox),
+        await getSguGroundwaterMagazineLayer(bbox),
+        await getSguGroundwaterBodyLayer(bbox),
+      ];
+
+      expect(collections.map((collection) => collection.features[0]?.id)).toEqual([
+        'rmf:v1:source:sgu-well:sgu_well_actual:well-1',
+        'rmf:v1:source:sgu-permeability:sgu_permeability:perm-1',
+        'rmf:v1:source:sgu-groundwater-magazine:sgu_groundwater_magazine:mag-1',
+        'rmf:v1:source:sgu-groundwater-body:sgu_groundwater_body:body-1',
+      ]);
+      expect(collections.map((collection) => (collection.meta as any).presentation_kind)).toEqual([
+        'read_model', 'read_model', 'read_model', 'read_model',
+      ]);
+    });
+
+    it('does not fabricate a feature reference when an SGU source identifier is absent', async () => {
+      (prisma.$queryRaw as Mock)
+        .mockResolvedValueOnce([{ regclass: 'env.sgu_well_actual' }])
+        .mockResolvedValueOnce([{ brunnsid: null, geojson: point }]);
+
+      const result = await getSguWellLayer(bbox);
+
+      expect(result.features[0]).not.toHaveProperty('id');
+      expect(result.features[0]?.properties).not.toHaveProperty('feature_ref');
     });
   });
 });

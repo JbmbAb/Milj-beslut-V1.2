@@ -364,7 +364,7 @@ function toFeatureCollection<T extends LocalNamedGeometryRow>(
   rows: T[],
   mapProperties: (row: T) => Record<string, unknown>,
   meta?: Record<string, unknown>,
-  mapIdentity?: (row: T) => ReadModelFeatureIdentityV1,
+  mapIdentity?: (row: T) => ReadModelFeatureIdentityV1 | undefined,
 ): FeatureCollection {
   return {
     type: 'FeatureCollection',
@@ -837,8 +837,28 @@ export async function getNatura2000Layer(
       available: true,
       manualReviewRequired: false,
       coverageMode: 'complete',
+      presentation_kind: 'read_model',
+      read_model_contract_version: 'read-model-feature-collection-v1',
+      layer_id: READ_MODEL_LAYER_ID.NATURA2000_AREA,
+      provenance_status: 'PARTIAL',
     },
+    (row) =>
+      createOptionalSourceFeatureIdentity(READ_MODEL_LAYER_ID.NATURA2000_AREA, 'natura2000_area', row.nvr_id),
   );
+}
+
+function createOptionalSourceFeatureIdentity(
+  layerId: string,
+  sourceNamespace: string,
+  sourceFeatureId: unknown,
+): ReadModelFeatureIdentityV1 | undefined {
+  if (typeof sourceFeatureId !== 'string' && typeof sourceFeatureId !== 'number') {
+    return undefined;
+  }
+  const normalized = String(sourceFeatureId).trim();
+  return normalized
+    ? createSourceFeatureIdentity({ layerId, sourceNamespace, sourceFeatureId: normalized })
+    : undefined;
 }
 
 export async function getInternationalProtectionLayer(
@@ -907,7 +927,13 @@ export async function getInternationalProtectionLayer(
       available: true,
       manualReviewRequired: false,
       coverageMode: 'complete',
+      presentation_kind: 'read_model',
+      read_model_contract_version: 'read-model-feature-collection-v1',
+      layer_id: READ_MODEL_LAYER_ID.INTERNATIONAL_PROTECTION,
+      provenance_status: 'PARTIAL',
     },
+    (row) =>
+      createOptionalSourceFeatureIdentity(READ_MODEL_LAYER_ID.INTERNATIONAL_PROTECTION, 'protected_area', row.nvr_id),
   );
 }
 
@@ -970,7 +996,13 @@ export async function getWaterProtectionLayer(
         available: true,
         manualReviewRequired: false,
         coverageMode: 'water_protection_area',
+        presentation_kind: 'read_model',
+        read_model_contract_version: 'read-model-feature-collection-v1',
+        layer_id: READ_MODEL_LAYER_ID.WATER_PROTECTION,
+        provenance_status: 'PARTIAL',
       },
+      (row) =>
+        createOptionalSourceFeatureIdentity(READ_MODEL_LAYER_ID.WATER_PROTECTION, 'water_protection_area', row.id),
     );
   }
 
@@ -1029,7 +1061,13 @@ export async function getWaterProtectionLayer(
       available: true,
       manualReviewRequired: false,
       coverageMode: 'filtered_protected_area',
+      presentation_kind: 'read_model',
+      read_model_contract_version: 'read-model-feature-collection-v1',
+      layer_id: READ_MODEL_LAYER_ID.WATER_PROTECTION,
+      provenance_status: 'PARTIAL',
     },
+    (row) =>
+      createOptionalSourceFeatureIdentity(READ_MODEL_LAYER_ID.WATER_PROTECTION, 'protected_area', row.nvr_id),
   );
 }
 
@@ -1091,7 +1129,13 @@ export async function getSguWellLayer(bbox: Bbox, limit: number = 2000): Promise
       available: true,
       manualReviewRequired: true,
       featureLimit: maxRows,
+      presentation_kind: 'read_model',
+      read_model_contract_version: 'read-model-feature-collection-v1',
+      layer_id: READ_MODEL_LAYER_ID.SGU_WELL,
+      provenance_status: 'PARTIAL',
     },
+    (row) =>
+      createOptionalSourceFeatureIdentity(READ_MODEL_LAYER_ID.SGU_WELL, 'sgu_well_actual', row.brunnsid),
   );
 }
 
@@ -1212,7 +1256,13 @@ export async function getSguPermeabilityLayer(bbox: Bbox): Promise<FeatureCollec
       screeningOnly: true,
       manualReviewRequired: true,
       featureLimit: 1500,
+      presentation_kind: 'read_model',
+      read_model_contract_version: 'read-model-feature-collection-v1',
+      layer_id: READ_MODEL_LAYER_ID.SGU_PERMEABILITY,
+      provenance_status: 'PARTIAL',
     },
+    (row) =>
+      createOptionalSourceFeatureIdentity(READ_MODEL_LAYER_ID.SGU_PERMEABILITY, 'sgu_permeability', row.objectid),
   );
 }
 
@@ -1271,7 +1321,13 @@ export async function getSguGroundwaterMagazineLayer(bbox: Bbox): Promise<Featur
       screeningOnly: true,
       manualReviewRequired: true,
       featureLimit: 1500,
+      presentation_kind: 'read_model',
+      read_model_contract_version: 'read-model-feature-collection-v1',
+      layer_id: READ_MODEL_LAYER_ID.SGU_GROUNDWATER_MAGAZINE,
+      provenance_status: 'PARTIAL',
     },
+    (row) =>
+      createOptionalSourceFeatureIdentity(READ_MODEL_LAYER_ID.SGU_GROUNDWATER_MAGAZINE, 'sgu_groundwater_magazine', row.id),
   );
 }
 
@@ -1328,7 +1384,13 @@ export async function getSguGroundwaterBodyLayer(bbox: Bbox): Promise<FeatureCol
       screeningOnly: true,
       manualReviewRequired: true,
       featureLimit: 1500,
+      presentation_kind: 'read_model',
+      read_model_contract_version: 'read-model-feature-collection-v1',
+      layer_id: READ_MODEL_LAYER_ID.SGU_GROUNDWATER_BODY,
+      provenance_status: 'PARTIAL',
     },
+    (row) =>
+      createOptionalSourceFeatureIdentity(READ_MODEL_LAYER_ID.SGU_GROUNDWATER_BODY, 'sgu_groundwater_body', row.ms_cd || row.eu_cd),
   );
 }
 
@@ -1672,7 +1734,13 @@ export async function getHydroLayer(
         source: 'topo10.vatten',
         available: true,
         manualReviewRequired: false,
+        presentation_kind: 'read_model',
+        read_model_contract_version: 'read-model-feature-collection-v1',
+        layer_id: READ_MODEL_LAYER_ID.TOPO10_STREAM,
+        provenance_status: 'PARTIAL',
       },
+      (row) =>
+        createOptionalSourceFeatureIdentity(READ_MODEL_LAYER_ID.TOPO10_STREAM, 'topo10.vatten', row.objid),
     );
   }
 

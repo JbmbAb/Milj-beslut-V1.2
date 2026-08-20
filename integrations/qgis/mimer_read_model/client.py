@@ -19,6 +19,14 @@ PILOT_LAYERS = {
     "property": LayerSpec("postgis_property", "property"),
     "building": LayerSpec("topo10_buildings", "topo10-building"),
     "protected_nature": LayerSpec("postgis_nvr", "protected-area"),
+    "natura2000": LayerSpec("natura2000_area", "natura2000-area"),
+    "international_protection": LayerSpec("international_protection", "international-protection"),
+    "water_protection": LayerSpec("water_protection", "water-protection"),
+    "sgu_wells": LayerSpec("sgu_brunnar_postgis", "sgu-well"),
+    "sgu_permeability": LayerSpec("sgu_genomslapplighet", "sgu-permeability"),
+    "sgu_groundwater_magazines": LayerSpec("sgu_groundwater_magazine", "sgu-groundwater-magazine"),
+    "sgu_groundwater_bodies": LayerSpec("sgu_groundwater_body", "sgu-groundwater-body"),
+    "topo10_streams": LayerSpec("postgis_streams", "topo10-stream"),
 }
 
 

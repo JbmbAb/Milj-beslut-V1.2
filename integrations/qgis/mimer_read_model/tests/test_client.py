@@ -64,3 +64,22 @@ class ClientTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "invalid_catalog_bbox_contract"):
             client.fetch_layer(PILOT_LAYERS["property"], "10,20,11,21")
         self.assertEqual(client.calls, [("/api/reference/map-layers", None)])
+
+    def test_every_plugin_layer_has_a_catalog_key_and_read_model_identity(self):
+        expected = {
+            "property": ("postgis_property", "property"),
+            "building": ("topo10_buildings", "topo10-building"),
+            "protected_nature": ("postgis_nvr", "protected-area"),
+            "natura2000": ("natura2000_area", "natura2000-area"),
+            "international_protection": ("international_protection", "international-protection"),
+            "water_protection": ("water_protection", "water-protection"),
+            "sgu_wells": ("sgu_brunnar_postgis", "sgu-well"),
+            "sgu_permeability": ("sgu_genomslapplighet", "sgu-permeability"),
+            "sgu_groundwater_magazines": ("sgu_groundwater_magazine", "sgu-groundwater-magazine"),
+            "sgu_groundwater_bodies": ("sgu_groundwater_body", "sgu-groundwater-body"),
+            "topo10_streams": ("postgis_streams", "topo10-stream"),
+        }
+        self.assertEqual(
+            {name: (spec.catalog_key, spec.layer_id) for name, spec in PILOT_LAYERS.items()},
+            expected,
+        )

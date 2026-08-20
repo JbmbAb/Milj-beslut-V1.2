@@ -78,6 +78,12 @@ def _apply_style(layer: Any, layer_id: str) -> None:
         "property": "#2563eb",
         "topo10-building": "#64748b",
         "protected-area": "#15803d",
+        "natura2000-area": "#0f766e",
+        "international-protection": "#7c3aed",
+        "water-protection": "#0891b2",
+        "sgu-permeability": "#a16207",
+        "sgu-groundwater-magazine": "#0369a1",
+        "sgu-groundwater-body": "#2563eb",
     }
     if layer.geometryType() == 2:
         layer.renderer().setSymbol(QgsFillSymbol.createSimple({"color": colors.get(layer_id, "#64748b"), "outline_color": "#1f2937"}))
