@@ -262,8 +262,8 @@ describe("P3-PUH-METADATA-CARRIAGE-01", () => {
 
     expect(
       with_.content_hash.digest,
-      "Manifest identity hashes DownloadedObject, which source_metadata never reaches. If this " +
-        "differed, adding carriage would have invalidated every manifest already produced.",
+      "Manifest identity excludes adapter-observed source_metadata. If this differed, adding " +
+        "carriage would have invalidated every manifest already produced.",
     ).toBe(without.content_hash.digest);
   });
 });

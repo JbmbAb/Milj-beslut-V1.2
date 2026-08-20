@@ -257,6 +257,7 @@ export class GovernedDownloadExecutor implements HarvestExecutor {
           file_name: target.file_name,
           content_hash: landed.hash,
           byte_length: response.bytes.byteLength,
+          ...(target.source_metadata ? { source_metadata: { ...target.source_metadata } } : {}),
           deduplicated: landed.is_duplicate,
           attempts: attempt,
         };

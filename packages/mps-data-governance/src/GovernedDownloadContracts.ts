@@ -54,8 +54,9 @@ export interface DownloadTarget {
    * nowhere to put them, so they were dropped before the executor saw them — leaving 514
    * harvested judgments that cannot be classified without re-harvesting.
    *
-   * Excluded from manifest identity by construction: identity hashes `DownloadedObject`, and
-   * this never reaches it. Adding metadata therefore cannot change an existing manifest hash.
+   * Copied verbatim to quarantine and the persisted manifest body for replayable provenance.
+   * It remains excluded from manifest *identity*: raw object hashes, not mutable listing
+   * observations, establish the acquired byte identity.
    */
   readonly source_metadata?: Readonly<Record<string, string>>;
 }
@@ -73,6 +74,8 @@ export interface DownloadedObject {
   readonly file_name: string;
   readonly content_hash: string;
   readonly byte_length: number;
+  /** Adapter-observed listing provenance for this object. Never used as authority or byte identity. */
+  readonly source_metadata?: Readonly<Record<string, string>>;
   /** True when the identical bytes were already quarantined — idempotency, not an error. */
   readonly deduplicated: boolean;
   readonly attempts: number;
