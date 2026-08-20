@@ -974,6 +974,7 @@ model LegalCorpusRecord {
   judgment    JudgmentRecord?    @relation(fields: [judgmentId], references: [id], onDelete: SetNull)
   legalSource LegalSourceRecord? @relation(fields: [legalSourceId], references: [id], onDelete: SetNull)
   chunks      LegalCorpusChunk[]
+  materialization LegalCorpusMaterialization?
 
   @@index([canonicalKey])
   @@index([sourceFamily, sourceType, publishedAt])
@@ -983,6 +984,52 @@ model LegalCorpusRecord {
   @@index([judgmentId])
   @@index([legalSourceId])
   @@map("legal_corpus_records")
+}
+
+/// Governed, source-bound materialization provenance for one canonical corpus record.
+/// Legacy seeded records deliberately have no row here and are never aliased into this model.
+model LegalCorpusMaterialization {
+  id                           String   @id @default(cuid())
+  canonicalRecordKey           String   @unique @map("canonical_record_key")
+  logicalSourceId              String   @map("logical_source_id")
+  registryArtifactId           String   @map("registry_artifact_id")
+  registrySourceContentHash    String   @map("registry_source_content_hash")
+  rawSourceRef                 Json     @map("raw_source_ref")
+  rawSourceContentHash         String   @map("raw_source_content_hash")
+  textProjectionArtifactId     String   @map("text_projection_artifact_id")
+  textProjectionHash           String   @map("text_projection_hash")
+  textProjectionVersion        String   @map("text_projection_version")
+  corpusMaterializationVersion String   @map("corpus_materialization_version")
+  corpusRecordId               String   @unique @map("corpus_record_id")
+  createdAt                    DateTime @default(now()) @map("created_at")
+
+  corpusRecord    LegalCorpusRecord                  @relation(fields: [corpusRecordId], references: [id], onDelete: Restrict)
+  manifestEntries LegalCorpusIngestionManifestEntry[]
+
+  @@unique([logicalSourceId, registryArtifactId, rawSourceContentHash, textProjectionHash, textProjectionVersion, corpusMaterializationVersion])
+  @@index([logicalSourceId])
+  @@index([registryArtifactId])
+  @@map("legal_corpus_materializations")
+}
+
+/// Persisted admission record, distinct from P2's DownloadManifest store.
+model LegalCorpusIngestionManifestEntry {
+  id                         String   @id @default(cuid())
+  runId                      String   @map("run_id")
+  documentId                 String   @map("document_id")
+  materializationId          String   @map("materialization_id")
+  ingestionStatus            String   @map("ingestion_status")
+  admissionOutcome           String   @map("admission_outcome")
+  sourceManifestRef          Json     @map("source_manifest_ref")
+  corpusImportAttestation    Json     @map("corpus_import_attestation")
+  corpusImportAttestationRef Json     @map("corpus_import_attestation_ref")
+  createdAt                  DateTime @default(now()) @map("created_at")
+
+  materialization LegalCorpusMaterialization @relation(fields: [materializationId], references: [id], onDelete: Cascade)
+
+  @@unique([runId, documentId])
+  @@index([materializationId])
+  @@map("legal_corpus_ingestion_manifest_entries")
 }
 
 model LegalCorpusChunk {
