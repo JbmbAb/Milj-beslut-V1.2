@@ -1,5 +1,5 @@
 import { createHash } from 'crypto';
-import { ArtifactReference } from '../../mps-retrieval-governance/src/ArtifactReader';
+import { ArtifactReference } from './ArtifactReference';
 
 export function calculateRetrievalTraceIdentity(
   query_hash: string,

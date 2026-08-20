@@ -1,5 +1,4 @@
 import { describe, it, expect } from 'vitest';
-import { RetrievalExecutionTraceArtifact } from '../src/RetrievalExecutionTraceArtifact';
 
 describe('Trace Authority and Truth Duplication', () => {
 

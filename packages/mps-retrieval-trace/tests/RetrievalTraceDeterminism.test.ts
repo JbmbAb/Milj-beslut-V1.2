@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { calculateRetrievalTraceIdentity } from '../src/RetrievalTraceIdentity';
-import { ArtifactReference } from '../../mps-retrieval-governance/src/ArtifactReader';
+import { ArtifactReference } from '../src/ArtifactReference';
 
 describe('TRACE-I03: Retrieval Determinism', () => {
   it('Should generate exactly the same trace hash for the same inputs, regardless of metadata', () => {

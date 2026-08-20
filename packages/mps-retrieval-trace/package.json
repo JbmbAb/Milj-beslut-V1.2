@@ -9,6 +9,9 @@
     ".": "./src/index.ts"
   },
   "description": "Retrieval Execution Trace — observation only; never authority",
+  "scripts": {
+    "typecheck": "tsc --noEmit -p tsconfig.json"
+  },
   "dependencies": {
     "@miljobeslut/mps-retrieval-governance": "file:../mps-retrieval-governance",
     "@miljobeslut/mps-query-budget": "file:../mps-query-budget"
