@@ -126,7 +126,7 @@ describe('P2-AUTH-03E3-B - unsigned SGU well-drilling guidance source', () => {
       (entry) => entry.source_id === 'sgu-groundwater-influence-analytical-models',
     );
 
-    expect(production).toHaveLength(11);
+    expect(production).toHaveLength(12);
     expect(production).not.toContainEqual(loadDraft());
     expect(installed).toMatchObject({
       artifact_id: 'reg-sgu-well-drilling-guidance-001',

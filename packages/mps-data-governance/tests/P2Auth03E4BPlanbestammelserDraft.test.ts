@@ -128,7 +128,7 @@ describe('P2-AUTH-03E4-B - unsigned Boverket planning provisions source', () => 
       (entry) => entry.source_id === 'sgu-well-drilling-guidance',
     );
 
-    expect(production).toHaveLength(11);
+    expect(production).toHaveLength(12);
     expect(installed).toHaveLength(1);
     expect(installed[0]).toMatchObject({
       artifact_id: 'reg-boverket-planbestammelser-001',
