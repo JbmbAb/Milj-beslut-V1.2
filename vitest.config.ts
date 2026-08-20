@@ -191,6 +191,19 @@ export default defineConfig({
               __dirname,
               'packages/mps-retrieval-trace/src/index.ts',
             ),
+            // LEGAL-RETRIEVAL-PRODUCTION-COMPOSITION-01: same reason again.
+            '@miljobeslut/mps-embedding-identity': path.resolve(
+              __dirname,
+              'packages/mps-embedding-identity/src/index.ts',
+            ),
+            '@miljobeslut/mps-legal-retrieval-contract': path.resolve(
+              __dirname,
+              'packages/mps-legal-retrieval-contract/src/index.ts',
+            ),
+            '@miljobeslut/mps-retrieval-governance': path.resolve(
+              __dirname,
+              'packages/mps-retrieval-governance/src/index.ts',
+            ),
           },
         },
         test: {

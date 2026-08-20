@@ -1,9 +1,27 @@
-# LEGAL-RETRIEVAL-LAW-MULTI-SOURCE-ROUTING-01 — PROVEN
+# LEGAL-RETRIEVAL-LAW-MULTI-SOURCE-ROUTING-01 — PROVEN / FROZEN
 
-**Status:** PROVEN, all 8 required proofs met with real data, and the owner's pre-committed
-freeze criterion is met: **H21 is repaired, and the unambiguous-case gains persist exactly**. This
-document proposes freezing metadata-routing as the first production retrieval strategy for
-`law` -- see "Recommendation" for the specific ask.
+**Status:** FROZEN. **OWNER DECISION: metadata-aware vector retrieval + multi-source candidate
+constraints + per-source chapter binding is the LAW PRODUCTION RETRIEVAL STRATEGY.** All 8
+required proofs met with real data; both pre-committed freeze criteria met (H21 repaired,
+unambiguous-case gains persist exactly). `court`/`standard` remain on the current unconstrained
+vector-only path until evidence shows a need for a different strategy -- not decided here.
+
+**Frozen invariants** (governing all future work on this router, not just this unit):
+
+```
+0 recognized statutes  -> no source constraint
+1 recognized statute   -> constrain to that source
+2+ recognized statutes -> admit ALL recognized sources, never first-match-wins
+chapter constraint     -> binds only to the source it is positionally associated with
+uncertain association  -> do not fabricate a chapter binding
+```
+
+**H22 is documented as a known, accepted trade-off, not a blocking defect**: the old v1 ranking
+was correct by luck, through an unprincipled heuristic that glued the nearest chapter number to
+whichever single source it had matched regardless of adjacency. v2 correctly declines to fabricate
+that binding when the association is not actually there — producing an honest non-answer instead
+of an accidentally-right one. This is the intended, accepted behavior of the frozen invariants
+above, not a regression to fix.
 
 ## The fix
 
@@ -79,13 +97,12 @@ without that chapter narrowing. This is a real regression on one query, and it i
 expected cost of replacing an unprincipled heuristic (grab any nearby-ish chapter number) with a
 correct one (bind only when actually adjacent) — not a new bug.
 
-## Recommendation
+## Owner decision (FROZEN)
 
-Per the owner's stated criterion ("Om H21 repareras och de unambiguous-vinsterna består skulle
-jag då frysa metadata-routing som den första riktiga production retrieval-strategin för law"):
-**both conditions are met** — H21 is repaired and the unambiguous gains persist exactly
-unchanged. This document is submitted as evidence for that freeze decision, not a unilateral
-declaration of production status — confirming the freeze itself is the owner's call.
+Both pre-committed criteria were met — H21 is repaired and the unambiguous gains persist exactly
+unchanged. **Owner decision: metadata-aware vector retrieval + multi-source candidate
+constraints + per-source chapter binding is frozen as the LAW PRODUCTION RETRIEVAL STRATEGY.**
+Next: `LEGAL-RETRIEVAL-PRODUCTION-COMPOSITION-01` wires this into the real serving chain.
 
 ## What this does not claim
 
@@ -104,7 +121,5 @@ declaration of production status — confirming the freeze itself is the owner's
 
 ## Next
 
-Owner decision on whether to formally freeze law metadata routing as the production retrieval
-strategy for `law`, per the criterion above. If frozen, wiring it into an actual retrieval-serving
-path (currently everything remains script-only, per every unit in this track so far) would be a
-separate, later unit.
+`LEGAL-RETRIEVAL-PRODUCTION-COMPOSITION-01` — wiring this frozen strategy into an actual
+composed retrieval-serving function (everything up to this unit has been script-only).
