@@ -42,6 +42,11 @@ describe('property read-model feature identity', () => {
         },
       },
     });
+    expect(result.meta).toMatchObject({
+      presentation_kind: 'read_model',
+      layer_id: 'property',
+      provenance_status: 'PARTIAL',
+    });
   });
 
   it('derives the same merged property reference regardless of component order', async () => {

@@ -759,6 +759,10 @@ export async function getProtectedAreaLayer(
       available: true,
       manualReviewRequired: false,
       coverageMode: 'complete',
+      presentation_kind: 'read_model',
+      read_model_contract_version: 'read-model-feature-collection-v1',
+      layer_id: READ_MODEL_LAYER_ID.PROTECTED_AREA,
+      provenance_status: 'PARTIAL',
     },
     (row) =>
       createSourceFeatureIdentity({
@@ -2432,5 +2436,11 @@ export async function getTopo10Layer(bbox: Bbox, tableName: string = 'byggnad'):
         },
       };
     }),
+    meta: {
+      presentation_kind: 'read_model',
+      read_model_contract_version: 'read-model-feature-collection-v1',
+      layer_id: READ_MODEL_LAYER_ID.TOPO10_BUILDING,
+      provenance_status: 'PARTIAL',
+    },
   };
 }

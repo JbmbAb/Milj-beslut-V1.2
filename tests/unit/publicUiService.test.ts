@@ -162,6 +162,11 @@ describe('publicUiService', () => {
         id: 'rmf:v1:source:protected-area:NVR:1',
         properties: { feature_ref: 'rmf:v1:source:protected-area:NVR:1' },
       });
+      expect(fc.meta).toMatchObject({
+        presentation_kind: 'read_model',
+        layer_id: 'protected-area',
+        provenance_status: 'PARTIAL',
+      });
       const sqlTexts = vi
         .mocked(prisma.$queryRaw)
         .mock.calls.map((call) => String((call[0] as unknown as string[]).join('')));
@@ -245,6 +250,10 @@ describe('publicUiService', () => {
       expect(result.features).toHaveLength(1);
       expect(result.features[0]).toMatchObject({
         id: 'rmf:v1:source:topo10-building:topo10.byggnad:topo-1',
+      });
+      expect(result.meta).toMatchObject({
+        presentation_kind: 'read_model',
+        layer_id: 'topo10-building',
       });
       expect(prisma.$queryRawUnsafe).toHaveBeenCalledWith(
         expect.stringContaining('FROM topo10.byggnad'),

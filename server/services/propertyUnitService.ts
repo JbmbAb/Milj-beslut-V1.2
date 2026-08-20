@@ -147,6 +147,7 @@ export async function getPropertyLayer(bbox: {
             source_key,
             designation,
             source_dataset,
+            source_updated_at,
             raw_properties,
             ST_AsGeoJSON(ST_Transform(geom, 4326))::text AS geometry_geojson
         FROM core.property_unit
@@ -167,6 +168,8 @@ export async function getPropertyLayer(bbox: {
             properties: {
               sourceKey: r.source_key,
               designation: r.designation,
+              source_dataset: r.source_dataset,
+              source_updated_at: r.source_updated_at ?? null,
               ...(identity
                 ? { feature_ref: identity.feature_ref, feature_identity: identity }
                 : {
@@ -180,6 +183,12 @@ export async function getPropertyLayer(bbox: {
         }
       })
       .filter(Boolean),
+    meta: {
+      presentation_kind: 'read_model',
+      read_model_contract_version: 'read-model-feature-collection-v1',
+      layer_id: READ_MODEL_LAYER_ID.PROPERTY,
+      provenance_status: 'PARTIAL',
+    },
   };
 }
 

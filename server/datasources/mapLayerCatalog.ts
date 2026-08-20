@@ -183,6 +183,17 @@ export const MAP_LAYER_CATALOG: MapLayerCatalogEntry[] = [
     activation: 'IMMEDIATE',
   },
   {
+    key: 'topo10_buildings',
+    label: 'Topo10 byggnader',
+    endpoint: '/api/geodata/topo-buildings',
+    bboxRequired: true,
+    geometry: 'polygon',
+    source: 'postgis',
+    provider: 'Lantmateriet / Topo10',
+    activation: 'IMMEDIATE',
+    description: 'Byggnadsgeometrier ur det lokala Topo10-read-model-lagret.',
+  },
+  {
     key: 'postgis_lakes',
     label: 'Sjoar',
     endpoint: '/api/layers/hydro.lakes',

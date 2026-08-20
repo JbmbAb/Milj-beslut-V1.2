@@ -51,6 +51,21 @@ describe('mapLayerCatalog', () => {
     }
   });
 
+  it('publishes the three QGIS pilot layers with usable BBOX contracts', () => {
+    expect(findMapLayerByKey('postgis_property')).toMatchObject({
+      endpoint: '/api/layers/property',
+      bboxRequired: true,
+    });
+    expect(findMapLayerByKey('topo10_buildings')).toMatchObject({
+      endpoint: '/api/geodata/topo-buildings',
+      bboxRequired: true,
+    });
+    expect(findMapLayerByKey('postgis_nvr')).toMatchObject({
+      endpoint: '/api/layers/nvr',
+      bboxRequired: false,
+    });
+  });
+
   it('aligns GEODATA_SMOKE_CATALOG with LocalizationStudyUI geodata paths', () => {
     for (const smoke of GEODATA_SMOKE_CATALOG) {
       const path = smoke.endpoint.replace('/api/geodata/', '');
