@@ -5,7 +5,7 @@ import { canonicalizeStrict } from "@miljobeslut/mimers-brunn-core";
 
 import type { ContentReference } from "../../mps-core/src/types";
 import type { DownloadManifest } from "./GovernedDownloadContracts";
-import { buildDownloadManifestRef } from "./DownloadManifestIdentity";
+import { buildDownloadManifestIdentityPayload, buildDownloadManifestRef } from "./DownloadManifestIdentity";
 
 /**
  * P2_DOWNLOAD_MANIFEST_PERSISTENCE_V1.
@@ -19,22 +19,46 @@ export interface DownloadManifestStore {
   resolve(reference: ContentReference): Promise<DownloadManifest | null>;
 }
 
+/**
+ * P2-DOWNLOAD-MANIFEST-REPLAY-01 — the canonical semantic comparison shared by every store.
+ *
+ * `DownloadManifest` represents WHAT was acquired, not HOW any one execution went (see the
+ * `generated_at` doc comment on the type itself). `buildDownloadManifestIdentityPayload` already
+ * encodes exactly that boundary for the identity hash; reusing it here — rather than a second,
+ * independently-written notion of "same" — is what keeps identity and persistence from being able
+ * to drift apart again. Two manifests at the same identity are the same download observed twice,
+ * however many times `generated_at`/`attempts`/`deduplicated` differ between the observations.
+ * A difference in any identity-bearing fact is still a hard rejection: this makes storage more
+ * accepting of replay, not more tolerant of corruption.
+ */
+function sameSemanticManifest(a: DownloadManifest, b: DownloadManifest): boolean {
+  return (
+    canonicalizeStrict(buildDownloadManifestIdentityPayload(a)) ===
+    canonicalizeStrict(buildDownloadManifestIdentityPayload(b))
+  );
+}
+
 /** A deterministic test/runtime-independent implementation of the P2 persistence contract. */
 export class InMemoryDownloadManifestStore implements DownloadManifestStore {
   private readonly manifests = new Map<string, string>();
 
   async persist(manifest: DownloadManifest): Promise<ContentReference> {
     const reference = buildDownloadManifestRef(manifest);
-    const existing = this.manifests.get(reference.content_hash.digest);
-    const body = canonicalizeStrict(manifest);
+    const existingBody = this.manifests.get(reference.content_hash.digest);
 
-    if (existing !== undefined && existing !== body) {
-      throw new Error(
-        `Download manifest hash collision for '${reference.content_hash.digest}': existing body differs.`,
-      );
+    if (existingBody !== undefined) {
+      const existing = JSON.parse(existingBody) as DownloadManifest;
+      if (!sameSemanticManifest(existing, manifest)) {
+        throw new Error(
+          `Download manifest hash collision for '${reference.content_hash.digest}': existing body differs.`,
+        );
+      }
+      // Same identity already persisted — this execution's own generated_at/attempts/deduplicated
+      // are a second, equally valid observation of it, not a reason to overwrite the first.
+      return reference;
     }
 
-    this.manifests.set(reference.content_hash.digest, body);
+    this.manifests.set(reference.content_hash.digest, canonicalizeStrict(manifest));
     return reference;
   }
 
@@ -66,11 +90,14 @@ export class FileDownloadManifestStore implements DownloadManifestStore {
 
       const existing = await readFile(path, "utf8");
       const resolved = validateResolvedManifest(existing, reference);
-      if (canonicalizeStrict(resolved) !== body) {
+      if (!sameSemanticManifest(resolved, manifest)) {
         throw new Error(
           `Download manifest hash collision for '${reference.content_hash.digest}': existing body differs.`,
         );
       }
+      // Same identity already on disk — a second live execution reaching the same acquisition
+      // is a replay, not a conflict. The first-persisted body stays; it is an equally valid
+      // observation of the same identity as this one.
     }
 
     return reference;
