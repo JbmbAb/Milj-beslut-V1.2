@@ -19,6 +19,11 @@ import { GoogleGenAI, Type } from "@google/genai";
 export const ANSWER_MODEL_ID = "gemini-2.5-flash" as const;
 export const ANSWER_MODEL_VERSION = "2.5" as const;
 export const ANSWER_PIPELINE_VERSION = "answer-pipeline-gemini-v1" as const;
+/** Bumped whenever buildPrompt()'s wording changes -- LEGAL-RETRIEVAL-ANSWER-QUALITY-BASELINE-01
+ *  freezes this alongside the other answer-configuration versions before its run. */
+export const ANSWER_PROMPT_VERSION = "answer-prompt-v1" as const;
+/** Bumped whenever RESPONSE_SCHEMA's shape changes. */
+export const ANSWER_RESPONSE_SCHEMA_VERSION = "answer-response-schema-v1" as const;
 
 export class AnswerModelError extends Error {
   constructor(
