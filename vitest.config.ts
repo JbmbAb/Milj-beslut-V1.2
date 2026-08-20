@@ -170,6 +170,22 @@ export default defineConfig({
     projects: [
       {
         plugins: [react()],
+        // Explicit, not inherited: same root-level-does-not-reach-projects behavior noted in
+        // the compliance project below. tests/unit/*.test.ts files that exercise server code
+        // wired against mps-legal-corpus/mps-chunking (LEGAL-CORPUS-MATERIALIZATION-V1) need
+        // these aliases resolvable here, not just under the compliance project.
+        resolve: {
+          alias: {
+            '@miljobeslut/mps-legal-corpus': path.resolve(
+              __dirname,
+              'packages/mps-legal-corpus/src/index.ts',
+            ),
+            '@miljobeslut/mps-chunking': path.resolve(
+              __dirname,
+              'packages/mps-chunking/src/index.ts',
+            ),
+          },
+        },
         test: {
           name: 'unit',
           include: ['**/unit/**/*.test.ts', '**/unit/**/*.test.tsx'],
