@@ -1,7 +1,11 @@
-import React, { useState } from 'react';
+import React, { Suspense, lazy, useState } from 'react';
 import { designTokens } from '@miljobeslut/mps-identity';
 import { callApi, getActiveProjectId } from '../../../services/coreApiClient';
 import { fetchPropertyInfo } from '../../../src/ui/api-client/geo.client';
+import EvidenceDetailsPanel from '../../cesium/EvidenceDetailsPanel';
+import type { CesiumEvidenceMode } from '../../CesiumMapView';
+
+const CesiumMapView = lazy(() => import('../../CesiumMapView'));
 
 /**
  * P3-LU-CANONICAL-CHAIN-01 — how an absent LU verdict is shown.
@@ -21,6 +25,7 @@ type SiteInput = {
   name: string;
   lat: number;
   lng: number;
+  geometry?: unknown;
 };
 
 type ExecutionMotorMeta = {
@@ -69,6 +74,11 @@ export const LuWorkspace: React.FC<{ initialDesignation?: string }> = ({ initial
   const [running, setRunning] = useState(false);
   const [runError, setRunError] = useState('');
   const [report, setReport] = useState<LocalizationReport | null>(null);
+  // PRODUCT-LU-CONTEXT-AND-EVIDENCE-BINDING-V1: the active product path defaults to live,
+  // governed evidence. 'fixture' remains available as an explicit user toggle inside
+  // CesiumMapView (dev/comparison use), but must never be this workspace's silent default.
+  const [cesiumEvidenceMode, setCesiumEvidenceMode] = useState<CesiumEvidenceMode>('live');
+  const [selectedEvidence, setSelectedEvidence] = useState<any | null>(null);
 
   const fieldStyle: React.CSSProperties = {
     width: '100%',
@@ -84,7 +94,7 @@ export const LuWorkspace: React.FC<{ initialDesignation?: string }> = ({ initial
     setLookingUp(true);
     setReport(null);
     try {
-      const info = await fetchPropertyInfo(designation.trim());
+      const info = await fetchPropertyInfo(designation.trim(), getActiveProjectId() || undefined);
       const lat = Number(info.centroid?.lat);
       const lng = Number(info.centroid?.lng);
       if (!Number.isFinite(lat) || !Number.isFinite(lng)) {
@@ -96,6 +106,7 @@ export const LuWorkspace: React.FC<{ initialDesignation?: string }> = ({ initial
         name: siteName.trim() || name,
         lat,
         lng,
+        geometry: info.geometry,
       });
     } catch (err) {
       setSite(null);
@@ -111,10 +122,17 @@ export const LuWorkspace: React.FC<{ initialDesignation?: string }> = ({ initial
       return;
     }
     setRunError('');
+    const projectId = getActiveProjectId();
+    if (!projectId) {
+      // PRODUCT-LU-CONTEXT-AND-EVIDENCE-BINDING-V1: no synthetic 'lu-workspace' project id.
+      // Without a real authenticated active project there is no verified ProjectContextBinding
+      // to assess against, so this fails closed rather than running under a fake project.
+      setRunError('Inget aktivt projekt valt. Välj ett projekt innan bedömning körs.');
+      return;
+    }
     setRunning(true);
     setReport(null);
     try {
-      const projectId = getActiveProjectId() || 'lu-workspace';
       const result = await callApi<LocalizationReport>('/api/localization/generate-report', {
         method: 'POST',
         body: {
@@ -222,6 +240,41 @@ export const LuWorkspace: React.FC<{ initialDesignation?: string }> = ({ initial
           </p>
         ) : null}
       </section>
+
+      {site ? (
+        <section
+          data-testid="lu-cesium-front"
+          className="relative mb-10 min-h-[620px] overflow-hidden border"
+          style={{ borderColor: colors.coreGraphite.hex }}
+        >
+          <Suspense
+            fallback={
+              <div className="absolute inset-0 flex min-h-[620px] items-center justify-center bg-slate-950 text-sm font-semibold text-cyan-100">
+                Laddar Cesium 3D...
+              </div>
+            }
+          >
+            <CesiumMapView
+              propertyGeometry={site.geometry}
+              propertyCoordinates={[site.lat, site.lng]}
+              evidenceMode={cesiumEvidenceMode}
+              onEvidenceModeChange={(next) => {
+                setCesiumEvidenceMode(next);
+                setSelectedEvidence(null);
+              }}
+              onEvidenceClick={(props) => setSelectedEvidence(props)}
+            />
+          </Suspense>
+
+          {selectedEvidence ? (
+            <EvidenceDetailsPanel
+              evidence={selectedEvidence}
+              evidenceMode={cesiumEvidenceMode}
+              onClose={() => setSelectedEvidence(null)}
+            />
+          ) : null}
+        </section>
+      ) : null}
 
       {compliance ? (
         <section

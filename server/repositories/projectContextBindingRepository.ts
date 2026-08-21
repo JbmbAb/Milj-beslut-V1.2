@@ -7,6 +7,12 @@ import type { ArtifactReference } from "@miljobeslut/mps-compliance/src/artifact
 export interface ProjectContextBindingIndex {
   register(binding: ProjectContextBindingArtifact): Promise<void>;
   resolve(projectId: string, projectContextRef: ArtifactReference): Promise<string>;
+  /**
+   * Looks up the (unique) project_context_ref bound to a project, without the caller needing to
+   * already know it. Fails closed (throws) if zero or more than one binding exists for the
+   * project -- ambiguity here must never be resolved by picking one silently.
+   */
+  findProjectContextRef(projectId: string): Promise<ArtifactReference>;
 }
 
 type BindingRow = { binding_artifact_id: string };
@@ -48,5 +54,23 @@ export class PrismaProjectContextBindingIndex implements ProjectContextBindingIn
       throw new Error("REJECT_PROJECT_CONTEXT_BINDING_UNAVAILABLE");
     }
     return rows[0]!.binding_artifact_id;
+  }
+
+  async findProjectContextRef(projectId: string): Promise<ArtifactReference> {
+    const rows = await prisma.$queryRaw<
+      { project_context_artifact_id: string; project_context_artifact_type: string }[]
+    >(Prisma.sql`
+      SELECT "project_context_artifact_id", "project_context_artifact_type"
+      FROM "project_context_bindings"
+      WHERE "project_id" = ${projectId}
+      LIMIT 2
+    `);
+    if (rows.length !== 1) {
+      throw new Error("REJECT_PROJECT_CONTEXT_BINDING_UNAVAILABLE: no unambiguous binding for project");
+    }
+    return {
+      artifact_id: rows[0]!.project_context_artifact_id,
+      artifact_type: rows[0]!.project_context_artifact_type,
+    };
   }
 }

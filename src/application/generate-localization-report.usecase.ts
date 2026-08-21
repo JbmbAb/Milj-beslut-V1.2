@@ -6,7 +6,6 @@
  * VISS water status, SLU species observations, and audit trail logging.
  */
 
-import { createHash } from 'node:crypto';
 import { runSpatialAudit, type SpatialAuditSummary } from '../../server/services/spatialAuditService';
 import { evaluateComplianceRules, type SiteAnalysis } from '../../server/services/complianceRuleEngine';
 import { fetchProtectedAreas, type ProtectedArea } from '../../server/services/nvrService';
@@ -33,6 +32,7 @@ import {
   createLocalizationSpatialRuntime,
   type LocalizationSpatialRuntime,
 } from '../../server/modules/localization/createLocalizationSpatialRuntime';
+import { resolveCanonicalProjectContext } from './resolveCanonicalProjectContext';
 
 export interface SiteAlternative {
   id: string;
@@ -537,107 +537,44 @@ async function analyzeSite(
     distanceForCompliance ?? 200,
   );
 
-  let documentEvidence: any[] = [];
-  try {
-    // Canonical refs are the only governed rule input. The legacy provider remains a
-    // presentation-only fallback when no governed evidence was selected for this assessment.
-    if (site.documentEvidenceRefs?.length) {
-      documentEvidence = [];
-    } else {
-      const propertyRef = {
-        artifact_id: `prop-${site.id}`,
-        artifact_type: "LU_PROPERTY_CONTEXT" as const
-      };
-      const geometry = {
-        type: "Polygon" as const,
-        coordinates: [[
-          [site.lng - 0.001, site.lat - 0.001],
-          [site.lng + 0.001, site.lat - 0.001],
-          [site.lng + 0.001, site.lat + 0.001],
-          [site.lng - 0.001, site.lat + 0.001],
-          [site.lng - 0.001, site.lat - 0.001]
-        ]] as number[][][]
-      };
-      documentEvidence = await orchestrator.generateDocumentEvidence(propertyRef, geometry);
-    }
-  } catch (err) {
-    logger.warn(`Failed to generate document evidence for site ${site.id}`, { err: String(err) });
-  }
-
   // Magic Moment path: property CAS → registry-resolved spatial provider → evidence → kernel → assessment
   let mpsFindings: any[] = [];
   let executionMotor: ExecutionMotorMeta | undefined;
   let spatialRuntime: LocalizationSpatialRuntime | undefined;
+  let documentEvidence: any[] = [];
   try {
     spatialRuntime = await createSpatialRuntime();
     const repo = spatialRuntime.artifactRepository;
     const provider = spatialRuntime.resolveSpatialProvider(LU_SPATIAL_CAPABILITY_KEY);
 
-    const propertyContextId = `prop-${site.id}`;
-    const projectContextId = `proj-${ctx.projectId}`;
-    const propRef = {
-      artifact_id: propertyContextId,
-      artifact_type: 'LU_PROPERTY_CONTEXT' as const,
-    };
-    const projRef = {
-      artifact_id: projectContextId,
-      artifact_type: 'LU_PROJECT_CONTEXT' as const,
-    };
-    const geomRef = {
-      artifact_id: `geom-${site.id}`,
-      artifact_type: 'CANONICAL_GEOMETRY' as const,
-    };
+    // PRODUCT-LU-CONTEXT-AND-EVIDENCE-BINDING-V1: resolve the REAL, already-issued, verified
+    // project/property context for this authenticated project. Never fabricate prop-*/proj-*/
+    // geom-* ids -- a project without a verified ProjectContextBinding fails closed here rather
+    // than being silently assigned a fresh synthetic context on every run.
+    const canonicalContext = await resolveCanonicalProjectContext(ctx.projectId, repo);
+    const propRef = canonicalContext.propertyContextRef;
+    const projRef = canonicalContext.projectContextRef;
+    const geomRef = canonicalContext.geometryRef;
 
-    const [northing, easting] = await spatialRuntime.wgs84ToSweref99(site.lat, site.lng);
-    const propertyPayload = {
-      property_ref: site.name || site.id,
-      official_name: site.name || site.id,
-      geometry_ref: geomRef,
-      municipality: 'UNKNOWN',
-      coordinates: [northing, easting] as const,
-    };
-    const propertyHash = {
-      algorithm: 'sha256' as const,
-      value: createHash('sha256')
-        .update(JSON.stringify(propertyPayload))
-        .digest('hex'),
-    };
-    await repo.put({
-      artifact_id: propertyContextId,
-      content_hash: propertyHash,
-      body: {
-        artifact_id: propertyContextId,
-        artifact_type: 'LU_PROPERTY_CONTEXT',
-        content_hash: propertyHash,
-        references: [geomRef],
-        payload: propertyPayload,
-      },
-    });
-
-    const projectPayload = {
-      project_name: ctx.projectId,
-      description: 'Localization Magic Moment',
-      planned_activity: 'localization_assessment',
-      property_refs: [propRef],
-      created_by: ctx.user?.id ?? 'system',
-    };
-    const projectHash = {
-      algorithm: 'sha256' as const,
-      value: createHash('sha256')
-        .update(JSON.stringify(projectPayload))
-        .digest('hex'),
-    };
-    await repo.put({
-      artifact_id: projectContextId,
-      content_hash: projectHash,
-      body: {
-        artifact_id: projectContextId,
-        artifact_type: 'LU_PROJECT_CONTEXT',
-        content_hash: projectHash,
-        references: [propRef],
-        payload: projectPayload,
-      },
-    });
+    try {
+      // Canonical refs are the only governed rule input. The legacy provider remains a
+      // presentation-only fallback when no governed evidence was selected for this assessment --
+      // now bound to the real canonical property/geometry, never a synthetic lat/lng bbox.
+      if (site.documentEvidenceRefs?.length) {
+        documentEvidence = [];
+      } else {
+        documentEvidence = await orchestrator.generateDocumentEvidence(
+          propRef,
+          // The real canonical property geometry may be a MultiPolygon (multi-part parcels);
+          // CanonicalGeometry's coordinates type only declares Polygon's 3-level nesting. The
+          // runtime shape is valid GeoJSON either way -- this is a pre-existing type-only gap in
+          // the shared domain type, not a runtime concern for this call site.
+          canonicalContext.geometry as unknown as Parameters<typeof orchestrator.generateDocumentEvidence>[1],
+        );
+      }
+    } catch (err) {
+      logger.warn(`Failed to generate document evidence for site ${site.id}`, { err: String(err) });
+    }
 
     // Magic Moment spatial contract: fixed 500 m buffer for water/ebh/protected_area.
     // Do not inherit legacy distanceToWater fallback (200 m) — that collapses EBH/protected hits.
@@ -661,7 +598,7 @@ async function analyzeSite(
     const mpsEvidence = await provider.query(queryRequest);
     const governedDocumentEvidence = await resolveCanonicalDocumentEvidence(
       site.documentEvidenceRefs,
-      propertyContextId,
+      propRef.artifact_id,
       repo,
     );
     if (site.documentEvidenceRefs?.length) {
@@ -732,7 +669,7 @@ async function analyzeSite(
       ticket_id,
       finding_ids: [...kernelResult.finding_ids],
       assessment_artifact_id,
-      property_context_id: propertyContextId,
+      property_context_id: propRef.artifact_id,
       // Admission alone is not a verdict. The artifact is. An admitted run that produced no
       // LocalizationAssessmentArtifact is NOT_ASSESSED, not assessed-with-no-findings.
       assessment_status: !kernelResult.admitted

@@ -13,6 +13,9 @@ import {
   type ProjectContextBindingIssuerArtifact,
   type ProjectPropertyBindingArtifact,
   projectContextBindingSubjectDigest,
+  validateProjectContextBindingArtifact,
+  validateProjectContextBindingIssuerArtifact,
+  validateProjectPropertyBindingArtifact,
 } from "@miljobeslut/mps-lu";
 import type { ProjectContextBindingIndex } from "../../repositories/projectContextBindingRepository";
 
@@ -63,10 +66,23 @@ export async function verifyProjectContextBindingArtifactAuthority(args: {
   readonly artifactRepository: ArtifactRepositoryPort;
   readonly verification: VerificationKeyProvider;
 }): Promise<void> {
-  const issuer = await args.artifactRepository.resolve<ProjectContextBindingIssuerArtifact>(args.issuerRef);
-  if (issuer.artifact_type !== PROJECT_CONTEXT_BINDING_ISSUER_ARTIFACT_TYPE) {
-    throw new Error("REJECT_PROJECT_CONTEXT_BINDING_ISSUER_TYPE");
+  const issuer = validateProjectContextBindingIssuerArtifact(
+    await args.artifactRepository.resolve<ProjectContextBindingIssuerArtifact>(args.issuerRef),
+  );
+
+  // Recompute canonical identity/content_hash from the CURRENT payload before trusting anything
+  // about this artifact. Without this, a payload field the attestation predicate does not echo
+  // (e.g. geometry_ref, project_context_ref) could be tampered while content_hash stayed stale,
+  // and the signature check below -- which only compares against that (possibly stale)
+  // content_hash -- would still pass.
+  if (args.artifact.artifact_type === "project_context_binding") {
+    validateProjectContextBindingArtifact(args.artifact as ProjectContextBindingArtifact);
+  } else if (args.artifact.artifact_type === "project_property_binding") {
+    validateProjectPropertyBindingArtifact(args.artifact as ProjectPropertyBindingArtifact);
+  } else {
+    throw new Error("REJECT_PROJECT_CONTEXT_BINDING_ARTIFACT_TYPE");
   }
+
   if (issuer.payload.issuer_purpose !== PROJECT_CONTEXT_BINDING_ISSUER_PURPOSE) {
     throw new Error("REJECT_PROJECT_CONTEXT_BINDING_ISSUER_PURPOSE");
   }
@@ -104,7 +120,7 @@ export async function installVerifiedProductLuContext(args: {
   readonly geometryArtifact: { readonly artifact_id: string; readonly artifact_type: string; readonly content_hash: { readonly algorithm: "sha256"; readonly value: string }; readonly references: readonly unknown[]; readonly payload: unknown };
   readonly propertyObservation: { readonly artifact_id: string; readonly artifact_type: string; readonly content_hash: { readonly algorithm: "sha256"; readonly value: string }; readonly references: readonly unknown[]; readonly payload: { readonly geometry_ref: { readonly artifact_id: string; readonly artifact_type: string } } };
   readonly propertyBinding: ProjectPropertyBindingArtifact;
-  readonly propertyContext: { readonly artifact_id: string; readonly artifact_type: string; readonly content_hash: { readonly algorithm: "sha256"; readonly value: string }; readonly references: readonly unknown[]; readonly payload: { readonly project_property_binding_ref?: { readonly artifact_id: string; readonly artifact_type: string } } };
+  readonly propertyContext: { readonly artifact_id: string; readonly artifact_type: string; readonly content_hash: { readonly algorithm: "sha256"; readonly value: string }; readonly references: readonly { readonly artifact_id: string; readonly artifact_type: string }[]; readonly payload: { readonly project_property_binding_ref?: { readonly artifact_id: string; readonly artifact_type: string } } };
   readonly projectContext: { readonly artifact_id: string; readonly artifact_type: string; readonly content_hash: { readonly algorithm: "sha256"; readonly value: string }; readonly references: readonly unknown[]; readonly payload: { readonly project_id?: string; readonly project_property_binding_ref?: { readonly artifact_id: string; readonly artifact_type: string } } };
   readonly contextBinding: ProjectContextBindingArtifact;
 }): Promise<void> {
