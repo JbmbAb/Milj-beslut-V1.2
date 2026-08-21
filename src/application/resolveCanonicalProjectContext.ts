@@ -31,8 +31,11 @@ export interface CanonicalProjectGeometry {
 export interface CanonicalProjectContext {
   readonly projectContextRef: ArtifactReference;
   readonly propertyContextRef: ArtifactReference;
+  readonly contextBindingRef: ArtifactReference;
   readonly geometryRef: ArtifactReference;
   readonly propertyDesignation: string;
+  /** The canonical site identity -- ExecutionIdentity's site_id must come from here, never site.id. */
+  readonly propertyIdentity: string;
   readonly municipality: string;
   readonly coordinates: readonly [number, number];
   readonly geometry: CanonicalProjectGeometry;
@@ -99,8 +102,10 @@ export async function resolveCanonicalProjectContext(
   return {
     projectContextRef: { artifact_id: luProjectContext.artifact_id, artifact_type: luProjectContext.artifact_type },
     propertyContextRef: { artifact_id: luPropertyContext.artifact_id, artifact_type: luPropertyContext.artifact_type },
+    contextBindingRef: { artifact_id: binding.artifact_id, artifact_type: binding.artifact_type },
     geometryRef: propertyBinding.payload.geometry_ref,
     propertyDesignation: propertyBinding.payload.property_designation,
+    propertyIdentity: propertyBinding.payload.property_identity,
     municipality: luPropertyContext.payload.municipality,
     coordinates: luPropertyContext.payload.coordinates,
     geometry: geometryArtifact.payload.geometry,

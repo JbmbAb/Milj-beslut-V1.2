@@ -20,6 +20,8 @@ import {
   LU_SPATIAL_CAPABILITY_KEY,
   orchestrator,
   runLuAssessmentViaKernel,
+  deriveLuExecutionSeed,
+  createLuRegistryRuntime,
   type DocumentEvidenceArtifact,
 } from '@miljobeslut/mps-lu';
 import {
@@ -33,6 +35,7 @@ import {
   type LocalizationSpatialRuntime,
 } from '../../server/modules/localization/createLocalizationSpatialRuntime';
 import { resolveCanonicalProjectContext } from './resolveCanonicalProjectContext';
+import { resolveCurrentProductRelease } from './resolveCurrentProductRelease';
 
 export interface SiteAlternative {
   id: string;
@@ -556,6 +559,26 @@ async function analyzeSite(
     const projRef = canonicalContext.projectContextRef;
     const geomRef = canonicalContext.geometryRef;
 
+    // LU-PRODUCT-GOLDEN-PATH-01: site_id and deterministic_seed must be the same canonical
+    // values LU-EXECUTION-AUTHORITY-BOOTSTRAP-01 issued the ExecutionIdentity under -- never
+    // site.id (caller-controlled) or a string derived only from it. A project/property with no
+    // canonical execution identity issued for it fails closed at admission, exactly as intended;
+    // this usecase does not mint one itself (that stays an explicit owner-run step).
+    const currentRelease = await resolveCurrentProductRelease(repo);
+    const executionRegistry = createLuRegistryRuntime();
+    const canonicalSiteId = canonicalContext.propertyIdentity;
+    const canonicalDeterministicSeed = deriveLuExecutionSeed({
+      site_id: canonicalSiteId,
+      project_id: ctx.projectId,
+      project_context_ref: canonicalContext.projectContextRef,
+      property_context_ref: canonicalContext.propertyContextRef,
+      project_context_binding_ref: canonicalContext.contextBindingRef,
+      product_release_ref: currentRelease.releaseRef,
+      product_release_hash: currentRelease.releaseHash,
+      execution_contract_version: 'lu-execution-identity-v1',
+      rule_registry_snapshot_id: executionRegistry.getReleaseSnapshot().snapshot_id,
+    });
+
     try {
       // Canonical refs are the only governed rule input. The legacy provider remains a
       // presentation-only fallback when no governed evidence was selected for this assessment --
@@ -624,8 +647,8 @@ async function analyzeSite(
       ).values(),
     );
     const kernelResult = await runLuAssessmentViaKernel({
-      site_id: site.id,
-      deterministic_seed: `lu-seed-${site.id}`,
+      site_id: canonicalSiteId,
+      deterministic_seed: canonicalDeterministicSeed,
       evidence: mpsEvidence,
       document_evidence: governedDocumentEvidence,
       verified_document_facts: verifiedDocumentFacts,
