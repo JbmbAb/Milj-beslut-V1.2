@@ -36,6 +36,7 @@ import {
 } from '../../server/modules/localization/createLocalizationSpatialRuntime';
 import { resolveCanonicalProjectContext } from './resolveCanonicalProjectContext';
 import { resolveCurrentProductRelease } from './resolveCurrentProductRelease';
+import { registerAssessmentProjection } from '../../server/modules/localization/assessmentProjection';
 
 export interface SiteAlternative {
   id: string;
@@ -690,6 +691,25 @@ async function analyzeSite(
       );
 
       assessment_artifact_id = kernelResult.assessment?.artifact_id ?? null;
+
+      // P3-LU-ASSESSMENT-CURRENT-PROJECTION-01: registered here, not inside the generic kernel
+      // client -- this keeps product-specific persistence out of the generic governed execution
+      // chain. A durable, non-authoritative locator only; CAS remains the sole content authority,
+      // so a failure to register the projection must never retroactively invalidate a real,
+      // already-admitted assessment -- it only means discovery-by-project degrades until the next
+      // successful run, not that anything governed was lost.
+      if (kernelResult.assessment) {
+        try {
+          await registerAssessmentProjection({
+            projectId: ctx.projectId,
+            assessment: kernelResult.assessment,
+            contextBindingRef: canonicalContext.contextBindingRef,
+            releaseRef: currentRelease.releaseRef,
+          });
+        } catch (err) {
+          logger.warn('Failed to register assessment projection', { site: site.id, err: String(err) });
+        }
+      }
     } else {
       logger.warn('LU ExecutionKernel denied admission', {
         site: site.id,

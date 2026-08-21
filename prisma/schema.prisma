@@ -79,11 +79,12 @@ enum RequirementVerificationStatus {
 
 model User {
   id             String              @id @default(cuid())
-  organisationId String
+  organisationId String?
   bankidId       String              @unique
   role           UserRole
+  identityEnvironment String @default("LEGACY") @map("identity_environment")
   createdAt      DateTime            @default(now())
-  organisation   Organisation        @relation(fields: [organisationId], references: [id], onDelete: Restrict)
+  organisation   Organisation?       @relation(fields: [organisationId], references: [id], onDelete: Restrict)
   memberships    ProjectMember[]
   accessLogs     PropertyAccessLog[]
   searchQueries  SearchQueryLog[]
@@ -134,6 +135,7 @@ enum OrganizationRole {
 model Project {
   id                  String              @id @default(cuid())
   organisationId      String
+  name                String?
   propertyDesignation String
   status              ProjectStatus
   createdAt           DateTime            @default(now())
@@ -148,6 +150,7 @@ model Project {
   requirementCases    RequirementCase[]
   requirements        RequirementRecord[]
   projectContextBindings ProjectContextBinding[]
+  assessmentProjections ProjectAssessmentProjection[]
   planState           ProjectPlanState?
   complianceScore     Float?
   fundingRating       String?
@@ -195,6 +198,32 @@ model ProjectContextBindingSupersession {
   @@index([projectId, successorBindingArtifactId])
   @@map("project_context_binding_supersessions")
 }
+
+/// P3-LU-ASSESSMENT-CURRENT-PROJECTION-01. Append-only, non-authoritative locator: "which
+/// already-persisted LocalizationAssessmentArtifact is current for this project's current
+/// ProjectContextBinding." CAS remains the sole content authority -- this table only narrows
+/// candidates; every read must still resolve, re-verify, and cross-check the CAS artifact before
+/// treating a row as valid. `createdAt` is NEVER used to decide validity, only as the final
+/// deterministic tiebreaker among candidates that have already passed CAS re-verification and
+/// current-binding eligibility.
+model ProjectAssessmentProjection {
+  id                    String   @id
+  projectId             String   @map("project_id")
+  assessmentArtifactId  String   @map("assessment_artifact_id")
+  assessmentArtifactType String  @map("assessment_artifact_type")
+  projectContextRefId   String   @map("project_context_ref_id")
+  projectContextRefType String   @map("project_context_ref_type")
+  bindingArtifactId     String   @map("binding_artifact_id")
+  releaseArtifactId     String   @map("release_artifact_id")
+  createdAt             DateTime @default(now()) @map("created_at")
+  project               Project  @relation(fields: [projectId], references: [id], onDelete: Restrict)
+
+  @@unique([projectId, assessmentArtifactId])
+  @@index([projectId, bindingArtifactId])
+  @@index([projectId, createdAt])
+  @@map("project_assessment_projections")
+}
+
 model ProjectPlanState {
   id            String   @id @default(cuid())
   projectId     String   @unique
@@ -1240,6 +1269,7 @@ model BankIdSession {
   ipAddress     String
   status        String   @default("PENDING")
   bankidId      String?
+  identityEnvironment String @default("LEGACY") @map("identity_environment")
   signatureHash String?  @unique
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
