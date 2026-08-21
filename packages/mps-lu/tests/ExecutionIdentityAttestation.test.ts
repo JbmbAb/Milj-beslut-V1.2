@@ -7,6 +7,7 @@ import {
 } from "@miljobeslut/mimers-brunn-core";
 import {
   buildExecutionIdentityAttestationPredicate,
+  executionIdentityCanonicalBody,
   verifyExecutionIdentityAttestation,
   LU_EXECUTION_IDENTITY_ATTESTATION_PREDICATE_TYPE,
 } from "../src/execution/ExecutionIdentityAttestation.js";
@@ -31,21 +32,15 @@ const actorRef = { artifact_id: "lu.site_assessment.actor", artifact_type: "exec
 const capabilityRef = { artifact_id: "cap-lu-site-assessment", artifact_type: "CAPABILITY_DEFINITION" as const };
 
 function buildIdentity(): ExecutionIdentityArtifact {
-  return {
+  const unsigned: Omit<ExecutionIdentityArtifact, "content_hash"> = {
     artifact_id: "lu-identity-site-1",
     artifact_type: "execution_identity",
-    content_hash: sha256ContentHash({
-      principal_id: actorRef.artifact_id,
-      site_id: "site-1",
-      capability_id: capabilityRef.artifact_id,
-      release_snapshot_id: "release-1",
-      deterministic_seed: "seed:site-1",
-    }),
     references: [],
     actor_ref: actorRef,
     capability_ref: capabilityRef,
     signature_envelope_ref: { artifact_id: "attestation-lu-identity-site-1", artifact_type: "outcome_attestation" },
   };
+  return { ...unsigned, content_hash: sha256ContentHash(executionIdentityCanonicalBody(unsigned as ExecutionIdentityArtifact)) };
 }
 
 async function attestFor(
@@ -143,6 +138,22 @@ describe("verifyExecutionIdentityAttestation — PROD-LU-ADMISSION-02 trust boun
       authorityVerifier,
     });
     expect(result).toEqual({ verified: false, reason: "PREDICATE_MISMATCH" });
+  });
+
+  it("3d. authority-signed identity with a mutated envelope reference -> DENIED / CONTENT_HASH_MISMATCH", async () => {
+    const identity = buildIdentity();
+    const attestation = await attestFor(identity, authoritySigner);
+    const mutatedIdentity: ExecutionIdentityArtifact = {
+      ...identity,
+      signature_envelope_ref: { artifact_id: "attestation-substituted", artifact_type: "outcome_attestation" },
+    };
+    const result = await verifyExecutionIdentityAttestation({
+      identity: mutatedIdentity,
+      attestation,
+      expectedPredicate: expectedPredicateFor(mutatedIdentity),
+      authorityVerifier,
+    });
+    expect(result).toEqual({ verified: false, reason: "CONTENT_HASH_MISMATCH" });
   });
 
   it("4. untouched authority-issued identity -> VERIFIED", async () => {

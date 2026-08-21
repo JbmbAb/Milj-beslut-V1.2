@@ -1,5 +1,6 @@
 import type { ArtifactAttestation, VerificationKeyProvider } from '@miljobeslut/mimers-brunn-core';
 import { verifyArtifactAttestation } from '@miljobeslut/mimers-brunn-core';
+import { sha256ContentHash } from '../../../mps-runtime/src/kernel/ExecutionKernel.js';
 import type { ExecutionIdentityArtifact } from '../../../mps-runtime/src/execution/ExecutionIdentityArtifact.js';
 import type { ArtifactReference } from '../../../mps-compliance/src/artifacts/ArtifactReference.js';
 
@@ -27,6 +28,21 @@ export interface LuExecutionIdentityAttestationPredicate {
   readonly release_snapshot_id: string;
   readonly site_id: string;
   readonly deterministic_seed: string;
+}
+
+/**
+ * Canonical authority-bearing body for an execution identity. The attestation signs this hash,
+ * so consumers must recompute it before trusting either the declared hash or the predicate.
+ */
+export function executionIdentityCanonicalBody(identity: ExecutionIdentityArtifact): object {
+  return {
+    artifact_id: identity.artifact_id,
+    artifact_type: identity.artifact_type,
+    references: identity.references,
+    actor_ref: identity.actor_ref,
+    capability_ref: identity.capability_ref,
+    signature_envelope_ref: identity.signature_envelope_ref,
+  };
 }
 
 export function buildExecutionIdentityAttestationPredicate(input: {
@@ -100,6 +116,14 @@ export async function verifyExecutionIdentityAttestation(input: {
   readonly authorityVerifier: VerificationKeyProvider;
 }): Promise<ExecutionIdentityVerificationResult> {
   const { identity, attestation, expectedPredicate, authorityVerifier } = input;
+
+  const canonicalHash = sha256ContentHash(executionIdentityCanonicalBody(identity));
+  if (
+    identity.content_hash?.algorithm !== canonicalHash.algorithm ||
+    identity.content_hash?.value !== canonicalHash.value
+  ) {
+    return { verified: false, reason: 'CONTENT_HASH_MISMATCH' };
+  }
 
   if (!attestation) {
     return { verified: false, reason: 'MISSING_ATTESTATION' };

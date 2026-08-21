@@ -5,6 +5,7 @@ import type { ArtifactReference } from '../../../mps-compliance/src/artifacts/Ar
 import { getLuExecutionAuthoritySigningProvider } from '../../../../server/security/luExecutionAuthoritySigningKey.js';
 import {
   buildExecutionIdentityAttestationPredicate,
+  executionIdentityCanonicalBody,
   LU_EXECUTION_IDENTITY_ATTESTATION_PREDICATE_TYPE,
 } from './ExecutionIdentityAttestation.js';
 
@@ -24,27 +25,30 @@ export async function issueExecutionIdentity(input: {
   readonly actor_ref: ArtifactReference;
   readonly capability_ref: ArtifactReference;
   readonly release_snapshot_id: string;
+  /** Required when the V1 root/issuer chain is configured for a product runtime. */
+  readonly issuer_ref?: ArtifactReference;
+  readonly governed_references?: readonly ArtifactReference[];
   readonly artifact_repository: ArtifactRepositoryPort;
 }): Promise<ExecutionIdentityArtifact> {
   const signer = getLuExecutionAuthoritySigningProvider();
 
-  const identity: ExecutionIdentityArtifact = {
+  const unsignedIdentity: Omit<ExecutionIdentityArtifact, 'content_hash'> = {
     artifact_id: `lu-identity-${input.site_id}`,
     artifact_type: 'execution_identity',
-    content_hash: sha256ContentHash({
-      principal_id: input.actor_ref.artifact_id,
-      site_id: input.site_id,
-      capability_id: input.capability_ref.artifact_id,
-      release_snapshot_id: input.release_snapshot_id,
-      deterministic_seed: input.deterministic_seed,
-    }),
-    references: [],
+    references: [
+      ...(input.issuer_ref ? [input.issuer_ref] : []),
+      ...(input.governed_references ?? []),
+    ],
     actor_ref: input.actor_ref,
     capability_ref: input.capability_ref,
     signature_envelope_ref: {
       artifact_id: `lu-identity-attestation-${input.site_id}`,
       artifact_type: 'outcome_attestation',
     },
+  };
+  const identity: ExecutionIdentityArtifact = {
+    ...unsignedIdentity,
+    content_hash: sha256ContentHash(executionIdentityCanonicalBody(unsignedIdentity as ExecutionIdentityArtifact)),
   };
 
   const predicate = buildExecutionIdentityAttestationPredicate({

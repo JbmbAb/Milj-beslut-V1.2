@@ -39,6 +39,9 @@ import { CAP_26_I1 } from "../../../mps-compliance/src/validators/CAP_26_I1.js";
 import { buildExecutionIdentityAttestationPredicate } from "./ExecutionIdentityAttestation.js";
 import { preVerifyExecutionIdentityForAdmission } from "./LuAdmissionPreVerification.js";
 import { getLuExecutionAuthorityVerifier } from "./LuExecutionAuthorityVerifier.js";
+import { getLuExecutionAuthorityRootVerifier } from "./LuExecutionAuthorityVerifier.js";
+import { LU_EXECUTION_AUTHORITY_ISSUER_TYPE } from "../artifacts/LuExecutionAuthorityArtifact.js";
+import { verifyLuExecutionAuthorityChain } from "./LuExecutionAuthorityChain.js";
 
 /** LU reference principal — domain composition root identity binding. */
 export const LU_EXECUTION_PRINCIPAL_ID = "lu.site_assessment.actor" as const;
@@ -216,6 +219,28 @@ export async function runLuAssessmentViaKernel(
       resolvedIdentity = await repo.resolve<ExecutionIdentityArtifact>(executionIdentityRef);
     } catch {
       resolvedIdentity = null;
+    }
+
+    const rootAuthorityConfigured = Boolean(
+      process.env.LU_EXECUTION_AUTHORITY_ROOT_KEY_ID &&
+      process.env.LU_EXECUTION_AUTHORITY_ROOT_PUBLIC_KEY_PEM,
+    );
+    if (resolvedIdentity && rootAuthorityConfigured) {
+      const issuerRef = resolvedIdentity.references.find((reference) => reference.artifact_type === LU_EXECUTION_AUTHORITY_ISSUER_TYPE);
+      if (!issuerRef) {
+        resolvedIdentity = null;
+      } else {
+        try {
+          await verifyLuExecutionAuthorityChain({
+            issuerRef,
+            repository: repo,
+            rootVerification: getLuExecutionAuthorityRootVerifier(),
+            issuerVerification: getLuExecutionAuthorityVerifier(),
+          });
+        } catch {
+          resolvedIdentity = null;
+        }
+      }
     }
 
     if (resolvedIdentity) {
