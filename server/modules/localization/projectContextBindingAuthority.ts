@@ -146,6 +146,8 @@ export async function installVerifiedProductLuContext(args: {
   readonly geometryArtifact: { readonly artifact_id: string; readonly artifact_type: string; readonly content_hash: { readonly algorithm: "sha256"; readonly value: string }; readonly references: readonly unknown[]; readonly payload: unknown };
   readonly propertyObservation: { readonly artifact_id: string; readonly artifact_type: string; readonly content_hash: { readonly algorithm: "sha256"; readonly value: string }; readonly references: readonly unknown[]; readonly payload: { readonly geometry_ref: { readonly artifact_id: string; readonly artifact_type: string } } };
   readonly propertyBinding: ProjectPropertyBindingArtifact;
+  /** A reused immutable property binding may legitimately retain a V1 attestation. */
+  readonly propertyBindingIssuerRef?: { readonly artifact_id: string; readonly artifact_type: string };
   readonly propertyContext: { readonly artifact_id: string; readonly artifact_type: string; readonly content_hash: { readonly algorithm: "sha256"; readonly value: string }; readonly references: readonly { readonly artifact_id: string; readonly artifact_type: string }[]; readonly payload: { readonly project_property_binding_ref?: { readonly artifact_id: string; readonly artifact_type: string } } };
   readonly projectContext: { readonly artifact_id: string; readonly artifact_type: string; readonly content_hash: { readonly algorithm: "sha256"; readonly value: string }; readonly references: readonly unknown[]; readonly payload: { readonly project_id?: string; readonly project_property_binding_ref?: { readonly artifact_id: string; readonly artifact_type: string } } };
   readonly contextBinding: ProjectContextBindingArtifact;
@@ -192,9 +194,18 @@ export async function installVerifiedProductLuContext(args: {
     content_hash: args.propertyObservation.content_hash,
     body: args.propertyObservation,
   });
+  const propertyBindingIssuerRef = args.propertyBindingIssuerRef ?? issuerRef;
+  if (args.propertyBindingIssuerRef) {
+    const propertyBindingIssuer = validateProjectContextBindingIssuerArtifact(
+      await args.artifactRepository.resolve<ProjectContextBindingIssuerArtifact>(propertyBindingIssuerRef),
+    );
+    if (propertyBindingIssuer.payload.issuer_version !== "project-context-binding-issuer-v1") {
+      throw new Error("REJECT_PROJECT_CONTEXT_BINDING_PROPERTY_BINDING_ISSUER_VERSION");
+    }
+  }
   await verifyProjectContextBindingArtifactAuthority({
     artifact: args.propertyBinding,
-    issuerRef,
+    issuerRef: propertyBindingIssuerRef,
     artifactRepository: args.artifactRepository,
     verification: args.verification,
   });
