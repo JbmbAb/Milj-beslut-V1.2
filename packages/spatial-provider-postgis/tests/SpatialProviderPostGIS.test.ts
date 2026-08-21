@@ -97,5 +97,40 @@ describe("SpatialProviderPostGIS Integration", () => {
       expect(waterEvidence.payload.source_metadata.provider).toBeDefined();
     }
   });
-});
 
+  it("persists a truthful negative existence observation instead of dropping it", async () => {
+    const propertyContext: LUPropertyContextArtifact = {
+      artifact_id: "prop_no_spatial_hit",
+      artifact_type: "LU_PROPERTY_CONTEXT",
+      content_hash: { algorithm: "sha256", value: "hash_prop_no_hit" },
+      references: [],
+      payload: {
+        property_ref: "TEST NO HIT 1:1",
+        official_name: "Test no hit",
+        geometry_ref: { artifact_id: "geom_no_hit", artifact_type: "CANONICAL_GEOMETRY" },
+        municipality: "Test",
+        coordinates: [0, 0],
+      },
+    };
+    await repo.put({
+      artifact_id: propertyContext.artifact_id,
+      content_hash: propertyContext.content_hash,
+      body: propertyContext,
+    });
+
+    const evidence = await provider.query({
+      property_ref: {
+        artifact_id: propertyContext.artifact_id,
+        artifact_type: propertyContext.artifact_type,
+      },
+      layers: [{ name: "water", version_hash: "v1.0" }],
+    });
+
+    expect(evidence).toHaveLength(1);
+    expect(evidence[0].payload.result_semantics.result).toMatchObject({
+      exists: false,
+      match_count_observed: 0,
+    });
+    expect(evidence[0].payload.geometry).toBeNull();
+  });
+});

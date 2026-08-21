@@ -121,26 +121,28 @@ export class SpatialProviderPostGIS implements ISpatialProvider {
         budget.max_features_per_layer,
       ]);
 
-      if (res.rowCount && res.rowCount > 0) {
-        if (res.rowCount > budget.max_features_per_layer) {
-          throw new Error(
-            `REJECT_SPATIAL_BUDGET: layer ${layer.name} exceeded max_features_per_layer`,
-          );
-        }
-        evidence.push(
-          await this.createEvidence({
-            propertyRef: request.property_ref,
-            layerName: layer.name,
-            layerVersion: layer.version_hash,
-            layerVersionHash: binding.version_hash,
-            provider: binding.provider,
-            bufferDistance,
-            found: true,
-            matchCountObserved: res.rowCount,
-            maxFeaturesPerLayer: budget.max_features_per_layer,
-          }),
+      const matchCountObserved = res.rowCount ?? 0;
+      if (matchCountObserved > budget.max_features_per_layer) {
+        throw new Error(
+          `REJECT_SPATIAL_BUDGET: layer ${layer.name} exceeded max_features_per_layer`,
         );
       }
+
+      // An executed negative existence query is evidence too. Omitting it would make replay
+      // unable to distinguish "no query ran" from "the governed query found nothing".
+      evidence.push(
+        await this.createEvidence({
+          propertyRef: request.property_ref,
+          layerName: layer.name,
+          layerVersion: layer.version_hash,
+          layerVersionHash: binding.version_hash,
+          provider: binding.provider,
+          bufferDistance,
+          found: matchCountObserved > 0,
+          matchCountObserved,
+          maxFeaturesPerLayer: budget.max_features_per_layer,
+        }),
+      );
     }
 
     return evidence;
