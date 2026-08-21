@@ -22,4 +22,7 @@ export {
   ProjectContextBindingProvider,
   authorizeAssessmentPresentation,
 } from './projectContextBindingRuntime';
-export { installOwnerIssuedProjectContextBinding } from './installProjectContextBinding';
+export {
+  installOwnerIssuedProjectContextBinding,
+  installOwnerIssuedProjectContextBindingSupersession,
+} from './installProjectContextBinding';

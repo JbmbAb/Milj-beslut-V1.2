@@ -13,6 +13,8 @@ export * from "./artifacts/SpatialEngineFingerprint";
 export * from "./artifacts/LUProjectContextArtifact";
 export * from "./artifacts/LUPropertyContextArtifact";
 export * from "./artifacts/ProjectContextBindingArtifact";
+export * from "./artifacts/ProjectContextBindingSupersessionArtifact";
+export * from "./artifacts/ProjectContextBindingSupersessionGraph";
 export * from "./artifacts/ProjectPropertyBindingArtifact";
 export * from "./artifacts/ProjectContextBindingIssuerArtifact";
 export * from "./artifacts/LuExecutionAuthorityArtifact";

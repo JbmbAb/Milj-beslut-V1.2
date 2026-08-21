@@ -141,6 +141,7 @@ model Project {
   retentionUntil      DateTime?
   organisation        Organisation        @relation(fields: [organisationId], references: [id], onDelete: Restrict)
   members             ProjectMember[]
+  projectContextBindingSupersessions ProjectContextBindingSupersession[]
   accessLogs          PropertyAccessLog[]
   documents           DocumentRecord[]
   searchQueries       SearchQueryLog[]
@@ -175,6 +176,25 @@ model ProjectContextBinding {
   @@map("project_context_bindings")
 }
 
+/// Append-only projection of signed CAS supersession relations. It is rebuildable lookup state;
+/// runtime derives the authoritative head only from reverified CAS artifacts and this graph.
+model ProjectContextBindingSupersession {
+  id                           String   @id
+  projectId                    String   @map("project_id")
+  supersessionArtifactId       String   @unique @map("supersession_artifact_id")
+  supersededBindingArtifactId  String   @map("superseded_binding_artifact_id")
+  successorBindingArtifactId   String   @map("successor_binding_artifact_id")
+  reasonCode                   String   @map("reason_code")
+  issuerArtifactId             String   @map("issuer_artifact_id")
+  issuerKeyId                  String   @map("issuer_key_id")
+  createdAt                    DateTime @default(now()) @map("created_at")
+  project                      Project  @relation(fields: [projectId], references: [id], onDelete: Restrict)
+
+  @@index([projectId])
+  @@index([projectId, supersededBindingArtifactId])
+  @@index([projectId, successorBindingArtifactId])
+  @@map("project_context_binding_supersessions")
+}
 model ProjectPlanState {
   id            String   @id @default(cuid())
   projectId     String   @unique

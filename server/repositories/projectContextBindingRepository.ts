@@ -1,12 +1,16 @@
 import { Prisma, prisma } from "../db/prisma";
 import type {
   ProjectContextBindingArtifact,
+  ProjectContextBindingSupersessionArtifact,
 } from "@miljobeslut/mps-lu";
 import type { ArtifactReference } from "@miljobeslut/mps-compliance/src/artifacts/ArtifactReference";
 
 export interface ProjectContextBindingIndex {
   register(binding: ProjectContextBindingArtifact): Promise<void>;
+  registerSupersession?(supersession: ProjectContextBindingSupersessionArtifact): Promise<void>;
   resolve(projectId: string, projectContextRef: ArtifactReference): Promise<string>;
+  listBindingRefs?(projectId: string): Promise<readonly ArtifactReference[]>;
+  listSupersessionRefs?(projectId: string): Promise<readonly ArtifactReference[]>;
   /**
    * Looks up the (unique) project_context_ref bound to a project, without the caller needing to
    * already know it. Fails closed (throws) if zero or more than one binding exists for the
@@ -16,6 +20,7 @@ export interface ProjectContextBindingIndex {
 }
 
 type BindingRow = { binding_artifact_id: string };
+type ArtifactRow = { artifact_id: string };
 
 /**
  * Append-only access projection. It is only an efficient lookup; callers must always resolve
@@ -54,6 +59,35 @@ export class PrismaProjectContextBindingIndex implements ProjectContextBindingIn
       throw new Error("REJECT_PROJECT_CONTEXT_BINDING_UNAVAILABLE");
     }
     return rows[0]!.binding_artifact_id;
+  }
+
+  async registerSupersession(supersession: ProjectContextBindingSupersessionArtifact): Promise<void> {
+    await prisma.$executeRaw(Prisma.sql`
+      INSERT INTO "project_context_binding_supersessions" (
+        "id", "project_id", "supersession_artifact_id", "superseded_binding_artifact_id",
+        "successor_binding_artifact_id", "reason_code", "issuer_artifact_id", "issuer_key_id"
+      ) VALUES (
+        ${supersession.artifact_id}, ${supersession.payload.project_id}, ${supersession.artifact_id},
+        ${supersession.payload.superseded_binding_ref.artifact_id}, ${supersession.payload.successor_binding_ref.artifact_id},
+        ${supersession.payload.reason_code}, ${supersession.payload.issuer_ref.artifact_id}, ${supersession.payload.issuer_key_id}
+      ) ON CONFLICT ("supersession_artifact_id") DO NOTHING
+    `);
+  }
+
+  async listBindingRefs(projectId: string): Promise<readonly ArtifactReference[]> {
+    const rows = await prisma.$queryRaw<ArtifactRow[]>(Prisma.sql`
+      SELECT "binding_artifact_id" AS "artifact_id"
+      FROM "project_context_bindings" WHERE "project_id" = ${projectId}
+    `);
+    return rows.map((row) => ({ artifact_id: row.artifact_id, artifact_type: "project_context_binding" }));
+  }
+
+  async listSupersessionRefs(projectId: string): Promise<readonly ArtifactReference[]> {
+    const rows = await prisma.$queryRaw<ArtifactRow[]>(Prisma.sql`
+      SELECT "supersession_artifact_id" AS "artifact_id"
+      FROM "project_context_binding_supersessions" WHERE "project_id" = ${projectId}
+    `);
+    return rows.map((row) => ({ artifact_id: row.artifact_id, artifact_type: "project_context_binding_supersession" }));
   }
 
   async findProjectContextRef(projectId: string): Promise<ArtifactReference> {

@@ -11,18 +11,21 @@ import {
   PROJECT_CONTEXT_BINDING_ISSUER_PURPOSE,
   type ProjectContextBindingArtifact,
   type ProjectContextBindingIssuerArtifact,
+  type ProjectContextBindingSupersessionArtifact,
   type ProjectPropertyBindingArtifact,
   projectContextBindingSubjectDigest,
   validateProjectContextBindingArtifact,
   validateProjectContextBindingIssuerArtifact,
+  validateProjectContextBindingSupersessionArtifact,
   validateProjectPropertyBindingArtifact,
 } from "@miljobeslut/mps-lu";
 import type { ProjectContextBindingIndex } from "../../repositories/projectContextBindingRepository";
 
 const PREDICATE_TYPE = "project-context-binding-authority-v1" as const;
-const ACTION = "ISSUE_PROJECT_CONTEXT_BINDING" as const;
+const BINDING_ACTION = "ISSUE_PROJECT_CONTEXT_BINDING" as const;
+const SUPERSESSION_ACTION = "ISSUE_PROJECT_CONTEXT_BINDING_SUPERSESSION" as const;
 
-type AttestableArtifact = ProjectPropertyBindingArtifact | ProjectContextBindingArtifact;
+type AttestableArtifact = ProjectPropertyBindingArtifact | ProjectContextBindingArtifact | ProjectContextBindingSupersessionArtifact;
 
 function subjectDigest(artifact: AttestableArtifact): string {
   return artifact.artifact_type === "project_context_binding"
@@ -32,7 +35,7 @@ function subjectDigest(artifact: AttestableArtifact): string {
 
 function predicate(issuer: ProjectContextBindingIssuerArtifact, artifact: AttestableArtifact): Record<string, unknown> {
   return {
-    action: ACTION,
+    action: artifact.artifact_type === "project_context_binding_supersession" ? SUPERSESSION_ACTION : BINDING_ACTION,
     issuer_purpose: PROJECT_CONTEXT_BINDING_ISSUER_PURPOSE,
     issuer_version: issuer.payload.issuer_version,
     artifact_type: artifact.artifact_type,
@@ -46,7 +49,7 @@ export async function attestProjectContextBindingArtifact(args: {
   readonly issuer: ProjectContextBindingIssuerArtifact;
   readonly signing: SigningKeyProvider;
 }): Promise<ArtifactAttestation> {
-  if (!args.issuer.payload.allowed_artifact_types.includes(args.artifact.artifact_type)) {
+  if (!(args.issuer.payload.allowed_artifact_types as readonly string[]).includes(args.artifact.artifact_type)) {
     throw new Error("REJECT_PROJECT_CONTEXT_BINDING_ISSUER_SCOPE");
   }
   if (args.signing.keyId !== args.issuer.payload.issuer_key_id) {
@@ -58,6 +61,14 @@ export async function attestProjectContextBindingArtifact(args: {
     predicate: predicate(args.issuer, args.artifact),
     signing: args.signing,
   });
+}
+
+export async function attestProjectContextBindingSupersessionArtifact(args: {
+  readonly artifact: ProjectContextBindingSupersessionArtifact;
+  readonly issuer: ProjectContextBindingIssuerArtifact;
+  readonly signing: SigningKeyProvider;
+}): Promise<ArtifactAttestation> {
+  return attestProjectContextBindingArtifact(args);
 }
 
 export async function verifyProjectContextBindingArtifactAuthority(args: {
@@ -79,6 +90,8 @@ export async function verifyProjectContextBindingArtifactAuthority(args: {
     validateProjectContextBindingArtifact(args.artifact as ProjectContextBindingArtifact);
   } else if (args.artifact.artifact_type === "project_property_binding") {
     validateProjectPropertyBindingArtifact(args.artifact as ProjectPropertyBindingArtifact);
+  } else if (args.artifact.artifact_type === "project_context_binding_supersession") {
+    validateProjectContextBindingSupersessionArtifact(args.artifact as ProjectContextBindingSupersessionArtifact);
   } else {
     throw new Error("REJECT_PROJECT_CONTEXT_BINDING_ARTIFACT_TYPE");
   }
@@ -89,7 +102,7 @@ export async function verifyProjectContextBindingArtifactAuthority(args: {
   if (issuer.payload.issuer_key_id !== args.verification.keyId) {
     throw new Error("REJECT_PROJECT_CONTEXT_BINDING_ISSUER_TRUST");
   }
-  if (!issuer.payload.allowed_artifact_types.includes(args.artifact.artifact_type)) {
+  if (!(issuer.payload.allowed_artifact_types as readonly string[]).includes(args.artifact.artifact_type)) {
     throw new Error("REJECT_PROJECT_CONTEXT_BINDING_ISSUER_SCOPE");
   }
   const attestation = args.artifact.attestation;
@@ -106,6 +119,19 @@ export async function verifyProjectContextBindingArtifactAuthority(args: {
   if (!(await verifyArtifactAttestation(attestation, args.verification))) {
     throw new Error("REJECT_PROJECT_CONTEXT_BINDING_ATTESTATION_SIGNATURE");
   }
+}
+
+export async function verifyProjectContextBindingSupersessionAuthority(args: {
+  readonly artifact: ProjectContextBindingSupersessionArtifact;
+  readonly artifactRepository: ArtifactRepositoryPort;
+  readonly verification: VerificationKeyProvider;
+}): Promise<void> {
+  await verifyProjectContextBindingArtifactAuthority({
+    artifact: args.artifact,
+    issuerRef: args.artifact.payload.issuer_ref,
+    artifactRepository: args.artifactRepository,
+    verification: args.verification,
+  });
 }
 
 /**
