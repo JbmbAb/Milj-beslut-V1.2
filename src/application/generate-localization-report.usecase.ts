@@ -88,6 +88,15 @@ export interface ExecutionMotorMeta {
   finding_ids: string[];
   /** CAS LocalizationAssessmentArtifact id. Null iff assessment_status !== 'ASSESSED'. */
   assessment_artifact_id: string | null;
+  /**
+   * P3-LU-ASSESSMENT-PROJECTION-RELIABILITY-01. `null` iff assessment_artifact_id is null (no
+   * assessment produced, so registration was never attempted). Otherwise: `true` if the durable,
+   * non-authoritative discovery projection was registered; `false` if it failed -- the CAS
+   * assessment above is STILL valid and authoritative either way. `false` means only that this
+   * project's current assessment cannot yet be discovered by project without an explicit
+   * reconciliation pass (see assessmentProjection.ts's reconcileAssessmentProjection).
+   */
+  assessment_projection_registered: boolean | null;
   property_context_id: string | null;
   assessment_status: LuAssessmentStatus;
 }
@@ -682,6 +691,15 @@ async function analyzeSite(
 
     let ticket_id: string | null = null;
     let assessment_artifact_id: string | null = null;
+    // P3-LU-ASSESSMENT-PROJECTION-RELIABILITY-01: null means "no assessment was produced, so
+    // registration was never attempted" -- distinct from `false`, which means an assessment WAS
+    // persisted to CAS (the canonical, authoritative fact) but the non-authoritative projection
+    // write failed. That distinction must reach the caller, not just a server log line: CAS
+    // success and projection-DB success are two different systems that can fail independently,
+    // and a caller/operator needs to be able to tell "assessment invalid" apart from "assessment
+    // valid, but not yet discoverable by project until reconciled" (see
+    // server/modules/localization/assessmentProjection.ts's reconcileAssessmentProjection).
+    let assessment_projection_registered: boolean | null = null;
     if (kernelResult.admitted) {
       ticket_id = await enqueueAdmittedLuTicket(kernelResult.manifest_id);
       mpsFindings = [...kernelResult.findings];
@@ -692,12 +710,12 @@ async function analyzeSite(
 
       assessment_artifact_id = kernelResult.assessment?.artifact_id ?? null;
 
-      // P3-LU-ASSESSMENT-CURRENT-PROJECTION-01: registered here, not inside the generic kernel
-      // client -- this keeps product-specific persistence out of the generic governed execution
-      // chain. A durable, non-authoritative locator only; CAS remains the sole content authority,
-      // so a failure to register the projection must never retroactively invalidate a real,
-      // already-admitted assessment -- it only means discovery-by-project degrades until the next
-      // successful run, not that anything governed was lost.
+      // Registered here, not inside the generic kernel client -- this keeps product-specific
+      // persistence out of the generic governed execution chain. A failure here must never
+      // retroactively invalidate a real, already-admitted, already CAS-persisted assessment --
+      // the assessment stays valid either way. The failure is instead surfaced on the returned
+      // report (assessment_projection_registered: false) and logged, so it is observable and
+      // reconcilable rather than silently lost.
       if (kernelResult.assessment) {
         try {
           await registerAssessmentProjection({
@@ -706,8 +724,10 @@ async function analyzeSite(
             contextBindingRef: canonicalContext.contextBindingRef,
             releaseRef: currentRelease.releaseRef,
           });
+          assessment_projection_registered = true;
         } catch (err) {
-          logger.warn('Failed to register assessment projection', { site: site.id, err: String(err) });
+          assessment_projection_registered = false;
+          logger.warn('Failed to register assessment projection -- assessment remains CAS-valid; reconcile separately', { site: site.id, err: String(err) });
         }
       }
     } else {
@@ -727,6 +747,7 @@ async function analyzeSite(
       ticket_id,
       finding_ids: [...kernelResult.finding_ids],
       assessment_artifact_id,
+      assessment_projection_registered,
       property_context_id: propRef.artifact_id,
       // Admission alone is not a verdict. The artifact is. An admitted run that produced no
       // LocalizationAssessmentArtifact is NOT_ASSESSED, not assessed-with-no-findings.
@@ -785,6 +806,7 @@ async function analyzeSite(
       ticket_id: null,
       finding_ids: [],
       assessment_artifact_id: null,
+      assessment_projection_registered: null,
       property_context_id: null,
       assessment_status: 'EXECUTION_FAILED',
     };
@@ -819,6 +841,7 @@ async function analyzeSite(
       ticket_id: null,
       finding_ids: [],
       assessment_artifact_id: null,
+      assessment_projection_registered: null,
       property_context_id: null,
       assessment_status: 'NOT_ASSESSED',
     },

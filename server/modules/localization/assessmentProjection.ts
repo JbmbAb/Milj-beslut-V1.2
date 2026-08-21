@@ -138,3 +138,78 @@ export async function resolveCurrentAssessmentProjection(args: {
 
   throw new Error("REJECT_ASSESSMENT_PROJECTION_NOT_FOUND: no candidate for the current binding survived CAS re-verification");
 }
+
+export type AssessmentProjectionReconciliationResult =
+  | { readonly reconciled: true }
+  | { readonly reconciled: false; readonly reason: "MISSING_CAS_ARTIFACT" | "TAMPERED_CAS_ARTIFACT" | "WRONG_TYPE" | "NOT_CURRENT" };
+
+/**
+ * P3-LU-ASSESSMENT-PROJECTION-RELIABILITY-01.
+ *
+ * Deterministic, idempotent recovery for a known write-path failure
+ * (assessment_projection_registered === false on a real report response, or an operator
+ * rebuilding the whole projection from CAS + known assessment refs). Never resolves the current
+ * canonical context itself -- that would create a dependency from server/modules/localization
+ * (this file) back onto src/application (resolveCanonicalProjectContext.ts / resolveCurrentProductRelease.ts),
+ * which already depend on server/modules/localization the other way. The caller resolves "what is
+ * current right now" first (the same way the original write path did) and passes it in here.
+ *
+ * Refuses to reconcile (returns `NOT_CURRENT`, never throws for this case) when the assessment's
+ * own `project_context_ref` does not match the caller-supplied current canonical context -- this
+ * is what makes "wrong project/binding cannot be repaired into current state" true: an assessment
+ * genuinely computed under a since-superseded context stays historical, never silently promoted.
+ *
+ * Does NOT catch a projection-store failure (e.g. `index.register` throwing because the
+ * projection DB is unavailable) -- that propagates to the caller so it is observable, not
+ * logger-only.
+ */
+export async function reconcileAssessmentProjection(args: {
+  readonly projectId: string;
+  readonly assessmentArtifactId: string;
+  readonly artifactRepository: ArtifactRepositoryPort;
+  readonly currentProjectContextRef: ArtifactReference;
+  readonly currentBindingRef: ArtifactReference;
+  readonly currentReleaseRef: ArtifactReference;
+  readonly index?: ProjectAssessmentProjectionIndex;
+}): Promise<AssessmentProjectionReconciliationResult> {
+  let assessment: LocalizationAssessmentArtifact;
+  try {
+    assessment = await args.artifactRepository.resolve<LocalizationAssessmentArtifact>({
+      artifact_id: args.assessmentArtifactId,
+      artifact_type: "LOCALIZATION_ASSESSMENT",
+    });
+  } catch {
+    return { reconciled: false, reason: "MISSING_CAS_ARTIFACT" };
+  }
+
+  if (assessment.artifact_type !== "LOCALIZATION_ASSESSMENT") {
+    return { reconciled: false, reason: "WRONG_TYPE" };
+  }
+
+  const recomputed = sha256ContentHash(localizationAssessmentCanonicalBody(assessment));
+  const untampered =
+    sameHash(assessment.content_hash, recomputed) &&
+    assessment.artifact_id === `assessment-${recomputed.value}`;
+  if (!untampered) {
+    return { reconciled: false, reason: "TAMPERED_CAS_ARTIFACT" };
+  }
+
+  if (!sameRef(assessment.payload.project_context_ref, args.currentProjectContextRef)) {
+    // Genuinely valid, CAS-verified evidence -- just not for the CURRENT canonical state anymore
+    // (the project's binding moved on since this assessment was computed). Historical, not current.
+    return { reconciled: false, reason: "NOT_CURRENT" };
+  }
+
+  const index = args.index ?? new PrismaProjectAssessmentProjectionIndex();
+  // Propagates on failure -- a caller (ops reconciliation run) must see this, not have it
+  // swallowed a second time.
+  await index.register({
+    projectId: args.projectId,
+    assessmentArtifactId: assessment.artifact_id,
+    assessmentArtifactType: assessment.artifact_type,
+    projectContextRef: assessment.payload.project_context_ref,
+    bindingArtifactId: args.currentBindingRef.artifact_id,
+    releaseArtifactId: args.currentReleaseRef.artifact_id,
+  });
+  return { reconciled: true };
+}

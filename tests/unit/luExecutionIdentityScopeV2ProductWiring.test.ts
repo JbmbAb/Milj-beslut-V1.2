@@ -334,6 +334,15 @@ describe('PRODUCT-LU-EXECUTION-IDENTITY-V2-WIRING-01 — real runtime proof thro
       siteAlternatives: [{ id: 'alt-1', lat: 59.33, lng: 18.07 }],
     });
     expect(report.siteAnalyses[0].executionMotor?.admitted).toBe(true);
+
+    // P3-LU-ASSESSMENT-PROJECTION-RELIABILITY-01: this test's projectId has no real Postgres
+    // Project row, so registerAssessmentProjection's real DB write genuinely fails (FK
+    // violation) here -- proving, through the real usecase (not a mock), that a projection
+    // failure (a) does NOT invalidate the already CAS-persisted, already-admitted assessment,
+    // and (b) is surfaced on the returned report as an explicit false, not swallowed into a
+    // log line only.
+    expect(report.siteAnalyses[0].executionMotor?.assessment_artifact_id).toBeTruthy();
+    expect(report.siteAnalyses[0].executionMotor?.assessment_projection_registered).toBe(false);
   });
 
   it('same exact product state replayed twice -> deterministic acceptance both times', async () => {

@@ -21,7 +21,7 @@ import {
 } from '../../server/modules/localization/projectContextBindingAuthority';
 import type { ProjectContextBindingIndex } from '../../server/repositories/projectContextBindingRepository';
 import type { ProjectAssessmentProjectionIndex, ProjectAssessmentProjectionRow } from '../../server/repositories/projectAssessmentProjectionRepository';
-import { registerAssessmentProjection, resolveCurrentAssessmentProjection } from '../../server/modules/localization/assessmentProjection';
+import { registerAssessmentProjection, resolveCurrentAssessmentProjection, reconcileAssessmentProjection } from '../../server/modules/localization/assessmentProjection';
 
 class MemoryRepository {
   readonly values = new Map<string, unknown>();
@@ -321,5 +321,127 @@ describe('P3-LU-ASSESSMENT-CURRENT-PROJECTION-01', () => {
     const first = await resolveCurrentAssessmentProjection({ projectId: PROJECT_ID, artifactRepository: s.repository, currentBindingProvider: s.currentBindingProvider(), index });
     const second = await resolveCurrentAssessmentProjection({ projectId: PROJECT_ID, artifactRepository: s.repository, currentBindingProvider: s.currentBindingProvider(), index: rebuilt });
     expect(second.assessmentArtifactId).toBe(first.assessmentArtifactId);
+  });
+
+  describe('P3-LU-ASSESSMENT-PROJECTION-RELIABILITY-01: reconcileAssessmentProjection', () => {
+    it('assessment matches current context -> reconciled, row registered', async () => {
+      const s = await setup();
+      const assessment = await s.buildAndPersistAssessment(contextNew);
+      const index = new FakeAssessmentProjectionIndex();
+
+      const result = await reconcileAssessmentProjection({
+        projectId: PROJECT_ID,
+        assessmentArtifactId: assessment.artifact_id,
+        artifactRepository: s.repository,
+        currentProjectContextRef: contextNew,
+        currentBindingRef: s.newBindingRef,
+        currentReleaseRef: RELEASE_REF,
+        index,
+      });
+      expect(result).toEqual({ reconciled: true });
+      const rows = await index.listForProject(PROJECT_ID);
+      expect(rows).toHaveLength(1);
+      expect(rows[0]!.assessmentArtifactId).toBe(assessment.artifact_id);
+    });
+
+    it('retry is idempotent -> no duplicate semantic row', async () => {
+      const s = await setup();
+      const assessment = await s.buildAndPersistAssessment(contextNew);
+      const index = new FakeAssessmentProjectionIndex();
+      const args = {
+        projectId: PROJECT_ID,
+        assessmentArtifactId: assessment.artifact_id,
+        artifactRepository: s.repository,
+        currentProjectContextRef: contextNew,
+        currentBindingRef: s.newBindingRef,
+        currentReleaseRef: RELEASE_REF,
+        index,
+      };
+      await reconcileAssessmentProjection(args);
+      await reconcileAssessmentProjection(args);
+      const rows = await index.listForProject(PROJECT_ID);
+      expect(rows).toHaveLength(1);
+    });
+
+    it('assessment bound to a superseded context -> NOT_CURRENT, cannot be repaired into current state', async () => {
+      const s = await setup();
+      const oldBindingRef = await s.provisionOldBindingAndSupersede();
+      const oldAssessment = await s.buildAndPersistAssessment(contextOld);
+      const index = new FakeAssessmentProjectionIndex();
+
+      const result = await reconcileAssessmentProjection({
+        projectId: PROJECT_ID,
+        assessmentArtifactId: oldAssessment.artifact_id,
+        artifactRepository: s.repository,
+        // The caller supplies what is CURRENT right now -- contextNew/newBindingRef, since the
+        // binding has already been superseded. The stale assessment can never be reconciled into
+        // that current state.
+        currentProjectContextRef: contextNew,
+        currentBindingRef: s.newBindingRef,
+        currentReleaseRef: RELEASE_REF,
+        index,
+      });
+      expect(result).toEqual({ reconciled: false, reason: 'NOT_CURRENT' });
+      expect(oldBindingRef.artifact_id).toBeTruthy(); // sanity: the old binding really was provisioned
+      const rows = await index.listForProject(PROJECT_ID);
+      expect(rows).toHaveLength(0);
+    });
+
+    it('missing CAS artifact -> MISSING_CAS_ARTIFACT, never projected as valid', async () => {
+      const s = await setup();
+      const index = new FakeAssessmentProjectionIndex();
+      const result = await reconcileAssessmentProjection({
+        projectId: PROJECT_ID,
+        assessmentArtifactId: 'assessment-never-persisted',
+        artifactRepository: s.repository,
+        currentProjectContextRef: contextNew,
+        currentBindingRef: s.newBindingRef,
+        currentReleaseRef: RELEASE_REF,
+        index,
+      });
+      expect(result).toEqual({ reconciled: false, reason: 'MISSING_CAS_ARTIFACT' });
+    });
+
+    it('tampered CAS artifact -> TAMPERED_CAS_ARTIFACT, never projected as valid', async () => {
+      const s = await setup();
+      const assessment = await s.buildAndPersistAssessment(contextNew);
+      const tampered = { ...assessment, payload: { ...assessment.payload, system_summary: 'tampered after persistence' } };
+      s.repository.values.set(assessment.artifact_id, tampered);
+      const index = new FakeAssessmentProjectionIndex();
+
+      const result = await reconcileAssessmentProjection({
+        projectId: PROJECT_ID,
+        assessmentArtifactId: assessment.artifact_id,
+        artifactRepository: s.repository,
+        currentProjectContextRef: contextNew,
+        currentBindingRef: s.newBindingRef,
+        currentReleaseRef: RELEASE_REF,
+        index,
+      });
+      expect(result).toEqual({ reconciled: false, reason: 'TAMPERED_CAS_ARTIFACT' });
+    });
+
+    it('projection store unavailable -> propagates (observable), not swallowed', async () => {
+      const s = await setup();
+      const assessment = await s.buildAndPersistAssessment(contextNew);
+      const throwingIndex: ProjectAssessmentProjectionIndex = {
+        register: async () => {
+          throw new Error('projection database unavailable');
+        },
+        listForProject: async () => [],
+      };
+
+      await expect(
+        reconcileAssessmentProjection({
+          projectId: PROJECT_ID,
+          assessmentArtifactId: assessment.artifact_id,
+          artifactRepository: s.repository,
+          currentProjectContextRef: contextNew,
+          currentBindingRef: s.newBindingRef,
+          currentReleaseRef: RELEASE_REF,
+          index: throwingIndex,
+        }),
+      ).rejects.toThrow('projection database unavailable');
+    });
   });
 });
