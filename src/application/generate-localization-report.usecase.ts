@@ -579,6 +579,20 @@ async function analyzeSite(
       rule_registry_snapshot_id: executionRegistry.getReleaseSnapshot().snapshot_id,
     });
 
+    // LU-EXECUTION-IDENTITY-SCOPE-V2 (PRODUCT-LU-EXECUTION-IDENTITY-V2-WIRING-01): current
+    // product execution must resolve the exact expected V2 ExecutionIdentity for this canonical
+    // execution subject, never fall back to the legacy site-only V1 lookup. No field here is
+    // caller-controlled -- every value comes from the same verified chain the seed above was just
+    // derived from: canonicalContext.contextBindingRef is the current supersession-graph head
+    // (resolveCanonicalProjectContext -> ProjectContextBindingProvider.resolveCurrent), never a
+    // caller-supplied or historical ref. A site with an identity minted under a since-superseded
+    // binding fails closed here exactly as intended -- this usecase does not mint one itself.
+    const canonicalIdentitySubjectV2 = {
+      project_context_binding_ref: canonicalContext.contextBindingRef,
+      product_release_ref: currentRelease.releaseRef,
+      execution_contract_version: 'lu-execution-identity-v1',
+    };
+
     try {
       // Canonical refs are the only governed rule input. The legacy provider remains a
       // presentation-only fallback when no governed evidence was selected for this assessment --
@@ -653,6 +667,7 @@ async function analyzeSite(
       document_evidence: governedDocumentEvidence,
       verified_document_facts: verifiedDocumentFacts,
       artifact_repository: repo,
+      identity_subject_v2: canonicalIdentitySubjectV2,
       assessment_draft: {
         site_id: site.id,
         project_context_ref: projRef,
