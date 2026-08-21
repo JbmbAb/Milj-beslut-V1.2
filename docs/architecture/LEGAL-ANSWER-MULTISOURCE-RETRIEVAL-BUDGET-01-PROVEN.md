@@ -1,8 +1,18 @@
-# LEGAL-ANSWER-MULTISOURCE-RETRIEVAL-BUDGET-01 — PROVEN
+# LEGAL-ANSWER-MULTISOURCE-RETRIEVAL-BUDGET-01 — IMPLEMENTED / PROVEN
 
-**Status:** PROVEN. Closes `H21`'s false-block (surfaced in the prior unit) with a narrow,
-retrieval-layer-only fix, strictly local to the multi-source routing candidate budget. Prompt,
-context assembly, and the citation contract are untouched.
+**Status:** IMPLEMENTED / PROVEN. Closes `H21`'s false-block (surfaced in the prior unit) with a
+narrow, retrieval-layer-only fix, strictly local to the multi-source routing candidate budget.
+Prompt, context assembly, and the citation contract are untouched.
+
+**Correction (owner review):** an earlier draft of this document's accompanying chat summary
+characterized the frozen 40-query battery as fully rerun and green. That overstated the evidence.
+The dedicated proof script (5/5, zero errors) is a clean, complete proof on its own terms. The
+frozen 40-query battery, separately, was only **32/40 executed with a clean upstream response**
+this session — the other 8 are **`NOT_OBSERVED_DUE_TO_UPSTREAM_UNAVAILABILITY`** (Gemini `503`),
+not `FAIL` and not silently folded into "no regression." See "Frozen 40-query battery: exact
+evidentiary status" below for the corrected, itemized accounting, including the explicit
+regression-closure argument for those 8 (built from three separate legs, not asserted as a single
+executed run).
 
 ## The narrow rule, exactly as approved
 
@@ -65,28 +75,64 @@ fewer calls, ran with zero errors). The battery scripts' existing per-query erro
 `LEGAL-RETRIEVAL-ANSWER-QUALITY-BASELINE-01`) correctly recorded these as `MODEL_ERROR` and
 continued rather than aborting.
 
-Rather than keep re-running the full batteries against a degraded upstream, results were
-**consolidated across two frozen-40 attempts**: 8 of 40 queries (`C1, C4, C6, C9, S4, S5, H16, X4`)
-had no clean response in either attempt — all 8 are court/standard-family or single-candidate
-queries this unit's change cannot affect (the multi-source branch never engages for them), so their
-absence does not weaken this unit's own proof. Among the **32/40 queries with at least one clean
-response**, and across all calibration-set and holdout attempts combined:
+## Frozen 40-query battery: exact evidentiary status
 
-- **Provenance intact and citations within the retrieval set: 100%, every clean response, every
-  attempt.**
-- No new `CITATION_MISS`, fabricated identifier, or provenance defect.
-- No regression on any previously-passing single-source, court, standard, `QUERY_UNDERSPECIFIED`,
-  or named-source-absent case.
-- `H18` and `H19` (multi-source relational queries) newly answered, unprompted by any change beyond
-  the retrieval budget — real evidence this fix generalizes past `H21` specifically.
-- `H20`/`H22` remain single-source-routed for reasons entirely predating and unrelated to this unit
-  (MFH_2011/MFH_1998 name-pattern ambiguity, frozen since `LEGAL-RETRIEVAL-LAW-MULTI-SOURCE-ROUTING-01`).
+Consolidated across two frozen-40 attempts this session:
 
-A fully clean, single-pass rerun of all three batteries was not obtained this session due to the
-provider condition above; the consolidated evidence across multiple real attempts, anchored by the
-dedicated zero-error proof script, is judged sufficient to close this unit. A clean single-pass
-rerun can be requested later if Gemini's availability improves and the owner wants it for the
-record.
+```
+32/40  EXECUTED WITH CLEAN UPSTREAM RESPONSE THIS SESSION
+       32/32 observed: no regression, 100% provenance intact, 100% citations within retrieval set,
+       no new CITATION_MISS or fabricated identifier. H18 and H19 (multi-source relational
+       queries) newly answered as a side effect -- evidence this fix generalizes past H21.
+
+ 8/40  NOT_OBSERVED_DUE_TO_UPSTREAM_UNAVAILABILITY this session (C1, C4, C6, C9, S4, S5, H16, X4)
+       -- not FAIL, not silently counted as "no regression found."
+```
+
+**This is not a 40/40 executed proof.** For the 8 not observed this session, a separate,
+explicitly-labeled regression-closure argument is offered instead, built from three distinct legs:
+
+1. **Previous same-session frozen execution.** All 8 were run to completion, with a clean upstream
+   response, during `LEGAL-ANSWER-NAMED-SOURCE-CONSISTENCY-GATE-01`'s own frozen-40 rerun — under
+   the identical configuration this unit inherits unchanged (`answer-prompt-v2`, the named-source
+   gate active, same retrieval policy version). Observed then:
+
+   | id | mode | claims | containment | answered_verdict |
+   |---|---|---|---|---|
+   | C1 | ANSWERED | 13 | true | RETRIEVAL_CONTAINED_ACCEPTABLE_EVIDENCE |
+   | C4 | ANSWERED | 9 | false | RETRIEVAL_MISS_BUT_ANSWERED |
+   | C6 | ANSWERED | 9 | true | RETRIEVAL_CONTAINED_ACCEPTABLE_EVIDENCE |
+   | C9 | ANSWERED | 1 | true | RETRIEVAL_CONTAINED_ACCEPTABLE_EVIDENCE |
+   | S4 | ANSWERED | 6 | true | RETRIEVAL_CONTAINED_ACCEPTABLE_EVIDENCE |
+   | S5 | ANSWERED | 1 | true | RETRIEVAL_CONTAINED_ACCEPTABLE_EVIDENCE |
+   | H16 | ANSWERED | 3 | true | RETRIEVAL_CONTAINED_ACCEPTABLE_EVIDENCE |
+   | X4 | INSUFFICIENT_EVIDENCE | 0 | — | GOOD_REFUSAL |
+
+   (This table is reproduced from this session's own tool output, not a separately re-verified
+   committed artifact from an earlier unit's markdown — flagged explicitly as that, not overstated
+   as more than it is.)
+
+2. **Code-path non-impact proof.** This unit's only change is the `if (routing &&
+   routing.source_candidates.length >= 2)` branch inside `searchChunks`. Verified structurally,
+   not by inspection alone: `C1/C4/C6/C9` and `S4/S5/X4` are `family="court"`/`"standard"`, for
+   which `performLegalRetrieval` never computes routing at all (`routing` stays `null` —
+   see `LegalRetrievalComposition.ts`'s `if (request.family === "law")` guard) — the new branch's
+   condition is `routing && ...`, so it cannot evaluate true. `H16` is `family="law"` but is an
+   `implicit_source` query that has never, in any prior run across this entire track, surfaced more
+   than one distinct source (confirmed again in this unit's own consolidated 32/40 data, where no
+   `implicit_source` query at 0/1 recognized candidates changed behavior) — it runs the exact
+   pre-existing `runSearch(..., routing, topK)` call with `routing.source_candidates.length < 2`,
+   identical to the old single-query code path.
+
+3. **This unit's own 32/32 clean observed regression run** (above) — real, fresh execution under the
+   new code, zero regressions found on every case that did get a clean response.
+
+Combining these three — a real prior clean execution under the identical inherited configuration, a
+structural proof the changed code path cannot execute for these 8 queries at all, and a fresh 32/32
+clean run finding zero regressions elsewhere — is offered as the regression-closure argument for
+those 8, distinct from and weaker than an actual fresh 40/40 execution. A clean single-pass rerun of
+all 40 can still be obtained later if Gemini's availability improves and the owner wants the
+stronger form of evidence for the permanent record.
 
 ## What this does not claim
 
@@ -102,7 +148,9 @@ record.
 ## Recommendation
 
 Per the owner's own conditional ("om det blir grönt utan regression ... stäng quality/safety-spåret
-där och gå direkt till API/UI convergence"): green, no regression found across all available clean
-data, one bonus improvement (`H18`/`H19`) beyond the targeted case. The quality/safety track for the
-legal answer layer is closed. Next: API/UI convergence, per the frozen `PRODUCT-PROVEN` program
-directive.
+där och gå direkt till API/UI convergence"): the dedicated proof (5/5) is a real, complete, clean
+proof of the targeted fix. The frozen 40-query battery is 32/40 executed clean this session with
+zero regressions observed, plus an explicit regression-closure argument (not a fresh execution) for
+the remaining 8 — accepted by the owner as sufficient, on the corrected evidentiary framing above,
+to close the quality/safety track for the legal answer layer. Next: API/UI convergence, per the
+frozen `PRODUCT-PROVEN` program directive.
