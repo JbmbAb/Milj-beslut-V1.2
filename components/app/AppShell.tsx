@@ -277,13 +277,22 @@ export const AppShell: React.FC = () => {
             }}
           />
         </div>
-        <ChatBot />
+        <ChatBot onOpenLegalSupport={() => setActiveTab('legal')} />
       </main>
 
       <InspectorPanel />
       <CommandPalette />
 
-      {selectedPermit && <DetailModal permit={selectedPermit} onClose={() => setSelectedPermit(null)} />}
+      {selectedPermit && (
+        <DetailModal
+          permit={selectedPermit}
+          onClose={() => setSelectedPermit(null)}
+          onOpenLegalSupport={() => {
+            setSelectedPermit(null);
+            setActiveTab('legal');
+          }}
+        />
+      )}
       {showUpload && (
         <UploadModal
           onComplete={(partial) => {

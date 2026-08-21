@@ -321,22 +321,20 @@ export const analyzePermitRisk = async (permit: Permit): Promise<string> => {
   return unavailable('Riskanalys');
 };
 
+/**
+ * PRODUCT-RUNTIME-ANSWER-BYPASS-01: permanently disabled. This freeform, permit-scoped chat had
+ * zero retrieval, zero citations, and zero safety gate -- exactly the kind of surface the owner's
+ * frozen invariant forbids ("no reachable freeform user surface may produce a legal/factual answer
+ * outside the governed answer boundary"). Its only caller (DetailModal.tsx) now points users to
+ * POST /api/legal/answer instead. Never falls back to a bare/Vertex-backed Gemini call, for any
+ * input -- a real permit-context answer contract, if ever built, is a separate, proven capability.
+ */
 export const chatWithPermit = async (
-  permit: Permit,
-  message: string,
-  history: HistoryItem[],
+  _permit: Permit,
+  _message: string,
+  _history: HistoryItem[],
 ): Promise<string> => {
-  const apiResult = await callGeminiApi<string>('chatWithPermit', { permit, message, history });
-  if (apiResult) return apiResult;
-
-  const serverResult = await serverGenerateFromParts([
-    { text: `Beslutstext fÃ¶r ${permit.property_id} i ${permit.municipality}: ${permit.full_text}` },
-    ...history.map((item) => ({ text: `${item.role}: ${item.content}` })),
-    { text: message },
-  ]);
-  if (serverResult) return serverResult;
-
-  return unavailable('AI-chatt');
+  return unavailable('Fri permit-chatt (chatWithPermit) är permanent inaktiverad -- använd /api/legal/answer');
 };
 
 export const analyzeSiteImage = async (base64: string, mimeType: string): Promise<string> => {
@@ -543,34 +541,42 @@ export const performSpatialAudit = async (
   return unavailable('Spatial audit');
 };
 
-export const askGeneralAssistant = async (message: string, history: HistoryItem[] = []): Promise<string> => {
-  const apiResult = await callGeminiApi<string>('askGeneralAssistant', { message, history });
+/**
+ * PRODUCT-RUNTIME-ANSWER-BYPASS-01: permanently disabled. This was a freeform general-chat surface
+ * that, server-side, always fell through to either VertexOrkester (whose only tool is the LEGACY
+ * search over legal_corpus_chunks, never the canonical governed chain) or a bare, ungrounded Gemini
+ * call -- while its one live caller (ChatBot.tsx) told users it "only answers from verified
+ * sources." Its only reachable UI caller is now a non-generative launcher into the real
+ * /api/legal/answer chain. Never falls back to VertexOrkester or a bare Gemini call, for any input.
+ *
+ * SewageMapView.tsx's siting-assessment feature used to share this function for a fixed,
+ * app-generated prompt template (never raw user text) -- that legitimate, non-freeform,
+ * non-legal use was migrated to its own dedicated function, generateSewageSitingAssessment(),
+ * rather than silently broken by this closure or left as a residual bypass surface.
+ *
+ * A general (non-legal) AI assistant, if ever wanted again, is a separate, proven capability
+ * (e.g. GENERAL-ASSISTANT-GOVERNED-BOUNDARY) -- not a silent restoration of this function.
+ */
+export const askGeneralAssistant = async (_message: string, _history: HistoryItem[] = []): Promise<string> => {
+  return unavailable('Allmän AI-assistent (askGeneralAssistant) är permanent inaktiverad -- använd /api/legal/answer');
+};
+
+/**
+ * PRODUCT-RUNTIME-ANSWER-BYPASS-01: split out of the old askGeneralAssistant so SewageMapView's
+ * legitimate, structured, non-freeform siting-assessment feature keeps working after that shared
+ * function was fail-closed. `prompt` here is always an app-constructed template (see
+ * SewageMapView.tsx) -- never raw, unconstrained user text -- and this deliberately does NOT try
+ * VertexOrkester (which exists only to reach the legacy legal search tool; a sewage siting
+ * assessment has no legal-citation surface to begin with).
+ */
+export const generateSewageSitingAssessment = async (prompt: string): Promise<string> => {
+  const apiResult = await callGeminiApi<string>('generateSewageSitingAssessment', { prompt });
   if (apiResult) return apiResult;
 
-  if (isNodeRuntime()) {
-    try {
-      const { VertexOrkester } = await import('../server/modules/ai/orchestrator/VertexOrkester');
-      const projectId = process.env.VERTEX_PROJECT_ID || 'miljobeslut-v2';
-      const orkester = new VertexOrkester(projectId);
-      
-      // We can also add a special hint to the prompt to ensure it uses the search results and provides links
-      const augmentedPrompt = `${message}\n\nVIKTIGT: Om du hittar relevanta domar eller lagrum via dina verktyg, inkludera alltid en klickbar länk till originaldokumentet. Använd formatet: [Titel/Målnummer](/api/legal/view/ID_HÄR) om det är en intern fil, eller [Titel](EXTERN_URL) om det är en extern länk.`;
-      
-      const response = await orkester.ask(augmentedPrompt);
-      return response;
-    } catch (err) {
-      console.error('VertexOrkester failed in askGeneralAssistant:', err);
-      // fallback to basic generation if orkester fails
-    }
-  }
-
-  const serverResult = await serverGenerateFromParts([
-    ...history.map((item) => ({ text: `${item.role}: ${item.content}` })),
-    { text: message },
-  ]);
+  const serverResult = await serverGenerateFromParts([{ text: prompt }]);
   if (serverResult) return serverResult;
 
-  return unavailable('Allmän AI-assistent');
+  return unavailable('Avloppsplacering-bedömning');
 };
 
 export const generateFigmaAiResponse = async (

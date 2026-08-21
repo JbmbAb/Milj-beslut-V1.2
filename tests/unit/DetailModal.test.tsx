@@ -25,18 +25,18 @@ describe('DetailModal', () => {
   });
 
   it('should render modal when open', () => {
-    render(<DetailModal permit={mockPermit} onClose={vi.fn()} />);
+    render(<DetailModal permit={mockPermit} onClose={vi.fn()} onOpenLegalSupport={vi.fn()} />);
     expect(screen.getByRole('dialog')).toBeInTheDocument();
   });
 
   it('should display permit details', () => {
-    render(<DetailModal permit={mockPermit} onClose={vi.fn()} />);
+    render(<DetailModal permit={mockPermit} onClose={vi.fn()} onOpenLegalSupport={vi.fn()} />);
     expect(screen.getByText('CASE-001')).toBeInTheDocument();
   });
 
   it('should call onClose when close button clicked', () => {
     const onClose = vi.fn();
-    render(<DetailModal permit={mockPermit} onClose={onClose} />);
+    render(<DetailModal permit={mockPermit} onClose={onClose} onOpenLegalSupport={vi.fn()} />);
 
     const buttons = screen.getAllByRole('button');
     // The first button in the header is the close button
@@ -46,35 +46,35 @@ describe('DetailModal', () => {
   });
 
   it('should display applicant information', () => {
-    render(<DetailModal permit={mockPermit} onClose={vi.fn()} />);
+    render(<DetailModal permit={mockPermit} onClose={vi.fn()} onOpenLegalSupport={vi.fn()} />);
     expect(screen.getByText('Test Applicant')).toBeInTheDocument();
   });
 
   it('should display municipality information', () => {
-    render(<DetailModal permit={mockPermit} onClose={vi.fn()} />);
+    render(<DetailModal permit={mockPermit} onClose={vi.fn()} onOpenLegalSupport={vi.fn()} />);
     expect(screen.getAllByText(/Test Municipality/i)[0]).toBeInTheDocument();
   });
 
   it('should display permit status', () => {
-    render(<DetailModal permit={mockPermit} onClose={vi.fn()} />);
+    render(<DetailModal permit={mockPermit} onClose={vi.fn()} onOpenLegalSupport={vi.fn()} />);
     expect(screen.getByText('Officiellt Beslut')).toBeInTheDocument();
   });
 
   it('should update when data changes', () => {
-    const { rerender } = render(<DetailModal permit={mockPermit} onClose={vi.fn()} />);
+    const { rerender } = render(<DetailModal permit={mockPermit} onClose={vi.fn()} onOpenLegalSupport={vi.fn()} />);
 
     const newData: Permit = {
       ...mockPermit,
       property_id: 'CASE-002',
     };
 
-    rerender(<DetailModal permit={newData} onClose={vi.fn()} />);
+    rerender(<DetailModal permit={newData} onClose={vi.fn()} onOpenLegalSupport={vi.fn()} />);
 
     expect(screen.getByText('CASE-002')).toBeInTheDocument();
   });
 
   it('should display action buttons', () => {
-    render(<DetailModal permit={mockPermit} onClose={vi.fn()} />);
+    render(<DetailModal permit={mockPermit} onClose={vi.fn()} onOpenLegalSupport={vi.fn()} />);
     // Check if the "STARTA ANALYS" button is present as an example of an action button
     expect(screen.getByText(/STARTA ANALYS/i)).toBeInTheDocument();
   });

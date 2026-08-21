@@ -7,10 +7,9 @@ import type { Permit } from '../../types';
 
 vi.mock('../../services/geminiService', () => ({
   analyzePermitRisk: vi.fn(),
-  chatWithPermit: vi.fn(),
 }));
 
-import { analyzePermitRisk, chatWithPermit } from '../../services/geminiService';
+import { analyzePermitRisk } from '../../services/geminiService';
 
 const mockPermit: Permit = {
   id: '1',
@@ -64,38 +63,38 @@ describe('DetailModal', () => {
   // ── Static render ──────────────────────────────────────────────────────────
 
   it('renders property_id as heading', () => {
-    render(<DetailModal permit={mockPermit} onClose={vi.fn()} />);
+    render(<DetailModal permit={mockPermit} onClose={vi.fn()} onOpenLegalSupport={vi.fn()} />);
     expect(screen.getByText('STHLM-1234')).toBeInTheDocument();
   });
 
   it('renders municipality name', () => {
-    render(<DetailModal permit={mockPermit} onClose={vi.fn()} />);
+    render(<DetailModal permit={mockPermit} onClose={vi.fn()} onOpenLegalSupport={vi.fn()} />);
     expect(screen.getByText(/Stockholm Kommun/i)).toBeInTheDocument();
   });
 
   it('renders applicant_company', () => {
-    render(<DetailModal permit={mockPermit} onClose={vi.fn()} />);
+    render(<DetailModal permit={mockPermit} onClose={vi.fn()} onOpenLegalSupport={vi.fn()} />);
     expect(screen.getByText('Miljö AB')).toBeInTheDocument();
   });
 
   it('renders consultant_company in ContactItem', () => {
-    render(<DetailModal permit={mockPermit} onClose={vi.fn()} />);
+    render(<DetailModal permit={mockPermit} onClose={vi.fn()} onOpenLegalSupport={vi.fn()} />);
     expect(screen.getByText('Konsult AB')).toBeInTheDocument();
   });
 
   it('renders email address', () => {
-    render(<DetailModal permit={mockPermit} onClose={vi.fn()} />);
+    render(<DetailModal permit={mockPermit} onClose={vi.fn()} onOpenLegalSupport={vi.fn()} />);
     expect(screen.getByText('anna@miljoab.se')).toBeInTheDocument();
   });
 
   it('renders STARTA ANALYS button initially', () => {
-    render(<DetailModal permit={mockPermit} onClose={vi.fn()} />);
+    render(<DetailModal permit={mockPermit} onClose={vi.fn()} onOpenLegalSupport={vi.fn()} />);
     expect(screen.getByText('STARTA ANALYS')).toBeInTheDocument();
   });
 
   it('calls onClose when × button is clicked', async () => {
     const onClose = vi.fn();
-    render(<DetailModal permit={mockPermit} onClose={onClose} />);
+    render(<DetailModal permit={mockPermit} onClose={onClose} onOpenLegalSupport={vi.fn()} />);
     // Close button is the only button in the header that has onClose
     const allButtons = screen.getAllByRole('button');
     const closeBtn = allButtons.find((b) => b.className.includes('w-12') && b.className.includes('h-12'));
@@ -107,35 +106,34 @@ describe('DetailModal', () => {
 
   it('shows analysis result after clicking STARTA ANALYS', async () => {
     vi.mocked(analyzePermitRisk).mockResolvedValue('Ingen risk identifierad.');
-    render(<DetailModal permit={mockPermit} onClose={vi.fn()} />);
+    render(<DetailModal permit={mockPermit} onClose={vi.fn()} onOpenLegalSupport={vi.fn()} />);
     await user.click(screen.getByText('STARTA ANALYS'));
     await waitFor(() => expect(screen.getByText('Ingen risk identifierad.')).toBeInTheDocument());
   });
 
   it('shows error message when analyzePermitRisk throws', async () => {
     vi.mocked(analyzePermitRisk).mockRejectedValue(new Error('network error'));
-    render(<DetailModal permit={mockPermit} onClose={vi.fn()} />);
+    render(<DetailModal permit={mockPermit} onClose={vi.fn()} onOpenLegalSupport={vi.fn()} />);
     await user.click(screen.getByText('STARTA ANALYS'));
     await waitFor(() => expect(screen.getByText('Fel vid analys.')).toBeInTheDocument());
   });
 
-  // ── Chat ──────────────────────────────────────────────────────────────────
+  // ── PRODUCT-RUNTIME-ANSWER-BYPASS-01: freeform chat replaced by a fixed CTA ──────────
 
-  it('shows user message in chat after submit', async () => {
-    vi.mocked(chatWithPermit).mockResolvedValue('AI svarar.');
-    render(<DetailModal permit={mockPermit} onClose={vi.fn()} />);
-    const input = screen.getByPlaceholderText(/Fråga om tillståndet/);
-    await user.type(input, 'Vad gäller?');
-    await user.keyboard('{Enter}');
-    expect(screen.getByText('Vad gäller?')).toBeInTheDocument();
+  it('no longer renders a freeform permit-chat input', () => {
+    render(<DetailModal permit={mockPermit} onClose={vi.fn()} onOpenLegalSupport={vi.fn()} />);
+    expect(screen.queryByPlaceholderText(/Fråga om tillståndet/)).not.toBeInTheDocument();
   });
 
-  it('shows AI reply in chat after successful chatWithPermit', async () => {
-    vi.mocked(chatWithPermit).mockResolvedValue('AI svarar korrekt.');
-    render(<DetailModal permit={mockPermit} onClose={vi.fn()} />);
-    const input = screen.getByPlaceholderText(/Fråga om tillståndet/);
-    await user.type(input, 'Test?');
-    await user.keyboard('{Enter}');
-    await waitFor(() => expect(screen.getByText('AI svarar korrekt.')).toBeInTheDocument());
+  it('renders a fixed CTA pointing to Juridiskt Stöd instead', () => {
+    render(<DetailModal permit={mockPermit} onClose={vi.fn()} onOpenLegalSupport={vi.fn()} />);
+    expect(screen.getByText('Ställ juridisk fråga i Juridiskt Stöd')).toBeInTheDocument();
+  });
+
+  it('calls onOpenLegalSupport when the CTA is clicked', async () => {
+    const onOpenLegalSupport = vi.fn();
+    render(<DetailModal permit={mockPermit} onClose={vi.fn()} onOpenLegalSupport={onOpenLegalSupport} />);
+    await user.click(screen.getByText('Ställ juridisk fråga i Juridiskt Stöd'));
+    expect(onOpenLegalSupport).toHaveBeenCalledTimes(1);
   });
 });

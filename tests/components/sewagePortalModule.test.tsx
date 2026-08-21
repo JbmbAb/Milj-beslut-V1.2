@@ -23,7 +23,7 @@ vi.mock('../../components/admin/hooks/usePaginationState', () => ({
 }));
 
 vi.mock('../../services/geminiService', () => ({
-  askGeneralAssistant: vi.fn().mockResolvedValue('Placeringen uppfyller avståndskrav.'),
+  generateSewageSitingAssessment: vi.fn().mockResolvedValue('Placeringen uppfyller avståndskrav.'),
 }));
 
 vi.mock('../../components/context/OperationsCenterContext', () => ({

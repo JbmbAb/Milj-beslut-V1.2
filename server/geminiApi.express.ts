@@ -6,7 +6,6 @@ import { requestLogger } from './security/requestLogging';
 import { logger } from './logger';
 import {
   analyzePermitRisk,
-  chatWithPermit,
   analyzeSiteImage,
   analyzeTechnicalDrawing,
   analyzeDrawingOCR,
@@ -17,7 +16,7 @@ import {
   autoFillFormSection,
   fetchMunicipalityContext,
   performSpatialAudit,
-  askGeneralAssistant,
+  generateSewageSitingAssessment,
   generateMarketingSummary,
   generateFigmaAiResponse,
   generateFigmaUiSpec,
@@ -68,16 +67,13 @@ router.use((req, res, next) => {
     return;
   }
 
+  // PRODUCT-RUNTIME-ANSWER-BYPASS-01: the anonymous-loopback carve-out for
+  // method:'askGeneralAssistant' was removed -- an answer-producing endpoint must never have a
+  // special unauthenticated path, independent of whether reverse-proxy exploitation is proven.
   const isAnonymousLocalFigmaCall =
     req.path === '/api/figma/ai' && isLoopbackRequest(req) && !req.headers.authorization;
-  const isAnonymousLocalChatCall =
-    req.path === '/api/gemini' &&
-    req.method === 'POST' &&
-    isLoopbackRequest(req) &&
-    !req.headers.authorization &&
-    req.body?.method === 'askGeneralAssistant';
 
-  if (isAnonymousLocalFigmaCall || isAnonymousLocalChatCall) {
+  if (isAnonymousLocalFigmaCall) {
     next();
     return;
   }
@@ -95,7 +91,18 @@ router.post('/api/gemini', async (req, res) => {
         result = await analyzePermitRisk(payload.permit);
         break;
       case 'chatWithPermit':
-        result = await chatWithPermit(payload.permit, payload.message, payload.history || []);
+      case 'askGeneralAssistant':
+        // PRODUCT-RUNTIME-ANSWER-BYPASS-01: fail closed server-side, not just hidden in the UI --
+        // never reaches chatWithPermit()/askGeneralAssistant() at all, so a direct/manual call to
+        // this route cannot produce a freeform, ungoverned answer either. Legal/factual questions
+        // go through POST /api/legal/answer.
+        res.status(410).json({
+          ok: false,
+          error: `${method} är permanent inaktiverad. Använd POST /api/legal/answer för juridiska frågor.`,
+        });
+        return;
+      case 'generateSewageSitingAssessment':
+        result = await generateSewageSitingAssessment(payload.prompt);
         break;
       case 'analyzeSiteImage':
         result = await analyzeSiteImage(payload.base64, payload.mimeType);

@@ -75,7 +75,7 @@ const StandaloneWorkspace: React.FC<StandaloneWorkspaceProps> = ({
     >
       <Suspense fallback={<ContentFallback label={`Laddar ${activeTab}`} />}>{renderContent()}</Suspense>
       <Suspense fallback={null}>
-        <ChatBot />
+        <ChatBot onOpenLegalSupport={() => onSetActiveTab('legal')} />
       </Suspense>
     </WorkspaceScaffold>
   );

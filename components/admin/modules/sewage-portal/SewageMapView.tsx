@@ -7,7 +7,7 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { Lock, Unlock, Zap, AlertTriangle, RefreshCcw } from 'lucide-react';
 import type { SewageGISAnalysis, SewageProtectionProfile } from '../../../../types';
-import { askGeneralAssistant } from '../../../../services/geminiService';
+import { generateSewageSitingAssessment } from '../../../../services/geminiService';
 import { useOperationsCenter } from '../../../context/OperationsCenterContext';
 import { useTheme } from '../../../context/ThemeContext';
 import { useAppWorkspace } from '../../../app/providers/AppWorkspaceProvider';
@@ -187,7 +187,7 @@ KRAV:
 UPPGIFT:
 Tala om vilka förutsättningar som förbättras eller försämras med denna specifika placering jämfört med det optimala. Svara kortfattat i punktform på svenska.`;
 
-      const feedback = await askGeneralAssistant(prompt);
+      const feedback = await generateSewageSitingAssessment(prompt);
       setAssessment(feedback);
       addAiActivity('✓ Miljöanalys slutförd för vald placering.', 'success');
       if (onPositionLocked) onPositionLocked(systemPos, feedback);

@@ -1,20 +1,20 @@
 import React, { useState } from 'react';
 import { Permit } from '../types';
-import { analyzePermitRisk, chatWithPermit } from '../services/geminiService';
+import { analyzePermitRisk } from '../services/geminiService';
 import MunicipalityAvatar from './MunicipalityAvatar';
 import { BtfaNoteWidget } from './BtfaNoteWidget';
 
 interface DetailModalProps {
   permit: Permit;
   onClose: () => void;
+  /** PRODUCT-RUNTIME-ANSWER-BYPASS-01: navigates to the real, governed Juridiskt Stöd view.
+   *  Replaces the removed freeform permit chat (chatWithPermit) -- see that section below for why. */
+  onOpenLegalSupport: () => void;
 }
 
-const DetailModal: React.FC<DetailModalProps> = ({ permit, onClose }) => {
+const DetailModal: React.FC<DetailModalProps> = ({ permit, onClose, onOpenLegalSupport }) => {
   const [analysis, setAnalysis] = useState<string | null>(null);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
-  const [chatInput, setChatInput] = useState('');
-  const [chatHistory, setChatHistory] = useState<{ role: 'user' | 'model'; content: string }[]>([]);
-  const [isChatting, setIsChatting] = useState(false);
 
   const handleRunAnalysis = async () => {
     setIsAnalyzing(true);
@@ -26,27 +26,6 @@ const DetailModal: React.FC<DetailModalProps> = ({ permit, onClose }) => {
       setAnalysis('Fel vid analys.');
     } finally {
       setIsAnalyzing(false);
-    }
-  };
-
-  const handleSendMessage = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!chatInput.trim() || isChatting) return;
-
-    const userMsg = chatInput.trim();
-    const nextHistory = [...chatHistory, { role: 'user' as const, content: userMsg }];
-    setChatInput('');
-    setChatHistory(nextHistory);
-    setIsChatting(true);
-
-    try {
-      const response = await chatWithPermit(permit, userMsg, nextHistory);
-      setChatHistory((prev) => [...prev, { role: 'model', content: response || 'Inget svar just nu.' }]);
-    } catch (error) {
-      console.error(error);
-      setChatHistory((prev) => [...prev, { role: 'model', content: 'Ett fel uppstod. Forsok igen.' }]);
-    } finally {
-      setIsChatting(false);
     }
   };
 
@@ -188,66 +167,23 @@ const DetailModal: React.FC<DetailModalProps> = ({ permit, onClose }) => {
                 )}
               </section>
 
-              <section className="bg-white border border-slate-200 rounded-[2rem] flex-1 flex flex-col min-h-[400px] shadow-sm overflow-hidden">
-                <div className="p-4 bg-slate-50 border-b border-slate-100 flex items-center justify-between">
-                  <h3 className="text-[10px] font-black text-slate-500 uppercase tracking-widest">
-                    Utredningsstöd (AI-Chatt)
-                  </h3>
-                  <div className="flex gap-1">
-                    <div className="w-2 h-2 rounded-full bg-green-500"></div>
-                    <div className="w-2 h-2 rounded-full bg-green-500 animate-pulse"></div>
-                  </div>
-                </div>
-                <div className="flex-1 overflow-y-auto p-6 space-y-4 custom-scrollbar bg-slate-50/30">
-                  {chatHistory.length === 0 && (
-                    <div className="text-center py-12 px-8">
-                      <i className="fas fa-comments text-slate-200 text-4xl mb-4 block"></i>
-                      <p className="text-xs text-slate-400 font-medium">
-                        Ställ frågor om beslutet eller bolaget. Jag kan hjälpa till att hitta dolda risker
-                        eller sammanfatta villkor.
-                      </p>
-                    </div>
-                  )}
-                  {chatHistory.map((msg, i) => (
-                    <div key={i} className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
-                      <div
-                        className={`max-w-[85%] px-4 py-3 rounded-2xl text-xs leading-relaxed shadow-sm ${
-                          msg.role === 'user'
-                            ? 'bg-blue-600 text-white rounded-tr-none'
-                            : 'bg-white border border-slate-200 text-slate-700 rounded-tl-none'
-                        }`}
-                      >
-                        {msg.content}
-                      </div>
-                    </div>
-                  ))}
-                  {isChatting && (
-                    <div className="flex justify-start">
-                      <div className="bg-white border border-slate-200 px-4 py-2 rounded-2xl text-[10px] italic text-slate-400 flex items-center gap-2">
-                        <i className="fas fa-circle-notch fa-spin"></i> Tänker...
-                      </div>
-                    </div>
-                  )}
-                </div>
-                <form
-                  onSubmit={handleSendMessage}
-                  className="p-4 bg-white border-t border-slate-100 flex gap-2"
+              {/* PRODUCT-RUNTIME-ANSWER-BYPASS-01: the freeform "Utredningsstöd (AI-Chatt)" section
+                  (chatWithPermit -- zero retrieval, zero citations, zero safety gate) was removed
+                  per owner decision. No legal-intent classifier was introduced to partially keep
+                  it; any legal question belongs in the governed Juridiskt Stöd view instead. */}
+              <section className="bg-white border border-slate-200 rounded-[2rem] p-6 shadow-sm text-center">
+                <i className="fas fa-scale-balanced text-2xl text-indigo-400 mb-3 block"></i>
+                <p className="text-xs text-slate-500 font-medium mb-4">
+                  För juridiska frågor om beslutet, använd det styrkta underlaget i Juridiskt Stöd --
+                  inte fri chatt.
+                </p>
+                <button
+                  type="button"
+                  onClick={onOpenLegalSupport}
+                  className="px-5 py-2 bg-indigo-600 text-white rounded-xl text-[10px] font-black hover:bg-indigo-700 shadow-lg shadow-indigo-600/20 transition-all active:scale-95"
                 >
-                  <input
-                    type="text"
-                    placeholder="Fråga om tillståndet..."
-                    className="flex-1 px-4 py-3 text-xs bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none transition-all"
-                    value={chatInput}
-                    onChange={(e) => setChatInput(e.target.value)}
-                    disabled={isChatting}
-                  />
-                  <button
-                    type="submit"
-                    className="w-12 h-12 bg-blue-600 text-white rounded-xl shadow-lg shadow-blue-600/20 active:scale-90 transition-all disabled:opacity-50"
-                  >
-                    <i className="fas fa-paper-plane"></i>
-                  </button>
-                </form>
+                  Ställ juridisk fråga i Juridiskt Stöd
+                </button>
               </section>
             </div>
           </div>

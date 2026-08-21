@@ -140,14 +140,21 @@ const ProjectWorkspaceInner: React.FC<ProjectWorkspaceProps> = ({
         headerBadges={headerBadges}
       >
         <Suspense fallback={<ContentFallback label={`Laddar ${activeTab}`} />}>{renderContent()}</Suspense>
+        {/* ProjectWorkspace is legacy/parked (excluded from the live app's build entry point --
+            see PRODUCT-RUNTIME-ANSWER-BYPASS-01/-CONVERGENCE-01's trace); onOpenLegalSupport is a
+            no-op here rather than wired to real navigation this component doesn't have. */}
         <Suspense fallback={null}>
-          <ChatBot />
+          <ChatBot onOpenLegalSupport={() => {}} />
         </Suspense>
       </WorkspaceScaffold>
 
       {selectedPermit && (
         <Suspense fallback={null}>
-          <DetailModal permit={selectedPermit} onClose={() => setSelectedPermit(null)} />
+          <DetailModal
+            permit={selectedPermit}
+            onClose={() => setSelectedPermit(null)}
+            onOpenLegalSupport={() => setSelectedPermit(null)}
+          />
         </Suspense>
       )}
     </>
