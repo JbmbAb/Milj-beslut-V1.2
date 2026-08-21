@@ -33,6 +33,12 @@ import type { OutcomeAttestation } from "../../../mps-runtime/src/security/index
 import { createLuRegistryRuntime } from "../registry/createLuRegistryRuntime.js";
 import { LU_SITE_ASSESSMENT_CAPABILITY_KEY } from "../registry/LuSiteAssessmentRegistry.js";
 import type { ExecutionIdentityArtifact } from "../../../mps-runtime/src/execution/ExecutionIdentityArtifact.js";
+import {
+  computeExecutionIdentityArtifactIdV1,
+  computeExecutionIdentityArtifactIdV2,
+  type ExecutionIdentitySubjectV2,
+} from "../../../mps-runtime/src/execution/ExecutionIdentityScopeV2.js";
+import type { ArtifactReference } from "../../../mps-compliance/src/artifacts/ArtifactReference.js";
 import type { FrozenCoreVerificationContext } from "../../../mps-compliance/src/conformance/FrozenCoreVerificationContext.js";
 import { RuleRegistrySnapshot } from "../../../mps-compliance/src/conformance/RuleRegistrySnapshot.js";
 import { CAP_26_I1 } from "../../../mps-compliance/src/validators/CAP_26_I1.js";
@@ -89,6 +95,18 @@ export interface LuKernelRunInput {
   readonly artifact_repository?: import("../../../mps-runtime/src/kernel/ExecutionKernel.js").ArtifactRepositoryPort;
   /** Optional injected registry (tests); defaults to LU release seed. */
   readonly registry?: RegistryRuntime;
+  /**
+   * LU-EXECUTION-IDENTITY-SCOPE-V2. When provided, admission resolves the exact expected V2
+   * ExecutionIdentity for this canonical execution subject (site_id + this) and refuses a legacy
+   * V1 identity as a substitute, even if one exists for the same site_id. Omitted only by callers
+   * still exercising the legacy V1 site-scoped path (existing tests / bootstrap admission);
+   * current product issuance always supplies this.
+   */
+  readonly identity_subject_v2?: {
+    readonly project_context_binding_ref: ArtifactReference;
+    readonly product_release_ref: ArtifactReference;
+    readonly execution_contract_version: string;
+  };
 }
 
 export interface LuKernelRunResult {
@@ -193,11 +211,20 @@ export async function runLuAssessmentViaKernel(
 
   const capabilityRuntime = CapabilityRuntime.create({ registry, handlers });
 
+  // LU-EXECUTION-IDENTITY-SCOPE-V2: when identity_subject_v2 is supplied, the expected identity
+  // is resolved from the FULL canonical execution subject, never from site_id alone -- a legacy
+  // V1 identity existing for this site must never be silently substituted.
+  const expectedSubjectV2: ExecutionIdentitySubjectV2 | null = input.identity_subject_v2
+    ? { site_id: input.site_id, ...input.identity_subject_v2 }
+    : null;
+
   // PROD-LU-ADMISSION-02D: this deterministic ref names WHICH identity a valid prior issuance
   // would have been persisted under (see LuExecutionIdentityIssuer.ts) -- it is not, itself, an
   // identity. This module never constructs or signs one.
   const executionIdentityRef = {
-    artifact_id: `lu-identity-${input.site_id}`,
+    artifact_id: expectedSubjectV2
+      ? computeExecutionIdentityArtifactIdV2(expectedSubjectV2)
+      : computeExecutionIdentityArtifactIdV1(input.site_id),
     artifact_type: "execution_identity" as const,
   };
 
@@ -264,6 +291,7 @@ export async function runLuAssessmentViaKernel(
         },
         expectedPredicate,
         authorityVerifier: getLuExecutionAuthorityVerifier(),
+        expectedSubjectV2: expectedSubjectV2 ?? undefined,
       });
       verificationContext = buildAdmissionContext(artifactResolver);
     } else {

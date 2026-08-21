@@ -8,6 +8,7 @@ import {
   type ExecutionIdentityVerificationResult,
   type LuExecutionIdentityAttestationPredicate,
 } from './ExecutionIdentityAttestation.js';
+import type { ExecutionIdentitySubjectV2 } from '../../../mps-runtime/src/execution/ExecutionIdentityScopeV2.js';
 
 /**
  * PROD-LU-ADMISSION-02C — async pre-verification adapter.
@@ -39,6 +40,8 @@ export async function preVerifyExecutionIdentityForAdmission(input: {
   ) => Promise<ArtifactAttestation | null>;
   readonly expectedPredicate: LuExecutionIdentityAttestationPredicate;
   readonly authorityVerifier: VerificationKeyProvider;
+  /** LU-EXECUTION-IDENTITY-SCOPE-V2 — see verifyExecutionIdentityAttestation. */
+  readonly expectedSubjectV2?: ExecutionIdentitySubjectV2;
 }): Promise<PreVerifiedAdmissionArtifacts> {
   const attestation = await input.resolveAttestation(input.identity.signature_envelope_ref);
 
@@ -47,6 +50,7 @@ export async function preVerifyExecutionIdentityForAdmission(input: {
     attestation,
     expectedPredicate: input.expectedPredicate,
     authorityVerifier: input.authorityVerifier,
+    expectedSubjectV2: input.expectedSubjectV2,
   });
 
   const artifacts = new Map<string, ArtifactContract>();
