@@ -10,9 +10,19 @@ import {
   type ProductViewerCapabilityArtifact,
 } from "../../packages/mps-lu/src/artifacts/ProductViewerCapabilityArtifact";
 import {
+  createViewerIdentityArtifact,
+  createViewerIdentityIssuerArtifact,
+} from "../../packages/mps-lu/src/artifacts/ViewerIdentityArtifact";
+import {
   attestProductViewerCapability,
   attestViewerCapabilityIssuerArtifact,
 } from "../../server/modules/localization/productViewerCapabilityAuthority";
+import {
+  attestViewerIdentityArtifact,
+  attestViewerIdentityIssuerArtifact,
+} from "../../server/modules/localization/viewerIdentityAuthority";
+import { __resetViewerIdentitySigningProviderForTests } from "../../server/security/viewerIdentitySigningKey";
+import { __resetViewerIdentityVerifierForTests } from "../../server/security/viewerIdentityVerifier";
 import type { SpatialEvidenceArtifact } from "../../packages/mps-lu/src/artifacts/SpatialEvidenceArtifact";
 import { SPATIAL_STACK_V1 } from "../../packages/mps-lu/src/artifacts/SpatialEngineFingerprint";
 import { InMemoryArtifactRepository } from "../../packages/mps-runtime/src/repository/InMemoryArtifactRepository";
@@ -29,7 +39,6 @@ const NOW = new Date("2026-08-20T12:00:00.000Z");
 const RELEASE_HASH = "a".repeat(64);
 const PROJECT_ID = "project-production-issued";
 const BINDING_REF = { artifact_id: "project-context-binding-production-issued", artifact_type: "project_context_binding" };
-const VIEWER_IDENTITY_REF = { artifact_id: "viewer-identity-production", artifact_type: "viewer_identity" };
 const RELEASE_REF = { artifact_id: "product-release-production-issued", artifact_type: "product_release" };
 const OWNER_AUTHORITY_REF = { artifact_id: "owner-authority-manual-install-v1", artifact_type: "owner_authority_attestation" };
 
@@ -38,6 +47,22 @@ const privateKeyPem = keys.privateKey.export({ type: "pkcs8", format: "pem" }).t
 const publicKeyPem = keys.publicKey.export({ type: "spki", format: "pem" }).toString();
 const KEY_ID = "ed25519:viewer-capability-issuer-runtime-test";
 const signing = new LocalPemSigningKeyProvider(KEY_ID, privateKeyPem, publicKeyPem);
+
+const identityKeys = crypto.generateKeyPairSync("ed25519");
+const identityPrivateKeyPem = identityKeys.privateKey.export({ type: "pkcs8", format: "pem" }).toString();
+const identityPublicKeyPem = identityKeys.publicKey.export({ type: "spki", format: "pem" }).toString();
+const IDENTITY_KEY_ID = "ed25519:viewer-identity-issuer-runtime-test";
+const identitySigning = new LocalPemSigningKeyProvider(IDENTITY_KEY_ID, identityPrivateKeyPem, identityPublicKeyPem);
+
+const unsignedIdentityIssuer = createViewerIdentityIssuerArtifact({ issuer_key_id: IDENTITY_KEY_ID, owner_authority_ref: OWNER_AUTHORITY_REF });
+const unsignedIdentity = createViewerIdentityArtifact({
+  runtime_component: "canonical LU ViewerKernel / localization viewer runtime",
+  product_release_ref: RELEASE_REF,
+  product_release_hash: RELEASE_HASH,
+  issuer_ref: { artifact_id: unsignedIdentityIssuer.artifact_id, artifact_type: unsignedIdentityIssuer.artifact_type },
+  issuer_key_id: IDENTITY_KEY_ID,
+});
+const VIEWER_IDENTITY_REF = { artifact_id: unsignedIdentity.artifact_id, artifact_type: unsignedIdentity.artifact_type };
 
 const config: LocalizationViewerRuntimeConfig = {
   capabilityArtifactId: "viewer-capability-production-issued-placeholder",
@@ -52,6 +77,13 @@ async function buildIssuer() {
   const unsigned = createViewerCapabilityIssuerArtifact({ issuer_key_id: KEY_ID, owner_authority_ref: OWNER_AUTHORITY_REF });
   const attestation = await attestViewerCapabilityIssuerArtifact({ issuer: unsigned, signing });
   return { ...unsigned, attestation };
+}
+
+async function buildIdentity() {
+  const identityIssuerAttestation = await attestViewerIdentityIssuerArtifact({ issuer: unsignedIdentityIssuer, signing: identitySigning });
+  const identityIssuer = { ...unsignedIdentityIssuer, attestation: identityIssuerAttestation };
+  const identityAttestation = await attestViewerIdentityArtifact({ identity: unsignedIdentity, issuer: identityIssuer, signing: identitySigning });
+  return { identity: { ...unsignedIdentity, attestation: identityAttestation }, identityIssuer };
 }
 
 async function buildCapability(issuer: Awaited<ReturnType<typeof buildIssuer>>): Promise<ProductViewerCapabilityArtifact> {
@@ -78,6 +110,9 @@ async function seed(repository: InMemoryArtifactRepository) {
     content_hash: { algorithm: "sha256", value: RELEASE_HASH },
     body: { artifact_id: RELEASE_REF.artifact_id, artifact_type: RELEASE_REF.artifact_type, content_hash: { algorithm: "sha256", value: "release-manifest-content-hash" }, references: [], payload: {}, release_hash: { algorithm: "sha256", value: RELEASE_HASH } },
   });
+  const { identity, identityIssuer } = await buildIdentity();
+  await repository.put({ artifact_id: identityIssuer.artifact_id, content_hash: identityIssuer.content_hash, body: identityIssuer });
+  await repository.put({ artifact_id: identity.artifact_id, content_hash: identity.content_hash, body: identity });
   const capability = await buildCapability(issuer);
   await repository.put({ artifact_id: capability.artifact_id, content_hash: capability.content_hash, body: capability });
   return capability;
@@ -122,11 +157,15 @@ function existenceEvidence(): SpatialEvidenceArtifact {
 beforeEach(() => {
   __resetViewerCapabilitySigningProviderForTests(null);
   __resetViewerCapabilityVerifierForTests(new LocalPemVerificationKeyProvider(KEY_ID, publicKeyPem));
+  __resetViewerIdentitySigningProviderForTests(null);
+  __resetViewerIdentityVerifierForTests(new LocalPemVerificationKeyProvider(IDENTITY_KEY_ID, identityPublicKeyPem));
 });
 
 afterEach(() => {
   __resetViewerCapabilitySigningProviderForTests(null);
   __resetViewerCapabilityVerifierForTests(null);
+  __resetViewerIdentitySigningProviderForTests(null);
+  __resetViewerIdentityVerifierForTests(null);
 });
 
 describe("VIEWER-CAPABILITY-ISSUER-TRUST-CHAIN-V1: runtime", () => {

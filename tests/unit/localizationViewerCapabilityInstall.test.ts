@@ -10,9 +10,17 @@ import {
   type ProductViewerCapabilityArtifact,
 } from "../../packages/mps-lu/src/artifacts/ProductViewerCapabilityArtifact";
 import {
+  createViewerIdentityArtifact,
+  createViewerIdentityIssuerArtifact,
+} from "../../packages/mps-lu/src/artifacts/ViewerIdentityArtifact";
+import {
   attestProductViewerCapability,
   attestViewerCapabilityIssuerArtifact,
 } from "../../server/modules/localization/productViewerCapabilityAuthority";
+import {
+  attestViewerIdentityArtifact,
+  attestViewerIdentityIssuerArtifact,
+} from "../../server/modules/localization/viewerIdentityAuthority";
 import {
   MimersIntegration,
   resetMimersCasCacheForTests,
@@ -24,12 +32,13 @@ import {
 import { LocalPemSigningKeyProvider } from "@miljobeslut/mimers-brunn-core";
 import { __resetViewerCapabilitySigningProviderForTests } from "../../server/security/viewerCapabilitySigningKey";
 import { __resetViewerCapabilityVerifierForTests } from "../../server/security/viewerCapabilityVerifier";
+import { __resetViewerIdentitySigningProviderForTests } from "../../server/security/viewerIdentitySigningKey";
+import { __resetViewerIdentityVerifierForTests } from "../../server/security/viewerIdentityVerifier";
 
 const NOW = new Date("2026-08-20T12:00:00.000Z");
 const RELEASE_HASH = "d".repeat(64);
 const PROJECT_ID = "project-owner-issued";
 const BINDING_REF = { artifact_id: "project-context-binding-owner-issued", artifact_type: "project_context_binding" };
-const VIEWER_IDENTITY_REF = { artifact_id: "viewer-identity-owner-issued", artifact_type: "viewer_identity" };
 const RELEASE_REF = { artifact_id: "product-release-owner-issued", artifact_type: "product_release" };
 const OWNER_AUTHORITY_REF = { artifact_id: "owner-authority-manual-install-v1", artifact_type: "owner_authority_attestation" };
 
@@ -40,6 +49,22 @@ const publicKeyPem = keys.publicKey.export({ type: "spki", format: "pem" }).toSt
 const KEY_ID = "ed25519:viewer-capability-issuer-test";
 const signing = new LocalPemSigningKeyProvider(KEY_ID, privateKeyPem, publicKeyPem);
 
+const identityKeys = crypto.generateKeyPairSync("ed25519");
+const identityPrivateKeyPem = identityKeys.privateKey.export({ type: "pkcs8", format: "pem" }).toString();
+const identityPublicKeyPem = identityKeys.publicKey.export({ type: "spki", format: "pem" }).toString();
+const IDENTITY_KEY_ID = "ed25519:viewer-identity-issuer-test";
+const identitySigning = new LocalPemSigningKeyProvider(IDENTITY_KEY_ID, identityPrivateKeyPem, identityPublicKeyPem);
+
+const unsignedIdentityIssuer = createViewerIdentityIssuerArtifact({ issuer_key_id: IDENTITY_KEY_ID, owner_authority_ref: OWNER_AUTHORITY_REF });
+const unsignedIdentity = createViewerIdentityArtifact({
+  runtime_component: "canonical LU ViewerKernel / localization viewer runtime",
+  product_release_ref: RELEASE_REF,
+  product_release_hash: RELEASE_HASH,
+  issuer_ref: { artifact_id: unsignedIdentityIssuer.artifact_id, artifact_type: unsignedIdentityIssuer.artifact_type },
+  issuer_key_id: IDENTITY_KEY_ID,
+});
+const VIEWER_IDENTITY_REF = { artifact_id: unsignedIdentity.artifact_id, artifact_type: unsignedIdentity.artifact_type };
+
 function casEnv(): NodeJS.ProcessEnv {
   return {
     MIMERS_ROOT: root,
@@ -48,6 +73,8 @@ function casEnv(): NodeJS.ProcessEnv {
     NODE_ENV: "development",
     VIEWER_CAPABILITY_ISSUER_KEY_ID: KEY_ID,
     VIEWER_CAPABILITY_ISSUER_PUBLIC_KEY_PEM: publicKeyPem,
+    VIEWER_IDENTITY_ISSUER_KEY_ID: IDENTITY_KEY_ID,
+    VIEWER_IDENTITY_ISSUER_PUBLIC_KEY_PEM: identityPublicKeyPem,
   } as NodeJS.ProcessEnv;
 }
 
@@ -55,6 +82,17 @@ async function buildIssuer() {
   const unsigned = createViewerCapabilityIssuerArtifact({ issuer_key_id: KEY_ID, owner_authority_ref: OWNER_AUTHORITY_REF });
   const attestation = await attestViewerCapabilityIssuerArtifact({ issuer: unsigned, signing });
   return { ...unsigned, attestation };
+}
+
+async function buildIdentityIssuer() {
+  const attestation = await attestViewerIdentityIssuerArtifact({ issuer: unsignedIdentityIssuer, signing: identitySigning });
+  return { ...unsignedIdentityIssuer, attestation };
+}
+
+async function buildIdentity() {
+  const identityIssuer = await buildIdentityIssuer();
+  const attestation = await attestViewerIdentityArtifact({ identity: unsignedIdentity, issuer: identityIssuer, signing: identitySigning });
+  return { identity: { ...unsignedIdentity, attestation }, identityIssuer };
 }
 
 async function buildCapability(
@@ -81,8 +119,12 @@ beforeEach(() => {
   resetMimersCasCacheForTests();
   __resetViewerCapabilitySigningProviderForTests(null);
   __resetViewerCapabilityVerifierForTests(null);
+  __resetViewerIdentitySigningProviderForTests(null);
+  __resetViewerIdentityVerifierForTests(null);
   process.env.VIEWER_CAPABILITY_ISSUER_KEY_ID = KEY_ID;
   process.env.VIEWER_CAPABILITY_ISSUER_PUBLIC_KEY_PEM = publicKeyPem;
+  process.env.VIEWER_IDENTITY_ISSUER_KEY_ID = IDENTITY_KEY_ID;
+  process.env.VIEWER_IDENTITY_ISSUER_PUBLIC_KEY_PEM = identityPublicKeyPem;
   root = mkdtempSync(path.join(tmpdir(), "lu-viewer-install-"));
 });
 
@@ -90,8 +132,12 @@ afterEach(() => {
   resetMimersCasCacheForTests();
   __resetViewerCapabilitySigningProviderForTests(null);
   __resetViewerCapabilityVerifierForTests(null);
+  __resetViewerIdentitySigningProviderForTests(null);
+  __resetViewerIdentityVerifierForTests(null);
   delete process.env.VIEWER_CAPABILITY_ISSUER_KEY_ID;
   delete process.env.VIEWER_CAPABILITY_ISSUER_PUBLIC_KEY_PEM;
+  delete process.env.VIEWER_IDENTITY_ISSUER_KEY_ID;
+  delete process.env.VIEWER_IDENTITY_ISSUER_PUBLIC_KEY_PEM;
   rmSync(root, { recursive: true, force: true });
 });
 
@@ -103,6 +149,9 @@ async function seedReleaseAndIssuer(repository: Awaited<ReturnType<typeof Mimers
     content_hash: { algorithm: "sha256", value: RELEASE_HASH },
     body: { artifact_id: RELEASE_REF.artifact_id, artifact_type: RELEASE_REF.artifact_type, content_hash: { algorithm: "sha256", value: "release-manifest-content-hash" }, references: [], payload: {}, release_hash: { algorithm: "sha256", value: RELEASE_HASH } },
   });
+  const { identity, identityIssuer } = await buildIdentity();
+  await repository.put({ artifact_id: identityIssuer.artifact_id, content_hash: identityIssuer.content_hash, body: identityIssuer });
+  await repository.put({ artifact_id: identity.artifact_id, content_hash: identity.content_hash, body: identity });
   return issuer;
 }
 
@@ -137,7 +186,7 @@ describe("VIEWER-CAPABILITY-ISSUER-TRUST-CHAIN-V1: install", () => {
         capability,
         now: () => NOW,
       }),
-    ).rejects.toThrow("REJECT_VIEWER_CAPABILITY_RELEASE_HASH");
+    ).rejects.toThrow(/REJECT_VIEWER_(CAPABILITY|IDENTITY)_RELEASE_HASH/);
   });
 
   it("rejects an unsigned issuer", async () => {
@@ -149,6 +198,9 @@ describe("VIEWER-CAPABILITY-ISSUER-TRUST-CHAIN-V1: install", () => {
       content_hash: { algorithm: "sha256", value: RELEASE_HASH },
       body: { artifact_id: RELEASE_REF.artifact_id, artifact_type: RELEASE_REF.artifact_type, content_hash: { algorithm: "sha256", value: "release-manifest-content-hash" }, references: [], payload: {}, release_hash: { algorithm: "sha256", value: RELEASE_HASH } },
     });
+    const { identity, identityIssuer } = await buildIdentity();
+    await mimers.artifactRepository.put({ artifact_id: identityIssuer.artifact_id, content_hash: identityIssuer.content_hash, body: identityIssuer });
+    await mimers.artifactRepository.put({ artifact_id: identity.artifact_id, content_hash: identity.content_hash, body: identity });
     const capability = await buildCapability({ ...issuerUnsigned, attestation: undefined } as any);
 
     await expect(
@@ -173,6 +225,9 @@ describe("VIEWER-CAPABILITY-ISSUER-TRUST-CHAIN-V1: install", () => {
       content_hash: { algorithm: "sha256", value: RELEASE_HASH },
       body: { artifact_id: RELEASE_REF.artifact_id, artifact_type: RELEASE_REF.artifact_type, content_hash: { algorithm: "sha256", value: "release-manifest-content-hash" }, references: [], payload: {}, release_hash: { algorithm: "sha256", value: RELEASE_HASH } },
     });
+    const { identity, identityIssuer } = await buildIdentity();
+    await mimers.artifactRepository.put({ artifact_id: identityIssuer.artifact_id, content_hash: identityIssuer.content_hash, body: identityIssuer });
+    await mimers.artifactRepository.put({ artifact_id: identity.artifact_id, content_hash: identity.content_hash, body: identity });
     const unsignedCapability = createProductViewerCapabilityArtifact({
       issuer_key_id: "ed25519:rogue",
       issuer_ref: { artifact_id: rogueIssuer.artifact_id, artifact_type: rogueIssuer.artifact_type },
@@ -220,7 +275,7 @@ describe("VIEWER-CAPABILITY-ISSUER-TRUST-CHAIN-V1: install", () => {
 
     await expect(
       installOwnerIssuedLocalizationViewerCapability({ artifactRepository: mimers.artifactRepository, capability: tampered, now: () => NOW }),
-    ).rejects.toThrow("REJECT_VIEWER_CAPABILITY_TAMPERED");
+    ).rejects.toThrow(/REJECT_PRODUCT_VIEWER_CAPABILITY|REJECT_VIEWER_CAPABILITY_TAMPERED/);
   });
 
   it("persists an owner-issued V2 capability in Mimers CAS and starts ViewerKernel after reopening", async () => {

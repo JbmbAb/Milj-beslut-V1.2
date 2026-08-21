@@ -18,6 +18,7 @@ export * from "./artifacts/ProjectContextBindingIssuerArtifact";
 export * from "./artifacts/ProductLuContextArtifacts";
 export * from "./artifacts/CanonicalPropertyArtifacts";
 export * from "./artifacts/ProductViewerCapabilityArtifact";
+export * from "./artifacts/ViewerIdentityArtifact";
 export * from "./governance/GovernedAssessmentPersistence";
 export * from "./viewer/ViewerKernel";
 

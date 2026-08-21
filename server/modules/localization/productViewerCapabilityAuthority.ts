@@ -11,9 +11,12 @@ import {
   VIEWER_CAPABILITY_ISSUER_PURPOSE,
   VIEWER_CAPABILITY_ISSUER_ALLOWED_ARTIFACT_TYPE,
   PRESENT_PERSISTED_CANONICAL_LU_RESULTS,
+  validateProductViewerCapabilityArtifact,
   type ProductViewerCapabilityArtifact,
   type ViewerCapabilityIssuerArtifact,
 } from "@miljobeslut/mps-lu";
+import { getViewerIdentityVerifier } from "../../security/viewerIdentityVerifier";
+import { verifyViewerIdentityArtifact } from "./viewerIdentityAuthority";
 
 const ISSUER_PREDICATE_TYPE = "viewer-capability-issuer-authority-v1" as const;
 const CAPABILITY_PREDICATE_TYPE = "viewer-capability-authority-v1" as const;
@@ -130,18 +133,31 @@ export async function verifyProductViewerCapability(args: {
   readonly releaseHash: string;
   readonly now: Date;
 }): Promise<void> {
-  const issuer = await args.repository.resolve<ViewerCapabilityIssuerArtifact>(args.capability.payload.issuer_ref);
+  const c = validateProductViewerCapabilityArtifact(args.capability);
+
+  const issuer = await args.repository.resolve<ViewerCapabilityIssuerArtifact>(c.payload.issuer_ref);
   await verifyViewerCapabilityIssuerArtifact({ issuer, verification: args.verification });
 
-  if (args.capability.payload.issuer_key_id !== issuer.payload.issuer_key_id) {
+  if (c.payload.issuer_key_id !== issuer.payload.issuer_key_id) {
     throw new Error("REJECT_VIEWER_CAPABILITY_ISSUER_TRUST");
   }
 
-  const c = args.capability;
   if (c.payload.subject_project_id !== args.projectId) throw new Error("REJECT_VIEWER_CAPABILITY_PROJECT");
   if (c.payload.project_context_binding_ref.artifact_id !== args.bindingId) throw new Error("REJECT_VIEWER_CAPABILITY_CONTEXT_BINDING");
   if (c.payload.viewer_identity_ref.artifact_id !== args.viewerIdentityId) throw new Error("REJECT_VIEWER_CAPABILITY_VIEWER_IDENTITY");
   if (c.payload.product_release_ref.artifact_id !== args.releaseId) throw new Error("REJECT_VIEWER_CAPABILITY_RELEASE_REF");
+
+  // viewer_identity_ref must resolve to a real, independently-verified ViewerIdentityArtifact --
+  // never merely an ID string the caller/capability happens to assert. Bound to the same release
+  // this capability itself declares, so provenance cannot name a viewer admitted for a different
+  // release than the one actually presenting.
+  await verifyViewerIdentityArtifact({
+    identityRef: c.payload.viewer_identity_ref,
+    repository: args.repository,
+    verification: getViewerIdentityVerifier(),
+    releaseId: args.releaseId,
+    releaseHash: args.releaseHash,
+  });
   if (c.payload.permitted_presentation_capability !== PRESENT_PERSISTED_CANONICAL_LU_RESULTS) {
     throw new Error("REJECT_VIEWER_CAPABILITY_SCOPE");
   }

@@ -138,3 +138,27 @@ export function createProductViewerCapabilityArtifact(input: {
   };
   return { ...a, content_hash: sha256ContentHash(a) };
 }
+
+/**
+ * Structural validation: recomputes canonical identity/content_hash from the artifact's current
+ * payload and rejects any mismatch. Catches tampering of ANY payload field -- including ones not
+ * echoed into the attestation's predicate (e.g. valid_from/valid_until, viewer_identity_ref) --
+ * which a predicate-only comparison would silently miss. Does NOT verify the attestation
+ * signature itself.
+ */
+export function validateProductViewerCapabilityArtifact(artifact: ProductViewerCapabilityArtifact): ProductViewerCapabilityArtifact {
+  if (!artifact || typeof artifact !== "object" || artifact.artifact_type !== "viewer_capability") {
+    throw new Error("REJECT_PRODUCT_VIEWER_CAPABILITY: artifact_type must be viewer_capability");
+  }
+  if (!artifact.payload || typeof artifact.payload !== "object") {
+    throw new Error("REJECT_PRODUCT_VIEWER_CAPABILITY: payload is required");
+  }
+  const rebuilt = createProductViewerCapabilityArtifact(artifact.payload);
+  if (artifact.artifact_id !== rebuilt.artifact_id) {
+    throw new Error("REJECT_PRODUCT_VIEWER_CAPABILITY: artifact_id does not match canonical identity");
+  }
+  if (artifact.content_hash?.algorithm !== rebuilt.content_hash.algorithm || artifact.content_hash?.value !== rebuilt.content_hash.value) {
+    throw new Error("REJECT_PRODUCT_VIEWER_CAPABILITY: content_hash does not match canonical payload (tampered)");
+  }
+  return artifact;
+}
