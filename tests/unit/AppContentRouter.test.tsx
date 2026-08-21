@@ -59,6 +59,9 @@ vi.mock('../../components/admin/modules/sewage-portal/SewagePortalView', () => (
 vi.mock('../../components/admin/modules/c-notification-mass/CNotificationMassUI', () => ({
   CNotificationMassUI: () => <div data-testid="c-notification-mass-ui" />,
 }));
+vi.mock('../../components/legal/LegalSupportView', () => ({
+  LegalSupportView: () => <div data-testid="legal-support-view" />,
+}));
 
 describe('AppContentRouter', () => {
   const baseProps = {
@@ -87,5 +90,15 @@ describe('AppContentRouter', () => {
   it('routes legacy PERMIT_PORTAL apply tab to C-anmalan mass', () => {
     render(<AppContentRouter {...baseProps} mode="PERMIT_PORTAL" activeTab="apply" />);
     expect(screen.getByTestId('c-notification-mass-ui')).toBeInTheDocument();
+  });
+
+  it('LEGAL-ANSWER-PRODUCT-WIRING-01: routes the "legal" tab to LegalSupportView regardless of active mode', () => {
+    render(<AppContentRouter {...baseProps} mode="Core_WORKFLOW" activeTab="legal" />);
+    expect(screen.getByTestId('legal-support-view')).toBeInTheDocument();
+  });
+
+  it('LEGAL-ANSWER-PRODUCT-WIRING-01: the "legal" tab is mode-independent, same as requirements/integrations/dossier', () => {
+    render(<AppContentRouter {...baseProps} mode="PERMIT_PORTAL" activeTab="legal" />);
+    expect(screen.getByTestId('legal-support-view')).toBeInTheDocument();
   });
 });

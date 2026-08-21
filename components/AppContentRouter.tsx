@@ -23,6 +23,7 @@ import SewagePortalView from './admin/modules/sewage-portal/SewagePortalView';
 import { DossierDashboard } from './DossierDashboard';
 
 import { MimerSearchUI } from './MimerSearchUI';
+import { LegalSupportView } from './legal/LegalSupportView';
 
 export interface AppContentRouterProps {
   mode: InterfaceMode | null;
@@ -47,6 +48,9 @@ export const AppContentRouter: React.FC<AppContentRouterProps> = ({
   if (normalizedTab === 'requirements') return <RequirementChecklist code={{ code: "dummy", name: "dummy" } as any} />;
   if (normalizedTab === 'integrations') return <IntegrationsDashboard />;
   if (normalizedTab === 'dossier') return <DossierDashboard />;
+  // "Juridiskt Stöd" (AppSidebar.tsx) is rendered outside any mode conditional -- so this tab is
+  // handled mode-independently too, same as the three checks above.
+  if (normalizedTab === 'legal') return <LegalSupportView />;
 
   switch (normalizedMode) {
     case 'PERMIT_PORTAL':
