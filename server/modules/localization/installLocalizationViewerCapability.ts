@@ -7,6 +7,9 @@ import {
 } from "./createLocalizationViewerRuntime";
 import { verifyProductViewerCapability } from "./productViewerCapabilityAuthority";
 import { getViewerCapabilityVerifier } from "../../security/viewerCapabilityVerifier";
+import { ProjectContextBindingProvider } from "./projectContextBindingRuntime";
+import { PrismaProjectContextBindingIndex } from "../../repositories/projectContextBindingRepository";
+import { getProjectContextBindingIssuerVerifier } from "../../security/projectContextBindingIssuerKey";
 
 export type ViewerCapabilityInstallResult = {
   readonly artifactId: string;
@@ -25,8 +28,16 @@ export async function installOwnerIssuedLocalizationViewerCapability(args: {
   readonly artifactRepository: ArtifactRepositoryPort;
   readonly capability: ProductViewerCapabilityArtifact;
   readonly now?: () => Date;
+  readonly currentBindingProvider?: ProjectContextBindingProvider;
 }): Promise<ViewerCapabilityInstallResult> {
   const now = args.now?.() ?? new Date();
+  const currentBindingProvider =
+    args.currentBindingProvider ??
+    new ProjectContextBindingProvider(
+      args.artifactRepository,
+      new PrismaProjectContextBindingIndex(),
+      getProjectContextBindingIssuerVerifier(),
+    );
 
   await verifyProductViewerCapability({
     capability: args.capability,
@@ -38,6 +49,7 @@ export async function installOwnerIssuedLocalizationViewerCapability(args: {
     releaseId: args.capability.payload.product_release_ref.artifact_id,
     releaseHash: args.capability.payload.product_release_hash,
     now,
+    currentBindingProvider,
   });
 
   await args.artifactRepository.put({
@@ -58,6 +70,7 @@ export async function installOwnerIssuedLocalizationViewerCapability(args: {
     artifactRepository: args.artifactRepository,
     config: runtimeConfig,
     now: args.now,
+    currentBindingProvider,
   });
 
   return {
@@ -72,6 +85,7 @@ export async function verifyInstalledLocalizationViewerCapability(args: {
   readonly artifactRepository: ArtifactRepositoryPort;
   readonly config: LocalizationViewerRuntimeConfig;
   readonly now?: () => Date;
+  readonly currentBindingProvider?: ProjectContextBindingProvider;
 }): Promise<LocalizationViewerRuntime> {
   return createLocalizationViewerRuntime(args);
 }

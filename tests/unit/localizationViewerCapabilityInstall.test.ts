@@ -29,6 +29,7 @@ import {
   installOwnerIssuedLocalizationViewerCapability,
   verifyInstalledLocalizationViewerCapability,
 } from "../../server/modules/localization/installLocalizationViewerCapability";
+import type { ProjectContextBindingProvider } from "../../server/modules/localization/projectContextBindingRuntime";
 import { LocalPemSigningKeyProvider } from "@miljobeslut/mimers-brunn-core";
 import { __resetViewerCapabilitySigningProviderForTests } from "../../server/security/viewerCapabilitySigningKey";
 import { __resetViewerCapabilityVerifierForTests } from "../../server/security/viewerCapabilityVerifier";
@@ -41,6 +42,20 @@ const PROJECT_ID = "project-owner-issued";
 const BINDING_REF = { artifact_id: "project-context-binding-owner-issued", artifact_type: "project_context_binding" };
 const RELEASE_REF = { artifact_id: "product-release-owner-issued", artifact_type: "product_release" };
 const OWNER_AUTHORITY_REF = { artifact_id: "owner-authority-manual-install-v1", artifact_type: "owner_authority_attestation" };
+
+/**
+ * VIEWER-CAPABILITY-CURRENT-BINDING-WIRING-01: this test file never provisions a real
+ * ProjectContextBinding/supersession graph (BINDING_REF is inert test data) -- these tests
+ * predate that concern entirely. A stub standing in for "BINDING_REF is currently the canonical
+ * head" keeps them exercising what they were written to prove (issuer trust, temporal window,
+ * tamper detection) without requiring a live Postgres-backed binding graph.
+ */
+function currentBindingProviderStub(bindingRef: { artifact_id: string; artifact_type: string }): ProjectContextBindingProvider {
+  return {
+    resolveCurrent: async () => ({ artifact_id: bindingRef.artifact_id, artifact_type: bindingRef.artifact_type }) as never,
+    resolve: async () => ({ artifact_id: bindingRef.artifact_id, artifact_type: bindingRef.artifact_type }) as never,
+  } as unknown as ProjectContextBindingProvider;
+}
 
 let root: string;
 const keys = crypto.generateKeyPairSync("ed25519");
@@ -171,6 +186,7 @@ describe("VIEWER-CAPABILITY-ISSUER-TRUST-CHAIN-V1: install", () => {
           expectedReleaseHash: RELEASE_HASH,
         },
         now: () => NOW,
+        currentBindingProvider: currentBindingProviderStub(BINDING_REF),
       }),
     ).rejects.toThrow("REJECT_LU_VIEWER_CAPABILITY_UNAVAILABLE");
   });
@@ -185,6 +201,7 @@ describe("VIEWER-CAPABILITY-ISSUER-TRUST-CHAIN-V1: install", () => {
         artifactRepository: mimers.artifactRepository,
         capability,
         now: () => NOW,
+        currentBindingProvider: currentBindingProviderStub(BINDING_REF),
       }),
     ).rejects.toThrow(/REJECT_VIEWER_(CAPABILITY|IDENTITY)_RELEASE_HASH/);
   });
@@ -204,7 +221,7 @@ describe("VIEWER-CAPABILITY-ISSUER-TRUST-CHAIN-V1: install", () => {
     const capability = await buildCapability({ ...issuerUnsigned, attestation: undefined } as any);
 
     await expect(
-      installOwnerIssuedLocalizationViewerCapability({ artifactRepository: mimers.artifactRepository, capability, now: () => NOW }),
+      installOwnerIssuedLocalizationViewerCapability({ artifactRepository: mimers.artifactRepository, capability, now: () => NOW, currentBindingProvider: currentBindingProviderStub(BINDING_REF) }),
     ).rejects.toThrow("REJECT_VIEWER_CAPABILITY_ISSUER_UNSIGNED");
   });
 
@@ -243,7 +260,7 @@ describe("VIEWER-CAPABILITY-ISSUER-TRUST-CHAIN-V1: install", () => {
     const capability = { ...unsignedCapability, attestation: capabilityAttestation };
 
     await expect(
-      installOwnerIssuedLocalizationViewerCapability({ artifactRepository: mimers.artifactRepository, capability, now: () => NOW }),
+      installOwnerIssuedLocalizationViewerCapability({ artifactRepository: mimers.artifactRepository, capability, now: () => NOW, currentBindingProvider: currentBindingProviderStub(BINDING_REF) }),
     ).rejects.toThrow("REJECT_VIEWER_CAPABILITY_ISSUER_TRUST_ROOT");
   });
 
@@ -253,7 +270,7 @@ describe("VIEWER-CAPABILITY-ISSUER-TRUST-CHAIN-V1: install", () => {
     const capability = await buildCapability(issuer, { valid_from: "2020-01-01T00:00:00.000Z", valid_until: "2021-01-01T00:00:00.000Z" });
 
     await expect(
-      installOwnerIssuedLocalizationViewerCapability({ artifactRepository: mimers.artifactRepository, capability, now: () => NOW }),
+      installOwnerIssuedLocalizationViewerCapability({ artifactRepository: mimers.artifactRepository, capability, now: () => NOW, currentBindingProvider: currentBindingProviderStub(BINDING_REF) }),
     ).rejects.toThrow("REJECT_VIEWER_CAPABILITY_EXPIRED");
   });
 
@@ -263,7 +280,7 @@ describe("VIEWER-CAPABILITY-ISSUER-TRUST-CHAIN-V1: install", () => {
     const capability = await buildCapability(issuer, { valid_from: "2030-01-01T00:00:00.000Z", valid_until: "2031-01-01T00:00:00.000Z" });
 
     await expect(
-      installOwnerIssuedLocalizationViewerCapability({ artifactRepository: mimers.artifactRepository, capability, now: () => NOW }),
+      installOwnerIssuedLocalizationViewerCapability({ artifactRepository: mimers.artifactRepository, capability, now: () => NOW, currentBindingProvider: currentBindingProviderStub(BINDING_REF) }),
     ).rejects.toThrow("REJECT_VIEWER_CAPABILITY_NOT_YET_VALID");
   });
 
@@ -274,7 +291,7 @@ describe("VIEWER-CAPABILITY-ISSUER-TRUST-CHAIN-V1: install", () => {
     const tampered = { ...capability, payload: { ...capability.payload, subject_project_id: "some-other-project" } };
 
     await expect(
-      installOwnerIssuedLocalizationViewerCapability({ artifactRepository: mimers.artifactRepository, capability: tampered, now: () => NOW }),
+      installOwnerIssuedLocalizationViewerCapability({ artifactRepository: mimers.artifactRepository, capability: tampered, now: () => NOW, currentBindingProvider: currentBindingProviderStub(BINDING_REF) }),
     ).rejects.toThrow(/REJECT_PRODUCT_VIEWER_CAPABILITY|REJECT_VIEWER_CAPABILITY_TAMPERED/);
   });
 
@@ -287,6 +304,7 @@ describe("VIEWER-CAPABILITY-ISSUER-TRUST-CHAIN-V1: install", () => {
       artifactRepository: first.artifactRepository,
       capability,
       now: () => NOW,
+      currentBindingProvider: currentBindingProviderStub(BINDING_REF),
     });
 
     resetMimersCasCacheForTests();
@@ -296,6 +314,7 @@ describe("VIEWER-CAPABILITY-ISSUER-TRUST-CHAIN-V1: install", () => {
       artifactRepository: reopened.artifactRepository,
       config: installation.runtimeConfig,
       now: () => NOW,
+      currentBindingProvider: currentBindingProviderStub(BINDING_REF),
     });
 
     expect(installation.artifactId).toBe(capability.artifact_id);

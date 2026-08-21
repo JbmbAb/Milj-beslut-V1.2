@@ -17,6 +17,7 @@ import {
 } from "@miljobeslut/mps-lu";
 import { getViewerIdentityVerifier } from "../../security/viewerIdentityVerifier";
 import { verifyViewerIdentityArtifact } from "./viewerIdentityAuthority";
+import { ProjectContextBindingProvider } from "./projectContextBindingRuntime";
 
 const ISSUER_PREDICATE_TYPE = "viewer-capability-issuer-authority-v1" as const;
 const CAPABILITY_PREDICATE_TYPE = "viewer-capability-authority-v1" as const;
@@ -132,6 +133,16 @@ export async function verifyProductViewerCapability(args: {
   readonly releaseId: string;
   readonly releaseHash: string;
   readonly now: Date;
+  /**
+   * VIEWER-CAPABILITY-CURRENT-BINDING-WIRING-01: the caller's `ProjectContextBindingProvider`,
+   * used to independently resolve the CURRENT canonical ProjectContextBinding head
+   * (`resolveCurrent`, which itself fully verifies every binding/supersession artifact in the
+   * project's graph) and compare it against this capability's own bound `project_context_binding_ref`.
+   * A capability minted against a binding that has since been superseded is rejected here, rather
+   * than remaining silently valid forever just because it also happens to match a stale
+   * caller-configured `bindingId` expectation.
+   */
+  readonly currentBindingProvider: ProjectContextBindingProvider;
 }): Promise<void> {
   const c = validateProductViewerCapabilityArtifact(args.capability);
 
@@ -146,6 +157,16 @@ export async function verifyProductViewerCapability(args: {
   if (c.payload.project_context_binding_ref.artifact_id !== args.bindingId) throw new Error("REJECT_VIEWER_CAPABILITY_CONTEXT_BINDING");
   if (c.payload.viewer_identity_ref.artifact_id !== args.viewerIdentityId) throw new Error("REJECT_VIEWER_CAPABILITY_VIEWER_IDENTITY");
   if (c.payload.product_release_ref.artifact_id !== args.releaseId) throw new Error("REJECT_VIEWER_CAPABILITY_RELEASE_REF");
+
+  let currentBinding;
+  try {
+    currentBinding = await args.currentBindingProvider.resolveCurrent(args.projectId);
+  } catch {
+    throw new Error("REJECT_VIEWER_CAPABILITY_CURRENT_BINDING_UNAVAILABLE");
+  }
+  if (currentBinding.artifact_id !== c.payload.project_context_binding_ref.artifact_id) {
+    throw new Error("REJECT_VIEWER_CAPABILITY_CONTEXT_BINDING_SUPERSEDED");
+  }
 
   // viewer_identity_ref must resolve to a real, independently-verified ViewerIdentityArtifact --
   // never merely an ID string the caller/capability happens to assert. Bound to the same release

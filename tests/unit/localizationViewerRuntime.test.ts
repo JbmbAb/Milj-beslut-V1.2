@@ -31,6 +31,7 @@ import {
   LocalizationViewerCapabilityProvider,
   type LocalizationViewerRuntimeConfig,
 } from "../../server/modules/localization/createLocalizationViewerRuntime";
+import type { ProjectContextBindingProvider } from "../../server/modules/localization/projectContextBindingRuntime";
 import { LocalPemSigningKeyProvider, LocalPemVerificationKeyProvider } from "@miljobeslut/mimers-brunn-core";
 import { __resetViewerCapabilitySigningProviderForTests } from "../../server/security/viewerCapabilitySigningKey";
 import { __resetViewerCapabilityVerifierForTests } from "../../server/security/viewerCapabilityVerifier";
@@ -63,6 +64,19 @@ const unsignedIdentity = createViewerIdentityArtifact({
   issuer_key_id: IDENTITY_KEY_ID,
 });
 const VIEWER_IDENTITY_REF = { artifact_id: unsignedIdentity.artifact_id, artifact_type: unsignedIdentity.artifact_type };
+
+/**
+ * VIEWER-CAPABILITY-CURRENT-BINDING-WIRING-01: this test file never provisions a real
+ * ProjectContextBinding/supersession graph -- a stub standing in for "BINDING_REF is currently
+ * the canonical head" keeps these tests exercising what they were written to prove without
+ * requiring a live Postgres-backed binding graph.
+ */
+function currentBindingProviderStub(bindingRef: { artifact_id: string; artifact_type: string }): ProjectContextBindingProvider {
+  return {
+    resolveCurrent: async () => ({ artifact_id: bindingRef.artifact_id, artifact_type: bindingRef.artifact_type }) as never,
+    resolve: async () => ({ artifact_id: bindingRef.artifact_id, artifact_type: bindingRef.artifact_type }) as never,
+  } as unknown as ProjectContextBindingProvider;
+}
 
 const config: LocalizationViewerRuntimeConfig = {
   capabilityArtifactId: "viewer-capability-production-issued-placeholder",
@@ -170,7 +184,7 @@ afterEach(() => {
 
 describe("VIEWER-CAPABILITY-ISSUER-TRUST-CHAIN-V1: runtime", () => {
   it("fails closed when no owner-issued capability is installed", async () => {
-    const provider = new LocalizationViewerCapabilityProvider(new InMemoryArtifactRepository(), config, () => NOW);
+    const provider = new LocalizationViewerCapabilityProvider(new InMemoryArtifactRepository(), config, () => NOW, currentBindingProviderStub(BINDING_REF));
 
     await expect(provider.resolve()).rejects.toThrow("REJECT_LU_VIEWER_CAPABILITY_UNAVAILABLE");
   });
@@ -182,6 +196,7 @@ describe("VIEWER-CAPABILITY-ISSUER-TRUST-CHAIN-V1: runtime", () => {
       repository,
       { ...config, capabilityArtifactId: capability.artifact_id, expectedProjectId: "some-other-project" },
       () => NOW,
+      currentBindingProviderStub(BINDING_REF),
     );
 
     await expect(provider.resolve()).rejects.toThrow("REJECT_VIEWER_CAPABILITY_PROJECT");
@@ -194,6 +209,7 @@ describe("VIEWER-CAPABILITY-ISSUER-TRUST-CHAIN-V1: runtime", () => {
       repository,
       { ...config, capabilityArtifactId: capability.artifact_id, expectedContextBindingId: "some-other-binding" },
       () => NOW,
+      currentBindingProviderStub(BINDING_REF),
     );
 
     await expect(provider.resolve()).rejects.toThrow("REJECT_VIEWER_CAPABILITY_CONTEXT_BINDING");
@@ -204,7 +220,7 @@ describe("VIEWER-CAPABILITY-ISSUER-TRUST-CHAIN-V1: runtime", () => {
     const capability = await seed(repository);
 
     await expect(
-      new LocalizationViewerCapabilityProvider(repository, { ...config, capabilityArtifactId: capability.artifact_id }, () => NOW).resolve(),
+      new LocalizationViewerCapabilityProvider(repository, { ...config, capabilityArtifactId: capability.artifact_id }, () => NOW, currentBindingProviderStub(BINDING_REF)).resolve(),
     ).resolves.toMatchObject({
       artifact_id: capability.artifact_id,
       release_hash: { value: RELEASE_HASH },
@@ -222,6 +238,7 @@ describe("VIEWER-CAPABILITY-ISSUER-TRUST-CHAIN-V1: runtime", () => {
       artifactRepository: repository,
       config: { ...config, capabilityArtifactId: capability.artifact_id },
       now: () => NOW,
+      currentBindingProvider: currentBindingProviderStub(BINDING_REF),
     });
     const exported = await runtime.viewer.exportAsGeoJSON([evidence.artifact_id]);
 

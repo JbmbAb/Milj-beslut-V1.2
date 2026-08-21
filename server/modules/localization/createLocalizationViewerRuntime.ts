@@ -4,6 +4,17 @@ import type { ProductViewerCapabilityArtifact } from "@miljobeslut/mps-lu";
 import type { ViewerCapabilityArtifact } from "../../../packages/mps-compliance/src/artifacts/ViewerCapabilityArtifact.js";
 import { getViewerCapabilityVerifier } from "../../security/viewerCapabilityVerifier.js";
 import { verifyProductViewerCapability } from "./productViewerCapabilityAuthority.js";
+import { ProjectContextBindingProvider } from "./projectContextBindingRuntime.js";
+import { PrismaProjectContextBindingIndex } from "../../repositories/projectContextBindingRepository.js";
+import { getProjectContextBindingIssuerVerifier } from "../../security/projectContextBindingIssuerKey.js";
+
+function defaultCurrentBindingProvider(artifactRepository: ArtifactRepositoryPort): ProjectContextBindingProvider {
+  return new ProjectContextBindingProvider(
+    artifactRepository,
+    new PrismaProjectContextBindingIndex(),
+    getProjectContextBindingIssuerVerifier(),
+  );
+}
 
 export const LU_VIEWER_CAPABILITY_ARTIFACT_ID_ENV = "LU_VIEWER_CAPABILITY_ARTIFACT_ID" as const;
 export const LU_VIEWER_PROJECT_ID_ENV = "LU_VIEWER_PROJECT_ID" as const;
@@ -66,6 +77,13 @@ export class LocalizationViewerCapabilityProvider {
     private readonly artifactRepository: ArtifactRepositoryPort,
     private readonly config: LocalizationViewerRuntimeConfig,
     private readonly now: () => Date = () => new Date(),
+    /**
+     * VIEWER-CAPABILITY-CURRENT-BINDING-WIRING-01: defaults to the real, Postgres-backed
+     * canonical resolver. Tests inject a stub with a matching `resolveCurrent(projectId)` shape
+     * (structurally typed -- `ProjectContextBindingProvider` has no private members) rather than
+     * needing a live database.
+     */
+    private readonly currentBindingProvider: ProjectContextBindingProvider = defaultCurrentBindingProvider(artifactRepository),
   ) {}
 
   async resolve(): Promise<ViewerCapabilityArtifact> {
@@ -89,6 +107,7 @@ export class LocalizationViewerCapabilityProvider {
       releaseId: this.config.expectedReleaseId,
       releaseHash: this.config.expectedReleaseHash,
       now: this.now(),
+      currentBindingProvider: this.currentBindingProvider,
     });
 
     return {
@@ -114,6 +133,7 @@ export async function createLocalizationViewerRuntime(args: {
   readonly config?: LocalizationViewerRuntimeConfig;
   readonly env?: NodeJS.ProcessEnv;
   readonly now?: () => Date;
+  readonly currentBindingProvider?: ProjectContextBindingProvider;
 } = {}): Promise<LocalizationViewerRuntime> {
   const artifactRepository = args.artifactRepository ?? (await MimersIntegration.create()).artifactRepository;
   const config = args.config ?? readLocalizationViewerRuntimeConfig(args.env);
@@ -121,6 +141,7 @@ export async function createLocalizationViewerRuntime(args: {
     artifactRepository,
     config,
     args.now,
+    args.currentBindingProvider ?? defaultCurrentBindingProvider(artifactRepository),
   ).resolve();
 
   return {
