@@ -18,9 +18,11 @@ import {
   type LUPropertyContextArtifact,
   type ProjectContextBindingArtifact,
   type ProjectPropertyBindingArtifact,
+  createProjectContextBindingIssuerArtifact,
 } from "@miljobeslut/mps-lu";
 import { PrismaProjectContextBindingIndex } from "../../server/repositories/projectContextBindingRepository";
 import { verifyProjectContextBindingArtifactAuthority } from "../../server/modules/localization/projectContextBindingAuthority";
+import { ProjectContextBindingProvider } from "../../server/modules/localization/projectContextBindingRuntime";
 import { getProjectContextBindingIssuerVerifier } from "../../server/security/projectContextBindingIssuerKey";
 
 export interface CanonicalProjectGeometry {
@@ -51,19 +53,11 @@ export async function resolveCanonicalProjectContext(
   repo: ArtifactRepositoryPort,
   index: PrismaProjectContextBindingIndex = new PrismaProjectContextBindingIndex(),
 ): Promise<CanonicalProjectContext> {
-  const projectContextRef = await index.findProjectContextRef(projectId);
-  const bindingArtifactId = await index.resolve(projectId, projectContextRef);
-
-  const binding = await repo.resolve<ProjectContextBindingArtifact>({
-    artifact_id: bindingArtifactId,
-    artifact_type: "project_context_binding",
-  });
-  await verifyProjectContextBindingArtifactAuthority({
-    artifact: binding,
-    issuerRef: binding.payload.authority_ref,
-    artifactRepository: repo,
-    verification: getProjectContextBindingIssuerVerifier(),
-  });
+  const binding = await new ProjectContextBindingProvider(
+    repo,
+    index,
+    getProjectContextBindingIssuerVerifier(),
+  ).resolveCurrent(projectId);
   if (binding.payload.project_id !== projectId) {
     throw new Error("REJECT_PROJECT_CONTEXT: binding project_id does not match requested project");
   }
@@ -71,9 +65,19 @@ export async function resolveCanonicalProjectContext(
   const propertyBinding = await repo.resolve<ProjectPropertyBindingArtifact>(
     binding.payload.project_property_binding_ref,
   );
+  const propertyBindingAttestation = propertyBinding.attestation;
+  const propertyBindingIssuerVersion = (propertyBindingAttestation?.predicate as { issuer_version?: unknown } | undefined)
+    ?.issuer_version;
+  if (typeof propertyBindingIssuerVersion !== "string" || !propertyBindingAttestation?.signer) {
+    throw new Error("REJECT_PROJECT_CONTEXT: property binding issuer provenance is unavailable");
+  }
+  const propertyBindingIssuer = createProjectContextBindingIssuerArtifact({
+    issuer_key_id: propertyBindingAttestation.signer,
+    issuer_version: propertyBindingIssuerVersion as "project-context-binding-issuer-v1" | "project-context-binding-issuer-v2",
+  });
   await verifyProjectContextBindingArtifactAuthority({
     artifact: propertyBinding,
-    issuerRef: binding.payload.authority_ref,
+    issuerRef: { artifact_id: propertyBindingIssuer.artifact_id, artifact_type: propertyBindingIssuer.artifact_type },
     artifactRepository: repo,
     verification: getProjectContextBindingIssuerVerifier(),
   });
