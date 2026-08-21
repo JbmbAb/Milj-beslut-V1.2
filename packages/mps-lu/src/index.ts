@@ -12,7 +12,14 @@ export * from "./artifacts/SpatialResultSemantics";
 export * from "./artifacts/SpatialEngineFingerprint";
 export * from "./artifacts/LUProjectContextArtifact";
 export * from "./artifacts/LUPropertyContextArtifact";
+export * from "./artifacts/ProjectContextBindingArtifact";
+export * from "./artifacts/ProjectPropertyBindingArtifact";
+export * from "./artifacts/ProjectContextBindingIssuerArtifact";
+export * from "./artifacts/ProductLuContextArtifacts";
+export * from "./artifacts/CanonicalPropertyArtifacts";
+export * from "./artifacts/ProductViewerCapabilityArtifact";
 export * from "./governance/GovernedAssessmentPersistence";
+export * from "./viewer/ViewerKernel";
 
 // Services
 export * from "./services/SpatialQueryContract";

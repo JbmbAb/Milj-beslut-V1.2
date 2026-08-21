@@ -27,4 +27,5 @@ export interface ViewerCapabilityArtifact extends ArtifactContract {
   readonly can_view_domain_evidence: boolean;
   readonly allowed_operations: readonly string[];
   readonly denied_operations: readonly string[];
+
 }
