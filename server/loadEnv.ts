@@ -13,6 +13,15 @@ function stripQuotes(value: string): string {
   return value;
 }
 
+// This loader is line-based (splits the file on real newlines), so a multi-line value -- e.g. a
+// PEM-encoded key -- cannot be represented directly. The established convention for such values
+// is to flatten real newlines to the literal two-character sequence \n on a single .env line; this
+// unescapes that back to a real newline after quote-stripping. A value with no literal \n is
+// returned unchanged.
+function unescapeNewlines(value: string): string {
+  return value.includes('\\n') ? value.replace(/\\n/g, '\n') : value;
+}
+
 export function loadEnvFile(fileName: string = '.env', options: LoadEnvOptions = {}): void {
   const filePath = path.resolve(process.cwd(), fileName);
   if (!fs.existsSync(filePath)) {
@@ -35,6 +44,6 @@ export function loadEnvFile(fileName: string = '.env', options: LoadEnvOptions =
     if (!overrideExisting && process.env[key]) continue;
 
     const rawValue = trimmed.slice(eq + 1).trim();
-    process.env[key] = stripQuotes(rawValue);
+    process.env[key] = unescapeNewlines(stripQuotes(rawValue));
   }
 }
