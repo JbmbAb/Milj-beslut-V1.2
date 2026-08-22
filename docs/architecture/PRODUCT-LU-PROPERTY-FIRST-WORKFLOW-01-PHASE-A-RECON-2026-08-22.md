@@ -2,6 +2,38 @@
 
 OWNER-APPROVED / READ-ONLY. No product code was changed to produce this document.
 
+## STATUS: CLOSED / ESTABLISHED / READ-ONLY (2026-08-22)
+
+Four headline findings, frozen:
+
+```text
+1 PROPERTY → N LOCALIZATIONS
+REQUIRED
+current createOrGetAdminProject semantics = incompatible
+
+PROPERTY → VERIFIED PROJECT CONTEXT BINDING
+NOT AUTOMATED (reachable only via owner CLI, not from a live request)
+primary blocker
+
+LOCALIZATION GEOMETRY
+NOT MODELED
+new subsystem required
+
+PROPERTY GEOMETRY CESIUM BUG
+OPEN / diagnosis not yet proven
+```
+
+**Correction (2026-08-22, after `PRODUCT-LU-PROJECT-CONTEXT-BOOTSTRAP-01` Phase A traced this
+specifically):** finding 6 below understated what exists. A single script,
+`scripts/ops/bootstrap-product-lu-owner.ts`, already performs the full property → verified
+`ProjectContextBinding` chain, with the private-key/verify-only separation already correctly
+built in (including a fresh-process, public-key-only re-verification step). The real gap is not
+"no automation exists" — it's that this script is CLI-only (unreachable from a live user request)
+and shares the same one-property-one-active-project defect as `createOrGetAdminProject`. See
+`docs/architecture/PRODUCT-LU-PROJECT-CONTEXT-BOOTSTRAP-01-PHASE-A-RECON-2026-08-22.md` for the
+full, corrected trace and the proposed automation contract. The rest of this document (findings
+1–5, 7–10, and the three-identity framing) stands as originally recorded.
+
 ## Context
 
 `AUTHENTICATED-LU-UI-E2E-01` closed PASS on 2026-08-22, proving the governed LU technical
