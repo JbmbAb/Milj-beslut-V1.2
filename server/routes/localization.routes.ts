@@ -3,6 +3,7 @@
  */
 
 import express from 'express';
+import { prisma } from '../db/prisma';
 import { requireAuth } from '../security/auth';
 import { rateLimitByUser } from '../security/rateLimit';
 import { toSafeErrorResponse } from '../security/secureErrors';
@@ -249,6 +250,49 @@ router.get(
         return;
       }
       res.status(200).json({ ok: true, status });
+    } catch (error) {
+      next(error);
+    }
+  },
+);
+
+/**
+ * POST /api/localization/:projectId/bootstrap-retry
+ *
+ * PRODUCT-LU-PROPERTY-FIRST-WORKFLOW-01 Phase B (UI wiring). Enqueues another
+ * ProjectContextBootstrapRequest for an EXISTING project after a FAILED attempt -- never creates
+ * a new project (that stays exclusively POST /api/localization/localization-projects). The
+ * propertyDesignation is read from the project's own real row, never accepted from the request
+ * body, so a caller cannot retry-with-a-different-property.
+ */
+router.post(
+  '/api/localization/:projectId/bootstrap-retry',
+  requireAuth,
+  rateLimitByUser(10, 60_000),
+  async (req, res, next) => {
+    try {
+      const projectId = String(req.params.projectId || '').trim();
+      if (!projectId) {
+        res.status(400).json({ ok: false, error: 'projectId required' });
+        return;
+      }
+      try {
+        await assertProjectAccess(req.authUser!, projectId, req.authUser!.organisationId);
+      } catch {
+        res.status(403).json({ ok: false, error: 'Not authorized for this project.' });
+        return;
+      }
+      const project = await prisma.project.findUnique({ where: { id: projectId }, select: { propertyDesignation: true } });
+      if (!project) {
+        res.status(404).json({ ok: false, error: 'Project not found.' });
+        return;
+      }
+      const bootstrapRequest = await enqueueProjectContextBootstrapRequest({
+        projectId,
+        requestedByUserId: req.authUser!.id,
+        propertyDesignation: project.propertyDesignation,
+      });
+      res.status(201).json({ ok: true, bootstrapRequestId: bootstrapRequest.id, bootstrapStatus: bootstrapRequest.status });
     } catch (error) {
       next(error);
     }

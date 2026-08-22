@@ -1,4 +1,4 @@
-import React, { Suspense, lazy, useState } from 'react';
+import React, { Suspense, lazy, useEffect, useState } from 'react';
 import { designTokens } from '@miljobeslut/mps-identity';
 import { callApi, getActiveProjectId } from '../../../services/coreApiClient';
 import { fetchPropertyInfo } from '../../../src/ui/api-client/geo.client';
@@ -115,6 +115,17 @@ export const LuWorkspace: React.FC<{ initialDesignation?: string }> = ({ initial
       setLookingUp(false);
     }
   };
+
+  // PRODUCT-LU-PROPERTY-FIRST-WORKFLOW-01 Phase B: when opened via the property-first entry
+  // (PropertyFirstLuEntry), the property was already searched/selected there -- auto-run the same
+  // lookup here once so the user never has to search for it a second time. Only fires once, on
+  // mount, and only when the caller actually supplied a designation.
+  useEffect(() => {
+    if (initialDesignation.trim()) {
+      void lookupProperty();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const runAssessment = async () => {
     if (!site) {

@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { MpsCompass } from '@miljobeslut/mps-compass';
 import { designTokens } from '@miljobeslut/mps-identity';
 import { MpsConsoleApp, type MpsProjectionApi } from '@miljobeslut/mps-console';
-import { LuWorkspace } from './lu/LuWorkspace';
+import { PropertyFirstLuEntry } from './lu/PropertyFirstLuEntry';
 
 export type ProductViewId = 'home' | 'localization' | 'admin';
 
@@ -123,7 +123,7 @@ export const MimerProductShell: React.FC<MimerProductShellProps> = ({
 
           {view === 'localization' && (
             <div data-testid="product-localization">
-              <LuWorkspace />
+              <PropertyFirstLuEntry />
             </div>
           )}
 
