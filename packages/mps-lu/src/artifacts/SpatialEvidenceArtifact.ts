@@ -1,9 +1,10 @@
-import { ArtifactContract, ArtifactReference } from "@miljobeslut/mps-compliance/src/artifacts/ArtifactContract";
+import type { ArtifactContract, ArtifactReference } from "@miljobeslut/mps-compliance/src/artifacts/ArtifactContract";
 import { CanonicalGeometry } from "../domain/CanonicalGeometry";
 import type { SpatialResultSemantics } from "./SpatialResultSemantics";
 import type { SpatialEngineFingerprint } from "./SpatialEngineFingerprint";
+import type { SpatialQueryContractV2 } from "../services/SpatialQueryContract";
 
-export interface SpatialEvidencePayload {
+export interface SpatialEvidencePayloadV1 {
   /**
    * P4A-LU-S6 — what spatial truth this artifact claims to carry.
    *
@@ -58,7 +59,22 @@ export interface SpatialEvidencePayload {
   };
 }
 
+/** Canonical V2 evidence carries the full governed query contract as first-class data. */
+export interface SpatialEvidencePayloadV2 extends Omit<SpatialEvidencePayloadV1, "query_context"> {
+  readonly query_contract: SpatialQueryContractV2;
+}
+
+/** Historical compatibility alias. V1 artifacts keep their original payload contract. */
+export type SpatialEvidencePayload = SpatialEvidencePayloadV1;
+export type AnySpatialEvidencePayload = SpatialEvidencePayloadV1 | SpatialEvidencePayloadV2;
+
+export function isSpatialEvidencePayloadV2(
+  payload: AnySpatialEvidencePayload,
+): payload is SpatialEvidencePayloadV2 {
+  return "query_contract" in payload;
+}
+
 export interface SpatialEvidenceArtifact extends ArtifactContract {
   readonly artifact_type: "SPATIAL_EVIDENCE";
-  readonly payload: SpatialEvidencePayload;
+  readonly payload: AnySpatialEvidencePayload;
 }

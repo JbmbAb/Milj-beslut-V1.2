@@ -1,9 +1,11 @@
 import { Pool } from "pg";
 import {
   DEFAULT_SPATIAL_QUERY_BUDGET,
+  SPATIAL_QUERY_CONTRACT_V2,
   buildSpatialEvidenceContentHash,
   type ISpatialProvider,
   type SpatialQueryBudget,
+  type SpatialQueryContractV2,
   type SpatialQueryRequest,
   type SpatialEvidenceArtifact,
   type LUPropertyContextArtifact,
@@ -119,6 +121,27 @@ export class SpatialProviderPostGIS implements ISpatialProvider {
         `REJECT_SPATIAL_BUDGET: buffer_distance_meters=${bufferDistance} > max_distance_meters=${budget.max_distance_meters}`,
       );
     }
+    const queryContract: SpatialQueryContractV2 = {
+      query_contract_version: SPATIAL_QUERY_CONTRACT_V2,
+      relation: "DWITHIN",
+      subject: request.location_ref
+        ? {
+            kind: "LOCALIZATION_GEOMETRY",
+            property_context_ref: request.property_ref,
+            location_ref: request.location_ref,
+            crs: "EPSG:3006",
+          }
+        : {
+            kind: "PROPERTY_CONTEXT_CENTROID",
+            property_context_ref: request.property_ref,
+            crs: "EPSG:3006",
+          },
+      parameters: {
+        distance_meters: bufferDistance,
+        max_features_per_layer: budget.max_features_per_layer,
+      },
+      selection: { predicate_semantics: "EXISTS" },
+    };
 
     const evidence: SpatialEvidenceArtifact[] = [];
     const started = Date.now();
@@ -174,6 +197,7 @@ export class SpatialProviderPostGIS implements ISpatialProvider {
           found: matchCountObserved > 0,
           matchCountObserved,
           maxFeaturesPerLayer: budget.max_features_per_layer,
+          queryContract,
         }),
       );
     }
@@ -252,6 +276,7 @@ export class SpatialProviderPostGIS implements ISpatialProvider {
     found: boolean;
     matchCountObserved: number;
     maxFeaturesPerLayer: number;
+    queryContract: SpatialQueryContractV2;
   }): Promise<SpatialEvidenceArtifact> {
     const retrievedAt = new Date().toISOString();
 
@@ -288,15 +313,7 @@ export class SpatialProviderPostGIS implements ISpatialProvider {
         dataset_version: input.layerVersionHash,
         retrieved_at: retrievedAt,
       },
-      query_context: {
-        // Correlation only — excluded from identity hash (SV-I06)
-        query_id: `corr-${input.layerName}`,
-        query_type: "SPATIAL_DWITHIN",
-        parameters: {
-          property_ref: input.propertyRef,
-          search_distance_meters: input.bufferDistance,
-        },
-      },
+      query_contract: input.queryContract,
     };
 
     const content_hash = buildSpatialEvidenceContentHash(payload);

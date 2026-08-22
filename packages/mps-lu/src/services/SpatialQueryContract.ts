@@ -1,5 +1,5 @@
-import { ArtifactReference } from "@miljobeslut/mps-compliance/src/artifacts/ArtifactContract";
-import { SpatialEvidenceArtifact } from "../artifacts/SpatialEvidenceArtifact";
+import type { ArtifactReference } from "@miljobeslut/mps-compliance/src/artifacts/ArtifactContract";
+import type { SpatialEvidenceArtifact } from "../artifacts/SpatialEvidenceArtifact";
 
 /**
  * Bounded spatial read budget (fail-closed).
@@ -41,6 +41,38 @@ export interface SpatialQueryRequest {
    * non-LU/GisRiskModule callers), in which case behavior is unchanged: the property centroid.
    */
   readonly location_ref?: ArtifactReference;
+}
+
+export const SPATIAL_QUERY_CONTRACT_V2 = "spatial-query-contract-v2" as const;
+
+export type SpatialQuerySubjectV2 =
+  | {
+      readonly kind: "LOCALIZATION_GEOMETRY";
+      readonly property_context_ref: ArtifactReference;
+      readonly location_ref: ArtifactReference;
+      readonly crs: "EPSG:3006";
+    }
+  | {
+      readonly kind: "PROPERTY_CONTEXT_CENTROID";
+      readonly property_context_ref: ArtifactReference;
+      readonly crs: "EPSG:3006";
+    };
+
+/**
+ * Closed, outcome-relevant query semantics for canonical V2 spatial evidence.
+ * Operational queue/lease lineage deliberately does not belong here.
+ */
+export interface SpatialQueryContractV2 {
+  readonly query_contract_version: typeof SPATIAL_QUERY_CONTRACT_V2;
+  readonly relation: "DWITHIN";
+  readonly subject: SpatialQuerySubjectV2;
+  readonly parameters: {
+    readonly distance_meters: number;
+    readonly max_features_per_layer: number;
+  };
+  readonly selection: {
+    readonly predicate_semantics: "EXISTS";
+  };
 }
 
 export interface ISpatialProvider {
