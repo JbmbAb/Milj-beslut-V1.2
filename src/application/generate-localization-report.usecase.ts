@@ -22,9 +22,7 @@ import {
   runLuAssessmentViaKernel,
   deriveLuExecutionSeed,
   createLuRegistryRuntime,
-  createLocalizationGeometryArtifact,
   type DocumentEvidenceArtifact,
-  type LocalizationGeometryArtifact,
 } from '@miljobeslut/mps-lu';
 import {
   isVerifiedDocumentFact,
@@ -39,10 +37,7 @@ import {
 import { resolveCanonicalProjectContext } from './resolveCanonicalProjectContext';
 import { resolveCurrentProductRelease } from './resolveCurrentProductRelease';
 import { registerAssessmentProjection } from '../../server/modules/localization/assessmentProjection';
-import {
-  resolveCurrentLocalizationGeometry,
-  registerLocalizationGeometry,
-} from '../../server/modules/localization/localizationGeometryProjection';
+import { resolveOrDeriveCurrentLocalizationGeometry } from '../../server/modules/localization/localizationGeometryService';
 
 export interface SiteAlternative {
   id: string;
@@ -582,44 +577,18 @@ async function analyzeSite(
     // (never a hard failure just because no explicit point was ever chosen) while making the
     // artifact a real, versioned, content-addressed thing from here on, never a silent implicit
     // conflation of "property" with "site" again.
-    let currentLocalizationGeometry: LocalizationGeometryArtifact;
-    try {
-      currentLocalizationGeometry = (
-        await resolveCurrentLocalizationGeometry({ projectId: ctx.projectId, artifactRepository: repo })
-      ).geometry;
-    } catch {
-      const [derivedLat, derivedLng] = await spatialRuntime.sweref99ToWgs84(
-        canonicalContext.coordinates[0],
-        canonicalContext.coordinates[1],
-      );
-      const derivedGeometry = createLocalizationGeometryArtifact({
-        project_id: ctx.projectId,
-        property_context_ref: propRef,
-        wgs84LngLat: [derivedLng, derivedLat],
-        sweref99NorthingEasting: canonicalContext.coordinates,
-        provenance: 'derived_from_property_boundary',
-        label: 'Fastighetens centrumpunkt (automatiskt härledd)',
-        created_by: ctx.user?.id ?? 'system',
-      });
-      await repo.put({
-        artifact_id: derivedGeometry.artifact_id,
-        content_hash: derivedGeometry.content_hash,
-        body: derivedGeometry,
-      });
-      // CAS is the sole content authority for the geometry itself (the put above). This
-      // projection write is only a non-authoritative discovery locator (same reasoning as
-      // registerAssessmentProjection below) -- a failure here must never abort an otherwise-valid
-      // run; resolveCurrentLocalizationGeometry will simply re-derive next time until it succeeds.
-      try {
-        await registerLocalizationGeometry({ projectId: ctx.projectId, geometry: derivedGeometry });
-      } catch (err) {
-        logger.warn('Failed to register localization geometry projection -- geometry remains CAS-valid', {
-          site: site.id,
-          err: String(err),
-        });
-      }
-      currentLocalizationGeometry = derivedGeometry;
-    }
+    // PRODUCT-LU-CESIUM-LOCALIZATION-DRAWING-01: this resolve-or-derive step now lives in
+    // localizationGeometryService.ts, shared with the GET read path the UI polls before any LU
+    // run has ever executed -- the two must never disagree about what "current" means for a
+    // project with no explicit point yet.
+    const { geometry: currentLocalizationGeometry } = await resolveOrDeriveCurrentLocalizationGeometry({
+      projectId: ctx.projectId,
+      artifactRepository: repo,
+      propertyContextRef: propRef,
+      propertyCentroidSweref: canonicalContext.coordinates,
+      sweref99ToWgs84: spatialRuntime.sweref99ToWgs84,
+      createdBy: ctx.user?.id ?? 'system',
+    });
     const locationRef = {
       artifact_id: currentLocalizationGeometry.artifact_id,
       artifact_type: currentLocalizationGeometry.artifact_type,

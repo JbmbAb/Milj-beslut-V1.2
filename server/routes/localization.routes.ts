@@ -20,6 +20,8 @@ import {
   createLocalizationProject,
   enqueueProjectContextBootstrapRequest,
   getBootstrapRequestStatusForProject,
+  saveUserLocalizationGeometry,
+  getCurrentLocalizationGeometryForProject,
   type SiteAlternative,
 } from '../modules/localization/public';
 
@@ -325,6 +327,70 @@ router.get(
       res.status(200).json(result.geojson);
     } catch (error) {
       if (handleOrchestratorError(error, res)) return;
+      next(error);
+    }
+  },
+);
+
+/**
+ * GET /api/localization/:projectId/geometry
+ *
+ * PRODUCT-LU-CESIUM-LOCALIZATION-DRAWING-01. The current LocalizationGeometry the UI shows --
+ * either the user's own explicitly saved point, or (before any explicit point has ever been set)
+ * the transitional property-centroid-derived point, so the UI always has something real and
+ * governed to display, never a client-side guess.
+ */
+router.get(
+  '/api/localization/:projectId/geometry',
+  requireAuth,
+  rateLimitByUser(60, 60_000),
+  async (req, res, next) => {
+    try {
+      const result = await getCurrentLocalizationGeometryForProject({
+        authUser: req.authUser!,
+        projectId: String(req.params.projectId || ''),
+      });
+      if (result.ok === false) {
+        res.status(result.status).json({ ok: false, error: result.error });
+        return;
+      }
+      res.status(200).json({ ok: true, geometry: result.data });
+    } catch (error) {
+      next(error);
+    }
+  },
+);
+
+/**
+ * POST /api/localization/:projectId/geometry
+ *
+ * PRODUCT-LU-CESIUM-LOCALIZATION-DRAWING-01. The ONLY route that turns a user's Cesium click
+ * into a real, persisted LocalizationGeometryArtifact. Request body carries ONLY the user's raw
+ * input (geometry_type, coordinates as [lng, lat] WGS84, srid) -- never an artifact_id,
+ * property_context_ref, project_context_binding_ref, content_hash, issuer, or signature. Every
+ * authority-bearing field is derived/verified server-side by saveUserLocalizationGeometry.
+ */
+router.post(
+  '/api/localization/:projectId/geometry',
+  requireAuth,
+  rateLimitByUser(20, 60_000),
+  async (req, res, next) => {
+    try {
+      const result = await saveUserLocalizationGeometry({
+        authUser: req.authUser!,
+        projectId: String(req.params.projectId || ''),
+        input: {
+          geometry_type: req.body?.geometry_type,
+          coordinates: req.body?.coordinates,
+          srid: req.body?.srid,
+        },
+      });
+      if (result.ok === false) {
+        res.status(result.status).json({ ok: false, error: result.error });
+        return;
+      }
+      res.status(201).json({ ok: true, geometry: result.data });
+    } catch (error) {
       next(error);
     }
   },

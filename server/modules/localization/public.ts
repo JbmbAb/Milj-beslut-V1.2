@@ -37,3 +37,8 @@ export {
   getBootstrapRequestStatusForProject,
   type BootstrapRequestRecord,
 } from './projectContextBootstrapRequestQueue';
+export {
+  saveUserLocalizationGeometry,
+  getCurrentLocalizationGeometryForProject,
+  type LocalizationGeometryView,
+} from './localizationGeometryService';

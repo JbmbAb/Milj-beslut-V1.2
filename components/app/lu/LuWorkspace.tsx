@@ -28,6 +28,12 @@ type SiteInput = {
   geometry?: unknown;
 };
 
+type LocalizationGeometryView = {
+  artifact_id: string;
+  provenance: 'user_defined' | 'derived_from_property_boundary';
+  wgs84LngLat: [number, number];
+};
+
 type ExecutionMotorMeta = {
   admitted?: boolean;
   reason_codes?: string[];
@@ -80,6 +86,15 @@ export const LuWorkspace: React.FC<{ initialDesignation?: string }> = ({ initial
   const [cesiumEvidenceMode, setCesiumEvidenceMode] = useState<CesiumEvidenceMode>('live');
   const [selectedEvidence, setSelectedEvidence] = useState<any | null>(null);
 
+  // PRODUCT-LU-CESIUM-LOCALIZATION-DRAWING-01.
+  const [localizationGeometry, setLocalizationGeometry] = useState<LocalizationGeometryView | null>(null);
+  const [geometryLoading, setGeometryLoading] = useState(false);
+  const [geometryError, setGeometryError] = useState('');
+  const [pickingLocation, setPickingLocation] = useState(false);
+  const [draftPoint, setDraftPoint] = useState<{ lat: number; lng: number } | null>(null);
+  const [savingLocation, setSavingLocation] = useState(false);
+  const [saveLocationError, setSaveLocationError] = useState('');
+
   const fieldStyle: React.CSSProperties = {
     width: '100%',
     background: 'rgba(0,0,0,0.35)',
@@ -126,6 +141,75 @@ export const LuWorkspace: React.FC<{ initialDesignation?: string }> = ({ initial
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // PRODUCT-LU-CESIUM-LOCALIZATION-DRAWING-01: load the project's current LocalizationGeometry
+  // (an explicit user_defined point, or the transitional derived_from_property_boundary one) as
+  // soon as a real site + active project are available -- this is what makes "refresh -> point
+  // still visible" and "fresh login -> point still displayed" true: the browser never invents
+  // this state locally, it always re-reads it from the server.
+  const loadCurrentGeometry = async () => {
+    const projectId = getActiveProjectId();
+    if (!projectId) return;
+    setGeometryError('');
+    setGeometryLoading(true);
+    try {
+      const result = await callApi<{ ok: boolean; geometry: LocalizationGeometryView }>(
+        `/api/localization/${encodeURIComponent(projectId)}/geometry`,
+        { method: 'GET' },
+      );
+      setLocalizationGeometry(result.geometry);
+    } catch (err) {
+      setGeometryError(err instanceof Error ? err.message : 'Kunde inte hämta lokalisering.');
+    } finally {
+      setGeometryLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    if (site) {
+      void loadCurrentGeometry();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [site?.id]);
+
+  const startPickingLocation = () => {
+    setSaveLocationError('');
+    setDraftPoint(null);
+    setPickingLocation(true);
+  };
+
+  const cancelPickingLocation = () => {
+    setPickingLocation(false);
+    setDraftPoint(null);
+    setSaveLocationError('');
+  };
+
+  const saveLocation = async () => {
+    const projectId = getActiveProjectId();
+    if (!projectId || !draftPoint) return;
+    setSavingLocation(true);
+    setSaveLocationError('');
+    try {
+      const result = await callApi<{ ok: boolean; geometry: LocalizationGeometryView }>(
+        `/api/localization/${encodeURIComponent(projectId)}/geometry`,
+        {
+          method: 'POST',
+          body: {
+            geometry_type: 'POINT',
+            coordinates: [draftPoint.lng, draftPoint.lat],
+            srid: 4326,
+          },
+        },
+      );
+      setLocalizationGeometry(result.geometry);
+      setPickingLocation(false);
+      setDraftPoint(null);
+    } catch (err) {
+      setSaveLocationError(err instanceof Error ? err.message : 'Kunde inte spara lokalisering.');
+    } finally {
+      setSavingLocation(false);
+    }
+  };
 
   const runAssessment = async () => {
     if (!site) {
@@ -253,6 +337,99 @@ export const LuWorkspace: React.FC<{ initialDesignation?: string }> = ({ initial
       </section>
 
       {site ? (
+        <section data-testid="lu-localization-geometry" className="space-y-3 mb-8">
+          <h2 className="text-xs uppercase tracking-widest opacity-70">Lokalisering</h2>
+
+          {geometryLoading ? (
+            <p className="text-sm opacity-60">Hämtar lokalisering…</p>
+          ) : localizationGeometry ? (
+            <div data-testid="lu-geometry-current" className="text-sm space-y-1">
+              <p>
+                {localizationGeometry.provenance === 'user_defined' ? (
+                  <>
+                    Lokalisering: <strong>Användardefinierad</strong>
+                  </>
+                ) : (
+                  <>
+                    Lokalisering: <strong>Beräknad från fastigheten</strong>
+                  </>
+                )}
+              </p>
+              <p className="opacity-70 font-mono text-xs">
+                {localizationGeometry.wgs84LngLat[1].toFixed(6)}, {localizationGeometry.wgs84LngLat[0].toFixed(6)}
+              </p>
+            </div>
+          ) : null}
+
+          {geometryError ? (
+            <p data-testid="lu-geometry-error" className="text-sm" style={{ color: '#F87171' }}>
+              {geometryError}
+            </p>
+          ) : null}
+
+          {!pickingLocation ? (
+            <button
+              type="button"
+              data-testid="lu-start-picking-location"
+              onClick={startPickingLocation}
+              className="px-4 py-2 text-sm font-semibold border"
+              style={{ borderColor: colors.coreTurquoise.hex, color: colors.flowLightCyan.hex }}
+            >
+              {localizationGeometry?.provenance === 'user_defined' ? 'Ändra lokalisering' : 'Ange lokalisering'}
+            </button>
+          ) : (
+            <div data-testid="lu-picking-location-panel" className="space-y-2 border p-4" style={{ borderColor: colors.coreGraphite.hex }}>
+              <p className="text-xs opacity-70">1. Klicka på kartan för att välja punkt.</p>
+              {draftPoint ? (
+                <>
+                  <p data-testid="lu-draft-point" className="text-sm font-mono">
+                    Utkast: {draftPoint.lat.toFixed(6)}, {draftPoint.lng.toFixed(6)}
+                  </p>
+                  {saveLocationError ? (
+                    <p data-testid="lu-save-location-error" className="text-sm" style={{ color: '#F87171' }}>
+                      {saveLocationError}
+                    </p>
+                  ) : null}
+                  <div className="flex gap-2">
+                    <button
+                      type="button"
+                      data-testid="lu-save-location"
+                      disabled={savingLocation}
+                      onClick={() => void saveLocation()}
+                      className="px-4 py-2 text-sm font-semibold disabled:opacity-40"
+                      style={{ background: colors.coreTurquoise.hex, color: colors.surfaceDarkStone.hex }}
+                    >
+                      {savingLocation ? 'Sparar…' : 'Spara lokalisering'}
+                    </button>
+                    <button
+                      type="button"
+                      data-testid="lu-cancel-location"
+                      disabled={savingLocation}
+                      onClick={cancelPickingLocation}
+                      className="px-4 py-2 text-sm font-semibold border disabled:opacity-40"
+                      style={{ borderColor: colors.coreGraphite.hex, color: colors.flowLightCyan.hex }}
+                    >
+                      Avbryt
+                    </button>
+                  </div>
+                </>
+              ) : (
+                <button
+                  type="button"
+                  data-testid="lu-cancel-location"
+                  onClick={cancelPickingLocation}
+                  className="px-4 py-2 text-sm font-semibold border"
+                  style={{ borderColor: colors.coreGraphite.hex, color: colors.flowLightCyan.hex }}
+                >
+                  Avbryt
+                </button>
+              )}
+            </div>
+          )}
+        </section>
+      ) : null}
+
+      {site ? (
         <section
           data-testid="lu-cesium-front"
           className="relative mb-10 min-h-[620px] overflow-hidden border"
@@ -275,6 +452,14 @@ export const LuWorkspace: React.FC<{ initialDesignation?: string }> = ({ initial
               }}
               onEvidenceClick={(props) => setSelectedEvidence(props)}
               projectId={getActiveProjectId() || undefined}
+              pickingLocation={pickingLocation}
+              onLocationPick={(lat, lng) => setDraftPoint({ lat, lng })}
+              draftLocationPoint={draftPoint}
+              currentLocationPoint={
+                localizationGeometry
+                  ? { lat: localizationGeometry.wgs84LngLat[1], lng: localizationGeometry.wgs84LngLat[0] }
+                  : null
+              }
             />
           </Suspense>
 

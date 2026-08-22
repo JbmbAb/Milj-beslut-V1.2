@@ -27,6 +27,16 @@ interface CesiumMapViewProps {
    * governed LU project/assessment to show).
    */
   projectId?: string;
+  /**
+   * PRODUCT-LU-CESIUM-LOCALIZATION-DRAWING-01. When true, the next LEFT_CLICK picks a WGS84
+   * lat/lng off the globe (via onLocationPick) instead of picking an evidence feature.
+   */
+  pickingLocation?: boolean;
+  onLocationPick?: (lat: number, lng: number) => void;
+  /** The unconfirmed, not-yet-saved point -- shown as a distinct draft marker. */
+  draftLocationPoint?: { lat: number; lng: number } | null;
+  /** The persisted, current LocalizationGeometry point. */
+  currentLocationPoint?: { lat: number; lng: number } | null;
 }
 
 const CesiumMapView: React.FC<CesiumMapViewProps> = ({
@@ -36,6 +46,10 @@ const CesiumMapView: React.FC<CesiumMapViewProps> = ({
   evidenceMode: evidenceModeProp = 'fixture',
   onEvidenceModeChange,
   projectId,
+  pickingLocation = false,
+  onLocationPick,
+  draftLocationPoint = null,
+  currentLocationPoint = null,
 }) => {
   const containerRef = useRef<HTMLDivElement>(null);
   const adapterRef = useRef<CesiumAdapter | null>(null);
@@ -75,6 +89,13 @@ const CesiumMapView: React.FC<CesiumMapViewProps> = ({
     onEvidenceClickRef.current = onEvidenceClick;
   }, [onEvidenceClick]);
 
+  // PRODUCT-LU-CESIUM-LOCALIZATION-DRAWING-01: same stable-ref reasoning as onEvidenceClickRef
+  // above -- onLocationPick is a fresh inline closure per parent render.
+  const onLocationPickRef = useRef(onLocationPick);
+  useEffect(() => {
+    onLocationPickRef.current = onLocationPick;
+  }, [onLocationPick]);
+
   useEffect(() => {
     if (!containerRef.current) return;
 
@@ -92,6 +113,33 @@ const CesiumMapView: React.FC<CesiumMapViewProps> = ({
       adapterRef.current = null;
     };
   }, []);
+
+  useEffect(() => {
+    if (!adapterRef.current) return;
+    if (pickingLocation) {
+      adapterRef.current.enableLocationPicking((lat, lng) => onLocationPickRef.current?.(lat, lng));
+    } else {
+      adapterRef.current.disableLocationPicking();
+    }
+  }, [pickingLocation]);
+
+  useEffect(() => {
+    if (!adapterRef.current) return;
+    if (draftLocationPoint) {
+      adapterRef.current.setDraftLocationPoint(draftLocationPoint.lat, draftLocationPoint.lng);
+    } else {
+      adapterRef.current.clearDraftLocationPoint();
+    }
+  }, [draftLocationPoint]);
+
+  useEffect(() => {
+    if (!adapterRef.current) return;
+    if (currentLocationPoint) {
+      adapterRef.current.setCurrentLocationPoint(currentLocationPoint.lat, currentLocationPoint.lng);
+    } else {
+      adapterRef.current.clearCurrentLocationPoint();
+    }
+  }, [currentLocationPoint]);
 
   useEffect(() => {
     if (!adapterRef.current) return;
@@ -323,6 +371,15 @@ const CesiumMapView: React.FC<CesiumMapViewProps> = ({
           ))}
         </div>
       </div>
+
+      {pickingLocation && (
+        <div
+          data-testid="cesium-picking-location-banner"
+          className="absolute top-4 left-1/2 -translate-x-1/2 z-10 bg-amber-500 text-slate-950 px-4 py-2 rounded-lg shadow text-[11px] font-black uppercase tracking-wider"
+        >
+          Klicka på kartan för att välja lokalisering
+        </div>
+      )}
 
       {loadingEvidence && (
         <div className="absolute bottom-4 right-4 z-10 bg-indigo-600 text-white px-3 py-1.5 rounded-lg shadow text-[11px] font-bold tracking-tight animate-pulse pointer-events-none">

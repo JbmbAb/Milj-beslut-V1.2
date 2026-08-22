@@ -1,4 +1,4 @@
-import { Viewer, Cartesian3, GeoJsonDataSource, Color, ScreenSpaceEventHandler, ScreenSpaceEventType, Entity, HeadingPitchRange, Math as CesiumMath } from 'cesium';
+import { Viewer, Cartesian3, Cartographic, GeoJsonDataSource, Color, ScreenSpaceEventHandler, ScreenSpaceEventType, Entity, HeadingPitchRange, Math as CesiumMath } from 'cesium';
 
 // Ensure Cesium knows where to locate assets locally
 if (typeof window !== 'undefined') {
@@ -9,6 +9,9 @@ export interface CesiumAdapterConfig {
   container: HTMLDivElement;
   onFeatureClick?: (properties: any) => void;
 }
+
+const DRAFT_LOCATION_MARKER_ID = 'localization-draft-marker';
+const CURRENT_LOCATION_MARKER_ID = 'localization-current-marker';
 
 export class CesiumAdapter {
   /**
@@ -30,6 +33,14 @@ export class CesiumAdapter {
   private propertyDataSource: GeoJsonDataSource | null = null;
   private evidenceDataSource: GeoJsonDataSource | null = null;
   private clickHandler: ScreenSpaceEventHandler | null = null;
+  private onFeatureClick: ((properties: any) => void) | undefined;
+  /**
+   * PRODUCT-LU-CESIUM-LOCALIZATION-DRAWING-01. When set, LEFT_CLICK picks a WGS84 lat/lng off
+   * the globe ellipsoid instead of picking an evidence feature entity -- an exclusive mode, not a
+   * second independent handler, so a click during location-picking can never also fire a feature
+   * click underneath it.
+   */
+  private onLocationPick: ((lat: number, lng: number) => void) | null = null;
 
   constructor(config: CesiumAdapterConfig) {
     // Instantiate Cesium Viewer with clean, focused options (no default heavy widgets)
@@ -52,15 +63,24 @@ export class CesiumAdapter {
       destination: Cartesian3.fromDegrees(15.0, 62.0, 1500000.0), // Sweden overview
     });
 
-    // Set up click handler for picking evidence features
-    if (config.onFeatureClick) {
-      this.setupClickHandler(config.onFeatureClick);
-    }
+    this.onFeatureClick = config.onFeatureClick;
+    this.setupClickHandler();
   }
 
-  private setupClickHandler(onFeatureClick: (properties: any) => void): void {
+  private setupClickHandler(): void {
     this.clickHandler = new ScreenSpaceEventHandler(this.viewer.scene.canvas);
     this.clickHandler.setInputAction((click: { position: any }) => {
+      if (this.onLocationPick) {
+        const cartesian = this.viewer.camera.pickEllipsoid(click.position, this.viewer.scene.globe.ellipsoid);
+        if (!cartesian) return; // click missed the globe (e.g. clicked the sky)
+        const cartographic = Cartographic.fromCartesian(cartesian);
+        const lat = CesiumMath.toDegrees(cartographic.latitude);
+        const lng = CesiumMath.toDegrees(cartographic.longitude);
+        this.onLocationPick(lat, lng);
+        return;
+      }
+
+      if (!this.onFeatureClick) return;
       const pickedObject = this.viewer.scene.pick(click.position);
       if (pickedObject && pickedObject.id instanceof Entity) {
         const entity = pickedObject.id;
@@ -70,10 +90,62 @@ export class CesiumAdapter {
           entity.properties.propertyNames.forEach((name) => {
             props[name] = entity.properties[name]?.getValue();
           });
-          onFeatureClick(props);
+          this.onFeatureClick(props);
         }
       }
     }, ScreenSpaceEventType.LEFT_CLICK);
+  }
+
+  /**
+   * PRODUCT-LU-CESIUM-LOCALIZATION-DRAWING-01. Enters/exits point-picking mode. While active,
+   * LEFT_CLICK never reaches feature-click handling (see setupClickHandler) -- a user placing a
+   * localization point cannot simultaneously select an evidence feature by accident.
+   */
+  public enableLocationPicking(onPick: (lat: number, lng: number) => void): void {
+    if (this.destroyed) return;
+    this.onLocationPick = onPick;
+  }
+
+  public disableLocationPicking(): void {
+    if (this.destroyed) return;
+    this.onLocationPick = null;
+  }
+
+  private setLocationMarker(id: string, lat: number, lng: number, color: Color, label: string): void {
+    if (this.destroyed) return;
+    this.viewer.entities.removeById(id);
+    this.viewer.entities.add({
+      id,
+      position: Cartesian3.fromDegrees(lng, lat, 5.0),
+      point: {
+        pixelSize: 14 as any,
+        color: color as any,
+        outlineColor: Color.WHITE as any,
+        outlineWidth: 2 as any,
+        heightReference: 0 as any,
+      } as any,
+      properties: { title: label } as any,
+    });
+  }
+
+  /** The unconfirmed, not-yet-saved point the user just clicked. */
+  public setDraftLocationPoint(lat: number, lng: number): void {
+    this.setLocationMarker(DRAFT_LOCATION_MARKER_ID, lat, lng, Color.YELLOW, 'Utkast: ny lokalisering');
+  }
+
+  public clearDraftLocationPoint(): void {
+    if (this.destroyed) return;
+    this.viewer.entities.removeById(DRAFT_LOCATION_MARKER_ID);
+  }
+
+  /** The persisted, current LocalizationGeometry point. */
+  public setCurrentLocationPoint(lat: number, lng: number): void {
+    this.setLocationMarker(CURRENT_LOCATION_MARKER_ID, lat, lng, Color.LIME, 'Aktuell lokalisering');
+  }
+
+  public clearCurrentLocationPoint(): void {
+    if (this.destroyed) return;
+    this.viewer.entities.removeById(CURRENT_LOCATION_MARKER_ID);
   }
 
   /**
