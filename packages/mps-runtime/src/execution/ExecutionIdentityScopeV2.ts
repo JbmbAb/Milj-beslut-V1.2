@@ -53,3 +53,32 @@ export function computeExecutionIdentityArtifactIdV2(subject: ExecutionIdentityS
 export function computeExecutionIdentityArtifactIdV1(site_id: string): string {
   return `lu-identity-${site_id}`;
 }
+
+/**
+ * LU-MANIFEST-WORM-IDEMPOTENCY-01 (OWNER FREEZE 2026-08-22).
+ *
+ * `FrozenExecutionManifestIdentity.manifest_id` was scoped by `site_id` alone
+ * (`"lu-manifest-" + site_id`, see LuExecutionKernelClient.ts) -- the exact same defect V2 already
+ * fixed for ExecutionIdentity above, just never carried over to the manifest. A manifest's
+ * `content_hash` is (correctly) a function of the full execution subject via
+ * `deriveLuExecutionSeed`, including `project_context_binding_ref` and `product_release_ref` --
+ * so a legitimate binding supersession or release change produces a different `content_hash`
+ * under the SAME site-only `manifest_id`, and CAS's WORM guard (correctly) refuses the second
+ * write as a collision rather than silently accepting drifted content under one id.
+ *
+ * Scoping `manifest_id` by the same four-field V2 subject as ExecutionIdentity makes the two
+ * axes agree: same subject -> same manifest_id -> same content_hash (idempotent, no WORM
+ * violation); a legitimately different subject (new binding, new release) -> a different
+ * manifest_id, so it simply never collides with the old one. The old, now-orphaned manifest
+ * under the previous id remains exactly as it was -- this never rewrites or removes it.
+ */
+export function computeExecutionManifestIdV2(subject: ExecutionIdentitySubjectV2): string {
+  const hash = sha256ContentHash({
+    contract: "lu-manifest-scope-v2",
+    site_id: subject.site_id,
+    project_context_binding_ref: subject.project_context_binding_ref,
+    product_release_ref: subject.product_release_ref,
+    execution_contract_version: subject.execution_contract_version,
+  });
+  return `lu-manifest-v2-${hash.value}`;
+}

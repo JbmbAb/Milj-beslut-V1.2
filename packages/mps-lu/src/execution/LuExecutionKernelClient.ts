@@ -36,6 +36,7 @@ import type { ExecutionIdentityArtifact } from "../../../mps-runtime/src/executi
 import {
   computeExecutionIdentityArtifactIdV1,
   computeExecutionIdentityArtifactIdV2,
+  computeExecutionManifestIdV2,
   type ExecutionIdentitySubjectV2,
 } from "../../../mps-runtime/src/execution/ExecutionIdentityScopeV2.js";
 import type { ArtifactReference } from "../../../mps-compliance/src/artifacts/ArtifactReference.js";
@@ -329,8 +330,15 @@ export async function runLuAssessmentViaKernel(
     nowIso: () => input.deterministic_seed,
   });
 
+  // LU-MANIFEST-WORM-IDEMPOTENCY-01: manifest_id must scope by the same subject as
+  // content_hash (which already varies with project_context_binding_ref / product_release_ref
+  // via deriveLuExecutionSeed) -- site_id alone collapses legitimately distinct execution
+  // subjects (e.g. across a binding supersession) onto one WORM slot. Falls back to the V1
+  // site-only id only when no V2 subject was supplied (legacy/test callers).
   const manifest: FrozenExecutionManifestIdentity = {
-    manifest_id: `lu-manifest-${input.site_id}`,
+    manifest_id: expectedSubjectV2
+      ? computeExecutionManifestIdV2(expectedSubjectV2)
+      : `lu-manifest-${input.site_id}`,
     artifact_type: "execution_manifest",
     execution_identity_ref: executionIdentityRef,
     capability_resolution_ref: {
