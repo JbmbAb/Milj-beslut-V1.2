@@ -88,6 +88,7 @@ model User {
   memberships    ProjectMember[]
   accessLogs     PropertyAccessLog[]
   searchQueries  SearchQueryLog[]
+  contextBootstrapRequests ProjectContextBootstrapRequest[]
 }
 
 model TokenRevocation {
@@ -151,6 +152,7 @@ model Project {
   requirements        RequirementRecord[]
   projectContextBindings ProjectContextBinding[]
   assessmentProjections ProjectAssessmentProjection[]
+  contextBootstrapRequests ProjectContextBootstrapRequest[]
   planState           ProjectPlanState?
   complianceScore     Float?
   fundingRating       String?
@@ -197,6 +199,41 @@ model ProjectContextBindingSupersession {
   @@index([projectId, supersededBindingArtifactId])
   @@index([projectId, successorBindingArtifactId])
   @@map("project_context_binding_supersessions")
+}
+
+enum ProjectContextBootstrapStatus {
+  PENDING
+  LEASED
+  COMPLETED
+  FAILED
+}
+
+/// PRODUCT-LU-PROJECT-CONTEXT-BOOTSTRAP-01 Phase B. Durable, append-only WORK QUEUE state only --
+/// this row is never itself authority for context/binding. It only carries enough for the
+/// standalone bootstrap worker to derive the rest from real, already-governed sources (Project,
+/// ProjectMember, canonical property lookup, current release, authority config); the live web
+/// server that creates this row never supplies artifact refs, issuer refs, or signing data.
+/// Authority remains exactly what it already was: signed PropertyContext / ProjectContext /
+/// ProjectContextBinding artifacts, in CAS, verified by public key only.
+model ProjectContextBootstrapRequest {
+  id                  String                         @id @default(cuid())
+  projectId           String                         @map("project_id")
+  requestedByUserId   String                         @map("requested_by_user_id")
+  propertyDesignation String                         @map("property_designation")
+  status              ProjectContextBootstrapStatus  @default(PENDING)
+  contextBindingArtifactId String?                   @map("context_binding_artifact_id")
+  failureCode         String?                        @map("failure_code")
+  failureDetail       String?                        @map("failure_detail")
+  createdAt           DateTime                       @default(now()) @map("created_at")
+  leasedAt            DateTime?                      @map("leased_at")
+  completedAt         DateTime?                      @map("completed_at")
+  failedAt            DateTime?                      @map("failed_at")
+  project             Project                        @relation(fields: [projectId], references: [id], onDelete: Restrict)
+  requestedBy         User                           @relation(fields: [requestedByUserId], references: [id], onDelete: Restrict)
+
+  @@index([status, createdAt])
+  @@index([projectId])
+  @@map("project_context_bootstrap_requests")
 }
 
 /// P3-LU-ASSESSMENT-CURRENT-PROJECTION-01. Append-only, non-authoritative locator: "which

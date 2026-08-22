@@ -6,6 +6,7 @@ import express from 'express';
 import { requireAuth } from '../security/auth';
 import { rateLimitByUser } from '../security/rateLimit';
 import { toSafeErrorResponse } from '../security/secureErrors';
+import { assertProjectAccess } from '../security/projectAccess';
 import {
   buildLocalizationPdfData,
   exportLocalizationPdf,
@@ -14,6 +15,10 @@ import {
   runLocalizationReport,
   resolveLuViewerPresentation,
   generateLocalizationReportLegacy,
+  listProjectsForProperty,
+  createLocalizationProject,
+  enqueueProjectContextBootstrapRequest,
+  getBootstrapRequestStatusForProject,
   type SiteAlternative,
 } from '../modules/localization/public';
 
@@ -134,6 +139,118 @@ router.get(
       res.status(200).json(payload);
     } catch (error) {
       res.status(500).json(toSafeErrorResponse(error));
+    }
+  },
+);
+
+/**
+ * GET /api/localization/property-projects?propertyDesignation=...
+ *
+ * PRODUCT-LU-PROJECT-CONTEXT-BOOTSTRAP-01 Phase B. Property-first discovery: every localization
+ * project (any status) the caller's organisation already has for this property. Read-only, no
+ * project creation, no bootstrap side effects.
+ */
+router.get(
+  '/api/localization/property-projects',
+  requireAuth,
+  rateLimitByUser(60, 60_000),
+  async (req, res, next) => {
+    try {
+      const propertyDesignation = String(req.query.propertyDesignation || '').trim();
+      if (!propertyDesignation) {
+        res.status(400).json({ ok: false, error: 'propertyDesignation required' });
+        return;
+      }
+      const projects = await listProjectsForProperty({
+        organisationId: req.authUser!.organisationId,
+        propertyDesignation,
+      });
+      res.status(200).json({ ok: true, projects });
+    } catch (error) {
+      next(error);
+    }
+  },
+);
+
+/**
+ * POST /api/localization/localization-projects
+ *
+ * PRODUCT-LU-PROJECT-CONTEXT-BOOTSTRAP-01 Phase B. The property-first "create new localization"
+ * primitive. ALWAYS inserts a new Project (never reuses one by propertyDesignation -- see
+ * localizationProjectDiscovery.ts), makes the caller its real ProjectMember{OWNER}, and enqueues
+ * a bootstrap request. Returns immediately with PENDING status; the standalone bootstrap worker
+ * (a separate process holding the owner signing key, never this web process) does the actual
+ * PropertyContext/ProjectContext/ProjectContextBinding issuance asynchronously. This route never
+ * accepts or constructs an artifact ref, issuer ref, or signature -- only propertyDesignation and
+ * a human-chosen name.
+ */
+router.post(
+  '/api/localization/localization-projects',
+  requireAuth,
+  rateLimitByUser(20, 60_000),
+  async (req, res, next) => {
+    try {
+      const propertyDesignation = String(req.body?.propertyDesignation || '').trim();
+      const name = String(req.body?.name || '').trim();
+      if (!propertyDesignation || !name) {
+        res.status(400).json({ ok: false, error: 'propertyDesignation and name are required' });
+        return;
+      }
+      const project = await createLocalizationProject({
+        organisationId: req.authUser!.organisationId,
+        propertyDesignation,
+        name,
+        userId: req.authUser!.id,
+      });
+      const bootstrapRequest = await enqueueProjectContextBootstrapRequest({
+        projectId: project.id,
+        requestedByUserId: req.authUser!.id,
+        propertyDesignation,
+      });
+      res.status(201).json({
+        ok: true,
+        project,
+        bootstrapRequestId: bootstrapRequest.id,
+        bootstrapStatus: bootstrapRequest.status,
+      });
+    } catch (error) {
+      next(error);
+    }
+  },
+);
+
+/**
+ * GET /api/localization/:projectId/bootstrap-status
+ *
+ * PRODUCT-LU-PROJECT-CONTEXT-BOOTSTRAP-01 Phase B. Live-runtime read of the async bootstrap
+ * outcome for a project the caller has real access to. Never mints or verifies anything itself --
+ * purely reads the durable queue row the worker maintains.
+ */
+router.get(
+  '/api/localization/:projectId/bootstrap-status',
+  requireAuth,
+  rateLimitByUser(60, 60_000),
+  async (req, res, next) => {
+    try {
+      const projectId = String(req.params.projectId || '').trim();
+      if (!projectId) {
+        res.status(400).json({ ok: false, error: 'projectId required' });
+        return;
+      }
+      try {
+        await assertProjectAccess(req.authUser!, projectId, req.authUser!.organisationId);
+      } catch {
+        res.status(403).json({ ok: false, error: 'Not authorized for this project.' });
+        return;
+      }
+      const status = await getBootstrapRequestStatusForProject(projectId);
+      if (!status) {
+        res.status(404).json({ ok: false, error: 'No bootstrap request exists for this project.' });
+        return;
+      }
+      res.status(200).json({ ok: true, status });
+    } catch (error) {
+      next(error);
     }
   },
 );

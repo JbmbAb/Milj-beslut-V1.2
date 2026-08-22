@@ -27,3 +27,13 @@ export {
   installOwnerIssuedProjectContextBinding,
   installOwnerIssuedProjectContextBindingSupersession,
 } from './installProjectContextBinding';
+export {
+  listProjectsForProperty,
+  createLocalizationProject,
+  type LocalizationProjectSummary,
+} from './localizationProjectDiscovery';
+export {
+  enqueueProjectContextBootstrapRequest,
+  getBootstrapRequestStatusForProject,
+  type BootstrapRequestRecord,
+} from './projectContextBootstrapRequestQueue';
