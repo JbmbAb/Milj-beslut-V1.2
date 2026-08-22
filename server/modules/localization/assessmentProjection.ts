@@ -50,6 +50,13 @@ export async function registerAssessmentProjection(args: {
   readonly assessment: LocalizationAssessmentArtifact;
   readonly contextBindingRef: ArtifactReference;
   readonly releaseRef: ArtifactReference;
+  /**
+   * PRODUCT-LU-LOCALIZATION-GEOMETRY-01. The current LocalizationGeometryArtifact this assessment
+   * was produced for. Optional so a caller with no explicit geometry yet (pre-Phase-B / legacy
+   * path) still registers -- but see resolveCurrentAssessmentProjection: a row with this unset can
+   * never satisfy a caller that requires current-geometry eligibility.
+   */
+  readonly localizationGeometryArtifactId?: string;
   readonly index?: ProjectAssessmentProjectionIndex;
 }): Promise<void> {
   const index = args.index ?? new PrismaProjectAssessmentProjectionIndex();
@@ -60,6 +67,7 @@ export async function registerAssessmentProjection(args: {
     projectContextRef: args.assessment.payload.project_context_ref,
     bindingArtifactId: args.contextBindingRef.artifact_id,
     releaseArtifactId: args.releaseRef.artifact_id,
+    localizationGeometryArtifactId: args.localizationGeometryArtifactId ?? null,
   });
 }
 
@@ -77,6 +85,16 @@ export async function resolveCurrentAssessmentProjection(args: {
   readonly projectId: string;
   readonly artifactRepository: ArtifactRepositoryPort;
   readonly currentBindingProvider: ProjectContextBindingProvider;
+  /**
+   * PRODUCT-LU-LOCALIZATION-GEOMETRY-01. When provided, eligibility ALSO requires the candidate's
+   * `localizationGeometryArtifactId` to equal this -- current-assessment resolution then means
+   * "current binding AND current localization point", not binding alone. A moved-away-from point's
+   * assessment (still bound to the current binding) is excluded rather than wrongly selected as
+   * current. Omitted by callers for a project with no localization geometry yet (legacy/pre-Phase-B):
+   * behavior is then unchanged (binding-only eligibility), so existing projects are not broken by
+   * this addition.
+   */
+  readonly currentLocalizationGeometryArtifactId?: string;
   readonly index?: ProjectAssessmentProjectionIndex;
 }): Promise<CurrentAssessmentProjection> {
   const index = args.index ?? new PrismaProjectAssessmentProjectionIndex();
@@ -94,10 +112,15 @@ export async function resolveCurrentAssessmentProjection(args: {
 
   const eligible = candidates
     .filter((c) => c.projectId === args.projectId && c.bindingArtifactId === currentBinding.artifact_id)
+    .filter(
+      (c) =>
+        args.currentLocalizationGeometryArtifactId === undefined ||
+        c.localizationGeometryArtifactId === args.currentLocalizationGeometryArtifactId,
+    )
     // createdAt is the tiebreaker only, applied here -- after eligibility, before CAS re-verification.
     .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
   if (eligible.length === 0) {
-    throw new Error("REJECT_ASSESSMENT_PROJECTION_NOT_CURRENT: no candidate bound to the current ProjectContextBinding");
+    throw new Error("REJECT_ASSESSMENT_PROJECTION_NOT_CURRENT: no candidate bound to the current ProjectContextBinding and localization geometry");
   }
 
   for (const candidate of eligible) {
@@ -126,6 +149,15 @@ export async function resolveCurrentAssessmentProjection(args: {
       })
     ) {
       continue; // projection row claims a context this artifact does not actually carry -> reject
+    }
+
+    if (
+      args.currentLocalizationGeometryArtifactId !== undefined &&
+      assessment.payload.localization_geometry_ref?.artifact_id !== args.currentLocalizationGeometryArtifactId
+    ) {
+      // The row passed the earlier filter, but the CAS artifact's own claim disagrees (or is
+      // absent) -- reject rather than trust the projection row's unverified column.
+      continue;
     }
 
     // "verify release binding if the assessment contract carries it": LocalizationAssessmentPayload

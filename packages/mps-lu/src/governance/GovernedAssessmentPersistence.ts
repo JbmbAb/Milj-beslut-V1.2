@@ -73,6 +73,9 @@ export function createGovernedLocalizationAssessment(args: {
     ...(args.draft.consultant_commentary_ref
       ? { consultant_commentary_ref: args.draft.consultant_commentary_ref }
       : {}),
+    ...(args.draft.localization_geometry_ref
+      ? { localization_geometry_ref: args.draft.localization_geometry_ref }
+      : {}),
   };
   const references = uniqueRefs([
     args.draft.project_context_ref,
@@ -80,6 +83,7 @@ export function createGovernedLocalizationAssessment(args: {
     ...payload.evidence_refs,
     executionOutcomeRef,
     outcomeAttestationRef,
+    ...(args.draft.localization_geometry_ref ? [args.draft.localization_geometry_ref] : []),
   ]);
   const identityBody = {
     artifact_type: "LOCALIZATION_ASSESSMENT" as const,

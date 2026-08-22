@@ -11,6 +11,8 @@ export interface LocalizationSpatialRuntime {
   readonly artifactRepository: ArtifactRepositoryPort;
   resolveSpatialProvider(capabilityKey: string): ISpatialProvider;
   wgs84ToSweref99(lat: number, lng: number): Promise<readonly [number, number]>;
+  /** PRODUCT-LU-LOCALIZATION-GEOMETRY-01 -- see SpatialProviderPostGIS.sweref99ToWgs84. */
+  sweref99ToWgs84(northing: number, easting: number): Promise<readonly [number, number]>;
   close(): Promise<void>;
 }
 
@@ -39,6 +41,7 @@ export async function createLocalizationSpatialRuntime(): Promise<LocalizationSp
     artifactRepository,
     resolveSpatialProvider: (capabilityKey) => resolver.resolve(capabilityKey),
     wgs84ToSweref99: (lat, lng) => provider.wgs84ToSweref99(lat, lng),
+    sweref99ToWgs84: (northing, easting) => provider.sweref99ToWgs84(northing, easting),
     close: () => provider.close(),
   };
 }

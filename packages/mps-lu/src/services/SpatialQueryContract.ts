@@ -32,6 +32,15 @@ export interface SpatialQueryRequest {
   }[];
   readonly buffer_distance_meters?: number;
   readonly budget?: SpatialQueryBudget;
+  /**
+   * PRODUCT-LU-LOCALIZATION-GEOMETRY-01. When provided, the query point is the referenced
+   * LocalizationGeometryArtifact's coordinates instead of the property centroid -- the provider
+   * re-resolves and re-validates it from CAS (structure, SRID, and that its
+   * `property_context_ref` matches `property_ref`) and REJECTs rather than silently falling back
+   * on any mismatch. Omitted only by callers with no explicit localization point yet (e.g.
+   * non-LU/GisRiskModule callers), in which case behavior is unchanged: the property centroid.
+   */
+  readonly location_ref?: ArtifactReference;
 }
 
 export interface ISpatialProvider {

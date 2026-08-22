@@ -10,8 +10,11 @@ import {
 } from './ExecutionIdentityAttestation.js';
 import {
   computeExecutionIdentityArtifactIdV2,
+  computeExecutionIdentityArtifactIdV3,
   LU_EXECUTION_IDENTITY_SCOPE_V2,
+  LU_EXECUTION_IDENTITY_SCOPE_V3,
   type ExecutionIdentitySubjectV2,
+  type ExecutionIdentitySubjectV3,
 } from '../../../mps-runtime/src/execution/ExecutionIdentityScopeV2.js';
 
 /**
@@ -132,6 +135,77 @@ export async function issueExecutionIdentityV2(input: {
     },
     execution_identity_contract_version: LU_EXECUTION_IDENTITY_SCOPE_V2,
     subject_v2: input.subject,
+  };
+  const identity: ExecutionIdentityArtifact = {
+    ...unsignedIdentity,
+    content_hash: sha256ContentHash(executionIdentityCanonicalBody(unsignedIdentity as ExecutionIdentityArtifact)),
+  };
+
+  const predicate = buildExecutionIdentityAttestationPredicate({
+    execution_identity_id: identity.artifact_id,
+    actor_ref: identity.actor_ref,
+    capability_ref: identity.capability_ref,
+    release_snapshot_id: input.release_snapshot_id,
+    site_id: input.subject.site_id,
+    deterministic_seed: input.deterministic_seed,
+  });
+
+  const attestation = await createArtifactAttestation({
+    subjectDigest: identity.content_hash.value,
+    predicateType: LU_EXECUTION_IDENTITY_ATTESTATION_PREDICATE_TYPE,
+    predicate: { ...predicate },
+    signing: signer,
+  });
+
+  await input.artifact_repository.put({
+    artifact_id: identity.artifact_id,
+    content_hash: identity.content_hash,
+    body: identity,
+  });
+  await input.artifact_repository.put({
+    artifact_id: identity.signature_envelope_ref.artifact_id,
+    content_hash: sha256ContentHash(attestation),
+    body: attestation,
+  });
+
+  return identity;
+}
+
+/**
+ * PRODUCT-LU-LOCALIZATION-GEOMETRY-01 (OWNER FREEZE 2026-08-22) — mints identities scoped by the
+ * V3 subject (V2's four fields plus `localization_geometry_ref`). Same idempotent-CAS-rewrite
+ * reasoning as `issueExecutionIdentityV2`: the same five-field subject always re-derives the same
+ * `artifact_id`; a moved localization point mints a distinct, coexisting immutable identity
+ * instead of colliding with or silently reusing the one issued for the prior point.
+ */
+export async function issueExecutionIdentityV3(input: {
+  readonly subject: ExecutionIdentitySubjectV3;
+  readonly deterministic_seed: string;
+  readonly actor_ref: ArtifactReference;
+  readonly capability_ref: ArtifactReference;
+  readonly release_snapshot_id: string;
+  readonly issuer_ref?: ArtifactReference;
+  readonly governed_references?: readonly ArtifactReference[];
+  readonly artifact_repository: ArtifactRepositoryPort;
+}): Promise<ExecutionIdentityArtifact> {
+  const signer = getLuExecutionAuthoritySigningProvider();
+  const artifactId = computeExecutionIdentityArtifactIdV3(input.subject);
+
+  const unsignedIdentity: Omit<ExecutionIdentityArtifact, 'content_hash'> = {
+    artifact_id: artifactId,
+    artifact_type: 'execution_identity',
+    references: [
+      ...(input.issuer_ref ? [input.issuer_ref] : []),
+      ...(input.governed_references ?? []),
+    ],
+    actor_ref: input.actor_ref,
+    capability_ref: input.capability_ref,
+    signature_envelope_ref: {
+      artifact_id: `lu-identity-attestation-${artifactId}`,
+      artifact_type: 'outcome_attestation',
+    },
+    execution_identity_contract_version: LU_EXECUTION_IDENTITY_SCOPE_V3,
+    subject_v3: input.subject,
   };
   const identity: ExecutionIdentityArtifact = {
     ...unsignedIdentity,

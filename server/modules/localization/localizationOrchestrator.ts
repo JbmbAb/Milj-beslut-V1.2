@@ -18,6 +18,8 @@ import { ProjectContextBindingProvider } from './projectContextBindingRuntime';
 import { PrismaProjectContextBindingIndex } from '../../repositories/projectContextBindingRepository';
 import { getProjectContextBindingIssuerVerifier } from '../../security/projectContextBindingIssuerKey';
 import { resolveCurrentAssessmentProjection } from './assessmentProjection';
+import { resolveCurrentLocalizationGeometry } from './localizationGeometryProjection';
+import type { LocalizationGeometryProjectionIndex } from '../../repositories/localizationGeometryProjectionRepository';
 import { resolveGovernedLocalizationPresentation } from './resolveGovernedLocalizationPresentation';
 import { readLocalizationViewerRuntimeConfig, type LocalizationViewerRuntimeConfig } from './createLocalizationViewerRuntime';
 import type { ProjectAssessmentProjectionIndex } from '../../repositories/projectAssessmentProjectionRepository';
@@ -188,6 +190,8 @@ export async function resolveLuViewerPresentation(input: {
   readonly currentBindingProvider?: ProjectContextBindingProvider;
   /** Overridable for tests; defaults to the real Postgres-backed projection index. */
   readonly assessmentProjectionIndex?: ProjectAssessmentProjectionIndex;
+  /** Overridable for tests; defaults to the real Postgres-backed localization geometry index. */
+  readonly localizationGeometryIndex?: LocalizationGeometryProjectionIndex;
   /** Overridable for tests; defaults to the env-configured deployment-wide capability. */
   readonly config?: LocalizationViewerRuntimeConfig;
 }): Promise<
@@ -214,12 +218,30 @@ export async function resolveLuViewerPresentation(input: {
       getProjectContextBindingIssuerVerifier(),
     );
 
+  // PRODUCT-LU-LOCALIZATION-GEOMETRY-01: a project that already has an explicit localization
+  // geometry must have "current assessment" also mean "current point" -- otherwise a stale
+  // point-A assessment could resolve as current after the user moves to point B. A project with
+  // no localization geometry projection yet (pre-Phase-B / legacy) is unaffected: this is
+  // additive, not a new failure mode for existing projects.
+  let currentLocalizationGeometryArtifactId: string | undefined;
+  try {
+    const geometry = await resolveCurrentLocalizationGeometry({
+      projectId,
+      artifactRepository,
+      index: input.localizationGeometryIndex,
+    });
+    currentLocalizationGeometryArtifactId = geometry.geometryArtifactId;
+  } catch {
+    currentLocalizationGeometryArtifactId = undefined;
+  }
+
   let assessmentArtifactId: string;
   try {
     const projection = await resolveCurrentAssessmentProjection({
       projectId,
       artifactRepository,
       currentBindingProvider,
+      currentLocalizationGeometryArtifactId,
       index: input.assessmentProjectionIndex,
     });
     assessmentArtifactId = projection.assessmentArtifactId;

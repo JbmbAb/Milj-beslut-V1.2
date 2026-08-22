@@ -3,6 +3,7 @@ import { ArtifactReference } from "../../../mps-compliance/src/artifacts/Artifac
 import type {
   ExecutionIdentityScopeVersion,
   ExecutionIdentitySubjectV2,
+  ExecutionIdentitySubjectV3,
 } from "./ExecutionIdentityScopeV2";
 
 /**
@@ -32,4 +33,11 @@ export interface ExecutionIdentityArtifact extends ArtifactContract {
   readonly execution_identity_contract_version?: ExecutionIdentityScopeVersion;
   /** V2 only -- see `execution_identity_contract_version`. */
   readonly subject_v2?: ExecutionIdentitySubjectV2;
+  /**
+   * PRODUCT-LU-LOCALIZATION-GEOMETRY-01. V3 only. A separate field from `subject_v2` (never
+   * reused/widened) for the same reason V2 added a new field instead of touching V1's shape:
+   * `undefined` here keeps every already-persisted V1/V2 artifact's `content_hash` byte-identical,
+   * and each field means exactly what its version number says.
+   */
+  readonly subject_v3?: ExecutionIdentitySubjectV3;
 }

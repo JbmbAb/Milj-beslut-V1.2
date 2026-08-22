@@ -121,6 +121,12 @@ describe("P4A-LU-05 — real runtime entrypoint", () => {
     );
     const poolQuery = vi.fn(async (sql: string) => {
       if (sql.includes("ST_Transform")) {
+        // PRODUCT-LU-LOCALIZATION-GEOMETRY-01: sweref99ToWgs84 (the derived-geometry path) issues
+        // the inverse transform, selecting AS lat/AS lng instead of AS n/AS e -- distinguish by
+        // that column alias so both directions get a shape their caller can actually read.
+        if (sql.includes("AS lat")) {
+          return { rows: [{ lat: 59.33, lng: 18.07 }], rowCount: 1 };
+        }
         return { rows: [{ n: 6580000, e: 674000 }], rowCount: 1 };
       }
       if (sql.includes("ST_DWithin")) {
@@ -147,6 +153,7 @@ describe("P4A-LU-05 — real runtime entrypoint", () => {
       artifactRepository,
       resolveSpatialProvider: (capabilityKey) => resolver.resolve(capabilityKey),
       wgs84ToSweref99: (lat, lng) => provider.wgs84ToSweref99(lat, lng),
+      sweref99ToWgs84: (northing, easting) => provider.sweref99ToWgs84(northing, easting),
       close: () => provider.close(),
     };
     const useCase = new GenerateLocalizationReportUseCase(async () => runtime);
@@ -245,10 +252,12 @@ describe("P4A-LU-05 — real runtime entrypoint", () => {
       throw new Error("REJECT_SPATIAL_PROVIDER: missing canonical binding");
     });
     const wgs84ToSweref99 = vi.fn();
+    const sweref99ToWgs84 = vi.fn();
     const runtime: LocalizationSpatialRuntime = {
       artifactRepository,
       resolveSpatialProvider,
       wgs84ToSweref99,
+      sweref99ToWgs84,
       close: vi.fn().mockResolvedValue(undefined),
     };
     const useCase = new GenerateLocalizationReportUseCase(async () => runtime);

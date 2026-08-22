@@ -22,7 +22,9 @@ import {
   runLuAssessmentViaKernel,
   deriveLuExecutionSeed,
   createLuRegistryRuntime,
+  createLocalizationGeometryArtifact,
   type DocumentEvidenceArtifact,
+  type LocalizationGeometryArtifact,
 } from '@miljobeslut/mps-lu';
 import {
   isVerifiedDocumentFact,
@@ -37,6 +39,10 @@ import {
 import { resolveCanonicalProjectContext } from './resolveCanonicalProjectContext';
 import { resolveCurrentProductRelease } from './resolveCurrentProductRelease';
 import { registerAssessmentProjection } from '../../server/modules/localization/assessmentProjection';
+import {
+  resolveCurrentLocalizationGeometry,
+  registerLocalizationGeometry,
+} from '../../server/modules/localization/localizationGeometryProjection';
 
 export interface SiteAlternative {
   id: string;
@@ -569,6 +575,56 @@ async function analyzeSite(
     const projRef = canonicalContext.projectContextRef;
     const geomRef = canonicalContext.geometryRef;
 
+    // PRODUCT-LU-LOCALIZATION-GEOMETRY-01 Phase B: resolve the project's current explicit
+    // LocalizationGeometry, or -- for a project that has never had one set (every project before
+    // this unit) -- derive one from the property's own centroid, exactly the point the live
+    // spatial query already used implicitly before this unit. This keeps existing projects usable
+    // (never a hard failure just because no explicit point was ever chosen) while making the
+    // artifact a real, versioned, content-addressed thing from here on, never a silent implicit
+    // conflation of "property" with "site" again.
+    let currentLocalizationGeometry: LocalizationGeometryArtifact;
+    try {
+      currentLocalizationGeometry = (
+        await resolveCurrentLocalizationGeometry({ projectId: ctx.projectId, artifactRepository: repo })
+      ).geometry;
+    } catch {
+      const [derivedLat, derivedLng] = await spatialRuntime.sweref99ToWgs84(
+        canonicalContext.coordinates[0],
+        canonicalContext.coordinates[1],
+      );
+      const derivedGeometry = createLocalizationGeometryArtifact({
+        project_id: ctx.projectId,
+        property_context_ref: propRef,
+        wgs84LngLat: [derivedLng, derivedLat],
+        sweref99NorthingEasting: canonicalContext.coordinates,
+        provenance: 'derived_from_property_boundary',
+        label: 'Fastighetens centrumpunkt (automatiskt härledd)',
+        created_by: ctx.user?.id ?? 'system',
+      });
+      await repo.put({
+        artifact_id: derivedGeometry.artifact_id,
+        content_hash: derivedGeometry.content_hash,
+        body: derivedGeometry,
+      });
+      // CAS is the sole content authority for the geometry itself (the put above). This
+      // projection write is only a non-authoritative discovery locator (same reasoning as
+      // registerAssessmentProjection below) -- a failure here must never abort an otherwise-valid
+      // run; resolveCurrentLocalizationGeometry will simply re-derive next time until it succeeds.
+      try {
+        await registerLocalizationGeometry({ projectId: ctx.projectId, geometry: derivedGeometry });
+      } catch (err) {
+        logger.warn('Failed to register localization geometry projection -- geometry remains CAS-valid', {
+          site: site.id,
+          err: String(err),
+        });
+      }
+      currentLocalizationGeometry = derivedGeometry;
+    }
+    const locationRef = {
+      artifact_id: currentLocalizationGeometry.artifact_id,
+      artifact_type: currentLocalizationGeometry.artifact_type,
+    };
+
     // LU-PRODUCT-GOLDEN-PATH-01: site_id and deterministic_seed must be the same canonical
     // values LU-EXECUTION-AUTHORITY-BOOTSTRAP-01 issued the ExecutionIdentity under -- never
     // site.id (caller-controlled) or a string derived only from it. A project/property with no
@@ -587,6 +643,7 @@ async function analyzeSite(
       product_release_hash: currentRelease.releaseHash,
       execution_contract_version: 'lu-execution-identity-v1',
       rule_registry_snapshot_id: executionRegistry.getReleaseSnapshot().snapshot_id,
+      localization_geometry_ref: locationRef,
     });
 
     // LU-EXECUTION-IDENTITY-SCOPE-V2 (PRODUCT-LU-EXECUTION-IDENTITY-V2-WIRING-01): current
@@ -597,10 +654,19 @@ async function analyzeSite(
     // (resolveCanonicalProjectContext -> ProjectContextBindingProvider.resolveCurrent), never a
     // caller-supplied or historical ref. A site with an identity minted under a since-superseded
     // binding fails closed here exactly as intended -- this usecase does not mint one itself.
-    const canonicalIdentitySubjectV2 = {
+    // PRODUCT-LU-LOCALIZATION-GEOMETRY-01: current product execution must resolve the exact
+    // expected V3 ExecutionIdentity -- scoped by the localization point too, on top of everything
+    // V2 already required (project_context_binding_ref, product_release_ref,
+    // execution_contract_version). Same fail-closed reasoning as V2 originally established: a
+    // project/point combination with no V3 identity minted for it fails closed at admission; this
+    // usecase does not mint one itself. Moving the point changes `locationRef`, which changes this
+    // subject, which changes the expected identity/manifest -- a moved point can never reuse the
+    // identity/manifest/evidence/assessment minted for the prior one.
+    const canonicalIdentitySubjectV3 = {
       project_context_binding_ref: canonicalContext.contextBindingRef,
       product_release_ref: currentRelease.releaseRef,
       execution_contract_version: 'lu-execution-identity-v1',
+      localization_geometry_ref: locationRef,
     };
 
     try {
@@ -628,11 +694,16 @@ async function analyzeSite(
     const magicMomentBufferMeters = 500;
     const queryRequest = {
       property_ref: propRef,
+      location_ref: locationRef,
       buffer_distance_meters: magicMomentBufferMeters,
       layers: [
         { name: 'water', version_hash: 'v1.0' },
         { name: 'ebh', version_hash: 'v1.0' },
         { name: 'protected_area', version_hash: 'v1.0' },
+        // LU-BREADTH-01 Track A: already-governed layers (real SUCCESS PostgisImportBatch rows),
+        // newly wired into the product query.
+        { name: 'natura2000', version_hash: 'v1.0' },
+        { name: 'water_protection_area', version_hash: 'v1.0' },
       ] as const,
       budget: {
         max_layers: 8,
@@ -677,7 +748,7 @@ async function analyzeSite(
       document_evidence: governedDocumentEvidence,
       verified_document_facts: verifiedDocumentFacts,
       artifact_repository: repo,
-      identity_subject_v2: canonicalIdentitySubjectV2,
+      identity_subject_v3: canonicalIdentitySubjectV3,
       assessment_draft: {
         site_id: site.id,
         project_context_ref: projRef,
@@ -686,6 +757,7 @@ async function analyzeSite(
         system_summary:
           `Governed LU assessment: ${mpsEvidence.length} spatial evidence, ` +
           `${governedDocumentEvidence.length} document evidence.`,
+        localization_geometry_ref: locationRef,
       },
     });
 
@@ -723,6 +795,7 @@ async function analyzeSite(
             assessment: kernelResult.assessment,
             contextBindingRef: canonicalContext.contextBindingRef,
             releaseRef: currentRelease.releaseRef,
+            localizationGeometryArtifactId: currentLocalizationGeometry.artifact_id,
           });
           assessment_projection_registered = true;
         } catch (err) {

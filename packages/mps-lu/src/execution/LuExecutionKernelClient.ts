@@ -36,8 +36,11 @@ import type { ExecutionIdentityArtifact } from "../../../mps-runtime/src/executi
 import {
   computeExecutionIdentityArtifactIdV1,
   computeExecutionIdentityArtifactIdV2,
+  computeExecutionIdentityArtifactIdV3,
   computeExecutionManifestIdV2,
+  computeExecutionManifestIdV3,
   type ExecutionIdentitySubjectV2,
+  type ExecutionIdentitySubjectV3,
 } from "../../../mps-runtime/src/execution/ExecutionIdentityScopeV2.js";
 import type { ArtifactReference } from "../../../mps-compliance/src/artifacts/ArtifactReference.js";
 import type { FrozenCoreVerificationContext } from "../../../mps-compliance/src/conformance/FrozenCoreVerificationContext.js";
@@ -107,6 +110,19 @@ export interface LuKernelRunInput {
     readonly project_context_binding_ref: ArtifactReference;
     readonly product_release_ref: ArtifactReference;
     readonly execution_contract_version: string;
+  };
+  /**
+   * PRODUCT-LU-LOCALIZATION-GEOMETRY-01. When provided (instead of / in addition to
+   * `identity_subject_v2`), admission resolves the exact expected V3 ExecutionIdentity, scoped by
+   * the localization point too -- a V2 identity (bound to the right property/binding/release but
+   * no explicit point) never substitutes, and moving the point mints a distinct identity/manifest.
+   * Mutually exclusive in effect with `identity_subject_v2`: when both are supplied, V3 wins.
+   */
+  readonly identity_subject_v3?: {
+    readonly project_context_binding_ref: ArtifactReference;
+    readonly product_release_ref: ArtifactReference;
+    readonly execution_contract_version: string;
+    readonly localization_geometry_ref: ArtifactReference;
   };
 }
 
@@ -219,11 +235,19 @@ export async function runLuAssessmentViaKernel(
     ? { site_id: input.site_id, ...input.identity_subject_v2 }
     : null;
 
+  // PRODUCT-LU-LOCALIZATION-GEOMETRY-01: same reasoning as expectedSubjectV2, plus the explicit
+  // localization point as a fifth axis. Takes priority over expectedSubjectV2 when both are given.
+  const expectedSubjectV3: ExecutionIdentitySubjectV3 | null = input.identity_subject_v3
+    ? { site_id: input.site_id, ...input.identity_subject_v3 }
+    : null;
+
   // PROD-LU-ADMISSION-02D: this deterministic ref names WHICH identity a valid prior issuance
   // would have been persisted under (see LuExecutionIdentityIssuer.ts) -- it is not, itself, an
   // identity. This module never constructs or signs one.
   const executionIdentityRef = {
-    artifact_id: expectedSubjectV2
+    artifact_id: expectedSubjectV3
+      ? computeExecutionIdentityArtifactIdV3(expectedSubjectV3)
+      : expectedSubjectV2
       ? computeExecutionIdentityArtifactIdV2(expectedSubjectV2)
       : computeExecutionIdentityArtifactIdV1(input.site_id),
     artifact_type: "execution_identity" as const,
@@ -293,6 +317,7 @@ export async function runLuAssessmentViaKernel(
         expectedPredicate,
         authorityVerifier: getLuExecutionAuthorityVerifier(),
         expectedSubjectV2: expectedSubjectV2 ?? undefined,
+        expectedSubjectV3: expectedSubjectV3 ?? undefined,
       });
       verificationContext = buildAdmissionContext(artifactResolver);
     } else {
@@ -336,7 +361,9 @@ export async function runLuAssessmentViaKernel(
   // subjects (e.g. across a binding supersession) onto one WORM slot. Falls back to the V1
   // site-only id only when no V2 subject was supplied (legacy/test callers).
   const manifest: FrozenExecutionManifestIdentity = {
-    manifest_id: expectedSubjectV2
+    manifest_id: expectedSubjectV3
+      ? computeExecutionManifestIdV3(expectedSubjectV3)
+      : expectedSubjectV2
       ? computeExecutionManifestIdV2(expectedSubjectV2)
       : `lu-manifest-${input.site_id}`,
     artifact_type: "execution_manifest",

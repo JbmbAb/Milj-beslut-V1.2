@@ -5,9 +5,12 @@ import type { ExecutionIdentityArtifact } from '../../../mps-runtime/src/executi
 import {
   computeExecutionIdentityArtifactIdV1,
   computeExecutionIdentityArtifactIdV2,
+  computeExecutionIdentityArtifactIdV3,
   LU_EXECUTION_IDENTITY_SCOPE_V1,
   LU_EXECUTION_IDENTITY_SCOPE_V2,
+  LU_EXECUTION_IDENTITY_SCOPE_V3,
   type ExecutionIdentitySubjectV2,
+  type ExecutionIdentitySubjectV3,
 } from '../../../mps-runtime/src/execution/ExecutionIdentityScopeV2.js';
 import type { ArtifactReference } from '../../../mps-compliance/src/artifacts/ArtifactReference.js';
 
@@ -49,12 +52,14 @@ export function executionIdentityCanonicalBody(identity: ExecutionIdentityArtifa
     actor_ref: identity.actor_ref,
     capability_ref: identity.capability_ref,
     signature_envelope_ref: identity.signature_envelope_ref,
-    // LU-EXECUTION-IDENTITY-SCOPE-V2: passed through raw, NOT defaulted. A genuine V1 artifact
-    // has both fields `undefined`, which the RFC8785 canonicalizer drops entirely (same as
+    // LU-EXECUTION-IDENTITY-SCOPE-V2/V3: passed through raw, NOT defaulted. A genuine V1 artifact
+    // has all three fields `undefined`, which the RFC8785 canonicalizer drops entirely (same as
     // JSON.stringify) -- so this body is byte-identical to the pre-V2 shape for every
-    // already-persisted V1 identity, and their stored content_hash keeps verifying unchanged.
+    // already-persisted V1 identity (and the pre-V3 shape for every V2 one), and their stored
+    // content_hash keeps verifying unchanged.
     execution_identity_contract_version: identity.execution_identity_contract_version,
     subject_v2: identity.subject_v2,
+    subject_v3: identity.subject_v3,
   };
 }
 
@@ -151,8 +156,16 @@ export async function verifyExecutionIdentityAttestation(input: {
    * identity is refused outright: a V1 identity must never substitute for an expected V2 one.
    */
   readonly expectedSubjectV2?: ExecutionIdentitySubjectV2;
+  /**
+   * PRODUCT-LU-LOCALIZATION-GEOMETRY-01. Required to admit a V3 identity for CURRENT execution
+   * against a specific localization geometry, on top of everything `expectedSubjectV2` already
+   * requires. Mutually exclusive with `expectedSubjectV2` by convention -- a caller wants exactly
+   * one contract version, never "either V2 or V3 is fine". When present, a resolved V1 or V2
+   * (legacy) identity is refused outright, same rule V2 already applies to V1.
+   */
+  readonly expectedSubjectV3?: ExecutionIdentitySubjectV3;
 }): Promise<ExecutionIdentityVerificationResult> {
-  const { identity, attestation, expectedPredicate, authorityVerifier, expectedSubjectV2 } = input;
+  const { identity, attestation, expectedPredicate, authorityVerifier, expectedSubjectV2, expectedSubjectV3 } = input;
 
   // 1. ARTIFACT STRUCTURE -- self-consistency only. Nothing here yet trusts that the artifact is
   // authentic; it only checks that the artifact is internally coherent for whatever contract it
@@ -167,7 +180,14 @@ export async function verifyExecutionIdentityAttestation(input: {
 
   const declaredContractVersion = identity.execution_identity_contract_version ?? LU_EXECUTION_IDENTITY_SCOPE_V1;
 
-  if (declaredContractVersion === LU_EXECUTION_IDENTITY_SCOPE_V2) {
+  if (declaredContractVersion === LU_EXECUTION_IDENTITY_SCOPE_V3) {
+    if (!identity.subject_v3) {
+      return { verified: false, reason: 'SUBJECT_MISMATCH' };
+    }
+    if (identity.artifact_id !== computeExecutionIdentityArtifactIdV3(identity.subject_v3)) {
+      return { verified: false, reason: 'ARTIFACT_ID_MISMATCH' };
+    }
+  } else if (declaredContractVersion === LU_EXECUTION_IDENTITY_SCOPE_V2) {
     if (!identity.subject_v2) {
       return { verified: false, reason: 'SUBJECT_MISMATCH' };
     }
@@ -207,15 +227,20 @@ export async function verifyExecutionIdentityAttestation(input: {
     return { verified: false, reason: 'INVALID_SIGNATURE' };
   }
 
-  // 5. V2 SUBJECT BINDING -- only now, with the artifact's authenticity and scope fully
-  // established, do we decide whether it is admissible as THIS caller's expected identity. A
-  // genuinely valid, correctly-signed V1 identity never satisfies a caller that requires V2.
+  // 5. SUBJECT BINDING -- only now, with the artifact's authenticity and scope fully established,
+  // do we decide whether it is admissible as THIS caller's expected identity. A genuinely valid,
+  // correctly-signed V1 identity never satisfies a caller that requires V2; a genuinely valid V2
+  // (bound to the right property/binding/release but no explicit localization point) never
+  // satisfies a caller that requires V3 -- a moved point can never silently reuse an identity
+  // minted before it existed as a distinct axis.
   if (declaredContractVersion === LU_EXECUTION_IDENTITY_SCOPE_V1) {
-    if (expectedSubjectV2) {
+    if (expectedSubjectV2 || expectedSubjectV3) {
       return { verified: false, reason: 'LEGACY_IDENTITY_NOT_ALLOWED' };
     }
-  } else {
-    // declaredContractVersion === V2 (the only other branch reachable past step 1).
+  } else if (declaredContractVersion === LU_EXECUTION_IDENTITY_SCOPE_V2) {
+    if (expectedSubjectV3) {
+      return { verified: false, reason: 'LEGACY_IDENTITY_NOT_ALLOWED' };
+    }
     const subject = identity.subject_v2!;
     if (subject.site_id !== expectedPredicate.site_id) {
       return { verified: false, reason: 'SUBJECT_MISMATCH' };
@@ -229,6 +254,28 @@ export async function verifyExecutionIdentityAttestation(input: {
       if (!matchesExpectedSubject) {
         return { verified: false, reason: 'SUBJECT_MISMATCH' };
       }
+    }
+  } else {
+    // declaredContractVersion === V3 (the only other branch reachable past step 1).
+    const subject = identity.subject_v3!;
+    if (subject.site_id !== expectedPredicate.site_id) {
+      return { verified: false, reason: 'SUBJECT_MISMATCH' };
+    }
+    if (expectedSubjectV3) {
+      const matchesExpectedSubject =
+        subject.site_id === expectedSubjectV3.site_id &&
+        referencesEqual(subject.project_context_binding_ref, expectedSubjectV3.project_context_binding_ref) &&
+        referencesEqual(subject.product_release_ref, expectedSubjectV3.product_release_ref) &&
+        subject.execution_contract_version === expectedSubjectV3.execution_contract_version &&
+        referencesEqual(subject.localization_geometry_ref, expectedSubjectV3.localization_geometry_ref);
+      if (!matchesExpectedSubject) {
+        return { verified: false, reason: 'SUBJECT_MISMATCH' };
+      }
+    } else if (expectedSubjectV2) {
+      // A caller that only requires V2-level scope is refused a V3 identity too: contracts are
+      // exact-match, never "V3 satisfies a V2 request because it's a superset" -- that would let
+      // callers silently ignore the localization-geometry axis if they simply forgot to ask for it.
+      return { verified: false, reason: 'SUBJECT_MISMATCH' };
     }
   }
 

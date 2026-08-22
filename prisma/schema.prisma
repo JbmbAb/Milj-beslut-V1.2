@@ -152,6 +152,7 @@ model Project {
   requirements        RequirementRecord[]
   projectContextBindings ProjectContextBinding[]
   assessmentProjections ProjectAssessmentProjection[]
+  localizationGeometryProjections LocalizationGeometryProjection[]
   contextBootstrapRequests ProjectContextBootstrapRequest[]
   planState           ProjectPlanState?
   complianceScore     Float?
@@ -252,13 +253,41 @@ model ProjectAssessmentProjection {
   projectContextRefType String   @map("project_context_ref_type")
   bindingArtifactId     String   @map("binding_artifact_id")
   releaseArtifactId     String   @map("release_artifact_id")
+  /// PRODUCT-LU-LOCALIZATION-GEOMETRY-01 Phase B. Nullable during transition (pre-existing rows
+  /// predate the concept); once populated, "current" requires this to also match the project's
+  /// current LocalizationGeometry, not only the current binding.
+  localizationGeometryArtifactId String? @map("localization_geometry_artifact_id")
   createdAt             DateTime @default(now()) @map("created_at")
   project               Project  @relation(fields: [projectId], references: [id], onDelete: Restrict)
 
   @@unique([projectId, assessmentArtifactId])
   @@index([projectId, bindingArtifactId])
   @@index([projectId, createdAt])
+  @@index([projectId, localizationGeometryArtifactId])
   @@map("project_assessment_projections")
+}
+
+/// PRODUCT-LU-LOCALIZATION-GEOMETRY-01 Phase B. Append-only, non-authoritative locator -- same
+/// shape and same rules as ProjectAssessmentProjection: CAS remains the sole content authority,
+/// every candidate must be re-resolved and re-verified from CAS before being trusted, and
+/// `createdAt` is never used to decide validity, only as the final deterministic tiebreaker among
+/// candidates that already passed CAS re-verification. Deliberately the LIGHTER of this
+/// codebase's two "current head" shapes (no signed-supersession-relation table like
+/// ProjectContextBindingSupersession): LocalizationGeometryArtifact is unsigned user content, not
+/// owner-governance authority, so content-hash re-verification is the correct and sufficient
+/// integrity check -- there is no signed relation to verify because there is no signature.
+model LocalizationGeometryProjection {
+  id                          String   @id
+  projectId                   String   @map("project_id")
+  geometryArtifactId          String   @map("geometry_artifact_id")
+  propertyContextRefId        String   @map("property_context_ref_id")
+  propertyContextRefType      String   @map("property_context_ref_type")
+  createdAt                   DateTime @default(now()) @map("created_at")
+  project                     Project  @relation(fields: [projectId], references: [id], onDelete: Restrict)
+
+  @@unique([projectId, geometryArtifactId])
+  @@index([projectId, createdAt])
+  @@map("localization_geometry_projections")
 }
 
 model ProjectPlanState {

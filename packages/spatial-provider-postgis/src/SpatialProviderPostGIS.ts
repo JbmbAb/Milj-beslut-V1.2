@@ -7,6 +7,8 @@ import {
   type SpatialQueryRequest,
   type SpatialEvidenceArtifact,
   type LUPropertyContextArtifact,
+  type LocalizationGeometryArtifact,
+  validateLocalizationGeometryArtifact,
   SPATIAL_STACK_V1,
 } from "@miljobeslut/mps-lu";
 import { ArtifactReference } from "@miljobeslut/mps-compliance/src/artifacts/ArtifactContract";
@@ -64,6 +66,34 @@ export class SpatialProviderPostGIS implements ISpatialProvider {
     return [Number(row.n), Number(row.e)];
   }
 
+  /**
+   * PRODUCT-LU-LOCALIZATION-GEOMETRY-01. The inverse of `wgs84ToSweref99` -- needed to derive a
+   * browser-facing WGS84 GeoJSON Point for a LocalizationGeometryArtifact created from a
+   * SWEREF99 TM-only source (the property centroid already stored in LUPropertyContextArtifact).
+   */
+  async sweref99ToWgs84(
+    northing: number,
+    easting: number,
+  ): Promise<readonly [number, number]> {
+    const res = await this.pool.query<{ lat: number; lng: number }>(
+      `
+      SELECT
+        ST_Y(g) AS lat,
+        ST_X(g) AS lng
+      FROM ST_Transform(
+        ST_SetSRID(ST_MakePoint($1::float8, $2::float8), ${SRID_SWEREF99TM}),
+        4326
+      ) AS g
+      `,
+      [easting, northing],
+    );
+    const row = res.rows[0];
+    if (!row) {
+      throw new Error("REJECT_LOCALIZATION_GEOMETRY: SWEREF99→WGS84 transform returned no row");
+    }
+    return [Number(row.lat), Number(row.lng)];
+  }
+
   async query(request: SpatialQueryRequest): Promise<SpatialEvidenceArtifact[]> {
     const budget = this.resolveBudget(request);
     this.assertBudget(request, budget);
@@ -77,7 +107,10 @@ export class SpatialProviderPostGIS implements ISpatialProvider {
       );
     }
 
-    const [northing, easting] = propertyArtifact.payload.coordinates;
+    const [northing, easting] = await this.resolveQueryPoint(
+      request,
+      propertyArtifact.payload.coordinates,
+    );
     const bufferDistance =
       request.buffer_distance_meters ?? Math.min(500, budget.max_distance_meters);
 
@@ -146,6 +179,46 @@ export class SpatialProviderPostGIS implements ISpatialProvider {
     }
 
     return evidence;
+  }
+
+  /**
+   * PRODUCT-LU-LOCALIZATION-GEOMETRY-01. Replaces the implicit property-centroid input with the
+   * current LocalizationGeometry POINT when `request.location_ref` is supplied -- without
+   * changing any other provider semantics (budget, layers, ST_DWithin query all unchanged).
+   *
+   * Fails closed, never silently falls back to the centroid, on: missing/tampered CAS object
+   * (`validateLocalizationGeometryArtifact` re-verifies content_hash/artifact_id), or a geometry
+   * whose `property_context_ref` does not match `request.property_ref` (wrong property-context
+   * geometry). Callers that pass no `location_ref` at all get the unchanged centroid behavior.
+   */
+  private async resolveQueryPoint(
+    request: SpatialQueryRequest,
+    propertyCentroid: readonly [number, number],
+  ): Promise<readonly [number, number]> {
+    if (!request.location_ref) {
+      return propertyCentroid;
+    }
+
+    const geometry = await this.casRepo.resolve<LocalizationGeometryArtifact>(
+      request.location_ref,
+    );
+    if (!geometry) {
+      throw new Error(
+        `REJECT_LOCALIZATION_GEOMETRY_LOOKUP: not found for ${request.location_ref.artifact_id}`,
+      );
+    }
+    validateLocalizationGeometryArtifact(geometry);
+
+    if (
+      geometry.payload.property_context_ref.artifact_id !== request.property_ref.artifact_id ||
+      geometry.payload.property_context_ref.artifact_type !== request.property_ref.artifact_type
+    ) {
+      throw new Error(
+        `REJECT_LOCALIZATION_GEOMETRY_WRONG_PROPERTY: ${request.location_ref.artifact_id} is not bound to property ${request.property_ref.artifact_id}`,
+      );
+    }
+
+    return geometry.payload.coordinates;
   }
 
   private resolveBudget(request: SpatialQueryRequest): SpatialQueryBudget {

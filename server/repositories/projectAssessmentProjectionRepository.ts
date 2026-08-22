@@ -9,6 +9,8 @@ export interface ProjectAssessmentProjectionRow {
   readonly projectContextRefType: string;
   readonly bindingArtifactId: string;
   readonly releaseArtifactId: string;
+  /** PRODUCT-LU-LOCALIZATION-GEOMETRY-01 Phase B. Null for rows registered before this unit. */
+  readonly localizationGeometryArtifactId: string | null;
   readonly createdAt: Date;
 }
 
@@ -20,6 +22,7 @@ export interface ProjectAssessmentProjectionIndex {
     readonly projectContextRef: ArtifactReference;
     readonly bindingArtifactId: string;
     readonly releaseArtifactId: string;
+    readonly localizationGeometryArtifactId?: string | null;
   }): Promise<void>;
   listForProject(projectId: string): Promise<readonly ProjectAssessmentProjectionRow[]>;
 }
@@ -32,6 +35,7 @@ type Row = {
   project_context_ref_type: string;
   binding_artifact_id: string;
   release_artifact_id: string;
+  localization_geometry_artifact_id: string | null;
   created_at: Date;
 };
 
@@ -44,6 +48,7 @@ function toProjectionRow(row: Row): ProjectAssessmentProjectionRow {
     projectContextRefType: row.project_context_ref_type,
     bindingArtifactId: row.binding_artifact_id,
     releaseArtifactId: row.release_artifact_id,
+    localizationGeometryArtifactId: row.localization_geometry_artifact_id,
     createdAt: row.created_at,
   };
 }
@@ -64,16 +69,17 @@ export class PrismaProjectAssessmentProjectionIndex implements ProjectAssessment
     readonly projectContextRef: ArtifactReference;
     readonly bindingArtifactId: string;
     readonly releaseArtifactId: string;
+    readonly localizationGeometryArtifactId?: string | null;
   }): Promise<void> {
     await prisma.$executeRaw(Prisma.sql`
       INSERT INTO "project_assessment_projections" (
         "id", "project_id", "assessment_artifact_id", "assessment_artifact_type",
         "project_context_ref_id", "project_context_ref_type",
-        "binding_artifact_id", "release_artifact_id"
+        "binding_artifact_id", "release_artifact_id", "localization_geometry_artifact_id"
       ) VALUES (
         ${row.assessmentArtifactId}, ${row.projectId}, ${row.assessmentArtifactId}, ${row.assessmentArtifactType},
         ${row.projectContextRef.artifact_id}, ${row.projectContextRef.artifact_type},
-        ${row.bindingArtifactId}, ${row.releaseArtifactId}
+        ${row.bindingArtifactId}, ${row.releaseArtifactId}, ${row.localizationGeometryArtifactId ?? null}
       ) ON CONFLICT ("project_id", "assessment_artifact_id") DO NOTHING
     `);
   }
@@ -82,7 +88,7 @@ export class PrismaProjectAssessmentProjectionIndex implements ProjectAssessment
     const rows = await prisma.$queryRaw<Row[]>(Prisma.sql`
       SELECT "project_id", "assessment_artifact_id", "assessment_artifact_type",
              "project_context_ref_id", "project_context_ref_type",
-             "binding_artifact_id", "release_artifact_id", "created_at"
+             "binding_artifact_id", "release_artifact_id", "localization_geometry_artifact_id", "created_at"
       FROM "project_assessment_projections"
       WHERE "project_id" = ${projectId}
       ORDER BY "created_at" DESC

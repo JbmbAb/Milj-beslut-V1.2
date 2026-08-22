@@ -97,6 +97,7 @@ import {
   createProductLuPropertyContextArtifact,
   createProductLuProjectContextArtifact,
   createProjectContextBindingSupersessionArtifact,
+  createLocalizationGeometryArtifact,
   LU_SITE_ASSESSMENT_CAPABILITY_KEY,
   type ISpatialProvider,
 } from '@miljobeslut/mps-lu';
@@ -109,9 +110,9 @@ import {
   attestProjectContextBindingSupersessionArtifact,
 } from '../../server/modules/localization/projectContextBindingAuthority';
 import { installOwnerIssuedProjectContextBindingSupersession } from '../../server/modules/localization/installProjectContextBinding';
-import { issueExecutionIdentity, issueExecutionIdentityV2 } from '../../packages/mps-lu/src/execution/LuExecutionIdentityIssuer';
+import { issueExecutionIdentity, issueExecutionIdentityV2, issueExecutionIdentityV3 } from '../../packages/mps-lu/src/execution/LuExecutionIdentityIssuer';
 import { LU_EXECUTION_PRINCIPAL_ID } from '../../packages/mps-lu/src/execution/LuExecutionKernelClient';
-import type { ExecutionIdentitySubjectV2 } from '../../packages/mps-runtime/src/execution/ExecutionIdentityScopeV2';
+import type { ExecutionIdentitySubjectV2, ExecutionIdentitySubjectV3 } from '../../packages/mps-runtime/src/execution/ExecutionIdentityScopeV2';
 
 const ISSUER_KEY_ID = 'ed25519:pcb-issuer-v2-wiring-test';
 const issuerKey = LocalPemSigningKeyProvider.generate(ISSUER_KEY_ID);
@@ -120,14 +121,48 @@ const RELEASE_A_HASH = 'a'.repeat(64);
 const RELEASE_B_ID = 'product-release-wiring-test-b';
 const RELEASE_B_HASH = 'b'.repeat(64);
 
+// PRODUCT-LU-LOCALIZATION-GEOMETRY-01: the inverse of the property's own SWEREF coordinates
+// ([6580000, 674000], set on the property in provisionRealProject below) -- used by the usecase's
+// resolve-or-derive-current-localization-geometry step. Any consistent WGS84 point works here
+// (the real transform isn't under test); DERIVED_WGS84_LAT_LNG is what deriveExpectedGeometryRef
+// below must reuse verbatim so a test's precomputed V3 identity matches the artifact_id the real
+// usecase actually derives.
+const DERIVED_WGS84_LAT_LNG: readonly [number, number] = [59.33, 18.07];
+
 function runtime(repository: InMemoryArtifactRepository): LocalizationSpatialRuntime {
   const provider: ISpatialProvider = { query: vi.fn().mockResolvedValue([]) };
   return {
     artifactRepository: repository,
     resolveSpatialProvider: () => provider,
     wgs84ToSweref99: vi.fn().mockResolvedValue([6580000, 674000]),
+    sweref99ToWgs84: vi.fn().mockResolvedValue(DERIVED_WGS84_LAT_LNG),
     close: vi.fn().mockResolvedValue(undefined),
   };
+}
+
+/**
+ * Mirrors exactly what generate-localization-report.usecase.ts derives when a project has no
+ * explicit LocalizationGeometryArtifact yet: the property's own centroid, transformed via the
+ * mocked sweref99ToWgs84 above. A test that wants to pre-issue the matching V3 identity must
+ * compute the SAME artifact_id, or admission would correctly (and misleadingly, for the test's
+ * purpose) DENY on a real, un-derived mismatch.
+ */
+function deriveExpectedGeometryRef(
+  projectId: string,
+  propertyContextRef: { artifact_id: string; artifact_type: string },
+  swerefNorthingEasting: readonly [number, number] = [6580000, 674000],
+): { artifact_id: string; artifact_type: string } {
+  const [lat, lng] = DERIVED_WGS84_LAT_LNG;
+  const geometry = createLocalizationGeometryArtifact({
+    project_id: projectId,
+    property_context_ref: propertyContextRef,
+    wgs84LngLat: [lng, lat],
+    sweref99NorthingEasting: swerefNorthingEasting,
+    provenance: 'derived_from_property_boundary',
+    label: 'Fastighetens centrumpunkt (automatiskt härledd)',
+    created_by: 'system',
+  });
+  return { artifact_id: geometry.artifact_id, artifact_type: geometry.artifact_type };
 }
 
 async function provisionRealProject(args: {
@@ -306,6 +341,12 @@ describe('PRODUCT-LU-EXECUTION-IDENTITY-V2-WIRING-01 — real runtime proof thro
 
     const capability = registry.resolveCapabilityByKey(LU_SITE_ASSESSMENT_CAPABILITY_KEY)!;
     const subject = subjectFor(projectId, propertyIdentity, contextBindingRef);
+    // PRODUCT-LU-LOCALIZATION-GEOMETRY-01: current product issuance is V3, scoped by the
+    // localization point too -- the project has no explicit point yet, so the usecase derives one
+    // from the property centroid. deriveExpectedGeometryRef reproduces that exact derivation so
+    // the identity minted here matches what the real usecase will look up.
+    const geometryRef = deriveExpectedGeometryRef(projectId, propertyContextRef);
+    const subjectV3: ExecutionIdentitySubjectV3 = { ...subject, localization_geometry_ref: geometryRef };
     // Mirrors exactly what generate-localization-report.usecase.ts derives internally, from the
     // SAME three distinct refs resolveCanonicalProjectContext returns (project/property/binding
     // are not interchangeable) -- otherwise this test would prove nothing about real wiring.
@@ -319,9 +360,10 @@ describe('PRODUCT-LU-EXECUTION-IDENTITY-V2-WIRING-01 — real runtime proof thro
       product_release_hash: RELEASE_A_HASH,
       execution_contract_version: 'lu-execution-identity-v1',
       rule_registry_snapshot_id: registry.getReleaseSnapshot().snapshot_id,
+      localization_geometry_ref: geometryRef,
     });
-    await issueExecutionIdentityV2({
-      subject,
+    await issueExecutionIdentityV3({
+      subject: subjectV3,
       deterministic_seed: seed,
       actor_ref: { artifact_id: LU_EXECUTION_PRINCIPAL_ID, artifact_type: 'execution_identity' },
       capability_ref: { artifact_id: capability.artifact_id, artifact_type: capability.artifact_type },
@@ -351,6 +393,8 @@ describe('PRODUCT-LU-EXECUTION-IDENTITY-V2-WIRING-01 — real runtime proof thro
     const { contextBindingRef, projectContextRef, propertyContextRef, propertyIdentity } = await provisionRealProject({ repo, issuer, signing: issuerKey.provider, projectId, propertyDesignation: 'V2 REPLAY' });
     const capability = registry.resolveCapabilityByKey(LU_SITE_ASSESSMENT_CAPABILITY_KEY)!;
     const subject = subjectFor(projectId, propertyIdentity, contextBindingRef);
+    const geometryRef = deriveExpectedGeometryRef(projectId, propertyContextRef);
+    const subjectV3: ExecutionIdentitySubjectV3 = { ...subject, localization_geometry_ref: geometryRef };
     const seed = deriveLuExecutionSeed({
       site_id: propertyIdentity,
       project_id: projectId,
@@ -361,9 +405,10 @@ describe('PRODUCT-LU-EXECUTION-IDENTITY-V2-WIRING-01 — real runtime proof thro
       product_release_hash: RELEASE_A_HASH,
       execution_contract_version: 'lu-execution-identity-v1',
       rule_registry_snapshot_id: registry.getReleaseSnapshot().snapshot_id,
+      localization_geometry_ref: geometryRef,
     });
-    await issueExecutionIdentityV2({
-      subject,
+    await issueExecutionIdentityV3({
+      subject: subjectV3,
       deterministic_seed: seed,
       actor_ref: { artifact_id: LU_EXECUTION_PRINCIPAL_ID, artifact_type: 'execution_identity' },
       capability_ref: { artifact_id: capability.artifact_id, artifact_type: capability.artifact_type },

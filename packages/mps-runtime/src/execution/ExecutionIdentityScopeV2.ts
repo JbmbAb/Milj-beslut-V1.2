@@ -21,7 +21,8 @@ export const LU_EXECUTION_IDENTITY_SCOPE_V2 = "lu-execution-identity-scope-v2" a
 
 export type ExecutionIdentityScopeVersion =
   | typeof LU_EXECUTION_IDENTITY_SCOPE_V1
-  | typeof LU_EXECUTION_IDENTITY_SCOPE_V2;
+  | typeof LU_EXECUTION_IDENTITY_SCOPE_V2
+  | typeof LU_EXECUTION_IDENTITY_SCOPE_V3;
 
 export interface ExecutionIdentitySubjectV2 {
   readonly site_id: string;
@@ -81,4 +82,58 @@ export function computeExecutionManifestIdV2(subject: ExecutionIdentitySubjectV2
     execution_contract_version: subject.execution_contract_version,
   });
   return `lu-manifest-v2-${hash.value}`;
+}
+
+/**
+ * PRODUCT-LU-LOCALIZATION-GEOMETRY-01 (OWNER FREEZE 2026-08-22).
+ *
+ * V2 scoped identity by property + project + release + contract version -- but `site_id` there is,
+ * in every real production caller, the PROPERTY's own cadastral identity
+ * (`property_identity`), never a specific location within or beyond it. This conflated "which
+ * property" with "what is actually being assessed": the same property legitimately needs a new
+ * immutable execution identity whenever the explicit location being assessed
+ * (`localization_geometry_ref`) changes, exactly the same reasoning V2 already applied to binding
+ * and release changes -- and V2 could mint only one identity per (property, binding, release,
+ * contract) tuple, ever, regardless of where on/near the property the user actually meant.
+ *
+ * V3 adds `localization_geometry_ref` as a fifth axis alongside V2's four, never replacing or
+ * modifying them (V1 and V2 stay exactly as frozen). `same property + same binding + same release
+ * + same contract + DIFFERENT localization point -> DIFFERENT identity`, by construction: a moved
+ * point can never silently reuse the old identity/manifest/evidence/assessment just because the
+ * underlying property is unchanged.
+ */
+export const LU_EXECUTION_IDENTITY_SCOPE_V3 = "lu-execution-identity-scope-v3" as const;
+
+export interface ExecutionIdentitySubjectV3 extends ExecutionIdentitySubjectV2 {
+  readonly localization_geometry_ref: ArtifactReference;
+}
+
+/**
+ * `same property + same binding + same release + same contract + same localization point ->
+ * same artifact_id`, because this is a pure function of exactly those five inputs and nothing
+ * else -- same determinism guarantee as V2's derivation.
+ */
+export function computeExecutionIdentityArtifactIdV3(subject: ExecutionIdentitySubjectV3): string {
+  const hash = sha256ContentHash({
+    contract: LU_EXECUTION_IDENTITY_SCOPE_V3,
+    site_id: subject.site_id,
+    project_context_binding_ref: subject.project_context_binding_ref,
+    product_release_ref: subject.product_release_ref,
+    execution_contract_version: subject.execution_contract_version,
+    localization_geometry_ref: subject.localization_geometry_ref,
+  });
+  return `lu-identity-v3-${hash.value}`;
+}
+
+/** Same reasoning as computeExecutionManifestIdV2 -- manifest_id must scope by the same subject as content_hash. */
+export function computeExecutionManifestIdV3(subject: ExecutionIdentitySubjectV3): string {
+  const hash = sha256ContentHash({
+    contract: "lu-manifest-scope-v3",
+    site_id: subject.site_id,
+    project_context_binding_ref: subject.project_context_binding_ref,
+    product_release_ref: subject.product_release_ref,
+    execution_contract_version: subject.execution_contract_version,
+    localization_geometry_ref: subject.localization_geometry_ref,
+  });
+  return `lu-manifest-v3-${hash.value}`;
 }
