@@ -89,6 +89,7 @@ model User {
   accessLogs     PropertyAccessLog[]
   searchQueries  SearchQueryLog[]
   contextBootstrapRequests ProjectContextBootstrapRequest[]
+  localizationIdentityProvisioningRequests LocalizationIdentityProvisioningRequest[]
 }
 
 model TokenRevocation {
@@ -154,6 +155,7 @@ model Project {
   assessmentProjections ProjectAssessmentProjection[]
   localizationGeometryProjections LocalizationGeometryProjection[]
   contextBootstrapRequests ProjectContextBootstrapRequest[]
+  localizationIdentityProvisioningRequests LocalizationIdentityProvisioningRequest[]
   planState           ProjectPlanState?
   complianceScore     Float?
   fundingRating       String?
@@ -288,6 +290,46 @@ model LocalizationGeometryProjection {
   @@unique([projectId, geometryArtifactId])
   @@index([projectId, createdAt])
   @@map("localization_geometry_projections")
+}
+
+enum LocalizationIdentityProvisioningStatus {
+  PENDING
+  LEASED
+  COMPLETED
+  FAILED
+}
+
+/// PRODUCT-LU-EXECUTION-IDENTITY-V3-PROVISIONING-01 Phase B. Durable, append-only WORK QUEUE
+/// state only -- same shape and same rules as ProjectContextBootstrapRequest: this row is never
+/// itself authority. `geometryArtifactId` PINS the exact LocalizationGeometryArtifact this request
+/// is for, at enqueue time -- the worker mints an ExecutionIdentity V3 scoped to exactly that
+/// geometry, and must never substitute "whatever is current" when it gets around to leasing the
+/// row. That pin is what makes the save-A-then-save-B race safe: a stale request for A can only
+/// ever complete as a valid-but-non-current historical identity, because current-assessment
+/// resolution always derives its expected V3 subject from the CURRENT geometry, never from "the
+/// most recently issued identity". The live web server that creates this row never supplies an
+/// artifact_id, content_hash, issuer_ref, or signature -- everything else (current
+/// ProjectContextBinding, current product release, the full V3 subject) is derived by the worker
+/// from real, already-governed sources.
+model LocalizationIdentityProvisioningRequest {
+  id                           String                                 @id @default(cuid())
+  projectId                    String                                 @map("project_id")
+  geometryArtifactId           String                                 @map("geometry_artifact_id")
+  requestedByUserId            String                                 @map("requested_by_user_id")
+  status                       LocalizationIdentityProvisioningStatus @default(PENDING)
+  executionIdentityArtifactId  String?                                @map("execution_identity_artifact_id")
+  failureCode                  String?                                @map("failure_code")
+  failureDetail                String?                                @map("failure_detail")
+  createdAt                    DateTime                               @default(now()) @map("created_at")
+  leasedAt                     DateTime?                              @map("leased_at")
+  completedAt                  DateTime?                              @map("completed_at")
+  failedAt                     DateTime?                              @map("failed_at")
+  project                      Project                                @relation(fields: [projectId], references: [id], onDelete: Restrict)
+  requestedBy                  User                                   @relation(fields: [requestedByUserId], references: [id], onDelete: Restrict)
+
+  @@index([status, createdAt])
+  @@index([projectId, geometryArtifactId])
+  @@map("localization_identity_provisioning_requests")
 }
 
 model ProjectPlanState {

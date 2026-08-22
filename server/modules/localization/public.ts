@@ -40,5 +40,6 @@ export {
 export {
   saveUserLocalizationGeometry,
   getCurrentLocalizationGeometryForProject,
+  retryLocalizationIdentityProvisioning,
   type LocalizationGeometryView,
 } from './localizationGeometryService';

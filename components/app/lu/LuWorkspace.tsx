@@ -28,10 +28,14 @@ type SiteInput = {
   geometry?: unknown;
 };
 
+type LocalizationIdentityProvisioningStatus = 'PENDING' | 'LEASED' | 'COMPLETED' | 'FAILED' | null;
+
 type LocalizationGeometryView = {
   artifact_id: string;
   provenance: 'user_defined' | 'derived_from_property_boundary';
   wgs84LngLat: [number, number];
+  provisioningStatus: LocalizationIdentityProvisioningStatus;
+  provisioningFailureDetail?: string | null;
 };
 
 type ExecutionMotorMeta = {
@@ -172,6 +176,38 @@ export const LuWorkspace: React.FC<{ initialDesignation?: string }> = ({ initial
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [site?.id]);
 
+  // PRODUCT-LU-EXECUTION-IDENTITY-V3-PROVISIONING-01: while the just-saved point's V3 identity is
+  // being minted by the separate worker (PENDING/LEASED), re-poll the same GET the user would get
+  // from a manual refresh, until it settles at COMPLETED or FAILED. The user never needs to know
+  // "ExecutionIdentity V3" exists -- this is surfaced only as "Förbereder LU…" / "Klar att bedöma".
+  useEffect(() => {
+    const status = localizationGeometry?.provisioningStatus;
+    if (status !== 'PENDING' && status !== 'LEASED') return;
+    const timer = setTimeout(() => {
+      void loadCurrentGeometry();
+    }, 2000);
+    return () => clearTimeout(timer);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [localizationGeometry?.artifact_id, localizationGeometry?.provisioningStatus]);
+
+  const [retryingProvisioning, setRetryingProvisioning] = useState(false);
+  const retryProvisioning = async () => {
+    const projectId = getActiveProjectId();
+    if (!projectId) return;
+    setRetryingProvisioning(true);
+    try {
+      const result = await callApi<{ ok: boolean; geometry: LocalizationGeometryView }>(
+        `/api/localization/${encodeURIComponent(projectId)}/geometry-identity-retry`,
+        { method: 'POST' },
+      );
+      setLocalizationGeometry(result.geometry);
+    } catch (err) {
+      setGeometryError(err instanceof Error ? err.message : 'Kunde inte försöka igen.');
+    } finally {
+      setRetryingProvisioning(false);
+    }
+  };
+
   const startPickingLocation = () => {
     setSaveLocationError('');
     setDraftPoint(null);
@@ -253,6 +289,10 @@ export const LuWorkspace: React.FC<{ initialDesignation?: string }> = ({ initial
   const analysis = report?.siteAnalyses?.[0];
   const compliance = analysis?.complianceAnalysis;
   const motor = analysis?.executionMotor;
+  // PRODUCT-LU-EXECUTION-IDENTITY-V3-PROVISIONING-01: "Kör bedömning" must not be reachable until
+  // the current point's ExecutionIdentity V3 is COMPLETED -- running earlier would just be denied
+  // by the kernel, and this way the user never sees that as a surprise error.
+  const isExecutionReady = localizationGeometry?.provisioningStatus === 'COMPLETED';
 
   return (
     <div
@@ -306,7 +346,8 @@ export const LuWorkspace: React.FC<{ initialDesignation?: string }> = ({ initial
           <button
             type="button"
             data-testid="lu-run"
-            disabled={!site || running}
+            disabled={!site || running || !isExecutionReady}
+            title={!isExecutionReady && site ? 'Lokaliseringen förbereds fortfarande.' : undefined}
             onClick={() => void runAssessment()}
             className="px-4 py-2 text-sm font-semibold border disabled:opacity-40"
             style={{
@@ -358,6 +399,29 @@ export const LuWorkspace: React.FC<{ initialDesignation?: string }> = ({ initial
               <p className="opacity-70 font-mono text-xs">
                 {localizationGeometry.wgs84LngLat[1].toFixed(6)}, {localizationGeometry.wgs84LngLat[0].toFixed(6)}
               </p>
+              <p data-testid="lu-geometry-readiness" className="text-xs opacity-80">
+                {localizationGeometry.provisioningStatus === 'PENDING' || localizationGeometry.provisioningStatus === 'LEASED' ? (
+                  'Förbereder LU…'
+                ) : localizationGeometry.provisioningStatus === 'COMPLETED' ? (
+                  <span style={{ color: '#34D399' }}>Klar att bedöma</span>
+                ) : localizationGeometry.provisioningStatus === 'FAILED' ? (
+                  <span style={{ color: '#F87171' }}>
+                    Lokaliseringen är sparad men LU kunde inte förberedas.
+                  </span>
+                ) : null}
+              </p>
+              {localizationGeometry.provisioningStatus === 'FAILED' ? (
+                <button
+                  type="button"
+                  data-testid="lu-retry-provisioning"
+                  disabled={retryingProvisioning}
+                  onClick={() => void retryProvisioning()}
+                  className="px-3 py-1.5 text-xs font-semibold border disabled:opacity-40"
+                  style={{ borderColor: colors.coreGraphite.hex, color: colors.flowLightCyan.hex }}
+                >
+                  {retryingProvisioning ? 'Försöker igen…' : 'Försök igen'}
+                </button>
+              ) : null}
             </div>
           ) : null}
 
@@ -399,7 +463,7 @@ export const LuWorkspace: React.FC<{ initialDesignation?: string }> = ({ initial
                       className="px-4 py-2 text-sm font-semibold disabled:opacity-40"
                       style={{ background: colors.coreTurquoise.hex, color: colors.surfaceDarkStone.hex }}
                     >
-                      {savingLocation ? 'Sparar…' : 'Spara lokalisering'}
+                      {savingLocation ? 'Sparar lokalisering…' : 'Spara lokalisering'}
                     </button>
                     <button
                       type="button"

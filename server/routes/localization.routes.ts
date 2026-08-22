@@ -22,6 +22,7 @@ import {
   getBootstrapRequestStatusForProject,
   saveUserLocalizationGeometry,
   getCurrentLocalizationGeometryForProject,
+  retryLocalizationIdentityProvisioning,
   type SiteAlternative,
 } from '../modules/localization/public';
 
@@ -384,6 +385,35 @@ router.post(
           coordinates: req.body?.coordinates,
           srid: req.body?.srid,
         },
+      });
+      if (result.ok === false) {
+        res.status(result.status).json({ ok: false, error: result.error });
+        return;
+      }
+      res.status(201).json({ ok: true, geometry: result.data });
+    } catch (error) {
+      next(error);
+    }
+  },
+);
+
+/**
+ * POST /api/localization/:projectId/geometry-identity-retry
+ *
+ * PRODUCT-LU-EXECUTION-IDENTITY-V3-PROVISIONING-01 Phase B. Re-enqueues V3 identity provisioning
+ * for the project's CURRENT localization geometry after a FAILED attempt -- never accepts a
+ * geometryArtifactId from the caller, always resolves current fresh, so a retry naturally targets
+ * wherever the user has since moved the point, not a stale failed one.
+ */
+router.post(
+  '/api/localization/:projectId/geometry-identity-retry',
+  requireAuth,
+  rateLimitByUser(10, 60_000),
+  async (req, res, next) => {
+    try {
+      const result = await retryLocalizationIdentityProvisioning({
+        authUser: req.authUser!,
+        projectId: String(req.params.projectId || ''),
       });
       if (result.ok === false) {
         res.status(result.status).json({ ok: false, error: result.error });

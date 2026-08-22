@@ -45,6 +45,7 @@
     "prisma:migrate": "prisma migrate dev",
     "worker:search": "node --import tsx server/workers/search-indexer-worker.ts",
     "worker:lu-bootstrap": "node --import tsx server/workers/lu-project-context-bootstrap-worker.ts",
+    "worker:lu-identity-v3": "node --import tsx server/workers/lu-execution-identity-v3-worker.ts",
     "outlook:verify": "tsx scripts/backfill/verify-outlook-integrity.ts",
     "outlook:backfill:all": "tsx scripts/backfill/run-outlook-ingest-pipeline.ts --all",
     "load:stage5": "tsx scripts/load/stage5-load-harness.ts",

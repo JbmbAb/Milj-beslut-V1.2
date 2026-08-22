@@ -24,22 +24,42 @@ import { assertProjectAccess } from '../../security/projectAccess';
 import { resolveCanonicalProjectContext } from '../../../src/application/resolveCanonicalProjectContext';
 import { registerLocalizationGeometry, resolveCurrentLocalizationGeometry } from './localizationGeometryProjection';
 import { createLocalizationSpatialRuntime, type LocalizationSpatialRuntime } from './createLocalizationSpatialRuntime';
+import {
+  ensureLocalizationIdentityProvisioningRequested,
+  enqueueLocalizationIdentityProvisioningRequest,
+  type LocalizationIdentityProvisioningRequestRecord,
+} from './localizationIdentityProvisioningQueue';
 
 const DERIVED_LABEL = 'Fastighetens centrumpunkt (automatiskt härledd)';
 const USER_DEFINED_LABEL = 'Användardefinierad lokalisering';
+
+export type LocalizationIdentityProvisioningStatus = 'PENDING' | 'LEASED' | 'COMPLETED' | 'FAILED' | null;
 
 export interface LocalizationGeometryView {
   readonly artifact_id: string;
   readonly provenance: 'user_defined' | 'derived_from_property_boundary';
   /** WGS84 [lng, lat] -- the same order Cesium/the browser already use, for direct redisplay. */
   readonly wgs84LngLat: readonly [number, number];
+  /**
+   * PRODUCT-LU-EXECUTION-IDENTITY-V3-PROVISIONING-01. `null` only if enqueueing itself failed
+   * outright (surfaced separately as a request error, never silently). PENDING/LEASED means the
+   * V3 identity for this exact point is not execution-ready yet; COMPLETED means "Kör bedömning"
+   * can succeed; FAILED means the point is saved and safe, but needs an explicit retry.
+   */
+  readonly provisioningStatus: LocalizationIdentityProvisioningStatus;
+  readonly provisioningFailureDetail?: string | null;
 }
 
-function toView(geometry: LocalizationGeometryArtifact): LocalizationGeometryView {
+function toView(
+  geometry: LocalizationGeometryArtifact,
+  provisioning: LocalizationIdentityProvisioningRequestRecord | null,
+): LocalizationGeometryView {
   return {
     artifact_id: geometry.artifact_id,
     provenance: geometry.payload.provenance,
     wgs84LngLat: geometry.payload.geometry.coordinates,
+    provisioningStatus: provisioning?.status ?? null,
+    provisioningFailureDetail: provisioning?.failureDetail ?? null,
   };
 }
 
@@ -139,7 +159,15 @@ export async function getCurrentLocalizationGeometryForProject(args: {
       sweref99ToWgs84: spatialRuntime.sweref99ToWgs84,
       createdBy: args.authUser.id,
     });
-    return { ok: true, data: toView(geometry) };
+    // A project's very first read (or a legacy project that only ever had the transitional
+    // derived point) must also become execution-ready without a manual ops step -- ensure is
+    // idempotent, so polling this endpoint repeatedly never floods the queue.
+    const provisioning = await ensureLocalizationIdentityProvisioningRequested({
+      projectId,
+      geometryArtifactId: geometry.artifact_id,
+      requestedByUserId: args.authUser.id,
+    }).catch(() => null);
+    return { ok: true, data: toView(geometry, provisioning) };
   } finally {
     if (ownsSpatialRuntime) await spatialRuntime.close().catch(() => undefined);
   }
@@ -225,8 +253,53 @@ export async function saveUserLocalizationGeometry(args: {
     // as success while the point remains undiscoverable by "current" resolution. The CAS put
     // above is itself idempotent (content-addressed), so a client retry after this failure is safe.
     await registerLocalizationGeometry({ projectId, geometry });
-    return { ok: true, data: toView(geometry) };
+    // PRODUCT-LU-EXECUTION-IDENTITY-V3-PROVISIONING-01: the request PINS this exact
+    // geometry.artifact_id -- never "whatever is current" at lease time. That pin is what makes a
+    // subsequent save-of-a-different-point race safe: this request can only ever mint an identity
+    // scoped to THIS point, even if a newer point becomes current before a worker gets to it.
+    // A failure to enqueue must never make the already-persisted, already-discoverable geometry
+    // save look like it failed -- surfaced as provisioningStatus: null, not a 500.
+    const provisioning = await ensureLocalizationIdentityProvisioningRequested({
+      projectId,
+      geometryArtifactId: geometry.artifact_id,
+      requestedByUserId: args.authUser.id,
+    }).catch(() => null);
+    return { ok: true, data: toView(geometry, provisioning) };
   } finally {
     if (ownsSpatialRuntime) await spatialRuntime.close().catch(() => undefined);
   }
+}
+
+/**
+ * Explicit retry after a FAILED provisioning attempt. Always enqueues a NEW request (never reuses
+ * the failed row) for the project's CURRENT geometry -- if the user has since moved the point,
+ * this correctly retries for the new current point, not the stale failed one.
+ */
+export async function retryLocalizationIdentityProvisioning(args: {
+  readonly authUser: AuthUser;
+  readonly projectId: string;
+}): Promise<LocalizationGeometryServiceResult<LocalizationGeometryView>> {
+  const projectId = args.projectId.trim();
+  if (!projectId) return { ok: false, status: 400, error: 'projectId required' };
+
+  try {
+    await assertProjectAccess(args.authUser, projectId, args.authUser.organisationId);
+  } catch {
+    return { ok: false, status: 403, error: 'Not authorized for this project.' };
+  }
+
+  const repo = (await MimersIntegration.create()).artifactRepository;
+  let current: Awaited<ReturnType<typeof resolveCurrentLocalizationGeometry>>;
+  try {
+    current = await resolveCurrentLocalizationGeometry({ projectId, artifactRepository: repo });
+  } catch (error) {
+    return { ok: false, status: 404, error: `No current localization geometry to retry: ${error instanceof Error ? error.message : String(error)}` };
+  }
+
+  const provisioning = await enqueueLocalizationIdentityProvisioningRequest({
+    projectId,
+    geometryArtifactId: current.geometryArtifactId,
+    requestedByUserId: args.authUser.id,
+  });
+  return { ok: true, data: toView(current.geometry, provisioning) };
 }
