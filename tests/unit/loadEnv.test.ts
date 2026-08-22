@@ -32,4 +32,25 @@ describe('loadEnvFile', () => {
     expect(process.env.BANKID_BASE_URL).toBe('https://already-set.invalid');
     expect(process.env.PORT).toBeUndefined();
   });
+
+  it('unescapes literal \\n sequences to real newlines (flattened multi-line PEM values)', () => {
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'load-env-test-'));
+    const flattenedPem = '-----BEGIN PUBLIC KEY-----\\nMCowBQYDK2VwAyEAKxgC+VpYER0=\\n-----END PUBLIC KEY-----';
+    fs.writeFileSync(
+      path.join(tempDir, '.env.local'),
+      [`SOME_PUBLIC_KEY_PEM=${flattenedPem}`, 'PLAIN_VALUE=no-backslash-n-here'].join('\n'),
+      'utf8',
+    );
+
+    process.chdir(tempDir);
+    delete process.env.SOME_PUBLIC_KEY_PEM;
+    delete process.env.PLAIN_VALUE;
+
+    loadEnvFile('.env.local');
+
+    expect(process.env.SOME_PUBLIC_KEY_PEM).toBe(
+      '-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEAKxgC+VpYER0=\n-----END PUBLIC KEY-----',
+    );
+    expect(process.env.PLAIN_VALUE).toBe('no-backslash-n-here');
+  });
 });
