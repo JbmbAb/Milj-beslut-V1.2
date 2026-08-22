@@ -12,6 +12,7 @@ import {
   fetchLocalizationAuditTrail,
   LocalizationDataUnavailableError,
   runLocalizationReport,
+  resolveLuViewerPresentation,
   generateLocalizationReportLegacy,
   type SiteAlternative,
 } from '../modules/localization/public';
@@ -133,6 +134,37 @@ router.get(
       res.status(200).json(payload);
     } catch (error) {
       res.status(500).json(toSafeErrorResponse(error));
+    }
+  },
+);
+
+/**
+ * GET /api/localization/:projectId/viewer/evidence
+ *
+ * P3-LU-CESIUM-PRESENTATION-WIRING-01. The canonical governed LU presentation endpoint --
+ * authenticated project access -> current ProjectContextBinding -> current assessment
+ * projection -> verified, non-superseded ViewerCapability -> CAS -> ViewerKernel. This is NOT
+ * a replacement for /api/spatial/evidence (which remains available for unrelated general GIS
+ * exploration); it is the only endpoint the LU product Cesium flow may call.
+ */
+router.get(
+  '/api/localization/:projectId/viewer/evidence',
+  requireAuth,
+  rateLimitByUser(60, 60_000),
+  async (req, res, next) => {
+    try {
+      const result = await resolveLuViewerPresentation({
+        authUser: req.authUser!,
+        projectId: String(req.params.projectId || ''),
+      });
+      if (result.ok === false) {
+        res.status(result.status).json({ ok: false, error: result.error });
+        return;
+      }
+      res.status(200).json(result.geojson);
+    } catch (error) {
+      if (handleOrchestratorError(error, res)) return;
+      next(error);
     }
   },
 );

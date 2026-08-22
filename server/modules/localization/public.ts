@@ -6,6 +6,7 @@ export {
   fetchLocalizationAuditTrail,
   LocalizationDataUnavailableError,
   runLocalizationReport,
+  resolveLuViewerPresentation,
 } from './localizationOrchestrator';
 export { generateLocalizationReportLegacy } from '../../services/localizationReportService';
 export type { SiteAlternative } from '../../services/localizationReportService';

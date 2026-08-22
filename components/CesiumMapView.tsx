@@ -1,7 +1,13 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { CesiumAdapter } from './cesium/CesiumAdapter';
 import { loadCesiumL0L1FixtureScene } from './cesium/fixtures/l0L1Scene';
-import type { CesiumEvidenceMode } from './cesium/types';
+import { callApi } from '../services/coreApiClient';
+import {
+  CESIUM_EVIDENCE_LAYERS,
+  type CesiumEvidenceLayerKey,
+  type CesiumEvidenceMeta,
+  type CesiumEvidenceMode,
+} from './cesium/types';
 
 export type { CesiumEvidenceMode };
 
@@ -12,6 +18,15 @@ interface CesiumMapViewProps {
   /** Initial mode — UI can toggle; default fixture while PostGIS rebuild fills. */
   evidenceMode?: CesiumEvidenceMode;
   onEvidenceModeChange?: (mode: CesiumEvidenceMode) => void;
+  /**
+   * P3-LU-CESIUM-PRESENTATION-WIRING-01. When set, 'live' mode calls the governed LU presentation
+   * endpoint (GET /api/localization/:projectId/viewer/evidence -- authenticated, CAS-verified,
+   * ViewerKernel-projected) for THIS project's already-governed assessment, instead of the older
+   * ungoverned /api/spatial/evidence (raw PostGIS, no auth, arbitrary lat/lng). Omit this prop to
+   * keep the prior general-purpose GIS exploration behavior (e.g. GisRiskModule, which has no
+   * governed LU project/assessment to show).
+   */
+  projectId?: string;
 }
 
 const CesiumMapView: React.FC<CesiumMapViewProps> = ({
@@ -20,6 +35,7 @@ const CesiumMapView: React.FC<CesiumMapViewProps> = ({
   onEvidenceClick,
   evidenceMode: evidenceModeProp = 'fixture',
   onEvidenceModeChange,
+  projectId,
 }) => {
   const containerRef = useRef<HTMLDivElement>(null);
   const adapterRef = useRef<CesiumAdapter | null>(null);
@@ -28,9 +44,10 @@ const CesiumMapView: React.FC<CesiumMapViewProps> = ({
   const [loadingEvidence, setLoadingEvidence] = useState(false);
   const [evidenceError, setEvidenceError] = useState<string | null>(null);
   const [evidenceCount, setEvidenceCount] = useState<number | null>(null);
+  const [evidenceMeta, setEvidenceMeta] = useState<CesiumEvidenceMeta | null>(null);
   const [emptyEvidence, setEmptyEvidence] = useState(false);
 
-  const [visibleLayers, setVisibleLayers] = useState({
+  const [visibleLayers, setVisibleLayers] = useState<Record<CesiumEvidenceLayerKey, boolean>>({
     water: true,
     ebh: true,
     protected_area: true,
@@ -69,6 +86,7 @@ const CesiumMapView: React.FC<CesiumMapViewProps> = ({
     let cancelled = false;
     setLoadingEvidence(true);
     setEvidenceError(null);
+    setEvidenceMeta(null);
     setEmptyEvidence(false);
 
     const run = async () => {
@@ -87,6 +105,15 @@ const CesiumMapView: React.FC<CesiumMapViewProps> = ({
           adapterRef.current.setLayerVisibility(visibleLayers);
           if (!cancelled) {
             setEvidenceCount(count);
+            setEvidenceMeta({
+              presentation: 'cesium-l0-l1',
+              source: 'fixture',
+              scene_id: scene.scene_id,
+              srid: scene.srid,
+              governance_status: scene.governance_status,
+              feature_count: count,
+              center: scene.center,
+            });
             setEmptyEvidence(count === 0);
           }
           return;
@@ -98,18 +125,33 @@ const CesiumMapView: React.FC<CesiumMapViewProps> = ({
 
         await adapterRef.current.setPropertyGeometry(propertyGeometry, propertyCoordinates);
 
-        const [lat, lng] = propertyCoordinates;
-        const res = await fetch(`/api/spatial/evidence?lat=${lat}&lng=${lng}`);
-        if (!res.ok) {
-          throw new Error(`Live evidence misslyckades (HTTP ${res.status}). PostGIS kanske inte är klar.`);
-        }
-        const geojson = await res.json();
+        // P3-LU-CESIUM-PRESENTATION-WIRING-01: a governed LU project shows its own already-CAS-
+        // verified assessment via the governed presentation endpoint, never a fresh, ungoverned
+        // PostGIS query. Only when no projectId is given (general-purpose GIS exploration, e.g.
+        // GisRiskModule) does the old arbitrary lat/lng endpoint remain in use.
+        const geojson = projectId
+          ? await callApi(`/api/localization/${encodeURIComponent(projectId)}/viewer/evidence`, {
+              method: 'GET',
+            })
+          : await (async () => {
+              const [lat, lng] = propertyCoordinates;
+              const res = await fetch(`/api/spatial/evidence?lat=${lat}&lng=${lng}`);
+              if (!res.ok) {
+                throw new Error(`Live evidence misslyckades (HTTP ${res.status}). PostGIS kanske inte är klar.`);
+              }
+              return res.json();
+            })();
         if (cancelled || !adapterRef.current) return;
 
         const count = await adapterRef.current.setEvidenceLayers(geojson);
         adapterRef.current.setLayerVisibility(visibleLayers);
         if (!cancelled) {
           setEvidenceCount(count);
+          setEvidenceMeta({
+            ...(geojson.meta || {}),
+            source: 'live',
+            feature_count: typeof geojson.meta?.feature_count === 'number' ? geojson.meta.feature_count : count,
+          });
           setEmptyEvidence(count === 0);
         }
       } catch (err) {
@@ -117,6 +159,7 @@ const CesiumMapView: React.FC<CesiumMapViewProps> = ({
           console.error('[CesiumMapView] Error loading spatial evidence:', err);
           adapterRef.current?.clearEvidenceLayers();
           setEvidenceCount(0);
+          setEvidenceMeta(null);
           setEvidenceError(err instanceof Error ? err.message : 'Fel vid hämtning av evidens.');
         }
       } finally {
@@ -129,13 +172,13 @@ const CesiumMapView: React.FC<CesiumMapViewProps> = ({
       cancelled = true;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [propertyGeometry, propertyCoordinates, mode, reloadToken]);
+  }, [propertyGeometry, propertyCoordinates, mode, reloadToken, projectId]);
 
   useEffect(() => {
     adapterRef.current?.setLayerVisibility(visibleLayers);
   }, [visibleLayers]);
 
-  const handleLayerToggle = (layerKey: keyof typeof visibleLayers) => {
+  const handleLayerToggle = (layerKey: CesiumEvidenceLayerKey) => {
     setVisibleLayers((prev) => ({
       ...prev,
       [layerKey]: !prev[layerKey],
@@ -144,6 +187,11 @@ const CesiumMapView: React.FC<CesiumMapViewProps> = ({
 
   const badgeText =
     mode === 'fixture' ? 'FIXTURE · inte live PostGIS' : 'LIVE · GeoPresentationAdapter';
+  const governanceLabel =
+    evidenceMeta?.governance_status ||
+    (mode === 'fixture' ? 'FIXTURE_OBSERVATION' : 'VERIFIED_OBSERVATION');
+  const sridLabel = evidenceMeta?.srid ? `EPSG:${evidenceMeta.srid}` : 'EPSG:4326';
+  const sourceLabel = evidenceMeta?.source === 'fixture' ? 'Fixture' : mode === 'live' ? 'Live' : 'Fixture';
 
   return (
     <div
@@ -160,6 +208,32 @@ const CesiumMapView: React.FC<CesiumMapViewProps> = ({
           </span>
         </div>
         <p className="text-[10px] text-slate-400 pointer-events-none">{badgeText}</p>
+        <div
+          data-testid="cesium-evidence-meta"
+          className="rounded-lg border border-slate-700 bg-slate-950/60 px-2 py-1.5 text-[10px] text-slate-400"
+        >
+          <div>
+            Status: <span className="font-bold text-slate-200">{governanceLabel}</span>
+          </div>
+          <div>
+            Källa: <span className="font-bold text-slate-200">{sourceLabel}</span> ·{' '}
+            <span className="font-bold text-slate-200">{sridLabel}</span>
+          </div>
+          {typeof evidenceMeta?.search_radius_meters === 'number' && (
+            <div>
+              Radie:{' '}
+              <span className="font-bold text-slate-200">
+                {evidenceMeta.search_radius_meters} m
+              </span>
+            </div>
+          )}
+          {evidenceMeta?.property_id && (
+            <div className="truncate">
+              Fastighet:{' '}
+              <span className="font-mono font-bold text-slate-200">{evidenceMeta.property_id}</span>
+            </div>
+          )}
+        </div>
 
         <div className="flex rounded-lg overflow-hidden border border-slate-700 text-[10px] font-black uppercase tracking-wider">
           <button
@@ -205,33 +279,30 @@ const CesiumMapView: React.FC<CesiumMapViewProps> = ({
           Evidenslager (3D)
         </h6>
         <div className="flex flex-col gap-2">
-          {(
-            [
-              ['water', 'Vattenbrunn (SGU)', 'bg-cyan-400', 'bg-cyan-500'],
-              ['ebh', 'EBH-områden', 'bg-rose-500', 'bg-rose-500'],
-              ['protected_area', 'Natura / skydd', 'bg-emerald-500', 'bg-emerald-500'],
-            ] as const
-          ).map(([key, label, dot, onBg]) => (
+          {CESIUM_EVIDENCE_LAYERS.map((layer) => (
             <button
-              key={key}
+              key={layer.key}
               type="button"
-              onClick={() => handleLayerToggle(key)}
+              onClick={() => handleLayerToggle(layer.key)}
               className="flex items-center justify-between text-left group hover:bg-white/5 p-1 rounded-lg transition-colors"
             >
               <div className="flex items-center gap-2">
-                <span className={`h-2 w-2 rounded-full ${dot}`} />
-                <span className="text-[10px] font-bold text-slate-300 group-hover:text-white transition-colors">
-                  {label}
+                <span className="h-2 w-2 rounded-full" style={{ backgroundColor: layer.color }} />
+                <span className="flex flex-col">
+                  <span className="text-[10px] font-bold text-slate-300 group-hover:text-white transition-colors">
+                    {layer.label}
+                  </span>
+                  <span className="text-[9px] text-slate-500">{layer.provider}</span>
                 </span>
               </div>
               <div
                 className={`h-4 w-8 rounded-full transition-all relative ${
-                  visibleLayers[key] ? onBg : 'bg-slate-700'
+                  visibleLayers[layer.key] ? 'bg-cyan-500' : 'bg-slate-700'
                 }`}
               >
                 <div
                   className={`h-2.5 w-2.5 rounded-full bg-white absolute top-0.5 transition-all ${
-                    visibleLayers[key] ? 'right-0.5' : 'left-0.5'
+                    visibleLayers[layer.key] ? 'right-0.5' : 'left-0.5'
                   }`}
                 />
               </div>

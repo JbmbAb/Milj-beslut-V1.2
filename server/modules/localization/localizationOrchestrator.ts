@@ -13,6 +13,14 @@ import {
 import { getAuditTrail } from '../../services/auditTrailService';
 import { assertProjectAccess } from '../../security/projectAccess';
 import type { AuthUser } from '../../security/types';
+import { MimersIntegration, type ArtifactRepositoryPort } from '@miljobeslut/mps-runtime';
+import { ProjectContextBindingProvider } from './projectContextBindingRuntime';
+import { PrismaProjectContextBindingIndex } from '../../repositories/projectContextBindingRepository';
+import { getProjectContextBindingIssuerVerifier } from '../../security/projectContextBindingIssuerKey';
+import { resolveCurrentAssessmentProjection } from './assessmentProjection';
+import { resolveGovernedLocalizationPresentation } from './resolveGovernedLocalizationPresentation';
+import { readLocalizationViewerRuntimeConfig, type LocalizationViewerRuntimeConfig } from './createLocalizationViewerRuntime';
+import type { ProjectAssessmentProjectionIndex } from '../../repositories/projectAssessmentProjectionRepository';
 
 export class LocalizationDataUnavailableError extends Error {
   readonly status = 503;
@@ -156,6 +164,105 @@ export async function exportLocalizationPdf(input: {
   );
   const safeId = projectId.replace(/[^a-zA-Z0-9-_åäöÅÄÖ]+/g, '-').slice(0, 40) || 'projekt';
   return { ok: true, buffer, filename: `lokaliseringsutredning-${safeId}.pdf` };
+}
+
+/**
+ * P3-LU-CESIUM-PRESENTATION-WIRING-01.
+ *
+ * The canonical LU product presentation path: authenticated request -> project authorization ->
+ * current ProjectContextBinding -> current assessment projection -> resolveAuthorizedViewerCapability
+ * -> resolveGovernedLocalizationPresentation -> CAS -> ViewerKernel -> governed GeoJSON.
+ *
+ * Never queries PostGIS as a new evidentiary source and never mints/signs anything -- it only
+ * discovers and re-verifies already-captured, already-governed artifacts. This is the ONLY
+ * server-side entrypoint the LU Cesium product flow may call for evidence; the older, ungoverned
+ * GET /api/spatial/evidence route (raw PostGIS, no auth, no CAS) remains reachable for unrelated
+ * general-purpose GIS exploration but is not used by this path.
+ */
+export async function resolveLuViewerPresentation(input: {
+  readonly authUser: AuthUser;
+  readonly projectId: string;
+  /** Overridable for tests; defaults to the real CAS. */
+  readonly artifactRepository?: ArtifactRepositoryPort;
+  /** Overridable for tests; defaults to the real Postgres-backed resolver. */
+  readonly currentBindingProvider?: ProjectContextBindingProvider;
+  /** Overridable for tests; defaults to the real Postgres-backed projection index. */
+  readonly assessmentProjectionIndex?: ProjectAssessmentProjectionIndex;
+  /** Overridable for tests; defaults to the env-configured deployment-wide capability. */
+  readonly config?: LocalizationViewerRuntimeConfig;
+}): Promise<
+  | { ok: true; geojson: unknown; assessmentArtifactId: string; capabilityArtifactId: string }
+  | { ok: false; status: number; error: string }
+> {
+  const projectId = String(input.projectId || '').trim();
+  if (!projectId) {
+    return { ok: false, status: 400, error: 'projectId required' };
+  }
+
+  try {
+    await assertProjectAccess(input.authUser, projectId, input.authUser.organisationId);
+  } catch {
+    return { ok: false, status: 403, error: 'Not authorized for this project.' };
+  }
+
+  const artifactRepository = input.artifactRepository ?? (await MimersIntegration.create()).artifactRepository;
+  const currentBindingProvider =
+    input.currentBindingProvider ??
+    new ProjectContextBindingProvider(
+      artifactRepository,
+      new PrismaProjectContextBindingIndex(),
+      getProjectContextBindingIssuerVerifier(),
+    );
+
+  let assessmentArtifactId: string;
+  try {
+    const projection = await resolveCurrentAssessmentProjection({
+      projectId,
+      artifactRepository,
+      currentBindingProvider,
+      index: input.assessmentProjectionIndex,
+    });
+    assessmentArtifactId = projection.assessmentArtifactId;
+  } catch {
+    // Covers: no assessment has ever been produced for this project, the only assessment(s) on
+    // record are bound to a since-superseded context, or none survive CAS re-verification.
+    // Explicit, never a silent stale fallback.
+    return { ok: false, status: 404, error: 'No current governed LU assessment is available for this project.' };
+  }
+
+  const config = input.config ?? readLocalizationViewerRuntimeConfig();
+  if (config.expectedProjectId !== projectId) {
+    // The deployment's ViewerCapability configuration is currently a single, env-configured
+    // capability (there is no per-project capability index yet -- a known, pre-existing gap, not
+    // introduced here). Requesting a project other than the one currently configured cannot be
+    // served; this is a real limitation, not a bypass.
+    return { ok: false, status: 404, error: 'Governed viewer capability is not configured for this project.' };
+  }
+
+  try {
+    const result = await resolveGovernedLocalizationPresentation({
+      authUser: input.authUser,
+      projectId,
+      assessmentArtifactId,
+      artifactRepository,
+      config,
+      currentBindingProvider,
+    });
+    return {
+      ok: true,
+      geojson: result.geojson,
+      assessmentArtifactId: result.assessmentArtifactId,
+      capabilityArtifactId: result.capabilityArtifactId,
+    };
+  } catch (error) {
+    // Covers: missing/superseded/tampered capability, missing/tampered CAS evidence, wrong
+    // release/viewer-identity. Fail closed, never a stale or synthetic fallback.
+    return {
+      ok: false,
+      status: 424,
+      error: error instanceof Error ? error.message : 'Governed viewer presentation is unavailable.',
+    };
+  }
 }
 
 export async function fetchLocalizationAuditTrail(projectId: string) {

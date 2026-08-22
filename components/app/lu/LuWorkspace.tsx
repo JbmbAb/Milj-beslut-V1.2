@@ -263,6 +263,7 @@ export const LuWorkspace: React.FC<{ initialDesignation?: string }> = ({ initial
                 setSelectedEvidence(null);
               }}
               onEvidenceClick={(props) => setSelectedEvidence(props)}
+              projectId={getActiveProjectId() || undefined}
             />
           </Suspense>
 
