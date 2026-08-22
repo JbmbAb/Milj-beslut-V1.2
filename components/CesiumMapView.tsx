@@ -62,13 +62,26 @@ const CesiumMapView: React.FC<CesiumMapViewProps> = ({
     onEvidenceModeChange?.(next);
   };
 
+  // LU-CESIUM-PROPERTY-GEOMETRY-LIFECYCLE-01: onEvidenceClick is passed as a fresh inline
+  // closure by callers (e.g. LuWorkspace's `(props) => setSelectedEvidence(props)`), so its
+  // identity changes on every parent render. Depending on it directly here meant an ordinary
+  // re-render -- unrelated to the property/mode this effect actually cares about -- destroyed
+  // and recreated the whole Cesium adapter every time, which is exactly the kind of churn that
+  // can race an in-flight setPropertyGeometry()/setEvidenceLayers() call against destroy()
+  // (see CesiumAdapter's `destroyed` guard for the other half of this fix). A ref always reads
+  // the latest callback without needing the adapter-construction effect to depend on it.
+  const onEvidenceClickRef = useRef(onEvidenceClick);
+  useEffect(() => {
+    onEvidenceClickRef.current = onEvidenceClick;
+  }, [onEvidenceClick]);
+
   useEffect(() => {
     if (!containerRef.current) return;
 
     const adapter = new CesiumAdapter({
       container: containerRef.current,
       onFeatureClick: (props) => {
-        onEvidenceClick?.(props);
+        onEvidenceClickRef.current?.(props);
       },
     });
 
@@ -78,7 +91,7 @@ const CesiumMapView: React.FC<CesiumMapViewProps> = ({
       adapter.destroy();
       adapterRef.current = null;
     };
-  }, [onEvidenceClick]);
+  }, []);
 
   useEffect(() => {
     if (!adapterRef.current) return;

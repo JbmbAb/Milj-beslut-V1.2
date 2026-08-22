@@ -11,6 +11,21 @@ export interface CesiumAdapterConfig {
 }
 
 export class CesiumAdapter {
+  /**
+   * LU-CESIUM-PROPERTY-GEOMETRY-LIFECYCLE-01. Real, reproduced-in-browser cause: React (in dev,
+   * StrictMode's intentional double-invoke; in production, any re-render that changes an effect
+   * dependency identity -- e.g. CesiumMapView's now-fixed unstable onFeatureClick closure) can
+   * destroy() this adapter while an async setPropertyGeometry()/setEvidenceLayers() call it
+   * started is still awaiting GeoJsonDataSource.load(). Cesium's own Viewer.destroy() tears down
+   * the viewer's internal dataSources collection; the stale call then resumes and throws
+   * "Cannot read properties of undefined (reading 'dataSources')" trying to write into it.
+   *
+   * This flag is checked after every await in those methods, immediately before touching
+   * `this.viewer` again: a load that finishes after this adapter was destroyed is discarded
+   * silently (not an error -- a newer adapter, or nothing, now owns the container), never used to
+   * mutate a torn-down viewer.
+   */
+  private destroyed = false;
   private viewer: Viewer;
   private propertyDataSource: GeoJsonDataSource | null = null;
   private evidenceDataSource: GeoJsonDataSource | null = null;
@@ -66,6 +81,7 @@ export class CesiumAdapter {
    * If geojson is missing, but fallbackCoordinates is provided, renders a beautiful fallback 3D sphere.
    */
   public async setPropertyGeometry(geojson: any, fallbackCoordinates?: [number, number] | null): Promise<void> {
+    if (this.destroyed) return;
     if (this.propertyDataSource) {
       this.viewer.dataSources.remove(this.propertyDataSource);
       this.propertyDataSource = null;
@@ -110,13 +126,16 @@ export class CesiumAdapter {
     }
 
     try {
-      this.propertyDataSource = await GeoJsonDataSource.load(geojson, {
+      const loaded = await GeoJsonDataSource.load(geojson, {
         stroke: Color.CYAN,
         fill: Color.CYAN.withAlpha(0.2),
         strokeWidth: 3,
       });
+      if (this.destroyed) return; // this adapter was torn down while the load was in flight
 
+      this.propertyDataSource = loaded;
       await this.viewer.dataSources.add(this.propertyDataSource);
+      if (this.destroyed) return; // destroyed during the add() await too -- nothing left to fly to
 
       // Smooth 3-second camera flight with a 45 degree tilt from the south looking North
       const hpr = new HeadingPitchRange(
@@ -138,6 +157,7 @@ export class CesiumAdapter {
    * Clears all evidence entities (used for empty live responses and mode switches).
    */
   public clearEvidenceLayers(): void {
+    if (this.destroyed) return;
     if (this.evidenceDataSource) {
       this.viewer.dataSources.remove(this.evidenceDataSource);
       this.evidenceDataSource = null;
@@ -149,6 +169,7 @@ export class CesiumAdapter {
    * Returns feature count after load (0 = empty observation set).
    */
   public async setEvidenceLayers(geojson: any): Promise<number> {
+    if (this.destroyed) return 0;
     this.clearEvidenceLayers();
 
     const features = geojson?.features;
@@ -157,7 +178,9 @@ export class CesiumAdapter {
     }
 
     try {
-      this.evidenceDataSource = await GeoJsonDataSource.load(geojson);
+      const loaded = await GeoJsonDataSource.load(geojson);
+      if (this.destroyed) return 0; // this adapter was torn down while the load was in flight
+      this.evidenceDataSource = loaded;
 
       const entities = this.evidenceDataSource.entities.values;
       entities.forEach((entity) => {
@@ -197,6 +220,7 @@ export class CesiumAdapter {
       });
 
       await this.viewer.dataSources.add(this.evidenceDataSource);
+      if (this.destroyed) return 0; // destroyed during the add() await
       return features.length;
     } catch (err) {
       console.error('[CesiumAdapter] Failed to load evidence GeoJSON:', err);
@@ -209,7 +233,7 @@ export class CesiumAdapter {
    * Dynamically toggles individual evidence layers on/off.
    */
   public setLayerVisibility(visibility: Record<string, boolean>): void {
-    if (!this.evidenceDataSource) return;
+    if (this.destroyed || !this.evidenceDataSource) return;
     const entities = this.evidenceDataSource.entities.values;
     entities.forEach((entity) => {
       const layerId = entity.properties?.layer_id?.getValue();
@@ -221,6 +245,7 @@ export class CesiumAdapter {
 
   /** Reset camera to Sweden overview (L0 home). */
   public resetCameraOverview(): void {
+    if (this.destroyed) return;
     this.viewer.camera.flyTo({
       destination: Cartesian3.fromDegrees(15.0, 62.0, 1500000.0),
       duration: 1.6,
@@ -231,6 +256,8 @@ export class CesiumAdapter {
    * Cleans up all Cesium viewer instances and handlers to prevent memory leaks.
    */
   public destroy(): void {
+    if (this.destroyed) return;
+    this.destroyed = true;
     if (this.clickHandler) {
       this.clickHandler.destroy();
     }
