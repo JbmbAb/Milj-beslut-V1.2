@@ -71,11 +71,16 @@ describe("TV-4.2: QGIS Integration Architecture", () => {
     const geojson = await viewer.exportAsGeoJSON([evidenceArtifactId]);
     
     expect(geojson.type).toBe("FeatureCollection");
-    expect(geojson.crs.properties.name).toBe("urn:ogc:def:crs:EPSG::3006");
+    // LU-CESIUM-GEOJSON-CRS-COMPATIBILITY-01: RFC 7946 GeoJSON has no `crs` member (transport is
+    // always WGS84); a legacy `crs` member here is exactly what Cesium's GeoJsonDataSource
+    // rejected. The canonical evidence CRS is carried per-feature as `source_srid` instead, only
+    // when geometry is non-null.
+    expect(geojson.crs).toBeUndefined();
     expect(geojson.features).toHaveLength(1);
-    
+
     const feature = geojson.features[0];
     expect(feature.geometry).toBeNull();
+    expect(feature.properties.source_srid).toBeUndefined();
     expect(feature.properties.result_semantics_kind).toBe("EXISTENCE_WITHIN_DISTANCE");
     expect(feature.properties.exists).toBe(true);
     expect(feature.properties.distance_meters).toBe(100);

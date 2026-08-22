@@ -10,8 +10,10 @@
     "test": "vitest run"
   },
   "dependencies": {
+    "@miljobeslut/mimers-brunn-core": "file:../mimers-brunn-core",
     "@miljobeslut/mps-compliance": "file:../mps-compliance",
-    "@miljobeslut/mps-runtime": "file:../mps-runtime"
+    "@miljobeslut/mps-runtime": "file:../mps-runtime",
+    "proj4": "^2.15.0"
   },
   "devDependencies": {
     "typescript": "^5.0.0",

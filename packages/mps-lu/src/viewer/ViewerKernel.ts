@@ -5,6 +5,7 @@ import {
   assertGeometryMatchesSemantics,
   isAdmittedSemanticsKind,
 } from "../artifacts/SpatialResultSemantics.js";
+import { transformGeometryToWgs84 } from "./GeoJsonCoordinateTransform.js";
 
 /**
  * ViewerKernel guarantees that Observation != Authority.
@@ -57,9 +58,19 @@ export class ViewerKernel {
       // GeoJSON permits `geometry: null`. Under EXISTENCE_WITHIN_DISTANCE this is the honest
       // representation: the evidence answers whether a match exists but contains no feature
       // geometry. Presentation metadata carries that answer without inventing a polygon.
+      //
+      // LU-CESIUM-GEOJSON-CRS-COMPATIBILITY-01: when geometry is non-null, the canonical
+      // evidence CRS (artifact.payload.srid) is NOT the GeoJSON transport CRS -- RFC 7946
+      // coordinates are always WGS84. Transform for transport; keep the source SRID as
+      // provenance on the feature rather than silently discarding or falsifying it. A geometry
+      // in an SRID with no known projection fails closed (throws) rather than rendering
+      // mis-projected coordinates.
+      const sourceSrid = artifact.payload.srid;
+      const transportGeometry = transformGeometryToWgs84(artifact.payload.geometry, sourceSrid);
+
       features.push({
         type: "Feature",
-        geometry: artifact.payload.geometry,
+        geometry: transportGeometry,
         properties: {
           cas_artifact_id: artifact.artifact_id,
           cas_content_hash: artifact.content_hash.value,
@@ -81,16 +92,18 @@ export class ViewerKernel {
           viewer_capability_id: this.capability.artifact_id,
           viewer_release_hash: this.capability.release_hash.value,
           viewer_identity_ref: this.capability.viewer_identity_ref.artifact_id,
+          ...(transportGeometry !== null ? { source_srid: sourceSrid } : {}),
         },
       });
     }
 
+    // RFC 7946: GeoJSON coordinates are always WGS84; there is no `crs` member to declare --
+    // every feature's geometry above is either null or already transformed to WGS84, so this
+    // FeatureCollection is spec-compliant transport as-is. A legacy `crs` member here is exactly
+    // what Cesium's GeoJsonDataSource rejected (`Unknown crs name`); the source SRID is provenance
+    // carried per-feature (`source_srid`), never a transport-level claim.
     return {
       type: "FeatureCollection",
-      crs: {
-        type: "name",
-        properties: { name: "urn:ogc:def:crs:EPSG::3006" }, // Swedish coordinate system
-      },
       features,
     };
   }
