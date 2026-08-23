@@ -1,11 +1,13 @@
 import { Pool } from "pg";
 import {
   DEFAULT_SPATIAL_QUERY_BUDGET,
-  SPATIAL_QUERY_CONTRACT_V2,
+  SPATIAL_CANONICAL_VERSION_V3,
+  SPATIAL_QUERY_CONTRACT_V3,
+  assertSpatialQueryContractV3NumericParameters,
   buildSpatialEvidenceContentHash,
   type ISpatialProvider,
   type SpatialQueryBudget,
-  type SpatialQueryContractV2,
+  type SpatialQueryContractV3,
   type SpatialQueryRequest,
   type SpatialEvidenceArtifact,
   type LUPropertyContextArtifact,
@@ -121,8 +123,9 @@ export class SpatialProviderPostGIS implements ISpatialProvider {
         `REJECT_SPATIAL_BUDGET: buffer_distance_meters=${bufferDistance} > max_distance_meters=${budget.max_distance_meters}`,
       );
     }
-    const queryContract: SpatialQueryContractV2 = {
-      query_contract_version: SPATIAL_QUERY_CONTRACT_V2,
+    const queryContract: SpatialQueryContractV3 = {
+      query_contract_version: SPATIAL_QUERY_CONTRACT_V3,
+      spatial_canonical_version: SPATIAL_CANONICAL_VERSION_V3,
       relation: "DWITHIN",
       subject: request.location_ref
         ? {
@@ -142,6 +145,7 @@ export class SpatialProviderPostGIS implements ISpatialProvider {
       },
       selection: { predicate_semantics: "EXISTS" },
     };
+    assertSpatialQueryContractV3NumericParameters(queryContract.parameters);
 
     const evidence: SpatialEvidenceArtifact[] = [];
     const started = Date.now();
@@ -276,7 +280,7 @@ export class SpatialProviderPostGIS implements ISpatialProvider {
     found: boolean;
     matchCountObserved: number;
     maxFeaturesPerLayer: number;
-    queryContract: SpatialQueryContractV2;
+    queryContract: SpatialQueryContractV3;
   }): Promise<SpatialEvidenceArtifact> {
     const retrievedAt = new Date().toISOString();
 

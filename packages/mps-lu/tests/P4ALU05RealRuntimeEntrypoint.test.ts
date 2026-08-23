@@ -130,7 +130,7 @@ import {
   LU_SPATIAL_PROVIDER_IMPLEMENTATION_ID,
   SPATIAL_STACK_V1,
   SpatialProviderResolver,
-  createLocalizationGeometryArtifact,
+  createLocalizationGeometryArtifactV2,
   createProjectContextBindingIssuerArtifact,
   deriveLuExecutionSeed,
   createLuRegistryRuntime,
@@ -153,6 +153,7 @@ import { LU_SITE_ASSESSMENT_CAPABILITY_KEY } from "../src/registry/LuSiteAssessm
 import { __resetLuExecutionAuthoritySigningProviderForTests } from "../../../server/security/luExecutionAuthoritySigningKey";
 import { __resetLuExecutionAuthorityVerifierForTests } from "../src/execution/LuExecutionAuthorityVerifier";
 import { provisionCanonicalLuContext } from "./fixtures/provisionCanonicalLuContext";
+import { ensureLocalizationProjectionProject } from "./fixtures/ensureLocalizationProjectionProject";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(__dirname, "../../..");
@@ -256,6 +257,10 @@ describe("P4A-LU-05 — real runtime entrypoint", () => {
       },
     });
     const projectId = "project-p4a-lu-05";
+    await ensureLocalizationProjectionProject({
+      projectId,
+      propertyDesignation: "P4A LU 05 1:1",
+    });
     const context = await provisionCanonicalLuContext({
       repository: artifactRepository,
       issuer: contextIssuer,
@@ -268,7 +273,7 @@ describe("P4A-LU-05 — real runtime entrypoint", () => {
       propertyDesignation: "P4A LU 05 1:1",
     });
     const luCapability = registry.resolveCapabilityByKey(LU_SITE_ASSESSMENT_CAPABILITY_KEY)!;
-    const geometry = createLocalizationGeometryArtifact({
+    const geometry = createLocalizationGeometryArtifactV2({
       project_id: projectId,
       property_context_ref: context.propertyContextRef,
       wgs84LngLat: [18.07, 59.33],

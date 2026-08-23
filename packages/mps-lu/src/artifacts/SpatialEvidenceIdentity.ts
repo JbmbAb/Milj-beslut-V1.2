@@ -1,9 +1,15 @@
 import { createHash } from "node:crypto";
 import { canonicalizeStrict } from "../../../mimers-brunn-core/src/serialization/canonicalize";
 import {
+  hasSpatialEvidenceQueryContract,
   isSpatialEvidencePayloadV2,
+  isSpatialEvidencePayloadV3,
   type AnySpatialEvidencePayload,
 } from "./SpatialEvidenceArtifact";
+import {
+  SPATIAL_CANONICAL_VERSION_V3,
+  assertSpatialQueryContractV3NumericParameters,
+} from "../services/SpatialQueryContract";
 import { assertGeometryMatchesSemantics } from "./SpatialResultSemantics";
 import {
   assertExactEngineFingerprint,
@@ -21,6 +27,7 @@ import {
  */
 export const SPATIAL_CANONICAL_VERSION = "sv-canonical-1" as const;
 export const SPATIAL_CANONICAL_VERSION_V2 = "sv-canonical-2" as const;
+export { SPATIAL_CANONICAL_VERSION_V3 };
 
 const SHA256_HEX = /^[a-f0-9]{64}$/;
 
@@ -81,9 +88,74 @@ function assertSpatialQueryContractV2(payload: Extract<AnySpatialEvidencePayload
   }
 }
 
+function assertSpatialQueryContractV3(payload: Extract<AnySpatialEvidencePayload, { readonly query_contract: unknown }>): void {
+  const contract = payload.query_contract as unknown;
+  if (!isRecord(contract) || !isRecord(contract.selection) || !isRecord(contract.subject) || !isRecord(contract.parameters)) {
+    throw new Error("REJECT_SPATIAL_QUERY_CONTRACT_V3");
+  }
+
+  const subject = contract.subject;
+  const parameters = contract.parameters;
+  assertSpatialQueryContractV3NumericParameters(parameters);
+  if (
+    contract.query_contract_version !== "spatial-query-contract-v3" ||
+    contract.spatial_canonical_version !== SPATIAL_CANONICAL_VERSION_V3 ||
+    contract.relation !== "DWITHIN" ||
+    contract.selection.predicate_semantics !== "EXISTS" ||
+    subject.crs !== "EPSG:3006" ||
+    parameters.distance_meters !== payload.result_semantics.query.distance_meters ||
+    parameters.max_features_per_layer !== payload.result_semantics.result.max_features_per_layer ||
+    payload.result_semantics.query.srid !== 3006 ||
+    payload.srid !== 3006 ||
+    !isRecord(subject.property_context_ref) ||
+    subject.property_context_ref.artifact_id !== payload.property_ref.artifact_id ||
+    subject.property_context_ref.artifact_type !== payload.property_ref.artifact_type ||
+    (subject.kind !== "LOCALIZATION_GEOMETRY" && subject.kind !== "PROPERTY_CONTEXT_CENTROID") ||
+    (subject.kind === "LOCALIZATION_GEOMETRY" &&
+      (!isRecord(subject.location_ref) ||
+        subject.location_ref.artifact_type !== "localization_geometry" ||
+        typeof subject.location_ref.artifact_id !== "string" ||
+        subject.location_ref.artifact_id.length === 0))
+  ) {
+    throw new Error("REJECT_SPATIAL_QUERY_CONTRACT_V3");
+  }
+}
+
 export function buildSpatialEvidenceIdentityPayload(
   payload: AnySpatialEvidencePayload,
 ): Record<string, unknown> {
+  if (isSpatialEvidencePayloadV3(payload)) {
+    assertSpatialQueryContractV3(payload);
+    return {
+      query_contract: payload.query_contract,
+      result_semantics: {
+        kind: payload.result_semantics.kind,
+        query: {
+          subject_ref: payload.result_semantics.query.subject_ref,
+          srid: payload.result_semantics.query.srid,
+          distance_meters: payload.result_semantics.query.distance_meters,
+        },
+        result: payload.result_semantics.result,
+        ...(payload.result_semantics.witness ? { witness: payload.result_semantics.witness } : {}),
+      },
+      property_ref: payload.property_ref,
+      layer_ref: { layer_id: payload.layer_ref.layer_id, version_hash: payload.layer_ref.version_hash },
+      srid: payload.srid,
+      operation: {
+        algorithm: payload.operation.algorithm,
+        engine: payload.operation.engine,
+        engine_fingerprint: Object.fromEntries(
+          SPATIAL_STACK_COMPONENTS.map((c) => [c, payload.operation.engine_fingerprint[c]]),
+        ),
+      },
+      geometry: payload.geometry,
+      source: {
+        provider: payload.source_metadata.provider,
+        dataset: payload.source_metadata.dataset,
+        dataset_version: payload.source_metadata.dataset_version,
+      },
+    };
+  }
   if (isSpatialEvidencePayloadV2(payload)) {
     assertSpatialQueryContractV2(payload);
     return {
@@ -115,6 +187,9 @@ export function buildSpatialEvidenceIdentityPayload(
         dataset_version: payload.source_metadata.dataset_version,
       },
     };
+  }
+  if (hasSpatialEvidenceQueryContract(payload)) {
+    throw new Error("REJECT_SPATIAL_QUERY_CONTRACT_VERSION");
   }
   return {
     /**
@@ -218,9 +293,11 @@ export function computeSpatialEvidenceHash(payload: AnySpatialEvidencePayload): 
   assertLayerVersionHash(payload.layer_ref.version_hash);
 
   const canonical = canonicalizeStrict(buildSpatialEvidenceIdentityPayload(payload));
-  const canonicalVersion = isSpatialEvidencePayloadV2(payload)
-    ? SPATIAL_CANONICAL_VERSION_V2
-    : SPATIAL_CANONICAL_VERSION;
+  const canonicalVersion = isSpatialEvidencePayloadV3(payload)
+    ? SPATIAL_CANONICAL_VERSION_V3
+    : isSpatialEvidencePayloadV2(payload)
+      ? SPATIAL_CANONICAL_VERSION_V2
+      : SPATIAL_CANONICAL_VERSION;
   return createHash("sha256")
     .update(`${canonicalVersion}\n${canonical}`, "utf8")
     .digest("hex");

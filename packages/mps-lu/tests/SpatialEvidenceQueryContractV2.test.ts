@@ -12,6 +12,7 @@ import { SPATIAL_STACK_V1 } from "../src/artifacts/SpatialEngineFingerprint";
 vi.mock("@miljobeslut/mps-lu", async () => {
   const identity = await import("../src/artifacts/SpatialEvidenceIdentity");
   const fingerprint = await import("../src/artifacts/SpatialEngineFingerprint");
+  const contract = await import("../src/services/SpatialQueryContract");
   return {
     DEFAULT_SPATIAL_QUERY_BUDGET: {
       max_layers: 10,
@@ -21,6 +22,9 @@ vi.mock("@miljobeslut/mps-lu", async () => {
     },
     buildSpatialEvidenceContentHash: identity.buildSpatialEvidenceContentHash,
     SPATIAL_QUERY_CONTRACT_V2: "spatial-query-contract-v2",
+    SPATIAL_QUERY_CONTRACT_V3: contract.SPATIAL_QUERY_CONTRACT_V3,
+    SPATIAL_CANONICAL_VERSION_V3: contract.SPATIAL_CANONICAL_VERSION_V3,
+    assertSpatialQueryContractV3NumericParameters: contract.assertSpatialQueryContractV3NumericParameters,
     SPATIAL_STACK_V1: fingerprint.SPATIAL_STACK_V1,
     validateLocalizationGeometryArtifact: (artifact: { content_hash?: { value?: string } }) => {
       if (artifact.content_hash?.value !== "valid-localization-geometry") {
@@ -127,7 +131,7 @@ describe("SPATIAL-EVIDENCE-QUERY-CONTRACT-V2-01", () => {
   });
 });
 
-describe("canonical PostGIS V2 producer", () => {
+describe("canonical PostGIS V3 producer", () => {
   const property = {
     artifact_id: "lu-property-context-a",
     artifact_type: "LU_PROPERTY_CONTEXT",
@@ -168,7 +172,7 @@ describe("canonical PostGIS V2 producer", () => {
     return provider;
   }
 
-  it("emits only a typed V2 contract from the canonical producer", async () => {
+  it("emits only a typed V3 contract from the canonical producer", async () => {
     const provider = await providerWithQueryStub();
     const [evidence] = await provider.query({
       property_ref: property,
@@ -179,7 +183,8 @@ describe("canonical PostGIS V2 producer", () => {
 
     expect(evidence.payload).toMatchObject({
       query_contract: {
-        query_contract_version: "spatial-query-contract-v2",
+        query_contract_version: "spatial-query-contract-v3",
+        spatial_canonical_version: "sv-canonical-3",
         relation: "DWITHIN",
         subject: {
           kind: "LOCALIZATION_GEOMETRY",

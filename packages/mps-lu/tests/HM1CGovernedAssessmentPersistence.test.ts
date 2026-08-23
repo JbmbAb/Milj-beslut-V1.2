@@ -45,7 +45,7 @@ import { InMemoryArtifactRepository } from "../../mps-runtime/src/repository/InM
 import { SecurityRuntime } from "../../mps-runtime/src/security/SecurityRuntime";
 import {
   createGovernedLocalizationAssessment,
-  createLocalizationGeometryArtifact,
+  createLocalizationGeometryArtifactV2,
   createProjectContextBindingIssuerArtifact,
   deriveLuExecutionSeed,
   GovernedAssessmentPersistence,
@@ -62,6 +62,7 @@ import { LU_SITE_ASSESSMENT_CAPABILITY_KEY } from "../src/registry/LuSiteAssessm
 import { __resetLuExecutionAuthoritySigningProviderForTests } from "../../../server/security/luExecutionAuthoritySigningKey";
 import { __resetLuExecutionAuthorityVerifierForTests } from "../src/execution/LuExecutionAuthorityVerifier";
 import { provisionCanonicalLuContext } from "./fixtures/provisionCanonicalLuContext";
+import { ensureLocalizationProjectionProject } from "./fixtures/ensureLocalizationProjectionProject";
 
 class RecordingRepository extends InMemoryArtifactRepository {
   readonly writes: Array<{ artifact_id: string; content_hash: { algorithm: "sha256"; value: string }; body: unknown }> = [];
@@ -134,6 +135,10 @@ describe("HM1-C — governed assessment persistence", () => {
       body: { artifact_id: releaseId, artifact_type: "product_release_manifest", release_hash: { value: releaseHash } },
     });
     const projectId = "project-hm1c";
+    await ensureLocalizationProjectionProject({
+      projectId,
+      propertyDesignation: "HM1C 1:1",
+    });
     const context = await provisionCanonicalLuContext({
       repository,
       issuer: contextIssuer,
@@ -144,7 +149,7 @@ describe("HM1-C — governed assessment persistence", () => {
     });
     const registry = createLuRegistryRuntime();
     const capability = registry.resolveCapabilityByKey(LU_SITE_ASSESSMENT_CAPABILITY_KEY)!;
-    const geometry = createLocalizationGeometryArtifact({
+    const geometry = createLocalizationGeometryArtifactV2({
       project_id: projectId,
       property_context_ref: context.propertyContextRef,
       wgs84LngLat: [18.07, 59.33],
