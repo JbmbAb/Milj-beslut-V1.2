@@ -51,7 +51,10 @@ describe('PRODUCT-LU-PROJECT-CONTEXT-BOOTSTRAP-01 Phase B: bootstrap request que
     const workerB = await leaseOnePendingBootstrapRequest();
     expect(workerB).toBeNull();
 
-    expect(updateMany).toHaveBeenNthCalledWith(1, { where: { id: 'req-1', status: 'PENDING' }, data: { status: 'LEASED', leasedAt: expect.any(Date) } });
+    expect(updateMany).toHaveBeenNthCalledWith(1, {
+      where: { id: 'req-1', status: 'PENDING' },
+      data: { status: 'LEASED', leasedAt: expect.any(Date), leaseExpiresAt: expect.any(Date) },
+    });
   });
 
   it('lease: empty queue returns null without attempting an update', async () => {
@@ -59,6 +62,40 @@ describe('PRODUCT-LU-PROJECT-CONTEXT-BOOTSTRAP-01 Phase B: bootstrap request que
     const result = await leaseOnePendingBootstrapRequest();
     expect(result).toBeNull();
     expect(updateMany).not.toHaveBeenCalled();
+  });
+
+  it('H3 FIX: a stale LEASED row (lease expired) is reclaimable -- the query considers PENDING OR expired-LEASED', async () => {
+    const now = new Date('2026-01-01T00:10:00Z');
+    findFirst.mockResolvedValue({ id: 'req-stale', status: 'LEASED', leaseExpiresAt: new Date('2026-01-01T00:02:00Z') });
+    updateMany.mockResolvedValueOnce({ count: 1 });
+    findUnique.mockResolvedValueOnce({ id: 'req-stale', status: 'LEASED' });
+
+    const result = await leaseOnePendingBootstrapRequest(now);
+
+    expect(result?.id).toBe('req-stale');
+    expect(findFirst).toHaveBeenCalledWith({
+      where: { OR: [{ status: 'PENDING' }, { status: 'LEASED', leaseExpiresAt: { lt: now } }] },
+      orderBy: { createdAt: 'asc' },
+    });
+    // Reclaim uses a conditional update matched on the OBSERVED status (LEASED), not blindly
+    // PENDING -- still race-free against a second worker's concurrent reclaim attempt.
+    expect(updateMany).toHaveBeenCalledWith({
+      where: { id: 'req-stale', status: 'LEASED' },
+      data: { status: 'LEASED', leasedAt: now, leaseExpiresAt: expect.any(Date) },
+    });
+  });
+
+  it('H3 FIX: two workers racing to reclaim the same stale LEASED row -- only one wins', async () => {
+    const now = new Date('2026-01-01T00:10:00Z');
+    findFirst.mockResolvedValue({ id: 'req-stale', status: 'LEASED', leaseExpiresAt: new Date('2026-01-01T00:02:00Z') });
+    updateMany.mockResolvedValueOnce({ count: 1 });
+    findUnique.mockResolvedValueOnce({ id: 'req-stale', status: 'LEASED' });
+    const reclaimerA = await leaseOnePendingBootstrapRequest(now);
+    expect(reclaimerA?.id).toBe('req-stale');
+
+    updateMany.mockResolvedValueOnce({ count: 0 });
+    const reclaimerB = await leaseOnePendingBootstrapRequest(now);
+    expect(reclaimerB).toBeNull();
   });
 
   it('markBootstrapRequestCompleted records the binding id and completion time', async () => {

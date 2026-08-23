@@ -22,6 +22,7 @@ type FakeRow = {
   failureDetail: string | null;
   createdAt: Date;
   leasedAt: Date | null;
+  leaseExpiresAt: Date | null;
   completedAt: Date | null;
   failedAt: Date | null;
 };
@@ -53,16 +54,28 @@ vi.mock('../../server/db/prisma', () => ({
           failureDetail: null,
           createdAt: new Date(Date.now() + fakeRows.length),
           leasedAt: null,
+          leaseExpiresAt: null,
           completedAt: null,
           failedAt: null,
         };
         fakeRows.push(row);
         return { ...row };
       }),
-      findFirst: vi.fn(async ({ where, orderBy }: { where: Partial<FakeRow>; orderBy?: { createdAt: 'asc' | 'desc' } }) => {
-        const matches = fakeRows.filter((r) =>
-          Object.entries(where).every(([k, v]) => (r as Record<string, unknown>)[k] === v),
-        );
+      findFirst: vi.fn(async ({ where, orderBy }: { where: Record<string, unknown>; orderBy?: { createdAt: 'asc' | 'desc' } }) => {
+        const matchesClause = (row: FakeRow, clause: Record<string, unknown>): boolean =>
+          Object.entries(clause).every(([k, v]) => {
+            if (v !== null && typeof v === 'object' && 'lt' in (v as Record<string, unknown>)) {
+              const fieldValue = (row as Record<string, unknown>)[k];
+              return fieldValue instanceof Date && fieldValue.getTime() < (v as { lt: Date }).lt.getTime();
+            }
+            return (row as Record<string, unknown>)[k] === v;
+          });
+        const matches = fakeRows.filter((r) => {
+          if (Array.isArray(where.OR)) {
+            return (where.OR as Record<string, unknown>[]).some((clause) => matchesClause(r, clause));
+          }
+          return matchesClause(r, where);
+        });
         if (matches.length === 0) return null;
         const sorted = [...matches].sort((a, b) =>
           orderBy?.createdAt === 'desc' ? b.createdAt.getTime() - a.createdAt.getTime() : a.createdAt.getTime() - b.createdAt.getTime(),
@@ -171,6 +184,38 @@ describe('PRODUCT-LU-EXECUTION-IDENTITY-V3-PROVISIONING-01 — queue proofs', ()
     });
     expect(stillFailed.status).toBe('FAILED');
     expect(fakeRows).toHaveLength(1);
+  });
+
+  it('LU-PROVISIONING-LEASE-RECOVERY-01 H3 FIX: a LEASED row whose worker died (lease expired) is reclaimed by another worker and completes -- it never stays stuck', async () => {
+    const request = await enqueueLocalizationIdentityProvisioningRequest({
+      projectId: 'proj-1',
+      geometryArtifactId: 'geom-A',
+      requestedByUserId: 'user-1',
+    });
+
+    // Worker A leases it, then crashes before ever calling mark-completed/mark-failed.
+    const t0 = new Date('2026-01-01T00:00:00Z');
+    const leasedByA = await leaseOnePendingLocalizationIdentityProvisioningRequest(t0);
+    expect(leasedByA?.id).toBe(request.id);
+    expect(leasedByA?.status).toBe('LEASED');
+
+    // Immediately after (lease not yet expired), a second worker must NOT be able to steal it.
+    const tooSoon = new Date('2026-01-01T00:00:30Z');
+    const prematureReclaim = await leaseOnePendingLocalizationIdentityProvisioningRequest(tooSoon);
+    expect(prematureReclaim).toBeNull();
+
+    // Once the lease window has elapsed, worker B reclaims the same row.
+    const tAfterExpiry = new Date('2026-01-01T00:05:00Z');
+    const leasedByB = await leaseOnePendingLocalizationIdentityProvisioningRequest(tAfterExpiry);
+    expect(leasedByB?.id).toBe(request.id);
+    expect(leasedByB?.status).toBe('LEASED');
+
+    // Worker B completes the reclaimed request -- proves the queue never leaves it PENDING/LEASED forever.
+    await markLocalizationIdentityProvisioningCompleted(request.id, 'lu-identity-v3-recovered');
+    const status = await getProvisioningStatusForGeometry('proj-1', 'geom-A');
+    expect(status?.status).toBe('COMPLETED');
+    expect(status?.executionIdentityArtifactId).toBe('lu-identity-v3-recovered');
+    expect(fakeRows).toHaveLength(1); // no divergent duplicate row was created by the reclaim
   });
 });
 

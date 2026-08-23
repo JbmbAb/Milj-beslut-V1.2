@@ -1,5 +1,6 @@
 /**
  * PRODUCT-LU-EXECUTION-IDENTITY-V3-PROVISIONING-01 Phase B.
+ * LU-PROVISIONING-LEASE-RECOVERY-01 Phase B: lease reclaim added (H3 fix).
  *
  * Durable work-queue state only -- `LocalizationIdentityProvisioningRequest` is never itself
  * authority for an ExecutionIdentity (see prisma/schema.prisma's model doc comment). `enqueue` is
@@ -8,8 +9,17 @@
  * `requestedByUserId`. The worker (see luExecutionIdentityV3Provisioning.ts) derives everything
  * else itself from real, already-governed sources -- and mints strictly for the pinned geometry,
  * never for "whatever is current" at lease time.
+ *
+ * Lease reclaim: a LEASED row whose `leaseExpiresAt` has passed is treated as available again,
+ * exactly like a PENDING row, so a crashed worker never leaves a row stuck forever. Same pattern
+ * as `viewerCapabilityProvisioningQueue.ts`'s day-one fix, retrofitted here. Safe to retry after a
+ * reclaim because `executeLocalizationIdentityProvisioning` is reconciliation-first: it always
+ * re-checks for an existing identity for the exact pinned subject before minting, so a reclaim
+ * after a crash that already completed the CAS write reuses that identity instead of diverging.
  */
 import { prisma } from '../../db/prisma';
+
+const LEASE_DURATION_MS = 2 * 60 * 1000;
 
 export interface LocalizationIdentityProvisioningRequestRecord {
   readonly id: string;
@@ -22,6 +32,7 @@ export interface LocalizationIdentityProvisioningRequestRecord {
   readonly failureDetail: string | null;
   readonly createdAt: Date;
   readonly leasedAt: Date | null;
+  readonly leaseExpiresAt: Date | null;
   readonly completedAt: Date | null;
   readonly failedAt: Date | null;
 }
@@ -80,21 +91,27 @@ export async function getProvisioningStatusForGeometry(
 }
 
 /**
- * Atomically claims exactly one PENDING request. Same race-free pattern as
- * leaseOnePendingBootstrapRequest: the conditional `updateMany` (matching on both `id` AND
- * `status: 'PENDING'`) means only one worker's UPDATE actually matches a still-PENDING row under
- * concurrent leasing.
+ * Atomically claims exactly one available request: a PENDING row, or a LEASED row whose lease has
+ * expired (crashed-worker reclaim). Same race-free pattern as leaseOnePendingBootstrapRequest: the
+ * conditional `updateMany` (matching on both `id` AND the exact `status` observed at
+ * candidate-selection time) means only one worker's UPDATE actually matches under concurrent
+ * leasing, whether the row was PENDING or a stale LEASED.
  */
-export async function leaseOnePendingLocalizationIdentityProvisioningRequest(): Promise<LocalizationIdentityProvisioningRequestRecord | null> {
+export async function leaseOnePendingLocalizationIdentityProvisioningRequest(
+  now: Date = new Date(),
+): Promise<LocalizationIdentityProvisioningRequestRecord | null> {
   const candidate = await prisma.localizationIdentityProvisioningRequest.findFirst({
-    where: { status: 'PENDING' },
+    where: {
+      OR: [{ status: 'PENDING' }, { status: 'LEASED', leaseExpiresAt: { lt: now } }],
+    },
     orderBy: { createdAt: 'asc' },
   });
   if (!candidate) return null;
 
+  const leaseExpiresAt = new Date(now.getTime() + LEASE_DURATION_MS);
   const result = await prisma.localizationIdentityProvisioningRequest.updateMany({
-    where: { id: candidate.id, status: 'PENDING' },
-    data: { status: 'LEASED', leasedAt: new Date() },
+    where: { id: candidate.id, status: candidate.status },
+    data: { status: 'LEASED', leasedAt: now, leaseExpiresAt },
   });
   if (result.count !== 1) return null;
 
