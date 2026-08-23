@@ -41,6 +41,20 @@ export const SPATIAL_LAYER_REGISTRY: Readonly<Record<string, SpatialLayerBinding
       version_hash: "983772bf129d14326c43aa5d08f152e65604778d392c28ea4fee0c4e838af9ae",
       geom_column: "geom" as const,
     }),
+    natura2000: Object.freeze({
+      logical_name: "natura2000",
+      table: "env.natura2000_area",
+      provider: "Naturvårdsverket",
+      version_hash: "a5d665ae7bfde9ebeaa4883d5db7bbf70aea9cb7ad5a3f621c4cdbc003ad7f02",
+      geom_column: "geom" as const,
+    }),
+    water_protection_area: Object.freeze({
+      logical_name: "water_protection_area",
+      table: "env.water_protection_area",
+      provider: "Naturvårdsverket",
+      version_hash: "ba6fdd88fa478d9b930a41153d03b84a34b086de8d6c5aa0f6b63c0b4dd6ff18",
+      geom_column: "geom" as const,
+    }),
   });
 
 export function resolveLayerBinding(layerName: string): SpatialLayerBinding {

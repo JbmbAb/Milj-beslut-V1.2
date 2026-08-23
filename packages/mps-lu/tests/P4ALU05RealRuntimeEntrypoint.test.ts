@@ -2,7 +2,10 @@ import { readFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { LocalPemSigningKeyProvider } from "@miljobeslut/mimers-brunn-core";
+import {
+  LocalPemSigningKeyProvider,
+  LocalPemVerificationKeyProvider,
+} from "@miljobeslut/mimers-brunn-core";
 
 vi.mock("../../../server/services/spatialAuditService", () => ({
   runSpatialAudit: vi.fn().mockResolvedValue({
@@ -60,11 +63,76 @@ vi.mock("../../../src/application/enqueue-lu-execution-ticket", () => ({
   enqueueAdmittedLuTicket: vi.fn().mockResolvedValue(null),
 }));
 
+vi.mock("../../../server/repositories/projectContextBindingRepository", () => {
+  type BindingRow = {
+    binding_artifact_id: string;
+    project_context_artifact_id: string;
+    project_context_artifact_type: string;
+  };
+  const bindingsByProject = new Map<string, BindingRow[]>();
+
+  class FakeProjectContextBindingIndex {
+    async register(binding: {
+      artifact_id: string;
+      payload: {
+        project_id: string;
+        project_context_ref: { artifact_id: string; artifact_type: string };
+      };
+    }) {
+      const rows = bindingsByProject.get(binding.payload.project_id) ?? [];
+      if (!rows.some((row) => row.binding_artifact_id === binding.artifact_id)) {
+        rows.push({
+          binding_artifact_id: binding.artifact_id,
+          project_context_artifact_id: binding.payload.project_context_ref.artifact_id,
+          project_context_artifact_type: binding.payload.project_context_ref.artifact_type,
+        });
+        bindingsByProject.set(binding.payload.project_id, rows);
+      }
+      const resolved = await this.resolve(binding.payload.project_id, binding.payload.project_context_ref);
+      if (resolved !== binding.artifact_id) throw new Error("REJECT_PROJECT_CONTEXT_BINDING_CONFLICT");
+    }
+
+    async resolve(projectId: string, projectContextRef: { artifact_id: string; artifact_type: string }) {
+      const rows = (bindingsByProject.get(projectId) ?? []).filter(
+        (row) => row.project_context_artifact_id === projectContextRef.artifact_id
+          && row.project_context_artifact_type === projectContextRef.artifact_type,
+      );
+      if (rows.length !== 1) throw new Error("REJECT_PROJECT_CONTEXT_BINDING_UNAVAILABLE");
+      return rows[0]!.binding_artifact_id;
+    }
+
+    async listBindingRefs(projectId: string) {
+      return (bindingsByProject.get(projectId) ?? []).map((row) => ({
+        artifact_id: row.binding_artifact_id,
+        artifact_type: "project_context_binding",
+      }));
+    }
+
+    async listSupersessionRefs() {
+      return [];
+    }
+
+    async findProjectContextRef(projectId: string) {
+      const rows = bindingsByProject.get(projectId) ?? [];
+      if (rows.length !== 1) throw new Error("REJECT_PROJECT_CONTEXT_BINDING_UNAVAILABLE");
+      return {
+        artifact_id: rows[0]!.project_context_artifact_id,
+        artifact_type: rows[0]!.project_context_artifact_type,
+      };
+    }
+  }
+
+  return { PrismaProjectContextBindingIndex: FakeProjectContextBindingIndex };
+});
+
 import {
   LU_SPATIAL_CAPABILITY_KEY,
   LU_SPATIAL_PROVIDER_IMPLEMENTATION_ID,
   SPATIAL_STACK_V1,
   SpatialProviderResolver,
+  createLocalizationGeometryArtifact,
+  createProjectContextBindingIssuerArtifact,
+  deriveLuExecutionSeed,
   createLuRegistryRuntime,
   orchestrator,
   type SpatialEvidenceArtifact,
@@ -79,11 +147,12 @@ import {
   GenerateLocalizationReportUseCase,
 } from "../../../src/application/generate-localization-report.usecase";
 import type { LocalizationSpatialRuntime } from "../../../server/modules/localization/createLocalizationSpatialRuntime";
-import { issueExecutionIdentity } from "../src/execution/LuExecutionIdentityIssuer";
+import { issueExecutionIdentityV3 } from "../src/execution/LuExecutionIdentityIssuer";
 import { LU_EXECUTION_PRINCIPAL_ID } from "../src/execution/LuExecutionKernelClient";
 import { LU_SITE_ASSESSMENT_CAPABILITY_KEY } from "../src/registry/LuSiteAssessmentRegistry";
 import { __resetLuExecutionAuthoritySigningProviderForTests } from "../../../server/security/luExecutionAuthoritySigningKey";
 import { __resetLuExecutionAuthorityVerifierForTests } from "../src/execution/LuExecutionAuthorityVerifier";
+import { provisionCanonicalLuContext } from "./fixtures/provisionCanonicalLuContext";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(__dirname, "../../..");
@@ -97,7 +166,14 @@ describe("P4A-LU-05 — real runtime entrypoint", () => {
   });
 
   afterEach(() => {
-    for (const name of ["LU_EXECUTION_AUTHORITY_PRIVATE_KEY_PEM", "LU_EXECUTION_AUTHORITY_PUBLIC_KEY_PEM"] as const) {
+    for (const name of [
+      "LU_EXECUTION_AUTHORITY_PRIVATE_KEY_PEM",
+      "LU_EXECUTION_AUTHORITY_PUBLIC_KEY_PEM",
+      "PROJECT_CONTEXT_BINDING_ISSUER_KEY_ID",
+      "PROJECT_CONTEXT_BINDING_ISSUER_PUBLIC_KEY_PEM",
+      "PRODUCT_RELEASE_ARTIFACT_ID",
+      "PRODUCT_RELEASE_HASH",
+    ] as const) {
       if (originalEnv[name] === undefined) delete process.env[name];
       else process.env[name] = originalEnv[name];
     }
@@ -106,13 +182,25 @@ describe("P4A-LU-05 — real runtime entrypoint", () => {
   });
 
   it("runs GenerateLocalizationReportUseCase through registry resolution, production provider, evidence, findings and assessment", async () => {
-    // PROD-LU-ADMISSION-02E: explicit authority-issued identity provisioned ahead of the run,
-    // via a separate call to issueExecutionIdentity -- see HM1CGovernedAssessmentPersistence.test.ts.
+    // The real entrypoint now derives its execution subject from a verified current binding;
+    // the fixture provisions that full canonical chain before issuing the matching V3 identity.
     const { publicKey, privateKey } = LocalPemSigningKeyProvider.generate("ed25519:lu-execution-authority-v1");
     originalEnv.LU_EXECUTION_AUTHORITY_PRIVATE_KEY_PEM = process.env.LU_EXECUTION_AUTHORITY_PRIVATE_KEY_PEM;
     originalEnv.LU_EXECUTION_AUTHORITY_PUBLIC_KEY_PEM = process.env.LU_EXECUTION_AUTHORITY_PUBLIC_KEY_PEM;
     process.env.LU_EXECUTION_AUTHORITY_PRIVATE_KEY_PEM = privateKey;
     process.env.LU_EXECUTION_AUTHORITY_PUBLIC_KEY_PEM = publicKey;
+
+    const contextIssuerKey = LocalPemSigningKeyProvider.generate("ed25519:p4a-context-issuer");
+    const contextIssuer = createProjectContextBindingIssuerArtifact({
+      issuer_key_id: contextIssuerKey.provider.keyId,
+      issuer_version: "project-context-binding-issuer-v2",
+    });
+    process.env.PROJECT_CONTEXT_BINDING_ISSUER_KEY_ID = contextIssuerKey.provider.keyId;
+    process.env.PROJECT_CONTEXT_BINDING_ISSUER_PUBLIC_KEY_PEM = contextIssuerKey.publicKey;
+    const releaseId = "product-release-p4a-lu-05";
+    const releaseHash = "a".repeat(64);
+    process.env.PRODUCT_RELEASE_ARTIFACT_ID = releaseId;
+    process.env.PRODUCT_RELEASE_HASH = releaseHash;
 
     const artifactRepository = new InMemoryArtifactRepository();
     const provider = new SpatialProviderPostGIS(
@@ -158,10 +246,58 @@ describe("P4A-LU-05 — real runtime entrypoint", () => {
     };
     const useCase = new GenerateLocalizationReportUseCase(async () => runtime);
 
+    await artifactRepository.put({
+      artifact_id: releaseId,
+      content_hash: { algorithm: "sha256", value: "fixture-release" },
+      body: {
+        artifact_id: releaseId,
+        artifact_type: "product_release_manifest",
+        release_hash: { value: releaseHash },
+      },
+    });
+    const projectId = "project-p4a-lu-05";
+    const context = await provisionCanonicalLuContext({
+      repository: artifactRepository,
+      issuer: contextIssuer,
+      signing: contextIssuerKey.provider,
+      verification: new LocalPemVerificationKeyProvider(
+        contextIssuerKey.provider.keyId,
+        contextIssuerKey.publicKey,
+      ),
+      projectId,
+      propertyDesignation: "P4A LU 05 1:1",
+    });
     const luCapability = registry.resolveCapabilityByKey(LU_SITE_ASSESSMENT_CAPABILITY_KEY)!;
-    await issueExecutionIdentity({
-      site_id: "site-p4a-lu-05",
-      deterministic_seed: "lu-seed-site-p4a-lu-05",
+    const geometry = createLocalizationGeometryArtifact({
+      project_id: projectId,
+      property_context_ref: context.propertyContextRef,
+      wgs84LngLat: [18.07, 59.33],
+      sweref99NorthingEasting: [6580000, 674000],
+      provenance: "derived_from_property_boundary",
+      label: "Fastighetens centrumpunkt (automatiskt härledd)",
+      created_by: "system",
+    });
+    const geometryRef = { artifact_id: geometry.artifact_id, artifact_type: geometry.artifact_type };
+    await issueExecutionIdentityV3({
+      subject: {
+        site_id: context.propertyIdentity,
+        project_context_binding_ref: context.contextBindingRef,
+        product_release_ref: { artifact_id: releaseId, artifact_type: "product_release_manifest" },
+        execution_contract_version: "lu-execution-identity-v1",
+        localization_geometry_ref: geometryRef,
+      },
+      deterministic_seed: deriveLuExecutionSeed({
+        site_id: context.propertyIdentity,
+        project_id: projectId,
+        project_context_ref: context.projectContextRef,
+        property_context_ref: context.propertyContextRef,
+        project_context_binding_ref: context.contextBindingRef,
+        product_release_ref: { artifact_id: releaseId, artifact_type: "product_release_manifest" },
+        product_release_hash: releaseHash,
+        execution_contract_version: "lu-execution-identity-v1",
+        rule_registry_snapshot_id: registry.getReleaseSnapshot().snapshot_id,
+        localization_geometry_ref: geometryRef,
+      }),
       actor_ref: { artifact_id: LU_EXECUTION_PRINCIPAL_ID, artifact_type: "execution_identity" },
       capability_ref: { artifact_id: luCapability.artifact_id, artifact_type: luCapability.artifact_type },
       release_snapshot_id: registry.getReleaseSnapshot().snapshot_id,
@@ -169,7 +305,7 @@ describe("P4A-LU-05 — real runtime entrypoint", () => {
     });
 
     const report = await useCase.execute({
-      projectId: "project-p4a-lu-05",
+      projectId,
       siteAlternatives: [{ id: "site-p4a-lu-05", lat: 59.33, lng: 18.07 }],
     });
 
@@ -209,7 +345,13 @@ describe("P4A-LU-05 — real runtime entrypoint", () => {
         artifactRepository.resolve<SpatialEvidenceArtifact>(ref),
       ),
     );
-    expect(evidence).toHaveLength(3);
+    expect(evidence).toHaveLength(5);
+    const findingEvidenceIds = new Set(
+      assessment.payload.findings.flatMap((finding) =>
+        finding.evidence_refs.map((ref) => ref.artifact_id),
+      ),
+    );
+    expect(findingEvidenceIds).toHaveLength(3);
     for (const artifact of evidence) {
       const layer = artifact.payload.layer_ref.layer_id;
       expect(artifact.payload.result_semantics.kind).toBe("EXISTENCE_WITHIN_DISTANCE");
@@ -219,13 +361,14 @@ describe("P4A-LU-05 — real runtime entrypoint", () => {
         SPATIAL_LAYER_REGISTRY[layer].version_hash,
       );
       expect(artifact.payload.geometry).toBeNull();
-      expect(
-        assessment.payload.findings.some((finding) =>
-          finding.evidence_refs.some((ref) => ref.artifact_id === artifact.artifact_id),
-        ),
-      ).toBe(true);
+      if (["water", "ebh", "protected_area"].includes(layer)) {
+        expect(findingEvidenceIds.has(artifact.artifact_id)).toBe(true);
+      } else {
+        expect(["natura2000", "water_protection_area"]).toContain(layer);
+        expect(findingEvidenceIds.has(artifact.artifact_id)).toBe(false);
+      }
     }
-    expect(poolQuery.mock.calls.filter(([sql]) => String(sql).includes("ST_DWithin"))).toHaveLength(3);
+    expect(poolQuery.mock.calls.filter(([sql]) => String(sql).includes("ST_DWithin"))).toHaveLength(5);
     expect(poolEnd).toHaveBeenCalledOnce();
   });
 

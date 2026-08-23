@@ -1,6 +1,9 @@
 import { createHash } from "node:crypto";
 import { canonicalizeStrict } from "../../../mimers-brunn-core/src/serialization/canonicalize";
-import type { SpatialEvidencePayload } from "./SpatialEvidenceArtifact";
+import {
+  isSpatialEvidencePayloadV2,
+  type AnySpatialEvidencePayload,
+} from "./SpatialEvidenceArtifact";
 import { assertGeometryMatchesSemantics } from "./SpatialResultSemantics";
 import {
   assertExactEngineFingerprint,
@@ -17,6 +20,7 @@ import {
  * @see docs/architecture/TV-S1-Spatial-Verification-Layer.md
  */
 export const SPATIAL_CANONICAL_VERSION = "sv-canonical-1" as const;
+export const SPATIAL_CANONICAL_VERSION_V2 = "sv-canonical-2" as const;
 
 const SHA256_HEX = /^[a-f0-9]{64}$/;
 
@@ -38,9 +42,80 @@ export function assertLayerVersionHash(versionHash: unknown): asserts versionHas
  * excluded as well — otherwise the same analysis run twice would not be recognisable as
  * the same evidence.
  */
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null;
+}
+
+function assertSpatialQueryContractV2(payload: Extract<AnySpatialEvidencePayload, { readonly query_contract: unknown }>): void {
+  const contract = payload.query_contract as unknown;
+  if (!isRecord(contract) || !isRecord(contract.selection) || !isRecord(contract.subject) || !isRecord(contract.parameters)) {
+    throw new Error("REJECT_SPATIAL_QUERY_CONTRACT_V2");
+  }
+
+  const subject = contract.subject;
+  const parameters = contract.parameters;
+  if (
+    contract.query_contract_version !== "spatial-query-contract-v2" ||
+    contract.relation !== "DWITHIN" ||
+    contract.selection.predicate_semantics !== "EXISTS" ||
+    subject.crs !== "EPSG:3006" ||
+    !Number.isFinite(parameters.distance_meters) ||
+    (parameters.distance_meters as number) < 0 ||
+    !Number.isSafeInteger(parameters.max_features_per_layer) ||
+    (parameters.max_features_per_layer as number) < 1 ||
+    parameters.distance_meters !== payload.result_semantics.query.distance_meters ||
+    parameters.max_features_per_layer !== payload.result_semantics.result.max_features_per_layer ||
+    payload.result_semantics.query.srid !== 3006 ||
+    payload.srid !== 3006 ||
+    !isRecord(subject.property_context_ref) ||
+    subject.property_context_ref.artifact_id !== payload.property_ref.artifact_id ||
+    subject.property_context_ref.artifact_type !== payload.property_ref.artifact_type ||
+    (subject.kind !== "LOCALIZATION_GEOMETRY" && subject.kind !== "PROPERTY_CONTEXT_CENTROID") ||
+    (subject.kind === "LOCALIZATION_GEOMETRY" &&
+      (!isRecord(subject.location_ref) ||
+        subject.location_ref.artifact_type !== "localization_geometry" ||
+        typeof subject.location_ref.artifact_id !== "string" ||
+        subject.location_ref.artifact_id.length === 0))
+  ) {
+    throw new Error("REJECT_SPATIAL_QUERY_CONTRACT_V2");
+  }
+}
+
 export function buildSpatialEvidenceIdentityPayload(
-  payload: SpatialEvidencePayload,
+  payload: AnySpatialEvidencePayload,
 ): Record<string, unknown> {
+  if (isSpatialEvidencePayloadV2(payload)) {
+    assertSpatialQueryContractV2(payload);
+    return {
+      query_contract: payload.query_contract,
+      result_semantics: {
+        kind: payload.result_semantics.kind,
+        query: {
+          subject_ref: payload.result_semantics.query.subject_ref,
+          srid: payload.result_semantics.query.srid,
+          distance_meters: payload.result_semantics.query.distance_meters,
+        },
+        result: payload.result_semantics.result,
+        ...(payload.result_semantics.witness ? { witness: payload.result_semantics.witness } : {}),
+      },
+      property_ref: payload.property_ref,
+      layer_ref: { layer_id: payload.layer_ref.layer_id, version_hash: payload.layer_ref.version_hash },
+      srid: payload.srid,
+      operation: {
+        algorithm: payload.operation.algorithm,
+        engine: payload.operation.engine,
+        engine_fingerprint: Object.fromEntries(
+          SPATIAL_STACK_COMPONENTS.map((c) => [c, payload.operation.engine_fingerprint[c]]),
+        ),
+      },
+      geometry: payload.geometry,
+      source: {
+        provider: payload.source_metadata.provider,
+        dataset: payload.source_metadata.dataset,
+        dataset_version: payload.source_metadata.dataset_version,
+      },
+    };
+  }
   return {
     /**
      * P4A-LU-S6 — FROZEN PRINCIPLE: identity SHALL bind the declared result semantics.
@@ -127,7 +202,7 @@ export function buildSpatialEvidenceIdentityPayload(
 /**
  * artifact_hash = SHA256( spatial_canonical_version || "\n" || canonical_payload )
  */
-export function computeSpatialEvidenceHash(payload: SpatialEvidencePayload): string {
+export function computeSpatialEvidenceHash(payload: AnySpatialEvidencePayload): string {
   // S6 truthfulness, enforced at identity time so that a fabricated geometry cannot obtain an
   // identity at all. A later check somewhere downstream would arrive after the artifact is
   // already hashable, i.e. too late to be a barrier.
@@ -143,12 +218,15 @@ export function computeSpatialEvidenceHash(payload: SpatialEvidencePayload): str
   assertLayerVersionHash(payload.layer_ref.version_hash);
 
   const canonical = canonicalizeStrict(buildSpatialEvidenceIdentityPayload(payload));
+  const canonicalVersion = isSpatialEvidencePayloadV2(payload)
+    ? SPATIAL_CANONICAL_VERSION_V2
+    : SPATIAL_CANONICAL_VERSION;
   return createHash("sha256")
-    .update(`${SPATIAL_CANONICAL_VERSION}\n${canonical}`, "utf8")
+    .update(`${canonicalVersion}\n${canonical}`, "utf8")
     .digest("hex");
 }
 
-export function buildSpatialEvidenceContentHash(payload: SpatialEvidencePayload): {
+export function buildSpatialEvidenceContentHash(payload: AnySpatialEvidencePayload): {
   readonly algorithm: "sha256";
   readonly value: string;
 } {
