@@ -6,12 +6,12 @@ export interface LUPropertyContextPayload {
   readonly geometry_ref: ArtifactReference; // Reference to the CanonicalGeometry artifact
   readonly municipality: string;
   readonly coordinates: readonly [number, number]; // e.g. SWEREF99 TM [N, E]
-  /** Immutable binding that authorizes this context for product use. */
-  readonly project_property_binding_ref: ArtifactReference;
-  /** Canonical source identity of the property, distinct from its designation. */
-  readonly property_identity: string;
-  /** Content/contract version used to derive this context artifact. */
-  readonly context_contract_version: string;
+  /** Present on canonical product contexts; historical LU contexts remain readable. */
+  readonly project_property_binding_ref?: ArtifactReference;
+  /** Canonical source identity on product contexts, distinct from designation. */
+  readonly property_identity?: string;
+  /** Present when this context was content-derived under the product contract. */
+  readonly context_contract_version?: string;
 }
 
 export interface LUPropertyContextArtifact extends ArtifactContract {
