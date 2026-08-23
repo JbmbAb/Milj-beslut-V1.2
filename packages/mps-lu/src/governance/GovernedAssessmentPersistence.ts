@@ -2,11 +2,13 @@ import type { ArtifactRepositoryPort } from "../../../mps-runtime/src/kernel/Exe
 import { sha256ContentHash } from "../../../mps-runtime/src/kernel/ExecutionKernel.js";
 import type { FrozenExecutionOutcomeIdentity } from "../../../mps-runtime/src/contracts/freeze/FrozenIdentities.js";
 import type { OutcomeAttestation } from "../../../mps-runtime/src/security/SecurityContracts.js";
+import type { ArtifactReference } from "@miljobeslut/mps-compliance/src/artifacts/ArtifactReference";
 import type { AssessmentFinding } from "../domain/AssessmentFinding.js";
-import type {
-  LocalizationAssessmentArtifact,
-  LocalizationAssessmentDraft,
-  LocalizationAssessmentPayload,
+import {
+  LOCALIZATION_ASSESSMENT_CONTRACT_VERSION_V2,
+  type LocalizationAssessmentArtifact,
+  type LocalizationAssessmentDraft,
+  type LocalizationAssessmentPayload,
 } from "../artifacts/LocalizationAssessmentArtifact.js";
 
 export type VerifyOutcomeAttestation = (attestation: OutcomeAttestation) => boolean;
@@ -44,6 +46,24 @@ function uniqueRefs(
   );
 }
 
+/**
+ * LOCALIZATION-ASSESSMENT-CANONICAL-COLLECTIONS-V2. `evidence_refs` is a SEMANTIC_SET (the
+ * evidence that exists within a query radius, sourced from an SQL query with no ordering
+ * guarantee) -- canonicalized here by deduplicating by ref identity (same key as `uniqueRefs`)
+ * and then sorting by that same explicit, stable, lexical key, so a re-execution over the
+ * identical underlying evidence always produces byte-identical `evidence_refs`, regardless of
+ * what order the source query happened to return rows in.
+ */
+function canonicalEvidenceRefs(
+  refs: readonly { readonly artifact_id: string; readonly artifact_type: string }[],
+): ArtifactReference[] {
+  return uniqueRefs(refs).sort((a, b) => {
+    const keyA = `${a.artifact_type}:${a.artifact_id}`;
+    const keyB = `${b.artifact_type}:${b.artifact_id}`;
+    return keyA < keyB ? -1 : keyA > keyB ? 1 : 0;
+  });
+}
+
 export function createGovernedLocalizationAssessment(args: {
   readonly draft: LocalizationAssessmentDraft;
   readonly findings: readonly AssessmentFinding[];
@@ -64,7 +84,10 @@ export function createGovernedLocalizationAssessment(args: {
     execution_outcome_ref: executionOutcomeRef,
     outcome_attestation_ref: outcomeAttestationRef,
     findings: args.findings,
-    evidence_refs: uniqueRefs(args.draft.evidence_refs),
+    // LOCALIZATION-ASSESSMENT-CANONICAL-COLLECTIONS-V2: dedup + canonical sort, not just dedup --
+    // evidence_refs is a SEMANTIC_SET, never an as-received ORDERED_SEQUENCE.
+    evidence_refs: canonicalEvidenceRefs(args.draft.evidence_refs),
+    // ORDERED_SEQUENCE: preserve findings' own sequence exactly, positional 1:1 map, never sorted.
     rule_refs: args.findings.map((finding) => ({
       rule_id: finding.rule_id,
       rule_version: finding.rule_version,
@@ -76,7 +99,10 @@ export function createGovernedLocalizationAssessment(args: {
     ...(args.draft.localization_geometry_ref
       ? { localization_geometry_ref: args.draft.localization_geometry_ref }
       : {}),
+    assessment_contract_version: LOCALIZATION_ASSESSMENT_CONTRACT_VERSION_V2,
   };
+  // Constructed FROM the already-canonical payload.evidence_refs -- never independently
+  // re-discovering the caller's raw (potentially non-canonical) order.
   const references = uniqueRefs([
     args.draft.project_context_ref,
     args.draft.property_ref,
