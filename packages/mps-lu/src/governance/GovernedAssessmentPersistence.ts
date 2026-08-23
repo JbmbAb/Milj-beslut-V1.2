@@ -222,6 +222,16 @@ export class GovernedAssessmentPersistence {
     if (!args.artifact.references.some((ref) => sameRef(ref, attestationRef))) {
       failed.push("attestation_reference_edge");
     }
+    // LU-ASSESSMENT-CONTRACT-VERSIONING-V1 (H12): the hash re-derivation above is
+    // version-agnostic by construction (it just hashes whatever body is actually there) -- this
+    // is the explicit structural gate, dispatched by the artifact's own declared
+    // assessment_contract_version, now load-bearing on every persist rather than merely
+    // definable-but-uncalled.
+    try {
+      validateLocalizationAssessmentContractVersion(args.artifact.payload);
+    } catch (error) {
+      failed.push(`contract_version:${error instanceof Error ? error.message : String(error)}`);
+    }
 
     if (failed.length > 0) {
       throw new Error(`REJECT_LOCALIZATION_ASSESSMENT: ${failed.join(",")}`);
