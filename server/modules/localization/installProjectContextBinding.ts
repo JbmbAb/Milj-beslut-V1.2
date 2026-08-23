@@ -2,9 +2,11 @@ import type { VerificationKeyProvider } from "@miljobeslut/mimers-brunn-core";
 import type { ArtifactRepositoryPort } from "@miljobeslut/mps-runtime";
 import {
   type ProjectContextBindingArtifact,
+  type ProjectContextBindingArtifactV2,
   type ProjectContextBindingSupersessionArtifact,
-  validateProjectContextBindingArtifact,
-  validateProjectContextBindingSupersessionArtifact,
+  type ProjectContextBindingSupersessionArtifactV2,
+  validateProjectContextBindingAnyVersion,
+  validateProjectContextBindingSupersessionAnyVersion,
 } from "@miljobeslut/mps-lu";
 import type { ProjectContextBindingIndex } from "../../repositories/projectContextBindingRepository";
 import { ProjectContextBindingProvider } from "./projectContextBindingRuntime";
@@ -17,10 +19,10 @@ import { verifyProjectContextBindingArtifactAuthority, verifyProjectContextBindi
 export async function installOwnerIssuedProjectContextBinding(args: {
   readonly artifactRepository: ArtifactRepositoryPort;
   readonly index: ProjectContextBindingIndex;
-  readonly binding: ProjectContextBindingArtifact;
+  readonly binding: ProjectContextBindingArtifact | ProjectContextBindingArtifactV2;
   readonly verification: VerificationKeyProvider;
-}): Promise<ProjectContextBindingArtifact> {
-  const binding = validateProjectContextBindingArtifact(args.binding);
+}): Promise<ProjectContextBindingArtifact | ProjectContextBindingArtifactV2> {
+  const binding = validateProjectContextBindingAnyVersion(args.binding);
   await verifyProjectContextBindingArtifactAuthority({
     artifact: binding,
     issuerRef: binding.payload.authority_ref,
@@ -43,21 +45,20 @@ export async function installOwnerIssuedProjectContextBinding(args: {
 export async function installOwnerIssuedProjectContextBindingSupersession(args: {
   readonly artifactRepository: ArtifactRepositoryPort;
   readonly index: ProjectContextBindingIndex;
-  readonly supersession: ProjectContextBindingSupersessionArtifact;
+  readonly supersession: ProjectContextBindingSupersessionArtifact | ProjectContextBindingSupersessionArtifactV2;
   readonly verification: VerificationKeyProvider;
-}): Promise<ProjectContextBindingArtifact> {
-  const supersession = validateProjectContextBindingSupersessionArtifact(args.supersession);
+}): Promise<ProjectContextBindingArtifact | ProjectContextBindingArtifactV2> {
+  const supersession = validateProjectContextBindingSupersessionAnyVersion(args.supersession);
   await verifyProjectContextBindingSupersessionAuthority({
     artifact: supersession,
     artifactRepository: args.artifactRepository,
-    verification: args.verification,
   });
   const [predecessor, successor] = await Promise.all([
-    args.artifactRepository.resolve<ProjectContextBindingArtifact>(supersession.payload.superseded_binding_ref),
-    args.artifactRepository.resolve<ProjectContextBindingArtifact>(supersession.payload.successor_binding_ref),
+    args.artifactRepository.resolve<ProjectContextBindingArtifact | ProjectContextBindingArtifactV2>(supersession.payload.superseded_binding_ref),
+    args.artifactRepository.resolve<ProjectContextBindingArtifact | ProjectContextBindingArtifactV2>(supersession.payload.successor_binding_ref),
   ]);
   for (const binding of [predecessor, successor]) {
-    const verified = validateProjectContextBindingArtifact(binding);
+    const verified = validateProjectContextBindingAnyVersion(binding);
     await verifyProjectContextBindingArtifactAuthority({
       artifact: verified,
       issuerRef: verified.payload.authority_ref,

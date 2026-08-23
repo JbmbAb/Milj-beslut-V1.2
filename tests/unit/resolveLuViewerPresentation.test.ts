@@ -17,6 +17,7 @@ import {
   createProjectContextBindingArtifact,
   createProjectContextBindingSupersessionArtifact,
   createProjectContextBindingIssuerArtifact,
+  createProjectContextBindingSupersessionIssuerArtifact,
   createProductViewerCapabilityArtifact,
   createViewerCapabilityIssuerArtifact,
   createViewerIdentityArtifact,
@@ -32,10 +33,12 @@ import {
   installOwnerIssuedProjectContextBindingSupersession,
 } from '../../server/modules/localization/installProjectContextBinding';
 import { ProjectContextBindingProvider } from '../../server/modules/localization/projectContextBindingRuntime';
+import { attestProjectContextBindingArtifact } from '../../server/modules/localization/projectContextBindingAuthority';
 import {
-  attestProjectContextBindingArtifact,
   attestProjectContextBindingSupersessionArtifact,
-} from '../../server/modules/localization/projectContextBindingAuthority';
+  attestProjectContextBindingSupersessionIssuerArtifact,
+} from '../../server/modules/localization/projectContextBindingSupersessionAuthority';
+import { __resetProjectContextBindingSupersessionVerifierForTests } from '../../server/security/projectContextBindingSupersessionVerifier';
 import {
   attestProductViewerCapability,
   attestViewerCapabilityIssuerArtifact,
@@ -132,6 +135,7 @@ const pcbIssuerKey = LocalPemSigningKeyProvider.generate('ed25519:pcb-issuer-ces
 const pcbVerification = new LocalPemVerificationKeyProvider(pcbIssuerKey.provider.keyId, pcbIssuerKey.publicKey);
 const pcbIssuer = createProjectContextBindingIssuerArtifact({ issuer_key_id: pcbIssuerKey.provider.keyId, issuer_version: 'project-context-binding-issuer-v2' });
 const pcbAuthority = { artifact_id: pcbIssuer.artifact_id, artifact_type: pcbIssuer.artifact_type } as const;
+const pcbSupersessionIssuerKey = LocalPemSigningKeyProvider.generate('ed25519:pcb-supersession-issuer-cesium-test');
 
 const vcIssuerKey = LocalPemSigningKeyProvider.generate('ed25519:vc-issuer-cesium-test');
 const OWNER_AUTHORITY_REF = { artifact_id: 'owner-authority-cesium-test', artifact_type: 'owner_authority_attestation' } as const;
@@ -170,6 +174,20 @@ async function setup() {
   const bindingIndex = new MemoryBindingIndex();
   await repository.put({ artifact_id: pcbIssuer.artifact_id, body: pcbIssuer });
 
+  process.env.PROJECT_CONTEXT_BINDING_SUPERSESSION_ISSUER_KEY_ID = pcbSupersessionIssuerKey.provider.keyId;
+  process.env.PROJECT_CONTEXT_BINDING_SUPERSESSION_ISSUER_PUBLIC_KEY_PEM = pcbSupersessionIssuerKey.publicKey;
+  __resetProjectContextBindingSupersessionVerifierForTests(null);
+  const pcbSupersessionIssuerUnsigned = createProjectContextBindingSupersessionIssuerArtifact({
+    issuer_key_id: pcbSupersessionIssuerKey.provider.keyId,
+    owner_authority_ref: pcbAuthority,
+  });
+  const pcbSupersessionIssuer = {
+    ...pcbSupersessionIssuerUnsigned,
+    attestation: await attestProjectContextBindingSupersessionIssuerArtifact({ issuer: pcbSupersessionIssuerUnsigned, signing: pcbSupersessionIssuerKey.provider }),
+  };
+  const pcbSupersessionAuthority = { artifact_id: pcbSupersessionIssuer.artifact_id, artifact_type: pcbSupersessionIssuer.artifact_type } as const;
+  await repository.put({ artifact_id: pcbSupersessionIssuer.artifact_id, body: pcbSupersessionIssuer });
+
   async function provisionBinding(contextRef: ArtifactReference, createdAt: string) {
     const unsigned = createProjectContextBindingArtifact({
       project_id: PROJECT_ID, project_context_ref: contextRef, project_property_binding_ref: propertyBinding,
@@ -187,9 +205,9 @@ async function setup() {
     const unsigned = createProjectContextBindingSupersessionArtifact({
       contract_version: 'PROJECT_CONTEXT_BINDING_SUPERSESSION_V1', project_id: PROJECT_ID,
       superseded_binding_ref: oldBindingRef, successor_binding_ref: newBindingRef,
-      reason_code: 'TEST_SUPERSESSION', issuer_ref: pcbAuthority, issuer_key_id: pcbIssuerKey.provider.keyId, issued_at: '2026-08-22T00:01:00.000Z',
+      reason_code: 'TEST_SUPERSESSION', issuer_ref: pcbSupersessionAuthority, issuer_key_id: pcbSupersessionIssuerKey.provider.keyId, issued_at: '2026-08-22T00:01:00.000Z',
     });
-    const signed = { ...unsigned, attestation: await attestProjectContextBindingSupersessionArtifact({ artifact: unsigned, issuer: pcbIssuer, signing: pcbIssuerKey.provider }) };
+    const signed = { ...unsigned, attestation: await attestProjectContextBindingSupersessionArtifact({ artifact: unsigned, issuer: pcbSupersessionIssuer, signing: pcbSupersessionIssuerKey.provider }) };
     await installOwnerIssuedProjectContextBindingSupersession({ artifactRepository: repository, index: bindingIndex, supersession: signed, verification: pcbVerification });
     return oldBindingRef;
   }

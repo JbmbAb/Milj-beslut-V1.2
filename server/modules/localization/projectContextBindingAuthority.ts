@@ -14,6 +14,7 @@ import {
   type ProjectContextBindingSupersessionArtifact,
   type ProjectContextBindingArtifactV2,
   type ProjectContextBindingSupersessionArtifactV2,
+  type ProjectContextBindingSupersessionIssuerArtifact,
   type ProjectPropertyBindingArtifact,
   projectContextBindingSubjectDigest,
   validateProjectContextBindingAnyVersion,
@@ -22,6 +23,9 @@ import {
   validateProjectPropertyBindingArtifact,
 } from "@miljobeslut/mps-lu";
 import type { ProjectContextBindingIndex } from "../../repositories/projectContextBindingRepository";
+import { getProjectContextBindingIssuerVerifier } from "../../security/projectContextBindingIssuerKey";
+import { getProjectContextBindingSupersessionVerifier } from "../../security/projectContextBindingSupersessionVerifier";
+import { verifyProjectContextBindingSupersessionArtifact } from "./projectContextBindingSupersessionAuthority";
 
 const PREDICATE_TYPE = "project-context-binding-authority-v1" as const;
 const BINDING_ACTION = "ISSUE_PROJECT_CONTEXT_BINDING" as const;
@@ -68,14 +72,6 @@ export async function attestProjectContextBindingArtifact(args: {
     predicate: predicate(args.issuer, args.artifact),
     signing: args.signing,
   });
-}
-
-export async function attestProjectContextBindingSupersessionArtifact(args: {
-  readonly artifact: ProjectContextBindingSupersessionArtifact;
-  readonly issuer: ProjectContextBindingIssuerArtifact;
-  readonly signing: SigningKeyProvider;
-}): Promise<ArtifactAttestation> {
-  return attestProjectContextBindingArtifact(args);
 }
 
 export async function verifyProjectContextBindingArtifactAuthority(args: {
@@ -131,16 +127,46 @@ export async function verifyProjectContextBindingArtifactAuthority(args: {
   }
 }
 
+/**
+ * PROJECT-CONTEXT-BINDING-SUPERSESSION-ISSUER-V1: dispatches by the RESOLVED issuer's own
+ * artifact_type -- never by a caller-supplied flag -- so trust is anchored to what the artifact
+ * actually references, not to what a caller claims.
+ *
+ * Two branches, both frozen to their own rule, never re-interpreted:
+ *  - `issuer_ref` resolves to the ordinary `project_context_binding_issuer` type: LEGACY, frozen.
+ *    A small number of real supersessions were minted before this dedicated issuer existed, under
+ *    a scope-widened ordinary issuer (issuer_version V2's 3-type tuple). They remain verifiable
+ *    forever under that issuer's own original rule (ordinary verifier, ordinary scope check) --
+ *    exactly as historical artifact versions are never rehashed under a later rule. This branch is
+ *    NOT a sanctioned path for new work; nothing in this codebase mints a supersession this way
+ *    any more (see the dedicated-issuer producer path).
+ *  - `issuer_ref` resolves to the dedicated `project_context_binding_supersession_issuer` type:
+ *    the only path for new work. Always verified against the dedicated, env-configured
+ *    supersession verifier -- deliberately ignores any caller-supplied `verification` (the
+ *    ordinary ProjectContextBinding verifier must never be usable to authorize a supersession, so
+ *    there is no parameter through which a caller could accidentally supply it).
+ *  - anything else: REJECT_PROJECT_CONTEXT_BINDING_SUPERSESSION_ISSUER_TYPE (thrown by the
+ *    dedicated module's own issuer-type check).
+ */
 export async function verifyProjectContextBindingSupersessionAuthority(args: {
-  readonly artifact: ProjectContextBindingSupersessionArtifact;
+  readonly artifact: ProjectContextBindingSupersessionArtifact | ProjectContextBindingSupersessionArtifactV2;
   readonly artifactRepository: ArtifactRepositoryPort;
-  readonly verification: VerificationKeyProvider;
 }): Promise<void> {
-  await verifyProjectContextBindingArtifactAuthority({
-    artifact: args.artifact,
-    issuerRef: args.artifact.payload.issuer_ref,
-    artifactRepository: args.artifactRepository,
-    verification: args.verification,
+  const verified = validateProjectContextBindingSupersessionAnyVersion(args.artifact);
+  const resolvedIssuer = await args.artifactRepository.resolve<{ artifact_type: string }>(verified.payload.issuer_ref);
+  if (resolvedIssuer.artifact_type === PROJECT_CONTEXT_BINDING_ISSUER_ARTIFACT_TYPE) {
+    await verifyProjectContextBindingArtifactAuthority({
+      artifact: verified,
+      issuerRef: verified.payload.issuer_ref,
+      artifactRepository: args.artifactRepository,
+      verification: getProjectContextBindingIssuerVerifier(),
+    });
+    return;
+  }
+  await verifyProjectContextBindingSupersessionArtifact({
+    artifact: verified,
+    issuer: resolvedIssuer as unknown as ProjectContextBindingSupersessionIssuerArtifact,
+    verification: getProjectContextBindingSupersessionVerifier(),
   });
 }
 

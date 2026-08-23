@@ -9,6 +9,7 @@ import {
   type ProjectContextBindingArtifact,
   type ProjectContextBindingArtifactV2,
   type ProjectContextBindingSupersessionArtifact,
+  type ProjectContextBindingSupersessionArtifactV2,
   validateProjectContextBindingAnyVersion,
 } from "@miljobeslut/mps-lu";
 
@@ -17,6 +18,7 @@ import {
  *  (it only reads payload.project_id and ref identity, present identically on both), so mixed
  *  V1/V2 history resolves correctly with no further change. */
 export type AnyProjectContextBindingArtifact = ProjectContextBindingArtifact | ProjectContextBindingArtifactV2;
+type AnyProjectContextBindingSupersessionArtifact = ProjectContextBindingSupersessionArtifact | ProjectContextBindingSupersessionArtifactV2;
 import type { ProjectContextBindingIndex } from "../../repositories/projectContextBindingRepository";
 import { verifyProjectContextBindingArtifactAuthority, verifyProjectContextBindingSupersessionAuthority } from "./projectContextBindingAuthority";
 
@@ -89,14 +91,13 @@ export class ProjectContextBindingProvider {
         return binding;
       }));
       const supersessions = await Promise.all(supersessionRefs.map(async (reference) => {
-        const relation = await this.artifactRepository.resolve<ProjectContextBindingSupersessionArtifact>({
+        const relation = await this.artifactRepository.resolve<AnyProjectContextBindingSupersessionArtifact>({
           artifact_id: reference.artifact_id,
           artifact_type: PROJECT_CONTEXT_BINDING_SUPERSESSION_ARTIFACT_TYPE,
         });
         await verifyProjectContextBindingSupersessionAuthority({
           artifact: relation,
           artifactRepository: this.artifactRepository,
-          verification: this.verification,
         });
         return relation;
       }));

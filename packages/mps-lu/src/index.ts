@@ -17,6 +17,7 @@ export * from "./artifacts/ProjectContextBindingSupersessionArtifact";
 export * from "./artifacts/ProjectContextBindingSupersessionGraph";
 export * from "./artifacts/ProjectPropertyBindingArtifact";
 export * from "./artifacts/ProjectContextBindingIssuerArtifact";
+export * from "./artifacts/ProjectContextBindingSupersessionIssuerArtifact";
 export * from "./artifacts/LuExecutionAuthorityArtifact";
 export * from "./execution/LuExecutionAuthorityChain";
 export * from "./execution/LuExecutionIdentitySeed";

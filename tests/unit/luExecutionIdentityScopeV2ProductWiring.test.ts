@@ -97,10 +97,12 @@ import {
   createProductLuPropertyContextArtifact,
   createProductLuProjectContextArtifact,
   createProjectContextBindingSupersessionArtifact,
+  createProjectContextBindingSupersessionIssuerArtifact,
   createLocalizationGeometryArtifactV2,
   quantizeToLocalizationGeometryGrid,
   LU_SITE_ASSESSMENT_CAPABILITY_KEY,
   type ISpatialProvider,
+  type ProjectContextBindingSupersessionIssuerArtifact,
 } from '@miljobeslut/mps-lu';
 import { GenerateLocalizationReportUseCase } from '../../src/application/generate-localization-report.usecase';
 import type { LocalizationSpatialRuntime } from '../../server/modules/localization/createLocalizationSpatialRuntime';
@@ -108,8 +110,12 @@ import { PrismaProjectContextBindingIndex } from '../../server/repositories/proj
 import {
   installVerifiedProductLuContext,
   attestProjectContextBindingArtifact,
-  attestProjectContextBindingSupersessionArtifact,
 } from '../../server/modules/localization/projectContextBindingAuthority';
+import {
+  attestProjectContextBindingSupersessionArtifact,
+  attestProjectContextBindingSupersessionIssuerArtifact,
+} from '../../server/modules/localization/projectContextBindingSupersessionAuthority';
+import { __resetProjectContextBindingSupersessionVerifierForTests } from '../../server/security/projectContextBindingSupersessionVerifier';
 import { installOwnerIssuedProjectContextBindingSupersession } from '../../server/modules/localization/installProjectContextBinding';
 import { issueExecutionIdentity, issueExecutionIdentityV2, issueExecutionIdentityV3 } from '../../packages/mps-lu/src/execution/LuExecutionIdentityIssuer';
 import { LU_EXECUTION_PRINCIPAL_ID } from '../../packages/mps-lu/src/execution/LuExecutionKernelClient';
@@ -117,6 +123,7 @@ import type { ExecutionIdentitySubjectV2, ExecutionIdentitySubjectV3 } from '../
 
 const ISSUER_KEY_ID = 'ed25519:pcb-issuer-v2-wiring-test';
 const issuerKey = LocalPemSigningKeyProvider.generate(ISSUER_KEY_ID);
+const pcbSupersessionIssuerKey = LocalPemSigningKeyProvider.generate('ed25519:pcb-supersession-issuer-v2-wiring-test');
 const RELEASE_A_ID = 'product-release-wiring-test-a';
 const RELEASE_A_HASH = 'a'.repeat(64);
 const RELEASE_B_ID = 'product-release-wiring-test-b';
@@ -263,7 +270,7 @@ async function provisionRealProject(args: {
 
 async function supersede(args: {
   repo: InMemoryArtifactRepository;
-  issuer: ReturnType<typeof createProjectContextBindingIssuerArtifact>;
+  issuer: ProjectContextBindingSupersessionIssuerArtifact;
   signing: SigningKeyProvider;
   verification: VerificationKeyProvider;
   projectId: string;
@@ -295,9 +302,10 @@ async function supersede(args: {
 describe('PRODUCT-LU-EXECUTION-IDENTITY-V2-WIRING-01 — real runtime proof through the actual usecase', () => {
   let repo: InMemoryArtifactRepository;
   let issuer: ReturnType<typeof createProjectContextBindingIssuerArtifact>;
+  let supersessionIssuer: ProjectContextBindingSupersessionIssuerArtifact;
   let registry: ReturnType<typeof createLuRegistryRuntime>;
 
-  beforeEach(() => {
+  beforeEach(async () => {
     vi.clearAllMocks();
     vi.spyOn(orchestrator, 'generateDocumentEvidence').mockResolvedValue([]);
     repo = new InMemoryArtifactRepository();
@@ -306,6 +314,20 @@ describe('PRODUCT-LU-EXECUTION-IDENTITY-V2-WIRING-01 — real runtime proof thro
     // installVerifiedProductLuContext -- signing here always uses issuerKey.provider directly.
     process.env.PROJECT_CONTEXT_BINDING_ISSUER_KEY_ID = issuerKey.provider.keyId;
     process.env.PROJECT_CONTEXT_BINDING_ISSUER_PUBLIC_KEY_PEM = issuerKey.publicKey;
+    // PROJECT-CONTEXT-BINDING-SUPERSESSION-ISSUER-V1: a dedicated, differently-keyed issuer --
+    // never the ordinary binding issuer above -- is the only one authorized to sign a supersession.
+    process.env.PROJECT_CONTEXT_BINDING_SUPERSESSION_ISSUER_KEY_ID = pcbSupersessionIssuerKey.provider.keyId;
+    process.env.PROJECT_CONTEXT_BINDING_SUPERSESSION_ISSUER_PUBLIC_KEY_PEM = pcbSupersessionIssuerKey.publicKey;
+    __resetProjectContextBindingSupersessionVerifierForTests(null);
+    const supersessionIssuerUnsigned = createProjectContextBindingSupersessionIssuerArtifact({
+      issuer_key_id: pcbSupersessionIssuerKey.provider.keyId,
+      owner_authority_ref: { artifact_id: issuer.artifact_id, artifact_type: issuer.artifact_type },
+    });
+    supersessionIssuer = {
+      ...supersessionIssuerUnsigned,
+      attestation: await attestProjectContextBindingSupersessionIssuerArtifact({ issuer: supersessionIssuerUnsigned, signing: pcbSupersessionIssuerKey.provider }),
+    };
+    await repo.put({ artifact_id: supersessionIssuer.artifact_id, content_hash: supersessionIssuer.content_hash, body: supersessionIssuer });
     const luKey = LocalPemSigningKeyProvider.generate('ed25519:lu-execution-authority-v1');
     process.env.LU_EXECUTION_AUTHORITY_PRIVATE_KEY_PEM = luKey.privateKey;
     process.env.LU_EXECUTION_AUTHORITY_PUBLIC_KEY_PEM = luKey.publicKey;
@@ -317,6 +339,9 @@ describe('PRODUCT-LU-EXECUTION-IDENTITY-V2-WIRING-01 — real runtime proof thro
   afterEach(() => {
     delete process.env.PROJECT_CONTEXT_BINDING_ISSUER_KEY_ID;
     delete process.env.PROJECT_CONTEXT_BINDING_ISSUER_PUBLIC_KEY_PEM;
+    delete process.env.PROJECT_CONTEXT_BINDING_SUPERSESSION_ISSUER_KEY_ID;
+    delete process.env.PROJECT_CONTEXT_BINDING_SUPERSESSION_ISSUER_PUBLIC_KEY_PEM;
+    __resetProjectContextBindingSupersessionVerifierForTests(null);
     delete process.env.LU_EXECUTION_AUTHORITY_PRIVATE_KEY_PEM;
     delete process.env.LU_EXECUTION_AUTHORITY_PUBLIC_KEY_PEM;
     delete process.env.PRODUCT_RELEASE_ARTIFACT_ID;
@@ -470,8 +495,8 @@ describe('PRODUCT-LU-EXECUTION-IDENTITY-V2-WIRING-01 — real runtime proof thro
     const second = await provisionRealProject({ repo, issuer, signing: issuerKey.provider, projectId, propertyDesignation: 'V2 SUPERSEDED (new head)' });
     await supersede({
       repo,
-      issuer,
-      signing: issuerKey.provider,
+      issuer: supersessionIssuer,
+      signing: pcbSupersessionIssuerKey.provider,
       verification: first.verification,
       projectId,
       supersededBindingRef: first.contextBindingRef,
