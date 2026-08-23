@@ -2,7 +2,7 @@ import {
   type SigningKeyProvider,
   type VerificationKeyProvider,
 } from "@miljobeslut/mimers-brunn-core";
-import { type InMemoryArtifactRepository } from "../../mps-runtime/src/index";
+import { type InMemoryArtifactRepository } from "../../../mps-runtime/src/index";
 import {
   createCanonicalPropertyGeometryArtifact,
   createProductLuProjectContextArtifact,
