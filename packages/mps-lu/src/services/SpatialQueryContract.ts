@@ -44,6 +44,8 @@ export interface SpatialQueryRequest {
 }
 
 export const SPATIAL_QUERY_CONTRACT_V2 = "spatial-query-contract-v2" as const;
+export const SPATIAL_QUERY_CONTRACT_V3 = "spatial-query-contract-v3" as const;
+export const SPATIAL_CANONICAL_VERSION_V3 = "sv-canonical-3" as const;
 
 export type SpatialQuerySubjectV2 =
   | {
@@ -73,6 +75,33 @@ export interface SpatialQueryContractV2 {
   readonly selection: {
     readonly predicate_semantics: "EXISTS";
   };
+}
+
+/**
+ * V3 keeps V2's spatial semantics while making the canonical numeric domain explicit.
+ * The canonical version travels with the contract so mismatched version combinations fail
+ * before a V3 artifact can receive an identity.
+ */
+export interface SpatialQueryContractV3 extends Omit<SpatialQueryContractV2, "query_contract_version"> {
+  readonly query_contract_version: typeof SPATIAL_QUERY_CONTRACT_V3;
+  readonly spatial_canonical_version: typeof SPATIAL_CANONICAL_VERSION_V3;
+}
+
+/** V3 admits whole metres only. Zero is a valid exact-intersection ST_DWithin query. */
+export function assertSpatialQueryContractV3NumericParameters(parameters: unknown): asserts parameters is {
+  readonly distance_meters: number;
+  readonly max_features_per_layer: number;
+} {
+  if (
+    !parameters ||
+    typeof parameters !== "object" ||
+    !Number.isSafeInteger((parameters as { distance_meters?: unknown }).distance_meters) ||
+    ((parameters as { distance_meters: number }).distance_meters < 0) ||
+    !Number.isSafeInteger((parameters as { max_features_per_layer?: unknown }).max_features_per_layer) ||
+    ((parameters as { max_features_per_layer: number }).max_features_per_layer < 1)
+  ) {
+    throw new Error("REJECT_SPATIAL_QUERY_CONTRACT_V3_NUMERIC_PARAMETERS");
+  }
 }
 
 export interface ISpatialProvider {

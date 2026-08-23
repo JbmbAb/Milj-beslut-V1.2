@@ -2,7 +2,10 @@ import type { ArtifactContract, ArtifactReference } from "@miljobeslut/mps-compl
 import { CanonicalGeometry } from "../domain/CanonicalGeometry";
 import type { SpatialResultSemantics } from "./SpatialResultSemantics";
 import type { SpatialEngineFingerprint } from "./SpatialEngineFingerprint";
-import type { SpatialQueryContractV2 } from "../services/SpatialQueryContract";
+import type {
+  SpatialQueryContractV2,
+  SpatialQueryContractV3,
+} from "../services/SpatialQueryContract";
 
 export interface SpatialEvidencePayloadV1 {
   /**
@@ -64,14 +67,44 @@ export interface SpatialEvidencePayloadV2 extends Omit<SpatialEvidencePayloadV1,
   readonly query_contract: SpatialQueryContractV2;
 }
 
+/** Canonical V3 evidence narrows only the numeric query domain from frozen V2. */
+export interface SpatialEvidencePayloadV3 extends Omit<SpatialEvidencePayloadV1, "query_context"> {
+  readonly query_contract: SpatialQueryContractV3;
+}
+
 /** Historical compatibility alias. V1 artifacts keep their original payload contract. */
 export type SpatialEvidencePayload = SpatialEvidencePayloadV1;
-export type AnySpatialEvidencePayload = SpatialEvidencePayloadV1 | SpatialEvidencePayloadV2;
+export type AnySpatialEvidencePayload =
+  | SpatialEvidencePayloadV1
+  | SpatialEvidencePayloadV2
+  | SpatialEvidencePayloadV3;
+
+export function hasSpatialEvidenceQueryContract(
+  payload: AnySpatialEvidencePayload,
+): payload is SpatialEvidencePayloadV2 | SpatialEvidencePayloadV3 {
+  return "query_contract" in payload;
+}
 
 export function isSpatialEvidencePayloadV2(
   payload: AnySpatialEvidencePayload,
 ): payload is SpatialEvidencePayloadV2 {
-  return "query_contract" in payload;
+  return (
+    hasSpatialEvidenceQueryContract(payload) &&
+    typeof payload.query_contract === "object" &&
+    payload.query_contract !== null &&
+    !("spatial_canonical_version" in payload.query_contract)
+  );
+}
+
+export function isSpatialEvidencePayloadV3(
+  payload: AnySpatialEvidencePayload,
+): payload is SpatialEvidencePayloadV3 {
+  return (
+    hasSpatialEvidenceQueryContract(payload) &&
+    typeof payload.query_contract === "object" &&
+    payload.query_contract !== null &&
+    payload.query_contract.query_contract_version === "spatial-query-contract-v3"
+  );
 }
 
 export interface SpatialEvidenceArtifact extends ArtifactContract {
