@@ -73,7 +73,7 @@ function assertSpatialQueryContractV2(payload: Extract<AnySpatialEvidencePayload
     (subject.kind !== "LOCALIZATION_GEOMETRY" && subject.kind !== "PROPERTY_CONTEXT_CENTROID") ||
     (subject.kind === "LOCALIZATION_GEOMETRY" &&
       (!isRecord(subject.location_ref) ||
-        subject.location_ref.artifact_type !== "LOCALIZATION_GEOMETRY" ||
+        subject.location_ref.artifact_type !== "localization_geometry" ||
         typeof subject.location_ref.artifact_id !== "string" ||
         subject.location_ref.artifact_id.length === 0))
   ) {

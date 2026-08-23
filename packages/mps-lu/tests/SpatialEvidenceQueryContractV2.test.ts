@@ -31,8 +31,8 @@ vi.mock("@miljobeslut/mps-lu", async () => {
 });
 
 const propertyRef = { artifact_id: "lu-property-context-a", artifact_type: "LU_PROPERTY_CONTEXT" } as const;
-const locationA = { artifact_id: "localization-geometry-a", artifact_type: "LOCALIZATION_GEOMETRY" } as const;
-const locationB = { artifact_id: "localization-geometry-b", artifact_type: "LOCALIZATION_GEOMETRY" } as const;
+const locationA = { artifact_id: "localization-geometry-a", artifact_type: "localization_geometry" } as const;
+const locationB = { artifact_id: "localization-geometry-b", artifact_type: "localization_geometry" } as const;
 const layerHash = "a".repeat(64);
 
 function base(): Omit<SpatialEvidencePayloadV2, "query_contract"> {
@@ -132,7 +132,7 @@ describe("canonical PostGIS V2 producer", () => {
   } as const;
   const location = {
     artifact_id: "localization-geometry-a",
-    artifact_type: "LOCALIZATION_GEOMETRY",
+    artifact_type: "localization_geometry",
   } as const;
   let cas: {
     resolve: ReturnType<typeof vi.fn>;
