@@ -25,7 +25,6 @@ import {
   type ProductViewerCapabilityArtifact,
   type ViewerCapabilityIssuerArtifact,
 } from '@miljobeslut/mps-lu';
-import type { ProjectContextBindingArtifact } from '../../../packages/mps-lu/src/artifacts/ProjectContextBindingArtifact';
 import {
   attestViewerCapabilityIssuerArtifact,
   attestProductViewerCapability,
@@ -34,7 +33,7 @@ import {
 import { installOwnerIssuedLocalizationViewerCapability } from './installLocalizationViewerCapability';
 import { getViewerCapabilitySigningProvider } from '../../security/viewerCapabilitySigningKey';
 import { getViewerCapabilityVerifier } from '../../security/viewerCapabilityVerifier';
-import { ProjectContextBindingProvider } from './projectContextBindingRuntime';
+import { ProjectContextBindingProvider, type AnyProjectContextBindingArtifact } from './projectContextBindingRuntime';
 import { PrismaProjectContextBindingIndex } from '../../repositories/projectContextBindingRepository';
 import { getProjectContextBindingIssuerVerifier } from '../../security/projectContextBindingIssuerKey';
 import { resolveCurrentProductRelease } from '../../../src/application/resolveCurrentProductRelease';
@@ -157,7 +156,7 @@ export async function executeViewerCapabilityProvisioning(input: {
     // Currentness gate: if the pinned binding is no longer the current one for this project, this
     // request's subject is stale. Never substitute the new current binding into this request --
     // signal SUPERSEDED so the caller enqueues a fresh request instead.
-    let currentBinding: ProjectContextBindingArtifact;
+    let currentBinding: AnyProjectContextBindingArtifact;
     try {
       currentBinding = await currentBindingProvider.resolveCurrent(input.projectId);
     } catch (error) {

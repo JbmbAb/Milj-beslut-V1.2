@@ -19,7 +19,7 @@ import type { AuthUser } from '../../server/security/types';
 import {
   LU_SPATIAL_CAPABILITY_KEY,
   orchestrator,
-  runLuAssessmentViaKernel,
+  runCanonicalLuProductAssessment,
   deriveLuExecutionSeed,
   createLuRegistryRuntime,
   type DocumentEvidenceArtifact,
@@ -710,7 +710,7 @@ async function analyzeSite(
         ].map((ref) => [`${ref.artifact_type}:${ref.artifact_id}`, ref] as const),
       ).values(),
     );
-    const kernelResult = await runLuAssessmentViaKernel({
+    const kernelResult = await runCanonicalLuProductAssessment({
       site_id: canonicalSiteId,
       deterministic_seed: canonicalDeterministicSeed,
       evidence: mpsEvidence,

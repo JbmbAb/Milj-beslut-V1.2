@@ -22,11 +22,15 @@ function walkTsFiles(dir: string): string[] {
  * Evidence → ExecutionKernel → Admission → Capability → Artifacts.
  */
 describe("LU cutover — single execution path", () => {
-  it("usecase always calls runLuAssessmentViaKernel and never bypasses admit", () => {
+  it("usecase always calls runCanonicalLuProductAssessment and never bypasses admit", () => {
     const usecasePath = path.resolve(__dirname, "../generate-localization-report.usecase.ts");
     const src = readFileSync(usecasePath, "utf8");
 
-    expect(src).toContain("runLuAssessmentViaKernel");
+    // ASSESSMENT-RELEASE-BINDING-RECON-01: the canonical wrapper (LuExecutionKernelClient.ts),
+    // not the general engine directly -- its type makes identity_subject_v3 mandatory, so the
+    // usecase can never omit it and silently fall back to a non-release-scoped manifest id.
+    expect(src).toContain("runCanonicalLuProductAssessment");
+    expect(src).not.toContain("runLuAssessmentViaKernel");
     expect(src).not.toContain("isLuMpsMotorEnabled");
     expect(src).not.toContain("LU_MPS_MOTOR");
     expect(src).not.toContain("LU_MPS_MOTOR_DISABLED");

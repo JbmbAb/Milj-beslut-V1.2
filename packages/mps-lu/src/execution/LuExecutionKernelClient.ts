@@ -192,7 +192,16 @@ function buildAdmissionContext(
 
 /**
  * LU as ExecutionKernel client — Security → admit → CapabilityRuntime → findings.
- * This is the only product assessment path (LU cutover complete).
+ *
+ * ASSESSMENT-RELEASE-BINDING-RECON-01: this general engine still accepts `identity_subject_v2`/
+ * `identity_subject_v3` as OPTIONAL, and still falls back to the non-release-scoped
+ * `lu-manifest-${site_id}` id when neither is supplied (see LU-MANIFEST-WORM-IDEMPOTENCY-01
+ * below) — that fallback is real and deliberately kept for legacy/test callers exercising the
+ * pre-V2 identity shape. It is NOT, itself, the product entrypoint any more: the canonical live
+ * product path must call `runCanonicalLuProductAssessment` below, whose type makes
+ * `identity_subject_v3` mandatory, so a canonical caller omitting it is a compile error rather
+ * than a silent runtime fallback. This function remains the general/legacy-capable engine both
+ * that wrapper and every existing test call into directly.
  *
  * Domain composition root: registry seed + grants + implementation handlers.
  * Platform: MimersIntegration + SecurityRuntime + CapabilityRuntime + ExecutionKernel.
@@ -466,4 +475,28 @@ export async function runLuAssessmentViaKernel(
     attestation,
     assessment,
   };
+}
+
+/**
+ * ASSESSMENT-RELEASE-BINDING-RECON-01 Phase B, part B.
+ *
+ * The canonical live product entrypoint. `identity_subject_v3` is REQUIRED at the type level —
+ * not optional-but-conventionally-always-supplied — so a canonical product caller can never reach
+ * `runLuAssessmentViaKernel`'s legacy `identity_subject_v2`-only or no-subject-at-all fallback
+ * paths (`lu-manifest-${site_id}`, non-release-scoped) by omission. `identity_subject_v2` is
+ * deliberately absent from this type entirely, not merely optional, for the same reason.
+ *
+ * Legacy/test callers that need the older shapes must call `runLuAssessmentViaKernel` directly,
+ * which is an explicit, visible choice of a differently-named function — never an implicit
+ * default reached by leaving a field off this one.
+ */
+export interface CanonicalLuKernelRunInput
+  extends Omit<LuKernelRunInput, "identity_subject_v2" | "identity_subject_v3"> {
+  readonly identity_subject_v3: NonNullable<LuKernelRunInput["identity_subject_v3"]>;
+}
+
+export async function runCanonicalLuProductAssessment(
+  input: CanonicalLuKernelRunInput,
+): Promise<LuKernelRunResult> {
+  return runLuAssessmentViaKernel(input);
 }

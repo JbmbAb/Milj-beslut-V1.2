@@ -42,6 +42,10 @@ vi.mock("@miljobeslut/mps-lu", () => ({
     buildPropertyContext: vi.fn(async () => null),
   },
   runLuAssessmentViaKernel: (...args: unknown[]) => kernelMock(...args),
+  // ASSESSMENT-RELEASE-BINDING-RECON-01: the usecase now calls the canonical wrapper (which
+  // requires identity_subject_v3 at the type level) instead of the general engine directly --
+  // same underlying call, so the mock must answer to both names.
+  runCanonicalLuProductAssessment: (...args: unknown[]) => kernelMock(...args),
 }));
 
 vi.mock("../../../server/services/complianceRuleEngine", () => ({
