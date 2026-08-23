@@ -36,7 +36,7 @@ import { getViewerCapabilityVerifier } from '../../security/viewerCapabilityVeri
 import { ProjectContextBindingProvider, type AnyProjectContextBindingArtifact } from './projectContextBindingRuntime';
 import { PrismaProjectContextBindingIndex } from '../../repositories/projectContextBindingRepository';
 import { getProjectContextBindingIssuerVerifier } from '../../security/projectContextBindingIssuerKey';
-import { resolveCurrentProductRelease } from '../../../src/application/resolveCurrentProductRelease';
+import { resolveCanonicalProductRelease } from '../release/productReleaseRuntime';
 import { resolveCurrentViewerIdentity } from '../../../src/application/resolveCurrentViewerIdentity';
 import { prisma } from '../../db/prisma';
 import { assertProjectAccess } from '../../security/projectAccess';
@@ -166,7 +166,12 @@ export async function executeViewerCapabilityProvisioning(input: {
       return { ok: false, superseded: true, detail: `pinned binding ${input.contextBindingArtifactId} superseded by ${currentBinding!.artifact_id}` };
     }
 
-    const currentRelease = await resolveCurrentProductRelease(repo);
+    // PRODUCT-RELEASE-AUTHORITY-BINDING-V1 (H13): trusted-issuer-signed release only.
+    const canonicalRelease = await resolveCanonicalProductRelease({ artifactRepository: repo });
+    const currentRelease = {
+      releaseRef: { artifact_id: canonicalRelease.artifact_id, artifact_type: canonicalRelease.artifact_type },
+      releaseHash: canonicalRelease.release_hash.value,
+    };
     if (currentRelease.releaseRef.artifact_id !== input.releaseArtifactId) {
       return { ok: false, superseded: true, detail: `pinned release ${input.releaseArtifactId} superseded by ${currentRelease.releaseRef.artifact_id}` };
     }

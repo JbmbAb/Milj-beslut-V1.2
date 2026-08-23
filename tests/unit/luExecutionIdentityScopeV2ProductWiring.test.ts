@@ -120,14 +120,34 @@ import { installOwnerIssuedProjectContextBindingSupersession } from '../../serve
 import { issueExecutionIdentity, issueExecutionIdentityV2, issueExecutionIdentityV3 } from '../../packages/mps-lu/src/execution/LuExecutionIdentityIssuer';
 import { LU_EXECUTION_PRINCIPAL_ID } from '../../packages/mps-lu/src/execution/LuExecutionKernelClient';
 import type { ExecutionIdentitySubjectV2, ExecutionIdentitySubjectV3 } from '../../packages/mps-runtime/src/execution/ExecutionIdentityScopeV2';
+import { createProductReleaseIssuerArtifact, createProductReleaseManifestArtifact, type ProductReleaseManifestArtifact } from '../../packages/mps-governance/src/release/ProductReleaseAuthority';
+import { attestProductRelease } from '../../server/modules/release/productReleaseAuthority';
 
 const ISSUER_KEY_ID = 'ed25519:pcb-issuer-v2-wiring-test';
 const issuerKey = LocalPemSigningKeyProvider.generate(ISSUER_KEY_ID);
 const pcbSupersessionIssuerKey = LocalPemSigningKeyProvider.generate('ed25519:pcb-supersession-issuer-v2-wiring-test');
-const RELEASE_A_ID = 'product-release-wiring-test-a';
-const RELEASE_A_HASH = 'a'.repeat(64);
-const RELEASE_B_ID = 'product-release-wiring-test-b';
-const RELEASE_B_HASH = 'b'.repeat(64);
+// PRODUCT-RELEASE-AUTHORITY-BINDING-V1 (H13): two real, distinctly-content-addressed signed
+// releases, not bare id/hash literals -- the canonical resolver now requires trusted-issuer
+// verification, so "release A" and "release B" must each be a real signed artifact.
+const releaseIssuerKey = LocalPemSigningKeyProvider.generate('ed25519:product-release-issuer-v2-wiring-test');
+const releaseIssuer = createProductReleaseIssuerArtifact(releaseIssuerKey.provider.keyId);
+let RELEASE_A_ID: string;
+let RELEASE_A_HASH: string;
+let RELEASE_B_ID: string;
+let RELEASE_B_HASH: string;
+let releaseArtifactsByLabel: Record<'A' | 'B', ProductReleaseManifestArtifact>;
+
+async function buildSignedRelease(label: 'A' | 'B'): Promise<ProductReleaseManifestArtifact> {
+  const unsigned = createProductReleaseManifestArtifact({
+    product_name: `Miljobeslut-wiring-test-${label}`,
+    package_lock_sha256: 'a'.repeat(64),
+    package_manifest_sha256: 'b'.repeat(64),
+    runtime_entrypoint_sha256: (label === 'A' ? 'c' : 'd').repeat(64),
+    issuer_ref: { artifact_id: releaseIssuer.artifact_id, artifact_type: releaseIssuer.artifact_type },
+    issued_at: '2026-08-21T00:00:00.000Z',
+  });
+  return { ...unsigned, attestation: await attestProductRelease({ release: unsigned, issuer: releaseIssuer, signing: releaseIssuerKey.provider }) };
+}
 
 // PRODUCT-LU-LOCALIZATION-GEOMETRY-01: the inverse of the property's own SWEREF coordinates
 // ([6580000, 674000], set on the property in provisionRealProject below) -- used by the usecase's
@@ -331,8 +351,17 @@ describe('PRODUCT-LU-EXECUTION-IDENTITY-V2-WIRING-01 — real runtime proof thro
     const luKey = LocalPemSigningKeyProvider.generate('ed25519:lu-execution-authority-v1');
     process.env.LU_EXECUTION_AUTHORITY_PRIVATE_KEY_PEM = luKey.privateKey;
     process.env.LU_EXECUTION_AUTHORITY_PUBLIC_KEY_PEM = luKey.publicKey;
+    process.env.PRODUCT_RELEASE_ISSUER_KEY_ID = releaseIssuerKey.provider.keyId;
+    process.env.PRODUCT_RELEASE_ISSUER_PUBLIC_KEY_PEM = releaseIssuerKey.publicKey;
+    await repo.put({ artifact_id: releaseIssuer.artifact_id, content_hash: releaseIssuer.content_hash, body: releaseIssuer });
+    const releaseA = await buildSignedRelease('A');
+    const releaseB = await buildSignedRelease('B');
+    releaseArtifactsByLabel = { A: releaseA, B: releaseB };
+    RELEASE_A_ID = releaseA.artifact_id;
+    RELEASE_A_HASH = releaseA.release_hash.value;
+    RELEASE_B_ID = releaseB.artifact_id;
+    RELEASE_B_HASH = releaseB.release_hash.value;
     process.env.PRODUCT_RELEASE_ARTIFACT_ID = RELEASE_A_ID;
-    process.env.PRODUCT_RELEASE_HASH = RELEASE_A_HASH;
     registry = createLuRegistryRuntime();
   });
 
@@ -345,15 +374,14 @@ describe('PRODUCT-LU-EXECUTION-IDENTITY-V2-WIRING-01 — real runtime proof thro
     delete process.env.LU_EXECUTION_AUTHORITY_PRIVATE_KEY_PEM;
     delete process.env.LU_EXECUTION_AUTHORITY_PUBLIC_KEY_PEM;
     delete process.env.PRODUCT_RELEASE_ARTIFACT_ID;
-    delete process.env.PRODUCT_RELEASE_HASH;
+    delete process.env.PRODUCT_RELEASE_ISSUER_KEY_ID;
+    delete process.env.PRODUCT_RELEASE_ISSUER_PUBLIC_KEY_PEM;
   });
 
-  async function putRelease(id: string, hash: string) {
-    await repo.put({
-      artifact_id: id,
-      content_hash: { algorithm: 'sha256', value: 'irrelevant-for-this-proof' },
-      body: { artifact_id: id, artifact_type: 'product_release_manifest', release_hash: { value: hash } },
-    });
+  async function putRelease(id: string, _hash: string) {
+    const label: 'A' | 'B' = id === RELEASE_B_ID ? 'B' : 'A';
+    const release = releaseArtifactsByLabel[label];
+    await repo.put({ artifact_id: release.artifact_id, content_hash: release.content_hash, body: release });
   }
 
   function subjectFor(projectId: string, propertyIdentity: string, contextBindingRef: { artifact_id: string; artifact_type: string }, releaseRef: { artifact_id: string; artifact_type: string } = { artifact_id: RELEASE_A_ID, artifact_type: 'product_release_manifest' }): ExecutionIdentitySubjectV2 {

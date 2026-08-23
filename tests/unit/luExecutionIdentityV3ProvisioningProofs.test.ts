@@ -28,8 +28,8 @@ vi.mock('@miljobeslut/mps-runtime', async (importOriginal) => {
 vi.mock('../../src/application/resolveCanonicalProjectContext', () => ({
   resolveCanonicalProjectContext: resolveCanonicalContextMock,
 }));
-vi.mock('../../src/application/resolveCurrentProductRelease', () => ({
-  resolveCurrentProductRelease: resolveCurrentReleaseMock,
+vi.mock('../../server/modules/release/productReleaseRuntime', () => ({
+  resolveCanonicalProductRelease: resolveCurrentReleaseMock,
 }));
 vi.mock('../../server/db/prisma', () => ({
   prisma: { user: { findUnique: userFindUniqueMock } },
@@ -85,7 +85,7 @@ describe('PRODUCT-LU-EXECUTION-IDENTITY-V3-PROVISIONING-01 — executor proof ma
       propertyIdentity: 'property:test:fixture',
       coordinates: [6580000, 674000],
     });
-    resolveCurrentReleaseMock.mockResolvedValue({ releaseRef: RELEASE_REF, releaseHash: 'a'.repeat(64) });
+    resolveCurrentReleaseMock.mockResolvedValue({ ...RELEASE_REF, release_hash: { algorithm: 'sha256', value: 'a'.repeat(64) } });
     userFindUniqueMock.mockResolvedValue({
       id: 'requester-1',
       organisationId: 'org-1',

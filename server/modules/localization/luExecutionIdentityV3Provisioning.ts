@@ -43,7 +43,7 @@ import { getLuExecutionAuthorityVerifier } from '../../../packages/mps-lu/src/ex
 import { prisma } from '../../db/prisma';
 import { assertProjectAccess } from '../../security/projectAccess';
 import { resolveCanonicalProjectContext } from '../../../src/application/resolveCanonicalProjectContext';
-import { resolveCurrentProductRelease } from '../../../src/application/resolveCurrentProductRelease';
+import { resolveCanonicalProductRelease } from '../release/productReleaseRuntime';
 
 const PRIVATE_KEY_ENV = 'LU_EXECUTION_AUTHORITY_PRIVATE_KEY_PEM';
 const ISSUER_ARTIFACT_ID_ENV = 'LU_EXECUTION_AUTHORITY_ISSUER_ARTIFACT_ID';
@@ -141,7 +141,12 @@ export async function executeLocalizationIdentityProvisioning(input: {
       fail('GEOMETRY_PROPERTY_MISMATCH', `geometry ${input.geometryArtifactId} is not bound to project ${input.projectId}'s current property context`);
     }
 
-    const currentRelease = await resolveCurrentProductRelease(repo);
+    // PRODUCT-RELEASE-AUTHORITY-BINDING-V1 (H13): trusted-issuer-signed release only.
+    const canonicalRelease = await resolveCanonicalProductRelease({ artifactRepository: repo });
+    const currentRelease = {
+      releaseRef: { artifact_id: canonicalRelease.artifact_id, artifact_type: canonicalRelease.artifact_type },
+      releaseHash: canonicalRelease.release_hash.value,
+    };
     const registry = createLuRegistryRuntime();
     const capability = registry.resolveCapabilityByKey(LU_SITE_ASSESSMENT_CAPABILITY_KEY);
     if (!capability) fail('CAPABILITY_UNAVAILABLE', 'LU site-assessment capability is not registered');

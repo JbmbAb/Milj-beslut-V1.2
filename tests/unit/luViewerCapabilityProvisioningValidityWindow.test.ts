@@ -27,8 +27,8 @@ vi.mock('../../server/db/prisma', () => ({
 vi.mock('../../server/security/projectAccess', () => ({
   assertProjectAccess: assertProjectAccessMock,
 }));
-vi.mock('../../src/application/resolveCurrentProductRelease', () => ({
-  resolveCurrentProductRelease: resolveCurrentReleaseMock,
+vi.mock('../../server/modules/release/productReleaseRuntime', () => ({
+  resolveCanonicalProductRelease: resolveCurrentReleaseMock,
 }));
 vi.mock('../../src/application/resolveCurrentViewerIdentity', () => ({
   resolveCurrentViewerIdentity: resolveCurrentViewerIdentityMock,
@@ -96,7 +96,7 @@ describe('PROJECT-CONTEXT-BINDING-V2-PRODUCER-ADOPTION-01 Phase A.1 -- ViewerCap
     mimersCreate.mockResolvedValue({ artifactRepository: repo });
     userFindUniqueMock.mockResolvedValue({ id: 'user-1', organisationId: 'org-1', bankidId: 'bankid-1', role: 'CONSULTANT', identityEnvironment: 'TEST' });
     assertProjectAccessMock.mockResolvedValue(undefined);
-    resolveCurrentReleaseMock.mockResolvedValue({ releaseRef: { artifact_id: RELEASE_ID, artifact_type: 'product_release_manifest' }, releaseHash: RELEASE_HASH });
+    resolveCurrentReleaseMock.mockResolvedValue({ artifact_id: RELEASE_ID, artifact_type: 'product_release_manifest', release_hash: { algorithm: 'sha256', value: RELEASE_HASH } });
     // The spawned fresh-verify subprocess is mocked to "succeed" immediately -- only the 'exit'
     // handler is ever invoked, with code 0; 'error' is registered but never fired.
     spawnMock.mockImplementation(() => {

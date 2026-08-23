@@ -220,11 +220,17 @@ import { registerLocalizationGeometry, resolveCurrentLocalizationGeometry } from
 import { resolveCurrentAssessmentProjection } from '../../server/modules/localization/assessmentProjection';
 import { ProjectContextBindingProvider } from '../../server/modules/localization/projectContextBindingRuntime';
 import { getProjectContextBindingIssuerVerifier } from '../../server/security/projectContextBindingIssuerKey';
+import { createProductReleaseIssuerArtifact, createProductReleaseManifestArtifact } from '../../packages/mps-governance/src/release/ProductReleaseAuthority';
+import { attestProductRelease } from '../../server/modules/release/productReleaseAuthority';
 
 const ISSUER_KEY_ID = 'ed25519:pcb-issuer-product-proofs';
 const issuerKey = LocalPemSigningKeyProvider.generate(ISSUER_KEY_ID);
-const RELEASE_ID = 'product-release-geometry-proofs';
-const RELEASE_HASH = 'c'.repeat(64);
+// PRODUCT-RELEASE-AUTHORITY-BINDING-V1 (H13): a real, self-consistent signed release, not a bare
+// artifact_id + hash pair -- the canonical resolver now requires trusted-issuer verification.
+const releaseIssuerKey = LocalPemSigningKeyProvider.generate('ed25519:product-release-issuer-geometry-proofs');
+const releaseIssuer = createProductReleaseIssuerArtifact(releaseIssuerKey.provider.keyId);
+let RELEASE_ID: string;
+let RELEASE_HASH: string;
 
 // Property centroid used by provisionRealProject below -- deliberately DIFFERENT from both
 // explicit points (A, B) used in these proofs, so proof 11 ("uses the exact point, not the
@@ -398,8 +404,8 @@ describe('PRODUCT-LU-LOCALIZATION-GEOMETRY-01 — end-to-end product proofs thro
     const luKey = LocalPemSigningKeyProvider.generate('ed25519:lu-execution-authority-geometry-proofs');
     process.env.LU_EXECUTION_AUTHORITY_PRIVATE_KEY_PEM = luKey.privateKey;
     process.env.LU_EXECUTION_AUTHORITY_PUBLIC_KEY_PEM = luKey.publicKey;
-    process.env.PRODUCT_RELEASE_ARTIFACT_ID = RELEASE_ID;
-    process.env.PRODUCT_RELEASE_HASH = RELEASE_HASH;
+    process.env.PRODUCT_RELEASE_ISSUER_KEY_ID = releaseIssuerKey.provider.keyId;
+    process.env.PRODUCT_RELEASE_ISSUER_PUBLIC_KEY_PEM = releaseIssuerKey.publicKey;
   });
 
   afterEach(() => {
@@ -408,15 +414,25 @@ describe('PRODUCT-LU-LOCALIZATION-GEOMETRY-01 — end-to-end product proofs thro
     delete process.env.LU_EXECUTION_AUTHORITY_PRIVATE_KEY_PEM;
     delete process.env.LU_EXECUTION_AUTHORITY_PUBLIC_KEY_PEM;
     delete process.env.PRODUCT_RELEASE_ARTIFACT_ID;
-    delete process.env.PRODUCT_RELEASE_HASH;
+    delete process.env.PRODUCT_RELEASE_ISSUER_KEY_ID;
+    delete process.env.PRODUCT_RELEASE_ISSUER_PUBLIC_KEY_PEM;
   });
 
   async function putRelease() {
-    await repo.put({
-      artifact_id: RELEASE_ID,
-      content_hash: { algorithm: 'sha256', value: 'irrelevant-for-this-proof' },
-      body: { artifact_id: RELEASE_ID, artifact_type: 'product_release_manifest', release_hash: { value: RELEASE_HASH } },
+    await repo.put({ artifact_id: releaseIssuer.artifact_id, content_hash: releaseIssuer.content_hash, body: releaseIssuer });
+    const unsigned = createProductReleaseManifestArtifact({
+      product_name: 'Miljobeslut-geometry-proofs',
+      package_lock_sha256: 'a'.repeat(64),
+      package_manifest_sha256: 'b'.repeat(64),
+      runtime_entrypoint_sha256: 'c'.repeat(64),
+      issuer_ref: { artifact_id: releaseIssuer.artifact_id, artifact_type: releaseIssuer.artifact_type },
+      issued_at: '2026-08-21T00:00:00.000Z',
     });
+    const signed = { ...unsigned, attestation: await attestProductRelease({ release: unsigned, issuer: releaseIssuer, signing: releaseIssuerKey.provider }) };
+    await repo.put({ artifact_id: signed.artifact_id, content_hash: signed.content_hash, body: signed });
+    RELEASE_ID = signed.artifact_id;
+    RELEASE_HASH = signed.release_hash.value;
+    process.env.PRODUCT_RELEASE_ARTIFACT_ID = RELEASE_ID;
   }
 
   async function issueV3For(args: {

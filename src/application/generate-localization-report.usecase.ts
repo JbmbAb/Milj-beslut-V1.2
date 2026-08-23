@@ -35,7 +35,7 @@ import {
   type LocalizationSpatialRuntime,
 } from '../../server/modules/localization/createLocalizationSpatialRuntime';
 import { resolveCanonicalProjectContext } from './resolveCanonicalProjectContext';
-import { resolveCurrentProductRelease } from './resolveCurrentProductRelease';
+import { resolveCanonicalProductRelease } from '../../server/modules/release/productReleaseRuntime';
 import { registerAssessmentProjection } from '../../server/modules/localization/assessmentProjection';
 import { resolveOrDeriveCurrentLocalizationGeometry } from '../../server/modules/localization/localizationGeometryService';
 
@@ -599,7 +599,15 @@ async function analyzeSite(
     // site.id (caller-controlled) or a string derived only from it. A project/property with no
     // canonical execution identity issued for it fails closed at admission, exactly as intended;
     // this usecase does not mint one itself (that stays an explicit owner-run step).
-    const currentRelease = await resolveCurrentProductRelease(repo);
+    // PRODUCT-RELEASE-AUTHORITY-BINDING-V1 (H13): env may select which release is the
+    // candidate, but only a real, trusted-issuer signature (verified here) may accept it -- a
+    // bare artifact_id + hash match is no longer sufficient. See
+    // server/modules/release/productReleaseRuntime.ts.
+    const canonicalRelease = await resolveCanonicalProductRelease({ artifactRepository: repo });
+    const currentRelease = {
+      releaseRef: { artifact_id: canonicalRelease.artifact_id, artifact_type: canonicalRelease.artifact_type },
+      releaseHash: canonicalRelease.release_hash.value,
+    };
     const executionRegistry = createLuRegistryRuntime();
     const canonicalSiteId = canonicalContext.propertyIdentity;
     const canonicalDeterministicSeed = deriveLuExecutionSeed({

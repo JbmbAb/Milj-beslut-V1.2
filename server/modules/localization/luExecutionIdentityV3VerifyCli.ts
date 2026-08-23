@@ -27,7 +27,7 @@ import {
 } from '../../../packages/mps-lu/src/execution/ExecutionIdentityAttestation';
 import { getLuExecutionAuthorityVerifier } from '../../../packages/mps-lu/src/execution/LuExecutionAuthorityVerifier';
 import { resolveCanonicalProjectContext } from '../../../src/application/resolveCanonicalProjectContext';
-import { resolveCurrentProductRelease } from '../../../src/application/resolveCurrentProductRelease';
+import { resolveCanonicalProductRelease } from '../release/productReleaseRuntime';
 
 const PRIVATE_KEY_ENV = 'LU_EXECUTION_AUTHORITY_PRIVATE_KEY_PEM';
 const EXECUTION_CONTRACT_VERSION = 'lu-execution-identity-v1';
@@ -46,7 +46,13 @@ async function main(): Promise<void> {
 
   const geometry = await repo.resolve<LocalizationGeometryArtifact>({ artifact_id: geometryArtifactId, artifact_type: 'localization_geometry' });
   const canonicalContext = await resolveCanonicalProjectContext(projectId, repo);
-  const currentRelease = await resolveCurrentProductRelease(repo);
+  // PRODUCT-RELEASE-AUTHORITY-BINDING-V1 (H13): trusted-issuer-signed release only. Public
+  // verifier key only -- this process never imports the release-issuer signing key.
+  const canonicalRelease = await resolveCanonicalProductRelease({ artifactRepository: repo });
+  const currentRelease = {
+    releaseRef: { artifact_id: canonicalRelease.artifact_id, artifact_type: canonicalRelease.artifact_type },
+    releaseHash: canonicalRelease.release_hash.value,
+  };
   const registry = createLuRegistryRuntime();
   const capability = registry.resolveCapabilityByKey(LU_SITE_ASSESSMENT_CAPABILITY_KEY);
   if (!capability) throw new Error('LU_EXECUTION_IDENTITY_V3_VERIFY_REJECTED: LU capability unavailable');

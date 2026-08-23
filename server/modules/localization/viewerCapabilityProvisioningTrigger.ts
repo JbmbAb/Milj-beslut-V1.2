@@ -11,7 +11,7 @@
  * this time", not as a request failure.
  */
 import { MimersIntegration } from '@miljobeslut/mps-runtime';
-import { resolveCurrentProductRelease } from '../../../src/application/resolveCurrentProductRelease';
+import { resolveCanonicalProductRelease } from '../release/productReleaseRuntime';
 import { resolveCurrentViewerIdentity } from '../../../src/application/resolveCurrentViewerIdentity';
 import {
   ensureViewerCapabilityProvisioningRequested,
@@ -42,7 +42,12 @@ export async function ensureViewerCapabilityProvisioningEnqueuedForCompletedBoot
   const mimers = await MimersIntegration.create();
   const repo = mimers.artifactRepository;
 
-  const currentRelease = await resolveCurrentProductRelease(repo);
+  // PRODUCT-RELEASE-AUTHORITY-BINDING-V1 (H13): trusted-issuer-signed release only.
+  const canonicalRelease = await resolveCanonicalProductRelease({ artifactRepository: repo });
+  const currentRelease = {
+    releaseRef: { artifact_id: canonicalRelease.artifact_id, artifact_type: canonicalRelease.artifact_type },
+    releaseHash: canonicalRelease.release_hash.value,
+  };
   const viewerIdentity = await resolveCurrentViewerIdentity({
     artifactRepository: repo,
     releaseId: currentRelease.releaseRef.artifact_id,
