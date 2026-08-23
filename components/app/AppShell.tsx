@@ -1,20 +1,6 @@
-import React, { useMemo, useState } from 'react';
-import { AppContentRouter } from '../AppContentRouter';
-import { uiConfig } from '@miljobeslut/mps-console';
-import { AppSidebar } from '../AppSidebar';
-import { AppHeader } from '../AppHeader';
-import ChatBot from '../ChatBot';
-import DetailModal from '../DetailModal';
-import { TechnicalDashboardHub } from '../TechnicalDashboardHub';
-import UploadModal from '../UploadModal';
-import { useProjectStructure } from '../ProjectStructureContext';
-import { countReadyModules } from '../../services/projectStructure';
-import { MODE_CARDS } from './modeCards';
+import React, { useState } from 'react';
 import { useAppSession } from './providers/AppSessionProvider';
 import { useAppWorkspace } from './providers/AppWorkspaceProvider';
-import { useTheme } from '../context/ThemeContext';
-import { CommandPalette, InspectorPanel } from '../ui';
-import { featureFlags } from '../../src/infrastructure/feature-flags';
 import { setSession, callApi, getToken, getRefreshToken, setActiveProjectId } from '../../services/coreApiClient';
 import { MimerProductShell } from './MimerProductShell';
 import { AuthInterface } from '../project/AuthInterface';
@@ -32,7 +18,6 @@ export const AppShell: React.FC = () => {
   const [isLoggingIn, setIsLoggingIn] = useState(false);
   const [authConfig, setAuthConfig] = useState<BankIdStatusResponse | null>(null);
   const [authConfigError, setAuthConfigError] = useState('');
-  const { plan } = useProjectStructure();
 
   // PRODUCT-AUTH-USER-LOGIN-UX-01 Phase B: which login surfaces to even RENDER is decided by
   // the server (BankID readiness, ALLOW_DEV_LOGIN), never guessed client-side from NODE_ENV --
@@ -73,41 +58,8 @@ export const AppShell: React.FC = () => {
     clearSessionAndReset,
     loadBootstrap,
   } = useAppSession();
-  const { isDark } = useTheme();
 
-  const {
-    mode,
-    activeTab,
-    setActiveTab,
-    setMode,
-    openMode,
-    permits,
-    selectedPermit,
-    setSelectedPermit,
-    showUpload,
-    setShowUpload,
-    activeMode,
-    activeProjectLabel,
-  } = useAppWorkspace();
-
-  const readyModuleCount = useMemo(() => countReadyModules(plan), [plan]);
-  const blockedModuleCount = useMemo(
-    () => plan.moduleIntegrations.filter((item) => item.readiness === 'BLOCKED').length,
-    [plan],
-  );
-  const requiredGateCount = useMemo(
-    () => plan.stageGates.filter((gate) => gate.required).length,
-    [plan],
-  );
-  const passedGateCount = useMemo(
-    () => plan.stageGates.filter((gate) => gate.required && gate.status === 'PASSED').length,
-    [plan],
-  );
-  const carbonReady = Boolean(plan.carbonSummary.lastResult);
-
-  const filteredModeCards = useMemo(() => {
-    return MODE_CARDS.filter((card) => !card.flag || featureFlags.isEnabled(card.flag));
-  }, []);
+  const { activeProjectLabel } = useAppWorkspace();
 
   if (sessionState === 'loading') {
     return (
@@ -245,137 +197,33 @@ export const AppShell: React.FC = () => {
     );
   }
 
-  // Default product UI — TechnicalDashboardHub only via VITE_ENABLE_LEGACY_UI=1
-  if (!uiConfig.enableLegacyUi) {
-    const handleLogout = async () => {
-      try {
-        await bankIdLogout(getToken() || undefined, getRefreshToken() || undefined);
-      } catch (err) {
-        console.error('Logout request failed', err);
-      } finally {
-        clearSessionAndReset();
-      }
-    };
-
-    return (
-      <MimerProductShell
-        userName={sessionUser?.name || bootstrap?.user.displayName || 'Verifierad användare'}
-        organisationName={bootstrap?.organisation.name}
-        activeProjectLabel={activeProjectLabel}
-        projects={bootstrap?.projects}
-        activeProjectId={bootstrap?.activeProjectId ?? null}
-        onSelectProject={(projectId) => {
-          setActiveProjectId(projectId);
-          void loadBootstrap();
-        }}
-        onLogout={() => void handleLogout()}
-      />
-    );
-  }
-
-  if (!mode) {
-    return (
-      <TechnicalDashboardHub
-        onSelectModule={(id) => {
-          if (id === 'dossier') {
-            setMode('Core_WORKFLOW');
-            setActiveTab('dossier');
-            return;
-          }
-          if (id === 'core' || id === 'ansokan') {
-            openMode('Core_WORKFLOW');
-            setActiveTab(id === 'ansokan' ? 'c-notification-mass' : 'core');
-            return;
-          }
-          if (id === 'logistik') openMode('LOGISTICS_MARKET');
-          else if (id === 'projekt') openMode('PROJECT_MANAGER');
-          else if (id === 'gronkoll') openMode('COMPLIANCE_AUDIT');
-          else if (id === 'admin') openMode('ADMIN_CONSOLE');
-        }}
-        user={{ name: sessionUser?.name || bootstrap?.user.displayName || 'Verifierad anvandare' }}
-        organisationName={bootstrap?.organisation.name}
-        activeProjectLabel={activeProjectLabel}
-        moduleAccess={bootstrap?.moduleAccess}
-        projectCount={bootstrap?.projects.length || 0}
-        integrationStatus={bootstrap?.integrationAvailability.app.reason}
-      />
-    );
-  }
-
-  if (!activeMode) {
-    return null;
-  }
+  // PRODUCT-UI-LEGACY-ISOLATION-01: the normal product UI is MimerProductShell,
+  // unconditionally -- there is no runtime path back to the legacy dashboard/workspace
+  // shell (TechnicalDashboardHub, AppContentRouter, AppSidebar) from here any more, so no
+  // env value can resurrect it. Legacy-scoped modules (sewage, mass notification, logistics,
+  // generators, project manager) are out of the frozen LU+admin-console product scope.
+  const handleLogout = async () => {
+    try {
+      await bankIdLogout(getToken() || undefined, getRefreshToken() || undefined);
+    } catch (err) {
+      console.error('Logout request failed', err);
+    } finally {
+      clearSessionAndReset();
+    }
+  };
 
   return (
-    <div
-      data-testid="app-workspace-shell"
-      className={`min-h-screen flex overflow-hidden font-['Plus_Jakarta_Sans'] transition-colors duration-150 ${
-        isDark ? 'bg-slate-950 text-slate-100' : 'bg-slate-50 text-slate-900'
-      }`}
-    >
-      <AppSidebar
-        mode={mode}
-        activeTab={activeTab}
-        setActiveTab={setActiveTab}
-        setMode={setMode}
-        bootstrap={bootstrap}
-        activeMode={activeMode}
-        modeCards={filteredModeCards}
-        openMode={openMode}
-        setShowUpload={setShowUpload}
-      />
-
-      <main className="flex-1 flex flex-col h-screen overflow-hidden border-r border-slate-850">
-        <AppHeader
-          activeTab={activeTab}
-          activeMode={activeMode}
-          readyModuleCount={readyModuleCount}
-          totalModuleCount={plan.moduleIntegrations.length}
-          blockedModuleCount={blockedModuleCount}
-          passedGateCount={passedGateCount}
-          requiredGateCount={requiredGateCount}
-          carbonReady={carbonReady}
-          activeProjectLabel={activeProjectLabel}
-        />
-
-        <div className="flex-1 overflow-y-auto p-4 md:p-6 custom-scrollbar relative">
-          <AppContentRouter
-            mode={mode}
-            activeTab={activeTab}
-            permits={permits}
-            setSelectedPermit={setSelectedPermit}
-            setActiveTab={setActiveTab}
-            onOpenMassModule={() => {
-              setMode('Core_WORKFLOW');
-              setActiveTab('c-notification-mass');
-            }}
-          />
-        </div>
-        <ChatBot onOpenLegalSupport={() => setActiveTab('legal')} />
-      </main>
-
-      <InspectorPanel />
-      <CommandPalette />
-
-      {selectedPermit && (
-        <DetailModal
-          permit={selectedPermit}
-          onClose={() => setSelectedPermit(null)}
-          onOpenLegalSupport={() => {
-            setSelectedPermit(null);
-            setActiveTab('legal');
-          }}
-        />
-      )}
-      {showUpload && (
-        <UploadModal
-          onComplete={(partial) => {
-            setShowUpload(false);
-            if (partial) setActiveTab('apply');
-          }}
-          onClose={() => setShowUpload(false)}
-        />
-      )}
-    </div>
+    <MimerProductShell
+      userName={sessionUser?.name || bootstrap?.user.displayName || 'Verifierad användare'}
+      organisationName={bootstrap?.organisation.name}
+      activeProjectLabel={activeProjectLabel}
+      projects={bootstrap?.projects}
+      activeProjectId={bootstrap?.activeProjectId ?? null}
+      onSelectProject={(projectId) => {
+        setActiveProjectId(projectId);
+        void loadBootstrap();
+      }}
+      onLogout={() => void handleLogout()}
+    />
   );
 };

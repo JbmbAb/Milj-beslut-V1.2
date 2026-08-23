@@ -60,6 +60,15 @@ vi.mock('../../components/app/lu/LuWorkspace', () => ({
   LuWorkspace: () => <div data-testid="lu-workspace" />,
 }));
 
+vi.mock('../../src/ui/api-client/localizationProjects.client', () => ({
+  listPropertyProjects: vi.fn(async () => [
+    { id: 'proj-1', name: 'Alternativ A', propertyDesignation: 'ORSA STACKMORA 3:12', status: 'ACTIVE', createdAt: '2026-04-02T00:00:00.000Z' },
+  ]),
+  createLocalizationProjectRequest: vi.fn(),
+  getBootstrapStatus: vi.fn(),
+  retryLocalizationBootstrap: vi.fn(),
+}));
+
 vi.mock('../../components/admin/modules/sewage-portal/SewagePortalView', () => ({
   default: () => <div data-testid="sewage-portal" />,
 }));
@@ -172,12 +181,18 @@ describe('App', () => {
     expect(screen.getByTestId('product-home')).toBeInTheDocument();
   });
 
-  it('navigates to localization from product shell', async () => {
+  it('navigates to localization from product shell and reaches LuWorkspace after a property is opened', async () => {
     const user = userEvent.setup();
     renderApp();
     await user.click(await screen.findByTestId('nav-localization'));
     expect(await screen.findByTestId('product-localization')).toBeInTheDocument();
-    expect(screen.getByTestId('lu-workspace')).toBeInTheDocument();
+    expect(screen.getByTestId('lu-property-first-entry')).toBeInTheDocument();
+
+    await user.type(screen.getByTestId('pf-designation'), 'ORSA STACKMORA 3:12');
+    await user.click(screen.getByTestId('pf-search'));
+    await user.click(await screen.findByTestId('pf-open-proj-1'));
+
+    expect(await screen.findByTestId('lu-workspace')).toBeInTheDocument();
   });
 
   it('falls back to login when no token exists', async () => {

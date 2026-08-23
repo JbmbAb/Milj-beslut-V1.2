@@ -28,6 +28,15 @@ vi.mock('../../components/app/lu/LuWorkspace', () => ({
   LuWorkspace: () => <div data-testid="lu-workspace" />,
 }));
 
+vi.mock('../../src/ui/api-client/localizationProjects.client', () => ({
+  listPropertyProjects: vi.fn(async () => [
+    { id: 'proj-1', name: 'Alternativ A', propertyDesignation: 'ORSA STACKMORA 3:12', status: 'ACTIVE', createdAt: '2026-04-02T00:00:00.000Z' },
+  ]),
+  createLocalizationProjectRequest: vi.fn(),
+  getBootstrapStatus: vi.fn(),
+  retryLocalizationBootstrap: vi.fn(),
+}));
+
 describe('MimerProductShell', () => {
   it('shows only LU and admin in nav', () => {
     render(<MimerProductShell />);
@@ -36,12 +45,18 @@ describe('MimerProductShell', () => {
     expect(screen.queryByTestId('nav-sewage')).not.toBeInTheDocument();
   });
 
-  it('opens LuWorkspace for localization (not LocalizationStudyUI)', async () => {
+  it('opens LuWorkspace for localization once a property is opened (not LocalizationStudyUI)', async () => {
     const user = userEvent.setup();
     render(<MimerProductShell userName="Test User" />);
     await user.click(screen.getByTestId('nav-localization'));
     expect(screen.getByTestId('product-localization')).toBeInTheDocument();
-    expect(screen.getByTestId('lu-workspace')).toBeInTheDocument();
+    expect(screen.getByTestId('lu-property-first-entry')).toBeInTheDocument();
+
+    await user.type(screen.getByTestId('pf-designation'), 'ORSA STACKMORA 3:12');
+    await user.click(screen.getByTestId('pf-search'));
+    await user.click(await screen.findByTestId('pf-open-proj-1'));
+
+    expect(await screen.findByTestId('lu-workspace')).toBeInTheDocument();
     expect(screen.queryByTestId('localization-study-ui')).not.toBeInTheDocument();
   });
 

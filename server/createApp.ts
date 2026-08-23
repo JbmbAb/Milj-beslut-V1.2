@@ -8,6 +8,7 @@ import adminV1Router from './routes/admin.v1.routes';
 import adminLegacyRouter from './routes/admin.routes';
 import projectV1Router from './routes/project.v1.routes';
 import projectLegacyRouter from './routes/project.routes';
+import organisationRouter from './routes/organisation.routes';
 import generatorsRouter from './routes/generators.routes';
 import logisticsRouter from './routes/logistics.routes';
 import geminiRouter from './geminiApi.express';
@@ -51,6 +52,7 @@ import { getReadinessPayload } from './services/readinessService';
 import interactionsPrototypeRouter from './modules/ai/interactions/interactionsPrototype.routes';
 import aiRouter from './routes/ai.routes';
 import { handleMetricsRequest } from './security/metricsAccess';
+import { isLegacyRoutesEnabled } from './security/legacyRoutes';
 
 export function createApp() {
   const app = express();
@@ -164,11 +166,19 @@ export function createApp() {
   app.use(requirementsRouter);
   app.use(classificationReviewRouter);
   app.use(pdfExportRouter);
-  // Enskilt avlopp: canonical CRUD/export före legacy submit/signatur-routes
-  app.use(sewageApplicationsRouter);
-  app.use(sewageLegacyAliasRouter);
-  app.use(sewageDocumentRouter);
-  app.use(cNotificationMassRouter);
+  // PRODUCT-UI-LEGACY-ISOLATION-01: sewage/enskilt-avlopp (all three routers -- the
+  // "canonical CRUD/export" comment on sewageApplicationsRouter describes an intended
+  // architecture, not current reachability: traced 2026-08-23, zero client callers exist
+  // anywhere in the app, canonical or legacy) and c-notification-mass are out of the frozen
+  // LU+admin-console RC1 scope. A valid bearer token must not be enough to reach them --
+  // mounting itself is now gated by an explicit, server-owned policy, never by
+  // uiConfig.enableLegacyUi (client/Vite config is not a security boundary).
+  if (isLegacyRoutesEnabled()) {
+    app.use(sewageApplicationsRouter);
+    app.use(sewageLegacyAliasRouter);
+    app.use(sewageDocumentRouter);
+    app.use(cNotificationMassRouter);
+  }
   app.use(hydroRouter);
   app.use(tilesRouter);
   app.use(propertyLookupRouter);
@@ -190,10 +200,15 @@ export function createApp() {
 
   // Refactored V1 Routes
   app.use(authRouter);
+  app.use(organisationRouter);
   app.use(projectLegacyRouter);
   app.use(projectV1Router);
-  app.use(generatorsRouter);
-  app.use(logisticsRouter);
+  // PRODUCT-UI-LEGACY-ISOLATION-01: zero client callers found anywhere in the app; see
+  // isLegacyRoutesEnabled() above.
+  if (isLegacyRoutesEnabled()) {
+    app.use(generatorsRouter);
+    app.use(logisticsRouter);
+  }
   app.use(datasourceRouter);
   app.use(searchRouter);
   app.use(searchRoutes);
