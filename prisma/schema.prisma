@@ -91,6 +91,7 @@ model User {
   contextBootstrapRequests                 ProjectContextBootstrapRequest[]
   localizationIdentityProvisioningRequests LocalizationIdentityProvisioningRequest[]
   viewerCapabilityProvisioningRequests     ViewerCapabilityProvisioningRequest[]
+  localizationGeometrySupersessionRequests LocalizationGeometrySupersessionRequest[]
 }
 
 model TokenRevocation {
@@ -158,6 +159,7 @@ model Project {
   contextBootstrapRequests                 ProjectContextBootstrapRequest[]
   localizationIdentityProvisioningRequests LocalizationIdentityProvisioningRequest[]
   viewerCapabilityProvisioningRequests     ViewerCapabilityProvisioningRequest[]
+  localizationGeometrySupersessionRequests LocalizationGeometrySupersessionRequest[]
   planState                                ProjectPlanState?
   complianceScore                          Float?
   fundingRating                            String?
@@ -377,6 +379,46 @@ model ViewerCapabilityProvisioningRequest {
   @@index([status, createdAt])
   @@index([projectId, contextBindingArtifactId, releaseArtifactId, viewerIdentityArtifactId])
   @@map("viewer_capability_provisioning_requests")
+}
+
+enum LocalizationGeometrySupersessionStatus {
+  PENDING
+  LEASED
+  COMPLETED
+  FAILED
+  SUPERSEDED
+}
+
+/// LU-PROJECTION-RECONCILIATION-AND-TOTAL-ORDER-V1 Phase B. Durable, append-only WORK QUEUE state
+/// only -- same shape as ViewerCapabilityProvisioningRequest, including leaseExpiresAt from day
+/// one (the H3 fix is never reproduced here). `predecessorGeometryArtifactId` +
+/// `successorGeometryArtifactId` PIN the EXACT user-observed transition at enqueue time -- the web
+/// server that creates this row never signs anything and never holds
+/// LOCALIZATION_GEOMETRY_SUPERSESSION_ISSUER_PRIVATE_KEY_PEM. The worker re-verifies the
+/// predecessor is still the actual current head before minting; if not, the row is marked
+/// SUPERSEDED (never mutated into a different predecessor/successor pair) -- this is what prevents
+/// a race between two rapid saves (A->B and A->C) from silently rewriting user intent into A->B->C.
+model LocalizationGeometrySupersessionRequest {
+  id                            String                                 @id @default(cuid())
+  projectId                     String                                 @map("project_id")
+  predecessorGeometryArtifactId String                                 @map("predecessor_geometry_artifact_id")
+  successorGeometryArtifactId   String                                 @map("successor_geometry_artifact_id")
+  requestedByUserId             String                                 @map("requested_by_user_id")
+  status                        LocalizationGeometrySupersessionStatus @default(PENDING)
+  supersessionArtifactId        String?                                @map("supersession_artifact_id")
+  failureCode                   String?                                @map("failure_code")
+  failureDetail                 String?                                @map("failure_detail")
+  createdAt                     DateTime                               @default(now()) @map("created_at")
+  leasedAt                      DateTime?                              @map("leased_at")
+  leaseExpiresAt                DateTime?                              @map("lease_expires_at")
+  completedAt                   DateTime?                              @map("completed_at")
+  failedAt                      DateTime?                              @map("failed_at")
+  project                       Project                                @relation(fields: [projectId], references: [id], onDelete: Restrict)
+  requestedBy                   User                                   @relation(fields: [requestedByUserId], references: [id], onDelete: Restrict)
+
+  @@index([status, createdAt])
+  @@index([projectId, predecessorGeometryArtifactId, successorGeometryArtifactId])
+  @@map("localization_geometry_supersession_requests")
 }
 
 model ProjectPlanState {

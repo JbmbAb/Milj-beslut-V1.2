@@ -23,17 +23,23 @@ import type { AuthUser } from '../../security/types';
 import { assertProjectAccess } from '../../security/projectAccess';
 import { resolveCanonicalProjectContext } from '../../../src/application/resolveCanonicalProjectContext';
 import { registerLocalizationGeometry, resolveCurrentLocalizationGeometry } from './localizationGeometryProjection';
+import { PrismaLocalizationGeometryProjectionIndex } from '../../repositories/localizationGeometryProjectionRepository';
 import { createLocalizationSpatialRuntime, type LocalizationSpatialRuntime } from './createLocalizationSpatialRuntime';
 import {
   ensureLocalizationIdentityProvisioningRequested,
   enqueueLocalizationIdentityProvisioningRequest,
   type LocalizationIdentityProvisioningRequestRecord,
 } from './localizationIdentityProvisioningQueue';
+import {
+  ensureLocalizationGeometrySupersessionRequested,
+  type LocalizationGeometrySupersessionRequestRecord,
+} from './localizationGeometrySupersessionQueue';
 
 const DERIVED_LABEL = 'Fastighetens centrumpunkt (automatiskt härledd)';
 const USER_DEFINED_LABEL = 'Användardefinierad lokalisering';
 
 export type LocalizationIdentityProvisioningStatus = 'PENDING' | 'LEASED' | 'COMPLETED' | 'FAILED' | null;
+export type LocalizationGeometrySupersessionStatus = 'PENDING' | 'LEASED' | 'COMPLETED' | 'FAILED' | 'SUPERSEDED' | null;
 
 export interface LocalizationGeometryView {
   readonly artifact_id: string;
@@ -48,11 +54,22 @@ export interface LocalizationGeometryView {
    */
   readonly provisioningStatus: LocalizationIdentityProvisioningStatus;
   readonly provisioningFailureDetail?: string | null;
+  /**
+   * LU-PROJECTION-RECONCILIATION-AND-TOTAL-ORDER-V1. `null` for a project's root geometry (no
+   * currentness transition needed) or when the saved point is already the settled current one
+   * (retry no-op). PENDING/LEASED means the signed predecessor->successor supersession edge has
+   * not been confirmed yet -- GET-current will keep returning the PREVIOUS point until it is.
+   * SUPERSEDED means a faster concurrent save already moved current elsewhere; FAILED means the
+   * point is saved and safe in CAS, but the currentness transition needs an explicit retry.
+   */
+  readonly supersessionStatus: LocalizationGeometrySupersessionStatus;
+  readonly supersessionFailureDetail?: string | null;
 }
 
 function toView(
   geometry: LocalizationGeometryArtifact,
   provisioning: LocalizationIdentityProvisioningRequestRecord | null,
+  supersession?: LocalizationGeometrySupersessionRequestRecord | null,
 ): LocalizationGeometryView {
   return {
     artifact_id: geometry.artifact_id,
@@ -60,6 +77,8 @@ function toView(
     wgs84LngLat: geometry.payload.geometry.coordinates,
     provisioningStatus: provisioning?.status ?? null,
     provisioningFailureDetail: provisioning?.failureDetail ?? null,
+    supersessionStatus: supersession?.status ?? null,
+    supersessionFailureDetail: supersession?.failureDetail ?? null,
   };
 }
 
@@ -247,24 +266,59 @@ export async function saveUserLocalizationGeometry(args: {
       label: USER_DEFINED_LABEL,
       created_by: args.authUser.id,
     });
+    // CAS put is the ONLY authority action the web process takes on the geometry itself -- the
+    // artifact stays unsigned, immutable, content-addressed user content (LOCALIZATION-GEOMETRY-
+    // CURRENTNESS-V1 point 1). The web process never signs a currentness transition and never
+    // imports LOCALIZATION_GEOMETRY_SUPERSESSION_ISSUER_PRIVATE_KEY_PEM.
     await repo.put({ artifact_id: geometry.artifact_id, content_hash: geometry.content_hash, body: geometry });
-    // Deliberately NOT swallowed here (unlike the derive path above): the user explicitly asked
-    // to save this point, so a projection-write failure must be reported, not silently accepted
-    // as success while the point remains undiscoverable by "current" resolution. The CAS put
-    // above is itself idempotent (content-addressed), so a client retry after this failure is safe.
-    await registerLocalizationGeometry({ projectId, geometry });
+
+    const geometryIndex = new PrismaLocalizationGeometryProjectionIndex();
+    const knownRows = await geometryIndex.listForProject(projectId);
+    const alreadyKnown = knownRows.some((row) => row.geometryArtifactId === geometry.artifact_id);
+
+    let supersession: LocalizationGeometrySupersessionRequestRecord | null = null;
+    if (alreadyKnown) {
+      // Retry of a geometry we've already seen -- whether it's the current one or a past,
+      // superseded one, this is a true no-op: do not touch the graph. "Retry old A while B is
+      // current" must never create a new B->A edge (LOCALIZATION-GEOMETRY-CURRENTNESS-V1).
+    } else {
+      let predecessor: LocalizationGeometryArtifact | null = null;
+      try {
+        const current = await resolveCurrentLocalizationGeometry({ projectId, artifactRepository: repo });
+        predecessor = current.geometry;
+      } catch {
+        predecessor = null; // first-ever geometry for this project -- no transition needed.
+      }
+
+      if (!predecessor) {
+        // Root: register directly, no supersession relation required (LOCALIZATION-GEOMETRY-
+        // CURRENTNESS-V1 point on initial geometry -- structural head, no root/activation artifact).
+        await registerLocalizationGeometry({ projectId, geometry });
+      } else {
+        // Enqueue the EXACT observed transition; never register this geometry into the discovery
+        // projection here -- the worker registers it together with its verified edge once signed,
+        // so a candidate never appears without either being the root or already having a settled
+        // edge (this is what prevents the mid-transition ambiguity window entirely). A failure to
+        // enqueue must never make the already-persisted, already-safe-in-CAS geometry save look
+        // like it failed -- surfaced as supersessionStatus: null, not a 500.
+        supersession = await ensureLocalizationGeometrySupersessionRequested({
+          projectId,
+          predecessorGeometryArtifactId: predecessor.artifact_id,
+          successorGeometryArtifactId: geometry.artifact_id,
+          requestedByUserId: args.authUser.id,
+        }).catch(() => null);
+      }
+    }
+
     // PRODUCT-LU-EXECUTION-IDENTITY-V3-PROVISIONING-01: the request PINS this exact
-    // geometry.artifact_id -- never "whatever is current" at lease time. That pin is what makes a
-    // subsequent save-of-a-different-point race safe: this request can only ever mint an identity
-    // scoped to THIS point, even if a newer point becomes current before a worker gets to it.
-    // A failure to enqueue must never make the already-persisted, already-discoverable geometry
-    // save look like it failed -- surfaced as provisioningStatus: null, not a 500.
+    // geometry.artifact_id -- never "whatever is current" at lease time. Independent of whether
+    // this geometry has become the settled current one yet.
     const provisioning = await ensureLocalizationIdentityProvisioningRequested({
       projectId,
       geometryArtifactId: geometry.artifact_id,
       requestedByUserId: args.authUser.id,
     }).catch(() => null);
-    return { ok: true, data: toView(geometry, provisioning) };
+    return { ok: true, data: toView(geometry, provisioning, supersession) };
   } finally {
     if (ownsSpatialRuntime) await spatialRuntime.close().catch(() => undefined);
   }

@@ -76,10 +76,13 @@ export interface CurrentAssessmentProjection {
 }
 
 /**
- * Selection order (frozen): load candidates -> resolveCurrent(projectId) via the verified
- * ProjectContextBinding graph -> retain only rows bound to that exact current head -> for each
- * remaining candidate (most recent first), re-resolve and re-verify it against CAS, rejecting and
- * moving to the next candidate on any failure -> return the first candidate that survives.
+ * Selection order (frozen, LU-PROJECTION-RECONCILIATION-AND-TOTAL-ORDER-V1 Phase B): load
+ * candidates -> resolveCurrent(projectId) via the verified ProjectContextBinding graph -> retain
+ * only rows bound to that exact current head (and current geometry, if supplied) -> re-resolve and
+ * re-verify EVERY remaining candidate against CAS (never short-circuit) -> among the verified
+ * survivors, the one with the maximal createdAt is current; if two or more verified survivors tie
+ * at the maximal createdAt, fail closed (REJECT_ASSESSMENT_PROJECTION_AMBIGUOUS_CURRENT) rather
+ * than fall back to any lexical (e.g. artifact-id) tiebreaker.
  */
 export async function resolveCurrentAssessmentProjection(args: {
   readonly projectId: string;
@@ -110,19 +113,24 @@ export async function resolveCurrentAssessmentProjection(args: {
     throw new Error("REJECT_ASSESSMENT_PROJECTION_NOT_FOUND: current binding unavailable");
   }
 
-  const eligible = candidates
-    .filter((c) => c.projectId === args.projectId && c.bindingArtifactId === currentBinding.artifact_id)
-    .filter(
-      (c) =>
-        args.currentLocalizationGeometryArtifactId === undefined ||
-        c.localizationGeometryArtifactId === args.currentLocalizationGeometryArtifactId,
-    )
-    // createdAt is the tiebreaker only, applied here -- after eligibility, before CAS re-verification.
-    .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
+  const eligible = candidates.filter(
+    (c) =>
+      c.projectId === args.projectId &&
+      c.bindingArtifactId === currentBinding.artifact_id &&
+      (args.currentLocalizationGeometryArtifactId === undefined ||
+        c.localizationGeometryArtifactId === args.currentLocalizationGeometryArtifactId),
+  );
   if (eligible.length === 0) {
     throw new Error("REJECT_ASSESSMENT_PROJECTION_NOT_CURRENT: no candidate bound to the current ProjectContextBinding and localization geometry");
   }
 
+  // LU-PROJECTION-RECONCILIATION-AND-TOTAL-ORDER-V1 Phase B: verify EVERY eligible candidate
+  // against CAS first (never short-circuit on the first pass) -- the ambiguity check below must
+  // apply only to genuinely verified survivors, so a tampered/orphaned duplicate row can never
+  // manufacture a false ambiguity. createdAt is the tiebreaker only among verified survivors --
+  // never authority over currentness itself (that remains the verified ProjectContextBinding
+  // supersession graph, via resolveCurrent above).
+  const verified: Array<{ readonly assessment: LocalizationAssessmentArtifact; readonly createdAt: Date }> = [];
   for (const candidate of eligible) {
     if (candidate.assessmentArtifactType !== "LOCALIZATION_ASSESSMENT") continue;
 
@@ -133,7 +141,7 @@ export async function resolveCurrentAssessmentProjection(args: {
         artifact_type: "LOCALIZATION_ASSESSMENT",
       });
     } catch {
-      continue; // missing CAS object -> reject this candidate, try the next
+      continue; // missing CAS object -> reject this candidate
     }
 
     const recomputed = sha256ContentHash(localizationAssessmentCanonicalBody(assessment));
@@ -165,10 +173,26 @@ export async function resolveCurrentAssessmentProjection(args: {
     // today, so there is nothing further to check here -- not a gap, just not part of this
     // artifact's current contract.
 
-    return { assessmentArtifactId: assessment.artifact_id };
+    verified.push({ assessment, createdAt: candidate.createdAt });
   }
 
-  throw new Error("REJECT_ASSESSMENT_PROJECTION_NOT_FOUND: no candidate for the current binding survived CAS re-verification");
+  if (verified.length === 0) {
+    throw new Error("REJECT_ASSESSMENT_PROJECTION_NOT_FOUND: no candidate for the current binding survived CAS re-verification");
+  }
+
+  const maxCreatedAt = Math.max(...verified.map((v) => v.createdAt.getTime()));
+  const atMax = verified.filter((v) => v.createdAt.getTime() === maxCreatedAt);
+  if (atMax.length > 1) {
+    // Multiple genuinely distinct, independently-verified assessments tied at the maximal
+    // createdAt for the current binding/geometry -- fail closed rather than fall back to an
+    // arbitrary (e.g. artifact-id) order, which would make a semantically arbitrary choice
+    // deterministic without making it correct.
+    throw new Error(
+      "REJECT_ASSESSMENT_PROJECTION_AMBIGUOUS_CURRENT: multiple verified assessment candidates tied at the maximal createdAt for the current binding/geometry",
+    );
+  }
+
+  return { assessmentArtifactId: atMax[0]!.assessment.artifact_id };
 }
 
 export type AssessmentProjectionReconciliationResult =

@@ -235,6 +235,52 @@ describe('P3-LU-ASSESSMENT-CURRENT-PROJECTION-01', () => {
     expect(result.assessmentArtifactId).toBe(second.artifact_id); // most recent of the eligible set
   });
 
+  it('LU-PROJECTION-RECONCILIATION-AND-TOTAL-ORDER-V1: two verified eligible candidates tied at the maximal createdAt -> fail closed, never an artifact-id tiebreaker', async () => {
+    const s = await setup();
+    const index = new FakeAssessmentProjectionIndex();
+    const first = await s.buildAndPersistAssessment(contextNew);
+    await registerAssessmentProjection({ projectId: PROJECT_ID, assessment: first, contextBindingRef: s.newBindingRef, releaseRef: RELEASE_REF, index });
+    const second = await s.buildAndPersistAssessment(contextNew);
+    await registerAssessmentProjection({ projectId: PROJECT_ID, assessment: second, contextBindingRef: s.newBindingRef, releaseRef: RELEASE_REF, index });
+
+    // Force an exact tie -- the fake index's monotonic counter would otherwise never produce one.
+    const rows = index.rowsByProject.get(PROJECT_ID)!;
+    const tiedAt = new Date('2026-08-22T12:00:00.000Z');
+    for (const row of rows) (row as { createdAt: Date }).createdAt = tiedAt;
+
+    await expect(
+      resolveCurrentAssessmentProjection({
+        projectId: PROJECT_ID, artifactRepository: s.repository, currentBindingProvider: s.currentBindingProvider(), index,
+      }),
+    ).rejects.toThrow('REJECT_ASSESSMENT_PROJECTION_AMBIGUOUS_CURRENT');
+  });
+
+  it('a tie only against a candidate that fails CAS re-verification is NOT ambiguous -- the surviving verified candidate still wins', async () => {
+    const s = await setup();
+    const index = new FakeAssessmentProjectionIndex();
+    const real = await s.buildAndPersistAssessment(contextNew);
+    await registerAssessmentProjection({ projectId: PROJECT_ID, assessment: real, contextBindingRef: s.newBindingRef, releaseRef: RELEASE_REF, index });
+    // A row pointing at an artifact_id that was never actually persisted to CAS -- same shape as
+    // "missing CAS artifact -> fail closed" elsewhere in this file, but here it competes for the
+    // tie instead of being the only candidate.
+    await index.register({
+      projectId: PROJECT_ID,
+      assessmentArtifactId: 'assessment-never-persisted',
+      assessmentArtifactType: 'LOCALIZATION_ASSESSMENT',
+      projectContextRef: contextNew,
+      bindingArtifactId: s.newBindingRef.artifact_id,
+      releaseArtifactId: RELEASE_REF.artifact_id,
+    });
+    const rows = index.rowsByProject.get(PROJECT_ID)!;
+    const tiedAt = new Date('2026-08-22T12:00:00.000Z');
+    for (const row of rows) (row as { createdAt: Date }).createdAt = tiedAt;
+
+    const result = await resolveCurrentAssessmentProjection({
+      projectId: PROJECT_ID, artifactRepository: s.repository, currentBindingProvider: s.currentBindingProvider(), index,
+    });
+    expect(result.assessmentArtifactId).toBe(real.artifact_id);
+  });
+
   it('binding superseded -> old assessment no longer current', async () => {
     const s = await setup();
     const index = new FakeAssessmentProjectionIndex();

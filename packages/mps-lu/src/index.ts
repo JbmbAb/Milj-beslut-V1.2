@@ -22,6 +22,8 @@ export * from "./execution/LuExecutionAuthorityChain";
 export * from "./execution/LuExecutionIdentitySeed";
 export * from "./artifacts/ProductLuContextArtifacts";
 export * from "./artifacts/LocalizationGeometryArtifact";
+export * from "./artifacts/LocalizationGeometrySupersessionArtifact";
+export * from "./artifacts/LocalizationGeometrySupersessionGraph";
 export * from "./artifacts/CanonicalPropertyArtifacts";
 export * from "./artifacts/ProductViewerCapabilityArtifact";
 export * from "./artifacts/ViewerIdentityArtifact";

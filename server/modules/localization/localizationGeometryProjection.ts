@@ -1,35 +1,39 @@
 /**
  * PRODUCT-LU-LOCALIZATION-GEOMETRY-01 Phase B.
+ * LU-PROJECTION-RECONCILIATION-AND-TOTAL-ORDER-V1 Phase B: currentness rewired onto the signed
+ * supersession graph (H4/H9). See LOCALIZATION-GEOMETRY-CURRENTNESS-V1 (frozen contract):
  *
- * A durable, non-authoritative locator: "which already-persisted LocalizationGeometryArtifact is
- * current for this project." CAS remains the sole content authority -- registerLocalizationGeometry
- * only ever records a pointer to an artifact that has already been persisted;
- * resolveCurrentLocalizationGeometry never trusts a projection row's own claims and re-resolves +
- * re-verifies every candidate against CAS before selecting it. Same three-layer shape as
- * assessmentProjection.ts, deliberately the LIGHTER of this codebase's two "current head" shapes
- * (no signed-supersession-relation table, unlike ProjectContextBindingSupersession) -- this
- * artifact is unsigned user content, so CAS content-hash re-verification is the correct and
- * sufficient integrity check.
+ *  1. Geometry artifacts remain immutable/content-addressed, unsigned user content.
+ *  2. Saving a new geometry does NOT make it current merely because it has the newest createdAt.
+ *  3. Currentness is established through an explicit immutable predecessor->successor
+ *     supersession relation (LocalizationGeometrySupersessionArtifact, signed by a dedicated
+ *     issuer -- see localizationGeometrySupersessionAuthority.ts).
+ *  4. Projection tables (this file's PrismaLocalizationGeometryProjectionIndex, and
+ *     PrismaLocalizationGeometrySupersessionIndex) remain non-authoritative/rebuildable.
+ *  5. resolveCurrentLocalizationGeometry derives the unique graph head via
+ *     LocalizationGeometryCurrentProvider -- createdAt and artifact-id lexical order have no
+ *     authority over currentness anywhere in this path.
+ *  6/7/8/9. Zero heads -> NOT_FOUND; exactly one head -> CURRENT; multiple heads -> fail closed
+ *     (AMBIGUOUS_CURRENT_GEOMETRY); cycle -> fail closed (INVALID_SUPERSESSION_GRAPH).
  *
- * `createdAt` is NEVER used to decide validity. It is only the final deterministic tiebreaker
- * among candidates that have ALREADY passed CAS re-verification -- selection order is:
- * candidates for this project -> CAS re-verification (exists, correct type, untampered,
- * property_context_ref matches the row) -> only then, among what remains, most recent first.
+ * `registerLocalizationGeometry` is unchanged in shape, but callers now only invoke it directly
+ * for a project's FIRST (root, no-predecessor) geometry -- see localizationGeometryService.ts.
+ * Every subsequent transition is registered by the geometry-supersession worker, together with
+ * its verified edge, so a geometry candidate never appears in this projection without either being
+ * the root or already having a settled edge.
  */
 import type { ArtifactRepositoryPort } from "@miljobeslut/mps-runtime";
-import {
-  validateLocalizationGeometryArtifact,
-  type LocalizationGeometryArtifact,
-} from "@miljobeslut/mps-lu";
-import type { ArtifactReference } from "@miljobeslut/mps-compliance/src/artifacts/ArtifactReference";
+import type { LocalizationGeometryArtifact } from "@miljobeslut/mps-lu";
 import {
   PrismaLocalizationGeometryProjectionIndex,
   type LocalizationGeometryProjectionIndex,
 } from "../../repositories/localizationGeometryProjectionRepository.js";
-
-function sameRef(left: ArtifactReference, right: ArtifactReference): boolean {
-  return left.artifact_id === right.artifact_id && left.artifact_type === right.artifact_type;
-}
+import {
+  PrismaLocalizationGeometrySupersessionIndex,
+  type LocalizationGeometrySupersessionIndex,
+} from "../../repositories/localizationGeometrySupersessionRepository.js";
+import { LocalizationGeometryCurrentProvider } from "./localizationGeometryCurrentProvider.js";
+import { getLocalizationGeometrySupersessionVerifier } from "../../security/localizationGeometrySupersessionVerifier.js";
 
 /**
  * Called right after a LocalizationGeometryArtifact has been persisted to CAS. Idempotent: the
@@ -56,58 +60,28 @@ export interface CurrentLocalizationGeometry {
 }
 
 /**
- * Selection order (frozen): load candidates for this project -> for each (most recent first),
- * re-resolve and re-verify it against CAS (structural validation + content_hash/artifact_id
- * self-consistency + project_id match + property_context_ref matches the projection row),
- * rejecting and moving to the next candidate on any failure -> return the first candidate that
- * survives. Throws (fails closed) if none survive -- callers decide whether that means "derive a
- * transitional geometry from the property boundary" or "refuse the run", never a silent default.
+ * Currentness resolution (frozen contract, see file header): delegates entirely to
+ * LocalizationGeometryCurrentProvider, which derives the unique verified supersession-graph head.
+ * Zero candidates -> REJECT_LOCALIZATION_GEOMETRY_PROJECTION_NOT_FOUND (unchanged message, callers
+ * already branch on this to decide "derive a transitional geometry" vs "refuse the run"). Multiple
+ * heads -> AMBIGUOUS_CURRENT_GEOMETRY. A cycle -> INVALID_SUPERSESSION_GRAPH. `createdAt` and
+ * artifact-id lexical order play no role anywhere in this path.
  */
 export async function resolveCurrentLocalizationGeometry(args: {
   readonly projectId: string;
   readonly artifactRepository: ArtifactRepositoryPort;
   readonly index?: LocalizationGeometryProjectionIndex;
+  readonly supersessionIndex?: LocalizationGeometrySupersessionIndex;
+  readonly provider?: LocalizationGeometryCurrentProvider;
 }): Promise<CurrentLocalizationGeometry> {
-  const index = args.index ?? new PrismaLocalizationGeometryProjectionIndex();
-  const candidates = await index.listForProject(args.projectId);
-  if (candidates.length === 0) {
-    throw new Error("REJECT_LOCALIZATION_GEOMETRY_PROJECTION_NOT_FOUND: no localization geometry projection for project");
-  }
-
-  const ordered = [...candidates].sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
-
-  for (const candidate of ordered) {
-    if (candidate.projectId !== args.projectId) continue;
-
-    let geometry: LocalizationGeometryArtifact;
-    try {
-      geometry = await args.artifactRepository.resolve<LocalizationGeometryArtifact>({
-        artifact_id: candidate.geometryArtifactId,
-        artifact_type: "localization_geometry",
-      });
-    } catch {
-      continue; // missing CAS object -> reject this candidate, try the next
-    }
-
-    try {
-      validateLocalizationGeometryArtifact(geometry);
-    } catch {
-      continue; // structurally invalid or tampered -> reject this candidate
-    }
-
-    if (geometry.payload.project_id !== args.projectId) continue;
-
-    if (
-      !sameRef(geometry.payload.property_context_ref, {
-        artifact_id: candidate.propertyContextRefId,
-        artifact_type: candidate.propertyContextRefType,
-      })
-    ) {
-      continue; // projection row claims a property context this artifact does not actually carry
-    }
-
-    return { geometryArtifactId: geometry.artifact_id, geometry };
-  }
-
-  throw new Error("REJECT_LOCALIZATION_GEOMETRY_PROJECTION_NOT_FOUND: no candidate survived CAS re-verification");
+  const provider =
+    args.provider ??
+    new LocalizationGeometryCurrentProvider(
+      args.artifactRepository,
+      args.index ?? new PrismaLocalizationGeometryProjectionIndex(),
+      args.supersessionIndex ?? new PrismaLocalizationGeometrySupersessionIndex(),
+      getLocalizationGeometrySupersessionVerifier,
+    );
+  const geometry = await provider.resolveCurrent(args.projectId);
+  return { geometryArtifactId: geometry.artifact_id, geometry };
 }

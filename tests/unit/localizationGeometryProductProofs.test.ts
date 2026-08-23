@@ -151,6 +151,21 @@ vi.mock('../../server/repositories/projectAssessmentProjectionRepository', () =>
   return { PrismaProjectAssessmentProjectionIndex: FakeProjectAssessmentProjectionIndex };
 });
 
+vi.mock('../../server/repositories/localizationGeometrySupersessionRepository', () => {
+  type Row = { projectId: string; supersessionArtifactId: string; predecessorGeometryArtifactId: string; successorGeometryArtifactId: string; createdAt: Date };
+  const rows: Row[] = [];
+  class FakeLocalizationGeometrySupersessionIndex {
+    async register(row: { projectId: string; supersessionArtifactId: string; predecessorGeometryArtifactId: string; successorGeometryArtifactId: string }) {
+      if (rows.some((r) => r.projectId === row.projectId && r.supersessionArtifactId === row.supersessionArtifactId)) return;
+      rows.push({ ...row, createdAt: new Date(Date.now() + rows.length) });
+    }
+    async listForProject(projectId: string) {
+      return rows.filter((r) => r.projectId === projectId).map((r) => ({ ...r }));
+    }
+  }
+  return { PrismaLocalizationGeometrySupersessionIndex: FakeLocalizationGeometrySupersessionIndex };
+});
+
 vi.mock('../../server/services/spatialAuditService', () => ({ runSpatialAudit: vi.fn().mockResolvedValue({ protectedAreaHits: [], protectedAreaAvailable: true, isProtected: false, sgu: { riskLevel: 'LOW', manualReviewRequired: false, summary: 'OK' }, insar: { riskLevel: 'LOW' }, distanceToWaterMeters: 50, distanceToWaterAvailable: true, text: 'OK', sources: [] }) }));
 vi.mock('../../server/services/complianceRuleEngine', () => ({ evaluateComplianceRules: vi.fn().mockReturnValue({ overallRisk: 'LOW', permitProbability: 0.8, restrictions: [], rules: [], summary: 'OK', violations: [], warnings: [], feasibilityScore: 80, recommendations: [], requiredActions: [], notes: [] }) }));
 vi.mock('../../server/services/nvrService', () => ({ fetchProtectedAreas: vi.fn().mockResolvedValue([]) }));
@@ -177,10 +192,18 @@ import {
   createProductLuPropertyContextArtifact,
   createProductLuProjectContextArtifact,
   createLocalizationGeometryArtifact,
+  createLocalizationGeometrySupersessionIssuerArtifact,
+  createLocalizationGeometrySupersessionArtifact,
   LU_SITE_ASSESSMENT_CAPABILITY_KEY,
   type ISpatialProvider,
   type SpatialQueryRequest,
+  type LocalizationGeometryArtifact,
 } from '@miljobeslut/mps-lu';
+import {
+  attestLocalizationGeometrySupersessionIssuerArtifact,
+  attestLocalizationGeometrySupersessionArtifact,
+} from '../../server/modules/localization/localizationGeometrySupersessionAuthority';
+import { PrismaLocalizationGeometrySupersessionIndex } from '../../server/repositories/localizationGeometrySupersessionRepository';
 import { GenerateLocalizationReportUseCase } from '../../src/application/generate-localization-report.usecase';
 import type { LocalizationSpatialRuntime } from '../../server/modules/localization/createLocalizationSpatialRuntime';
 import { PrismaProjectContextBindingIndex } from '../../server/repositories/projectContextBindingRepository';
@@ -206,6 +229,47 @@ const RELEASE_HASH = 'c'.repeat(64);
 // centroid") is a real, discriminating assertion rather than a coincidence.
 const PROPERTY_CENTROID_SWEREF: readonly [number, number] = [6580000, 674000];
 const PROPERTY_CENTROID_WGS84: readonly [number, number] = [59.30, 18.00]; // [lat, lng] -- distinct from A/B
+
+const geometrySupersessionIssuerKey = LocalPemSigningKeyProvider.generate('ed25519:geometry-supersession-issuer-product-proofs');
+
+/** Mints, attests, CAS-persists, and registers a real signed geometry supersession edge -- the
+ * exact real-world sequence the worker performs, invoked directly here since these proofs test
+ * the projection/resolution layer, not the async provisioning queue itself. */
+async function supersedeGeometry(args: {
+  readonly repo: InMemoryArtifactRepository;
+  readonly projectId: string;
+  readonly predecessor: LocalizationGeometryArtifact;
+  readonly successor: LocalizationGeometryArtifact;
+}): Promise<void> {
+  const bareIssuer = createLocalizationGeometrySupersessionIssuerArtifact({
+    issuer_key_id: geometrySupersessionIssuerKey.provider.keyId,
+    owner_authority_ref: { artifact_id: 'owner-authority-test', artifact_type: 'owner_authority_attestation' },
+  });
+  const issuer = { ...bareIssuer, attestation: await attestLocalizationGeometrySupersessionIssuerArtifact({ issuer: bareIssuer, signing: geometrySupersessionIssuerKey.provider }) };
+  await args.repo.put({ artifact_id: issuer.artifact_id, content_hash: issuer.content_hash, body: issuer });
+
+  const bareArtifact = createLocalizationGeometrySupersessionArtifact({
+    project_id: args.projectId,
+    predecessor_geometry_ref: { artifact_id: args.predecessor.artifact_id, artifact_type: args.predecessor.artifact_type },
+    successor_geometry_ref: { artifact_id: args.successor.artifact_id, artifact_type: args.successor.artifact_type },
+    reason_code: 'USER_LOCALIZATION_CHANGE_V1',
+    issuer_ref: { artifact_id: issuer.artifact_id, artifact_type: issuer.artifact_type },
+    issuer_key_id: geometrySupersessionIssuerKey.provider.keyId,
+    issued_at: '2026-08-23T00:00:00.000Z',
+  });
+  const artifact = { ...bareArtifact, attestation: await attestLocalizationGeometrySupersessionArtifact({ artifact: bareArtifact, issuer, signing: geometrySupersessionIssuerKey.provider }) };
+  await args.repo.put({ artifact_id: artifact.artifact_id, content_hash: artifact.content_hash, body: artifact });
+
+  await new PrismaLocalizationGeometrySupersessionIndex().register({
+    projectId: args.projectId,
+    supersessionArtifactId: artifact.artifact_id,
+    predecessorGeometryArtifactId: args.predecessor.artifact_id,
+    successorGeometryArtifactId: args.successor.artifact_id,
+  });
+
+  process.env.LOCALIZATION_GEOMETRY_SUPERSESSION_ISSUER_KEY_ID = geometrySupersessionIssuerKey.provider.keyId;
+  process.env.LOCALIZATION_GEOMETRY_SUPERSESSION_ISSUER_PUBLIC_KEY_PEM = geometrySupersessionIssuerKey.publicKey;
+}
 
 function makeRuntime(
   repository: InMemoryArtifactRepository,
@@ -483,7 +547,11 @@ describe('PRODUCT-LU-LOCALIZATION-GEOMETRY-01 — end-to-end product proofs thro
       created_by: 'test-user',
     });
     await repo.put({ artifact_id: pointB.artifact_id, content_hash: pointB.content_hash, body: pointB });
+    // LU-PROJECTION-RECONCILIATION-AND-TOTAL-ORDER-V1: registering B alone no longer makes it
+    // current -- currentness requires the explicit signed predecessor->successor supersession
+    // edge (this is exactly the H4/H9 fix; createdAt has no authority here anymore).
     await registerLocalizationGeometry({ projectId, geometry: pointB });
+    await supersedeGeometry({ repo, projectId, predecessor: pointA, successor: pointB });
 
     const current = await resolveCurrentLocalizationGeometry({ projectId, artifactRepository: repo });
     expect(current.geometryArtifactId).toBe(pointB.artifact_id);

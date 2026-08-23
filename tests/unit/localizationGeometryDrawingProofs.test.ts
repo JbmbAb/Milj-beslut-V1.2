@@ -15,6 +15,109 @@ vi.mock('../../server/security/projectAccess', () => ({
 }));
 const ALLOWED = new Set<string>();
 
+// The geometry-supersession worker (executeGeometrySupersessionProvisioning) unconditionally
+// calls MimersIntegration.create() itself -- unlike the service-layer functions under test, which
+// always accept an explicit artifactRepository override. Redirect it to whatever InMemoryArtifactRepository
+// the current test is using, via a shared mutable box the test sets before running the worker.
+const mimersRepoBox: { repo: unknown } = { repo: null };
+vi.mock('@miljobeslut/mps-runtime', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@miljobeslut/mps-runtime')>();
+  return { ...actual, MimersIntegration: { create: async () => ({ artifactRepository: mimersRepoBox.repo, rebuildIndex: async () => ({ rebuilt: 0, skipped: 0 }) }) } };
+});
+
+// executeGeometrySupersessionProvisioning looks up the requester via a real prisma.user.findUnique
+// call to re-verify organisation membership -- this test file's users are plain AuthUser objects,
+// never real DB rows, so fake just enough of the client for that one lookup.
+vi.mock('../../server/db/prisma', () => ({
+  prisma: {
+    user: {
+      findUnique: vi.fn(async ({ where: { id } }: { where: { id: string } }) => ({
+        id,
+        organisationId: 'org-drawing-proof',
+        bankidId: `bankid-${id}`,
+        role: 'CONSULTANT',
+        identityEnvironment: 'TEST',
+      })),
+    },
+  },
+}));
+
+vi.mock('../../server/repositories/localizationGeometrySupersessionRepository', () => {
+  type Row = { projectId: string; supersessionArtifactId: string; predecessorGeometryArtifactId: string; successorGeometryArtifactId: string; createdAt: Date };
+  const rows: Row[] = [];
+  class FakeLocalizationGeometrySupersessionIndex {
+    async register(row: { projectId: string; supersessionArtifactId: string; predecessorGeometryArtifactId: string; successorGeometryArtifactId: string }) {
+      if (rows.some((r) => r.projectId === row.projectId && r.supersessionArtifactId === row.supersessionArtifactId)) return;
+      rows.push({ ...row, createdAt: new Date(Date.now() + rows.length) });
+    }
+    async listForProject(projectId: string) {
+      return rows.filter((r) => r.projectId === projectId).map((r) => ({ ...r }));
+    }
+  }
+  return { PrismaLocalizationGeometrySupersessionIndex: FakeLocalizationGeometrySupersessionIndex };
+});
+
+vi.mock('../../server/modules/localization/localizationGeometrySupersessionQueue', () => {
+  type Status = 'PENDING' | 'LEASED' | 'COMPLETED' | 'FAILED' | 'SUPERSEDED';
+  type Rec = {
+    id: string; projectId: string; predecessorGeometryArtifactId: string; successorGeometryArtifactId: string;
+    requestedByUserId: string; status: Status; supersessionArtifactId: string | null;
+    failureCode: string | null; failureDetail: string | null; createdAt: Date; leasedAt: Date | null;
+    leaseExpiresAt: Date | null; completedAt: Date | null; failedAt: Date | null;
+  };
+  const rows: Rec[] = [];
+  let counter = 0;
+  return {
+    enqueueLocalizationGeometrySupersessionRequest: vi.fn(async (input: { projectId: string; predecessorGeometryArtifactId: string; successorGeometryArtifactId: string; requestedByUserId: string }) => {
+      const rec: Rec = {
+        id: `fake-supersession-req-${++counter}`, projectId: input.projectId,
+        predecessorGeometryArtifactId: input.predecessorGeometryArtifactId, successorGeometryArtifactId: input.successorGeometryArtifactId,
+        requestedByUserId: input.requestedByUserId, status: 'PENDING', supersessionArtifactId: null,
+        failureCode: null, failureDetail: null, createdAt: new Date(Date.now() + rows.length),
+        leasedAt: null, leaseExpiresAt: null, completedAt: null, failedAt: null,
+      };
+      rows.push(rec);
+      return rec;
+    }),
+    ensureLocalizationGeometrySupersessionRequested: vi.fn(async (input: { projectId: string; predecessorGeometryArtifactId: string; successorGeometryArtifactId: string; requestedByUserId: string }) => {
+      const existing = rows.find((r) => r.projectId === input.projectId && r.predecessorGeometryArtifactId === input.predecessorGeometryArtifactId && r.successorGeometryArtifactId === input.successorGeometryArtifactId);
+      if (existing && existing.status !== 'FAILED') return existing;
+      const rec: Rec = {
+        id: `fake-supersession-req-${++counter}`, projectId: input.projectId,
+        predecessorGeometryArtifactId: input.predecessorGeometryArtifactId, successorGeometryArtifactId: input.successorGeometryArtifactId,
+        requestedByUserId: input.requestedByUserId, status: 'PENDING', supersessionArtifactId: null,
+        failureCode: null, failureDetail: null, createdAt: new Date(Date.now() + rows.length),
+        leasedAt: null, leaseExpiresAt: null, completedAt: null, failedAt: null,
+      };
+      rows.push(rec);
+      return rec;
+    }),
+    leaseOnePendingLocalizationGeometrySupersessionRequest: vi.fn(async () => {
+      const candidate = rows.find((r) => r.status === 'PENDING');
+      if (!candidate) return null;
+      candidate.status = 'LEASED';
+      candidate.leasedAt = new Date();
+      return candidate;
+    }),
+    markLocalizationGeometrySupersessionCompleted: vi.fn(async (id: string, supersessionArtifactId: string) => {
+      const row = rows.find((r) => r.id === id);
+      if (row) { row.status = 'COMPLETED'; row.supersessionArtifactId = supersessionArtifactId; row.completedAt = new Date(); }
+    }),
+    markLocalizationGeometrySupersessionFailed: vi.fn(async (id: string, failureCode: string, failureDetail: string) => {
+      const row = rows.find((r) => r.id === id);
+      if (row) { row.status = 'FAILED'; row.failureCode = failureCode; row.failureDetail = failureDetail; row.failedAt = new Date(); }
+    }),
+    markLocalizationGeometrySupersessionSuperseded: vi.fn(async (id: string, detail: string) => {
+      const row = rows.find((r) => r.id === id);
+      if (row) { row.status = 'SUPERSEDED'; row.failureCode = 'PREDECESSOR_NO_LONGER_CURRENT'; row.failureDetail = detail; row.failedAt = new Date(); }
+    }),
+    getSupersessionRequestStatusForSubject: vi.fn(async (projectId: string, predecessorGeometryArtifactId: string, successorGeometryArtifactId: string) =>
+      rows.find((r) => r.projectId === projectId && r.predecessorGeometryArtifactId === predecessorGeometryArtifactId && r.successorGeometryArtifactId === successorGeometryArtifactId) ?? null,
+    ),
+    getLatestSupersessionRequestForProject: vi.fn(async (projectId: string) => [...rows].reverse().find((r) => r.projectId === projectId) ?? null),
+  };
+});
+
 vi.mock('../../server/repositories/projectContextBindingRepository', () => {
   type BindingRow = { binding_artifact_id: string; project_context_artifact_id: string; project_context_artifact_type: string };
   const bindingsByProject = new Map<string, BindingRow[]>();
@@ -91,6 +194,7 @@ import {
   saveUserLocalizationGeometry,
   getCurrentLocalizationGeometryForProject,
 } from '../../server/modules/localization/localizationGeometryService';
+import { processGeometrySupersessionProvisioningRequestsOnce } from '../../server/services/luGeometrySupersessionProvisioningWorker';
 import { PrismaProjectContextBindingIndex } from '../../server/repositories/projectContextBindingRepository';
 import { installVerifiedProductLuContext, attestProjectContextBindingArtifact } from '../../server/modules/localization/projectContextBindingAuthority';
 import type { LocalizationSpatialRuntime } from '../../server/modules/localization/createLocalizationSpatialRuntime';
@@ -98,6 +202,10 @@ import type { AuthUser } from '../../server/security/types';
 
 const ISSUER_KEY_ID = 'ed25519:pcb-issuer-drawing-proofs';
 const issuerKey = LocalPemSigningKeyProvider.generate(ISSUER_KEY_ID);
+const geometrySupersessionIssuerKey = LocalPemSigningKeyProvider.generate('ed25519:geometry-supersession-issuer-drawing-proofs');
+process.env.LOCALIZATION_GEOMETRY_SUPERSESSION_ISSUER_KEY_ID = geometrySupersessionIssuerKey.provider.keyId;
+process.env.LOCALIZATION_GEOMETRY_SUPERSESSION_ISSUER_PRIVATE_KEY_PEM = geometrySupersessionIssuerKey.privateKey;
+process.env.LOCALIZATION_GEOMETRY_SUPERSESSION_ISSUER_PUBLIC_KEY_PEM = geometrySupersessionIssuerKey.publicKey;
 const PROPERTY_CENTROID_SWEREF: readonly [number, number] = [6580000, 674000];
 
 // Deterministic, trivially-invertible affine transform standing in for the real PostGIS
@@ -398,6 +506,18 @@ describe('PRODUCT-LU-CESIUM-LOCALIZATION-DRAWING-01 — save/read proof matrix',
     expect(b.ok).toBe(true);
     if (!a.ok || !b.ok) return;
     expect(b.data.artifact_id).not.toBe(a.data.artifact_id);
+    // LU-PROJECTION-RECONCILIATION-AND-TOTAL-ORDER-V1: saving B enqueues the transition but does
+    // NOT itself make B current -- that requires the worker to verify A is still the actual
+    // current head and sign the A->B edge. Web-only save is not the currentness authority.
+    expect(b.data.supersessionStatus).toBe('PENDING');
+    const stillA = await getCurrentLocalizationGeometryForProject({ authUser: owner, projectId, artifactRepository: repo, spatialRuntime });
+    expect(stillA.ok).toBe(true);
+    if (stillA.ok) expect(stillA.data.artifact_id).toBe(a.data.artifact_id);
+
+    // Run the standalone worker (never the web process) to actually verify+sign the transition.
+    mimersRepoBox.repo = repo;
+    const processed = await processGeometrySupersessionProvisioningRequestsOnce();
+    expect(processed).toBe(1);
 
     // "Refresh": a completely fresh GET call, simulating reload/re-login, must resolve to B.
     const reloaded = await getCurrentLocalizationGeometryForProject({ authUser: owner, projectId, artifactRepository: repo, spatialRuntime });
