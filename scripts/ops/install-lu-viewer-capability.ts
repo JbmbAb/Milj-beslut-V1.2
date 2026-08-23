@@ -1,4 +1,8 @@
 /**
+ * LEGACY / MANUAL. Normal product use now provisions ViewerCapability automatically
+ * (server/workers/lu-viewer-capability-worker.ts, PRODUCT-LU-VIEWER-CAPABILITY-PROVISIONING-01).
+ * Kept as a manual fallback/debugging tool, not part of the regular product flow.
+ *
  * Owner-only installation command for an already-issued ProductViewerCapabilityArtifact (V2).
  *
  * Usage:

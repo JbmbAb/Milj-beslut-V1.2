@@ -1,4 +1,8 @@
 /**
+ * LEGACY / MANUAL. Ties to the manual ORSA reissue script below -- normal product use now
+ * provisions and fresh-verifies ViewerCapability automatically
+ * (server/workers/lu-viewer-capability-worker.ts, PRODUCT-LU-VIEWER-CAPABILITY-PROVISIONING-01).
+ *
  * Fresh, independent verification process for the ORSA viewer capability provisioned by
  * scripts/ops/orsa-viewer-capability-reissue-01.ts. Must be launched with an environment that
  * contains ONLY public verification key material -- no *_PRIVATE_KEY_PEM variable of any kind.

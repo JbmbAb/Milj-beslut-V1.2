@@ -69,24 +69,10 @@ vi.mock('../../src/ui/api-client/localizationProjects.client', () => ({
   retryLocalizationBootstrap: vi.fn(),
 }));
 
-vi.mock('../../components/admin/modules/sewage-portal/SewagePortalView', () => ({
-  default: () => <div data-testid="sewage-portal" />,
-}));
-
-vi.mock('../../components/admin/modules/c-notification-mass/CNotificationMassUI', () => ({
-  CNotificationMassUI: () => <div data-testid="c-mass-ui" />,
-}));
-
-vi.mock('../../components/TechnicalDashboardHub', () => ({
-  TechnicalDashboardHub: () => <div data-testid="dashboard-hub" />,
-}));
-
-vi.mock('../../components/ChatBot', () => ({
-  default: () => <div data-testid="chat-bot" />,
-}));
-
-vi.mock('../../components/DetailModal', () => ({ default: () => <div data-testid="detail-modal" /> }));
-vi.mock('../../components/UploadModal', () => ({ default: () => <div data-testid="upload-modal" /> }));
+// PRODUCT-LEGACY-DEAD-SURFACE-CLEANUP-01: SewagePortalView/CNotificationMassUI/
+// TechnicalDashboardHub/ChatBot/DetailModal/UploadModal mocks removed -- AppShell.tsx no longer
+// imports any of them (PRODUCT-UI-LEGACY-ISOLATION-01), and TechnicalDashboardHub.tsx itself no
+// longer exists in the repo (confirmed zero real importers before deletion).
 
 const bootstrap: AppBootstrapResponse = {
   user: {
@@ -174,10 +160,9 @@ describe('App', () => {
     });
   });
 
-  it('renders MimerProductShell after verified bootstrap (not legacy hub)', async () => {
+  it('renders MimerProductShell after verified bootstrap', async () => {
     renderApp();
     expect(await screen.findByTestId('mimer-product-shell')).toBeInTheDocument();
-    expect(screen.queryByTestId('dashboard-hub')).not.toBeInTheDocument();
     expect(screen.getByTestId('product-home')).toBeInTheDocument();
   });
 

@@ -1,4 +1,8 @@
 /**
+ * LEGACY / MANUAL. Normal product use now provisions ViewerCapability automatically
+ * (server/workers/lu-viewer-capability-worker.ts, PRODUCT-LU-VIEWER-CAPABILITY-PROVISIONING-01).
+ * Kept as a manual fallback/debugging tool, not part of the regular product flow.
+ *
  * OWNER DECISION -- AUTHORIZE REAL ORSA VIEWER CAPABILITY PROVISIONING (2026-08-22).
  *
  * A distinct owner-provisioning action, NOT part of AUTHENTICATED-LU-UI-E2E-01 itself. Mints and

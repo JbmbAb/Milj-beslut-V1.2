@@ -1,4 +1,8 @@
 /**
+ * LEGACY / MANUAL. Normal product use now provisions ViewerCapability automatically
+ * (server/workers/lu-viewer-capability-worker.ts, PRODUCT-LU-VIEWER-CAPABILITY-PROVISIONING-01).
+ * Kept as a manual fallback/debugging tool, not part of the regular product flow.
+ *
  * LU-PRODUCT-GOLDEN-PATH-01 -- fixes a real gap found while proving the golden path: the viewer-
  * identity and viewer-capability issuer keys minted during VIEWER-IDENTITY-AUTHORITY-BOOTSTRAP-01
  * / VIEWER-CAPABILITY-ISSUER-TRUST-CHAIN-V1's proof runs were generated fresh in-process and
