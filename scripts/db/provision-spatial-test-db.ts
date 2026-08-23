@@ -27,6 +27,7 @@ import { resolve } from 'node:path';
 import { Client } from 'pg';
 
 import { applyRc6VersionedSpatialDdl, RC6_OWNED_TABLES } from './lib/applyRc6VersionedSpatialDdl';
+import { SPATIAL_LAYER_REGISTRY } from '../../packages/spatial-provider-postgis/src/SpatialLayerRegistry';
 
 /**
  * Tables the spatial proofs actually read and write, still hand-defined here.
@@ -112,6 +113,43 @@ const INDEXES = [
  * provisioned here; tests/setup/seedGisStubs.ts only ever verifies that they are present.
  */
 const EXTENSIONS = ['postgis', 'postgis_raster', 'vector', 'unaccent', 'pg_trgm'];
+
+/**
+ * SPATIAL-DATASET-RUNTIME-BINDING-V1. `SpatialProviderPostGIS.query()` now verifies each layer's
+ * claimed `version_hash` (SpatialLayerRegistry.ts) against a real SUCCESS row in
+ * `PostgisImportBatch` for that layer's table, queried on the SAME connection the spatial query
+ * itself runs on -- see `packages/spatial-provider-postgis/src/SpatialDatasetRuntimeBinding.ts`.
+ * `PostgisImportBatch` is not owned by any Prisma migration (same "created outside the migration
+ * chain" category as `REQUIRED_TABLES`/`CORE_OBJECTS` above; its real DDL lives in
+ * `tests/setup/seedGisStubs.ts`, table-only, no seed rows), so the spatial proofs need both the
+ * table AND matching SUCCESS rows for the layers they actually query (`water`, `ebh`) to exist
+ * here, independent of that other, unrelated setup path.
+ */
+const POSTGIS_IMPORT_BATCH_DDL = `
+  CREATE TABLE IF NOT EXISTS "public"."PostgisImportBatch" (
+    id TEXT PRIMARY KEY DEFAULT gen_random_uuid()::text,
+    harvest_batch_id TEXT,
+    target_schema TEXT NOT NULL,
+    target_table TEXT NOT NULL,
+    imported_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    row_count INTEGER,
+    dataset_version TEXT,
+    status TEXT NOT NULL DEFAULT 'PLANNED',
+    manifest_path TEXT,
+    content_bundle_sha256 TEXT NOT NULL DEFAULT '',
+    source_runtime_path TEXT,
+    ogr2ogr_version TEXT,
+    started_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    completed_at TIMESTAMPTZ,
+    error_message TEXT,
+    import_mode TEXT NOT NULL DEFAULT 'plan'
+  )`;
+
+/** Every layer in SpatialLayerRegistry.ts -- not just the ones a given test happens to query
+ *  today, since a future test querying any of the other four would otherwise hit the same
+ *  missing-binding gap. Hashes are read from the real registry, never duplicated as a literal,
+ *  so this can never silently drift from what the runtime binding check actually requires. */
+const POSTGIS_IMPORT_BATCH_SEED_LAYERS = Object.keys(SPATIAL_LAYER_REGISTRY) as (keyof typeof SPATIAL_LAYER_REGISTRY)[];
 
 function readEnvFile(path: string): Record<string, string> {
   try {
@@ -287,7 +325,31 @@ async function main(): Promise<void> {
       console.log(`   ✅ ${object.name}`);
     }
 
+    await dbClient.query(POSTGIS_IMPORT_BATCH_DDL);
+    console.log('   ✅ public.PostgisImportBatch');
+    for (const layerName of POSTGIS_IMPORT_BATCH_SEED_LAYERS) {
+      const binding = SPATIAL_LAYER_REGISTRY[layerName];
+      const [targetSchema, targetTable] = binding.table.split('.');
+      const existing = await dbClient.query(
+        `SELECT 1 FROM "public"."PostgisImportBatch" WHERE target_schema = $1 AND target_table = $2 AND status = 'SUCCESS'`,
+        [targetSchema, targetTable],
+      );
+      if (existing.rowCount === 0) {
+        await dbClient.query(
+          `INSERT INTO "public"."PostgisImportBatch"
+             (target_schema, target_table, status, content_bundle_sha256, dataset_version, completed_at)
+           VALUES ($1, $2, 'SUCCESS', $3, $4, NOW())`,
+          [targetSchema, targetTable, binding.version_hash, `provision-spatial-test-db-${layerName}`],
+        );
+        console.log(`   ✅ PostgisImportBatch seed row for ${binding.table} (${layerName})`);
+      } else {
+        console.log(`   • PostgisImportBatch SUCCESS row for ${binding.table} already present`);
+      }
+    }
+
     for (const index of INDEXES) await dbClient.query(index);
+
+    await dbClient.query(`GRANT ALL ON "public"."PostgisImportBatch" TO "${targetRole}"`);
 
     for (const schema of ['env', 'core']) {
       await dbClient.query(`GRANT ALL ON SCHEMA ${schema} TO "${targetRole}"`);

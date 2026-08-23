@@ -18,6 +18,7 @@ import {
 import { ArtifactReference } from "@miljobeslut/mps-compliance/src/artifacts/ArtifactContract";
 import type { ArtifactRepositoryPort } from "../../mps-runtime/src/kernel/ExecutionKernel";
 import { resolveLayerBinding } from "./SpatialLayerRegistry";
+import { verifySpatialLayerRuntimeBinding } from "./SpatialDatasetRuntimeBinding";
 
 const SRID_SWEREF99TM = 3006;
 
@@ -163,6 +164,10 @@ export class SpatialProviderPostGIS implements ISpatialProvider {
       }
 
       const binding = resolveLayerBinding(layer.name);
+      // SPATIAL-DATASET-RUNTIME-BINDING-V1: verify the CONNECTED database actually materializes
+      // the dataset this layer's version_hash claims, before touching its data or minting any
+      // evidence. Checked on the same pool as the query below, never a separate DB client.
+      await verifySpatialLayerRuntimeBinding(this.pool, binding);
       const sql = `
         SELECT 1 AS hit
         FROM ${binding.table}

@@ -26,6 +26,7 @@ import {
 } from '../../server/modules/localization/localizationGeometryProjection';
 import type { LocalizationGeometryProjectionIndex } from '../../server/repositories/localizationGeometryProjectionRepository';
 import { SpatialProviderPostGIS } from '../../packages/spatial-provider-postgis/src/SpatialProviderPostGIS';
+import { SPATIAL_LAYER_REGISTRY } from '../../packages/spatial-provider-postgis/src/SpatialLayerRegistry';
 import type { LUPropertyContextArtifact } from '../../packages/mps-lu/src/artifacts/LUPropertyContextArtifact';
 import {
   computeExecutionIdentityArtifactIdV3,
@@ -269,6 +270,9 @@ describe('PRODUCT-LU-LOCALIZATION-GEOMETRY-01 — spatial query wiring proofs (p
     const provider = new SpatialProviderPostGIS('postgresql://unused-in-this-proof', repo);
     const queryCalls: Array<{ easting: number; northing: number }> = [];
     const poolQuery = vi.fn(async (sql: string, params?: unknown[]) => {
+      if (sql.includes('PostgisImportBatch')) {
+        return { rows: [{ content_bundle_sha256: SPATIAL_LAYER_REGISTRY.water!.version_hash, dataset_version: 'test' }] };
+      }
       if (sql.includes('ST_DWithin')) {
         const [easting, northing] = params as [number, number, number, number];
         queryCalls.push({ easting, northing });
@@ -295,6 +299,9 @@ describe('PRODUCT-LU-LOCALIZATION-GEOMETRY-01 — spatial query wiring proofs (p
     const provider = new SpatialProviderPostGIS('postgresql://unused-in-this-proof', repo);
     const queryCalls: Array<{ easting: number; northing: number }> = [];
     const poolQuery = vi.fn(async (sql: string, params?: unknown[]) => {
+      if (sql.includes('PostgisImportBatch')) {
+        return { rows: [{ content_bundle_sha256: SPATIAL_LAYER_REGISTRY.water!.version_hash, dataset_version: 'test' }] };
+      }
       if (sql.includes('ST_DWithin')) {
         const [easting, northing] = params as [number, number, number, number];
         queryCalls.push({ easting, northing });
