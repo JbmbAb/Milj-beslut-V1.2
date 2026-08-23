@@ -1,11 +1,18 @@
 import React from 'react';
-import { useBankIdAuth } from '../../src/ui/hooks/useAuth';
+import { useBankIdAuth, type BankIdLoginResult } from '../../src/ui/hooks/useAuth';
 
-export const AuthInterface: React.FC = () => {
-  const { initiate, cancel, status, order, error, isInitializing } = useBankIdAuth();
+export interface AuthInterfaceProps {
+  onComplete: (result: BankIdLoginResult) => void;
+}
+
+export const AuthInterface: React.FC<AuthInterfaceProps> = ({ onComplete }) => {
+  const { initiate, cancel, status, order, error, isInitializing } = useBankIdAuth(onComplete);
 
   return (
-    <div className="flex flex-col items-center justify-center p-8 space-y-6 bg-white rounded-[2.5rem] border border-slate-200 shadow-2xl max-w-sm mx-auto animate-in zoom-in duration-300">
+    <div
+      data-testid="bankid-auth-interface"
+      className="flex flex-col items-center justify-center p-8 space-y-6 bg-white rounded-[2.5rem] border border-slate-200 shadow-2xl max-w-sm mx-auto animate-in zoom-in duration-300"
+    >
       <div className="w-20 h-20 bg-blue-600 rounded-3xl flex items-center justify-center text-white text-3xl shadow-xl shadow-blue-100">
         <i className="fas fa-shield-halved"></i>
       </div>
@@ -21,6 +28,7 @@ export const AuthInterface: React.FC = () => {
 
       {status === 'idle' && (
         <button
+          data-testid="bankid-start"
           onClick={() => initiate()}
           disabled={isInitializing}
           className="w-full py-5 bg-slate-900 text-white rounded-2xl text-xs font-black uppercase tracking-widest hover:bg-blue-600 transition-all shadow-lg flex items-center justify-center gap-3"
@@ -35,7 +43,7 @@ export const AuthInterface: React.FC = () => {
       )}
 
       {status === 'pending' && order && (
-        <div className="w-full space-y-6 text-center animate-in fade-in">
+        <div className="w-full space-y-6 text-center animate-in fade-in" data-testid="bankid-pending">
           <div className="bg-slate-50 p-6 rounded-3xl border border-slate-100 flex justify-center">
             {/* Real QR would be rendered here, using qrPayload from order */}
             <div className="w-48 h-48 bg-white border-4 border-slate-900 rounded-2xl flex items-center justify-center relative overflow-hidden">
@@ -51,6 +59,7 @@ export const AuthInterface: React.FC = () => {
               Väntar på signering...
             </p>
             <button
+              data-testid="bankid-cancel"
               onClick={() => cancel()}
               className="text-[10px] font-black uppercase text-slate-400 hover:text-rose-500 transition-colors"
             >
@@ -61,11 +70,12 @@ export const AuthInterface: React.FC = () => {
       )}
 
       {status === 'failed' && (
-        <div className="w-full space-y-4 animate-in shake duration-500">
+        <div className="w-full space-y-4 animate-in shake duration-500" data-testid="bankid-failed">
           <div className="p-4 bg-rose-50 border border-rose-100 rounded-2xl text-rose-600 text-xs font-bold text-center">
             {error || 'Verifiering misslyckades'}
           </div>
           <button
+            data-testid="bankid-retry"
             onClick={() => initiate()}
             className="w-full py-4 bg-slate-900 text-white rounded-2xl text-xs font-black uppercase tracking-widest hover:bg-blue-600 transition-all"
           >

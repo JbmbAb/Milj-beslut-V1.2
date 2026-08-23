@@ -80,9 +80,10 @@ const mocks = vi.hoisted(() => {
     assertBankIdEnv: vi.fn(),
     createTokenPair: vi.fn(),
     ensureMockAuthUser: vi.fn(),
+    ensureTestBankIdUser: vi.fn(),
     findAuthUserByBankId: vi.fn(),
     getEnv: vi.fn(),
-    isBankIdMockMode: vi.fn(),
+    getBankIdRuntimeMode: vi.fn(),
     persistentReplayProtection: {
       registerSession: vi.fn(),
       validateAndComplete: vi.fn(),
@@ -120,11 +121,12 @@ vi.mock('../../server/security/auth', () => ({
 vi.mock('../../server/security/env', () => ({
   assertBankIdEnv: mocks.assertBankIdEnv,
   getEnv: mocks.getEnv,
-  isBankIdMockMode: mocks.isBankIdMockMode,
+  getBankIdRuntimeMode: mocks.getBankIdRuntimeMode,
 }));
 
 vi.mock('../../server/repositories/userRepository', () => ({
   ensureMockAuthUser: mocks.ensureMockAuthUser,
+  ensureTestBankIdUser: mocks.ensureTestBankIdUser,
   findAuthUserByBankId: mocks.findAuthUserByBankId,
 }));
 
@@ -172,11 +174,11 @@ describe('bankIdService', () => {
     delete process.env.BANKID_CA_PATH;
 
     mocks.assertBankIdEnv.mockImplementation(() => undefined);
-    mocks.isBankIdMockMode.mockReturnValue(false);
+    mocks.getBankIdRuntimeMode.mockReturnValue('production');
     mocks.getEnv.mockImplementation((name: string) => {
       switch (name) {
         case 'BANKID_BASE_URL':
-          return 'https://bankid.example.test/rp/v6.0/';
+          return 'https://bankid.example.test/6.0/';
         case 'BANKID_CERT_PATH':
           return 'certificates/client-cert.pem';
         case 'BANKID_KEY_PATH':
@@ -191,12 +193,14 @@ describe('bankIdService', () => {
       organisationId: 'org-1',
       role: 'ADMIN',
       bankidId: '191212121212',
+      identityEnvironment: 'PRODUCTION',
     });
     mocks.ensureMockAuthUser.mockResolvedValue({
       id: 'mock-user-1',
       organisationId: 'mock-org-1',
       role: 'ADMIN',
       bankidId: 'mock-bankid-testuser-1',
+      identityEnvironment: 'MOCK',
     });
     mocks.createTokenPair.mockReturnValue({
       accessToken: 'access-token',
@@ -243,10 +247,10 @@ describe('bankIdService', () => {
   });
 
   it('reports current BankID mode from env helper', () => {
-    mocks.isBankIdMockMode.mockReturnValueOnce(false);
-    expect(getBankIdMode()).toBe('real');
+    mocks.getBankIdRuntimeMode.mockReturnValueOnce('production');
+    expect(getBankIdMode()).toBe('production');
 
-    mocks.isBankIdMockMode.mockReturnValueOnce(true);
+    mocks.getBankIdRuntimeMode.mockReturnValueOnce('mock');
     expect(getBankIdMode()).toBe('mock');
   });
 
@@ -257,7 +261,7 @@ describe('bankIdService', () => {
   });
 
   it('initiates mock auth without requiring mTLS configuration', async () => {
-    mocks.isBankIdMockMode.mockReturnValue(true);
+    mocks.getBankIdRuntimeMode.mockReturnValue('mock');
 
     const result = await initiateBankIdAuth('127.0.0.1');
 
@@ -298,7 +302,7 @@ describe('bankIdService', () => {
     );
     expect(mocks.readFileSync).toHaveBeenCalledWith('certificates/bankid.pfx');
     expect(mocks.readFileSync).toHaveBeenCalledWith('certificates/ca.pem');
-    expect(mocks.requests[0]?.options.path).toBe('/rp/v6.0/auth');
+    expect(mocks.requests[0]?.options.path).toBe('/6.0/auth');
     expect(JSON.parse(mocks.requests[0]?.body || '{}')).toEqual(
       expect.objectContaining({
         endUserIp: '127.0.0.1',
@@ -355,7 +359,7 @@ describe('bankIdService', () => {
     });
 
     expect(result.orderRef).toBe('sign-order-1');
-    expect(mocks.requests.at(-1)?.options.path).toBe('/rp/v6.0/sign');
+    expect(mocks.requests.at(-1)?.options.path).toBe('/6.0/sign');
     expect(JSON.parse(mocks.requests.at(-1)?.body || '{}')).toEqual({
       endUserIp: '127.0.0.1',
       userVisibleData: Buffer.from('Skriv under dokument').toString('base64'),
@@ -364,11 +368,12 @@ describe('bankIdService', () => {
     expect(mocks.persistentReplayProtection.registerSession).toHaveBeenCalledWith(
       'sign-order-1',
       '127.0.0.1',
+      'PRODUCTION',
     );
   });
 
   it('initiates mock sign and stores replay session without mtls', async () => {
-    mocks.isBankIdMockMode.mockReturnValue(true);
+    mocks.getBankIdRuntimeMode.mockReturnValue('mock');
 
     const result = await initiateBankIdSign({
       endUserIp: '127.0.0.1',
@@ -380,6 +385,7 @@ describe('bankIdService', () => {
     expect(mocks.persistentReplayProtection.registerSession).toHaveBeenCalledWith(
       result.orderRef,
       '127.0.0.1',
+      'MOCK',
     );
     expect(mocks.request).not.toHaveBeenCalled();
   });
@@ -424,6 +430,7 @@ describe('bankIdService', () => {
       organisationId: 'org-1',
       role: 'ADMIN',
       bankidId: '191212121212',
+      identityEnvironment: 'PRODUCTION',
     });
     expect(result).toEqual({
       status: 'complete',
@@ -440,7 +447,7 @@ describe('bankIdService', () => {
   });
 
   it('auto-provisions mock users when mock mode is enabled', async () => {
-    mocks.isBankIdMockMode.mockReturnValue(true);
+    mocks.getBankIdRuntimeMode.mockReturnValue('mock');
     mocks.findAuthUserByBankId.mockResolvedValueOnce(null);
 
     const started = await initiateBankIdAuth('127.0.0.1');
@@ -463,9 +470,85 @@ describe('bankIdService', () => {
     });
   });
 
+  it('provisions an explicitly marked test identity only in official test mode', async () => {
+    mocks.getBankIdRuntimeMode.mockReturnValue('test');
+    mocks.findAuthUserByBankId.mockResolvedValueOnce(null);
+    mocks.ensureTestBankIdUser.mockResolvedValueOnce({
+      id: 'test-user-1',
+      organisationId: 'test-org-1',
+      role: 'CONSULTANT',
+      bankidId: '191212121212',
+      identityEnvironment: 'TEST',
+    });
+    mocks.scenarios.push({
+      statusCode: 200,
+      body: JSON.stringify({
+        orderRef: 'test-order-1',
+        status: 'complete',
+        completionData: {
+          user: { personalNumber: '191212121212', givenName: 'Test', surname: 'User', name: 'Test User' },
+          device: { ipAddress: '127.0.0.1' },
+          cert: { notBefore: '2026-01-01T00:00:00.000Z', notAfter: '2027-01-01T00:00:00.000Z' },
+          signature: 'test-bankid-signature',
+          ocspResponse: 'test-ocsp',
+        },
+      }),
+    });
+
+    const result = await collectBankIdAuth('test-order-1', '127.0.0.1');
+
+    expect(mocks.ensureTestBankIdUser).toHaveBeenCalledWith('191212121212');
+    expect(mocks.ensureMockAuthUser).not.toHaveBeenCalled();
+    expect(result.user).toMatchObject({ id: 'test-user-1', role: 'CONSULTANT', bankidId: '191212121212' });
+  });
+
+  it('records TEST provenance when an official test-environment order begins', async () => {
+    mocks.getBankIdRuntimeMode.mockReturnValue('test');
+    mocks.scenarios.push({
+      statusCode: 200,
+      body: JSON.stringify({ orderRef: 'test-order-session-1', autoStartToken: 'auto', qrStartToken: 'qr', qrStartSecret: 'secret' }),
+    });
+
+    await initiateBankIdAuth('127.0.0.1');
+
+    expect(mocks.persistentReplayProtection.registerSession).toHaveBeenCalledWith(
+      'test-order-session-1',
+      '127.0.0.1',
+      'TEST',
+    );
+  });
+
+  it('fails closed instead of reusing a production identity in the official test environment', async () => {
+    mocks.getBankIdRuntimeMode.mockReturnValue('test');
+    mocks.findAuthUserByBankId.mockResolvedValueOnce({
+      id: 'production-user-1',
+      organisationId: 'production-org-1',
+      role: 'ADMIN',
+      bankidId: '191212121212',
+      identityEnvironment: 'PRODUCTION',
+    });
+    mocks.scenarios.push({
+      statusCode: 200,
+      body: JSON.stringify({
+        orderRef: 'test-order-2',
+        status: 'complete',
+        completionData: {
+          user: { personalNumber: '191212121212', givenName: 'Test', surname: 'User', name: 'Test User' },
+          device: { ipAddress: '127.0.0.1' },
+          cert: { notBefore: '2026-01-01T00:00:00.000Z', notAfter: '2027-01-01T00:00:00.000Z' },
+          signature: 'test-bankid-signature-2',
+          ocspResponse: 'test-ocsp',
+        },
+      }),
+    });
+
+    await expect(collectBankIdAuth('test-order-2', '127.0.0.1')).rejects.toThrow(/identity environment mismatch/i);
+    expect(mocks.ensureTestBankIdUser).not.toHaveBeenCalled();
+  });
+
   it('does not auto-provision mock users when auto-create is disabled', async () => {
     process.env.BANKID_MOCK_AUTO_CREATE_USER = 'nej';
-    mocks.isBankIdMockMode.mockReturnValue(true);
+    mocks.getBankIdRuntimeMode.mockReturnValue('mock');
     mocks.findAuthUserByBankId.mockResolvedValueOnce(null);
 
     const started = await initiateBankIdAuth('127.0.0.1');
@@ -515,7 +598,7 @@ describe('bankIdService', () => {
   });
 
   it('tracks and updates mock order state through complete and fail helpers', async () => {
-    mocks.isBankIdMockMode.mockReturnValue(true);
+    mocks.getBankIdRuntimeMode.mockReturnValue('mock');
 
     const started = await initiateBankIdAuth('127.0.0.1');
     expect(getMockBankIdOrder(started.orderRef)).toMatchObject({
@@ -600,7 +683,7 @@ describe('bankIdService', () => {
   });
 
   it('cancels mock auth orders and marks replay protection as failed', async () => {
-    mocks.isBankIdMockMode.mockReturnValue(true);
+    mocks.getBankIdRuntimeMode.mockReturnValue('mock');
     const started = await initiateBankIdAuth('127.0.0.1');
 
     const result = await cancelBankIdAuth(started.orderRef);
@@ -626,7 +709,7 @@ describe('bankIdService', () => {
     const result = await cancelBankIdAuth('real-order-1');
 
     expect(result).toEqual({ cancelled: true });
-    expect(mocks.requests.at(-1)?.options.path).toBe('/rp/v6.0/cancel');
+    expect(mocks.requests.at(-1)?.options.path).toBe('/6.0/cancel');
     expect(JSON.parse(mocks.requests.at(-1)?.body || '{}')).toEqual({ orderRef: 'real-order-1' });
     expect(mocks.persistentReplayProtection.failSession).toHaveBeenCalledWith('real-order-1', 'userCancel');
   });

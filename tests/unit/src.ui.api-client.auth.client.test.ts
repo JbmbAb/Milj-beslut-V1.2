@@ -49,13 +49,32 @@ describe('src/ui/api-client.auth.client', () => {
     vi.mocked(csrfFetch).mockResolvedValue({ ok: true } as Response);
 
     await cancelBankId('order-3');
-    await logout();
+    await logout('access-token', 'refresh-token');
 
     expect(csrfFetch).toHaveBeenNthCalledWith(1, '/api/auth/bankid/cancel', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ orderRef: 'order-3' }),
     });
-    expect(csrfFetch).toHaveBeenNthCalledWith(2, '/api/auth/logout', { method: 'POST' });
+    expect(csrfFetch).toHaveBeenNthCalledWith(2, '/api/auth/logout', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: 'Bearer access-token',
+      },
+      body: JSON.stringify({ refreshToken: 'refresh-token' }),
+    });
+  });
+
+  it('sends logout without an Authorization header when no accessToken is given', async () => {
+    vi.mocked(csrfFetch).mockResolvedValue({ ok: true } as Response);
+
+    await logout(undefined, 'refresh-token');
+
+    expect(csrfFetch).toHaveBeenCalledWith('/api/auth/logout', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ refreshToken: 'refresh-token' }),
+    });
   });
 });

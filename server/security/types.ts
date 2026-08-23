@@ -2,9 +2,11 @@ export type UserRole = 'ADMIN' | 'CONSULTANT' | 'AUDITOR' | 'BANK';
 
 export interface AuthUser {
   id: string;
-  organisationId: string;
+  organisationId: string | null;
   bankidId: string;
   role: UserRole;
+  /** Provenance of the BankID identity, not an authorization grant. */
+  identityEnvironment?: 'MOCK' | 'TEST' | 'PRODUCTION' | 'LEGACY';
 }
 
 export interface PropertyLookupInput {

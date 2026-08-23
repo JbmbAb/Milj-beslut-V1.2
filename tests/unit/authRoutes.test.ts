@@ -227,7 +227,8 @@ describe('auth.routes', () => {
       .set('Authorization', authHeader())
       .send({ refreshToken: 'refresh-token' });
 
-    expect(logout.status).toBe(404);
+    expect(logout.status).toBe(200);
+    expect(logout.body).toEqual({ ok: true });
   });
 
   it('exposes mock BankID order control routes in mock mode', async () => {
@@ -298,6 +299,55 @@ describe('auth.routes', () => {
     expect(typeof valid.body?.refreshToken).toBe('string');
   });
 
+  it('rejects password:"dev" bypass when ALLOW_DEV_LOGIN is unset, even in NODE_ENV=development', async () => {
+    const originalNodeEnv = process.env.NODE_ENV;
+    const originalAllowDevLogin = process.env.ALLOW_DEV_LOGIN;
+    process.env.NODE_ENV = 'development';
+    delete process.env.ALLOW_DEV_LOGIN;
+
+    try {
+      const res = await request(app)
+        .post('/api/admin/auth/login')
+        .send({ username: 'admin', password: 'dev' });
+
+      expect(res.status).toBe(401);
+      expect(mocks.ensureAdminConsoleUser).not.toHaveBeenCalled();
+
+      const status = await request(app).get('/api/auth/bankid/status');
+      expect(status.body).toMatchObject({ allowDevLogin: false });
+    } finally {
+      if (originalNodeEnv === undefined) delete process.env.NODE_ENV;
+      else process.env.NODE_ENV = originalNodeEnv;
+      if (originalAllowDevLogin === undefined) delete process.env.ALLOW_DEV_LOGIN;
+      else process.env.ALLOW_DEV_LOGIN = originalAllowDevLogin;
+    }
+  });
+
+  it('allows password:"dev" bypass only when NODE_ENV=development AND ALLOW_DEV_LOGIN=true', async () => {
+    const originalNodeEnv = process.env.NODE_ENV;
+    const originalAllowDevLogin = process.env.ALLOW_DEV_LOGIN;
+    process.env.NODE_ENV = 'development';
+    process.env.ALLOW_DEV_LOGIN = 'true';
+
+    try {
+      const res = await request(app)
+        .post('/api/admin/auth/login')
+        .send({ username: 'admin', password: 'dev' });
+
+      expect(res.status).toBe(200);
+      expect(res.body).toMatchObject({ ok: true, user: { id: 'admin-1' } });
+      expect(mocks.ensureAdminConsoleUser).toHaveBeenCalledWith('admin');
+
+      const status = await request(app).get('/api/auth/bankid/status');
+      expect(status.body).toMatchObject({ allowDevLogin: true });
+    } finally {
+      if (originalNodeEnv === undefined) delete process.env.NODE_ENV;
+      else process.env.NODE_ENV = originalNodeEnv;
+      if (originalAllowDevLogin === undefined) delete process.env.ALLOW_DEV_LOGIN;
+      else process.env.ALLOW_DEV_LOGIN = originalAllowDevLogin;
+    }
+  });
+
   it('returns 404 for mock BankID endpoints when mode is not mock', async () => {
     mocks.getBankIdMode.mockReturnValue('production');
 
@@ -327,7 +377,14 @@ describe('auth.routes', () => {
   it('handles logout without refreshToken (revokes only access token)', async () => {
     const res = await request(app).post('/api/auth/logout').set('Authorization', authHeader()).send({});
 
-    expect(res.status).toBe(404);
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual({ ok: true });
+  });
+
+  it('rejects logout with no bearer token', async () => {
+    const res = await request(app).post('/api/auth/logout').send({});
+
+    expect(res.status).toBe(401);
   });
 
   it('returns 401 on missing username in admin login', async () => {

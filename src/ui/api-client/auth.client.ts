@@ -26,6 +26,8 @@ export interface BankIdCollectResponse {
     id: string;
     role: string;
     organisationId: string;
+    bankidId?: string;
+    displayName?: string;
   };
 }
 
@@ -57,6 +59,13 @@ export async function cancelBankId(orderRef: string): Promise<void> {
   });
 }
 
-export async function logout(): Promise<void> {
-  await csrfFetch('/api/auth/logout', { method: 'POST' });
+export async function logout(accessToken?: string, refreshToken?: string): Promise<void> {
+  await csrfFetch('/api/auth/logout', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      ...(accessToken ? { Authorization: `Bearer ${accessToken}` } : {}),
+    },
+    body: JSON.stringify({ refreshToken }),
+  });
 }

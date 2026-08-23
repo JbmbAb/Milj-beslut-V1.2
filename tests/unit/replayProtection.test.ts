@@ -22,7 +22,7 @@ describe('Persistent Replay Protection', () => {
     it('should register a new BankID session with a nonce', async () => {
       (prisma.bankIdSession.create as any).mockResolvedValue({});
 
-      const { nonce } = await persistentReplayProtection.registerSession('order-123', '192.168.1.1');
+      const { nonce } = await persistentReplayProtection.registerSession('order-123', '192.168.1.1', 'PRODUCTION');
 
       expect(nonce).toBeDefined();
       expect(nonce.length).toBeGreaterThan(30);

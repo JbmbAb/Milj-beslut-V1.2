@@ -3,6 +3,8 @@ import { MpsCompass } from '@miljobeslut/mps-compass';
 import { designTokens } from '@miljobeslut/mps-identity';
 import { MpsConsoleApp, type MpsProjectionApi } from '@miljobeslut/mps-console';
 import { PropertyFirstLuEntry } from './lu/PropertyFirstLuEntry';
+import { ProjectPicker } from './ProjectPicker';
+import type { AppBootstrapProjectSummary } from '../../src/types/app';
 
 export type ProductViewId = 'home' | 'localization' | 'admin';
 
@@ -16,6 +18,10 @@ export interface MimerProductShellProps {
   userName?: string;
   organisationName?: string;
   activeProjectLabel?: string | null;
+  projects?: AppBootstrapProjectSummary[];
+  activeProjectId?: string | null;
+  onSelectProject?: (projectId: string) => void;
+  onLogout?: () => void;
 }
 
 /**
@@ -26,6 +32,10 @@ export const MimerProductShell: React.FC<MimerProductShellProps> = ({
   userName = 'Användare',
   organisationName,
   activeProjectLabel,
+  projects = [],
+  activeProjectId = null,
+  onSelectProject,
+  onLogout,
 }) => {
   const [view, setView] = useState<ProductViewId>('home');
   const colors = designTokens.colors;
@@ -56,10 +66,26 @@ export const MimerProductShell: React.FC<MimerProductShellProps> = ({
             <p className="text-[10px] uppercase tracking-[0.2em] opacity-60">Mimer Platform</p>
           </div>
         </div>
-        <div className="text-right text-xs opacity-70" style={{ color: colors.statusAudit.hex }}>
-          <p>{userName}</p>
-          {organisationName ? <p>{organisationName}</p> : null}
-          {activeProjectLabel ? <p className="opacity-80">{activeProjectLabel}</p> : null}
+        <div className="flex items-center gap-4">
+          {onSelectProject ? (
+            <ProjectPicker projects={projects} activeProjectId={activeProjectId} onSelect={onSelectProject} />
+          ) : null}
+          <div className="text-right text-xs opacity-70" style={{ color: colors.statusAudit.hex }}>
+            <p>{userName}</p>
+            {organisationName ? <p>{organisationName}</p> : null}
+            {activeProjectLabel ? <p className="opacity-80">{activeProjectLabel}</p> : null}
+          </div>
+          {onLogout ? (
+            <button
+              type="button"
+              data-testid="logout-button"
+              onClick={onLogout}
+              className="text-xs uppercase tracking-widest opacity-70 hover:opacity-100 border px-3 py-1.5 rounded"
+              style={{ borderColor: colors.coreGraphite.hex }}
+            >
+              Logga ut
+            </button>
+          ) : null}
         </div>
       </header>
 

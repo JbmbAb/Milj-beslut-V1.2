@@ -93,6 +93,11 @@ export default defineConfig(({ mode }) => {
           target: apiTarget,
           changeOrigin: true,
           secure: false,
+          // PRODUCT-AUTH-BANKID-CLIENT-10035-RESOLUTION-01: forward the real connecting
+          // client's address via X-Forwarded-For so server/security/clientIp.ts's
+          // trust-proxy-based resolution reflects genuine remote clients, not just Vite's
+          // own loopback hop to the backend.
+          xfwd: true,
         },
       },
     },

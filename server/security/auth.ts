@@ -26,7 +26,7 @@ export function decodeB64UrlJson<T>(input: string): T {
 
 export interface JwtPayload {
   sub: string;
-  organisationId: string;
+  organisationId: string | null;
   bankidId: string;
   role: AuthUser['role'];
   type: 'access' | 'refresh';

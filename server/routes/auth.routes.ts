@@ -14,9 +14,20 @@ import {
   ensureAdminConsoleUser,
 } from '../modules/auth/public';
 import { getBankIdConfigurationStatus } from '../security/env';
-import { createTokenPair } from '../security/auth';
+import { createTokenPair, requireAuth, revokeSession } from '../security/auth';
+import { resolveEndUserIp } from '../security/clientIp';
 
 const router = express.Router();
+
+/**
+ * PRODUCT-AUTH-USER-LOGIN-UX-01 Phase B. The password:'dev' bypass below is gated on this,
+ * NOT on NODE_ENV alone -- NODE_ENV=development is also true for any ordinary local dev
+ * session that should still go through real BankID. ALLOW_DEV_LOGIN is a second, explicit
+ * opt-in a developer sets only when they deliberately want the dummy-login shortcut.
+ */
+function isDevLoginAllowed(): boolean {
+  return process.env.NODE_ENV === 'development' && process.env.ALLOW_DEV_LOGIN === 'true';
+}
 
 function renderMockBankIdLaunchHtml(orderRef: string, csrfToken: string): string {
   return `<!doctype html>
@@ -113,6 +124,9 @@ router.get('/api/auth/bankid/status', rateLimitByUser(60, 60_000), (_req, res) =
     mode: status.mode,
     canInitiate: status.canInitiate,
     message: status.message,
+    // PRODUCT-AUTH-USER-LOGIN-UX-01 Phase B: the unauthenticated shell reads this to decide
+    // whether to even render the dev-login shortcut -- never assumed client-side from NODE_ENV.
+    allowDevLogin: isDevLoginAllowed(),
   });
 });
 
@@ -121,7 +135,7 @@ router.post('/api/auth/bankid/init', rateLimitByUser(10, 60_000), async (req, re
     if (!requireBankIdReady(res)) {
       return;
     }
-    const endUserIp = String(req.body?.endUserIp ?? (req.ip || '127.0.0.1'));
+    const endUserIp = String(req.body?.endUserIp ?? resolveEndUserIp(req));
     const personalNumber = normalizeBankIdPersonalNumber(req.body?.personalNumber);
     const orderTime = new Date();
     const order = await initiateBankIdAuth(endUserIp, { personalNumber });
@@ -142,7 +156,7 @@ router.post('/api/auth/bankid/collect', rateLimitByUser(60, 60_000), async (req,
       return;
     }
     const orderRef = String(req.body?.orderRef ?? '');
-    const endUserIp = String(req.body?.endUserIp ?? (req.ip || '127.0.0.1'));
+    const endUserIp = String(req.body?.endUserIp ?? resolveEndUserIp(req));
     const result = await collectBankIdAuth(orderRef, endUserIp);
     res.json({ ok: true, ...result });
   } catch (error: unknown) {
@@ -245,6 +259,28 @@ router.post('/api/auth/refresh', rateLimitByUser(30, 60_000), async (req, res, n
   }
 });
 
+/**
+ * POST /api/auth/logout
+ *
+ * PRODUCT-AUTH-USER-LOGIN-UX-01 Phase B. Server-side session termination -- writes both the
+ * presented access token's and (if supplied) refresh token's jti into TokenRevocation, so
+ * requireAuth's per-request isTokenRevoked() check rejects them immediately, not just once
+ * they naturally expire. requireAuth is used here (not left anonymous) specifically so a
+ * caller with no valid bearer token at all gets a clean 401 rather than a false "logged out"
+ * signal -- logout is itself an authenticated action on the session being ended.
+ */
+router.post('/api/auth/logout', requireAuth, rateLimitByUser(30, 60_000), async (req, res, next) => {
+  try {
+    const raw = req.headers.authorization;
+    const accessToken = raw?.startsWith('Bearer ') ? raw.slice('Bearer '.length) : undefined;
+    const refreshToken = typeof req.body?.refreshToken === 'string' ? req.body.refreshToken : undefined;
+    await revokeSession(accessToken, refreshToken);
+    res.json({ ok: true });
+  } catch (error: unknown) {
+    next(error);
+  }
+});
+
 router.post('/api/admin/auth/login', rateLimitByUser(20, 60_000), async (req, res, next) => {
   try {
     const username = String(req.body?.username ?? '').trim();
@@ -253,8 +289,9 @@ router.post('/api/admin/auth/login', rateLimitByUser(20, 60_000), async (req, re
     const expectedUsername = String(process.env.ADMIN_CONSOLE_USERNAME || 'admin').trim();
     const expectedPassword = String(process.env.ADMIN_CONSOLE_PASSWORD || '');
 
-    // Developer bypass for easier testing
-    if (process.env.NODE_ENV === 'development' && password === 'dev') {
+    // Developer bypass for easier testing -- gated on an explicit second opt-in
+    // (ALLOW_DEV_LOGIN), never on NODE_ENV alone. See isDevLoginAllowed() above.
+    if (isDevLoginAllowed() && password === 'dev') {
       const user = await ensureAdminConsoleUser(expectedUsername);
       const tokens = createTokenPair(user);
       return res.json({

@@ -15,12 +15,41 @@ import { useAppWorkspace } from './providers/AppWorkspaceProvider';
 import { useTheme } from '../context/ThemeContext';
 import { CommandPalette, InspectorPanel } from '../ui';
 import { featureFlags } from '../../src/infrastructure/feature-flags';
-import { setSession, callApi } from '../../services/coreApiClient';
+import { setSession, callApi, getToken, getRefreshToken, setActiveProjectId } from '../../services/coreApiClient';
 import { MimerProductShell } from './MimerProductShell';
+import { AuthInterface } from '../project/AuthInterface';
+import { logout as bankIdLogout, type BankIdLoginResult } from '../../src/ui/hooks/useAuth';
+
+interface BankIdStatusResponse {
+  ok: boolean;
+  mode: 'mock' | 'test' | 'production';
+  canInitiate: boolean;
+  message: string;
+  allowDevLogin: boolean;
+}
 
 export const AppShell: React.FC = () => {
   const [isLoggingIn, setIsLoggingIn] = useState(false);
+  const [authConfig, setAuthConfig] = useState<BankIdStatusResponse | null>(null);
+  const [authConfigError, setAuthConfigError] = useState('');
   const { plan } = useProjectStructure();
+
+  // PRODUCT-AUTH-USER-LOGIN-UX-01 Phase B: which login surfaces to even RENDER is decided by
+  // the server (BankID readiness, ALLOW_DEV_LOGIN), never guessed client-side from NODE_ENV --
+  // a build running in a browser has no reliable view of the server's env at all.
+  React.useEffect(() => {
+    let cancelled = false;
+    callApi<BankIdStatusResponse>('/api/auth/bankid/status', { method: 'GET', auth: false })
+      .then((status) => {
+        if (!cancelled) setAuthConfig(status);
+      })
+      .catch((err) => {
+        if (!cancelled) setAuthConfigError(err instanceof Error ? err.message : 'Kunde inte läsa in inloggningskonfiguration.');
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   React.useEffect(() => {
     if (typeof window !== 'undefined') {
@@ -42,6 +71,7 @@ export const AppShell: React.FC = () => {
     retryBootstrap,
     onLoginSuccess,
     clearSessionAndReset,
+    loadBootstrap,
   } = useAppSession();
   const { isDark } = useTheme();
 
@@ -93,7 +123,7 @@ export const AppShell: React.FC = () => {
   }
 
   if (sessionState === 'unauthenticated') {
-    const handleLogin = async () => {
+    const handleDevLogin = async () => {
       setIsLoggingIn(true);
       try {
         const payload = await callApi<{
@@ -107,11 +137,10 @@ export const AppShell: React.FC = () => {
           auth: false,
         });
         if (payload.ok) {
-          setSession({
-            accessToken: payload.accessToken,
-            refreshToken: payload.refreshToken,
-            activeProjectId: 'cmsfmguf30002zsf7pfdffk7b',
-          });
+          // PRODUCT-AUTH-USER-LOGIN-UX-01: no hardcoded activeProjectId here -- the server's
+          // own bootstrap (via onLoginSuccess -> loadBootstrap) resolves whichever project is
+          // actually valid for this user, same as the real BankID path below.
+          setSession({ accessToken: payload.accessToken, refreshToken: payload.refreshToken });
           onLoginSuccess({
             id: payload.user.id,
             name: 'Admin Developer',
@@ -127,31 +156,59 @@ export const AppShell: React.FC = () => {
       }
     };
 
+    const handleBankIdComplete = (result: BankIdLoginResult) => {
+      setSession({ accessToken: result.accessToken, refreshToken: result.refreshToken });
+      onLoginSuccess({
+        id: result.user.id,
+        name: result.user.displayName || 'Verifierad användare',
+        personalNumber: result.user.bankidId || '',
+        isAuthenticated: true,
+      });
+    };
+
+    const bankIdReady = Boolean(authConfig?.canInitiate);
+    const devLoginAllowed = Boolean(authConfig?.allowDevLogin);
+    const stillResolvingAuthConfig = !authConfig && !authConfigError;
+
     return (
       <div
         data-testid="app-login"
-        className="min-h-screen flex items-center justify-center bg-slate-950 text-white"
+        className="min-h-screen flex flex-col items-center justify-center gap-6 bg-slate-950 text-white p-6"
       >
-        <div className="text-center">
-          <p className="text-xs font-black uppercase tracking-[0.2em] text-slate-400">
-            Logga in
-          </p>
-          {isLoggingIn ? (
-            <div className="mt-6">
-              <div className="mx-auto h-8 w-8 animate-spin rounded-full border-4 border-white/10 border-t-indigo-500" />
-              <p className="mt-2 text-xs text-slate-400">Loggar in via backenden...</p>
-            </div>
-          ) : (
-            <button
-              type="button"
-              data-testid="dev-login"
-              onClick={handleLogin}
-              className="mt-4 p-3 bg-indigo-600 hover:bg-indigo-700 transition-colors font-bold text-sm px-6 rounded-xl shadow-lg"
-            >
-              Logga In Dummy
-            </button>
-          )}
-        </div>
+        {stillResolvingAuthConfig ? (
+          <div className="mx-auto h-8 w-8 animate-spin rounded-full border-4 border-white/10 border-t-indigo-500" />
+        ) : bankIdReady ? (
+          <AuthInterface onComplete={handleBankIdComplete} />
+        ) : (
+          <div data-testid="bankid-unavailable" className="text-center max-w-md">
+            <p className="text-xs font-black uppercase tracking-[0.2em] text-slate-400">
+              BankID är inte tillgängligt
+            </p>
+            <p className="mt-2 text-sm text-slate-400">
+              {authConfig?.message || authConfigError || 'Inloggning kan inte startas just nu.'}
+            </p>
+          </div>
+        )}
+
+        {devLoginAllowed ? (
+          <div className="text-center">
+            {isLoggingIn ? (
+              <div className="mt-2">
+                <div className="mx-auto h-8 w-8 animate-spin rounded-full border-4 border-white/10 border-t-indigo-500" />
+                <p className="mt-2 text-xs text-slate-400">Loggar in via backenden...</p>
+              </div>
+            ) : (
+              <button
+                type="button"
+                data-testid="dev-login"
+                onClick={handleDevLogin}
+                className="mt-2 p-2 bg-slate-800 hover:bg-slate-700 transition-colors font-bold text-xs px-4 rounded-lg border border-slate-700 text-slate-300"
+              >
+                Dev-inloggning (endast utveckling)
+              </button>
+            )}
+          </div>
+        ) : null}
       </div>
     );
   }
@@ -190,11 +247,28 @@ export const AppShell: React.FC = () => {
 
   // Default product UI — TechnicalDashboardHub only via VITE_ENABLE_LEGACY_UI=1
   if (!uiConfig.enableLegacyUi) {
+    const handleLogout = async () => {
+      try {
+        await bankIdLogout(getToken() || undefined, getRefreshToken() || undefined);
+      } catch (err) {
+        console.error('Logout request failed', err);
+      } finally {
+        clearSessionAndReset();
+      }
+    };
+
     return (
       <MimerProductShell
         userName={sessionUser?.name || bootstrap?.user.displayName || 'Verifierad användare'}
         organisationName={bootstrap?.organisation.name}
         activeProjectLabel={activeProjectLabel}
+        projects={bootstrap?.projects}
+        activeProjectId={bootstrap?.activeProjectId ?? null}
+        onSelectProject={(projectId) => {
+          setActiveProjectId(projectId);
+          void loadBootstrap();
+        }}
+        onLogout={() => void handleLogout()}
       />
     );
   }

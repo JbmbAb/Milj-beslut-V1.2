@@ -25,7 +25,11 @@ class PersistentReplayProtection {
   /**
    * Register a new BankID session with a challenge (nonce)
    */
-  async registerSession(orderRef: string, ipAddress: string): Promise<{ nonce: string }> {
+  async registerSession(
+    orderRef: string,
+    ipAddress: string,
+    identityEnvironment: 'MOCK' | 'TEST' | 'PRODUCTION',
+  ): Promise<{ nonce: string }> {
     const nonce = crypto.randomBytes(32).toString('base64');
     const expiresAt = new Date(Date.now() + this.SESSION_TTL_MS);
 
@@ -35,6 +39,7 @@ class PersistentReplayProtection {
           orderRef,
           nonce,
           ipAddress,
+          identityEnvironment,
           status: 'PENDING',
           expiresAt,
         },

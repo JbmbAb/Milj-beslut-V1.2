@@ -2,8 +2,8 @@ import crypto from 'node:crypto';
 import fs from 'node:fs';
 import * as https from 'node:https'; // Corrected import path
 import { createTokenPair, rotateRefreshToken } from '../security/auth';
-import { assertBankIdEnv, getEnv, isBankIdMockMode } from '../security/env';
-import { ensureMockAuthUser, findAuthUserByBankId } from '../repositories/userRepository';
+import { assertBankIdEnv, getBankIdRuntimeMode, getEnv } from '../security/env';
+import { ensureMockAuthUser, ensureTestBankIdUser, findAuthUserByBankId } from '../repositories/userRepository';
 import { persistentReplayProtection } from '../security/persistentReplayProtection';
 import { CircuitBreaker } from '../utils/circuitBreaker';
 
@@ -200,8 +200,13 @@ function shouldAutoCreateMockUsers(): boolean {
   return value !== 'false' && value !== '0' && value !== 'no' && value !== 'nej';
 }
 
-export function getBankIdMode(): 'real' | 'mock' {
-  return isBankIdMockMode() ? 'mock' : 'real';
+function identityEnvironmentForCurrentMode(): 'MOCK' | 'TEST' | 'PRODUCTION' {
+  const mode = getBankIdMode();
+  return mode === 'mock' ? 'MOCK' : mode === 'test' ? 'TEST' : 'PRODUCTION';
+}
+
+export function getBankIdMode(): 'mock' | 'test' | 'production' {
+  return getBankIdRuntimeMode();
 }
 
 export function normalizeBankIdPersonalNumber(value: unknown): string | undefined {
@@ -224,10 +229,10 @@ export async function initiateBankIdAuth(
   const nonce = crypto.randomBytes(32).toString('base64');
   const personalNumber = normalizeBankIdPersonalNumber(options.personalNumber);
 
-  if (isBankIdMockMode()) {
+  if (getBankIdMode() === 'mock') {
     const order = createMockOrder(endUserIp, personalNumber);
     mockOrders.set(order.orderRef, order);
-    await persistentReplayProtection.registerSession(order.orderRef, endUserIp);
+    await persistentReplayProtection.registerSession(order.orderRef, endUserIp, identityEnvironmentForCurrentMode());
     return {
       orderRef: order.orderRef,
       autoStartToken: order.autoStartToken,
@@ -245,7 +250,7 @@ export async function initiateBankIdAuth(
     userNonVisibleData: nonce,
   };
   const response = await postBankId<typeof payload, BankIdAuthResponse>('/auth', payload);
-  await persistentReplayProtection.registerSession(response.orderRef, endUserIp);
+  await persistentReplayProtection.registerSession(response.orderRef, endUserIp, identityEnvironmentForCurrentMode());
   return response;
 }
 
@@ -260,10 +265,10 @@ export async function initiateBankIdSign(params: {
   // Generate security nonce
   const nonce = crypto.randomBytes(32).toString('base64');
 
-  if (isBankIdMockMode()) {
+  if (getBankIdMode() === 'mock') {
     const order = createMockOrder(params.endUserIp);
     mockOrders.set(order.orderRef, order);
-    await persistentReplayProtection.registerSession(order.orderRef, params.endUserIp);
+    await persistentReplayProtection.registerSession(order.orderRef, params.endUserIp, identityEnvironmentForCurrentMode());
     return {
       orderRef: order.orderRef,
       autoStartToken: order.autoStartToken,
@@ -280,7 +285,7 @@ export async function initiateBankIdSign(params: {
     userNonVisibleData: params.userNonVisibleData || nonce,
   };
   const response = await postBankId<typeof payload, BankIdAuthResponse>('/sign', payload);
-  await persistentReplayProtection.registerSession(response.orderRef, params.endUserIp);
+  await persistentReplayProtection.registerSession(response.orderRef, params.endUserIp, identityEnvironmentForCurrentMode());
   return response;
 }
 
@@ -288,7 +293,7 @@ export async function initiateBankIdSign(params: {
  * Internal: Collect BankID result and perform security checks
  */
 async function collectBankIdResult(orderRef: string, endUserIp: string): Promise<BankIdCollectResponse> {
-  const response = isBankIdMockMode()
+  const response = getBankIdMode() === 'mock'
     ? ({
         orderRef,
         status: getMockOrder(orderRef).status,
@@ -353,7 +358,7 @@ export async function collectBankIdSign(orderRef: string, endUserIp: string) {
 }
 
 export async function cancelBankIdAuth(orderRef: string): Promise<{ cancelled: boolean }> {
-  if (isBankIdMockMode()) {
+  if (getBankIdMode() === 'mock') {
     const order = getMockOrder(orderRef);
     order.status = 'failed';
     order.hintCode = 'userCancel';
@@ -387,8 +392,18 @@ export function generateAnimatedQrPayload(input: {
 
 async function resolveAuthUser(bankidId: string) {
   let user = await findAuthUserByBankId(bankidId);
-  if (!user && isBankIdMockMode() && shouldAutoCreateMockUsers()) {
+  const mode = getBankIdMode();
+  const expectedEnvironment = identityEnvironmentForCurrentMode();
+  if (user && user.identityEnvironment !== expectedEnvironment) {
+    throw new Error(
+      `Authenticated BankID identity environment mismatch: runtime=${expectedEnvironment}, registered=${user.identityEnvironment || 'LEGACY'}`,
+    );
+  }
+  if (!user && mode === 'mock' && shouldAutoCreateMockUsers()) {
     user = await ensureMockAuthUser(bankidId);
+  }
+  if (!user && mode === 'test') {
+    user = await ensureTestBankIdUser(bankidId);
   }
 
   if (!user) {

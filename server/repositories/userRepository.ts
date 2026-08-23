@@ -52,6 +52,7 @@ export async function findAuthUserByBankId(bankidId: string): Promise<AuthUser |
       bankidId: true,
       role: true,
       organisationId: true,
+      identityEnvironment: true,
     },
   });
 
@@ -64,6 +65,7 @@ export async function findAuthUserByBankId(bankidId: string): Promise<AuthUser |
     bankidId: user.bankidId,
     role: user.role as AuthUser['role'],
     organisationId: user.organisationId,
+    identityEnvironment: user.identityEnvironment as AuthUser['identityEnvironment'],
   };
 }
 
@@ -116,6 +118,7 @@ export async function ensureAdminConsoleUser(username: string): Promise<AuthUser
     bankidId: user.bankidId,
     role: user.role as AuthUser['role'],
     organisationId: user.organisationId,
+    identityEnvironment: 'LEGACY',
   };
 }
 
@@ -143,10 +146,12 @@ export async function ensureMockAuthUser(bankidId: string): Promise<AuthUser> {
       bankidId,
       organisationId: organisation.id,
       role,
+      identityEnvironment: 'MOCK',
     },
     update: {
       organisationId: organisation.id,
       role,
+      identityEnvironment: 'MOCK',
     },
     select: {
       id: true,
@@ -167,5 +172,38 @@ export async function ensureMockAuthUser(bankidId: string): Promise<AuthUser> {
     bankidId: user.bankidId,
     role: user.role as AuthUser['role'],
     organisationId: user.organisationId,
+    identityEnvironment: 'MOCK',
+  };
+}
+
+/**
+ * The official BankID test environment proves protocol integration, never a production owner.
+ * Test identities are explicitly marked and always begin as ordinary consultants.
+ */
+export async function ensureTestBankIdUser(bankidId: string): Promise<AuthUser> {
+  const orgNumber = String(process.env.BANKID_TEST_ORG_NUMBER || '').trim();
+  const orgName = String(process.env.BANKID_TEST_ORG_NAME || 'BankID Test Organisation').trim();
+  if (!orgNumber) {
+    throw new Error('BankID test identity is not registered in a permitted test organisation (set BANKID_TEST_ORG_NUMBER)');
+  }
+
+  const organisation = await prisma.organisation.upsert({
+    where: { orgNumber },
+    create: { name: orgName, orgNumber, role: 'CLIENT' },
+    update: { name: orgName },
+    select: { id: true },
+  });
+  const user = await prisma.user.upsert({
+    where: { bankidId },
+    create: { bankidId, organisationId: organisation.id, role: 'CONSULTANT', identityEnvironment: 'TEST' },
+    update: { organisationId: organisation.id, identityEnvironment: 'TEST' },
+    select: { id: true, bankidId: true, role: true, organisationId: true },
+  });
+  return {
+    id: user.id,
+    bankidId: user.bankidId,
+    role: user.role as AuthUser['role'],
+    organisationId: user.organisationId,
+    identityEnvironment: 'TEST',
   };
 }
