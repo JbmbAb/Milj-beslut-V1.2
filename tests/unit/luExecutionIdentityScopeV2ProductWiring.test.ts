@@ -97,7 +97,8 @@ import {
   createProductLuPropertyContextArtifact,
   createProductLuProjectContextArtifact,
   createProjectContextBindingSupersessionArtifact,
-  createLocalizationGeometryArtifact,
+  createLocalizationGeometryArtifactV2,
+  quantizeToLocalizationGeometryGrid,
   LU_SITE_ASSESSMENT_CAPABILITY_KEY,
   type ISpatialProvider,
 } from '@miljobeslut/mps-lu';
@@ -153,11 +154,16 @@ function deriveExpectedGeometryRef(
   swerefNorthingEasting: readonly [number, number] = [6580000, 674000],
 ): { artifact_id: string; artifact_type: string } {
   const [lat, lng] = DERIVED_WGS84_LAT_LNG;
-  const geometry = createLocalizationGeometryArtifact({
+  // LOCALIZATION-GEOMETRY-CANONICALIZATION-V2: the real derive path now quantizes to the
+  // canonical 0.1m grid and constructs a V2 artifact -- replicate that exactly.
+  const geometry = createLocalizationGeometryArtifactV2({
     project_id: projectId,
     property_context_ref: propertyContextRef,
     wgs84LngLat: [lng, lat],
-    sweref99NorthingEasting: swerefNorthingEasting,
+    sweref99NorthingEasting: [
+      quantizeToLocalizationGeometryGrid(swerefNorthingEasting[0]),
+      quantizeToLocalizationGeometryGrid(swerefNorthingEasting[1]),
+    ],
     provenance: 'derived_from_property_boundary',
     label: 'Fastighetens centrumpunkt (automatiskt härledd)',
     created_by: 'system',

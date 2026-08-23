@@ -192,6 +192,8 @@ import {
   createProductLuPropertyContextArtifact,
   createProductLuProjectContextArtifact,
   createLocalizationGeometryArtifact,
+  createLocalizationGeometryArtifactV2,
+  quantizeToLocalizationGeometryGrid,
   createLocalizationGeometrySupersessionIssuerArtifact,
   createLocalizationGeometrySupersessionArtifact,
   LU_SITE_ASSESSMENT_CAPABILITY_KEY,
@@ -467,11 +469,18 @@ describe('PRODUCT-LU-LOCALIZATION-GEOMETRY-01 — end-to-end product proofs thro
       resolveCurrentLocalizationGeometry({ projectId, artifactRepository: repo }),
     ).rejects.toThrow(/REJECT_LOCALIZATION_GEOMETRY_PROJECTION_NOT_FOUND/);
 
-    const derivedGeometry = createLocalizationGeometryArtifact({
+    // LOCALIZATION-GEOMETRY-CANONICALIZATION-V2: the real derive path
+    // (resolveOrDeriveCurrentLocalizationGeometry) now quantizes the centroid to the canonical
+    // 0.1m grid and constructs a V2 artifact -- replicate that exactly, not the old V1 path,
+    // or this pinned geometryRef will never match what the real code actually derives.
+    const derivedGeometry = createLocalizationGeometryArtifactV2({
       project_id: projectId,
       property_context_ref: provisioned.propertyContextRef,
       wgs84LngLat: [PROPERTY_CENTROID_WGS84[1], PROPERTY_CENTROID_WGS84[0]],
-      sweref99NorthingEasting: PROPERTY_CENTROID_SWEREF,
+      sweref99NorthingEasting: [
+        quantizeToLocalizationGeometryGrid(PROPERTY_CENTROID_SWEREF[0]),
+        quantizeToLocalizationGeometryGrid(PROPERTY_CENTROID_SWEREF[1]),
+      ],
       provenance: 'derived_from_property_boundary',
       label: 'Fastighetens centrumpunkt (automatiskt härledd)',
       created_by: 'system',

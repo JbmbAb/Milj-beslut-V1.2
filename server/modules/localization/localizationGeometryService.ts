@@ -16,7 +16,8 @@
 import { MimersIntegration, type ArtifactRepositoryPort } from '@miljobeslut/mps-runtime';
 import type { ArtifactReference } from '@miljobeslut/mps-compliance/src/artifacts/ArtifactReference';
 import {
-  createLocalizationGeometryArtifact,
+  createLocalizationGeometryArtifactV2,
+  quantizeToLocalizationGeometryGrid,
   type LocalizationGeometryArtifact,
 } from '@miljobeslut/mps-lu';
 import type { AuthUser } from '../../security/types';
@@ -103,15 +104,19 @@ export async function resolveOrDeriveCurrentLocalizationGeometry(args: {
     });
     return { geometry: current.geometry, wasDerived: false };
   } catch {
-    const [derivedLat, derivedLng] = await args.sweref99ToWgs84(
-      args.propertyCentroidSweref[0],
-      args.propertyCentroidSweref[1],
-    );
-    const derivedGeometry = createLocalizationGeometryArtifact({
+    // LOCALIZATION-GEOMETRY-CANONICALIZATION-V2: quantize the property centroid to the
+    // canonical 0.1m grid FIRST, then derive WGS84 from that already-quantized point -- exactly
+    // one canonicalization step, never two independently-quantized representations.
+    const canonicalSweref: readonly [number, number] = [
+      quantizeToLocalizationGeometryGrid(args.propertyCentroidSweref[0]),
+      quantizeToLocalizationGeometryGrid(args.propertyCentroidSweref[1]),
+    ];
+    const [derivedLat, derivedLng] = await args.sweref99ToWgs84(canonicalSweref[0], canonicalSweref[1]);
+    const derivedGeometry = createLocalizationGeometryArtifactV2({
       project_id: args.projectId,
       property_context_ref: args.propertyContextRef,
       wgs84LngLat: [derivedLng, derivedLat],
-      sweref99NorthingEasting: args.propertyCentroidSweref,
+      sweref99NorthingEasting: canonicalSweref,
       provenance: 'derived_from_property_boundary',
       label: DERIVED_LABEL,
       created_by: args.createdBy,
@@ -256,12 +261,24 @@ export async function saveUserLocalizationGeometry(args: {
   const spatialRuntime = args.spatialRuntime ?? (await createLocalizationSpatialRuntime());
   const ownsSpatialRuntime = !args.spatialRuntime;
   try {
-    const sweref = await spatialRuntime.wgs84ToSweref99(lat, lng);
-    const geometry = createLocalizationGeometryArtifact({
+    // LOCALIZATION-GEOMETRY-CANONICALIZATION-V2: the raw browser click and the raw PostGIS
+    // transform are both floating-point-noisy -- quantize the SWEREF result to the canonical
+    // 0.1m grid FIRST, then derive the canonical WGS84 representation from that already-
+    // quantized point (never independently quantizing WGS84 itself). This is what makes two
+    // numerically-equivalent representations of the SAME intended coordinate collapse to the
+    // same identity, while two genuinely distinct clicks (even close together) still mint
+    // distinct geometries -- the grid stabilizes representation, it does not decide user intent.
+    const rawSweref = await spatialRuntime.wgs84ToSweref99(lat, lng);
+    const canonicalSweref: readonly [number, number] = [
+      quantizeToLocalizationGeometryGrid(rawSweref[0]),
+      quantizeToLocalizationGeometryGrid(rawSweref[1]),
+    ];
+    const [canonicalLat, canonicalLng] = await spatialRuntime.sweref99ToWgs84(canonicalSweref[0], canonicalSweref[1]);
+    const geometry = createLocalizationGeometryArtifactV2({
       project_id: projectId,
       property_context_ref: canonicalContext.propertyContextRef,
-      wgs84LngLat: [lng, lat],
-      sweref99NorthingEasting: sweref,
+      wgs84LngLat: [canonicalLng, canonicalLat],
+      sweref99NorthingEasting: canonicalSweref,
       provenance: 'user_defined',
       label: USER_DEFINED_LABEL,
       created_by: args.authUser.id,

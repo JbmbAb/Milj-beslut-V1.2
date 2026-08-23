@@ -188,6 +188,7 @@ import {
   createProjectContextBindingIssuerArtifact,
   createProductLuPropertyContextArtifact,
   createProductLuProjectContextArtifact,
+  quantizeToLocalizationGeometryGrid,
 } from '@miljobeslut/mps-lu';
 import { LocalPemSigningKeyProvider } from '@miljobeslut/mimers-brunn-core';
 import {
@@ -431,18 +432,27 @@ describe('PRODUCT-LU-CESIUM-LOCALIZATION-DRAWING-01 — save/read proof matrix',
       artifact_id: saveResult.data.artifact_id,
       artifact_type: 'localization_geometry',
     });
-    const expectedSweref = fakeWgs84ToSweref99(clickLat, clickLng);
-    expect(stored.payload.coordinates).toEqual(expectedSweref);
+    // LOCALIZATION-GEOMETRY-CANONICALIZATION-V2: the raw transform is quantized to the canonical
+    // 0.1m grid before persistence -- the stored SWEREF pair is the CANONICAL point, not the raw
+    // (floating-point-noisy) transform output.
+    const rawSweref = fakeWgs84ToSweref99(clickLat, clickLng);
+    const expectedCanonicalSweref = [
+      quantizeToLocalizationGeometryGrid(rawSweref[0]),
+      quantizeToLocalizationGeometryGrid(rawSweref[1]),
+    ];
+    expect(stored.payload.coordinates).toEqual(expectedCanonicalSweref);
     expect(stored.payload.srid).toBe(3006);
 
-    // Read-back: the same real-world location, round-tripped.
+    // Read-back: the same real-world location, round-tripped from the canonical (quantized) point.
     const [readLat, readLng] = fakeSweref99ToWgs84(stored.payload.coordinates[0], stored.payload.coordinates[1]);
     expect(readLat).toBeCloseTo(clickLat, 6);
     expect(readLng).toBeCloseTo(clickLng, 6);
 
-    // And the GET response gives back the ORIGINAL WGS84 pair directly (no re-derivation, no
-    // implicit array-order tolerance -- the stored GeoJSON Point IS the WGS84 truth).
-    expect(saveResult.data.wgs84LngLat).toEqual([clickLng, clickLat]);
+    // And the GET response gives back the WGS84 representation DERIVED from the canonical SWEREF
+    // point -- close to the original click (well within the 0.1m grid), but not necessarily
+    // byte-identical, since it is now a derived canonical value rather than an echo of raw input.
+    expect(saveResult.data.wgs84LngLat[0]).toBeCloseTo(clickLng, 6);
+    expect(saveResult.data.wgs84LngLat[1]).toBeCloseTo(clickLat, 6);
   });
 
   it('proof: same exact point saved again -> idempotent identity, no divergent state', async () => {
