@@ -21,7 +21,7 @@ import { resolveCurrentAssessmentProjection } from './assessmentProjection';
 import { resolveCurrentLocalizationGeometry } from './localizationGeometryProjection';
 import type { LocalizationGeometryProjectionIndex } from '../../repositories/localizationGeometryProjectionRepository';
 import { resolveGovernedLocalizationPresentation } from './resolveGovernedLocalizationPresentation';
-import { readLocalizationViewerRuntimeConfig, type LocalizationViewerRuntimeConfig } from './createLocalizationViewerRuntime';
+import { resolveLocalizationViewerRuntimeConfigForProject, type LocalizationViewerRuntimeConfig } from './createLocalizationViewerRuntime';
 import type { ProjectAssessmentProjectionIndex } from '../../repositories/projectAssessmentProjectionRepository';
 
 export class LocalizationDataUnavailableError extends Error {
@@ -252,12 +252,15 @@ export async function resolveLuViewerPresentation(input: {
     return { ok: false, status: 404, error: 'No current governed LU assessment is available for this project.' };
   }
 
-  const config = input.config ?? readLocalizationViewerRuntimeConfig();
+  // PRODUCT-LU-VIEWER-CAPABILITY-PROVISIONING-01 Phase B: per-project resolution -- looks up
+  // THIS project's own completed ViewerCapabilityProvisioningRequest, never a single
+  // deployment-wide env var. A project with no completed request yet is simply "not ready", not
+  // "wrong project configured".
+  const config = input.config ?? (await resolveLocalizationViewerRuntimeConfigForProject(projectId, artifactRepository));
+  if (!config) {
+    return { ok: false, status: 404, error: 'Governed viewer capability is not configured for this project.' };
+  }
   if (config.expectedProjectId !== projectId) {
-    // The deployment's ViewerCapability configuration is currently a single, env-configured
-    // capability (there is no per-project capability index yet -- a known, pre-existing gap, not
-    // introduced here). Requesting a project other than the one currently configured cannot be
-    // served; this is a real limitation, not a bypass.
     return { ok: false, status: 404, error: 'Governed viewer capability is not configured for this project.' };
   }
 

@@ -78,18 +78,19 @@ enum RequirementVerificationStatus {
 }
 
 model User {
-  id             String              @id @default(cuid())
-  organisationId String?
-  bankidId       String              @unique
-  role           UserRole
-  identityEnvironment String @default("LEGACY") @map("identity_environment")
-  createdAt      DateTime            @default(now())
-  organisation   Organisation?       @relation(fields: [organisationId], references: [id], onDelete: Restrict)
-  memberships    ProjectMember[]
-  accessLogs     PropertyAccessLog[]
-  searchQueries  SearchQueryLog[]
-  contextBootstrapRequests ProjectContextBootstrapRequest[]
+  id                                       String                                    @id @default(cuid())
+  organisationId                           String?
+  bankidId                                 String                                    @unique
+  role                                     UserRole
+  identityEnvironment                      String                                    @default("LEGACY") @map("identity_environment")
+  createdAt                                DateTime                                  @default(now())
+  organisation                             Organisation?                             @relation(fields: [organisationId], references: [id], onDelete: Restrict)
+  memberships                              ProjectMember[]
+  accessLogs                               PropertyAccessLog[]
+  searchQueries                            SearchQueryLog[]
+  contextBootstrapRequests                 ProjectContextBootstrapRequest[]
   localizationIdentityProvisioningRequests LocalizationIdentityProvisioningRequest[]
+  viewerCapabilityProvisioningRequests     ViewerCapabilityProvisioningRequest[]
 }
 
 model TokenRevocation {
@@ -135,32 +136,33 @@ enum OrganizationRole {
 }
 
 model Project {
-  id                  String              @id @default(cuid())
-  organisationId      String
-  name                String?
-  propertyDesignation String
-  status              ProjectStatus
-  createdAt           DateTime            @default(now())
-  closedAt            DateTime?
-  retentionUntil      DateTime?
-  organisation        Organisation        @relation(fields: [organisationId], references: [id], onDelete: Restrict)
-  members             ProjectMember[]
-  projectContextBindingSupersessions ProjectContextBindingSupersession[]
-  accessLogs          PropertyAccessLog[]
-  documents           DocumentRecord[]
-  searchQueries       SearchQueryLog[]
-  requirementCases    RequirementCase[]
-  requirements        RequirementRecord[]
-  projectContextBindings ProjectContextBinding[]
-  assessmentProjections ProjectAssessmentProjection[]
-  localizationGeometryProjections LocalizationGeometryProjection[]
-  contextBootstrapRequests ProjectContextBootstrapRequest[]
+  id                                       String                                    @id @default(cuid())
+  organisationId                           String
+  name                                     String?
+  propertyDesignation                      String
+  status                                   ProjectStatus
+  createdAt                                DateTime                                  @default(now())
+  closedAt                                 DateTime?
+  retentionUntil                           DateTime?
+  organisation                             Organisation                              @relation(fields: [organisationId], references: [id], onDelete: Restrict)
+  members                                  ProjectMember[]
+  projectContextBindingSupersessions       ProjectContextBindingSupersession[]
+  accessLogs                               PropertyAccessLog[]
+  documents                                DocumentRecord[]
+  searchQueries                            SearchQueryLog[]
+  requirementCases                         RequirementCase[]
+  requirements                             RequirementRecord[]
+  projectContextBindings                   ProjectContextBinding[]
+  assessmentProjections                    ProjectAssessmentProjection[]
+  localizationGeometryProjections          LocalizationGeometryProjection[]
+  contextBootstrapRequests                 ProjectContextBootstrapRequest[]
   localizationIdentityProvisioningRequests LocalizationIdentityProvisioningRequest[]
-  planState           ProjectPlanState?
-  complianceScore     Float?
-  fundingRating       String?
-  regulatoryRiskScore Float?
-  environmentalScore  Float?
+  viewerCapabilityProvisioningRequests     ViewerCapabilityProvisioningRequest[]
+  planState                                ProjectPlanState?
+  complianceScore                          Float?
+  fundingRating                            String?
+  regulatoryRiskScore                      Float?
+  environmentalScore                       Float?
 
   @@index([organisationId, status])
 }
@@ -187,16 +189,16 @@ model ProjectContextBinding {
 /// Append-only projection of signed CAS supersession relations. It is rebuildable lookup state;
 /// runtime derives the authoritative head only from reverified CAS artifacts and this graph.
 model ProjectContextBindingSupersession {
-  id                           String   @id
-  projectId                    String   @map("project_id")
-  supersessionArtifactId       String   @unique @map("supersession_artifact_id")
-  supersededBindingArtifactId  String   @map("superseded_binding_artifact_id")
-  successorBindingArtifactId   String   @map("successor_binding_artifact_id")
-  reasonCode                   String   @map("reason_code")
-  issuerArtifactId             String   @map("issuer_artifact_id")
-  issuerKeyId                  String   @map("issuer_key_id")
-  createdAt                    DateTime @default(now()) @map("created_at")
-  project                      Project  @relation(fields: [projectId], references: [id], onDelete: Restrict)
+  id                          String   @id
+  projectId                   String   @map("project_id")
+  supersessionArtifactId      String   @unique @map("supersession_artifact_id")
+  supersededBindingArtifactId String   @map("superseded_binding_artifact_id")
+  successorBindingArtifactId  String   @map("successor_binding_artifact_id")
+  reasonCode                  String   @map("reason_code")
+  issuerArtifactId            String   @map("issuer_artifact_id")
+  issuerKeyId                 String   @map("issuer_key_id")
+  createdAt                   DateTime @default(now()) @map("created_at")
+  project                     Project  @relation(fields: [projectId], references: [id], onDelete: Restrict)
 
   @@index([projectId])
   @@index([projectId, supersededBindingArtifactId])
@@ -219,20 +221,20 @@ enum ProjectContextBootstrapStatus {
 /// Authority remains exactly what it already was: signed PropertyContext / ProjectContext /
 /// ProjectContextBinding artifacts, in CAS, verified by public key only.
 model ProjectContextBootstrapRequest {
-  id                  String                         @id @default(cuid())
-  projectId           String                         @map("project_id")
-  requestedByUserId   String                         @map("requested_by_user_id")
-  propertyDesignation String                         @map("property_designation")
-  status              ProjectContextBootstrapStatus  @default(PENDING)
-  contextBindingArtifactId String?                   @map("context_binding_artifact_id")
-  failureCode         String?                        @map("failure_code")
-  failureDetail       String?                        @map("failure_detail")
-  createdAt           DateTime                       @default(now()) @map("created_at")
-  leasedAt            DateTime?                      @map("leased_at")
-  completedAt         DateTime?                      @map("completed_at")
-  failedAt            DateTime?                      @map("failed_at")
-  project             Project                        @relation(fields: [projectId], references: [id], onDelete: Restrict)
-  requestedBy         User                           @relation(fields: [requestedByUserId], references: [id], onDelete: Restrict)
+  id                       String                        @id @default(cuid())
+  projectId                String                        @map("project_id")
+  requestedByUserId        String                        @map("requested_by_user_id")
+  propertyDesignation      String                        @map("property_designation")
+  status                   ProjectContextBootstrapStatus @default(PENDING)
+  contextBindingArtifactId String?                       @map("context_binding_artifact_id")
+  failureCode              String?                       @map("failure_code")
+  failureDetail            String?                       @map("failure_detail")
+  createdAt                DateTime                      @default(now()) @map("created_at")
+  leasedAt                 DateTime?                     @map("leased_at")
+  completedAt              DateTime?                     @map("completed_at")
+  failedAt                 DateTime?                     @map("failed_at")
+  project                  Project                       @relation(fields: [projectId], references: [id], onDelete: Restrict)
+  requestedBy              User                          @relation(fields: [requestedByUserId], references: [id], onDelete: Restrict)
 
   @@index([status, createdAt])
   @@index([projectId])
@@ -247,20 +249,20 @@ model ProjectContextBootstrapRequest {
 /// deterministic tiebreaker among candidates that have already passed CAS re-verification and
 /// current-binding eligibility.
 model ProjectAssessmentProjection {
-  id                    String   @id
-  projectId             String   @map("project_id")
-  assessmentArtifactId  String   @map("assessment_artifact_id")
-  assessmentArtifactType String  @map("assessment_artifact_type")
-  projectContextRefId   String   @map("project_context_ref_id")
-  projectContextRefType String   @map("project_context_ref_type")
-  bindingArtifactId     String   @map("binding_artifact_id")
-  releaseArtifactId     String   @map("release_artifact_id")
+  id                             String   @id
+  projectId                      String   @map("project_id")
+  assessmentArtifactId           String   @map("assessment_artifact_id")
+  assessmentArtifactType         String   @map("assessment_artifact_type")
+  projectContextRefId            String   @map("project_context_ref_id")
+  projectContextRefType          String   @map("project_context_ref_type")
+  bindingArtifactId              String   @map("binding_artifact_id")
+  releaseArtifactId              String   @map("release_artifact_id")
   /// PRODUCT-LU-LOCALIZATION-GEOMETRY-01 Phase B. Nullable during transition (pre-existing rows
   /// predate the concept); once populated, "current" requires this to also match the project's
   /// current LocalizationGeometry, not only the current binding.
-  localizationGeometryArtifactId String? @map("localization_geometry_artifact_id")
-  createdAt             DateTime @default(now()) @map("created_at")
-  project               Project  @relation(fields: [projectId], references: [id], onDelete: Restrict)
+  localizationGeometryArtifactId String?  @map("localization_geometry_artifact_id")
+  createdAt                      DateTime @default(now()) @map("created_at")
+  project                        Project  @relation(fields: [projectId], references: [id], onDelete: Restrict)
 
   @@unique([projectId, assessmentArtifactId])
   @@index([projectId, bindingArtifactId])
@@ -279,13 +281,13 @@ model ProjectAssessmentProjection {
 /// owner-governance authority, so content-hash re-verification is the correct and sufficient
 /// integrity check -- there is no signed relation to verify because there is no signature.
 model LocalizationGeometryProjection {
-  id                          String   @id
-  projectId                   String   @map("project_id")
-  geometryArtifactId          String   @map("geometry_artifact_id")
-  propertyContextRefId        String   @map("property_context_ref_id")
-  propertyContextRefType      String   @map("property_context_ref_type")
-  createdAt                   DateTime @default(now()) @map("created_at")
-  project                     Project  @relation(fields: [projectId], references: [id], onDelete: Restrict)
+  id                     String   @id
+  projectId              String   @map("project_id")
+  geometryArtifactId     String   @map("geometry_artifact_id")
+  propertyContextRefId   String   @map("property_context_ref_id")
+  propertyContextRefType String   @map("property_context_ref_type")
+  createdAt              DateTime @default(now()) @map("created_at")
+  project                Project  @relation(fields: [projectId], references: [id], onDelete: Restrict)
 
   @@unique([projectId, geometryArtifactId])
   @@index([projectId, createdAt])
@@ -312,24 +314,67 @@ enum LocalizationIdentityProvisioningStatus {
 /// ProjectContextBinding, current product release, the full V3 subject) is derived by the worker
 /// from real, already-governed sources.
 model LocalizationIdentityProvisioningRequest {
-  id                           String                                 @id @default(cuid())
-  projectId                    String                                 @map("project_id")
-  geometryArtifactId           String                                 @map("geometry_artifact_id")
-  requestedByUserId            String                                 @map("requested_by_user_id")
-  status                       LocalizationIdentityProvisioningStatus @default(PENDING)
-  executionIdentityArtifactId  String?                                @map("execution_identity_artifact_id")
-  failureCode                  String?                                @map("failure_code")
-  failureDetail                String?                                @map("failure_detail")
-  createdAt                    DateTime                               @default(now()) @map("created_at")
-  leasedAt                     DateTime?                              @map("leased_at")
-  completedAt                  DateTime?                              @map("completed_at")
-  failedAt                     DateTime?                              @map("failed_at")
-  project                      Project                                @relation(fields: [projectId], references: [id], onDelete: Restrict)
-  requestedBy                  User                                   @relation(fields: [requestedByUserId], references: [id], onDelete: Restrict)
+  id                          String                                 @id @default(cuid())
+  projectId                   String                                 @map("project_id")
+  geometryArtifactId          String                                 @map("geometry_artifact_id")
+  requestedByUserId           String                                 @map("requested_by_user_id")
+  status                      LocalizationIdentityProvisioningStatus @default(PENDING)
+  executionIdentityArtifactId String?                                @map("execution_identity_artifact_id")
+  failureCode                 String?                                @map("failure_code")
+  failureDetail               String?                                @map("failure_detail")
+  createdAt                   DateTime                               @default(now()) @map("created_at")
+  leasedAt                    DateTime?                              @map("leased_at")
+  completedAt                 DateTime?                              @map("completed_at")
+  failedAt                    DateTime?                              @map("failed_at")
+  project                     Project                                @relation(fields: [projectId], references: [id], onDelete: Restrict)
+  requestedBy                 User                                   @relation(fields: [requestedByUserId], references: [id], onDelete: Restrict)
 
   @@index([status, createdAt])
   @@index([projectId, geometryArtifactId])
   @@map("localization_identity_provisioning_requests")
+}
+
+enum ViewerCapabilityProvisioningStatus {
+  PENDING
+  LEASED
+  COMPLETED
+  FAILED
+  SUPERSEDED
+}
+
+/// PRODUCT-LU-VIEWER-CAPABILITY-PROVISIONING-01 Phase B. Durable, append-only WORK QUEUE state
+/// only -- same shape and rules as ProjectContextBootstrapRequest / LocalizationIdentityProvisioningRequest.
+/// `contextBindingArtifactId` + `releaseArtifactId` + `viewerIdentityArtifactId` PIN the exact
+/// subject this request is for, at enqueue time, all server-derived from real governed sources --
+/// the live web server that creates this row never supplies a capability artifact_id, issuer_ref,
+/// or signature. If the pinned binding or release is superseded before a lease completes, this
+/// row is marked SUPERSEDED (never mutated into a new subject); a fresh request for the new
+/// current subject is enqueued separately. `leaseExpiresAt` makes a LEASED row reclaimable if the
+/// worker that leased it dies before completing -- unlike the two earlier queues this pattern was
+/// copied from, which have no lease-expiry and can leave a row stuck LEASED forever (a known,
+/// pre-existing defect explicitly not reproduced here).
+model ViewerCapabilityProvisioningRequest {
+  id                       String                             @id @default(cuid())
+  projectId                String                             @map("project_id")
+  contextBindingArtifactId String                             @map("context_binding_artifact_id")
+  releaseArtifactId        String                             @map("release_artifact_id")
+  viewerIdentityArtifactId String                             @map("viewer_identity_artifact_id")
+  requestedByUserId        String                             @map("requested_by_user_id")
+  status                   ViewerCapabilityProvisioningStatus @default(PENDING)
+  capabilityArtifactId     String?                            @map("capability_artifact_id")
+  failureCode              String?                            @map("failure_code")
+  failureDetail            String?                            @map("failure_detail")
+  createdAt                DateTime                           @default(now()) @map("created_at")
+  leasedAt                 DateTime?                          @map("leased_at")
+  leaseExpiresAt           DateTime?                          @map("lease_expires_at")
+  completedAt              DateTime?                          @map("completed_at")
+  failedAt                 DateTime?                          @map("failed_at")
+  project                  Project                            @relation(fields: [projectId], references: [id], onDelete: Restrict)
+  requestedBy              User                               @relation(fields: [requestedByUserId], references: [id], onDelete: Restrict)
+
+  @@index([status, createdAt])
+  @@index([projectId, contextBindingArtifactId, releaseArtifactId, viewerIdentityArtifactId])
+  @@map("viewer_capability_provisioning_requests")
 }
 
 model ProjectPlanState {
@@ -547,14 +592,14 @@ model DocumentContent {
 }
 
 model DocumentChunk {
-  id            String         @id @default(cuid())
+  id            String                      @id @default(cuid())
   documentId    String
   chunkIndex    Int
-  chunkText     String         @db.Text
+  chunkText     String                      @db.Text
   embeddingJson Json?
   embedding     Unsupported("vector(768)")?
-  createdAt     DateTime       @default(now())
-  document      DocumentRecord @relation(fields: [documentId], references: [id], onDelete: Cascade)
+  createdAt     DateTime                    @default(now())
+  document      DocumentRecord              @relation(fields: [documentId], references: [id], onDelete: Cascade)
 
   // New relationship for extracted relational values
   extractedLimits KravParametrar[]
@@ -1148,10 +1193,10 @@ model LegalCorpusRecord {
 
   searchVector Unsupported("tsvector")? @map("search_vector")
 
-  judgment    JudgmentRecord?    @relation(fields: [judgmentId], references: [id], onDelete: SetNull)
-  legalSource LegalSourceRecord? @relation(fields: [legalSourceId], references: [id], onDelete: SetNull)
-  chunks      LegalCorpusChunk[]
-  materialization LegalCorpusMaterialization?
+  judgment           JudgmentRecord?                @relation(fields: [judgmentId], references: [id], onDelete: SetNull)
+  legalSource        LegalSourceRecord?             @relation(fields: [legalSourceId], references: [id], onDelete: SetNull)
+  chunks             LegalCorpusChunk[]
+  materialization    LegalCorpusMaterialization?
   materializedChunks LegalCorpusMaterializedChunk[]
 
   @@index([canonicalKey])
@@ -1184,7 +1229,7 @@ model LegalCorpusMaterialization {
   corpusRecordId               String   @unique @map("corpus_record_id")
   createdAt                    DateTime @default(now()) @map("created_at")
 
-  corpusRecord    LegalCorpusRecord                  @relation(fields: [corpusRecordId], references: [id], onDelete: Restrict)
+  corpusRecord    LegalCorpusRecord                   @relation(fields: [corpusRecordId], references: [id], onDelete: Restrict)
   manifestEntries LegalCorpusIngestionManifestEntry[]
   chunks          LegalCorpusMaterializedChunk[]
 
@@ -1224,29 +1269,29 @@ model LegalCorpusIngestionManifestEntry {
 /// no writer except GovernedLegalCorpusMaterializer's own transaction: insert-only, immutable
 /// (no `updatedAt`), content-addressed via `fragmentId`.
 model LegalCorpusMaterializedChunk {
-  id                  String   @id @default(cuid())
+  id String @id @default(cuid())
 
-  fragmentId          String   @map("fragment_id")
-  materializationId   String   @map("materialization_id")
-  recordId            String   @map("record_id")
+  fragmentId        String @map("fragment_id")
+  materializationId String @map("materialization_id")
+  recordId          String @map("record_id")
 
-  structureKind       String   @map("structure_kind")
-  sequence            Int
+  structureKind String @map("structure_kind")
+  sequence      Int
 
-  chapter             String?
-  paragraph           String?
-  lawSection          String?  @map("law_section")
-  courtSection        String?  @map("court_section")
+  chapter      String?
+  paragraph    String?
+  lawSection   String? @map("law_section")
+  courtSection String? @map("court_section")
 
-  chunkText           String   @map("chunk_text") @db.Text
-  contentHash         String   @map("content_hash")
-  sourceProjectionRef String   @map("source_projection_ref")
-  chunkPolicyVersion  String   @map("chunk_policy_version")
+  chunkText           String @map("chunk_text") @db.Text
+  contentHash         String @map("content_hash")
+  sourceProjectionRef String @map("source_projection_ref")
+  chunkPolicyVersion  String @map("chunk_policy_version")
 
-  createdAt           DateTime @default(now()) @map("created_at")
+  createdAt DateTime @default(now()) @map("created_at")
 
-  record          LegalCorpusRecord         @relation(fields: [recordId], references: [id], onDelete: Cascade)
-  materialization LegalCorpusMaterialization @relation(fields: [materializationId], references: [id], onDelete: Cascade)
+  record          LegalCorpusRecord           @relation(fields: [recordId], references: [id], onDelete: Cascade)
+  materialization LegalCorpusMaterialization  @relation(fields: [materializationId], references: [id], onDelete: Cascade)
   embeddings      LegalCorpusChunkEmbedding[]
 
   // Replay-safe within one materialization: the same fragment re-persisted under the SAME
@@ -1371,17 +1416,17 @@ model PostgisImportBatch {
 }
 
 model BankIdSession {
-  id            String   @id @default(cuid())
-  orderRef      String   @unique
-  nonce         String
-  ipAddress     String
-  status        String   @default("PENDING")
-  bankidId      String?
-  identityEnvironment String @default("LEGACY") @map("identity_environment")
-  signatureHash String?  @unique
-  createdAt     DateTime @default(now())
-  updatedAt     DateTime @updatedAt
-  expiresAt     DateTime
+  id                  String   @id @default(cuid())
+  orderRef            String   @unique
+  nonce               String
+  ipAddress           String
+  status              String   @default("PENDING")
+  bankidId            String?
+  identityEnvironment String   @default("LEGACY") @map("identity_environment")
+  signatureHash       String?  @unique
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
+  expiresAt           DateTime
 
   @@index([orderRef])
   @@index([expiresAt])
@@ -1557,17 +1602,17 @@ model CaseEvidence {
 // TIER 3: SEMANTIC INDEX (Vector & Relations)
 // -----------------------------------------------------------------------------
 model EvidenceChunk {
-  id             String         @id @default(cuid())
-  evidenceId     String         @map("evidence_id")
-  section        String?
-  content        String
+  id            String                      @id @default(cuid())
+  evidenceId    String                      @map("evidence_id")
+  section       String?
+  content       String
   // PostGIS/pgvector requires the pgvector extension. 
   // We use Unsupported to let Prisma know the type exists in the DB.
-  contentVector  Unsupported("vector(768)")? @map("content_vector")
-  relations      Json?          // e.g. [{"type": "controlled_by", "target": "..."}]
-  createdAt      DateTime       @default(now()) @map("created_at")
+  contentVector Unsupported("vector(768)")? @map("content_vector")
+  relations     Json? // e.g. [{"type": "controlled_by", "target": "..."}]
+  createdAt     DateTime                    @default(now()) @map("created_at")
 
-  evidence       CaseEvidence   @relation(fields: [evidenceId], references: [id], onDelete: Cascade)
+  evidence CaseEvidence @relation(fields: [evidenceId], references: [id], onDelete: Cascade)
 
   @@index([evidenceId])
   // Note: HNSW/IVFFlat indexes for vectors should be created via raw SQL migrations.
@@ -1579,21 +1624,21 @@ model EvidenceChunk {
 // -----------------------------------------------------------------------------
 
 model DecisionCase {
-  id                    String    @id @default(cuid())
-  municipality          String
-  timelineStart         DateTime?
-  timelineEnd           DateTime?
-  outcome               String?   // "APPROVED", "REJECTED", "CONDITIONED"
-  ewcCode               String?
-  volumeClass           String?
-  hasComplementaryReq   Boolean   @default(false)
-  hasInjunction         Boolean   @default(false)
-  createdAt             DateTime  @default(now()) @map("created_at")
-  updatedAt             DateTime  @updatedAt @map("updated_at")
+  id                  String    @id @default(cuid())
+  municipality        String
+  timelineStart       DateTime?
+  timelineEnd         DateTime?
+  outcome             String? // "APPROVED", "REJECTED", "CONDITIONED"
+  ewcCode             String?
+  volumeClass         String?
+  hasComplementaryReq Boolean   @default(false)
+  hasInjunction       Boolean   @default(false)
+  createdAt           DateTime  @default(now()) @map("created_at")
+  updatedAt           DateTime  @updatedAt @map("updated_at")
 
-  impactArtifacts       DecisionImpactArtifact[]
-  environmentalCaseId   String?   @map("environmental_case_id")
-  environmentalCase     EnvironmentalCase? @relation(fields: [environmentalCaseId], references: [id], onDelete: SetNull)
+  impactArtifacts     DecisionImpactArtifact[]
+  environmentalCaseId String?                  @map("environmental_case_id")
+  environmentalCase   EnvironmentalCase?       @relation(fields: [environmentalCaseId], references: [id], onDelete: SetNull)
 
   @@index([municipality])
   @@index([ewcCode])
@@ -1602,7 +1647,7 @@ model DecisionCase {
 
 model DecisionImpactArtifact {
   artifact_hash           String   @id // CAS hash som primär identitet
-  canonicalizer_id        String   // Ägs av mps-decision-governance; dg-namnrymden är reserverad (MAT-I05)
+  canonicalizer_id        String // Ägs av mps-decision-governance; dg-namnrymden är reserverad (MAT-I05)
   decision_ref            String
   release_hash            String
   municipality_id         String
@@ -1610,15 +1655,15 @@ model DecisionImpactArtifact {
   evidence_refs           Json
   semantic_version        String
   materialization_version String
-  extraction_model        String   // Provenance metadata (NOT identity input)
-  rule_version            String   // Materialization Contract (identity input)
+  extraction_model        String // Provenance metadata (NOT identity input)
+  rule_version            String // Materialization Contract (identity input)
   source_artifact_hashes  Json
   verification_status     String
   supersedes_hash         String?
   lineage_sequence        Int
   created_at              DateTime @default(now())
 
-  decisionCase            DecisionCase @relation(fields: [decision_ref], references: [id], onDelete: Cascade)
+  decisionCase DecisionCase @relation(fields: [decision_ref], references: [id], onDelete: Cascade)
 
   @@index([decision_ref])
   @@index([municipality_id])
@@ -1626,8 +1671,8 @@ model DecisionImpactArtifact {
 }
 
 model DecisionFactsArtifact {
-  artifact_hash    String @id
-  canonicalizer_id String   // Ägs av mps-decision-governance; dg-namnrymden är reserverad (MAT-I05)
+  artifact_hash    String   @id
+  canonicalizer_id String // Ägs av mps-decision-governance; dg-namnrymden är reserverad (MAT-I05)
   facts            Json
   created_at       DateTime @default(now())
 
@@ -1635,23 +1680,23 @@ model DecisionFactsArtifact {
 }
 
 model MunicipalityDecisionProfile {
-  id                  String   @id @default(cuid())
-  municipality        String   @unique
-  completionRate      Float?   // E.g., % of cases requiring complementary info
-  avgProcessingDays   Int?
-  commonEwcCodes      Json?
-  lastCalculatedAt    DateTime @default(now()) @map("last_calculated_at")
+  id                String   @id @default(cuid())
+  municipality      String   @unique
+  completionRate    Float? // E.g., % of cases requiring complementary info
+  avgProcessingDays Int?
+  commonEwcCodes    Json?
+  lastCalculatedAt  DateTime @default(now()) @map("last_calculated_at")
 
   @@map("municipality_decision_profiles")
 }
 
 model RuntimeSnapshot {
-  id                  String   @id @default(cuid())
-  caseId              String   @map("case_id")
-  snapshotVersion     Int      @default(1)
-  stateVector         Json     // The compacted state representing all past events
-  signature           String?  // UUIDv7 or cryptographic signature for Sovereign DoD
-  createdAt           DateTime @default(now()) @map("created_at")
+  id              String   @id @default(cuid())
+  caseId          String   @map("case_id")
+  snapshotVersion Int      @default(1)
+  stateVector     Json // The compacted state representing all past events
+  signature       String? // UUIDv7 or cryptographic signature for Sovereign DoD
+  createdAt       DateTime @default(now()) @map("created_at")
 
   @@unique([caseId, snapshotVersion])
   @@index([caseId])

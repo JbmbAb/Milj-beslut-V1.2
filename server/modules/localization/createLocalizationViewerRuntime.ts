@@ -7,6 +7,7 @@ import { verifyProductViewerCapability } from "./productViewerCapabilityAuthorit
 import { ProjectContextBindingProvider } from "./projectContextBindingRuntime.js";
 import { PrismaProjectContextBindingIndex } from "../../repositories/projectContextBindingRepository.js";
 import { getProjectContextBindingIssuerVerifier } from "../../security/projectContextBindingIssuerKey.js";
+import { getLatestProvisioningRequestForProject } from "./viewerCapabilityProvisioningQueue.js";
 
 function defaultCurrentBindingProvider(artifactRepository: ArtifactRepositoryPort): ProjectContextBindingProvider {
   return new ProjectContextBindingProvider(
@@ -60,6 +61,43 @@ export function readLocalizationViewerRuntimeConfig(
     expectedViewerIdentityId: requiredEnv(env, LU_VIEWER_IDENTITY_ID_ENV),
     expectedReleaseId: requiredEnv(env, LU_VIEWER_RELEASE_ID_ENV),
     expectedReleaseHash: requiredEnv(env, LU_VIEWER_RELEASE_HASH_ENV),
+  };
+}
+
+/**
+ * PRODUCT-LU-VIEWER-CAPABILITY-PROVISIONING-01 Phase B: per-project resolution, replacing the
+ * single-deployment-wide-env-var lookup this function used to be the only way to get a
+ * `LocalizationViewerRuntimeConfig`. Looks up this SPECIFIC project's own
+ * `ViewerCapabilityProvisioningRequest` (COMPLETED status only) and derives the config from the
+ * resolved capability artifact's own verified payload -- never from caller/env-supplied
+ * expectations. A project with no completed provisioning request has no config yet (not an
+ * error state a caller should treat as "wrong project configured" -- it means "not ready").
+ */
+export async function resolveLocalizationViewerRuntimeConfigForProject(
+  projectId: string,
+  artifactRepository: ArtifactRepositoryPort,
+): Promise<LocalizationViewerRuntimeConfig | null> {
+  const request = await getLatestProvisioningRequestForProject(projectId);
+  if (!request || request.status !== 'COMPLETED' || !request.capabilityArtifactId) return null;
+
+  let capability: ProductViewerCapabilityArtifact;
+  try {
+    capability = await artifactRepository.resolve<ProductViewerCapabilityArtifact>({
+      artifact_id: request.capabilityArtifactId,
+      artifact_type: 'viewer_capability',
+    });
+  } catch {
+    return null;
+  }
+  if (capability.payload.subject_project_id !== projectId) return null;
+
+  return {
+    capabilityArtifactId: capability.artifact_id,
+    expectedProjectId: capability.payload.subject_project_id,
+    expectedContextBindingId: capability.payload.project_context_binding_ref.artifact_id,
+    expectedViewerIdentityId: capability.payload.viewer_identity_ref.artifact_id,
+    expectedReleaseId: capability.payload.product_release_ref.artifact_id,
+    expectedReleaseHash: capability.payload.product_release_hash,
   };
 }
 

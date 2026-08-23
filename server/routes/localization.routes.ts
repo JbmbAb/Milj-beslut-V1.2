@@ -23,8 +23,10 @@ import {
   saveUserLocalizationGeometry,
   getCurrentLocalizationGeometryForProject,
   retryLocalizationIdentityProvisioning,
+  ensureViewerCapabilityProvisioningEnqueuedForCompletedBootstrap,
   type SiteAlternative,
 } from '../modules/localization/public';
+import { logger } from '../logger';
 
 const router = express.Router();
 
@@ -251,6 +253,22 @@ router.get(
       if (!status) {
         res.status(404).json({ ok: false, error: 'No bootstrap request exists for this project.' });
         return;
+      }
+      // PRODUCT-LU-VIEWER-CAPABILITY-PROVISIONING-01 Phase B: the canonical automatic trigger for
+      // ViewerCapability provisioning -- fires once the ProjectContext bootstrap prerequisite is
+      // observed COMPLETED. Idempotent (ensureViewerCapabilityProvisioningRequested skips if a
+      // request for this exact subject already exists), and best-effort: a failure here must
+      // never break this status response, since bootstrap itself already succeeded.
+      if (status.status === 'COMPLETED' && status.contextBindingArtifactId) {
+        ensureViewerCapabilityProvisioningEnqueuedForCompletedBootstrap({
+          projectId,
+          contextBindingArtifactId: status.contextBindingArtifactId,
+          requestedByUserId: req.authUser!.id,
+        }).catch((error) => {
+          logger.warn(
+            `viewer-capability trigger: could not enqueue for project ${projectId}: ${error instanceof Error ? error.message : String(error)}`,
+          );
+        });
       }
       res.status(200).json({ ok: true, status });
     } catch (error) {

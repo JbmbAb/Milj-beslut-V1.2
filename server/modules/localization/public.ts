@@ -43,3 +43,10 @@ export {
   retryLocalizationIdentityProvisioning,
   type LocalizationGeometryView,
 } from './localizationGeometryService';
+export {
+  ensureViewerCapabilityProvisioningEnqueuedForCompletedBootstrap,
+} from './viewerCapabilityProvisioningTrigger';
+export {
+  getLatestProvisioningRequestForProject as getViewerCapabilityProvisioningStatusForProject,
+  type ViewerCapabilityProvisioningRequestRecord,
+} from './viewerCapabilityProvisioningQueue';
