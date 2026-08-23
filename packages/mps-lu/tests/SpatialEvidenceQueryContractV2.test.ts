@@ -51,7 +51,9 @@ function base(): Omit<SpatialEvidencePayloadV2, "query_contract"> {
   };
 }
 
-function locationPayload(location_ref = locationA): SpatialEvidencePayloadV2 {
+function locationPayload(
+  location_ref: { readonly artifact_id: string; readonly artifact_type: "localization_geometry" } = locationA,
+): SpatialEvidencePayloadV2 {
   return {
     ...base(),
     query_contract: {
