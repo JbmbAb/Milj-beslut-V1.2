@@ -6,6 +6,7 @@ import type { ArtifactReference } from "@miljobeslut/mps-compliance/src/artifact
 import type { AssessmentFinding } from "../domain/AssessmentFinding.js";
 import {
   LOCALIZATION_ASSESSMENT_CONTRACT_VERSION_V2,
+  LOCALIZATION_ASSESSMENT_CANONICALIZER_ID_V2,
   type LocalizationAssessmentArtifact,
   type LocalizationAssessmentDraft,
   type LocalizationAssessmentPayload,
@@ -64,6 +65,36 @@ function canonicalEvidenceRefs(
   });
 }
 
+/**
+ * LOCALIZATION-ASSESSMENT-CANONICAL-COLLECTIONS-V2 / ARTIFACT-OPERATIONAL-TEMPORAL-ENVELOPE-V1
+ * (H2/H12), explicit version dispatch. Callers already recompute and compare `content_hash`
+ * (that check is version-agnostic by construction -- it just hashes whatever body is actually
+ * there); this function is the EXPLICIT structural gate the owner required: absent
+ * `assessment_contract_version` -> legacy V1 shape, no additional requirements beyond the hash
+ * check the caller already performs. An exact V2 marker -> the V2-only structural rules
+ * (`canonicalizer_id` must be the declared one; `evidence_refs` must actually be the canonical
+ * deduplicated+sorted form, not merely claim to be V2 while carrying an unsorted/duplicated set).
+ * Anything else -- a garbage or future-unknown version string -- fails closed rather than being
+ * silently treated as either known shape.
+ */
+export function validateLocalizationAssessmentContractVersion(payload: LocalizationAssessmentPayload): void {
+  const version = payload.assessment_contract_version;
+  if (version === undefined) {
+    return;
+  }
+  if (version === LOCALIZATION_ASSESSMENT_CONTRACT_VERSION_V2) {
+    if (payload.canonicalizer_id !== LOCALIZATION_ASSESSMENT_CANONICALIZER_ID_V2) {
+      throw new Error("REJECT_LOCALIZATION_ASSESSMENT_V2: canonicalizer_id mismatch");
+    }
+    const canonical = canonicalEvidenceRefs(payload.evidence_refs);
+    if (JSON.stringify(canonical) !== JSON.stringify(payload.evidence_refs)) {
+      throw new Error("REJECT_LOCALIZATION_ASSESSMENT_V2: evidence_refs is not the canonical deduplicated/sorted form");
+    }
+    return;
+  }
+  throw new Error(`REJECT_LOCALIZATION_ASSESSMENT: unknown assessment_contract_version '${String(version)}'`);
+}
+
 export function createGovernedLocalizationAssessment(args: {
   readonly draft: LocalizationAssessmentDraft;
   readonly findings: readonly AssessmentFinding[];
@@ -100,6 +131,7 @@ export function createGovernedLocalizationAssessment(args: {
       ? { localization_geometry_ref: args.draft.localization_geometry_ref }
       : {}),
     assessment_contract_version: LOCALIZATION_ASSESSMENT_CONTRACT_VERSION_V2,
+    canonicalizer_id: LOCALIZATION_ASSESSMENT_CANONICALIZER_ID_V2,
   };
   // Constructed FROM the already-canonical payload.evidence_refs -- never independently
   // re-discovering the caller's raw (potentially non-canonical) order.

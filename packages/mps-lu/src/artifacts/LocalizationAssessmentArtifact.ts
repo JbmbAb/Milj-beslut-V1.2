@@ -25,6 +25,16 @@ import { AssessmentFinding, RuleId, RuleVersion } from "../domain/AssessmentFind
  */
 export const LOCALIZATION_ASSESSMENT_CONTRACT_VERSION_V2 = "localization-assessment-v2" as const;
 
+/**
+ * ARTIFACT-OPERATIONAL-TEMPORAL-ENVELOPE-V1 (H2/H12). Same canonicalization pipeline every other
+ * artifact family in this codebase's mps-lu layer uses (sha256ContentHash -> RFC8785 via
+ * json-canonicalize) -- made an explicit, load-bearing field on V2 so a future second
+ * canonicalizer (if one is ever introduced for this family) could never collide identities with
+ * this one, matching the same discipline already applied to SpatialEvidenceIdentity's
+ * `sv-canonical-1`/`sv-canonical-2` version tagging.
+ */
+export const LOCALIZATION_ASSESSMENT_CANONICALIZER_ID_V2 = "rfc8785-sha256-v1" as const;
+
 export interface LocalizationAssessmentPayload {
   readonly project_context_ref: ArtifactReference;
   readonly property_ref: ArtifactReference;
@@ -53,6 +63,8 @@ export interface LocalizationAssessmentPayload {
   readonly localization_geometry_ref?: ArtifactReference;
   /** LOCALIZATION-ASSESSMENT-CANONICAL-COLLECTIONS-V2. Absent on every historical assessment. */
   readonly assessment_contract_version?: typeof LOCALIZATION_ASSESSMENT_CONTRACT_VERSION_V2;
+  /** Present iff assessment_contract_version is set -- see constant doc comment above. */
+  readonly canonicalizer_id?: typeof LOCALIZATION_ASSESSMENT_CANONICALIZER_ID_V2;
 }
 
 /** Inputs known before the kernel has produced its outcome and attestation. */

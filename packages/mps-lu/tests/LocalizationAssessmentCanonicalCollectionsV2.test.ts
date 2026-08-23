@@ -4,7 +4,9 @@ import { SecurityRuntime } from "../../mps-runtime/src/security/SecurityRuntime"
 import {
   createGovernedLocalizationAssessment,
   localizationAssessmentCanonicalBody,
+  validateLocalizationAssessmentContractVersion,
   LOCALIZATION_ASSESSMENT_CONTRACT_VERSION_V2,
+  LOCALIZATION_ASSESSMENT_CANONICALIZER_ID_V2,
   type LocalizationAssessmentDraft,
 } from "../src/index";
 
@@ -108,6 +110,83 @@ describe("LOCALIZATION-ASSESSMENT-CANONICAL-COLLECTIONS-V2 (H7 Phase B)", () => 
     const hash1 = sha256ContentHash(localizationAssessmentCanonicalBody(first));
     const hash2 = sha256ContentHash(localizationAssessmentCanonicalBody(second));
     expect(hash1.value).toBe(hash2.value);
+  });
+
+  it("H2/H12: explicit version dispatch -- absent version (legacy V1 shape) passes with no extra requirements", () => {
+    expect(() =>
+      validateLocalizationAssessmentContractVersion({
+        project_context_ref: { artifact_id: "p", artifact_type: "LU_PROJECT_CONTEXT" },
+        property_ref: { artifact_id: "prop", artifact_type: "PROPERTY" },
+        execution_outcome_ref: { artifact_id: "o", artifact_type: "execution_outcome" },
+        outcome_attestation_ref: { artifact_id: "a", artifact_type: "attestation" },
+        findings: [],
+        evidence_refs: [{ artifact_id: "z", artifact_type: "X" }, { artifact_id: "a", artifact_type: "X" }], // deliberately unsorted -- legal for V1
+        rule_refs: [],
+        system_summary: "legacy",
+      }),
+    ).not.toThrow();
+  });
+
+  it("H2/H12: a real V2 assessment passes the explicit V2 structural check", () => {
+    const { outcome, attestation } = buildOutcomeAndAttestation("dispatch-v2");
+    const assessment = createGovernedLocalizationAssessment({
+      draft: draftWithEvidence([{ artifact_id: "evidence-b", artifact_type: "NVR" }, { artifact_id: "evidence-a", artifact_type: "SGU_RISK" }]),
+      findings: [],
+      outcome,
+      attestation,
+    });
+    expect(() => validateLocalizationAssessmentContractVersion(assessment.payload)).not.toThrow();
+    expect(assessment.payload.canonicalizer_id).toBe(LOCALIZATION_ASSESSMENT_CANONICALIZER_ID_V2);
+  });
+
+  it("H2/H12: a V2-labeled payload with an unsorted evidence_refs (mislabeled or tampered) is rejected -- the version claim alone is not trusted", () => {
+    expect(() =>
+      validateLocalizationAssessmentContractVersion({
+        project_context_ref: { artifact_id: "p", artifact_type: "LU_PROJECT_CONTEXT" },
+        property_ref: { artifact_id: "prop", artifact_type: "PROPERTY" },
+        execution_outcome_ref: { artifact_id: "o", artifact_type: "execution_outcome" },
+        outcome_attestation_ref: { artifact_id: "a", artifact_type: "attestation" },
+        findings: [],
+        evidence_refs: [{ artifact_id: "z", artifact_type: "X" }, { artifact_id: "a", artifact_type: "X" }], // NOT canonically sorted
+        rule_refs: [],
+        system_summary: "tampered",
+        assessment_contract_version: LOCALIZATION_ASSESSMENT_CONTRACT_VERSION_V2,
+        canonicalizer_id: LOCALIZATION_ASSESSMENT_CANONICALIZER_ID_V2,
+      }),
+    ).toThrow(/evidence_refs is not the canonical/);
+  });
+
+  it("H2/H12: a V2-labeled payload with the wrong canonicalizer_id is rejected", () => {
+    expect(() =>
+      validateLocalizationAssessmentContractVersion({
+        project_context_ref: { artifact_id: "p", artifact_type: "LU_PROJECT_CONTEXT" },
+        property_ref: { artifact_id: "prop", artifact_type: "PROPERTY" },
+        execution_outcome_ref: { artifact_id: "o", artifact_type: "execution_outcome" },
+        outcome_attestation_ref: { artifact_id: "a", artifact_type: "attestation" },
+        findings: [],
+        evidence_refs: [],
+        rule_refs: [],
+        system_summary: "tampered",
+        assessment_contract_version: LOCALIZATION_ASSESSMENT_CONTRACT_VERSION_V2,
+        canonicalizer_id: "some-other-canonicalizer" as never,
+      }),
+    ).toThrow(/canonicalizer_id mismatch/);
+  });
+
+  it("H2/H12: an unknown assessment_contract_version fails closed, never silently treated as V1 or V2", () => {
+    expect(() =>
+      validateLocalizationAssessmentContractVersion({
+        project_context_ref: { artifact_id: "p", artifact_type: "LU_PROJECT_CONTEXT" },
+        property_ref: { artifact_id: "prop", artifact_type: "PROPERTY" },
+        execution_outcome_ref: { artifact_id: "o", artifact_type: "execution_outcome" },
+        outcome_attestation_ref: { artifact_id: "a", artifact_type: "attestation" },
+        findings: [],
+        evidence_refs: [],
+        rule_refs: [],
+        system_summary: "future",
+        assessment_contract_version: "localization-assessment-v99" as never,
+      }),
+    ).toThrow(/unknown assessment_contract_version/);
   });
 
   it("a genuinely different evidence set (not just reordered) still produces a DIFFERENT identity -- the fix stabilizes representation, it does not collapse distinct evidence", () => {

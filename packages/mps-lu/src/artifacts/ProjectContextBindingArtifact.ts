@@ -151,3 +151,132 @@ export function validateProjectContextBindingArtifact(
   }
   return artifact;
 }
+
+/**
+ * ARTIFACT-OPERATIONAL-TEMPORAL-ENVELOPE-V1 (CANONICAL-SEMANTIC-INPUTS-V1 cluster, H2/H12).
+ *
+ * Owner decision, verbatim: excluding `created_at` from the HASH computation while leaving it
+ * present in the stored `payload` is insufficient -- two constructions of the same semantic
+ * binding at different wall-clock times would still produce the same `artifact_id` with
+ * genuinely different serialized bytes, which `MimersByteStorageBackend.put()` correctly detects
+ * and rejects as a WORM violation (crash on a legitimate reconciliation-first retry, not silent
+ * corruption -- but still a real reliability defect). The fix is structural: `created_at` is not
+ * a field on `ProjectContextBindingPayloadV2` at all. It never enters the object that gets
+ * serialized into CAS bytes under this artifact_id.
+ *
+ * "When this binding was minted" is genuine operational provenance, not semantic content -- it
+ * belongs in whatever operational envelope wraps the mint call (a queue request's own durable
+ * `createdAt`, a Postgres discovery-projection row's timestamp, an audit log), never inside the
+ * immutable canonical body. `createProjectContextBindingArtifactV2` does not even accept a
+ * `created_at` parameter -- there is nothing for a caller to (mis)supply.
+ *
+ * V1 (`ProjectContextBindingArtifact`/`createProjectContextBindingArtifact` above) is completely
+ * unchanged and stays the historical rule forever -- every existing binding continues to verify
+ * under exactly the rule that minted it. V2 is purely additive: a new, separate type and function
+ * pair, not a mutation of V1's shape. Nothing in this codebase is switched to emit V2 by this
+ * change alone -- that is a deliberate, separate decision left for the caller/producer to make.
+ */
+export const PROJECT_CONTEXT_BINDING_CONTRACT_VERSION_V2 = "project-context-binding-body-v2" as const;
+
+export interface ProjectContextBindingPayloadV2 {
+  readonly binding_contract_version: typeof PROJECT_CONTEXT_BINDING_CONTRACT_VERSION_V2;
+  readonly project_id: string;
+  readonly project_context_ref: ArtifactReference;
+  readonly project_property_binding_ref: ArtifactReference;
+  readonly binding_version: string;
+  readonly authority_ref: ArtifactReference;
+  // Deliberately no `created_at` or any other wall-clock field -- see file header comment above.
+}
+
+export interface ProjectContextBindingArtifactV2 extends ArtifactContract {
+  readonly artifact_type: typeof PROJECT_CONTEXT_BINDING_ARTIFACT_TYPE;
+  readonly payload: ProjectContextBindingPayloadV2;
+  readonly attestation?: ArtifactAttestation;
+}
+
+function projectContextBindingV2ContentPayload(artifact: ProjectContextBindingArtifactV2): object {
+  return {
+    artifact_type: artifact.artifact_type,
+    artifact_id: artifact.artifact_id,
+    references: artifact.references,
+    payload: artifact.payload,
+  };
+}
+
+/**
+ * `artifact_id` and `content_hash` are BOTH computed from this exact same object -- there is only
+ * one hash domain for V2 (no separate "identity payload" vs "content payload" split), because
+ * with `created_at` removed entirely there is nothing left that could cause them to diverge.
+ */
+export function createProjectContextBindingArtifactV2(input: {
+  readonly project_id: string;
+  readonly project_context_ref: ArtifactReference;
+  readonly project_property_binding_ref: ArtifactReference;
+  readonly binding_version: string;
+  readonly authority_ref: ArtifactReference;
+}): ProjectContextBindingArtifactV2 {
+  const payload: ProjectContextBindingPayloadV2 = {
+    binding_contract_version: PROJECT_CONTEXT_BINDING_CONTRACT_VERSION_V2,
+    project_id: requireNonEmpty(input.project_id, "project_id"),
+    project_context_ref: validateReference(input.project_context_ref, "project_context_ref"),
+    project_property_binding_ref: validateReference(input.project_property_binding_ref, "project_property_binding_ref"),
+    binding_version: requireNonEmpty(input.binding_version, "binding_version"),
+    authority_ref: validateReference(input.authority_ref, "authority_ref"),
+  };
+  const identityHash = sha256ContentHash(payload);
+  const artifact: Omit<ProjectContextBindingArtifactV2, "content_hash"> = {
+    artifact_id: `project-context-binding-${identityHash.value.slice(0, 24)}`,
+    artifact_type: PROJECT_CONTEXT_BINDING_ARTIFACT_TYPE,
+    references: [payload.project_context_ref, payload.project_property_binding_ref, payload.authority_ref],
+    payload,
+  };
+  return { ...artifact, content_hash: sha256ContentHash(projectContextBindingV2ContentPayload(artifact as ProjectContextBindingArtifactV2)) };
+}
+
+export function validateProjectContextBindingArtifactV2(
+  artifact: ProjectContextBindingArtifactV2,
+): ProjectContextBindingArtifactV2 {
+  if (!artifact || typeof artifact !== "object" || artifact.artifact_type !== PROJECT_CONTEXT_BINDING_ARTIFACT_TYPE) {
+    throw new Error("REJECT_PROJECT_CONTEXT_BINDING_V2: artifact_type must be project_context_binding");
+  }
+  const p = artifact.payload;
+  if (!p || p.binding_contract_version !== PROJECT_CONTEXT_BINDING_CONTRACT_VERSION_V2) {
+    throw new Error("REJECT_PROJECT_CONTEXT_BINDING_V2: binding_contract_version mismatch");
+  }
+  const rebuilt = createProjectContextBindingArtifactV2({
+    project_id: p.project_id,
+    project_context_ref: p.project_context_ref,
+    project_property_binding_ref: p.project_property_binding_ref,
+    binding_version: p.binding_version,
+    authority_ref: p.authority_ref,
+  });
+  if (artifact.artifact_id !== rebuilt.artifact_id) {
+    throw new Error("REJECT_PROJECT_CONTEXT_BINDING_V2: artifact_id does not match canonical identity");
+  }
+  if (artifact.content_hash?.algorithm !== rebuilt.content_hash.algorithm || artifact.content_hash?.value !== rebuilt.content_hash.value) {
+    throw new Error("REJECT_PROJECT_CONTEXT_BINDING_V2: content_hash does not match canonical body (tampered or malformed)");
+  }
+  if (JSON.stringify(artifact.references) !== JSON.stringify(rebuilt.references)) {
+    throw new Error("REJECT_PROJECT_CONTEXT_BINDING_V2: references do not match payload");
+  }
+  return artifact;
+}
+
+/**
+ * Explicit version dispatch, per the frozen owner contract: absence of `binding_contract_version`
+ * means legacy V1 shape (validated under the historical rule, unchanged forever); an exact V2
+ * match uses the V2 rule; anything else (a garbage/unknown version string) fails closed rather
+ * than being silently accepted by either validator.
+ */
+export function validateProjectContextBindingAnyVersion(
+  artifact: { readonly payload?: { readonly binding_contract_version?: unknown } } & Record<string, unknown>,
+): ProjectContextBindingArtifact | ProjectContextBindingArtifactV2 {
+  const declaredVersion = artifact?.payload?.binding_contract_version;
+  if (declaredVersion === undefined) {
+    return validateProjectContextBindingArtifact(artifact as unknown as ProjectContextBindingArtifact);
+  }
+  if (declaredVersion === PROJECT_CONTEXT_BINDING_CONTRACT_VERSION_V2) {
+    return validateProjectContextBindingArtifactV2(artifact as unknown as ProjectContextBindingArtifactV2);
+  }
+  throw new Error(`REJECT_PROJECT_CONTEXT_BINDING: unknown binding_contract_version '${String(declaredVersion)}'`);
+}

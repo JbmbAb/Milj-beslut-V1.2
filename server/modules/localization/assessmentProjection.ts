@@ -18,6 +18,7 @@ import type { ArtifactRepositoryPort } from "@miljobeslut/mps-runtime";
 import { sha256ContentHash } from "@miljobeslut/mps-compliance/src/canonical/sha256Canonical";
 import {
   localizationAssessmentCanonicalBody,
+  validateLocalizationAssessmentContractVersion,
   type LocalizationAssessmentArtifact,
 } from "@miljobeslut/mps-lu";
 import type { ArtifactReference } from "@miljobeslut/mps-compliance/src/artifacts/ArtifactReference";
@@ -150,6 +151,12 @@ export async function resolveCurrentAssessmentProjection(args: {
       assessment.artifact_id === `assessment-${recomputed.value}`;
     if (!untampered) continue; // tampered/wrong artifact -> reject this candidate
 
+    // H2/H12: explicit version dispatch -- absent version = legacy V1 shape (no extra rules
+    // beyond the hash check above); V2 marker = V2 structural rules (canonicalizer_id, canonical
+    // evidence_refs); anything else fails closed. Not swallowed into "reject this candidate" --
+    // an unknown contract version is a hard error, not a benign missing-CAS-object situation.
+    validateLocalizationAssessmentContractVersion(assessment.payload);
+
     if (
       !sameRef(assessment.payload.project_context_ref, {
         artifact_id: candidate.projectContextRefId,
@@ -197,7 +204,7 @@ export async function resolveCurrentAssessmentProjection(args: {
 
 export type AssessmentProjectionReconciliationResult =
   | { readonly reconciled: true }
-  | { readonly reconciled: false; readonly reason: "MISSING_CAS_ARTIFACT" | "TAMPERED_CAS_ARTIFACT" | "WRONG_TYPE" | "NOT_CURRENT" };
+  | { readonly reconciled: false; readonly reason: "MISSING_CAS_ARTIFACT" | "TAMPERED_CAS_ARTIFACT" | "WRONG_TYPE" | "NOT_CURRENT" | "UNKNOWN_CONTRACT_VERSION" };
 
 /**
  * P3-LU-ASSESSMENT-PROJECTION-RELIABILITY-01.
@@ -248,6 +255,14 @@ export async function reconcileAssessmentProjection(args: {
     assessment.artifact_id === `assessment-${recomputed.value}`;
   if (!untampered) {
     return { reconciled: false, reason: "TAMPERED_CAS_ARTIFACT" };
+  }
+
+  // H2/H12: explicit version dispatch, same rule as resolveCurrentAssessmentProjection above --
+  // never silently reconcile an artifact carrying an unrecognized contract version.
+  try {
+    validateLocalizationAssessmentContractVersion(assessment.payload);
+  } catch {
+    return { reconciled: false, reason: "UNKNOWN_CONTRACT_VERSION" };
   }
 
   if (!sameRef(assessment.payload.project_context_ref, args.currentProjectContextRef)) {
