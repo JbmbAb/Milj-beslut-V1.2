@@ -25,6 +25,15 @@ export interface ViewerCapabilityProvisioningRequestRecord {
   readonly requestedByUserId: string;
   readonly status: 'PENDING' | 'LEASED' | 'COMPLETED' | 'FAILED' | 'SUPERSEDED';
   readonly capabilityArtifactId: string | null;
+  /**
+   * PROJECT-CONTEXT-BINDING-V2-PRODUCER-ADOPTION-01 Phase A.1: the capability-issuance validity
+   * window, decided once by the web layer at enqueue time -- the worker reads these values
+   * verbatim and never derives or refreshes them (never binding.created_at, never
+   * release.issued_at, never Date.now() at mint time). Nullable only for rows enqueued before
+   * this field existed.
+   */
+  readonly capabilityValidFrom: Date | null;
+  readonly capabilityValidUntil: Date | null;
   readonly failureCode: string | null;
   readonly failureDetail: string | null;
   readonly createdAt: Date;
@@ -40,6 +49,8 @@ export async function enqueueViewerCapabilityProvisioningRequest(input: {
   readonly releaseArtifactId: string;
   readonly viewerIdentityArtifactId: string;
   readonly requestedByUserId: string;
+  readonly capabilityValidFrom: Date;
+  readonly capabilityValidUntil: Date;
 }): Promise<ViewerCapabilityProvisioningRequestRecord> {
   return prisma.viewerCapabilityProvisioningRequest.create({
     data: {
@@ -48,6 +59,8 @@ export async function enqueueViewerCapabilityProvisioningRequest(input: {
       releaseArtifactId: input.releaseArtifactId,
       viewerIdentityArtifactId: input.viewerIdentityArtifactId,
       requestedByUserId: input.requestedByUserId,
+      capabilityValidFrom: input.capabilityValidFrom,
+      capabilityValidUntil: input.capabilityValidUntil,
     },
   });
 }
@@ -65,6 +78,8 @@ export async function ensureViewerCapabilityProvisioningRequested(input: {
   readonly releaseArtifactId: string;
   readonly viewerIdentityArtifactId: string;
   readonly requestedByUserId: string;
+  readonly capabilityValidFrom: Date;
+  readonly capabilityValidUntil: Date;
 }): Promise<ViewerCapabilityProvisioningRequestRecord> {
   const existing = await getProvisioningStatusForSubject(
     input.projectId,

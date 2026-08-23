@@ -1,15 +1,25 @@
 import type { ArtifactReference } from "@miljobeslut/mps-compliance/src/artifacts/ArtifactReference";
-import type { ProjectContextBindingArtifact } from "./ProjectContextBindingArtifact";
 import type { ProjectContextBindingSupersessionArtifact } from "./ProjectContextBindingSupersessionArtifact";
+import type { ProjectContextBindingSupersessionArtifactV2 } from "./ProjectContextBindingSupersessionArtifact";
 
 const key = (r: ArtifactReference) => `${r.artifact_type}:${r.artifact_id}`;
 
-/** Pure, order-independent authority reduction. Callers must verify every artifact first. */
-export function resolveCurrentProjectContextBindingHead(args: {
+type AnyBinding = { readonly artifact_id: string; readonly artifact_type: string; readonly payload: { readonly project_id: string } };
+type AnySupersession = ProjectContextBindingSupersessionArtifact | ProjectContextBindingSupersessionArtifactV2;
+
+/**
+ * Pure, order-independent authority reduction. Callers must verify every artifact first.
+ *
+ * PROJECT-CONTEXT-BINDING-V2-PRODUCER-ADOPTION-01: generic over the binding type on purpose --
+ * this function only ever reads `payload.project_id` and ref identity, identical field names on
+ * both V1 and V2, so a mixed V1/V2 history (a historical V1 binding legitimately superseded by a
+ * new V2 one) resolves correctly with no separate code path.
+ */
+export function resolveCurrentProjectContextBindingHead<B extends AnyBinding>(args: {
   readonly projectId: string;
-  readonly bindings: readonly ProjectContextBindingArtifact[];
-  readonly supersessions: readonly ProjectContextBindingSupersessionArtifact[];
-}): ProjectContextBindingArtifact {
+  readonly bindings: readonly B[];
+  readonly supersessions: readonly AnySupersession[];
+}): B {
   const bindings = new Map(args.bindings.map((binding) => [key(binding), binding]));
   if (bindings.size !== args.bindings.length || bindings.size === 0) throw new Error("REJECT_PROJECT_CONTEXT_BINDING_HEAD: bindings");
   for (const binding of bindings.values()) if (binding.payload.project_id !== args.projectId) throw new Error("REJECT_PROJECT_CONTEXT_BINDING_HEAD: binding project");

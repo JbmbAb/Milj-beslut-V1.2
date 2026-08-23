@@ -30,12 +30,30 @@ export async function processViewerCapabilityProvisioningRequestsOnce(): Promise
     logger.info(
       `lu-viewer-capability-worker: leased request ${request.id} for project ${request.projectId} binding ${request.contextBindingArtifactId}`,
     );
+
+    // PROJECT-CONTEXT-BINDING-V2-PRODUCER-ADOPTION-01 Phase A.1: the validity window must be
+    // pinned on the request itself -- the worker never derives a fallback. A row predating this
+    // field (nullable only for that reason) cannot be safely processed; fail it explicitly so it
+    // surfaces for an explicit retry (which enqueues a fresh row with a real pinned window),
+    // rather than silently inventing a window here.
+    if (!request.capabilityValidFrom || !request.capabilityValidUntil) {
+      await markViewerCapabilityProvisioningFailed(
+        request.id,
+        'MISSING_PINNED_VALIDITY_WINDOW',
+        'request predates the explicit capabilityValidFrom/capabilityValidUntil contract -- retry to enqueue a fresh request with a pinned window',
+      );
+      logger.warn(`lu-viewer-capability-worker: request ${request.id} FAILED (MISSING_PINNED_VALIDITY_WINDOW)`);
+      return 1;
+    }
+
     const outcome = await executeViewerCapabilityProvisioning({
       projectId: request.projectId,
       contextBindingArtifactId: request.contextBindingArtifactId,
       releaseArtifactId: request.releaseArtifactId,
       viewerIdentityArtifactId: request.viewerIdentityArtifactId,
       requestedByUserId: request.requestedByUserId,
+      capabilityValidFrom: request.capabilityValidFrom,
+      capabilityValidUntil: request.capabilityValidUntil,
     });
 
     if (outcome.ok) {

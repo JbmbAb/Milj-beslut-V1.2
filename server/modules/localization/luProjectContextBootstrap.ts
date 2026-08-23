@@ -33,7 +33,7 @@ import {
   createCanonicalPropertyGeometryArtifact,
   createProductLuProjectContextArtifact,
   createProductLuPropertyContextArtifact,
-  createProjectContextBindingArtifact,
+  createProjectContextBindingArtifactV2,
   createProjectContextBindingIssuerArtifact,
   createProjectPropertyBindingArtifact,
   createPropertyLookupObservationArtifact,
@@ -232,13 +232,15 @@ export async function executeProjectContextBootstrap(input: {
       property_context_ref: { artifact_id: propertyContext.artifact_id, artifact_type: propertyContext.artifact_type },
       project_property_binding_ref: propertyBindingRef,
     });
-    const contextBindingUnsigned = createProjectContextBindingArtifact({
+    // PROJECT-CONTEXT-BINDING-V2-PRODUCER-ADOPTION-01: the canonical live producer now emits the
+    // operational-envelope contract -- no created_at parameter exists to (re)compute, so a
+    // reconciliation-first retry of this exact bootstrap always produces byte-identical bytes.
+    const contextBindingUnsigned = createProjectContextBindingArtifactV2({
       project_id: project!.id,
       project_context_ref: { artifact_id: projectContext.artifact_id, artifact_type: projectContext.artifact_type },
       project_property_binding_ref: propertyBindingRef,
       binding_version: 'project-context-binding-v2',
       authority_ref: { artifact_id: issuer.artifact_id, artifact_type: issuer.artifact_type },
-      created_at: new Date().toISOString(),
     });
     const contextBinding = {
       ...contextBindingUnsigned,

@@ -43,7 +43,6 @@ import { prisma } from '../../db/prisma';
 import { assertProjectAccess } from '../../security/projectAccess';
 
 const PRIVATE_KEY_ENV = 'VIEWER_CAPABILITY_ISSUER_PRIVATE_KEY_PEM';
-const VALIDITY_WINDOW_MS = 365 * 24 * 60 * 60 * 1000;
 /** Deterministic, automated-issuance owner authority ref -- distinct from the manual-install one
  *  scripts/ops/bootstrap-viewer-authority-persistent.ts used, so the two are never confused. */
 const OWNER_AUTHORITY_REF = {
@@ -121,6 +120,15 @@ export async function executeViewerCapabilityProvisioning(input: {
   readonly releaseArtifactId: string;
   readonly viewerIdentityArtifactId: string;
   readonly requestedByUserId: string;
+  /**
+   * PROJECT-CONTEXT-BINDING-V2-PRODUCER-ADOPTION-01 Phase A.1: pinned once by the web layer at
+   * enqueue time (see viewerCapabilityProvisioningTrigger.ts). This worker reads these verbatim
+   * and never derives or refreshes them -- not from the pinned binding's created_at, not from the
+   * release, not from its own clock. A retry/reclaim of the same request always uses the exact
+   * same window, which is what keeps the resulting capability's identity deterministic.
+   */
+  readonly capabilityValidFrom: Date;
+  readonly capabilityValidUntil: Date;
 }): Promise<ViewerCapabilityProvisioningOutcome> {
   try {
     const requester = await prisma.user.findUnique({
@@ -184,12 +192,15 @@ export async function executeViewerCapabilityProvisioning(input: {
     const issuer = await getOrMintIssuer(repo);
     const signing = getViewerCapabilitySigningProvider();
 
-    // Deterministic validity window: derived purely from the pinned binding's own immutable
-    // created_at, never from wall-clock mint time -- so any worker/retry minting for the exact
-    // same subject computes the identical valid_from/valid_until, and therefore the identical
-    // content-addressed artifact_id (owner invariant: capability identity must be deterministic).
-    const validFrom = currentBinding!.payload.created_at;
-    const validUntil = new Date(Date.parse(validFrom) + VALIDITY_WINDOW_MS).toISOString();
+    // PROJECT-CONTEXT-BINDING-V2-PRODUCER-ADOPTION-01 Phase A.1: the validity window is pinned by
+    // the web layer at enqueue time, not derived here. binding.created_at (V1-only anyway) and
+    // release.issued_at both turned out to have no real semantic connection to "how long should
+    // this capability remain valid" -- authority currentness (binding/release/viewer-identity
+    // still current) already independently revokes the capability regardless of this window; the
+    // window is a separate, coarser rotation/max-age ceiling. Using the pinned request values
+    // verbatim is what keeps a retry/reclaim of the exact same request byte-identical.
+    const validFrom = input.capabilityValidFrom.toISOString();
+    const validUntil = input.capabilityValidUntil.toISOString();
 
     const barePayloadInput = {
       issuer_key_id: signing.keyId,

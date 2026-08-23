@@ -140,9 +140,9 @@ export function validateProjectContextBindingSupersessionArtifactV2(
 /** Explicit version dispatch: the existing V1 marker value routes to the historical (unchanged)
  *  validator; the V2 marker routes to the V2 validator; anything else fails closed. */
 export function validateProjectContextBindingSupersessionAnyVersion(
-  artifact: { readonly payload?: { readonly contract_version?: unknown } } & Record<string, unknown>,
+  artifact: unknown,
 ): ProjectContextBindingSupersessionArtifact | ProjectContextBindingSupersessionArtifactV2 {
-  const declaredVersion = artifact?.payload?.contract_version;
+  const declaredVersion = (artifact as { payload?: { contract_version?: unknown } })?.payload?.contract_version;
   if (declaredVersion === PROJECT_CONTEXT_BINDING_SUPERSESSION_VERSION) {
     return validateProjectContextBindingSupersessionArtifact(artifact as unknown as ProjectContextBindingSupersessionArtifact);
   }

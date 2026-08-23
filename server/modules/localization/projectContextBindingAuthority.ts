@@ -12,11 +12,13 @@ import {
   type ProjectContextBindingArtifact,
   type ProjectContextBindingIssuerArtifact,
   type ProjectContextBindingSupersessionArtifact,
+  type ProjectContextBindingArtifactV2,
+  type ProjectContextBindingSupersessionArtifactV2,
   type ProjectPropertyBindingArtifact,
   projectContextBindingSubjectDigest,
-  validateProjectContextBindingArtifact,
+  validateProjectContextBindingAnyVersion,
   validateProjectContextBindingIssuerArtifact,
-  validateProjectContextBindingSupersessionArtifact,
+  validateProjectContextBindingSupersessionAnyVersion,
   validateProjectPropertyBindingArtifact,
 } from "@miljobeslut/mps-lu";
 import type { ProjectContextBindingIndex } from "../../repositories/projectContextBindingRepository";
@@ -25,7 +27,12 @@ const PREDICATE_TYPE = "project-context-binding-authority-v1" as const;
 const BINDING_ACTION = "ISSUE_PROJECT_CONTEXT_BINDING" as const;
 const SUPERSESSION_ACTION = "ISSUE_PROJECT_CONTEXT_BINDING_SUPERSESSION" as const;
 
-type AttestableArtifact = ProjectPropertyBindingArtifact | ProjectContextBindingArtifact | ProjectContextBindingSupersessionArtifact;
+type AttestableArtifact =
+  | ProjectPropertyBindingArtifact
+  | ProjectContextBindingArtifact
+  | ProjectContextBindingArtifactV2
+  | ProjectContextBindingSupersessionArtifact
+  | ProjectContextBindingSupersessionArtifactV2;
 
 function subjectDigest(artifact: AttestableArtifact): string {
   return artifact.artifact_type === "project_context_binding"
@@ -87,11 +94,14 @@ export async function verifyProjectContextBindingArtifactAuthority(args: {
   // and the signature check below -- which only compares against that (possibly stale)
   // content_hash -- would still pass.
   if (args.artifact.artifact_type === "project_context_binding") {
-    validateProjectContextBindingArtifact(args.artifact as ProjectContextBindingArtifact);
+    // PROJECT-CONTEXT-BINDING-V2-PRODUCER-ADOPTION-01: explicit version dispatch, not the V1-only
+    // validator. A strict superset of what the V1-only call checked -- existing V1 traffic is
+    // unaffected, V2 becomes verifiable for the first time.
+    validateProjectContextBindingAnyVersion(args.artifact);
   } else if (args.artifact.artifact_type === "project_property_binding") {
     validateProjectPropertyBindingArtifact(args.artifact as ProjectPropertyBindingArtifact);
   } else if (args.artifact.artifact_type === "project_context_binding_supersession") {
-    validateProjectContextBindingSupersessionArtifact(args.artifact as ProjectContextBindingSupersessionArtifact);
+    validateProjectContextBindingSupersessionAnyVersion(args.artifact);
   } else {
     throw new Error("REJECT_PROJECT_CONTEXT_BINDING_ARTIFACT_TYPE");
   }
@@ -150,7 +160,7 @@ export async function installVerifiedProductLuContext(args: {
   readonly propertyBindingIssuerRef?: { readonly artifact_id: string; readonly artifact_type: string };
   readonly propertyContext: { readonly artifact_id: string; readonly artifact_type: string; readonly content_hash: { readonly algorithm: "sha256"; readonly value: string }; readonly references: readonly { readonly artifact_id: string; readonly artifact_type: string }[]; readonly payload: { readonly project_property_binding_ref?: { readonly artifact_id: string; readonly artifact_type: string } } };
   readonly projectContext: { readonly artifact_id: string; readonly artifact_type: string; readonly content_hash: { readonly algorithm: "sha256"; readonly value: string }; readonly references: readonly unknown[]; readonly payload: { readonly project_id?: string; readonly project_property_binding_ref?: { readonly artifact_id: string; readonly artifact_type: string } } };
-  readonly contextBinding: ProjectContextBindingArtifact;
+  readonly contextBinding: ProjectContextBindingArtifact | ProjectContextBindingArtifactV2;
 }): Promise<void> {
   const issuerRef = { artifact_id: args.issuer.artifact_id, artifact_type: args.issuer.artifact_type };
   const propertyBindingRef = {

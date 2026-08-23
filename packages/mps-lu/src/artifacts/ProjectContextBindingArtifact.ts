@@ -67,7 +67,9 @@ export function projectContextBindingArtifactId(
   return `project-context-binding-${identityHash.value.slice(0, 24)}`;
 }
 
-function bindingContentPayload(artifact: ProjectContextBindingArtifact): object {
+type AnyBindingLikeArtifact = { readonly artifact_type: string; readonly artifact_id: string; readonly references: unknown; readonly payload: unknown };
+
+function bindingContentPayload(artifact: AnyBindingLikeArtifact): object {
   return {
     artifact_type: artifact.artifact_type,
     artifact_id: artifact.artifact_id,
@@ -76,7 +78,9 @@ function bindingContentPayload(artifact: ProjectContextBindingArtifact): object 
   };
 }
 
-export function projectContextBindingSubjectDigest(artifact: ProjectContextBindingArtifact): string {
+/** Shape-agnostic by design -- works identically for V1 and V2 (see ...V2 below); it only ever
+ *  hashes whatever payload the artifact actually carries. */
+export function projectContextBindingSubjectDigest(artifact: AnyBindingLikeArtifact): string {
   return sha256ContentHash(bindingContentPayload(artifact)).value;
 }
 
@@ -269,9 +273,9 @@ export function validateProjectContextBindingArtifactV2(
  * than being silently accepted by either validator.
  */
 export function validateProjectContextBindingAnyVersion(
-  artifact: { readonly payload?: { readonly binding_contract_version?: unknown } } & Record<string, unknown>,
+  artifact: unknown,
 ): ProjectContextBindingArtifact | ProjectContextBindingArtifactV2 {
-  const declaredVersion = artifact?.payload?.binding_contract_version;
+  const declaredVersion = (artifact as { payload?: { binding_contract_version?: unknown } })?.payload?.binding_contract_version;
   if (declaredVersion === undefined) {
     return validateProjectContextBindingArtifact(artifact as unknown as ProjectContextBindingArtifact);
   }

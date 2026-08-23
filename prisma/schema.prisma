@@ -366,6 +366,14 @@ model ViewerCapabilityProvisioningRequest {
   requestedByUserId        String                             @map("requested_by_user_id")
   status                   ViewerCapabilityProvisioningStatus @default(PENDING)
   capabilityArtifactId     String?                            @map("capability_artifact_id")
+  /// PROJECT-CONTEXT-BINDING-V2-PRODUCER-ADOPTION-01 Phase A.1: the capability-issuance validity
+  /// policy, decided ONCE by the web layer at request-creation time and pinned here durably --
+  /// never derived from binding.created_at or release.issued_at (neither has any real semantic
+  /// connection to "how long should this capability remain valid"), and never recomputed by the
+  /// worker. Nullable only because pre-existing rows predate this field; every new enqueue sets
+  /// both.
+  capabilityValidFrom      DateTime?                          @map("capability_valid_from")
+  capabilityValidUntil     DateTime?                          @map("capability_valid_until")
   failureCode              String?                            @map("failure_code")
   failureDetail            String?                            @map("failure_detail")
   createdAt                DateTime                           @default(now()) @map("created_at")

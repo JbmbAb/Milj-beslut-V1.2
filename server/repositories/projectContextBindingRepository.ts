@@ -1,13 +1,15 @@
 import { Prisma, prisma } from "../db/prisma";
 import type {
   ProjectContextBindingArtifact,
+  ProjectContextBindingArtifactV2,
   ProjectContextBindingSupersessionArtifact,
+  ProjectContextBindingSupersessionArtifactV2,
 } from "@miljobeslut/mps-lu";
 import type { ArtifactReference } from "@miljobeslut/mps-compliance/src/artifacts/ArtifactReference";
 
 export interface ProjectContextBindingIndex {
-  register(binding: ProjectContextBindingArtifact): Promise<void>;
-  registerSupersession?(supersession: ProjectContextBindingSupersessionArtifact): Promise<void>;
+  register(binding: ProjectContextBindingArtifact | ProjectContextBindingArtifactV2): Promise<void>;
+  registerSupersession?(supersession: ProjectContextBindingSupersessionArtifact | ProjectContextBindingSupersessionArtifactV2): Promise<void>;
   resolve(projectId: string, projectContextRef: ArtifactReference): Promise<string>;
   listBindingRefs?(projectId: string): Promise<readonly ArtifactReference[]>;
   listSupersessionRefs?(projectId: string): Promise<readonly ArtifactReference[]>;
@@ -27,7 +29,7 @@ type ArtifactRow = { artifact_id: string };
  * and validate the referenced immutable binding artifact from CAS afterwards.
  */
 export class PrismaProjectContextBindingIndex implements ProjectContextBindingIndex {
-  async register(binding: ProjectContextBindingArtifact): Promise<void> {
+  async register(binding: ProjectContextBindingArtifact | ProjectContextBindingArtifactV2): Promise<void> {
     await prisma.$executeRaw(Prisma.sql`
       INSERT INTO "project_context_bindings" (
         "id", "project_id", "binding_artifact_id",
@@ -61,7 +63,7 @@ export class PrismaProjectContextBindingIndex implements ProjectContextBindingIn
     return rows[0]!.binding_artifact_id;
   }
 
-  async registerSupersession(supersession: ProjectContextBindingSupersessionArtifact): Promise<void> {
+  async registerSupersession(supersession: ProjectContextBindingSupersessionArtifact | ProjectContextBindingSupersessionArtifactV2): Promise<void> {
     await prisma.$executeRaw(Prisma.sql`
       INSERT INTO "project_context_binding_supersessions" (
         "id", "project_id", "supersession_artifact_id", "superseded_binding_artifact_id",

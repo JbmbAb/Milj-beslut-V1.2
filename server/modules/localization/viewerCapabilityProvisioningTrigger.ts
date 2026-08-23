@@ -18,6 +18,22 @@ import {
   type ViewerCapabilityProvisioningRequestRecord,
 } from './viewerCapabilityProvisioningQueue';
 
+/**
+ * PROJECT-CONTEXT-BINDING-V2-PRODUCER-ADOPTION-01 Phase A.1, frozen owner contract:
+ *
+ *   authority currentness (current binding, current release, expected viewer identity, project
+ *   scope, signature/issuer trust) answers "is this capability still authorized" -- entirely
+ *   independent of the validity window below.
+ *
+ *   temporal validity is a SEPARATE, explicit issuance policy: a maximum-age/rotation ceiling,
+ *   decided ONCE here (the only place with a legitimate clock for this decision -- the web layer,
+ *   at the moment it accepts the request) and pinned durably on the request row. The worker never
+ *   derives or refreshes it -- never from binding.created_at, never from release.issued_at
+ *   (neither has any real semantic connection to capability validity), never from its own
+ *   Date.now() at mint time.
+ */
+const CAPABILITY_VALIDITY_WINDOW_MS = 365 * 24 * 60 * 60 * 1000;
+
 export async function ensureViewerCapabilityProvisioningEnqueuedForCompletedBootstrap(input: {
   readonly projectId: string;
   readonly contextBindingArtifactId: string;
@@ -33,11 +49,16 @@ export async function ensureViewerCapabilityProvisioningEnqueuedForCompletedBoot
     releaseHash: currentRelease.releaseHash,
   });
 
+  const capabilityValidFrom = new Date();
+  const capabilityValidUntil = new Date(capabilityValidFrom.getTime() + CAPABILITY_VALIDITY_WINDOW_MS);
+
   return ensureViewerCapabilityProvisioningRequested({
     projectId: input.projectId,
     contextBindingArtifactId: input.contextBindingArtifactId,
     releaseArtifactId: currentRelease.releaseRef.artifact_id,
     viewerIdentityArtifactId: viewerIdentity.viewerIdentityRef.artifact_id,
     requestedByUserId: input.requestedByUserId,
+    capabilityValidFrom,
+    capabilityValidUntil,
   });
 }
