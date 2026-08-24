@@ -165,9 +165,15 @@ describe("canonical PostGIS V3 producer", () => {
 
   async function providerWithQueryStub() {
     const { SpatialProviderPostGIS } = await import("../../spatial-provider-postgis/src/SpatialProviderPostGIS");
+    const { SPATIAL_LAYER_REGISTRY } = await import("../../spatial-provider-postgis/src/SpatialLayerRegistry");
     const provider = new SpatialProviderPostGIS("postgresql://unused", cas as never);
     (provider as unknown as { pool: { query: ReturnType<typeof vi.fn> } }).pool = {
-      query: vi.fn(async () => ({ rowCount: 1, rows: [{ hit: 1 }] })),
+      query: vi.fn(async (sql: string) => {
+        if (sql.includes("PostgisImportBatch")) {
+          return { rows: [{ content_bundle_sha256: SPATIAL_LAYER_REGISTRY.water!.version_hash, dataset_version: "test" }] };
+        }
+        return { rowCount: 1, rows: [{ hit: 1 }] };
+      }),
     };
     return provider;
   }

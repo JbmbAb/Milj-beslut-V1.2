@@ -63,6 +63,8 @@ import { __resetLuExecutionAuthoritySigningProviderForTests } from "../../../ser
 import { __resetLuExecutionAuthorityVerifierForTests } from "../src/execution/LuExecutionAuthorityVerifier";
 import { provisionCanonicalLuContext } from "./fixtures/provisionCanonicalLuContext";
 import { ensureLocalizationProjectionProject } from "./fixtures/ensureLocalizationProjectionProject";
+import { createProductReleaseIssuerArtifact, createProductReleaseManifestArtifact } from "../../mps-governance/src/release/ProductReleaseAuthority";
+import { attestProductRelease } from "../../../server/modules/release/productReleaseAuthority";
 
 class RecordingRepository extends InMemoryArtifactRepository {
   readonly writes: Array<{ artifact_id: string; content_hash: { algorithm: "sha256"; value: string }; body: unknown }> = [];
@@ -99,7 +101,8 @@ describe("HM1-C — governed assessment persistence", () => {
       "PROJECT_CONTEXT_BINDING_ISSUER_KEY_ID",
       "PROJECT_CONTEXT_BINDING_ISSUER_PUBLIC_KEY_PEM",
       "PRODUCT_RELEASE_ARTIFACT_ID",
-      "PRODUCT_RELEASE_HASH",
+      "PRODUCT_RELEASE_ISSUER_KEY_ID",
+      "PRODUCT_RELEASE_ISSUER_PUBLIC_KEY_PEM",
     ] as const) {
       if (originalEnv[name] === undefined) delete process.env[name];
       else process.env[name] = originalEnv[name];
@@ -125,15 +128,23 @@ describe("HM1-C — governed assessment persistence", () => {
     });
     process.env.PROJECT_CONTEXT_BINDING_ISSUER_KEY_ID = contextIssuerKey.provider.keyId;
     process.env.PROJECT_CONTEXT_BINDING_ISSUER_PUBLIC_KEY_PEM = contextIssuerKey.publicKey;
-    const releaseId = "product-release-hm1c";
-    const releaseHash = "b".repeat(64);
-    process.env.PRODUCT_RELEASE_ARTIFACT_ID = releaseId;
-    process.env.PRODUCT_RELEASE_HASH = releaseHash;
-    await repository.put({
-      artifact_id: releaseId,
-      content_hash: { algorithm: "sha256", value: "fixture-release" },
-      body: { artifact_id: releaseId, artifact_type: "product_release_manifest", release_hash: { value: releaseHash } },
+    // PRODUCT-RELEASE-AUTHORITY-BINDING-V1 (H13): a real, self-consistent signed release.
+    const releaseIssuerKey = LocalPemSigningKeyProvider.generate("ed25519:product-release-issuer-hm1c");
+    const releaseIssuer = createProductReleaseIssuerArtifact(releaseIssuerKey.provider.keyId);
+    await repository.put({ artifact_id: releaseIssuer.artifact_id, content_hash: releaseIssuer.content_hash, body: releaseIssuer });
+    const unsignedRelease = createProductReleaseManifestArtifact({
+      product_name: "Miljobeslut-hm1c",
+      package_lock_sha256: "a".repeat(64),
+      package_manifest_sha256: "b".repeat(64),
+      runtime_entrypoint_sha256: "c".repeat(64),
+      issuer_ref: { artifact_id: releaseIssuer.artifact_id, artifact_type: releaseIssuer.artifact_type },
+      issued_at: "2026-08-21T00:00:00.000Z",
     });
+    const signedRelease = { ...unsignedRelease, attestation: await attestProductRelease({ release: unsignedRelease, issuer: releaseIssuer, signing: releaseIssuerKey.provider }) };
+    process.env.PRODUCT_RELEASE_ARTIFACT_ID = signedRelease.artifact_id;
+    process.env.PRODUCT_RELEASE_ISSUER_KEY_ID = releaseIssuerKey.provider.keyId;
+    process.env.PRODUCT_RELEASE_ISSUER_PUBLIC_KEY_PEM = releaseIssuerKey.publicKey;
+    await repository.put({ artifact_id: signedRelease.artifact_id, content_hash: signedRelease.content_hash, body: signedRelease });
     const projectId = "project-hm1c";
     await ensureLocalizationProjectionProject({
       projectId,
@@ -163,7 +174,7 @@ describe("HM1-C — governed assessment persistence", () => {
       subject: {
         site_id: context.propertyIdentity,
         project_context_binding_ref: context.contextBindingRef,
-        product_release_ref: { artifact_id: releaseId, artifact_type: "product_release_manifest" },
+        product_release_ref: { artifact_id: signedRelease.artifact_id, artifact_type: "product_release_manifest" },
         execution_contract_version: "lu-execution-identity-v1",
         localization_geometry_ref: geometryRef,
       },
@@ -173,8 +184,8 @@ describe("HM1-C — governed assessment persistence", () => {
         project_context_ref: context.projectContextRef,
         property_context_ref: context.propertyContextRef,
         project_context_binding_ref: context.contextBindingRef,
-        product_release_ref: { artifact_id: releaseId, artifact_type: "product_release_manifest" },
-        product_release_hash: releaseHash,
+        product_release_ref: { artifact_id: signedRelease.artifact_id, artifact_type: "product_release_manifest" },
+        product_release_hash: signedRelease.release_hash.value,
         execution_contract_version: "lu-execution-identity-v1",
         rule_registry_snapshot_id: registry.getReleaseSnapshot().snapshot_id,
         localization_geometry_ref: geometryRef,
