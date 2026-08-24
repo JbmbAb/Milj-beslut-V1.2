@@ -45,6 +45,12 @@ type LuFindingView = {
   rule_id: string;
   risk_level: 'LOW' | 'MEDIUM' | 'HIGH';
   explanation: string;
+  /**
+   * LU-FINDING-MAP-DRILLDOWN-V1. Was already present on the wire from the server on both the
+   * fresh-run and Unit 5B restore paths (the real AssessmentFinding shape) -- this type just
+   * hadn't declared it yet.
+   */
+  evidence_refs?: Array<{ artifact_id: string; artifact_type: string }>;
 };
 
 type ExecutionMotorMeta = {
@@ -101,6 +107,9 @@ export const LuWorkspace: React.FC<{ initialDesignation?: string }> = ({ initial
   const [verifyingAssessment, setVerifyingAssessment] = useState(false);
   const [verifyError, setVerifyError] = useState('');
   const [verifyResult, setVerifyResult] = useState<{ outcome: 'PASS' | 'DENY'; mismatches: readonly { code: string; detail: string }[] } | null>(null);
+  const [focusEvidenceArtifactId, setFocusEvidenceArtifactId] = useState<string | null>(null);
+  const [focusEvidenceNonce, setFocusEvidenceNonce] = useState(0);
+  const [focusEvidenceMissing, setFocusEvidenceMissing] = useState(false);
   const [persistedAssessmentLoading, setPersistedAssessmentLoading] = useState(false);
   const [persistedAssessmentError, setPersistedAssessmentError] = useState('');
   const [persistedAssessmentNotFound, setPersistedAssessmentNotFound] = useState(false);
@@ -216,6 +225,8 @@ export const LuWorkspace: React.FC<{ initialDesignation?: string }> = ({ initial
     setPersistedAssessmentLoading(true);
     setVerifyResult(null);
     setVerifyError('');
+    setFocusEvidenceArtifactId(null);
+    setFocusEvidenceMissing(false);
     try {
       const result = await callApi<{
         ok: true;
@@ -353,6 +364,8 @@ export const LuWorkspace: React.FC<{ initialDesignation?: string }> = ({ initial
     setPersistedAssessmentError('');
     setVerifyResult(null);
     setVerifyError('');
+    setFocusEvidenceArtifactId(null);
+    setFocusEvidenceMissing(false);
     try {
       const result = await callApi<LocalizationReport>('/api/localization/generate-report', {
         method: 'POST',
@@ -434,6 +447,16 @@ export const LuWorkspace: React.FC<{ initialDesignation?: string }> = ({ initial
     } finally {
       setVerifyingAssessment(false);
     }
+  };
+
+  // LU-FINDING-MAP-DRILLDOWN-V1: never queries anything new -- only tells the already-rendered
+  // map (loaded via the governed /viewer/evidence path) which already-loaded entity to focus.
+  const showFindingOnMap = (finding: LuFindingView) => {
+    const spatialRef = finding.evidence_refs?.find((r) => r.artifact_type === 'SPATIAL_EVIDENCE');
+    if (!spatialRef) return; // button is gated on this existing, so this is defensive only
+    setFocusEvidenceMissing(false);
+    setFocusEvidenceArtifactId(spatialRef.artifact_id);
+    setFocusEvidenceNonce((n) => n + 1);
   };
 
   const analysis = report?.siteAnalyses?.[0];
@@ -664,7 +687,10 @@ export const LuWorkspace: React.FC<{ initialDesignation?: string }> = ({ initial
                 setCesiumEvidenceMode(next);
                 setSelectedEvidence(null);
               }}
-              onEvidenceClick={(props) => setSelectedEvidence(props)}
+              onEvidenceClick={(props) => {
+                setSelectedEvidence(props);
+                setFocusEvidenceMissing(false);
+              }}
               projectId={getActiveProjectId() || undefined}
               pickingLocation={pickingLocation}
               onLocationPick={(lat, lng) => setDraftPoint({ lat, lng })}
@@ -674,8 +700,17 @@ export const LuWorkspace: React.FC<{ initialDesignation?: string }> = ({ initial
                   ? { lat: localizationGeometry.wgs84LngLat[1], lng: localizationGeometry.wgs84LngLat[0] }
                   : null
               }
+              focusEvidenceArtifactId={focusEvidenceArtifactId}
+              focusEvidenceNonce={focusEvidenceNonce}
+              onFocusEvidenceMissing={() => setFocusEvidenceMissing(true)}
             />
           </Suspense>
+
+          {focusEvidenceMissing ? (
+            <p data-testid="lu-finding-map-not-found" className="text-sm mt-2" style={{ color: '#F87171' }}>
+              Kunde inte hitta beviset på kartan. Underlaget kan fortfarande laddas -- prova igen om en stund.
+            </p>
+          ) : null}
 
           {selectedEvidence ? (
             <EvidenceDetailsPanel
@@ -841,6 +876,7 @@ export const LuWorkspace: React.FC<{ initialDesignation?: string }> = ({ initial
               <ul className="space-y-2 text-sm">
                 {motor!.findings!.map((f) => {
                   const presentation = presentLuFinding(f);
+                  const spatialRef = f.evidence_refs?.find((r) => r.artifact_type === 'SPATIAL_EVIDENCE');
                   return (
                     <li
                       key={f.finding_id}
@@ -853,6 +889,17 @@ export const LuWorkspace: React.FC<{ initialDesignation?: string }> = ({ initial
                       </p>
                       <p>{f.explanation}</p>
                       <p className="text-xs opacity-50 mt-1">{f.rule_id}</p>
+                      {spatialRef ? (
+                        <button
+                          type="button"
+                          data-testid={`lu-finding-show-on-map-${f.finding_id}`}
+                          onClick={() => showFindingOnMap(f)}
+                          className="mt-2 text-xs font-semibold underline"
+                          style={{ color: colors.coreTurquoise.hex }}
+                        >
+                          Visa på karta
+                        </button>
+                      ) : null}
                     </li>
                   );
                 })}

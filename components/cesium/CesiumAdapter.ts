@@ -266,6 +266,15 @@ export class CesiumAdapter {
         } else if (layerId === 'protected_area') {
           baseColor = Color.GREEN;
           extrudeHeight = 45.0;
+        } else if (layerId === 'natura2000') {
+          // LU-FINDING-MAP-DRILLDOWN-V1: matches CESIUM_EVIDENCE_LAYERS' '#a855f7' swatch --
+          // previously fell through to the default blue, indistinguishable from water.
+          baseColor = Color.fromCssColorString('#a855f7');
+          extrudeHeight = 45.0;
+        } else if (layerId === 'water_protection_area') {
+          // Matches CESIUM_EVIDENCE_LAYERS' '#f59e0b' swatch.
+          baseColor = Color.fromCssColorString('#f59e0b');
+          extrudeHeight = 25.0;
         }
 
         if (entity.polygon) {
@@ -313,6 +322,34 @@ export class CesiumAdapter {
         entity.show = visibility[layerId];
       }
     });
+  }
+
+  /**
+   * LU-FINDING-MAP-DRILLDOWN-V1. Locates an already-rendered evidence entity by its governed
+   * cas_artifact_id (the SAME id already present in a finding's evidence_refs -- see
+   * ViewerKernel.exportAsGeoJSON) among the entities setEvidenceLayers() already loaded via the
+   * canonical /viewer/evidence path. Never queries anything new: this only searches evidence the
+   * server has already authorized and the map has already rendered. Flies the camera to it and
+   * returns its full properties (the exact same shape a manual click would produce), so the caller
+   * can open EvidenceDetailsPanel through the identical existing path. Returns null, honestly, if
+   * no matching entity is currently rendered (wrong project's id, evidence not yet loaded, or a
+   * non-spatial evidence ref) -- never fabricates a match.
+   */
+  public focusEvidenceByArtifactId(artifactId: string): Record<string, unknown> | null {
+    if (this.destroyed || !this.evidenceDataSource) return null;
+    const entities = this.evidenceDataSource.entities.values;
+    const match = entities.find((entity) => entity.properties?.cas_artifact_id?.getValue() === artifactId);
+    if (!match) return null;
+
+    this.viewer.flyTo(match, { duration: 1.5 }).catch(() => undefined);
+
+    const props: Record<string, unknown> = {};
+    if (match.properties) {
+      for (const name of match.properties.propertyNames) {
+        props[name] = match.properties[name]?.getValue();
+      }
+    }
+    return props;
   }
 
   /** Reset camera to Sweden overview (L0 home). */

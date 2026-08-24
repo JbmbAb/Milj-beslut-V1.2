@@ -32,8 +32,30 @@ vi.mock('../../services/coreApiClient', () => ({
   getActiveProjectId: () => getActiveProjectId(),
 }));
 
+// LU-FINDING-MAP-DRILLDOWN-V1: CesiumAdapter/real Cesium cannot run in jsdom (WebGL), matching
+// this codebase's existing precedent of mocking CesiumMapView out entirely in component tests.
+// The mock captures the latest props so tests can assert the exact wiring contract between
+// LuWorkspace and the map (focusEvidenceArtifactId/Nonce changing correctly on "Visa på karta"),
+// and exposes test-only triggers to simulate what a real CesiumAdapter would call back with.
+let lastCesiumMapViewProps: any = null;
 vi.mock('../../components/CesiumMapView', () => ({
-  default: () => <div data-testid="cesium-map-view" />,
+  default: (props: any) => {
+    lastCesiumMapViewProps = props;
+    return (
+      <div data-testid="cesium-map-view">
+        <button
+          type="button"
+          data-testid="mock-trigger-evidence-found"
+          onClick={() => props.onEvidenceClick?.({ cas_artifact_id: props.focusEvidenceArtifactId, layer_id: 'water' })}
+        />
+        <button
+          type="button"
+          data-testid="mock-trigger-evidence-missing"
+          onClick={() => props.onFocusEvidenceMissing?.()}
+        />
+      </div>
+    );
+  },
 }));
 
 vi.mock('../../components/cesium/EvidenceDetailsPanel', () => ({
@@ -43,6 +65,7 @@ vi.mock('../../components/cesium/EvidenceDetailsPanel', () => ({
 describe('LuWorkspace', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    lastCesiumMapViewProps = null;
   });
 
   it('looks up property and runs assessment without LocalizationStudyUI', async () => {
@@ -567,5 +590,221 @@ describe('LuWorkspace', () => {
     await user.click(screen.getByTestId('lu-verify-assessment'));
     expect(await screen.findByTestId('lu-verify-result-pass')).toBeInTheDocument();
     expect(callApi).not.toHaveBeenCalledWith('/api/localization/generate-report', expect.anything());
+  });
+
+  async function renderWithFindingWithEvidence(user: ReturnType<typeof userEvent.setup>) {
+    fetchPropertyInfo.mockResolvedValue({
+      id: 'p1', designation: 'GÄVLE BRYNÄS 1:1', municipality: 'Gävle',
+      geometry: { type: 'Point', coordinates: [17.14, 60.67] }, centroid: { lat: 60.67, lng: 17.14 },
+    });
+    callApi.mockImplementation((url: string) => {
+      if (url.includes('/current-assessment')) {
+        return Promise.reject(new Error(NO_CURRENT_ASSESSMENT_MESSAGE));
+      }
+      if (url.includes('/geometry')) {
+        return Promise.resolve({
+          ok: true,
+          geometry: { artifact_id: 'loc-geom-1', provenance: 'user_defined', wgs84LngLat: [17.14, 60.67], provisioningStatus: 'COMPLETED' },
+        });
+      }
+      if (url.includes('/verify-assessment')) {
+        return Promise.resolve({ ok: true, outcome: 'PASS', assessmentArtifactId: 'assess-drilldown-abc', mismatches: [] });
+      }
+      return Promise.resolve({
+        ok: true,
+        projectId: 'proj-1',
+        siteAnalyses: [
+          {
+            complianceAnalysis: { overallRisk: 'MEDIUM', permitProbability: 0.5 },
+            executionMotor: {
+              admitted: true,
+              assessment_artifact_id: 'assess-drilldown-abc',
+              finding_ids: ['LU-WATER-001'],
+              findings: [
+                {
+                  finding_id: 'LU-WATER-001',
+                  rule_id: 'LU-WATER-001',
+                  risk_level: 'MEDIUM',
+                  explanation: 'Närhet till vatten kräver analys',
+                  evidence_refs: [{ artifact_id: 'spatial-evidence-drilldown-1', artifact_type: 'SPATIAL_EVIDENCE' }],
+                },
+              ],
+            },
+          },
+        ],
+        humanInTheLoop: 'Human in the loop',
+      });
+    });
+
+    render(<LuWorkspace />);
+    await user.type(screen.getByTestId('lu-designation'), 'GÄVLE BRYNÄS 1:1');
+    await user.click(screen.getByTestId('lu-lookup'));
+    expect(await screen.findByTestId('lu-site-ready')).toBeInTheDocument();
+    await user.click(screen.getByTestId('lu-run'));
+    expect(await screen.findByTestId('lu-results')).toBeInTheDocument();
+  }
+
+  it('LU-FINDING-MAP-DRILLDOWN-V1, proofs 1+3+4: a finding with governed spatial evidence exposes "Visa på karta"; clicking it never calls any network endpoint (no direct GIS query, no new assessment execution)', async () => {
+    const user = userEvent.setup();
+    await renderWithFindingWithEvidence(user);
+
+    const button = screen.getByTestId('lu-finding-show-on-map-LU-WATER-001');
+    expect(button).toBeInTheDocument();
+    const callsBeforeClick = callApi.mock.calls.length;
+
+    await user.click(button);
+
+    // Proof 3+4: purely client-side map focus -- zero new network calls, no /api/spatial/evidence,
+    // no re-run of generate-report.
+    expect(callApi.mock.calls.length).toBe(callsBeforeClick);
+    // Proof 2: the only thing LuWorkspace tells the map is which already-governed artifact_id to
+    // focus -- it never supplies evidence content, coordinates, or a geometry itself.
+    expect(lastCesiumMapViewProps.focusEvidenceArtifactId).toBe('spatial-evidence-drilldown-1');
+  });
+
+  it('LU-FINDING-MAP-DRILLDOWN-V1: clicking "Visa på karta" again re-triggers focus via the nonce (not just the artifact id)', async () => {
+    const user = userEvent.setup();
+    await renderWithFindingWithEvidence(user);
+    const button = screen.getByTestId('lu-finding-show-on-map-LU-WATER-001');
+
+    await user.click(button);
+    const firstNonce = lastCesiumMapViewProps.focusEvidenceNonce;
+    await user.click(button);
+    expect(lastCesiumMapViewProps.focusEvidenceNonce).not.toBe(firstNonce);
+    expect(lastCesiumMapViewProps.focusEvidenceArtifactId).toBe('spatial-evidence-drilldown-1');
+  });
+
+  it('LU-FINDING-MAP-DRILLDOWN-V1, proof 6: missing evidence gives an honest unavailable state, not silence or a fabricated match', async () => {
+    const user = userEvent.setup();
+    await renderWithFindingWithEvidence(user);
+
+    await user.click(screen.getByTestId('lu-finding-show-on-map-LU-WATER-001'));
+    // Simulates what the real CesiumAdapter reports when the artifact isn't currently rendered.
+    await user.click(screen.getByTestId('mock-trigger-evidence-missing'));
+
+    expect(await screen.findByTestId('lu-finding-map-not-found')).toBeInTheDocument();
+    expect(screen.queryByTestId('evidence-details-panel')).not.toBeInTheDocument();
+  });
+
+  it('LU-FINDING-MAP-DRILLDOWN-V1, proof 2: a successful map focus opens EvidenceDetailsPanel through the existing onEvidenceClick path, and clears any prior not-found state', async () => {
+    const user = userEvent.setup();
+    await renderWithFindingWithEvidence(user);
+
+    await user.click(screen.getByTestId('lu-finding-show-on-map-LU-WATER-001'));
+    await user.click(screen.getByTestId('mock-trigger-evidence-missing'));
+    expect(await screen.findByTestId('lu-finding-map-not-found')).toBeInTheDocument();
+
+    await user.click(screen.getByTestId('mock-trigger-evidence-found'));
+    expect(await screen.findByTestId('evidence-details-panel')).toBeInTheDocument();
+    expect(screen.queryByTestId('lu-finding-map-not-found')).not.toBeInTheDocument();
+  });
+
+  it('LU-FINDING-MAP-DRILLDOWN-V1, proof 8: Unit 6 verification state is unaffected by map selection', async () => {
+    const user = userEvent.setup();
+    await renderWithFindingWithEvidence(user);
+
+    await user.click(screen.getByTestId('lu-verify-assessment'));
+    expect(await screen.findByTestId('lu-verify-result-pass')).toBeInTheDocument();
+
+    await user.click(screen.getByTestId('lu-finding-show-on-map-LU-WATER-001'));
+    await user.click(screen.getByTestId('mock-trigger-evidence-found'));
+
+    // Verification result must still be showing -- selecting a finding on the map is a display
+    // action, not a state reset for an unrelated concern.
+    expect(screen.getByTestId('lu-verify-result-pass')).toBeInTheDocument();
+  });
+
+  it('LU-FINDING-MAP-DRILLDOWN-V1, proof 7: a restored (Unit 5B) persisted assessment can drill down to the map without running a new assessment', async () => {
+    const user = userEvent.setup();
+    fetchPropertyInfo.mockResolvedValue({
+      id: 'p1', designation: 'GÄVLE BRYNÄS 1:1', municipality: 'Gävle',
+      geometry: { type: 'Point', coordinates: [17.14, 60.67] }, centroid: { lat: 60.67, lng: 17.14 },
+    });
+    callApi.mockImplementation((url: string) => {
+      if (url.includes('/current-assessment')) {
+        return Promise.resolve({
+          ok: true,
+          assessmentArtifactId: 'assess-restored-drilldown',
+          findings: [
+            {
+              finding_id: 'LU-WATER-001', rule_id: 'LU-WATER-001', rule_version: '1.0', risk_level: 'MEDIUM',
+              explanation: 'Restored finding', evidence_refs: [{ artifact_id: 'spatial-evidence-restored-1', artifact_type: 'SPATIAL_EVIDENCE' }],
+            },
+          ],
+          systemSummary: 'restored summary',
+        });
+      }
+      if (url.includes('/geometry')) {
+        return Promise.resolve({
+          ok: true,
+          geometry: { artifact_id: 'loc-geom-1', provenance: 'user_defined', wgs84LngLat: [17.14, 60.67], provisioningStatus: 'COMPLETED' },
+        });
+      }
+      throw new Error(`unexpected callApi call in this test: ${url}`);
+    });
+
+    render(<LuWorkspace />);
+    await user.type(screen.getByTestId('lu-designation'), 'GÄVLE BRYNÄS 1:1');
+    await user.click(screen.getByTestId('lu-lookup'));
+    expect(await screen.findByTestId('lu-results')).toBeInTheDocument();
+    expect(callApi).not.toHaveBeenCalledWith('/api/localization/generate-report', expect.anything());
+
+    const button = screen.getByTestId('lu-finding-show-on-map-LU-WATER-001');
+    const callsBeforeClick = callApi.mock.calls.length;
+    await user.click(button);
+
+    expect(lastCesiumMapViewProps.focusEvidenceArtifactId).toBe('spatial-evidence-restored-1');
+    expect(callApi.mock.calls.length).toBe(callsBeforeClick);
+    expect(callApi).not.toHaveBeenCalledWith('/api/localization/generate-report', expect.anything());
+  });
+
+  it('LU-FINDING-MAP-DRILLDOWN-V1: a finding with no spatial evidence (e.g. document-only) exposes no "Visa på karta" action', async () => {
+    const user = userEvent.setup();
+    fetchPropertyInfo.mockResolvedValue({
+      id: 'p1', designation: 'GÄVLE BRYNÄS 1:1', municipality: 'Gävle',
+      geometry: { type: 'Point', coordinates: [17.14, 60.67] }, centroid: { lat: 60.67, lng: 17.14 },
+    });
+    callApi.mockImplementation((url: string) => {
+      if (url.includes('/current-assessment')) {
+        return Promise.reject(new Error(NO_CURRENT_ASSESSMENT_MESSAGE));
+      }
+      if (url.includes('/geometry')) {
+        return Promise.resolve({
+          ok: true,
+          geometry: { artifact_id: 'loc-geom-1', provenance: 'user_defined', wgs84LngLat: [17.14, 60.67], provisioningStatus: 'COMPLETED' },
+        });
+      }
+      return Promise.resolve({
+        ok: true,
+        projectId: 'proj-1',
+        siteAnalyses: [
+          {
+            complianceAnalysis: {},
+            executionMotor: {
+              admitted: true,
+              assessment_artifact_id: 'assess-doc-only',
+              finding_ids: ['LU-DOC-BESLUT-001'],
+              findings: [
+                {
+                  finding_id: 'LU-DOC-BESLUT-001', rule_id: 'LU-DOC-BESLUT-001', risk_level: 'MEDIUM',
+                  explanation: 'Tidigare beslut föreligger', evidence_refs: [{ artifact_id: 'doc-evidence-1', artifact_type: 'DOCUMENT_EVIDENCE' }],
+                },
+              ],
+            },
+          },
+        ],
+        humanInTheLoop: 'Human in the loop',
+      });
+    });
+
+    render(<LuWorkspace />);
+    await user.type(screen.getByTestId('lu-designation'), 'GÄVLE BRYNÄS 1:1');
+    await user.click(screen.getByTestId('lu-lookup'));
+    expect(await screen.findByTestId('lu-site-ready')).toBeInTheDocument();
+    await user.click(screen.getByTestId('lu-run'));
+    expect(await screen.findByTestId('lu-results')).toBeInTheDocument();
+
+    expect(screen.getByTestId('lu-finding-LU-DOC-BESLUT-001')).toBeInTheDocument();
+    expect(screen.queryByTestId('lu-finding-show-on-map-LU-DOC-BESLUT-001')).not.toBeInTheDocument();
   });
 });

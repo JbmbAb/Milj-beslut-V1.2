@@ -37,6 +37,17 @@ interface CesiumMapViewProps {
   draftLocationPoint?: { lat: number; lng: number } | null;
   /** The persisted, current LocalizationGeometry point. */
   currentLocationPoint?: { lat: number; lng: number } | null;
+  /**
+   * LU-FINDING-MAP-DRILLDOWN-V1. When set (together with a changed focusEvidenceNonce), locates
+   * the already-rendered evidence entity with this cas_artifact_id among what setEvidenceLayers()
+   * already loaded via the governed /viewer/evidence path, flies the camera to it, and opens the
+   * details panel through the exact same onEvidenceClick callback a manual click would use. Never
+   * triggers a new query. onFocusEvidenceMissing fires, honestly, when no matching entity is
+   * currently rendered.
+   */
+  focusEvidenceArtifactId?: string | null;
+  focusEvidenceNonce?: number;
+  onFocusEvidenceMissing?: () => void;
 }
 
 const CesiumMapView: React.FC<CesiumMapViewProps> = ({
@@ -50,6 +61,9 @@ const CesiumMapView: React.FC<CesiumMapViewProps> = ({
   onLocationPick,
   draftLocationPoint = null,
   currentLocationPoint = null,
+  focusEvidenceArtifactId = null,
+  focusEvidenceNonce = 0,
+  onFocusEvidenceMissing,
 }) => {
   const containerRef = useRef<HTMLDivElement>(null);
   const adapterRef = useRef<CesiumAdapter | null>(null);
@@ -65,6 +79,8 @@ const CesiumMapView: React.FC<CesiumMapViewProps> = ({
     water: true,
     ebh: true,
     protected_area: true,
+    natura2000: true,
+    water_protection_area: true,
   });
 
   useEffect(() => {
@@ -95,6 +111,26 @@ const CesiumMapView: React.FC<CesiumMapViewProps> = ({
   useEffect(() => {
     onLocationPickRef.current = onLocationPick;
   }, [onLocationPick]);
+
+  const onFocusEvidenceMissingRef = useRef(onFocusEvidenceMissing);
+  useEffect(() => {
+    onFocusEvidenceMissingRef.current = onFocusEvidenceMissing;
+  }, [onFocusEvidenceMissing]);
+
+  // LU-FINDING-MAP-DRILLDOWN-V1: fires only on an actual (artifactId, nonce) change -- the nonce
+  // lets the caller re-trigger a focus on the SAME artifact twice in a row (e.g. clicking "Visa
+  // på karta" again after panning away). Never issues a new query: focusEvidenceByArtifactId only
+  // searches entities setEvidenceLayers() already loaded via the governed /viewer/evidence path.
+  useEffect(() => {
+    if (!focusEvidenceArtifactId || !adapterRef.current) return;
+    const props = adapterRef.current.focusEvidenceByArtifactId(focusEvidenceArtifactId);
+    if (props) {
+      onEvidenceClickRef.current?.(props);
+    } else {
+      onFocusEvidenceMissingRef.current?.();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [focusEvidenceArtifactId, focusEvidenceNonce]);
 
   useEffect(() => {
     if (!containerRef.current) return;
