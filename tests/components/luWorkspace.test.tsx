@@ -87,6 +87,14 @@ describe('LuWorkspace', () => {
               assessment_artifact_id: 'assess-site-1-abc',
               property_context_id: 'prop-site-1',
               finding_ids: ['LU-WATER-001'],
+              findings: [
+                {
+                  finding_id: 'LU-WATER-001',
+                  rule_id: 'LU-WATER-001',
+                  risk_level: 'MEDIUM',
+                  explanation: 'Närhet till vatten kräver analys',
+                },
+              ],
             },
           },
         ],
@@ -111,6 +119,9 @@ describe('LuWorkspace', () => {
     expect(screen.getByTestId('lu-assessment-id')).toHaveTextContent('assess-site-1-abc');
     expect(screen.getByTestId('lu-property-context-id')).toHaveTextContent('prop-site-1');
     expect(screen.getByTestId('lu-finding-ids')).toHaveTextContent('LU-WATER-001');
+    expect(screen.getByTestId('lu-finding-LU-WATER-001')).toHaveTextContent('Vatten');
+    expect(screen.getByTestId('lu-finding-LU-WATER-001')).toHaveTextContent('Bör utredas vidare');
+    expect(screen.getByTestId('lu-finding-LU-WATER-001')).toHaveTextContent('Närhet till vatten kräver analys');
     expect(callApi).toHaveBeenCalledWith(
       '/api/localization/generate-report',
       expect.objectContaining({ method: 'POST' }),

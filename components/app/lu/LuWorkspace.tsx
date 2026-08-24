@@ -4,6 +4,7 @@ import { callApi, getActiveProjectId } from '../../../services/coreApiClient';
 import { fetchPropertyInfo } from '../../../src/ui/api-client/geo.client';
 import EvidenceDetailsPanel from '../../cesium/EvidenceDetailsPanel';
 import type { CesiumEvidenceMode } from '../../CesiumMapView';
+import { presentLuFinding } from './luFindingPresentation';
 
 const CesiumMapView = lazy(() => import('../../CesiumMapView'));
 
@@ -38,6 +39,13 @@ type LocalizationGeometryView = {
   provisioningFailureDetail?: string | null;
 };
 
+type LuFindingView = {
+  finding_id: string;
+  rule_id: string;
+  risk_level: 'LOW' | 'MEDIUM' | 'HIGH';
+  explanation: string;
+};
+
 type ExecutionMotorMeta = {
   admitted?: boolean;
   reason_codes?: string[];
@@ -48,6 +56,8 @@ type ExecutionMotorMeta = {
   finding_ids?: string[];
   assessment_artifact_id?: string | null;
   property_context_id?: string | null;
+  assessment_status?: string;
+  findings?: LuFindingView[];
 };
 
 type SiteAnalysis = {
@@ -584,6 +594,31 @@ export const LuWorkspace: React.FC<{ initialDesignation?: string }> = ({ initial
               </span>
             ) : null}
           </p>
+
+          {(motor?.findings?.length ?? 0) > 0 ? (
+            <div data-testid="lu-findings">
+              <h3 className="text-xs uppercase tracking-widest opacity-70 mb-2">Findings</h3>
+              <ul className="space-y-2 text-sm">
+                {motor!.findings!.map((f) => {
+                  const presentation = presentLuFinding(f);
+                  return (
+                    <li
+                      key={f.finding_id}
+                      data-testid={`lu-finding-${f.finding_id}`}
+                      className="border p-3"
+                      style={{ borderColor: colors.coreGraphite.hex }}
+                    >
+                      <p className="text-xs uppercase tracking-widest opacity-70">
+                        {presentation.categoryLabel} · {presentation.attentionLabel}
+                      </p>
+                      <p>{f.explanation}</p>
+                      <p className="text-xs opacity-50 mt-1">{f.rule_id}</p>
+                    </li>
+                  );
+                })}
+              </ul>
+            </div>
+          ) : null}
 
           {(compliance.requiredActions?.length ?? 0) > 0 ? (
             <div>

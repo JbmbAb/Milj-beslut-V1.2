@@ -23,6 +23,7 @@ import {
   deriveLuExecutionSeed,
   createLuRegistryRuntime,
   type DocumentEvidenceArtifact,
+  type AssessmentFinding,
 } from '@miljobeslut/mps-lu';
 import {
   isVerifiedDocumentFact,
@@ -100,6 +101,15 @@ export interface ExecutionMotorMeta {
   assessment_projection_registered: boolean | null;
   property_context_id: string | null;
   assessment_status: LuAssessmentStatus;
+  /**
+   * LU-RESULT-VIEW-V1. The real governed findings this run produced (or [] when none were
+   * produced) -- structured data for the client to present as finding cards via the
+   * rule_id/risk_level -> category/attention presentation model, instead of the pre-flattened
+   * text this file used to push into requiredActions/notes. Legacy compliance-rule-engine output
+   * (VISS, monuments, protected areas -- see evaluateComplianceRules) is untouched; it never came
+   * from AssessmentFinding[] and stays in requiredActions/notes exactly as before.
+   */
+  findings: readonly AssessmentFinding[];
 }
 
 /**
@@ -552,7 +562,7 @@ async function analyzeSite(
   );
 
   // Magic Moment path: property CAS → registry-resolved spatial provider → evidence → kernel → assessment
-  let mpsFindings: any[] = [];
+  let mpsFindings: AssessmentFinding[] = [];
   let executionMotor: ExecutionMotorMeta | undefined;
   let spatialRuntime: LocalizationSpatialRuntime | undefined;
   let documentEvidence: any[] = [];
@@ -806,34 +816,21 @@ async function analyzeSite(
         : assessment_artifact_id
           ? 'ASSESSED'
           : 'NOT_ASSESSED',
+      findings: [...mpsFindings],
     };
 
     if (mpsFindings.length > 0) {
       let hasHigh = false;
       let hasMedium = false;
-      const requiredActions: string[] = [];
-      const notes: string[] = [];
 
+      // LU-RESULT-VIEW-V1: no longer flattened into requiredActions/notes text -- the real
+      // AssessmentFinding[] is on executionMotor.findings above, for the client to render as
+      // structured cards. Only the risk-level escalation (a legitimate cross-cutting effect on
+      // the overall verdict, not itself finding presentation) stays here.
       mpsFindings.forEach(f => {
         if (f.risk_level === 'HIGH') hasHigh = true;
         if (f.risk_level === 'MEDIUM') hasMedium = true;
-
-        const itemText = `[${f.rule_id} v${f.rule_version}] ${f.explanation}`;
-        if (f.risk_level === 'HIGH') {
-          requiredActions.push(itemText);
-        } else {
-          notes.push(itemText);
-        }
       });
-
-      complianceAnalysis.requiredActions = [
-        ...(complianceAnalysis.requiredActions || []),
-        ...requiredActions
-      ];
-      complianceAnalysis.notes = [
-        ...(complianceAnalysis.notes || []),
-        ...notes
-      ];
 
       if (hasHigh) {
         complianceAnalysis.overallRisk = 'HIGH';
@@ -859,6 +856,7 @@ async function analyzeSite(
       assessment_projection_registered: null,
       property_context_id: null,
       assessment_status: 'EXECUTION_FAILED',
+      findings: [],
     };
   } finally {
     await spatialRuntime?.close().catch(() => undefined);
@@ -894,6 +892,7 @@ async function analyzeSite(
       assessment_projection_registered: null,
       property_context_id: null,
       assessment_status: 'NOT_ASSESSED',
+      findings: [],
     },
   };
 }
