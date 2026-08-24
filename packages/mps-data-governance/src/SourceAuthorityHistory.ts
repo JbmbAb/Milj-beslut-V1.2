@@ -5,8 +5,9 @@ import type { VerificationKeyProvider } from '@miljobeslut/mimers-brunn-core';
 
 import {
   getSourceRegistryPathFromEnv,
-  getSourceRegistryVerificationKeyFromEnv,
+  getSourceRegistryTrustedKeyringFromEnv,
   verifySourceRegistryArtifact,
+  type SourceRegistryTrustedKeyring,
   type SourceRegistryArtifact,
 } from './SourceRegistry';
 
@@ -79,6 +80,7 @@ export interface SourceAuthorityHistoryOptions {
   /** Explicit allowlist. Defaults to APPROVED_HISTORICAL_STORES. */
   readonly historicalStorePaths?: readonly string[];
   readonly signing?: VerificationKeyProvider;
+  readonly trustedKeyring?: SourceRegistryTrustedKeyring;
 }
 
 /**
@@ -90,7 +92,10 @@ export interface SourceAuthorityHistoryOptions {
 export async function loadSourceAuthorityHistory(
   options: SourceAuthorityHistoryOptions = {},
 ): Promise<{ findByArtifactId(artifactId: string): VerifiedSourceAuthority | null }> {
-  const signing = options.signing ?? getSourceRegistryVerificationKeyFromEnv();
+  if (options.signing && options.trustedKeyring) {
+    throw new SourceAuthorityHistoryError('REJECT_AMBIGUOUS_VERIFIER: signing and trustedKeyring are mutually exclusive.', 'REJECT_AMBIGUOUS_VERIFIER');
+  }
+  const trustedKeyring = options.trustedKeyring ?? (options.signing ? null : getSourceRegistryTrustedKeyringFromEnv());
   const registryPath = options.registryPath ?? getSourceRegistryPathFromEnv();
   const byArtifactId = new Map<string, VerifiedSourceAuthority>();
 
@@ -102,6 +107,13 @@ export async function loadSourceAuthorityHistory(
     // Verification is what enforces contract items 3, 4 and 6 at once: it re-derives the
     // content hash from the entry and binds it to the attestation, so a wrapper that edited
     // the payload — or an entry with no attestation at all — cannot pass.
+    const signing = options.signing ?? trustedKeyring?.resolve(entry.approval_attestation.signer);
+    if (!signing) {
+      throw new SourceAuthorityHistoryError(
+        `REJECT_UNTRUSTED_HISTORICAL_SIGNER: '${entry.approval_attestation.signer}' is not in the Source Registry trusted keyring.`,
+        'REJECT_UNTRUSTED_HISTORICAL_SIGNER',
+      );
+    }
     const verified = await verifySourceRegistryArtifact(entry, signing);
 
     const existing = byArtifactId.get(verified.registryArtifactId);
