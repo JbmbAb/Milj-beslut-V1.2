@@ -29,9 +29,12 @@ import { InMemoryArtifactRepository } from "../../packages/mps-runtime/src/repos
 import {
   createLocalizationViewerRuntime,
   LocalizationViewerCapabilityProvider,
+  resolveLocalizationViewerRuntimeConfigForProject,
   type LocalizationViewerRuntimeConfig,
+  type ViewerCapabilityCurrentnessDependencies,
 } from "../../server/modules/localization/createLocalizationViewerRuntime";
 import type { ProjectContextBindingProvider } from "../../server/modules/localization/projectContextBindingRuntime";
+import type { ViewerCapabilityProvisioningRequestRecord } from "../../server/modules/localization/viewerCapabilityProvisioningQueue";
 import { LocalPemSigningKeyProvider, LocalPemVerificationKeyProvider } from "@miljobeslut/mimers-brunn-core";
 import { __resetViewerCapabilitySigningProviderForTests } from "../../server/security/viewerCapabilitySigningKey";
 import { __resetViewerCapabilityVerifierForTests } from "../../server/security/viewerCapabilityVerifier";
@@ -100,17 +103,20 @@ async function buildIdentity() {
   return { identity: { ...unsignedIdentity, attestation: identityAttestation }, identityIssuer };
 }
 
-async function buildCapability(issuer: Awaited<ReturnType<typeof buildIssuer>>): Promise<ProductViewerCapabilityArtifact> {
+async function buildCapability(
+  issuer: Awaited<ReturnType<typeof buildIssuer>>,
+  overrides: Partial<Pick<ProductViewerCapabilityArtifact['payload'], 'project_context_binding_ref' | 'valid_from' | 'valid_until'>> = {},
+): Promise<ProductViewerCapabilityArtifact> {
   const unsigned = createProductViewerCapabilityArtifact({
     issuer_key_id: KEY_ID,
     issuer_ref: { artifact_id: issuer.artifact_id, artifact_type: issuer.artifact_type },
     subject_project_id: PROJECT_ID,
-    project_context_binding_ref: BINDING_REF,
+    project_context_binding_ref: overrides.project_context_binding_ref ?? BINDING_REF,
     viewer_identity_ref: VIEWER_IDENTITY_REF,
     product_release_ref: RELEASE_REF,
     product_release_hash: RELEASE_HASH,
-    valid_from: "2026-01-01T00:00:00.000Z",
-    valid_until: "2027-01-01T00:00:00.000Z",
+    valid_from: overrides.valid_from ?? "2026-01-01T00:00:00.000Z",
+    valid_until: overrides.valid_until ?? "2027-01-01T00:00:00.000Z",
   });
   const attestation = await attestProductViewerCapability({ capability: unsigned, issuer, signing });
   return { ...unsigned, attestation };
@@ -129,7 +135,43 @@ async function seed(repository: InMemoryArtifactRepository) {
   await repository.put({ artifact_id: identity.artifact_id, content_hash: identity.content_hash, body: identity });
   const capability = await buildCapability(issuer);
   await repository.put({ artifact_id: capability.artifact_id, content_hash: capability.content_hash, body: capability });
-  return capability;
+  return { capability, issuer };
+}
+
+function completedRequest(capabilityArtifactId: string): ViewerCapabilityProvisioningRequestRecord {
+  return {
+    id: `request-${capabilityArtifactId}`,
+    projectId: PROJECT_ID,
+    contextBindingArtifactId: BINDING_REF.artifact_id,
+    releaseArtifactId: RELEASE_REF.artifact_id,
+    viewerIdentityArtifactId: VIEWER_IDENTITY_REF.artifact_id,
+    requestedByUserId: 'user-runtime-test',
+    status: 'COMPLETED',
+    capabilityArtifactId,
+    capabilityValidFrom: new Date('2026-01-01T00:00:00.000Z'),
+    capabilityValidUntil: new Date('2027-01-01T00:00:00.000Z'),
+    failureCode: null,
+    failureDetail: null,
+    createdAt: NOW,
+    leasedAt: null,
+    leaseExpiresAt: null,
+    completedAt: NOW,
+    failedAt: null,
+  };
+}
+
+function currentnessDependencies(requests: readonly ViewerCapabilityProvisioningRequestRecord[]): ViewerCapabilityCurrentnessDependencies {
+  return {
+    currentBindingProvider: currentBindingProviderStub(BINDING_REF),
+    resolveRelease: async () => ({
+      artifact_id: RELEASE_REF.artifact_id,
+      artifact_type: RELEASE_REF.artifact_type,
+      release_hash: { value: RELEASE_HASH },
+    }),
+    resolveViewerIdentity: async () => ({ viewerIdentityRef: VIEWER_IDENTITY_REF }),
+    listCompletedRequests: async () => requests,
+    now: () => NOW,
+  };
 }
 
 function existenceEvidence(): SpatialEvidenceArtifact {
@@ -191,7 +233,7 @@ describe("VIEWER-CAPABILITY-ISSUER-TRUST-CHAIN-V1: runtime", () => {
 
   it("rejects an installed capability bound to a different project (wrong project)", async () => {
     const repository = new InMemoryArtifactRepository();
-    const capability = await seed(repository);
+    const { capability } = await seed(repository);
     const provider = new LocalizationViewerCapabilityProvider(
       repository,
       { ...config, capabilityArtifactId: capability.artifact_id, expectedProjectId: "some-other-project" },
@@ -204,7 +246,7 @@ describe("VIEWER-CAPABILITY-ISSUER-TRUST-CHAIN-V1: runtime", () => {
 
   it("rejects an installed capability bound to a different context binding", async () => {
     const repository = new InMemoryArtifactRepository();
-    const capability = await seed(repository);
+    const { capability } = await seed(repository);
     const provider = new LocalizationViewerCapabilityProvider(
       repository,
       { ...config, capabilityArtifactId: capability.artifact_id, expectedContextBindingId: "some-other-binding" },
@@ -217,7 +259,7 @@ describe("VIEWER-CAPABILITY-ISSUER-TRUST-CHAIN-V1: runtime", () => {
 
   it("resolves an installed, owner-issued V2 capability and verifies its full trust chain", async () => {
     const repository = new InMemoryArtifactRepository();
-    const capability = await seed(repository);
+    const { capability } = await seed(repository);
 
     await expect(
       new LocalizationViewerCapabilityProvider(repository, { ...config, capabilityArtifactId: capability.artifact_id }, () => NOW, currentBindingProviderStub(BINDING_REF)).resolve(),
@@ -230,7 +272,7 @@ describe("VIEWER-CAPABILITY-ISSUER-TRUST-CHAIN-V1: runtime", () => {
 
   it("gives ViewerKernel the verified V2 capability's exact viewer identity and project/context binding -- neither masquerading as the other", async () => {
     const repository = new InMemoryArtifactRepository();
-    const capability = await seed(repository);
+    const { capability } = await seed(repository);
     const evidence = existenceEvidence();
     await repository.put({ artifact_id: evidence.artifact_id, content_hash: evidence.content_hash, body: evidence });
 
@@ -262,5 +304,69 @@ describe("VIEWER-CAPABILITY-ISSUER-TRUST-CHAIN-V1: runtime", () => {
     expect(source).not.toContain("admitViewerCapability");
     expect(source).not.toContain("buildAdmittedViewerCapability");
     expect(source).not.toContain("tests/fixtures");
+  });
+
+  it('currentness ignores request insertion order when duplicate completed requests resolve to one canonical capability', async () => {
+    const repository = new InMemoryArtifactRepository();
+    const { capability } = await seed(repository);
+    const duplicateA = { ...completedRequest(capability.artifact_id), id: 'request-a', createdAt: new Date('2026-01-01T00:00:00.000Z') };
+    const duplicateB = { ...completedRequest(capability.artifact_id), id: 'request-b', createdAt: new Date('2026-02-01T00:00:00.000Z') };
+
+    const resolvedAB = await resolveLocalizationViewerRuntimeConfigForProject(
+      PROJECT_ID,
+      repository,
+      currentnessDependencies([duplicateA, duplicateB]),
+    );
+    const resolvedBA = await resolveLocalizationViewerRuntimeConfigForProject(
+      PROJECT_ID,
+      repository,
+      currentnessDependencies([duplicateB, duplicateA]),
+    );
+
+    expect(resolvedAB).toEqual(resolvedBA);
+    expect(resolvedAB?.capabilityArtifactId).toBe(capability.artifact_id);
+  });
+
+  it('has no current capability when the exact current subject has no valid completed request', async () => {
+    const repository = new InMemoryArtifactRepository();
+    await seed(repository);
+
+    await expect(resolveLocalizationViewerRuntimeConfigForProject(
+      PROJECT_ID,
+      repository,
+      currentnessDependencies([]),
+    )).resolves.toBeNull();
+  });
+
+  it('two distinct valid capabilities for the exact same current subject fail closed as ambiguous', async () => {
+    const repository = new InMemoryArtifactRepository();
+    const { capability, issuer } = await seed(repository);
+    const rotated = await buildCapability(issuer, {
+      valid_from: '2026-02-01T00:00:00.000Z',
+      valid_until: '2027-02-01T00:00:00.000Z',
+    });
+    await repository.put({ artifact_id: rotated.artifact_id, content_hash: rotated.content_hash, body: rotated });
+
+    await expect(resolveLocalizationViewerRuntimeConfigForProject(
+      PROJECT_ID,
+      repository,
+      currentnessDependencies([completedRequest(capability.artifact_id), completedRequest(rotated.artifact_id)]),
+    )).rejects.toThrow('REJECT_LU_VIEWER_CAPABILITY_AMBIGUOUS_CURRENT');
+  });
+
+  it('a stale completed capability cannot win over one bound to the current subject', async () => {
+    const repository = new InMemoryArtifactRepository();
+    const { capability, issuer } = await seed(repository);
+    const stale = await buildCapability(issuer, {
+      project_context_binding_ref: { artifact_id: 'project-context-binding-superseded', artifact_type: 'project_context_binding' },
+    });
+    await repository.put({ artifact_id: stale.artifact_id, content_hash: stale.content_hash, body: stale });
+
+    const resolved = await resolveLocalizationViewerRuntimeConfigForProject(
+      PROJECT_ID,
+      repository,
+      currentnessDependencies([completedRequest(stale.artifact_id), completedRequest(capability.artifact_id)]),
+    );
+    expect(resolved?.capabilityArtifactId).toBe(capability.artifact_id);
   });
 });

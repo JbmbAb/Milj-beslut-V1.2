@@ -116,7 +116,29 @@ export async function getProvisioningStatusForSubject(
   });
 }
 
-/** Latest request for this project, regardless of subject -- for status-read/UI purposes only. */
+/**
+ * All completed requests for one exact pinned subject. The caller owns semantic reduction: this
+ * queue function deliberately supplies no createdAt/row-id authority.
+ */
+export async function listCompletedProvisioningRequestsForSubject(
+  projectId: string,
+  contextBindingArtifactId: string,
+  releaseArtifactId: string,
+  viewerIdentityArtifactId: string,
+): Promise<ViewerCapabilityProvisioningRequestRecord[]> {
+  return prisma.viewerCapabilityProvisioningRequest.findMany({
+    where: {
+      projectId,
+      contextBindingArtifactId,
+      releaseArtifactId,
+      viewerIdentityArtifactId,
+      status: 'COMPLETED',
+      capabilityArtifactId: { not: null },
+    },
+  });
+}
+
+/** Latest request for this project, regardless of subject -- status-read/UI only, never authority. */
 export async function getLatestProvisioningRequestForProject(
   projectId: string,
 ): Promise<ViewerCapabilityProvisioningRequestRecord | null> {

@@ -8,11 +8,11 @@
  * never trusts a projection row's own claims and re-resolves + re-verifies every candidate against
  * CAS before selecting it.
  *
- * `createdAt` is NEVER used to decide validity. It is only the final deterministic tiebreaker
- * among candidates that have ALREADY passed both current-binding eligibility and CAS
- * re-verification -- selection order is: eligibility (bound to the current head) -> CAS
- * re-verification (exists, correct type, untampered, project_context_ref matches the row) ->
- * only then, among what remains, most recent first.
+ * Projection registration time is operational bookkeeping, never current-state authority.
+ * Selection is: eligibility (bound to the current head) -> CAS re-verification (exists, correct
+ * type, untampered, project_context_ref matches the row) -> exactly one verified survivor. More
+ * than one semantically distinct verified survivor is an unresolved authority conflict and fails
+ * closed until an explicit signed assessment-current/supersession relation exists.
  */
 import type { ArtifactRepositoryPort } from "@miljobeslut/mps-runtime";
 import { sha256ContentHash } from "@miljobeslut/mps-compliance/src/canonical/sha256Canonical";
@@ -80,10 +80,10 @@ export interface CurrentAssessmentProjection {
  * Selection order (frozen, LU-PROJECTION-RECONCILIATION-AND-TOTAL-ORDER-V1 Phase B): load
  * candidates -> resolveCurrent(projectId) via the verified ProjectContextBinding graph -> retain
  * only rows bound to that exact current head (and current geometry, if supplied) -> re-resolve and
- * re-verify EVERY remaining candidate against CAS (never short-circuit) -> among the verified
- * survivors, the one with the maximal createdAt is current; if two or more verified survivors tie
- * at the maximal createdAt, fail closed (REJECT_ASSESSMENT_PROJECTION_AMBIGUOUS_CURRENT) rather
- * than fall back to any lexical (e.g. artifact-id) tiebreaker.
+ * re-verify EVERY remaining candidate against CAS (never short-circuit) -> require exactly one
+ * verified survivor. More than one verified survivor fails closed
+ * (REJECT_ASSESSMENT_PROJECTION_AMBIGUOUS_CURRENT); registration order, row order, and createdAt
+ * are never a tiebreaker.
  */
 export async function resolveCurrentAssessmentProjection(args: {
   readonly projectId: string;
@@ -125,13 +125,10 @@ export async function resolveCurrentAssessmentProjection(args: {
     throw new Error("REJECT_ASSESSMENT_PROJECTION_NOT_CURRENT: no candidate bound to the current ProjectContextBinding and localization geometry");
   }
 
-  // LU-PROJECTION-RECONCILIATION-AND-TOTAL-ORDER-V1 Phase B: verify EVERY eligible candidate
-  // against CAS first (never short-circuit on the first pass) -- the ambiguity check below must
-  // apply only to genuinely verified survivors, so a tampered/orphaned duplicate row can never
-  // manufacture a false ambiguity. createdAt is the tiebreaker only among verified survivors --
-  // never authority over currentness itself (that remains the verified ProjectContextBinding
-  // supersession graph, via resolveCurrent above).
-  const verified: Array<{ readonly assessment: LocalizationAssessmentArtifact; readonly createdAt: Date }> = [];
+  // Verify EVERY eligible candidate against CAS first (never short-circuit on the first pass).
+  // The ambiguity check applies only to genuine verified survivors, so a tampered/orphaned row
+  // cannot manufacture a false conflict. createdAt remains operational projection metadata only.
+  const verified: LocalizationAssessmentArtifact[] = [];
   for (const candidate of eligible) {
     if (candidate.assessmentArtifactType !== "LOCALIZATION_ASSESSMENT") continue;
 
@@ -180,26 +177,23 @@ export async function resolveCurrentAssessmentProjection(args: {
     // today, so there is nothing further to check here -- not a gap, just not part of this
     // artifact's current contract.
 
-    verified.push({ assessment, createdAt: candidate.createdAt });
+    verified.push(assessment);
   }
 
   if (verified.length === 0) {
     throw new Error("REJECT_ASSESSMENT_PROJECTION_NOT_FOUND: no candidate for the current binding survived CAS re-verification");
   }
 
-  const maxCreatedAt = Math.max(...verified.map((v) => v.createdAt.getTime()));
-  const atMax = verified.filter((v) => v.createdAt.getTime() === maxCreatedAt);
-  if (atMax.length > 1) {
-    // Multiple genuinely distinct, independently-verified assessments tied at the maximal
-    // createdAt for the current binding/geometry -- fail closed rather than fall back to an
-    // arbitrary (e.g. artifact-id) order, which would make a semantically arbitrary choice
-    // deterministic without making it correct.
+  if (verified.length > 1) {
+    // More than one genuinely distinct, independently verified assessment for the same current
+    // binding/geometry has no declared semantic currentness relation. Do not let projection
+    // registration/rebuild order, row order, timestamps, or artifact ids invent one.
     throw new Error(
-      "REJECT_ASSESSMENT_PROJECTION_AMBIGUOUS_CURRENT: multiple verified assessment candidates tied at the maximal createdAt for the current binding/geometry",
+      "REJECT_ASSESSMENT_PROJECTION_AMBIGUOUS_CURRENT: multiple verified assessment candidates for the current binding/geometry",
     );
   }
 
-  return { assessmentArtifactId: atMax[0]!.assessment.artifact_id };
+  return { assessmentArtifactId: verified[0]!.artifact_id };
 }
 
 export type AssessmentProjectionReconciliationResult =

@@ -240,7 +240,7 @@ describe('P3-LU-ASSESSMENT-CURRENT-PROJECTION-01', () => {
     expect(rows).toHaveLength(1);
   });
 
-  it('new assessment same current binding: both historical rows retained -> deterministic current selection', async () => {
+  it('two distinct assessments for the same current binding remain historical and fail closed as ambiguous', async () => {
     const s = await setup();
     const index = new FakeAssessmentProjectionIndex();
     const first = await s.buildAndPersistAssessment(contextNew);
@@ -250,13 +250,36 @@ describe('P3-LU-ASSESSMENT-CURRENT-PROJECTION-01', () => {
 
     const rows = await index.listForProject(PROJECT_ID);
     expect(rows).toHaveLength(2);
-    const result = await resolveCurrentAssessmentProjection({
-      projectId: PROJECT_ID, artifactRepository: s.repository, currentBindingProvider: s.currentBindingProvider(), index,
-    });
-    expect(result.assessmentArtifactId).toBe(second.artifact_id); // most recent of the eligible set
+    await expect(
+      resolveCurrentAssessmentProjection({
+        projectId: PROJECT_ID, artifactRepository: s.repository, currentBindingProvider: s.currentBindingProvider(), index,
+      }),
+    ).rejects.toThrow('REJECT_ASSESSMENT_PROJECTION_AMBIGUOUS_CURRENT');
+    expect((await s.repository.resolve({ artifact_id: first.artifact_id, artifact_type: first.artifact_type })).artifact_id).toBe(first.artifact_id);
+    expect((await s.repository.resolve({ artifact_id: second.artifact_id, artifact_type: second.artifact_type })).artifact_id).toBe(second.artifact_id);
   });
 
-  it('LU-PROJECTION-RECONCILIATION-AND-TOTAL-ORDER-V1: two verified eligible candidates tied at the maximal createdAt -> fail closed, never an artifact-id tiebreaker', async () => {
+  it('rebuilding the same eligible assessment set in opposite registration orders fails closed in both projections', async () => {
+    const s = await setup();
+    const first = await s.buildAndPersistAssessment(contextNew);
+    const second = await s.buildAndPersistAssessment(contextNew);
+    const indexAB = new FakeAssessmentProjectionIndex();
+    const indexBA = new FakeAssessmentProjectionIndex();
+
+    await registerAssessmentProjection({ projectId: PROJECT_ID, assessment: first, contextBindingRef: s.newBindingRef, releaseRef: RELEASE_REF, index: indexAB });
+    await registerAssessmentProjection({ projectId: PROJECT_ID, assessment: second, contextBindingRef: s.newBindingRef, releaseRef: RELEASE_REF, index: indexAB });
+    await registerAssessmentProjection({ projectId: PROJECT_ID, assessment: second, contextBindingRef: s.newBindingRef, releaseRef: RELEASE_REF, index: indexBA });
+    await registerAssessmentProjection({ projectId: PROJECT_ID, assessment: first, contextBindingRef: s.newBindingRef, releaseRef: RELEASE_REF, index: indexBA });
+
+    await expect(
+      resolveCurrentAssessmentProjection({ projectId: PROJECT_ID, artifactRepository: s.repository, currentBindingProvider: s.currentBindingProvider(), index: indexAB }),
+    ).rejects.toThrow('REJECT_ASSESSMENT_PROJECTION_AMBIGUOUS_CURRENT');
+    await expect(
+      resolveCurrentAssessmentProjection({ projectId: PROJECT_ID, artifactRepository: s.repository, currentBindingProvider: s.currentBindingProvider(), index: indexBA }),
+    ).rejects.toThrow('REJECT_ASSESSMENT_PROJECTION_AMBIGUOUS_CURRENT');
+  });
+
+  it('multiple verified eligible candidates fail closed even with equal registration timestamps', async () => {
     const s = await setup();
     const index = new FakeAssessmentProjectionIndex();
     const first = await s.buildAndPersistAssessment(contextNew);

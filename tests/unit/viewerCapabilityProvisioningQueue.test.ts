@@ -1,8 +1,9 @@
 import { describe, expect, it, vi, beforeEach } from 'vitest';
 
-const { create, findFirst, findUnique, updateMany, update } = vi.hoisted(() => ({
+const { create, findFirst, findMany, findUnique, updateMany, update } = vi.hoisted(() => ({
   create: vi.fn(),
   findFirst: vi.fn(),
+  findMany: vi.fn(),
   findUnique: vi.fn(),
   updateMany: vi.fn(),
   update: vi.fn(),
@@ -10,13 +11,14 @@ const { create, findFirst, findUnique, updateMany, update } = vi.hoisted(() => (
 
 vi.mock('../../server/db/prisma', () => ({
   prisma: {
-    viewerCapabilityProvisioningRequest: { create, findFirst, findUnique, updateMany, update },
+    viewerCapabilityProvisioningRequest: { create, findFirst, findMany, findUnique, updateMany, update },
   },
 }));
 
 import {
   enqueueViewerCapabilityProvisioningRequest,
   ensureViewerCapabilityProvisioningRequested,
+  listCompletedProvisioningRequestsForSubject,
   leaseOnePendingViewerCapabilityProvisioningRequest,
   markViewerCapabilityProvisioningCompleted,
   markViewerCapabilityProvisioningFailed,
@@ -34,6 +36,7 @@ describe('PRODUCT-LU-VIEWER-CAPABILITY-PROVISIONING-01 Phase B: viewer capabilit
   beforeEach(() => {
     create.mockReset();
     findFirst.mockReset();
+    findMany.mockReset();
     findUnique.mockReset();
     updateMany.mockReset();
     update.mockReset();
@@ -66,6 +69,24 @@ describe('PRODUCT-LU-VIEWER-CAPABILITY-PROVISIONING-01 Phase B: viewer capabilit
     const result = await ensureViewerCapabilityProvisioningRequested({ ...SUBJECT, requestedByUserId: 'user-1' });
     expect(result.id).toBe('req-new');
     expect(create).toHaveBeenCalled();
+  });
+
+  it('lists every completed request for the exact subject without imposing timestamp order', async () => {
+    findMany.mockResolvedValue([{ id: 'req-a' }, { id: 'req-b' }]);
+
+    await expect(listCompletedProvisioningRequestsForSubject(
+      SUBJECT.projectId,
+      SUBJECT.contextBindingArtifactId,
+      SUBJECT.releaseArtifactId,
+      SUBJECT.viewerIdentityArtifactId,
+    )).resolves.toEqual([{ id: 'req-a' }, { id: 'req-b' }]);
+    expect(findMany).toHaveBeenCalledWith({
+      where: {
+        ...SUBJECT,
+        status: 'COMPLETED',
+        capabilityArtifactId: { not: null },
+      },
+    });
   });
 
   it('lease: a PENDING row is claimed via a conditional updateMany matched on its exact prior status', async () => {
