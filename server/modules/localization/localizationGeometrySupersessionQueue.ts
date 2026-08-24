@@ -101,8 +101,8 @@ export async function getLatestSupersessionRequestForProject(
 
 /**
  * Atomically claims exactly one available request: a PENDING row, or a LEASED row whose lease has
- * expired (crashed-worker reclaim). Race-free via the conditional `updateMany` matched on both
- * `id` AND the exact `status` observed at candidate-selection time.
+ * expired (crashed-worker reclaim). Race-free via conditional `updateMany`: PENDING claims match
+ * status, while stale LEASED reclaim matches the exact expiry generation that was observed.
  */
 export async function leaseOnePendingLocalizationGeometrySupersessionRequest(
   now: Date = new Date(),
@@ -115,9 +115,16 @@ export async function leaseOnePendingLocalizationGeometrySupersessionRequest(
   });
   if (!candidate) return null;
 
+  const claimWhere = candidate.status === 'LEASED'
+    ? candidate.leaseExpiresAt
+      ? { id: candidate.id, status: 'LEASED' as const, leaseExpiresAt: candidate.leaseExpiresAt }
+      : null
+    : { id: candidate.id, status: 'PENDING' as const };
+  if (!claimWhere) return null;
+
   const leaseExpiresAt = new Date(now.getTime() + LEASE_DURATION_MS);
   const result = await prisma.localizationGeometrySupersessionRequest.updateMany({
-    where: { id: candidate.id, status: candidate.status },
+    where: claimWhere,
     data: { status: 'LEASED', leasedAt: now, leaseExpiresAt },
   });
   if (result.count !== 1) return null;

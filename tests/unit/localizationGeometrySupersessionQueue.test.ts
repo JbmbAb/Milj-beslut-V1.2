@@ -104,7 +104,7 @@ describe('LU-PROJECTION-RECONCILIATION-AND-TOTAL-ORDER-V1 Phase B: geometry supe
       orderBy: { createdAt: 'asc' },
     });
     expect(updateMany).toHaveBeenCalledWith({
-      where: { id: 'req-stale', status: 'LEASED' },
+      where: { id: 'req-stale', status: 'LEASED', leaseExpiresAt: new Date('2026-01-01T00:02:00Z') },
       data: { status: 'LEASED', leasedAt: now, leaseExpiresAt: expect.any(Date) },
     });
   });

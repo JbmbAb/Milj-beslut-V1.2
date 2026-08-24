@@ -59,11 +59,9 @@ export async function getBootstrapRequestStatusForProject(projectId: string): Pr
 
 /**
  * Atomically claims exactly one available request: a PENDING row, or a LEASED row whose lease has
- * expired (crashed-worker reclaim). The conditional `updateMany` (matching on both `id` AND the
- * exact `status` observed at candidate-selection time) is what makes concurrent leasing race-free
- * under Postgres's standard row-level locking: if two workers race for the same row (PENDING or a
- * stale LEASED), only one UPDATE actually matches -- the other observes `count === 0` and returns
- * null rather than a false lease.
+ * expired (crashed-worker reclaim). The conditional `updateMany` compares a PENDING row's status,
+ * or a stale LEASED row's exact observed expiry generation. This makes concurrent leasing
+ * race-free: after one reclaimer advances the expiry, another's stale predicate matches no row.
  */
 export async function leaseOnePendingBootstrapRequest(now: Date = new Date()): Promise<BootstrapRequestRecord | null> {
   const candidate = await prisma.projectContextBootstrapRequest.findFirst({
@@ -74,9 +72,16 @@ export async function leaseOnePendingBootstrapRequest(now: Date = new Date()): P
   });
   if (!candidate) return null;
 
+  const claimWhere = candidate.status === 'LEASED'
+    ? candidate.leaseExpiresAt
+      ? { id: candidate.id, status: 'LEASED' as const, leaseExpiresAt: candidate.leaseExpiresAt }
+      : null
+    : { id: candidate.id, status: 'PENDING' as const };
+  if (!claimWhere) return null;
+
   const leaseExpiresAt = new Date(now.getTime() + LEASE_DURATION_MS);
   const result = await prisma.projectContextBootstrapRequest.updateMany({
-    where: { id: candidate.id, status: candidate.status },
+    where: claimWhere,
     data: { status: 'LEASED', leasedAt: now, leaseExpiresAt },
   });
   if (result.count !== 1) return null;

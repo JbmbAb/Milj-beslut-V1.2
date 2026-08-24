@@ -77,10 +77,10 @@ describe('PRODUCT-LU-PROJECT-CONTEXT-BOOTSTRAP-01 Phase B: bootstrap request que
       where: { OR: [{ status: 'PENDING' }, { status: 'LEASED', leaseExpiresAt: { lt: now } }] },
       orderBy: { createdAt: 'asc' },
     });
-    // Reclaim uses a conditional update matched on the OBSERVED status (LEASED), not blindly
-    // PENDING -- still race-free against a second worker's concurrent reclaim attempt.
+    // Reclaim is a compare-and-swap over the observed expired lease generation. Status alone
+    // would let a second reclaimer overwrite the first because it remains LEASED.
     expect(updateMany).toHaveBeenCalledWith({
-      where: { id: 'req-stale', status: 'LEASED' },
+      where: { id: 'req-stale', status: 'LEASED', leaseExpiresAt: new Date('2026-01-01T00:02:00Z') },
       data: { status: 'LEASED', leasedAt: now, leaseExpiresAt: expect.any(Date) },
     });
   });
