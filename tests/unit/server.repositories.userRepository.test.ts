@@ -45,6 +45,7 @@ describe('server/repositories/userRepository', () => {
         bankidId,
         role: 'CONSULTANT',
         organisationId: 'org1',
+        identityEnvironment: 'LEGACY',
       };
 
       vi.mocked(prisma.user.findUnique).mockResolvedValue(mockUser as any);
@@ -59,6 +60,7 @@ describe('server/repositories/userRepository', () => {
           bankidId: true,
           role: true,
           organisationId: true,
+          identityEnvironment: true,
         },
       });
     });
