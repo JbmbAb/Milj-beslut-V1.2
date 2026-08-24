@@ -7,6 +7,8 @@ import {
   validateLocalizationAssessmentContractVersion,
   LOCALIZATION_ASSESSMENT_CONTRACT_VERSION_V2,
   LOCALIZATION_ASSESSMENT_CANONICALIZER_ID_V2,
+  LOCALIZATION_ASSESSMENT_CONTRACT_VERSION_V3,
+  LOCALIZATION_ASSESSMENT_CANONICALIZER_ID_V3,
   type LocalizationAssessmentDraft,
 } from "../src/index";
 
@@ -37,8 +39,8 @@ function draftWithEvidence(evidenceRefs: readonly { artifact_id: string; artifac
   };
 }
 
-describe("LOCALIZATION-ASSESSMENT-CANONICAL-COLLECTIONS-V2 (H7 Phase B)", () => {
-  it("stamps assessment_contract_version = v2 on every new assessment", () => {
+describe("LOCALIZATION-ASSESSMENT-CANONICAL-COLLECTIONS V2/V3 (H7)", () => {
+  it("stamps assessment_contract_version = v3 on every new assessment", () => {
     const { outcome, attestation } = buildOutcomeAndAttestation("stamp");
     const assessment = createGovernedLocalizationAssessment({
       draft: draftWithEvidence([{ artifact_id: "evidence-a", artifact_type: "SGU_RISK" }]),
@@ -46,7 +48,7 @@ describe("LOCALIZATION-ASSESSMENT-CANONICAL-COLLECTIONS-V2 (H7 Phase B)", () => 
       outcome,
       attestation,
     });
-    expect(assessment.payload.assessment_contract_version).toBe(LOCALIZATION_ASSESSMENT_CONTRACT_VERSION_V2);
+    expect(assessment.payload.assessment_contract_version).toBe(LOCALIZATION_ASSESSMENT_CONTRACT_VERSION_V3);
   });
 
   it("THE CORE FIX: the same semantic evidence set, supplied in a different (SQL-row-order-like) sequence, produces the IDENTICAL assessment identity", () => {
@@ -127,7 +129,7 @@ describe("LOCALIZATION-ASSESSMENT-CANONICAL-COLLECTIONS-V2 (H7 Phase B)", () => 
     ).not.toThrow();
   });
 
-  it("H2/H12: a real V2 assessment passes the explicit V2 structural check", () => {
+  it("H7: a real V3 assessment passes the explicit V3 structural check", () => {
     const { outcome, attestation } = buildOutcomeAndAttestation("dispatch-v2");
     const assessment = createGovernedLocalizationAssessment({
       draft: draftWithEvidence([{ artifact_id: "evidence-b", artifact_type: "NVR" }, { artifact_id: "evidence-a", artifact_type: "SGU_RISK" }]),
@@ -136,7 +138,27 @@ describe("LOCALIZATION-ASSESSMENT-CANONICAL-COLLECTIONS-V2 (H7 Phase B)", () => 
       attestation,
     });
     expect(() => validateLocalizationAssessmentContractVersion(assessment.payload)).not.toThrow();
-    expect(assessment.payload.canonicalizer_id).toBe(LOCALIZATION_ASSESSMENT_CANONICALIZER_ID_V2);
+    expect(assessment.payload.canonicalizer_id).toBe(LOCALIZATION_ASSESSMENT_CANONICALIZER_ID_V3);
+  });
+
+  it("H7: historical V2 remains valid under V2 semantics even when findings and rule_refs are unsorted", () => {
+    expect(() =>
+      validateLocalizationAssessmentContractVersion({
+        project_context_ref: { artifact_id: "p", artifact_type: "LU_PROJECT_CONTEXT" },
+        property_ref: { artifact_id: "prop", artifact_type: "PROPERTY" },
+        execution_outcome_ref: { artifact_id: "o", artifact_type: "execution_outcome" },
+        outcome_attestation_ref: { artifact_id: "a", artifact_type: "attestation" },
+        findings: [
+          { finding_id: "z", rule_id: "Z", rule_version: "1", risk_level: "LOW", evidence_refs: [], explanation: "historical" },
+          { finding_id: "a", rule_id: "A", rule_version: "1", risk_level: "LOW", evidence_refs: [], explanation: "historical" },
+        ],
+        evidence_refs: [],
+        rule_refs: [{ rule_id: "Z", rule_version: "1" }, { rule_id: "A", rule_version: "1" }],
+        system_summary: "historical-v2",
+        assessment_contract_version: LOCALIZATION_ASSESSMENT_CONTRACT_VERSION_V2,
+        canonicalizer_id: LOCALIZATION_ASSESSMENT_CANONICALIZER_ID_V2,
+      }),
+    ).not.toThrow();
   });
 
   it("H2/H12: a V2-labeled payload with an unsorted evidence_refs (mislabeled or tampered) is rejected -- the version claim alone is not trusted", () => {
