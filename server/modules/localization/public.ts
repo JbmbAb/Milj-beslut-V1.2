@@ -7,6 +7,7 @@ export {
   LocalizationDataUnavailableError,
   runLocalizationReport,
   resolveLuViewerPresentation,
+  resolveCurrentLuAssessmentSummary,
 } from './localizationOrchestrator';
 export { generateLocalizationReportLegacy } from '../../services/localizationReportService';
 export type { SiteAlternative } from '../../services/localizationReportService';

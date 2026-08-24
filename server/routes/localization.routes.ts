@@ -15,6 +15,7 @@ import {
   LocalizationDataUnavailableError,
   runLocalizationReport,
   resolveLuViewerPresentation,
+  resolveCurrentLuAssessmentSummary,
   generateLocalizationReportLegacy,
   listProjectsForProperty,
   createLocalizationProject,
@@ -344,6 +345,44 @@ router.get(
         return;
       }
       res.status(200).json(result.geojson);
+    } catch (error) {
+      if (handleOrchestratorError(error, res)) return;
+      next(error);
+    }
+  },
+);
+
+/**
+ * GET /api/localization/:projectId/current-assessment
+ *
+ * LU-ASSESSMENT-PERSISTENCE-READ-V1 (backend half). Read-only: resolves the already-persisted,
+ * governed LocalizationAssessmentArtifact currently bound to this project's current
+ * ProjectContextBinding (and current localization geometry, if any) -- never runs the kernel,
+ * never re-evaluates rules. Lets a caller show the same result after logout/relogin/reopen without
+ * requiring a fresh "Kör bedömning" run. UI wiring is a separate, later unit.
+ */
+router.get(
+  '/api/localization/:projectId/current-assessment',
+  requireAuth,
+  rateLimitByUser(60, 60_000),
+  async (req, res, next) => {
+    try {
+      const result = await resolveCurrentLuAssessmentSummary({
+        authUser: req.authUser!,
+        projectId: String(req.params.projectId || ''),
+      });
+      if (result.ok === false) {
+        res.status(result.status).json({ ok: false, error: result.error });
+        return;
+      }
+      res.status(200).json({
+        ok: true,
+        assessmentArtifactId: result.assessmentArtifactId,
+        findings: result.findings,
+        ruleRefs: result.ruleRefs,
+        evidenceRefs: result.evidenceRefs,
+        systemSummary: result.systemSummary,
+      });
     } catch (error) {
       if (handleOrchestratorError(error, res)) return;
       next(error);

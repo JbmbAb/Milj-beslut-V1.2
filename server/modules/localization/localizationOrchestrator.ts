@@ -14,7 +14,13 @@ import { getAuditTrail } from '../../services/auditTrailService';
 import { assertProjectAccess } from '../../security/projectAccess';
 import type { AuthUser } from '../../security/types';
 import { MimersIntegration, type ArtifactRepositoryPort } from '@miljobeslut/mps-runtime';
-import { ProjectContextBindingProvider } from './projectContextBindingRuntime';
+import { ProjectContextBindingProvider, authorizeAssessmentPresentation } from './projectContextBindingRuntime';
+import { sha256ContentHash } from '@miljobeslut/mps-compliance/src/canonical/sha256Canonical';
+import {
+  localizationAssessmentCanonicalBody,
+  validateLocalizationAssessmentContractVersion,
+  type LocalizationAssessmentArtifact,
+} from '@miljobeslut/mps-lu';
 import { PrismaProjectContextBindingIndex } from '../../repositories/projectContextBindingRepository';
 import { getProjectContextBindingIssuerVerifier } from '../../security/projectContextBindingIssuerKey';
 import { resolveCurrentAssessmentProjection } from './assessmentProjection';
@@ -288,6 +294,137 @@ export async function resolveLuViewerPresentation(input: {
       error: error instanceof Error ? error.message : 'Governed viewer presentation is unavailable.',
     };
   }
+}
+
+/**
+ * LU-ASSESSMENT-PERSISTENCE-READ-V1 (backend half).
+ *
+ * Read-only counterpart to `resolveLuViewerPresentation`: same discovery chain (project
+ * authorization -> current-geometry-aware `resolveCurrentAssessmentProjection`), but returns the
+ * assessment's own governed `findings`/`rule_refs`/`evidence_refs` rather than rendering geojson.
+ * Deliberately does NOT require a configured ViewerCapability -- reading findings is not the same
+ * product concern as rendering the map, and gating one on the other would be a wrong dependency.
+ *
+ * This is a read of an assessment that was ALREADY produced and persisted by a prior governed
+ * kernel run (via GovernedAssessmentPersistence) -- it never runs the kernel, never re-evaluates
+ * rules, and is not a second assessment path. The tamper/binding verification below mirrors
+ * `resolveGovernedLocalizationPresentation` exactly (never trusts even `resolveCurrentAssessmentProjection`'s
+ * own re-verified selection without re-verifying again at the point of use).
+ */
+export async function resolveCurrentLuAssessmentSummary(input: {
+  readonly authUser: AuthUser;
+  readonly projectId: string;
+  readonly artifactRepository?: ArtifactRepositoryPort;
+  readonly currentBindingProvider?: ProjectContextBindingProvider;
+  readonly assessmentProjectionIndex?: ProjectAssessmentProjectionIndex;
+  readonly localizationGeometryIndex?: LocalizationGeometryProjectionIndex;
+}): Promise<
+  | {
+      ok: true;
+      assessmentArtifactId: string;
+      findings: LocalizationAssessmentArtifact['payload']['findings'];
+      ruleRefs: LocalizationAssessmentArtifact['payload']['rule_refs'];
+      evidenceRefs: LocalizationAssessmentArtifact['payload']['evidence_refs'];
+      systemSummary: string;
+    }
+  | { ok: false; status: number; error: string }
+> {
+  const projectId = String(input.projectId || '').trim();
+  if (!projectId) {
+    return { ok: false, status: 400, error: 'projectId required' };
+  }
+
+  try {
+    await assertProjectAccess(input.authUser, projectId, input.authUser.organisationId);
+  } catch {
+    return { ok: false, status: 403, error: 'Not authorized for this project.' };
+  }
+
+  const artifactRepository = input.artifactRepository ?? (await MimersIntegration.create()).artifactRepository;
+  const currentBindingProvider =
+    input.currentBindingProvider ??
+    new ProjectContextBindingProvider(
+      artifactRepository,
+      new PrismaProjectContextBindingIndex(),
+      getProjectContextBindingIssuerVerifier(),
+    );
+
+  let currentLocalizationGeometryArtifactId: string | undefined;
+  try {
+    const geometry = await resolveCurrentLocalizationGeometry({
+      projectId,
+      artifactRepository,
+      index: input.localizationGeometryIndex,
+    });
+    currentLocalizationGeometryArtifactId = geometry.geometryArtifactId;
+  } catch {
+    currentLocalizationGeometryArtifactId = undefined;
+  }
+
+  let assessmentArtifactId: string;
+  try {
+    const projection = await resolveCurrentAssessmentProjection({
+      projectId,
+      artifactRepository,
+      currentBindingProvider,
+      currentLocalizationGeometryArtifactId,
+      index: input.assessmentProjectionIndex,
+    });
+    assessmentArtifactId = projection.assessmentArtifactId;
+  } catch {
+    return { ok: false, status: 404, error: 'No current governed LU assessment is available for this project.' };
+  }
+
+  let assessment: LocalizationAssessmentArtifact;
+  try {
+    assessment = await artifactRepository.resolve<LocalizationAssessmentArtifact>({
+      artifact_id: assessmentArtifactId,
+      artifact_type: 'LOCALIZATION_ASSESSMENT',
+    });
+  } catch {
+    return { ok: false, status: 404, error: 'No current governed LU assessment is available for this project.' };
+  }
+
+  const recomputedAssessmentHash = sha256ContentHash(localizationAssessmentCanonicalBody(assessment));
+  const untampered =
+    recomputedAssessmentHash.algorithm === assessment.content_hash.algorithm &&
+    recomputedAssessmentHash.value === assessment.content_hash.value &&
+    assessment.artifact_id === `assessment-${recomputedAssessmentHash.value}`;
+  if (!untampered) {
+    return { ok: false, status: 424, error: 'Governed LU assessment failed tamper verification.' };
+  }
+
+  try {
+    validateLocalizationAssessmentContractVersion(assessment.payload);
+  } catch (error) {
+    return {
+      ok: false,
+      status: 424,
+      error: error instanceof Error ? error.message : 'Unsupported assessment contract version.',
+    };
+  }
+
+  try {
+    await authorizeAssessmentPresentation({
+      projectId,
+      assessment,
+      assertProjectAccess: async () => {
+        await assertProjectAccess(input.authUser, projectId, input.authUser.organisationId);
+      },
+      bindingProvider: currentBindingProvider,
+    });
+  } catch {
+    return { ok: false, status: 424, error: 'Governed LU assessment is not bound to this project.' };
+  }
+
+  return {
+    ok: true,
+    assessmentArtifactId: assessment.artifact_id,
+    findings: assessment.payload.findings,
+    ruleRefs: assessment.payload.rule_refs,
+    evidenceRefs: assessment.payload.evidence_refs,
+    systemSummary: assessment.payload.system_summary,
+  };
 }
 
 export async function fetchLocalizationAuditTrail(projectId: string) {
