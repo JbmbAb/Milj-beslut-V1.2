@@ -205,9 +205,11 @@ describe("F9 — replay from captured artifacts (GREEN PROOF)", () => {
     );
     expect(
       surface,
-      "F9: replay exposes exactly one operation. Any additional surface would be a place for a " +
-        "live source to enter.",
-    ).toEqual(["replay"]);
+      "F9: replay exposes only CAS-repository-backed operations. LU-REPLAY-COLD-VERIFY-V1 added " +
+        "replayFromManifestId (resolves the attempt from CAS instead of requiring it in memory) -- " +
+        "still just repository.resolve() calls, no new dependency surface for a live source to " +
+        "enter through.",
+    ).toEqual(["replay", "replayFromManifestId"]);
   });
 
   it("replay fails closed when no attempt exists", async () => {
