@@ -5,8 +5,7 @@
 
 import type { PropertyInfo } from '../../domain/geo';
 import { csrfFetch } from '../../../services/csrfClient';
-
-const ADMIN_BEARER_KEY = 'miljobeslut_admin_bearer';
+import { callApi } from '../../../services/coreApiClient';
 
 type GeoJsonGeometry = {
   type?: string;
@@ -71,34 +70,24 @@ export function mapLookupResultToPropertyInfo(raw: Record<string, unknown>): Pro
     designation,
     municipality,
     areaM2: typeof boundaryProps.area === 'number' ? boundaryProps.area : undefined,
+    geometry,
     centroid: centroid ?? undefined,
   };
 }
 
 export async function fetchPropertyInfo(designation: string, projectId?: string): Promise<PropertyInfo> {
-  const token = typeof window !== 'undefined' ? (window.localStorage.getItem(ADMIN_BEARER_KEY) ?? '') : '';
-  const response = await csrfFetch('/api/property/lookup', {
+  const data = await callApi<{ ok: boolean; result?: unknown; error?: string }>('/api/property/lookup', {
     method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      ...(token ? { Authorization: `Bearer ${token}` } : {}),
-    },
-    body: JSON.stringify({
+    body: {
       propertyDesignation: designation,
       projectId: projectId ?? '',
       purpose: 'GEO_CLIENT',
-    }),
+    },
   });
 
-  if (!response.ok) {
-    const error = await response.json();
-    throw new Error(error.error || 'Fastighetsuppslag misslyckades');
-  }
-
-  const data = await response.json();
   const raw = data.result;
   if (!raw || typeof raw !== 'object') {
-    throw new Error('Fastighetsuppslag returnerade ogiltigt svar');
+    throw new Error(data.error || 'Fastighetsuppslag returnerade ogiltigt svar');
   }
   return mapLookupResultToPropertyInfo(raw as Record<string, unknown>);
 }

@@ -1,5 +1,14 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { resetCsrfTokenCache } from '../../services/csrfClient';
+
+const coreApiMocks = vi.hoisted(() => ({
+  callApi: vi.fn(),
+}));
+
+vi.mock('../../services/coreApiClient', () => ({
+  callApi: coreApiMocks.callApi,
+}));
+
 import {
   fetchDynamicLayer,
   fetchMapLayerCatalog,
@@ -11,62 +20,40 @@ import {
 describe('src/ui/api-client/geo.client', () => {
   afterEach(() => {
     resetCsrfTokenCache();
+    vi.clearAllMocks();
     vi.restoreAllMocks();
     vi.unstubAllGlobals();
   });
 
   it('returns property info result on success', async () => {
-    global.fetch = vi
-      .fn()
-      .mockResolvedValueOnce({
-        ok: true,
-        json: async () => ({ csrfToken: 'csrf-123' }),
-      })
-      .mockResolvedValueOnce({
-        ok: true,
-        json: async () => ({
-          result: { designation: 'X', municipality: 'Y' },
-        }),
-      }) as unknown as typeof fetch;
+    coreApiMocks.callApi.mockResolvedValueOnce({
+      ok: true,
+      result: { designation: 'X', municipality: 'Y' },
+    });
 
     await expect(fetchPropertyInfo('1:23', 'project-1')).resolves.toEqual({
       id: 'X',
       designation: 'X',
       municipality: 'Y',
       areaM2: undefined,
+      geometry: undefined,
       centroid: undefined,
     });
 
-    expect(global.fetch).toHaveBeenNthCalledWith(1, '/api/csrf-token', {
-      method: 'GET',
-      credentials: 'same-origin',
-    });
-
-    const [url, init] = vi.mocked(global.fetch).mock.calls[1] as unknown as [string, RequestInit];
+    const [url, init] = coreApiMocks.callApi.mock.calls[0];
     expect(url).toBe('/api/property/lookup');
     expect(init.method).toBe('POST');
-    expect(init.body).toBe(
-      JSON.stringify({
-        propertyDesignation: '1:23',
-        projectId: 'project-1',
-        purpose: 'GEO_CLIENT',
-      }),
-    );
-    expect(new Headers(init.headers).get('Content-Type')).toBe('application/json');
-    expect(new Headers(init.headers).get('x-csrf-token')).toBe('csrf-123');
+    expect(init.body).toEqual({
+      propertyDesignation: '1:23',
+      projectId: 'project-1',
+      purpose: 'GEO_CLIENT',
+    });
   });
 
   it('throws API error messages for property lookup and dynamic layers', async () => {
+    coreApiMocks.callApi.mockRejectedValueOnce(new Error('lookup failed'));
     global.fetch = vi
       .fn()
-      .mockResolvedValueOnce({
-        ok: true,
-        json: async () => ({ csrfToken: 'csrf-123' }),
-      })
-      .mockResolvedValueOnce({
-        ok: false,
-        json: async () => ({ error: 'lookup failed' }),
-      })
       .mockResolvedValueOnce({
         ok: false,
         json: async () => ({ error: 'layer failed' }),
@@ -143,5 +130,34 @@ describe('src/ui/api-client/geo.client', () => {
       areaM2: 5962,
       centroid: { lat: expect.any(Number), lng: expect.any(Number) },
     });
+  });
+
+  it('GEO-PROPERTY-CLIENT-RECOVERY-01: the raw WGS84 GeoJSON geometry roundtrips unchanged into PropertyInfo.geometry -- presentation-only, never re-derived or transformed client-side', () => {
+    const wgs84Polygon = {
+      type: 'Polygon',
+      coordinates: [
+        [
+          [14.66, 61.13],
+          [14.67, 61.13],
+          [14.67, 61.14],
+          [14.66, 61.13],
+        ],
+      ],
+    };
+    const result = mapLookupResultToPropertyInfo({
+      designation: 'ORSA STACKMORA 3:12>1',
+      geometry: wgs84Polygon,
+      boundaries: { properties: { municipalityName: 'Orsa', area: 5962 } },
+    });
+    expect(result.geometry).toBe(wgs84Polygon);
+  });
+
+  it('GEO-PROPERTY-CLIENT-RECOVERY-01: falls back to boundaries.geometry when no top-level geometry is present, still the same WGS84 object', () => {
+    const wgs84Point = { type: 'Point', coordinates: [14.66, 61.13] };
+    const result = mapLookupResultToPropertyInfo({
+      designation: 'ORSA STACKMORA 3:12>1',
+      boundaries: { geometry: wgs84Point, properties: { municipalityName: 'Orsa' } },
+    });
+    expect(result.geometry).toBe(wgs84Point);
   });
 });

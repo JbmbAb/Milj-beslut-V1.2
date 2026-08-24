@@ -34,6 +34,7 @@ export interface PropertyInfo {
   areaM2?: number;
   ownerName?: string;
   boundaryWkt?: string; // Well-Known Text representation of geometry
+  geometry?: unknown; // WGS84 GeoJSON geometry/feature when local PostGIS can provide it
   centroid?: { lat: number; lng: number };
 }
 
