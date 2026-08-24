@@ -26,6 +26,13 @@ import { AssessmentFinding, RuleId, RuleVersion } from "../domain/AssessmentFind
 export const LOCALIZATION_ASSESSMENT_CONTRACT_VERSION_V2 = "localization-assessment-v2" as const;
 
 /**
+ * CANONICAL-SEMANTIC-INPUTS-V1 (H7). V3 corrects the remaining collection
+ * nondeterminism: findings and rule_refs are semantic sets, not the accidental order in which
+ * providers happened to return evidence. V2 remains frozen historical semantics.
+ */
+export const LOCALIZATION_ASSESSMENT_CONTRACT_VERSION_V3 = "localization-assessment-v3" as const;
+
+/**
  * ARTIFACT-OPERATIONAL-TEMPORAL-ENVELOPE-V1 (H2/H12). Same canonicalization pipeline every other
  * artifact family in this codebase's mps-lu layer uses (sha256ContentHash -> RFC8785 via
  * json-canonicalize) -- made an explicit, load-bearing field on V2 so a future second
@@ -34,6 +41,8 @@ export const LOCALIZATION_ASSESSMENT_CONTRACT_VERSION_V2 = "localization-assessm
  * `sv-canonical-1`/`sv-canonical-2` version tagging.
  */
 export const LOCALIZATION_ASSESSMENT_CANONICALIZER_ID_V2 = "rfc8785-sha256-v1" as const;
+/** RFC8785 remains the serializer; V3 changes the declared collection semantics. */
+export const LOCALIZATION_ASSESSMENT_CANONICALIZER_ID_V3 = "rfc8785-sha256-v1" as const;
 
 export interface LocalizationAssessmentPayload {
   readonly project_context_ref: ArtifactReference;
@@ -42,11 +51,11 @@ export interface LocalizationAssessmentPayload {
   readonly execution_outcome_ref: ArtifactReference;
   /** HM1-C: integrity attestation over that outcome. */
   readonly outcome_attestation_ref: ArtifactReference;
-  /** ORDERED_SEQUENCE (confirmed by recon: sequential code-order, never reordered). */
+  /** V1/V2 historical order is preserved; V3 canonically sorts the semantic finding set. */
   readonly findings: readonly AssessmentFinding[];
   /** SEMANTIC_SET (confirmed by recon) -- canonically deduplicated + sorted from V2 onward. */
   readonly evidence_refs: readonly ArtifactReference[];
-  /** ORDERED_SEQUENCE (confirmed by recon: derived 1:1-positionally from `findings`). */
+  /** V1/V2 historical order is preserved; V3 canonically deduplicates and sorts this set. */
   readonly rule_refs: readonly {
     readonly rule_id: RuleId;
     readonly rule_version: RuleVersion;
@@ -61,10 +70,14 @@ export interface LocalizationAssessmentPayload {
    * `assessmentProjection.ts` uses it to require current-geometry eligibility for "current".
    */
   readonly localization_geometry_ref?: ArtifactReference;
-  /** LOCALIZATION-ASSESSMENT-CANONICAL-COLLECTIONS-V2. Absent on every historical assessment. */
-  readonly assessment_contract_version?: typeof LOCALIZATION_ASSESSMENT_CONTRACT_VERSION_V2;
+  /** Absent on every historical assessment; each declared version dispatches its own rules. */
+  readonly assessment_contract_version?:
+    | typeof LOCALIZATION_ASSESSMENT_CONTRACT_VERSION_V2
+    | typeof LOCALIZATION_ASSESSMENT_CONTRACT_VERSION_V3;
   /** Present iff assessment_contract_version is set -- see constant doc comment above. */
-  readonly canonicalizer_id?: typeof LOCALIZATION_ASSESSMENT_CANONICALIZER_ID_V2;
+  readonly canonicalizer_id?:
+    | typeof LOCALIZATION_ASSESSMENT_CANONICALIZER_ID_V2
+    | typeof LOCALIZATION_ASSESSMENT_CANONICALIZER_ID_V3;
 }
 
 /** Inputs known before the kernel has produced its outcome and attestation. */

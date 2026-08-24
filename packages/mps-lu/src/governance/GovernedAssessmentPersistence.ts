@@ -7,6 +7,8 @@ import type { AssessmentFinding } from "../domain/AssessmentFinding.js";
 import {
   LOCALIZATION_ASSESSMENT_CONTRACT_VERSION_V2,
   LOCALIZATION_ASSESSMENT_CANONICALIZER_ID_V2,
+  LOCALIZATION_ASSESSMENT_CONTRACT_VERSION_V3,
+  LOCALIZATION_ASSESSMENT_CANONICALIZER_ID_V3,
   type LocalizationAssessmentArtifact,
   type LocalizationAssessmentDraft,
   type LocalizationAssessmentPayload,
@@ -65,6 +67,67 @@ function canonicalEvidenceRefs(
   });
 }
 
+type RuleReference = {
+  readonly rule_id: string;
+  readonly rule_version: string;
+};
+
+function ruleRefKey(ref: RuleReference): string {
+  return `${ref.rule_id}\u0000${ref.rule_version}`;
+}
+
+/**
+ * V3: rules are the semantic set asserted by an assessment, not a positional shadow of
+ * provider-return order. A duplicate key therefore represents the same rule claim and is
+ * deduplicated before it reaches the hash domain.
+ */
+function canonicalRuleRefs(refs: readonly RuleReference[]): RuleReference[] {
+  return Array.from(new Map(refs.map((ref) => [ruleRefKey(ref), ref] as const)).values()).sort((a, b) => {
+    const keyA = ruleRefKey(a);
+    const keyB = ruleRefKey(b);
+    return keyA < keyB ? -1 : keyA > keyB ? 1 : 0;
+  });
+}
+
+function findingKey(finding: AssessmentFinding): string {
+  return `${finding.rule_id}\u0000${finding.rule_version}\u0000${finding.finding_id}`;
+}
+
+/**
+ * V3 finding identity is the declared rule/version plus the rule-produced finding_id. It is a
+ * semantic key, not a presentation severity or an incidental artifact id. Two different bodies
+ * claiming the same key are ambiguous authority and reject rather than receive a tie-breaker.
+ */
+function canonicalFindings(findings: readonly AssessmentFinding[]): AssessmentFinding[] {
+  const byKey = new Map<string, AssessmentFinding>();
+  for (const finding of findings) {
+    if (!finding.finding_id?.trim() || !finding.rule_id?.trim() || !finding.rule_version?.trim()) {
+      throw new Error("REJECT_LOCALIZATION_ASSESSMENT_V3: finding semantic key is incomplete");
+    }
+    // Construct the closed finding schema explicitly. Besides making every output member
+    // load-bearing, this prevents producer-specific JavaScript property insertion order from
+    // leaking into the persisted V3 payload.
+    const canonical: AssessmentFinding = {
+      finding_id: finding.finding_id,
+      rule_id: finding.rule_id,
+      rule_version: finding.rule_version,
+      risk_level: finding.risk_level,
+      evidence_refs: canonicalEvidenceRefs(finding.evidence_refs),
+      explanation: finding.explanation,
+    };
+    const key = findingKey(canonical);
+    if (byKey.has(key)) {
+      throw new Error(`REJECT_LOCALIZATION_ASSESSMENT_V3: duplicate finding semantic key '${key}'`);
+    }
+    byKey.set(key, canonical);
+  }
+  return Array.from(byKey.values()).sort((a, b) => {
+    const keyA = findingKey(a);
+    const keyB = findingKey(b);
+    return keyA < keyB ? -1 : keyA > keyB ? 1 : 0;
+  });
+}
+
 /**
  * LOCALIZATION-ASSESSMENT-CANONICAL-COLLECTIONS-V2 / ARTIFACT-OPERATIONAL-TEMPORAL-ENVELOPE-V1
  * (H2/H12), explicit version dispatch. Callers already recompute and compare `content_hash`
@@ -92,6 +155,24 @@ export function validateLocalizationAssessmentContractVersion(payload: Localizat
     }
     return;
   }
+  if (version === LOCALIZATION_ASSESSMENT_CONTRACT_VERSION_V3) {
+    if (payload.canonicalizer_id !== LOCALIZATION_ASSESSMENT_CANONICALIZER_ID_V3) {
+      throw new Error("REJECT_LOCALIZATION_ASSESSMENT_V3: canonicalizer_id mismatch");
+    }
+    const canonicalEvidence = canonicalEvidenceRefs(payload.evidence_refs);
+    if (JSON.stringify(canonicalEvidence) !== JSON.stringify(payload.evidence_refs)) {
+      throw new Error("REJECT_LOCALIZATION_ASSESSMENT_V3: evidence_refs is not the canonical deduplicated/sorted form");
+    }
+    const canonicalRules = canonicalRuleRefs(payload.rule_refs);
+    if (JSON.stringify(canonicalRules) !== JSON.stringify(payload.rule_refs)) {
+      throw new Error("REJECT_LOCALIZATION_ASSESSMENT_V3: rule_refs is not the canonical deduplicated/sorted form");
+    }
+    const canonicalFindingSet = canonicalFindings(payload.findings);
+    if (JSON.stringify(canonicalFindingSet) !== JSON.stringify(payload.findings)) {
+      throw new Error("REJECT_LOCALIZATION_ASSESSMENT_V3: findings is not the canonical semantic set");
+    }
+    return;
+  }
   throw new Error(`REJECT_LOCALIZATION_ASSESSMENT: unknown assessment_contract_version '${String(version)}'`);
 }
 
@@ -109,20 +190,20 @@ export function createGovernedLocalizationAssessment(args: {
     artifact_id: args.attestation.attestation_id,
     artifact_type: args.attestation.artifact_type,
   };
+  const canonicalFindingSet = canonicalFindings(args.findings);
   const payload: LocalizationAssessmentPayload = {
     project_context_ref: args.draft.project_context_ref,
     property_ref: args.draft.property_ref,
     execution_outcome_ref: executionOutcomeRef,
     outcome_attestation_ref: outcomeAttestationRef,
-    findings: args.findings,
+    findings: canonicalFindingSet,
     // LOCALIZATION-ASSESSMENT-CANONICAL-COLLECTIONS-V2: dedup + canonical sort, not just dedup --
     // evidence_refs is a SEMANTIC_SET, never an as-received ORDERED_SEQUENCE.
     evidence_refs: canonicalEvidenceRefs(args.draft.evidence_refs),
-    // ORDERED_SEQUENCE: preserve findings' own sequence exactly, positional 1:1 map, never sorted.
-    rule_refs: args.findings.map((finding) => ({
+    rule_refs: canonicalRuleRefs(canonicalFindingSet.map((finding) => ({
       rule_id: finding.rule_id,
       rule_version: finding.rule_version,
-    })),
+    }))),
     system_summary: args.draft.system_summary,
     ...(args.draft.consultant_commentary_ref
       ? { consultant_commentary_ref: args.draft.consultant_commentary_ref }
@@ -130,8 +211,8 @@ export function createGovernedLocalizationAssessment(args: {
     ...(args.draft.localization_geometry_ref
       ? { localization_geometry_ref: args.draft.localization_geometry_ref }
       : {}),
-    assessment_contract_version: LOCALIZATION_ASSESSMENT_CONTRACT_VERSION_V2,
-    canonicalizer_id: LOCALIZATION_ASSESSMENT_CANONICALIZER_ID_V2,
+    assessment_contract_version: LOCALIZATION_ASSESSMENT_CONTRACT_VERSION_V3,
+    canonicalizer_id: LOCALIZATION_ASSESSMENT_CANONICALIZER_ID_V3,
   };
   // Constructed FROM the already-canonical payload.evidence_refs -- never independently
   // re-discovering the caller's raw (potentially non-canonical) order.
