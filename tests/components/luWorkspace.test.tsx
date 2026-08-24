@@ -19,6 +19,9 @@ vi.mock('@miljobeslut/mps-identity', () => ({
 const fetchPropertyInfo = vi.fn();
 const callApi = vi.fn();
 const getActiveProjectId = vi.fn(() => 'proj-1');
+// The exact string all 3 of resolveCurrentLuAssessmentSummary's 404 branches share -- this is
+// what the component matches on to distinguish "no persisted assessment yet" from a genuine error.
+const NO_CURRENT_ASSESSMENT_MESSAGE = 'No current governed LU assessment is available for this project.';
 
 vi.mock('../../src/ui/api-client/geo.client', () => ({
   fetchPropertyInfo: (...args: unknown[]) => fetchPropertyInfo(...args),
@@ -57,6 +60,9 @@ describe('LuWorkspace', () => {
     // isExecutionReady permanently false and the button permanently disabled. callApi is called
     // with more than one endpoint now, so the mock must branch by URL.
     callApi.mockImplementation((url: string) => {
+      if (url.includes('/current-assessment')) {
+        return Promise.reject(new Error(NO_CURRENT_ASSESSMENT_MESSAGE));
+      }
       if (url.includes('/geometry')) {
         return Promise.resolve({
           ok: true,
@@ -166,6 +172,9 @@ describe('LuWorkspace', () => {
       centroid: { lat: 60.67, lng: 17.14 },
     });
     callApi.mockImplementation((url: string) => {
+      if (url.includes('/current-assessment')) {
+        return Promise.reject(new Error(NO_CURRENT_ASSESSMENT_MESSAGE));
+      }
       if (url.includes('/geometry')) {
         return Promise.resolve({
           ok: true,
@@ -218,6 +227,9 @@ describe('LuWorkspace', () => {
       centroid: { lat: 60.67, lng: 17.14 },
     });
     callApi.mockImplementation((url: string) => {
+      if (url.includes('/current-assessment')) {
+        return Promise.reject(new Error(NO_CURRENT_ASSESSMENT_MESSAGE));
+      }
       if (url.includes('/geometry')) {
         return Promise.resolve({
           ok: true,
@@ -301,5 +313,150 @@ describe('LuWorkspace', () => {
 
     clickSpy.mockRestore();
     vi.unstubAllGlobals();
+  });
+
+  it('LU-ASSESSMENT-PERSISTENCE-READ-V1B: restores a persisted assessment on mount without calling runAssessment(), with identical findings and export available', async () => {
+    const user = userEvent.setup();
+    fetchPropertyInfo.mockResolvedValue({
+      id: 'p1', designation: 'GÄVLE BRYNÄS 1:1', municipality: 'Gävle',
+      geometry: { type: 'Point', coordinates: [17.14, 60.67] }, centroid: { lat: 60.67, lng: 17.14 },
+    });
+    callApi.mockImplementation((url: string) => {
+      if (url.includes('/current-assessment')) {
+        return Promise.resolve({
+          ok: true,
+          assessmentArtifactId: 'assess-restored-abc',
+          findings: [
+            { finding_id: 'LU-WATER-001', rule_id: 'LU-WATER-001', rule_version: '1.0', risk_level: 'MEDIUM', explanation: 'Närhet till vatten kräver analys' },
+          ],
+          systemSummary: 'restored summary',
+        });
+      }
+      if (url.includes('/geometry')) {
+        return Promise.resolve({
+          ok: true,
+          geometry: { artifact_id: 'loc-geom-1', provenance: 'user_defined', wgs84LngLat: [17.14, 60.67], provisioningStatus: 'COMPLETED' },
+        });
+      }
+      throw new Error(`unexpected callApi call in this test: ${url}`);
+    });
+
+    render(<LuWorkspace />);
+    await user.type(screen.getByTestId('lu-designation'), 'GÄVLE BRYNÄS 1:1');
+    await user.click(screen.getByTestId('lu-lookup'));
+    expect(await screen.findByTestId('lu-site-ready')).toBeInTheDocument();
+
+    // Proof 1+2: the persisted assessment appears WITHOUT clicking "Kör bedömning" at all.
+    expect(await screen.findByTestId('lu-results')).toBeInTheDocument();
+    expect(callApi).toHaveBeenCalledWith(
+      '/api/localization/proj-1/current-assessment',
+      expect.objectContaining({ method: 'GET' }),
+    );
+    expect(callApi).not.toHaveBeenCalledWith('/api/localization/generate-report', expect.anything());
+
+    // Proof 4: restored findings are identical to what the server persisted.
+    expect(screen.getByTestId('lu-assessment-id')).toHaveTextContent('assess-restored-abc');
+    expect(screen.getByTestId('lu-finding-LU-WATER-001')).toHaveTextContent('Vatten');
+    expect(screen.getByTestId('lu-finding-LU-WATER-001')).toHaveTextContent('Närhet till vatten kräver analys');
+
+    // Proof 5: export remains available for the restored assessment.
+    expect(screen.getByTestId('lu-export-pdf')).toBeInTheDocument();
+    expect(screen.getByTestId('lu-export-pdf')).not.toBeDisabled();
+  });
+
+  it('LU-ASSESSMENT-PERSISTENCE-READ-V1B, proof 6: no persisted assessment yet -> honest empty state, not an error', async () => {
+    const user = userEvent.setup();
+    fetchPropertyInfo.mockResolvedValue({
+      id: 'p1', designation: 'GÄVLE BRYNÄS 1:1', municipality: 'Gävle',
+      geometry: { type: 'Point', coordinates: [17.14, 60.67] }, centroid: { lat: 60.67, lng: 17.14 },
+    });
+    callApi.mockImplementation((url: string) => {
+      if (url.includes('/current-assessment')) {
+        return Promise.reject(new Error(NO_CURRENT_ASSESSMENT_MESSAGE));
+      }
+      if (url.includes('/geometry')) {
+        return Promise.resolve({
+          ok: true,
+          geometry: { artifact_id: 'loc-geom-1', provenance: 'user_defined', wgs84LngLat: [17.14, 60.67], provisioningStatus: 'COMPLETED' },
+        });
+      }
+      throw new Error(`unexpected callApi call in this test: ${url}`);
+    });
+
+    render(<LuWorkspace />);
+    await user.type(screen.getByTestId('lu-designation'), 'GÄVLE BRYNÄS 1:1');
+    await user.click(screen.getByTestId('lu-lookup'));
+    expect(await screen.findByTestId('lu-site-ready')).toBeInTheDocument();
+
+    expect(await screen.findByTestId('lu-persisted-assessment-not-found')).toBeInTheDocument();
+    expect(screen.queryByTestId('lu-persisted-assessment-error')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('lu-results')).not.toBeInTheDocument();
+  });
+
+  it('LU-ASSESSMENT-PERSISTENCE-READ-V1B, proofs 7+8: a different current-geometry/binding state never shows the previous assessment, and a genuine error never leaves stale state visible', async () => {
+    // The mocked CesiumMapView has no real location-picking capability, so "the user moves to a
+    // different localization point" is exercised the way it actually manifests to LuWorkspace: a
+    // fresh load (mount) observing a different current-geometry/current-assessment server state --
+    // exactly what happens on reopen/refresh for a project whose current point has changed since
+    // last viewed. This is proof 8's real mechanism (server-scoped "current"), not a UI gesture.
+    const user1 = userEvent.setup();
+    fetchPropertyInfo.mockResolvedValue({
+      id: 'p1', designation: 'GÄVLE BRYNÄS 1:1', municipality: 'Gävle',
+      geometry: { type: 'Point', coordinates: [17.14, 60.67] }, centroid: { lat: 60.67, lng: 17.14 },
+    });
+    callApi.mockImplementation((url: string) => {
+      if (url.includes('/current-assessment')) {
+        return Promise.resolve({
+          ok: true,
+          assessmentArtifactId: 'assess-for-point-A',
+          findings: [{ finding_id: 'LU-WATER-001', rule_id: 'LU-WATER-001', rule_version: '1.0', risk_level: 'MEDIUM', explanation: 'A' }],
+          systemSummary: 'point A summary',
+        });
+      }
+      if (url.includes('/geometry')) {
+        return Promise.resolve({
+          ok: true,
+          geometry: { artifact_id: 'loc-geom-A', provenance: 'user_defined', wgs84LngLat: [17.14, 60.67], provisioningStatus: 'COMPLETED' },
+        });
+      }
+      throw new Error(`unexpected callApi call in this test: ${url}`);
+    });
+
+    const first = render(<LuWorkspace />);
+    await user1.type(screen.getByTestId('lu-designation'), 'GÄVLE BRYNÄS 1:1');
+    await user1.click(screen.getByTestId('lu-lookup'));
+    expect(await screen.findByTestId('lu-results')).toBeInTheDocument();
+    expect(screen.getByTestId('lu-assessment-id')).toHaveTextContent('assess-for-point-A');
+    first.unmount();
+
+    // Now the project's current point/binding has moved on (point B) and its current-assessment
+    // lookup fails verification -- a realistic "current state changed since last viewed" case.
+    callApi.mockReset();
+    callApi.mockImplementation((url: string) => {
+      if (url.includes('/current-assessment')) {
+        return Promise.reject(new Error('Governed LU assessment failed tamper verification.'));
+      }
+      if (url.includes('/geometry')) {
+        return Promise.resolve({
+          ok: true,
+          geometry: { artifact_id: 'loc-geom-B', provenance: 'user_defined', wgs84LngLat: [17.20, 60.70], provisioningStatus: 'COMPLETED' },
+        });
+      }
+      throw new Error(`unexpected callApi call in this test: ${url}`);
+    });
+
+    const user2 = userEvent.setup();
+    render(<LuWorkspace />);
+    await user2.type(screen.getByTestId('lu-designation'), 'GÄVLE BRYNÄS 1:1');
+    await user2.click(screen.getByTestId('lu-lookup'));
+    expect(await screen.findByTestId('lu-site-ready')).toBeInTheDocument();
+
+    // Proof 7+8: point A's assessment never appears in this fresh instance -- there is no stale
+    // carryover, and the genuine error surfaces honestly instead of falling back to anything.
+    expect(screen.queryByTestId('lu-results')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('lu-assessment-id')).not.toBeInTheDocument();
+    expect(await screen.findByTestId('lu-persisted-assessment-error')).toHaveTextContent(
+      'Governed LU assessment failed tamper verification.',
+    );
   });
 });

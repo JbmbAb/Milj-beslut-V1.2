@@ -98,6 +98,9 @@ export const LuWorkspace: React.FC<{ initialDesignation?: string }> = ({ initial
   const [report, setReport] = useState<LocalizationReport | null>(null);
   const [exportingPdf, setExportingPdf] = useState(false);
   const [exportPdfError, setExportPdfError] = useState('');
+  const [persistedAssessmentLoading, setPersistedAssessmentLoading] = useState(false);
+  const [persistedAssessmentError, setPersistedAssessmentError] = useState('');
+  const [persistedAssessmentNotFound, setPersistedAssessmentNotFound] = useState(false);
   // PRODUCT-LU-CONTEXT-AND-EVIDENCE-BINDING-V1: the active product path defaults to live,
   // governed evidence. 'fixture' remains available as an explicit user toggle inside
   // CesiumMapView (dev/comparison use), but must never be this workspace's silent default.
@@ -190,6 +193,70 @@ export const LuWorkspace: React.FC<{ initialDesignation?: string }> = ({ initial
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [site?.id]);
 
+  // LU-ASSESSMENT-PERSISTENCE-READ-V1B: read-only -- never runs the kernel, never mints a new
+  // assessment. Server-side resolveCurrentLuAssessmentSummary already scopes "current" to the
+  // current ProjectContextBinding AND current localization geometry, so a stale assessment for a
+  // since-superseded point can never be returned here. This is the exact string
+  // resolveCurrentLuAssessmentSummary uses for "no current assessment" (all 3 of its 404 branches
+  // share it) -- distinguishing that expected, common case from a genuine server error.
+  const NO_CURRENT_ASSESSMENT_MESSAGE = 'No current governed LU assessment is available for this project.';
+
+  const loadCurrentAssessment = async () => {
+    const projectId = getActiveProjectId();
+    if (!projectId || !site) return;
+    // Clear any previously-rendered report FIRST, synchronously before the fetch -- otherwise a
+    // prior localization's/geometry's assessment could remain visible while this request is still
+    // in flight or resolves to "not found" for the new one.
+    setReport(null);
+    setPersistedAssessmentError('');
+    setPersistedAssessmentNotFound(false);
+    setPersistedAssessmentLoading(true);
+    try {
+      const result = await callApi<{
+        ok: true;
+        assessmentArtifactId: string;
+        findings: LuFindingView[];
+        systemSummary: string;
+      }>(`/api/localization/${encodeURIComponent(projectId)}/current-assessment`, { method: 'GET' });
+      setReport({
+        ok: true,
+        projectId,
+        siteAnalyses: [
+          {
+            complianceAnalysis: {},
+            executionMotor: {
+              admitted: true,
+              assessment_status: 'ASSESSED',
+              assessment_artifact_id: result.assessmentArtifactId,
+              finding_ids: result.findings.map((f) => f.finding_id),
+              findings: result.findings,
+            },
+          },
+        ],
+      });
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Kunde inte hämta sparad bedömning.';
+      if (message === NO_CURRENT_ASSESSMENT_MESSAGE) {
+        setPersistedAssessmentNotFound(true);
+      } else {
+        setPersistedAssessmentError(message);
+      }
+    } finally {
+      setPersistedAssessmentLoading(false);
+    }
+  };
+
+  // Re-runs whenever the current localization geometry changes (including from none to a real
+  // point, or from one point to another after a move) -- this is what prevents assessment A from
+  // ever being shown as if it belonged to localization B: the effect re-fetches (and clears first)
+  // on exactly the same signal the server uses to decide "current".
+  useEffect(() => {
+    if (site) {
+      void loadCurrentAssessment();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [site?.id, localizationGeometry?.artifact_id, localizationGeometry?.provisioningStatus]);
+
   // PRODUCT-LU-EXECUTION-IDENTITY-V3-PROVISIONING-01: while the just-saved point's V3 identity is
   // being minted by the separate worker (PENDING/LEASED), re-poll the same GET the user would get
   // from a manual refresh, until it settles at COMPLETED or FAILED. The user never needs to know
@@ -277,6 +344,8 @@ export const LuWorkspace: React.FC<{ initialDesignation?: string }> = ({ initial
     }
     setRunning(true);
     setReport(null);
+    setPersistedAssessmentNotFound(false);
+    setPersistedAssessmentError('');
     try {
       const result = await callApi<LocalizationReport>('/api/localization/generate-report', {
         method: 'POST',
@@ -580,6 +649,22 @@ export const LuWorkspace: React.FC<{ initialDesignation?: string }> = ({ initial
             />
           ) : null}
         </section>
+      ) : null}
+
+      {persistedAssessmentLoading ? (
+        <p data-testid="lu-persisted-assessment-loading" className="text-sm opacity-70 mb-4">
+          Hämtar sparad bedömning…
+        </p>
+      ) : null}
+      {persistedAssessmentError ? (
+        <p data-testid="lu-persisted-assessment-error" className="text-sm mb-4" style={{ color: '#F87171' }}>
+          {persistedAssessmentError}
+        </p>
+      ) : null}
+      {!persistedAssessmentLoading && persistedAssessmentNotFound && !report ? (
+        <p data-testid="lu-persisted-assessment-not-found" className="text-sm opacity-70 mb-4">
+          Ingen sparad bedömning finns ännu för denna lokalisering. Kör en bedömning för att skapa en.
+        </p>
       ) : null}
 
       {compliance ? (
