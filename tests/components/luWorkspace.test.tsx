@@ -160,6 +160,10 @@ describe('LuWorkspace', () => {
     // exists, and existing Unit 2/3 presentation (asserted above) is unaffected by its presence.
     expect(screen.getByTestId('lu-export-pdf')).toBeInTheDocument();
     expect(screen.getByTestId('lu-export-pdf')).not.toBeDisabled();
+    // LU-REEXECUTION-VERIFY-UI-V1, proof 9+10: verify action appears alongside export, neither
+    // unit's presentation is disturbed by the other's presence.
+    expect(screen.getByTestId('lu-verify-assessment')).toBeInTheDocument();
+    expect(screen.getByTestId('lu-verify-assessment')).not.toBeDisabled();
   });
 
   it('LU-UNKNOWN-MISSING-DISPLAY-V1, proof 4: NOT_ASSESSED renders an explicit not-assessed state, never a blank or green risk', async () => {
@@ -238,6 +242,9 @@ describe('LuWorkspace', () => {
       }
       if (url.includes('/export-assessment-pdf')) {
         return Promise.resolve(new Blob(['pdf-bytes'], { type: 'application/pdf' }));
+      }
+      if (url.includes('/verify-assessment')) {
+        return Promise.resolve({ ok: true, outcome: 'PASS', assessmentArtifactId: 'assess-export-abc', mismatches: [] });
       }
       return Promise.resolve({
         ok: true,
@@ -458,5 +465,107 @@ describe('LuWorkspace', () => {
     expect(await screen.findByTestId('lu-persisted-assessment-error')).toHaveTextContent(
       'Governed LU assessment failed tamper verification.',
     );
+  });
+
+  it('LU-REEXECUTION-VERIFY-UI-V1, proofs 1+2+11: clicking Verifiera calls the canonical endpoint and shows the identical-result message; assessment stays visible', async () => {
+    const user = userEvent.setup();
+    await renderWithAssessedResult(user);
+
+    await user.click(screen.getByTestId('lu-verify-assessment'));
+
+    expect(callApi).toHaveBeenCalledWith(
+      '/api/localization/proj-1/verify-assessment',
+      expect.objectContaining({ method: 'POST' }),
+    );
+    expect(await screen.findByTestId('lu-verify-result-pass')).toHaveTextContent(
+      'Bedömningen har verifierats genom deterministisk återexekvering. Resultatet är identiskt.',
+    );
+    // Proof 11: the assessment itself remains visible after verification.
+    expect(screen.getByTestId('lu-results')).toBeInTheDocument();
+    expect(screen.getByTestId('lu-assessment-id')).toHaveTextContent('assess-export-abc');
+  });
+
+  it('LU-REEXECUTION-VERIFY-UI-V1, proof 3: a mismatch/DENY result is shown as a failure, never as success', async () => {
+    const user = userEvent.setup();
+    await renderWithAssessedResult(user);
+    callApi.mockImplementationOnce(() =>
+      Promise.resolve({
+        ok: true,
+        outcome: 'DENY',
+        assessmentArtifactId: 'assess-export-abc',
+        mismatches: [{ code: 'FINDINGS_MISMATCH', detail: 're-executed findings do not match' }],
+      }),
+    );
+
+    await user.click(screen.getByTestId('lu-verify-assessment'));
+
+    expect(await screen.findByTestId('lu-verify-result-mismatch')).toHaveTextContent('FINDINGS_MISMATCH');
+    expect(screen.queryByTestId('lu-verify-result-pass')).not.toBeInTheDocument();
+  });
+
+  it('LU-REEXECUTION-VERIFY-UI-V1, proof 8: server/network failure during verification is visible, not silently swallowed', async () => {
+    const user = userEvent.setup();
+    await renderWithAssessedResult(user);
+    callApi.mockImplementationOnce(() => Promise.reject(new Error('Verifiering misslyckades på servern.')));
+
+    await user.click(screen.getByTestId('lu-verify-assessment'));
+    expect(await screen.findByTestId('lu-verify-error')).toHaveTextContent('Verifiering misslyckades på servern.');
+    expect(screen.queryByTestId('lu-verify-result-pass')).not.toBeInTheDocument();
+  });
+
+  it('LU-REEXECUTION-VERIFY-UI-V1, proof 7: duplicate clicks while verifying cannot fire a second request', async () => {
+    const user = userEvent.setup();
+    await renderWithAssessedResult(user);
+
+    let resolveVerify: (value: unknown) => void = () => {};
+    callApi.mockImplementationOnce(() => new Promise((resolve) => { resolveVerify = resolve; }));
+    const callsBeforeVerifyClicks = callApi.mock.calls.length;
+
+    const button = screen.getByTestId('lu-verify-assessment');
+    await user.click(button);
+    expect(button).toBeDisabled();
+    await user.click(button); // second click while still pending -- must not fire a second request
+    expect(callApi.mock.calls.length - callsBeforeVerifyClicks).toBe(1);
+
+    resolveVerify({ ok: true, outcome: 'PASS', assessmentArtifactId: 'assess-export-abc', mismatches: [] });
+    await waitFor(() => expect(screen.getByTestId('lu-verify-assessment')).not.toBeDisabled());
+  });
+
+  it('LU-REEXECUTION-VERIFY-UI-V1, proof 6: a restored (Unit 5B) persisted assessment can be verified without running a new assessment first', async () => {
+    const user = userEvent.setup();
+    fetchPropertyInfo.mockResolvedValue({
+      id: 'p1', designation: 'GÄVLE BRYNÄS 1:1', municipality: 'Gävle',
+      geometry: { type: 'Point', coordinates: [17.14, 60.67] }, centroid: { lat: 60.67, lng: 17.14 },
+    });
+    callApi.mockImplementation((url: string) => {
+      if (url.includes('/verify-assessment')) {
+        return Promise.resolve({ ok: true, outcome: 'PASS', assessmentArtifactId: 'assess-restored-verify', mismatches: [] });
+      }
+      if (url.includes('/current-assessment')) {
+        return Promise.resolve({
+          ok: true,
+          assessmentArtifactId: 'assess-restored-verify',
+          findings: [{ finding_id: 'LU-WATER-001', rule_id: 'LU-WATER-001', rule_version: '1.0', risk_level: 'MEDIUM', explanation: 'Restored finding' }],
+          systemSummary: 'restored summary',
+        });
+      }
+      if (url.includes('/geometry')) {
+        return Promise.resolve({
+          ok: true,
+          geometry: { artifact_id: 'loc-geom-1', provenance: 'user_defined', wgs84LngLat: [17.14, 60.67], provisioningStatus: 'COMPLETED' },
+        });
+      }
+      throw new Error(`unexpected callApi call in this test: ${url}`);
+    });
+
+    render(<LuWorkspace />);
+    await user.type(screen.getByTestId('lu-designation'), 'GÄVLE BRYNÄS 1:1');
+    await user.click(screen.getByTestId('lu-lookup'));
+    expect(await screen.findByTestId('lu-results')).toBeInTheDocument();
+    expect(callApi).not.toHaveBeenCalledWith('/api/localization/generate-report', expect.anything());
+
+    await user.click(screen.getByTestId('lu-verify-assessment'));
+    expect(await screen.findByTestId('lu-verify-result-pass')).toBeInTheDocument();
+    expect(callApi).not.toHaveBeenCalledWith('/api/localization/generate-report', expect.anything());
   });
 });

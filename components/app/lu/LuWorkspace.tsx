@@ -98,6 +98,9 @@ export const LuWorkspace: React.FC<{ initialDesignation?: string }> = ({ initial
   const [report, setReport] = useState<LocalizationReport | null>(null);
   const [exportingPdf, setExportingPdf] = useState(false);
   const [exportPdfError, setExportPdfError] = useState('');
+  const [verifyingAssessment, setVerifyingAssessment] = useState(false);
+  const [verifyError, setVerifyError] = useState('');
+  const [verifyResult, setVerifyResult] = useState<{ outcome: 'PASS' | 'DENY'; mismatches: readonly { code: string; detail: string }[] } | null>(null);
   const [persistedAssessmentLoading, setPersistedAssessmentLoading] = useState(false);
   const [persistedAssessmentError, setPersistedAssessmentError] = useState('');
   const [persistedAssessmentNotFound, setPersistedAssessmentNotFound] = useState(false);
@@ -211,6 +214,8 @@ export const LuWorkspace: React.FC<{ initialDesignation?: string }> = ({ initial
     setPersistedAssessmentError('');
     setPersistedAssessmentNotFound(false);
     setPersistedAssessmentLoading(true);
+    setVerifyResult(null);
+    setVerifyError('');
     try {
       const result = await callApi<{
         ok: true;
@@ -346,6 +351,8 @@ export const LuWorkspace: React.FC<{ initialDesignation?: string }> = ({ initial
     setReport(null);
     setPersistedAssessmentNotFound(false);
     setPersistedAssessmentError('');
+    setVerifyResult(null);
+    setVerifyError('');
     try {
       const result = await callApi<LocalizationReport>('/api/localization/generate-report', {
         method: 'POST',
@@ -397,6 +404,35 @@ export const LuWorkspace: React.FC<{ initialDesignation?: string }> = ({ initial
       setExportPdfError(err instanceof Error ? err.message : 'Export misslyckades.');
     } finally {
       setExportingPdf(false);
+    }
+  };
+
+  // LU-REEXECUTION-VERIFY-UI-V1: H15's deterministic re-execution, already PROVEN, exposed as a
+  // normal-user action. Only projectId is sent -- the server resolves which assessment is current
+  // and re-executes it from its own frozen governed inputs; the client supplies nothing that could
+  // influence the comparison.
+  const verifyAssessment = async () => {
+    if (verifyingAssessment) return; // duplicate-click guard
+    const projectId = getActiveProjectId();
+    if (!projectId) {
+      setVerifyError('Inget aktivt projekt valt.');
+      return;
+    }
+    setVerifyError('');
+    setVerifyResult(null);
+    setVerifyingAssessment(true);
+    try {
+      const result = await callApi<{
+        ok: true;
+        outcome: 'PASS' | 'DENY';
+        assessmentArtifactId: string;
+        mismatches: readonly { code: string; detail: string }[];
+      }>(`/api/localization/${encodeURIComponent(projectId)}/verify-assessment`, { method: 'POST' });
+      setVerifyResult({ outcome: result.outcome, mismatches: result.mismatches });
+    } catch (err) {
+      setVerifyError(err instanceof Error ? err.message : 'Verifiering misslyckades.');
+    } finally {
+      setVerifyingAssessment(false);
     }
   };
 
@@ -675,23 +711,58 @@ export const LuWorkspace: React.FC<{ initialDesignation?: string }> = ({ initial
         >
           <div className="flex items-center justify-between gap-3">
             <h2 className="text-xl font-bold">Resultat</h2>
-            {motor?.assessment_artifact_id ? (
-              <button
-                type="button"
-                data-testid="lu-export-pdf"
-                disabled={exportingPdf}
-                onClick={() => void exportPdf()}
-                className="px-4 py-2 text-sm font-semibold border disabled:opacity-40"
-                style={{ borderColor: colors.coreTurquoise.hex, color: colors.flowLightCyan.hex }}
-              >
-                {exportingPdf ? 'Exporterar…' : 'Exportera rapport'}
-              </button>
-            ) : null}
+            <div className="flex gap-2">
+              {motor?.assessment_artifact_id ? (
+                <button
+                  type="button"
+                  data-testid="lu-verify-assessment"
+                  disabled={verifyingAssessment}
+                  onClick={() => void verifyAssessment()}
+                  className="px-4 py-2 text-sm font-semibold border disabled:opacity-40"
+                  style={{ borderColor: colors.coreTurquoise.hex, color: colors.flowLightCyan.hex }}
+                >
+                  {verifyingAssessment ? 'Verifierar…' : 'Verifiera bedömningen'}
+                </button>
+              ) : null}
+              {motor?.assessment_artifact_id ? (
+                <button
+                  type="button"
+                  data-testid="lu-export-pdf"
+                  disabled={exportingPdf}
+                  onClick={() => void exportPdf()}
+                  className="px-4 py-2 text-sm font-semibold border disabled:opacity-40"
+                  style={{ borderColor: colors.coreTurquoise.hex, color: colors.flowLightCyan.hex }}
+                >
+                  {exportingPdf ? 'Exporterar…' : 'Exportera rapport'}
+                </button>
+              ) : null}
+            </div>
           </div>
           {exportPdfError ? (
             <p data-testid="lu-export-pdf-error" className="text-sm" style={{ color: '#F87171' }}>
               {exportPdfError}
             </p>
+          ) : null}
+          {verifyError ? (
+            <p data-testid="lu-verify-error" className="text-sm" style={{ color: '#F87171' }}>
+              {verifyError}
+            </p>
+          ) : null}
+          {verifyResult ? (
+            verifyResult.outcome === 'PASS' ? (
+              <p data-testid="lu-verify-result-pass" className="text-sm" style={{ color: '#34D399' }}>
+                Bedömningen har verifierats genom deterministisk återexekvering. Resultatet är identiskt.
+              </p>
+            ) : (
+              <div data-testid="lu-verify-result-mismatch" className="text-sm" style={{ color: '#F87171' }}>
+                <p>Verifieringen upptäckte avvikelser mot det ursprungliga underlaget. Bedömningen kunde inte bekräftas som identisk.</p>
+                <ul className="list-disc pl-5 mt-1 opacity-80">
+                  {verifyResult.mismatches.map((m, i) => (
+                    <li key={`${m.code}-${i}`}>{m.code}: {m.detail}</li>
+                  ))}
+                </ul>
+              </div>
+            )
           ) : null}
           {motor ? (
             <div data-testid="lu-motor-meta" className="text-xs opacity-70 space-y-1">

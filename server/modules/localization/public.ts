@@ -9,6 +9,7 @@ export {
   resolveLuViewerPresentation,
   resolveCurrentLuAssessmentSummary,
   exportCurrentLuAssessmentPdf,
+  verifyCurrentLuAssessment,
 } from './localizationOrchestrator';
 export { generateLocalizationReportLegacy } from '../../services/localizationReportService';
 export type { SiteAlternative } from '../../services/localizationReportService';

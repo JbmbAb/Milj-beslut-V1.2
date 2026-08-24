@@ -19,7 +19,9 @@ import { sha256ContentHash } from '@miljobeslut/mps-compliance/src/canonical/sha
 import {
   localizationAssessmentCanonicalBody,
   validateLocalizationAssessmentContractVersion,
+  reExecuteLocalizationAssessment,
   type LocalizationAssessmentArtifact,
+  type LuReExecutionMismatch,
 } from '@miljobeslut/mps-lu';
 import { PrismaProjectContextBindingIndex } from '../../repositories/projectContextBindingRepository';
 import { getProjectContextBindingIssuerVerifier } from '../../security/projectContextBindingIssuerKey';
@@ -535,6 +537,54 @@ export async function exportCurrentLuAssessmentPdf(input: {
   const buffer = await buildJsonPdfBuffer(pdfData.title, `Projekt ${pdfData.projectId}`, pdfData);
   const safeId = pdfData.projectId.replace(/[^a-zA-Z0-9-_åäöÅÄÖ]+/g, '-').slice(0, 40) || 'projekt';
   return { ok: true, buffer, filename: `lokaliseringsbedomning-${safeId}.pdf` };
+}
+
+/**
+ * LU-REEXECUTION-VERIFY-UI-V1.
+ *
+ * The narrowest possible authenticated wrapper around H15's existing, already-PROVEN
+ * reExecuteLocalizationAssessment (packages/mps-lu/src/execution/LuDeterministicReExecution.ts) --
+ * no replay/re-execution logic is duplicated here. Recon confirmed no production/authenticated
+ * route exposed it before this unit (only scripts/ops/prove-lu-deterministic-reexecution-01.ts and
+ * its own unit tests called it).
+ *
+ * This function's ONLY job is identity resolution: authenticate, authorize the project, resolve
+ * WHICH assessment is current (reusing resolveCurrentLuAssessmentSummary exactly as
+ * exportCurrentLuAssessmentPdf does), then hand that one resolved assessment_id to H15 unchanged.
+ * reExecuteLocalizationAssessment's own signature (assessmentArtifactId + artifactRepository only)
+ * is itself the guarantee that no client-supplied findings, evidence, expected result, or
+ * coordinates can reach it -- there is no parameter through which a caller could supply them, here
+ * or in H15 itself. No PostGIS/current-runtime-state dependency is introduced: H15 resolves
+ * everything it needs from CAS-pinned artifacts only, exactly as it already did before this unit.
+ */
+export async function verifyCurrentLuAssessment(input: {
+  readonly authUser: AuthUser;
+  readonly projectId: string;
+  readonly artifactRepository?: ArtifactRepositoryPort;
+  readonly currentBindingProvider?: ProjectContextBindingProvider;
+  readonly assessmentProjectionIndex?: ProjectAssessmentProjectionIndex;
+  readonly localizationGeometryIndex?: LocalizationGeometryProjectionIndex;
+}): Promise<
+  | { ok: true; outcome: 'PASS' | 'DENY'; assessmentArtifactId: string; mismatches: readonly LuReExecutionMismatch[] }
+  | { ok: false; status: number; error: string }
+> {
+  const summary = await resolveCurrentLuAssessmentSummary(input);
+  if (summary.ok === false) {
+    return summary;
+  }
+
+  const artifactRepository = input.artifactRepository ?? (await MimersIntegration.create()).artifactRepository;
+  const result = await reExecuteLocalizationAssessment({
+    assessmentArtifactId: summary.assessmentArtifactId,
+    artifactRepository,
+  });
+
+  return {
+    ok: true,
+    outcome: result.outcome,
+    assessmentArtifactId: result.assessment_artifact_id,
+    mismatches: result.mismatches,
+  };
 }
 
 export async function fetchLocalizationAuditTrail(projectId: string) {

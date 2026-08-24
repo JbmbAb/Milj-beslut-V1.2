@@ -17,6 +17,7 @@ import {
   resolveLuViewerPresentation,
   resolveCurrentLuAssessmentSummary,
   exportCurrentLuAssessmentPdf,
+  verifyCurrentLuAssessment,
   generateLocalizationReportLegacy,
   listProjectsForProperty,
   createLocalizationProject,
@@ -417,6 +418,42 @@ router.get(
       res.setHeader('Content-Type', 'application/pdf');
       res.setHeader('Content-Disposition', `attachment; filename="${result.filename}"`);
       res.send(result.buffer);
+    } catch (error) {
+      if (handleOrchestratorError(error, res)) return;
+      next(error);
+    }
+  },
+);
+
+/**
+ * POST /api/localization/:projectId/verify-assessment
+ *
+ * LU-REEXECUTION-VERIFY-UI-V1. The narrowest authenticated wrapper around H15's existing,
+ * already-PROVEN reExecuteLocalizationAssessment -- resolves which assessment is current for this
+ * project (same identity resolution as current-assessment/export-assessment-pdf), then hands that
+ * one id to H15 unchanged. No body content is read as report authority: the client identifies only
+ * the project.
+ */
+router.post(
+  '/api/localization/:projectId/verify-assessment',
+  requireAuth,
+  rateLimitByUser(15, 60_000),
+  async (req, res, next) => {
+    try {
+      const result = await verifyCurrentLuAssessment({
+        authUser: req.authUser!,
+        projectId: String(req.params.projectId || ''),
+      });
+      if (result.ok === false) {
+        res.status(result.status).json({ ok: false, error: result.error });
+        return;
+      }
+      res.status(200).json({
+        ok: true,
+        outcome: result.outcome,
+        assessmentArtifactId: result.assessmentArtifactId,
+        mismatches: result.mismatches,
+      });
     } catch (error) {
       if (handleOrchestratorError(error, res)) return;
       next(error);
