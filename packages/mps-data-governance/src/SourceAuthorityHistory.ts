@@ -5,8 +5,9 @@ import type { VerificationKeyProvider } from '@miljobeslut/mimers-brunn-core';
 
 import {
   getSourceRegistryPathFromEnv,
-  getSourceRegistryVerificationKeyFromEnv,
+  getSourceRegistryVerificationKeyringFromEnv,
   verifySourceRegistryArtifact,
+  type SourceRegistryVerificationAuthority,
   type SourceRegistryArtifact,
 } from './SourceRegistry';
 
@@ -78,7 +79,10 @@ export interface SourceAuthorityHistoryOptions {
   readonly registryPath?: string;
   /** Explicit allowlist. Defaults to APPROVED_HISTORICAL_STORES. */
   readonly historicalStorePaths?: readonly string[];
+  /** Compatibility port for callers that supply one verifier explicitly. */
   readonly signing?: VerificationKeyProvider;
+  /** V1 multi-key verification authority for active and historical entries. */
+  readonly verificationAuthority?: SourceRegistryVerificationAuthority;
 }
 
 /**
@@ -90,7 +94,13 @@ export interface SourceAuthorityHistoryOptions {
 export async function loadSourceAuthorityHistory(
   options: SourceAuthorityHistoryOptions = {},
 ): Promise<{ findByArtifactId(artifactId: string): VerifiedSourceAuthority | null }> {
-  const signing = options.signing ?? getSourceRegistryVerificationKeyFromEnv();
+  if (options.signing && options.verificationAuthority) {
+    throw new SourceAuthorityHistoryError(
+      'REJECT_AMBIGUOUS_VERIFICATION_AUTHORITY: pass signing or verificationAuthority, never both.',
+      'REJECT_AMBIGUOUS_VERIFICATION_AUTHORITY',
+    );
+  }
+  const verificationAuthority = options.verificationAuthority ?? options.signing ?? getSourceRegistryVerificationKeyringFromEnv();
   const registryPath = options.registryPath ?? getSourceRegistryPathFromEnv();
   const byArtifactId = new Map<string, VerifiedSourceAuthority>();
 
@@ -102,7 +112,7 @@ export async function loadSourceAuthorityHistory(
     // Verification is what enforces contract items 3, 4 and 6 at once: it re-derives the
     // content hash from the entry and binds it to the attestation, so a wrapper that edited
     // the payload — or an entry with no attestation at all — cannot pass.
-    const verified = await verifySourceRegistryArtifact(entry, signing);
+    const verified = await verifySourceRegistryArtifact(entry, verificationAuthority);
 
     const existing = byArtifactId.get(verified.registryArtifactId);
     if (existing) {

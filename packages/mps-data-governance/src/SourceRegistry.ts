@@ -97,6 +97,51 @@ export interface VerifiedSourceRegistry {
   isUrlAllowedForSource(sourceId: string, url: string): boolean;
 }
 
+/**
+ * SOURCE-REGISTRY-MULTI-KEY-VERIFICATION-V1.
+ *
+ * Verification keys are an explicit trust set, not a fallback sequence. An entry selects its
+ * verifier by its attested signer id; an unknown signer is rejected before signature checking.
+ * This lets historical entries remain verifiable during a governor-key successor transition
+ * without allowing a newly configured key to silently validate an older entry.
+ */
+export class SourceRegistryVerificationKeyring {
+  private readonly byKeyId: ReadonlyMap<string, VerificationKeyProvider>;
+
+  constructor(keys: readonly VerificationKeyProvider[]) {
+    if (keys.length === 0) {
+      throw new Error('Source Registry verification keyring must contain at least one public key.');
+    }
+    const byKeyId = new Map<string, VerificationKeyProvider>();
+    for (const key of keys) {
+      if (!key?.keyId) throw new Error('Source Registry verification keyring contains a key without keyId.');
+      if (byKeyId.has(key.keyId)) {
+        throw new Error(`Source Registry verification keyring contains duplicate key id '${key.keyId}'.`);
+      }
+      byKeyId.set(key.keyId, key);
+    }
+    this.byKeyId = byKeyId;
+  }
+
+  resolve(keyId: string): VerificationKeyProvider | null {
+    return this.byKeyId.get(keyId) ?? null;
+  }
+}
+
+export type SourceRegistryVerificationAuthority =
+  | VerificationKeyProvider
+  | SourceRegistryVerificationKeyring;
+
+function resolveVerificationKey(
+  artifact: SourceRegistryArtifact,
+  authority: SourceRegistryVerificationAuthority,
+): VerificationKeyProvider | null {
+  if (authority instanceof SourceRegistryVerificationKeyring) {
+    return authority.resolve(artifact.approval_attestation?.signer ?? '');
+  }
+  return authority;
+}
+
 export function calculateSourceRegistryContentHash(artifact: Omit<SourceRegistryArtifact, 'approval_attestation'>): string {
   const content = {
     source_id: artifact.source_id,
@@ -128,7 +173,7 @@ export function sourceRegistryArtifactForHash(
  */
 export async function verifySourceRegistryArtifact(
   artifact: SourceRegistryArtifact,
-  signing: VerificationKeyProvider,
+  authority: SourceRegistryVerificationAuthority,
 ): Promise<VerifiedSourceDefinition> {
   assertSourceRegistryShape(artifact);
 
@@ -141,6 +186,14 @@ export async function verifySourceRegistryArtifact(
   const sourceContentHash = calculateSourceRegistryContentHash(sourceRegistryArtifactForHash(artifact));
   const attestation = artifact.approval_attestation;
   const predicate = attestation.predicate as Partial<SourceApprovalAttestationPredicate>;
+  const signing = resolveVerificationKey(artifact, authority);
+
+  if (!signing) {
+    throw new Error(
+      `SourceRegistryArtifact '${artifact.source_id}' is signed by unknown or untrusted key ` +
+        `'${attestation.signer}'.`,
+    );
+  }
 
   const checks = [
     ['signature_valid', await verifyArtifactAttestation(attestation, signing)],
@@ -196,17 +249,23 @@ export async function verifySourceRegistryArtifact(
  */
 export async function loadVerifiedSourceRegistry(args: {
   readonly registryPath?: string;
+  /** Multi-key V1 trust path. Every entry selects exactly one key by attestation signer. */
+  readonly verificationKeyring?: SourceRegistryVerificationKeyring;
+  /** Compatibility port for existing single-key callers. */
   readonly signing?: VerificationKeyProvider;
 } = {}): Promise<VerifiedSourceRegistry> {
   const registryPath = args.registryPath ?? getSourceRegistryPathFromEnv();
-  const signing = args.signing ?? getSourceRegistryVerificationKeyFromEnv();
+  if (args.verificationKeyring && args.signing) {
+    throw new Error('Source Registry load accepts either verificationKeyring or signing, never both.');
+  }
+  const authority = args.verificationKeyring ?? args.signing ?? getSourceRegistryVerificationKeyringFromEnv();
   const raw = JSON.parse(readFileSync(registryPath, 'utf8')) as SourceRegistryArtifact[];
 
   if (!Array.isArray(raw)) {
     throw new Error(`Source Registry at '${registryPath}' must be a JSON array.`);
   }
 
-  const sources = await Promise.all(raw.map((entry) => verifySourceRegistryArtifact(entry, signing)));
+  const sources = await Promise.all(raw.map((entry) => verifySourceRegistryArtifact(entry, authority)));
   assertNoDuplicateSourceIds(sources, registryPath);
 
   return {
@@ -275,6 +334,47 @@ export function getSourceRegistryVerificationKeyFromEnv(): VerificationKeyProvid
   }
 
   return new LocalPemVerificationKeyProvider(keyId, publicKeyPem);
+}
+
+interface SourceRegistryTrustedPublicKeyEnvironment {
+  readonly key_id: string;
+  readonly public_key_pem: string;
+}
+
+/**
+ * Returns the V1 keyring from explicit public-key-only configuration.
+ *
+ * `SOURCE_REGISTRY_TRUSTED_PUBLIC_KEYS_JSON` is a JSON array of
+ * `{ key_id, public_key_pem }`. When absent, the established single-key environment remains a
+ * singleton trust set so existing deployments retain their exact verification semantics.
+ */
+export function getSourceRegistryVerificationKeyringFromEnv(): SourceRegistryVerificationKeyring {
+  const configured = process.env.SOURCE_REGISTRY_TRUSTED_PUBLIC_KEYS_JSON;
+  if (!configured) {
+    return new SourceRegistryVerificationKeyring([getSourceRegistryVerificationKeyFromEnv()]);
+  }
+
+  let entries: unknown;
+  try {
+    entries = JSON.parse(configured);
+  } catch {
+    throw new Error('SOURCE_REGISTRY_TRUSTED_PUBLIC_KEYS_JSON must be valid JSON.');
+  }
+  if (!Array.isArray(entries) || entries.length === 0) {
+    throw new Error('SOURCE_REGISTRY_TRUSTED_PUBLIC_KEYS_JSON must be a non-empty array.');
+  }
+
+  const keys = entries.map((entry, index) => {
+    const value = entry as Partial<SourceRegistryTrustedPublicKeyEnvironment>;
+    if (!value || typeof value.key_id !== 'string' || !value.key_id ||
+      typeof value.public_key_pem !== 'string' || !value.public_key_pem) {
+      throw new Error(
+        `SOURCE_REGISTRY_TRUSTED_PUBLIC_KEYS_JSON entry ${index} requires key_id and public_key_pem.`,
+      );
+    }
+    return new LocalPemVerificationKeyProvider(value.key_id, value.public_key_pem);
+  });
+  return new SourceRegistryVerificationKeyring(keys);
 }
 
 /**
