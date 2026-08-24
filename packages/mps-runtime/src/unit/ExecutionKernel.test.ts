@@ -4,6 +4,7 @@ import { FrozenAdmissionAdapter } from "../kernel/FrozenAdmissionAdapter.js";
 import { InMemoryArtifactRepository } from "../repository/InMemoryArtifactRepository.js";
 import { DefaultReplayEngine } from "../replay/DefaultReplayEngine.js";
 import type { FrozenExecutionManifestIdentity } from "../contracts/freeze/FrozenIdentities.js";
+import { validateFrozenExecutionOutcomeIdentity } from "../contracts/freeze/FrozenIdentities.js";
 import type { CapabilityExecutorPort } from "../kernel/ExecutionKernel.js";
 
 describe("ExecutionKernel", () => {
@@ -61,6 +62,12 @@ describe("ExecutionKernel", () => {
     expect(result.admission.decision).toBe("admitted");
     expect(result.attempt?.content_hash.value).not.toBe("mock-hash");
     expect(result.outcome?.result).toBe("success");
+    expect(result.outcome).toMatchObject({
+      capability_execution_ref: {
+        artifact_id: result.capability_executions[0]?.artifact_id,
+        artifact_type: "CAPABILITY_EXECUTION",
+      },
+    });
     expect(result.capability_executions).toHaveLength(1);
 
     const replay = await new DefaultReplayEngine(repo).replay(
@@ -76,6 +83,7 @@ describe("ExecutionKernel", () => {
         : { artifact_id: "missing", artifact_type: "execution_outcome" },
     );
     expect(outcome?.content_hash).toEqual(result.outcome?.content_hash);
+    expect(() => validateFrozenExecutionOutcomeIdentity(outcome!)).not.toThrow();
 
     const replay2 = await new DefaultReplayEngine(repo).replay(
       { artifact_id: manifest.manifest_id, artifact_type: "execution_manifest" },

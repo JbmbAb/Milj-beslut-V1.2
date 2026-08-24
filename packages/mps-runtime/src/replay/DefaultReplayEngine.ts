@@ -1,5 +1,10 @@
 import type { ArtifactReference } from "../../../mps-compliance/src/artifacts/ArtifactReference.js";
-import type { FrozenExecutionAttemptIdentity, FrozenReplayArtifact } from "../contracts/freeze/FrozenIdentities.js";
+import {
+  validateFrozenExecutionOutcomeIdentity,
+  type FrozenExecutionAttemptIdentity,
+  type FrozenExecutionOutcomeIdentity,
+  type FrozenReplayArtifact,
+} from "../contracts/freeze/FrozenIdentities.js";
 import { createEmptyRuntimeState, type RuntimeState } from "../kernel/RuntimeState.js";
 import type { ReplayEnginePort, ArtifactRepositoryPort } from "../kernel/ExecutionKernel.js";
 import { sha256ContentHash } from "../kernel/ExecutionKernel.js";
@@ -23,14 +28,16 @@ export class DefaultReplayEngine implements ReplayEnginePort {
       attempt_hash: attempt.content_hash.value,
     });
 
+    const persistedOutcome = state.execution_graph.nodes.find((node) => node.kind === "outcome")?.ref;
+    const replayed_outcome_ref = persistedOutcome ?? {
+      artifact_id: `outcome-${attempt.attempt_id}`,
+      artifact_type: "execution_outcome" as const,
+    };
     const replay: FrozenReplayArtifact = {
       artifact_id: `replay-${manifest_ref.artifact_id}-${attempt.attempt_id}`,
       artifact_type: "REPLAY",
       manifest_ref,
-      replayed_outcome_ref: {
-        artifact_id: `outcome-${attempt.attempt_id}`,
-        artifact_type: "execution_outcome",
-      },
+      replayed_outcome_ref,
       equivalence_proof,
       content_hash: sha256ContentHash({
         manifest_ref: manifest_ref.artifact_id,
@@ -63,7 +70,7 @@ export class DefaultReplayEngine implements ReplayEnginePort {
    * other. This does, before ever computing an equivalence_proof.
    *
    * No PostGIS, no network, no "current" release/geometry/binding resolver, no process.env, no
-   * clock -- only two content-addressed CAS resolves, exactly like `replay()` itself.
+   * clock -- only content-addressed CAS resolves.
    */
   async replayFromManifestId(manifestId: string): Promise<FrozenReplayArtifact> {
     const manifest_ref: ArtifactReference = { artifact_id: manifestId, artifact_type: "execution_manifest" };
@@ -76,7 +83,30 @@ export class DefaultReplayEngine implements ReplayEnginePort {
       );
     }
 
-    const state: RuntimeState = { ...createEmptyRuntimeState(), attempt };
+    const legacyOutcomeRef: ArtifactReference = {
+      artifact_id: `outcome-${attempt.attempt_id}`,
+      artifact_type: "execution_outcome",
+    };
+    const v2OutcomeRef: ArtifactReference = {
+      artifact_id: `outcome-v2-${attempt.attempt_id}`,
+      artifact_type: "execution_outcome",
+    };
+    let outcomeRef = legacyOutcomeRef;
+    let v2Outcome: FrozenExecutionOutcomeIdentity | null = null;
+    try {
+      v2Outcome = await this.repository.resolve<FrozenExecutionOutcomeIdentity>(v2OutcomeRef);
+    } catch {
+      // No V2 locator means this is a historical V1 execution.
+    }
+    if (v2Outcome) {
+      validateFrozenExecutionOutcomeIdentity(v2Outcome);
+      outcomeRef = v2OutcomeRef;
+    }
+    const state: RuntimeState = {
+      ...createEmptyRuntimeState(),
+      attempt,
+      execution_graph: { nodes: [{ node_id: "outcome-0", kind: "outcome", ref: outcomeRef }], edges: [] },
+    };
     return this.replay(manifest_ref, state);
   }
 }
