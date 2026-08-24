@@ -88,6 +88,7 @@
     "@miljobeslut/mps-control-plane": "file:packages/mps-control-plane",
     "@miljobeslut/mps-core": "file:packages/mps-core",
     "@miljobeslut/mps-evolution": "file:packages/mps-evolution",
+    "@miljobeslut/mps-embedding-identity": "file:packages/mps-embedding-identity",
     "@miljobeslut/mps-lu": "file:packages/mps-lu",
     "@miljobeslut/mps-policy": "file:packages/mps-policy",
     "@miljobeslut/mps-registry": "file:packages/mps-registry",
