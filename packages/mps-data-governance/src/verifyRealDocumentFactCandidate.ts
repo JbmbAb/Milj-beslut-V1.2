@@ -87,6 +87,50 @@ export function computeVerifiedDocumentFactIdentity(input: DocumentFactReviewInp
 }
 
 /**
+ * Recomputes the content_hash a real VERIFIED artifact SHOULD have from its own carried fields
+ * (routed through `verifiedIdentityCore` so this can never silently drift from
+ * `verifyRealDocumentFactCandidate`'s own construction). Unlike `computeVerifiedDocumentFactIdentity`,
+ * this takes only the artifact itself -- no original candidate/review input required -- so a
+ * later consumer (e.g. DOCUMENT-FACT-HUMAN-VERIFICATION-APPROVED-V1's self-consistency proof, or
+ * a future re-execution/replay path) can independently confirm the artifact is internally
+ * self-consistent from nothing but its own body: candidate_ref, fact_type, fact_version,
+ * source_document_ref, inventory_ref, source_span, subject_ref, assertion (asserted_by/
+ * assertion_method/asserter_version), and verification (verified_by/verification_method/
+ * verification_policy_version) all participate; `asserted_at`/`verified_at` do not
+ * (IMPORT-TIME-001).
+ */
+export function recomputeVerifiedDocumentFactContentHash(verified: VerifiedDocumentFactArtifact): string {
+  const core = {
+    artifact_type: "VERIFIED_DOCUMENT_FACT",
+    contract_version: VERIFIED_DOCUMENT_FACT_CONTRACT_VERSION,
+    verification_status: "VERIFIED",
+    candidate_ref: verified.candidate_ref,
+    fact_type: verified.fact_type,
+    fact_version: verified.fact_version,
+    source_document_ref: verified.source_document_ref,
+    inventory_ref: verified.inventory_ref,
+    source_span: verified.source_span,
+    ...(verified.subject_ref !== undefined ? { subject_ref: verified.subject_ref } : {}),
+    assertion: {
+      asserted_by: verified.assertion.asserted_by,
+      assertion_method: verified.assertion.assertion_method,
+      asserter_version: verified.assertion.asserter_version,
+    },
+    verification: {
+      verified_by: verified.verification.verified_by,
+      verification_method: verified.verification.verification_method,
+      verification_policy_version: verified.verification.verification_policy_version,
+    },
+  };
+  return sha256Hex({ artifact_id: verified.artifact_id, ...core });
+}
+
+/** True iff a VERIFIED artifact's stored content_hash still matches its own carried fields. */
+export function isVerifiedDocumentFactContentHashValid(verified: VerifiedDocumentFactArtifact): boolean {
+  return recomputeVerifiedDocumentFactContentHash(verified) === verified.content_hash.digest;
+}
+
+/**
  * Promotes a real `DocumentFactCandidateArtifact` to a real `VerifiedDocumentFactArtifact`
  * through the frozen governance gate, given an ALREADY-MADE human review decision (`verified_by`
  * must resolve to a real governance/human identity; this function performs no review of its own

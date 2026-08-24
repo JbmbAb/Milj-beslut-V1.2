@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
 import {
   computeVerifiedDocumentFactIdentity,
+  isVerifiedDocumentFactContentHashValid,
   verifyRealDocumentFactCandidate,
   type DocumentFactReviewInput,
   type DocumentFactReviewSigner,
@@ -174,5 +175,60 @@ describe("DOCUMENT-FACT-HUMAN-VERIFICATION-V1: verifyRealDocumentFactCandidate",
     expect(verified.signature.key_id).not.toBe(candidate.signature.key_id);
     expect(verified.signature.key_id).toBe("ed25519:test-reviewer");
     expect(candidate.signature.key_id).toBe("ed25519:test-extractor");
+  });
+
+  describe("DOCUMENT-FACT-HUMAN-VERIFICATION-APPROVED-V1: self-consistency + approval binding", () => {
+    it("self-consistency: the VERIFIED artifact's content_hash is independently recomputable from its own carried fields alone", async () => {
+      const candidate = await realCandidate();
+      const verified = await verifyRealDocumentFactCandidate(reviewInput(candidate), realReviewerSigner);
+      expect(isVerifiedDocumentFactContentHashValid(verified)).toBe(true);
+    });
+
+    it("RED-7: a VERIFIED artifact body altered after signing fails independent self-consistency verification", async () => {
+      const candidate = await realCandidate();
+      const verified = await verifyRealDocumentFactCandidate(reviewInput(candidate), realReviewerSigner);
+      const tamperedBody = { ...verified, fact_version: "9.9" };
+      expect(isVerifiedDocumentFactContentHashValid(tamperedBody)).toBe(false);
+    });
+
+    it("RED-8: a VERIFIED artifact whose reviewer identity/ref was changed after signing fails independent self-consistency verification", async () => {
+      const candidate = await realCandidate();
+      const verified = await verifyRealDocumentFactCandidate(reviewInput(candidate), realReviewerSigner);
+      const tamperedReviewer = {
+        ...verified,
+        verification: { ...verified.verification, verified_by: { identity_ref: ref("someone-else"), role: "GOVERNANCE_REVIEWER" as const } },
+      };
+      expect(isVerifiedDocumentFactContentHashValid(tamperedReviewer)).toBe(false);
+    });
+
+    it("approval binds the EXACT candidate: two candidates for the same fact_type/document but different spans get independent, non-transferable verified identities", async () => {
+      const approvedCandidate = await realCandidate();
+      const rejectedShapeCandidate = await createDocumentFactCandidate(
+        {
+          fact_type: "PRIOR_LOCATION_RESTRICTING_DECISION",
+          fact_version: "1.0",
+          source_document_ref: ref("mmod-doc-1"),
+          inventory_ref: ref("mmod-doc-1"),
+          // A different span on the SAME document/fact_type -- e.g. the historically rejected one's shape.
+          source_span: { text_projection_ref: ref("proj-1"), start_offset: 0, end_offset: 112 },
+          asserted_by: { identity_ref: ref("extractor-identity"), role: "SYSTEM_PROCESS" },
+          assertion_method: "DETERMINISTIC_EXTRACTION",
+          asserter_version: "document-fact-deterministic-span-extractor/v1",
+          asserted_at: "2026-08-24T10:00:00.000Z",
+        },
+        extractorSigner,
+      );
+
+      expect(approvedCandidate.artifact_id).not.toBe(rejectedShapeCandidate.artifact_id);
+
+      const verified = await verifyRealDocumentFactCandidate(reviewInput(approvedCandidate), realReviewerSigner);
+
+      // The verified artifact's candidate_ref binds ONLY the approved candidate -- same
+      // fact_type, same source document, different span never counts as "the same fact".
+      expect(verified.candidate_ref.id).toBe(approvedCandidate.artifact_id);
+      expect(verified.candidate_ref.id).not.toBe(rejectedShapeCandidate.artifact_id);
+      expect(verified.source_span).toEqual(approvedCandidate.source_span);
+      expect(verified.source_span).not.toEqual(rejectedShapeCandidate.source_span);
+    });
   });
 });
