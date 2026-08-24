@@ -1,6 +1,9 @@
 import type { ArtifactReference } from "@miljobeslut/mps-compliance/src/artifacts/ArtifactContract";
 import type { ArtifactRepositoryPort } from "../../../mps-runtime/src/kernel/ExecutionKernel.js";
-import type { FrozenExecutionOutcomeIdentity } from "../../../mps-runtime/src/contracts/freeze/FrozenIdentities.js";
+import {
+  validateFrozenExecutionOutcomeIdentity,
+  type FrozenExecutionOutcomeIdentity,
+} from "../../../mps-runtime/src/contracts/freeze/FrozenIdentities.js";
 import { DefaultReplayEngine } from "../../../mps-runtime/src/replay/DefaultReplayEngine.js";
 import type { SpatialEvidenceArtifact } from "../artifacts/SpatialEvidenceArtifact.js";
 import { buildSpatialEvidenceContentHash } from "../artifacts/SpatialEvidenceIdentity.js";
@@ -47,18 +50,8 @@ import {
  * is a real, named gap in the replay plan -- surfaced here rather than inventing an undocumented
  * hash formula to paper over it.
  *
- * KNOWN, DELIBERATE SCOPE GAP (do not silently paper over): there is no independent, outcome-
- * level self-consistency check analogous to the assessment-level one above. `FrozenExecutionOutcomeIdentity`'s
- * hash-input formula includes `capability_execution_id`, but that field is never persisted on the
- * stored outcome artifact body itself (only used transiently to mint the identity at write time) --
- * so an outcome artifact's own bytes cannot be recomputed and compared against its own
- * `content_hash` the way the assessment's can. This module's protection against a swapped/forged
- * outcome therefore rests entirely on: (a) the assessment-level self-consistency check above, which
- * catches a tampered `execution_outcome_ref` pointer, and (b) the attempt/manifest chain check
- * below, which catches a self-inconsistent chain. A resolved outcome artifact that is byte-for-byte
- * exactly what CAS returned is trusted as-is; there is no formula available anywhere in this
- * codebase today to independently re-derive and verify its own hash. Reported here as a genuine,
- * structural replay-plan gap rather than invented data to close it.
+ * FrozenExecutionOutcome V2 carries every input required for its own content-hash recomputation.
+ * V1 remains historical-only because its old persisted shape omitted capability execution lineage.
  *
  * KNOWN, DELIBERATE SCOPE NOTE on finding order: `findings`/`rule_refs` are frozen as genuine
  * ORDERED_SEQUENCEs on the assessment artifact itself (H7) -- but that ordering reflects the RAW
@@ -94,7 +87,16 @@ export interface LuReExecutionResult {
 }
 
 function canonicalFindingsKey(findings: readonly AssessmentFinding[]): readonly AssessmentFinding[] {
-  return [...findings].sort((a, b) => (a.finding_id < b.finding_id ? -1 : a.finding_id > b.finding_id ? 1 : 0));
+  return [...findings]
+    .sort((a, b) => (a.finding_id < b.finding_id ? -1 : a.finding_id > b.finding_id ? 1 : 0))
+    .map((finding) => ({
+      finding_id: finding.finding_id,
+      rule_id: finding.rule_id,
+      rule_version: finding.rule_version,
+      risk_level: finding.risk_level,
+      evidence_refs: finding.evidence_refs,
+      explanation: finding.explanation,
+    }));
 }
 
 function canonicalRuleRefsKey(
@@ -237,6 +239,20 @@ export async function reExecuteLocalizationAssessment(args: {
   const outcome = await args.artifactRepository.resolve<FrozenExecutionOutcomeIdentity>(
     assessment.payload.execution_outcome_ref,
   );
+  try {
+    validateFrozenExecutionOutcomeIdentity(outcome);
+  } catch (error) {
+    return {
+      outcome: "DENY",
+      assessment_artifact_id: args.assessmentArtifactId,
+      mismatches: [{
+        code: "MANIFEST_ATTEMPT_MISMATCH",
+        detail: error instanceof Error ? error.message : String(error),
+      }],
+      fresh_findings: [],
+      fresh_rule_refs: [],
+    };
+  }
   const manifestIdFromAttemptRef = deriveManifestIdFromAttemptId(outcome.attempt_ref.artifact_id);
   const replayEngine = new DefaultReplayEngine(args.artifactRepository);
   try {

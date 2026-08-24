@@ -14,7 +14,7 @@ const FROZEN_SCHEMA_CANONICAL = JSON.stringify({
   types: [...FROZEN_ARTIFACT_TYPES],
   identities: [
     "ExecutionAttempt:attempt_id,manifest_ref,attempt_number,started_at,content_hash",
-    "ExecutionOutcome:outcome_id,attempt_ref,result,content_hash",
+    "ExecutionOutcome:V1(outcome_id,attempt_ref,result,content_hash)|V2(outcome_id,outcome_contract_version,attempt_ref,result,capability_execution_ref,content_hash)",
     "ExecutionManifest:manifest_id,execution_identity_ref,capability_resolution_ref,parameters,content_hash",
     "AdmissionResult:decision,reason_codes,manifest_ref,attempt_ref,verified_rule_ids",
     "CapabilityExecution:capability_ref,input_refs,output_refs,content_hash",

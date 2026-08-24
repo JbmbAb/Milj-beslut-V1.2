@@ -145,7 +145,7 @@ describe("F9 — replay from captured artifacts (GREEN PROOF)", () => {
     expect(
       replay.replayed_outcome_ref.artifact_id,
       "F9: the replayed outcome must be derived from the original attempt, not a fresh one.",
-    ).toBe(`outcome-${result.state.attempt!.attempt_id}`);
+    ).toBe(`outcome-v2-${result.state.attempt!.attempt_id}`);
     expect(replay.equivalence_proof).toBeDefined();
   });
 

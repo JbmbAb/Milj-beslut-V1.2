@@ -113,22 +113,60 @@ describe("LU-REPLAY-COLD-VERIFY-V1", () => {
     await expect(coldEngine.replayFromManifestId("lu-manifest-does-not-exist")).rejects.toThrow();
   });
 
-  it("cold verify resolves ONLY the manifest and the deterministically-derived attempt -- no live source is reachable", async () => {
+  it("cold verify denies a tampered V2 outcome instead of treating it as historical V1", async () => {
+    const repo = new InMemoryArtifactRepository();
+    const result = await runAssessment(repo, "cold-verify-outcome-tampered");
+    const attemptId = `attempt-${result.manifest_id}-1`;
+    const outcomeRef = {
+      artifact_id: `outcome-v2-${attemptId}`,
+      artifact_type: "execution_outcome" as const,
+    };
+    const original = await repo.resolve<{
+      content_hash: { algorithm: "sha256"; value: string };
+      capability_execution_ref: ArtifactReference;
+    }>(outcomeRef);
+
+    // Keep the original claimed hash while changing an identity-bearing V2 field.
+    (repo as unknown as { store: Map<string, { content_hash: unknown; body: unknown }> }).store.set(
+      outcomeRef.artifact_id,
+      {
+        content_hash: original.content_hash,
+        body: {
+          ...original,
+          capability_execution_ref: {
+            ...original.capability_execution_ref,
+            artifact_id: "capability-execution-tampered",
+          },
+        },
+      },
+    );
+
+    await expect(new DefaultReplayEngine(repo).replayFromManifestId(result.manifest_id)).rejects.toThrow(
+      "REJECT_FROZEN_EXECUTION_OUTCOME: canonical payload",
+    );
+  });
+
+  it("cold verify resolves only the persisted manifest, attempt, and V2 outcome -- no live source is reachable", async () => {
     const repo = new InMemoryArtifactRepository();
     const result = await runAssessment(repo, "cold-verify-isolation");
 
     const captured = new Map<string, unknown>();
     const resolved: string[] = [];
 
-    // Pre-populate a capturing repo with ONLY the manifest and the deterministic attempt id --
-    // nothing else the real run persisted (evidence, outcome, session, etc.) is copied over.
+    // Pre-populate a capturing repo with only the complete persisted replay spine -- no evidence,
+    // session, source connection, or current-state projection is copied over.
     const manifestBody = await repo.resolve<unknown>({ artifact_id: result.manifest_id, artifact_type: "execution_manifest" });
     const attemptBody = await repo.resolve<{ content_hash: { algorithm: "sha256"; value: string } }>({
       artifact_id: `attempt-${result.manifest_id}-1`,
       artifact_type: "execution_attempt",
     });
+    const outcomeBody = await repo.resolve<{ content_hash: { algorithm: "sha256"; value: string } }>({
+      artifact_id: `outcome-v2-attempt-${result.manifest_id}-1`,
+      artifact_type: "execution_outcome",
+    });
     captured.set(result.manifest_id, manifestBody);
     captured.set(`attempt-${result.manifest_id}-1`, attemptBody);
+    captured.set(`outcome-v2-attempt-${result.manifest_id}-1`, outcomeBody);
 
     const capturingRepo: ArtifactRepositoryPort = {
       put: async (artifact) => { captured.set(artifact.artifact_id, artifact.body); },
@@ -144,6 +182,10 @@ describe("LU-REPLAY-COLD-VERIFY-V1", () => {
     const replay = await new DefaultReplayEngine(capturingRepo).replayFromManifestId(result.manifest_id);
 
     expect(replay.replayed_outcome_ref.artifact_id).toBeDefined();
-    expect(resolved).toEqual([`attempt-${result.manifest_id}-1`, result.manifest_id]);
+    expect(resolved).toEqual([
+      `attempt-${result.manifest_id}-1`,
+      `outcome-v2-attempt-${result.manifest_id}-1`,
+      result.manifest_id,
+    ]);
   });
 });

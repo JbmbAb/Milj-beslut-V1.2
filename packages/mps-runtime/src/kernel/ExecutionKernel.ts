@@ -12,6 +12,7 @@ import type {
   FrozenExecutionOutcomeIdentity,
   FrozenReplayArtifact,
 } from "../contracts/freeze/FrozenIdentities.js";
+import { createFrozenExecutionOutcomeIdentityV2 } from "../contracts/freeze/FrozenIdentities.js";
 import {
   createEmptyRuntimeState,
   type RuntimeState,
@@ -167,20 +168,27 @@ export class ExecutionKernel {
       edges: [],
     };
 
-    const outcomePayload = {
-      attempt_id: attempt.attempt_id,
-      result: "success" as const,
-      capability_execution_id: capabilityExecution.artifact_id,
-    };
-    const outcome: FrozenExecutionOutcomeIdentity = {
-      outcome_id: `outcome-${attempt.attempt_id}`,
-      artifact_type: "execution_outcome",
+    const outcome: FrozenExecutionOutcomeIdentity = createFrozenExecutionOutcomeIdentityV2({
       attempt_ref: {
         artifact_id: attempt.attempt_id,
         artifact_type: "execution_attempt",
       },
       result: "success",
-      content_hash: sha256ContentHash(outcomePayload),
+      capability_execution_ref: {
+        artifact_id: capabilityExecution.artifact_id,
+        artifact_type: "CAPABILITY_EXECUTION",
+      },
+    });
+    state.execution_graph = {
+      nodes: [
+        ...state.execution_graph.nodes,
+        {
+          node_id: "outcome-0",
+          kind: "outcome",
+          ref: { artifact_id: outcome.outcome_id, artifact_type: outcome.artifact_type },
+        },
+      ],
+      edges: [{ from: "cap-0", to: "outcome-0" }],
     };
 
     await this.deps.artifactRepository.put({
