@@ -103,6 +103,34 @@ export function computeDocumentFactCandidateIdentity(input: DocumentFactCandidat
 }
 
 /**
+ * Recomputes the content_hash a real candidate SHOULD have from its own carried fields, using
+ * the exact same hash domain as `createDocumentFactCandidate` (routed through `identityCore` so
+ * the two can never silently drift apart). Used by DOCUMENT-FACT-HUMAN-VERIFICATION-V1 to detect
+ * tampering (RED-3/RED-4: a candidate whose span or content_hash was altered after assertion)
+ * before a reviewer's approval is ever bound to it.
+ */
+export function recomputeDocumentFactCandidateContentHash(candidate: DocumentFactCandidateArtifact): string {
+  const core = identityCore({
+    fact_type: candidate.fact_type,
+    fact_version: candidate.fact_version,
+    source_document_ref: candidate.source_document_ref,
+    inventory_ref: candidate.inventory_ref,
+    source_span: candidate.source_span,
+    subject_ref: candidate.subject_ref,
+    asserted_by: candidate.assertion.asserted_by,
+    assertion_method: candidate.assertion.assertion_method,
+    asserter_version: candidate.assertion.asserter_version,
+    asserted_at: candidate.assertion.asserted_at,
+  });
+  return sha256Hex({ artifact_id: candidate.artifact_id, ...core });
+}
+
+/** True iff a candidate's stored content_hash still matches its own carried fields. */
+export function isDocumentFactCandidateContentHashValid(candidate: DocumentFactCandidateArtifact): boolean {
+  return recomputeDocumentFactCandidateContentHash(candidate) === candidate.content_hash.digest;
+}
+
+/**
  * Builds and signs a real `DocumentFactCandidateArtifact`. Pure aside from the injected signer
  * (no CAS write, no network, no verification) -- constructing a candidate is not admitting it
  * anywhere; that governance-owned admission path is a separate, later unit (ADR-27).
