@@ -183,6 +183,74 @@ export async function verifySourceRegistryArtifact(
 }
 
 /**
+ * SOURCE-REGISTRY-MULTI-KEY-VERIFICATION-V1.
+ *
+ * Resolves the trusted `VerificationKeyProvider` for one specific `entry.approval_attestation.
+ * signer` id, rather than assuming a single registry-wide key. This is what lets a historical
+ * entry (signed by a retired governor key) and a newly-approved entry (signed by its successor)
+ * coexist and each verify against the exact key that actually signed it — the trust principle is
+ * "resolve by claimed signer, then verify against exactly that key", never "verify everything
+ * against whichever one key this host happens to have configured."
+ *
+ * An unrecognized signer id resolves to `null` and MUST deny (fail the whole registry load, per
+ * `loadVerifiedSourceRegistry`'s atomic-verification semantics) rather than silently skip that
+ * entry — an entry from an untrusted signer is not "not yet verified", it is untrusted.
+ */
+export interface SourceRegistryTrustedKeyring {
+  resolve(keyId: string): VerificationKeyProvider | null;
+}
+
+/** Builds a keyring from an explicit, in-memory key_id -> public key PEM map. */
+export function createSourceRegistryTrustedKeyring(
+  publicKeysByKeyId: ReadonlyMap<string, string>,
+): SourceRegistryTrustedKeyring {
+  return {
+    resolve(keyId: string): VerificationKeyProvider | null {
+      const publicKeyPem = publicKeysByKeyId.get(keyId);
+      return publicKeyPem ? new LocalPemVerificationKeyProvider(keyId, publicKeyPem) : null;
+    },
+  };
+}
+
+/**
+ * P2-SR-VERIFY-ONLY-01 — the runtime read path. Verification capability only. No private key is
+ * read here in either the single-key or multi-key shape below.
+ *
+ * Multi-key shape (preferred): `SOURCE_REGISTRY_TRUSTED_KEYS_FILE` names a JSON file mapping
+ * `key_id -> public key PEM` for every trusted historical and current governor key. Adding a
+ * successor key is editing this file, never rewriting or re-signing existing registry entries.
+ *
+ * Single-key shape (backward compatible): if the file is not configured, falls back to the
+ * original `SOURCE_REGISTRY_SIGNING_KEY_ID` / `SOURCE_REGISTRY_SIGNING_PUBLIC_KEY_PEM` pair,
+ * producing a keyring that trusts exactly that one key — unchanged behavior for any deployment
+ * that has not yet needed a second governor key.
+ */
+export function getSourceRegistryTrustedKeyringFromEnv(): SourceRegistryTrustedKeyring {
+  const trustedKeysFile = process.env.SOURCE_REGISTRY_TRUSTED_KEYS_FILE;
+  if (trustedKeysFile) {
+    const raw = JSON.parse(readFileSync(resolve(trustedKeysFile), 'utf8')) as Record<string, string>;
+    if (!raw || typeof raw !== 'object' || Array.isArray(raw)) {
+      throw new Error(
+        `SOURCE_REGISTRY_TRUSTED_KEYS_FILE at '${trustedKeysFile}' must be a JSON object mapping key_id -> public key PEM.`,
+      );
+    }
+    return createSourceRegistryTrustedKeyring(new Map(Object.entries(raw)));
+  }
+
+  const keyId = process.env.SOURCE_REGISTRY_SIGNING_KEY_ID;
+  const publicKeyPem = process.env.SOURCE_REGISTRY_SIGNING_PUBLIC_KEY_PEM;
+  if (!keyId || !publicKeyPem) {
+    throw new Error(
+      'SourceRegistry verification requires either SOURCE_REGISTRY_TRUSTED_KEYS_FILE (multi-key) ' +
+        'or both SOURCE_REGISTRY_SIGNING_KEY_ID and SOURCE_REGISTRY_SIGNING_PUBLIC_KEY_PEM ' +
+        '(single-key). An unverified registry is not a registry: without a trusted public key ' +
+        'nothing can distinguish an approved source from an invented one.',
+    );
+  }
+  return createSourceRegistryTrustedKeyring(new Map([[keyId, publicKeyPem]]));
+}
+
+/**
  * P2-SR-VERIFY-ONLY-01 — the runtime read path. Verification capability only.
  *
  * The default key provider is now verify-only, so a harvest host needs the key id and the PUBLIC
@@ -193,20 +261,55 @@ export async function verifySourceRegistryArtifact(
  * A signer still satisfies the parameter, because signing extends verification. That is
  * deliberate: the approval tooling loads the registry back through this same function to
  * self-verify what it just wrote, and must not need a second code path to do it.
+ *
+ * `signing` (single explicit key, historical shape) and `trustedKeyring` (multi-key,
+ * SOURCE-REGISTRY-MULTI-KEY-VERIFICATION-V1) are mutually exclusive knobs on the same atomic
+ * load: passing `signing` reproduces the exact original behavior (every entry must be signed by
+ * that one key, including callers that already rely on this); omitting it resolves each entry's
+ * key independently through the keyring. Atomicity is unchanged either way — one untrusted or
+ * invalid entry still fails the whole load; this is multi-key TRUST RESOLUTION, not partial
+ * success.
  */
 export async function loadVerifiedSourceRegistry(args: {
   readonly registryPath?: string;
   readonly signing?: VerificationKeyProvider;
+  readonly trustedKeyring?: SourceRegistryTrustedKeyring;
 } = {}): Promise<VerifiedSourceRegistry> {
   const registryPath = args.registryPath ?? getSourceRegistryPathFromEnv();
-  const signing = args.signing ?? getSourceRegistryVerificationKeyFromEnv();
   const raw = JSON.parse(readFileSync(registryPath, 'utf8')) as SourceRegistryArtifact[];
 
   if (!Array.isArray(raw)) {
     throw new Error(`Source Registry at '${registryPath}' must be a JSON array.`);
   }
 
-  const sources = await Promise.all(raw.map((entry) => verifySourceRegistryArtifact(entry, signing)));
+  // Lazy: only resolved when actually needed, so a caller that supplies `signing` explicitly
+  // (the historical single-key shape, reproduced byte-for-byte below) never requires the
+  // multi-key env/file configuration to be present at all.
+  let lazyKeyring: SourceRegistryTrustedKeyring | undefined;
+  const keyringFor = (): SourceRegistryTrustedKeyring =>
+    (lazyKeyring ??= args.trustedKeyring ?? getSourceRegistryTrustedKeyringFromEnv());
+
+  const resolveKeyForEntry = (entry: SourceRegistryArtifact): VerificationKeyProvider => {
+    if (args.signing) {
+      // Historical single-key shape, reproduced exactly: `verifySourceRegistryArtifact` itself
+      // performs the `signer_key` binding check (and produces that check's own error message) --
+      // this branch must not duplicate or preempt it with a differently-worded guard.
+      return args.signing;
+    }
+    const claimedSignerId = entry.approval_attestation?.signer;
+    const resolved = claimedSignerId ? keyringFor().resolve(claimedSignerId) : null;
+    if (!resolved) {
+      throw new Error(
+        `SourceRegistryArtifact '${entry.source_id}' is signed by an untrusted key ` +
+          `'${claimedSignerId ?? 'unknown'}' -- not present in the trusted keyring.`,
+      );
+    }
+    return resolved;
+  };
+
+  const sources = await Promise.all(
+    raw.map((entry) => verifySourceRegistryArtifact(entry, resolveKeyForEntry(entry))),
+  );
   assertNoDuplicateSourceIds(sources, registryPath);
 
   return {
