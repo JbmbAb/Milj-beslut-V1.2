@@ -1,4 +1,11 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
+
+vi.mock('../../server/repositories/localizationGeometryProjectionRepository', () => ({
+  PrismaLocalizationGeometryProjectionIndex: class {
+    async register() {}
+    async listForProject() { return []; }
+  },
+}));
 import {
   createLocalizationGeometryArtifact,
   createLocalizationGeometryArtifactV2,
@@ -8,6 +15,8 @@ import {
   LOCALIZATION_GEOMETRY_CONTRACT_VERSION,
   LOCALIZATION_GEOMETRY_CONTRACT_VERSION_V2,
 } from '../../packages/mps-lu/src/artifacts/LocalizationGeometryArtifact';
+import { resolveOrDeriveCurrentLocalizationGeometry } from '../../server/modules/localization/localizationGeometryService';
+import type { PropertyInfo } from '../../src/domain/geo';
 
 const PROPERTY_REF = { artifact_id: 'property-ctx-1', artifact_type: 'LU_PROPERTY_CONTEXT' } as const;
 
@@ -93,6 +102,57 @@ describe('LOCALIZATION-GEOMETRY-CANONICALIZATION-V2 (H1 Phase B)', () => {
           provenance: 'user_defined', label: 'x', created_by: 'u',
         });
       expect(build().artifact_id).toBe(build().artifact_id);
+    });
+  });
+
+  describe('PropertyInfo presentation isolation (H1)', () => {
+    it('derives the same canonical localization geometry when a presentation-only WGS84 property geometry changes or is absent', async () => {
+      const presentationVariants: readonly PropertyInfo[] = [
+        {
+          id: 'property-1',
+          designation: 'TEST 1:1',
+          municipality: 'TEST',
+          geometry: { type: 'Point', coordinates: [18.0, 59.3] },
+        },
+        {
+          id: 'property-1',
+          designation: 'TEST 1:1',
+          municipality: 'TEST',
+          geometry: { type: 'Point', coordinates: [19.0, 60.3] },
+        },
+        {
+          id: 'property-1',
+          designation: 'TEST 1:1',
+          municipality: 'TEST',
+        },
+      ];
+
+      const derive = async (_presentation: PropertyInfo) => {
+        const repository = {
+          resolve: vi.fn().mockResolvedValue(undefined),
+          put: vi.fn().mockResolvedValue(undefined),
+        };
+        return resolveOrDeriveCurrentLocalizationGeometry({
+          projectId: 'project-1',
+          artifactRepository: repository as never,
+          propertyContextRef: PROPERTY_REF,
+          propertyCentroidSweref: [6580743.0, 674571.9],
+          sweref99ToWgs84: vi.fn().mockResolvedValue([59.33, 18.07]),
+          createdBy: 'user-1',
+        });
+      };
+
+      const artifacts = await Promise.all(presentationVariants.map(derive));
+      expect(artifacts.map(({ geometry }) => geometry.artifact_id)).toEqual([
+        artifacts[0]!.geometry.artifact_id,
+        artifacts[0]!.geometry.artifact_id,
+        artifacts[0]!.geometry.artifact_id,
+      ]);
+      expect(artifacts.map(({ geometry }) => geometry.content_hash.value)).toEqual([
+        artifacts[0]!.geometry.content_hash.value,
+        artifacts[0]!.geometry.content_hash.value,
+        artifacts[0]!.geometry.content_hash.value,
+      ]);
     });
   });
 

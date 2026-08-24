@@ -7,8 +7,8 @@ import {
   GovernedAssessmentPersistence,
   localizationAssessmentCanonicalBody,
   validateLocalizationAssessmentContractVersion,
-  LOCALIZATION_ASSESSMENT_CONTRACT_VERSION_V2,
-  LOCALIZATION_ASSESSMENT_CANONICALIZER_ID_V2,
+  LOCALIZATION_ASSESSMENT_CONTRACT_VERSION_V3,
+  LOCALIZATION_ASSESSMENT_CANONICALIZER_ID_V3,
   type LocalizationAssessmentArtifact,
   type LocalizationAssessmentDraft,
 } from "../src/index";
@@ -50,12 +50,12 @@ function draft(): LocalizationAssessmentDraft {
   };
 }
 
-/** Strips the V2 version fields and recomputes content_hash/artifact_id -- simulates the real
+/** Strips the current version fields and recomputes content_hash/artifact_id -- simulates the real
  *  byte shape of a historical assessment minted before this contract-version field existed,
  *  rather than merely deleting fields off an otherwise-V2 artifact and leaving stale identity. */
-function asLegacyV1Shape(v2: LocalizationAssessmentArtifact): LocalizationAssessmentArtifact {
-  const { assessment_contract_version, canonicalizer_id, ...legacyPayload } = v2.payload;
-  const identityBody = { artifact_type: v2.artifact_type, references: v2.references, payload: legacyPayload };
+function asLegacyV1Shape(current: LocalizationAssessmentArtifact): LocalizationAssessmentArtifact {
+  const { assessment_contract_version, canonicalizer_id, ...legacyPayload } = current.payload;
+  const identityBody = { artifact_type: current.artifact_type, references: current.references, payload: legacyPayload };
   const contentHash = sha256ContentHash(identityBody);
   return {
     artifact_id: `assessment-${contentHash.value}`,
@@ -67,21 +67,21 @@ function asLegacyV1Shape(v2: LocalizationAssessmentArtifact): LocalizationAssess
 describe("LU-ASSESSMENT-CONTRACT-VERSIONING-V1 (H12)", () => {
   it("negative proof A: same semantic payload under different assessment_contract_version must not alias to the same identity", () => {
     const { outcome, attestation } = buildOutcomeAndAttestation("alias-a");
-    const v2 = createGovernedLocalizationAssessment({ draft: draft(), findings: [], outcome, attestation });
-    const legacy = asLegacyV1Shape(v2);
+    const v3 = createGovernedLocalizationAssessment({ draft: draft(), findings: [], outcome, attestation });
+    const legacy = asLegacyV1Shape(v3);
 
-    expect(v2.payload.assessment_contract_version).toBe(LOCALIZATION_ASSESSMENT_CONTRACT_VERSION_V2);
+    expect(v3.payload.assessment_contract_version).toBe(LOCALIZATION_ASSESSMENT_CONTRACT_VERSION_V3);
     expect(legacy.payload.assessment_contract_version).toBeUndefined();
     // Every other semantic field is identical -- only the version fields differ.
-    expect(legacy.payload.project_context_ref).toEqual(v2.payload.project_context_ref);
-    expect(legacy.payload.evidence_refs).toEqual(v2.payload.evidence_refs);
-    expect(legacy.payload.execution_outcome_ref).toEqual(v2.payload.execution_outcome_ref);
+    expect(legacy.payload.project_context_ref).toEqual(v3.payload.project_context_ref);
+    expect(legacy.payload.evidence_refs).toEqual(v3.payload.evidence_refs);
+    expect(legacy.payload.execution_outcome_ref).toEqual(v3.payload.execution_outcome_ref);
 
-    expect(legacy.artifact_id).not.toBe(v2.artifact_id);
-    expect(legacy.content_hash.value).not.toBe(v2.content_hash.value);
+    expect(legacy.artifact_id).not.toBe(v3.artifact_id);
+    expect(legacy.content_hash.value).not.toBe(v3.content_hash.value);
   });
 
-  it("negative proof B: a historical (legacy V1) assessment remains valid under its own producing contract after V2 is the live default", async () => {
+  it("negative proof B: a historical (legacy V1) assessment remains valid under its own producing contract after V3 is the live default", async () => {
     const { outcome, attestation } = buildOutcomeAndAttestation("historical-b");
     const v2 = createGovernedLocalizationAssessment({ draft: draft(), findings: [], outcome, attestation });
     const legacy = asLegacyV1Shape(v2);
@@ -117,10 +117,10 @@ describe("LU-ASSESSMENT-CONTRACT-VERSIONING-V1 (H12)", () => {
     ).resolves.toMatchObject({ artifact_id: legacyWithRealOutcome.artifact_id });
   });
 
-  it("canonical persist enforcement: a V2 artifact with a tampered canonicalizer_id is rejected by persist(), not merely by the validator in isolation", async () => {
+  it("canonical persist enforcement: a V3 artifact with a tampered canonicalizer_id is rejected by persist(), not merely by the validator in isolation", async () => {
     const { outcome, attestation } = buildOutcomeAndAttestation("tampered-canonicalizer");
     const v2 = createGovernedLocalizationAssessment({ draft: draft(), findings: [], outcome, attestation });
-    const tamperedPayload = { ...v2.payload, canonicalizer_id: "sv-canonical-1" as unknown as typeof LOCALIZATION_ASSESSMENT_CANONICALIZER_ID_V2 };
+    const tamperedPayload = { ...v2.payload, canonicalizer_id: "sv-canonical-1" as unknown as typeof LOCALIZATION_ASSESSMENT_CANONICALIZER_ID_V3 };
     const identityBody = { artifact_type: v2.artifact_type, references: v2.references, payload: tamperedPayload };
     const contentHash = sha256ContentHash(identityBody);
     const tampered: LocalizationAssessmentArtifact = {
