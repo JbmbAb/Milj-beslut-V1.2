@@ -1,5 +1,6 @@
 import { SpatialEvidenceArtifact } from "../artifacts/SpatialEvidenceArtifact";
 import { DocumentEvidenceArtifact } from "../artifacts/DocumentEvidenceArtifact";
+import { isDocumentEvidenceV2, type DocumentEvidenceArtifactV2 } from "../artifacts/DocumentEvidenceArtifactV2";
 import { AssessmentFinding } from "../domain/AssessmentFinding";
 import { ArtifactReference } from "@miljobeslut/mps-compliance/src/artifacts/ArtifactContract";
 import {
@@ -7,6 +8,9 @@ import {
   type DocumentFactType,
   type VerifiedDocumentFactArtifact,
 } from "../../../mps-data-governance/src/DocumentFactArtifact";
+
+/** Either evidence contract version -- see DocumentEvidenceArtifactV2.ts for the V1/V2 split. */
+export type AnyDocumentEvidenceArtifact = DocumentEvidenceArtifact | DocumentEvidenceArtifactV2;
 
 /**
  * F4A — explicit evidence domain for rule evaluation.
@@ -25,7 +29,7 @@ import {
  */
 export interface LURuleEvaluationInput {
   readonly spatial_evidence: readonly SpatialEvidenceArtifact[];
-  readonly document_evidence: readonly DocumentEvidenceArtifact[];
+  readonly document_evidence: readonly AnyDocumentEvidenceArtifact[];
   /**
    * F4B — the resolved Tier 3 facts the document evidence points at.
    *
@@ -178,7 +182,13 @@ export class LURuleEngine {
     }
 
     for (const ev of input.document_evidence) {
-      const matching = (ev.payload.fact_refs ?? [])
+      // Version dispatch (LU-DOCUMENT-EVIDENCE-WIRING-V1): V1's fact_refs and V2's
+      // verified_fact_refs are different fields, not renamed aliases of each other -- reading
+      // V1's field name against a real V2 artifact silently finds nothing (V2 has no fact_refs
+      // key at all), which would make LU-DOC-BESLUT-001 never fire for any V2 evidence
+      // regardless of content. Never conflate the two field names.
+      const refs = isDocumentEvidenceV2(ev) ? ev.payload.verified_fact_refs : (ev.payload.fact_refs ?? []);
+      const matching = refs
         .map((ref) => verifiedById.get(ref.artifact_id))
         .filter(
           (fact): fact is VerifiedDocumentFactArtifact =>
@@ -212,7 +222,7 @@ export class LURuleEngine {
     return findings;
   }
 
-  private toRef(artifact: SpatialEvidenceArtifact | DocumentEvidenceArtifact): ArtifactReference {
+  private toRef(artifact: SpatialEvidenceArtifact | AnyDocumentEvidenceArtifact): ArtifactReference {
     return {
       artifact_id: artifact.artifact_id,
       artifact_type: artifact.artifact_type,
