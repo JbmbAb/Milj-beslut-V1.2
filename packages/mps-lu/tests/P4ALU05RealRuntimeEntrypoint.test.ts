@@ -154,6 +154,8 @@ import { __resetLuExecutionAuthoritySigningProviderForTests } from "../../../ser
 import { __resetLuExecutionAuthorityVerifierForTests } from "../src/execution/LuExecutionAuthorityVerifier";
 import { provisionCanonicalLuContext } from "./fixtures/provisionCanonicalLuContext";
 import { ensureLocalizationProjectionProject } from "./fixtures/ensureLocalizationProjectionProject";
+import { createProductReleaseIssuerArtifact, createProductReleaseManifestArtifact } from "../../mps-governance/src/release/ProductReleaseAuthority";
+import { attestProductRelease } from "../../../server/modules/release/productReleaseAuthority";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(__dirname, "../../..");
@@ -174,6 +176,8 @@ describe("P4A-LU-05 — real runtime entrypoint", () => {
       "PROJECT_CONTEXT_BINDING_ISSUER_PUBLIC_KEY_PEM",
       "PRODUCT_RELEASE_ARTIFACT_ID",
       "PRODUCT_RELEASE_HASH",
+      "PRODUCT_RELEASE_ISSUER_KEY_ID",
+      "PRODUCT_RELEASE_ISSUER_PUBLIC_KEY_PEM",
     ] as const) {
       if (originalEnv[name] === undefined) delete process.env[name];
       else process.env[name] = originalEnv[name];
@@ -198,17 +202,51 @@ describe("P4A-LU-05 — real runtime entrypoint", () => {
     });
     process.env.PROJECT_CONTEXT_BINDING_ISSUER_KEY_ID = contextIssuerKey.provider.keyId;
     process.env.PROJECT_CONTEXT_BINDING_ISSUER_PUBLIC_KEY_PEM = contextIssuerKey.publicKey;
-    const releaseId = "product-release-p4a-lu-05";
-    const releaseHash = "a".repeat(64);
-    process.env.PRODUCT_RELEASE_ARTIFACT_ID = releaseId;
-    process.env.PRODUCT_RELEASE_HASH = releaseHash;
-
     const artifactRepository = new InMemoryArtifactRepository();
+    const releaseIssuerKey = LocalPemSigningKeyProvider.generate("ed25519:product-release-issuer-p4a");
+    const releaseIssuer = createProductReleaseIssuerArtifact(releaseIssuerKey.provider.keyId);
+    await artifactRepository.put({ artifact_id: releaseIssuer.artifact_id, content_hash: releaseIssuer.content_hash, body: releaseIssuer });
+    const unsignedRelease = createProductReleaseManifestArtifact({
+      product_name: "Miljobeslut-p4a-lu-05",
+      package_lock_sha256: "a".repeat(64),
+      package_manifest_sha256: "b".repeat(64),
+      runtime_entrypoint_sha256: "c".repeat(64),
+      issuer_ref: { artifact_id: releaseIssuer.artifact_id, artifact_type: releaseIssuer.artifact_type },
+      issued_at: "2026-08-24T00:00:00.000Z",
+    });
+    const signedRelease = {
+      ...unsignedRelease,
+      attestation: await attestProductRelease({
+        release: unsignedRelease,
+        issuer: releaseIssuer,
+        signing: releaseIssuerKey.provider,
+      }),
+    };
+    const releaseId = signedRelease.artifact_id;
+    const releaseHash = signedRelease.release_hash.value;
+    process.env.PRODUCT_RELEASE_ARTIFACT_ID = releaseId;
+    process.env.PRODUCT_RELEASE_ISSUER_KEY_ID = releaseIssuerKey.provider.keyId;
+    process.env.PRODUCT_RELEASE_ISSUER_PUBLIC_KEY_PEM = releaseIssuerKey.publicKey;
+    await artifactRepository.put({ artifact_id: signedRelease.artifact_id, content_hash: signedRelease.content_hash, body: signedRelease });
     const provider = new SpatialProviderPostGIS(
       "postgresql://unused-by-proof",
       artifactRepository,
     );
-    const poolQuery = vi.fn(async (sql: string) => {
+    const poolQuery = vi.fn(async (sql: string, values?: readonly unknown[]) => {
+      if (sql.includes('FROM "PostgisImportBatch"')) {
+        const [schema, table] = values ?? [];
+        const binding = Object.values(SPATIAL_LAYER_REGISTRY).find((candidate) => {
+          const [candidateSchema, candidateTable] = candidate.table.split(".");
+          return candidateSchema === schema && candidateTable === table;
+        });
+        if (!binding) {
+          throw new Error(`Unexpected H8 runtime-binding lookup in P4A-LU-05: ${schema}.${table}`);
+        }
+        return {
+          rows: [{ content_bundle_sha256: binding.version_hash, dataset_version: "fixture" }],
+          rowCount: 1,
+        };
+      }
       if (sql.includes("ST_Transform")) {
         // PRODUCT-LU-LOCALIZATION-GEOMETRY-01: sweref99ToWgs84 (the derived-geometry path) issues
         // the inverse transform, selecting AS lat/AS lng instead of AS n/AS e -- distinguish by
@@ -247,15 +285,6 @@ describe("P4A-LU-05 — real runtime entrypoint", () => {
     };
     const useCase = new GenerateLocalizationReportUseCase(async () => runtime);
 
-    await artifactRepository.put({
-      artifact_id: releaseId,
-      content_hash: { algorithm: "sha256", value: "fixture-release" },
-      body: {
-        artifact_id: releaseId,
-        artifact_type: "product_release_manifest",
-        release_hash: { value: releaseHash },
-      },
-    });
     const projectId = "project-p4a-lu-05";
     await ensureLocalizationProjectionProject({
       projectId,
@@ -373,6 +402,7 @@ describe("P4A-LU-05 — real runtime entrypoint", () => {
         expect(findingEvidenceIds.has(artifact.artifact_id)).toBe(false);
       }
     }
+    expect(poolQuery.mock.calls.filter(([sql]) => String(sql).includes('FROM "PostgisImportBatch"'))).toHaveLength(5);
     expect(poolQuery.mock.calls.filter(([sql]) => String(sql).includes("ST_DWithin"))).toHaveLength(5);
     expect(poolEnd).toHaveBeenCalledOnce();
   });
