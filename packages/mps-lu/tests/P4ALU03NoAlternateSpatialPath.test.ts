@@ -15,6 +15,11 @@ const ALLOWED_PRODUCTION_FILES = new Set([
   // Viewer is observation/projection only: it resolves existing CAS evidence and cannot produce
   // SpatialEvidenceArtifact or query PostGIS. F8 covers capability admission for this path.
   "viewer/ViewerKernel.ts",
+  // LU-DETERMINISTIC-REEXECUTION-V1: calls buildSpatialEvidenceContentHash to VERIFY a resolved
+  // SPATIAL_EVIDENCE artifact's own stored content_hash was not tampered with since it was
+  // pinned -- read-only tamper detection on an already-resolved artifact, never construction of a
+  // new SPATIAL_EVIDENCE artifact or a query against any provider.
+  "execution/LuDeterministicReExecution.ts",
 ]);
 
 type Violation = {

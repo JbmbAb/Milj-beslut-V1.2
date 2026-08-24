@@ -45,6 +45,7 @@ export * from "./rules/LURuleEngine";
 
 // ExecutionKernel client
 export * from "./execution/LuExecutionKernelClient";
+export * from "./execution/LuDeterministicReExecution";
 export * from "./registry/LuSiteAssessmentRegistry";
 export * from "./registry/createLuRegistryRuntime";
 
