@@ -29,6 +29,14 @@ vi.mock('../../services/coreApiClient', () => ({
   getActiveProjectId: () => getActiveProjectId(),
 }));
 
+vi.mock('../../components/CesiumMapView', () => ({
+  default: () => <div data-testid="cesium-map-view" />,
+}));
+
+vi.mock('../../components/cesium/EvidenceDetailsPanel', () => ({
+  default: () => <div data-testid="evidence-details-panel" />,
+}));
+
 describe('LuWorkspace', () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -40,31 +48,50 @@ describe('LuWorkspace', () => {
       id: 'p1',
       designation: 'GÄVLE BRYNÄS 1:1',
       municipality: 'Gävle',
+      geometry: { type: 'Point', coordinates: [17.14, 60.67] },
       centroid: { lat: 60.67, lng: 17.14 },
     });
-    callApi.mockResolvedValue({
-      ok: true,
-      projectId: 'proj-1',
-      siteAnalyses: [
-        {
-          complianceAnalysis: {
-            overallRisk: 'MEDIUM',
-            permitProbability: 0.5,
-            requiredActions: ['Kontrollera brunn'],
-            notes: ['Nära vatten'],
+    // CESIUM-LU-PRESENTATION-RECOVERY-01: LuWorkspace now gates "Kör bedömning" on a governed
+    // LocalizationGeometry (PRODUCT-LU-CESIUM-LOCALIZATION-DRAWING-01, landed after this test's
+    // original WIP) -- a single blanket callApi mock answers every call identically, which left
+    // isExecutionReady permanently false and the button permanently disabled. callApi is called
+    // with more than one endpoint now, so the mock must branch by URL.
+    callApi.mockImplementation((url: string) => {
+      if (url.includes('/geometry')) {
+        return Promise.resolve({
+          ok: true,
+          geometry: {
+            artifact_id: 'loc-geom-1',
+            provenance: 'user_defined',
+            wgs84LngLat: [17.14, 60.67],
+            provisioningStatus: 'COMPLETED',
           },
-          executionMotor: {
-            admitted: true,
-            attempt_id: 'att-1',
-            outcome_id: 'out-1',
-            manifest_id: 'man-1',
-            assessment_artifact_id: 'assess-site-1-abc',
-            property_context_id: 'prop-site-1',
-            finding_ids: ['LU-WATER-001'],
+        });
+      }
+      return Promise.resolve({
+        ok: true,
+        projectId: 'proj-1',
+        siteAnalyses: [
+          {
+            complianceAnalysis: {
+              overallRisk: 'MEDIUM',
+              permitProbability: 0.5,
+              requiredActions: ['Kontrollera brunn'],
+              notes: ['Nära vatten'],
+            },
+            executionMotor: {
+              admitted: true,
+              attempt_id: 'att-1',
+              outcome_id: 'out-1',
+              manifest_id: 'man-1',
+              assessment_artifact_id: 'assess-site-1-abc',
+              property_context_id: 'prop-site-1',
+              finding_ids: ['LU-WATER-001'],
+            },
           },
-        },
-      ],
-      humanInTheLoop: 'Human in the loop',
+        ],
+        humanInTheLoop: 'Human in the loop',
+      });
     });
 
     render(<LuWorkspace />);
@@ -74,6 +101,9 @@ describe('LuWorkspace', () => {
     await user.type(screen.getByTestId('lu-designation'), 'GÄVLE BRYNÄS 1:1');
     await user.click(screen.getByTestId('lu-lookup'));
     expect(await screen.findByTestId('lu-site-ready')).toBeInTheDocument();
+    expect(await screen.findByTestId('lu-cesium-front')).toBeInTheDocument();
+    expect(await screen.findByTestId('cesium-map-view')).toBeInTheDocument();
+    expect(fetchPropertyInfo).toHaveBeenCalledWith('GÄVLE BRYNÄS 1:1', 'proj-1');
 
     await user.click(screen.getByTestId('lu-run'));
     expect(await screen.findByTestId('lu-results')).toBeInTheDocument();

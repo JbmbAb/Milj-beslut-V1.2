@@ -2,6 +2,7 @@
  * Client-side Cesium L0/L1 fixture scene (WGS84).
  * Observation only — never spatial authority.
  */
+import type { Feature, FeatureCollection } from 'geojson';
 
 export const CESIUM_L0_L1_SCENE_ID = 'cesium.l0l1.fixture.v1';
 export const CESIUM_L0_L1_FIXTURE_URL = '/cesium/fixtures/l0-l1-scene.wgs84.json';
@@ -12,8 +13,8 @@ export type CesiumL0L1Scene = {
   governance_status: string;
   note?: string;
   center: { lat: number; lng: number };
-  property: GeoJSON.Feature;
-  evidence: GeoJSON.FeatureCollection;
+  property: Feature;
+  evidence: FeatureCollection;
 };
 
 export async function loadCesiumL0L1FixtureScene(): Promise<CesiumL0L1Scene> {

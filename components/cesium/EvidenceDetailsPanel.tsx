@@ -14,6 +14,12 @@ export type EvidenceObservationProps = {
   evidence_id?: string;
   cas_artifact_id?: string;
   cas_content_hash?: string;
+  registry_artifact_id?: string;
+  registry_content_hash?: string;
+  approval_artifact_id?: string;
+  approval_role?: string;
+  governance_status?: string;
+  admit_layer_id?: string;
 };
 
 type EvidenceDetailsPanelProps = {
@@ -27,10 +33,10 @@ const EvidenceDetailsPanel: React.FC<EvidenceDetailsPanelProps> = ({
   evidenceMode,
   onClose,
 }) => {
-  const admitId = admitLayerIdForLogical(evidence.layer_id);
+  const admitId = evidence.admit_layer_id || admitLayerIdForLogical(evidence.layer_id);
   const accent = evidence.color || '#38bdf8';
   const statusLabel =
-    evidenceMode === 'fixture' ? 'FIXTURE_OBSERVATION' : 'VERIFIED_OBSERVATION';
+    evidence.governance_status || (evidenceMode === 'fixture' ? 'FIXTURE_OBSERVATION' : 'VERIFIED_OBSERVATION');
   const statusTone =
     evidenceMode === 'fixture'
       ? 'bg-amber-500/20 text-amber-200 border-amber-500/30'
@@ -123,8 +129,30 @@ const EvidenceDetailsPanel: React.FC<EvidenceDetailsPanelProps> = ({
           </div>
         </div>
       </div>
+
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-2">
+        <ProvenanceCell label="Registry artifact" value={evidence.registry_artifact_id || '—'} />
+        <ProvenanceCell label="Registry hash" value={evidence.registry_content_hash || '—'} />
+        <ProvenanceCell
+          label="Approval"
+          value={
+            evidence.approval_artifact_id
+              ? `${evidence.approval_artifact_id}${evidence.approval_role ? ` · ${evidence.approval_role}` : ''}`
+              : '—'
+          }
+        />
+      </div>
     </div>
   );
 };
+
+const ProvenanceCell: React.FC<{ label: string; value: string }> = ({ label, value }) => (
+  <div className="rounded-xl bg-black/20 px-3 py-2">
+    <div className="mb-0.5 text-[9px] font-black uppercase tracking-wider text-slate-500">
+      {label}
+    </div>
+    <div className="break-all font-mono text-[10px] text-slate-300 select-all">{value}</div>
+  </div>
+);
 
 export default EvidenceDetailsPanel;

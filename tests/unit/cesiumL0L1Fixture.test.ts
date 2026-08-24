@@ -60,6 +60,34 @@ describe('Cesium L0/L1 fixture scene (no PostGIS)', () => {
     expect(assertPresentationFeatureContract(feature)).toEqual([]);
   });
 
+  it('emits Cesium presentation metadata for live evidence collections', async () => {
+    const adapter = new GeoPresentationAdapter();
+    const collection = await adapter.projectEvidenceCollectionToWgs84([
+      {
+        artifact_id: 'meta-live-1',
+        artifact_type: 'SPATIAL_EVIDENCE',
+        content_hash: { value: 'sha256-meta' },
+        payload: {
+          srid: 4326,
+          geometry: { type: 'Point', coordinates: [15, 62] },
+          layer_ref: { layer_id: 'protected_area', layer_version: 'v1' },
+          source_metadata: {
+            provider: 'Naturvårdsverket',
+            dataset: 'Protected areas',
+            retrieved_at: '2026-08-08T00:00:00.000Z',
+          },
+        },
+      },
+    ]);
+
+    expect(collection.meta).toMatchObject({
+      presentation: 'cesium-l0-l1',
+      srid: 4326,
+      governance_status: 'VERIFIED_OBSERVATION',
+      feature_count: 1,
+    });
+  });
+
   it('buildWgs84PresentationFeature matches fixture styling rules', () => {
     const feature = buildWgs84PresentationFeature({
       artifact_id: 'x',
