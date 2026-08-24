@@ -101,6 +101,32 @@ export class LURuleEngine {
         };
         findings.push(finding);
       }
+
+      // LU-BREADTH-01 Track A: same pattern as the three existing layer rules above --
+      // EXISTENCE_WITHIN_DISTANCE + dataset match, nothing new invented.
+      if (layer === "natura2000") {
+        const finding: AssessmentFinding = {
+          finding_id: `finding-natura2000-${ev.artifact_id}`,
+          rule_id: "LU-NATURA2000-001",
+          rule_version: "1.0",
+          explanation: "Natura 2000-område (SPA/SCI) inom sökradie kräver särskild prövning",
+          risk_level: "HIGH",
+          evidence_refs: [this.toRef(ev)],
+        };
+        findings.push(finding);
+      }
+
+      if (layer === "water_protection_area") {
+        const finding: AssessmentFinding = {
+          finding_id: `finding-waterprotection-${ev.artifact_id}`,
+          rule_id: "LU-WATERPROTECTION-001",
+          rule_version: "1.0",
+          explanation: "Vattenskyddsområde inom sökradie kräver analys av tillståndsvillkor",
+          risk_level: "HIGH",
+          evidence_refs: [this.toRef(ev)],
+        };
+        findings.push(finding);
+      }
     }
 
     findings.push(...this.evaluateDocumentRules(input));
