@@ -79,6 +79,12 @@ describe('LuWorkspace', () => {
               requiredActions: ['Kontrollera brunn'],
               notes: ['Nära vatten'],
             },
+            dataSources: [
+              { source: 'NVR API', status: 'ok', detail: '2 träffar' },
+              { source: 'PostGIS spatial', status: 'degraded', detail: 'delvis underlag' },
+              { source: 'VISS', status: 'unavailable', detail: 'tidsgräns nådd' },
+            ],
+            warnings: ['VISS otillgänglig: tidsgräns nådd'],
             executionMotor: {
               admitted: true,
               attempt_id: 'att-1',
@@ -122,9 +128,77 @@ describe('LuWorkspace', () => {
     expect(screen.getByTestId('lu-finding-LU-WATER-001')).toHaveTextContent('Vatten');
     expect(screen.getByTestId('lu-finding-LU-WATER-001')).toHaveTextContent('Bör utredas vidare');
     expect(screen.getByTestId('lu-finding-LU-WATER-001')).toHaveTextContent('Närhet till vatten kräver analys');
+
+    // LU-UNKNOWN-MISSING-DISPLAY-V1, proof 1: assessed source + no conflict -> clearly "no
+    // identified conflict", never rendered as generic "OK"/green with no explanation.
+    expect(screen.getByTestId('lu-data-source-NVR API')).toHaveTextContent(
+      'Inga avvikelser identifierade i denna källa',
+    );
+    // proof 2: a degraded/insufficient source is never shown with the same label as "ok" --
+    // must not read as green/no-risk.
+    expect(screen.getByTestId('lu-data-source-PostGIS spatial')).toHaveTextContent('Ofullständigt underlag');
+    expect(screen.getByTestId('lu-data-source-PostGIS spatial')).not.toHaveTextContent(
+      'Inga avvikelser identifierade i denna källa',
+    );
+    // proof 3: an unavailable source gets its own explicit state, distinct from both of the above.
+    expect(screen.getByTestId('lu-data-source-VISS')).toHaveTextContent('Källan är otillgänglig');
+    expect(screen.getByTestId('lu-data-source-VISS')).not.toHaveTextContent('Inga avvikelser identifierade i denna källa');
+    expect(screen.getByTestId('lu-warnings')).toHaveTextContent('VISS otillgänglig: tidsgräns nådd');
+
     expect(callApi).toHaveBeenCalledWith(
       '/api/localization/generate-report',
       expect.objectContaining({ method: 'POST' }),
     );
+  });
+
+  it('LU-UNKNOWN-MISSING-DISPLAY-V1, proof 4: NOT_ASSESSED renders an explicit not-assessed state, never a blank or green risk', async () => {
+    const user = userEvent.setup();
+    fetchPropertyInfo.mockResolvedValue({
+      id: 'p1',
+      designation: 'GÄVLE BRYNÄS 1:1',
+      municipality: 'Gävle',
+      geometry: { type: 'Point', coordinates: [17.14, 60.67] },
+      centroid: { lat: 60.67, lng: 17.14 },
+    });
+    callApi.mockImplementation((url: string) => {
+      if (url.includes('/geometry')) {
+        return Promise.resolve({
+          ok: true,
+          geometry: {
+            artifact_id: 'loc-geom-1',
+            provenance: 'user_defined',
+            wgs84LngLat: [17.14, 60.67],
+            provisioningStatus: 'COMPLETED',
+          },
+        });
+      }
+      return Promise.resolve({
+        ok: true,
+        projectId: 'proj-1',
+        siteAnalyses: [
+          {
+            complianceAnalysis: {},
+            executionMotor: {
+              admitted: false,
+              assessment_status: 'NOT_ASSESSED',
+              finding_ids: [],
+            },
+          },
+        ],
+        humanInTheLoop: 'Human in the loop',
+      });
+    });
+
+    render(<LuWorkspace />);
+    await user.type(screen.getByTestId('lu-designation'), 'GÄVLE BRYNÄS 1:1');
+    await user.click(screen.getByTestId('lu-lookup'));
+    expect(await screen.findByTestId('lu-site-ready')).toBeInTheDocument();
+
+    await user.click(screen.getByTestId('lu-run'));
+    expect(await screen.findByTestId('lu-results')).toBeInTheDocument();
+    expect(screen.getByTestId('lu-risk')).toHaveTextContent('Ej bedömd');
+    expect(screen.getByTestId('lu-risk')).not.toHaveTextContent('LOW');
+    expect(screen.getByTestId('lu-risk')).not.toHaveTextContent('MEDIUM');
+    expect(screen.getByTestId('lu-risk')).not.toHaveTextContent('HIGH');
   });
 });

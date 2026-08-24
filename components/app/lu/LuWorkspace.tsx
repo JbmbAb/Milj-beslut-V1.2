@@ -5,6 +5,7 @@ import { fetchPropertyInfo } from '../../../src/ui/api-client/geo.client';
 import EvidenceDetailsPanel from '../../cesium/EvidenceDetailsPanel';
 import type { CesiumEvidenceMode } from '../../CesiumMapView';
 import { presentLuFinding } from './luFindingPresentation';
+import { presentLuCoverageStatus } from './luCoverageStatusPresentation';
 
 const CesiumMapView = lazy(() => import('../../CesiumMapView'));
 
@@ -69,7 +70,8 @@ type SiteAnalysis = {
     requiredActions?: string[];
     notes?: string[];
   };
-  dataSources?: Array<{ source: string; status: string }>;
+  dataSources?: Array<{ source: string; status: string; detail?: string }>;
+  warnings?: string[];
   executionMotor?: ExecutionMotorMeta;
 };
 
@@ -594,6 +596,36 @@ export const LuWorkspace: React.FC<{ initialDesignation?: string }> = ({ initial
               </span>
             ) : null}
           </p>
+
+          {(analysis?.dataSources?.length ?? 0) > 0 ? (
+            <div data-testid="lu-data-sources">
+              <h3 className="text-xs uppercase tracking-widest opacity-70 mb-2">Underlag</h3>
+              <ul className="space-y-2 text-sm">
+                {analysis!.dataSources!.map((ds) => {
+                  const coverage = presentLuCoverageStatus(ds.status);
+                  return (
+                    <li key={ds.source} data-testid={`lu-data-source-${ds.source}`}>
+                      <span className="font-semibold">{ds.source}</span>
+                      {': '}
+                      <span>{coverage.label}</span>
+                      {ds.detail ? <span className="opacity-60"> ({ds.detail})</span> : null}
+                    </li>
+                  );
+                })}
+              </ul>
+            </div>
+          ) : null}
+
+          {(analysis?.warnings?.length ?? 0) > 0 ? (
+            <div data-testid="lu-warnings">
+              <h3 className="text-xs uppercase tracking-widest opacity-70 mb-2">Övrigt att notera</h3>
+              <ul className="space-y-1 text-sm opacity-80 list-disc pl-5">
+                {analysis!.warnings!.map((w) => (
+                  <li key={w}>{w}</li>
+                ))}
+              </ul>
+            </div>
+          ) : null}
 
           {(motor?.findings?.length ?? 0) > 0 ? (
             <div data-testid="lu-findings">
