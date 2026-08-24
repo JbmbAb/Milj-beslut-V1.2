@@ -16,6 +16,7 @@ import {
   runLocalizationReport,
   resolveLuViewerPresentation,
   resolveCurrentLuAssessmentSummary,
+  exportCurrentLuAssessmentPdf,
   generateLocalizationReportLegacy,
   listProjectsForProperty,
   createLocalizationProject,
@@ -383,6 +384,39 @@ router.get(
         evidenceRefs: result.evidenceRefs,
         systemSummary: result.systemSummary,
       });
+    } catch (error) {
+      if (handleOrchestratorError(error, res)) return;
+      next(error);
+    }
+  },
+);
+
+/**
+ * GET /api/localization/:projectId/export-assessment-pdf
+ *
+ * LU-REPORT-EXPORT-UI-V1. Exports a PDF built ONLY from the current, resolved, tamper-verified
+ * governed assessment (resolveCurrentLuAssessmentSummary + its own property/project context
+ * refs) -- never re-runs the kernel, never accepts client-supplied findings/coordinates as
+ * report authority. Deliberately GET (no body): the client identifies only the project, exactly
+ * matching the read-only nature of this export.
+ */
+router.get(
+  '/api/localization/:projectId/export-assessment-pdf',
+  requireAuth,
+  rateLimitByUser(15, 60_000),
+  async (req, res, next) => {
+    try {
+      const result = await exportCurrentLuAssessmentPdf({
+        authUser: req.authUser!,
+        projectId: String(req.params.projectId || ''),
+      });
+      if (result.ok === false) {
+        res.status(result.status).json({ ok: false, error: result.error });
+        return;
+      }
+      res.setHeader('Content-Type', 'application/pdf');
+      res.setHeader('Content-Disposition', `attachment; filename="${result.filename}"`);
+      res.send(result.buffer);
     } catch (error) {
       if (handleOrchestratorError(error, res)) return;
       next(error);

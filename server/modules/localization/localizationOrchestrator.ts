@@ -326,6 +326,11 @@ export async function resolveCurrentLuAssessmentSummary(input: {
       ruleRefs: LocalizationAssessmentArtifact['payload']['rule_refs'];
       evidenceRefs: LocalizationAssessmentArtifact['payload']['evidence_refs'];
       systemSummary: string;
+      /** LU-REPORT-EXPORT-UI-V1. The assessment's own governed context refs -- for a caller (e.g.
+       *  PDF export) that needs human-readable property/project identity without trusting
+       *  anything client-supplied. Resolving these further is a CAS read, not a re-execution. */
+      propertyContextRef: LocalizationAssessmentArtifact['payload']['property_ref'];
+      projectContextRef: LocalizationAssessmentArtifact['payload']['project_context_ref'];
     }
   | { ok: false; status: number; error: string }
 > {
@@ -424,7 +429,112 @@ export async function resolveCurrentLuAssessmentSummary(input: {
     ruleRefs: assessment.payload.rule_refs,
     evidenceRefs: assessment.payload.evidence_refs,
     systemSummary: assessment.payload.system_summary,
+    propertyContextRef: assessment.payload.property_ref,
+    projectContextRef: assessment.payload.project_context_ref,
   };
+}
+
+/**
+ * LU-REPORT-EXPORT-UI-V1.
+ *
+ * Builds a PDF from the SAME resolved, tamper-verified assessment resolveCurrentLuAssessmentSummary
+ * already produces -- never re-runs the kernel, never accepts client-supplied findings, risk
+ * conclusions, evidence content, or coordinates as report authority. The caller identifies only
+ * the project; everything rendered into the PDF is resolved server-side from already-governed CAS
+ * artifacts (the assessment itself, plus its own property_ref/project_context_ref -- LU_PROPERTY_CONTEXT
+ * and LU_PROJECT_CONTEXT, both already-governed context artifacts, not raw/derived data).
+ *
+ * Deliberately does NOT reuse buildLocalizationPdfData/LocalizationPdfData: that shape requires
+ * legacy compliance-rule-engine output (VISS, monuments, per-rule chapter/recommendation text,
+ * protected-area names) that was never persisted onto the governed LocalizationAssessmentArtifact
+ * -- only computed live, per run, and discarded. Filling that shape here would mean either
+ * re-running the ungoverned legacy analysis (forbidden) or fabricating placeholder values
+ * (dishonest). This is a smaller, honest report: only what the persisted assessment and its own
+ * governed context refs actually contain.
+ */
+export async function exportCurrentLuAssessmentPdf(input: {
+  readonly authUser: AuthUser;
+  readonly projectId: string;
+  readonly artifactRepository?: ArtifactRepositoryPort;
+  readonly currentBindingProvider?: ProjectContextBindingProvider;
+  readonly assessmentProjectionIndex?: ProjectAssessmentProjectionIndex;
+  readonly localizationGeometryIndex?: LocalizationGeometryProjectionIndex;
+}): Promise<
+  | { ok: true; buffer: Buffer; filename: string }
+  | { ok: false; status: number; error: string }
+> {
+  const summary = await resolveCurrentLuAssessmentSummary(input);
+  if (summary.ok === false) {
+    return summary;
+  }
+
+  const artifactRepository = input.artifactRepository ?? (await MimersIntegration.create()).artifactRepository;
+
+  let property: { property_ref: string; official_name: string; municipality: string } | null = null;
+  try {
+    const propertyContext = await artifactRepository.resolve<{
+      payload: { property_ref: string; official_name: string; municipality: string };
+    }>(summary.propertyContextRef);
+    property = {
+      property_ref: propertyContext.payload.property_ref,
+      official_name: propertyContext.payload.official_name,
+      municipality: propertyContext.payload.municipality,
+    };
+  } catch {
+    // Governed context artifact missing/unresolvable -- report the gap honestly rather than
+    // fabricate a property identity. The assessment identity itself is still verified above.
+    property = null;
+  }
+
+  let project: { project_name: string; description: string } | null = null;
+  try {
+    const projectContext = await artifactRepository.resolve<{
+      payload: { project_name: string; description: string };
+    }>(summary.projectContextRef);
+    project = { project_name: projectContext.payload.project_name, description: projectContext.payload.description };
+  } catch {
+    project = null;
+  }
+
+  const pdfData = {
+    title: 'Lokaliseringsbedömning',
+    generatedAt: new Date().toISOString(),
+    projectId: String(input.projectId || '').trim(),
+    disclaimer:
+      'Human in the Loop: Detta dokument är genererat från ett styrt (governed) underlag och ' +
+      'ersätter inte juridisk eller teknisk expertbedömning. Alla slutsatser ska granskas av ' +
+      'behörig handläggare innan formellt beslut fattas.',
+    property: property ?? { note: 'Fastighetskontext kunde inte läsas -- se teknisk verifiering nedan.' },
+    project: project ?? { note: 'Projektkontext kunde inte läsas -- se teknisk verifiering nedan.' },
+    systemSummary: summary.systemSummary,
+    findings: summary.findings.map((f) => ({
+      finding_id: f.finding_id,
+      rule_id: f.rule_id,
+      rule_version: f.rule_version,
+      risk_level: f.risk_level,
+      explanation: f.explanation,
+    })),
+    ruleReferences: summary.ruleRefs,
+    evidenceReferences: summary.evidenceRefs.map((ref) => ({
+      artifact_id: ref.artifact_id,
+      artifact_type: ref.artifact_type,
+    })),
+    limitations: [
+      'Detta underlag omfattar endast styrda (governed) fynd som ingår i den persisterade ' +
+        'bedömningen. Det ersätter inte en fullständig juridisk/teknisk utredning.',
+      summary.evidenceRefs.some((r) => r.artifact_type === 'DOCUMENT_EVIDENCE')
+        ? 'Dokumentunderlag ingår i denna bedömning.'
+        : 'Inget dokumentunderlag (t.ex. tidigare beslut) ingår ännu i denna bedömning.',
+    ],
+    verification: {
+      assessment_artifact_id: summary.assessmentArtifactId,
+      content_hash_verified: true,
+    },
+  };
+
+  const buffer = await buildJsonPdfBuffer(pdfData.title, `Projekt ${pdfData.projectId}`, pdfData);
+  const safeId = pdfData.projectId.replace(/[^a-zA-Z0-9-_åäöÅÄÖ]+/g, '-').slice(0, 40) || 'projekt';
+  return { ok: true, buffer, filename: `lokaliseringsbedomning-${safeId}.pdf` };
 }
 
 export async function fetchLocalizationAuditTrail(projectId: string) {

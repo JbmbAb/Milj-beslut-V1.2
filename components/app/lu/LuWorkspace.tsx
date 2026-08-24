@@ -96,6 +96,8 @@ export const LuWorkspace: React.FC<{ initialDesignation?: string }> = ({ initial
   const [running, setRunning] = useState(false);
   const [runError, setRunError] = useState('');
   const [report, setReport] = useState<LocalizationReport | null>(null);
+  const [exportingPdf, setExportingPdf] = useState(false);
+  const [exportPdfError, setExportPdfError] = useState('');
   // PRODUCT-LU-CONTEXT-AND-EVIDENCE-BINDING-V1: the active product path defaults to live,
   // governed evidence. 'fixture' remains available as an explicit user toggle inside
   // CesiumMapView (dev/comparison use), but must never be this workspace's silent default.
@@ -295,6 +297,37 @@ export const LuWorkspace: React.FC<{ initialDesignation?: string }> = ({ initial
       setRunError(err instanceof Error ? err.message : 'Kunde inte köra bedömning.');
     } finally {
       setRunning(false);
+    }
+  };
+
+  // LU-REPORT-EXPORT-UI-V1: exports the already-viewed governed assessment, resolved server-side
+  // (GET /api/localization/:projectId/export-assessment-pdf). Only projectId is sent -- the
+  // client never supplies findings/coordinates/risk as report authority, matching the invariant
+  // proven server-side (see exportCurrentLuAssessmentPdf).
+  const exportPdf = async () => {
+    if (exportingPdf) return; // duplicate-click guard
+    const projectId = getActiveProjectId();
+    if (!projectId) {
+      setExportPdfError('Inget aktivt projekt valt.');
+      return;
+    }
+    setExportPdfError('');
+    setExportingPdf(true);
+    try {
+      const blob = await callApi<Blob>(
+        `/api/localization/${encodeURIComponent(projectId)}/export-assessment-pdf`,
+        { method: 'GET' },
+      );
+      const url = URL.createObjectURL(blob);
+      const anchor = document.createElement('a');
+      anchor.href = url;
+      anchor.download = `lokaliseringsbedomning-${projectId}.pdf`;
+      anchor.click();
+      URL.revokeObjectURL(url);
+    } catch (err) {
+      setExportPdfError(err instanceof Error ? err.message : 'Export misslyckades.');
+    } finally {
+      setExportingPdf(false);
     }
   };
 
@@ -555,7 +588,26 @@ export const LuWorkspace: React.FC<{ initialDesignation?: string }> = ({ initial
           className="border p-6 space-y-4"
           style={{ borderColor: colors.coreGraphite.hex }}
         >
-          <h2 className="text-xl font-bold">Resultat</h2>
+          <div className="flex items-center justify-between gap-3">
+            <h2 className="text-xl font-bold">Resultat</h2>
+            {motor?.assessment_artifact_id ? (
+              <button
+                type="button"
+                data-testid="lu-export-pdf"
+                disabled={exportingPdf}
+                onClick={() => void exportPdf()}
+                className="px-4 py-2 text-sm font-semibold border disabled:opacity-40"
+                style={{ borderColor: colors.coreTurquoise.hex, color: colors.flowLightCyan.hex }}
+              >
+                {exportingPdf ? 'Exporterar…' : 'Exportera rapport'}
+              </button>
+            ) : null}
+          </div>
+          {exportPdfError ? (
+            <p data-testid="lu-export-pdf-error" className="text-sm" style={{ color: '#F87171' }}>
+              {exportPdfError}
+            </p>
+          ) : null}
           {motor ? (
             <div data-testid="lu-motor-meta" className="text-xs opacity-70 space-y-1">
               <p>

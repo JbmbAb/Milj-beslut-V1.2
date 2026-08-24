@@ -1,5 +1,5 @@
 import React from 'react';
-import { render, screen } from '@testing-library/react';
+import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { LuWorkspace } from '../../components/app/lu/LuWorkspace';
@@ -149,6 +149,11 @@ describe('LuWorkspace', () => {
       '/api/localization/generate-report',
       expect.objectContaining({ method: 'POST' }),
     );
+
+    // LU-REPORT-EXPORT-UI-V1: the export action only appears once a real governed assessment
+    // exists, and existing Unit 2/3 presentation (asserted above) is unaffected by its presence.
+    expect(screen.getByTestId('lu-export-pdf')).toBeInTheDocument();
+    expect(screen.getByTestId('lu-export-pdf')).not.toBeDisabled();
   });
 
   it('LU-UNKNOWN-MISSING-DISPLAY-V1, proof 4: NOT_ASSESSED renders an explicit not-assessed state, never a blank or green risk', async () => {
@@ -200,5 +205,101 @@ describe('LuWorkspace', () => {
     expect(screen.getByTestId('lu-risk')).not.toHaveTextContent('LOW');
     expect(screen.getByTestId('lu-risk')).not.toHaveTextContent('MEDIUM');
     expect(screen.getByTestId('lu-risk')).not.toHaveTextContent('HIGH');
+    // No governed assessment_artifact_id -- nothing to export.
+    expect(screen.queryByTestId('lu-export-pdf')).not.toBeInTheDocument();
+  });
+
+  async function renderWithAssessedResult(user: ReturnType<typeof userEvent.setup>) {
+    fetchPropertyInfo.mockResolvedValue({
+      id: 'p1',
+      designation: 'GÄVLE BRYNÄS 1:1',
+      municipality: 'Gävle',
+      geometry: { type: 'Point', coordinates: [17.14, 60.67] },
+      centroid: { lat: 60.67, lng: 17.14 },
+    });
+    callApi.mockImplementation((url: string) => {
+      if (url.includes('/geometry')) {
+        return Promise.resolve({
+          ok: true,
+          geometry: { artifact_id: 'loc-geom-1', provenance: 'user_defined', wgs84LngLat: [17.14, 60.67], provisioningStatus: 'COMPLETED' },
+        });
+      }
+      if (url.includes('/export-assessment-pdf')) {
+        return Promise.resolve(new Blob(['pdf-bytes'], { type: 'application/pdf' }));
+      }
+      return Promise.resolve({
+        ok: true,
+        projectId: 'proj-1',
+        siteAnalyses: [
+          {
+            complianceAnalysis: { overallRisk: 'MEDIUM', permitProbability: 0.5 },
+            executionMotor: { admitted: true, assessment_artifact_id: 'assess-export-abc', finding_ids: [] },
+          },
+        ],
+        humanInTheLoop: 'Human in the loop',
+      });
+    });
+
+    render(<LuWorkspace />);
+    await user.type(screen.getByTestId('lu-designation'), 'GÄVLE BRYNÄS 1:1');
+    await user.click(screen.getByTestId('lu-lookup'));
+    expect(await screen.findByTestId('lu-site-ready')).toBeInTheDocument();
+    await user.click(screen.getByTestId('lu-run'));
+    expect(await screen.findByTestId('lu-results')).toBeInTheDocument();
+  }
+
+  it('LU-REPORT-EXPORT-UI-V1: clicking export calls the canonical GET endpoint for the current project and triggers a download', async () => {
+    const user = userEvent.setup();
+    const createObjectURL = vi.fn(() => 'blob:fake-url');
+    const revokeObjectURL = vi.fn();
+    vi.stubGlobal('URL', { ...URL, createObjectURL, revokeObjectURL });
+    const clickSpy = vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => undefined);
+
+    await renderWithAssessedResult(user);
+    await user.click(screen.getByTestId('lu-export-pdf'));
+
+    expect(callApi).toHaveBeenCalledWith(
+      '/api/localization/proj-1/export-assessment-pdf',
+      expect.objectContaining({ method: 'GET' }),
+    );
+    expect(createObjectURL).toHaveBeenCalled();
+    expect(clickSpy).toHaveBeenCalled();
+    expect(revokeObjectURL).toHaveBeenCalledWith('blob:fake-url');
+    expect(screen.queryByTestId('lu-export-pdf-error')).not.toBeInTheDocument();
+
+    clickSpy.mockRestore();
+    vi.unstubAllGlobals();
+  });
+
+  it('LU-REPORT-EXPORT-UI-V1: server failure is visible to the user, not silently swallowed', async () => {
+    const user = userEvent.setup();
+    await renderWithAssessedResult(user);
+    callApi.mockImplementationOnce(() => Promise.reject(new Error('Export misslyckades på servern.')));
+
+    await user.click(screen.getByTestId('lu-export-pdf'));
+    expect(await screen.findByTestId('lu-export-pdf-error')).toHaveTextContent('Export misslyckades på servern.');
+  });
+
+  it('LU-REPORT-EXPORT-UI-V1: duplicate clicks while exporting cannot fire a second request or produce confusing state', async () => {
+    const user = userEvent.setup();
+    vi.stubGlobal('URL', { ...URL, createObjectURL: vi.fn(() => 'blob:fake-url'), revokeObjectURL: vi.fn() });
+    const clickSpy = vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => undefined);
+    await renderWithAssessedResult(user);
+
+    let resolveExport: (blob: Blob) => void = () => {};
+    callApi.mockImplementationOnce(() => new Promise((resolve) => { resolveExport = resolve; }));
+    const callsBeforeExportClicks = callApi.mock.calls.length;
+
+    const button = screen.getByTestId('lu-export-pdf');
+    await user.click(button);
+    expect(button).toBeDisabled();
+    await user.click(button); // second click while still pending -- must not fire a second request
+    expect(callApi.mock.calls.length - callsBeforeExportClicks).toBe(1);
+
+    resolveExport(new Blob(['pdf-bytes'], { type: 'application/pdf' }));
+    await waitFor(() => expect(screen.getByTestId('lu-export-pdf')).not.toBeDisabled());
+
+    clickSpy.mockRestore();
+    vi.unstubAllGlobals();
   });
 });
