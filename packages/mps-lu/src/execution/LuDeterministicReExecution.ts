@@ -23,6 +23,12 @@ import {
   isVerifiedDocumentFact,
   type VerifiedDocumentFactArtifact,
 } from "../../../mps-data-governance/src/DocumentFactArtifact.js";
+import { isVerifiedDocumentFactContentHashValid } from "../../../mps-data-governance/src/verifyRealDocumentFactCandidate.js";
+import {
+  isDocumentEvidenceV2,
+  isDocumentEvidenceV2ContentHashValid,
+  type DocumentEvidenceArtifactV2,
+} from "../artifacts/DocumentEvidenceArtifactV2.js";
 
 /**
  * LU-DETERMINISTIC-REEXECUTION-V1.
@@ -38,17 +44,23 @@ import {
  * dependency; no system clock in the semantic evaluation; historical artifacts are never
  * rewritten or reinterpreted.
  *
- * KNOWN, DELIBERATE SCOPE GAP (do not silently paper over): `SpatialEvidenceArtifact` has a real,
- * reusable content-hash builder (`buildSpatialEvidenceContentHash`) that this module uses to
- * fully re-verify spatial evidence has not been tampered with since it was pinned. Neither
- * `DocumentEvidenceArtifact` nor `VerifiedDocumentFactArtifact` has an equivalent exported
- * hash-recomputation function anywhere in this codebase today -- their `content_hash`/
- * `artifact_id` are supplied by the caller at construction time in every constructor found
- * (`DocumentFactArtifact.ts`'s `verifyDocumentFactCandidate`), never derived from a documented,
- * reusable formula. This module therefore only re-verifies STRUCTURAL shape (type guard,
- * content_hash presence) for those two artifact families, not full tamper-proof re-hashing. This
- * is a real, named gap in the replay plan -- surfaced here rather than inventing an undocumented
- * hash formula to paper over it.
+ * H15-DOCUMENT-EVIDENCE-REHASH-COLD-REPLAY-V1 (closes most of the gap below): `VerifiedDocumentFactArtifact`
+ * now has a real, reusable self-consistency check (`isVerifiedDocumentFactContentHashValid`,
+ * mps-data-governance/verifyRealDocumentFactCandidate.ts) and `DocumentEvidenceArtifactV2` now
+ * has one too (`isDocumentEvidenceV2ContentHashValid`, DocumentEvidenceArtifactV2.ts). Both are
+ * exercised below for every resolved artifact of those types -- a stored hash is no longer
+ * trusted merely because it is present.
+ *
+ * REMAINING, DELIBERATE SCOPE GAP: `DocumentEvidenceArtifact` V1 (mandatory `property_ref`,
+ * `packages/mps-lu/src/artifacts/DocumentEvidenceArtifact.ts`) still has no documented, reusable
+ * hash-recomputation formula anywhere in this codebase -- its `content_hash`/`artifact_id` were
+ * always supplied by the caller at construction time, never derived. V1 is frozen historical
+ * semantics (OWNER DECISION 2026-08-24, DOCUMENT-EVIDENCE-PROPERTY-BINDING-CONTRACT-V2): this
+ * module continues to only re-verify STRUCTURAL shape (content_hash presence) for a V1-shaped
+ * `DOCUMENT_EVIDENCE` artifact (no `payload.contract_version` field), exactly as before --
+ * inventing an undocumented V1 hash formula here would be exactly the kind of silent historical
+ * reinterpretation the owner decision forbids. V2 (discriminated by
+ * `payload.contract_version === "document-evidence-v2"`) gets the full independent rehash.
  *
  * FrozenExecutionOutcome V2 carries every input required for its own content-hash recomputation.
  * V1 remains historical-only because its old persisted shape omitted capability execution lineage.
@@ -113,8 +125,12 @@ function canonicalRuleRefsKey(
  * Resolves EVERY ref in `evidence_refs` from CAS. Never throws for a missing/tampered ref --
  * collects a mismatch per ref instead, so a caller gets the full picture, not just the first
  * failure.
+ *
+ * Exported (H15-DOCUMENT-EVIDENCE-REHASH-COLD-REPLAY-V1) so real cold-replay proofs can exercise
+ * evidence resolution directly against real CAS state without needing a full
+ * LocalizationAssessmentArtifact wrapping it.
  */
-async function resolveEvidence(args: {
+export async function resolveEvidence(args: {
   readonly evidenceRefs: readonly ArtifactReference[];
   readonly artifactRepository: ArtifactRepositoryPort;
 }): Promise<{
@@ -160,12 +176,34 @@ async function resolveEvidence(args: {
         });
         continue;
       }
+      // Version dispatch (never reinterpret V1 as V2): a V2 artifact declares
+      // payload.contract_version explicitly; a real V1 artifact has no such field at all.
+      const docEvidence = artifact as unknown as DocumentEvidenceArtifact | DocumentEvidenceArtifactV2;
+      if (isDocumentEvidenceV2(docEvidence)) {
+        if (!isDocumentEvidenceV2ContentHashValid(docEvidence)) {
+          mismatches.push({
+            code: "TAMPERED_EVIDENCE",
+            detail: `DOCUMENT_EVIDENCE:${ref.artifact_id} (V2) content_hash does not match its own carried fields -- tampered or malformed`,
+          });
+          continue;
+        }
+      }
+      // else: V1-shaped (no contract_version) -- structural-only, exactly as before. See the
+      // file-header note: no documented, reusable V1 hash formula exists, and none is invented
+      // here; V1 remains frozen historical semantics.
       document_evidence.push(artifact as unknown as DocumentEvidenceArtifact);
     } else if (ref.artifact_type === "VERIFIED_DOCUMENT_FACT") {
       if (!isVerifiedDocumentFact(artifact as unknown as VerifiedDocumentFactArtifact)) {
         mismatches.push({
           code: "TAMPERED_EVIDENCE",
           detail: `VERIFIED_DOCUMENT_FACT:${ref.artifact_id} resolved but is not structurally a verified fact (wrong artifact_type or verification_status)`,
+        });
+        continue;
+      }
+      if (!isVerifiedDocumentFactContentHashValid(artifact as unknown as VerifiedDocumentFactArtifact)) {
+        mismatches.push({
+          code: "TAMPERED_EVIDENCE",
+          detail: `VERIFIED_DOCUMENT_FACT:${ref.artifact_id} content_hash does not match its own carried fields -- tampered or malformed`,
         });
         continue;
       }
