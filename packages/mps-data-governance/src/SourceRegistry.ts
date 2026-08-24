@@ -212,6 +212,70 @@ export function createSourceRegistryTrustedKeyring(
   };
 }
 
+function readJsonString(text: string, start: number): { value: string; end: number } {
+  let cursor = start + 1;
+  let escaped = false;
+  while (cursor < text.length) {
+    const character = text[cursor]!;
+    if (!escaped && character === '"') {
+      return { value: JSON.parse(text.slice(start, cursor + 1)) as string, end: cursor + 1 };
+    }
+    escaped = !escaped && character === '\\';
+    if (character !== '\\') escaped = false;
+    cursor += 1;
+  }
+  throw new Error('SOURCE_REGISTRY_TRUSTED_KEYS_FILE contains an unterminated JSON string.');
+}
+
+function skipJsonValue(text: string, start: number): number {
+  let cursor = start;
+  let depth = 0;
+  let inString = false;
+  let escaped = false;
+  for (; cursor < text.length; cursor += 1) {
+    const character = text[cursor]!;
+    if (inString) {
+      if (!escaped && character === '"') inString = false;
+      escaped = !escaped && character === '\\';
+      if (character !== '\\') escaped = false;
+      continue;
+    }
+    if (character === '"') { inString = true; continue; }
+    if (character === '{' || character === '[') depth += 1;
+    else if (character === '}' || character === ']') {
+      if (depth === 0) return cursor;
+      depth -= 1;
+    } else if (character === ',' && depth === 0) return cursor;
+  }
+  return cursor;
+}
+
+/** Detect duplicate top-level object properties before JSON.parse collapses them. */
+function assertNoDuplicateTrustedKeyIds(text: string): void {
+  let cursor = 0;
+  const skipWhitespace = () => { while (/\s/.test(text[cursor] ?? '')) cursor += 1; };
+  skipWhitespace();
+  if (text[cursor] !== '{') return;
+  cursor += 1;
+  const seen = new Set<string>();
+  while (true) {
+    skipWhitespace();
+    if (text[cursor] === '}') return;
+    if (text[cursor] !== '"') return;
+    const key = readJsonString(text, cursor);
+    if (seen.has(key.value)) {
+      throw new Error(`SOURCE_REGISTRY_TRUSTED_KEYS_FILE contains duplicate key_id '${key.value}'.`);
+    }
+    seen.add(key.value);
+    cursor = key.end; skipWhitespace();
+    if (text[cursor] !== ':') return;
+    cursor = skipJsonValue(text, cursor + 1); skipWhitespace();
+    if (text[cursor] === '}') return;
+    if (text[cursor] !== ',') return;
+    cursor += 1;
+  }
+}
+
 /**
  * P2-SR-VERIFY-ONLY-01 — the runtime read path. Verification capability only. No private key is
  * read here in either the single-key or multi-key shape below.
@@ -228,7 +292,9 @@ export function createSourceRegistryTrustedKeyring(
 export function getSourceRegistryTrustedKeyringFromEnv(): SourceRegistryTrustedKeyring {
   const trustedKeysFile = process.env.SOURCE_REGISTRY_TRUSTED_KEYS_FILE;
   if (trustedKeysFile) {
-    const raw = JSON.parse(readFileSync(resolve(trustedKeysFile), 'utf8')) as Record<string, string>;
+    const text = readFileSync(resolve(trustedKeysFile), 'utf8');
+    assertNoDuplicateTrustedKeyIds(text);
+    const raw = JSON.parse(text) as Record<string, string>;
     if (!raw || typeof raw !== 'object' || Array.isArray(raw)) {
       throw new Error(
         `SOURCE_REGISTRY_TRUSTED_KEYS_FILE at '${trustedKeysFile}' must be a JSON object mapping key_id -> public key PEM.`,

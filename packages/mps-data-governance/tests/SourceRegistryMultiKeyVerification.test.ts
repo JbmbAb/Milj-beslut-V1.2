@@ -6,10 +6,12 @@ import { join } from 'node:path';
 import { LocalPemSigningKeyProvider, LocalPemVerificationKeyProvider } from '@miljobeslut/mimers-brunn-core';
 
 import { approveSourceRegistryEntry } from '../src/SourceApproval';
+import { loadSourceAuthorityHistory } from '../src/SourceAuthorityHistory';
 import { unsignedDraftFixture } from './fixtures/unsignedSourceRegistryDrafts';
 import {
   loadVerifiedSourceRegistry,
   createSourceRegistryTrustedKeyring,
+  getSourceRegistryTrustedKeyringFromEnv,
   type SourceRegistryArtifact,
 } from '../src/SourceRegistry';
 
@@ -139,5 +141,33 @@ describe('SOURCE-REGISTRY-MULTI-KEY-VERIFICATION-V1', () => {
         signing: new LocalPemVerificationKeyProvider(oldKey.keyId, oldKey.publicKey),
       }),
     ).rejects.toThrow(/signer_key/);
+  });
+
+  it('rejects conflicting duplicate key ids before JSON.parse can collapse them', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'sr-duplicate-key-'));
+    const path = join(dir, 'trusted-keys.json');
+    writeFileSync(path, `{"${OLD_KEY_ID}":"first","${OLD_KEY_ID}":"second"}`, 'utf8');
+    const original = process.env.SOURCE_REGISTRY_TRUSTED_KEYS_FILE;
+    try {
+      process.env.SOURCE_REGISTRY_TRUSTED_KEYS_FILE = path;
+      expect(() => getSourceRegistryTrustedKeyringFromEnv()).toThrow(/duplicate key_id/);
+    } finally {
+      if (original === undefined) delete process.env.SOURCE_REGISTRY_TRUSTED_KEYS_FILE;
+      else process.env.SOURCE_REGISTRY_TRUSTED_KEYS_FILE = original;
+    }
+  });
+
+  it('resolves historical and successor authorities through the same signer-bound keyring', async () => {
+    const { path, oldKey, newKey } = await writeTwoEntryRegistry();
+    const history = await loadSourceAuthorityHistory({
+      registryPath: path,
+      historicalStorePaths: [],
+      trustedKeyring: createSourceRegistryTrustedKeyring(new Map([
+        [oldKey.keyId, oldKey.publicKey],
+        [newKey.keyId, newKey.publicKey],
+      ])),
+    });
+    expect(history.findByArtifactId('reg-dv-puh-mmod-001')?.sourceId).toBe('domstolsverket-puh-mmod');
+    expect(history.findByArtifactId('reg-rk-sfs-1998-808-001')?.sourceId).toBe('regeringskansliet-sfs-1998-808');
   });
 });
