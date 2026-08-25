@@ -1,0 +1,64 @@
+{
+  "classification": "HISTORICAL_SOURCE_REGISTRY_SNAPSHOT_METADATA",
+  "status": "SUPERSEDED_BY_SOURCE_REGISTRY_ATOMIC_REATTESTATION_12_V1",
+  "verification_status": "UNVERIFIABLE_UNTIL_REAL_HISTORICAL_PUBLIC_KEY_IS_RECOVERED",
+  "raw_snapshot_file": "active-registry-2026-08-14-unverifiable.json",
+  "raw_snapshot_sha256": "67bfed97478ef98d87aab19c48d45445effdf51ff0cb101949f8074db153ff05",
+  "historical_signer_key_id": "ed25519:source-registry-governor-2026-08-14",
+  "successor_signer_key_id": "ed25519:source-registry-governor-2026-08-25",
+  "successor_entries": [
+    {
+      "source_id": "domstolsverket-puh-mmod",
+      "artifact_id": "reg-dv-puh-mmod-004"
+    },
+    {
+      "source_id": "regeringskansliet-sfs-1998-808",
+      "artifact_id": "reg-rk-sfs-1998-808-002"
+    },
+    {
+      "source_id": "regeringskansliet-sfs-2013-251",
+      "artifact_id": "reg-rk-sfs-2013-251-002"
+    },
+    {
+      "source_id": "regeringskansliet-sfs-2020-614",
+      "artifact_id": "reg-rk-sfs-2020-614-002"
+    },
+    {
+      "source_id": "regeringskansliet-sfs-2010-900",
+      "artifact_id": "reg-rk-sfs-2010-900-002"
+    },
+    {
+      "source_id": "regeringskansliet-sfs-2011-338",
+      "artifact_id": "reg-rk-sfs-2011-338-002"
+    },
+    {
+      "source_id": "regeringskansliet-sfs-1998-899",
+      "artifact_id": "reg-rk-sfs-1998-899-002"
+    },
+    {
+      "source_id": "hav-hvmfs-2016-17",
+      "artifact_id": "reg-hav-hvmfs-2016-17-002"
+    },
+    {
+      "source_id": "sgu-groundwater-influence-analytical-models",
+      "artifact_id": "reg-sgu-groundwater-models-002"
+    },
+    {
+      "source_id": "sgu-well-drilling-guidance",
+      "artifact_id": "reg-sgu-well-drilling-guidance-002"
+    },
+    {
+      "source_id": "boverket-planbestammelser",
+      "artifact_id": "reg-boverket-planbestammelser-002"
+    },
+    {
+      "source_id": "lantmateriet-stac-byggnader",
+      "artifact_id": "reg-lantmateriet-stac-byggnader-002"
+    }
+  ],
+  "invariants": [
+    "The raw snapshot is not an approved historical authority store.",
+    "No historical artifact_id is relinked to a successor artifact.",
+    "No historical signature is re-signed or treated as verified."
+  ]
+}

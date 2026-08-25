@@ -266,17 +266,17 @@ describe('P2-SR-VERIFY-ONLY-01 — verification without minting capability', () 
 
   // ------------------------------------------- 6. INSTALLED AUTHORITY IDENTITY PINNED
 
-  it('pins the installed PUH v3 authority identity after size-policy reissue', () => {
+  it('pins the installed PUH v4 authority identity after atomic successor re-attestation', () => {
     const bytes = readFileSync(AUTHORITY_PATH);
     const registry = JSON.parse(bytes.toString('utf8')) as SourceRegistryArtifact[];
     const puh = registry.find((entry) => entry.source_id === 'domstolsverket-puh-mmod');
 
-    expect(puh?.artifact_id).toBe('reg-dv-puh-mmod-003');
+    expect(puh?.artifact_id).toBe('reg-dv-puh-mmod-004');
     expect(puh?.approval_attestation.subjectDigest).toBe(
       'sha256:5d9bc238ef9f0470ef48f30e5c470ef3b12ce638ccd16c6082834f01bae6f977',
     );
     expect(puh?.approval_attestation.signature).toBe(
-      'ed25519:UCHUWBpqXG1re5NOAO1zKokqvjHLiWOasPgD1sFUsHzkos4JuZIKvSJwoeuz2dLRurAPh4FDRxgCAsAv3nXPCg==',
+      'ed25519:MeMmQ3AJ3W7odwHwOs3AqV0b0OWVVy++zZQosJU6eEdLAQ4gCP1nO1fQCytnoMG0oKv/bKbIIo656GAd4E0/CQ==',
     );
     expect(puh?.policy.max_object_size_bytes).toBe(134_217_728);
     expect(

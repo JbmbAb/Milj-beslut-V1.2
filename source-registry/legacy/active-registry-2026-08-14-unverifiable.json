@@ -1,6 +1,6 @@
 [
   {
-    "artifact_id": "reg-dv-puh-mmod-004",
+    "artifact_id": "reg-dv-puh-mmod-003",
     "artifact_type": "SOURCE_REGISTRY_ENTRY",
     "source_id": "domstolsverket-puh-mmod",
     "producer": {
@@ -42,19 +42,19 @@
         "action": "source.approve",
         "source_id": "domstolsverket-puh-mmod",
         "source_content_hash": "5d9bc238ef9f0470ef48f30e5c470ef3b12ce638ccd16c6082834f01bae6f977",
-        "approver_actor_id": "bjb@miljöbeslut.se",
+        "approver_actor_id": "JbmbAb",
         "approver_role": "GOVERNANCE_REVIEWER",
         "attestation_schema_version": 1,
-        "signer_key_id": "ed25519:source-registry-governor-2026-08-25"
+        "signer_key_id": "ed25519:source-registry-governor-2026-08-14"
       },
       "hashAlgorithm": "sha256",
       "signatureAlgorithm": "Ed25519",
-      "signer": "ed25519:source-registry-governor-2026-08-25",
-      "signature": "ed25519:MeMmQ3AJ3W7odwHwOs3AqV0b0OWVVy++zZQosJU6eEdLAQ4gCP1nO1fQCytnoMG0oKv/bKbIIo656GAd4E0/CQ=="
+      "signer": "ed25519:source-registry-governor-2026-08-14",
+      "signature": "ed25519:UCHUWBpqXG1re5NOAO1zKokqvjHLiWOasPgD1sFUsHzkos4JuZIKvSJwoeuz2dLRurAPh4FDRxgCAsAv3nXPCg=="
     }
   },
   {
-    "artifact_id": "reg-rk-sfs-1998-808-002",
+    "artifact_id": "reg-rk-sfs-1998-808-001",
     "artifact_type": "SOURCE_REGISTRY_ENTRY",
     "source_id": "regeringskansliet-sfs-1998-808",
     "producer": {
@@ -65,14 +65,10 @@
     "channel": {
       "channel_type": "WEBSITE",
       "endpoint_url": "https://rkrattsbaser.gov.se/sfst?bet=1998:808",
-      "allowed_domains": [
-        "rkrattsbaser.gov.se"
-      ]
+      "allowed_domains": ["rkrattsbaser.gov.se"]
     },
     "adapter": "SINGLE_ENDPOINT_V1",
-    "artifact_types": [
-      "LAW"
-    ],
+    "artifact_types": ["LAW"],
     "collection_frequency": "DAILY",
     "change_detection": {
       "strategy": "CONTENT_HASH"
@@ -96,19 +92,19 @@
         "action": "source.approve",
         "source_id": "regeringskansliet-sfs-1998-808",
         "source_content_hash": "888c7cbafc18058a9c254901b1b09e163726e270c271122ce532123af9285b97",
-        "approver_actor_id": "bjb@miljöbeslut.se",
+        "approver_actor_id": "JbmbAb",
         "approver_role": "GOVERNANCE_REVIEWER",
         "attestation_schema_version": 1,
-        "signer_key_id": "ed25519:source-registry-governor-2026-08-25"
+        "signer_key_id": "ed25519:source-registry-governor-2026-08-14"
       },
       "hashAlgorithm": "sha256",
       "signatureAlgorithm": "Ed25519",
-      "signer": "ed25519:source-registry-governor-2026-08-25",
-      "signature": "ed25519:TYNEnEWzmi+vjwV1ZPhRg69VnFFLRUk/48q5qPH3ceD9oL0cYeHPnHLsX7SMXJoSKp2/dNGQjbEluKriL08DAA=="
+      "signer": "ed25519:source-registry-governor-2026-08-14",
+      "signature": "ed25519:Tgf75c+od5qbFbsCVsUCV7EUnoDL03cto/ta1IM4wL3DRzvNVhaBMMoio8K901RaWwJRj3u8N0MCItjwgiOJBw=="
     }
   },
   {
-    "artifact_id": "reg-rk-sfs-2013-251-002",
+    "artifact_id": "reg-rk-sfs-2013-251-001",
     "artifact_type": "SOURCE_REGISTRY_ENTRY",
     "source_id": "regeringskansliet-sfs-2013-251",
     "producer": {
@@ -119,14 +115,10 @@
     "channel": {
       "channel_type": "WEBSITE",
       "endpoint_url": "https://rkrattsbaser.gov.se/sfst?bet=2013:251",
-      "allowed_domains": [
-        "rkrattsbaser.gov.se"
-      ]
+      "allowed_domains": ["rkrattsbaser.gov.se"]
     },
     "adapter": "SINGLE_ENDPOINT_V1",
-    "artifact_types": [
-      "ORDINANCE"
-    ],
+    "artifact_types": ["ORDINANCE"],
     "collection_frequency": "DAILY",
     "change_detection": {
       "strategy": "CONTENT_HASH"
@@ -150,19 +142,19 @@
         "action": "source.approve",
         "source_id": "regeringskansliet-sfs-2013-251",
         "source_content_hash": "3c46a82cbc1b8ede1653df88a435b991d3d64acaf8e72ed6ec9e9a12fbf37c21",
-        "approver_actor_id": "bjb@miljöbeslut.se",
+        "approver_actor_id": "JbmbAb",
         "approver_role": "GOVERNANCE_REVIEWER",
         "attestation_schema_version": 1,
-        "signer_key_id": "ed25519:source-registry-governor-2026-08-25"
+        "signer_key_id": "ed25519:source-registry-governor-2026-08-14"
       },
       "hashAlgorithm": "sha256",
       "signatureAlgorithm": "Ed25519",
-      "signer": "ed25519:source-registry-governor-2026-08-25",
-      "signature": "ed25519:DhFsrmRxKPUYj9TvqspLluinEOyLC+VcRtjoIPuQFvdC9b5T0THH+PO7R1q/5flzTaHWVmsbvCJHzIxmHuMHDw=="
+      "signer": "ed25519:source-registry-governor-2026-08-14",
+      "signature": "ed25519:/l22pilHsppanF+ZriuYYeVtIMgD0hgFY6QOZg8wLKU7zXxiHPi7pkhn30TcRI5qNoE13cYosWG3G7EETuCbCA=="
     }
   },
   {
-    "artifact_id": "reg-rk-sfs-2020-614-002",
+    "artifact_id": "reg-rk-sfs-2020-614-001",
     "artifact_type": "SOURCE_REGISTRY_ENTRY",
     "source_id": "regeringskansliet-sfs-2020-614",
     "producer": {
@@ -173,14 +165,10 @@
     "channel": {
       "channel_type": "WEBSITE",
       "endpoint_url": "https://rkrattsbaser.gov.se/sfst?bet=2020:614",
-      "allowed_domains": [
-        "rkrattsbaser.gov.se"
-      ]
+      "allowed_domains": ["rkrattsbaser.gov.se"]
     },
     "adapter": "SINGLE_ENDPOINT_V1",
-    "artifact_types": [
-      "ORDINANCE"
-    ],
+    "artifact_types": ["ORDINANCE"],
     "collection_frequency": "DAILY",
     "change_detection": {
       "strategy": "CONTENT_HASH"
@@ -204,19 +192,19 @@
         "action": "source.approve",
         "source_id": "regeringskansliet-sfs-2020-614",
         "source_content_hash": "36fd0e912567b7e1bf828fa24678a5b35459c9135e04f9dd85d5417545112973",
-        "approver_actor_id": "bjb@miljöbeslut.se",
+        "approver_actor_id": "JbmbAb",
         "approver_role": "GOVERNANCE_REVIEWER",
         "attestation_schema_version": 1,
-        "signer_key_id": "ed25519:source-registry-governor-2026-08-25"
+        "signer_key_id": "ed25519:source-registry-governor-2026-08-14"
       },
       "hashAlgorithm": "sha256",
       "signatureAlgorithm": "Ed25519",
-      "signer": "ed25519:source-registry-governor-2026-08-25",
-      "signature": "ed25519:ffcsp4R4gjPbZ7Pnfo+wtCqXH/+IT375suBJyM88op9ZZF8TsWntHuHFheZB6OXgWaW4kv4qtAEvjRziDHdaDA=="
+      "signer": "ed25519:source-registry-governor-2026-08-14",
+      "signature": "ed25519:b9GV/TXx++1IG0ILN0tYGn7/v23BlHGz8XHKzSgJ7ZkcZfs1orAV3RM95h6MgvwBtv45ym6RNXwuY0tDIS2XAQ=="
     }
   },
   {
-    "artifact_id": "reg-rk-sfs-2010-900-002",
+    "artifact_id": "reg-rk-sfs-2010-900-001",
     "artifact_type": "SOURCE_REGISTRY_ENTRY",
     "source_id": "regeringskansliet-sfs-2010-900",
     "producer": {
@@ -227,14 +215,10 @@
     "channel": {
       "channel_type": "WEBSITE",
       "endpoint_url": "https://rkrattsbaser.gov.se/sfst?bet=2010:900",
-      "allowed_domains": [
-        "rkrattsbaser.gov.se"
-      ]
+      "allowed_domains": ["rkrattsbaser.gov.se"]
     },
     "adapter": "SINGLE_ENDPOINT_V1",
-    "artifact_types": [
-      "LAW"
-    ],
+    "artifact_types": ["LAW"],
     "collection_frequency": "DAILY",
     "change_detection": {
       "strategy": "CONTENT_HASH"
@@ -258,19 +242,19 @@
         "action": "source.approve",
         "source_id": "regeringskansliet-sfs-2010-900",
         "source_content_hash": "59161ba7d94e2391e4fff945c6f2f4572290d13e2cddef4cb8c05464ddd1be98",
-        "approver_actor_id": "bjb@miljöbeslut.se",
+        "approver_actor_id": "JbmbAb",
         "approver_role": "GOVERNANCE_REVIEWER",
         "attestation_schema_version": 1,
-        "signer_key_id": "ed25519:source-registry-governor-2026-08-25"
+        "signer_key_id": "ed25519:source-registry-governor-2026-08-14"
       },
       "hashAlgorithm": "sha256",
       "signatureAlgorithm": "Ed25519",
-      "signer": "ed25519:source-registry-governor-2026-08-25",
-      "signature": "ed25519:UCWRVq99dQkRcz5jYB/JezMUMS4FGpEgL5P+D8mesPWsz+fS6G94hfFzhEJDL7CYudBZkt6GMchMJM/junFzBw=="
+      "signer": "ed25519:source-registry-governor-2026-08-14",
+      "signature": "ed25519:yUTuX0+e2faZt1sEGloJjZm98rwISw5XbSD7dN+glily+cSnBpQ+651pFXPVvkwL0HtZU6NT14gHFx3zI9NPAA=="
     }
   },
   {
-    "artifact_id": "reg-rk-sfs-2011-338-002",
+    "artifact_id": "reg-rk-sfs-2011-338-001",
     "artifact_type": "SOURCE_REGISTRY_ENTRY",
     "source_id": "regeringskansliet-sfs-2011-338",
     "producer": {
@@ -281,14 +265,10 @@
     "channel": {
       "channel_type": "WEBSITE",
       "endpoint_url": "https://rkrattsbaser.gov.se/sfst?bet=2011:338",
-      "allowed_domains": [
-        "rkrattsbaser.gov.se"
-      ]
+      "allowed_domains": ["rkrattsbaser.gov.se"]
     },
     "adapter": "SINGLE_ENDPOINT_V1",
-    "artifact_types": [
-      "ORDINANCE"
-    ],
+    "artifact_types": ["ORDINANCE"],
     "collection_frequency": "DAILY",
     "change_detection": {
       "strategy": "CONTENT_HASH"
@@ -312,19 +292,19 @@
         "action": "source.approve",
         "source_id": "regeringskansliet-sfs-2011-338",
         "source_content_hash": "27d279b8b9945f9101589bf0035cb1ddb816bd39338caa49396aa1ab24ff39f4",
-        "approver_actor_id": "bjb@miljöbeslut.se",
+        "approver_actor_id": "JbmbAb",
         "approver_role": "GOVERNANCE_REVIEWER",
         "attestation_schema_version": 1,
-        "signer_key_id": "ed25519:source-registry-governor-2026-08-25"
+        "signer_key_id": "ed25519:source-registry-governor-2026-08-14"
       },
       "hashAlgorithm": "sha256",
       "signatureAlgorithm": "Ed25519",
-      "signer": "ed25519:source-registry-governor-2026-08-25",
-      "signature": "ed25519:Bp3eJqO30R9eRmepnbPKW+5fd9MkVkOlxtgssYFnxA5DVN3hG0HSKnkKCHO0178EwkJcEhMVY76KS7eedS/fDw=="
+      "signer": "ed25519:source-registry-governor-2026-08-14",
+      "signature": "ed25519:S1+r+EkCSzqqGH1ZDBvAm1hTeFhqp/K8ucjp1D9acLg9eIRRvsOQgeTpElCMVwsKWTXVcDGqM13fWFa4+Ae+Bg=="
     }
   },
   {
-    "artifact_id": "reg-rk-sfs-1998-899-002",
+    "artifact_id": "reg-rk-sfs-1998-899-001",
     "artifact_type": "SOURCE_REGISTRY_ENTRY",
     "source_id": "regeringskansliet-sfs-1998-899",
     "producer": {
@@ -335,14 +315,10 @@
     "channel": {
       "channel_type": "WEBSITE",
       "endpoint_url": "https://rkrattsbaser.gov.se/sfst?bet=1998:899",
-      "allowed_domains": [
-        "rkrattsbaser.gov.se"
-      ]
+      "allowed_domains": ["rkrattsbaser.gov.se"]
     },
     "adapter": "SINGLE_ENDPOINT_V1",
-    "artifact_types": [
-      "ORDINANCE"
-    ],
+    "artifact_types": ["ORDINANCE"],
     "collection_frequency": "DAILY",
     "change_detection": {
       "strategy": "CONTENT_HASH"
@@ -366,19 +342,19 @@
         "action": "source.approve",
         "source_id": "regeringskansliet-sfs-1998-899",
         "source_content_hash": "ef965c7f3ac1f6d98ae4a4ec74405aeef99e726cb4caf83c871b9632160b4bf2",
-        "approver_actor_id": "bjb@miljöbeslut.se",
+        "approver_actor_id": "JbmbAb",
         "approver_role": "GOVERNANCE_REVIEWER",
         "attestation_schema_version": 1,
-        "signer_key_id": "ed25519:source-registry-governor-2026-08-25"
+        "signer_key_id": "ed25519:source-registry-governor-2026-08-14"
       },
       "hashAlgorithm": "sha256",
       "signatureAlgorithm": "Ed25519",
-      "signer": "ed25519:source-registry-governor-2026-08-25",
-      "signature": "ed25519:VX1Yn6Ty1m7mjA/Wep2QvLQLIXmsjdWtSqz/XxBQ/SuXI0lort6AYj/BtpJ2MxDVZrKwKqEWivcPVPpw8p5DDQ=="
+      "signer": "ed25519:source-registry-governor-2026-08-14",
+      "signature": "ed25519:OMhksW53DZz8062o4NPtzrqCc6UwD8Yw62k0ajD3p5hQLicxb0EgFPN0wGoGlA0L73KK+WGf6s3u2zgI0wOIDw=="
     }
   },
   {
-    "artifact_id": "reg-hav-hvmfs-2016-17-002",
+    "artifact_id": "reg-hav-hvmfs-2016-17-001",
     "artifact_type": "SOURCE_REGISTRY_ENTRY",
     "source_id": "hav-hvmfs-2016-17",
     "producer": {
@@ -389,14 +365,10 @@
     "channel": {
       "channel_type": "WEBSITE",
       "endpoint_url": "https://www.havochvatten.se/vagledning-foreskrifter-och-lagar/foreskrifter/register-avlopp/sma-avloppsanordningar-for-hushallsspillvatten-hvmfs-201617.html",
-      "allowed_domains": [
-        "www.havochvatten.se"
-      ]
+      "allowed_domains": ["www.havochvatten.se"]
     },
     "adapter": "SINGLE_ENDPOINT_V1",
-    "artifact_types": [
-      "AGENCY_GENERAL_ADVICE"
-    ],
+    "artifact_types": ["AGENCY_GENERAL_ADVICE"],
     "collection_frequency": "DAILY",
     "change_detection": {
       "strategy": "CONTENT_HASH"
@@ -420,19 +392,19 @@
         "action": "source.approve",
         "source_id": "hav-hvmfs-2016-17",
         "source_content_hash": "bbcd43eb8053e3f62a7480edb330e3a2f5a98bb75d32e1365fd7878a2fba8640",
-        "approver_actor_id": "bjb@miljöbeslut.se",
+        "approver_actor_id": "JbmbAb",
         "approver_role": "GOVERNANCE_REVIEWER",
         "attestation_schema_version": 1,
-        "signer_key_id": "ed25519:source-registry-governor-2026-08-25"
+        "signer_key_id": "ed25519:source-registry-governor-2026-08-14"
       },
       "hashAlgorithm": "sha256",
       "signatureAlgorithm": "Ed25519",
-      "signer": "ed25519:source-registry-governor-2026-08-25",
-      "signature": "ed25519:Vh6Gtp0lHQnydvG56GAkNZq4Hv6BVwzTPWxcUQ3P2LA7CSH2wqNcyQ4oyKkD+zP4UqxS1+16QK4cR0SknXYeBg=="
+      "signer": "ed25519:source-registry-governor-2026-08-14",
+      "signature": "ed25519:M+LJLLBr9dWxKGWLfvHthJNLynJE3FtJih0soLE5MwVr41RDYxmYFAaPNDCBDEq1uGqErL8uUsUrFkEqrz7ACw=="
     }
   },
   {
-    "artifact_id": "reg-sgu-groundwater-models-002",
+    "artifact_id": "reg-sgu-groundwater-models-001",
     "artifact_type": "SOURCE_REGISTRY_ENTRY",
     "source_id": "sgu-groundwater-influence-analytical-models",
     "producer": {
@@ -443,14 +415,10 @@
     "channel": {
       "channel_type": "WEBSITE",
       "endpoint_url": "https://www.sgu.se/anvandarstod-for-geologiska-fragor/bedomning-av-influensomrade-avseende-grundvatten/berakningsmodeller/analytiska-modeller/",
-      "allowed_domains": [
-        "www.sgu.se"
-      ]
+      "allowed_domains": ["www.sgu.se"]
     },
     "adapter": "SINGLE_ENDPOINT_V1",
-    "artifact_types": [
-      "AGENCY_GUIDANCE"
-    ],
+    "artifact_types": ["AGENCY_GUIDANCE"],
     "collection_frequency": "WEEKLY",
     "change_detection": {
       "strategy": "CONTENT_HASH"
@@ -474,19 +442,19 @@
         "action": "source.approve",
         "source_id": "sgu-groundwater-influence-analytical-models",
         "source_content_hash": "c3d7d17e3ff84f7257abd9942ecd72cafcbc83c9766a6b095aebafcd8ca71f88",
-        "approver_actor_id": "bjb@miljöbeslut.se",
+        "approver_actor_id": "JbmbAb",
         "approver_role": "GOVERNANCE_REVIEWER",
         "attestation_schema_version": 1,
-        "signer_key_id": "ed25519:source-registry-governor-2026-08-25"
+        "signer_key_id": "ed25519:source-registry-governor-2026-08-14"
       },
       "hashAlgorithm": "sha256",
       "signatureAlgorithm": "Ed25519",
-      "signer": "ed25519:source-registry-governor-2026-08-25",
-      "signature": "ed25519:hRBROHBo1wIRGdy3gtDQjwc3t7lF/7weuwWSUYA2i1Ii8852VulnKugFZ9Ka4fYl0m+eSduUx6cRfp0qXRvgAg=="
+      "signer": "ed25519:source-registry-governor-2026-08-14",
+      "signature": "ed25519:20APeqwxIfkm3lrx/kxOSHsl2GLWmTtbfCZ5HZgtaxUzaHEPUq8hhVK2eEqpTh88pds5R5+S8NZDjgunzT9nBA=="
     }
   },
   {
-    "artifact_id": "reg-sgu-well-drilling-guidance-002",
+    "artifact_id": "reg-sgu-well-drilling-guidance-001",
     "artifact_type": "SOURCE_REGISTRY_ENTRY",
     "source_id": "sgu-well-drilling-guidance",
     "producer": {
@@ -528,19 +496,19 @@
         "action": "source.approve",
         "source_id": "sgu-well-drilling-guidance",
         "source_content_hash": "b6472a38d46916fa03fa205c0e88684cf04ba561ad9c20ac22847aeb814fe17d",
-        "approver_actor_id": "bjb@miljöbeslut.se",
+        "approver_actor_id": "JbmbAb",
         "approver_role": "GOVERNANCE_REVIEWER",
         "attestation_schema_version": 1,
-        "signer_key_id": "ed25519:source-registry-governor-2026-08-25"
+        "signer_key_id": "ed25519:source-registry-governor-2026-08-14"
       },
       "hashAlgorithm": "sha256",
       "signatureAlgorithm": "Ed25519",
-      "signer": "ed25519:source-registry-governor-2026-08-25",
-      "signature": "ed25519:xokXwRkeDTg2MTsDMPP6m2nq6rpXQKRfrjcW6ouNi+hw5Oo1jdT5HljL7V6ma0kc50pToWM2Di4mHmhD9m7WDQ=="
+      "signer": "ed25519:source-registry-governor-2026-08-14",
+      "signature": "ed25519:E696N1a4WEl9TfiyeqdUAiBxc83STyNpSiqTzSsZdMuc95LD0GqA8Lp47ClEkFfyAUp/WPO4c9vMaWNPnH98DA=="
     }
   },
   {
-    "artifact_id": "reg-boverket-planbestammelser-002",
+    "artifact_id": "reg-boverket-planbestammelser-001",
     "artifact_type": "SOURCE_REGISTRY_ENTRY",
     "source_id": "boverket-planbestammelser",
     "producer": {
@@ -550,7 +518,7 @@
     },
     "channel": {
       "channel_type": "API",
-      "endpoint_url": "https://api.boverket.se/planbestammelsekatalogen/release/full/aktuell",
+      "endpoint_url": "https://api.boverket.se/planbestammelser/v2/json",
       "allowed_domains": [
         "api.boverket.se"
       ]
@@ -576,25 +544,25 @@
     "geographic_scope": "Sweden",
     "lifecycle_state": "APPROVED",
     "approval_attestation": {
-      "subjectDigest": "sha256:f5b07a7b106e45be50026accaa0727b716a92b1c0a4467ec6a5e6fcd88da7f98",
+      "subjectDigest": "sha256:7aa3d35d0d780b926a6eba911b140101947029fc6ab7ae57887717f39cf08978",
       "predicateType": "mimers-brunn/source-registry-approval/v1",
       "predicate": {
         "action": "source.approve",
         "source_id": "boverket-planbestammelser",
-        "source_content_hash": "f5b07a7b106e45be50026accaa0727b716a92b1c0a4467ec6a5e6fcd88da7f98",
-        "approver_actor_id": "bjb@miljöbeslut.se",
+        "source_content_hash": "7aa3d35d0d780b926a6eba911b140101947029fc6ab7ae57887717f39cf08978",
+        "approver_actor_id": "JbmbAb",
         "approver_role": "GOVERNANCE_REVIEWER",
         "attestation_schema_version": 1,
-        "signer_key_id": "ed25519:source-registry-governor-2026-08-25"
+        "signer_key_id": "ed25519:source-registry-governor-2026-08-14"
       },
       "hashAlgorithm": "sha256",
       "signatureAlgorithm": "Ed25519",
-      "signer": "ed25519:source-registry-governor-2026-08-25",
-      "signature": "ed25519:sBQgaHkgo+vDrB/HaHLAVihelzVAFwIYuA1fczYfjMUC30BjVHsfBJSWPqrK+zgcQQuHlH341D/8bSrjD/gJDw=="
+      "signer": "ed25519:source-registry-governor-2026-08-14",
+      "signature": "ed25519:hbYVp8qoGb2qw46NBtrQfpK98Fjsn/kbd1CGBMW10XMCsq04gM0gMUmitiFCy5RkULOyHZ1M2MsiQ/hpfhGOAg=="
     }
   },
   {
-    "artifact_id": "reg-lantmateriet-stac-byggnader-002",
+    "artifact_id": "reg-lantmateriet-stac-byggnader-001",
     "artifact_type": "SOURCE_REGISTRY_ENTRY",
     "source_id": "lantmateriet-stac-byggnader",
     "producer": {
@@ -637,15 +605,15 @@
         "action": "source.approve",
         "source_id": "lantmateriet-stac-byggnader",
         "source_content_hash": "6c86f6464d422109bcb7ae3e89a32ccf7bf4fe98ed5b6a10a1c26e634b7e111f",
-        "approver_actor_id": "bjb@miljöbeslut.se",
+        "approver_actor_id": "JbmbAb",
         "approver_role": "GOVERNANCE_REVIEWER",
         "attestation_schema_version": 1,
-        "signer_key_id": "ed25519:source-registry-governor-2026-08-25"
+        "signer_key_id": "ed25519:source-registry-governor-2026-08-14"
       },
       "hashAlgorithm": "sha256",
       "signatureAlgorithm": "Ed25519",
-      "signer": "ed25519:source-registry-governor-2026-08-25",
-      "signature": "ed25519:TnvhOmYwHhVnOixChBESGfg96tPSdbDr5yCRZnD73/Ki6tL8sRFrqpJFtivpyqMeJCTaAip2In9ZQfbIs+96Bw=="
+      "signer": "ed25519:source-registry-governor-2026-08-14",
+      "signature": "ed25519:fDNd4sLhSHM3IFom8PAa2IbI3YV1uTH9zKVYVmHMiWy9gIWcU1fWUxDfiftRF9HbgNK+DIhZc0OBEnfS5mPGBA=="
     }
   }
 ]
