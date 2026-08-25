@@ -46,6 +46,10 @@ vi.mock("@miljobeslut/mps-lu", () => ({
   // requires identity_subject_v3 at the type level) instead of the general engine directly --
   // same underlying call, so the mock must answer to both names.
   runCanonicalLuProductAssessment: (...args: unknown[]) => kernelMock(...args),
+  deriveLuExecutionSeed: vi.fn(() => "canonical-seed"),
+  createLuRegistryRuntime: vi.fn(() => ({
+    getReleaseSnapshot: () => ({ snapshot_id: "lu-registry-snapshot-test" }),
+  })),
 }));
 
 vi.mock("../../../server/services/complianceRuleEngine", () => ({
@@ -90,6 +94,32 @@ vi.mock("../enqueue-lu-execution-ticket", () => ({
 vi.mock("../../../server/modules/localization/createLocalizationSpatialRuntime", () => ({
   createLocalizationSpatialRuntime: vi.fn(async () => ({ close: vi.fn(async () => undefined) })),
 }));
+vi.mock("../resolveCanonicalProjectContext", () => ({
+  resolveCanonicalProjectContext: vi.fn(async () => ({
+    projectContextRef: { artifact_id: "project-context-1", artifact_type: "LU_PROJECT_CONTEXT" },
+    propertyContextRef: { artifact_id: "property-context-1", artifact_type: "LU_PROPERTY_CONTEXT" },
+    geometryRef: { artifact_id: "property-geometry-1", artifact_type: "geometry" },
+    contextBindingRef: { artifact_id: "project-context-binding-1", artifact_type: "project_context_binding" },
+    propertyIdentity: "property-1",
+    coordinates: [6580000, 674000],
+    geometry: { type: "Point", coordinates: [674000, 6580000] },
+  })),
+}));
+vi.mock("../../../server/modules/release/productReleaseRuntime", () => ({
+  resolveCanonicalProductRelease: vi.fn(async () => ({
+    artifact_id: "product-release-1",
+    artifact_type: "product_release_manifest",
+    release_hash: { value: "a".repeat(64) },
+  })),
+}));
+vi.mock("../../../server/modules/localization/localizationGeometryService", () => ({
+  resolveOrDeriveCurrentLocalizationGeometry: vi.fn(async () => ({
+    geometry: {
+      artifact_id: "localization-geometry-1",
+      artifact_type: "localization_geometry",
+    },
+  })),
+}));
 
 /** An ungoverned verdict — exactly what evaluateComplianceRules returns today. */
 const UNGOVERNED_VERDICT = {
@@ -131,13 +161,13 @@ async function runReport(sites: { id: string; name?: string; lat: number; lng: n
   return useCase.execute({ projectId: "proj-1", siteAlternatives: sites });
 }
 
-const ASSESSED = (artifactId: string) => ({
+const ASSESSED = (artifactId: string, findings: unknown[] = []) => ({
   admitted: true,
   reason_codes: [] as string[],
   attempt_id: "a1",
   outcome_id: "o1",
   manifest_id: "m1",
-  findings: [] as unknown[],
+  findings,
   finding_ids: [] as string[],
   assessment: { artifact_id: artifactId },
 });
@@ -295,6 +325,33 @@ describe("🔴 P3-LU-CANONICAL-CHAIN-01 — LU_VERDICT_AUTHORITY_V1", () => {
       "If this is null the other four tests pass vacuously — nothing would ever bear a verdict.",
     ).toBe("assessment-artifact-1");
     expect(analysis.complianceAnalysis?.overallRisk).toBeDefined();
+  });
+
+  it("derives an ASSESSED verdict only from governed findings, not live compliance inputs", async () => {
+    const governedMediumFinding = {
+      finding_id: "finding-governed-medium",
+      rule_id: "LU-GOVERNED-001",
+      rule_version: "1",
+      explanation: "Governed medium finding",
+      risk_level: "MEDIUM",
+      evidence_refs: [],
+    };
+    complianceMock
+      .mockReturnValueOnce({ overallRisk: "HIGH", permitProbability: 0.01, summary: "live verdict A", requiredActions: [], notes: [] })
+      .mockReturnValueOnce({ overallRisk: "LOW", permitProbability: 0.99, summary: "live verdict B", requiredActions: [], notes: [] });
+    kernelPerSite([
+      ASSESSED("artifact-a", [governedMediumFinding]),
+      ASSESSED("artifact-b", [governedMediumFinding]),
+    ]);
+
+    const report = await runReport([SITE, SITE_B]);
+
+    for (const analysis of report.siteAnalyses) {
+      expect(analysis.executionMotor?.assessment_status).toBe("ASSESSED");
+      expect(analysis.complianceAnalysis.overallRisk).toBe("MEDIUM");
+      expect(analysis.complianceAnalysis.permitProbability).toBe(0.5);
+      expect(analysis.complianceAnalysis.summary).toBe("Governed LU assessment findings establish MEDIUM risk.");
+    }
   });
 
   // ------------------------------------------- BLAST RADIUS: report-level comparison

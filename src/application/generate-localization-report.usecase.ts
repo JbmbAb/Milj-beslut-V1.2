@@ -158,6 +158,37 @@ export function isGovernedVerdict(
 }
 
 /**
+ * LU-COMPLIANCE-ANALYSIS-VERDICT-AUTHORITY-CONVERGENCE-01.
+ *
+ * An ASSESSED verdict is a projection of the governed assessment findings only. The legacy
+ * compliance analysis may still provide exploratory observations, but its live inputs must never
+ * determine the verdict-bearing risk or permit probability of a governed result.
+ */
+function governedVerdictFromFindings(
+  findings: readonly AssessmentFinding[],
+): Pick<SiteAnalysis, 'overallRisk' | 'permitProbability' | 'summary'> {
+  if (findings.some((finding) => finding.risk_level === 'HIGH')) {
+    return {
+      overallRisk: 'HIGH',
+      permitProbability: 0.2,
+      summary: 'Governed LU assessment findings establish HIGH risk.',
+    };
+  }
+  if (findings.some((finding) => finding.risk_level === 'MEDIUM')) {
+    return {
+      overallRisk: 'MEDIUM',
+      permitProbability: 0.5,
+      summary: 'Governed LU assessment findings establish MEDIUM risk.',
+    };
+  }
+  return {
+    overallRisk: 'LOW',
+    permitProbability: 0.95,
+    summary: 'Governed LU assessment findings establish LOW risk.',
+  };
+}
+
+/**
  * How much of the candidate set the comparison actually covers.
  *
  * This is metadata ABOUT the comparison, not a second verdict authority. It exists so a
@@ -819,27 +850,6 @@ async function analyzeSite(
       findings: [...mpsFindings],
     };
 
-    if (mpsFindings.length > 0) {
-      let hasHigh = false;
-      let hasMedium = false;
-
-      // LU-RESULT-VIEW-V1: no longer flattened into requiredActions/notes text -- the real
-      // AssessmentFinding[] is on executionMotor.findings above, for the client to render as
-      // structured cards. Only the risk-level escalation (a legitimate cross-cutting effect on
-      // the overall verdict, not itself finding presentation) stays here.
-      mpsFindings.forEach(f => {
-        if (f.risk_level === 'HIGH') hasHigh = true;
-        if (f.risk_level === 'MEDIUM') hasMedium = true;
-      });
-
-      if (hasHigh) {
-        complianceAnalysis.overallRisk = 'HIGH';
-        complianceAnalysis.permitProbability = 0.2;
-      } else if (hasMedium && complianceAnalysis.overallRisk === 'LOW') {
-        complianceAnalysis.overallRisk = 'MEDIUM';
-        complianceAnalysis.permitProbability = 0.5;
-      }
-    }
   } catch (err: any) {
     const msg = err?.message || String(err);
     logger.warn('ExecutionKernel LU assessment failed', { err: msg, site: site.id });
@@ -871,7 +881,11 @@ async function analyzeSite(
     site,
     spatialAudit,
     complianceAnalysis: hasGovernedAssessment
-      ? { ...complianceAnalysis, assessment_status: 'ASSESSED' }
+      ? {
+          ...complianceAnalysis,
+          ...governedVerdictFromFindings(executionMotor?.findings ?? []),
+          assessment_status: 'ASSESSED',
+        }
       : withoutVerdict(complianceAnalysis, executionMotor?.assessment_status),
     monuments,
     vissWaterStatus,
