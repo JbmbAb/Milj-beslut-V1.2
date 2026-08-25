@@ -150,10 +150,7 @@ export async function getLatestProvisioningRequestForProject(
 
 /**
  * Atomically claims exactly one available request: a PENDING row, or a LEASED row whose lease has
- * expired (crashed-worker reclaim). The conditional `updateMany` (matching on both `id` AND the
- * exact `status` observed at candidate-selection time) means only one worker's UPDATE actually
- * matches under concurrent leasing -- same race-free pattern as the two earlier queues, extended
- * to also cover the stale-LEASE case.
+ * expired (crashed-worker reclaim). A stale reclaim compares the exact observed expiry generation.
  */
 export async function leaseOnePendingViewerCapabilityProvisioningRequest(
   now: Date = new Date(),
@@ -166,9 +163,16 @@ export async function leaseOnePendingViewerCapabilityProvisioningRequest(
   });
   if (!candidate) return null;
 
+  const claimWhere = candidate.status === 'LEASED'
+    ? candidate.leaseExpiresAt
+      ? { id: candidate.id, status: 'LEASED' as const, leaseExpiresAt: candidate.leaseExpiresAt }
+      : null
+    : { id: candidate.id, status: 'PENDING' as const };
+  if (!claimWhere) return null;
+
   const leaseExpiresAt = new Date(now.getTime() + LEASE_DURATION_MS);
   const result = await prisma.viewerCapabilityProvisioningRequest.updateMany({
-    where: { id: candidate.id, status: candidate.status },
+    where: claimWhere,
     data: { status: 'LEASED', leasedAt: now, leaseExpiresAt },
   });
   if (result.count !== 1) return null;

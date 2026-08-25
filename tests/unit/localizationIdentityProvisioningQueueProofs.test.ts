@@ -86,8 +86,11 @@ vi.mock('../../server/db/prisma', () => ({
         const row = fakeRows.find((r) => r.id === id);
         return row ? { ...row } : null;
       }),
-      updateMany: vi.fn(async ({ where, data }: { where: { id: string; status?: FakeRow['status'] }; data: Partial<FakeRow> }) => {
-        const row = fakeRows.find((r) => r.id === where.id && (where.status === undefined || r.status === where.status));
+      updateMany: vi.fn(async ({ where, data }: { where: { id: string; status?: FakeRow['status']; leaseExpiresAt?: Date | null }; data: Partial<FakeRow> }) => {
+        const row = fakeRows.find((r) => r.id === where.id
+          && (where.status === undefined || r.status === where.status)
+          && (where.leaseExpiresAt === undefined
+            || (r.leaseExpiresAt?.getTime() ?? null) === (where.leaseExpiresAt?.getTime() ?? null)));
         if (!row) return { count: 0 };
         Object.assign(row, data);
         return { count: 1 };
@@ -216,6 +219,17 @@ describe('PRODUCT-LU-EXECUTION-IDENTITY-V3-PROVISIONING-01 — queue proofs', ()
     expect(status?.status).toBe('COMPLETED');
     expect(status?.executionIdentityArtifactId).toBe('lu-identity-v3-recovered');
     expect(fakeRows).toHaveLength(1); // no divergent duplicate row was created by the reclaim
+  });
+
+  it('atomically reclaims one observed expired lease generation exactly once', async () => {
+    await enqueueLocalizationIdentityProvisioningRequest({ projectId: 'proj-1', geometryArtifactId: 'geom-A', requestedByUserId: 'user-1' });
+    await leaseOnePendingLocalizationIdentityProvisioningRequest(new Date('2026-01-01T00:00:00Z'));
+
+    const [a, b] = await Promise.all([
+      leaseOnePendingLocalizationIdentityProvisioningRequest(new Date('2026-01-01T00:05:00Z')),
+      leaseOnePendingLocalizationIdentityProvisioningRequest(new Date('2026-01-01T00:05:00Z')),
+    ]);
+    expect([a, b].filter(Boolean)).toHaveLength(1);
   });
 });
 
