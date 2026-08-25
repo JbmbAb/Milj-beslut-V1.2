@@ -647,5 +647,54 @@
       "signer": "ed25519:source-registry-governor-2026-08-25",
       "signature": "ed25519:TnvhOmYwHhVnOixChBESGfg96tPSdbDr5yCRZnD73/Ki6tL8sRFrqpJFtivpyqMeJCTaAip2In9ZQfbIs+96Bw=="
     }
+  },
+  {
+    "artifact_id": "reg-falkenberg-mhn-decisions-001",
+    "artifact_type": "SOURCE_REGISTRY_ENTRY",
+    "source_id": "falkenbergs-kommun-mhn-decisions",
+    "producer": {
+      "producer_id": "FALKENBERGS_KOMMUN_MHN",
+      "name": "Falkenbergs kommun, Miljö- och hälsoskyddsnämnden",
+      "type": "municipality"
+    },
+    "channel": {
+      "channel_type": "ARCHIVE_IMPORT",
+      "archive_id": "geo-master-c-drive-import-v1"
+    },
+    "adapter": "ARCHIVE_IMPORT_V1",
+    "artifact_types": [
+      "decision"
+    ],
+    "collection_frequency": "ON_DEMAND",
+    "change_detection": {
+      "strategy": "CONTENT_HASH"
+    },
+    "policy": {
+      "rate_limit_requests_per_second": 1,
+      "concurrency_limit": 1,
+      "retry_policy": {
+        "max_attempts": 1,
+        "backoff": "FIXED"
+      }
+    },
+    "geographic_scope": "Falkenbergs kommun",
+    "lifecycle_state": "APPROVED",
+    "approval_attestation": {
+      "subjectDigest": "sha256:8d9454f1c7ba65021cb4d64ba3cd99baec581dd83704264791e3c425a14ccc71",
+      "predicateType": "mimers-brunn/source-registry-approval/v1",
+      "predicate": {
+        "action": "source.approve",
+        "source_id": "falkenbergs-kommun-mhn-decisions",
+        "source_content_hash": "8d9454f1c7ba65021cb4d64ba3cd99baec581dd83704264791e3c425a14ccc71",
+        "approver_actor_id": "bjb@miljöbeslut.se",
+        "approver_role": "GOVERNANCE_REVIEWER",
+        "attestation_schema_version": 1,
+        "signer_key_id": "ed25519:source-registry-governor-2026-08-25"
+      },
+      "hashAlgorithm": "sha256",
+      "signatureAlgorithm": "Ed25519",
+      "signer": "ed25519:source-registry-governor-2026-08-25",
+      "signature": "ed25519:gKd157C9hn2nKSMhXEL5QO/4AI4ZTn8hSVJBTlkEVir0gaRkSNTeL7uNxaQjl78D2J+zK6KLDIPRwp8dDtA5Dg=="
+    }
   }
 ]
