@@ -5,7 +5,7 @@
  * viewer kind for the whole LU product (`LU_CANONICAL_PRESENTATION_VIEWER` -- there is no
  * per-project ViewerIdentity, the same way there is no per-project ProductRelease), so an
  * env-configured artifact_id (`LU_VIEWER_IDENTITY_ID`) is the legitimate resolution mechanism --
- * exactly the same pattern as resolveCurrentProductRelease.ts's `PRODUCT_RELEASE_ARTIFACT_ID`.
+ * explicitly through its own canonical configuration contract.
  * This is public-key-only: it fully verifies the resolved artifact (issuer trust chain, contract
  * version, viewer kind, release binding) before returning it, so it is safe to call from the live
  * web server as well as from the worker -- it never touches a private key.

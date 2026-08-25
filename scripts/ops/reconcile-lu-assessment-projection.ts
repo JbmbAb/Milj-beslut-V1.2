@@ -15,7 +15,7 @@
 import '../../server/loadEnvFirst';
 import { MimersIntegration } from '@miljobeslut/mps-runtime';
 import { resolveCanonicalProjectContext } from '../../src/application/resolveCanonicalProjectContext';
-import { resolveCurrentProductRelease } from '../../src/application/resolveCurrentProductRelease';
+import { resolveCanonicalProductRelease } from '../../server/modules/release/productReleaseRuntime';
 import { reconcileAssessmentProjection } from '../../server/modules/localization/assessmentProjection';
 
 function option(name: string): string | undefined {
@@ -36,7 +36,10 @@ async function main() {
 
   const mimers = await MimersIntegration.create({ forceMimers: true });
   const canonicalContext = await resolveCanonicalProjectContext(projectId, mimers.artifactRepository);
-  const currentRelease = await resolveCurrentProductRelease(mimers.artifactRepository);
+  const release = await resolveCanonicalProductRelease({ artifactRepository: mimers.artifactRepository });
+  const currentRelease = {
+    releaseRef: { artifact_id: release.artifact_id, artifact_type: release.artifact_type },
+  };
 
   const result = await reconcileAssessmentProjection({
     projectId,

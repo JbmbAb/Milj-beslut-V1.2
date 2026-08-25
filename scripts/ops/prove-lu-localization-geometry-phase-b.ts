@@ -10,7 +10,7 @@
  * is created here. Private key material is loaded and used only inside this offline script's own
  * process; it is never written to .env/.env.local.
  *
- * Usage: MIMERS_ROOT="C:\Users\jimmy\.mimers" npx tsx scripts/ops/prove-lu-localization-geometry-phase-b.ts --execute
+ * Usage: MIMERS_ROOT="C:\Users\jimmy\.mimers" PRODUCT_RELEASE_ARTIFACT_ID=<verified-release> npx tsx scripts/ops/prove-lu-localization-geometry-phase-b.ts --execute
  */
 import '../../server/loadEnvFirst';
 import { readFileSync } from 'node:fs';
@@ -27,7 +27,7 @@ import { LU_SITE_ASSESSMENT_CAPABILITY_KEY } from '../../packages/mps-lu/src/reg
 import { issueExecutionIdentityV3 } from '../../packages/mps-lu/src/execution/LuExecutionIdentityIssuer';
 import { verifyLuExecutionAuthorityChain } from '../../packages/mps-lu/src/execution/LuExecutionAuthorityChain';
 import { resolveCanonicalProjectContext } from '../../src/application/resolveCanonicalProjectContext';
-import { resolveCurrentProductRelease } from '../../src/application/resolveCurrentProductRelease';
+import { resolveCanonicalProductRelease } from '../../server/modules/release/productReleaseRuntime';
 import { registerLocalizationGeometry, resolveCurrentLocalizationGeometry } from '../../server/modules/localization/localizationGeometryProjection';
 import { resolveCurrentAssessmentProjection } from '../../server/modules/localization/assessmentProjection';
 import { ProjectContextBindingProvider } from '../../server/modules/localization/projectContextBindingRuntime';
@@ -78,7 +78,11 @@ async function main() {
   console.log(`STEP 0 PASS: reused, verified LU execution authority chain (issuer=${REAL_ISSUER_REF.artifact_id})`);
 
   const canonicalContext = await resolveCanonicalProjectContext(PROJECT_ID, repo);
-  const currentRelease = await resolveCurrentProductRelease(repo);
+  const release = await resolveCanonicalProductRelease({ artifactRepository: repo });
+  const currentRelease = {
+    releaseRef: { artifact_id: release.artifact_id, artifact_type: release.artifact_type },
+    releaseHash: release.release_hash.value,
+  };
   const registry = createLuRegistryRuntime();
   const capability = registry.resolveCapabilityByKey(LU_SITE_ASSESSMENT_CAPABILITY_KEY);
   if (!capability) throw new Error('LU capability unavailable');

@@ -21,10 +21,9 @@ match. Fixed:
 
 - `resolveCanonicalProjectContext()` extended to also return `propertyIdentity` (from
   `ProjectPropertyBindingArtifact.property_identity`) and `contextBindingRef`.
-- New `resolveCurrentProductRelease()` — resolves and verifies the current product release from
-  the real CAS (defaults to the one real release in this environment,
-  `product-release-772aceb600c4690777593ea8`; overridable via env for a future multi-release
-  environment — a named, not silent, simplification).
+- `resolveCanonicalProductRelease()` resolves and verifies the configured product release from
+  the real CAS. `PRODUCT_RELEASE_ARTIFACT_ID` is required; there is no default release selection
+  or hardcoded fallback.
 - `analyzeSite()` now derives `site_id`/`deterministic_seed` via `deriveLuExecutionSeed()` over
   the same canonical tuple the bootstrap script used, so the usecase resolves the SAME
   already-issued `ExecutionIdentityArtifact` rather than needing (or being able) to mint its own.

@@ -207,7 +207,7 @@ export type AssessmentProjectionReconciliationResult =
  * (assessment_projection_registered === false on a real report response, or an operator
  * rebuilding the whole projection from CAS + known assessment refs). Never resolves the current
  * canonical context itself -- that would create a dependency from server/modules/localization
- * (this file) back onto src/application (resolveCanonicalProjectContext.ts / resolveCurrentProductRelease.ts),
+ * (this file) back onto the canonical project-context and ProductRelease resolvers,
  * which already depend on server/modules/localization the other way. The caller resolves "what is
  * current right now" first (the same way the original write path did) and passes it in here.
  *

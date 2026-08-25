@@ -15,7 +15,7 @@
  * issuer, trust root, or authority is created here. The private signing key is loaded and used
  * only inside this offline script's own process; it is never written to .env/.env.local.
  *
- * Usage: MIMERS_ROOT="C:\Users\jimmy\.mimers" npx tsx scripts/ops/orsa-execution-identity-reissue-01.ts --execute
+ * Usage: MIMERS_ROOT="C:\Users\jimmy\.mimers" PRODUCT_RELEASE_ARTIFACT_ID=<verified-release> npx tsx scripts/ops/orsa-execution-identity-reissue-01.ts --execute
  */
 import '../../server/loadEnvFirst';
 import { readFileSync } from 'node:fs';
@@ -35,7 +35,7 @@ import {
   verifyExecutionIdentityAttestation,
 } from '../../packages/mps-lu/src/execution/ExecutionIdentityAttestation';
 import { resolveCanonicalProjectContext } from '../../src/application/resolveCanonicalProjectContext';
-import { resolveCurrentProductRelease } from '../../src/application/resolveCurrentProductRelease';
+import { resolveCanonicalProductRelease } from '../../server/modules/release/productReleaseRuntime';
 
 const SECRETS_DIR = 'C:/Users/jimmy/.mimers/secrets';
 const PROJECT_ID = 'cmt2m7bdj0000h0f7uj4jykis';
@@ -92,7 +92,11 @@ async function main() {
   if (canonicalContext.contextBindingRef.artifact_id !== EXPECTED_CURRENT_BINDING_ID) {
     throw new Error(`STOP: resolved current binding ${canonicalContext.contextBindingRef.artifact_id} does not match expected ${EXPECTED_CURRENT_BINDING_ID}.`);
   }
-  const currentRelease = await resolveCurrentProductRelease(repo);
+  const release = await resolveCanonicalProductRelease({ artifactRepository: repo });
+  const currentRelease = {
+    releaseRef: { artifact_id: release.artifact_id, artifact_type: release.artifact_type },
+    releaseHash: release.release_hash.value,
+  };
   console.log(`STEP 1 PASS: current binding = ${canonicalContext.contextBindingRef.artifact_id}, current release = ${currentRelease.releaseRef.artifact_id}`);
 
   // Step 2: derive identity_subject_v2 from that verified state.
