@@ -64,6 +64,9 @@ describe("NO_ALTERNATE_LU_DECISION_PATH_V1", () => {
   const VERDICT_NUMERIC_TERNARY =
     /\b(?:overallRisk|permitProbability)\b[\s\S]{0,160}?\?[\s\S]{0,160}?:\s*\d+(?:\.\d+)?\s*[,;)\n}]/;
 
+  /** A bare zero is the forbidden fail-open verdict fallback; governed fractions are valid. */
+  const BARE_ZERO_PERMIT_PROBABILITY = /permitProbability\s*:\s*0\s*[,}]/;
+
   function sourceFiles(): string[] {
     const found: string[] = [];
     const walk = (dir: string) => {
@@ -181,7 +184,7 @@ describe("NO_ALTERNATE_LU_DECISION_PATH_V1", () => {
     expect(
       src,
       "the pre-fix defect: catch/deny branches fell through to a verdict-bearing return",
-    ).not.toMatch(/permitProbability\s*:\s*0\b/);
+    ).not.toMatch(BARE_ZERO_PERMIT_PROBABILITY);
   });
 
   // ------------------------------------------- 4. the PDF projection stays fail-closed
@@ -255,6 +258,17 @@ describe("NO_ALTERNATE_LU_DECISION_PATH_V1", () => {
     ];
     for (const code of compliant) {
       expect(VERDICT_PLACEHOLDER.test(code), `compliant form must pass: ${code}`).toBe(false);
+    }
+  });
+
+  it("rejects only a bare zero permit probability, not governed decimal probabilities", () => {
+    expect(BARE_ZERO_PERMIT_PROBABILITY.test("permitProbability: 0,")).toBe(true);
+
+    for (const probability of ["0.2", "0.5", "0.95"]) {
+      expect(
+        BARE_ZERO_PERMIT_PROBABILITY.test(`permitProbability: ${probability},`),
+        `governed probability must be allowed: ${probability}`,
+      ).toBe(false);
     }
   });
 });
