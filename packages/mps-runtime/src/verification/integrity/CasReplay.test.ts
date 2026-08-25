@@ -17,6 +17,26 @@ import {
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
+const FORBIDDEN_REPLAY_MODULE_PATTERNS = [
+  /postgis/i,
+  /spatial-provider/i,
+  /^(pg|prisma|axios|https?|node:https|node:http)$/i,
+  /current.*(release|binding|geometry).*resolver/i,
+];
+
+function importedModuleSpecifiers(source: string): string[] {
+  const specifiers: string[] = [];
+  const pattern = /(?:import\s+(?:[^'";]+?\s+from\s+)?|import\s*\(|require\s*\()['"]([^'"]+)['"]/g;
+  for (const match of source.matchAll(pattern)) specifiers.push(match[1]!);
+  return specifiers;
+}
+
+function assertReplayImportsAreIsolated(source: string): void {
+  for (const specifier of importedModuleSpecifiers(source)) {
+    expect(FORBIDDEN_REPLAY_MODULE_PATTERNS.some((pattern) => pattern.test(specifier))).toBe(false);
+  }
+}
+
 describe("Integrity — CasReplay", () => {
   let root: string;
 
@@ -103,8 +123,7 @@ describe("Integrity — CasReplay", () => {
     });
     expect(fromCas.content_hash.value).toBe(replay.content_hash.value);
 
-    // Source guard: replay engine and Mimers facade never talk to spatial DB
-    const forbidden = "post" + "gis";
+    // Dependency guard: prose is irrelevant; executable imports must not reach live sources.
     const replaySrc = readFileSync(
       path.join(__dirname, "../../replay/DefaultReplayEngine.ts"),
       "utf8",
@@ -113,8 +132,13 @@ describe("Integrity — CasReplay", () => {
       path.join(__dirname, "../../mimers/MimersIntegration.ts"),
       "utf8",
     );
-    expect(replaySrc.toLowerCase()).not.toContain(forbidden);
-    expect(mimersSrc.toLowerCase()).not.toContain(forbidden);
+    assertReplayImportsAreIsolated(replaySrc);
+    assertReplayImportsAreIsolated(mimersSrc);
     expect(replaySrc).toContain("repository.resolve");
+  });
+
+  it("rejects a forbidden live-source import while allowing harmless prose", () => {
+    expect(() => assertReplayImportsAreIsolated('// PostGIS is forbidden\nexport const x = 1;')).not.toThrow();
+    expect(() => assertReplayImportsAreIsolated("import { Client } from 'pg';")).toThrow();
   });
 });
