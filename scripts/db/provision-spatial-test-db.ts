@@ -21,13 +21,18 @@
  * that can write to production is a worse problem than an unprovisioned test database.
  */
 
-import { readFileSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
 
 import { Client } from 'pg';
 
 import { applyRc6VersionedSpatialDdl, RC6_OWNED_TABLES } from './lib/applyRc6VersionedSpatialDdl';
 import { SPATIAL_LAYER_REGISTRY } from '../../packages/spatial-provider-postgis/src/SpatialLayerRegistry';
+import {
+  assertDisposableGisTestDatabase,
+  type AdmittedDisposableGisTestDatabase,
+} from '../../tests/setup/disposableGisTestDatabase';
 
 /**
  * Tables the spatial proofs actually read and write, still hand-defined here.
@@ -172,17 +177,30 @@ function fail(message: string): never {
   process.exit(1);
 }
 
+/**
+ * Admission is deliberately independent of Vitest setup. This script can be invoked directly
+ * and performs destructive DDL, so only TEST_DATABASE_URL may select its target.
+ */
+export function resolveProvisionedSpatialTestDatabaseTarget(
+  testEnv: Record<string, string>,
+  envTestPresent: boolean,
+): AdmittedDisposableGisTestDatabase {
+  return assertDisposableGisTestDatabase({
+    envTestPresent,
+    databaseUrl: testEnv.TEST_DATABASE_URL,
+    disposableFlag: testEnv.GIS_TEST_DB_DISPOSABLE,
+    declaredDatabaseName: testEnv.GIS_TEST_DB_NAME,
+  });
+}
+
 async function main(): Promise<void> {
-  const testEnv = readEnvFile('.env.test');
+  const testEnvPath = resolve('.env.test');
+  const testEnv = readEnvFile(testEnvPath);
   const appEnv = readEnvFile('.env');
 
-  const targetUrl = testEnv.TEST_DATABASE_URL ?? testEnv.DATABASE_URL;
-  if (!targetUrl) {
-    fail(
-      '.env.test defines neither TEST_DATABASE_URL nor DATABASE_URL. That file is the canonical ' +
-        'contract for the local test database — provisioning must not invent a connection.',
-    );
-  }
+  // Must succeed before any Client is constructed or any SQL becomes reachable.
+  const admittedTarget = resolveProvisionedSpatialTestDatabaseTarget(testEnv, existsSync(testEnvPath));
+  const targetUrl = admittedTarget.databaseUrl;
 
   // The admin connection only has to be able to CREATE ROLE / CREATE DATABASE. It is never
   // written to.
@@ -193,12 +211,11 @@ async function main(): Promise<void> {
 
   const target = new URL(targetUrl);
   const admin = new URL(adminUrl);
-  const targetDb = target.pathname.replace(/^\//, '');
+  const targetDb = admittedTarget.databaseName;
   const adminDb = admin.pathname.replace(/^\//, '');
   const targetRole = decodeURIComponent(target.username);
 
   // ---------------------------------------------------------------- safety guard
-  if (!targetDb) fail(`Could not read a database name from TEST_DATABASE_URL.`);
   if (targetDb === adminDb) {
     fail(
       `REFUSING TO PROVISION: the test database and the application database are both ` +
@@ -206,13 +223,6 @@ async function main(): Promise<void> {
         `database would let a test run destroy real geodata.`,
     );
   }
-  if (!/test/i.test(targetDb)) {
-    fail(
-      `REFUSING TO PROVISION: '${targetDb}' does not look like a test database. This script ` +
-        `creates a database that tests are permitted to delete from, so the name must say so.`,
-    );
-  }
-
   const drop = process.argv.includes('--drop');
   console.log(`\n🗄️  target   : ${targetDb} (role '${targetRole}')`);
   console.log(`🔑 admin via: ${adminDb}`);
@@ -390,4 +400,6 @@ async function main(): Promise<void> {
   }
 }
 
-main().catch((error) => fail(error instanceof Error ? error.message : String(error)));
+if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+  main().catch((error) => fail(error instanceof Error ? error.message : String(error)));
+}
