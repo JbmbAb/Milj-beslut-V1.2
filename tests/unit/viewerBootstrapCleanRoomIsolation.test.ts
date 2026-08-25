@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it } from 'vitest';
+import { spawnSync } from 'node:child_process';
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { join, resolve } from 'node:path';
 import { tmpdir } from 'node:os';
 import { LocalPemVerificationKeyProvider } from '@miljobeslut/mimers-brunn-core';
 import { InMemoryArtifactRepository } from '../../packages/mps-runtime/src/repository/InMemoryArtifactRepository';
@@ -16,11 +17,13 @@ import {
   bootstrapViewerAuthority,
   cleanRoomViewerBootstrapInput,
   cleanRoomMimersEnvironment,
+  legacyMimersEnvironment,
   legacyViewerBootstrapInput,
   type ViewerBootstrapInput,
 } from '../../scripts/ops/bootstrap-viewer-authority-persistent';
 
 const roots: string[] = [];
+const REPO_ROOT = resolve(__dirname, '../..');
 const originalEnv = {
   identityKeyId: process.env.VIEWER_IDENTITY_ISSUER_KEY_ID,
   identityPublic: process.env.VIEWER_IDENTITY_ISSUER_PUBLIC_KEY_PEM,
@@ -28,6 +31,7 @@ const originalEnv = {
   capabilityKeyId: process.env.VIEWER_CAPABILITY_ISSUER_KEY_ID,
   capabilityPublic: process.env.VIEWER_CAPABILITY_ISSUER_PUBLIC_KEY_PEM,
   capabilityPrivate: process.env.VIEWER_CAPABILITY_ISSUER_PRIVATE_KEY_PEM,
+  mimersRoot: process.env.MIMERS_ROOT,
 };
 
 function root(): string {
@@ -67,6 +71,7 @@ afterEach(() => {
   restore('VIEWER_CAPABILITY_ISSUER_KEY_ID', originalEnv.capabilityKeyId);
   restore('VIEWER_CAPABILITY_ISSUER_PUBLIC_KEY_PEM', originalEnv.capabilityPublic);
   restore('VIEWER_CAPABILITY_ISSUER_PRIVATE_KEY_PEM', originalEnv.capabilityPrivate);
+  restore('MIMERS_ROOT', originalEnv.mimersRoot);
   __resetViewerIdentityVerifierForTests();
   __resetViewerCapabilityVerifierForTests();
 });
@@ -102,6 +107,37 @@ describe('VIEWER-BOOTSTRAP-CLEAN-ROOM-ISOLATION-01', () => {
     expect(legacy.secretsDir).toBe('C:/Users/jimmy/.mimers/secrets');
     expect(legacy.projectId).toBe('cmt2m7bdj0000h0f7uj4jykis');
     expect(legacy.contextBindingRef.artifact_id).toBe('project-context-binding-32f1ff68cf89421ac4b75d86');
+  });
+
+  it.each([
+    ['unset', undefined],
+    ['blank', '   '],
+  ])('legacy MIMERS_ROOT %s denies before any secrets target can be written', (_case, mimersRoot) => {
+    const secretsDir = root();
+    if (mimersRoot === undefined) delete process.env.MIMERS_ROOT;
+    else process.env.MIMERS_ROOT = mimersRoot;
+
+    expect(() => legacyMimersEnvironment()).toThrow('MIMERS_ROOT is required for legacy bootstrap');
+    expect(existsSync(join(secretsDir, 'viewer-identity-issuer-v1'))).toBe(false);
+    expect(existsSync(join(secretsDir, 'viewer-capability-issuer-v1'))).toBe(false);
+  });
+
+  it('legacy CLI without MIMERS_ROOT fails before it can reach fallback CAS or secret writes', () => {
+    const environment: NodeJS.ProcessEnv = { ...process.env };
+    delete environment.MIMERS_ROOT;
+    const result = spawnSync(
+      process.execPath,
+      ['--import', 'tsx', join(REPO_ROOT, 'scripts', 'ops', 'bootstrap-viewer-authority-persistent.ts'), '--execute'],
+      { cwd: REPO_ROOT, env: environment, encoding: 'utf8' },
+    );
+    expect(result.status).not.toBe(0);
+    expect(`${result.stdout}${result.stderr}`).toContain('MIMERS_ROOT is required for legacy bootstrap');
+  });
+
+  it('a valid legacy MIMERS_ROOT remains the runtime root passed to the established legacy path', () => {
+    process.env.MIMERS_ROOT = 'C:/legacy-mimers-root';
+    expect(legacyMimersEnvironment()).toBe(process.env);
+    expect(legacyMimersEnvironment().MIMERS_ROOT).toBe('C:/legacy-mimers-root');
   });
 
   it('V4/V10: clean-room mode requires explicit refs and never falls back to fixed ORSA inputs', () => {

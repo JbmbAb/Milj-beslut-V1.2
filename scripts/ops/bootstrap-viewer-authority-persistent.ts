@@ -154,6 +154,13 @@ export function cleanRoomMimersEnvironment(argv: readonly string[] = process.arg
   };
 }
 
+export function legacyMimersEnvironment(env: NodeJS.ProcessEnv = process.env): NodeJS.ProcessEnv {
+  if (!env.MIMERS_ROOT?.trim()) {
+    throw new Error('REJECT_VIEWER_AUTHORITY_BOOTSTRAP_CONFIGURATION: MIMERS_ROOT is required for legacy bootstrap');
+  }
+  return env;
+}
+
 export async function bootstrapViewerAuthority(args: {
   readonly input: ViewerBootstrapInput;
   readonly artifactRepository: ArtifactRepositoryPort;
@@ -219,7 +226,7 @@ async function main(): Promise<void> {
       env: cleanRoomMimersEnvironment(),
       forceMimers: true,
     })
-    : await MimersIntegration.create({ forceMimers: true });
+    : await MimersIntegration.create({ env: legacyMimersEnvironment(), forceMimers: true });
   const result = await bootstrapViewerAuthority({ input, artifactRepository: mimers.artifactRepository });
   await mimers.rebuildIndex();
   console.log(JSON.stringify({
