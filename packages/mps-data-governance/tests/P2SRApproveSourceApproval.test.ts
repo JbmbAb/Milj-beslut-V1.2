@@ -116,11 +116,15 @@ describe("P2-SR-APPROVE — source approval tooling", () => {
       signing,
     });
 
+    const approvedChannel = approved.channel;
+    if (approvedChannel.channel_type === "ARCHIVE_IMPORT") {
+      throw new Error("Test fixture must remain a network source.");
+    }
     const widened: SourceRegistryArtifact = {
       ...approved,
       channel: {
-        ...approved.channel,
-        endpoint_url: approved.channel.endpoint_url!.replace("domstolkod=MMOD", "domstolkod=MOD"),
+        ...approvedChannel,
+        endpoint_url: approvedChannel.endpoint_url!.replace("domstolkod=MMOD", "domstolkod=MOD"),
       },
     };
 

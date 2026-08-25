@@ -57,6 +57,13 @@ export class GovernedDownloadExecutor implements HarvestExecutor {
       );
     }
 
+    if (source.channelType === "ARCHIVE_IMPORT") {
+      throw new GovernedDownloadError(
+        `REJECT_ARCHIVE_IMPORT_NETWORK_HARVEST: source '${sourceId}' may enter only through an explicit governed archive import operation.`,
+        "REJECT_ARCHIVE_IMPORT_NETWORK_HARVEST",
+      );
+    }
+
     const plan = await this.resolver.resolve({
       source_id: sourceId,
       execution_id: request.execution_id,

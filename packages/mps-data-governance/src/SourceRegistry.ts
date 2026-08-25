@@ -23,11 +23,24 @@ export interface SourceProducer {
   readonly type: 'court' | 'county_board' | 'municipality' | 'agency' | 'other';
 }
 
-export interface SourceChannel {
-  readonly channel_type: 'WMS' | 'WFS' | 'API' | 'WEBSITE' | 'FTP' | 'DATASET_PORTAL';
+export type NetworkSourceChannelType = 'WMS' | 'WFS' | 'API' | 'WEBSITE' | 'FTP' | 'DATASET_PORTAL';
+
+export interface NetworkSourceChannel {
+  readonly channel_type: NetworkSourceChannelType;
   readonly endpoint_url?: string;
   readonly allowed_domains: readonly string[];
 }
+
+/** A governed archive boundary, not a network publication surface. */
+export interface ArchiveImportSourceChannel {
+  readonly channel_type: 'ARCHIVE_IMPORT';
+  /** Stable logical archive identity; never a machine path or transport configuration. */
+  readonly archive_id: string;
+  readonly endpoint_url?: never;
+  readonly allowed_domains?: never;
+}
+
+export type SourceChannel = NetworkSourceChannel | ArchiveImportSourceChannel;
 
 export interface SourceRetryPolicy {
   readonly max_attempts: number;
@@ -81,6 +94,10 @@ export interface VerifiedSourceDefinition {
     readonly type: 'court' | 'county_board' | 'municipality' | 'other';
   };
   readonly endpointUrl?: string;
+  /** Present on definitions materialized from the canonical registry. */
+  readonly channelType?: SourceChannel['channel_type'];
+  /** Present only for ARCHIVE_IMPORT; no local path or transport details are authority. */
+  readonly archiveId?: string;
   readonly adapter: string;
   readonly frequency: RuntimeFrequency;
   readonly allowedDomains: readonly string[];
@@ -172,9 +189,15 @@ export async function verifySourceRegistryArtifact(
       type: materializeAuthorityType(artifact.producer.type),
     },
     endpointUrl: artifact.channel.endpoint_url,
+    channelType: artifact.channel.channel_type,
+    archiveId: artifact.channel.channel_type === 'ARCHIVE_IMPORT'
+      ? artifact.channel.archive_id
+      : undefined,
     adapter: artifact.adapter,
     frequency: materializeFrequency(artifact.collection_frequency),
-    allowedDomains: [...artifact.channel.allowed_domains],
+    allowedDomains: artifact.channel.channel_type === 'ARCHIVE_IMPORT'
+      ? []
+      : [...artifact.channel.allowed_domains],
     artifactTypes: [...artifact.artifact_types],
     policy: artifact.policy,
     registryArtifactId: artifact.artifact_id,
@@ -404,6 +427,7 @@ export async function getAllVerifiedSources(): Promise<readonly VerifiedSourceDe
 }
 
 export function isUrlAllowedForVerifiedSource(source: VerifiedSourceDefinition, url: string): boolean {
+  if (source.channelType === 'ARCHIVE_IMPORT') return false;
   try {
     const parsedUrl = new URL(url);
     const hostname = parsedUrl.hostname.toLowerCase();
@@ -521,8 +545,23 @@ function assertSourceRegistryShape(artifact: SourceRegistryArtifact): void {
   if (!artifact.source_id || !artifact.producer?.producer_id || !artifact.producer?.name) {
     throw new Error('Invalid SourceRegistryArtifact: source_id and producer identity are required.');
   }
-  if (!artifact.channel || artifact.channel.allowed_domains.length === 0) {
-    throw new Error(`Invalid SourceRegistryArtifact '${artifact.source_id}': allowed_domains is required.`);
+  if (!artifact.channel) {
+    throw new Error(`Invalid SourceRegistryArtifact '${artifact.source_id}': channel is required.`);
+  }
+  if (artifact.channel.channel_type === 'ARCHIVE_IMPORT') {
+    if (!artifact.channel.archive_id || artifact.channel.archive_id.trim().length === 0) {
+      throw new Error(`Invalid SourceRegistryArtifact '${artifact.source_id}': ARCHIVE_IMPORT requires archive_id.`);
+    }
+    if (artifact.channel.endpoint_url !== undefined || artifact.channel.allowed_domains !== undefined) {
+      throw new Error(
+        `Invalid SourceRegistryArtifact '${artifact.source_id}': ARCHIVE_IMPORT must not carry network endpoint or domain scope.`,
+      );
+    }
+  } else if (
+    !['WMS', 'WFS', 'API', 'WEBSITE', 'FTP', 'DATASET_PORTAL'].includes(artifact.channel.channel_type) ||
+    artifact.channel.allowed_domains.length === 0
+  ) {
+    throw new Error(`Invalid SourceRegistryArtifact '${artifact.source_id}': network channels require a known type and allowed_domains.`);
   }
   if (!artifact.adapter) {
     throw new Error(`Invalid SourceRegistryArtifact '${artifact.source_id}': adapter is required.`);

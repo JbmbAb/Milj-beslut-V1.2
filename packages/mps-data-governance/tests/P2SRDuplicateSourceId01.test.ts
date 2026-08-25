@@ -96,10 +96,14 @@ describe('P2-SR-DUP-ID-01 — duplicate source_id fails the registry load closed
    */
   function puhReissue(artifactId: string, allowedDomains: readonly string[]): SourceRegistryArtifact {
     const draft = unsignedDraftFixture('puh');
+    const channel = draft.channel;
+    if (channel.channel_type === 'ARCHIVE_IMPORT') {
+      throw new Error('PUH fixture must remain a network source.');
+    }
     return {
       ...draft,
       artifact_id: artifactId,
-      channel: { ...draft.channel, allowed_domains: [...allowedDomains] },
+      channel: { ...channel, allowed_domains: [...allowedDomains] },
     };
   }
 
@@ -137,6 +141,10 @@ describe('P2-SR-DUP-ID-01 — duplicate source_id fails the registry load closed
 
   it('reports every duplicated source_id, not only the first', async () => {
     const sfs = unsignedDraftFixture('sfs');
+    const sfsChannel = sfs.channel;
+    if (sfsChannel.channel_type === 'ARCHIVE_IMPORT') {
+      throw new Error('SFS fixture must remain a network source.');
+    }
     const registry = await signedRegistryFile([
       puhReissue('reg-dv-puh-mmod-001', ['stale.domstol.se']),
       puhReissue('reg-dv-puh-mmod-002', ['rattspraxis.etjanst.domstol.se']),
@@ -144,7 +152,7 @@ describe('P2-SR-DUP-ID-01 — duplicate source_id fails the registry load closed
       {
         ...sfs,
         artifact_id: 'reg-rk-sfs-1998-808-002',
-        channel: { ...sfs.channel, allowed_domains: ['stale.gov.se'] },
+        channel: { ...sfsChannel, allowed_domains: ['stale.gov.se'] },
       },
     ]);
 

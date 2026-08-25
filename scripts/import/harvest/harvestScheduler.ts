@@ -208,6 +208,11 @@ export async function runScheduler(options: { execute?: boolean; onlyFilters?: s
       }
     }
 
+    if (source.channelType === 'ARCHIVE_IMPORT') {
+      console.log(`📦 Källa '${source.sourceId}' är ARCHIVE_IMPORT och får inte nätverksschemaläggas.`);
+      continue;
+    }
+
     const state = schedulerState[source.sourceId];
 
     if (!isSourceDue(source, state)) {

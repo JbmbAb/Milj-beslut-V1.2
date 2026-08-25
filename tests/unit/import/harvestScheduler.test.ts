@@ -20,6 +20,7 @@ describe('🜂 Live Ingest — Scheduler & State (LSF P0)', () => {
   let isSourceDue: any;
   let runScheduler: any;
   let loadSchedulerState: any;
+  let baseRegistryFixture: Awaited<ReturnType<typeof writeVerifiedSourceRegistryFixture>>;
 
   beforeAll(async () => {
     tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'harvest-scheduler-test-'));
@@ -29,7 +30,8 @@ describe('🜂 Live Ingest — Scheduler & State (LSF P0)', () => {
     process.env.SKIP_DISK_SPACE_CHECK = 'true';
     process.env.SKIP_DISK_CHECK = 'true';
     process.env.NODE_ENV = 'test';
-    installSourceRegistryFixtureEnv(await writeVerifiedSourceRegistryFixture(tempDir));
+    baseRegistryFixture = await writeVerifiedSourceRegistryFixture(tempDir);
+    installSourceRegistryFixtureEnv(baseRegistryFixture);
 
     // Utför dynamiska importer efter att miljövariabeln spikats
     const planMod = await import('../../../scripts/import/harvest/harvestPlan');
@@ -189,6 +191,24 @@ describe('🜂 Live Ingest — Scheduler & State (LSF P0)', () => {
       expect(state.mmd_nacka.consecutive_failures).toBe(0);
       expect(state.mmd_nacka.last_success).not.toBeNull();
       expect(state.mmd_nacka.last_run_id).toBeDefined();
+    });
+
+    it('does not create a network harvest plan for an ARCHIVE_IMPORT source', async () => {
+      const archiveFixture = await writeVerifiedSourceRegistryFixture(tempDir, {
+        sources: ['archive_import'],
+      });
+      installSourceRegistryFixtureEnv(archiveFixture);
+
+      try {
+        const stats = await runScheduler({ execute: true, onlyFilters: ['archive_import'] });
+
+        expect(stats.triggeredPlansCount).toBe(0);
+        expect(stats.completedRunsCount).toBe(0);
+        expect(stats.failedRunsCount).toBe(0);
+      } finally {
+        baseRegistryFixture = await writeVerifiedSourceRegistryFixture(tempDir);
+        installSourceRegistryFixtureEnv(baseRegistryFixture);
+      }
     });
 
     it('correctly reconstructs scheduler state from historical ledgers if state file is deleted (Disaster Recovery/Replay)', async () => {

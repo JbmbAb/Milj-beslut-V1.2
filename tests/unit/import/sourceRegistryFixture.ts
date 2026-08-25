@@ -78,7 +78,39 @@ function buildUnsignedSource(
   if (sourceId === 'domstol_rss') {
     return buildUnsignedDomstolRssSource();
   }
+  if (sourceId === 'archive_import') {
+    return buildUnsignedArchiveImportSource();
+  }
   return buildUnsignedMmdSource(sourceId);
+}
+
+function buildUnsignedArchiveImportSource(): Omit<SourceRegistryArtifact, 'approval_attestation'> {
+  return {
+    artifact_id: 'reg-archive-import-001',
+    artifact_type: 'SOURCE_REGISTRY_ENTRY',
+    source_id: 'archive_import',
+    producer: {
+      producer_id: 'test-municipality',
+      name: 'Test Municipality',
+      type: 'municipality',
+    },
+    channel: {
+      channel_type: 'ARCHIVE_IMPORT',
+      archive_id: 'test-municipal-decision-archive-v1',
+    },
+    adapter: 'ARCHIVE_IMPORT_V1',
+    artifact_types: ['decision'],
+    collection_frequency: 'ON_DEMAND',
+    change_detection: { strategy: 'CONTENT_HASH' },
+    policy: {
+      rate_limit_requests_per_second: 1,
+      concurrency_limit: 1,
+      politeness_delay_ms: 0,
+      retry_policy: { max_attempts: 1, backoff: 'FIXED' },
+    },
+    geographic_scope: 'Sverige',
+    lifecycle_state: 'APPROVED',
+  };
 }
 
 function buildUnsignedMmdSource(

@@ -52,7 +52,7 @@ export const PUH_DRAFT_FIXTURE: SourceRegistryArtifact = {
   },
   geographic_scope: 'Sweden',
   lifecycle_state: 'REGISTERED',
-} as SourceRegistryArtifact;
+} as unknown as SourceRegistryArtifact;
 
 /** Regeringskansliet SFS 1998:808 — the single-endpoint website shape. */
 export const SFS_DRAFT_FIXTURE: SourceRegistryArtifact = {
@@ -78,7 +78,7 @@ export const SFS_DRAFT_FIXTURE: SourceRegistryArtifact = {
   },
   geographic_scope: 'Sweden',
   lifecycle_state: 'REGISTERED',
-} as SourceRegistryArtifact;
+} as unknown as SourceRegistryArtifact;
 
 /** A fresh copy per call — `approveSourceRegistryEntry` must never mutate a shared fixture. */
 export function unsignedDraftFixture(which: 'puh' | 'sfs'): SourceRegistryArtifact {

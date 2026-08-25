@@ -260,6 +260,13 @@ class GovernedHarvestRuntime implements HarvestExecutor {
       );
     }
 
+    if (source.channelType === "ARCHIVE_IMPORT") {
+      throw new GovernedDownloadError(
+        `REJECT_ARCHIVE_IMPORT_NETWORK_HARVEST: source '${sourceId}' may enter only through an explicit governed archive import operation.`,
+        "REJECT_ARCHIVE_IMPORT_NETWORK_HARVEST",
+      );
+    }
+
     const transports = this.transportFactory(source);
 
     // Every known adapter is instantiated against this source's transport, not just the one the

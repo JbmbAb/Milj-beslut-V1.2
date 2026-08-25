@@ -25,8 +25,12 @@ function validateRegistry() {
       console.error(`❌ Saknar source_id/producer/channel för ${entry.artifact_id}`);
       continue;
     }
-    if (!entry.channel.allowed_domains?.length) {
+    if (entry.channel.channel_type !== 'ARCHIVE_IMPORT' && !entry.channel.allowed_domains?.length) {
       console.error(`❌ Saknar channel.allowed_domains för ${entry.artifact_id}`);
+      continue;
+    }
+    if (entry.channel.channel_type === 'ARCHIVE_IMPORT' && !entry.channel.archive_id?.trim()) {
+      console.error(`❌ Saknar channel.archive_id för ${entry.artifact_id}`);
       continue;
     }
     if (!entry.policy || entry.policy.rate_limit_requests_per_second === undefined) {
@@ -39,8 +43,13 @@ function validateRegistry() {
     }
 
     console.log(`✅ [${entry.producer.producer_id}] ${entry.source_id}`);
-    console.log(`   Channel: ${entry.channel.channel_type} ${entry.channel.endpoint_url ?? '(adapter-discovered)'}`);
-    console.log(`   Domains: ${entry.channel.allowed_domains.join(', ')}`);
+    if (entry.channel.channel_type === 'ARCHIVE_IMPORT') {
+      console.log(`   Channel: ${entry.channel.channel_type} ${entry.channel.archive_id}`);
+      console.log(`   Archive ID: ${entry.channel.archive_id}`);
+    } else {
+      console.log(`   Channel: ${entry.channel.channel_type} ${entry.channel.endpoint_url ?? '(adapter-discovered)'}`);
+      console.log(`   Domains: ${entry.channel.allowed_domains.join(', ')}`);
+    }
     console.log(`   Rate limit: ${entry.policy.rate_limit_requests_per_second} req/s`);
     console.log(`   Concurrency: ${entry.policy.concurrency_limit}\n`);
     validCount++;
