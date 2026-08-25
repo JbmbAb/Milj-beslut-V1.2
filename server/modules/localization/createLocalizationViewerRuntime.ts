@@ -7,7 +7,12 @@ import { verifyProductViewerCapability } from "./productViewerCapabilityAuthorit
 import { ProjectContextBindingProvider } from "./projectContextBindingRuntime.js";
 import { PrismaProjectContextBindingIndex } from "../../repositories/projectContextBindingRepository.js";
 import { getProjectContextBindingIssuerVerifier } from "../../security/projectContextBindingIssuerKey.js";
-import { getLatestProvisioningRequestForProject } from "./viewerCapabilityProvisioningQueue.js";
+import {
+  listCompletedProvisioningRequestsForSubject,
+  type ViewerCapabilityProvisioningRequestRecord,
+} from "./viewerCapabilityProvisioningQueue.js";
+import { resolveCanonicalProductRelease } from "../release/productReleaseRuntime.js";
+import { resolveCurrentViewerIdentity } from "../../../src/application/resolveCurrentViewerIdentity.js";
 
 function defaultCurrentBindingProvider(artifactRepository: ArtifactRepositoryPort): ProjectContextBindingProvider {
   return new ProjectContextBindingProvider(
@@ -39,6 +44,27 @@ export interface LocalizationViewerRuntime {
   readonly viewer: ViewerKernel;
 }
 
+export interface ViewerCapabilityCurrentnessDependencies {
+  readonly currentBindingProvider?: ProjectContextBindingProvider;
+  readonly resolveRelease?: (args: { readonly artifactRepository: ArtifactRepositoryPort }) => Promise<{
+    readonly artifact_id: string;
+    readonly artifact_type: string;
+    readonly release_hash: { readonly value: string };
+  }>;
+  readonly resolveViewerIdentity?: (args: {
+    readonly artifactRepository: ArtifactRepositoryPort;
+    readonly releaseId: string;
+    readonly releaseHash: string;
+  }) => Promise<{ readonly viewerIdentityRef: { readonly artifact_id: string; readonly artifact_type: string } }>;
+  readonly listCompletedRequests?: (
+    projectId: string,
+    contextBindingArtifactId: string,
+    releaseArtifactId: string,
+    viewerIdentityArtifactId: string,
+  ) => Promise<readonly ViewerCapabilityProvisioningRequestRecord[]>;
+  readonly now?: () => Date;
+}
+
 function requiredEnv(env: NodeJS.ProcessEnv, name: string): string {
   const value = env[name]?.trim();
   if (!value) {
@@ -68,28 +94,67 @@ export function readLocalizationViewerRuntimeConfig(
  * PRODUCT-LU-VIEWER-CAPABILITY-PROVISIONING-01 Phase B: per-project resolution, replacing the
  * single-deployment-wide-env-var lookup this function used to be the only way to get a
  * `LocalizationViewerRuntimeConfig`. Looks up this SPECIFIC project's own
- * `ViewerCapabilityProvisioningRequest` (COMPLETED status only) and derives the config from the
- * resolved capability artifact's own verified payload -- never from caller/env-supplied
- * expectations. A project with no completed provisioning request has no config yet (not an
- * error state a caller should treat as "wrong project configured" -- it means "not ready").
+ * completed requests for this project's exact verified current subject, then derives the config
+ * from a fully verified capability artifact. Queue timestamps and row order are never authority:
+ * duplicate requests that resolve to one canonical capability are harmless, while distinct valid
+ * capabilities for the same subject fail closed as ambiguous.
  */
 export async function resolveLocalizationViewerRuntimeConfigForProject(
   projectId: string,
   artifactRepository: ArtifactRepositoryPort,
+  dependencies: ViewerCapabilityCurrentnessDependencies = {},
 ): Promise<LocalizationViewerRuntimeConfig | null> {
-  const request = await getLatestProvisioningRequestForProject(projectId);
-  if (!request || request.status !== 'COMPLETED' || !request.capabilityArtifactId) return null;
+  const currentBindingProvider = dependencies.currentBindingProvider ?? defaultCurrentBindingProvider(artifactRepository);
+  const currentBinding = await currentBindingProvider.resolveCurrent(projectId);
+  const release = await (dependencies.resolveRelease ?? resolveCanonicalProductRelease)({ artifactRepository });
+  const viewerIdentity = await (dependencies.resolveViewerIdentity ?? resolveCurrentViewerIdentity)({
+    artifactRepository,
+    releaseId: release.artifact_id,
+    releaseHash: release.release_hash.value,
+  });
+  const requests = await (dependencies.listCompletedRequests ?? listCompletedProvisioningRequestsForSubject)(
+    projectId,
+    currentBinding.artifact_id,
+    release.artifact_id,
+    viewerIdentity.viewerIdentityRef.artifact_id,
+  );
 
-  let capability: ProductViewerCapabilityArtifact;
-  try {
-    capability = await artifactRepository.resolve<ProductViewerCapabilityArtifact>({
-      artifact_id: request.capabilityArtifactId,
-      artifact_type: 'viewer_capability',
-    });
-  } catch {
-    return null;
+  const capabilities = new Map<string, ProductViewerCapabilityArtifact>();
+  for (const request of requests) {
+    if (!request.capabilityArtifactId) continue;
+
+    try {
+      const capability = await artifactRepository.resolve<ProductViewerCapabilityArtifact>({
+        artifact_id: request.capabilityArtifactId,
+        artifact_type: 'viewer_capability',
+      });
+      await verifyProductViewerCapability({
+        capability,
+        repository: artifactRepository,
+        verification: getViewerCapabilityVerifier(),
+        projectId,
+        bindingId: currentBinding.artifact_id,
+        viewerIdentityId: viewerIdentity.viewerIdentityRef.artifact_id,
+        releaseId: release.artifact_id,
+        releaseHash: release.release_hash.value,
+        now: (dependencies.now ?? (() => new Date()))(),
+        currentBindingProvider,
+      });
+      capabilities.set(capability.artifact_id, capability);
+    } catch {
+      // A stale, malformed, missing, or unverifiable completed row is not a valid capability and
+      // cannot win currentness merely because it exists in the operational queue.
+    }
   }
-  if (capability.payload.subject_project_id !== projectId) return null;
+
+  if (capabilities.size === 0) return null;
+  if (capabilities.size > 1) {
+    throw new Error(
+      'REJECT_LU_VIEWER_CAPABILITY_AMBIGUOUS_CURRENT: multiple valid completed capabilities for the exact current subject',
+    );
+  }
+
+  const capability = capabilities.values().next().value as ProductViewerCapabilityArtifact;
 
   return {
     capabilityArtifactId: capability.artifact_id,

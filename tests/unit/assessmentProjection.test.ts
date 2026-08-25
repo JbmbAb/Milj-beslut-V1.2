@@ -23,8 +23,15 @@ import {
 } from '../../server/modules/localization/projectContextBindingSupersessionAuthority';
 import { __resetProjectContextBindingSupersessionVerifierForTests } from '../../server/security/projectContextBindingSupersessionVerifier';
 import type { ProjectContextBindingIndex } from '../../server/repositories/projectContextBindingRepository';
-import type { ProjectAssessmentProjectionIndex, ProjectAssessmentProjectionRow } from '../../server/repositories/projectAssessmentProjectionRepository';
-import { registerAssessmentProjection, resolveCurrentAssessmentProjection, reconcileAssessmentProjection } from '../../server/modules/localization/assessmentProjection';
+import type {
+  ProjectAssessmentProjectionIndex,
+  ProjectAssessmentProjectionRow,
+} from '../../server/repositories/projectAssessmentProjectionRepository';
+import {
+  registerAssessmentProjection,
+  resolveCurrentAssessmentProjection,
+  reconcileAssessmentProjection,
+} from '../../server/modules/localization/assessmentProjection';
 
 class MemoryRepository {
   readonly values = new Map<string, unknown>();
@@ -61,7 +68,9 @@ class MemoryBindingIndex implements ProjectContextBindingIndex {
     if (!bindingId) throw new Error('no binding');
     return bindingId;
   }
-  async registerSupersession(supersession: ReturnType<typeof createProjectContextBindingSupersessionArtifact>): Promise<void> {
+  async registerSupersession(
+    supersession: ReturnType<typeof createProjectContextBindingSupersessionArtifact>,
+  ): Promise<void> {
     const list = this.supersessionsByProject.get(supersession.payload.project_id) ?? [];
     if (!list.some((r) => r.artifact_id === supersession.artifact_id)) {
       list.push({ artifact_id: supersession.artifact_id, artifact_type: supersession.artifact_type });
@@ -82,8 +91,12 @@ class FakeAssessmentProjectionIndex implements ProjectAssessmentProjectionIndex 
   private counter = 0;
   readonly rowsByProject = new Map<string, ProjectAssessmentProjectionRow[]>();
   async register(row: {
-    projectId: string; assessmentArtifactId: string; assessmentArtifactType: string;
-    projectContextRef: ArtifactReference; bindingArtifactId: string; releaseArtifactId: string;
+    projectId: string;
+    assessmentArtifactId: string;
+    assessmentArtifactType: string;
+    projectContextRef: ArtifactReference;
+    bindingArtifactId: string;
+    releaseArtifactId: string;
   }): Promise<void> {
     const list = this.rowsByProject.get(row.projectId) ?? [];
     if (list.some((r) => r.assessmentArtifactId === row.assessmentArtifactId)) return; // idempotent no-op
@@ -101,7 +114,9 @@ class FakeAssessmentProjectionIndex implements ProjectAssessmentProjectionIndex 
     this.rowsByProject.set(row.projectId, list);
   }
   async listForProject(projectId: string): Promise<readonly ProjectAssessmentProjectionRow[]> {
-    return [...(this.rowsByProject.get(projectId) ?? [])].sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
+    return [...(this.rowsByProject.get(projectId) ?? [])].sort(
+      (a, b) => b.createdAt.getTime() - a.createdAt.getTime(),
+    );
   }
 }
 
@@ -109,17 +124,28 @@ const PROJECT_ID = 'project-assessment-projection';
 const OTHER_PROJECT_ID = 'project-assessment-projection-other';
 const contextOld = { artifact_id: 'lu-context-projection-old', artifact_type: 'LU_PROJECT_CONTEXT' } as const;
 const contextNew = { artifact_id: 'lu-context-projection-new', artifact_type: 'LU_PROJECT_CONTEXT' } as const;
-const propertyBinding = { artifact_id: 'project-property-binding-projection', artifact_type: 'project_property_binding' } as const;
+const propertyBinding = {
+  artifact_id: 'project-property-binding-projection',
+  artifact_type: 'project_property_binding',
+} as const;
 const RELEASE_REF = { artifact_id: 'product-release-projection', artifact_type: 'product_release' } as const;
 
 const pcbIssuerKey = LocalPemSigningKeyProvider.generate('ed25519:pcb-issuer-projection-test');
-const pcbVerification = new LocalPemVerificationKeyProvider(pcbIssuerKey.provider.keyId, pcbIssuerKey.publicKey);
-const pcbIssuer = createProjectContextBindingIssuerArtifact({ issuer_key_id: pcbIssuerKey.provider.keyId, issuer_version: 'project-context-binding-issuer-v2' });
+const pcbVerification = new LocalPemVerificationKeyProvider(
+  pcbIssuerKey.provider.keyId,
+  pcbIssuerKey.publicKey,
+);
+const pcbIssuer = createProjectContextBindingIssuerArtifact({
+  issuer_key_id: pcbIssuerKey.provider.keyId,
+  issuer_version: 'project-context-binding-issuer-v2',
+});
 const pcbAuthority = { artifact_id: pcbIssuer.artifact_id, artifact_type: pcbIssuer.artifact_type } as const;
 
 // PROJECT-CONTEXT-BINDING-SUPERSESSION-ISSUER-V1: a supersession must be signed by the dedicated,
 // least-privilege supersession issuer -- never by the ordinary binding issuer above.
-const pcbSupersessionIssuerKey = LocalPemSigningKeyProvider.generate('ed25519:pcb-supersession-issuer-projection-test');
+const pcbSupersessionIssuerKey = LocalPemSigningKeyProvider.generate(
+  'ed25519:pcb-supersession-issuer-projection-test',
+);
 
 async function setup() {
   const repository = new MemoryRepository();
@@ -135,18 +161,40 @@ async function setup() {
   });
   const pcbSupersessionIssuer = {
     ...pcbSupersessionIssuerUnsigned,
-    attestation: await attestProjectContextBindingSupersessionIssuerArtifact({ issuer: pcbSupersessionIssuerUnsigned, signing: pcbSupersessionIssuerKey.provider }),
+    attestation: await attestProjectContextBindingSupersessionIssuerArtifact({
+      issuer: pcbSupersessionIssuerUnsigned,
+      signing: pcbSupersessionIssuerKey.provider,
+    }),
   };
-  const pcbSupersessionAuthority = { artifact_id: pcbSupersessionIssuer.artifact_id, artifact_type: pcbSupersessionIssuer.artifact_type } as const;
+  const pcbSupersessionAuthority = {
+    artifact_id: pcbSupersessionIssuer.artifact_id,
+    artifact_type: pcbSupersessionIssuer.artifact_type,
+  } as const;
   await repository.put({ artifact_id: pcbSupersessionIssuer.artifact_id, body: pcbSupersessionIssuer });
 
   async function provisionBinding(projectId: string, contextRef: ArtifactReference, createdAt: string) {
     const unsigned = createProjectContextBindingArtifact({
-      project_id: projectId, project_context_ref: contextRef, project_property_binding_ref: propertyBinding,
-      binding_version: 'project-context-binding-v2', authority_ref: pcbAuthority, created_at: createdAt,
+      project_id: projectId,
+      project_context_ref: contextRef,
+      project_property_binding_ref: propertyBinding,
+      binding_version: 'project-context-binding-v2',
+      authority_ref: pcbAuthority,
+      created_at: createdAt,
     });
-    const signed = { ...unsigned, attestation: await attestProjectContextBindingArtifact({ artifact: unsigned, issuer: pcbIssuer, signing: pcbIssuerKey.provider }) };
-    await installOwnerIssuedProjectContextBinding({ artifactRepository: repository, index: bindingIndex, binding: signed, verification: pcbVerification });
+    const signed = {
+      ...unsigned,
+      attestation: await attestProjectContextBindingArtifact({
+        artifact: unsigned,
+        issuer: pcbIssuer,
+        signing: pcbIssuerKey.provider,
+      }),
+    };
+    await installOwnerIssuedProjectContextBinding({
+      artifactRepository: repository,
+      index: bindingIndex,
+      binding: signed,
+      verification: pcbVerification,
+    });
     return { artifact_id: signed.artifact_id, artifact_type: signed.artifact_type } as const;
   }
 
@@ -160,18 +208,40 @@ async function setup() {
   async function provisionOldBindingAndSupersede(): Promise<ArtifactReference> {
     const oldBindingRef = await provisionBinding(PROJECT_ID, contextOld, '2026-08-20T00:00:00.000Z');
     const unsigned = createProjectContextBindingSupersessionArtifact({
-      contract_version: 'PROJECT_CONTEXT_BINDING_SUPERSESSION_V1', project_id: PROJECT_ID,
-      superseded_binding_ref: oldBindingRef, successor_binding_ref: newBindingRef,
-      reason_code: 'TEST_SUPERSESSION', issuer_ref: pcbSupersessionAuthority, issuer_key_id: pcbSupersessionIssuerKey.provider.keyId,
+      contract_version: 'PROJECT_CONTEXT_BINDING_SUPERSESSION_V1',
+      project_id: PROJECT_ID,
+      superseded_binding_ref: oldBindingRef,
+      successor_binding_ref: newBindingRef,
+      reason_code: 'TEST_SUPERSESSION',
+      issuer_ref: pcbSupersessionAuthority,
+      issuer_key_id: pcbSupersessionIssuerKey.provider.keyId,
       issued_at: '2026-08-21T00:01:00.000Z',
     });
-    const signed = { ...unsigned, attestation: await attestProjectContextBindingSupersessionArtifact({ artifact: unsigned, issuer: pcbSupersessionIssuer, signing: pcbSupersessionIssuerKey.provider }) };
-    await installOwnerIssuedProjectContextBindingSupersession({ artifactRepository: repository, index: bindingIndex, supersession: signed, verification: pcbVerification });
+    const signed = {
+      ...unsigned,
+      attestation: await attestProjectContextBindingSupersessionArtifact({
+        artifact: unsigned,
+        issuer: pcbSupersessionIssuer,
+        signing: pcbSupersessionIssuerKey.provider,
+      }),
+    };
+    await installOwnerIssuedProjectContextBindingSupersession({
+      artifactRepository: repository,
+      index: bindingIndex,
+      supersession: signed,
+      verification: pcbVerification,
+    });
     return oldBindingRef;
   }
 
-  async function buildAndPersistAssessment(projectContextRef: ArtifactReference, evidenceRefs: readonly ArtifactReference[] = []) {
-    const security = SecurityRuntime.create({ bootstrapAdmit: true, bindSeed: `projection-${Date.now()}-${Math.random()}` });
+  async function buildAndPersistAssessment(
+    projectContextRef: ArtifactReference,
+    evidenceRefs: readonly ArtifactReference[] = [],
+  ) {
+    const security = SecurityRuntime.create({
+      bootstrapAdmit: true,
+      bindSeed: `projection-${Date.now()}-${Math.random()}`,
+    });
     security.bindPrincipal('lu.site_assessment.actor');
     const outcome = {
       outcome_id: `outcome-projection-${Date.now()}-${Math.random()}`,
@@ -193,13 +263,22 @@ async function setup() {
       outcome,
       attestation,
     });
-    await repository.put({ artifact_id: assessment.artifact_id, content_hash: assessment.content_hash, body: assessment });
+    await repository.put({
+      artifact_id: assessment.artifact_id,
+      content_hash: assessment.content_hash,
+      body: assessment,
+    });
     return assessment;
   }
 
   return {
-    repository, bindingIndex, newBindingRef, provisionOldBindingAndSupersede, buildAndPersistAssessment,
-    currentBindingProvider: () => new ProjectContextBindingProvider(repository, bindingIndex, pcbVerification),
+    repository,
+    bindingIndex,
+    newBindingRef,
+    provisionOldBindingAndSupersede,
+    buildAndPersistAssessment,
+    currentBindingProvider: () =>
+      new ProjectContextBindingProvider(repository, bindingIndex, pcbVerification),
   };
 }
 
@@ -208,7 +287,13 @@ describe('P3-LU-ASSESSMENT-CURRENT-PROJECTION-01', () => {
     const s = await setup();
     const assessment = await s.buildAndPersistAssessment(contextNew);
     const index = new FakeAssessmentProjectionIndex();
-    await registerAssessmentProjection({ projectId: PROJECT_ID, assessment, contextBindingRef: s.newBindingRef, releaseRef: RELEASE_REF, index });
+    await registerAssessmentProjection({
+      projectId: PROJECT_ID,
+      assessment,
+      contextBindingRef: s.newBindingRef,
+      releaseRef: RELEASE_REF,
+      index,
+    });
     const rows = await index.listForProject(PROJECT_ID);
     expect(rows).toHaveLength(1);
     expect(rows[0]!.assessmentArtifactId).toBe(assessment.artifact_id);
@@ -219,50 +304,200 @@ describe('P3-LU-ASSESSMENT-CURRENT-PROJECTION-01', () => {
     const security = SecurityRuntime.create({ bootstrapAdmit: true, bindSeed: 'projection-idempotent' });
     security.bindPrincipal('lu.site_assessment.actor');
     const outcome = {
-      outcome_id: 'outcome-idempotent', artifact_type: 'execution_outcome' as const,
+      outcome_id: 'outcome-idempotent',
+      artifact_type: 'execution_outcome' as const,
       attempt_ref: { artifact_id: 'attempt-idempotent', artifact_type: 'execution_attempt' },
-      result: 'success' as const, content_hash: sha256ContentHash({ result: 'success', fixed: true }),
+      result: 'success' as const,
+      content_hash: sha256ContentHash({ result: 'success', fixed: true }),
     };
     const attestation = security.attestOutcome(outcome.content_hash);
     const draft = {
-      site_id: 'site-idempotent', project_context_ref: contextNew,
+      site_id: 'site-idempotent',
+      project_context_ref: contextNew,
       property_ref: { artifact_id: 'property-projection', artifact_type: 'PROPERTY' },
-      evidence_refs: [], system_summary: 'identical rerun',
+      evidence_refs: [],
+      system_summary: 'identical rerun',
     };
     const assessmentA = createGovernedLocalizationAssessment({ draft, findings: [], outcome, attestation });
     const assessmentB = createGovernedLocalizationAssessment({ draft, findings: [], outcome, attestation });
     expect(assessmentA.artifact_id).toBe(assessmentB.artifact_id); // same content -> same identity
 
     const index = new FakeAssessmentProjectionIndex();
-    await registerAssessmentProjection({ projectId: PROJECT_ID, assessment: assessmentA, contextBindingRef: s.newBindingRef, releaseRef: RELEASE_REF, index });
-    await registerAssessmentProjection({ projectId: PROJECT_ID, assessment: assessmentB, contextBindingRef: s.newBindingRef, releaseRef: RELEASE_REF, index });
+    await registerAssessmentProjection({
+      projectId: PROJECT_ID,
+      assessment: assessmentA,
+      contextBindingRef: s.newBindingRef,
+      releaseRef: RELEASE_REF,
+      index,
+    });
+    await registerAssessmentProjection({
+      projectId: PROJECT_ID,
+      assessment: assessmentB,
+      contextBindingRef: s.newBindingRef,
+      releaseRef: RELEASE_REF,
+      index,
+    });
     const rows = await index.listForProject(PROJECT_ID);
     expect(rows).toHaveLength(1);
   });
 
-  it('new assessment same current binding: both historical rows retained -> deterministic current selection', async () => {
+  it('two distinct assessments for the same current binding remain historical and fail closed as ambiguous', async () => {
     const s = await setup();
     const index = new FakeAssessmentProjectionIndex();
     const first = await s.buildAndPersistAssessment(contextNew);
-    await registerAssessmentProjection({ projectId: PROJECT_ID, assessment: first, contextBindingRef: s.newBindingRef, releaseRef: RELEASE_REF, index });
+    await registerAssessmentProjection({
+      projectId: PROJECT_ID,
+      assessment: first,
+      contextBindingRef: s.newBindingRef,
+      releaseRef: RELEASE_REF,
+      index,
+    });
     const second = await s.buildAndPersistAssessment(contextNew);
-    await registerAssessmentProjection({ projectId: PROJECT_ID, assessment: second, contextBindingRef: s.newBindingRef, releaseRef: RELEASE_REF, index });
+    await registerAssessmentProjection({
+      projectId: PROJECT_ID,
+      assessment: second,
+      contextBindingRef: s.newBindingRef,
+      releaseRef: RELEASE_REF,
+      index,
+    });
 
     const rows = await index.listForProject(PROJECT_ID);
     expect(rows).toHaveLength(2);
-    const result = await resolveCurrentAssessmentProjection({
-      projectId: PROJECT_ID, artifactRepository: s.repository, currentBindingProvider: s.currentBindingProvider(), index,
-    });
-    expect(result.assessmentArtifactId).toBe(second.artifact_id); // most recent of the eligible set
+    await expect(
+      resolveCurrentAssessmentProjection({
+        projectId: PROJECT_ID,
+        artifactRepository: s.repository,
+        currentBindingProvider: s.currentBindingProvider(),
+        index,
+      }),
+    ).rejects.toThrow('REJECT_ASSESSMENT_PROJECTION_AMBIGUOUS_CURRENT');
+    expect(
+      (await s.repository.resolve({ artifact_id: first.artifact_id, artifact_type: first.artifact_type }))
+        .artifact_id,
+    ).toBe(first.artifact_id);
+    expect(
+      (await s.repository.resolve({ artifact_id: second.artifact_id, artifact_type: second.artifact_type }))
+        .artifact_id,
+    ).toBe(second.artifact_id);
   });
 
-  it('LU-PROJECTION-RECONCILIATION-AND-TOTAL-ORDER-V1: two verified eligible candidates tied at the maximal createdAt -> fail closed, never an artifact-id tiebreaker', async () => {
+  it('rebuilding the same eligible assessment set in opposite registration orders fails closed in both projections', async () => {
+    const s = await setup();
+    const first = await s.buildAndPersistAssessment(contextNew);
+    const second = await s.buildAndPersistAssessment(contextNew);
+    const indexAB = new FakeAssessmentProjectionIndex();
+    const indexBA = new FakeAssessmentProjectionIndex();
+
+    await registerAssessmentProjection({
+      projectId: PROJECT_ID,
+      assessment: first,
+      contextBindingRef: s.newBindingRef,
+      releaseRef: RELEASE_REF,
+      index: indexAB,
+    });
+    await registerAssessmentProjection({
+      projectId: PROJECT_ID,
+      assessment: second,
+      contextBindingRef: s.newBindingRef,
+      releaseRef: RELEASE_REF,
+      index: indexAB,
+    });
+    await registerAssessmentProjection({
+      projectId: PROJECT_ID,
+      assessment: second,
+      contextBindingRef: s.newBindingRef,
+      releaseRef: RELEASE_REF,
+      index: indexBA,
+    });
+    await registerAssessmentProjection({
+      projectId: PROJECT_ID,
+      assessment: first,
+      contextBindingRef: s.newBindingRef,
+      releaseRef: RELEASE_REF,
+      index: indexBA,
+    });
+
+    await expect(
+      resolveCurrentAssessmentProjection({
+        projectId: PROJECT_ID,
+        artifactRepository: s.repository,
+        currentBindingProvider: s.currentBindingProvider(),
+        index: indexAB,
+      }),
+    ).rejects.toThrow('REJECT_ASSESSMENT_PROJECTION_AMBIGUOUS_CURRENT');
+    await expect(
+      resolveCurrentAssessmentProjection({
+        projectId: PROJECT_ID,
+        artifactRepository: s.repository,
+        currentBindingProvider: s.currentBindingProvider(),
+        index: indexBA,
+      }),
+    ).rejects.toThrow('REJECT_ASSESSMENT_PROJECTION_AMBIGUOUS_CURRENT');
+  });
+
+  it('changing only projection createdAt values cannot choose between distinct verified assessments', async () => {
     const s = await setup();
     const index = new FakeAssessmentProjectionIndex();
     const first = await s.buildAndPersistAssessment(contextNew);
-    await registerAssessmentProjection({ projectId: PROJECT_ID, assessment: first, contextBindingRef: s.newBindingRef, releaseRef: RELEASE_REF, index });
     const second = await s.buildAndPersistAssessment(contextNew);
-    await registerAssessmentProjection({ projectId: PROJECT_ID, assessment: second, contextBindingRef: s.newBindingRef, releaseRef: RELEASE_REF, index });
+    await registerAssessmentProjection({
+      projectId: PROJECT_ID,
+      assessment: first,
+      contextBindingRef: s.newBindingRef,
+      releaseRef: RELEASE_REF,
+      index,
+    });
+    await registerAssessmentProjection({
+      projectId: PROJECT_ID,
+      assessment: second,
+      contextBindingRef: s.newBindingRef,
+      releaseRef: RELEASE_REF,
+      index,
+    });
+
+    const rows = index.rowsByProject.get(PROJECT_ID)!;
+    (rows[0] as { createdAt: Date }).createdAt = new Date('2026-01-01T00:00:00.000Z');
+    (rows[1] as { createdAt: Date }).createdAt = new Date('2030-01-01T00:00:00.000Z');
+    await expect(
+      resolveCurrentAssessmentProjection({
+        projectId: PROJECT_ID,
+        artifactRepository: s.repository,
+        currentBindingProvider: s.currentBindingProvider(),
+        index,
+      }),
+    ).rejects.toThrow('REJECT_ASSESSMENT_PROJECTION_AMBIGUOUS_CURRENT');
+
+    (rows[0] as { createdAt: Date }).createdAt = new Date('2030-01-01T00:00:00.000Z');
+    (rows[1] as { createdAt: Date }).createdAt = new Date('2026-01-01T00:00:00.000Z');
+    await expect(
+      resolveCurrentAssessmentProjection({
+        projectId: PROJECT_ID,
+        artifactRepository: s.repository,
+        currentBindingProvider: s.currentBindingProvider(),
+        index,
+      }),
+    ).rejects.toThrow('REJECT_ASSESSMENT_PROJECTION_AMBIGUOUS_CURRENT');
+  });
+
+  it('multiple verified eligible candidates fail closed even with equal registration timestamps', async () => {
+    const s = await setup();
+    const index = new FakeAssessmentProjectionIndex();
+    const first = await s.buildAndPersistAssessment(contextNew);
+    await registerAssessmentProjection({
+      projectId: PROJECT_ID,
+      assessment: first,
+      contextBindingRef: s.newBindingRef,
+      releaseRef: RELEASE_REF,
+      index,
+    });
+    const second = await s.buildAndPersistAssessment(contextNew);
+    await registerAssessmentProjection({
+      projectId: PROJECT_ID,
+      assessment: second,
+      contextBindingRef: s.newBindingRef,
+      releaseRef: RELEASE_REF,
+      index,
+    });
 
     // Force an exact tie -- the fake index's monotonic counter would otherwise never produce one.
     const rows = index.rowsByProject.get(PROJECT_ID)!;
@@ -271,7 +506,10 @@ describe('P3-LU-ASSESSMENT-CURRENT-PROJECTION-01', () => {
 
     await expect(
       resolveCurrentAssessmentProjection({
-        projectId: PROJECT_ID, artifactRepository: s.repository, currentBindingProvider: s.currentBindingProvider(), index,
+        projectId: PROJECT_ID,
+        artifactRepository: s.repository,
+        currentBindingProvider: s.currentBindingProvider(),
+        index,
       }),
     ).rejects.toThrow('REJECT_ASSESSMENT_PROJECTION_AMBIGUOUS_CURRENT');
   });
@@ -280,7 +518,13 @@ describe('P3-LU-ASSESSMENT-CURRENT-PROJECTION-01', () => {
     const s = await setup();
     const index = new FakeAssessmentProjectionIndex();
     const real = await s.buildAndPersistAssessment(contextNew);
-    await registerAssessmentProjection({ projectId: PROJECT_ID, assessment: real, contextBindingRef: s.newBindingRef, releaseRef: RELEASE_REF, index });
+    await registerAssessmentProjection({
+      projectId: PROJECT_ID,
+      assessment: real,
+      contextBindingRef: s.newBindingRef,
+      releaseRef: RELEASE_REF,
+      index,
+    });
     // A row pointing at an artifact_id that was never actually persisted to CAS -- same shape as
     // "missing CAS artifact -> fail closed" elsewhere in this file, but here it competes for the
     // tie instead of being the only candidate.
@@ -297,7 +541,10 @@ describe('P3-LU-ASSESSMENT-CURRENT-PROJECTION-01', () => {
     for (const row of rows) (row as { createdAt: Date }).createdAt = tiedAt;
 
     const result = await resolveCurrentAssessmentProjection({
-      projectId: PROJECT_ID, artifactRepository: s.repository, currentBindingProvider: s.currentBindingProvider(), index,
+      projectId: PROJECT_ID,
+      artifactRepository: s.repository,
+      currentBindingProvider: s.currentBindingProvider(),
+      index,
     });
     expect(result.assessmentArtifactId).toBe(real.artifact_id);
   });
@@ -307,10 +554,21 @@ describe('P3-LU-ASSESSMENT-CURRENT-PROJECTION-01', () => {
     const index = new FakeAssessmentProjectionIndex();
     const oldBindingRef = await s.provisionOldBindingAndSupersede();
     const oldAssessment = await s.buildAndPersistAssessment(contextOld);
-    await registerAssessmentProjection({ projectId: PROJECT_ID, assessment: oldAssessment, contextBindingRef: oldBindingRef, releaseRef: RELEASE_REF, index });
+    await registerAssessmentProjection({
+      projectId: PROJECT_ID,
+      assessment: oldAssessment,
+      contextBindingRef: oldBindingRef,
+      releaseRef: RELEASE_REF,
+      index,
+    });
 
     await expect(
-      resolveCurrentAssessmentProjection({ projectId: PROJECT_ID, artifactRepository: s.repository, currentBindingProvider: s.currentBindingProvider(), index }),
+      resolveCurrentAssessmentProjection({
+        projectId: PROJECT_ID,
+        artifactRepository: s.repository,
+        currentBindingProvider: s.currentBindingProvider(),
+        index,
+      }),
     ).rejects.toThrow('REJECT_ASSESSMENT_PROJECTION_NOT_CURRENT');
   });
 
@@ -319,12 +577,27 @@ describe('P3-LU-ASSESSMENT-CURRENT-PROJECTION-01', () => {
     const index = new FakeAssessmentProjectionIndex();
     const oldBindingRef = await s.provisionOldBindingAndSupersede();
     const oldAssessment = await s.buildAndPersistAssessment(contextOld);
-    await registerAssessmentProjection({ projectId: PROJECT_ID, assessment: oldAssessment, contextBindingRef: oldBindingRef, releaseRef: RELEASE_REF, index });
+    await registerAssessmentProjection({
+      projectId: PROJECT_ID,
+      assessment: oldAssessment,
+      contextBindingRef: oldBindingRef,
+      releaseRef: RELEASE_REF,
+      index,
+    });
     const newAssessment = await s.buildAndPersistAssessment(contextNew);
-    await registerAssessmentProjection({ projectId: PROJECT_ID, assessment: newAssessment, contextBindingRef: s.newBindingRef, releaseRef: RELEASE_REF, index });
+    await registerAssessmentProjection({
+      projectId: PROJECT_ID,
+      assessment: newAssessment,
+      contextBindingRef: s.newBindingRef,
+      releaseRef: RELEASE_REF,
+      index,
+    });
 
     const result = await resolveCurrentAssessmentProjection({
-      projectId: PROJECT_ID, artifactRepository: s.repository, currentBindingProvider: s.currentBindingProvider(), index,
+      projectId: PROJECT_ID,
+      artifactRepository: s.repository,
+      currentBindingProvider: s.currentBindingProvider(),
+      index,
     });
     expect(result.assessmentArtifactId).toBe(newAssessment.artifact_id);
   });
@@ -333,35 +606,75 @@ describe('P3-LU-ASSESSMENT-CURRENT-PROJECTION-01', () => {
     const s = await setup();
     const index = new FakeAssessmentProjectionIndex();
     const assessment = await s.buildAndPersistAssessment(contextNew);
-    await registerAssessmentProjection({ projectId: PROJECT_ID, assessment, contextBindingRef: s.newBindingRef, releaseRef: RELEASE_REF, index });
+    await registerAssessmentProjection({
+      projectId: PROJECT_ID,
+      assessment,
+      contextBindingRef: s.newBindingRef,
+      releaseRef: RELEASE_REF,
+      index,
+    });
     s.repository.values.delete(assessment.artifact_id); // simulate CAS entry disappearing
 
     await expect(
-      resolveCurrentAssessmentProjection({ projectId: PROJECT_ID, artifactRepository: s.repository, currentBindingProvider: s.currentBindingProvider(), index }),
-    ).rejects.toThrow('REJECT_ASSESSMENT_PROJECTION_NOT_FOUND: no candidate for the current binding survived CAS re-verification');
+      resolveCurrentAssessmentProjection({
+        projectId: PROJECT_ID,
+        artifactRepository: s.repository,
+        currentBindingProvider: s.currentBindingProvider(),
+        index,
+      }),
+    ).rejects.toThrow(
+      'REJECT_ASSESSMENT_PROJECTION_NOT_FOUND: no candidate for the current binding survived CAS re-verification',
+    );
   });
 
   it('tampered CAS artifact -> fail closed', async () => {
     const s = await setup();
     const index = new FakeAssessmentProjectionIndex();
     const assessment = await s.buildAndPersistAssessment(contextNew);
-    await registerAssessmentProjection({ projectId: PROJECT_ID, assessment, contextBindingRef: s.newBindingRef, releaseRef: RELEASE_REF, index });
-    const tampered = { ...assessment, payload: { ...assessment.payload, system_summary: 'tampered after persistence' } };
+    await registerAssessmentProjection({
+      projectId: PROJECT_ID,
+      assessment,
+      contextBindingRef: s.newBindingRef,
+      releaseRef: RELEASE_REF,
+      index,
+    });
+    const tampered = {
+      ...assessment,
+      payload: { ...assessment.payload, system_summary: 'tampered after persistence' },
+    };
     s.repository.values.set(assessment.artifact_id, tampered);
 
     await expect(
-      resolveCurrentAssessmentProjection({ projectId: PROJECT_ID, artifactRepository: s.repository, currentBindingProvider: s.currentBindingProvider(), index }),
-    ).rejects.toThrow('REJECT_ASSESSMENT_PROJECTION_NOT_FOUND: no candidate for the current binding survived CAS re-verification');
+      resolveCurrentAssessmentProjection({
+        projectId: PROJECT_ID,
+        artifactRepository: s.repository,
+        currentBindingProvider: s.currentBindingProvider(),
+        index,
+      }),
+    ).rejects.toThrow(
+      'REJECT_ASSESSMENT_PROJECTION_NOT_FOUND: no candidate for the current binding survived CAS re-verification',
+    );
   });
 
   it('wrong project -> deny (row scoping prevents cross-project leakage)', async () => {
     const s = await setup();
     const index = new FakeAssessmentProjectionIndex();
     const assessment = await s.buildAndPersistAssessment(contextNew);
-    await registerAssessmentProjection({ projectId: PROJECT_ID, assessment, contextBindingRef: s.newBindingRef, releaseRef: RELEASE_REF, index });
+    await registerAssessmentProjection({
+      projectId: PROJECT_ID,
+      assessment,
+      contextBindingRef: s.newBindingRef,
+      releaseRef: RELEASE_REF,
+      index,
+    });
 
     await expect(
-      resolveCurrentAssessmentProjection({ projectId: OTHER_PROJECT_ID, artifactRepository: s.repository, currentBindingProvider: s.currentBindingProvider(), index }),
+      resolveCurrentAssessmentProjection({
+        projectId: OTHER_PROJECT_ID,
+        artifactRepository: s.repository,
+        currentBindingProvider: s.currentBindingProvider(),
+        index,
+      }),
     ).rejects.toThrow('REJECT_ASSESSMENT_PROJECTION_NOT_FOUND: no assessment projection for project');
   });
 
@@ -369,7 +682,13 @@ describe('P3-LU-ASSESSMENT-CURRENT-PROJECTION-01', () => {
     const s = await setup();
     const index = new FakeAssessmentProjectionIndex();
     const assessment = await s.buildAndPersistAssessment(contextNew);
-    await registerAssessmentProjection({ projectId: PROJECT_ID, assessment, contextBindingRef: s.newBindingRef, releaseRef: RELEASE_REF, index });
+    await registerAssessmentProjection({
+      projectId: PROJECT_ID,
+      assessment,
+      contextBindingRef: s.newBindingRef,
+      releaseRef: RELEASE_REF,
+      index,
+    });
     const rows = await index.listForProject(PROJECT_ID);
 
     // A fresh index instance, "rebuilt" from the exact same underlying row data.
@@ -385,8 +704,18 @@ describe('P3-LU-ASSESSMENT-CURRENT-PROJECTION-01', () => {
       });
     }
 
-    const first = await resolveCurrentAssessmentProjection({ projectId: PROJECT_ID, artifactRepository: s.repository, currentBindingProvider: s.currentBindingProvider(), index });
-    const second = await resolveCurrentAssessmentProjection({ projectId: PROJECT_ID, artifactRepository: s.repository, currentBindingProvider: s.currentBindingProvider(), index: rebuilt });
+    const first = await resolveCurrentAssessmentProjection({
+      projectId: PROJECT_ID,
+      artifactRepository: s.repository,
+      currentBindingProvider: s.currentBindingProvider(),
+      index,
+    });
+    const second = await resolveCurrentAssessmentProjection({
+      projectId: PROJECT_ID,
+      artifactRepository: s.repository,
+      currentBindingProvider: s.currentBindingProvider(),
+      index: rebuilt,
+    });
     expect(second.assessmentArtifactId).toBe(first.assessmentArtifactId);
   });
 
@@ -472,7 +801,10 @@ describe('P3-LU-ASSESSMENT-CURRENT-PROJECTION-01', () => {
     it('tampered CAS artifact -> TAMPERED_CAS_ARTIFACT, never projected as valid', async () => {
       const s = await setup();
       const assessment = await s.buildAndPersistAssessment(contextNew);
-      const tampered = { ...assessment, payload: { ...assessment.payload, system_summary: 'tampered after persistence' } };
+      const tampered = {
+        ...assessment,
+        payload: { ...assessment.payload, system_summary: 'tampered after persistence' },
+      };
       s.repository.values.set(assessment.artifact_id, tampered);
       const index = new FakeAssessmentProjectionIndex();
 

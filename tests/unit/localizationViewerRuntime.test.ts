@@ -1,69 +1,91 @@
-import { readFileSync } from "node:fs";
-import path from "node:path";
-import { fileURLToPath } from "node:url";
-import * as crypto from "node:crypto";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { readFileSync } from 'node:fs';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+import * as crypto from 'node:crypto';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 import {
   createProductViewerCapabilityArtifact,
   createViewerCapabilityIssuerArtifact,
   type ProductViewerCapabilityArtifact,
-} from "../../packages/mps-lu/src/artifacts/ProductViewerCapabilityArtifact";
+} from '../../packages/mps-lu/src/artifacts/ProductViewerCapabilityArtifact';
 import {
   createViewerIdentityArtifact,
   createViewerIdentityIssuerArtifact,
-} from "../../packages/mps-lu/src/artifacts/ViewerIdentityArtifact";
+} from '../../packages/mps-lu/src/artifacts/ViewerIdentityArtifact';
 import {
   attestProductViewerCapability,
   attestViewerCapabilityIssuerArtifact,
-} from "../../server/modules/localization/productViewerCapabilityAuthority";
+} from '../../server/modules/localization/productViewerCapabilityAuthority';
 import {
   attestViewerIdentityArtifact,
   attestViewerIdentityIssuerArtifact,
-} from "../../server/modules/localization/viewerIdentityAuthority";
-import { __resetViewerIdentitySigningProviderForTests } from "../../server/security/viewerIdentitySigningKey";
-import { __resetViewerIdentityVerifierForTests } from "../../server/security/viewerIdentityVerifier";
-import type { SpatialEvidenceArtifact } from "../../packages/mps-lu/src/artifacts/SpatialEvidenceArtifact";
-import { SPATIAL_STACK_V1 } from "../../packages/mps-lu/src/artifacts/SpatialEngineFingerprint";
-import { InMemoryArtifactRepository } from "../../packages/mps-runtime/src/repository/InMemoryArtifactRepository";
+} from '../../server/modules/localization/viewerIdentityAuthority';
+import { __resetViewerIdentitySigningProviderForTests } from '../../server/security/viewerIdentitySigningKey';
+import { __resetViewerIdentityVerifierForTests } from '../../server/security/viewerIdentityVerifier';
+import type { SpatialEvidenceArtifact } from '../../packages/mps-lu/src/artifacts/SpatialEvidenceArtifact';
+import { SPATIAL_STACK_V1 } from '../../packages/mps-lu/src/artifacts/SpatialEngineFingerprint';
+import { InMemoryArtifactRepository } from '../../packages/mps-runtime/src/repository/InMemoryArtifactRepository';
 import {
   createLocalizationViewerRuntime,
   LocalizationViewerCapabilityProvider,
+  resolveLocalizationViewerRuntimeConfigForProject,
   type LocalizationViewerRuntimeConfig,
-} from "../../server/modules/localization/createLocalizationViewerRuntime";
-import type { ProjectContextBindingProvider } from "../../server/modules/localization/projectContextBindingRuntime";
-import { LocalPemSigningKeyProvider, LocalPemVerificationKeyProvider } from "@miljobeslut/mimers-brunn-core";
-import { __resetViewerCapabilitySigningProviderForTests } from "../../server/security/viewerCapabilitySigningKey";
-import { __resetViewerCapabilityVerifierForTests } from "../../server/security/viewerCapabilityVerifier";
+  type ViewerCapabilityCurrentnessDependencies,
+} from '../../server/modules/localization/createLocalizationViewerRuntime';
+import type { ProjectContextBindingProvider } from '../../server/modules/localization/projectContextBindingRuntime';
+import type { ViewerCapabilityProvisioningRequestRecord } from '../../server/modules/localization/viewerCapabilityProvisioningQueue';
+import { LocalPemSigningKeyProvider, LocalPemVerificationKeyProvider } from '@miljobeslut/mimers-brunn-core';
+import { __resetViewerCapabilitySigningProviderForTests } from '../../server/security/viewerCapabilitySigningKey';
+import { __resetViewerCapabilityVerifierForTests } from '../../server/security/viewerCapabilityVerifier';
 
-const NOW = new Date("2026-08-20T12:00:00.000Z");
-const RELEASE_HASH = "a".repeat(64);
-const PROJECT_ID = "project-production-issued";
-const BINDING_REF = { artifact_id: "project-context-binding-production-issued", artifact_type: "project_context_binding" };
-const RELEASE_REF = { artifact_id: "product-release-production-issued", artifact_type: "product_release" };
-const OWNER_AUTHORITY_REF = { artifact_id: "owner-authority-manual-install-v1", artifact_type: "owner_authority_attestation" };
+const NOW = new Date('2026-08-20T12:00:00.000Z');
+const RELEASE_HASH = 'a'.repeat(64);
+const PROJECT_ID = 'project-production-issued';
+const BINDING_REF = {
+  artifact_id: 'project-context-binding-production-issued',
+  artifact_type: 'project_context_binding',
+};
+const RELEASE_REF = { artifact_id: 'product-release-production-issued', artifact_type: 'product_release' };
+const OWNER_AUTHORITY_REF = {
+  artifact_id: 'owner-authority-manual-install-v1',
+  artifact_type: 'owner_authority_attestation',
+};
 
-const keys = crypto.generateKeyPairSync("ed25519");
-const privateKeyPem = keys.privateKey.export({ type: "pkcs8", format: "pem" }).toString();
-const publicKeyPem = keys.publicKey.export({ type: "spki", format: "pem" }).toString();
-const KEY_ID = "ed25519:viewer-capability-issuer-runtime-test";
+const keys = crypto.generateKeyPairSync('ed25519');
+const privateKeyPem = keys.privateKey.export({ type: 'pkcs8', format: 'pem' }).toString();
+const publicKeyPem = keys.publicKey.export({ type: 'spki', format: 'pem' }).toString();
+const KEY_ID = 'ed25519:viewer-capability-issuer-runtime-test';
 const signing = new LocalPemSigningKeyProvider(KEY_ID, privateKeyPem, publicKeyPem);
 
-const identityKeys = crypto.generateKeyPairSync("ed25519");
-const identityPrivateKeyPem = identityKeys.privateKey.export({ type: "pkcs8", format: "pem" }).toString();
-const identityPublicKeyPem = identityKeys.publicKey.export({ type: "spki", format: "pem" }).toString();
-const IDENTITY_KEY_ID = "ed25519:viewer-identity-issuer-runtime-test";
-const identitySigning = new LocalPemSigningKeyProvider(IDENTITY_KEY_ID, identityPrivateKeyPem, identityPublicKeyPem);
+const identityKeys = crypto.generateKeyPairSync('ed25519');
+const identityPrivateKeyPem = identityKeys.privateKey.export({ type: 'pkcs8', format: 'pem' }).toString();
+const identityPublicKeyPem = identityKeys.publicKey.export({ type: 'spki', format: 'pem' }).toString();
+const IDENTITY_KEY_ID = 'ed25519:viewer-identity-issuer-runtime-test';
+const identitySigning = new LocalPemSigningKeyProvider(
+  IDENTITY_KEY_ID,
+  identityPrivateKeyPem,
+  identityPublicKeyPem,
+);
 
-const unsignedIdentityIssuer = createViewerIdentityIssuerArtifact({ issuer_key_id: IDENTITY_KEY_ID, owner_authority_ref: OWNER_AUTHORITY_REF });
+const unsignedIdentityIssuer = createViewerIdentityIssuerArtifact({
+  issuer_key_id: IDENTITY_KEY_ID,
+  owner_authority_ref: OWNER_AUTHORITY_REF,
+});
 const unsignedIdentity = createViewerIdentityArtifact({
-  runtime_component: "canonical LU ViewerKernel / localization viewer runtime",
+  runtime_component: 'canonical LU ViewerKernel / localization viewer runtime',
   product_release_ref: RELEASE_REF,
   product_release_hash: RELEASE_HASH,
-  issuer_ref: { artifact_id: unsignedIdentityIssuer.artifact_id, artifact_type: unsignedIdentityIssuer.artifact_type },
+  issuer_ref: {
+    artifact_id: unsignedIdentityIssuer.artifact_id,
+    artifact_type: unsignedIdentityIssuer.artifact_type,
+  },
   issuer_key_id: IDENTITY_KEY_ID,
 });
-const VIEWER_IDENTITY_REF = { artifact_id: unsignedIdentity.artifact_id, artifact_type: unsignedIdentity.artifact_type };
+const VIEWER_IDENTITY_REF = {
+  artifact_id: unsignedIdentity.artifact_id,
+  artifact_type: unsignedIdentity.artifact_type,
+};
 
 /**
  * VIEWER-CAPABILITY-CURRENT-BINDING-WIRING-01: this test file never provisions a real
@@ -71,15 +93,20 @@ const VIEWER_IDENTITY_REF = { artifact_id: unsignedIdentity.artifact_id, artifac
  * the canonical head" keeps these tests exercising what they were written to prove without
  * requiring a live Postgres-backed binding graph.
  */
-function currentBindingProviderStub(bindingRef: { artifact_id: string; artifact_type: string }): ProjectContextBindingProvider {
+function currentBindingProviderStub(bindingRef: {
+  artifact_id: string;
+  artifact_type: string;
+}): ProjectContextBindingProvider {
   return {
-    resolveCurrent: async () => ({ artifact_id: bindingRef.artifact_id, artifact_type: bindingRef.artifact_type }) as never,
-    resolve: async () => ({ artifact_id: bindingRef.artifact_id, artifact_type: bindingRef.artifact_type }) as never,
+    resolveCurrent: async () =>
+      ({ artifact_id: bindingRef.artifact_id, artifact_type: bindingRef.artifact_type }) as never,
+    resolve: async () =>
+      ({ artifact_id: bindingRef.artifact_id, artifact_type: bindingRef.artifact_type }) as never,
   } as unknown as ProjectContextBindingProvider;
 }
 
 const config: LocalizationViewerRuntimeConfig = {
-  capabilityArtifactId: "viewer-capability-production-issued-placeholder",
+  capabilityArtifactId: 'viewer-capability-production-issued-placeholder',
   expectedProjectId: PROJECT_ID,
   expectedContextBindingId: BINDING_REF.artifact_id,
   expectedViewerIdentityId: VIEWER_IDENTITY_REF.artifact_id,
@@ -88,29 +115,52 @@ const config: LocalizationViewerRuntimeConfig = {
 };
 
 async function buildIssuer() {
-  const unsigned = createViewerCapabilityIssuerArtifact({ issuer_key_id: KEY_ID, owner_authority_ref: OWNER_AUTHORITY_REF });
+  const unsigned = createViewerCapabilityIssuerArtifact({
+    issuer_key_id: KEY_ID,
+    owner_authority_ref: OWNER_AUTHORITY_REF,
+  });
   const attestation = await attestViewerCapabilityIssuerArtifact({ issuer: unsigned, signing });
   return { ...unsigned, attestation };
 }
 
 async function buildIdentity() {
-  const identityIssuerAttestation = await attestViewerIdentityIssuerArtifact({ issuer: unsignedIdentityIssuer, signing: identitySigning });
+  const identityIssuerAttestation = await attestViewerIdentityIssuerArtifact({
+    issuer: unsignedIdentityIssuer,
+    signing: identitySigning,
+  });
   const identityIssuer = { ...unsignedIdentityIssuer, attestation: identityIssuerAttestation };
-  const identityAttestation = await attestViewerIdentityArtifact({ identity: unsignedIdentity, issuer: identityIssuer, signing: identitySigning });
+  const identityAttestation = await attestViewerIdentityArtifact({
+    identity: unsignedIdentity,
+    issuer: identityIssuer,
+    signing: identitySigning,
+  });
   return { identity: { ...unsignedIdentity, attestation: identityAttestation }, identityIssuer };
 }
 
-async function buildCapability(issuer: Awaited<ReturnType<typeof buildIssuer>>): Promise<ProductViewerCapabilityArtifact> {
+async function buildCapability(
+  issuer: Awaited<ReturnType<typeof buildIssuer>>,
+  overrides: Partial<
+    Pick<
+      ProductViewerCapabilityArtifact['payload'],
+      | 'project_context_binding_ref'
+      | 'viewer_identity_ref'
+      | 'product_release_ref'
+      | 'product_release_hash'
+      | 'valid_from'
+      | 'valid_until'
+    >
+  > = {},
+): Promise<ProductViewerCapabilityArtifact> {
   const unsigned = createProductViewerCapabilityArtifact({
     issuer_key_id: KEY_ID,
     issuer_ref: { artifact_id: issuer.artifact_id, artifact_type: issuer.artifact_type },
     subject_project_id: PROJECT_ID,
-    project_context_binding_ref: BINDING_REF,
-    viewer_identity_ref: VIEWER_IDENTITY_REF,
-    product_release_ref: RELEASE_REF,
-    product_release_hash: RELEASE_HASH,
-    valid_from: "2026-01-01T00:00:00.000Z",
-    valid_until: "2027-01-01T00:00:00.000Z",
+    project_context_binding_ref: overrides.project_context_binding_ref ?? BINDING_REF,
+    viewer_identity_ref: overrides.viewer_identity_ref ?? VIEWER_IDENTITY_REF,
+    product_release_ref: overrides.product_release_ref ?? RELEASE_REF,
+    product_release_hash: overrides.product_release_hash ?? RELEASE_HASH,
+    valid_from: overrides.valid_from ?? '2026-01-01T00:00:00.000Z',
+    valid_until: overrides.valid_until ?? '2027-01-01T00:00:00.000Z',
   });
   const attestation = await attestProductViewerCapability({ capability: unsigned, issuer, signing });
   return { ...unsigned, attestation };
@@ -121,49 +171,106 @@ async function seed(repository: InMemoryArtifactRepository) {
   await repository.put({ artifact_id: issuer.artifact_id, content_hash: issuer.content_hash, body: issuer });
   await repository.put({
     artifact_id: RELEASE_REF.artifact_id,
-    content_hash: { algorithm: "sha256", value: RELEASE_HASH },
-    body: { artifact_id: RELEASE_REF.artifact_id, artifact_type: RELEASE_REF.artifact_type, content_hash: { algorithm: "sha256", value: "release-manifest-content-hash" }, references: [], payload: {}, release_hash: { algorithm: "sha256", value: RELEASE_HASH } },
+    content_hash: { algorithm: 'sha256', value: RELEASE_HASH },
+    body: {
+      artifact_id: RELEASE_REF.artifact_id,
+      artifact_type: RELEASE_REF.artifact_type,
+      content_hash: { algorithm: 'sha256', value: 'release-manifest-content-hash' },
+      references: [],
+      payload: {},
+      release_hash: { algorithm: 'sha256', value: RELEASE_HASH },
+    },
   });
   const { identity, identityIssuer } = await buildIdentity();
-  await repository.put({ artifact_id: identityIssuer.artifact_id, content_hash: identityIssuer.content_hash, body: identityIssuer });
-  await repository.put({ artifact_id: identity.artifact_id, content_hash: identity.content_hash, body: identity });
+  await repository.put({
+    artifact_id: identityIssuer.artifact_id,
+    content_hash: identityIssuer.content_hash,
+    body: identityIssuer,
+  });
+  await repository.put({
+    artifact_id: identity.artifact_id,
+    content_hash: identity.content_hash,
+    body: identity,
+  });
   const capability = await buildCapability(issuer);
-  await repository.put({ artifact_id: capability.artifact_id, content_hash: capability.content_hash, body: capability });
-  return capability;
+  await repository.put({
+    artifact_id: capability.artifact_id,
+    content_hash: capability.content_hash,
+    body: capability,
+  });
+  return { capability, issuer };
+}
+
+function completedRequest(capabilityArtifactId: string): ViewerCapabilityProvisioningRequestRecord {
+  return {
+    id: `request-${capabilityArtifactId}`,
+    projectId: PROJECT_ID,
+    contextBindingArtifactId: BINDING_REF.artifact_id,
+    releaseArtifactId: RELEASE_REF.artifact_id,
+    viewerIdentityArtifactId: VIEWER_IDENTITY_REF.artifact_id,
+    requestedByUserId: 'user-runtime-test',
+    status: 'COMPLETED',
+    capabilityArtifactId,
+    capabilityValidFrom: new Date('2026-01-01T00:00:00.000Z'),
+    capabilityValidUntil: new Date('2027-01-01T00:00:00.000Z'),
+    failureCode: null,
+    failureDetail: null,
+    createdAt: NOW,
+    leasedAt: null,
+    leaseExpiresAt: null,
+    completedAt: NOW,
+    failedAt: null,
+  };
+}
+
+function currentnessDependencies(
+  requests: readonly ViewerCapabilityProvisioningRequestRecord[],
+): ViewerCapabilityCurrentnessDependencies {
+  return {
+    currentBindingProvider: currentBindingProviderStub(BINDING_REF),
+    resolveRelease: async () => ({
+      artifact_id: RELEASE_REF.artifact_id,
+      artifact_type: RELEASE_REF.artifact_type,
+      release_hash: { value: RELEASE_HASH },
+    }),
+    resolveViewerIdentity: async () => ({ viewerIdentityRef: VIEWER_IDENTITY_REF }),
+    listCompletedRequests: async () => requests,
+    now: () => NOW,
+  };
 }
 
 function existenceEvidence(): SpatialEvidenceArtifact {
   return {
-    artifact_id: "spatial-evidence-viewer-runtime",
-    artifact_type: "SPATIAL_EVIDENCE",
-    content_hash: { algorithm: "sha256", value: "spatial-evidence-viewer-runtime-hash" },
-    references: [{ artifact_id: "property-viewer-runtime", artifact_type: "PROPERTY" }],
+    artifact_id: 'spatial-evidence-viewer-runtime',
+    artifact_type: 'SPATIAL_EVIDENCE',
+    content_hash: { algorithm: 'sha256', value: 'spatial-evidence-viewer-runtime-hash' },
+    references: [{ artifact_id: 'property-viewer-runtime', artifact_type: 'PROPERTY' }],
     payload: {
       result_semantics: {
-        kind: "EXISTENCE_WITHIN_DISTANCE",
+        kind: 'EXISTENCE_WITHIN_DISTANCE',
         query: {
-          subject_ref: { artifact_id: "property-viewer-runtime", artifact_type: "PROPERTY" },
+          subject_ref: { artifact_id: 'property-viewer-runtime', artifact_type: 'PROPERTY' },
           srid: 3006,
           distance_meters: 250,
         },
         result: { exists: true, match_count_observed: 1, max_features_per_layer: 50 },
       },
-      property_ref: { artifact_id: "property-viewer-runtime", artifact_type: "PROPERTY" },
+      property_ref: { artifact_id: 'property-viewer-runtime', artifact_type: 'PROPERTY' },
       geometry: null,
       srid: 3006,
       operation: {
-        algorithm: "spatial.dwithin_existence",
-        engine: "PostGIS",
+        algorithm: 'spatial.dwithin_existence',
+        engine: 'PostGIS',
         engine_fingerprint: SPATIAL_STACK_V1,
       },
-      layer_ref: { layer_id: "water", version_hash: "b".repeat(64), layer_version: "v1" },
+      layer_ref: { layer_id: 'water', version_hash: 'b'.repeat(64), layer_version: 'v1' },
       source_metadata: {
-        provider: "SGU",
-        dataset: "water",
-        dataset_version: "b".repeat(64),
-        retrieved_at: "2026-08-20T12:00:00.000Z",
+        provider: 'SGU',
+        dataset: 'water',
+        dataset_version: 'b'.repeat(64),
+        retrieved_at: '2026-08-20T12:00:00.000Z',
       },
-      query_context: { query_id: "viewer-runtime-query", query_type: "SPATIAL_DWITHIN", parameters: {} },
+      query_context: { query_id: 'viewer-runtime-query', query_type: 'SPATIAL_DWITHIN', parameters: {} },
     },
   } as SpatialEvidenceArtifact;
 }
@@ -172,7 +279,9 @@ beforeEach(() => {
   __resetViewerCapabilitySigningProviderForTests(null);
   __resetViewerCapabilityVerifierForTests(new LocalPemVerificationKeyProvider(KEY_ID, publicKeyPem));
   __resetViewerIdentitySigningProviderForTests(null);
-  __resetViewerIdentityVerifierForTests(new LocalPemVerificationKeyProvider(IDENTITY_KEY_ID, identityPublicKeyPem));
+  __resetViewerIdentityVerifierForTests(
+    new LocalPemVerificationKeyProvider(IDENTITY_KEY_ID, identityPublicKeyPem),
+  );
 });
 
 afterEach(() => {
@@ -182,45 +291,59 @@ afterEach(() => {
   __resetViewerIdentityVerifierForTests(null);
 });
 
-describe("VIEWER-CAPABILITY-ISSUER-TRUST-CHAIN-V1: runtime", () => {
-  it("fails closed when no owner-issued capability is installed", async () => {
-    const provider = new LocalizationViewerCapabilityProvider(new InMemoryArtifactRepository(), config, () => NOW, currentBindingProviderStub(BINDING_REF));
-
-    await expect(provider.resolve()).rejects.toThrow("REJECT_LU_VIEWER_CAPABILITY_UNAVAILABLE");
-  });
-
-  it("rejects an installed capability bound to a different project (wrong project)", async () => {
-    const repository = new InMemoryArtifactRepository();
-    const capability = await seed(repository);
+describe('VIEWER-CAPABILITY-ISSUER-TRUST-CHAIN-V1: runtime', () => {
+  it('fails closed when no owner-issued capability is installed', async () => {
     const provider = new LocalizationViewerCapabilityProvider(
-      repository,
-      { ...config, capabilityArtifactId: capability.artifact_id, expectedProjectId: "some-other-project" },
+      new InMemoryArtifactRepository(),
+      config,
       () => NOW,
       currentBindingProviderStub(BINDING_REF),
     );
 
-    await expect(provider.resolve()).rejects.toThrow("REJECT_VIEWER_CAPABILITY_PROJECT");
+    await expect(provider.resolve()).rejects.toThrow('REJECT_LU_VIEWER_CAPABILITY_UNAVAILABLE');
   });
 
-  it("rejects an installed capability bound to a different context binding", async () => {
+  it('rejects an installed capability bound to a different project (wrong project)', async () => {
     const repository = new InMemoryArtifactRepository();
-    const capability = await seed(repository);
+    const { capability } = await seed(repository);
     const provider = new LocalizationViewerCapabilityProvider(
       repository,
-      { ...config, capabilityArtifactId: capability.artifact_id, expectedContextBindingId: "some-other-binding" },
+      { ...config, capabilityArtifactId: capability.artifact_id, expectedProjectId: 'some-other-project' },
       () => NOW,
       currentBindingProviderStub(BINDING_REF),
     );
 
-    await expect(provider.resolve()).rejects.toThrow("REJECT_VIEWER_CAPABILITY_CONTEXT_BINDING");
+    await expect(provider.resolve()).rejects.toThrow('REJECT_VIEWER_CAPABILITY_PROJECT');
   });
 
-  it("resolves an installed, owner-issued V2 capability and verifies its full trust chain", async () => {
+  it('rejects an installed capability bound to a different context binding', async () => {
     const repository = new InMemoryArtifactRepository();
-    const capability = await seed(repository);
+    const { capability } = await seed(repository);
+    const provider = new LocalizationViewerCapabilityProvider(
+      repository,
+      {
+        ...config,
+        capabilityArtifactId: capability.artifact_id,
+        expectedContextBindingId: 'some-other-binding',
+      },
+      () => NOW,
+      currentBindingProviderStub(BINDING_REF),
+    );
+
+    await expect(provider.resolve()).rejects.toThrow('REJECT_VIEWER_CAPABILITY_CONTEXT_BINDING');
+  });
+
+  it('resolves an installed, owner-issued V2 capability and verifies its full trust chain', async () => {
+    const repository = new InMemoryArtifactRepository();
+    const { capability } = await seed(repository);
 
     await expect(
-      new LocalizationViewerCapabilityProvider(repository, { ...config, capabilityArtifactId: capability.artifact_id }, () => NOW, currentBindingProviderStub(BINDING_REF)).resolve(),
+      new LocalizationViewerCapabilityProvider(
+        repository,
+        { ...config, capabilityArtifactId: capability.artifact_id },
+        () => NOW,
+        currentBindingProviderStub(BINDING_REF),
+      ).resolve(),
     ).resolves.toMatchObject({
       artifact_id: capability.artifact_id,
       release_hash: { value: RELEASE_HASH },
@@ -230,9 +353,13 @@ describe("VIEWER-CAPABILITY-ISSUER-TRUST-CHAIN-V1: runtime", () => {
 
   it("gives ViewerKernel the verified V2 capability's exact viewer identity and project/context binding -- neither masquerading as the other", async () => {
     const repository = new InMemoryArtifactRepository();
-    const capability = await seed(repository);
+    const { capability } = await seed(repository);
     const evidence = existenceEvidence();
-    await repository.put({ artifact_id: evidence.artifact_id, content_hash: evidence.content_hash, body: evidence });
+    await repository.put({
+      artifact_id: evidence.artifact_id,
+      content_hash: evidence.content_hash,
+      body: evidence,
+    });
 
     const runtime = await createLocalizationViewerRuntime({
       artifactRepository: repository,
@@ -256,11 +383,130 @@ describe("VIEWER-CAPABILITY-ISSUER-TRUST-CHAIN-V1: runtime", () => {
 
     const here = path.dirname(fileURLToPath(import.meta.url));
     const source = readFileSync(
-      path.resolve(here, "../../server/modules/localization/createLocalizationViewerRuntime.ts"),
-      "utf8",
+      path.resolve(here, '../../server/modules/localization/createLocalizationViewerRuntime.ts'),
+      'utf8',
     );
-    expect(source).not.toContain("admitViewerCapability");
-    expect(source).not.toContain("buildAdmittedViewerCapability");
-    expect(source).not.toContain("tests/fixtures");
+    expect(source).not.toContain('admitViewerCapability');
+    expect(source).not.toContain('buildAdmittedViewerCapability');
+    expect(source).not.toContain('tests/fixtures');
+  });
+
+  it('currentness ignores request insertion order when duplicate completed requests resolve to one canonical capability', async () => {
+    const repository = new InMemoryArtifactRepository();
+    const { capability } = await seed(repository);
+    const duplicateA = {
+      ...completedRequest(capability.artifact_id),
+      id: 'request-a',
+      createdAt: new Date('2026-01-01T00:00:00.000Z'),
+    };
+    const duplicateB = {
+      ...completedRequest(capability.artifact_id),
+      id: 'request-b',
+      createdAt: new Date('2026-02-01T00:00:00.000Z'),
+    };
+
+    const resolvedAB = await resolveLocalizationViewerRuntimeConfigForProject(
+      PROJECT_ID,
+      repository,
+      currentnessDependencies([duplicateA, duplicateB]),
+    );
+    const resolvedBA = await resolveLocalizationViewerRuntimeConfigForProject(
+      PROJECT_ID,
+      repository,
+      currentnessDependencies([duplicateB, duplicateA]),
+    );
+
+    expect(resolvedAB).toEqual(resolvedBA);
+    expect(resolvedAB?.capabilityArtifactId).toBe(capability.artifact_id);
+  });
+
+  it('has no current capability when the exact current subject has no valid completed request', async () => {
+    const repository = new InMemoryArtifactRepository();
+    await seed(repository);
+
+    await expect(
+      resolveLocalizationViewerRuntimeConfigForProject(PROJECT_ID, repository, currentnessDependencies([])),
+    ).resolves.toBeNull();
+  });
+
+  it('two distinct valid capabilities for the exact same current subject fail closed as ambiguous', async () => {
+    const repository = new InMemoryArtifactRepository();
+    const { capability, issuer } = await seed(repository);
+    const rotated = await buildCapability(issuer, {
+      valid_from: '2026-02-01T00:00:00.000Z',
+      valid_until: '2027-02-01T00:00:00.000Z',
+    });
+    await repository.put({
+      artifact_id: rotated.artifact_id,
+      content_hash: rotated.content_hash,
+      body: rotated,
+    });
+
+    await expect(
+      resolveLocalizationViewerRuntimeConfigForProject(
+        PROJECT_ID,
+        repository,
+        currentnessDependencies([
+          completedRequest(capability.artifact_id),
+          completedRequest(rotated.artifact_id),
+        ]),
+      ),
+    ).rejects.toThrow('REJECT_LU_VIEWER_CAPABILITY_AMBIGUOUS_CURRENT');
+  });
+
+  it('a stale completed capability cannot win over one bound to the current subject', async () => {
+    const repository = new InMemoryArtifactRepository();
+    const { capability, issuer } = await seed(repository);
+    const stale = await buildCapability(issuer, {
+      project_context_binding_ref: {
+        artifact_id: 'project-context-binding-superseded',
+        artifact_type: 'project_context_binding',
+      },
+    });
+    await repository.put({ artifact_id: stale.artifact_id, content_hash: stale.content_hash, body: stale });
+
+    const resolved = await resolveLocalizationViewerRuntimeConfigForProject(
+      PROJECT_ID,
+      repository,
+      currentnessDependencies([
+        completedRequest(stale.artifact_id),
+        completedRequest(capability.artifact_id),
+      ]),
+    );
+    expect(resolved?.capabilityArtifactId).toBe(capability.artifact_id);
+  });
+
+  it('rejects a completed capability for a different product release rather than treating its request as current', async () => {
+    const repository = new InMemoryArtifactRepository();
+    const { issuer } = await seed(repository);
+    const stale = await buildCapability(issuer, {
+      product_release_ref: { artifact_id: 'product-release-superseded', artifact_type: 'product_release' },
+    });
+    await repository.put({ artifact_id: stale.artifact_id, content_hash: stale.content_hash, body: stale });
+
+    await expect(
+      resolveLocalizationViewerRuntimeConfigForProject(
+        PROJECT_ID,
+        repository,
+        currentnessDependencies([completedRequest(stale.artifact_id)]),
+      ),
+    ).resolves.toBeNull();
+  });
+
+  it('rejects a completed capability for a different viewer identity rather than treating its request as current', async () => {
+    const repository = new InMemoryArtifactRepository();
+    const { issuer } = await seed(repository);
+    const stale = await buildCapability(issuer, {
+      viewer_identity_ref: { artifact_id: 'viewer-identity-superseded', artifact_type: 'viewer_identity' },
+    });
+    await repository.put({ artifact_id: stale.artifact_id, content_hash: stale.content_hash, body: stale });
+
+    await expect(
+      resolveLocalizationViewerRuntimeConfigForProject(
+        PROJECT_ID,
+        repository,
+        currentnessDependencies([completedRequest(stale.artifact_id)]),
+      ),
+    ).resolves.toBeNull();
   });
 });
