@@ -1,34 +1,26 @@
 /**
- * LEGACY / MANUAL. Normal product use now provisions ViewerCapability automatically
- * (server/workers/lu-viewer-capability-worker.ts, PRODUCT-LU-VIEWER-CAPABILITY-PROVISIONING-01).
- * Kept as a manual fallback/debugging tool, not part of the regular product flow.
+ * LEGACY / MANUAL. Normal product use provisions ViewerCapability through the
+ * dedicated worker. This CLI remains an explicit authority bootstrap surface.
  *
- * LU-PRODUCT-GOLDEN-PATH-01 -- fixes a real gap found while proving the golden path: the viewer-
- * identity and viewer-capability issuer keys minted during VIEWER-IDENTITY-AUTHORITY-BOOTSTRAP-01
- * / VIEWER-CAPABILITY-ISSUER-TRUST-CHAIN-V1's proof runs were generated fresh in-process and
- * never persisted to ~/.mimers/secrets -- unlike every other issuer this session
- * (project-context-binding-issuer-v1, lu-execution-authority). That made the resulting
- * ViewerIdentity/ProductViewerCapability artifacts unverifiable outside the single proof-script
- * process that minted them, which is not a real "persistent, fresh-reopenable" authority.
- *
- * This script generates real, persisted Ed25519 keypairs for both issuers, then mints one real
- * ViewerIdentityArtifact and one real ProductViewerCapabilityArtifact for the LU golden-path
- * project using those stable keys. Never re-run with --execute once real product capabilities
- * depend on the resulting artifact_ids -- this is an owner-provisioning step, not a repeatable one.
- *
- * Usage: MIMERS_ROOT="C:\Users\jimmy\.mimers" npx tsx scripts/ops/bootstrap-viewer-authority-persistent.ts --execute
+ * Legacy mode preserves the established ORSA/manual invocation. Clean-room mode
+ * is selected by --secrets-root and requires every authority-bearing reference
+ * and runtime root explicitly; it never reads the live secrets directory.
  */
 import { generateKeyPairSync } from 'node:crypto';
-import { mkdirSync, writeFileSync, existsSync } from 'node:fs';
+import { existsSync, mkdirSync, writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
-import { MimersIntegration } from '@miljobeslut/mps-runtime';
+import { MimersIntegration, type ArtifactRepositoryPort } from '@miljobeslut/mps-runtime';
 import { LocalPemSigningKeyProvider } from '@miljobeslut/mimers-brunn-core';
 import {
-  createViewerIdentityArtifact,
-  createViewerIdentityIssuerArtifact,
   createProductViewerCapabilityArtifact,
   createViewerCapabilityIssuerArtifact,
+  createViewerIdentityArtifact,
+  createViewerIdentityIssuerArtifact,
+  type ProductViewerCapabilityArtifact,
+  type ViewerCapabilityIssuerArtifact,
+  type ViewerIdentityArtifact,
+  type ViewerIdentityIssuerArtifact,
 } from '@miljobeslut/mps-lu';
 import {
   attestViewerIdentityArtifact,
@@ -45,6 +37,53 @@ const RELEASE_REF = { artifact_id: 'product-release-772aceb600c4690777593ea8', a
 const RELEASE_HASH = '772aceb600c4690777593ea89255ce20c062648eadf6ef6e0ecee3e36808c0fa';
 const OWNER_AUTHORITY_REF = { artifact_id: 'owner-authority-manual-install-v1', artifact_type: 'owner_authority_attestation' } as const;
 const SECRETS_DIR = 'C:/Users/jimmy/.mimers/secrets';
+const RUNTIME_COMPONENT = 'canonical LU ViewerKernel / localization viewer runtime';
+
+type ArtifactReferenceInput = { readonly artifact_id: string; readonly artifact_type: string };
+
+export type ViewerBootstrapInput = {
+  readonly secretsDir: string;
+  readonly projectId: string;
+  readonly contextBindingRef: ArtifactReferenceInput;
+  readonly releaseRef: ArtifactReferenceInput;
+  readonly releaseHash: string;
+  readonly ownerAuthorityRef: ArtifactReferenceInput;
+  readonly validFrom: string;
+  readonly validUntil: string;
+};
+
+export type ViewerBootstrapResult = {
+  readonly identityIssuer: ViewerIdentityIssuerArtifact;
+  readonly identity: ViewerIdentityArtifact;
+  readonly capabilityIssuer: ViewerCapabilityIssuerArtifact;
+  readonly capability: ProductViewerCapabilityArtifact;
+};
+
+function requiredOption(name: string, argv: readonly string[] = process.argv): string {
+  const index = argv.indexOf(name);
+  const value = index < 0 ? undefined : argv[index + 1]?.trim();
+  if (!value) throw new Error(`REJECT_VIEWER_AUTHORITY_BOOTSTRAP_CONFIGURATION: ${name} is required`);
+  return value;
+}
+
+function option(name: string, argv: readonly string[] = process.argv): string | undefined {
+  const index = argv.indexOf(name);
+  return index < 0 ? undefined : argv[index + 1]?.trim() || undefined;
+}
+
+function requiredRef(prefix: string, argv: readonly string[] = process.argv): ArtifactReferenceInput {
+  return {
+    artifact_id: requiredOption(`--${prefix}-artifact-id`, argv),
+    artifact_type: requiredOption(`--${prefix}-artifact-type`, argv),
+  };
+}
+
+function iso(value: string, name: string): string {
+  if (Number.isNaN(Date.parse(value))) {
+    throw new Error(`REJECT_VIEWER_AUTHORITY_BOOTSTRAP_CONFIGURATION: ${name} must be a valid ISO8601 timestamp`);
+  }
+  return value;
+}
 
 export function assertBootstrapExecute(argv: readonly string[] = process.argv): void {
   if (!argv.includes('--execute')) throw new Error('refusing to write without --execute');
@@ -76,75 +115,127 @@ export function generateAndPersistKeyPair(name: string, keyId: string, secretsDi
   return { keyId, privatePem, publicPem };
 }
 
-async function main() {
-  assertBootstrapExecute();
-  if (!process.env.MIMERS_ROOT?.trim()) throw new Error('MIMERS_ROOT is required.');
+export function legacyViewerBootstrapInput(now = new Date()): ViewerBootstrapInput {
+  return {
+    secretsDir: SECRETS_DIR,
+    projectId: PROJECT_ID,
+    contextBindingRef: CONTEXT_BINDING_REF,
+    releaseRef: RELEASE_REF,
+    releaseHash: RELEASE_HASH,
+    ownerAuthorityRef: OWNER_AUTHORITY_REF,
+    validFrom: now.toISOString(),
+    validUntil: new Date(now.getTime() + 365 * 24 * 60 * 60 * 1000).toISOString(),
+  };
+}
 
-  // Both families must be empty before either write begins: bootstrap is never rotation.
-  assertKeyPairTargetEmpty('viewer-identity-issuer-v1');
-  assertKeyPairTargetEmpty('viewer-capability-issuer-v1');
+export function cleanRoomViewerBootstrapInput(argv: readonly string[] = process.argv): ViewerBootstrapInput {
+  const validFrom = iso(requiredOption('--valid-from', argv), '--valid-from');
+  const validUntil = iso(requiredOption('--valid-until', argv), '--valid-until');
+  if (Date.parse(validUntil) <= Date.parse(validFrom)) {
+    throw new Error('REJECT_VIEWER_AUTHORITY_BOOTSTRAP_CONFIGURATION: --valid-until must be after --valid-from');
+  }
+  return {
+    secretsDir: requiredOption('--secrets-root', argv),
+    projectId: requiredOption('--project-id', argv),
+    contextBindingRef: requiredRef('context-binding', argv),
+    releaseRef: requiredRef('release', argv),
+    releaseHash: requiredOption('--release-hash', argv),
+    ownerAuthorityRef: requiredRef('owner-authority', argv),
+    validFrom,
+    validUntil,
+  };
+}
 
-  const identityKey = generateAndPersistKeyPair('viewer-identity-issuer-v1', 'ed25519:viewer-identity-issuer-v1');
-  const capabilityKey = generateAndPersistKeyPair('viewer-capability-issuer-v1', 'ed25519:viewer-capability-issuer-v1');
+export function cleanRoomMimersEnvironment(argv: readonly string[] = process.argv): NodeJS.ProcessEnv {
+  return {
+    ...process.env,
+    MIMERS_ROOT: requiredOption('--mimers-root', argv),
+    MIMERS_REQUIRED: '1',
+  };
+}
+
+export async function bootstrapViewerAuthority(args: {
+  readonly input: ViewerBootstrapInput;
+  readonly artifactRepository: ArtifactRepositoryPort;
+}): Promise<ViewerBootstrapResult> {
+  const { input, artifactRepository } = args;
+  assertKeyPairTargetEmpty('viewer-identity-issuer-v1', input.secretsDir);
+  assertKeyPairTargetEmpty('viewer-capability-issuer-v1', input.secretsDir);
+
+  const identityKey = generateAndPersistKeyPair('viewer-identity-issuer-v1', 'ed25519:viewer-identity-issuer-v1', input.secretsDir);
+  const capabilityKey = generateAndPersistKeyPair('viewer-capability-issuer-v1', 'ed25519:viewer-capability-issuer-v1', input.secretsDir);
   const identitySigning = new LocalPemSigningKeyProvider(identityKey.keyId, identityKey.privatePem, identityKey.publicPem);
   const capabilitySigning = new LocalPemSigningKeyProvider(capabilityKey.keyId, capabilityKey.privatePem, capabilityKey.publicPem);
 
-  const mimers = await MimersIntegration.create({ forceMimers: true });
-
-  const bareIdentityIssuer = createViewerIdentityIssuerArtifact({ issuer_key_id: identityKey.keyId, owner_authority_ref: OWNER_AUTHORITY_REF });
+  const bareIdentityIssuer = createViewerIdentityIssuerArtifact({ issuer_key_id: identityKey.keyId, owner_authority_ref: input.ownerAuthorityRef });
   const identityIssuerAttestation = await attestViewerIdentityIssuerArtifact({ issuer: bareIdentityIssuer, signing: identitySigning });
-  const identityIssuer = { ...bareIdentityIssuer, attestation: identityIssuerAttestation };
-  await mimers.artifactRepository.put({ artifact_id: identityIssuer.artifact_id, content_hash: identityIssuer.content_hash, body: identityIssuer });
+  const identityIssuer: ViewerIdentityIssuerArtifact = { ...bareIdentityIssuer, attestation: identityIssuerAttestation };
+  await artifactRepository.put({ artifact_id: identityIssuer.artifact_id, content_hash: identityIssuer.content_hash, body: identityIssuer });
 
   const bareIdentity = createViewerIdentityArtifact({
-    runtime_component: 'canonical LU ViewerKernel / localization viewer runtime',
-    product_release_ref: RELEASE_REF,
-    product_release_hash: RELEASE_HASH,
+    runtime_component: RUNTIME_COMPONENT,
+    product_release_ref: input.releaseRef,
+    product_release_hash: input.releaseHash,
     issuer_ref: { artifact_id: identityIssuer.artifact_id, artifact_type: identityIssuer.artifact_type },
     issuer_key_id: identityKey.keyId,
   });
   const identityAttestation = await attestViewerIdentityArtifact({ identity: bareIdentity, issuer: identityIssuer, signing: identitySigning });
-  const identity = { ...bareIdentity, attestation: identityAttestation };
-  await mimers.artifactRepository.put({ artifact_id: identity.artifact_id, content_hash: identity.content_hash, body: identity });
+  const identity: ViewerIdentityArtifact = { ...bareIdentity, attestation: identityAttestation };
+  await artifactRepository.put({ artifact_id: identity.artifact_id, content_hash: identity.content_hash, body: identity });
 
-  const bareCapIssuer = createViewerCapabilityIssuerArtifact({ issuer_key_id: capabilityKey.keyId, owner_authority_ref: OWNER_AUTHORITY_REF });
-  const capIssuerAttestation = await attestViewerCapabilityIssuerArtifact({ issuer: bareCapIssuer, signing: capabilitySigning });
-  const capIssuer = { ...bareCapIssuer, attestation: capIssuerAttestation };
-  await mimers.artifactRepository.put({ artifact_id: capIssuer.artifact_id, content_hash: capIssuer.content_hash, body: capIssuer });
+  const bareCapabilityIssuer = createViewerCapabilityIssuerArtifact({ issuer_key_id: capabilityKey.keyId, owner_authority_ref: input.ownerAuthorityRef });
+  const capabilityIssuerAttestation = await attestViewerCapabilityIssuerArtifact({ issuer: bareCapabilityIssuer, signing: capabilitySigning });
+  const capabilityIssuer: ViewerCapabilityIssuerArtifact = { ...bareCapabilityIssuer, attestation: capabilityIssuerAttestation };
+  await artifactRepository.put({ artifact_id: capabilityIssuer.artifact_id, content_hash: capabilityIssuer.content_hash, body: capabilityIssuer });
 
-  const validFrom = new Date().toISOString();
-  const validUntil = new Date(Date.now() + 365 * 24 * 60 * 60 * 1000).toISOString();
   const bareCapability = createProductViewerCapabilityArtifact({
     issuer_key_id: capabilityKey.keyId,
-    issuer_ref: { artifact_id: capIssuer.artifact_id, artifact_type: capIssuer.artifact_type },
-    subject_project_id: PROJECT_ID,
-    project_context_binding_ref: CONTEXT_BINDING_REF,
+    issuer_ref: { artifact_id: capabilityIssuer.artifact_id, artifact_type: capabilityIssuer.artifact_type },
+    subject_project_id: input.projectId,
+    project_context_binding_ref: input.contextBindingRef,
     viewer_identity_ref: { artifact_id: identity.artifact_id, artifact_type: identity.artifact_type },
-    product_release_ref: RELEASE_REF,
-    product_release_hash: RELEASE_HASH,
-    valid_from: validFrom,
-    valid_until: validUntil,
+    product_release_ref: input.releaseRef,
+    product_release_hash: input.releaseHash,
+    valid_from: input.validFrom,
+    valid_until: input.validUntil,
   });
-  const capabilityAttestation = await attestProductViewerCapability({ capability: bareCapability, issuer: capIssuer, signing: capabilitySigning });
-  const capability = { ...bareCapability, attestation: capabilityAttestation };
-  await mimers.artifactRepository.put({ artifact_id: capability.artifact_id, content_hash: capability.content_hash, body: capability });
+  const capabilityAttestation = await attestProductViewerCapability({ capability: bareCapability, issuer: capabilityIssuer, signing: capabilitySigning });
+  const capability: ProductViewerCapabilityArtifact = { ...bareCapability, attestation: capabilityAttestation };
+  await artifactRepository.put({ artifact_id: capability.artifact_id, content_hash: capability.content_hash, body: capability });
 
-  console.log(JSON.stringify({
-    identity_issuer_key_id: identityKey.keyId,
-    identity_issuer_artifact_id: identityIssuer.artifact_id,
-    viewer_identity_artifact_id: identity.artifact_id,
-    capability_issuer_key_id: capabilityKey.keyId,
-    capability_issuer_artifact_id: capIssuer.artifact_id,
-    product_viewer_capability_artifact_id: capability.artifact_id,
-    valid_from: validFrom,
-    valid_until: validUntil,
-  }, null, 2));
+  return { identityIssuer, identity, capabilityIssuer, capability };
+}
 
+async function main(): Promise<void> {
+  assertBootstrapExecute();
+  const secretsRoot = option('--secrets-root');
+  const cleanRoom = secretsRoot !== undefined;
+  if (!cleanRoom && option('--mimers-root')) {
+    throw new Error('REJECT_VIEWER_AUTHORITY_BOOTSTRAP_CONFIGURATION: --mimers-root requires --secrets-root');
+  }
+  const input = cleanRoom ? cleanRoomViewerBootstrapInput() : legacyViewerBootstrapInput();
+  const mimers = cleanRoom
+    ? await MimersIntegration.create({
+      env: cleanRoomMimersEnvironment(),
+      forceMimers: true,
+    })
+    : await MimersIntegration.create({ forceMimers: true });
+  const result = await bootstrapViewerAuthority({ input, artifactRepository: mimers.artifactRepository });
   await mimers.rebuildIndex();
+  console.log(JSON.stringify({
+    identity_issuer_key_id: result.identityIssuer.payload.issuer_key_id,
+    identity_issuer_artifact_id: result.identityIssuer.artifact_id,
+    viewer_identity_artifact_id: result.identity.artifact_id,
+    capability_issuer_key_id: result.capabilityIssuer.payload.issuer_key_id,
+    capability_issuer_artifact_id: result.capabilityIssuer.artifact_id,
+    product_viewer_capability_artifact_id: result.capability.artifact_id,
+    valid_from: result.capability.payload.valid_from,
+    valid_until: result.capability.payload.valid_until,
+  }, null, 2));
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1])).href) {
-  main().catch((error) => {
+  void main().catch((error) => {
     console.error(error instanceof Error ? error.message : String(error));
     process.exitCode = 1;
   });
