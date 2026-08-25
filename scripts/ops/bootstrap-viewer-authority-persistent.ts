@@ -20,6 +20,8 @@
  */
 import { generateKeyPairSync } from 'node:crypto';
 import { mkdirSync, writeFileSync, existsSync } from 'node:fs';
+import { resolve } from 'node:path';
+import { pathToFileURL } from 'node:url';
 import { MimersIntegration } from '@miljobeslut/mps-runtime';
 import { LocalPemSigningKeyProvider } from '@miljobeslut/mimers-brunn-core';
 import {
@@ -44,20 +46,43 @@ const RELEASE_HASH = '772aceb600c4690777593ea89255ce20c062648eadf6ef6e0ecee3e368
 const OWNER_AUTHORITY_REF = { artifact_id: 'owner-authority-manual-install-v1', artifact_type: 'owner_authority_attestation' } as const;
 const SECRETS_DIR = 'C:/Users/jimmy/.mimers/secrets';
 
-function generateAndPersistKeyPair(name: string, keyId: string) {
-  const dir = `${SECRETS_DIR}/${name}`;
+export function assertBootstrapExecute(argv: readonly string[] = process.argv): void {
+  if (!argv.includes('--execute')) throw new Error('refusing to write without --execute');
+}
+
+export function assertKeyPairTargetEmpty(name: string, secretsDir = SECRETS_DIR): void {
+  const dir = `${secretsDir}/${name}`;
+  const privatePath = `${dir}/private.pem`;
+  const publicPath = `${dir}/public.pem`;
+  const privateExists = existsSync(privatePath);
+  const publicExists = existsSync(publicPath);
+  if (privateExists && publicExists) {
+    throw new Error(`REJECT_VIEWER_AUTHORITY_BOOTSTRAP_ALREADY_PROVISIONED: ${name} key pair already exists; bootstrap never rotates trust roots.`);
+  }
+  if (privateExists || publicExists) {
+    throw new Error(`REJECT_VIEWER_AUTHORITY_BOOTSTRAP_INCONSISTENT_KEY_STATE: ${name} has a partial key pair; explicit operator recovery is required.`);
+  }
+}
+
+export function generateAndPersistKeyPair(name: string, keyId: string, secretsDir = SECRETS_DIR) {
+  const dir = `${secretsDir}/${name}`;
+  assertKeyPairTargetEmpty(name, secretsDir);
   if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
   const keys = generateKeyPairSync('ed25519');
   const privatePem = keys.privateKey.export({ type: 'pkcs8', format: 'pem' }).toString();
   const publicPem = keys.publicKey.export({ type: 'spki', format: 'pem' }).toString();
-  writeFileSync(`${dir}/private.pem`, privatePem, { mode: 0o600 });
-  writeFileSync(`${dir}/public.pem`, publicPem);
+  writeFileSync(`${dir}/private.pem`, privatePem, { mode: 0o600, flag: 'wx' });
+  writeFileSync(`${dir}/public.pem`, publicPem, { flag: 'wx' });
   return { keyId, privatePem, publicPem };
 }
 
 async function main() {
-  if (!process.argv.includes('--execute')) throw new Error('refusing to write without --execute');
+  assertBootstrapExecute();
   if (!process.env.MIMERS_ROOT?.trim()) throw new Error('MIMERS_ROOT is required.');
+
+  // Both families must be empty before either write begins: bootstrap is never rotation.
+  assertKeyPairTargetEmpty('viewer-identity-issuer-v1');
+  assertKeyPairTargetEmpty('viewer-capability-issuer-v1');
 
   const identityKey = generateAndPersistKeyPair('viewer-identity-issuer-v1', 'ed25519:viewer-identity-issuer-v1');
   const capabilityKey = generateAndPersistKeyPair('viewer-capability-issuer-v1', 'ed25519:viewer-capability-issuer-v1');
@@ -118,7 +143,9 @@ async function main() {
   await mimers.rebuildIndex();
 }
 
-main().catch((error) => {
-  console.error(error instanceof Error ? error.message : String(error));
-  process.exitCode = 1;
-});
+if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1])).href) {
+  main().catch((error) => {
+    console.error(error instanceof Error ? error.message : String(error));
+    process.exitCode = 1;
+  });
+}
