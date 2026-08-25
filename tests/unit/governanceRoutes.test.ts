@@ -241,6 +241,6 @@ describe('governance.routes — promote/reject containment', () => {
     expect(stats.status).toBe(200);
     expect(artifact.status).toBe(200);
     expect(mocks.list).toHaveBeenCalled();
-    expect(mocks.getBytes).toHaveBeenCalledWith('sha256:abc');
+    expect(mocks.getBytes).toHaveBeenCalledWith('sha256:abc', { verifyHash: true });
   });
 });

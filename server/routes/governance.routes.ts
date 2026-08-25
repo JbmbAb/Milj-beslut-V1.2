@@ -307,7 +307,7 @@ governanceRouter.get("/stats", requireAuth, rateLimitByUser(30, 60_000), require
 governanceRouter.get("/cas/artifact/:hash", requireAuth, rateLimitByUser(20, 60_000), requireAdminMiddleware, async (req, res) => {
   try {
     const { hash } = req.params;
-    const bytes = await cas.getBytes(hash);
+    const bytes = await cas.getBytes(hash, { verifyHash: true });
     if (!bytes) {
       return res.status(404).json({ ok: false, error: `Artifact ${hash} not found in CAS` });
     }

@@ -32,6 +32,11 @@ export class SyncMimersReader implements ArtifactReader {
     const casPath = path.join(this.mimersRoot, "cas", hash);
     try {
       const bytes = fs.readFileSync(casPath);
+      const expected = hash.startsWith("sha256:") ? hash.slice("sha256:".length) : hash;
+      const computed = crypto.createHash("sha256").update(bytes).digest("hex");
+      if (computed !== expected) {
+        throw new Error(`CASIntegrityError: stored bytes do not match ${hash}`);
+      }
       const envelope = JSON.parse(bytes.toString("utf8")) as { body?: ArtifactContract };
       return envelope.body ?? null;
     } catch {

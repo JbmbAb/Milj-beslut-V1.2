@@ -48,7 +48,7 @@ export class MimersByteStorageBackend implements ByteStorageBackend {
   async get(id: string): Promise<Uint8Array | null> {
     const hash = await this.readHash(id);
     if (!hash) return null;
-    return this.cas.getBytes(hash);
+    return this.cas.getBytes(hash, { verifyHash: true });
   }
 
   async put(id: string, bytes: Uint8Array): Promise<void> {
