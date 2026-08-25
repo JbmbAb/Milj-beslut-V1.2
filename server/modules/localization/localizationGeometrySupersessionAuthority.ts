@@ -10,6 +10,7 @@ import {
   LOCALIZATION_GEOMETRY_SUPERSESSION_ISSUER_ARTIFACT_TYPE,
   LOCALIZATION_GEOMETRY_SUPERSESSION_ISSUER_ALLOWED_ARTIFACT_TYPE,
   LOCALIZATION_GEOMETRY_SUPERSESSION_ISSUER_PURPOSE,
+  createLocalizationGeometrySupersessionIssuerArtifact,
   validateLocalizationGeometrySupersessionArtifact,
   type LocalizationGeometrySupersessionArtifact,
   type LocalizationGeometrySupersessionIssuerArtifact,
@@ -62,6 +63,18 @@ export async function verifyLocalizationGeometrySupersessionIssuerArtifact(args:
   const { issuer, verification } = args;
   if (issuer.artifact_type !== LOCALIZATION_GEOMETRY_SUPERSESSION_ISSUER_ARTIFACT_TYPE) {
     throw new Error("REJECT_LOCALIZATION_GEOMETRY_SUPERSESSION_ISSUER_TYPE");
+  }
+  const rebuilt = createLocalizationGeometrySupersessionIssuerArtifact({
+    issuer_key_id: issuer.payload.issuer_key_id,
+    owner_authority_ref: issuer.payload.owner_authority_ref,
+  });
+  if (
+    issuer.artifact_id !== rebuilt.artifact_id ||
+    issuer.content_hash?.algorithm !== rebuilt.content_hash.algorithm ||
+    issuer.content_hash?.value !== rebuilt.content_hash.value ||
+    JSON.stringify(issuer.references) !== JSON.stringify(rebuilt.references)
+  ) {
+    throw new Error("REJECT_LOCALIZATION_GEOMETRY_SUPERSESSION_ISSUER_CANONICAL_INTEGRITY");
   }
   if (issuer.payload.purpose !== LOCALIZATION_GEOMETRY_SUPERSESSION_ISSUER_PURPOSE) {
     throw new Error("REJECT_LOCALIZATION_GEOMETRY_SUPERSESSION_ISSUER_PURPOSE");
