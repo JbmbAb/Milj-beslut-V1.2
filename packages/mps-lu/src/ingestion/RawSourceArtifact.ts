@@ -49,6 +49,18 @@ export interface RawSourcePayload {
    *   RawSourceArtifact.content_hash → proves the exact canonical LU representation
    */
   readonly source_content_hash: string;
+
+  /**
+   * Explicit acquisition provenance for material that entered through a verified ARCHIVE_IMPORT
+   * channel. Historical network V1 payloads omit this field and retain their exact meaning.
+   */
+  readonly archive_acquisition?: {
+    readonly acquisition_kind: "ARCHIVE_IMPORT";
+    readonly archive_id: string;
+    readonly observed_locator: string;
+    readonly observed_at: string;
+    readonly transport_metadata?: Readonly<Record<string, string>>;
+  };
 }
 
 export interface RawSourceArtifact extends ArtifactContract {

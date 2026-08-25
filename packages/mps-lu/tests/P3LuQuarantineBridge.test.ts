@@ -6,6 +6,7 @@ import { join, resolve } from "node:path";
 import {
   GovernedQuarantineBridge,
   type GovernedQuarantineRecord,
+  type NetworkGovernedQuarantineRecord,
   type VerifiedSourceAuthorityLookup,
 } from "../src/ingestion/GovernedQuarantineBridge";
 
@@ -33,7 +34,13 @@ describe("P3-LU-QUARANTINE-BRIDGE-01 — governed quarantine → LU raw source",
 
   /** A verified-registry stub. Real signature verification is the registry's job, not ours. */
   function lookup(
-    entries: { registryArtifactId: string; sourceId: string; authorityName: string }[],
+    entries: {
+      registryArtifactId: string;
+      sourceId: string;
+      authorityName: string;
+      channelType?: string;
+      archiveId?: string;
+    }[],
   ): VerifiedSourceAuthorityLookup {
     return {
       findByArtifactId: (id) => entries.find((e) => e.registryArtifactId === id) ?? null,
@@ -49,7 +56,7 @@ describe("P3-LU-QUARANTINE-BRIDGE-01 — governed quarantine → LU raw source",
   const BYTES = new TextEncoder().encode("%PDF-1.5 fake judgment bytes");
   const HASH = createHash("sha256").update(BYTES).digest("hex");
 
-  function record(over: Partial<GovernedQuarantineRecord> = {}): GovernedQuarantineRecord {
+  function record(over: Partial<NetworkGovernedQuarantineRecord> = {}): NetworkGovernedQuarantineRecord {
     return {
       quarantine_id: "q-1",
       source_id: PUH.sourceId,
@@ -170,6 +177,51 @@ describe("P3-LU-QUARANTINE-BRIDGE-01 — governed quarantine → LU raw source",
       "The 144 objects harvested before the PUH size reissue legitimately carry -002. " +
         "Rewriting them to the active -003 would falsify which signed scope authorised them.",
     ).toBe("reg-dv-puh-mmod-002");
+  });
+
+  describe("ARCHIVE_IMPORT provenance", () => {
+    const ARCHIVE = {
+      registryArtifactId: "reg-archive-fixture-001",
+      sourceId: "municipal-archive-fixture",
+      authorityName: "Example kommun",
+      channelType: "ARCHIVE_IMPORT",
+      archiveId: "geo-master-c-drive-import-v1",
+    };
+
+    function archiveRecord(
+      over: Partial<Extract<GovernedQuarantineRecord, { acquisition: unknown }>> = {},
+    ): GovernedQuarantineRecord {
+      return {
+        quarantine_id: "q-archive-1",
+        source_id: ARCHIVE.sourceId,
+        file_name: "decision.pdf",
+        retrieved_at: "2026-08-25T10:00:00.000Z",
+        content_hash: HASH,
+        custom_metadata: { registry_artifact_id: ARCHIVE.registryArtifactId },
+        acquisition: {
+          acquisition_kind: "ARCHIVE_IMPORT",
+          archive_id: ARCHIVE.archiveId,
+          observed_locator: "C:/archive/decision.pdf",
+          observed_at: "2026-08-25T09:59:00.000Z",
+        },
+        ...over,
+      };
+    }
+
+    it("accepts an archive observation without a fabricated source URL", () => {
+      const artifact = new GovernedQuarantineBridge(lookup([ARCHIVE])).materialize(archiveRecord(), BYTES);
+
+      expect(artifact.payload.original_path).toBe("C:/archive/decision.pdf");
+      expect(artifact.payload.archive_acquisition).toEqual(archiveRecord().acquisition);
+      expect(Object.prototype.hasOwnProperty.call(artifact.payload, "policy")).toBe(false);
+    });
+
+    it("rejects archive provenance that does not match the signed archive authority", () => {
+      const bridge = new GovernedQuarantineBridge(lookup([ARCHIVE]));
+      expect(() => bridge.materialize(archiveRecord({
+        acquisition: { ...archiveRecord().acquisition, archive_id: "other-archive" },
+      }), BYTES)).toThrow(/REJECT_ARCHIVE_BINDING/);
+    });
   });
 
   // ------------------------------------------------------ REAL MATERIAL (no fixtures)

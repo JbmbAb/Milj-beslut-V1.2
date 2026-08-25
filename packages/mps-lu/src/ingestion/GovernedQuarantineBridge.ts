@@ -29,16 +29,36 @@ import type { RawSourceArtifact, RawSourcePayload } from "./RawSourceArtifact";
  * @see ../../../mps-data-governance/src/SourceRegistry.ts (the signed authority)
  */
 
-/** The stored quarantine record, as `DiskQuarantineStorage` writes it. */
-export interface GovernedQuarantineRecord {
+interface GovernedQuarantineRecordBase {
   readonly quarantine_id: string;
   readonly source_id: string;
-  readonly source_url: string;
   readonly file_name: string;
   readonly retrieved_at: string;
   readonly content_hash: string;
   readonly custom_metadata?: Record<string, unknown>;
 }
+
+/** Historical and current network quarantine shape. A source URL stays mandatory. */
+export interface NetworkGovernedQuarantineRecord extends GovernedQuarantineRecordBase {
+  readonly source_url: string;
+  readonly acquisition?: never;
+}
+
+/** Explicit governed archive observation. It must never manufacture a network URL. */
+export interface ArchiveImportGovernedQuarantineRecord extends GovernedQuarantineRecordBase {
+  readonly source_url?: never;
+  readonly acquisition: {
+    readonly acquisition_kind: "ARCHIVE_IMPORT";
+    readonly archive_id: string;
+    readonly observed_locator: string;
+    readonly observed_at: string;
+    readonly transport_metadata?: Readonly<Record<string, string>>;
+  };
+}
+
+export type GovernedQuarantineRecord =
+  | NetworkGovernedQuarantineRecord
+  | ArchiveImportGovernedQuarantineRecord;
 
 /**
  * The subset of a verified registry this bridge may consult.
@@ -53,6 +73,8 @@ export interface VerifiedSourceAuthorityLookup {
     readonly registryArtifactId: string;
     readonly sourceId: string;
     readonly authorityName: string;
+    readonly channelType?: string;
+    readonly archiveId?: string;
   } | null;
 }
 
@@ -132,7 +154,6 @@ export class GovernedQuarantineBridge {
 
     for (const [field, value] of [
       ["file_name", record.file_name],
-      ["source_url", record.source_url],
       ["retrieved_at", record.retrieved_at],
     ] as const) {
       if (!value) {
@@ -144,9 +165,38 @@ export class GovernedQuarantineBridge {
       }
     }
 
+    const archive = "acquisition" in record && record.acquisition;
+    if (!archive && !record.source_url) {
+      throw new QuarantineBridgeError(
+        `REJECT_UNSOURCEABLE_FIELD: quarantine '${record.quarantine_id}' has no 'source_url', ` +
+          "and a network acquisition must not be relabelled as archive material.",
+        "REJECT_UNSOURCEABLE_FIELD",
+      );
+    }
+    if (archive) {
+      if (
+        archive.acquisition_kind !== "ARCHIVE_IMPORT" ||
+        !archive.archive_id ||
+        !archive.observed_locator ||
+        !archive.observed_at
+      ) {
+        throw new QuarantineBridgeError(
+          `REJECT_ARCHIVE_PROVENANCE: quarantine '${record.quarantine_id}' has incomplete archive provenance.`,
+          "REJECT_ARCHIVE_PROVENANCE",
+        );
+      }
+      if (authority.channelType !== "ARCHIVE_IMPORT" || authority.archiveId !== archive.archive_id) {
+        throw new QuarantineBridgeError(
+          `REJECT_ARCHIVE_BINDING: quarantine '${record.quarantine_id}' is not bound to the ` +
+            "exact ARCHIVE_IMPORT authority named by its registry artifact.",
+          "REJECT_ARCHIVE_BINDING",
+        );
+      }
+    }
+
     const payload: RawSourcePayload = {
       filename: record.file_name,
-      original_path: record.source_url,
+      original_path: archive ? archive.observed_locator : record.source_url,
       content_bytes_base64: Buffer.from(bytes).toString("base64"),
       // OBSERVATION_TIME per ADR-MIMER-FUTURE-POTENTIAL-INVARIANTS: `observed_at` and
       // `retrieved_at` are the same temporal class — when the collection system observed the
@@ -155,6 +205,7 @@ export class GovernedQuarantineBridge {
       authority: authority.authorityName,
       source_governance_artifact_id: authority.registryArtifactId,
       source_content_hash: record.content_hash,
+      ...(archive ? { archive_acquisition: archive } : {}),
       // `policy` is deliberately OMITTED. It has no defined semantics and no authoritative
       // source; populating it would manufacture provenance.
     };

@@ -29,8 +29,13 @@ export {
 export {
   DiskQuarantineStorage,
   type RawSourceArtifact,
+  type NetworkRawSourceArtifact,
+  type ArchiveImportRawSourceArtifact,
+  type ArchiveImportAcquisition,
   type QuarantineStorage,
+  type ArchiveImportQuarantineStorage,
   type QuarantinePutResult,
+  type ArchiveImportQuarantinePutRequest,
 } from './QuarantineStorage';
 export {
   QuarantinePromoter,
@@ -44,4 +49,3 @@ export {
   type PromotionResult,
   type PromotionAttestationPredicate,
 } from './DatasetApproval';
-
