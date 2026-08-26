@@ -21,11 +21,17 @@ type PropertyLookupRow = {
   source_updated_at: Date | string;
   raw_properties: unknown;
   geometry_geojson: string;
+  centroid_easting: number | null;
+  centroid_northing: number | null;
   similarity?: number | null;
 };
 
 function mapRowToPayload(row: PropertyLookupRow, matchType: 'exact' | 'fuzzy'): Record<string, unknown> {
   const geometry = JSON.parse(row.geometry_geojson);
+  const centroidSweref99Tm =
+    Number.isFinite(row.centroid_easting) && Number.isFinite(row.centroid_northing)
+      ? [row.centroid_easting, row.centroid_northing]
+      : undefined;
   return {
     designation: row.designation,
     geometry,
@@ -40,6 +46,7 @@ function mapRowToPayload(row: PropertyLookupRow, matchType: 'exact' | 'fuzzy'): 
         sourceDataset: row.source_dataset,
         sourceUpdatedAt:
           row.source_updated_at instanceof Date ? row.source_updated_at.toISOString() : row.source_updated_at,
+        ...(centroidSweref99Tm ? { centroidSweref99Tm } : {}),
         similarity: row.similarity ?? undefined,
       },
     },
@@ -64,7 +71,9 @@ async function runExactLookup(propertyDesignation: string, lanKod?: number): Pro
       source_dataset,
       source_updated_at,
       raw_properties,
-      ST_AsGeoJSON(ST_Transform(geom, 4326))::text AS geometry_geojson
+      ST_AsGeoJSON(ST_Transform(geom, 4326))::text AS geometry_geojson,
+      CASE WHEN ST_IsValid(geom) AND NOT ST_IsEmpty(geom) THEN ST_X(ST_Centroid(geom)) ELSE NULL END AS centroid_easting,
+      CASE WHEN ST_IsValid(geom) AND NOT ST_IsEmpty(geom) THEN ST_Y(ST_Centroid(geom)) ELSE NULL END AS centroid_northing
     FROM core.property_unit pu, q
     WHERE pu.designation_norm = q.designation_norm
       AND (${countyCode}::text IS NULL OR pu.county_code = ${countyCode}::text)
@@ -89,6 +98,8 @@ async function runFuzzyLookup(propertyDesignation: string, lanKod?: number): Pro
       source_updated_at,
       raw_properties,
       ST_AsGeoJSON(ST_Transform(geom, 4326))::text AS geometry_geojson,
+      CASE WHEN ST_IsValid(geom) AND NOT ST_IsEmpty(geom) THEN ST_X(ST_Centroid(geom)) ELSE NULL END AS centroid_easting,
+      CASE WHEN ST_IsValid(geom) AND NOT ST_IsEmpty(geom) THEN ST_Y(ST_Centroid(geom)) ELSE NULL END AS centroid_northing,
       similarity(pu.designation_norm, q.designation_norm) AS similarity
     FROM core.property_unit pu, q
     WHERE pu.designation_norm % q.designation_norm

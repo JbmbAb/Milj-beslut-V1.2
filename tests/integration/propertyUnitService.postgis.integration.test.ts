@@ -86,6 +86,10 @@ describeIfDatabaseIntegration('propertyUnitService PostGIS integration', () => {
     );
     expect(hit.designation).toContain('KALLAREN');
     expect(hit.geometry).toBeDefined();
+    expect((hit as { boundaries?: { properties?: { centroidSweref99Tm?: unknown } } }).boundaries?.properties?.centroidSweref99Tm).toEqual([
+      expect.any(Number),
+      expect.any(Number),
+    ]);
   });
 
   it('returns property layer features for seeded bbox', async () => {
