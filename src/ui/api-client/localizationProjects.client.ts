@@ -15,6 +15,16 @@ export interface LocalizationProjectListItem {
   readonly createdAt: string;
 }
 
+export interface CanonicalPropertyCandidate {
+  readonly sourceKey: string;
+  readonly sourceDataset: string;
+  readonly designation: string;
+  readonly municipality: string | null;
+  readonly municipalityCode: string | null;
+  readonly countyCode: string | null;
+  readonly matchKind: 'exact' | 'fuzzy';
+}
+
 export interface BootstrapStatus {
   readonly id: string;
   readonly projectId: string;
@@ -33,13 +43,21 @@ export async function listPropertyProjects(propertyDesignation: string): Promise
   return result.projects;
 }
 
+export async function searchCanonicalPropertyCandidates(query: string): Promise<CanonicalPropertyCandidate[]> {
+  const result = await callApi<{ ok: boolean; candidates: CanonicalPropertyCandidate[] }>(
+    '/api/localization/property-candidates',
+    { method: 'GET', query: { query } },
+  );
+  return result.candidates;
+}
+
 export async function createLocalizationProjectRequest(input: {
-  readonly propertyDesignation: string;
+  readonly property: Pick<CanonicalPropertyCandidate, 'sourceKey' | 'sourceDataset' | 'designation'>;
   readonly name: string;
 }): Promise<{ project: LocalizationProjectListItem; bootstrapRequestId: string; bootstrapStatus: BootstrapStatus['status'] }> {
   return callApi('/api/localization/localization-projects', {
     method: 'POST',
-    body: { propertyDesignation: input.propertyDesignation, name: input.name },
+    body: { property: input.property, name: input.name },
   });
 }
 

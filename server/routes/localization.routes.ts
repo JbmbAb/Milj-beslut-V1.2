@@ -21,6 +21,8 @@ import {
   generateLocalizationReportLegacy,
   listProjectsForProperty,
   createLocalizationProject,
+  searchCanonicalPropertyCandidates,
+  resolveCanonicalPropertySelection,
   enqueueProjectContextBootstrapRequest,
   getBootstrapRequestStatusForProject,
   saveUserLocalizationGeometry,
@@ -182,6 +184,25 @@ router.get(
 );
 
 /**
+ * Pre-project property discovery. Results are canonical candidates only; selecting one remains
+ * an explicit user action and the create route re-resolves that identity before it writes.
+ */
+router.get(
+  '/api/localization/property-candidates',
+  requireAuth,
+  rateLimitByUser(60, 60_000),
+  async (req, res, next) => {
+    try {
+      const query = String(req.query.query || '').trim();
+      const candidates = await searchCanonicalPropertyCandidates({ query }, req.authUser!);
+      res.status(200).json({ ok: true, candidates });
+    } catch (error) {
+      next(error);
+    }
+  },
+);
+
+/**
  * POST /api/localization/localization-projects
  *
  * PRODUCT-LU-PROJECT-CONTEXT-BOOTSTRAP-01 Phase B. The property-first "create new localization"
@@ -190,8 +211,8 @@ router.get(
  * a bootstrap request. Returns immediately with PENDING status; the standalone bootstrap worker
  * (a separate process holding the owner signing key, never this web process) does the actual
  * PropertyContext/ProjectContext/ProjectContextBinding issuance asynchronously. This route never
- * accepts or constructs an artifact ref, issuer ref, or signature -- only propertyDesignation and
- * a human-chosen name.
+ * accepts or constructs an artifact ref, issuer ref, or signature -- only a browser-selected
+ * canonical property identity and a human-chosen name.
  */
 router.post(
   '/api/localization/localization-projects',
@@ -199,22 +220,27 @@ router.post(
   rateLimitByUser(20, 60_000),
   async (req, res, next) => {
     try {
-      const propertyDesignation = String(req.body?.propertyDesignation || '').trim();
       const name = String(req.body?.name || '').trim();
-      if (!propertyDesignation || !name) {
-        res.status(400).json({ ok: false, error: 'propertyDesignation and name are required' });
+      const selected = req.body?.property;
+      if (!selected || typeof selected !== 'object' || !name) {
+        res.status(400).json({ ok: false, error: 'canonical property selection and name are required' });
         return;
       }
+      const property = await resolveCanonicalPropertySelection({
+        sourceKey: String((selected as Record<string, unknown>).sourceKey || ''),
+        sourceDataset: String((selected as Record<string, unknown>).sourceDataset || ''),
+        designation: String((selected as Record<string, unknown>).designation || ''),
+      });
       const project = await createLocalizationProject({
         organisationId: req.authUser!.organisationId,
-        propertyDesignation,
+        property,
         name,
         userId: req.authUser!.id,
       });
       const bootstrapRequest = await enqueueProjectContextBootstrapRequest({
         projectId: project.id,
         requestedByUserId: req.authUser!.id,
-        propertyDesignation,
+        propertyDesignation: property.designation,
       });
       res.status(201).json({
         ok: true,

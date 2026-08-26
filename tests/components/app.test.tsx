@@ -61,6 +61,9 @@ vi.mock('../../components/app/lu/LuWorkspace', () => ({
 }));
 
 vi.mock('../../src/ui/api-client/localizationProjects.client', () => ({
+  searchCanonicalPropertyCandidates: vi.fn(async () => [
+    { sourceKey: 'orsa-1', sourceDataset: 'lm_fastighetsytor', designation: 'ORSA STACKMORA 3:12', municipality: 'ORSA', municipalityCode: '2039', countyCode: '20', matchKind: 'exact' },
+  ]),
   listPropertyProjects: vi.fn(async () => [
     { id: 'proj-1', name: 'Alternativ A', propertyDesignation: 'ORSA STACKMORA 3:12', status: 'ACTIVE', createdAt: '2026-04-02T00:00:00.000Z' },
   ]),
@@ -175,6 +178,7 @@ describe('App', () => {
 
     await user.type(screen.getByTestId('pf-designation'), 'ORSA STACKMORA 3:12');
     await user.click(screen.getByTestId('pf-search'));
+    await user.click(await screen.findByTestId('pf-select-orsa-1'));
     await user.click(await screen.findByTestId('pf-open-proj-1'));
 
     expect(await screen.findByTestId('lu-workspace')).toBeInTheDocument();

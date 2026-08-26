@@ -147,7 +147,7 @@ export async function executeProjectContextBootstrap(input: {
   try {
     const project = await prisma.project.findUnique({
       where: { id: input.projectId },
-      select: { id: true, organisationId: true, propertyDesignation: true },
+      select: { id: true, organisationId: true, propertyDesignation: true, propertySourceKey: true, propertySourceDataset: true },
     });
     if (!project) fail('PROJECT_NOT_FOUND', `no Project with id ${input.projectId}`);
 
@@ -158,7 +158,6 @@ export async function executeProjectContextBootstrap(input: {
         `request propertyDesignation "${claimedDesignation}" does not match project's own propertyDesignation "${project!.propertyDesignation}"`,
       );
     }
-
     const ownerMembership = await prisma.projectMember.findFirst({
       where: { projectId: project!.id, accessRole: 'OWNER' },
       select: {
@@ -187,12 +186,21 @@ export async function executeProjectContextBootstrap(input: {
     } catch {
       // No verified binding yet -- proceed to issue one. Not itself an error.
     }
+    if (!project.propertySourceKey || !project.propertySourceDataset) {
+      fail('PROJECT_PROPERTY_SELECTION_UNAVAILABLE', 'project has no canonical property selection');
+    }
 
     const lookup = (await lookupPropertyByDesignationFromPostgis(
       { projectId: project!.id, propertyDesignation: claimedDesignation, purpose: 'LU_PROJECT_CONTEXT_BOOTSTRAP_WORKER' },
       owner,
     )) as LookupPayload;
     const property = propertyObservation(lookup);
+    if (
+      property.propertyIdentity !== `${project.propertySourceDataset}:${project.propertySourceKey}` ||
+      property.propertyDesignation.trim().toUpperCase() !== project.propertyDesignation.trim().toUpperCase()
+    ) {
+      fail('PROPERTY_SELECTION_MISMATCH', 'canonical lookup does not match the project property selection');
+    }
     if (!property.municipality) fail('PROPERTY_MUNICIPALITY_UNAVAILABLE', 'canonical property municipality is unavailable');
 
     const signing = getProjectContextBindingIssuerSigner(process.env);
@@ -269,4 +277,3 @@ export async function executeProjectContextBootstrap(input: {
     return { ok: false, failureCode, failureDetail };
   }
 }
-

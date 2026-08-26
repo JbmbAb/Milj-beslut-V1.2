@@ -74,6 +74,20 @@ describe('PRODUCT-LU-PROJECT-CONTEXT-BOOTSTRAP-01 Phase B: executeProjectContext
     expect(mimersCreate).not.toHaveBeenCalled();
   });
 
+  it('a new project without a canonical property selection -> FAILED_CLOSED before property lookup', async () => {
+    projectFindUnique.mockResolvedValue({ id: 'proj-1', organisationId: 'org-1', propertyDesignation: 'ORSA STACKMORA 3:12', propertySourceKey: null, propertySourceDataset: null });
+    memberFindFirst.mockResolvedValue({
+      userId: 'user-1',
+      user: { id: 'user-1', organisationId: 'org-1', bankidId: 'admin:admin', role: 'ADMIN', identityEnvironment: 'LEGACY' },
+    });
+    resolveCurrentMock.mockRejectedValue(new Error('no current binding'));
+
+    const outcome = await executeProjectContextBootstrap({ projectId: 'proj-1', propertyDesignation: 'ORSA STACKMORA 3:12' });
+
+    expect(outcome.ok).toBe(false);
+    if (!outcome.ok) expect(outcome.failureCode).toBe('PROJECT_PROPERTY_SELECTION_UNAVAILABLE');
+  });
+
   it('binding already valid for project -> recognized/reused, no re-mint attempted', async () => {
     projectFindUnique.mockResolvedValue({ id: 'proj-1', organisationId: 'org-1', propertyDesignation: 'ORSA STACKMORA 3:12' });
     memberFindFirst.mockResolvedValue({
