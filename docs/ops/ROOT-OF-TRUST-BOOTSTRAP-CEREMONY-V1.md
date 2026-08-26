@@ -24,6 +24,9 @@ The Viewer node is not a filesystem-only node. Its input references name
 already-admitted non-secret runtime state; the ceremony never substitutes the
 legacy ORSA values when clean-room mode is selected.
 
+Viewer `owner_authority_ref` remains a known simplification; this ceremony
+preserves that existing reference contract and does not strengthen it.
+
 ## Ordering
 
 1. Verify the Source Registry with `SOURCE_REGISTRY_TRUSTED_KEYS_FILE` set to
