@@ -1,4 +1,5 @@
-import { type ArtifactAttestation } from '@miljobeslut/mimers-brunn-core';
+import { canonicalizeStrict, type ArtifactAttestation } from '@miljobeslut/mimers-brunn-core';
+import { createHash } from 'node:crypto';
 import { sha256ContentHash } from '@miljobeslut/mps-compliance/src/canonical/sha256Canonical';
 import type { AuthUser } from '../security/types';
 import type { ArtifactReference } from '@miljobeslut/mps-compliance/src/artifacts/ArtifactReference';
@@ -18,9 +19,8 @@ import {
   validateDocumentReviewAttestationReference,
   type DocumentReviewAttestationArtifact,
 } from '../../packages/mps-data-governance/src/DocumentReviewAttestation';
-import { createVerifiedDocumentFactV2, type VerifiedDocumentFactArtifactV2 } from '../../packages/mps-data-governance/src/VerifiedDocumentFactV2';
+import { createVerifiedDocumentFactV2, isVerifiedDocumentFactV2ContentHashValid, type VerifiedDocumentFactArtifactV2 } from '../../packages/mps-data-governance/src/VerifiedDocumentFactV2';
 import { verifyRealDocumentFactCandidate } from '../../packages/mps-data-governance/src/verifyRealDocumentFactCandidate';
-import { createDocumentEvidencePropertyBindingArtifactV2 } from '../../packages/mps-lu/src/artifacts/DocumentEvidencePropertyBindingArtifact';
 import { createDocumentEvidencePropertyBindingArtifactV3, type DocumentEvidencePropertyBindingArtifactV3 } from '../../packages/mps-lu/src/artifacts/DocumentEvidencePropertyBindingArtifactV3';
 import { LU_PROPERTY_CONTEXT_ARTIFACT_TYPE } from '../../packages/mps-lu/src/artifacts/LUPropertyContextArtifact';
 import { getDocumentFactReviewSigningProvider, getDocumentPropertyReviewSigningProvider } from '../security/documentReviewSigningKey';
@@ -60,6 +60,41 @@ function hashOf(value: unknown): string | undefined {
   return typeof record.content_hash?.digest === 'string' ? record.content_hash.digest : undefined;
 }
 
+function artifactTypeOf(value: unknown): string | undefined {
+  const record = value as { artifact_type?: unknown };
+  return typeof record.artifact_type === 'string' ? record.artifact_type : undefined;
+}
+
+function sha256Hex(value: unknown): string {
+  return createHash('sha256').update(Buffer.from(canonicalizeStrict(value), 'utf8')).digest('hex');
+}
+
+function recomputeReviewedFactDigestFromV2(fact: VerifiedDocumentFactArtifactV2): string {
+  return sha256Hex({
+    artifact_id: fact.reviewed_fact_ref.artifact_id,
+    artifact_type: 'VERIFIED_DOCUMENT_FACT',
+    contract_version: 'verified-document-fact-v1',
+    verification_status: 'VERIFIED',
+    candidate_ref: fact.candidate_ref,
+    fact_type: fact.fact_type,
+    fact_version: fact.fact_version,
+    source_document_ref: fact.source_document_ref,
+    inventory_ref: fact.inventory_ref,
+    source_span: fact.source_span,
+    ...(fact.subject_ref !== undefined ? { subject_ref: fact.subject_ref } : {}),
+    assertion: {
+      asserted_by: fact.assertion.asserted_by,
+      assertion_method: fact.assertion.assertion_method,
+      asserter_version: fact.assertion.asserter_version,
+    },
+    verification: {
+      verified_by: fact.verification.verified_by,
+      verification_method: fact.verification.verification_method,
+      verification_policy_version: fact.verification.verification_policy_version,
+    },
+  });
+}
+
 function legacySignatureAdapter(signing: { readonly keyId: string; sign(bytes: Uint8Array): Promise<{ readonly signature: string }> }) {
   return {
     keyId: signing.keyId,
@@ -67,6 +102,74 @@ function legacySignatureAdapter(signing: { readonly keyId: string; sign(bytes: U
       const envelope = await signing.sign(bytes);
       return { signatureBase64: envelope.signature.replace(/^ed25519:/, '') };
     },
+  };
+}
+
+function factReviewPreimage(args: {
+  readonly action: typeof DOCUMENT_FACT_REVIEW_ACTION;
+  readonly candidate: DocumentFactCandidateArtifact;
+  readonly fact: VerifiedDocumentFactArtifact;
+  readonly actor: ActorReference;
+  readonly governance_release: string;
+  readonly signer_key_id: string;
+}): Record<string, unknown> {
+  return {
+    action: args.action,
+    candidate_artifact_id: args.candidate.artifact_id,
+    candidate_content_hash: args.candidate.content_hash.digest,
+    fact_artifact_id: args.fact.artifact_id,
+    fact_content_hash: args.fact.content_hash.digest,
+    fact_type: args.fact.fact_type,
+    source_projection_ref: args.fact.source_span.text_projection_ref,
+    source_span: { start_offset: args.fact.source_span.start_offset, end_offset: args.fact.source_span.end_offset },
+    reviewer_actor_ref: args.actor,
+    reviewer_role: args.actor.role,
+    governance_release: args.governance_release,
+    signer_key_id: args.signer_key_id,
+  };
+}
+
+function propertyReviewPreimage(args: {
+  readonly action: typeof DOCUMENT_PROPERTY_REVIEW_ACTION;
+  readonly document_evidence_ref: HashedArtifactReference;
+  readonly verified_fact_refs: readonly HashedArtifactReference[];
+  readonly property_ref: HashedArtifactReference;
+  readonly justification_refs: readonly ArtifactReference[];
+  readonly actor: ActorReference;
+  readonly governance_release: string;
+  readonly signer_key_id: string;
+}): Record<string, unknown> {
+  return {
+    action: args.action,
+    document_evidence_ref: args.document_evidence_ref,
+    verified_fact_refs: args.verified_fact_refs,
+    property_ref: args.property_ref,
+    justification_refs: args.justification_refs,
+    reviewer_actor_ref: args.actor,
+    reviewer_role: args.actor.role,
+    governance_release: args.governance_release,
+    signer_key_id: args.signer_key_id,
+  };
+}
+
+function factReviewPreimageFromV2(args: {
+  readonly fact: VerifiedDocumentFactArtifactV2;
+  readonly governance_release: string;
+  readonly signer_key_id: string;
+}): Record<string, unknown> {
+  return {
+    action: DOCUMENT_FACT_REVIEW_ACTION,
+    candidate_artifact_id: args.fact.candidate_ref.id,
+    candidate_content_hash: args.fact.candidate_ref.content_hash.digest,
+    fact_artifact_id: args.fact.reviewed_fact_ref.artifact_id,
+    fact_content_hash: args.fact.reviewed_fact_ref.content_hash,
+    fact_type: args.fact.fact_type,
+    source_projection_ref: args.fact.source_span.text_projection_ref,
+    source_span: { start_offset: args.fact.source_span.start_offset, end_offset: args.fact.source_span.end_offset },
+    reviewer_actor_ref: args.fact.verification.verified_by,
+    reviewer_role: args.fact.verification.verified_by.role,
+    governance_release: args.governance_release,
+    signer_key_id: args.signer_key_id,
   };
 }
 
@@ -100,25 +203,19 @@ export async function reviewDocumentFact(input: {
     policy: DOCUMENT_FACT_VERIFICATION_POLICY_V1,
     verified_at: input.verified_at,
   }, legacySignatureAdapter(signing));
-  await input.artifactRepository.put({ artifact_id: fact.artifact_id, content_hash: { algorithm: 'sha256', value: fact.content_hash.digest }, body: fact });
+  const preimage = factReviewPreimage({
+    action: DOCUMENT_FACT_REVIEW_ACTION,
+    candidate,
+    fact,
+    actor,
+    governance_release: input.governance_release,
+    signer_key_id: signing.keyId,
+  });
   const review = await createDocumentReviewAttestation({
     artifact_type: 'DOCUMENT_FACT_REVIEW_ATTESTATION',
     action: DOCUMENT_FACT_REVIEW_ACTION,
     subject_content_hash: fact.content_hash.digest,
-    preimage: {
-      action: DOCUMENT_FACT_REVIEW_ACTION,
-      candidate_artifact_id: candidate.artifact_id,
-      candidate_content_hash: candidate.content_hash.digest,
-      fact_artifact_id: fact.artifact_id,
-      fact_content_hash: fact.content_hash.digest,
-      fact_type: fact.fact_type,
-      source_projection_ref: fact.source_span.text_projection_ref,
-      source_span: { start_offset: fact.source_span.start_offset, end_offset: fact.source_span.end_offset },
-      reviewer_actor_ref: actor,
-      reviewer_role: actor.role,
-      governance_release: input.governance_release,
-      signer_key_id: signing.keyId,
-    },
+    preimage,
     reviewer: actor,
     governance_release: input.governance_release,
     signing,
@@ -130,6 +227,8 @@ export async function reviewDocumentFact(input: {
     expected_action: DOCUMENT_FACT_REVIEW_ACTION,
     expected_subject_digest: fact.content_hash.digest,
     expected_reviewer: actor,
+    expected_governance_release: input.governance_release,
+    expected_preimage: preimage,
     verification: getDocumentFactReviewVerifier(),
   });
   const factV2 = await createVerifiedDocumentFactV2(fact, review.ref as typeof review.ref & { readonly artifact_type: 'DOCUMENT_FACT_REVIEW_ATTESTATION' }, legacySignatureAdapter(signing));
@@ -153,39 +252,53 @@ export async function reviewDocumentEvidenceProperty(input: {
   }
   if (input.property_ref.artifact_type !== LU_PROPERTY_CONTEXT_ARTIFACT_TYPE) throw new DocumentReviewerAProductionPathRejected('property_ref must be LU_PROPERTY_CONTEXT');
   if (input.verified_fact_refs.length === 0 || input.justification_refs.length === 0) throw new DocumentReviewerAProductionPathRejected('verified fact and justification references are required');
+  const evidence = await input.artifactRepository.resolve<unknown>(input.document_evidence_ref);
+  if (hashOf(evidence) !== input.document_evidence_ref.content_hash) throw new DocumentReviewerAProductionPathRejected('document evidence reference/hash is invalid');
   for (const ref of input.verified_fact_refs) {
-    const fact = await input.artifactRepository.resolve<VerifiedDocumentFactArtifact>(ref);
-    if (fact.artifact_type !== 'VERIFIED_DOCUMENT_FACT' || hashOf(fact) !== ref.content_hash) throw new DocumentReviewerAProductionPathRejected('verified fact reference/hash is invalid');
+    const fact = await input.artifactRepository.resolve<VerifiedDocumentFactArtifactV2>(ref);
+    if (fact.artifact_type !== 'VERIFIED_DOCUMENT_FACT' || fact.contract_version !== 'verified-document-fact-v2' || hashOf(fact) !== ref.content_hash || !isVerifiedDocumentFactV2ContentHashValid(fact)) throw new DocumentReviewerAProductionPathRejected('verified fact reference/hash is invalid or not V2');
+    const reviewedFactDigest = recomputeReviewedFactDigestFromV2(fact);
+    if (fact.reviewed_fact_ref.content_hash !== reviewedFactDigest) throw new DocumentReviewerAProductionPathRejected('verified fact reviewed preimage/hash is invalid');
+    const factVerifier = getDocumentFactReviewVerifier();
+    await validateDocumentReviewAttestationReference({
+      resolver: input.artifactRepository,
+      ref: fact.review_attestation_ref,
+      expected_action: DOCUMENT_FACT_REVIEW_ACTION,
+      expected_subject_digest: reviewedFactDigest,
+      expected_reviewer: fact.verification.verified_by,
+      expected_governance_release: input.governance_release,
+      expected_preimage: factReviewPreimageFromV2({
+        fact,
+        governance_release: input.governance_release,
+        signer_key_id: factVerifier.keyId,
+      }),
+      verification: factVerifier,
+    });
   }
   const property = await input.artifactRepository.resolve<unknown>(input.property_ref);
-  if (hashOf(property) !== input.property_ref.content_hash) throw new DocumentReviewerAProductionPathRejected('property context reference/hash is invalid');
+  if (artifactTypeOf(property) !== LU_PROPERTY_CONTEXT_ARTIFACT_TYPE || hashOf(property) !== input.property_ref.content_hash) throw new DocumentReviewerAProductionPathRejected('property context reference/hash is invalid');
   for (const ref of input.justification_refs) await input.artifactRepository.resolve(ref);
   const actor = await reviewer(input.authUser);
-  const historicalBinding = createDocumentEvidencePropertyBindingArtifactV2({
-    document_evidence_ref: input.document_evidence_ref,
-    property_ref: input.property_ref,
-    binding_method: 'GOVERNANCE_REVIEWER_CONFIRMED',
-    binding_authority: actor,
-    justification_refs: input.justification_refs,
-  });
   const signing = getDocumentPropertyReviewSigningProvider();
-  await input.artifactRepository.put({ artifact_id: historicalBinding.artifact_id, content_hash: historicalBinding.content_hash, body: historicalBinding });
+  const preimage = propertyReviewPreimage({
+    action: DOCUMENT_PROPERTY_REVIEW_ACTION,
+    document_evidence_ref: input.document_evidence_ref,
+    verified_fact_refs: input.verified_fact_refs,
+    property_ref: input.property_ref,
+    justification_refs: input.justification_refs,
+    actor,
+    governance_release: input.governance_release,
+    signer_key_id: signing.keyId,
+  });
+  const reviewSubjectHash = sha256ContentHash({
+    contract_version: 'document-evidence-property-binding-v3.review-preimage',
+    preimage,
+  }).value;
   const review = await createDocumentReviewAttestation({
     artifact_type: 'DOCUMENT_PROPERTY_REVIEW_ATTESTATION',
     action: DOCUMENT_PROPERTY_REVIEW_ACTION,
-    subject_content_hash: historicalBinding.content_hash.value,
-    preimage: {
-      action: DOCUMENT_PROPERTY_REVIEW_ACTION,
-      property_binding_artifact_id: historicalBinding.artifact_id,
-      property_binding_content_hash: historicalBinding.content_hash.value,
-      verified_fact_refs: input.verified_fact_refs,
-      property_ref: input.property_ref,
-      justification_refs: input.justification_refs,
-      reviewer_actor_ref: actor,
-      reviewer_role: actor.role,
-      governance_release: input.governance_release,
-      signer_key_id: signing.keyId,
-    },
+    subject_content_hash: reviewSubjectHash,
+    preimage,
     reviewer: actor,
     governance_release: input.governance_release,
     signing,
@@ -195,13 +308,16 @@ export async function reviewDocumentEvidenceProperty(input: {
     resolver: input.artifactRepository,
     ref: review.ref,
     expected_action: DOCUMENT_PROPERTY_REVIEW_ACTION,
-    expected_subject_digest: historicalBinding.content_hash.value,
+    expected_subject_digest: reviewSubjectHash,
     expected_reviewer: actor,
+    expected_governance_release: input.governance_release,
+    expected_preimage: preimage,
     verification: getDocumentPropertyReviewVerifier(),
   });
   const binding = createDocumentEvidencePropertyBindingArtifactV3({
     contract_version: 'document-evidence-property-binding-v3',
     document_evidence_ref: input.document_evidence_ref,
+    verified_fact_refs: input.verified_fact_refs,
     property_ref: input.property_ref,
     binding_authority: actor,
     justification_refs: input.justification_refs,
