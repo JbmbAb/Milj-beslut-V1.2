@@ -125,6 +125,12 @@ export interface VerifiedDocumentFactArtifact extends CanonicalArtifact, Documen
 }
 
 /**
+ * Runtime marker for the current production fact contract. The structural V2 type lives in
+ * VerifiedDocumentFactV2.ts to preserve this historical V1 file's verification contract.
+ */
+export const VerifiedDocumentFactArtifactV2 = "verified-document-fact-v2" as const;
+
+/**
  * Which verification methods may establish which fact types. Versioned so a fact type can be
  * opened to automatic verification later, once there is proof for that classification, without
  * changing the artifact model.
