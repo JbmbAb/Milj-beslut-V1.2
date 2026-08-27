@@ -15,6 +15,7 @@ import {
   DOCUMENT_EVIDENCE_PROPERTY_BINDING_V2_CONTRACT_VERSION,
   type DocumentEvidencePropertyBindingArtifactV2,
 } from '../../packages/mps-lu/src/artifacts/DocumentEvidencePropertyBindingArtifact';
+import { LU_PROPERTY_CONTEXT_ARTIFACT_TYPE } from '../../packages/mps-lu/src/artifacts/LUPropertyContextArtifact';
 import { recomputeDocumentEvidenceV2ContentHash, type DocumentEvidenceArtifactV2 } from '../../packages/mps-lu/src/artifacts/DocumentEvidenceArtifactV2';
 import type { AuthUser } from '../security/types';
 import {
@@ -112,6 +113,9 @@ export async function admitDocumentEvidenceV2(input: {
     }
   }
 
+  if (binding.payload.property_ref.artifact_type !== LU_PROPERTY_CONTEXT_ARTIFACT_TYPE) {
+    throw new DocumentEvidenceAdmissionBridgeRejected('property binding must reference an LU_PROPERTY_CONTEXT artifact');
+  }
   const propertyContext = await input.artifactRepository.resolve<unknown>({
     artifact_id: binding.payload.property_ref.artifact_id,
     artifact_type: binding.payload.property_ref.artifact_type,

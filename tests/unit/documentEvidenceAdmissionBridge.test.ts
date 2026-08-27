@@ -5,6 +5,7 @@ import path from 'node:path';
 import { FileCASRepository, LocalPemSigningKeyProvider } from '../../packages/mimers-brunn-core/src';
 import { InMemoryArtifactRepository } from '../../packages/mps-runtime/src';
 import { createDocumentEvidenceArtifactV2 } from '../../packages/mps-lu/src/artifacts/DocumentEvidenceArtifactV2';
+import { LU_PROPERTY_CONTEXT_ARTIFACT_TYPE } from '../../packages/mps-lu/src/artifacts/LUPropertyContextArtifact';
 import {
   createDocumentEvidencePropertyBindingArtifact,
   createDocumentEvidencePropertyBindingArtifactV2,
@@ -60,7 +61,7 @@ describe('DOCUMENT-EVIDENCE-V2-PRODUCTION-ADMISSION-BRIDGE-01', () => {
       verified_fact_refs: [{ artifact_id: fact.artifact_id, artifact_type: fact.artifact_type, content_hash: fact.content_hash.digest }],
       source_metadata: { provider: 'fixture', retrieved_at: '2026-08-27T00:00:00.000Z' },
     });
-    const propertyContext = { artifact_id: 'lu-property-context-1', artifact_type: 'lu_property_context', content_hash: { algorithm: 'sha256', value: 'property-context-hash' } };
+    const propertyContext = { artifact_id: 'lu-property-context-1', artifact_type: LU_PROPERTY_CONTEXT_ARTIFACT_TYPE, content_hash: { algorithm: 'sha256', value: 'property-context-hash' } };
     const binding = createDocumentEvidencePropertyBindingArtifactV2({
       document_evidence_ref: { artifact_id: evidence.artifact_id, artifact_type: evidence.artifact_type, content_hash: evidence.content_hash.value },
       property_ref: { artifact_id: propertyContext.artifact_id, artifact_type: propertyContext.artifact_type, content_hash: propertyContext.content_hash.value },
@@ -85,6 +86,75 @@ describe('DOCUMENT-EVIDENCE-V2-PRODUCTION-ADMISSION-BRIDGE-01', () => {
     });
     expect(result.cas_content_hash).toMatch(/^sha256:/);
     expect(reviewerGrants.resolveGovernanceReviewerActor).toHaveBeenCalledWith(expect.objectContaining({ id: 'user-b' }));
+  });
+
+  it('denies an existing non-LU property artifact even when its reference and hash are correct', async () => {
+    const { cas, evidence, binding, repo } = await setup();
+    const nonLuProperty = { artifact_id: 'project-context-1', artifact_type: 'PROJECT_CONTEXT', content_hash: { algorithm: 'sha256', value: 'project-context-hash' } };
+    await repo.put({ artifact_id: nonLuProperty.artifact_id, content_hash: nonLuProperty.content_hash, body: nonLuProperty });
+    const forgedBinding = createDocumentEvidencePropertyBindingArtifactV2({
+      ...binding.payload,
+      property_ref: { artifact_id: nonLuProperty.artifact_id, artifact_type: nonLuProperty.artifact_type, content_hash: nonLuProperty.content_hash.value },
+    });
+    const put = vi.spyOn(cas, 'putCanonical');
+
+    await expect(admitDocumentEvidenceV2({
+      authUser: { id: 'user-b', organisationId: null, bankidId: 'bankid-b', role: 'CONSULTANT' },
+      evidence, propertyBinding: forgedBinding, governanceRelease: 'governance-v1', artifactRepository: repo, cas, signing: signer, verification: signer,
+    })).rejects.toThrow(/must reference an LU_PROPERTY_CONTEXT/i);
+
+    expect(put).not.toHaveBeenCalled();
+  });
+
+  it('denies an LU property context reference with a mismatched hash', async () => {
+    const { cas, evidence, binding, repo } = await setup();
+    const forgedBinding = createDocumentEvidencePropertyBindingArtifactV2({
+      ...binding.payload,
+      property_ref: { ...binding.payload.property_ref, content_hash: 'wrong-property-context-hash' },
+    });
+    const put = vi.spyOn(cas, 'putCanonical');
+
+    await expect(admitDocumentEvidenceV2({
+      authUser: { id: 'user-b', organisationId: null, bankidId: 'bankid-b', role: 'CONSULTANT' },
+      evidence, propertyBinding: forgedBinding, governanceRelease: 'governance-v1', artifactRepository: repo, cas, signing: signer, verification: signer,
+    })).rejects.toThrow(/claimed canonical property context hash/i);
+
+    expect(put).not.toHaveBeenCalled();
+  });
+
+  it('denies a missing LU property context reference', async () => {
+    const { cas, evidence, binding, repo } = await setup();
+    const forgedBinding = createDocumentEvidencePropertyBindingArtifactV2({
+      ...binding.payload,
+      property_ref: { artifact_id: 'missing-lu-property-context', artifact_type: LU_PROPERTY_CONTEXT_ARTIFACT_TYPE, content_hash: 'missing-property-context-hash' },
+    });
+    const put = vi.spyOn(cas, 'putCanonical');
+
+    await expect(admitDocumentEvidenceV2({
+      authUser: { id: 'user-b', organisationId: null, bankidId: 'bankid-b', role: 'CONSULTANT' },
+      evidence, propertyBinding: forgedBinding, governanceRelease: 'governance-v1', artifactRepository: repo, cas, signing: signer, verification: signer,
+    })).rejects.toThrow();
+
+    expect(put).not.toHaveBeenCalled();
+  });
+
+  it('denies malformed property types before admission', async () => {
+    const { cas, evidence, binding, repo } = await setup();
+    const malformedBinding = {
+      ...binding,
+      payload: {
+        ...binding.payload,
+        property_ref: { ...binding.payload.property_ref, artifact_type: '' },
+      },
+    };
+    const put = vi.spyOn(cas, 'putCanonical');
+
+    await expect(admitDocumentEvidenceV2({
+      authUser: { id: 'user-b', organisationId: null, bankidId: 'bankid-b', role: 'CONSULTANT' },
+      evidence, propertyBinding: malformedBinding as typeof binding, governanceRelease: 'governance-v1', artifactRepository: repo, cas, signing: signer, verification: signer,
+    })).rejects.toThrow(/property binding content hash is invalid/i);
+
+    expect(put).not.toHaveBeenCalled();
   });
 
   it('denies reviewer B when B is also the fact reviewer before a CAS write', async () => {
