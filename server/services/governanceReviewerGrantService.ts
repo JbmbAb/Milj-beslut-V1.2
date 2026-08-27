@@ -158,3 +158,30 @@ export async function resolveGovernanceReviewerActor(
     role: 'GOVERNANCE_REVIEWER',
   };
 }
+
+/**
+ * Confirms that an actor reference came from exactly one persisted, public-key-verified reviewer
+ * grant. Admission callers use this for previously recorded fact and binding reviewers; it never
+ * accepts a request-supplied actor as authority.
+ */
+export async function verifyGovernanceReviewerActorReference(
+  actor: ActorReference,
+  verification: VerificationKeyProvider = getGovernanceReviewerGrantVerifier(),
+): Promise<void> {
+  if (actor.role !== 'GOVERNANCE_REVIEWER') {
+    throw new GovernanceReviewerGrantRejected('actor role is not GOVERNANCE_REVIEWER');
+  }
+  const matching = readStoredGrants().filter((grant) =>
+    grant.artifact_id === actor.identity_ref.id &&
+    grant.content_hash.value === actor.identity_ref.content_hash.digest,
+  );
+  if (matching.length !== 1) {
+    throw new GovernanceReviewerGrantRejected('reviewer actor reference does not resolve to exactly one persisted grant');
+  }
+  const grant = matching[0];
+  await verifyGovernanceReviewerGrant(
+    grant,
+    { userId: grant.payload.subject_user_id, bankidId: grant.payload.subject_bankid_id },
+    verification,
+  );
+}
