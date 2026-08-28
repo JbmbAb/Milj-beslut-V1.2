@@ -36,3 +36,16 @@ export function createDocumentEvidencePropertyBindingArtifactV3(payload: Documen
   const content_hash = sha256ContentHash({ artifact_id, artifact_type: 'document_evidence_property_binding', references, payload });
   return { artifact_id, artifact_type: 'document_evidence_property_binding', content_hash, references, payload };
 }
+
+export function recomputeDocumentEvidencePropertyBindingV3ContentHash(artifact: DocumentEvidencePropertyBindingArtifactV3): string {
+  return sha256ContentHash({
+    artifact_id: artifact.artifact_id,
+    artifact_type: artifact.artifact_type,
+    references: artifact.references,
+    payload: artifact.payload,
+  }).value;
+}
+
+export function isDocumentEvidencePropertyBindingV3ContentHashValid(artifact: DocumentEvidencePropertyBindingArtifactV3): boolean {
+  return recomputeDocumentEvidencePropertyBindingV3ContentHash(artifact) === artifact.content_hash.value;
+}
