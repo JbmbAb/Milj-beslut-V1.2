@@ -680,7 +680,7 @@ export const LuWorkspace: React.FC<{ initialDesignation?: string }> = ({ initial
       {site ? (
         <section
           data-testid="lu-cesium-front"
-          className="relative mb-10 min-h-[620px] overflow-hidden border"
+          className="relative mb-10 h-[620px] overflow-hidden border"
           style={{ borderColor: colors.coreGraphite.hex }}
         >
           <Suspense

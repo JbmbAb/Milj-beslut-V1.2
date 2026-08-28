@@ -8,6 +8,7 @@ import {
   type CesiumEvidenceMeta,
   type CesiumEvidenceMode,
 } from './cesium/types';
+import './cesium/cesiumMapContainer.css';
 
 export type { CesiumEvidenceMode };
 
@@ -143,6 +144,7 @@ const CesiumMapView: React.FC<CesiumMapViewProps> = ({
     });
 
     adapterRef.current = adapter;
+    adapter.resizeToContainer();
 
     return () => {
       adapter.destroy();
@@ -200,6 +202,7 @@ const CesiumMapView: React.FC<CesiumMapViewProps> = ({
           await adapterRef.current.setPropertyGeometry(propGeom, fallback);
           const count = await adapterRef.current.setEvidenceLayers(scene.evidence);
           adapterRef.current.setLayerVisibility(visibleLayers);
+          adapterRef.current.resizeToContainer();
           if (!cancelled) {
             setEvidenceCount(count);
             setEvidenceMeta({
@@ -242,6 +245,7 @@ const CesiumMapView: React.FC<CesiumMapViewProps> = ({
 
         const count = await adapterRef.current.setEvidenceLayers(geojson);
         adapterRef.current.setLayerVisibility(visibleLayers);
+        adapterRef.current.resizeToContainer();
         if (!cancelled) {
           setEvidenceCount(count);
           setEvidenceMeta({
@@ -466,7 +470,7 @@ const CesiumMapView: React.FC<CesiumMapViewProps> = ({
         </div>
       )}
 
-      <div ref={containerRef} className="w-full h-full flex-1" />
+      <div ref={containerRef} className="w-full h-full min-h-0 flex-1 cesium-map-container" />
     </div>
   );
 };

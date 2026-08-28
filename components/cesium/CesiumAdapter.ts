@@ -1,9 +1,29 @@
-import { Viewer, Cartesian3, Cartographic, GeoJsonDataSource, Color, ScreenSpaceEventHandler, ScreenSpaceEventType, Entity, HeadingPitchRange, Math as CesiumMath } from 'cesium';
+import {
+  Cartesian3,
+  Cartographic,
+  Color,
+  EllipsoidTerrainProvider,
+  Entity,
+  GeoJsonDataSource,
+  ImageryLayer,
+  Ion,
+  Math as CesiumMath,
+  OpenStreetMapImageryProvider,
+  ScreenSpaceEventHandler,
+  ScreenSpaceEventType,
+  UrlTemplateImageryProvider,
+  Viewer,
+} from 'cesium';
+import 'cesium/Build/Cesium/Widgets/widgets.css';
+import { resolveCesiumBasemapChoice } from './cesiumBasemapRuntime';
+import { applyCesiumIonRuntimeConfiguration } from './cesiumIonRuntime';
 
 // Ensure Cesium knows where to locate assets locally
 if (typeof window !== 'undefined') {
   (window as any).CESIUM_BASE_URL = '/cesium/';
 }
+
+const MIN_ZOOM_DISTANCE_METERS = 80;
 
 export interface CesiumAdapterConfig {
   container: HTMLDivElement;
@@ -41,9 +61,17 @@ export class CesiumAdapter {
    * click underneath it.
    */
   private onLocationPick: ((lat: number, lng: number) => void) | null = null;
+  private resizeObserver: ResizeObserver | null = null;
+  private pendingCameraFit: (() => void) | null = null;
 
   constructor(config: CesiumAdapterConfig) {
-    // Instantiate Cesium Viewer with clean, focused options (no default heavy widgets)
+    applyCesiumIonRuntimeConfiguration(Ion, import.meta.env);
+    const baseLayer = this.createBaseLayer();
+
+    // Instantiate Cesium Viewer with clean, focused options (no default heavy widgets).
+    // Ellipsoid terrain + OSM/local XYZ: never Ion World Imagery unless an env token is
+    // explicitly opted into VITE_CESIUM_ION_IMAGERY. That is what stops api.cesium.com 401s
+    // and the bundled default-token warning.
     this.viewer = new Viewer(config.container, {
       animation: false,
       timeline: false,
@@ -55,8 +83,13 @@ export class CesiumAdapter {
       selectionIndicator: true,
       navigationHelpButton: false,
       baseLayerPicker: false,
-      terrainProvider: undefined, // flat ellipsoid terrain for minimal L0/L1
+      ...(baseLayer ? { baseLayer } : {}),
+      terrainProvider: new EllipsoidTerrainProvider(),
     });
+
+    this.viewer.scene.globe.depthTestAgainstTerrain = false;
+    this.viewer.scene.screenSpaceCameraController.minimumZoomDistance = MIN_ZOOM_DISTANCE_METERS;
+    this.viewer.scene.requestRenderMode = false;
 
     // Configure camera for Sweden view default
     this.viewer.camera.setView({
@@ -65,6 +98,81 @@ export class CesiumAdapter {
 
     this.onFeatureClick = config.onFeatureClick;
     this.setupClickHandler();
+    this.observeContainerSize(config.container);
+    this.resizeToContainer();
+  }
+
+  private createBaseLayer(): ImageryLayer | undefined {
+    const choice = resolveCesiumBasemapChoice(import.meta.env);
+    switch (choice.kind) {
+      case 'ion-world-imagery':
+        // Token already applied; Viewer default World Imagery uses Ion.
+        return undefined;
+      case 'local-xyz':
+        return new ImageryLayer(
+          new UrlTemplateImageryProvider({
+            url: choice.url,
+            credit: choice.credit,
+          }),
+        );
+      case 'osm':
+        return new ImageryLayer(
+          new OpenStreetMapImageryProvider({
+            url: choice.url,
+          }),
+        );
+      default: {
+        const exhaustive: never = choice;
+        return exhaustive;
+      }
+    }
+  }
+
+  private observeContainerSize(container: HTMLDivElement): void {
+    if (typeof ResizeObserver === 'undefined') return;
+    this.resizeObserver = new ResizeObserver(() => {
+      this.resizeToContainer();
+      this.flushPendingCameraFit();
+    });
+    this.resizeObserver.observe(container);
+  }
+
+  /** Public so the React wrapper can force a resize after the LU map panel becomes visible. */
+  public resizeToContainer(): void {
+    if (this.destroyed) return;
+    this.viewer.resize();
+    this.viewer.scene.requestRender();
+  }
+
+  private hasPositiveSize(): boolean {
+    const container = this.viewer.container as HTMLElement;
+    return container.clientWidth > 0 && container.clientHeight > 0;
+  }
+
+  private scheduleCameraFit(run: () => void): void {
+    this.pendingCameraFit = run;
+    this.flushPendingCameraFit();
+  }
+
+  private flushPendingCameraFit(): void {
+    if (this.destroyed || !this.pendingCameraFit) return;
+    this.resizeToContainer();
+    if (!this.hasPositiveSize()) return;
+    const run = this.pendingCameraFit;
+    this.pendingCameraFit = null;
+    run();
+  }
+
+  /**
+   * Fit after GeoJSON is actually in the scene and the container has a real size.
+   * Do not pass HeadingPitchRange range 0 -- that plants the camera at the bounding-sphere
+   * center (horizon / under ellipsoid). Omit offset so Cesium frames the loaded extent.
+   */
+  private fitToDataSource(dataSource: GeoJsonDataSource): void {
+    this.scheduleCameraFit(() => {
+      if (this.destroyed) return;
+      void this.viewer.flyTo(dataSource, { duration: 2.5 }).catch(() => undefined);
+    });
   }
 
   private setupClickHandler(): void {
@@ -183,15 +291,18 @@ export class CesiumAdapter {
           } as any
         });
 
-        // Flight transition: fly to center with a 45 degree tilt looking North
-        this.viewer.camera.flyTo({
-          destination: Cartesian3.fromDegrees(lng, lat - 0.004, 350.0), // Zoom in close from south
-          orientation: {
-            heading: CesiumMath.toRadians(0.0), // Look North
-            pitch: CesiumMath.toRadians(-45.0), // 45 degrees tilt
-            roll: 0.0,
-          },
-          duration: 3.0,
+        // Flight transition: fly to center with a 45 degree tilt looking North -- only after
+        // the widget has a real size, so the destination is not computed against a 0x0 canvas.
+        this.scheduleCameraFit(() => {
+          this.viewer.camera.flyTo({
+            destination: Cartesian3.fromDegrees(lng, lat - 0.004, 350.0), // Zoom in close from south
+            orientation: {
+              heading: CesiumMath.toRadians(0.0), // Look North
+              pitch: CesiumMath.toRadians(-45.0), // 45 degrees tilt
+              roll: 0.0,
+            },
+            duration: 3.0,
+          });
         });
       }
       return;
@@ -209,17 +320,7 @@ export class CesiumAdapter {
       await this.viewer.dataSources.add(this.propertyDataSource);
       if (this.destroyed) return; // destroyed during the add() await too -- nothing left to fly to
 
-      // Smooth 3-second camera flight with a 45 degree tilt from the south looking North
-      const hpr = new HeadingPitchRange(
-        CesiumMath.toRadians(0.0), // heading: look North
-        CesiumMath.toRadians(-45.0), // pitch: look down at 45 degrees
-        0.0 // auto-calculate range
-      );
-
-      this.viewer.flyTo(this.propertyDataSource, {
-        duration: 3.0,
-        offset: hpr,
-      });
+      this.fitToDataSource(this.propertyDataSource);
     } catch (err) {
       console.error('[CesiumAdapter] Failed to load property geometry:', err);
     }
@@ -302,6 +403,9 @@ export class CesiumAdapter {
 
       await this.viewer.dataSources.add(this.evidenceDataSource);
       if (this.destroyed) return 0; // destroyed during the add() await
+      // Fit after evidence is actually in the scene so the selected property extent (preferred)
+      // or the evidence extent frames a sized canvas -- never a 0x0 first paint.
+      this.fitToDataSource(this.propertyDataSource ?? this.evidenceDataSource);
       return features.length;
     } catch (err) {
       console.error('[CesiumAdapter] Failed to load evidence GeoJSON:', err);
@@ -367,6 +471,11 @@ export class CesiumAdapter {
   public destroy(): void {
     if (this.destroyed) return;
     this.destroyed = true;
+    this.pendingCameraFit = null;
+    if (this.resizeObserver) {
+      this.resizeObserver.disconnect();
+      this.resizeObserver = null;
+    }
     if (this.clickHandler) {
       this.clickHandler.destroy();
     }
