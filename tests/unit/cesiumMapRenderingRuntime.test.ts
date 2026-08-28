@@ -54,8 +54,9 @@ describe('CESIUM-MAP-RENDERING-RUNTIME-01', () => {
     expect(adapter).toContain('ResizeObserver');
     expect(adapter).toContain('resizeToContainer');
     expect(adapter).toContain('requestRender');
-    expect(adapter).toContain('fitToDataSource');
-    expect(adapter).toContain('viewer.flyTo(dataSource');
+    expect(adapter).toContain('computePropertyCameraFit');
+    expect(adapter).toContain('fitToPropertyGeoJson');
+    expect(adapter).not.toContain('viewer.flyTo(dataSource');
     expect(adapter).not.toMatch(/0\.0 \/\/ auto-calculate range/);
   });
 

@@ -17,6 +17,7 @@ import {
 import 'cesium/Build/Cesium/Widgets/widgets.css';
 import { resolveCesiumBasemapChoice } from './cesiumBasemapRuntime';
 import { applyCesiumIonRuntimeConfiguration } from './cesiumIonRuntime';
+import { computePropertyCameraFit } from './cesiumPropertyCameraFit';
 
 // Ensure Cesium knows where to locate assets locally
 if (typeof window !== 'undefined') {
@@ -164,14 +165,52 @@ export class CesiumAdapter {
   }
 
   /**
-   * Fit after GeoJSON is actually in the scene and the container has a real size.
-   * Do not pass HeadingPitchRange range 0 -- that plants the camera at the bounding-sphere
-   * center (horizon / under ellipsoid). Omit offset so Cesium frames the loaded extent.
+   * Fit from the property GeoJSON itself. DataSource bounding-sphere flyTo uses a cartesian
+   * sphere whose center is inside the ellipsoid for surface polygons — black globe, no tiles.
    */
-  private fitToDataSource(dataSource: GeoJsonDataSource): void {
+  private fitToPropertyGeoJson(geojson: unknown): void {
+    const fit = computePropertyCameraFit(geojson);
+    if (!fit.ok) return;
     this.scheduleCameraFit(() => {
       if (this.destroyed) return;
-      void this.viewer.flyTo(dataSource, { duration: 2.5 }).catch(() => undefined);
+      const container = this.viewer.container as HTMLElement;
+      const before = this.viewer.camera.positionCartographic;
+      this.viewer.camera.setView({
+        destination: Cartesian3.fromDegrees(
+          fit.destination.longitude,
+          fit.destination.latitude,
+          fit.destination.heightMeters,
+        ),
+        orientation: {
+          heading: 0,
+          pitch: CesiumMath.toRadians(-90),
+          roll: 0,
+        },
+      });
+      const after = this.viewer.camera.positionCartographic;
+      console.info('[CESIUM-PROPERTY-CAMERA-FIT-01]', {
+        container: { width: container.clientWidth, height: container.clientHeight },
+        entityCount: this.propertyDataSource?.entities.values.length ?? 0,
+        geometryTypes: fit.geometryTypes,
+        finiteCoordinateCount: fit.finiteCoordinateCount,
+        bbox: fit.bbox,
+        cartesianSphere: fit.cartesianSphere,
+        classification: fit.classification,
+        destination: fit.destination,
+        cameraBefore: {
+          longitude: CesiumMath.toDegrees(before.longitude),
+          latitude: CesiumMath.toDegrees(before.latitude),
+          height: before.height,
+        },
+        cameraAfter: {
+          longitude: CesiumMath.toDegrees(after.longitude),
+          latitude: CesiumMath.toDegrees(after.latitude),
+          height: after.height,
+        },
+        sceneMode: this.viewer.scene.mode,
+        globeShow: this.viewer.scene.globe.show,
+      });
+      this.viewer.scene.requestRender();
     });
   }
 
@@ -320,7 +359,7 @@ export class CesiumAdapter {
       await this.viewer.dataSources.add(this.propertyDataSource);
       if (this.destroyed) return; // destroyed during the add() await too -- nothing left to fly to
 
-      this.fitToDataSource(this.propertyDataSource);
+      this.fitToPropertyGeoJson(geojson);
     } catch (err) {
       console.error('[CesiumAdapter] Failed to load property geometry:', err);
     }
@@ -403,9 +442,6 @@ export class CesiumAdapter {
 
       await this.viewer.dataSources.add(this.evidenceDataSource);
       if (this.destroyed) return 0; // destroyed during the add() await
-      // Fit after evidence is actually in the scene so the selected property extent (preferred)
-      // or the evidence extent frames a sized canvas -- never a 0x0 first paint.
-      this.fitToDataSource(this.propertyDataSource ?? this.evidenceDataSource);
       return features.length;
     } catch (err) {
       console.error('[CesiumAdapter] Failed to load evidence GeoJSON:', err);
