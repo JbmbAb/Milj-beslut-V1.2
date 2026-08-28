@@ -176,8 +176,21 @@ describe('LuWorkspace', () => {
 
     expect(callApi).toHaveBeenCalledWith(
       '/api/localization/generate-report',
-      expect.objectContaining({ method: 'POST' }),
+      expect.objectContaining({
+        method: 'POST',
+        body: expect.objectContaining({
+          projectId: 'proj-1',
+          siteAlternatives: [
+            expect.objectContaining({
+              lat: expect.any(Number),
+              lng: expect.any(Number),
+            }),
+          ],
+        }),
+      }),
     );
+    const generateCall = callApi.mock.calls.find((entry) => entry[0] === '/api/localization/generate-report');
+    expect(generateCall?.[1]?.body?.siteAlternatives?.[0]?.documentEvidenceRefs).toBeUndefined();
 
     // LU-REPORT-EXPORT-UI-V1: the export action only appears once a real governed assessment
     // exists, and existing Unit 2/3 presentation (asserted above) is unaffected by its presence.

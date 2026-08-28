@@ -4,6 +4,9 @@ import type { ArtifactReference } from '@miljobeslut/mps-compliance/src/artifact
 import type { DocumentEvidenceHashedRef } from './DocumentEvidenceArtifactV2';
 import type { ReviewAttestationReference } from '../../../mps-data-governance/src/DocumentReviewAttestation';
 
+export const DOCUMENT_EVIDENCE_PROPERTY_BINDING_V3_ARTIFACT_ID_PREFIX =
+  'document-evidence-property-binding-v3-' as const;
+
 export interface DocumentEvidencePropertyBindingArtifactV3 {
   readonly artifact_id: string;
   readonly artifact_type: 'document_evidence_property_binding';
@@ -31,7 +34,7 @@ export function createDocumentEvidencePropertyBindingArtifactV3(payload: Documen
   // V3 identity is the canonical review decision; content_hash additionally pins its references.
   // justification_refs are reviewer-authored ordered rationale, matching the historical V2 contract.
   const identity = sha256ContentHash({ artifact_type: 'document_evidence_property_binding', payload });
-  const artifact_id = `document-evidence-property-binding-v3-${identity.value.slice(0, 24)}`;
+  const artifact_id = `${DOCUMENT_EVIDENCE_PROPERTY_BINDING_V3_ARTIFACT_ID_PREFIX}${identity.value.slice(0, 24)}`;
   const references = [{ artifact_id: payload.document_evidence_ref.artifact_id, artifact_type: payload.document_evidence_ref.artifact_type }, ...payload.verified_fact_refs.map((ref) => ({ artifact_id: ref.artifact_id, artifact_type: ref.artifact_type })), { artifact_id: payload.property_ref.artifact_id, artifact_type: payload.property_ref.artifact_type }, ...payload.justification_refs, { artifact_id: payload.review_attestation_ref.artifact_id, artifact_type: payload.review_attestation_ref.artifact_type }];
   const content_hash = sha256ContentHash({ artifact_id, artifact_type: 'document_evidence_property_binding', references, payload });
   return { artifact_id, artifact_type: 'document_evidence_property_binding', content_hash, references, payload };

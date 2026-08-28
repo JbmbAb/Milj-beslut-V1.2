@@ -36,6 +36,9 @@ describe("LU cutover — single execution path", () => {
     expect(src).not.toContain("LU_MPS_MOTOR_DISABLED");
     expect(src).not.toMatch(/new LURuleEngine\s*\(/);
     expect(src).not.toMatch(/ruleEngine\.evaluate/);
+    expect(src).not.toContain("generateDocumentEvidence");
+    expect(src).not.toContain("uncalculated");
+    expect(src).not.toMatch(/Failed to generate document evidence/);
   });
 
   it("product LU source: LURuleEngine only constructed inside ExecutionKernel client", () => {
@@ -44,10 +47,15 @@ describe("LU cutover — single execution path", () => {
       path.join(luSrcRoot, "execution/LuExecutionKernelClient.ts"),
     );
     const engineDef = path.normalize(path.join(luSrcRoot, "rules/LURuleEngine.ts"));
+    const reexecution = path.normalize(
+      path.join(luSrcRoot, "execution/LuDeterministicReExecution.ts"),
+    );
 
     for (const file of walkTsFiles(luSrcRoot)) {
       const norm = path.normalize(file);
-      if (norm === allowed || norm === engineDef) continue;
+      // Historical replay re-runs LURuleEngine against CAS-pinned evidence. That is not a
+      // second product generate-report path and must remain readable for V1 assessments.
+      if (norm === allowed || norm === engineDef || norm === reexecution) continue;
       const src = readFileSync(file, "utf8");
       expect(src, `${file} must not construct LURuleEngine`).not.toMatch(
         /new LURuleEngine\s*\(/,

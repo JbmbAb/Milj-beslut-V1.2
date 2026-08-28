@@ -1,6 +1,7 @@
 import type { ContentHash } from "../../../mps-compliance/src/artifacts/ContentHash.js";
 import type { ArtifactReference } from "../../../mps-compliance/src/artifacts/ArtifactReference.js";
 import type { ArtifactRepositoryPort } from "../kernel/ExecutionKernel.js";
+import type { ArtifactCatalogPort } from "./ArtifactCatalog.js";
 import {
   CasArtifactResolver,
   type ArtifactResolverPort,
@@ -14,6 +15,8 @@ export interface ByteStorageBackend {
   get(id: string): Promise<Uint8Array | null>;
   put(id: string, bytes: Uint8Array): Promise<void>;
   exists(id: string): Promise<boolean>;
+  /** Optional id catalog. Locator only — callers must still resolve through the repository. */
+  listIds?(): Promise<readonly string[]>;
 }
 
 export class MemoryByteStorageBackend implements ByteStorageBackend {
@@ -37,9 +40,13 @@ export class MemoryByteStorageBackend implements ByteStorageBackend {
   async exists(id: string): Promise<boolean> {
     return this.map.has(id);
   }
+
+  async listIds(): Promise<readonly string[]> {
+    return [...this.map.keys()];
+  }
 }
 
-export class CasBackedArtifactRepository implements ArtifactRepositoryPort {
+export class CasBackedArtifactRepository implements ArtifactRepositoryPort, ArtifactCatalogPort {
   private readonly backend: ByteStorageBackend;
   readonly resolver: ArtifactResolverPort;
 
@@ -72,5 +79,12 @@ export class CasBackedArtifactRepository implements ArtifactRepositoryPort {
     body: T;
   }> {
     return this.resolver.resolveEnvelope<T>(ref);
+  }
+
+  async listArtifactIds(): Promise<readonly string[]> {
+    if (typeof this.backend.listIds !== "function") {
+      return [];
+    }
+    return this.backend.listIds();
   }
 }
