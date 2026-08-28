@@ -23,13 +23,30 @@ import {
   deriveLuExecutionSeed,
   createLuRegistryRuntime,
   type DocumentEvidenceArtifact,
+  type AnyDocumentEvidenceArtifact,
   type AssessmentFinding,
 } from '@miljobeslut/mps-lu';
+import {
+  isDocumentEvidenceV2,
+  isDocumentEvidenceV2ContentHashValid,
+  type DocumentEvidenceArtifactV2,
+} from '../../packages/mps-lu/src/artifacts/DocumentEvidenceArtifactV2';
+import {
+  isDocumentEvidencePropertyBindingV3ContentHashValid,
+  type DocumentEvidencePropertyBindingArtifactV3,
+} from '../../packages/mps-lu/src/artifacts/DocumentEvidencePropertyBindingArtifactV3';
 import {
   isVerifiedDocumentFact,
   type DocumentFactCandidateArtifact,
   type VerifiedDocumentFactArtifact,
 } from '../../packages/mps-data-governance/src/DocumentFactArtifact';
+import {
+  isVerifiedDocumentFactContentHashValid,
+} from '../../packages/mps-data-governance/src/verifyRealDocumentFactCandidate';
+import {
+  isVerifiedDocumentFactV2ContentHashValid,
+  type VerifiedDocumentFactArtifactV2,
+} from '../../packages/mps-data-governance/src/VerifiedDocumentFactV2';
 import { enqueueAdmittedLuTicket } from './enqueue-lu-execution-ticket';
 import {
   createLocalizationSpatialRuntime,
@@ -49,6 +66,14 @@ export interface SiteAlternative {
   documentEvidenceRefs?: readonly {
     artifact_id: string;
     artifact_type: 'DOCUMENT_EVIDENCE';
+    /** Required for governed V2 inputs; optional only for historical V1 compatibility. */
+    content_hash?: string;
+    /** Required when the referenced artifact is DocumentEvidence V2. */
+    property_binding_ref?: {
+      artifact_id: string;
+      artifact_type: 'document_evidence_property_binding';
+      content_hash?: string;
+    };
   }[];
 }
 
@@ -232,13 +257,13 @@ async function resolveCanonicalDocumentEvidence(
   refs: SiteAlternative['documentEvidenceRefs'],
   expectedPropertyId: string,
   repository: LocalizationSpatialRuntime['artifactRepository'],
-): Promise<DocumentEvidenceArtifact[]> {
-  const resolved: DocumentEvidenceArtifact[] = [];
+): Promise<AnyDocumentEvidenceArtifact[]> {
+  const resolved: AnyDocumentEvidenceArtifact[] = [];
   for (const ref of refs ?? []) {
     if (ref.artifact_type !== 'DOCUMENT_EVIDENCE') {
       throw new Error(`REJECT_DOCUMENT_EVIDENCE: '${ref.artifact_id}' has the wrong artifact type`);
     }
-    const canonical = await repository.resolve<DocumentEvidenceArtifact>({
+    const canonical = await repository.resolve<DocumentEvidenceArtifact | DocumentEvidenceArtifactV2>({
       artifact_id: ref.artifact_id,
       artifact_type: ref.artifact_type,
     });
@@ -250,7 +275,74 @@ async function resolveCanonicalDocumentEvidence(
         `REJECT_DOCUMENT_EVIDENCE: '${ref.artifact_id}' did not resolve to canonical DocumentEvidence`,
       );
     }
-    if (canonical.payload.property_ref.artifact_id !== expectedPropertyId) {
+    if (ref.content_hash && canonical.content_hash.value !== ref.content_hash) {
+      throw new Error(
+        `REJECT_DOCUMENT_EVIDENCE: '${ref.artifact_id}' content_hash does not match the requested governed input`,
+      );
+    }
+
+    if (isDocumentEvidenceV2(canonical)) {
+      if (!ref.content_hash) {
+        throw new Error(
+          `REJECT_DOCUMENT_EVIDENCE_V2: '${ref.artifact_id}' requires a hash-bound content_hash`,
+        );
+      }
+      if (!isDocumentEvidenceV2ContentHashValid(canonical)) {
+        throw new Error(`REJECT_DOCUMENT_EVIDENCE_V2: '${ref.artifact_id}' content_hash is invalid`);
+      }
+      if (!ref.property_binding_ref) {
+        throw new Error(
+          `REJECT_DOCUMENT_EVIDENCE_V2: '${ref.artifact_id}' requires a property_binding_ref`,
+        );
+      }
+      const binding = await repository.resolve<DocumentEvidencePropertyBindingArtifactV3>({
+        artifact_id: ref.property_binding_ref.artifact_id,
+        artifact_type: ref.property_binding_ref.artifact_type,
+      });
+      if (
+        binding.artifact_id !== ref.property_binding_ref.artifact_id ||
+        binding.artifact_type !== 'document_evidence_property_binding' ||
+        binding.payload.contract_version !== 'document-evidence-property-binding-v3'
+      ) {
+        throw new Error(
+          `REJECT_DOCUMENT_EVIDENCE_V2: '${ref.artifact_id}' did not resolve to a V3 property binding`,
+        );
+      }
+      if (ref.property_binding_ref.content_hash && binding.content_hash.value !== ref.property_binding_ref.content_hash) {
+        throw new Error(
+          `REJECT_DOCUMENT_EVIDENCE_V2: property binding '${binding.artifact_id}' content_hash does not match the requested governed input`,
+        );
+      }
+      if (!isDocumentEvidencePropertyBindingV3ContentHashValid(binding)) {
+        throw new Error(
+          `REJECT_DOCUMENT_EVIDENCE_V2: property binding '${binding.artifact_id}' content_hash is invalid`,
+        );
+      }
+      if (
+        binding.payload.document_evidence_ref.artifact_id !== canonical.artifact_id ||
+        binding.payload.document_evidence_ref.artifact_type !== canonical.artifact_type ||
+        binding.payload.document_evidence_ref.content_hash !== canonical.content_hash.value
+      ) {
+        throw new Error(
+          `REJECT_DOCUMENT_EVIDENCE_V2: property binding '${binding.artifact_id}' is not bound to '${canonical.artifact_id}'`,
+        );
+      }
+      if (
+        binding.payload.property_ref.artifact_id !== expectedPropertyId ||
+        binding.payload.property_ref.artifact_type !== 'LU_PROPERTY_CONTEXT'
+      ) {
+        throw new Error(
+          `REJECT_DOCUMENT_EVIDENCE_V2: property binding '${binding.artifact_id}' is not bound to '${expectedPropertyId}'`,
+        );
+      }
+      if (
+        JSON.stringify(binding.payload.verified_fact_refs) !== JSON.stringify(canonical.payload.verified_fact_refs)
+      ) {
+        throw new Error(
+          `REJECT_DOCUMENT_EVIDENCE_V2: property binding '${binding.artifact_id}' verified_fact_refs do not match '${canonical.artifact_id}'`,
+        );
+      }
+    } else if (canonical.payload.property_ref.artifact_id !== expectedPropertyId) {
       throw new Error(
         `REJECT_DOCUMENT_EVIDENCE: '${ref.artifact_id}' is not bound to '${expectedPropertyId}'`,
       );
@@ -261,12 +353,15 @@ async function resolveCanonicalDocumentEvidence(
 }
 
 async function resolveVerifiedDocumentFacts(
-  documentEvidence: readonly DocumentEvidenceArtifact[],
+  documentEvidence: readonly AnyDocumentEvidenceArtifact[],
   repository: LocalizationSpatialRuntime['artifactRepository'],
-): Promise<VerifiedDocumentFactArtifact[]> {
+): Promise<(VerifiedDocumentFactArtifact | VerifiedDocumentFactArtifactV2)[]> {
   const refs = new Map<string, { artifact_id: string; artifact_type: string }>();
   for (const evidence of documentEvidence) {
-    for (const ref of evidence.payload.fact_refs ?? []) {
+    const evidenceRefs = isDocumentEvidenceV2(evidence)
+      ? evidence.payload.verified_fact_refs
+      : (evidence.payload.fact_refs ?? []);
+    for (const ref of evidenceRefs) {
       if (ref.artifact_type !== 'VERIFIED_DOCUMENT_FACT') {
         throw new Error(
           `REJECT_DOCUMENT_FACT: '${ref.artifact_id}' is not a VERIFIED_DOCUMENT_FACT`,
@@ -279,12 +374,18 @@ async function resolveVerifiedDocumentFacts(
   const facts: VerifiedDocumentFactArtifact[] = [];
   for (const ref of refs.values()) {
     const resolved = await repository.resolve<
-      DocumentFactCandidateArtifact | VerifiedDocumentFactArtifact
+      DocumentFactCandidateArtifact | VerifiedDocumentFactArtifact | VerifiedDocumentFactArtifactV2
     >(ref);
     if (!isVerifiedDocumentFact(resolved) || resolved.artifact_id !== ref.artifact_id) {
       throw new Error(
         `REJECT_DOCUMENT_FACT: '${ref.artifact_id}' did not resolve to the referenced verified fact`,
       );
+    }
+    const hashValid = (resolved as Partial<VerifiedDocumentFactArtifactV2>).contract_version === 'verified-document-fact-v2'
+      ? isVerifiedDocumentFactV2ContentHashValid(resolved as VerifiedDocumentFactArtifactV2)
+      : isVerifiedDocumentFactContentHashValid(resolved);
+    if (!hashValid) {
+      throw new Error(`REJECT_DOCUMENT_FACT: '${ref.artifact_id}' content_hash is invalid`);
     }
     facts.push(resolved);
   }
