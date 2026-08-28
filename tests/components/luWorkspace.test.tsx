@@ -27,6 +27,18 @@ vi.mock('../../src/ui/api-client/geo.client', () => ({
   fetchPropertyInfo: (...args: unknown[]) => fetchPropertyInfo(...args),
 }));
 
+vi.mock('../../src/ui/api-client/localizationProjects.client', () => ({
+  getBootstrapStatus: vi.fn(async () => ({
+    id: 'bootstrap-1',
+    projectId: 'proj-1',
+    propertyDesignation: 'GÄVLE BRYNÄS 1:1',
+    status: 'COMPLETED',
+    contextBindingArtifactId: 'project-context-binding-1',
+    failureCode: null,
+    failureDetail: null,
+  })),
+}));
+
 vi.mock('../../services/coreApiClient', () => ({
   callApi: (...args: unknown[]) => callApi(...args),
   getActiveProjectId: () => getActiveProjectId(),
@@ -146,6 +158,8 @@ describe('LuWorkspace', () => {
     expect(await screen.findByTestId('lu-site-ready')).toBeInTheDocument();
     expect(await screen.findByTestId('lu-cesium-front')).toBeInTheDocument();
     expect(await screen.findByTestId('cesium-map-view')).toBeInTheDocument();
+    expect(lastCesiumMapViewProps.evidenceMode).toBe('live');
+    expect(lastCesiumMapViewProps.projectId).toBe('proj-1');
     expect(fetchPropertyInfo).toHaveBeenCalledWith('GÄVLE BRYNÄS 1:1', 'proj-1');
 
     await user.click(screen.getByTestId('lu-run'));

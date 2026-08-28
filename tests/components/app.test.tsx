@@ -6,6 +6,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import App from '../../components/App';
 import { ProjectStructureProvider } from '../../components/ProjectStructureContext';
 import type { AppBootstrapResponse } from '../../types';
+import { getBootstrapStatus } from '../../src/ui/api-client/localizationProjects.client';
 
 const coreApiClientMocks = vi.hoisted(() => ({
   callApi: vi.fn(),
@@ -68,7 +69,15 @@ vi.mock('../../src/ui/api-client/localizationProjects.client', () => ({
     { id: 'proj-1', name: 'Alternativ A', propertyDesignation: 'ORSA STACKMORA 3:12', status: 'ACTIVE', createdAt: '2026-04-02T00:00:00.000Z' },
   ]),
   createLocalizationProjectRequest: vi.fn(),
-  getBootstrapStatus: vi.fn(),
+  getBootstrapStatus: vi.fn(async () => ({
+    id: 'bootstrap-1',
+    projectId: 'proj-1',
+    propertyDesignation: 'ORSA STACKMORA 3:12',
+    status: 'COMPLETED',
+    contextBindingArtifactId: 'project-context-binding-1',
+    failureCode: null,
+    failureDetail: null,
+  })),
   retryLocalizationBootstrap: vi.fn(),
 }));
 
@@ -181,6 +190,7 @@ describe('App', () => {
     await user.click(await screen.findByTestId('pf-select-orsa-1'));
     await user.click(await screen.findByTestId('pf-open-proj-1'));
 
+    expect(getBootstrapStatus).toHaveBeenCalledWith('proj-1');
     expect(await screen.findByTestId('lu-workspace')).toBeInTheDocument();
   });
 

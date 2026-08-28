@@ -451,7 +451,8 @@ const CesiumMapView: React.FC<CesiumMapViewProps> = ({
             >
               Försök igen
             </button>
-            {mode === 'live' && (
+            {/* Governed LU (projectId set) must fail closed -- never offer fixture as a product workaround. */}
+            {mode === 'live' && !projectId && (
               <button
                 type="button"
                 data-testid="cesium-fallback-fixture"

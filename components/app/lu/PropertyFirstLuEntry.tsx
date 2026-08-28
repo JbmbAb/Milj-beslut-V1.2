@@ -158,6 +158,11 @@ export const PropertyFirstLuEntry: React.FC = () => {
   };
 
   const openExisting = (propertyDesignation: string, project: LocalizationProjectListItem) => {
+    // PRODUCT-LU-VIEWER-CAPABILITY-PROVISIONING-01: observing COMPLETED bootstrap is the
+    // canonical automatic trigger for ViewerCapability enqueue. Opening an already-created
+    // localization must hit that path too -- otherwise the governed viewer stays unconfigured
+    // forever for every project that was not opened through the create+poll flow.
+    void Promise.resolve(getBootstrapStatus(project.id)).catch(() => null);
     setActiveProjectId(project.id);
     setPhase({ kind: 'ready', propertyDesignation });
   };

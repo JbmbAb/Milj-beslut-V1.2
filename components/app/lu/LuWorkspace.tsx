@@ -2,6 +2,7 @@ import React, { Suspense, lazy, useEffect, useState } from 'react';
 import { designTokens } from '@miljobeslut/mps-identity';
 import { callApi, getActiveProjectId } from '../../../services/coreApiClient';
 import { fetchPropertyInfo } from '../../../src/ui/api-client/geo.client';
+import { getBootstrapStatus } from '../../../src/ui/api-client/localizationProjects.client';
 import EvidenceDetailsPanel from '../../cesium/EvidenceDetailsPanel';
 import type { CesiumEvidenceMode } from '../../CesiumMapView';
 import { presentLuFinding } from './luFindingPresentation';
@@ -173,6 +174,16 @@ export const LuWorkspace: React.FC<{ initialDesignation?: string }> = ({ initial
       void lookupProperty();
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // PRODUCT-LU-VIEWER-CAPABILITY-PROVISIONING-01: GET bootstrap-status is the canonical
+  // web-server-safe enqueue trigger. Hitting it on workspace open covers every entry path
+  // (existing localization, refresh, direct project id) without the viewer process holding a
+  // signing key.
+  useEffect(() => {
+    const projectId = getActiveProjectId();
+    if (!projectId) return;
+    void Promise.resolve(getBootstrapStatus(projectId)).catch(() => undefined);
   }, []);
 
   // PRODUCT-LU-CESIUM-LOCALIZATION-DRAWING-01: load the project's current LocalizationGeometry
