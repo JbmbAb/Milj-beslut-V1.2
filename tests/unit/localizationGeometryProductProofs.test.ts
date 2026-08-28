@@ -215,6 +215,8 @@ import {
 } from '../../server/modules/localization/projectContextBindingAuthority';
 import { issueExecutionIdentityV3 } from '../../packages/mps-lu/src/execution/LuExecutionIdentityIssuer';
 import { LU_EXECUTION_PRINCIPAL_ID } from '../../packages/mps-lu/src/execution/LuExecutionKernelClient';
+import { __resetLuExecutionAuthoritySigningProviderForTests } from '../../server/security/luExecutionAuthoritySigningKey';
+import { __resetLuExecutionAuthorityVerifierForTests } from '../../packages/mps-lu/src/execution/LuExecutionAuthorityVerifier';
 import type { ExecutionIdentitySubjectV3 } from '../../packages/mps-runtime/src/execution/ExecutionIdentityScopeV2';
 import { registerLocalizationGeometry, resolveCurrentLocalizationGeometry } from '../../server/modules/localization/localizationGeometryProjection';
 import { resolveCurrentAssessmentProjection } from '../../server/modules/localization/assessmentProjection';
@@ -402,8 +404,13 @@ describe('PRODUCT-LU-LOCALIZATION-GEOMETRY-01 — end-to-end product proofs thro
     process.env.PROJECT_CONTEXT_BINDING_ISSUER_KEY_ID = issuerKey.provider.keyId;
     process.env.PROJECT_CONTEXT_BINDING_ISSUER_PUBLIC_KEY_PEM = issuerKey.publicKey;
     const luKey = LocalPemSigningKeyProvider.generate('ed25519:lu-execution-authority-geometry-proofs');
+    process.env.LU_EXECUTION_AUTHORITY_SIGNING_KEY_ID = luKey.provider.keyId;
     process.env.LU_EXECUTION_AUTHORITY_PRIVATE_KEY_PEM = luKey.privateKey;
     process.env.LU_EXECUTION_AUTHORITY_PUBLIC_KEY_PEM = luKey.publicKey;
+    delete process.env.LU_EXECUTION_AUTHORITY_ROOT_KEY_ID;
+    delete process.env.LU_EXECUTION_AUTHORITY_ROOT_PUBLIC_KEY_PEM;
+    __resetLuExecutionAuthoritySigningProviderForTests(null);
+    __resetLuExecutionAuthorityVerifierForTests(null);
     process.env.PRODUCT_RELEASE_ISSUER_KEY_ID = releaseIssuerKey.provider.keyId;
     process.env.PRODUCT_RELEASE_ISSUER_PUBLIC_KEY_PEM = releaseIssuerKey.publicKey;
   });
@@ -411,11 +418,16 @@ describe('PRODUCT-LU-LOCALIZATION-GEOMETRY-01 — end-to-end product proofs thro
   afterEach(() => {
     delete process.env.PROJECT_CONTEXT_BINDING_ISSUER_KEY_ID;
     delete process.env.PROJECT_CONTEXT_BINDING_ISSUER_PUBLIC_KEY_PEM;
+    delete process.env.LU_EXECUTION_AUTHORITY_SIGNING_KEY_ID;
     delete process.env.LU_EXECUTION_AUTHORITY_PRIVATE_KEY_PEM;
     delete process.env.LU_EXECUTION_AUTHORITY_PUBLIC_KEY_PEM;
+    delete process.env.LU_EXECUTION_AUTHORITY_ROOT_KEY_ID;
+    delete process.env.LU_EXECUTION_AUTHORITY_ROOT_PUBLIC_KEY_PEM;
     delete process.env.PRODUCT_RELEASE_ARTIFACT_ID;
     delete process.env.PRODUCT_RELEASE_ISSUER_KEY_ID;
     delete process.env.PRODUCT_RELEASE_ISSUER_PUBLIC_KEY_PEM;
+    __resetLuExecutionAuthoritySigningProviderForTests(null);
+    __resetLuExecutionAuthorityVerifierForTests(null);
   });
 
   async function putRelease() {

@@ -70,8 +70,11 @@ const evidence = [
 
 describe("PROD-LU-ADMISSION-02D — production composition", () => {
   const ENV_VARS = [
+    "LU_EXECUTION_AUTHORITY_SIGNING_KEY_ID",
     "LU_EXECUTION_AUTHORITY_PRIVATE_KEY_PEM",
     "LU_EXECUTION_AUTHORITY_PUBLIC_KEY_PEM",
+    "LU_EXECUTION_AUTHORITY_ROOT_KEY_ID",
+    "LU_EXECUTION_AUTHORITY_ROOT_PUBLIC_KEY_PEM",
     "MPS_LU_BOOTSTRAP_ADMIT",
   ] as const;
   const originalEnv: Record<string, string | undefined> = {};
@@ -79,6 +82,10 @@ describe("PROD-LU-ADMISSION-02D — production composition", () => {
   beforeEach(() => {
     for (const name of ENV_VARS) originalEnv[name] = process.env[name];
     delete process.env.MPS_LU_BOOTSTRAP_ADMIT;
+    delete process.env.LU_EXECUTION_AUTHORITY_ROOT_KEY_ID;
+    delete process.env.LU_EXECUTION_AUTHORITY_ROOT_PUBLIC_KEY_PEM;
+    __resetLuExecutionAuthoritySigningProviderForTests(null);
+    __resetLuExecutionAuthorityVerifierForTests(null);
   });
 
   afterEach(() => {
@@ -109,6 +116,7 @@ describe("PROD-LU-ADMISSION-02D — production composition", () => {
     const { publicKey, privateKey } = LocalPemSigningKeyProvider.generate(
       "ed25519:lu-execution-authority-v1",
     );
+    process.env.LU_EXECUTION_AUTHORITY_SIGNING_KEY_ID = "ed25519:lu-execution-authority-v1";
     process.env.LU_EXECUTION_AUTHORITY_PRIVATE_KEY_PEM = privateKey;
     process.env.LU_EXECUTION_AUTHORITY_PUBLIC_KEY_PEM = publicKey;
 
@@ -143,6 +151,7 @@ describe("PROD-LU-ADMISSION-02D — production composition", () => {
     const { publicKey, privateKey } = LocalPemSigningKeyProvider.generate(
       "ed25519:lu-execution-authority-v1",
     );
+    process.env.LU_EXECUTION_AUTHORITY_SIGNING_KEY_ID = "ed25519:lu-execution-authority-v1";
     process.env.LU_EXECUTION_AUTHORITY_PRIVATE_KEY_PEM = privateKey;
     process.env.LU_EXECUTION_AUTHORITY_PUBLIC_KEY_PEM = publicKey;
 
