@@ -35,8 +35,8 @@ jobs:
     env:
       PLAYWRIGHT_BASE_URL: ${{ inputs.base_url || vars.STAGING_URL }}
       PLAYWRIGHT_API_BASE_URL: ${{ vars.STAGING_API_BASE_URL || inputs.base_url || vars.STAGING_URL }}
-      E2E_ADMIN_USERNAME: ${{ secrets.STAGING_E2E_ADMIN_USERNAME || secrets.ADMIN_CONSOLE_USERNAME }}
-      E2E_ADMIN_PASSWORD: ${{ secrets.STAGING_E2E_ADMIN_PASSWORD || secrets.ADMIN_CONSOLE_PASSWORD }}
+      E2E_ADMIN_USERNAME: ${{ secrets.STAGING_E2E_ADMIN_USERNAME }}
+      E2E_ADMIN_PASSWORD: ${{ secrets.STAGING_E2E_ADMIN_PASSWORD }}
       E2E_INCLUDE_VERTEX_FLOWS: ${{ inputs.include_vertex_flows && 'true' || 'false' }}
       E2E_SKIP_VERTEX_FLOWS: ${{ inputs.include_vertex_flows && 'false' || 'true' }}
       STAGING_VERIFY_ALLOW_BANKID_PENDING: 'true'
@@ -53,9 +53,11 @@ jobs:
             exit 1
           fi
           if [ -z "${E2E_ADMIN_USERNAME}" ] || [ -z "${E2E_ADMIN_PASSWORD}" ]; then
-            echo "Missing staging admin credentials. Set STAGING_E2E_ADMIN_USERNAME/STAGING_E2E_ADMIN_PASSWORD (or ADMIN_CONSOLE_*)."
+            echo "Missing dedicated staging E2E credentials. Set STAGING_E2E_ADMIN_USERNAME/STAGING_E2E_ADMIN_PASSWORD."
             exit 1
           fi
+          echo "STAGING_RELEASE_SMOKE_AUTH=CI_SMOKE_AUTHORITY"
+          echo "PRODUCT_BANKID_AUTH=NOT_TESTED_BY_THIS_WORKFLOW"
 
       - uses: actions/checkout@v4
         with:
@@ -135,7 +137,8 @@ jobs:
           DATABASE_URL: ${{ secrets.STAGING_DATABASE_URL }}
           JWT_ACCESS_SECRET: ${{ secrets.STAGING_JWT_ACCESS_SECRET }}
           JWT_REFRESH_SECRET: ${{ secrets.STAGING_JWT_REFRESH_SECRET }}
-          ADMIN_CONSOLE_PASSWORD: ${{ secrets.STAGING_E2E_ADMIN_PASSWORD || secrets.ADMIN_CONSOLE_PASSWORD }}
+          E2E_ADMIN_USERNAME: ${{ secrets.STAGING_E2E_ADMIN_USERNAME }}
+          E2E_ADMIN_PASSWORD: ${{ secrets.STAGING_E2E_ADMIN_PASSWORD }}
           LANTMATERIET_CONSUMER_KEY: ${{ secrets.STAGING_LANTMATERIET_CONSUMER_KEY }}
           LANTMATERIET_CONSUMER_SECRET: ${{ secrets.STAGING_LANTMATERIET_CONSUMER_SECRET }}
           LANTMATERIET_OPEN_SUBSCRIPTION_KEY: ${{ secrets.STAGING_LANTMATERIET_OPEN_SUBSCRIPTION_KEY }}
@@ -143,21 +146,14 @@ jobs:
           SLU_API_KEY: ${{ secrets.STAGING_SLU_API_KEY }}
           VERTEX_PROJECT_ID: ${{ secrets.GCP_PROJECT_ID }}
           VERTEX_LOCATION: ${{ vars.GCP_REGION || 'europe-west1' }}
+          BANKID_MODE: 'production'
           BANKID_MOCK_MODE: 'false'
           AUTHORITY_MOCK_MODE: 'false'
           LANTMATERIET_DEMO_MODE: 'false'
+          ALLOW_DEV_LOGIN: 'false'
 
-      - name: Run staging core flows (Lokaliseringsutredning)
-        run: npm run e2e:staging
-
-      - name: Run staging Enskilt avlopp flows
-        run: npm run e2e:staging:avlopp
-
-      - name: Run staging C-anmälan schaktmassor
-        run: npm run e2e:staging:c-mass
-
-      - name: Run staging Lokaliseringsutredning
-        run: npm run e2e:staging:localization
+      - name: Run staging release smoke
+        run: npm run test:e2e:staging
 
       - name: Upload Playwright report
         if: always()
@@ -182,5 +178,7 @@ jobs:
             echo "- Resolved ref SHA: ${RESOLVED_REF_SHA:-}";
             echo "- Checkout SHA: ${CHECKOUT_SHA:-}";
             echo "- Included Vertex flows: ${E2E_INCLUDE_VERTEX_FLOWS}";
+            echo "- Staging release smoke auth: CI_SMOKE_AUTHORITY";
+            echo "- Product BankID auth: NOT TESTED BY THIS WORKFLOW";
             echo "- Artifacts: staging-e2e-playwright-report";
           } >> "$GITHUB_STEP_SUMMARY"
