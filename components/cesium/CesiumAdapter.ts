@@ -15,6 +15,10 @@ import {
   Viewer,
 } from 'cesium';
 import 'cesium/Build/Cesium/Widgets/widgets.css';
+import {
+  decideBasemapAttach,
+  type CesiumBasemapLifecycleSnapshot,
+} from './cesiumBasemapLifecycle';
 import { resolveCesiumBasemapChoice } from './cesiumBasemapRuntime';
 import { applyCesiumIonRuntimeConfiguration } from './cesiumIonRuntime';
 import { computePropertyCameraFit } from './cesiumPropertyCameraFit';
@@ -64,15 +68,21 @@ export class CesiumAdapter {
   private onLocationPick: ((lat: number, lng: number) => void) | null = null;
   private resizeObserver: ResizeObserver | null = null;
   private pendingCameraFit: (() => void) | null = null;
+  /**
+   * CESIUM-BASEMAP-LIFECYCLE-01. True only after the chosen provider has been added to the
+   * live Viewer imageryLayers collection at positive canvas size. Not the same as "OSM was
+   * constructed before new Viewer()" — that pre-scene layer is the path this flag replaces.
+   */
+  private basemapAttached = false;
+  private basemapDeferLogged = false;
+  private basemapTileProgressLogged = false;
 
   constructor(config: CesiumAdapterConfig) {
     applyCesiumIonRuntimeConfiguration(Ion, import.meta.env);
-    const baseLayer = this.createBaseLayer();
 
-    // Instantiate Cesium Viewer with clean, focused options (no default heavy widgets).
-    // Ellipsoid terrain + OSM/local XYZ: never Ion World Imagery unless an env token is
-    // explicitly opted into VITE_CESIUM_ION_IMAGERY. That is what stops api.cesium.com 401s
-    // and the bundled default-token warning.
+    // CESIUM-BASEMAP-LIFECYCLE-01: never construct Viewer with Ion fromWorldImagery (empty
+    // token → unready layer, zero tiles) and never pass a pre-scene ImageryLayer. Attach
+    // OSM/local/Ion to the live collection after the canvas has a real size.
     this.viewer = new Viewer(config.container, {
       animation: false,
       timeline: false,
@@ -84,7 +94,7 @@ export class CesiumAdapter {
       selectionIndicator: true,
       navigationHelpButton: false,
       baseLayerPicker: false,
-      ...(baseLayer ? { baseLayer } : {}),
+      baseLayer: false,
       terrainProvider: new EllipsoidTerrainProvider(),
     });
 
@@ -103,32 +113,6 @@ export class CesiumAdapter {
     this.resizeToContainer();
   }
 
-  private createBaseLayer(): ImageryLayer | undefined {
-    const choice = resolveCesiumBasemapChoice(import.meta.env);
-    switch (choice.kind) {
-      case 'ion-world-imagery':
-        // Token already applied; Viewer default World Imagery uses Ion.
-        return undefined;
-      case 'local-xyz':
-        return new ImageryLayer(
-          new UrlTemplateImageryProvider({
-            url: choice.url,
-            credit: choice.credit,
-          }),
-        );
-      case 'osm':
-        return new ImageryLayer(
-          new OpenStreetMapImageryProvider({
-            url: choice.url,
-          }),
-        );
-      default: {
-        const exhaustive: never = choice;
-        return exhaustive;
-      }
-    }
-  }
-
   private observeContainerSize(container: HTMLDivElement): void {
     if (typeof ResizeObserver === 'undefined') return;
     this.resizeObserver = new ResizeObserver(() => {
@@ -142,7 +126,104 @@ export class CesiumAdapter {
   public resizeToContainer(): void {
     if (this.destroyed) return;
     this.viewer.resize();
+    this.attachBasemapIfReady();
     this.viewer.scene.requestRender();
+  }
+
+  private canvasPixelSize(): { width: number; height: number } {
+    const container = this.viewer.container as HTMLElement;
+    return { width: container.clientWidth, height: container.clientHeight };
+  }
+
+  private attachBasemapIfReady(): void {
+    const canvas = this.canvasPixelSize();
+    const layerCount = this.viewer.imageryLayers.length;
+    const decision = decideBasemapAttach({
+      destroyed: this.destroyed,
+      attached: this.basemapAttached,
+      canvasWidth: canvas.width,
+      canvasHeight: canvas.height,
+      layerCount,
+    });
+
+    switch (decision.action) {
+      case 'defer':
+        if (!this.basemapDeferLogged) {
+          this.basemapDeferLogged = true;
+          this.logBasemapLifecycle({
+            choiceKind: resolveCesiumBasemapChoice(import.meta.env).kind,
+            action: decision.action,
+            reason: decision.reason,
+            canvasWidth: canvas.width,
+            canvasHeight: canvas.height,
+            layerCount,
+            layerReady: null,
+            globeShow: this.viewer.scene.globe.show,
+            tilesLoaded: this.viewer.scene.globe.tilesLoaded,
+          });
+        }
+        return;
+      case 'skip':
+        return;
+      case 'attach':
+        break;
+      default: {
+        const exhaustive: never = decision.action;
+        return exhaustive;
+      }
+    }
+
+    const choice = resolveCesiumBasemapChoice(import.meta.env);
+    switch (choice.kind) {
+      case 'ion-world-imagery':
+        this.viewer.imageryLayers.add(ImageryLayer.fromWorldImagery({}));
+        break;
+      case 'local-xyz':
+        this.viewer.imageryLayers.addImageryProvider(
+          new UrlTemplateImageryProvider({
+            url: choice.url,
+            credit: choice.credit,
+          }),
+        );
+        break;
+      case 'osm':
+        this.viewer.imageryLayers.addImageryProvider(
+          new OpenStreetMapImageryProvider({
+            url: choice.url,
+          }),
+        );
+        break;
+      default: {
+        const exhaustive: never = choice;
+        return exhaustive;
+      }
+    }
+
+    this.basemapAttached = true;
+    const layer = this.viewer.imageryLayers.get(0);
+    this.viewer.scene.globe.tileLoadProgressEvent.addEventListener((queued: number) => {
+      if (queued <= 0 || this.basemapTileProgressLogged) return;
+      this.basemapTileProgressLogged = true;
+      console.info('[CESIUM-BASEMAP-LIFECYCLE-01] tileLoadProgress', {
+        queued,
+        layerCount: this.viewer.imageryLayers.length,
+      });
+    });
+    this.logBasemapLifecycle({
+      choiceKind: choice.kind,
+      action: decision.action,
+      reason: decision.reason,
+      canvasWidth: canvas.width,
+      canvasHeight: canvas.height,
+      layerCount: this.viewer.imageryLayers.length,
+      layerReady: layer ? layer.ready : null,
+      globeShow: this.viewer.scene.globe.show,
+      tilesLoaded: this.viewer.scene.globe.tilesLoaded,
+    });
+  }
+
+  private logBasemapLifecycle(snapshot: CesiumBasemapLifecycleSnapshot): void {
+    console.info('[CESIUM-BASEMAP-LIFECYCLE-01]', snapshot);
   }
 
   private hasPositiveSize(): boolean {

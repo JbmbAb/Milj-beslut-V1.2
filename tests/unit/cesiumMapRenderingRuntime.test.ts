@@ -56,6 +56,11 @@ describe('CESIUM-MAP-RENDERING-RUNTIME-01', () => {
     expect(adapter).toContain('requestRender');
     expect(adapter).toContain('computePropertyCameraFit');
     expect(adapter).toContain('fitToPropertyGeoJson');
+    expect(adapter).toContain('baseLayer: false');
+    expect(adapter).toContain('attachBasemapIfReady');
+    expect(adapter).toContain('CESIUM-BASEMAP-LIFECYCLE-01');
+    expect(adapter).toContain('addImageryProvider');
+    expect(adapter).not.toContain('createBaseLayer');
     expect(adapter).not.toContain('viewer.flyTo(dataSource');
     expect(adapter).not.toMatch(/0\.0 \/\/ auto-calculate range/);
   });
