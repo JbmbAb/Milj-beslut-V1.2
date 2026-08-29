@@ -215,28 +215,29 @@ jobs:
 
       - name: Mint Cloud Run ID token (ephemeral)
         id: cloud_run_iam
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ secrets.GCP_SERVICE_ACCOUNT }}
+          token_format: id_token
+          id_token_audience: ${{ inputs.base_url || vars.STAGING_URL }}
+          id_token_include_email: true
+
+      - name: Record Cloud Run IAM audience
         shell: bash
-        env:
-          CLOUD_RUN_IAM_AUDIENCE: ${{ inputs.base_url || vars.STAGING_URL }}
         run: |
           set -euo pipefail
-          if [ -z "${CLOUD_RUN_IAM_AUDIENCE}" ]; then
-            echo "Missing Cloud Run IAM audience."
-            exit 1
-          fi
-          TOKEN="$(gcloud auth print-identity-token --audiences="${CLOUD_RUN_IAM_AUDIENCE}")"
-          if [ -z "${TOKEN}" ]; then
+          if [ -z "${{ steps.cloud_run_iam.outputs.id_token }}" ]; then
             echo "Failed to mint Cloud Run ID token."
             exit 1
           fi
-          echo "CLOUD_RUN_IAM_AUDIENCE=${CLOUD_RUN_IAM_AUDIENCE}" >> "$GITHUB_ENV"
-          echo "token=${TOKEN}" >> "$GITHUB_OUTPUT"
+          echo "CLOUD_RUN_IAM_AUDIENCE=${{ inputs.base_url || vars.STAGING_URL }}" >> "$GITHUB_ENV"
           echo "Cloud Run IAM token minted (value not logged)."
 
       - name: IAM preflight (infrastructure auth)
         shell: bash
         env:
-          CLOUD_RUN_ID_TOKEN: ${{ steps.cloud_run_iam.outputs.token }}
+          CLOUD_RUN_ID_TOKEN: ${{ steps.cloud_run_iam.outputs.id_token }}
           CLOUD_RUN_IAM_AUDIENCE: ${{ inputs.base_url || vars.STAGING_URL }}
         run: node release-harness/staging/cloud-run-iam-preflight.mjs
 
