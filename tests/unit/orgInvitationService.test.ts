@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 
 const mocks = vi.hoisted(() => ({
   organisationFindUnique: vi.fn(),
+  userFindUnique: vi.fn(),
   userFindFirst: vi.fn(),
   userCreate: vi.fn(),
   appendDomainAudit: vi.fn(),
@@ -15,6 +16,7 @@ vi.mock('../../server/db/prisma', () => ({
       findUnique: mocks.organisationFindUnique,
     },
     user: {
+      findUnique: mocks.userFindUnique,
       findFirst: mocks.userFindFirst,
       create: mocks.userCreate,
     },
@@ -47,6 +49,7 @@ describe('createInvitation', () => {
   beforeEach(() => {
     vi.resetAllMocks();
     mocks.appendDomainAudit.mockResolvedValue(undefined);
+    mocks.userFindUnique.mockResolvedValue({ id: ACTING_USER, organisationId: ORG_ID, role: 'ADMIN' });
   });
 
   it('creates and returns a new invitation', async () => {
@@ -76,6 +79,45 @@ describe('createInvitation', () => {
     await expect(
       createInvitation({ orgId: 'no-org', email: 'x@x.com', role: 'CONSULTANT', actingUserId: ACTING_USER }),
     ).rejects.toThrow('hittades inte');
+  });
+
+  it('denies ADMIN invitations from non-ADMIN organisation members', async () => {
+    mocks.organisationFindUnique.mockResolvedValue({ id: ORG_ID });
+    mocks.userFindUnique.mockResolvedValue({
+      id: 'consultant-1',
+      organisationId: ORG_ID,
+      role: 'CONSULTANT',
+    });
+
+    await expect(
+      createInvitation({
+        orgId: ORG_ID,
+        email: 'admin@example.com',
+        role: 'ADMIN',
+        actingUserId: 'consultant-1',
+      }),
+    ).rejects.toThrow('ADMIN-inbjudan kräver ADMIN-behörighet');
+    expect(mocks.appendDomainAudit).not.toHaveBeenCalled();
+  });
+
+  it('allows ADMIN invitations from ADMIN organisation members', async () => {
+    mocks.organisationFindUnique.mockResolvedValue({ id: ORG_ID });
+    mocks.userFindUnique.mockResolvedValue({ id: ACTING_USER, organisationId: ORG_ID, role: 'ADMIN' });
+
+    const inv = await createInvitation({
+      orgId: ORG_ID,
+      email: 'admin@example.com',
+      role: 'ADMIN',
+      actingUserId: ACTING_USER,
+    });
+
+    expect(inv.role).toBe('ADMIN');
+    expect(mocks.appendDomainAudit).toHaveBeenCalledWith(
+      expect.objectContaining({
+        action: 'INVITATION_CREATED',
+        payload: expect.objectContaining({ role: 'ADMIN' }),
+      }),
+    );
   });
 
   it('normalises email to lowercase', async () => {
@@ -120,6 +162,7 @@ describe('listInvitations', () => {
   beforeEach(() => {
     vi.resetAllMocks();
     mocks.appendDomainAudit.mockResolvedValue(undefined);
+    mocks.userFindUnique.mockResolvedValue({ id: ACTING_USER, organisationId: ORG_ID, role: 'ADMIN' });
   });
 
   it('returns invitations for the given orgId', async () => {
@@ -146,6 +189,7 @@ describe('acceptInvitation', () => {
   beforeEach(() => {
     vi.resetAllMocks();
     mocks.appendDomainAudit.mockResolvedValue(undefined);
+    mocks.userFindUnique.mockResolvedValue({ id: ACTING_USER, organisationId: ORG_ID, role: 'ADMIN' });
   });
 
   async function createTestInvitation(email = 'accept@example.com') {
@@ -163,7 +207,7 @@ describe('acceptInvitation', () => {
       role: 'CONSULTANT',
     });
 
-    const result = await acceptInvitation({ orgId: ORG_ID, token: inv.token, bankidId: 'bid123' });
+    const result = await acceptInvitation({ orgId: ORG_ID, token: inv.token, verifiedBankidId: 'bid123' });
 
     expect(result.userId).toBe('new-user-001');
     expect(result.orgId).toBe(ORG_ID);
@@ -182,7 +226,11 @@ describe('acceptInvitation', () => {
       role: 'CONSULTANT',
     });
 
-    const result = await acceptInvitation({ orgId: ORG_ID, token: inv.token, bankidId: 'bid-existing' });
+    const result = await acceptInvitation({
+      orgId: ORG_ID,
+      token: inv.token,
+      verifiedBankidId: 'bid-existing',
+    });
 
     expect(result.userId).toBe('existing-user');
     expect(mocks.userCreate).not.toHaveBeenCalled();
@@ -190,7 +238,7 @@ describe('acceptInvitation', () => {
 
   it('throws when token is not found', async () => {
     await expect(
-      acceptInvitation({ orgId: ORG_ID, token: 'invalid-token', bankidId: 'bid' }),
+      acceptInvitation({ orgId: ORG_ID, token: 'invalid-token', verifiedBankidId: 'bid' }),
     ).rejects.toThrow('hittades inte');
   });
 
@@ -205,12 +253,12 @@ describe('acceptInvitation', () => {
     });
 
     // Accept once
-    await acceptInvitation({ orgId: ORG_ID, token: inv.token, bankidId: 'b1' });
+    await acceptInvitation({ orgId: ORG_ID, token: inv.token, verifiedBankidId: 'b1' });
 
     // Try again
-    await expect(acceptInvitation({ orgId: ORG_ID, token: inv.token, bankidId: 'b1' })).rejects.toThrow(
-      'ACCEPTED',
-    );
+    await expect(
+      acceptInvitation({ orgId: ORG_ID, token: inv.token, verifiedBankidId: 'b1' }),
+    ).rejects.toThrow('ACCEPTED');
   });
 });
 
@@ -218,6 +266,7 @@ describe('revokeInvitation', () => {
   beforeEach(() => {
     vi.resetAllMocks();
     mocks.appendDomainAudit.mockResolvedValue(undefined);
+    mocks.userFindUnique.mockResolvedValue({ id: ACTING_USER, organisationId: ORG_ID, role: 'ADMIN' });
   });
 
   it('revokes a pending invitation', async () => {

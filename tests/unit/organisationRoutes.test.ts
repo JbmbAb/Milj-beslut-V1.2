@@ -30,13 +30,13 @@ const app = express();
 app.use(express.json());
 app.use(organisationRoutes);
 
-function authHeader(orgId = 'org-1') {
+function authHeader(orgId = 'org-1', role: 'ADMIN' | 'CONSULTANT' = 'ADMIN', bankidId = 'admin:one') {
   return `Bearer ${
     createTokenPair({
-      id: 'admin-1',
+      id: role === 'ADMIN' ? 'admin-1' : 'consultant-1',
       organisationId: orgId,
-      bankidId: 'admin:one',
-      role: 'ADMIN',
+      bankidId,
+      role,
     }).accessToken
   }`;
 }
@@ -96,18 +96,55 @@ describe('organisation.routes', () => {
     expect(list.body).toEqual({ ok: true, invitations: [{ id: 'invite-1' }] });
   });
 
+  it('denies ADMIN invitations from authenticated CONSULTANT members', async () => {
+    const res = await request(app)
+      .post('/api/orgs/org-1/invitations')
+      .set('Authorization', authHeader('org-1', 'CONSULTANT', 'consultant:one'))
+      .send({ email: 'admin@example.com', role: 'ADMIN' });
+
+    expect(res.status).toBe(403);
+    expect(mocks.createInvitation).not.toHaveBeenCalled();
+  });
+
+  it('allows ADMIN invitations from authenticated ADMIN members', async () => {
+    mocks.createInvitation.mockResolvedValueOnce({
+      id: 'invite-admin',
+      email: 'admin@example.com',
+      role: 'ADMIN',
+    });
+
+    const res = await request(app)
+      .post('/api/orgs/org-1/invitations')
+      .set('Authorization', authHeader('org-1', 'ADMIN', 'admin:one'))
+      .send({ email: 'admin@example.com', role: 'ADMIN' });
+
+    expect(res.status).toBe(200);
+    expect(mocks.createInvitation).toHaveBeenCalledWith({
+      orgId: 'org-1',
+      email: 'admin@example.com',
+      role: 'ADMIN',
+      actingUserId: 'admin-1',
+    });
+  });
+
   it('validates invitation acceptance payloads and allows successful accept flows', async () => {
     const invalid = await request(app)
       .post('/api/orgs/org-1/invitations/accept')
       .send({ token: 'invite-token' });
 
-    expect(invalid.status).toBe(400);
+    expect(invalid.status).toBe(401);
 
     const accepted = await request(app)
       .post('/api/orgs/org-1/invitations/accept')
-      .send({ token: 'invite-token', bankidId: '191212121212' });
+      .set('Authorization', authHeader('org-1', 'CONSULTANT', 'verified-bankid-1'))
+      .send({ token: 'invite-token', bankidId: 'attacker-supplied-bankid' });
 
     expect(accepted.status).toBe(200);
+    expect(mocks.acceptInvitation).toHaveBeenCalledWith({
+      orgId: 'org-1',
+      token: 'invite-token',
+      verifiedBankidId: 'verified-bankid-1',
+    });
     expect(accepted.body).toEqual({
       ok: true,
       userId: 'user-1',
@@ -162,7 +199,8 @@ describe('organisation.routes', () => {
 
     const res = await request(app)
       .post('/api/orgs/org-1/invitations/accept')
-      .send({ token: 'expired-token', bankidId: '191212121212' });
+      .set('Authorization', authHeader('org-1', 'CONSULTANT', 'verified-bankid-1'))
+      .send({ token: 'expired-token' });
 
     expect(res.status).toBe(400);
   });
