@@ -235,6 +235,7 @@ jobs:
           echo "Cloud Run IAM token minted (value not logged)."
 
       - name: IAM preflight (infrastructure auth)
+        working-directory: release-harness
         shell: bash
         env:
           CLOUD_RUN_ID_TOKEN: ${{ steps.cloud_run_iam.outputs.id_token }}
@@ -279,7 +280,7 @@ jobs:
         working-directory: product
         run: >-
           npx playwright test
-          -c ../release-harness/staging/playwright.cloud-run-staging.config.ts
+          -c ../release-harness/release-harness/staging/playwright.cloud-run-staging.config.ts
           tests/e2e/staging-smoke.spec.ts
           tests/e2e/staging-core-flows.spec.ts
           tests/e2e/staging-enskilt-avlopp.spec.ts
