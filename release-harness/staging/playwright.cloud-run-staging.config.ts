@@ -23,7 +23,7 @@ if (!cloudRunIdToken) {
 
 export default defineConfig({
   testDir: path.join(productRoot, 'tests/e2e'),
-  globalSetup: path.join(harnessDir, 'cloud-run-playwright-global-setup.mjs'),
+  globalSetup: path.join(harnessDir, 'cloud-run-playwright-global-setup.ts'),
   timeout: 180_000,
   workers: 1,
   retries: process.env.CI ? 1 : 0,
