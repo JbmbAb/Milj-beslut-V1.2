@@ -44,7 +44,7 @@ type Phase =
   | { kind: 'candidates'; candidates: CanonicalPropertyCandidate[] }
   | { kind: 'propertyFound'; property: CanonicalPropertyCandidate; projects: LocalizationProjectListItem[] }
   | { kind: 'creating'; property: CanonicalPropertyCandidate }
-  | { kind: 'bootstrapping'; propertyDesignation: string; project: LocalizationProjectListItem; status: BootstrapStatus['status'] }
+  | { kind: 'bootstrapping'; propertyDesignation: string; project: LocalizationProjectListItem; status: BootstrapStatus['status']; diagnosticMessage?: string }
   | { kind: 'bootstrapFailed'; propertyDesignation: string; project: LocalizationProjectListItem; failureCode: string | null; failureDetail: string | null }
   | { kind: 'ready'; propertyDesignation: string };
 
@@ -81,8 +81,9 @@ export const PropertyFirstLuEntry: React.FC = () => {
     setPhase({ kind: 'bootstrapping', propertyDesignation, project, status: 'PENDING' });
 
     const poll = async () => {
-      const status = await getBootstrapStatus(project.id).catch(() => null);
-      if (!status) return;
+      const response = await getBootstrapStatus(project.id).catch(() => null);
+      if (!response) return;
+      const { status, diagnostics } = response;
       if (status.status === 'COMPLETED') {
         stopPolling();
         localStorage.removeItem(PENDING_BOOTSTRAP_KEY);
@@ -96,7 +97,13 @@ export const PropertyFirstLuEntry: React.FC = () => {
         setPhase({ kind: 'bootstrapFailed', propertyDesignation, project, failureCode: status.failureCode, failureDetail: status.failureDetail });
         return;
       }
-      setPhase({ kind: 'bootstrapping', propertyDesignation, project, status: status.status });
+      setPhase({
+        kind: 'bootstrapping',
+        propertyDesignation,
+        project,
+        status: status.status,
+        diagnosticMessage: diagnostics?.message,
+      });
     };
 
     void poll();
@@ -331,6 +338,9 @@ export const PropertyFirstLuEntry: React.FC = () => {
               Verifierar fastighet och etablerar governad projektkontext
               {phase.kind === 'bootstrapping' ? ` (${phase.status.toLowerCase()})` : '…'}
             </li>
+            {phase.kind === 'bootstrapping' && phase.diagnosticMessage ? (
+              <li className="text-amber-300/90">{phase.diagnosticMessage}</li>
+            ) : null}
           </ul>
         </section>
       )}

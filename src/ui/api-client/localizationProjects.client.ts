@@ -33,6 +33,24 @@ export interface BootstrapStatus {
   readonly contextBindingArtifactId: string | null;
   readonly failureCode: string | null;
   readonly failureDetail: string | null;
+  readonly createdAt?: string;
+}
+
+export interface BootstrapStatusDiagnostics {
+  readonly code: 'WORKER_LIKELY_UNAVAILABLE' | 'WORKER_NOT_CONFIGURED';
+  readonly message: string;
+  readonly staleForMs: number;
+  readonly workerStartCommand: string;
+  readonly projectContextWorkerConfigured: boolean;
+}
+
+export interface BootstrapStatusResponse {
+  readonly status: BootstrapStatus;
+  readonly diagnostics: BootstrapStatusDiagnostics | null;
+  readonly runtime?: {
+    readonly webHasProjectContextSigningKey: boolean;
+    readonly workerStartCommand: string;
+  };
 }
 
 export async function listPropertyProjects(propertyDesignation: string): Promise<LocalizationProjectListItem[]> {
@@ -61,13 +79,17 @@ export async function createLocalizationProjectRequest(input: {
   });
 }
 
-export async function getBootstrapStatus(projectId: string): Promise<BootstrapStatus | null> {
+export async function getBootstrapStatus(projectId: string): Promise<BootstrapStatusResponse | null> {
   try {
-    const result = await callApi<{ ok: boolean; status: BootstrapStatus }>(
+    const result = await callApi<{ ok: boolean; status: BootstrapStatus; diagnostics: BootstrapStatusDiagnostics | null; runtime?: BootstrapStatusResponse['runtime'] }>(
       `/api/localization/${encodeURIComponent(projectId)}/bootstrap-status`,
       { method: 'GET' },
     );
-    return result.status;
+    return {
+      status: result.status,
+      diagnostics: result.diagnostics ?? null,
+      runtime: result.runtime,
+    };
   } catch (error) {
     // No bootstrap request exists yet for this project -- not an error the caller should
     // surface as a failure, just "nothing to report". Matched on the server's own message text

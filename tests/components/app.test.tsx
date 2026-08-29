@@ -70,13 +70,16 @@ vi.mock('../../src/ui/api-client/localizationProjects.client', () => ({
   ]),
   createLocalizationProjectRequest: vi.fn(),
   getBootstrapStatus: vi.fn(async () => ({
-    id: 'bootstrap-1',
-    projectId: 'proj-1',
-    propertyDesignation: 'ORSA STACKMORA 3:12',
-    status: 'COMPLETED',
-    contextBindingArtifactId: 'project-context-binding-1',
-    failureCode: null,
-    failureDetail: null,
+    status: {
+      id: 'bootstrap-1',
+      projectId: 'proj-1',
+      propertyDesignation: 'ORSA STACKMORA 3:12',
+      status: 'COMPLETED',
+      contextBindingArtifactId: 'project-context-binding-1',
+      failureCode: null,
+      failureDetail: null,
+    },
+    diagnostics: null,
   })),
   retryLocalizationBootstrap: vi.fn(),
 }));

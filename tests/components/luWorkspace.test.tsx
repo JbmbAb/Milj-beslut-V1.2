@@ -29,13 +29,16 @@ vi.mock('../../src/ui/api-client/geo.client', () => ({
 
 vi.mock('../../src/ui/api-client/localizationProjects.client', () => ({
   getBootstrapStatus: vi.fn(async () => ({
-    id: 'bootstrap-1',
-    projectId: 'proj-1',
-    propertyDesignation: 'GÄVLE BRYNÄS 1:1',
-    status: 'COMPLETED',
-    contextBindingArtifactId: 'project-context-binding-1',
-    failureCode: null,
-    failureDetail: null,
+    status: {
+      id: 'bootstrap-1',
+      projectId: 'proj-1',
+      propertyDesignation: 'GÄVLE BRYNÄS 1:1',
+      status: 'COMPLETED',
+      contextBindingArtifactId: 'project-context-binding-1',
+      failureCode: null,
+      failureDetail: null,
+    },
+    diagnostics: null,
   })),
 }));
 

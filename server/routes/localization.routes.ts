@@ -31,6 +31,10 @@ import {
   ensureViewerCapabilityProvisioningEnqueuedForCompletedBootstrap,
   type SiteAlternative,
 } from '../modules/localization/public';
+import {
+  diagnoseStaleBootstrapRequest,
+  webProcessHasProjectContextSigningKey,
+} from '../modules/localization/projectContextBootstrapDiagnostics';
 import { logger } from '../logger';
 
 const router = express.Router();
@@ -299,7 +303,24 @@ router.get(
           );
         });
       }
-      res.status(200).json({ ok: true, status });
+      const diagnostics = diagnoseStaleBootstrapRequest({
+        status: status.status,
+        createdAt: status.createdAt,
+      });
+      if (webProcessHasProjectContextSigningKey()) {
+        logger.error(
+          'SECURITY: web process has project-context binding issuer private key set — issuer private key must only exist in worker:all',
+        );
+      }
+      res.status(200).json({
+        ok: true,
+        status,
+        diagnostics,
+        runtime: {
+          webHasProjectContextSigningKey: webProcessHasProjectContextSigningKey(),
+          workerStartCommand: 'npm run worker:all',
+        },
+      });
     } catch (error) {
       next(error);
     }

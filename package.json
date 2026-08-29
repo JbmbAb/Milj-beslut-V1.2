@@ -43,6 +43,7 @@
     "prisma:generate": "prisma generate",
     "postinstall": "node scripts/postinstall-prisma-generate.mjs && node scripts/copy-cesium-assets.cjs",
     "prisma:migrate": "prisma migrate dev",
+    "worker:all": "node --import tsx server/workers/run-all.ts",
     "worker:search": "node --import tsx server/workers/search-indexer-worker.ts",
     "worker:lu-bootstrap": "node --import tsx server/workers/lu-project-context-bootstrap-worker.ts",
     "worker:lu-identity-v3": "node --import tsx server/workers/lu-execution-identity-v3-worker.ts",

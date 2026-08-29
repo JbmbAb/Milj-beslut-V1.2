@@ -58,13 +58,16 @@ describe('PropertyFirstLuEntry canonical selection', () => {
       { id: 'proj-ullared', name: 'LU Ullared', propertyDesignation: 'FALKENBERG ULLARED 2:215', status: 'ACTIVE', createdAt: '2026-08-26T00:00:00.000Z' },
     ]);
     api.getBootstrapStatus.mockResolvedValue({
-      id: 'bootstrap-1',
-      projectId: 'proj-ullared',
-      propertyDesignation: 'FALKENBERG ULLARED 2:215',
-      status: 'COMPLETED',
-      contextBindingArtifactId: 'project-context-binding-current',
-      failureCode: null,
-      failureDetail: null,
+      status: {
+        id: 'bootstrap-1',
+        projectId: 'proj-ullared',
+        propertyDesignation: 'FALKENBERG ULLARED 2:215',
+        status: 'COMPLETED',
+        contextBindingArtifactId: 'project-context-binding-current',
+        failureCode: null,
+        failureDetail: null,
+      },
+      diagnostics: null,
     });
 
     const user = userEvent.setup();

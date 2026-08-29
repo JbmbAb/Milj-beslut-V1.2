@@ -54,13 +54,16 @@ vi.mock('@miljobeslut/mps-identity', () => ({
 
 vi.mock('../../src/ui/api-client/localizationProjects.client', () => ({
   getBootstrapStatus: vi.fn(async () => ({
-    id: 'bootstrap-e2e',
-    projectId: PROJECT_ID,
-    propertyDesignation: DESIGNATION,
-    status: 'COMPLETED',
-    contextBindingArtifactId: 'project-context-binding-e2e',
-    failureCode: null,
-    failureDetail: null,
+    status: {
+      id: 'bootstrap-e2e',
+      projectId: PROJECT_ID,
+      propertyDesignation: DESIGNATION,
+      status: 'COMPLETED',
+      contextBindingArtifactId: 'project-context-binding-e2e',
+      failureCode: null,
+      failureDetail: null,
+    },
+    diagnostics: null,
   })),
 }));
 
