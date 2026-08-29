@@ -1,10 +1,8 @@
 #!/usr/bin/env node
 /**
- * Release-harness only: prove Cloud Run IAM boundary before product E2E.
- * Never logs token values.
+ * Release-harness only: prove Cloud Run IAM via X-Serverless-Authorization.
+ * Never logs token values. No gcloud calls — token must be minted by workflow WIF.
  */
-import { execFileSync } from 'node:child_process';
-
 function trim(value) {
   return String(value ?? '').trim();
 }
@@ -15,54 +13,32 @@ function fail(message) {
 }
 
 const audience = trim(process.env.CLOUD_RUN_IAM_AUDIENCE || process.env.PLAYWRIGHT_BASE_URL || process.env.STAGING_URL);
+const token = trim(process.env.CLOUD_RUN_ID_TOKEN);
+
 if (!audience) {
   fail('CLOUD_RUN_IAM_AUDIENCE or PLAYWRIGHT_BASE_URL is required for IAM preflight');
 }
-
-let token = trim(process.env.CLOUD_RUN_ID_TOKEN);
 if (!token) {
-  try {
-    token = trim(
-      execFileSync('gcloud', ['auth', 'print-identity-token', `--audiences=${audience}`], {
-        encoding: 'utf8',
-      }),
-    );
-  } catch {
-    fail('Failed to mint Cloud Run ID token via gcloud');
-  }
+  fail('CLOUD_RUN_ID_TOKEN is required for IAM preflight (mint via workflow WIF id_token)');
 }
 
-if (!token) {
-  fail('Cloud Run ID token is empty');
-}
+const url = new URL('/api/csrf-token', audience).toString();
+const response = await fetch(url, {
+  headers: {
+    Accept: 'application/json',
+    'X-Serverless-Authorization': `Bearer ${token}`,
+  },
+});
 
-async function probe(path, headers, label) {
-  const url = new URL(path, audience).toString();
-  const response = await fetch(url, {
-    headers: {
-      Accept: 'application/json',
-      ...headers,
-    },
-  });
-  console.log(`IAM preflight ${label} ${path}: HTTP ${response.status}`);
-  if (response.status === 403) {
-    fail(`IAM preflight failed for ${label} ${path} (HTTP 403)`);
-  }
-  if (!response.ok && path !== '/ready') {
-    fail(`IAM preflight failed for ${label} ${path} (HTTP ${response.status})`);
-  }
-}
+console.log(`IAM preflight X-Serverless-Authorization /api/csrf-token: HTTP ${response.status}`);
 
-const paths = ['/health', '/ready', '/api/csrf-token'];
-for (const path of paths) {
-  await probe(path, { Authorization: `Bearer ${token}` }, 'Authorization');
+if (response.status === 403) {
+  fail('IAM preflight failed: HTTP 403 at Cloud Run IAM boundary');
 }
-
-await probe(
-  '/api/csrf-token',
-  { 'X-Serverless-Authorization': `Bearer ${token}` },
-  'X-Serverless-Authorization',
-);
+if (!response.ok) {
+  fail(`IAM preflight failed: HTTP ${response.status}`);
+}
 
 console.log('IAM_PREFLIGHT=PROVEN');
 console.log(`CLOUD_RUN_IAM_AUDIENCE=${audience}`);
+console.log('CLOUD_RUN_IAM_HEADER=X-Serverless-Authorization');

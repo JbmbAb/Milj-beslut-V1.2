@@ -1,8 +1,8 @@
 /**
  * Release-harness Playwright config for IAM-protected Cloud Run staging.
  *
- * Product tests run from the immutable product tree. Infrastructure IAM uses
- * X-Serverless-Authorization so application Authorization can carry app JWTs.
+ * Infrastructure IAM: X-Serverless-Authorization (Cloud Run ID token).
+ * Application auth: Authorization Bearer JWT (set per-request in product tests).
  */
 import { defineConfig } from '@playwright/test';
 import path from 'node:path';
@@ -23,7 +23,6 @@ if (!cloudRunIdToken) {
 
 export default defineConfig({
   testDir: path.join(productRoot, 'tests/e2e'),
-  globalSetup: path.join(harnessDir, 'cloud-run-playwright-global-setup.ts'),
   timeout: 180_000,
   workers: 1,
   retries: process.env.CI ? 1 : 0,

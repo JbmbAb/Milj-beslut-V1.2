@@ -255,7 +255,6 @@ jobs:
         env:
           CLOUD_RUN_ID_TOKEN: ${{ steps.cloud_run_iam.outputs.id_token }}
           CLOUD_RUN_IAM_AUDIENCE: ${{ inputs.base_url || vars.STAGING_URL }}
-          NODE_OPTIONS: --require ${{ github.workspace }}/release-harness/release-harness/staging/cloud-run-iam-request-patch.cjs
         run: >-
           npx playwright test
           -c ../release-harness/release-harness/staging/playwright.cloud-run-staging.config.ts
@@ -290,7 +289,7 @@ jobs:
             echo "- Deployed SHA: ${DEPLOYED_SHA:-}";
             echo "- Release harness SHA: ${RELEASE_HARNESS_SHA:-}";
             echo "- Included Vertex flows: ${E2E_INCLUDE_VERTEX_FLOWS}";
-            echo "- Infrastructure auth: Cloud Run IAM (ID token preflight + X-Serverless-Authorization injection)";
+            echo "- Infrastructure auth: Cloud Run IAM (WIF id_token + X-Serverless-Authorization via Playwright extraHTTPHeaders)";
             echo "- Application E2E auth: ADMIN_CONSOLE_DEDICATED_E2E";
             echo "- Product BankID auth: NOT TESTED BY THIS WORKFLOW";
             echo "- Cloud Run IAM audience: ${CLOUD_RUN_IAM_AUDIENCE:-}";
