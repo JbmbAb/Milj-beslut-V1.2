@@ -213,6 +213,59 @@ jobs:
           LANTMATERIET_DEMO_MODE: 'false'
           ALLOW_DEV_LOGIN: 'false'
 
+      - name: Mint Cloud Run ID token (ephemeral)
+        id: cloud_run_iam
+        shell: bash
+        env:
+          CLOUD_RUN_IAM_AUDIENCE: ${{ inputs.base_url || vars.STAGING_URL }}
+        run: |
+          set -euo pipefail
+          if [ -z "${CLOUD_RUN_IAM_AUDIENCE}" ]; then
+            echo "Missing Cloud Run IAM audience."
+            exit 1
+          fi
+          TOKEN="$(gcloud auth print-identity-token --audiences="${CLOUD_RUN_IAM_AUDIENCE}")"
+          if [ -z "${TOKEN}" ]; then
+            echo "Failed to mint Cloud Run ID token."
+            exit 1
+          fi
+          echo "CLOUD_RUN_IAM_AUDIENCE=${CLOUD_RUN_IAM_AUDIENCE}" >> "$GITHUB_ENV"
+          echo "token=${TOKEN}" >> "$GITHUB_OUTPUT"
+          echo "Cloud Run IAM token minted (value not logged)."
+
+      - name: IAM preflight (infrastructure auth)
+        shell: bash
+        env:
+          CLOUD_RUN_ID_TOKEN: ${{ steps.cloud_run_iam.outputs.token }}
+          CLOUD_RUN_IAM_AUDIENCE: ${{ inputs.base_url || vars.STAGING_URL }}
+        run: node release-harness/staging/cloud-run-iam-preflight.mjs
+
+      - name: Start Cloud Run IAM proxy for Playwright
+        shell: bash
+        env:
+          PROJECT_ID: ${{ secrets.GCP_PROJECT_ID }}
+          REGION: ${{ vars.GCP_REGION || 'europe-west1' }}
+          SERVICE: ${{ vars.GCP_SERVICE_NAME || 'miljobeslut' }}
+          CLOUD_RUN_PROXY_PORT: '8799'
+        run: |
+          set -euo pipefail
+          gcloud run services proxy "${SERVICE}" \
+            --port="${CLOUD_RUN_PROXY_PORT}" \
+            --region="${REGION}" \
+            --project="${PROJECT_ID}" &
+          echo "CLOUD_RUN_PROXY_PID=$!" >> "$GITHUB_ENV"
+          echo "PLAYWRIGHT_BASE_URL=http://127.0.0.1:${CLOUD_RUN_PROXY_PORT}" >> "$GITHUB_ENV"
+          echo "PLAYWRIGHT_API_BASE_URL=http://127.0.0.1:${CLOUD_RUN_PROXY_PORT}" >> "$GITHUB_ENV"
+          for attempt in $(seq 1 30); do
+            if curl -sf "http://127.0.0.1:${CLOUD_RUN_PROXY_PORT}/health" >/dev/null; then
+              echo "Cloud Run IAM proxy ready on port ${CLOUD_RUN_PROXY_PORT}"
+              exit 0
+            fi
+            sleep 2
+          done
+          echo "Cloud Run IAM proxy failed to become ready"
+          exit 1
+
       - name: Install product dependencies
         working-directory: product
         run: npm ci
@@ -225,6 +278,7 @@ jobs:
         working-directory: product
         run: >-
           npx playwright test
+          -c ../release-harness/staging/playwright.cloud-run-staging.config.ts
           tests/e2e/staging-smoke.spec.ts
           tests/e2e/staging-core-flows.spec.ts
           tests/e2e/staging-enskilt-avlopp.spec.ts
@@ -256,7 +310,17 @@ jobs:
             echo "- Deployed SHA: ${DEPLOYED_SHA:-}";
             echo "- Release harness SHA: ${RELEASE_HARNESS_SHA:-}";
             echo "- Included Vertex flows: ${E2E_INCLUDE_VERTEX_FLOWS}";
-            echo "- Staging release smoke auth: ADMIN_CONSOLE_DEDICATED_E2E";
+            echo "- Infrastructure auth: Cloud Run IAM (ID token preflight + authenticated proxy)";
+            echo "- Application E2E auth: ADMIN_CONSOLE_DEDICATED_E2E";
             echo "- Product BankID auth: NOT TESTED BY THIS WORKFLOW";
+            echo "- Cloud Run IAM audience: ${CLOUD_RUN_IAM_AUDIENCE:-}";
             echo "- Artifacts: staging-e2e-playwright-report";
           } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Stop Cloud Run IAM proxy
+        if: always()
+        shell: bash
+        run: |
+          if [ -n "${CLOUD_RUN_PROXY_PID:-}" ]; then
+            kill "${CLOUD_RUN_PROXY_PID}" 2>/dev/null || true
+          fi
