@@ -31,6 +31,7 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: read
+      id-token: write
 
     env:
       PLAYWRIGHT_BASE_URL: ${{ inputs.base_url || vars.STAGING_URL }}
@@ -41,7 +42,8 @@ jobs:
       E2E_SKIP_VERTEX_FLOWS: ${{ inputs.include_vertex_flows && 'false' || 'true' }}
       STAGING_VERIFY_ALLOW_BANKID_PENDING: 'true'
       RELEASE_REF: ${{ inputs.release_ref }}
-      EXPECTED_SHA: ${{ inputs.expected_sha }}
+      EXPECTED_PRODUCT_SHA: ${{ inputs.expected_sha }}
+      EXPECTED_RELEASE_HARNESS_SHA: ${{ github.sha }}
 
     steps:
       - name: Validate required inputs/secrets
@@ -56,16 +58,49 @@ jobs:
             echo "Missing dedicated staging E2E credentials. Set STAGING_E2E_ADMIN_USERNAME/STAGING_E2E_ADMIN_PASSWORD."
             exit 1
           fi
-          echo "STAGING_RELEASE_SMOKE_AUTH=CI_SMOKE_AUTHORITY"
+          echo "STAGING_RELEASE_SMOKE_AUTH=ADMIN_CONSOLE_DEDICATED_E2E"
           echo "PRODUCT_BANKID_AUTH=NOT_TESTED_BY_THIS_WORKFLOW"
 
-      - uses: actions/checkout@v4
+      - name: Checkout release harness
+        uses: actions/checkout@v4
         with:
-          ref: ${{ inputs.release_ref }}
+          ref: ${{ github.sha }}
+          path: release-harness
           fetch-depth: 0
 
-      - name: Verify exact staging ref
+      - name: Verify release harness identity
         shell: bash
+        working-directory: release-harness
+        run: |
+          set -euo pipefail
+          RELEASE_HARNESS_SHA="$(git rev-parse HEAD)"
+          echo "EXPECTED_RELEASE_HARNESS_SHA=${EXPECTED_RELEASE_HARNESS_SHA}"
+          echo "RELEASE_HARNESS_SHA=${RELEASE_HARNESS_SHA}"
+          if [ "${RELEASE_HARNESS_SHA}" != "${EXPECTED_RELEASE_HARNESS_SHA}" ]; then
+            echo "Release harness checkout is ${RELEASE_HARNESS_SHA}, expected ${EXPECTED_RELEASE_HARNESS_SHA}"
+            exit 1
+          fi
+          echo "RELEASE_HARNESS_SHA=${RELEASE_HARNESS_SHA}" >> "$GITHUB_ENV"
+          {
+            echo "## Release harness identity"
+            echo ""
+            echo "- Expected release harness SHA: ${EXPECTED_RELEASE_HARNESS_SHA}"
+            echo "- Release harness checkout SHA: ${RELEASE_HARNESS_SHA}"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Checkout immutable product tree
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.release_ref }}
+          path: product
+          fetch-depth: 0
+
+      - name: Verify exact product ref
+        shell: bash
+        working-directory: product
+        env:
+          RELEASE_REF: ${{ inputs.release_ref }}
+          EXPECTED_PRODUCT_SHA: ${{ inputs.expected_sha }}
         run: |
           set -euo pipefail
 
@@ -74,7 +109,7 @@ jobs:
             exit 1
           fi
 
-          if [ -z "$EXPECTED_SHA" ]; then
+          if [ -z "$EXPECTED_PRODUCT_SHA" ]; then
             echo "expected_sha saknas."
             exit 1
           fi
@@ -88,57 +123,83 @@ jobs:
             exit 1
           fi
 
-          RESOLVED_REF_SHA="$REF_MATCHES"
-          CHECKOUT_SHA="$(git rev-parse HEAD)"
+          RESOLVED_PRODUCT_SHA="$REF_MATCHES"
+          PRODUCT_CHECKOUT_SHA="$(git rev-parse HEAD)"
 
-          echo "EXPECTED_SHA=$EXPECTED_SHA"
-          echo "RESOLVED_REF_SHA=$RESOLVED_REF_SHA"
-          echo "CHECKOUT_SHA=$CHECKOUT_SHA"
+          echo "EXPECTED_PRODUCT_SHA=${EXPECTED_PRODUCT_SHA}"
+          echo "RESOLVED_PRODUCT_SHA=${RESOLVED_PRODUCT_SHA}"
+          echo "PRODUCT_CHECKOUT_SHA=${PRODUCT_CHECKOUT_SHA}"
 
-          if [ "$RESOLVED_REF_SHA" != "$EXPECTED_SHA" ]; then
-            echo "release_ref resolves to $RESOLVED_REF_SHA, expected $EXPECTED_SHA"
+          if [ "$RESOLVED_PRODUCT_SHA" != "$EXPECTED_PRODUCT_SHA" ]; then
+            echo "release_ref resolves to $RESOLVED_PRODUCT_SHA, expected $EXPECTED_PRODUCT_SHA"
             exit 1
           fi
 
-          if [ "$CHECKOUT_SHA" != "$EXPECTED_SHA" ]; then
-            echo "checkout HEAD is $CHECKOUT_SHA, expected $EXPECTED_SHA"
+          if [ "$PRODUCT_CHECKOUT_SHA" != "$EXPECTED_PRODUCT_SHA" ]; then
+            echo "product checkout HEAD is $PRODUCT_CHECKOUT_SHA, expected $EXPECTED_PRODUCT_SHA"
             exit 1
           fi
 
           {
-            echo "RESOLVED_REF_SHA=$RESOLVED_REF_SHA"
-            echo "CHECKOUT_SHA=$CHECKOUT_SHA"
+            echo "RESOLVED_PRODUCT_SHA=${RESOLVED_PRODUCT_SHA}"
+            echo "PRODUCT_CHECKOUT_SHA=${PRODUCT_CHECKOUT_SHA}"
           } >> "$GITHUB_ENV"
 
           {
-            echo "## Exact SHA staging identity"
+            echo "## Product identity"
             echo ""
-            echo "- Release ref: $RELEASE_REF"
-            echo "- Expected SHA: $EXPECTED_SHA"
-            echo "- Resolved ref SHA: $RESOLVED_REF_SHA"
-            echo "- Checkout SHA: $CHECKOUT_SHA"
+            echo "- Release ref: ${RELEASE_REF}"
+            echo "- Expected product SHA: ${EXPECTED_PRODUCT_SHA}"
+            echo "- Resolved product SHA: ${RESOLVED_PRODUCT_SHA}"
+            echo "- Product checkout SHA: ${PRODUCT_CHECKOUT_SHA}"
           } >> "$GITHUB_STEP_SUMMARY"
 
-      - uses: actions/setup-node@v4
+      - name: Authenticate to Google Cloud
+        uses: google-github-actions/auth@v2
         with:
-          node-version: '22'
-          cache: npm
+          workload_identity_provider: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ secrets.GCP_SERVICE_ACCOUNT }}
 
-      - run: npm ci
+      - name: Set up Cloud SDK
+        uses: google-github-actions/setup-gcloud@v2
 
-      - name: Install Playwright browser
-        run: npx playwright install --with-deps chromium
+      - name: Verify deployed SHA matches product
+        shell: bash
+        env:
+          PROJECT_ID: ${{ secrets.GCP_PROJECT_ID }}
+          REGION: ${{ vars.GCP_REGION || 'europe-west1' }}
+          SERVICE: ${{ vars.GCP_SERVICE_NAME || 'miljobeslut' }}
+        run: |
+          set -euo pipefail
+          IMAGE="$(gcloud run services describe "$SERVICE" --region="$REGION" --project="$PROJECT_ID" --format='value(spec.template.spec.containers[0].image)')"
+          DEPLOYED_SHA="${IMAGE##*:}"
+          echo "DEPLOYED_SHA=${DEPLOYED_SHA}"
+          echo "EXPECTED_PRODUCT_SHA=${EXPECTED_PRODUCT_SHA}"
+          if [ "${DEPLOYED_SHA}" != "${EXPECTED_PRODUCT_SHA}" ]; then
+            echo "Deployed SHA ${DEPLOYED_SHA} does not match expected product SHA ${EXPECTED_PRODUCT_SHA}"
+            exit 1
+          fi
+          echo "DEPLOYED_SHA=${DEPLOYED_SHA}" >> "$GITHUB_ENV"
+          {
+            echo "## Deployed product identity"
+            echo ""
+            echo "- Deployed SHA: ${DEPLOYED_SHA}"
+            echo "- Product SHA chain match: YES"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Install release harness dependencies
+        working-directory: release-harness
+        run: npm ci
 
       - name: Verify staging environment (mock-flags + nycklar)
+        working-directory: release-harness
         run: npm run smoke:staging-verify
-        continue-on-error: false
         env:
           STAGING_URL: ${{ inputs.base_url || vars.STAGING_URL }}
           DATABASE_URL: ${{ secrets.STAGING_DATABASE_URL }}
           JWT_ACCESS_SECRET: ${{ secrets.STAGING_JWT_ACCESS_SECRET }}
           JWT_REFRESH_SECRET: ${{ secrets.STAGING_JWT_REFRESH_SECRET }}
-          E2E_ADMIN_USERNAME: ${{ secrets.STAGING_E2E_ADMIN_USERNAME }}
-          E2E_ADMIN_PASSWORD: ${{ secrets.STAGING_E2E_ADMIN_PASSWORD }}
+          ADMIN_CONSOLE_PASSWORD: ${{ secrets.STAGING_E2E_ADMIN_PASSWORD }}
           LANTMATERIET_CONSUMER_KEY: ${{ secrets.STAGING_LANTMATERIET_CONSUMER_KEY }}
           LANTMATERIET_CONSUMER_SECRET: ${{ secrets.STAGING_LANTMATERIET_CONSUMER_SECRET }}
           LANTMATERIET_OPEN_SUBSCRIPTION_KEY: ${{ secrets.STAGING_LANTMATERIET_OPEN_SUBSCRIPTION_KEY }}
@@ -152,8 +213,23 @@ jobs:
           LANTMATERIET_DEMO_MODE: 'false'
           ALLOW_DEV_LOGIN: 'false'
 
-      - name: Run staging release smoke
-        run: npm run test:e2e:staging
+      - name: Install product dependencies
+        working-directory: product
+        run: npm ci
+
+      - name: Install Playwright browser
+        working-directory: product
+        run: npx playwright install --with-deps chromium
+
+      - name: Run staging release smoke (product tree)
+        working-directory: product
+        run: >-
+          npx playwright test
+          tests/e2e/staging-smoke.spec.ts
+          tests/e2e/staging-core-flows.spec.ts
+          tests/e2e/staging-enskilt-avlopp.spec.ts
+          tests/e2e/staging-c-anmalan-mass.spec.ts
+          tests/e2e/staging-lokaliseringsutredning.spec.ts
 
       - name: Upload Playwright report
         if: always()
@@ -161,8 +237,8 @@ jobs:
         with:
           name: staging-e2e-playwright-report
           path: |
-            playwright-report
-            test-results
+            product/playwright-report
+            product/test-results
           if-no-files-found: ignore
 
       - name: Add workflow summary
@@ -174,11 +250,13 @@ jobs:
             echo "";
             echo "- Base URL: ${PLAYWRIGHT_BASE_URL}";
             echo "- Release ref: ${RELEASE_REF}";
-            echo "- Expected SHA: ${EXPECTED_SHA}";
-            echo "- Resolved ref SHA: ${RESOLVED_REF_SHA:-}";
-            echo "- Checkout SHA: ${CHECKOUT_SHA:-}";
+            echo "- Expected product SHA: ${EXPECTED_PRODUCT_SHA}";
+            echo "- Resolved product SHA: ${RESOLVED_PRODUCT_SHA:-}";
+            echo "- Product checkout SHA: ${PRODUCT_CHECKOUT_SHA:-}";
+            echo "- Deployed SHA: ${DEPLOYED_SHA:-}";
+            echo "- Release harness SHA: ${RELEASE_HARNESS_SHA:-}";
             echo "- Included Vertex flows: ${E2E_INCLUDE_VERTEX_FLOWS}";
-            echo "- Staging release smoke auth: CI_SMOKE_AUTHORITY";
+            echo "- Staging release smoke auth: ADMIN_CONSOLE_DEDICATED_E2E";
             echo "- Product BankID auth: NOT TESTED BY THIS WORKFLOW";
             echo "- Artifacts: staging-e2e-playwright-report";
           } >> "$GITHUB_STEP_SUMMARY"
