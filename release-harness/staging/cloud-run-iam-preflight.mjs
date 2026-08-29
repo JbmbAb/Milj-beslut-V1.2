@@ -36,23 +36,33 @@ if (!token) {
   fail('Cloud Run ID token is empty');
 }
 
-const paths = ['/health', '/ready', '/api/csrf-token'];
-for (const path of paths) {
+async function probe(path, headers, label) {
   const url = new URL(path, audience).toString();
   const response = await fetch(url, {
     headers: {
-      Authorization: `Bearer ${token}`,
       Accept: 'application/json',
+      ...headers,
     },
   });
-  console.log(`IAM preflight ${path}: HTTP ${response.status}`);
+  console.log(`IAM preflight ${label} ${path}: HTTP ${response.status}`);
   if (response.status === 403) {
-    fail(`IAM preflight failed for ${path} (HTTP 403)`);
+    fail(`IAM preflight failed for ${label} ${path} (HTTP 403)`);
   }
   if (!response.ok && path !== '/ready') {
-    fail(`IAM preflight failed for ${path} (HTTP ${response.status})`);
+    fail(`IAM preflight failed for ${label} ${path} (HTTP ${response.status})`);
   }
 }
+
+const paths = ['/health', '/ready', '/api/csrf-token'];
+for (const path of paths) {
+  await probe(path, { Authorization: `Bearer ${token}` }, 'Authorization');
+}
+
+await probe(
+  '/api/csrf-token',
+  { 'X-Serverless-Authorization': `Bearer ${token}` },
+  'X-Serverless-Authorization',
+);
 
 console.log('IAM_PREFLIGHT=PROVEN');
 console.log(`CLOUD_RUN_IAM_AUDIENCE=${audience}`);
