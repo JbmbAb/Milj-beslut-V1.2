@@ -4,6 +4,14 @@
 **Authority: MIMER‑20 Constitution**
 **Validated by: MCS‑001**
 
+**Provenance note (2026-08-30):** `ADR-24-20-Constitution.md`, cited below as this
+plan's semantic authority, is now **HISTORICAL / NORMATIVE_TODAY: false**,
+superseded platform-wide by `ADR-MPS-CONSTITUTIONAL-INVARIANTS.md`. This plan's
+Package-24-specific content (`ADR-24-20`→`ADR-24-26`, all of which exist on disk)
+is left unrevalidated here — that is outside this documentation-normalization
+unit's scope. Anyone relying on this plan's authority claim should first confirm
+whether Package-24 has since been reconciled against the current constitution.
+
 ## Purpose
 Package24 Implementation Plan v1.0 definierar de tillåtna implementationsegenskaperna för Mimer Package‑24.
 Den fungerar som ett bootstrap‑kontrakt mellan:
