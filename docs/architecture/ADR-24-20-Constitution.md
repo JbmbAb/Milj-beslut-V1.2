@@ -217,27 +217,48 @@ instead materialized under different, currently-normative documents. This sectio
 is retained for historical provenance only and SHALL NOT be read as a live
 governs-list. Historical ADR‑24‑07..19 SHALL NOT be recreated under this numbering.
 
+**Two-generation caveat:** the numbers `ADR‑24‑07..19` were independently reused
+by two different, unrelated historical design efforts that never produced
+committed files — the titles below (from this document's own original text) are
+one generation; a separately recovered design-conversation record used the same
+numbers for entirely different subject matter (e.g. `24‑10` also meant
+"DecisionImpactIndicator Uniqueness & Semantics" there, `24‑15` meant "PostgreSQL
+Partition Strategy", `24‑16` meant "PostGIS Physical Optimization", `24‑17` meant
+"Ingest Throughput State Machine", `24‑18` meant "Retrieval Governance & Query
+Budget"). Where both generations have a real current successor, both are listed.
+"Historical wording superseded" is not the same claim as "no semantic successor
+exists" — several rows below have real, on-disk, actively-maintained
+implementation code that is simply not yet registered in
+`architecture-authority-map.jsonc`; that is recorded explicitly rather than
+folded into a blanket "no successor" claim.
+
 | Historical reference (never committed) | Current successor authority |
 | --- | --- |
 | ADR‑24‑07 Canonical AST | `ADR-MPS-CONSTITUTIONAL-INVARIANTS.md` §1–§3 (canonical identity/hashing) |
-| ADR‑24‑08 Dependency Taxonomy | `ADR-MPS-CONSTITUTIONAL-INVARIANTS.md` §5 (canonical version namespace ownership) |
-| ADR‑24‑09 Constraint Semantics | `ADR-MPS-EVIDENCE-LINEAGE-SLOT.md`; `validateEvidenceSetLineage.ts` |
-| ADR‑24‑10 Architecture Profiles | No successor identified — NOT_PROVEN |
-| ADR‑24‑11 Compliance Evidence | `ADR-RUNTIME-SNAPSHOT-BOUNDARY.md` (SNAP boundary) |
-| ADR‑24‑12 Promotion Decision | `ADR-MPS-CAS-STORAGE-BOUNDARY.md` (CAS‑I02–I04) |
-| ADR‑24‑13 Registry Mutation | `ADR-MPS-CAS-STORAGE-BOUNDARY.md` (CAS‑I05–I07, path resolver) |
-| ADR‑24‑14 Audit Chain | `ADR-MPS-SINGLE-MATERIALIZATION-AUTHORITY.md`; MIMER‑MAT‑I01 |
-| ADR‑24‑15 Artifact Lifecycle | No successor identified — NOT_PROVEN |
-| ADR‑24‑16 Registry State Model | No successor identified — NOT_PROVEN |
-| ADR‑24‑17 Governance Policy Model | No successor identified — NOT_PROVEN |
-| ADR‑24‑18 Event Emission Model | No successor identified — NOT_PROVEN |
-| ADR‑24‑19 Workflow Contract | `ADR-MPS-CONSTITUTIONAL-INVARIANTS.md` §6 (Materialization Pipeline shape) |
+| ADR‑24‑08 Dependency Taxonomy | `ADR-MPS-CONSTITUTIONAL-INVARIANTS.md` §5 (canonical version namespace ownership); also `packages/mps-dep/src/contracts/DependencyArtifacts.ts`, exercised by `packages/mps-compliance/package24/DEP.test.ts` (unregistered in the proof registry) |
+| ADR‑24‑09 Constraint Semantics | `ADR-MPS-EVIDENCE-LINEAGE-SLOT.md`; `validateEvidenceSetLineage.ts`; also `packages/mps-dep/src/validation/DependencyConstraintValidator.ts` (unregistered) |
+| ADR‑24‑10 Architecture Profiles | `packages/mps-dep/src/contracts/ArchitectureArtifacts.ts` (`ArchitectureProfileArtifact`, `PackageBoundaryProfileArtifact`), exercised by `packages/mps-compliance/package24/ARCH.test.ts`. Code exists, is imported by a test file included in the `packages/mps-compliance/**/*.test.ts` vitest project, and was last touched 2026-08-19 — but has no `architecture-authority-map.jsonc` entry and was not independently re-executed during this closure; **not** "no successor identified", but **not** claimed `PROVEN` either. The other historical generation's same-numbered concept (indicator uniqueness) separately survives under `ADR-MPS-CONSTITUTIONAL-INVARIANTS.md` / `DecisionImpactIdentity.ts`. |
+| ADR‑24‑11 Compliance Evidence | `ADR-RUNTIME-SNAPSHOT-BOUNDARY.md` (SNAP boundary); also `packages/mps-compliance/package24/COMPLIANCE.test.ts` (unregistered) |
+| ADR‑24‑12 Promotion Decision | `ADR-MPS-CAS-STORAGE-BOUNDARY.md` (CAS‑I02–I04); also `packages/mps-compliance/package24/PROM.test.ts` (unregistered) |
+| ADR‑24‑13 Registry Mutation | `ADR-MPS-CAS-STORAGE-BOUNDARY.md` (CAS‑I05–I07, path resolver); also `packages/mps-registry/src/contracts/RegistryMutationArtifacts.ts` (unregistered) |
+| ADR‑24‑14 Audit Chain | `ADR-MPS-SINGLE-MATERIALIZATION-AUTHORITY.md`; MIMER‑MAT‑I01; also `packages/mps-compliance/package24/AUD_CHAIN.test.ts` (unregistered) |
+| ADR‑24‑15 Artifact Lifecycle | `packages/mps-registry/src/contracts/ArtifactLifecycleArtifact.ts` (`ArtifactLifecycleTransitionArtifact`), exercised by `packages/mps-compliance/package24/LIFE_STATE.test.ts`. Same existence-without-registry-entry status as `24‑10` above — real, wired, unregistered, not independently re-run here. The other historical generation's same-numbered concept ("PostgreSQL Partition Strategy") separately survives under `TV-3.0-PostgreSQL-Physical-Data-Strategy-Freeze.md` / `TV-3.1-Table-Definition-Drafts.md`. |
+| ADR‑24‑16 Registry State Model | `packages/mps-registry/src/contracts/RegistryStateArtifact.ts`, exercised by `packages/mps-compliance/package24/REG.test.ts`. Same status as above. The other generation's same-numbered concept ("PostGIS Physical Optimization & SpatialEvidence") separately survives under `TV-4.0-Spatial-Foundation-Roadmap.md`, `ADR-SPATIAL-QUERY-CONTRACT.md`, `ADR-SPATIAL-PRESENTATION-EVIDENCE-CONTRACT.md`. |
+| ADR‑24‑17 Governance Policy Model | `packages/mps-governance/src/contracts/PolicyArtifact.ts` + `packages/mps-governance/src/resolver/PolicyResolver.ts`, exercised by `packages/mps-compliance/package24/GOV_POL.test.ts` and `POL.test.ts`. Same status as above. The other generation's same-numbered concept ("Ingest Throughput State Machine") is the specific reason `ADR-MPS-HARVEST-GOVERNED-INGESTION-ORCHESTRATOR.md` (added 2026-08-30) exists — that document is written from current `HarvestOrchestrator`/`ImportGate` code, not from either historical draft, and is now the current authority for that concept. |
+| ADR‑24‑18 Event Emission Model | `packages/mps-events/src/engine/EventEngine.ts` + `packages/mps-events/src/resolver/EventResolver.ts`, exercised by `packages/mps-compliance/package24/EVT.test.ts`. Same status as above. `ADR-MPS-CONSTITUTIONAL-INVARIANTS.md` §2 additionally documents a constitutionally frozen `ExecutionEventLog` (append-only governance stream) as the platform-level event-emission mechanism. The other generation's same-numbered concept ("Retrieval Governance & Query Budget") separately survives under `ADR-MPS-CONSTITUTIONAL-INVARIANTS.md` §3 (MIMER‑SCALE‑I01), `packages/mps-retrieval-governance`. |
+| ADR‑24‑19 Workflow Contract | `ADR-MPS-CONSTITUTIONAL-INVARIANTS.md` §6 (Materialization Pipeline shape); also `packages/mps-compliance/package24/WF.test.ts` (unregistered) |
 
 This mapping is a provenance record produced during document-authority
-normalization (2026-08-30). It is not a claim that the successor documents were
-derived from these specific historical drafts — only that they are the current
-authorities covering overlapping subject matter. The current, normative
-constitution is `ADR-MPS-CONSTITUTIONAL-INVARIANTS.md`.
+normalization (2026-08-30, corrected 2026-08-30 during closure). It is not a
+claim that the successor documents/code were derived from either historical
+drafting generation — only that they are the current authorities or current
+implementations covering overlapping subject matter. Entries marked
+"unregistered" are a real, on-disk, test-exercised implementation whose proof
+status this document does not assert, per the platform's own rule that a test
+file existing or even running is not the same claim as `PROVEN`
+(`architecture-authority-map.jsonc`: "PROVEN is a RESULT, not a document
+label"). The current, normative constitution is
+`ADR-MPS-CONSTITUTIONAL-INVARIANTS.md`.
 
 ## Governance Hierarchy (Historical — as originally drafted; non-normative today)
 ```
