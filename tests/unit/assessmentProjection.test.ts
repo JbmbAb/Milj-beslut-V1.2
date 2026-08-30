@@ -8,6 +8,8 @@ import {
   createProjectContextBindingIssuerArtifact,
   createProjectContextBindingSupersessionIssuerArtifact,
   createGovernedLocalizationAssessment,
+  GovernedAssessmentPersistence,
+  localizationAssessmentCanonicalBody,
   type LocalizationAssessmentArtifact,
 } from '@miljobeslut/mps-lu';
 import { SecurityRuntime } from '../../packages/mps-runtime/src/security/SecurityRuntime';
@@ -32,6 +34,12 @@ import {
   resolveCurrentAssessmentProjection,
   reconcileAssessmentProjection,
 } from '../../server/modules/localization/assessmentProjection';
+import { reconcileAssessmentProjectionObligationsForProject } from '../../server/modules/localization/assessmentProjectionReconciliation';
+import type {
+  AssessmentProjectionReconciliationObligation,
+  AssessmentProjectionReconciliationStatus,
+  AssessmentProjectionReconciliationStore,
+} from '../../server/repositories/assessmentProjectionReconciliationRepository';
 
 class MemoryRepository {
   readonly values = new Map<string, unknown>();
@@ -97,6 +105,7 @@ class FakeAssessmentProjectionIndex implements ProjectAssessmentProjectionIndex 
     projectContextRef: ArtifactReference;
     bindingArtifactId: string;
     releaseArtifactId: string;
+    localizationGeometryArtifactId?: string | null;
   }): Promise<void> {
     const list = this.rowsByProject.get(row.projectId) ?? [];
     if (list.some((r) => r.assessmentArtifactId === row.assessmentArtifactId)) return; // idempotent no-op
@@ -109,6 +118,7 @@ class FakeAssessmentProjectionIndex implements ProjectAssessmentProjectionIndex 
       projectContextRefType: row.projectContextRef.artifact_type,
       bindingArtifactId: row.bindingArtifactId,
       releaseArtifactId: row.releaseArtifactId,
+      localizationGeometryArtifactId: row.localizationGeometryArtifactId ?? null,
       createdAt: new Date(this.counter * 1000),
     });
     this.rowsByProject.set(row.projectId, list);
@@ -118,6 +128,93 @@ class FakeAssessmentProjectionIndex implements ProjectAssessmentProjectionIndex 
       (a, b) => b.createdAt.getTime() - a.createdAt.getTime(),
     );
   }
+}
+
+class FakeAssessmentProjectionReconciliationStore implements AssessmentProjectionReconciliationStore {
+  readonly obligations = new Map<string, AssessmentProjectionReconciliationObligation>();
+
+  async upsertPending(input: {
+    readonly assessmentArtifactId: string;
+    readonly projectId?: string | null;
+    readonly bindingArtifactId?: string | null;
+    readonly releaseArtifactId?: string | null;
+    readonly localizationGeometryArtifactId?: string | null;
+  }): Promise<void> {
+    const existing = this.obligations.get(input.assessmentArtifactId);
+    this.obligations.set(input.assessmentArtifactId, {
+      assessmentArtifactId: input.assessmentArtifactId,
+      status:
+        existing?.status === 'RECONCILED' || existing?.status === 'TAMPERED' ? existing.status : 'PENDING',
+      attemptCount: existing?.attemptCount ?? 0,
+      lastError: existing?.lastError ?? null,
+      projectId: input.projectId ?? existing?.projectId ?? null,
+      bindingArtifactId: input.bindingArtifactId ?? existing?.bindingArtifactId ?? null,
+      releaseArtifactId: input.releaseArtifactId ?? existing?.releaseArtifactId ?? null,
+      localizationGeometryArtifactId:
+        input.localizationGeometryArtifactId ?? existing?.localizationGeometryArtifactId ?? null,
+    });
+  }
+
+  async listRecoverableForProject(
+    projectId: string,
+  ): Promise<readonly AssessmentProjectionReconciliationObligation[]> {
+    return [...this.obligations.values()].filter(
+      (obligation) =>
+        obligation.projectId === projectId &&
+        ['PENDING', 'MISSING_CAS', 'NOT_CURRENT'].includes(obligation.status),
+    );
+  }
+
+  async markReconciled(assessmentArtifactId: string): Promise<void> {
+    this.setStatus(assessmentArtifactId, 'RECONCILED', null);
+  }
+
+  async markNotCurrent(assessmentArtifactId: string): Promise<void> {
+    this.setStatus(assessmentArtifactId, 'NOT_CURRENT', null);
+  }
+
+  async markMissingCas(assessmentArtifactId: string): Promise<void> {
+    this.setStatus(assessmentArtifactId, 'MISSING_CAS', null);
+  }
+
+  async markTampered(assessmentArtifactId: string, reason: string): Promise<void> {
+    this.setStatus(assessmentArtifactId, 'TAMPERED', reason);
+  }
+
+  async recordRetryableFailure(assessmentArtifactId: string, reason: string): Promise<void> {
+    this.setStatus(assessmentArtifactId, 'PENDING', reason);
+  }
+
+  private setStatus(
+    assessmentArtifactId: string,
+    status: AssessmentProjectionReconciliationStatus,
+    lastError: string | null,
+  ): void {
+    const existing = this.obligations.get(assessmentArtifactId);
+    if (!existing) throw new Error(`missing obligation: ${assessmentArtifactId}`);
+    this.obligations.set(assessmentArtifactId, {
+      ...existing,
+      status,
+      attemptCount: existing.attemptCount + 1,
+      lastError,
+    });
+  }
+}
+
+async function seedObligation(
+  store: FakeAssessmentProjectionReconciliationStore,
+  input: {
+    readonly assessmentArtifactId: string;
+    readonly projectId?: string;
+    readonly bindingArtifactId?: string;
+    readonly releaseArtifactId?: string;
+    readonly localizationGeometryArtifactId?: string;
+  },
+): Promise<void> {
+  await store.upsertPending({
+    projectId: PROJECT_ID,
+    ...input,
+  });
 }
 
 const PROJECT_ID = 'project-assessment-projection';
@@ -237,6 +334,7 @@ async function setup() {
   async function buildAndPersistAssessment(
     projectContextRef: ArtifactReference,
     evidenceRefs: readonly ArtifactReference[] = [],
+    localizationGeometryRef?: ArtifactReference,
   ) {
     const security = SecurityRuntime.create({
       bootstrapAdmit: true,
@@ -258,6 +356,7 @@ async function setup() {
         property_ref: { artifact_id: 'property-projection', artifact_type: 'PROPERTY' },
         evidence_refs: evidenceRefs,
         system_summary: `projection test assessment ${Math.random()}`,
+        localization_geometry_ref: localizationGeometryRef,
       },
       findings: [],
       outcome,
@@ -283,6 +382,54 @@ async function setup() {
 }
 
 describe('P3-LU-ASSESSMENT-CURRENT-PROJECTION-01', () => {
+  it('H2 pre-CAS proof: assessmentArtifactId is derived from canonical body before persistence and is re-enforced by GovernedAssessmentPersistence', async () => {
+    const repository = new MemoryRepository();
+    const security = SecurityRuntime.create({ bootstrapAdmit: true, bindSeed: 'h2-pre-cas-id' });
+    security.bindPrincipal('lu.site_assessment.actor');
+    const outcome = {
+      outcome_id: 'outcome-h2-pre-cas-id',
+      artifact_type: 'execution_outcome' as const,
+      attempt_ref: { artifact_id: 'attempt-h2-pre-cas-id', artifact_type: 'execution_attempt' },
+      result: 'success' as const,
+      content_hash: sha256ContentHash({ result: 'success', h2: 'pre-cas-id' }),
+    };
+    const attestation = security.attestOutcome(outcome.content_hash);
+    const draft = {
+      site_id: 'site-h2-pre-cas-id',
+      project_context_ref: contextNew,
+      property_ref: { artifact_id: 'property-h2-pre-cas-id', artifact_type: 'PROPERTY' },
+      evidence_refs: [
+        { artifact_id: 'evidence-b', artifact_type: 'SPATIAL_EVIDENCE' },
+        { artifact_id: 'evidence-a', artifact_type: 'SPATIAL_EVIDENCE' },
+      ],
+      system_summary: 'H2 pre-CAS deterministic assessment identity',
+    };
+
+    const assessment = createGovernedLocalizationAssessment({
+      draft,
+      findings: [],
+      outcome,
+      attestation,
+    });
+    const prePersistenceHash = sha256ContentHash(localizationAssessmentCanonicalBody(assessment));
+    const prePersistenceArtifactId = `assessment-${prePersistenceHash.value}`;
+
+    expect(assessment.content_hash).toEqual(prePersistenceHash);
+    expect(assessment.artifact_id).toBe(prePersistenceArtifactId);
+
+    const persisted = await new GovernedAssessmentPersistence(repository, (candidate) =>
+      security.verifyAttestation(candidate),
+    ).persist({ artifact: assessment, outcome, attestation });
+
+    expect(persisted.artifact_id).toBe(prePersistenceArtifactId);
+    await expect(
+      repository.resolve<LocalizationAssessmentArtifact>({
+        artifact_id: prePersistenceArtifactId,
+        artifact_type: 'LOCALIZATION_ASSESSMENT',
+      }),
+    ).resolves.toMatchObject({ artifact_id: prePersistenceArtifactId });
+  });
+
   it('first successful assessment -> projection inserted', async () => {
     const s = await setup();
     const assessment = await s.buildAndPersistAssessment(contextNew);
@@ -841,6 +988,163 @@ describe('P3-LU-ASSESSMENT-CURRENT-PROJECTION-01', () => {
           index: throwingIndex,
         }),
       ).rejects.toThrow('projection database unavailable');
+    });
+
+    it('H2 R3: obligation exists but CAS is missing -> no fabricated projection, obligation remains retryable', async () => {
+      const s = await setup();
+      const index = new FakeAssessmentProjectionIndex();
+      const store = new FakeAssessmentProjectionReconciliationStore();
+      await seedObligation(store, {
+        assessmentArtifactId: 'assessment-missing-cas',
+        bindingArtifactId: s.newBindingRef.artifact_id,
+        releaseArtifactId: RELEASE_REF.artifact_id,
+      });
+
+      const result = await reconcileAssessmentProjectionObligationsForProject({
+        projectId: PROJECT_ID,
+        artifactRepository: s.repository,
+        currentProjectContextRef: contextNew,
+        currentBindingRef: s.newBindingRef,
+        currentReleaseRef: RELEASE_REF,
+        projectionIndex: index,
+        obligationStore: store,
+      });
+
+      expect(result).toMatchObject({ attempted: 1, missingCas: 1, reconciled: 0 });
+      expect(await index.listForProject(PROJECT_ID)).toHaveLength(0);
+      expect(store.obligations.get('assessment-missing-cas')).toMatchObject({
+        status: 'MISSING_CAS',
+      });
+    });
+
+    it('H2 R4: duplicate reconciliation is idempotent and never rewrites CAS', async () => {
+      const s = await setup();
+      const assessment = await s.buildAndPersistAssessment(contextNew);
+      const index = new FakeAssessmentProjectionIndex();
+      const store = new FakeAssessmentProjectionReconciliationStore();
+      await seedObligation(store, {
+        assessmentArtifactId: assessment.artifact_id,
+        bindingArtifactId: s.newBindingRef.artifact_id,
+        releaseArtifactId: RELEASE_REF.artifact_id,
+      });
+      const originalCasBody = s.repository.values.get(assessment.artifact_id);
+
+      await reconcileAssessmentProjectionObligationsForProject({
+        projectId: PROJECT_ID,
+        artifactRepository: s.repository,
+        currentProjectContextRef: contextNew,
+        currentBindingRef: s.newBindingRef,
+        currentReleaseRef: RELEASE_REF,
+        projectionIndex: index,
+        obligationStore: store,
+      });
+      await reconcileAssessmentProjectionObligationsForProject({
+        projectId: PROJECT_ID,
+        artifactRepository: s.repository,
+        currentProjectContextRef: contextNew,
+        currentBindingRef: s.newBindingRef,
+        currentReleaseRef: RELEASE_REF,
+        projectionIndex: index,
+        obligationStore: store,
+      });
+
+      expect(await index.listForProject(PROJECT_ID)).toHaveLength(1);
+      expect(s.repository.values.get(assessment.artifact_id)).toBe(originalCasBody);
+      expect(store.obligations.get(assessment.artifact_id)).toMatchObject({ status: 'RECONCILED' });
+    });
+
+    it('H2 R5: projection already exists -> reconciliation converges without duplicate state', async () => {
+      const s = await setup();
+      const assessment = await s.buildAndPersistAssessment(contextNew);
+      const index = new FakeAssessmentProjectionIndex();
+      await registerAssessmentProjection({
+        projectId: PROJECT_ID,
+        assessment,
+        contextBindingRef: s.newBindingRef,
+        releaseRef: RELEASE_REF,
+        index,
+      });
+      const store = new FakeAssessmentProjectionReconciliationStore();
+      await seedObligation(store, {
+        assessmentArtifactId: assessment.artifact_id,
+        bindingArtifactId: s.newBindingRef.artifact_id,
+        releaseArtifactId: RELEASE_REF.artifact_id,
+      });
+
+      const result = await reconcileAssessmentProjectionObligationsForProject({
+        projectId: PROJECT_ID,
+        artifactRepository: s.repository,
+        currentProjectContextRef: contextNew,
+        currentBindingRef: s.newBindingRef,
+        currentReleaseRef: RELEASE_REF,
+        projectionIndex: index,
+        obligationStore: store,
+      });
+
+      expect(result).toMatchObject({ attempted: 1, reconciled: 1 });
+      expect(await index.listForProject(PROJECT_ID)).toHaveLength(1);
+    });
+
+    it('H2 R6: stale binding obligation remains historical and is not projected current', async () => {
+      const s = await setup();
+      const oldBindingRef = await s.provisionOldBindingAndSupersede();
+      const oldAssessment = await s.buildAndPersistAssessment(contextOld);
+      const index = new FakeAssessmentProjectionIndex();
+      const store = new FakeAssessmentProjectionReconciliationStore();
+      await seedObligation(store, {
+        assessmentArtifactId: oldAssessment.artifact_id,
+        bindingArtifactId: oldBindingRef.artifact_id,
+        releaseArtifactId: RELEASE_REF.artifact_id,
+      });
+
+      const result = await reconcileAssessmentProjectionObligationsForProject({
+        projectId: PROJECT_ID,
+        artifactRepository: s.repository,
+        currentProjectContextRef: contextNew,
+        currentBindingRef: s.newBindingRef,
+        currentReleaseRef: RELEASE_REF,
+        projectionIndex: index,
+        obligationStore: store,
+      });
+
+      expect(result).toMatchObject({ attempted: 1, notCurrent: 1, reconciled: 0 });
+      expect(await index.listForProject(PROJECT_ID)).toHaveLength(0);
+      expect(store.obligations.get(oldAssessment.artifact_id)).toMatchObject({ status: 'NOT_CURRENT' });
+    });
+
+    it('H2 R7: superseded localization geometry cannot become current through recovery', async () => {
+      const s = await setup();
+      const oldGeometryRef = {
+        artifact_id: 'localization-geometry-old',
+        artifact_type: 'LOCALIZATION_GEOMETRY',
+      } as const;
+      const currentGeometryRef = {
+        artifact_id: 'localization-geometry-current',
+        artifact_type: 'LOCALIZATION_GEOMETRY',
+      } as const;
+      const oldAssessment = await s.buildAndPersistAssessment(contextNew, [], oldGeometryRef);
+      const index = new FakeAssessmentProjectionIndex();
+      const store = new FakeAssessmentProjectionReconciliationStore();
+      await seedObligation(store, {
+        assessmentArtifactId: oldAssessment.artifact_id,
+        bindingArtifactId: s.newBindingRef.artifact_id,
+        releaseArtifactId: RELEASE_REF.artifact_id,
+        localizationGeometryArtifactId: oldGeometryRef.artifact_id,
+      });
+
+      const result = await reconcileAssessmentProjectionObligationsForProject({
+        projectId: PROJECT_ID,
+        artifactRepository: s.repository,
+        currentProjectContextRef: contextNew,
+        currentBindingRef: s.newBindingRef,
+        currentReleaseRef: RELEASE_REF,
+        currentLocalizationGeometryArtifactId: currentGeometryRef.artifact_id,
+        projectionIndex: index,
+        obligationStore: store,
+      });
+
+      expect(result).toMatchObject({ attempted: 1, notCurrent: 1, reconciled: 0 });
+      expect(await index.listForProject(PROJECT_ID)).toHaveLength(0);
     });
   });
 });

@@ -19,19 +19,21 @@ import {
   type AssessmentFinding,
 } from '@miljobeslut/mps-lu';
 import { SecurityRuntime } from '../../packages/mps-runtime/src/security/SecurityRuntime';
-import {
-  installOwnerIssuedProjectContextBinding,
-  installOwnerIssuedProjectContextBindingSupersession,
-} from '../../server/modules/localization/installProjectContextBinding';
+import { installOwnerIssuedProjectContextBinding } from '../../server/modules/localization/installProjectContextBinding';
 import { ProjectContextBindingProvider } from '../../server/modules/localization/projectContextBindingRuntime';
 import { attestProjectContextBindingArtifact } from '../../server/modules/localization/projectContextBindingAuthority';
-import {
-  attestProjectContextBindingSupersessionArtifact,
-  attestProjectContextBindingSupersessionIssuerArtifact,
-} from '../../server/modules/localization/projectContextBindingSupersessionAuthority';
+import { attestProjectContextBindingSupersessionIssuerArtifact } from '../../server/modules/localization/projectContextBindingSupersessionAuthority';
 import { __resetProjectContextBindingSupersessionVerifierForTests } from '../../server/security/projectContextBindingSupersessionVerifier';
 import type { ProjectContextBindingIndex } from '../../server/repositories/projectContextBindingRepository';
-import type { ProjectAssessmentProjectionIndex, ProjectAssessmentProjectionRow } from '../../server/repositories/projectAssessmentProjectionRepository';
+import type {
+  ProjectAssessmentProjectionIndex,
+  ProjectAssessmentProjectionRow,
+} from '../../server/repositories/projectAssessmentProjectionRepository';
+import type {
+  AssessmentProjectionReconciliationObligation,
+  AssessmentProjectionReconciliationStatus,
+  AssessmentProjectionReconciliationStore,
+} from '../../server/repositories/assessmentProjectionReconciliationRepository';
 import { registerAssessmentProjection } from '../../server/modules/localization/assessmentProjection';
 import { resolveCurrentLuAssessmentSummary } from '../../server/modules/localization/localizationOrchestrator';
 import type { AuthUser } from '../../server/security/types';
@@ -71,7 +73,9 @@ class MemoryBindingIndex implements ProjectContextBindingIndex {
     if (!bindingId) throw new Error('no binding');
     return bindingId;
   }
-  async registerSupersession(supersession: ReturnType<typeof createProjectContextBindingSupersessionArtifact>): Promise<void> {
+  async registerSupersession(
+    supersession: ReturnType<typeof createProjectContextBindingSupersessionArtifact>,
+  ): Promise<void> {
     const list = this.supersessionsByProject.get(supersession.payload.project_id) ?? [];
     if (!list.some((r) => r.artifact_id === supersession.artifact_id)) {
       list.push({ artifact_id: supersession.artifact_id, artifact_type: supersession.artifact_type });
@@ -90,36 +94,141 @@ class FakeAssessmentProjectionIndex implements ProjectAssessmentProjectionIndex 
   private counter = 0;
   private readonly rowsByProject = new Map<string, ProjectAssessmentProjectionRow[]>();
   async register(row: {
-    projectId: string; assessmentArtifactId: string; assessmentArtifactType: string;
-    projectContextRef: ArtifactReference; bindingArtifactId: string; releaseArtifactId: string;
+    projectId: string;
+    assessmentArtifactId: string;
+    assessmentArtifactType: string;
+    projectContextRef: ArtifactReference;
+    bindingArtifactId: string;
+    releaseArtifactId: string;
+    localizationGeometryArtifactId?: string | null;
   }): Promise<void> {
     const list = this.rowsByProject.get(row.projectId) ?? [];
     if (list.some((r) => r.assessmentArtifactId === row.assessmentArtifactId)) return;
     this.counter += 1;
     list.push({
-      projectId: row.projectId, assessmentArtifactId: row.assessmentArtifactId, assessmentArtifactType: row.assessmentArtifactType,
-      projectContextRefId: row.projectContextRef.artifact_id, projectContextRefType: row.projectContextRef.artifact_type,
-      bindingArtifactId: row.bindingArtifactId, releaseArtifactId: row.releaseArtifactId, createdAt: new Date(this.counter * 1000),
+      projectId: row.projectId,
+      assessmentArtifactId: row.assessmentArtifactId,
+      assessmentArtifactType: row.assessmentArtifactType,
+      projectContextRefId: row.projectContextRef.artifact_id,
+      projectContextRefType: row.projectContextRef.artifact_type,
+      bindingArtifactId: row.bindingArtifactId,
+      releaseArtifactId: row.releaseArtifactId,
+      localizationGeometryArtifactId: row.localizationGeometryArtifactId ?? null,
+      createdAt: new Date(this.counter * 1000),
     });
     this.rowsByProject.set(row.projectId, list);
   }
   async listForProject(projectId: string): Promise<readonly ProjectAssessmentProjectionRow[]> {
-    return [...(this.rowsByProject.get(projectId) ?? [])].sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
+    return [...(this.rowsByProject.get(projectId) ?? [])].sort(
+      (a, b) => b.createdAt.getTime() - a.createdAt.getTime(),
+    );
+  }
+}
+
+class FakeAssessmentProjectionReconciliationStore implements AssessmentProjectionReconciliationStore {
+  readonly obligations = new Map<string, AssessmentProjectionReconciliationObligation>();
+
+  async upsertPending(input: {
+    readonly assessmentArtifactId: string;
+    readonly projectId?: string | null;
+    readonly bindingArtifactId?: string | null;
+    readonly releaseArtifactId?: string | null;
+    readonly localizationGeometryArtifactId?: string | null;
+  }): Promise<void> {
+    const existing = this.obligations.get(input.assessmentArtifactId);
+    this.obligations.set(input.assessmentArtifactId, {
+      assessmentArtifactId: input.assessmentArtifactId,
+      status: existing?.status ?? 'PENDING',
+      attemptCount: existing?.attemptCount ?? 0,
+      lastError: existing?.lastError ?? null,
+      projectId: input.projectId ?? existing?.projectId ?? null,
+      bindingArtifactId: input.bindingArtifactId ?? existing?.bindingArtifactId ?? null,
+      releaseArtifactId: input.releaseArtifactId ?? existing?.releaseArtifactId ?? null,
+      localizationGeometryArtifactId:
+        input.localizationGeometryArtifactId ?? existing?.localizationGeometryArtifactId ?? null,
+    });
+  }
+
+  async listRecoverableForProject(
+    projectId: string,
+  ): Promise<readonly AssessmentProjectionReconciliationObligation[]> {
+    return [...this.obligations.values()].filter(
+      (obligation) =>
+        obligation.projectId === projectId &&
+        ['PENDING', 'MISSING_CAS', 'NOT_CURRENT'].includes(obligation.status),
+    );
+  }
+
+  async markReconciled(assessmentArtifactId: string): Promise<void> {
+    this.setStatus(assessmentArtifactId, 'RECONCILED', null);
+  }
+
+  async markNotCurrent(assessmentArtifactId: string): Promise<void> {
+    this.setStatus(assessmentArtifactId, 'NOT_CURRENT', null);
+  }
+
+  async markMissingCas(assessmentArtifactId: string): Promise<void> {
+    this.setStatus(assessmentArtifactId, 'MISSING_CAS', null);
+  }
+
+  async markTampered(assessmentArtifactId: string, reason: string): Promise<void> {
+    this.setStatus(assessmentArtifactId, 'TAMPERED', reason);
+  }
+
+  async recordRetryableFailure(assessmentArtifactId: string, reason: string): Promise<void> {
+    this.setStatus(assessmentArtifactId, 'PENDING', reason);
+  }
+
+  private setStatus(
+    assessmentArtifactId: string,
+    status: AssessmentProjectionReconciliationStatus,
+    lastError: string | null,
+  ): void {
+    const existing = this.obligations.get(assessmentArtifactId);
+    if (!existing) throw new Error(`missing obligation: ${assessmentArtifactId}`);
+    this.obligations.set(assessmentArtifactId, {
+      ...existing,
+      status,
+      attemptCount: existing.attemptCount + 1,
+      lastError,
+    });
   }
 }
 
 const PROJECT_ID = 'project-assessment-read';
-const contextNew = { artifact_id: 'lu-context-assessment-read-new', artifact_type: 'LU_PROJECT_CONTEXT' } as const;
-const propertyBinding = { artifact_id: 'project-property-binding-assessment-read', artifact_type: 'project_property_binding' } as const;
+const contextNew = {
+  artifact_id: 'lu-context-assessment-read-new',
+  artifact_type: 'LU_PROJECT_CONTEXT',
+} as const;
+const propertyBinding = {
+  artifact_id: 'project-property-binding-assessment-read',
+  artifact_type: 'project_property_binding',
+} as const;
 
 const pcbIssuerKey = LocalPemSigningKeyProvider.generate('ed25519:pcb-issuer-assessment-read-test');
-const pcbVerification = new LocalPemVerificationKeyProvider(pcbIssuerKey.provider.keyId, pcbIssuerKey.publicKey);
-const pcbIssuer = createProjectContextBindingIssuerArtifact({ issuer_key_id: pcbIssuerKey.provider.keyId, issuer_version: 'project-context-binding-issuer-v2' });
+const pcbVerification = new LocalPemVerificationKeyProvider(
+  pcbIssuerKey.provider.keyId,
+  pcbIssuerKey.publicKey,
+);
+const pcbIssuer = createProjectContextBindingIssuerArtifact({
+  issuer_key_id: pcbIssuerKey.provider.keyId,
+  issuer_version: 'project-context-binding-issuer-v2',
+});
 const pcbAuthority = { artifact_id: pcbIssuer.artifact_id, artifact_type: pcbIssuer.artifact_type } as const;
-const pcbSupersessionIssuerKey = LocalPemSigningKeyProvider.generate('ed25519:pcb-supersession-issuer-assessment-read-test');
+const pcbSupersessionIssuerKey = LocalPemSigningKeyProvider.generate(
+  'ed25519:pcb-supersession-issuer-assessment-read-test',
+);
 
-const RELEASE_REF = { artifact_id: 'product-release-assessment-read', artifact_type: 'product_release' } as const;
-const AUTH_USER: AuthUser = { id: 'user-assessment-read-test', organisationId: 'org-assessment-read-test', bankidId: 'bankid:assessment-read-test', role: 'CONSULTANT' };
+const RELEASE_REF = {
+  artifact_id: 'product-release-assessment-read',
+  artifact_type: 'product_release',
+} as const;
+const AUTH_USER: AuthUser = {
+  id: 'user-assessment-read-test',
+  organisationId: 'org-assessment-read-test',
+  bankidId: 'bankid:assessment-read-test',
+  role: 'CONSULTANT',
+};
 
 const waterFinding: AssessmentFinding = {
   finding_id: 'finding-water-assessment-read',
@@ -144,42 +253,84 @@ async function setup() {
   });
   const pcbSupersessionIssuer = {
     ...pcbSupersessionIssuerUnsigned,
-    attestation: await attestProjectContextBindingSupersessionIssuerArtifact({ issuer: pcbSupersessionIssuerUnsigned, signing: pcbSupersessionIssuerKey.provider }),
+    attestation: await attestProjectContextBindingSupersessionIssuerArtifact({
+      issuer: pcbSupersessionIssuerUnsigned,
+      signing: pcbSupersessionIssuerKey.provider,
+    }),
   };
   await repository.put({ artifact_id: pcbSupersessionIssuer.artifact_id, body: pcbSupersessionIssuer });
 
   const newBindingUnsigned = createProjectContextBindingArtifact({
-    project_id: PROJECT_ID, project_context_ref: contextNew, project_property_binding_ref: propertyBinding,
-    binding_version: 'project-context-binding-v2', authority_ref: pcbAuthority, created_at: '2026-08-24T00:00:00.000Z',
+    project_id: PROJECT_ID,
+    project_context_ref: contextNew,
+    project_property_binding_ref: propertyBinding,
+    binding_version: 'project-context-binding-v2',
+    authority_ref: pcbAuthority,
+    created_at: '2026-08-24T00:00:00.000Z',
   });
-  const newBinding = { ...newBindingUnsigned, attestation: await attestProjectContextBindingArtifact({ artifact: newBindingUnsigned, issuer: pcbIssuer, signing: pcbIssuerKey.provider }) };
-  await installOwnerIssuedProjectContextBinding({ artifactRepository: repository, index: bindingIndex, binding: newBinding, verification: pcbVerification });
-  const newBindingRef = { artifact_id: newBinding.artifact_id, artifact_type: newBinding.artifact_type } as const;
+  const newBinding = {
+    ...newBindingUnsigned,
+    attestation: await attestProjectContextBindingArtifact({
+      artifact: newBindingUnsigned,
+      issuer: pcbIssuer,
+      signing: pcbIssuerKey.provider,
+    }),
+  };
+  await installOwnerIssuedProjectContextBinding({
+    artifactRepository: repository,
+    index: bindingIndex,
+    binding: newBinding,
+    verification: pcbVerification,
+  });
+  const newBindingRef = {
+    artifact_id: newBinding.artifact_id,
+    artifact_type: newBinding.artifact_type,
+  } as const;
 
-  async function buildAndPersistAssessment(projectContextRef: ArtifactReference, findings: readonly AssessmentFinding[] = []) {
-    const security = SecurityRuntime.create({ bootstrapAdmit: true, bindSeed: `assessment-read-${Date.now()}-${Math.random()}` });
+  async function buildAndPersistAssessment(
+    projectContextRef: ArtifactReference,
+    findings: readonly AssessmentFinding[] = [],
+  ) {
+    const security = SecurityRuntime.create({
+      bootstrapAdmit: true,
+      bindSeed: `assessment-read-${Date.now()}-${Math.random()}`,
+    });
     security.bindPrincipal('lu.site_assessment.actor');
     const outcome = {
-      outcome_id: `outcome-assessment-read-${Date.now()}-${Math.random()}`, artifact_type: 'execution_outcome' as const,
+      outcome_id: `outcome-assessment-read-${Date.now()}-${Math.random()}`,
+      artifact_type: 'execution_outcome' as const,
       attempt_ref: { artifact_id: 'attempt-assessment-read', artifact_type: 'execution_attempt' },
-      result: 'success' as const, content_hash: sha256ContentHash({ result: 'success', nonce: Math.random() }),
+      result: 'success' as const,
+      content_hash: sha256ContentHash({ result: 'success', nonce: Math.random() }),
     };
     const attestation = security.attestOutcome(outcome.content_hash);
     const assessment = createGovernedLocalizationAssessment({
       draft: {
-        site_id: 'site-assessment-read', project_context_ref: projectContextRef,
+        site_id: 'site-assessment-read',
+        project_context_ref: projectContextRef,
         property_ref: { artifact_id: 'property-assessment-read', artifact_type: 'PROPERTY' },
-        evidence_refs: [], system_summary: `assessment read test ${Math.random()}`,
+        evidence_refs: [],
+        system_summary: `assessment read test ${Math.random()}`,
       },
-      findings, outcome, attestation,
+      findings,
+      outcome,
+      attestation,
     });
-    await repository.put({ artifact_id: assessment.artifact_id, content_hash: assessment.content_hash, body: assessment });
+    await repository.put({
+      artifact_id: assessment.artifact_id,
+      content_hash: assessment.content_hash,
+      body: assessment,
+    });
     return assessment;
   }
 
   return {
-    repository, bindingIndex, newBindingRef, buildAndPersistAssessment,
-    currentBindingProvider: () => new ProjectContextBindingProvider(repository, bindingIndex, pcbVerification),
+    repository,
+    bindingIndex,
+    newBindingRef,
+    buildAndPersistAssessment,
+    currentBindingProvider: () =>
+      new ProjectContextBindingProvider(repository, bindingIndex, pcbVerification),
   };
 }
 
@@ -192,11 +343,19 @@ describe('LU-ASSESSMENT-PERSISTENCE-READ-V1: resolveCurrentLuAssessmentSummary',
     const s = await setup();
     const assessment = await s.buildAndPersistAssessment(contextNew, [waterFinding]);
     const projectionIndex = new FakeAssessmentProjectionIndex();
-    await registerAssessmentProjection({ projectId: PROJECT_ID, assessment, contextBindingRef: s.newBindingRef, releaseRef: RELEASE_REF, index: projectionIndex });
+    await registerAssessmentProjection({
+      projectId: PROJECT_ID,
+      assessment,
+      contextBindingRef: s.newBindingRef,
+      releaseRef: RELEASE_REF,
+      index: projectionIndex,
+    });
 
     const result = await resolveCurrentLuAssessmentSummary({
-      authUser: AUTH_USER, projectId: PROJECT_ID,
-      artifactRepository: s.repository, currentBindingProvider: s.currentBindingProvider(),
+      authUser: AUTH_USER,
+      projectId: PROJECT_ID,
+      artifactRepository: s.repository,
+      currentBindingProvider: s.currentBindingProvider(),
       assessmentProjectionIndex: projectionIndex,
     });
 
@@ -213,12 +372,20 @@ describe('LU-ASSESSMENT-PERSISTENCE-READ-V1: resolveCurrentLuAssessmentSummary',
     const s = await setup();
     const assessment = await s.buildAndPersistAssessment(contextNew);
     const projectionIndex = new FakeAssessmentProjectionIndex();
-    await registerAssessmentProjection({ projectId: PROJECT_ID, assessment, contextBindingRef: s.newBindingRef, releaseRef: RELEASE_REF, index: projectionIndex });
+    await registerAssessmentProjection({
+      projectId: PROJECT_ID,
+      assessment,
+      contextBindingRef: s.newBindingRef,
+      releaseRef: RELEASE_REF,
+      index: projectionIndex,
+    });
     membershipAllowed = false;
 
     const result = await resolveCurrentLuAssessmentSummary({
-      authUser: AUTH_USER, projectId: PROJECT_ID,
-      artifactRepository: s.repository, currentBindingProvider: s.currentBindingProvider(),
+      authUser: AUTH_USER,
+      projectId: PROJECT_ID,
+      artifactRepository: s.repository,
+      currentBindingProvider: s.currentBindingProvider(),
       assessmentProjectionIndex: projectionIndex,
     });
     expect(result).toMatchObject({ ok: false, status: 403 });
@@ -229,8 +396,10 @@ describe('LU-ASSESSMENT-PERSISTENCE-READ-V1: resolveCurrentLuAssessmentSummary',
     const projectionIndex = new FakeAssessmentProjectionIndex(); // never registered
 
     const result = await resolveCurrentLuAssessmentSummary({
-      authUser: AUTH_USER, projectId: PROJECT_ID,
-      artifactRepository: s.repository, currentBindingProvider: s.currentBindingProvider(),
+      authUser: AUTH_USER,
+      projectId: PROJECT_ID,
+      artifactRepository: s.repository,
+      currentBindingProvider: s.currentBindingProvider(),
       assessmentProjectionIndex: projectionIndex,
     });
     expect(result).toMatchObject({ ok: false, status: 404 });
@@ -242,27 +411,83 @@ describe('LU-ASSESSMENT-PERSISTENCE-READ-V1: resolveCurrentLuAssessmentSummary',
     const projectionIndex = new FakeAssessmentProjectionIndex();
 
     const result = await resolveCurrentLuAssessmentSummary({
-      authUser: AUTH_USER, projectId: PROJECT_ID,
-      artifactRepository: s.repository, currentBindingProvider: s.currentBindingProvider(),
+      authUser: AUTH_USER,
+      projectId: PROJECT_ID,
+      artifactRepository: s.repository,
+      currentBindingProvider: s.currentBindingProvider(),
       assessmentProjectionIndex: projectionIndex,
     });
     expect(result).toMatchObject({ ok: false, status: 404 });
+  });
+
+  it('H2 RED R1/R9: server-owned recovery obligation + CAS-valid assessment + missing projection -> normal discovery converges without browser artifact id', async () => {
+    const s = await setup();
+    const assessment = await s.buildAndPersistAssessment(contextNew, [waterFinding]);
+    const projectionIndex = new FakeAssessmentProjectionIndex();
+    const obligationStore = new FakeAssessmentProjectionReconciliationStore();
+
+    // This is deliberately not request/browser input. It models the durable server-owned
+    // obligation H2 needs to persist before or adjacent to canonical assessment persistence.
+    // Current production code has no consumer for this obligation, so normal discovery still
+    // starts from project_assessment_projections and returns 404. The future GREEN must reconcile
+    // from this server-owned obligation, verify CAS, write the missing projection, and then let
+    // the ordinary current-assessment path resolve the assessment.
+    await obligationStore.upsertPending({
+      projectId: PROJECT_ID,
+      assessmentArtifactId: assessment.artifact_id,
+      bindingArtifactId: s.newBindingRef.artifact_id,
+      releaseArtifactId: RELEASE_REF.artifact_id,
+    });
+    expect(obligationStore.obligations.get(assessment.artifact_id)).toMatchObject({
+      assessmentArtifactId: assessment.artifact_id,
+      status: 'PENDING',
+    });
+
+    const result = await resolveCurrentLuAssessmentSummary({
+      authUser: AUTH_USER,
+      projectId: PROJECT_ID,
+      artifactRepository: s.repository,
+      currentBindingProvider: s.currentBindingProvider(),
+      assessmentProjectionIndex: projectionIndex,
+      assessmentProjectionReconciliationStore: obligationStore,
+      assessmentProjectionReconciliationReleaseRef: RELEASE_REF,
+    });
+
+    expect(result).toMatchObject({
+      ok: true,
+      assessmentArtifactId: assessment.artifact_id,
+      findings: [waterFinding],
+    });
+    expect(obligationStore.obligations.get(assessment.artifact_id)).toMatchObject({
+      status: 'RECONCILED',
+    });
   });
 
   it('tampered assessment content_hash -> never presented as current (rejected during projection selection itself)', async () => {
     const s = await setup();
     const assessment = await s.buildAndPersistAssessment(contextNew, [waterFinding]);
     const projectionIndex = new FakeAssessmentProjectionIndex();
-    await registerAssessmentProjection({ projectId: PROJECT_ID, assessment, contextBindingRef: s.newBindingRef, releaseRef: RELEASE_REF, index: projectionIndex });
+    await registerAssessmentProjection({
+      projectId: PROJECT_ID,
+      assessment,
+      contextBindingRef: s.newBindingRef,
+      releaseRef: RELEASE_REF,
+      index: projectionIndex,
+    });
 
     // Mutate the stored body after persistence, keeping the same content_hash -- exactly what a
     // corrupted/tampered CAS write would look like.
-    const tampered = { ...assessment, payload: { ...assessment.payload, findings: [{ ...waterFinding, risk_level: 'HIGH' as const }] } };
+    const tampered = {
+      ...assessment,
+      payload: { ...assessment.payload, findings: [{ ...waterFinding, risk_level: 'HIGH' as const }] },
+    };
     s.repository.values.set(assessment.artifact_id, tampered);
 
     const result = await resolveCurrentLuAssessmentSummary({
-      authUser: AUTH_USER, projectId: PROJECT_ID,
-      artifactRepository: s.repository, currentBindingProvider: s.currentBindingProvider(),
+      authUser: AUTH_USER,
+      projectId: PROJECT_ID,
+      artifactRepository: s.repository,
+      currentBindingProvider: s.currentBindingProvider(),
       assessmentProjectionIndex: projectionIndex,
     });
     // resolveCurrentAssessmentProjection (called internally) already re-verifies every candidate's

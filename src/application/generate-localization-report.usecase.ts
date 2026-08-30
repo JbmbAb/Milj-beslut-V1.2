@@ -49,6 +49,10 @@ import { resolveCanonicalProductRelease } from '../../server/modules/release/pro
 import { registerAssessmentProjection } from '../../server/modules/localization/assessmentProjection';
 import { resolveOrDeriveCurrentLocalizationGeometry } from '../../server/modules/localization/localizationGeometryService';
 import {
+  PrismaAssessmentProjectionReconciliationStore,
+  type AssessmentProjectionReconciliationStore,
+} from '../../server/repositories/assessmentProjectionReconciliationRepository';
+import {
   resolveGovernedDocumentEvidenceForLuAssessment,
   type GovernedDocumentEvidenceClientRef,
 } from './resolveGovernedDocumentEvidenceForLuAssessment';
@@ -527,6 +531,7 @@ async function analyzeSite(
   site: SiteAlternative,
   ctx: { projectId: string; user?: AuthUser },
   createSpatialRuntime: () => Promise<LocalizationSpatialRuntime>,
+  createAssessmentProjectionReconciliationStore: () => AssessmentProjectionReconciliationStore,
 ): Promise<SiteAnalysisResult> {
   logger.info(`Analyzing site: ${site.id} at (${site.lat}, ${site.lng})`);
   const strict = isLocalizationStrictMode();
@@ -592,6 +597,7 @@ async function analyzeSite(
     spatialRuntime = await createSpatialRuntime();
     const repo = spatialRuntime.artifactRepository;
     const provider = spatialRuntime.resolveSpatialProvider(LU_SPATIAL_CAPABILITY_KEY);
+    const assessmentProjectionReconciliationStore = createAssessmentProjectionReconciliationStore();
 
     // PRODUCT-LU-CONTEXT-AND-EVIDENCE-BINDING-V1: resolve the REAL, already-issued, verified
     // project/property context for this authenticated project. Never fabricate prop-*/proj-*/
@@ -600,7 +606,6 @@ async function analyzeSite(
     const canonicalContext = await resolveCanonicalProjectContext(ctx.projectId, repo);
     const propRef = canonicalContext.propertyContextRef;
     const projRef = canonicalContext.projectContextRef;
-    const geomRef = canonicalContext.geometryRef;
 
     // PRODUCT-LU-LOCALIZATION-GEOMETRY-01 Phase B: resolve the project's current explicit
     // LocalizationGeometry, or -- for a project that has never had one set (every project before
@@ -750,6 +755,15 @@ async function analyzeSite(
           `${governedDocumentEvidence.length} document evidence.`,
         localization_geometry_ref: locationRef,
       },
+      on_assessment_prepared: async (assessment) => {
+        await assessmentProjectionReconciliationStore.upsertPending({
+          assessmentArtifactId: assessment.artifact_id,
+          projectId: ctx.projectId,
+          bindingArtifactId: canonicalContext.contextBindingRef.artifact_id,
+          releaseArtifactId: currentRelease.releaseRef.artifact_id,
+          localizationGeometryArtifactId: currentLocalizationGeometry.artifact_id,
+        });
+      },
     });
 
     let ticket_id: string | null = null;
@@ -788,9 +802,21 @@ async function analyzeSite(
             releaseRef: currentRelease.releaseRef,
             localizationGeometryArtifactId: currentLocalizationGeometry.artifact_id,
           });
+          await assessmentProjectionReconciliationStore.markReconciled(kernelResult.assessment.artifact_id);
           assessment_projection_registered = true;
         } catch (err) {
           assessment_projection_registered = false;
+          await assessmentProjectionReconciliationStore
+            .recordRetryableFailure(
+              kernelResult.assessment.artifact_id,
+              err instanceof Error ? err.message : String(err),
+            )
+            .catch((storeErr) =>
+              logger.warn('Failed to update assessment projection reconciliation obligation', {
+                site: site.id,
+                err: String(storeErr),
+              }),
+            );
           logger.warn('Failed to register assessment projection -- assessment remains CAS-valid; reconcile separately', { site: site.id, err: String(err) });
         }
       }
@@ -955,6 +981,8 @@ export class GenerateLocalizationReportUseCase {
   constructor(
     private readonly createSpatialRuntime: () => Promise<LocalizationSpatialRuntime> =
       createLocalizationSpatialRuntime,
+    private readonly createAssessmentProjectionReconciliationStore: () => AssessmentProjectionReconciliationStore =
+      () => new PrismaAssessmentProjectionReconciliationStore(),
   ) {}
 
   async execute(input: {
@@ -969,6 +997,7 @@ export class GenerateLocalizationReportUseCase {
           site,
           { projectId: input.projectId, user: input.user },
           this.createSpatialRuntime,
+          this.createAssessmentProjectionReconciliationStore,
         ),
       ),
     );

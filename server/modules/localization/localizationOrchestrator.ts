@@ -14,7 +14,11 @@ import { getAuditTrail } from '../../services/auditTrailService';
 import { assertProjectAccess } from '../../security/projectAccess';
 import type { AuthUser } from '../../security/types';
 import { MimersIntegration, type ArtifactRepositoryPort } from '@miljobeslut/mps-runtime';
-import { ProjectContextBindingProvider, authorizeAssessmentPresentation } from './projectContextBindingRuntime';
+import {
+  ProjectContextBindingProvider,
+  authorizeAssessmentPresentation,
+} from './projectContextBindingRuntime';
+import type { ArtifactReference } from '@miljobeslut/mps-compliance/src/artifacts/ArtifactReference';
 import { sha256ContentHash } from '@miljobeslut/mps-compliance/src/canonical/sha256Canonical';
 import {
   localizationAssessmentCanonicalBody,
@@ -26,11 +30,20 @@ import {
 import { PrismaProjectContextBindingIndex } from '../../repositories/projectContextBindingRepository';
 import { getProjectContextBindingIssuerVerifier } from '../../security/projectContextBindingIssuerKey';
 import { resolveCurrentAssessmentProjection } from './assessmentProjection';
+import { reconcileAssessmentProjectionObligationsForProject } from './assessmentProjectionReconciliation';
 import { resolveCurrentLocalizationGeometry } from './localizationGeometryProjection';
 import type { LocalizationGeometryProjectionIndex } from '../../repositories/localizationGeometryProjectionRepository';
 import { resolveGovernedLocalizationPresentation } from './resolveGovernedLocalizationPresentation';
-import { resolveLocalizationViewerRuntimeConfigForProject, type LocalizationViewerRuntimeConfig } from './createLocalizationViewerRuntime';
+import {
+  resolveLocalizationViewerRuntimeConfigForProject,
+  type LocalizationViewerRuntimeConfig,
+} from './createLocalizationViewerRuntime';
 import type { ProjectAssessmentProjectionIndex } from '../../repositories/projectAssessmentProjectionRepository';
+import {
+  PrismaAssessmentProjectionReconciliationStore,
+  type AssessmentProjectionReconciliationStore,
+} from '../../repositories/assessmentProjectionReconciliationRepository';
+import { resolveCanonicalProductRelease } from '../release/productReleaseRuntime';
 
 export class LocalizationDataUnavailableError extends Error {
   readonly status = 503;
@@ -44,6 +57,13 @@ export class LocalizationDataUnavailableError extends Error {
 
 export function localizationAuditRef(projectId: string): string {
   return `LOK-${projectId}`;
+}
+
+class AssessmentProjectionRecoveryError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'AssessmentProjectionRecoveryError';
+  }
 }
 
 function parseSiteAlternatives(raw: unknown): SiteAlternative[] | null {
@@ -123,6 +143,75 @@ function assertStrictReportUsable(report: LocalizationReport): void {
   }
 }
 
+async function resolveCurrentAssessmentProjectionWithRecovery(args: {
+  readonly projectId: string;
+  readonly artifactRepository: ArtifactRepositoryPort;
+  readonly currentBindingProvider: ProjectContextBindingProvider;
+  readonly currentLocalizationGeometryArtifactId?: string;
+  readonly assessmentProjectionIndex?: ProjectAssessmentProjectionIndex;
+  readonly assessmentProjectionReconciliationStore?: AssessmentProjectionReconciliationStore;
+  readonly assessmentProjectionReconciliationReleaseRef?: ArtifactReference;
+}): Promise<{ readonly assessmentArtifactId: string }> {
+  try {
+    return await resolveCurrentAssessmentProjection({
+      projectId: args.projectId,
+      artifactRepository: args.artifactRepository,
+      currentBindingProvider: args.currentBindingProvider,
+      currentLocalizationGeometryArtifactId: args.currentLocalizationGeometryArtifactId,
+      index: args.assessmentProjectionIndex,
+    });
+  } catch (firstError) {
+    if (args.assessmentProjectionIndex && !args.assessmentProjectionReconciliationStore) {
+      throw firstError;
+    }
+
+    let currentBinding: Awaited<ReturnType<ProjectContextBindingProvider['resolveCurrent']>>;
+    let currentReleaseRef: ArtifactReference;
+    try {
+      currentBinding = await args.currentBindingProvider.resolveCurrent(args.projectId);
+      if (args.assessmentProjectionReconciliationReleaseRef) {
+        currentReleaseRef = args.assessmentProjectionReconciliationReleaseRef;
+      } else {
+        const release = await resolveCanonicalProductRelease({
+          artifactRepository: args.artifactRepository,
+        });
+        currentReleaseRef = {
+          artifact_id: release.artifact_id,
+          artifact_type: release.artifact_type,
+        };
+      }
+      await reconcileAssessmentProjectionObligationsForProject({
+        projectId: args.projectId,
+        artifactRepository: args.artifactRepository,
+        currentProjectContextRef: currentBinding.payload.project_context_ref,
+        currentBindingRef: {
+          artifact_id: currentBinding.artifact_id,
+          artifact_type: currentBinding.artifact_type,
+        },
+        currentReleaseRef,
+        currentLocalizationGeometryArtifactId: args.currentLocalizationGeometryArtifactId,
+        projectionIndex: args.assessmentProjectionIndex,
+        obligationStore:
+          args.assessmentProjectionReconciliationStore ?? new PrismaAssessmentProjectionReconciliationStore(),
+      });
+    } catch (recoveryError) {
+      throw new AssessmentProjectionRecoveryError(
+        recoveryError instanceof Error
+          ? recoveryError.message
+          : `Assessment projection reconciliation failed after ${String(firstError)}`,
+      );
+    }
+
+    return resolveCurrentAssessmentProjection({
+      projectId: args.projectId,
+      artifactRepository: args.artifactRepository,
+      currentBindingProvider: args.currentBindingProvider,
+      currentLocalizationGeometryArtifactId: args.currentLocalizationGeometryArtifactId,
+      index: args.assessmentProjectionIndex,
+    });
+  }
+}
+
 export async function runLocalizationReport(input: {
   authUser: AuthUser;
   projectId: string;
@@ -152,7 +241,8 @@ export async function runLocalizationReport(input: {
 
   assertStrictReportUsable(report);
 
-  const warningCount = report.warnings.length + report.siteAnalyses.reduce((n, s) => n + s.warnings.length, 0);
+  const warningCount =
+    report.warnings.length + report.siteAnalyses.reduce((n, s) => n + s.warnings.length, 0);
 
   return {
     ok: true,
@@ -172,7 +262,11 @@ export async function exportLocalizationPdf(input: {
   const projectId = String(input.projectId || '').trim();
   const sites = parseSiteAlternatives(input.siteAlternatives);
   if (!projectId || !sites) {
-    return { ok: false, status: 400, error: 'projectId and a non-empty siteAlternatives array are required.' };
+    return {
+      ok: false,
+      status: 400,
+      error: 'projectId and a non-empty siteAlternatives array are required.',
+    };
   }
 
   await assertProjectAccess(input.authUser, projectId, input.authUser.organisationId);
@@ -187,11 +281,7 @@ export async function exportLocalizationPdf(input: {
   assertStrictReportUsable(report);
 
   const pdfPayload = buildLocalizationPdfData(report);
-  const buffer = await buildJsonPdfBuffer(
-    pdfPayload.title,
-    `Projekt ${pdfPayload.projectId}`,
-    pdfPayload,
-  );
+  const buffer = await buildJsonPdfBuffer(pdfPayload.title, `Projekt ${pdfPayload.projectId}`, pdfPayload);
   const safeId = projectId.replace(/[^a-zA-Z0-9-_åäöÅÄÖ]+/g, '-').slice(0, 40) || 'projekt';
   return { ok: true, buffer, filename: `lokaliseringsutredning-${safeId}.pdf` };
 }
@@ -220,6 +310,10 @@ export async function resolveLuViewerPresentation(input: {
   readonly assessmentProjectionIndex?: ProjectAssessmentProjectionIndex;
   /** Overridable for tests; defaults to the real Postgres-backed localization geometry index. */
   readonly localizationGeometryIndex?: LocalizationGeometryProjectionIndex;
+  /** Overridable for tests; defaults to the real Postgres-backed reconciliation store. */
+  readonly assessmentProjectionReconciliationStore?: AssessmentProjectionReconciliationStore;
+  /** Overridable for tests; production resolves the canonical product release from CAS/env. */
+  readonly assessmentProjectionReconciliationReleaseRef?: ArtifactReference;
   /** Overridable for tests; defaults to the env-configured deployment-wide capability. */
   readonly config?: LocalizationViewerRuntimeConfig;
 }): Promise<
@@ -237,7 +331,8 @@ export async function resolveLuViewerPresentation(input: {
     return { ok: false, status: 403, error: 'Not authorized for this project.' };
   }
 
-  const artifactRepository = input.artifactRepository ?? (await MimersIntegration.create()).artifactRepository;
+  const artifactRepository =
+    input.artifactRepository ?? (await MimersIntegration.create()).artifactRepository;
   const currentBindingProvider =
     input.currentBindingProvider ??
     new ProjectContextBindingProvider(
@@ -265,31 +360,53 @@ export async function resolveLuViewerPresentation(input: {
 
   let assessmentArtifactId: string;
   try {
-    const projection = await resolveCurrentAssessmentProjection({
+    const projection = await resolveCurrentAssessmentProjectionWithRecovery({
       projectId,
       artifactRepository,
       currentBindingProvider,
       currentLocalizationGeometryArtifactId,
-      index: input.assessmentProjectionIndex,
+      assessmentProjectionIndex: input.assessmentProjectionIndex,
+      assessmentProjectionReconciliationStore: input.assessmentProjectionReconciliationStore,
+      assessmentProjectionReconciliationReleaseRef: input.assessmentProjectionReconciliationReleaseRef,
     });
     assessmentArtifactId = projection.assessmentArtifactId;
-  } catch {
+  } catch (error) {
+    if (error instanceof AssessmentProjectionRecoveryError) {
+      return {
+        ok: false,
+        status: 424,
+        error: error.message || 'Governed LU assessment projection reconciliation failed.',
+      };
+    }
     // Covers: no assessment has ever been produced for this project, the only assessment(s) on
     // record are bound to a since-superseded context, or none survive CAS re-verification.
     // Explicit, never a silent stale fallback.
-    return { ok: false, status: 404, error: 'No current governed LU assessment is available for this project.' };
+    return {
+      ok: false,
+      status: 404,
+      error: 'No current governed LU assessment is available for this project.',
+    };
   }
 
   // PRODUCT-LU-VIEWER-CAPABILITY-PROVISIONING-01 Phase B: per-project resolution -- looks up
   // THIS project's own completed ViewerCapabilityProvisioningRequest, never a single
   // deployment-wide env var. A project with no completed request yet is simply "not ready", not
   // "wrong project configured".
-  const config = input.config ?? (await resolveLocalizationViewerRuntimeConfigForProject(projectId, artifactRepository));
+  const config =
+    input.config ?? (await resolveLocalizationViewerRuntimeConfigForProject(projectId, artifactRepository));
   if (!config) {
-    return { ok: false, status: 404, error: 'Governed viewer capability is not configured for this project.' };
+    return {
+      ok: false,
+      status: 404,
+      error: 'Governed viewer capability is not configured for this project.',
+    };
   }
   if (config.expectedProjectId !== projectId) {
-    return { ok: false, status: 404, error: 'Governed viewer capability is not configured for this project.' };
+    return {
+      ok: false,
+      status: 404,
+      error: 'Governed viewer capability is not configured for this project.',
+    };
   }
 
   try {
@@ -340,6 +457,8 @@ export async function resolveCurrentLuAssessmentSummary(input: {
   readonly currentBindingProvider?: ProjectContextBindingProvider;
   readonly assessmentProjectionIndex?: ProjectAssessmentProjectionIndex;
   readonly localizationGeometryIndex?: LocalizationGeometryProjectionIndex;
+  readonly assessmentProjectionReconciliationStore?: AssessmentProjectionReconciliationStore;
+  readonly assessmentProjectionReconciliationReleaseRef?: ArtifactReference;
 }): Promise<
   | {
       ok: true;
@@ -367,7 +486,8 @@ export async function resolveCurrentLuAssessmentSummary(input: {
     return { ok: false, status: 403, error: 'Not authorized for this project.' };
   }
 
-  const artifactRepository = input.artifactRepository ?? (await MimersIntegration.create()).artifactRepository;
+  const artifactRepository =
+    input.artifactRepository ?? (await MimersIntegration.create()).artifactRepository;
   const currentBindingProvider =
     input.currentBindingProvider ??
     new ProjectContextBindingProvider(
@@ -390,16 +510,29 @@ export async function resolveCurrentLuAssessmentSummary(input: {
 
   let assessmentArtifactId: string;
   try {
-    const projection = await resolveCurrentAssessmentProjection({
+    const projection = await resolveCurrentAssessmentProjectionWithRecovery({
       projectId,
       artifactRepository,
       currentBindingProvider,
       currentLocalizationGeometryArtifactId,
-      index: input.assessmentProjectionIndex,
+      assessmentProjectionIndex: input.assessmentProjectionIndex,
+      assessmentProjectionReconciliationStore: input.assessmentProjectionReconciliationStore,
+      assessmentProjectionReconciliationReleaseRef: input.assessmentProjectionReconciliationReleaseRef,
     });
     assessmentArtifactId = projection.assessmentArtifactId;
-  } catch {
-    return { ok: false, status: 404, error: 'No current governed LU assessment is available for this project.' };
+  } catch (error) {
+    if (error instanceof AssessmentProjectionRecoveryError) {
+      return {
+        ok: false,
+        status: 424,
+        error: error.message || 'Governed LU assessment projection reconciliation failed.',
+      };
+    }
+    return {
+      ok: false,
+      status: 404,
+      error: 'No current governed LU assessment is available for this project.',
+    };
   }
 
   let assessment: LocalizationAssessmentArtifact;
@@ -409,7 +542,11 @@ export async function resolveCurrentLuAssessmentSummary(input: {
       artifact_type: 'LOCALIZATION_ASSESSMENT',
     });
   } catch {
-    return { ok: false, status: 404, error: 'No current governed LU assessment is available for this project.' };
+    return {
+      ok: false,
+      status: 404,
+      error: 'No current governed LU assessment is available for this project.',
+    };
   }
 
   const recomputedAssessmentHash = sha256ContentHash(localizationAssessmentCanonicalBody(assessment));
@@ -481,16 +618,14 @@ export async function exportCurrentLuAssessmentPdf(input: {
   readonly currentBindingProvider?: ProjectContextBindingProvider;
   readonly assessmentProjectionIndex?: ProjectAssessmentProjectionIndex;
   readonly localizationGeometryIndex?: LocalizationGeometryProjectionIndex;
-}): Promise<
-  | { ok: true; buffer: Buffer; filename: string }
-  | { ok: false; status: number; error: string }
-> {
+}): Promise<{ ok: true; buffer: Buffer; filename: string } | { ok: false; status: number; error: string }> {
   const summary = await resolveCurrentLuAssessmentSummary(input);
   if (summary.ok === false) {
     return summary;
   }
 
-  const artifactRepository = input.artifactRepository ?? (await MimersIntegration.create()).artifactRepository;
+  const artifactRepository =
+    input.artifactRepository ?? (await MimersIntegration.create()).artifactRepository;
 
   let property: { property_ref: string; official_name: string; municipality: string } | null = null;
   try {
@@ -513,7 +648,10 @@ export async function exportCurrentLuAssessmentPdf(input: {
     const projectContext = await artifactRepository.resolve<{
       payload: { project_name: string; description: string };
     }>(summary.projectContextRef);
-    project = { project_name: projectContext.payload.project_name, description: projectContext.payload.description };
+    project = {
+      project_name: projectContext.payload.project_name,
+      description: projectContext.payload.description,
+    };
   } catch {
     project = null;
   }
@@ -585,7 +723,12 @@ export async function verifyCurrentLuAssessment(input: {
   readonly assessmentProjectionIndex?: ProjectAssessmentProjectionIndex;
   readonly localizationGeometryIndex?: LocalizationGeometryProjectionIndex;
 }): Promise<
-  | { ok: true; outcome: 'PASS' | 'DENY'; assessmentArtifactId: string; mismatches: readonly LuReExecutionMismatch[] }
+  | {
+      ok: true;
+      outcome: 'PASS' | 'DENY';
+      assessmentArtifactId: string;
+      mismatches: readonly LuReExecutionMismatch[];
+    }
   | { ok: false; status: number; error: string }
 > {
   const summary = await resolveCurrentLuAssessmentSummary(input);
@@ -593,7 +736,8 @@ export async function verifyCurrentLuAssessment(input: {
     return summary;
   }
 
-  const artifactRepository = input.artifactRepository ?? (await MimersIntegration.create()).artifactRepository;
+  const artifactRepository =
+    input.artifactRepository ?? (await MimersIntegration.create()).artifactRepository;
   const result = await reExecuteLocalizationAssessment({
     assessmentArtifactId: summary.assessmentArtifactId,
     artifactRepository,

@@ -227,6 +227,7 @@ export async function reconcileAssessmentProjection(args: {
   readonly currentProjectContextRef: ArtifactReference;
   readonly currentBindingRef: ArtifactReference;
   readonly currentReleaseRef: ArtifactReference;
+  readonly currentLocalizationGeometryArtifactId?: string;
   readonly index?: ProjectAssessmentProjectionIndex;
 }): Promise<AssessmentProjectionReconciliationResult> {
   let assessment: LocalizationAssessmentArtifact;
@@ -265,6 +266,13 @@ export async function reconcileAssessmentProjection(args: {
     return { reconciled: false, reason: "NOT_CURRENT" };
   }
 
+  if (
+    args.currentLocalizationGeometryArtifactId !== undefined &&
+    assessment.payload.localization_geometry_ref?.artifact_id !== args.currentLocalizationGeometryArtifactId
+  ) {
+    return { reconciled: false, reason: "NOT_CURRENT" };
+  }
+
   const index = args.index ?? new PrismaProjectAssessmentProjectionIndex();
   // Propagates on failure -- a caller (ops reconciliation run) must see this, not have it
   // swallowed a second time.
@@ -275,6 +283,7 @@ export async function reconcileAssessmentProjection(args: {
     projectContextRef: assessment.payload.project_context_ref,
     bindingArtifactId: args.currentBindingRef.artifact_id,
     releaseArtifactId: args.currentReleaseRef.artifact_id,
+    localizationGeometryArtifactId: args.currentLocalizationGeometryArtifactId ?? null,
   });
   return { reconciled: true };
 }

@@ -94,6 +94,11 @@ export interface LuKernelRunInput {
   readonly verified_document_facts?: readonly VerifiedDocumentFactArtifact[];
   /** HM1-C: semantic inputs for an assessment created only after governed execution succeeds. */
   readonly assessment_draft?: LocalizationAssessmentDraft;
+  /**
+   * H2: called after the LocalizationAssessmentArtifact identity is derived, but before CAS
+   * persistence. Operational recovery state written here does not establish assessment authority.
+   */
+  readonly on_assessment_prepared?: (assessment: LocalizationAssessmentArtifact) => Promise<void>;
   /** Composition-root repository; production passes the same canonical repository as providers. */
   readonly artifact_repository?: import("../../../mps-runtime/src/kernel/ExecutionKernel.js").ArtifactRepositoryPort;
   /** Optional injected registry (tests); defaults to LU release seed. */
@@ -448,6 +453,7 @@ export async function runLuAssessmentViaKernel(
           outcome: result.outcome,
           attestation,
         });
+        await input.on_assessment_prepared?.(assessment);
         await new GovernedAssessmentPersistence(
           repo,
           (candidate) => security.verifyAttestation(candidate),

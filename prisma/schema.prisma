@@ -276,6 +276,35 @@ model ProjectAssessmentProjection {
   @@map("project_assessment_projections")
 }
 
+enum AssessmentProjectionReconciliationStatus {
+  PENDING
+  RECONCILED
+  NOT_CURRENT
+  MISSING_CAS
+  TAMPERED
+}
+
+/// H2 — durable operational recovery state for the crash window between canonical
+/// LocalizationAssessmentArtifact persistence and non-authoritative assessment projection
+/// registration. The primary identity is the assessment artifact id itself; project/binding/release
+/// fields are diagnostic/index hints only and never establish currentness authority.
+model AssessmentProjectionReconciliationObligation {
+  assessmentArtifactId           String                                     @id @map("assessment_artifact_id")
+  status                         AssessmentProjectionReconciliationStatus   @default(PENDING)
+  attemptCount                   Int                                        @default(0) @map("attempt_count")
+  lastError                      String?                                    @map("last_error")
+  projectId                      String?                                    @map("project_id")
+  bindingArtifactId              String?                                    @map("binding_artifact_id")
+  releaseArtifactId              String?                                    @map("release_artifact_id")
+  localizationGeometryArtifactId String?                                    @map("localization_geometry_artifact_id")
+  createdAt                      DateTime                                   @default(now()) @map("created_at")
+  updatedAt                      DateTime                                   @updatedAt @map("updated_at")
+
+  @@index([projectId, status])
+  @@index([status, updatedAt])
+  @@map("assessment_projection_reconciliation_obligations")
+}
+
 /// PRODUCT-LU-LOCALIZATION-GEOMETRY-01 Phase B. Append-only, non-authoritative locator -- same
 /// shape and same rules as ProjectAssessmentProjection: CAS remains the sole content authority,
 /// every candidate must be re-resolved and re-verified from CAS before being trusted, and
