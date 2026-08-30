@@ -7,7 +7,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const harnessDir = path.dirname(fileURLToPath(import.meta.url));
-const productRoot = path.resolve(harnessDir, '../../../product');
+const productRoot = path.resolve(harnessDir, '../../product');
 const requireFromProduct = createRequire(path.join(productRoot, 'package.json'));
 const { defineConfig } = requireFromProduct('@playwright/test');
 

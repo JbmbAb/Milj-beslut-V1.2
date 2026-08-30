@@ -65,12 +65,10 @@ jobs:
         uses: actions/checkout@v4
         with:
           ref: ${{ github.sha }}
-          path: release-harness
           fetch-depth: 0
 
       - name: Verify release harness identity
         shell: bash
-        working-directory: release-harness
         run: |
           set -euo pipefail
           RELEASE_HARNESS_SHA="$(git rev-parse HEAD)"
@@ -188,11 +186,9 @@ jobs:
           } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Install release harness dependencies
-        working-directory: release-harness
         run: npm ci
 
       - name: Verify staging environment (mock-flags + nycklar)
-        working-directory: release-harness
         run: npm run smoke:staging-verify
         env:
           STAGING_URL: ${{ inputs.base_url || vars.STAGING_URL }}
@@ -235,7 +231,6 @@ jobs:
           echo "Cloud Run IAM token minted (value not logged)."
 
       - name: IAM preflight (infrastructure auth)
-        working-directory: release-harness
         shell: bash
         env:
           CLOUD_RUN_ID_TOKEN: ${{ steps.cloud_run_iam.outputs.id_token }}
@@ -257,7 +252,7 @@ jobs:
           CLOUD_RUN_IAM_AUDIENCE: ${{ inputs.base_url || vars.STAGING_URL }}
         run: >-
           npx playwright test
-          -c ../release-harness/release-harness/staging/playwright.cloud-run-staging.config.mjs
+          -c ../release-harness/staging/playwright.cloud-run-staging.config.mjs
 
       - name: Upload Playwright report
         if: always()
