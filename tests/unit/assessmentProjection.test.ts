@@ -130,6 +130,33 @@ class FakeAssessmentProjectionIndex implements ProjectAssessmentProjectionIndex 
   }
 }
 
+class ConcurrentSafeAssessmentProjectionIndex extends FakeAssessmentProjectionIndex {
+  private registerCalls = 0;
+  private releaseBoth: (() => void) | null = null;
+  private readonly bothCallsArrived = new Promise<void>((resolve) => {
+    this.releaseBoth = resolve;
+  });
+
+  override async register(row: {
+    projectId: string;
+    assessmentArtifactId: string;
+    assessmentArtifactType: string;
+    projectContextRef: ArtifactReference;
+    bindingArtifactId: string;
+    releaseArtifactId: string;
+    localizationGeometryArtifactId?: string | null;
+  }): Promise<void> {
+    this.registerCalls += 1;
+    if (this.registerCalls === 2) {
+      this.releaseBoth?.();
+    }
+    if (this.registerCalls <= 2) {
+      await this.bothCallsArrived;
+    }
+    await super.register(row);
+  }
+}
+
 class FakeAssessmentProjectionReconciliationStore implements AssessmentProjectionReconciliationStore {
   readonly obligations = new Map<string, AssessmentProjectionReconciliationObligation>();
 
@@ -1051,6 +1078,46 @@ describe('P3-LU-ASSESSMENT-CURRENT-PROJECTION-01', () => {
       expect(await index.listForProject(PROJECT_ID)).toHaveLength(1);
       expect(s.repository.values.get(assessment.artifact_id)).toBe(originalCasBody);
       expect(store.obligations.get(assessment.artifact_id)).toMatchObject({ status: 'RECONCILED' });
+    });
+
+    it('H2-V2: genuinely concurrent reconciliation converges to one projection and one obligation identity', async () => {
+      const s = await setup();
+      const assessment = await s.buildAndPersistAssessment(contextNew);
+      const index = new ConcurrentSafeAssessmentProjectionIndex();
+      const store = new FakeAssessmentProjectionReconciliationStore();
+      await seedObligation(store, {
+        assessmentArtifactId: assessment.artifact_id,
+        bindingArtifactId: s.newBindingRef.artifact_id,
+        releaseArtifactId: RELEASE_REF.artifact_id,
+      });
+
+      const run = () =>
+        reconcileAssessmentProjectionObligationsForProject({
+          projectId: PROJECT_ID,
+          artifactRepository: s.repository,
+          currentProjectContextRef: contextNew,
+          currentBindingRef: s.newBindingRef,
+          currentReleaseRef: RELEASE_REF,
+          projectionIndex: index,
+          obligationStore: store,
+        });
+
+      const [first, second] = await Promise.all([run(), run()]);
+
+      expect(first.attempted + second.attempted).toBe(2);
+      expect(first.reconciled + second.reconciled).toBe(2);
+      const rows = await index.listForProject(PROJECT_ID);
+      expect(rows).toHaveLength(1);
+      expect(rows[0]).toMatchObject({
+        projectId: PROJECT_ID,
+        assessmentArtifactId: assessment.artifact_id,
+        bindingArtifactId: s.newBindingRef.artifact_id,
+        releaseArtifactId: RELEASE_REF.artifact_id,
+      });
+      expect([...store.obligations.keys()]).toEqual([assessment.artifact_id]);
+      expect(store.obligations.get(assessment.artifact_id)).toMatchObject({
+        status: 'RECONCILED',
+      });
     });
 
     it('H2 R5: projection already exists -> reconciliation converges without duplicate state', async () => {
