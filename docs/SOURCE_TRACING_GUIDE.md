@@ -2,6 +2,19 @@
 
 **Status:** 🟢 IMPLEMENTED IN ALL GENERATORS
 
+**SCOPE_STATUS (2026-08-30 code-verification):** `IMPLEMENTED_BUT_OUT_OF_SCOPE`. The
+three named generator services (project plan, logistics, permit application) exist
+and pass their unit tests, and are API-mounted via
+`server/routes/generators.routes.ts`. But none belong to the three canonical focus
+modules (LU, C-anmälan/schaktmassor, Enskilt avlopp) in
+[docs/qa/MODULE_IMPLEMENTATION_PLAN.md](./qa/MODULE_IMPLEMENTATION_PLAN.md); Logistics
+and full-generator flow are explicitly listed as out-of-Core (V2+) in
+[docs/qa/core-scope-lock.md](./qa/core-scope-lock.md). Their admin UI is not wired
+into the live app entry point (`components/App.tsx`), so source tracing is not
+currently visible to end users regardless of whether the backend field-level claims
+below are accurate (per-field completeness of the doc's JSON examples was not
+independently re-verified line-by-line). Historical content preserved as-is below.
+
 ---
 
 ## 🎯 OVERVIEW
