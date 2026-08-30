@@ -1,25 +1,31 @@
-import type { ArtifactRepositoryPort } from "../../../mps-runtime/src/kernel/ExecutionKernel.js";
-import { sha256ContentHash } from "../../../mps-runtime/src/kernel/ExecutionKernel.js";
-import type { FrozenExecutionOutcomeIdentity } from "../../../mps-runtime/src/contracts/freeze/FrozenIdentities.js";
-import type { OutcomeAttestation } from "../../../mps-runtime/src/security/SecurityContracts.js";
-import type { ArtifactReference } from "@miljobeslut/mps-compliance/src/artifacts/ArtifactReference";
-import type { AssessmentFinding } from "../domain/AssessmentFinding.js";
+import type { ArtifactRepositoryPort } from '../../../mps-runtime/src/kernel/ExecutionKernel.js';
+import { sha256ContentHash } from '../../../mps-runtime/src/kernel/ExecutionKernel.js';
+import type { FrozenExecutionOutcomeIdentity } from '../../../mps-runtime/src/contracts/freeze/FrozenIdentities.js';
+import type { OutcomeAttestation } from '../../../mps-runtime/src/security/SecurityContracts.js';
+import type { ArtifactReference } from '@miljobeslut/mps-compliance/src/artifacts/ArtifactReference';
+import type { AssessmentFinding } from '../domain/AssessmentFinding.js';
 import {
   LOCALIZATION_ASSESSMENT_CONTRACT_VERSION_V2,
   LOCALIZATION_ASSESSMENT_CANONICALIZER_ID_V2,
   LOCALIZATION_ASSESSMENT_CONTRACT_VERSION_V3,
   LOCALIZATION_ASSESSMENT_CANONICALIZER_ID_V3,
+  LOCALIZATION_ASSESSMENT_CONTRACT_VERSION_V4,
+  LOCALIZATION_ASSESSMENT_CANONICALIZER_ID_V4,
+  LOCALIZATION_ASSESSMENT_COVERAGE_CONTRACT_VERSION_V1,
   type LocalizationAssessmentArtifact,
+  type LocalizationAssessmentCoverageSnapshot,
+  type LocalizationAssessmentCoverageSource,
+  type LocalizationAssessmentCoverageStatus,
   type LocalizationAssessmentDraft,
   type LocalizationAssessmentPayload,
-} from "../artifacts/LocalizationAssessmentArtifact.js";
+} from '../artifacts/LocalizationAssessmentArtifact.js';
 
 export type VerifyOutcomeAttestation = (attestation: OutcomeAttestation) => boolean;
 
 /** The canonical hash domain. Identity fields are derived from this body, never self-hashed. */
 export function localizationAssessmentCanonicalBody(
   artifact: LocalizationAssessmentArtifact,
-): Pick<LocalizationAssessmentArtifact, "artifact_type" | "references" | "payload"> {
+): Pick<LocalizationAssessmentArtifact, 'artifact_type' | 'references' | 'payload'> {
   return {
     artifact_type: artifact.artifact_type,
     references: artifact.references,
@@ -41,9 +47,7 @@ function sameRef(
   return left?.artifact_id === right.artifact_id && left.artifact_type === right.artifact_type;
 }
 
-function uniqueRefs(
-  refs: readonly { readonly artifact_id: string; readonly artifact_type: string }[],
-) {
+function uniqueRefs(refs: readonly { readonly artifact_id: string; readonly artifact_type: string }[]) {
   return Array.from(
     new Map(refs.map((ref) => [`${ref.artifact_type}:${ref.artifact_id}`, ref] as const)).values(),
   );
@@ -102,7 +106,7 @@ function canonicalFindings(findings: readonly AssessmentFinding[]): AssessmentFi
   const byKey = new Map<string, AssessmentFinding>();
   for (const finding of findings) {
     if (!finding.finding_id?.trim() || !finding.rule_id?.trim() || !finding.rule_version?.trim()) {
-      throw new Error("REJECT_LOCALIZATION_ASSESSMENT_V3: finding semantic key is incomplete");
+      throw new Error('REJECT_LOCALIZATION_ASSESSMENT_V3: finding semantic key is incomplete');
     }
     // Construct the closed finding schema explicitly. Besides making every output member
     // load-bearing, this prevents producer-specific JavaScript property insertion order from
@@ -128,6 +132,73 @@ function canonicalFindings(findings: readonly AssessmentFinding[]): AssessmentFi
   });
 }
 
+function coverageSourceKey(source: LocalizationAssessmentCoverageSource): string {
+  return `${source.source}\u0000${source.status}\u0000${source.detail ?? ''}`;
+}
+
+function deriveCoverageStatus(
+  sources: readonly { readonly status: 'ok' | 'degraded' | 'unavailable' }[],
+): LocalizationAssessmentCoverageStatus {
+  if (sources.length === 0) {
+    return 'UNAVAILABLE';
+  }
+  if (sources.every((source) => source.status === 'unavailable')) {
+    return 'UNAVAILABLE';
+  }
+  if (sources.some((source) => source.status !== 'ok')) {
+    return 'PARTIAL';
+  }
+  return 'COMPLETE';
+}
+
+function canonicalCoverageSources(
+  sources: readonly LocalizationAssessmentCoverageSource[],
+): LocalizationAssessmentCoverageSource[] {
+  return Array.from(
+    new Map(
+      sources.map((source) => {
+        const canonical = {
+          source: String(source.source).trim(),
+          status: source.status,
+          ...(source.detail !== undefined ? { detail: String(source.detail) } : {}),
+        } satisfies LocalizationAssessmentCoverageSource;
+        return [coverageSourceKey(canonical), canonical] as const;
+      }),
+    ).values(),
+  ).sort((a, b) => {
+    const keyA = coverageSourceKey(a);
+    const keyB = coverageSourceKey(b);
+    return keyA < keyB ? -1 : keyA > keyB ? 1 : 0;
+  });
+}
+
+export function createLocalizationAssessmentCoverageSnapshot(
+  sources: readonly LocalizationAssessmentCoverageSource[],
+): LocalizationAssessmentCoverageSnapshot {
+  const dataSources = canonicalCoverageSources(sources);
+  return {
+    coverage_contract_version: LOCALIZATION_ASSESSMENT_COVERAGE_CONTRACT_VERSION_V1,
+    overall_status: deriveCoverageStatus(dataSources),
+    data_sources: dataSources,
+  };
+}
+
+function validateCoverageSnapshot(snapshot: LocalizationAssessmentCoverageSnapshot | undefined): void {
+  if (!snapshot) {
+    throw new Error('REJECT_LOCALIZATION_ASSESSMENT_V4: coverage_snapshot is required');
+  }
+  if (snapshot.coverage_contract_version !== LOCALIZATION_ASSESSMENT_COVERAGE_CONTRACT_VERSION_V1) {
+    throw new Error('REJECT_LOCALIZATION_ASSESSMENT_V4: coverage_snapshot contract version mismatch');
+  }
+  const canonical = createLocalizationAssessmentCoverageSnapshot(snapshot.data_sources);
+  if (snapshot.overall_status !== canonical.overall_status) {
+    throw new Error('REJECT_LOCALIZATION_ASSESSMENT_V4: coverage_snapshot overall_status mismatch');
+  }
+  if (JSON.stringify(snapshot.data_sources) !== JSON.stringify(canonical.data_sources)) {
+    throw new Error('REJECT_LOCALIZATION_ASSESSMENT_V4: coverage_snapshot sources are not canonical');
+  }
+}
+
 /**
  * LOCALIZATION-ASSESSMENT-CANONICAL-COLLECTIONS-V2 / ARTIFACT-OPERATIONAL-TEMPORAL-ENVELOPE-V1
  * (H2/H12), explicit version dispatch. Callers already recompute and compare `content_hash`
@@ -147,30 +218,59 @@ export function validateLocalizationAssessmentContractVersion(payload: Localizat
   }
   if (version === LOCALIZATION_ASSESSMENT_CONTRACT_VERSION_V2) {
     if (payload.canonicalizer_id !== LOCALIZATION_ASSESSMENT_CANONICALIZER_ID_V2) {
-      throw new Error("REJECT_LOCALIZATION_ASSESSMENT_V2: canonicalizer_id mismatch");
+      throw new Error('REJECT_LOCALIZATION_ASSESSMENT_V2: canonicalizer_id mismatch');
     }
     const canonical = canonicalEvidenceRefs(payload.evidence_refs);
     if (JSON.stringify(canonical) !== JSON.stringify(payload.evidence_refs)) {
-      throw new Error("REJECT_LOCALIZATION_ASSESSMENT_V2: evidence_refs is not the canonical deduplicated/sorted form");
+      throw new Error(
+        'REJECT_LOCALIZATION_ASSESSMENT_V2: evidence_refs is not the canonical deduplicated/sorted form',
+      );
     }
     return;
   }
   if (version === LOCALIZATION_ASSESSMENT_CONTRACT_VERSION_V3) {
     if (payload.canonicalizer_id !== LOCALIZATION_ASSESSMENT_CANONICALIZER_ID_V3) {
-      throw new Error("REJECT_LOCALIZATION_ASSESSMENT_V3: canonicalizer_id mismatch");
+      throw new Error('REJECT_LOCALIZATION_ASSESSMENT_V3: canonicalizer_id mismatch');
     }
     const canonicalEvidence = canonicalEvidenceRefs(payload.evidence_refs);
     if (JSON.stringify(canonicalEvidence) !== JSON.stringify(payload.evidence_refs)) {
-      throw new Error("REJECT_LOCALIZATION_ASSESSMENT_V3: evidence_refs is not the canonical deduplicated/sorted form");
+      throw new Error(
+        'REJECT_LOCALIZATION_ASSESSMENT_V3: evidence_refs is not the canonical deduplicated/sorted form',
+      );
     }
     const canonicalRules = canonicalRuleRefs(payload.rule_refs);
     if (JSON.stringify(canonicalRules) !== JSON.stringify(payload.rule_refs)) {
-      throw new Error("REJECT_LOCALIZATION_ASSESSMENT_V3: rule_refs is not the canonical deduplicated/sorted form");
+      throw new Error(
+        'REJECT_LOCALIZATION_ASSESSMENT_V3: rule_refs is not the canonical deduplicated/sorted form',
+      );
     }
     const canonicalFindingSet = canonicalFindings(payload.findings);
     if (JSON.stringify(canonicalFindingSet) !== JSON.stringify(payload.findings)) {
-      throw new Error("REJECT_LOCALIZATION_ASSESSMENT_V3: findings is not the canonical semantic set");
+      throw new Error('REJECT_LOCALIZATION_ASSESSMENT_V3: findings is not the canonical semantic set');
     }
+    return;
+  }
+  if (version === LOCALIZATION_ASSESSMENT_CONTRACT_VERSION_V4) {
+    if (payload.canonicalizer_id !== LOCALIZATION_ASSESSMENT_CANONICALIZER_ID_V4) {
+      throw new Error('REJECT_LOCALIZATION_ASSESSMENT_V4: canonicalizer_id mismatch');
+    }
+    const canonicalEvidence = canonicalEvidenceRefs(payload.evidence_refs);
+    if (JSON.stringify(canonicalEvidence) !== JSON.stringify(payload.evidence_refs)) {
+      throw new Error(
+        'REJECT_LOCALIZATION_ASSESSMENT_V4: evidence_refs is not the canonical deduplicated/sorted form',
+      );
+    }
+    const canonicalRules = canonicalRuleRefs(payload.rule_refs);
+    if (JSON.stringify(canonicalRules) !== JSON.stringify(payload.rule_refs)) {
+      throw new Error(
+        'REJECT_LOCALIZATION_ASSESSMENT_V4: rule_refs is not the canonical deduplicated/sorted form',
+      );
+    }
+    const canonicalFindingSet = canonicalFindings(payload.findings);
+    if (JSON.stringify(canonicalFindingSet) !== JSON.stringify(payload.findings)) {
+      throw new Error('REJECT_LOCALIZATION_ASSESSMENT_V4: findings is not the canonical semantic set');
+    }
+    validateCoverageSnapshot(payload.coverage_snapshot);
     return;
   }
   throw new Error(`REJECT_LOCALIZATION_ASSESSMENT: unknown assessment_contract_version '${String(version)}'`);
@@ -191,6 +291,9 @@ export function createGovernedLocalizationAssessment(args: {
     artifact_type: args.attestation.artifact_type,
   };
   const canonicalFindingSet = canonicalFindings(args.findings);
+  const coverageSnapshot = args.draft.coverage_snapshot
+    ? createLocalizationAssessmentCoverageSnapshot(args.draft.coverage_snapshot.data_sources)
+    : undefined;
   const payload: LocalizationAssessmentPayload = {
     project_context_ref: args.draft.project_context_ref,
     property_ref: args.draft.property_ref,
@@ -200,10 +303,12 @@ export function createGovernedLocalizationAssessment(args: {
     // LOCALIZATION-ASSESSMENT-CANONICAL-COLLECTIONS-V2: dedup + canonical sort, not just dedup --
     // evidence_refs is a SEMANTIC_SET, never an as-received ORDERED_SEQUENCE.
     evidence_refs: canonicalEvidenceRefs(args.draft.evidence_refs),
-    rule_refs: canonicalRuleRefs(canonicalFindingSet.map((finding) => ({
-      rule_id: finding.rule_id,
-      rule_version: finding.rule_version,
-    }))),
+    rule_refs: canonicalRuleRefs(
+      canonicalFindingSet.map((finding) => ({
+        rule_id: finding.rule_id,
+        rule_version: finding.rule_version,
+      })),
+    ),
     system_summary: args.draft.system_summary,
     ...(args.draft.consultant_commentary_ref
       ? { consultant_commentary_ref: args.draft.consultant_commentary_ref }
@@ -211,8 +316,13 @@ export function createGovernedLocalizationAssessment(args: {
     ...(args.draft.localization_geometry_ref
       ? { localization_geometry_ref: args.draft.localization_geometry_ref }
       : {}),
-    assessment_contract_version: LOCALIZATION_ASSESSMENT_CONTRACT_VERSION_V3,
-    canonicalizer_id: LOCALIZATION_ASSESSMENT_CANONICALIZER_ID_V3,
+    ...(coverageSnapshot ? { coverage_snapshot: coverageSnapshot } : {}),
+    assessment_contract_version: coverageSnapshot
+      ? LOCALIZATION_ASSESSMENT_CONTRACT_VERSION_V4
+      : LOCALIZATION_ASSESSMENT_CONTRACT_VERSION_V3,
+    canonicalizer_id: coverageSnapshot
+      ? LOCALIZATION_ASSESSMENT_CANONICALIZER_ID_V4
+      : LOCALIZATION_ASSESSMENT_CANONICALIZER_ID_V3,
   };
   // Constructed FROM the already-canonical payload.evidence_refs -- never independently
   // re-discovering the caller's raw (potentially non-canonical) order.
@@ -225,7 +335,7 @@ export function createGovernedLocalizationAssessment(args: {
     ...(args.draft.localization_geometry_ref ? [args.draft.localization_geometry_ref] : []),
   ]);
   const identityBody = {
-    artifact_type: "LOCALIZATION_ASSESSMENT" as const,
+    artifact_type: 'LOCALIZATION_ASSESSMENT' as const,
     references,
     payload,
   };
@@ -274,34 +384,34 @@ export class GovernedAssessmentPersistence {
     const expectedAttestationId = `attest-${expectedAttestationHash.value.slice(0, 16)}`;
 
     if (!sameRef(args.artifact.payload.execution_outcome_ref, outcomeRef)) {
-      failed.push("execution_outcome_ref");
+      failed.push('execution_outcome_ref');
     }
     if (!sameRef(args.artifact.payload.outcome_attestation_ref, attestationRef)) {
-      failed.push("outcome_attestation_ref");
+      failed.push('outcome_attestation_ref');
     }
     if (!sameHash(args.attestation.outcome_hash, args.outcome.content_hash)) {
-      failed.push("attestation_outcome_hash");
+      failed.push('attestation_outcome_hash');
     }
     if (!sameHash(args.attestation.content_hash, expectedAttestationHash)) {
-      failed.push("attestation_content_hash");
+      failed.push('attestation_content_hash');
     }
     if (args.attestation.attestation_id !== expectedAttestationId) {
-      failed.push("attestation_id");
+      failed.push('attestation_id');
     }
     if (!this.verifyAttestation(args.attestation)) {
-      failed.push("attestation_signature");
+      failed.push('attestation_signature');
     }
     if (!sameHash(args.artifact.content_hash, computedHash)) {
-      failed.push("canonical_body_hash");
+      failed.push('canonical_body_hash');
     }
     if (args.artifact.artifact_id !== expectedArtifactId) {
-      failed.push("canonical_artifact_id");
+      failed.push('canonical_artifact_id');
     }
     if (!args.artifact.references.some((ref) => sameRef(ref, outcomeRef))) {
-      failed.push("outcome_reference_edge");
+      failed.push('outcome_reference_edge');
     }
     if (!args.artifact.references.some((ref) => sameRef(ref, attestationRef))) {
-      failed.push("attestation_reference_edge");
+      failed.push('attestation_reference_edge');
     }
     // LU-ASSESSMENT-CONTRACT-VERSIONING-V1 (H12): the hash re-derivation above is
     // version-agnostic by construction (it just hashes whatever body is actually there) -- this
@@ -315,7 +425,7 @@ export class GovernedAssessmentPersistence {
     }
 
     if (failed.length > 0) {
-      throw new Error(`REJECT_LOCALIZATION_ASSESSMENT: ${failed.join(",")}`);
+      throw new Error(`REJECT_LOCALIZATION_ASSESSMENT: ${failed.join(',')}`);
     }
 
     await this.repository.put({

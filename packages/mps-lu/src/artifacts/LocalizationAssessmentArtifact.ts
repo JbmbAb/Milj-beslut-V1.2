@@ -1,5 +1,8 @@
-import { ArtifactContract, ArtifactReference } from "@miljobeslut/mps-compliance/src/artifacts/ArtifactContract";
-import { AssessmentFinding, RuleId, RuleVersion } from "../domain/AssessmentFinding";
+import {
+  ArtifactContract,
+  ArtifactReference,
+} from '@miljobeslut/mps-compliance/src/artifacts/ArtifactContract';
+import { AssessmentFinding, RuleId, RuleVersion } from '../domain/AssessmentFinding';
 
 /**
  * LOCALIZATION-ASSESSMENT-CANONICAL-COLLECTIONS-V2 (CANONICAL-SEMANTIC-INPUTS-V1, H7).
@@ -23,14 +26,22 @@ import { AssessmentFinding, RuleId, RuleVersion } from "../domain/AssessmentFind
  * -- a legacy artifact's content_hash must stay byte-identical; it is never retroactively
  * rehashed or reinterpreted under V2 rules. Every new assessment sets it explicitly.
  */
-export const LOCALIZATION_ASSESSMENT_CONTRACT_VERSION_V2 = "localization-assessment-v2" as const;
+export const LOCALIZATION_ASSESSMENT_CONTRACT_VERSION_V2 = 'localization-assessment-v2' as const;
 
 /**
  * CANONICAL-SEMANTIC-INPUTS-V1 (H7). V3 corrects the remaining collection
  * nondeterminism: findings and rule_refs are semantic sets, not the accidental order in which
  * providers happened to return evidence. V2 remains frozen historical semantics.
  */
-export const LOCALIZATION_ASSESSMENT_CONTRACT_VERSION_V3 = "localization-assessment-v3" as const;
+export const LOCALIZATION_ASSESSMENT_CONTRACT_VERSION_V3 = 'localization-assessment-v3' as const;
+
+/**
+ * H3 COVERAGE-VERDICT. V4 keeps V3 collection semantics and adds the exact provider coverage
+ * snapshot to the assessment hash domain. A verdict may still be produced under partial
+ * coverage, but the coverage state that bounded it is immutable assessment content rather than
+ * later presentation metadata.
+ */
+export const LOCALIZATION_ASSESSMENT_CONTRACT_VERSION_V4 = 'localization-assessment-v4' as const;
 
 /**
  * ARTIFACT-OPERATIONAL-TEMPORAL-ENVELOPE-V1 (H2/H12). Same canonicalization pipeline every other
@@ -40,9 +51,28 @@ export const LOCALIZATION_ASSESSMENT_CONTRACT_VERSION_V3 = "localization-assessm
  * this one, matching the same discipline already applied to SpatialEvidenceIdentity's
  * `sv-canonical-1`/`sv-canonical-2` version tagging.
  */
-export const LOCALIZATION_ASSESSMENT_CANONICALIZER_ID_V2 = "rfc8785-sha256-v1" as const;
+export const LOCALIZATION_ASSESSMENT_CANONICALIZER_ID_V2 = 'rfc8785-sha256-v1' as const;
 /** RFC8785 remains the serializer; V3 changes the declared collection semantics. */
-export const LOCALIZATION_ASSESSMENT_CANONICALIZER_ID_V3 = "rfc8785-sha256-v1" as const;
+export const LOCALIZATION_ASSESSMENT_CANONICALIZER_ID_V3 = 'rfc8785-sha256-v1' as const;
+export const LOCALIZATION_ASSESSMENT_CANONICALIZER_ID_V4 = 'rfc8785-sha256-v1' as const;
+
+export const LOCALIZATION_ASSESSMENT_COVERAGE_CONTRACT_VERSION_V1 = 'lu-assessment-coverage-v1' as const;
+
+export type LocalizationAssessmentCoverageStatus = 'COMPLETE' | 'PARTIAL' | 'UNAVAILABLE';
+
+export type LocalizationAssessmentCoverageSourceStatus = 'ok' | 'degraded' | 'unavailable';
+
+export interface LocalizationAssessmentCoverageSource {
+  readonly source: string;
+  readonly status: LocalizationAssessmentCoverageSourceStatus;
+  readonly detail?: string;
+}
+
+export interface LocalizationAssessmentCoverageSnapshot {
+  readonly coverage_contract_version: typeof LOCALIZATION_ASSESSMENT_COVERAGE_CONTRACT_VERSION_V1;
+  readonly overall_status: LocalizationAssessmentCoverageStatus;
+  readonly data_sources: readonly LocalizationAssessmentCoverageSource[];
+}
 
 export interface LocalizationAssessmentPayload {
   readonly project_context_ref: ArtifactReference;
@@ -73,11 +103,15 @@ export interface LocalizationAssessmentPayload {
   /** Absent on every historical assessment; each declared version dispatches its own rules. */
   readonly assessment_contract_version?:
     | typeof LOCALIZATION_ASSESSMENT_CONTRACT_VERSION_V2
-    | typeof LOCALIZATION_ASSESSMENT_CONTRACT_VERSION_V3;
+    | typeof LOCALIZATION_ASSESSMENT_CONTRACT_VERSION_V3
+    | typeof LOCALIZATION_ASSESSMENT_CONTRACT_VERSION_V4;
   /** Present iff assessment_contract_version is set -- see constant doc comment above. */
   readonly canonicalizer_id?:
     | typeof LOCALIZATION_ASSESSMENT_CANONICALIZER_ID_V2
-    | typeof LOCALIZATION_ASSESSMENT_CANONICALIZER_ID_V3;
+    | typeof LOCALIZATION_ASSESSMENT_CANONICALIZER_ID_V3
+    | typeof LOCALIZATION_ASSESSMENT_CANONICALIZER_ID_V4;
+  /** Required for V4 assessments; absent on historical V1/V2/V3 assessments. */
+  readonly coverage_snapshot?: LocalizationAssessmentCoverageSnapshot;
 }
 
 /** Inputs known before the kernel has produced its outcome and attestation. */
@@ -90,9 +124,11 @@ export interface LocalizationAssessmentDraft {
   readonly consultant_commentary_ref?: ArtifactReference;
   /** PRODUCT-LU-LOCALIZATION-GEOMETRY-01 -- see LocalizationAssessmentPayload. */
   readonly localization_geometry_ref?: ArtifactReference;
+  /** H3 COVERAGE-VERDICT -- when present, new assessments are minted under V4 semantics. */
+  readonly coverage_snapshot?: LocalizationAssessmentCoverageSnapshot;
 }
 
 export interface LocalizationAssessmentArtifact extends ArtifactContract {
-  readonly artifact_type: "LOCALIZATION_ASSESSMENT";
+  readonly artifact_type: 'LOCALIZATION_ASSESSMENT';
   readonly payload: LocalizationAssessmentPayload;
 }

@@ -47,6 +47,18 @@ vi.mock("@miljobeslut/mps-lu", () => ({
   // same underlying call, so the mock must answer to both names.
   runCanonicalLuProductAssessment: (...args: unknown[]) => kernelMock(...args),
   deriveLuExecutionSeed: vi.fn(() => "canonical-seed"),
+  createLocalizationAssessmentCoverageSnapshot: vi.fn((sources) => ({
+    coverage_contract_version: "lu-assessment-coverage-v1",
+    overall_status:
+      sources.length === 0
+        ? "UNAVAILABLE"
+        : sources.every((source: { status: string }) => source.status === "unavailable")
+          ? "UNAVAILABLE"
+          : sources.some((source: { status: string }) => source.status !== "ok")
+            ? "PARTIAL"
+            : "COMPLETE",
+    data_sources: sources,
+  })),
   createLuRegistryRuntime: vi.fn(() => ({
     getReleaseSnapshot: () => ({ snapshot_id: "lu-registry-snapshot-test" }),
   })),

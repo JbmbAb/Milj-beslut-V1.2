@@ -10,7 +10,11 @@ import { runSpatialAudit, type SpatialAuditSummary } from '../../server/services
 import { evaluateComplianceRules, type SiteAnalysis } from '../../server/services/complianceRuleEngine';
 import { fetchProtectedAreas, type ProtectedArea } from '../../server/services/nvrService';
 import { fetchAncientMonuments, type Monument } from '../../server/services/raaService';
-import { queryVissPoint, type VissPointResult, type VissWaterStatus } from '../../server/services/vissService';
+import {
+  queryVissPoint,
+  type VissPointResult,
+  type VissWaterStatus,
+} from '../../server/services/vissService';
 import { toGeologicalData } from '../../server/services/sguRiskService';
 import { auditTrail } from '../../server/services/auditTrailService';
 import { searchSluByCoordinates, getSpeciesInformation } from '../../server/services/sluService';
@@ -21,20 +25,18 @@ import {
   runCanonicalLuProductAssessment,
   deriveLuExecutionSeed,
   createLuRegistryRuntime,
+  createLocalizationAssessmentCoverageSnapshot,
+  type LocalizationAssessmentCoverageStatus,
   type AnyDocumentEvidenceArtifact,
   type AssessmentFinding,
 } from '@miljobeslut/mps-lu';
-import {
-  isDocumentEvidenceV2,
-} from '../../packages/mps-lu/src/artifacts/DocumentEvidenceArtifactV2';
+import { isDocumentEvidenceV2 } from '../../packages/mps-lu/src/artifacts/DocumentEvidenceArtifactV2';
 import {
   isVerifiedDocumentFact,
   type DocumentFactCandidateArtifact,
   type VerifiedDocumentFactArtifact,
 } from '../../packages/mps-data-governance/src/DocumentFactArtifact';
-import {
-  isVerifiedDocumentFactContentHashValid,
-} from '../../packages/mps-data-governance/src/verifyRealDocumentFactCandidate';
+import { isVerifiedDocumentFactContentHashValid } from '../../packages/mps-data-governance/src/verifyRealDocumentFactCandidate';
 import {
   isVerifiedDocumentFactV2ContentHashValid,
   type VerifiedDocumentFactArtifactV2,
@@ -92,11 +94,7 @@ export type DataSourceStatus = {
  * non-verdict outcomes occurred, so a caller can distinguish "not attempted" from "governance
  * refused" from "execution broke" without any of them looking like a risk assessment.
  */
-export type LuAssessmentStatus =
-  | 'ASSESSED'
-  | 'NOT_ASSESSED'
-  | 'GOVERNANCE_DENIED'
-  | 'EXECUTION_FAILED';
+export type LuAssessmentStatus = 'ASSESSED' | 'NOT_ASSESSED' | 'GOVERNANCE_DENIED' | 'EXECUTION_FAILED';
 
 export interface ExecutionMotorMeta {
   admitted: boolean;
@@ -169,9 +167,7 @@ export type LuVerdictAnalysis = GovernedVerdictAnalysis | NonVerdictAnalysis;
  * `assessment_status === 'ASSESSED'` narrows identically; this exists so consumers outside this
  * module do not have to restate the discriminant literal.
  */
-export function isGovernedVerdict(
-  analysis: LuVerdictAnalysis,
-): analysis is GovernedVerdictAnalysis {
+export function isGovernedVerdict(analysis: LuVerdictAnalysis): analysis is GovernedVerdictAnalysis {
   return analysis.assessment_status === 'ASSESSED';
 }
 
@@ -224,6 +220,7 @@ export interface SiteAnalysisResult {
   dataSources: DataSourceStatus[];
   warnings: string[];
   sluObservationCount: number;
+  coverageStatus?: LocalizationAssessmentCoverageStatus;
   documentEvidence?: any[];
   executionMotor?: ExecutionMotorMeta;
 }
@@ -257,9 +254,7 @@ async function resolveVerifiedDocumentFacts(
       : (evidence.payload.fact_refs ?? []);
     for (const ref of evidenceRefs) {
       if (ref.artifact_type !== 'VERIFIED_DOCUMENT_FACT') {
-        throw new Error(
-          `REJECT_DOCUMENT_FACT: '${ref.artifact_id}' is not a VERIFIED_DOCUMENT_FACT`,
-        );
+        throw new Error(`REJECT_DOCUMENT_FACT: '${ref.artifact_id}' is not a VERIFIED_DOCUMENT_FACT`);
       }
       refs.set(ref.artifact_id, ref);
     }
@@ -275,9 +270,10 @@ async function resolveVerifiedDocumentFacts(
         `REJECT_DOCUMENT_FACT: '${ref.artifact_id}' did not resolve to the referenced verified fact`,
       );
     }
-    const hashValid = (resolved as Partial<VerifiedDocumentFactArtifactV2>).contract_version === 'verified-document-fact-v2'
-      ? isVerifiedDocumentFactV2ContentHashValid(resolved as VerifiedDocumentFactArtifactV2)
-      : isVerifiedDocumentFactContentHashValid(resolved);
+    const hashValid =
+      (resolved as Partial<VerifiedDocumentFactArtifactV2>).contract_version === 'verified-document-fact-v2'
+        ? isVerifiedDocumentFactV2ContentHashValid(resolved as VerifiedDocumentFactArtifactV2)
+        : isVerifiedDocumentFactContentHashValid(resolved);
     if (!hashValid) {
       throw new Error(`REJECT_DOCUMENT_FACT: '${ref.artifact_id}' content_hash is invalid`);
     }
@@ -319,9 +315,11 @@ function parseSluObservations(raw: unknown): SluObservation[] {
       row.properties && typeof row.properties === 'object'
         ? (row.properties as Record<string, unknown>)
         : row;
-    
+
     return {
-      name: String(props.taxonName ?? props.scientificName ?? props.species ?? props.name ?? row.name ?? 'Okänd art'),
+      name: String(
+        props.taxonName ?? props.scientificName ?? props.species ?? props.name ?? row.name ?? 'Okänd art',
+      ),
       scientificName: props.scientificName ? String(props.scientificName) : undefined,
       taxonId: Number(props.taxonId || 0),
       redlistCategory: props.redlistCategory ? String(props.redlistCategory) : undefined,
@@ -402,10 +400,10 @@ async function fetchSluObservations(input: {
       user: input.user,
       projectId: input.projectId,
     });
-    
+
     const baseObservations = parseSluObservations(raw);
-    const taxonIds = baseObservations.map(o => o.taxonId).filter(id => id > 0);
-    
+    const taxonIds = baseObservations.map((o) => o.taxonId).filter((id) => id > 0);
+
     if (taxonIds.length > 0) {
       // Enrich with detailed facts from Artfakta
       try {
@@ -413,24 +411,24 @@ async function fetchSluObservations(input: {
           taxonIds: [...new Set(taxonIds)], // Unique IDs
           purpose: 'enrich_observations',
           user: input.user,
-          projectId: input.projectId
+          projectId: input.projectId,
         })) as any[];
-        
+
         if (Array.isArray(enrichedData)) {
           return {
             ok: true,
-            data: baseObservations.map(obs => {
+            data: baseObservations.map((obs) => {
               const facts = enrichedData.find((f: any) => f.taxonId === obs.taxonId);
               if (facts) {
                 return {
                   ...obs,
                   redlistCategory: facts.conservationStatus?.redlistCategory || obs.redlistCategory,
                   protectionStatus: facts.protectionStatus?.statusText,
-                  biology: facts.biology?.description
+                  biology: facts.biology?.description,
                 };
               }
               return obs;
-            })
+            }),
           };
         }
       } catch (enrichErr) {
@@ -491,6 +489,21 @@ function buildDataSources(input: {
     },
   ];
   return sources;
+}
+
+export function deriveLuCoverageStatus(
+  sources: readonly DataSourceStatus[],
+): LocalizationAssessmentCoverageStatus {
+  if (sources.length === 0) {
+    return 'UNAVAILABLE';
+  }
+  if (sources.every((source) => source.status === 'unavailable')) {
+    return 'UNAVAILABLE';
+  }
+  if (sources.some((source) => source.status !== 'ok')) {
+    return 'PARTIAL';
+  }
+  return 'COMPLETE';
 }
 
 function collectWarnings(input: {
@@ -642,7 +655,10 @@ async function analyzeSite(
     // server/modules/release/productReleaseRuntime.ts.
     const canonicalRelease = await resolveCanonicalProductRelease({ artifactRepository: repo });
     const currentRelease = {
-      releaseRef: { artifact_id: canonicalRelease.artifact_id, artifact_type: canonicalRelease.artifact_type },
+      releaseRef: {
+        artifact_id: canonicalRelease.artifact_id,
+        artifact_type: canonicalRelease.artifact_type,
+      },
       releaseHash: canonicalRelease.release_hash.value,
     };
     const executionRegistry = createLuRegistryRuntime();
@@ -691,6 +707,7 @@ async function analyzeSite(
     const governedDocumentEvidence = governedResolution.evidence;
     documentEvidence = [...governedDocumentEvidence];
     dataSources.push(governedResolution.coverage);
+    const coverageSnapshot = createLocalizationAssessmentCoverageSnapshot(dataSources);
     warnings.push(...governedResolution.warnings);
 
     // Magic Moment spatial contract: fixed 500 m buffer for water/ebh/protected_area.
@@ -754,6 +771,7 @@ async function analyzeSite(
           `Governed LU assessment: ${mpsEvidence.length} spatial evidence, ` +
           `${governedDocumentEvidence.length} document evidence.`,
         localization_geometry_ref: locationRef,
+        coverage_snapshot: coverageSnapshot,
       },
       on_assessment_prepared: async (assessment) => {
         await assessmentProjectionReconciliationStore.upsertPending({
@@ -817,7 +835,10 @@ async function analyzeSite(
                 err: String(storeErr),
               }),
             );
-          logger.warn('Failed to register assessment projection -- assessment remains CAS-valid; reconcile separately', { site: site.id, err: String(err) });
+          logger.warn(
+            'Failed to register assessment projection -- assessment remains CAS-valid; reconcile separately',
+            { site: site.id, err: String(err) },
+          );
         }
       }
     } else {
@@ -848,7 +869,6 @@ async function analyzeSite(
           : 'NOT_ASSESSED',
       findings: [...mpsFindings],
     };
-
   } catch (err: any) {
     const msg = err?.message || String(err);
     logger.warn('ExecutionKernel LU assessment failed', { err: msg, site: site.id });
@@ -892,6 +912,7 @@ async function analyzeSite(
     dataSources,
     warnings,
     sluObservationCount: observations.length,
+    coverageStatus: deriveLuCoverageStatus(dataSources),
     documentEvidence,
     executionMotor: executionMotor ?? {
       admitted: false,
@@ -917,10 +938,7 @@ async function analyzeSite(
  * `overallRisk: 'LOW'` reads as an assessment. Absence is the only representation that cannot
  * be mistaken for a finding.
  */
-function withoutVerdict(
-  analysis: SiteAnalysis,
-  status: LuAssessmentStatus | undefined,
-): NonVerdictAnalysis {
+function withoutVerdict(analysis: SiteAnalysis, status: LuAssessmentStatus | undefined): NonVerdictAnalysis {
   const { overallRisk: _risk, permitProbability: _probability, ...rest } = analysis;
   if (status === 'ASSESSED') {
     // Reached only if the artifact check and the status assignment have diverged. Failing here
@@ -948,6 +966,20 @@ function isAssessed(
     analysis.executionMotor?.assessment_artifact_id != null &&
     isGovernedVerdict(analysis.complianceAnalysis)
   );
+}
+
+function hasCompleteCoverage(analysis: SiteAnalysisResult): boolean {
+  return deriveLuCoverageStatus(analysis.dataSources) === 'COMPLETE';
+}
+
+export function deriveLuComparisonStatus(analyses: readonly SiteAnalysisResult[]): LuComparisonStatus {
+  const assessed = analyses.filter(isAssessed);
+  if (assessed.length === 0) {
+    return 'UNAVAILABLE';
+  }
+  const allCandidatesAssessed = assessed.length === analyses.length;
+  const allAssessedCoverageComplete = assessed.every(hasCompleteCoverage);
+  return allCandidatesAssessed && allAssessedCoverageComplete ? 'COMPLETE' : 'PARTIAL';
 }
 
 /**
@@ -979,10 +1011,9 @@ const HUMAN_IN_THE_LOOP =
 
 export class GenerateLocalizationReportUseCase {
   constructor(
-    private readonly createSpatialRuntime: () => Promise<LocalizationSpatialRuntime> =
-      createLocalizationSpatialRuntime,
-    private readonly createAssessmentProjectionReconciliationStore: () => AssessmentProjectionReconciliationStore =
-      () => new PrismaAssessmentProjectionReconciliationStore(),
+    private readonly createSpatialRuntime: () => Promise<LocalizationSpatialRuntime> = createLocalizationSpatialRuntime,
+    private readonly createAssessmentProjectionReconciliationStore: () => AssessmentProjectionReconciliationStore = () =>
+      new PrismaAssessmentProjectionReconciliationStore(),
   ) {}
 
   async execute(input: {
@@ -1008,20 +1039,18 @@ export class GenerateLocalizationReportUseCase {
     const assessed = analyses.filter(isAssessed);
     const unassessed = analyses.filter((a) => !isAssessed(a));
 
-    const sortedByPermit = [...assessed].sort(
-      (a, b) => rankedProbability(b) - rankedProbability(a),
-    );
+    const sortedByPermit = [...assessed].sort((a, b) => rankedProbability(b) - rankedProbability(a));
     const bestAlternative = sortedByPermit.length > 0 ? sortedByPermit[0] : null;
 
-    const comparisonStatus: LuComparisonStatus =
-      assessed.length === 0 ? 'UNAVAILABLE' : unassessed.length === 0 ? 'COMPLETE' : 'PARTIAL';
+    const comparisonStatus: LuComparisonStatus = deriveLuComparisonStatus(analyses);
 
     // The qualifier is load-bearing: a winner drawn from a subset must never read as best of
     // all candidates.
     const coverageNote =
       comparisonStatus === 'PARTIAL'
-        ? ` Jämförelsen är partiell: ${assessed.length} av ${analyses.length} alternativ har en governad bedömning. ` +
-          `Ej bedömda alternativ (${unassessed.map((a) => a.site.id).join(', ')}) ingår inte i rangordningen.`
+        ? ` Jämförelsen är partiell: ${assessed.length} av ${analyses.length} alternativ har en governad bedömning, ` +
+          `och alla bedömda alternativ har inte komplett källtäckning. ` +
+          `Ej bedömda alternativ (${unassessed.map((a) => a.site.id).join(', ') || 'inga'}) ingår inte i rangordningen.`
         : '';
 
     const reasoning = bestAlternative
@@ -1074,8 +1103,7 @@ export class GenerateLocalizationReportUseCase {
             ...(bestAlternative
               ? {
                   bestAlternativeId: bestAlternative.site.id,
-                  bestAssessmentArtifactId:
-                    bestAlternative.executionMotor?.assessment_artifact_id ?? null,
+                  bestAssessmentArtifactId: bestAlternative.executionMotor?.assessment_artifact_id ?? null,
                   bestPermitProbability: bestAlternative.complianceAnalysis.permitProbability,
                   overallRisk: bestAlternative.complianceAnalysis.overallRisk,
                 }
