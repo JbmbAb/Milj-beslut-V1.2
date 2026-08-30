@@ -257,12 +257,7 @@ jobs:
           CLOUD_RUN_IAM_AUDIENCE: ${{ inputs.base_url || vars.STAGING_URL }}
         run: >-
           npx playwright test
-          -c ../release-harness/release-harness/staging/playwright.cloud-run-staging.config.ts
-          tests/e2e/staging-smoke.spec.ts
-          tests/e2e/staging-core-flows.spec.ts
-          tests/e2e/staging-enskilt-avlopp.spec.ts
-          tests/e2e/staging-c-anmalan-mass.spec.ts
-          tests/e2e/staging-lokaliseringsutredning.spec.ts
+          -c ../release-harness/release-harness/staging/playwright.cloud-run-staging.config.mjs
 
       - name: Upload Playwright report
         if: always()
