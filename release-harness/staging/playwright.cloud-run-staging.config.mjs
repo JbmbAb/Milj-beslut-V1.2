@@ -1,8 +1,6 @@
 /**
  * Release-harness Playwright config for IAM-protected Cloud Run staging.
- *
- * Resolves @playwright/test from the product tree to avoid duplicate Playwright
- * installations when the harness checkout also carries node_modules.
+ * Resolves @playwright/test from the product tree to avoid duplicate Playwright installs.
  */
 import { createRequire } from 'node:module';
 import path from 'node:path';
@@ -11,7 +9,7 @@ import { fileURLToPath } from 'node:url';
 const harnessDir = path.dirname(fileURLToPath(import.meta.url));
 const productRoot = path.resolve(harnessDir, '../../../product');
 const requireFromProduct = createRequire(path.join(productRoot, 'package.json'));
-const { defineConfig } = requireFromProduct('@playwright/test') as typeof import('@playwright/test');
+const { defineConfig } = requireFromProduct('@playwright/test');
 
 const baseURL =
   String(process.env.PLAYWRIGHT_BASE_URL || process.env.STAGING_URL || '').trim();
