@@ -4,6 +4,12 @@ Datum: 2026-03-02
 Version: 1.0  
 Status: Baspaket for kommersiell aktivering.
 
+**SCOPE_ALIGNMENT (2026-08-30):** Professional-tierns logistikpost korrigerad för att
+inte motsäga [core-scope-lock.md](./core-scope-lock.md) (logistik = V2+, ej Core).
+Prisnivåer/prismodell är **oförändrade** — ingen ny pricing beslutad. Pricing kvarstår
+`OWNER_BUSINESS_REVIEW_REQUIRED`, se
+[commercial-packaging-DECISION-SHEET-2026-08-30.md](./commercial-packaging-DECISION-SHEET-2026-08-30.md).
+
 ## 1) Prisplan
 
 ### Nivaer
@@ -13,7 +19,8 @@ Status: Baspaket for kommersiell aktivering.
    - grundlaggande portal + projektledning
 2. Professional
    - fler team
-   - logistik- och compliancefloden
+   - compliancefloden (nuvarande kärnprodukt)
+   - logistikflode — **roadmap/V2+, ej aktuell sellable capability** (jfr [core-scope-lock.md](./core-scope-lock.md): "Fullt logistikflöde som kommersiell standardmodul" ligger utanför Core)
 3. Enterprise
    - avancerad rapportering
    - avtalsstyrda integrationer

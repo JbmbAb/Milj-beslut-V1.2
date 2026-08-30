@@ -1,14 +1,19 @@
 # Commercial Packaging — Owner Decision Sheet (2026-08-30)
 
 Companion to [commercial-packaging.md](./commercial-packaging.md) (2026-03-02, v1.0), produced
-during documentation closure (D7). **`commercial-packaging.md` itself is left unmodified** — no
-pricing, packaging, or scope numbers are invented or edited here. This sheet only surfaces claims,
-dates, dependencies, and contradictions found by cross-referencing it against current repo state,
-for owner business review.
+during documentation closure (D7). This sheet surfaces claims, dates, dependencies, and
+contradictions found by cross-referencing it against current repo state, for owner business
+review.
 
 ## Classification
 
 `CURRENT_BUT_UNVERIFIED` / `OWNER_BUSINESS_REVIEW_REQUIRED`
+
+**UPDATE (2026-08-30, owner decision, DOCUMENTATION_FINAL_NORMALIZATION):** Item 2 below
+(Professional tier vs. scope-lock contradiction) is **RESOLVED** — `commercial-packaging.md`
+was edited narrowly to qualify logistics as V2+/roadmap, not a current sellable capability.
+Pricing numbers were left unchanged. Items 3-5 (no pricing numbers, self-referential refs,
+open business questions) remain open — this sheet is not fully closed.
 
 ## 1. Age
 
