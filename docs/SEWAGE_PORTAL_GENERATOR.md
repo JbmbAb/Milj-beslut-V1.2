@@ -2,6 +2,13 @@
 
 **Status:** ✅ IMPLEMENTED | **Date:** 2026-04-02 | **PE Range:** 1-200
 
+**SUPERSEDED_BY:** [docs/qa/MODULE_IMPLEMENTATION_PLAN.md](./qa/MODULE_IMPLEMENTATION_PLAN.md)
+(2026-05-21) — that document describes the same module's actual current status as
+only partially production-ready, contradicting this file's "IMPLEMENTED" framing.
+Flagged during the 2026-08-30 documentation consolidation pass. Historical content
+preserved as-is; not rewritten. Near-duplicate of `docs/SEWAGE_APPLICATION_SYSTEM.md`
+— consolidation candidate.
+
 ---
 
 ## 🌊 OVERVIEW

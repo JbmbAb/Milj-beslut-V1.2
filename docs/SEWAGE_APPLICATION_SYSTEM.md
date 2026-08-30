@@ -2,6 +2,13 @@
 
 **Status:** ✅ IMPLEMENTERAT | **Datum:** 2026-04-02 | **Omfattning:** 1-200 PE
 
+**SUPERSEDED_BY:** [docs/qa/MODULE_IMPLEMENTATION_PLAN.md](./qa/MODULE_IMPLEMENTATION_PLAN.md)
+(2026-05-21) — that document describes the same module's actual current status as
+"splittrad implementation" / only partially production-ready, contradicting the
+"komplett juridiskt system" claim below. Flagged during the 2026-08-30
+documentation consolidation pass. Historical content preserved as-is; not rewritten.
+Near-duplicate of `docs/SEWAGE_PORTAL_GENERATOR.md` — consolidation candidate.
+
 ---
 
 ## 🎯 ÖVERSIKT
