@@ -1,5 +1,14 @@
 # Tor: Instruktion för Juridisk RAG Chunking & Indexering
 
+**AUTHORITY STATUS (2026-08-30, DOCUMENTATION_FINAL_NORMALIZATION):** `TASK_SCOPED` /
+non-normative. The "SCHEMA-CONVERGENCE-SPEC 2026-08-11" section of this document was being cited
+as `ADR:` by five production files despite this being a task-scoped agent instruction, not
+architecture authority. That invariant is now formally extracted and superseded by
+[ADR-LEGAL-CORPUS-IMPORT-GATE.md](../../architecture/ADR-LEGAL-CORPUS-IMPORT-GATE.md); production
+code now references that ADR instead. This document is preserved as historical/operational record
+of the implementation work (including a self-caught spec deviation, see "IMPLEMENTATION
+2026-08-11" below) — it no longer functions as architecture authority for any code.
+
 **Adressat:** Tor (Kodimplementör / Copilot Agent)  
 **Projekt:** Juridisk RAG — Master Recovery  
 **Timeline:** 3 veckor (efter Loke's harvest)  

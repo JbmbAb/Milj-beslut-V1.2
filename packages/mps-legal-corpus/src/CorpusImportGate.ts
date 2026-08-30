@@ -12,8 +12,7 @@ import {
 import { checkManifestCompleteness, type IngestionManifestEntry, type ManifestStore } from './IngestionManifest';
 
 /**
- * ADR: TOR_INSTRUKTION_JURIDISK_RAG_IMPLEMENTATION.md, "SCHEMA-CONVERGENCE-SPEC 2026-08-11 —
- * Juridisk ingestion: approval & provenance" (FROZEN / READY FOR IMPLEMENTATION).
+ * ADR: docs/architecture/ADR-LEGAL-CORPUS-IMPORT-GATE.md (ACCEPTED / FROZEN).
  *
  * Storage-agnostic on purpose: this module is the domain gate, not a Postgres client.
  * `ManifestStore`/`CorpusWriter` are injected so the gate is fully unit-testable without a

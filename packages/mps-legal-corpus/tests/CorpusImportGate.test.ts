@@ -1,7 +1,6 @@
 // packages/mps-legal-corpus/tests/CorpusImportGate.test.ts
 //
-// TOR_INSTRUKTION_JURIDISK_RAG_IMPLEMENTATION.md, "SCHEMA-CONVERGENCE-SPEC 2026-08-11 —
-// Juridisk ingestion: approval & provenance" (FROZEN / READY FOR IMPLEMENTATION).
+// ADR: docs/architecture/ADR-LEGAL-CORPUS-IMPORT-GATE.md (ACCEPTED / FROZEN).
 //
 // Negative tests first, per instruction. Covers the six required negative cases named in the
 // spec, both locked precisions (order-sensitive chunk_set_content_hash; manifest completeness

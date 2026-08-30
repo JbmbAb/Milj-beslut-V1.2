@@ -1,8 +1,8 @@
 import { LocalPemSigningKeyProvider, type SigningKeyProvider } from '@miljobeslut/mimers-brunn-core';
 
 /**
- * Legal corpus import signing authority (TOR_INSTRUKTION_JURIDISK_RAG_IMPLEMENTATION.md,
- * "SCHEMA-CONVERGENCE-SPEC 2026-08-11 — Juridisk ingestion: approval & provenance", FROZEN).
+ * Legal corpus import signing authority.
+ * ADR: docs/architecture/ADR-LEGAL-CORPUS-IMPORT-GATE.md (ACCEPTED / FROZEN).
  *
  * Deliberately its OWN key/env block — separate from `governanceSigningKey.ts` (CAS
  * promotion) and any future harvest-plan signing key. A compromised legal-corpus-import key
