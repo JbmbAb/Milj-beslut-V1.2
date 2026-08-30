@@ -78,6 +78,7 @@ type SiteAnalysis = {
     notes?: string[];
   };
   dataSources?: Array<{ source: string; status: string; detail?: string }>;
+  coverageStatus?: 'COMPLETE' | 'PARTIAL' | 'UNAVAILABLE';
   warnings?: string[];
   executionMotor?: ExecutionMotorMeta;
 };
@@ -86,8 +87,20 @@ type LocalizationReport = {
   ok?: boolean;
   projectId?: string;
   siteAnalyses?: SiteAnalysis[];
+  summary?: {
+    bestAlternativeId?: string;
+    reasoning?: string;
+    comparison_status?: 'COMPLETE' | 'PARTIAL' | 'UNAVAILABLE';
+    assessed_site_ids?: string[];
+    unassessed_site_ids?: string[];
+  };
   humanInTheLoop?: string;
   error?: string;
+};
+
+type CoverageSnapshot = {
+  overall_status: 'COMPLETE' | 'PARTIAL' | 'UNAVAILABLE';
+  data_sources: Array<{ source: string; status: string; detail?: string }>;
 };
 
 /**
@@ -107,7 +120,10 @@ export const LuWorkspace: React.FC<{ initialDesignation?: string }> = ({ initial
   const [exportPdfError, setExportPdfError] = useState('');
   const [verifyingAssessment, setVerifyingAssessment] = useState(false);
   const [verifyError, setVerifyError] = useState('');
-  const [verifyResult, setVerifyResult] = useState<{ outcome: 'PASS' | 'DENY'; mismatches: readonly { code: string; detail: string }[] } | null>(null);
+  const [verifyResult, setVerifyResult] = useState<{
+    outcome: 'PASS' | 'DENY';
+    mismatches: readonly { code: string; detail: string }[];
+  } | null>(null);
   const [focusEvidenceArtifactId, setFocusEvidenceArtifactId] = useState<string | null>(null);
   const [focusEvidenceNonce, setFocusEvidenceNonce] = useState(0);
   const [focusEvidenceMissing, setFocusEvidenceMissing] = useState(false);
@@ -244,13 +260,30 @@ export const LuWorkspace: React.FC<{ initialDesignation?: string }> = ({ initial
         assessmentArtifactId: string;
         findings: LuFindingView[];
         systemSummary: string;
+        coverageSnapshot?: CoverageSnapshot;
+        coverageStatus?: 'COMPLETE' | 'PARTIAL' | 'UNAVAILABLE';
       }>(`/api/localization/${encodeURIComponent(projectId)}/current-assessment`, { method: 'GET' });
       setReport({
         ok: true,
         projectId,
+        summary: result.coverageStatus
+          ? {
+              comparison_status: result.coverageStatus,
+              assessed_site_ids: result.coverageStatus === 'UNAVAILABLE' ? [] : ['current'],
+              unassessed_site_ids: result.coverageStatus === 'UNAVAILABLE' ? ['current'] : [],
+              reasoning:
+                result.coverageStatus === 'COMPLETE'
+                  ? 'Sparad governad bedömning med komplett källtäckning.'
+                  : result.coverageStatus === 'PARTIAL'
+                    ? 'Sparad governad bedömning med partiell källtäckning.'
+                    : 'Sparad governad bedömning utan tillgänglig källtäckning.',
+            }
+          : undefined,
         siteAnalyses: [
           {
             complianceAnalysis: {},
+            dataSources: result.coverageSnapshot?.data_sources,
+            coverageStatus: result.coverageStatus,
             executionMotor: {
               admitted: true,
               assessment_status: 'ASSESSED',
@@ -295,7 +328,6 @@ export const LuWorkspace: React.FC<{ initialDesignation?: string }> = ({ initial
       void loadCurrentGeometry();
     }, 2000);
     return () => clearTimeout(timer);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [localizationGeometry?.artifact_id, localizationGeometry?.provisioningStatus]);
 
   const [retryingProvisioning, setRetryingProvisioning] = useState(false);
@@ -473,6 +505,23 @@ export const LuWorkspace: React.FC<{ initialDesignation?: string }> = ({ initial
   const analysis = report?.siteAnalyses?.[0];
   const compliance = analysis?.complianceAnalysis;
   const motor = analysis?.executionMotor;
+  const comparisonStatus = report?.summary?.comparison_status ?? analysis?.coverageStatus;
+  const coverageStatus = analysis?.coverageStatus ?? comparisonStatus;
+  const hasVerdictPayload =
+    typeof compliance?.overallRisk === 'string' && typeof compliance?.permitProbability === 'number';
+  const canRenderAuthoritativeVerdict =
+    motor?.assessment_status !== 'NOT_ASSESSED' &&
+    motor?.assessment_status !== 'GOVERNANCE_DENIED' &&
+    motor?.assessment_status !== 'EXECUTION_FAILED' &&
+    motor?.assessment_artifact_id != null &&
+    comparisonStatus !== 'UNAVAILABLE' &&
+    hasVerdictPayload;
+  const verdictQualifier =
+    comparisonStatus === 'UNAVAILABLE' || coverageStatus === 'UNAVAILABLE'
+      ? 'Bedömningen är inte tillgänglig som auktoritativ slutsats eftersom källtäckning saknas.'
+      : comparisonStatus === 'PARTIAL' || coverageStatus === 'PARTIAL'
+        ? 'Partiell slutsats: verdict visas kvalificerat eftersom källtäckningen inte komplett.'
+        : null;
   // PRODUCT-LU-EXECUTION-IDENTITY-V3-PROVISIONING-01: "Kör bedömning" must not be reachable until
   // the current point's ExecutionIdentity V3 is COMPLETED -- running earlier would just be denied
   // by the kernel, and this way the user never sees that as a surprise error.
@@ -581,10 +630,12 @@ export const LuWorkspace: React.FC<{ initialDesignation?: string }> = ({ initial
                 )}
               </p>
               <p className="opacity-70 font-mono text-xs">
-                {localizationGeometry.wgs84LngLat[1].toFixed(6)}, {localizationGeometry.wgs84LngLat[0].toFixed(6)}
+                {localizationGeometry.wgs84LngLat[1].toFixed(6)},{' '}
+                {localizationGeometry.wgs84LngLat[0].toFixed(6)}
               </p>
               <p data-testid="lu-geometry-readiness" className="text-xs opacity-80">
-                {localizationGeometry.provisioningStatus === 'PENDING' || localizationGeometry.provisioningStatus === 'LEASED' ? (
+                {localizationGeometry.provisioningStatus === 'PENDING' ||
+                localizationGeometry.provisioningStatus === 'LEASED' ? (
                   'Förbereder LU…'
                 ) : localizationGeometry.provisioningStatus === 'COMPLETED' ? (
                   <span style={{ color: '#34D399' }}>Klar att bedöma</span>
@@ -623,10 +674,16 @@ export const LuWorkspace: React.FC<{ initialDesignation?: string }> = ({ initial
               className="px-4 py-2 text-sm font-semibold border"
               style={{ borderColor: colors.coreTurquoise.hex, color: colors.flowLightCyan.hex }}
             >
-              {localizationGeometry?.provenance === 'user_defined' ? 'Ändra lokalisering' : 'Ange lokalisering'}
+              {localizationGeometry?.provenance === 'user_defined'
+                ? 'Ändra lokalisering'
+                : 'Ange lokalisering'}
             </button>
           ) : (
-            <div data-testid="lu-picking-location-panel" className="space-y-2 border p-4" style={{ borderColor: colors.coreGraphite.hex }}>
+            <div
+              data-testid="lu-picking-location-panel"
+              className="space-y-2 border p-4"
+              style={{ borderColor: colors.coreGraphite.hex }}
+            >
               <p className="text-xs opacity-70">1. Klicka på kartan för att välja punkt.</p>
               {draftPoint ? (
                 <>
@@ -801,10 +858,15 @@ export const LuWorkspace: React.FC<{ initialDesignation?: string }> = ({ initial
               </p>
             ) : (
               <div data-testid="lu-verify-result-mismatch" className="text-sm" style={{ color: '#F87171' }}>
-                <p>Verifieringen upptäckte avvikelser mot det ursprungliga underlaget. Bedömningen kunde inte bekräftas som identisk.</p>
+                <p>
+                  Verifieringen upptäckte avvikelser mot det ursprungliga underlaget. Bedömningen kunde inte
+                  bekräftas som identisk.
+                </p>
                 <ul className="list-disc pl-5 mt-1 opacity-80">
                   {verifyResult.mismatches.map((m, i) => (
-                    <li key={`${m.code}-${i}`}>{m.code}: {m.detail}</li>
+                    <li key={`${m.code}-${i}`}>
+                      {m.code}: {m.detail}
+                    </li>
                   ))}
                 </ul>
               </div>
@@ -813,26 +875,19 @@ export const LuWorkspace: React.FC<{ initialDesignation?: string }> = ({ initial
           {motor ? (
             <div data-testid="lu-motor-meta" className="text-xs opacity-70 space-y-1">
               <p>
-                ExecutionKernel:{' '}
-                {motor.admitted ? 'admitted' : 'denied'}
+                ExecutionKernel: {motor.admitted ? 'admitted' : 'denied'}
                 {motor.attempt_id ? ` · attempt ${motor.attempt_id}` : ''}
                 {motor.outcome_id ? ` · outcome ${motor.outcome_id}` : ''}
                 {motor.manifest_id ? ` · manifest ${motor.manifest_id}` : ''}
               </p>
               {motor.assessment_artifact_id ? (
-                <p data-testid="lu-assessment-id">
-                  Assessment: {motor.assessment_artifact_id}
-                </p>
+                <p data-testid="lu-assessment-id">Assessment: {motor.assessment_artifact_id}</p>
               ) : null}
               {motor.property_context_id ? (
-                <p data-testid="lu-property-context-id">
-                  Property context: {motor.property_context_id}
-                </p>
+                <p data-testid="lu-property-context-id">Property context: {motor.property_context_id}</p>
               ) : null}
               {(motor.finding_ids?.length ?? 0) > 0 ? (
-                <p data-testid="lu-finding-ids">
-                  Findings: {motor.finding_ids!.join(', ')}
-                </p>
+                <p data-testid="lu-finding-ids">Findings: {motor.finding_ids!.join(', ')}</p>
               ) : null}
             </div>
           ) : null}
@@ -841,15 +896,23 @@ export const LuWorkspace: React.FC<{ initialDesignation?: string }> = ({ initial
             <span data-testid="lu-risk" className="font-semibold">
               {/* P3-LU-CANONICAL-CHAIN-01: a dash in a field labelled "Risk" reads as "no
                   risk". An unassessed site must say so explicitly. */}
-              {compliance.overallRisk ?? NOT_ASSESSED_LABEL[motor?.assessment_status ?? 'NOT_ASSESSED']}
+              {canRenderAuthoritativeVerdict
+                ? compliance.overallRisk
+                : NOT_ASSESSED_LABEL[motor?.assessment_status ?? 'NOT_ASSESSED']}
             </span>
-            {typeof compliance.permitProbability === 'number' ? (
+            {canRenderAuthoritativeVerdict ? (
               <span className="opacity-70">
                 {' '}
                 · tillståndssannolikhet {(compliance.permitProbability * 100).toFixed(0)}%
               </span>
             ) : null}
           </p>
+
+          {verdictQualifier ? (
+            <p data-testid="lu-verdict-qualifier" className="text-sm" style={{ color: '#FBBF24' }}>
+              {verdictQualifier}
+            </p>
+          ) : null}
 
           {(analysis?.dataSources?.length ?? 0) > 0 ? (
             <div data-testid="lu-data-sources">
@@ -940,9 +1003,7 @@ export const LuWorkspace: React.FC<{ initialDesignation?: string }> = ({ initial
             </div>
           ) : null}
 
-          {report?.humanInTheLoop ? (
-            <p className="text-xs opacity-60 pt-2">{report.humanInTheLoop}</p>
-          ) : null}
+          {report?.humanInTheLoop ? <p className="text-xs opacity-60 pt-2">{report.humanInTheLoop}</p> : null}
         </section>
       ) : null}
     </div>

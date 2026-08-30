@@ -16,7 +16,9 @@ import {
   createProjectContextBindingIssuerArtifact,
   createProjectContextBindingSupersessionIssuerArtifact,
   createGovernedLocalizationAssessment,
+  createLocalizationAssessmentCoverageSnapshot,
   type AssessmentFinding,
+  type LocalizationAssessmentCoverageSnapshot,
 } from '@miljobeslut/mps-lu';
 import { SecurityRuntime } from '../../packages/mps-runtime/src/security/SecurityRuntime';
 import { installOwnerIssuedProjectContextBinding } from '../../server/modules/localization/installProjectContextBinding';
@@ -290,6 +292,7 @@ async function setup() {
   async function buildAndPersistAssessment(
     projectContextRef: ArtifactReference,
     findings: readonly AssessmentFinding[] = [],
+    coverageSnapshot?: LocalizationAssessmentCoverageSnapshot,
   ) {
     const security = SecurityRuntime.create({
       bootstrapAdmit: true,
@@ -311,6 +314,7 @@ async function setup() {
         property_ref: { artifact_id: 'property-assessment-read', artifact_type: 'PROPERTY' },
         evidence_refs: [],
         system_summary: `assessment read test ${Math.random()}`,
+        ...(coverageSnapshot ? { coverage_snapshot: coverageSnapshot } : {}),
       },
       findings,
       outcome,
@@ -366,6 +370,36 @@ describe('LU-ASSESSMENT-PERSISTENCE-READ-V1: resolveCurrentLuAssessmentSummary',
     expect(result.ruleRefs).toEqual([{ rule_id: 'LU-WATER-001', rule_version: '1.0' }]);
     expect(result.evidenceRefs).toEqual([]);
     expect(typeof result.systemSummary).toBe('string');
+  });
+
+  it('H3: current-assessment returns the assessment-bound coverage snapshot for restored UI presentation', async () => {
+    const s = await setup();
+    const coverageSnapshot = createLocalizationAssessmentCoverageSnapshot([
+      { source: 'NVR API', status: 'ok', detail: '0 träffar' },
+      { source: 'VISS', status: 'unavailable', detail: 'timeout' },
+    ]);
+    const assessment = await s.buildAndPersistAssessment(contextNew, [waterFinding], coverageSnapshot);
+    const projectionIndex = new FakeAssessmentProjectionIndex();
+    await registerAssessmentProjection({
+      projectId: PROJECT_ID,
+      assessment,
+      contextBindingRef: s.newBindingRef,
+      releaseRef: RELEASE_REF,
+      index: projectionIndex,
+    });
+
+    const result = await resolveCurrentLuAssessmentSummary({
+      authUser: AUTH_USER,
+      projectId: PROJECT_ID,
+      artifactRepository: s.repository,
+      currentBindingProvider: s.currentBindingProvider(),
+      assessmentProjectionIndex: projectionIndex,
+    });
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) throw new Error('expected ok');
+    expect(result.coverageSnapshot).toEqual(coverageSnapshot);
+    expect(result.coverageStatus).toBe('PARTIAL');
   });
 
   it('unauthorized user -> DENY (403)', async () => {

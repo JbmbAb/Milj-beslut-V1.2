@@ -25,6 +25,8 @@ import {
   validateLocalizationAssessmentContractVersion,
   reExecuteLocalizationAssessment,
   type LocalizationAssessmentArtifact,
+  type LocalizationAssessmentCoverageSnapshot,
+  type LocalizationAssessmentCoverageStatus,
   type LuReExecutionMismatch,
 } from '@miljobeslut/mps-lu';
 import { PrismaProjectContextBindingIndex } from '../../repositories/projectContextBindingRepository';
@@ -467,6 +469,8 @@ export async function resolveCurrentLuAssessmentSummary(input: {
       ruleRefs: LocalizationAssessmentArtifact['payload']['rule_refs'];
       evidenceRefs: LocalizationAssessmentArtifact['payload']['evidence_refs'];
       systemSummary: string;
+      coverageSnapshot?: LocalizationAssessmentCoverageSnapshot;
+      coverageStatus?: LocalizationAssessmentCoverageStatus;
       /** LU-REPORT-EXPORT-UI-V1. The assessment's own governed context refs -- for a caller (e.g.
        *  PDF export) that needs human-readable property/project identity without trusting
        *  anything client-supplied. Resolving these further is a CAS read, not a re-execution. */
@@ -588,6 +592,12 @@ export async function resolveCurrentLuAssessmentSummary(input: {
     ruleRefs: assessment.payload.rule_refs,
     evidenceRefs: assessment.payload.evidence_refs,
     systemSummary: assessment.payload.system_summary,
+    ...(assessment.payload.coverage_snapshot
+      ? {
+          coverageSnapshot: assessment.payload.coverage_snapshot,
+          coverageStatus: assessment.payload.coverage_snapshot.overall_status,
+        }
+      : {}),
     propertyContextRef: assessment.payload.property_ref,
     projectContextRef: assessment.payload.project_context_ref,
   };

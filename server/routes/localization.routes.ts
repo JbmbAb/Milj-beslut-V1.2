@@ -353,7 +353,10 @@ router.post(
         res.status(403).json({ ok: false, error: 'Not authorized for this project.' });
         return;
       }
-      const project = await prisma.project.findUnique({ where: { id: projectId }, select: { propertyDesignation: true } });
+      const project = await prisma.project.findUnique({
+        where: { id: projectId },
+        select: { propertyDesignation: true },
+      });
       if (!project) {
         res.status(404).json({ ok: false, error: 'Project not found.' });
         return;
@@ -363,7 +366,11 @@ router.post(
         requestedByUserId: req.authUser!.id,
         propertyDesignation: project.propertyDesignation,
       });
-      res.status(201).json({ ok: true, bootstrapRequestId: bootstrapRequest.id, bootstrapStatus: bootstrapRequest.status });
+      res.status(201).json({
+        ok: true,
+        bootstrapRequestId: bootstrapRequest.id,
+        bootstrapStatus: bootstrapRequest.status,
+      });
     } catch (error) {
       next(error);
     }
@@ -431,6 +438,8 @@ router.get(
         ruleRefs: result.ruleRefs,
         evidenceRefs: result.evidenceRefs,
         systemSummary: result.systemSummary,
+        coverageSnapshot: result.coverageSnapshot,
+        coverageStatus: result.coverageStatus,
       });
     } catch (error) {
       if (handleOrchestratorError(error, res)) return;

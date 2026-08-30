@@ -61,7 +61,9 @@ vi.mock('../../components/CesiumMapView', () => ({
         <button
           type="button"
           data-testid="mock-trigger-evidence-found"
-          onClick={() => props.onEvidenceClick?.({ cas_artifact_id: props.focusEvidenceArtifactId, layer_id: 'water' })}
+          onClick={() =>
+            props.onEvidenceClick?.({ cas_artifact_id: props.focusEvidenceArtifactId, layer_id: 'water' })
+          }
         />
         <button
           type="button"
@@ -173,7 +175,9 @@ describe('LuWorkspace', () => {
     expect(screen.getByTestId('lu-finding-ids')).toHaveTextContent('LU-WATER-001');
     expect(screen.getByTestId('lu-finding-LU-WATER-001')).toHaveTextContent('Vatten');
     expect(screen.getByTestId('lu-finding-LU-WATER-001')).toHaveTextContent('Bör utredas vidare');
-    expect(screen.getByTestId('lu-finding-LU-WATER-001')).toHaveTextContent('Närhet till vatten kräver analys');
+    expect(screen.getByTestId('lu-finding-LU-WATER-001')).toHaveTextContent(
+      'Närhet till vatten kräver analys',
+    );
 
     // LU-UNKNOWN-MISSING-DISPLAY-V1, proof 1: assessed source + no conflict -> clearly "no
     // identified conflict", never rendered as generic "OK"/green with no explanation.
@@ -188,7 +192,9 @@ describe('LuWorkspace', () => {
     );
     // proof 3: an unavailable source gets its own explicit state, distinct from both of the above.
     expect(screen.getByTestId('lu-data-source-VISS')).toHaveTextContent('Källan är otillgänglig');
-    expect(screen.getByTestId('lu-data-source-VISS')).not.toHaveTextContent('Inga avvikelser identifierade i denna källa');
+    expect(screen.getByTestId('lu-data-source-VISS')).not.toHaveTextContent(
+      'Inga avvikelser identifierade i denna källa',
+    );
     expect(screen.getByTestId('lu-warnings')).toHaveTextContent('VISS otillgänglig: tidsgräns nådd');
 
     expect(callApi).toHaveBeenCalledWith(
@@ -275,6 +281,139 @@ describe('LuWorkspace', () => {
     expect(screen.queryByTestId('lu-export-pdf')).not.toBeInTheDocument();
   });
 
+  it('H3: a PARTIAL fresh LU result renders the verdict only with an explicit coverage qualifier', async () => {
+    const user = userEvent.setup();
+    fetchPropertyInfo.mockResolvedValue({
+      id: 'p1',
+      designation: 'GÄVLE BRYNÄS 1:1',
+      municipality: 'Gävle',
+      geometry: { type: 'Point', coordinates: [17.14, 60.67] },
+      centroid: { lat: 60.67, lng: 17.14 },
+    });
+    callApi.mockImplementation((url: string) => {
+      if (url.includes('/current-assessment')) {
+        return Promise.reject(new Error(NO_CURRENT_ASSESSMENT_MESSAGE));
+      }
+      if (url.includes('/geometry')) {
+        return Promise.resolve({
+          ok: true,
+          geometry: {
+            artifact_id: 'loc-geom-1',
+            provenance: 'user_defined',
+            wgs84LngLat: [17.14, 60.67],
+            provisioningStatus: 'COMPLETED',
+          },
+        });
+      }
+      return Promise.resolve({
+        ok: true,
+        projectId: 'proj-1',
+        summary: {
+          bestAlternativeId: 'site-gävle-brynäs-1:1',
+          comparison_status: 'PARTIAL',
+          assessed_site_ids: ['site-gävle-brynäs-1:1'],
+          unassessed_site_ids: [],
+          reasoning: 'Jämförelsen är partiell.',
+        },
+        siteAnalyses: [
+          {
+            complianceAnalysis: { overallRisk: 'MEDIUM', permitProbability: 0.5 },
+            coverageStatus: 'PARTIAL',
+            dataSources: [
+              { source: 'NVR API', status: 'ok', detail: '0 träffar' },
+              { source: 'VISS', status: 'unavailable', detail: 'timeout' },
+            ],
+            executionMotor: {
+              admitted: true,
+              assessment_status: 'ASSESSED',
+              assessment_artifact_id: 'assessment-partial-h3',
+              finding_ids: [],
+              findings: [],
+            },
+          },
+        ],
+        humanInTheLoop: 'Human in the loop',
+      });
+    });
+
+    render(<LuWorkspace />);
+    await user.type(screen.getByTestId('lu-designation'), 'GÄVLE BRYNÄS 1:1');
+    await user.click(screen.getByTestId('lu-lookup'));
+    expect(await screen.findByTestId('lu-site-ready')).toBeInTheDocument();
+    await user.click(screen.getByTestId('lu-run'));
+
+    expect(await screen.findByTestId('lu-results')).toBeInTheDocument();
+    expect(screen.getByTestId('lu-risk')).toHaveTextContent('MEDIUM');
+    expect(screen.getByTestId('lu-results')).toHaveTextContent('50%');
+    expect(screen.getByTestId('lu-verdict-qualifier')).toHaveTextContent(/partiell/i);
+    expect(screen.getByTestId('lu-verdict-qualifier')).toHaveTextContent(/inte komplett/i);
+  });
+
+  it('H3: an UNAVAILABLE LU result cannot render a risk/probability as an authoritative verdict', async () => {
+    const user = userEvent.setup();
+    fetchPropertyInfo.mockResolvedValue({
+      id: 'p1',
+      designation: 'GÄVLE BRYNÄS 1:1',
+      municipality: 'Gävle',
+      geometry: { type: 'Point', coordinates: [17.14, 60.67] },
+      centroid: { lat: 60.67, lng: 17.14 },
+    });
+    callApi.mockImplementation((url: string) => {
+      if (url.includes('/current-assessment')) {
+        return Promise.reject(new Error(NO_CURRENT_ASSESSMENT_MESSAGE));
+      }
+      if (url.includes('/geometry')) {
+        return Promise.resolve({
+          ok: true,
+          geometry: {
+            artifact_id: 'loc-geom-1',
+            provenance: 'user_defined',
+            wgs84LngLat: [17.14, 60.67],
+            provisioningStatus: 'COMPLETED',
+          },
+        });
+      }
+      return Promise.resolve({
+        ok: true,
+        projectId: 'proj-1',
+        summary: {
+          bestAlternativeId: 'site-gävle-brynäs-1:1',
+          comparison_status: 'UNAVAILABLE',
+          assessed_site_ids: [],
+          unassessed_site_ids: ['site-gävle-brynäs-1:1'],
+          reasoning: 'Ingen rangordning tillgänglig.',
+        },
+        siteAnalyses: [
+          {
+            complianceAnalysis: { overallRisk: 'LOW', permitProbability: 0.95 },
+            coverageStatus: 'UNAVAILABLE',
+            dataSources: [{ source: 'VISS', status: 'unavailable', detail: 'timeout' }],
+            executionMotor: {
+              admitted: false,
+              assessment_status: 'NOT_ASSESSED',
+              assessment_artifact_id: null,
+              finding_ids: [],
+              findings: [],
+            },
+          },
+        ],
+        humanInTheLoop: 'Human in the loop',
+      });
+    });
+
+    render(<LuWorkspace />);
+    await user.type(screen.getByTestId('lu-designation'), 'GÄVLE BRYNÄS 1:1');
+    await user.click(screen.getByTestId('lu-lookup'));
+    expect(await screen.findByTestId('lu-site-ready')).toBeInTheDocument();
+    await user.click(screen.getByTestId('lu-run'));
+
+    expect(await screen.findByTestId('lu-results')).toBeInTheDocument();
+    expect(screen.getByTestId('lu-risk')).toHaveTextContent('Ej bedömd');
+    expect(screen.getByTestId('lu-risk')).not.toHaveTextContent('LOW');
+    expect(screen.getByTestId('lu-risk')).not.toHaveTextContent('95%');
+    expect(screen.getByTestId('lu-verdict-qualifier')).toHaveTextContent(/inte tillgänglig/i);
+  });
+
   async function renderWithAssessedResult(user: ReturnType<typeof userEvent.setup>) {
     fetchPropertyInfo.mockResolvedValue({
       id: 'p1',
@@ -290,14 +429,24 @@ describe('LuWorkspace', () => {
       if (url.includes('/geometry')) {
         return Promise.resolve({
           ok: true,
-          geometry: { artifact_id: 'loc-geom-1', provenance: 'user_defined', wgs84LngLat: [17.14, 60.67], provisioningStatus: 'COMPLETED' },
+          geometry: {
+            artifact_id: 'loc-geom-1',
+            provenance: 'user_defined',
+            wgs84LngLat: [17.14, 60.67],
+            provisioningStatus: 'COMPLETED',
+          },
         });
       }
       if (url.includes('/export-assessment-pdf')) {
         return Promise.resolve(new Blob(['pdf-bytes'], { type: 'application/pdf' }));
       }
       if (url.includes('/verify-assessment')) {
-        return Promise.resolve({ ok: true, outcome: 'PASS', assessmentArtifactId: 'assess-export-abc', mismatches: [] });
+        return Promise.resolve({
+          ok: true,
+          outcome: 'PASS',
+          assessmentArtifactId: 'assess-export-abc',
+          mismatches: [],
+        });
       }
       return Promise.resolve({
         ok: true,
@@ -349,7 +498,9 @@ describe('LuWorkspace', () => {
     callApi.mockImplementationOnce(() => Promise.reject(new Error('Export misslyckades på servern.')));
 
     await user.click(screen.getByTestId('lu-export-pdf'));
-    expect(await screen.findByTestId('lu-export-pdf-error')).toHaveTextContent('Export misslyckades på servern.');
+    expect(await screen.findByTestId('lu-export-pdf-error')).toHaveTextContent(
+      'Export misslyckades på servern.',
+    );
   });
 
   it('LU-REPORT-EXPORT-UI-V1: duplicate clicks while exporting cannot fire a second request or produce confusing state', async () => {
@@ -359,7 +510,12 @@ describe('LuWorkspace', () => {
     await renderWithAssessedResult(user);
 
     let resolveExport: (blob: Blob) => void = () => {};
-    callApi.mockImplementationOnce(() => new Promise((resolve) => { resolveExport = resolve; }));
+    callApi.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          resolveExport = resolve;
+        }),
+    );
     const callsBeforeExportClicks = callApi.mock.calls.length;
 
     const button = screen.getByTestId('lu-export-pdf');
@@ -378,8 +534,11 @@ describe('LuWorkspace', () => {
   it('LU-ASSESSMENT-PERSISTENCE-READ-V1B: restores a persisted assessment on mount without calling runAssessment(), with identical findings and export available', async () => {
     const user = userEvent.setup();
     fetchPropertyInfo.mockResolvedValue({
-      id: 'p1', designation: 'GÄVLE BRYNÄS 1:1', municipality: 'Gävle',
-      geometry: { type: 'Point', coordinates: [17.14, 60.67] }, centroid: { lat: 60.67, lng: 17.14 },
+      id: 'p1',
+      designation: 'GÄVLE BRYNÄS 1:1',
+      municipality: 'Gävle',
+      geometry: { type: 'Point', coordinates: [17.14, 60.67] },
+      centroid: { lat: 60.67, lng: 17.14 },
     });
     callApi.mockImplementation((url: string) => {
       if (url.includes('/current-assessment')) {
@@ -387,7 +546,13 @@ describe('LuWorkspace', () => {
           ok: true,
           assessmentArtifactId: 'assess-restored-abc',
           findings: [
-            { finding_id: 'LU-WATER-001', rule_id: 'LU-WATER-001', rule_version: '1.0', risk_level: 'MEDIUM', explanation: 'Närhet till vatten kräver analys' },
+            {
+              finding_id: 'LU-WATER-001',
+              rule_id: 'LU-WATER-001',
+              rule_version: '1.0',
+              risk_level: 'MEDIUM',
+              explanation: 'Närhet till vatten kräver analys',
+            },
           ],
           systemSummary: 'restored summary',
         });
@@ -395,7 +560,12 @@ describe('LuWorkspace', () => {
       if (url.includes('/geometry')) {
         return Promise.resolve({
           ok: true,
-          geometry: { artifact_id: 'loc-geom-1', provenance: 'user_defined', wgs84LngLat: [17.14, 60.67], provisioningStatus: 'COMPLETED' },
+          geometry: {
+            artifact_id: 'loc-geom-1',
+            provenance: 'user_defined',
+            wgs84LngLat: [17.14, 60.67],
+            provisioningStatus: 'COMPLETED',
+          },
         });
       }
       throw new Error(`unexpected callApi call in this test: ${url}`);
@@ -417,18 +587,83 @@ describe('LuWorkspace', () => {
     // Proof 4: restored findings are identical to what the server persisted.
     expect(screen.getByTestId('lu-assessment-id')).toHaveTextContent('assess-restored-abc');
     expect(screen.getByTestId('lu-finding-LU-WATER-001')).toHaveTextContent('Vatten');
-    expect(screen.getByTestId('lu-finding-LU-WATER-001')).toHaveTextContent('Närhet till vatten kräver analys');
+    expect(screen.getByTestId('lu-finding-LU-WATER-001')).toHaveTextContent(
+      'Närhet till vatten kräver analys',
+    );
 
     // Proof 5: export remains available for the restored assessment.
     expect(screen.getByTestId('lu-export-pdf')).toBeInTheDocument();
     expect(screen.getByTestId('lu-export-pdf')).not.toBeDisabled();
   });
 
+  it('H3: restored current-assessment carries coverage qualification into the reachable LuWorkspace UI', async () => {
+    const user = userEvent.setup();
+    fetchPropertyInfo.mockResolvedValue({
+      id: 'p1',
+      designation: 'GÄVLE BRYNÄS 1:1',
+      municipality: 'Gävle',
+      geometry: { type: 'Point', coordinates: [17.14, 60.67] },
+      centroid: { lat: 60.67, lng: 17.14 },
+    });
+    callApi.mockImplementation((url: string) => {
+      if (url.includes('/current-assessment')) {
+        return Promise.resolve({
+          ok: true,
+          assessmentArtifactId: 'assess-restored-partial-h3',
+          findings: [
+            {
+              finding_id: 'LU-WATER-001',
+              rule_id: 'LU-WATER-001',
+              rule_version: '1.0',
+              risk_level: 'MEDIUM',
+              explanation: 'Närhet till vatten kräver analys',
+            },
+          ],
+          systemSummary: 'restored summary',
+          coverageStatus: 'PARTIAL',
+          coverageSnapshot: {
+            coverage_contract_version: 'lu-assessment-coverage-v1',
+            overall_status: 'PARTIAL',
+            data_sources: [
+              { source: 'NVR API', status: 'ok', detail: '0 träffar' },
+              { source: 'VISS', status: 'unavailable', detail: 'timeout' },
+            ],
+          },
+        });
+      }
+      if (url.includes('/geometry')) {
+        return Promise.resolve({
+          ok: true,
+          geometry: {
+            artifact_id: 'loc-geom-1',
+            provenance: 'user_defined',
+            wgs84LngLat: [17.14, 60.67],
+            provisioningStatus: 'COMPLETED',
+          },
+        });
+      }
+      throw new Error(`unexpected callApi call in this test: ${url}`);
+    });
+
+    render(<LuWorkspace />);
+    await user.type(screen.getByTestId('lu-designation'), 'GÄVLE BRYNÄS 1:1');
+    await user.click(screen.getByTestId('lu-lookup'));
+
+    expect(await screen.findByTestId('lu-results')).toBeInTheDocument();
+    expect(callApi).not.toHaveBeenCalledWith('/api/localization/generate-report', expect.anything());
+    expect(screen.getByTestId('lu-assessment-id')).toHaveTextContent('assess-restored-partial-h3');
+    expect(screen.getByTestId('lu-verdict-qualifier')).toHaveTextContent(/partiell/i);
+    expect(screen.getByTestId('lu-data-source-VISS')).toHaveTextContent('Källan är otillgänglig');
+  });
+
   it('LU-ASSESSMENT-PERSISTENCE-READ-V1B, proof 6: no persisted assessment yet -> honest empty state, not an error', async () => {
     const user = userEvent.setup();
     fetchPropertyInfo.mockResolvedValue({
-      id: 'p1', designation: 'GÄVLE BRYNÄS 1:1', municipality: 'Gävle',
-      geometry: { type: 'Point', coordinates: [17.14, 60.67] }, centroid: { lat: 60.67, lng: 17.14 },
+      id: 'p1',
+      designation: 'GÄVLE BRYNÄS 1:1',
+      municipality: 'Gävle',
+      geometry: { type: 'Point', coordinates: [17.14, 60.67] },
+      centroid: { lat: 60.67, lng: 17.14 },
     });
     callApi.mockImplementation((url: string) => {
       if (url.includes('/current-assessment')) {
@@ -437,7 +672,12 @@ describe('LuWorkspace', () => {
       if (url.includes('/geometry')) {
         return Promise.resolve({
           ok: true,
-          geometry: { artifact_id: 'loc-geom-1', provenance: 'user_defined', wgs84LngLat: [17.14, 60.67], provisioningStatus: 'COMPLETED' },
+          geometry: {
+            artifact_id: 'loc-geom-1',
+            provenance: 'user_defined',
+            wgs84LngLat: [17.14, 60.67],
+            provisioningStatus: 'COMPLETED',
+          },
         });
       }
       throw new Error(`unexpected callApi call in this test: ${url}`);
@@ -461,22 +701,38 @@ describe('LuWorkspace', () => {
     // last viewed. This is proof 8's real mechanism (server-scoped "current"), not a UI gesture.
     const user1 = userEvent.setup();
     fetchPropertyInfo.mockResolvedValue({
-      id: 'p1', designation: 'GÄVLE BRYNÄS 1:1', municipality: 'Gävle',
-      geometry: { type: 'Point', coordinates: [17.14, 60.67] }, centroid: { lat: 60.67, lng: 17.14 },
+      id: 'p1',
+      designation: 'GÄVLE BRYNÄS 1:1',
+      municipality: 'Gävle',
+      geometry: { type: 'Point', coordinates: [17.14, 60.67] },
+      centroid: { lat: 60.67, lng: 17.14 },
     });
     callApi.mockImplementation((url: string) => {
       if (url.includes('/current-assessment')) {
         return Promise.resolve({
           ok: true,
           assessmentArtifactId: 'assess-for-point-A',
-          findings: [{ finding_id: 'LU-WATER-001', rule_id: 'LU-WATER-001', rule_version: '1.0', risk_level: 'MEDIUM', explanation: 'A' }],
+          findings: [
+            {
+              finding_id: 'LU-WATER-001',
+              rule_id: 'LU-WATER-001',
+              rule_version: '1.0',
+              risk_level: 'MEDIUM',
+              explanation: 'A',
+            },
+          ],
           systemSummary: 'point A summary',
         });
       }
       if (url.includes('/geometry')) {
         return Promise.resolve({
           ok: true,
-          geometry: { artifact_id: 'loc-geom-A', provenance: 'user_defined', wgs84LngLat: [17.14, 60.67], provisioningStatus: 'COMPLETED' },
+          geometry: {
+            artifact_id: 'loc-geom-A',
+            provenance: 'user_defined',
+            wgs84LngLat: [17.14, 60.67],
+            provisioningStatus: 'COMPLETED',
+          },
         });
       }
       throw new Error(`unexpected callApi call in this test: ${url}`);
@@ -499,7 +755,12 @@ describe('LuWorkspace', () => {
       if (url.includes('/geometry')) {
         return Promise.resolve({
           ok: true,
-          geometry: { artifact_id: 'loc-geom-B', provenance: 'user_defined', wgs84LngLat: [17.20, 60.70], provisioningStatus: 'COMPLETED' },
+          geometry: {
+            artifact_id: 'loc-geom-B',
+            provenance: 'user_defined',
+            wgs84LngLat: [17.2, 60.7],
+            provisioningStatus: 'COMPLETED',
+          },
         });
       }
       throw new Error(`unexpected callApi call in this test: ${url}`);
@@ -562,7 +823,9 @@ describe('LuWorkspace', () => {
     callApi.mockImplementationOnce(() => Promise.reject(new Error('Verifiering misslyckades på servern.')));
 
     await user.click(screen.getByTestId('lu-verify-assessment'));
-    expect(await screen.findByTestId('lu-verify-error')).toHaveTextContent('Verifiering misslyckades på servern.');
+    expect(await screen.findByTestId('lu-verify-error')).toHaveTextContent(
+      'Verifiering misslyckades på servern.',
+    );
     expect(screen.queryByTestId('lu-verify-result-pass')).not.toBeInTheDocument();
   });
 
@@ -571,7 +834,12 @@ describe('LuWorkspace', () => {
     await renderWithAssessedResult(user);
 
     let resolveVerify: (value: unknown) => void = () => {};
-    callApi.mockImplementationOnce(() => new Promise((resolve) => { resolveVerify = resolve; }));
+    callApi.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          resolveVerify = resolve;
+        }),
+    );
     const callsBeforeVerifyClicks = callApi.mock.calls.length;
 
     const button = screen.getByTestId('lu-verify-assessment');
@@ -587,25 +855,46 @@ describe('LuWorkspace', () => {
   it('LU-REEXECUTION-VERIFY-UI-V1, proof 6: a restored (Unit 5B) persisted assessment can be verified without running a new assessment first', async () => {
     const user = userEvent.setup();
     fetchPropertyInfo.mockResolvedValue({
-      id: 'p1', designation: 'GÄVLE BRYNÄS 1:1', municipality: 'Gävle',
-      geometry: { type: 'Point', coordinates: [17.14, 60.67] }, centroid: { lat: 60.67, lng: 17.14 },
+      id: 'p1',
+      designation: 'GÄVLE BRYNÄS 1:1',
+      municipality: 'Gävle',
+      geometry: { type: 'Point', coordinates: [17.14, 60.67] },
+      centroid: { lat: 60.67, lng: 17.14 },
     });
     callApi.mockImplementation((url: string) => {
       if (url.includes('/verify-assessment')) {
-        return Promise.resolve({ ok: true, outcome: 'PASS', assessmentArtifactId: 'assess-restored-verify', mismatches: [] });
+        return Promise.resolve({
+          ok: true,
+          outcome: 'PASS',
+          assessmentArtifactId: 'assess-restored-verify',
+          mismatches: [],
+        });
       }
       if (url.includes('/current-assessment')) {
         return Promise.resolve({
           ok: true,
           assessmentArtifactId: 'assess-restored-verify',
-          findings: [{ finding_id: 'LU-WATER-001', rule_id: 'LU-WATER-001', rule_version: '1.0', risk_level: 'MEDIUM', explanation: 'Restored finding' }],
+          findings: [
+            {
+              finding_id: 'LU-WATER-001',
+              rule_id: 'LU-WATER-001',
+              rule_version: '1.0',
+              risk_level: 'MEDIUM',
+              explanation: 'Restored finding',
+            },
+          ],
           systemSummary: 'restored summary',
         });
       }
       if (url.includes('/geometry')) {
         return Promise.resolve({
           ok: true,
-          geometry: { artifact_id: 'loc-geom-1', provenance: 'user_defined', wgs84LngLat: [17.14, 60.67], provisioningStatus: 'COMPLETED' },
+          geometry: {
+            artifact_id: 'loc-geom-1',
+            provenance: 'user_defined',
+            wgs84LngLat: [17.14, 60.67],
+            provisioningStatus: 'COMPLETED',
+          },
         });
       }
       throw new Error(`unexpected callApi call in this test: ${url}`);
@@ -624,8 +913,11 @@ describe('LuWorkspace', () => {
 
   async function renderWithFindingWithEvidence(user: ReturnType<typeof userEvent.setup>) {
     fetchPropertyInfo.mockResolvedValue({
-      id: 'p1', designation: 'GÄVLE BRYNÄS 1:1', municipality: 'Gävle',
-      geometry: { type: 'Point', coordinates: [17.14, 60.67] }, centroid: { lat: 60.67, lng: 17.14 },
+      id: 'p1',
+      designation: 'GÄVLE BRYNÄS 1:1',
+      municipality: 'Gävle',
+      geometry: { type: 'Point', coordinates: [17.14, 60.67] },
+      centroid: { lat: 60.67, lng: 17.14 },
     });
     callApi.mockImplementation((url: string) => {
       if (url.includes('/current-assessment')) {
@@ -634,11 +926,21 @@ describe('LuWorkspace', () => {
       if (url.includes('/geometry')) {
         return Promise.resolve({
           ok: true,
-          geometry: { artifact_id: 'loc-geom-1', provenance: 'user_defined', wgs84LngLat: [17.14, 60.67], provisioningStatus: 'COMPLETED' },
+          geometry: {
+            artifact_id: 'loc-geom-1',
+            provenance: 'user_defined',
+            wgs84LngLat: [17.14, 60.67],
+            provisioningStatus: 'COMPLETED',
+          },
         });
       }
       if (url.includes('/verify-assessment')) {
-        return Promise.resolve({ ok: true, outcome: 'PASS', assessmentArtifactId: 'assess-drilldown-abc', mismatches: [] });
+        return Promise.resolve({
+          ok: true,
+          outcome: 'PASS',
+          assessmentArtifactId: 'assess-drilldown-abc',
+          mismatches: [],
+        });
       }
       return Promise.resolve({
         ok: true,
@@ -656,7 +958,9 @@ describe('LuWorkspace', () => {
                   rule_id: 'LU-WATER-001',
                   risk_level: 'MEDIUM',
                   explanation: 'Närhet till vatten kräver analys',
-                  evidence_refs: [{ artifact_id: 'spatial-evidence-drilldown-1', artifact_type: 'SPATIAL_EVIDENCE' }],
+                  evidence_refs: [
+                    { artifact_id: 'spatial-evidence-drilldown-1', artifact_type: 'SPATIAL_EVIDENCE' },
+                  ],
                 },
               ],
             },
@@ -747,8 +1051,11 @@ describe('LuWorkspace', () => {
   it('LU-FINDING-MAP-DRILLDOWN-V1, proof 7: a restored (Unit 5B) persisted assessment can drill down to the map without running a new assessment', async () => {
     const user = userEvent.setup();
     fetchPropertyInfo.mockResolvedValue({
-      id: 'p1', designation: 'GÄVLE BRYNÄS 1:1', municipality: 'Gävle',
-      geometry: { type: 'Point', coordinates: [17.14, 60.67] }, centroid: { lat: 60.67, lng: 17.14 },
+      id: 'p1',
+      designation: 'GÄVLE BRYNÄS 1:1',
+      municipality: 'Gävle',
+      geometry: { type: 'Point', coordinates: [17.14, 60.67] },
+      centroid: { lat: 60.67, lng: 17.14 },
     });
     callApi.mockImplementation((url: string) => {
       if (url.includes('/current-assessment')) {
@@ -757,8 +1064,14 @@ describe('LuWorkspace', () => {
           assessmentArtifactId: 'assess-restored-drilldown',
           findings: [
             {
-              finding_id: 'LU-WATER-001', rule_id: 'LU-WATER-001', rule_version: '1.0', risk_level: 'MEDIUM',
-              explanation: 'Restored finding', evidence_refs: [{ artifact_id: 'spatial-evidence-restored-1', artifact_type: 'SPATIAL_EVIDENCE' }],
+              finding_id: 'LU-WATER-001',
+              rule_id: 'LU-WATER-001',
+              rule_version: '1.0',
+              risk_level: 'MEDIUM',
+              explanation: 'Restored finding',
+              evidence_refs: [
+                { artifact_id: 'spatial-evidence-restored-1', artifact_type: 'SPATIAL_EVIDENCE' },
+              ],
             },
           ],
           systemSummary: 'restored summary',
@@ -767,7 +1080,12 @@ describe('LuWorkspace', () => {
       if (url.includes('/geometry')) {
         return Promise.resolve({
           ok: true,
-          geometry: { artifact_id: 'loc-geom-1', provenance: 'user_defined', wgs84LngLat: [17.14, 60.67], provisioningStatus: 'COMPLETED' },
+          geometry: {
+            artifact_id: 'loc-geom-1',
+            provenance: 'user_defined',
+            wgs84LngLat: [17.14, 60.67],
+            provisioningStatus: 'COMPLETED',
+          },
         });
       }
       throw new Error(`unexpected callApi call in this test: ${url}`);
@@ -791,8 +1109,11 @@ describe('LuWorkspace', () => {
   it('LU-FINDING-MAP-DRILLDOWN-V1: a finding with no spatial evidence (e.g. document-only) exposes no "Visa på karta" action', async () => {
     const user = userEvent.setup();
     fetchPropertyInfo.mockResolvedValue({
-      id: 'p1', designation: 'GÄVLE BRYNÄS 1:1', municipality: 'Gävle',
-      geometry: { type: 'Point', coordinates: [17.14, 60.67] }, centroid: { lat: 60.67, lng: 17.14 },
+      id: 'p1',
+      designation: 'GÄVLE BRYNÄS 1:1',
+      municipality: 'Gävle',
+      geometry: { type: 'Point', coordinates: [17.14, 60.67] },
+      centroid: { lat: 60.67, lng: 17.14 },
     });
     callApi.mockImplementation((url: string) => {
       if (url.includes('/current-assessment')) {
@@ -801,7 +1122,12 @@ describe('LuWorkspace', () => {
       if (url.includes('/geometry')) {
         return Promise.resolve({
           ok: true,
-          geometry: { artifact_id: 'loc-geom-1', provenance: 'user_defined', wgs84LngLat: [17.14, 60.67], provisioningStatus: 'COMPLETED' },
+          geometry: {
+            artifact_id: 'loc-geom-1',
+            provenance: 'user_defined',
+            wgs84LngLat: [17.14, 60.67],
+            provisioningStatus: 'COMPLETED',
+          },
         });
       }
       return Promise.resolve({
@@ -816,8 +1142,11 @@ describe('LuWorkspace', () => {
               finding_ids: ['LU-DOC-BESLUT-001'],
               findings: [
                 {
-                  finding_id: 'LU-DOC-BESLUT-001', rule_id: 'LU-DOC-BESLUT-001', risk_level: 'MEDIUM',
-                  explanation: 'Tidigare beslut föreligger', evidence_refs: [{ artifact_id: 'doc-evidence-1', artifact_type: 'DOCUMENT_EVIDENCE' }],
+                  finding_id: 'LU-DOC-BESLUT-001',
+                  rule_id: 'LU-DOC-BESLUT-001',
+                  risk_level: 'MEDIUM',
+                  explanation: 'Tidigare beslut föreligger',
+                  evidence_refs: [{ artifact_id: 'doc-evidence-1', artifact_type: 'DOCUMENT_EVIDENCE' }],
                 },
               ],
             },
