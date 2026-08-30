@@ -1,7 +1,11 @@
-# ADR-29: TV-4 Spatial Foundation Roadmap
+# TV-4.0: Spatial Foundation Roadmap
 
 ## Status
 Frozen (2026-08-08)
+
+**Legacy identifier:** ADR-29 (2026-08-08) — renumbered into the TV-4.x family
+(see `TV-4.3-Spatial-Processing-Compatibility.md`) during document-authority
+normalization (2026-08-30). Content and invariants unchanged.
 
 ## Context
 As the Mimer platform evolves to incorporate geographic and environmental intelligence (starting with LU v1.0), it is critical that spatial data handling (2D, 2.5D, and 3D) does not compromise the Frozen Core. 

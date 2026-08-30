@@ -1,7 +1,7 @@
 /**
  * Decision Knowledge Retrieval Contract — FROZEN
  *
- * Executable form of MIMER-SCALE-I01 (ADR-29).
+ * Executable form of MIMER-SCALE-I01 (ADR-MPS-INTELLIGENCE-PROJECTION-BOUNDARY, formerly ADR-29).
  *
  * Allowed:
  *   GENERAL QUERY → DecisionImpactArtifact → (optional) EvidenceSet → (optional) Raw Evidence
@@ -13,7 +13,7 @@
  *   Raw Evidence SHALL NOT be the initial retrieval target for analytical queries.
  *   AI MUST NOT use raw material as the primary knowledge source as data volume grows.
  *
- * @see docs/architecture/ADR-29-Intelligence-Projection-Boundary.md
+ * @see docs/architecture/ADR-MPS-INTELLIGENCE-PROJECTION-BOUNDARY.md
  */
 
 export const DECISION_RETRIEVAL_CONTRACT_VERSION = "1" as const;

@@ -64,7 +64,7 @@ annars låser man upp på fel grund. (Codex äger filen; detta rapporteras, patc
 | **P0** Proof taxonomy + current-state freeze | Vad PROVEN betyder; nuläget fryst | ✅ `proven_criteria` (4 kriterier) i `architecture-authority-map.jsonc`; `proof_status_enum`; klassningsdokumentet; `PROOF-BASELINE-MATRIX` (draft) | Frysning saknas — allt är DRAFT |
 | **P1** Authority & Governance Convergence | En kanonisk auktoritet per domän | ✅ Level 2 promotion PROVEN; authority map v2 med 3 dimensioner; A1–A3 avgjorda; **F0A/F0B/F0D klara** | F0D väntar på frysning; A1:s röda test ej skrivet |
 | **P2** Governed ingestion, en verklig källa | Första källan hela vägen genom governad väg | ✅ `F0D` minimikontrakt (Tier 1); ✅ `mimers-brunn-v3.0.0` Tier 1–2; ✅ enforcement-invariant + 3 arkitekturtester specificerade | Ingen kod; kräver P1-frysning först |
-| **P4A** Spatial runtime convergence | — | ⚠️ **NYTT — finns inte i något befintligt plandokument.** `ADR-SPATIAL-PRESENTATION-EVIDENCE-CONTRACT` (FROZEN) och `ADR-29-TV4-Spatial-Foundation` är relevanta men ospårade av mig | Helt oanalyserad — se nedan |
+| **P4A** Spatial runtime convergence | — | ⚠️ **NYTT — finns inte i något befintligt plandokument.** `ADR-SPATIAL-PRESENTATION-EVIDENCE-CONTRACT` (FROZEN) och `TV-4.0-Spatial-Foundation-Roadmap` (formerly `ADR-29-TV4-Spatial-Foundation`) är relevanta men ospårade av mig | Helt oanalyserad — se nedan |
 | **P3** LU MVP PROVEN | LU-spåret grönt | ✅ `LU-MVP-IMPLEMENTATION-PLAN` F0A–F5 med fryst fasordning; F0A/F0B klara | F0C ej gjord (Codex lane); FAS 1–5 ej påbörjade |
 | **P5** Legal Knowledge Plane | Juridisk korpus | ✅ **`mps-legal-corpus` PROVEN v1** (18/18, kollateralt bekräftat); ✅ v3.0.0 Tier 5 bekräftar designen | Ej kopplad till `DocumentIngestionEngine` |
 | **P6** Canonical identity & replay | Identitet + replay | ✅ `ADR-24-23` fryst med sex replay-artifacts; ✅ CAS/WORM PROVEN | F9-avvikelsen ospårad |
@@ -78,8 +78,8 @@ annars låser man upp på fel grund. (Codex äger filen; detta rapporteras, patc
 
 **O1 — P4A är genuint nytt och oanalyserat.** Alla andra P-noder har motsvarighet i befintligt
 arbete. "Spatial runtime convergence" har det inte. Det finns frysta spatial-kontrakt
-(`ADR-SPATIAL-PRESENTATION-EVIDENCE-CONTRACT` — ACCEPTED/SEQUENCE FROZEN, `ADR-29-TV4-Spatial-
-Foundation`, `ADR-POSTGIS-REBUILD-DATA-CONTRACT`, `ADR-POSTGIS-ADMIT-V1`,
+(`ADR-SPATIAL-PRESENTATION-EVIDENCE-CONTRACT` — ACCEPTED/SEQUENCE FROZEN, `TV-4.0-Spatial-
+Foundation-Roadmap` (formerly `ADR-29-TV4-Spatial-Foundation`), `ADR-POSTGIS-REBUILD-DATA-CONTRACT`, `ADR-POSTGIS-ADMIT-V1`,
 `MASTER-SPATIAL-SOURCE-INVENTORY`) plus ett `spatial-provider-postgis`-paket och PostGIS-tester
 som faller på `riskguard`-auth. **Innan P4A placeras som blockerare för P3 bör den få samma
 read-only reconciliation som F0A/F0B fick** — annars riskerar den att bli den nya
