@@ -1,5 +1,6 @@
 # ADR‑24‑20 — Mimer Canonical Artifact Governance Constitution (FINAL FROZEN)
-**Status: Accepted**
+**Status: HISTORICAL — NORMATIVE_TODAY: false**
+**Superseded by:** [ADR-MPS-CONSTITUTIONAL-INVARIANTS.md](./ADR-MPS-CONSTITUTIONAL-INVARIANTS.md)
 
 ## Purpose
 Definiera de universella normativa principerna som alla canonical artifacts, alla ADR:er, alla domäner och alla implementationer inom Mimer‑plattformen måste följa.
@@ -205,41 +206,53 @@ Implementations SHALL prove:
 
 Runtime‑validering är obligatorisk.
 
-## Relationship to Existing ADRs
-ADR‑24‑20 governs:
+## Relationship to Existing ADRs (Historical — superseded, non-normative)
 
-**Level 1 — Governance Models**
-- ADR‑24‑15 Artifact Lifecycle
-- ADR‑24‑16 Registry State Model
-- ADR‑24‑17 Governance Policy Model
-- ADR‑24‑18 Event Emission Model
-- ADR‑24‑19 Workflow Contract
+At the time this document was written (2026-08-04), ADR‑24‑20 intended to govern a
+two-level hierarchy of subordinate ADRs numbered ADR‑24‑07 through ADR‑24‑19. Those
+files were never committed to this repository under that numbering, on any branch
+(verified via full git history during the 2026-08-30 document-authority
+reconciliation). The invariants and mechanisms they were meant to specialize were
+instead materialized under different, currently-normative documents. This section
+is retained for historical provenance only and SHALL NOT be read as a live
+governs-list. Historical ADR‑24‑07..19 SHALL NOT be recreated under this numbering.
 
-**Level 2 — Operational Architecture**
-- ADR‑24‑07 Canonical AST
-- ADR‑24‑08 Dependency Taxonomy
-- ADR‑24‑09 Constraint Semantics
-- ADR‑24‑10 Architecture Profiles
-- ADR‑24‑11 Compliance Evidence
-- ADR‑24‑12 Promotion Decision
-- ADR‑24‑13 Registry Mutation
-- ADR‑24‑14 Audit Chain
+| Historical reference (never committed) | Current successor authority |
+| --- | --- |
+| ADR‑24‑07 Canonical AST | `ADR-MPS-CONSTITUTIONAL-INVARIANTS.md` §1–§3 (canonical identity/hashing) |
+| ADR‑24‑08 Dependency Taxonomy | `ADR-MPS-CONSTITUTIONAL-INVARIANTS.md` §5 (canonical version namespace ownership) |
+| ADR‑24‑09 Constraint Semantics | `ADR-MPS-EVIDENCE-LINEAGE-SLOT.md`; `validateEvidenceSetLineage.ts` |
+| ADR‑24‑10 Architecture Profiles | No successor identified — NOT_PROVEN |
+| ADR‑24‑11 Compliance Evidence | `ADR-RUNTIME-SNAPSHOT-BOUNDARY.md` (SNAP boundary) |
+| ADR‑24‑12 Promotion Decision | `ADR-MPS-CAS-STORAGE-BOUNDARY.md` (CAS‑I02–I04) |
+| ADR‑24‑13 Registry Mutation | `ADR-MPS-CAS-STORAGE-BOUNDARY.md` (CAS‑I05–I07, path resolver) |
+| ADR‑24‑14 Audit Chain | `ADR-MPS-SINGLE-MATERIALIZATION-AUTHORITY.md`; MIMER‑MAT‑I01 |
+| ADR‑24‑15 Artifact Lifecycle | No successor identified — NOT_PROVEN |
+| ADR‑24‑16 Registry State Model | No successor identified — NOT_PROVEN |
+| ADR‑24‑17 Governance Policy Model | No successor identified — NOT_PROVEN |
+| ADR‑24‑18 Event Emission Model | No successor identified — NOT_PROVEN |
+| ADR‑24‑19 Workflow Contract | `ADR-MPS-CONSTITUTIONAL-INVARIANTS.md` §6 (Materialization Pipeline shape) |
 
-Alla dessa ADR är specialiseringar av konstitutionen.
+This mapping is a provenance record produced during document-authority
+normalization (2026-08-30). It is not a claim that the successor documents were
+derived from these specific historical drafts — only that they are the current
+authorities covering overlapping subject matter. The current, normative
+constitution is `ADR-MPS-CONSTITUTIONAL-INVARIANTS.md`.
 
-## Governance Hierarchy (Final)
+## Governance Hierarchy (Historical — as originally drafted; non-normative today)
 ```
-LEVEL 0 — CONSTITUTION
+LEVEL 0 — CONSTITUTION (historical)
 ADR‑24‑20
-        ↓ governs
+        ↓ intended to govern (never materialized under this numbering)
 
-LEVEL 1 — GOVERNANCE MODELS
+LEVEL 1 — GOVERNANCE MODELS (never committed)
 ADR‑24‑15 → ADR‑24‑19
-        ↓ governs
 
-LEVEL 2 — OPERATIONAL ARCHITECTURE
+LEVEL 2 — OPERATIONAL ARCHITECTURE (never committed)
 ADR‑24‑07 → ADR‑24‑14
 ```
+This diagram documents original intent only. The current, normative governance
+hierarchy is defined by `ADR-MPS-CONSTITUTIONAL-INVARIANTS.md`.
 
 ## Result
 ADR‑24‑20 är nu FRYST.
