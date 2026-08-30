@@ -43,16 +43,21 @@ describe('PROJECT-CONTEXT-BOOTSTRAP-WORKER-OPS-01: bootstrap worker processing',
       id: 'req-1',
       projectId: 'proj-1',
       propertyDesignation: 'ORSA STACKMORA 3:12',
+      leaseToken: 'lease-token-A',
     });
     executeProjectContextBootstrap.mockResolvedValue({
       ok: true,
       contextBindingArtifactId: 'project-context-binding-abc',
       reused: false,
     });
-    markBootstrapRequestCompleted.mockResolvedValue(undefined);
+    markBootstrapRequestCompleted.mockResolvedValue({ ok: true });
 
     await expect(processProjectContextBootstrapRequestsOnce()).resolves.toBe(1);
-    expect(markBootstrapRequestCompleted).toHaveBeenCalledWith('req-1', 'project-context-binding-abc');
+    expect(markBootstrapRequestCompleted).toHaveBeenCalledWith(
+      'req-1',
+      'lease-token-A',
+      'project-context-binding-abc',
+    );
   });
 
   it('serializes overlapping poll ticks so only one active run processes at a time', async () => {
@@ -66,6 +71,7 @@ describe('PROJECT-CONTEXT-BOOTSTRAP-WORKER-OPS-01: bootstrap worker processing',
         id: 'req-1',
         projectId: 'proj-1',
         propertyDesignation: 'ORSA STACKMORA 3:12',
+        leaseToken: 'lease-token-A',
       };
     });
     executeProjectContextBootstrap.mockResolvedValue({
@@ -73,7 +79,7 @@ describe('PROJECT-CONTEXT-BOOTSTRAP-WORKER-OPS-01: bootstrap worker processing',
       contextBindingArtifactId: 'project-context-binding-abc',
       reused: false,
     });
-    markBootstrapRequestCompleted.mockResolvedValue(undefined);
+    markBootstrapRequestCompleted.mockResolvedValue({ ok: true });
 
     const first = processProjectContextBootstrapRequestsOnce();
     const second = processProjectContextBootstrapRequestsOnce();

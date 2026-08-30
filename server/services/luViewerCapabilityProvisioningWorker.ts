@@ -26,6 +26,13 @@ export async function processViewerCapabilityProvisioningRequestsOnce(): Promise
   try {
     const request = await leaseOnePendingViewerCapabilityProvisioningRequest();
     if (!request) return 0;
+    const leaseToken = request.leaseToken;
+    if (!leaseToken) {
+      logger.error(
+        `lu-viewer-capability-worker: request ${request.id} was leased without a lease token -- refusing terminal mutation.`,
+      );
+      return 1;
+    }
 
     logger.info(
       `lu-viewer-capability-worker: leased request ${request.id} for project ${request.projectId} binding ${request.contextBindingArtifactId}`,
@@ -37,12 +44,17 @@ export async function processViewerCapabilityProvisioningRequestsOnce(): Promise
     // surfaces for an explicit retry (which enqueues a fresh row with a real pinned window),
     // rather than silently inventing a window here.
     if (!request.capabilityValidFrom || !request.capabilityValidUntil) {
-      await markViewerCapabilityProvisioningFailed(
+      const terminal = await markViewerCapabilityProvisioningFailed(
         request.id,
+        leaseToken,
         'MISSING_PINNED_VALIDITY_WINDOW',
         'request predates the explicit capabilityValidFrom/capabilityValidUntil contract -- retry to enqueue a fresh request with a pinned window',
       );
-      logger.warn(`lu-viewer-capability-worker: request ${request.id} FAILED (MISSING_PINNED_VALIDITY_WINDOW)`);
+      logger.warn(
+        terminal.ok === true
+          ? `lu-viewer-capability-worker: request ${request.id} FAILED (MISSING_PINNED_VALIDITY_WINDOW)`
+          : `lu-viewer-capability-worker: request ${request.id} validity-window failure ignored (${terminal.reason})`,
+      );
       return 1;
     }
 
@@ -56,17 +68,50 @@ export async function processViewerCapabilityProvisioningRequestsOnce(): Promise
       capabilityValidUntil: request.capabilityValidUntil,
     });
 
-    if (outcome.ok) {
-      await markViewerCapabilityProvisioningCompleted(request.id, outcome.capabilityArtifactId);
-      logger.info(
-        `lu-viewer-capability-worker: request ${request.id} COMPLETED (capability=${outcome.capabilityArtifactId}, reused=${outcome.reused})`,
+    if (outcome.ok === true) {
+      const terminal = await markViewerCapabilityProvisioningCompleted(
+        request.id,
+        leaseToken,
+        outcome.capabilityArtifactId,
       );
-    } else if (outcome.superseded) {
-      await markViewerCapabilityProvisioningSuperseded(request.id, outcome.detail);
-      logger.info(`lu-viewer-capability-worker: request ${request.id} SUPERSEDED: ${outcome.detail}`);
-    } else {
-      await markViewerCapabilityProvisioningFailed(request.id, outcome.failureCode, outcome.failureDetail);
-      logger.warn(`lu-viewer-capability-worker: request ${request.id} FAILED (${outcome.failureCode}): ${outcome.failureDetail}`);
+      if (terminal.ok === true) {
+        logger.info(
+          `lu-viewer-capability-worker: request ${request.id} COMPLETED (capability=${outcome.capabilityArtifactId}, reused=${outcome.reused})`,
+        );
+      } else if (terminal.ok === false) {
+        logger.warn(
+          `lu-viewer-capability-worker: request ${request.id} completion ignored (${terminal.reason})`,
+        );
+      }
+    } else if (outcome.ok === false && outcome.superseded === true) {
+      const terminal = await markViewerCapabilityProvisioningSuperseded(
+        request.id,
+        leaseToken,
+        outcome.detail,
+      );
+      if (terminal.ok === true) {
+        logger.info(`lu-viewer-capability-worker: request ${request.id} SUPERSEDED: ${outcome.detail}`);
+      } else if (terminal.ok === false) {
+        logger.warn(
+          `lu-viewer-capability-worker: request ${request.id} supersede ignored (${terminal.reason})`,
+        );
+      }
+    } else if (outcome.ok === false) {
+      const terminal = await markViewerCapabilityProvisioningFailed(
+        request.id,
+        leaseToken,
+        outcome.failureCode,
+        outcome.failureDetail,
+      );
+      if (terminal.ok === true) {
+        logger.warn(
+          `lu-viewer-capability-worker: request ${request.id} FAILED (${outcome.failureCode}): ${outcome.failureDetail}`,
+        );
+      } else if (terminal.ok === false) {
+        logger.warn(
+          `lu-viewer-capability-worker: request ${request.id} failure ignored (${terminal.reason})`,
+        );
+      }
     }
     return 1;
   } finally {
@@ -77,7 +122,9 @@ export async function processViewerCapabilityProvisioningRequestsOnce(): Promise
 export function startViewerCapabilityProvisioningWorker(pollMs: number): NodeJS.Timeout {
   return setInterval(() => {
     void processViewerCapabilityProvisioningRequestsOnce().catch((error) => {
-      logger.error(`lu-viewer-capability-worker: unexpected error: ${error instanceof Error ? error.message : String(error)}`);
+      logger.error(
+        `lu-viewer-capability-worker: unexpected error: ${error instanceof Error ? error.message : String(error)}`,
+      );
     });
   }, pollMs);
 }

@@ -32,6 +32,11 @@ const SUBJECT = {
   viewerIdentityArtifactId: 'viewer-identity-def',
 };
 
+const VALIDITY_WINDOW = {
+  capabilityValidFrom: new Date('2026-01-01T00:00:00.000Z'),
+  capabilityValidUntil: new Date('2026-01-02T00:00:00.000Z'),
+};
+
 describe('PRODUCT-LU-VIEWER-CAPABILITY-PROVISIONING-01 Phase B: viewer capability provisioning queue', () => {
   beforeEach(() => {
     create.mockReset();
@@ -44,13 +49,19 @@ describe('PRODUCT-LU-VIEWER-CAPABILITY-PROVISIONING-01 Phase B: viewer capabilit
 
   it('enqueue never accepts a capability artifact id, issuer ref, or signature -- only the pinned subject + requester', async () => {
     create.mockResolvedValue({ id: 'req-1', status: 'PENDING' });
-    await enqueueViewerCapabilityProvisioningRequest({ ...SUBJECT, requestedByUserId: 'user-1' });
+    await enqueueViewerCapabilityProvisioningRequest({
+      ...SUBJECT,
+      ...VALIDITY_WINDOW,
+      requestedByUserId: 'user-1',
+    });
     expect(create).toHaveBeenCalledWith({
       data: {
         projectId: SUBJECT.projectId,
         contextBindingArtifactId: SUBJECT.contextBindingArtifactId,
         releaseArtifactId: SUBJECT.releaseArtifactId,
         viewerIdentityArtifactId: SUBJECT.viewerIdentityArtifactId,
+        capabilityValidFrom: VALIDITY_WINDOW.capabilityValidFrom,
+        capabilityValidUntil: VALIDITY_WINDOW.capabilityValidUntil,
         requestedByUserId: 'user-1',
       },
     });
@@ -58,7 +69,11 @@ describe('PRODUCT-LU-VIEWER-CAPABILITY-PROVISIONING-01 Phase B: viewer capabilit
 
   it('ensureViewerCapabilityProvisioningRequested is idempotent: an existing non-FAILED request for the exact subject is reused, not duplicated', async () => {
     findFirst.mockResolvedValue({ id: 'req-existing', status: 'PENDING', ...SUBJECT });
-    const result = await ensureViewerCapabilityProvisioningRequested({ ...SUBJECT, requestedByUserId: 'user-1' });
+    const result = await ensureViewerCapabilityProvisioningRequested({
+      ...SUBJECT,
+      ...VALIDITY_WINDOW,
+      requestedByUserId: 'user-1',
+    });
     expect(result.id).toBe('req-existing');
     expect(create).not.toHaveBeenCalled();
   });
@@ -66,7 +81,11 @@ describe('PRODUCT-LU-VIEWER-CAPABILITY-PROVISIONING-01 Phase B: viewer capabilit
   it('ensureViewerCapabilityProvisioningRequested re-enqueues when the only existing request FAILED', async () => {
     findFirst.mockResolvedValue({ id: 'req-failed', status: 'FAILED', ...SUBJECT });
     create.mockResolvedValue({ id: 'req-new', status: 'PENDING', ...SUBJECT });
-    const result = await ensureViewerCapabilityProvisioningRequested({ ...SUBJECT, requestedByUserId: 'user-1' });
+    const result = await ensureViewerCapabilityProvisioningRequested({
+      ...SUBJECT,
+      ...VALIDITY_WINDOW,
+      requestedByUserId: 'user-1',
+    });
     expect(result.id).toBe('req-new');
     expect(create).toHaveBeenCalled();
   });
@@ -74,12 +93,14 @@ describe('PRODUCT-LU-VIEWER-CAPABILITY-PROVISIONING-01 Phase B: viewer capabilit
   it('lists every completed request for the exact subject without imposing timestamp order', async () => {
     findMany.mockResolvedValue([{ id: 'req-a' }, { id: 'req-b' }]);
 
-    await expect(listCompletedProvisioningRequestsForSubject(
-      SUBJECT.projectId,
-      SUBJECT.contextBindingArtifactId,
-      SUBJECT.releaseArtifactId,
-      SUBJECT.viewerIdentityArtifactId,
-    )).resolves.toEqual([{ id: 'req-a' }, { id: 'req-b' }]);
+    await expect(
+      listCompletedProvisioningRequestsForSubject(
+        SUBJECT.projectId,
+        SUBJECT.contextBindingArtifactId,
+        SUBJECT.releaseArtifactId,
+        SUBJECT.viewerIdentityArtifactId,
+      ),
+    ).resolves.toEqual([{ id: 'req-a' }, { id: 'req-b' }]);
     expect(findMany).toHaveBeenCalledWith({
       where: {
         ...SUBJECT,
@@ -97,7 +118,12 @@ describe('PRODUCT-LU-VIEWER-CAPABILITY-PROVISIONING-01 Phase B: viewer capabilit
     expect(result?.id).toBe('req-1');
     expect(updateMany).toHaveBeenCalledWith({
       where: { id: 'req-1', status: 'PENDING' },
-      data: { status: 'LEASED', leasedAt: new Date('2026-01-01T00:00:00Z'), leaseExpiresAt: expect.any(Date) },
+      data: {
+        status: 'LEASED',
+        leasedAt: new Date('2026-01-01T00:00:00Z'),
+        leaseExpiresAt: expect.any(Date),
+        leaseToken: expect.any(String),
+      },
     });
   });
 
@@ -115,7 +141,11 @@ describe('PRODUCT-LU-VIEWER-CAPABILITY-PROVISIONING-01 Phase B: viewer capabilit
 
   it('H3 FIX: a stale LEASED row (lease expired) is reclaimable -- the query considers PENDING OR expired-LEASED', async () => {
     const now = new Date('2026-01-01T00:10:00Z');
-    findFirst.mockResolvedValue({ id: 'req-stale', status: 'LEASED', leaseExpiresAt: new Date('2026-01-01T00:02:00Z') });
+    findFirst.mockResolvedValue({
+      id: 'req-stale',
+      status: 'LEASED',
+      leaseExpiresAt: new Date('2026-01-01T00:02:00Z'),
+    });
     updateMany.mockResolvedValueOnce({ count: 1 });
     findUnique.mockResolvedValueOnce({ id: 'req-stale', status: 'LEASED' });
 
@@ -129,7 +159,12 @@ describe('PRODUCT-LU-VIEWER-CAPABILITY-PROVISIONING-01 Phase B: viewer capabilit
     // Reclaim is a compare-and-swap over the observed expired lease generation.
     expect(updateMany).toHaveBeenCalledWith({
       where: { id: 'req-stale', status: 'LEASED', leaseExpiresAt: new Date('2026-01-01T00:02:00Z') },
-      data: { status: 'LEASED', leasedAt: now, leaseExpiresAt: expect.any(Date) },
+      data: {
+        status: 'LEASED',
+        leasedAt: now,
+        leaseExpiresAt: expect.any(Date),
+        leaseToken: expect.any(String),
+      },
     });
   });
 
@@ -141,29 +176,67 @@ describe('PRODUCT-LU-VIEWER-CAPABILITY-PROVISIONING-01 Phase B: viewer capabilit
   });
 
   it('markViewerCapabilityProvisioningCompleted records the capability id and completion time', async () => {
-    update.mockResolvedValue({});
-    await markViewerCapabilityProvisioningCompleted('req-1', 'viewer-capability-abc');
-    expect(update).toHaveBeenCalledWith({
-      where: { id: 'req-1' },
-      data: { status: 'COMPLETED', capabilityArtifactId: 'viewer-capability-abc', completedAt: expect.any(Date) },
+    updateMany.mockResolvedValue({ count: 1 });
+    await expect(
+      markViewerCapabilityProvisioningCompleted('req-1', 'lease-token-A', 'viewer-capability-abc'),
+    ).resolves.toEqual({ ok: true });
+    expect(updateMany).toHaveBeenCalledWith({
+      where: { id: 'req-1', status: 'LEASED', leaseToken: 'lease-token-A' },
+      data: {
+        status: 'COMPLETED',
+        capabilityArtifactId: 'viewer-capability-abc',
+        completedAt: expect.any(Date),
+        leaseToken: null,
+      },
     });
   });
 
   it('markViewerCapabilityProvisioningFailed records a code and bounded-length detail', async () => {
-    update.mockResolvedValue({});
-    await markViewerCapabilityProvisioningFailed('req-1', 'VIEWER_IDENTITY_MISMATCH', 'x'.repeat(5000));
-    const call = update.mock.calls[0][0];
+    updateMany.mockResolvedValue({ count: 1 });
+    await expect(
+      markViewerCapabilityProvisioningFailed(
+        'req-1',
+        'lease-token-A',
+        'VIEWER_IDENTITY_MISMATCH',
+        'x'.repeat(5000),
+      ),
+    ).resolves.toEqual({
+      ok: true,
+    });
+    const call = updateMany.mock.calls[0][0];
+    expect(call.where).toEqual({ id: 'req-1', status: 'LEASED', leaseToken: 'lease-token-A' });
     expect(call.data.status).toBe('FAILED');
     expect(call.data.failureDetail.length).toBeLessThanOrEqual(2000);
+    expect(call.data.leaseToken).toBeNull();
   });
 
   it('markViewerCapabilityProvisioningSuperseded marks SUPERSEDED without ever writing a new subject onto the row', async () => {
-    update.mockResolvedValue({});
-    await markViewerCapabilityProvisioningSuperseded('req-1', 'binding moved on');
-    const call = update.mock.calls[0][0];
+    updateMany.mockResolvedValue({ count: 1 });
+    await expect(
+      markViewerCapabilityProvisioningSuperseded('req-1', 'lease-token-A', 'binding moved on'),
+    ).resolves.toEqual({ ok: true });
+    const call = updateMany.mock.calls[0][0];
+    expect(call.where).toEqual({ id: 'req-1', status: 'LEASED', leaseToken: 'lease-token-A' });
     expect(call.data.status).toBe('SUPERSEDED');
     expect(call.data).not.toHaveProperty('contextBindingArtifactId');
     expect(call.data).not.toHaveProperty('releaseArtifactId');
     expect(call.data).not.toHaveProperty('viewerIdentityArtifactId');
+    expect(call.data.leaseToken).toBeNull();
+  });
+
+  it('denies stale completion and failure attempts when their lease token is no longer current', async () => {
+    updateMany.mockResolvedValue({ count: 0 });
+    await expect(
+      markViewerCapabilityProvisioningCompleted('req-1', 'stale-token', 'viewer-capability-stale'),
+    ).resolves.toEqual({
+      ok: false,
+      reason: 'LEASE_LOST',
+    });
+    await expect(
+      markViewerCapabilityProvisioningFailed('req-1', 'stale-token', 'LATE_FAILURE', 'too late'),
+    ).resolves.toEqual({
+      ok: false,
+      reason: 'LEASE_LOST',
+    });
   });
 });

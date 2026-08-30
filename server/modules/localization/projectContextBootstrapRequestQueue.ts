@@ -17,8 +17,12 @@
  * completed the CAS write reuses that binding instead of diverging.
  */
 import { prisma } from '../../db/prisma';
+import { randomUUID } from 'node:crypto';
 
 const LEASE_DURATION_MS = 2 * 60 * 1000;
+
+export type TerminalQueueMutationResult =
+  { readonly ok: true } | { readonly ok: false; readonly reason: 'LEASE_LOST' };
 
 export interface BootstrapRequestRecord {
   readonly id: string;
@@ -32,6 +36,7 @@ export interface BootstrapRequestRecord {
   readonly createdAt: Date;
   readonly leasedAt: Date | null;
   readonly leaseExpiresAt: Date | null;
+  readonly leaseToken: string | null;
   readonly completedAt: Date | null;
   readonly failedAt: Date | null;
 }
@@ -45,12 +50,16 @@ export async function enqueueProjectContextBootstrapRequest(input: {
     data: {
       projectId: input.projectId,
       requestedByUserId: input.requestedByUserId,
-      propertyDesignation: String(input.propertyDesignation || '').trim().toUpperCase(),
+      propertyDesignation: String(input.propertyDesignation || '')
+        .trim()
+        .toUpperCase(),
     },
   });
 }
 
-export async function getBootstrapRequestStatusForProject(projectId: string): Promise<BootstrapRequestRecord | null> {
+export async function getBootstrapRequestStatusForProject(
+  projectId: string,
+): Promise<BootstrapRequestRecord | null> {
   return prisma.projectContextBootstrapRequest.findFirst({
     where: { projectId },
     orderBy: { createdAt: 'desc' },
@@ -61,7 +70,9 @@ export async function getBootstrapRequestStatusForProject(projectId: string): Pr
  * Atomically claims exactly one available request: a PENDING row, or a LEASED row whose lease has
  * expired (crashed-worker reclaim). A stale reclaim compares the exact observed expiry generation.
  */
-export async function leaseOnePendingBootstrapRequest(now: Date = new Date()): Promise<BootstrapRequestRecord | null> {
+export async function leaseOnePendingBootstrapRequest(
+  now: Date = new Date(),
+): Promise<BootstrapRequestRecord | null> {
   const candidate = await prisma.projectContextBootstrapRequest.findFirst({
     where: {
       OR: [{ status: 'PENDING' }, { status: 'LEASED', leaseExpiresAt: { lt: now } }],
@@ -70,33 +81,52 @@ export async function leaseOnePendingBootstrapRequest(now: Date = new Date()): P
   });
   if (!candidate) return null;
 
-  const claimWhere = candidate.status === 'LEASED'
-    ? candidate.leaseExpiresAt
-      ? { id: candidate.id, status: 'LEASED' as const, leaseExpiresAt: candidate.leaseExpiresAt }
-      : null
-    : { id: candidate.id, status: 'PENDING' as const };
+  const claimWhere =
+    candidate.status === 'LEASED'
+      ? candidate.leaseExpiresAt
+        ? { id: candidate.id, status: 'LEASED' as const, leaseExpiresAt: candidate.leaseExpiresAt }
+        : null
+      : { id: candidate.id, status: 'PENDING' as const };
   if (!claimWhere) return null;
 
   const leaseExpiresAt = new Date(now.getTime() + LEASE_DURATION_MS);
+  const leaseToken = randomUUID();
   const result = await prisma.projectContextBootstrapRequest.updateMany({
     where: claimWhere,
-    data: { status: 'LEASED', leasedAt: now, leaseExpiresAt },
+    data: { status: 'LEASED', leasedAt: now, leaseExpiresAt, leaseToken },
   });
   if (result.count !== 1) return null;
 
   return prisma.projectContextBootstrapRequest.findUnique({ where: { id: candidate.id } });
 }
 
-export async function markBootstrapRequestCompleted(id: string, contextBindingArtifactId: string): Promise<void> {
-  await prisma.projectContextBootstrapRequest.update({
-    where: { id },
-    data: { status: 'COMPLETED', contextBindingArtifactId, completedAt: new Date() },
+export async function markBootstrapRequestCompleted(
+  id: string,
+  leaseToken: string,
+  contextBindingArtifactId: string,
+): Promise<TerminalQueueMutationResult> {
+  const result = await prisma.projectContextBootstrapRequest.updateMany({
+    where: { id, status: 'LEASED', leaseToken },
+    data: { status: 'COMPLETED', contextBindingArtifactId, completedAt: new Date(), leaseToken: null },
   });
+  return result.count === 1 ? { ok: true } : { ok: false, reason: 'LEASE_LOST' };
 }
 
-export async function markBootstrapRequestFailed(id: string, failureCode: string, failureDetail: string): Promise<void> {
-  await prisma.projectContextBootstrapRequest.update({
-    where: { id },
-    data: { status: 'FAILED', failureCode, failureDetail: failureDetail.slice(0, 2000), failedAt: new Date() },
+export async function markBootstrapRequestFailed(
+  id: string,
+  leaseToken: string,
+  failureCode: string,
+  failureDetail: string,
+): Promise<TerminalQueueMutationResult> {
+  const result = await prisma.projectContextBootstrapRequest.updateMany({
+    where: { id, status: 'LEASED', leaseToken },
+    data: {
+      status: 'FAILED',
+      failureCode,
+      failureDetail: failureDetail.slice(0, 2000),
+      failedAt: new Date(),
+      leaseToken: null,
+    },
   });
+  return result.count === 1 ? { ok: true } : { ok: false, reason: 'LEASE_LOST' };
 }

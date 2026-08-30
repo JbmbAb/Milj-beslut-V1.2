@@ -18,8 +18,12 @@
  * after a crash that already completed the CAS write reuses that identity instead of diverging.
  */
 import { prisma } from '../../db/prisma';
+import { randomUUID } from 'node:crypto';
 
 const LEASE_DURATION_MS = 2 * 60 * 1000;
+
+export type TerminalQueueMutationResult =
+  { readonly ok: true } | { readonly ok: false; readonly reason: 'LEASE_LOST' };
 
 export interface LocalizationIdentityProvisioningRequestRecord {
   readonly id: string;
@@ -33,6 +37,7 @@ export interface LocalizationIdentityProvisioningRequestRecord {
   readonly createdAt: Date;
   readonly leasedAt: Date | null;
   readonly leaseExpiresAt: Date | null;
+  readonly leaseToken: string | null;
   readonly completedAt: Date | null;
   readonly failedAt: Date | null;
 }
@@ -105,17 +110,19 @@ export async function leaseOnePendingLocalizationIdentityProvisioningRequest(
   });
   if (!candidate) return null;
 
-  const claimWhere = candidate.status === 'LEASED'
-    ? candidate.leaseExpiresAt
-      ? { id: candidate.id, status: 'LEASED' as const, leaseExpiresAt: candidate.leaseExpiresAt }
-      : null
-    : { id: candidate.id, status: 'PENDING' as const };
+  const claimWhere =
+    candidate.status === 'LEASED'
+      ? candidate.leaseExpiresAt
+        ? { id: candidate.id, status: 'LEASED' as const, leaseExpiresAt: candidate.leaseExpiresAt }
+        : null
+      : { id: candidate.id, status: 'PENDING' as const };
   if (!claimWhere) return null;
 
   const leaseExpiresAt = new Date(now.getTime() + LEASE_DURATION_MS);
+  const leaseToken = randomUUID();
   const result = await prisma.localizationIdentityProvisioningRequest.updateMany({
     where: claimWhere,
-    data: { status: 'LEASED', leasedAt: now, leaseExpiresAt },
+    data: { status: 'LEASED', leasedAt: now, leaseExpiresAt, leaseToken },
   });
   if (result.count !== 1) return null;
 
@@ -124,21 +131,31 @@ export async function leaseOnePendingLocalizationIdentityProvisioningRequest(
 
 export async function markLocalizationIdentityProvisioningCompleted(
   id: string,
+  leaseToken: string,
   executionIdentityArtifactId: string,
-): Promise<void> {
-  await prisma.localizationIdentityProvisioningRequest.update({
-    where: { id },
-    data: { status: 'COMPLETED', executionIdentityArtifactId, completedAt: new Date() },
+): Promise<TerminalQueueMutationResult> {
+  const result = await prisma.localizationIdentityProvisioningRequest.updateMany({
+    where: { id, status: 'LEASED', leaseToken },
+    data: { status: 'COMPLETED', executionIdentityArtifactId, completedAt: new Date(), leaseToken: null },
   });
+  return result.count === 1 ? { ok: true } : { ok: false, reason: 'LEASE_LOST' };
 }
 
 export async function markLocalizationIdentityProvisioningFailed(
   id: string,
+  leaseToken: string,
   failureCode: string,
   failureDetail: string,
-): Promise<void> {
-  await prisma.localizationIdentityProvisioningRequest.update({
-    where: { id },
-    data: { status: 'FAILED', failureCode, failureDetail: failureDetail.slice(0, 2000), failedAt: new Date() },
+): Promise<TerminalQueueMutationResult> {
+  const result = await prisma.localizationIdentityProvisioningRequest.updateMany({
+    where: { id, status: 'LEASED', leaseToken },
+    data: {
+      status: 'FAILED',
+      failureCode,
+      failureDetail: failureDetail.slice(0, 2000),
+      failedAt: new Date(),
+      leaseToken: null,
+    },
   });
+  return result.count === 1 ? { ok: true } : { ok: false, reason: 'LEASE_LOST' };
 }

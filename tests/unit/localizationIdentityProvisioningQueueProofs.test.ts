@@ -9,7 +9,7 @@
  * technique used throughout this session for other Prisma-backed projection tables -- so this
  * exercises the REAL queue/service/worker-service logic without needing real Project/User FK rows.
  */
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 type FakeRow = {
   id: string;
@@ -23,6 +23,7 @@ type FakeRow = {
   createdAt: Date;
   leasedAt: Date | null;
   leaseExpiresAt: Date | null;
+  leaseToken: string | null;
   completedAt: Date | null;
   failedAt: Date | null;
 };
@@ -55,46 +56,74 @@ vi.mock('../../server/db/prisma', () => ({
           createdAt: new Date(Date.now() + fakeRows.length),
           leasedAt: null,
           leaseExpiresAt: null,
+          leaseToken: null,
           completedAt: null,
           failedAt: null,
         };
         fakeRows.push(row);
         return { ...row };
       }),
-      findFirst: vi.fn(async ({ where, orderBy }: { where: Record<string, unknown>; orderBy?: { createdAt: 'asc' | 'desc' } }) => {
-        const matchesClause = (row: FakeRow, clause: Record<string, unknown>): boolean =>
-          Object.entries(clause).every(([k, v]) => {
-            if (v !== null && typeof v === 'object' && 'lt' in (v as Record<string, unknown>)) {
-              const fieldValue = (row as Record<string, unknown>)[k];
-              return fieldValue instanceof Date && fieldValue.getTime() < (v as { lt: Date }).lt.getTime();
+      findFirst: vi.fn(
+        async ({
+          where,
+          orderBy,
+        }: {
+          where: Record<string, unknown>;
+          orderBy?: { createdAt: 'asc' | 'desc' };
+        }) => {
+          const matchesClause = (row: FakeRow, clause: Record<string, unknown>): boolean =>
+            Object.entries(clause).every(([k, v]) => {
+              if (v !== null && typeof v === 'object' && 'lt' in (v as Record<string, unknown>)) {
+                const fieldValue = (row as Record<string, unknown>)[k];
+                return fieldValue instanceof Date && fieldValue.getTime() < (v as { lt: Date }).lt.getTime();
+              }
+              return (row as Record<string, unknown>)[k] === v;
+            });
+          const matches = fakeRows.filter((r) => {
+            if (Array.isArray(where.OR)) {
+              return (where.OR as Record<string, unknown>[]).some((clause) => matchesClause(r, clause));
             }
-            return (row as Record<string, unknown>)[k] === v;
+            return matchesClause(r, where);
           });
-        const matches = fakeRows.filter((r) => {
-          if (Array.isArray(where.OR)) {
-            return (where.OR as Record<string, unknown>[]).some((clause) => matchesClause(r, clause));
-          }
-          return matchesClause(r, where);
-        });
-        if (matches.length === 0) return null;
-        const sorted = [...matches].sort((a, b) =>
-          orderBy?.createdAt === 'desc' ? b.createdAt.getTime() - a.createdAt.getTime() : a.createdAt.getTime() - b.createdAt.getTime(),
-        );
-        return { ...sorted[0] };
-      }),
+          if (matches.length === 0) return null;
+          const sorted = [...matches].sort((a, b) =>
+            orderBy?.createdAt === 'desc'
+              ? b.createdAt.getTime() - a.createdAt.getTime()
+              : a.createdAt.getTime() - b.createdAt.getTime(),
+          );
+          return { ...sorted[0] };
+        },
+      ),
       findUnique: vi.fn(async ({ where: { id } }: { where: { id: string } }) => {
         const row = fakeRows.find((r) => r.id === id);
         return row ? { ...row } : null;
       }),
-      updateMany: vi.fn(async ({ where, data }: { where: { id: string; status?: FakeRow['status']; leaseExpiresAt?: Date | null }; data: Partial<FakeRow> }) => {
-        const row = fakeRows.find((r) => r.id === where.id
-          && (where.status === undefined || r.status === where.status)
-          && (where.leaseExpiresAt === undefined
-            || (r.leaseExpiresAt?.getTime() ?? null) === (where.leaseExpiresAt?.getTime() ?? null)));
-        if (!row) return { count: 0 };
-        Object.assign(row, data);
-        return { count: 1 };
-      }),
+      updateMany: vi.fn(
+        async ({
+          where,
+          data,
+        }: {
+          where: {
+            id: string;
+            status?: FakeRow['status'];
+            leaseExpiresAt?: Date | null;
+            leaseToken?: string | null;
+          };
+          data: Partial<FakeRow>;
+        }) => {
+          const row = fakeRows.find(
+            (r) =>
+              r.id === where.id &&
+              (where.status === undefined || r.status === where.status) &&
+              (where.leaseExpiresAt === undefined ||
+                (r.leaseExpiresAt?.getTime() ?? null) === (where.leaseExpiresAt?.getTime() ?? null)) &&
+              (where.leaseToken === undefined || r.leaseToken === where.leaseToken),
+          );
+          if (!row) return { count: 0 };
+          Object.assign(row, data);
+          return { count: 1 };
+        },
+      ),
       update: vi.fn(async ({ where: { id }, data }: { where: { id: string }; data: Partial<FakeRow> }) => {
         const row = fakeRows.find((r) => r.id === id);
         if (!row) throw new Error(`no such row ${id}`);
@@ -136,8 +165,16 @@ describe('PRODUCT-LU-EXECUTION-IDENTITY-V3-PROVISIONING-01 — queue proofs', ()
   });
 
   it('proof: a request for a DIFFERENT point is a genuinely new row, never conflated with an existing one', async () => {
-    await ensureLocalizationIdentityProvisioningRequested({ projectId: 'proj-1', geometryArtifactId: 'geom-A', requestedByUserId: 'user-1' });
-    await ensureLocalizationIdentityProvisioningRequested({ projectId: 'proj-1', geometryArtifactId: 'geom-B', requestedByUserId: 'user-1' });
+    await ensureLocalizationIdentityProvisioningRequested({
+      projectId: 'proj-1',
+      geometryArtifactId: 'geom-A',
+      requestedByUserId: 'user-1',
+    });
+    await ensureLocalizationIdentityProvisioningRequested({
+      projectId: 'proj-1',
+      geometryArtifactId: 'geom-B',
+      requestedByUserId: 'user-1',
+    });
     expect(fakeRows).toHaveLength(2);
   });
 
@@ -159,10 +196,15 @@ describe('PRODUCT-LU-EXECUTION-IDENTITY-V3-PROVISIONING-01 — queue proofs', ()
     expect(leased[0]!.id).toBe(request.id);
     expect(leased[0]!.status).toBe('LEASED');
 
-    await markLocalizationIdentityProvisioningCompleted(request.id, 'lu-identity-v3-abc');
+    await markLocalizationIdentityProvisioningCompleted(
+      request.id,
+      leased[0]!.leaseToken!,
+      'lu-identity-v3-abc',
+    );
     const status = await getProvisioningStatusForGeometry('proj-1', 'geom-A');
     expect(status?.status).toBe('COMPLETED');
     expect(status?.executionIdentityArtifactId).toBe('lu-identity-v3-abc');
+    expect(status?.leaseToken).toBeNull();
   });
 
   it('proof: FAILED requests carry the failure detail for the UI, and stay FAILED until an explicit retry enqueues a new row', async () => {
@@ -171,8 +213,13 @@ describe('PRODUCT-LU-EXECUTION-IDENTITY-V3-PROVISIONING-01 — queue proofs', ()
       geometryArtifactId: 'geom-A',
       requestedByUserId: 'user-1',
     });
-    await leaseOnePendingLocalizationIdentityProvisioningRequest();
-    await markLocalizationIdentityProvisioningFailed(request.id, 'GEOMETRY_UNAVAILABLE_OR_TAMPERED', 'boom');
+    const lease = await leaseOnePendingLocalizationIdentityProvisioningRequest();
+    await markLocalizationIdentityProvisioningFailed(
+      request.id,
+      lease!.leaseToken!,
+      'GEOMETRY_UNAVAILABLE_OR_TAMPERED',
+      'boom',
+    );
 
     const status = await getProvisioningStatusForGeometry('proj-1', 'geom-A');
     expect(status?.status).toBe('FAILED');
@@ -214,15 +261,61 @@ describe('PRODUCT-LU-EXECUTION-IDENTITY-V3-PROVISIONING-01 — queue proofs', ()
     expect(leasedByB?.status).toBe('LEASED');
 
     // Worker B completes the reclaimed request -- proves the queue never leaves it PENDING/LEASED forever.
-    await markLocalizationIdentityProvisioningCompleted(request.id, 'lu-identity-v3-recovered');
+    await markLocalizationIdentityProvisioningCompleted(
+      request.id,
+      leasedByB!.leaseToken!,
+      'lu-identity-v3-recovered',
+    );
     const status = await getProvisioningStatusForGeometry('proj-1', 'geom-A');
     expect(status?.status).toBe('COMPLETED');
     expect(status?.executionIdentityArtifactId).toBe('lu-identity-v3-recovered');
     expect(fakeRows).toHaveLength(1); // no divergent duplicate row was created by the reclaim
   });
 
+  it('LEASE-GUARDED TERMINAL MUTATION: stale worker A cannot overwrite worker B completion or failure after reclaim', async () => {
+    const request = await enqueueLocalizationIdentityProvisioningRequest({
+      projectId: 'proj-1',
+      geometryArtifactId: 'geom-A',
+      requestedByUserId: 'user-1',
+    });
+    const leasedByA = await leaseOnePendingLocalizationIdentityProvisioningRequest(
+      new Date('2026-01-01T00:00:00Z'),
+    );
+    const tokenA = leasedByA!.leaseToken!;
+
+    const leasedByB = await leaseOnePendingLocalizationIdentityProvisioningRequest(
+      new Date('2026-01-01T00:05:00Z'),
+    );
+    const tokenB = leasedByB!.leaseToken!;
+    expect(tokenB).not.toBe(tokenA);
+
+    await expect(
+      markLocalizationIdentityProvisioningCompleted(request.id, tokenB, 'lu-identity-v3-worker-B'),
+    ).resolves.toEqual({ ok: true });
+    await expect(
+      markLocalizationIdentityProvisioningCompleted(request.id, tokenA, 'lu-identity-v3-worker-A-late'),
+    ).resolves.toEqual({
+      ok: false,
+      reason: 'LEASE_LOST',
+    });
+    await expect(
+      markLocalizationIdentityProvisioningFailed(request.id, tokenA, 'LATE_FAILURE', 'too late'),
+    ).resolves.toEqual({
+      ok: false,
+      reason: 'LEASE_LOST',
+    });
+
+    const status = await getProvisioningStatusForGeometry('proj-1', 'geom-A');
+    expect(status?.status).toBe('COMPLETED');
+    expect(status?.executionIdentityArtifactId).toBe('lu-identity-v3-worker-B');
+  });
+
   it('atomically reclaims one observed expired lease generation exactly once', async () => {
-    await enqueueLocalizationIdentityProvisioningRequest({ projectId: 'proj-1', geometryArtifactId: 'geom-A', requestedByUserId: 'user-1' });
+    await enqueueLocalizationIdentityProvisioningRequest({
+      projectId: 'proj-1',
+      geometryArtifactId: 'geom-A',
+      requestedByUserId: 'user-1',
+    });
     await leaseOnePendingLocalizationIdentityProvisioningRequest(new Date('2026-01-01T00:00:00Z'));
 
     const [a, b] = await Promise.all([
@@ -246,11 +339,18 @@ describe('PRODUCT-LU-EXECUTION-IDENTITY-V3-PROVISIONING-01 — worker-service co
   });
 
   it('proof 2: lease -> execute -> COMPLETED, end to end through the worker-service composition', async () => {
-    const { processLocalizationIdentityProvisioningRequestsOnce } = await import(
-      '../../server/services/luExecutionIdentityV3ProvisioningWorker'
-    );
-    await enqueueLocalizationIdentityProvisioningRequest({ projectId: 'proj-1', geometryArtifactId: 'geom-A', requestedByUserId: 'user-1' });
-    executeMock.mockResolvedValue({ ok: true, executionIdentityArtifactId: 'lu-identity-v3-xyz', reused: false });
+    const { processLocalizationIdentityProvisioningRequestsOnce } =
+      await import('../../server/services/luExecutionIdentityV3ProvisioningWorker');
+    await enqueueLocalizationIdentityProvisioningRequest({
+      projectId: 'proj-1',
+      geometryArtifactId: 'geom-A',
+      requestedByUserId: 'user-1',
+    });
+    executeMock.mockResolvedValue({
+      ok: true,
+      executionIdentityArtifactId: 'lu-identity-v3-xyz',
+      reused: false,
+    });
 
     const processed = await processLocalizationIdentityProvisioningRequestsOnce();
     expect(processed).toBe(1);
@@ -260,13 +360,20 @@ describe('PRODUCT-LU-EXECUTION-IDENTITY-V3-PROVISIONING-01 — worker-service co
   });
 
   it('proof 4 (A->B race) at the queue level: A leased-and-completing after B was already saved still completes for A, and current resolution is a separate concern the queue never conflates', async () => {
-    const { processLocalizationIdentityProvisioningRequestsOnce } = await import(
-      '../../server/services/luExecutionIdentityV3ProvisioningWorker'
-    );
+    const { processLocalizationIdentityProvisioningRequestsOnce } =
+      await import('../../server/services/luExecutionIdentityV3ProvisioningWorker');
     // Request for A enqueued first.
-    await enqueueLocalizationIdentityProvisioningRequest({ projectId: 'proj-1', geometryArtifactId: 'geom-A', requestedByUserId: 'user-1' });
+    await enqueueLocalizationIdentityProvisioningRequest({
+      projectId: 'proj-1',
+      geometryArtifactId: 'geom-A',
+      requestedByUserId: 'user-1',
+    });
     // User moves to B before A's worker runs; B's request enqueued second.
-    await enqueueLocalizationIdentityProvisioningRequest({ projectId: 'proj-1', geometryArtifactId: 'geom-B', requestedByUserId: 'user-1' });
+    await enqueueLocalizationIdentityProvisioningRequest({
+      projectId: 'proj-1',
+      geometryArtifactId: 'geom-B',
+      requestedByUserId: 'user-1',
+    });
 
     executeMock.mockImplementation(async (input: { geometryArtifactId: string }) => ({
       ok: true,
@@ -287,11 +394,18 @@ describe('PRODUCT-LU-EXECUTION-IDENTITY-V3-PROVISIONING-01 — worker-service co
   });
 
   it('proof: FAILED outcome from the executor is faithfully recorded, never silently swallowed', async () => {
-    const { processLocalizationIdentityProvisioningRequestsOnce } = await import(
-      '../../server/services/luExecutionIdentityV3ProvisioningWorker'
-    );
-    await enqueueLocalizationIdentityProvisioningRequest({ projectId: 'proj-1', geometryArtifactId: 'geom-A', requestedByUserId: 'user-1' });
-    executeMock.mockResolvedValue({ ok: false, failureCode: 'GEOMETRY_PROPERTY_MISMATCH', failureDetail: 'wrong property' });
+    const { processLocalizationIdentityProvisioningRequestsOnce } =
+      await import('../../server/services/luExecutionIdentityV3ProvisioningWorker');
+    await enqueueLocalizationIdentityProvisioningRequest({
+      projectId: 'proj-1',
+      geometryArtifactId: 'geom-A',
+      requestedByUserId: 'user-1',
+    });
+    executeMock.mockResolvedValue({
+      ok: false,
+      failureCode: 'GEOMETRY_PROPERTY_MISMATCH',
+      failureDetail: 'wrong property',
+    });
 
     await processLocalizationIdentityProvisioningRequestsOnce();
     const status = await getProvisioningStatusForGeometry('proj-1', 'geom-A');

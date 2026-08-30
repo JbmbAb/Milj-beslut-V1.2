@@ -26,6 +26,13 @@ export async function processGeometrySupersessionProvisioningRequestsOnce(): Pro
   try {
     const request = await leaseOnePendingLocalizationGeometrySupersessionRequest();
     if (!request) return 0;
+    const leaseToken = request.leaseToken;
+    if (!leaseToken) {
+      logger.error(
+        `lu-geometry-supersession-worker: request ${request.id} was leased without a lease token -- refusing terminal mutation.`,
+      );
+      return 1;
+    }
 
     logger.info(
       `lu-geometry-supersession-worker: leased request ${request.id} for project ${request.projectId} (${request.predecessorGeometryArtifactId} -> ${request.successorGeometryArtifactId})`,
@@ -39,17 +46,50 @@ export async function processGeometrySupersessionProvisioningRequestsOnce(): Pro
       requestedByUserId: request.requestedByUserId,
     });
 
-    if (outcome.ok) {
-      await markLocalizationGeometrySupersessionCompleted(request.id, outcome.supersessionArtifactId);
-      logger.info(
-        `lu-geometry-supersession-worker: request ${request.id} COMPLETED (edge=${outcome.supersessionArtifactId}, reused=${outcome.reused})`,
+    if (outcome.ok === true) {
+      const terminal = await markLocalizationGeometrySupersessionCompleted(
+        request.id,
+        leaseToken,
+        outcome.supersessionArtifactId,
       );
-    } else if (outcome.superseded) {
-      await markLocalizationGeometrySupersessionSuperseded(request.id, outcome.detail);
-      logger.info(`lu-geometry-supersession-worker: request ${request.id} SUPERSEDED: ${outcome.detail}`);
-    } else {
-      await markLocalizationGeometrySupersessionFailed(request.id, outcome.failureCode, outcome.failureDetail);
-      logger.warn(`lu-geometry-supersession-worker: request ${request.id} FAILED (${outcome.failureCode}): ${outcome.failureDetail}`);
+      if (terminal.ok === true) {
+        logger.info(
+          `lu-geometry-supersession-worker: request ${request.id} COMPLETED (edge=${outcome.supersessionArtifactId}, reused=${outcome.reused})`,
+        );
+      } else if (terminal.ok === false) {
+        logger.warn(
+          `lu-geometry-supersession-worker: request ${request.id} completion ignored (${terminal.reason})`,
+        );
+      }
+    } else if (outcome.ok === false && outcome.superseded === true) {
+      const terminal = await markLocalizationGeometrySupersessionSuperseded(
+        request.id,
+        leaseToken,
+        outcome.detail,
+      );
+      if (terminal.ok === true) {
+        logger.info(`lu-geometry-supersession-worker: request ${request.id} SUPERSEDED: ${outcome.detail}`);
+      } else if (terminal.ok === false) {
+        logger.warn(
+          `lu-geometry-supersession-worker: request ${request.id} supersede ignored (${terminal.reason})`,
+        );
+      }
+    } else if (outcome.ok === false) {
+      const terminal = await markLocalizationGeometrySupersessionFailed(
+        request.id,
+        leaseToken,
+        outcome.failureCode,
+        outcome.failureDetail,
+      );
+      if (terminal.ok === true) {
+        logger.warn(
+          `lu-geometry-supersession-worker: request ${request.id} FAILED (${outcome.failureCode}): ${outcome.failureDetail}`,
+        );
+      } else if (terminal.ok === false) {
+        logger.warn(
+          `lu-geometry-supersession-worker: request ${request.id} failure ignored (${terminal.reason})`,
+        );
+      }
     }
     return 1;
   } finally {
@@ -60,7 +100,9 @@ export async function processGeometrySupersessionProvisioningRequestsOnce(): Pro
 export function startGeometrySupersessionProvisioningWorker(pollMs: number): NodeJS.Timeout {
   return setInterval(() => {
     void processGeometrySupersessionProvisioningRequestsOnce().catch((error) => {
-      logger.error(`lu-geometry-supersession-worker: unexpected error: ${error instanceof Error ? error.message : String(error)}`);
+      logger.error(
+        `lu-geometry-supersession-worker: unexpected error: ${error instanceof Error ? error.message : String(error)}`,
+      );
     });
   }, pollMs);
 }

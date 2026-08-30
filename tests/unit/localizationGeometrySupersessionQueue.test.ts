@@ -53,7 +53,10 @@ describe('LU-PROJECTION-RECONCILIATION-AND-TOTAL-ORDER-V1 Phase B: geometry supe
 
   it('ensureLocalizationGeometrySupersessionRequested is idempotent: an existing non-FAILED request for the exact subject is reused, not duplicated', async () => {
     findFirst.mockResolvedValue({ id: 'req-existing', status: 'PENDING', ...SUBJECT });
-    const result = await ensureLocalizationGeometrySupersessionRequested({ ...SUBJECT, requestedByUserId: 'user-1' });
+    const result = await ensureLocalizationGeometrySupersessionRequested({
+      ...SUBJECT,
+      requestedByUserId: 'user-1',
+    });
     expect(result.id).toBe('req-existing');
     expect(create).not.toHaveBeenCalled();
   });
@@ -61,7 +64,10 @@ describe('LU-PROJECTION-RECONCILIATION-AND-TOTAL-ORDER-V1 Phase B: geometry supe
   it('ensureLocalizationGeometrySupersessionRequested re-enqueues when the only existing request FAILED', async () => {
     findFirst.mockResolvedValue({ id: 'req-failed', status: 'FAILED', ...SUBJECT });
     create.mockResolvedValue({ id: 'req-new', status: 'PENDING', ...SUBJECT });
-    const result = await ensureLocalizationGeometrySupersessionRequested({ ...SUBJECT, requestedByUserId: 'user-1' });
+    const result = await ensureLocalizationGeometrySupersessionRequested({
+      ...SUBJECT,
+      requestedByUserId: 'user-1',
+    });
     expect(result.id).toBe('req-new');
     expect(create).toHaveBeenCalled();
   });
@@ -70,11 +76,18 @@ describe('LU-PROJECTION-RECONCILIATION-AND-TOTAL-ORDER-V1 Phase B: geometry supe
     findFirst.mockResolvedValue({ id: 'req-1', status: 'PENDING' });
     updateMany.mockResolvedValueOnce({ count: 1 });
     findUnique.mockResolvedValueOnce({ id: 'req-1', status: 'LEASED' });
-    const result = await leaseOnePendingLocalizationGeometrySupersessionRequest(new Date('2026-01-01T00:00:00Z'));
+    const result = await leaseOnePendingLocalizationGeometrySupersessionRequest(
+      new Date('2026-01-01T00:00:00Z'),
+    );
     expect(result?.id).toBe('req-1');
     expect(updateMany).toHaveBeenCalledWith({
       where: { id: 'req-1', status: 'PENDING' },
-      data: { status: 'LEASED', leasedAt: new Date('2026-01-01T00:00:00Z'), leaseExpiresAt: expect.any(Date) },
+      data: {
+        status: 'LEASED',
+        leasedAt: new Date('2026-01-01T00:00:00Z'),
+        leaseExpiresAt: expect.any(Date),
+        leaseToken: expect.any(String),
+      },
     });
   });
 
@@ -92,7 +105,11 @@ describe('LU-PROJECTION-RECONCILIATION-AND-TOTAL-ORDER-V1 Phase B: geometry supe
 
   it('H3-pattern FIX: a stale LEASED row (lease expired) is reclaimable from day one -- the query considers PENDING OR expired-LEASED', async () => {
     const now = new Date('2026-01-01T00:10:00Z');
-    findFirst.mockResolvedValue({ id: 'req-stale', status: 'LEASED', leaseExpiresAt: new Date('2026-01-01T00:02:00Z') });
+    findFirst.mockResolvedValue({
+      id: 'req-stale',
+      status: 'LEASED',
+      leaseExpiresAt: new Date('2026-01-01T00:02:00Z'),
+    });
     updateMany.mockResolvedValueOnce({ count: 1 });
     findUnique.mockResolvedValueOnce({ id: 'req-stale', status: 'LEASED' });
 
@@ -105,7 +122,12 @@ describe('LU-PROJECTION-RECONCILIATION-AND-TOTAL-ORDER-V1 Phase B: geometry supe
     });
     expect(updateMany).toHaveBeenCalledWith({
       where: { id: 'req-stale', status: 'LEASED', leaseExpiresAt: new Date('2026-01-01T00:02:00Z') },
-      data: { status: 'LEASED', leasedAt: now, leaseExpiresAt: expect.any(Date) },
+      data: {
+        status: 'LEASED',
+        leasedAt: now,
+        leaseExpiresAt: expect.any(Date),
+        leaseToken: expect.any(String),
+      },
     });
   });
 
@@ -117,28 +139,70 @@ describe('LU-PROJECTION-RECONCILIATION-AND-TOTAL-ORDER-V1 Phase B: geometry supe
   });
 
   it('markLocalizationGeometrySupersessionCompleted records the edge id and completion time', async () => {
-    update.mockResolvedValue({});
-    await markLocalizationGeometrySupersessionCompleted('req-1', 'localization-geometry-supersession-abc');
-    expect(update).toHaveBeenCalledWith({
-      where: { id: 'req-1' },
-      data: { status: 'COMPLETED', supersessionArtifactId: 'localization-geometry-supersession-abc', completedAt: expect.any(Date) },
+    updateMany.mockResolvedValue({ count: 1 });
+    await expect(
+      markLocalizationGeometrySupersessionCompleted(
+        'req-1',
+        'lease-token-A',
+        'localization-geometry-supersession-abc',
+      ),
+    ).resolves.toEqual({ ok: true });
+    expect(updateMany).toHaveBeenCalledWith({
+      where: { id: 'req-1', status: 'LEASED', leaseToken: 'lease-token-A' },
+      data: {
+        status: 'COMPLETED',
+        supersessionArtifactId: 'localization-geometry-supersession-abc',
+        completedAt: expect.any(Date),
+        leaseToken: null,
+      },
     });
   });
 
   it('markLocalizationGeometrySupersessionFailed records a code and bounded-length detail', async () => {
-    update.mockResolvedValue({});
-    await markLocalizationGeometrySupersessionFailed('req-1', 'PREDECESSOR_GEOMETRY_UNAVAILABLE', 'x'.repeat(5000));
-    const call = update.mock.calls[0][0];
+    updateMany.mockResolvedValue({ count: 1 });
+    await expect(
+      markLocalizationGeometrySupersessionFailed(
+        'req-1',
+        'lease-token-A',
+        'PREDECESSOR_GEOMETRY_UNAVAILABLE',
+        'x'.repeat(5000),
+      ),
+    ).resolves.toEqual({
+      ok: true,
+    });
+    const call = updateMany.mock.calls[0][0];
+    expect(call.where).toEqual({ id: 'req-1', status: 'LEASED', leaseToken: 'lease-token-A' });
     expect(call.data.status).toBe('FAILED');
     expect(call.data.failureDetail.length).toBeLessThanOrEqual(2000);
+    expect(call.data.leaseToken).toBeNull();
   });
 
   it('markLocalizationGeometrySupersessionSuperseded marks SUPERSEDED without ever writing a different predecessor/successor pair onto the row', async () => {
-    update.mockResolvedValue({});
-    await markLocalizationGeometrySupersessionSuperseded('req-1', 'predecessor moved on');
-    const call = update.mock.calls[0][0];
+    updateMany.mockResolvedValue({ count: 1 });
+    await expect(
+      markLocalizationGeometrySupersessionSuperseded('req-1', 'lease-token-A', 'predecessor moved on'),
+    ).resolves.toEqual({ ok: true });
+    const call = updateMany.mock.calls[0][0];
+    expect(call.where).toEqual({ id: 'req-1', status: 'LEASED', leaseToken: 'lease-token-A' });
     expect(call.data.status).toBe('SUPERSEDED');
     expect(call.data).not.toHaveProperty('predecessorGeometryArtifactId');
     expect(call.data).not.toHaveProperty('successorGeometryArtifactId');
+    expect(call.data.leaseToken).toBeNull();
+  });
+
+  it('denies stale completion and failure attempts when their lease token is no longer current', async () => {
+    updateMany.mockResolvedValue({ count: 0 });
+    await expect(
+      markLocalizationGeometrySupersessionCompleted('req-1', 'stale-token', 'edge-stale'),
+    ).resolves.toEqual({
+      ok: false,
+      reason: 'LEASE_LOST',
+    });
+    await expect(
+      markLocalizationGeometrySupersessionFailed('req-1', 'stale-token', 'LATE_FAILURE', 'too late'),
+    ).resolves.toEqual({
+      ok: false,
+      reason: 'LEASE_LOST',
+    });
   });
 });

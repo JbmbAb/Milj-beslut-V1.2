@@ -32,7 +32,11 @@ describe('PRODUCT-LU-PROJECT-CONTEXT-BOOTSTRAP-01 Phase B: bootstrap request que
 
   it('enqueue never accepts an artifact ref, issuer ref, or signature -- only projectId/user/designation', async () => {
     create.mockResolvedValue({ id: 'req-1', status: 'PENDING' });
-    await enqueueProjectContextBootstrapRequest({ projectId: 'proj-1', requestedByUserId: 'user-1', propertyDesignation: 'orsa stackmora 3:12' });
+    await enqueueProjectContextBootstrapRequest({
+      projectId: 'proj-1',
+      requestedByUserId: 'user-1',
+      propertyDesignation: 'orsa stackmora 3:12',
+    });
     expect(create).toHaveBeenCalledWith({
       data: { projectId: 'proj-1', requestedByUserId: 'user-1', propertyDesignation: 'ORSA STACKMORA 3:12' },
     });
@@ -53,7 +57,12 @@ describe('PRODUCT-LU-PROJECT-CONTEXT-BOOTSTRAP-01 Phase B: bootstrap request que
 
     expect(updateMany).toHaveBeenNthCalledWith(1, {
       where: { id: 'req-1', status: 'PENDING' },
-      data: { status: 'LEASED', leasedAt: expect.any(Date), leaseExpiresAt: expect.any(Date) },
+      data: {
+        status: 'LEASED',
+        leasedAt: expect.any(Date),
+        leaseExpiresAt: expect.any(Date),
+        leaseToken: expect.any(String),
+      },
     });
   });
 
@@ -66,7 +75,11 @@ describe('PRODUCT-LU-PROJECT-CONTEXT-BOOTSTRAP-01 Phase B: bootstrap request que
 
   it('H3 FIX: a stale LEASED row (lease expired) is reclaimable -- the query considers PENDING OR expired-LEASED', async () => {
     const now = new Date('2026-01-01T00:10:00Z');
-    findFirst.mockResolvedValue({ id: 'req-stale', status: 'LEASED', leaseExpiresAt: new Date('2026-01-01T00:02:00Z') });
+    findFirst.mockResolvedValue({
+      id: 'req-stale',
+      status: 'LEASED',
+      leaseExpiresAt: new Date('2026-01-01T00:02:00Z'),
+    });
     updateMany.mockResolvedValueOnce({ count: 1 });
     findUnique.mockResolvedValueOnce({ id: 'req-stale', status: 'LEASED' });
 
@@ -80,13 +93,22 @@ describe('PRODUCT-LU-PROJECT-CONTEXT-BOOTSTRAP-01 Phase B: bootstrap request que
     // Reclaim is a compare-and-swap over the observed expired lease generation.
     expect(updateMany).toHaveBeenCalledWith({
       where: { id: 'req-stale', status: 'LEASED', leaseExpiresAt: new Date('2026-01-01T00:02:00Z') },
-      data: { status: 'LEASED', leasedAt: now, leaseExpiresAt: expect.any(Date) },
+      data: {
+        status: 'LEASED',
+        leasedAt: now,
+        leaseExpiresAt: expect.any(Date),
+        leaseToken: expect.any(String),
+      },
     });
   });
 
   it('H3 FIX: two workers racing to reclaim the same stale LEASED row -- only one wins', async () => {
     const now = new Date('2026-01-01T00:10:00Z');
-    findFirst.mockResolvedValue({ id: 'req-stale', status: 'LEASED', leaseExpiresAt: new Date('2026-01-01T00:02:00Z') });
+    findFirst.mockResolvedValue({
+      id: 'req-stale',
+      status: 'LEASED',
+      leaseExpiresAt: new Date('2026-01-01T00:02:00Z'),
+    });
     updateMany.mockResolvedValueOnce({ count: 1 });
     findUnique.mockResolvedValueOnce({ id: 'req-stale', status: 'LEASED' });
     const reclaimerA = await leaseOnePendingBootstrapRequest(now);
@@ -98,20 +120,60 @@ describe('PRODUCT-LU-PROJECT-CONTEXT-BOOTSTRAP-01 Phase B: bootstrap request que
   });
 
   it('markBootstrapRequestCompleted records the binding id and completion time', async () => {
-    update.mockResolvedValue({});
-    await markBootstrapRequestCompleted('req-1', 'project-context-binding-abc');
-    expect(update).toHaveBeenCalledWith({
-      where: { id: 'req-1' },
-      data: { status: 'COMPLETED', contextBindingArtifactId: 'project-context-binding-abc', completedAt: expect.any(Date) },
+    updateMany.mockResolvedValue({ count: 1 });
+    await expect(
+      markBootstrapRequestCompleted('req-1', 'lease-token-A', 'project-context-binding-abc'),
+    ).resolves.toEqual({ ok: true });
+    expect(updateMany).toHaveBeenCalledWith({
+      where: { id: 'req-1', status: 'LEASED', leaseToken: 'lease-token-A' },
+      data: {
+        status: 'COMPLETED',
+        contextBindingArtifactId: 'project-context-binding-abc',
+        completedAt: expect.any(Date),
+        leaseToken: null,
+      },
     });
   });
 
   it('markBootstrapRequestFailed records a code and detail, truncated to a bounded length', async () => {
-    update.mockResolvedValue({});
-    await markBootstrapRequestFailed('req-1', 'PROPERTY_MISMATCH', 'x'.repeat(5000));
-    const call = update.mock.calls[0][0];
+    updateMany.mockResolvedValue({ count: 1 });
+    await expect(
+      markBootstrapRequestFailed('req-1', 'lease-token-A', 'PROPERTY_MISMATCH', 'x'.repeat(5000)),
+    ).resolves.toEqual({ ok: true });
+    const call = updateMany.mock.calls[0][0];
+    expect(call.where).toEqual({ id: 'req-1', status: 'LEASED', leaseToken: 'lease-token-A' });
     expect(call.data.status).toBe('FAILED');
     expect(call.data.failureCode).toBe('PROPERTY_MISMATCH');
     expect(call.data.failureDetail.length).toBeLessThanOrEqual(2000);
+    expect(call.data.leaseToken).toBeNull();
+  });
+
+  it('denies a stale worker completion when its lease token is no longer current', async () => {
+    updateMany.mockResolvedValue({ count: 0 });
+    await expect(
+      markBootstrapRequestCompleted('req-1', 'stale-token', 'project-context-binding-stale'),
+    ).resolves.toEqual({
+      ok: false,
+      reason: 'LEASE_LOST',
+    });
+    expect(updateMany).toHaveBeenCalledWith({
+      where: { id: 'req-1', status: 'LEASED', leaseToken: 'stale-token' },
+      data: {
+        status: 'COMPLETED',
+        contextBindingArtifactId: 'project-context-binding-stale',
+        completedAt: expect.any(Date),
+        leaseToken: null,
+      },
+    });
+  });
+
+  it('denies a stale worker failure when its lease token is no longer current', async () => {
+    updateMany.mockResolvedValue({ count: 0 });
+    await expect(
+      markBootstrapRequestFailed('req-1', 'stale-token', 'LATE_FAILURE', 'too late'),
+    ).resolves.toEqual({
+      ok: false,
+      reason: 'LEASE_LOST',
+    });
   });
 });
