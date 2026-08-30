@@ -56,12 +56,21 @@ export function isStagingModuleE2ETarget(): boolean {
   return isExternalE2E() && !isLocal;
 }
 
+export function buildApiContextExtraHeaders(): Record<string, string> {
+  const headers: Record<string, string> = {
+    Accept: 'application/json',
+  };
+  const cloudRunIdToken = trim(process.env.CLOUD_RUN_ID_TOKEN);
+  if (cloudRunIdToken) {
+    headers['X-Serverless-Authorization'] = `Bearer ${cloudRunIdToken}`;
+  }
+  return headers;
+}
+
 export async function createApiContext(): Promise<APIRequestContext> {
   return playwrightRequest.newContext({
     baseURL: getE2EApiBaseUrl(),
-    extraHTTPHeaders: {
-      Accept: 'application/json',
-    },
+    extraHTTPHeaders: buildApiContextExtraHeaders(),
   });
 }
 
