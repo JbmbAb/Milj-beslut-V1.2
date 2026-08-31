@@ -1,4 +1,10 @@
-# Dockerfile.gcp — produktionsimage för Google Cloud Run.
+# Dockerfile.gcp — LEGACY_GCP / DEPRECATED.
+#
+# Provider-neutral runtime uses the root Dockerfile as the canonical production
+# source of truth. Keep this file only as historical Cloud Run pilot reference;
+# do not patch it for dedicated-server staging/production.
+#
+# Historical produktionsimage för Google Cloud Run.
 #
 # Skillnader mot Dockerfile.fly:
 #  - Lyssnar på $PORT som Cloud Run injicerar (default 8080).

@@ -11,6 +11,10 @@ import {
 
 const DEFAULT_UPLOAD_ROOT = path.join(process.cwd(), 'storage', 'uploads');
 
+function resolveDocumentStorageRoot(): string {
+  return process.env.DOCUMENT_STORAGE_ROOT?.trim() || DEFAULT_UPLOAD_ROOT;
+}
+
 export interface UploadDocumentInput {
   projectId: string;
   organisationId: string;
@@ -103,7 +107,7 @@ export async function uploadDocumentToProject(input: UploadDocumentInput): Promi
   const mimeType = normalizeMimeType(input.mimeType, originalName);
   const diskName = createDiskName(originalName, mimeType);
   const entryId = `UPLOAD-${Date.now()}-${crypto.randomBytes(4).toString('hex')}`;
-  const uploadDir = path.join(DEFAULT_UPLOAD_ROOT, input.projectId);
+  const uploadDir = path.join(resolveDocumentStorageRoot(), input.projectId);
   const localAbsolutePath = path.join(uploadDir, diskName);
   const absolutePath = gcsDocumentsEnabled()
     ? buildGcsObjectUri(input.projectId, diskName)

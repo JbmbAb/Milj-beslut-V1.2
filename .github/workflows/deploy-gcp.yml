@@ -1,5 +1,10 @@
 name: Deploy – Google Cloud Run
 
+# LEGACY_GCP / DEPRECATED:
+# Provider-neutral staging/production uses the canonical Dockerfile and
+# dedicated-server release path. This workflow remains as historical Cloud Run
+# pilot reference only and must not be used for I2/I3 product proof.
+#
 # Dual-track A (beslut 2026-07-27):
 #   Lokal server = primär prod (Master Archive, PostGIS, domänlogik)
 #   GCP = staging/pilot/demo (Vertex-smoke, CI-validering)

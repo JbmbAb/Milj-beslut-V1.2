@@ -1,5 +1,9 @@
 # Driftsättning – Google Cloud Run
 
+> **LEGACY_GCP / DEPRECATED:** Provider-neutral drift använder root `Dockerfile`
+> och dedikerad server som canonical runtime. Den här guiden är kvar som historisk
+> Cloud Run-pilotreferens och ska inte användas för I2/I3-produktbevis.
+
 Denna guide beskriver hur Miljobeslut.se driftsätts på Google Cloud med
 **Cloud Run** (serverless containers), **Cloud SQL for PostgreSQL** (PostGIS + pgvector)
 och **Secret Manager** för hemligheter.
@@ -286,13 +290,13 @@ Returnerar HTTP 200 så länge Tier 1 (kodkvalitet) är OK.
 
 ## Vanliga missförstånd
 
-| Felaktigt | Rätt |
-| --------- | ---- |
-| `git init` + nytt repo | Repot **finns redan** — `git clone` eller använd befintlig klon |
-| Push till `JbmbAb/milj-beslut` | Endast **`JbmbAb/Milj-beslut-V1.2`** |
-| `.github/workflows/deploy.yml` | **`deploy-gcp.yml`** (Cloud Run) + **`vertex-wif-smoke.yml`** (Vertex-test) |
-| JSON-nyckel `GCP_SA_KEY` i CI | **WIF:** `GCP_WORKLOAD_IDENTITY_PROVIDER` + `GCP_VERTEX_SERVICE_ACCOUNT` |
-| Separat mapp `Milj-beslut-V1.2` måste skapas | Lokalt mappnamn spelar ingen roll (`miljöbeslut` är OK) |
+| Felaktigt                                    | Rätt                                                                        |
+| -------------------------------------------- | --------------------------------------------------------------------------- |
+| `git init` + nytt repo                       | Repot **finns redan** — `git clone` eller använd befintlig klon             |
+| Push till `JbmbAb/milj-beslut`               | Endast **`JbmbAb/Milj-beslut-V1.2`**                                        |
+| `.github/workflows/deploy.yml`               | **`deploy-gcp.yml`** (Cloud Run) + **`vertex-wif-smoke.yml`** (Vertex-test) |
+| JSON-nyckel `GCP_SA_KEY` i CI                | **WIF:** `GCP_WORKLOAD_IDENTITY_PROVIDER` + `GCP_VERTEX_SERVICE_ACCOUNT`    |
+| Separat mapp `Milj-beslut-V1.2` måste skapas | Lokalt mappnamn spelar ingen roll (`miljöbeslut` är OK)                     |
 
 Verifiera Vertex-anslutning:
 

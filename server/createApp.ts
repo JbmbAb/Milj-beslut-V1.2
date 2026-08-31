@@ -55,6 +55,14 @@ import aiRouter from './routes/ai.routes';
 import { handleMetricsRequest } from './security/metricsAccess';
 import { isLegacyRoutesEnabled } from './security/legacyRoutes';
 
+function runtimeBuildIdentity() {
+  const sha = String(process.env.BUILD_SHA || process.env.SOURCE_COMMIT || process.env.GIT_SHA || '').trim();
+  return {
+    sha: sha || undefined,
+    version: process.env.npm_package_version ?? 'unknown',
+  };
+}
+
 export function createApp() {
   const app = express();
 
@@ -125,6 +133,7 @@ export function createApp() {
       liveness: 'up',
       service: 'miljobeslut-secure-backend',
       version: process.env.npm_package_version ?? 'unknown',
+      build: runtimeBuildIdentity(),
       ts: new Date().toISOString(),
     });
   });
@@ -139,6 +148,7 @@ export function createApp() {
         ...payload,
         service: 'miljobeslut-secure-backend',
         version: process.env.npm_package_version ?? 'unknown',
+        build: runtimeBuildIdentity(),
         ts: new Date().toISOString(),
       });
     } catch (err) {

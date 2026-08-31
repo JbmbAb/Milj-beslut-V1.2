@@ -23,7 +23,7 @@ export interface ReadinessPayload {
     state: IntegrationState;
     backend: 'gcs' | 'local';
     bucket?: string;
-    /** I produktion utan GCS bucket: varning (Cloud Run-disk är flyktig). */
+    /** In provider-neutral runtime, local storage is durable when backed by a mounted volume. */
     note?: string;
   };
 }
@@ -34,12 +34,7 @@ export interface ReadinessPayload {
  * Anropas vid serverstart för att förhindra start med felaktig konfiguration.
  */
 export function assertRequiredEnv() {
-  const required = [
-    'DATABASE_URL',
-    'JWT_ACCESS_SECRET',
-    'JWT_REFRESH_SECRET',
-    'VERTEX_PROJECT_ID',
-  ];
+  const required = ['DATABASE_URL', 'JWT_ACCESS_SECRET', 'JWT_REFRESH_SECRET', 'VERTEX_PROJECT_ID'];
 
   const missing: string[] = [];
 
@@ -78,12 +73,12 @@ export async function getReadinessPayload(): Promise<ReadinessPayload> {
   let storageNote: string | undefined;
   if (gcs) {
     storageState = 'ok';
-  } else if (process.env.NODE_ENV === 'production') {
+  } else if (process.env.NODE_ENV === 'production' && !process.env.DOCUMENT_STORAGE_ROOT?.trim()) {
     storageState = 'warning';
-    storageNote =
-      'GCS_DOCUMENTS_BUCKET saknas — uppladdade filer lagras på lokalt filsystem (ephemeral på Cloud Run).';
+    storageNote = 'DOCUMENT_STORAGE_ROOT saknas — verifiera att document/object storage är en durable mount.';
   } else {
     storageState = 'ok';
+    if (!gcs) storageNote = `local:${process.env.DOCUMENT_STORAGE_ROOT || 'storage/uploads'}`;
   }
 
   const ok = database === 'ok' && vertexState === 'ok';

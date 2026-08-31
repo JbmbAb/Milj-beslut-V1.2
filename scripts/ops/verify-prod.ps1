@@ -29,9 +29,9 @@ Write-Host ("-" * 50)
 Test-Step "docker compose ps" {
   $ps = docker compose -f $ComposeFile ps --format json 2>$null | ConvertFrom-Json
   if (-not $ps) { throw "compose ps tomt" }
-  $app = $ps | Where-Object { $_.Service -eq "app" -and $_.State -eq "running" }
+  $app = $ps | Where-Object { $_.Service -eq "web" -and $_.State -eq "running" }
   $db = $ps | Where-Object { $_.Service -eq "db" -and $_.State -eq "running" }
-  if (-not $app) { throw "app körs inte" }
+  if (-not $app) { throw "web körs inte" }
   if (-not $db) { throw "db körs inte" }
 }
 
@@ -51,7 +51,7 @@ Test-Step "DB pg_isready" {
 }
 
 Test-Step "Archive mount (container /data/geo_master)" {
-  $out = docker compose -f $ComposeFile exec -T app sh -c "test -d /data/geo_master && ls /data/geo_master | head -1" 2>&1
+  $out = docker compose -f $ComposeFile exec -T web sh -c "test -d /data/geo_master && ls /data/geo_master | head -1" 2>&1
   if ($LASTEXITCODE -ne 0) { throw "mount saknas eller tom: $out" }
 }
 

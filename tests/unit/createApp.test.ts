@@ -6,7 +6,7 @@
 
 import '../setup/casTestIsolationRoot';
 import request from 'supertest';
-import { describe, expect, it, vi, beforeEach } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 vi.mock('../../server/db/prisma', () => ({
   prisma: {
@@ -44,6 +44,10 @@ vi.mock('../../server/repositories/userRepository', () => ({
 import { createApp } from '../../server/createApp';
 import { prisma } from '../../server/db/prisma';
 
+afterEach(() => {
+  delete process.env.BUILD_SHA;
+});
+
 describe('GET /health', () => {
   it('returns 200 liveness without DB', async () => {
     const app = createApp();
@@ -61,6 +65,14 @@ describe('GET /health', () => {
     const res = await request(app).get('/health');
     expect(typeof res.body.version).toBe('string');
   });
+
+  it('exposes provider-neutral build identity when BUILD_SHA is set', async () => {
+    process.env.BUILD_SHA = 'i2-build-sha';
+    const app = createApp();
+    const res = await request(app).get('/health');
+
+    expect(res.body.build).toMatchObject({ sha: 'i2-build-sha' });
+  });
 });
 
 describe('GET /ready', () => {
@@ -69,6 +81,7 @@ describe('GET /ready', () => {
   });
 
   it('returns 200 with ok=true when DB is reachable', async () => {
+    process.env.BUILD_SHA = 'i2-ready-sha';
     const app = createApp();
     const res = await request(app).get('/ready');
 
@@ -76,6 +89,7 @@ describe('GET /ready', () => {
     expect(res.body.ok).toBe(true);
     expect(res.body.database).toBe('ok');
     expect(res.body.service).toBe('miljobeslut-secure-backend');
+    expect(res.body.build).toMatchObject({ sha: 'i2-ready-sha' });
     expect(typeof res.body.ts).toBe('string');
   });
 

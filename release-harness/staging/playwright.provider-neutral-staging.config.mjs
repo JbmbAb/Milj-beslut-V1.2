@@ -1,5 +1,5 @@
 /**
- * Release-harness Playwright config for IAM-protected Cloud Run staging.
+ * Provider-neutral staging Playwright config.
  * Resolves @playwright/test from the product tree to avoid duplicate Playwright installs.
  */
 import { createRequire } from 'node:module';
@@ -11,15 +11,10 @@ const productRoot = path.resolve(harnessDir, '../../product');
 const requireFromProduct = createRequire(path.join(productRoot, 'package.json'));
 const { defineConfig } = requireFromProduct('@playwright/test');
 
-const baseURL =
-  String(process.env.PLAYWRIGHT_BASE_URL || process.env.STAGING_URL || '').trim();
-const cloudRunIdToken = String(process.env.CLOUD_RUN_ID_TOKEN || '').trim();
+const baseURL = String(process.env.PLAYWRIGHT_BASE_URL || process.env.STAGING_URL || '').trim();
 
 if (!baseURL) {
-  throw new Error('PLAYWRIGHT_BASE_URL is required for Cloud Run staging proof');
-}
-if (!cloudRunIdToken) {
-  throw new Error('CLOUD_RUN_ID_TOKEN is required for Cloud Run staging proof');
+  throw new Error('PLAYWRIGHT_BASE_URL is required for provider-neutral staging proof');
 }
 
 const stagingSpecs = [
@@ -39,9 +34,6 @@ export default defineConfig({
   reporter: process.env.CI ? [['github'], ['html', { open: 'never' }]] : 'list',
   use: {
     baseURL,
-    extraHTTPHeaders: {
-      'X-Serverless-Authorization': `Bearer ${cloudRunIdToken}`,
-    },
     trace: 'on-first-retry',
     screenshot: 'only-on-failure',
     video: 'retain-on-failure',

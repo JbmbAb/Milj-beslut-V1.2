@@ -1,36 +1,115 @@
-version: '3.9'
+# Provider-neutral production/staging runtime. GCP/Cloud Run deployment remains
+# legacy-only; this compose file uses the canonical Dockerfile targets.
 
-# Primär prod — egen server (dual-track A). Se docs/ops/local-prod-setup.md
+x-app-env: &app-env
+  NODE_ENV: production
+  PORT: '8080'
+  BUILD_SHA: ${BUILD_SHA:?set BUILD_SHA to the deployed git commit}
+  DATABASE_URL: ${DATABASE_URL:-postgresql://miljobeslut:miljobeslut@db:5432/miljobeslut_prod?sslmode=disable}
+  JWT_ACCESS_SECRET: ${JWT_ACCESS_SECRET:?set JWT_ACCESS_SECRET outside the repository}
+  JWT_REFRESH_SECRET: ${JWT_REFRESH_SECRET:?set JWT_REFRESH_SECRET outside the repository}
+  LANTMATERIET_BASE_URL: ${LANTMATERIET_BASE_URL:?set LANTMATERIET_BASE_URL outside the repository}
+  LANTMATERIET_OPEN_MODE: ${LANTMATERIET_OPEN_MODE:-false}
+  LANTMATERIET_CONSUMER_KEY: ${LANTMATERIET_CONSUMER_KEY:-}
+  LANTMATERIET_CONSUMER_SECRET: ${LANTMATERIET_CONSUMER_SECRET:-}
+  LANTMATERIET_ACCESS_TOKEN: ${LANTMATERIET_ACCESS_TOKEN:-}
+  LANTMATERIET_API_KEY: ${LANTMATERIET_API_KEY:-}
+  VERTEX_PROJECT_ID: ${VERTEX_PROJECT_ID:?set VERTEX_PROJECT_ID outside the repository}
+  GOOGLE_APPLICATION_CREDENTIALS: ${GOOGLE_APPLICATION_CREDENTIALS:-}
+  GOOGLE_APPLICATION_CREDENTIALS_JSON: ${GOOGLE_APPLICATION_CREDENTIALS_JSON:-}
+  GEMINI_API_KEY: ${GEMINI_API_KEY:-}
+  DOCUMENT_STORAGE_ROOT: /app/storage/uploads
+  MIMERS_ROOT: /data/mimers
+  MIMERS_REQUIRED: '1'
+  MIMERS_DURABILITY_MODE: ${MIMERS_DURABILITY_MODE:-best-effort}
+  BACKUP_DIR: /app/storage/backups
+  IMPORT_ARCHIVE_ROOT: /data/geo_master
+  KNOWLEDGE_BASE_ROOT: /data/geo_master/knowledge_base
+  START_WORKERS_IN_PROCESS: 'false'
 
 services:
-  app:
+  web:
     build:
       context: .
-      dockerfile: Dockerfile.gcp
-      target: production
-    image: miljobeslut-portal:latest
-    container_name: miljobeslut-app
+      dockerfile: Dockerfile
+      target: web
+      args:
+        BUILD_SHA: ${BUILD_SHA:?set BUILD_SHA to the deployed git commit}
+    image: miljobeslut-web:${IMAGE_TAG:-latest}
+    container_name: miljobeslut-web
     restart: unless-stopped
     ports:
-      - '8080:3000'
+      - '8080:8080'
     env_file:
-      - .env.production
+      - path: .env.production
+        required: false
     environment:
-      NODE_ENV: production
-      PORT: '3000'
-      # Huvud-PostGIS (miljobeslut-postgres :5432, ~61 GB geodata) — inte tomma miljobeslut-db
-      DATABASE_URL: postgresql://miljobeslut:miljobeslut@miljobeslut-postgres:5432/miljobeslut?sslmode=disable
-      BACKUP_DIR: /app/storage/backups
-      SEARCH_WORKER_ENABLED: 'true'
-      GDPR_CRON_IN_PROCESS: 'true'
-      START_WORKERS_IN_PROCESS: 'true'
+      <<: *app-env
+      # Defense-in-depth: the web process must not receive LU issuer private keys even
+      # if an operator accidentally places them in .env.production.
+      PROJECT_CONTEXT_BINDING_ISSUER_PRIVATE_KEY_PEM: ''
+      LU_EXECUTION_AUTHORITY_PRIVATE_KEY_PEM: ''
+      VIEWER_CAPABILITY_ISSUER_PRIVATE_KEY_PEM: ''
+      LOCALIZATION_GEOMETRY_SUPERSESSION_ISSUER_PRIVATE_KEY_PEM: ''
     volumes:
-      # Master Archive — justera host-path (Mimers Brunn canonical)
-      - ${IMPORT_ARCHIVE_HOST_PATH:-./storage}:/data/geo_master:ro
-      - uploads_prod:/app/storage/uploads
+      - document_uploads:/app/storage/uploads
+      - ./backups/prod:/app/storage/backups
+      - mimers_cas:/data/mimers
+      - ${MASTER_ARCHIVE_HOST_PATH:-./storage/master-archive}:/data/geo_master:ro
+    depends_on:
+      db:
+        condition: service_healthy
+    healthcheck:
+      test: ['CMD-SHELL', 'curl -fsS http://127.0.0.1:8080/ready >/dev/null']
+      interval: 30s
+      timeout: 10s
+      retries: 5
     networks:
       - prod-net
-      - geodata-net
+
+  worker-all:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: worker-all
+      args:
+        BUILD_SHA: ${BUILD_SHA:?set BUILD_SHA to the deployed git commit}
+    image: miljobeslut-worker-all:${IMAGE_TAG:-latest}
+    container_name: miljobeslut-worker-all
+    restart: unless-stopped
+    env_file:
+      - path: .env.production
+        required: false
+    environment:
+      <<: *app-env
+      PORT: ''
+      SEARCH_WORKER_ENABLED: ${SEARCH_WORKER_ENABLED:-true}
+      GDPR_CRON_IN_PROCESS: ${GDPR_CRON_IN_PROCESS:-true}
+      LU_PROVISIONING_WORKERS_STRICT: ${LU_PROVISIONING_WORKERS_STRICT:-true}
+    command:
+      - /bin/sh
+      - -lc
+      - |
+        export PROJECT_CONTEXT_BINDING_ISSUER_PRIVATE_KEY_PEM="$$(cat /run/secrets/project_context_binding_issuer_private_key)"
+        export LU_EXECUTION_AUTHORITY_PRIVATE_KEY_PEM="$$(cat /run/secrets/lu_execution_authority_private_key)"
+        export VIEWER_CAPABILITY_ISSUER_PRIVATE_KEY_PEM="$$(cat /run/secrets/viewer_capability_issuer_private_key)"
+        export LOCALIZATION_GEOMETRY_SUPERSESSION_ISSUER_PRIVATE_KEY_PEM="$$(cat /run/secrets/localization_geometry_supersession_issuer_private_key)"
+        exec npm run worker:all
+    secrets:
+      - project_context_binding_issuer_private_key
+      - lu_execution_authority_private_key
+      - viewer_capability_issuer_private_key
+      - localization_geometry_supersession_issuer_private_key
+    volumes:
+      - document_uploads:/app/storage/uploads
+      - ./backups/prod:/app/storage/backups
+      - mimers_cas:/data/mimers
+      - ${MASTER_ARCHIVE_HOST_PATH:-./storage/master-archive}:/data/geo_master:ro
+    depends_on:
+      db:
+        condition: service_healthy
+    networks:
+      - prod-net
 
   db:
     build:
@@ -41,7 +120,7 @@ services:
     restart: unless-stopped
     environment:
       POSTGRES_USER: miljobeslut
-      POSTGRES_PASSWORD: password
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD outside the repository}
       POSTGRES_DB: miljobeslut_prod
     ports:
       - '5434:5432'
@@ -57,12 +136,20 @@ services:
       - prod-net
 
 volumes:
+  document_uploads:
+  mimers_cas:
   pgdata_prod:
-  uploads_prod:
+
+secrets:
+  project_context_binding_issuer_private_key:
+    file: ${PROJECT_CONTEXT_BINDING_ISSUER_PRIVATE_KEY_FILE:?set PROJECT_CONTEXT_BINDING_ISSUER_PRIVATE_KEY_FILE outside the repository}
+  lu_execution_authority_private_key:
+    file: ${LU_EXECUTION_AUTHORITY_PRIVATE_KEY_FILE:?set LU_EXECUTION_AUTHORITY_PRIVATE_KEY_FILE outside the repository}
+  viewer_capability_issuer_private_key:
+    file: ${VIEWER_CAPABILITY_ISSUER_PRIVATE_KEY_FILE:?set VIEWER_CAPABILITY_ISSUER_PRIVATE_KEY_FILE outside the repository}
+  localization_geometry_supersession_issuer_private_key:
+    file: ${LOCALIZATION_GEOMETRY_SUPERSESSION_ISSUER_PRIVATE_KEY_FILE:?set LOCALIZATION_GEOMETRY_SUPERSESSION_ISSUER_PRIVATE_KEY_FILE outside the repository}
 
 networks:
   prod-net:
     driver: bridge
-  geodata-net:
-    external: true
-    name: miljobeslut-platform-recovery_miljobeslut-net

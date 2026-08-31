@@ -17,7 +17,7 @@ on:
         required: true
         type: string
       expected_sha:
-        description: 'Expected commit SHA resolved by release_ref'
+        description: 'Expected commit SHA resolved by release_ref and exposed by staging /health'
         required: true
         type: string
 
@@ -31,7 +31,6 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: read
-      id-token: write
 
     env:
       PLAYWRIGHT_BASE_URL: ${{ inputs.base_url || vars.STAGING_URL }}
@@ -60,6 +59,7 @@ jobs:
           fi
           echo "STAGING_RELEASE_SMOKE_AUTH=ADMIN_CONSOLE_DEDICATED_E2E"
           echo "PRODUCT_BANKID_AUTH=NOT_TESTED_BY_THIS_WORKFLOW"
+          echo "INFRASTRUCTURE_AUTH=PROVIDER_NEUTRAL_TLS_EDGE_NO_CLOUD_RUN_IAM"
 
       - name: Checkout release harness
         uses: actions/checkout@v4
@@ -152,36 +152,40 @@ jobs:
             echo "- Product checkout SHA: ${PRODUCT_CHECKOUT_SHA}"
           } >> "$GITHUB_STEP_SUMMARY"
 
-      - name: Authenticate to Google Cloud
-        uses: google-github-actions/auth@v2
-        with:
-          workload_identity_provider: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
-          service_account: ${{ secrets.GCP_SERVICE_ACCOUNT }}
-
-      - name: Set up Cloud SDK
-        uses: google-github-actions/setup-gcloud@v2
-
-      - name: Verify deployed SHA matches product
+      - name: Verify deployed runtime SHA
         shell: bash
         env:
-          PROJECT_ID: ${{ secrets.GCP_PROJECT_ID }}
-          REGION: ${{ vars.GCP_REGION || 'europe-west1' }}
-          SERVICE: ${{ vars.GCP_SERVICE_NAME || 'miljobeslut' }}
+          EXPECTED_PRODUCT_SHA: ${{ inputs.expected_sha }}
         run: |
           set -euo pipefail
-          IMAGE="$(gcloud run services describe "$SERVICE" --region="$REGION" --project="$PROJECT_ID" --format='value(spec.template.spec.containers[0].image)')"
-          DEPLOYED_SHA="${IMAGE##*:}"
-          echo "DEPLOYED_SHA=${DEPLOYED_SHA}"
-          echo "EXPECTED_PRODUCT_SHA=${EXPECTED_PRODUCT_SHA}"
-          if [ "${DEPLOYED_SHA}" != "${EXPECTED_PRODUCT_SHA}" ]; then
-            echo "Deployed SHA ${DEPLOYED_SHA} does not match expected product SHA ${EXPECTED_PRODUCT_SHA}"
-            exit 1
-          fi
-          echo "DEPLOYED_SHA=${DEPLOYED_SHA}" >> "$GITHUB_ENV"
+          node <<'NODE'
+          const baseUrl = String(process.env.PLAYWRIGHT_API_BASE_URL || process.env.PLAYWRIGHT_BASE_URL || '').replace(/\/$/, '');
+          const expected = String(process.env.EXPECTED_PRODUCT_SHA || '').trim();
+          if (!baseUrl) throw new Error('PLAYWRIGHT_API_BASE_URL/PLAYWRIGHT_BASE_URL is required');
+          if (!expected) throw new Error('EXPECTED_PRODUCT_SHA is required');
+
+          async function readJson(path) {
+            const response = await fetch(`${baseUrl}${path}`, { headers: { Accept: 'application/json' } });
+            const text = await response.text();
+            if (!response.ok) throw new Error(`${path} returned HTTP ${response.status}: ${text.slice(0, 500)}`);
+            return JSON.parse(text);
+          }
+
+          const health = await readJson('/health');
+          const ready = await readJson('/ready');
+          const healthSha = health?.build?.sha;
+          const readySha = ready?.build?.sha;
+          console.log(`HEALTH_BUILD_SHA=${healthSha ?? ''}`);
+          console.log(`READY_BUILD_SHA=${readySha ?? ''}`);
+          if (healthSha !== expected) throw new Error(`/health build.sha ${healthSha ?? '<missing>'} != ${expected}`);
+          if (readySha !== expected) throw new Error(`/ready build.sha ${readySha ?? '<missing>'} != ${expected}`);
+          NODE
+          echo "DEPLOYED_SHA=${EXPECTED_PRODUCT_SHA}" >> "$GITHUB_ENV"
           {
             echo "## Deployed product identity"
             echo ""
-            echo "- Deployed SHA: ${DEPLOYED_SHA}"
+            echo "- Deployed SHA: ${EXPECTED_PRODUCT_SHA}"
+            echo "- Runtime identity source: /health + /ready build.sha"
             echo "- Product SHA chain match: YES"
           } >> "$GITHUB_STEP_SUMMARY"
 
@@ -201,41 +205,13 @@ jobs:
           LANTMATERIET_OPEN_SUBSCRIPTION_KEY: ${{ secrets.STAGING_LANTMATERIET_OPEN_SUBSCRIPTION_KEY }}
           LANTMATERIET_API_KEY: ${{ secrets.STAGING_LANTMATERIET_API_KEY }}
           SLU_API_KEY: ${{ secrets.STAGING_SLU_API_KEY }}
-          VERTEX_PROJECT_ID: ${{ secrets.GCP_PROJECT_ID }}
-          VERTEX_LOCATION: ${{ vars.GCP_REGION || 'europe-west1' }}
+          VERTEX_PROJECT_ID: ${{ vars.STAGING_VERTEX_PROJECT_ID }}
+          VERTEX_LOCATION: ${{ vars.STAGING_VERTEX_LOCATION }}
           BANKID_MODE: 'production'
           BANKID_MOCK_MODE: 'false'
           AUTHORITY_MOCK_MODE: 'false'
           LANTMATERIET_DEMO_MODE: 'false'
           ALLOW_DEV_LOGIN: 'false'
-
-      - name: Mint Cloud Run ID token (ephemeral)
-        id: cloud_run_iam
-        uses: google-github-actions/auth@v2
-        with:
-          workload_identity_provider: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
-          service_account: ${{ secrets.GCP_SERVICE_ACCOUNT }}
-          token_format: id_token
-          id_token_audience: ${{ inputs.base_url || vars.STAGING_URL }}
-          id_token_include_email: true
-
-      - name: Record Cloud Run IAM audience
-        shell: bash
-        run: |
-          set -euo pipefail
-          if [ -z "${{ steps.cloud_run_iam.outputs.id_token }}" ]; then
-            echo "Failed to mint Cloud Run ID token."
-            exit 1
-          fi
-          echo "CLOUD_RUN_IAM_AUDIENCE=${{ inputs.base_url || vars.STAGING_URL }}" >> "$GITHUB_ENV"
-          echo "Cloud Run IAM token minted (value not logged)."
-
-      - name: IAM preflight (infrastructure auth)
-        shell: bash
-        env:
-          CLOUD_RUN_ID_TOKEN: ${{ steps.cloud_run_iam.outputs.id_token }}
-          CLOUD_RUN_IAM_AUDIENCE: ${{ inputs.base_url || vars.STAGING_URL }}
-        run: node release-harness/staging/cloud-run-iam-preflight.mjs
 
       - name: Install product dependencies
         working-directory: product
@@ -247,12 +223,9 @@ jobs:
 
       - name: Run staging release smoke (product tree)
         working-directory: product
-        env:
-          CLOUD_RUN_ID_TOKEN: ${{ steps.cloud_run_iam.outputs.id_token }}
-          CLOUD_RUN_IAM_AUDIENCE: ${{ inputs.base_url || vars.STAGING_URL }}
         run: >-
           npx playwright test
-          -c ../release-harness/staging/playwright.cloud-run-staging.config.mjs
+          -c ../release-harness/staging/playwright.provider-neutral-staging.config.mjs
 
       - name: Upload Playwright report
         if: always()
@@ -279,9 +252,8 @@ jobs:
             echo "- Deployed SHA: ${DEPLOYED_SHA:-}";
             echo "- Release harness SHA: ${RELEASE_HARNESS_SHA:-}";
             echo "- Included Vertex flows: ${E2E_INCLUDE_VERTEX_FLOWS}";
-            echo "- Infrastructure auth: Cloud Run IAM (WIF id_token + X-Serverless-Authorization via Playwright extraHTTPHeaders)";
+            echo "- Infrastructure auth: provider-neutral TLS/edge";
             echo "- Application E2E auth: ADMIN_CONSOLE_DEDICATED_E2E";
             echo "- Product BankID auth: NOT TESTED BY THIS WORKFLOW";
-            echo "- Cloud Run IAM audience: ${CLOUD_RUN_IAM_AUDIENCE:-}";
             echo "- Artifacts: staging-e2e-playwright-report";
           } >> "$GITHUB_STEP_SUMMARY"

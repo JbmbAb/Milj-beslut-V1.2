@@ -1,7 +1,7 @@
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { loadEnvFile } from '../../server/loadEnv';
 
 const originalCwd = process.cwd();
@@ -35,7 +35,8 @@ describe('loadEnvFile', () => {
 
   it('unescapes literal \\n sequences to real newlines (flattened multi-line PEM values)', () => {
     const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'load-env-test-'));
-    const flattenedPem = '-----BEGIN PUBLIC KEY-----\\nMCowBQYDK2VwAyEAKxgC+VpYER0=\\n-----END PUBLIC KEY-----';
+    const flattenedPem =
+      '-----BEGIN PUBLIC KEY-----\\nMCowBQYDK2VwAyEAKxgC+VpYER0=\\n-----END PUBLIC KEY-----';
     fs.writeFileSync(
       path.join(tempDir, '.env.local'),
       [`SOME_PUBLIC_KEY_PEM=${flattenedPem}`, 'PLAIN_VALUE=no-backslash-n-here'].join('\n'),
@@ -52,5 +53,25 @@ describe('loadEnvFile', () => {
       '-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEAKxgC+VpYER0=\n-----END PUBLIC KEY-----',
     );
     expect(process.env.PLAIN_VALUE).toBe('no-backslash-n-here');
+  });
+});
+
+describe('loadEnvFirst', () => {
+  it('preserves provider-injected DATABASE_URL in production', async () => {
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'load-env-first-test-'));
+    fs.writeFileSync(
+      path.join(tempDir, '.env.local'),
+      'DATABASE_URL=postgresql://local:pw@localhost:5432/local\n',
+      'utf8',
+    );
+
+    process.chdir(tempDir);
+    process.env.NODE_ENV = 'production';
+    process.env.DATABASE_URL = 'postgresql://runtime:pw@db:5432/runtime';
+
+    vi.resetModules();
+    await import('../../server/loadEnvFirst');
+
+    expect(process.env.DATABASE_URL).toBe('postgresql://runtime:pw@db:5432/runtime');
   });
 });
