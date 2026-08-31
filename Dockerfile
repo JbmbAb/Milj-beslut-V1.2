@@ -72,7 +72,7 @@ RUN node scripts/ci/verify-runtime-imports.mjs --root /app
 
 # Sätt non-root ägare och byt användare
 RUN mkdir -p /app/storage/uploads /app/storage/backups /data/mimers /data/geo_master \
-    && chown -R appuser:appgroup /app /data/mimers /data/geo_master
+    && chown -R appuser:appgroup /app/storage /data/mimers /data/geo_master
 USER appuser
 
 # --- Slutsteg: Webbserver (default) ---

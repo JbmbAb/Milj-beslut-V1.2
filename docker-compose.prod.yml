@@ -5,7 +5,7 @@ x-app-env: &app-env
   NODE_ENV: production
   PORT: '8080'
   BUILD_SHA: ${BUILD_SHA:?set BUILD_SHA to the deployed git commit}
-  DATABASE_URL: ${DATABASE_URL:-postgresql://miljobeslut:miljobeslut@db:5432/miljobeslut_prod?sslmode=disable}
+  DATABASE_URL: ${DATABASE_URL:-postgresql://miljobeslut:${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD outside the repository}@db:5432/miljobeslut_prod?sslmode=disable}
   JWT_ACCESS_SECRET: ${JWT_ACCESS_SECRET:?set JWT_ACCESS_SECRET outside the repository}
   JWT_REFRESH_SECRET: ${JWT_REFRESH_SECRET:?set JWT_REFRESH_SECRET outside the repository}
   LANTMATERIET_BASE_URL: ${LANTMATERIET_BASE_URL:?set LANTMATERIET_BASE_URL outside the repository}
@@ -28,6 +28,33 @@ x-app-env: &app-env
   START_WORKERS_IN_PROCESS: 'false'
 
 services:
+  db-bootstrap:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: web
+      args:
+        BUILD_SHA: ${BUILD_SHA:?set BUILD_SHA to the deployed git commit}
+    image: miljobeslut-web:${IMAGE_TAG:-latest}
+    container_name: miljobeslut-db-bootstrap
+    restart: 'no'
+    env_file:
+      - path: .env.production
+        required: false
+    environment:
+      <<: *app-env
+      DB_BOOTSTRAP_CONFIRM: 'yes'
+      PROJECT_CONTEXT_BINDING_ISSUER_PRIVATE_KEY_PEM: ''
+      LU_EXECUTION_AUTHORITY_PRIVATE_KEY_PEM: ''
+      VIEWER_CAPABILITY_ISSUER_PRIVATE_KEY_PEM: ''
+      LOCALIZATION_GEOMETRY_SUPERSESSION_ISSUER_PRIVATE_KEY_PEM: ''
+    command: ['npm', 'run', 'db:bootstrap']
+    depends_on:
+      db:
+        condition: service_healthy
+    networks:
+      - prod-net
+
   web:
     build:
       context: .
@@ -57,8 +84,8 @@ services:
       - mimers_cas:/data/mimers
       - ${MASTER_ARCHIVE_HOST_PATH:-./storage/master-archive}:/data/geo_master:ro
     depends_on:
-      db:
-        condition: service_healthy
+      db-bootstrap:
+        condition: service_completed_successfully
     healthcheck:
       test: ['CMD-SHELL', 'curl -fsS http://127.0.0.1:8080/ready >/dev/null']
       interval: 30s
@@ -106,8 +133,8 @@ services:
       - mimers_cas:/data/mimers
       - ${MASTER_ARCHIVE_HOST_PATH:-./storage/master-archive}:/data/geo_master:ro
     depends_on:
-      db:
-        condition: service_healthy
+      db-bootstrap:
+        condition: service_completed_successfully
     networks:
       - prod-net
 
