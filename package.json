@@ -20,6 +20,7 @@
     "test:e2e": "npm run db:test:migrate && npm run db:test:seed && npm run db:test:seed:gis && playwright test",
     "test:e2e:staging": "playwright test tests/e2e/staging-smoke.spec.ts tests/e2e/staging-core-flows.spec.ts tests/e2e/staging-enskilt-avlopp.spec.ts tests/e2e/staging-c-anmalan-mass.spec.ts tests/e2e/staging-lokaliseringsutredning.spec.ts",
     "smoke:staging-verify": "tsx scripts/smoke/staging-verify.ts",
+    "verify:runtime-imports": "node scripts/ops/verify-runtime-imports-in-image.mjs --root .",
     "test": "npm run test:unit && npm run test:integration",
     "qa": "npm run typecheck && npm run lint && npm run format:check && npm run test",
     "qa:full": "npm run qa && npm run build && npm run test:e2e",

@@ -1,4 +1,5 @@
-# cloudbuild.yaml — build → push → Prisma/PostGIS (Cloud Run Job) → deploy Cloud Run
+# cloudbuild.yaml — LEGACY_GCP pilot build/deploy (europe-north1 Cloud Run).
+# Canonical production build: Dockerfile (PNRC I2). Dedicated-server staging uses docker-compose.staging.yml.
 # Bygger separata images för webbserver och bakgrundsarbetare.
 #
 # gcloud builds submit --config=cloudbuild.yaml --substitutions=SHORT_SHA=$(git rev-parse --short HEAD)

@@ -25,7 +25,8 @@ pwsh scripts/ops/verify-prod.ps1
 | [rotate-prod-secrets.ps1](rotate-prod-secrets.ps1) | Rotera JWT, hash-salt, encryption key, admin-lösen i `.env.production` |
 | [backup-prod-db.ps1](backup-prod-db.ps1) | `pg_dump` → `backups/prod/*.sql.gz` + SHA256-manifest |
 | [restore-prod-db.ps1](restore-prod-db.ps1) | Återställ från backup (**kräver `-Confirm`**) |
-| [verify-prod.ps1](verify-prod.ps1) | Health, ready, DB, archive mount |
+| [verify-prod.ps1](verify-prod.ps1) | Health, ready, DB, archive mount (+ worker when staging compose) |
+| [verify-runtime-imports-in-image.mjs](verify-runtime-imports-in-image.mjs) | PNRC I2: all `server/`/`services/` `packages/` imports exist on disk or in image |
 | [prod-daily.ps1](prod-daily.ps1) | Backup + verify (daglig rutin) |
 | [register-prod-backup-task.ps1](register-prod-backup-task.ps1) | Windows Task Scheduler 03:00 |
 | [sync-prod-secrets-gcp.ps1](sync-prod-secrets-gcp.ps1) | Synka `.env.production` → GCP (skip DATABASE_URL) |

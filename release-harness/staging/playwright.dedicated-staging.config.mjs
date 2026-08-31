@@ -1,7 +1,6 @@
 /**
- * LEGACY_GCP — IAM-protected Cloud Run staging only. Do not use for dedicated-server staging.
- * Use playwright.dedicated-staging.config.mjs (PNRC I2) instead.
- * Resolves @playwright/test from the product tree to avoid duplicate Playwright installs.
+ * Release-harness Playwright config for dedicated-server staging (PNRC I2).
+ * Application auth only: CSRF + admin login/JWT. No Cloud Run IAM headers.
  */
 import { createRequire } from 'node:module';
 import path from 'node:path';
@@ -14,13 +13,9 @@ const { defineConfig } = requireFromProduct('@playwright/test');
 
 const baseURL =
   String(process.env.PLAYWRIGHT_BASE_URL || process.env.STAGING_URL || '').trim();
-const cloudRunIdToken = String(process.env.CLOUD_RUN_ID_TOKEN || '').trim();
 
 if (!baseURL) {
-  throw new Error('PLAYWRIGHT_BASE_URL is required for Cloud Run staging proof');
-}
-if (!cloudRunIdToken) {
-  throw new Error('CLOUD_RUN_ID_TOKEN is required for Cloud Run staging proof');
+  throw new Error('PLAYWRIGHT_BASE_URL is required for dedicated-server staging proof');
 }
 
 const stagingSpecs = [
@@ -41,7 +36,7 @@ export default defineConfig({
   use: {
     baseURL,
     extraHTTPHeaders: {
-      'X-Serverless-Authorization': `Bearer ${cloudRunIdToken}`,
+      Accept: 'application/json',
     },
     trace: 'on-first-retry',
     screenshot: 'only-on-failure',

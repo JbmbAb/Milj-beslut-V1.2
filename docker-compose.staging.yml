@@ -1,22 +1,84 @@
-version: '3.9'
+# Dedicated-server staging prep (PNRC I2).
+# Provider-neutral stack: web + worker-all + PostGIS, four storage authorities.
+#
+# Usage:
+#   cp .env.staging.example .env.staging
+#   cp -r deploy/staging/secrets.example deploy/staging/secrets   # fill files locally, never commit
+#   docker compose -f docker-compose.staging.yml --env-file .env.staging up -d --build
+#   docker compose -f docker-compose.staging.yml exec web npx prisma migrate deploy
+#   docker compose -f docker-compose.staging.yml exec web npx tsx scripts/db/spatial-bootstrap.ts
+#   pwsh scripts/ops/verify-prod.ps1 -ComposeFile docker-compose.staging.yml
 
 services:
-  app:
+  web:
     build:
       context: .
       dockerfile: Dockerfile
       target: web
-    container_name: miljobeslut-staging-app
+    image: miljobeslut-staging-web:latest
+    container_name: miljobeslut-staging-web
     restart: unless-stopped
     ports:
-      - '8787:8787'
+      - '8080:8080'
     env_file:
       - .env.staging
     environment:
       NODE_ENV: production
-      DATABASE_URL: postgresql://miljobeslut:password@db:5432/miljobeslut_staging
-      SEARCH_WORKER_ENABLED: 'true'
-      PORT: '8787'
+      PORT: '8080'
+      START_WORKERS_IN_PROCESS: 'false'
+      DATABASE_URL: postgresql://miljobeslut:${POSTGRES_PASSWORD:-staging}@db:5432/miljobeslut_staging?sslmode=disable
+      # A — document/object uploads
+      UPLOADS_DIR: /app/storage/uploads
+      # B — Mimers canonical CAS
+      MIMERS_ROOT: /var/mimers/cas
+      # C — master/source archive (read-only)
+      GEO_MASTER_ARCHIVE_PATH: /data/geo_master
+      BACKUP_DIR: /app/storage/backups
+    secrets:
+      - jwt_access_secret
+      - jwt_refresh_secret
+      - admin_console_password
+    entrypoint: ['/bin/sh', '/entrypoint-with-secrets.sh']
+    command: ['npm', 'start']
+    volumes:
+      - document_storage:/app/storage/uploads
+      - mimers_cas:/var/mimers/cas
+      - ${IMPORT_ARCHIVE_HOST_PATH:-./storage}:/data/geo_master:ro
+      - ./deploy/staging/entrypoint-with-secrets.sh:/entrypoint-with-secrets.sh:ro
+    depends_on:
+      db:
+        condition: service_healthy
+    networks:
+      - staging-net
+
+  worker:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: worker-all
+    image: miljobeslut-staging-worker:latest
+    container_name: miljobeslut-staging-worker
+    restart: unless-stopped
+    env_file:
+      - .env.staging
+    environment:
+      NODE_ENV: production
+      DATABASE_URL: postgresql://miljobeslut:${POSTGRES_PASSWORD:-staging}@db:5432/miljobeslut_staging?sslmode=disable
+      MIMERS_ROOT: /var/mimers/cas
+      GEO_MASTER_ARCHIVE_PATH: /data/geo_master
+      UPLOADS_DIR: /app/storage/uploads
+    secrets:
+      - jwt_access_secret
+      - jwt_refresh_secret
+      - admin_console_password
+      - lu_signer_key
+    entrypoint: ['/bin/sh', '/entrypoint-with-secrets.sh']
+    command: ['npm', 'run', 'worker:all']
+    volumes:
+      - document_storage:/app/storage/uploads
+      - mimers_cas:/var/mimers/cas
+      - ${IMPORT_ARCHIVE_HOST_PATH:-./storage}:/data/geo_master:ro
+      - ./deploy/staging/entrypoint-with-secrets.sh:/entrypoint-with-secrets.sh:ro
     depends_on:
       db:
         condition: service_healthy
@@ -24,17 +86,21 @@ services:
       - staging-net
 
   db:
-    image: ghcr.io/jbmbab/milj-beslut-postgres-test:16
-    container_name: miljobeslut-staging-postgres
+    build:
+      context: ./docker/postgres-prod
+      dockerfile: Dockerfile
+    image: miljobeslut-postgres-staging:15
+    container_name: miljobeslut-staging-db
     restart: unless-stopped
     environment:
-      POSTGRES_DB: miljobeslut_staging
       POSTGRES_USER: miljobeslut
-      POSTGRES_PASSWORD: password
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-staging}
+      POSTGRES_DB: miljobeslut_staging
     ports:
-      - '5433:5432'
+      - '5435:5432'
     volumes:
-      - db-staging-data:/var/lib/postgresql/data
+      - pgdata_staging:/var/lib/postgresql/data
+      - ./backups/staging:/backups
     healthcheck:
       test: ['CMD-SHELL', 'pg_isready -U miljobeslut -d miljobeslut_staging']
       interval: 10s
@@ -44,7 +110,19 @@ services:
       - staging-net
 
 volumes:
-  db-staging-data:
+  pgdata_staging:
+  document_storage:
+  mimers_cas:
+
+secrets:
+  jwt_access_secret:
+    file: ./deploy/staging/secrets/jwt_access_secret
+  jwt_refresh_secret:
+    file: ./deploy/staging/secrets/jwt_refresh_secret
+  admin_console_password:
+    file: ./deploy/staging/secrets/admin_console_password
+  lu_signer_key:
+    file: ./deploy/staging/secrets/lu_signer_key
 
 networks:
   staging-net:

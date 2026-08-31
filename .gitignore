@@ -33,6 +33,7 @@ dist-ssr
 .env.supabase
 .env.production
 .env.staging
+deploy/staging/secrets/
 coverage
 docs/qa/coverage-baseline-generated.md
 docs/qa/vitest-backlog.md
@@ -196,6 +197,7 @@ backup_pre_migration.sql
 backup-*.sql
 backup-.sql
 backups/prod/
+backups/staging/
 
 # Lokala PostgreSQL-datafiler / runtime-datadir (ej källkod)
 Database/

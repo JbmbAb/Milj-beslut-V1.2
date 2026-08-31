@@ -3,6 +3,7 @@
 # Usage:
 #   pwsh scripts/ops/verify-prod.ps1
 #   pwsh scripts/ops/verify-prod.ps1 -BaseUrl http://127.0.0.1:8080
+#   pwsh scripts/ops/verify-prod.ps1 -ComposeFile docker-compose.staging.yml
 
 param(
   [string]$BaseUrl = "http://127.0.0.1:8080",
@@ -11,6 +12,10 @@ param(
 
 $ErrorActionPreference = "Continue"
 $failures = 0
+
+$webService = if ($ComposeFile -match 'staging') { 'web' } else { 'app' }
+$workerService = if ($ComposeFile -match 'staging') { 'worker' } else { $null }
+$dbName = if ($ComposeFile -match 'staging') { 'miljobeslut_staging' } else { 'miljobeslut_prod' }
 
 function Test-Step([string]$Name, [scriptblock]$Block) {
   try {
@@ -23,16 +28,20 @@ function Test-Step([string]$Name, [scriptblock]$Block) {
   }
 }
 
-Write-Host "Verifierar prod: $BaseUrl"
+Write-Host "Verifierar prod: $BaseUrl (compose: $ComposeFile, web=$webService)"
 Write-Host ("-" * 50)
 
 Test-Step "docker compose ps" {
   $ps = docker compose -f $ComposeFile ps --format json 2>$null | ConvertFrom-Json
   if (-not $ps) { throw "compose ps tomt" }
-  $app = $ps | Where-Object { $_.Service -eq "app" -and $_.State -eq "running" }
+  $app = $ps | Where-Object { $_.Service -eq $webService -and $_.State -eq "running" }
   $db = $ps | Where-Object { $_.Service -eq "db" -and $_.State -eq "running" }
-  if (-not $app) { throw "app körs inte" }
+  if (-not $app) { throw "$webService körs inte" }
   if (-not $db) { throw "db körs inte" }
+  if ($workerService) {
+    $worker = $ps | Where-Object { $_.Service -eq $workerService -and $_.State -eq "running" }
+    if (-not $worker) { throw "$workerService körs inte" }
+  }
 }
 
 Test-Step "GET /health" {
@@ -46,12 +55,12 @@ Test-Step "GET /ready" {
 }
 
 Test-Step "DB pg_isready" {
-  docker compose -f $ComposeFile exec -T db pg_isready -U miljobeslut -d miljobeslut_prod 2>&1 | Out-Null
+  docker compose -f $ComposeFile exec -T db pg_isready -U miljobeslut -d $dbName 2>&1 | Out-Null
   if ($LASTEXITCODE -ne 0) { throw "pg_isready failed" }
 }
 
 Test-Step "Archive mount (container /data/geo_master)" {
-  $out = docker compose -f $ComposeFile exec -T app sh -c "test -d /data/geo_master && ls /data/geo_master | head -1" 2>&1
+  $out = docker compose -f $ComposeFile exec -T $webService sh -c "test -d /data/geo_master && ls /data/geo_master | head -1" 2>&1
   if ($LASTEXITCODE -ne 0) { throw "mount saknas eller tom: $out" }
 }
 

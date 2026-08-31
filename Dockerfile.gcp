@@ -1,3 +1,6 @@
+# LEGACY_GCP — deprecated Cloud Run pilot image. Canonical production build: Dockerfile (PNRC I2).
+# Do not use for dedicated-server staging or new deployments.
+#
 # Dockerfile.gcp — produktionsimage för Google Cloud Run.
 #
 # Skillnader mot Dockerfile.fly:

@@ -1,33 +1,34 @@
 version: '3.9'
 
 # Primär prod — egen server (dual-track A). Se docs/ops/local-prod-setup.md
+# Canonical build: Dockerfile (PNRC I2). LEGACY_GCP: Dockerfile.gcp
 
 services:
   app:
     build:
       context: .
-      dockerfile: Dockerfile.gcp
-      target: production
+      dockerfile: Dockerfile
+      target: web
     image: miljobeslut-portal:latest
     container_name: miljobeslut-app
     restart: unless-stopped
     ports:
-      - '8080:3000'
+      - '8080:8080'
     env_file:
       - .env.production
     environment:
       NODE_ENV: production
-      PORT: '3000'
-      # Huvud-PostGIS (miljobeslut-postgres :5432, ~61 GB geodata) — inte tomma miljobeslut-db
+      PORT: '8080'
       DATABASE_URL: postgresql://miljobeslut:miljobeslut@miljobeslut-postgres:5432/miljobeslut?sslmode=disable
       BACKUP_DIR: /app/storage/backups
       SEARCH_WORKER_ENABLED: 'true'
       GDPR_CRON_IN_PROCESS: 'true'
+      # Primary prod may enable in-process workers; staging uses docker-compose.staging.yml
       START_WORKERS_IN_PROCESS: 'true'
     volumes:
-      # Master Archive — justera host-path (Mimers Brunn canonical)
       - ${IMPORT_ARCHIVE_HOST_PATH:-./storage}:/data/geo_master:ro
       - uploads_prod:/app/storage/uploads
+      - mimers_cas_prod:/var/mimers/cas
     networks:
       - prod-net
       - geodata-net
@@ -59,6 +60,7 @@ services:
 volumes:
   pgdata_prod:
   uploads_prod:
+  mimers_cas_prod:
 
 networks:
   prod-net:

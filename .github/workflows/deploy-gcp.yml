@@ -1,5 +1,8 @@
 name: Deploy – Google Cloud Run
 
+# LEGACY_GCP — deprecated pilot deploy path. Canonical build/deploy: Dockerfile + dedicated-server stack (PNRC I2).
+# Do not use for I2+ dedicated-server staging.
+#
 # Dual-track A (beslut 2026-07-27):
 #   Lokal server = primär prod (Master Archive, PostGIS, domänlogik)
 #   GCP = staging/pilot/demo (Vertex-smoke, CI-validering)

@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 /**
+ * LEGACY_GCP — Cloud Run IAM preflight only. Not used for dedicated-server staging (PNRC I2).
  * Release-harness only: prove Cloud Run IAM via X-Serverless-Authorization.
  * Never logs token values. No gcloud calls — token must be minted by workflow WIF.
  */

@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 /**
+ * LEGACY_GCP — Cloud Run IAM Playwright setup only. Not used for dedicated-server staging (PNRC I2).
  * Release-harness only: inject Cloud Run IAM on Playwright APIRequestContext
  * without colliding with application Authorization headers.
  */
