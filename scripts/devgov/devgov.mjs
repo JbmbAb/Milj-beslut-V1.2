@@ -1,8 +1,8 @@
 #!/usr/bin/env node
-import { createHash } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import { execFileSync, spawnSync } from 'node:child_process';
 import { existsSync, mkdirSync, readFileSync, realpathSync, writeFileSync } from 'node:fs';
-import { dirname, isAbsolute, resolve, relative } from 'node:path';
+import { isAbsolute, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 export const RESULT = Object.freeze({
@@ -14,6 +14,14 @@ export const RESULT = Object.freeze({
 
 const ANCESTRY_POLICIES = new Set(['exact_parent', 'descendant_of_base', 'merge_base_equals_base']);
 const EVIDENCE_KINDS = new Set(['RED', 'GREEN']);
+const TOOL_VERSION = 'dev-gov-v0.2';
+const REMOTE_STATUS = Object.freeze({
+  MATCH: 'REMOTE_MATCH',
+  ABSENT_ALLOWED: 'REMOTE_ABSENT_ALLOWED_BY_POLICY',
+  LOOKUP_FAILED: 'REMOTE_LOOKUP_FAILED',
+  DIVERGED: 'REMOTE_DIVERGED',
+  NOT_CONFIGURED: 'REMOTE_NOT_CONFIGURED',
+});
 
 function stableJson(value) {
   if (Array.isArray(value)) return `[${value.map(stableJson).join(',')}]`;
@@ -34,10 +42,12 @@ export function manifestHash(manifest) {
   return sha256(stableJson(manifest));
 }
 
-export function canonicalPath(pathValue, base = process.cwd()) {
+export function canonicalPath(pathValue, base = process.cwd(), options = {}) {
   const absolute = isAbsolute(pathValue) ? pathValue : resolve(base, pathValue);
   const normalized = existsSync(absolute) ? realpathSync.native(absolute) : resolve(absolute);
-  return normalized.replaceAll('\\', '/').replace(/\/+$/, '').toLowerCase();
+  const slashed = normalized.replaceAll('\\', '/').replace(/\/+$/, '');
+  const platform = options.platform || process.platform;
+  return platform === 'win32' ? slashed.toLowerCase() : slashed;
 }
 
 export function normalizeRepoPath(pathValue) {
@@ -96,7 +106,16 @@ export function classifyDiffScope(paths, allowedPaths = [], forbiddenPaths = [])
 export function validateManifest(manifest) {
   const errors = [];
   if (manifest?.schema_version !== 'dev-gov-v0') errors.push('schema_version must be dev-gov-v0');
-  for (const field of ['unit', 'role', 'mode', 'worktree', 'branch', 'base_sha', 'ancestry_policy']) {
+  for (const field of [
+    'unit',
+    'role',
+    'mode',
+    'worktree',
+    'branch',
+    'base_sha',
+    'target_sha',
+    'ancestry_policy',
+  ]) {
     if (!manifest?.[field]) errors.push(`${field} is required`);
   }
   if (manifest?.ancestry_policy && !ANCESTRY_POLICIES.has(manifest.ancestry_policy)) {
@@ -122,8 +141,13 @@ export function evaluateRepositoryState(manifest, state) {
   }
   if (state.dirty) errors.push('dirty tree rejected');
 
-  if (manifest.ancestry_policy === 'exact_parent' && state.parent_sha !== manifest.base_sha) {
-    errors.push(`parent mismatch: expected ${manifest.base_sha}, got ${state.parent_sha}`);
+  if (manifest.ancestry_policy === 'exact_parent') {
+    if (state.parent_count !== 1) {
+      errors.push(`exact_parent requires one parent, got ${state.parent_count ?? 'unknown'}`);
+    }
+    if (state.parent_sha !== manifest.base_sha) {
+      errors.push(`parent mismatch: expected ${manifest.base_sha}, got ${state.parent_sha}`);
+    }
   }
   if (manifest.ancestry_policy === 'descendant_of_base' && !state.is_descendant_of_base) {
     errors.push(`HEAD is not a descendant of ${manifest.base_sha}`);
@@ -158,10 +182,13 @@ export function evaluateEvidenceGate(manifest, evidenceRecords, finalSha) {
     const redRecord = evidenceRecords.find(
       (record) =>
         record.kind === 'RED' &&
+        isToolProducedEvidence(record) &&
         record.unit === manifest.unit &&
         record.test_id === red.id &&
         record.base_sha === manifest.base_sha &&
+        record.head_sha === manifest.base_sha &&
         record.manifest_hash === hash &&
+        record.command === commandString(red) &&
         record.classification === (red.expected_classification || RESULT.FAIL),
     );
     if (!redRecord) {
@@ -173,12 +200,15 @@ export function evaluateEvidenceGate(manifest, evidenceRecords, finalSha) {
       const greenRecord = evidenceRecords.find(
         (record) =>
           record.kind === 'GREEN' &&
+          isToolProducedEvidence(record) &&
           record.unit === manifest.unit &&
           record.test_id === green.id &&
+          record.base_sha === manifest.base_sha &&
           record.head_sha === finalSha &&
           record.manifest_hash === hash &&
+          record.command === commandString(green) &&
           record.classification === RESULT.PASS &&
-          new Date(record.timestamp).getTime() > new Date(redRecord.timestamp).getTime(),
+          new Date(record.started_at).getTime() > new Date(redRecord.finished_at).getTime(),
       );
       if (!greenRecord) {
         errors.push(`missing valid GREEN evidence for ${green.id} after RED ${red.id}`);
@@ -191,10 +221,13 @@ export function evaluateEvidenceGate(manifest, evidenceRecords, finalSha) {
       const greenRecord = evidenceRecords.find(
         (record) =>
           record.kind === 'GREEN' &&
+          isToolProducedEvidence(record) &&
           record.unit === manifest.unit &&
           record.test_id === green.id &&
+          record.base_sha === manifest.base_sha &&
           record.head_sha === finalSha &&
           record.manifest_hash === hash &&
+          record.command === commandString(green) &&
           record.classification === RESULT.PASS,
       );
       if (!greenRecord) errors.push(`missing valid GREEN evidence for ${green.id}`);
@@ -206,21 +239,61 @@ export function evaluateEvidenceGate(manifest, evidenceRecords, finalSha) {
     : { result: RESULT.PASS, errors: [] };
 }
 
+function commandString(commandSpec) {
+  return [commandSpec.command, ...(commandSpec.args || [])].join(' ');
+}
+
+export function isToolProducedEvidence(record) {
+  if (record?.schema_version !== 'dev-gov-v0-execution-evidence') return false;
+  if (record.produced_by !== 'devgov-v0') return false;
+  if (record.tool_version !== TOOL_VERSION) return false;
+  if (!EVIDENCE_KINDS.has(record.kind)) return false;
+  if (!record.execution_nonce) return false;
+  if (!record.started_at || !record.finished_at) return false;
+  if (!record.command || !record.cwd) return false;
+  if (!record.manifest_hash || !record.base_sha || !record.head_sha || !record.test_id || !record.unit) {
+    return false;
+  }
+  if (!record.stdout_sha256 || !record.stderr_sha256) return false;
+  if (!Object.values(RESULT).includes(record.classification)) return false;
+  if (record.evidence_hash) {
+    const { evidence_hash, finalized_at, ...unsigned } = record;
+    if (!finalized_at) return false;
+    if (evidence_hash !== sha256(stableJson(unsigned))) return false;
+  }
+  return true;
+}
+
 export function evaluateShaVerification(manifest, state) {
-  const errors = [];
-  if (manifest.target_sha && state.head_sha !== manifest.target_sha) {
+  const errors = validateManifest(manifest);
+  if (state.head_sha !== manifest.target_sha) {
     errors.push(`local HEAD mismatch: expected ${manifest.target_sha}, got ${state.head_sha}`);
   }
-  if (
-    manifest.remote?.branch &&
-    state.remote_sha &&
-    manifest.target_sha &&
-    state.remote_sha !== manifest.target_sha
-  ) {
-    errors.push(`remote SHA mismatch: expected ${manifest.target_sha}, got ${state.remote_sha}`);
-  }
-  if (manifest.remote?.branch && state.remote_sha && state.head_sha !== state.remote_sha) {
-    errors.push(`local/remote divergence: local ${state.head_sha}, remote ${state.remote_sha}`);
+  if (manifest.remote?.branch) {
+    const remoteStatus =
+      state.remote_status ||
+      (state.remote_sha
+        ? state.remote_sha === manifest.target_sha
+          ? REMOTE_STATUS.MATCH
+          : REMOTE_STATUS.DIVERGED
+        : undefined);
+    if (remoteStatus === REMOTE_STATUS.LOOKUP_FAILED) {
+      errors.push(`remote lookup failed for ${manifest.remote.name || 'origin'}/${manifest.remote.branch}`);
+    } else if (remoteStatus === REMOTE_STATUS.DIVERGED) {
+      errors.push(`remote SHA mismatch: expected ${manifest.target_sha}, got ${state.remote_sha}`);
+    } else if (
+      remoteStatus === REMOTE_STATUS.ABSENT_ALLOWED &&
+      manifest.remote.absent_policy !== 'allow_absent'
+    ) {
+      errors.push(`remote absent but policy is not allow_absent`);
+    } else if (!remoteStatus || remoteStatus === REMOTE_STATUS.NOT_CONFIGURED) {
+      errors.push(
+        `remote verification missing for ${manifest.remote.name || 'origin'}/${manifest.remote.branch}`,
+      );
+    }
+    if (state.remote_sha && state.head_sha !== state.remote_sha) {
+      errors.push(`local/remote divergence: local ${state.head_sha}, remote ${state.remote_sha}`);
+    }
   }
   if (state.dirty) errors.push('dirty tree rejected for SHA verification');
   return errors.length > 0
@@ -232,15 +305,73 @@ function git(args, cwd) {
   return execFileSync('git', args, { cwd, encoding: 'utf8' }).trim();
 }
 
+function gitBuffer(args, cwd) {
+  return execFileSync('git', args, { cwd });
+}
+
+function gitStatus(cwd) {
+  return git(['status', '--porcelain=v1', '-z'], cwd);
+}
+
+function parseNulSeparatedPaths(buffer) {
+  return buffer
+    .toString('utf8')
+    .split('\0')
+    .map((line) => line.trim())
+    .filter(Boolean);
+}
+
+export function resolveRemoteVerification(manifest, state = {}) {
+  if (!manifest.remote?.branch) return { ...state, remote_status: REMOTE_STATUS.NOT_CONFIGURED };
+  const remoteName = manifest.remote.name || 'origin';
+  const lookup = spawnSync('git', ['ls-remote', '--heads', remoteName, manifest.remote.branch], {
+    cwd: manifest.worktree,
+    encoding: 'utf8',
+    timeout: manifest.remote.timeout_ms || 15_000,
+  });
+  if (lookup.error || lookup.status !== 0) {
+    return {
+      ...state,
+      remote_sha: '',
+      remote_status: REMOTE_STATUS.LOOKUP_FAILED,
+      remote_error: lookup.error?.message || lookup.stderr || `exit ${lookup.status}`,
+    };
+  }
+  const remoteSha = lookup.stdout.trim().split(/\s+/)[0] || '';
+  if (!remoteSha && manifest.remote.absent_policy === 'allow_absent') {
+    return { ...state, remote_sha: '', remote_status: REMOTE_STATUS.ABSENT_ALLOWED };
+  }
+  if (!remoteSha) {
+    return {
+      ...state,
+      remote_sha: '',
+      remote_status: REMOTE_STATUS.LOOKUP_FAILED,
+      remote_error: 'remote branch absent',
+    };
+  }
+  return {
+    ...state,
+    remote_sha: remoteSha,
+    remote_status: remoteSha === manifest.target_sha ? REMOTE_STATUS.MATCH : REMOTE_STATUS.DIVERGED,
+  };
+}
+
 export function readRepositoryState(manifest) {
   const cwd = manifest.worktree;
   const head = git(['rev-parse', 'HEAD'], cwd);
   const base = manifest.base_sha;
   let parent = '';
+  let parentCount = 0;
   try {
     parent = git(['rev-parse', 'HEAD^'], cwd);
   } catch {
     parent = '';
+  }
+  try {
+    const parents = git(['rev-list', '--parents', '-n', '1', 'HEAD'], cwd).split(/\s+/).slice(1);
+    parentCount = parents.length;
+  } catch {
+    parentCount = 0;
   }
   let branch = git(['branch', '--show-current'], cwd);
   if (!branch) branch = 'HEAD';
@@ -252,16 +383,14 @@ export function readRepositoryState(manifest) {
   } catch {
     mergeBase = '';
   }
-  const changed = git(['diff', '--name-only', `${base}..HEAD`], cwd)
-    .split(/\r?\n/)
-    .map((line) => line.trim())
-    .filter(Boolean);
-  const status = git(['status', '--short'], cwd);
+  const changed = parseNulSeparatedPaths(gitBuffer(['diff', '--name-only', '-z', `${base}..HEAD`], cwd));
+  const status = gitStatus(cwd);
   return {
     worktree: git(['rev-parse', '--show-toplevel'], cwd),
     branch,
     head_sha: head,
     parent_sha: parent,
+    parent_count: parentCount,
     merge_base_sha: mergeBase,
     is_descendant_of_base: isDescendant,
     dirty: status.length > 0,
@@ -271,26 +400,95 @@ export function readRepositoryState(manifest) {
 
 export function runManifestCommand(manifest, commandSpec, kind) {
   if (!EVIDENCE_KINDS.has(kind)) throw new Error(`unsupported evidence kind: ${kind}`);
+  const manifestErrors = validateManifest(manifest);
+  if (manifestErrors.length > 0) throw new Error(`invalid manifest: ${manifestErrors.join('; ')}`);
   const cwd = resolve(manifest.worktree, commandSpec.cwd || '.');
   const startedAt = new Date().toISOString();
+  const executionNonce = randomUUID();
+  const headBefore = git(['rev-parse', 'HEAD'], manifest.worktree);
+  const statusBefore = gitStatus(manifest.worktree);
+  if (statusBefore.length > 0) {
+    return executionEvidence({
+      manifest,
+      kind,
+      commandSpec,
+      cwd,
+      headSha: headBefore,
+      startedAt,
+      finishedAt: new Date().toISOString(),
+      executionNonce,
+      exitCode: null,
+      classification: RESULT.DENIED_GOVERNANCE,
+      environment_error: 'dirty tree rejected before command execution',
+      stdout: '',
+      stderr: '',
+    });
+  }
   const result = spawnSync(commandSpec.command, commandSpec.args || [], {
     cwd,
     encoding: 'utf8',
     env: { ...process.env, ...(commandSpec.env || {}) },
+    timeout: commandSpec.timeout_ms || 120_000,
   });
-  const headSha = git(['rev-parse', 'HEAD'], manifest.worktree);
+  const finishedAt = new Date().toISOString();
+  const headAfter = git(['rev-parse', 'HEAD'], manifest.worktree);
+  const statusAfter = gitStatus(manifest.worktree);
   let classification = RESULT.PASS;
-  if (result.error) {
-    classification = ['ENOENT', 'EACCES'].includes(result.error.code)
-      ? RESULT.BLOCKED_ENVIRONMENT
-      : RESULT.FAIL;
+  let environmentError = '';
+  if (headAfter !== headBefore || statusAfter.length > 0) {
+    classification = RESULT.DENIED_GOVERNANCE;
+    environmentError = 'proof surface changed during command execution';
+  } else if (result.error) {
+    classification = classifySpawnError(result.error);
+    environmentError = result.error.message;
   } else if ((result.status ?? 1) !== 0) {
     classification = commandSpec.blocked_exit_codes?.includes(result.status)
       ? RESULT.BLOCKED_ENVIRONMENT
       : RESULT.FAIL;
   }
+  return executionEvidence({
+    manifest,
+    kind,
+    commandSpec,
+    cwd,
+    headSha: headAfter,
+    startedAt,
+    finishedAt,
+    executionNonce,
+    exitCode: result.status,
+    classification,
+    environment_error: environmentError,
+    stdout: result.stdout || '',
+    stderr: result.stderr || '',
+  });
+}
+
+function classifySpawnError(error) {
+  if (error.code === 'ETIMEDOUT' || error.signal === 'SIGTERM') return RESULT.BLOCKED_ENVIRONMENT;
+  if (['ENOENT', 'EACCES', 'EPERM', 'ENOTDIR'].includes(error.code)) return RESULT.BLOCKED_ENVIRONMENT;
+  return RESULT.FAIL;
+}
+
+function executionEvidence({
+  manifest,
+  kind,
+  commandSpec,
+  cwd,
+  headSha,
+  startedAt,
+  finishedAt,
+  executionNonce,
+  exitCode,
+  classification,
+  environment_error,
+  stdout,
+  stderr,
+}) {
   return {
-    schema_version: 'dev-gov-v0-evidence',
+    schema_version: 'dev-gov-v0-execution-evidence',
+    produced_by: 'devgov-v0',
+    tool_version: TOOL_VERSION,
+    execution_nonce: executionNonce,
     unit: manifest.unit,
     kind,
     test_id: commandSpec.id,
@@ -299,11 +497,13 @@ export function runManifestCommand(manifest, commandSpec, kind) {
     manifest_hash: manifestHash(manifest),
     command: [commandSpec.command, ...(commandSpec.args || [])].join(' '),
     cwd,
-    exit_code: result.status,
+    started_at: startedAt,
+    finished_at: finishedAt,
+    exit_code: exitCode,
     classification,
-    timestamp: startedAt,
-    stdout_sha256: sha256(result.stdout || ''),
-    stderr_sha256: sha256(result.stderr || ''),
+    environment_error,
+    stdout_sha256: sha256(stdout || ''),
+    stderr_sha256: sha256(stderr || ''),
   };
 }
 
@@ -312,7 +512,12 @@ export function writeEvidence(manifest, evidence, root = manifest.worktree) {
   mkdirSync(finalDir, { recursive: true });
   const file = resolve(finalDir, `${evidence.kind.toLowerCase()}-${evidence.test_id}.json`);
   if (existsSync(file)) throw new Error(`immutable evidence already exists: ${file}`);
-  writeFileSync(file, `${stableJson(evidence)}\n`);
+  const finalized = {
+    ...evidence,
+    finalized_at: new Date().toISOString(),
+    evidence_hash: sha256(stableJson(evidence)),
+  };
+  writeFileSync(file, `${stableJson(finalized)}\n`);
   return file;
 }
 
@@ -348,18 +553,7 @@ if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.ur
   }
 
   if (command === 'verify-sha') {
-    const state = readRepositoryState(manifest);
-    if (manifest.remote?.branch) {
-      try {
-        state.remote_sha =
-          git(
-            ['ls-remote', '--heads', manifest.remote.name || 'origin', manifest.remote.branch],
-            manifest.worktree,
-          ).split(/\s+/)[0] || '';
-      } catch {
-        state.remote_sha = '';
-      }
-    }
+    const state = resolveRemoteVerification(manifest, readRepositoryState(manifest));
     printResult(evaluateShaVerification(manifest, state));
   }
 

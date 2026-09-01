@@ -11,6 +11,7 @@
     "worktree",
     "branch",
     "base_sha",
+    "target_sha",
     "ancestry_policy",
     "allowed_paths",
     "forbidden_paths"
@@ -23,7 +24,7 @@
     "worktree": { "type": "string", "minLength": 1 },
     "branch": { "type": "string", "minLength": 1 },
     "base_sha": { "type": "string", "pattern": "^[0-9a-f]{7,40}$" },
-    "target_sha": { "type": ["string", "null"], "pattern": "^[0-9a-f]{7,40}$" },
+    "target_sha": { "type": "string", "pattern": "^[0-9a-f]{7,40}$" },
     "ancestry_policy": {
       "enum": ["exact_parent", "descendant_of_base", "merge_base_equals_base"]
     },
@@ -42,7 +43,9 @@
       "properties": {
         "name": { "type": "string", "default": "origin" },
         "branch": { "type": "string" },
-        "push_policy": { "enum": ["no_force"] }
+        "push_policy": { "enum": ["no_force"] },
+        "absent_policy": { "enum": ["deny_absent", "allow_absent"] },
+        "timeout_ms": { "type": "integer", "minimum": 1 }
       },
       "additionalProperties": false
     }
@@ -72,7 +75,8 @@
           "blocked_exit_codes": {
             "type": "array",
             "items": { "type": "integer" }
-          }
+          },
+          "timeout_ms": { "type": "integer", "minimum": 1 }
         },
         "additionalProperties": false
       }

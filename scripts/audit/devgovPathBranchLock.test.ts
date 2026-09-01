@@ -1,9 +1,16 @@
-import { mkdtempSync, realpathSync, rmSync, symlinkSync } from 'node:fs';
+import { execFileSync } from 'node:child_process';
+import { mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 
-import { canonicalPath, classifyDiffScope, evaluateRepositoryState, RESULT } from '../devgov/devgov.mjs';
+import {
+  canonicalPath,
+  classifyDiffScope,
+  evaluateRepositoryState,
+  readRepositoryState,
+  RESULT,
+} from '../devgov/devgov.mjs';
 
 const baseManifest = {
   schema_version: 'dev-gov-v0',
@@ -13,6 +20,7 @@ const baseManifest = {
   worktree: process.cwd(),
   branch: 'codex/dev-gov-v0-test',
   base_sha: 'a'.repeat(40),
+  target_sha: 'b'.repeat(40),
   ancestry_policy: 'exact_parent',
   allowed_paths: ['scripts/devgov/**', 'scripts/audit/devgov*.test.ts'],
   forbidden_paths: ['server/**', '.github/workflows/deploy-*.yml'],
@@ -24,6 +32,7 @@ function state(overrides = {}) {
     branch: 'codex/dev-gov-v0-test',
     head_sha: 'b'.repeat(40),
     parent_sha: 'a'.repeat(40),
+    parent_count: 1,
     merge_base_sha: 'a'.repeat(40),
     is_descendant_of_base: true,
     dirty: false,
@@ -40,9 +49,17 @@ describe('DEV-GOV-V0 path/branch lock', () => {
     expect(result.errors.join('\n')).toContain('worktree mismatch');
   });
 
-  it('canonicalizes slash and casing variants of the same existing path', () => {
-    expect(canonicalPath(process.cwd().replaceAll('\\', '/').toUpperCase())).toBe(
-      canonicalPath(process.cwd()),
+  it('uses OS path semantics instead of global lowercasing', () => {
+    const upperVariant = process.cwd().replaceAll('\\', '/').toUpperCase();
+    if (process.platform === 'win32') {
+      expect(canonicalPath(upperVariant)).toBe(canonicalPath(process.cwd()));
+    } else {
+      expect(canonicalPath('/tmp/DevGovCase', process.cwd(), { platform: 'linux' })).not.toBe(
+        canonicalPath('/tmp/devgovcase', process.cwd(), { platform: 'linux' }),
+      );
+    }
+    expect(canonicalPath('/tmp/DevGovCase', process.cwd(), { platform: 'linux' })).not.toBe(
+      canonicalPath('/tmp/devgovcase', process.cwd(), { platform: 'linux' }),
     );
   });
 
@@ -69,6 +86,33 @@ describe('DEV-GOV-V0 path/branch lock', () => {
     const violations = classifyDiffScope(['server/routes/auth.ts'], ['**/*.ts'], ['server/**']);
 
     expect(violations).toEqual([{ path: 'server/routes/auth.ts', reason: 'FORBIDDEN_PATH' }]);
+  });
+
+  it('matches non-ASCII forbidden paths from raw git path bytes', () => {
+    const root = mkdtempSync(join(tmpdir(), 'devgov-nonascii-'));
+    const git = (args) => execFileSync('git', args, { cwd: root, encoding: 'utf8' }).trim();
+    git(['init', '-b', 'main']);
+    git(['config', 'user.email', 'devgov@example.invalid']);
+    git(['config', 'user.name', 'DEV-GOV Test']);
+    writeFileSync(join(root, 'README.md'), 'base\n');
+    git(['add', 'README.md']);
+    git(['commit', '-m', 'base']);
+    const base = git(['rev-parse', 'HEAD']);
+    mkdirSync(join(root, 'server'));
+    writeFileSync(join(root, 'server', 'miljöbeslut-hemlig.ts'), 'export const secret = true;\n');
+    git(['add', 'server/miljöbeslut-hemlig.ts']);
+    git(['commit', '-m', 'add non-ascii server path']);
+    const state = readRepositoryState({
+      ...baseManifest,
+      worktree: root,
+      branch: 'main',
+      base_sha: base,
+      target_sha: git(['rev-parse', 'HEAD']),
+    });
+
+    const violations = classifyDiffScope(state.changed_paths, ['**/*.ts'], ['server/**']);
+
+    expect(violations).toEqual([{ path: 'server/miljöbeslut-hemlig.ts', reason: 'FORBIDDEN_PATH' }]);
   });
 
   it('denies files outside allowed paths', () => {

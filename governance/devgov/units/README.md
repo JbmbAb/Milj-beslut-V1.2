@@ -16,8 +16,11 @@ Load-bearing evidence must be finalized as JSON bound to:
 - head SHA
 - manifest hash
 - command
+- execution nonce
+- tool version
+- started/finished time
 - exit code
 - result classification
-- timestamp
+- environment/governance reason when not PASS
 
 Allowed and forbidden path rules are fail closed. `forbidden_paths` always wins.
