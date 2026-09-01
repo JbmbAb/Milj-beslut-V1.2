@@ -26,6 +26,8 @@
     "db:test:seed": "dotenv -e .env.test -- prisma db execute --file scripts/db/seed-test.sql",
     "db:test:seed:gis": "dotenv -e .env.test -- tsx scripts/db/seed-gis-for-e2e.ts",
     "db:test:reset": "dotenv -e .env.test -- prisma migrate reset --force --skip-seed",
+    "devgov": "node scripts/devgov/devgov.mjs",
+    "devgov:test": "vitest run --config scripts/devgov/vitest.config.mjs",
     "figma:export": "tsx scripts/export-figma.ts",
     "kravmatris:auto": "tsx scripts/export-kravmatris-from-dump.ts",
     "requirements:model": "tsx scripts/build-requirements-model.ts",

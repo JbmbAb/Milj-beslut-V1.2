@@ -1,0 +1,81 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://miljobeslut.local/schemas/dev-gov-v0.schema.json",
+  "title": "DEV-GOV-V0 Unit Manifest",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "unit",
+    "role",
+    "mode",
+    "worktree",
+    "branch",
+    "base_sha",
+    "ancestry_policy",
+    "allowed_paths",
+    "forbidden_paths"
+  ],
+  "properties": {
+    "schema_version": { "const": "dev-gov-v0" },
+    "unit": { "type": "string", "minLength": 1 },
+    "role": { "enum": ["producer", "verifier"] },
+    "mode": { "enum": ["writer", "read_only"] },
+    "worktree": { "type": "string", "minLength": 1 },
+    "branch": { "type": "string", "minLength": 1 },
+    "base_sha": { "type": "string", "pattern": "^[0-9a-f]{7,40}$" },
+    "target_sha": { "type": ["string", "null"], "pattern": "^[0-9a-f]{7,40}$" },
+    "ancestry_policy": {
+      "enum": ["exact_parent", "descendant_of_base", "merge_base_equals_base"]
+    },
+    "allowed_paths": {
+      "type": "array",
+      "items": { "type": "string", "minLength": 1 }
+    },
+    "forbidden_paths": {
+      "type": "array",
+      "items": { "type": "string", "minLength": 1 }
+    },
+    "required_red": { "$ref": "#/$defs/commands" },
+    "required_green": { "$ref": "#/$defs/commands" },
+    "remote": {
+      "type": "object",
+      "properties": {
+        "name": { "type": "string", "default": "origin" },
+        "branch": { "type": "string" },
+        "push_policy": { "enum": ["no_force"] }
+      },
+      "additionalProperties": false
+    }
+  },
+  "additionalProperties": false,
+  "$defs": {
+    "commands": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["id", "command"],
+        "properties": {
+          "id": { "type": "string", "minLength": 1 },
+          "command": { "type": "string", "minLength": 1 },
+          "args": {
+            "type": "array",
+            "items": { "type": "string" }
+          },
+          "cwd": { "type": "string" },
+          "env": {
+            "type": "object",
+            "additionalProperties": { "type": "string" }
+          },
+          "expected_classification": {
+            "enum": ["PASS", "FAIL", "BLOCKED_ENVIRONMENT", "DENIED_GOVERNANCE"]
+          },
+          "blocked_exit_codes": {
+            "type": "array",
+            "items": { "type": "integer" }
+          }
+        },
+        "additionalProperties": false
+      }
+    }
+  }
+}

@@ -1,0 +1,28 @@
+name: DEV-GOV-V0
+
+on:
+  pull_request:
+    paths:
+      - 'governance/devgov/**'
+      - 'scripts/devgov/**'
+      - 'scripts/audit/devgov*.test.ts'
+      - '.github/workflows/devgov-v0.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  validate-devgov-v0:
+    name: Read-only DEV-GOV-V0 validation
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - run: npm ci --ignore-scripts
+      - name: Unit tests
+        run: npm run devgov:test
+      - name: Diff check
+        run: git diff --check
