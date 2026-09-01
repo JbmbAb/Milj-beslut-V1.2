@@ -72,6 +72,9 @@
           "expected_classification": {
             "enum": ["PASS", "FAIL", "BLOCKED_ENVIRONMENT", "DENIED_GOVERNANCE"]
           },
+          "required_head": {
+            "enum": ["base_sha", "target_sha", "any"]
+          },
           "blocked_exit_codes": {
             "type": "array",
             "items": { "type": "integer" }

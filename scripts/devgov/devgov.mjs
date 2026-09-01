@@ -12,9 +12,17 @@ export const RESULT = Object.freeze({
   DENIED_GOVERNANCE: 'DENIED_GOVERNANCE',
 });
 
+export const EXIT_CODE = Object.freeze({
+  PASS: 0,
+  FAIL: 2,
+  BLOCKED_ENVIRONMENT: 3,
+  DENIED_GOVERNANCE: 4,
+  INTERNAL_ERROR: 5,
+});
+
 const ANCESTRY_POLICIES = new Set(['exact_parent', 'descendant_of_base', 'merge_base_equals_base']);
 const EVIDENCE_KINDS = new Set(['RED', 'GREEN']);
-const TOOL_VERSION = 'dev-gov-v0.2';
+const TOOL_VERSION = 'dev-gov-v0.3';
 const REMOTE_STATUS = Object.freeze({
   MATCH: 'REMOTE_MATCH',
   ABSENT_ALLOWED: 'REMOTE_ABSENT_ALLOWED_BY_POLICY',
@@ -239,6 +247,49 @@ export function evaluateEvidenceGate(manifest, evidenceRecords, finalSha) {
     : { result: RESULT.PASS, errors: [] };
 }
 
+export function evaluateEvidenceGateWithLiveRepository(manifest, evidenceRecords) {
+  const errors = validateManifest(manifest);
+  if (errors.length > 0) {
+    return resultEnvelope(RESULT.DENIED_GOVERNANCE, 'INVALID_MANIFEST', errors.join('; '), errors);
+  }
+
+  let state;
+  try {
+    state = readRepositoryState(manifest);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    return resultEnvelope(RESULT.DENIED_GOVERNANCE, 'REPOSITORY_STATE_UNRESOLVED', message, [message]);
+  }
+
+  const repository = evaluateRepositoryState(manifest, state);
+  if (repository.result !== RESULT.PASS) {
+    return resultEnvelope(
+      RESULT.DENIED_GOVERNANCE,
+      'REPOSITORY_STATE_DENIED',
+      repository.errors.join('; '),
+      repository.errors,
+    );
+  }
+
+  const sha = evaluateShaVerification(manifest, resolveRemoteVerification(manifest, state));
+  if (sha.result !== RESULT.PASS) {
+    return resultEnvelope(
+      RESULT.DENIED_GOVERNANCE,
+      'SHA_VERIFICATION_DENIED',
+      sha.errors.join('; '),
+      sha.errors,
+    );
+  }
+
+  const evidence = evaluateEvidenceGate(manifest, evidenceRecords, manifest.target_sha);
+  return resultEnvelope(
+    evidence.result,
+    evidence.result === RESULT.PASS ? 'PASS' : 'EVIDENCE_DENIED',
+    evidence.errors.join('; ') || 'PASS',
+    evidence.errors,
+  );
+}
+
 function commandString(commandSpec) {
   return [commandSpec.command, ...(commandSpec.args || [])].join(' ');
 }
@@ -407,6 +458,30 @@ export function runManifestCommand(manifest, commandSpec, kind) {
   const executionNonce = randomUUID();
   const headBefore = git(['rev-parse', 'HEAD'], manifest.worktree);
   const statusBefore = gitStatus(manifest.worktree);
+  const requiredHead = commandSpec.required_head || (kind === 'GREEN' ? 'target_sha' : 'base_sha');
+  const expectedHead =
+    requiredHead === 'target_sha'
+      ? manifest.target_sha
+      : requiredHead === 'base_sha'
+        ? manifest.base_sha
+        : undefined;
+  if (expectedHead && headBefore !== expectedHead) {
+    return executionEvidence({
+      manifest,
+      kind,
+      commandSpec,
+      cwd,
+      headSha: headBefore,
+      startedAt,
+      finishedAt: new Date().toISOString(),
+      executionNonce,
+      exitCode: null,
+      classification: RESULT.DENIED_GOVERNANCE,
+      environment_error: `${kind} requires HEAD ${expectedHead}, got ${headBefore}`,
+      stdout: '',
+      stderr: '',
+    });
+  }
   if (statusBefore.length > 0) {
     return executionEvidence({
       manifest,
@@ -525,16 +600,43 @@ function loadManifest(file) {
   return JSON.parse(readFileSync(file, 'utf8'));
 }
 
+function resultEnvelope(classification, reasonCode, message, errors = [], extra = {}) {
+  return {
+    result: classification === RESULT.PASS ? RESULT.PASS : classification,
+    classification,
+    reason_code: reasonCode,
+    message,
+    errors,
+    ...extra,
+  };
+}
+
+function normalizeResult(result, fallbackReason) {
+  if (result.classification && result.reason_code && result.message !== undefined) return result;
+  return resultEnvelope(
+    result.result || RESULT.FAIL,
+    fallbackReason,
+    result.errors?.join('; ') || result.result || RESULT.FAIL,
+    result.errors || [],
+  );
+}
+
+function exitForClassification(classification) {
+  return EXIT_CODE[classification] ?? EXIT_CODE.INTERNAL_ERROR;
+}
+
 function printResult(result) {
-  console.log(JSON.stringify(result, null, 2));
-  process.exit(result.result === RESULT.PASS ? 0 : 1);
+  const normalized = normalizeResult(result, 'RESULT');
+  console.log(JSON.stringify(normalized, null, 2));
+  process.exit(exitForClassification(normalized.classification));
+}
+
+function usageText() {
+  return 'Usage: node scripts/devgov/devgov.mjs <preflight|verify-sha|evidence-gate|run-red|run-green> --manifest <file>';
 }
 
 function usage() {
-  console.error(
-    'Usage: node scripts/devgov/devgov.mjs <preflight|verify-sha|evidence-gate|run-red|run-green> --manifest <file>',
-  );
-  process.exit(2);
+  printResult(resultEnvelope(RESULT.DENIED_GOVERNANCE, 'USAGE', usageText()));
 }
 
 function argValue(args, name) {
@@ -544,43 +646,62 @@ function argValue(args, name) {
 
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
   const [command, ...args] = process.argv.slice(2);
-  const manifestPath = argValue(args, '--manifest');
-  if (!command || !manifestPath) usage();
-  const manifest = loadManifest(manifestPath);
+  try {
+    const manifestPath = argValue(args, '--manifest');
+    if (!command || !manifestPath) usage();
+    const manifest = loadManifest(manifestPath);
 
-  if (command === 'preflight') {
-    printResult(evaluateRepositoryState(manifest, readRepositoryState(manifest)));
+    if (command === 'preflight') {
+      printResult(
+        normalizeResult(evaluateRepositoryState(manifest, readRepositoryState(manifest)), 'PREFLIGHT'),
+      );
+    }
+
+    if (command === 'verify-sha') {
+      const state = resolveRemoteVerification(manifest, readRepositoryState(manifest));
+      printResult(normalizeResult(evaluateShaVerification(manifest, state), 'VERIFY_SHA'));
+    }
+
+    if (command === 'evidence-gate') {
+      const evidencePath = argValue(args, '--evidence');
+      if (!evidencePath) usage();
+      const records = readFileSync(evidencePath, 'utf8')
+        .split(/\r?\n/)
+        .map((line) => line.trim())
+        .filter(Boolean)
+        .map((line) => JSON.parse(line));
+      printResult(evaluateEvidenceGateWithLiveRepository(manifest, records));
+    }
+
+    if (command === 'run-red' || command === 'run-green') {
+      const id = argValue(args, '--id');
+      const kind = command === 'run-red' ? 'RED' : 'GREEN';
+      const list = kind === 'RED' ? manifest.required_red || [] : manifest.required_green || [];
+      const spec = list.find((item) => item.id === id);
+      if (!spec) {
+        printResult(
+          resultEnvelope(RESULT.DENIED_GOVERNANCE, 'UNKNOWN_COMMAND_ID', `unknown ${kind} command id: ${id}`),
+        );
+      }
+      const evidence = runManifestCommand(manifest, spec, kind);
+      const file = writeEvidence(manifest, evidence);
+      printResult(
+        resultEnvelope(
+          evidence.classification,
+          evidence.classification,
+          evidence.environment_error || evidence.classification,
+          [],
+          {
+            evidence_file: file,
+            evidence,
+          },
+        ),
+      );
+    }
+
+    usage();
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    printResult(resultEnvelope(RESULT.BLOCKED_ENVIRONMENT, 'COMMAND_BLOCKED', message, [message]));
   }
-
-  if (command === 'verify-sha') {
-    const state = resolveRemoteVerification(manifest, readRepositoryState(manifest));
-    printResult(evaluateShaVerification(manifest, state));
-  }
-
-  if (command === 'evidence-gate') {
-    const evidencePath = argValue(args, '--evidence');
-    if (!evidencePath) usage();
-    const records = readFileSync(evidencePath, 'utf8')
-      .split(/\r?\n/)
-      .map((line) => line.trim())
-      .filter(Boolean)
-      .map((line) => JSON.parse(line));
-    const target = manifest.target_sha || git(['rev-parse', 'HEAD'], manifest.worktree);
-    printResult(evaluateEvidenceGate(manifest, records, target));
-  }
-
-  if (command === 'run-red' || command === 'run-green') {
-    const id = argValue(args, '--id');
-    const kind = command === 'run-red' ? 'RED' : 'GREEN';
-    const list = kind === 'RED' ? manifest.required_red || [] : manifest.required_green || [];
-    const spec = list.find((item) => item.id === id);
-    if (!spec) throw new Error(`unknown ${kind} command id: ${id}`);
-    const evidence = runManifestCommand(manifest, spec, kind);
-    const file = writeEvidence(manifest, evidence);
-    console.log(file);
-    console.log(JSON.stringify(evidence, null, 2));
-    process.exit(0);
-  }
-
-  usage();
 }

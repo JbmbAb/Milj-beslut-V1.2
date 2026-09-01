@@ -34,7 +34,7 @@ function evidence(overrides = {}) {
   return {
     schema_version: 'dev-gov-v0-execution-evidence',
     produced_by: 'devgov-v0',
-    tool_version: 'dev-gov-v0.2',
+    tool_version: 'dev-gov-v0.3',
     execution_nonce: 'nonce-1',
     unit: manifest.unit,
     kind: 'RED',
@@ -248,5 +248,23 @@ describe('DEV-GOV-V0 RED to GREEN gate', () => {
 
     expect(record.classification).toBe(RESULT.DENIED_GOVERNANCE);
     expect(record.environment_error).toContain('dirty tree rejected');
+  });
+
+  it('classifies command timeout as BLOCKED_ENVIRONMENT', () => {
+    const commandManifest = manifestForRepo(cleanGitRepo());
+
+    const record = runManifestCommand(
+      commandManifest,
+      {
+        id: 'timeout-command',
+        command: process.execPath,
+        args: ['-e', 'setTimeout(() => {}, 5000)'],
+        timeout_ms: 1,
+      },
+      'RED',
+    );
+
+    expect(record.classification).toBe(RESULT.BLOCKED_ENVIRONMENT);
+    expect(record.environment_error).toBeTruthy();
   });
 });
