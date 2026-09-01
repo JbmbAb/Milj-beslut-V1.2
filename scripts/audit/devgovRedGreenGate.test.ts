@@ -1,5 +1,5 @@
 import { execFileSync } from 'node:child_process';
-import { mkdtempSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
 import { readFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -7,7 +7,9 @@ import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 
 import {
+  canonicalEvidenceDir,
   evaluateEvidenceGate,
+  finalizeEvidenceRecord,
   manifestHash,
   RESULT,
   runManifestCommand,
@@ -34,13 +36,16 @@ function evidence(overrides = {}) {
   return {
     schema_version: 'dev-gov-v0-execution-evidence',
     produced_by: 'devgov-v0',
-    tool_version: 'dev-gov-v0.3',
+    tool_version: 'dev-gov-v0.4',
     execution_nonce: 'nonce-1',
     unit: manifest.unit,
     kind: 'RED',
     test_id: 'path-lock-red',
     base_sha: manifest.base_sha,
+    target_sha: manifest.target_sha,
     head_sha: manifest.base_sha,
+    observed_head_sha: manifest.base_sha,
+    required_head: 'base_sha',
     manifest_hash: manifestHash(manifest),
     command: 'node',
     cwd: process.cwd(),
@@ -53,6 +58,10 @@ function evidence(overrides = {}) {
     stderr_sha256: 'b'.repeat(64),
     ...overrides,
   };
+}
+
+function validEvidence(overrides = {}) {
+  return finalizeEvidenceRecord(manifest, evidence(overrides));
 }
 
 function cleanGitRepo() {
@@ -82,10 +91,12 @@ function manifestForRepo(root) {
 
 describe('DEV-GOV-V0 RED to GREEN gate', () => {
   it('denies GREEN without a matching RED for the same unit/base/test-id/manifest', () => {
-    const green = evidence({
+    const green = validEvidence({
       kind: 'GREEN',
       test_id: 'path-lock-green',
       head_sha: manifest.target_sha,
+      observed_head_sha: manifest.target_sha,
+      required_head: 'target_sha',
       classification: RESULT.PASS,
       started_at: '2026-09-01T11:00:00.000Z',
       finished_at: '2026-09-01T11:00:01.000Z',
@@ -98,11 +109,17 @@ describe('DEV-GOV-V0 RED to GREEN gate', () => {
   });
 
   it('denies stale RED evidence from another base', () => {
-    const red = evidence({ base_sha: '9'.repeat(40) });
-    const green = evidence({
+    const otherManifest = { ...manifest, base_sha: '9'.repeat(40) };
+    const red = finalizeEvidenceRecord(
+      otherManifest,
+      evidence({ base_sha: otherManifest.base_sha, manifest_hash: manifestHash(otherManifest) }),
+    );
+    const green = validEvidence({
       kind: 'GREEN',
       test_id: 'path-lock-green',
       head_sha: manifest.target_sha,
+      observed_head_sha: manifest.target_sha,
+      required_head: 'target_sha',
       classification: RESULT.PASS,
       started_at: '2026-09-01T11:00:00.000Z',
       finished_at: '2026-09-01T11:00:01.000Z',
@@ -114,14 +131,16 @@ describe('DEV-GOV-V0 RED to GREEN gate', () => {
   });
 
   it('denies GREEN evidence that ran before RED', () => {
-    const red = evidence({
+    const red = validEvidence({
       started_at: '2026-09-01T12:00:00.000Z',
       finished_at: '2026-09-01T12:00:01.000Z',
     });
-    const green = evidence({
+    const green = validEvidence({
       kind: 'GREEN',
       test_id: 'path-lock-green',
       head_sha: manifest.target_sha,
+      observed_head_sha: manifest.target_sha,
+      required_head: 'target_sha',
       classification: RESULT.PASS,
       started_at: '2026-09-01T11:00:00.000Z',
       finished_at: '2026-09-01T11:00:01.000Z',
@@ -134,11 +153,13 @@ describe('DEV-GOV-V0 RED to GREEN gate', () => {
   });
 
   it('denies GREEN evidence collected on another candidate SHA', () => {
-    const red = evidence();
-    const green = evidence({
+    const red = validEvidence();
+    const green = validEvidence({
       kind: 'GREEN',
       test_id: 'path-lock-green',
       head_sha: '3'.repeat(40),
+      observed_head_sha: '3'.repeat(40),
+      required_head: 'target_sha',
       classification: RESULT.PASS,
       started_at: '2026-09-01T11:00:00.000Z',
       finished_at: '2026-09-01T11:00:01.000Z',
@@ -150,11 +171,13 @@ describe('DEV-GOV-V0 RED to GREEN gate', () => {
   });
 
   it('accepts only SHA and manifest-bound RED before GREEN', () => {
-    const red = evidence();
-    const green = evidence({
+    const red = validEvidence();
+    const green = validEvidence({
       kind: 'GREEN',
       test_id: 'path-lock-green',
       head_sha: manifest.target_sha,
+      observed_head_sha: manifest.target_sha,
+      required_head: 'target_sha',
       classification: RESULT.PASS,
       started_at: '2026-09-01T11:00:00.000Z',
       finished_at: '2026-09-01T11:00:01.000Z',
@@ -185,6 +208,8 @@ describe('DEV-GOV-V0 RED to GREEN gate', () => {
       kind: 'GREEN',
       test_id: 'path-lock-green',
       head_sha: manifest.target_sha,
+      observed_head_sha: manifest.target_sha,
+      required_head: 'target_sha',
       exit_code: 0,
       classification: RESULT.PASS,
       timestamp: '2026-09-01T11:00:00.000Z',
@@ -192,6 +217,95 @@ describe('DEV-GOV-V0 RED to GREEN gate', () => {
 
     expect(evaluateEvidenceGate(manifest, [forgedRed, forgedGreen], manifest.target_sha).result).toBe(
       RESULT.DENIED_GOVERNANCE,
+    );
+  });
+
+  it('denies canonical-looking evidence with missing evidence_hash', () => {
+    const red = validEvidence();
+    const { evidence_hash: _hash, ...missingHash } = red;
+    const green = validEvidence({
+      kind: 'GREEN',
+      test_id: 'path-lock-green',
+      head_sha: manifest.target_sha,
+      observed_head_sha: manifest.target_sha,
+      required_head: 'target_sha',
+      classification: RESULT.PASS,
+      started_at: '2026-09-01T11:00:00.000Z',
+      finished_at: '2026-09-01T11:00:01.000Z',
+    });
+
+    expect(evaluateEvidenceGate(manifest, [missingHash, green], manifest.target_sha).result).toBe(
+      RESULT.DENIED_GOVERNANCE,
+    );
+  });
+
+  it('denies canonical-looking evidence with invalid evidence_hash', () => {
+    const red = { ...validEvidence(), evidence_hash: '0'.repeat(64) };
+    const green = validEvidence({
+      kind: 'GREEN',
+      test_id: 'path-lock-green',
+      head_sha: manifest.target_sha,
+      observed_head_sha: manifest.target_sha,
+      required_head: 'target_sha',
+      classification: RESULT.PASS,
+      started_at: '2026-09-01T11:00:00.000Z',
+      finished_at: '2026-09-01T11:00:01.000Z',
+    });
+
+    expect(evaluateEvidenceGate(manifest, [red, green], manifest.target_sha).result).toBe(
+      RESULT.DENIED_GOVERNANCE,
+    );
+  });
+
+  it('denies copied valid RED evidence from another unit', () => {
+    const otherManifest = { ...manifest, unit: 'OTHER-UNIT' };
+    const red = finalizeEvidenceRecord(
+      otherManifest,
+      evidence({ unit: otherManifest.unit, manifest_hash: manifestHash(otherManifest) }),
+    );
+    const green = validEvidence({
+      kind: 'GREEN',
+      test_id: 'path-lock-green',
+      head_sha: manifest.target_sha,
+      observed_head_sha: manifest.target_sha,
+      required_head: 'target_sha',
+      classification: RESULT.PASS,
+      started_at: '2026-09-01T11:00:00.000Z',
+      finished_at: '2026-09-01T11:00:01.000Z',
+    });
+
+    expect(evaluateEvidenceGate(manifest, [red, green], manifest.target_sha).result).toBe(
+      RESULT.DENIED_GOVERNANCE,
+    );
+  });
+
+  it('denies canonical evidence whose content path does not match its sequence identity', () => {
+    const red = finalizeEvidenceRecord(manifest, evidence({ execution_nonce: 'nonce-2' }));
+    const tampered = {
+      ...red,
+      evidence_path: validEvidence({ execution_nonce: 'nonce-3' }).evidence_path,
+    };
+
+    expect(evaluateEvidenceGate(manifest, [tampered], manifest.target_sha).result).toBe(
+      RESULT.DENIED_GOVERNANCE,
+    );
+  });
+
+  it('denies duplicated canonical evidence records for the same required phase', () => {
+    const red = validEvidence();
+    const green = validEvidence({
+      kind: 'GREEN',
+      test_id: 'path-lock-green',
+      head_sha: manifest.target_sha,
+      observed_head_sha: manifest.target_sha,
+      required_head: 'target_sha',
+      classification: RESULT.PASS,
+      started_at: '2026-09-01T11:00:00.000Z',
+      finished_at: '2026-09-01T11:00:01.000Z',
+    });
+
+    expect(evaluateEvidenceGate(manifest, [red, red, green], manifest.target_sha).errors).toContain(
+      'duplicate valid RED evidence for path-lock-red',
     );
   });
 
@@ -206,6 +320,15 @@ describe('DEV-GOV-V0 RED to GREEN gate', () => {
     expect(saved).toContain('"evidence_hash"');
 
     expect(() => writeEvidence(manifest, record, root)).toThrow(/immutable evidence already exists/);
+  });
+
+  it('writes evidence under the canonical manifest ledger root', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'devgov-canonical-evidence-'));
+    mkdirSync(canonicalEvidenceDir(manifest, root), { recursive: true });
+    const file = writeEvidence(manifest, evidence(), root);
+
+    expect(file).toContain(canonicalEvidenceDir(manifest, root));
+    await expect(readFile(file, 'utf8')).resolves.toContain('"evidence_hash"');
   });
 
   it('records command classification without collapsing blocked environment into FAIL', () => {

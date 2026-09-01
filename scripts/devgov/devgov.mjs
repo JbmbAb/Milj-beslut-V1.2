@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 import { createHash, randomUUID } from 'node:crypto';
 import { execFileSync, spawnSync } from 'node:child_process';
-import { existsSync, mkdirSync, readFileSync, realpathSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, readdirSync, realpathSync, writeFileSync } from 'node:fs';
 import { isAbsolute, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -22,7 +22,8 @@ export const EXIT_CODE = Object.freeze({
 
 const ANCESTRY_POLICIES = new Set(['exact_parent', 'descendant_of_base', 'merge_base_equals_base']);
 const EVIDENCE_KINDS = new Set(['RED', 'GREEN']);
-const TOOL_VERSION = 'dev-gov-v0.3';
+const TOOL_VERSION = 'dev-gov-v0.4';
+const LOADED_EVIDENCE_PATH = Symbol('loadedEvidencePath');
 const REMOTE_STATUS = Object.freeze({
   MATCH: 'REMOTE_MATCH',
   ABSENT_ALLOWED: 'REMOTE_ABSENT_ALLOWED_BY_POLICY',
@@ -187,37 +188,55 @@ export function evaluateEvidenceGate(manifest, evidenceRecords, finalSha) {
   const requiredGreen = manifest.required_green || [];
 
   for (const red of requiredRed) {
-    const redRecord = evidenceRecords.find(
+    const redRecords = evidenceRecords.filter(
       (record) =>
         record.kind === 'RED' &&
         isToolProducedEvidence(record) &&
+        isCanonicalEvidencePath(manifest, record) &&
         record.unit === manifest.unit &&
         record.test_id === red.id &&
         record.base_sha === manifest.base_sha &&
         record.head_sha === manifest.base_sha &&
+        record.observed_head_sha === record.head_sha &&
+        record.target_sha === manifest.target_sha &&
+        record.required_head === (red.required_head || 'base_sha') &&
         record.manifest_hash === hash &&
         record.command === commandString(red) &&
         record.classification === (red.expected_classification || RESULT.FAIL),
     );
+    const redRecord = redRecords[0];
+    if (redRecords.length > 1) {
+      errors.push(`duplicate valid RED evidence for ${red.id}`);
+      continue;
+    }
     if (!redRecord) {
       errors.push(`missing valid RED evidence for ${red.id}`);
       continue;
     }
 
     for (const green of requiredGreen) {
-      const greenRecord = evidenceRecords.find(
+      const greenRecords = evidenceRecords.filter(
         (record) =>
           record.kind === 'GREEN' &&
           isToolProducedEvidence(record) &&
+          isCanonicalEvidencePath(manifest, record) &&
           record.unit === manifest.unit &&
           record.test_id === green.id &&
           record.base_sha === manifest.base_sha &&
           record.head_sha === finalSha &&
+          record.observed_head_sha === record.head_sha &&
+          record.target_sha === manifest.target_sha &&
+          record.required_head === (green.required_head || 'target_sha') &&
           record.manifest_hash === hash &&
           record.command === commandString(green) &&
           record.classification === RESULT.PASS &&
           new Date(record.started_at).getTime() > new Date(redRecord.finished_at).getTime(),
       );
+      const greenRecord = greenRecords[0];
+      if (greenRecords.length > 1) {
+        errors.push(`duplicate valid GREEN evidence for ${green.id}`);
+        continue;
+      }
       if (!greenRecord) {
         errors.push(`missing valid GREEN evidence for ${green.id} after RED ${red.id}`);
       }
@@ -226,18 +245,27 @@ export function evaluateEvidenceGate(manifest, evidenceRecords, finalSha) {
 
   if (requiredRed.length === 0) {
     for (const green of requiredGreen) {
-      const greenRecord = evidenceRecords.find(
+      const greenRecords = evidenceRecords.filter(
         (record) =>
           record.kind === 'GREEN' &&
           isToolProducedEvidence(record) &&
+          isCanonicalEvidencePath(manifest, record) &&
           record.unit === manifest.unit &&
           record.test_id === green.id &&
           record.base_sha === manifest.base_sha &&
           record.head_sha === finalSha &&
+          record.observed_head_sha === record.head_sha &&
+          record.target_sha === manifest.target_sha &&
+          record.required_head === (green.required_head || 'target_sha') &&
           record.manifest_hash === hash &&
           record.command === commandString(green) &&
           record.classification === RESULT.PASS,
       );
+      const greenRecord = greenRecords[0];
+      if (greenRecords.length > 1) {
+        errors.push(`duplicate valid GREEN evidence for ${green.id}`);
+        continue;
+      }
       if (!greenRecord) errors.push(`missing valid GREEN evidence for ${green.id}`);
     }
   }
@@ -281,7 +309,8 @@ export function evaluateEvidenceGateWithLiveRepository(manifest, evidenceRecords
     );
   }
 
-  const evidence = evaluateEvidenceGate(manifest, evidenceRecords, manifest.target_sha);
+  const records = evidenceRecords || loadCanonicalEvidence(manifest);
+  const evidence = evaluateEvidenceGate(manifest, records, manifest.target_sha);
   return resultEnvelope(
     evidence.result,
     evidence.result === RESULT.PASS ? 'PASS' : 'EVIDENCE_DENIED',
@@ -300,19 +329,80 @@ export function isToolProducedEvidence(record) {
   if (record.tool_version !== TOOL_VERSION) return false;
   if (!EVIDENCE_KINDS.has(record.kind)) return false;
   if (!record.execution_nonce) return false;
+  if (!record.sequence) return false;
+  if (!record.evidence_path) return false;
   if (!record.started_at || !record.finished_at) return false;
   if (!record.command || !record.cwd) return false;
-  if (!record.manifest_hash || !record.base_sha || !record.head_sha || !record.test_id || !record.unit) {
+  if (
+    !record.manifest_hash ||
+    !record.base_sha ||
+    !record.target_sha ||
+    !record.head_sha ||
+    !record.observed_head_sha ||
+    !record.required_head ||
+    !record.test_id ||
+    !record.unit
+  ) {
     return false;
   }
+  if (record.observed_head_sha !== record.head_sha) return false;
   if (!record.stdout_sha256 || !record.stderr_sha256) return false;
   if (!Object.values(RESULT).includes(record.classification)) return false;
-  if (record.evidence_hash) {
-    const { evidence_hash, finalized_at, ...unsigned } = record;
-    if (!finalized_at) return false;
-    if (evidence_hash !== sha256(stableJson(unsigned))) return false;
+  if (!record.evidence_hash) return false;
+  const { evidence_hash, ...unsigned } = record;
+  if (!record.finalized_at) return false;
+  if (evidence_hash !== sha256(stableJson(unsigned))) return false;
+  return true;
+}
+
+function safeUnitPath(unit) {
+  return String(unit).replace(/[^A-Za-z0-9._-]/g, '_');
+}
+
+function gitCommonDir(worktree) {
+  const raw = git(['rev-parse', '--git-common-dir'], worktree);
+  return isAbsolute(raw) ? raw : resolve(worktree, raw);
+}
+
+export function canonicalEvidenceDir(manifest, root) {
+  const base = root || gitCommonDir(manifest.worktree);
+  return resolve(base, 'devgov', 'evidence', safeUnitPath(manifest.unit), manifestHash(manifest));
+}
+
+function evidenceFilePath(manifest, evidence, root) {
+  return resolve(
+    canonicalEvidenceDir(manifest, root),
+    `${evidence.kind.toLowerCase()}-${evidence.test_id}-${evidence.head_sha}-${evidence.execution_nonce}.json`,
+  );
+}
+
+export function isCanonicalEvidencePath(manifest, record, root) {
+  const dir = `${canonicalPath(canonicalEvidenceDir(manifest, root))}/`;
+  const evidencePath = canonicalPath(record.evidence_path);
+  if (!evidencePath.startsWith(dir)) return false;
+  const expectedPath = canonicalPath(evidenceFilePath(manifest, record, root));
+  if (evidencePath !== expectedPath) return false;
+  if (record[LOADED_EVIDENCE_PATH] && canonicalPath(record[LOADED_EVIDENCE_PATH]) !== evidencePath) {
+    return false;
   }
   return true;
+}
+
+export function loadCanonicalEvidence(manifest) {
+  const dir = canonicalEvidenceDir(manifest);
+  if (!existsSync(dir)) return [];
+  return readdirSync(dir)
+    .filter((file) => file.endsWith('.json'))
+    .sort()
+    .map((file) => {
+      const loadedFrom = resolve(dir, file);
+      const record = JSON.parse(readFileSync(loadedFrom, 'utf8'));
+      Object.defineProperty(record, LOADED_EVIDENCE_PATH, {
+        value: loadedFrom,
+        enumerable: false,
+      });
+      return record;
+    });
 }
 
 export function evaluateShaVerification(manifest, state) {
@@ -470,6 +560,7 @@ export function runManifestCommand(manifest, commandSpec, kind) {
       manifest,
       kind,
       commandSpec,
+      requiredHead,
       cwd,
       headSha: headBefore,
       startedAt,
@@ -487,6 +578,7 @@ export function runManifestCommand(manifest, commandSpec, kind) {
       manifest,
       kind,
       commandSpec,
+      requiredHead,
       cwd,
       headSha: headBefore,
       startedAt,
@@ -525,6 +617,7 @@ export function runManifestCommand(manifest, commandSpec, kind) {
     manifest,
     kind,
     commandSpec,
+    requiredHead,
     cwd,
     headSha: headAfter,
     startedAt,
@@ -548,6 +641,7 @@ function executionEvidence({
   manifest,
   kind,
   commandSpec,
+  requiredHead,
   cwd,
   headSha,
   startedAt,
@@ -568,7 +662,10 @@ function executionEvidence({
     kind,
     test_id: commandSpec.id,
     base_sha: manifest.base_sha,
+    target_sha: manifest.target_sha,
     head_sha: headSha,
+    observed_head_sha: headSha,
+    required_head: requiredHead,
     manifest_hash: manifestHash(manifest),
     command: [commandSpec.command, ...(commandSpec.args || [])].join(' '),
     cwd,
@@ -582,16 +679,25 @@ function executionEvidence({
   };
 }
 
-export function writeEvidence(manifest, evidence, root = manifest.worktree) {
-  const finalDir = resolve(root, 'governance', 'devgov', 'evidence', manifest.unit, evidence.head_sha);
-  mkdirSync(finalDir, { recursive: true });
-  const file = resolve(finalDir, `${evidence.kind.toLowerCase()}-${evidence.test_id}.json`);
-  if (existsSync(file)) throw new Error(`immutable evidence already exists: ${file}`);
-  const finalized = {
+export function finalizeEvidenceRecord(manifest, evidence, root) {
+  const file = evidenceFilePath(manifest, evidence, root);
+  const sequence = `${evidence.started_at}-${evidence.kind}-${evidence.test_id}-${evidence.execution_nonce}`;
+  const unsigned = {
     ...evidence,
+    sequence,
+    evidence_path: file,
     finalized_at: new Date().toISOString(),
-    evidence_hash: sha256(stableJson(evidence)),
   };
+  return { ...unsigned, evidence_hash: sha256(stableJson(unsigned)) };
+}
+
+export function writeEvidence(manifest, evidence, root = manifest.worktree) {
+  const canonicalRoot = root === manifest.worktree ? undefined : root;
+  const finalDir = canonicalEvidenceDir(manifest, canonicalRoot);
+  mkdirSync(finalDir, { recursive: true });
+  const finalized = finalizeEvidenceRecord(manifest, evidence, canonicalRoot);
+  const file = finalized.evidence_path;
+  if (existsSync(file)) throw new Error(`immutable evidence already exists: ${file}`);
   writeFileSync(file, `${stableJson(finalized)}\n`);
   return file;
 }
@@ -664,13 +770,16 @@ if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.ur
 
     if (command === 'evidence-gate') {
       const evidencePath = argValue(args, '--evidence');
-      if (!evidencePath) usage();
-      const records = readFileSync(evidencePath, 'utf8')
-        .split(/\r?\n/)
-        .map((line) => line.trim())
-        .filter(Boolean)
-        .map((line) => JSON.parse(line));
-      printResult(evaluateEvidenceGateWithLiveRepository(manifest, records));
+      if (evidencePath) {
+        printResult(
+          resultEnvelope(
+            RESULT.DENIED_GOVERNANCE,
+            'ARBITRARY_EVIDENCE_PATH_DENIED',
+            'evidence-gate reads only canonical DEV-GOV evidence for the manifest',
+          ),
+        );
+      }
+      printResult(evaluateEvidenceGateWithLiveRepository(manifest));
     }
 
     if (command === 'run-red' || command === 'run-green') {

@@ -61,14 +61,14 @@ function baseManifest(root, git, overrides = {}) {
 }
 
 describe('DEV-GOV-V0 CLI contract', () => {
-  it('denies forged evidence against a nonexistent worktree before evidence content matters', () => {
+  it('denies handwritten RED/GREEN evidence at an arbitrary caller supplied path', () => {
     const root = mkdtempSync(join(tmpdir(), 'devgov-forged-'));
     const manifest = {
       schema_version: 'dev-gov-v0',
       unit: 'DEV-GOV-V0-FORGED',
       role: 'verifier',
       mode: 'read_only',
-      worktree: join(root, 'missing-worktree'),
+      worktree: root,
       branch: 'main',
       base_sha: '1'.repeat(40),
       target_sha: '2'.repeat(40),
@@ -82,7 +82,7 @@ describe('DEV-GOV-V0 CLI contract', () => {
       {
         schema_version: 'dev-gov-v0-execution-evidence',
         produced_by: 'devgov-v0',
-        tool_version: 'dev-gov-v0.3',
+        tool_version: 'dev-gov-v0.4',
         execution_nonce: 'forged',
         unit: manifest.unit,
         kind: 'RED',
@@ -107,6 +107,32 @@ describe('DEV-GOV-V0 CLI contract', () => {
 
     expect(result.status).toBe(4);
     expect(result.json.classification).toBe('DENIED_GOVERNANCE');
+    expect(result.json.reason_code).toBe('ARBITRARY_EVIDENCE_PATH_DENIED');
+  });
+
+  it('denies evidence-gate against a nonexistent worktree before evidence content matters', () => {
+    const root = mkdtempSync(join(tmpdir(), 'devgov-forged-'));
+    const manifest = {
+      schema_version: 'dev-gov-v0',
+      unit: 'DEV-GOV-V0-FORGED',
+      role: 'verifier',
+      mode: 'read_only',
+      worktree: join(root, 'missing-worktree'),
+      branch: 'main',
+      base_sha: '1'.repeat(40),
+      target_sha: '2'.repeat(40),
+      ancestry_policy: 'descendant_of_base',
+      allowed_paths: ['**/*'],
+      forbidden_paths: [],
+      required_red: [{ id: 'red', command: 'node', expected_classification: 'FAIL' }],
+      required_green: [{ id: 'green', command: 'node' }],
+    };
+    const manifestFile = writeExternalManifest(manifest);
+
+    const result = runCli(['evidence-gate', '--manifest', manifestFile]);
+
+    expect(result.status).toBe(4);
+    expect(result.json.classification).toBe('DENIED_GOVERNANCE');
     expect(result.json.reason_code).toBe('REPOSITORY_STATE_UNRESOLVED');
   });
 
@@ -118,32 +144,39 @@ describe('DEV-GOV-V0 CLI contract', () => {
       required_green: [{ id: 'green', command: 'node' }],
     });
     const manifestFile = writeExternalManifest(manifest);
-    const evidenceFile = writeJson(root, 'evidence.jsonl', {
-      schema_version: 'dev-gov-v0-execution-evidence',
-      produced_by: 'devgov-v0',
-      tool_version: 'dev-gov-v0.3',
-      execution_nonce: 'forged',
-      unit: manifest.unit,
-      kind: 'RED',
-      test_id: 'red',
-      base_sha: manifest.base_sha,
-      head_sha: manifest.base_sha,
-      manifest_hash: 'a'.repeat(64),
-      command: 'node',
-      cwd: root,
-      started_at: '2026-09-01T10:00:00.000Z',
-      finished_at: '2026-09-01T10:00:01.000Z',
-      exit_code: 1,
-      classification: 'FAIL',
-      stdout_sha256: 'b'.repeat(64),
-      stderr_sha256: 'c'.repeat(64),
-    });
 
-    const result = runCli(['evidence-gate', '--manifest', manifestFile, '--evidence', evidenceFile]);
+    const result = runCli(['evidence-gate', '--manifest', manifestFile]);
 
     expect(result.status).toBe(4);
     expect(result.json.classification).toBe('DENIED_GOVERNANCE');
     expect(result.json.reason_code).toBe('REPOSITORY_STATE_DENIED');
+  });
+
+  it('accepts valid canonical run-red followed by run-green evidence', () => {
+    const { root, git } = cleanGitRepo();
+    const manifest = baseManifest(root, git, {
+      required_red: [
+        {
+          id: 'red',
+          command: process.execPath,
+          args: ['-e', 'process.exit(1)'],
+          expected_classification: 'FAIL',
+        },
+      ],
+      required_green: [{ id: 'green', command: process.execPath, args: ['-e', 'process.exit(0)'] }],
+    });
+    const manifestFile = writeExternalManifest(manifest);
+
+    const red = runCli(['run-red', '--manifest', manifestFile, '--id', 'red']);
+    const green = runCli(['run-green', '--manifest', manifestFile, '--id', 'green']);
+    const gate = runCli(['evidence-gate', '--manifest', manifestFile]);
+
+    expect(red.status).toBe(2);
+    expect(red.json.classification).toBe('FAIL');
+    expect(green.status).toBe(0);
+    expect(green.json.classification).toBe('PASS');
+    expect(gate.status).toBe(0);
+    expect(gate.json.classification).toBe('PASS');
   });
 
   it('denies run-green when HEAD is not target_sha and does not execute the command', () => {
