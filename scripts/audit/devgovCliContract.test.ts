@@ -7,6 +7,7 @@ import { join, resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
 
 import { canonicalEvidenceDir, finalizeEvidenceRecord, manifestHash } from '../devgov/devgov.mjs';
+import { PINNED_VERIFIER_AUTHORITY } from '../devgov/github-oidc.mjs';
 
 const devgovCli = resolve(process.cwd(), 'scripts/devgov/devgov.mjs');
 
@@ -127,8 +128,46 @@ describe('DEV-GOV-V0 CLI contract', () => {
 
     expect(result.status).toBe(4);
     expect(result.json.classification).toBe('DENIED_GOVERNANCE');
-    expect(result.json.reason_code).toBe('TRUSTED_EXECUTION_ATTESTATION_REQUIRED');
+    expect(result.json.reason_code).toBe('TRUSTED_VERIFIER_CONFIGURATION_REQUIRED');
     expect(result.json.proof_status).toBe('NOT_PROVEN');
+  });
+
+  it('fails closed when protected verifier configuration is invalid', () => {
+    const { root, git } = cleanGitRepo();
+    const manifestFile = writeExternalManifest(baseManifest(root, git));
+
+    const invalidPolicy = runCli(['evidence-gate', '--manifest', manifestFile], {
+      env: {
+        DEVGOV_VERIFIER_TRUST_POLICY_JSON: '{',
+        DEVGOV_GATE_OIDC_TOKEN: 'not-a-jwt',
+      },
+    });
+    const invalidIdentity = runCli(['evidence-gate', '--manifest', manifestFile], {
+      env: {
+        DEVGOV_VERIFIER_TRUST_POLICY_JSON: JSON.stringify({
+          schema_version: 'dev-gov-v0-trust-policy',
+          authority: PINNED_VERIFIER_AUTHORITY,
+          trusted_issuers: [
+            {
+              issuer: 'protected-issuer',
+              key_id: 'protected-key',
+              algorithm: 'ed25519',
+              public_key_pem: 'invalid-but-present',
+              workflow_ref: 'protected-workflow',
+              runner_identity: 'protected-runner',
+            },
+          ],
+        }),
+        DEVGOV_GATE_OIDC_TOKEN: 'not-a-jwt',
+      },
+    });
+
+    for (const result of [invalidPolicy, invalidIdentity]) {
+      expect(result.status).toBe(4);
+      expect(result.json.classification).toBe('DENIED_GOVERNANCE');
+      expect(result.json.reason_code).toBe('TRUST_ROOT_PROVENANCE_DENIED');
+      expect(result.json.proof_status).toBe('NOT_PROVEN');
+    }
   });
 
   it('denies handwritten RED/GREEN evidence at an arbitrary caller supplied path', () => {
@@ -250,7 +289,7 @@ describe('DEV-GOV-V0 CLI contract', () => {
     expect(gate.json.proof_status).toBe('NOT_PROVEN');
   }, 10_000);
 
-  it('accepts RED/GREEN only after a protected signer attests trusted execution records', () => {
+  it('denies caller-selected trust policy even when self-signed RED/GREEN are internally valid', () => {
     const { root, git } = cleanGitRepo();
     const { privateKey, publicKey } = generateKeyPairSync('ed25519', {
       privateKeyEncoding: { type: 'pkcs8', format: 'pem' },
@@ -276,6 +315,7 @@ describe('DEV-GOV-V0 CLI contract', () => {
     const artifactRoot = mkdtempSync(join(tmpdir(), 'devgov-trusted-artifacts-'));
     const trustPolicy = writeExternalManifest({
       schema_version: 'dev-gov-v0-trust-policy',
+      authority: PINNED_VERIFIER_AUTHORITY,
       trusted_issuers: [
         {
           issuer,
@@ -393,11 +433,10 @@ describe('DEV-GOV-V0 CLI contract', () => {
     expect(redSign.status).toBe(0);
     expect(greenRun.status).toBe(0);
     expect(greenSign.status).toBe(0);
-    expect(gate.status).toBe(0);
-    expect(gate.json.classification).toBe('PASS');
-    expect(gate.json.proof_status).toBe('PROVEN');
-    expect(gate.json.trust_policy_sha256).toMatch(/^[0-9a-f]{64}$/);
-    expect(gate.json.proof_ids).toHaveLength(2);
+    expect(gate.status).toBe(4);
+    expect(gate.json.classification).toBe('DENIED_GOVERNANCE');
+    expect(gate.json.reason_code).toBe('TRUST_POLICY_SUBSTITUTION_DENIED');
+    expect(gate.json.proof_status).toBe('NOT_PROVEN');
   }, 15_000);
 
   it('fails closed when protected signer credentials are unavailable', () => {

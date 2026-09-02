@@ -21,17 +21,33 @@ signs it with `DEVGOV_ATTESTATION_PRIVATE_KEY_PEM`. The producer can request ver
 possess that credential or write the verifier-controlled trust policy. The workflow must live on and
 be dispatched from the protected default branch.
 
-The verifier supplies a trust policy outside the producer's write domain. It binds the accepted
-Ed25519 public key to an exact issuer, workflow ref, and runner identity. Missing or invalid trusted
-attestation returns `DENIED_GOVERNANCE` with `proof_status: NOT_PROVEN`.
+The verifier supplies a trust policy outside the producer's write domain. `evidence-gate` never
+accepts a trust-policy path or trust-policy bytes from CLI input or the candidate checkout. The
+protected gate workflow obtains the policy from `DEVGOV_VERIFIER_TRUST_POLICY_JSON` in the
+`devgov-attestation` environment and proves that provenance with a GitHub-issued OIDC token. The
+token must bind the repository, default-branch gate workflow, default-branch ref, protected
+environment, GitHub-hosted runner, and `devgov-v0-gate` audience. Missing, invalid, redirected, or
+caller-selected verifier configuration fails closed with `proof_status: NOT_PROVEN`.
+The controller also pins that authority to
+`JbmbAb/Milj-beslut-V1.2/.github/workflows/devgov-v0-gate.yml@refs/heads/main`; a policy cannot
+redirect verification to another repository, workflow, ref, environment, or runner class.
 
 The protected GitHub environment must provide `DEVGOV_ATTESTATION_PRIVATE_KEY_PEM` as a secret and
 `DEVGOV_ATTESTATION_ISSUER` plus `DEVGOV_ATTESTATION_KEY_ID` as protected variables. The matching
-verifier-owned policy has this minimal shape and must not be sourced from the candidate checkout:
+verifier-owned policy is stored as the protected `DEVGOV_VERIFIER_TRUST_POLICY_JSON` secret. It has
+this minimal shape and must not be sourced from the candidate checkout:
 
 ```json
 {
   "schema_version": "dev-gov-v0-trust-policy",
+  "authority": {
+    "type": "github-oidc-protected-environment",
+    "repository": "JbmbAb/Milj-beslut-V1.2",
+    "workflow_ref": "JbmbAb/Milj-beslut-V1.2/.github/workflows/devgov-v0-gate.yml@refs/heads/main",
+    "ref": "refs/heads/main",
+    "environment": "devgov-attestation",
+    "runner_environment": "github-hosted"
+  },
   "trusted_issuers": [
     {
       "issuer": "github-actions:owner/repository:devgov-v0-attest",
@@ -44,6 +60,17 @@ verifier-owned policy has this minimal shape and must not be sourced from the ca
   ]
 }
 ```
+
+The gate workflow downloads signed RED and GREEN attestations from their protected workflow runs,
+checks the live candidate repository at the exact SHA, and publishes commit status context
+`DEV-GOV-V0 / trusted-execution` for that exact SHA. Local `evidence-gate` output is diagnostic and
+does not become merge authority merely because a caller can set process environment variables.
+The OIDC audience includes the SHA-256 digest of the exact protected policy bytes and the candidate
+SHA, so a valid token cannot be redirected to a replacement policy or another candidate.
+
+Repository branch protection or a ruleset must require that exact status context before merge.
+That administrator-owned repository setting is not created or modified by DEV-GOV-V0 and remains
+an explicit external enforcement boundary until configured and independently verified.
 
 The private key is never passed to the execution job. The signing job checks the unsigned record
 against the exact manifest command, base/target SHA, phase, protected workflow run, and signer

@@ -9,6 +9,7 @@ import {
   signExecutionRecord,
 } from '../devgov/devgov.mjs';
 import { executionResultDigest } from '../devgov/trusted-attestation.mjs';
+import { PINNED_VERIFIER_AUTHORITY } from '../devgov/github-oidc.mjs';
 
 const issuer = 'github-actions:example/repo:devgov-v0-attest';
 const keyId = 'devgov-ci-ed25519-v1';
@@ -49,6 +50,7 @@ function keys() {
 function policy(publicKey) {
   return {
     schema_version: 'dev-gov-v0-trust-policy',
+    authority: PINNED_VERIFIER_AUTHORITY,
     trusted_issuers: [
       {
         issuer,

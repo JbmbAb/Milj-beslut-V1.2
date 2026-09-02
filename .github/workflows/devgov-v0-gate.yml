@@ -1,0 +1,166 @@
+name: DEV-GOV-V0 Trusted Evidence Gate
+
+on:
+  workflow_dispatch:
+    inputs:
+      candidate_sha:
+        description: Exact candidate SHA to verify
+        required: true
+        type: string
+      manifest_path:
+        description: Repository-relative DEV-GOV manifest path
+        required: true
+        type: string
+      red_run_id:
+        description: Trusted RED attestation workflow run
+        required: true
+        type: string
+      green_run_id:
+        description: Trusted GREEN attestation workflow run
+        required: true
+        type: string
+
+permissions:
+  actions: read
+  contents: read
+  id-token: write
+  statuses: write
+
+jobs:
+  evidence-gate:
+    name: Verify trusted execution for exact candidate SHA
+    runs-on: ubuntu-latest
+    environment: devgov-attestation
+    steps:
+      - name: Require protected default-branch controller
+        env:
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+          DISPATCH_REF: ${{ github.ref }}
+        run: |
+          test "$DISPATCH_REF" = "refs/heads/$DEFAULT_BRANCH"
+
+      - name: Mark exact candidate gate pending
+        env:
+          CANDIDATE_SHA: ${{ inputs.candidate_sha }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          test "${#CANDIDATE_SHA}" -eq 40
+          gh api --method POST "repos/$GITHUB_REPOSITORY/statuses/$CANDIDATE_SHA" \
+            -f state=pending \
+            -f context='DEV-GOV-V0 / trusted-execution' \
+            -f description='Trusted execution gate is running'
+
+      - name: Checkout protected controller
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          path: controller
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Checkout exact candidate without executing candidate code
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.candidate_sha }}
+          path: candidate
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Verify exact candidate and prepare runtime manifest
+        env:
+          CANDIDATE_SHA: ${{ inputs.candidate_sha }}
+          MANIFEST_PATH: ${{ inputs.manifest_path }}
+        run: |
+          test "$(git -C candidate rev-parse HEAD)" = "$CANDIDATE_SHA"
+          test -z "$(git -C candidate status --porcelain)"
+          candidate_root="$(realpath candidate)"
+          manifest="$(realpath "candidate/$MANIFEST_PATH")"
+          case "$manifest" in
+            "$candidate_root"/*) ;;
+            *) echo "manifest escapes candidate checkout" >&2; exit 4 ;;
+          esac
+          branch="$(node - "$manifest" <<'NODE'
+          const fs = require('node:fs');
+          const value = JSON.parse(fs.readFileSync(process.argv[2], 'utf8'));
+          process.stdout.write(value.branch);
+          NODE
+          )"
+          git check-ref-format --branch "$branch"
+          git -C candidate switch -c "$branch"
+          node - "$manifest" "$candidate_root" "$RUNNER_TEMP/devgov-manifest.json" <<'NODE'
+          const fs = require('node:fs');
+          const [source, worktree, output] = process.argv.slice(2);
+          const manifest = JSON.parse(fs.readFileSync(source, 'utf8'));
+          fs.writeFileSync(output, `${JSON.stringify({ ...manifest, worktree })}\n`, { mode: 0o600 });
+          NODE
+
+      - name: Download trusted RED attestation
+        uses: actions/download-artifact@v4
+        with:
+          github-token: ${{ github.token }}
+          repository: ${{ github.repository }}
+          run-id: ${{ inputs.red_run_id }}
+          pattern: devgov-attestation-RED-*
+          path: ${{ runner.temp }}/devgov-attestations/red
+
+      - name: Download trusted GREEN attestation
+        uses: actions/download-artifact@v4
+        with:
+          github-token: ${{ github.token }}
+          repository: ${{ github.repository }}
+          run-id: ${{ inputs.green_run_id }}
+          pattern: devgov-attestation-GREEN-*
+          path: ${{ runner.temp }}/devgov-attestations/green
+
+      - name: Obtain protected gate identity
+        env:
+          CANDIDATE_SHA: ${{ inputs.candidate_sha }}
+          DEVGOV_VERIFIER_TRUST_POLICY_JSON: ${{ secrets.DEVGOV_VERIFIER_TRUST_POLICY_JSON }}
+        run: |
+          test -n "$DEVGOV_VERIFIER_TRUST_POLICY_JSON"
+          policy_sha="$(printf '%s' "$DEVGOV_VERIFIER_TRUST_POLICY_JSON" | sha256sum | cut -d ' ' -f 1)"
+          audience="devgov-v0-gate:$policy_sha:$CANDIDATE_SHA"
+          encoded_audience="$(node -e "process.stdout.write(encodeURIComponent(process.argv[1]))" "$audience")"
+          response="$(curl --fail-with-body --silent --show-error \
+            -H "Authorization: bearer $ACTIONS_ID_TOKEN_REQUEST_TOKEN" \
+            "${ACTIONS_ID_TOKEN_REQUEST_URL}&audience=$encoded_audience")"
+          token="$(node -e "process.stdout.write(JSON.parse(process.argv[1]).value)" "$response")"
+          test -n "$token"
+          echo "::add-mask::$token"
+          echo "DEVGOV_GATE_OIDC_TOKEN=$token" >> "$GITHUB_ENV"
+
+      - name: Verify trusted execution attestations
+        id: gate
+        continue-on-error: true
+        env:
+          DEVGOV_VERIFIER_TRUST_POLICY_JSON: ${{ secrets.DEVGOV_VERIFIER_TRUST_POLICY_JSON }}
+          GIT_ALLOW_PROTOCOL: https:ssh
+        run: |
+          mapfile -t red < <(find "$RUNNER_TEMP/devgov-attestations/red" -type f -name '*.json')
+          mapfile -t green < <(find "$RUNNER_TEMP/devgov-attestations/green" -type f -name '*.json')
+          test "${#red[@]}" -eq 1
+          test "${#green[@]}" -eq 1
+          node controller/scripts/devgov/devgov.mjs evidence-gate \
+            --manifest "$RUNNER_TEMP/devgov-manifest.json" \
+            --attestation "${red[0]}" \
+            --attestation "${green[0]}"
+
+      - name: Publish exact candidate gate result
+        if: always()
+        env:
+          CANDIDATE_SHA: ${{ inputs.candidate_sha }}
+          GATE_OUTCOME: ${{ steps.gate.outcome }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          state=failure
+          description='Trusted execution gate denied or did not complete'
+          if [ "$GATE_OUTCOME" = success ]; then
+            state=success
+            description='Trusted RED/GREEN verified for exact candidate SHA'
+          fi
+          gh api --method POST "repos/$GITHUB_REPOSITORY/statuses/$CANDIDATE_SHA" \
+            -f state="$state" \
+            -f context='DEV-GOV-V0 / trusted-execution' \
+            -f description="$description" \
+            -f target_url="$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
+          test "$GATE_OUTCOME" = success

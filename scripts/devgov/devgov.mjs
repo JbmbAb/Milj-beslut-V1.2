@@ -5,6 +5,7 @@ import { existsSync, mkdirSync, readFileSync, readdirSync, realpathSync, writeFi
 import { dirname, isAbsolute, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
+import { verifyVerifierOwnedTrustPolicy } from './github-oidc.mjs';
 import {
   EXECUTION_RECORD_SCHEMA,
   executionResultDigest,
@@ -923,7 +924,7 @@ function argValues(args, name) {
   return args.flatMap((value, index) => (value === name && args[index + 1] ? [args[index + 1]] : []));
 }
 
-if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+async function main() {
   const [command, ...args] = process.argv.slice(2);
   try {
     if (!command) usage();
@@ -1010,13 +1011,88 @@ if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.ur
         );
       }
       const trustPolicyPath = argValue(args, '--trust-policy');
+      if (trustPolicyPath) {
+        printResult(
+          resultEnvelope(
+            RESULT.DENIED_GOVERNANCE,
+            'TRUST_POLICY_SUBSTITUTION_DENIED',
+            'evidence-gate does not accept caller-supplied trust policy',
+            [],
+            { proof_status: 'NOT_PROVEN' },
+          ),
+        );
+      }
+      const liveRepository = evaluateEvidenceGateWithLiveRepository(manifest);
+      if (
+        [
+          'INVALID_MANIFEST',
+          'REPOSITORY_STATE_UNRESOLVED',
+          'REPOSITORY_STATE_DENIED',
+          'SHA_VERIFICATION_DENIED',
+        ].includes(liveRepository.reason_code)
+      ) {
+        printResult(liveRepository);
+      }
       const attestationPaths = argValues(args, '--attestation');
-      const trustPolicy = trustPolicyPath ? loadManifest(trustPolicyPath) : undefined;
       const attestations = attestationPaths.flatMap((path) => {
         const value = loadManifest(path);
         return Array.isArray(value) ? value : [value];
       });
-      printResult(evaluateEvidenceGateWithLiveRepository(manifest, { trustPolicy, attestations }));
+      const rawTrustPolicy = process.env.DEVGOV_VERIFIER_TRUST_POLICY_JSON;
+      const oidcToken = process.env.DEVGOV_GATE_OIDC_TOKEN;
+      if (!rawTrustPolicy || !oidcToken) {
+        printResult(
+          resultEnvelope(
+            RESULT.DENIED_GOVERNANCE,
+            'TRUSTED_VERIFIER_CONFIGURATION_REQUIRED',
+            'protected verifier trust policy and GitHub OIDC gate identity are required',
+            [],
+            { proof_status: 'NOT_PROVEN' },
+          ),
+        );
+      }
+      let trustRoot;
+      try {
+        trustRoot = await verifyVerifierOwnedTrustPolicy(rawTrustPolicy, oidcToken, {
+          expectedCandidateSha: manifest.target_sha,
+        });
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        printResult(
+          resultEnvelope(RESULT.BLOCKED_ENVIRONMENT, 'GITHUB_OIDC_PROVIDER_UNAVAILABLE', message, [message], {
+            proof_status: 'NOT_PROVEN',
+          }),
+        );
+      }
+      if (!trustRoot.valid) {
+        printResult(
+          resultEnvelope(
+            RESULT.DENIED_GOVERNANCE,
+            'TRUST_ROOT_PROVENANCE_DENIED',
+            trustRoot.errors.join('; '),
+            trustRoot.errors,
+            { proof_status: 'NOT_PROVEN' },
+          ),
+        );
+      }
+      const gate = evaluateEvidenceGateWithLiveRepository(manifest, {
+        trustPolicy: trustRoot.policy,
+        attestations,
+      });
+      gate.trust_policy_sha256 = trustRoot.trust_policy_sha256;
+      gate.trust_root_provenance = {
+        issuer: trustRoot.oidc_claims.iss,
+        audience: trustRoot.oidc_claims.aud,
+        repository: trustRoot.oidc_claims.repository,
+        workflow_ref: trustRoot.oidc_claims.workflow_ref,
+        ref: trustRoot.oidc_claims.ref,
+        environment: trustRoot.oidc_claims.environment,
+        runner_environment: trustRoot.oidc_claims.runner_environment,
+        run_id: trustRoot.oidc_claims.run_id,
+        run_attempt: trustRoot.oidc_claims.run_attempt,
+        jti: trustRoot.oidc_claims.jti,
+      };
+      printResult(gate);
     }
 
     if (command === 'execute-proof') {
@@ -1115,4 +1191,8 @@ if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.ur
     const message = error instanceof Error ? error.message : String(error);
     printResult(resultEnvelope(RESULT.BLOCKED_ENVIRONMENT, 'COMMAND_BLOCKED', message, [message]));
   }
+}
+
+if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+  await main();
 }

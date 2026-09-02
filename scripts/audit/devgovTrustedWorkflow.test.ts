@@ -5,6 +5,7 @@ import { describe, expect, it } from 'vitest';
 import { parse } from 'yaml';
 
 const workflowPath = resolve(process.cwd(), '.github/workflows/devgov-v0-attest.yml');
+const gateWorkflowPath = resolve(process.cwd(), '.github/workflows/devgov-v0-gate.yml');
 
 describe('DEV-GOV-V0 protected execution workflow', () => {
   it('keeps execution and signing authority on separate runner jobs', () => {
@@ -58,5 +59,52 @@ describe('DEV-GOV-V0 protected execution workflow', () => {
     expect(executeUpload.with['retention-days']).toBe(1);
     expect(attestationUpload.with.overwrite).toBe(false);
     expect(attestationUpload.with['retention-days']).toBe(90);
+  });
+});
+
+describe('DEV-GOV-V0 verifier-owned evidence gate workflow', () => {
+  it('anchors trust policy provenance in the protected default-branch gate identity', () => {
+    const source = readFileSync(gateWorkflowPath, 'utf8');
+    const workflow = parse(source);
+    const gate = workflow.jobs['evidence-gate'];
+
+    expect(workflow.permissions).toMatchObject({
+      actions: 'read',
+      contents: 'read',
+      'id-token': 'write',
+      statuses: 'write',
+    });
+    expect(gate.environment).toBe('devgov-attestation');
+    expect(source).toContain('test "$DISPATCH_REF" = "refs/heads/$DEFAULT_BRANCH"');
+    expect(source).toContain('DEVGOV_VERIFIER_TRUST_POLICY_JSON');
+    expect(source).toContain('secrets.DEVGOV_VERIFIER_TRUST_POLICY_JSON');
+    expect(source).toContain('audience="devgov-v0-gate:$policy_sha:$CANDIDATE_SHA"');
+    expect(source).toContain('printf \'%s\' "$DEVGOV_VERIFIER_TRUST_POLICY_JSON" | sha256sum');
+    expect(source).not.toContain('--trust-policy');
+  });
+
+  it('checks out the exact candidate without executing candidate-controlled code', () => {
+    const source = readFileSync(gateWorkflowPath, 'utf8');
+
+    expect(source).toContain('ref: ${{ github.sha }}');
+    expect(source).toContain('ref: ${{ inputs.candidate_sha }}');
+    expect(source).toContain('test "$(git -C candidate rev-parse HEAD)" = "$CANDIDATE_SHA"');
+    expect(source).toContain('node controller/scripts/devgov/devgov.mjs evidence-gate');
+    expect(source).not.toContain('require(process.argv[1])');
+    expect(source).not.toMatch(/node\s+candidate\//);
+    expect(source).not.toMatch(/npm\s+(?:ci|run|test)[^\n]*candidate/);
+  });
+
+  it('uses protected attestation artifacts and publishes a status for the exact candidate SHA', () => {
+    const source = readFileSync(gateWorkflowPath, 'utf8');
+
+    expect(source).toContain('run-id: ${{ inputs.red_run_id }}');
+    expect(source).toContain('run-id: ${{ inputs.green_run_id }}');
+    expect(source).toContain('pattern: devgov-attestation-RED-*');
+    expect(source).toContain('pattern: devgov-attestation-GREEN-*');
+    expect(source).toContain('repos/$GITHUB_REPOSITORY/statuses/$CANDIDATE_SHA');
+    expect(source).toContain("context='DEV-GOV-V0 / trusted-execution'");
+    expect(source).toContain('continue-on-error: true');
+    expect(source).toContain('test "$GATE_OUTCOME" = success');
   });
 });

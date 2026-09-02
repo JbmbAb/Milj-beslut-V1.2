@@ -154,6 +154,12 @@ export function validateTrustPolicy(policy) {
   if (!Array.isArray(policy?.trusted_issuers) || policy.trusted_issuers.length === 0) {
     errors.push('trusted_issuers must be a non-empty array');
   }
+  if (policy?.authority?.type !== 'github-oidc-protected-environment') {
+    errors.push('trust policy authority.type must be github-oidc-protected-environment');
+  }
+  for (const field of ['repository', 'workflow_ref', 'ref', 'environment', 'runner_environment']) {
+    if (!policy?.authority?.[field]) errors.push(`trust policy authority.${field} is required`);
+  }
   for (const issuer of policy?.trusted_issuers || []) {
     if (!issuer.issuer) errors.push('trusted issuer name is required');
     if (!issuer.key_id) errors.push('trusted issuer key_id is required');
