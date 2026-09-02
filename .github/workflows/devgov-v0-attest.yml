@@ -7,8 +7,8 @@ on:
         description: Exact SHA to execute
         required: true
         type: string
-      manifest_path:
-        description: Repository-relative DEV-GOV manifest path
+      unit_definition_path:
+        description: Repository-relative DEV-GOV V1 unit definition path
         required: true
         type: string
       proof_kind:
@@ -19,7 +19,7 @@ on:
           - RED
           - GREEN
       test_id:
-        description: Declared command id from the manifest
+        description: Declared command id from the unit definition
         required: true
         type: string
 
@@ -52,18 +52,18 @@ jobs:
           path: candidate
           persist-credentials: false
 
-      - name: Verify exact candidate and manifest containment
+      - name: Verify exact candidate and unit definition containment
         env:
           EXPECTED_SHA: ${{ inputs.candidate_sha }}
-          MANIFEST_PATH: ${{ inputs.manifest_path }}
+          UNIT_DEFINITION_PATH: ${{ inputs.unit_definition_path }}
         run: |
           test "$(git -C candidate rev-parse HEAD)" = "$EXPECTED_SHA"
           test -z "$(git -C candidate status --porcelain)"
           candidate_root="$(realpath candidate)"
-          manifest="$(realpath "candidate/$MANIFEST_PATH")"
-          case "$manifest" in
+          definition="$(realpath "candidate/$UNIT_DEFINITION_PATH")"
+          case "$definition" in
             "$candidate_root"/*) ;;
-            *) echo "manifest escapes candidate checkout" >&2; exit 4 ;;
+            *) echo "unit definition escapes candidate checkout" >&2; exit 4 ;;
           esac
 
       - uses: actions/setup-node@v4
@@ -72,16 +72,44 @@ jobs:
           cache: npm
           cache-dependency-path: candidate/package-lock.json
 
-      - name: Prepare isolated candidate OS identity
+      - name: Resolve execution SHA from trusted controller
+        id: execution
+        env:
+          EXPECTED_SHA: ${{ inputs.candidate_sha }}
+          PROOF_KIND: ${{ inputs.proof_kind }}
+          TEST_ID: ${{ inputs.test_id }}
+          UNIT_DEFINITION_PATH: ${{ inputs.unit_definition_path }}
+        run: |
+          result="$(node controller/scripts/devgov/devgov.mjs resolve-execution-sha \
+            --definition "candidate/$UNIT_DEFINITION_PATH" \
+            --candidate-sha "$EXPECTED_SHA" \
+            --worktree candidate \
+            --kind "$PROOF_KIND" \
+            --id "$TEST_ID")"
+          execution_sha="$(node -e "let s='';process.stdin.on('data',d=>s+=d).on('end',()=>process.stdout.write(JSON.parse(s).execution_sha))" <<<"$result")"
+          test "${#execution_sha}" -eq 40
+          echo "execution_sha=$execution_sha" >> "$GITHUB_OUTPUT"
+
+      - name: Checkout exact execution SHA
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ steps.execution.outputs.execution_sha }}
+          path: execution
+          persist-credentials: false
+
+      - name: Prepare isolated proof OS identity
         run: |
           sudo useradd --system --create-home --shell /usr/sbin/nologin devgov-candidate
-          sudo chown -R devgov-candidate:devgov-candidate candidate
-          sudo -u devgov-candidate npm ci --prefix candidate --ignore-scripts
+          sudo chown -R devgov-candidate:devgov-candidate execution
+          sudo -u devgov-candidate npm ci --prefix execution --ignore-scripts
           sudo chown -R root:root candidate
           sudo chmod -R a-w candidate
-          sudo chown -R devgov-candidate:devgov-candidate candidate/node_modules
-          sudo chmod -R u+w candidate/node_modules
+          sudo chown -R root:root execution
+          sudo chmod -R a-w execution
+          sudo chown -R devgov-candidate:devgov-candidate execution/node_modules
+          sudo chmod -R u+w execution/node_modules
           sudo git config --global --add safe.directory "$GITHUB_WORKSPACE/candidate"
+          sudo git config --global --add safe.directory "$GITHUB_WORKSPACE/execution"
           sudo install -d -m 0700 -o root -g root "$RUNNER_TEMP/devgov-controller"
           install -d -m 0700 "$RUNNER_TEMP/devgov-export"
 
@@ -91,16 +119,19 @@ jobs:
           DEVGOV_RUNNER_IDENTITY: github-hosted:ubuntu-latest
           PROOF_KIND: ${{ inputs.proof_kind }}
           TEST_ID: ${{ inputs.test_id }}
-          MANIFEST_PATH: ${{ inputs.manifest_path }}
+          CANDIDATE_SHA: ${{ inputs.candidate_sha }}
+          UNIT_DEFINITION_PATH: ${{ inputs.unit_definition_path }}
         run: |
           candidate_uid="$(id -u devgov-candidate)"
           candidate_gid="$(id -g devgov-candidate)"
           sudo --preserve-env=DEVGOV_CONTROLLER_SHA,DEVGOV_RUNNER_IDENTITY,GITHUB_WORKFLOW_REF,GITHUB_RUN_ID,GITHUB_RUN_ATTEMPT \
             node controller/scripts/devgov/devgov.mjs execute-proof \
-            --manifest "candidate/$MANIFEST_PATH" \
+            --definition "candidate/$UNIT_DEFINITION_PATH" \
+            --candidate-sha "$CANDIDATE_SHA" \
+            --definition-worktree candidate \
             --kind "$PROOF_KIND" \
             --id "$TEST_ID" \
-            --worktree candidate \
+            --worktree execution \
             --run-as-uid "$candidate_uid" \
             --run-as-gid "$candidate_gid" \
             --run-as-home /home/devgov-candidate \
@@ -144,18 +175,18 @@ jobs:
           path: candidate
           persist-credentials: false
 
-      - name: Reverify exact candidate and manifest containment
+      - name: Reverify exact candidate and unit definition containment
         env:
           EXPECTED_SHA: ${{ inputs.candidate_sha }}
-          MANIFEST_PATH: ${{ inputs.manifest_path }}
+          UNIT_DEFINITION_PATH: ${{ inputs.unit_definition_path }}
         run: |
           test "$(git -C candidate rev-parse HEAD)" = "$EXPECTED_SHA"
           test -z "$(git -C candidate status --porcelain)"
           candidate_root="$(realpath candidate)"
-          manifest="$(realpath "candidate/$MANIFEST_PATH")"
-          case "$manifest" in
+          definition="$(realpath "candidate/$UNIT_DEFINITION_PATH")"
+          case "$definition" in
             "$candidate_root"/*) ;;
-            *) echo "manifest escapes candidate checkout" >&2; exit 4 ;;
+            *) echo "unit definition escapes candidate checkout" >&2; exit 4 ;;
           esac
 
       - name: Download execution record
@@ -173,10 +204,13 @@ jobs:
           DEVGOV_RUNNER_IDENTITY: github-hosted:ubuntu-latest
           PROOF_KIND: ${{ inputs.proof_kind }}
           TEST_ID: ${{ inputs.test_id }}
-          MANIFEST_PATH: ${{ inputs.manifest_path }}
+          CANDIDATE_SHA: ${{ inputs.candidate_sha }}
+          UNIT_DEFINITION_PATH: ${{ inputs.unit_definition_path }}
         run: |
           node controller/scripts/devgov/devgov.mjs attest-execution \
-            --manifest "candidate/$MANIFEST_PATH" \
+            --definition "candidate/$UNIT_DEFINITION_PATH" \
+            --candidate-sha "$CANDIDATE_SHA" \
+            --worktree candidate \
             --kind "$PROOF_KIND" \
             --id "$TEST_ID" \
             --record "$RUNNER_TEMP/devgov-input/execution-record.json" \

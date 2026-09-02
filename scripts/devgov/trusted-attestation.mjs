@@ -7,10 +7,10 @@ import {
   verify as verifyBytes,
 } from 'node:crypto';
 
-export const ATTESTATION_SCHEMA = 'dev-gov-v0-trusted-execution-attestation';
-export const EXECUTION_RECORD_SCHEMA = 'dev-gov-v0-trusted-execution-record';
+export const ATTESTATION_SCHEMA = 'dev-gov-v1-trusted-execution-attestation';
+export const EXECUTION_RECORD_SCHEMA = 'dev-gov-v1-trusted-execution-record';
 export const TRUST_POLICY_SCHEMA = 'dev-gov-v0-trust-policy';
-export const ATTESTATION_VERSION = 'dev-gov-v0.1';
+export const ATTESTATION_VERSION = 'dev-gov-v1.0';
 
 export function stableJson(value) {
   if (Array.isArray(value)) return `[${value.map(stableJson).join(',')}]`;
@@ -27,27 +27,26 @@ export function sha256(value) {
   return createHash('sha256').update(value).digest('hex');
 }
 
-export function proofContract(manifest) {
+export function proofContract(unitDefinition) {
   return {
-    schema_version: manifest.schema_version,
-    unit: manifest.unit,
-    role: manifest.role,
-    mode: manifest.mode,
-    branch: manifest.branch,
-    base_sha: manifest.base_sha,
-    target_sha: manifest.target_sha,
-    ancestry_policy: manifest.ancestry_policy,
-    allowed_paths: manifest.allowed_paths,
-    forbidden_paths: manifest.forbidden_paths,
-    remote: manifest.remote || null,
-    required_red: manifest.required_red || [],
-    required_green: manifest.required_green || [],
-    trusted_execution: manifest.trusted_execution || null,
+    schema_version: unitDefinition.schema_version,
+    unit: unitDefinition.unit,
+    role: unitDefinition.role,
+    mode: unitDefinition.mode,
+    branch: unitDefinition.branch,
+    base_sha: unitDefinition.base_sha,
+    ancestry_policy: unitDefinition.ancestry_policy,
+    allowed_paths: unitDefinition.allowed_paths,
+    forbidden_paths: unitDefinition.forbidden_paths,
+    remote: unitDefinition.remote || null,
+    required_red: unitDefinition.required_red || [],
+    required_green: unitDefinition.required_green || [],
+    trusted_execution: unitDefinition.trusted_execution || null,
   };
 }
 
-export function proofContractHash(manifest) {
-  return sha256(stableJson(proofContract(manifest)));
+export function proofContractHash(unitDefinition) {
+  return sha256(stableJson(proofContract(unitDefinition)));
 }
 
 export function executionResultDigest(record) {
@@ -75,10 +74,10 @@ export function validateExecutionRecord(record) {
   }
   for (const field of [
     'unit_id',
+    'unit_definition_hash',
     'proof_contract_hash',
-    'source_manifest_hash',
     'base_sha',
-    'target_sha',
+    'candidate_sha',
     'execution_sha',
     'proof_type',
     'test_id',
@@ -113,6 +112,8 @@ function proofId(record, signer) {
       issuer: signer.issuer,
       key_id: signer.key_id,
       unit_id: record.unit_id,
+      unit_definition_hash: record.unit_definition_hash,
+      candidate_sha: record.candidate_sha,
       proof_type: record.proof_type,
       test_id: record.test_id,
       execution_sha: record.execution_sha,

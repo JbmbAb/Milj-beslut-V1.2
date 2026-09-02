@@ -29,7 +29,7 @@ describe('DEV-GOV-V0 protected execution workflow', () => {
     expect(source).toContain('install -d -m 0700 -o root -g root');
     expect(source).toContain('chown -R root:root candidate');
     expect(source).toContain('chmod -R a-w candidate');
-    expect(source).toContain('chown -R devgov-candidate:devgov-candidate candidate/node_modules');
+    expect(source).toContain('chown -R devgov-candidate:devgov-candidate execution/node_modules');
     expect(source).toContain('--run-as-uid "$candidate_uid"');
     expect(source).toContain('--run-as-gid "$candidate_gid"');
     expect(source).toContain('--run-as-home /home/devgov-candidate');
@@ -44,6 +44,9 @@ describe('DEV-GOV-V0 protected execution workflow', () => {
     expect(source).toContain('test "$(git -C candidate rev-parse HEAD)" = "$EXPECTED_SHA"');
     expect(source).toContain('node controller/scripts/devgov/devgov.mjs execute-proof');
     expect(source).toContain('node controller/scripts/devgov/devgov.mjs attest-execution');
+    expect(source).toContain('node controller/scripts/devgov/devgov.mjs resolve-execution-sha');
+    expect(source).toContain('--candidate-sha "$CANDIDATE_SHA"');
+    expect(source).toContain('--definition-worktree candidate');
     expect(source).toContain('test "$DISPATCH_REF" = "refs/heads/$DEFAULT_BRANCH"');
   });
 
@@ -90,6 +93,10 @@ describe('DEV-GOV-V0 verifier-owned evidence gate workflow', () => {
     expect(source).toContain('ref: ${{ inputs.candidate_sha }}');
     expect(source).toContain('test "$(git -C candidate rev-parse HEAD)" = "$CANDIDATE_SHA"');
     expect(source).toContain('node controller/scripts/devgov/devgov.mjs evidence-gate');
+    expect(source).toContain('--definition "candidate/$UNIT_DEFINITION_PATH"');
+    expect(source).toContain('--candidate-sha "$CANDIDATE_SHA"');
+    expect(source).toContain('DEVGOV_CONTROLLER_SHA: ${{ github.sha }}');
+    expect(source).not.toContain('devgov-manifest.json');
     expect(source).not.toContain('require(process.argv[1])');
     expect(source).not.toMatch(/node\s+candidate\//);
     expect(source).not.toMatch(/npm\s+(?:ci|run|test)[^\n]*candidate/);
