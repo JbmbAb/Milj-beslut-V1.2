@@ -1,0 +1,192 @@
+name: DEV-GOV-V0 Trusted Execution Attestation
+
+on:
+  workflow_dispatch:
+    inputs:
+      candidate_sha:
+        description: Exact SHA to execute
+        required: true
+        type: string
+      manifest_path:
+        description: Repository-relative DEV-GOV manifest path
+        required: true
+        type: string
+      proof_kind:
+        description: Proof phase
+        required: true
+        type: choice
+        options:
+          - RED
+          - GREEN
+      test_id:
+        description: Declared command id from the manifest
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  execute:
+    name: Execute declared proof without signer authority
+    runs-on: ubuntu-latest
+    steps:
+      - name: Require protected default-branch workflow
+        env:
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+          DISPATCH_REF: ${{ github.ref }}
+        run: |
+          test "$DISPATCH_REF" = "refs/heads/$DEFAULT_BRANCH"
+
+      - name: Checkout protected controller
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          path: controller
+          persist-credentials: false
+
+      - name: Checkout exact proof SHA
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.candidate_sha }}
+          path: candidate
+          persist-credentials: false
+
+      - name: Verify exact candidate and manifest containment
+        env:
+          EXPECTED_SHA: ${{ inputs.candidate_sha }}
+          MANIFEST_PATH: ${{ inputs.manifest_path }}
+        run: |
+          test "$(git -C candidate rev-parse HEAD)" = "$EXPECTED_SHA"
+          test -z "$(git -C candidate status --porcelain)"
+          candidate_root="$(realpath candidate)"
+          manifest="$(realpath "candidate/$MANIFEST_PATH")"
+          case "$manifest" in
+            "$candidate_root"/*) ;;
+            *) echo "manifest escapes candidate checkout" >&2; exit 4 ;;
+          esac
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: candidate/package-lock.json
+
+      - name: Prepare isolated candidate OS identity
+        run: |
+          sudo useradd --system --create-home --shell /usr/sbin/nologin devgov-candidate
+          sudo chown -R devgov-candidate:devgov-candidate candidate
+          sudo -u devgov-candidate npm ci --prefix candidate --ignore-scripts
+          sudo chown -R root:root candidate
+          sudo chmod -R a-w candidate
+          sudo chown -R devgov-candidate:devgov-candidate candidate/node_modules
+          sudo chmod -R u+w candidate/node_modules
+          sudo git config --global --add safe.directory "$GITHUB_WORKSPACE/candidate"
+          sudo install -d -m 0700 -o root -g root "$RUNNER_TEMP/devgov-controller"
+          install -d -m 0700 "$RUNNER_TEMP/devgov-export"
+
+      - name: Execute declared proof command
+        env:
+          DEVGOV_CONTROLLER_SHA: ${{ github.sha }}
+          DEVGOV_RUNNER_IDENTITY: github-hosted:ubuntu-latest
+          PROOF_KIND: ${{ inputs.proof_kind }}
+          TEST_ID: ${{ inputs.test_id }}
+          MANIFEST_PATH: ${{ inputs.manifest_path }}
+        run: |
+          candidate_uid="$(id -u devgov-candidate)"
+          candidate_gid="$(id -g devgov-candidate)"
+          sudo --preserve-env=DEVGOV_CONTROLLER_SHA,DEVGOV_RUNNER_IDENTITY,GITHUB_WORKFLOW_REF,GITHUB_RUN_ID,GITHUB_RUN_ATTEMPT \
+            node controller/scripts/devgov/devgov.mjs execute-proof \
+            --manifest "candidate/$MANIFEST_PATH" \
+            --kind "$PROOF_KIND" \
+            --id "$TEST_ID" \
+            --worktree candidate \
+            --run-as-uid "$candidate_uid" \
+            --run-as-gid "$candidate_gid" \
+            --run-as-home /home/devgov-candidate \
+            --output "$RUNNER_TEMP/devgov-controller/execution-record.json"
+          sudo cp "$RUNNER_TEMP/devgov-controller/execution-record.json" \
+            "$RUNNER_TEMP/devgov-export/execution-record.json"
+          sudo chown "$USER:$USER" "$RUNNER_TEMP/devgov-export/execution-record.json"
+
+      - name: Upload unsigned execution record
+        uses: actions/upload-artifact@v4
+        with:
+          name: devgov-execution-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/devgov-export/execution-record.json
+          if-no-files-found: error
+          retention-days: 1
+
+  attest:
+    name: Sign on isolated protected runner
+    needs: execute
+    runs-on: ubuntu-latest
+    environment: devgov-attestation
+    steps:
+      - name: Require protected default-branch workflow
+        env:
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+          DISPATCH_REF: ${{ github.ref }}
+        run: |
+          test "$DISPATCH_REF" = "refs/heads/$DEFAULT_BRANCH"
+
+      - name: Checkout protected controller only
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          path: controller
+          persist-credentials: false
+
+      - name: Checkout exact proof SHA without executing candidate code
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.candidate_sha }}
+          path: candidate
+          persist-credentials: false
+
+      - name: Reverify exact candidate and manifest containment
+        env:
+          EXPECTED_SHA: ${{ inputs.candidate_sha }}
+          MANIFEST_PATH: ${{ inputs.manifest_path }}
+        run: |
+          test "$(git -C candidate rev-parse HEAD)" = "$EXPECTED_SHA"
+          test -z "$(git -C candidate status --porcelain)"
+          candidate_root="$(realpath candidate)"
+          manifest="$(realpath "candidate/$MANIFEST_PATH")"
+          case "$manifest" in
+            "$candidate_root"/*) ;;
+            *) echo "manifest escapes candidate checkout" >&2; exit 4 ;;
+          esac
+
+      - name: Download execution record
+        uses: actions/download-artifact@v4
+        with:
+          name: devgov-execution-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/devgov-input
+
+      - name: Sign trusted execution attestation
+        env:
+          DEVGOV_ATTESTATION_PRIVATE_KEY_PEM: ${{ secrets.DEVGOV_ATTESTATION_PRIVATE_KEY_PEM }}
+          DEVGOV_ATTESTATION_ISSUER: ${{ vars.DEVGOV_ATTESTATION_ISSUER }}
+          DEVGOV_ATTESTATION_KEY_ID: ${{ vars.DEVGOV_ATTESTATION_KEY_ID }}
+          DEVGOV_CONTROLLER_SHA: ${{ github.sha }}
+          DEVGOV_RUNNER_IDENTITY: github-hosted:ubuntu-latest
+          PROOF_KIND: ${{ inputs.proof_kind }}
+          TEST_ID: ${{ inputs.test_id }}
+          MANIFEST_PATH: ${{ inputs.manifest_path }}
+        run: |
+          node controller/scripts/devgov/devgov.mjs attest-execution \
+            --manifest "candidate/$MANIFEST_PATH" \
+            --kind "$PROOF_KIND" \
+            --id "$TEST_ID" \
+            --record "$RUNNER_TEMP/devgov-input/execution-record.json" \
+            --output "$RUNNER_TEMP/devgov-trusted-attestation.json"
+
+      - name: Publish immutable signed attestation artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: devgov-attestation-${{ inputs.proof_kind }}-${{ inputs.test_id }}-${{ inputs.candidate_sha }}
+          path: ${{ runner.temp }}/devgov-trusted-attestation.json
+          if-no-files-found: error
+          overwrite: false
+          retention-days: 90

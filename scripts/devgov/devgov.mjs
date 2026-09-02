@@ -1,9 +1,22 @@
 #!/usr/bin/env node
-import { createHash, randomUUID } from 'node:crypto';
+import { randomUUID } from 'node:crypto';
 import { execFileSync, spawnSync } from 'node:child_process';
 import { existsSync, mkdirSync, readFileSync, readdirSync, realpathSync, writeFileSync } from 'node:fs';
-import { isAbsolute, resolve } from 'node:path';
+import { dirname, isAbsolute, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+
+import {
+  EXECUTION_RECORD_SCHEMA,
+  executionResultDigest,
+  proofContractHash,
+  sha256,
+  signExecutionRecord,
+  stableJson,
+  validateTrustPolicy,
+  verifyExecutionAttestation,
+} from './trusted-attestation.mjs';
+
+export { proofContractHash, sha256, signExecutionRecord } from './trusted-attestation.mjs';
 
 export const RESULT = Object.freeze({
   PASS: 'PASS',
@@ -22,7 +35,7 @@ export const EXIT_CODE = Object.freeze({
 
 const ANCESTRY_POLICIES = new Set(['exact_parent', 'descendant_of_base', 'merge_base_equals_base']);
 const EVIDENCE_KINDS = new Set(['RED', 'GREEN']);
-const TOOL_VERSION = 'dev-gov-v0.4';
+const TOOL_VERSION = 'dev-gov-v0.5';
 const LOADED_EVIDENCE_PATH = Symbol('loadedEvidencePath');
 const REMOTE_STATUS = Object.freeze({
   MATCH: 'REMOTE_MATCH',
@@ -31,21 +44,6 @@ const REMOTE_STATUS = Object.freeze({
   DIVERGED: 'REMOTE_DIVERGED',
   NOT_CONFIGURED: 'REMOTE_NOT_CONFIGURED',
 });
-
-function stableJson(value) {
-  if (Array.isArray(value)) return `[${value.map(stableJson).join(',')}]`;
-  if (value && typeof value === 'object') {
-    return `{${Object.keys(value)
-      .sort()
-      .map((key) => `${JSON.stringify(key)}:${stableJson(value[key])}`)
-      .join(',')}}`;
-  }
-  return JSON.stringify(value);
-}
-
-export function sha256(value) {
-  return createHash('sha256').update(value).digest('hex');
-}
 
 export function manifestHash(manifest) {
   return sha256(stableJson(manifest));
@@ -135,6 +133,10 @@ export function validateManifest(manifest) {
   for (const kind of ['required_red', 'required_green']) {
     if (manifest?.[kind] && !Array.isArray(manifest[kind])) errors.push(`${kind} must be an array`);
   }
+  if (manifest?.trusted_execution) {
+    if (!manifest.trusted_execution.issuer) errors.push('trusted_execution.issuer is required');
+    if (!manifest.trusted_execution.key_id) errors.push('trusted_execution.key_id is required');
+  }
   return errors;
 }
 
@@ -179,7 +181,7 @@ export function evaluateRepositoryState(manifest, state) {
     : { result: RESULT.PASS, errors: [] };
 }
 
-export function evaluateEvidenceGate(manifest, evidenceRecords, finalSha) {
+export function evaluateLocalProvenance(manifest, evidenceRecords, finalSha) {
   const errors = validateManifest(manifest);
   if (errors.length > 0) return { result: RESULT.DENIED_GOVERNANCE, errors };
 
@@ -275,7 +277,94 @@ export function evaluateEvidenceGate(manifest, evidenceRecords, finalSha) {
     : { result: RESULT.PASS, errors: [] };
 }
 
-export function evaluateEvidenceGateWithLiveRepository(manifest, evidenceRecords) {
+function expectedExecutionSha(manifest, commandSpec, kind) {
+  const requiredHead = commandSpec.required_head || (kind === 'GREEN' ? 'target_sha' : 'base_sha');
+  if (requiredHead === 'target_sha') return manifest.target_sha;
+  if (requiredHead === 'base_sha') return manifest.base_sha;
+  return undefined;
+}
+
+function matchingTrustedAttestations(manifest, attestations, commandSpec, kind, classification) {
+  const executionSha = expectedExecutionSha(manifest, commandSpec, kind);
+  const contractHash = proofContractHash(manifest);
+  return attestations.filter(
+    (record) =>
+      record.issuer === manifest.trusted_execution?.issuer &&
+      record.key_id === manifest.trusted_execution?.key_id &&
+      record.unit_id === manifest.unit &&
+      record.proof_contract_hash === contractHash &&
+      record.base_sha === manifest.base_sha &&
+      record.target_sha === manifest.target_sha &&
+      (!executionSha || record.execution_sha === executionSha) &&
+      record.proof_type === kind &&
+      record.test_id === commandSpec.id &&
+      record.command === commandString(commandSpec) &&
+      record.classification === classification,
+  );
+}
+
+export function evaluateTrustedExecutionGate(manifest, attestations, trustPolicy) {
+  const errors = validateManifest(manifest);
+  if (!manifest?.trusted_execution) errors.push('trusted_execution is required');
+  errors.push(...validateTrustPolicy(trustPolicy));
+  if (!Array.isArray(attestations) || attestations.length === 0) {
+    errors.push('trusted execution attestation is required');
+  }
+  if (errors.length > 0) {
+    return { result: RESULT.DENIED_GOVERNANCE, proof_status: 'NOT_PROVEN', errors };
+  }
+
+  for (const attestation of attestations) {
+    const verification = verifyExecutionAttestation(attestation, trustPolicy);
+    if (!verification.valid) errors.push(...verification.errors);
+  }
+  if (errors.length > 0) {
+    return { result: RESULT.DENIED_GOVERNANCE, proof_status: 'NOT_PROVEN', errors };
+  }
+
+  const redRecords = new Map();
+  for (const red of manifest.required_red || []) {
+    const records = matchingTrustedAttestations(
+      manifest,
+      attestations,
+      red,
+      'RED',
+      red.expected_classification || RESULT.FAIL,
+    );
+    if (records.length !== 1) {
+      errors.push(
+        records.length === 0
+          ? `missing trusted RED attestation for ${red.id}`
+          : `duplicate trusted RED attestations for ${red.id}`,
+      );
+    } else {
+      redRecords.set(red.id, records[0]);
+    }
+  }
+
+  for (const green of manifest.required_green || []) {
+    const records = matchingTrustedAttestations(manifest, attestations, green, 'GREEN', RESULT.PASS);
+    if (records.length !== 1) {
+      errors.push(
+        records.length === 0
+          ? `missing trusted GREEN attestation for ${green.id}`
+          : `duplicate trusted GREEN attestations for ${green.id}`,
+      );
+      continue;
+    }
+    for (const redRecord of redRecords.values()) {
+      if (new Date(records[0].started_at).getTime() <= new Date(redRecord.finished_at).getTime()) {
+        errors.push(`trusted GREEN attestation for ${green.id} does not follow trusted RED`);
+      }
+    }
+  }
+
+  return errors.length > 0
+    ? { result: RESULT.DENIED_GOVERNANCE, proof_status: 'NOT_PROVEN', errors }
+    : { result: RESULT.PASS, proof_status: 'PROVEN', errors: [] };
+}
+
+export function evaluateEvidenceGateWithLiveRepository(manifest, options = {}) {
   const errors = validateManifest(manifest);
   if (errors.length > 0) {
     return resultEnvelope(RESULT.DENIED_GOVERNANCE, 'INVALID_MANIFEST', errors.join('; '), errors);
@@ -309,13 +398,23 @@ export function evaluateEvidenceGateWithLiveRepository(manifest, evidenceRecords
     );
   }
 
-  const records = evidenceRecords || loadCanonicalEvidence(manifest);
-  const evidence = evaluateEvidenceGate(manifest, records, manifest.target_sha);
+  const evidence = evaluateTrustedExecutionGate(manifest, options.attestations || [], options.trustPolicy);
+  const missingAuthority =
+    !options.trustPolicy || !Array.isArray(options.attestations) || options.attestations.length === 0;
   return resultEnvelope(
     evidence.result,
-    evidence.result === RESULT.PASS ? 'PASS' : 'EVIDENCE_DENIED',
+    evidence.result === RESULT.PASS
+      ? 'PASS'
+      : missingAuthority
+        ? 'TRUSTED_EXECUTION_ATTESTATION_REQUIRED'
+        : 'TRUSTED_EXECUTION_ATTESTATION_DENIED',
     evidence.errors.join('; ') || 'PASS',
     evidence.errors,
+    {
+      proof_status: evidence.proof_status,
+      trust_policy_sha256: options.trustPolicy ? sha256(stableJson(options.trustPolicy)) : undefined,
+      proof_ids: (options.attestations || []).map((record) => record.proof_id).filter(Boolean),
+    },
   );
 }
 
@@ -539,15 +638,16 @@ export function readRepositoryState(manifest) {
   };
 }
 
-export function runManifestCommand(manifest, commandSpec, kind) {
+export function runManifestCommand(manifest, commandSpec, kind, options = {}) {
   if (!EVIDENCE_KINDS.has(kind)) throw new Error(`unsupported evidence kind: ${kind}`);
   const manifestErrors = validateManifest(manifest);
   if (manifestErrors.length > 0) throw new Error(`invalid manifest: ${manifestErrors.join('; ')}`);
-  const cwd = resolve(manifest.worktree, commandSpec.cwd || '.');
+  const executionWorktree = options.worktree || manifest.worktree;
+  const cwd = resolve(executionWorktree, commandSpec.cwd || '.');
   const startedAt = new Date().toISOString();
   const executionNonce = randomUUID();
-  const headBefore = git(['rev-parse', 'HEAD'], manifest.worktree);
-  const statusBefore = gitStatus(manifest.worktree);
+  const headBefore = git(['rev-parse', 'HEAD'], executionWorktree);
+  const statusBefore = gitStatus(executionWorktree);
   const requiredHead = commandSpec.required_head || (kind === 'GREEN' ? 'target_sha' : 'base_sha');
   const expectedHead =
     requiredHead === 'target_sha'
@@ -594,12 +694,14 @@ export function runManifestCommand(manifest, commandSpec, kind) {
   const result = spawnSync(commandSpec.command, commandSpec.args || [], {
     cwd,
     encoding: 'utf8',
-    env: { ...process.env, ...(commandSpec.env || {}) },
+    env: { ...process.env, ...(commandSpec.env || {}), ...(options.env || {}) },
     timeout: commandSpec.timeout_ms || 120_000,
+    uid: options.uid,
+    gid: options.gid,
   });
   const finishedAt = new Date().toISOString();
-  const headAfter = git(['rev-parse', 'HEAD'], manifest.worktree);
-  const statusAfter = gitStatus(manifest.worktree);
+  const headAfter = git(['rev-parse', 'HEAD'], executionWorktree);
+  const statusAfter = gitStatus(executionWorktree);
   let classification = RESULT.PASS;
   let environmentError = '';
   if (headAfter !== headBefore || statusAfter.length > 0) {
@@ -629,6 +731,68 @@ export function runManifestCommand(manifest, commandSpec, kind) {
     stdout: result.stdout || '',
     stderr: result.stderr || '',
   });
+}
+
+export function trustedExecutionRecord(manifest, evidence, context) {
+  for (const field of [
+    'runner_identity',
+    'controller_sha',
+    'workflow_ref',
+    'workflow_run_id',
+    'workflow_run_attempt',
+  ]) {
+    if (!context?.[field]) throw new Error(`${field} is required for trusted execution`);
+  }
+  const record = {
+    schema_version: EXECUTION_RECORD_SCHEMA,
+    unit_id: manifest.unit,
+    proof_contract_hash: proofContractHash(manifest),
+    source_manifest_hash: manifestHash(manifest),
+    base_sha: manifest.base_sha,
+    target_sha: manifest.target_sha,
+    execution_sha: evidence.head_sha,
+    proof_type: evidence.kind,
+    test_id: evidence.test_id,
+    command: evidence.command,
+    exit_code: evidence.exit_code,
+    classification: evidence.classification,
+    environment_error: evidence.environment_error || '',
+    started_at: evidence.started_at,
+    finished_at: evidence.finished_at,
+    runner_identity: context.runner_identity,
+    controller_sha: context.controller_sha,
+    workflow_ref: context.workflow_ref,
+    workflow_run_id: String(context.workflow_run_id),
+    workflow_run_attempt: String(context.workflow_run_attempt),
+    stdout_sha256: evidence.stdout_sha256,
+    stderr_sha256: evidence.stderr_sha256,
+  };
+  return { ...record, result_digest: executionResultDigest(record) };
+}
+
+export function validateExecutionRecordForManifest(manifest, record, kind, id) {
+  const errors = validateManifest(manifest);
+  const list = kind === 'RED' ? manifest.required_red || [] : manifest.required_green || [];
+  const spec = list.find((item) => item.id === id);
+  if (!spec) return [...errors, `unknown ${kind} command id: ${id}`];
+  const expectedClassification = kind === 'RED' ? spec.expected_classification || RESULT.FAIL : RESULT.PASS;
+  const expectedSha = expectedExecutionSha(manifest, spec, kind);
+  const expected = {
+    unit_id: manifest.unit,
+    proof_contract_hash: proofContractHash(manifest),
+    source_manifest_hash: manifestHash(manifest),
+    base_sha: manifest.base_sha,
+    target_sha: manifest.target_sha,
+    proof_type: kind,
+    test_id: id,
+    command: commandString(spec),
+    classification: expectedClassification,
+  };
+  if (expectedSha) expected.execution_sha = expectedSha;
+  for (const [field, value] of Object.entries(expected)) {
+    if (record?.[field] !== value) errors.push(`${field} mismatch`);
+  }
+  return errors;
 }
 
 function classifySpawnError(error) {
@@ -706,6 +870,11 @@ function loadManifest(file) {
   return JSON.parse(readFileSync(file, 'utf8'));
 }
 
+function writeJsonExclusive(file, value) {
+  mkdirSync(dirname(file), { recursive: true });
+  writeFileSync(file, `${stableJson(value)}\n`, { flag: 'wx' });
+}
+
 function resultEnvelope(classification, reasonCode, message, errors = [], extra = {}) {
   return {
     result: classification === RESULT.PASS ? RESULT.PASS : classification,
@@ -738,7 +907,7 @@ function printResult(result) {
 }
 
 function usageText() {
-  return 'Usage: node scripts/devgov/devgov.mjs <preflight|verify-sha|evidence-gate|run-red|run-green> --manifest <file>';
+  return 'Usage: node scripts/devgov/devgov.mjs <preflight|verify-sha|evidence-gate|run-red|run-green|execute-proof|attest-execution> [options]';
 }
 
 function usage() {
@@ -750,11 +919,72 @@ function argValue(args, name) {
   return index >= 0 ? args[index + 1] : undefined;
 }
 
+function argValues(args, name) {
+  return args.flatMap((value, index) => (value === name && args[index + 1] ? [args[index + 1]] : []));
+}
+
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
   const [command, ...args] = process.argv.slice(2);
   try {
+    if (!command) usage();
+    if (command === 'attest-execution') {
+      const manifestPath = argValue(args, '--manifest');
+      const recordPath = argValue(args, '--record');
+      const outputPath = argValue(args, '--output');
+      const kind = argValue(args, '--kind');
+      const id = argValue(args, '--id');
+      const privateKey = process.env.DEVGOV_ATTESTATION_PRIVATE_KEY_PEM;
+      const issuer = process.env.DEVGOV_ATTESTATION_ISSUER;
+      const keyId = process.env.DEVGOV_ATTESTATION_KEY_ID;
+      if (!manifestPath || !recordPath || !outputPath || !['RED', 'GREEN'].includes(kind) || !id) {
+        usage();
+      }
+      if (!privateKey || !issuer || !keyId) {
+        printResult(
+          resultEnvelope(
+            RESULT.BLOCKED_ENVIRONMENT,
+            'ATTESTATION_SIGNER_UNAVAILABLE',
+            'record, output, and protected attestation signer environment are required',
+          ),
+        );
+      }
+      const manifest = loadManifest(manifestPath);
+      const record = loadManifest(recordPath);
+      const bindingErrors = validateExecutionRecordForManifest(manifest, record, kind, id);
+      const runtimeBindings = {
+        runner_identity: process.env.DEVGOV_RUNNER_IDENTITY,
+        controller_sha: process.env.DEVGOV_CONTROLLER_SHA,
+        workflow_ref: process.env.GITHUB_WORKFLOW_REF,
+        workflow_run_id: process.env.GITHUB_RUN_ID,
+        workflow_run_attempt: process.env.GITHUB_RUN_ATTEMPT,
+      };
+      for (const [field, value] of Object.entries(runtimeBindings)) {
+        if (!value || record[field] !== String(value)) bindingErrors.push(`${field} mismatch`);
+      }
+      if (manifest.trusted_execution?.issuer !== issuer || manifest.trusted_execution?.key_id !== keyId) {
+        bindingErrors.push('protected signer does not match manifest trusted_execution');
+      }
+      if (bindingErrors.length > 0) {
+        printResult(
+          resultEnvelope(
+            RESULT.DENIED_GOVERNANCE,
+            'EXECUTION_RECORD_BINDING_DENIED',
+            bindingErrors.join('; '),
+            bindingErrors,
+          ),
+        );
+      }
+      const attestation = signExecutionRecord(record, privateKey, { issuer, key_id: keyId });
+      writeJsonExclusive(outputPath, attestation);
+      printResult(
+        resultEnvelope(RESULT.PASS, 'PASS', 'trusted execution attestation created', [], {
+          attestation_file: outputPath,
+          proof_id: attestation.proof_id,
+        }),
+      );
+    }
     const manifestPath = argValue(args, '--manifest');
-    if (!command || !manifestPath) usage();
+    if (!manifestPath) usage();
     const manifest = loadManifest(manifestPath);
 
     if (command === 'preflight') {
@@ -779,7 +1009,79 @@ if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.ur
           ),
         );
       }
-      printResult(evaluateEvidenceGateWithLiveRepository(manifest));
+      const trustPolicyPath = argValue(args, '--trust-policy');
+      const attestationPaths = argValues(args, '--attestation');
+      const trustPolicy = trustPolicyPath ? loadManifest(trustPolicyPath) : undefined;
+      const attestations = attestationPaths.flatMap((path) => {
+        const value = loadManifest(path);
+        return Array.isArray(value) ? value : [value];
+      });
+      printResult(evaluateEvidenceGateWithLiveRepository(manifest, { trustPolicy, attestations }));
+    }
+
+    if (command === 'execute-proof') {
+      const id = argValue(args, '--id');
+      const kind = argValue(args, '--kind');
+      const worktree = argValue(args, '--worktree');
+      const outputPath = argValue(args, '--output');
+      if (!id || !['RED', 'GREEN'].includes(kind) || !worktree || !outputPath) usage();
+      const list = kind === 'RED' ? manifest.required_red || [] : manifest.required_green || [];
+      const spec = list.find((item) => item.id === id);
+      if (!spec) {
+        printResult(
+          resultEnvelope(RESULT.DENIED_GOVERNANCE, 'UNKNOWN_COMMAND_ID', `unknown ${kind} command id: ${id}`),
+        );
+      }
+      const uidValue = argValue(args, '--run-as-uid');
+      const gidValue = argValue(args, '--run-as-gid');
+      const runAsHome = argValue(args, '--run-as-home');
+      const uid = uidValue === undefined ? undefined : Number(uidValue);
+      const gid = gidValue === undefined ? undefined : Number(gidValue);
+      if (
+        (uidValue !== undefined || gidValue !== undefined) &&
+        (!Number.isInteger(uid) || !Number.isInteger(gid) || uid < 1 || gid < 1)
+      ) {
+        printResult(
+          resultEnvelope(
+            RESULT.DENIED_GOVERNANCE,
+            'INVALID_EXECUTION_IDENTITY',
+            'run-as uid and gid must both be positive integers',
+          ),
+        );
+      }
+      const evidence = runManifestCommand(manifest, spec, kind, {
+        worktree,
+        uid,
+        gid,
+        env: runAsHome ? { HOME: runAsHome } : undefined,
+      });
+      const record = trustedExecutionRecord(manifest, evidence, {
+        runner_identity: process.env.DEVGOV_RUNNER_IDENTITY,
+        controller_sha: process.env.DEVGOV_CONTROLLER_SHA,
+        workflow_ref: process.env.GITHUB_WORKFLOW_REF,
+        workflow_run_id: process.env.GITHUB_RUN_ID,
+        workflow_run_attempt: process.env.GITHUB_RUN_ATTEMPT,
+      });
+      writeJsonExclusive(outputPath, record);
+      const expected = kind === 'RED' ? spec.expected_classification || RESULT.FAIL : RESULT.PASS;
+      const outerClassification =
+        evidence.classification === expected
+          ? RESULT.PASS
+          : evidence.classification === RESULT.BLOCKED_ENVIRONMENT ||
+              evidence.classification === RESULT.DENIED_GOVERNANCE
+            ? evidence.classification
+            : RESULT.FAIL;
+      printResult(
+        resultEnvelope(
+          outerClassification,
+          outerClassification,
+          outerClassification === RESULT.PASS
+            ? `trusted runner observed expected ${kind} result`
+            : `trusted runner observed ${evidence.classification}, expected ${expected}`,
+          [],
+          { execution_record_file: outputPath, execution_record: record },
+        ),
+      );
     }
 
     if (command === 'run-red' || command === 'run-green') {

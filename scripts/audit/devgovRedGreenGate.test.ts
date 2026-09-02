@@ -8,7 +8,7 @@ import { describe, expect, it } from 'vitest';
 
 import {
   canonicalEvidenceDir,
-  evaluateEvidenceGate,
+  evaluateLocalProvenance,
   finalizeEvidenceRecord,
   manifestHash,
   RESULT,
@@ -36,7 +36,7 @@ function evidence(overrides = {}) {
   return {
     schema_version: 'dev-gov-v0-execution-evidence',
     produced_by: 'devgov-v0',
-    tool_version: 'dev-gov-v0.4',
+    tool_version: 'dev-gov-v0.5',
     execution_nonce: 'nonce-1',
     unit: manifest.unit,
     kind: 'RED',
@@ -89,7 +89,7 @@ function manifestForRepo(root) {
   };
 }
 
-describe('DEV-GOV-V0 RED to GREEN gate', () => {
+describe('DEV-GOV-V0 local RED to GREEN provenance validation', () => {
   it('denies GREEN without a matching RED for the same unit/base/test-id/manifest', () => {
     const green = validEvidence({
       kind: 'GREEN',
@@ -102,7 +102,7 @@ describe('DEV-GOV-V0 RED to GREEN gate', () => {
       finished_at: '2026-09-01T11:00:01.000Z',
     });
 
-    const result = evaluateEvidenceGate(manifest, [green], manifest.target_sha);
+    const result = evaluateLocalProvenance(manifest, [green], manifest.target_sha);
 
     expect(result.result).toBe(RESULT.DENIED_GOVERNANCE);
     expect(result.errors).toContain('missing valid RED evidence for path-lock-red');
@@ -125,7 +125,7 @@ describe('DEV-GOV-V0 RED to GREEN gate', () => {
       finished_at: '2026-09-01T11:00:01.000Z',
     });
 
-    expect(evaluateEvidenceGate(manifest, [red, green], manifest.target_sha).result).toBe(
+    expect(evaluateLocalProvenance(manifest, [red, green], manifest.target_sha).result).toBe(
       RESULT.DENIED_GOVERNANCE,
     );
   });
@@ -146,7 +146,7 @@ describe('DEV-GOV-V0 RED to GREEN gate', () => {
       finished_at: '2026-09-01T11:00:01.000Z',
     });
 
-    const result = evaluateEvidenceGate(manifest, [red, green], manifest.target_sha);
+    const result = evaluateLocalProvenance(manifest, [red, green], manifest.target_sha);
 
     expect(result.result).toBe(RESULT.DENIED_GOVERNANCE);
     expect(result.errors.join('\n')).toContain('missing valid GREEN evidence');
@@ -165,7 +165,7 @@ describe('DEV-GOV-V0 RED to GREEN gate', () => {
       finished_at: '2026-09-01T11:00:01.000Z',
     });
 
-    expect(evaluateEvidenceGate(manifest, [red, green], manifest.target_sha).result).toBe(
+    expect(evaluateLocalProvenance(manifest, [red, green], manifest.target_sha).result).toBe(
       RESULT.DENIED_GOVERNANCE,
     );
   });
@@ -183,7 +183,7 @@ describe('DEV-GOV-V0 RED to GREEN gate', () => {
       finished_at: '2026-09-01T11:00:01.000Z',
     });
 
-    expect(evaluateEvidenceGate(manifest, [red, green], manifest.target_sha).result).toBe(RESULT.PASS);
+    expect(evaluateLocalProvenance(manifest, [red, green], manifest.target_sha).result).toBe(RESULT.PASS);
   });
 
   it('denies forged legacy-looking RED/GREEN evidence that was not tool-produced', () => {
@@ -215,7 +215,7 @@ describe('DEV-GOV-V0 RED to GREEN gate', () => {
       timestamp: '2026-09-01T11:00:00.000Z',
     };
 
-    expect(evaluateEvidenceGate(manifest, [forgedRed, forgedGreen], manifest.target_sha).result).toBe(
+    expect(evaluateLocalProvenance(manifest, [forgedRed, forgedGreen], manifest.target_sha).result).toBe(
       RESULT.DENIED_GOVERNANCE,
     );
   });
@@ -234,7 +234,7 @@ describe('DEV-GOV-V0 RED to GREEN gate', () => {
       finished_at: '2026-09-01T11:00:01.000Z',
     });
 
-    expect(evaluateEvidenceGate(manifest, [missingHash, green], manifest.target_sha).result).toBe(
+    expect(evaluateLocalProvenance(manifest, [missingHash, green], manifest.target_sha).result).toBe(
       RESULT.DENIED_GOVERNANCE,
     );
   });
@@ -252,7 +252,7 @@ describe('DEV-GOV-V0 RED to GREEN gate', () => {
       finished_at: '2026-09-01T11:00:01.000Z',
     });
 
-    expect(evaluateEvidenceGate(manifest, [red, green], manifest.target_sha).result).toBe(
+    expect(evaluateLocalProvenance(manifest, [red, green], manifest.target_sha).result).toBe(
       RESULT.DENIED_GOVERNANCE,
     );
   });
@@ -274,7 +274,7 @@ describe('DEV-GOV-V0 RED to GREEN gate', () => {
       finished_at: '2026-09-01T11:00:01.000Z',
     });
 
-    expect(evaluateEvidenceGate(manifest, [red, green], manifest.target_sha).result).toBe(
+    expect(evaluateLocalProvenance(manifest, [red, green], manifest.target_sha).result).toBe(
       RESULT.DENIED_GOVERNANCE,
     );
   });
@@ -286,7 +286,7 @@ describe('DEV-GOV-V0 RED to GREEN gate', () => {
       evidence_path: validEvidence({ execution_nonce: 'nonce-3' }).evidence_path,
     };
 
-    expect(evaluateEvidenceGate(manifest, [tampered], manifest.target_sha).result).toBe(
+    expect(evaluateLocalProvenance(manifest, [tampered], manifest.target_sha).result).toBe(
       RESULT.DENIED_GOVERNANCE,
     );
   });
@@ -304,7 +304,7 @@ describe('DEV-GOV-V0 RED to GREEN gate', () => {
       finished_at: '2026-09-01T11:00:01.000Z',
     });
 
-    expect(evaluateEvidenceGate(manifest, [red, red, green], manifest.target_sha).errors).toContain(
+    expect(evaluateLocalProvenance(manifest, [red, red, green], manifest.target_sha).errors).toContain(
       'duplicate valid RED evidence for path-lock-red',
     );
   });

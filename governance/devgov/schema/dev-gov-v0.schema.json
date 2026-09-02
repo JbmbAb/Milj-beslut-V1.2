@@ -38,6 +38,15 @@
     },
     "required_red": { "$ref": "#/$defs/commands" },
     "required_green": { "$ref": "#/$defs/commands" },
+    "trusted_execution": {
+      "type": "object",
+      "required": ["issuer", "key_id"],
+      "additionalProperties": false,
+      "properties": {
+        "issuer": { "type": "string", "minLength": 1 },
+        "key_id": { "type": "string", "minLength": 1 }
+      }
+    },
     "remote": {
       "type": "object",
       "properties": {

@@ -7,6 +7,7 @@ on:
       - 'scripts/devgov/**'
       - 'scripts/audit/devgov*.test.ts'
       - '.github/workflows/devgov-v0.yml'
+      - '.github/workflows/devgov-v0-attest.yml'
 
 permissions:
   contents: read
