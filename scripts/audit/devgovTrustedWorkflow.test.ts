@@ -68,6 +68,7 @@ describe('DEV-GOV-V0 protected execution workflow', () => {
     for (const invocation of [
       'run_isolation_command useradd sudo useradd --system --create-home --shell /usr/sbin/nologin devgov-candidate',
       'run_isolation_command chown-execution-root sudo chown -R devgov-candidate:devgov-candidate "$execution_root"',
+      'run_isolation_command open-runner-home-traverse sudo chmod o+x /home/runner',
       'run_isolation_command read-package-json sudo -u devgov-candidate test -r "$execution_root/package.json"',
       'run_isolation_command read-package-lock-json sudo -u devgov-candidate test -r "$execution_root/package-lock.json"',
       'run_isolation_command npm-ci sudo -u devgov-candidate npm ci --prefix "$execution_root" --ignore-scripts',
@@ -97,6 +98,9 @@ describe('DEV-GOV-V0 protected execution workflow', () => {
     expect(prepare.run).toContain('DEVGOV_ISOLATION_PROBE_FAIL=$label');
     expect(prepare.run).toContain('DEVGOV_ISOLATION_PROBE_EXIT=$status');
     expect(prepare.run).toContain(
+      'run_isolation_command open-runner-home-traverse sudo chmod o+x /home/runner',
+    );
+    expect(prepare.run).toContain(
       'run_isolation_command inspect-package-path namei -l "$execution_root/package.json"',
     );
     expect(prepare.run).toContain(
@@ -109,9 +113,13 @@ describe('DEV-GOV-V0 protected execution workflow', () => {
       'report_isolation_probe traverse-execution-root sudo -u devgov-candidate test -x "$execution_root"',
     );
 
+    const openTraverseIndex = prepare.run.indexOf(
+      'run_isolation_command open-runner-home-traverse sudo chmod o+x /home/runner',
+    );
     const probeIndex = prepare.run.indexOf('report_isolation_probe traverse-execution-root');
     const terminalReadIndex = prepare.run.indexOf('run_isolation_command read-package-json');
-    expect(probeIndex).toBeGreaterThan(-1);
+    expect(openTraverseIndex).toBeGreaterThan(-1);
+    expect(probeIndex).toBeGreaterThan(openTraverseIndex);
     expect(terminalReadIndex).toBeGreaterThan(probeIndex);
   });
 

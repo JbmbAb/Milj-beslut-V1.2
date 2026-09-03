@@ -147,6 +147,7 @@ jobs:
 
           run_isolation_command useradd sudo useradd --system --create-home --shell /usr/sbin/nologin devgov-candidate
           run_isolation_command chown-execution-root sudo chown -R devgov-candidate:devgov-candidate "$execution_root"
+          run_isolation_command open-runner-home-traverse sudo chmod o+x /home/runner
           run_isolation_command inspect-package-path namei -l "$execution_root/package.json"
           workspace_parent="$(dirname "$GITHUB_WORKSPACE")"
           report_isolation_probe traverse-workspace-parent sudo -u devgov-candidate test -x "$workspace_parent"
