@@ -115,6 +115,21 @@ jobs:
             echo "DEVGOV_ISOLATION_PASS=$label"
           }
 
+          report_isolation_probe() {
+            local label="$1"
+            shift
+            set +e
+            "$@"
+            local status=$?
+            set -e
+            if [ "$status" -ne 0 ]; then
+              echo "DEVGOV_ISOLATION_PROBE_FAIL=$label" >&2
+              echo "DEVGOV_ISOLATION_PROBE_EXIT=$status" >&2
+            else
+              echo "DEVGOV_ISOLATION_PROBE_PASS=$label"
+            fi
+          }
+
           label=verify-execution-root
           echo "DEVGOV_ISOLATION_START=$label"
           set +e
@@ -132,6 +147,11 @@ jobs:
 
           run_isolation_command useradd sudo useradd --system --create-home --shell /usr/sbin/nologin devgov-candidate
           run_isolation_command chown-execution-root sudo chown -R devgov-candidate:devgov-candidate "$execution_root"
+          run_isolation_command inspect-package-path namei -l "$execution_root/package.json"
+          workspace_parent="$(dirname "$GITHUB_WORKSPACE")"
+          report_isolation_probe traverse-workspace-parent sudo -u devgov-candidate test -x "$workspace_parent"
+          report_isolation_probe traverse-workspace sudo -u devgov-candidate test -x "$GITHUB_WORKSPACE"
+          report_isolation_probe traverse-execution-root sudo -u devgov-candidate test -x "$execution_root"
           run_isolation_command read-package-json sudo -u devgov-candidate test -r "$execution_root/package.json"
           run_isolation_command read-package-lock-json sudo -u devgov-candidate test -r "$execution_root/package-lock.json"
           run_isolation_command npm-ci sudo -u devgov-candidate npm ci --prefix "$execution_root" --ignore-scripts

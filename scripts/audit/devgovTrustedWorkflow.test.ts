@@ -86,6 +86,35 @@ describe('DEV-GOV-V0 protected execution workflow', () => {
     }
   });
 
+  it('reports parent-directory traversal without changing the fail-closed command', () => {
+    const workflow = parse(readFileSync(workflowPath, 'utf8'));
+    const prepare = workflow.jobs.execute.steps.find(
+      (step) => step.name === 'Prepare isolated proof OS identity',
+    );
+
+    expect(prepare.run).toContain('report_isolation_probe()');
+    expect(prepare.run).toContain('DEVGOV_ISOLATION_PROBE_PASS=$label');
+    expect(prepare.run).toContain('DEVGOV_ISOLATION_PROBE_FAIL=$label');
+    expect(prepare.run).toContain('DEVGOV_ISOLATION_PROBE_EXIT=$status');
+    expect(prepare.run).toContain(
+      'run_isolation_command inspect-package-path namei -l "$execution_root/package.json"',
+    );
+    expect(prepare.run).toContain(
+      'report_isolation_probe traverse-workspace-parent sudo -u devgov-candidate test -x "$workspace_parent"',
+    );
+    expect(prepare.run).toContain(
+      'report_isolation_probe traverse-workspace sudo -u devgov-candidate test -x "$GITHUB_WORKSPACE"',
+    );
+    expect(prepare.run).toContain(
+      'report_isolation_probe traverse-execution-root sudo -u devgov-candidate test -x "$execution_root"',
+    );
+
+    const probeIndex = prepare.run.indexOf('report_isolation_probe traverse-execution-root');
+    const terminalReadIndex = prepare.run.indexOf('run_isolation_command read-package-json');
+    expect(probeIndex).toBeGreaterThan(-1);
+    expect(terminalReadIndex).toBeGreaterThan(probeIndex);
+  });
+
   it('checks out and executes the exact requested SHA with protected controller code', () => {
     const source = readFileSync(workflowPath, 'utf8');
 
