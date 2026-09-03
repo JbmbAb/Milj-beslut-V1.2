@@ -1,9 +1,34 @@
-import { Viewer, Cartesian3, Cartographic, GeoJsonDataSource, Color, ScreenSpaceEventHandler, ScreenSpaceEventType, Entity, HeadingPitchRange, Math as CesiumMath } from 'cesium';
+import {
+  Cartesian3,
+  Cartographic,
+  Color,
+  EllipsoidTerrainProvider,
+  Entity,
+  GeoJsonDataSource,
+  ImageryLayer,
+  Ion,
+  Math as CesiumMath,
+  OpenStreetMapImageryProvider,
+  ScreenSpaceEventHandler,
+  ScreenSpaceEventType,
+  UrlTemplateImageryProvider,
+  Viewer,
+} from 'cesium';
+import 'cesium/Build/Cesium/Widgets/widgets.css';
+import {
+  decideBasemapAttach,
+  type CesiumBasemapLifecycleSnapshot,
+} from './cesiumBasemapLifecycle';
+import { resolveCesiumBasemapChoice } from './cesiumBasemapRuntime';
+import { applyCesiumIonRuntimeConfiguration } from './cesiumIonRuntime';
+import { computePropertyCameraFit } from './cesiumPropertyCameraFit';
 
 // Ensure Cesium knows where to locate assets locally
 if (typeof window !== 'undefined') {
   (window as any).CESIUM_BASE_URL = '/cesium/';
 }
+
+const MIN_ZOOM_DISTANCE_METERS = 80;
 
 export interface CesiumAdapterConfig {
   container: HTMLDivElement;
@@ -41,9 +66,23 @@ export class CesiumAdapter {
    * click underneath it.
    */
   private onLocationPick: ((lat: number, lng: number) => void) | null = null;
+  private resizeObserver: ResizeObserver | null = null;
+  private pendingCameraFit: (() => void) | null = null;
+  /**
+   * CESIUM-BASEMAP-LIFECYCLE-01. True only after the chosen provider has been added to the
+   * live Viewer imageryLayers collection at positive canvas size. Not the same as "OSM was
+   * constructed before new Viewer()" — that pre-scene layer is the path this flag replaces.
+   */
+  private basemapAttached = false;
+  private basemapDeferLogged = false;
+  private basemapTileProgressLogged = false;
 
   constructor(config: CesiumAdapterConfig) {
-    // Instantiate Cesium Viewer with clean, focused options (no default heavy widgets)
+    applyCesiumIonRuntimeConfiguration(Ion, import.meta.env);
+
+    // CESIUM-BASEMAP-LIFECYCLE-01: never construct Viewer with Ion fromWorldImagery (empty
+    // token → unready layer, zero tiles) and never pass a pre-scene ImageryLayer. Attach
+    // OSM/local/Ion to the live collection after the canvas has a real size.
     this.viewer = new Viewer(config.container, {
       animation: false,
       timeline: false,
@@ -55,8 +94,13 @@ export class CesiumAdapter {
       selectionIndicator: true,
       navigationHelpButton: false,
       baseLayerPicker: false,
-      terrainProvider: undefined, // flat ellipsoid terrain for minimal L0/L1
+      baseLayer: false,
+      terrainProvider: new EllipsoidTerrainProvider(),
     });
+
+    this.viewer.scene.globe.depthTestAgainstTerrain = false;
+    this.viewer.scene.screenSpaceCameraController.minimumZoomDistance = MIN_ZOOM_DISTANCE_METERS;
+    this.viewer.scene.requestRenderMode = false;
 
     // Configure camera for Sweden view default
     this.viewer.camera.setView({
@@ -65,6 +109,190 @@ export class CesiumAdapter {
 
     this.onFeatureClick = config.onFeatureClick;
     this.setupClickHandler();
+    this.observeContainerSize(config.container);
+    this.resizeToContainer();
+  }
+
+  private observeContainerSize(container: HTMLDivElement): void {
+    if (typeof ResizeObserver === 'undefined') return;
+    this.resizeObserver = new ResizeObserver(() => {
+      this.resizeToContainer();
+      this.flushPendingCameraFit();
+    });
+    this.resizeObserver.observe(container);
+  }
+
+  /** Public so the React wrapper can force a resize after the LU map panel becomes visible. */
+  public resizeToContainer(): void {
+    if (this.destroyed) return;
+    this.viewer.resize();
+    this.attachBasemapIfReady();
+    this.viewer.scene.requestRender();
+  }
+
+  private canvasPixelSize(): { width: number; height: number } {
+    const container = this.viewer.container as HTMLElement;
+    return { width: container.clientWidth, height: container.clientHeight };
+  }
+
+  private attachBasemapIfReady(): void {
+    const canvas = this.canvasPixelSize();
+    const layerCount = this.viewer.imageryLayers.length;
+    const decision = decideBasemapAttach({
+      destroyed: this.destroyed,
+      attached: this.basemapAttached,
+      canvasWidth: canvas.width,
+      canvasHeight: canvas.height,
+      layerCount,
+    });
+
+    switch (decision.action) {
+      case 'defer':
+        if (!this.basemapDeferLogged) {
+          this.basemapDeferLogged = true;
+          this.logBasemapLifecycle({
+            choiceKind: resolveCesiumBasemapChoice(import.meta.env).kind,
+            action: decision.action,
+            reason: decision.reason,
+            canvasWidth: canvas.width,
+            canvasHeight: canvas.height,
+            layerCount,
+            layerReady: null,
+            globeShow: this.viewer.scene.globe.show,
+            tilesLoaded: this.viewer.scene.globe.tilesLoaded,
+          });
+        }
+        return;
+      case 'skip':
+        return;
+      case 'attach':
+        break;
+      default: {
+        const exhaustive: never = decision.action;
+        return exhaustive;
+      }
+    }
+
+    const choice = resolveCesiumBasemapChoice(import.meta.env);
+    switch (choice.kind) {
+      case 'ion-world-imagery':
+        this.viewer.imageryLayers.add(ImageryLayer.fromWorldImagery({}));
+        break;
+      case 'local-xyz':
+        this.viewer.imageryLayers.addImageryProvider(
+          new UrlTemplateImageryProvider({
+            url: choice.url,
+            credit: choice.credit,
+          }),
+        );
+        break;
+      case 'osm':
+        this.viewer.imageryLayers.addImageryProvider(
+          new OpenStreetMapImageryProvider({
+            url: choice.url,
+          }),
+        );
+        break;
+      default: {
+        const exhaustive: never = choice;
+        return exhaustive;
+      }
+    }
+
+    this.basemapAttached = true;
+    const layer = this.viewer.imageryLayers.get(0);
+    this.viewer.scene.globe.tileLoadProgressEvent.addEventListener((queued: number) => {
+      if (queued <= 0 || this.basemapTileProgressLogged) return;
+      this.basemapTileProgressLogged = true;
+      console.info('[CESIUM-BASEMAP-LIFECYCLE-01] tileLoadProgress', {
+        queued,
+        layerCount: this.viewer.imageryLayers.length,
+      });
+    });
+    this.logBasemapLifecycle({
+      choiceKind: choice.kind,
+      action: decision.action,
+      reason: decision.reason,
+      canvasWidth: canvas.width,
+      canvasHeight: canvas.height,
+      layerCount: this.viewer.imageryLayers.length,
+      layerReady: layer ? layer.ready : null,
+      globeShow: this.viewer.scene.globe.show,
+      tilesLoaded: this.viewer.scene.globe.tilesLoaded,
+    });
+  }
+
+  private logBasemapLifecycle(snapshot: CesiumBasemapLifecycleSnapshot): void {
+    console.info('[CESIUM-BASEMAP-LIFECYCLE-01]', snapshot);
+  }
+
+  private hasPositiveSize(): boolean {
+    const container = this.viewer.container as HTMLElement;
+    return container.clientWidth > 0 && container.clientHeight > 0;
+  }
+
+  private scheduleCameraFit(run: () => void): void {
+    this.pendingCameraFit = run;
+    this.flushPendingCameraFit();
+  }
+
+  private flushPendingCameraFit(): void {
+    if (this.destroyed || !this.pendingCameraFit) return;
+    this.resizeToContainer();
+    if (!this.hasPositiveSize()) return;
+    const run = this.pendingCameraFit;
+    this.pendingCameraFit = null;
+    run();
+  }
+
+  /**
+   * Fit from the property GeoJSON itself. DataSource bounding-sphere flyTo uses a cartesian
+   * sphere whose center is inside the ellipsoid for surface polygons — black globe, no tiles.
+   */
+  private fitToPropertyGeoJson(geojson: unknown): void {
+    const fit = computePropertyCameraFit(geojson);
+    if (!fit.ok) return;
+    this.scheduleCameraFit(() => {
+      if (this.destroyed) return;
+      const container = this.viewer.container as HTMLElement;
+      const before = this.viewer.camera.positionCartographic;
+      this.viewer.camera.setView({
+        destination: Cartesian3.fromDegrees(
+          fit.destination.longitude,
+          fit.destination.latitude,
+          fit.destination.heightMeters,
+        ),
+        orientation: {
+          heading: 0,
+          pitch: CesiumMath.toRadians(-90),
+          roll: 0,
+        },
+      });
+      const after = this.viewer.camera.positionCartographic;
+      console.info('[CESIUM-PROPERTY-CAMERA-FIT-01]', {
+        container: { width: container.clientWidth, height: container.clientHeight },
+        entityCount: this.propertyDataSource?.entities.values.length ?? 0,
+        geometryTypes: fit.geometryTypes,
+        finiteCoordinateCount: fit.finiteCoordinateCount,
+        bbox: fit.bbox,
+        cartesianSphere: fit.cartesianSphere,
+        classification: fit.classification,
+        destination: fit.destination,
+        cameraBefore: {
+          longitude: CesiumMath.toDegrees(before.longitude),
+          latitude: CesiumMath.toDegrees(before.latitude),
+          height: before.height,
+        },
+        cameraAfter: {
+          longitude: CesiumMath.toDegrees(after.longitude),
+          latitude: CesiumMath.toDegrees(after.latitude),
+          height: after.height,
+        },
+        sceneMode: this.viewer.scene.mode,
+        globeShow: this.viewer.scene.globe.show,
+      });
+      this.viewer.scene.requestRender();
+    });
   }
 
   private setupClickHandler(): void {
@@ -183,15 +411,18 @@ export class CesiumAdapter {
           } as any
         });
 
-        // Flight transition: fly to center with a 45 degree tilt looking North
-        this.viewer.camera.flyTo({
-          destination: Cartesian3.fromDegrees(lng, lat - 0.004, 350.0), // Zoom in close from south
-          orientation: {
-            heading: CesiumMath.toRadians(0.0), // Look North
-            pitch: CesiumMath.toRadians(-45.0), // 45 degrees tilt
-            roll: 0.0,
-          },
-          duration: 3.0,
+        // Flight transition: fly to center with a 45 degree tilt looking North -- only after
+        // the widget has a real size, so the destination is not computed against a 0x0 canvas.
+        this.scheduleCameraFit(() => {
+          this.viewer.camera.flyTo({
+            destination: Cartesian3.fromDegrees(lng, lat - 0.004, 350.0), // Zoom in close from south
+            orientation: {
+              heading: CesiumMath.toRadians(0.0), // Look North
+              pitch: CesiumMath.toRadians(-45.0), // 45 degrees tilt
+              roll: 0.0,
+            },
+            duration: 3.0,
+          });
         });
       }
       return;
@@ -209,17 +440,7 @@ export class CesiumAdapter {
       await this.viewer.dataSources.add(this.propertyDataSource);
       if (this.destroyed) return; // destroyed during the add() await too -- nothing left to fly to
 
-      // Smooth 3-second camera flight with a 45 degree tilt from the south looking North
-      const hpr = new HeadingPitchRange(
-        CesiumMath.toRadians(0.0), // heading: look North
-        CesiumMath.toRadians(-45.0), // pitch: look down at 45 degrees
-        0.0 // auto-calculate range
-      );
-
-      this.viewer.flyTo(this.propertyDataSource, {
-        duration: 3.0,
-        offset: hpr,
-      });
+      this.fitToPropertyGeoJson(geojson);
     } catch (err) {
       console.error('[CesiumAdapter] Failed to load property geometry:', err);
     }
@@ -367,6 +588,11 @@ export class CesiumAdapter {
   public destroy(): void {
     if (this.destroyed) return;
     this.destroyed = true;
+    this.pendingCameraFit = null;
+    if (this.resizeObserver) {
+      this.resizeObserver.disconnect();
+      this.resizeObserver = null;
+    }
     if (this.clickHandler) {
       this.clickHandler.destroy();
     }

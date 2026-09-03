@@ -95,6 +95,8 @@ describe('C-P1-04 — property lookup fallback authority enforcement', () => {
         source_updated_at: new Date('2026-01-01T00:00:00Z'),
         raw_properties: {},
         geometry_geojson: '{"type":"Point","coordinates":[18.2912,59.3146]}',
+        centroid_easting: 672000,
+        centroid_northing: 6580000,
       },
     ]);
 
@@ -104,11 +106,40 @@ describe('C-P1-04 — property lookup fallback authority enforcement', () => {
       designation: 'NACKA ORMINGE 7:8',
       source: 'postgis',
       matchType: 'exact',
+      boundaries: {
+        properties: {
+          centroidSweref99Tm: [672000, 6580000],
+        },
+      },
     });
     expect(mocks.executeRaw).not.toHaveBeenCalled();
     expect(mocks.documentRecordCreate).not.toHaveBeenCalled();
     expect(mocks.documentContentCreate).not.toHaveBeenCalled();
     expect(mocks.appendPropertyAudit).toHaveBeenCalledTimes(1);
     expect(mocks.writePropertyAccessLog).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not fabricate a centroid when canonical geometry has none', async () => {
+    mocks.queryRaw.mockResolvedValueOnce([
+      {
+        source_key: 'lm-empty',
+        designation: 'NACKA ORMINGE 7:9',
+        municipality_code: '0182',
+        municipality_name: 'Nacka',
+        county_code: '01',
+        source_dataset: 'fastighetskarta',
+        source_updated_at: new Date('2026-01-01T00:00:00Z'),
+        raw_properties: {},
+        geometry_geojson: '{"type":"MultiPolygon","coordinates":[]}',
+        centroid_easting: null,
+        centroid_northing: null,
+      },
+    ]);
+
+    const result = await lookupPropertyByDesignationFromPostgis(input, user);
+
+    expect((result as { boundaries: { properties: Record<string, unknown> } }).boundaries.properties).not.toHaveProperty(
+      'centroidSweref99Tm',
+    );
   });
 });

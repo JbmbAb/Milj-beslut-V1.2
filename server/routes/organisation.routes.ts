@@ -29,6 +29,10 @@ router.post('/api/orgs/:orgId/invitations', requireAuth, rateLimitByUser(20, 60_
       res.status(400).json({ ok: false, error: 'email och role krävs' });
       return;
     }
+    if (role.trim().toUpperCase() === 'ADMIN' && req.authUser.role !== 'ADMIN') {
+      res.status(403).json({ ok: false, error: 'ADMIN-inbjudan kräver ADMIN-behörighet' });
+      return;
+    }
 
     const invitation = await createInvitation({
       orgId: routeParam(req.params.orgId),
@@ -57,20 +61,33 @@ router.get('/api/orgs/:orgId/invitations', requireAuth, rateLimitByUser(30, 60_0
   }
 });
 
-router.post('/api/orgs/:orgId/invitations/accept', rateLimitByUser(10, 60_000), async (req, res) => {
-  try {
-    const { token, bankidId } = req.body as { token?: string; bankidId?: string };
-    if (!token || !bankidId) {
-      res.status(400).json({ ok: false, error: 'token och bankidId krävs' });
-      return;
-    }
+router.post(
+  '/api/orgs/:orgId/invitations/accept',
+  requireAuth,
+  rateLimitByUser(10, 60_000),
+  async (req, res) => {
+    try {
+      if (!req.authUser) {
+        res.status(401).json({ ok: false, error: 'Unauthorized' });
+        return;
+      }
+      const { token } = req.body as { token?: string; bankidId?: string };
+      if (!token) {
+        res.status(400).json({ ok: false, error: 'token krävs' });
+        return;
+      }
 
-    const result = await acceptInvitation({ orgId: routeParam(req.params.orgId), token, bankidId });
-    res.json({ ok: true, ...result });
-  } catch (error: unknown) {
-    res.status(400).json(toSafeErrorResponse(error));
-  }
-});
+      const result = await acceptInvitation({
+        orgId: routeParam(req.params.orgId),
+        token,
+        verifiedBankidId: req.authUser.bankidId,
+      });
+      res.json({ ok: true, ...result });
+    } catch (error: unknown) {
+      res.status(400).json(toSafeErrorResponse(error));
+    }
+  },
+);
 
 router.delete(
   '/api/orgs/:orgId/invitations/:inviteId',

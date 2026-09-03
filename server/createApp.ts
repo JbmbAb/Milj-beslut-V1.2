@@ -28,6 +28,7 @@ import sewageDocumentRouter from './routes/sewage.routes';
 import sewageApplicationsRouter from './routes/sewage.applications.routes';
 import sewageLegacyAliasRouter from './routes/sewage.legacy-alias.routes';
 import { governanceRouter } from './routes/governance.routes';
+import { documentEvidenceRouter } from './routes/documentEvidence.routes';
 
 import cNotificationMassRouter from './routes/cNotificationMass.routes';
 import hydroRouter from './routes/hydro.routes';
@@ -197,6 +198,7 @@ export function createApp() {
   app.use(legalRetrievalRouter);
   app.use(legalAnswerRouter);
   app.use('/api/governance', governanceRouter);
+  app.use(documentEvidenceRouter);
 
   // Refactored V1 Routes
   app.use(authRouter);

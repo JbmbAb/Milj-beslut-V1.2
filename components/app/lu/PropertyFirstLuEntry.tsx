@@ -5,7 +5,9 @@ import {
   getBootstrapStatus,
   listPropertyProjects,
   retryLocalizationBootstrap,
+  searchCanonicalPropertyCandidates,
   type BootstrapStatus,
+  type CanonicalPropertyCandidate,
   type LocalizationProjectListItem,
 } from '../../../src/ui/api-client/localizationProjects.client';
 import { setActiveProjectId } from '../../../services/coreApiClient';
@@ -39,9 +41,10 @@ const PENDING_BOOTSTRAP_KEY = 'miljobeslut_pending_bootstrap_project';
 
 type Phase =
   | { kind: 'search' }
-  | { kind: 'propertyFound'; propertyDesignation: string; projects: LocalizationProjectListItem[] }
-  | { kind: 'creating'; propertyDesignation: string }
-  | { kind: 'bootstrapping'; propertyDesignation: string; project: LocalizationProjectListItem; status: BootstrapStatus['status'] }
+  | { kind: 'candidates'; candidates: CanonicalPropertyCandidate[] }
+  | { kind: 'propertyFound'; property: CanonicalPropertyCandidate; projects: LocalizationProjectListItem[] }
+  | { kind: 'creating'; property: CanonicalPropertyCandidate }
+  | { kind: 'bootstrapping'; propertyDesignation: string; project: LocalizationProjectListItem; status: BootstrapStatus['status']; diagnosticMessage?: string }
   | { kind: 'bootstrapFailed'; propertyDesignation: string; project: LocalizationProjectListItem; failureCode: string | null; failureDetail: string | null }
   | { kind: 'ready'; propertyDesignation: string };
 
@@ -78,8 +81,9 @@ export const PropertyFirstLuEntry: React.FC = () => {
     setPhase({ kind: 'bootstrapping', propertyDesignation, project, status: 'PENDING' });
 
     const poll = async () => {
-      const status = await getBootstrapStatus(project.id).catch(() => null);
-      if (!status) return;
+      const response = await getBootstrapStatus(project.id).catch(() => null);
+      if (!response) return;
+      const { status, diagnostics } = response;
       if (status.status === 'COMPLETED') {
         stopPolling();
         localStorage.removeItem(PENDING_BOOTSTRAP_KEY);
@@ -93,7 +97,13 @@ export const PropertyFirstLuEntry: React.FC = () => {
         setPhase({ kind: 'bootstrapFailed', propertyDesignation, project, failureCode: status.failureCode, failureDetail: status.failureDetail });
         return;
       }
-      setPhase({ kind: 'bootstrapping', propertyDesignation, project, status: status.status });
+      setPhase({
+        kind: 'bootstrapping',
+        propertyDesignation,
+        project,
+        status: status.status,
+        diagnosticMessage: diagnostics?.message,
+      });
     };
 
     void poll();
@@ -127,10 +137,11 @@ export const PropertyFirstLuEntry: React.FC = () => {
     setSearchError('');
     setSearching(true);
     try {
-      const normalized = designation.trim().toUpperCase();
-      if (!normalized) throw new Error('Ange en fastighetsbeteckning.');
-      const projects = await listPropertyProjects(normalized);
-      setPhase({ kind: 'propertyFound', propertyDesignation: normalized, projects });
+      const query = designation.trim();
+      if (!query) throw new Error('Ange en fastighetsbeteckning.');
+      const candidates = await searchCanonicalPropertyCandidates(query);
+      if (candidates.length === 0) throw new Error('Ingen canonical fastighet hittades.');
+      setPhase({ kind: 'candidates', candidates });
     } catch (err) {
       setPhase({ kind: 'search' });
       setSearchError(err instanceof Error ? err.message : 'Fastighetssökning misslyckades.');
@@ -139,20 +150,42 @@ export const PropertyFirstLuEntry: React.FC = () => {
     }
   };
 
+  const selectProperty = async (property: CanonicalPropertyCandidate) => {
+    setSearchError('');
+    setSearching(true);
+    try {
+      const projects = await listPropertyProjects(property.designation);
+      setPhase({ kind: 'propertyFound', property, projects });
+    } catch (err) {
+      setPhase({ kind: 'candidates', candidates: phase.kind === 'candidates' ? phase.candidates : [] });
+      setSearchError(err instanceof Error ? err.message : 'Kunde inte läsa tidigare lokaliseringar.');
+    } finally {
+      setSearching(false);
+    }
+  };
+
   const openExisting = (propertyDesignation: string, project: LocalizationProjectListItem) => {
+    // PRODUCT-LU-VIEWER-CAPABILITY-PROVISIONING-01: observing COMPLETED bootstrap is the
+    // canonical automatic trigger for ViewerCapability enqueue. Opening an already-created
+    // localization must hit that path too -- otherwise the governed viewer stays unconfigured
+    // forever for every project that was not opened through the create+poll flow.
+    void Promise.resolve(getBootstrapStatus(project.id)).catch(() => null);
     setActiveProjectId(project.id);
     setPhase({ kind: 'ready', propertyDesignation });
   };
 
-  const createNew = async (propertyDesignation: string) => {
-    setPhase({ kind: 'creating', propertyDesignation });
+  const createNew = async (property: CanonicalPropertyCandidate) => {
+    setPhase({ kind: 'creating', property });
     try {
       const name = localizationName.trim() || `Lokalisering ${new Date().toLocaleDateString('sv-SE')}`;
-      const result = await createLocalizationProjectRequest({ propertyDesignation, name });
-      beginPolling(propertyDesignation, result.project);
+      const result = await createLocalizationProjectRequest({
+        property: { sourceKey: property.sourceKey, sourceDataset: property.sourceDataset, designation: property.designation },
+        name,
+      });
+      beginPolling(property.designation, result.project);
     } catch (err) {
-      const projects = await listPropertyProjects(propertyDesignation).catch(() => []);
-      setPhase({ kind: 'propertyFound', propertyDesignation, projects });
+      const projects = await listPropertyProjects(property.designation).catch(() => []);
+      setPhase({ kind: 'propertyFound', property, projects });
       setSearchError(err instanceof Error ? err.message : 'Kunde inte skapa lokalisering.');
     }
   };
@@ -181,7 +214,7 @@ export const PropertyFirstLuEntry: React.FC = () => {
         Sök fastighet, öppna en befintlig lokalisering eller skapa en ny.
       </p>
 
-      {(phase.kind === 'search' || phase.kind === 'propertyFound') && (
+      {(phase.kind === 'search' || phase.kind === 'candidates' || phase.kind === 'propertyFound') && (
         <section className="space-y-4 mb-10">
           <label className="block text-xs uppercase tracking-widest opacity-70">
             Fastighetsbeteckning
@@ -212,12 +245,31 @@ export const PropertyFirstLuEntry: React.FC = () => {
         </section>
       )}
 
+      {phase.kind === 'candidates' && (
+        <section data-testid="pf-candidates" className="border p-6 space-y-3" style={{ borderColor: colors.coreGraphite.hex }}>
+          <p className="text-xs uppercase tracking-widest opacity-60">Välj fastighet</p>
+          {phase.candidates.map((candidate) => (
+            <button
+              key={`${candidate.sourceDataset}:${candidate.sourceKey}`}
+              type="button"
+              data-testid={`pf-select-${candidate.sourceKey}`}
+              onClick={() => void selectProperty(candidate)}
+              className="block w-full border p-3 text-left text-sm"
+              style={{ borderColor: colors.coreGraphite.hex, color: colors.flowLightCyan.hex }}
+            >
+              <strong>{candidate.designation}</strong>
+              <span className="block text-xs opacity-60">{candidate.municipality || 'Okänd kommun'} · {candidate.sourceDataset}</span>
+            </button>
+          ))}
+        </section>
+      )}
+
       {phase.kind === 'propertyFound' && (
         <section data-testid="pf-property-card" className="border p-6 space-y-6" style={{ borderColor: colors.coreGraphite.hex }}>
           <div>
             <p className="text-xs uppercase tracking-widest opacity-60">Fastighet</p>
             <p data-testid="pf-property-designation" className="text-xl font-bold">
-              {phase.propertyDesignation}
+              {phase.property.designation}
             </p>
           </div>
 
@@ -237,7 +289,7 @@ export const PropertyFirstLuEntry: React.FC = () => {
                     <button
                       type="button"
                       data-testid={`pf-open-${p.id}`}
-                      onClick={() => openExisting(phase.propertyDesignation, p)}
+                      onClick={() => openExisting(phase.property.designation, p)}
                       className="px-3 py-1 text-xs font-semibold border"
                       style={{ borderColor: colors.coreTurquoise.hex, color: colors.flowLightCyan.hex }}
                     >
@@ -264,7 +316,7 @@ export const PropertyFirstLuEntry: React.FC = () => {
             <button
               type="button"
               data-testid="pf-create-new"
-              onClick={() => void createNew(phase.propertyDesignation)}
+              onClick={() => void createNew(phase.property)}
               className="px-4 py-2 text-sm font-semibold border"
               style={{ borderColor: colors.coreTurquoise.hex, color: colors.flowLightCyan.hex }}
             >
@@ -286,6 +338,9 @@ export const PropertyFirstLuEntry: React.FC = () => {
               Verifierar fastighet och etablerar governad projektkontext
               {phase.kind === 'bootstrapping' ? ` (${phase.status.toLowerCase()})` : '…'}
             </li>
+            {phase.kind === 'bootstrapping' && phase.diagnosticMessage ? (
+              <li className="text-amber-300/90">{phase.diagnosticMessage}</li>
+            ) : null}
           </ul>
         </section>
       )}

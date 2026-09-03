@@ -4,6 +4,7 @@ import { InMemoryArtifactRepository } from "../../mps-runtime/src/repository/InM
 import { createDocumentEvidenceArtifactV2, type DocumentEvidenceHashedRef } from "../src/artifacts/DocumentEvidenceArtifactV2";
 import { createDocumentFactCandidate, type DocumentFactCandidateSigner } from "../../mps-data-governance/src/createDocumentFactCandidate";
 import { verifyRealDocumentFactCandidate, type DocumentFactReviewSigner } from "../../mps-data-governance/src/verifyRealDocumentFactCandidate";
+import { createVerifiedDocumentFactV2 } from "../../mps-data-governance/src/VerifiedDocumentFactV2";
 import { DOCUMENT_FACT_VERIFICATION_POLICY_V1 } from "../../mps-data-governance/src/DocumentFactArtifact";
 import type { ContentReference } from "../../mps-core/src/types";
 import type { VerifiedDocumentFactArtifact } from "../../mps-data-governance/src/DocumentFactArtifact";
@@ -139,6 +140,31 @@ describe("H15-DOCUMENT-EVIDENCE-REHASH-COLD-REPLAY-V1: resolveEvidence", () => {
     });
     expect(result.mismatches[0]?.code).toBe("TAMPERED_EVIDENCE");
     expect(result.verified_document_facts).toHaveLength(0);
+  });
+
+  it("5: untouched real VerifiedDocumentFact V2 artifact -> PASS", async () => {
+    const v1 = await buildRealVerifiedFact();
+    const v2 = await createVerifiedDocumentFactV2(
+      v1,
+      {
+        artifact_id: "document_fact_review_attestation-h15",
+        artifact_type: "DOCUMENT_FACT_REVIEW_ATTESTATION",
+        content_hash: "a".repeat(64),
+      },
+      reviewerSigner,
+    );
+    const repo = new InMemoryArtifactRepository();
+    await repo.put({
+      artifact_id: v2.artifact_id,
+      content_hash: { algorithm: "sha256", value: v2.content_hash.digest },
+      body: v2,
+    });
+    const result = await resolveEvidence({
+      evidenceRefs: [{ artifact_id: v2.artifact_id, artifact_type: v2.artifact_type }],
+      artifactRepository: repo,
+    });
+    expect(result.mismatches).toEqual([]);
+    expect(result.verified_document_facts.map((fact) => fact.artifact_id)).toEqual([v2.artifact_id]);
   });
 
   it("6: unsupported/changed contract_version on an otherwise real V2 shape is treated as V1 (structural-only), never silently promoted", async () => {

@@ -141,6 +141,8 @@ model Project {
   organisationId                           String
   name                                     String?
   propertyDesignation                      String
+  propertySourceKey                        String?                                   @map("property_source_key")
+  propertySourceDataset                    String?                                   @map("property_source_dataset")
   status                                   ProjectStatus
   createdAt                                DateTime                                  @default(now())
   closedAt                                 DateTime?

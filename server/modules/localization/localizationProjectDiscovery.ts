@@ -15,11 +15,14 @@
  * get-or-create behaviour.
  */
 import { prisma } from '../../db/prisma';
+import type { CanonicalPropertySelection } from '../property/public';
 
 export interface LocalizationProjectSummary {
   readonly id: string;
   readonly name: string | null;
   readonly propertyDesignation: string;
+  readonly propertySourceKey: string | null;
+  readonly propertySourceDataset: string | null;
   readonly status: string;
   readonly createdAt: Date;
 }
@@ -36,7 +39,7 @@ export async function listProjectsForProperty(input: {
   return prisma.project.findMany({
     where: { organisationId: input.organisationId, propertyDesignation },
     orderBy: { createdAt: 'desc' },
-    select: { id: true, name: true, propertyDesignation: true, status: true, createdAt: true },
+    select: { id: true, name: true, propertyDesignation: true, propertySourceKey: true, propertySourceDataset: true, status: true, createdAt: true },
   });
 }
 
@@ -48,23 +51,27 @@ export async function listProjectsForProperty(input: {
  */
 export async function createLocalizationProject(input: {
   readonly organisationId: string;
-  readonly propertyDesignation: string;
+  readonly property: CanonicalPropertySelection;
   readonly name: string;
   readonly userId: string;
 }): Promise<LocalizationProjectSummary> {
   const name = String(input.name || '').trim();
-  const propertyDesignation = String(input.propertyDesignation || '').trim().toUpperCase();
+  const propertyDesignation = String(input.property.designation || '').trim().toUpperCase();
+  const propertySourceKey = String(input.property.sourceKey || '').trim();
+  const propertySourceDataset = String(input.property.sourceDataset || '').trim();
   if (!name) throw new Error('name is required');
-  if (!propertyDesignation) throw new Error('propertyDesignation is required');
+  if (!propertyDesignation || !propertySourceKey || !propertySourceDataset) throw new Error('canonical property selection is required');
 
   const project = await prisma.project.create({
     data: {
       organisationId: input.organisationId,
       name,
       propertyDesignation,
+      propertySourceKey,
+      propertySourceDataset,
       status: 'ACTIVE',
     },
-    select: { id: true, name: true, propertyDesignation: true, status: true, createdAt: true },
+    select: { id: true, name: true, propertyDesignation: true, propertySourceKey: true, propertySourceDataset: true, status: true, createdAt: true },
   });
 
   await prisma.projectMember.upsert({

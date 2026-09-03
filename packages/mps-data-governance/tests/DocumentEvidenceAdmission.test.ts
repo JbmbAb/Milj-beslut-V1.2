@@ -23,8 +23,12 @@ describe("DocumentEvidenceAdmitter", () => {
   let cas: FileCASRepository;
   const gov = LocalPemSigningKeyProvider.generate("ed25519:test-governance");
   const APPROVER_ACTOR_ID = "test-approver@example.com";
-  const APPROVER_ROLE = "ADMIN";
   const GOVERNANCE_RELEASE = "v1";
+  const PROPERTY_BINDING_REF = {
+    artifact_id: "property-binding-1",
+    artifact_type: "document_evidence_property_binding",
+    content_hash: "hash-property-binding-1",
+  };
 
   beforeAll(async () => {
     tmpDir = mkdtempSync(path.join(tmpdir(), "doc-evidence-admission-test-"));
@@ -64,8 +68,13 @@ describe("DocumentEvidenceAdmitter", () => {
       action: DOCUMENT_EVIDENCE_ADMISSION_ACTION,
       evidence_artifact_id: target.artifact_id,
       evidence_content_hash: target.content_hash.value,
-      approver_actor_id: APPROVER_ACTOR_ID,
-      approver_role: APPROVER_ROLE,
+      approver_actor_ref: {
+        identity_ref: { id: APPROVER_ACTOR_ID, content_hash: { algorithm: "sha256", digest: "hash-approver" } },
+        role: "GOVERNANCE_REVIEWER",
+      },
+      approver_role: "GOVERNANCE_REVIEWER",
+      verified_fact_refs: target.payload.verified_fact_refs,
+      property_binding_ref: PROPERTY_BINDING_REF,
       governance_release: GOVERNANCE_RELEASE,
       attestation_schema_version: DOCUMENT_EVIDENCE_ADMISSION_SCHEMA_VERSION,
       signer_key_id: signer.keyId,
@@ -176,6 +185,35 @@ describe("DocumentEvidenceAdmitter", () => {
     const attestation = await attestationFor(evidence);
     await expect(admitter.admit(evidence, attestation, GOVERNANCE_RELEASE, recomputeAlwaysMatches)).rejects.toThrow(
       /at least one verified_fact_ref/i,
+    );
+  });
+
+  it("rejects a predicate whose signed fact set differs from the evidence", async () => {
+    const admitter = new DocumentEvidenceAdmitter(cas, gov.provider);
+    const evidence = realEvidence();
+    const attestation = await attestationFor(evidence, {
+      verified_fact_refs: [{ artifact_id: "other", artifact_type: "VERIFIED_DOCUMENT_FACT", content_hash: "other" }],
+    });
+    await expect(admitter.admit(evidence, attestation, GOVERNANCE_RELEASE, recomputeAlwaysMatches)).rejects.toThrow(
+      /verified fact set/i,
+    );
+  });
+
+  it("rejects a free-text or non-governance approver role", async () => {
+    const admitter = new DocumentEvidenceAdmitter(cas, gov.provider);
+    const evidence = realEvidence();
+    const attestation = await attestationFor(evidence, { approver_role: "ADMIN" as never });
+    await expect(admitter.admit(evidence, attestation, GOVERNANCE_RELEASE, recomputeAlwaysMatches)).rejects.toThrow(
+      /GOVERNANCE_REVIEWER/i,
+    );
+  });
+
+  it("rejects an attestation bound to a different governance release", async () => {
+    const admitter = new DocumentEvidenceAdmitter(cas, gov.provider);
+    const evidence = realEvidence();
+    const attestation = await attestationFor(evidence, { governance_release: "other-release" });
+    await expect(admitter.admit(evidence, attestation, GOVERNANCE_RELEASE, recomputeAlwaysMatches)).rejects.toThrow(
+      /governance_release/i,
     );
   });
 });
