@@ -43,9 +43,9 @@ describe('DEV-GOV-V0 protected execution workflow', () => {
       (step) => step.name === 'Prepare isolated proof OS identity',
     );
 
-    expect(prepare.run).toContain('execution_root="$(realpath execution)"');
-    expect(prepare.run).toContain('test -f "$execution_root/package.json"');
-    expect(prepare.run).toContain('test -f "$execution_root/package-lock.json"');
+    expect(prepare.run).toContain('node controller/scripts/devgov/verify-execution-root.mjs');
+    expect(prepare.run).toContain('--workspace "$GITHUB_WORKSPACE"');
+    expect(prepare.run).toContain('--execution "$GITHUB_WORKSPACE/execution"');
     expect(prepare.run).toContain(
       'sudo -u devgov-candidate npm ci --prefix "$execution_root" --ignore-scripts',
     );
