@@ -125,10 +125,12 @@ function proofId(record, signer) {
 }
 
 function attestationPayload(record, signer) {
+  const { schema_version: executionRecordSchemaVersion, ...executionRecordFields } = record;
   return {
-    ...record,
+    ...executionRecordFields,
     schema_version: ATTESTATION_SCHEMA,
     attestation_version: ATTESTATION_VERSION,
+    execution_record_schema_version: executionRecordSchemaVersion,
     signature_algorithm: 'ed25519',
     issuer: signer.issuer,
     key_id: signer.key_id,
@@ -174,42 +176,18 @@ export function validateTrustPolicy(policy) {
 
 export function verifyExecutionAttestation(attestation, trustPolicy) {
   const errors = validateTrustPolicy(trustPolicy);
-  if (attestation?.schema_version !== ATTESTATION_SCHEMA) {
-    errors.push(`schema_version must be ${ATTESTATION_SCHEMA}`);
-  }
-  if (attestation?.attestation_version !== ATTESTATION_VERSION) {
-    errors.push(`attestation_version must be ${ATTESTATION_VERSION}`);
-  }
-  if (attestation?.signature_algorithm !== 'ed25519') {
-    errors.push('signature_algorithm must be ed25519');
-  }
-  if (!attestation?.signature) errors.push('signature is required');
+  const { signature, ...payload } = attestation || {};
   const trustedIssuer = trustPolicy?.trusted_issuers?.find(
-    (candidate) => candidate.issuer === attestation?.issuer && candidate.key_id === attestation?.key_id,
+    (candidate) => candidate.issuer === payload.issuer && candidate.key_id === payload.key_id,
   );
   if (!trustedIssuer) errors.push('attestation issuer/key is not trusted');
-  if (trustedIssuer && trustedIssuer.workflow_ref !== attestation?.workflow_ref) {
+  if (trustedIssuer && trustedIssuer.workflow_ref !== payload.workflow_ref) {
     errors.push('attestation workflow_ref is not trusted');
   }
-  if (trustedIssuer && trustedIssuer.runner_identity !== attestation?.runner_identity) {
+  if (trustedIssuer && trustedIssuer.runner_identity !== payload.runner_identity) {
     errors.push('attestation runner_identity is not trusted');
   }
-  const { signature, ...payload } = attestation || {};
-  const recordIssuer = payload.issuer;
-  const recordKeyId = payload.key_id;
-  const recordProofId = payload.proof_id;
-  const recordFields = { ...payload };
-  delete recordFields.attestation_version;
-  delete recordFields.signature_algorithm;
-  delete recordFields.issuer;
-  delete recordFields.key_id;
-  delete recordFields.proof_id;
-  const executionRecord = { ...recordFields, schema_version: EXECUTION_RECORD_SCHEMA };
-  const recordErrors = validateExecutionRecord(executionRecord);
-  errors.push(...recordErrors);
-  if (recordProofId !== proofId(executionRecord, { issuer: recordIssuer, key_id: recordKeyId })) {
-    errors.push('proof_id mismatch');
-  }
+  if (!signature) errors.push('signature is required');
   if (trustedIssuer && signature) {
     try {
       const publicKey = createPublicKey(trustedIssuer.public_key_pem);
@@ -223,6 +201,35 @@ export function verifyExecutionAttestation(attestation, trustPolicy) {
     } catch (error) {
       errors.push(`attestation signature verification failed: ${error.message}`);
     }
+  }
+
+  const {
+    schema_version: envelopeSchemaVersion,
+    attestation_version: attestationVersion,
+    execution_record_schema_version: executionRecordSchemaVersion,
+    signature_algorithm: signatureAlgorithm,
+    issuer: recordIssuer,
+    key_id: recordKeyId,
+    proof_id: recordProofId,
+    ...executionRecordFields
+  } = payload;
+  if (envelopeSchemaVersion !== ATTESTATION_SCHEMA) {
+    errors.push(`schema_version must be ${ATTESTATION_SCHEMA}`);
+  }
+  if (attestationVersion !== ATTESTATION_VERSION) {
+    errors.push(`attestation_version must be ${ATTESTATION_VERSION}`);
+  }
+  if (signatureAlgorithm !== 'ed25519') {
+    errors.push('signature_algorithm must be ed25519');
+  }
+
+  const executionRecord = {
+    schema_version: executionRecordSchemaVersion,
+    ...executionRecordFields,
+  };
+  errors.push(...validateExecutionRecord(executionRecord));
+  if (recordProofId !== proofId(executionRecord, { issuer: recordIssuer, key_id: recordKeyId })) {
+    errors.push('proof_id mismatch');
   }
   return { valid: errors.length === 0, errors };
 }

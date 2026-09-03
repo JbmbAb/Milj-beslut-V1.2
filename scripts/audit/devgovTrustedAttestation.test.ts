@@ -1,4 +1,4 @@
-import { generateKeyPairSync } from 'node:crypto';
+import { generateKeyPairSync, sign as signBytes } from 'node:crypto';
 
 import { describe, expect, it } from 'vitest';
 
@@ -9,7 +9,14 @@ import {
   signExecutionRecord,
   unitDefinitionHash,
 } from '../devgov/devgov.mjs';
-import { executionResultDigest } from '../devgov/trusted-attestation.mjs';
+import {
+  ATTESTATION_SCHEMA,
+  ATTESTATION_VERSION,
+  EXECUTION_RECORD_SCHEMA,
+  executionResultDigest,
+  stableJson,
+  verifyExecutionAttestation,
+} from '../devgov/trusted-attestation.mjs';
 import { PINNED_VERIFIER_AUTHORITY } from '../devgov/github-oidc.mjs';
 
 const issuer = 'github-actions:example/repo:devgov-v0-attest';
@@ -114,7 +121,74 @@ function signedPair(privateKey) {
   return [red, green];
 }
 
+function resignAttestation(attestation, privateKey, mutate) {
+  const { signature: _signature, ...payload } = attestation;
+  const changedPayload = mutate({ ...payload });
+  const signature = signBytes(null, Buffer.from(stableJson(changedPayload)), privateKey).toString('base64');
+  return { ...changedPayload, signature };
+}
+
 describe('DEV-GOV-V0 trusted execution authority', () => {
+  it('binds the exact current execution-record schema inside the signed envelope', () => {
+    const trusted = keys();
+    const [red] = signedPair(trusted.privateKey);
+
+    expect(red.schema_version).toBe(ATTESTATION_SCHEMA);
+    expect(red.attestation_version).toBe(ATTESTATION_VERSION);
+    expect(red.execution_record_schema_version).toBe(EXECUTION_RECORD_SCHEMA);
+    expect(verifyExecutionAttestation(red, policy(trusted.publicKey))).toEqual({
+      valid: true,
+      errors: [],
+    });
+  });
+
+  it.each([
+    ['old', 'dev-gov-v0-trusted-execution-record'],
+    ['future', 'dev-gov-v2-trusted-execution-record'],
+    ['wrong type', 1],
+  ])('denies a legitimately signed %s inner schema version', (_label, schemaVersion) => {
+    const trusted = keys();
+    const [red] = signedPair(trusted.privateKey);
+    const changed = resignAttestation(red, trusted.privateKey, (payload) => ({
+      ...payload,
+      execution_record_schema_version: schemaVersion,
+    }));
+
+    const result = verifyExecutionAttestation(changed, policy(trusted.publicKey));
+
+    expect(result.valid).toBe(false);
+    expect(result.errors).toContain(`schema_version must be ${EXECUTION_RECORD_SCHEMA}`);
+  });
+
+  it('denies a legitimately signed missing inner schema version', () => {
+    const trusted = keys();
+    const [red] = signedPair(trusted.privateKey);
+    const changed = resignAttestation(red, trusted.privateKey, (payload) => {
+      delete payload.execution_record_schema_version;
+      return payload;
+    });
+
+    const result = verifyExecutionAttestation(changed, policy(trusted.publicKey));
+
+    expect(result.valid).toBe(false);
+    expect(result.errors).toContain(`schema_version must be ${EXECUTION_RECORD_SCHEMA}`);
+  });
+
+  it('denies a legitimately signed envelope/inner version mismatch', () => {
+    const trusted = keys();
+    const [red] = signedPair(trusted.privateKey);
+    const changed = resignAttestation(red, trusted.privateKey, (payload) => ({
+      ...payload,
+      schema_version: 'dev-gov-v0-trusted-execution-attestation',
+      execution_record_schema_version: EXECUTION_RECORD_SCHEMA,
+    }));
+
+    const result = verifyExecutionAttestation(changed, policy(trusted.publicKey));
+
+    expect(result.valid).toBe(false);
+    expect(result.errors).toContain(`schema_version must be ${ATTESTATION_SCHEMA}`);
+  });
+
   it('accepts exact RED/GREEN claims signed by the externally trusted issuer', () => {
     const { privateKey, publicKey } = keys();
 
