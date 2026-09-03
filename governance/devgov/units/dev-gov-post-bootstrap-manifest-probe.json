@@ -1,0 +1,55 @@
+{
+  "schema_version": "dev-gov-v1-unit-definition",
+  "unit": "DEV-GOV-POST-BOOTSTRAP-MANIFEST-PROBE",
+  "role": "producer",
+  "mode": "writer",
+  "branch": "codex/dev-gov-post-bootstrap-manifest-probe",
+  "base_sha": "7e2f151c16d7bc3c9f54b19c6451530826c4ebbd",
+  "ancestry_policy": "exact_parent",
+  "allowed_paths": [
+    "governance/devgov/units/dev-gov-post-bootstrap-manifest-probe.json"
+  ],
+  "forbidden_paths": [
+    ".github/**",
+    "scripts/devgov/**",
+    "governance/devgov/schema/**",
+    "server/**",
+    "services/**",
+    "packages/**"
+  ],
+  "required_red": [
+    {
+      "id": "committed-probe-definition",
+      "command": "node",
+      "args": [
+        "--input-type=module",
+        "-e",
+        "const fs=await import('node:fs');process.exit(fs.existsSync('governance/devgov/units/dev-gov-post-bootstrap-manifest-probe.json')?0:1)"
+      ],
+      "expected_classification": "FAIL",
+      "required_head": "base_sha"
+    }
+  ],
+  "required_green": [
+    {
+      "id": "committed-probe-definition",
+      "command": "node",
+      "args": [
+        "--input-type=module",
+        "-e",
+        "const fs=await import('node:fs');process.exit(fs.existsSync('governance/devgov/units/dev-gov-post-bootstrap-manifest-probe.json')?0:1)"
+      ],
+      "required_head": "candidate_sha"
+    }
+  ],
+  "trusted_execution": {
+    "issuer": "github-actions:JbmbAb/Milj-beslut-V1.2:devgov-v0-attest",
+    "key_id": "devgov-ci-ed25519-v1"
+  },
+  "remote": {
+    "name": "origin",
+    "branch": "codex/dev-gov-post-bootstrap-manifest-probe",
+    "push_policy": "no_force",
+    "absent_policy": "deny_absent"
+  }
+}
