@@ -1,25 +1,32 @@
-# ADR (DRAFT) — Autonomy Qualification Engine (Section D)
+# ADR — Autonomy Qualification Engine (Section D)
 
 ## Status
 
-**DRAFT / PROPOSED — NOT ADOPTED.** Committed per the same rule this repo already applies to
+**ADOPTED AS ARCHITECTURAL POLICY** by explicit owner sign-off, 2026-09-03. All six items formerly
+open in §"Required before adoption" are APPROVED — recorded verbatim in §"Owner sign-off record"
+below. Originally committed as DRAFT/PROPOSED per the same rule this repo applies to
 `ADR-DRAFT-Source-Registry-Pipeline.md`: a document that shapes future authority must not sit
-uncommitted, claiming provisional weight it hasn't earned (see the C24 finding in the Section C
-conflict matrix — an uncommitted document asserting "Frysta" invariants is exactly the anti-pattern
-this ADR must not reproduce). Committing this draft is not adoption. It requires explicit owner
-sign-off before any of it governs a real decision.
+uncommitted, claiming provisional weight it hasn't earned (the C24 finding in the Section C conflict
+matrix).
+
+**Adoption of this policy is not authorization to implement it, and grants no autonomy to anything.**
 
 ```
-SECTION D:                    DESIGN_MATURE
-IMPLEMENTATION:                NONE
-PROOF_STATUS:                  NEVER_CLAIMED
-RUNTIME ENFORCEMENT:           NOT IMPLEMENTED
-AUTONOMY AUTHORIZATION:        NONE GRANTED BY SECTION D
+OWNER_SIGN_OFF:            APPROVED
+ADR_DESIGN:                ADOPTED
+DESIGN_STATUS:             DESIGN_MATURE
+IMPLEMENTATION:            NONE
+PROOF_STATUS:              NEVER_CLAIMED
+RUNTIME_ENFORCEMENT:       NOT IMPLEMENTED
+AUTONOMY_GRANTED:          NONE
+IMPLEMENTATION_AUTHORIZED: SEPARATE EXECUTION DECISION REQUIRED
 ```
 
-**No capability in this repository may currently be labeled GA-L3, GA-L4, or GA-L5 on the basis of
-this document.** The model exists at design level only. Qualification proof and runtime enforcement
-do not exist yet.
+**No capability in this repository may be labeled GA-L3, GA-L4, or GA-L5 on the basis of this
+document.** The model is adopted at policy level only. Qualification proof and runtime enforcement
+do not exist. The filename keeps its `ADR-DRAFT-` prefix only because renaming would break the
+commit-lineage reference the sign-off binds to; the Status block above, not the filename, is
+authoritative for this document's state.
 
 ## Context
 
@@ -257,13 +264,110 @@ capability in this repository.
 - Does not itself constitute the external authority `authority_grant_ref` would point to — that
   authority source is out of scope for this document and must be established separately.
 
-## Required before adoption (owner sign-off)
+## Required before adoption (owner sign-off) — RESOLVED
 
-1. Confirm the two-phase architecture and DENY-before-MIN ordering (§1–2).
-2. Confirm the ratchet invariant and revocation/requalification asymmetry (§3).
-3. Confirm or amend the predicate table (§4) — implementation cannot proceed against an
-   unconfirmed contract.
-4. Confirm the canonical-body/metadata split and the `expires_at` decision (§5).
-5. Confirm or amend the Section C mapping table (§6).
-6. Name the actual external authority source `authority_grant_ref` will resolve against — not
-   defined by this ADR.
+1. ~~Confirm the two-phase architecture and DENY-before-MIN ordering (§1–2).~~ **APPROVED.**
+2. ~~Confirm the ratchet invariant and revocation/requalification asymmetry (§3).~~ **APPROVED.**
+3. ~~Confirm or amend the predicate table (§4).~~ **APPROVED.**
+4. ~~Confirm the canonical-body/metadata split and the `expires_at` decision (§5).~~ **APPROVED.**
+5. ~~Confirm or amend the Section C mapping table (§6).~~ **APPROVED.**
+6. **Name the actual external authority source `authority_grant_ref` resolves against.**
+   Still not defined by this ADR. The sign-off approves the *requirement* that external authority be
+   independently resolved and verified (§4 of the sign-off record: "External authority MUST be
+   independently resolved and verified"), but does not name the concrete authority source. That
+   remains an open input to implementation.
+
+## Owner sign-off record
+
+Recorded verbatim, 2026-09-03. The owner noted that this ADR's commit was not readable from the
+remote at sign-off time (it exists only in the local checkout — see the push-state caveat at the end
+of this section), and therefore based the sign-off on the six normative points as frozen in the
+originating decision thread rather than on the committed file text. Those six points and the file's
+§1–§7 are the same content; this note records the provenance difference honestly rather than
+implying a binding that did not occur.
+
+**1. Autonomy does not create authority — APPROVED**
+
+An autonomy level, qualification, profile, capability classification, or effective level does not
+authorize an action. A material action is permitted only when all applicable requirements hold:
+valid action-specific authority; valid autonomy authorization; valid exact subject/configuration
+binding; valid runtime eligibility; valid required proof; no applicable prohibition. **The most
+restrictive applicable boundary always wins.**
+
+**2. Effective level is derived, never canonical state — APPROVED**
+
+`effective_level` MUST be derived at runtime for the material operation being evaluated. It MUST NOT
+be authored, persisted, promoted, or treated as canonical truth. Build/deploy qualification
+establishes only qualified ceilings and qualification status. Runtime derivation follows the
+two-stage rule: DENY predicates first; only if none apply, `effective_level = MIN(...)` over the
+eight ceiling terms defined in §2 of this ADR.
+
+**3. Exact subject and configuration binding — APPROVED**
+
+Every qualification MUST bind to the exact subject qualified. The binding MUST include, where
+behavior-affecting: capability identity; capability version/hash; execution configuration; policy
+version; model configuration; tool configuration; authority grant. A material change to any
+behavior-affecting bound component invalidates the affected qualification until requalification.
+Qualification MUST NOT silently transfer to an equivalent-looking replacement, descendant, rebuilt
+candidate, changed model, changed toolset, or changed execution configuration.
+
+**4. Profile and evidence are claims, not authority — APPROVED**
+
+An `AutonomyQualificationArtifact` is a qualification claim; an `AutonomyProfile` is a governance
+claim; an evidence record is a proof claim. None may establish their own authority. External
+authority MUST be independently resolved and verified. The subject being qualified MUST NOT
+self-authorize, self-promote, self-expand delegation, or self-certify required independent proof.
+Evidence required for qualification MUST be bound to the exact subject/configuration the
+qualification applies to.
+
+**5. Runtime enforcement is mandatory — APPROVED**
+
+Every material autonomy boundary MUST be enforced by runtime. Documentation, metadata, profile
+state, qualification state, declared autonomy level, or evidence state without corresponding runtime
+enforcement SHALL NOT constitute valid autonomy authorization. Failure to establish a required
+runtime predicate SHALL fail closed. Absolute runtime DENY conditions include at minimum the eight
+predicates in §2. **An `INVALIDATED` proof MUST result in DENY for dependent material actions; it
+MUST NOT be represented merely as a lower evidence ceiling.**
+
+**6. Restoration and re-promotion require new external authorization — APPROVED**
+
+Automatic controls MAY reduce, suspend, or revoke autonomy, and MAY deny an operation. Automatic
+controls MUST NOT restore autonomy, increase autonomy, re-promote a capability, or reinstate revoked
+delegation. After suspension, revocation, expiry, invalidated proof, material configuration change,
+or any other qualification-invalidating event, renewed external authority **and** current valid
+proof **and** requalification are all required before a higher autonomy ceiling may become available
+again. **Recovery of the underlying technical condition alone MUST NOT restore the previous autonomy
+state.**
+
+**Additional owner decisions — APPROVED**
+
+- **Two-phase qualification architecture** — as specified in §1.
+- **Canonical identity boundary** — the artifact SHALL distinguish canonical qualification content
+  from observational/operational metadata. `expires_at` is part of the substantive qualification
+  validity claim and SHALL be bound canonically. Pure observation timestamps such as `qualified_at`,
+  where they do not alter qualification semantics, SHALL NOT by themselves define canonical artifact
+  identity.
+- **Ceiling naming** — use `qualified_authority_ceiling`, `qualified_evidence_ceiling`,
+  `qualified_runtime_ceiling`, `qualified_action_ceiling` consistently.
+  `qualified_authority_ceiling` means a verified ceiling derived from external authority; it does not
+  create, extend, replace, or renew that authority.
+
+**Adoption ruling**
+
+```
+OWNER_SIGN_OFF:            APPROVED
+ADR_DESIGN:                ADOPTED
+DESIGN_STATUS:             DESIGN_MATURE
+IMPLEMENTATION:            NONE
+PROOF_STATUS:              NEVER_CLAIMED
+RUNTIME_ENFORCEMENT:       NOT IMPLEMENTED
+AUTONOMY_GRANTED:          NONE
+IMPLEMENTATION_AUTHORIZED: SEPARATE EXECUTION DECISION REQUIRED
+```
+
+**Push-state caveat at time of sign-off.** This ADR and the entire documentation-closure track
+preceding it (D1–D8, final normalization, Sections A–C) were committed to the local checkout only.
+At sign-off, local `feat/p2-p3-governed-chain-reproducible` was 16 commits ahead of and 40 commits
+behind `origin`, whose tip was `1773d42c`. Reconciling that divergence is a separate decision and had
+not been made. Anyone reading this ADR from the remote should confirm the local/remote state before
+relying on the surrounding commit lineage.
