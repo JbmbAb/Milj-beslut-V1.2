@@ -99,15 +99,21 @@ jobs:
 
       - name: Prepare isolated proof OS identity
         run: |
+          execution_root="$(realpath execution)"
+          test "$execution_root" = "$(realpath "$GITHUB_WORKSPACE/execution")"
+          test -f "$execution_root/package.json"
+          test -f "$execution_root/package-lock.json"
           sudo useradd --system --create-home --shell /usr/sbin/nologin devgov-candidate
-          sudo chown -R devgov-candidate:devgov-candidate execution
-          sudo -u devgov-candidate npm ci --prefix execution --ignore-scripts
+          sudo chown -R devgov-candidate:devgov-candidate "$execution_root"
+          sudo -u devgov-candidate test -r "$execution_root/package.json"
+          sudo -u devgov-candidate test -r "$execution_root/package-lock.json"
+          sudo -u devgov-candidate npm ci --prefix "$execution_root" --ignore-scripts
           sudo chown -R root:root candidate
           sudo chmod -R a-w candidate
-          sudo chown -R root:root execution
-          sudo chmod -R a-w execution
-          sudo chown -R devgov-candidate:devgov-candidate execution/node_modules
-          sudo chmod -R u+w execution/node_modules
+          sudo chown -R root:root "$execution_root"
+          sudo chmod -R a-w "$execution_root"
+          sudo chown -R devgov-candidate:devgov-candidate "$execution_root/node_modules"
+          sudo chmod -R u+w "$execution_root/node_modules"
           sudo git config --global --add safe.directory "$GITHUB_WORKSPACE/candidate"
           sudo git config --global --add safe.directory "$GITHUB_WORKSPACE/execution"
           sudo install -d -m 0700 -o root -g root "$RUNNER_TEMP/devgov-controller"

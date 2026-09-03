@@ -29,12 +29,27 @@ describe('DEV-GOV-V0 protected execution workflow', () => {
     expect(source).toContain('install -d -m 0700 -o root -g root');
     expect(source).toContain('chown -R root:root candidate');
     expect(source).toContain('chmod -R a-w candidate');
-    expect(source).toContain('chown -R devgov-candidate:devgov-candidate execution/node_modules');
+    expect(source).toContain('chown -R devgov-candidate:devgov-candidate "$execution_root/node_modules"');
     expect(source).toContain('--run-as-uid "$candidate_uid"');
     expect(source).toContain('--run-as-gid "$candidate_gid"');
     expect(source).toContain('--run-as-home /home/devgov-candidate');
     expect(source).toContain('$RUNNER_TEMP/devgov-controller/execution-record.json');
     expect(source).toContain('$RUNNER_TEMP/devgov-export/execution-record.json');
+  });
+
+  it('installs dependencies from the canonical exact execution checkout root', () => {
+    const workflow = parse(readFileSync(workflowPath, 'utf8'));
+    const prepare = workflow.jobs.execute.steps.find(
+      (step) => step.name === 'Prepare isolated proof OS identity',
+    );
+
+    expect(prepare.run).toContain('execution_root="$(realpath execution)"');
+    expect(prepare.run).toContain('test -f "$execution_root/package.json"');
+    expect(prepare.run).toContain('test -f "$execution_root/package-lock.json"');
+    expect(prepare.run).toContain(
+      'sudo -u devgov-candidate npm ci --prefix "$execution_root" --ignore-scripts',
+    );
+    expect(prepare.run).not.toContain('npm ci --prefix execution');
   });
 
   it('checks out and executes the exact requested SHA with protected controller code', () => {
