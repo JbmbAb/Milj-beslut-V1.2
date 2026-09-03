@@ -99,24 +99,52 @@ jobs:
 
       - name: Prepare isolated proof OS identity
         run: |
+          run_isolation_command() {
+            local label="$1"
+            shift
+            echo "DEVGOV_ISOLATION_START=$label"
+            set +e
+            "$@"
+            local status=$?
+            set -e
+            if [ "$status" -ne 0 ]; then
+              echo "DEVGOV_FAILED_COMMAND=$label" >&2
+              echo "DEVGOV_FAILED_EXIT=$status" >&2
+              exit "$status"
+            fi
+            echo "DEVGOV_ISOLATION_PASS=$label"
+          }
+
+          label=verify-execution-root
+          echo "DEVGOV_ISOLATION_START=$label"
+          set +e
           execution_root="$(node controller/scripts/devgov/verify-execution-root.mjs \
             --workspace "$GITHUB_WORKSPACE" \
             --execution "$GITHUB_WORKSPACE/execution")"
-          sudo useradd --system --create-home --shell /usr/sbin/nologin devgov-candidate
-          sudo chown -R devgov-candidate:devgov-candidate "$execution_root"
-          sudo -u devgov-candidate test -r "$execution_root/package.json"
-          sudo -u devgov-candidate test -r "$execution_root/package-lock.json"
-          sudo -u devgov-candidate npm ci --prefix "$execution_root" --ignore-scripts
-          sudo chown -R root:root candidate
-          sudo chmod -R a-w candidate
-          sudo chown -R root:root "$execution_root"
-          sudo chmod -R a-w "$execution_root"
-          sudo chown -R devgov-candidate:devgov-candidate "$execution_root/node_modules"
-          sudo chmod -R u+w "$execution_root/node_modules"
-          sudo git config --global --add safe.directory "$GITHUB_WORKSPACE/candidate"
-          sudo git config --global --add safe.directory "$GITHUB_WORKSPACE/execution"
-          sudo install -d -m 0700 -o root -g root "$RUNNER_TEMP/devgov-controller"
-          install -d -m 0700 "$RUNNER_TEMP/devgov-export"
+          status=$?
+          set -e
+          if [ "$status" -ne 0 ]; then
+            echo "DEVGOV_FAILED_COMMAND=$label" >&2
+            echo "DEVGOV_FAILED_EXIT=$status" >&2
+            exit "$status"
+          fi
+          echo "DEVGOV_ISOLATION_PASS=$label"
+
+          run_isolation_command useradd sudo useradd --system --create-home --shell /usr/sbin/nologin devgov-candidate
+          run_isolation_command chown-execution-root sudo chown -R devgov-candidate:devgov-candidate "$execution_root"
+          run_isolation_command read-package-json sudo -u devgov-candidate test -r "$execution_root/package.json"
+          run_isolation_command read-package-lock-json sudo -u devgov-candidate test -r "$execution_root/package-lock.json"
+          run_isolation_command npm-ci sudo -u devgov-candidate npm ci --prefix "$execution_root" --ignore-scripts
+          run_isolation_command freeze-candidate-owner sudo chown -R root:root candidate
+          run_isolation_command freeze-candidate-mode sudo chmod -R a-w candidate
+          run_isolation_command freeze-execution-owner sudo chown -R root:root "$execution_root"
+          run_isolation_command freeze-execution-mode sudo chmod -R a-w "$execution_root"
+          run_isolation_command restore-node-modules-owner sudo chown -R devgov-candidate:devgov-candidate "$execution_root/node_modules"
+          run_isolation_command restore-node-modules-mode sudo chmod -R u+w "$execution_root/node_modules"
+          run_isolation_command safe-directory-candidate sudo git config --global --add safe.directory "$GITHUB_WORKSPACE/candidate"
+          run_isolation_command safe-directory-execution sudo git config --global --add safe.directory "$GITHUB_WORKSPACE/execution"
+          run_isolation_command create-controller-dir sudo install -d -m 0700 -o root -g root "$RUNNER_TEMP/devgov-controller"
+          run_isolation_command create-export-dir install -d -m 0700 "$RUNNER_TEMP/devgov-export"
 
       - name: Execute declared proof command
         env:

@@ -52,6 +52,40 @@ describe('DEV-GOV-V0 protected execution workflow', () => {
     expect(prepare.run).not.toContain('npm ci --prefix execution');
   });
 
+  it('identifies the exact isolation-bootstrap command without tracing command data', () => {
+    const workflow = parse(readFileSync(workflowPath, 'utf8'));
+    const prepare = workflow.jobs.execute.steps.find(
+      (step) => step.name === 'Prepare isolated proof OS identity',
+    );
+
+    expect(prepare.run).toContain('run_isolation_command()');
+    expect(prepare.run).toContain('DEVGOV_ISOLATION_START=$label');
+    expect(prepare.run).toContain('DEVGOV_ISOLATION_PASS=$label');
+    expect(prepare.run).toContain('DEVGOV_FAILED_COMMAND=$label');
+    expect(prepare.run).toContain('DEVGOV_FAILED_EXIT=$status');
+    expect(prepare.run).not.toContain('set -x');
+
+    for (const invocation of [
+      'run_isolation_command useradd sudo useradd --system --create-home --shell /usr/sbin/nologin devgov-candidate',
+      'run_isolation_command chown-execution-root sudo chown -R devgov-candidate:devgov-candidate "$execution_root"',
+      'run_isolation_command read-package-json sudo -u devgov-candidate test -r "$execution_root/package.json"',
+      'run_isolation_command read-package-lock-json sudo -u devgov-candidate test -r "$execution_root/package-lock.json"',
+      'run_isolation_command npm-ci sudo -u devgov-candidate npm ci --prefix "$execution_root" --ignore-scripts',
+      'run_isolation_command freeze-candidate-owner sudo chown -R root:root candidate',
+      'run_isolation_command freeze-candidate-mode sudo chmod -R a-w candidate',
+      'run_isolation_command freeze-execution-owner sudo chown -R root:root "$execution_root"',
+      'run_isolation_command freeze-execution-mode sudo chmod -R a-w "$execution_root"',
+      'run_isolation_command restore-node-modules-owner sudo chown -R devgov-candidate:devgov-candidate "$execution_root/node_modules"',
+      'run_isolation_command restore-node-modules-mode sudo chmod -R u+w "$execution_root/node_modules"',
+      'run_isolation_command safe-directory-candidate sudo git config --global --add safe.directory "$GITHUB_WORKSPACE/candidate"',
+      'run_isolation_command safe-directory-execution sudo git config --global --add safe.directory "$GITHUB_WORKSPACE/execution"',
+      'run_isolation_command create-controller-dir sudo install -d -m 0700 -o root -g root "$RUNNER_TEMP/devgov-controller"',
+      'run_isolation_command create-export-dir install -d -m 0700 "$RUNNER_TEMP/devgov-export"',
+    ]) {
+      expect(prepare.run).toContain(invocation);
+    }
+  });
+
   it('checks out and executes the exact requested SHA with protected controller code', () => {
     const source = readFileSync(workflowPath, 'utf8');
 
