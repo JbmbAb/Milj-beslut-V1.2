@@ -10,6 +10,11 @@
 Detta dokument är **den enda roadmap-auktoriteten**. Inget annat dokument får definiera
 programnivåberoenden, PROVEN-semantik eller authority-gränser.
 
+**Scope boundary:** This document governs program sequencing and proof convergence
+only. It does not define or supersede architectural semantics; architectural
+authority is `ADR-MPS-CONSTITUTIONAL-INVARIANTS.md` (`ADR-24-20-Constitution.md`
+is historical, superseded 2026-08-30).
+
 ---
 
 ## 1. Programnoder

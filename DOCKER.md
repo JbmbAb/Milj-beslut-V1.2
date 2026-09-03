@@ -1,26 +1,26 @@
-# ðŸ³ Docker & Supabase â€“ Startguide
+# 🐳 Docker & Supabase – Startguide
 
 ## Alternativ 1: Lokal PostgreSQL med Docker
 
-### FÃ¶rutsÃ¤ttningar
+### Förutsättningar
 
-- [Docker Desktop](https://www.docker.com/products/docker-desktop/) installerat och igÃ¥ng
+- [Docker Desktop](https://www.docker.com/products/docker-desktop/) installerat och igång
 
-### Steg 1 â€“ Starta databasen
+### Steg 1 – Starta databasen
 
 ```bash
 docker-compose up db -d
 ```
 
-PostgreSQL startar pÃ¥ `localhost:5432` med:
+PostgreSQL startar på `localhost:5432` med:
 
 - **DB:** `miljobeslut`
-- **AnvÃ¤ndare:** `miljobeslut`
+- **Användare:** `miljobeslut`
   0- **Lösenord:** `miljobeslut`
 
 > Extensions `postgis`, `vector`, `pg_trgm` och `unaccent` installeras automatiskt via `docker/postgres-init/02-extensions-and-schemas.sql`.
 
-### Steg 2 â€“ KÃ¶r Prisma-migrationer
+### Steg 2 – Kör Prisma-migrationer
 
 ```bash
 npx prisma migrate deploy
@@ -32,14 +32,14 @@ Eller vid ny migration:
 npx prisma migrate dev --name <beskrivning>
 ```
 
-### Steg 3 â€“ Starta applikationen
+### Steg 3 – Starta applikationen
 
 ```bash
 npm run dev          # Frontend (Vite, port 5173)
 npm run dev:server   # Backend (Express, port 8787)
 ```
 
-Alternativt â€“ kÃ¶r hela stacken i Docker:
+Alternativt – kör hela stacken i Docker:
 
 ```bash
 docker-compose up --build
@@ -49,45 +49,45 @@ docker-compose up --build
 
 ## Alternativ 2: Supabase Cloud
 
-### FÃ¶rutsÃ¤ttningar
+### Förutsättningar
 
-- Konto pÃ¥ [supabase.com](https://supabase.com)
+- Konto på [supabase.com](https://supabase.com)
 - Projekt skapat i Supabase Dashboard
 
-### Steg 1 â€“ Aktivera Extensions i Supabase
+### Steg 1 – Aktivera Extensions i Supabase
 
-GÃ¥ till: **Database â†’ Extensions** och aktivera:
+Gå till: **Database → Extensions** och aktivera:
 
-- âœ… `postgis`
-- âœ… `vector` (pgvector)
-- âœ… `pg_trgm`
-- âœ… `unaccent`
+- ✅ `postgis`
+- ✅ `vector` (pgvector)
+- ✅ `pg_trgm`
+- ✅ `unaccent`
 
-### Steg 2 â€“ HÃ¤mta Connection String
+### Steg 2 – Hämta Connection String
 
-**Dashboard â†’ Project Settings â†’ Database â†’ Connection string â†’ URI**
+**Dashboard → Project Settings → Database → Connection string → URI**
 
-Kopiera **Transaction Pooler** (port 6543) fÃ¶r applikationen.
-Kopiera **Session Mode** (port 5432) fÃ¶r Prisma-migrationer.
+Kopiera **Transaction Pooler** (port 6543) för applikationen.
+Kopiera **Session Mode** (port 5432) för Prisma-migrationer.
 
-### Steg 3 â€“ Konfigurera .env
+### Steg 3 – Konfigurera .env
 
 ```bash
-# LÃ¤gg in Supabase-credentials i .env
+# Lägg in Supabase-credentials i .env
 DATABASE_URL=postgresql://postgres.[PROJECT-REF]:[PASSWORD]@aws-0-eu-north-1.pooler.supabase.com:6543/postgres
 ```
 
-> Se `.env.supabase` fÃ¶r komplett mall.
+> Se `.env.supabase` för komplett mall.
 
-### Steg 4 â€“ KÃ¶r migrationer mot Supabase
+### Steg 4 – Kör migrationer mot Supabase
 
 ```bash
-# SÃ¤tt direktanslutning (Session Mode) fÃ¶r migrationer
+# Sätt direktanslutning (Session Mode) för migrationer
 DATABASE_URL=postgresql://postgres.[PROJECT-REF]:[PASSWORD]@...supabase.com:5432/postgres \
   npx prisma migrate deploy
 ```
 
-### Steg 5 â€“ KÃ¶r SGU-spatialmigrationer
+### Steg 5 – Kör SGU-spatialmigrationer
 
 ```bash
 node run_migration.js
@@ -96,7 +96,7 @@ node run_migration.js
 Eller:
 
 ```sql
--- KÃ¶r manuellt i Supabase SQL Editor:
+-- Kör manuellt i Supabase SQL Editor:
 -- prisma/spatial/001_env_spatial_tables.sql
 ```
 
@@ -126,18 +126,18 @@ supabase start
 | --------------------------- | --------------------------------------- |
 | `docker-compose up db -d`   | Starta bara databasen                   |
 | `docker-compose up --build` | Bygg och starta hela stacken            |
-| `docker-compose down`       | StÃ¤ng ner containrar                   |
-| `docker-compose down -v`    | StÃ¤ng ner och **radera volumes**       |
-| `npx prisma studio`         | Ã–ppna Prisma Studio (DB-visualisering) |
-| `npx prisma migrate dev`    | KÃ¶r/skapa migrationer lokalt           |
+| `docker-compose down`       | Stäng ner containrar                   |
+| `docker-compose down -v`    | Stäng ner och **radera volumes**       |
+| `npx prisma studio`         | Öppna Prisma Studio (DB-visualisering) |
+| `npx prisma migrate dev`    | Kör/skapa migrationer lokalt           |
 
 ---
 
 ## Arkitektur
 
 ```
-.env            â†’ Lokal Docker-konfiguration
-.env.supabase   â†’ Supabase Cloud (mall)
-.env.test       â†’ TestmiljÃ¶ (Vitest)
-.env.example    â†’ Komplett dokument fÃ¶r alla variabler
+.env            → Lokal Docker-konfiguration
+.env.supabase   → Supabase Cloud (mall)
+.env.test       → Testmiljö (Vitest)
+.env.example    → Komplett dokument för alla variabler
 ```

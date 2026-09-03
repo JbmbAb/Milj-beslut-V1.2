@@ -2,6 +2,20 @@
 
 **Datum:** 2026-04-02 | **Status:** ✅ IMPLEMENTERAD
 
+**SCOPE_STATUS (2026-08-30 code-verification):** `IMPLEMENTED_BUT_OUT_OF_SCOPE`. The
+backend (`server/services/permitApplicationGeneratorService.ts`, route
+`POST /api/projects/:projectId/permit/generate` in
+`server/routes/generators.routes.ts`) is real and tested. But this is a **separate,
+generic AI generator — not the canonical C-anmälan flow.**
+[docs/architecture/PERMIT_PORTAL_LEGACY.md](./architecture/PERMIT_PORTAL_LEGACY.md)
+states explicitly: "Admin tillståndsportal ... är AI-generator för miljötillstånd —
+inte samma som legacy Permit Portal / C-anmälan mass." The canonical, in-scope
+C-anmälan implementation today is `server/modules/c-notification-mass/` per
+[docs/qa/MODULE_IMPLEMENTATION_PLAN.md](./qa/MODULE_IMPLEMENTATION_PLAN.md). This
+generator's admin UI (`components/admin/modules/permit-portal/`) is not even wired
+into `ModuleRouter.tsx`'s `AdminModuleId` type — unreachable from the live app.
+Historical content preserved as-is below.
+
 ---
 
 ## 📋 OVERVIEW

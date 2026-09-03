@@ -18,7 +18,7 @@ det är tvärtom skälet till att kontraktet behövs. S1–S4 och B1 nedan var r
 frysta kontrakt. S5 är efter HM1-A dormant tills `FEATURE_GEOMETRY` admitteras.
 
 Normativt underlag: `TV-S1-Spatial-Verification-Layer.md` (FRYST), `TV-4.3-Spatial-Processing-
-Compatibility.md` (FRYST), `ADR-29-TV4-Spatial-Foundation.md` (Frozen), `ADR-28` §2,
+Compatibility.md` (FRYST), `TV-4.0-Spatial-Foundation-Roadmap.md` (Frozen; formerly `ADR-29-TV4-Spatial-Foundation.md`), `ADR-28` §2,
 `ADR-SPATIAL-PRESENTATION-EVIDENCE-CONTRACT.md` (ACCEPTED/SEQUENCE FROZEN).
 Härledning: `P4A-SPATIAL-RUNTIME-RECONCILIATION-2026-08-11.md`,
 `P4A-LU-SPATIAL-CONTRACT-READING-2026-08-11.md`.
@@ -55,7 +55,7 @@ P4A-LU-04 — Replay isolation
 P4A-LU-05 — Executed runtime proof
   The above SHALL be demonstrated from the real application/runtime entrypoint, not
   only package-scoped tests.
-  [= ADR-29 Gate B: "Proven mapping of query → spatial result → evidence"]
+  [= TV-4.0 Gate B (formerly ADR-29): "Proven mapping of query → spatial result → evidence"]
 
 P4A-LU-06 — Canonical geometry form before FEATURE_GEOMETRY admission
   FEATURE_GEOMETRY is NOT_ADMITTED_FOR_HM1_V1. Before FEATURE_GEOMETRY can be
@@ -243,7 +243,7 @@ GIS presentation bypass                  KNOWN_BROKEN / HM-P, not P3
   inte P3).
 - P4B / HC-S1: nationell täckning, `layer_id`-populationer, ADMIT-V1-efterlevnad, SPC-R07
   read-only-roll.
-- QGIS-integration, raster, 3D (ADR-29 TV-4.2–4.7).
+- QGIS-integration, raster, 3D (TV-4.2–4.7, under TV-4.0 formerly ADR-29).
 
 **Spatial reconciliation är härmed avslutad.** Nästa spatiala arbete är implementation och
 bevis, inte ytterligare kontraktsanalys.

@@ -27,7 +27,7 @@ Men det finns ett fynd som ändrar riskbilden åt andra hållet, se punkt 7.
 | Dokument | Status | Styr |
 |---|---|---|
 | `ADR-SPATIAL-PRESENTATION-EVIDENCE-CONTRACT.md` | **ACCEPTED / SEQUENCE FROZEN** | *"Cesium is a pure visualizer of verified evidence, rather than an independent GIS query engine."* GEO_Master_Archive → PostGIS Master → presentation. |
-| `ADR-29-TV4-Spatial-Foundation.md` | ej läst i detalj | Spatial foundation |
+| `TV-4.0-Spatial-Foundation-Roadmap.md` (formerly `ADR-29-TV4-Spatial-Foundation.md`) | ej läst i detalj | Spatial foundation |
 | `ADR-POSTGIS-REBUILD-DATA-CONTRACT.md` | Accepted | *"PostGIS är en **rebuildable projection** av GEO_Master_Archive"* — PostGIS är alltså **inte** sanning. |
 | `ADR-POSTGIS-ADMIT-V1.md` | Accepted | *"No source enters the new PostGIS merely because it exists under GEO_Master_Archive."* |
 | `ADR-28` §2 | Frozen | `SpatialQueryContract`: UI → SpatialQueryRequest → Spatial Engine → Provider → `SpatialEvidenceArtifact[]`. *"LU är databasmotor-agnostiskt från dag ett."* |
@@ -155,7 +155,7 @@ Punkt 4 är **inte** ett LU-blockerande arbete.
 
 ## Vad denna reconciliation INTE gjorde
 
-Ingen kod ändrad, ingen authority-post skapad, inget kontrakt fryst. `ADR-29-TV4-Spatial-
-Foundation.md`, `TV-4.3` och `TV-S1` lästes inte i detalj — de bör läsas innan `P4A-LU`-gaten
+Ingen kod ändrad, ingen authority-post skapad, inget kontrakt fryst. `TV-4.0-Spatial-
+Foundation-Roadmap.md` (formerly `ADR-29-TV4-Spatial-Foundation.md`), `TV-4.3` och `TV-S1` lästes inte i detalj — de bör läsas innan `P4A-LU`-gaten
 fryses formellt, eftersom TV-S1 nämns i den nyare providerns kommentar (*"TV-S1 identity
 hashing"*) och kan innehålla ytterligare bindande krav.

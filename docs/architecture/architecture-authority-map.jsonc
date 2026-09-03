@@ -7,7 +7,9 @@
     "A1-A3 are incorporated: package_class, module_role, and proof_status are separate dimensions.",
     "required_proof_execution records whether each proof file is actually executed by a Vitest project/lane in the current vitest.config.ts.",
     "A1-A3, P1 closure and HM-1 closure are recorded outcomes; historical red-proof status fields remain historical evidence and are not current blockers.",
-    "Open P2, P7/HM-P, retired-candidate and presentation-boundary findings retain their own explicit scope and are not silently closed by HM-1."
+    "Open P2, P7/HM-P, retired-candidate and presentation-boundary findings retain their own explicit scope and are not silently closed by HM-1.",
+    "This registry's architectural basis is ADR-MPS-CONSTITUTIONAL-INVARIANTS.md; ADR-24-20-Constitution.md is historical (NORMATIVE_TODAY=false, superseded 2026-08-30).",
+    "Program/proof convergence authority is PROGRAM-P0-P8-AUTHORITY-2026-08-11.md; that document does not define architectural semantics."
   ],
 
   // ---------------------------------------------------------------------------------------
@@ -130,11 +132,11 @@
       "module_role": "LU_LOCAL_MATERIALIZER_NOT_AUTHORITY",
       "proof_status": "PROVEN",
       "owner_package": "mps-lu",
-      "file": "packages/mps-lu/src/loke/QuarantinePromoter.ts",
+      "file": "packages/mps-lu/src/ingestion/QuarantinePromoter.ts",
       "authority": "LU-local document evidence materialization from quarantine. Primary export is DocumentEvidenceMaterializer; QuarantinePromoter is deprecated compatibility alias.",
       "required_proof": [
         "packages/mps-lu/tests/A1AuthorityEnforcement.test.ts",
-        "packages/mps-lu/tests/LokeIngestion.test.ts"
+        "packages/mps-lu/tests/RawSourceIngestion.test.ts"
       ],
       "required_proof_execution": [
         {
@@ -146,7 +148,7 @@
           "proof_status": "PROVEN"
         },
         {
-          "file": "packages/mps-lu/tests/LokeIngestion.test.ts",
+          "file": "packages/mps-lu/tests/RawSourceIngestion.test.ts",
           "exists": true,
           "vitest_project": "compliance",
           "include_glob": "packages/mps-lu/**/*.test.ts",
@@ -246,13 +248,13 @@
           "test_is_green_in_that_defined_proof_lane": "YES — 5/5, and 30/30 across the 6-file governance regression."
         },
         "owner_tightening_after_authoring": "State 3 was extended to assert that neither DocumentEvidenceMaterializer.prototype.promote nor the deprecated LU QuarantinePromoter alias retains or reintroduces promote(). This closes the re-introduction route through the alias, which the authored draft did not cover.",
-        "regression_command": "npx vitest run packages/mps-lu/tests/A1AuthorityEnforcement.test.ts packages/mps-lu/tests/LokeIngestion.test.ts tests/unit/mimers/approval.test.ts tests/unit/mimers/quarantinePromotionAttestation.test.ts tests/unit/mimers/tv-l1-e2e.test.ts tests/unit/governanceRoutes.test.ts",
+        "regression_command": "npx vitest run packages/mps-lu/tests/A1AuthorityEnforcement.test.ts packages/mps-lu/tests/RawSourceIngestion.test.ts tests/unit/mimers/approval.test.ts tests/unit/mimers/quarantinePromotionAttestation.test.ts tests/unit/mimers/tv-l1-e2e.test.ts tests/unit/governanceRoutes.test.ts",
         "regression_result": { "test_files": 6, "passed_files": 6, "tests": 30, "passed": 30, "failed": 0 },
         "broader_lu_regression_note": "A broader exploratory run including packages/mps-lu/tests/LUEndToEnd.test.ts and packages/mps-lu/tests/VerticalProof.test.ts remains red for already separate LU maturity issues: document findings are ignored by the current LU kernel path (F4), ViewerCapabilityArtifact lacks viewer_identity_ref (F8), and replay receives an undefined artifact id (F9). Those failures are not A1 enforcement failures and remain outside this proof.",
         "proves_three_states": {
           "1_without_canonical_attestation": "LU performs zero canonical writes AND the materialized artifact is NOT resolvable from the canonical Mimers repository. Plus a structural check that the constructor takes exactly one argument, so a re-introduced write capability fails immediately.",
           "2_through_canonical_governed_promotion": "Invalid attestation → rejected, item stays 'quarantined', nothing persisted. Valid attestation → promotion succeeds, content retrievable from canonical CAS, status 'promoted'.",
-          "3_no_alternative_lu_write_path": "Source scan of packages/mps-lu/src/loke/QuarantinePromoter.ts plus prototype checks prove the LU document-evidence materializer and its deprecated alias expose no repository-shaped write path and no old promote() bypass API."
+          "3_no_alternative_lu_write_path": "Source scan of packages/mps-lu/src/ingestion/QuarantinePromoter.ts plus prototype checks prove the LU document-evidence materializer and its deprecated alias expose no repository-shaped write path and no old promote() bypass API."
         },
         "canonical_repository_resolution_semantics": {
           "red_proof": "unauthorized write → resolvable    = violation proven",
@@ -261,11 +263,11 @@
         },
         "scope_honesty": "State 2 proves that the governed route EXISTS and ENFORCES attestation before persistence. It does NOT claim LU rides that route. Under the repaired architecture LU does not own the persistence capability at all, so 'LU uses the promoter' is not a property to prove. The canonical promoter is dataset-approval shaped (promote(quarantineId, attestation, governanceRelease) → DatasetApprovalArtifact); an LU→governed bridge is a separate, not-yet-built work unit.",
         "production_fix": {
-          "file": "packages/mps-lu/src/loke/QuarantinePromoter.ts",
+          "file": "packages/mps-lu/src/ingestion/QuarantinePromoter.ts",
           "change": "Removed the ArtifactRepositoryPort constructor parameter and the cas.put(...) call. Renamed promote() → materialize().",
           "mechanism": "CAPABILITY REMOVAL BY CONSTRUCTION — stronger than keeping the write capability behind a runtime check and hoping every call site validates correctly.",
           "collateral_required_by_the_fix": [
-            "packages/mps-lu/tests/LokeIngestion.test.ts — 1-arg construction, materialize(), and step 5 inverted: it previously asserted 'verify it now exists in CAS', which was literally an assertion that the bypass worked.",
+            "packages/mps-lu/tests/RawSourceIngestion.test.ts — 1-arg construction, materialize(), and step 5 inverted: it previously asserted 'verify it now exists in CAS', which was literally an assertion that the bypass worked.",
             "packages/mps-lu/tests/LUEndToEnd.test.ts — 1-arg construction, materialize().",
             "packages/mps-lu/tests/VerticalProof.test.ts — 1-arg construction, materialize()."
           ],
@@ -316,13 +318,13 @@
       "authority": "Former hard-coded SOURCE_REGISTRY authority for Loke. It may remain only as a legacy catalog/projection; it is no longer on the Loke operational authority path.",
       "reachability": {
         "comment": "Deliberately TWO dimensions, not one boolean. A single `runtime_reachable` flag would let 'not imported by the server' be misread later as 'not production reachable'.",
-        "server_runtime_reachable": "NOT_PROVEN — zero references from server/ to registry.ts, lokeRuntime, lokeScheduler, harvestPlan or executeLokeHarvest. No HTTP surface.",
+        "server_runtime_reachable": "NOT_PROVEN — zero references from server/ to registry.ts, harvestRuntime, harvestScheduler, harvestPlan or executeLokeHarvest. No HTTP surface.",
         "operational_runtime_reachable": true,
         "production_reachability": "PROVEN",
         "reachability_class": "OPERATOR_CLI / SCHEDULED_RUNTIME",
         "rule_applied": "Operator CLI counts as production reachability when the CLI is an intended operational path that can run against real environment/data and is not explicitly test-only, dev-only or quarantined. P1 is authority convergence, not the HTTP server's import graph.",
-        "reachability_path": "HISTORICAL_RED: operator CLI / scheduler → lokeScheduler.ts:232 → executeLokeHarvestForSource → lokeRuntime.ts:22,39,62,133 getSourceDefinition/isUrlAllowedForSource → legacy hard-coded registry → adapter dispatch → fetch(). GREEN_CURRENT: lokeScheduler/lokeRuntime/harvestPlan/contract → packages/mps-data-governance/src/SourceRegistry.ts verified F0D materialization.",
-        "why_not_blocked_like_the_others": "All five npm-registered harvest scripts (harvest:sfs|regulatory|municipal|court|parallel) throw via assertNotQuarantined() before any registry lookup. Neither lokeScheduler.ts nor lokeRuntime.ts carries any quarantine marker, assertNotQuarantined(), or approval check. The quarantine appears to have been applied to the four workers written last and to have missed the runtime that executes them.",
+        "reachability_path": "HISTORICAL_RED: operator CLI / scheduler → harvestScheduler.ts:232 → executeHarvestForSource → harvestRuntime.ts:22,39,62,133 getSourceDefinition/isUrlAllowedForSource → legacy hard-coded registry → adapter dispatch → fetch(). GREEN_CURRENT: harvestScheduler/harvestRuntime/harvestPlan/contract → packages/mps-data-governance/src/SourceRegistry.ts verified F0D materialization.",
+        "why_not_blocked_like_the_others": "All five npm-registered harvest scripts (harvest:sfs|regulatory|municipal|court|parallel) throw via assertNotQuarantined() before any registry lookup. Neither harvestScheduler.ts nor harvestRuntime.ts carries any quarantine marker, assertNotQuarantined(), or approval check. The quarantine appears to have been applied to the four workers written last and to have missed the runtime that executes them.",
         "ci_reachable": false
       },
       "authority_impact": "Loke parallel source authority removed. System-wide P1 remains open because other source/write authority surfaces are tracked separately under additional-source-authority-surfaces.",
@@ -388,8 +390,8 @@
         },
         "scope_discipline_held": [
           "No production code changed — the step added exactly one untracked test file.",
-          "lokeScheduler deliberately NOT imported: its self-executing block is SR2 (LOKE_SCHEDULER_IMPORT_SIDE_EFFECT), a separate invariant that must not be collapsed into this failure reason.",
-          "No quarantine marker added to lokeRuntime/lokeScheduler before the run — that would have made the deviation unmeasurable.",
+          "harvestScheduler deliberately NOT imported: its self-executing block is SR2 (LOKE_SCHEDULER_IMPORT_SIDE_EFFECT), a separate invariant that must not be collapsed into this failure reason.",
+          "No quarantine marker added to harvestRuntime/harvestScheduler before the run — that would have made the deviation unmeasurable.",
           "QUARANTINE_ROOT redirected to a temp directory; the real master archive was never touched.",
           "globalThis.fetch stubbed — no external network I/O; failure attributable to the authority boundary, never to network, DB, keys or archive state."
         ],
@@ -407,7 +409,7 @@
           "P1_runtime_authority_convergence": "KNOWN_BROKEN_AT_RED_TIME",
           "P1_overall": "OPEN"
         },
-        "stop_rule": "STOP after registering this failure evidence. Do not quarantine lokeScheduler/lokeRuntime, implement SourceRegistry, or repair SR2/scheduler behavior in the same work unit."
+        "stop_rule": "STOP after registering this failure evidence. Do not quarantine harvestScheduler/harvestRuntime, implement SourceRegistry, or repair SR2/scheduler behavior in the same work unit."
       },
       "executed_green_proof": {
         "proof_id": "SR1_SOURCE_REGISTRY_AUTHORITY_ENFORCEMENT_GREEN_PROOF",
@@ -426,14 +428,14 @@
           "passed": 4,
           "failed": 0
         },
-        "nearest_regression_command": "npx vitest run tests/unit/import/SR1SourceRegistryAuthorityEnforcement.test.ts tests/unit/import/lokeHarvest.test.ts tests/unit/import/lokeScheduler.test.ts tests/unit/import/sourceRegistry.test.ts packages/mps-data-governance/tests/TierSchemas.test.ts tests/unit/mimers/tv-l1-e2e.test.ts",
+        "nearest_regression_command": "npx vitest run tests/unit/import/SR1SourceRegistryAuthorityEnforcement.test.ts tests/unit/import/lokeHarvest.test.ts tests/unit/import/harvestScheduler.test.ts tests/unit/import/sourceRegistry.test.ts packages/mps-data-governance/tests/TierSchemas.test.ts tests/unit/mimers/tv-l1-e2e.test.ts",
         "nearest_regression_result": "6 test files passed, 25 tests passed",
         "typecheck": "Ad hoc tsc --noEmit over SourceRegistry + touched Loke/test files passed.",
         "proves": [
           "No verified SourceRegistryArtifact -> no adapter dispatch, no network I/O, no quarantine persistence.",
           "Tampered SourceRegistryArtifact -> materialization denied before network I/O.",
           "Governance-approved SourceRegistryArtifact -> Loke harvest and quarantine persistence allowed.",
-          "lokeRuntime, lokeScheduler, harvestPlan and contract have no import path back to server/modules/harvest/source-registry/registry.ts."
+          "harvestRuntime, harvestScheduler, harvestPlan and contract have no import path back to server/modules/harvest/source-registry/registry.ts."
         ],
         "program_effect": {
           "SR1_invariant": "ENFORCED_FOR_LOKE_OPERATIONAL_PATH",
@@ -443,8 +445,8 @@
           "P1_overall": "OPEN"
         }
       },
-      "red_test_design_requirement": "The SR1 red test MUST demonstrate an AUTHORITY RESULT, not merely an import chain. It must show: legacy registry selected/resolved a source, the canonical SourceRegistry was NOT consulted, and the operation proceeded far enough to demonstrate authority use. A test that only shows 'lokeScheduler imports registry.ts' is reachability evidence, not authority-bypass evidence. Suggested measurement point: spy on fetch and prove it is called before any attestation verification — the same tamper-before-network pattern used at Level 2.",
-      "do_not_do_before_red_proof": "Do NOT add quarantine markers to lokeScheduler.ts or lokeRuntime.ts before the red proof has been executed. Blocking the path first would make the existing deviation unmeasurable — the same trap as A1's precondition assertion.",
+      "red_test_design_requirement": "The SR1 red test MUST demonstrate an AUTHORITY RESULT, not merely an import chain. It must show: legacy registry selected/resolved a source, the canonical SourceRegistry was NOT consulted, and the operation proceeded far enough to demonstrate authority use. A test that only shows 'harvestScheduler imports registry.ts' is reachability evidence, not authority-bypass evidence. Suggested measurement point: spy on fetch and prove it is called before any attestation verification — the same tamper-before-network pattern used at Level 2.",
+      "do_not_do_before_red_proof": "Do NOT add quarantine markers to harvestScheduler.ts or harvestRuntime.ts before the red proof has been executed. Blocking the path first would make the existing deviation unmeasurable — the same trap as A1's precondition assertion.",
       "invariant": "SR1 — No harvest execution path SHALL resolve source authority from an implementation that is not a verified materialization of a governance-approved SourceRegistryArtifact."
     },
     {
@@ -574,7 +576,7 @@
               "passed": 54,
               "failed": 0
             },
-            "p1_system_green_command": "npx vitest run packages/mps-lu/tests/A1AuthorityEnforcement.test.ts tests/unit/import/SR1SourceRegistryAuthorityEnforcement.test.ts tests/unit/import/sourceRegistry.test.ts tests/unit/import/lokeHarvest.test.ts tests/unit/import/lokeScheduler.test.ts tests/unit/gisRoutes.test.ts tests/unit/searchRoutes.test.ts tests/unit/legalDomstolRssAuthorityEnforcement.test.ts tests/unit/domstolRssService.test.ts tests/unit/propertyLookupFallbackAuthorityEnforcement.test.ts tests/unit/propertyUnitService.test.ts tests/unit/server.security.projectAccess.test.ts",
+            "p1_system_green_command": "npx vitest run packages/mps-lu/tests/A1AuthorityEnforcement.test.ts tests/unit/import/SR1SourceRegistryAuthorityEnforcement.test.ts tests/unit/import/sourceRegistry.test.ts tests/unit/import/lokeHarvest.test.ts tests/unit/import/harvestScheduler.test.ts tests/unit/gisRoutes.test.ts tests/unit/searchRoutes.test.ts tests/unit/legalDomstolRssAuthorityEnforcement.test.ts tests/unit/domstolRssService.test.ts tests/unit/propertyLookupFallbackAuthorityEnforcement.test.ts tests/unit/propertyUnitService.test.ts tests/unit/server.security.projectAccess.test.ts",
             "p1_system_green_result": {
               "test_files": 12,
               "passed_files": 12,
@@ -849,7 +851,7 @@
       "program_parent": "P7",
       "runtime_reachable": true,
       "owner_package": "server-import-loke",
-      "file": "scripts/import/loke/lokeScheduler.ts",
+      "file": "scripts/import/harvest/harvestScheduler.ts",
       "lines": "293-300",
       "trigger": "module import when NODE_ENV != 'test'",
       "evidence": "if (typeof process !== 'undefined' && process.env.NODE_ENV !== 'test') { const execute = process.argv.includes('--execute'); runScheduler({ execute }).catch(...) } — this executes on import, not only on explicit invocation.",
@@ -905,7 +907,7 @@
       ],
       "violates": [
         "ADR-SPATIAL-PRESENTATION-EVIDENCE-CONTRACT (ACCEPTED/SEQUENCE FROZEN): presentation clients are pure visualizers of verified evidence, not independent GIS query engines",
-        "ADR-29 constitutional invariant: presentation/tool clients may consume and visualize spatial evidence, never determine truth"
+        "TV-4.0-Spatial-Foundation-Roadmap.md (formerly ADR-29-TV4-Spatial-Foundation.md): presentation/tool clients may consume and visualize spatial evidence, never determine truth"
       ],
       "blocks_p3_hm1": "NO — unless LU evidence/viewer runtime is shown to depend on this route. Requires concrete reachability evidence before it may be treated as an LU blocker.",
       "blocks_hm_p": "YES",

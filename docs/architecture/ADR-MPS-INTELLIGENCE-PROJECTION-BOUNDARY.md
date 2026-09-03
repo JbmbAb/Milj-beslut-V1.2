@@ -1,7 +1,12 @@
-# ADR-29: Intelligence Projection Boundary
+# ADR-MPS-INTELLIGENCE-PROJECTION-BOUNDARY: Intelligence Projection Boundary
 
 **Date**: 2026-08-07
 **Status**: FROZEN
+
+**Legacy identifier:** ADR-29 (2026-08-07) — renumbered during document-authority
+normalization (2026-08-30) to join the `ADR-MPS-*` constitutional-invariant family
+(MIMER-SCALE-I01 is enforced alongside MIMER-RET-I0*/MIMER-MAT-I01 from that
+lineage). Content and the MIMER-SCALE-I01 invariant unchanged.
 
 ## Context
 Mimer Platform Edition is expanding to support hundreds of millions of environmental records, documents, and spatial artifacts. Historically, AI models have directly queried the raw `DocumentChunk` and `LegalCorpusChunk` evidence layers. This turns the AI into an implicit OLAP engine, leading to exponential increases in token costs, latency, and context-window saturation as the dataset grows. Furthermore, relying on AI to summarize raw evidence dynamically at inference time breaks the deterministic replayability and verification guarantees of the platform.

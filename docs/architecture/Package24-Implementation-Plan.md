@@ -1,8 +1,30 @@
 # Package24 Implementation Plan v1.0
-**Status: Frozen**
+**Status: Frozen (as a historical implementation-sequencing record — see
+revalidation below)**
 **Version: 1.0**
-**Authority: MIMER‑20 Constitution**
+**Authority (as originally written): MIMER‑20 Constitution — now historical, see below**
 **Validated by: MCS‑001**
+
+**Provenance note (2026-08-30, revalidated 2026-08-30):** `ADR-24-20-Constitution.md`,
+cited above as this plan's semantic authority, is **HISTORICAL / NORMATIVE_TODAY:
+false**, superseded platform-wide by `ADR-MPS-CONSTITUTIONAL-INVARIANTS.md`. A
+read-only semantic revalidation was performed during document-authority closure
+(2026-08-30) against the current constitution, current `ADR-24-21..26` (all still
+exist and are unaltered by this revalidation), and current code/tests. Findings:
+
+| Claim | Classification | Note |
+| --- | --- | --- |
+| Header "Authority: MIMER‑20 Constitution" | **HISTORICAL** | ADR-24-20's own invariants (`MIMER-20-I1..I15`) have zero code references anywhere in this repository (confirmed by grep during the original 2026-08-30 audit) — this plan's practical authority was always its own `IMP-24-I*` invariants and the `mps-compliance` code, not `MIMER-20-I*` enforcement. |
+| `IMP‑24‑I1`–`IMP‑24‑I6` (identity non-creation, canonical byte authority, contract purity, validation purity, registry snapshot determinism, canonical artifact lifecycle) | **CURRENT** | Package-24-internal design rules for `mps-compliance`; not redesigned or revalidated line-by-line here (out of this unit's scope), but nothing found that contradicts them. |
+| `IMP‑24‑I7` ("CanonicalSerializer är den enda auktoriteten som får producera CanonicalBytes") | **CONFLICTS_WITH_CURRENT_AUTHORITY (unresolved — flagged, not patched)** | `ADR-MPS-CONSTITUTIONAL-INVARIANTS.md` §5 establishes multiple, separately-owned canonicalizer namespaces (`dg-*` owned by `mps-decision-governance`, `runtime-projection-*` by `alpha-runtime`, `sv-*` by Spatial Governance Domain) — i.e. the current constitution already treats canonical serialization authority as namespace-partitioned, not singular. This plan's "the only authority" wording was not corrected here because doing so would require deciding whether Package-24's serializer is itself a namespace owner or must integrate with the `ADR-MPS-CONSTITUTIONAL-INVARIANTS` namespace model — a real architectural question outside a documentation-closure unit's authority. |
+| "Repository Structure" (`artifacts/`, `canonical/`, `conformance/`, `validators/`, `errors/`) | **HISTORICAL (superseded by growth, not contradicted)** | Current `packages/mps-compliance/src/` also contains `audit/`, `dependency-analyzer/`, `matrix/`, `profiles/`, `reports/`, `unit/` — the plan's listed structure is a true subset of what exists today, not wrong, just incomplete. Not rewritten here (would be redesigning the plan's documentation, not correcting a stale authority claim). |
+| "Conformance Mapping" table (`24‑21..26` only) | **CURRENT, but incomplete relative to actual Package-24 footprint** | Real, vitest-exercised implementation for the separate `ADR‑24‑07..19` governs-list range now also exists (`packages/mps-dep`, `packages/mps-registry`, `packages/mps-governance`, `packages/mps-events`, `packages/mps-compliance/package24/*.test.ts` — see the corrected mapping table in `ADR-24-20-Constitution.md`), but none of it is described anywhere in this plan. Not added here — extending this plan's Conformance Mapping is a substantive content addition, not a stale-reference correction, and is out of this closure unit's scope. |
+| "Final Statement" ("...är nu: konstitutionellt korrekt... Det är det normativa bootstrap‑kontraktet för hela Mimer Frozen Core.") | **HISTORICAL** | "Konstitutionellt korrekt" rested on `ADR-24-20`, which is no longer normative; "det normativa bootstrap-kontraktet för hela Mimer Frozen Core" is also no longer accurate on its own terms, since real Package-24 implementation now extends beyond what this plan documents (row above). This statement is left unedited below as the plan's original closing claim, superseded by this table — patching the prose itself would blur the line between "what was claimed then" and "what is corrected now." |
+
+This plan's Package-24-specific *design content* (Phases 0–8, Commit Sequence,
+Implementation Invariants `IMP-24-I1..I7`) is otherwise left unrevalidated
+line-by-line and unredesigned — that remains out of this documentation-closure
+unit's scope, per the classification table above.
 
 ## Purpose
 Package24 Implementation Plan v1.0 definierar de tillåtna implementationsegenskaperna för Mimer Package‑24.

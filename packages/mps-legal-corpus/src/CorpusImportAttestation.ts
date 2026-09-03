@@ -1,6 +1,5 @@
 /**
- * ADR: TOR_INSTRUKTION_JURIDISK_RAG_IMPLEMENTATION.md, "SCHEMA-CONVERGENCE-SPEC 2026-08-11 —
- * Juridisk ingestion: approval & provenance" (FROZEN / READY FOR IMPLEMENTATION).
+ * ADR: docs/architecture/ADR-LEGAL-CORPUS-IMPORT-GATE.md (ACCEPTED / FROZEN).
  *
  * Reuses the exact same attestation mechanism already PROVEN for CAS promotion (Level 2,
  * `packages/mimers-brunn-core/src/governance/DatasetApproval.ts`) and specified for the

@@ -1,7 +1,7 @@
 import type { ContentReference } from '@miljobeslut/mps-core';
 
 /**
- * ADR: TOR_INSTRUKTION_JURIDISK_RAG_IMPLEMENTATION.md, "SCHEMA-CONVERGENCE-SPEC 2026-08-11".
+ * ADR: docs/architecture/ADR-LEGAL-CORPUS-IMPORT-GATE.md (ACCEPTED / FROZEN).
  *
  * One entry is required for EVERY raw document a run ever looks at, regardless of outcome.
  * A raw document with no entry at all, a FILTERED_OUT entry with no `filtered_reason`, or an

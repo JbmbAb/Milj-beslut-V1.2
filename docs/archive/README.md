@@ -25,5 +25,6 @@ Historiska leveransplaner och test-push-guider har **tagits bort** från repot (
 | [examens/](./examens/) | Examensmetodik |
 | [prototypes/](./prototypes/) | API-piloter |
 | [future-features/](./future-features/) | Pausade produktidéer |
+| [sample-outputs/](./sample-outputs/) | Genererade exempelartefakter från utvecklingsskript |
 
 Git-historik innehåller borttagna filer om de behövs för referens.

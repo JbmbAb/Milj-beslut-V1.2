@@ -6,6 +6,7 @@
 | **Date** | 2026-08-07 |
 | **Owner** | MPS Architecture Governance |
 | **Purpose** | Separate *constitutional invariants* from *implementation details* so refactors cannot silently break identity |
+| **Supersedes** | `ADR-24-20-Constitution.md` (historical — see that document's status header; superseded 2026-08-30) |
 
 ---
 

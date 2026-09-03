@@ -2,6 +2,19 @@
 
 **Status:** ✅ IMPLEMENTED | **Date:** 2026-04-02
 
+**SCOPE_STATUS (2026-08-30 code-verification):** `IMPLEMENTED_BUT_OUT_OF_SCOPE`. The
+backend (`server/services/greenCheckGeneratorService.ts`, route
+`POST /api/green-check/generate` in `server/routes/generators.routes.ts`) is real,
+tested, and mounted. But [docs/qa/core-scope-lock.md](./qa/core-scope-lock.md)
+explicitly lists Green Check under "Utanför Core (hanteras i V2+)", and it is absent
+from the three canonical focus modules in
+[docs/qa/MODULE_IMPLEMENTATION_PLAN.md](./qa/MODULE_IMPLEMENTATION_PLAN.md). Its admin
+UI (`components/admin/modules/green-check/`) is wired only through
+`ModuleRouter.tsx`/`AdminContainer.tsx`/`AdminPage.tsx`, which `components/App.tsx`
+never references — unreachable from the live product UI. The "IMPLEMENTED" status
+above is accurate for backend code, not for current product scope or user reachability.
+Historical content preserved as-is below.
+
 ---
 
 ## 🌿 OVERVIEW

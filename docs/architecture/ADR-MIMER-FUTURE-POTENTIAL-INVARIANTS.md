@@ -34,7 +34,7 @@ A field that doesn't fit cleanly into one of these three is a signal a fourth di
 
 ## 2. FUTURE-I02 — Observation, interpretation, and decision must stay distinguishable, even where not yet a typed union
 
-**Current grade: PARTIAL, intentional.** `ADR-29-Intelligence-Projection-Boundary.md` (`MIMER-SCALE-I01`) and `ADR-MPS-CORE-001.md` §5.1's Category A/B/C split already state this rule in prose; `mps-lu`'s `EvidenceRAGService` enforces a working version of it at runtime (`analyzeEntailment`/`verifyGrounding` reject ungrounded LLM claims). What's missing is a shared, closed type-level discriminant in `mps-core` itself — the rule currently lives in ADRs and per-package convention, not in a type the compiler enforces.
+**Current grade: PARTIAL, intentional.** `ADR-MPS-INTELLIGENCE-PROJECTION-BOUNDARY.md` (`MIMER-SCALE-I01`, formerly ADR-29-Intelligence-Projection-Boundary.md) and `ADR-MPS-CORE-001.md` §5.1's Category A/B/C split already state this rule in prose; `mps-lu`'s `EvidenceRAGService` enforces a working version of it at runtime (`analyzeEntailment`/`verifyGrounding` reject ungrounded LLM claims). What's missing is a shared, closed type-level discriminant in `mps-core` itself — the rule currently lives in ADRs and per-package convention, not in a type the compiler enforces.
 
 **Freeze rule:** No new artifact type may collapse this distinction at the type level — e.g., no `Finding`-like type may reuse the same shape as a raw `Observation`/`Evidence` type such that a model output could be stored and later read back indistinguishably from a directly-observed fact. A model/LLM output MUST be structurally tagged as derived (even informally, e.g. a `derivation` or `source_kind` field) wherever it's persisted, so a future formal `OBSERVATION | INTERPRETATION | DECISION` union can be introduced as a refinement, not a rewrite.
 
@@ -125,7 +125,7 @@ FUTURE-I02, I04, I05, I06, I08, and I09 were confirmed as the six invariants jud
 ## Related
 
 - `docs/architecture/ADR-MPS-CONSTITUTIONAL-INVARIANTS.md` — frozen identity/hash/lineage/retrieval layers (this ADR's counterpart for what already exists)
-- `docs/architecture/ADR-29-Intelligence-Projection-Boundary.md` — MIMER-SCALE-I01, referenced in §2
+- `docs/architecture/ADR-MPS-INTELLIGENCE-PROJECTION-BOUNDARY.md` — MIMER-SCALE-I01, referenced in §2 (formerly ADR-29-Intelligence-Projection-Boundary.md)
 - `docs/architecture/ADR-MPS-CORE-001.md` — Category A/B/C split (§2), migration constitution (§5)
 - `docs/architecture/ADR-26-22-HumanInterface.md` — GOVERNANCE-22.9-I13, referenced in §8
 - `docs/architecture/ADR-CHUNKING-Subsystem.md`, `ADR-TEXT-PROJECTION.md` — the additive-projection schema pattern referenced in §5

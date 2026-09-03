@@ -10,7 +10,7 @@
 
 Lästa dokument: `TV-S1-Spatial-Verification-Layer.md` (**FRYST, ACTIVE Final**),
 `TV-4.3-Spatial-Processing-Compatibility.md` (**FRYST**),
-`ADR-29-TV4-Spatial-Foundation.md` (**Frozen 2026-08-08**).
+`TV-4.0-Spatial-Foundation-Roadmap.md` (**Frozen 2026-08-08**; formerly `ADR-29-TV4-Spatial-Foundation.md`).
 
 ---
 
@@ -87,7 +87,7 @@ värdet hamnar i hashen. Jag har **inte** verifierat vilket — men TV-S1 §8:s 
   tabellerna skapas — annars bryts SV-I05 i praktiken *"regardless of what the documents say"*.
   Ej verifierat (kräver DB-åtkomst, `riskguard`-blockeraren). Tillhör P4B/HC-S1.
 
-## E. Kräver ADR-29 en capability registry/factory som gör direkt konstruktion felaktig?
+## E. Kräver TV-4.0 (formerly ADR-29) en capability registry/factory som gör direkt konstruktion felaktig?
 
 **Ja — och kravet kommer från två håll.**
 
@@ -102,7 +102,7 @@ vore alltså **fel bindningsform**, även om klassen i sig är rätt provider. R
 `spatial.*`-kapabiliteten och få en provider — inte instansiera en vendor. Detta ändrar
 `P4A-LU-01` från "en provider" till "en provider **upplöst via capability-registret**".
 
-ADR-29 tillför dessutom **Gate B**, som är direkt relevant: *"Must be fulfilled before QGIS
+TV-4.0 (formerly ADR-29) tillför dessutom **Gate B**, som är direkt relevant: *"Must be fulfilled before QGIS
 integration begins. Requires: Proven mapping of `query → spatial result → evidence`. Must
 demonstrate: PostGIS ≠ authority."* Gate B är i praktiken samma sak som `P4A-LU-05`
 (exekverat runtime-bevis) — men uttryckt som ett redan fryst krav.
@@ -144,7 +144,7 @@ P4A-LU-04 — Replay isolation
 
 P4A-LU-05 — Executed runtime proof
   The above SHALL be demonstrated from the real application/runtime entrypoint, not
-  only package-scoped tests.                          [= ADR-29 Gate B]
+  only package-scoped tests.                          [= TV-4.0 Gate B (formerly ADR-29)]
 
 P4A-LU-06 — Canonical geometry form implemented   (NY)
   sv-canonical-1 SHALL be implemented in code before its constant is used as a hash
