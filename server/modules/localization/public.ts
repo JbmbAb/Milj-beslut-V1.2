@@ -36,6 +36,11 @@ export {
   type LocalizationProjectSummary,
 } from './localizationProjectDiscovery';
 export {
+  searchCanonicalPropertyCandidates,
+  resolveCanonicalPropertySelection,
+  type CanonicalPropertySelection,
+} from '../property/public';
+export {
   enqueueProjectContextBootstrapRequest,
   getBootstrapRequestStatusForProject,
   type BootstrapRequestRecord,

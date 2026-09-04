@@ -12,6 +12,14 @@ on:
         required: false
         default: false
         type: boolean
+      release_ref:
+        description: 'Immutable tag or pinned ref that identifies the staged product tree'
+        required: true
+        type: string
+      expected_sha:
+        description: 'Expected commit SHA resolved by release_ref'
+        required: true
+        type: string
 
 concurrency:
   group: staging-e2e-proof
@@ -23,15 +31,19 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: read
+      id-token: write
 
     env:
       PLAYWRIGHT_BASE_URL: ${{ inputs.base_url || vars.STAGING_URL }}
       PLAYWRIGHT_API_BASE_URL: ${{ vars.STAGING_API_BASE_URL || inputs.base_url || vars.STAGING_URL }}
-      E2E_ADMIN_USERNAME: ${{ secrets.STAGING_E2E_ADMIN_USERNAME || secrets.ADMIN_CONSOLE_USERNAME }}
-      E2E_ADMIN_PASSWORD: ${{ secrets.STAGING_E2E_ADMIN_PASSWORD || secrets.ADMIN_CONSOLE_PASSWORD }}
+      E2E_ADMIN_USERNAME: ${{ secrets.STAGING_E2E_ADMIN_USERNAME }}
+      E2E_ADMIN_PASSWORD: ${{ secrets.STAGING_E2E_ADMIN_PASSWORD }}
       E2E_INCLUDE_VERTEX_FLOWS: ${{ inputs.include_vertex_flows && 'true' || 'false' }}
       E2E_SKIP_VERTEX_FLOWS: ${{ inputs.include_vertex_flows && 'false' || 'true' }}
       STAGING_VERIFY_ALLOW_BANKID_PENDING: 'true'
+      RELEASE_REF: ${{ inputs.release_ref }}
+      EXPECTED_PRODUCT_SHA: ${{ inputs.expected_sha }}
+      EXPECTED_RELEASE_HARNESS_SHA: ${{ github.sha }}
 
     steps:
       - name: Validate required inputs/secrets
@@ -43,31 +55,151 @@ jobs:
             exit 1
           fi
           if [ -z "${E2E_ADMIN_USERNAME}" ] || [ -z "${E2E_ADMIN_PASSWORD}" ]; then
-            echo "Missing staging admin credentials. Set STAGING_E2E_ADMIN_USERNAME/STAGING_E2E_ADMIN_PASSWORD (or ADMIN_CONSOLE_*)."
+            echo "Missing dedicated staging E2E credentials. Set STAGING_E2E_ADMIN_USERNAME/STAGING_E2E_ADMIN_PASSWORD."
+            exit 1
+          fi
+          echo "STAGING_RELEASE_SMOKE_AUTH=ADMIN_CONSOLE_DEDICATED_E2E"
+          echo "PRODUCT_BANKID_AUTH=NOT_TESTED_BY_THIS_WORKFLOW"
+
+      - name: Checkout release harness
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          path: release-harness
+          fetch-depth: 0
+
+      - name: Verify release harness identity
+        shell: bash
+        working-directory: release-harness
+        run: |
+          set -euo pipefail
+          RELEASE_HARNESS_SHA="$(git rev-parse HEAD)"
+          echo "EXPECTED_RELEASE_HARNESS_SHA=${EXPECTED_RELEASE_HARNESS_SHA}"
+          echo "RELEASE_HARNESS_SHA=${RELEASE_HARNESS_SHA}"
+          if [ "${RELEASE_HARNESS_SHA}" != "${EXPECTED_RELEASE_HARNESS_SHA}" ]; then
+            echo "Release harness checkout is ${RELEASE_HARNESS_SHA}, expected ${EXPECTED_RELEASE_HARNESS_SHA}"
+            exit 1
+          fi
+          echo "RELEASE_HARNESS_SHA=${RELEASE_HARNESS_SHA}" >> "$GITHUB_ENV"
+          {
+            echo "## Release harness identity"
+            echo ""
+            echo "- Expected release harness SHA: ${EXPECTED_RELEASE_HARNESS_SHA}"
+            echo "- Release harness checkout SHA: ${RELEASE_HARNESS_SHA}"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Checkout immutable product tree
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.release_ref }}
+          path: product
+          fetch-depth: 0
+
+      - name: Verify exact product ref
+        shell: bash
+        working-directory: product
+        env:
+          RELEASE_REF: ${{ inputs.release_ref }}
+          EXPECTED_PRODUCT_SHA: ${{ inputs.expected_sha }}
+        run: |
+          set -euo pipefail
+
+          if [ -z "$RELEASE_REF" ]; then
+            echo "release_ref saknas."
             exit 1
           fi
 
-      - uses: actions/checkout@v4
+          if [ -z "$EXPECTED_PRODUCT_SHA" ]; then
+            echo "expected_sha saknas."
+            exit 1
+          fi
 
-      - uses: actions/setup-node@v4
+          REF_MATCHES="$(git ls-remote --refs origin "$RELEASE_REF" "refs/heads/$RELEASE_REF" "refs/tags/$RELEASE_REF" | awk '{print $1}' | sort -u)"
+          REF_MATCH_COUNT="$(printf '%s\n' "$REF_MATCHES" | sed '/^$/d' | wc -l | tr -d ' ')"
+
+          if [ "$REF_MATCH_COUNT" != "1" ]; then
+            echo "release_ref must resolve to exactly one remote ref; got $REF_MATCH_COUNT"
+            printf '%s\n' "$REF_MATCHES"
+            exit 1
+          fi
+
+          RESOLVED_PRODUCT_SHA="$REF_MATCHES"
+          PRODUCT_CHECKOUT_SHA="$(git rev-parse HEAD)"
+
+          echo "EXPECTED_PRODUCT_SHA=${EXPECTED_PRODUCT_SHA}"
+          echo "RESOLVED_PRODUCT_SHA=${RESOLVED_PRODUCT_SHA}"
+          echo "PRODUCT_CHECKOUT_SHA=${PRODUCT_CHECKOUT_SHA}"
+
+          if [ "$RESOLVED_PRODUCT_SHA" != "$EXPECTED_PRODUCT_SHA" ]; then
+            echo "release_ref resolves to $RESOLVED_PRODUCT_SHA, expected $EXPECTED_PRODUCT_SHA"
+            exit 1
+          fi
+
+          if [ "$PRODUCT_CHECKOUT_SHA" != "$EXPECTED_PRODUCT_SHA" ]; then
+            echo "product checkout HEAD is $PRODUCT_CHECKOUT_SHA, expected $EXPECTED_PRODUCT_SHA"
+            exit 1
+          fi
+
+          {
+            echo "RESOLVED_PRODUCT_SHA=${RESOLVED_PRODUCT_SHA}"
+            echo "PRODUCT_CHECKOUT_SHA=${PRODUCT_CHECKOUT_SHA}"
+          } >> "$GITHUB_ENV"
+
+          {
+            echo "## Product identity"
+            echo ""
+            echo "- Release ref: ${RELEASE_REF}"
+            echo "- Expected product SHA: ${EXPECTED_PRODUCT_SHA}"
+            echo "- Resolved product SHA: ${RESOLVED_PRODUCT_SHA}"
+            echo "- Product checkout SHA: ${PRODUCT_CHECKOUT_SHA}"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Authenticate to Google Cloud
+        uses: google-github-actions/auth@v2
         with:
-          node-version: '22'
-          cache: npm
+          workload_identity_provider: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ secrets.GCP_SERVICE_ACCOUNT }}
 
-      - run: npm ci
+      - name: Set up Cloud SDK
+        uses: google-github-actions/setup-gcloud@v2
 
-      - name: Install Playwright browser
-        run: npx playwright install --with-deps chromium
+      - name: Verify deployed SHA matches product
+        shell: bash
+        env:
+          PROJECT_ID: ${{ secrets.GCP_PROJECT_ID }}
+          REGION: ${{ vars.GCP_REGION || 'europe-west1' }}
+          SERVICE: ${{ vars.GCP_SERVICE_NAME || 'miljobeslut' }}
+        run: |
+          set -euo pipefail
+          IMAGE="$(gcloud run services describe "$SERVICE" --region="$REGION" --project="$PROJECT_ID" --format='value(spec.template.spec.containers[0].image)')"
+          DEPLOYED_SHA="${IMAGE##*:}"
+          echo "DEPLOYED_SHA=${DEPLOYED_SHA}"
+          echo "EXPECTED_PRODUCT_SHA=${EXPECTED_PRODUCT_SHA}"
+          if [ "${DEPLOYED_SHA}" != "${EXPECTED_PRODUCT_SHA}" ]; then
+            echo "Deployed SHA ${DEPLOYED_SHA} does not match expected product SHA ${EXPECTED_PRODUCT_SHA}"
+            exit 1
+          fi
+          echo "DEPLOYED_SHA=${DEPLOYED_SHA}" >> "$GITHUB_ENV"
+          {
+            echo "## Deployed product identity"
+            echo ""
+            echo "- Deployed SHA: ${DEPLOYED_SHA}"
+            echo "- Product SHA chain match: YES"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Install release harness dependencies
+        working-directory: release-harness
+        run: npm ci
 
       - name: Verify staging environment (mock-flags + nycklar)
+        working-directory: release-harness
         run: npm run smoke:staging-verify
-        continue-on-error: false
         env:
           STAGING_URL: ${{ inputs.base_url || vars.STAGING_URL }}
           DATABASE_URL: ${{ secrets.STAGING_DATABASE_URL }}
           JWT_ACCESS_SECRET: ${{ secrets.STAGING_JWT_ACCESS_SECRET }}
           JWT_REFRESH_SECRET: ${{ secrets.STAGING_JWT_REFRESH_SECRET }}
-          ADMIN_CONSOLE_PASSWORD: ${{ secrets.STAGING_E2E_ADMIN_PASSWORD || secrets.ADMIN_CONSOLE_PASSWORD }}
+          ADMIN_CONSOLE_PASSWORD: ${{ secrets.STAGING_E2E_ADMIN_PASSWORD }}
           LANTMATERIET_CONSUMER_KEY: ${{ secrets.STAGING_LANTMATERIET_CONSUMER_KEY }}
           LANTMATERIET_CONSUMER_SECRET: ${{ secrets.STAGING_LANTMATERIET_CONSUMER_SECRET }}
           LANTMATERIET_OPEN_SUBSCRIPTION_KEY: ${{ secrets.STAGING_LANTMATERIET_OPEN_SUBSCRIPTION_KEY }}
@@ -75,21 +207,57 @@ jobs:
           SLU_API_KEY: ${{ secrets.STAGING_SLU_API_KEY }}
           VERTEX_PROJECT_ID: ${{ secrets.GCP_PROJECT_ID }}
           VERTEX_LOCATION: ${{ vars.GCP_REGION || 'europe-west1' }}
+          BANKID_MODE: 'production'
           BANKID_MOCK_MODE: 'false'
           AUTHORITY_MOCK_MODE: 'false'
           LANTMATERIET_DEMO_MODE: 'false'
+          ALLOW_DEV_LOGIN: 'false'
 
-      - name: Run staging core flows (Lokaliseringsutredning)
-        run: npm run e2e:staging
+      - name: Mint Cloud Run ID token (ephemeral)
+        id: cloud_run_iam
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ secrets.GCP_SERVICE_ACCOUNT }}
+          token_format: id_token
+          id_token_audience: ${{ inputs.base_url || vars.STAGING_URL }}
+          id_token_include_email: true
 
-      - name: Run staging Enskilt avlopp flows
-        run: npm run e2e:staging:avlopp
+      - name: Record Cloud Run IAM audience
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ -z "${{ steps.cloud_run_iam.outputs.id_token }}" ]; then
+            echo "Failed to mint Cloud Run ID token."
+            exit 1
+          fi
+          echo "CLOUD_RUN_IAM_AUDIENCE=${{ inputs.base_url || vars.STAGING_URL }}" >> "$GITHUB_ENV"
+          echo "Cloud Run IAM token minted (value not logged)."
 
-      - name: Run staging C-anmälan schaktmassor
-        run: npm run e2e:staging:c-mass
+      - name: IAM preflight (infrastructure auth)
+        working-directory: release-harness
+        shell: bash
+        env:
+          CLOUD_RUN_ID_TOKEN: ${{ steps.cloud_run_iam.outputs.id_token }}
+          CLOUD_RUN_IAM_AUDIENCE: ${{ inputs.base_url || vars.STAGING_URL }}
+        run: node release-harness/staging/cloud-run-iam-preflight.mjs
 
-      - name: Run staging Lokaliseringsutredning
-        run: npm run e2e:staging:localization
+      - name: Install product dependencies
+        working-directory: product
+        run: npm ci
+
+      - name: Install Playwright browser
+        working-directory: product
+        run: npx playwright install --with-deps chromium
+
+      - name: Run staging release smoke (product tree)
+        working-directory: product
+        env:
+          CLOUD_RUN_ID_TOKEN: ${{ steps.cloud_run_iam.outputs.id_token }}
+          CLOUD_RUN_IAM_AUDIENCE: ${{ inputs.base_url || vars.STAGING_URL }}
+        run: >-
+          npx playwright test
+          -c ../release-harness/release-harness/staging/playwright.cloud-run-staging.config.mjs
 
       - name: Upload Playwright report
         if: always()
@@ -97,8 +265,8 @@ jobs:
         with:
           name: staging-e2e-playwright-report
           path: |
-            playwright-report
-            test-results
+            product/playwright-report
+            product/test-results
           if-no-files-found: ignore
 
       - name: Add workflow summary
@@ -109,6 +277,16 @@ jobs:
             echo "## Staging E2E Proof";
             echo "";
             echo "- Base URL: ${PLAYWRIGHT_BASE_URL}";
+            echo "- Release ref: ${RELEASE_REF}";
+            echo "- Expected product SHA: ${EXPECTED_PRODUCT_SHA}";
+            echo "- Resolved product SHA: ${RESOLVED_PRODUCT_SHA:-}";
+            echo "- Product checkout SHA: ${PRODUCT_CHECKOUT_SHA:-}";
+            echo "- Deployed SHA: ${DEPLOYED_SHA:-}";
+            echo "- Release harness SHA: ${RELEASE_HARNESS_SHA:-}";
             echo "- Included Vertex flows: ${E2E_INCLUDE_VERTEX_FLOWS}";
+            echo "- Infrastructure auth: Cloud Run IAM (WIF id_token + X-Serverless-Authorization via Playwright extraHTTPHeaders)";
+            echo "- Application E2E auth: ADMIN_CONSOLE_DEDICATED_E2E";
+            echo "- Product BankID auth: NOT TESTED BY THIS WORKFLOW";
+            echo "- Cloud Run IAM audience: ${CLOUD_RUN_IAM_AUDIENCE:-}";
             echo "- Artifacts: staging-e2e-playwright-report";
           } >> "$GITHUB_STEP_SUMMARY"

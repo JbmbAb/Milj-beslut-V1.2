@@ -27,6 +27,21 @@ vi.mock('../../src/ui/api-client/geo.client', () => ({
   fetchPropertyInfo: (...args: unknown[]) => fetchPropertyInfo(...args),
 }));
 
+vi.mock('../../src/ui/api-client/localizationProjects.client', () => ({
+  getBootstrapStatus: vi.fn(async () => ({
+    status: {
+      id: 'bootstrap-1',
+      projectId: 'proj-1',
+      propertyDesignation: 'GÄVLE BRYNÄS 1:1',
+      status: 'COMPLETED',
+      contextBindingArtifactId: 'project-context-binding-1',
+      failureCode: null,
+      failureDetail: null,
+    },
+    diagnostics: null,
+  })),
+}));
+
 vi.mock('../../services/coreApiClient', () => ({
   callApi: (...args: unknown[]) => callApi(...args),
   getActiveProjectId: () => getActiveProjectId(),
@@ -146,6 +161,8 @@ describe('LuWorkspace', () => {
     expect(await screen.findByTestId('lu-site-ready')).toBeInTheDocument();
     expect(await screen.findByTestId('lu-cesium-front')).toBeInTheDocument();
     expect(await screen.findByTestId('cesium-map-view')).toBeInTheDocument();
+    expect(lastCesiumMapViewProps.evidenceMode).toBe('live');
+    expect(lastCesiumMapViewProps.projectId).toBe('proj-1');
     expect(fetchPropertyInfo).toHaveBeenCalledWith('GÄVLE BRYNÄS 1:1', 'proj-1');
 
     await user.click(screen.getByTestId('lu-run'));
@@ -176,8 +193,21 @@ describe('LuWorkspace', () => {
 
     expect(callApi).toHaveBeenCalledWith(
       '/api/localization/generate-report',
-      expect.objectContaining({ method: 'POST' }),
+      expect.objectContaining({
+        method: 'POST',
+        body: expect.objectContaining({
+          projectId: 'proj-1',
+          siteAlternatives: [
+            expect.objectContaining({
+              lat: expect.any(Number),
+              lng: expect.any(Number),
+            }),
+          ],
+        }),
+      }),
     );
+    const generateCall = callApi.mock.calls.find((entry) => entry[0] === '/api/localization/generate-report');
+    expect(generateCall?.[1]?.body?.siteAlternatives?.[0]?.documentEvidenceRefs).toBeUndefined();
 
     // LU-REPORT-EXPORT-UI-V1: the export action only appears once a real governed assessment
     // exists, and existing Unit 2/3 presentation (asserted above) is unaffected by its presence.

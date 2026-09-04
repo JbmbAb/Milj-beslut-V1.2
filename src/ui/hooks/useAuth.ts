@@ -8,6 +8,11 @@ export interface BankIdLoginResult {
   user: { id: string; role: string; organisationId: string; bankidId?: string; displayName?: string };
 }
 
+function handOffToBankId(launchUrl: string): boolean {
+  if (typeof window === 'undefined') return false;
+  return window.open(launchUrl, '_self') !== null;
+}
+
 /**
  * PRODUCT-AUTH-USER-LOGIN-UX-01 Phase B.
  *
@@ -22,6 +27,27 @@ export function useBankIdAuth(onComplete?: (result: BankIdLoginResult) => void) 
   const [orderRef, setOrderRef] = useState<string | null>(null);
   const [authStatus, setAuthStatus] = useState<'idle' | 'pending' | 'complete' | 'failed'>('idle');
   const [error, setError] = useState<string | null>(null);
+  const [launchError, setLaunchError] = useState<string | null>(null);
+
+  const openBankId = (launchUrl?: string) => {
+    if (!launchUrl) {
+      setLaunchError('BankID-klienten kunde inte öppnas eftersom ordern saknar en startlänk.');
+      return false;
+    }
+
+    try {
+      const launched = handOffToBankId(launchUrl);
+      if (!launched) {
+        setLaunchError('BankID-klienten kunde inte öppnas automatiskt. Välj Öppna BankID.');
+      } else {
+        setLaunchError(null);
+      }
+      return launched;
+    } catch {
+      setLaunchError('BankID-klienten kunde inte öppnas automatiskt. Välj Öppna BankID.');
+      return false;
+    }
+  };
 
   const initMutation = useMutation({
     mutationFn: () => initiateBankId(),
@@ -29,6 +55,8 @@ export function useBankIdAuth(onComplete?: (result: BankIdLoginResult) => void) 
       setOrderRef(data.orderRef);
       setAuthStatus('pending');
       setError(null);
+      setLaunchError(null);
+      openBankId(data.launchUrl);
     },
     onError: (err) => {
       setError(err.message);
@@ -40,7 +68,9 @@ export function useBankIdAuth(onComplete?: (result: BankIdLoginResult) => void) 
     mutationFn: () => (orderRef ? cancelBankId(orderRef) : Promise.resolve()),
     onSuccess: () => {
       setOrderRef(null);
-      setAuthStatus('idle');
+      setAuthStatus('failed');
+      setError('Inloggningen avbröts.');
+      setLaunchError(null);
     },
   });
 
@@ -81,9 +111,11 @@ export function useBankIdAuth(onComplete?: (result: BankIdLoginResult) => void) 
   return {
     initiate: () => initMutation.mutate(),
     cancel: () => cancelMutation.mutate(),
+    openBankId: () => openBankId(initMutation.data?.launchUrl),
     order: initMutation.data,
     status: authStatus,
     error,
+    launchError,
     isInitializing: initMutation.isPending,
   };
 }

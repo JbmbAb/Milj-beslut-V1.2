@@ -70,6 +70,44 @@ export class MimersByteStorageBackend implements ByteStorageBackend {
     return this.cas.exists(hash);
   }
 
+  /**
+   * Locator catalog of artifact_ids from the id→hash index. Not content authority:
+   * callers must still resolve and re-verify each candidate through ArtifactRepositoryPort.
+   */
+  async listIds(): Promise<readonly string[]> {
+    let names: string[];
+    try {
+      names = await fs.readdir(this.indexDir);
+    } catch (err) {
+      const code = (err as NodeJS.ErrnoException).code;
+      if (code === "ENOENT") return [];
+      throw err;
+    }
+    const ids: string[] = [];
+    for (const name of names) {
+      if (!name.endsWith(".idx")) continue;
+      try {
+        const raw = await fs.readFile(path.join(this.indexDir, name), "utf8");
+        const parsed = JSON.parse(raw) as { artifact_id?: unknown; hash?: unknown };
+        if (typeof parsed.artifact_id === "string" && parsed.artifact_id.length > 0) {
+          ids.push(parsed.artifact_id);
+          continue;
+        }
+        // Legacy idx files stored only `{ hash }`. Recover artifact_id from the CAS envelope.
+        if (typeof parsed.hash !== "string" || parsed.hash.length === 0) continue;
+        const bytes = await this.cas.getBytes(parsed.hash);
+        if (!bytes) continue;
+        const envelope = JSON.parse(Buffer.from(bytes).toString("utf8")) as { artifact_id?: unknown };
+        if (typeof envelope.artifact_id === "string" && envelope.artifact_id.length > 0) {
+          ids.push(envelope.artifact_id);
+        }
+      } catch {
+        continue;
+      }
+    }
+    return ids;
+  }
+
   /** Content-address digest for an artifact_id (index lookup only). */
   async resolveContentAddress(id: string): Promise<string | null> {
     return this.readHash(id);
