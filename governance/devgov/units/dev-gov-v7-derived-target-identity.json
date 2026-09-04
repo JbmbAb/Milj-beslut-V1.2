@@ -1,0 +1,60 @@
+{
+  "schema_version": "dev-gov-v1-unit-definition",
+  "unit": "DEV-GOV-V7-DERIVED-TARGET-IDENTITY",
+  "role": "producer",
+  "mode": "writer",
+  "branch": "codex/dev-gov-v7-derived-target-identity",
+  "base_sha": "128909dd931fcc2869749ac2f855fdf4297de82c",
+  "ancestry_policy": "exact_parent",
+  "allowed_paths": [
+    ".github/workflows/devgov-v0-attest.yml",
+    ".github/workflows/devgov-v0-gate.yml",
+    "governance/devgov/schema/dev-gov-v1-unit-definition.schema.json",
+    "governance/devgov/units/README.md",
+    "governance/devgov/units/dev-gov-v7-derived-target-identity.json",
+    "scripts/audit/devgov*.test.ts",
+    "scripts/devgov/devgov.mjs",
+    "scripts/devgov/trusted-attestation.mjs"
+  ],
+  "forbidden_paths": [
+    ".github/workflows/deploy-*.yml",
+    "server/**",
+    "services/**",
+    "packages/**"
+  ],
+  "required_red": [
+    {
+      "id": "derived-target-contract",
+      "command": "node",
+      "args": [
+        "--input-type=module",
+        "-e",
+        "const m=await import('./scripts/devgov/devgov.mjs');const d={schema_version:'dev-gov-v1-unit-definition',unit:'probe',role:'verifier',mode:'read_only',branch:'probe',base_sha:'a'.repeat(40),ancestry_policy:'exact_parent',allowed_paths:[],forbidden_paths:[]};process.exit(m.validateUnitDefinition?.(d).length===0&&!('target_sha' in d)?0:1)"
+      ],
+      "expected_classification": "FAIL",
+      "required_head": "base_sha"
+    }
+  ],
+  "required_green": [
+    {
+      "id": "derived-target-contract",
+      "command": "node",
+      "args": [
+        "--input-type=module",
+        "-e",
+        "const m=await import('./scripts/devgov/devgov.mjs');const d={schema_version:'dev-gov-v1-unit-definition',unit:'probe',role:'verifier',mode:'read_only',branch:'probe',base_sha:'a'.repeat(40),ancestry_policy:'exact_parent',allowed_paths:[],forbidden_paths:[]};process.exit(m.validateUnitDefinition?.(d).length===0&&!('target_sha' in d)?0:1)"
+      ],
+      "required_head": "candidate_sha"
+    }
+  ],
+  "trusted_execution": {
+    "issuer": "github-actions:JbmbAb/Milj-beslut-V1.2:devgov-v0-attest",
+    "key_id": "devgov-ci-ed25519-v1"
+  },
+  "remote": {
+    "name": "origin",
+    "branch": "codex/dev-gov-v7-derived-target-identity",
+    "push_policy": "no_force",
+    "absent_policy": "deny_absent"
+  }
+}

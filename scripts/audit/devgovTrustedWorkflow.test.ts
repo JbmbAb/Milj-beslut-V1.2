@@ -29,12 +29,98 @@ describe('DEV-GOV-V0 protected execution workflow', () => {
     expect(source).toContain('install -d -m 0700 -o root -g root');
     expect(source).toContain('chown -R root:root candidate');
     expect(source).toContain('chmod -R a-w candidate');
-    expect(source).toContain('chown -R devgov-candidate:devgov-candidate candidate/node_modules');
+    expect(source).toContain('chown -R devgov-candidate:devgov-candidate "$execution_root/node_modules"');
     expect(source).toContain('--run-as-uid "$candidate_uid"');
     expect(source).toContain('--run-as-gid "$candidate_gid"');
     expect(source).toContain('--run-as-home /home/devgov-candidate');
     expect(source).toContain('$RUNNER_TEMP/devgov-controller/execution-record.json');
     expect(source).toContain('$RUNNER_TEMP/devgov-export/execution-record.json');
+  });
+
+  it('installs dependencies from the canonical exact execution checkout root', () => {
+    const workflow = parse(readFileSync(workflowPath, 'utf8'));
+    const prepare = workflow.jobs.execute.steps.find(
+      (step) => step.name === 'Prepare isolated proof OS identity',
+    );
+
+    expect(prepare.run).toContain('node controller/scripts/devgov/verify-execution-root.mjs');
+    expect(prepare.run).toContain('--workspace "$GITHUB_WORKSPACE"');
+    expect(prepare.run).toContain('--execution "$GITHUB_WORKSPACE/execution"');
+    expect(prepare.run).toContain(
+      'sudo -u devgov-candidate npm ci --prefix "$execution_root" --ignore-scripts',
+    );
+    expect(prepare.run).not.toContain('npm ci --prefix execution');
+  });
+
+  it('identifies the exact isolation-bootstrap command without tracing command data', () => {
+    const workflow = parse(readFileSync(workflowPath, 'utf8'));
+    const prepare = workflow.jobs.execute.steps.find(
+      (step) => step.name === 'Prepare isolated proof OS identity',
+    );
+
+    expect(prepare.run).toContain('run_isolation_command()');
+    expect(prepare.run).toContain('DEVGOV_ISOLATION_START=$label');
+    expect(prepare.run).toContain('DEVGOV_ISOLATION_PASS=$label');
+    expect(prepare.run).toContain('DEVGOV_FAILED_COMMAND=$label');
+    expect(prepare.run).toContain('DEVGOV_FAILED_EXIT=$status');
+    expect(prepare.run).not.toContain('set -x');
+
+    for (const invocation of [
+      'run_isolation_command useradd sudo useradd --system --create-home --shell /usr/sbin/nologin devgov-candidate',
+      'run_isolation_command chown-execution-root sudo chown -R devgov-candidate:devgov-candidate "$execution_root"',
+      'run_isolation_command open-runner-home-traverse sudo chmod o+x /home/runner',
+      'run_isolation_command read-package-json sudo -u devgov-candidate test -r "$execution_root/package.json"',
+      'run_isolation_command read-package-lock-json sudo -u devgov-candidate test -r "$execution_root/package-lock.json"',
+      'run_isolation_command npm-ci sudo -u devgov-candidate npm ci --prefix "$execution_root" --ignore-scripts',
+      'run_isolation_command freeze-candidate-owner sudo chown -R root:root candidate',
+      'run_isolation_command freeze-candidate-mode sudo chmod -R a-w candidate',
+      'run_isolation_command freeze-execution-owner sudo chown -R root:root "$execution_root"',
+      'run_isolation_command freeze-execution-mode sudo chmod -R a-w "$execution_root"',
+      'run_isolation_command restore-node-modules-owner sudo chown -R devgov-candidate:devgov-candidate "$execution_root/node_modules"',
+      'run_isolation_command restore-node-modules-mode sudo chmod -R u+w "$execution_root/node_modules"',
+      'run_isolation_command safe-directory-candidate sudo git config --global --add safe.directory "$GITHUB_WORKSPACE/candidate"',
+      'run_isolation_command safe-directory-execution sudo git config --global --add safe.directory "$GITHUB_WORKSPACE/execution"',
+      'run_isolation_command create-controller-dir sudo install -d -m 0700 -o root -g root "$RUNNER_TEMP/devgov-controller"',
+      'run_isolation_command create-export-dir install -d -m 0700 "$RUNNER_TEMP/devgov-export"',
+    ]) {
+      expect(prepare.run).toContain(invocation);
+    }
+  });
+
+  it('reports parent-directory traversal without changing the fail-closed command', () => {
+    const workflow = parse(readFileSync(workflowPath, 'utf8'));
+    const prepare = workflow.jobs.execute.steps.find(
+      (step) => step.name === 'Prepare isolated proof OS identity',
+    );
+
+    expect(prepare.run).toContain('report_isolation_probe()');
+    expect(prepare.run).toContain('DEVGOV_ISOLATION_PROBE_PASS=$label');
+    expect(prepare.run).toContain('DEVGOV_ISOLATION_PROBE_FAIL=$label');
+    expect(prepare.run).toContain('DEVGOV_ISOLATION_PROBE_EXIT=$status');
+    expect(prepare.run).toContain(
+      'run_isolation_command open-runner-home-traverse sudo chmod o+x /home/runner',
+    );
+    expect(prepare.run).toContain(
+      'run_isolation_command inspect-package-path namei -l "$execution_root/package.json"',
+    );
+    expect(prepare.run).toContain(
+      'report_isolation_probe traverse-workspace-parent sudo -u devgov-candidate test -x "$workspace_parent"',
+    );
+    expect(prepare.run).toContain(
+      'report_isolation_probe traverse-workspace sudo -u devgov-candidate test -x "$GITHUB_WORKSPACE"',
+    );
+    expect(prepare.run).toContain(
+      'report_isolation_probe traverse-execution-root sudo -u devgov-candidate test -x "$execution_root"',
+    );
+
+    const openTraverseIndex = prepare.run.indexOf(
+      'run_isolation_command open-runner-home-traverse sudo chmod o+x /home/runner',
+    );
+    const probeIndex = prepare.run.indexOf('report_isolation_probe traverse-execution-root');
+    const terminalReadIndex = prepare.run.indexOf('run_isolation_command read-package-json');
+    expect(openTraverseIndex).toBeGreaterThan(-1);
+    expect(probeIndex).toBeGreaterThan(openTraverseIndex);
+    expect(terminalReadIndex).toBeGreaterThan(probeIndex);
   });
 
   it('checks out and executes the exact requested SHA with protected controller code', () => {
@@ -44,6 +130,9 @@ describe('DEV-GOV-V0 protected execution workflow', () => {
     expect(source).toContain('test "$(git -C candidate rev-parse HEAD)" = "$EXPECTED_SHA"');
     expect(source).toContain('node controller/scripts/devgov/devgov.mjs execute-proof');
     expect(source).toContain('node controller/scripts/devgov/devgov.mjs attest-execution');
+    expect(source).toContain('node controller/scripts/devgov/devgov.mjs resolve-execution-sha');
+    expect(source).toContain('--candidate-sha "$CANDIDATE_SHA"');
+    expect(source).toContain('--definition-worktree candidate');
     expect(source).toContain('test "$DISPATCH_REF" = "refs/heads/$DEFAULT_BRANCH"');
   });
 
@@ -90,6 +179,10 @@ describe('DEV-GOV-V0 verifier-owned evidence gate workflow', () => {
     expect(source).toContain('ref: ${{ inputs.candidate_sha }}');
     expect(source).toContain('test "$(git -C candidate rev-parse HEAD)" = "$CANDIDATE_SHA"');
     expect(source).toContain('node controller/scripts/devgov/devgov.mjs evidence-gate');
+    expect(source).toContain('--definition "candidate/$UNIT_DEFINITION_PATH"');
+    expect(source).toContain('--candidate-sha "$CANDIDATE_SHA"');
+    expect(source).toContain('DEVGOV_CONTROLLER_SHA: ${{ github.sha }}');
+    expect(source).not.toContain('devgov-manifest.json');
     expect(source).not.toContain('require(process.argv[1])');
     expect(source).not.toMatch(/node\s+candidate\//);
     expect(source).not.toMatch(/npm\s+(?:ci|run|test)[^\n]*candidate/);
