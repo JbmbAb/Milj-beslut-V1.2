@@ -35,7 +35,7 @@
     "ingest:requirements:idempotent": "tsx scripts/import/extract-requirements-idempotent.ts",
     "import:property-units": "tsx scripts/import/import-lantmateriet-property-units.ts",
     "import:sgu-risk-layers": "tsx scripts/import/import-sgu-risk-layers.ts",
-    "harvest:governed": "node packages/mps-data-governance/scripts/run-governed-harvest.mjs",
+    "harvest:governed": "tsx packages/mps-data-governance/scripts/harvest-live-pilot.ts",
     "admit:validate-layers": "node scripts/import/admit-v1-layer-validation.mjs",
     "graph:build": "tsx scripts/graph/build-knowledge-graph.ts",
     "search:health": "tsx scripts/search-health.ts",

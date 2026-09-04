@@ -1,21 +1,40 @@
 /**
  * 🜂 Portable Scheduler & State Reconstructor (Step 3)
- * 
+ *
  * Schemaläggaren läser registret, utvärderar "Due-status" mot den lokala
  * tillståndsfilen (scheduler_state.json), skapar en HarvestPlan och
  * initierar en HarvestLedger-kontext. Den laddar ner inga filer själv.
- * 
+ *
  * Särskild egenskap (Pelare 3):
  *   - Schedulern använder scheduler_state.json enbart som en prestanda-cache!
  *   - Om state-filen raderas kan schemaläggaren bygga upp den igen genom att
  *     skanna igenom och tolka alla historiska `harvest_ledger_*.json`-filer.
- * 
+ *
  * Regler:
  *   - Scheduler SHALL NOT execute harvest work.
  *   - Scheduler SHALL create HarvestPlans.
  *   - Scheduler SHALL enqueue HarvestPlans.
  *   - Scheduler SHALL update SchedulerState.
  *   - Scheduler SHALL NOT download documents.
+ *
+ * ⚠️ NON-OPERATIONAL ENTRYPOINT (GOVERNED-HARVEST-CANONICAL-ENTRYPOINT, 2026-09-05).
+ *
+ * This module and `./harvestRuntime` (which `runScheduler` below delegates execution to) are
+ * legacy: `executeHarvestForSource`'s adapter factory only resolves `mmd_v1` /
+ * `mpd_lansstyrelsen_v1` / `mod_v1`, and none of the currently APPROVED sources in
+ * `source-registry/national-registry.json` use those adapter names — every real source fails
+ * adapter instantiation through this path. The canonical, operational governed-harvest entrypoint
+ * is `packages/mps-data-governance/scripts/harvest-live-pilot.ts` (composed via
+ * `HarvestRuntimeCompositionRoot.composeHarvestRuntime`), wired to `npm run harvest:governed`.
+ *
+ * This file previously self-executed `runScheduler()` on mere module import whenever
+ * `process.env.NODE_ENV !== 'test'` — an unguarded, unintended-activation risk (formerly tracked
+ * as LOKE_SCHEDULER_IMPORT_SIDE_EFFECT / SR2 in docs/architecture/architecture-authority-map.jsonc,
+ * inherited from this file's `lokeScheduler.ts` predecessor). That self-executing block has been
+ * removed: importing this module now has no side effect, regardless of `NODE_ENV`. `runScheduler`
+ * remains exported for its scheduling/state-reconstruction logic and existing test coverage
+ * (`tests/unit/import/harvestScheduler.test.ts`), but nothing in this module can start it anymore.
+ * See docs/architecture/KNOWLEDGE-INGESTION-REACHABILITY-AUDIT-2026-09-05.md for the full trace.
  */
 
 import * as fs from 'fs/promises';
@@ -304,11 +323,6 @@ export async function runScheduler(options: { execute?: boolean; onlyFilters?: s
   return { triggeredPlansCount, completedRunsCount, failedRunsCount };
 }
 
-// Självexekveringsblock för CLI-anrop
-if (typeof process !== 'undefined' && process.env.NODE_ENV !== 'test') {
-  const execute = process.argv.includes('--execute');
-  runScheduler({ execute }).catch((err) => {
-    console.error('❌ Schemaläggaren havererade:', err);
-    process.exitCode = 1;
-  });
-}
+// Self-execution on import was removed 2026-09-05 (GOVERNED-HARVEST-CANONICAL-ENTRYPOINT).
+// This module must never start harvesting merely by being imported. Call `runScheduler()`
+// explicitly (as the test suite does) if this legacy scheduling logic is ever needed directly.
