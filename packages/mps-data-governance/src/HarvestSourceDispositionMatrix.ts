@@ -28,12 +28,10 @@
  * from static registry fields.
  */
 
-import type { AdapterResolverFactory } from "./HarvestRuntimeCompositionRoot";
+import type { AdapterResolverFactory } from './HarvestRuntimeCompositionRoot';
 
 export type SourceDisposition =
-  | "EXECUTABLE_BY_GOVERNED_RUNTIME"
-  | "INTENTIONALLY_ROUTED_ELSEWHERE"
-  | "FAIL_CLOSED";
+  'EXECUTABLE_BY_GOVERNED_RUNTIME' | 'INTENTIONALLY_ROUTED_ELSEWHERE' | 'FAIL_CLOSED';
 
 export interface SourceDispositionEntry {
   readonly disposition: SourceDisposition;
@@ -55,82 +53,92 @@ export interface DispositionCheckableSource {
 }
 
 export const SOURCE_DISPOSITIONS: Readonly<Record<string, SourceDispositionEntry>> = Object.freeze({
-  "domstolsverket-puh-mmod": {
-    disposition: "EXECUTABLE_BY_GOVERNED_RUNTIME",
-    reason: "PUH_RATTSPRAXIS_V1 resolver registered; live-network PROVEN 2026-08-20 (P2-HARVEST-LIVE-01-PROVEN.md).",
-    as_of: "2026-09-05",
-  },
-  "regeringskansliet-sfs-1998-808": {
-    disposition: "EXECUTABLE_BY_GOVERNED_RUNTIME",
-    reason: "SINGLE_ENDPOINT_V1 resolver registered; live-network PROVEN 2026-08-20.",
-    as_of: "2026-09-05",
-  },
-  "regeringskansliet-sfs-2013-251": {
-    disposition: "EXECUTABLE_BY_GOVERNED_RUNTIME",
-    reason: "SINGLE_ENDPOINT_V1 resolver registered; live-network PROVEN 2026-08-20.",
-    as_of: "2026-09-05",
-  },
-  "regeringskansliet-sfs-2020-614": {
-    disposition: "EXECUTABLE_BY_GOVERNED_RUNTIME",
-    reason: "SINGLE_ENDPOINT_V1 resolver registered; live-network PROVEN 2026-08-20.",
-    as_of: "2026-09-05",
-  },
-  "regeringskansliet-sfs-2010-900": {
-    disposition: "EXECUTABLE_BY_GOVERNED_RUNTIME",
-    reason: "SINGLE_ENDPOINT_V1 resolver registered; live-network PROVEN 2026-08-20.",
-    as_of: "2026-09-05",
-  },
-  "regeringskansliet-sfs-2011-338": {
-    disposition: "EXECUTABLE_BY_GOVERNED_RUNTIME",
-    reason: "SINGLE_ENDPOINT_V1 resolver registered; live-network PROVEN 2026-08-20.",
-    as_of: "2026-09-05",
-  },
-  "regeringskansliet-sfs-1998-899": {
-    disposition: "EXECUTABLE_BY_GOVERNED_RUNTIME",
-    reason: "SINGLE_ENDPOINT_V1 resolver registered; live-network PROVEN 2026-08-20.",
-    as_of: "2026-09-05",
-  },
-  "hav-hvmfs-2016-17": {
-    disposition: "EXECUTABLE_BY_GOVERNED_RUNTIME",
-    reason: "SINGLE_ENDPOINT_V1 resolver registered; live-network PROVEN 2026-08-20.",
-    as_of: "2026-09-05",
-  },
-  "sgu-groundwater-influence-analytical-models": {
-    disposition: "EXECUTABLE_BY_GOVERNED_RUNTIME",
-    reason: "SINGLE_ENDPOINT_V1 resolver registered; live-network PROVEN 2026-08-20.",
-    as_of: "2026-09-05",
-  },
-  "sgu-well-drilling-guidance": {
-    disposition: "EXECUTABLE_BY_GOVERNED_RUNTIME",
-    reason: "SINGLE_ENDPOINT_V1 resolver registered; live-network PROVEN 2026-08-20.",
-    as_of: "2026-09-05",
-  },
-  "boverket-planbestammelser": {
-    disposition: "FAIL_CLOSED",
+  'domstolsverket-puh-mmod': {
+    disposition: 'EXECUTABLE_BY_GOVERNED_RUNTIME',
     reason:
-      "SINGLE_ENDPOINT_V1 resolver registered (structurally wired), but its registered endpoint " +
-      "(api.boverket.se/planbestammelser/v2/json) returned a non-2xx status as of the 2026-08-20 " +
-      "P2-HARVEST-LIVE-01-PROVEN.md run — the executor correctly fails closed rather than " +
-      "silently succeeding or falling back. Tracked separately as BOVERKET-SOURCE-REDISCOVERY-01. " +
-      "Not re-verified live by the offline coverage check below.",
-    as_of: "2026-09-05",
+      'PUH_RATTSPRAXIS_V1 resolver registered; live-network PROVEN 2026-08-20 (P2-HARVEST-LIVE-01-PROVEN.md).',
+    as_of: '2026-09-05',
   },
-  "lantmateriet-stac-byggnader": {
-    disposition: "EXECUTABLE_BY_GOVERNED_RUNTIME",
-    reason:
-      "LM_STAC_BYGGNADER_V1 resolver registered; unit-tested with a mocked fetchImpl " +
-      "(P2LmStacRuntimeComposition.test.ts) but not yet exercised against the live endpoint — " +
-      "structurally executable, live-network proof still open.",
-    as_of: "2026-09-05",
+  'regeringskansliet-sfs-1998-808': {
+    disposition: 'EXECUTABLE_BY_GOVERNED_RUNTIME',
+    reason: 'SINGLE_ENDPOINT_V1 resolver registered; live-network PROVEN 2026-08-20.',
+    as_of: '2026-09-05',
   },
-  "falkenbergs-kommun-mhn-decisions": {
-    disposition: "INTENTIONALLY_ROUTED_ELSEWHERE",
+  'regeringskansliet-sfs-2013-251': {
+    disposition: 'EXECUTABLE_BY_GOVERNED_RUNTIME',
+    reason: 'SINGLE_ENDPOINT_V1 resolver registered; live-network PROVEN 2026-08-20.',
+    as_of: '2026-09-05',
+  },
+  'regeringskansliet-sfs-2020-614': {
+    disposition: 'EXECUTABLE_BY_GOVERNED_RUNTIME',
+    reason: 'SINGLE_ENDPOINT_V1 resolver registered; live-network PROVEN 2026-08-20.',
+    as_of: '2026-09-05',
+  },
+  'regeringskansliet-sfs-2010-900': {
+    disposition: 'EXECUTABLE_BY_GOVERNED_RUNTIME',
+    reason: 'SINGLE_ENDPOINT_V1 resolver registered; live-network PROVEN 2026-08-20.',
+    as_of: '2026-09-05',
+  },
+  'regeringskansliet-sfs-2011-338': {
+    disposition: 'EXECUTABLE_BY_GOVERNED_RUNTIME',
+    reason: 'SINGLE_ENDPOINT_V1 resolver registered; live-network PROVEN 2026-08-20.',
+    as_of: '2026-09-05',
+  },
+  'regeringskansliet-sfs-1998-899': {
+    disposition: 'EXECUTABLE_BY_GOVERNED_RUNTIME',
+    reason: 'SINGLE_ENDPOINT_V1 resolver registered; live-network PROVEN 2026-08-20.',
+    as_of: '2026-09-05',
+  },
+  'hav-hvmfs-2016-17': {
+    disposition: 'EXECUTABLE_BY_GOVERNED_RUNTIME',
+    reason: 'SINGLE_ENDPOINT_V1 resolver registered; live-network PROVEN 2026-08-20.',
+    as_of: '2026-09-05',
+  },
+  'sgu-groundwater-influence-analytical-models': {
+    disposition: 'EXECUTABLE_BY_GOVERNED_RUNTIME',
+    reason: 'SINGLE_ENDPOINT_V1 resolver registered; live-network PROVEN 2026-08-20.',
+    as_of: '2026-09-05',
+  },
+  'sgu-well-drilling-guidance': {
+    disposition: 'EXECUTABLE_BY_GOVERNED_RUNTIME',
+    reason: 'SINGLE_ENDPOINT_V1 resolver registered; live-network PROVEN 2026-08-20.',
+    as_of: '2026-09-05',
+  },
+  'boverket-planbestammelser': {
+    disposition: 'EXECUTABLE_BY_GOVERNED_RUNTIME',
     reason:
-      "ARCHIVE_IMPORT channel; GovernedHarvestRuntime.execute() rejects ARCHIVE_IMPORT sources " +
-      "with REJECT_ARCHIVE_IMPORT_NETWORK_HARVEST by design. Enters only through the explicit " +
-      "governed archive-import path (see LegacyMasterAdmission.ts / " +
-      "SourceChannelArchiveImport.test.ts), never network harvest.",
-    as_of: "2026-09-05",
+      'CORRECTED 2026-09-05 — the prior FAIL_CLOSED classification here was stale. It was based ' +
+      'on the 2026-08-20 P2-HARVEST-LIVE-01-PROVEN.md finding that the then-registered endpoint ' +
+      '(api.boverket.se/planbestammelser/v2/json, artifact reg-boverket-planbestammelser-001) ' +
+      'returned a non-2xx status. That artifact was superseded five days later: commit b13f45a9 ' +
+      "(2026-08-25, 'atomically reattest active source registry') reissued this source as " +
+      'reg-boverket-planbestammelser-002 with a corrected endpoint, ' +
+      'api.boverket.se/planbestammelsekatalogen/release/full/aktuell. A direct GET against that ' +
+      'current endpoint on 2026-09-05 returned HTTP 200 (a HEAD request 404s, but the adapter ' +
+      'issues GET). SINGLE_ENDPOINT_V1 resolver registered; structurally wired and, per this ' +
+      "manual check, live. No governance record (architecture-authority-map.jsonc, this repo's " +
+      'commit history) requires denying this source independent of endpoint health — the reissue ' +
+      'reads as a deliberate fix, not a policy decision to keep it blocked. Not a substitute for ' +
+      'a re-executed, formal P2-HARVEST-LIVE-01-style proof against the current registry, which ' +
+      'remains open (see the K1 audit doc).',
+    as_of: '2026-09-05',
+  },
+  'lantmateriet-stac-byggnader': {
+    disposition: 'EXECUTABLE_BY_GOVERNED_RUNTIME',
+    reason:
+      'LM_STAC_BYGGNADER_V1 resolver registered; unit-tested with a mocked fetchImpl ' +
+      '(P2LmStacRuntimeComposition.test.ts) but not yet exercised against the live endpoint — ' +
+      'structurally executable, live-network proof still open.',
+    as_of: '2026-09-05',
+  },
+  'falkenbergs-kommun-mhn-decisions': {
+    disposition: 'INTENTIONALLY_ROUTED_ELSEWHERE',
+    reason:
+      'ARCHIVE_IMPORT channel; GovernedHarvestRuntime.execute() rejects ARCHIVE_IMPORT sources ' +
+      'with REJECT_ARCHIVE_IMPORT_NETWORK_HARVEST by design. Enters only through the explicit ' +
+      'governed archive-import path (see LegacyMasterAdmission.ts / ' +
+      'SourceChannelArchiveImport.test.ts), never network harvest.',
+    as_of: '2026-09-05',
   },
 });
 
@@ -161,19 +169,19 @@ export function checkDispositionCoverage(
       continue;
     }
 
-    const isArchiveImport = source.channelType === "ARCHIVE_IMPORT";
+    const isArchiveImport = source.channelType === 'ARCHIVE_IMPORT';
 
-    if (isArchiveImport && entry.disposition !== "INTENTIONALLY_ROUTED_ELSEWHERE") {
+    if (isArchiveImport && entry.disposition !== 'INTENTIONALLY_ROUTED_ELSEWHERE') {
       misclassifiedArchiveImport.push(source.sourceId);
       continue;
     }
-    if (!isArchiveImport && entry.disposition === "INTENTIONALLY_ROUTED_ELSEWHERE") {
+    if (!isArchiveImport && entry.disposition === 'INTENTIONALLY_ROUTED_ELSEWHERE') {
       misclassifiedArchiveImport.push(source.sourceId);
       continue;
     }
 
     if (
-      (entry.disposition === "EXECUTABLE_BY_GOVERNED_RUNTIME" || entry.disposition === "FAIL_CLOSED") &&
+      (entry.disposition === 'EXECUTABLE_BY_GOVERNED_RUNTIME' || entry.disposition === 'FAIL_CLOSED') &&
       !(source.adapter in adapterResolvers)
     ) {
       misclassifiedNetworkAdapterMissing.push(source.sourceId);

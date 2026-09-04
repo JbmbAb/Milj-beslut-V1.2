@@ -108,16 +108,13 @@ describe('GOVERNED-HARVEST-CANONICAL-ENTRYPOINT — K1', () => {
     it('importing the module under a non-test NODE_ENV touches neither the registry nor harvest execution', async () => {
       process.env.NODE_ENV = 'production';
 
-      vi.doMock(
-        '../../../packages/mps-data-governance/src/SourceRegistry',
-        () => ({
-          getAllVerifiedSources: vi.fn(() => {
-            throw new Error(
-              'FAIL: getAllVerifiedSources() must not be called merely by importing harvestScheduler.ts',
-            );
-          }),
+      vi.doMock('../../../packages/mps-data-governance/src/SourceRegistry', () => ({
+        getAllVerifiedSources: vi.fn(() => {
+          throw new Error(
+            'FAIL: getAllVerifiedSources() must not be called merely by importing harvestScheduler.ts',
+          );
         }),
-      );
+      }));
       vi.doMock('../../../scripts/import/harvest/harvestRuntime', () => ({
         executeHarvestForSource: vi.fn(() => {
           throw new Error(
@@ -132,9 +129,7 @@ describe('GOVERNED-HARVEST-CANONICAL-ENTRYPOINT — K1', () => {
       // the kind of "fire and forget" activation this unit closes.
       await expect(import(SCHEDULER_PATH)).resolves.toBeDefined();
 
-      const registryMod: any = await import(
-        '../../../packages/mps-data-governance/src/SourceRegistry'
-      );
+      const registryMod: any = await import('../../../packages/mps-data-governance/src/SourceRegistry');
       expect(registryMod.getAllVerifiedSources).not.toHaveBeenCalled();
 
       const runtimeMod: any = await import('../../../scripts/import/harvest/harvestRuntime');
@@ -200,6 +195,30 @@ describe('GOVERNED-HARVEST-CANONICAL-ENTRYPOINT — K1', () => {
       const currentIds = new Set(readCurrentApprovedSources().map((s) => s.sourceId));
       const stale = Object.keys(SOURCE_DISPOSITIONS).filter((id) => !currentIds.has(id));
       expect(stale, 'stale disposition entries for source_ids no longer APPROVED').toEqual([]);
+    });
+
+    it('the disposition tally matches the last reviewed split, so drift is visible rather than silent', () => {
+      // This is a coverage-contract check, not runtime enforcement: it does not stop the
+      // governed runtime from doing anything, it only fails loudly the next time someone edits
+      // SOURCE_DISPOSITIONS without updating this expectation, which is exactly what let the
+      // 2026-08-20 FAIL_CLOSED classification for boverket-planbestammelser go stale for two
+      // weeks after its 2026-08-25 endpoint fix (commit b13f45a9) without anyone noticing.
+      const sources = readCurrentApprovedSources();
+      const tally: Record<string, number> = {
+        EXECUTABLE_BY_GOVERNED_RUNTIME: 0,
+        INTENTIONALLY_ROUTED_ELSEWHERE: 0,
+        FAIL_CLOSED: 0,
+      };
+      for (const source of sources) {
+        const entry = SOURCE_DISPOSITIONS[source.sourceId];
+        if (entry) tally[entry.disposition] = (tally[entry.disposition] ?? 0) + 1;
+      }
+
+      expect(tally, 'disposition tally as of 2026-09-05 review').toEqual({
+        EXECUTABLE_BY_GOVERNED_RUNTIME: 12,
+        INTENTIONALLY_ROUTED_ELSEWHERE: 1,
+        FAIL_CLOSED: 0,
+      });
     });
   });
 });

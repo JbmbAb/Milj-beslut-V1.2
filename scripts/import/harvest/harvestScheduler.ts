@@ -72,13 +72,13 @@ export type SchedulerState = Record<string, SchedulerSourceState>;
 export async function reconstructSchedulerStateFromLedger(): Promise<SchedulerState> {
   const reconstructed: SchedulerState = {};
   const runsDir = path.join(MASTER_ARCHIVE_ROOT, 'National_Archive', 'runs');
-  
+
   if (!(await fs.stat(runsDir).catch(() => null))) {
     return reconstructed;
   }
 
   const files = await fs.readdir(runsDir);
-  const ledgerFiles = files.filter(f => f.startsWith('harvest_ledger_') && f.endsWith('.json'));
+  const ledgerFiles = files.filter((f) => f.startsWith('harvest_ledger_') && f.endsWith('.json'));
 
   const ledgers: HarvestLedger[] = [];
 
@@ -106,7 +106,7 @@ export async function reconstructSchedulerStateFromLedger(): Promise<SchedulerSt
         cooldown_until: null,
         disabled: false,
         last_plan_id: null,
-        last_run_id: null
+        last_run_id: null,
       };
     }
 
@@ -119,20 +119,22 @@ export async function reconstructSchedulerStateFromLedger(): Promise<SchedulerSt
       state.next_retry = null;
       state.cooldown_until = null;
       state.disabled = false;
-      
+
       // Hitta run_id i sluthändelsen
-      const completedEvent = ledger.events.find(e => e.state === 'Completed');
+      const completedEvent = ledger.events.find((e) => e.state === 'Completed');
       if (completedEvent && completedEvent.metadata) {
         state.last_run_id = completedEvent.metadata.harvest_run_id || null;
       }
     } else if (ledger.status === 'Failed') {
       state.last_failure = ledger.completed_at;
       state.consecutive_failures++;
-      
+
       // Beräkna exponential backoff
       const cooldownMinutes = Math.min(state.consecutive_failures * 30, 1440);
-      const cooldownTime = new Date(new Date(ledger.completed_at!).getTime() + cooldownMinutes * 60 * 1000).toISOString();
-      
+      const cooldownTime = new Date(
+        new Date(ledger.completed_at!).getTime() + cooldownMinutes * 60 * 1000,
+      ).toISOString();
+
       state.cooldown_until = cooldownTime;
       state.next_retry = cooldownTime;
       state.disabled = state.consecutive_failures >= 5;
@@ -151,7 +153,9 @@ export async function loadSchedulerState(): Promise<SchedulerState> {
     const content = await fs.readFile(filePath, 'utf8');
     return JSON.parse(content);
   } catch {
-    console.log('⚠️ scheduler_state.json saknas eller är korrupt. Rekonstruerar tillståndet helt från historiska ledgers (Replay)...');
+    console.log(
+      '⚠️ scheduler_state.json saknas eller är korrupt. Rekonstruerar tillståndet helt från historiska ledgers (Replay)...',
+    );
     const reconstructed = await reconstructSchedulerStateFromLedger();
     await saveSchedulerState(reconstructed);
     return reconstructed;
@@ -173,7 +177,7 @@ export async function saveSchedulerState(state: SchedulerState): Promise<void> {
 export function isSourceDue(source: SourceDefinition, state?: SchedulerSourceState): boolean {
   if (!state) return true; // Ingen tidigare körning -> Kör direkt!
   if (state.disabled) return false; // Inaktiverad pga upprepade fel
-  
+
   // Cooldown-kontroll
   if (state.cooldown_until && new Date(state.cooldown_until) > new Date()) {
     return false;
@@ -222,7 +226,10 @@ export async function runScheduler(options: { execute?: boolean; onlyFilters?: s
   for (const source of allSources) {
     // Filtreringskontroll
     if (options.onlyFilters && options.onlyFilters.length > 0) {
-      if (!options.onlyFilters.includes(source.sourceId) && !options.onlyFilters.includes(source.authority.name.toLowerCase())) {
+      if (
+        !options.onlyFilters.includes(source.sourceId) &&
+        !options.onlyFilters.includes(source.authority.name.toLowerCase())
+      ) {
         continue;
       }
     }
@@ -235,18 +242,22 @@ export async function runScheduler(options: { execute?: boolean; onlyFilters?: s
     const state = schedulerState[source.sourceId];
 
     if (!isSourceDue(source, state)) {
-      console.log(`🕒 Källa '${source.sourceId}' är inte due ännu (Frekvens: ${source.frequency}). Hoppar över.`);
+      console.log(
+        `🕒 Källa '${source.sourceId}' är inte due ännu (Frekvens: ${source.frequency}). Hoppar över.`,
+      );
       continue;
     }
 
     console.log(`\n📅 [DUE] Källa '${source.sourceId}' uppfyller kriterierna för skörd.`);
-    
+
     // --- STEG 1: SKAPA IMMUTABLE HARVEST PLAN ---
     const plan = await createHarvestPlan(source.sourceId, {
-      priority: source.frequency === 'daily' ? 'high' : 'medium'
+      priority: source.frequency === 'daily' ? 'high' : 'medium',
     });
     triggeredPlansCount++;
-    console.log(`   📝 HarvestPlan skapat: ${plan.plan_id} (Content-Hash: ${plan.content_hash.substring(0, 12)}…)`);
+    console.log(
+      `   📝 HarvestPlan skapat: ${plan.plan_id} (Content-Hash: ${plan.content_hash.substring(0, 12)}…)`,
+    );
 
     if (!options.execute) {
       console.log('   🔍 [DRY-RUN] Planen skapad men inte exekverad.');
@@ -259,17 +270,33 @@ export async function runScheduler(options: { execute?: boolean; onlyFilters?: s
 
     // --- STEG 3 & 4: KÖA OCH EXEKVERA SKÖRD (skördemotorn) ---
     // Schedulern gör inget skördearbete själv; den delegerar exekveringen helt till skördemotorn.
-    await recordHarvestEvent(ledger.ledger_id, 'HarvestStarted', `Orkestrerar och startar skörd för källa: ${source.sourceId}`);
+    await recordHarvestEvent(
+      ledger.ledger_id,
+      'HarvestStarted',
+      `Orkestrerar och startar skörd för källa: ${source.sourceId}`,
+    );
 
     try {
       const runResult = await executeHarvestForSource(source.sourceId, { execute: true });
 
       if (runResult.status === 'completed') {
         // Uppdatera händelselistan
-        await recordHarvestEvent(ledger.ledger_id, 'DiscoveryFinished', `Discovery slutförd. Hittade ${runResult.documents_found} dokument.`);
-        await recordHarvestEvent(ledger.ledger_id, 'DownloadsCompleted', `Nedladdning slutförd. Säkrade ${runResult.documents_new} nya och ${runResult.documents_changed} uppdaterade filer.`);
-        await recordHarvestEvent(ledger.ledger_id, 'VerificationCompleted', 'Integritets- och hashkontroller slutförda i National Archive.');
-        
+        await recordHarvestEvent(
+          ledger.ledger_id,
+          'DiscoveryFinished',
+          `Discovery slutförd. Hittade ${runResult.documents_found} dokument.`,
+        );
+        await recordHarvestEvent(
+          ledger.ledger_id,
+          'DownloadsCompleted',
+          `Nedladdning slutförd. Säkrade ${runResult.documents_new} nya och ${runResult.documents_changed} uppdaterade filer.`,
+        );
+        await recordHarvestEvent(
+          ledger.ledger_id,
+          'VerificationCompleted',
+          'Integritets- och hashkontroller slutförda i National Archive.',
+        );
+
         // Stäng ledgern som Completed
         await completeHarvestRun(ledger.ledger_id, 'Completed', runResult);
         completedRunsCount++;
@@ -283,17 +310,18 @@ export async function runScheduler(options: { execute?: boolean; onlyFilters?: s
           cooldown_until: null,
           disabled: false,
           last_plan_id: plan.plan_id,
-          last_run_id: runResult.harvest_run_id
+          last_run_id: runResult.harvest_run_id,
         };
       } else {
         throw new Error(runResult.error_message || 'Okänt exekveringsfel i skördemotorn.');
       }
-
     } catch (err: any) {
       console.error(`❌ Skördekörning misslyckades för '${source.sourceId}':`, err.message || err);
-      
+
       // Stäng ledgern som Failed
-      const failedLedger = await completeHarvestRun(ledger.ledger_id, 'Failed', { error_message: err.message || err });
+      const failedLedger = await completeHarvestRun(ledger.ledger_id, 'Failed', {
+        error_message: err.message || err,
+      });
       failedRunsCount++;
 
       // Beräkna exponential backoff cooldown
@@ -309,7 +337,7 @@ export async function runScheduler(options: { execute?: boolean; onlyFilters?: s
         cooldown_until: cooldownUntil,
         disabled: failures >= 5, // Inaktivera helt efter 5 upprepade fel
         last_plan_id: plan.plan_id,
-        last_run_id: state?.last_run_id ?? null
+        last_run_id: state?.last_run_id ?? null,
       };
     }
   }
