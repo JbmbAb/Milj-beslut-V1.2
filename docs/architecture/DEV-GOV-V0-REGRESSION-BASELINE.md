@@ -32,7 +32,7 @@ this document and were not touched.
 ## 2. Live verification (2026-09-05, against `main` = `2855f6c6`)
 
 ```text
-npm run devgov:test         -> 88/88 pass (after excluding a Windows-local timeout artifact, see §4)
+npm run devgov:test         -> 88/88 pass (after excluding a local timeout artifact, see §5)
 ```
 
 ## 3. Historical attack / defect → existing coverage
@@ -86,31 +86,21 @@ These are correctly absent from the regression suite. Do not try to backfill the
 would prove nothing that the live GitHub run did not already prove more strongly, and would itself
 be new DEV-GOV surface for no verification gain.
 
-## 5. Windows-local flakiness (found while verifying this baseline, 2026-09-05)
+## 5. Local test timeout flakiness
 
-Three files spawn real `git` subprocesses via `execFileSync` inside freshly created temp directories.
-On this Windows development machine, under load, some of those calls occasionally exceed vitest's
-default 5000ms per-test timeout:
+Locally observed on Windows by the author; not independently reproduced in this verification. Linux
+CI evidence observed clean (`devgov-v0.yml` run `33745951583`, against `1b9f4def`) — this has never
+been observed to fail on `ubuntu-latest`, the environment that actually matters for trust.
 
-```text
-devgovCliContract.test.ts           "denies forged canonical provenance without trusted execution authority"
-                                     "denies caller-supplied evidence and trust policy paths"
-devgovExactShaVerification.test.ts  "reads real merge commit parent count for exact_parent enforcement"
-devgovPathBranchLock.test.ts        "matches non-ASCII forbidden paths from raw git path bytes"
-```
-
-Re-run in isolation with `--testTimeout=30000`: all four pass deterministically. The only live Linux
-CI execution of this suite (`devgov-v0.yml` run `33745951583`, against `1b9f4def`) was clean — this
-has never been observed to fail on `ubuntu-latest`, the environment that actually matters for trust.
-
-**Classification: `NICE_TO_HAVE`.** Raise `testTimeout` for these three files in
-`scripts/devgov/vitest.config.mjs`. This is a test-harness timing property, not a trust-semantics
-defect, and does not block platform work.
+**Classification remains `NICE_TO_HAVE` / non-blocking.** If it recurs, raise `testTimeout` for the
+affected subprocess-spawning specs in `scripts/devgov/vitest.config.mjs`. This is a test-harness
+timing property, not a trust-semantics defect, and does not block platform work.
 
 ## 6. What "verify" means going forward
 
-Before any future DEV-GOV-adjacent change: run `npm run devgov:test`, confirm 88/88 (accounting for
-the known flakiness class above), and check this table for whether the change touches an already-
+Before any future DEV-GOV-adjacent change: run `npm run devgov:test`, confirm the current DEV-GOV
+test count passes (accounting for the known flakiness class above), and check this table for whether
+the change touches an already-
 covered invariant. If it does, the existing test is the regression check — do not write a duplicate.
 If it touches something genuinely new, that itself is the signal to classify the change per
 `DEV-GOV-CHANGE-CLASSIFICATION.md` before writing anything.

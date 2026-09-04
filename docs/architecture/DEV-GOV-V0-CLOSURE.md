@@ -111,15 +111,11 @@ that could only be proven by a live GitHub-hosted run, not a local unit test.
 Per the maintainer mandate, nothing below blocks platform work and nothing here implies further
 DEV-GOV architecture changes are needed:
 
-- **Local test flakiness (Windows-only).** Four subprocess-spawning tests in the regression suite
-  (`devgovCliContract.test.ts`, `devgovExactShaVerification.test.ts`,
-  `devgovPathBranchLock.test.ts`) occasionally exceed vitest's default 5000ms timeout on this
-  Windows development machine when spawning real `git` subprocesses under load. Re-run with
-  `--testTimeout=30000` and all four pass deterministically. The only live Linux CI run of this
-  suite (`devgov-v0.yml` run `33745951583`, on `1b9f4def`) was clean. Classification:
-  `NICE_TO_HAVE` — raise `testTimeout` for these three files in `scripts/devgov/vitest.config.mjs`.
-  Does not affect trust semantics; the suite has never been observed to fail this way in the
-  environment that actually matters (`ubuntu-latest`).
+- **Local test timeout flakiness.** Locally observed on Windows by the author; not independently
+  reproduced in this verification. Linux CI evidence observed clean (`devgov-v0.yml` run
+  `33745951583`, on `1b9f4def`). Classification remains `NICE_TO_HAVE` / non-blocking — raise
+  `testTimeout` for the affected subprocess-spawning specs in `scripts/devgov/vitest.config.mjs` if
+  it recurs. Does not affect trust semantics.
 - **`devgov-v0.yml` (the read-only PR validation gate) has run once in its entire history.** All
   four recovery-train units touched exactly the paths it filters on, yet none went through a pull
   request, so it has never actually exercised the current test suite in CI. Not a defect in
