@@ -1,0 +1,67 @@
+{
+  "schema_version": "dev-gov-v1-unit-definition",
+  "unit": "CI-BASELINE-MODULE-RESOLUTION",
+  "role": "producer",
+  "mode": "writer",
+  "branch": "codex/ci-baseline-module-resolution",
+  "base_sha": "5b62539693447cade967cc0ef0125d5298d8e59b",
+  "ancestry_policy": "exact_parent",
+  "allowed_paths": [
+    "tsconfig.json",
+    "packages/mps-runtime/src/kernel/RuntimeState.ts",
+    "packages/mps-ui-contract/src/adapters/ExecutionResultPresentationAdapter.ts",
+    "packages/mps-ui-contract/src/adapters/RuntimeProjectionAdapter.ts",
+    "packages/spatial-provider-postgis/tests/SpatialProviderPostGIS.test.ts",
+    "governance/devgov/units/ci-baseline-module-resolution.json"
+  ],
+  "forbidden_paths": [
+    ".github/**",
+    "scripts/devgov/**",
+    "governance/devgov/schema/**",
+    "server/**",
+    "services/**"
+  ],
+  "required_red": [
+    {
+      "id": "module-specifiers-resolve",
+      "command": "node",
+      "args": [
+        "--input-type=module",
+        "-e",
+        "const fs=await import('node:fs');const cp=await import('node:child_process');const b='node_modules/typescript/bin/tsc';if(!fs.existsSync(b)){console.error('BLOCKED: typescript compiler absent');process.exit(3)}if(!fs.existsSync('tsconfig.json')){console.error('BLOCKED: tsconfig.json absent');process.exit(3)}let out='';try{out=cp.execFileSync(process.execPath,[b,'--noEmit'],{encoding:'utf8',stdio:['ignore','pipe','pipe'],maxBuffer:67108864})}catch(e){if(e.stdout===undefined&&e.stderr===undefined){console.error('BLOCKED: tsc failed to run: '+String(e.message).slice(0,120));process.exit(3)}out=String(e.stdout||'')+String(e.stderr||'')}const lines=out.split(String.fromCharCode(10)).filter(l=>l.includes('error TS2307'));const stray=lines.filter(l=>!l.startsWith('packages/mps-query-budget/'));if(stray.length){console.error('UNRESOLVED_SPECIFIERS: '+stray.length+' outside the known contract-divergence package');for(const l of stray.slice(0,8))console.error('  '+l.slice(0,150));process.exit(1)}console.log('MODULE_RESOLUTION_CLEAN: '+lines.length+' TS2307 remain, all in packages/mps-query-budget (declared contract divergence)');process.exit(0)"
+      ],
+      "blocked_exit_codes": [
+        3
+      ],
+      "timeout_ms": 900000,
+      "expected_classification": "FAIL",
+      "required_head": "base_sha"
+    }
+  ],
+  "required_green": [
+    {
+      "id": "module-specifiers-resolve",
+      "command": "node",
+      "args": [
+        "--input-type=module",
+        "-e",
+        "const fs=await import('node:fs');const cp=await import('node:child_process');const b='node_modules/typescript/bin/tsc';if(!fs.existsSync(b)){console.error('BLOCKED: typescript compiler absent');process.exit(3)}if(!fs.existsSync('tsconfig.json')){console.error('BLOCKED: tsconfig.json absent');process.exit(3)}let out='';try{out=cp.execFileSync(process.execPath,[b,'--noEmit'],{encoding:'utf8',stdio:['ignore','pipe','pipe'],maxBuffer:67108864})}catch(e){if(e.stdout===undefined&&e.stderr===undefined){console.error('BLOCKED: tsc failed to run: '+String(e.message).slice(0,120));process.exit(3)}out=String(e.stdout||'')+String(e.stderr||'')}const lines=out.split(String.fromCharCode(10)).filter(l=>l.includes('error TS2307'));const stray=lines.filter(l=>!l.startsWith('packages/mps-query-budget/'));if(stray.length){console.error('UNRESOLVED_SPECIFIERS: '+stray.length+' outside the known contract-divergence package');for(const l of stray.slice(0,8))console.error('  '+l.slice(0,150));process.exit(1)}console.log('MODULE_RESOLUTION_CLEAN: '+lines.length+' TS2307 remain, all in packages/mps-query-budget (declared contract divergence)');process.exit(0)"
+      ],
+      "blocked_exit_codes": [
+        3
+      ],
+      "timeout_ms": 900000,
+      "required_head": "candidate_sha"
+    }
+  ],
+  "trusted_execution": {
+    "issuer": "github-actions:JbmbAb/Milj-beslut-V1.2:devgov-v0-attest",
+    "key_id": "devgov-ci-ed25519-v1"
+  },
+  "remote": {
+    "name": "origin",
+    "branch": "codex/ci-baseline-module-resolution",
+    "push_policy": "no_force",
+    "absent_policy": "deny_absent"
+  }
+}

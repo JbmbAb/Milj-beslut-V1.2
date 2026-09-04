@@ -1,4 +1,4 @@
-import type { ContentHash } from "../../../../mps-compliance/src/artifacts/ContentHash.js";
+import type { ContentHash } from "../../../mps-compliance/src/artifacts/ContentHash.js";
 
 /**
  * Thin UI bridge from ProjectionRuntime views (Epoch II §2.7).
