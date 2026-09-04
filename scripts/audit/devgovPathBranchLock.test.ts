@@ -13,18 +13,17 @@ import {
 } from '../devgov/devgov.mjs';
 
 const baseManifest = {
-  schema_version: 'dev-gov-v0',
+  schema_version: 'dev-gov-v1-unit-definition',
   unit: 'DEV-GOV-V0-TEST',
   role: 'producer',
   mode: 'writer',
-  worktree: process.cwd(),
   branch: 'codex/dev-gov-v0-test',
   base_sha: 'a'.repeat(40),
-  target_sha: 'b'.repeat(40),
   ancestry_policy: 'exact_parent',
   allowed_paths: ['scripts/devgov/**', 'scripts/audit/devgov*.test.ts'],
   forbidden_paths: ['server/**', '.github/workflows/deploy-*.yml'],
 };
+const context = { candidateSha: 'b'.repeat(40), worktree: process.cwd() };
 
 function state(overrides = {}) {
   return {
@@ -43,7 +42,11 @@ function state(overrides = {}) {
 
 describe('DEV-GOV-V0 path/branch lock', () => {
   it('denies wrong worktree after canonical path comparison', () => {
-    const result = evaluateRepositoryState(baseManifest, state({ worktree: join(process.cwd(), '..') }));
+    const result = evaluateRepositoryState(
+      baseManifest,
+      state({ worktree: join(process.cwd(), '..') }),
+      context,
+    );
 
     expect(result.result).toBe(RESULT.DENIED_GOVERNANCE);
     expect(result.errors.join('\n')).toContain('worktree mismatch');
@@ -75,7 +78,7 @@ describe('DEV-GOV-V0 path/branch lock', () => {
   });
 
   it('denies wrong branch and dirty tree', () => {
-    const result = evaluateRepositoryState(baseManifest, state({ branch: 'main', dirty: true }));
+    const result = evaluateRepositoryState(baseManifest, state({ branch: 'main', dirty: true }), context);
 
     expect(result.result).toBe(RESULT.DENIED_GOVERNANCE);
     expect(result.errors.join('\n')).toContain('branch mismatch');
@@ -102,12 +105,14 @@ describe('DEV-GOV-V0 path/branch lock', () => {
     writeFileSync(join(root, 'server', 'miljöbeslut-hemlig.ts'), 'export const secret = true;\n');
     git(['add', 'server/miljöbeslut-hemlig.ts']);
     git(['commit', '-m', 'add non-ascii server path']);
-    const state = readRepositoryState({
+    const definition = {
       ...baseManifest,
-      worktree: root,
       branch: 'main',
       base_sha: base,
-      target_sha: git(['rev-parse', 'HEAD']),
+    };
+    const state = readRepositoryState(definition, {
+      candidateSha: git(['rev-parse', 'HEAD']),
+      worktree: root,
     });
 
     const violations = classifyDiffScope(state.changed_paths, ['**/*.ts'], ['server/**']);
@@ -116,7 +121,11 @@ describe('DEV-GOV-V0 path/branch lock', () => {
   });
 
   it('denies files outside allowed paths', () => {
-    const result = evaluateRepositoryState(baseManifest, state({ changed_paths: ['docs/random.md'] }));
+    const result = evaluateRepositoryState(
+      baseManifest,
+      state({ changed_paths: ['docs/random.md'] }),
+      context,
+    );
 
     expect(result.result).toBe(RESULT.DENIED_GOVERNANCE);
     expect(result.errors).toContain('NOT_ALLOWED: docs/random.md');
