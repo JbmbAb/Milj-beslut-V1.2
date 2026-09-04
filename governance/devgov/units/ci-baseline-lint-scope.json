@@ -1,0 +1,58 @@
+{
+  "schema_version": "dev-gov-v1-unit-definition",
+  "unit": "CI-BASELINE-LINT-SCOPE",
+  "role": "producer",
+  "mode": "writer",
+  "branch": "codex/ci-baseline-lint-scope",
+  "base_sha": "f7600ebb5a26697792cdd301a697c06060b2db4b",
+  "ancestry_policy": "exact_parent",
+  "allowed_paths": [
+    "eslint.config.mjs",
+    "governance/devgov/units/ci-baseline-lint-scope.json"
+  ],
+  "forbidden_paths": [
+    ".github/**",
+    "scripts/devgov/**",
+    "governance/devgov/schema/**",
+    "server/**",
+    "services/**",
+    "packages/**"
+  ],
+  "required_red": [
+    {
+      "id": "vendored-cesium-not-linted",
+      "command": "node",
+      "args": [
+        "--input-type=module",
+        "-e",
+        "const fs=await import('node:fs');let M;try{M=await import('eslint')}catch(e){console.error('BLOCKED: eslint unavailable: '+e.code);process.exit(3)}if(!fs.existsSync('public/cesium')){console.error('BLOCKED: public/cesium absent');process.exit(3)}let res;try{res=await new M.ESLint().lintFiles(['public/cesium'])}catch(e){const m=String(e.message||'');if(/ignored/i.test(m)){console.log('VENDORED_IGNORED (all matched files ignored)');process.exit(0)}console.error('BLOCKED: lint invocation failed: '+m.slice(0,120));process.exit(3)}let n=0;for(const r of res)n+=r.errorCount;if(n>0){console.error('LINTED_VENDORED: '+n+' errors');process.exit(1)}console.log('VENDORED_IGNORED');process.exit(0)"
+      ],
+      "expected_classification": "FAIL",
+      "required_head": "base_sha",
+      "blocked_exit_codes": [3]
+    }
+  ],
+  "required_green": [
+    {
+      "id": "vendored-cesium-not-linted",
+      "command": "node",
+      "args": [
+        "--input-type=module",
+        "-e",
+        "const fs=await import('node:fs');let M;try{M=await import('eslint')}catch(e){console.error('BLOCKED: eslint unavailable: '+e.code);process.exit(3)}if(!fs.existsSync('public/cesium')){console.error('BLOCKED: public/cesium absent');process.exit(3)}let res;try{res=await new M.ESLint().lintFiles(['public/cesium'])}catch(e){const m=String(e.message||'');if(/ignored/i.test(m)){console.log('VENDORED_IGNORED (all matched files ignored)');process.exit(0)}console.error('BLOCKED: lint invocation failed: '+m.slice(0,120));process.exit(3)}let n=0;for(const r of res)n+=r.errorCount;if(n>0){console.error('LINTED_VENDORED: '+n+' errors');process.exit(1)}console.log('VENDORED_IGNORED');process.exit(0)"
+      ],
+      "required_head": "candidate_sha",
+      "blocked_exit_codes": [3]
+    }
+  ],
+  "trusted_execution": {
+    "issuer": "github-actions:JbmbAb/Milj-beslut-V1.2:devgov-v0-attest",
+    "key_id": "devgov-ci-ed25519-v1"
+  },
+  "remote": {
+    "name": "origin",
+    "branch": "codex/ci-baseline-lint-scope",
+    "push_policy": "no_force",
+    "absent_policy": "deny_absent"
+  }
+}
