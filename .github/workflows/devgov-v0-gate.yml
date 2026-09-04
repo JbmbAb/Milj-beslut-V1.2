@@ -7,8 +7,8 @@ on:
         description: Exact candidate SHA to verify
         required: true
         type: string
-      manifest_path:
-        description: Repository-relative DEV-GOV manifest path
+      unit_definition_path:
+        description: Repository-relative DEV-GOV V1 unit definition path
         required: true
         type: string
       red_run_id:
@@ -66,20 +66,20 @@ jobs:
           fetch-depth: 0
           persist-credentials: false
 
-      - name: Verify exact candidate and prepare runtime manifest
+      - name: Verify exact candidate and unit definition containment
         env:
           CANDIDATE_SHA: ${{ inputs.candidate_sha }}
-          MANIFEST_PATH: ${{ inputs.manifest_path }}
+          UNIT_DEFINITION_PATH: ${{ inputs.unit_definition_path }}
         run: |
           test "$(git -C candidate rev-parse HEAD)" = "$CANDIDATE_SHA"
           test -z "$(git -C candidate status --porcelain)"
           candidate_root="$(realpath candidate)"
-          manifest="$(realpath "candidate/$MANIFEST_PATH")"
-          case "$manifest" in
+          definition="$(realpath "candidate/$UNIT_DEFINITION_PATH")"
+          case "$definition" in
             "$candidate_root"/*) ;;
-            *) echo "manifest escapes candidate checkout" >&2; exit 4 ;;
+            *) echo "unit definition escapes candidate checkout" >&2; exit 4 ;;
           esac
-          branch="$(node - "$manifest" <<'NODE'
+          branch="$(node - "$definition" <<'NODE'
           const fs = require('node:fs');
           const value = JSON.parse(fs.readFileSync(process.argv[2], 'utf8'));
           process.stdout.write(value.branch);
@@ -87,12 +87,6 @@ jobs:
           )"
           git check-ref-format --branch "$branch"
           git -C candidate switch -c "$branch"
-          node - "$manifest" "$candidate_root" "$RUNNER_TEMP/devgov-manifest.json" <<'NODE'
-          const fs = require('node:fs');
-          const [source, worktree, output] = process.argv.slice(2);
-          const manifest = JSON.parse(fs.readFileSync(source, 'utf8'));
-          fs.writeFileSync(output, `${JSON.stringify({ ...manifest, worktree })}\n`, { mode: 0o600 });
-          NODE
 
       - name: Download trusted RED attestation
         uses: actions/download-artifact@v4
@@ -134,6 +128,9 @@ jobs:
         continue-on-error: true
         env:
           DEVGOV_VERIFIER_TRUST_POLICY_JSON: ${{ secrets.DEVGOV_VERIFIER_TRUST_POLICY_JSON }}
+          DEVGOV_CONTROLLER_SHA: ${{ github.sha }}
+          CANDIDATE_SHA: ${{ inputs.candidate_sha }}
+          UNIT_DEFINITION_PATH: ${{ inputs.unit_definition_path }}
           GIT_ALLOW_PROTOCOL: https:ssh
         run: |
           mapfile -t red < <(find "$RUNNER_TEMP/devgov-attestations/red" -type f -name '*.json')
@@ -141,7 +138,9 @@ jobs:
           test "${#red[@]}" -eq 1
           test "${#green[@]}" -eq 1
           node controller/scripts/devgov/devgov.mjs evidence-gate \
-            --manifest "$RUNNER_TEMP/devgov-manifest.json" \
+            --definition "candidate/$UNIT_DEFINITION_PATH" \
+            --candidate-sha "$CANDIDATE_SHA" \
+            --worktree candidate \
             --attestation "${red[0]}" \
             --attestation "${green[0]}"
 

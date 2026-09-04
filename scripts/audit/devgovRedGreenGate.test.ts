@@ -17,36 +17,35 @@ import {
 } from '../devgov/devgov.mjs';
 
 const manifest = {
-  schema_version: 'dev-gov-v0',
+  schema_version: 'dev-gov-v1-unit-definition',
   unit: 'DEV-GOV-V0-RED-GREEN',
   role: 'producer',
   mode: 'writer',
-  worktree: process.cwd(),
   branch: 'codex/dev-gov-v0-test',
   base_sha: '1'.repeat(40),
-  target_sha: '2'.repeat(40),
   ancestry_policy: 'exact_parent',
   allowed_paths: ['scripts/devgov/**'],
   forbidden_paths: ['server/**'],
   required_red: [{ id: 'path-lock-red', command: 'node', expected_classification: 'FAIL' }],
   required_green: [{ id: 'path-lock-green', command: 'node' }],
 };
+const candidateSha = '2'.repeat(40);
 
 function evidence(overrides = {}) {
   return {
-    schema_version: 'dev-gov-v0-execution-evidence',
-    produced_by: 'devgov-v0',
-    tool_version: 'dev-gov-v0.5',
+    schema_version: 'dev-gov-v1-execution-evidence',
+    produced_by: 'devgov-v1',
+    tool_version: 'dev-gov-v1.0',
     execution_nonce: 'nonce-1',
     unit: manifest.unit,
     kind: 'RED',
     test_id: 'path-lock-red',
     base_sha: manifest.base_sha,
-    target_sha: manifest.target_sha,
+    candidate_sha: candidateSha,
     head_sha: manifest.base_sha,
     observed_head_sha: manifest.base_sha,
     required_head: 'base_sha',
-    manifest_hash: manifestHash(manifest),
+    unit_definition_hash: manifestHash(manifest),
     command: 'node',
     cwd: process.cwd(),
     started_at: '2026-09-01T10:00:00.000Z',
@@ -80,10 +79,8 @@ function manifestForRepo(root) {
   const head = execFileSync('git', ['rev-parse', 'HEAD'], { cwd: root, encoding: 'utf8' }).trim();
   return {
     ...manifest,
-    worktree: root,
     branch: 'main',
     base_sha: head,
-    target_sha: head,
     allowed_paths: ['**/*'],
     forbidden_paths: [],
   };
@@ -94,15 +91,15 @@ describe('DEV-GOV-V0 local RED to GREEN provenance validation', () => {
     const green = validEvidence({
       kind: 'GREEN',
       test_id: 'path-lock-green',
-      head_sha: manifest.target_sha,
-      observed_head_sha: manifest.target_sha,
-      required_head: 'target_sha',
+      head_sha: candidateSha,
+      observed_head_sha: candidateSha,
+      required_head: 'candidate_sha',
       classification: RESULT.PASS,
       started_at: '2026-09-01T11:00:00.000Z',
       finished_at: '2026-09-01T11:00:01.000Z',
     });
 
-    const result = evaluateLocalProvenance(manifest, [green], manifest.target_sha);
+    const result = evaluateLocalProvenance(manifest, [green], candidateSha);
 
     expect(result.result).toBe(RESULT.DENIED_GOVERNANCE);
     expect(result.errors).toContain('missing valid RED evidence for path-lock-red');
@@ -112,20 +109,20 @@ describe('DEV-GOV-V0 local RED to GREEN provenance validation', () => {
     const otherManifest = { ...manifest, base_sha: '9'.repeat(40) };
     const red = finalizeEvidenceRecord(
       otherManifest,
-      evidence({ base_sha: otherManifest.base_sha, manifest_hash: manifestHash(otherManifest) }),
+      evidence({ base_sha: otherManifest.base_sha, unit_definition_hash: manifestHash(otherManifest) }),
     );
     const green = validEvidence({
       kind: 'GREEN',
       test_id: 'path-lock-green',
-      head_sha: manifest.target_sha,
-      observed_head_sha: manifest.target_sha,
-      required_head: 'target_sha',
+      head_sha: candidateSha,
+      observed_head_sha: candidateSha,
+      required_head: 'candidate_sha',
       classification: RESULT.PASS,
       started_at: '2026-09-01T11:00:00.000Z',
       finished_at: '2026-09-01T11:00:01.000Z',
     });
 
-    expect(evaluateLocalProvenance(manifest, [red, green], manifest.target_sha).result).toBe(
+    expect(evaluateLocalProvenance(manifest, [red, green], candidateSha).result).toBe(
       RESULT.DENIED_GOVERNANCE,
     );
   });
@@ -138,15 +135,15 @@ describe('DEV-GOV-V0 local RED to GREEN provenance validation', () => {
     const green = validEvidence({
       kind: 'GREEN',
       test_id: 'path-lock-green',
-      head_sha: manifest.target_sha,
-      observed_head_sha: manifest.target_sha,
-      required_head: 'target_sha',
+      head_sha: candidateSha,
+      observed_head_sha: candidateSha,
+      required_head: 'candidate_sha',
       classification: RESULT.PASS,
       started_at: '2026-09-01T11:00:00.000Z',
       finished_at: '2026-09-01T11:00:01.000Z',
     });
 
-    const result = evaluateLocalProvenance(manifest, [red, green], manifest.target_sha);
+    const result = evaluateLocalProvenance(manifest, [red, green], candidateSha);
 
     expect(result.result).toBe(RESULT.DENIED_GOVERNANCE);
     expect(result.errors.join('\n')).toContain('missing valid GREEN evidence');
@@ -159,13 +156,13 @@ describe('DEV-GOV-V0 local RED to GREEN provenance validation', () => {
       test_id: 'path-lock-green',
       head_sha: '3'.repeat(40),
       observed_head_sha: '3'.repeat(40),
-      required_head: 'target_sha',
+      required_head: 'candidate_sha',
       classification: RESULT.PASS,
       started_at: '2026-09-01T11:00:00.000Z',
       finished_at: '2026-09-01T11:00:01.000Z',
     });
 
-    expect(evaluateLocalProvenance(manifest, [red, green], manifest.target_sha).result).toBe(
+    expect(evaluateLocalProvenance(manifest, [red, green], candidateSha).result).toBe(
       RESULT.DENIED_GOVERNANCE,
     );
   });
@@ -175,15 +172,15 @@ describe('DEV-GOV-V0 local RED to GREEN provenance validation', () => {
     const green = validEvidence({
       kind: 'GREEN',
       test_id: 'path-lock-green',
-      head_sha: manifest.target_sha,
-      observed_head_sha: manifest.target_sha,
-      required_head: 'target_sha',
+      head_sha: candidateSha,
+      observed_head_sha: candidateSha,
+      required_head: 'candidate_sha',
       classification: RESULT.PASS,
       started_at: '2026-09-01T11:00:00.000Z',
       finished_at: '2026-09-01T11:00:01.000Z',
     });
 
-    expect(evaluateLocalProvenance(manifest, [red, green], manifest.target_sha).result).toBe(RESULT.PASS);
+    expect(evaluateLocalProvenance(manifest, [red, green], candidateSha).result).toBe(RESULT.PASS);
   });
 
   it('denies forged legacy-looking RED/GREEN evidence that was not tool-produced', () => {
@@ -194,7 +191,7 @@ describe('DEV-GOV-V0 local RED to GREEN provenance validation', () => {
       test_id: 'path-lock-red',
       base_sha: manifest.base_sha,
       head_sha: manifest.base_sha,
-      manifest_hash: manifestHash(manifest),
+      unit_definition_hash: manifestHash(manifest),
       command: 'node',
       cwd: process.cwd(),
       exit_code: 1,
@@ -207,15 +204,15 @@ describe('DEV-GOV-V0 local RED to GREEN provenance validation', () => {
       ...forgedRed,
       kind: 'GREEN',
       test_id: 'path-lock-green',
-      head_sha: manifest.target_sha,
-      observed_head_sha: manifest.target_sha,
-      required_head: 'target_sha',
+      head_sha: candidateSha,
+      observed_head_sha: candidateSha,
+      required_head: 'candidate_sha',
       exit_code: 0,
       classification: RESULT.PASS,
       timestamp: '2026-09-01T11:00:00.000Z',
     };
 
-    expect(evaluateLocalProvenance(manifest, [forgedRed, forgedGreen], manifest.target_sha).result).toBe(
+    expect(evaluateLocalProvenance(manifest, [forgedRed, forgedGreen], candidateSha).result).toBe(
       RESULT.DENIED_GOVERNANCE,
     );
   });
@@ -226,15 +223,15 @@ describe('DEV-GOV-V0 local RED to GREEN provenance validation', () => {
     const green = validEvidence({
       kind: 'GREEN',
       test_id: 'path-lock-green',
-      head_sha: manifest.target_sha,
-      observed_head_sha: manifest.target_sha,
-      required_head: 'target_sha',
+      head_sha: candidateSha,
+      observed_head_sha: candidateSha,
+      required_head: 'candidate_sha',
       classification: RESULT.PASS,
       started_at: '2026-09-01T11:00:00.000Z',
       finished_at: '2026-09-01T11:00:01.000Z',
     });
 
-    expect(evaluateLocalProvenance(manifest, [missingHash, green], manifest.target_sha).result).toBe(
+    expect(evaluateLocalProvenance(manifest, [missingHash, green], candidateSha).result).toBe(
       RESULT.DENIED_GOVERNANCE,
     );
   });
@@ -244,15 +241,15 @@ describe('DEV-GOV-V0 local RED to GREEN provenance validation', () => {
     const green = validEvidence({
       kind: 'GREEN',
       test_id: 'path-lock-green',
-      head_sha: manifest.target_sha,
-      observed_head_sha: manifest.target_sha,
-      required_head: 'target_sha',
+      head_sha: candidateSha,
+      observed_head_sha: candidateSha,
+      required_head: 'candidate_sha',
       classification: RESULT.PASS,
       started_at: '2026-09-01T11:00:00.000Z',
       finished_at: '2026-09-01T11:00:01.000Z',
     });
 
-    expect(evaluateLocalProvenance(manifest, [red, green], manifest.target_sha).result).toBe(
+    expect(evaluateLocalProvenance(manifest, [red, green], candidateSha).result).toBe(
       RESULT.DENIED_GOVERNANCE,
     );
   });
@@ -261,20 +258,20 @@ describe('DEV-GOV-V0 local RED to GREEN provenance validation', () => {
     const otherManifest = { ...manifest, unit: 'OTHER-UNIT' };
     const red = finalizeEvidenceRecord(
       otherManifest,
-      evidence({ unit: otherManifest.unit, manifest_hash: manifestHash(otherManifest) }),
+      evidence({ unit: otherManifest.unit, unit_definition_hash: manifestHash(otherManifest) }),
     );
     const green = validEvidence({
       kind: 'GREEN',
       test_id: 'path-lock-green',
-      head_sha: manifest.target_sha,
-      observed_head_sha: manifest.target_sha,
-      required_head: 'target_sha',
+      head_sha: candidateSha,
+      observed_head_sha: candidateSha,
+      required_head: 'candidate_sha',
       classification: RESULT.PASS,
       started_at: '2026-09-01T11:00:00.000Z',
       finished_at: '2026-09-01T11:00:01.000Z',
     });
 
-    expect(evaluateLocalProvenance(manifest, [red, green], manifest.target_sha).result).toBe(
+    expect(evaluateLocalProvenance(manifest, [red, green], candidateSha).result).toBe(
       RESULT.DENIED_GOVERNANCE,
     );
   });
@@ -286,9 +283,7 @@ describe('DEV-GOV-V0 local RED to GREEN provenance validation', () => {
       evidence_path: validEvidence({ execution_nonce: 'nonce-3' }).evidence_path,
     };
 
-    expect(evaluateLocalProvenance(manifest, [tampered], manifest.target_sha).result).toBe(
-      RESULT.DENIED_GOVERNANCE,
-    );
+    expect(evaluateLocalProvenance(manifest, [tampered], candidateSha).result).toBe(RESULT.DENIED_GOVERNANCE);
   });
 
   it('denies duplicated canonical evidence records for the same required phase', () => {
@@ -296,15 +291,15 @@ describe('DEV-GOV-V0 local RED to GREEN provenance validation', () => {
     const green = validEvidence({
       kind: 'GREEN',
       test_id: 'path-lock-green',
-      head_sha: manifest.target_sha,
-      observed_head_sha: manifest.target_sha,
-      required_head: 'target_sha',
+      head_sha: candidateSha,
+      observed_head_sha: candidateSha,
+      required_head: 'candidate_sha',
       classification: RESULT.PASS,
       started_at: '2026-09-01T11:00:00.000Z',
       finished_at: '2026-09-01T11:00:01.000Z',
     });
 
-    expect(evaluateLocalProvenance(manifest, [red, red, green], manifest.target_sha).errors).toContain(
+    expect(evaluateLocalProvenance(manifest, [red, red, green], candidateSha).errors).toContain(
       'duplicate valid RED evidence for path-lock-red',
     );
   });
@@ -315,7 +310,7 @@ describe('DEV-GOV-V0 local RED to GREEN provenance validation', () => {
 
     const file = writeEvidence(manifest, record, root);
     const saved = await readFile(file, 'utf8');
-    expect(saved).toContain(`"manifest_hash":"${manifestHash(manifest)}"`);
+    expect(saved).toContain(`"unit_definition_hash":"${manifestHash(manifest)}"`);
     expect(saved).toContain(`"head_sha":"${manifest.base_sha}"`);
     expect(saved).toContain('"evidence_hash"');
 
@@ -332,7 +327,9 @@ describe('DEV-GOV-V0 local RED to GREEN provenance validation', () => {
   });
 
   it('records command classification without collapsing blocked environment into FAIL', () => {
-    const commandManifest = manifestForRepo(cleanGitRepo());
+    const root = cleanGitRepo();
+    const commandManifest = manifestForRepo(root);
+    const commandContext = { candidateSha: commandManifest.base_sha, worktree: root };
     const exitCommand =
       process.platform === 'win32'
         ? { command: 'cmd.exe', args: ['/d', '/c', 'exit', '77'] }
@@ -349,12 +346,18 @@ describe('DEV-GOV-V0 local RED to GREEN provenance validation', () => {
         blocked_exit_codes: [77],
       },
       'RED',
+      commandContext,
     );
-    const failed = runManifestCommand(commandManifest, { id: 'failed-command', ...failCommand }, 'RED');
+    const failed = runManifestCommand(
+      commandManifest,
+      { id: 'failed-command', ...failCommand },
+      'RED',
+      commandContext,
+    );
 
     expect(blocked.classification).toBe(RESULT.BLOCKED_ENVIRONMENT);
     expect(failed.classification).toBe(RESULT.FAIL);
-    expect(blocked.manifest_hash).toBe(manifestHash(commandManifest));
+    expect(blocked.unit_definition_hash).toBe(manifestHash(commandManifest));
     expect(failed.base_sha).toBe(commandManifest.base_sha);
   });
 
@@ -367,6 +370,7 @@ describe('DEV-GOV-V0 local RED to GREEN provenance validation', () => {
       commandManifest,
       { id: 'dirty-command', command: process.execPath, args: ['-e', 'process.exit(0)'] },
       'RED',
+      { candidateSha: commandManifest.base_sha, worktree: root },
     );
 
     expect(record.classification).toBe(RESULT.DENIED_GOVERNANCE);
@@ -374,7 +378,8 @@ describe('DEV-GOV-V0 local RED to GREEN provenance validation', () => {
   });
 
   it('classifies command timeout as BLOCKED_ENVIRONMENT', () => {
-    const commandManifest = manifestForRepo(cleanGitRepo());
+    const root = cleanGitRepo();
+    const commandManifest = manifestForRepo(root);
 
     const record = runManifestCommand(
       commandManifest,
@@ -385,6 +390,7 @@ describe('DEV-GOV-V0 local RED to GREEN provenance validation', () => {
         timeout_ms: 1,
       },
       'RED',
+      { candidateSha: commandManifest.base_sha, worktree: root },
     );
 
     expect(record.classification).toBe(RESULT.BLOCKED_ENVIRONMENT);
