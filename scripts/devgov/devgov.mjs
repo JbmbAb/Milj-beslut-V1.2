@@ -2,7 +2,7 @@
 import { randomUUID } from 'node:crypto';
 import { execFileSync, spawnSync } from 'node:child_process';
 import { existsSync, mkdirSync, readFileSync, readdirSync, realpathSync, writeFileSync } from 'node:fs';
-import { dirname, isAbsolute, resolve } from 'node:path';
+import { dirname, isAbsolute, relative, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import { verifyVerifierOwnedTrustPolicy } from './github-oidc.mjs';
@@ -36,7 +36,7 @@ export const EXIT_CODE = Object.freeze({
 
 const ANCESTRY_POLICIES = new Set(['exact_parent', 'descendant_of_base', 'merge_base_equals_base']);
 const EVIDENCE_KINDS = new Set(['RED', 'GREEN']);
-const TOOL_VERSION = 'dev-gov-v0.5';
+const TOOL_VERSION = 'dev-gov-v1.0';
 const LOADED_EVIDENCE_PATH = Symbol('loadedEvidencePath');
 const REMOTE_STATUS = Object.freeze({
   MATCH: 'REMOTE_MATCH',
@@ -46,9 +46,11 @@ const REMOTE_STATUS = Object.freeze({
   NOT_CONFIGURED: 'REMOTE_NOT_CONFIGURED',
 });
 
-export function manifestHash(manifest) {
-  return sha256(stableJson(manifest));
+export function unitDefinitionHash(unitDefinition) {
+  return sha256(stableJson(unitDefinition));
 }
+
+export const manifestHash = unitDefinitionHash;
 
 export function canonicalPath(pathValue, base = process.cwd(), options = {}) {
   const absolute = isAbsolute(pathValue) ? pathValue : resolve(base, pathValue);
@@ -111,42 +113,61 @@ export function classifyDiffScope(paths, allowedPaths = [], forbiddenPaths = [])
   return violations;
 }
 
-export function validateManifest(manifest) {
+export function validateUnitDefinition(unitDefinition) {
   const errors = [];
-  if (manifest?.schema_version !== 'dev-gov-v0') errors.push('schema_version must be dev-gov-v0');
-  for (const field of [
-    'unit',
-    'role',
-    'mode',
-    'worktree',
-    'branch',
-    'base_sha',
-    'target_sha',
-    'ancestry_policy',
-  ]) {
-    if (!manifest?.[field]) errors.push(`${field} is required`);
+  if (unitDefinition?.schema_version !== 'dev-gov-v1-unit-definition') {
+    errors.push('schema_version must be dev-gov-v1-unit-definition');
   }
-  if (manifest?.ancestry_policy && !ANCESTRY_POLICIES.has(manifest.ancestry_policy)) {
-    errors.push(`unsupported ancestry_policy: ${manifest.ancestry_policy}`);
+  for (const field of ['unit', 'role', 'mode', 'branch', 'base_sha', 'ancestry_policy']) {
+    if (!unitDefinition?.[field]) errors.push(`${field} is required`);
   }
-  if (!Array.isArray(manifest?.allowed_paths)) errors.push('allowed_paths must be an array');
-  if (!Array.isArray(manifest?.forbidden_paths)) errors.push('forbidden_paths must be an array');
+  if ('target_sha' in (unitDefinition || {})) errors.push('target_sha is forbidden in a unit definition');
+  if ('worktree' in (unitDefinition || {})) errors.push('worktree is forbidden in a unit definition');
+  if (unitDefinition?.base_sha && !/^[0-9a-f]{40}$/.test(unitDefinition.base_sha)) {
+    errors.push('base_sha must be a full 40-character lowercase Git SHA');
+  }
+  if (unitDefinition?.ancestry_policy && !ANCESTRY_POLICIES.has(unitDefinition.ancestry_policy)) {
+    errors.push(`unsupported ancestry_policy: ${unitDefinition.ancestry_policy}`);
+  }
+  if (!Array.isArray(unitDefinition?.allowed_paths)) errors.push('allowed_paths must be an array');
+  if (!Array.isArray(unitDefinition?.forbidden_paths)) errors.push('forbidden_paths must be an array');
   for (const kind of ['required_red', 'required_green']) {
-    if (manifest?.[kind] && !Array.isArray(manifest[kind])) errors.push(`${kind} must be an array`);
+    if (unitDefinition?.[kind] && !Array.isArray(unitDefinition[kind]))
+      errors.push(`${kind} must be an array`);
+    for (const command of Array.isArray(unitDefinition?.[kind]) ? unitDefinition[kind] : []) {
+      if (!command?.id || !command?.command) errors.push(`${kind} commands require id and command`);
+      if (command?.required_head && !['base_sha', 'candidate_sha', 'any'].includes(command.required_head)) {
+        errors.push(`${kind} command ${command.id || '<unknown>'} has invalid required_head`);
+      }
+    }
   }
-  if (manifest?.trusted_execution) {
-    if (!manifest.trusted_execution.issuer) errors.push('trusted_execution.issuer is required');
-    if (!manifest.trusted_execution.key_id) errors.push('trusted_execution.key_id is required');
+  if (unitDefinition?.trusted_execution) {
+    if (!unitDefinition.trusted_execution.issuer) errors.push('trusted_execution.issuer is required');
+    if (!unitDefinition.trusted_execution.key_id) errors.push('trusted_execution.key_id is required');
   }
   return errors;
 }
 
-export function evaluateRepositoryState(manifest, state) {
-  const errors = validateManifest(manifest);
+export const validateManifest = validateUnitDefinition;
+
+function validateExecutionContext(context, options = {}) {
+  const errors = [];
+  if (!/^[0-9a-f]{40}$/.test(context?.candidateSha || '')) {
+    errors.push('candidate_sha must be a full 40-character lowercase Git SHA');
+  }
+  if (options.requireWorktree && !context?.worktree) errors.push('runtime worktree is required');
+  return errors;
+}
+
+export function evaluateRepositoryState(manifest, state, context = {}) {
+  const errors = [
+    ...validateManifest(manifest),
+    ...validateExecutionContext(context, { requireWorktree: true }),
+  ];
   if (errors.length > 0) return { result: RESULT.DENIED_GOVERNANCE, errors };
 
-  if (canonicalPath(state.worktree) !== canonicalPath(manifest.worktree)) {
-    errors.push(`worktree mismatch: expected ${manifest.worktree}, got ${state.worktree}`);
+  if (canonicalPath(state.worktree) !== canonicalPath(context.worktree)) {
+    errors.push(`worktree mismatch: expected ${context.worktree}, got ${state.worktree}`);
   }
   if (state.branch !== manifest.branch) {
     errors.push(`branch mismatch: expected ${manifest.branch}, got ${state.branch}`);
@@ -182,11 +203,11 @@ export function evaluateRepositoryState(manifest, state) {
     : { result: RESULT.PASS, errors: [] };
 }
 
-export function evaluateLocalProvenance(manifest, evidenceRecords, finalSha) {
+export function evaluateLocalProvenance(manifest, evidenceRecords, candidateSha, evidenceRoot) {
   const errors = validateManifest(manifest);
   if (errors.length > 0) return { result: RESULT.DENIED_GOVERNANCE, errors };
 
-  const hash = manifestHash(manifest);
+  const hash = unitDefinitionHash(manifest);
   const requiredRed = manifest.required_red || [];
   const requiredGreen = manifest.required_green || [];
 
@@ -195,15 +216,15 @@ export function evaluateLocalProvenance(manifest, evidenceRecords, finalSha) {
       (record) =>
         record.kind === 'RED' &&
         isToolProducedEvidence(record) &&
-        isCanonicalEvidencePath(manifest, record) &&
+        isCanonicalEvidencePath(manifest, record, evidenceRoot) &&
         record.unit === manifest.unit &&
         record.test_id === red.id &&
         record.base_sha === manifest.base_sha &&
         record.head_sha === manifest.base_sha &&
         record.observed_head_sha === record.head_sha &&
-        record.target_sha === manifest.target_sha &&
+        record.candidate_sha === candidateSha &&
         record.required_head === (red.required_head || 'base_sha') &&
-        record.manifest_hash === hash &&
+        record.unit_definition_hash === hash &&
         record.command === commandString(red) &&
         record.classification === (red.expected_classification || RESULT.FAIL),
     );
@@ -222,15 +243,15 @@ export function evaluateLocalProvenance(manifest, evidenceRecords, finalSha) {
         (record) =>
           record.kind === 'GREEN' &&
           isToolProducedEvidence(record) &&
-          isCanonicalEvidencePath(manifest, record) &&
+          isCanonicalEvidencePath(manifest, record, evidenceRoot) &&
           record.unit === manifest.unit &&
           record.test_id === green.id &&
           record.base_sha === manifest.base_sha &&
-          record.head_sha === finalSha &&
+          record.head_sha === candidateSha &&
           record.observed_head_sha === record.head_sha &&
-          record.target_sha === manifest.target_sha &&
-          record.required_head === (green.required_head || 'target_sha') &&
-          record.manifest_hash === hash &&
+          record.candidate_sha === candidateSha &&
+          record.required_head === (green.required_head || 'candidate_sha') &&
+          record.unit_definition_hash === hash &&
           record.command === commandString(green) &&
           record.classification === RESULT.PASS &&
           new Date(record.started_at).getTime() > new Date(redRecord.finished_at).getTime(),
@@ -252,15 +273,15 @@ export function evaluateLocalProvenance(manifest, evidenceRecords, finalSha) {
         (record) =>
           record.kind === 'GREEN' &&
           isToolProducedEvidence(record) &&
-          isCanonicalEvidencePath(manifest, record) &&
+          isCanonicalEvidencePath(manifest, record, evidenceRoot) &&
           record.unit === manifest.unit &&
           record.test_id === green.id &&
           record.base_sha === manifest.base_sha &&
-          record.head_sha === finalSha &&
+          record.head_sha === candidateSha &&
           record.observed_head_sha === record.head_sha &&
-          record.target_sha === manifest.target_sha &&
-          record.required_head === (green.required_head || 'target_sha') &&
-          record.manifest_hash === hash &&
+          record.candidate_sha === candidateSha &&
+          record.required_head === (green.required_head || 'candidate_sha') &&
+          record.unit_definition_hash === hash &&
           record.command === commandString(green) &&
           record.classification === RESULT.PASS,
       );
@@ -278,24 +299,27 @@ export function evaluateLocalProvenance(manifest, evidenceRecords, finalSha) {
     : { result: RESULT.PASS, errors: [] };
 }
 
-function expectedExecutionSha(manifest, commandSpec, kind) {
-  const requiredHead = commandSpec.required_head || (kind === 'GREEN' ? 'target_sha' : 'base_sha');
-  if (requiredHead === 'target_sha') return manifest.target_sha;
+function expectedExecutionSha(manifest, commandSpec, kind, candidateSha) {
+  const requiredHead = commandSpec.required_head || (kind === 'GREEN' ? 'candidate_sha' : 'base_sha');
+  if (requiredHead === 'candidate_sha') return candidateSha;
   if (requiredHead === 'base_sha') return manifest.base_sha;
   return undefined;
 }
 
-function matchingTrustedAttestations(manifest, attestations, commandSpec, kind, classification) {
-  const executionSha = expectedExecutionSha(manifest, commandSpec, kind);
+function matchingTrustedAttestations(manifest, attestations, commandSpec, kind, classification, context) {
+  const executionSha = expectedExecutionSha(manifest, commandSpec, kind, context.candidateSha);
   const contractHash = proofContractHash(manifest);
+  const definitionHash = unitDefinitionHash(manifest);
   return attestations.filter(
     (record) =>
       record.issuer === manifest.trusted_execution?.issuer &&
       record.key_id === manifest.trusted_execution?.key_id &&
       record.unit_id === manifest.unit &&
+      record.unit_definition_hash === definitionHash &&
       record.proof_contract_hash === contractHash &&
       record.base_sha === manifest.base_sha &&
-      record.target_sha === manifest.target_sha &&
+      record.candidate_sha === context.candidateSha &&
+      record.controller_sha === context.controllerSha &&
       (!executionSha || record.execution_sha === executionSha) &&
       record.proof_type === kind &&
       record.test_id === commandSpec.id &&
@@ -304,8 +328,11 @@ function matchingTrustedAttestations(manifest, attestations, commandSpec, kind, 
   );
 }
 
-export function evaluateTrustedExecutionGate(manifest, attestations, trustPolicy) {
-  const errors = validateManifest(manifest);
+export function evaluateTrustedExecutionGate(manifest, attestations, trustPolicy, context = {}) {
+  const errors = [...validateManifest(manifest), ...validateExecutionContext(context)];
+  if (!/^[0-9a-f]{40}$/.test(context.controllerSha || '')) {
+    errors.push('controller_sha must be a full 40-character lowercase Git SHA');
+  }
   if (!manifest?.trusted_execution) errors.push('trusted_execution is required');
   errors.push(...validateTrustPolicy(trustPolicy));
   if (!Array.isArray(attestations) || attestations.length === 0) {
@@ -331,6 +358,7 @@ export function evaluateTrustedExecutionGate(manifest, attestations, trustPolicy
       red,
       'RED',
       red.expected_classification || RESULT.FAIL,
+      context,
     );
     if (records.length !== 1) {
       errors.push(
@@ -344,7 +372,7 @@ export function evaluateTrustedExecutionGate(manifest, attestations, trustPolicy
   }
 
   for (const green of manifest.required_green || []) {
-    const records = matchingTrustedAttestations(manifest, attestations, green, 'GREEN', RESULT.PASS);
+    const records = matchingTrustedAttestations(manifest, attestations, green, 'GREEN', RESULT.PASS, context);
     if (records.length !== 1) {
       errors.push(
         records.length === 0
@@ -366,20 +394,24 @@ export function evaluateTrustedExecutionGate(manifest, attestations, trustPolicy
 }
 
 export function evaluateEvidenceGateWithLiveRepository(manifest, options = {}) {
-  const errors = validateManifest(manifest);
+  const context = { candidateSha: options.candidateSha, worktree: options.worktree };
+  const errors = [
+    ...validateManifest(manifest),
+    ...validateExecutionContext(context, { requireWorktree: true }),
+  ];
   if (errors.length > 0) {
     return resultEnvelope(RESULT.DENIED_GOVERNANCE, 'INVALID_MANIFEST', errors.join('; '), errors);
   }
 
   let state;
   try {
-    state = readRepositoryState(manifest);
+    state = readRepositoryState(manifest, context);
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     return resultEnvelope(RESULT.DENIED_GOVERNANCE, 'REPOSITORY_STATE_UNRESOLVED', message, [message]);
   }
 
-  const repository = evaluateRepositoryState(manifest, state);
+  const repository = evaluateRepositoryState(manifest, state, context);
   if (repository.result !== RESULT.PASS) {
     return resultEnvelope(
       RESULT.DENIED_GOVERNANCE,
@@ -389,7 +421,7 @@ export function evaluateEvidenceGateWithLiveRepository(manifest, options = {}) {
     );
   }
 
-  const sha = evaluateShaVerification(manifest, resolveRemoteVerification(manifest, state));
+  const sha = evaluateShaVerification(manifest, resolveRemoteVerification(manifest, state, context), context);
   if (sha.result !== RESULT.PASS) {
     return resultEnvelope(
       RESULT.DENIED_GOVERNANCE,
@@ -399,7 +431,10 @@ export function evaluateEvidenceGateWithLiveRepository(manifest, options = {}) {
     );
   }
 
-  const evidence = evaluateTrustedExecutionGate(manifest, options.attestations || [], options.trustPolicy);
+  const evidence = evaluateTrustedExecutionGate(manifest, options.attestations || [], options.trustPolicy, {
+    candidateSha: options.candidateSha,
+    controllerSha: options.controllerSha,
+  });
   const missingAuthority =
     !options.trustPolicy || !Array.isArray(options.attestations) || options.attestations.length === 0;
   return resultEnvelope(
@@ -424,8 +459,8 @@ function commandString(commandSpec) {
 }
 
 export function isToolProducedEvidence(record) {
-  if (record?.schema_version !== 'dev-gov-v0-execution-evidence') return false;
-  if (record.produced_by !== 'devgov-v0') return false;
+  if (record?.schema_version !== 'dev-gov-v1-execution-evidence') return false;
+  if (record.produced_by !== 'devgov-v1') return false;
   if (record.tool_version !== TOOL_VERSION) return false;
   if (!EVIDENCE_KINDS.has(record.kind)) return false;
   if (!record.execution_nonce) return false;
@@ -434,9 +469,9 @@ export function isToolProducedEvidence(record) {
   if (!record.started_at || !record.finished_at) return false;
   if (!record.command || !record.cwd) return false;
   if (
-    !record.manifest_hash ||
+    !record.unit_definition_hash ||
     !record.base_sha ||
-    !record.target_sha ||
+    !record.candidate_sha ||
     !record.head_sha ||
     !record.observed_head_sha ||
     !record.required_head ||
@@ -464,9 +499,8 @@ function gitCommonDir(worktree) {
   return isAbsolute(raw) ? raw : resolve(worktree, raw);
 }
 
-export function canonicalEvidenceDir(manifest, root) {
-  const base = root || gitCommonDir(manifest.worktree);
-  return resolve(base, 'devgov', 'evidence', safeUnitPath(manifest.unit), manifestHash(manifest));
+export function canonicalEvidenceDir(manifest, root = process.cwd()) {
+  return resolve(root, 'devgov', 'evidence', safeUnitPath(manifest.unit), unitDefinitionHash(manifest));
 }
 
 function evidenceFilePath(manifest, evidence, root) {
@@ -488,8 +522,8 @@ export function isCanonicalEvidencePath(manifest, record, root) {
   return true;
 }
 
-export function loadCanonicalEvidence(manifest) {
-  const dir = canonicalEvidenceDir(manifest);
+export function loadCanonicalEvidence(manifest, root) {
+  const dir = canonicalEvidenceDir(manifest, root);
   if (!existsSync(dir)) return [];
   return readdirSync(dir)
     .filter((file) => file.endsWith('.json'))
@@ -505,23 +539,23 @@ export function loadCanonicalEvidence(manifest) {
     });
 }
 
-export function evaluateShaVerification(manifest, state) {
-  const errors = validateManifest(manifest);
-  if (state.head_sha !== manifest.target_sha) {
-    errors.push(`local HEAD mismatch: expected ${manifest.target_sha}, got ${state.head_sha}`);
+export function evaluateShaVerification(manifest, state, context = {}) {
+  const errors = [...validateManifest(manifest), ...validateExecutionContext(context)];
+  if (state.head_sha !== context.candidateSha) {
+    errors.push(`local HEAD mismatch: expected ${context.candidateSha}, got ${state.head_sha}`);
   }
   if (manifest.remote?.branch) {
     const remoteStatus =
       state.remote_status ||
       (state.remote_sha
-        ? state.remote_sha === manifest.target_sha
+        ? state.remote_sha === context.candidateSha
           ? REMOTE_STATUS.MATCH
           : REMOTE_STATUS.DIVERGED
         : undefined);
     if (remoteStatus === REMOTE_STATUS.LOOKUP_FAILED) {
       errors.push(`remote lookup failed for ${manifest.remote.name || 'origin'}/${manifest.remote.branch}`);
     } else if (remoteStatus === REMOTE_STATUS.DIVERGED) {
-      errors.push(`remote SHA mismatch: expected ${manifest.target_sha}, got ${state.remote_sha}`);
+      errors.push(`remote SHA mismatch: expected ${context.candidateSha}, got ${state.remote_sha}`);
     } else if (
       remoteStatus === REMOTE_STATUS.ABSENT_ALLOWED &&
       manifest.remote.absent_policy !== 'allow_absent'
@@ -562,11 +596,11 @@ function parseNulSeparatedPaths(buffer) {
     .filter(Boolean);
 }
 
-export function resolveRemoteVerification(manifest, state = {}) {
+export function resolveRemoteVerification(manifest, state = {}, context = {}) {
   if (!manifest.remote?.branch) return { ...state, remote_status: REMOTE_STATUS.NOT_CONFIGURED };
   const remoteName = manifest.remote.name || 'origin';
   const lookup = spawnSync('git', ['ls-remote', '--heads', remoteName, manifest.remote.branch], {
-    cwd: manifest.worktree,
+    cwd: context.worktree,
     encoding: 'utf8',
     timeout: manifest.remote.timeout_ms || 15_000,
   });
@@ -593,12 +627,12 @@ export function resolveRemoteVerification(manifest, state = {}) {
   return {
     ...state,
     remote_sha: remoteSha,
-    remote_status: remoteSha === manifest.target_sha ? REMOTE_STATUS.MATCH : REMOTE_STATUS.DIVERGED,
+    remote_status: remoteSha === context.candidateSha ? REMOTE_STATUS.MATCH : REMOTE_STATUS.DIVERGED,
   };
 }
 
-export function readRepositoryState(manifest) {
-  const cwd = manifest.worktree;
+export function readRepositoryState(manifest, context = {}) {
+  const cwd = context.worktree;
   const head = git(['rev-parse', 'HEAD'], cwd);
   const base = manifest.base_sha;
   let parent = '';
@@ -639,26 +673,64 @@ export function readRepositoryState(manifest) {
   };
 }
 
+export function verifyUnitDefinitionProvenance(definitionPath, context = {}) {
+  const errors = validateExecutionContext(context, { requireWorktree: true });
+  if (errors.length > 0) return { result: RESULT.DENIED_GOVERNANCE, errors };
+  try {
+    const root = realpathSync.native(context.worktree);
+    const definition = realpathSync.native(definitionPath);
+    const normalizedRoot = `${canonicalPath(root)}/`;
+    if (!canonicalPath(definition).startsWith(normalizedRoot)) {
+      errors.push('unit definition must be inside the exact candidate checkout');
+      return { result: RESULT.DENIED_GOVERNANCE, errors };
+    }
+    const repositoryHead = git(['rev-parse', 'HEAD'], root);
+    if (repositoryHead !== context.candidateSha) {
+      errors.push(`candidate checkout mismatch: expected ${context.candidateSha}, got ${repositoryHead}`);
+    }
+    if (gitStatus(root).length > 0) errors.push('candidate checkout must be clean');
+    const repositoryPath = normalizeRepoPath(relative(root, definition));
+    try {
+      git(['ls-files', '--error-unmatch', '--', repositoryPath], root);
+    } catch {
+      errors.push('unit definition must be tracked by the candidate commit');
+    }
+    if (errors.length === 0) {
+      const committed = gitBuffer(['show', `${context.candidateSha}:${repositoryPath}`], root);
+      const observed = readFileSync(definition);
+      if (!committed.equals(observed)) errors.push('unit definition bytes do not match the candidate commit');
+    }
+  } catch (error) {
+    errors.push(error instanceof Error ? error.message : String(error));
+  }
+  return errors.length > 0
+    ? { result: RESULT.DENIED_GOVERNANCE, errors }
+    : { result: RESULT.PASS, errors: [] };
+}
+
 export function runManifestCommand(manifest, commandSpec, kind, options = {}) {
   if (!EVIDENCE_KINDS.has(kind)) throw new Error(`unsupported evidence kind: ${kind}`);
   const manifestErrors = validateManifest(manifest);
+  manifestErrors.push(...validateExecutionContext({ candidateSha: options.candidateSha }));
   if (manifestErrors.length > 0) throw new Error(`invalid manifest: ${manifestErrors.join('; ')}`);
-  const executionWorktree = options.worktree || manifest.worktree;
+  const executionWorktree = options.worktree;
+  if (!executionWorktree) throw new Error('execution worktree is required');
   const cwd = resolve(executionWorktree, commandSpec.cwd || '.');
   const startedAt = new Date().toISOString();
   const executionNonce = randomUUID();
   const headBefore = git(['rev-parse', 'HEAD'], executionWorktree);
   const statusBefore = gitStatus(executionWorktree);
-  const requiredHead = commandSpec.required_head || (kind === 'GREEN' ? 'target_sha' : 'base_sha');
+  const requiredHead = commandSpec.required_head || (kind === 'GREEN' ? 'candidate_sha' : 'base_sha');
   const expectedHead =
-    requiredHead === 'target_sha'
-      ? manifest.target_sha
+    requiredHead === 'candidate_sha'
+      ? options.candidateSha
       : requiredHead === 'base_sha'
         ? manifest.base_sha
         : undefined;
   if (expectedHead && headBefore !== expectedHead) {
     return executionEvidence({
       manifest,
+      candidateSha: options.candidateSha,
       kind,
       commandSpec,
       requiredHead,
@@ -677,6 +749,7 @@ export function runManifestCommand(manifest, commandSpec, kind, options = {}) {
   if (statusBefore.length > 0) {
     return executionEvidence({
       manifest,
+      candidateSha: options.candidateSha,
       kind,
       commandSpec,
       requiredHead,
@@ -718,6 +791,7 @@ export function runManifestCommand(manifest, commandSpec, kind, options = {}) {
   }
   return executionEvidence({
     manifest,
+    candidateSha: options.candidateSha,
     kind,
     commandSpec,
     requiredHead,
@@ -747,10 +821,10 @@ export function trustedExecutionRecord(manifest, evidence, context) {
   const record = {
     schema_version: EXECUTION_RECORD_SCHEMA,
     unit_id: manifest.unit,
+    unit_definition_hash: unitDefinitionHash(manifest),
     proof_contract_hash: proofContractHash(manifest),
-    source_manifest_hash: manifestHash(manifest),
     base_sha: manifest.base_sha,
-    target_sha: manifest.target_sha,
+    candidate_sha: evidence.candidate_sha,
     execution_sha: evidence.head_sha,
     proof_type: evidence.kind,
     test_id: evidence.test_id,
@@ -771,19 +845,20 @@ export function trustedExecutionRecord(manifest, evidence, context) {
   return { ...record, result_digest: executionResultDigest(record) };
 }
 
-export function validateExecutionRecordForManifest(manifest, record, kind, id) {
+export function validateExecutionRecordForManifest(manifest, record, kind, id, context = {}) {
   const errors = validateManifest(manifest);
   const list = kind === 'RED' ? manifest.required_red || [] : manifest.required_green || [];
   const spec = list.find((item) => item.id === id);
   if (!spec) return [...errors, `unknown ${kind} command id: ${id}`];
   const expectedClassification = kind === 'RED' ? spec.expected_classification || RESULT.FAIL : RESULT.PASS;
-  const expectedSha = expectedExecutionSha(manifest, spec, kind);
+  errors.push(...validateExecutionContext(context));
+  const expectedSha = expectedExecutionSha(manifest, spec, kind, context.candidateSha);
   const expected = {
     unit_id: manifest.unit,
+    unit_definition_hash: unitDefinitionHash(manifest),
     proof_contract_hash: proofContractHash(manifest),
-    source_manifest_hash: manifestHash(manifest),
     base_sha: manifest.base_sha,
-    target_sha: manifest.target_sha,
+    candidate_sha: context.candidateSha,
     proof_type: kind,
     test_id: id,
     command: commandString(spec),
@@ -804,6 +879,7 @@ function classifySpawnError(error) {
 
 function executionEvidence({
   manifest,
+  candidateSha,
   kind,
   commandSpec,
   requiredHead,
@@ -819,19 +895,19 @@ function executionEvidence({
   stderr,
 }) {
   return {
-    schema_version: 'dev-gov-v0-execution-evidence',
-    produced_by: 'devgov-v0',
+    schema_version: 'dev-gov-v1-execution-evidence',
+    produced_by: 'devgov-v1',
     tool_version: TOOL_VERSION,
     execution_nonce: executionNonce,
     unit: manifest.unit,
     kind,
     test_id: commandSpec.id,
     base_sha: manifest.base_sha,
-    target_sha: manifest.target_sha,
+    candidate_sha: candidateSha,
     head_sha: headSha,
     observed_head_sha: headSha,
     required_head: requiredHead,
-    manifest_hash: manifestHash(manifest),
+    unit_definition_hash: unitDefinitionHash(manifest),
     command: [commandSpec.command, ...(commandSpec.args || [])].join(' '),
     cwd,
     started_at: startedAt,
@@ -856,18 +932,17 @@ export function finalizeEvidenceRecord(manifest, evidence, root) {
   return { ...unsigned, evidence_hash: sha256(stableJson(unsigned)) };
 }
 
-export function writeEvidence(manifest, evidence, root = manifest.worktree) {
-  const canonicalRoot = root === manifest.worktree ? undefined : root;
-  const finalDir = canonicalEvidenceDir(manifest, canonicalRoot);
+export function writeEvidence(manifest, evidence, root) {
+  const finalDir = canonicalEvidenceDir(manifest, root);
   mkdirSync(finalDir, { recursive: true });
-  const finalized = finalizeEvidenceRecord(manifest, evidence, canonicalRoot);
+  const finalized = finalizeEvidenceRecord(manifest, evidence, root);
   const file = finalized.evidence_path;
   if (existsSync(file)) throw new Error(`immutable evidence already exists: ${file}`);
   writeFileSync(file, `${stableJson(finalized)}\n`);
   return file;
 }
 
-function loadManifest(file) {
+function loadJson(file) {
   return JSON.parse(readFileSync(file, 'utf8'));
 }
 
@@ -908,7 +983,7 @@ function printResult(result) {
 }
 
 function usageText() {
-  return 'Usage: node scripts/devgov/devgov.mjs <preflight|verify-sha|evidence-gate|run-red|run-green|execute-proof|attest-execution> [options]';
+  return 'Usage: node scripts/devgov/devgov.mjs <preflight|verify-sha|evidence-gate|run-red|run-green|resolve-execution-sha|execute-proof|attest-execution> --definition <path> --candidate-sha <sha> --worktree <path> [options]';
 }
 
 function usage() {
@@ -924,12 +999,54 @@ function argValues(args, name) {
   return args.flatMap((value, index) => (value === name && args[index + 1] ? [args[index + 1]] : []));
 }
 
+function loadTrustedUnitDefinition(args, options = {}) {
+  const definitionPath = argValue(args, '--definition');
+  const candidateSha = argValue(args, '--candidate-sha');
+  const definitionWorktree = argValue(args, '--definition-worktree') || argValue(args, '--worktree');
+  if (!definitionPath || !candidateSha || !definitionWorktree) usage();
+  const provenance = verifyUnitDefinitionProvenance(definitionPath, {
+    candidateSha,
+    worktree: definitionWorktree,
+  });
+  if (provenance.result !== RESULT.PASS) {
+    printResult(
+      resultEnvelope(
+        RESULT.DENIED_GOVERNANCE,
+        'UNIT_DEFINITION_PROVENANCE_DENIED',
+        provenance.errors.join('; '),
+        provenance.errors,
+        { proof_status: options.proofStatus ? 'NOT_PROVEN' : undefined },
+      ),
+    );
+  }
+  let unitDefinition;
+  try {
+    unitDefinition = loadJson(definitionPath);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    printResult(
+      resultEnvelope(RESULT.DENIED_GOVERNANCE, 'UNIT_DEFINITION_INVALID', message, [message], {
+        proof_status: options.proofStatus ? 'NOT_PROVEN' : undefined,
+      }),
+    );
+  }
+  const errors = validateUnitDefinition(unitDefinition);
+  if (errors.length > 0) {
+    printResult(
+      resultEnvelope(RESULT.DENIED_GOVERNANCE, 'UNIT_DEFINITION_INVALID', errors.join('; '), errors, {
+        proof_status: options.proofStatus ? 'NOT_PROVEN' : undefined,
+      }),
+    );
+  }
+  return { unitDefinition, definitionPath, candidateSha, definitionWorktree };
+}
+
 async function main() {
   const [command, ...args] = process.argv.slice(2);
   try {
     if (!command) usage();
     if (command === 'attest-execution') {
-      const manifestPath = argValue(args, '--manifest');
+      const { unitDefinition, candidateSha } = loadTrustedUnitDefinition(args, { proofStatus: true });
       const recordPath = argValue(args, '--record');
       const outputPath = argValue(args, '--output');
       const kind = argValue(args, '--kind');
@@ -937,7 +1054,7 @@ async function main() {
       const privateKey = process.env.DEVGOV_ATTESTATION_PRIVATE_KEY_PEM;
       const issuer = process.env.DEVGOV_ATTESTATION_ISSUER;
       const keyId = process.env.DEVGOV_ATTESTATION_KEY_ID;
-      if (!manifestPath || !recordPath || !outputPath || !['RED', 'GREEN'].includes(kind) || !id) {
+      if (!recordPath || !outputPath || !['RED', 'GREEN'].includes(kind) || !id) {
         usage();
       }
       if (!privateKey || !issuer || !keyId) {
@@ -949,9 +1066,10 @@ async function main() {
           ),
         );
       }
-      const manifest = loadManifest(manifestPath);
-      const record = loadManifest(recordPath);
-      const bindingErrors = validateExecutionRecordForManifest(manifest, record, kind, id);
+      const record = loadJson(recordPath);
+      const bindingErrors = validateExecutionRecordForManifest(unitDefinition, record, kind, id, {
+        candidateSha,
+      });
       const runtimeBindings = {
         runner_identity: process.env.DEVGOV_RUNNER_IDENTITY,
         controller_sha: process.env.DEVGOV_CONTROLLER_SHA,
@@ -962,7 +1080,10 @@ async function main() {
       for (const [field, value] of Object.entries(runtimeBindings)) {
         if (!value || record[field] !== String(value)) bindingErrors.push(`${field} mismatch`);
       }
-      if (manifest.trusted_execution?.issuer !== issuer || manifest.trusted_execution?.key_id !== keyId) {
+      if (
+        unitDefinition.trusted_execution?.issuer !== issuer ||
+        unitDefinition.trusted_execution?.key_id !== keyId
+      ) {
         bindingErrors.push('protected signer does not match manifest trusted_execution');
       }
       if (bindingErrors.length > 0) {
@@ -984,19 +1105,33 @@ async function main() {
         }),
       );
     }
-    const manifestPath = argValue(args, '--manifest');
-    if (!manifestPath) usage();
-    const manifest = loadManifest(manifestPath);
+    const { unitDefinition, candidateSha, definitionWorktree } = loadTrustedUnitDefinition(args, {
+      proofStatus: command === 'evidence-gate',
+    });
+    const repositoryContext = { candidateSha, worktree: definitionWorktree };
 
     if (command === 'preflight') {
       printResult(
-        normalizeResult(evaluateRepositoryState(manifest, readRepositoryState(manifest)), 'PREFLIGHT'),
+        normalizeResult(
+          evaluateRepositoryState(
+            unitDefinition,
+            readRepositoryState(unitDefinition, repositoryContext),
+            repositoryContext,
+          ),
+          'PREFLIGHT',
+        ),
       );
     }
 
     if (command === 'verify-sha') {
-      const state = resolveRemoteVerification(manifest, readRepositoryState(manifest));
-      printResult(normalizeResult(evaluateShaVerification(manifest, state), 'VERIFY_SHA'));
+      const state = resolveRemoteVerification(
+        unitDefinition,
+        readRepositoryState(unitDefinition, repositoryContext),
+        repositoryContext,
+      );
+      printResult(
+        normalizeResult(evaluateShaVerification(unitDefinition, state, repositoryContext), 'VERIFY_SHA'),
+      );
     }
 
     if (command === 'evidence-gate') {
@@ -1006,7 +1141,7 @@ async function main() {
           resultEnvelope(
             RESULT.DENIED_GOVERNANCE,
             'ARBITRARY_EVIDENCE_PATH_DENIED',
-            'evidence-gate reads only canonical DEV-GOV evidence for the manifest',
+            'evidence-gate accepts only trusted execution attestations',
           ),
         );
       }
@@ -1022,7 +1157,12 @@ async function main() {
           ),
         );
       }
-      const liveRepository = evaluateEvidenceGateWithLiveRepository(manifest);
+      const controllerSha = process.env.DEVGOV_CONTROLLER_SHA;
+      const liveRepository = evaluateEvidenceGateWithLiveRepository(unitDefinition, {
+        candidateSha,
+        worktree: definitionWorktree,
+        controllerSha,
+      });
       if (
         [
           'INVALID_MANIFEST',
@@ -1035,7 +1175,7 @@ async function main() {
       }
       const attestationPaths = argValues(args, '--attestation');
       const attestations = attestationPaths.flatMap((path) => {
-        const value = loadManifest(path);
+        const value = loadJson(path);
         return Array.isArray(value) ? value : [value];
       });
       const rawTrustPolicy = process.env.DEVGOV_VERIFIER_TRUST_POLICY_JSON;
@@ -1054,7 +1194,7 @@ async function main() {
       let trustRoot;
       try {
         trustRoot = await verifyVerifierOwnedTrustPolicy(rawTrustPolicy, oidcToken, {
-          expectedCandidateSha: manifest.target_sha,
+          expectedCandidateSha: candidateSha,
         });
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
@@ -1075,9 +1215,12 @@ async function main() {
           ),
         );
       }
-      const gate = evaluateEvidenceGateWithLiveRepository(manifest, {
+      const gate = evaluateEvidenceGateWithLiveRepository(unitDefinition, {
         trustPolicy: trustRoot.policy,
         attestations,
+        candidateSha,
+        worktree: definitionWorktree,
+        controllerSha,
       });
       gate.trust_policy_sha256 = trustRoot.trust_policy_sha256;
       gate.trust_root_provenance = {
@@ -1095,13 +1238,33 @@ async function main() {
       printResult(gate);
     }
 
+    if (command === 'resolve-execution-sha') {
+      const id = argValue(args, '--id');
+      const kind = argValue(args, '--kind');
+      if (!id || !['RED', 'GREEN'].includes(kind)) usage();
+      const list = kind === 'RED' ? unitDefinition.required_red || [] : unitDefinition.required_green || [];
+      const spec = list.find((item) => item.id === id);
+      if (!spec) {
+        printResult(
+          resultEnvelope(RESULT.DENIED_GOVERNANCE, 'UNKNOWN_COMMAND_ID', `unknown ${kind} command id: ${id}`),
+        );
+      }
+      printResult(
+        resultEnvelope(RESULT.PASS, 'PASS', 'execution SHA derived from unit definition and candidate', [], {
+          candidate_sha: candidateSha,
+          unit_definition_hash: unitDefinitionHash(unitDefinition),
+          execution_sha: expectedExecutionSha(unitDefinition, spec, kind, candidateSha) || candidateSha,
+        }),
+      );
+    }
+
     if (command === 'execute-proof') {
       const id = argValue(args, '--id');
       const kind = argValue(args, '--kind');
       const worktree = argValue(args, '--worktree');
       const outputPath = argValue(args, '--output');
       if (!id || !['RED', 'GREEN'].includes(kind) || !worktree || !outputPath) usage();
-      const list = kind === 'RED' ? manifest.required_red || [] : manifest.required_green || [];
+      const list = kind === 'RED' ? unitDefinition.required_red || [] : unitDefinition.required_green || [];
       const spec = list.find((item) => item.id === id);
       if (!spec) {
         printResult(
@@ -1125,13 +1288,14 @@ async function main() {
           ),
         );
       }
-      const evidence = runManifestCommand(manifest, spec, kind, {
+      const evidence = runManifestCommand(unitDefinition, spec, kind, {
         worktree,
+        candidateSha,
         uid,
         gid,
         env: runAsHome ? { HOME: runAsHome } : undefined,
       });
-      const record = trustedExecutionRecord(manifest, evidence, {
+      const record = trustedExecutionRecord(unitDefinition, evidence, {
         runner_identity: process.env.DEVGOV_RUNNER_IDENTITY,
         controller_sha: process.env.DEVGOV_CONTROLLER_SHA,
         workflow_ref: process.env.GITHUB_WORKFLOW_REF,
@@ -1163,15 +1327,19 @@ async function main() {
     if (command === 'run-red' || command === 'run-green') {
       const id = argValue(args, '--id');
       const kind = command === 'run-red' ? 'RED' : 'GREEN';
-      const list = kind === 'RED' ? manifest.required_red || [] : manifest.required_green || [];
+      const list = kind === 'RED' ? unitDefinition.required_red || [] : unitDefinition.required_green || [];
       const spec = list.find((item) => item.id === id);
       if (!spec) {
         printResult(
           resultEnvelope(RESULT.DENIED_GOVERNANCE, 'UNKNOWN_COMMAND_ID', `unknown ${kind} command id: ${id}`),
         );
       }
-      const evidence = runManifestCommand(manifest, spec, kind);
-      const file = writeEvidence(manifest, evidence);
+      const executionWorktree = argValue(args, '--execution-worktree') || definitionWorktree;
+      const evidence = runManifestCommand(unitDefinition, spec, kind, {
+        worktree: executionWorktree,
+        candidateSha,
+      });
+      const file = writeEvidence(unitDefinition, evidence, gitCommonDir(definitionWorktree));
       printResult(
         resultEnvelope(
           evidence.classification,

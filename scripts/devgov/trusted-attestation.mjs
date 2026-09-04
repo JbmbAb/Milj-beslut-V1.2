@@ -7,10 +7,10 @@ import {
   verify as verifyBytes,
 } from 'node:crypto';
 
-export const ATTESTATION_SCHEMA = 'dev-gov-v0-trusted-execution-attestation';
-export const EXECUTION_RECORD_SCHEMA = 'dev-gov-v0-trusted-execution-record';
+export const ATTESTATION_SCHEMA = 'dev-gov-v1-trusted-execution-attestation';
+export const EXECUTION_RECORD_SCHEMA = 'dev-gov-v1-trusted-execution-record';
 export const TRUST_POLICY_SCHEMA = 'dev-gov-v0-trust-policy';
-export const ATTESTATION_VERSION = 'dev-gov-v0.1';
+export const ATTESTATION_VERSION = 'dev-gov-v1.0';
 
 export function stableJson(value) {
   if (Array.isArray(value)) return `[${value.map(stableJson).join(',')}]`;
@@ -27,27 +27,26 @@ export function sha256(value) {
   return createHash('sha256').update(value).digest('hex');
 }
 
-export function proofContract(manifest) {
+export function proofContract(unitDefinition) {
   return {
-    schema_version: manifest.schema_version,
-    unit: manifest.unit,
-    role: manifest.role,
-    mode: manifest.mode,
-    branch: manifest.branch,
-    base_sha: manifest.base_sha,
-    target_sha: manifest.target_sha,
-    ancestry_policy: manifest.ancestry_policy,
-    allowed_paths: manifest.allowed_paths,
-    forbidden_paths: manifest.forbidden_paths,
-    remote: manifest.remote || null,
-    required_red: manifest.required_red || [],
-    required_green: manifest.required_green || [],
-    trusted_execution: manifest.trusted_execution || null,
+    schema_version: unitDefinition.schema_version,
+    unit: unitDefinition.unit,
+    role: unitDefinition.role,
+    mode: unitDefinition.mode,
+    branch: unitDefinition.branch,
+    base_sha: unitDefinition.base_sha,
+    ancestry_policy: unitDefinition.ancestry_policy,
+    allowed_paths: unitDefinition.allowed_paths,
+    forbidden_paths: unitDefinition.forbidden_paths,
+    remote: unitDefinition.remote || null,
+    required_red: unitDefinition.required_red || [],
+    required_green: unitDefinition.required_green || [],
+    trusted_execution: unitDefinition.trusted_execution || null,
   };
 }
 
-export function proofContractHash(manifest) {
-  return sha256(stableJson(proofContract(manifest)));
+export function proofContractHash(unitDefinition) {
+  return sha256(stableJson(proofContract(unitDefinition)));
 }
 
 export function executionResultDigest(record) {
@@ -75,10 +74,10 @@ export function validateExecutionRecord(record) {
   }
   for (const field of [
     'unit_id',
+    'unit_definition_hash',
     'proof_contract_hash',
-    'source_manifest_hash',
     'base_sha',
-    'target_sha',
+    'candidate_sha',
     'execution_sha',
     'proof_type',
     'test_id',
@@ -113,6 +112,8 @@ function proofId(record, signer) {
       issuer: signer.issuer,
       key_id: signer.key_id,
       unit_id: record.unit_id,
+      unit_definition_hash: record.unit_definition_hash,
+      candidate_sha: record.candidate_sha,
       proof_type: record.proof_type,
       test_id: record.test_id,
       execution_sha: record.execution_sha,
@@ -124,10 +125,12 @@ function proofId(record, signer) {
 }
 
 function attestationPayload(record, signer) {
+  const { schema_version: executionRecordSchemaVersion, ...executionRecordFields } = record;
   return {
-    ...record,
+    ...executionRecordFields,
     schema_version: ATTESTATION_SCHEMA,
     attestation_version: ATTESTATION_VERSION,
+    execution_record_schema_version: executionRecordSchemaVersion,
     signature_algorithm: 'ed25519',
     issuer: signer.issuer,
     key_id: signer.key_id,
@@ -173,42 +176,18 @@ export function validateTrustPolicy(policy) {
 
 export function verifyExecutionAttestation(attestation, trustPolicy) {
   const errors = validateTrustPolicy(trustPolicy);
-  if (attestation?.schema_version !== ATTESTATION_SCHEMA) {
-    errors.push(`schema_version must be ${ATTESTATION_SCHEMA}`);
-  }
-  if (attestation?.attestation_version !== ATTESTATION_VERSION) {
-    errors.push(`attestation_version must be ${ATTESTATION_VERSION}`);
-  }
-  if (attestation?.signature_algorithm !== 'ed25519') {
-    errors.push('signature_algorithm must be ed25519');
-  }
-  if (!attestation?.signature) errors.push('signature is required');
+  const { signature, ...payload } = attestation || {};
   const trustedIssuer = trustPolicy?.trusted_issuers?.find(
-    (candidate) => candidate.issuer === attestation?.issuer && candidate.key_id === attestation?.key_id,
+    (candidate) => candidate.issuer === payload.issuer && candidate.key_id === payload.key_id,
   );
   if (!trustedIssuer) errors.push('attestation issuer/key is not trusted');
-  if (trustedIssuer && trustedIssuer.workflow_ref !== attestation?.workflow_ref) {
+  if (trustedIssuer && trustedIssuer.workflow_ref !== payload.workflow_ref) {
     errors.push('attestation workflow_ref is not trusted');
   }
-  if (trustedIssuer && trustedIssuer.runner_identity !== attestation?.runner_identity) {
+  if (trustedIssuer && trustedIssuer.runner_identity !== payload.runner_identity) {
     errors.push('attestation runner_identity is not trusted');
   }
-  const { signature, ...payload } = attestation || {};
-  const recordIssuer = payload.issuer;
-  const recordKeyId = payload.key_id;
-  const recordProofId = payload.proof_id;
-  const recordFields = { ...payload };
-  delete recordFields.attestation_version;
-  delete recordFields.signature_algorithm;
-  delete recordFields.issuer;
-  delete recordFields.key_id;
-  delete recordFields.proof_id;
-  const executionRecord = { ...recordFields, schema_version: EXECUTION_RECORD_SCHEMA };
-  const recordErrors = validateExecutionRecord(executionRecord);
-  errors.push(...recordErrors);
-  if (recordProofId !== proofId(executionRecord, { issuer: recordIssuer, key_id: recordKeyId })) {
-    errors.push('proof_id mismatch');
-  }
+  if (!signature) errors.push('signature is required');
   if (trustedIssuer && signature) {
     try {
       const publicKey = createPublicKey(trustedIssuer.public_key_pem);
@@ -222,6 +201,35 @@ export function verifyExecutionAttestation(attestation, trustPolicy) {
     } catch (error) {
       errors.push(`attestation signature verification failed: ${error.message}`);
     }
+  }
+
+  const {
+    schema_version: envelopeSchemaVersion,
+    attestation_version: attestationVersion,
+    execution_record_schema_version: executionRecordSchemaVersion,
+    signature_algorithm: signatureAlgorithm,
+    issuer: recordIssuer,
+    key_id: recordKeyId,
+    proof_id: recordProofId,
+    ...executionRecordFields
+  } = payload;
+  if (envelopeSchemaVersion !== ATTESTATION_SCHEMA) {
+    errors.push(`schema_version must be ${ATTESTATION_SCHEMA}`);
+  }
+  if (attestationVersion !== ATTESTATION_VERSION) {
+    errors.push(`attestation_version must be ${ATTESTATION_VERSION}`);
+  }
+  if (signatureAlgorithm !== 'ed25519') {
+    errors.push('signature_algorithm must be ed25519');
+  }
+
+  const executionRecord = {
+    schema_version: executionRecordSchemaVersion,
+    ...executionRecordFields,
+  };
+  errors.push(...validateExecutionRecord(executionRecord));
+  if (recordProofId !== proofId(executionRecord, { issuer: recordIssuer, key_id: recordKeyId })) {
+    errors.push('proof_id mismatch');
   }
   return { valid: errors.length === 0, errors };
 }

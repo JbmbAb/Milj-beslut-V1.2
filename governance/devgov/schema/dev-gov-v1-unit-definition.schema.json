@@ -1,0 +1,93 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://miljobeslut.local/schemas/dev-gov-v1-unit-definition.schema.json",
+  "title": "DEV-GOV-V1 Unit Definition",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "unit",
+    "role",
+    "mode",
+    "branch",
+    "base_sha",
+    "ancestry_policy",
+    "allowed_paths",
+    "forbidden_paths"
+  ],
+  "properties": {
+    "schema_version": { "const": "dev-gov-v1-unit-definition" },
+    "unit": { "type": "string", "minLength": 1 },
+    "role": { "enum": ["producer", "verifier"] },
+    "mode": { "enum": ["writer", "read_only"] },
+    "branch": { "type": "string", "minLength": 1 },
+    "base_sha": { "type": "string", "pattern": "^[0-9a-f]{40}$" },
+    "ancestry_policy": {
+      "enum": ["exact_parent", "descendant_of_base", "merge_base_equals_base"]
+    },
+    "allowed_paths": {
+      "type": "array",
+      "items": { "type": "string", "minLength": 1 }
+    },
+    "forbidden_paths": {
+      "type": "array",
+      "items": { "type": "string", "minLength": 1 }
+    },
+    "required_red": { "$ref": "#/$defs/commands" },
+    "required_green": { "$ref": "#/$defs/commands" },
+    "trusted_execution": {
+      "type": "object",
+      "required": ["issuer", "key_id"],
+      "additionalProperties": false,
+      "properties": {
+        "issuer": { "type": "string", "minLength": 1 },
+        "key_id": { "type": "string", "minLength": 1 }
+      }
+    },
+    "remote": {
+      "type": "object",
+      "properties": {
+        "name": { "type": "string", "default": "origin" },
+        "branch": { "type": "string" },
+        "push_policy": { "enum": ["no_force"] },
+        "absent_policy": { "enum": ["deny_absent", "allow_absent"] },
+        "timeout_ms": { "type": "integer", "minimum": 1 }
+      },
+      "additionalProperties": false
+    }
+  },
+  "additionalProperties": false,
+  "$defs": {
+    "commands": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["id", "command"],
+        "properties": {
+          "id": { "type": "string", "minLength": 1 },
+          "command": { "type": "string", "minLength": 1 },
+          "args": {
+            "type": "array",
+            "items": { "type": "string" }
+          },
+          "cwd": { "type": "string" },
+          "env": {
+            "type": "object",
+            "additionalProperties": { "type": "string" }
+          },
+          "expected_classification": {
+            "enum": ["PASS", "FAIL", "BLOCKED_ENVIRONMENT", "DENIED_GOVERNANCE"]
+          },
+          "required_head": {
+            "enum": ["base_sha", "candidate_sha", "any"]
+          },
+          "blocked_exit_codes": {
+            "type": "array",
+            "items": { "type": "integer" }
+          },
+          "timeout_ms": { "type": "integer", "minimum": 1 }
+        },
+        "additionalProperties": false
+      }
+    }
+  }
+}

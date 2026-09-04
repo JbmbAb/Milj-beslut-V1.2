@@ -1,16 +1,39 @@
 # DEV-GOV-V0 Units
 
+## V1 derived candidate identity
+
+`dev-gov-v1-unit-definition` replaces the uninstantiable V0 manifest contract. A committed unit
+definition contains stable proof policy and commands, but never `target_sha` or `worktree`.
+Candidate identity is derived from the exact checkout by the protected controller and carried in a
+separate execution envelope as `candidate_sha`. The controller signs and verifies the tuple:
+
+- candidate SHA
+- exact unit-definition hash
+- controller SHA
+- execution SHA and proof phase
+- protected workflow/run and runner identity
+- command result
+
+The workflow loads the definition only from the exact candidate checkout and verifies its tracked
+bytes against that commit. RED may execute at the declared `base_sha`; GREEN executes at the
+derived candidate SHA. Both attestations remain bound to the same candidate and unit-definition
+hash. V0 manifests and V0 execution attestations are historical records and are rejected by the V1
+controller rather than implicitly upgraded.
+
+The V0 schema remains in the repository solely so the historical V6 contract can be reproduced.
+New units use `governance/devgov/schema/dev-gov-v1-unit-definition.schema.json`.
+
 `DEV-GOV-V0` is a narrow development-governance guard for three invariants:
 
 - path and branch lock
 - RED before GREEN proof binding
 - exact SHA and ancestry verification
 
-The manifest is intentionally local and boring. It does not create credentials, mutate databases,
+The unit definition is intentionally local and boring. It does not create credentials, mutate databases,
 merge branches, push code, deploy releases, or run autonomous agents.
 
 Persisted local evidence is provenance, not execution authority. `evidence-gate` first resolves the
-declared worktree and verifies live repository state, target SHA, ancestry policy, clean tree, and
+controller-supplied worktree and verifies live repository state, derived candidate SHA, ancestry policy, clean tree, and
 remote policy. It then requires externally signed execution attestations for every declared RED and
 GREEN command. Canonical-ledger JSON, caller-supplied evidence, hashes, nonces, and timestamps cannot
 establish executable proof by themselves.
@@ -62,7 +85,7 @@ this minimal shape and must not be sourced from the candidate checkout:
 ```
 
 The gate workflow downloads signed RED and GREEN attestations from their protected workflow runs,
-checks the live candidate repository at the exact SHA, and publishes commit status context
+checks the live candidate repository at the exact derived SHA, and publishes commit status context
 `DEV-GOV-V0 / trusted-execution` for that exact SHA. Local `evidence-gate` output is diagnostic and
 does not become merge authority merely because a caller can set process environment variables.
 The OIDC audience includes the SHA-256 digest of the exact protected policy bytes and the candidate
@@ -84,7 +107,7 @@ Signed execution attestations bind:
 - base SHA
 - head SHA
 - portable proof-contract hash
-- source manifest hash for provenance
+- exact unit-definition hash
 - command
 - protected workflow and runner identity
 - controller SHA and workflow run identity
