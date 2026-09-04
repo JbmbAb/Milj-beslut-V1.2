@@ -1,0 +1,58 @@
+{
+  "schema_version": "dev-gov-v1-unit-definition",
+  "unit": "CI-BASELINE-AUDIT-GATE-VALIDITY-V2",
+  "role": "producer",
+  "mode": "writer",
+  "branch": "codex/ci-baseline-audit-gate-validity-v2",
+  "base_sha": "1f18c478e9599055de5aa274daa978fb3838a981",
+  "ancestry_policy": "exact_parent",
+  "allowed_paths": [
+    ".github/workflows/ci.yml",
+    "governance/devgov/units/ci-baseline-audit-gate-validity-v2.json"
+  ],
+  "forbidden_paths": [
+    ".github/workflows/devgov-*.yml",
+    "scripts/devgov/**",
+    "governance/devgov/schema/**",
+    "server/**",
+    "services/**",
+    "packages/**"
+  ],
+  "required_red": [
+    {
+      "id": "blocking-audit-gate-valid",
+      "command": "node",
+      "args": [
+        "--input-type=module",
+        "-e",
+        "const fs=await import('node:fs');let Y;try{Y=await import('yaml')}catch(e){console.error('BLOCKED: yaml unavailable: '+e.code);process.exit(3)}const p='.github/workflows/ci.yml';if(!fs.existsSync(p)){console.error('BLOCKED: ci.yml absent');process.exit(3)}let wf;try{wf=Y.parse(fs.readFileSync(p,'utf8'))}catch(e){console.error('BLOCKED: ci.yml unparseable');process.exit(3)}const job=wf&&wf.jobs&&wf.jobs.audit;if(!job||!Array.isArray(job.steps)){console.error('BLOCKED: audit job or steps missing');process.exit(3)}const st=job.steps.filter(s=>typeof s.run==='string'&&s.run.includes('npm audit'));if(st.length!==1){console.error('BLOCKED: expected exactly 1 npm audit step, found '+st.length);process.exit(3)}const s=st[0];const errs=[];if(!s.run.includes('--audit-level=high'))errs.push('missing --audit-level=high');if(s.run.includes('--fail-on'))errs.push('uses unsupported --fail-on');if(s['continue-on-error']===true)errs.push('step continue-on-error swallows failure');if(job['continue-on-error']===true)errs.push('job continue-on-error swallows failure');if(errs.length){console.error('GATE_INVALID: '+errs.join('; '));process.exit(1)}console.log('GATE_VALID: supported threshold, failure propagates');process.exit(0)"
+      ],
+      "expected_classification": "FAIL",
+      "required_head": "base_sha",
+      "blocked_exit_codes": [3]
+    }
+  ],
+  "required_green": [
+    {
+      "id": "blocking-audit-gate-valid",
+      "command": "node",
+      "args": [
+        "--input-type=module",
+        "-e",
+        "const fs=await import('node:fs');let Y;try{Y=await import('yaml')}catch(e){console.error('BLOCKED: yaml unavailable: '+e.code);process.exit(3)}const p='.github/workflows/ci.yml';if(!fs.existsSync(p)){console.error('BLOCKED: ci.yml absent');process.exit(3)}let wf;try{wf=Y.parse(fs.readFileSync(p,'utf8'))}catch(e){console.error('BLOCKED: ci.yml unparseable');process.exit(3)}const job=wf&&wf.jobs&&wf.jobs.audit;if(!job||!Array.isArray(job.steps)){console.error('BLOCKED: audit job or steps missing');process.exit(3)}const st=job.steps.filter(s=>typeof s.run==='string'&&s.run.includes('npm audit'));if(st.length!==1){console.error('BLOCKED: expected exactly 1 npm audit step, found '+st.length);process.exit(3)}const s=st[0];const errs=[];if(!s.run.includes('--audit-level=high'))errs.push('missing --audit-level=high');if(s.run.includes('--fail-on'))errs.push('uses unsupported --fail-on');if(s['continue-on-error']===true)errs.push('step continue-on-error swallows failure');if(job['continue-on-error']===true)errs.push('job continue-on-error swallows failure');if(errs.length){console.error('GATE_INVALID: '+errs.join('; '));process.exit(1)}console.log('GATE_VALID: supported threshold, failure propagates');process.exit(0)"
+      ],
+      "required_head": "candidate_sha",
+      "blocked_exit_codes": [3]
+    }
+  ],
+  "trusted_execution": {
+    "issuer": "github-actions:JbmbAb/Milj-beslut-V1.2:devgov-v0-attest",
+    "key_id": "devgov-ci-ed25519-v1"
+  },
+  "remote": {
+    "name": "origin",
+    "branch": "codex/ci-baseline-audit-gate-validity-v2",
+    "push_policy": "no_force",
+    "absent_policy": "deny_absent"
+  }
+}
