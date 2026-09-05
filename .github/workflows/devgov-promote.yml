@@ -1,0 +1,150 @@
+name: DEV-GOV Promoter — Exact-SHA Fast-Forward
+
+# Performs the ONLY action this workflow is for: fast-forwarding main to an EXACT SHA that has
+# already been independently proven by the DEV-GOV-V0 trusted-execution chain (RED/GREEN/attest/
+# evidence-gate). It does not build, sign, or evaluate anything itself — it re-checks the existing,
+# canonical proof (the "DEV-GOV-V0 / trusted-execution" commit status) and, only if that check is
+# genuinely green for the exact candidate SHA, pushes with the dedicated GitHub App identity
+# (mimer-devgov-promoter). No routine human/admin bypass exists for this action.
+#
+# workflow_dispatch only — this can never be triggered by a pull_request, and dispatch is refused
+# unless it targets the protected default branch, so a modified copy of this file on a feature
+# branch or fork cannot be used to promote anything.
+
+on:
+  workflow_dispatch:
+    inputs:
+      candidate_sha:
+        description: Exact SHA to fast-forward main to (must already be DEV-GOV-proven)
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  promote:
+    name: Verify proof and fast-forward main
+    runs-on: ubuntu-latest
+    environment: devgov-promoter
+    steps:
+      - name: Require protected default-branch workflow
+        env:
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+          DISPATCH_REF: ${{ github.ref }}
+        run: |
+          test "$DISPATCH_REF" = "refs/heads/$DEFAULT_BRANCH"
+
+      - name: Validate candidate SHA shape
+        env:
+          CANDIDATE_SHA: ${{ inputs.candidate_sha }}
+        run: |
+          echo "$CANDIDATE_SHA" | grep -Eq '^[0-9a-f]{40}$' || {
+            echo "::error::candidate_sha must be exactly 40 lowercase hex characters, got: $CANDIDATE_SHA"
+            exit 4
+          }
+
+      - name: Checkout controller (read-only, no credentials persisted)
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Verify candidate exists and is an exact direct child of live main
+        env:
+          CANDIDATE_SHA: ${{ inputs.candidate_sha }}
+        run: |
+          set -euo pipefail
+
+          git cat-file -e "$CANDIDATE_SHA" || {
+            echo "::error::candidate_sha does not exist in this repository: $CANDIDATE_SHA"
+            exit 4
+          }
+
+          live_main="$(git ls-remote origin refs/heads/main | cut -f1)"
+          test -n "$live_main" || { echo "::error::could not resolve live remote main"; exit 4; }
+
+          candidate_parent="$(git rev-parse "${CANDIDATE_SHA}^" 2>/dev/null || true)"
+          if [ "$candidate_parent" != "$live_main" ]; then
+            echo "::error::candidate_sha is not an exact direct child of live main."
+            echo "::error::live main:          $live_main"
+            echo "::error::candidate's parent: ${candidate_parent:-<none>}"
+            echo "::error::this promoter performs pure fast-forward only — no merge, rebase, or substitution"
+            exit 4
+          fi
+
+          echo "OK: candidate $CANDIDATE_SHA is an exact direct child of live main $live_main"
+
+      - name: Verify existing DEV-GOV-V0 trusted-execution proof for the exact candidate SHA
+        env:
+          CANDIDATE_SHA: ${{ inputs.candidate_sha }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+
+          # NOTE: the combined /commits/{sha}/status endpoint does NOT expose a creator field
+          # (only avatar_url) — using it for identity binding would silently reject every
+          # candidate, including genuine ones. The list endpoint /commits/{sha}/statuses DOES
+          # include creator.login, and is returned newest-first, so the first entry matching our
+          # context is the current state for that context (equivalent to what the combined
+          # endpoint dedupes internally, but with creator identity available).
+          statuses="$(gh api "repos/${GITHUB_REPOSITORY}/commits/${CANDIDATE_SHA}/statuses")"
+
+          match="$(echo "$statuses" | node -e "
+            let s='';process.stdin.on('data',d=>s+=d).on('end',()=>{
+              const list=JSON.parse(s);
+              const hit=list.find(x=>x.context==='DEV-GOV-V0 / trusted-execution');
+              process.stdout.write(hit?JSON.stringify(hit):'')
+            })")"
+          if [ -z "$match" ]; then
+            echo "::error::no 'DEV-GOV-V0 / trusted-execution' status has ever been posted for exact candidate SHA $CANDIDATE_SHA"
+            echo "::error::this is the canonical, existing proof source (the same context branch protection already checks) — nothing new was invented to satisfy this"
+            exit 4
+          fi
+
+          state="$(echo "$match" | node -e "let s='';process.stdin.on('data',d=>s+=d).on('end',()=>{const j=JSON.parse(s);process.stdout.write(j.state||'')})")"
+          if [ "$state" != "success" ]; then
+            echo "::error::most recent 'DEV-GOV-V0 / trusted-execution' status for $CANDIDATE_SHA is '$state', not 'success'"
+            exit 4
+          fi
+
+          creator_login="$(echo "$match" | node -e "let s='';process.stdin.on('data',d=>s+=d).on('end',()=>{const j=JSON.parse(s);process.stdout.write((j.creator&&j.creator.login)||'')})")"
+          if [ "$creator_login" != "github-actions[bot]" ]; then
+            echo "::error::the successful status was not created by github-actions[bot] (got: '$creator_login') — refusing to trust it"
+            exit 4
+          fi
+
+          echo "OK: exact candidate $CANDIDATE_SHA has a genuine, github-actions[bot]-created, successful 'DEV-GOV-V0 / trusted-execution' status"
+
+      - name: Generate scoped installation token for the dedicated promoter identity
+        id: promoter_token
+        uses: actions/create-github-app-token@v1
+        with:
+          app-id: ${{ vars.DEVGOV_PROMOTER_APP_ID }}
+          private-key: ${{ secrets.DEVGOV_PROMOTER_PRIVATE_KEY_PEM }}
+          owner: ${{ github.repository_owner }}
+          repositories: ${{ github.event.repository.name }}
+
+      - name: Fast-forward main to the exact proven candidate SHA (non-force)
+        env:
+          CANDIDATE_SHA: ${{ inputs.candidate_sha }}
+          PROMOTER_TOKEN: ${{ steps.promoter_token.outputs.token }}
+        run: |
+          set -euo pipefail
+          # No --force: if live main has moved since the check above (a race), git itself refuses
+          # a non-fast-forward update. This closes the check-then-push gap without relying solely
+          # on the earlier ancestry check.
+          git push "https://x-access-token:${PROMOTER_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" \
+            "${CANDIDATE_SHA}:refs/heads/main"
+
+      - name: Verify remote main now equals the exact candidate SHA
+        env:
+          CANDIDATE_SHA: ${{ inputs.candidate_sha }}
+        run: |
+          set -euo pipefail
+          new_main="$(git ls-remote origin refs/heads/main | cut -f1)"
+          test "$new_main" = "$CANDIDATE_SHA" || {
+            echo "::error::post-push verification failed: remote main is '$new_main', expected '$CANDIDATE_SHA'"
+            exit 4
+          }
+          echo "CONFIRMED: origin/main == $CANDIDATE_SHA"
