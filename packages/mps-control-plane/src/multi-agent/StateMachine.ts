@@ -21,14 +21,59 @@ const ALLOWED_TRANSITIONS: Readonly<Record<MultiAgentState, readonly MultiAgentS
     "SUPERSEDED",
   ],
   VERIFY_FAILED: ["IMPLEMENTING", "CANCELLED", "SUPERSEDED"],
-  READY_FOR_DEV_GOV: ["PROVING_RED", "BLOCKED_ENVIRONMENT", "BLOCKED_DEPENDENCY", "CANCELLED", "SUPERSEDED"],
-  PROVING_RED: ["PROVING_GREEN", "BLOCKED_ENVIRONMENT", "BLOCKED_DEPENDENCY", "CANCELLED", "SUPERSEDED"],
-  PROVING_GREEN: ["GATING", "BLOCKED_ENVIRONMENT", "BLOCKED_DEPENDENCY", "CANCELLED", "SUPERSEDED"],
-  GATING: ["GATE_PASSED", "GATE_FAILED", "BLOCKED_ENVIRONMENT", "BLOCKED_DEPENDENCY", "CANCELLED", "SUPERSEDED"],
-  GATE_FAILED: ["READY_FOR_DEV_GOV", "IMPLEMENTING", "BLOCKED_DESIGN", "BLOCKED_DEPENDENCY", "CANCELLED", "SUPERSEDED"],
+  READY_FOR_DEV_GOV: [
+    "PROVING_RED",
+    "BLOCKED_ENVIRONMENT",
+    "BLOCKED_DEPENDENCY",
+    "CANCELLED",
+    "SUPERSEDED",
+  ],
+  PROVING_RED: [
+    "PROVING_GREEN",
+    "BLOCKED_ENVIRONMENT",
+    "BLOCKED_DEPENDENCY",
+    "CANCELLED",
+    "SUPERSEDED",
+  ],
+  PROVING_GREEN: [
+    "GATING",
+    "BLOCKED_ENVIRONMENT",
+    "BLOCKED_DEPENDENCY",
+    "CANCELLED",
+    "SUPERSEDED",
+  ],
+  GATING: [
+    "GATE_PASSED",
+    "GATE_FAILED",
+    "BLOCKED_ENVIRONMENT",
+    "BLOCKED_DEPENDENCY",
+    "CANCELLED",
+    "SUPERSEDED",
+  ],
+  GATE_FAILED: [
+    "READY_FOR_DEV_GOV",
+    "IMPLEMENTING",
+    "BLOCKED_DESIGN",
+    "BLOCKED_DEPENDENCY",
+    "CANCELLED",
+    "SUPERSEDED",
+  ],
   GATE_PASSED: ["PROMOTING", "BLOCKED_DEPENDENCY", "CANCELLED", "SUPERSEDED"],
-  PROMOTING: ["PROMOTED", "PROMOTION_FAILED", "BLOCKED_ENVIRONMENT", "BLOCKED_DEPENDENCY", "CANCELLED", "SUPERSEDED"],
-  PROMOTION_FAILED: ["GATE_PASSED", "BLOCKED_ENVIRONMENT", "BLOCKED_DEPENDENCY", "CANCELLED", "SUPERSEDED"],
+  PROMOTING: [
+    "PROMOTED",
+    "PROMOTION_FAILED",
+    "BLOCKED_ENVIRONMENT",
+    "BLOCKED_DEPENDENCY",
+    "CANCELLED",
+    "SUPERSEDED",
+  ],
+  PROMOTION_FAILED: [
+    "GATE_PASSED",
+    "BLOCKED_ENVIRONMENT",
+    "BLOCKED_DEPENDENCY",
+    "CANCELLED",
+    "SUPERSEDED",
+  ],
   PROMOTED: ["CLOSED"],
   CLOSED: [],
   BLOCKED_ENVIRONMENT: [
@@ -91,17 +136,26 @@ export function applyVerifiedHandoff(
   if (handoff.observedBaseSha !== current.baseSha) {
     throw new ControlPlaneTransitionError("handoff base SHA does not match canonical base");
   }
-  if (current.candidateSha && handoff.observedCandidateSha !== current.candidateSha) {
-    throw new ControlPlaneTransitionError("handoff candidate SHA does not match canonical candidate");
+
+  if (current.candidateSha) {
+    if (handoff.observedCandidateSha !== current.candidateSha) {
+      throw new ControlPlaneTransitionError("handoff candidate SHA does not match canonical candidate");
+    }
+  } else if (handoff.role === "VERIFIER") {
+    throw new ControlPlaneTransitionError("verifier handoff requires canonical candidate SHA");
+  } else if (handoff.role === "IMPLEMENTER" && handoff.result === "PASS") {
+    if (!handoff.observedCandidateSha) {
+      throw new ControlPlaneTransitionError("implementer PASS requires observed candidate SHA");
+    }
   }
-  if (handoff.unitDefinitionHash && handoff.unitDefinitionHash !== current.unitDefinitionHash) {
+
+  if (handoff.unitDefinitionHash !== current.unitDefinitionHash) {
     throw new ControlPlaneTransitionError(
       "handoff unit definition hash does not match canonical unit definition",
     );
   }
   if (
     current.proofContractHash &&
-    handoff.proofContractHash &&
     handoff.proofContractHash !== current.proofContractHash
   ) {
     throw new ControlPlaneTransitionError(
@@ -115,6 +169,11 @@ export function applyVerifiedHandoff(
   assertTransition(current.state, nextState);
   return {
     ...current,
+    candidateSha:
+      current.candidateSha ??
+      (handoff.role === "IMPLEMENTER" && handoff.result === "PASS"
+        ? handoff.observedCandidateSha
+        : undefined),
     state: nextState,
     revision: current.revision + 1,
     updatedAt: handoff.finishedAt,
@@ -126,6 +185,18 @@ export function applyControllerActivation(
   nextState: MultiAgentState,
   activatedAt: string,
 ): MultiAgentUnitState {
+  if (current.state === "IMPLEMENTATION_READY" && nextState === "VERIFYING" && !current.candidateSha) {
+    throw new ControlPlaneTransitionError("verification activation requires canonical candidate SHA");
+  }
+  if (current.state === "READY_FOR_DEV_GOV" && nextState === "PROVING_RED") {
+    if (!current.candidateSha) {
+      throw new ControlPlaneTransitionError("DEV-GOV activation requires canonical candidate SHA");
+    }
+    if (!current.proofContractHash) {
+      throw new ControlPlaneTransitionError("DEV-GOV activation requires canonical proof contract hash");
+    }
+  }
+
   assertTransition(current.state, nextState);
   return {
     ...current,
