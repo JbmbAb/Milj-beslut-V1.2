@@ -42,8 +42,8 @@ export class GitHubDevGovDispatchAdapter implements DevGovDispatchPort {
 
   async dispatch(item: DevGovWorkItem): Promise<string> {
     const unit = item.unit;
-    if (unit.state !== "READY_FOR_DEV_GOV") {
-      throw new DevGovBindingError(`DEV-GOV dispatch requires READY_FOR_DEV_GOV, got ${unit.state}`);
+    if (unit.state !== "PROVING_RED") {
+      throw new DevGovBindingError(`DEV-GOV dispatch requires PROVING_RED, got ${unit.state}`);
     }
     if (!unit.candidateSha) throw new DevGovBindingError("DEV-GOV dispatch requires candidate SHA");
     if (!unit.proofContractHash) {
