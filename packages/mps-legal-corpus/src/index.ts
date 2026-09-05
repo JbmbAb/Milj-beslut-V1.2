@@ -56,3 +56,10 @@ export {
   type LegalChunk,
   type ValidatedCorpusImportBatch,
 } from './CorpusImportGate';
+export {
+  createRegistryAdmissionAuthority,
+  type RegistryAdmissionAuthority,
+  type RegistryAdmissionAuthorityOptions,
+  type RegistryAdmissionCheckResult,
+  type RegistryAdmissionDenialReason,
+} from './SourceRegistryAdmissionAuthority';

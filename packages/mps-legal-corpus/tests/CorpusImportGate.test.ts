@@ -6,17 +6,24 @@
 // spec, both locked precisions (order-sensitive chunk_set_content_hash; manifest completeness
 // as a single pre-write batch gate, not a post-hoc audit), and a happy path.
 
-import { describe, expect, it, beforeEach } from 'vitest';
+import { describe, expect, it, beforeEach, afterEach } from 'vitest';
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import {
   createArtifactAttestation,
   LocalPemSigningKeyProvider,
+  LocalPemVerificationKeyProvider,
   type ArtifactAttestation,
   type SigningKeyProvider,
 } from '@miljobeslut/mimers-brunn-core';
+import { approveSourceRegistryEntry } from '../../mps-data-governance/src/SourceApproval';
+import type { SourceRegistryArtifact } from '../../mps-data-governance/src/SourceRegistry';
 import {
   CorpusImportGate,
   ChunkOrderError,
   computeChunkSetContentHash,
+  createRegistryAdmissionAuthority,
   isCanonicallyOrdered,
   orderChunksDeterministically,
   LEGAL_CORPUS_IMPORT_ACTION,
@@ -28,6 +35,7 @@ import {
   type LegalChunk,
   type LegalCorpusImportAttestationPredicate,
   type ManifestStore,
+  type RegistryAdmissionAuthority,
 } from '../src/index';
 
 // ---- Fixtures -------------------------------------------------------------------------
@@ -87,6 +95,85 @@ class RecordingCorpusWriter implements CorpusWriter {
 let signing: SigningKeyProvider;
 let otherSigning: SigningKeyProvider;
 
+// ---- K2.1 registry fixture --------------------------------------------------------------
+// A synthetic, locally-signed source registry — never the real production
+// source-registry/national-registry.json, never a live network call. Every existing test in
+// this file (all of which construct CorpusImportGate with only 3 args, relying on its default
+// registryAuthority) resolves against THIS fixture via env vars, so they stay deterministic
+// and isolated while still genuinely exercising the new default code path rather than bypassing
+// it with a stub.
+let registryFixtureDir: string;
+let originalRegistryEnv: {
+  path: string | undefined;
+  keyId: string | undefined;
+  publicKey: string | undefined;
+  trustedKeysFile: string | undefined;
+};
+let VALID_REGISTRY_ARTIFACT_ID: string;
+let VALID_REGISTRY_SOURCE_CONTENT_HASH: string;
+
+async function setUpRegistryFixture(): Promise<void> {
+  const { provider: registrySigning, publicKey } = LocalPemSigningKeyProvider.generate(
+    'ed25519:test-registry-governor',
+  );
+  const draft: Omit<SourceRegistryArtifact, 'approval_attestation'> = {
+    artifact_id: 'reg-test-corpus-source-001',
+    artifact_type: 'SOURCE_REGISTRY_ENTRY',
+    source_id: 'test-corpus-source',
+    producer: { producer_id: 'TEST', name: 'Test Authority', type: 'agency' },
+    channel: {
+      channel_type: 'WEBSITE',
+      endpoint_url: 'https://example.invalid/test-corpus-source',
+      allowed_domains: ['example.invalid'],
+    },
+    adapter: 'SINGLE_ENDPOINT_V1',
+    artifact_types: ['LAW'],
+    collection_frequency: 'WEEKLY',
+    change_detection: { strategy: 'CONTENT_HASH' },
+    policy: {
+      rate_limit_requests_per_second: 1,
+      concurrency_limit: 1,
+      retry_policy: { max_attempts: 3, backoff: 'EXPONENTIAL' },
+    },
+    lifecycle_state: 'REGISTERED',
+  };
+  const approved = await approveSourceRegistryEntry({
+    entry: draft,
+    approver_actor_id: 'test-reviewer',
+    signing: registrySigning,
+  });
+
+  registryFixtureDir = mkdtempSync(join(tmpdir(), 'corpus-import-gate-registry-'));
+  const registryPath = join(registryFixtureDir, 'national-registry.json');
+  writeFileSync(registryPath, JSON.stringify([approved], null, 2), 'utf8');
+
+  originalRegistryEnv = {
+    path: process.env.SOURCE_REGISTRY_ARTIFACT_PATH,
+    keyId: process.env.SOURCE_REGISTRY_SIGNING_KEY_ID,
+    publicKey: process.env.SOURCE_REGISTRY_SIGNING_PUBLIC_KEY_PEM,
+    trustedKeysFile: process.env.SOURCE_REGISTRY_TRUSTED_KEYS_FILE,
+  };
+  process.env.SOURCE_REGISTRY_ARTIFACT_PATH = registryPath;
+  process.env.SOURCE_REGISTRY_SIGNING_KEY_ID = registrySigning.keyId;
+  process.env.SOURCE_REGISTRY_SIGNING_PUBLIC_KEY_PEM = publicKey;
+  delete process.env.SOURCE_REGISTRY_TRUSTED_KEYS_FILE;
+
+  VALID_REGISTRY_ARTIFACT_ID = approved.artifact_id;
+  VALID_REGISTRY_SOURCE_CONTENT_HASH = approved.approval_attestation.predicate.source_content_hash as string;
+}
+
+function tearDownRegistryFixture(): void {
+  if (originalRegistryEnv.path === undefined) delete process.env.SOURCE_REGISTRY_ARTIFACT_PATH;
+  else process.env.SOURCE_REGISTRY_ARTIFACT_PATH = originalRegistryEnv.path;
+  if (originalRegistryEnv.keyId === undefined) delete process.env.SOURCE_REGISTRY_SIGNING_KEY_ID;
+  else process.env.SOURCE_REGISTRY_SIGNING_KEY_ID = originalRegistryEnv.keyId;
+  if (originalRegistryEnv.publicKey === undefined) delete process.env.SOURCE_REGISTRY_SIGNING_PUBLIC_KEY_PEM;
+  else process.env.SOURCE_REGISTRY_SIGNING_PUBLIC_KEY_PEM = originalRegistryEnv.publicKey;
+  if (originalRegistryEnv.trustedKeysFile === undefined) delete process.env.SOURCE_REGISTRY_TRUSTED_KEYS_FILE;
+  else process.env.SOURCE_REGISTRY_TRUSTED_KEYS_FILE = originalRegistryEnv.trustedKeysFile;
+  rmSync(registryFixtureDir, { recursive: true, force: true });
+}
+
 async function buildAttestation(
   args: {
     documentId: string;
@@ -97,6 +184,8 @@ async function buildAttestation(
     approverActorId?: string;
     approverRole?: string;
     signerKeyId?: string;
+    registryArtifactId?: string;
+    registrySourceContentHash?: string;
   },
   withSigning: SigningKeyProvider = signing,
 ): Promise<ArtifactAttestation> {
@@ -112,6 +201,8 @@ async function buildAttestation(
     approver_role: args.approverRole ?? 'GOVERNANCE_REVIEWER',
     attestation_schema_version: LEGAL_CORPUS_IMPORT_ATTESTATION_SCHEMA_VERSION,
     signer_key_id: args.signerKeyId ?? withSigning.keyId,
+    registry_artifact_id: args.registryArtifactId ?? VALID_REGISTRY_ARTIFACT_ID,
+    registry_source_content_hash: args.registrySourceContentHash ?? VALID_REGISTRY_SOURCE_CONTENT_HASH,
   };
   return createArtifactAttestation({
     subjectDigest: `sha256:${chunkSetContentHash}`,
@@ -121,9 +212,14 @@ async function buildAttestation(
   });
 }
 
-beforeEach(() => {
+beforeEach(async () => {
   signing = LocalPemSigningKeyProvider.generate('ed25519:test-legal-corpus-authority').provider;
   otherSigning = LocalPemSigningKeyProvider.generate('ed25519:not-the-legal-corpus-key').provider;
+  await setUpRegistryFixture();
+});
+
+afterEach(() => {
+  tearDownRegistryFixture();
 });
 
 // ---- 1. Direct bypass: no / invalid attestation ---------------------------------------
@@ -500,5 +596,188 @@ describe('CorpusImportGate — a correctly bound batch imports exactly once', ()
 
     expect(result.importedDocumentIds).toEqual([doc1]);
     expect(writer.writes).toHaveLength(1);
+  });
+});
+
+// ---- K2.1: CORPUS-ADMISSION-REGISTRY-BINDING ----------------------------------------------
+//
+// Every test above this point already exercises the new registry-authority check implicitly,
+// via buildAttestation()'s default registry_artifact_id/registry_source_content_hash and the
+// default CorpusImportGate registryAuthority resolving them against the synthetic fixture set
+// up in beforeEach — none of them inject a fake registryAuthority, proving the real default
+// path works end to end for ordinary admission. These tests specifically target the NEW check.
+
+describe('CorpusImportGate — K2.1: registry-binding, RED cases (currently would have been admitted pre-K2.1)', () => {
+  it('RED-A: rejects a fabricated registry_artifact_id that never existed in the registry', async () => {
+    const docId = 'doc-1';
+    const chunks = docChunks();
+    const attestation = await buildAttestation({
+      documentId: docId,
+      chunks,
+      registryArtifactId: 'reg-fabricated-does-not-exist',
+    });
+
+    const manifestStore = new InMemoryManifestStore([manifestEntry({ document_id: docId })]);
+    const writer = new RecordingCorpusWriter();
+    const gate = new CorpusImportGate(manifestStore, writer, signing);
+
+    await expect(
+      gate.importBatch({ runId: 'run-1', expectedDocumentIds: [docId], imports: [{ documentId: docId, chunks, attestation }] }),
+    ).rejects.toThrow(/ARTIFACT_NOT_FOUND/);
+    expect(writer.writes).toHaveLength(0);
+  });
+
+  it('RED-B: rejects a registry_source_content_hash that does not match the real registry entry', async () => {
+    const docId = 'doc-1';
+    const chunks = docChunks();
+    const attestation = await buildAttestation({
+      documentId: docId,
+      chunks,
+      registrySourceContentHash: '00'.repeat(32),
+    });
+
+    const manifestStore = new InMemoryManifestStore([manifestEntry({ document_id: docId })]);
+    const writer = new RecordingCorpusWriter();
+    const gate = new CorpusImportGate(manifestStore, writer, signing);
+
+    await expect(
+      gate.importBatch({ runId: 'run-1', expectedDocumentIds: [docId], imports: [{ documentId: docId, chunks, attestation }] }),
+    ).rejects.toThrow(/CONTENT_HASH_MISMATCH/);
+    expect(writer.writes).toHaveLength(0);
+  });
+
+  it('RED-C: rejects an artifact_id that is no longer present in the active registry (revoked/superseded), same as a fabricated one', async () => {
+    // This repo's own convention for revocation/supersession is removal from the active
+    // registry file, not an in-file REJECTED/QUARANTINED marker left behind — see
+    // docs/architecture/KNOWLEDGE-INGESTION-REACHABILITY-AUDIT-2026-09-05.md. A once-real,
+    // now-removed artifact_id must be denied identically to one that never existed.
+    const docId = 'doc-1';
+    const chunks = docChunks();
+    const attestation = await buildAttestation({
+      documentId: docId,
+      chunks,
+      registryArtifactId: 'reg-test-corpus-source-000-superseded',
+    });
+
+    const manifestStore = new InMemoryManifestStore([manifestEntry({ document_id: docId })]);
+    const writer = new RecordingCorpusWriter();
+    const gate = new CorpusImportGate(manifestStore, writer, signing);
+
+    await expect(
+      gate.importBatch({ runId: 'run-1', expectedDocumentIds: [docId], imports: [{ documentId: docId, chunks, attestation }] }),
+    ).rejects.toThrow(/ARTIFACT_NOT_FOUND/);
+    expect(writer.writes).toHaveLength(0);
+  });
+
+  it('RED-D: rejects when the registry authority is unavailable — fails closed, not open', async () => {
+    const docId = 'doc-1';
+    const chunks = docChunks();
+    const attestation = await buildAttestation({ documentId: docId, chunks });
+
+    const manifestStore = new InMemoryManifestStore([manifestEntry({ document_id: docId })]);
+    const writer = new RecordingCorpusWriter();
+    // Explicitly injected unavailable authority — simulates a missing/corrupt registry file or
+    // missing key configuration without depending on global env-var mutation for this one case.
+    const unavailableAuthority: RegistryAdmissionAuthority = {
+      async checkAdmissible() {
+        return { ok: false, reason: 'REGISTRY_UNAVAILABLE', detail: 'simulated: registry could not be loaded.' };
+      },
+    };
+    const gate = new CorpusImportGate(manifestStore, writer, signing, unavailableAuthority);
+
+    await expect(
+      gate.importBatch({ runId: 'run-1', expectedDocumentIds: [docId], imports: [{ documentId: docId, chunks, attestation }] }),
+    ).rejects.toThrow(/REGISTRY_UNAVAILABLE/);
+    expect(writer.writes).toHaveLength(0);
+  });
+
+  it('RED-D (predicate shape): rejects when the attestation predicate is missing registry_artifact_id / registry_source_content_hash entirely', async () => {
+    const docId = 'doc-1';
+    const chunks = docChunks();
+    const chunkSetContentHash = computeChunkSetContentHash(chunks);
+    // Built by hand, not via buildAttestation(), specifically to omit the two new fields —
+    // simulates an attestation signed under the pre-K2.1 schema (schema_version 1).
+    const predicateWithoutRegistryBinding = {
+      action: LEGAL_CORPUS_IMPORT_ACTION,
+      document_id: docId,
+      source_content_hash: '11'.repeat(32),
+      chunk_set_content_hash: chunkSetContentHash,
+      pipeline_version: PIPELINE_VERSION,
+      chunk_policy_version: CHUNK_POLICY_VERSION,
+      approver_actor_id: 'reviewer-1',
+      approver_role: 'GOVERNANCE_REVIEWER',
+      attestation_schema_version: 1,
+      signer_key_id: signing.keyId,
+    };
+    const attestation = await createArtifactAttestation({
+      subjectDigest: `sha256:${chunkSetContentHash}`,
+      predicateType: LEGAL_CORPUS_IMPORT_PREDICATE_TYPE,
+      predicate: predicateWithoutRegistryBinding,
+      signing,
+    });
+
+    const manifestStore = new InMemoryManifestStore([manifestEntry({ document_id: docId })]);
+    const writer = new RecordingCorpusWriter();
+    const gate = new CorpusImportGate(manifestStore, writer, signing);
+
+    await expect(
+      gate.importBatch({ runId: 'run-1', expectedDocumentIds: [docId], imports: [{ documentId: docId, chunks, attestation }] }),
+    ).rejects.toThrow(/registry_artifact_id/);
+    expect(writer.writes).toHaveLength(0);
+  });
+});
+
+describe('CorpusImportGate — K2.1: registry-binding, GREEN (valid APPROVED entry still admits)', () => {
+  it('admits when registry_artifact_id and registry_source_content_hash resolve to a real, currently-APPROVED entry', async () => {
+    const docId = 'doc-1';
+    const chunks = docChunks();
+    const attestation = await buildAttestation({ documentId: docId, chunks });
+
+    const manifestStore = new InMemoryManifestStore([manifestEntry({ document_id: docId })]);
+    const writer = new RecordingCorpusWriter();
+    const gate = new CorpusImportGate(manifestStore, writer, signing);
+
+    const result = await gate.importBatch({
+      runId: 'run-1',
+      expectedDocumentIds: [docId],
+      imports: [{ documentId: docId, chunks, attestation }],
+    });
+
+    expect(result.importedDocumentIds).toEqual([docId]);
+    expect(writer.writes).toHaveLength(1);
+  });
+
+  it('same inputs produce the same ruling deterministically across repeated calls', async () => {
+    const docId = 'doc-1';
+    const chunks = docChunks();
+    const attestation = await buildAttestation({ documentId: docId, chunks, registryArtifactId: 'reg-fabricated-does-not-exist' });
+    const manifestStore = new InMemoryManifestStore([manifestEntry({ document_id: docId })]);
+
+    const authority = createRegistryAdmissionAuthority();
+    const results = await Promise.all([
+      authority.checkAdmissible('reg-fabricated-does-not-exist', VALID_REGISTRY_SOURCE_CONTENT_HASH),
+      authority.checkAdmissible('reg-fabricated-does-not-exist', VALID_REGISTRY_SOURCE_CONTENT_HASH),
+      authority.checkAdmissible('reg-fabricated-does-not-exist', VALID_REGISTRY_SOURCE_CONTENT_HASH),
+    ]);
+    expect(results.every((r) => r.ok === false && r.reason === 'ARTIFACT_NOT_FOUND')).toBe(true);
+
+    // Also confirmed through the gate itself, not just the helper in isolation.
+    const writer = new RecordingCorpusWriter();
+    const gate = new CorpusImportGate(manifestStore, writer, signing);
+    await expect(
+      gate.importBatch({ runId: 'run-1', expectedDocumentIds: [docId], imports: [{ documentId: docId, chunks, attestation }] }),
+    ).rejects.toThrow(/ARTIFACT_NOT_FOUND/);
+  });
+});
+
+describe('CorpusImportGate — K2.1: does not disturb the historical-validity question', () => {
+  it('the registry-binding check is only reachable from checkOneImport / validateBatch / importBatch — never from a read/replay path', () => {
+    // Structural, not behavioral: CorpusImportGate has no read/query/replay method at all — its
+    // only public surface is importBatch() and validateBatch(), both write-gating entry points.
+    // This is asserted here as a standing invariant so a future unit cannot silently add a
+    // read-path method to this same class and reuse registryAuthority for WAS_VALID_AT(T)
+    // semantics without that being a deliberate, reviewed change.
+    const publicMethods = Object.getOwnPropertyNames(CorpusImportGate.prototype).filter((m) => m !== 'constructor');
+    expect(publicMethods.sort()).toEqual(['importBatch', 'validateBatch'].sort());
   });
 });
