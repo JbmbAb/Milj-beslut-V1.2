@@ -120,3 +120,17 @@ export function applyVerifiedHandoff(
     updatedAt: handoff.finishedAt,
   };
 }
+
+export function applyControllerActivation(
+  current: MultiAgentUnitState,
+  nextState: MultiAgentState,
+  activatedAt: string,
+): MultiAgentUnitState {
+  assertTransition(current.state, nextState);
+  return {
+    ...current,
+    state: nextState,
+    revision: current.revision + 1,
+    updatedAt: activatedAt,
+  };
+}
