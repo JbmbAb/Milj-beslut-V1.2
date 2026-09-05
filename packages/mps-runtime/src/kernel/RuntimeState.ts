@@ -1,4 +1,4 @@
-import type { ArtifactReference } from "../../../../mps-compliance/src/artifacts/ArtifactReference.js";
+import type { ArtifactReference } from "../../../mps-compliance/src/artifacts/ArtifactReference.js";
 import type {
   FrozenAdmissionResult,
   FrozenExecutionAttemptIdentity,

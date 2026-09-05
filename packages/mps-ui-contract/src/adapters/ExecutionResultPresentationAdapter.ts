@@ -1,4 +1,4 @@
-import type { ContentHash } from "../../../../mps-compliance/src/artifacts/ContentHash.js";
+import type { ContentHash } from "../../../mps-compliance/src/artifacts/ContentHash.js";
 
 /**
  * UI projection of an ExecutionKernel result — presentation only (ADR-27 Regel 3).

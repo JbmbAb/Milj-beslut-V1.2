@@ -11,6 +11,9 @@ export default tseslint.config(
       'playwright-report',
       'test-results',
       'node_modules',
+      // Vendored Cesium build output, copied verbatim from node_modules/cesium/Build/Cesium
+      // by scripts/copy-cesium-assets.cjs. Not first-party source.
+      'public/cesium/**',
       'alphaevolve-on-googlecloud/**',
       '.agents/**',
       '.venv-adk/**',

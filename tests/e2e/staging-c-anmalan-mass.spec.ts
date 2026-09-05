@@ -92,7 +92,7 @@ test.describe('Staging: C-anmälan schaktmassor (PDF-ready)', () => {
     }
   });
 
-Y  test('property-search: fastighetsuppslag utan demo', async () => {
+  test('property-search: fastighetsuppslag utan demo', async () => {
     const api = await createApiContext();
     try {
       const token = await getToken();
