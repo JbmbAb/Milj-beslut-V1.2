@@ -1,0 +1,106 @@
+{
+  "schema_version": "dev-gov-v1-unit-definition",
+  "unit": "GOVERNED-HARVEST-CANONICAL-ENTRYPOINT",
+  "role": "producer",
+  "mode": "writer",
+  "branch": "chatgpt/k1-proof-definition-packaging",
+  "base_sha": "2855f6c6e890f1631bb4236d64b41171ca1f3dc1",
+  "ancestry_policy": "descendant_of_base",
+  "allowed_paths": [
+    "package.json",
+    "scripts/import/harvest/harvestScheduler.ts",
+    "packages/mps-data-governance/src/HarvestSourceDispositionMatrix.ts",
+    "tests/unit/import/GovernedHarvestCanonicalEntrypoint.test.ts",
+    "governance/devgov/units/governed-harvest-canonical-entrypoint.json"
+  ],
+  "forbidden_paths": [
+    ".github/**",
+    "scripts/devgov/**",
+    "governance/devgov/schema/**",
+    "server/**",
+    "services/**"
+  ],
+  "required_red": [
+    {
+      "id": "harvest-governed-alias-resolves",
+      "command": "node",
+      "args": [
+        "--input-type=module",
+        "-e",
+        "const fs=await import('node:fs');const pkg=JSON.parse(fs.readFileSync('package.json','utf8'));const script=pkg.scripts?.['harvest:governed']||'';const match=script.match(/([\\w./-]+\\.(?:ts|mjs|js))/);process.exit(match&&fs.existsSync(match[1])?0:1)"
+      ],
+      "expected_classification": "FAIL",
+      "required_head": "base_sha"
+    },
+    {
+      "id": "harvest-scheduler-no-self-exec",
+      "command": "node",
+      "args": [
+        "--input-type=module",
+        "-e",
+        "const fs=await import('node:fs');const s=fs.readFileSync('scripts/import/harvest/harvestScheduler.ts','utf8');const p=/typeof process !== ['\\\"]undefined['\\\"][\\s\\S]{0,200}NODE_ENV\\s*!==\\s*['\\\"]test['\\\"][\\s\\S]{0,200}runScheduler\\s*\\(\\s*\\{\\s*execute/;process.exit(p.test(s)?1:0)"
+      ],
+      "expected_classification": "FAIL",
+      "required_head": "base_sha"
+    },
+    {
+      "id": "disposition-matrix-present-and-covers-current-registry",
+      "command": "node",
+      "args": [
+        "--input-type=module",
+        "-e",
+        "const fs=await import('node:fs');process.exit(fs.existsSync('packages/mps-data-governance/src/HarvestSourceDispositionMatrix.ts')?0:1)"
+      ],
+      "expected_classification": "FAIL",
+      "required_head": "base_sha"
+    }
+  ],
+  "required_green": [
+    {
+      "id": "harvest-governed-alias-resolves",
+      "command": "node",
+      "args": [
+        "--input-type=module",
+        "-e",
+        "const fs=await import('node:fs');const pkg=JSON.parse(fs.readFileSync('package.json','utf8'));const script=pkg.scripts?.['harvest:governed']||'';const match=script.match(/([\\w./-]+\\.(?:ts|mjs|js))/);process.exit(match&&fs.existsSync(match[1])?0:1)"
+      ],
+      "required_head": "candidate_sha"
+    },
+    {
+      "id": "harvest-scheduler-no-self-exec",
+      "command": "node",
+      "args": [
+        "--input-type=module",
+        "-e",
+        "const fs=await import('node:fs');const s=fs.readFileSync('scripts/import/harvest/harvestScheduler.ts','utf8');const p=/typeof process !== ['\\\"]undefined['\\\"][\\s\\S]{0,200}NODE_ENV\\s*!==\\s*['\\\"]test['\\\"][\\s\\S]{0,200}runScheduler\\s*\\(\\s*\\{\\s*execute/;process.exit(p.test(s)?1:0)"
+      ],
+      "required_head": "candidate_sha"
+    },
+    {
+      "id": "disposition-matrix-present-and-covers-current-registry",
+      "command": "npx",
+      "args": [
+        "vitest",
+        "run",
+        "--config",
+        "vitest.config.ts",
+        "--project",
+        "unit",
+        "tests/unit/import/GovernedHarvestCanonicalEntrypoint.test.ts",
+        "-t",
+        "approved-source adapter contract"
+      ],
+      "required_head": "candidate_sha"
+    }
+  ],
+  "trusted_execution": {
+    "issuer": "github-actions:JbmbAb/Milj-beslut-V1.2:devgov-v0-attest",
+    "key_id": "devgov-ci-ed25519-v1"
+  },
+  "remote": {
+    "name": "origin",
+    "branch": "chatgpt/k1-proof-definition-packaging",
+    "push_policy": "no_force",
+    "absent_policy": "deny_absent"
+  }
+}
