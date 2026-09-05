@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
     inputs:
       candidate_sha:
-        description: Exact candidate SHA to prove
+        description: Exact candidate SHA to prove and promote
         required: true
         type: string
       unit_definition_path:
@@ -188,13 +188,90 @@ jobs:
           echo "Waiting for canonical gate run $gate_run_id"
           gh run watch "$gate_run_id" --exit-status
 
+  promote:
+    name: Exact-SHA fast-forward promotion
+    needs:
+      - plan
+      - gate
+    runs-on: ubuntu-latest
+    environment: devgov-promoter
+    permissions:
+      contents: read
+    steps:
+      - name: Require protected default-branch promoter
+        env:
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+          DISPATCH_REF: ${{ github.ref }}
+        run: |
+          test "$DISPATCH_REF" = "refs/heads/$DEFAULT_BRANCH"
+
+      - name: Checkout repository graph without persisted credentials
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Verify exact candidate exists and promotion is a pure fast-forward
+        env:
+          CANDIDATE_SHA: ${{ inputs.candidate_sha }}
+        run: |
+          set -euo pipefail
+          echo "$CANDIDATE_SHA" | grep -Eq '^[0-9a-f]{40}$'
+          git fetch --no-tags origin "$CANDIDATE_SHA"
+          git cat-file -e "${CANDIDATE_SHA}^{commit}"
+
+          live_main="$(git ls-remote origin refs/heads/main | cut -f1)"
+          test -n "$live_main"
+          git fetch --no-tags origin "$live_main"
+          git cat-file -e "${live_main}^{commit}"
+
+          if ! git merge-base --is-ancestor "$live_main" "$CANDIDATE_SHA"; then
+            echo "::error::candidate is not a descendant of live main; non-fast-forward promotion denied"
+            echo "::error::live main: $live_main"
+            echo "::error::candidate: $CANDIDATE_SHA"
+            exit 4
+          fi
+
+          echo "LIVE_MAIN_BEFORE=$live_main" >> "$GITHUB_ENV"
+
+      - name: Generate repository-scoped token for the dedicated promoter App
+        id: promoter_token
+        uses: actions/create-github-app-token@v1
+        with:
+          app-id: ${{ vars.DEVGOV_PROMOTER_APP_ID }}
+          private-key: ${{ secrets.DEVGOV_PROMOTER_PRIVATE_KEY_PEM }}
+          owner: ${{ github.repository_owner }}
+          repositories: ${{ github.event.repository.name }}
+
+      - name: Fast-forward main to the exact proven candidate SHA
+        env:
+          CANDIDATE_SHA: ${{ inputs.candidate_sha }}
+          PROMOTER_TOKEN: ${{ steps.promoter_token.outputs.token }}
+        run: |
+          set -euo pipefail
+          git push "https://x-access-token:${PROMOTER_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" \
+            "${CANDIDATE_SHA}:refs/heads/main"
+
+      - name: Verify remote main equals the exact candidate SHA
+        env:
+          CANDIDATE_SHA: ${{ inputs.candidate_sha }}
+        run: |
+          set -euo pipefail
+          new_main="$(git ls-remote origin refs/heads/main | cut -f1)"
+          test "$new_main" = "$CANDIDATE_SHA" || {
+            echo "::error::remote main is '$new_main', expected '$CANDIDATE_SHA'"
+            exit 4
+          }
+          echo "PROMOTED_MAIN_SHA=$new_main" >> "$GITHUB_ENV"
+
   state:
-    name: Publish machine-readable handoff
+    name: Publish machine-readable closed state
     needs:
       - plan
       - red
       - green
       - gate
+      - promote
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -212,7 +289,7 @@ jobs:
           const fs = require('node:fs');
           const state = {
             schema_version: 'dev-gov-orchestration-state-v1',
-            state: 'GATE_PASSED',
+            state: 'PROMOTED',
             candidate_sha: process.env.CANDIDATE_SHA,
             unit_definition_path: process.env.UNIT_DEFINITION_PATH,
             controller_sha: process.env.CONTROLLER_SHA,
@@ -223,7 +300,7 @@ jobs:
           fs.writeFileSync('devgov-orchestration-state.json', `${JSON.stringify(state, null, 2)}\n`);
           NODE
 
-      - name: Upload orchestration handoff artifact
+      - name: Upload orchestration state artifact
         uses: actions/upload-artifact@v4
         with:
           name: devgov-orchestration-${{ inputs.candidate_sha }}
