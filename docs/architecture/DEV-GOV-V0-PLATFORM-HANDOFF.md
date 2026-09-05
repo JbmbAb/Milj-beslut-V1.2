@@ -103,8 +103,22 @@ declares under `allowed_paths`, following `governance/devgov/schema/dev-gov-v1-u
 ## 3. What this workflow deliberately does not cover
 
 - **Ordinary, non-DEV-GOV pull requests** (a P1/P2/P3 feature that is not itself proving a DEV-GOV
-  claim) merge exactly as `CONTRIBUTING.md` / `docs/GIT_WORKFLOW.md` already describe — PR + squash.
-  This document only applies when a change is itself packaged as a DEV-GOV unit.
+  claim) are intended to merge exactly as `CONTRIBUTING.md` / `docs/GIT_WORKFLOW.md` already describe
+  — PR + squash. This document only applies when a change is itself packaged as a DEV-GOV unit.
+
+  ```text
+  Ordinary PR merge path:
+  DESIGNED / INTENDED
+  but currently BLOCKED by required DEV-GOV check policy
+  until ORDINARY-PR-MERGE-PATH-RESTORATION is completed.
+  ```
+
+  Confirmed live on PR #114 (a pure-documentation change): `main`'s only required status check,
+  `DEV-GOV-V0 / trusted-execution`, is produced solely by manual `devgov-v0-gate.yml` dispatch —
+  nothing posts it for an ordinary `pull_request`. No PR can currently satisfy branch protection via
+  the GitHub merge button, regardless of content. See `ORDINARY-PR-MERGE-PATH-RESTORATION.md` for the
+  design audit; nothing here is implemented yet.
+
 - **Automatic DEV-GOV triggering on arbitrary PRs.** Not built, and not a gap — see
   `DEV-GOV-V0-CLOSURE.md` §6 for why that question was correctly left open rather than resolved by a
   shortcut.
