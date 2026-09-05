@@ -129,7 +129,7 @@ const CesiumMapView: React.FC<CesiumMapViewProps> = ({
     } else {
       onFocusEvidenceMissingRef.current?.();
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+     
   }, [focusEvidenceArtifactId, focusEvidenceNonce]);
 
   useEffect(() => {

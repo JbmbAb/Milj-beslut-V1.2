@@ -136,7 +136,7 @@ export async function executeHarvestForSource(
 
   let documentsFound = 0;
   let documentsNew = 0;
-  let documentsChanged = 0;
+  const documentsChanged = 0;
   const quarantinedIds: string[] = [];
 
   try {
