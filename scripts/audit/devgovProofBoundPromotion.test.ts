@@ -39,10 +39,14 @@ describe('DEV-GOV proof-bound promotion orchestration', () => {
 
   it('uses the dedicated GitHub App token only inside the promoter job', () => {
     const workflow = loadWorkflow();
-    const promote = JSON.stringify(workflow.jobs.promote);
+    const promoteJob = workflow.jobs.promote;
+    const promote = JSON.stringify(promoteJob);
+    const tokenStep = promoteJob.steps.find(
+      (step: { uses?: string }) => step.uses === 'actions/create-github-app-token@v1',
+    );
 
-    expect(promote).toContain('actions/create-github-app-token@v1');
-    expect(promote).toContain('repositories: ${{ github.event.repository.name }}');
+    expect(tokenStep).toBeTruthy();
+    expect(tokenStep.with.repositories).toBe('${{ github.event.repository.name }}');
     expect(promote).toContain('x-access-token:${PROMOTER_TOKEN}@github.com/${GITHUB_REPOSITORY}.git');
     expect(promote).not.toContain('GITHUB_TOKEN');
     expect(promote).not.toContain('GH_TOKEN');
