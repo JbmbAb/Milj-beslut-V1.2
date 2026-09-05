@@ -25,12 +25,6 @@ afterEach(() => {
   while (roots.length) rmSync(roots.pop()!, { recursive: true, force: true });
 });
 
-function mailbox() {
-  const root = mkdtempSync(path.join(tmpdir(), "mimer-agent-mailbox-"));
-  roots.push(root);
-  return new FileAgentMailbox(path.join(root, "mailbox.json"));
-}
-
 function unit(): MultiAgentUnitState {
   return {
     unitId: "K1",
@@ -41,16 +35,16 @@ function unit(): MultiAgentUnitState {
     scope: ["packages/mps-data-governance/**"],
     proofContractHash,
     controllerContractVersion: "multi-agent-control-plane-v1",
-    state: "READY_FOR_DEV_GOV",
-    revision: 5,
+    state: "PROVING_RED",
+    revision: 6,
     updatedAt: "2026-09-05T01:00:00.000Z",
   };
 }
 
 function agentItem(): AgentWorkItem {
   return {
-    dispatchKey: "K1:2:VERIFIER",
-    unit: { ...unit(), state: "IMPLEMENTATION_READY", revision: 2 },
+    dispatchKey: "K1:3:VERIFIER",
+    unit: { ...unit(), state: "VERIFYING", revision: 3 },
     role: "VERIFIER",
     reason: "independent verification required",
   };
@@ -85,7 +79,6 @@ describe("Multi-Agent Control Plane V1 dispatch adapters", () => {
     const second = await box.dispatch(item);
     expect(second).toBe(first);
     expect(box.list()).toHaveLength(1);
-
     await expect(box.dispatch({ ...item, role: "IMPLEMENTER" })).rejects.toThrow(
       AgentMailboxConflictError,
     );
@@ -104,19 +97,19 @@ describe("Multi-Agent Control Plane V1 dispatch adapters", () => {
     expect(box.list()[0].status).toBe("COMPLETED");
   });
 
-  it("dispatches DEV-GOV only from exact canonical binding and protected ref", async () => {
+  it("dispatches DEV-GOV only from exact canonical PROVING_RED binding", async () => {
     const client = new Client();
     const adapter = new GitHubDevGovDispatchAdapter(new Resolver(), client);
     const dispatchId = await adapter.dispatch({
-      dispatchKey: "K1:5:DEV_GOV",
+      dispatchKey: "K1:6:DEV_GOV",
       unit: unit(),
-      reason: "verified",
+      reason: "verified and controller-activated",
     });
     expect(dispatchId).toBe("github-actions:33999999999");
     expect(client.calls[0]).toEqual({
       workflow: "devgov-v0-orchestrate.yml",
       ref: "main",
-      idempotencyKey: "K1:5:DEV_GOV",
+      idempotencyKey: "K1:6:DEV_GOV",
       inputs: {
         candidate_sha: candidateSha,
         unit_definition_path: "governance/devgov/units/governed-harvest-canonical-entrypoint.json",
@@ -124,20 +117,27 @@ describe("Multi-Agent Control Plane V1 dispatch adapters", () => {
     });
   });
 
-  it("denies missing or mismatched proof identity before GitHub is called", async () => {
+  it("denies pre-activation, missing proof identity or mismatched proof binding", async () => {
     const client = new Client();
-    const badHash = new GitHubDevGovDispatchAdapter(
-      new Resolver({ proofContractHash: "c".repeat(64) }),
-      client,
-    );
+    const adapter = new GitHubDevGovDispatchAdapter(new Resolver(), client);
     await expect(
-      badHash.dispatch({ dispatchKey: "x", unit: unit(), reason: "verified" }),
+      adapter.dispatch({
+        dispatchKey: "pre",
+        unit: { ...unit(), state: "READY_FOR_DEV_GOV" },
+        reason: "not activated",
+      }),
+    ).rejects.toThrow(/requires PROVING_RED/);
+
+    await expect(
+      new GitHubDevGovDispatchAdapter(
+        new Resolver({ proofContractHash: "c".repeat(64) }),
+        client,
+      ).dispatch({ dispatchKey: "bad", unit: unit(), reason: "verified" }),
     ).rejects.toThrow(/proof-contract hash mismatch/);
 
-    const missingProof = new GitHubDevGovDispatchAdapter(new Resolver(), client);
     await expect(
-      missingProof.dispatch({
-        dispatchKey: "y",
+      adapter.dispatch({
+        dispatchKey: "missing",
         unit: { ...unit(), proofContractHash: undefined },
         reason: "verified",
       }),
