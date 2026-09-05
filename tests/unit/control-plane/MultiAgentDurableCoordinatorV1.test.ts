@@ -142,6 +142,25 @@ describe("Multi-Agent durable coordinator V1", () => {
     expect(devgov.calls).toHaveLength(1);
   });
 
+  it("keeps hash chain and fingerprint stable when undefined optional fields disappear on disk", async () => {
+    const s = store();
+    s.initializeUnit(state());
+    const devgov = new DevGovPort();
+    const withUndefined: AgentHandoff = {
+      ...pass(),
+      requestedNextAction: undefined,
+    };
+
+    await coordinator(s, devgov).acceptHandoff(withUndefined);
+    const snapshot = s.read();
+    expect(new AppendOnlyEventLog(snapshot.events).verifyChain()).toBe(true);
+
+    const roundTripped = JSON.parse(JSON.stringify(withUndefined)) as AgentHandoff;
+    const duplicate = await coordinator(s, devgov).acceptHandoff(roundTripped);
+    expect(duplicate.duplicate).toBe(true);
+    expect(s.read().units.K1).toMatchObject({ state: "PROVING_RED", revision: 6 });
+  });
+
   it("audits conflicting replay and does not advance canonical state", async () => {
     const s = store();
     s.initializeUnit(state());
