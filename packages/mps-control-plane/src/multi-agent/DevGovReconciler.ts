@@ -1,16 +1,16 @@
-import { AppendOnlyEventLog } from "./EventLog";
-import { applyControllerActivation } from "./StateMachine";
-import type { FileDurableControlPlaneStore } from "./FileDurableControlPlaneStore";
-import type { WorkflowDispatchCorrelator } from "./GitHubRunCorrelation";
-import type { DevGovWorkflowAvailabilityPort } from "./GitHubDevGovDispatchAdapter";
-import type { MultiAgentState, MultiAgentUnitState } from "./types";
+import { AppendOnlyEventLog } from './EventLog';
+import { applyControllerActivation } from './StateMachine';
+import type { FileDurableControlPlaneStore } from './FileDurableControlPlaneStore';
+import type { WorkflowDispatchCorrelator } from './GitHubRunCorrelation';
+import type { DevGovWorkflowAvailabilityPort } from './GitHubDevGovDispatchAdapter';
+import type { MultiAgentState, MultiAgentUnitState } from './types';
 
 const DEV_GOV_PROGRESSION_STATES: readonly MultiAgentState[] = [
-  "PROVING_RED",
-  "PROVING_GREEN",
-  "GATING",
-  "GATE_PASSED",
-  "PROMOTING",
+  'PROVING_RED',
+  'PROVING_GREEN',
+  'GATING',
+  'GATE_PASSED',
+  'PROMOTING',
 ];
 
 /**
@@ -21,36 +21,34 @@ const DEV_GOV_PROGRESSION_STATES: readonly MultiAgentState[] = [
  * happened externally. This reconciler only binds that pre-existing fact to
  * the exact candidate it claims to describe.
  */
-const TRUSTED_EXECUTION_CONTEXT = "DEV-GOV-V0 / trusted-execution";
+const TRUSTED_EXECUTION_CONTEXT = 'DEV-GOV-V0 / trusted-execution';
 
 export interface DevGovCommitStatusObserverPort {
   /** Most recent reported state of `context` on `sha`, or undefined if never reported. */
-  getStatus(
-    sha: string,
-    context: string,
-  ): Promise<"success" | "failure" | "error" | "pending" | undefined>;
+  getStatus(sha: string, context: string): Promise<'success' | 'failure' | 'error' | 'pending' | undefined>;
 }
 
 export type ReconciliationOutcome =
-  | { readonly kind: "NOT_APPLICABLE"; readonly state: MultiAgentState }
-  | { readonly kind: "BLOCKED_DEPENDENCY_APPLIED"; readonly reason: string }
-  | { readonly kind: "ALREADY_BLOCKED_DEPENDENCY" }
-  | { readonly kind: "RUN_NOT_DISPATCHED" }
-  | { readonly kind: "AWAITING_RUN" }
-  | { readonly kind: "AMBIGUOUS_CORRELATION"; readonly candidateRunIds: readonly string[] }
-  | { readonly kind: "CORRELATION_TIMEOUT" }
-  | { readonly kind: "CORRELATED"; readonly runId: string }
+  | { readonly kind: 'NOT_APPLICABLE'; readonly state: MultiAgentState }
+  | { readonly kind: 'BLOCKED_DEPENDENCY_APPLIED'; readonly reason: string }
+  | { readonly kind: 'ALREADY_BLOCKED_DEPENDENCY' }
+  | { readonly kind: 'RUN_NOT_DISPATCHED' }
+  | { readonly kind: 'AWAITING_RUN' }
+  | { readonly kind: 'UNCERTAIN_DISPATCH' }
+  | { readonly kind: 'AMBIGUOUS_CORRELATION'; readonly candidateRunIds: readonly string[] }
+  | { readonly kind: 'CORRELATION_TIMEOUT' }
+  | { readonly kind: 'CORRELATED'; readonly runId: string }
   | {
-      readonly kind: "EXTERNAL_GATE_OBSERVED";
+      readonly kind: 'EXTERNAL_GATE_OBSERVED';
       readonly candidateSha: string;
       readonly proposedHandoff: {
-        readonly role: "GATE";
-        readonly result: "PASS";
+        readonly role: 'GATE';
+        readonly result: 'PASS';
         readonly observedCandidateSha: string;
       };
     }
-  | { readonly kind: "STALE_SUPERSEDED"; readonly reason: string }
-  | { readonly kind: "NO_SIGNAL" };
+  | { readonly kind: 'STALE_SUPERSEDED'; readonly reason: string }
+  | { readonly kind: 'NO_SIGNAL' };
 
 export interface ReconcileInput {
   readonly expectedUnitId: string;
@@ -92,97 +90,98 @@ export class DevGovReconciler {
     // caller expected. A stale caller (superseded candidate, already-advanced
     // revision) is recorded for audit but never allowed to move state.
     if (unit.revision !== input.expectedRevision) {
-      this.appendAudit(unit, "RECONCILIATION_OBSERVED", {
-        outcome: "STALE_SUPERSEDED",
-        reason: "expected revision does not match canonical revision",
+      this.appendAudit(unit, 'RECONCILIATION_OBSERVED', {
+        outcome: 'STALE_SUPERSEDED',
+        reason: 'expected revision does not match canonical revision',
         expectedRevision: input.expectedRevision,
         canonicalRevision: unit.revision,
       });
       return {
-        kind: "STALE_SUPERSEDED",
+        kind: 'STALE_SUPERSEDED',
         reason: `expected revision ${input.expectedRevision}, canonical is ${unit.revision}`,
       };
     }
     if (input.expectedCandidateSha && unit.candidateSha !== input.expectedCandidateSha) {
-      this.appendAudit(unit, "RECONCILIATION_OBSERVED", {
-        outcome: "STALE_SUPERSEDED",
-        reason: "expected candidate SHA does not match canonical candidate",
+      this.appendAudit(unit, 'RECONCILIATION_OBSERVED', {
+        outcome: 'STALE_SUPERSEDED',
+        reason: 'expected candidate SHA does not match canonical candidate',
         expectedCandidateSha: input.expectedCandidateSha,
         canonicalCandidateSha: unit.candidateSha,
       });
       return {
-        kind: "STALE_SUPERSEDED",
-        reason: "candidate SHA was superseded since this reconciliation was scheduled",
+        kind: 'STALE_SUPERSEDED',
+        reason: 'candidate SHA was superseded since this reconciliation was scheduled',
       };
     }
 
-    if (unit.state === "BLOCKED_DEPENDENCY") {
-      return { kind: "ALREADY_BLOCKED_DEPENDENCY" };
+    if (unit.state === 'BLOCKED_DEPENDENCY') {
+      return { kind: 'ALREADY_BLOCKED_DEPENDENCY' };
     }
 
     if (!DEV_GOV_PROGRESSION_STATES.includes(unit.state)) {
-      return { kind: "NOT_APPLICABLE", state: unit.state };
+      return { kind: 'NOT_APPLICABLE', state: unit.state };
     }
 
     const available = await this.availability.workflowExists(input.workflow, input.protectedRef);
     if (!available) {
       const reason = `DEV-GOV workflow ${input.workflow} does not exist on ${input.protectedRef}`;
       this.applyDependencyBlock(unit, reason);
-      return { kind: "BLOCKED_DEPENDENCY_APPLIED", reason };
+      return { kind: 'BLOCKED_DEPENDENCY_APPLIED', reason };
     }
 
-    if (unit.state === "PROVING_RED" && input.dispatchKey) {
+    if (unit.state === 'PROVING_RED' && input.dispatchKey) {
       const correlation = await this.correlator.poll(input.dispatchKey);
-      if (correlation.status === "AWAITING_RUN") return { kind: "AWAITING_RUN" };
-      if (correlation.status === "AMBIGUOUS_CORRELATION") {
-        this.appendAudit(unit, "RECONCILIATION_OBSERVED", {
-          outcome: "AMBIGUOUS_CORRELATION",
+      if (correlation.status === 'AWAITING_RUN') return { kind: 'AWAITING_RUN' };
+      if (correlation.status === 'UNCERTAIN_DISPATCH') return { kind: 'UNCERTAIN_DISPATCH' };
+      if (correlation.status === 'AMBIGUOUS_CORRELATION') {
+        this.appendAudit(unit, 'RECONCILIATION_OBSERVED', {
+          outcome: 'AMBIGUOUS_CORRELATION',
           candidateRunIds: correlation.candidateRunIds,
         });
-        return { kind: "AMBIGUOUS_CORRELATION", candidateRunIds: correlation.candidateRunIds ?? [] };
+        return { kind: 'AMBIGUOUS_CORRELATION', candidateRunIds: correlation.candidateRunIds ?? [] };
       }
-      if (correlation.status === "CORRELATION_TIMEOUT") {
-        this.appendAudit(unit, "RECONCILIATION_OBSERVED", { outcome: "CORRELATION_TIMEOUT" });
-        return { kind: "CORRELATION_TIMEOUT" };
+      if (correlation.status === 'CORRELATION_TIMEOUT') {
+        this.appendAudit(unit, 'RECONCILIATION_OBSERVED', { outcome: 'CORRELATION_TIMEOUT' });
+        return { kind: 'CORRELATION_TIMEOUT' };
       }
-      if (correlation.status === "CORRELATED" && correlation.runId) {
-        return { kind: "CORRELATED", runId: correlation.runId };
+      if (correlation.status === 'CORRELATED' && correlation.runId) {
+        return { kind: 'CORRELATED', runId: correlation.runId };
       }
     }
 
-    if (!unit.candidateSha) return { kind: "NO_SIGNAL" };
+    if (!unit.candidateSha) return { kind: 'NO_SIGNAL' };
     const status = await this.commitStatus.getStatus(unit.candidateSha, TRUSTED_EXECUTION_CONTEXT);
-    if (status === "success") {
-      this.appendAudit(unit, "RECONCILIATION_OBSERVED", {
-        outcome: "EXTERNAL_GATE_OBSERVED",
+    if (status === 'success') {
+      this.appendAudit(unit, 'RECONCILIATION_OBSERVED', {
+        outcome: 'EXTERNAL_GATE_OBSERVED',
         context: TRUSTED_EXECUTION_CONTEXT,
         candidateSha: unit.candidateSha,
       });
       return {
-        kind: "EXTERNAL_GATE_OBSERVED",
+        kind: 'EXTERNAL_GATE_OBSERVED',
         candidateSha: unit.candidateSha,
-        proposedHandoff: { role: "GATE", result: "PASS", observedCandidateSha: unit.candidateSha },
+        proposedHandoff: { role: 'GATE', result: 'PASS', observedCandidateSha: unit.candidateSha },
       };
     }
 
-    return { kind: "NO_SIGNAL" };
+    return { kind: 'NO_SIGNAL' };
   }
 
   private applyDependencyBlock(unit: MultiAgentUnitState, reason: string): void {
     const occurredAt = this.now().toISOString();
-    const activated = applyControllerActivation(unit, "BLOCKED_DEPENDENCY", occurredAt);
+    const activated = applyControllerActivation(unit, 'BLOCKED_DEPENDENCY', occurredAt);
     const current = this.store.read();
     const log = new AppendOnlyEventLog(current.events);
     const dependencyEvent = log.append(
       unit.unitId,
-      "DEPENDENCY_BLOCKED",
-      { actor: "CONTROLLER", reason, from: unit.state, to: activated.state, state: { ...activated } },
+      'DEPENDENCY_BLOCKED',
+      { actor: 'CONTROLLER', reason, from: unit.state, to: activated.state, state: { ...activated } },
       occurredAt,
     );
     const transitionEvent = log.append(
       unit.unitId,
-      "UNIT_STATE_TRANSITIONED",
-      { actor: "CONTROLLER", reason, from: unit.state, to: activated.state, state: { ...activated } },
+      'UNIT_STATE_TRANSITIONED',
+      { actor: 'CONTROLLER', reason, from: unit.state, to: activated.state, state: { ...activated } },
       occurredAt,
     );
     this.store.commitControllerTransition({
@@ -193,7 +192,7 @@ export class DevGovReconciler {
 
   private appendAudit(
     unit: MultiAgentUnitState,
-    kind: "RECONCILIATION_OBSERVED",
+    kind: 'RECONCILIATION_OBSERVED',
     payload: Readonly<Record<string, unknown>>,
   ): void {
     const current = this.store.read();

@@ -1,5 +1,5 @@
-import type { DevGovDispatchPort, DevGovWorkItem } from "./Ports";
-import type { WorkflowDispatchCorrelator } from "./GitHubRunCorrelation";
+import type { DevGovDispatchPort, DevGovWorkItem } from './Ports';
+import type { WorkflowDispatchCorrelator } from './GitHubRunCorrelation';
 
 export interface DevGovUnitBinding {
   readonly unitId: string;
@@ -53,35 +53,35 @@ export class GitHubDevGovDispatchAdapter implements DevGovDispatchPort {
     private readonly correlator: WorkflowDispatchCorrelator,
     options: GitHubDevGovDispatchAdapterOptions = {},
   ) {
-    this.workflow = options.workflow ?? "devgov-v0-orchestrate.yml";
-    this.protectedRef = options.protectedRef ?? "main";
+    this.workflow = options.workflow ?? 'devgov-v0-orchestrate.yml';
+    this.protectedRef = options.protectedRef ?? 'main';
   }
 
   async dispatch(item: DevGovWorkItem): Promise<string> {
     const unit = item.unit;
-    if (unit.state !== "PROVING_RED") {
+    if (unit.state !== 'PROVING_RED') {
       throw new DevGovBindingError(`DEV-GOV dispatch requires PROVING_RED, got ${unit.state}`);
     }
-    if (!unit.candidateSha) throw new DevGovBindingError("DEV-GOV dispatch requires candidate SHA");
+    if (!unit.candidateSha) throw new DevGovBindingError('DEV-GOV dispatch requires candidate SHA');
     if (!unit.proofContractHash) {
-      throw new DevGovBindingError("DEV-GOV dispatch requires canonical proof contract hash");
+      throw new DevGovBindingError('DEV-GOV dispatch requires canonical proof contract hash');
     }
 
     const binding = await this.resolver.resolve(unit.unitId);
     if (!binding) throw new DevGovBindingError(`no DEV-GOV binding exists for unit ${unit.unitId}`);
-    if (binding.unitId !== unit.unitId) throw new DevGovBindingError("DEV-GOV binding unit mismatch");
+    if (binding.unitId !== unit.unitId) throw new DevGovBindingError('DEV-GOV binding unit mismatch');
     if (binding.unitDefinitionHash !== unit.unitDefinitionHash) {
-      throw new DevGovBindingError("DEV-GOV binding unit-definition hash mismatch");
+      throw new DevGovBindingError('DEV-GOV binding unit-definition hash mismatch');
     }
     if (!binding.proofContractHash || binding.proofContractHash !== unit.proofContractHash) {
-      throw new DevGovBindingError("DEV-GOV binding proof-contract hash mismatch");
+      throw new DevGovBindingError('DEV-GOV binding proof-contract hash mismatch');
     }
     if (
-      !binding.unitDefinitionPath.startsWith("governance/devgov/units/") ||
-      binding.unitDefinitionPath.includes("..") ||
-      !binding.unitDefinitionPath.endsWith(".json")
+      !binding.unitDefinitionPath.startsWith('governance/devgov/units/') ||
+      binding.unitDefinitionPath.includes('..') ||
+      !binding.unitDefinitionPath.endsWith('.json')
     ) {
-      throw new DevGovBindingError("DEV-GOV binding has invalid unit-definition path");
+      throw new DevGovBindingError('DEV-GOV binding has invalid unit-definition path');
     }
 
     const available = await this.availability.workflowExists(this.workflow, this.protectedRef);

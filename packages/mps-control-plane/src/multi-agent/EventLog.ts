@@ -1,18 +1,18 @@
-import { createHash } from "node:crypto";
+import { createHash } from 'node:crypto';
 
-import type { AgentHandoff, AgentLease, MultiAgentUnitState } from "./types";
+import type { AgentHandoff, AgentLease, MultiAgentUnitState } from './types';
 
 export type ControlPlaneEventKind =
-  | "UNIT_STATE_TRANSITIONED"
-  | "HANDOFF_ACCEPTED"
-  | "HANDOFF_REJECTED"
-  | "LEASE_ACQUIRED"
-  | "LEASE_HEARTBEAT"
-  | "LEASE_RELEASED"
-  | "LEASE_EXPIRED"
-  | "ROUTE_DECIDED"
-  | "DEPENDENCY_BLOCKED"
-  | "RECONCILIATION_OBSERVED";
+  | 'UNIT_STATE_TRANSITIONED'
+  | 'HANDOFF_ACCEPTED'
+  | 'HANDOFF_REJECTED'
+  | 'LEASE_ACQUIRED'
+  | 'LEASE_HEARTBEAT'
+  | 'LEASE_RELEASED'
+  | 'LEASE_EXPIRED'
+  | 'ROUTE_DECIDED'
+  | 'DEPENDENCY_BLOCKED'
+  | 'RECONCILIATION_OBSERVED';
 
 export interface ControlPlaneEvent {
   readonly sequence: number;
@@ -31,23 +31,23 @@ export interface ControlPlaneEvent {
  * elements become null, matching JSON.stringify/parse round trips.
  */
 export function canonicalJson(value: unknown): string {
-  if (value === undefined) return "null";
+  if (value === undefined) return 'null';
   if (Array.isArray(value)) {
-    return `[${value.map((entry) => canonicalJson(entry === undefined ? null : entry)).join(",")}]`;
+    return `[${value.map((entry) => canonicalJson(entry === undefined ? null : entry)).join(',')}]`;
   }
-  if (value && typeof value === "object") {
+  if (value && typeof value === 'object') {
     const record = value as Record<string, unknown>;
     return `{${Object.keys(record)
       .filter((key) => record[key] !== undefined)
       .sort()
       .map((key) => `${JSON.stringify(key)}:${canonicalJson(record[key])}`)
-      .join(",")}}`;
+      .join(',')}}`;
   }
   return JSON.stringify(value);
 }
 
 function hash(value: unknown): string {
-  return createHash("sha256").update(canonicalJson(value)).digest("hex");
+  return createHash('sha256').update(canonicalJson(value)).digest('hex');
 }
 
 export class AppendOnlyEventLog {
@@ -55,7 +55,7 @@ export class AppendOnlyEventLog {
 
   constructor(seed: readonly ControlPlaneEvent[] = []) {
     this.events = [...seed];
-    if (!this.verifyChain()) throw new Error("seeded control-plane event chain is invalid");
+    if (!this.verifyChain()) throw new Error('seeded control-plane event chain is invalid');
   }
 
   append(
