@@ -8,3 +8,5 @@ export * from "./Ports";
 export * from "./Coordinator";
 export * from "./FileDurableControlPlaneStore";
 export * from "./DurableCoordinator";
+export * from "./FileAgentMailbox";
+export * from "./GitHubDevGovDispatchAdapter";
