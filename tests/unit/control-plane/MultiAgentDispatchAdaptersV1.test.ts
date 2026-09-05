@@ -25,6 +25,12 @@ afterEach(() => {
   while (roots.length) rmSync(roots.pop()!, { recursive: true, force: true });
 });
 
+function mailbox(): FileAgentMailbox {
+  const root = mkdtempSync(path.join(tmpdir(), "mimer-agent-mailbox-"));
+  roots.push(root);
+  return new FileAgentMailbox(path.join(root, "mailbox.json"));
+}
+
 function unit(): MultiAgentUnitState {
   return {
     unitId: "K1",
