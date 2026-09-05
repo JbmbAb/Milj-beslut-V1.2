@@ -1,16 +1,7 @@
 name: DEV-GOV-V0 Trusted Evidence Gate
+run-name: DEV-GOV gate ${{ inputs.candidate_sha }} orchestration=${{ inputs.attestation_run_id }}
 
 on:
-  workflow_call:
-    inputs:
-      candidate_sha:
-        description: Exact candidate SHA to verify
-        required: true
-        type: string
-      unit_definition_path:
-        description: Repository-relative DEV-GOV V1 unit definition path
-        required: true
-        type: string
   workflow_dispatch:
     inputs:
       candidate_sha:
@@ -22,12 +13,16 @@ on:
         required: true
         type: string
       red_run_id:
-        description: Trusted RED attestation workflow run
-        required: true
+        description: Trusted RED attestation workflow run (legacy/manual single-proof path)
+        required: false
         type: string
       green_run_id:
-        description: Trusted GREEN attestation workflow run
-        required: true
+        description: Trusted GREEN attestation workflow run (legacy/manual single-proof path)
+        required: false
+        type: string
+      attestation_run_id:
+        description: Parent orchestration run containing all RED/GREEN attestation artifacts
+        required: false
         type: string
 
 permissions:
@@ -111,8 +106,43 @@ jobs:
           fs.appendFileSync(process.argv[3], `red_count=${red}\ngreen_count=${green}\n`);
           NODE
 
+      - name: Validate attestation artifact source
+        env:
+          ATTESTATION_RUN_ID: ${{ inputs.attestation_run_id }}
+          RED_RUN_ID: ${{ inputs.red_run_id }}
+          GREEN_RUN_ID: ${{ inputs.green_run_id }}
+        run: |
+          set -euo pipefail
+          if [ -n "$ATTESTATION_RUN_ID" ]; then
+            test -z "$RED_RUN_ID"
+            test -z "$GREEN_RUN_ID"
+          else
+            test -n "$RED_RUN_ID"
+            test -n "$GREEN_RUN_ID"
+          fi
+
+      - name: Download all trusted RED attestations from orchestrated parent run
+        if: inputs.attestation_run_id != '' && steps.proof_plan.outputs.red_count != '0'
+        uses: actions/download-artifact@v4
+        with:
+          github-token: ${{ github.token }}
+          repository: ${{ github.repository }}
+          run-id: ${{ inputs.attestation_run_id }}
+          pattern: devgov-attestation-RED-*
+          path: ${{ runner.temp }}/devgov-attestations/red
+
+      - name: Download all trusted GREEN attestations from orchestrated parent run
+        if: inputs.attestation_run_id != '' && steps.proof_plan.outputs.green_count != '0'
+        uses: actions/download-artifact@v4
+        with:
+          github-token: ${{ github.token }}
+          repository: ${{ github.repository }}
+          run-id: ${{ inputs.attestation_run_id }}
+          pattern: devgov-attestation-GREEN-*
+          path: ${{ runner.temp }}/devgov-attestations/green
+
       - name: Download trusted RED attestation from manual run
-        if: github.event_name == 'workflow_dispatch'
+        if: inputs.attestation_run_id == ''
         uses: actions/download-artifact@v4
         with:
           github-token: ${{ github.token }}
@@ -122,26 +152,12 @@ jobs:
           path: ${{ runner.temp }}/devgov-attestations/red
 
       - name: Download trusted GREEN attestation from manual run
-        if: github.event_name == 'workflow_dispatch'
+        if: inputs.attestation_run_id == ''
         uses: actions/download-artifact@v4
         with:
           github-token: ${{ github.token }}
           repository: ${{ github.repository }}
           run-id: ${{ inputs.green_run_id }}
-          pattern: devgov-attestation-GREEN-*
-          path: ${{ runner.temp }}/devgov-attestations/green
-
-      - name: Download all trusted RED attestations from orchestrated run
-        if: github.event_name == 'workflow_call' && steps.proof_plan.outputs.red_count != '0'
-        uses: actions/download-artifact@v4
-        with:
-          pattern: devgov-attestation-RED-*
-          path: ${{ runner.temp }}/devgov-attestations/red
-
-      - name: Download all trusted GREEN attestations from orchestrated run
-        if: github.event_name == 'workflow_call' && steps.proof_plan.outputs.green_count != '0'
-        uses: actions/download-artifact@v4
-        with:
           pattern: devgov-attestation-GREEN-*
           path: ${{ runner.temp }}/devgov-attestations/green
 
