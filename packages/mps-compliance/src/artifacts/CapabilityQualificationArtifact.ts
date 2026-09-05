@@ -171,6 +171,16 @@ export function deriveQualifiedLevel(input: {
   return 'GA-L0';
 }
 
+function contentHashFor(
+  artifact: Omit<CapabilityQualificationArtifact, 'content_hash'>,
+): CapabilityQualificationArtifact['content_hash'] {
+  return sha256ContentHash({
+    canonicalizer_id: CAPABILITY_QUALIFICATION_CANONICALIZER_ID,
+    artifact_type: CAPABILITY_QUALIFICATION_ARTIFACT_TYPE,
+    artifact,
+  });
+}
+
 export function createCapabilityQualificationArtifact(input: {
   readonly artifact_id: string;
   readonly subject: CapabilityQualificationSubject;
@@ -230,11 +240,7 @@ export function createCapabilityQualificationArtifact(input: {
 
   return {
     ...artifact,
-    content_hash: sha256ContentHash({
-      canonicalizer_id: CAPABILITY_QUALIFICATION_CANONICALIZER_ID,
-      artifact_type: CAPABILITY_QUALIFICATION_ARTIFACT_TYPE,
-      artifact,
-    }),
+    content_hash: contentHashFor(artifact),
   };
 }
 
@@ -242,9 +248,16 @@ export function replayCapabilityQualification(input: {
   readonly artifact: CapabilityQualificationArtifact;
   readonly policy: CapabilityQualificationPolicyV1;
 }): boolean {
+  if (input.artifact.payload.schema_version !== CAPABILITY_QUALIFICATION_SCHEMA_VERSION) return false;
   if (input.artifact.payload.qualification_scope !== CAPABILITY_QUALIFICATION_SCOPE) return false;
   if (input.artifact.payload.qualification_policy_version !== input.policy.policy_version) return false;
   if (input.artifact.payload.qualification_policy_hash !== input.policy.policy_hash) return false;
+
+  const { content_hash: observedHash, ...artifactWithoutHash } = input.artifact;
+  const expectedHash = contentHashFor(artifactWithoutHash);
+  if (observedHash.algorithm !== expectedHash.algorithm || observedHash.value !== expectedHash.value) {
+    return false;
+  }
 
   const derived = deriveQualifiedLevel({
     target_level: input.artifact.payload.target_level,
