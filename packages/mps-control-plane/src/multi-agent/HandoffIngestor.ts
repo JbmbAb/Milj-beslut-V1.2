@@ -1,6 +1,11 @@
 import type { AgentHandoff, MultiAgentState, MultiAgentUnitState } from "./types";
 import { applyVerifiedHandoff } from "./StateMachine";
-import { AppendOnlyEventLog, handoffPayload, unitStatePayload } from "./EventLog";
+import {
+  AppendOnlyEventLog,
+  canonicalJson,
+  handoffPayload,
+  unitStatePayload,
+} from "./EventLog";
 
 export class DuplicateHandoffConflictError extends Error {}
 
@@ -10,20 +15,8 @@ export interface HandoffIngestResult {
   readonly fingerprint: string;
 }
 
-function stable(value: unknown): string {
-  if (Array.isArray(value)) return `[${value.map(stable).join(",")}]`;
-  if (value && typeof value === "object") {
-    const record = value as Record<string, unknown>;
-    return `{${Object.keys(record)
-      .sort()
-      .map((key) => `${JSON.stringify(key)}:${stable(record[key])}`)
-      .join(",")}}`;
-  }
-  return JSON.stringify(value);
-}
-
 export function handoffFingerprint(handoff: AgentHandoff, nextState: MultiAgentState): string {
-  return stable({ handoff, nextState });
+  return canonicalJson({ handoff, nextState });
 }
 
 export class HandoffIngestor {
