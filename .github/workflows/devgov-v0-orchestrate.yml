@@ -109,6 +109,7 @@ jobs:
       unit_definition_path: ${{ inputs.unit_definition_path }}
       proof_kind: RED
       test_id: ${{ matrix.test_id }}
+    secrets: inherit
 
   green:
     name: GREEN / ${{ matrix.test_id }}
@@ -127,22 +128,65 @@ jobs:
       unit_definition_path: ${{ inputs.unit_definition_path }}
       proof_kind: GREEN
       test_id: ${{ matrix.test_id }}
+    secrets: inherit
 
   gate:
-    name: Trusted evidence gate
+    name: Dispatch canonical trusted evidence gate
     needs:
       - plan
       - red
       - green
+    runs-on: ubuntu-latest
     permissions:
-      actions: read
+      actions: write
       contents: read
-      id-token: write
-      statuses: write
-    uses: ./.github/workflows/devgov-v0-gate.yml
-    with:
-      candidate_sha: ${{ inputs.candidate_sha }}
-      unit_definition_path: ${{ inputs.unit_definition_path }}
+    steps:
+      - name: Require protected default-branch orchestrator
+        env:
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+          DISPATCH_REF: ${{ github.ref }}
+        run: |
+          test "$DISPATCH_REF" = "refs/heads/$DEFAULT_BRANCH"
+
+      - name: Dispatch canonical gate as its own protected workflow run
+        env:
+          GH_TOKEN: ${{ github.token }}
+          CANDIDATE_SHA: ${{ inputs.candidate_sha }}
+          UNIT_DEFINITION_PATH: ${{ inputs.unit_definition_path }}
+          ATTESTATION_RUN_ID: ${{ github.run_id }}
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+        run: |
+          set -euo pipefail
+          gh workflow run devgov-v0-gate.yml \
+            --ref "$DEFAULT_BRANCH" \
+            -f candidate_sha="$CANDIDATE_SHA" \
+            -f unit_definition_path="$UNIT_DEFINITION_PATH" \
+            -f attestation_run_id="$ATTESTATION_RUN_ID"
+
+      - name: Resolve and wait for the exact canonical gate run
+        env:
+          GH_TOKEN: ${{ github.token }}
+          CANDIDATE_SHA: ${{ inputs.candidate_sha }}
+          ATTESTATION_RUN_ID: ${{ github.run_id }}
+        run: |
+          set -euo pipefail
+          expected_title="DEV-GOV gate $CANDIDATE_SHA orchestration=$ATTESTATION_RUN_ID"
+          gate_run_id=""
+          for _ in $(seq 1 60); do
+            runs="$(gh api "repos/$GITHUB_REPOSITORY/actions/workflows/devgov-v0-gate.yml/runs?event=workflow_dispatch&per_page=50")"
+            gate_run_id="$(printf '%s' "$runs" | node -e "
+              let s='';process.stdin.on('data',d=>s+=d).on('end',()=>{
+                const body=JSON.parse(s);
+                const title=process.argv[1];
+                const hit=(body.workflow_runs||[]).find(r=>r.display_title===title);
+                process.stdout.write(hit?String(hit.id):'');
+              })" "$expected_title")"
+            if [ -n "$gate_run_id" ]; then break; fi
+            sleep 2
+          done
+          test -n "$gate_run_id" || { echo "::error::canonical gate run was not found"; exit 4; }
+          echo "Waiting for canonical gate run $gate_run_id"
+          gh run watch "$gate_run_id" --exit-status
 
   state:
     name: Publish machine-readable handoff
