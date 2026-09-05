@@ -10,3 +10,5 @@ export * from "./FileDurableControlPlaneStore";
 export * from "./DurableCoordinator";
 export * from "./FileAgentMailbox";
 export * from "./GitHubDevGovDispatchAdapter";
+export * from "./AgentHandoffCodec";
+export * from "./ProcessAgentWorker";
