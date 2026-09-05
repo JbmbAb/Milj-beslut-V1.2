@@ -5,6 +5,7 @@ export const CAPABILITY_QUALIFICATION_ARTIFACT_TYPE = 'capability_qualification'
 export const CAPABILITY_QUALIFICATION_SCHEMA_VERSION = 'capability-qualification/v1' as const;
 export const CAPABILITY_QUALIFICATION_DERIVATION_VERSION = 'qualification-engine/v1' as const;
 export const CAPABILITY_QUALIFICATION_CANONICALIZER_ID = 'rfc8785-sha256-v1' as const;
+export const CAPABILITY_QUALIFICATION_SCOPE = 'STRUCTURAL_CAPABILITY' as const;
 
 export const GA_LEVELS = ['GA-L0', 'GA-L1', 'GA-L2', 'GA-L3', 'GA-L4'] as const;
 export type GaLevel = (typeof GA_LEVELS)[number];
@@ -48,6 +49,7 @@ export interface CapabilityQualificationArtifact extends ArtifactContract {
   readonly artifact_type: typeof CAPABILITY_QUALIFICATION_ARTIFACT_TYPE;
   readonly payload: {
     readonly schema_version: typeof CAPABILITY_QUALIFICATION_SCHEMA_VERSION;
+    readonly qualification_scope: typeof CAPABILITY_QUALIFICATION_SCOPE;
     readonly subject: CapabilityQualificationSubject;
     readonly target_level: GaLevel;
     readonly qualified_level: GaLevel;
@@ -90,6 +92,15 @@ function normalizePredicate(
   if (predicate.result === 'FAIL' && !predicate.blocker) {
     throw new Error('CAPABILITY_QUALIFICATION_FAIL_WITHOUT_BLOCKER');
   }
+  if (
+    predicate.blocker?.class === 'AUTHORITY_BLOCKER' ||
+    predicate.blocker?.class === 'REVOCATION_BLOCKER'
+  ) {
+    throw new Error('CAPABILITY_QUALIFICATION_RUNTIME_AUTHORITY_BLOCKER_FORBIDDEN');
+  }
+  if (predicate.blocker?.class === 'RUNTIME_TRANSIENT') {
+    throw new Error('CAPABILITY_QUALIFICATION_RUNTIME_TRANSIENT_FORBIDDEN');
+  }
 
   const evidenceRefs = [...predicate.evidence_refs]
     .map(normalizeReference)
@@ -128,6 +139,20 @@ function normalizePredicates(
   return normalized;
 }
 
+function cumulativeRequirements(
+  policy: CapabilityQualificationPolicyV1,
+  level: GaLevel,
+): readonly string[] {
+  const requirements = new Set<string>();
+  const maxIndex = levelIndex(level);
+  for (let index = 0; index <= maxIndex; index += 1) {
+    for (const predicateId of policy.requirements_by_level[GA_LEVELS[index]] ?? []) {
+      requirements.add(predicateId);
+    }
+  }
+  return [...requirements];
+}
+
 export function deriveQualifiedLevel(input: {
   readonly target_level: GaLevel;
   readonly predicates: readonly QualificationPredicateObservation[];
@@ -138,7 +163,7 @@ export function deriveQualifiedLevel(input: {
 
   for (let index = targetIndex; index >= 0; index -= 1) {
     const level = GA_LEVELS[index];
-    const requiredPredicates = input.policy.requirements_by_level[level] ?? [];
+    const requiredPredicates = cumulativeRequirements(input.policy, level);
     const allPass = requiredPredicates.every((predicateId) => predicateById.get(predicateId)?.result === 'PASS');
     if (allPass) return level;
   }
@@ -169,6 +194,7 @@ export function createCapabilityQualificationArtifact(input: {
 
   const payload: CapabilityQualificationArtifact['payload'] = {
     schema_version: CAPABILITY_QUALIFICATION_SCHEMA_VERSION,
+    qualification_scope: CAPABILITY_QUALIFICATION_SCOPE,
     subject: {
       repository: required(input.subject.repository, 'CAPABILITY_QUALIFICATION_INVALID_REPOSITORY'),
       candidate_sha: candidateSha,
@@ -216,6 +242,7 @@ export function replayCapabilityQualification(input: {
   readonly artifact: CapabilityQualificationArtifact;
   readonly policy: CapabilityQualificationPolicyV1;
 }): boolean {
+  if (input.artifact.payload.qualification_scope !== CAPABILITY_QUALIFICATION_SCOPE) return false;
   if (input.artifact.payload.qualification_policy_version !== input.policy.policy_version) return false;
   if (input.artifact.payload.qualification_policy_hash !== input.policy.policy_hash) return false;
 
