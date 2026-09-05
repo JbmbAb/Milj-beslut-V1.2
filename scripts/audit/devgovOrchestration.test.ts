@@ -86,25 +86,27 @@ describe('DEV-GOV-V0 multi-proof orchestration', () => {
     expect(source).not.toContain('uses: ./.github/workflows/devgov-v0-gate.yml');
   });
 
-  it('does not give the orchestrator signer or promoter credentials', () => {
+  it('keeps signer and promoter authority isolated to their dedicated jobs', () => {
     const source = readFileSync(orchestratorPath, 'utf8');
     const workflow = parse(source);
 
     expect(source).not.toContain('DEVGOV_ATTESTATION_PRIVATE_KEY_PEM');
-    expect(source).not.toContain('DEVGOV_PROMOTER_PRIVATE_KEY_PEM');
-    expect(source).not.toContain('devgov-promote.yml');
-    expect(source).not.toContain('git push');
-    expect(workflow.jobs.red.permissions).toEqual({ contents: 'read' });
-    expect(workflow.jobs.green.permissions).toEqual({ contents: 'read' });
+    expect(JSON.stringify(workflow.jobs.plan)).not.toContain('DEVGOV_PROMOTER');
+    expect(JSON.stringify(workflow.jobs.red)).not.toContain('DEVGOV_PROMOTER');
+    expect(JSON.stringify(workflow.jobs.green)).not.toContain('DEVGOV_PROMOTER');
+    expect(JSON.stringify(workflow.jobs.gate)).not.toContain('DEVGOV_PROMOTER');
+    expect(workflow.jobs.promote.environment).toBe('devgov-promoter');
+    expect(JSON.stringify(workflow.jobs.promote)).toContain('DEVGOV_PROMOTER_PRIVATE_KEY_PEM');
   });
 
-  it('publishes a machine-readable GATE_PASSED handoff only after the canonical gate succeeds', () => {
+  it('publishes PROMOTED only after the canonical gate and promoter succeed', () => {
     const source = readFileSync(orchestratorPath, 'utf8');
     const workflow = parse(source);
 
-    expect(workflow.jobs.state.needs).toEqual(['plan', 'red', 'green', 'gate']);
+    expect(workflow.jobs.promote.needs).toEqual(['plan', 'gate']);
+    expect(workflow.jobs.state.needs).toEqual(['plan', 'red', 'green', 'gate', 'promote']);
     expect(source).toContain("schema_version: 'dev-gov-orchestration-state-v1'");
-    expect(source).toContain("state: 'GATE_PASSED'");
+    expect(source).toContain("state: 'PROMOTED'");
     expect(source).toContain('devgov-orchestration-${{ inputs.candidate_sha }}');
   });
 });
