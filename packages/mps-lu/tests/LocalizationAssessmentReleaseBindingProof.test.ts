@@ -174,7 +174,7 @@ describe("ASSESSMENT-RELEASE-BINDING-RECON-01", () => {
  */
 function __typeContract_canonicalRequiresIdentitySubjectV3(): void {
   return;
-  // eslint-disable-next-line no-unreachable
+   
   const withoutSubject: Omit<CanonicalLuKernelRunInput, "identity_subject_v3"> = null as never;
   // @ts-expect-error -- identity_subject_v3 is mandatory on CanonicalLuKernelRunInput; omitting
   // it must be a compile error, never a silent runtime fallback to the legacy manifest shape.
