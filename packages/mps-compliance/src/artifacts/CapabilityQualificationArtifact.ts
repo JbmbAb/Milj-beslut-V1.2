@@ -64,18 +64,26 @@ function levelIndex(level: GaLevel): number {
   return GA_LEVELS.indexOf(level);
 }
 
+function required(value: string, code: string): string {
+  const normalized = value.trim();
+  if (!normalized) throw new Error(code);
+  return normalized;
+}
+
 function normalizeReference(reference: ArtifactReference): ArtifactReference {
   return {
-    artifact_id: reference.artifact_id,
-    artifact_type: reference.artifact_type,
+    artifact_id: required(reference.artifact_id, 'CAPABILITY_QUALIFICATION_INVALID_EVIDENCE_ID'),
+    artifact_type: required(reference.artifact_type, 'CAPABILITY_QUALIFICATION_INVALID_EVIDENCE_TYPE'),
   };
 }
 
 function normalizePredicate(
   predicate: QualificationPredicateObservation,
 ): QualificationPredicateObservation {
-  const predicateId = predicate.predicate_id.trim();
-  if (!predicateId) throw new Error('CAPABILITY_QUALIFICATION_INVALID_PREDICATE_ID');
+  const predicateId = required(
+    predicate.predicate_id,
+    'CAPABILITY_QUALIFICATION_INVALID_PREDICATE_ID',
+  );
   if (predicate.result === 'PASS' && predicate.blocker) {
     throw new Error('CAPABILITY_QUALIFICATION_PASS_WITH_BLOCKER');
   }
@@ -97,7 +105,7 @@ function normalizePredicate(
       ? {
           blocker: {
             class: predicate.blocker.class,
-            code: predicate.blocker.code.trim(),
+            code: required(predicate.blocker.code, 'CAPABILITY_QUALIFICATION_INVALID_BLOCKER_CODE'),
           },
         }
       : {}),
@@ -139,6 +147,7 @@ export function deriveQualifiedLevel(input: {
 }
 
 export function createCapabilityQualificationArtifact(input: {
+  readonly artifact_id: string;
   readonly subject: CapabilityQualificationSubject;
   readonly target_level: GaLevel;
   readonly predicates: readonly QualificationPredicateObservation[];
@@ -161,30 +170,33 @@ export function createCapabilityQualificationArtifact(input: {
   const payload: CapabilityQualificationArtifact['payload'] = {
     schema_version: CAPABILITY_QUALIFICATION_SCHEMA_VERSION,
     subject: {
-      repository: input.subject.repository.trim(),
+      repository: required(input.subject.repository, 'CAPABILITY_QUALIFICATION_INVALID_REPOSITORY'),
       candidate_sha: candidateSha,
-      build_identity: input.subject.build_identity.trim(),
-      controller_version: input.subject.controller_version.trim(),
+      build_identity: required(input.subject.build_identity, 'CAPABILITY_QUALIFICATION_INVALID_BUILD_IDENTITY'),
+      controller_version: required(
+        input.subject.controller_version,
+        'CAPABILITY_QUALIFICATION_INVALID_CONTROLLER_VERSION',
+      ),
     },
     target_level: input.target_level,
     qualified_level: qualifiedLevel,
     delta_qualification: deltaQualification,
     predicates: normalizedPredicates,
-    qualification_policy_version: input.policy.policy_version,
-    qualification_policy_hash: input.policy.policy_hash,
+    qualification_policy_version: required(
+      input.policy.policy_version,
+      'CAPABILITY_QUALIFICATION_INVALID_POLICY_VERSION',
+    ),
+    qualification_policy_hash: required(
+      input.policy.policy_hash,
+      'CAPABILITY_QUALIFICATION_INVALID_POLICY_HASH',
+    ),
     derivation_version: CAPABILITY_QUALIFICATION_DERIVATION_VERSION,
-    evaluator_hash: input.evaluator_hash.trim(),
+    evaluator_hash: required(input.evaluator_hash, 'CAPABILITY_QUALIFICATION_INVALID_EVALUATOR_HASH'),
   };
-
-  const identity = sha256ContentHash({
-    canonicalizer_id: CAPABILITY_QUALIFICATION_CANONICALIZER_ID,
-    artifact_type: CAPABILITY_QUALIFICATION_ARTIFACT_TYPE,
-    payload,
-  });
 
   const references = normalizedPredicates.flatMap((predicate) => predicate.evidence_refs);
   const artifact: Omit<CapabilityQualificationArtifact, 'content_hash'> = {
-    artifact_id: `capability-qualification-${identity.value.slice(0, 24)}`,
+    artifact_id: required(input.artifact_id, 'CAPABILITY_QUALIFICATION_INVALID_ARTIFACT_ID'),
     artifact_type: CAPABILITY_QUALIFICATION_ARTIFACT_TYPE,
     references,
     payload,
@@ -192,7 +204,11 @@ export function createCapabilityQualificationArtifact(input: {
 
   return {
     ...artifact,
-    content_hash: sha256ContentHash(artifact),
+    content_hash: sha256ContentHash({
+      canonicalizer_id: CAPABILITY_QUALIFICATION_CANONICALIZER_ID,
+      artifact_type: CAPABILITY_QUALIFICATION_ARTIFACT_TYPE,
+      artifact,
+    }),
   };
 }
 
