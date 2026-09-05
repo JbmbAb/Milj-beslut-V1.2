@@ -8,8 +8,11 @@ export interface AgentMailboxRecord {
   readonly dispatchId: string;
   readonly item: AgentWorkItem;
   readonly status: "PENDING" | "LEASED" | "COMPLETED";
+  readonly attempts: number;
   readonly leasedBy?: string;
   readonly leasedAt?: string;
+  readonly leaseExpiresAt?: string;
+  readonly lastError?: string;
 }
 
 interface MailboxFile {
@@ -39,22 +42,35 @@ export class FileAgentMailbox implements AgentDispatchPort {
     const dispatchId = `agent-mailbox:${item.dispatchKey}`;
     this.write({
       ...box,
-      records: [...box.records, { dispatchKey: item.dispatchKey, dispatchId, item, status: "PENDING" }],
+      records: [
+        ...box.records,
+        { dispatchKey: item.dispatchKey, dispatchId, item, status: "PENDING", attempts: 0 },
+      ],
     });
     return dispatchId;
   }
 
-  reserve(role: AgentWorkItem["role"], workerId: string, now = new Date()): AgentMailboxRecord | undefined {
-    const box = this.read();
+  reserve(
+    role: AgentWorkItem["role"],
+    workerId: string,
+    now = new Date(),
+    leaseMs = 15 * 60_000,
+  ): AgentMailboxRecord | undefined {
+    const box = this.reclaimExpiredIn(this.read(), now);
     const index = box.records.findIndex(
       (record) => record.status === "PENDING" && record.item.role === role,
     );
-    if (index < 0) return undefined;
+    if (index < 0) {
+      this.write(box);
+      return undefined;
+    }
     const record: AgentMailboxRecord = {
       ...box.records[index],
       status: "LEASED",
+      attempts: box.records[index].attempts + 1,
       leasedBy: workerId,
       leasedAt: now.toISOString(),
+      leaseExpiresAt: new Date(now.getTime() + leaseMs).toISOString(),
     };
     const records = [...box.records];
     records[index] = record;
@@ -63,6 +79,43 @@ export class FileAgentMailbox implements AgentDispatchPort {
   }
 
   complete(dispatchKey: string, workerId: string): void {
+    this.updateLeased(dispatchKey, workerId, (current) => ({
+      ...current,
+      status: "COMPLETED",
+      leaseExpiresAt: undefined,
+    }));
+  }
+
+  release(dispatchKey: string, workerId: string, error?: string): void {
+    this.updateLeased(dispatchKey, workerId, (current) => ({
+      ...current,
+      status: "PENDING",
+      leasedBy: undefined,
+      leasedAt: undefined,
+      leaseExpiresAt: undefined,
+      lastError: error,
+    }));
+  }
+
+  reclaimExpired(now = new Date()): number {
+    const before = this.read();
+    const after = this.reclaimExpiredIn(before, now);
+    const count = after.records.filter(
+      (record, index) => record.status === "PENDING" && before.records[index]?.status === "LEASED",
+    ).length;
+    if (count > 0) this.write(after);
+    return count;
+  }
+
+  list(): readonly AgentMailboxRecord[] {
+    return this.read().records;
+  }
+
+  private updateLeased(
+    dispatchKey: string,
+    workerId: string,
+    update: (record: AgentMailboxRecord) => AgentMailboxRecord,
+  ): void {
     const box = this.read();
     const index = box.records.findIndex((record) => record.dispatchKey === dispatchKey);
     if (index < 0) throw new AgentMailboxConflictError(`unknown dispatch key ${dispatchKey}`);
@@ -74,12 +127,32 @@ export class FileAgentMailbox implements AgentDispatchPort {
       );
     }
     const records = [...box.records];
-    records[index] = { ...current, status: "COMPLETED" };
+    records[index] = update(current);
     this.write({ ...box, records });
   }
 
-  list(): readonly AgentMailboxRecord[] {
-    return this.read().records;
+  private reclaimExpiredIn(box: MailboxFile, now: Date): MailboxFile {
+    const nowMs = now.getTime();
+    return {
+      ...box,
+      records: box.records.map((record) => {
+        if (
+          record.status !== "LEASED" ||
+          !record.leaseExpiresAt ||
+          new Date(record.leaseExpiresAt).getTime() > nowMs
+        ) {
+          return record;
+        }
+        return {
+          ...record,
+          status: "PENDING" as const,
+          leasedBy: undefined,
+          leasedAt: undefined,
+          leaseExpiresAt: undefined,
+          lastError: "worker lease expired",
+        };
+      }),
+    };
   }
 
   private read(): MailboxFile {
