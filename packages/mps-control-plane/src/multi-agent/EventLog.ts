@@ -40,7 +40,12 @@ function hash(value: unknown): string {
 }
 
 export class AppendOnlyEventLog {
-  private readonly events: ControlPlaneEvent[] = [];
+  private readonly events: ControlPlaneEvent[];
+
+  constructor(seed: readonly ControlPlaneEvent[] = []) {
+    this.events = [...seed];
+    if (!this.verifyChain()) throw new Error("seeded control-plane event chain is invalid");
+  }
 
   append(
     unitId: string,
@@ -75,11 +80,14 @@ export class AppendOnlyEventLog {
 
   verifyChain(): boolean {
     let previous: string | null = null;
+    let sequence = 1;
     for (const event of this.events) {
+      if (event.sequence !== sequence) return false;
       if (event.previousEventHash !== previous) return false;
       const { eventHash, ...withoutHash } = event;
       if (hash(withoutHash) !== eventHash) return false;
       previous = eventHash;
+      sequence += 1;
     }
     return true;
   }
