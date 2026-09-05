@@ -1,6 +1,24 @@
 name: DEV-GOV-V0 Trusted Execution Attestation
 
 on:
+  workflow_call:
+    inputs:
+      candidate_sha:
+        description: Exact SHA to execute
+        required: true
+        type: string
+      unit_definition_path:
+        description: Repository-relative DEV-GOV V1 unit definition path
+        required: true
+        type: string
+      proof_kind:
+        description: Proof phase (RED or GREEN)
+        required: true
+        type: string
+      test_id:
+        description: Declared command id from the unit definition
+        required: true
+        type: string
   workflow_dispatch:
     inputs:
       candidate_sha:
@@ -171,11 +189,13 @@ jobs:
         env:
           DEVGOV_CONTROLLER_SHA: ${{ github.sha }}
           DEVGOV_RUNNER_IDENTITY: github-hosted:ubuntu-latest
+          DEVGOV_JOB_WORKFLOW_REF: ${{ job.workflow_ref }}
           PROOF_KIND: ${{ inputs.proof_kind }}
           TEST_ID: ${{ inputs.test_id }}
           CANDIDATE_SHA: ${{ inputs.candidate_sha }}
           UNIT_DEFINITION_PATH: ${{ inputs.unit_definition_path }}
         run: |
+          export GITHUB_WORKFLOW_REF="$DEVGOV_JOB_WORKFLOW_REF"
           candidate_uid="$(id -u devgov-candidate)"
           candidate_gid="$(id -g devgov-candidate)"
           sudo --preserve-env=DEVGOV_CONTROLLER_SHA,DEVGOV_RUNNER_IDENTITY,GITHUB_WORKFLOW_REF,GITHUB_RUN_ID,GITHUB_RUN_ATTEMPT \
@@ -197,7 +217,7 @@ jobs:
       - name: Upload unsigned execution record
         uses: actions/upload-artifact@v4
         with:
-          name: devgov-execution-${{ github.run_id }}-${{ github.run_attempt }}
+          name: devgov-execution-${{ github.run_id }}-${{ github.run_attempt }}-${{ inputs.proof_kind }}-${{ inputs.test_id }}
           path: ${{ runner.temp }}/devgov-export/execution-record.json
           if-no-files-found: error
           retention-days: 1
@@ -246,7 +266,7 @@ jobs:
       - name: Download execution record
         uses: actions/download-artifact@v4
         with:
-          name: devgov-execution-${{ github.run_id }}-${{ github.run_attempt }}
+          name: devgov-execution-${{ github.run_id }}-${{ github.run_attempt }}-${{ inputs.proof_kind }}-${{ inputs.test_id }}
           path: ${{ runner.temp }}/devgov-input
 
       - name: Sign trusted execution attestation
@@ -256,11 +276,13 @@ jobs:
           DEVGOV_ATTESTATION_KEY_ID: ${{ vars.DEVGOV_ATTESTATION_KEY_ID }}
           DEVGOV_CONTROLLER_SHA: ${{ github.sha }}
           DEVGOV_RUNNER_IDENTITY: github-hosted:ubuntu-latest
+          DEVGOV_JOB_WORKFLOW_REF: ${{ job.workflow_ref }}
           PROOF_KIND: ${{ inputs.proof_kind }}
           TEST_ID: ${{ inputs.test_id }}
           CANDIDATE_SHA: ${{ inputs.candidate_sha }}
           UNIT_DEFINITION_PATH: ${{ inputs.unit_definition_path }}
         run: |
+          export GITHUB_WORKFLOW_REF="$DEVGOV_JOB_WORKFLOW_REF"
           node controller/scripts/devgov/devgov.mjs attest-execution \
             --definition "candidate/$UNIT_DEFINITION_PATH" \
             --candidate-sha "$CANDIDATE_SHA" \

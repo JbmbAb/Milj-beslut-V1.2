@@ -1,4 +1,5 @@
 name: DEV-GOV-V0 Trusted Evidence Gate
+run-name: DEV-GOV gate ${{ inputs.candidate_sha }} orchestration=${{ inputs.attestation_run_id }}
 
 on:
   workflow_dispatch:
@@ -12,12 +13,16 @@ on:
         required: true
         type: string
       red_run_id:
-        description: Trusted RED attestation workflow run
-        required: true
+        description: Trusted RED attestation workflow run (legacy/manual single-proof path)
+        required: false
         type: string
       green_run_id:
-        description: Trusted GREEN attestation workflow run
-        required: true
+        description: Trusted GREEN attestation workflow run (legacy/manual single-proof path)
+        required: false
+        type: string
+      attestation_run_id:
+        description: Parent orchestration run containing all RED/GREEN attestation artifacts
+        required: false
         type: string
 
 permissions:
@@ -88,7 +93,56 @@ jobs:
           git check-ref-format --branch "$branch"
           git -C candidate switch -c "$branch"
 
-      - name: Download trusted RED attestation
+      - name: Inspect required proof cardinality
+        id: proof_plan
+        env:
+          UNIT_DEFINITION_PATH: ${{ inputs.unit_definition_path }}
+        run: |
+          node - "candidate/$UNIT_DEFINITION_PATH" "$GITHUB_OUTPUT" <<'NODE'
+          const fs = require('node:fs');
+          const definition = JSON.parse(fs.readFileSync(process.argv[2], 'utf8'));
+          const red = Array.isArray(definition.required_red) ? definition.required_red.length : 0;
+          const green = Array.isArray(definition.required_green) ? definition.required_green.length : 0;
+          fs.appendFileSync(process.argv[3], `red_count=${red}\ngreen_count=${green}\n`);
+          NODE
+
+      - name: Validate attestation artifact source
+        env:
+          ATTESTATION_RUN_ID: ${{ inputs.attestation_run_id }}
+          RED_RUN_ID: ${{ inputs.red_run_id }}
+          GREEN_RUN_ID: ${{ inputs.green_run_id }}
+        run: |
+          set -euo pipefail
+          if [ -n "$ATTESTATION_RUN_ID" ]; then
+            test -z "$RED_RUN_ID"
+            test -z "$GREEN_RUN_ID"
+          else
+            test -n "$RED_RUN_ID"
+            test -n "$GREEN_RUN_ID"
+          fi
+
+      - name: Download all trusted RED attestations from orchestrated parent run
+        if: inputs.attestation_run_id != '' && steps.proof_plan.outputs.red_count != '0'
+        uses: actions/download-artifact@v4
+        with:
+          github-token: ${{ github.token }}
+          repository: ${{ github.repository }}
+          run-id: ${{ inputs.attestation_run_id }}
+          pattern: devgov-attestation-RED-*
+          path: ${{ runner.temp }}/devgov-attestations/red
+
+      - name: Download all trusted GREEN attestations from orchestrated parent run
+        if: inputs.attestation_run_id != '' && steps.proof_plan.outputs.green_count != '0'
+        uses: actions/download-artifact@v4
+        with:
+          github-token: ${{ github.token }}
+          repository: ${{ github.repository }}
+          run-id: ${{ inputs.attestation_run_id }}
+          pattern: devgov-attestation-GREEN-*
+          path: ${{ runner.temp }}/devgov-attestations/green
+
+      - name: Download trusted RED attestation from manual run
+        if: inputs.attestation_run_id == ''
         uses: actions/download-artifact@v4
         with:
           github-token: ${{ github.token }}
@@ -97,7 +151,8 @@ jobs:
           pattern: devgov-attestation-RED-*
           path: ${{ runner.temp }}/devgov-attestations/red
 
-      - name: Download trusted GREEN attestation
+      - name: Download trusted GREEN attestation from manual run
+        if: inputs.attestation_run_id == ''
         uses: actions/download-artifact@v4
         with:
           github-token: ${{ github.token }}
@@ -131,18 +186,29 @@ jobs:
           DEVGOV_CONTROLLER_SHA: ${{ github.sha }}
           CANDIDATE_SHA: ${{ inputs.candidate_sha }}
           UNIT_DEFINITION_PATH: ${{ inputs.unit_definition_path }}
+          EXPECTED_RED_COUNT: ${{ steps.proof_plan.outputs.red_count }}
+          EXPECTED_GREEN_COUNT: ${{ steps.proof_plan.outputs.green_count }}
           GIT_ALLOW_PROTOCOL: https:ssh
         run: |
-          mapfile -t red < <(find "$RUNNER_TEMP/devgov-attestations/red" -type f -name '*.json')
-          mapfile -t green < <(find "$RUNNER_TEMP/devgov-attestations/green" -type f -name '*.json')
-          test "${#red[@]}" -eq 1
-          test "${#green[@]}" -eq 1
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/devgov-attestations/red" "$RUNNER_TEMP/devgov-attestations/green"
+          mapfile -t red < <(find "$RUNNER_TEMP/devgov-attestations/red" -type f -name '*.json' | sort)
+          mapfile -t green < <(find "$RUNNER_TEMP/devgov-attestations/green" -type f -name '*.json' | sort)
+          test "${#red[@]}" -eq "$EXPECTED_RED_COUNT"
+          test "${#green[@]}" -eq "$EXPECTED_GREEN_COUNT"
+
+          attestation_args=()
+          for file in "${red[@]}" "${green[@]}"; do
+            if [ -n "$file" ]; then
+              attestation_args+=(--attestation "$file")
+            fi
+          done
+
           node controller/scripts/devgov/devgov.mjs evidence-gate \
             --definition "candidate/$UNIT_DEFINITION_PATH" \
             --candidate-sha "$CANDIDATE_SHA" \
             --worktree candidate \
-            --attestation "${red[0]}" \
-            --attestation "${green[0]}"
+            "${attestation_args[@]}"
 
       - name: Publish exact candidate gate result
         if: always()
