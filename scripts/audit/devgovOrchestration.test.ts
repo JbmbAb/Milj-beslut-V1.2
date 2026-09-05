@@ -26,10 +26,14 @@ describe('DEV-GOV-V0 multi-proof orchestration', () => {
     expect(workflow.jobs.attest.environment).toBe('devgov-attestation');
     expect(JSON.stringify(workflow.jobs.execute)).not.toContain('DEVGOV_ATTESTATION_PRIVATE_KEY_PEM');
     expect(JSON.stringify(workflow.jobs.attest)).toContain('DEVGOV_ATTESTATION_PRIVATE_KEY_PEM');
-    expect(executeProof.env.GITHUB_WORKFLOW_REF).toBe('${{ job.workflow_ref }}');
-    expect(signAttestation.env.GITHUB_WORKFLOW_REF).toBe('${{ job.workflow_ref }}');
+    expect(executeProof.env.DEVGOV_JOB_WORKFLOW_REF).toBe('${{ job.workflow_ref }}');
+    expect(signAttestation.env.DEVGOV_JOB_WORKFLOW_REF).toBe('${{ job.workflow_ref }}');
+    expect(executeProof.env.GITHUB_WORKFLOW_REF).toBeUndefined();
+    expect(signAttestation.env.GITHUB_WORKFLOW_REF).toBeUndefined();
+    expect(executeProof.run).toContain('export GITHUB_WORKFLOW_REF="$DEVGOV_JOB_WORKFLOW_REF"');
+    expect(signAttestation.run).toContain('export GITHUB_WORKFLOW_REF="$DEVGOV_JOB_WORKFLOW_REF"');
     expect(source).not.toContain('CANONICAL_ATTEST_WORKFLOW_REF');
-    expect(source).not.toContain('export GITHUB_WORKFLOW_REF=');
+    expect(source).not.toContain('DEVGOV_JOB_WORKFLOW_REF: ${{ github.repository }}');
   });
 
   it('keeps the trusted gate as a standalone protected workflow and consumes the complete proof set', () => {
