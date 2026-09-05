@@ -10,6 +10,7 @@ import {
   GitHubDevGovDispatchAdapter,
   type AgentWorkItem,
   type DevGovBindingResolver,
+  type DevGovUnitBinding,
   type GitHubWorkflowDispatchClient,
   type MultiAgentUnitState,
 } from "../../../packages/mps-control-plane/src/multi-agent";
@@ -56,16 +57,16 @@ function agentItem(): AgentWorkItem {
 }
 
 class Resolver implements DevGovBindingResolver {
-  constructor(private readonly overrides: Partial<ReturnType<Resolver["binding"]>> = {}) {}
-  private binding() {
+  constructor(private readonly overrides: Partial<DevGovUnitBinding> = {}) {}
+  resolve(): DevGovUnitBinding {
     return {
       unitId: "K1",
       unitDefinitionPath: "governance/devgov/units/governed-harvest-canonical-entrypoint.json",
       unitDefinitionHash,
       proofContractHash,
+      ...this.overrides,
     };
   }
-  resolve() { return { ...this.binding(), ...this.overrides }; }
 }
 
 class Client implements GitHubWorkflowDispatchClient {
@@ -85,9 +86,9 @@ describe("Multi-Agent Control Plane V1 dispatch adapters", () => {
     expect(second).toBe(first);
     expect(box.list()).toHaveLength(1);
 
-    await expect(
-      box.dispatch({ ...item, role: "IMPLEMENTER" }),
-    ).rejects.toThrow(AgentMailboxConflictError);
+    await expect(box.dispatch({ ...item, role: "IMPLEMENTER" })).rejects.toThrow(
+      AgentMailboxConflictError,
+    );
   });
 
   it("leases work to the requested role and only that worker can complete it", async () => {
@@ -96,7 +97,9 @@ describe("Multi-Agent Control Plane V1 dispatch adapters", () => {
     expect(box.reserve("IMPLEMENTER", "claude-a")).toBeUndefined();
     const reserved = box.reserve("VERIFIER", "codex-1", new Date("2026-09-05T01:00:00Z"));
     expect(reserved).toMatchObject({ status: "LEASED", leasedBy: "codex-1" });
-    expect(() => box.complete(agentItem().dispatchKey, "claude-a")).toThrow(AgentMailboxConflictError);
+    expect(() => box.complete(agentItem().dispatchKey, "claude-a")).toThrow(
+      AgentMailboxConflictError,
+    );
     box.complete(agentItem().dispatchKey, "codex-1");
     expect(box.list()[0].status).toBe("COMPLETED");
   });
@@ -104,7 +107,11 @@ describe("Multi-Agent Control Plane V1 dispatch adapters", () => {
   it("dispatches DEV-GOV only from exact canonical binding and protected ref", async () => {
     const client = new Client();
     const adapter = new GitHubDevGovDispatchAdapter(new Resolver(), client);
-    const dispatchId = await adapter.dispatch({ dispatchKey: "K1:5:DEV_GOV", unit: unit(), reason: "verified" });
+    const dispatchId = await adapter.dispatch({
+      dispatchKey: "K1:5:DEV_GOV",
+      unit: unit(),
+      reason: "verified",
+    });
     expect(dispatchId).toBe("github-actions:33999999999");
     expect(client.calls[0]).toEqual({
       workflow: "devgov-v0-orchestrate.yml",
@@ -123,13 +130,17 @@ describe("Multi-Agent Control Plane V1 dispatch adapters", () => {
       new Resolver({ proofContractHash: "c".repeat(64) }),
       client,
     );
-    await expect(badHash.dispatch({ dispatchKey: "x", unit: unit(), reason: "verified" })).rejects.toThrow(
-      /proof-contract hash mismatch/,
-    );
+    await expect(
+      badHash.dispatch({ dispatchKey: "x", unit: unit(), reason: "verified" }),
+    ).rejects.toThrow(/proof-contract hash mismatch/);
 
     const missingProof = new GitHubDevGovDispatchAdapter(new Resolver(), client);
     await expect(
-      missingProof.dispatch({ dispatchKey: "y", unit: { ...unit(), proofContractHash: undefined }, reason: "verified" }),
+      missingProof.dispatch({
+        dispatchKey: "y",
+        unit: { ...unit(), proofContractHash: undefined },
+        reason: "verified",
+      }),
     ).rejects.toThrow(DevGovBindingError);
     expect(client.calls).toHaveLength(0);
   });
@@ -140,9 +151,9 @@ describe("Multi-Agent Control Plane V1 dispatch adapters", () => {
       new Resolver({ unitDefinitionPath: "../../.github/workflows/evil.yml" }),
       client,
     );
-    await expect(adapter.dispatch({ dispatchKey: "x", unit: unit(), reason: "verified" })).rejects.toThrow(
-      /invalid unit-definition path/,
-    );
+    await expect(
+      adapter.dispatch({ dispatchKey: "x", unit: unit(), reason: "verified" }),
+    ).rejects.toThrow(/invalid unit-definition path/);
     expect(client.calls).toHaveLength(0);
   });
 });
