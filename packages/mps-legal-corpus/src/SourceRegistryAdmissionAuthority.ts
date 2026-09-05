@@ -1,12 +1,3 @@
-import type { VerificationKeyProvider } from '@miljobeslut/mimers-brunn-core';
-// Relative cross-package import, not a package-name import: @miljobeslut/mps-data-governance's
-// own package.json declares "exports": { ".": "./src/ImportGate.ts" } — it does not expose
-// SourceRegistry.ts on its public package-name surface, and this unit does not touch that
-// package's exports map (out of scope for K2.1). This exact cross-package relative-import shape
-// is already precedented in this repo: scripts/import/harvest/harvestScheduler.ts reaches
-// packages/mps-data-governance/src/SourceRegistry.ts the same way, from outside that package.
-import { loadVerifiedSourceRegistry } from '../../mps-data-governance/src/SourceRegistry';
-
 /**
  * K2.1 — CORPUS-ADMISSION-REGISTRY-BINDING.
  *
@@ -26,17 +17,18 @@ import { loadVerifiedSourceRegistry } from '../../mps-data-governance/src/Source
  * Fail-closed, no fallback: every branch below returns an explicit `ok: false` with a specific
  * `reason`. There is no code path that treats "I could not determine this" as "allow it anyway".
  *
- * Authority is not expanded by this module: it only ever reads the existing, real
- * `loadVerifiedSourceRegistry()` — the same cryptographically-verified, signed-JSON-backed
- * source of truth every other governed consumer in this repo uses (e.g. the K1
- * `HarvestRuntimeCompositionRoot.ts` path). Nothing here treats Postgres, corpus tables,
- * materialization records, embeddings, or local quarantine files as authoritative.
+ * ARCHITECTURE (K2.1b, after independent verification): this module holds the DECISION logic
+ * only. It does not know how to load or cryptographically verify a registry, and deliberately
+ * imports nothing from `mps-data-governance` — `mps-legal-corpus` is storage-agnostic by design,
+ * the same boundary `DownloadManifestSourceResolver` exists to preserve. The concrete
+ * `loadVerifiedSourceRegistry`-backed provider lives in the server composition layer and is
+ * injected through `VerifiedRegistrySnapshotProvider` below. Authority is therefore still the
+ * signed registry and nothing else: this module cannot invent an approved entry, and a provider
+ * that fails to produce a verified snapshot causes denial, never a bypass.
  */
 
 export type RegistryAdmissionDenialReason =
-  | 'REGISTRY_UNAVAILABLE'
-  | 'ARTIFACT_NOT_FOUND'
-  | 'CONTENT_HASH_MISMATCH';
+  'REGISTRY_UNAVAILABLE' | 'ARTIFACT_NOT_FOUND' | 'AMBIGUOUS_ARTIFACT_ID' | 'CONTENT_HASH_MISMATCH';
 
 export interface RegistryAdmissionCheckResult {
   readonly ok: boolean;
@@ -45,13 +37,33 @@ export interface RegistryAdmissionCheckResult {
   readonly detail: string;
 }
 
+/**
+ * The minimum this package needs to know about one verified registry entry. Structural on
+ * purpose: it is satisfied by `VerifiedSourceDefinition` from `mps-data-governance` without this
+ * package importing that type, or that package.
+ */
+export interface VerifiedRegistryEntrySnapshot {
+  readonly registryArtifactId: string;
+  readonly sourceContentHash: string;
+}
+
+/**
+ * Injected port. Implementations MUST return only entries that are currently APPROVED and
+ * cryptographically verified, and MUST throw (never return an empty or partial list) when the
+ * registry cannot be loaded or verified — a swallowed failure here would become a silent
+ * `ARTIFACT_NOT_FOUND` instead of the `REGISTRY_UNAVAILABLE` the authority boundary requires.
+ */
+export interface VerifiedRegistrySnapshotProvider {
+  loadApprovedEntries(): Promise<readonly VerifiedRegistryEntrySnapshot[]>;
+}
+
 export interface RegistryAdmissionAuthority {
   /**
    * `registryArtifactId` names which SourceRegistryArtifact the caller claims this content
    * originates from; `registrySourceContentHash` is the claimed value of that artifact's own
    * signed content hash. Both are caller-supplied identifiers to look up — never trusted as
-   * authority in themselves. Authority is only ever what this function independently resolves
-   * from `loadVerifiedSourceRegistry()`.
+   * authority in themselves. Authority is only ever what the injected provider resolves from
+   * the verified signed registry.
    */
   checkAdmissible(
     registryArtifactId: string,
@@ -59,15 +71,8 @@ export interface RegistryAdmissionAuthority {
   ): Promise<RegistryAdmissionCheckResult>;
 }
 
-export interface RegistryAdmissionAuthorityOptions {
-  /** Defaults to SOURCE_REGISTRY_ARTIFACT_PATH / the repo-resolved authority file, same as loadVerifiedSourceRegistry. */
-  readonly registryPath?: string;
-  /** Defaults to the environment-configured verification key(s), same as loadVerifiedSourceRegistry. */
-  readonly signing?: VerificationKeyProvider;
-}
-
 export function createRegistryAdmissionAuthority(
-  options: RegistryAdmissionAuthorityOptions = {},
+  provider: VerifiedRegistrySnapshotProvider,
 ): RegistryAdmissionAuthority {
   return {
     async checkAdmissible(
@@ -89,18 +94,14 @@ export function createRegistryAdmissionAuthority(
         };
       }
 
-      let sources: readonly { readonly registryArtifactId: string; readonly sourceContentHash: string }[];
+      let entries: readonly VerifiedRegistryEntrySnapshot[];
       try {
-        const registry = await loadVerifiedSourceRegistry({
-          registryPath: options.registryPath,
-          signing: options.signing,
-        });
-        sources = registry.sources;
+        entries = await provider.loadApprovedEntries();
       } catch (err) {
         // Fail closed: a registry that cannot be loaded/verified at all (missing file, missing
-        // key configuration, or ANY single entry in it failing verification — the registry load
-        // is atomic, see loadVerifiedSourceRegistry) is authority UNAVAILABLE, never "skip this
-        // check" or "treat as approved".
+        // key configuration, or ANY single entry in it failing verification — the underlying
+        // registry load is atomic) is authority UNAVAILABLE, never "skip this check" or "treat
+        // as approved".
         return {
           ok: false,
           reason: 'REGISTRY_UNAVAILABLE',
@@ -108,21 +109,35 @@ export function createRegistryAdmissionAuthority(
         };
       }
 
-      const source = sources.find((s) => s.registryArtifactId === registryArtifactId);
-      if (!source) {
+      // K2.1b finding 3: the underlying registry loader guarantees a unique `source_id`, NOT a
+      // unique `artifact_id`. Two APPROVED entries could therefore carry the same artifact_id,
+      // and a first-match lookup would silently pick one and bind admission to an authority the
+      // reviewer never disambiguated. Ambiguity is refused rather than resolved by position.
+      const matches = entries.filter((entry) => entry.registryArtifactId === registryArtifactId);
+      if (matches.length === 0) {
         // Reached both by a fabricated artifact_id that never existed, and by an artifact_id
         // that WAS a real approved source but is no longer present in the active registry
         // (this repo's own convention for revocation/supersession is removal from
         // source-registry/national-registry.json, not an in-file REJECTED/QUARANTINED marker
-        // left behind — see docs/architecture/KNOWLEDGE-INGESTION-REACHABILITY-AUDIT-2026-09-05.md).
-        // Both cases mean the same thing for a NEW admission: this is not currently usable.
+        // left behind). Both mean the same thing for a NEW admission: not currently usable.
         return {
           ok: false,
           reason: 'ARTIFACT_NOT_FOUND',
           detail: `no currently APPROVED source registry entry has artifact_id '${registryArtifactId}'.`,
         };
       }
+      if (matches.length > 1) {
+        return {
+          ok: false,
+          reason: 'AMBIGUOUS_ARTIFACT_ID',
+          detail:
+            `${matches.length} currently APPROVED source registry entries share artifact_id ` +
+            `'${registryArtifactId}'. A corpus admission must bind to exactly one authority; ` +
+            'withdraw the duplicate before admitting content under it.',
+        };
+      }
 
+      const source = matches[0];
       if (source.sourceContentHash !== registrySourceContentHash) {
         return {
           ok: false,

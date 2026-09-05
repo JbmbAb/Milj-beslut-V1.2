@@ -88,6 +88,8 @@ async function runOnce(chunkPolicyVersion: string) {
     chunkPolicyVersion,
     approverActorId: 'system:legal-corpus-materialization',
     approverRole: 'AUTOMATED_EXECUTION_ATTESTOR',
+    registryArtifactId: REGISTRY_ARTIFACT_ID,
+    registrySourceContentHash: REGISTRY_SOURCE_CONTENT_HASH,
   });
 
   const attestationRefDigest = createHash('sha256')

@@ -1,169 +1,144 @@
 // packages/mps-legal-corpus/tests/SourceRegistryAdmissionAuthority.test.ts
 //
 // K2.1 — CORPUS-ADMISSION-REGISTRY-BINDING.
-// Dedicated tests for the registry-binding helper in isolation from CorpusImportGate. Uses a
-// synthetic, locally-generated signing key and a temp-file registry — never a live network call,
-// never the real production source-registry/national-registry.json.
+// Tests the admission DECISION logic in isolation. After K2.1b this module no longer loads or
+// verifies a registry itself (that is the server-side SourceRegistryAdmissionAdapter's job, on
+// the other side of the mps-legal-corpus / mps-data-governance boundary), so these tests inject
+// VerifiedRegistrySnapshotProvider implementations directly.
+//
+// Note on fixture authenticity: the injected providers here are NOT "unconditionally admit"
+// stubs — each one returns a specific snapshot set, or throws, and every deny path is asserted
+// on its exact reason code. What is deliberately NOT covered here is the real signature/lifecycle
+// verification, which now lives behind the adapter; see the K2.1b report for that boundary.
 
 import { describe, expect, it } from 'vitest';
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
-import { join } from 'node:path';
 import {
-  LocalPemSigningKeyProvider,
-  LocalPemVerificationKeyProvider,
-} from '@miljobeslut/mimers-brunn-core';
-import { approveSourceRegistryEntry } from '../../mps-data-governance/src/SourceApproval';
-import type { SourceRegistryArtifact } from '../../mps-data-governance/src/SourceRegistry';
-import { createRegistryAdmissionAuthority } from '../src/SourceRegistryAdmissionAuthority';
+  createRegistryAdmissionAuthority,
+  type VerifiedRegistryEntrySnapshot,
+  type VerifiedRegistrySnapshotProvider,
+} from '../src/SourceRegistryAdmissionAuthority';
 
-async function buildRegistryFixture(): Promise<{
-  readonly dir: string;
-  readonly registryPath: string;
-  readonly signingOptions: { registryPath: string; signing: LocalPemVerificationKeyProvider };
-  readonly approvedArtifactId: string;
-  readonly approvedContentHash: string;
-}> {
-  const { provider: signing, publicKey } = LocalPemSigningKeyProvider.generate(
-    'ed25519:test-registry-admission-authority',
-  );
-  const verification = new LocalPemVerificationKeyProvider(signing.keyId, publicKey);
+const APPROVED_ARTIFACT_ID = 'reg-test-source-001';
+const APPROVED_CONTENT_HASH = 'a'.repeat(64);
 
-  const draft: Omit<SourceRegistryArtifact, 'approval_attestation'> = {
-    artifact_id: 'reg-test-source-001',
-    artifact_type: 'SOURCE_REGISTRY_ENTRY',
-    source_id: 'test-source',
-    producer: { producer_id: 'TEST', name: 'Test Authority', type: 'agency' },
-    channel: {
-      channel_type: 'WEBSITE',
-      endpoint_url: 'https://example.invalid/test-source',
-      allowed_domains: ['example.invalid'],
-    },
-    adapter: 'SINGLE_ENDPOINT_V1',
-    artifact_types: ['LAW'],
-    collection_frequency: 'WEEKLY',
-    change_detection: { strategy: 'CONTENT_HASH' },
-    policy: {
-      rate_limit_requests_per_second: 1,
-      concurrency_limit: 1,
-      retry_policy: { max_attempts: 3, backoff: 'EXPONENTIAL' },
-    },
-    lifecycle_state: 'REGISTERED',
-  };
-
-  const approved = await approveSourceRegistryEntry({
-    entry: draft,
-    approver_actor_id: 'test-reviewer',
-    signing,
-  });
-
-  const dir = mkdtempSync(join(tmpdir(), 'k2-1-registry-fixture-'));
-  const registryPath = join(dir, 'national-registry.json');
-  writeFileSync(registryPath, JSON.stringify([approved], null, 2), 'utf8');
-
+function providerReturning(
+  entries: readonly VerifiedRegistryEntrySnapshot[],
+): VerifiedRegistrySnapshotProvider {
   return {
-    dir,
-    registryPath,
-    signingOptions: { registryPath, signing: verification },
-    approvedArtifactId: approved.artifact_id,
-    approvedContentHash: approved.approval_attestation.predicate.source_content_hash as string,
+    async loadApprovedEntries() {
+      return entries;
+    },
   };
 }
 
+function providerThrowing(message: string): VerifiedRegistrySnapshotProvider {
+  return {
+    async loadApprovedEntries(): Promise<readonly VerifiedRegistryEntrySnapshot[]> {
+      throw new Error(message);
+    },
+  };
+}
+
+const singleApproved = providerReturning([
+  { registryArtifactId: APPROVED_ARTIFACT_ID, sourceContentHash: APPROVED_CONTENT_HASH },
+]);
+
 describe('createRegistryAdmissionAuthority', () => {
   it('admits a real, currently-APPROVED registry entry with a matching content hash', async () => {
-    const fixture = await buildRegistryFixture();
-    try {
-      const authority = createRegistryAdmissionAuthority(fixture.signingOptions);
-      const result = await authority.checkAdmissible(fixture.approvedArtifactId, fixture.approvedContentHash);
-      expect(result.ok).toBe(true);
-      expect(result.reason).toBeUndefined();
-    } finally {
-      rmSync(fixture.dir, { recursive: true, force: true });
-    }
+    const authority = createRegistryAdmissionAuthority(singleApproved);
+    const result = await authority.checkAdmissible(APPROVED_ARTIFACT_ID, APPROVED_CONTENT_HASH);
+    expect(result.ok).toBe(true);
+    expect(result.reason).toBeUndefined();
   });
 
-  it('RED-A / denies a fabricated registry_artifact_id that never existed', async () => {
-    const fixture = await buildRegistryFixture();
-    try {
-      const authority = createRegistryAdmissionAuthority(fixture.signingOptions);
-      const result = await authority.checkAdmissible('reg-does-not-exist-999', fixture.approvedContentHash);
-      expect(result.ok).toBe(false);
-      expect(result.reason).toBe('ARTIFACT_NOT_FOUND');
-    } finally {
-      rmSync(fixture.dir, { recursive: true, force: true });
-    }
+  it('RED-A: denies a fabricated registry_artifact_id that never existed', async () => {
+    const authority = createRegistryAdmissionAuthority(singleApproved);
+    const result = await authority.checkAdmissible('reg-does-not-exist-999', APPROVED_CONTENT_HASH);
+    expect(result.ok).toBe(false);
+    expect(result.reason).toBe('ARTIFACT_NOT_FOUND');
   });
 
-  it('RED-C / denies an artifact_id that is no longer present in the active registry (revoked/superseded)', async () => {
-    // This repo's own convention for revocation/supersession is removal from the active
-    // registry file (see docs/architecture/KNOWLEDGE-INGESTION-REACHABILITY-AUDIT-2026-09-05.md),
-    // not an in-file REJECTED/QUARANTINED marker left behind. A once-real, now-removed
-    // artifact_id must resolve identically to a never-real one: both mean "not currently usable".
-    const fixture = await buildRegistryFixture();
-    try {
-      const authority = createRegistryAdmissionAuthority(fixture.signingOptions);
-      const result = await authority.checkAdmissible(
-        'reg-test-source-000-superseded',
-        fixture.approvedContentHash,
-      );
-      expect(result.ok).toBe(false);
-      expect(result.reason).toBe('ARTIFACT_NOT_FOUND');
-    } finally {
-      rmSync(fixture.dir, { recursive: true, force: true });
-    }
+  it('RED-C: denies an artifact_id no longer present in the active registry (revoked/superseded)', async () => {
+    // This repo's convention for revocation/supersession is removal from the active registry
+    // file, not an in-file REJECTED/QUARANTINED marker. A once-real, now-removed artifact_id
+    // must be denied identically to one that never existed.
+    const authority = createRegistryAdmissionAuthority(singleApproved);
+    const result = await authority.checkAdmissible('reg-test-source-000-superseded', APPROVED_CONTENT_HASH);
+    expect(result.ok).toBe(false);
+    expect(result.reason).toBe('ARTIFACT_NOT_FOUND');
   });
 
-  it('RED-B / denies a wrong registry_source_content_hash for a real artifact_id', async () => {
-    const fixture = await buildRegistryFixture();
-    try {
-      const authority = createRegistryAdmissionAuthority(fixture.signingOptions);
-      const result = await authority.checkAdmissible(fixture.approvedArtifactId, '00'.repeat(32));
-      expect(result.ok).toBe(false);
-      expect(result.reason).toBe('CONTENT_HASH_MISMATCH');
-    } finally {
-      rmSync(fixture.dir, { recursive: true, force: true });
-    }
+  it('RED-B: denies a wrong registry_source_content_hash for a real artifact_id', async () => {
+    const authority = createRegistryAdmissionAuthority(singleApproved);
+    const result = await authority.checkAdmissible(APPROVED_ARTIFACT_ID, 'b'.repeat(64));
+    expect(result.ok).toBe(false);
+    expect(result.reason).toBe('CONTENT_HASH_MISMATCH');
   });
 
-  it('RED-D / denies when the registry file does not exist at all — fails closed, not open', async () => {
-    const authority = createRegistryAdmissionAuthority({
-      registryPath: join(tmpdir(), 'k2-1-nonexistent-registry-' + Math.floor(Math.random() * 1e9) + '.json'),
-    });
-    const result = await authority.checkAdmissible('reg-anything', '11'.repeat(32));
+  it('RED-D: denies when the registry authority cannot be loaded — fails closed, not open', async () => {
+    const authority = createRegistryAdmissionAuthority(providerThrowing('registry file not found'));
+    const result = await authority.checkAdmissible(APPROVED_ARTIFACT_ID, APPROVED_CONTENT_HASH);
     expect(result.ok).toBe(false);
     expect(result.reason).toBe('REGISTRY_UNAVAILABLE');
   });
 
-  it('RED-D / denies when the registry file is present but signed by an untrusted key', async () => {
-    const fixture = await buildRegistryFixture();
-    try {
-      // A DIFFERENT verification key than the one the fixture was actually signed with —
-      // simulates missing/invalid signing configuration, which must deny, not silently pass.
-      const wrongVerification = new LocalPemVerificationKeyProvider(
-        fixture.signingOptions.signing.keyId,
-        LocalPemSigningKeyProvider.generate('ed25519:unrelated-key').publicKey,
-      );
-      const authority = createRegistryAdmissionAuthority({
-        registryPath: fixture.registryPath,
-        signing: wrongVerification,
-      });
-      const result = await authority.checkAdmissible(fixture.approvedArtifactId, fixture.approvedContentHash);
-      expect(result.ok).toBe(false);
-      expect(result.reason).toBe('REGISTRY_UNAVAILABLE');
-    } finally {
-      rmSync(fixture.dir, { recursive: true, force: true });
-    }
+  it('RED-D: a provider throwing on signature/lifecycle verification denies as UNAVAILABLE, not NOT_FOUND', async () => {
+    // The distinction matters: "I could not establish authority" must never be reported or
+    // treated as "this artifact is absent", which is a weaker, differently-actionable claim.
+    const authority = createRegistryAdmissionAuthority(
+      providerThrowing("SourceRegistryArtifact 'x' failed approval binding checks: signature_valid"),
+    );
+    const result = await authority.checkAdmissible(APPROVED_ARTIFACT_ID, APPROVED_CONTENT_HASH);
+    expect(result.ok).toBe(false);
+    expect(result.reason).toBe('REGISTRY_UNAVAILABLE');
   });
 
-  it('denies when registry_artifact_id / registry_source_content_hash are empty strings — no fallback', async () => {
-    const fixture = await buildRegistryFixture();
-    try {
-      const authority = createRegistryAdmissionAuthority(fixture.signingOptions);
-      const result = await authority.checkAdmissible('', '');
-      expect(result.ok).toBe(false);
-    } finally {
-      rmSync(fixture.dir, { recursive: true, force: true });
-    }
+  it('H: denies when two APPROVED entries share the same registry_artifact_id, instead of silently picking the first', async () => {
+    // The underlying registry loader guarantees unique source_id, NOT unique artifact_id — so
+    // ambiguity is representable and must be refused rather than resolved by array position.
+    const ambiguous = providerReturning([
+      { registryArtifactId: APPROVED_ARTIFACT_ID, sourceContentHash: APPROVED_CONTENT_HASH },
+      { registryArtifactId: APPROVED_ARTIFACT_ID, sourceContentHash: 'c'.repeat(64) },
+    ]);
+    const authority = createRegistryAdmissionAuthority(ambiguous);
+    const result = await authority.checkAdmissible(APPROVED_ARTIFACT_ID, APPROVED_CONTENT_HASH);
+    expect(result.ok).toBe(false);
+    expect(result.reason).toBe('AMBIGUOUS_ARTIFACT_ID');
+  });
+
+  it('H: ambiguity is refused even when the FIRST duplicate would have matched the claimed hash', async () => {
+    // Guards against a "first match wins" regression that would look correct in the happy case.
+    const ambiguous = providerReturning([
+      { registryArtifactId: APPROVED_ARTIFACT_ID, sourceContentHash: APPROVED_CONTENT_HASH },
+      { registryArtifactId: APPROVED_ARTIFACT_ID, sourceContentHash: APPROVED_CONTENT_HASH },
+    ]);
+    const authority = createRegistryAdmissionAuthority(ambiguous);
+    const result = await authority.checkAdmissible(APPROVED_ARTIFACT_ID, APPROVED_CONTENT_HASH);
+    expect(result.ok).toBe(false);
+    expect(result.reason).toBe('AMBIGUOUS_ARTIFACT_ID');
+  });
+
+  it('denies when registry_artifact_id / registry_source_content_hash are empty — no fallback', async () => {
+    const authority = createRegistryAdmissionAuthority(singleApproved);
+    expect((await authority.checkAdmissible('', '')).ok).toBe(false);
+    expect((await authority.checkAdmissible(APPROVED_ARTIFACT_ID, '')).ok).toBe(false);
+    expect((await authority.checkAdmissible('', APPROVED_CONTENT_HASH)).ok).toBe(false);
+  });
+
+  it('an empty registry admits nothing', async () => {
+    const authority = createRegistryAdmissionAuthority(providerReturning([]));
+    const result = await authority.checkAdmissible(APPROVED_ARTIFACT_ID, APPROVED_CONTENT_HASH);
+    expect(result.ok).toBe(false);
+    expect(result.reason).toBe('ARTIFACT_NOT_FOUND');
+  });
+
+  it('same inputs produce the same ruling deterministically', async () => {
+    const authority = createRegistryAdmissionAuthority(singleApproved);
+    const results = await Promise.all([
+      authority.checkAdmissible('reg-nope', APPROVED_CONTENT_HASH),
+      authority.checkAdmissible('reg-nope', APPROVED_CONTENT_HASH),
+      authority.checkAdmissible('reg-nope', APPROVED_CONTENT_HASH),
+    ]);
+    expect(results.every((r) => r.ok === false && r.reason === 'ARTIFACT_NOT_FOUND')).toBe(true);
   });
 });

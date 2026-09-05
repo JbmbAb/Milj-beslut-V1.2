@@ -127,6 +127,8 @@ async function runDoc(manifest: Manifest, obj: ManifestObject): Promise<DocRepor
         documentId, sourceContentHash: rawContentHash, chunks: admission.admitted, pipelineVersion: 'text-v1.0',
         chunkPolicyVersion: CHUNK_POLICY_VERSION, approverActorId: 'system:legal-corpus-materialization',
         approverRole: 'AUTOMATED_EXECUTION_ATTESTOR',
+        registryArtifactId: manifest.registry_artifact_id,
+        registrySourceContentHash: manifest.source_content_hash,
       });
       const attRefDigest = createHash('sha256').update(JSON.stringify(attestation)).digest('hex');
       const attRef = { id: `att-${attRefDigest.slice(0, 16)}`, content_hash: { algorithm: 'sha256' as const, digest: attRefDigest } };
