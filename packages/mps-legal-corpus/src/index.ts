@@ -59,7 +59,8 @@ export {
 export {
   createRegistryAdmissionAuthority,
   type RegistryAdmissionAuthority,
-  type RegistryAdmissionAuthorityOptions,
   type RegistryAdmissionCheckResult,
   type RegistryAdmissionDenialReason,
+  type VerifiedRegistryEntrySnapshot,
+  type VerifiedRegistrySnapshotProvider,
 } from './SourceRegistryAdmissionAuthority';

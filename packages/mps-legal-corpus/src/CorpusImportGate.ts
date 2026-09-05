@@ -9,11 +9,12 @@ import {
   LegalCorpusGateError,
   type LegalCorpusImportAttestationPredicate,
 } from './CorpusImportAttestation';
-import { checkManifestCompleteness, type IngestionManifestEntry, type ManifestStore } from './IngestionManifest';
 import {
-  createRegistryAdmissionAuthority,
-  type RegistryAdmissionAuthority,
-} from './SourceRegistryAdmissionAuthority';
+  checkManifestCompleteness,
+  type IngestionManifestEntry,
+  type ManifestStore,
+} from './IngestionManifest';
+import type { RegistryAdmissionAuthority } from './SourceRegistryAdmissionAuthority';
 
 /**
  * ADR: docs/architecture/ADR-LEGAL-CORPUS-IMPORT-GATE.md (ACCEPTED / FROZEN).
@@ -80,15 +81,18 @@ export class CorpusImportGate {
     private readonly corpusWriter: CorpusWriter,
     private readonly signing: SigningKeyProvider,
     /**
-     * K2.1 — CORPUS-ADMISSION-REGISTRY-BINDING. Defaults to the real, environment-configured
-     * signed source registry (same default resolution `loadVerifiedSourceRegistry()` itself
-     * uses) so every existing production caller of this gate is covered without needing to be
-     * touched. Tests inject an explicit registryPath/signing via
-     * `createRegistryAdmissionAuthority({...})` pointed at a synthetic local fixture — never a
-     * stub that unconditionally admits, since that would reintroduce exactly the fallback this
-     * unit exists to remove.
+     * K2.1 — CORPUS-ADMISSION-REGISTRY-BINDING. Required, with no default, for the same reason
+     * `signing` has no default: this gate is storage- and infrastructure-agnostic, and every
+     * authority it depends on is injected explicitly by a composition root.
+     *
+     * K2.1b: an earlier revision defaulted this to a concrete registry-backed implementation so
+     * existing call sites would not have to change. That was wrong twice over — it made this
+     * package import `mps-data-governance` internals across a documented boundary, and it turned
+     * a wiring omission into a silent runtime denial at admission time instead of a visible
+     * error at composition time. A required parameter makes an unwired caller impossible to
+     * ship rather than merely unlucky at runtime.
      */
-    private readonly registryAuthority: RegistryAdmissionAuthority = createRegistryAdmissionAuthority(),
+    private readonly registryAuthority: RegistryAdmissionAuthority,
   ) {}
 
   async importBatch(request: CorpusImportBatchRequest): Promise<CorpusImportBatchResult> {

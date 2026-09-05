@@ -8,6 +8,7 @@ import {
   type LegalCorpusMaterializationIdentityInput,
 } from './LegalCorpusMaterializationIdentity';
 import { CorpusImportGate, type CorpusImportBatchRequest, type LegalChunk } from './CorpusImportGate';
+import type { LegalCorpusImportAttestationPredicate } from './CorpusImportAttestation';
 import type { IngestionManifestEntry } from './IngestionManifest';
 import type { ChunkStructureKind } from './ChunkIdentity';
 
@@ -71,8 +72,12 @@ export interface LegalCorpusChunkWrite {
 
 /** Transaction-only write surface. No pre-gate method is present by construction. */
 export interface LegalCorpusMaterializationTransaction {
-  createCanonicalCorpusRecord(input: CanonicalLegalCorpusRecordInput & { readonly record_key: string }): Promise<{ readonly id: string }>;
-  createMaterialization(input: LegalCorpusMaterializationWrite & { readonly corpus_record_id: string }): Promise<{ readonly id: string }>;
+  createCanonicalCorpusRecord(
+    input: CanonicalLegalCorpusRecordInput & { readonly record_key: string },
+  ): Promise<{ readonly id: string }>;
+  createMaterialization(
+    input: LegalCorpusMaterializationWrite & { readonly corpus_record_id: string },
+  ): Promise<{ readonly id: string }>;
   /**
    * Insert-only, replay-safe by `fragment_id` within `materialization_id` (the persistence
    * adapter must not error or duplicate rows when the same fragment is re-persisted under the
@@ -86,7 +91,9 @@ export interface LegalCorpusMaterializationTransaction {
     readonly record_id: string;
     readonly chunks: readonly LegalCorpusChunkWrite[];
   }): Promise<void>;
-  createIngestionManifestEntry(input: LegalCorpusIngestionManifestWrite & { readonly materialization_id: string }): Promise<void>;
+  createIngestionManifestEntry(
+    input: LegalCorpusIngestionManifestWrite & { readonly materialization_id: string },
+  ): Promise<void>;
 }
 
 export interface LegalCorpusMaterializationPersistence {
@@ -126,12 +133,16 @@ export class GovernedLegalCorpusMaterializer {
   }> {
     const canonicalRecordKey = buildCanonicalLegalCorpusRecordKey(request.identity);
     if (canonicalRecordKey.startsWith('foundation:')) {
-      throw new Error('REJECT_LEGACY_RECORD_KEY: canonical materialization cannot target a legacy record key.');
+      throw new Error(
+        'REJECT_LEGACY_RECORD_KEY: canonical materialization cannot target a legacy record key.',
+      );
     }
 
     const imports = request.gate_request.imports;
     if (imports.length !== 1 || imports[0].documentId !== canonicalRecordKey) {
-      throw new Error('REJECT_MATERIALIZATION_BATCH: one canonical materialization requires one matching gated document.');
+      throw new Error(
+        'REJECT_MATERIALIZATION_BATCH: one canonical materialization requires one matching gated document.',
+      );
     }
     if (request.manifest_entry.document_id !== canonicalRecordKey) {
       throw new Error('REJECT_MATERIALIZATION_MANIFEST: manifest entry must bind the canonical record key.');
@@ -146,6 +157,30 @@ export class GovernedLegalCorpusMaterializer {
     // GATE_BEFORE_WRITE_V1: this has no persistence side effects.
     const validated = await this.gate.validateBatch(request.gate_request);
     const approved = validated.imports[0];
+
+    // K2.1b finding 4: the gate proves the SIGNED predicate's registry binding resolves to a
+    // currently-APPROVED registry entry. It cannot prove that the identity actually being
+    // PERSISTED names that same entry — `identity.registry_artifact_id` /
+    // `registry_source_content_hash` travel here separately from the attestation and land
+    // verbatim in the materialization row. Without this comparison, a valid attestation for
+    // registry entry X could be paired with an identity claiming entry Y, and the persisted
+    // provenance would name an authority nothing ever checked. Compared after the gate, so a
+    // mismatch can never be read as an attestation-validity failure.
+    const predicate = (approved.attestation?.predicate ??
+      {}) as Partial<LegalCorpusImportAttestationPredicate>;
+    if (predicate.registry_artifact_id !== request.identity.registry_artifact_id) {
+      throw new Error(
+        'REJECT_MATERIALIZATION_REGISTRY_BINDING: the attested registry_artifact_id does not ' +
+          'match the registry_artifact_id of the identity being materialized.',
+      );
+    }
+    if (predicate.registry_source_content_hash !== request.identity.registry_source_content_hash) {
+      throw new Error(
+        'REJECT_MATERIALIZATION_REGISTRY_BINDING: the attested registry_source_content_hash ' +
+          'does not match the registry_source_content_hash of the identity being materialized.',
+      );
+    }
+
     const attestationRef = buildAttestationReference(approved.attestation);
 
     return this.persistence.transaction(async (tx) => {

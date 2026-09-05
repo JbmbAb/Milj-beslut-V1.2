@@ -6,19 +6,13 @@
 // spec, both locked precisions (order-sensitive chunk_set_content_hash; manifest completeness
 // as a single pre-write batch gate, not a post-hoc audit), and a happy path.
 
-import { describe, expect, it, beforeEach, afterEach } from 'vitest';
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { describe, expect, it, beforeEach } from 'vitest';
 import {
   createArtifactAttestation,
   LocalPemSigningKeyProvider,
-  LocalPemVerificationKeyProvider,
   type ArtifactAttestation,
   type SigningKeyProvider,
 } from '@miljobeslut/mimers-brunn-core';
-import { approveSourceRegistryEntry } from '../../mps-data-governance/src/SourceApproval';
-import type { SourceRegistryArtifact } from '../../mps-data-governance/src/SourceRegistry';
 import {
   CorpusImportGate,
   ChunkOrderError,
@@ -65,15 +59,23 @@ function docChunks(): LegalChunk[] {
   return [chunk(34, '1', 'Första paragrafens text.', 0), chunk(34, '2', 'Andra paragrafens text.', 1)];
 }
 
-function manifestEntry(overrides: Partial<IngestionManifestEntry> & { document_id: string }): IngestionManifestEntry {
+function manifestEntry(
+  overrides: Partial<IngestionManifestEntry> & { document_id: string },
+): IngestionManifestEntry {
   return {
-    source_manifest_ref: { id: `raw-${overrides.document_id}`, content_hash: { algorithm: 'sha256', digest: '00'.repeat(32) } },
+    source_manifest_ref: {
+      id: `raw-${overrides.document_id}`,
+      content_hash: { algorithm: 'sha256', digest: '00'.repeat(32) },
+    },
     status: 'INGESTED',
     classification: {},
     content_hash: '11'.repeat(32),
     pipeline_version: PIPELINE_VERSION,
     processed_at: '2026-08-11T00:00:00.000Z',
-    corpus_import_attestation_ref: { id: `att-${overrides.document_id}`, content_hash: { algorithm: 'sha256', digest: '22'.repeat(32) } },
+    corpus_import_attestation_ref: {
+      id: `att-${overrides.document_id}`,
+      content_hash: { algorithm: 'sha256', digest: '22'.repeat(32) },
+    },
     ...overrides,
   };
 }
@@ -86,8 +88,16 @@ class InMemoryManifestStore implements ManifestStore {
 }
 
 class RecordingCorpusWriter implements CorpusWriter {
-  readonly writes: Array<{ documentId: string; chunks: readonly LegalChunk[]; attestation: ArtifactAttestation }> = [];
-  async writeChunkSet(args: { documentId: string; chunks: readonly LegalChunk[]; attestation: ArtifactAttestation }): Promise<void> {
+  readonly writes: Array<{
+    documentId: string;
+    chunks: readonly LegalChunk[];
+    attestation: ArtifactAttestation;
+  }> = [];
+  async writeChunkSet(args: {
+    documentId: string;
+    chunks: readonly LegalChunk[];
+    attestation: ArtifactAttestation;
+  }): Promise<void> {
     this.writes.push(args);
   }
 }
@@ -95,84 +105,26 @@ class RecordingCorpusWriter implements CorpusWriter {
 let signing: SigningKeyProvider;
 let otherSigning: SigningKeyProvider;
 
-// ---- K2.1 registry fixture --------------------------------------------------------------
-// A synthetic, locally-signed source registry — never the real production
-// source-registry/national-registry.json, never a live network call. Every existing test in
-// this file (all of which construct CorpusImportGate with only 3 args, relying on its default
-// registryAuthority) resolves against THIS fixture via env vars, so they stay deterministic
-// and isolated while still genuinely exercising the new default code path rather than bypassing
-// it with a stub.
-let registryFixtureDir: string;
-let originalRegistryEnv: {
-  path: string | undefined;
-  keyId: string | undefined;
-  publicKey: string | undefined;
-  trustedKeysFile: string | undefined;
-};
-let VALID_REGISTRY_ARTIFACT_ID: string;
-let VALID_REGISTRY_SOURCE_CONTENT_HASH: string;
+// ---- K2.1 registry authority -------------------------------------------------------------
+// After K2.1b the gate takes its registry authority as a REQUIRED injected dependency, and this
+// package no longer knows how to load or verify a registry (that lives behind the server-side
+// adapter, across the mps-data-governance boundary). These tests therefore inject an authority
+// backed by an explicit snapshot provider. It is not an "always admit" stub: it is the real
+// decision logic from src/, fed a specific approved-entry set, so every deny path below is the
+// production code path.
+const VALID_REGISTRY_ARTIFACT_ID = 'reg-test-corpus-source-001';
+const VALID_REGISTRY_SOURCE_CONTENT_HASH = 'a'.repeat(64);
 
-async function setUpRegistryFixture(): Promise<void> {
-  const { provider: registrySigning, publicKey } = LocalPemSigningKeyProvider.generate(
-    'ed25519:test-registry-governor',
-  );
-  const draft: Omit<SourceRegistryArtifact, 'approval_attestation'> = {
-    artifact_id: 'reg-test-corpus-source-001',
-    artifact_type: 'SOURCE_REGISTRY_ENTRY',
-    source_id: 'test-corpus-source',
-    producer: { producer_id: 'TEST', name: 'Test Authority', type: 'agency' },
-    channel: {
-      channel_type: 'WEBSITE',
-      endpoint_url: 'https://example.invalid/test-corpus-source',
-      allowed_domains: ['example.invalid'],
-    },
-    adapter: 'SINGLE_ENDPOINT_V1',
-    artifact_types: ['LAW'],
-    collection_frequency: 'WEEKLY',
-    change_detection: { strategy: 'CONTENT_HASH' },
-    policy: {
-      rate_limit_requests_per_second: 1,
-      concurrency_limit: 1,
-      retry_policy: { max_attempts: 3, backoff: 'EXPONENTIAL' },
-    },
-    lifecycle_state: 'REGISTERED',
-  };
-  const approved = await approveSourceRegistryEntry({
-    entry: draft,
-    approver_actor_id: 'test-reviewer',
-    signing: registrySigning,
-  });
-
-  registryFixtureDir = mkdtempSync(join(tmpdir(), 'corpus-import-gate-registry-'));
-  const registryPath = join(registryFixtureDir, 'national-registry.json');
-  writeFileSync(registryPath, JSON.stringify([approved], null, 2), 'utf8');
-
-  originalRegistryEnv = {
-    path: process.env.SOURCE_REGISTRY_ARTIFACT_PATH,
-    keyId: process.env.SOURCE_REGISTRY_SIGNING_KEY_ID,
-    publicKey: process.env.SOURCE_REGISTRY_SIGNING_PUBLIC_KEY_PEM,
-    trustedKeysFile: process.env.SOURCE_REGISTRY_TRUSTED_KEYS_FILE,
-  };
-  process.env.SOURCE_REGISTRY_ARTIFACT_PATH = registryPath;
-  process.env.SOURCE_REGISTRY_SIGNING_KEY_ID = registrySigning.keyId;
-  process.env.SOURCE_REGISTRY_SIGNING_PUBLIC_KEY_PEM = publicKey;
-  delete process.env.SOURCE_REGISTRY_TRUSTED_KEYS_FILE;
-
-  VALID_REGISTRY_ARTIFACT_ID = approved.artifact_id;
-  VALID_REGISTRY_SOURCE_CONTENT_HASH = approved.approval_attestation.predicate.source_content_hash as string;
-}
-
-function tearDownRegistryFixture(): void {
-  if (originalRegistryEnv.path === undefined) delete process.env.SOURCE_REGISTRY_ARTIFACT_PATH;
-  else process.env.SOURCE_REGISTRY_ARTIFACT_PATH = originalRegistryEnv.path;
-  if (originalRegistryEnv.keyId === undefined) delete process.env.SOURCE_REGISTRY_SIGNING_KEY_ID;
-  else process.env.SOURCE_REGISTRY_SIGNING_KEY_ID = originalRegistryEnv.keyId;
-  if (originalRegistryEnv.publicKey === undefined) delete process.env.SOURCE_REGISTRY_SIGNING_PUBLIC_KEY_PEM;
-  else process.env.SOURCE_REGISTRY_SIGNING_PUBLIC_KEY_PEM = originalRegistryEnv.publicKey;
-  if (originalRegistryEnv.trustedKeysFile === undefined) delete process.env.SOURCE_REGISTRY_TRUSTED_KEYS_FILE;
-  else process.env.SOURCE_REGISTRY_TRUSTED_KEYS_FILE = originalRegistryEnv.trustedKeysFile;
-  rmSync(registryFixtureDir, { recursive: true, force: true });
-}
+const registryAuthority: RegistryAdmissionAuthority = createRegistryAdmissionAuthority({
+  async loadApprovedEntries() {
+    return [
+      {
+        registryArtifactId: VALID_REGISTRY_ARTIFACT_ID,
+        sourceContentHash: VALID_REGISTRY_SOURCE_CONTENT_HASH,
+      },
+    ];
+  },
+});
 
 async function buildAttestation(
   args: {
@@ -212,14 +164,9 @@ async function buildAttestation(
   });
 }
 
-beforeEach(async () => {
+beforeEach(() => {
   signing = LocalPemSigningKeyProvider.generate('ed25519:test-legal-corpus-authority').provider;
   otherSigning = LocalPemSigningKeyProvider.generate('ed25519:not-the-legal-corpus-key').provider;
-  await setUpRegistryFixture();
-});
-
-afterEach(() => {
-  tearDownRegistryFixture();
 });
 
 // ---- 1. Direct bypass: no / invalid attestation ---------------------------------------
@@ -230,7 +177,7 @@ describe('CorpusImportGate — negative: bypass with missing/invalid attestation
     const chunks = docChunks();
     const manifestStore = new InMemoryManifestStore([manifestEntry({ document_id: docId })]);
     const writer = new RecordingCorpusWriter();
-    const gate = new CorpusImportGate(manifestStore, writer, signing);
+    const gate = new CorpusImportGate(manifestStore, writer, signing, registryAuthority);
 
     const forged: ArtifactAttestation = {
       subjectDigest: 'sha256:not-real',
@@ -254,7 +201,11 @@ describe('CorpusImportGate — negative: bypass with missing/invalid attestation
     };
 
     await expect(
-      gate.importBatch({ runId: 'run-1', expectedDocumentIds: [docId], imports: [{ documentId: docId, chunks, attestation: forged }] }),
+      gate.importBatch({
+        runId: 'run-1',
+        expectedDocumentIds: [docId],
+        imports: [{ documentId: docId, chunks, attestation: forged }],
+      }),
     ).rejects.toThrow(LegalCorpusGateError);
     expect(writer.writes).toHaveLength(0);
   });
@@ -264,7 +215,7 @@ describe('CorpusImportGate — negative: bypass with missing/invalid attestation
     const chunks = docChunks();
     const manifestStore = new InMemoryManifestStore([manifestEntry({ document_id: docId })]);
     const writer = new RecordingCorpusWriter();
-    const gate = new CorpusImportGate(manifestStore, writer, signing);
+    const gate = new CorpusImportGate(manifestStore, writer, signing, registryAuthority);
 
     await expect(
       gate.importBatch({
@@ -287,7 +238,7 @@ describe('CorpusImportGate — negative: artifact substitution', () => {
 
     const manifestStore = new InMemoryManifestStore([manifestEntry({ document_id: 'doc-B' })]);
     const writer = new RecordingCorpusWriter();
-    const gate = new CorpusImportGate(manifestStore, writer, signing);
+    const gate = new CorpusImportGate(manifestStore, writer, signing, registryAuthority);
 
     await expect(
       gate.importBatch({
@@ -310,10 +261,14 @@ describe('CorpusImportGate — negative: action substitution', () => {
 
     const manifestStore = new InMemoryManifestStore([manifestEntry({ document_id: docId })]);
     const writer = new RecordingCorpusWriter();
-    const gate = new CorpusImportGate(manifestStore, writer, signing);
+    const gate = new CorpusImportGate(manifestStore, writer, signing, registryAuthority);
 
     await expect(
-      gate.importBatch({ runId: 'run-1', expectedDocumentIds: [docId], imports: [{ documentId: docId, chunks, attestation }] }),
+      gate.importBatch({
+        runId: 'run-1',
+        expectedDocumentIds: [docId],
+        imports: [{ documentId: docId, chunks, attestation }],
+      }),
     ).rejects.toThrow(/action is not/);
     expect(writer.writes).toHaveLength(0);
   });
@@ -325,16 +280,24 @@ describe('CorpusImportGate — negative: pipeline_version / chunk_policy_version
   it('rejects when the attestation was signed against a different pipeline_version than the manifest records', async () => {
     const docId = 'doc-1';
     const chunks = docChunks();
-    const attestation = await buildAttestation({ documentId: docId, chunks, pipelineVersion: 'pipeline-v2-different' });
+    const attestation = await buildAttestation({
+      documentId: docId,
+      chunks,
+      pipelineVersion: 'pipeline-v2-different',
+    });
 
     const manifestStore = new InMemoryManifestStore([
       manifestEntry({ document_id: docId, pipeline_version: PIPELINE_VERSION }),
     ]);
     const writer = new RecordingCorpusWriter();
-    const gate = new CorpusImportGate(manifestStore, writer, signing);
+    const gate = new CorpusImportGate(manifestStore, writer, signing, registryAuthority);
 
     await expect(
-      gate.importBatch({ runId: 'run-1', expectedDocumentIds: [docId], imports: [{ documentId: docId, chunks, attestation }] }),
+      gate.importBatch({
+        runId: 'run-1',
+        expectedDocumentIds: [docId],
+        imports: [{ documentId: docId, chunks, attestation }],
+      }),
     ).rejects.toThrow(/pipeline_version does not match/);
     expect(writer.writes).toHaveLength(0);
   });
@@ -353,7 +316,7 @@ describe('CorpusImportGate — negative: chunk_set_content_hash tamper', () => {
 
     const manifestStore = new InMemoryManifestStore([manifestEntry({ document_id: docId })]);
     const writer = new RecordingCorpusWriter();
-    const gate = new CorpusImportGate(manifestStore, writer, signing);
+    const gate = new CorpusImportGate(manifestStore, writer, signing, registryAuthority);
 
     await expect(
       gate.importBatch({
@@ -376,20 +339,29 @@ describe('CorpusImportGate — negative: manifest completeness', () => {
 
     const manifestStore = new InMemoryManifestStore([]); // no entry for doc-1 at all
     const writer = new RecordingCorpusWriter();
-    const gate = new CorpusImportGate(manifestStore, writer, signing);
+    const gate = new CorpusImportGate(manifestStore, writer, signing, registryAuthority);
 
     await expect(
-      gate.importBatch({ runId: 'run-1', expectedDocumentIds: [docId], imports: [{ documentId: docId, chunks, attestation }] }),
+      gate.importBatch({
+        runId: 'run-1',
+        expectedDocumentIds: [docId],
+        imports: [{ documentId: docId, chunks, attestation }],
+      }),
     ).rejects.toThrow(/no manifest entry at all/);
     expect(writer.writes).toHaveLength(0);
   });
 
   it('rejects the whole batch when a FILTERED_OUT entry has no filtered_reason', async () => {
     const manifestStore = new InMemoryManifestStore([
-      manifestEntry({ document_id: 'doc-filtered', status: 'FILTERED_OUT', filtered_reason: undefined, corpus_import_attestation_ref: undefined }),
+      manifestEntry({
+        document_id: 'doc-filtered',
+        status: 'FILTERED_OUT',
+        filtered_reason: undefined,
+        corpus_import_attestation_ref: undefined,
+      }),
     ]);
     const writer = new RecordingCorpusWriter();
-    const gate = new CorpusImportGate(manifestStore, writer, signing);
+    const gate = new CorpusImportGate(manifestStore, writer, signing, registryAuthority);
 
     await expect(
       gate.importBatch({ runId: 'run-1', expectedDocumentIds: ['doc-filtered'], imports: [] }),
@@ -402,7 +374,7 @@ describe('CorpusImportGate — negative: manifest completeness', () => {
       manifestEntry({ document_id: 'doc-1', status: 'INGESTED', corpus_import_attestation_ref: undefined }),
     ]);
     const writer = new RecordingCorpusWriter();
-    const gate = new CorpusImportGate(manifestStore, writer, signing);
+    const gate = new CorpusImportGate(manifestStore, writer, signing, registryAuthority);
 
     await expect(
       gate.importBatch({ runId: 'run-1', expectedDocumentIds: ['doc-1'], imports: [] }),
@@ -442,10 +414,14 @@ describe('CorpusImportGate — locked precision: chunk_set_content_hash is order
 
     const manifestStore = new InMemoryManifestStore([manifestEntry({ document_id: docId })]);
     const writer = new RecordingCorpusWriter();
-    const gate = new CorpusImportGate(manifestStore, writer, signing);
+    const gate = new CorpusImportGate(manifestStore, writer, signing, registryAuthority);
 
     await expect(
-      gate.importBatch({ runId: 'run-1', expectedDocumentIds: [docId], imports: [{ documentId: docId, chunks: scrambled, attestation }] }),
+      gate.importBatch({
+        runId: 'run-1',
+        expectedDocumentIds: [docId],
+        imports: [{ documentId: docId, chunks: scrambled, attestation }],
+      }),
     ).rejects.toThrow(/not in canonical document-structure order/);
     expect(writer.writes).toHaveLength(0);
   });
@@ -474,7 +450,7 @@ describe('CorpusImportGate — locked precision: manifest completeness gates the
       manifestEntry({ document_id: brokenDocId, corpus_import_attestation_ref: undefined }),
     ]);
     const writer = new RecordingCorpusWriter();
-    const gate = new CorpusImportGate(manifestStore, writer, signing);
+    const gate = new CorpusImportGate(manifestStore, writer, signing, registryAuthority);
 
     await expect(
       gate.importBatch({
@@ -494,14 +470,18 @@ describe('CorpusImportGate — locked precision: manifest completeness gates the
     const invalidDocId = 'doc-invalid';
     const chunks = docChunks();
     const validAttestation = await buildAttestation({ documentId: validDocId, chunks });
-    const invalidAttestation = await buildAttestation({ documentId: invalidDocId, chunks, action: 'legal.corpus.reject' });
+    const invalidAttestation = await buildAttestation({
+      documentId: invalidDocId,
+      chunks,
+      action: 'legal.corpus.reject',
+    });
 
     const manifestStore = new InMemoryManifestStore([
       manifestEntry({ document_id: validDocId }),
       manifestEntry({ document_id: invalidDocId }),
     ]);
     const writer = new RecordingCorpusWriter();
-    const gate = new CorpusImportGate(manifestStore, writer, signing);
+    const gate = new CorpusImportGate(manifestStore, writer, signing, registryAuthority);
 
     await expect(
       gate.importBatch({
@@ -524,14 +504,21 @@ describe('CorpusImportGate — bonus: attestation signed by a different key is r
   it('rejects an attestation validly signed by a non-governance key', async () => {
     const docId = 'doc-1';
     const chunks = docChunks();
-    const attestation = await buildAttestation({ documentId: docId, chunks, signerKeyId: otherSigning.keyId }, otherSigning);
+    const attestation = await buildAttestation(
+      { documentId: docId, chunks, signerKeyId: otherSigning.keyId },
+      otherSigning,
+    );
 
     const manifestStore = new InMemoryManifestStore([manifestEntry({ document_id: docId })]);
     const writer = new RecordingCorpusWriter();
-    const gate = new CorpusImportGate(manifestStore, writer, signing);
+    const gate = new CorpusImportGate(manifestStore, writer, signing, registryAuthority);
 
     await expect(
-      gate.importBatch({ runId: 'run-1', expectedDocumentIds: [docId], imports: [{ documentId: docId, chunks, attestation }] }),
+      gate.importBatch({
+        runId: 'run-1',
+        expectedDocumentIds: [docId],
+        imports: [{ documentId: docId, chunks, attestation }],
+      }),
     ).rejects.toThrow(/legal-corpus governance key|cryptographic signature is invalid/);
     expect(writer.writes).toHaveLength(0);
   });
@@ -554,7 +541,7 @@ describe('CorpusImportGate — a correctly bound batch imports exactly once', ()
       manifestEntry({ document_id: doc2 }),
     ]);
     const writer = new RecordingCorpusWriter();
-    const gate = new CorpusImportGate(manifestStore, writer, signing);
+    const gate = new CorpusImportGate(manifestStore, writer, signing, registryAuthority);
 
     const result = await gate.importBatch({
       runId: 'run-1',
@@ -586,7 +573,7 @@ describe('CorpusImportGate — a correctly bound batch imports exactly once', ()
       }),
     ]);
     const writer = new RecordingCorpusWriter();
-    const gate = new CorpusImportGate(manifestStore, writer, signing);
+    const gate = new CorpusImportGate(manifestStore, writer, signing, registryAuthority);
 
     const result = await gate.importBatch({
       runId: 'run-1',
@@ -619,10 +606,14 @@ describe('CorpusImportGate — K2.1: registry-binding, RED cases (currently woul
 
     const manifestStore = new InMemoryManifestStore([manifestEntry({ document_id: docId })]);
     const writer = new RecordingCorpusWriter();
-    const gate = new CorpusImportGate(manifestStore, writer, signing);
+    const gate = new CorpusImportGate(manifestStore, writer, signing, registryAuthority);
 
     await expect(
-      gate.importBatch({ runId: 'run-1', expectedDocumentIds: [docId], imports: [{ documentId: docId, chunks, attestation }] }),
+      gate.importBatch({
+        runId: 'run-1',
+        expectedDocumentIds: [docId],
+        imports: [{ documentId: docId, chunks, attestation }],
+      }),
     ).rejects.toThrow(/ARTIFACT_NOT_FOUND/);
     expect(writer.writes).toHaveLength(0);
   });
@@ -638,10 +629,14 @@ describe('CorpusImportGate — K2.1: registry-binding, RED cases (currently woul
 
     const manifestStore = new InMemoryManifestStore([manifestEntry({ document_id: docId })]);
     const writer = new RecordingCorpusWriter();
-    const gate = new CorpusImportGate(manifestStore, writer, signing);
+    const gate = new CorpusImportGate(manifestStore, writer, signing, registryAuthority);
 
     await expect(
-      gate.importBatch({ runId: 'run-1', expectedDocumentIds: [docId], imports: [{ documentId: docId, chunks, attestation }] }),
+      gate.importBatch({
+        runId: 'run-1',
+        expectedDocumentIds: [docId],
+        imports: [{ documentId: docId, chunks, attestation }],
+      }),
     ).rejects.toThrow(/CONTENT_HASH_MISMATCH/);
     expect(writer.writes).toHaveLength(0);
   });
@@ -661,10 +656,14 @@ describe('CorpusImportGate — K2.1: registry-binding, RED cases (currently woul
 
     const manifestStore = new InMemoryManifestStore([manifestEntry({ document_id: docId })]);
     const writer = new RecordingCorpusWriter();
-    const gate = new CorpusImportGate(manifestStore, writer, signing);
+    const gate = new CorpusImportGate(manifestStore, writer, signing, registryAuthority);
 
     await expect(
-      gate.importBatch({ runId: 'run-1', expectedDocumentIds: [docId], imports: [{ documentId: docId, chunks, attestation }] }),
+      gate.importBatch({
+        runId: 'run-1',
+        expectedDocumentIds: [docId],
+        imports: [{ documentId: docId, chunks, attestation }],
+      }),
     ).rejects.toThrow(/ARTIFACT_NOT_FOUND/);
     expect(writer.writes).toHaveLength(0);
   });
@@ -680,13 +679,21 @@ describe('CorpusImportGate — K2.1: registry-binding, RED cases (currently woul
     // missing key configuration without depending on global env-var mutation for this one case.
     const unavailableAuthority: RegistryAdmissionAuthority = {
       async checkAdmissible() {
-        return { ok: false, reason: 'REGISTRY_UNAVAILABLE', detail: 'simulated: registry could not be loaded.' };
+        return {
+          ok: false,
+          reason: 'REGISTRY_UNAVAILABLE',
+          detail: 'simulated: registry could not be loaded.',
+        };
       },
     };
     const gate = new CorpusImportGate(manifestStore, writer, signing, unavailableAuthority);
 
     await expect(
-      gate.importBatch({ runId: 'run-1', expectedDocumentIds: [docId], imports: [{ documentId: docId, chunks, attestation }] }),
+      gate.importBatch({
+        runId: 'run-1',
+        expectedDocumentIds: [docId],
+        imports: [{ documentId: docId, chunks, attestation }],
+      }),
     ).rejects.toThrow(/REGISTRY_UNAVAILABLE/);
     expect(writer.writes).toHaveLength(0);
   });
@@ -718,10 +725,14 @@ describe('CorpusImportGate — K2.1: registry-binding, RED cases (currently woul
 
     const manifestStore = new InMemoryManifestStore([manifestEntry({ document_id: docId })]);
     const writer = new RecordingCorpusWriter();
-    const gate = new CorpusImportGate(manifestStore, writer, signing);
+    const gate = new CorpusImportGate(manifestStore, writer, signing, registryAuthority);
 
     await expect(
-      gate.importBatch({ runId: 'run-1', expectedDocumentIds: [docId], imports: [{ documentId: docId, chunks, attestation }] }),
+      gate.importBatch({
+        runId: 'run-1',
+        expectedDocumentIds: [docId],
+        imports: [{ documentId: docId, chunks, attestation }],
+      }),
     ).rejects.toThrow(/registry_artifact_id/);
     expect(writer.writes).toHaveLength(0);
   });
@@ -735,7 +746,7 @@ describe('CorpusImportGate — K2.1: registry-binding, GREEN (valid APPROVED ent
 
     const manifestStore = new InMemoryManifestStore([manifestEntry({ document_id: docId })]);
     const writer = new RecordingCorpusWriter();
-    const gate = new CorpusImportGate(manifestStore, writer, signing);
+    const gate = new CorpusImportGate(manifestStore, writer, signing, registryAuthority);
 
     const result = await gate.importBatch({
       runId: 'run-1',
@@ -750,23 +761,60 @@ describe('CorpusImportGate — K2.1: registry-binding, GREEN (valid APPROVED ent
   it('same inputs produce the same ruling deterministically across repeated calls', async () => {
     const docId = 'doc-1';
     const chunks = docChunks();
-    const attestation = await buildAttestation({ documentId: docId, chunks, registryArtifactId: 'reg-fabricated-does-not-exist' });
+    const attestation = await buildAttestation({
+      documentId: docId,
+      chunks,
+      registryArtifactId: 'reg-fabricated-does-not-exist',
+    });
     const manifestStore = new InMemoryManifestStore([manifestEntry({ document_id: docId })]);
 
-    const authority = createRegistryAdmissionAuthority();
     const results = await Promise.all([
-      authority.checkAdmissible('reg-fabricated-does-not-exist', VALID_REGISTRY_SOURCE_CONTENT_HASH),
-      authority.checkAdmissible('reg-fabricated-does-not-exist', VALID_REGISTRY_SOURCE_CONTENT_HASH),
-      authority.checkAdmissible('reg-fabricated-does-not-exist', VALID_REGISTRY_SOURCE_CONTENT_HASH),
+      registryAuthority.checkAdmissible('reg-fabricated-does-not-exist', VALID_REGISTRY_SOURCE_CONTENT_HASH),
+      registryAuthority.checkAdmissible('reg-fabricated-does-not-exist', VALID_REGISTRY_SOURCE_CONTENT_HASH),
+      registryAuthority.checkAdmissible('reg-fabricated-does-not-exist', VALID_REGISTRY_SOURCE_CONTENT_HASH),
     ]);
     expect(results.every((r) => r.ok === false && r.reason === 'ARTIFACT_NOT_FOUND')).toBe(true);
 
     // Also confirmed through the gate itself, not just the helper in isolation.
     const writer = new RecordingCorpusWriter();
-    const gate = new CorpusImportGate(manifestStore, writer, signing);
+    const gate = new CorpusImportGate(manifestStore, writer, signing, registryAuthority);
     await expect(
-      gate.importBatch({ runId: 'run-1', expectedDocumentIds: [docId], imports: [{ documentId: docId, chunks, attestation }] }),
+      gate.importBatch({
+        runId: 'run-1',
+        expectedDocumentIds: [docId],
+        imports: [{ documentId: docId, chunks, attestation }],
+      }),
     ).rejects.toThrow(/ARTIFACT_NOT_FOUND/);
+  });
+
+  it('H: rejects an ambiguous registry_artifact_id at the gate, not just in the helper', async () => {
+    const docId = 'doc-1';
+    const chunks = docChunks();
+    const attestation = await buildAttestation({ documentId: docId, chunks });
+    const manifestStore = new InMemoryManifestStore([manifestEntry({ document_id: docId })]);
+    const writer = new RecordingCorpusWriter();
+
+    const ambiguousAuthority = createRegistryAdmissionAuthority({
+      async loadApprovedEntries() {
+        return [
+          {
+            registryArtifactId: VALID_REGISTRY_ARTIFACT_ID,
+            sourceContentHash: VALID_REGISTRY_SOURCE_CONTENT_HASH,
+          },
+          { registryArtifactId: VALID_REGISTRY_ARTIFACT_ID, sourceContentHash: 'f'.repeat(64) },
+        ];
+      },
+    });
+    const gate = new CorpusImportGate(manifestStore, writer, signing, ambiguousAuthority);
+
+    await expect(
+      gate.importBatch({
+        runId: 'run-1',
+        expectedDocumentIds: [docId],
+        imports: [{ documentId: docId, chunks, attestation }],
+      }),
+    ).rejects.toThrow(/AMBIGUOUS_ARTIFACT_ID/);
+    expect(writer.writes).toHaveLength(0);
   });
 });
 
@@ -777,7 +825,9 @@ describe('CorpusImportGate — K2.1: does not disturb the historical-validity qu
     // This is asserted here as a standing invariant so a future unit cannot silently add a
     // read-path method to this same class and reuse registryAuthority for WAS_VALID_AT(T)
     // semantics without that being a deliberate, reviewed change.
-    const publicMethods = Object.getOwnPropertyNames(CorpusImportGate.prototype).filter((m) => m !== 'constructor');
+    const publicMethods = Object.getOwnPropertyNames(CorpusImportGate.prototype).filter(
+      (m) => m !== 'constructor',
+    );
     expect(publicMethods.sort()).toEqual(['importBatch', 'validateBatch'].sort());
   });
 });

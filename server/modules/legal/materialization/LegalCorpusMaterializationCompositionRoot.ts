@@ -9,6 +9,7 @@ import {
   LEGAL_CORPUS_IMPORT_ATTESTATION_SCHEMA_VERSION,
   LEGAL_CORPUS_IMPORT_PREDICATE_TYPE,
   computeChunkSetContentHash,
+  createRegistryAdmissionAuthority,
   type CorpusWriter,
   type IngestionManifestEntry,
   type LegalChunk,
@@ -20,6 +21,7 @@ import { getLegalCorpusMaterializationSigningProvider } from '../../../security/
 import { PrismaLegalCorpusMaterializationPersistence } from '../services/PrismaLegalCorpusMaterializationPersistence';
 import { DownloadManifestSourceResolver } from './DownloadManifestSourceResolver';
 import { FileIngestionManifestStore } from './FileIngestionManifestStore';
+import { SourceRegistryAdmissionAdapter } from './SourceRegistryAdmissionAdapter';
 
 /**
  * LEGAL-CORPUS-MATERIALIZATION-V1 (part D) — production composition root.
@@ -42,6 +44,12 @@ export interface LegalCorpusMaterializationCompositionOptions {
   readonly quarantineRootPath?: string;
   /** Defaults to `<quarantineRootPath>/legal-corpus-manifests`. */
   readonly ingestionManifestRootPath?: string;
+  /**
+   * K2.1 — defaults to `SOURCE_REGISTRY_ARTIFACT_PATH` / the repo-resolved authority file,
+   * exactly as `loadVerifiedSourceRegistry` resolves it. Present so a caller can point the
+   * admission authority at an explicit registry without mutating process env.
+   */
+  readonly sourceRegistryPath?: string;
 }
 
 export interface ComposedLegalCorpusMaterialization {
@@ -56,6 +64,14 @@ export interface ComposedLegalCorpusMaterialization {
     readonly chunkPolicyVersion: string;
     readonly approverActorId: string;
     readonly approverRole: string;
+    /**
+     * K2.1 — required. The source-registry entry this document claims to originate from. Signed
+     * into the predicate so `CorpusImportGate` can resolve it against the real signed registry,
+     * and so `GovernedLegalCorpusMaterializer` can prove the persisted identity names the same
+     * entry the attestation does.
+     */
+    readonly registryArtifactId: string;
+    readonly registrySourceContentHash: string;
   }) => Promise<ArtifactAttestation>;
 }
 
@@ -86,7 +102,13 @@ export function composeLegalCorpusMaterialization(
   const ingestionManifestStore = new FileIngestionManifestStore(ingestionManifestRootPath);
   const signing = getLegalCorpusMaterializationSigningProvider();
 
-  const gate = new CorpusImportGate(ingestionManifestStore, inertCorpusWriter, signing);
+  // K2.1 — the gate's registry authority is injected here, never defaulted inside the domain
+  // package: the adapter is what knows how to load and verify the signed registry, and it lives
+  // on this side of the boundary for the same reason DownloadManifestSourceResolver does.
+  const registryAuthority = createRegistryAdmissionAuthority(
+    new SourceRegistryAdmissionAdapter(options.sourceRegistryPath),
+  );
+  const gate = new CorpusImportGate(ingestionManifestStore, inertCorpusWriter, signing, registryAuthority);
   const persistence = new PrismaLegalCorpusMaterializationPersistence(prisma);
   const materializer = new GovernedLegalCorpusMaterializer(gate, persistence, sourceManifestResolver);
 
@@ -98,6 +120,14 @@ export function composeLegalCorpusMaterialization(
     readonly chunkPolicyVersion: string;
     readonly approverActorId: string;
     readonly approverRole: string;
+    /**
+     * K2.1 — required. The source-registry entry this document claims to originate from. Signed
+     * into the predicate so `CorpusImportGate` can resolve it against the real signed registry,
+     * and so `GovernedLegalCorpusMaterializer` can prove the persisted identity names the same
+     * entry the attestation does.
+     */
+    readonly registryArtifactId: string;
+    readonly registrySourceContentHash: string;
   }): Promise<ArtifactAttestation> => {
     const chunkSetContentHash = computeChunkSetContentHash(args.chunks);
     const predicate = {
@@ -111,6 +141,8 @@ export function composeLegalCorpusMaterialization(
       approver_role: args.approverRole,
       attestation_schema_version: LEGAL_CORPUS_IMPORT_ATTESTATION_SCHEMA_VERSION,
       signer_key_id: signing.keyId,
+      registry_artifact_id: args.registryArtifactId,
+      registry_source_content_hash: args.registrySourceContentHash,
     };
     const subjectDigest = `sha256:${createHash('sha256').update(canonicalizeStrict(predicate), 'utf8').digest('hex')}`;
 
