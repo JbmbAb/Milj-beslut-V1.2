@@ -3,7 +3,8 @@ import { classifyVerifierFailure } from "./StateMachine";
 
 export interface RouteDecision {
   readonly targetRole: MultiAgentRole | "DEV_GOV" | "NONE";
-  readonly nextState: MultiAgentState;
+  readonly acceptedState: MultiAgentState;
+  readonly activationState?: MultiAgentState;
   readonly verificationMode?: "FULL_REVERIFY" | "DELTA_REVERIFY";
   readonly reason: string;
 }
@@ -12,39 +13,40 @@ export function routeAfterHandoff(handoff: AgentHandoff): RouteDecision {
   if (handoff.result === "BLOCKED_ENVIRONMENT") {
     return {
       targetRole: "NONE",
-      nextState: "BLOCKED_ENVIRONMENT",
+      acceptedState: "BLOCKED_ENVIRONMENT",
       reason: "environment failure requires recovery without semantic edits",
     };
   }
   if (handoff.result === "BLOCKED_DESIGN") {
     return {
       targetRole: "CONTROLLER",
-      nextState: "BLOCKED_DESIGN",
+      acceptedState: "BLOCKED_DESIGN",
       reason: "design blocker requires controller/owner decision",
     };
   }
   if (handoff.result === "BLOCKED_DEPENDENCY") {
     return {
       targetRole: "NONE",
-      nextState: "BLOCKED_DEPENDENCY",
+      acceptedState: "BLOCKED_DEPENDENCY",
       reason: "dependency blocker must clear before routing continues",
     };
   }
   if (handoff.result === "DENIED_GOVERNANCE") {
     return {
       targetRole: "CONTROLLER",
-      nextState: "BLOCKED_DESIGN",
+      acceptedState: "BLOCKED_DESIGN",
       reason: "governance denial cannot be repaired as a mechanical edit",
     };
   }
   if (handoff.result === "CANCELLED") {
-    return { targetRole: "NONE", nextState: "CANCELLED", reason: "unit cancelled" };
+    return { targetRole: "NONE", acceptedState: "CANCELLED", reason: "unit cancelled" };
   }
 
   if (handoff.role === "IMPLEMENTER" && handoff.result === "PASS") {
     return {
       targetRole: "VERIFIER",
-      nextState: "IMPLEMENTATION_READY",
+      acceptedState: "IMPLEMENTATION_READY",
+      activationState: "VERIFYING",
       reason: "candidate ready for independent verification",
     };
   }
@@ -52,7 +54,8 @@ export function routeAfterHandoff(handoff: AgentHandoff): RouteDecision {
   if (handoff.role === "VERIFIER" && handoff.result === "PASS") {
     return {
       targetRole: "DEV_GOV",
-      nextState: "READY_FOR_DEV_GOV",
+      acceptedState: "READY_FOR_DEV_GOV",
+      activationState: "PROVING_RED",
       reason: "independent verifier accepted exact candidate",
     };
   }
@@ -61,7 +64,8 @@ export function routeAfterHandoff(handoff: AgentHandoff): RouteDecision {
     const mode = classifyVerifierFailure(handoff);
     return {
       targetRole: "IMPLEMENTER",
-      nextState: "VERIFY_FAILED",
+      acceptedState: "VERIFY_FAILED",
+      activationState: "IMPLEMENTING",
       verificationMode: mode,
       reason:
         mode === "DELTA_REVERIFY"
@@ -72,7 +76,7 @@ export function routeAfterHandoff(handoff: AgentHandoff): RouteDecision {
 
   return {
     targetRole: "CONTROLLER",
-    nextState: handoff.inputState,
+    acceptedState: handoff.inputState,
     reason: `no automatic route for ${handoff.role}/${handoff.result}`,
   };
 }
