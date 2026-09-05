@@ -12,6 +12,12 @@ describe('DEV-GOV-V0 multi-proof orchestration', () => {
   it('keeps the attestation workflow reusable without widening signer authority', () => {
     const source = readFileSync(attestPath, 'utf8');
     const workflow = parse(source);
+    const executeProof = workflow.jobs.execute.steps.find(
+      (step: { name?: string }) => step.name === 'Execute declared proof command',
+    );
+    const signAttestation = workflow.jobs.attest.steps.find(
+      (step: { name?: string }) => step.name === 'Sign trusted execution attestation',
+    );
 
     expect(workflow.on.workflow_call).toBeTruthy();
     expect(workflow.on.workflow_dispatch).toBeTruthy();
@@ -20,8 +26,10 @@ describe('DEV-GOV-V0 multi-proof orchestration', () => {
     expect(workflow.jobs.attest.environment).toBe('devgov-attestation');
     expect(JSON.stringify(workflow.jobs.execute)).not.toContain('DEVGOV_ATTESTATION_PRIVATE_KEY_PEM');
     expect(JSON.stringify(workflow.jobs.attest)).toContain('DEVGOV_ATTESTATION_PRIVATE_KEY_PEM');
-    expect(source).toContain('CANONICAL_ATTEST_WORKFLOW_REF');
-    expect(source).toContain('export GITHUB_WORKFLOW_REF="$CANONICAL_ATTEST_WORKFLOW_REF"');
+    expect(executeProof.env.GITHUB_WORKFLOW_REF).toBe('${{ job.workflow_ref }}');
+    expect(signAttestation.env.GITHUB_WORKFLOW_REF).toBe('${{ job.workflow_ref }}');
+    expect(source).not.toContain('CANONICAL_ATTEST_WORKFLOW_REF');
+    expect(source).not.toContain('export GITHUB_WORKFLOW_REF=');
   });
 
   it('keeps the trusted gate as a standalone protected workflow and consumes the complete proof set', () => {
