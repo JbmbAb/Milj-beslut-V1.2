@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import { SpatialProviderPostGIS } from "../src/SpatialProviderPostGIS";
-import { SpatialQueryRequest } from "@miljobeslut/mps-lu/services/SpatialQueryContract";
+import { SpatialQueryRequest } from "@miljobeslut/mps-lu/src/services/SpatialQueryContract";
 import { LUPropertyContextArtifact } from "@miljobeslut/mps-lu";
 import { MimersIntegration } from "../../mps-runtime/src/mimers/index";
 import { ArtifactRepositoryPort } from "../../mps-runtime/src/kernel/ExecutionKernel";
