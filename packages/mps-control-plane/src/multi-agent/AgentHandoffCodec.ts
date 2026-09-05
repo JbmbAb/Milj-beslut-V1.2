@@ -1,13 +1,85 @@
-import type { AgentHandoff } from "./types";
+import type { AgentFinding, AgentHandoff, AgentOutputArtifact } from "./types";
 import type { AgentWorkItem } from "./Ports";
 
 export class AgentHandoffValidationError extends Error {}
+
+const RESULTS = new Set([
+  "PASS",
+  "FAIL",
+  "BLOCKED_ENVIRONMENT",
+  "BLOCKED_DESIGN",
+  "BLOCKED_DEPENDENCY",
+  "DENIED_GOVERNANCE",
+  "CANCELLED",
+]);
+const FINDING_CLASSES = new Set([
+  "SEMANTIC",
+  "MECHANICAL",
+  "ENVIRONMENT",
+  "AUTHORITY",
+  "DEPENDENCY",
+  "OTHER",
+]);
 
 function requireString(value: unknown, field: string): string {
   if (typeof value !== "string" || value.length === 0) {
     throw new AgentHandoffValidationError(`${field} is required`);
   }
   return value;
+}
+
+function requireHex(value: unknown, field: string, length: number): string {
+  const stringValue = requireString(value, field);
+  if (!new RegExp(`^[0-9a-f]{${length}}$`).test(stringValue)) {
+    throw new AgentHandoffValidationError(`${field} must be ${length} lowercase hex characters`);
+  }
+  return stringValue;
+}
+
+function parseFindings(value: unknown): readonly AgentFinding[] {
+  if (!Array.isArray(value)) throw new AgentHandoffValidationError("findings must be an array");
+  return value.map((entry, index) => {
+    if (!entry || typeof entry !== "object" || Array.isArray(entry)) {
+      throw new AgentHandoffValidationError(`findings[${index}] must be an object`);
+    }
+    const finding = entry as Record<string, unknown>;
+    const severity = requireString(finding.severity, `findings[${index}].severity`);
+    const classification = requireString(
+      finding.classification,
+      `findings[${index}].classification`,
+    );
+    if (severity !== "BLOCKING" && severity !== "NON_BLOCKING") {
+      throw new AgentHandoffValidationError(`findings[${index}].severity is invalid`);
+    }
+    if (!FINDING_CLASSES.has(classification)) {
+      throw new AgentHandoffValidationError(`findings[${index}].classification is invalid`);
+    }
+    return {
+      id: requireString(finding.id, `findings[${index}].id`),
+      severity,
+      classification: classification as AgentFinding["classification"],
+      message: requireString(finding.message, `findings[${index}].message`),
+    };
+  });
+}
+
+function parseArtifacts(value: unknown): readonly AgentOutputArtifact[] {
+  if (!Array.isArray(value)) {
+    throw new AgentHandoffValidationError("output_artifacts must be an array");
+  }
+  return value.map((entry, index) => {
+    if (!entry || typeof entry !== "object" || Array.isArray(entry)) {
+      throw new AgentHandoffValidationError(`output_artifacts[${index}] must be an object`);
+    }
+    const artifact = entry as Record<string, unknown>;
+    const sha256 = artifact.sha256;
+    if (sha256 !== undefined) requireHex(sha256, `output_artifacts[${index}].sha256`, 64);
+    return {
+      kind: requireString(artifact.kind, `output_artifacts[${index}].kind`),
+      ref: requireString(artifact.ref, `output_artifacts[${index}].ref`),
+      sha256: typeof sha256 === "string" ? sha256 : undefined,
+    };
+  });
 }
 
 export function parseAgentHandoff(raw: string, work: AgentWorkItem): AgentHandoff {
@@ -25,10 +97,14 @@ export function parseAgentHandoff(raw: string, work: AgentWorkItem): AgentHandof
     throw new AgentHandoffValidationError("unsupported agent handoff schema");
   }
 
-  const findings = Array.isArray(value.findings) ? value.findings : undefined;
-  const outputArtifacts = Array.isArray(value.output_artifacts) ? value.output_artifacts : undefined;
-  if (!findings || !outputArtifacts) {
-    throw new AgentHandoffValidationError("findings and output_artifacts must be arrays");
+  const result = requireString(value.result, "result");
+  if (!RESULTS.has(result)) throw new AgentHandoffValidationError("result is invalid");
+  const startedAt = requireString(value.started_at, "started_at");
+  const finishedAt = requireString(value.finished_at, "finished_at");
+  const started = Date.parse(startedAt);
+  const finished = Date.parse(finishedAt);
+  if (!Number.isFinite(started) || !Number.isFinite(finished) || finished < started) {
+    throw new AgentHandoffValidationError("agent handoff timestamps are invalid or reversed");
   }
 
   const handoff: AgentHandoff = {
@@ -36,22 +112,28 @@ export function parseAgentHandoff(raw: string, work: AgentWorkItem): AgentHandof
     unitId: requireString(value.unit_id, "unit_id"),
     role: requireString(value.role, "role") as AgentHandoff["role"],
     inputState: requireString(value.input_state, "input_state") as AgentHandoff["inputState"],
-    observedBaseSha: requireString(value.observed_base_sha, "observed_base_sha"),
+    observedBaseSha: requireHex(value.observed_base_sha, "observed_base_sha", 40),
     observedCandidateSha:
-      typeof value.observed_candidate_sha === "string" ? value.observed_candidate_sha : undefined,
+      value.observed_candidate_sha === undefined
+        ? undefined
+        : requireHex(value.observed_candidate_sha, "observed_candidate_sha", 40),
     unitDefinitionHash:
-      typeof value.unit_definition_hash === "string" ? value.unit_definition_hash : undefined,
+      value.unit_definition_hash === undefined
+        ? undefined
+        : requireHex(value.unit_definition_hash, "unit_definition_hash", 64),
     proofContractHash:
-      typeof value.proof_contract_hash === "string" ? value.proof_contract_hash : undefined,
-    result: requireString(value.result, "result") as AgentHandoff["result"],
+      value.proof_contract_hash === undefined
+        ? undefined
+        : requireHex(value.proof_contract_hash, "proof_contract_hash", 64),
+    result: result as AgentHandoff["result"],
     verifierIndependent:
       typeof value.verifier_independent === "boolean" ? value.verifier_independent : undefined,
-    findings: findings as AgentHandoff["findings"],
-    outputArtifacts: outputArtifacts as AgentHandoff["outputArtifacts"],
+    findings: parseFindings(value.findings),
+    outputArtifacts: parseArtifacts(value.output_artifacts),
     requestedNextAction:
       typeof value.requested_next_action === "string" ? value.requested_next_action : undefined,
-    startedAt: requireString(value.started_at, "started_at"),
-    finishedAt: requireString(value.finished_at, "finished_at"),
+    startedAt,
+    finishedAt,
   };
 
   const expected = work.unit;
