@@ -7,6 +7,7 @@ export class DuplicateHandoffConflictError extends Error {}
 export interface HandoffIngestResult {
   readonly state: MultiAgentUnitState;
   readonly duplicate: boolean;
+  readonly fingerprint: string;
 }
 
 function stable(value: unknown): string {
@@ -21,10 +22,19 @@ function stable(value: unknown): string {
   return JSON.stringify(value);
 }
 
-export class HandoffIngestor {
-  private readonly accepted = new Map<string, string>();
+export function handoffFingerprint(handoff: AgentHandoff, nextState: MultiAgentState): string {
+  return stable({ handoff, nextState });
+}
 
-  constructor(private readonly eventLog: AppendOnlyEventLog) {}
+export class HandoffIngestor {
+  private readonly accepted: Map<string, string>;
+
+  constructor(
+    private readonly eventLog: AppendOnlyEventLog,
+    acceptedAgentRuns: Readonly<Record<string, string>> = {},
+  ) {
+    this.accepted = new Map(Object.entries(acceptedAgentRuns));
+  }
 
   ingest(
     current: MultiAgentUnitState,
@@ -32,7 +42,7 @@ export class HandoffIngestor {
     nextState: MultiAgentState,
     occurredAt = new Date().toISOString(),
   ): HandoffIngestResult {
-    const fingerprint = stable({ handoff, nextState });
+    const fingerprint = handoffFingerprint(handoff, nextState);
     const previous = this.accepted.get(handoff.agentRunId);
     if (previous) {
       if (previous !== fingerprint) {
@@ -46,7 +56,7 @@ export class HandoffIngestor {
           `agent run ${handoff.agentRunId} was already accepted with different content`,
         );
       }
-      return { state: current, duplicate: true };
+      return { state: current, duplicate: true, fingerprint };
     }
 
     let next: MultiAgentUnitState;
@@ -79,6 +89,6 @@ export class HandoffIngestor {
       { from: current.state, to: next.state, state: unitStatePayload(next) },
       occurredAt,
     );
-    return { state: next, duplicate: false };
+    return { state: next, duplicate: false, fingerprint };
   }
 }
