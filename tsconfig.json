@@ -238,6 +238,7 @@
     "noEmit": true
   },
   "exclude": [
+    "docs",
     "node_modules",
     "dist",
     "scratch",

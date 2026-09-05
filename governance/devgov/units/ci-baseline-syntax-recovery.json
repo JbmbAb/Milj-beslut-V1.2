@@ -1,0 +1,58 @@
+{
+  "schema_version": "dev-gov-v1-unit-definition",
+  "unit": "CI-BASELINE-SYNTAX-RECOVERY",
+  "role": "producer",
+  "mode": "writer",
+  "branch": "codex/ci-baseline-syntax-recovery",
+  "base_sha": "0b3eb5411d8312a641372d6e12540bdf3bd61b2e",
+  "ancestry_policy": "exact_parent",
+  "allowed_paths": [
+    "tests/e2e/staging-c-anmalan-mass.spec.ts",
+    "governance/devgov/units/ci-baseline-syntax-recovery.json"
+  ],
+  "forbidden_paths": [
+    ".github/**",
+    "scripts/devgov/**",
+    "governance/devgov/schema/**",
+    "server/**",
+    "services/**",
+    "packages/**"
+  ],
+  "required_red": [
+    {
+      "id": "staging-c-anmalan-spec-parses",
+      "command": "node",
+      "args": [
+        "--input-type=module",
+        "-e",
+        "const fs=await import('node:fs');const f='tests/e2e/staging-c-anmalan-mass.spec.ts';let P;try{P=await import('prettier')}catch(e){console.error('BLOCKED: prettier unavailable: '+e.code);process.exit(3)}if(!fs.existsSync(f)){console.error('BLOCKED: target absent');process.exit(3)}let s;try{s=fs.readFileSync(f,'utf8')}catch(e){console.error('BLOCKED: unreadable');process.exit(3)}try{await P.format(s,{filepath:'probe.ts'});console.log('PARSE_OK');process.exit(0)}catch(e){console.error('PARSE_FAIL: '+String(e.message).slice(0,120));process.exit(1)}"
+      ],
+      "expected_classification": "FAIL",
+      "required_head": "base_sha",
+      "blocked_exit_codes": [3]
+    }
+  ],
+  "required_green": [
+    {
+      "id": "staging-c-anmalan-spec-parses",
+      "command": "node",
+      "args": [
+        "--input-type=module",
+        "-e",
+        "const fs=await import('node:fs');const f='tests/e2e/staging-c-anmalan-mass.spec.ts';let P;try{P=await import('prettier')}catch(e){console.error('BLOCKED: prettier unavailable: '+e.code);process.exit(3)}if(!fs.existsSync(f)){console.error('BLOCKED: target absent');process.exit(3)}let s;try{s=fs.readFileSync(f,'utf8')}catch(e){console.error('BLOCKED: unreadable');process.exit(3)}try{await P.format(s,{filepath:'probe.ts'});console.log('PARSE_OK');process.exit(0)}catch(e){console.error('PARSE_FAIL: '+String(e.message).slice(0,120));process.exit(1)}"
+      ],
+      "required_head": "candidate_sha",
+      "blocked_exit_codes": [3]
+    }
+  ],
+  "trusted_execution": {
+    "issuer": "github-actions:JbmbAb/Milj-beslut-V1.2:devgov-v0-attest",
+    "key_id": "devgov-ci-ed25519-v1"
+  },
+  "remote": {
+    "name": "origin",
+    "branch": "codex/ci-baseline-syntax-recovery",
+    "push_policy": "no_force",
+    "absent_policy": "deny_absent"
+  }
+}
