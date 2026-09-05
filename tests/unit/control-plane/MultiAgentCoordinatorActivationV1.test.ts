@@ -19,17 +19,17 @@ const now = () => new Date("2026-09-05T02:00:00.000Z");
 function state(
   value: MultiAgentUnitState["state"],
   revision: number,
-  candidate: string | undefined = candidateSha,
-  proof: string | undefined = proofContractHash,
+  candidate: string | null = candidateSha,
+  proof: string | null = proofContractHash,
 ): MultiAgentUnitState {
   return {
     unitId: "K1",
     unitDefinitionHash,
     baseSha,
-    candidateSha: candidate,
+    candidateSha: candidate === null ? undefined : candidate,
     branch: "feature/k1",
     scope: ["packages/**"],
-    proofContractHash: proof,
+    proofContractHash: proof === null ? undefined : proof,
     controllerContractVersion: "multi-agent-control-plane-v1",
     state: value,
     revision,
@@ -79,6 +79,7 @@ class AgentPort implements AgentDispatchPort {
     return `agent:${item.dispatchKey}`;
   }
 }
+
 class DevGovPort implements DevGovDispatchPort {
   readonly calls: DevGovWorkItem[] = [];
   async dispatch(item: DevGovWorkItem) {
@@ -117,7 +118,7 @@ describe("Multi-Agent controller activation V1", () => {
   it("binds the implementer-observed candidate SHA before verifier activation", async () => {
     const { controller, agents } = coordinator();
     const result = await controller.acceptHandoff(
-      state("IMPLEMENTING", 1, undefined),
+      state("IMPLEMENTING", 1, null),
       handoff("IMPLEMENTER", "IMPLEMENTING", "PASS"),
     );
     expect(result.state).toMatchObject({ state: "VERIFYING", candidateSha });
@@ -128,7 +129,7 @@ describe("Multi-Agent controller activation V1", () => {
     const { controller, devgov } = coordinator();
     await expect(
       controller.acceptHandoff(
-        state("VERIFYING", 4, undefined),
+        state("VERIFYING", 4, null),
         handoff("VERIFIER", "VERIFYING", "PASS"),
       ),
     ).rejects.toThrow(/canonical candidate SHA/);
@@ -166,7 +167,7 @@ describe("Multi-Agent controller activation V1", () => {
     const { controller, devgov } = coordinator();
     await expect(
       controller.acceptHandoff(
-        state("VERIFYING", 4, candidateSha, undefined),
+        state("VERIFYING", 4, candidateSha, null),
         handoff("VERIFIER", "VERIFYING", "PASS", { proofContractHash: undefined }),
       ),
     ).rejects.toThrow(/proof contract hash/);
