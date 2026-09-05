@@ -71,7 +71,7 @@ export function assertTransition(from: MultiAgentState, to: MultiAgentState): vo
 }
 
 export function classifyVerifierFailure(handoff: AgentHandoff): "FULL_REVERIFY" | "DELTA_REVERIFY" {
-  const classes = handoff.findingClassifications ?? [];
+  const classes = handoff.findings.map((finding) => finding.classification);
   return classes.length > 0 && classes.every((value) => value === "MECHANICAL")
     ? "DELTA_REVERIFY"
     : "FULL_REVERIFY";
@@ -94,6 +94,20 @@ export function applyVerifiedHandoff(
   if (current.candidateSha && handoff.observedCandidateSha !== current.candidateSha) {
     throw new ControlPlaneTransitionError("handoff candidate SHA does not match canonical candidate");
   }
+  if (handoff.unitDefinitionHash && handoff.unitDefinitionHash !== current.unitDefinitionHash) {
+    throw new ControlPlaneTransitionError(
+      "handoff unit definition hash does not match canonical unit definition",
+    );
+  }
+  if (
+    current.proofContractHash &&
+    handoff.proofContractHash &&
+    handoff.proofContractHash !== current.proofContractHash
+  ) {
+    throw new ControlPlaneTransitionError(
+      "handoff proof contract hash does not match canonical proof contract",
+    );
+  }
   if (handoff.role === "VERIFIER" && handoff.result === "PASS" && handoff.verifierIndependent !== true) {
     throw new ControlPlaneTransitionError("verifier PASS requires independent verifier identity");
   }
@@ -103,5 +117,6 @@ export function applyVerifiedHandoff(
     ...current,
     state: nextState,
     revision: current.revision + 1,
+    updatedAt: handoff.finishedAt,
   };
 }
