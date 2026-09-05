@@ -1,6 +1,24 @@
 name: DEV-GOV-V0 Trusted Execution Attestation
 
 on:
+  workflow_call:
+    inputs:
+      candidate_sha:
+        description: Exact SHA to execute
+        required: true
+        type: string
+      unit_definition_path:
+        description: Repository-relative DEV-GOV V1 unit definition path
+        required: true
+        type: string
+      proof_kind:
+        description: Proof phase (RED or GREEN)
+        required: true
+        type: string
+      test_id:
+        description: Declared command id from the unit definition
+        required: true
+        type: string
   workflow_dispatch:
     inputs:
       candidate_sha:
@@ -197,7 +215,7 @@ jobs:
       - name: Upload unsigned execution record
         uses: actions/upload-artifact@v4
         with:
-          name: devgov-execution-${{ github.run_id }}-${{ github.run_attempt }}
+          name: devgov-execution-${{ github.run_id }}-${{ github.run_attempt }}-${{ inputs.proof_kind }}-${{ inputs.test_id }}
           path: ${{ runner.temp }}/devgov-export/execution-record.json
           if-no-files-found: error
           retention-days: 1
@@ -246,7 +264,7 @@ jobs:
       - name: Download execution record
         uses: actions/download-artifact@v4
         with:
-          name: devgov-execution-${{ github.run_id }}-${{ github.run_attempt }}
+          name: devgov-execution-${{ github.run_id }}-${{ github.run_attempt }}-${{ inputs.proof_kind }}-${{ inputs.test_id }}
           path: ${{ runner.temp }}/devgov-input
 
       - name: Sign trusted execution attestation
