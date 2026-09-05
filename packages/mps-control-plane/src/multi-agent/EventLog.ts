@@ -10,7 +10,9 @@ export type ControlPlaneEventKind =
   | "LEASE_HEARTBEAT"
   | "LEASE_RELEASED"
   | "LEASE_EXPIRED"
-  | "ROUTE_DECIDED";
+  | "ROUTE_DECIDED"
+  | "DEPENDENCY_BLOCKED"
+  | "RECONCILIATION_OBSERVED";
 
 export interface ControlPlaneEvent {
   readonly sequence: number;

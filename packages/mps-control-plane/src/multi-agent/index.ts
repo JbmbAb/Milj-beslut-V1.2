@@ -12,3 +12,5 @@ export * from "./FileAgentMailbox";
 export * from "./GitHubDevGovDispatchAdapter";
 export * from "./AgentHandoffCodec";
 export * from "./ProcessAgentWorker";
+export * from "./GitHubRunCorrelation";
+export * from "./DevGovReconciler";

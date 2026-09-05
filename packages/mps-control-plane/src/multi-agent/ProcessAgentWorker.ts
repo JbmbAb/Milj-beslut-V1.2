@@ -20,8 +20,10 @@ export interface AgentProcessProfile {
 }
 
 export interface AgentProcessExecutor {
-  execute(work: AgentWorkItem): Promise<string>;
+  execute(work: AgentWorkItem, signal?: AbortSignal): Promise<string>;
 }
+
+export class AgentProcessCancelledError extends Error {}
 
 function safeBaseEnv(): Record<string, string> {
   const names = ["PATH", "HOME", "USERPROFILE", "TEMP", "TMP", "SystemRoot", "COMSPEC"];
@@ -33,9 +35,10 @@ function safeBaseEnv(): Record<string, string> {
 export class ChildProcessAgentExecutor implements AgentProcessExecutor {
   constructor(private readonly profiles: Readonly<Record<AgentWorkItem["role"], AgentProcessProfile>>) {}
 
-  execute(work: AgentWorkItem): Promise<string> {
+  execute(work: AgentWorkItem, signal?: AbortSignal): Promise<string> {
     const profile = this.profiles[work.role];
     if (!profile) return Promise.reject(new Error(`no process profile for role ${work.role}`));
+    if (signal?.aborted) return Promise.reject(new AgentProcessCancelledError("cancelled before start"));
 
     const env = safeBaseEnv();
     for (const name of profile.inheritEnv ?? []) {
@@ -90,12 +93,25 @@ export class ChildProcessAgentExecutor implements AgentProcessExecutor {
       child.stderr.on("data", (chunk: Buffer) => {
         try { stderr = append(stderr, chunk); } catch (error) { reject(error); }
       });
+      let cancelled = false;
+      const onAbort = () => {
+        cancelled = true;
+        child.kill("SIGTERM");
+      };
+      signal?.addEventListener("abort", onAbort);
+
       child.on("error", (error) => {
         clearTimeout(timeout);
+        signal?.removeEventListener("abort", onAbort);
         reject(error);
       });
       child.on("close", (code) => {
         clearTimeout(timeout);
+        signal?.removeEventListener("abort", onAbort);
+        if (cancelled) {
+          reject(new AgentProcessCancelledError("agent process cancelled"));
+          return;
+        }
         if (code !== 0) {
           reject(new Error(`agent process exited ${code}: ${stderr.trim().slice(-2000)}`));
           return;
@@ -119,6 +135,7 @@ export class ProcessAgentWorker {
   private readonly maxAttempts: number;
   private readonly leaseMs: number;
   private readonly now: () => Date;
+  private readonly inFlight = new Map<string, AbortController>();
 
   constructor(
     private readonly mailbox: FileAgentMailbox,
@@ -131,7 +148,20 @@ export class ProcessAgentWorker {
     this.now = options.now ?? (() => new Date());
   }
 
-  async runOnce(): Promise<"IDLE" | "COMPLETED" | "RETRY" | "DEAD_LETTER"> {
+  /**
+   * Requests cancellation of the currently in-flight run for `dispatchKey`,
+   * if one exists. Returns whether a running executor was actually signalled;
+   * a no-op (false) is not an error — the item may already have completed,
+   * or may not be running on this worker at all.
+   */
+  requestCancellation(dispatchKey: string): boolean {
+    const controller = this.inFlight.get(dispatchKey);
+    if (!controller) return false;
+    controller.abort();
+    return true;
+  }
+
+  async runOnce(): Promise<"IDLE" | "COMPLETED" | "RETRY" | "DEAD_LETTER" | "CANCELLED"> {
     const record = this.mailbox.reserve(
       this.options.role,
       this.options.workerId,
@@ -140,13 +170,19 @@ export class ProcessAgentWorker {
     );
     if (!record) return "IDLE";
 
+    const controller = new AbortController();
+    this.inFlight.set(record.dispatchKey, controller);
     try {
-      const raw = await this.executor.execute(record.item);
+      const raw = await this.executor.execute(record.item, controller.signal);
       const handoff = parseAgentHandoff(raw, record.item);
       await this.sink.accept(handoff);
       this.mailbox.complete(record.dispatchKey, this.options.workerId);
       return "COMPLETED";
     } catch (error) {
+      if (error instanceof AgentProcessCancelledError) {
+        this.mailbox.deadLetter(record.dispatchKey, this.options.workerId, `cancelled: ${error.message}`);
+        return "CANCELLED";
+      }
       const message = error instanceof Error ? error.message : String(error);
       if (record.attempts >= this.maxAttempts) {
         this.mailbox.deadLetter(record.dispatchKey, this.options.workerId, message);
@@ -154,6 +190,8 @@ export class ProcessAgentWorker {
       }
       this.mailbox.release(record.dispatchKey, this.options.workerId, message);
       return "RETRY";
+    } finally {
+      this.inFlight.delete(record.dispatchKey);
     }
   }
 }

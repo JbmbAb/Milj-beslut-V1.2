@@ -178,6 +178,70 @@ export class FileDurableControlPlaneStore {
     });
   }
 
+  /**
+   * Controller-driven transition with no incoming agent handoff (e.g. an
+   * external-dependency probe finding the DEV-GOV orchestration workflow
+   * absent). Reuses the same revision-continuity, identity-immutability and
+   * transition-audit-binding invariants as commitTransition, but has no
+   * agentRunId to dedup against. Idempotency instead comes from the
+   * revision check itself: if this exact transition was already durably
+   * committed, `existingState` already equals the target and the call is a
+   * silent no-op rather than a duplicate-apply error.
+   */
+  commitControllerTransition(input: {
+    readonly state: MultiAgentUnitState;
+    readonly events: readonly ControlPlaneEvent[];
+  }): void {
+    const current = this.read();
+    const existingState = current.units[input.state.unitId];
+    if (!existingState) {
+      throw new DurableStoreCorruptionError(`canonical unit ${input.state.unitId} does not exist`);
+    }
+    if (existingState.state === input.state.state && existingState.revision === input.state.revision) {
+      return;
+    }
+
+    const transitionEvents = input.events.filter((event) => event.kind === "UNIT_STATE_TRANSITIONED");
+    if (transitionEvents.length < 1) {
+      throw new DurableStoreCorruptionError("durable state change requires transition audit event");
+    }
+    if (input.state.revision !== existingState.revision + transitionEvents.length) {
+      throw new DurableStoreCorruptionError(
+        `canonical unit revision delta must equal audited transitions: ${existingState.revision} -> ${input.state.revision}`,
+      );
+    }
+    const lastTransitionState = transitionEvents.at(-1)?.payload.state as
+      | Partial<MultiAgentUnitState>
+      | undefined;
+    if (
+      lastTransitionState?.state !== input.state.state ||
+      lastTransitionState?.revision !== input.state.revision
+    ) {
+      throw new DurableStoreCorruptionError("final transition event does not bind final canonical state");
+    }
+    if (input.state.baseSha !== existingState.baseSha) {
+      throw new DurableStoreCorruptionError("base SHA substitution denied during durable transition");
+    }
+    if (
+      existingState.candidateSha &&
+      input.state.candidateSha &&
+      input.state.candidateSha !== existingState.candidateSha
+    ) {
+      throw new DurableStoreCorruptionError("candidate SHA substitution denied during durable transition");
+    }
+    if (input.state.unitDefinitionHash !== existingState.unitDefinitionHash) {
+      throw new DurableStoreCorruptionError("unit definition identity substitution denied");
+    }
+
+    this.assertEventContinuation(current.events, input.events);
+
+    this.write({
+      ...current,
+      units: { ...current.units, [input.state.unitId]: input.state },
+      events: [...current.events, ...input.events],
+    });
+  }
+
   markDispatched(dispatchKey: string, dispatchId: string): void {
     const current = this.read();
     const item = current.outbox[dispatchKey];
