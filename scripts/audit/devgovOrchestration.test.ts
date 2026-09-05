@@ -86,6 +86,34 @@ describe('DEV-GOV-V0 multi-proof orchestration', () => {
     expect(source).not.toContain('uses: ./.github/workflows/devgov-v0-gate.yml');
   });
 
+  it('correlates only a new canonical gate run for the same protected controller revision', () => {
+    const workflow = parse(readFileSync(orchestratorPath, 'utf8'));
+    const gate = workflow.jobs.gate;
+    const dispatch = gate.steps.find(
+      (step: { name?: string }) => step.name === 'Dispatch canonical gate as its own protected workflow run',
+    );
+    const resolveRun = gate.steps.find(
+      (step: { name?: string }) => step.name === 'Resolve and wait for the exact canonical gate run',
+    );
+
+    expect(dispatch.id).toBe('dispatch_gate');
+    expect(dispatch.run).toContain('preexisting_gate_run_ids');
+    expect(dispatch.run).toContain('echo "preexisting_gate_run_ids=$preexisting_gate_run_ids" >> "$GITHUB_OUTPUT"');
+    expect(resolveRun.env.PREEXISTING_GATE_RUN_IDS).toBe(
+      '${{ steps.dispatch_gate.outputs.preexisting_gate_run_ids }}',
+    );
+    expect(resolveRun.env.DEFAULT_BRANCH).toBe('${{ github.event.repository.default_branch }}');
+    expect(resolveRun.env.CONTROLLER_SHA).toBe('${{ github.sha }}');
+    expect(resolveRun.run).toContain("r.event==='workflow_dispatch'");
+    expect(resolveRun.run).toContain('r.head_branch===branch');
+    expect(resolveRun.run).toContain('r.head_sha===sha');
+    expect(resolveRun.run).toContain('!before.has(String(r.id))');
+    expect(resolveRun.run).toContain("if (hits.length>1)");
+    expect(resolveRun.run).toContain("process.stdout.write('AMBIGUOUS:'");
+    expect(resolveRun.run).toContain('multiple new canonical gate runs matched this dispatch');
+    expect(resolveRun.run).toContain('new canonical gate run was not found for the protected controller SHA');
+  });
+
   it('keeps signer and promoter authority isolated to their dedicated jobs', () => {
     const source = readFileSync(orchestratorPath, 'utf8');
     const workflow = parse(source);
