@@ -90,8 +90,7 @@ describe('DEV-GOV-V0 multi-proof orchestration', () => {
     const workflow = parse(readFileSync(orchestratorPath, 'utf8'));
     const gate = workflow.jobs.gate;
     const dispatch = gate.steps.find(
-      (step: { name?: string }) =>
-        step.name === 'Dispatch canonical gate as its own protected workflow run',
+      (step: { name?: string }) => step.name === 'Dispatch canonical gate as its own protected workflow run',
     );
     const resolveRun = gate.steps.find(
       (step: { name?: string }) => step.name === 'Resolve and wait for the exact canonical gate run',
