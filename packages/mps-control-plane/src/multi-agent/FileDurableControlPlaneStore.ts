@@ -60,12 +60,7 @@ export class FileDurableControlPlaneStore {
     if (value.schemaVersion !== "multi-agent-control-plane-store-v1") {
       throw new DurableStoreCorruptionError("unsupported control-plane store schema");
     }
-    if (
-      !value.units ||
-      !Array.isArray(value.events) ||
-      !value.acceptedAgentRuns ||
-      !value.outbox
-    ) {
+    if (!value.units || !Array.isArray(value.events) || !value.acceptedAgentRuns || !value.outbox) {
       throw new DurableStoreCorruptionError("control-plane store is missing required sections");
     }
     return value as DurableControlPlaneSnapshot;
@@ -122,10 +117,23 @@ export class FileDurableControlPlaneStore {
     if (!existingState) {
       throw new DurableStoreCorruptionError(`canonical unit ${input.state.unitId} does not exist`);
     }
-    if (input.state.revision !== existingState.revision + 1) {
+    const transitionEvents = input.events.filter((event) => event.kind === "UNIT_STATE_TRANSITIONED");
+    if (transitionEvents.length < 1) {
+      throw new DurableStoreCorruptionError("durable state change requires transition audit event");
+    }
+    if (input.state.revision !== existingState.revision + transitionEvents.length) {
       throw new DurableStoreCorruptionError(
-        `canonical unit revision must advance exactly once: ${existingState.revision} -> ${input.state.revision}`,
+        `canonical unit revision delta must equal audited transitions: ${existingState.revision} -> ${input.state.revision}`,
       );
+    }
+    const lastTransitionState = transitionEvents.at(-1)?.payload.state as
+      | Partial<MultiAgentUnitState>
+      | undefined;
+    if (
+      lastTransitionState?.state !== input.state.state ||
+      lastTransitionState?.revision !== input.state.revision
+    ) {
+      throw new DurableStoreCorruptionError("final transition event does not bind final canonical state");
     }
     if (input.state.baseSha !== existingState.baseSha) {
       throw new DurableStoreCorruptionError("base SHA substitution denied during durable transition");
@@ -165,10 +173,7 @@ export class FileDurableControlPlaneStore {
       ...current,
       units: { ...current.units, [input.state.unitId]: input.state },
       events: [...current.events, ...input.events],
-      acceptedAgentRuns: {
-        ...current.acceptedAgentRuns,
-        [input.agentRunId]: input.fingerprint,
-      },
+      acceptedAgentRuns: { ...current.acceptedAgentRuns, [input.agentRunId]: input.fingerprint },
       outbox,
     });
   }
