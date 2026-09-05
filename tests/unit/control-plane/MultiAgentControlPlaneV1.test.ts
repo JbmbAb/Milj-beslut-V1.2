@@ -172,7 +172,13 @@ describe("Multi-Agent Control Plane V1", () => {
     const registry = new InMemoryLeaseRegistry();
     registry.acquire(lease(), new Date("2026-09-05T00:30:00.000Z"));
     registry.acquire(
-      lease({ leaseId: "lease-2", holder: "claude-b" }),
+      lease({
+        leaseId: "lease-2",
+        holder: "claude-b",
+        issuedAt: "2026-09-05T01:01:00.000Z",
+        heartbeatAt: "2026-09-05T01:01:00.000Z",
+        expiresAt: "2026-09-05T02:00:00.000Z",
+      }),
       new Date("2026-09-05T01:01:00.000Z"),
     );
 
