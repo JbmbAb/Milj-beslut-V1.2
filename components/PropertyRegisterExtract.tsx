@@ -132,7 +132,7 @@ const PropertyRegisterExtract: React.FC<PropertyRegisterExtractProps> = ({ prope
 
   useEffect(() => {
     if (!normalizedPropertyId) {
-      // eslint-disable-next-line react-hooks/set-state-in-effect
+       
       setLoading(false);
        
       setError(null);

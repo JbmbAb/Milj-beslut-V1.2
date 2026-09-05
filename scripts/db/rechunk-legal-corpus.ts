@@ -102,7 +102,7 @@ async function processRecord(record: {
   ]);
 
   // Beräkna och spara embeddings (efter transaktion, per chunk)
-  let embedded = 0;
+  const embedded = 0;
   /* SKIPPED FOR NOW: Embeddings generation is disabled for the verification phase
   const createdChunks = await prisma.legalCorpusChunk.findMany({
     where: { recordId: record.id, chunkVersion: CURRENT_VERSION },

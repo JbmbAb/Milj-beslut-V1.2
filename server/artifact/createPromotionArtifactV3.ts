@@ -43,7 +43,7 @@ export function createPromotionArtifactV3(
 
   const provider = options?.signingKeyProvider;
   let privateKey = options?.privateKey ?? inputPrivateKey ?? privateKeyBase64;
-  let signingKeyId = options?.signingKeyId ?? inputSigningKeyId ?? provider?.signingKeyId;
+  const signingKeyId = options?.signingKeyId ?? inputSigningKeyId ?? provider?.signingKeyId;
 
   if (!privateKey && provider) {
     const key = provider.getPrivateKey();
