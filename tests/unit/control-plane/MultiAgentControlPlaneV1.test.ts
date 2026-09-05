@@ -14,14 +14,22 @@ import {
 
 const BASE = "1".repeat(40);
 const CANDIDATE = "2".repeat(40);
+const UNIT_HASH = "a".repeat(64);
+const PROOF_HASH = "b".repeat(64);
 
 function unit(state: MultiAgentUnitState["state"]): MultiAgentUnitState {
   return {
     unitId: "K1",
+    unitDefinitionHash: UNIT_HASH,
     baseSha: BASE,
     candidateSha: CANDIDATE,
+    branch: "claude/k1-governed-harvest-canonical-entrypoint-01",
+    scope: ["packages/mps-data-governance/**"],
+    proofContractHash: PROOF_HASH,
+    controllerContractVersion: "multi-agent-control-plane-v1",
     state,
     revision: 7,
+    updatedAt: "2026-09-05T00:00:00.000Z",
   };
 }
 
@@ -33,9 +41,14 @@ function verifier(overrides: Partial<AgentHandoff> = {}): AgentHandoff {
     inputState: "VERIFYING",
     observedBaseSha: BASE,
     observedCandidateSha: CANDIDATE,
+    unitDefinitionHash: UNIT_HASH,
+    proofContractHash: PROOF_HASH,
     result: "PASS",
     verifierIndependent: true,
-    findingClassifications: [],
+    findings: [],
+    outputArtifacts: [],
+    startedAt: "2026-09-05T00:10:00.000Z",
+    finishedAt: "2026-09-05T00:20:00.000Z",
     ...overrides,
   };
 }
@@ -68,6 +81,7 @@ describe("Multi-Agent Control Plane V1", () => {
     const next = applyVerifiedHandoff(unit("VERIFYING"), verifier(), "READY_FOR_DEV_GOV");
     expect(next.state).toBe("READY_FOR_DEV_GOV");
     expect(next.revision).toBe(8);
+    expect(next.updatedAt).toBe("2026-09-05T00:20:00.000Z");
 
     expect(() =>
       applyVerifiedHandoff(
@@ -76,6 +90,24 @@ describe("Multi-Agent Control Plane V1", () => {
         "READY_FOR_DEV_GOV",
       ),
     ).toThrow(/candidate SHA/);
+  });
+
+  it("rejects unit-definition and proof-contract identity substitution", () => {
+    expect(() =>
+      applyVerifiedHandoff(
+        unit("VERIFYING"),
+        verifier({ unitDefinitionHash: "c".repeat(64) }),
+        "READY_FOR_DEV_GOV",
+      ),
+    ).toThrow(/unit definition hash/);
+
+    expect(() =>
+      applyVerifiedHandoff(
+        unit("VERIFYING"),
+        verifier({ proofContractHash: "d".repeat(64) }),
+        "READY_FOR_DEV_GOV",
+      ),
+    ).toThrow(/proof contract hash/);
   });
 
   it("rejects verifier PASS when verifier independence is absent", () => {
@@ -103,14 +135,23 @@ describe("Multi-Agent Control Plane V1", () => {
       classifyVerifierFailure(
         verifier({
           result: "FAIL",
-          findingClassifications: ["MECHANICAL", "MECHANICAL"],
+          findings: [
+            { id: "F1", severity: "BLOCKING", classification: "MECHANICAL", message: "format" },
+            { id: "F2", severity: "BLOCKING", classification: "MECHANICAL", message: "lint" },
+          ],
         }),
       ),
     ).toBe("DELTA_REVERIFY");
 
     expect(
       classifyVerifierFailure(
-        verifier({ result: "FAIL", findingClassifications: ["MECHANICAL", "SEMANTIC"] }),
+        verifier({
+          result: "FAIL",
+          findings: [
+            { id: "F1", severity: "BLOCKING", classification: "MECHANICAL", message: "format" },
+            { id: "F2", severity: "BLOCKING", classification: "SEMANTIC", message: "wrong authority" },
+          ],
+        }),
       ),
     ).toBe("FULL_REVERIFY");
   });
