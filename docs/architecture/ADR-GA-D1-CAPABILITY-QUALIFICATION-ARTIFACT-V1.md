@@ -6,7 +6,7 @@
 | Unit                | `GA-D1-CAPABILITY-QUALIFICATION-ARTIFACT-V1`                |
 | Base                | `2855f6c6e890f1631bb4236d64b41171ca1f3dc1`                  |
 | Scope               | Build/deploy-time structural autonomy qualification only    |
-| Governing invariant | GA-N1 — autonomy creates no authority                        |
+| Governing invariant | GA-N1 — autonomy creates no authority                       |
 
 ## 1. Decision
 

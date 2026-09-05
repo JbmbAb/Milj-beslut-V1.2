@@ -133,17 +133,12 @@ function normalizeBlocker(blocker: QualificationBlocker): QualificationBlocker {
   };
 }
 
-function normalizePredicate(
-  predicate: QualificationPredicateObservation,
-): QualificationPredicateObservation {
+function normalizePredicate(predicate: QualificationPredicateObservation): QualificationPredicateObservation {
   if (!predicate || typeof predicate !== 'object') {
     throw new Error('CAPABILITY_QUALIFICATION_INVALID_PREDICATE');
   }
 
-  const predicateId = required(
-    predicate.predicate_id,
-    'CAPABILITY_QUALIFICATION_INVALID_PREDICATE_ID',
-  );
+  const predicateId = required(predicate.predicate_id, 'CAPABILITY_QUALIFICATION_INVALID_PREDICATE_ID');
   if (predicate.result !== 'PASS' && predicate.result !== 'FAIL') {
     throw new Error('CAPABILITY_QUALIFICATION_INVALID_PREDICATE_RESULT');
   }
@@ -178,9 +173,9 @@ function normalizePredicates(
     throw new Error('CAPABILITY_QUALIFICATION_INVALID_PREDICATES');
   }
 
-  const normalized = predicates.map(normalizePredicate).sort((a, b) =>
-    a.predicate_id.localeCompare(b.predicate_id),
-  );
+  const normalized = predicates
+    .map(normalizePredicate)
+    .sort((a, b) => a.predicate_id.localeCompare(b.predicate_id));
 
   for (let index = 1; index < normalized.length; index += 1) {
     if (normalized[index - 1].predicate_id === normalized[index].predicate_id) {
@@ -196,10 +191,7 @@ function validatePolicy(policy: CapabilityQualificationPolicyV1): CapabilityQual
     throw new Error('CAPABILITY_QUALIFICATION_INVALID_POLICY');
   }
 
-  const policyVersion = required(
-    policy.policy_version,
-    'CAPABILITY_QUALIFICATION_INVALID_POLICY_VERSION',
-  );
+  const policyVersion = required(policy.policy_version, 'CAPABILITY_QUALIFICATION_INVALID_POLICY_VERSION');
   const policyHash = requiredSha256Reference(
     policy.policy_hash,
     'CAPABILITY_QUALIFICATION_INVALID_POLICY_HASH',
@@ -240,10 +232,7 @@ function validatePolicy(policy: CapabilityQualificationPolicyV1): CapabilityQual
   };
 }
 
-function cumulativeRequirements(
-  policy: CapabilityQualificationPolicyV1,
-  level: GaLevel,
-): readonly string[] {
+function cumulativeRequirements(policy: CapabilityQualificationPolicyV1, level: GaLevel): readonly string[] {
   const requirements: string[] = [];
   const maxIndex = levelIndex(level);
   for (let index = 0; index <= maxIndex; index += 1) {
@@ -392,10 +381,7 @@ export function replayCapabilityQualification(input: {
     );
     if (!/^[0-9a-f]{40}$/.test(candidateSha)) return false;
     required(artifact.payload.subject.repository, 'CAPABILITY_QUALIFICATION_INVALID_REPOSITORY');
-    required(
-      artifact.payload.subject.build_identity,
-      'CAPABILITY_QUALIFICATION_INVALID_BUILD_IDENTITY',
-    );
+    required(artifact.payload.subject.build_identity, 'CAPABILITY_QUALIFICATION_INVALID_BUILD_IDENTITY');
     required(
       artifact.payload.subject.controller_version,
       'CAPABILITY_QUALIFICATION_INVALID_CONTROLLER_VERSION',
@@ -435,8 +421,7 @@ export function replayCapabilityQualification(input: {
 
     return (
       derived === artifact.payload.qualified_level &&
-      levelIndex(artifact.payload.target_level) - levelIndex(derived) ===
-        artifact.payload.delta_qualification
+      levelIndex(artifact.payload.target_level) - levelIndex(derived) === artifact.payload.delta_qualification
     );
   } catch {
     return false;
