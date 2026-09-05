@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
     inputs:
       candidate_sha:
-        description: Exact candidate SHA to prove
+        description: Exact candidate SHA to prove and promote
         required: true
         type: string
       unit_definition_path:
@@ -149,6 +149,7 @@ jobs:
           test "$DISPATCH_REF" = "refs/heads/$DEFAULT_BRANCH"
 
       - name: Dispatch canonical gate as its own protected workflow run
+        id: dispatch_gate
         env:
           GH_TOKEN: ${{ github.token }}
           CANDIDATE_SHA: ${{ inputs.candidate_sha }}
@@ -157,6 +158,19 @@ jobs:
           DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
         run: |
           set -euo pipefail
+          expected_title="DEV-GOV gate $CANDIDATE_SHA orchestration=$ATTESTATION_RUN_ID"
+          runs_before="$(gh api "repos/$GITHUB_REPOSITORY/actions/workflows/devgov-v0-gate.yml/runs?event=workflow_dispatch&per_page=50")"
+          preexisting_gate_run_ids="$(printf '%s' "$runs_before" | node -e "
+            let s='';process.stdin.on('data',d=>s+=d).on('end',()=>{
+              const body=JSON.parse(s);
+              const title=process.argv[1];
+              const ids=(body.workflow_runs||[])
+                .filter(r=>r.display_title===title)
+                .map(r=>String(r.id));
+              process.stdout.write(JSON.stringify(ids));
+            })" "$expected_title")"
+          echo "preexisting_gate_run_ids=$preexisting_gate_run_ids" >> "$GITHUB_OUTPUT"
+
           gh workflow run devgov-v0-gate.yml \
             --ref "$DEFAULT_BRANCH" \
             -f candidate_sha="$CANDIDATE_SHA" \
@@ -168,6 +182,9 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           CANDIDATE_SHA: ${{ inputs.candidate_sha }}
           ATTESTATION_RUN_ID: ${{ github.run_id }}
+          PREEXISTING_GATE_RUN_IDS: ${{ steps.dispatch_gate.outputs.preexisting_gate_run_ids }}
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+          CONTROLLER_SHA: ${{ github.sha }}
         run: |
           set -euo pipefail
           expected_title="DEV-GOV gate $CANDIDATE_SHA orchestration=$ATTESTATION_RUN_ID"
@@ -178,23 +195,116 @@ jobs:
               let s='';process.stdin.on('data',d=>s+=d).on('end',()=>{
                 const body=JSON.parse(s);
                 const title=process.argv[1];
-                const hit=(body.workflow_runs||[]).find(r=>r.display_title===title);
-                process.stdout.write(hit?String(hit.id):'');
-              })" "$expected_title")"
+                const before=new Set(JSON.parse(process.argv[2]||'[]').map(String));
+                const branch=process.argv[3];
+                const sha=process.argv[4];
+                const hits=(body.workflow_runs||[]).filter(r=>
+                  r.display_title===title &&
+                  r.event==='workflow_dispatch' &&
+                  r.head_branch===branch &&
+                  r.head_sha===sha &&
+                  !before.has(String(r.id))
+                );
+                if (hits.length>1) {
+                  process.stdout.write('AMBIGUOUS:'+hits.map(r=>String(r.id)).join(','));
+                  return;
+                }
+                process.stdout.write(hits.length===1?String(hits[0].id):'');
+              })" "$expected_title" "$PREEXISTING_GATE_RUN_IDS" "$DEFAULT_BRANCH" "$CONTROLLER_SHA")"
+            case "$gate_run_id" in
+              AMBIGUOUS:*) echo "::error::multiple new canonical gate runs matched this dispatch: ${gate_run_id#AMBIGUOUS:}"; exit 4 ;;
+            esac
             if [ -n "$gate_run_id" ]; then break; fi
             sleep 2
           done
-          test -n "$gate_run_id" || { echo "::error::canonical gate run was not found"; exit 4; }
+          test -n "$gate_run_id" || { echo "::error::new canonical gate run was not found for the protected controller SHA"; exit 4; }
           echo "Waiting for canonical gate run $gate_run_id"
           gh run watch "$gate_run_id" --exit-status
 
+  promote:
+    name: Exact-SHA fast-forward promotion
+    needs:
+      - plan
+      - gate
+    runs-on: ubuntu-latest
+    environment: devgov-promoter
+    permissions:
+      contents: read
+    steps:
+      - name: Require protected default-branch promoter
+        env:
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+          DISPATCH_REF: ${{ github.ref }}
+        run: |
+          test "$DISPATCH_REF" = "refs/heads/$DEFAULT_BRANCH"
+
+      - name: Checkout repository graph without persisted credentials
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Verify exact candidate exists and promotion is a pure fast-forward
+        env:
+          CANDIDATE_SHA: ${{ inputs.candidate_sha }}
+        run: |
+          set -euo pipefail
+          echo "$CANDIDATE_SHA" | grep -Eq '^[0-9a-f]{40}$'
+          git fetch --no-tags origin "$CANDIDATE_SHA"
+          git cat-file -e "${CANDIDATE_SHA}^{commit}"
+
+          live_main="$(git ls-remote origin refs/heads/main | cut -f1)"
+          test -n "$live_main"
+          git fetch --no-tags origin "$live_main"
+          git cat-file -e "${live_main}^{commit}"
+
+          if ! git merge-base --is-ancestor "$live_main" "$CANDIDATE_SHA"; then
+            echo "::error::candidate is not a descendant of live main; non-fast-forward promotion denied"
+            echo "::error::live main: $live_main"
+            echo "::error::candidate: $CANDIDATE_SHA"
+            exit 4
+          fi
+
+          echo "LIVE_MAIN_BEFORE=$live_main" >> "$GITHUB_ENV"
+
+      - name: Generate repository-scoped token for the dedicated promoter App
+        id: promoter_token
+        uses: actions/create-github-app-token@v1
+        with:
+          app-id: ${{ vars.DEVGOV_PROMOTER_APP_ID }}
+          private-key: ${{ secrets.DEVGOV_PROMOTER_PRIVATE_KEY_PEM }}
+          owner: ${{ github.repository_owner }}
+          repositories: ${{ github.event.repository.name }}
+
+      - name: Fast-forward main to the exact proven candidate SHA
+        env:
+          CANDIDATE_SHA: ${{ inputs.candidate_sha }}
+          PROMOTER_TOKEN: ${{ steps.promoter_token.outputs.token }}
+        run: |
+          set -euo pipefail
+          git push "https://x-access-token:${PROMOTER_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" \
+            "${CANDIDATE_SHA}:refs/heads/main"
+
+      - name: Verify remote main equals the exact candidate SHA
+        env:
+          CANDIDATE_SHA: ${{ inputs.candidate_sha }}
+        run: |
+          set -euo pipefail
+          new_main="$(git ls-remote origin refs/heads/main | cut -f1)"
+          test "$new_main" = "$CANDIDATE_SHA" || {
+            echo "::error::remote main is '$new_main', expected '$CANDIDATE_SHA'"
+            exit 4
+          }
+          echo "PROMOTED_MAIN_SHA=$new_main" >> "$GITHUB_ENV"
+
   state:
-    name: Publish machine-readable handoff
+    name: Publish machine-readable closed state
     needs:
       - plan
       - red
       - green
       - gate
+      - promote
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -212,7 +322,7 @@ jobs:
           const fs = require('node:fs');
           const state = {
             schema_version: 'dev-gov-orchestration-state-v1',
-            state: 'GATE_PASSED',
+            state: 'PROMOTED',
             candidate_sha: process.env.CANDIDATE_SHA,
             unit_definition_path: process.env.UNIT_DEFINITION_PATH,
             controller_sha: process.env.CONTROLLER_SHA,
@@ -223,7 +333,7 @@ jobs:
           fs.writeFileSync('devgov-orchestration-state.json', `${JSON.stringify(state, null, 2)}\n`);
           NODE
 
-      - name: Upload orchestration handoff artifact
+      - name: Upload orchestration state artifact
         uses: actions/upload-artifact@v4
         with:
           name: devgov-orchestration-${{ inputs.candidate_sha }}

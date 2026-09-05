@@ -86,25 +86,57 @@ describe('DEV-GOV-V0 multi-proof orchestration', () => {
     expect(source).not.toContain('uses: ./.github/workflows/devgov-v0-gate.yml');
   });
 
-  it('does not give the orchestrator signer or promoter credentials', () => {
+  it('correlates only a new canonical gate run for the same protected controller revision', () => {
+    const workflow = parse(readFileSync(orchestratorPath, 'utf8'));
+    const gate = workflow.jobs.gate;
+    const dispatch = gate.steps.find(
+      (step: { name?: string }) => step.name === 'Dispatch canonical gate as its own protected workflow run',
+    );
+    const resolveRun = gate.steps.find(
+      (step: { name?: string }) => step.name === 'Resolve and wait for the exact canonical gate run',
+    );
+
+    expect(dispatch.id).toBe('dispatch_gate');
+    expect(dispatch.run).toContain('preexisting_gate_run_ids');
+    expect(dispatch.run).toContain(
+      'echo "preexisting_gate_run_ids=$preexisting_gate_run_ids" >> "$GITHUB_OUTPUT"',
+    );
+    expect(resolveRun.env.PREEXISTING_GATE_RUN_IDS).toBe(
+      '${{ steps.dispatch_gate.outputs.preexisting_gate_run_ids }}',
+    );
+    expect(resolveRun.env.DEFAULT_BRANCH).toBe('${{ github.event.repository.default_branch }}');
+    expect(resolveRun.env.CONTROLLER_SHA).toBe('${{ github.sha }}');
+    expect(resolveRun.run).toContain("r.event==='workflow_dispatch'");
+    expect(resolveRun.run).toContain('r.head_branch===branch');
+    expect(resolveRun.run).toContain('r.head_sha===sha');
+    expect(resolveRun.run).toContain('!before.has(String(r.id))');
+    expect(resolveRun.run).toContain('if (hits.length>1)');
+    expect(resolveRun.run).toContain("process.stdout.write('AMBIGUOUS:'");
+    expect(resolveRun.run).toContain('multiple new canonical gate runs matched this dispatch');
+    expect(resolveRun.run).toContain('new canonical gate run was not found for the protected controller SHA');
+  });
+
+  it('keeps signer and promoter authority isolated to their dedicated jobs', () => {
     const source = readFileSync(orchestratorPath, 'utf8');
     const workflow = parse(source);
 
     expect(source).not.toContain('DEVGOV_ATTESTATION_PRIVATE_KEY_PEM');
-    expect(source).not.toContain('DEVGOV_PROMOTER_PRIVATE_KEY_PEM');
-    expect(source).not.toContain('devgov-promote.yml');
-    expect(source).not.toContain('git push');
-    expect(workflow.jobs.red.permissions).toEqual({ contents: 'read' });
-    expect(workflow.jobs.green.permissions).toEqual({ contents: 'read' });
+    expect(JSON.stringify(workflow.jobs.plan)).not.toContain('DEVGOV_PROMOTER');
+    expect(JSON.stringify(workflow.jobs.red)).not.toContain('DEVGOV_PROMOTER');
+    expect(JSON.stringify(workflow.jobs.green)).not.toContain('DEVGOV_PROMOTER');
+    expect(JSON.stringify(workflow.jobs.gate)).not.toContain('DEVGOV_PROMOTER');
+    expect(workflow.jobs.promote.environment).toBe('devgov-promoter');
+    expect(JSON.stringify(workflow.jobs.promote)).toContain('DEVGOV_PROMOTER_PRIVATE_KEY_PEM');
   });
 
-  it('publishes a machine-readable GATE_PASSED handoff only after the canonical gate succeeds', () => {
+  it('publishes PROMOTED only after the canonical gate and promoter succeed', () => {
     const source = readFileSync(orchestratorPath, 'utf8');
     const workflow = parse(source);
 
-    expect(workflow.jobs.state.needs).toEqual(['plan', 'red', 'green', 'gate']);
+    expect(workflow.jobs.promote.needs).toEqual(['plan', 'gate']);
+    expect(workflow.jobs.state.needs).toEqual(['plan', 'red', 'green', 'gate', 'promote']);
     expect(source).toContain("schema_version: 'dev-gov-orchestration-state-v1'");
-    expect(source).toContain("state: 'GATE_PASSED'");
+    expect(source).toContain("state: 'PROMOTED'");
     expect(source).toContain('devgov-orchestration-${{ inputs.candidate_sha }}');
   });
 });
