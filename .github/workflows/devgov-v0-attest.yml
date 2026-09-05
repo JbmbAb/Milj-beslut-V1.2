@@ -189,12 +189,13 @@ jobs:
         env:
           DEVGOV_CONTROLLER_SHA: ${{ github.sha }}
           DEVGOV_RUNNER_IDENTITY: github-hosted:ubuntu-latest
-          GITHUB_WORKFLOW_REF: ${{ job.workflow_ref }}
+          DEVGOV_JOB_WORKFLOW_REF: ${{ job.workflow_ref }}
           PROOF_KIND: ${{ inputs.proof_kind }}
           TEST_ID: ${{ inputs.test_id }}
           CANDIDATE_SHA: ${{ inputs.candidate_sha }}
           UNIT_DEFINITION_PATH: ${{ inputs.unit_definition_path }}
         run: |
+          export GITHUB_WORKFLOW_REF="$DEVGOV_JOB_WORKFLOW_REF"
           candidate_uid="$(id -u devgov-candidate)"
           candidate_gid="$(id -g devgov-candidate)"
           sudo --preserve-env=DEVGOV_CONTROLLER_SHA,DEVGOV_RUNNER_IDENTITY,GITHUB_WORKFLOW_REF,GITHUB_RUN_ID,GITHUB_RUN_ATTEMPT \
@@ -275,12 +276,13 @@ jobs:
           DEVGOV_ATTESTATION_KEY_ID: ${{ vars.DEVGOV_ATTESTATION_KEY_ID }}
           DEVGOV_CONTROLLER_SHA: ${{ github.sha }}
           DEVGOV_RUNNER_IDENTITY: github-hosted:ubuntu-latest
-          GITHUB_WORKFLOW_REF: ${{ job.workflow_ref }}
+          DEVGOV_JOB_WORKFLOW_REF: ${{ job.workflow_ref }}
           PROOF_KIND: ${{ inputs.proof_kind }}
           TEST_ID: ${{ inputs.test_id }}
           CANDIDATE_SHA: ${{ inputs.candidate_sha }}
           UNIT_DEFINITION_PATH: ${{ inputs.unit_definition_path }}
         run: |
+          export GITHUB_WORKFLOW_REF="$DEVGOV_JOB_WORKFLOW_REF"
           node controller/scripts/devgov/devgov.mjs attest-execution \
             --definition "candidate/$UNIT_DEFINITION_PATH" \
             --candidate-sha "$CANDIDATE_SHA" \
