@@ -2,6 +2,7 @@ import { AppendOnlyEventLog } from "./EventLog";
 import { HandoffIngestor } from "./HandoffIngestor";
 import type { AgentDispatchPort, DevGovDispatchPort } from "./Ports";
 import { routeAfterHandoff } from "./Router";
+import { applyControllerActivation } from "./StateMachine";
 import {
   FileDurableControlPlaneStore,
   type DurableOutboxItem,
@@ -12,6 +13,7 @@ export interface DurableCoordinatorDependencies {
   readonly store: FileDurableControlPlaneStore;
   readonly agentDispatch: AgentDispatchPort;
   readonly devGovDispatch: DevGovDispatchPort;
+  readonly now?: () => Date;
 }
 
 export interface DurableCoordinatorResult {
@@ -25,7 +27,11 @@ function dispatchKey(state: MultiAgentUnitState, target: string): string {
 }
 
 export class DurableMultiAgentCoordinator {
-  constructor(private readonly deps: DurableCoordinatorDependencies) {}
+  private readonly now: () => Date;
+
+  constructor(private readonly deps: DurableCoordinatorDependencies) {
+    this.now = deps.now ?? (() => new Date());
+  }
 
   async acceptHandoff(handoff: AgentHandoff): Promise<DurableCoordinatorResult> {
     const snapshot = this.deps.store.read();
@@ -33,7 +39,7 @@ export class DurableMultiAgentCoordinator {
     if (!current) throw new Error(`canonical unit ${handoff.unitId} does not exist`);
 
     const route = routeAfterHandoff(handoff);
-    if (route.nextState === current.state) {
+    if (route.acceptedState === current.state) {
       throw new Error(`no automatic state transition for ${handoff.role}/${handoff.result}`);
     }
 
@@ -43,7 +49,7 @@ export class DurableMultiAgentCoordinator {
 
     let ingested;
     try {
-      ingested = ingestor.ingest(current, handoff, route.nextState);
+      ingested = ingestor.ingest(current, handoff, route.acceptedState);
     } catch (error) {
       this.deps.store.appendAuditEvents(eventLog.all().slice(beforeCount));
       throw error;
@@ -58,9 +64,26 @@ export class DurableMultiAgentCoordinator {
       return { state: current, duplicate: true, dispatchId };
     }
 
-    const outboxItem = this.toOutboxItem(ingested.state, route);
+    let finalState = ingested.state;
+    if (route.activationState) {
+      const activated = applyControllerActivation(
+        ingested.state,
+        route.activationState,
+        this.now().toISOString(),
+      );
+      eventLog.append(activated.unitId, "UNIT_STATE_TRANSITIONED", {
+        actor: "CONTROLLER",
+        reason: "activate routed work",
+        from: ingested.state.state,
+        to: activated.state,
+        state: { ...activated },
+      });
+      finalState = activated;
+    }
+
+    const outboxItem = this.toOutboxItem(finalState, route);
     this.deps.store.commitTransition({
-      state: ingested.state,
+      state: finalState,
       events: eventLog.all().slice(beforeCount),
       agentRunId: handoff.agentRunId,
       fingerprint: ingested.fingerprint,
@@ -68,7 +91,7 @@ export class DurableMultiAgentCoordinator {
     });
 
     const dispatchId = outboxItem ? await this.flushItem(outboxItem) : undefined;
-    return { state: ingested.state, duplicate: false, dispatchId };
+    return { state: finalState, duplicate: false, dispatchId };
   }
 
   async flushPending(): Promise<readonly string[]> {
