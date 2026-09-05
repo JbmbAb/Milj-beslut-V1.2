@@ -193,9 +193,11 @@ jobs:
           TEST_ID: ${{ inputs.test_id }}
           CANDIDATE_SHA: ${{ inputs.candidate_sha }}
           UNIT_DEFINITION_PATH: ${{ inputs.unit_definition_path }}
+          CANONICAL_ATTEST_WORKFLOW_REF: ${{ github.repository }}/.github/workflows/devgov-v0-attest.yml@${{ github.ref }}
         run: |
           candidate_uid="$(id -u devgov-candidate)"
           candidate_gid="$(id -g devgov-candidate)"
+          export GITHUB_WORKFLOW_REF="$CANONICAL_ATTEST_WORKFLOW_REF"
           sudo --preserve-env=DEVGOV_CONTROLLER_SHA,DEVGOV_RUNNER_IDENTITY,GITHUB_WORKFLOW_REF,GITHUB_RUN_ID,GITHUB_RUN_ATTEMPT \
             node controller/scripts/devgov/devgov.mjs execute-proof \
             --definition "candidate/$UNIT_DEFINITION_PATH" \
