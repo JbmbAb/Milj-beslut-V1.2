@@ -7,7 +7,7 @@ export interface AgentMailboxRecord {
   readonly dispatchKey: string;
   readonly dispatchId: string;
   readonly item: AgentWorkItem;
-  readonly status: "PENDING" | "LEASED" | "COMPLETED";
+  readonly status: "PENDING" | "LEASED" | "COMPLETED" | "DEAD_LETTER";
   readonly attempts: number;
   readonly leasedBy?: string;
   readonly leasedAt?: string;
@@ -97,6 +97,15 @@ export class FileAgentMailbox implements AgentDispatchPort {
     }));
   }
 
+  deadLetter(dispatchKey: string, workerId: string, error: string): void {
+    this.updateLeased(dispatchKey, workerId, (current) => ({
+      ...current,
+      status: "DEAD_LETTER",
+      leaseExpiresAt: undefined,
+      lastError: error,
+    }));
+  }
+
   reclaimExpired(now = new Date()): number {
     const before = this.read();
     const after = this.reclaimExpiredIn(before, now);
@@ -120,7 +129,7 @@ export class FileAgentMailbox implements AgentDispatchPort {
     const index = box.records.findIndex((record) => record.dispatchKey === dispatchKey);
     if (index < 0) throw new AgentMailboxConflictError(`unknown dispatch key ${dispatchKey}`);
     const current = box.records[index];
-    if (current.status === "COMPLETED") return;
+    if (current.status === "COMPLETED" || current.status === "DEAD_LETTER") return;
     if (current.status !== "LEASED" || current.leasedBy !== workerId) {
       throw new AgentMailboxConflictError(
         `dispatch ${dispatchKey} is not leased by worker ${workerId}`,
