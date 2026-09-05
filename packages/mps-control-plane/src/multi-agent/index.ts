@@ -4,3 +4,7 @@ export * from "./LeaseRegistry";
 export * from "./EventLog";
 export * from "./HandoffIngestor";
 export * from "./Router";
+export * from "./Ports";
+export * from "./Coordinator";
+export * from "./FileDurableControlPlaneStore";
+export * from "./DurableCoordinator";
