@@ -114,9 +114,7 @@ describe('DEV-GOV-V0 multi-proof orchestration', () => {
     expect(resolveRun.run).toContain('if (hits.length>1)');
     expect(resolveRun.run).toContain("process.stdout.write('AMBIGUOUS:'");
     expect(resolveRun.run).toContain('multiple new canonical gate runs matched this dispatch');
-    expect(resolveRun.run).toContain(
-      'new canonical gate run was not found for the protected controller SHA',
-    );
+    expect(resolveRun.run).toContain('new canonical gate run was not found for the protected controller SHA');
   });
 
   it('keeps signer and promoter authority isolated to their dedicated jobs', () => {
