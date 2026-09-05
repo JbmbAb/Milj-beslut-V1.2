@@ -1,16 +1,23 @@
 import { describe, expect, it } from 'vitest';
 
 import {
+  CAPABILITY_QUALIFICATION_ARTIFACT_TYPE,
+  CAPABILITY_QUALIFICATION_CANONICALIZER_ID,
   createCapabilityQualificationArtifact,
   deriveQualifiedLevel,
   replayCapabilityQualification,
+  type CapabilityQualificationArtifact,
   type CapabilityQualificationPolicyV1,
   type QualificationPredicateObservation,
 } from '../src/artifacts/CapabilityQualificationArtifact';
+import { sha256ContentHash } from '../src/canonical/sha256Canonical';
+
+const POLICY_HASH = `sha256:${'1'.repeat(64)}`;
+const EVALUATOR_HASH = `sha256:${'2'.repeat(64)}`;
 
 const policy: CapabilityQualificationPolicyV1 = {
   policy_version: 'ga-policy/v1',
-  policy_hash: 'sha256:policy-v1',
+  policy_hash: POLICY_HASH,
   requirements_by_level: {
     'GA-L0': [],
     'GA-L1': ['implementation_verified'],
@@ -64,8 +71,20 @@ function create(predicatesOverride: readonly QualificationPredicateObservation[]
     target_level: 'GA-L4',
     predicates: predicatesOverride,
     policy,
-    evaluator_hash: 'sha256:evaluator-v1',
+    evaluator_hash: EVALUATOR_HASH,
   });
+}
+
+function rehash(artifact: CapabilityQualificationArtifact): CapabilityQualificationArtifact {
+  const { content_hash: _ignored, ...artifactWithoutHash } = artifact;
+  return {
+    ...artifactWithoutHash,
+    content_hash: sha256ContentHash({
+      canonicalizer_id: CAPABILITY_QUALIFICATION_CANONICALIZER_ID,
+      artifact_type: CAPABILITY_QUALIFICATION_ARTIFACT_TYPE,
+      artifact: artifactWithoutHash,
+    }),
+  };
 }
 
 describe('GA-D1 CapabilityQualificationArtifact v1', () => {
@@ -85,7 +104,10 @@ describe('GA-D1 CapabilityQualificationArtifact v1', () => {
         ? {
             ...predicate,
             result: 'FAIL' as const,
-            blocker: { class: 'STRUCTURAL_BLOCKER' as const, code: 'IMPLEMENTATION_NOT_PROVEN' },
+            blocker: {
+              class: 'STRUCTURAL_BLOCKER' as const,
+              code: 'IMPLEMENTATION_NOT_PROVEN',
+            },
           }
         : predicate,
     );
@@ -125,7 +147,7 @@ describe('GA-D1 CapabilityQualificationArtifact v1', () => {
       target_level: 'GA-L4',
       predicates,
       policy,
-      evaluator_hash: 'sha256:evaluator-v1',
+      evaluator_hash: EVALUATOR_HASH,
     });
 
     expect(second.content_hash.value).not.toBe(first.content_hash.value);
@@ -161,6 +183,20 @@ describe('GA-D1 CapabilityQualificationArtifact v1', () => {
     ).toThrow('CAPABILITY_QUALIFICATION_RUNTIME_TRANSIENT_FORBIDDEN');
   });
 
+  it('rejects unknown blocker classes at the runtime boundary', () => {
+    expect(() =>
+      create([
+        ...predicates.slice(0, 3),
+        {
+          predicate_id: 'runtime_wiring_verified',
+          result: 'FAIL',
+          evidence_refs: [evidence('unknown-proof')],
+          blocker: { class: 'UNKNOWN_BLOCKER', code: 'UNKNOWN' } as never,
+        },
+      ]),
+    ).toThrow('CAPABILITY_QUALIFICATION_INVALID_BLOCKER_CLASS');
+  });
+
   it('rejects malformed predicate semantics and duplicate predicate ids', () => {
     expect(() =>
       create([
@@ -184,11 +220,43 @@ describe('GA-D1 CapabilityQualificationArtifact v1', () => {
     ).toThrow('CAPABILITY_QUALIFICATION_FAIL_WITHOUT_BLOCKER');
   });
 
+  it('validates policy shape and cryptographic policy identity fail-closed', () => {
+    expect(() =>
+      createCapabilityQualificationArtifact({
+        artifact_id: 'cq-artifact-001',
+        subject: {
+          repository: 'JbmbAb/Milj-beslut-V1.2',
+          candidate_sha: '0123456789abcdef0123456789abcdef01234567',
+          build_identity: 'build-001',
+          controller_version: 'controller-v1',
+        },
+        target_level: 'GA-L4',
+        predicates,
+        policy: { ...policy, policy_hash: 'not-a-hash' },
+        evaluator_hash: EVALUATOR_HASH,
+      }),
+    ).toThrow('CAPABILITY_QUALIFICATION_INVALID_POLICY_HASH');
+
+    const missingLevel = {
+      ...policy,
+      requirements_by_level: {
+        'GA-L0': [],
+        'GA-L1': ['implementation_verified'],
+        'GA-L2': ['verifier_separation'],
+        'GA-L3': ['durable_reconciliation'],
+      },
+    } as unknown as CapabilityQualificationPolicyV1;
+
+    expect(() => deriveQualifiedLevel({ target_level: 'GA-L4', predicates, policy: missingLevel })).toThrow(
+      'CAPABILITY_QUALIFICATION_MISSING_POLICY_LEVEL',
+    );
+  });
+
   it('replays only with the same policy and untampered canonical content', () => {
     const artifact = create();
     expect(replayCapabilityQualification({ artifact, policy })).toBe(true);
 
-    const wrongPolicy = { ...policy, policy_hash: 'sha256:different-policy' };
+    const wrongPolicy = { ...policy, policy_hash: `sha256:${'3'.repeat(64)}` };
     expect(replayCapabilityQualification({ artifact, policy: wrongPolicy })).toBe(false);
 
     const tampered = {
@@ -208,6 +276,65 @@ describe('GA-D1 CapabilityQualificationArtifact v1', () => {
       ...artifact,
       references: [{ artifact_id: 'different-proof', artifact_type: 'proof' }],
     };
+
+    expect(replayCapabilityQualification({ artifact: tampered, policy })).toBe(false);
+  });
+
+  it('rejects hash-valid replay artifacts with forbidden runtime authority blocker contamination', () => {
+    const artifact = create();
+    const contaminated = rehash({
+      ...artifact,
+      payload: {
+        ...artifact.payload,
+        predicates: artifact.payload.predicates.map((predicate) =>
+          predicate.predicate_id === 'runtime_wiring_verified'
+            ? {
+                ...predicate,
+                blocker: { class: 'AUTHORITY_BLOCKER', code: 'NO_RUNTIME_GRANT' },
+              }
+            : predicate,
+        ) as readonly QualificationPredicateObservation[],
+      },
+    });
+
+    expect(replayCapabilityQualification({ artifact: contaminated, policy })).toBe(false);
+  });
+
+  it('rejects hash-valid replay artifacts with wrong derivation version', () => {
+    const artifact = create();
+    const tampered = rehash({
+      ...artifact,
+      payload: {
+        ...artifact.payload,
+        derivation_version: 'qualification-engine/v999' as never,
+      },
+    });
+
+    expect(replayCapabilityQualification({ artifact: tampered, policy })).toBe(false);
+  });
+
+  it('rejects hash-valid replay artifacts with malformed candidate SHA', () => {
+    const artifact = create();
+    const tampered = rehash({
+      ...artifact,
+      payload: {
+        ...artifact.payload,
+        subject: {
+          ...artifact.payload.subject,
+          candidate_sha: 'not-a-candidate-sha',
+        },
+      },
+    });
+
+    expect(replayCapabilityQualification({ artifact: tampered, policy })).toBe(false);
+  });
+
+  it('rejects hash-valid replay artifacts whose references are not the normalized predicate evidence set', () => {
+    const artifact = create();
+    const tampered = rehash({
+      ...artifact,
+      references: [...artifact.references, evidence('unbound-reference')],
+    });
 
     expect(replayCapabilityQualification({ artifact: tampered, policy })).toBe(false);
   });
