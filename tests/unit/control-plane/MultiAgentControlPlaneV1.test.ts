@@ -136,8 +136,18 @@ describe("Multi-Agent Control Plane V1", () => {
         verifier({
           result: "FAIL",
           findings: [
-            { id: "F1", severity: "BLOCKING", classification: "MECHANICAL", message: "format" },
-            { id: "F2", severity: "BLOCKING", classification: "MECHANICAL", message: "lint" },
+            {
+              id: "F1",
+              severity: "BLOCKING",
+              classification: "MECHANICAL",
+              message: "format",
+            },
+            {
+              id: "F2",
+              severity: "BLOCKING",
+              classification: "MECHANICAL",
+              message: "lint",
+            },
           ],
         }),
       ),
@@ -148,8 +158,18 @@ describe("Multi-Agent Control Plane V1", () => {
         verifier({
           result: "FAIL",
           findings: [
-            { id: "F1", severity: "BLOCKING", classification: "MECHANICAL", message: "format" },
-            { id: "F2", severity: "BLOCKING", classification: "SEMANTIC", message: "wrong authority" },
+            {
+              id: "F1",
+              severity: "BLOCKING",
+              classification: "MECHANICAL",
+              message: "format",
+            },
+            {
+              id: "F2",
+              severity: "BLOCKING",
+              classification: "SEMANTIC",
+              message: "wrong authority",
+            },
           ],
         }),
       ),
@@ -162,7 +182,11 @@ describe("Multi-Agent Control Plane V1", () => {
 
     expect(() =>
       registry.acquire(
-        lease({ leaseId: "lease-2", holder: "codex", scope: ["packages/mps-data-governance/**"] }),
+        lease({
+          leaseId: "lease-2",
+          holder: "codex",
+          scope: ["packages/mps-data-governance/**"],
+        }),
         new Date("2026-09-05T00:31:00.000Z"),
       ),
     ).toThrow(LeaseConflictError);
@@ -172,11 +196,17 @@ describe("Multi-Agent Control Plane V1", () => {
     const registry = new InMemoryLeaseRegistry();
     registry.acquire(lease(), new Date("2026-09-05T00:30:00.000Z"));
     registry.acquire(
-      lease({ leaseId: "lease-2", holder: "claude-b" }),
+      lease({
+        leaseId: "lease-2",
+        holder: "claude-b",
+        issuedAt: "2026-09-05T01:01:00.000Z",
+        heartbeatAt: "2026-09-05T01:01:00.000Z",
+        expiresAt: "2026-09-05T02:00:00.000Z",
+      }),
       new Date("2026-09-05T01:01:00.000Z"),
     );
 
-    const active = registry.activeFor("K1");
+    const active = registry.activeFor("K1", new Date("2026-09-05T01:02:00.000Z"));
     expect(active).toHaveLength(1);
     expect(active[0].candidateSha).toBe(CANDIDATE);
     expect(active[0].holder).toBe("claude-b");
