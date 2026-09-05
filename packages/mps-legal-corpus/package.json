@@ -10,7 +10,8 @@
   },
   "dependencies": {
     "@miljobeslut/mps-core": "file:../mps-core",
-    "@miljobeslut/mimers-brunn-core": "file:../mimers-brunn-core"
+    "@miljobeslut/mimers-brunn-core": "file:../mimers-brunn-core",
+    "@miljobeslut/mps-data-governance": "file:../mps-data-governance"
   },
   "devDependencies": {
     "typescript": "^5.5.0",
