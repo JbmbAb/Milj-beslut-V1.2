@@ -20,17 +20,23 @@ describe('DEV-GOV-V0 multi-proof orchestration', () => {
     expect(workflow.jobs.attest.environment).toBe('devgov-attestation');
     expect(JSON.stringify(workflow.jobs.execute)).not.toContain('DEVGOV_ATTESTATION_PRIVATE_KEY_PEM');
     expect(JSON.stringify(workflow.jobs.attest)).toContain('DEVGOV_ATTESTATION_PRIVATE_KEY_PEM');
+    expect(source).toContain('CANONICAL_ATTEST_WORKFLOW_REF');
+    expect(source).toContain('export GITHUB_WORKFLOW_REF="$CANONICAL_ATTEST_WORKFLOW_REF"');
   });
 
-  it('makes the gate reusable and passes every required signed attestation to the canonical CLI', () => {
+  it('keeps the trusted gate as a standalone protected workflow and consumes the complete proof set', () => {
     const source = readFileSync(gatePath, 'utf8');
     const workflow = parse(source);
     const gate = workflow.jobs['evidence-gate'];
-    const verify = gate.steps.find((step: { name?: string }) => step.name === 'Verify trusted execution attestations');
+    const verify = gate.steps.find(
+      (step: { name?: string }) => step.name === 'Verify trusted execution attestations',
+    );
 
-    expect(workflow.on.workflow_call).toBeTruthy();
+    expect(workflow.on.workflow_call).toBeUndefined();
     expect(workflow.on.workflow_dispatch).toBeTruthy();
     expect(gate.environment).toBe('devgov-attestation');
+    expect(source).toContain('attestation_run_id');
+    expect(source).toContain('run-id: ${{ inputs.attestation_run_id }}');
     expect(source).toContain('pattern: devgov-attestation-RED-*');
     expect(source).toContain('pattern: devgov-attestation-GREEN-*');
     expect(verify.run).toContain('test "${#red[@]}" -eq "$EXPECTED_RED_COUNT"');
@@ -47,14 +53,28 @@ describe('DEV-GOV-V0 multi-proof orchestration', () => {
     expect(workflow.permissions).toEqual({ contents: 'read' });
     expect(workflow.jobs.red.uses).toBe('./.github/workflows/devgov-v0-attest.yml');
     expect(workflow.jobs.green.uses).toBe('./.github/workflows/devgov-v0-attest.yml');
-    expect(workflow.jobs.gate.uses).toBe('./.github/workflows/devgov-v0-gate.yml');
+    expect(workflow.jobs.red.secrets).toBe('inherit');
+    expect(workflow.jobs.green.secrets).toBe('inherit');
     expect(workflow.jobs.green.needs).toEqual(['plan', 'red']);
     expect(workflow.jobs.gate.needs).toEqual(['plan', 'red', 'green']);
+    expect(workflow.jobs.gate['runs-on']).toBe('ubuntu-latest');
     expect(JSON.stringify(workflow.jobs.red.strategy.matrix)).toContain('needs.plan.outputs.red_ids');
     expect(JSON.stringify(workflow.jobs.green.strategy.matrix)).toContain('needs.plan.outputs.green_ids');
   });
 
-  it('does not give the orchestrator signer or promoter credentials and only grants status authority to the gate call', () => {
+  it('dispatches the canonical gate instead of trying to reuse its OIDC identity', () => {
+    const source = readFileSync(orchestratorPath, 'utf8');
+    const workflow = parse(source);
+    const gate = workflow.jobs.gate;
+
+    expect(gate.permissions).toEqual({ actions: 'write', contents: 'read' });
+    expect(source).toContain('gh workflow run devgov-v0-gate.yml');
+    expect(source).toContain('-f attestation_run_id="$ATTESTATION_RUN_ID"');
+    expect(source).toContain('gh run watch "$gate_run_id" --exit-status');
+    expect(source).not.toContain('uses: ./.github/workflows/devgov-v0-gate.yml');
+  });
+
+  it('does not give the orchestrator signer or promoter credentials', () => {
     const source = readFileSync(orchestratorPath, 'utf8');
     const workflow = parse(source);
 
@@ -64,15 +84,9 @@ describe('DEV-GOV-V0 multi-proof orchestration', () => {
     expect(source).not.toContain('git push');
     expect(workflow.jobs.red.permissions).toEqual({ contents: 'read' });
     expect(workflow.jobs.green.permissions).toEqual({ contents: 'read' });
-    expect(workflow.jobs.gate.permissions).toMatchObject({
-      actions: 'read',
-      contents: 'read',
-      'id-token': 'write',
-      statuses: 'write',
-    });
   });
 
-  it('publishes a machine-readable GATE_PASSED handoff only after the gate succeeds', () => {
+  it('publishes a machine-readable GATE_PASSED handoff only after the canonical gate succeeds', () => {
     const source = readFileSync(orchestratorPath, 'utf8');
     const workflow = parse(source);
 
