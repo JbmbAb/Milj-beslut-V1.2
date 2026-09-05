@@ -54,7 +54,12 @@ function handoff(overrides: Partial<AgentHandoff> = {}): AgentHandoff {
 }
 
 function mechanicalFinding(id = "F1") {
-  return { id, severity: "BLOCKING" as const, classification: "MECHANICAL" as const, message: "mechanical" };
+  return {
+    id,
+    severity: "BLOCKING" as const,
+    classification: "MECHANICAL" as const,
+    message: "mechanical",
+  };
 }
 
 function lease(overrides: Partial<AgentLease> = {}): AgentLease {
@@ -77,14 +82,24 @@ describe("Multi-Agent Control Plane V1 persistence and routing", () => {
   it("records accepted handoffs and state transitions in an append-only hash chain", () => {
     const log = new AppendOnlyEventLog();
     const ingestor = new HandoffIngestor(log);
-    const result = ingestor.ingest(unit("VERIFYING"), handoff(), "READY_FOR_DEV_GOV", "2026-09-05T01:00:00.000Z");
+    const result = ingestor.ingest(
+      unit("VERIFYING"),
+      handoff(),
+      "READY_FOR_DEV_GOV",
+      "2026-09-05T01:00:00.000Z",
+    );
 
     expect(result.duplicate).toBe(false);
-    expect(result.state.state).toBe("READY_FOR_DEV_GOV");
-    expect(result.state.revision).toBe(8);
-    expect(result.state.unitDefinitionHash).toBe(unitDefinitionHash);
-    expect(result.state.proofContractHash).toBe(proofContractHash);
-    expect(log.forUnit("K1").map((event) => event.kind)).toEqual(["HANDOFF_ACCEPTED", "UNIT_STATE_TRANSITIONED"]);
+    expect(result.state).toMatchObject({
+      state: "READY_FOR_DEV_GOV",
+      revision: 8,
+      unitDefinitionHash,
+      proofContractHash,
+    });
+    expect(log.forUnit("K1").map((event) => event.kind)).toEqual([
+      "HANDOFF_ACCEPTED",
+      "UNIT_STATE_TRANSITIONED",
+    ]);
     expect(log.verifyChain()).toBe(true);
   });
 
@@ -93,9 +108,7 @@ describe("Multi-Agent Control Plane V1 persistence and routing", () => {
     const ingestor = new HandoffIngestor(log);
     const current = unit("VERIFYING");
     const accepted = ingestor.ingest(current, handoff(), "READY_FOR_DEV_GOV");
-
-    const duplicate = ingestor.ingest(accepted.state, handoff(), "READY_FOR_DEV_GOV");
-    expect(duplicate.duplicate).toBe(true);
+    expect(ingestor.ingest(accepted.state, handoff(), "READY_FOR_DEV_GOV").duplicate).toBe(true);
 
     expect(() =>
       ingestor.ingest(
@@ -110,17 +123,26 @@ describe("Multi-Agent Control Plane V1 persistence and routing", () => {
   it("cannot advance stale candidate or proof identity", () => {
     const ingestor = new HandoffIngestor(new AppendOnlyEventLog());
     expect(() =>
-      ingestor.ingest(unit("VERIFYING"), handoff({ observedCandidateSha: "3".repeat(40) }), "READY_FOR_DEV_GOV"),
+      ingestor.ingest(
+        unit("VERIFYING"),
+        handoff({ observedCandidateSha: "3".repeat(40) }),
+        "READY_FOR_DEV_GOV",
+      ),
     ).toThrow(/candidate SHA/);
     expect(() =>
-      ingestor.ingest(unit("VERIFYING"), handoff({ proofContractHash: "c".repeat(64) }), "READY_FOR_DEV_GOV"),
+      ingestor.ingest(
+        unit("VERIFYING"),
+        handoff({ proofContractHash: "c".repeat(64) }),
+        "READY_FOR_DEV_GOV",
+      ),
     ).toThrow(/proof contract hash/);
   });
 
-  it("routes mechanical verifier failures to focused delta reverify and semantic failures to full reverify", () => {
+  it("routes verifier failure through VERIFY_FAILED before controller reactivates implementation", () => {
     expect(routeAfterHandoff(handoff({ result: "FAIL", findings: [mechanicalFinding()] }))).toMatchObject({
       targetRole: "IMPLEMENTER",
-      nextState: "VERIFY_FAILED",
+      acceptedState: "VERIFY_FAILED",
+      activationState: "IMPLEMENTING",
       verificationMode: "DELTA_REVERIFY",
     });
 
@@ -130,18 +152,36 @@ describe("Multi-Agent Control Plane V1 persistence and routing", () => {
           result: "FAIL",
           findings: [
             mechanicalFinding(),
-            { id: "F2", severity: "BLOCKING", classification: "SEMANTIC", message: "semantic" },
+            {
+              id: "F2",
+              severity: "BLOCKING",
+              classification: "SEMANTIC",
+              message: "semantic",
+            },
           ],
         }),
       ),
-    ).toMatchObject({ targetRole: "IMPLEMENTER", nextState: "VERIFY_FAILED", verificationMode: "FULL_REVERIFY" });
+    ).toMatchObject({
+      targetRole: "IMPLEMENTER",
+      acceptedState: "VERIFY_FAILED",
+      activationState: "IMPLEMENTING",
+      verificationMode: "FULL_REVERIFY",
+    });
   });
 
-  it("routes verifier PASS toward DEV-GOV but ingestion still requires independent identity", () => {
-    expect(routeAfterHandoff(handoff())).toMatchObject({ targetRole: "DEV_GOV", nextState: "READY_FOR_DEV_GOV" });
+  it("routes verifier PASS through READY_FOR_DEV_GOV then activates PROVING_RED", () => {
+    expect(routeAfterHandoff(handoff())).toMatchObject({
+      targetRole: "DEV_GOV",
+      acceptedState: "READY_FOR_DEV_GOV",
+      activationState: "PROVING_RED",
+    });
     const ingestor = new HandoffIngestor(new AppendOnlyEventLog());
     expect(() =>
-      ingestor.ingest(unit("VERIFYING"), handoff({ verifierIndependent: false }), "READY_FOR_DEV_GOV"),
+      ingestor.ingest(
+        unit("VERIFYING"),
+        handoff({ verifierIndependent: false }),
+        "READY_FOR_DEV_GOV",
+      ),
     ).toThrow(/independent verifier/);
   });
 
@@ -157,7 +197,13 @@ describe("Multi-Agent Control Plane V1 persistence and routing", () => {
     );
     expect(updated.heartbeatAt).toBe("2026-09-05T00:03:00.000Z");
     expect(() =>
-      registry.heartbeat("lease-1", "codex", "2026-09-05T00:04:00.000Z", "2026-09-05T00:13:00.000Z", new Date("2026-09-05T00:04:01.000Z")),
+      registry.heartbeat(
+        "lease-1",
+        "codex",
+        "2026-09-05T00:04:00.000Z",
+        "2026-09-05T00:13:00.000Z",
+        new Date("2026-09-05T00:04:01.000Z"),
+      ),
     ).toThrow(LeaseConflictError);
   });
 
@@ -177,6 +223,8 @@ describe("Multi-Agent Control Plane V1 persistence and routing", () => {
       }),
       new Date("2026-09-05T00:11:02.000Z"),
     );
-    expect(registry.activeFor("K1", new Date("2026-09-05T00:11:03.000Z"))[0].candidateSha).toBe(candidateSha);
+    expect(
+      registry.activeFor("K1", new Date("2026-09-05T00:11:03.000Z"))[0].candidateSha,
+    ).toBe(candidateSha);
   });
 });
