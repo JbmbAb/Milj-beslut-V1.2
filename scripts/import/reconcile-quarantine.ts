@@ -20,7 +20,7 @@ async function main() {
     return;
   }
 
-  let quarantineRecords: DocumentQuarantineRecord[] = JSON.parse(fs.readFileSync(QUARANTINE_PATH, 'utf8'));
+  const quarantineRecords: DocumentQuarantineRecord[] = JSON.parse(fs.readFileSync(QUARANTINE_PATH, 'utf8'));
   console.log(`Total quarantine records to reconcile: ${quarantineRecords.length}`);
 
   if (quarantineRecords.length === 0) {
@@ -49,8 +49,8 @@ async function main() {
   const MASTER_DOCS = 'H:\\Delade enheter\\Miljöbeslut\\GEO_Master_Archive\\Documents\\Sources';
   const orchestrator = new DocumentOrchestrator();
   
-  let org = await prisma.organisation.findFirst();
-  let project = await prisma.project.findFirst({ where: { organisationId: org?.id } });
+  const org = await prisma.organisation.findFirst();
+  const project = await prisma.project.findFirst({ where: { organisationId: org?.id } });
 
   const newlyRecoveredResults: DocumentStateCheckpoint[] = [];
   const finalQuarantineLedger: DocumentQuarantineRecord[] = [];

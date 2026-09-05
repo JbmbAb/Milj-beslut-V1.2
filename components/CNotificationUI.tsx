@@ -63,12 +63,12 @@ export const CNotificationUI: React.FC<Props> = ({ projectId: projectIdProp }) =
   useEffect(() => {
     const q =
       typeof window !== 'undefined' ? new URLSearchParams(window.location.search).get('projectId') : null;
-    // eslint-disable-next-line react-hooks/set-state-in-effect
+     
     if (!projectIdProp && q) setProjectId(q);
   }, [projectIdProp]);
 
   useEffect(() => {
-    // eslint-disable-next-line react-hooks/set-state-in-effect
+     
     void load();
   }, [load]);
 
