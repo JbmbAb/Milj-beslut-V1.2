@@ -1,0 +1,188 @@
+name: DEV-GOV-V0 Proof Orchestrator
+
+on:
+  workflow_dispatch:
+    inputs:
+      candidate_sha:
+        description: Exact candidate SHA to prove
+        required: true
+        type: string
+      unit_definition_path:
+        description: Repository-relative DEV-GOV V1 unit definition path
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  plan:
+    name: Resolve unit proof plan
+    runs-on: ubuntu-latest
+    outputs:
+      red_ids: ${{ steps.plan.outputs.red_ids }}
+      green_ids: ${{ steps.plan.outputs.green_ids }}
+      red_count: ${{ steps.plan.outputs.red_count }}
+      green_count: ${{ steps.plan.outputs.green_count }}
+    steps:
+      - name: Require protected default-branch orchestrator
+        env:
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+          DISPATCH_REF: ${{ github.ref }}
+        run: |
+          test "$DISPATCH_REF" = "refs/heads/$DEFAULT_BRANCH"
+
+      - name: Validate candidate SHA shape
+        env:
+          CANDIDATE_SHA: ${{ inputs.candidate_sha }}
+        run: |
+          echo "$CANDIDATE_SHA" | grep -Eq '^[0-9a-f]{40}$'
+
+      - name: Checkout exact candidate without executing candidate code
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.candidate_sha }}
+          path: candidate
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Resolve proof IDs from candidate-owned unit definition
+        id: plan
+        env:
+          CANDIDATE_SHA: ${{ inputs.candidate_sha }}
+          UNIT_DEFINITION_PATH: ${{ inputs.unit_definition_path }}
+        run: |
+          set -euo pipefail
+          test "$(git -C candidate rev-parse HEAD)" = "$CANDIDATE_SHA"
+          test -z "$(git -C candidate status --porcelain)"
+
+          candidate_root="$(realpath candidate)"
+          definition="$(realpath "candidate/$UNIT_DEFINITION_PATH")"
+          case "$definition" in
+            "$candidate_root"/*) ;;
+            *) echo "unit definition escapes candidate checkout" >&2; exit 4 ;;
+          esac
+
+          node - "$definition" "$GITHUB_OUTPUT" <<'NODE'
+          const fs = require('node:fs');
+          const definition = JSON.parse(fs.readFileSync(process.argv[2], 'utf8'));
+
+          if (definition.schema_version !== 'dev-gov-v1-unit-definition') {
+            throw new Error('unsupported unit definition schema');
+          }
+
+          const red = Array.isArray(definition.required_red) ? definition.required_red : [];
+          const green = Array.isArray(definition.required_green) ? definition.required_green : [];
+          const ids = (items, kind) => items.map((item) => {
+            if (!item || typeof item.id !== 'string' || item.id.length === 0) {
+              throw new Error(`${kind} proof missing id`);
+            }
+            return item.id;
+          });
+          const redIds = ids(red, 'RED');
+          const greenIds = ids(green, 'GREEN');
+
+          if (new Set(redIds).size !== redIds.length) throw new Error('duplicate RED proof id');
+          if (new Set(greenIds).size !== greenIds.length) throw new Error('duplicate GREEN proof id');
+          if (redIds.length === 0 || greenIds.length === 0) {
+            throw new Error('orchestrated units currently require at least one RED and one GREEN proof');
+          }
+
+          fs.appendFileSync(process.argv[3], `red_ids=${JSON.stringify(redIds)}\n`);
+          fs.appendFileSync(process.argv[3], `green_ids=${JSON.stringify(greenIds)}\n`);
+          fs.appendFileSync(process.argv[3], `red_count=${redIds.length}\n`);
+          fs.appendFileSync(process.argv[3], `green_count=${greenIds.length}\n`);
+          NODE
+
+  red:
+    name: RED / ${{ matrix.test_id }}
+    needs: plan
+    strategy:
+      fail-fast: false
+      matrix:
+        test_id: ${{ fromJSON(needs.plan.outputs.red_ids) }}
+    permissions:
+      contents: read
+    uses: ./.github/workflows/devgov-v0-attest.yml
+    with:
+      candidate_sha: ${{ inputs.candidate_sha }}
+      unit_definition_path: ${{ inputs.unit_definition_path }}
+      proof_kind: RED
+      test_id: ${{ matrix.test_id }}
+
+  green:
+    name: GREEN / ${{ matrix.test_id }}
+    needs:
+      - plan
+      - red
+    strategy:
+      fail-fast: false
+      matrix:
+        test_id: ${{ fromJSON(needs.plan.outputs.green_ids) }}
+    permissions:
+      contents: read
+    uses: ./.github/workflows/devgov-v0-attest.yml
+    with:
+      candidate_sha: ${{ inputs.candidate_sha }}
+      unit_definition_path: ${{ inputs.unit_definition_path }}
+      proof_kind: GREEN
+      test_id: ${{ matrix.test_id }}
+
+  gate:
+    name: Trusted evidence gate
+    needs:
+      - plan
+      - red
+      - green
+    permissions:
+      actions: read
+      contents: read
+      id-token: write
+      statuses: write
+    uses: ./.github/workflows/devgov-v0-gate.yml
+    with:
+      candidate_sha: ${{ inputs.candidate_sha }}
+      unit_definition_path: ${{ inputs.unit_definition_path }}
+
+  state:
+    name: Publish machine-readable handoff
+    needs:
+      - plan
+      - red
+      - green
+      - gate
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Write orchestration state
+        env:
+          CANDIDATE_SHA: ${{ inputs.candidate_sha }}
+          UNIT_DEFINITION_PATH: ${{ inputs.unit_definition_path }}
+          RED_IDS: ${{ needs.plan.outputs.red_ids }}
+          GREEN_IDS: ${{ needs.plan.outputs.green_ids }}
+          RUN_ID: ${{ github.run_id }}
+          CONTROLLER_SHA: ${{ github.sha }}
+        run: |
+          node <<'NODE'
+          const fs = require('node:fs');
+          const state = {
+            schema_version: 'dev-gov-orchestration-state-v1',
+            state: 'GATE_PASSED',
+            candidate_sha: process.env.CANDIDATE_SHA,
+            unit_definition_path: process.env.UNIT_DEFINITION_PATH,
+            controller_sha: process.env.CONTROLLER_SHA,
+            orchestration_run_id: process.env.RUN_ID,
+            red_test_ids: JSON.parse(process.env.RED_IDS),
+            green_test_ids: JSON.parse(process.env.GREEN_IDS),
+          };
+          fs.writeFileSync('devgov-orchestration-state.json', `${JSON.stringify(state, null, 2)}\n`);
+          NODE
+
+      - name: Upload orchestration handoff artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: devgov-orchestration-${{ inputs.candidate_sha }}
+          path: devgov-orchestration-state.json
+          if-no-files-found: error
+          retention-days: 90
