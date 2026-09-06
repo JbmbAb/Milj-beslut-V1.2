@@ -43,7 +43,12 @@ export interface DevGovAuthoritativeProof {
   readonly unitRevision: number;
   readonly candidateSha: string;
   readonly unitDefinitionHash: string;
-  readonly proofContractHash?: string;
+  /**
+   * The exact proof contract the gate was executed under. Mandatory: a proof
+   * that cannot say which contract it satisfied has not proven anything the
+   * controller can bind to, and is refused with PROOF_CONTRACT_HASH_MISSING.
+   */
+  readonly proofContractHash: string;
   /**
    * Full ref path of the DEV-GOV workflow that produced this proof, e.g.
    * `owner/repo/.github/workflows/devgov-v0-gate.yml@refs/heads/main`. Compared
@@ -88,6 +93,7 @@ export type ProofRejectionReason =
   | 'PROOF_REVISION_MISMATCH'
   | 'PROOF_CANDIDATE_MISMATCH'
   | 'PROOF_UNIT_DEFINITION_MISMATCH'
+  | 'PROOF_CONTRACT_HASH_MISSING'
   | 'PROOF_CONTRACT_MISMATCH'
   | 'PROOF_WORKFLOW_IDENTITY_UNTRUSTED'
   | 'PROOF_RUN_MISMATCH'
@@ -100,7 +106,12 @@ export interface ProofExpectation {
   readonly unitRevision: number;
   readonly candidateSha: string;
   readonly unitDefinitionHash: string;
-  readonly proofContractHash?: string;
+  /**
+   * Mandatory. The controller must know which proof contract it is holding the
+   * proof to; a canonical unit without one cannot be verified and must be
+   * refused before this expectation is ever constructed.
+   */
+  readonly proofContractHash: string;
   readonly trustedWorkflowIdentity: string;
   /** The run bound to this unit's dispatch by the durable correlation ledger. */
   readonly boundRun: RemoteExecutionObservation;
@@ -165,7 +176,24 @@ export function verifyAuthoritativeProof(
       detail: 'proof was produced under a different unit definition than the canonical one',
     };
   }
-  if (expectation.proofContractHash && proof.proofContractHash !== expectation.proofContractHash) {
+  // The proof contract is a mandatory dimension on BOTH sides. External proof
+  // data is untyped at the boundary, so the type alone is not a guard: an
+  // absent or empty hash on either side is refused explicitly, and the
+  // equality check below is unconditional — there is no path on which it is
+  // skipped.
+  if (typeof proof.proofContractHash !== 'string' || proof.proofContractHash.length === 0) {
+    return {
+      reason: 'PROOF_CONTRACT_HASH_MISSING',
+      detail: 'proof carries no proof contract hash',
+    };
+  }
+  if (typeof expectation.proofContractHash !== 'string' || expectation.proofContractHash.length === 0) {
+    return {
+      reason: 'PROOF_CONTRACT_HASH_MISSING',
+      detail: 'canonical unit has no proof contract hash to hold the proof to',
+    };
+  }
+  if (proof.proofContractHash !== expectation.proofContractHash) {
     return {
       reason: 'PROOF_CONTRACT_MISMATCH',
       detail: 'proof was produced under a different proof contract than the canonical one',

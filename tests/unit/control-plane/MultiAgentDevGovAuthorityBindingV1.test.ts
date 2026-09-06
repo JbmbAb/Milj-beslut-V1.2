@@ -447,6 +447,7 @@ describe('verifyAuthoritativeProof — every binding dimension is required', () 
     ['PROOF_REVISION_MISMATCH', proof({ unitRevision: 10 })],
     ['PROOF_CANDIDATE_MISMATCH', proof({ candidateSha: '9'.repeat(40) })],
     ['PROOF_UNIT_DEFINITION_MISMATCH', proof({ unitDefinitionHash: 'c'.repeat(64) })],
+    ['PROOF_CONTRACT_HASH_MISSING', proof({ proofContractHash: '' })],
     ['PROOF_CONTRACT_MISMATCH', proof({ proofContractHash: 'd'.repeat(64) })],
     ['PROOF_WORKFLOW_IDENTITY_UNTRUSTED', proof({ workflowIdentity: 'other/repo/x.yml@refs/heads/main' })],
     ['PROOF_RUN_MISMATCH', proof({ workflowRunId: '999' })],
@@ -462,5 +463,124 @@ describe('verifyAuthoritativeProof — every binding dimension is required', () 
     expect(
       verifyAuthoritativeProof(proof(), expectation({ boundRun: boundRun({ status: 'in_progress' }) })),
     ).toMatchObject({ reason: 'PROOF_RUN_NOT_SUCCESSFUL' });
+  });
+});
+
+/**
+ * proofContractHash is a MANDATORY authority dimension on both sides of the
+ * comparison. It is required by type on DevGovAuthoritativeProof and on
+ * ProofExpectation, and — because proof data crosses an untyped boundary and
+ * this repository compiles without `strict` — it is also guarded at runtime on
+ * both sides. The equality check is unconditional: there is no path on which
+ * it is skipped.
+ */
+describe('verifyAuthoritativeProof — proofContractHash is mandatory and unconditionally compared', () => {
+  /** Simulates untyped external data that omitted the field entirely. */
+  const withoutContractHash = (): DevGovAuthoritativeProof => {
+    const { proofContractHash: _omitted, ...rest } = proof();
+    return rest as unknown as DevGovAuthoritativeProof;
+  };
+
+  it('exact correct proofContractHash is eligible', () => {
+    expect(
+      verifyAuthoritativeProof(proof({ proofContractHash }), expectation({ proofContractHash })),
+    ).toBeNull();
+  });
+
+  it('wrong proofContractHash is denied', () => {
+    expect(
+      verifyAuthoritativeProof(proof({ proofContractHash: 'd'.repeat(64) }), expectation()),
+    ).toMatchObject({ reason: 'PROOF_CONTRACT_MISMATCH' });
+  });
+
+  it('a proof with the field absent (untyped external data) is denied, not treated as a wildcard', () => {
+    expect(verifyAuthoritativeProof(withoutContractHash(), expectation())).toMatchObject({
+      reason: 'PROOF_CONTRACT_HASH_MISSING',
+    });
+  });
+
+  it('a proof with an empty proofContractHash is denied', () => {
+    expect(verifyAuthoritativeProof(proof({ proofContractHash: '' }), expectation())).toMatchObject({
+      reason: 'PROOF_CONTRACT_HASH_MISSING',
+    });
+  });
+
+  it('an expectation with no proofContractHash cannot verify anything — runtime guard behind the required type', () => {
+    const { proofContractHash: _omitted, ...rest } = expectation();
+    const missing = rest as unknown as Parameters<typeof verifyAuthoritativeProof>[1];
+    expect(verifyAuthoritativeProof(proof(), missing)).toMatchObject({
+      reason: 'PROOF_CONTRACT_HASH_MISSING',
+    });
+    expect(verifyAuthoritativeProof(proof(), expectation({ proofContractHash: '' }))).toMatchObject({
+      reason: 'PROOF_CONTRACT_HASH_MISSING',
+    });
+  });
+
+  it('a missing proofContractHash on the proof cannot be compensated by a matching-looking absent expectation', () => {
+    const { proofContractHash: _omitted, ...rest } = expectation();
+    const missing = rest as unknown as Parameters<typeof verifyAuthoritativeProof>[1];
+    // Both sides absent must still be a denial — undefined === undefined is not a binding.
+    expect(verifyAuthoritativeProof(withoutContractHash(), missing)).toMatchObject({
+      reason: 'PROOF_CONTRACT_HASH_MISSING',
+    });
+  });
+
+  it('with the contract hash correct, every other exact tuple dimension is still required', () => {
+    const mutations: ReadonlyArray<readonly [string, Partial<DevGovAuthoritativeProof>]> = [
+      ['PROOF_REFERENCE_MISSING', { proofId: '' }],
+      ['PROOF_UNIT_MISMATCH', { unitId: 'K2' }],
+      ['PROOF_REVISION_MISMATCH', { unitRevision: 8 }],
+      ['PROOF_CANDIDATE_MISMATCH', { candidateSha: '9'.repeat(40) }],
+      ['PROOF_UNIT_DEFINITION_MISMATCH', { unitDefinitionHash: 'c'.repeat(64) }],
+      ['PROOF_WORKFLOW_IDENTITY_UNTRUSTED', { workflowIdentity: 'other/repo/x.yml@refs/heads/main' }],
+      ['PROOF_RUN_MISMATCH', { workflowRunId: '999' }],
+      ['PROOF_RESULT_NOT_SUCCESSFUL', { result: 'FAIL' }],
+    ];
+    for (const [reason, mutation] of mutations) {
+      expect(
+        verifyAuthoritativeProof(proof({ ...mutation, proofContractHash }), expectation()),
+      ).toMatchObject({
+        reason,
+      });
+    }
+  });
+});
+
+describe('DEV-GOV reconciliation — proofContractHash is enforced at the controller boundary', () => {
+  it('a hostile successful status cannot compensate for a proof that lacks a proofContractHash', async () => {
+    const { proofContractHash: _omitted, ...rest } = proof();
+    const { outcome, store } = await attack({
+      lookup: { status: 'RESOLVED', proof: rest as unknown as DevGovAuthoritativeProof },
+      telemetry: hostileStatus({ creatorLogin: 'github-actions[bot]' }),
+    });
+    expect(outcome).toMatchObject({ kind: 'PROOF_REJECTED', reason: 'PROOF_CONTRACT_HASH_MISSING' });
+    expectNoAdvance(outcome, store);
+  });
+
+  it('a proof with the wrong proofContractHash is rejected at the controller boundary', async () => {
+    const { outcome, store } = await attack({
+      lookup: { status: 'RESOLVED', proof: proof({ proofContractHash: 'd'.repeat(64) }) },
+    });
+    expect(outcome).toMatchObject({ kind: 'PROOF_REJECTED', reason: 'PROOF_CONTRACT_MISMATCH' });
+    expectNoAdvance(outcome, store);
+  });
+
+  it('a canonical unit with no proofContractHash can never bind a proof, even a perfect-looking one', async () => {
+    const { outcome, store } = await attack({
+      lookup: { status: 'RESOLVED', proof: proof() },
+      unitOverrides: { proofContractHash: undefined },
+    });
+    expect(outcome).toMatchObject({ kind: 'PROOF_REJECTED', reason: 'PROOF_CONTRACT_HASH_MISSING' });
+    expectNoAdvance(outcome, store);
+    // The canonical record really has no contract hash — the guard fired on the controller's own state.
+    expect(store.read().units.K1.proofContractHash).toBeUndefined();
+  });
+
+  it('the exact correct proofContractHash remains eligible end-to-end', async () => {
+    const { outcome, store } = await attack({
+      lookup: { status: 'RESOLVED', proof: proof({ proofContractHash }) },
+    });
+    expect(outcome).toMatchObject({ kind: 'AUTHORITATIVE_GATE_PROVEN', proofId: 'devgov-proof-0001' });
+    expect(store.read().units.K1.state).toBe('GATING');
   });
 });

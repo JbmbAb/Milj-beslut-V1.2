@@ -287,6 +287,22 @@ export class DevGovReconciler {
       return { kind: 'AMBIGUOUS_PROOF', proofIds: lookup.proofIds, telemetry };
     }
 
+    // The proof contract is a mandatory authority dimension. A canonical unit
+    // that carries none cannot hold any proof to a contract, so the expectation
+    // is never constructed for it — this is the runtime guard behind the
+    // required type, which non-strict TypeScript would otherwise let an
+    // undefined field slip past.
+    if (typeof unit.proofContractHash !== 'string' || unit.proofContractHash.length === 0) {
+      const detail = 'canonical unit has no proof contract hash to hold the proof to';
+      this.appendAudit(unit, {
+        outcome: 'PROOF_REJECTED',
+        reason: 'PROOF_CONTRACT_HASH_MISSING',
+        detail,
+        proofId: lookup.proof.proofId,
+      });
+      return { kind: 'PROOF_REJECTED', reason: 'PROOF_CONTRACT_HASH_MISSING', detail, telemetry };
+    }
+
     const remoteRun: RemoteExecutionObservation = {
       workflow: boundRun.workflow,
       runId: boundRun.runId,
