@@ -112,6 +112,19 @@ export default defineConfig({
         __dirname,
         'packages/mps-legal-corpus/src/index.ts',
       ),
+      // KNOWLEDGE-K2.2-GOVERNED-CORPUS-EXPANSION-EVAL-V1
+      '@miljobeslut/mps-knowledge-corpus': path.resolve(
+        __dirname,
+        'packages/mps-knowledge-corpus/src/index.ts',
+      ),
+      '@miljobeslut/mps-knowledge-index': path.resolve(
+        __dirname,
+        'packages/mps-knowledge-index/src/index.ts',
+      ),
+      '@miljobeslut/mps-knowledge-eval': path.resolve(
+        __dirname,
+        'packages/mps-knowledge-eval/src/index.ts',
+      ),
       '@miljobeslut/spatial-provider-postgis': path.resolve(
         __dirname,
         'packages/spatial-provider-postgis/src/index.ts',
@@ -209,6 +222,16 @@ export default defineConfig({
               __dirname,
               'packages/mps-legal-answer-contract/src/index.ts',
             ),
+            // KNOWLEDGE-K2.2: server/modules/legal/materialization/ChunkAdmission.ts is now a
+            // re-export of the corpus package, so its tests/unit test needs this alias too.
+            '@miljobeslut/mps-knowledge-corpus': path.resolve(
+              __dirname,
+              'packages/mps-knowledge-corpus/src/index.ts',
+            ),
+            '@miljobeslut/mps-text-projection': path.resolve(
+              __dirname,
+              'packages/mps-text-projection/src/index.ts',
+            ),
           },
         },
         test: {
@@ -302,6 +325,19 @@ export default defineConfig({
               __dirname,
               'packages/mps-legal-answer-contract/src/index.ts',
             ),
+            // KNOWLEDGE-K2.2-GOVERNED-CORPUS-EXPANSION-EVAL-V1
+            '@miljobeslut/mps-knowledge-corpus': path.resolve(
+              __dirname,
+              'packages/mps-knowledge-corpus/src/index.ts',
+            ),
+            '@miljobeslut/mps-knowledge-index': path.resolve(
+              __dirname,
+              'packages/mps-knowledge-index/src/index.ts',
+            ),
+            '@miljobeslut/mps-knowledge-eval': path.resolve(
+              __dirname,
+              'packages/mps-knowledge-eval/src/index.ts',
+            ),
           },
         },
         test: {
@@ -330,6 +366,10 @@ export default defineConfig({
             'packages/mps-legal-answer-contract/**/*.test.ts',
             'packages/spatial-provider-postgis/**/*.test.ts',
             'scripts/audit/**/*.test.ts',
+            // KNOWLEDGE-K2.2-GOVERNED-CORPUS-EXPANSION-EVAL-V1
+            'packages/mps-knowledge-corpus/**/*.test.ts',
+            'packages/mps-knowledge-index/**/*.test.ts',
+            'packages/mps-knowledge-eval/**/*.test.ts',
           ],
           environment: 'node',
           setupFiles: ['tests/setup/env.ts'],
