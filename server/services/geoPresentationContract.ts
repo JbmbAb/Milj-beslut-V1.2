@@ -1,3 +1,18 @@
+/**
+ * @deprecated SUPERSEDED by CESIUM-CANONICAL-SPATIAL-PRESENTATION-3D-V1.
+ *
+ * The canonical presentation contract is
+ * `packages/mps-lu/src/viewer/CanonicalSpatialPresentationContract.ts`. Do not import this module
+ * from any production server path — `tests/unit/canonicalSpatialPresentationBoundary.test.ts`
+ * fails the build if you do. It survives only because a fixture test still exercises it.
+ *
+ * Why it was superseded rather than extended: `assertPresentationFeatureContract` below requires a
+ * non-null `geometry` and requires `evidence_id`/`layer_version`/`provider`/`retrieved_at`/
+ * `color`/`title`, so it REJECTS the governed path's own output — which legitimately carries
+ * `geometry: null` under EXISTENCE_WITHIN_DISTANCE. It also constrains `layer_id` to three values,
+ * which is the canonical layer registry's job, not a style table's. It was only ever wired to the
+ * now-removed ungoverned GET /api/spatial/evidence route.
+ */
 import type { Feature, Geometry } from 'geojson';
 
 export const CESIUM_L0_L1_LAYER_IDS = ['water', 'ebh', 'protected_area'] as const;
