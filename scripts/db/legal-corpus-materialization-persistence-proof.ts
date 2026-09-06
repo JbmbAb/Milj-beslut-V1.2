@@ -83,7 +83,10 @@ async function runOnce(chunkPolicyVersion: string) {
     content_hash: RAW_SOURCE_CONTENT_HASH,
     pipeline_version: 'text-v1.0',
     processed_at: new Date().toISOString(),
-    corpus_import_attestation_ref: { id: 'placeholder', content_hash: { algorithm: 'sha256', digest: 'c'.repeat(64) } },
+    corpus_import_attestation_ref: {
+      id: 'placeholder',
+      content_hash: { algorithm: 'sha256', digest: 'c'.repeat(64) },
+    },
   });
 
   const attestation = await signAttestation({
@@ -98,9 +101,7 @@ async function runOnce(chunkPolicyVersion: string) {
     registrySourceContentHash: activeBinding.registrySourceContentHash,
   });
 
-  const attestationRefDigest = createHash('sha256')
-    .update(JSON.stringify(attestation))
-    .digest('hex');
+  const attestationRefDigest = createHash('sha256').update(JSON.stringify(attestation)).digest('hex');
   await ingestionManifestStore.recordEntry(runId, {
     document_id: documentId,
     source_manifest_ref: SOURCE_MANIFEST_REF,
@@ -109,7 +110,10 @@ async function runOnce(chunkPolicyVersion: string) {
     content_hash: RAW_SOURCE_CONTENT_HASH,
     pipeline_version: 'text-v1.0',
     processed_at: new Date().toISOString(),
-    corpus_import_attestation_ref: { id: `att-${attestationRefDigest.slice(0, 16)}`, content_hash: { algorithm: 'sha256', digest: attestationRefDigest } },
+    corpus_import_attestation_ref: {
+      id: `att-${attestationRefDigest.slice(0, 16)}`,
+      content_hash: { algorithm: 'sha256', digest: attestationRefDigest },
+    },
   });
 
   const result = await materializer.materialize({
@@ -126,7 +130,10 @@ async function runOnce(chunkPolicyVersion: string) {
       content_hash: RAW_SOURCE_CONTENT_HASH,
       pipeline_version: 'text-v1.0',
       processed_at: new Date().toISOString(),
-      corpus_import_attestation_ref: { id: `att-${attestationRefDigest.slice(0, 16)}`, content_hash: { algorithm: 'sha256', digest: attestationRefDigest } },
+      corpus_import_attestation_ref: {
+        id: `att-${attestationRefDigest.slice(0, 16)}`,
+        content_hash: { algorithm: 'sha256', digest: attestationRefDigest },
+      },
     },
     identity,
     raw_source_ref: { synthetic: true, source_manifest_ref: SOURCE_MANIFEST_REF },
@@ -144,7 +151,11 @@ async function runOnce(chunkPolicyVersion: string) {
     },
   });
 
-  return { result, admittedCount: admission.admitted.length, fragmentIds: admission.admitted.map((c) => c.fragment_id) };
+  return {
+    result,
+    admittedCount: admission.admitted.length,
+    fragmentIds: admission.admitted.map((c) => c.fragment_id),
+  };
 }
 
 async function countChunks(materializationId: string): Promise<number> {
@@ -161,26 +172,47 @@ async function main() {
   console.log('\n=== RUN 2 (identical inputs — replay) ===');
   const run2 = await runOnce('legal-chunker-v2.3');
   console.log('materialization identity:', run2.result.canonical_record_key);
-  console.log('SAME identity as run 1:', run1.result.canonical_record_key === run2.result.canonical_record_key);
-  console.log('SAME fragment ids as run 1:', JSON.stringify(run1.fragmentIds) === JSON.stringify(run2.fragmentIds));
+  console.log(
+    'SAME identity as run 1:',
+    run1.result.canonical_record_key === run2.result.canonical_record_key,
+  );
+  console.log(
+    'SAME fragment ids as run 1:',
+    JSON.stringify(run1.fragmentIds) === JSON.stringify(run2.fragmentIds),
+  );
 
   const materializationRow = await prisma.legalCorpusMaterialization.findUnique({
     where: { canonicalRecordKey: run1.result.canonical_record_key },
   });
   if (!materializationRow) throw new Error('materialization row not found after run 1/2');
   const chunkCountAfterReplay = await countChunks(materializationRow.id);
-  console.log('chunk rows after run 1+2 (should equal admitted count, no duplicates):', chunkCountAfterReplay, 'vs admitted', run1.admittedCount);
+  console.log(
+    'chunk rows after run 1+2 (should equal admitted count, no duplicates):',
+    chunkCountAfterReplay,
+    'vs admitted',
+    run1.admittedCount,
+  );
 
-  const recordCount = await prisma.legalCorpusRecord.count({ where: { recordKey: run1.result.canonical_record_key } });
+  const recordCount = await prisma.legalCorpusRecord.count({
+    where: { recordKey: run1.result.canonical_record_key },
+  });
   console.log('LegalCorpusRecord rows for this key (should be 1, not 2):', recordCount);
 
   console.log('\n=== RUN 3 (different chunk policy — rechunk) ===');
   const run3 = await runOnce('legal-chunker-v2.4-test');
   console.log('materialization identity:', run3.result.canonical_record_key);
-  console.log('DIFFERENT identity from run 1/2:', run3.result.canonical_record_key !== run1.result.canonical_record_key);
+  console.log(
+    'DIFFERENT identity from run 1/2:',
+    run3.result.canonical_record_key !== run1.result.canonical_record_key,
+  );
 
   const oldChunksStillPresent = await countChunks(materializationRow.id);
-  console.log('run 1/2 chunk rows still present, unchanged:', oldChunksStillPresent, 'vs original', run1.admittedCount);
+  console.log(
+    'run 1/2 chunk rows still present, unchanged:',
+    oldChunksStillPresent,
+    'vs original',
+    run1.admittedCount,
+  );
 
   const newMaterializationRow = await prisma.legalCorpusMaterialization.findUnique({
     where: { canonicalRecordKey: run3.result.canonical_record_key },
@@ -189,16 +221,22 @@ async function main() {
   console.log('run 3 chunk rows (distinct materialization):', newChunkCount);
 
   console.log('\n=== SUMMARY ===');
-  console.log(JSON.stringify({
-    run1_materialization: run1.result.canonical_record_key,
-    run2_materialization: run2.result.canonical_record_key,
-    run3_materialization: run3.result.canonical_record_key,
-    replay_identity_stable: run1.result.canonical_record_key === run2.result.canonical_record_key,
-    replay_no_duplicate_chunks: chunkCountAfterReplay === run1.admittedCount,
-    replay_no_duplicate_records: recordCount === 1,
-    rechunk_new_identity: run3.result.canonical_record_key !== run1.result.canonical_record_key,
-    rechunk_preserves_old_chunks: oldChunksStillPresent === run1.admittedCount,
-  }, null, 2));
+  console.log(
+    JSON.stringify(
+      {
+        run1_materialization: run1.result.canonical_record_key,
+        run2_materialization: run2.result.canonical_record_key,
+        run3_materialization: run3.result.canonical_record_key,
+        replay_identity_stable: run1.result.canonical_record_key === run2.result.canonical_record_key,
+        replay_no_duplicate_chunks: chunkCountAfterReplay === run1.admittedCount,
+        replay_no_duplicate_records: recordCount === 1,
+        rechunk_new_identity: run3.result.canonical_record_key !== run1.result.canonical_record_key,
+        rechunk_preserves_old_chunks: oldChunksStillPresent === run1.admittedCount,
+      },
+      null,
+      2,
+    ),
+  );
 
   await prisma.$disconnect();
 }

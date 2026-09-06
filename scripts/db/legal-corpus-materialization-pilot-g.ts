@@ -16,7 +16,10 @@ import { readFileSync } from 'node:fs';
 import { composeLegalCorpusMaterialization } from '../../server/modules/legal/materialization/LegalCorpusMaterializationCompositionRoot';
 import { resolveActiveRegistryBinding } from '../../server/modules/legal/materialization/SourceRegistryAdmissionAdapter';
 import { PdfParseExtractorAdapter } from '../../server/text-projection/pdfParseExtractorAdapter';
-import { admitChunks, type AdmissionDocumentStatus } from '../../server/modules/legal/materialization/ChunkAdmission';
+import {
+  admitChunks,
+  type AdmissionDocumentStatus,
+} from '../../server/modules/legal/materialization/ChunkAdmission';
 import { prisma } from '../../server/db/prisma';
 import type { ChunkStructureKind, LegalChunk } from '@miljobeslut/mps-legal-corpus';
 
@@ -48,7 +51,10 @@ const DOCUMENTS: readonly DocumentSpec[] = [
     mimeType: 'text/html',
     downloadManifestRef: {
       id: 'download-manifest-pilot-regeringskansliet-sfs-1998-808-2c4f969a-60c7-4004-bed3-bf0147f25f37-330b1b6031bb712b',
-      content_hash: { algorithm: 'sha256', digest: '330b1b6031bb712bdab1e2bde35217f42acb3d875a1ef0baa704245643047c1f' },
+      content_hash: {
+        algorithm: 'sha256',
+        digest: '330b1b6031bb712bdab1e2bde35217f42acb3d875a1ef0baa704245643047c1f',
+      },
     },
     structureKind: 'law',
     sourceFamily: 'SFS',
@@ -64,13 +70,17 @@ const DOCUMENTS: readonly DocumentSpec[] = [
     mimeType: 'text/html',
     downloadManifestRef: {
       id: 'download-manifest-pilot-sgu-groundwater-influence-analytical-models-d43d004d-a4e8-4c7b-8076-533f11bedf3c-bd4b494a2e1fd772',
-      content_hash: { algorithm: 'sha256', digest: 'bd4b494a2e1fd7729b293abc6068cb197248f2e8454a789389d73affd9ef28d1' },
+      content_hash: {
+        algorithm: 'sha256',
+        digest: 'bd4b494a2e1fd7729b293abc6068cb197248f2e8454a789389d73affd9ef28d1',
+      },
     },
     structureKind: 'standard',
     sourceFamily: 'SGU',
     sourceType: 'AGENCY_GUIDANCE',
     title: 'Bedömning av influensområde avseende grundvatten - analytiska modeller',
-    knownRawVolatility: 'HTML-SOURCE-STABILITY-01: raw HTTP bytes for this source family are known VOLATILE ' +
+    knownRawVolatility:
+      'HTML-SOURCE-STABILITY-01: raw HTTP bytes for this source family are known VOLATILE ' +
       '(server-generated per-render id in navigation markup, verified by diff in an earlier session) -- this pilot ' +
       'proves the projection layer absorbs it correctly, using the one real quarantined fetch on disk.',
   },
@@ -83,7 +93,10 @@ const DOCUMENTS: readonly DocumentSpec[] = [
     mimeType: 'application/pdf',
     downloadManifestRef: {
       id: 'download-manifest-pilot-domstolsverket-puh-mmod-e2c6e403-dc4d-4d22-b36a-8358b406f231-e742f608a7caa2b3',
-      content_hash: { algorithm: 'sha256', digest: 'e742f608a7caa2b3b57652163f7b0661c5dbea37affbff0bd206b84662be701e' },
+      content_hash: {
+        algorithm: 'sha256',
+        digest: 'e742f608a7caa2b3b57652163f7b0661c5dbea37affbff0bd206b84662be701e',
+      },
     },
     structureKind: 'court',
     sourceFamily: 'MMOD',
@@ -95,7 +108,11 @@ const DOCUMENTS: readonly DocumentSpec[] = [
 async function projectAndAdmit(spec: DocumentSpec, bytes: Uint8Array) {
   const adapter = new PdfParseExtractorAdapter();
   const extraction = await adapter.extract(
-    { ref: { artifact_id: spec.quarantineId, artifact_type: 'raw_source' }, doc_name: spec.quarantineId, mime_type: spec.mimeType },
+    {
+      ref: { artifact_id: spec.quarantineId, artifact_type: 'raw_source' },
+      doc_name: spec.quarantineId,
+      mime_type: spec.mimeType,
+    },
     bytes,
   );
   const projectedTextHash = createHash('sha256').update(extraction.text, 'utf8').digest('hex');
@@ -150,7 +167,10 @@ async function materializeOnce(
     pipeline_version: 'text-v1.0',
   };
 
-  await ingestionManifestStore.recordEntry(runId, { ...manifestEntryBase, processed_at: new Date().toISOString() });
+  await ingestionManifestStore.recordEntry(runId, {
+    ...manifestEntryBase,
+    processed_at: new Date().toISOString(),
+  });
 
   const attestation = await signAttestation({
     documentId,
@@ -164,16 +184,31 @@ async function materializeOnce(
     registrySourceContentHash: activeBinding.registrySourceContentHash,
   });
   const attestationRefDigest = createHash('sha256').update(JSON.stringify(attestation)).digest('hex');
-  const attestationRef = { id: `att-${attestationRefDigest.slice(0, 16)}`, content_hash: { algorithm: 'sha256' as const, digest: attestationRefDigest } };
+  const attestationRef = {
+    id: `att-${attestationRefDigest.slice(0, 16)}`,
+    content_hash: { algorithm: 'sha256' as const, digest: attestationRefDigest },
+  };
 
-  await ingestionManifestStore.recordEntry(runId, { ...manifestEntryBase, processed_at: new Date().toISOString(), corpus_import_attestation_ref: attestationRef });
+  await ingestionManifestStore.recordEntry(runId, {
+    ...manifestEntryBase,
+    processed_at: new Date().toISOString(),
+    corpus_import_attestation_ref: attestationRef,
+  });
 
   const projectedText = Buffer.from(rawBytes).length > 0 ? undefined : undefined; // placeholder, unused
   const documentText = admittedChunks.map((c) => c.full_text).join('\n\n') || '(no admitted chunks)';
 
   const result = await materializer.materialize({
-    gate_request: { runId, expectedDocumentIds: [documentId], imports: [{ documentId, chunks: admittedChunks, attestation }] },
-    manifest_entry: { ...manifestEntryBase, processed_at: new Date().toISOString(), corpus_import_attestation_ref: attestationRef },
+    gate_request: {
+      runId,
+      expectedDocumentIds: [documentId],
+      imports: [{ documentId, chunks: admittedChunks, attestation }],
+    },
+    manifest_entry: {
+      ...manifestEntryBase,
+      processed_at: new Date().toISOString(),
+      corpus_import_attestation_ref: attestationRef,
+    },
     identity,
     raw_source_ref: { quarantine_id: spec.quarantineId, download_manifest_ref: spec.downloadManifestRef },
     corpus_record: {
@@ -209,7 +244,10 @@ async function runDocument(spec: DocumentSpec) {
   console.log('download_manifest_id:', spec.downloadManifestRef.id);
   console.log('raw quarantine hash:', rawContentHash);
 
-  const { extraction, projectedTextHash, sourceProjectionRef, admission } = await projectAndAdmit(spec, rawBytes);
+  const { extraction, projectedTextHash, sourceProjectionRef, admission } = await projectAndAdmit(
+    spec,
+    rawBytes,
+  );
 
   console.log('\n--- PROJECTION ---');
   console.log('media type:', spec.mimeType);
@@ -223,23 +261,45 @@ async function runDocument(spec: DocumentSpec) {
   console.log('selected chunk strategy:', spec.structureKind);
 
   console.log('\n--- CHUNKING ---');
-  console.log('chunks produced (admitted + rejected):', admission.admitted.length + admission.rejected.length);
+  console.log(
+    'chunks produced (admitted + rejected):',
+    admission.admitted.length + admission.rejected.length,
+  );
   console.log('chunks admitted:', admission.admitted.length);
   console.log('chunks rejected:', admission.rejected.length);
   console.log('admission document_status:', admission.document_status);
   if (admission.rejected.length > 0) {
     console.log('rejection reason(s):', [...new Set(admission.rejected.map((r) => r.reason))]);
   }
-  console.log('fragment ids (first 5):', admission.admitted.slice(0, 5).map((c) => c.fragment_id));
+  console.log(
+    'fragment ids (first 5):',
+    admission.admitted.slice(0, 5).map((c) => c.fragment_id),
+  );
   if (spec.structureKind === 'law') {
-    const lawChunks = admission.admitted.filter((c): c is Extract<LegalChunk, { structure_kind: 'law' }> => c.structure_kind === 'law');
-    console.log('sample chapter/paragraph (law):', lawChunks.slice(0, 3).map((c) => ({ chapter: c.chapter, paragraph: c.paragraph })));
-    console.log('any fabricated "0" chapter/paragraph:', lawChunks.some((c) => c.chapter === '0' || c.paragraph === '0'));
+    const lawChunks = admission.admitted.filter(
+      (c): c is Extract<LegalChunk, { structure_kind: 'law' }> => c.structure_kind === 'law',
+    );
+    console.log(
+      'sample chapter/paragraph (law):',
+      lawChunks.slice(0, 3).map((c) => ({ chapter: c.chapter, paragraph: c.paragraph })),
+    );
+    console.log(
+      'any fabricated "0" chapter/paragraph:',
+      lawChunks.some((c) => c.chapter === '0' || c.paragraph === '0'),
+    );
   }
   if (spec.structureKind === 'court') {
-    const courtChunks = admission.admitted.filter((c): c is Extract<LegalChunk, { structure_kind: 'court' }> => c.structure_kind === 'court');
-    console.log('sample court_section (first 5):', courtChunks.slice(0, 5).map((c) => c.court_section));
-    console.log('any law fields present on court chunks:', courtChunks.some((c) => 'chapter' in c || 'paragraph' in c));
+    const courtChunks = admission.admitted.filter(
+      (c): c is Extract<LegalChunk, { structure_kind: 'court' }> => c.structure_kind === 'court',
+    );
+    console.log(
+      'sample court_section (first 5):',
+      courtChunks.slice(0, 5).map((c) => c.court_section),
+    );
+    console.log(
+      'any law fields present on court chunks:',
+      courtChunks.some((c) => 'chapter' in c || 'paragraph' in c),
+    );
   }
 
   if (admission.admitted.length === 0) {
@@ -249,7 +309,9 @@ async function runDocument(spec: DocumentSpec) {
 
   console.log('\n--- MATERIALIZATION (run 1) ---');
   const run1 = await materializeOnce(spec, admission.admitted, rawContentHash, projectedTextHash, rawBytes);
-  const materializationRow1 = await prisma.legalCorpusMaterialization.findUnique({ where: { canonicalRecordKey: run1.result.canonical_record_key } });
+  const materializationRow1 = await prisma.legalCorpusMaterialization.findUnique({
+    where: { canonicalRecordKey: run1.result.canonical_record_key },
+  });
   const chunkCount1 = materializationRow1 ? await countChunks(materializationRow1.id) : -1;
   console.log('materialization id:', run1.result.canonical_record_key);
   console.log('record row:', run1.result.corpus_record_id);
@@ -258,26 +320,40 @@ async function runDocument(spec: DocumentSpec) {
 
   console.log('\n--- REPLAY (run 2) ---');
   const run2 = await materializeOnce(spec, admission.admitted, rawContentHash, projectedTextHash, rawBytes);
-  const materializationRow2 = await prisma.legalCorpusMaterialization.findUnique({ where: { canonicalRecordKey: run2.result.canonical_record_key } });
+  const materializationRow2 = await prisma.legalCorpusMaterialization.findUnique({
+    where: { canonicalRecordKey: run2.result.canonical_record_key },
+  });
   const chunkCount2 = materializationRow2 ? await countChunks(materializationRow2.id) : -1;
-  const recordRowCount = await prisma.legalCorpusRecord.count({ where: { recordKey: run1.result.canonical_record_key } });
+  const recordRowCount = await prisma.legalCorpusRecord.count({
+    where: { recordKey: run1.result.canonical_record_key },
+  });
 
   console.log('second run materialization id:', run2.result.canonical_record_key);
-  console.log('same materialization id?', run1.result.canonical_record_key === run2.result.canonical_record_key);
-  console.log('same chunk rows count after replay (no duplicates)?', chunkCount1 === chunkCount2, `(${chunkCount1} vs ${chunkCount2})`);
+  console.log(
+    'same materialization id?',
+    run1.result.canonical_record_key === run2.result.canonical_record_key,
+  );
+  console.log(
+    'same chunk rows count after replay (no duplicates)?',
+    chunkCount1 === chunkCount2,
+    `(${chunkCount1} vs ${chunkCount2})`,
+  );
   console.log('duplicate record rows?', recordRowCount !== 1, `(count=${recordRowCount})`);
   console.log('identity stable?', run1.documentId === run2.documentId);
 
   console.log('\n--- PROVENANCE CHAIN ---');
   console.log(
     `raw quarantine (${spec.quarantineId}, hash ${rawContentHash.slice(0, 16)}...) -> ` +
-    `download_manifest (${spec.downloadManifestRef.id.slice(0, 40)}...) -> ` +
-    `projection (${sourceProjectionRef.slice(0, 20)}...) -> ` +
-    `${chunkCount1} governed chunks -> materialization (${run1.result.canonical_record_key.slice(0, 30)}...)`,
+      `download_manifest (${spec.downloadManifestRef.id.slice(0, 40)}...) -> ` +
+      `projection (${sourceProjectionRef.slice(0, 20)}...) -> ` +
+      `${chunkCount1} governed chunks -> materialization (${run1.result.canonical_record_key.slice(0, 30)}...)`,
   );
 
   return {
-    spec, admission, run1, run2,
+    spec,
+    admission,
+    run1,
+    run2,
     sameMaterializationId: run1.result.canonical_record_key === run2.result.canonical_record_key,
     sameChunkCount: chunkCount1 === chunkCount2,
     noDuplicateRecords: recordRowCount === 1,
@@ -293,18 +369,24 @@ async function main() {
 
   console.log('\n\n========== LEGAL CORPUS MATERIALIZATION V1 -- PART G SUMMARY ==========');
   for (const r of results) {
-    console.log(JSON.stringify({
-      document: r.spec.label,
-      structure_kind: r.spec.structureKind,
-      admitted: r.admission.admitted.length,
-      rejected: r.admission.rejected.length,
-      document_status: r.admission.document_status,
-      materialized: r.run1 !== null,
-      chunk_rows: 'chunkCount' in r ? r.chunkCount : null,
-      replay_same_materialization_id: 'sameMaterializationId' in r ? r.sameMaterializationId : null,
-      replay_same_chunk_count: 'sameChunkCount' in r ? r.sameChunkCount : null,
-      replay_no_duplicate_records: 'noDuplicateRecords' in r ? r.noDuplicateRecords : null,
-    }, null, 2));
+    console.log(
+      JSON.stringify(
+        {
+          document: r.spec.label,
+          structure_kind: r.spec.structureKind,
+          admitted: r.admission.admitted.length,
+          rejected: r.admission.rejected.length,
+          document_status: r.admission.document_status,
+          materialized: r.run1 !== null,
+          chunk_rows: 'chunkCount' in r ? r.chunkCount : null,
+          replay_same_materialization_id: 'sameMaterializationId' in r ? r.sameMaterializationId : null,
+          replay_same_chunk_count: 'sameChunkCount' in r ? r.sameChunkCount : null,
+          replay_no_duplicate_records: 'noDuplicateRecords' in r ? r.noDuplicateRecords : null,
+        },
+        null,
+        2,
+      ),
+    );
   }
 
   await prisma.$disconnect();

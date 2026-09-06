@@ -55,7 +55,10 @@ const SOURCES: readonly SourceSpec[] = [
     mimeType: 'text/html',
     downloadManifestRef: {
       id: 'download-manifest-pilot-regeringskansliet-sfs-2013-251-2a8d3773-f7f7-4b95-8655-d2502d095954-98b66a7299df09a6',
-      content_hash: { algorithm: 'sha256', digest: '98b66a7299df09a6750432cfaaf0e1df5279bd77dca7e39a8840cded218c7e34' },
+      content_hash: {
+        algorithm: 'sha256',
+        digest: '98b66a7299df09a6750432cfaaf0e1df5279bd77dca7e39a8840cded218c7e34',
+      },
     },
     title: 'Miljöprövningsförordning (2013:251)',
   },
@@ -66,7 +69,10 @@ const SOURCES: readonly SourceSpec[] = [
     mimeType: 'text/html',
     downloadManifestRef: {
       id: 'download-manifest-pilot-regeringskansliet-sfs-2020-614-055a39bd-bd6e-4e8f-bf33-70b3f05d8662-f00d3cd19b32a7a7',
-      content_hash: { algorithm: 'sha256', digest: 'f00d3cd19b32a7a7c44287bccfb614feba25fe062ff184b3ff128f2b73c24008' },
+      content_hash: {
+        algorithm: 'sha256',
+        digest: 'f00d3cd19b32a7a7c44287bccfb614feba25fe062ff184b3ff128f2b73c24008',
+      },
     },
     title: 'Avfallsförordning (2020:614)',
   },
@@ -77,7 +83,10 @@ const SOURCES: readonly SourceSpec[] = [
     mimeType: 'text/html',
     downloadManifestRef: {
       id: 'download-manifest-pilot-regeringskansliet-sfs-2010-900-e0d88b92-558b-4178-a881-31ac5ff96a2d-874b3a966c7650c6',
-      content_hash: { algorithm: 'sha256', digest: '874b3a966c7650c604b00e1031d05c51102d26cd6e103ce04f9a2f5b05bd9446' },
+      content_hash: {
+        algorithm: 'sha256',
+        digest: '874b3a966c7650c604b00e1031d05c51102d26cd6e103ce04f9a2f5b05bd9446',
+      },
     },
     title: 'Plan- och bygglag (2010:900)',
   },
@@ -88,7 +97,10 @@ const SOURCES: readonly SourceSpec[] = [
     mimeType: 'text/html',
     downloadManifestRef: {
       id: 'download-manifest-pilot-regeringskansliet-sfs-2011-338-a231ceaa-77fc-4ae4-80b4-2237730e1c25-2e3dfbd878587842',
-      content_hash: { algorithm: 'sha256', digest: '2e3dfbd878587842d845765bb27838f748b5707064d4ec226640fa9bbd32433a' },
+      content_hash: {
+        algorithm: 'sha256',
+        digest: '2e3dfbd878587842d845765bb27838f748b5707064d4ec226640fa9bbd32433a',
+      },
     },
     title: 'Förordning (2011:338) om miljöfarlig verksamhet och hälsoskydd (miljötillsyn)',
   },
@@ -99,7 +111,10 @@ const SOURCES: readonly SourceSpec[] = [
     mimeType: 'text/html',
     downloadManifestRef: {
       id: 'download-manifest-pilot-regeringskansliet-sfs-1998-899-dfba2f33-1f58-4021-aa3e-8a2d330b9ec1-3e069dc1f5e52e8f',
-      content_hash: { algorithm: 'sha256', digest: '3e069dc1f5e52e8f2ad9904ccea8e2feed2c967750cb7e8aed7cd7e927ee3a94' },
+      content_hash: {
+        algorithm: 'sha256',
+        digest: '3e069dc1f5e52e8f2ad9904ccea8e2feed2c967750cb7e8aed7cd7e927ee3a94',
+      },
     },
     title: 'Förordning (1998:899) om miljöfarlig verksamhet och hälsoskydd',
   },
@@ -114,7 +129,10 @@ function chapterDistribution(admitted: readonly LegalChunk[]): Record<string, nu
   return dist;
 }
 
-function paragraphCountDistribution(admitted: readonly LegalChunk[]): { distinctParagraphs: number; totalParagraphFragments: number } {
+function paragraphCountDistribution(admitted: readonly LegalChunk[]): {
+  distinctParagraphs: number;
+  totalParagraphFragments: number;
+} {
   const paragraphs = new Set<string>();
   let total = 0;
   for (const c of admitted) {
@@ -188,32 +206,64 @@ async function materializeOnce(
   const runId = `run-bulk241-${runTag}-${randomUUID()}`;
 
   const manifestEntryBase = {
-    document_id: documentId, source_manifest_ref: spec.downloadManifestRef, status: 'INGESTED' as const,
-    classification: {}, content_hash: rawContentHash, pipeline_version: 'text-v1.0',
+    document_id: documentId,
+    source_manifest_ref: spec.downloadManifestRef,
+    status: 'INGESTED' as const,
+    classification: {},
+    content_hash: rawContentHash,
+    pipeline_version: 'text-v1.0',
   };
-  await ingestionManifestStore.recordEntry(runId, { ...manifestEntryBase, processed_at: new Date().toISOString() });
+  await ingestionManifestStore.recordEntry(runId, {
+    ...manifestEntryBase,
+    processed_at: new Date().toISOString(),
+  });
 
   const attestation = await signAttestation({
-    documentId, sourceContentHash: rawContentHash, chunks: admittedChunks, pipelineVersion: 'text-v1.0',
-    chunkPolicyVersion: V241_POLICY, approverActorId: 'system:legal-corpus-materialization',
+    documentId,
+    sourceContentHash: rawContentHash,
+    chunks: admittedChunks,
+    pipelineVersion: 'text-v1.0',
+    chunkPolicyVersion: V241_POLICY,
+    approverActorId: 'system:legal-corpus-materialization',
     approverRole: 'AUTOMATED_EXECUTION_ATTESTOR',
     registryArtifactId: activeBinding.registryArtifactId,
     registrySourceContentHash: activeBinding.registrySourceContentHash,
   });
   const attestationRefDigest = createHash('sha256').update(JSON.stringify(attestation)).digest('hex');
-  const attestationRef = { id: `att-${attestationRefDigest.slice(0, 16)}`, content_hash: { algorithm: 'sha256' as const, digest: attestationRefDigest } };
-  await ingestionManifestStore.recordEntry(runId, { ...manifestEntryBase, processed_at: new Date().toISOString(), corpus_import_attestation_ref: attestationRef });
+  const attestationRef = {
+    id: `att-${attestationRefDigest.slice(0, 16)}`,
+    content_hash: { algorithm: 'sha256' as const, digest: attestationRefDigest },
+  };
+  await ingestionManifestStore.recordEntry(runId, {
+    ...manifestEntryBase,
+    processed_at: new Date().toISOString(),
+    corpus_import_attestation_ref: attestationRef,
+  });
 
   const documentText = admittedChunks.map((c) => c.full_text).join('\n\n') || '(no admitted chunks)';
   const result = await materializer.materialize({
-    gate_request: { runId, expectedDocumentIds: [documentId], imports: [{ documentId, chunks: admittedChunks, attestation }] },
-    manifest_entry: { ...manifestEntryBase, processed_at: new Date().toISOString(), corpus_import_attestation_ref: attestationRef },
+    gate_request: {
+      runId,
+      expectedDocumentIds: [documentId],
+      imports: [{ documentId, chunks: admittedChunks, attestation }],
+    },
+    manifest_entry: {
+      ...manifestEntryBase,
+      processed_at: new Date().toISOString(),
+      corpus_import_attestation_ref: attestationRef,
+    },
     identity,
     raw_source_ref: { quarantine_id: spec.quarantineId, download_manifest_ref: spec.downloadManifestRef },
     corpus_record: {
-      title: spec.title, source_path: `p2://${spec.quarantineId}`, document_text: documentText, search_text: documentText,
-      source_family: 'SFS', source_type: 'ORDINANCE_OR_LAW', source_system: spec.sourceId,
-      content_hash: rawContentHash, byte_size: rawBytes.byteLength,
+      title: spec.title,
+      source_path: `p2://${spec.quarantineId}`,
+      document_text: documentText,
+      search_text: documentText,
+      source_family: 'SFS',
+      source_type: 'ORDINANCE_OR_LAW',
+      source_system: spec.sourceId,
+      content_hash: rawContentHash,
+      byte_size: rawBytes.byteLength,
       metadata: { governed: true, unit: 'LEGAL-CORPUS-LAW-V2.4.1-BULK-01' },
     },
   });
@@ -237,7 +287,11 @@ async function runSource(spec: SourceSpec): Promise<SourceReport> {
 
     const adapter = new PdfParseExtractorAdapter();
     const extraction = await adapter.extract(
-      { ref: { artifact_id: spec.quarantineId, artifact_type: 'raw_source' }, doc_name: spec.quarantineId, mime_type: spec.mimeType },
+      {
+        ref: { artifact_id: spec.quarantineId, artifact_type: 'raw_source' },
+        doc_name: spec.quarantineId,
+        mime_type: spec.mimeType,
+      },
       rawBytes,
     );
     const projectedTextHash = createHash('sha256').update(extraction.text, 'utf8').digest('hex');
@@ -264,52 +318,107 @@ async function runSource(spec: SourceSpec): Promise<SourceReport> {
     const v23Identity = identityFor(spec, V23_POLICY, rawContentHash, projectedTextHash, v23ActiveBinding);
     const { buildCanonicalLegalCorpusRecordKey } = await import('@miljobeslut/mps-legal-corpus');
     const v23DocumentId = buildCanonicalLegalCorpusRecordKey(v23Identity);
-    const v23Row = await prisma.legalCorpusMaterialization.findUnique({ where: { canonicalRecordKey: v23DocumentId } });
+    const v23Row = await prisma.legalCorpusMaterialization.findUnique({
+      where: { canonicalRecordKey: v23DocumentId },
+    });
     if (!v23Row) {
       report.status = 'FAILED_CLOSED';
       report.detail = 'no existing v2.3 materialization found -- BULK-01 prerequisite missing';
       return report;
     }
     const v23ChunkCountBefore = await countChunks(v23Row.id);
-    const v23Admission = admitChunks({ structureKind: 'law', text: extraction.text, sourceProjectionRef, chunkPolicyVersion: V23_POLICY });
+    const v23Admission = admitChunks({
+      structureKind: 'law',
+      text: extraction.text,
+      sourceProjectionRef,
+      chunkPolicyVersion: V23_POLICY,
+    });
     const v23ChapterDist = chapterDistribution(v23Admission.admitted);
     const v23ParaDist = paragraphCountDistribution(v23Admission.admitted);
 
     // ---------- NEW (v2.4.1) ----------
-    const v241Admission = admitLawChunksV24({ text: extraction.text, sourceProjectionRef, chunkPolicyVersion: V241_POLICY });
+    const v241Admission = admitLawChunksV24({
+      text: extraction.text,
+      sourceProjectionRef,
+      chunkPolicyVersion: V241_POLICY,
+    });
     const v241ChapterDist = chapterDistribution(v241Admission.admitted);
     const v241ParaDist = paragraphCountDistribution(v241Admission.admitted);
     const letterSuffixed = letterSuffixedChapters(v241ChapterDist);
     const rejectedReferences = countRejectedEmbeddedReferences(extraction.text);
 
-    console.log('OLD v2.3:', v23Admission.admitted.length, 'admitted /', v23Admission.rejected.length, 'rejected | chapters:', Object.keys(v23ChapterDist).length);
-    console.log('NEW v2.4.1:', v241Admission.admitted.length, 'admitted /', v241Admission.rejected.length, 'rejected | chapters:', Object.keys(v241ChapterDist).length, '| letter-suffixed:', letterSuffixed);
+    console.log(
+      'OLD v2.3:',
+      v23Admission.admitted.length,
+      'admitted /',
+      v23Admission.rejected.length,
+      'rejected | chapters:',
+      Object.keys(v23ChapterDist).length,
+    );
+    console.log(
+      'NEW v2.4.1:',
+      v241Admission.admitted.length,
+      'admitted /',
+      v241Admission.rejected.length,
+      'rejected | chapters:',
+      Object.keys(v241ChapterDist).length,
+      '| letter-suffixed:',
+      letterSuffixed,
+    );
     console.log('rejected embedded references (diagnostic, "eller N kap." pattern):', rejectedReferences);
 
     if (v241Admission.admitted.length === 0) {
       report.status = 'STRUCTURE_REVIEW_REQUIRED';
       report.detail = 'zero v2.4.1 chunks admitted -- not materializing';
-      report.old = { admitted: v23Admission.admitted.length, rejected: v23Admission.rejected.length, chapter_distribution: v23ChapterDist };
+      report.old = {
+        admitted: v23Admission.admitted.length,
+        rejected: v23Admission.rejected.length,
+        chapter_distribution: v23ChapterDist,
+      };
       return report;
     }
 
     // ---------- MATERIALIZE v2.4.1, twice (replay) ----------
-    const run1 = await materializeOnce(spec, v241Admission.admitted, rawContentHash, projectedTextHash, rawBytes, 'run1');
-    const v241Row1 = await prisma.legalCorpusMaterialization.findUnique({ where: { canonicalRecordKey: run1.result.canonical_record_key } });
+    const run1 = await materializeOnce(
+      spec,
+      v241Admission.admitted,
+      rawContentHash,
+      projectedTextHash,
+      rawBytes,
+      'run1',
+    );
+    const v241Row1 = await prisma.legalCorpusMaterialization.findUnique({
+      where: { canonicalRecordKey: run1.result.canonical_record_key },
+    });
     const v241ChunkCount1 = v241Row1 ? await countChunks(v241Row1.id) : -1;
 
-    const run2 = await materializeOnce(spec, v241Admission.admitted, rawContentHash, projectedTextHash, rawBytes, 'run2');
+    const run2 = await materializeOnce(
+      spec,
+      v241Admission.admitted,
+      rawContentHash,
+      projectedTextHash,
+      rawBytes,
+      'run2',
+    );
     const v241ChunkCount2 = v241Row1 ? await countChunks(v241Row1.id) : -1;
-    const v241RecordRowCount = await prisma.legalCorpusRecord.count({ where: { recordKey: run1.result.canonical_record_key } });
+    const v241RecordRowCount = await prisma.legalCorpusRecord.count({
+      where: { recordKey: run1.result.canonical_record_key },
+    });
 
     const replaySameId = run1.result.canonical_record_key === run2.result.canonical_record_key;
     const replaySameChunkCount = v241ChunkCount1 === v241ChunkCount2;
     const replayNoDuplicateRecords = v241RecordRowCount === 1;
     const replayIdentityStable = run1.documentId === run2.documentId;
 
-    const v23RowAfter = await prisma.legalCorpusMaterialization.findUnique({ where: { canonicalRecordKey: v23DocumentId } });
+    const v23RowAfter = await prisma.legalCorpusMaterialization.findUnique({
+      where: { canonicalRecordKey: v23DocumentId },
+    });
     const v23ChunkCountAfter = v23RowAfter ? await countChunks(v23RowAfter.id) : -1;
-    const v23Untouched = v23RowAfter !== null && v23Row.id === v23RowAfter.id && v23ChunkCountBefore === v23ChunkCountAfter && v23Row.createdAt.getTime() === v23RowAfter.createdAt.getTime();
+    const v23Untouched =
+      v23RowAfter !== null &&
+      v23Row.id === v23RowAfter.id &&
+      v23ChunkCountBefore === v23ChunkCountAfter &&
+      v23Row.createdAt.getTime() === v23RowAfter.createdAt.getTime();
 
     const totalChunkDelta = v241Admission.admitted.length - v23Admission.admitted.length;
     const oldChapters = new Set(Object.keys(v23ChapterDist));
@@ -321,16 +430,42 @@ async function runSource(spec: SourceSpec): Promise<SourceReport> {
     // just the raw numbers for inspection (see module doc comment).
     const allChapterKeys = new Set([...oldChapters, ...newChapters]);
     const concentrationShifts = [...allChapterKeys]
-      .map((k) => ({ chapter: k, old: v23ChapterDist[k] ?? 0, new: v241ChapterDist[k] ?? 0, delta: (v241ChapterDist[k] ?? 0) - (v23ChapterDist[k] ?? 0) }))
+      .map((k) => ({
+        chapter: k,
+        old: v23ChapterDist[k] ?? 0,
+        new: v241ChapterDist[k] ?? 0,
+        delta: (v241ChapterDist[k] ?? 0) - (v23ChapterDist[k] ?? 0),
+      }))
       .filter((s) => s.delta !== 0)
       .sort((a, b) => Math.abs(b.delta) - Math.abs(a.delta));
 
-    console.log('replay:', replaySameId ? 'same identity' : 'IDENTITY DRIFT', '/', v241ChunkCount1, 'vs', v241ChunkCount2, 'chunk rows / record rows =', v241RecordRowCount);
+    console.log(
+      'replay:',
+      replaySameId ? 'same identity' : 'IDENTITY DRIFT',
+      '/',
+      v241ChunkCount1,
+      'vs',
+      v241ChunkCount2,
+      'chunk rows / record rows =',
+      v241RecordRowCount,
+    );
     console.log('v2.3 untouched:', v23Untouched, `(${v23ChunkCountBefore} vs ${v23ChunkCountAfter})`);
-    console.log('total chunk delta:', totalChunkDelta, '| newly discovered chapters:', newlyDiscovered, '| disappeared chapters:', disappeared);
+    console.log(
+      'total chunk delta:',
+      totalChunkDelta,
+      '| newly discovered chapters:',
+      newlyDiscovered,
+      '| disappeared chapters:',
+      disappeared,
+    );
     console.log('largest chapter shifts:', JSON.stringify(concentrationShifts.slice(0, 5)));
 
-    const technicallySound = replaySameId && replaySameChunkCount && replayNoDuplicateRecords && replayIdentityStable && v23Untouched;
+    const technicallySound =
+      replaySameId &&
+      replaySameChunkCount &&
+      replayNoDuplicateRecords &&
+      replayIdentityStable &&
+      v23Untouched;
 
     report.old = {
       materialization_id: v23DocumentId,
@@ -356,7 +491,12 @@ async function runSource(spec: SourceSpec): Promise<SourceReport> {
       disappeared_chapters: disappeared,
       largest_chapter_shifts: concentrationShifts.slice(0, 8),
     };
-    report.replay = { same_materialization_id: replaySameId, same_chunk_count: replaySameChunkCount, no_duplicate_records: replayNoDuplicateRecords, identity_stable: replayIdentityStable };
+    report.replay = {
+      same_materialization_id: replaySameId,
+      same_chunk_count: replaySameChunkCount,
+      no_duplicate_records: replayNoDuplicateRecords,
+      identity_stable: replayIdentityStable,
+    };
     report.v23_untouched = v23Untouched;
 
     // Status is NOT auto-PROVEN on process success alone. A real replay/persistence failure is
@@ -380,7 +520,9 @@ async function runSource(spec: SourceSpec): Promise<SourceReport> {
 async function main() {
   const count = Math.min(Number(process.argv[2] ?? 3), SOURCES.length);
   const toRun = SOURCES.slice(0, count);
-  console.log(`Running ${toRun.length} of ${SOURCES.length} remaining law sources under legal-chunker-v2.4.1.`);
+  console.log(
+    `Running ${toRun.length} of ${SOURCES.length} remaining law sources under legal-chunker-v2.4.1.`,
+  );
 
   const reports: SourceReport[] = [];
   for (const spec of toRun) {
