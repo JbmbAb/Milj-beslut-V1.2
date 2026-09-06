@@ -24,6 +24,10 @@ on:
         description: Parent orchestration run containing all RED/GREEN attestation artifacts
         required: false
         type: string
+      controller_dispatch_binding:
+        description: Opaque controller dispatch binding embedded verbatim in the signed gate verdict (required for orchestrated verdict emission; never interpreted by DEV-GOV)
+        required: false
+        type: string
 
 permissions:
   actions: read
@@ -183,7 +187,13 @@ jobs:
         continue-on-error: true
         env:
           DEVGOV_VERIFIER_TRUST_POLICY_JSON: ${{ secrets.DEVGOV_VERIFIER_TRUST_POLICY_JSON }}
+          DEVGOV_GATE_VERDICT_PRIVATE_KEY_PEM: ${{ secrets.DEVGOV_GATE_VERDICT_PRIVATE_KEY_PEM }}
+          DEVGOV_GATE_VERDICT_ISSUER: ${{ vars.DEVGOV_GATE_VERDICT_ISSUER }}
+          DEVGOV_GATE_VERDICT_KEY_ID: ${{ vars.DEVGOV_GATE_VERDICT_KEY_ID }}
           DEVGOV_CONTROLLER_SHA: ${{ github.sha }}
+          DEVGOV_JOB_WORKFLOW_REF: ${{ job.workflow_ref }}
+          DEVGOV_ATTESTATION_RUN_ID: ${{ inputs.attestation_run_id }}
+          DEVGOV_CONTROLLER_DISPATCH_BINDING: ${{ inputs.controller_dispatch_binding }}
           CANDIDATE_SHA: ${{ inputs.candidate_sha }}
           UNIT_DEFINITION_PATH: ${{ inputs.unit_definition_path }}
           EXPECTED_RED_COUNT: ${{ steps.proof_plan.outputs.red_count }}
@@ -191,6 +201,7 @@ jobs:
           GIT_ALLOW_PROTOCOL: https:ssh
         run: |
           set -euo pipefail
+          export GITHUB_WORKFLOW_REF="$DEVGOV_JOB_WORKFLOW_REF"
           mkdir -p "$RUNNER_TEMP/devgov-attestations/red" "$RUNNER_TEMP/devgov-attestations/green"
           mapfile -t red < <(find "$RUNNER_TEMP/devgov-attestations/red" -type f -name '*.json' | sort)
           mapfile -t green < <(find "$RUNNER_TEMP/devgov-attestations/green" -type f -name '*.json' | sort)
@@ -204,28 +215,62 @@ jobs:
             fi
           done
 
+          # Orchestrated gates emit the signed gate verdict; the legacy
+          # single-proof path (no attestation_run_id) emits none.
+          verdict_args=()
+          if [ -n "$DEVGOV_ATTESTATION_RUN_ID" ]; then
+            verdict_args+=(--verdict-output "$RUNNER_TEMP/devgov-gate-verdict/gate-verdict.json")
+          fi
+
           node controller/scripts/devgov/devgov.mjs evidence-gate \
             --definition "candidate/$UNIT_DEFINITION_PATH" \
             --candidate-sha "$CANDIDATE_SHA" \
             --worktree candidate \
-            "${attestation_args[@]}"
+            "${attestation_args[@]}" \
+            "${verdict_args[@]}"
+
+      - name: Publish signed gate verdict artifact
+        id: verdict
+        if: steps.gate.outcome == 'success' && inputs.attestation_run_id != ''
+        uses: actions/upload-artifact@v4
+        with:
+          name: devgov-gate-verdict-${{ inputs.candidate_sha }}-${{ inputs.attestation_run_id }}
+          path: ${{ runner.temp }}/devgov-gate-verdict/gate-verdict.json
+          if-no-files-found: error
+          overwrite: false
+          retention-days: 90
 
       - name: Publish exact candidate gate result
         if: always()
         env:
           CANDIDATE_SHA: ${{ inputs.candidate_sha }}
+          ATTESTATION_RUN_ID: ${{ inputs.attestation_run_id }}
           GATE_OUTCOME: ${{ steps.gate.outcome }}
+          VERDICT_OUTCOME: ${{ steps.verdict.outcome }}
           GH_TOKEN: ${{ github.token }}
         run: |
+          # The commit status is telemetry. It may only report success after
+          # the authoritative signed verdict has been created AND uploaded on
+          # the orchestrated path; a passed gate with no published verdict is
+          # reported as failure so observation can never outrun authority.
           state=failure
           description='Trusted execution gate denied or did not complete'
           if [ "$GATE_OUTCOME" = success ]; then
-            state=success
-            description='Trusted RED/GREEN verified for exact candidate SHA'
+            if [ -n "$ATTESTATION_RUN_ID" ]; then
+              if [ "$VERDICT_OUTCOME" = success ]; then
+                state=success
+                description='Trusted RED/GREEN verified and signed gate verdict published for exact candidate SHA'
+              else
+                description='Trusted execution gate passed but no authoritative gate verdict was published'
+              fi
+            else
+              state=success
+              description='Trusted RED/GREEN verified for exact candidate SHA'
+            fi
           fi
           gh api --method POST "repos/$GITHUB_REPOSITORY/statuses/$CANDIDATE_SHA" \
             -f state="$state" \
             -f context='DEV-GOV-V0 / trusted-execution' \
             -f description="$description" \
             -f target_url="$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
-          test "$GATE_OUTCOME" = success
+          test "$state" = success

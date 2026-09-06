@@ -17,7 +17,17 @@ import {
   verifyExecutionAttestation,
 } from './trusted-attestation.mjs';
 
+import { GATE_VERDICT_REASON, produceGateVerdict } from './gate-verdict.mjs';
+
 export { proofContractHash, sha256, signExecutionRecord } from './trusted-attestation.mjs';
+export {
+  GATE_VERDICT_REASON,
+  GATE_VERDICT_SCHEMA,
+  GATE_VERDICT_VERSION,
+  produceGateVerdict,
+  signGateVerdict,
+  verifyGateVerdict,
+} from './gate-verdict.mjs';
 
 export const RESULT = Object.freeze({
   PASS: 'PASS',
@@ -320,6 +330,7 @@ function matchingTrustedAttestations(manifest, attestations, commandSpec, kind, 
       record.base_sha === manifest.base_sha &&
       record.candidate_sha === context.candidateSha &&
       record.controller_sha === context.controllerSha &&
+      (!context.expectedWorkflowRunId || record.workflow_run_id === context.expectedWorkflowRunId) &&
       (!executionSha || record.execution_sha === executionSha) &&
       record.proof_type === kind &&
       record.test_id === commandSpec.id &&
@@ -332,6 +343,15 @@ export function evaluateTrustedExecutionGate(manifest, attestations, trustPolicy
   const errors = [...validateManifest(manifest), ...validateExecutionContext(context)];
   if (!/^[0-9a-f]{40}$/.test(context.controllerSha || '')) {
     errors.push('controller_sha must be a full 40-character lowercase Git SHA');
+  }
+  // Orchestrated gates bind every consumed attestation to the exact run whose
+  // artifacts were downloaded. Optional only because the legacy single-proof
+  // path consumes attestations from two separate runs.
+  if (
+    context.expectedWorkflowRunId !== undefined &&
+    !/^[0-9]+$/.test(String(context.expectedWorkflowRunId))
+  ) {
+    errors.push('expected workflow run id must be numeric');
   }
   if (!manifest?.trusted_execution) errors.push('trusted_execution is required');
   errors.push(...validateTrustPolicy(trustPolicy));
@@ -434,6 +454,7 @@ export function evaluateEvidenceGateWithLiveRepository(manifest, options = {}) {
   const evidence = evaluateTrustedExecutionGate(manifest, options.attestations || [], options.trustPolicy, {
     candidateSha: options.candidateSha,
     controllerSha: options.controllerSha,
+    expectedWorkflowRunId: options.attestationRunId,
   });
   const missingAuthority =
     !options.trustPolicy || !Array.isArray(options.attestations) || options.attestations.length === 0;
@@ -946,9 +967,97 @@ function loadJson(file) {
   return JSON.parse(readFileSync(file, 'utf8'));
 }
 
-function writeJsonExclusive(file, value) {
+/** Create-once JSON write: a second write to the same path throws (EEXIST) instead of replacing bytes. */
+export function writeJsonExclusive(file, value) {
   mkdirSync(dirname(file), { recursive: true });
   writeFileSync(file, `${stableJson(value)}\n`, { flag: 'wx' });
+}
+
+/**
+ * AUTHORITY CREATION POINT of the `evidence-gate` command. Called strictly
+ * after every deny path (provenance, manifest, repository state, SHA, trust
+ * root) has been passed, with the finished gate evaluation envelope.
+ *
+ * Returns the envelope the CLI prints. A signed gate verdict is produced —
+ * and its bytes written create-once to `verdictOutput` — only when the gate
+ * evaluation itself is PASS, only when the caller asked for one, and only
+ * with the dedicated gate-verdict signer from `env`. Any other outcome leaves
+ * no verdict bytes behind:
+ *
+ *   - no `verdictOutput` requested          -> the gate envelope, unchanged
+ *   - gate not PASS                          -> the gate envelope, unchanged (denial exit code)
+ *   - PASS but the verdict cannot be issued  -> a denial/blocked envelope with
+ *                                               verdict_status NOT_ISSUED, so the
+ *                                               run fails and no success status follows
+ *   - PASS and issued                        -> the gate envelope plus verdict_status
+ *                                               ISSUED, verdict_id and verdict_file
+ *
+ * `env` is injectable so the whole tail can be exercised without a live
+ * GitHub OIDC token; production passes `process.env`.
+ */
+export function completeEvidenceGate({
+  gate,
+  trustRoot,
+  unitDefinition,
+  unitDefinitionPath,
+  candidateSha,
+  controllerSha,
+  attestations,
+  attestationRunId,
+  verdictOutput,
+  env = process.env,
+  now,
+}) {
+  if (!verdictOutput || gate.result !== RESULT.PASS) return gate;
+
+  const produced = produceGateVerdict({
+    unitDefinition,
+    unitDefinitionPath,
+    candidateSha,
+    controllerSha,
+    attestations,
+    trustRoot,
+    gate,
+    runtime: {
+      gateWorkflowRef: env.GITHUB_WORKFLOW_REF,
+      gateRunId: env.GITHUB_RUN_ID,
+      gateRunAttempt: env.GITHUB_RUN_ATTEMPT,
+      attestationRunId,
+      controllerDispatchBinding: env.DEVGOV_CONTROLLER_DISPATCH_BINDING,
+    },
+    signer: {
+      privateKeyPem: env.DEVGOV_GATE_VERDICT_PRIVATE_KEY_PEM,
+      issuer: env.DEVGOV_GATE_VERDICT_ISSUER,
+      keyId: env.DEVGOV_GATE_VERDICT_KEY_ID,
+    },
+    ...(now ? { now } : {}),
+  });
+  if (!produced.ok) {
+    // The evidence gate evaluated PASS, but no authoritative statement of
+    // that fact exists. The run must fail so no success status can follow.
+    return resultEnvelope(
+      produced.reason_code === GATE_VERDICT_REASON.SIGNER_UNAVAILABLE
+        ? RESULT.BLOCKED_ENVIRONMENT
+        : RESULT.DENIED_GOVERNANCE,
+      produced.reason_code,
+      produced.errors.join('; '),
+      produced.errors,
+      {
+        proof_status: 'NOT_PROVEN',
+        verdict_status: 'NOT_ISSUED',
+        gate_evaluation_result: gate.result,
+        trust_policy_sha256: gate.trust_policy_sha256,
+        trust_root_provenance: gate.trust_root_provenance,
+      },
+    );
+  }
+  writeJsonExclusive(verdictOutput, produced.verdict);
+  return {
+    ...gate,
+    verdict_status: 'ISSUED',
+    verdict_id: produced.verdict.verdict_id,
+    verdict_file: verdictOutput,
+  };
 }
 
 function resultEnvelope(classification, reasonCode, message, errors = [], extra = {}) {
@@ -1105,9 +1214,10 @@ async function main() {
         }),
       );
     }
-    const { unitDefinition, candidateSha, definitionWorktree } = loadTrustedUnitDefinition(args, {
-      proofStatus: command === 'evidence-gate',
-    });
+    const { unitDefinition, definitionPath, candidateSha, definitionWorktree } = loadTrustedUnitDefinition(
+      args,
+      { proofStatus: command === 'evidence-gate' },
+    );
     const repositoryContext = { candidateSha, worktree: definitionWorktree };
 
     if (command === 'preflight') {
@@ -1215,12 +1325,16 @@ async function main() {
           ),
         );
       }
+      // Orchestrated gates name the run whose attestation artifacts were
+      // downloaded; every consumed attestation must have been produced by it.
+      const attestationRunId = process.env.DEVGOV_ATTESTATION_RUN_ID || undefined;
       const gate = evaluateEvidenceGateWithLiveRepository(unitDefinition, {
         trustPolicy: trustRoot.policy,
         attestations,
         candidateSha,
         worktree: definitionWorktree,
         controllerSha,
+        attestationRunId,
       });
       gate.trust_policy_sha256 = trustRoot.trust_policy_sha256;
       gate.trust_root_provenance = {
@@ -1235,7 +1349,22 @@ async function main() {
         run_attempt: trustRoot.oidc_claims.run_attempt,
         jti: trustRoot.oidc_claims.jti,
       };
-      printResult(gate);
+
+      printResult(
+        completeEvidenceGate({
+          gate,
+          trustRoot,
+          unitDefinition,
+          unitDefinitionPath: normalizeRepoPath(
+            relative(realpathSync.native(definitionWorktree), realpathSync.native(definitionPath)),
+          ),
+          candidateSha,
+          controllerSha,
+          attestations,
+          attestationRunId,
+          verdictOutput: argValue(args, '--verdict-output'),
+        }),
+      );
     }
 
     if (command === 'resolve-execution-sha') {

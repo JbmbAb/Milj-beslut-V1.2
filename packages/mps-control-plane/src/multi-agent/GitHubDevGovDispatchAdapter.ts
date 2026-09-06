@@ -84,6 +84,15 @@ export class GitHubDevGovDispatchAdapter implements DevGovDispatchPort {
       throw new DevGovBindingError('DEV-GOV binding has invalid unit-definition path');
     }
 
+    // The dispatch key is the controller's canonical binding for this exact
+    // unit revision. DEV-GOV embeds it verbatim inside the signed gate
+    // verdict, so it must be exactly the canonical form — never a caller-
+    // supplied key that happens to share a prefix.
+    const canonicalBinding = `${unit.unitId}:${unit.revision}:DEV_GOV`;
+    if (item.dispatchKey !== canonicalBinding) {
+      throw new DevGovBindingError('DEV-GOV dispatch key does not match canonical unit revision binding');
+    }
+
     const available = await this.availability.workflowExists(this.workflow, this.protectedRef);
     if (!available) {
       throw new DevGovWorkflowUnavailableError(
@@ -98,6 +107,9 @@ export class GitHubDevGovDispatchAdapter implements DevGovDispatchPort {
       inputs: {
         candidate_sha: unit.candidateSha,
         unit_definition_path: binding.unitDefinitionPath,
+        // Opaque to DEV-GOV; returned to the controller inside the signed
+        // verdict as controller_dispatch_binding.
+        controller_dispatch_binding: canonicalBinding,
       },
     });
     return `github-actions:pending:${correlation.dispatchKey}`;

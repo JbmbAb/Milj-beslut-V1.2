@@ -120,4 +120,42 @@ Signed execution attestations bind:
 `run-red` and `run-green` remain useful local diagnostics. Their files are never accepted as the
 authority that makes `evidence-gate` pass.
 
+## Signed gate verdict (`dev-gov-v1-gate-verdict`)
+
+Execution attestations state that one declared RED or GREEN command ran with an observed result.
+They do not state that the gate accepted the candidate. Before this contract the gate's PASS existed
+only as the commit status, the run conclusion and a log line, none of which is authority. The
+orchestrated gate therefore emits exactly one signed gate verdict on its PASS path:
+
+- produced in `scripts/devgov/gate-verdict.mjs` (`produceGateVerdict`) from inside the
+  `evidence-gate` command, strictly after every deny path, and only when the gate evaluation is
+  `PASS` with `proof_status: PROVEN`;
+- signed with a DEDICATED Ed25519 gate-verdict key (`DEVGOV_GATE_VERDICT_PRIVATE_KEY_PEM`,
+  `DEVGOV_GATE_VERDICT_ISSUER`, `DEVGOV_GATE_VERDICT_KEY_ID` in the `devgov-attestation`
+  environment). The execution-attestation key never signs a verdict and a verdict verifier never
+  falls back to it: the two keys speak for two different statement classes;
+- written create-once and uploaded as `devgov-gate-verdict-<candidate_sha>-<orchestration_run_id>`
+  with `overwrite: false`. The upload is part of the gate: if it fails, the gate fails, and the
+  commit status is published as failure. The legacy single-proof path (`red_run_id`/`green_run_id`,
+  no `attestation_run_id`) emits no verdict: its commit status may still read success, but that
+  status is non-authoritative and no consumer may treat a legacy or manual gate run as proof.
+
+The signed payload binds unit id, unit-definition path and hash, proof-contract hash, base, candidate
+and controller SHA, the opaque `controller_dispatch_binding` the controller supplied, the gate's own
+workflow ref and run (asserted against the OIDC claims the trust root was proven with), the
+orchestration run whose attestations were consumed (asserted equal to every consumed attestation's
+`workflow_run_id`), the consumed attestation proof ids, the trust-policy digest, the OIDC provenance,
+`result: PASS` and `proof_status: PROVEN`. `verdict_id` is a digest over that binding tuple and does
+not depend on `issued_at`, the signature or any mutable GitHub metadata.
+
+`controller_dispatch_binding` is a `workflow_dispatch` input of the orchestrator, forwarded unchanged
+to the gate. DEV-GOV checks only its shape and never interprets it; the controller that supplied it
+compares the signed value against its own exact expectation. Missing or malformed binding means no
+verdict, and on the orchestrated path no verdict means the gate fails.
+
+The GitHub Actions artifact is transport and discovery, not authority retention. The signed bytes are
+the authoritative statement, and a byte-identical copy preserved elsewhere keeps the same identity and
+signature without ever being re-signed. Verifiers check `schema_version` before any other field:
+attestation bytes never parse as a verdict and verdict bytes never parse as an attestation.
+
 Allowed and forbidden path rules are fail closed. `forbidden_paths` always wins.

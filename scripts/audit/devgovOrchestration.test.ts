@@ -7,6 +7,9 @@ import { parse } from 'yaml';
 const attestPath = resolve(process.cwd(), '.github/workflows/devgov-v0-attest.yml');
 const gatePath = resolve(process.cwd(), '.github/workflows/devgov-v0-gate.yml');
 const orchestratorPath = resolve(process.cwd(), '.github/workflows/devgov-v0-orchestrate.yml');
+const unitsReadmePath = resolve(process.cwd(), 'governance/devgov/units/README.md');
+
+const countOccurrences = (haystack: string, needle: string) => haystack.split(needle).length - 1;
 
 describe('DEV-GOV-V0 multi-proof orchestration', () => {
   it('keeps the attestation workflow reusable without widening signer authority', () => {
@@ -57,6 +60,65 @@ describe('DEV-GOV-V0 multi-proof orchestration', () => {
     expect(verify.run).toContain('node controller/scripts/devgov/devgov.mjs evidence-gate');
   });
 
+  it('binds the orchestration run into the gate and emits the signed verdict only on that path', () => {
+    const source = readFileSync(gatePath, 'utf8');
+    const workflow = parse(source);
+    const steps: Array<Record<string, any>> = workflow.jobs['evidence-gate'].steps;
+    const verify = steps.find((step) => step.name === 'Verify trusted execution attestations');
+    const verdict = steps.find((step) => step.name === 'Publish signed gate verdict artifact');
+    const publish = steps.find((step) => step.name === 'Publish exact candidate gate result');
+
+    expect(workflow.on.workflow_dispatch.inputs.controller_dispatch_binding).toMatchObject({
+      required: false,
+      type: 'string',
+    });
+    expect(verify.id).toBe('gate');
+    expect(verify.env.DEVGOV_ATTESTATION_RUN_ID).toBe('${{ inputs.attestation_run_id }}');
+    expect(verify.env.DEVGOV_CONTROLLER_DISPATCH_BINDING).toBe('${{ inputs.controller_dispatch_binding }}');
+    expect(verify.env.DEVGOV_GATE_VERDICT_PRIVATE_KEY_PEM).toBe(
+      '${{ secrets.DEVGOV_GATE_VERDICT_PRIVATE_KEY_PEM }}',
+    );
+    expect(verify.env.DEVGOV_GATE_VERDICT_ISSUER).toBe('${{ vars.DEVGOV_GATE_VERDICT_ISSUER }}');
+    expect(verify.env.DEVGOV_GATE_VERDICT_KEY_ID).toBe('${{ vars.DEVGOV_GATE_VERDICT_KEY_ID }}');
+    expect(verify.run).toContain('if [ -n "$DEVGOV_ATTESTATION_RUN_ID" ]');
+    expect(verify.run).toContain('--verdict-output "$RUNNER_TEMP/devgov-gate-verdict/gate-verdict.json"');
+    expect(verify.run).toContain('"${verdict_args[@]}"');
+
+    expect(verdict.id).toBe('verdict');
+    expect(verdict.uses).toBe('actions/upload-artifact@v4');
+    expect(verdict.if).toBe("steps.gate.outcome == 'success' && inputs.attestation_run_id != ''");
+    expect(verdict.with.name).toBe(
+      'devgov-gate-verdict-${{ inputs.candidate_sha }}-${{ inputs.attestation_run_id }}',
+    );
+    expect(verdict.with.overwrite).toBe(false);
+    expect(verdict.with['if-no-files-found']).toBe('error');
+    expect(verdict['continue-on-error']).toBeUndefined();
+
+    expect(steps.indexOf(verify)).toBeLessThan(steps.indexOf(verdict));
+    expect(steps.indexOf(verdict)).toBeLessThan(steps.indexOf(publish));
+    expect(publish.env.VERDICT_OUTCOME).toBe('${{ steps.verdict.outcome }}');
+    expect(publish.env.ATTESTATION_RUN_ID).toBe('${{ inputs.attestation_run_id }}');
+    expect(publish.run).toContain('if [ "$VERDICT_OUTCOME" = success ]; then');
+    expect(publish.run).toContain('test "$state" = success');
+    expect(publish.run).not.toContain('test "$GATE_OUTCOME" = success');
+  });
+
+  it('keeps the gate-verdict and execution-attestation keys in disjoint workflows', () => {
+    const attestSource = readFileSync(attestPath, 'utf8');
+    const gateSource = readFileSync(gatePath, 'utf8');
+    const orchestratorSource = readFileSync(orchestratorPath, 'utf8');
+
+    expect(countOccurrences(gateSource, 'secrets.DEVGOV_GATE_VERDICT_PRIVATE_KEY_PEM')).toBe(1);
+    expect(gateSource).not.toContain('DEVGOV_ATTESTATION_PRIVATE_KEY_PEM');
+    expect(orchestratorSource).not.toContain('DEVGOV_ATTESTATION_PRIVATE_KEY_PEM');
+    expect(orchestratorSource).not.toContain('DEVGOV_GATE_VERDICT_PRIVATE_KEY_PEM');
+    expect(attestSource).not.toContain('DEVGOV_GATE_VERDICT_PRIVATE_KEY_PEM');
+
+    const attest = parse(attestSource);
+    expect(JSON.stringify(attest.jobs.execute)).not.toContain('DEVGOV_ATTESTATION_PRIVATE_KEY_PEM');
+    expect(JSON.stringify(attest.jobs.attest)).toContain('DEVGOV_ATTESTATION_PRIVATE_KEY_PEM');
+  });
+
   it('derives RED and GREEN matrices from the candidate unit definition and preserves ordering', () => {
     const source = readFileSync(orchestratorPath, 'utf8');
     const workflow = parse(source);
@@ -84,6 +146,31 @@ describe('DEV-GOV-V0 multi-proof orchestration', () => {
     expect(source).toContain('-f attestation_run_id="$ATTESTATION_RUN_ID"');
     expect(source).toContain('gh run watch "$gate_run_id" --exit-status');
     expect(source).not.toContain('uses: ./.github/workflows/devgov-v0-gate.yml');
+  });
+
+  it('forwards the controller dispatch binding unchanged to the gate and nowhere else', () => {
+    const source = readFileSync(orchestratorPath, 'utf8');
+    const workflow = parse(source);
+    const binding = workflow.on.workflow_dispatch.inputs.controller_dispatch_binding;
+    const dispatch = workflow.jobs.gate.steps.find(
+      (step: { name?: string }) => step.name === 'Dispatch canonical gate as its own protected workflow run',
+    );
+
+    expect(binding).toBeTruthy();
+    expect(binding.required).toBe(true);
+    expect(binding.type).toBe('string');
+    expect(dispatch.env.CONTROLLER_DISPATCH_BINDING).toBe('${{ inputs.controller_dispatch_binding }}');
+    expect(dispatch.run).toContain('-f controller_dispatch_binding="$CONTROLLER_DISPATCH_BINDING"');
+
+    // The binding is gate-only input; it never reaches the reusable attest
+    // calls, the plan, the promoter or the closed-state publisher.
+    expect(JSON.stringify(workflow.jobs.red)).not.toContain('controller_dispatch_binding');
+    expect(JSON.stringify(workflow.jobs.green)).not.toContain('controller_dispatch_binding');
+    expect(JSON.stringify(workflow.jobs.plan)).not.toContain('controller_dispatch_binding');
+    expect(JSON.stringify(workflow.jobs.promote)).not.toContain('controller_dispatch_binding');
+    expect(JSON.stringify(workflow.jobs.state)).not.toContain('controller_dispatch_binding');
+    expect(JSON.stringify(workflow.jobs.plan)).not.toContain('DEVGOV_GATE_VERDICT');
+    expect(JSON.stringify(workflow.jobs.state)).not.toContain('DEVGOV_GATE_VERDICT');
   });
 
   it('correlates only a new canonical gate run for the same protected controller revision', () => {
@@ -138,5 +225,24 @@ describe('DEV-GOV-V0 multi-proof orchestration', () => {
     expect(source).toContain("schema_version: 'dev-gov-orchestration-state-v1'");
     expect(source).toContain("state: 'PROMOTED'");
     expect(source).toContain('devgov-orchestration-${{ inputs.candidate_sha }}');
+  });
+});
+
+describe('DEV-GOV-V0 units README documents the signed gate verdict contract', () => {
+  it('names the verdict schema, artifact, dedicated key, binding and authority boundary', () => {
+    const readme = readFileSync(unitsReadmePath, 'utf8');
+
+    expect(readme).toContain('dev-gov-v1-gate-verdict');
+    expect(readme).toContain('devgov-gate-verdict-<candidate_sha>-<orchestration_run_id>');
+    expect(readme).toContain('DEVGOV_GATE_VERDICT_PRIVATE_KEY_PEM');
+    expect(readme).toContain('controller_dispatch_binding');
+    expect(readme).toContain('transport and discovery, not authority retention');
+  });
+
+  it('marks the legacy single-proof commit status as non-authoritative and never proof', () => {
+    const readme = readFileSync(unitsReadmePath, 'utf8');
+
+    expect(readme).toContain('no consumer may treat a legacy or manual gate run as proof');
+    expect(readme).toContain('non-authoritative');
   });
 });

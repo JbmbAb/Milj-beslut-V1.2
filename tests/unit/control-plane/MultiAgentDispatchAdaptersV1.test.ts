@@ -110,9 +110,12 @@ function correlator(
   dispatch: DispatchPort,
   observer: RunObserver,
   now?: () => Date,
+  store: FileCorrelationStore = correlationStore(),
 ): WorkflowDispatchCorrelator {
-  return new WorkflowDispatchCorrelator(correlationStore(), dispatch, observer, { now });
+  return new WorkflowDispatchCorrelator(store, dispatch, observer, { now });
 }
+
+const CONTROLLER_DISPATCH_BINDING_PATTERN = /^[A-Za-z0-9._:-]{1,200}$/;
 
 describe('Multi-Agent Control Plane V1 dispatch adapters', () => {
   it('queues identical agent work idempotently and prevents dispatch-key substitution', async () => {
@@ -156,8 +159,82 @@ describe('Multi-Agent Control Plane V1 dispatch adapters', () => {
       inputs: {
         candidate_sha: candidateSha,
         unit_definition_path: 'governance/devgov/units/governed-harvest-canonical-entrypoint.json',
+        controller_dispatch_binding: 'K1:6:DEV_GOV',
       },
     });
+  });
+
+  it('echoes the exact dispatch key as controller_dispatch_binding in the workflow inputs', async () => {
+    const dispatchPort = new DispatchPort();
+    const adapter = new GitHubDevGovDispatchAdapter(
+      new Resolver(),
+      new Availability(true),
+      correlator(dispatchPort, new RunObserver()),
+    );
+    const item = { dispatchKey: 'K1:6:DEV_GOV', unit: unit(), reason: 'verified and controller-activated' };
+    await adapter.dispatch(item);
+    expect(dispatchPort.calls).toHaveLength(1);
+    const binding = dispatchPort.calls[0].inputs.controller_dispatch_binding;
+    expect(binding).toBe(item.dispatchKey);
+    expect(binding).toBe(`${item.unit.unitId}:${item.unit.revision}:DEV_GOV`);
+    expect(binding).toMatch(CONTROLLER_DISPATCH_BINDING_PATTERN);
+  });
+
+  it('dispatches the same key twice with exactly one external call and a stable binding', async () => {
+    const dispatchPort = new DispatchPort();
+    const store = correlationStore();
+    const adapter = new GitHubDevGovDispatchAdapter(
+      new Resolver(),
+      new Availability(true),
+      correlator(dispatchPort, new RunObserver(), undefined, store),
+    );
+    const item = { dispatchKey: 'K1:6:DEV_GOV', unit: unit(), reason: 'verified and controller-activated' };
+    const first = await adapter.dispatch(item);
+    const second = await adapter.dispatch(item);
+    expect(second).toBe(first);
+    expect(dispatchPort.calls).toHaveLength(1);
+    expect(dispatchPort.calls[0].inputs.controller_dispatch_binding).toBe('K1:6:DEV_GOV');
+    const record = store.get('K1:6:DEV_GOV');
+    expect(record?.status).toBe('AWAITING_RUN');
+    expect(record?.inputs.controller_dispatch_binding).toBe('K1:6:DEV_GOV');
+  });
+
+  describe('canonical dispatch-key binding', () => {
+    const cases: readonly [label: string, dispatchKey: string][] = [
+      ['stale revision', 'K1:5:DEV_GOV'],
+      ['wrong unit id', 'OTHER:6:DEV_GOV'],
+      ['wrong target', 'K1:6:VERIFIER'],
+    ];
+
+    for (const [label, dispatchKey] of cases) {
+      it(`rejects a ${label} dispatch key (${dispatchKey}) before any availability or external call`, async () => {
+        const dispatchPort = new DispatchPort();
+        const store = correlationStore();
+        let availabilityChecks = 0;
+        const availability: DevGovWorkflowAvailabilityPort = {
+          async workflowExists() {
+            availabilityChecks += 1;
+            return true;
+          },
+        };
+        const adapter = new GitHubDevGovDispatchAdapter(
+          new Resolver(),
+          availability,
+          correlator(dispatchPort, new RunObserver(), undefined, store),
+        );
+
+        await expect(adapter.dispatch({ dispatchKey, unit: unit(), reason: 'verified' })).rejects.toThrow(
+          DevGovBindingError,
+        );
+        await expect(adapter.dispatch({ dispatchKey, unit: unit(), reason: 'verified' })).rejects.toThrow(
+          /does not match canonical unit revision binding/,
+        );
+        expect(availabilityChecks).toBe(0);
+        expect(dispatchPort.calls).toHaveLength(0);
+        expect(store.get(dispatchKey)).toBeUndefined();
+        expect(store.all()).toHaveLength(0);
+      });
+    }
   });
 
   it('classifies a missing DEV-GOV workflow as unavailable instead of dispatching', async () => {

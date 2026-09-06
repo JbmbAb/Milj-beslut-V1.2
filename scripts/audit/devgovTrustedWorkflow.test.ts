@@ -198,6 +198,137 @@ describe('DEV-GOV-V0 verifier-owned evidence gate workflow', () => {
     expect(source).toContain('repos/$GITHUB_REPOSITORY/statuses/$CANDIDATE_SHA');
     expect(source).toContain("context='DEV-GOV-V0 / trusted-execution'");
     expect(source).toContain('continue-on-error: true');
-    expect(source).toContain('test "$GATE_OUTCOME" = success');
+    expect(source).toContain('test "$state" = success');
+    expect(source).not.toContain('test "$GATE_OUTCOME" = success');
+  });
+});
+
+describe('DEV-GOV-V0 signed gate verdict emission', () => {
+  const loadGate = () => {
+    const source = readFileSync(gateWorkflowPath, 'utf8');
+    const workflow = parse(source);
+    const steps: Array<Record<string, any>> = workflow.jobs['evidence-gate'].steps;
+    const verify = steps.find((step) => step.name === 'Verify trusted execution attestations');
+    const verdict = steps.find((step) => step.name === 'Publish signed gate verdict artifact');
+    const publish = steps.find((step) => step.name === 'Publish exact candidate gate result');
+    return { source, workflow, steps, verify, verdict, publish };
+  };
+
+  it('accepts an opaque controller dispatch binding and forwards it verbatim to the verifier', () => {
+    const { workflow, verify } = loadGate();
+    const binding = workflow.on.workflow_dispatch.inputs.controller_dispatch_binding;
+
+    expect(binding).toBeTruthy();
+    expect(binding.required).toBe(false);
+    expect(binding.type).toBe('string');
+    expect(verify.id).toBe('gate');
+    expect(verify.env.DEVGOV_CONTROLLER_DISPATCH_BINDING).toBe('${{ inputs.controller_dispatch_binding }}');
+    expect(verify.env.DEVGOV_ATTESTATION_RUN_ID).toBe('${{ inputs.attestation_run_id }}');
+    expect(verify.env.DEVGOV_JOB_WORKFLOW_REF).toBe('${{ job.workflow_ref }}');
+    expect(verify.env.GITHUB_WORKFLOW_REF).toBeUndefined();
+    expect(verify.run).toContain('export GITHUB_WORKFLOW_REF="$DEVGOV_JOB_WORKFLOW_REF"');
+    expect(verify.run).toContain('if [ -n "$DEVGOV_ATTESTATION_RUN_ID" ]');
+    expect(verify.run).toContain('--verdict-output "$RUNNER_TEMP/devgov-gate-verdict/gate-verdict.json"');
+    expect(verify.run).toContain('"${verdict_args[@]}"');
+  });
+
+  it('confines the dedicated gate-verdict key to the verify step of the protected gate', () => {
+    const { source, steps, verify } = loadGate();
+
+    expect(verify.env.DEVGOV_GATE_VERDICT_PRIVATE_KEY_PEM).toBe(
+      '${{ secrets.DEVGOV_GATE_VERDICT_PRIVATE_KEY_PEM }}',
+    );
+    expect(verify.env.DEVGOV_GATE_VERDICT_ISSUER).toBe('${{ vars.DEVGOV_GATE_VERDICT_ISSUER }}');
+    expect(verify.env.DEVGOV_GATE_VERDICT_KEY_ID).toBe('${{ vars.DEVGOV_GATE_VERDICT_KEY_ID }}');
+
+    const occurrences = source.split('secrets.DEVGOV_GATE_VERDICT_PRIVATE_KEY_PEM').length - 1;
+    expect(occurrences).toBe(1);
+    for (const step of steps) {
+      if (step === verify) continue;
+      expect(JSON.stringify(step)).not.toContain('DEVGOV_GATE_VERDICT_PRIVATE_KEY_PEM');
+    }
+    expect(verify.run).not.toContain('DEVGOV_GATE_VERDICT_PRIVATE_KEY_PEM');
+
+    // The execution-attestation key never reaches the gate; the two keys speak
+    // for two different statement classes.
+    expect(source).not.toContain('DEVGOV_ATTESTATION_PRIVATE_KEY_PEM');
+  });
+
+  it('never exposes the gate-verdict key to the attestation workflow', () => {
+    const attestSource = readFileSync(workflowPath, 'utf8');
+    const attest = parse(attestSource);
+
+    expect(attestSource).not.toContain('DEVGOV_GATE_VERDICT_PRIVATE_KEY_PEM');
+    expect(JSON.stringify(attest.jobs.execute)).not.toContain('DEVGOV_ATTESTATION_PRIVATE_KEY_PEM');
+    expect(JSON.stringify(attest.jobs.attest)).toContain('secrets.DEVGOV_ATTESTATION_PRIVATE_KEY_PEM');
+  });
+
+  it('publishes the signed verdict create-once as part of the gate itself', () => {
+    const { verdict } = loadGate();
+
+    expect(verdict).toBeTruthy();
+    expect(verdict.id).toBe('verdict');
+    expect(verdict.uses).toBe('actions/upload-artifact@v4');
+    expect(verdict.if).toBe("steps.gate.outcome == 'success' && inputs.attestation_run_id != ''");
+    expect(verdict.with.name).toBe(
+      'devgov-gate-verdict-${{ inputs.candidate_sha }}-${{ inputs.attestation_run_id }}',
+    );
+    expect(verdict.with.path).toBe('${{ runner.temp }}/devgov-gate-verdict/gate-verdict.json');
+    expect(verdict.with['if-no-files-found']).toBe('error');
+    expect(verdict.with.overwrite).toBe(false);
+    expect(verdict.with['retention-days']).toBe(90);
+    expect(verdict['continue-on-error']).toBeUndefined();
+  });
+
+  it('orders verify, verdict upload and status publication so observation never outruns authority', () => {
+    const { steps, verify, verdict, publish } = loadGate();
+    const verifyIndex = steps.indexOf(verify);
+    const verdictIndex = steps.indexOf(verdict);
+    const publishIndex = steps.indexOf(publish);
+
+    expect(verifyIndex).toBeGreaterThan(-1);
+    expect(verdictIndex).toBeGreaterThan(verifyIndex);
+    expect(publishIndex).toBeGreaterThan(verdictIndex);
+
+    expect(publish.if).toBe('always()');
+    expect(publish.env.VERDICT_OUTCOME).toBe('${{ steps.verdict.outcome }}');
+    expect(publish.env.ATTESTATION_RUN_ID).toBe('${{ inputs.attestation_run_id }}');
+    expect(publish.env.GATE_OUTCOME).toBe('${{ steps.gate.outcome }}');
+
+    const run: string = publish.run;
+    expect(run).toContain('if [ "$VERDICT_OUTCOME" = success ]; then');
+    expect(run.trimEnd().endsWith('test "$state" = success')).toBe(true);
+    expect(run).not.toContain('test "$GATE_OUTCOME" = success');
+
+    // On the orchestrated path the first state=success after the
+    // ATTESTATION_RUN_ID branch opens must be guarded by VERDICT_OUTCOME.
+    const orchestratedBranch = run.indexOf('if [ -n "$ATTESTATION_RUN_ID" ]; then');
+    expect(orchestratedBranch).toBeGreaterThan(-1);
+    const verdictGuard = run.indexOf('if [ "$VERDICT_OUTCOME" = success ]; then', orchestratedBranch);
+    const firstSuccess = run.indexOf('state=success', orchestratedBranch);
+    expect(verdictGuard).toBeGreaterThan(orchestratedBranch);
+    expect(firstSuccess).toBeGreaterThan(verdictGuard);
+
+    // Exactly two success assignments: the verdict-guarded orchestrated branch
+    // and the legacy (empty ATTESTATION_RUN_ID) branch after its else.
+    const successAssignments = run.split('state=success').length - 1;
+    expect(successAssignments).toBe(2);
+    const legacyElse = run.indexOf('else', verdictGuard);
+    const secondSuccess = run.indexOf('state=success', firstSuccess + 1);
+    expect(secondSuccess).toBeGreaterThan(legacyElse);
+    expect(run.slice(0, orchestratedBranch)).not.toContain('state=success');
+  });
+
+  it('keeps the pending status pending and never pre-announces success', () => {
+    const { steps } = loadGate();
+    const pending = steps.find((step) => step.name === 'Mark exact candidate gate pending');
+    const statusSteps = steps.filter(
+      (step) => typeof step.run === 'string' && step.run.includes('/statuses/'),
+    );
+
+    expect(statusSteps[0]).toBe(pending);
+    expect(pending.run).toContain('-f state=pending');
+    expect(pending.run).not.toContain('success');
+    expect(pending.run).not.toContain('state=failure');
   });
 });
