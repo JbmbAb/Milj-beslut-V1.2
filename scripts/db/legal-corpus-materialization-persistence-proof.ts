@@ -20,6 +20,7 @@ import { randomUUID } from 'node:crypto';
 import { createHash } from 'node:crypto';
 
 import { composeLegalCorpusMaterialization } from '../../server/modules/legal/materialization/LegalCorpusMaterializationCompositionRoot';
+import { resolveActiveRegistryBinding } from '../../server/modules/legal/materialization/SourceRegistryAdmissionAdapter';
 import { admitLawChunks } from '../../server/modules/legal/materialization/ChunkAdmission';
 import { prisma } from '../../server/db/prisma';
 
@@ -34,7 +35,7 @@ const TEXT =
 // synthesized per run (randomized) so this proof script can run repeatedly without colliding
 // with a real materialization of the actual statute.
 const LOGICAL_SOURCE_ID = `pilot-persistence-proof-${randomUUID()}`;
-const REGISTRY_ARTIFACT_ID = 'reg-rk-sfs-1998-808-001';
+const REGISTRY_SOURCE_ID = 'regeringskansliet-sfs-1998-808';
 const REGISTRY_SOURCE_CONTENT_HASH = '888c7cbafc18058a9c254901b1b09e163726e270c271122ce532123af9285b97';
 const RAW_SOURCE_CONTENT_HASH = 'b0f2708d931edcab18a05f803a1103d62278358168782fc318eaa555739590a9';
 const TEXT_PROJECTION_HASH = createHash('sha256').update(TEXT).digest('hex');
@@ -48,6 +49,11 @@ const SOURCE_MANIFEST_REF = {
 
 async function runOnce(chunkPolicyVersion: string) {
   const { materializer, ingestionManifestStore, signAttestation } = composeLegalCorpusMaterialization();
+  // K2.1b(2): bind to the ACTIVE registry identity rather than a frozen artifact-id constant.
+  const activeBinding = await resolveActiveRegistryBinding({
+    sourceId: REGISTRY_SOURCE_ID,
+    expectedSourceContentHash: REGISTRY_SOURCE_CONTENT_HASH,
+  });
 
   const sourceProjectionRef = `sha256:${TEXT_PROJECTION_HASH}`;
   const admission = admitLawChunks({ text: TEXT, sourceProjectionRef, chunkPolicyVersion });
@@ -55,8 +61,8 @@ async function runOnce(chunkPolicyVersion: string) {
 
   const identity = {
     logical_source_id: LOGICAL_SOURCE_ID,
-    registry_artifact_id: REGISTRY_ARTIFACT_ID,
-    registry_source_content_hash: REGISTRY_SOURCE_CONTENT_HASH,
+    registry_artifact_id: activeBinding.registryArtifactId,
+    registry_source_content_hash: activeBinding.registrySourceContentHash,
     raw_source_content_hash: RAW_SOURCE_CONTENT_HASH,
     text_projection_artifact_id: 'projection-synthetic',
     text_projection_hash: TEXT_PROJECTION_HASH,
@@ -88,8 +94,8 @@ async function runOnce(chunkPolicyVersion: string) {
     chunkPolicyVersion,
     approverActorId: 'system:legal-corpus-materialization',
     approverRole: 'AUTOMATED_EXECUTION_ATTESTOR',
-    registryArtifactId: REGISTRY_ARTIFACT_ID,
-    registrySourceContentHash: REGISTRY_SOURCE_CONTENT_HASH,
+    registryArtifactId: activeBinding.registryArtifactId,
+    registrySourceContentHash: activeBinding.registrySourceContentHash,
   });
 
   const attestationRefDigest = createHash('sha256')

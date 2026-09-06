@@ -26,6 +26,10 @@ import { createHash, randomUUID } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 
 import { composeLegalCorpusMaterialization } from '../../server/modules/legal/materialization/LegalCorpusMaterializationCompositionRoot';
+import {
+  resolveActiveRegistryBinding,
+  type ActiveRegistryBinding,
+} from '../../server/modules/legal/materialization/SourceRegistryAdmissionAdapter';
 import { PdfParseExtractorAdapter } from '../../server/text-projection/pdfParseExtractorAdapter';
 import { admitChunks, admitLawChunksV24 } from '../../server/modules/legal/materialization/ChunkAdmission';
 import { prisma } from '../../server/db/prisma';
@@ -36,7 +40,6 @@ const V241_POLICY = 'legal-chunker-v2.4.1';
 
 interface SourceSpec {
   readonly sourceId: string;
-  readonly registryArtifactId: string;
   readonly registrySourceContentHash: string;
   readonly quarantineId: string;
   readonly mimeType: string;
@@ -47,7 +50,6 @@ interface SourceSpec {
 const SOURCES: readonly SourceSpec[] = [
   {
     sourceId: 'regeringskansliet-sfs-2013-251',
-    registryArtifactId: 'reg-rk-sfs-2013-251-001',
     registrySourceContentHash: '3c46a82cbc1b8ede1653df88a435b991d3d64acaf8e72ed6ec9e9a12fbf37c21',
     quarantineId: 'c623f644-106d-4291-b472-65a6ce68694e',
     mimeType: 'text/html',
@@ -59,7 +61,6 @@ const SOURCES: readonly SourceSpec[] = [
   },
   {
     sourceId: 'regeringskansliet-sfs-2020-614',
-    registryArtifactId: 'reg-rk-sfs-2020-614-001',
     registrySourceContentHash: '36fd0e912567b7e1bf828fa24678a5b35459c9135e04f9dd85d5417545112973',
     quarantineId: 'ee39bba5-86ea-4e4c-8375-2ff6eef9a6f3',
     mimeType: 'text/html',
@@ -71,7 +72,6 @@ const SOURCES: readonly SourceSpec[] = [
   },
   {
     sourceId: 'regeringskansliet-sfs-2010-900',
-    registryArtifactId: 'reg-rk-sfs-2010-900-001',
     registrySourceContentHash: '59161ba7d94e2391e4fff945c6f2f4572290d13e2cddef4cb8c05464ddd1be98',
     quarantineId: '64db5c34-618d-4a0c-ba68-35fa395c3ab5',
     mimeType: 'text/html',
@@ -83,7 +83,6 @@ const SOURCES: readonly SourceSpec[] = [
   },
   {
     sourceId: 'regeringskansliet-sfs-2011-338',
-    registryArtifactId: 'reg-rk-sfs-2011-338-001',
     registrySourceContentHash: '27d279b8b9945f9101589bf0035cb1ddb816bd39338caa49396aa1ab24ff39f4',
     quarantineId: 'd5faea79-837e-4f7c-a836-f1cd869bc0d2',
     mimeType: 'text/html',
@@ -95,7 +94,6 @@ const SOURCES: readonly SourceSpec[] = [
   },
   {
     sourceId: 'regeringskansliet-sfs-1998-899',
-    registryArtifactId: 'reg-rk-sfs-1998-899-001',
     registrySourceContentHash: 'ef965c7f3ac1f6d98ae4a4ec74405aeef99e726cb4caf83c871b9632160b4bf2',
     quarantineId: 'd3c146d4-2f3c-419e-b7f0-5cd443a756ea',
     mimeType: 'text/html',
@@ -149,11 +147,17 @@ async function countChunks(materializationId: string): Promise<number> {
   return prisma.legalCorpusMaterializedChunk.count({ where: { materializationId } });
 }
 
-function identityFor(spec: SourceSpec, chunkPolicyVersion: string, rawContentHash: string, projectedTextHash: string) {
+function identityFor(
+  spec: SourceSpec,
+  chunkPolicyVersion: string,
+  rawContentHash: string,
+  projectedTextHash: string,
+  activeBinding: ActiveRegistryBinding,
+) {
   return {
     logical_source_id: spec.sourceId,
-    registry_artifact_id: spec.registryArtifactId,
-    registry_source_content_hash: spec.registrySourceContentHash,
+    registry_artifact_id: activeBinding.registryArtifactId,
+    registry_source_content_hash: activeBinding.registrySourceContentHash,
     raw_source_content_hash: rawContentHash,
     text_projection_artifact_id: `projection-${spec.quarantineId}`,
     text_projection_hash: projectedTextHash,
@@ -172,7 +176,12 @@ async function materializeOnce(
   runTag: string,
 ) {
   const { materializer, ingestionManifestStore, signAttestation } = composeLegalCorpusMaterialization();
-  const identity = identityFor(spec, V241_POLICY, rawContentHash, projectedTextHash);
+  // K2.1b(2): bind to the ACTIVE registry identity rather than a frozen artifact-id constant.
+  const activeBinding = await resolveActiveRegistryBinding({
+    sourceId: spec.sourceId,
+    expectedSourceContentHash: spec.registrySourceContentHash,
+  });
+  const identity = identityFor(spec, V241_POLICY, rawContentHash, projectedTextHash, activeBinding);
 
   const { buildCanonicalLegalCorpusRecordKey } = await import('@miljobeslut/mps-legal-corpus');
   const documentId = buildCanonicalLegalCorpusRecordKey(identity);
@@ -188,8 +197,8 @@ async function materializeOnce(
     documentId, sourceContentHash: rawContentHash, chunks: admittedChunks, pipelineVersion: 'text-v1.0',
     chunkPolicyVersion: V241_POLICY, approverActorId: 'system:legal-corpus-materialization',
     approverRole: 'AUTOMATED_EXECUTION_ATTESTOR',
-    registryArtifactId: spec.registryArtifactId,
-    registrySourceContentHash: spec.registrySourceContentHash,
+    registryArtifactId: activeBinding.registryArtifactId,
+    registrySourceContentHash: activeBinding.registrySourceContentHash,
   });
   const attestationRefDigest = createHash('sha256').update(JSON.stringify(attestation)).digest('hex');
   const attestationRef = { id: `att-${attestationRefDigest.slice(0, 16)}`, content_hash: { algorithm: 'sha256' as const, digest: attestationRefDigest } };
@@ -242,7 +251,17 @@ async function runSource(spec: SourceSpec): Promise<SourceReport> {
     }
 
     // ---------- OLD (v2.3), re-verified against the live DB row created in BULK-01 ----------
-    const v23Identity = identityFor(spec, V23_POLICY, rawContentHash, projectedTextHash);
+    // K2.1b(2) consequence, stated rather than hidden: this baseline is addressed by the ACTIVE
+    // registry identity, like every other identity in this script. Rows materialized under the
+    // superseded artifact id carry a different canonical_record_key and will therefore NOT be
+    // found here. Reconciling historical rows across a re-attestation is successor-chain
+    // semantics, which this repair is explicitly scoped out of; the miss is reported as
+    // FAILED_CLOSED below rather than silently papered over with a stale id.
+    const v23ActiveBinding = await resolveActiveRegistryBinding({
+      sourceId: spec.sourceId,
+      expectedSourceContentHash: spec.registrySourceContentHash,
+    });
+    const v23Identity = identityFor(spec, V23_POLICY, rawContentHash, projectedTextHash, v23ActiveBinding);
     const { buildCanonicalLegalCorpusRecordKey } = await import('@miljobeslut/mps-legal-corpus');
     const v23DocumentId = buildCanonicalLegalCorpusRecordKey(v23Identity);
     const v23Row = await prisma.legalCorpusMaterialization.findUnique({ where: { canonicalRecordKey: v23DocumentId } });

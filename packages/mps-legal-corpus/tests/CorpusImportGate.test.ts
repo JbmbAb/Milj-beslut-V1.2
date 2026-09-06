@@ -819,15 +819,56 @@ describe('CorpusImportGate — K2.1: registry-binding, GREEN (valid APPROVED ent
 });
 
 describe('CorpusImportGate — K2.1: does not disturb the historical-validity question', () => {
-  it('the registry-binding check is only reachable from checkOneImport / validateBatch / importBatch — never from a read/replay path', () => {
-    // Structural, not behavioral: CorpusImportGate has no read/query/replay method at all — its
-    // only public surface is importBatch() and validateBatch(), both write-gating entry points.
-    // This is asserted here as a standing invariant so a future unit cannot silently add a
-    // read-path method to this same class and reuse registryAuthority for WAS_VALID_AT(T)
-    // semantics without that being a deliberate, reviewed change.
-    const publicMethods = Object.getOwnPropertyNames(CorpusImportGate.prototype).filter(
-      (m) => m !== 'constructor',
-    );
-    expect(publicMethods.sort()).toEqual(['importBatch', 'validateBatch'].sort());
+  it('exposes no read/query/replay-shaped method that could reuse registryAuthority for WAS_VALID_AT(T)', () => {
+    // Standing structural invariant.
+    //
+    // NOTE: TypeScript `private` is a compile-time modifier only — private methods are still own
+    // properties of the prototype at runtime. So this must NOT be written as "the prototype has
+    // exactly the public methods"; that assertion is simply false (checkOneImport is there too)
+    // and an earlier revision of this test failed for exactly that reason.
+    //
+    // It asserts the property that actually matters instead: the gate carries no retrieval-shaped
+    // surface at all, so a future unit cannot quietly add a read path that consults the same
+    // registry authority and thereby turn IS_USABLE_NOW_FOR_NEW_CORPUS_ADMISSION into a
+    // historical-validity answer.
+    const READ_SHAPED = /^(get|find|query|read|search|list|replay|lookup|fetch|load|resolve)/i;
+    const members = Object.getOwnPropertyNames(CorpusImportGate.prototype).filter((m) => m !== 'constructor');
+
+    expect(members.filter((m) => READ_SHAPED.test(m))).toEqual([]);
+  });
+
+  it('both admission entry points are present, and every prototype member is admission-shaped', () => {
+    // Complements the check above. Asserted as containment plus a shape rule rather than an exact
+    // prototype listing, so adding a private helper does not fail the test while adding a
+    // read-shaped method still does.
+    const members = Object.getOwnPropertyNames(CorpusImportGate.prototype).filter((m) => m !== 'constructor');
+    expect(members).toContain('importBatch');
+    expect(members).toContain('validateBatch');
+    expect(members.every((m) => /^(importBatch|validateBatch|checkOneImport)$/.test(m))).toBe(true);
+  });
+
+  it('validateBatch — not only importBatch — enforces the registry binding (the real write path is not unguarded)', async () => {
+    // GATE_BEFORE_WRITE_V1 means production materialization persists via validateBatch(), not
+    // importBatch(). If only importBatch enforced the binding, the actual production path would
+    // be unguarded, so this is asserted directly rather than inferred from importBatch's tests.
+    const docId = 'doc-1';
+    const chunks = docChunks();
+    const attestation = await buildAttestation({
+      documentId: docId,
+      chunks,
+      registryArtifactId: 'reg-fabricated-does-not-exist',
+    });
+    const manifestStore = new InMemoryManifestStore([manifestEntry({ document_id: docId })]);
+    const writer = new RecordingCorpusWriter();
+    const gate = new CorpusImportGate(manifestStore, writer, signing, registryAuthority);
+
+    await expect(
+      gate.validateBatch({
+        runId: 'run-1',
+        expectedDocumentIds: [docId],
+        imports: [{ documentId: docId, chunks, attestation }],
+      }),
+    ).rejects.toThrow(/ARTIFACT_NOT_FOUND/);
+    expect(writer.writes).toHaveLength(0);
   });
 });

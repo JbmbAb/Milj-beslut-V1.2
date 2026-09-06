@@ -21,6 +21,7 @@ import { createHash, randomUUID } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 
 import { composeLegalCorpusMaterialization } from '../../server/modules/legal/materialization/LegalCorpusMaterializationCompositionRoot';
+import { resolveActiveRegistryBinding } from '../../server/modules/legal/materialization/SourceRegistryAdmissionAdapter';
 import { PdfParseExtractorAdapter } from '../../server/text-projection/pdfParseExtractorAdapter';
 import { admitChunks } from '../../server/modules/legal/materialization/ChunkAdmission';
 import { prisma } from '../../server/db/prisma';
@@ -31,7 +32,6 @@ const CHUNK_POLICY_VERSION = 'legal-chunker-v2.3';
 interface DocumentSpec {
   readonly sourceId: string;
   readonly authority: string;
-  readonly registryArtifactId: string;
   readonly registrySourceContentHash: string;
   readonly quarantineId: string;
   readonly mimeType: string;
@@ -46,7 +46,7 @@ interface DocumentSpec {
 const DOCUMENTS: readonly DocumentSpec[] = [
   {
     sourceId: 'regeringskansliet-sfs-2013-251', authority: 'Regeringskansliet',
-    registryArtifactId: 'reg-rk-sfs-2013-251-001', registrySourceContentHash: '3c46a82cbc1b8ede1653df88a435b991d3d64acaf8e72ed6ec9e9a12fbf37c21',
+    registrySourceContentHash: '3c46a82cbc1b8ede1653df88a435b991d3d64acaf8e72ed6ec9e9a12fbf37c21',
     quarantineId: 'c623f644-106d-4291-b472-65a6ce68694e', mimeType: 'text/html',
     downloadManifestId: 'download-manifest-pilot-regeringskansliet-sfs-2013-251-2a8d3773-f7f7-4b95-8655-d2502d095954-98b66a7299df09a6',
     downloadManifestDigest: '98b66a7299df09a6750432cfaaf0e1df5279bd77dca7e39a8840cded218c7e34',
@@ -54,7 +54,7 @@ const DOCUMENTS: readonly DocumentSpec[] = [
   },
   {
     sourceId: 'regeringskansliet-sfs-2020-614', authority: 'Regeringskansliet',
-    registryArtifactId: 'reg-rk-sfs-2020-614-001', registrySourceContentHash: '36fd0e912567b7e1bf828fa24678a5b35459c9135e04f9dd85d5417545112973',
+    registrySourceContentHash: '36fd0e912567b7e1bf828fa24678a5b35459c9135e04f9dd85d5417545112973',
     quarantineId: 'ee39bba5-86ea-4e4c-8375-2ff6eef9a6f3', mimeType: 'text/html',
     downloadManifestId: 'download-manifest-pilot-regeringskansliet-sfs-2020-614-055a39bd-bd6e-4e8f-bf33-70b3f05d8662-f00d3cd19b32a7a7',
     downloadManifestDigest: 'f00d3cd19b32a7a7c44287bccfb614feba25fe062ff184b3ff128f2b73c24008',
@@ -62,7 +62,7 @@ const DOCUMENTS: readonly DocumentSpec[] = [
   },
   {
     sourceId: 'regeringskansliet-sfs-2010-900', authority: 'Regeringskansliet',
-    registryArtifactId: 'reg-rk-sfs-2010-900-001', registrySourceContentHash: '59161ba7d94e2391e4fff945c6f2f4572290d13e2cddef4cb8c05464ddd1be98',
+    registrySourceContentHash: '59161ba7d94e2391e4fff945c6f2f4572290d13e2cddef4cb8c05464ddd1be98',
     quarantineId: '64db5c34-618d-4a0c-ba68-35fa395c3ab5', mimeType: 'text/html',
     downloadManifestId: 'download-manifest-pilot-regeringskansliet-sfs-2010-900-e0d88b92-558b-4178-a881-31ac5ff96a2d-874b3a966c7650c6',
     downloadManifestDigest: '874b3a966c7650c604b00e1031d05c51102d26cd6e103ce04f9a2f5b05bd9446',
@@ -70,7 +70,7 @@ const DOCUMENTS: readonly DocumentSpec[] = [
   },
   {
     sourceId: 'regeringskansliet-sfs-2011-338', authority: 'Regeringskansliet',
-    registryArtifactId: 'reg-rk-sfs-2011-338-001', registrySourceContentHash: '27d279b8b9945f9101589bf0035cb1ddb816bd39338caa49396aa1ab24ff39f4',
+    registrySourceContentHash: '27d279b8b9945f9101589bf0035cb1ddb816bd39338caa49396aa1ab24ff39f4',
     quarantineId: 'd5faea79-837e-4f7c-a836-f1cd869bc0d2', mimeType: 'text/html',
     downloadManifestId: 'download-manifest-pilot-regeringskansliet-sfs-2011-338-a231ceaa-77fc-4ae4-80b4-2237730e1c25-2e3dfbd878587842',
     downloadManifestDigest: '2e3dfbd878587842d845765bb27838f748b5707064d4ec226640fa9bbd32433a',
@@ -78,7 +78,7 @@ const DOCUMENTS: readonly DocumentSpec[] = [
   },
   {
     sourceId: 'regeringskansliet-sfs-1998-899', authority: 'Regeringskansliet',
-    registryArtifactId: 'reg-rk-sfs-1998-899-001', registrySourceContentHash: 'ef965c7f3ac1f6d98ae4a4ec74405aeef99e726cb4caf83c871b9632160b4bf2',
+    registrySourceContentHash: 'ef965c7f3ac1f6d98ae4a4ec74405aeef99e726cb4caf83c871b9632160b4bf2',
     quarantineId: 'd3c146d4-2f3c-419e-b7f0-5cd443a756ea', mimeType: 'text/html',
     downloadManifestId: 'download-manifest-pilot-regeringskansliet-sfs-1998-899-dfba2f33-1f58-4021-aa3e-8a2d330b9ec1-3e069dc1f5e52e8f',
     downloadManifestDigest: '3e069dc1f5e52e8f2ad9904ccea8e2feed2c967750cb7e8aed7cd7e927ee3a94',
@@ -86,7 +86,7 @@ const DOCUMENTS: readonly DocumentSpec[] = [
   },
   {
     sourceId: 'hav-hvmfs-2016-17', authority: 'Havs- och vattenmyndigheten',
-    registryArtifactId: 'reg-hav-hvmfs-2016-17-001', registrySourceContentHash: 'bbcd43eb8053e3f62a7480edb330e3a2f5a98bb75d32e1365fd7878a2fba8640',
+    registrySourceContentHash: 'bbcd43eb8053e3f62a7480edb330e3a2f5a98bb75d32e1365fd7878a2fba8640',
     quarantineId: 'b86f5d5d-a3c0-4008-8698-511e816f538d', mimeType: 'text/html',
     downloadManifestId: 'download-manifest-pilot-hav-hvmfs-2016-17-47a45b8f-6894-40bf-ab78-49aa03ed44f5-52bfbac0de7cff5c',
     downloadManifestDigest: '52bfbac0de7cff5c78c429992cf2667c1994149745a7ae551277241f50d3b726',
@@ -94,7 +94,7 @@ const DOCUMENTS: readonly DocumentSpec[] = [
   },
   {
     sourceId: 'sgu-well-drilling-guidance', authority: 'Sveriges geologiska undersökning',
-    registryArtifactId: 'reg-sgu-well-drilling-guidance-001', registrySourceContentHash: 'b6472a38d46916fa03fa205c0e88684cf04ba561ad9c20ac22847aeb814fe17d',
+    registrySourceContentHash: 'b6472a38d46916fa03fa205c0e88684cf04ba561ad9c20ac22847aeb814fe17d',
     quarantineId: '1a6961db-c0a1-4268-b838-d4ba744e37b6', mimeType: 'text/html',
     downloadManifestId: 'download-manifest-pilot-sgu-well-drilling-guidance-d4a65f06-9b20-4a2c-a702-36b02c4154df-e643acd1accd0309',
     downloadManifestDigest: 'e643acd1accd0309baa1c3d13c691c918116a32ddac134f88762839bfc2dd177',
@@ -114,12 +114,19 @@ async function materializeOnce(
   rawBytes: Uint8Array,
 ) {
   const { materializer, ingestionManifestStore, signAttestation } = composeLegalCorpusMaterialization();
+  // K2.1b(2): bind to the ACTIVE registry identity. Artifact ids are re-issued on re-attestation
+  // (this file previously froze `-001` ids that the active registry no longer carries), while the
+  // source content hash is stable — so it is kept here as the expected content binding.
+  const activeBinding = await resolveActiveRegistryBinding({
+    sourceId: spec.sourceId,
+    expectedSourceContentHash: spec.registrySourceContentHash,
+  });
   const downloadManifestRef = { id: spec.downloadManifestId, content_hash: { algorithm: 'sha256' as const, digest: spec.downloadManifestDigest } };
 
   const identity = {
     logical_source_id: spec.sourceId,
-    registry_artifact_id: spec.registryArtifactId,
-    registry_source_content_hash: spec.registrySourceContentHash,
+    registry_artifact_id: activeBinding.registryArtifactId,
+    registry_source_content_hash: activeBinding.registrySourceContentHash,
     raw_source_content_hash: rawContentHash,
     text_projection_artifact_id: `projection-${spec.quarantineId}`,
     text_projection_hash: projectedTextHash,
@@ -142,8 +149,8 @@ async function materializeOnce(
     documentId, sourceContentHash: rawContentHash, chunks: admittedChunks, pipelineVersion: 'text-v1.0',
     chunkPolicyVersion: CHUNK_POLICY_VERSION, approverActorId: 'system:legal-corpus-materialization',
     approverRole: 'AUTOMATED_EXECUTION_ATTESTOR',
-    registryArtifactId: spec.registryArtifactId,
-    registrySourceContentHash: spec.registrySourceContentHash,
+    registryArtifactId: activeBinding.registryArtifactId,
+    registrySourceContentHash: activeBinding.registrySourceContentHash,
   });
   const attestationRefDigest = createHash('sha256').update(JSON.stringify(attestation)).digest('hex');
   const attestationRef = { id: `att-${attestationRefDigest.slice(0, 16)}`, content_hash: { algorithm: 'sha256' as const, digest: attestationRefDigest } };

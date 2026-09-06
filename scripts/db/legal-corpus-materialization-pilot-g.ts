@@ -14,6 +14,7 @@ import { createHash, randomUUID } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 
 import { composeLegalCorpusMaterialization } from '../../server/modules/legal/materialization/LegalCorpusMaterializationCompositionRoot';
+import { resolveActiveRegistryBinding } from '../../server/modules/legal/materialization/SourceRegistryAdmissionAdapter';
 import { PdfParseExtractorAdapter } from '../../server/text-projection/pdfParseExtractorAdapter';
 import { admitChunks, type AdmissionDocumentStatus } from '../../server/modules/legal/materialization/ChunkAdmission';
 import { prisma } from '../../server/db/prisma';
@@ -26,7 +27,6 @@ interface DocumentSpec {
   readonly label: string;
   readonly sourceId: string;
   readonly authority: string;
-  readonly registryArtifactId: string;
   readonly registrySourceContentHash: string;
   readonly quarantineId: string;
   readonly mimeType: string;
@@ -43,7 +43,6 @@ const DOCUMENTS: readonly DocumentSpec[] = [
     label: '1. SFS (Miljöbalken)',
     sourceId: 'regeringskansliet-sfs-1998-808',
     authority: 'Regeringskansliet',
-    registryArtifactId: 'reg-rk-sfs-1998-808-001',
     registrySourceContentHash: '888c7cbafc18058a9c254901b1b09e163726e270c271122ce532123af9285b97',
     quarantineId: '602c6415-8125-4677-a61d-d4f868a965b6',
     mimeType: 'text/html',
@@ -60,7 +59,6 @@ const DOCUMENTS: readonly DocumentSpec[] = [
     label: '2. Regulatory HTML (SGU groundwater guidance)',
     sourceId: 'sgu-groundwater-influence-analytical-models',
     authority: 'Sveriges geologiska undersökning',
-    registryArtifactId: 'reg-sgu-groundwater-models-001',
     registrySourceContentHash: 'c3d7d17e3ff84f7257abd9942ecd72cafcbc83c9766a6b095aebafcd8ca71f88',
     quarantineId: '5ad61a45-ba58-4dcc-bae1-220cd599aa4b',
     mimeType: 'text/html',
@@ -80,7 +78,6 @@ const DOCUMENTS: readonly DocumentSpec[] = [
     label: '3. PUH court decision (MMÖD)',
     sourceId: 'domstolsverket-puh-mmod',
     authority: 'Domstolsverket',
-    registryArtifactId: 'reg-dv-puh-mmod-003',
     registrySourceContentHash: '5d9bc238ef9f0470ef48f30e5c470ef3b12ce638ccd16c6082834f01bae6f977',
     quarantineId: '942b0f43-153a-4ef2-8ec8-9f80fb63bd5c',
     mimeType: 'application/pdf',
@@ -122,11 +119,16 @@ async function materializeOnce(
   rawBytes: Uint8Array,
 ) {
   const { materializer, ingestionManifestStore, signAttestation } = composeLegalCorpusMaterialization();
+  // K2.1b(2): bind to the ACTIVE registry identity rather than a frozen artifact-id constant.
+  const activeBinding = await resolveActiveRegistryBinding({
+    sourceId: spec.sourceId,
+    expectedSourceContentHash: spec.registrySourceContentHash,
+  });
 
   const identity = {
     logical_source_id: spec.sourceId,
-    registry_artifact_id: spec.registryArtifactId,
-    registry_source_content_hash: spec.registrySourceContentHash,
+    registry_artifact_id: activeBinding.registryArtifactId,
+    registry_source_content_hash: activeBinding.registrySourceContentHash,
     raw_source_content_hash: rawContentHash,
     text_projection_artifact_id: `projection-${spec.quarantineId}`,
     text_projection_hash: projectedTextHash,
@@ -158,8 +160,8 @@ async function materializeOnce(
     chunkPolicyVersion: CHUNK_POLICY_VERSION,
     approverActorId: 'system:legal-corpus-materialization',
     approverRole: 'AUTOMATED_EXECUTION_ATTESTOR',
-    registryArtifactId: spec.registryArtifactId,
-    registrySourceContentHash: spec.registrySourceContentHash,
+    registryArtifactId: activeBinding.registryArtifactId,
+    registrySourceContentHash: activeBinding.registrySourceContentHash,
   });
   const attestationRefDigest = createHash('sha256').update(JSON.stringify(attestation)).digest('hex');
   const attestationRef = { id: `att-${attestationRefDigest.slice(0, 16)}`, content_hash: { algorithm: 'sha256' as const, digest: attestationRefDigest } };
