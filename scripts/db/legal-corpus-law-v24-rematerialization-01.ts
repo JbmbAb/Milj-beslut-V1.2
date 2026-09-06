@@ -24,6 +24,7 @@ import { createHash, randomUUID } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 
 import { composeLegalCorpusMaterialization } from '../../server/modules/legal/materialization/LegalCorpusMaterializationCompositionRoot';
+import { resolveActiveRegistryBinding } from '../../server/modules/legal/materialization/SourceRegistryAdmissionAdapter';
 import { PdfParseExtractorAdapter } from '../../server/text-projection/pdfParseExtractorAdapter';
 import { admitChunks, admitLawChunksV24 } from '../../server/modules/legal/materialization/ChunkAdmission';
 import { prisma } from '../../server/db/prisma';
@@ -31,7 +32,6 @@ import type { LegalChunk } from '@miljobeslut/mps-legal-corpus';
 
 const QUARANTINE_ID = '602c6415-8125-4677-a61d-d4f868a965b6';
 const SOURCE_ID = 'regeringskansliet-sfs-1998-808';
-const REGISTRY_ARTIFACT_ID = 'reg-rk-sfs-1998-808-001';
 const REGISTRY_SOURCE_CONTENT_HASH = '888c7cbafc18058a9c254901b1b09e163726e270c271122ce532123af9285b97';
 const DOWNLOAD_MANIFEST_REF = {
   id: 'download-manifest-pilot-regeringskansliet-sfs-1998-808-2c4f969a-60c7-4004-bed3-bf0147f25f37-330b1b6031bb712b',
@@ -63,11 +63,16 @@ async function materializeOnce(
   runTag: string,
 ) {
   const { materializer, ingestionManifestStore, signAttestation } = composeLegalCorpusMaterialization();
+  // K2.1b(2): bind to the ACTIVE registry identity rather than a frozen artifact-id constant.
+  const activeBinding = await resolveActiveRegistryBinding({
+    sourceId: SOURCE_ID,
+    expectedSourceContentHash: REGISTRY_SOURCE_CONTENT_HASH,
+  });
 
   const identity = {
     logical_source_id: SOURCE_ID,
-    registry_artifact_id: REGISTRY_ARTIFACT_ID,
-    registry_source_content_hash: REGISTRY_SOURCE_CONTENT_HASH,
+    registry_artifact_id: activeBinding.registryArtifactId,
+    registry_source_content_hash: activeBinding.registrySourceContentHash,
     raw_source_content_hash: rawContentHash,
     text_projection_artifact_id: `projection-${QUARANTINE_ID}`,
     text_projection_hash: projectedTextHash,
@@ -99,8 +104,8 @@ async function materializeOnce(
     chunkPolicyVersion,
     approverActorId: 'system:legal-corpus-materialization',
     approverRole: 'AUTOMATED_EXECUTION_ATTESTOR',
-    registryArtifactId: REGISTRY_ARTIFACT_ID,
-    registrySourceContentHash: REGISTRY_SOURCE_CONTENT_HASH,
+    registryArtifactId: activeBinding.registryArtifactId,
+    registrySourceContentHash: activeBinding.registrySourceContentHash,
   });
   const attestationRefDigest = createHash('sha256').update(JSON.stringify(attestation)).digest('hex');
   const attestationRef = { id: `att-${attestationRefDigest.slice(0, 16)}`, content_hash: { algorithm: 'sha256' as const, digest: attestationRefDigest } };
@@ -149,10 +154,18 @@ async function main() {
 
   // ---------- STEP 0: confirm the pre-existing v2.3 materialization (Part G) is present and will
   // remain untouched by everything below (identity does not depend on anything this script does). ----------
+  // K2.1b(2) consequence, stated rather than hidden: this v2.3 baseline is addressed by the
+  // ACTIVE registry identity. A row materialized under the superseded artifact id carries a
+  // different canonical_record_key and will not be found; reconciling historical rows across a
+  // re-attestation is successor-chain semantics, explicitly out of scope for this repair.
+  const mainActiveBinding = await resolveActiveRegistryBinding({
+    sourceId: SOURCE_ID,
+    expectedSourceContentHash: REGISTRY_SOURCE_CONTENT_HASH,
+  });
   const v23Identity = {
     logical_source_id: SOURCE_ID,
-    registry_artifact_id: REGISTRY_ARTIFACT_ID,
-    registry_source_content_hash: REGISTRY_SOURCE_CONTENT_HASH,
+    registry_artifact_id: mainActiveBinding.registryArtifactId,
+    registry_source_content_hash: mainActiveBinding.registrySourceContentHash,
     raw_source_content_hash: rawContentHash,
     text_projection_artifact_id: `projection-${QUARANTINE_ID}`,
     text_projection_hash: projectedTextHash,

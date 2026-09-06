@@ -22,6 +22,7 @@ import { createHash, randomUUID } from 'node:crypto';
 import { readFileSync, appendFileSync } from 'node:fs';
 
 import { composeLegalCorpusMaterialization } from '../../server/modules/legal/materialization/LegalCorpusMaterializationCompositionRoot';
+import { resolveActiveRegistryBinding } from '../../server/modules/legal/materialization/SourceRegistryAdmissionAdapter';
 import { PdfParseExtractorAdapter } from '../../server/text-projection/pdfParseExtractorAdapter';
 import { admitCourtChunks } from '../../server/modules/legal/materialization/ChunkAdmission';
 import { prisma } from '../../server/db/prisma';
@@ -91,10 +92,19 @@ async function runDoc(manifest: Manifest, obj: ManifestObject): Promise<DocRepor
 
     const materializeOnce = async () => {
       const { materializer, ingestionManifestStore, signAttestation } = composeLegalCorpusMaterialization();
+      // K2.1b(2): the download manifest's registry_artifact_id is a LABEL captured at harvest
+      // time and goes stale on re-attestation (this manifest still says reg-dv-puh-mmod-003,
+      // while the active registry carries -004). Resolve the active identity by the manifest's
+      // stable source_id instead, and keep manifest.source_content_hash as the expected content
+      // binding so a genuine scope change still fails closed rather than being re-pointed.
+      const activeBinding = await resolveActiveRegistryBinding({
+        sourceId: manifest.source_id,
+        expectedSourceContentHash: manifest.source_content_hash,
+      });
       const downloadManifestRef = { id: DOWNLOAD_MANIFEST_ID, content_hash: { algorithm: 'sha256' as const, digest: DOWNLOAD_MANIFEST_DIGEST } };
       const identity = {
-        logical_source_id: manifest.source_id, registry_artifact_id: manifest.registry_artifact_id,
-        registry_source_content_hash: manifest.source_content_hash, raw_source_content_hash: rawContentHash,
+        logical_source_id: manifest.source_id, registry_artifact_id: activeBinding.registryArtifactId,
+        registry_source_content_hash: activeBinding.registrySourceContentHash, raw_source_content_hash: rawContentHash,
         text_projection_artifact_id: `projection-${obj.quarantine_id}`, text_projection_hash: projectedTextHash,
         text_projection_version: 'pdf-parse@2.4.5', corpus_materialization_version: 'corpus-materialization-v1',
         chunk_policy_version: CHUNK_POLICY_VERSION,
@@ -111,8 +121,8 @@ async function runDoc(manifest: Manifest, obj: ManifestObject): Promise<DocRepor
         documentId, sourceContentHash: rawContentHash, chunks: admission.admitted, pipelineVersion: 'text-v1.0',
         chunkPolicyVersion: CHUNK_POLICY_VERSION, approverActorId: 'system:legal-corpus-materialization',
         approverRole: 'AUTOMATED_EXECUTION_ATTESTOR',
-        registryArtifactId: manifest.registry_artifact_id,
-        registrySourceContentHash: manifest.source_content_hash,
+        registryArtifactId: activeBinding.registryArtifactId,
+        registrySourceContentHash: activeBinding.registrySourceContentHash,
       });
       const attRefDigest = createHash('sha256').update(JSON.stringify(attestation)).digest('hex');
       const attRef = { id: `att-${attRefDigest.slice(0, 16)}`, content_hash: { algorithm: 'sha256' as const, digest: attRefDigest } };
