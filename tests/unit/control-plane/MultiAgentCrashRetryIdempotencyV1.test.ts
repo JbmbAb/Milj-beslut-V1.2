@@ -19,8 +19,9 @@ import {
   type AgentHandoffSink,
   type AgentProcessExecutor,
   type AgentWorkItem,
-  type DevGovCommitStatusObserverPort,
+  type DevGovAuthoritativeProofPort,
   type DevGovDispatchPort,
+  type DevGovTelemetryStatusPort,
   type DevGovWorkflowAvailabilityPort,
   type DevGovWorkItem,
   type GitHubActionsRunObserverPort,
@@ -335,9 +336,14 @@ describe('Crash / retry / idempotency guarantees (Part E)', () => {
         return false;
       }
     }
-    class NeverAsked implements DevGovCommitStatusObserverPort {
-      async getStatus(): Promise<undefined> {
-        throw new Error('must not be consulted before dependency availability is known');
+    class NeverAskedTelemetry implements DevGovTelemetryStatusPort {
+      async observeStatus(): Promise<never> {
+        throw new Error('telemetry must not be consulted before dependency availability is known');
+      }
+    }
+    class NeverAskedProof implements DevGovAuthoritativeProofPort {
+      async fetchProof(): Promise<never> {
+        throw new Error('proof must not be consulted before dependency availability is known');
       }
     }
     const correlator = new WorkflowDispatchCorrelator(
@@ -345,13 +351,15 @@ describe('Crash / retry / idempotency guarantees (Part E)', () => {
       { getRefSha: async () => '0'.repeat(40), dispatchWorkflow: async () => {} },
       { listRuns: async () => [] },
     );
-    const reconciler = new DevGovReconciler(
+    const reconciler = new DevGovReconciler({
       store,
-      new Unavailable(),
+      availability: new Unavailable(),
       correlator,
-      new NeverAsked(),
-      () => new Date('2026-09-05T01:00:00.000Z'),
-    );
+      authoritativeProof: new NeverAskedProof(),
+      trustedWorkflowIdentity: 'owner/repo/.github/workflows/devgov-v0-gate.yml@refs/heads/main',
+      telemetry: new NeverAskedTelemetry(),
+      now: () => new Date('2026-09-05T01:00:00.000Z'),
+    });
     const outcome = await reconciler.reconcile({
       expectedUnitId: 'K1',
       expectedRevision: 9,

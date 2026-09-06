@@ -13,4 +13,6 @@ export * from './GitHubDevGovDispatchAdapter';
 export * from './AgentHandoffCodec';
 export * from './ProcessAgentWorker';
 export * from './GitHubRunCorrelation';
+export * from './DevGovTelemetryObservation';
+export * from './DevGovAuthoritativeProof';
 export * from './DevGovReconciler';

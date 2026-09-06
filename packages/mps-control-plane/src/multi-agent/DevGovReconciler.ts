@@ -1,8 +1,18 @@
 import { AppendOnlyEventLog } from './EventLog';
 import { applyControllerActivation } from './StateMachine';
+import {
+  verifyAuthoritativeProof,
+  type DevGovAuthoritativeProofPort,
+  type ProofRejectionReason,
+} from './DevGovAuthoritativeProof';
 import type { FileDurableControlPlaneStore } from './FileDurableControlPlaneStore';
 import type { WorkflowDispatchCorrelator } from './GitHubRunCorrelation';
 import type { DevGovWorkflowAvailabilityPort } from './GitHubDevGovDispatchAdapter';
+import type {
+  DevGovTelemetryStatusPort,
+  RemoteExecutionObservation,
+  TelemetryStatusObservation,
+} from './DevGovTelemetryObservation';
 import type { MultiAgentState, MultiAgentUnitState } from './types';
 
 const DEV_GOV_PROGRESSION_STATES: readonly MultiAgentState[] = [
@@ -14,19 +24,21 @@ const DEV_GOV_PROGRESSION_STATES: readonly MultiAgentState[] = [
 ];
 
 /**
- * DEV-GOV-V0's own protected commit-status context. This is the one signal
- * in the whole system that is already produced under full DEV-GOV authority
- * (exact-SHA RED/GREEN proof -> signed attestation -> OIDC evidence-gate),
- * so observing it is not "manufacturing" a gate result — the gate already
- * happened externally. This reconciler only binds that pre-existing fact to
- * the exact candidate it claims to describe.
+ * DEV-GOV-V0's shared commit-status context.
+ *
+ * TELEMETRY ONLY. This constant exists so the reconciler can *read* the status
+ * for diagnostics and record it in the audit trail. It is not, and must not
+ * become, an input to any advancement decision.
+ *
+ * An earlier revision of this file treated `state: success` on this context as
+ * sufficient evidence of a passed gate. That was wrong: a commit status is a
+ * repository-scoped mutable label that any actor with write access can post on
+ * any SHA, with any context, at any time. It names no unit, no revision, no
+ * workflow run and no proof, so it cannot distinguish a real DEV-GOV gate from
+ * a forged label — and treating it as evidence let observation manufacture
+ * authority, which is the one thing the control plane may never do.
  */
-const TRUSTED_EXECUTION_CONTEXT = 'DEV-GOV-V0 / trusted-execution';
-
-export interface DevGovCommitStatusObserverPort {
-  /** Most recent reported state of `context` on `sha`, or undefined if never reported. */
-  getStatus(sha: string, context: string): Promise<'success' | 'failure' | 'error' | 'pending' | undefined>;
-}
+const DEV_GOV_TELEMETRY_STATUS_CONTEXT = 'DEV-GOV-V0 / trusted-execution';
 
 export type ReconciliationOutcome =
   | { readonly kind: 'NOT_APPLICABLE'; readonly state: MultiAgentState }
@@ -38,17 +50,46 @@ export type ReconciliationOutcome =
   | { readonly kind: 'AMBIGUOUS_CORRELATION'; readonly candidateRunIds: readonly string[] }
   | { readonly kind: 'CORRELATION_TIMEOUT' }
   | { readonly kind: 'CORRELATED'; readonly runId: string }
+  /** No workflow run is bound to this unit's dispatch, so no proof can be attributed to it. */
   | {
-      readonly kind: 'EXTERNAL_GATE_OBSERVED';
+      readonly kind: 'PROOF_RUN_NOT_BOUND';
+      readonly telemetry?: TelemetryStatusObservation;
+    }
+  /** More than one authoritative proof matched. Never resolved by choosing one. */
+  | {
+      readonly kind: 'AMBIGUOUS_PROOF';
+      readonly proofIds: readonly string[];
+      readonly telemetry?: TelemetryStatusObservation;
+    }
+  /** A proof was returned but failed at least one binding dimension. */
+  | {
+      readonly kind: 'PROOF_REJECTED';
+      readonly reason: ProofRejectionReason;
+      readonly detail: string;
+      readonly telemetry?: TelemetryStatusObservation;
+    }
+  /**
+   * The ONLY authority-bearing outcome. Produced exclusively from an
+   * authoritative DEV-GOV proof whose every binding dimension matched the
+   * canonical unit. Still a proposal: advancing state remains the job of the
+   * unmodified handoff-ingestion pipeline, which this class never calls.
+   */
+  | {
+      readonly kind: 'AUTHORITATIVE_GATE_PROVEN';
       readonly candidateSha: string;
+      readonly proofId: string;
+      readonly workflowRunId: string;
       readonly proposedHandoff: {
         readonly role: 'GATE';
         readonly result: 'PASS';
         readonly observedCandidateSha: string;
+        readonly unitRevision: number;
+        readonly proofId: string;
+        readonly workflowRunId: string;
       };
     }
   | { readonly kind: 'STALE_SUPERSEDED'; readonly reason: string }
-  | { readonly kind: 'NO_SIGNAL' };
+  | { readonly kind: 'NO_SIGNAL'; readonly telemetry?: TelemetryStatusObservation };
 
 export interface ReconcileInput {
   readonly expectedUnitId: string;
@@ -59,38 +100,82 @@ export interface ReconcileInput {
   readonly dispatchKey?: string;
 }
 
+export interface DevGovReconcilerDependencies {
+  readonly store: FileDurableControlPlaneStore;
+  readonly availability: DevGovWorkflowAvailabilityPort;
+  readonly correlator: WorkflowDispatchCorrelator;
+  /** AUTHORITY. The only source that may justify a gate-complete proposal. */
+  readonly authoritativeProof: DevGovAuthoritativeProofPort;
+  /**
+   * Full ref path of the trusted DEV-GOV workflow whose proofs this controller
+   * accepts, e.g. `owner/repo/.github/workflows/devgov-v0-gate.yml@refs/heads/main`.
+   * Required with no default: a controller that cannot say which workflow it
+   * trusts has no business accepting proofs.
+   */
+  readonly trustedWorkflowIdentity: string;
+  /** DIAGNOSTICS ONLY. Optional; nothing decides anything on it. */
+  readonly telemetry?: DevGovTelemetryStatusPort;
+  readonly now?: () => Date;
+}
+
 /**
- * Part F authority boundary, enforced structurally:
+ * Authority boundary, enforced structurally.
  *
- * - The ONLY state this class ever writes itself is BLOCKED_DEPENDENCY,
- *   which is an administrative "cannot proceed" fact, not a claim that any
- *   proof, gate, or promotion occurred.
- * - Every other observation (workflow-run correlation, DEV-GOV-V0 commit
- *   status) is returned as data. Advancing PROVING_RED -> ... -> PROMOTED
- *   on the strength of an EXTERNAL_GATE_OBSERVED signal still has to pass
- *   through the existing, unmodified HandoffIngestor / applyVerifiedHandoff
- *   pipeline — this class never calls those itself. It routes; it does not
- *   sign, gate, or promote.
+ *   AUTHORITY TRUTH   authoritative DEV-GOV proof with exact provenance
+ *   REMOTE TRUTH      GitHub workflow/run/status observations
+ *   CONTROLLER STATE  this controller's persisted observation/state
+ *
+ * Controller state may lag authority; it must never lead it. Concretely:
+ *
+ * - The only state this class ever writes itself is BLOCKED_DEPENDENCY, an
+ *   administrative "cannot proceed" fact that claims no proof, gate, or
+ *   promotion occurred.
+ * - Commit statuses are read as telemetry, recorded for audit, and are
+ *   incapable of producing an authority-bearing outcome. There is no code path
+ *   from a status value to AUTHORITATIVE_GATE_PROVEN.
+ * - Remote run facts may only subtract: a run GitHub reports as unsuccessful
+ *   vetoes a proof, while a successful run authorizes nothing by itself.
+ * - AUTHORITATIVE_GATE_PROVEN requires an authoritative proof binding unit id,
+ *   unit revision, candidate SHA, unit-definition hash, trusted workflow
+ *   identity, the exact run this unit's own dispatch was correlated to, a
+ *   canonical proof reference, and a successful authoritative result.
+ * - When the authoritative proof surface is unavailable (the DEV-GOV proof
+ *   artifact does not exist on this base/runtime yet), the answer is
+ *   BLOCKED_DEPENDENCY. There is no fallback path.
+ * - Even AUTHORITATIVE_GATE_PROVEN only *proposes*. Advancing GATING ->
+ *   GATE_PASSED -> PROMOTING still goes through the existing, unmodified
+ *   HandoffIngestor / applyVerifiedHandoff pipeline. This class routes; it does
+ *   not sign, gate, or promote.
  */
 export class DevGovReconciler {
-  constructor(
-    private readonly store: FileDurableControlPlaneStore,
-    private readonly availability: DevGovWorkflowAvailabilityPort,
-    private readonly correlator: WorkflowDispatchCorrelator,
-    private readonly commitStatus: DevGovCommitStatusObserverPort,
-    private readonly now: () => Date = () => new Date(),
-  ) {}
+  private readonly store: FileDurableControlPlaneStore;
+  private readonly availability: DevGovWorkflowAvailabilityPort;
+  private readonly correlator: WorkflowDispatchCorrelator;
+  private readonly authoritativeProof: DevGovAuthoritativeProofPort;
+  private readonly trustedWorkflowIdentity: string;
+  private readonly telemetry?: DevGovTelemetryStatusPort;
+  private readonly now: () => Date;
+
+  constructor(deps: DevGovReconcilerDependencies) {
+    this.store = deps.store;
+    this.availability = deps.availability;
+    this.correlator = deps.correlator;
+    this.authoritativeProof = deps.authoritativeProof;
+    this.trustedWorkflowIdentity = deps.trustedWorkflowIdentity;
+    this.telemetry = deps.telemetry;
+    this.now = deps.now ?? (() => new Date());
+  }
 
   async reconcile(input: ReconcileInput): Promise<ReconciliationOutcome> {
     const snapshot = this.store.read();
     const unit = snapshot.units[input.expectedUnitId];
     if (!unit) throw new Error(`canonical unit ${input.expectedUnitId} does not exist`);
 
-    // Part D: bind to the exact prior canonical state/revision/candidate the
-    // caller expected. A stale caller (superseded candidate, already-advanced
+    // Bind to the exact prior canonical state/revision/candidate the caller
+    // expected. A stale caller (superseded candidate, already-advanced
     // revision) is recorded for audit but never allowed to move state.
     if (unit.revision !== input.expectedRevision) {
-      this.appendAudit(unit, 'RECONCILIATION_OBSERVED', {
+      this.appendAudit(unit, {
         outcome: 'STALE_SUPERSEDED',
         reason: 'expected revision does not match canonical revision',
         expectedRevision: input.expectedRevision,
@@ -102,7 +187,7 @@ export class DevGovReconciler {
       };
     }
     if (input.expectedCandidateSha && unit.candidateSha !== input.expectedCandidateSha) {
-      this.appendAudit(unit, 'RECONCILIATION_OBSERVED', {
+      this.appendAudit(unit, {
         outcome: 'STALE_SUPERSEDED',
         reason: 'expected candidate SHA does not match canonical candidate',
         expectedCandidateSha: input.expectedCandidateSha,
@@ -134,14 +219,14 @@ export class DevGovReconciler {
       if (correlation.status === 'AWAITING_RUN') return { kind: 'AWAITING_RUN' };
       if (correlation.status === 'UNCERTAIN_DISPATCH') return { kind: 'UNCERTAIN_DISPATCH' };
       if (correlation.status === 'AMBIGUOUS_CORRELATION') {
-        this.appendAudit(unit, 'RECONCILIATION_OBSERVED', {
+        this.appendAudit(unit, {
           outcome: 'AMBIGUOUS_CORRELATION',
           candidateRunIds: correlation.candidateRunIds,
         });
         return { kind: 'AMBIGUOUS_CORRELATION', candidateRunIds: correlation.candidateRunIds ?? [] };
       }
       if (correlation.status === 'CORRELATION_TIMEOUT') {
-        this.appendAudit(unit, 'RECONCILIATION_OBSERVED', { outcome: 'CORRELATION_TIMEOUT' });
+        this.appendAudit(unit, { outcome: 'CORRELATION_TIMEOUT' });
         return { kind: 'CORRELATION_TIMEOUT' };
       }
       if (correlation.status === 'CORRELATED' && correlation.runId) {
@@ -150,21 +235,110 @@ export class DevGovReconciler {
     }
 
     if (!unit.candidateSha) return { kind: 'NO_SIGNAL' };
-    const status = await this.commitStatus.getStatus(unit.candidateSha, TRUSTED_EXECUTION_CONTEXT);
-    if (status === 'success') {
-      this.appendAudit(unit, 'RECONCILIATION_OBSERVED', {
-        outcome: 'EXTERNAL_GATE_OBSERVED',
-        context: TRUSTED_EXECUTION_CONTEXT,
-        candidateSha: unit.candidateSha,
+
+    // Telemetry is read here purely so the audit trail can explain what the
+    // controller could see while it waited. It is deliberately not wrapped in a
+    // try/catch: a diagnostic port that throws must stay visible rather than be
+    // silently swallowed, and aborting is fail-closed, so it can still never
+    // manufacture an advance.
+    const telemetry = await this.telemetry?.observeStatus(
+      unit.candidateSha,
+      DEV_GOV_TELEMETRY_STATUS_CONTEXT,
+    );
+
+    // Authority requires a run bound to THIS unit's own dispatch by the durable
+    // correlation ledger. Without that binding, any proof would be attributable
+    // only by its own say-so.
+    const boundRun = input.dispatchKey ? await this.correlator.findRun(input.dispatchKey) : undefined;
+    if (!boundRun) {
+      this.appendAudit(unit, {
+        outcome: 'PROOF_RUN_NOT_BOUND',
+        telemetry: telemetry ? { ...telemetry, authority: false } : undefined,
+      });
+      return { kind: 'PROOF_RUN_NOT_BOUND', telemetry };
+    }
+
+    const lookup = await this.authoritativeProof.fetchProof({
+      unitId: unit.unitId,
+      unitRevision: unit.revision,
+      candidateSha: unit.candidateSha,
+      workflowRunId: boundRun.runId,
+    });
+
+    if (lookup.status === 'UNAVAILABLE') {
+      // The authoritative proof surface itself is missing. This is exactly the
+      // case a fallback would be tempting for, and exactly where one would be
+      // fatal: a telemetry success sitting next to an unavailable proof still
+      // proves nothing.
+      const reason = `authoritative DEV-GOV proof is unavailable: ${lookup.reason}`;
+      this.applyDependencyBlock(unit, reason);
+      return { kind: 'BLOCKED_DEPENDENCY_APPLIED', reason };
+    }
+    if (lookup.status === 'NOT_FOUND') {
+      this.appendAudit(unit, {
+        outcome: 'NO_SIGNAL',
+        reason: 'no authoritative DEV-GOV proof published for this unit/revision/candidate/run yet',
+        telemetry: telemetry ? { ...telemetry, authority: false } : undefined,
+      });
+      return { kind: 'NO_SIGNAL', telemetry };
+    }
+    if (lookup.status === 'AMBIGUOUS') {
+      this.appendAudit(unit, { outcome: 'AMBIGUOUS_PROOF', proofIds: lookup.proofIds });
+      return { kind: 'AMBIGUOUS_PROOF', proofIds: lookup.proofIds, telemetry };
+    }
+
+    const remoteRun: RemoteExecutionObservation = {
+      workflow: boundRun.workflow,
+      runId: boundRun.runId,
+      status: boundRun.status,
+      conclusion: boundRun.conclusion,
+    };
+    const rejection = verifyAuthoritativeProof(lookup.proof, {
+      unitId: unit.unitId,
+      unitRevision: unit.revision,
+      candidateSha: unit.candidateSha,
+      unitDefinitionHash: unit.unitDefinitionHash,
+      proofContractHash: unit.proofContractHash,
+      trustedWorkflowIdentity: this.trustedWorkflowIdentity,
+      boundRun: remoteRun,
+    });
+    if (rejection) {
+      this.appendAudit(unit, {
+        outcome: 'PROOF_REJECTED',
+        reason: rejection.reason,
+        detail: rejection.detail,
+        proofId: lookup.proof.proofId,
       });
       return {
-        kind: 'EXTERNAL_GATE_OBSERVED',
-        candidateSha: unit.candidateSha,
-        proposedHandoff: { role: 'GATE', result: 'PASS', observedCandidateSha: unit.candidateSha },
+        kind: 'PROOF_REJECTED',
+        reason: rejection.reason,
+        detail: rejection.detail,
+        telemetry,
       };
     }
 
-    return { kind: 'NO_SIGNAL' };
+    this.appendAudit(unit, {
+      outcome: 'AUTHORITATIVE_GATE_PROVEN',
+      proofId: lookup.proof.proofId,
+      workflowIdentity: lookup.proof.workflowIdentity,
+      workflowRunId: lookup.proof.workflowRunId,
+      candidateSha: unit.candidateSha,
+      unitRevision: unit.revision,
+    });
+    return {
+      kind: 'AUTHORITATIVE_GATE_PROVEN',
+      candidateSha: unit.candidateSha,
+      proofId: lookup.proof.proofId,
+      workflowRunId: lookup.proof.workflowRunId,
+      proposedHandoff: {
+        role: 'GATE',
+        result: 'PASS',
+        observedCandidateSha: unit.candidateSha,
+        unitRevision: unit.revision,
+        proofId: lookup.proof.proofId,
+        workflowRunId: lookup.proof.workflowRunId,
+      },
+    };
   }
 
   private applyDependencyBlock(unit: MultiAgentUnitState, reason: string): void {
@@ -190,15 +364,11 @@ export class DevGovReconciler {
     });
   }
 
-  private appendAudit(
-    unit: MultiAgentUnitState,
-    kind: 'RECONCILIATION_OBSERVED',
-    payload: Readonly<Record<string, unknown>>,
-  ): void {
+  private appendAudit(unit: MultiAgentUnitState, payload: Readonly<Record<string, unknown>>): void {
     const current = this.store.read();
     const occurredAt = this.now().toISOString();
     const log = new AppendOnlyEventLog(current.events);
-    const event = log.append(unit.unitId, kind, payload, occurredAt);
+    const event = log.append(unit.unitId, 'RECONCILIATION_OBSERVED', payload, occurredAt);
     this.store.appendAuditEvents([event]);
   }
 }
