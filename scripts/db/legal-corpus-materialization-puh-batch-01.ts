@@ -25,7 +25,8 @@ import type { LegalChunk } from '@miljobeslut/mps-legal-corpus';
 
 const CHUNK_POLICY_VERSION = 'legal-chunker-v2.3';
 const QUARANTINE_ROOT = 'C:\\miljöbeslut\\.quarantine';
-const MANIFEST_PATH = 'C:\\miljöbeslut\\.quarantine\\download-manifests\\e742f608a7caa2b3b57652163f7b0661c5dbea37affbff0bd206b84662be701e.json';
+const MANIFEST_PATH =
+  'C:\\miljöbeslut\\.quarantine\\download-manifests\\e742f608a7caa2b3b57652163f7b0661c5dbea37affbff0bd206b84662be701e.json';
 const BATCH_SIZE = Number(process.argv[2] ?? 40);
 
 interface ManifestObject {
@@ -67,7 +68,12 @@ interface DocReport {
 }
 
 async function runDoc(manifest: Manifest, obj: ManifestObject): Promise<DocReport> {
-  const report: DocReport = { quarantine_id: obj.quarantine_id, file_name: obj.file_name, byte_length: obj.byte_length, status: 'FAILED_CLOSED' };
+  const report: DocReport = {
+    quarantine_id: obj.quarantine_id,
+    file_name: obj.file_name,
+    byte_length: obj.byte_length,
+    status: 'FAILED_CLOSED',
+  };
   try {
     const rawBytes = new Uint8Array(readFileSync(`${QUARANTINE_ROOT}\\${obj.quarantine_id}.bin`));
     const rawContentHash = createHash('sha256').update(rawBytes).digest('hex');
@@ -79,7 +85,11 @@ async function runDoc(manifest: Manifest, obj: ManifestObject): Promise<DocRepor
 
     const adapter = new PdfParseExtractorAdapter();
     const extraction = await adapter.extract(
-      { ref: { artifact_id: obj.quarantine_id, artifact_type: 'raw_source' }, doc_name: obj.file_name, mime_type: 'application/pdf' },
+      {
+        ref: { artifact_id: obj.quarantine_id, artifact_type: 'raw_source' },
+        doc_name: obj.file_name,
+        mime_type: 'application/pdf',
+      },
       rawBytes,
     );
 
@@ -91,7 +101,11 @@ async function runDoc(manifest: Manifest, obj: ManifestObject): Promise<DocRepor
 
     const projectedTextHash = createHash('sha256').update(extraction.text, 'utf8').digest('hex');
     const sourceProjectionRef = `sha256:${projectedTextHash}`;
-    const admission = admitCourtChunks({ text: extraction.text, sourceProjectionRef, chunkPolicyVersion: CHUNK_POLICY_VERSION });
+    const admission = admitCourtChunks({
+      text: extraction.text,
+      sourceProjectionRef,
+      chunkPolicyVersion: CHUNK_POLICY_VERSION,
+    });
 
     if (admission.admitted.length === 0) {
       report.status = 'PARTIAL';
@@ -101,7 +115,8 @@ async function runDoc(manifest: Manifest, obj: ManifestObject): Promise<DocRepor
 
     const sectionCounts: Record<string, number> = {};
     for (const c of admission.admitted) {
-      if (c.structure_kind === 'court') sectionCounts[c.court_section] = (sectionCounts[c.court_section] ?? 0) + 1;
+      if (c.structure_kind === 'court')
+        sectionCounts[c.court_section] = (sectionCounts[c.court_section] ?? 0) + 1;
     }
     report.chunks_admitted = admission.admitted.length;
     report.court_sections = sectionCounts;
@@ -117,60 +132,102 @@ async function runDoc(manifest: Manifest, obj: ManifestObject): Promise<DocRepor
         sourceId: manifest.source_id,
         expectedSourceContentHash: manifest.source_content_hash,
       });
-      const downloadManifestRef = { id: DOWNLOAD_MANIFEST_ID, content_hash: { algorithm: 'sha256' as const, digest: DOWNLOAD_MANIFEST_DIGEST } };
+      const downloadManifestRef = {
+        id: DOWNLOAD_MANIFEST_ID,
+        content_hash: { algorithm: 'sha256' as const, digest: DOWNLOAD_MANIFEST_DIGEST },
+      };
       const identity = {
-        logical_source_id: manifest.source_id, registry_artifact_id: activeBinding.registryArtifactId,
-        registry_source_content_hash: activeBinding.registrySourceContentHash, raw_source_content_hash: rawContentHash,
-        text_projection_artifact_id: `projection-${obj.quarantine_id}`, text_projection_hash: projectedTextHash,
-        text_projection_version: 'pdf-parse@2.4.5', corpus_materialization_version: 'corpus-materialization-v1',
+        logical_source_id: manifest.source_id,
+        registry_artifact_id: activeBinding.registryArtifactId,
+        registry_source_content_hash: activeBinding.registrySourceContentHash,
+        raw_source_content_hash: rawContentHash,
+        text_projection_artifact_id: `projection-${obj.quarantine_id}`,
+        text_projection_hash: projectedTextHash,
+        text_projection_version: 'pdf-parse@2.4.5',
+        corpus_materialization_version: 'corpus-materialization-v1',
         chunk_policy_version: CHUNK_POLICY_VERSION,
       };
       const { buildCanonicalLegalCorpusRecordKey } = await import('@miljobeslut/mps-legal-corpus');
       const documentId = buildCanonicalLegalCorpusRecordKey(identity);
       const runId = `run-puhbatch01-${randomUUID()}`;
       const base = {
-        document_id: documentId, source_manifest_ref: downloadManifestRef, status: 'INGESTED' as const,
-        classification: {}, content_hash: rawContentHash, pipeline_version: 'text-v1.0',
+        document_id: documentId,
+        source_manifest_ref: downloadManifestRef,
+        status: 'INGESTED' as const,
+        classification: {},
+        content_hash: rawContentHash,
+        pipeline_version: 'text-v1.0',
       };
       await ingestionManifestStore.recordEntry(runId, { ...base, processed_at: new Date().toISOString() });
       const attestation = await signAttestation({
-        documentId, sourceContentHash: rawContentHash, chunks: admission.admitted, pipelineVersion: 'text-v1.0',
-        chunkPolicyVersion: CHUNK_POLICY_VERSION, approverActorId: 'system:legal-corpus-materialization',
+        documentId,
+        sourceContentHash: rawContentHash,
+        chunks: admission.admitted,
+        pipelineVersion: 'text-v1.0',
+        chunkPolicyVersion: CHUNK_POLICY_VERSION,
+        approverActorId: 'system:legal-corpus-materialization',
         approverRole: 'AUTOMATED_EXECUTION_ATTESTOR',
         registryArtifactId: activeBinding.registryArtifactId,
         registrySourceContentHash: activeBinding.registrySourceContentHash,
       });
       const attRefDigest = createHash('sha256').update(JSON.stringify(attestation)).digest('hex');
-      const attRef = { id: `att-${attRefDigest.slice(0, 16)}`, content_hash: { algorithm: 'sha256' as const, digest: attRefDigest } };
-      await ingestionManifestStore.recordEntry(runId, { ...base, processed_at: new Date().toISOString(), corpus_import_attestation_ref: attRef });
+      const attRef = {
+        id: `att-${attRefDigest.slice(0, 16)}`,
+        content_hash: { algorithm: 'sha256' as const, digest: attRefDigest },
+      };
+      await ingestionManifestStore.recordEntry(runId, {
+        ...base,
+        processed_at: new Date().toISOString(),
+        corpus_import_attestation_ref: attRef,
+      });
       const documentText = admission.admitted.map((c: LegalChunk) => c.full_text).join('\n\n');
       return materializer.materialize({
-        gate_request: { runId, expectedDocumentIds: [documentId], imports: [{ documentId, chunks: admission.admitted, attestation }] },
-        manifest_entry: { ...base, processed_at: new Date().toISOString(), corpus_import_attestation_ref: attRef },
-        identity, raw_source_ref: { quarantine_id: obj.quarantine_id, download_manifest_ref: downloadManifestRef },
+        gate_request: {
+          runId,
+          expectedDocumentIds: [documentId],
+          imports: [{ documentId, chunks: admission.admitted, attestation }],
+        },
+        manifest_entry: {
+          ...base,
+          processed_at: new Date().toISOString(),
+          corpus_import_attestation_ref: attRef,
+        },
+        identity,
+        raw_source_ref: { quarantine_id: obj.quarantine_id, download_manifest_ref: downloadManifestRef },
         corpus_record: {
-          title: obj.file_name.replace(/\.pdf$/i, ''), source_path: `p2://${obj.quarantine_id}`,
-          document_text: documentText, search_text: documentText, source_family: 'MMOD', source_type: 'decision',
-          source_system: manifest.source_id, content_hash: rawContentHash, byte_size: rawBytes.byteLength,
+          title: obj.file_name.replace(/\.pdf$/i, ''),
+          source_path: `p2://${obj.quarantine_id}`,
+          document_text: documentText,
+          search_text: documentText,
+          source_family: 'MMOD',
+          source_type: 'decision',
+          source_system: manifest.source_id,
+          content_hash: rawContentHash,
+          byte_size: rawBytes.byteLength,
           metadata: { governed: true, batch: 'PUH-COURT-BATCH-01' },
         },
       });
     };
 
     const run1 = await materializeOnce();
-    const materializationRow = await prisma.legalCorpusMaterialization.findUnique({ where: { canonicalRecordKey: run1.canonical_record_key } });
+    const materializationRow = await prisma.legalCorpusMaterialization.findUnique({
+      where: { canonicalRecordKey: run1.canonical_record_key },
+    });
     const count1 = materializationRow ? await countChunks(materializationRow.id) : -1;
     report.materialization_id = run1.canonical_record_key;
     report.chunk_rows = count1;
 
     const run2 = await materializeOnce();
     const count2 = materializationRow ? await countChunks(materializationRow.id) : -1;
-    const recordCount = await prisma.legalCorpusRecord.count({ where: { recordKey: run1.canonical_record_key } });
+    const recordCount = await prisma.legalCorpusRecord.count({
+      where: { recordKey: run1.canonical_record_key },
+    });
 
     report.replay_same_id = run1.canonical_record_key === run2.canonical_record_key;
     report.replay_same_count = count1 === count2;
     report.duplicate_rows = recordCount !== 1;
-    report.status = report.replay_same_id && report.replay_same_count && !report.duplicate_rows ? 'PROVEN' : 'PARTIAL';
+    report.status =
+      report.replay_same_id && report.replay_same_count && !report.duplicate_rows ? 'PROVEN' : 'PARTIAL';
     return report;
   } catch (error) {
     report.status = 'FAILED_CLOSED';
@@ -195,8 +252,13 @@ async function main() {
   }
 
   const batch = uniqueObjects.slice(0, BATCH_SIZE);
-  console.log(`Batch size: ${batch.length} (requested ${BATCH_SIZE}, ${manifest.objects.length} total objects in manifest, ${uniqueObjects.length} unique by content_hash)`);
-  console.log('Duplicate attachments found in full manifest (not necessarily in this batch):', duplicatesFound.length);
+  console.log(
+    `Batch size: ${batch.length} (requested ${BATCH_SIZE}, ${manifest.objects.length} total objects in manifest, ${uniqueObjects.length} unique by content_hash)`,
+  );
+  console.log(
+    'Duplicate attachments found in full manifest (not necessarily in this batch):',
+    duplicatesFound.length,
+  );
 
   const reports: DocReport[] = [];
   let idx = 0;
@@ -219,31 +281,40 @@ async function main() {
     byStatus[r.status]++;
     if (r.byte_length > 3_000_000) largeDocs.push({ file_name: r.file_name, byte_length: r.byte_length });
     if (r.detail?.includes('zero usable text')) extractionFailures.push(r.file_name);
-    if (r.chunks_admitted === 0 || (r.status === 'PARTIAL' && r.detail?.includes('0 chunks'))) zeroChunkDocs.push(r.file_name);
+    if (r.chunks_admitted === 0 || (r.status === 'PARTIAL' && r.detail?.includes('0 chunks')))
+      zeroChunkDocs.push(r.file_name);
     if (r.replay_same_id === false) replayDrift.push(r.file_name);
     if (r.court_sections) {
-      for (const [section, count] of Object.entries(r.court_sections)) sectionDistribution[section] = (sectionDistribution[section] ?? 0) + count;
+      for (const [section, count] of Object.entries(r.court_sections))
+        sectionDistribution[section] = (sectionDistribution[section] ?? 0) + count;
       chunkCountDistribution.push(r.chunks_admitted ?? 0);
     }
   }
 
   console.log('========== LEGAL-CORPUS-PUH-COURT-BATCH-01 SUMMARY ==========');
-  console.log(JSON.stringify({
-    batch_size: batch.length,
-    unique_objects_in_full_manifest: uniqueObjects.length,
-    duplicate_attachments_in_full_manifest: duplicatesFound.length,
-    status_counts: byStatus,
-    zero_chunk_documents: zeroChunkDocs,
-    extraction_failures: extractionFailures,
-    large_documents_over_3mb: largeDocs,
-    replay_drift_documents: replayDrift,
-    court_section_distribution: sectionDistribution,
-    chunk_count_distribution: {
-      min: Math.min(...chunkCountDistribution), max: Math.max(...chunkCountDistribution),
-      mean: chunkCountDistribution.reduce((a, b) => a + b, 0) / (chunkCountDistribution.length || 1),
-      total: chunkCountDistribution.reduce((a, b) => a + b, 0),
-    },
-  }, null, 2));
+  console.log(
+    JSON.stringify(
+      {
+        batch_size: batch.length,
+        unique_objects_in_full_manifest: uniqueObjects.length,
+        duplicate_attachments_in_full_manifest: duplicatesFound.length,
+        status_counts: byStatus,
+        zero_chunk_documents: zeroChunkDocs,
+        extraction_failures: extractionFailures,
+        large_documents_over_3mb: largeDocs,
+        replay_drift_documents: replayDrift,
+        court_section_distribution: sectionDistribution,
+        chunk_count_distribution: {
+          min: Math.min(...chunkCountDistribution),
+          max: Math.max(...chunkCountDistribution),
+          mean: chunkCountDistribution.reduce((a, b) => a + b, 0) / (chunkCountDistribution.length || 1),
+          total: chunkCountDistribution.reduce((a, b) => a + b, 0),
+        },
+      },
+      null,
+      2,
+    ),
+  );
 
   console.log('\nPer-document results:');
   for (const r of reports) console.log(JSON.stringify(r));
