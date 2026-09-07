@@ -75,7 +75,7 @@ const OrganizationInvitations: React.FC<OrganizationInvitationsProps> = ({ orgId
 
   useEffect(() => {
     if (orgId) {
-      // eslint-disable-next-line react-hooks/set-state-in-effect
+       
       void fetchInvitations();
     }
   }, [orgId, fetchInvitations]);

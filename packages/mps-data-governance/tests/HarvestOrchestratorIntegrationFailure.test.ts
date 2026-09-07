@@ -18,7 +18,7 @@ const artifactRef = (id: string, hash: string, artifact_type = id.toUpperCase())
 const fixedClock = { now: () => "2026-01-01T00:00:00.000Z" };
 
 function mockCheckpointStore() {
-  let store: Record<string, HarvestExecutionCheckpoint> = {};
+  const store: Record<string, HarvestExecutionCheckpoint> = {};
   return {
     load: vi.fn(async (id: string) => store[id] ?? null),
     save: vi.fn(async (id: string, cp: HarvestExecutionCheckpoint) => {
