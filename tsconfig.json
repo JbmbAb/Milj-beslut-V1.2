@@ -4,244 +4,89 @@
     "experimentalDecorators": true,
     "useDefineForClassFields": false,
     "module": "ESNext",
-    "lib": [
-      "ES2022",
-      "DOM",
-      "DOM.Iterable"
-    ],
+    "lib": ["ES2022", "DOM", "DOM.Iterable"],
     "skipLibCheck": true,
-    "types": [
-      "node",
-      "vite/client"
-    ],
+    "types": ["node", "vite/client"],
     "moduleResolution": "bundler",
     "isolatedModules": true,
     "moduleDetection": "force",
     "allowJs": true,
     "jsx": "react-jsx",
     "paths": {
-      "~/*": [
-        "./*"
-      ],
-      "@/*": [
-        "./src/*"
-      ],
-      "@miljobeslut/mimers-brunn-core": [
-        "./packages/mimers-brunn-core/src/index.ts"
-      ],
-      "@miljobeslut/mimers-brunn-core/*": [
-        "./packages/mimers-brunn-core/*"
-      ],
-      "@miljobeslut/alpha-runtime": [
-        "./packages/alpha-runtime/src/index.ts"
-      ],
-      "@miljobeslut/alpha-runtime/*": [
-        "./packages/alpha-runtime/*"
-      ],
-      "@miljobeslut/mps-application": [
-        "./packages/mps-application/src/index.ts"
-      ],
-      "@miljobeslut/mps-application/*": [
-        "./packages/mps-application/*"
-      ],
-      "@miljobeslut/mps-artifact-store": [
-        "./packages/mps-artifact-store/src/index.ts"
-      ],
-      "@miljobeslut/mps-artifact-store/*": [
-        "./packages/mps-artifact-store/*"
-      ],
-      "@miljobeslut/mps-audit": [
-        "./packages/mps-audit/src/index.ts"
-      ],
-      "@miljobeslut/mps-audit/*": [
-        "./packages/mps-audit/*"
-      ],
-      "@miljobeslut/mps-benchmark": [
-        "./packages/mps-benchmark/src/index.ts"
-      ],
-      "@miljobeslut/mps-benchmark/*": [
-        "./packages/mps-benchmark/*"
-      ],
-      "@miljobeslut/mps-canonical": [
-        "./packages/mps-canonical/src/index.ts"
-      ],
-      "@miljobeslut/mps-canonical/*": [
-        "./packages/mps-canonical/*"
-      ],
-      "@miljobeslut/mps-chunking": [
-        "./packages/mps-chunking/src/index.ts"
-      ],
-      "@miljobeslut/mps-chunking/*": [
-        "./packages/mps-chunking/*"
-      ],
-      "@miljobeslut/mps-text-projection": [
-        "./packages/mps-text-projection/src/index.ts"
-      ],
-      "@miljobeslut/mps-text-projection/*": [
-        "./packages/mps-text-projection/*"
-      ],
-      "@miljobeslut/mps-capability": [
-        "./packages/mps-capability/src/index.ts"
-      ],
-      "@miljobeslut/mps-capability/*": [
-        "./packages/mps-capability/*"
-      ],
-      "@miljobeslut/mps-capability-registry": [
-        "./packages/mps-capability-registry/src/index.ts"
-      ],
-      "@miljobeslut/mps-capability-registry/*": [
-        "./packages/mps-capability-registry/*"
-      ],
-      "@miljobeslut/mps-compass": [
-        "./packages/mps-compass/src/index.ts"
-      ],
-      "@miljobeslut/mps-compass/*": [
-        "./packages/mps-compass/*"
-      ],
-      "@miljobeslut/mps-compliance": [
-        "./packages/mps-compliance/src/index.ts"
-      ],
-      "@miljobeslut/mps-compliance/*": [
-        "./packages/mps-compliance/*"
-      ],
-      "@miljobeslut/mps-console": [
-        "./packages/mps-console/src/index.ts"
-      ],
-      "@miljobeslut/mps-console/*": [
-        "./packages/mps-console/*"
-      ],
-      "@miljobeslut/mps-control-plane": [
-        "./packages/mps-control-plane/src/index.ts"
-      ],
-      "@miljobeslut/mps-control-plane/*": [
-        "./packages/mps-control-plane/*"
-      ],
-      "@miljobeslut/mps-core": [
-        "./packages/mps-core/src/index.ts"
-      ],
-      "@miljobeslut/mps-core/*": [
-        "./packages/mps-core/*"
-      ],
-      "@miljobeslut/mps-dep": [
-        "./packages/mps-dep/src/index.ts"
-      ],
-      "@miljobeslut/mps-dep/*": [
-        "./packages/mps-dep/*"
-      ],
-      "@miljobeslut/mps-events": [
-        "./packages/mps-events/src/index.ts"
-      ],
-      "@miljobeslut/mps-events/*": [
-        "./packages/mps-events/*"
-      ],
-      "@miljobeslut/mps-evolution": [
-        "./packages/mps-evolution/src/index.ts"
-      ],
-      "@miljobeslut/mps-evolution/*": [
-        "./packages/mps-evolution/*"
-      ],
-      "@miljobeslut/mps-governance": [
-        "./packages/mps-governance/src/index.ts"
-      ],
-      "@miljobeslut/mps-governance/*": [
-        "./packages/mps-governance/*"
-      ],
-      "@miljobeslut/mps-identity": [
-        "./packages/mps-identity/src/index.ts"
-      ],
-      "@miljobeslut/mps-identity/*": [
-        "./packages/mps-identity/*"
-      ],
-      "@miljobeslut/mps-lu": [
-        "./packages/mps-lu/src/index.ts"
-      ],
-      "@miljobeslut/mps-lu/*": [
-        "./packages/mps-lu/*"
-      ],
-      "@miljobeslut/mps-legal-corpus": [
-        "./packages/mps-legal-corpus/src/index.ts"
-      ],
-      "@miljobeslut/mps-legal-corpus/*": [
-        "./packages/mps-legal-corpus/*"
-      ],
-      "@miljobeslut/mps-embedding-identity": [
-        "./packages/mps-embedding-identity/src/index.ts"
-      ],
-      "@miljobeslut/mps-retrieval-governance": [
-        "./packages/mps-retrieval-governance/src/index.ts"
-      ],
-      "@miljobeslut/mps-retrieval-trace": [
-        "./packages/mps-retrieval-trace/src/index.ts"
-      ],
-      "@miljobeslut/mps-legal-retrieval-contract": [
-        "./packages/mps-legal-retrieval-contract/src/index.ts"
-      ],
-      "@miljobeslut/mps-legal-answer-contract": [
-        "./packages/mps-legal-answer-contract/src/index.ts"
-      ],
-      "@miljobeslut/mps-knowledge-corpus": [
-        "./packages/mps-knowledge-corpus/src/index.ts"
-      ],
-      "@miljobeslut/mps-knowledge-index": [
-        "./packages/mps-knowledge-index/src/index.ts"
-      ],
-      "@miljobeslut/mps-knowledge-eval": [
-        "./packages/mps-knowledge-eval/src/index.ts"
-      ],
-      "@miljobeslut/mps-policy": [
-        "./packages/mps-policy/src/index.ts"
-      ],
-      "@miljobeslut/mps-policy/*": [
-        "./packages/mps-policy/*"
-      ],
-      "@miljobeslut/mps-promotion": [
-        "./packages/mps-promotion/src/index.ts"
-      ],
-      "@miljobeslut/mps-promotion/*": [
-        "./packages/mps-promotion/*"
-      ],
-      "@miljobeslut/mps-registry": [
-        "./packages/mps-registry/src/index.ts"
-      ],
-      "@miljobeslut/mps-registry/*": [
-        "./packages/mps-registry/*"
-      ],
-      "@miljobeslut/mps-replay": [
-        "./packages/mps-replay/src/index.ts"
-      ],
-      "@miljobeslut/mps-replay/*": [
-        "./packages/mps-replay/*"
-      ],
-      "@miljobeslut/mps-runtime": [
-        "./packages/mps-runtime/src/index.ts"
-      ],
-      "@miljobeslut/mps-runtime/*": [
-        "./packages/mps-runtime/*"
-      ],
-      "@miljobeslut/mps-telemetry": [
-        "./packages/mps-telemetry/src/index.ts"
-      ],
-      "@miljobeslut/mps-telemetry/*": [
-        "./packages/mps-telemetry/*"
-      ],
-      "@miljobeslut/mps-ui-contract": [
-        "./packages/mps-ui-contract/src/index.ts"
-      ],
-      "@miljobeslut/mps-ui-contract/*": [
-        "./packages/mps-ui-contract/*"
-      ],
-      "@miljobeslut/mps-workflow": [
-        "./packages/mps-workflow/src/index.ts"
-      ],
-      "@miljobeslut/mps-workflow/*": [
-        "./packages/mps-workflow/*"
-      ],
-      "@miljobeslut/spatial-provider-postgis": [
-        "./packages/spatial-provider-postgis/src/index.ts"
-      ],
-      "@miljobeslut/spatial-provider-postgis/*": [
-        "./packages/spatial-provider-postgis/*"
-      ]
+      "~/*": ["./*"],
+      "@/*": ["./src/*"],
+      "@miljobeslut/mimers-brunn-core": ["./packages/mimers-brunn-core/src/index.ts"],
+      "@miljobeslut/mimers-brunn-core/*": ["./packages/mimers-brunn-core/*"],
+      "@miljobeslut/alpha-runtime": ["./packages/alpha-runtime/src/index.ts"],
+      "@miljobeslut/alpha-runtime/*": ["./packages/alpha-runtime/*"],
+      "@miljobeslut/mps-application": ["./packages/mps-application/src/index.ts"],
+      "@miljobeslut/mps-application/*": ["./packages/mps-application/*"],
+      "@miljobeslut/mps-artifact-store": ["./packages/mps-artifact-store/src/index.ts"],
+      "@miljobeslut/mps-artifact-store/*": ["./packages/mps-artifact-store/*"],
+      "@miljobeslut/mps-audit": ["./packages/mps-audit/src/index.ts"],
+      "@miljobeslut/mps-audit/*": ["./packages/mps-audit/*"],
+      "@miljobeslut/mps-benchmark": ["./packages/mps-benchmark/src/index.ts"],
+      "@miljobeslut/mps-benchmark/*": ["./packages/mps-benchmark/*"],
+      "@miljobeslut/mps-canonical": ["./packages/mps-canonical/src/index.ts"],
+      "@miljobeslut/mps-canonical/*": ["./packages/mps-canonical/*"],
+      "@miljobeslut/mps-chunking": ["./packages/mps-chunking/src/index.ts"],
+      "@miljobeslut/mps-chunking/*": ["./packages/mps-chunking/*"],
+      "@miljobeslut/mps-text-projection": ["./packages/mps-text-projection/src/index.ts"],
+      "@miljobeslut/mps-text-projection/*": ["./packages/mps-text-projection/*"],
+      "@miljobeslut/mps-capability": ["./packages/mps-capability/src/index.ts"],
+      "@miljobeslut/mps-capability/*": ["./packages/mps-capability/*"],
+      "@miljobeslut/mps-capability-registry": ["./packages/mps-capability-registry/src/index.ts"],
+      "@miljobeslut/mps-capability-registry/*": ["./packages/mps-capability-registry/*"],
+      "@miljobeslut/mps-compass": ["./packages/mps-compass/src/index.ts"],
+      "@miljobeslut/mps-compass/*": ["./packages/mps-compass/*"],
+      "@miljobeslut/mps-compliance": ["./packages/mps-compliance/src/index.ts"],
+      "@miljobeslut/mps-compliance/*": ["./packages/mps-compliance/*"],
+      "@miljobeslut/mps-console": ["./packages/mps-console/src/index.ts"],
+      "@miljobeslut/mps-console/*": ["./packages/mps-console/*"],
+      "@miljobeslut/mps-control-plane": ["./packages/mps-control-plane/src/index.ts"],
+      "@miljobeslut/mps-control-plane/*": ["./packages/mps-control-plane/*"],
+      "@miljobeslut/mps-core": ["./packages/mps-core/src/index.ts"],
+      "@miljobeslut/mps-core/*": ["./packages/mps-core/*"],
+      "@miljobeslut/mps-dep": ["./packages/mps-dep/src/index.ts"],
+      "@miljobeslut/mps-dep/*": ["./packages/mps-dep/*"],
+      "@miljobeslut/mps-events": ["./packages/mps-events/src/index.ts"],
+      "@miljobeslut/mps-events/*": ["./packages/mps-events/*"],
+      "@miljobeslut/mps-evolution": ["./packages/mps-evolution/src/index.ts"],
+      "@miljobeslut/mps-evolution/*": ["./packages/mps-evolution/*"],
+      "@miljobeslut/mps-governance": ["./packages/mps-governance/src/index.ts"],
+      "@miljobeslut/mps-governance/*": ["./packages/mps-governance/*"],
+      "@miljobeslut/mps-identity": ["./packages/mps-identity/src/index.ts"],
+      "@miljobeslut/mps-identity/*": ["./packages/mps-identity/*"],
+      "@miljobeslut/mps-lu": ["./packages/mps-lu/src/index.ts"],
+      "@miljobeslut/mps-lu/*": ["./packages/mps-lu/*"],
+      "@miljobeslut/mps-legal-corpus": ["./packages/mps-legal-corpus/src/index.ts"],
+      "@miljobeslut/mps-legal-corpus/*": ["./packages/mps-legal-corpus/*"],
+      "@miljobeslut/mps-embedding-identity": ["./packages/mps-embedding-identity/src/index.ts"],
+      "@miljobeslut/mps-retrieval-governance": ["./packages/mps-retrieval-governance/src/index.ts"],
+      "@miljobeslut/mps-retrieval-trace": ["./packages/mps-retrieval-trace/src/index.ts"],
+      "@miljobeslut/mps-legal-retrieval-contract": ["./packages/mps-legal-retrieval-contract/src/index.ts"],
+      "@miljobeslut/mps-legal-answer-contract": ["./packages/mps-legal-answer-contract/src/index.ts"],
+      "@miljobeslut/mps-knowledge-corpus": ["./packages/mps-knowledge-corpus/src/index.ts"],
+      "@miljobeslut/mps-knowledge-index": ["./packages/mps-knowledge-index/src/index.ts"],
+      "@miljobeslut/mps-knowledge-eval": ["./packages/mps-knowledge-eval/src/index.ts"],
+      "@miljobeslut/mps-policy": ["./packages/mps-policy/src/index.ts"],
+      "@miljobeslut/mps-policy/*": ["./packages/mps-policy/*"],
+      "@miljobeslut/mps-promotion": ["./packages/mps-promotion/src/index.ts"],
+      "@miljobeslut/mps-promotion/*": ["./packages/mps-promotion/*"],
+      "@miljobeslut/mps-registry": ["./packages/mps-registry/src/index.ts"],
+      "@miljobeslut/mps-registry/*": ["./packages/mps-registry/*"],
+      "@miljobeslut/mps-replay": ["./packages/mps-replay/src/index.ts"],
+      "@miljobeslut/mps-replay/*": ["./packages/mps-replay/*"],
+      "@miljobeslut/mps-runtime": ["./packages/mps-runtime/src/index.ts"],
+      "@miljobeslut/mps-runtime/*": ["./packages/mps-runtime/*"],
+      "@miljobeslut/mps-telemetry": ["./packages/mps-telemetry/src/index.ts"],
+      "@miljobeslut/mps-telemetry/*": ["./packages/mps-telemetry/*"],
+      "@miljobeslut/mps-ui-contract": ["./packages/mps-ui-contract/src/index.ts"],
+      "@miljobeslut/mps-ui-contract/*": ["./packages/mps-ui-contract/*"],
+      "@miljobeslut/mps-workflow": ["./packages/mps-workflow/src/index.ts"],
+      "@miljobeslut/mps-workflow/*": ["./packages/mps-workflow/*"],
+      "@miljobeslut/spatial-provider-postgis": ["./packages/spatial-provider-postgis/src/index.ts"],
+      "@miljobeslut/spatial-provider-postgis/*": ["./packages/spatial-provider-postgis/*"]
     },
     "allowImportingTsExtensions": true,
     "noEmit": true

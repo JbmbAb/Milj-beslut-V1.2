@@ -12,106 +12,46 @@ const WORKTREE_EXCLUDES = ['**/.claude/worktrees/**', '.claude/worktrees/**'];
 export default defineConfig({
   resolve: {
     alias: {
-      '@miljobeslut/mimers-brunn-core': path.resolve(
-        __dirname,
-        'packages/mimers-brunn-core/src/index.ts',
-      ),
-      '@miljobeslut/mps-core': path.resolve(
-        __dirname,
-        'packages/mps-core/src/index.ts',
-      ),
-      '@miljobeslut/mps-artifact-store': path.resolve(
-        __dirname,
-        'packages/mps-artifact-store/src/index.ts',
-      ),
-      '@miljobeslut/mps-replay': path.resolve(
-        __dirname,
-        'packages/mps-replay/src/index.ts',
-      ),
-      '@miljobeslut/mps-audit': path.resolve(
-        __dirname,
-        'packages/mps-audit/src/index.ts',
-      ),
-      '@miljobeslut/mps-telemetry': path.resolve(
-        __dirname,
-        'packages/mps-telemetry/src/index.ts',
-      ),
-      '@miljobeslut/mps-policy': path.resolve(
-        __dirname,
-        'packages/mps-policy/src/index.ts',
-      ),
-      '@miljobeslut/mps-evolution': path.resolve(
-        __dirname,
-        'packages/mps-evolution/src/index.ts',
-      ),
-      '@miljobeslut/mps-canonical': path.resolve(
-        __dirname,
-        'packages/mps-canonical/src/index.ts',
-      ),
-      '@miljobeslut/mps-benchmark': path.resolve(
-        __dirname,
-        'packages/mps-benchmark/src/index.ts',
-      ),
-      '@miljobeslut/mps-control-plane': path.resolve(
-        __dirname,
-        'packages/mps-control-plane/src/index.ts',
-      ),
-      '@miljobeslut/mps-console': path.resolve(
-        __dirname,
-        'packages/mps-console/src/index.ts',
-      ),
-      '@miljobeslut/mps-compass': path.resolve(
-        __dirname,
-        'packages/mps-compass/src/index.ts',
-      ),
-      '@miljobeslut/mps-identity': path.resolve(
-        __dirname,
-        'packages/mps-identity/src/index.ts',
-      ),
-      '@miljobeslut/mps-lu': path.resolve(
-        __dirname,
-        'packages/mps-lu/src/index.ts',
-      ),
+      '@miljobeslut/mimers-brunn-core': path.resolve(__dirname, 'packages/mimers-brunn-core/src/index.ts'),
+      '@miljobeslut/mps-core': path.resolve(__dirname, 'packages/mps-core/src/index.ts'),
+      '@miljobeslut/mps-artifact-store': path.resolve(__dirname, 'packages/mps-artifact-store/src/index.ts'),
+      '@miljobeslut/mps-replay': path.resolve(__dirname, 'packages/mps-replay/src/index.ts'),
+      '@miljobeslut/mps-audit': path.resolve(__dirname, 'packages/mps-audit/src/index.ts'),
+      '@miljobeslut/mps-telemetry': path.resolve(__dirname, 'packages/mps-telemetry/src/index.ts'),
+      '@miljobeslut/mps-policy': path.resolve(__dirname, 'packages/mps-policy/src/index.ts'),
+      '@miljobeslut/mps-evolution': path.resolve(__dirname, 'packages/mps-evolution/src/index.ts'),
+      '@miljobeslut/mps-canonical': path.resolve(__dirname, 'packages/mps-canonical/src/index.ts'),
+      '@miljobeslut/mps-benchmark': path.resolve(__dirname, 'packages/mps-benchmark/src/index.ts'),
+      '@miljobeslut/mps-control-plane': path.resolve(__dirname, 'packages/mps-control-plane/src/index.ts'),
+      '@miljobeslut/mps-console': path.resolve(__dirname, 'packages/mps-console/src/index.ts'),
+      '@miljobeslut/mps-compass': path.resolve(__dirname, 'packages/mps-compass/src/index.ts'),
+      '@miljobeslut/mps-identity': path.resolve(__dirname, 'packages/mps-identity/src/index.ts'),
+      '@miljobeslut/mps-lu': path.resolve(__dirname, 'packages/mps-lu/src/index.ts'),
       '@miljobeslut/mps-data-governance': path.resolve(
         __dirname,
         'packages/mps-data-governance/src/ImportGate.ts',
       ),
-      '@miljobeslut/mps-diagnostics': path.resolve(
-        __dirname,
-        'packages/mps-diagnostics/src/index.ts',
-      ),
+      '@miljobeslut/mps-diagnostics': path.resolve(__dirname, 'packages/mps-diagnostics/src/index.ts'),
       '@miljobeslut/mps-retrieval-governance': path.resolve(
         __dirname,
         'packages/mps-retrieval-governance/src/index.ts',
       ),
-      '@miljobeslut/mps-query-budget': path.resolve(
-        __dirname,
-        'packages/mps-query-budget/src/index.ts',
-      ),
+      '@miljobeslut/mps-query-budget': path.resolve(__dirname, 'packages/mps-query-budget/src/index.ts'),
       '@miljobeslut/mps-retrieval-trace': path.resolve(
         __dirname,
         'packages/mps-retrieval-trace/src/index.ts',
       ),
-      '@miljobeslut/mps-cas-boundary': path.resolve(
-        __dirname,
-        'packages/mps-cas-boundary/src/index.ts',
-      ),
+      '@miljobeslut/mps-cas-boundary': path.resolve(__dirname, 'packages/mps-cas-boundary/src/index.ts'),
       '@miljobeslut/mps-governance-runtime': path.resolve(
         __dirname,
         'packages/mps-governance-runtime/src/index.ts',
       ),
-      '@miljobeslut/mps-chunking': path.resolve(
-        __dirname,
-        'packages/mps-chunking/src/index.ts',
-      ),
+      '@miljobeslut/mps-chunking': path.resolve(__dirname, 'packages/mps-chunking/src/index.ts'),
       '@miljobeslut/mps-text-projection': path.resolve(
         __dirname,
         'packages/mps-text-projection/src/index.ts',
       ),
-      '@miljobeslut/mps-legal-corpus': path.resolve(
-        __dirname,
-        'packages/mps-legal-corpus/src/index.ts',
-      ),
+      '@miljobeslut/mps-legal-corpus': path.resolve(__dirname, 'packages/mps-legal-corpus/src/index.ts'),
       // KNOWLEDGE-K2.2-GOVERNED-CORPUS-EXPANSION-EVAL-V1
       '@miljobeslut/mps-knowledge-corpus': path.resolve(
         __dirname,
@@ -121,10 +61,7 @@ export default defineConfig({
         __dirname,
         'packages/mps-knowledge-index/src/index.ts',
       ),
-      '@miljobeslut/mps-knowledge-eval': path.resolve(
-        __dirname,
-        'packages/mps-knowledge-eval/src/index.ts',
-      ),
+      '@miljobeslut/mps-knowledge-eval': path.resolve(__dirname, 'packages/mps-knowledge-eval/src/index.ts'),
       '@miljobeslut/spatial-provider-postgis': path.resolve(
         __dirname,
         'packages/spatial-provider-postgis/src/index.ts',
@@ -193,10 +130,7 @@ export default defineConfig({
               __dirname,
               'packages/mps-legal-corpus/src/index.ts',
             ),
-            '@miljobeslut/mps-chunking': path.resolve(
-              __dirname,
-              'packages/mps-chunking/src/index.ts',
-            ),
+            '@miljobeslut/mps-chunking': path.resolve(__dirname, 'packages/mps-chunking/src/index.ts'),
             // LEGAL-RETRIEVAL-LAW-METADATA-ROUTING-01: tests/unit/*.test.ts exercising the
             // routing module's trace integration need this resolvable here too, same reason as
             // the two aliases above.
@@ -276,14 +210,8 @@ export default defineConfig({
               __dirname,
               'packages/spatial-provider-postgis/src/index.ts',
             ),
-            '@miljobeslut/mps-lu': path.resolve(
-              __dirname,
-              'packages/mps-lu/src/index.ts',
-            ),
-            '@miljobeslut/mps-runtime': path.resolve(
-              __dirname,
-              'packages/mps-runtime/src/index.ts',
-            ),
+            '@miljobeslut/mps-lu': path.resolve(__dirname, 'packages/mps-lu/src/index.ts'),
+            '@miljobeslut/mps-runtime': path.resolve(__dirname, 'packages/mps-runtime/src/index.ts'),
             // Explicit, not inherited: this project already needed its own overrides for the
             // three aliases above even though they also exist at root level — evidence that
             // root-level `resolve.alias` does not reliably reach vitest `projects` entries in
@@ -293,10 +221,7 @@ export default defineConfig({
               __dirname,
               'packages/mimers-brunn-core/src/index.ts',
             ),
-            '@miljobeslut/mps-core': path.resolve(
-              __dirname,
-              'packages/mps-core/src/index.ts',
-            ),
+            '@miljobeslut/mps-core': path.resolve(__dirname, 'packages/mps-core/src/index.ts'),
             '@miljobeslut/mps-legal-corpus': path.resolve(
               __dirname,
               'packages/mps-legal-corpus/src/index.ts',
@@ -375,7 +300,6 @@ export default defineConfig({
           setupFiles: ['tests/setup/env.ts'],
         },
       },
-
     ],
   },
 });

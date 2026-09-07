@@ -68,9 +68,17 @@ export function admitLawChunks(args: {
   readonly chunkPolicyVersion: string;
 }): ChunkAdmissionResult {
   if (!REAL_PARAGRAPH_MARKER.test(args.text)) {
-    return { document_status: 'NOT_ADMITTED_TO_PARAGRAPH_CORPUS', admitted: [], rejected: [
-      { reason: 'NOT_ADMITTED_TO_PARAGRAPH_CORPUS: no verified § marker found anywhere in the projected text.', preview: args.text.slice(0, 120) },
-    ] };
+    return {
+      document_status: 'NOT_ADMITTED_TO_PARAGRAPH_CORPUS',
+      admitted: [],
+      rejected: [
+        {
+          reason:
+            'NOT_ADMITTED_TO_PARAGRAPH_CORPUS: no verified § marker found anywhere in the projected text.',
+          preview: args.text.slice(0, 120),
+        },
+      ],
+    };
   }
 
   const hasVerifiedChapterDivision = REAL_CHAPTER_MARKER.test(args.text);
@@ -117,7 +125,12 @@ export function admitLawChunks(args: {
   // assigned is safe: fragment_id is derived from `sequence` (the original document position),
   // not from array position, so re-ordering the array never changes any fragment's identity.
   return {
-    document_status: admitted.length === 0 ? 'NOT_ADMITTED_TO_PARAGRAPH_CORPUS' : rejected.length > 0 ? 'STRUCTURE_PARTIAL' : 'ADMITTED',
+    document_status:
+      admitted.length === 0
+        ? 'NOT_ADMITTED_TO_PARAGRAPH_CORPUS'
+        : rejected.length > 0
+          ? 'STRUCTURE_PARTIAL'
+          : 'ADMITTED',
     admitted: orderChunksDeterministically(admitted),
     rejected,
   };
@@ -137,9 +150,17 @@ export function admitLawChunksV24(args: {
   readonly chunkPolicyVersion: string;
 }): ChunkAdmissionResult {
   if (!REAL_PARAGRAPH_MARKER.test(args.text)) {
-    return { document_status: 'NOT_ADMITTED_TO_PARAGRAPH_CORPUS', admitted: [], rejected: [
-      { reason: 'NOT_ADMITTED_TO_PARAGRAPH_CORPUS: no verified § marker found anywhere in the projected text.', preview: args.text.slice(0, 120) },
-    ] };
+    return {
+      document_status: 'NOT_ADMITTED_TO_PARAGRAPH_CORPUS',
+      admitted: [],
+      rejected: [
+        {
+          reason:
+            'NOT_ADMITTED_TO_PARAGRAPH_CORPUS: no verified § marker found anywhere in the projected text.',
+          preview: args.text.slice(0, 120),
+        },
+      ],
+    };
   }
 
   // LEGAL-CHUNKING-LAW-V2.4-CHAPTER-ANCHOR-01: uses the SAME genuine-vs-reference filtering as
@@ -178,7 +199,12 @@ export function admitLawChunksV24(args: {
   }
 
   return {
-    document_status: admitted.length === 0 ? 'NOT_ADMITTED_TO_PARAGRAPH_CORPUS' : rejected.length > 0 ? 'STRUCTURE_PARTIAL' : 'ADMITTED',
+    document_status:
+      admitted.length === 0
+        ? 'NOT_ADMITTED_TO_PARAGRAPH_CORPUS'
+        : rejected.length > 0
+          ? 'STRUCTURE_PARTIAL'
+          : 'ADMITTED',
     admitted: orderChunksDeterministically(admitted),
     rejected,
   };
