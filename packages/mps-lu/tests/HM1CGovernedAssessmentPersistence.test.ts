@@ -200,6 +200,10 @@ describe("HM1-C — governed assessment persistence", () => {
       projectId,
       siteAlternatives: [{ id: "hm1c", lat: 59.33, lng: 18.07 }],
     });
+    expect(orchestrator.generateDocumentEvidence).not.toHaveBeenCalled();
+    expect(report.siteAnalyses[0].dataSources).toEqual(expect.arrayContaining([
+      expect.objectContaining({ source: "Styrkt dokumentbevisning", status: "unavailable" }),
+    ]));
     const id = report.siteAnalyses[0].executionMotor!.assessment_artifact_id!;
     const write = repository.writes.find((item) => item.artifact_id === id)!;
     const body = write.body as {

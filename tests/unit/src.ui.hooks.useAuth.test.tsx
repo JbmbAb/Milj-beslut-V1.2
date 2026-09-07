@@ -36,6 +36,7 @@ describe('src/ui/hooks/useAuth', () => {
     vi.clearAllMocks();
     vi.useRealTimers();
     localStorage.clear();
+    vi.spyOn(window, 'open').mockReturnValue(window);
   });
 
   afterEach(() => {
@@ -47,6 +48,7 @@ describe('src/ui/hooks/useAuth', () => {
     authMocks.initiateBankId.mockResolvedValue({
       orderRef: 'order-1',
       autoStartToken: 'token',
+      launchUrl: 'bankid:///?autostarttoken=token&redirect=null',
     });
 
     const { result } = renderHook(() => useBankIdAuth(), { wrapper: createWrapper() });
@@ -62,9 +64,38 @@ describe('src/ui/hooks/useAuth', () => {
     expect(result.current.order).toEqual({
       orderRef: 'order-1',
       autoStartToken: 'token',
+      launchUrl: 'bankid:///?autostarttoken=token&redirect=null',
     });
     expect(result.current.error).toBeNull();
+    expect(window.open).toHaveBeenCalledWith('bankid:///?autostarttoken=token&redirect=null', '_self');
   }, 15000);
+
+  it('keeps the order pending and exposes a clear fallback when BankID handoff is blocked', async () => {
+    vi.mocked(window.open).mockReturnValue(null);
+    authMocks.initiateBankId.mockResolvedValue({
+      orderRef: 'order-launch-failed',
+      autoStartToken: 'token',
+      launchUrl: 'bankid:///?autostarttoken=token&redirect=null',
+    });
+
+    const { result } = renderHook(() => useBankIdAuth(), { wrapper: createWrapper() });
+
+    await act(async () => {
+      result.current.initiate();
+    });
+
+    await waitFor(() => {
+      expect(result.current.status).toBe('pending');
+      expect(result.current.launchError).toMatch(/kunde inte öppnas automatiskt/i);
+    });
+    expect(result.current.order?.orderRef).toBe('order-launch-failed');
+
+    vi.mocked(window.open).mockReturnValue(window);
+    act(() => {
+      result.current.openBankId();
+    });
+    expect(result.current.launchError).toBeNull();
+  });
 
   it('handles failed polling responses', async () => {
     authMocks.initiateBankId.mockResolvedValue({
@@ -133,7 +164,8 @@ describe('src/ui/hooks/useAuth', () => {
     });
 
     await waitFor(() => {
-      expect(result.current.status).toBe('idle');
+      expect(result.current.status).toBe('failed');
+      expect(result.current.error).toBe('Inloggningen avbröts.');
     });
   });
 

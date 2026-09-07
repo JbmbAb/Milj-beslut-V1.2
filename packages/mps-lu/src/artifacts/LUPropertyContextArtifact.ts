@@ -1,5 +1,7 @@
 import { ArtifactContract, ArtifactReference } from "@miljobeslut/mps-compliance/src/artifacts/ArtifactContract";
 
+export const LU_PROPERTY_CONTEXT_ARTIFACT_TYPE = "LU_PROPERTY_CONTEXT" as const;
+
 export interface LUPropertyContextPayload {
   readonly property_ref: string; // The external fastighetsbeteckning identifier (e.g. "ABC 1:123")
   readonly official_name: string;
@@ -15,6 +17,6 @@ export interface LUPropertyContextPayload {
 }
 
 export interface LUPropertyContextArtifact extends ArtifactContract {
-  readonly artifact_type: "LU_PROPERTY_CONTEXT";
+  readonly artifact_type: typeof LU_PROPERTY_CONTEXT_ARTIFACT_TYPE;
   readonly payload: LUPropertyContextPayload;
 }

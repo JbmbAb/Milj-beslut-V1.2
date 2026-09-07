@@ -1,6 +1,10 @@
 /**
  * Bakgrundsjobb — ska köras i separat process i produktion (Cloud Run Jobs / Scheduler).
  * HTTP-servern startar dem endast när START_WORKERS_IN_PROCESS !== 'false'.
+ *
+ * LU provisioning workers (project-context bootstrap, identity-v3, viewer-capability,
+ * geometry-supersession) are intentionally excluded here — they run only via
+ * `npm run worker:all` so issuer private keys never load into the web process.
  */
 
 import { logger } from '../logger';

@@ -6,7 +6,7 @@ export interface AuthInterfaceProps {
 }
 
 export const AuthInterface: React.FC<AuthInterfaceProps> = ({ onComplete }) => {
-  const { initiate, cancel, status, order, error, isInitializing } = useBankIdAuth(onComplete);
+  const { initiate, cancel, openBankId, status, order, error, launchError, isInitializing } = useBankIdAuth(onComplete);
 
   return (
     <div
@@ -44,19 +44,24 @@ export const AuthInterface: React.FC<AuthInterfaceProps> = ({ onComplete }) => {
 
       {status === 'pending' && order && (
         <div className="w-full space-y-6 text-center animate-in fade-in" data-testid="bankid-pending">
-          <div className="bg-slate-50 p-6 rounded-3xl border border-slate-100 flex justify-center">
-            {/* Real QR would be rendered here, using qrPayload from order */}
-            <div className="w-48 h-48 bg-white border-4 border-slate-900 rounded-2xl flex items-center justify-center relative overflow-hidden">
-              <i className="fas fa-qrcode text-6xl text-slate-200"></i>
-              <div className="absolute inset-0 flex items-center justify-center">
-                <div className="w-12 h-12 border-4 border-blue-600 border-t-transparent rounded-full animate-spin"></div>
-              </div>
-            </div>
-          </div>
-
           <div className="space-y-3">
             <p className="text-[10px] font-black uppercase text-blue-600 tracking-widest animate-pulse">
               Väntar på signering...
+            </p>
+            <button
+              data-testid="bankid-open-app"
+              onClick={() => openBankId()}
+              className="w-full py-4 bg-blue-600 text-white rounded-2xl text-xs font-black uppercase tracking-widest hover:bg-blue-700 transition-all"
+            >
+              Öppna BankID
+            </button>
+            {launchError && (
+              <p className="text-xs font-medium text-amber-700" data-testid="bankid-launch-error">
+                {launchError}
+              </p>
+            )}
+            <p className="text-xs text-slate-500" data-testid="bankid-qr-not-supported">
+              QR-inloggning för annan enhet stöds inte av den här klienten ännu. Öppna BankID på samma enhet.
             </p>
             <button
               data-testid="bankid-cancel"

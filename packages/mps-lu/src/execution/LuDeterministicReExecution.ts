@@ -25,10 +25,15 @@ import {
 } from "../../../mps-data-governance/src/DocumentFactArtifact.js";
 import { isVerifiedDocumentFactContentHashValid } from "../../../mps-data-governance/src/verifyRealDocumentFactCandidate.js";
 import {
+  isVerifiedDocumentFactV2ContentHashValid,
+  type VerifiedDocumentFactArtifactV2,
+} from "../../../mps-data-governance/src/VerifiedDocumentFactV2.js";
+import {
   isDocumentEvidenceV2,
   isDocumentEvidenceV2ContentHashValid,
   type DocumentEvidenceArtifactV2,
 } from "../artifacts/DocumentEvidenceArtifactV2.js";
+import type { AnyDocumentEvidenceArtifact } from "../rules/LURuleEngine.js";
 
 /**
  * LU-DETERMINISTIC-REEXECUTION-V1.
@@ -135,12 +140,12 @@ export async function resolveEvidence(args: {
   readonly artifactRepository: ArtifactRepositoryPort;
 }): Promise<{
   readonly spatial_evidence: SpatialEvidenceArtifact[];
-  readonly document_evidence: DocumentEvidenceArtifact[];
+  readonly document_evidence: AnyDocumentEvidenceArtifact[];
   readonly verified_document_facts: VerifiedDocumentFactArtifact[];
   readonly mismatches: LuReExecutionMismatch[];
 }> {
   const spatial_evidence: SpatialEvidenceArtifact[] = [];
-  const document_evidence: DocumentEvidenceArtifact[] = [];
+  const document_evidence: AnyDocumentEvidenceArtifact[] = [];
   const verified_document_facts: VerifiedDocumentFactArtifact[] = [];
   const mismatches: LuReExecutionMismatch[] = [];
 
@@ -200,14 +205,18 @@ export async function resolveEvidence(args: {
         });
         continue;
       }
-      if (!isVerifiedDocumentFactContentHashValid(artifact as unknown as VerifiedDocumentFactArtifact)) {
+      const fact = artifact as unknown as VerifiedDocumentFactArtifact | VerifiedDocumentFactArtifactV2;
+      const contentHashValid = (fact as Partial<VerifiedDocumentFactArtifactV2>).contract_version === "verified-document-fact-v2"
+        ? isVerifiedDocumentFactV2ContentHashValid(fact as VerifiedDocumentFactArtifactV2)
+        : isVerifiedDocumentFactContentHashValid(fact as VerifiedDocumentFactArtifact);
+      if (!contentHashValid) {
         mismatches.push({
           code: "TAMPERED_EVIDENCE",
           detail: `VERIFIED_DOCUMENT_FACT:${ref.artifact_id} content_hash does not match its own carried fields -- tampered or malformed`,
         });
         continue;
       }
-      verified_document_facts.push(artifact as unknown as VerifiedDocumentFactArtifact);
+      verified_document_facts.push(fact as VerifiedDocumentFactArtifact);
     } else {
       mismatches.push({
         code: "EVIDENCE_SET_MISMATCH",

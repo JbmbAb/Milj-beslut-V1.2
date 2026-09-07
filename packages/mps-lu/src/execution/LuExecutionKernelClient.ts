@@ -1,6 +1,5 @@
-import type { ContentReference } from "@miljobeslut/mps-evolution";
+import type { CapabilityInvokeHandler } from "../../../mps-runtime/src/capability/CapabilityRuntime.js";
 import type { SpatialEvidenceArtifact } from "../artifacts/SpatialEvidenceArtifact.js";
-import type { DocumentEvidenceArtifact } from "../artifacts/DocumentEvidenceArtifact.js";
 import type { AssessmentFinding } from "../domain/AssessmentFinding.js";
 import type {
   LocalizationAssessmentArtifact,
@@ -11,7 +10,7 @@ import {
   GovernedAssessmentPersistence,
 } from "../governance/GovernedAssessmentPersistence.js";
 import type { VerifiedDocumentFactArtifact } from "../../../mps-data-governance/src/DocumentFactArtifact.js";
-import { LURuleEngine } from "../rules/LURuleEngine.js";
+import { LURuleEngine, type AnyDocumentEvidenceArtifact } from "../rules/LURuleEngine.js";
 import {
   ExecutionKernel,
   sha256ContentHash,
@@ -61,9 +60,9 @@ export const LU_EXECUTION_PRINCIPAL_ID = "lu.site_assessment.actor" as const;
  */
 export function createLuRuleEngineInvokeHandler(
   evidence: SpatialEvidenceArtifact[],
-  documentEvidence: readonly DocumentEvidenceArtifact[] = [],
+  documentEvidence: readonly AnyDocumentEvidenceArtifact[] = [],
   verifiedDocumentFacts: readonly VerifiedDocumentFactArtifact[] = [],
-): (inputs: readonly ContentReference[]) => Promise<readonly ContentReference[]> {
+): CapabilityInvokeHandler {
   return async () => {
     const engine = new LURuleEngine();
     const findings = engine.evaluate({
@@ -85,7 +84,7 @@ export interface LuKernelRunInput {
    * F4A: document evidence is now transported to the rule engine. Optional so existing
    * spatial-only callers are unaffected; normalized to `[]` at the evaluation boundary.
    */
-  readonly document_evidence?: readonly DocumentEvidenceArtifact[];
+  readonly document_evidence?: readonly AnyDocumentEvidenceArtifact[];
   /**
    * F4B: the resolved Tier 3 facts the document evidence references. Transported on BOTH kernel
    * entrypoints deliberately — F4A's defect (cause A) was that only one path carried document
@@ -186,7 +185,7 @@ function buildAdmissionContext(
     ruleRegistry: new RuleRegistrySnapshot([CAP_26_I1]),
     canonicalSerializer: {
       serialize: () => ({ bytes: new Uint8Array(), encoding: "identity" }),
-    } as FrozenCoreVerificationContext["canonicalSerializer"],
+    } as unknown as FrozenCoreVerificationContext["canonicalSerializer"],
   };
 }
 
@@ -315,7 +314,7 @@ export async function runLuAssessmentViaKernel(
       });
       const { artifactResolver } = await preVerifyExecutionIdentityForAdmission({
         identity: resolvedIdentity,
-        capabilityArtifact: capability,
+        capabilityArtifact: capability as unknown as import("../../../mps-compliance/src/artifacts/ArtifactContract.js").ArtifactContract,
         resolveAttestation: async (ref) => {
           try {
             return await repo.resolve(ref);
@@ -333,7 +332,7 @@ export async function runLuAssessmentViaKernel(
       verificationContext = buildAdmissionContext({
         resolve: (ref) =>
           ref.artifact_id === capability.artifact_id && ref.artifact_type === capability.artifact_type
-            ? capability
+            ? capability as unknown as import("../../../mps-compliance/src/artifacts/ArtifactContract.js").ArtifactContract
             : undefined,
       });
     }

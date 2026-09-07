@@ -28,14 +28,14 @@ describe('PRODUCT-LU-PROJECT-CONTEXT-BOOTSTRAP-01 Phase B: localizationProjectDi
 
     const project = await createLocalizationProject({
       organisationId: 'org-1',
-      propertyDesignation: 'orsa stackmora 3:12',
+      property: { sourceKey: 'orsa-1', sourceDataset: 'lm_fastighetsytor', designation: 'orsa stackmora 3:12', municipality: 'ORSA', municipalityCode: '2039', countyCode: '20', matchKind: 'exact' },
       name: 'Localization B',
       userId: 'user-1',
     });
 
     expect(projectCreate).toHaveBeenCalledTimes(1);
     expect(projectCreate).toHaveBeenCalledWith({
-      data: { organisationId: 'org-1', name: 'Localization B', propertyDesignation: 'ORSA STACKMORA 3:12', status: 'ACTIVE' },
+      data: { organisationId: 'org-1', name: 'Localization B', propertyDesignation: 'ORSA STACKMORA 3:12', propertySourceKey: 'orsa-1', propertySourceDataset: 'lm_fastighetsytor', status: 'ACTIVE' },
       select: expect.any(Object),
     });
     // No findFirst/upsert-by-designation lookup anywhere in this function -- create is unconditional.
@@ -47,7 +47,7 @@ describe('PRODUCT-LU-PROJECT-CONTEXT-BOOTSTRAP-01 Phase B: localizationProjectDi
     projectCreate.mockResolvedValue({ id: 'proj-3', name: 'X', propertyDesignation: 'ORSA STACKMORA 3:12', status: 'ACTIVE', createdAt: new Date() });
     memberUpsert.mockResolvedValue({});
 
-    await createLocalizationProject({ organisationId: 'org-1', propertyDesignation: 'ORSA STACKMORA 3:12', name: 'X', userId: 'user-9' });
+    await createLocalizationProject({ organisationId: 'org-1', property: { sourceKey: 'orsa-1', sourceDataset: 'lm_fastighetsytor', designation: 'ORSA STACKMORA 3:12', municipality: 'ORSA', municipalityCode: '2039', countyCode: '20', matchKind: 'exact' }, name: 'X', userId: 'user-9' });
 
     expect(memberUpsert).toHaveBeenCalledWith({
       where: { projectId_userId: { projectId: 'proj-3', userId: 'user-9' } },
@@ -57,8 +57,8 @@ describe('PRODUCT-LU-PROJECT-CONTEXT-BOOTSTRAP-01 Phase B: localizationProjectDi
   });
 
   it('createLocalizationProject rejects empty name/designation', async () => {
-    await expect(createLocalizationProject({ organisationId: 'org-1', propertyDesignation: '', name: 'X', userId: 'u' })).rejects.toThrow();
-    await expect(createLocalizationProject({ organisationId: 'org-1', propertyDesignation: 'X', name: '', userId: 'u' })).rejects.toThrow();
+    await expect(createLocalizationProject({ organisationId: 'org-1', property: { sourceKey: '', sourceDataset: 'lm', designation: '', municipality: null, municipalityCode: null, countyCode: null, matchKind: 'exact' }, name: 'X', userId: 'u' })).rejects.toThrow();
+    await expect(createLocalizationProject({ organisationId: 'org-1', property: { sourceKey: 'x', sourceDataset: 'lm', designation: 'X', municipality: null, municipalityCode: null, countyCode: null, matchKind: 'exact' }, name: '', userId: 'u' })).rejects.toThrow();
   });
 
   it('listProjectsForProperty is read-only discovery -- every row for the property, any status', async () => {

@@ -1,4 +1,4 @@
-import { LocalPemSigningKeyProvider, type SigningKeyProvider } from '@miljobeslut/mimers-brunn-core';
+import { LocalPemSigningKeyProvider, LocalPemVerificationKeyProvider, type SigningKeyProvider, type VerificationKeyProvider } from '@miljobeslut/mimers-brunn-core';
 
 /**
  * Governance signing authority (ADR-042 Level 2).
@@ -24,6 +24,7 @@ const REQUIRED_ENV_VARS = ['GOVERNANCE_SIGNING_PRIVATE_KEY_PEM', 'GOVERNANCE_SIG
 const DEFAULT_KEY_ID = 'ed25519:governance-promotion-v1';
 
 let cachedProvider: SigningKeyProvider | null = null;
+let cachedVerifier: VerificationKeyProvider | null = null;
 
 /**
  * Lazily constructs (and caches) the server's governance signing key provider from env.
@@ -53,7 +54,18 @@ export function getGovernanceSigningProvider(): SigningKeyProvider {
   return cachedProvider;
 }
 
+/** Public-only governance trust for audit and verification processes. */
+export function getGovernanceVerificationProvider(env: NodeJS.ProcessEnv = process.env): VerificationKeyProvider {
+  if (cachedVerifier) return cachedVerifier;
+  const publicKey = env.GOVERNANCE_SIGNING_PUBLIC_KEY_PEM?.trim();
+  if (!publicKey) throw new Error('Missing governance verification key configuration: GOVERNANCE_SIGNING_PUBLIC_KEY_PEM');
+  const keyId = env.GOVERNANCE_SIGNING_KEY_ID || DEFAULT_KEY_ID;
+  cachedVerifier = new LocalPemVerificationKeyProvider(keyId, publicKey);
+  return cachedVerifier;
+}
+
 /** Test-only escape hatch: reset the cached provider between test runs / inject a fake one. */
 export function __resetGovernanceSigningProviderForTests(provider?: SigningKeyProvider | null): void {
   cachedProvider = provider ?? null;
+  cachedVerifier = null;
 }
