@@ -15,7 +15,7 @@ export interface GovernedChunkRef {
   /** KNOWLEDGE-K2.2: `evidence` added additively — the persisted `structure_kind` column already
    *  carries it for decision/MKB/technical/control-program chunks (ChunkIdentity v2); the result
    *  contract's identity semantics are unchanged. */
-  readonly structure_kind: "law" | "court" | "evidence" | "standard";
+  readonly structure_kind: 'law' | 'court' | 'evidence' | 'standard';
 }
 
 export interface GovernedChunkLookupPort {
