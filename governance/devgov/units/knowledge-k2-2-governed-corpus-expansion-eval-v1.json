@@ -1,0 +1,195 @@
+{
+  "schema_version": "dev-gov-v1-unit-definition",
+  "unit": "KNOWLEDGE-K2.2-GOVERNED-CORPUS-EXPANSION-EVAL-V1",
+  "role": "producer",
+  "mode": "writer",
+  "branch": "claude/k2-2-dev-gov-packaging-v1",
+  "base_sha": "abcae043895f76d911057abfcdbbeecb1188fab1",
+  "ancestry_policy": "descendant_of_base",
+  "allowed_paths": [
+    "packages/mps-knowledge-corpus/package.json",
+    "packages/mps-knowledge-corpus/src/ChunkAdmission.ts",
+    "packages/mps-knowledge-corpus/src/ChunkPolicyRegistry.ts",
+    "packages/mps-knowledge-corpus/src/CorpusProjection.ts",
+    "packages/mps-knowledge-corpus/src/CorpusSnapshot.ts",
+    "packages/mps-knowledge-corpus/src/DocumentIdentity.ts",
+    "packages/mps-knowledge-corpus/src/DocumentRole.ts",
+    "packages/mps-knowledge-corpus/src/PathSafety.ts",
+    "packages/mps-knowledge-corpus/src/SourceAuthority.ts",
+    "packages/mps-knowledge-corpus/src/index.ts",
+    "packages/mps-knowledge-corpus/src/versions.ts",
+    "packages/mps-knowledge-corpus/tests/CorpusProjection.test.ts",
+    "packages/mps-knowledge-corpus/tests/CorpusSnapshot.test.ts",
+    "packages/mps-knowledge-corpus/tests/CorpusSnapshotRound2.test.ts",
+    "packages/mps-knowledge-corpus/tests/InputGuards.test.ts",
+    "packages/mps-knowledge-corpus/tests/PathSafety.test.ts",
+    "packages/mps-knowledge-corpus/tests/SourceAuthorityAndIdentity.test.ts",
+    "packages/mps-knowledge-corpus/tests/fixtures.ts",
+    "packages/mps-knowledge-corpus/tsconfig.json",
+    "packages/mps-knowledge-eval/fixtures/buildGoldenCorpus.ts",
+    "packages/mps-knowledge-eval/fixtures/goldenCases.ts",
+    "packages/mps-knowledge-eval/fixtures/real/hav_hvmfs_2016_17.ts",
+    "packages/mps-knowledge-eval/fixtures/real/regeringskansliet_sfs_1998_808.ts",
+    "packages/mps-knowledge-eval/fixtures/real/regeringskansliet_sfs_1998_899.ts",
+    "packages/mps-knowledge-eval/fixtures/real/regeringskansliet_sfs_2010_900.ts",
+    "packages/mps-knowledge-eval/fixtures/real/regeringskansliet_sfs_2011_338.ts",
+    "packages/mps-knowledge-eval/fixtures/real/regeringskansliet_sfs_2013_251.ts",
+    "packages/mps-knowledge-eval/fixtures/real/regeringskansliet_sfs_2020_614.ts",
+    "packages/mps-knowledge-eval/fixtures/real/registryBindings.ts",
+    "packages/mps-knowledge-eval/fixtures/syntheticCorpus.ts",
+    "packages/mps-knowledge-eval/package.json",
+    "packages/mps-knowledge-eval/src/AbstentionCalibration.ts",
+    "packages/mps-knowledge-eval/src/GoldenCase.ts",
+    "packages/mps-knowledge-eval/src/Harness.ts",
+    "packages/mps-knowledge-eval/src/Metrics.ts",
+    "packages/mps-knowledge-eval/src/ReportWriter.ts",
+    "packages/mps-knowledge-eval/src/index.ts",
+    "packages/mps-knowledge-eval/src/versions.ts",
+    "packages/mps-knowledge-eval/tests/EvalIntegrity.test.ts",
+    "packages/mps-knowledge-eval/tests/GoldenCorpus.test.ts",
+    "packages/mps-knowledge-eval/tests/GoldenEval.test.ts",
+    "packages/mps-knowledge-eval/tests/Metrics.test.ts",
+    "packages/mps-knowledge-eval/tsconfig.json",
+    "packages/mps-knowledge-index/package.json",
+    "packages/mps-knowledge-index/src/EmbeddingProvider.ts",
+    "packages/mps-knowledge-index/src/IndexProjection.ts",
+    "packages/mps-knowledge-index/src/IndexSearch.ts",
+    "packages/mps-knowledge-index/src/index.ts",
+    "packages/mps-knowledge-index/src/versions.ts",
+    "packages/mps-knowledge-index/tests/EmbeddingProvider.test.ts",
+    "packages/mps-knowledge-index/tests/IndexProjection.test.ts",
+    "packages/mps-knowledge-index/tests/IndexSearch.test.ts",
+    "packages/mps-knowledge-index/tests/ReadModelIntegrity.test.ts",
+    "packages/mps-knowledge-index/tests/SearchInputGuards.test.ts",
+    "packages/mps-knowledge-index/tests/fixtures.ts",
+    "packages/mps-knowledge-index/tsconfig.json",
+    "packages/mps-legal-retrieval-contract/src/GovernedChunkLookup.ts",
+    "scripts/knowledge/run-corpus-expansion.ts",
+    "server/modules/legal/knowledge/VerifiedRegistrySourceCatalogAdapter.ts",
+    "server/modules/legal/materialization/ChunkAdmission.ts",
+    "tests/unit/server.modules.legal.knowledge.VerifiedRegistrySourceCatalogAdapter.test.ts",
+    "tsconfig.json",
+    "vitest.config.ts",
+    "governance/devgov/units/knowledge-k2-2-governed-corpus-expansion-eval-v1.json"
+  ],
+  "forbidden_paths": [
+    ".github/**",
+    "scripts/devgov/**",
+    "governance/devgov/schema/**",
+    "prisma/**"
+  ],
+  "required_red": [
+    {
+      "id": "k2-2-governed-corpus-suite",
+      "command": "node",
+      "args": [
+        "--input-type=module",
+        "-e",
+        "const fs=await import('node:fs');const f='packages/mps-knowledge-corpus/tests/CorpusSnapshotRound2.test.ts';const ok=fs.existsSync(f);console.log(ok?'K2_2_CORPUS_PRESENT':'K2_2_CORPUS_ABSENT');process.exit(ok?0:1)"
+      ],
+      "expected_classification": "FAIL",
+      "required_head": "base_sha"
+    },
+    {
+      "id": "k2-2-governed-index-suite",
+      "command": "node",
+      "args": [
+        "--input-type=module",
+        "-e",
+        "const fs=await import('node:fs');const f='packages/mps-knowledge-index/tests/ReadModelIntegrity.test.ts';const ok=fs.existsSync(f);console.log(ok?'K2_2_INDEX_PRESENT':'K2_2_INDEX_ABSENT');process.exit(ok?0:1)"
+      ],
+      "expected_classification": "FAIL",
+      "required_head": "base_sha"
+    },
+    {
+      "id": "k2-2-golden-eval-suite",
+      "command": "node",
+      "args": [
+        "--input-type=module",
+        "-e",
+        "const fs=await import('node:fs');const f='packages/mps-knowledge-eval/tests/GoldenEval.test.ts';const ok=fs.existsSync(f);console.log(ok?'K2_2_EVAL_PRESENT':'K2_2_EVAL_ABSENT');process.exit(ok?0:1)"
+      ],
+      "expected_classification": "FAIL",
+      "required_head": "base_sha"
+    },
+    {
+      "id": "k2-2-registry-adapter-suite",
+      "command": "node",
+      "args": [
+        "--input-type=module",
+        "-e",
+        "const fs=await import('node:fs');const f='tests/unit/server.modules.legal.knowledge.VerifiedRegistrySourceCatalogAdapter.test.ts';const ok=fs.existsSync(f);console.log(ok?'K2_2_ADAPTER_PRESENT':'K2_2_ADAPTER_ABSENT');process.exit(ok?0:1)"
+      ],
+      "expected_classification": "FAIL",
+      "required_head": "base_sha"
+    }
+  ],
+  "required_green": [
+    {
+      "id": "k2-2-governed-corpus-suite",
+      "command": "npx",
+      "args": [
+        "vitest",
+        "run",
+        "--config",
+        "vitest.config.ts",
+        "packages/mps-knowledge-corpus/tests",
+        "packages/mps-knowledge-index/tests",
+        "packages/mps-knowledge-eval/tests"
+      ],
+      "timeout_ms": 600000,
+      "required_head": "candidate_sha"
+    },
+    {
+      "id": "k2-2-governed-index-suite",
+      "command": "npx",
+      "args": [
+        "vitest",
+        "run",
+        "--config",
+        "vitest.config.ts",
+        "packages/mps-legal-corpus/tests"
+      ],
+      "timeout_ms": 600000,
+      "required_head": "candidate_sha"
+    },
+    {
+      "id": "k2-2-golden-eval-suite",
+      "command": "npx",
+      "args": [
+        "vitest",
+        "run",
+        "--config",
+        "vitest.config.ts",
+        "packages/mps-retrieval-trace/tests",
+        "--testTimeout=20000"
+      ],
+      "timeout_ms": 600000,
+      "required_head": "candidate_sha"
+    },
+    {
+      "id": "k2-2-registry-adapter-suite",
+      "command": "npx",
+      "args": [
+        "vitest",
+        "run",
+        "--config",
+        "vitest.config.ts",
+        "tests/unit/server.modules.legal.knowledge.VerifiedRegistrySourceCatalogAdapter.test.ts",
+        "packages/mps-legal-retrieval-contract/tests"
+      ],
+      "timeout_ms": 600000,
+      "required_head": "candidate_sha"
+    }
+  ],
+  "trusted_execution": {
+    "issuer": "github-actions:JbmbAb/Milj-beslut-V1.2:devgov-v0-attest",
+    "key_id": "devgov-ci-ed25519-v1"
+  },
+  "remote": {
+    "name": "origin",
+    "branch": "claude/k2-2-dev-gov-packaging-v1",
+    "push_policy": "no_force",
+    "absent_policy": "deny_absent"
+  }
+}
