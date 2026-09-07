@@ -1,0 +1,58 @@
+{
+  "schema_version": "dev-gov-v1-unit-definition",
+  "unit": "DEV-GOV-MULTIPROOF-GATE-BOOTSTRAP",
+  "role": "producer",
+  "mode": "writer",
+  "branch": "chatgpt/devgov-orchestration-multi-proof",
+  "base_sha": "7cdc54a7650a9640029e04f6374defd6b3132c98",
+  "ancestry_policy": "descendant_of_base",
+  "allowed_paths": [
+    ".github/workflows/devgov-v0-gate.yml",
+    "scripts/audit/devgovOrchestration.test.ts",
+    "governance/devgov/units/dev-gov-multiproof-gate-bootstrap.json"
+  ],
+  "forbidden_paths": [
+    ".github/workflows/devgov-v0-attest.yml",
+    ".github/workflows/devgov-v0-orchestrate.yml",
+    "scripts/devgov/**",
+    "governance/devgov/schema/**",
+    "governance/devgov/units/knowledge-k2-2-governed-corpus-expansion-eval-v1.json",
+    "prisma/**",
+    "**/*cesium*"
+  ],
+  "required_red": [
+    {
+      "id": "explicit-multiproof-gate-contract",
+      "command": "node",
+      "args": [
+        "--input-type=module",
+        "-e",
+        "const fs=await import('node:fs');const Y=await import('yaml');const p='.github/workflows/devgov-v0-gate.yml';const w=Y.parse(fs.readFileSync(p,'utf8'));const gate=w?.jobs?.['evidence-gate'];const inputs=w?.on?.workflow_dispatch?.inputs;const plan=gate?.steps?.find(s=>s.name==='Inspect required proof cardinality');const download=gate?.steps?.find(s=>s.name==='Download trusted attestations from explicit run set');const verify=gate?.steps?.find(s=>s.name==='Verify trusted execution attestations');const errors=[];if(!inputs?.attestation_run_ids)errors.push('missing attestation_run_ids input');if(!download?.run?.includes('gh run download \"$run_id\"'))errors.push('missing explicit run-set artifact download');if(!plan?.run?.includes('definition.required_red')||!plan?.run?.includes('definition.required_green'))errors.push('cardinality is not derived from the unit definition');if(verify?.env?.EXPECTED_RED_COUNT!=='${{ steps.proof_plan.outputs.red_count }}'||verify?.env?.EXPECTED_GREEN_COUNT!=='${{ steps.proof_plan.outputs.green_count }}')errors.push('expected cardinality is not wired from the proof plan');if(!verify?.run?.includes('test \"${#red[@]}\" -eq \"$EXPECTED_RED_COUNT\"')||!verify?.run?.includes('test \"${#green[@]}\" -eq \"$EXPECTED_GREEN_COUNT\"'))errors.push('downloaded attestations are not checked against unit cardinality');if(errors.length){console.error('MULTIPROOF_GATE_INVALID: '+errors.join('; '));process.exit(1)}const {startVitest}=await import('vitest/node');const v=await startVitest('test',['scripts/audit/devgovOrchestration.test.ts'],{config:'scripts/devgov/vitest.config.mjs',run:true,watch:false});const files=v?.state.getFiles()||[];const passed=files.length===1&&files.every(f=>f.result?.state==='pass');await v?.close();process.exit(passed?0:1)"
+      ],
+      "expected_classification": "FAIL",
+      "required_head": "base_sha"
+    }
+  ],
+  "required_green": [
+    {
+      "id": "explicit-multiproof-gate-contract",
+      "command": "node",
+      "args": [
+        "--input-type=module",
+        "-e",
+        "const fs=await import('node:fs');const Y=await import('yaml');const p='.github/workflows/devgov-v0-gate.yml';const w=Y.parse(fs.readFileSync(p,'utf8'));const gate=w?.jobs?.['evidence-gate'];const inputs=w?.on?.workflow_dispatch?.inputs;const plan=gate?.steps?.find(s=>s.name==='Inspect required proof cardinality');const download=gate?.steps?.find(s=>s.name==='Download trusted attestations from explicit run set');const verify=gate?.steps?.find(s=>s.name==='Verify trusted execution attestations');const errors=[];if(!inputs?.attestation_run_ids)errors.push('missing attestation_run_ids input');if(!download?.run?.includes('gh run download \"$run_id\"'))errors.push('missing explicit run-set artifact download');if(!plan?.run?.includes('definition.required_red')||!plan?.run?.includes('definition.required_green'))errors.push('cardinality is not derived from the unit definition');if(verify?.env?.EXPECTED_RED_COUNT!=='${{ steps.proof_plan.outputs.red_count }}'||verify?.env?.EXPECTED_GREEN_COUNT!=='${{ steps.proof_plan.outputs.green_count }}')errors.push('expected cardinality is not wired from the proof plan');if(!verify?.run?.includes('test \"${#red[@]}\" -eq \"$EXPECTED_RED_COUNT\"')||!verify?.run?.includes('test \"${#green[@]}\" -eq \"$EXPECTED_GREEN_COUNT\"'))errors.push('downloaded attestations are not checked against unit cardinality');if(errors.length){console.error('MULTIPROOF_GATE_INVALID: '+errors.join('; '));process.exit(1)}const {startVitest}=await import('vitest/node');const v=await startVitest('test',['scripts/audit/devgovOrchestration.test.ts'],{config:'scripts/devgov/vitest.config.mjs',run:true,watch:false});const files=v?.state.getFiles()||[];const passed=files.length===1&&files.every(f=>f.result?.state==='pass');await v?.close();process.exit(passed?0:1)"
+      ],
+      "required_head": "candidate_sha"
+    }
+  ],
+  "trusted_execution": {
+    "issuer": "github-actions:JbmbAb/Milj-beslut-V1.2:devgov-v0-attest",
+    "key_id": "devgov-ci-ed25519-v1"
+  },
+  "remote": {
+    "name": "origin",
+    "branch": "chatgpt/devgov-orchestration-multi-proof",
+    "push_policy": "no_force",
+    "absent_policy": "deny_absent"
+  }
+}
