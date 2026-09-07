@@ -24,6 +24,10 @@ on:
         description: Parent orchestration run containing all RED/GREEN attestation artifacts
         required: false
         type: string
+      attestation_run_ids:
+        description: Comma, whitespace, or JSON-array list of trusted attestation runs
+        required: false
+        type: string
 
 permissions:
   actions: read
@@ -109,17 +113,28 @@ jobs:
       - name: Validate attestation artifact source
         env:
           ATTESTATION_RUN_ID: ${{ inputs.attestation_run_id }}
+          ATTESTATION_RUN_IDS: ${{ inputs.attestation_run_ids }}
           RED_RUN_ID: ${{ inputs.red_run_id }}
           GREEN_RUN_ID: ${{ inputs.green_run_id }}
         run: |
           set -euo pipefail
+          configured=0
           if [ -n "$ATTESTATION_RUN_ID" ]; then
+            configured=$((configured + 1))
             test -z "$RED_RUN_ID"
             test -z "$GREEN_RUN_ID"
-          else
+          fi
+          if [ -n "$ATTESTATION_RUN_IDS" ]; then
+            configured=$((configured + 1))
+            test -z "$RED_RUN_ID"
+            test -z "$GREEN_RUN_ID"
+          fi
+          if [ -n "$RED_RUN_ID" ] || [ -n "$GREEN_RUN_ID" ]; then
+            configured=$((configured + 1))
             test -n "$RED_RUN_ID"
             test -n "$GREEN_RUN_ID"
           fi
+          test "$configured" -eq 1
 
       - name: Download all trusted RED attestations from orchestrated parent run
         if: inputs.attestation_run_id != '' && steps.proof_plan.outputs.red_count != '0'
@@ -141,8 +156,47 @@ jobs:
           pattern: devgov-attestation-GREEN-*
           path: ${{ runner.temp }}/devgov-attestations/green
 
+      - name: Download trusted attestations from explicit run set
+        if: inputs.attestation_run_ids != ''
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ATTESTATION_RUN_IDS: ${{ inputs.attestation_run_ids }}
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/devgov-attestations/red" "$RUNNER_TEMP/devgov-attestations/green"
+          node <<'NODE' > "$RUNNER_TEMP/devgov-attestation-run-ids.txt"
+          const raw = process.env.ATTESTATION_RUN_IDS || '';
+          let ids;
+          if (raw.trim().startsWith('[')) {
+            ids = JSON.parse(raw);
+          } else {
+            ids = raw.split(/[,\s]+/).filter(Boolean);
+          }
+          if (!Array.isArray(ids) || ids.length === 0) {
+            throw new Error('attestation_run_ids must contain at least one run id');
+          }
+          const normalized = ids.map((id) => String(id).trim());
+          for (const id of normalized) {
+            if (!/^[0-9]+$/.test(id)) throw new Error(`invalid attestation run id: ${id}`);
+          }
+          if (new Set(normalized).size !== normalized.length) {
+            throw new Error('duplicate attestation run id');
+          }
+          process.stdout.write(`${normalized.join('\n')}\n`);
+          NODE
+          while IFS= read -r run_id; do
+            gh run download "$run_id" \
+              --repo "$GITHUB_REPOSITORY" \
+              --pattern 'devgov-attestation-RED-*' \
+              --dir "$RUNNER_TEMP/devgov-attestations/red" || true
+            gh run download "$run_id" \
+              --repo "$GITHUB_REPOSITORY" \
+              --pattern 'devgov-attestation-GREEN-*' \
+              --dir "$RUNNER_TEMP/devgov-attestations/green" || true
+          done < "$RUNNER_TEMP/devgov-attestation-run-ids.txt"
+
       - name: Download trusted RED attestation from manual run
-        if: inputs.attestation_run_id == ''
+        if: inputs.attestation_run_id == '' && inputs.attestation_run_ids == ''
         uses: actions/download-artifact@v4
         with:
           github-token: ${{ github.token }}
@@ -152,7 +206,7 @@ jobs:
           path: ${{ runner.temp }}/devgov-attestations/red
 
       - name: Download trusted GREEN attestation from manual run
-        if: inputs.attestation_run_id == ''
+        if: inputs.attestation_run_id == '' && inputs.attestation_run_ids == ''
         uses: actions/download-artifact@v4
         with:
           github-token: ${{ github.token }}

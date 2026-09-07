@@ -48,7 +48,10 @@ describe('DEV-GOV-V0 multi-proof orchestration', () => {
     expect(workflow.on.workflow_dispatch).toBeTruthy();
     expect(gate.environment).toBe('devgov-attestation');
     expect(source).toContain('attestation_run_id');
+    expect(source).toContain('attestation_run_ids');
     expect(source).toContain('run-id: ${{ inputs.attestation_run_id }}');
+    expect(source).toContain('Download trusted attestations from explicit run set');
+    expect(source).toContain('gh run download "$run_id"');
     expect(source).toContain('pattern: devgov-attestation-RED-*');
     expect(source).toContain('pattern: devgov-attestation-GREEN-*');
     expect(verify.run).toContain('test "${#red[@]}" -eq "$EXPECTED_RED_COUNT"');
