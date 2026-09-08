@@ -1,0 +1,25 @@
+{
+  "name": "@miljobeslut/mps-knowledge-corpus",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "main": "./src/index.ts",
+  "types": "./src/index.ts",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "description": "KNOWLEDGE-K2.2 -- deterministic governed corpus projection kernel: authorized source binding -> content-derived document identity -> TEXT-L1 projection -> versioned role -> chunk admission -> provenance chain. No storage, no embeddings, no LLM calls, no authority creation.",
+  "scripts": {
+    "typecheck": "tsc --noEmit -p tsconfig.json"
+  },
+  "dependencies": {
+    "@miljobeslut/mimers-brunn-core": "file:../mimers-brunn-core",
+    "@miljobeslut/mps-chunking": "file:../mps-chunking",
+    "@miljobeslut/mps-legal-corpus": "file:../mps-legal-corpus",
+    "@miljobeslut/mps-text-projection": "file:../mps-text-projection"
+  },
+  "devDependencies": {
+    "typescript": "^5.5.0",
+    "vitest": "^4.1.10"
+  }
+}

@@ -9,7 +9,12 @@ import {
   LegalCorpusGateError,
   type LegalCorpusImportAttestationPredicate,
 } from './CorpusImportAttestation';
-import { checkManifestCompleteness, type IngestionManifestEntry, type ManifestStore } from './IngestionManifest';
+import {
+  checkManifestCompleteness,
+  type IngestionManifestEntry,
+  type ManifestStore,
+} from './IngestionManifest';
+import type { RegistryAdmissionAuthority } from './SourceRegistryAdmissionAuthority';
 
 /**
  * ADR: docs/architecture/ADR-LEGAL-CORPUS-IMPORT-GATE.md (ACCEPTED / FROZEN).
@@ -75,6 +80,19 @@ export class CorpusImportGate {
     private readonly manifestStore: ManifestStore,
     private readonly corpusWriter: CorpusWriter,
     private readonly signing: SigningKeyProvider,
+    /**
+     * K2.1 — CORPUS-ADMISSION-REGISTRY-BINDING. Required, with no default, for the same reason
+     * `signing` has no default: this gate is storage- and infrastructure-agnostic, and every
+     * authority it depends on is injected explicitly by a composition root.
+     *
+     * K2.1b: an earlier revision defaulted this to a concrete registry-backed implementation so
+     * existing call sites would not have to change. That was wrong twice over — it made this
+     * package import `mps-data-governance` internals across a documented boundary, and it turned
+     * a wiring omission into a silent runtime denial at admission time instead of a visible
+     * error at composition time. A required parameter makes an unwired caller impossible to
+     * ship rather than merely unlucky at runtime.
+     */
+    private readonly registryAuthority: RegistryAdmissionAuthority,
   ) {}
 
   async importBatch(request: CorpusImportBatchRequest): Promise<CorpusImportBatchResult> {
@@ -193,6 +211,23 @@ export class CorpusImportGate {
       typeof approverRole === 'string' &&
       approverRole.length > 0;
 
+    // K2.1 — CORPUS-ADMISSION-REGISTRY-BINDING. An additional authority-binding check,
+    // alongside the ten checks below (unchanged, same order, same behavior) — not a
+    // replacement or reordering of any of them. Resolved before the existing checks are
+    // evaluated so a registry-authority failure fails this document exactly like any other
+    // ordered check, never bypassing or short-circuiting around them.
+    const registryArtifactId = predicate.registry_artifact_id;
+    const registrySourceContentHash = predicate.registry_source_content_hash;
+    const registryAdmission =
+      typeof registryArtifactId === 'string' && typeof registrySourceContentHash === 'string'
+        ? await this.registryAuthority.checkAdmissible(registryArtifactId, registrySourceContentHash)
+        : {
+            ok: false as const,
+            reason: 'ARTIFACT_NOT_FOUND' as const,
+            detail: 'attestation predicate is missing registry_artifact_id / registry_source_content_hash.',
+          };
+    const registryBound = registryAdmission.ok;
+
     const orderedFailureChecks: ReadonlyArray<readonly [boolean, string]> = [
       [
         chunkOrderValid,
@@ -214,6 +249,10 @@ export class CorpusImportGate {
       ],
       [chunkPolicyBound, 'attestation is missing a valid chunk_policy_version.'],
       [approverBound, 'attestation is missing valid approver_actor_id/approver_role in the signed payload.'],
+      [
+        registryBound,
+        `attestation registry binding rejected (${registryAdmission.reason ?? 'UNKNOWN'}): ${registryAdmission.detail}`,
+      ],
     ];
 
     const firstFailure = orderedFailureChecks.find(([ok]) => !ok);

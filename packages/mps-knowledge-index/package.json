@@ -1,0 +1,28 @@
+{
+  "name": "@miljobeslut/mps-knowledge-index",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "main": "./src/index.ts",
+  "types": "./src/index.ts",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "description": "KNOWLEDGE-K2.2 -- retrieval-ready index projection over a governed corpus snapshot. A disposable, rebuildable READ MODEL: embedding-provider port, embedding identity binding, stale/mismatch detection, metadata-narrowed deterministic search, registry-bound provenance on every result. Never authority.",
+  "scripts": {
+    "typecheck": "tsc --noEmit -p tsconfig.json"
+  },
+  "dependencies": {
+    "@miljobeslut/mimers-brunn-core": "file:../mimers-brunn-core",
+    "@miljobeslut/mps-chunking": "file:../mps-chunking",
+    "@miljobeslut/mps-embedding-identity": "file:../mps-embedding-identity",
+    "@miljobeslut/mps-knowledge-corpus": "file:../mps-knowledge-corpus",
+    "@miljobeslut/mps-legal-retrieval-contract": "file:../mps-legal-retrieval-contract",
+    "@miljobeslut/mps-retrieval-governance": "file:../mps-retrieval-governance",
+    "@miljobeslut/mps-retrieval-trace": "file:../mps-retrieval-trace"
+  },
+  "devDependencies": {
+    "typescript": "^5.5.0",
+    "vitest": "^4.1.10"
+  }
+}

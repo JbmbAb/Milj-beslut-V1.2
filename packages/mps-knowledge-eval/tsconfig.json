@@ -1,0 +1,12 @@
+{
+  // NOTE: resolution of @miljobeslut/mps-* is by the root tsconfig `paths` + vitest aliases; the
+  // `file:` dependencies in package.json are declarative only (root package.json is untouched by
+  // K2.2). The `typecheck` script is known-red on an UPSTREAM error in
+  // packages/mps-legal-corpus/src/ChunkIdentity.ts (5 TS2339s at line 224-228, pre-existing).
+  "extends": "../../tsconfig.json",
+  "compilerOptions": {
+    "noEmit": true,
+    "composite": false
+  },
+  "include": ["src/**/*.ts", "tests/**/*.ts", "fixtures/**/*.ts"]
+}
