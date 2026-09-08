@@ -1,0 +1,37 @@
+{
+  "schema_version": "multi-agent-state-transitions-v1",
+  "controller_contract_version": "multi-agent-control-plane-v1",
+  "transitions": {
+    "PLANNED": ["IMPLEMENTING", "BLOCKED_DESIGN", "BLOCKED_DEPENDENCY", "CANCELLED"],
+    "IMPLEMENTING": ["IMPLEMENTATION_READY", "BLOCKED_ENVIRONMENT", "BLOCKED_DESIGN", "BLOCKED_DEPENDENCY", "CANCELLED", "SUPERSEDED"],
+    "IMPLEMENTATION_READY": ["VERIFYING", "IMPLEMENTING", "CANCELLED", "SUPERSEDED"],
+    "VERIFYING": ["READY_FOR_DEV_GOV", "VERIFY_FAILED", "BLOCKED_ENVIRONMENT", "BLOCKED_DESIGN", "BLOCKED_DEPENDENCY", "CANCELLED", "SUPERSEDED"],
+    "VERIFY_FAILED": ["IMPLEMENTING", "CANCELLED", "SUPERSEDED"],
+    "READY_FOR_DEV_GOV": ["PROVING_RED", "BLOCKED_ENVIRONMENT", "BLOCKED_DEPENDENCY", "CANCELLED", "SUPERSEDED"],
+    "PROVING_RED": ["PROVING_GREEN", "BLOCKED_ENVIRONMENT", "BLOCKED_DEPENDENCY", "CANCELLED", "SUPERSEDED"],
+    "PROVING_GREEN": ["GATING", "BLOCKED_ENVIRONMENT", "BLOCKED_DEPENDENCY", "CANCELLED", "SUPERSEDED"],
+    "GATING": ["GATE_PASSED", "GATE_FAILED", "BLOCKED_ENVIRONMENT", "BLOCKED_DEPENDENCY", "CANCELLED", "SUPERSEDED"],
+    "GATE_FAILED": ["READY_FOR_DEV_GOV", "IMPLEMENTING", "BLOCKED_DESIGN", "BLOCKED_DEPENDENCY", "CANCELLED", "SUPERSEDED"],
+    "GATE_PASSED": ["PROMOTING", "BLOCKED_DEPENDENCY", "CANCELLED", "SUPERSEDED"],
+    "PROMOTING": ["PROMOTED", "PROMOTION_FAILED", "BLOCKED_ENVIRONMENT", "BLOCKED_DEPENDENCY", "CANCELLED", "SUPERSEDED"],
+    "PROMOTION_FAILED": ["GATE_PASSED", "BLOCKED_ENVIRONMENT", "BLOCKED_DEPENDENCY", "CANCELLED", "SUPERSEDED"],
+    "PROMOTED": ["CLOSED"],
+    "CLOSED": [],
+    "BLOCKED_ENVIRONMENT": ["IMPLEMENTING", "VERIFYING", "READY_FOR_DEV_GOV", "PROVING_RED", "PROVING_GREEN", "GATING", "GATE_PASSED", "PROMOTING", "CANCELLED", "SUPERSEDED"],
+    "BLOCKED_DESIGN": ["PLANNED", "IMPLEMENTING", "VERIFY_FAILED", "CANCELLED", "SUPERSEDED"],
+    "BLOCKED_DEPENDENCY": ["PLANNED", "IMPLEMENTING", "VERIFYING", "READY_FOR_DEV_GOV", "GATE_PASSED", "PROMOTING", "CANCELLED", "SUPERSEDED"],
+    "CANCELLED": [],
+    "SUPERSEDED": []
+  },
+  "guards": {
+    "IMPLEMENTATION_READY->VERIFYING": ["candidate_sha_present", "implementation_handoff_present", "implementer_lease_released_or_read_only"],
+    "VERIFYING->READY_FOR_DEV_GOV": ["verifier_pass", "verifier_independent", "verifier_candidate_sha_matches"],
+    "READY_FOR_DEV_GOV->PROVING_RED": ["proof_contract_present", "candidate_sha_matches"],
+    "PROVING_RED->PROVING_GREEN": ["all_required_red_complete", "red_candidate_sha_matches"],
+    "PROVING_GREEN->GATING": ["all_required_green_complete", "green_follows_red", "green_candidate_sha_matches"],
+    "GATING->GATE_PASSED": ["canonical_gate_pass", "gate_candidate_sha_matches", "proof_contract_hash_matches"],
+    "GATE_PASSED->PROMOTING": ["canonical_gate_pass_current", "candidate_not_superseded"],
+    "PROMOTING->PROMOTED": ["non_force_fast_forward", "remote_head_equals_candidate_sha"],
+    "PROMOTED->CLOSED": ["post_promotion_identity_verified", "closure_artifact_present"]
+  }
+}
