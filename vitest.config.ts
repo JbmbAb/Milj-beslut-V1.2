@@ -63,6 +63,19 @@ export default defineConfig({
       ),
       '@miljobeslut/mps-knowledge-eval': path.resolve(__dirname, 'packages/mps-knowledge-eval/src/index.ts'),
       // KNOWLEDGE-CONTROL-PLANE-INTEGRATION-V1
+      //
+      // This file (and tsconfig.json) is also listed in the `allowed_paths` of the
+      // already-frozen, already-reconciled-into-main
+      // governance/devgov/units/knowledge-k2-2-governed-corpus-expansion-eval-v1.json.
+      // That is a known, reviewed fact, not an oversight: both units legitimately needed
+      // to append new entries to this shared root config, at different times, and neither
+      // unit's diff ever touches a line the other one added. `classifyDiffScope` in
+      // scripts/devgov/devgov.mjs only ever checks ONE unit's own diff against that same
+      // unit's own allowed/forbidden paths -- it does not perform cross-unit reservation or
+      // locking, so this does not create a live governance conflict. The DEV-GOV schema
+      // (governance/devgov/schema/dev-gov-v1-unit-definition.schema.json) has no field for
+      // declaring a shared/dependency relationship between two unit definitions, so this
+      // note lives here, next to the actual shared edit, instead of in either JSON file.
       '@miljobeslut/mps-knowledge-control-plane-adapter': path.resolve(
         __dirname,
         'packages/mps-knowledge-control-plane-adapter/src/index.ts',
