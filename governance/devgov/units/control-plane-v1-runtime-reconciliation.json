@@ -1,0 +1,92 @@
+{
+  "schema_version": "dev-gov-v1-unit-definition",
+  "unit": "CONTROL-PLANE-V1-RUNTIME-RECONCILIATION",
+  "role": "producer",
+  "mode": "writer",
+  "branch": "integration/control-plane-main-reconciliation-v1",
+  "base_sha": "f199d18ea5d71b66383b0571e8c88226fff5a5cc",
+  "ancestry_policy": "descendant_of_base",
+  "allowed_paths": [
+    "docs/architecture/MULTI-AGENT-CONTROL-PLANE-V1.md",
+    "governance/control-plane/schema/agent-handoff-v1.schema.json",
+    "governance/control-plane/schema/lease-v1.schema.json",
+    "governance/control-plane/schema/unit-state-v1.schema.json",
+    "governance/control-plane/state-transitions-v1.json",
+    "packages/mps-control-plane/src/index.ts",
+    "packages/mps-control-plane/src/multi-agent/AgentHandoffCodec.ts",
+    "packages/mps-control-plane/src/multi-agent/Coordinator.ts",
+    "packages/mps-control-plane/src/multi-agent/DevGovAuthoritativeProof.ts",
+    "packages/mps-control-plane/src/multi-agent/DevGovReconciler.ts",
+    "packages/mps-control-plane/src/multi-agent/DevGovTelemetryObservation.ts",
+    "packages/mps-control-plane/src/multi-agent/DurableCoordinator.ts",
+    "packages/mps-control-plane/src/multi-agent/EventLog.ts",
+    "packages/mps-control-plane/src/multi-agent/FileAgentMailbox.ts",
+    "packages/mps-control-plane/src/multi-agent/FileDurableControlPlaneStore.ts",
+    "packages/mps-control-plane/src/multi-agent/GitHubDevGovDispatchAdapter.ts",
+    "packages/mps-control-plane/src/multi-agent/GitHubRunCorrelation.ts",
+    "packages/mps-control-plane/src/multi-agent/HandoffIngestor.ts",
+    "packages/mps-control-plane/src/multi-agent/LeaseRegistry.ts",
+    "packages/mps-control-plane/src/multi-agent/Ports.ts",
+    "packages/mps-control-plane/src/multi-agent/ProcessAgentWorker.ts",
+    "packages/mps-control-plane/src/multi-agent/Router.ts",
+    "packages/mps-control-plane/src/multi-agent/StateMachine.ts",
+    "packages/mps-control-plane/src/multi-agent/index.ts",
+    "packages/mps-control-plane/src/multi-agent/types.ts",
+    "tests/unit/control-plane/MultiAgentControlPlanePersistenceRoutingV1.test.ts",
+    "tests/unit/control-plane/MultiAgentControlPlaneV1.test.ts",
+    "tests/unit/control-plane/MultiAgentCoordinatorActivationV1.test.ts",
+    "tests/unit/control-plane/MultiAgentCrashRetryIdempotencyV1.test.ts",
+    "tests/unit/control-plane/MultiAgentDevGovAuthorityBindingV1.test.ts",
+    "tests/unit/control-plane/MultiAgentDevGovReconcilerV1.test.ts",
+    "tests/unit/control-plane/MultiAgentDispatchAdaptersV1.test.ts",
+    "tests/unit/control-plane/MultiAgentDurableCoordinatorV1.test.ts",
+    "tests/unit/control-plane/MultiAgentGitHubRunCorrelationV1.test.ts",
+    "tests/unit/control-plane/MultiAgentProcessWorkerV1.test.ts",
+    "governance/devgov/units/control-plane-v1-runtime-reconciliation.json"
+  ],
+  "forbidden_paths": [
+    ".github/**",
+    "scripts/devgov/**",
+    "governance/devgov/schema/**",
+    "prisma/**"
+  ],
+  "required_red": [
+    {
+      "id": "control-plane-v1-runtime-absent-on-base",
+      "command": "node",
+      "args": [
+        "--input-type=module",
+        "-e",
+        "const fs=await import('node:fs');const f='packages/mps-control-plane/src/multi-agent/DevGovAuthoritativeProof.ts';const ok=fs.existsSync(f);console.log(ok?'CONTROL_PLANE_V1_PRESENT':'CONTROL_PLANE_V1_ABSENT');process.exit(ok?0:1)"
+      ],
+      "expected_classification": "FAIL",
+      "required_head": "base_sha"
+    }
+  ],
+  "required_green": [
+    {
+      "id": "control-plane-v1-runtime-suite",
+      "command": "npx",
+      "args": [
+        "vitest",
+        "run",
+        "--config",
+        "vitest.config.ts",
+        "packages/mps-control-plane/src/unit",
+        "tests/unit/control-plane"
+      ],
+      "timeout_ms": 600000,
+      "required_head": "candidate_sha"
+    }
+  ],
+  "trusted_execution": {
+    "issuer": "github-actions:JbmbAb/Milj-beslut-V1.2:devgov-v0-attest",
+    "key_id": "devgov-ci-ed25519-v1"
+  },
+  "remote": {
+    "name": "origin",
+    "branch": "integration/control-plane-main-reconciliation-v1",
+    "push_policy": "no_force",
+    "absent_policy": "deny_absent"
+  }
+}
