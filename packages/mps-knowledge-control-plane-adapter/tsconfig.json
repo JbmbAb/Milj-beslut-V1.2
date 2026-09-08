@@ -1,0 +1,11 @@
+{
+  // NOTE: resolution of @miljobeslut/mps-* is by the root tsconfig `paths` + vitest aliases; the
+  // `file:` dependency in package.json is declarative only, matching the KNOWLEDGE-K2.2 precedent
+  // in packages/mps-knowledge-eval/tsconfig.json.
+  "extends": "../../tsconfig.json",
+  "compilerOptions": {
+    "noEmit": true,
+    "composite": false
+  },
+  "include": ["src/**/*.ts", "tests/**/*.ts"]
+}

@@ -62,6 +62,11 @@ export default defineConfig({
         'packages/mps-knowledge-index/src/index.ts',
       ),
       '@miljobeslut/mps-knowledge-eval': path.resolve(__dirname, 'packages/mps-knowledge-eval/src/index.ts'),
+      // KNOWLEDGE-CONTROL-PLANE-INTEGRATION-V1
+      '@miljobeslut/mps-knowledge-control-plane-adapter': path.resolve(
+        __dirname,
+        'packages/mps-knowledge-control-plane-adapter/src/index.ts',
+      ),
       '@miljobeslut/spatial-provider-postgis': path.resolve(
         __dirname,
         'packages/spatial-provider-postgis/src/index.ts',
@@ -263,6 +268,19 @@ export default defineConfig({
               __dirname,
               'packages/mps-knowledge-eval/src/index.ts',
             ),
+            // KNOWLEDGE-CONTROL-PLANE-INTEGRATION-V1: this adapter package's own tests import
+            // '@miljobeslut/mps-control-plane' directly (cross-package, like mps-knowledge-eval's
+            // tests import mps-knowledge-corpus), and root-level resolve.alias does not reliably
+            // reach vitest `projects` entries in this setup (see the comment above this project's
+            // own alias block on the 'unit' project).
+            '@miljobeslut/mps-control-plane': path.resolve(
+              __dirname,
+              'packages/mps-control-plane/src/index.ts',
+            ),
+            '@miljobeslut/mps-knowledge-control-plane-adapter': path.resolve(
+              __dirname,
+              'packages/mps-knowledge-control-plane-adapter/src/index.ts',
+            ),
           },
         },
         test: {
@@ -295,6 +313,8 @@ export default defineConfig({
             'packages/mps-knowledge-corpus/**/*.test.ts',
             'packages/mps-knowledge-index/**/*.test.ts',
             'packages/mps-knowledge-eval/**/*.test.ts',
+            // KNOWLEDGE-CONTROL-PLANE-INTEGRATION-V1
+            'packages/mps-knowledge-control-plane-adapter/**/*.test.ts',
           ],
           environment: 'node',
           setupFiles: ['tests/setup/env.ts'],
