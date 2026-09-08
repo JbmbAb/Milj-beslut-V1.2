@@ -1,0 +1,93 @@
+{
+  "schema_version": "dev-gov-v1-unit-definition",
+  "unit": "KNOWLEDGE-CONTROL-PLANE-INTEGRATION-V1",
+  "role": "producer",
+  "mode": "writer",
+  "branch": "ultracode/knowledge-control-plane-integration-v1",
+  "base_sha": "0d7b2bd566b0d5f7c9d27d645c941acd66cb1e85",
+  "ancestry_policy": "descendant_of_base",
+  "allowed_paths": [
+    "governance/devgov/units/knowledge-control-plane-integration-v1.json",
+    "packages/mps-knowledge-control-plane-adapter/package.json",
+    "packages/mps-knowledge-control-plane-adapter/tsconfig.json",
+    "packages/mps-knowledge-control-plane-adapter/src/KnowledgeHandoffCodec.ts",
+    "packages/mps-knowledge-control-plane-adapter/src/KnowledgeUnitMetrics.ts",
+    "packages/mps-knowledge-control-plane-adapter/src/KnowledgeUnitSeed.ts",
+    "packages/mps-knowledge-control-plane-adapter/src/index.ts",
+    "packages/mps-knowledge-control-plane-adapter/src/types.ts",
+    "packages/mps-knowledge-control-plane-adapter/tests/KnowledgeHandoffCodec.test.ts",
+    "packages/mps-knowledge-control-plane-adapter/tests/KnowledgeUnitMetrics.test.ts",
+    "packages/mps-knowledge-control-plane-adapter/tests/KnowledgeUnitSeed.test.ts",
+    "scripts/knowledge/control-plane-dispatch.ts",
+    "tests/unit/control-plane/KnowledgeControlPlaneAdapterV1.test.ts",
+    "tsconfig.json",
+    "vitest.config.ts"
+  ],
+  "forbidden_paths": [
+    ".github/**",
+    "scripts/devgov/**",
+    "governance/devgov/schema/**",
+    "prisma/**"
+  ],
+  "required_red": [
+    {
+      "id": "knowledge-control-plane-adapter-package-absent-on-base",
+      "command": "node",
+      "args": [
+        "--input-type=module",
+        "-e",
+        "const fs=await import('node:fs');const f='packages/mps-knowledge-control-plane-adapter/src/index.ts';const ok=fs.existsSync(f);console.log(ok?'KNOWLEDGE_CP_ADAPTER_PRESENT':'KNOWLEDGE_CP_ADAPTER_ABSENT');process.exit(ok?0:1)"
+      ],
+      "expected_classification": "FAIL",
+      "required_head": "base_sha"
+    },
+    {
+      "id": "knowledge-control-plane-composition-root-absent-on-base",
+      "command": "node",
+      "args": [
+        "--input-type=module",
+        "-e",
+        "const fs=await import('node:fs');const f='scripts/knowledge/control-plane-dispatch.ts';const ok=fs.existsSync(f);console.log(ok?'KNOWLEDGE_CP_DISPATCH_PRESENT':'KNOWLEDGE_CP_DISPATCH_ABSENT');process.exit(ok?0:1)"
+      ],
+      "expected_classification": "FAIL",
+      "required_head": "base_sha"
+    },
+    {
+      "id": "knowledge-control-plane-roundtrip-test-absent-on-base",
+      "command": "node",
+      "args": [
+        "--input-type=module",
+        "-e",
+        "const fs=await import('node:fs');const f='tests/unit/control-plane/KnowledgeControlPlaneAdapterV1.test.ts';const ok=fs.existsSync(f);console.log(ok?'KNOWLEDGE_CP_ROUNDTRIP_PRESENT':'KNOWLEDGE_CP_ROUNDTRIP_ABSENT');process.exit(ok?0:1)"
+      ],
+      "expected_classification": "FAIL",
+      "required_head": "base_sha"
+    }
+  ],
+  "required_green": [
+    {
+      "id": "knowledge-control-plane-adapter-suite",
+      "command": "npx",
+      "args": [
+        "vitest",
+        "run",
+        "--config",
+        "vitest.config.ts",
+        "packages/mps-knowledge-control-plane-adapter/tests",
+        "tests/unit/control-plane/KnowledgeControlPlaneAdapterV1.test.ts"
+      ],
+      "timeout_ms": 600000,
+      "required_head": "candidate_sha"
+    }
+  ],
+  "trusted_execution": {
+    "issuer": "github-actions:JbmbAb/Milj-beslut-V1.2:devgov-v0-attest",
+    "key_id": "devgov-ci-ed25519-v1"
+  },
+  "remote": {
+    "name": "origin",
+    "branch": "ultracode/knowledge-control-plane-integration-v1",
+    "push_policy": "no_force",
+    "absent_policy": "deny_absent"
+  }
+}
