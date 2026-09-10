@@ -1,0 +1,107 @@
+{
+  "schema_version": "dev-gov-v1-unit-definition",
+  "unit": "DEV-GOV-AUTHORITY-CAPABILITY-TRANSPORT-V1",
+  "role": "producer",
+  "mode": "writer",
+  "branch": "codex/devgov-authority-capability-transport-v1",
+  "base_sha": "0d7b2bd566b0d5f7c9d27d645c941acd66cb1e85",
+  "ancestry_policy": "descendant_of_base",
+  "allowed_paths": [
+    ".github/workflows/devgov-v0-attest.yml",
+    ".gitignore",
+    "docs/architecture/ADR-DEVGOV-AUTHORITY-CAPABILITY-TRANSPORT-V1.md",
+    "governance/devgov/authority/catalog-v1.json",
+    "governance/devgov/schema/dev-gov-v1-authority-catalog.schema.json",
+    "governance/devgov/schema/dev-gov-v1-unit-definition.schema.json",
+    "governance/devgov/units/dev-gov-authority-capability-transport-v1.json",
+    "scripts/audit/devgovAuthorityCapability.test.ts",
+    "scripts/audit/devgovAuthorityExecutionBinding.test.ts",
+    "scripts/audit/devgovCliContract.test.ts",
+    "scripts/audit/devgovTrustedAttestation.test.ts",
+    "scripts/audit/devgovTrustedWorkflow.test.ts",
+    "scripts/devgov/authority.mjs",
+    "scripts/devgov/devgov.mjs",
+    "scripts/devgov/trusted-attestation.mjs"
+  ],
+  "forbidden_paths": [
+    "packages/mps-workspace-harness/**",
+    "packages/mps-workspace-observer/**",
+    "packages/mps-workspace-classifier/**",
+    "packages/mps-workspace-lifecycle/**",
+    "prisma/**",
+    "server/**",
+    "client/**"
+  ],
+  "required_red": [
+    {
+      "id": "authority-module-absent",
+      "command": "node",
+      "args": [
+        "--input-type=module",
+        "-e",
+        "const fs=await import('node:fs');const ok=fs.existsSync('scripts/devgov/authority.mjs');console.log(ok?'AUTHORITY_MODULE_PRESENT':'AUTHORITY_MODULE_ABSENT');process.exit(ok?0:1)"
+      ],
+      "expected_classification": "FAIL",
+      "required_head": "base_sha"
+    },
+    {
+      "id": "authority-catalog-absent",
+      "command": "node",
+      "args": [
+        "--input-type=module",
+        "-e",
+        "const fs=await import('node:fs');const ok=fs.existsSync('governance/devgov/authority/catalog-v1.json');console.log(ok?'AUTHORITY_CATALOG_PRESENT':'AUTHORITY_CATALOG_ABSENT');process.exit(ok?0:1)"
+      ],
+      "expected_classification": "FAIL",
+      "required_head": "base_sha"
+    }
+  ],
+  "required_green": [
+    {
+      "id": "authority-module-absent",
+      "command": "npx",
+      "args": [
+        "vitest",
+        "run",
+        "--config",
+        "vitest.config.ts",
+        "scripts/audit/devgovAuthorityCapability.test.ts",
+        "scripts/audit/devgovAuthorityExecutionBinding.test.ts"
+      ],
+      "timeout_ms": 600000,
+      "required_head": "candidate_sha"
+    },
+    {
+      "id": "authority-catalog-absent",
+      "command": "npx",
+      "args": [
+        "vitest",
+        "run",
+        "--config",
+        "vitest.config.ts",
+        "scripts/audit/devgovCliContract.test.ts",
+        "scripts/audit/devgovTrustedAttestation.test.ts",
+        "scripts/audit/devgovTrustedWorkflow.test.ts",
+        "scripts/audit/devgovRedGreenGate.test.ts",
+        "scripts/audit/devgovOrchestration.test.ts",
+        "scripts/audit/devgovTrustRootProvenance.test.ts",
+        "scripts/audit/devgovDerivedTargetIdentity.test.ts",
+        "scripts/audit/devgovExactShaVerification.test.ts",
+        "scripts/audit/devgovExecutionRootIdentity.test.ts",
+        "scripts/audit/devgovPathBranchLock.test.ts"
+      ],
+      "timeout_ms": 900000,
+      "required_head": "candidate_sha"
+    }
+  ],
+  "trusted_execution": {
+    "issuer": "github-actions:JbmbAb/Milj-beslut-V1.2:devgov-v0-attest",
+    "key_id": "devgov-ci-ed25519-v1"
+  },
+  "remote": {
+    "name": "origin",
+    "branch": "codex/devgov-authority-capability-transport-v1",
+    "push_policy": "no_force",
+    "absent_policy": "deny_absent"
+  }
+}

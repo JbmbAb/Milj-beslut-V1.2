@@ -115,6 +115,24 @@ jobs:
           path: execution
           persist-credentials: false
 
+      # Planning only: the candidate may name an authority capability id, and
+      # the protected catalog on the controller commit decides whether that id
+      # exists at all. An unknown or malformed requirement fails here, before any
+      # candidate code has been executed.
+      - name: Resolve declared authority capability from protected catalog
+        env:
+          EXPECTED_SHA: ${{ inputs.candidate_sha }}
+          PROOF_KIND: ${{ inputs.proof_kind }}
+          TEST_ID: ${{ inputs.test_id }}
+          UNIT_DEFINITION_PATH: ${{ inputs.unit_definition_path }}
+        run: |
+          node controller/scripts/devgov/devgov.mjs resolve-authority \
+            --definition "candidate/$UNIT_DEFINITION_PATH" \
+            --candidate-sha "$EXPECTED_SHA" \
+            --worktree candidate \
+            --kind "$PROOF_KIND" \
+            --id "$TEST_ID"
+
       - name: Prepare isolated proof OS identity
         run: |
           run_isolation_command() {
@@ -184,12 +202,20 @@ jobs:
           run_isolation_command safe-directory-execution sudo git config --global --add safe.directory "$GITHUB_WORKSPACE/execution"
           run_isolation_command create-controller-dir sudo install -d -m 0700 -o root -g root "$RUNNER_TEMP/devgov-controller"
           run_isolation_command create-export-dir install -d -m 0700 "$RUNNER_TEMP/devgov-export"
+          # Authority is materialized outside both checkouts, owned by root, and
+          # only traversable by the proof identity. The controller makes the
+          # contents read-only and proves it before handing over the capability.
+          run_isolation_command create-authority-dir sudo install -d -m 0755 -o root -g root "$RUNNER_TEMP/devgov-authority"
 
       - name: Execute declared proof command
         env:
           DEVGOV_CONTROLLER_SHA: ${{ github.sha }}
           DEVGOV_RUNNER_IDENTITY: github-hosted:ubuntu-latest
           DEVGOV_JOB_WORKFLOW_REF: ${{ job.workflow_ref }}
+          # Retrieval credential for the protected authority transport. It is
+          # preserved into the controller only; the controller scrubs it from the
+          # unprivileged proof environment before spawning candidate code.
+          DEVGOV_AUTHORITY_TOKEN: ${{ github.token }}
           PROOF_KIND: ${{ inputs.proof_kind }}
           TEST_ID: ${{ inputs.test_id }}
           CANDIDATE_SHA: ${{ inputs.candidate_sha }}
@@ -198,7 +224,7 @@ jobs:
           export GITHUB_WORKFLOW_REF="$DEVGOV_JOB_WORKFLOW_REF"
           candidate_uid="$(id -u devgov-candidate)"
           candidate_gid="$(id -g devgov-candidate)"
-          sudo --preserve-env=DEVGOV_CONTROLLER_SHA,DEVGOV_RUNNER_IDENTITY,GITHUB_WORKFLOW_REF,GITHUB_RUN_ID,GITHUB_RUN_ATTEMPT \
+          sudo --preserve-env=DEVGOV_CONTROLLER_SHA,DEVGOV_RUNNER_IDENTITY,DEVGOV_AUTHORITY_TOKEN,GITHUB_WORKFLOW_REF,GITHUB_RUN_ID,GITHUB_RUN_ATTEMPT \
             node controller/scripts/devgov/devgov.mjs execute-proof \
             --definition "candidate/$UNIT_DEFINITION_PATH" \
             --candidate-sha "$CANDIDATE_SHA" \
@@ -209,6 +235,7 @@ jobs:
             --run-as-uid "$candidate_uid" \
             --run-as-gid "$candidate_gid" \
             --run-as-home /home/devgov-candidate \
+            --authority-root "$RUNNER_TEMP/devgov-authority" \
             --output "$RUNNER_TEMP/devgov-controller/execution-record.json"
           sudo cp "$RUNNER_TEMP/devgov-controller/execution-record.json" \
             "$RUNNER_TEMP/devgov-export/execution-record.json"

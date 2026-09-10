@@ -5,9 +5,22 @@ import { existsSync, mkdirSync, readFileSync, readdirSync, realpathSync, writeFi
 import { dirname, isAbsolute, relative, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
+import {
+  AUTHORITY_DENIAL,
+  AUTHORITY_RETRIEVAL_TOKEN_ENV,
+  AUTHORITY_STATUS,
+  PROOF_ENV_DENYLIST,
+  catalogCapabilityEnvNames,
+  loadProtectedAuthorityCatalog,
+  notRequiredResolution,
+  planAuthority,
+  readAuthorityRequirement,
+  resolveAuthorityCapability,
+} from './authority.mjs';
 import { verifyVerifierOwnedTrustPolicy } from './github-oidc.mjs';
 import {
   EXECUTION_RECORD_SCHEMA,
+  authorityBindingDigest,
   executionResultDigest,
   proofContractHash,
   sha256,
@@ -138,6 +151,12 @@ export function validateUnitDefinition(unitDefinition) {
       if (!command?.id || !command?.command) errors.push(`${kind} commands require id and command`);
       if (command?.required_head && !['base_sha', 'candidate_sha', 'any'].includes(command.required_head)) {
         errors.push(`${kind} command ${command.id || '<unknown>'} has invalid required_head`);
+      }
+      // A candidate may request an authority capability by id. It may not name
+      // the digest, the source, the materialization path or the signer -- those
+      // belong to the protected catalog only.
+      for (const authorityError of readAuthorityRequirement(command).errors) {
+        errors.push(`${kind} command ${command?.id || '<unknown>'}: ${authorityError}`);
       }
     }
   }
@@ -367,7 +386,11 @@ export function evaluateTrustedExecutionGate(manifest, attestations, trustPolicy
           : `duplicate trusted RED attestations for ${red.id}`,
       );
     } else {
-      redRecords.set(red.id, records[0]);
+      const authorityErrors = authorityBindingErrors(red, records[0], context);
+      for (const authorityError of authorityErrors) {
+        errors.push(`trusted RED attestation for ${red.id}: ${authorityError}`);
+      }
+      if (authorityErrors.length === 0) redRecords.set(red.id, records[0]);
     }
   }
 
@@ -380,6 +403,9 @@ export function evaluateTrustedExecutionGate(manifest, attestations, trustPolicy
           : `duplicate trusted GREEN attestations for ${green.id}`,
       );
       continue;
+    }
+    for (const authorityError of authorityBindingErrors(green, records[0], context)) {
+      errors.push(`trusted GREEN attestation for ${green.id}: ${authorityError}`);
     }
     for (const redRecord of redRecords.values()) {
       if (new Date(records[0].started_at).getTime() <= new Date(redRecord.finished_at).getTime()) {
@@ -434,6 +460,7 @@ export function evaluateEvidenceGateWithLiveRepository(manifest, options = {}) {
   const evidence = evaluateTrustedExecutionGate(manifest, options.attestations || [], options.trustPolicy, {
     candidateSha: options.candidateSha,
     controllerSha: options.controllerSha,
+    authorityCatalog: options.authorityCatalog,
   });
   const missingAuthority =
     !options.trustPolicy || !Array.isArray(options.attestations) || options.attestations.length === 0;
@@ -715,6 +742,18 @@ export function runManifestCommand(manifest, commandSpec, kind, options = {}) {
   if (manifestErrors.length > 0) throw new Error(`invalid manifest: ${manifestErrors.join('; ')}`);
   const executionWorktree = options.worktree;
   if (!executionWorktree) throw new Error('execution worktree is required');
+  const authority = options.authority || notRequiredResolution();
+  if (authority.status === AUTHORITY_STATUS.DENIED) {
+    throw new Error('a denied authority capability must never reach proof execution');
+  }
+  const requirement = readAuthorityRequirement(commandSpec);
+  if (requirement.required && authority.status !== AUTHORITY_STATUS.VERIFIED_READ_ONLY) {
+    throw new Error('a proof declaring an authority requirement must not execute without verified authority');
+  }
+  if (!requirement.required && authority.status !== AUTHORITY_STATUS.NOT_REQUIRED) {
+    throw new Error('authority was supplied to a proof that declares no authority requirement');
+  }
+  const reservedEnvNames = options.reservedEnvNames instanceof Set ? options.reservedEnvNames : new Set();
   const cwd = resolve(executionWorktree, commandSpec.cwd || '.');
   const startedAt = new Date().toISOString();
   const executionNonce = randomUUID();
@@ -744,6 +783,7 @@ export function runManifestCommand(manifest, commandSpec, kind, options = {}) {
       environment_error: `${kind} requires HEAD ${expectedHead}, got ${headBefore}`,
       stdout: '',
       stderr: '',
+      authority,
     });
   }
   if (statusBefore.length > 0) {
@@ -763,12 +803,50 @@ export function runManifestCommand(manifest, commandSpec, kind, options = {}) {
       environment_error: 'dirty tree rejected before command execution',
       stdout: '',
       stderr: '',
+      authority,
     });
   }
+  // A candidate command may not bind any name the protected catalog reserves for
+  // an authority capability, nor any retrieval secret. This is an explicit
+  // denial rather than a silent drop.
+  const overrideAttempts = Object.keys(commandSpec.env || {}).filter(
+    (name) => reservedEnvNames.has(name) || PROOF_ENV_DENYLIST.includes(name),
+  );
+  if (overrideAttempts.length > 0) {
+    return executionEvidence({
+      manifest,
+      candidateSha: options.candidateSha,
+      kind,
+      commandSpec,
+      requiredHead,
+      cwd,
+      headSha: headBefore,
+      startedAt,
+      finishedAt: new Date().toISOString(),
+      executionNonce,
+      exitCode: null,
+      classification: RESULT.DENIED_GOVERNANCE,
+      environment_error: `${AUTHORITY_DENIAL.ENV_OVERRIDE_DENIED}: ${overrideAttempts.sort().join(', ')}`,
+      stdout: '',
+      stderr: '',
+      authority,
+    });
+  }
+  // Inherited values for reserved names are scrubbed before the authority-issued
+  // ones are applied last, so an ambient environment can never stand in for
+  // verified authority and nothing can override what authority granted.
+  const inheritedEnv = { ...process.env };
+  for (const name of reservedEnvNames) delete inheritedEnv[name];
+  for (const name of PROOF_ENV_DENYLIST) delete inheritedEnv[name];
   const result = spawnSync(commandSpec.command, commandSpec.args || [], {
     cwd,
     encoding: 'utf8',
-    env: { ...process.env, ...(commandSpec.env || {}), ...(options.env || {}) },
+    env: {
+      ...inheritedEnv,
+      ...(commandSpec.env || {}),
+      ...(options.env || {}),
+      ...(authority.capability_env || {}),
+    },
     timeout: commandSpec.timeout_ms || 120_000,
     uid: options.uid,
     gid: options.gid,
@@ -805,6 +883,7 @@ export function runManifestCommand(manifest, commandSpec, kind, options = {}) {
     environment_error: environmentError,
     stdout: result.stdout || '',
     stderr: result.stderr || '',
+    authority,
   });
 }
 
@@ -841,8 +920,68 @@ export function trustedExecutionRecord(manifest, evidence, context) {
     workflow_run_attempt: String(context.workflow_run_attempt),
     stdout_sha256: evidence.stdout_sha256,
     stderr_sha256: evidence.stderr_sha256,
+    authority_id: evidence.authority_id || '',
+    authority_content_digest: evidence.authority_content_digest || '',
+    authority_reference_digest: evidence.authority_reference_digest || '',
+    authority_materialization_result: evidence.authority_materialization_result || AUTHORITY_STATUS.NOT_REQUIRED,
   };
-  return { ...record, result_digest: executionResultDigest(record) };
+  return {
+    ...record,
+    result_digest: executionResultDigest(record),
+    authority_binding_digest: authorityBindingDigest(record),
+  };
+}
+
+// The authority identity a record is REQUIRED to carry, derived only from the
+// candidate's capability id plus the protected catalog. Nothing in the record
+// itself is trusted here -- this is what an independent verifier recomputes in
+// order to reject a substituted authority.
+export function expectedAuthorityBinding(commandSpec, context = {}) {
+  const requirement = readAuthorityRequirement(commandSpec);
+  if (requirement.errors.length > 0) {
+    return { ok: false, errors: requirement.errors, expected: null };
+  }
+  if (!requirement.required) {
+    return {
+      ok: true,
+      errors: [],
+      expected: {
+        authority_id: '',
+        content_digest: '',
+        reference_digest: '',
+        materialization_result: AUTHORITY_STATUS.NOT_REQUIRED,
+      },
+    };
+  }
+  if (!context.authorityCatalog) {
+    return {
+      ok: false,
+      errors: ['the protected authority catalog is required to verify an authority-bound proof'],
+      expected: null,
+    };
+  }
+  const plan = planAuthority(requirement.id, context.authorityCatalog);
+  if (!plan.ok) return { ok: false, errors: plan.errors, expected: null };
+  return { ok: true, errors: [], expected: plan.expected };
+}
+
+function authorityBindingErrors(commandSpec, record, context) {
+  const binding = expectedAuthorityBinding(commandSpec, context);
+  if (!binding.ok) return binding.errors;
+  const errors = [];
+  const expected = {
+    authority_id: binding.expected.authority_id,
+    authority_content_digest: binding.expected.content_digest,
+    authority_reference_digest: binding.expected.reference_digest,
+    authority_materialization_result: binding.expected.materialization_result,
+  };
+  for (const [field, value] of Object.entries(expected)) {
+    if (record?.[field] !== value) errors.push(`${field} mismatch`);
+  }
+  if (record?.authority_binding_digest !== authorityBindingDigest(expected)) {
+    errors.push('authority_binding_digest mismatch');
+  }
+  return errors;
 }
 
 export function validateExecutionRecordForManifest(manifest, record, kind, id, context = {}) {
@@ -850,6 +989,7 @@ export function validateExecutionRecordForManifest(manifest, record, kind, id, c
   const list = kind === 'RED' ? manifest.required_red || [] : manifest.required_green || [];
   const spec = list.find((item) => item.id === id);
   if (!spec) return [...errors, `unknown ${kind} command id: ${id}`];
+  errors.push(...authorityBindingErrors(spec, record, context));
   const expectedClassification = kind === 'RED' ? spec.expected_classification || RESULT.FAIL : RESULT.PASS;
   errors.push(...validateExecutionContext(context));
   const expectedSha = expectedExecutionSha(manifest, spec, kind, context.candidateSha);
@@ -893,9 +1033,15 @@ function executionEvidence({
   environment_error,
   stdout,
   stderr,
+  authority,
 }) {
+  const resolvedAuthority = authority || notRequiredResolution();
   return {
     schema_version: 'dev-gov-v1-execution-evidence',
+    authority_id: resolvedAuthority.authority_id || '',
+    authority_content_digest: resolvedAuthority.content_digest || '',
+    authority_reference_digest: resolvedAuthority.reference_digest || '',
+    authority_materialization_result: resolvedAuthority.materialization_result,
     produced_by: 'devgov-v1',
     tool_version: TOOL_VERSION,
     execution_nonce: executionNonce,
@@ -983,7 +1129,7 @@ function printResult(result) {
 }
 
 function usageText() {
-  return 'Usage: node scripts/devgov/devgov.mjs <preflight|verify-sha|evidence-gate|run-red|run-green|resolve-execution-sha|execute-proof|attest-execution> --definition <path> --candidate-sha <sha> --worktree <path> [options]';
+  return 'Usage: node scripts/devgov/devgov.mjs <preflight|verify-sha|evidence-gate|run-red|run-green|resolve-execution-sha|resolve-authority|execute-proof|attest-execution> --definition <path> --candidate-sha <sha> --worktree <path> [options]';
 }
 
 function usage() {
@@ -1041,12 +1187,43 @@ function loadTrustedUnitDefinition(args, options = {}) {
   return { unitDefinition, definitionPath, candidateSha, definitionWorktree };
 }
 
+// The protected authority catalog. Its location comes from the controller
+// module's own path, never from an argument, so there is no candidate-reachable
+// way to redirect it. Failure to load is fail-closed.
+function requireProtectedAuthorityCatalog(candidateRoot, options = {}) {
+  const loaded = loadProtectedAuthorityCatalog({ candidateRoot });
+  if (!loaded.ok) {
+    printResult(
+      resultEnvelope(RESULT.DENIED_GOVERNANCE, loaded.reason_code, loaded.errors.join('; '), loaded.errors, {
+        proof_status: options.proofStatus ? 'NOT_PROVEN' : undefined,
+        authority_catalog_path: loaded.path,
+      }),
+    );
+  }
+  return loaded.catalog;
+}
+
+function resolveDeclaredCommand(unitDefinition, kind, id) {
+  const list = kind === 'RED' ? unitDefinition.required_red || [] : unitDefinition.required_green || [];
+  const spec = list.find((item) => item.id === id);
+  if (!spec) {
+    printResult(
+      resultEnvelope(RESULT.DENIED_GOVERNANCE, 'UNKNOWN_COMMAND_ID', `unknown ${kind} command id: ${id}`),
+    );
+  }
+  return spec;
+}
+
 async function main() {
   const [command, ...args] = process.argv.slice(2);
   try {
     if (!command) usage();
     if (command === 'attest-execution') {
-      const { unitDefinition, candidateSha } = loadTrustedUnitDefinition(args, { proofStatus: true });
+      const {
+        unitDefinition,
+        candidateSha,
+        definitionWorktree: attestWorktree,
+      } = loadTrustedUnitDefinition(args, { proofStatus: true });
       const recordPath = argValue(args, '--record');
       const outputPath = argValue(args, '--output');
       const kind = argValue(args, '--kind');
@@ -1066,9 +1243,11 @@ async function main() {
           ),
         );
       }
+      const authorityCatalog = requireProtectedAuthorityCatalog(attestWorktree, { proofStatus: true });
       const record = loadJson(recordPath);
       const bindingErrors = validateExecutionRecordForManifest(unitDefinition, record, kind, id, {
         candidateSha,
+        authorityCatalog,
       });
       const runtimeBindings = {
         runner_identity: process.env.DEVGOV_RUNNER_IDENTITY,
@@ -1221,6 +1400,7 @@ async function main() {
         candidateSha,
         worktree: definitionWorktree,
         controllerSha,
+        authorityCatalog: requireProtectedAuthorityCatalog(definitionWorktree, { proofStatus: true }),
       });
       gate.trust_policy_sha256 = trustRoot.trust_policy_sha256;
       gate.trust_root_provenance = {
@@ -1236,6 +1416,54 @@ async function main() {
         jti: trustRoot.oidc_claims.jti,
       };
       printResult(gate);
+    }
+
+    // Planning-only: what authority identity does the protected catalog bind
+    // this candidate-declared capability id to? No retrieval, no filesystem
+    // effect. Used by the protected workflow to deny an unknown or malformed
+    // requirement before any candidate code is executed.
+    if (command === 'resolve-authority') {
+      const id = argValue(args, '--id');
+      const kind = argValue(args, '--kind');
+      if (!id || !['RED', 'GREEN'].includes(kind)) usage();
+      const spec = resolveDeclaredCommand(unitDefinition, kind, id);
+      const authorityCatalog = requireProtectedAuthorityCatalog(definitionWorktree);
+      const requirement = readAuthorityRequirement(spec);
+      if (requirement.errors.length > 0) {
+        printResult(
+          resultEnvelope(
+            RESULT.DENIED_GOVERNANCE,
+            AUTHORITY_DENIAL.REQUIREMENT_INVALID,
+            requirement.errors.join('; '),
+            requirement.errors,
+          ),
+        );
+      }
+      if (!requirement.required) {
+        printResult(
+          resultEnvelope(RESULT.PASS, 'PASS', 'proof declares no authority requirement', [], {
+            authority_required: false,
+            authority_materialization_result: AUTHORITY_STATUS.NOT_REQUIRED,
+          }),
+        );
+      }
+      const plan = planAuthority(requirement.id, authorityCatalog);
+      if (!plan.ok) {
+        printResult(
+          resultEnvelope(RESULT.DENIED_GOVERNANCE, plan.reason_code, plan.errors.join('; '), plan.errors, {
+            authority_required: true,
+            authority_id: requirement.id,
+          }),
+        );
+      }
+      printResult(
+        resultEnvelope(RESULT.PASS, 'PASS', 'authority capability is bound by protected configuration', [], {
+          authority_required: true,
+          authority_id: plan.expected.authority_id,
+          authority_content_digest: plan.expected.content_digest,
+          authority_reference_digest: plan.expected.reference_digest,
+        }),
+      );
     }
 
     if (command === 'resolve-execution-sha') {
@@ -1288,12 +1516,73 @@ async function main() {
           ),
         );
       }
+      // Authority is resolved, verified and made read-only BEFORE the declared
+      // proof command is launched. A proof that declares an authority
+      // requirement it cannot be granted is never executed as an ordinary
+      // PASS/FAIL: it terminates here as an explicit governance denial with no
+      // execution record, so it can never be signed or gated as GREEN.
+      const authorityCatalog = requireProtectedAuthorityCatalog(definitionWorktree);
+      const requirement = readAuthorityRequirement(spec);
+      if (requirement.errors.length > 0) {
+        printResult(
+          resultEnvelope(
+            RESULT.DENIED_GOVERNANCE,
+            AUTHORITY_DENIAL.REQUIREMENT_INVALID,
+            requirement.errors.join('; '),
+            requirement.errors,
+            { proof_status: 'NOT_EXECUTED' },
+          ),
+        );
+      }
+      let authority = notRequiredResolution();
+      if (requirement.required) {
+        const materializationRoot = argValue(args, '--authority-root');
+        if (!materializationRoot) {
+          printResult(
+            resultEnvelope(
+              RESULT.DENIED_GOVERNANCE,
+              AUTHORITY_DENIAL.MATERIALIZATION_FAILED,
+              'a protected authority materialization root is required for an authority-bound proof',
+              [],
+              { proof_status: 'NOT_EXECUTED', authority_id: requirement.id },
+            ),
+          );
+        }
+        authority = await resolveAuthorityCapability({
+          authorityId: requirement.id,
+          catalog: authorityCatalog,
+          materializationRoot,
+          candidateRoot: definitionWorktree,
+          token: process.env[AUTHORITY_RETRIEVAL_TOKEN_ENV],
+          proofUid: uid,
+          proofGid: gid,
+          enforceOwner: Number.isInteger(uid) && Number.isInteger(gid),
+        });
+        if (authority.status !== AUTHORITY_STATUS.VERIFIED_READ_ONLY) {
+          printResult(
+            resultEnvelope(
+              RESULT.DENIED_GOVERNANCE,
+              authority.reason_code || AUTHORITY_DENIAL.BINDING_MISMATCH,
+              authority.errors.join('; ') || 'authority capability was denied',
+              authority.errors,
+              {
+                proof_status: 'NOT_EXECUTED',
+                authority_id: requirement.id,
+                authority_materialization_result: authority.materialization_result,
+                authority_probes: authority.probes,
+              },
+            ),
+          );
+        }
+      }
       const evidence = runManifestCommand(unitDefinition, spec, kind, {
         worktree,
         candidateSha,
         uid,
         gid,
         env: runAsHome ? { HOME: runAsHome } : undefined,
+        authority,
+        reservedEnvNames: catalogCapabilityEnvNames(authorityCatalog),
       });
       const record = trustedExecutionRecord(unitDefinition, evidence, {
         runner_identity: process.env.DEVGOV_RUNNER_IDENTITY,
@@ -1319,7 +1608,16 @@ async function main() {
             ? `trusted runner observed expected ${kind} result`
             : `trusted runner observed ${evidence.classification}, expected ${expected}`,
           [],
-          { execution_record_file: outputPath, execution_record: record },
+          {
+            execution_record_file: outputPath,
+            execution_record: record,
+            authority_id: authority.authority_id,
+            authority_content_digest: authority.content_digest,
+            authority_reference_digest: authority.reference_digest,
+            authority_materialization_result: authority.materialization_result,
+            authority_source_identity: authority.source_identity,
+            authority_probes: authority.probes,
+          },
         ),
       );
     }
@@ -1332,6 +1630,19 @@ async function main() {
       if (!spec) {
         printResult(
           resultEnvelope(RESULT.DENIED_GOVERNANCE, 'UNKNOWN_COMMAND_ID', `unknown ${kind} command id: ${id}`),
+        );
+      }
+      // The local evidence path has no protected materialization root and no
+      // privileged identity, so it can never satisfy an authority requirement.
+      if (readAuthorityRequirement(spec).required) {
+        printResult(
+          resultEnvelope(
+            RESULT.DENIED_GOVERNANCE,
+            AUTHORITY_DENIAL.MATERIALIZATION_FAILED,
+            'an authority-bound proof may only be executed by the trusted controller via execute-proof',
+            [],
+            { proof_status: 'NOT_EXECUTED' },
+          ),
         );
       }
       const executionWorktree = argValue(args, '--execution-worktree') || definitionWorktree;

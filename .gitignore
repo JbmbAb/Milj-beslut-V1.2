@@ -68,6 +68,12 @@ tmp-mimers/
 !docs/ops/benchmarks/**/*.json
 !docs/architecture/admit-v1/**/*.json
 !scripts/alphaevolve/experiments/**/*.json
+# DEV-GOV governance inputs, not local artifacts. The protected authority catalog in particular is
+# read by the controller on every authority-bound proof; without it in the checkout the controller
+# fails closed and no authority-bound unit can be proven at all.
+!governance/devgov/authority/*.json
+!governance/devgov/schema/*.json
+!governance/devgov/units/*.json
 # P2-SR-RELEASE-01 — the GOVERNOR-signed production source authority.
 # Tracked deliberately and by exact path: the runtime resolves it from the repo, so if it is
 # only ever installed locally the harvest is not reproducible from a clean checkout. One path,

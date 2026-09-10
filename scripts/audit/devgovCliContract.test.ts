@@ -263,3 +263,135 @@ describe('DEV-GOV-V1 CLI contract', () => {
     expect(result.json.reason_code).toBe('UNIT_DEFINITION_INVALID');
   });
 });
+
+describe('DEV-GOV authority capability CLI is fail-closed', () => {
+  const AUTHORITY_ID = 'DEVGOV-AUTHORITY-UNPROVISIONED-V1';
+
+  function authorityCandidate(requirement) {
+    return candidate({
+      required_red: [
+        {
+          id: 'red',
+          command: process.execPath,
+          args: ['-e', 'process.exit(1)'],
+          expected_classification: 'FAIL',
+          required_head: 'candidate_sha',
+        },
+      ],
+      required_green: [
+        {
+          id: 'green',
+          command: process.execPath,
+          args: ['-e', 'process.exit(0)'],
+          required_head: 'candidate_sha',
+          ...(requirement ? { authority_requirement: requirement } : {}),
+        },
+      ],
+    });
+  }
+
+  it('denies execute-proof for an authority id the protected catalog does not bind', () => {
+    const value = authorityCandidate({ id: AUTHORITY_ID });
+    const output = join(value.root, 'execution-record.json');
+    const result = runCli(
+      cliArgs(value, 'execute-proof', [
+        '--kind',
+        'GREEN',
+        '--id',
+        'green',
+        '--worktree',
+        value.root,
+        '--authority-root',
+        mkdtempSync(join(tmpdir(), 'devgov-authority-cli-')),
+        '--output',
+        output,
+      ]),
+      { env: { DEVGOV_RUNNER_IDENTITY: 'test', DEVGOV_CONTROLLER_SHA: controllerSha } },
+    );
+
+    expect(result.status).toBe(4);
+    expect(result.json.classification).toBe('DENIED_GOVERNANCE');
+    expect(result.json.reason_code).toBe('AUTHORITY_ID_UNKNOWN');
+    expect(result.json.proof_status).toBe('NOT_EXECUTED');
+    // The proof is not executed at all, so nothing exists that could be signed.
+    expect(existsSync(output)).toBe(false);
+  });
+
+  it('denies execute-proof when an authority-bound proof has no protected materialization root', () => {
+    const value = authorityCandidate({ id: AUTHORITY_ID });
+    const output = join(value.root, 'execution-record.json');
+    const result = runCli(
+      cliArgs(value, 'execute-proof', [
+        '--kind',
+        'GREEN',
+        '--id',
+        'green',
+        '--worktree',
+        value.root,
+        '--output',
+        output,
+      ]),
+      { env: { DEVGOV_RUNNER_IDENTITY: 'test', DEVGOV_CONTROLLER_SHA: controllerSha } },
+    );
+    expect(result.status).toBe(4);
+    expect(result.json.proof_status).toBe('NOT_EXECUTED');
+    expect(existsSync(output)).toBe(false);
+  });
+
+  it('denies a unit definition whose candidate declares more than a capability id', () => {
+    const value = authorityCandidate({ id: AUTHORITY_ID, expected_digest: 'a'.repeat(64) });
+    const result = runCli(cliArgs(value, 'resolve-authority', ['--kind', 'GREEN', '--id', 'green']));
+    expect(result.status).toBe(4);
+    expect(result.json.reason_code).toBe('UNIT_DEFINITION_INVALID');
+    expect(result.json.message).toContain('expected_digest');
+  });
+
+  it('denies resolve-authority for an unbound capability id', () => {
+    const value = authorityCandidate({ id: AUTHORITY_ID });
+    const result = runCli(cliArgs(value, 'resolve-authority', ['--kind', 'GREEN', '--id', 'green']));
+    expect(result.status).toBe(4);
+    expect(result.json.reason_code).toBe('AUTHORITY_ID_UNKNOWN');
+    expect(result.json.authority_id).toBe(AUTHORITY_ID);
+  });
+
+  it('denies the untrusted local evidence path for an authority-bound proof', () => {
+    const value = authorityCandidate({ id: AUTHORITY_ID });
+    const result = runCli(cliArgs(value, 'run-green', ['--id', 'green']));
+    expect(result.status).toBe(4);
+    expect(result.json.proof_status).toBe('NOT_EXECUTED');
+  });
+
+  it('positive control: a proof declaring no authority requirement still resolves and executes', () => {
+    const value = authorityCandidate(null);
+    const planned = runCli(cliArgs(value, 'resolve-authority', ['--kind', 'GREEN', '--id', 'green']));
+    expect(planned.status).toBe(0);
+    expect(planned.json.authority_required).toBe(false);
+    expect(planned.json.authority_materialization_result).toBe('NOT_REQUIRED');
+
+    const output = join(value.root, 'execution-record.json');
+    const executed = runCli(
+      cliArgs(value, 'execute-proof', [
+        '--kind',
+        'GREEN',
+        '--id',
+        'green',
+        '--worktree',
+        value.root,
+        '--output',
+        output,
+      ]),
+      {
+        env: {
+          DEVGOV_RUNNER_IDENTITY: 'test',
+          DEVGOV_CONTROLLER_SHA: controllerSha,
+          GITHUB_WORKFLOW_REF: 'example/repo/.github/workflows/devgov-v0-attest.yml@refs/heads/main',
+          GITHUB_RUN_ID: '100',
+          GITHUB_RUN_ATTEMPT: '1',
+        },
+      },
+    );
+    expect(executed.status).toBe(0);
+    expect(existsSync(output)).toBe(true);
+    expect(executed.json.execution_record.authority_materialization_result).toBe('NOT_REQUIRED');
+  }, 30_000);
+});

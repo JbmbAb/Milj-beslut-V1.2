@@ -84,9 +84,20 @@
             "type": "array",
             "items": { "type": "integer" }
           },
-          "timeout_ms": { "type": "integer", "minimum": 1 }
+          "timeout_ms": { "type": "integer", "minimum": 1 },
+          "authority_requirement": { "$ref": "#/$defs/authorityRequirement" }
         },
         "additionalProperties": false
+      }
+    },
+    "authorityRequirement": {
+      "type": "object",
+      "title": "Candidate-declared authority capability requirement",
+      "description": "A candidate proof may state which authority capability it requires, and nothing more. The expected content digest, retrieval source, materialization path and signer identity are decided solely by the protected authority catalog on the controller commit. Any additional property here is a governance denial, not an ignored field.",
+      "required": ["id"],
+      "additionalProperties": false,
+      "properties": {
+        "id": { "type": "string", "pattern": "^[A-Z0-9][A-Z0-9-]{2,63}$" }
       }
     }
   }

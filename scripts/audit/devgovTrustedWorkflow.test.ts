@@ -37,6 +37,42 @@ describe('DEV-GOV-V0 protected execution workflow', () => {
     expect(source).toContain('$RUNNER_TEMP/devgov-export/execution-record.json');
   });
 
+  it('resolves and materializes authority under protected control before candidate code runs', () => {
+    const source = readFileSync(workflowPath, 'utf8');
+    const workflow = parse(source);
+    const steps = workflow.jobs.execute.steps;
+    const names = steps.map((step) => step.name);
+
+    const planIndex = names.indexOf('Resolve declared authority capability from protected catalog');
+    const isolationIndex = names.indexOf('Prepare isolated proof OS identity');
+    const executeIndex = names.indexOf('Execute declared proof command');
+
+    // The catalog is consulted before the proof identity exists, and the
+    // materialization is created before the declared command is launched.
+    expect(planIndex).toBeGreaterThan(-1);
+    expect(planIndex).toBeLessThan(isolationIndex);
+    expect(isolationIndex).toBeLessThan(executeIndex);
+
+    expect(steps[planIndex].run).toContain('devgov.mjs resolve-authority');
+    expect(steps[isolationIndex].run).toContain(
+      'sudo install -d -m 0755 -o root -g root "$RUNNER_TEMP/devgov-authority"',
+    );
+    expect(steps[executeIndex].run).toContain('--authority-root "$RUNNER_TEMP/devgov-authority"');
+  });
+
+  it('keeps the authority retrieval credential out of the signing job and off the candidate identity', () => {
+    const workflow = parse(readFileSync(workflowPath, 'utf8'));
+    const execute = workflow.jobs.execute;
+    const executeStep = execute.steps.find((step) => step.name === 'Execute declared proof command');
+
+    // The credential reaches the controller only, via the explicit sudo
+    // preserve-env allowlist; devgov.mjs then scrubs it from the proof process.
+    expect(executeStep.env.DEVGOV_AUTHORITY_TOKEN).toBe('${{ github.token }}');
+    expect(executeStep.run).toContain('--preserve-env=');
+    expect(executeStep.run).toContain('DEVGOV_AUTHORITY_TOKEN');
+    expect(JSON.stringify(workflow.jobs.attest)).not.toContain('DEVGOV_AUTHORITY_TOKEN');
+  });
+
   it('installs dependencies from the canonical exact execution checkout root', () => {
     const workflow = parse(readFileSync(workflowPath, 'utf8'));
     const prepare = workflow.jobs.execute.steps.find(

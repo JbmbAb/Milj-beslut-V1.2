@@ -7,10 +7,17 @@ import {
   verify as verifyBytes,
 } from 'node:crypto';
 
-export const ATTESTATION_SCHEMA = 'dev-gov-v1-trusted-execution-attestation';
-export const EXECUTION_RECORD_SCHEMA = 'dev-gov-v1-trusted-execution-record';
+// Schema evolution v1 -> v2 (DEV-GOV authority capability / transport V1): the
+// trusted execution record now binds the authority capability a proof ran with.
+// The v1 record schema is deliberately NOT widened in place -- a v1 attestation
+// does not validate as v2 and vice versa, so no previously signed evidence is
+// silently reinterpreted under the new contract.
+export const ATTESTATION_SCHEMA = 'dev-gov-v2-trusted-execution-attestation';
+export const EXECUTION_RECORD_SCHEMA = 'dev-gov-v2-trusted-execution-record';
 export const TRUST_POLICY_SCHEMA = 'dev-gov-v0-trust-policy';
-export const ATTESTATION_VERSION = 'dev-gov-v1.0';
+export const ATTESTATION_VERSION = 'dev-gov-v2.0';
+
+export const AUTHORITY_MATERIALIZATION_RESULTS = Object.freeze(['NOT_REQUIRED', 'VERIFIED_READ_ONLY']);
 
 export function stableJson(value) {
   if (Array.isArray(value)) return `[${value.map(stableJson).join(',')}]`;
@@ -61,6 +68,51 @@ export function executionResultDigest(record) {
   );
 }
 
+// Canonical identity of the authority capability a proof executed with. It is a
+// required field of every v2 record, including proofs that require no authority
+// (where it is the digest of the canonical NOT_REQUIRED binding), so "no
+// authority" is an explicit signed claim rather than an absent field.
+export function authorityBindingDigest(record) {
+  return sha256(
+    stableJson({
+      authority_id: record?.authority_id ?? '',
+      authority_content_digest: record?.authority_content_digest ?? '',
+      authority_reference_digest: record?.authority_reference_digest ?? '',
+      authority_materialization_result: record?.authority_materialization_result ?? '',
+    }),
+  );
+}
+
+function validateAuthorityBinding(record, errors) {
+  for (const field of ['authority_id', 'authority_content_digest', 'authority_reference_digest']) {
+    if (typeof record?.[field] !== 'string') errors.push(`${field} is required`);
+  }
+  const materialization = record?.authority_materialization_result;
+  if (!AUTHORITY_MATERIALIZATION_RESULTS.includes(materialization)) {
+    errors.push('authority_materialization_result is invalid');
+  }
+  if (materialization === 'NOT_REQUIRED') {
+    for (const field of ['authority_id', 'authority_content_digest', 'authority_reference_digest']) {
+      if (record?.[field] !== '') errors.push(`${field} must be empty when no authority is required`);
+    }
+  }
+  if (materialization === 'VERIFIED_READ_ONLY') {
+    if (!record?.authority_id) errors.push('authority_id is required for a verified authority');
+    if (!/^[0-9a-f]{64}$/.test(record?.authority_content_digest || '')) {
+      errors.push('authority_content_digest must be a sha256 hex digest');
+    }
+    if (
+      record?.authority_reference_digest !== '' &&
+      !/^[0-9a-f]{64}$/.test(record?.authority_reference_digest || '')
+    ) {
+      errors.push('authority_reference_digest must be empty or a sha256 hex digest');
+    }
+  }
+  if (record?.authority_binding_digest !== authorityBindingDigest(record)) {
+    errors.push('authority_binding_digest mismatch');
+  }
+}
+
 function requiredString(record, field, errors) {
   if (typeof record?.[field] !== 'string' || record[field].length === 0) {
     errors.push(`${field} is required`);
@@ -92,9 +144,11 @@ export function validateExecutionRecord(record) {
     'stdout_sha256',
     'stderr_sha256',
     'result_digest',
+    'authority_binding_digest',
   ]) {
     requiredString(record, field, errors);
   }
+  validateAuthorityBinding(record, errors);
   if (!['RED', 'GREEN'].includes(record?.proof_type)) errors.push('proof_type must be RED or GREEN');
   if (!['PASS', 'FAIL', 'BLOCKED_ENVIRONMENT', 'DENIED_GOVERNANCE'].includes(record?.classification)) {
     errors.push('classification is invalid');
@@ -104,6 +158,14 @@ export function validateExecutionRecord(record) {
   }
   if (record?.result_digest !== executionResultDigest(record)) errors.push('result_digest mismatch');
   return errors;
+}
+
+// Exported so an adversarial test can build a fully self-consistent forged
+// attestation -- one where every internal digest agrees -- and prove that the
+// protected catalog comparison, not merely an internal consistency check, is
+// what rejects a substituted authority identity.
+export function attestationProofId(record, signer) {
+  return proofId(record, signer);
 }
 
 function proofId(record, signer) {
@@ -120,6 +182,7 @@ function proofId(record, signer) {
       workflow_run_id: record.workflow_run_id,
       workflow_run_attempt: record.workflow_run_attempt,
       result_digest: record.result_digest,
+      authority_binding_digest: record.authority_binding_digest,
     }),
   );
 }

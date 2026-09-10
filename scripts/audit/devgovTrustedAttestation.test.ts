@@ -13,6 +13,7 @@ import {
   ATTESTATION_SCHEMA,
   ATTESTATION_VERSION,
   EXECUTION_RECORD_SCHEMA,
+  authorityBindingDigest,
   executionResultDigest,
   stableJson,
   verifyExecutionAttestation,
@@ -75,7 +76,7 @@ function policy(publicKey) {
 
 function record(overrides = {}) {
   const value = {
-    schema_version: 'dev-gov-v1-trusted-execution-record',
+    schema_version: EXECUTION_RECORD_SCHEMA,
     unit_id: manifest.unit,
     unit_definition_hash: unitDefinitionHash(manifest),
     proof_contract_hash: proofContractHash(manifest),
@@ -97,9 +98,17 @@ function record(overrides = {}) {
     workflow_run_attempt: '1',
     stdout_sha256: 'e'.repeat(64),
     stderr_sha256: 'f'.repeat(64),
+    authority_id: '',
+    authority_content_digest: '',
+    authority_reference_digest: '',
+    authority_materialization_result: 'NOT_REQUIRED',
     ...overrides,
   };
-  return { ...value, result_digest: executionResultDigest(value) };
+  return {
+    ...value,
+    result_digest: executionResultDigest(value),
+    authority_binding_digest: authorityBindingDigest(value),
+  };
 }
 
 function signedPair(privateKey) {
@@ -144,7 +153,8 @@ describe('DEV-GOV-V0 trusted execution authority', () => {
 
   it.each([
     ['old', 'dev-gov-v0-trusted-execution-record'],
-    ['future', 'dev-gov-v2-trusted-execution-record'],
+    ['superseded', 'dev-gov-v1-trusted-execution-record'],
+    ['future', 'dev-gov-v3-trusted-execution-record'],
     ['wrong type', 1],
   ])('denies a legitimately signed %s inner schema version', (_label, schemaVersion) => {
     const trusted = keys();
