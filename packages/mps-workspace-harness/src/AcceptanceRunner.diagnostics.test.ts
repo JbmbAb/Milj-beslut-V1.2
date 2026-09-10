@@ -46,7 +46,7 @@ describe.skipIf(!authorityPresent)('acceptance diagnostics', () => {
         lines.push(`    ${String(count).padStart(3)}  ${signature}`);
       }
     }
-     
+
     console.log(`\nexpectedSafetyClass -> controller blocker codes\n\n${lines.join('\n')}\n`);
 
     const evidenceCounts = new Map<string, number>();
@@ -56,7 +56,7 @@ describe.skipIf(!authorityPresent)('acceptance diagnostics', () => {
         evidenceCounts.set(head, (evidenceCounts.get(head) ?? 0) + 1);
       }
     }
-     
+
     console.log(
       `evidence citations: ${[...evidenceCounts].sort().map(([k, v]) => `${k}=${v}`).join(' ')}\n`,
     );

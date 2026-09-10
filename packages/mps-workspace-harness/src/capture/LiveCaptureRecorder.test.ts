@@ -491,4 +491,3 @@ function describeByteDifference(frozen: Buffer, fresh: Buffer): string {
     `    fresh:  ${JSON.stringify(fresh.subarray(from, at + 80).toString('utf8'))}`
   );
 }
-

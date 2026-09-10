@@ -785,4 +785,3 @@ export function recordBytes(record: CaptureRecord): Uint8Array {
 export function recordDigest(record: CaptureRecord): string {
   return framedDigestOfBytes(DOMAINS.CAPTURE_BUNDLE_V1, recordBytes(record));
 }
-

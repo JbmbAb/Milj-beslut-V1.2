@@ -33,11 +33,11 @@ describe.skipIf(!authorityPresent)('replay acceptance over the frozen corpus', (
       operation: 'WORKTREE_REMOVAL',
     });
 
-     
+
     console.log(`\n${renderAcceptanceReport(report)}\n`);
 
     if (report.totals.HARD_FAILURE > 0) {
-       
+
       console.error(
         report.cases
           .filter((c) => c.outcome === 'HARD_FAILURE')
@@ -50,7 +50,7 @@ describe.skipIf(!authorityPresent)('replay acceptance over the frozen corpus', (
       );
     }
     if (report.totals.ERROR > 0) {
-       
+
       console.error(
         report.cases
           .filter((c) => c.outcome === 'ERROR')

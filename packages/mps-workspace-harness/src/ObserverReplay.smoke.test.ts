@@ -62,7 +62,7 @@ describe.skipIf(!authorityPresent)('observer replay over the frozen corpus', () 
     }
 
     if (failures.length > 0) {
-       
+
       console.error(
         `transport refusals: ${failures.length}/${corpus.cases.size}\n` +
           failures

@@ -314,8 +314,16 @@ package, so the mechanism had to be built in this unit.
    identifier, that the package manifest declares no such dependency, and that the artifact types
    carry no `severity` or `confidence` field.
 
-   This is the mechanism that matters most of the three, because it is the only one that cannot be
-   switched off from inside the file it governs: a package manifest can be edited and a lint rule
+5. **Config-level resolution guard.** `packages/mps-workspace-harness/src/PackageIntegrity.test.ts`
+   asserts that each package's `tsconfig.json` `paths` equals its `package.json` `dependencies`
+   exactly, in both directions, and that the observer's project resolves neither the classifier nor
+   the harness. This one was added by the repair of candidate `32d9a170`: making the harness
+   compile package-locally required adding `paths`, and the obvious shortcut — adding the same
+   `paths` to every package — would have widened the observer's resolution past the boundary while
+   every other mechanism stayed green.
+
+   The import-graph test is the mechanism that matters most, because it is the only one that cannot
+   be switched off from inside the file it governs: a package manifest can be edited and a lint rule
    can be silenced with a disable comment, but a test that follows the import graph fails the build
    either way. It did not exist when this mapping was first written and was recorded here as an open
    gap; it exists now, and the gap is closed.

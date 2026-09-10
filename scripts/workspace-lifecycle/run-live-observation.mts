@@ -103,7 +103,7 @@ const lines = [
   'NO CLEANUP WAS PERFORMED. V1 has no cleanup authority; this run only observed.',
 ];
 
- 
+
 console.log(lines.join('\n'));
 
 if (OUT !== '') {
@@ -113,6 +113,6 @@ if (OUT !== '') {
     JSON.stringify({ snapshot, classification, report: lines.join('\n') }, null, 2),
     'utf8',
   );
-   
+
   console.log(`\nwrote ${OUT}`);
 }

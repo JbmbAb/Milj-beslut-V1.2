@@ -90,6 +90,21 @@ function observedFrom<T>(entry: LedgerEntry | undefined, value: () => T | undefi
   return { state: 'OBSERVED', value: v };
 }
 
+/**
+ * An observation whose value could not be derived, carrying the reason from the request beneath it.
+ *
+ * The behaviour is exactly `observedFrom(entry, () => undefined)` — if the request itself was
+ * NOT_ATTEMPTED or UNKNOWN that state is preserved with its reason, and if the request succeeded
+ * but the derivation failed the result is UNKNOWN/OUTPUT_UNPARSEABLE. What differs is the TYPE.
+ * Written inline, the value factory made TypeScript infer `Observed<undefined>`, which is not
+ * assignable to `Observed<string>`; the root typecheck accepted it because it runs without
+ * `strict`, and the package-local typecheck rejected it because it does not. Naming the helper
+ * fixes the type and states the intent, which the inline form did neither of.
+ */
+function unresolved<T>(entry: LedgerEntry | undefined): Observed<T> {
+  return observedFrom<T>(entry, () => undefined);
+}
+
 function processText(entry: LedgerEntry | undefined): string | undefined {
   if (entry?.process === undefined) return undefined;
   const decoded = decodeUtf8(entry.process.stdout);
@@ -241,13 +256,13 @@ function correlateRepository(
   const commonDirEntry = ledger.one('R-G-07', '');
   const commonDir: Observed<string> =
     sequencer.commonDir === null
-      ? observedFrom(commonDirEntry, () => undefined)
+      ? unresolved<string>(commonDirEntry)
       : { state: 'OBSERVED', value: sequencer.commonDir };
 
   const canonicalShaEntry = ledger.get('R-G-02', 'BEFORE')[0] ?? ledger.get('R-G-01', 'BEFORE')[0];
   const canonicalSha: Observed<string> =
     sequencer.canonicalSha === null
-      ? observedFrom(canonicalShaEntry, () => undefined)
+      ? unresolved<string>(canonicalShaEntry)
       : { state: 'OBSERVED', value: sequencer.canonicalSha };
 
   // A16: origin/main is read before and after. Different answers mean the reference moved during

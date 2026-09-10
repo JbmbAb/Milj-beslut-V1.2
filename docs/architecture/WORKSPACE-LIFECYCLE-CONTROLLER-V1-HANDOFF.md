@@ -9,10 +9,52 @@ The implementer consumed the frozen corpus and expectations through the prescrib
 and modified neither.
 
     BASE_SHA        0d7b2bd566b0d5f7c9d27d645c941acd66cb1e85
-    WORKTREE        C:\wt-workspace-lifecycle-controller-v1
-    BRANCH          feat/workspace-lifecycle-controller-v1
-    CANDIDATE_SHA   2af747e8e94c25931706c0e8b2646dc78f1e5d92 (implementation)
-                    plus one follow-up commit recording this SHA and section L
+    WORKTREE        C:\wt-workspace-lifecycle-controller-v1-fix1
+    BRANCH          fix/workspace-lifecycle-controller-v1-verifier-findings
+    CANDIDATE_SHA   <set at commit>
+
+## 0. REPAIR HISTORY
+
+    CANDIDATE 32d9a170fb11c030246bad05c5b661fc3ec75225   VERIFIED FAIL / FROZEN
+
+An independent verifier rejected that candidate. The controller logic was not what failed: the
+authority binding, SAFETY, UTILITY 7/7, the live end-to-end run, mutation detection, the digest
+contract, the 120-cell conflict table and the architecture boundary all stood. It failed on
+candidate integrity — the artefact was not clean enough to verify — plus one incorrect claim in
+this document:
+
+    CANDIDATE MATERIALIZATION      FAIL   whitespace defects across the committed diff
+    PACKAGE-LOCAL TYPE SAFETY      FAIL   two of three packages did not compile alone
+    BASELINE CLAIM                 FAIL   section L asserted a baseline it had not measured
+
+That candidate is NOT rescued and NOT amended. It stays in history as verified FAIL. This repair
+branches from it, so the rejected artefact and its repair are both addressable.
+
+Repair scope, and nothing else:
+
+    1. TS2322 in packages/mps-workspace-observer/src/observe/correlate.ts
+    2. package-local resolution for packages/mps-workspace-harness, without widening the boundary
+    3. the `git diff --check` findings
+    4. the baseline claim in section L
+    5. root testing AND package-local typecheck for every new package
+    6. a new candidate SHA
+
+Phase 0 remains frozen. The spec remains frozen. No re-adjudication, no re-capture, no change to
+the corpus, the expectations or any observation or classification behaviour.
+
+What changed in this document, so a reviewer does not have to diff it to find out:
+
+    section 0    new — this history
+    section D2   live-layer numbers re-measured on THIS candidate; the old ones are not carried over
+    section G    a fourth boundary mechanism, added because the resolution fix created the need
+    section L    the corrected baseline, plus L0 on the root typecheck's real state
+    section M    new — the Definition-of-Done item
+    section N    verification starts over; three new things to look at
+
+Sections A, B, C, D, E, F, H, I and J describe code that this repair did not touch, and are
+unchanged. The only source change outside configuration and whitespace is a typed helper in
+`correlate.ts` that delegates to the identical call — the 122-case acceptance run below is what
+shows it changed no behaviour, rather than the claim that it could not have.
 
 ---
 
@@ -140,33 +182,39 @@ The Observer was run against `C:\miljöbeslut` itself, read-only, through `LiveR
 runs are reported because the second one found something, and reporting only the clean one would be
 the kind of selective evidence this whole unit exists to prevent.
 
+The runs below were made on THIS candidate. The rejected candidate's runs are not carried over.
+
 **Run A — quiet machine.**
 
-    CANDIDATES DISCOVERED 123        (the 122 frozen cases plus this unit's own worktree)
-    WORKTREE METADATA IDS 100
-    SHA SET               96
+    CANDIDATES DISCOVERED 124        (the 122 frozen cases plus this unit's two worktrees)
+    WORKTREE METADATA IDS 101
+    SHA SET               97
     CANONICAL SHA         0d7b2bd5... from ls-remote, stable across the window
-    OBSERVATION COVERAGE  OBSERVED 3491 / UNKNOWN 242 / NOT_ATTEMPTED 112
+    OBSERVATION COVERAGE  OBSERVED 3532 / UNKNOWN 243 / NOT_ATTEMPTED 112
     FILESYSTEM TIMEOUTS   0
-    MUTATION EVIDENCE     102 pairs compared, 0 differing
-    DISPOSITIONS          SAFE_TO_REMOVE 28 / BLOCKED 95
+    MUTATION EVIDENCE     103 pairs compared, 0 differing
+    DISPOSITIONS          SAFE_TO_REMOVE 28 / BLOCKED 96
+    IDENTITY DIGEST       0aae89ccad90fc7abb510e6ab85eb598e03fd824e47ec8197ef185ce8c1f4a33
 
-All seven `utilityRequired` workspaces reach `SAFE_TO_REMOVE` on the live disk as well as in replay.
+All seven `utilityRequired` workspaces reach `SAFE_TO_REMOVE` on the live disk as well as in replay,
+checked case by case rather than inferred from the total of 28.
 The process and OS layer works: the mandatory flags hold, `git status` completes across a hundred
 Cesium-sized trees inside its timeout, and no filesystem operation timed out.
 
-**Run B — a concurrent `git add` during the run.** The same command, started while this unit was
-being staged for commit in a different worktree:
+**Run B — concurrent git activity during the run.** The same command, started while ordinary git
+commands were being issued in another worktree:
 
-    MUTATION EVIDENCE     102 pairs compared, 1 differing: R-F-01 BEFORE vs AFTER
-    DISPOSITIONS          BLOCKED 123        (all of them, including the seven)
+    MUTATION EVIDENCE     103 pairs compared, 1 differing: R-F-01 BEFORE vs AFTER
+    DISPOSITIONS          BLOCKED 124        (all of them, including the seven)
     BLOCKER               REPOSITORY_MUTATED_DURING_OBSERVATION on every workspace
 
-The cause was established rather than assumed: `git add` in
-`C:\wt-workspace-lifecycle-controller-v1` wrote its index at 07:59:46Z, which bumped the mtime of
-`C:\miljöbeslut\.git\worktrees\wt-workspace-lifecycle-controller-v1`, and the run's BEFORE and
-AFTER listings of `.git/worktrees` therefore disagreed. The observation had changed nothing; the
-machine had changed underneath it.
+The cause was established rather than assumed, on the rejected candidate where it first appeared:
+`git add` in `C:\wt-workspace-lifecycle-controller-v1` wrote its index at 07:59:46Z, which bumped
+the mtime of `C:\miljöbeslut\.git\worktrees\wt-workspace-lifecycle-controller-v1`, so the run's
+BEFORE and AFTER listings of `.git/worktrees` disagreed. It reproduced during this repair from
+nothing more than a `git status` and a `git diff` issued while the run was in flight — those refresh
+and rewrite the worktree's index too. The observation had changed nothing; the machine had changed
+underneath it.
 
 Every workspace fell closed, and that is the correct answer. It is also the only unsynthetic
 exercise of a fail-closed path this unit has: the corpus contains no timeout, no spawn failure and
@@ -252,7 +300,7 @@ contract change, not an Observer fallback.
 
 ---
 
-## G. BOUNDARIES, ENFORCED THREE WAYS
+## G. BOUNDARIES, ENFORCED FOUR WAYS
 
 The re-con found no existing enforcement in the control-plane package, so it was built here. The
 Observer/Classifier boundary (A2, B1) is enforced by:
@@ -263,6 +311,12 @@ Observer/Classifier boundary (A2, B1) is enforced by:
 3. **A transitive import-graph test** — the one that cannot be silenced with a lint comment: it walks
    every module reachable from the observer's sources and asserts none resolves into the classifier,
    the harness or a policy package.
+4. **A config-level resolution guard** — added by this repair. Making the harness compile
+   package-locally required `paths` in its tsconfig, and the obvious shortcut would have been to
+   add the same `paths` everywhere, widening the observer's resolution past the boundary while all
+   three mechanisms above stayed green. `PackageIntegrity.test.ts` asserts that each package's
+   `paths` equals its manifest's `dependencies` exactly, and that the observer's project names
+   neither the classifier nor the harness.
 
 The classifier declares the snapshot shape structurally rather than importing it, so the dependency
 edge runs only one way. The frozen comparison-key rule is reimplemented in the classifier for the
@@ -334,33 +388,102 @@ covered by `primitivePin.sourceSha256`.
 
 ---
 
-## L. REPOSITORY-WIDE TEST STATE, AND HOW IT WAS ATTRIBUTED
+## L. REPOSITORY-WIDE TEST AND TYPECHECK STATE — CORRECTED
 
-The three new packages are green: `npx tsc --noEmit` reports nothing for them, `npx eslint` is
-clean, and 271 tests pass with 2 skips (both of them the deliberate "frozen corpus absent" guards,
-which skip precisely because the authority IS present).
+**The first version of this section was wrong, and the correction matters more than the numbers.**
 
-The whole `compliance` project is NOT green: 14 files fail, 16 tests of 1802. None of them is in a
-package this candidate touches. They were attributed rather than assumed:
+### L0. A second imprecision, found while repairing the first
 
-- The failures are in `mps-lu`, `spatial-provider-postgis`, `mps-data-governance` and
-  `mps-retrieval-trace`. `git show --name-only HEAD` touches none of those packages.
-- The visible causes are environmental or pre-existing: `ECONNREFUSED 127.0.0.1:5432` (no PostGIS
-  running here), a repo-inventory assertion in `GovernedWriteCapability.test.ts`, and a
-  `PackageTypecheck.test.ts` that times out running `tsc` inside a 5-second budget.
-- The decisive check: the five shared files this candidate modifies — `.gitignore`,
-  `vitest.config.ts`, `tsconfig.json`, `eslint.config.mjs` and `packages/mps-canonical/src/index.ts`
-  — were reverted to their base-commit contents and the same two representative tests were re-run.
-  They failed identically (2 failed, 16 passed, 2 skipped). The failures are therefore present at
-  base `0d7b2bd5…` and are not caused by this candidate.
+The rejected candidate's handoff said *"`npx tsc --noEmit` reports nothing for them"* about the new
+packages, and the repair's own working notes shortened that to "root typecheck clean". Measured
+properly at this candidate:
 
-All five of those shared changes are strictly additive: three alias/path/include registrations for
-the new packages, two eslint blocks scoped to them by path, one `.gitignore` negation, and two
-re-exports of an already-public class.
+    root typecheck, total errors            87
+    of which in packages/mps-workspace-*     0
+
+The root project has never been clean in this repository. Eighty-seven pre-existing errors sit in
+`alpha-runtime` and elsewhere, most of them Prisma input-type mismatches. Every statement about the
+root typecheck in this document is therefore scoped to *errors attributable to this unit*, which is
+zero, and the third leg of the Definition-of-Done item in section M has to be read the same way:
+"root typecheck PASS" is not achievable repo-wide today, so what it can require is *no new root
+errors*. Writing it as an unqualified PASS would have been the same kind of claim that got the
+previous candidate rejected — a number asserted about a scope it was never measured over.
+
+It stated: *"The whole `compliance` project is NOT green: 14 files fail, 16 tests of 1802"*, and
+presented that as the repository's BASELINE. Two things were wrong with it.
+
+First, the numbers were measured **at the candidate**, not at base. They were then used to argue
+about base. The only base measurement actually taken was a two-test spot check, and a two-test
+sample was generalised into a claim about the whole suite. That is the failure mode this
+programme's own rule about partial runs exists to prevent, committed in the document that was
+supposed to demonstrate the discipline.
+
+Second, the numbers were treated as if a baseline failure count were a stable quantity. It is not,
+on a machine with no PostgreSQL: several of the failing suites are database-dependent and one is a
+`tsc` run inside a five-second budget, so the count moves between runs.
+
+**What the independent verifier actually reproduced at base `0d7b2bd5…`:**
+
+    17 failed files / 21 failed tests / 12 skipped / 1529 total
+
+That figure supersedes the one this document previously carried. One part of it is independently
+checkable from this side and does check out: the candidate run totalled 1802 tests, the three new
+packages contribute 273 (271 passing plus 2 deliberate skips), and 1802 − 273 = 1529 — exactly the
+verifier's base total. The totals reconcile precisely, which is the arithmetic that confirms the two
+runs are measuring the same suite with and without this unit's tests.
+
+The failure COUNTS differ between the two runs (17/21 against 14/16) and that difference is not
+attributed here. It is consistent with the environment-dependence described above, but no run was
+made that would settle it, so it is left as an open observation rather than dressed up as an
+explanation.
+
+**What remains true about attribution.** None of the failing files is in a package this unit
+touches — `git show --name-only` covers only `mps-workspace-*`, `mps-canonical/src/index.ts` and
+four root config files. The five shared changes are strictly additive: three alias/path/include
+registrations for the new packages, two eslint blocks scoped to them by path, one `.gitignore`
+negation, and two re-exports of an already-public class. Reverting those five files to their base
+contents and re-running two representative failures reproduced them identically. That is evidence
+that this unit did not CAUSE those two failures; it was never evidence for a baseline count, and
+this section no longer presents it as such.
 
 ---
 
-## K. NEXT ROLE
+## M. THE DEFINITION-OF-DONE ITEM THIS REJECTION EARNED
+
+Candidate `32d9a170` showed no root-typecheck errors of its own while two of its three packages did
+not compile on their own. The root project runs with `strict` OFF; every package project sets
+`strict: true`. So the root check was not merely a different check — it was a strictly weaker one,
+and it hid:
+
+- `correlate.ts` assigning an `Observed<undefined>` into an `Observed<string>` (TS2322);
+- `mps-workspace-harness` unable to resolve `@miljobeslut/mps-workspace-observer` or
+  `-classifier` at all — 33 errors, mostly TS2307 — because its project declared no `paths`.
+
+Root configuration can make a package look healthy that does not work as an independent
+architectural unit. The standing requirement, now enforced by
+`packages/mps-workspace-harness/src/PackageIntegrity.test.ts` rather than written down:
+
+    ROOT TYPECHECK PASS is not sufficient. For every new package:
+      - package-local typecheck PASS
+      - package-local import resolution PASS
+      - root typecheck PASS  (here: NO NEW root errors — see L0; the root project
+                              carries 87 pre-existing errors and does not pass today)
+
+Whether this becomes a repository-wide rule rather than one unit's is the platform owner's call,
+not this unit's. What is claimed here is narrower and verifiable: the three packages this unit
+introduces satisfy all three legs as scoped above, and a test fails if any of them stops doing so.
+
+The suite also asserts the properties that keep those three from being satisfied cheaply: no package
+project may `extends` the root (which would inherit its leniency), each project's `paths` must equal
+its manifest's `dependencies` exactly in both directions, and the observer may name neither the
+classifier nor the harness in either. Two mechanism proofs show the check actually fails on the two
+defect classes that got through, each with a control case proving the compiler ran at all — the
+first draft of that proof was itself vacuous, because `npx` could not resolve `tsc` from a scratch
+directory and both legs "failed to compile" for the same irrelevant reason.
+
+---
+
+## N. NEXT ROLE
 
     NEXT ROLE: INDEPENDENT ADVERSARIAL VERIFIER
     NO CLEANUP HAS BEEN PERFORMED AND NO CLEANUP AUTHORITY IS CLAIMED.
@@ -369,7 +492,23 @@ The cleanup freeze remains in force. No workspace, lock, ref, stash or `.git/wor
 removed, pruned or altered by this unit. The live machine stays as it was until an independent
 verifier approves the end-to-end run.
 
+Verification starts over against the NEW candidate SHA. Nothing carries over from the run that
+rejected `32d9a170`: this is a fresh artefact, and a repair that inherited its predecessor's passes
+would defeat the point of having rejected it.
+
 The verifier's review should include the digest test vectors (A12 places that explicitly in the
 handover), the 120-cell conflict table cell by cell, and the synthetic fail-closed tests — the last
 because they are the only coverage the corpus cannot provide, and because they are the ones a future
 change is most likely to weaken without anyone noticing.
+
+Three things are new since the rejected candidate and deserve their own attention:
+
+- `PackageIntegrity.test.ts`, including whether its two mechanism proofs really fail on the defects
+  they claim to catch. The first draft of that file passed vacuously, and its control assertions
+  exist because of it.
+- The package `tsconfig.json` files, specifically that none of them extends the root project. That
+  absence is what makes the package-local check stronger than the root check rather than a
+  duplicate of it, and it is a single word away from being undone.
+- Section L, which now carries a corrected baseline. The correction was to a claim this document
+  made about evidence it had not gathered; the numbers it now cites as base are the verifier's, not
+  this unit's, and the section says so.

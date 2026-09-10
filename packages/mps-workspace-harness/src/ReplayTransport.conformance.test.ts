@@ -237,7 +237,7 @@ describe('replay transport authority presence', () => {
     // Never silently green: a run without the authority proves nothing about replay conformance,
     // and the acceptance report has to be able to say so.
     if (!authorityPresent) {
-       
+
       console.warn(
         `AUTHORITY_PRESENT: NO — replay conformance vectors were not executed. Looked in ${AUTHORITY_ROOT}`,
       );
