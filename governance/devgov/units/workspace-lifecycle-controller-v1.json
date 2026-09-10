@@ -1,0 +1,177 @@
+{
+  "schema_version": "dev-gov-v1-unit-definition",
+  "unit": "WORKSPACE-LIFECYCLE-CONTROLLER-V1",
+  "role": "producer",
+  "mode": "writer",
+  "branch": "promote/workspace-lifecycle-controller-v1-devgov",
+  "base_sha": "0d7b2bd566b0d5f7c9d27d645c941acd66cb1e85",
+  "ancestry_policy": "descendant_of_base",
+  "allowed_paths": [
+    ".gitignore",
+    "docs/architecture/WORKSPACE-LIFECYCLE-CONTROLLER-V1-HANDOFF.md",
+    "docs/architecture/WORKSPACE-LIFECYCLE-CONTROLLER-V1-VOCABULARY-MAPPING.md",
+    "eslint.config.mjs",
+    "governance/devgov/units/workspace-lifecycle-controller-v1.json",
+    "packages/mps-canonical/src/index.ts",
+    "packages/mps-workspace-classifier/package.json",
+    "packages/mps-workspace-classifier/src/ConflictTable.ts",
+    "packages/mps-workspace-classifier/src/classify.failClosed.test.ts",
+    "packages/mps-workspace-classifier/src/classify.ts",
+    "packages/mps-workspace-classifier/src/index.ts",
+    "packages/mps-workspace-classifier/src/reporting.ts",
+    "packages/mps-workspace-classifier/src/types.ts",
+    "packages/mps-workspace-classifier/tsconfig.json",
+    "packages/mps-workspace-harness/package.json",
+    "packages/mps-workspace-harness/src/AcceptanceRunner.diagnostics.test.ts",
+    "packages/mps-workspace-harness/src/AcceptanceRunner.replay.test.ts",
+    "packages/mps-workspace-harness/src/AcceptanceRunner.ts",
+    "packages/mps-workspace-harness/src/AuthorityBinding.ts",
+    "packages/mps-workspace-harness/src/ObserverDeterminism.test.ts",
+    "packages/mps-workspace-harness/src/ObserverReplay.smoke.test.ts",
+    "packages/mps-workspace-harness/src/PackageIntegrity.test.ts",
+    "packages/mps-workspace-harness/src/ReplayTransport.conformance.test.ts",
+    "packages/mps-workspace-harness/src/ReplayTransport.ts",
+    "packages/mps-workspace-harness/src/VocabularyMapping.test.ts",
+    "packages/mps-workspace-harness/src/capture/LiveCaptureRecorder.test.ts",
+    "packages/mps-workspace-harness/src/capture/LiveCaptureRecorder.ts",
+    "packages/mps-workspace-harness/src/capture/RedactionPolicy.test.ts",
+    "packages/mps-workspace-harness/src/capture/RedactionPolicy.ts",
+    "packages/mps-workspace-harness/src/index.ts",
+    "packages/mps-workspace-harness/tsconfig.json",
+    "packages/mps-workspace-observer/contracts/snapshot-digest-test-vectors-v1.json",
+    "packages/mps-workspace-observer/contracts/snapshot-digest-v1.json",
+    "packages/mps-workspace-observer/contracts/vocabulary-mapping-v1.json",
+    "packages/mps-workspace-observer/package.json",
+    "packages/mps-workspace-observer/src/boundary/ObserverBoundary.test.ts",
+    "packages/mps-workspace-observer/src/digest/CanonicalDigest.test.ts",
+    "packages/mps-workspace-observer/src/digest/CanonicalDigest.ts",
+    "packages/mps-workspace-observer/src/index.ts",
+    "packages/mps-workspace-observer/src/observe/ObservationLedger.ts",
+    "packages/mps-workspace-observer/src/observe/RequestSequencer.ts",
+    "packages/mps-workspace-observer/src/observe/WorkspaceObserver.ts",
+    "packages/mps-workspace-observer/src/observe/correlate.ts",
+    "packages/mps-workspace-observer/src/observe/parsers.test.ts",
+    "packages/mps-workspace-observer/src/observe/parsers.ts",
+    "packages/mps-workspace-observer/src/port/LiveRequestPort.ts",
+    "packages/mps-workspace-observer/src/port/RequestPort.ts",
+    "packages/mps-workspace-observer/src/snapshot/SnapshotDigest.test.ts",
+    "packages/mps-workspace-observer/src/snapshot/SnapshotDigest.ts",
+    "packages/mps-workspace-observer/src/snapshot/types.ts",
+    "packages/mps-workspace-observer/src/surface/CommandSurface.ts",
+    "packages/mps-workspace-observer/src/surface/PathPolicy.test.ts",
+    "packages/mps-workspace-observer/src/surface/PathPolicy.ts",
+    "packages/mps-workspace-observer/tsconfig.json",
+    "scripts/workspace-lifecycle/build-snapshot-digest-vectors.mts",
+    "scripts/workspace-lifecycle/run-live-observation.mts",
+    "tsconfig.json",
+    "vitest.config.ts"
+  ],
+  "forbidden_paths": [
+    ".github/**",
+    "scripts/devgov/**",
+    "governance/devgov/schema/**",
+    "prisma/**"
+  ],
+  "required_red": [
+    {
+      "id": "workspace-observer-package-absent-on-base",
+      "command": "node",
+      "args": [
+        "--input-type=module",
+        "-e",
+        "const fs=await import('node:fs');const f='packages/mps-workspace-observer/package.json';const ok=fs.existsSync(f);console.log(ok?'WLC_OBSERVER_PRESENT':'WLC_OBSERVER_ABSENT');process.exit(ok?0:1)"
+      ],
+      "expected_classification": "FAIL",
+      "required_head": "base_sha"
+    },
+    {
+      "id": "workspace-classifier-package-absent-on-base",
+      "command": "node",
+      "args": [
+        "--input-type=module",
+        "-e",
+        "const fs=await import('node:fs');const f='packages/mps-workspace-classifier/package.json';const ok=fs.existsSync(f);console.log(ok?'WLC_CLASSIFIER_PRESENT':'WLC_CLASSIFIER_ABSENT');process.exit(ok?0:1)"
+      ],
+      "expected_classification": "FAIL",
+      "required_head": "base_sha"
+    },
+    {
+      "id": "workspace-harness-package-absent-on-base",
+      "command": "node",
+      "args": [
+        "--input-type=module",
+        "-e",
+        "const fs=await import('node:fs');const f='packages/mps-workspace-harness/package.json';const ok=fs.existsSync(f);console.log(ok?'WLC_HARNESS_PRESENT':'WLC_HARNESS_ABSENT');process.exit(ok?0:1)"
+      ],
+      "expected_classification": "FAIL",
+      "required_head": "base_sha"
+    }
+  ],
+  "required_green": [
+    {
+      "id": "workspace-observer-strict-typecheck",
+      "command": "node",
+      "args": [
+        "node_modules/typescript/bin/tsc",
+        "--project",
+        "packages/mps-workspace-observer/tsconfig.json",
+        "--noEmit"
+      ],
+      "expected_classification": "PASS",
+      "required_head": "candidate_sha",
+      "timeout_ms": 120000
+    },
+    {
+      "id": "workspace-classifier-strict-typecheck",
+      "command": "node",
+      "args": [
+        "node_modules/typescript/bin/tsc",
+        "--project",
+        "packages/mps-workspace-classifier/tsconfig.json",
+        "--noEmit"
+      ],
+      "expected_classification": "PASS",
+      "required_head": "candidate_sha",
+      "timeout_ms": 120000
+    },
+    {
+      "id": "workspace-harness-strict-typecheck",
+      "command": "node",
+      "args": [
+        "node_modules/typescript/bin/tsc",
+        "--project",
+        "packages/mps-workspace-harness/tsconfig.json",
+        "--noEmit"
+      ],
+      "expected_classification": "PASS",
+      "required_head": "candidate_sha",
+      "timeout_ms": 120000
+    },
+    {
+      "id": "workspace-lifecycle-directed-acceptance",
+      "command": "node",
+      "args": [
+        "node_modules/vitest/vitest.mjs",
+        "run",
+        "--config",
+        "vitest.config.ts",
+        "packages/mps-workspace-observer",
+        "packages/mps-workspace-classifier",
+        "packages/mps-workspace-harness"
+      ],
+      "expected_classification": "PASS",
+      "required_head": "candidate_sha",
+      "timeout_ms": 600000
+    }
+  ],
+  "trusted_execution": {
+    "issuer": "github-actions:JbmbAb/Milj-beslut-V1.2:devgov-v0-attest",
+    "key_id": "devgov-ci-ed25519-v1"
+  },
+  "remote": {
+    "name": "origin",
+    "branch": "promote/workspace-lifecycle-controller-v1-devgov",
+    "push_policy": "no_force",
+    "absent_policy": "deny_absent"
+  }
+}
