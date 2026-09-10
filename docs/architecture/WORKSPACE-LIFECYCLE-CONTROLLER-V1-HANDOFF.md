@@ -11,7 +11,8 @@ and modified neither.
     BASE_SHA        0d7b2bd566b0d5f7c9d27d645c941acd66cb1e85
     WORKTREE        C:\wt-workspace-lifecycle-controller-v1
     BRANCH          feat/workspace-lifecycle-controller-v1
-    CANDIDATE_SHA   <set at commit>
+    CANDIDATE_SHA   2af747e8e94c25931706c0e8b2646dc78f1e5d92 (implementation)
+                    plus one follow-up commit recording this SHA and section L
 
 ---
 
@@ -330,6 +331,32 @@ covered by `primitivePin.sourceSha256`.
    The classifier treats it exactly like any other tracked modification and records the count as a
    finding rather than as a reason to allow removal.
 5. Phase 0's `INDEPENDENT_REDACTION_REVIEW: NOT_PROVEN` still stands. Nothing in V1 changes it.
+
+---
+
+## L. REPOSITORY-WIDE TEST STATE, AND HOW IT WAS ATTRIBUTED
+
+The three new packages are green: `npx tsc --noEmit` reports nothing for them, `npx eslint` is
+clean, and 271 tests pass with 2 skips (both of them the deliberate "frozen corpus absent" guards,
+which skip precisely because the authority IS present).
+
+The whole `compliance` project is NOT green: 14 files fail, 16 tests of 1802. None of them is in a
+package this candidate touches. They were attributed rather than assumed:
+
+- The failures are in `mps-lu`, `spatial-provider-postgis`, `mps-data-governance` and
+  `mps-retrieval-trace`. `git show --name-only HEAD` touches none of those packages.
+- The visible causes are environmental or pre-existing: `ECONNREFUSED 127.0.0.1:5432` (no PostGIS
+  running here), a repo-inventory assertion in `GovernedWriteCapability.test.ts`, and a
+  `PackageTypecheck.test.ts` that times out running `tsc` inside a 5-second budget.
+- The decisive check: the five shared files this candidate modifies — `.gitignore`,
+  `vitest.config.ts`, `tsconfig.json`, `eslint.config.mjs` and `packages/mps-canonical/src/index.ts`
+  — were reverted to their base-commit contents and the same two representative tests were re-run.
+  They failed identically (2 failed, 16 passed, 2 skipped). The failures are therefore present at
+  base `0d7b2bd5…` and are not caused by this candidate.
+
+All five of those shared changes are strictly additive: three alias/path/include registrations for
+the new packages, two eslint blocks scoped to them by path, one `.gitignore` negation, and two
+re-exports of an already-public class.
 
 ---
 
