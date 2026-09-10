@@ -1,0 +1,806 @@
+{
+  "schemaId": "WORKSPACE_SNAPSHOT_DIGEST_TEST_VECTORS_V1",
+  "version": "1.0.0",
+  "status": "FROZEN",
+  "contract": "snapshot-digest-v1.json",
+  "generatedBy": "scripts/workspace-lifecycle/build-snapshot-digest-vectors.mts",
+  "generatedWith": "@miljobeslut/mps-canonical 0.1.0 DefaultCanonicalJson.toBytes with SHA-256 framing, via packages/mps-workspace-observer/src/digest/CanonicalDigest.ts",
+  "howToVerify": "For each vector: canonicalize `payload` per byteSemantics of the Phase 0 canonicalizer-contract-v1.json, compare the bytes to expectedCanonicalUtf8 and expectedCanonicalByteLength, build the preimage uint32be(len(schemaId))||schemaId||uint32be(len(bytes))||bytes, compare it to expectedPreimageHex, and SHA-256 it to expectedDigest. No expectedDigest in this file was written by hand; all of them are produced by the implementation under test, so they prove AGREEMENT with the frozen primitive, not correctness of the inclusion rule. Reviewing the vector SET is the adversarial verifier’s job (spec A12).",
+  "conformanceVectorCount": 13,
+  "informativeVectorCount": 0,
+  "invariants": {
+    "SD01 != SD02 (absent field versus explicit null)": true,
+    "SD01 != SD03 (omitted list versus empty list)": true,
+    "SD04 != SD05 (no case folding on the observed spelling)": true,
+    "SD04 and SD05 carry byte-identical caseId and comparisonKey": true,
+    "SD01 != SD09 (domain separation, SNAPSHOT_V1 versus CAPTURE_BUNDLE_V1)": true,
+    "SD01 != SD10 (prefix safety, SNAPSHOT_V1 versus SNAPSHOT_V11)": true,
+    "SD07 emits 0 for negative zero": true,
+    "SD08 leaves U+2028 and U+2029 raw": true,
+    "SD11 != SD12 (unknownReason is digest-covered)": true,
+    "SD11 != SD13 (observationState is digest-covered)": true
+  },
+  "vectors": [
+    {
+      "id": "SD01",
+      "class": "conformance",
+      "description": "baseline: canonicalSha absent. Absence is encoded by OMISSION, so this is also the \"list omitted\" half of SD03 and the \"absent field\" half of SD02.",
+      "schemaId": "SNAPSHOT_V1",
+      "payload": {
+        "repoRoot": "C:\\wt-alpha"
+      },
+      "expectedCanonicalUtf8": "{\"repoRoot\":\"C:\\\\wt-alpha\"}",
+      "expectedCanonicalByteLength": 27,
+      "expectedPreimageHex": "0000000b534e415053484f545f56310000001b7b227265706f526f6f74223a22433a5c5c77742d616c706861227d",
+      "expectedDigest": "b82cdfc9035b19b94f67409b228d89b2fbc13c48dbce3dfa1bad2a702768dbe8"
+    },
+    {
+      "id": "SD02",
+      "class": "conformance",
+      "description": "explicit null differs from absence (contract R4). No conforming projection emits this shape; the vector exists so an implementation that writes null for \"not observed\" fails visibly instead of producing a plausible wrong digest.",
+      "schemaId": "SNAPSHOT_V1",
+      "payload": {
+        "repoRoot": "C:\\wt-alpha",
+        "canonicalSha": null
+      },
+      "expectedCanonicalUtf8": "{\"canonicalSha\":null,\"repoRoot\":\"C:\\\\wt-alpha\"}",
+      "expectedCanonicalByteLength": 47,
+      "expectedPreimageHex": "0000000b534e415053484f545f56310000002f7b2263616e6f6e6963616c536861223a6e756c6c2c227265706f526f6f74223a22433a5c5c77742d616c706861227d",
+      "expectedDigest": "6c33bf9e81f9398205dc4df983472548beb4b25cd27a72cfb6254f4fd369ed32"
+    },
+    {
+      "id": "SD03",
+      "class": "conformance",
+      "description": "an empty list is emitted as [] and differs from the omitted list of SD01. A worktree metadata directory that was read and found empty is not the same fact as one that was never read.",
+      "schemaId": "SNAPSHOT_V1",
+      "payload": {
+        "repoRoot": "C:\\wt-alpha",
+        "mainWorktreeEntryNames": []
+      },
+      "expectedCanonicalUtf8": "{\"mainWorktreeEntryNames\":[],\"repoRoot\":\"C:\\\\wt-alpha\"}",
+      "expectedCanonicalByteLength": 55,
+      "expectedPreimageHex": "0000000b534e415053484f545f5631000000377b226d61696e576f726b74726565456e7472794e616d6573223a5b5d2c227265706f526f6f74223a22433a5c5c77742d616c706861227d",
+      "expectedDigest": "f5f3c55da03dfa0a0abd62be339a3866a5e68eed5e6393f71b28e8d3b8c6c69e"
+    },
+    {
+      "id": "SD04",
+      "class": "conformance",
+      "description": "a with ring and o with diaeresis in a Windows path, NFC input. caseId and comparisonKey are computed by the frozen PathPolicy rules from this spelling.",
+      "schemaId": "SNAPSHOT_V1",
+      "payload": {
+        "caseId": "ws-c-milj-beslut-wt-verv-g-9cce42fb",
+        "comparisonKey": "c:/miljöbeslut/wt-överväg-å",
+        "repoRoot": "C:\\miljöbeslut\\wt-överväg-å"
+      },
+      "expectedCanonicalUtf8": "{\"caseId\":\"ws-c-milj-beslut-wt-verv-g-9cce42fb\",\"comparisonKey\":\"c:/miljöbeslut/wt-överväg-å\",\"repoRoot\":\"C:\\\\miljöbeslut\\\\wt-överväg-å\"}",
+      "expectedCanonicalByteLength": 145,
+      "expectedPreimageHex": "0000000b534e415053484f545f5631000000917b22636173654964223a2277732d632d6d696c6a2d6265736c75742d77742d766572762d672d3963636534326662222c22636f6d70617269736f6e4b6579223a22633a2f6d696c6ac3b66265736c75742f77742dc3b676657276c3a4672dc3a5222c227265706f526f6f74223a22433a5c5c6d696c6ac3b66265736c75745c5c77742dc3b676657276c3a4672dc3a5227d",
+      "expectedDigest": "d7ae5feb7a8aeaf9b48ffb22d14299b4008200afe76ada0402bcc2a39d504b22"
+    },
+    {
+      "id": "SD05",
+      "class": "conformance",
+      "description": "the same directory spelled in a different case. The canonicaliser does no case folding, so repoRoot differs and the digest differs from SD04 — while caseId and comparisonKey are byte-identical to SD04, because the frozen comparison rule lowercases. That pair is the whole reason identity is keyed on comparisonKey and not on the observed spelling.",
+      "schemaId": "SNAPSHOT_V1",
+      "payload": {
+        "caseId": "ws-c-milj-beslut-wt-verv-g-9cce42fb",
+        "comparisonKey": "c:/miljöbeslut/wt-överväg-å",
+        "repoRoot": "c:\\MILJÖBESLUT\\WT-ÖVERVÄG-Å"
+      },
+      "expectedCanonicalUtf8": "{\"caseId\":\"ws-c-milj-beslut-wt-verv-g-9cce42fb\",\"comparisonKey\":\"c:/miljöbeslut/wt-överväg-å\",\"repoRoot\":\"c:\\\\MILJÖBESLUT\\\\WT-ÖVERVÄG-Å\"}",
+      "expectedCanonicalByteLength": 145,
+      "expectedPreimageHex": "0000000b534e415053484f545f5631000000917b22636173654964223a2277732d632d6d696c6a2d6265736c75742d77742d766572762d672d3963636534326662222c22636f6d70617269736f6e4b6579223a22633a2f6d696c6ac3b66265736c75742f77742dc3b676657276c3a4672dc3a5222c227265706f526f6f74223a22633a5c5c4d494c4ac3964245534c55545c5c57542dc39656455256c384472dc385227d",
+      "expectedDigest": "eb7f0bb6e9c838a21c8c73432a60a3b8b1d243f5f8b4a778c3344ab1d3f9ed52"
+    },
+    {
+      "id": "SD06",
+      "class": "conformance",
+      "description": "integers at the safe-integer boundary, plus and minus (2^53 - 1), beside a realistic epoch-second reflog timestamp. Anything outside this range is rejected by payload restriction P2 rather than silently rounded.",
+      "schemaId": "SNAPSHOT_V1",
+      "payload": {
+        "canonicalRefUpdatedAtEpochSeconds": 1757462400,
+        "commitsAheadOfCanonical": 9007199254740991,
+        "commitsBehindCanonical": -9007199254740991
+      },
+      "expectedCanonicalUtf8": "{\"canonicalRefUpdatedAtEpochSeconds\":1757462400,\"commitsAheadOfCanonical\":9007199254740991,\"commitsBehindCanonical\":-9007199254740991}",
+      "expectedCanonicalByteLength": 134,
+      "expectedPreimageHex": "0000000b534e415053484f545f5631000000867b2263616e6f6e6963616c52656655706461746564417445706f63685365636f6e6473223a313735373436323430302c22636f6d6d69747341686561644f6643616e6f6e6963616c223a393030373139393235343734303939312c22636f6d6d697473426568696e6443616e6f6e6963616c223a2d393030373139393235343734303939317d",
+      "expectedDigest": "e644e47783aff8cc2d297d75d5c04066e2715ed0307f42de390270a839cdb0dd"
+    },
+    {
+      "id": "SD07",
+      "class": "conformance",
+      "description": "negative zero collapses to 0 (contract R7). The collapse survives the payload restrictions, so a producer must never encode meaning in the sign of a zero count.",
+      "schemaId": "SNAPSHOT_V1",
+      "payload": {
+        "aheadOfUpstream": -0
+      },
+      "payloadNote": "the JSON text is {\"aheadOfUpstream\":-0}; an implementation that preserves the sign of zero produces different bytes and fails this vector",
+      "expectedCanonicalUtf8": "{\"aheadOfUpstream\":0}",
+      "expectedCanonicalByteLength": 21,
+      "expectedPreimageHex": "0000000b534e415053484f545f5631000000157b2261686561644f66557073747265616d223a307d",
+      "expectedDigest": "ef04b3ab4fd766899f28d4602fbe924a081bf9ec6267ce752a6d553fe1c7914f"
+    },
+    {
+      "id": "SD08",
+      "class": "conformance",
+      "description": "U+2028 and U+2029 are emitted RAW as UTF-8 (contract R6). The output is valid JSON and is not valid ECMAScript source; a producer that escapes them for JavaScript safety produces different bytes.",
+      "schemaId": "SNAPSHOT_V1",
+      "payload": {
+        "lockedReason": "held by agent"
+      },
+      "expectedCanonicalUtf8": "{\"lockedReason\":\"held by agent\"}",
+      "expectedCanonicalByteLength": 36,
+      "expectedPreimageHex": "0000000b534e415053484f545f5631000000247b226c6f636b6564526561736f6e223a2268656c64e280a86279e280a96167656e74227d",
+      "expectedDigest": "6b2788297955b8d03d18b492b1eec998dec3d6366f96b6aa51eb900f66227745"
+    },
+    {
+      "id": "SD09",
+      "class": "conformance",
+      "description": "domain separation: the SD01 payload under CAPTURE_BUNDLE_V1 yields a different digest. A Phase 0 captureDigest can therefore never collide with a V1 identityDigest.",
+      "schemaId": "CAPTURE_BUNDLE_V1",
+      "payload": {
+        "repoRoot": "C:\\wt-alpha"
+      },
+      "expectedCanonicalUtf8": "{\"repoRoot\":\"C:\\\\wt-alpha\"}",
+      "expectedCanonicalByteLength": 27,
+      "expectedPreimageHex": "00000011434150545552455f42554e444c455f56310000001b7b227265706f526f6f74223a22433a5c5c77742d616c706861227d",
+      "expectedDigest": "2319adbf0aace311b317f8a46fd11f10145946d2e459f61c349507f761d5c6f2"
+    },
+    {
+      "id": "SD10",
+      "class": "conformance",
+      "description": "prefix safety: the SD01 payload under the longer schemaId SNAPSHOT_V11 differs from SD01, because both components of the preimage are length-prefixed. SNAPSHOT_V11 is NOT an admissible domain; it appears only to demonstrate this property.",
+      "schemaId": "SNAPSHOT_V11",
+      "payload": {
+        "repoRoot": "C:\\wt-alpha"
+      },
+      "expectedCanonicalUtf8": "{\"repoRoot\":\"C:\\\\wt-alpha\"}",
+      "expectedCanonicalByteLength": 27,
+      "expectedPreimageHex": "0000000c534e415053484f545f5631310000001b7b227265706f526f6f74223a22433a5c5c77742d616c706861227d",
+      "expectedDigest": "032dab5d58fdd48352eea4ad69a77f20c87cdc8ffe3f57eb8ae69edda2fcce84"
+    },
+    {
+      "id": "SD11",
+      "class": "conformance",
+      "description": "a full snapshot projection with one OBSERVED and one UNKNOWN workspace, produced by digestPayload(). Every excluded field of the artifact (graphRelation, preferredSpelling, spellings, entryCount, contentEvidence, declaredUnitFiles, proofs, metadata) is absent from this payload; what remains is the whole digest-eligible surface.",
+      "schemaId": "SNAPSHOT_V1",
+      "payload": {
+        "schemaId": "WORKSPACE_SNAPSHOT_V1",
+        "repository": {
+          "repoRoot": "C:\\miljobeslut",
+          "canonicalRef": "refs/remotes/origin/main",
+          "commonDir": {
+            "state": "OBSERVED",
+            "value": "C:/miljobeslut/.git"
+          },
+          "canonicalSha": {
+            "state": "OBSERVED",
+            "value": "0d7b2bd566b0d5f7c9d27d645c941acd66cb1e85"
+          },
+          "canonicalShaSource": "R-G-02[BEFORE]",
+          "canonicalShaStableAcrossWindow": {
+            "state": "OBSERVED",
+            "value": true
+          },
+          "canonicalRefUpdatedAtEpochSeconds": {
+            "state": "OBSERVED",
+            "value": 1757462400
+          },
+          "stashes": {
+            "state": "OBSERVED",
+            "value": [
+              {
+                "stashCommit": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                "firstParent": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+              }
+            ]
+          },
+          "mainWorktreeEntryNames": {
+            "state": "OBSERVED",
+            "value": [
+              "HEAD",
+              "config",
+              "index",
+              "worktrees"
+            ]
+          },
+          "configuration": {
+            "core.ignorecase": {
+              "state": "OBSERVED",
+              "value": [
+                "true"
+              ]
+            },
+            "core.symlinks": {
+              "state": "OBSERVED",
+              "value": [
+                "false"
+              ]
+            }
+          }
+        },
+        "workspaces": [
+          {
+            "caseId": "ws-c-wt-alpha-591d63be",
+            "comparisonKey": "c:/wt-alpha",
+            "observationState": "OBSERVED",
+            "gitWorktreeList": {
+              "listed": true,
+              "path": "C:/wt-alpha",
+              "head": "cccccccccccccccccccccccccccccccccccccccc",
+              "branch": "refs/heads/feat/alpha",
+              "detached": false,
+              "locked": false,
+              "prunable": false,
+              "bare": false
+            },
+            "gitMetadata": {
+              "registered": true,
+              "worktreeId": "wt-alpha",
+              "gitdirPointer": "C:/wt-alpha/.git",
+              "gitdirTargetPresent": true,
+              "registeredHead": "cccccccccccccccccccccccccccccccccccccccc",
+              "lockedMarker": false,
+              "metadataEntryNames": [
+                "HEAD",
+                "ORIG_HEAD",
+                "commondir",
+                "gitdir",
+                "index"
+              ],
+              "hasWorktreeConfig": false
+            },
+            "filesystem": {
+              "pathPresent": {
+                "state": "OBSERVED",
+                "value": true
+              },
+              "entryType": "dir",
+              "realpath": "C:\\wt-alpha",
+              "dotGitType": "file",
+              "dotGitAbsent": false,
+              "dotGitPointer": "C:/miljobeslut/.git/worktrees/wt-alpha"
+            },
+            "branchBinding": {
+              "bound": true,
+              "refname": "refs/heads/feat/alpha",
+              "objectname": "cccccccccccccccccccccccccccccccccccccccc",
+              "upstream": "refs/remotes/origin/feat/alpha",
+              "upstreamTrack": "[ahead 2]"
+            },
+            "toplevel": {
+              "state": "OBSERVED",
+              "value": "C:/wt-alpha"
+            },
+            "workspaceGitDir": {
+              "state": "OBSERVED",
+              "value": "C:/repo/.git/worktrees/wt-a"
+            },
+            "workspaceGitCommonDir": {
+              "state": "OBSERVED",
+              "value": "C:/repo/.git"
+            },
+            "insideWorkTree": {
+              "state": "OBSERVED",
+              "value": true
+            },
+            "workspaceGitExitCode": 0,
+            "symbolicRef": {
+              "state": "OBSERVED",
+              "value": "refs/heads/feat/alpha"
+            },
+            "status": {
+              "state": "OBSERVED",
+              "value": {
+                "trackedModificationCount": 3,
+                "untrackedEntryCount": 1,
+                "unmergedCount": 0,
+                "branchHead": "feat/alpha",
+                "branchOid": "cccccccccccccccccccccccccccccccccccccccc",
+                "branchUpstream": "origin/feat/alpha",
+                "aheadOfUpstream": 2,
+                "behindUpstream": 0
+              }
+            },
+            "ancestry": {
+              "state": "OBSERVED",
+              "value": {
+                "headSha": "cccccccccccccccccccccccccccccccccccccccc",
+                "headCommitExists": true,
+                "headIsAncestorOfCanonical": false,
+                "canonicalIsAncestorOfHead": true,
+                "mergeBase": "0d7b2bd566b0d5f7c9d27d645c941acd66cb1e85",
+                "commitsAheadOfCanonical": 2,
+                "commitsBehindCanonical": 0,
+                "allUniqueCommitsPatchEquivalent": false,
+                "uniqueCommitCount": 2
+              }
+            }
+          },
+          {
+            "caseId": "ws-c-wt-beta-a47722d3",
+            "comparisonKey": "c:/wt-beta",
+            "observationState": "UNKNOWN",
+            "gitWorktreeList": {
+              "listed": false
+            },
+            "gitMetadata": {
+              "registered": false
+            },
+            "filesystem": {
+              "pathPresent": {
+                "state": "UNKNOWN",
+                "unknownReason": "FILESYSTEM_ERROR_INCONCLUSIVE"
+              },
+              "errorCode": "EBUSY"
+            },
+            "branchBinding": {
+              "bound": false
+            },
+            "toplevel": {
+              "state": "UNKNOWN",
+              "unknownReason": "TIMEOUT"
+            },
+            "workspaceGitDir": {
+              "state": "UNKNOWN",
+              "unknownReason": "TIMEOUT"
+            },
+            "workspaceGitCommonDir": {
+              "state": "UNKNOWN",
+              "unknownReason": "TIMEOUT"
+            },
+            "insideWorkTree": {
+              "state": "UNKNOWN",
+              "unknownReason": "TIMEOUT"
+            },
+            "symbolicRef": {
+              "state": "UNKNOWN",
+              "unknownReason": "TIMEOUT"
+            },
+            "status": {
+              "state": "UNKNOWN",
+              "unknownReason": "TIMEOUT"
+            },
+            "ancestry": {
+              "state": "UNKNOWN",
+              "unknownReason": "TIMEOUT"
+            }
+          }
+        ]
+      },
+      "expectedCanonicalUtf8": "{\"repository\":{\"canonicalRef\":\"refs/remotes/origin/main\",\"canonicalRefUpdatedAtEpochSeconds\":{\"state\":\"OBSERVED\",\"value\":1757462400},\"canonicalSha\":{\"state\":\"OBSERVED\",\"value\":\"0d7b2bd566b0d5f7c9d27d645c941acd66cb1e85\"},\"canonicalShaSource\":\"R-G-02[BEFORE]\",\"canonicalShaStableAcrossWindow\":{\"state\":\"OBSERVED\",\"value\":true},\"commonDir\":{\"state\":\"OBSERVED\",\"value\":\"C:/miljobeslut/.git\"},\"configuration\":{\"core.ignorecase\":{\"state\":\"OBSERVED\",\"value\":[\"true\"]},\"core.symlinks\":{\"state\":\"OBSERVED\",\"value\":[\"false\"]}},\"mainWorktreeEntryNames\":{\"state\":\"OBSERVED\",\"value\":[\"HEAD\",\"config\",\"index\",\"worktrees\"]},\"repoRoot\":\"C:\\\\miljobeslut\",\"stashes\":{\"state\":\"OBSERVED\",\"value\":[{\"firstParent\":\"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\",\"stashCommit\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\"}]}},\"schemaId\":\"WORKSPACE_SNAPSHOT_V1\",\"workspaces\":[{\"ancestry\":{\"state\":\"OBSERVED\",\"value\":{\"allUniqueCommitsPatchEquivalent\":false,\"canonicalIsAncestorOfHead\":true,\"commitsAheadOfCanonical\":2,\"commitsBehindCanonical\":0,\"headCommitExists\":true,\"headIsAncestorOfCanonical\":false,\"headSha\":\"cccccccccccccccccccccccccccccccccccccccc\",\"mergeBase\":\"0d7b2bd566b0d5f7c9d27d645c941acd66cb1e85\",\"uniqueCommitCount\":2}},\"branchBinding\":{\"bound\":true,\"objectname\":\"cccccccccccccccccccccccccccccccccccccccc\",\"refname\":\"refs/heads/feat/alpha\",\"upstream\":\"refs/remotes/origin/feat/alpha\",\"upstreamTrack\":\"[ahead 2]\"},\"caseId\":\"ws-c-wt-alpha-591d63be\",\"comparisonKey\":\"c:/wt-alpha\",\"filesystem\":{\"dotGitAbsent\":false,\"dotGitPointer\":\"C:/miljobeslut/.git/worktrees/wt-alpha\",\"dotGitType\":\"file\",\"entryType\":\"dir\",\"pathPresent\":{\"state\":\"OBSERVED\",\"value\":true},\"realpath\":\"C:\\\\wt-alpha\"},\"gitMetadata\":{\"gitdirPointer\":\"C:/wt-alpha/.git\",\"gitdirTargetPresent\":true,\"hasWorktreeConfig\":false,\"lockedMarker\":false,\"metadataEntryNames\":[\"HEAD\",\"ORIG_HEAD\",\"commondir\",\"gitdir\",\"index\"],\"registered\":true,\"registeredHead\":\"cccccccccccccccccccccccccccccccccccccccc\",\"worktreeId\":\"wt-alpha\"},\"gitWorktreeList\":{\"bare\":false,\"branch\":\"refs/heads/feat/alpha\",\"detached\":false,\"head\":\"cccccccccccccccccccccccccccccccccccccccc\",\"listed\":true,\"locked\":false,\"path\":\"C:/wt-alpha\",\"prunable\":false},\"insideWorkTree\":{\"state\":\"OBSERVED\",\"value\":true},\"observationState\":\"OBSERVED\",\"status\":{\"state\":\"OBSERVED\",\"value\":{\"aheadOfUpstream\":2,\"behindUpstream\":0,\"branchHead\":\"feat/alpha\",\"branchOid\":\"cccccccccccccccccccccccccccccccccccccccc\",\"branchUpstream\":\"origin/feat/alpha\",\"trackedModificationCount\":3,\"unmergedCount\":0,\"untrackedEntryCount\":1}},\"symbolicRef\":{\"state\":\"OBSERVED\",\"value\":\"refs/heads/feat/alpha\"},\"toplevel\":{\"state\":\"OBSERVED\",\"value\":\"C:/wt-alpha\"},\"workspaceGitCommonDir\":{\"state\":\"OBSERVED\",\"value\":\"C:/repo/.git\"},\"workspaceGitDir\":{\"state\":\"OBSERVED\",\"value\":\"C:/repo/.git/worktrees/wt-a\"},\"workspaceGitExitCode\":0},{\"ancestry\":{\"state\":\"UNKNOWN\",\"unknownReason\":\"TIMEOUT\"},\"branchBinding\":{\"bound\":false},\"caseId\":\"ws-c-wt-beta-a47722d3\",\"comparisonKey\":\"c:/wt-beta\",\"filesystem\":{\"errorCode\":\"EBUSY\",\"pathPresent\":{\"state\":\"UNKNOWN\",\"unknownReason\":\"FILESYSTEM_ERROR_INCONCLUSIVE\"}},\"gitMetadata\":{\"registered\":false},\"gitWorktreeList\":{\"listed\":false},\"insideWorkTree\":{\"state\":\"UNKNOWN\",\"unknownReason\":\"TIMEOUT\"},\"observationState\":\"UNKNOWN\",\"status\":{\"state\":\"UNKNOWN\",\"unknownReason\":\"TIMEOUT\"},\"symbolicRef\":{\"state\":\"UNKNOWN\",\"unknownReason\":\"TIMEOUT\"},\"toplevel\":{\"state\":\"UNKNOWN\",\"unknownReason\":\"TIMEOUT\"},\"workspaceGitCommonDir\":{\"state\":\"UNKNOWN\",\"unknownReason\":\"TIMEOUT\"},\"workspaceGitDir\":{\"state\":\"UNKNOWN\",\"unknownReason\":\"TIMEOUT\"}}]}",
+      "expectedCanonicalByteLength": 3544,
+      "expectedPreimageHex": "0000000b534e415053484f545f563100000dd87b227265706f7369746f7279223a7b2263616e6f6e6963616c526566223a22726566732f72656d6f7465732f6f726967696e2f6d61696e222c2263616e6f6e6963616c52656655706461746564417445706f63685365636f6e6473223a7b227374617465223a224f42534552564544222c2276616c7565223a313735373436323430307d2c2263616e6f6e6963616c536861223a7b227374617465223a224f42534552564544222c2276616c7565223a2230643762326264353636623064356637633964323764363435633934316163643636636231653835227d2c2263616e6f6e6963616c536861536f75726365223a22522d472d30325b4245464f52455d222c2263616e6f6e6963616c536861537461626c654163726f737357696e646f77223a7b227374617465223a224f42534552564544222c2276616c7565223a747275657d2c22636f6d6d6f6e446972223a7b227374617465223a224f42534552564544222c2276616c7565223a22433a2f6d696c6a6f6265736c75742f2e676974227d2c22636f6e66696775726174696f6e223a7b22636f72652e69676e6f726563617365223a7b227374617465223a224f42534552564544222c2276616c7565223a5b2274727565225d7d2c22636f72652e73796d6c696e6b73223a7b227374617465223a224f42534552564544222c2276616c7565223a5b2266616c7365225d7d7d2c226d61696e576f726b74726565456e7472794e616d6573223a7b227374617465223a224f42534552564544222c2276616c7565223a5b2248454144222c22636f6e666967222c22696e646578222c22776f726b7472656573225d7d2c227265706f526f6f74223a22433a5c5c6d696c6a6f6265736c7574222c2273746173686573223a7b227374617465223a224f42534552564544222c2276616c7565223a5b7b226669727374506172656e74223a2262626262626262626262626262626262626262626262626262626262626262626262626262626262222c227374617368436f6d6d6974223a2261616161616161616161616161616161616161616161616161616161616161616161616161616161227d5d7d7d2c22736368656d614964223a22574f524b53504143455f534e415053484f545f5631222c22776f726b737061636573223a5b7b22616e636573747279223a7b227374617465223a224f42534552564544222c2276616c7565223a7b22616c6c556e69717565436f6d6d69747350617463684571756976616c656e74223a66616c73652c2263616e6f6e6963616c4973416e636573746f724f6648656164223a747275652c22636f6d6d69747341686561644f6643616e6f6e6963616c223a322c22636f6d6d697473426568696e6443616e6f6e6963616c223a302c2268656164436f6d6d6974457869737473223a747275652c22686561644973416e636573746f724f6643616e6f6e6963616c223a66616c73652c2268656164536861223a2263636363636363636363636363636363636363636363636363636363636363636363636363636363222c226d6572676542617365223a2230643762326264353636623064356637633964323764363435633934316163643636636231653835222c22756e69717565436f6d6d6974436f756e74223a327d7d2c226272616e636842696e64696e67223a7b22626f756e64223a747275652c226f626a6563746e616d65223a2263636363636363636363636363636363636363636363636363636363636363636363636363636363222c227265666e616d65223a22726566732f68656164732f666561742f616c706861222c22757073747265616d223a22726566732f72656d6f7465732f6f726967696e2f666561742f616c706861222c22757073747265616d547261636b223a225b616865616420325d227d2c22636173654964223a2277732d632d77742d616c7068612d3539316436336265222c22636f6d70617269736f6e4b6579223a22633a2f77742d616c706861222c2266696c6573797374656d223a7b22646f74476974416273656e74223a66616c73652c22646f74476974506f696e746572223a22433a2f6d696c6a6f6265736c75742f2e6769742f776f726b74726565732f77742d616c706861222c22646f7447697454797065223a2266696c65222c22656e74727954797065223a22646972222c227061746850726573656e74223a7b227374617465223a224f42534552564544222c2276616c7565223a747275657d2c227265616c70617468223a22433a5c5c77742d616c706861227d2c226769744d65746164617461223a7b22676974646972506f696e746572223a22433a2f77742d616c7068612f2e676974222c2267697464697254617267657450726573656e74223a747275652c22686173576f726b74726565436f6e666967223a66616c73652c226c6f636b65644d61726b6572223a66616c73652c226d65746164617461456e7472794e616d6573223a5b2248454144222c224f5249475f48454144222c22636f6d6d6f6e646972222c22676974646972222c22696e646578225d2c2272656769737465726564223a747275652c227265676973746572656448656164223a2263636363636363636363636363636363636363636363636363636363636363636363636363636363222c22776f726b747265654964223a2277742d616c706861227d2c22676974576f726b747265654c697374223a7b2262617265223a66616c73652c226272616e6368223a22726566732f68656164732f666561742f616c706861222c226465746163686564223a66616c73652c2268656164223a2263636363636363636363636363636363636363636363636363636363636363636363636363636363222c226c6973746564223a747275652c226c6f636b6564223a66616c73652c2270617468223a22433a2f77742d616c706861222c227072756e61626c65223a66616c73657d2c22696e73696465576f726b54726565223a7b227374617465223a224f42534552564544222c2276616c7565223a747275657d2c226f62736572766174696f6e5374617465223a224f42534552564544222c22737461747573223a7b227374617465223a224f42534552564544222c2276616c7565223a7b2261686561644f66557073747265616d223a322c22626568696e64557073747265616d223a302c226272616e636848656164223a22666561742f616c706861222c226272616e63684f6964223a2263636363636363636363636363636363636363636363636363636363636363636363636363636363222c226272616e6368557073747265616d223a226f726967696e2f666561742f616c706861222c22747261636b65644d6f64696669636174696f6e436f756e74223a332c22756e6d6572676564436f756e74223a302c22756e747261636b6564456e747279436f756e74223a317d7d2c2273796d626f6c6963526566223a7b227374617465223a224f42534552564544222c2276616c7565223a22726566732f68656164732f666561742f616c706861227d2c22746f706c6576656c223a7b227374617465223a224f42534552564544222c2276616c7565223a22433a2f77742d616c706861227d2c22776f726b7370616365476974436f6d6d6f6e446972223a7b227374617465223a224f42534552564544222c2276616c7565223a22433a2f7265706f2f2e676974227d2c22776f726b7370616365476974446972223a7b227374617465223a224f42534552564544222c2276616c7565223a22433a2f7265706f2f2e6769742f776f726b74726565732f77742d61227d2c22776f726b737061636547697445786974436f6465223a307d2c7b22616e636573747279223a7b227374617465223a22554e4b4e4f574e222c22756e6b6e6f776e526561736f6e223a2254494d454f5554227d2c226272616e636842696e64696e67223a7b22626f756e64223a66616c73657d2c22636173654964223a2277732d632d77742d626574612d6134373732326433222c22636f6d70617269736f6e4b6579223a22633a2f77742d62657461222c2266696c6573797374656d223a7b226572726f72436f6465223a224542555359222c227061746850726573656e74223a7b227374617465223a22554e4b4e4f574e222c22756e6b6e6f776e526561736f6e223a2246494c4553595354454d5f4552524f525f494e434f4e434c5553495645227d7d2c226769744d65746164617461223a7b2272656769737465726564223a66616c73657d2c22676974576f726b747265654c697374223a7b226c6973746564223a66616c73657d2c22696e73696465576f726b54726565223a7b227374617465223a22554e4b4e4f574e222c22756e6b6e6f776e526561736f6e223a2254494d454f5554227d2c226f62736572766174696f6e5374617465223a22554e4b4e4f574e222c22737461747573223a7b227374617465223a22554e4b4e4f574e222c22756e6b6e6f776e526561736f6e223a2254494d454f5554227d2c2273796d626f6c6963526566223a7b227374617465223a22554e4b4e4f574e222c22756e6b6e6f776e526561736f6e223a2254494d454f5554227d2c22746f706c6576656c223a7b227374617465223a22554e4b4e4f574e222c22756e6b6e6f776e526561736f6e223a2254494d454f5554227d2c22776f726b7370616365476974436f6d6d6f6e446972223a7b227374617465223a22554e4b4e4f574e222c22756e6b6e6f776e526561736f6e223a2254494d454f5554227d2c22776f726b7370616365476974446972223a7b227374617465223a22554e4b4e4f574e222c22756e6b6e6f776e526561736f6e223a2254494d454f5554227d7d5d7d",
+      "expectedDigest": "9dbf8fe4223c0c619c5a8927175f9e8e2243841fa2d708a3f08d9067510d6961"
+    },
+    {
+      "id": "SD12",
+      "class": "conformance",
+      "description": "SD11 with the UNKNOWN workspace status reason changed from TIMEOUT to SPAWN_ERROR. The digest differs: why the world refused to answer is a fact about the world, so it must invalidate a disposition.",
+      "schemaId": "SNAPSHOT_V1",
+      "payload": {
+        "schemaId": "WORKSPACE_SNAPSHOT_V1",
+        "repository": {
+          "repoRoot": "C:\\miljobeslut",
+          "canonicalRef": "refs/remotes/origin/main",
+          "commonDir": {
+            "state": "OBSERVED",
+            "value": "C:/miljobeslut/.git"
+          },
+          "canonicalSha": {
+            "state": "OBSERVED",
+            "value": "0d7b2bd566b0d5f7c9d27d645c941acd66cb1e85"
+          },
+          "canonicalShaSource": "R-G-02[BEFORE]",
+          "canonicalShaStableAcrossWindow": {
+            "state": "OBSERVED",
+            "value": true
+          },
+          "canonicalRefUpdatedAtEpochSeconds": {
+            "state": "OBSERVED",
+            "value": 1757462400
+          },
+          "stashes": {
+            "state": "OBSERVED",
+            "value": [
+              {
+                "stashCommit": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                "firstParent": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+              }
+            ]
+          },
+          "mainWorktreeEntryNames": {
+            "state": "OBSERVED",
+            "value": [
+              "HEAD",
+              "config",
+              "index",
+              "worktrees"
+            ]
+          },
+          "configuration": {
+            "core.ignorecase": {
+              "state": "OBSERVED",
+              "value": [
+                "true"
+              ]
+            },
+            "core.symlinks": {
+              "state": "OBSERVED",
+              "value": [
+                "false"
+              ]
+            }
+          }
+        },
+        "workspaces": [
+          {
+            "caseId": "ws-c-wt-alpha-591d63be",
+            "comparisonKey": "c:/wt-alpha",
+            "observationState": "OBSERVED",
+            "gitWorktreeList": {
+              "listed": true,
+              "path": "C:/wt-alpha",
+              "head": "cccccccccccccccccccccccccccccccccccccccc",
+              "branch": "refs/heads/feat/alpha",
+              "detached": false,
+              "locked": false,
+              "prunable": false,
+              "bare": false
+            },
+            "gitMetadata": {
+              "registered": true,
+              "worktreeId": "wt-alpha",
+              "gitdirPointer": "C:/wt-alpha/.git",
+              "gitdirTargetPresent": true,
+              "registeredHead": "cccccccccccccccccccccccccccccccccccccccc",
+              "lockedMarker": false,
+              "metadataEntryNames": [
+                "HEAD",
+                "ORIG_HEAD",
+                "commondir",
+                "gitdir",
+                "index"
+              ],
+              "hasWorktreeConfig": false
+            },
+            "filesystem": {
+              "pathPresent": {
+                "state": "OBSERVED",
+                "value": true
+              },
+              "entryType": "dir",
+              "realpath": "C:\\wt-alpha",
+              "dotGitType": "file",
+              "dotGitAbsent": false,
+              "dotGitPointer": "C:/miljobeslut/.git/worktrees/wt-alpha"
+            },
+            "branchBinding": {
+              "bound": true,
+              "refname": "refs/heads/feat/alpha",
+              "objectname": "cccccccccccccccccccccccccccccccccccccccc",
+              "upstream": "refs/remotes/origin/feat/alpha",
+              "upstreamTrack": "[ahead 2]"
+            },
+            "toplevel": {
+              "state": "OBSERVED",
+              "value": "C:/wt-alpha"
+            },
+            "workspaceGitDir": {
+              "state": "OBSERVED",
+              "value": "C:/repo/.git/worktrees/wt-a"
+            },
+            "workspaceGitCommonDir": {
+              "state": "OBSERVED",
+              "value": "C:/repo/.git"
+            },
+            "insideWorkTree": {
+              "state": "OBSERVED",
+              "value": true
+            },
+            "workspaceGitExitCode": 0,
+            "symbolicRef": {
+              "state": "OBSERVED",
+              "value": "refs/heads/feat/alpha"
+            },
+            "status": {
+              "state": "OBSERVED",
+              "value": {
+                "trackedModificationCount": 3,
+                "untrackedEntryCount": 1,
+                "unmergedCount": 0,
+                "branchHead": "feat/alpha",
+                "branchOid": "cccccccccccccccccccccccccccccccccccccccc",
+                "branchUpstream": "origin/feat/alpha",
+                "aheadOfUpstream": 2,
+                "behindUpstream": 0
+              }
+            },
+            "ancestry": {
+              "state": "OBSERVED",
+              "value": {
+                "headSha": "cccccccccccccccccccccccccccccccccccccccc",
+                "headCommitExists": true,
+                "headIsAncestorOfCanonical": false,
+                "canonicalIsAncestorOfHead": true,
+                "mergeBase": "0d7b2bd566b0d5f7c9d27d645c941acd66cb1e85",
+                "commitsAheadOfCanonical": 2,
+                "commitsBehindCanonical": 0,
+                "allUniqueCommitsPatchEquivalent": false,
+                "uniqueCommitCount": 2
+              }
+            }
+          },
+          {
+            "caseId": "ws-c-wt-beta-a47722d3",
+            "comparisonKey": "c:/wt-beta",
+            "observationState": "UNKNOWN",
+            "gitWorktreeList": {
+              "listed": false
+            },
+            "gitMetadata": {
+              "registered": false
+            },
+            "filesystem": {
+              "pathPresent": {
+                "state": "UNKNOWN",
+                "unknownReason": "FILESYSTEM_ERROR_INCONCLUSIVE"
+              },
+              "errorCode": "EBUSY"
+            },
+            "branchBinding": {
+              "bound": false
+            },
+            "toplevel": {
+              "state": "UNKNOWN",
+              "unknownReason": "TIMEOUT"
+            },
+            "workspaceGitDir": {
+              "state": "UNKNOWN",
+              "unknownReason": "TIMEOUT"
+            },
+            "workspaceGitCommonDir": {
+              "state": "UNKNOWN",
+              "unknownReason": "TIMEOUT"
+            },
+            "insideWorkTree": {
+              "state": "UNKNOWN",
+              "unknownReason": "TIMEOUT"
+            },
+            "symbolicRef": {
+              "state": "UNKNOWN",
+              "unknownReason": "TIMEOUT"
+            },
+            "status": {
+              "state": "UNKNOWN",
+              "unknownReason": "SPAWN_ERROR"
+            },
+            "ancestry": {
+              "state": "UNKNOWN",
+              "unknownReason": "TIMEOUT"
+            }
+          }
+        ]
+      },
+      "expectedCanonicalUtf8": "{\"repository\":{\"canonicalRef\":\"refs/remotes/origin/main\",\"canonicalRefUpdatedAtEpochSeconds\":{\"state\":\"OBSERVED\",\"value\":1757462400},\"canonicalSha\":{\"state\":\"OBSERVED\",\"value\":\"0d7b2bd566b0d5f7c9d27d645c941acd66cb1e85\"},\"canonicalShaSource\":\"R-G-02[BEFORE]\",\"canonicalShaStableAcrossWindow\":{\"state\":\"OBSERVED\",\"value\":true},\"commonDir\":{\"state\":\"OBSERVED\",\"value\":\"C:/miljobeslut/.git\"},\"configuration\":{\"core.ignorecase\":{\"state\":\"OBSERVED\",\"value\":[\"true\"]},\"core.symlinks\":{\"state\":\"OBSERVED\",\"value\":[\"false\"]}},\"mainWorktreeEntryNames\":{\"state\":\"OBSERVED\",\"value\":[\"HEAD\",\"config\",\"index\",\"worktrees\"]},\"repoRoot\":\"C:\\\\miljobeslut\",\"stashes\":{\"state\":\"OBSERVED\",\"value\":[{\"firstParent\":\"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\",\"stashCommit\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\"}]}},\"schemaId\":\"WORKSPACE_SNAPSHOT_V1\",\"workspaces\":[{\"ancestry\":{\"state\":\"OBSERVED\",\"value\":{\"allUniqueCommitsPatchEquivalent\":false,\"canonicalIsAncestorOfHead\":true,\"commitsAheadOfCanonical\":2,\"commitsBehindCanonical\":0,\"headCommitExists\":true,\"headIsAncestorOfCanonical\":false,\"headSha\":\"cccccccccccccccccccccccccccccccccccccccc\",\"mergeBase\":\"0d7b2bd566b0d5f7c9d27d645c941acd66cb1e85\",\"uniqueCommitCount\":2}},\"branchBinding\":{\"bound\":true,\"objectname\":\"cccccccccccccccccccccccccccccccccccccccc\",\"refname\":\"refs/heads/feat/alpha\",\"upstream\":\"refs/remotes/origin/feat/alpha\",\"upstreamTrack\":\"[ahead 2]\"},\"caseId\":\"ws-c-wt-alpha-591d63be\",\"comparisonKey\":\"c:/wt-alpha\",\"filesystem\":{\"dotGitAbsent\":false,\"dotGitPointer\":\"C:/miljobeslut/.git/worktrees/wt-alpha\",\"dotGitType\":\"file\",\"entryType\":\"dir\",\"pathPresent\":{\"state\":\"OBSERVED\",\"value\":true},\"realpath\":\"C:\\\\wt-alpha\"},\"gitMetadata\":{\"gitdirPointer\":\"C:/wt-alpha/.git\",\"gitdirTargetPresent\":true,\"hasWorktreeConfig\":false,\"lockedMarker\":false,\"metadataEntryNames\":[\"HEAD\",\"ORIG_HEAD\",\"commondir\",\"gitdir\",\"index\"],\"registered\":true,\"registeredHead\":\"cccccccccccccccccccccccccccccccccccccccc\",\"worktreeId\":\"wt-alpha\"},\"gitWorktreeList\":{\"bare\":false,\"branch\":\"refs/heads/feat/alpha\",\"detached\":false,\"head\":\"cccccccccccccccccccccccccccccccccccccccc\",\"listed\":true,\"locked\":false,\"path\":\"C:/wt-alpha\",\"prunable\":false},\"insideWorkTree\":{\"state\":\"OBSERVED\",\"value\":true},\"observationState\":\"OBSERVED\",\"status\":{\"state\":\"OBSERVED\",\"value\":{\"aheadOfUpstream\":2,\"behindUpstream\":0,\"branchHead\":\"feat/alpha\",\"branchOid\":\"cccccccccccccccccccccccccccccccccccccccc\",\"branchUpstream\":\"origin/feat/alpha\",\"trackedModificationCount\":3,\"unmergedCount\":0,\"untrackedEntryCount\":1}},\"symbolicRef\":{\"state\":\"OBSERVED\",\"value\":\"refs/heads/feat/alpha\"},\"toplevel\":{\"state\":\"OBSERVED\",\"value\":\"C:/wt-alpha\"},\"workspaceGitCommonDir\":{\"state\":\"OBSERVED\",\"value\":\"C:/repo/.git\"},\"workspaceGitDir\":{\"state\":\"OBSERVED\",\"value\":\"C:/repo/.git/worktrees/wt-a\"},\"workspaceGitExitCode\":0},{\"ancestry\":{\"state\":\"UNKNOWN\",\"unknownReason\":\"TIMEOUT\"},\"branchBinding\":{\"bound\":false},\"caseId\":\"ws-c-wt-beta-a47722d3\",\"comparisonKey\":\"c:/wt-beta\",\"filesystem\":{\"errorCode\":\"EBUSY\",\"pathPresent\":{\"state\":\"UNKNOWN\",\"unknownReason\":\"FILESYSTEM_ERROR_INCONCLUSIVE\"}},\"gitMetadata\":{\"registered\":false},\"gitWorktreeList\":{\"listed\":false},\"insideWorkTree\":{\"state\":\"UNKNOWN\",\"unknownReason\":\"TIMEOUT\"},\"observationState\":\"UNKNOWN\",\"status\":{\"state\":\"UNKNOWN\",\"unknownReason\":\"SPAWN_ERROR\"},\"symbolicRef\":{\"state\":\"UNKNOWN\",\"unknownReason\":\"TIMEOUT\"},\"toplevel\":{\"state\":\"UNKNOWN\",\"unknownReason\":\"TIMEOUT\"},\"workspaceGitCommonDir\":{\"state\":\"UNKNOWN\",\"unknownReason\":\"TIMEOUT\"},\"workspaceGitDir\":{\"state\":\"UNKNOWN\",\"unknownReason\":\"TIMEOUT\"}}]}",
+      "expectedCanonicalByteLength": 3548,
+      "expectedPreimageHex": "0000000b534e415053484f545f563100000ddc7b227265706f7369746f7279223a7b2263616e6f6e6963616c526566223a22726566732f72656d6f7465732f6f726967696e2f6d61696e222c2263616e6f6e6963616c52656655706461746564417445706f63685365636f6e6473223a7b227374617465223a224f42534552564544222c2276616c7565223a313735373436323430307d2c2263616e6f6e6963616c536861223a7b227374617465223a224f42534552564544222c2276616c7565223a2230643762326264353636623064356637633964323764363435633934316163643636636231653835227d2c2263616e6f6e6963616c536861536f75726365223a22522d472d30325b4245464f52455d222c2263616e6f6e6963616c536861537461626c654163726f737357696e646f77223a7b227374617465223a224f42534552564544222c2276616c7565223a747275657d2c22636f6d6d6f6e446972223a7b227374617465223a224f42534552564544222c2276616c7565223a22433a2f6d696c6a6f6265736c75742f2e676974227d2c22636f6e66696775726174696f6e223a7b22636f72652e69676e6f726563617365223a7b227374617465223a224f42534552564544222c2276616c7565223a5b2274727565225d7d2c22636f72652e73796d6c696e6b73223a7b227374617465223a224f42534552564544222c2276616c7565223a5b2266616c7365225d7d7d2c226d61696e576f726b74726565456e7472794e616d6573223a7b227374617465223a224f42534552564544222c2276616c7565223a5b2248454144222c22636f6e666967222c22696e646578222c22776f726b7472656573225d7d2c227265706f526f6f74223a22433a5c5c6d696c6a6f6265736c7574222c2273746173686573223a7b227374617465223a224f42534552564544222c2276616c7565223a5b7b226669727374506172656e74223a2262626262626262626262626262626262626262626262626262626262626262626262626262626262222c227374617368436f6d6d6974223a2261616161616161616161616161616161616161616161616161616161616161616161616161616161227d5d7d7d2c22736368656d614964223a22574f524b53504143455f534e415053484f545f5631222c22776f726b737061636573223a5b7b22616e636573747279223a7b227374617465223a224f42534552564544222c2276616c7565223a7b22616c6c556e69717565436f6d6d69747350617463684571756976616c656e74223a66616c73652c2263616e6f6e6963616c4973416e636573746f724f6648656164223a747275652c22636f6d6d69747341686561644f6643616e6f6e6963616c223a322c22636f6d6d697473426568696e6443616e6f6e6963616c223a302c2268656164436f6d6d6974457869737473223a747275652c22686561644973416e636573746f724f6643616e6f6e6963616c223a66616c73652c2268656164536861223a2263636363636363636363636363636363636363636363636363636363636363636363636363636363222c226d6572676542617365223a2230643762326264353636623064356637633964323764363435633934316163643636636231653835222c22756e69717565436f6d6d6974436f756e74223a327d7d2c226272616e636842696e64696e67223a7b22626f756e64223a747275652c226f626a6563746e616d65223a2263636363636363636363636363636363636363636363636363636363636363636363636363636363222c227265666e616d65223a22726566732f68656164732f666561742f616c706861222c22757073747265616d223a22726566732f72656d6f7465732f6f726967696e2f666561742f616c706861222c22757073747265616d547261636b223a225b616865616420325d227d2c22636173654964223a2277732d632d77742d616c7068612d3539316436336265222c22636f6d70617269736f6e4b6579223a22633a2f77742d616c706861222c2266696c6573797374656d223a7b22646f74476974416273656e74223a66616c73652c22646f74476974506f696e746572223a22433a2f6d696c6a6f6265736c75742f2e6769742f776f726b74726565732f77742d616c706861222c22646f7447697454797065223a2266696c65222c22656e74727954797065223a22646972222c227061746850726573656e74223a7b227374617465223a224f42534552564544222c2276616c7565223a747275657d2c227265616c70617468223a22433a5c5c77742d616c706861227d2c226769744d65746164617461223a7b22676974646972506f696e746572223a22433a2f77742d616c7068612f2e676974222c2267697464697254617267657450726573656e74223a747275652c22686173576f726b74726565436f6e666967223a66616c73652c226c6f636b65644d61726b6572223a66616c73652c226d65746164617461456e7472794e616d6573223a5b2248454144222c224f5249475f48454144222c22636f6d6d6f6e646972222c22676974646972222c22696e646578225d2c2272656769737465726564223a747275652c227265676973746572656448656164223a2263636363636363636363636363636363636363636363636363636363636363636363636363636363222c22776f726b747265654964223a2277742d616c706861227d2c22676974576f726b747265654c697374223a7b2262617265223a66616c73652c226272616e6368223a22726566732f68656164732f666561742f616c706861222c226465746163686564223a66616c73652c2268656164223a2263636363636363636363636363636363636363636363636363636363636363636363636363636363222c226c6973746564223a747275652c226c6f636b6564223a66616c73652c2270617468223a22433a2f77742d616c706861222c227072756e61626c65223a66616c73657d2c22696e73696465576f726b54726565223a7b227374617465223a224f42534552564544222c2276616c7565223a747275657d2c226f62736572766174696f6e5374617465223a224f42534552564544222c22737461747573223a7b227374617465223a224f42534552564544222c2276616c7565223a7b2261686561644f66557073747265616d223a322c22626568696e64557073747265616d223a302c226272616e636848656164223a22666561742f616c706861222c226272616e63684f6964223a2263636363636363636363636363636363636363636363636363636363636363636363636363636363222c226272616e6368557073747265616d223a226f726967696e2f666561742f616c706861222c22747261636b65644d6f64696669636174696f6e436f756e74223a332c22756e6d6572676564436f756e74223a302c22756e747261636b6564456e747279436f756e74223a317d7d2c2273796d626f6c6963526566223a7b227374617465223a224f42534552564544222c2276616c7565223a22726566732f68656164732f666561742f616c706861227d2c22746f706c6576656c223a7b227374617465223a224f42534552564544222c2276616c7565223a22433a2f77742d616c706861227d2c22776f726b7370616365476974436f6d6d6f6e446972223a7b227374617465223a224f42534552564544222c2276616c7565223a22433a2f7265706f2f2e676974227d2c22776f726b7370616365476974446972223a7b227374617465223a224f42534552564544222c2276616c7565223a22433a2f7265706f2f2e6769742f776f726b74726565732f77742d61227d2c22776f726b737061636547697445786974436f6465223a307d2c7b22616e636573747279223a7b227374617465223a22554e4b4e4f574e222c22756e6b6e6f776e526561736f6e223a2254494d454f5554227d2c226272616e636842696e64696e67223a7b22626f756e64223a66616c73657d2c22636173654964223a2277732d632d77742d626574612d6134373732326433222c22636f6d70617269736f6e4b6579223a22633a2f77742d62657461222c2266696c6573797374656d223a7b226572726f72436f6465223a224542555359222c227061746850726573656e74223a7b227374617465223a22554e4b4e4f574e222c22756e6b6e6f776e526561736f6e223a2246494c4553595354454d5f4552524f525f494e434f4e434c5553495645227d7d2c226769744d65746164617461223a7b2272656769737465726564223a66616c73657d2c22676974576f726b747265654c697374223a7b226c6973746564223a66616c73657d2c22696e73696465576f726b54726565223a7b227374617465223a22554e4b4e4f574e222c22756e6b6e6f776e526561736f6e223a2254494d454f5554227d2c226f62736572766174696f6e5374617465223a22554e4b4e4f574e222c22737461747573223a7b227374617465223a22554e4b4e4f574e222c22756e6b6e6f776e526561736f6e223a22535041574e5f4552524f52227d2c2273796d626f6c6963526566223a7b227374617465223a22554e4b4e4f574e222c22756e6b6e6f776e526561736f6e223a2254494d454f5554227d2c22746f706c6576656c223a7b227374617465223a22554e4b4e4f574e222c22756e6b6e6f776e526561736f6e223a2254494d454f5554227d2c22776f726b7370616365476974436f6d6d6f6e446972223a7b227374617465223a22554e4b4e4f574e222c22756e6b6e6f776e526561736f6e223a2254494d454f5554227d2c22776f726b7370616365476974446972223a7b227374617465223a22554e4b4e4f574e222c22756e6b6e6f776e526561736f6e223a2254494d454f5554227d7d5d7d",
+      "expectedDigest": "230c0a4e8ac1e133cfd4ab6ec016770efe5851bc5e57d530ab7044e79fca99c5"
+    },
+    {
+      "id": "SD13",
+      "class": "conformance",
+      "description": "SD11 with the second workspace NOT_ATTEMPTED instead of UNKNOWN. observationState changes the digest, while the accompanying notAttemptedReason does not appear in the payload at all — it is a fact about this run scope, not about the machine.",
+      "schemaId": "SNAPSHOT_V1",
+      "payload": {
+        "schemaId": "WORKSPACE_SNAPSHOT_V1",
+        "repository": {
+          "repoRoot": "C:\\miljobeslut",
+          "canonicalRef": "refs/remotes/origin/main",
+          "commonDir": {
+            "state": "OBSERVED",
+            "value": "C:/miljobeslut/.git"
+          },
+          "canonicalSha": {
+            "state": "OBSERVED",
+            "value": "0d7b2bd566b0d5f7c9d27d645c941acd66cb1e85"
+          },
+          "canonicalShaSource": "R-G-02[BEFORE]",
+          "canonicalShaStableAcrossWindow": {
+            "state": "OBSERVED",
+            "value": true
+          },
+          "canonicalRefUpdatedAtEpochSeconds": {
+            "state": "OBSERVED",
+            "value": 1757462400
+          },
+          "stashes": {
+            "state": "OBSERVED",
+            "value": [
+              {
+                "stashCommit": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                "firstParent": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+              }
+            ]
+          },
+          "mainWorktreeEntryNames": {
+            "state": "OBSERVED",
+            "value": [
+              "HEAD",
+              "config",
+              "index",
+              "worktrees"
+            ]
+          },
+          "configuration": {
+            "core.ignorecase": {
+              "state": "OBSERVED",
+              "value": [
+                "true"
+              ]
+            },
+            "core.symlinks": {
+              "state": "OBSERVED",
+              "value": [
+                "false"
+              ]
+            }
+          }
+        },
+        "workspaces": [
+          {
+            "caseId": "ws-c-wt-alpha-591d63be",
+            "comparisonKey": "c:/wt-alpha",
+            "observationState": "OBSERVED",
+            "gitWorktreeList": {
+              "listed": true,
+              "path": "C:/wt-alpha",
+              "head": "cccccccccccccccccccccccccccccccccccccccc",
+              "branch": "refs/heads/feat/alpha",
+              "detached": false,
+              "locked": false,
+              "prunable": false,
+              "bare": false
+            },
+            "gitMetadata": {
+              "registered": true,
+              "worktreeId": "wt-alpha",
+              "gitdirPointer": "C:/wt-alpha/.git",
+              "gitdirTargetPresent": true,
+              "registeredHead": "cccccccccccccccccccccccccccccccccccccccc",
+              "lockedMarker": false,
+              "metadataEntryNames": [
+                "HEAD",
+                "ORIG_HEAD",
+                "commondir",
+                "gitdir",
+                "index"
+              ],
+              "hasWorktreeConfig": false
+            },
+            "filesystem": {
+              "pathPresent": {
+                "state": "OBSERVED",
+                "value": true
+              },
+              "entryType": "dir",
+              "realpath": "C:\\wt-alpha",
+              "dotGitType": "file",
+              "dotGitAbsent": false,
+              "dotGitPointer": "C:/miljobeslut/.git/worktrees/wt-alpha"
+            },
+            "branchBinding": {
+              "bound": true,
+              "refname": "refs/heads/feat/alpha",
+              "objectname": "cccccccccccccccccccccccccccccccccccccccc",
+              "upstream": "refs/remotes/origin/feat/alpha",
+              "upstreamTrack": "[ahead 2]"
+            },
+            "toplevel": {
+              "state": "OBSERVED",
+              "value": "C:/wt-alpha"
+            },
+            "workspaceGitDir": {
+              "state": "OBSERVED",
+              "value": "C:/repo/.git/worktrees/wt-a"
+            },
+            "workspaceGitCommonDir": {
+              "state": "OBSERVED",
+              "value": "C:/repo/.git"
+            },
+            "insideWorkTree": {
+              "state": "OBSERVED",
+              "value": true
+            },
+            "workspaceGitExitCode": 0,
+            "symbolicRef": {
+              "state": "OBSERVED",
+              "value": "refs/heads/feat/alpha"
+            },
+            "status": {
+              "state": "OBSERVED",
+              "value": {
+                "trackedModificationCount": 3,
+                "untrackedEntryCount": 1,
+                "unmergedCount": 0,
+                "branchHead": "feat/alpha",
+                "branchOid": "cccccccccccccccccccccccccccccccccccccccc",
+                "branchUpstream": "origin/feat/alpha",
+                "aheadOfUpstream": 2,
+                "behindUpstream": 0
+              }
+            },
+            "ancestry": {
+              "state": "OBSERVED",
+              "value": {
+                "headSha": "cccccccccccccccccccccccccccccccccccccccc",
+                "headCommitExists": true,
+                "headIsAncestorOfCanonical": false,
+                "canonicalIsAncestorOfHead": true,
+                "mergeBase": "0d7b2bd566b0d5f7c9d27d645c941acd66cb1e85",
+                "commitsAheadOfCanonical": 2,
+                "commitsBehindCanonical": 0,
+                "allUniqueCommitsPatchEquivalent": false,
+                "uniqueCommitCount": 2
+              }
+            }
+          },
+          {
+            "caseId": "ws-c-wt-beta-a47722d3",
+            "comparisonKey": "c:/wt-beta",
+            "observationState": "NOT_ATTEMPTED",
+            "gitWorktreeList": {
+              "listed": false
+            },
+            "gitMetadata": {
+              "registered": false
+            },
+            "filesystem": {
+              "pathPresent": {
+                "state": "UNKNOWN",
+                "unknownReason": "FILESYSTEM_ERROR_INCONCLUSIVE"
+              },
+              "errorCode": "EBUSY"
+            },
+            "branchBinding": {
+              "bound": false
+            },
+            "toplevel": {
+              "state": "UNKNOWN",
+              "unknownReason": "TIMEOUT"
+            },
+            "workspaceGitDir": {
+              "state": "UNKNOWN",
+              "unknownReason": "TIMEOUT"
+            },
+            "workspaceGitCommonDir": {
+              "state": "UNKNOWN",
+              "unknownReason": "TIMEOUT"
+            },
+            "insideWorkTree": {
+              "state": "UNKNOWN",
+              "unknownReason": "TIMEOUT"
+            },
+            "symbolicRef": {
+              "state": "UNKNOWN",
+              "unknownReason": "TIMEOUT"
+            },
+            "status": {
+              "state": "UNKNOWN",
+              "unknownReason": "TIMEOUT"
+            },
+            "ancestry": {
+              "state": "UNKNOWN",
+              "unknownReason": "TIMEOUT"
+            }
+          }
+        ]
+      },
+      "expectedCanonicalUtf8": "{\"repository\":{\"canonicalRef\":\"refs/remotes/origin/main\",\"canonicalRefUpdatedAtEpochSeconds\":{\"state\":\"OBSERVED\",\"value\":1757462400},\"canonicalSha\":{\"state\":\"OBSERVED\",\"value\":\"0d7b2bd566b0d5f7c9d27d645c941acd66cb1e85\"},\"canonicalShaSource\":\"R-G-02[BEFORE]\",\"canonicalShaStableAcrossWindow\":{\"state\":\"OBSERVED\",\"value\":true},\"commonDir\":{\"state\":\"OBSERVED\",\"value\":\"C:/miljobeslut/.git\"},\"configuration\":{\"core.ignorecase\":{\"state\":\"OBSERVED\",\"value\":[\"true\"]},\"core.symlinks\":{\"state\":\"OBSERVED\",\"value\":[\"false\"]}},\"mainWorktreeEntryNames\":{\"state\":\"OBSERVED\",\"value\":[\"HEAD\",\"config\",\"index\",\"worktrees\"]},\"repoRoot\":\"C:\\\\miljobeslut\",\"stashes\":{\"state\":\"OBSERVED\",\"value\":[{\"firstParent\":\"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\",\"stashCommit\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\"}]}},\"schemaId\":\"WORKSPACE_SNAPSHOT_V1\",\"workspaces\":[{\"ancestry\":{\"state\":\"OBSERVED\",\"value\":{\"allUniqueCommitsPatchEquivalent\":false,\"canonicalIsAncestorOfHead\":true,\"commitsAheadOfCanonical\":2,\"commitsBehindCanonical\":0,\"headCommitExists\":true,\"headIsAncestorOfCanonical\":false,\"headSha\":\"cccccccccccccccccccccccccccccccccccccccc\",\"mergeBase\":\"0d7b2bd566b0d5f7c9d27d645c941acd66cb1e85\",\"uniqueCommitCount\":2}},\"branchBinding\":{\"bound\":true,\"objectname\":\"cccccccccccccccccccccccccccccccccccccccc\",\"refname\":\"refs/heads/feat/alpha\",\"upstream\":\"refs/remotes/origin/feat/alpha\",\"upstreamTrack\":\"[ahead 2]\"},\"caseId\":\"ws-c-wt-alpha-591d63be\",\"comparisonKey\":\"c:/wt-alpha\",\"filesystem\":{\"dotGitAbsent\":false,\"dotGitPointer\":\"C:/miljobeslut/.git/worktrees/wt-alpha\",\"dotGitType\":\"file\",\"entryType\":\"dir\",\"pathPresent\":{\"state\":\"OBSERVED\",\"value\":true},\"realpath\":\"C:\\\\wt-alpha\"},\"gitMetadata\":{\"gitdirPointer\":\"C:/wt-alpha/.git\",\"gitdirTargetPresent\":true,\"hasWorktreeConfig\":false,\"lockedMarker\":false,\"metadataEntryNames\":[\"HEAD\",\"ORIG_HEAD\",\"commondir\",\"gitdir\",\"index\"],\"registered\":true,\"registeredHead\":\"cccccccccccccccccccccccccccccccccccccccc\",\"worktreeId\":\"wt-alpha\"},\"gitWorktreeList\":{\"bare\":false,\"branch\":\"refs/heads/feat/alpha\",\"detached\":false,\"head\":\"cccccccccccccccccccccccccccccccccccccccc\",\"listed\":true,\"locked\":false,\"path\":\"C:/wt-alpha\",\"prunable\":false},\"insideWorkTree\":{\"state\":\"OBSERVED\",\"value\":true},\"observationState\":\"OBSERVED\",\"status\":{\"state\":\"OBSERVED\",\"value\":{\"aheadOfUpstream\":2,\"behindUpstream\":0,\"branchHead\":\"feat/alpha\",\"branchOid\":\"cccccccccccccccccccccccccccccccccccccccc\",\"branchUpstream\":\"origin/feat/alpha\",\"trackedModificationCount\":3,\"unmergedCount\":0,\"untrackedEntryCount\":1}},\"symbolicRef\":{\"state\":\"OBSERVED\",\"value\":\"refs/heads/feat/alpha\"},\"toplevel\":{\"state\":\"OBSERVED\",\"value\":\"C:/wt-alpha\"},\"workspaceGitCommonDir\":{\"state\":\"OBSERVED\",\"value\":\"C:/repo/.git\"},\"workspaceGitDir\":{\"state\":\"OBSERVED\",\"value\":\"C:/repo/.git/worktrees/wt-a\"},\"workspaceGitExitCode\":0},{\"ancestry\":{\"state\":\"UNKNOWN\",\"unknownReason\":\"TIMEOUT\"},\"branchBinding\":{\"bound\":false},\"caseId\":\"ws-c-wt-beta-a47722d3\",\"comparisonKey\":\"c:/wt-beta\",\"filesystem\":{\"errorCode\":\"EBUSY\",\"pathPresent\":{\"state\":\"UNKNOWN\",\"unknownReason\":\"FILESYSTEM_ERROR_INCONCLUSIVE\"}},\"gitMetadata\":{\"registered\":false},\"gitWorktreeList\":{\"listed\":false},\"insideWorkTree\":{\"state\":\"UNKNOWN\",\"unknownReason\":\"TIMEOUT\"},\"observationState\":\"NOT_ATTEMPTED\",\"status\":{\"state\":\"UNKNOWN\",\"unknownReason\":\"TIMEOUT\"},\"symbolicRef\":{\"state\":\"UNKNOWN\",\"unknownReason\":\"TIMEOUT\"},\"toplevel\":{\"state\":\"UNKNOWN\",\"unknownReason\":\"TIMEOUT\"},\"workspaceGitCommonDir\":{\"state\":\"UNKNOWN\",\"unknownReason\":\"TIMEOUT\"},\"workspaceGitDir\":{\"state\":\"UNKNOWN\",\"unknownReason\":\"TIMEOUT\"}}]}",
+      "expectedCanonicalByteLength": 3550,
+      "expectedPreimageHex": "0000000b534e415053484f545f563100000dde7b227265706f7369746f7279223a7b2263616e6f6e6963616c526566223a22726566732f72656d6f7465732f6f726967696e2f6d61696e222c2263616e6f6e6963616c52656655706461746564417445706f63685365636f6e6473223a7b227374617465223a224f42534552564544222c2276616c7565223a313735373436323430307d2c2263616e6f6e6963616c536861223a7b227374617465223a224f42534552564544222c2276616c7565223a2230643762326264353636623064356637633964323764363435633934316163643636636231653835227d2c2263616e6f6e6963616c536861536f75726365223a22522d472d30325b4245464f52455d222c2263616e6f6e6963616c536861537461626c654163726f737357696e646f77223a7b227374617465223a224f42534552564544222c2276616c7565223a747275657d2c22636f6d6d6f6e446972223a7b227374617465223a224f42534552564544222c2276616c7565223a22433a2f6d696c6a6f6265736c75742f2e676974227d2c22636f6e66696775726174696f6e223a7b22636f72652e69676e6f726563617365223a7b227374617465223a224f42534552564544222c2276616c7565223a5b2274727565225d7d2c22636f72652e73796d6c696e6b73223a7b227374617465223a224f42534552564544222c2276616c7565223a5b2266616c7365225d7d7d2c226d61696e576f726b74726565456e7472794e616d6573223a7b227374617465223a224f42534552564544222c2276616c7565223a5b2248454144222c22636f6e666967222c22696e646578222c22776f726b7472656573225d7d2c227265706f526f6f74223a22433a5c5c6d696c6a6f6265736c7574222c2273746173686573223a7b227374617465223a224f42534552564544222c2276616c7565223a5b7b226669727374506172656e74223a2262626262626262626262626262626262626262626262626262626262626262626262626262626262222c227374617368436f6d6d6974223a2261616161616161616161616161616161616161616161616161616161616161616161616161616161227d5d7d7d2c22736368656d614964223a22574f524b53504143455f534e415053484f545f5631222c22776f726b737061636573223a5b7b22616e636573747279223a7b227374617465223a224f42534552564544222c2276616c7565223a7b22616c6c556e69717565436f6d6d69747350617463684571756976616c656e74223a66616c73652c2263616e6f6e6963616c4973416e636573746f724f6648656164223a747275652c22636f6d6d69747341686561644f6643616e6f6e6963616c223a322c22636f6d6d697473426568696e6443616e6f6e6963616c223a302c2268656164436f6d6d6974457869737473223a747275652c22686561644973416e636573746f724f6643616e6f6e6963616c223a66616c73652c2268656164536861223a2263636363636363636363636363636363636363636363636363636363636363636363636363636363222c226d6572676542617365223a2230643762326264353636623064356637633964323764363435633934316163643636636231653835222c22756e69717565436f6d6d6974436f756e74223a327d7d2c226272616e636842696e64696e67223a7b22626f756e64223a747275652c226f626a6563746e616d65223a2263636363636363636363636363636363636363636363636363636363636363636363636363636363222c227265666e616d65223a22726566732f68656164732f666561742f616c706861222c22757073747265616d223a22726566732f72656d6f7465732f6f726967696e2f666561742f616c706861222c22757073747265616d547261636b223a225b616865616420325d227d2c22636173654964223a2277732d632d77742d616c7068612d3539316436336265222c22636f6d70617269736f6e4b6579223a22633a2f77742d616c706861222c2266696c6573797374656d223a7b22646f74476974416273656e74223a66616c73652c22646f74476974506f696e746572223a22433a2f6d696c6a6f6265736c75742f2e6769742f776f726b74726565732f77742d616c706861222c22646f7447697454797065223a2266696c65222c22656e74727954797065223a22646972222c227061746850726573656e74223a7b227374617465223a224f42534552564544222c2276616c7565223a747275657d2c227265616c70617468223a22433a5c5c77742d616c706861227d2c226769744d65746164617461223a7b22676974646972506f696e746572223a22433a2f77742d616c7068612f2e676974222c2267697464697254617267657450726573656e74223a747275652c22686173576f726b74726565436f6e666967223a66616c73652c226c6f636b65644d61726b6572223a66616c73652c226d65746164617461456e7472794e616d6573223a5b2248454144222c224f5249475f48454144222c22636f6d6d6f6e646972222c22676974646972222c22696e646578225d2c2272656769737465726564223a747275652c227265676973746572656448656164223a2263636363636363636363636363636363636363636363636363636363636363636363636363636363222c22776f726b747265654964223a2277742d616c706861227d2c22676974576f726b747265654c697374223a7b2262617265223a66616c73652c226272616e6368223a22726566732f68656164732f666561742f616c706861222c226465746163686564223a66616c73652c2268656164223a2263636363636363636363636363636363636363636363636363636363636363636363636363636363222c226c6973746564223a747275652c226c6f636b6564223a66616c73652c2270617468223a22433a2f77742d616c706861222c227072756e61626c65223a66616c73657d2c22696e73696465576f726b54726565223a7b227374617465223a224f42534552564544222c2276616c7565223a747275657d2c226f62736572766174696f6e5374617465223a224f42534552564544222c22737461747573223a7b227374617465223a224f42534552564544222c2276616c7565223a7b2261686561644f66557073747265616d223a322c22626568696e64557073747265616d223a302c226272616e636848656164223a22666561742f616c706861222c226272616e63684f6964223a2263636363636363636363636363636363636363636363636363636363636363636363636363636363222c226272616e6368557073747265616d223a226f726967696e2f666561742f616c706861222c22747261636b65644d6f64696669636174696f6e436f756e74223a332c22756e6d6572676564436f756e74223a302c22756e747261636b6564456e747279436f756e74223a317d7d2c2273796d626f6c6963526566223a7b227374617465223a224f42534552564544222c2276616c7565223a22726566732f68656164732f666561742f616c706861227d2c22746f706c6576656c223a7b227374617465223a224f42534552564544222c2276616c7565223a22433a2f77742d616c706861227d2c22776f726b7370616365476974436f6d6d6f6e446972223a7b227374617465223a224f42534552564544222c2276616c7565223a22433a2f7265706f2f2e676974227d2c22776f726b7370616365476974446972223a7b227374617465223a224f42534552564544222c2276616c7565223a22433a2f7265706f2f2e6769742f776f726b74726565732f77742d61227d2c22776f726b737061636547697445786974436f6465223a307d2c7b22616e636573747279223a7b227374617465223a22554e4b4e4f574e222c22756e6b6e6f776e526561736f6e223a2254494d454f5554227d2c226272616e636842696e64696e67223a7b22626f756e64223a66616c73657d2c22636173654964223a2277732d632d77742d626574612d6134373732326433222c22636f6d70617269736f6e4b6579223a22633a2f77742d62657461222c2266696c6573797374656d223a7b226572726f72436f6465223a224542555359222c227061746850726573656e74223a7b227374617465223a22554e4b4e4f574e222c22756e6b6e6f776e526561736f6e223a2246494c4553595354454d5f4552524f525f494e434f4e434c5553495645227d7d2c226769744d65746164617461223a7b2272656769737465726564223a66616c73657d2c22676974576f726b747265654c697374223a7b226c6973746564223a66616c73657d2c22696e73696465576f726b54726565223a7b227374617465223a22554e4b4e4f574e222c22756e6b6e6f776e526561736f6e223a2254494d454f5554227d2c226f62736572766174696f6e5374617465223a224e4f545f415454454d50544544222c22737461747573223a7b227374617465223a22554e4b4e4f574e222c22756e6b6e6f776e526561736f6e223a2254494d454f5554227d2c2273796d626f6c6963526566223a7b227374617465223a22554e4b4e4f574e222c22756e6b6e6f776e526561736f6e223a2254494d454f5554227d2c22746f706c6576656c223a7b227374617465223a22554e4b4e4f574e222c22756e6b6e6f776e526561736f6e223a2254494d454f5554227d2c22776f726b7370616365476974436f6d6d6f6e446972223a7b227374617465223a22554e4b4e4f574e222c22756e6b6e6f776e526561736f6e223a2254494d454f5554227d2c22776f726b7370616365476974446972223a7b227374617465223a22554e4b4e4f574e222c22756e6b6e6f776e526561736f6e223a2254494d454f5554227d7d5d7d",
+      "expectedDigest": "c8e38898e875b33b1a6713cb2511e663dbed77c4c7e97c78caef8aeaa9859e45"
+    }
+  ]
+}
