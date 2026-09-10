@@ -11,7 +11,8 @@ and modified neither.
     BASE_SHA        0d7b2bd566b0d5f7c9d27d645c941acd66cb1e85
     WORKTREE        C:\wt-workspace-lifecycle-controller-v1-fix1
     BRANCH          fix/workspace-lifecycle-controller-v1-verifier-findings
-    CANDIDATE_SHA   <set at commit>
+    CANDIDATE_SHA   e431f927447b472e40a46938600eb2acde811e13 (repair)
+                    plus one follow-up commit recording this SHA
 
 ## 0. REPAIR HISTORY
 
