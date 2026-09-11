@@ -3,7 +3,7 @@
   "unit": "DEV-GOV-AUTHORITY-CAPABILITY-TRANSPORT-V1",
   "role": "producer",
   "mode": "writer",
-  "branch": "codex/devgov-authority-capability-transport-v1",
+  "branch": "claude/devgov-authority-transport-v1-b1-repair",
   "base_sha": "0d7b2bd566b0d5f7c9d27d645c941acd66cb1e85",
   "ancestry_policy": "descendant_of_base",
   "allowed_paths": [
@@ -16,6 +16,8 @@
     "governance/devgov/units/dev-gov-authority-capability-transport-v1.json",
     "scripts/audit/devgovAuthorityCapability.test.ts",
     "scripts/audit/devgovAuthorityExecutionBinding.test.ts",
+    "scripts/audit/devgovAuthorityProbeIdentity.test.ts",
+    "scripts/audit/e2e/devgovAuthorityRootTopology.e2e.mjs",
     "scripts/audit/devgovCliContract.test.ts",
     "scripts/audit/devgovTrustedAttestation.test.ts",
     "scripts/audit/devgovTrustedWorkflow.test.ts",
@@ -92,6 +94,19 @@
       ],
       "timeout_ms": 900000,
       "required_head": "candidate_sha"
+    },
+    {
+      "id": "authority-probe-proof-identity",
+      "command": "npx",
+      "args": [
+        "vitest",
+        "run",
+        "--config",
+        "vitest.config.ts",
+        "scripts/audit/devgovAuthorityProbeIdentity.test.ts"
+      ],
+      "timeout_ms": 600000,
+      "required_head": "candidate_sha"
     }
   ],
   "trusted_execution": {
@@ -100,7 +115,7 @@
   },
   "remote": {
     "name": "origin",
-    "branch": "codex/devgov-authority-capability-transport-v1",
+    "branch": "claude/devgov-authority-transport-v1-b1-repair",
     "push_policy": "no_force",
     "absent_policy": "deny_absent"
   }

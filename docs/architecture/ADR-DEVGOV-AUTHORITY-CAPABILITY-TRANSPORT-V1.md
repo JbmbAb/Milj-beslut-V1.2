@@ -3,6 +3,12 @@
 - Status: implemented, backend unprovisioned
 - Base: `0d7b2bd566b0d5f7c9d27d645c941acd66cb1e85`
 - Supersedes nothing. Evolves `dev-gov-v1-trusted-execution-record` to `dev-gov-v2-trusted-execution-record`.
+- Verification history: the first candidate `790fd0f0` failed independent verification
+  with blocker B1: the writability probe ran as the root controller, so every valid
+  authority was denied. The repair on top of it fixes B1 and the two defects B1 had
+  masked on the path it activates: N12 (the probe inherited the controller
+  environment) and N13 (a probe that could not run counted as "not writable").
+  Findings N1–N11 are deferred unchanged; see the end of this document.
 
 ## Problem
 
@@ -66,10 +72,45 @@ materialization cannot hide content from the digest. An empty tree is rejected.
 5. Recompute the tree digest; compare to `content.digest`.
 6. Compare the optional reference document to `reference.digest`.
 7. Apply read-only modes and, on the trusted runner, root ownership.
-8. **Probe** writability by actually attempting to write — as the proof identity
-   when a uid/gid is supplied. The probes that ran are reported, so a skipped
-   probe can never be mistaken for a passed one.
-9. Only then launch the declared proof command.
+8. **Probe** writability by real attempts performed **as the proof identity**
+   (see the probe contract below). An explicit proof uid/gid is required; there
+   is no fallback to the controller's identity.
+9. Recompute the tree digest after the probe; any change is a denial.
+10. Only then launch the declared proof command.
+
+### Writability probe contract
+
+The property proven is _"can the identity that will execute the candidate proof
+mutate the verified authority?"_ — never _"can the controller?"_. On the trusted
+runner the controller is root and can always write through mode bits; that is
+expected and says nothing about the proof identity.
+
+- The probe is a controller-authored program launched as the proof uid/gid
+  through the same spawn primitive as the proof, from an absolute executable
+  path, with an **empty environment**. No retrieval token or other credential
+  reaches any process of the candidate identity. On Windows, libuv re-inserts a
+  fixed set of eleven system variables into every child; they are the only
+  names the report may carry there.
+- It attempts `read`, `overwrite`, `append`, `truncate`, `create`, `mkdir`,
+  `symlink`, `chmod`, `rename` and `delete` against the tree and the directory
+  that binds its path, non-destructive attempts first, and prints exactly one
+  report (`dev-gov-authority-write-probe-v1`).
+- `NOT_WRITABLE` is concluded only from a complete, well-formed report of this
+  very invocation (nonce, root) produced by the expected uid/gid, in which the
+  read succeeded and every mutation was refused with `EACCES` (access control),
+  `EPERM` (ownership or capability required) or `EROFS` (read-only file system).
+- Launch failure, non-zero exit, signal, timeout, missing or malformed output, a
+  missing, repeated or unknown check, any other errno, or a non-allowlisted
+  environment name is `AUTHORITY_WRITABILITY_PROBE_FAILED`. An allowed mutation
+  is `AUTHORITY_MATERIALIZATION_WRITABLE`, an unreadable tree
+  `AUTHORITY_MATERIALIZATION_UNREADABLE`, and a missing or invalid proof
+  identity `AUTHORITY_PROOF_IDENTITY_REQUIRED`. An absent answer is never "safe".
+
+The bootstrap-safe proof of this contract is
+`scripts/audit/devgovAuthorityProbeIdentity.test.ts`, which runs unprivileged in
+the declared GREEN. The root topology it cannot build is proven by the
+explicitly invoked `scripts/audit/e2e/devgovAuthorityRootTopology.e2e.mjs`. That
+script must run as root and exits 2 rather than skipping when it cannot.
 
 Any failure terminates as `DENIED_GOVERNANCE` with **no execution record
 written**. An authority-bound proof that cannot be granted authority is not
@@ -201,3 +242,23 @@ proof-contract repair and are untouched here:
 
 This unit makes verified authority *available and bound*. Making those suites
 hard-fail rather than skip when it is absent is the downstream repair.
+
+## Deferred findings (independent verification, non-blocking)
+
+These are recorded unchanged for a later hardening unit:
+
+- N1: the provider follows the release JSON's asset URL with the bearer token and
+  does not check that URL's host.
+- N2: an https→http redirect is followed; integrity is still pinned by the archive
+  digest.
+- N3: there is no limit on decompressed bytes or on file count.
+- N4: `reference.entry` accepts `../`.
+- N5: some type and link safety during extraction relies on GNU tar defaults.
+- N6: denied materializations leave files on disk.
+- N7: the top-level reason code for an environment collision is the generic
+  `DENIED_GOVERNANCE`.
+- N8: `github.token` is supplied to every execute step, including steps that need
+  no authority.
+- N9: authority is opt-in per proof.
+- N10: documentation and proof-quality findings.
+- N11: base64 signatures with trailing characters are accepted (pre-existing).

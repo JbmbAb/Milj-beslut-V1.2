@@ -21,11 +21,54 @@ import {
   readAuthorityRequirement,
   resolveAuthorityCapability,
   validateAuthorityCatalog,
+  WRITE_PROBE_OPERATIONS,
+  WRITE_PROBE_SCHEMA,
 } from '../devgov/authority.mjs';
 import { sha256 } from '../devgov/trusted-attestation.mjs';
 
 const AUTHORITY_ID = 'DEVGOV-AUTHORITY-FIXTURE-V1';
 const REFERENCE_ENTRY = 'contracts/authority-reference-v1.json';
+
+/**
+ * The unprivileged test process cannot switch uid, so the proof identity's own
+ * attestation is supplied through the probe launcher seam. The real uid-switched
+ * probe is exercised by scripts/audit/e2e/devgovAuthorityRootTopology.e2e.mjs.
+ */
+const PROOF = { uid: 64123, gid: 64123 };
+function attestingProbe() {
+  return (_command: string, args: string[]) => {
+    const [, , root, nonce] = args;
+    const checks = WRITE_PROBE_OPERATIONS.map((operation: string) =>
+      operation === 'read'
+        ? { operation, attempted: true, targets: 1, result: 'ALLOWED', errnos: [], target: null }
+        : {
+            operation,
+            attempted: true,
+            targets: 1,
+            result: 'DENIED',
+            errnos: [operation === 'chmod' ? 'EPERM' : 'EACCES'],
+            target: null,
+          },
+    );
+    const report = {
+      schema_version: WRITE_PROBE_SCHEMA,
+      nonce,
+      root,
+      uid: PROOF.uid,
+      gid: PROOF.gid,
+      groups: [PROOF.gid],
+      env_source: 'proc-self-environ',
+      env_names: [],
+      files: 1,
+      directories: 1,
+      checks,
+    };
+    return { status: 0, signal: null, stdout: JSON.stringify(report), stderr: '' };
+  };
+}
+function proofIdentity() {
+  return { proofUid: PROOF.uid, proofGid: PROOF.gid, probeRunner: attestingProbe() };
+}
 
 let scratch: string;
 let archiveBytes: Buffer;
@@ -122,17 +165,15 @@ describe('positive control: a valid authority resolves, verifies and materialize
       catalog: catalog(),
       materializationRoot: materializationRoot(),
       retrieve: retriever(archiveBytes),
+      ...proofIdentity(),
     });
 
     expect(resolved.errors).toEqual([]);
     expect(resolved.status).toBe(AUTHORITY_STATUS.VERIFIED_READ_ONLY);
     expect(resolved.content_digest).toBe(contentDigest);
     expect(resolved.reference_digest).toBe(referenceDigest);
-
-    // The read-only claim is a real write attempt, not an inspection of modes.
-    const probe = probeMaterializationWritable(resolved.materialization_root);
-    expect(probe.probes).toContain('file-write');
-    expect(probe.writable).toBe(false);
+    // The verdict came from the proof identity's attempts, not from the controller.
+    expect(resolved.probes[0]).toContain(`proof-identity uid=${PROOF.uid} gid=${PROOF.gid}`);
 
     // The proof receives the capability, and nothing beyond it.
     expect(Object.keys(resolved.capability_env).sort()).toEqual([
@@ -141,6 +182,13 @@ describe('positive control: a valid authority resolves, verifies and materialize
     ]);
     expect(resolved.capability_env.FIXTURE_AUTHORITY_ROOT).toBe(resolved.materialization_root);
     expect(readFileSync(resolved.capability_env.FIXTURE_AUTHORITY_REFERENCE, 'utf8')).toContain('binding');
+
+    // Last, because a successful attempt is real: the materializing identity itself
+    // probes the tree. Mode bits alone do not protect a tree from its owner, which is
+    // why the verdict must be bound to a separate proof identity.
+    const ownerProbe = probeMaterializationWritable(resolved.materialization_root);
+    expect(ownerProbe.writable).toBe(true);
+    expect(ownerProbe.verdict).toBe('WRITABLE');
   });
 
   it('positive control: the fixture digests are non-trivial and distinguish content', async () => {
@@ -190,23 +238,27 @@ describe('the github-release-asset provider itself, over a real HTTP round trip'
   }
 
   it('positive control: retrieves, verifies and materializes through the real provider', async () => {
-    await withReleaseServer([{ name: 'authority-fixture-v1.tar.gz', bytes: archiveBytes }], async (apiBase, seen) => {
-      const resolved = await resolveAuthorityCapability({
-        authorityId: AUTHORITY_ID,
-        catalog: catalog(),
-        materializationRoot: materializationRoot(),
-        token: 'test-token',
-        apiBase,
-      });
+    await withReleaseServer(
+      [{ name: 'authority-fixture-v1.tar.gz', bytes: archiveBytes }],
+      async (apiBase, seen) => {
+        const resolved = await resolveAuthorityCapability({
+          authorityId: AUTHORITY_ID,
+          catalog: catalog(),
+          materializationRoot: materializationRoot(),
+          token: 'test-token',
+          apiBase,
+          ...proofIdentity(),
+        });
 
-      expect(resolved.errors).toEqual([]);
-      expect(resolved.status).toBe(AUTHORITY_STATUS.VERIFIED_READ_ONLY);
-      expect(resolved.content_digest).toBe(contentDigest);
-      expect(resolved.source_identity).toContain('github-release-asset:');
-      // The credential was presented, and only the catalog-named asset was fetched.
-      expect(seen.every((entry) => entry.startsWith('Bearer test-token'))).toBe(true);
-      expect(seen.some((entry) => entry.includes('/releases/tags/devgov-authority-fixture-v1'))).toBe(true);
-    });
+        expect(resolved.errors).toEqual([]);
+        expect(resolved.status).toBe(AUTHORITY_STATUS.VERIFIED_READ_ONLY);
+        expect(resolved.content_digest).toBe(contentDigest);
+        expect(resolved.source_identity).toContain('github-release-asset:');
+        // The credential was presented, and only the catalog-named asset was fetched.
+        expect(seen.every((entry) => entry.startsWith('Bearer test-token'))).toBe(true);
+        expect(seen.some((entry) => entry.includes('/releases/tags/devgov-authority-fixture-v1'))).toBe(true);
+      },
+    );
   });
 
   it('3b denies when the release exists but the catalog-named asset does not', async () => {
@@ -357,6 +409,8 @@ describe('negative controls: authority denial is fail-closed', () => {
       catalog: catalog(),
       materializationRoot: materializationRoot(),
       retrieve: retriever(archiveBytes),
+      proofUid: PROOF.uid,
+      proofGid: PROOF.gid,
       probeWritable: () => ({
         writable: true,
         detail: 'proof identity created a file in the authority materialization',
@@ -376,7 +430,8 @@ describe('negative controls: authority denial is fail-closed', () => {
     chmodSync(file, 0o644);
     const probe = probeMaterializationWritable(root);
     expect(probe.writable).toBe(true);
-    expect(probe.probes).toContain('file-write');
+    expect(probe.verdict).toBe('WRITABLE');
+    expect(probe.probes).toContain('overwrite=ALLOWED');
   });
 
   it('denies a materialization root inside the candidate checkout', async () => {
