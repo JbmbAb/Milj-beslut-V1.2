@@ -56,8 +56,8 @@ describe('MIGRATION-HISTORY-RECONCILIATION-01', () => {
       /FOREIGN KEY \("project_id"\) REFERENCES "public"\."Project"\("id"\)[\s\S]*?ON DELETE RESTRICT ON UPDATE CASCADE/,
     );
     expect(migration).toContain('project_context_bindings_binding_artifact_id_key');
-    expect(migration).toContain('project_context_bindings_project_context_key');
-    expect(migration).toContain('project_context_bindings_project_context_idx');
+    expect(migration).toContain('project_context_bindings_project_id_project_context_artifac_key');
+    expect(migration).toContain('project_context_bindings_project_id_project_context_artifac_idx');
     expect(migration).toContain('MIGRATION_HISTORY_RECONCILIATION_M4_INCOMPATIBLE');
   });
 

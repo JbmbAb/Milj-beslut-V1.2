@@ -108,14 +108,14 @@ BEGIN
     CREATE UNIQUE INDEX "project_context_bindings_binding_artifact_id_key"
       ON "public"."project_context_bindings"("binding_artifact_id");
 
-    CREATE UNIQUE INDEX "project_context_bindings_project_context_key"
+    CREATE UNIQUE INDEX "project_context_bindings_project_id_project_context_artifac_key"
       ON "public"."project_context_bindings"(
         "project_id",
         "project_context_artifact_id",
         "project_context_artifact_type"
       );
 
-    CREATE INDEX "project_context_bindings_project_context_idx"
+    CREATE INDEX "project_context_bindings_project_id_project_context_artifac_idx"
       ON "public"."project_context_bindings"(
         "project_id",
         "project_context_artifact_id",
