@@ -9,7 +9,7 @@ const SECTION_KEYS = {
   columns: (x) => x.relation + '|' + x.column,
   constraints: (x) => x.relation + '|' + x.name,
   indexes: (x) => x.relation + '|' + x.name,
-  enums: (x) => x.name + '|' + x.sort_order + '|' + x.value,
+  enums: (x) => x.name + '|' + x.value,
   views: (x) => x.schema + '|' + x.name,
   materialized_views: (x) => x.schema + '|' + x.name,
   functions: (x) => x.name + '|' + x.identity_arguments,
@@ -242,11 +242,7 @@ function parseArgs(argv) {
   return args;
 }
 
-const invokedPath = process.argv[1] ? resolve(process.argv[1]) : null;
-const modulePath = resolve(new URL(import.meta.url).pathname);
-
-if (invokedPath && invokedPath.replaceAll('\\', '/') === modulePath.replaceAll('\\', '/')) {
-  try {
+try {
     const args = parseArgs(process.argv.slice(2));
     const actual = readCatalog(resolve(args.actual));
     const declared = readCatalog(resolve(args.declared));
@@ -268,10 +264,9 @@ if (invokedPath && invokedPath.replaceAll('\\', '/') === modulePath.replaceAll('
         counts: report.counts,
       }) + '\n',
     );
-  } catch (error) {
-    process.stderr.write(
-      (error instanceof Error ? error.stack : String(error)) + '\n',
-    );
-    process.exitCode = 1;
-  }
+} catch (error) {
+  process.stderr.write(
+    (error instanceof Error ? error.stack : String(error)) + '\n',
+  );
+  process.exitCode = 1;
 }
