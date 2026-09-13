@@ -56,7 +56,7 @@ constraints AS (
     con.conname AS constraint_name,
     con.contype AS constraint_type,
     con.convalidated AS validated,
-    con.condeferrable AS deferrable,
+    con.condeferrable AS is_deferrable,
     con.condeferred AS initially_deferred,
     pg_get_constraintdef(con.oid, true) AS definition
   FROM relations r
@@ -211,7 +211,7 @@ SELECT jsonb_pretty(
         'name', constraint_name,
         'type', constraint_type,
         'validated', validated,
-        'deferrable', deferrable,
+        'deferrable', is_deferrable,
         'initially_deferred', initially_deferred,
         'definition', definition
       ) ORDER BY relation_name, constraint_name) FROM constraints
