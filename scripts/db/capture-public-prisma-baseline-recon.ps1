@@ -129,7 +129,6 @@ try {
   $checksumsPath = Join-Path $captureDir 'checksums.sha256'
 
   $catalogJson = Invoke-NativeText -Command 'psql' -Arguments @(
-    "--dbname=$DatabaseUrl",
     '-X',
     '-qAt',
     '-v',
