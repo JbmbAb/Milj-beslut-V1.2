@@ -12,6 +12,12 @@ ACTUAL is the verified recovery-reference capture. DECLARED is a disposable data
 
 The comparator does not choose authority. It classifies evidence.
 
+### Semantic normalization
+
+Physical PostgreSQL column order is not part of the Prisma/runtime contract. The comparator therefore retains `ordinal_position` in each raw finding for auditability but excludes it from the semantic fingerprint used for classification.
+
+Column type, nullability, default, identity/generated attributes and collation remain semantic and therefore still affect classification.
+
 ## Required state generation
 
 ### ACTUAL
@@ -37,6 +43,8 @@ If Prisma cannot materialize an Unsupported(...) or other declared object, recor
 Run node scripts/db/compare-public-prisma-baseline-catalogs.mjs with --actual, --declared, --historical, --out-json and --out-md.
 
 The comparator validates the capture contract and compares relations, columns, constraints, indexes, enums, views, materialized views, functions, triggers, RLS policies, sequences and extensions.
+
+Known methodology correction: the first Phase-B run on candidate `88b42c4c728435f05d25882ee482a158788ea53c` proved that hashing `columns.ordinal_position` created false drift. That run remains evidence of the defect but must not drive Phase C. Re-run Phase B after this correction against the same byte-preserved ACTUAL bundle.
 
 Classifications:
 

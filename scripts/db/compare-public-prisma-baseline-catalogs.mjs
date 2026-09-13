@@ -35,9 +35,21 @@ function stableJson(value) {
   return JSON.stringify(stable(value));
 }
 
-function fingerprint(value) {
+function semanticValue(section, value) {
   if (value == null) return null;
-  return createHash('sha256').update(stableJson(value)).digest('hex');
+
+  if (section === 'columns') {
+    const { ordinal_position: _ordinalPosition, ...semanticColumn } = value;
+    return semanticColumn;
+  }
+
+  return value;
+}
+
+function fingerprint(section, value) {
+  const semantic = semanticValue(section, value);
+  if (semantic == null) return null;
+  return createHash('sha256').update(stableJson(semantic)).digest('hex');
 }
 
 function readCatalog(path) {
@@ -82,10 +94,10 @@ function indexSection(catalog, section) {
   return map;
 }
 
-function classify(actual, declared, historical) {
-  const a = fingerprint(actual);
-  const d = fingerprint(declared);
-  const h = fingerprint(historical);
+function classify(section, actual, declared, historical) {
+  const a = fingerprint(section, actual);
+  const d = fingerprint(section, declared);
+  const h = fingerprint(section, historical);
 
   if (a === d && d === h) return 'MATCH';
   if (a === d && a !== null && h !== a) return 'HISTORY_DRIFT';
@@ -115,6 +127,7 @@ export function compareCatalogs(actualCatalog, declaredCatalog, historicalCatalo
       const declaredValue = declared.get(key) ?? null;
       const historicalValue = historical.get(key) ?? null;
       const classification = classify(
+        section,
         actualValue,
         declaredValue,
         historicalValue,
@@ -124,9 +137,9 @@ export function compareCatalogs(actualCatalog, declaredCatalog, historicalCatalo
         section,
         key,
         classification,
-        actual_fingerprint: fingerprint(actualValue),
-        declared_fingerprint: fingerprint(declaredValue),
-        historical_fingerprint: fingerprint(historicalValue),
+        actual_fingerprint: fingerprint(section, actualValue),
+        declared_fingerprint: fingerprint(section, declaredValue),
+        historical_fingerprint: fingerprint(section, historicalValue),
         actual: actualValue,
         declared: declaredValue,
         historical: historicalValue,

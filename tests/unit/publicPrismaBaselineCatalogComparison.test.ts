@@ -112,6 +112,89 @@ describe('public Prisma baseline catalog comparison', () => {
     );
   });
 
+
+  it('ignores physical column order while preserving semantic column drift', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'mimer-public-prisma-compare-'));
+    tempDirs.push(dir);
+
+    const base = {
+      relation: 'BankIdSession',
+      column: 'identity_environment',
+      data_type: 'text',
+      not_null: true,
+      identity_kind: '',
+      generated_kind: '',
+      default: "'LEGACY'::text",
+      collation: null,
+    };
+
+    const actual = writeFixture(
+      dir,
+      'actual.json',
+      catalog([{ ...base, ordinal_position: 11 }]),
+    );
+    const declared = writeFixture(
+      dir,
+      'declared.json',
+      catalog([{ ...base, ordinal_position: 7 }]),
+    );
+    const historical = writeFixture(
+      dir,
+      'historical.json',
+      catalog([{ ...base, ordinal_position: 3 }]),
+    );
+    const run = runComparator(dir, actual, declared, historical);
+
+    expect(run.result.status).toBe(0);
+    const report = JSON.parse(readFileSync(run.outJson, 'utf8'));
+    expect(report.counts.MATCH).toBe(1);
+    expect(report.findings[0].actual.ordinal_position).toBe(11);
+    expect(report.findings[0].declared.ordinal_position).toBe(7);
+    expect(report.findings[0].historical.ordinal_position).toBe(3);
+    expect(report.findings[0].actual_fingerprint).toBe(
+      report.findings[0].declared_fingerprint,
+    );
+    expect(report.findings[0].declared_fingerprint).toBe(
+      report.findings[0].historical_fingerprint,
+    );
+  });
+
+  it('still treats semantic column differences as drift', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'mimer-public-prisma-compare-'));
+    tempDirs.push(dir);
+
+    const base = {
+      relation: 'User',
+      column: 'organisationId',
+      data_type: 'text',
+      identity_kind: '',
+      generated_kind: '',
+      default: null,
+      collation: null,
+    };
+
+    const actual = writeFixture(
+      dir,
+      'actual.json',
+      catalog([{ ...base, ordinal_position: 11, not_null: false }]),
+    );
+    const declared = writeFixture(
+      dir,
+      'declared.json',
+      catalog([{ ...base, ordinal_position: 7, not_null: false }]),
+    );
+    const historical = writeFixture(
+      dir,
+      'historical.json',
+      catalog([{ ...base, ordinal_position: 3, not_null: true }]),
+    );
+    const run = runComparator(dir, actual, declared, historical);
+
+    expect(run.result.status).toBe(0);
+    const report = JSON.parse(readFileSync(run.outJson, 'utf8'));
+    expect(report.counts.HISTORY_DRIFT).toBe(1);
+  });
+
   it('requires owner decision when no two object contracts agree', () => {
     const dir = mkdtempSync(join(tmpdir(), 'mimer-public-prisma-compare-'));
     tempDirs.push(dir);
