@@ -29,6 +29,9 @@ describe('PUBLIC-PRISMA-BASELINE-RECONCILIATION-01 capture tooling', () => {
     expect(executableSql).toContain('pg_get_functiondef');
     expect(executableSql).toContain('FROM pg_policies');
     expect(executableSql).toContain('FROM pg_sequences');
+    expect(executableSql).toContain('extension_members AS');
+    expect(executableSql).toContain("d.deptype = 'e'");
+    expect(executableSql).toContain("p.prokind IN ('f', 'p')");
   });
 
   it('forces PostgreSQL sessions into read-only mode', () => {

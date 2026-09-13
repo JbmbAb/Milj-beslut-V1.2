@@ -50,6 +50,8 @@ SELECT-only catalog extraction of the complete public schema surface relevant to
 - sequences;
 - extensions.
 
+Objects owned by PostgreSQL extensions are excluded from the Prisma-object inventory and represented instead by extension name/version/schema. This prevents PostGIS/pgvector/other extension members that happen to live in public from being mistaken for Prisma baseline DDL.
+
 ### scripts/db/capture-public-prisma-baseline-recon.ps1
 
 Windows-oriented capture wrapper that:

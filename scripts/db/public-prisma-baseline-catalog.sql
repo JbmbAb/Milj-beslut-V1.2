@@ -1,11 +1,22 @@
 -- PUBLIC-PRISMA-BASELINE-RECONCILIATION-01
 -- Read-only catalog capture for the Prisma-owned public schema.
+-- Extension-owned objects are represented by extension identity, not mistaken for Prisma baseline DDL.
 -- This file intentionally contains SELECT-only catalog inspection.
 \set ON_ERROR_STOP on
 
 WITH
+extension_members AS (
+  SELECT
+    d.classid,
+    d.objid,
+    e.extname AS extension_name
+  FROM pg_depend d
+  JOIN pg_extension e ON e.oid = d.refobjid
+  WHERE d.deptype = 'e'
+),
 relations AS (
   SELECT
+    c.oid,
     c.relname AS name,
     c.relkind AS kind,
     c.relpersistence AS persistence,
@@ -13,12 +24,16 @@ relations AS (
     c.relforcerowsecurity AS force_row_security
   FROM pg_class c
   JOIN pg_namespace n ON n.oid = c.relnamespace
+  LEFT JOIN extension_members em
+    ON em.classid = 'pg_class'::regclass
+   AND em.objid = c.oid
   WHERE n.nspname = 'public'
     AND c.relkind IN ('r', 'p', 'v', 'm', 'S', 'f')
+    AND em.objid IS NULL
 ),
 columns AS (
   SELECT
-    c.relname AS relation_name,
+    r.name AS relation_name,
     a.attnum AS ordinal_position,
     a.attname AS column_name,
     format_type(a.atttypid, a.atttypmod) AS data_type,
@@ -27,33 +42,29 @@ columns AS (
     a.attgenerated AS generated_kind,
     pg_get_expr(ad.adbin, ad.adrelid) AS column_default,
     coll.collname AS collation_name
-  FROM pg_attribute a
-  JOIN pg_class c ON c.oid = a.attrelid
-  JOIN pg_namespace n ON n.oid = c.relnamespace
+  FROM relations r
+  JOIN pg_attribute a ON a.attrelid = r.oid
   LEFT JOIN pg_attrdef ad ON ad.adrelid = a.attrelid AND ad.adnum = a.attnum
   LEFT JOIN pg_collation coll ON coll.oid = a.attcollation AND a.attcollation <> 0
-  WHERE n.nspname = 'public'
-    AND c.relkind IN ('r', 'p', 'v', 'm', 'f')
+  WHERE r.kind IN ('r', 'p', 'v', 'm', 'f')
     AND a.attnum > 0
     AND NOT a.attisdropped
 ),
 constraints AS (
   SELECT
-    c.relname AS relation_name,
+    r.name AS relation_name,
     con.conname AS constraint_name,
     con.contype AS constraint_type,
     con.convalidated AS validated,
     con.condeferrable AS deferrable,
     con.condeferred AS initially_deferred,
     pg_get_constraintdef(con.oid, true) AS definition
-  FROM pg_constraint con
-  JOIN pg_class c ON c.oid = con.conrelid
-  JOIN pg_namespace n ON n.oid = c.relnamespace
-  WHERE n.nspname = 'public'
+  FROM relations r
+  JOIN pg_constraint con ON con.conrelid = r.oid
 ),
 indexes AS (
   SELECT
-    tbl.relname AS relation_name,
+    r.name AS relation_name,
     idx.relname AS index_name,
     i.indisprimary AS is_primary,
     i.indisunique AS is_unique,
@@ -61,11 +72,9 @@ indexes AS (
     i.indisready AS is_ready,
     pg_get_indexdef(i.indexrelid) AS definition,
     pg_get_expr(i.indpred, i.indrelid) AS predicate
-  FROM pg_index i
-  JOIN pg_class tbl ON tbl.oid = i.indrelid
+  FROM relations r
+  JOIN pg_index i ON i.indrelid = r.oid
   JOIN pg_class idx ON idx.oid = i.indexrelid
-  JOIN pg_namespace n ON n.oid = tbl.relnamespace
-  WHERE n.nspname = 'public'
 ),
 enums AS (
   SELECT
@@ -75,17 +84,29 @@ enums AS (
   FROM pg_type t
   JOIN pg_namespace n ON n.oid = t.typnamespace
   JOIN pg_enum e ON e.enumtypid = t.oid
+  LEFT JOIN extension_members em
+    ON em.classid = 'pg_type'::regclass
+   AND em.objid = t.oid
   WHERE n.nspname = 'public'
+    AND em.objid IS NULL
 ),
 views AS (
-  SELECT schemaname, viewname, definition
-  FROM pg_views
-  WHERE schemaname = 'public'
+  SELECT
+    v.schemaname,
+    v.viewname,
+    v.definition
+  FROM pg_views v
+  JOIN relations r ON r.name = v.viewname AND r.kind = 'v'
+  WHERE v.schemaname = 'public'
 ),
 materialized_views AS (
-  SELECT schemaname, matviewname, definition
-  FROM pg_matviews
-  WHERE schemaname = 'public'
+  SELECT
+    v.schemaname,
+    v.matviewname,
+    v.definition
+  FROM pg_matviews v
+  JOIN relations r ON r.name = v.matviewname AND r.kind = 'm'
+  WHERE v.schemaname = 'public'
 ),
 functions AS (
   SELECT
@@ -96,50 +117,57 @@ functions AS (
     l.lanname AS language,
     p.provolatile AS volatility,
     p.prosecdef AS security_definer,
-    pg_get_functiondef(p.oid) AS definition
+    CASE
+      WHEN p.prokind IN ('f', 'p') THEN pg_get_functiondef(p.oid)
+      ELSE NULL
+    END AS definition
   FROM pg_proc p
   JOIN pg_namespace n ON n.oid = p.pronamespace
   JOIN pg_language l ON l.oid = p.prolang
+  LEFT JOIN extension_members em
+    ON em.classid = 'pg_proc'::regclass
+   AND em.objid = p.oid
   WHERE n.nspname = 'public'
+    AND em.objid IS NULL
 ),
 triggers AS (
   SELECT
-    c.relname AS relation_name,
+    r.name AS relation_name,
     t.tgname AS trigger_name,
     t.tgenabled AS enabled,
     pg_get_triggerdef(t.oid, true) AS definition
-  FROM pg_trigger t
-  JOIN pg_class c ON c.oid = t.tgrelid
-  JOIN pg_namespace n ON n.oid = c.relnamespace
-  WHERE n.nspname = 'public'
-    AND NOT t.tgisinternal
+  FROM relations r
+  JOIN pg_trigger t ON t.tgrelid = r.oid
+  WHERE NOT t.tgisinternal
 ),
 policies AS (
   SELECT
-    schemaname,
-    tablename,
-    policyname,
-    permissive,
-    roles,
-    cmd,
-    qual,
-    with_check
-  FROM pg_policies
-  WHERE schemaname = 'public'
+    p.schemaname,
+    p.tablename,
+    p.policyname,
+    p.permissive,
+    p.roles,
+    p.cmd,
+    p.qual,
+    p.with_check
+  FROM pg_policies p
+  JOIN relations r ON r.name = p.tablename AND r.kind IN ('r', 'p')
+  WHERE p.schemaname = 'public'
 ),
 sequences AS (
   SELECT
-    schemaname,
-    sequencename,
-    data_type,
-    start_value,
-    min_value,
-    max_value,
-    increment_by,
-    cycle,
-    cache_size
-  FROM pg_sequences
-  WHERE schemaname = 'public'
+    s.schemaname,
+    s.sequencename,
+    s.data_type,
+    s.start_value,
+    s.min_value,
+    s.max_value,
+    s.increment_by,
+    s.cycle,
+    s.cache_size
+  FROM pg_sequences s
+  JOIN relations r ON r.name = s.sequencename AND r.kind = 'S'
+  WHERE s.schemaname = 'public'
 ),
 extensions AS (
   SELECT
@@ -154,6 +182,7 @@ SELECT jsonb_pretty(
     'capture_schema', 'public-prisma-baseline-catalog-v1',
     'database', current_database(),
     'server_version', current_setting('server_version'),
+    'extension_member_policy', 'exclude-members-capture-extension-identity',
     'relations', COALESCE((
       SELECT jsonb_agg(jsonb_build_object(
         'name', name,
