@@ -3,10 +3,7 @@ import { resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
 
 const root = resolve(import.meta.dirname, '../..');
-const catalogSql = readFileSync(
-  resolve(root, 'scripts/db/public-prisma-baseline-catalog.sql'),
-  'utf8',
-);
+const catalogSql = readFileSync(resolve(root, 'scripts/db/public-prisma-baseline-catalog.sql'), 'utf8');
 const captureScript = readFileSync(
   resolve(root, 'scripts/db/capture-public-prisma-baseline-recon.ps1'),
   'utf8',
@@ -35,9 +32,7 @@ describe('PUBLIC-PRISMA-BASELINE-RECONCILIATION-01 capture tooling', () => {
   });
 
   it('forces PostgreSQL sessions into read-only mode', () => {
-    expect(captureScript).toContain(
-      "$env:PGOPTIONS = '-c default_transaction_read_only=on'",
-    );
+    expect(captureScript).toContain("$env:PGOPTIONS = '-c default_transaction_read_only=on'");
     expect(captureScript).toContain('$env:PGOPTIONS = $previousPgOptions');
     expect(captureScript).toContain('$env:PGDATABASE = $DatabaseUrl');
     expect(captureScript).toContain('$env:PGDATABASE = $previousPgDatabase');
