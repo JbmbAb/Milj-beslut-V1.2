@@ -46,6 +46,8 @@ SELECT-only catalog extraction of the complete public schema surface relevant to
 - views/materialized views;
 - functions;
 - triggers;
+- row-level-security policies;
+- sequences;
 - extensions.
 
 ### scripts/db/capture-public-prisma-baseline-recon.ps1
@@ -58,13 +60,14 @@ Windows-oriented capture wrapper that:
 4. refuses a dirty working tree;
 5. positively checks current_database() before capture;
 6. forces PostgreSQL sessions to default_transaction_read_only=on;
-7. captures catalog JSON;
-8. captures a pg_dump --schema-only --schema=public snapshot;
-9. captures the Prisma migration ledger if present;
-10. copies the exact schema.prisma;
-11. hashes every file under prisma/migrations;
-12. emits SHA-256 checksums for the capture bundle;
-13. never persists the database URL.
+7. passes the database URL to child PostgreSQL tools via process environment rather than command-line arguments;
+8. captures catalog JSON;
+9. captures a pg_dump --schema-only --schema=public snapshot;
+10. captures the Prisma migration ledger if present;
+11. copies the exact schema.prisma;
+12. hashes every file under prisma/migrations;
+13. emits SHA-256 checksums for the capture bundle;
+14. never persists the database URL.
 
 The capture directory is created outside the repository by default.
 

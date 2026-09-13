@@ -114,6 +114,33 @@ triggers AS (
   WHERE n.nspname = 'public'
     AND NOT t.tgisinternal
 ),
+policies AS (
+  SELECT
+    schemaname,
+    tablename,
+    policyname,
+    permissive,
+    roles,
+    cmd,
+    qual,
+    with_check
+  FROM pg_policies
+  WHERE schemaname = 'public'
+),
+sequences AS (
+  SELECT
+    schemaname,
+    sequencename,
+    data_type,
+    start_value,
+    min_value,
+    max_value,
+    increment_by,
+    cycle,
+    cache_size
+  FROM pg_sequences
+  WHERE schemaname = 'public'
+),
 extensions AS (
   SELECT
     e.extname AS extension_name,
@@ -212,6 +239,31 @@ SELECT jsonb_pretty(
         'enabled', enabled,
         'definition', definition
       ) ORDER BY relation_name, trigger_name) FROM triggers
+    ), '[]'::jsonb),
+    'policies', COALESCE((
+      SELECT jsonb_agg(jsonb_build_object(
+        'schema', schemaname,
+        'relation', tablename,
+        'name', policyname,
+        'permissive', permissive,
+        'roles', roles,
+        'command', cmd,
+        'using', qual,
+        'with_check', with_check
+      ) ORDER BY tablename, policyname) FROM policies
+    ), '[]'::jsonb),
+    'sequences', COALESCE((
+      SELECT jsonb_agg(jsonb_build_object(
+        'schema', schemaname,
+        'name', sequencename,
+        'data_type', data_type,
+        'start_value', start_value,
+        'min_value', min_value,
+        'max_value', max_value,
+        'increment_by', increment_by,
+        'cycle', cycle,
+        'cache_size', cache_size
+      ) ORDER BY sequencename) FROM sequences
     ), '[]'::jsonb),
     'extensions', COALESCE((
       SELECT jsonb_agg(jsonb_build_object(

@@ -85,12 +85,13 @@ foreach ($requiredPath in @($catalogSqlPath, $schemaPrismaPath, $migrationsRoot)
 }
 
 $previousPgOptions = $env:PGOPTIONS
+$previousPgDatabase = $env:PGDATABASE
 $env:PGOPTIONS = '-c default_transaction_read_only=on'
+$env:PGDATABASE = $DatabaseUrl
 
 try {
   $actualDatabaseName = (
     Invoke-NativeText -Command 'psql' -Arguments @(
-      "--dbname=$DatabaseUrl",
       '-X',
       '-qAt',
       '-v',
@@ -105,6 +106,11 @@ try {
   }
 
   $timestamp = [DateTime]::UtcNow.ToString('yyyyMMddTHHmmssZ')
+
+  if (-not (Test-Path -LiteralPath $OutputRoot)) {
+    New-Item -ItemType Directory -Path $OutputRoot -Force | Out-Null
+  }
+
   $captureDir = Join-Path $OutputRoot "public-prisma-baseline-$timestamp-$($headSha.Substring(0, 12))"
 
   if (Test-Path -LiteralPath $captureDir) {
@@ -135,7 +141,6 @@ try {
 
   $ledgerExists = (
     Invoke-NativeText -Command 'psql' -Arguments @(
-      "--dbname=$DatabaseUrl",
       '-X',
       '-qAt',
       '-v',
@@ -170,7 +175,6 @@ SELECT jsonb_pretty(
 FROM "_prisma_migrations";
 '@
     $ledgerJson = Invoke-NativeText -Command 'psql' -Arguments @(
-      "--dbname=$DatabaseUrl",
       '-X',
       '-qAt',
       '-v',
@@ -184,7 +188,6 @@ FROM "_prisma_migrations";
   Write-Utf8NoBom -Path $ledgerPath -Content $ledgerJson
 
   $dumpArguments = @(
-    "--dbname=$DatabaseUrl",
     '--schema-only',
     '--schema=public',
     '--no-owner',
@@ -201,7 +204,11 @@ FROM "_prisma_migrations";
   $migrationFiles = Get-ChildItem -LiteralPath $migrationsRoot -Recurse -File |
     Sort-Object FullName |
     ForEach-Object {
-      $relative = [System.IO.Path]::GetRelativePath($repoRoot, $_.FullName).Replace('\', '/')
+      $repoPrefix = $repoRoot + [System.IO.Path]::DirectorySeparatorChar
+      if (-not $_.FullName.StartsWith($repoPrefix, [System.StringComparison]::OrdinalIgnoreCase)) {
+        throw "Migration file resolved outside repository root: $($_.FullName)"
+      }
+      $relative = $_.FullName.Substring($repoPrefix.Length).Replace('\', '/')
       [pscustomobject]@{
         path       = $relative
         sha256     = (Get-FileHash -LiteralPath $_.FullName -Algorithm SHA256).Hash.ToLowerInvariant()
@@ -244,4 +251,5 @@ FROM "_prisma_migrations";
   Write-Host "Output:   $captureDir"
 } finally {
   $env:PGOPTIONS = $previousPgOptions
+  $env:PGDATABASE = $previousPgDatabase
 }

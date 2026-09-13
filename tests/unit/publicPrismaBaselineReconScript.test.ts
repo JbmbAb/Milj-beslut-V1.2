@@ -27,6 +27,8 @@ describe('PUBLIC-PRISMA-BASELINE-RECONCILIATION-01 capture tooling', () => {
     expect(executableSql).toContain('pg_get_constraintdef');
     expect(executableSql).toContain('pg_get_indexdef');
     expect(executableSql).toContain('pg_get_functiondef');
+    expect(executableSql).toContain('FROM pg_policies');
+    expect(executableSql).toContain('FROM pg_sequences');
   });
 
   it('forces PostgreSQL sessions into read-only mode', () => {
@@ -34,6 +36,9 @@ describe('PUBLIC-PRISMA-BASELINE-RECONCILIATION-01 capture tooling', () => {
       "$env:PGOPTIONS = '-c default_transaction_read_only=on'",
     );
     expect(captureScript).toContain('$env:PGOPTIONS = $previousPgOptions');
+    expect(captureScript).toContain('$env:PGDATABASE = $DatabaseUrl');
+    expect(captureScript).toContain('$env:PGDATABASE = $previousPgDatabase');
+    expect(captureScript).not.toContain('"--dbname=$DatabaseUrl"');
   });
 
   it('positively binds both database identity and repository HEAD', () => {
