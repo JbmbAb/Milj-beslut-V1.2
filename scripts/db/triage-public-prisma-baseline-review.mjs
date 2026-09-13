@@ -144,8 +144,10 @@ function pairNameOnly(findings) {
       if (matches.length === 1) {
         const partner = matches[0];
         if (paired.has(partner.id)) {
+          const existingPartnerId = paired.get(partner.id);
           ambiguous.add(item.id);
           ambiguous.add(partner.id);
+          if (existingPartnerId) ambiguous.add(existingPartnerId);
           continue;
         }
         paired.set(item.id, partner.id);

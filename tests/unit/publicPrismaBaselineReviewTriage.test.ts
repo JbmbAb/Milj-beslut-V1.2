@@ -217,6 +217,55 @@ describe('public Prisma baseline Phase C.1 triage', () => {
     )).toBe(true);
   });
 
+  it('fails closed on ambiguous name-only pairing', () => {
+    const base = {
+      relation: 'Example',
+      type: 'u',
+      validated: true,
+      deferrable: false,
+      initially_deferred: false,
+      definition: 'UNIQUE (value)',
+    };
+    const actualA = finding(
+      'constraints',
+      'Example|actual_a',
+      'ACTUAL_ONLY',
+      { ...base, name: 'actual_a' },
+      null,
+      null,
+    );
+    const actualB = finding(
+      'constraints',
+      'Example|actual_b',
+      'ACTUAL_ONLY',
+      { ...base, name: 'actual_b' },
+      null,
+      null,
+    );
+    const declared = finding(
+      'constraints',
+      'Example|declared',
+      'DECLARED_ONLY',
+      null,
+      { ...base, name: 'declared' },
+      null,
+    );
+    const result = run(
+      [actualA, actualB, declared],
+      [
+        review('constraints', actualA.key, 'ACTUAL_ONLY'),
+        review('constraints', actualB.key, 'ACTUAL_ONLY'),
+        review('constraints', declared.key, 'DECLARED_ONLY'),
+      ],
+    );
+
+    expect(result.result.status).toBe(0);
+    expect(result.report.findings.every(
+      (item: { triage_class: string }) =>
+        item.triage_class === 'AMBIGUOUS_STRUCTURAL_NAME_PAIR',
+    )).toBe(true);
+  });
+
   it('keeps real column contract disagreements for owner review', () => {
     const raw = finding(
       'columns',
