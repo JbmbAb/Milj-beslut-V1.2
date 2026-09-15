@@ -386,7 +386,8 @@ export async function verifyAuthorityAtDecisionTime(
       throw new Error("REJECT_DELEGATION_PATH: non-canonical or ambiguous path");
     }
 
-    let expectedFrom = request.trust_root_actor_ref;
+    let expectedFrom: { readonly artifact_id: string; readonly artifact_type: string } =
+      request.trust_root_actor_ref;
     for (const entry of request.delegation_path) {
       const delegation = await resolve<TrustDelegationArtifact>(
         port,
@@ -417,15 +418,7 @@ export async function verifyAuthorityAtDecisionTime(
       );
       externalEvidence.push(entry.status_attestation_ref);
 
-      expectedFrom = {
-        artifact_id: delegation.to_actor_ref.artifact_id,
-        artifact_type: delegation.to_actor_ref.artifact_type,
-        content_hash:
-          delegation.to_actor_ref.artifact_id === request.actor_ref.artifact_id &&
-          delegation.to_actor_ref.artifact_type === request.actor_ref.artifact_type
-            ? request.actor_ref.content_hash
-            : entry.delegation_ref.content_hash,
-      };
+      expectedFrom = delegation.to_actor_ref;
     }
 
     if (request.delegation_path.length === 0) {
