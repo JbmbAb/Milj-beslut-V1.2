@@ -129,6 +129,36 @@ export type AuthorityVerificationResult =
   | { readonly ok: true; readonly closure: AuthorityEvidenceClosure }
   | { readonly ok: false; readonly reason: string };
 
+export const AUTHORITY_DECISION_BINDING_VERSION =
+  "authority-decision-binding-v1" as const;
+
+/**
+ * Canonical fields a governed decision persists from a successful authority
+ * evaluation. This is a binding contract, NOT a new artifact type.
+ */
+export interface AuthorityDecisionBinding {
+  readonly authority_binding_version: typeof AUTHORITY_DECISION_BINDING_VERSION;
+  readonly decision_time: string;
+  readonly required_capability: string;
+  readonly required_scope: string;
+  readonly authority_refs: readonly PinnedArtifactReference[];
+  readonly verification_evidence_refs: readonly ContentReference[];
+}
+
+export function toAuthorityDecisionBinding(
+  closure: AuthorityEvidenceClosure,
+): AuthorityDecisionBinding {
+  return {
+    authority_binding_version: AUTHORITY_DECISION_BINDING_VERSION,
+    decision_time: closure.decision_time,
+    required_capability: closure.required_capability,
+    required_scope: closure.required_scope,
+    authority_refs: closure.authority_refs,
+    verification_evidence_refs: closure.verification_evidence_refs,
+  };
+}
+
+
 function sameLooseRef(
   left: { readonly artifact_id: string; readonly artifact_type: string } | undefined,
   right: { readonly artifact_id: string; readonly artifact_type: string },
