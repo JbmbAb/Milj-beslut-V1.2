@@ -127,7 +127,7 @@ export type AuthorityVerificationResult =
 
 function sameLooseRef(
   left: { readonly artifact_id: string; readonly artifact_type: string } | undefined,
-  right: PinnedArtifactReference,
+  right: { readonly artifact_id: string; readonly artifact_type: string },
 ): boolean {
   return Boolean(
     left &&
