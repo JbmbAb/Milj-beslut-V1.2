@@ -281,21 +281,21 @@ describe("MINIMUM-AUTHORITY-DELTA-01 — authority verification", () => {
     const f = await fixture({ signer: attacker });
     const result = await verifyAuthorityAtDecisionTime(f.port, f.request);
     expect(result).toMatchObject({ ok: false });
-    if (!result.ok) expect(result.reason).toContain("signer is not trust anchor key");
+    if ("reason" in result) expect(result.reason).toContain("signer is not trust anchor key");
   });
 
   it("rejects an expired delegation at decision time", async () => {
     const f = await fixture({ validUntil: "2026-09-01T00:00:00.000Z" });
     const result = await verifyAuthorityAtDecisionTime(f.port, f.request);
     expect(result).toMatchObject({ ok: false });
-    if (!result.ok) expect(result.reason).toContain("expired at decision_time");
+    if ("reason" in result) expect(result.reason).toContain("expired at decision_time");
   });
 
   it("rejects a revocation status attestation", async () => {
     const f = await fixture({ status: "REVOKED" });
     const result = await verifyAuthorityAtDecisionTime(f.port, f.request);
     expect(result).toMatchObject({ ok: false });
-    if (!result.ok) expect(result.reason).toContain("delegation revoked");
+    if ("reason" in result) expect(result.reason).toContain("delegation revoked");
   });
 
   it("rejects a tampered content-hash-pinned authority reference", async () => {
@@ -309,14 +309,14 @@ describe("MINIMUM-AUTHORITY-DELTA-01 — authority verification", () => {
     };
     const result = await verifyAuthorityAtDecisionTime(f.port, request);
     expect(result).toMatchObject({ ok: false });
-    if (!result.ok) expect(result.reason).toContain("pinned mismatch");
+    if ("reason" in result) expect(result.reason).toContain("pinned mismatch");
   });
 
   it("rejects a non-canonical/ambiguous delegation path", async () => {
     const f = await fixture({ canonicalPath: false });
     const result = await verifyAuthorityAtDecisionTime(f.port, f.request);
     expect(result).toMatchObject({ ok: false });
-    if (!result.ok) expect(result.reason).toContain("non-canonical or ambiguous path");
+    if ("reason" in result) expect(result.reason).toContain("non-canonical or ambiguous path");
   });
 
 
@@ -342,7 +342,7 @@ describe("MINIMUM-AUTHORITY-DELTA-01 — authority verification", () => {
       capability_grant_ref: wrongGrantRef,
     });
     expect(result).toMatchObject({ ok: false });
-    if (!result.ok) expect(result.reason).toContain("actor/capability/scope binding mismatch");
+    if ("reason" in result) expect(result.reason).toContain("actor/capability/scope binding mismatch");
   });
 
   it("rejects the wrong capability for the requested action", async () => {
@@ -352,7 +352,7 @@ describe("MINIMUM-AUTHORITY-DELTA-01 — authority verification", () => {
       required_capability: "governance.delete",
     });
     expect(result).toMatchObject({ ok: false });
-    if (!result.ok) expect(result.reason).toContain("capability name mismatch");
+    if ("reason" in result) expect(result.reason).toContain("capability name mismatch");
   });
 
   it("rejects a delegation and scope outside the requested authority scope", async () => {
@@ -362,7 +362,7 @@ describe("MINIMUM-AUTHORITY-DELTA-01 — authority verification", () => {
       required_scope: "staging",
     });
     expect(result).toMatchObject({ ok: false });
-    if (!result.ok) expect(result.reason).toMatch(/scope mismatch|non-canonical or ambiguous path/);
+    if ("reason" in result) expect(result.reason).toMatch(/scope mismatch|non-canonical or ambiguous path/);
   });
 
   it("rejects an alternate trust root even when the rest of the closure is valid", async () => {
@@ -394,7 +394,7 @@ describe("MINIMUM-AUTHORITY-DELTA-01 — authority verification", () => {
       ],
     });
     expect(result).toMatchObject({ ok: false });
-    if (!result.ok) expect(result.reason).toContain("TEST_ATTESTATION_NOT_FOUND");
+    if ("reason" in result) expect(result.reason).toContain("TEST_ATTESTATION_NOT_FOUND");
   });
 
   it("rejects a cryptographically tampered delegation-status signature", async () => {
@@ -422,7 +422,7 @@ describe("MINIMUM-AUTHORITY-DELTA-01 — authority verification", () => {
       ],
     });
     expect(result).toMatchObject({ ok: false });
-    if (!result.ok) expect(result.reason).toContain("invalid signature");
+    if ("reason" in result) expect(result.reason).toContain("invalid signature");
   });
 
   it("uses persisted T_decision, not wall clock, for historical replay semantics", async () => {
@@ -437,7 +437,7 @@ describe("MINIMUM-AUTHORITY-DELTA-01 — authority verification", () => {
     };
     const current = await verifyAuthorityAtDecisionTime(f.port, replayAtNow);
     expect(current.ok).toBe(false);
-    if (!current.ok) {
+    if ("reason" in current) {
       // It may reject status-time binding before or after the intrinsic expiry check;
       // either way proves that the supplied evaluation instant is load-bearing.
       expect(current.reason).toMatch(/expired at decision_time|evaluated_at != decision_time/);
