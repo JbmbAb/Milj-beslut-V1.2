@@ -319,6 +319,112 @@ describe("MINIMUM-AUTHORITY-DELTA-01 — authority verification", () => {
     if (!result.ok) expect(result.reason).toContain("non-canonical or ambiguous path");
   });
 
+
+  it("rejects a grant bound to a different actor", async () => {
+    const f = await fixture();
+    const wrongGrant = {
+      ...f.grant,
+      actor_ref: { artifact_id: "actor-other", artifact_type: "actor" },
+    };
+    const wrongGrantRef = pinned(wrongGrant);
+    const original = f.port.resolveVerifiedArtifact.bind(f.port);
+    const port: AuthorityVerificationPort = {
+      ...f.port,
+      async resolveVerifiedArtifact<T extends ArtifactContract>(reference: PinnedArtifactReference) {
+        if (reference.artifact_id === wrongGrant.artifact_id) {
+          return { artifact: wrongGrant as unknown as T };
+        }
+        return original<T>(reference);
+      },
+    };
+    const result = await verifyAuthorityAtDecisionTime(port, {
+      ...f.request,
+      capability_grant_ref: wrongGrantRef,
+    });
+    expect(result).toMatchObject({ ok: false });
+    if (!result.ok) expect(result.reason).toContain("actor/capability/scope binding mismatch");
+  });
+
+  it("rejects the wrong capability for the requested action", async () => {
+    const f = await fixture();
+    const result = await verifyAuthorityAtDecisionTime(f.port, {
+      ...f.request,
+      required_capability: "governance.delete",
+    });
+    expect(result).toMatchObject({ ok: false });
+    if (!result.ok) expect(result.reason).toContain("capability name mismatch");
+  });
+
+  it("rejects a delegation and scope outside the requested authority scope", async () => {
+    const f = await fixture();
+    const result = await verifyAuthorityAtDecisionTime(f.port, {
+      ...f.request,
+      required_scope: "staging",
+    });
+    expect(result).toMatchObject({ ok: false });
+    if (!result.ok) expect(result.reason).toMatch(/scope mismatch|non-canonical or ambiguous path/);
+  });
+
+  it("rejects an alternate trust root even when the rest of the closure is valid", async () => {
+    const f = await fixture();
+    const alternateRoot = {
+      ...f.request.trust_root_actor_ref,
+      artifact_id: "actor-alternate-root",
+    };
+    const result = await verifyAuthorityAtDecisionTime(f.port, {
+      ...f.request,
+      trust_root_actor_ref: alternateRoot,
+    });
+    expect(result).toMatchObject({ ok: false });
+  });
+
+  it("rejects missing delegation-status authority evidence", async () => {
+    const f = await fixture();
+    const missingStatus: ContentReference = {
+      id: "missing-status",
+      content_hash: { algorithm: "sha256", digest: "d".repeat(64) },
+    };
+    const result = await verifyAuthorityAtDecisionTime(f.port, {
+      ...f.request,
+      delegation_path: [
+        {
+          delegation_ref: f.request.delegation_path[0]!.delegation_ref,
+          status_attestation_ref: missingStatus,
+        },
+      ],
+    });
+    expect(result).toMatchObject({ ok: false });
+    if (!result.ok) expect(result.reason).toContain("TEST_ATTESTATION_NOT_FOUND");
+  });
+
+  it("rejects a cryptographically tampered delegation-status signature", async () => {
+    const f = await fixture();
+    const tampered: ArtifactAttestation = {
+      ...f.statusAttestation,
+      signature: `${f.statusAttestation.signature.slice(0, -4)}AAAA`,
+    };
+    const tamperedRef = attestationRef("att-delegation-status-tampered", tampered);
+    const originalAttestationResolver = f.port.resolvePinnedAttestation.bind(f.port);
+    const port: AuthorityVerificationPort = {
+      ...f.port,
+      async resolvePinnedAttestation(reference: ContentReference) {
+        if (reference.id === tamperedRef.id) return tampered;
+        return originalAttestationResolver(reference);
+      },
+    };
+    const result = await verifyAuthorityAtDecisionTime(port, {
+      ...f.request,
+      delegation_path: [
+        {
+          delegation_ref: f.request.delegation_path[0]!.delegation_ref,
+          status_attestation_ref: tamperedRef,
+        },
+      ],
+    });
+    expect(result).toMatchObject({ ok: false });
+    if (!result.ok) expect(result.reason).toContain("invalid signature");
+  });
+
   it("uses persisted T_decision, not wall clock, for historical replay semantics", async () => {
     const f = await fixture({ validUntil: "2026-10-01T00:00:00.000Z" });
 
