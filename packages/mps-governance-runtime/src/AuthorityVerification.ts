@@ -90,6 +90,10 @@ export interface AuthorityVerificationPort {
 
 export interface AuthorityDelegationEvidence {
   readonly delegation_ref: PinnedArtifactReference;
+  readonly delegator_actor_ref: PinnedArtifactReference;
+  readonly delegator_lifecycle_ref: PinnedArtifactReference;
+  readonly delegatee_actor_ref: PinnedArtifactReference;
+  readonly delegatee_lifecycle_ref: PinnedArtifactReference;
   readonly status_attestation_ref: ContentReference;
 }
 
@@ -98,7 +102,6 @@ export interface AuthorityVerificationRequest {
   readonly required_capability: string;
   readonly required_scope: string;
 
-  readonly actor_identity_ref: PinnedArtifactReference;
   readonly actor_ref: PinnedArtifactReference;
   readonly actor_lifecycle_ref: PinnedArtifactReference;
 
@@ -109,6 +112,7 @@ export interface AuthorityVerificationRequest {
   readonly trust_domain_ref: PinnedArtifactReference;
   readonly trust_anchor_ref: PinnedArtifactReference;
   readonly trust_root_actor_ref: PinnedArtifactReference;
+  readonly trust_root_actor_lifecycle_ref: PinnedArtifactReference;
 
   readonly delegation_path: readonly AuthorityDelegationEvidence[];
 }
@@ -213,6 +217,51 @@ async function resolve<T extends ArtifactContract>(
   return verified.artifact;
 }
 
+async function resolveActorClosure(
+  port: AuthorityVerificationPort,
+  actorRef: PinnedArtifactReference,
+  lifecycleRef: PinnedArtifactReference,
+  trustDomainRef: PinnedArtifactReference,
+  decisionMs: number,
+  externalEvidence: ContentReference[],
+  collectedRefs: PinnedArtifactReference[],
+): Promise<ActorArtifact> {
+  const actor = await resolve<ActorArtifact>(port, actorRef, externalEvidence);
+  const lifecycle = await resolve<ActorLifecycleArtifact>(port, lifecycleRef, externalEvidence);
+
+  if (!actor.identity_ref || !actor.identity_hash) {
+    throw new Error("REJECT_ACTOR_IDENTITY: actor lacks canonical identity closure");
+  }
+  const identityRef: PinnedArtifactReference = {
+    artifact_id: actor.identity_ref.artifact_id,
+    artifact_type: actor.identity_ref.artifact_type,
+    content_hash: {
+      algorithm: actor.identity_hash.algorithm,
+      digest: actor.identity_hash.value,
+    },
+  };
+  await resolve<ArtifactContract>(port, identityRef, externalEvidence);
+
+  if (!sameLooseRef(actor.lifecycle_ref, lifecycleRef)) {
+    throw new Error("REJECT_ACTOR_LIFECYCLE: lifecycle reference mismatch");
+  }
+  if (!sameLooseRef(actor.trust_domain_ref, trustDomainRef)) {
+    throw new Error("REJECT_TRUST_DOMAIN: actor domain mismatch");
+  }
+  if (lifecycle.state !== "active") {
+    throw new Error("REJECT_ACTOR_LIFECYCLE: actor is not active");
+  }
+  requireWindowContains(
+    decisionMs,
+    lifecycle.effective_from,
+    lifecycle.effective_to,
+    `actor_lifecycle:${actorRef.artifact_id}`,
+  );
+
+  collectedRefs.push(actorRef, lifecycleRef, identityRef);
+  return actor;
+}
+
 async function verifyDelegationStatus(
   port: AuthorityVerificationPort,
   anchor: TrustAnchorArtifact,
@@ -291,56 +340,33 @@ export async function verifyAuthorityAtDecisionTime(
   try {
     const decisionMs = parseInstant(request.decision_time, "decision_time");
 
-    const [
-      actorIdentity,
-      actor,
-      lifecycle,
-      capability,
-      scope,
-      grant,
-      domain,
-      anchor,
-      rootActor,
-    ] = await Promise.all([
-      resolve<ArtifactContract>(port, request.actor_identity_ref, externalEvidence),
-      resolve<ActorArtifact>(port, request.actor_ref, externalEvidence),
-      resolve<ActorLifecycleArtifact>(port, request.actor_lifecycle_ref, externalEvidence),
+    const collectedAuthorityRefs: PinnedArtifactReference[] = [];
+    const [capability, scope, grant, domain, anchor] = await Promise.all([
       resolve<CapabilityArtifact>(port, request.capability_ref, externalEvidence),
       resolve<CapabilityScopeArtifact>(port, request.capability_scope_ref, externalEvidence),
       resolve<CapabilityGrantArtifact>(port, request.capability_grant_ref, externalEvidence),
       resolve<TrustDomainArtifact>(port, request.trust_domain_ref, externalEvidence),
       resolve<TrustAnchorArtifact>(port, request.trust_anchor_ref, externalEvidence),
-      resolve<ActorArtifact>(port, request.trust_root_actor_ref, externalEvidence),
     ]);
 
-    // ACT-21-I1 — actor identity is explicit and content pinned.
-    if (
-      !sameLooseRef(actor.identity_ref, request.actor_identity_ref) ||
-      !hashMatchesPinned(actor.identity_hash, request.actor_identity_ref)
-    ) {
-      throw new Error("REJECT_ACTOR_IDENTITY: actor identity closure mismatch");
-    }
-    // Force the identity artifact resolve to remain load-bearing.
-    if (!sameLooseRef(actorIdentity, request.actor_identity_ref)) {
-      throw new Error("REJECT_ACTOR_IDENTITY: identity artifact mismatch");
-    }
-
-    if (!sameLooseRef(actor.lifecycle_ref, request.actor_lifecycle_ref)) {
-      throw new Error("REJECT_ACTOR_LIFECYCLE: lifecycle reference mismatch");
-    }
-    if (lifecycle.state !== "active") {
-      throw new Error("REJECT_ACTOR_LIFECYCLE: actor is not active");
-    }
-    requireWindowContains(
+    const actor = await resolveActorClosure(
+      port,
+      request.actor_ref,
+      request.actor_lifecycle_ref,
+      request.trust_domain_ref,
       decisionMs,
-      lifecycle.effective_from,
-      lifecycle.effective_to,
-      "actor_lifecycle",
+      externalEvidence,
+      collectedAuthorityRefs,
     );
-
-    if (!sameLooseRef(actor.trust_domain_ref, request.trust_domain_ref)) {
-      throw new Error("REJECT_TRUST_DOMAIN: actor domain mismatch");
-    }
+    const rootActor = await resolveActorClosure(
+      port,
+      request.trust_root_actor_ref,
+      request.trust_root_actor_lifecycle_ref,
+      request.trust_domain_ref,
+      decisionMs,
+      externalEvidence,
+      collectedAuthorityRefs,
+    );
     if (
       !sameLooseRef(domain.anchor_ref, request.trust_anchor_ref) ||
       !sameLooseRef(anchor.root_actor_ref, request.trust_root_actor_ref) ||
@@ -348,10 +374,6 @@ export async function verifyAuthorityAtDecisionTime(
     ) {
       throw new Error("REJECT_TRUST_ROOT: domain/anchor/root-actor closure mismatch");
     }
-    if (!rootActor.identity_ref?.artifact_id || !rootActor.identity_hash?.value) {
-      throw new Error("REJECT_TRUST_ROOT: root actor lacks canonical identity closure");
-    }
-
     if (capability.capability_name !== request.required_capability) {
       throw new Error("REJECT_CAPABILITY: capability name mismatch");
     }
@@ -386,8 +408,7 @@ export async function verifyAuthorityAtDecisionTime(
       throw new Error("REJECT_DELEGATION_PATH: non-canonical or ambiguous path");
     }
 
-    let expectedFrom: { readonly artifact_id: string; readonly artifact_type: string } =
-      request.trust_root_actor_ref;
+    let expectedFrom: PinnedArtifactReference = request.trust_root_actor_ref;
     for (const entry of request.delegation_path) {
       const delegation = await resolve<TrustDelegationArtifact>(
         port,
@@ -396,12 +417,33 @@ export async function verifyAuthorityAtDecisionTime(
       );
 
       if (
-        !sameLooseRef(delegation.from_actor_ref, expectedFrom) ||
+        !sameLooseRef(entry.delegator_actor_ref, expectedFrom) ||
+        !sameLooseRef(delegation.from_actor_ref, entry.delegator_actor_ref) ||
+        !sameLooseRef(delegation.to_actor_ref, entry.delegatee_actor_ref) ||
         !sameLooseRef(delegation.domain_ref, request.trust_domain_ref) ||
         delegation.authority_scope !== request.required_scope
       ) {
         throw new Error("REJECT_DELEGATION_PATH: chain/domain/scope mismatch");
       }
+
+      await resolveActorClosure(
+        port,
+        entry.delegator_actor_ref,
+        entry.delegator_lifecycle_ref,
+        request.trust_domain_ref,
+        decisionMs,
+        externalEvidence,
+        collectedAuthorityRefs,
+      );
+      await resolveActorClosure(
+        port,
+        entry.delegatee_actor_ref,
+        entry.delegatee_lifecycle_ref,
+        request.trust_domain_ref,
+        decisionMs,
+        externalEvidence,
+        collectedAuthorityRefs,
+      );
       requireWindowContains(
         decisionMs,
         delegation.valid_from,
@@ -418,34 +460,27 @@ export async function verifyAuthorityAtDecisionTime(
       );
       externalEvidence.push(entry.status_attestation_ref);
 
-      expectedFrom = delegation.to_actor_ref;
+      collectedAuthorityRefs.push(entry.delegation_ref);
+      expectedFrom = entry.delegatee_actor_ref;
     }
 
     if (request.delegation_path.length === 0) {
       if (!sameLooseRef(anchor.root_actor_ref, request.actor_ref)) {
         throw new Error("REJECT_DELEGATION_PATH: delegation required for non-root actor");
       }
-    } else {
-      const finalDelegation = await resolve<TrustDelegationArtifact>(
-        port,
-        request.delegation_path[request.delegation_path.length - 1]!.delegation_ref,
-        externalEvidence,
-      );
-      if (!sameLooseRef(finalDelegation.to_actor_ref, request.actor_ref)) {
-        throw new Error("REJECT_DELEGATION_PATH: path does not terminate at actor");
-      }
+    } else if (!sameLooseRef(expectedFrom, request.actor_ref)) {
+      throw new Error("REJECT_DELEGATION_PATH: path does not terminate at actor");
     }
 
     const authorityRefs = [
-      request.actor_identity_ref,
-      request.actor_ref,
-      request.actor_lifecycle_ref,
+      ...collectedAuthorityRefs,
       request.capability_ref,
       request.capability_scope_ref,
       request.capability_grant_ref,
       request.trust_domain_ref,
       request.trust_anchor_ref,
       request.trust_root_actor_ref,
+      request.trust_root_actor_lifecycle_ref,
       ...delegationRefs,
     ]
       .filter(
