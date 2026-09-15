@@ -70,7 +70,6 @@ function attestationRef(id: string, attestation: ArtifactAttestation): ContentRe
   };
 }
 
-type Fixture = Awaited<ReturnType<typeof fixture>>;
 
 async function fixture(options: {
   readonly status?: "ACTIVE" | "REVOKED";
