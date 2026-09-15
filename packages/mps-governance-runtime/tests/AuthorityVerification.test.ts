@@ -241,7 +241,6 @@ async function fixture(options: {
     decision_time: T_DECISION,
     required_capability: "governance.approve",
     required_scope: "production",
-    actor_identity_ref: pinned(identity),
     actor_ref: pinned(actor),
     actor_lifecycle_ref: pinned(lifecycle),
     capability_ref: pinned(capability),
@@ -250,7 +249,17 @@ async function fixture(options: {
     trust_domain_ref: pinned(domain),
     trust_anchor_ref: pinned(anchor),
     trust_root_actor_ref: pinned(rootActor),
-    delegation_path: [{ delegation_ref: pinned(delegation), status_attestation_ref: statusRef }],
+    trust_root_actor_lifecycle_ref: pinned(rootLifecycle),
+    delegation_path: [
+      {
+        delegation_ref: pinned(delegation),
+        delegator_actor_ref: pinned(rootActor),
+        delegator_lifecycle_ref: pinned(rootLifecycle),
+        delegatee_actor_ref: pinned(actor),
+        delegatee_lifecycle_ref: pinned(lifecycle),
+        status_attestation_ref: statusRef,
+      },
+    ],
   };
 
   return {
@@ -374,6 +383,12 @@ describe("MINIMUM-AUTHORITY-DELTA-01 — authority verification", () => {
     const result = await verifyAuthorityAtDecisionTime(f.port, {
       ...f.request,
       trust_root_actor_ref: alternateRoot,
+      delegation_path: [
+        {
+          ...f.request.delegation_path[0]!,
+          delegator_actor_ref: alternateRoot,
+        },
+      ],
     });
     expect(result).toMatchObject({ ok: false });
   });
@@ -388,7 +403,7 @@ describe("MINIMUM-AUTHORITY-DELTA-01 — authority verification", () => {
       ...f.request,
       delegation_path: [
         {
-          delegation_ref: f.request.delegation_path[0]!.delegation_ref,
+          ...f.request.delegation_path[0]!,
           status_attestation_ref: missingStatus,
         },
       ],
@@ -416,7 +431,7 @@ describe("MINIMUM-AUTHORITY-DELTA-01 — authority verification", () => {
       ...f.request,
       delegation_path: [
         {
-          delegation_ref: f.request.delegation_path[0]!.delegation_ref,
+          ...f.request.delegation_path[0]!,
           status_attestation_ref: tamperedRef,
         },
       ],
