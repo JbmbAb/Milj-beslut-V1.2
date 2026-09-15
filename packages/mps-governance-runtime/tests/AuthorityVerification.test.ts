@@ -76,7 +76,8 @@ async function fixture(options: {
   readonly validUntil?: string;
   readonly canonicalPath?: boolean;
 } = {}) {
-  const rootKey = LocalPemSigningKeyProvider.generate("authority-root");
+  const rootKeyPair = LocalPemSigningKeyProvider.generate("authority-root");
+  const rootKey = rootKeyPair.provider;
   const signing = options.signer ?? rootKey;
 
   const identity = base("identity-user", "identity", "1".repeat(64));
@@ -276,7 +277,7 @@ describe("MINIMUM-AUTHORITY-DELTA-01 — authority verification", () => {
   });
 
   it("rejects a valid signature from a key that is not the trust-anchor key", async () => {
-    const attacker = LocalPemSigningKeyProvider.generate("attacker");
+    const attacker = LocalPemSigningKeyProvider.generate("attacker").provider;
     const f = await fixture({ signer: attacker });
     const result = await verifyAuthorityAtDecisionTime(f.port, f.request);
     expect(result).toMatchObject({ ok: false });
