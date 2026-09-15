@@ -225,7 +225,7 @@ async function resolveActorClosure(
   decisionMs: number,
   externalEvidence: ContentReference[],
   collectedRefs: PinnedArtifactReference[],
-): Promise<ActorArtifact> {
+): Promise<void> {
   const actor = await resolve<ActorArtifact>(port, actorRef, externalEvidence);
   const lifecycle = await resolve<ActorLifecycleArtifact>(port, lifecycleRef, externalEvidence);
 
@@ -259,7 +259,6 @@ async function resolveActorClosure(
   );
 
   collectedRefs.push(actorRef, lifecycleRef, identityRef);
-  return actor;
 }
 
 async function verifyDelegationStatus(
@@ -349,7 +348,7 @@ export async function verifyAuthorityAtDecisionTime(
       resolve<TrustAnchorArtifact>(port, request.trust_anchor_ref, externalEvidence),
     ]);
 
-    const actor = await resolveActorClosure(
+    await resolveActorClosure(
       port,
       request.actor_ref,
       request.actor_lifecycle_ref,
@@ -358,7 +357,7 @@ export async function verifyAuthorityAtDecisionTime(
       externalEvidence,
       collectedAuthorityRefs,
     );
-    const rootActor = await resolveActorClosure(
+    await resolveActorClosure(
       port,
       request.trust_root_actor_ref,
       request.trust_root_actor_lifecycle_ref,
