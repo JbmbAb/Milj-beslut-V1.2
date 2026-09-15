@@ -22,9 +22,12 @@ export type { ViewportBudget } from "./ViewportBudget.js";
 export {
   DELEGATION_STATUS_PREDICATE_TYPE,
   DELEGATION_STATUS_SCHEMA_VERSION,
+  AUTHORITY_DECISION_BINDING_VERSION,
+  toAuthorityDecisionBinding,
   verifyAuthorityAtDecisionTime,
 } from "./AuthorityVerification.js";
 export type {
+  AuthorityDecisionBinding,
   AuthorityDelegationEvidence,
   AuthorityEvidenceClosure,
   AuthorityVerificationPort,
