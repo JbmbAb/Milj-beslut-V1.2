@@ -334,7 +334,7 @@ describe("MINIMUM-AUTHORITY-DELTA-01 — authority verification", () => {
         if (reference.artifact_id === wrongGrant.artifact_id) {
           return { artifact: wrongGrant as unknown as T };
         }
-        return original<T>(reference);
+        return original(reference) as Promise<VerifiedAuthorityArtifact<T>>;
       },
     };
     const result = await verifyAuthorityAtDecisionTime(port, {
