@@ -36,11 +36,11 @@ function h(value: string): ContentHash {
   return { algorithm: "sha256", value };
 }
 
-function base(
+function base<TType extends string>(
   artifact_id: string,
-  artifact_type: string,
+  artifact_type: TType,
   value = artifact_id.padEnd(64, "0").slice(0, 64),
-): ArtifactContract {
+): ArtifactContract & { readonly artifact_type: TType } {
   return {
     artifact_id,
     artifact_type,
