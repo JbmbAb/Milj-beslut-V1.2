@@ -18,3 +18,19 @@ export type { AuthorityArtifactType } from "./authorityTypes.js";
 
 export { DEFAULT_VIEWPORT_BUDGET } from "./ViewportBudget.js";
 export type { ViewportBudget } from "./ViewportBudget.js";
+
+export {
+  DELEGATION_STATUS_PREDICATE_TYPE,
+  DELEGATION_STATUS_SCHEMA_VERSION,
+  verifyAuthorityAtDecisionTime,
+} from "./AuthorityVerification.js";
+export type {
+  AuthorityDelegationEvidence,
+  AuthorityEvidenceClosure,
+  AuthorityVerificationPort,
+  AuthorityVerificationRequest,
+  AuthorityVerificationResult,
+  DelegationStatus,
+  DelegationStatusPredicate,
+  VerifiedAuthorityArtifact,
+} from "./AuthorityVerification.js";
