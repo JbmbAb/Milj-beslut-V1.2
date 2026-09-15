@@ -1,0 +1,128 @@
+{
+  "candidate": "EVIDENCE",
+  "canonical_source_of_truth": "NONE — no single document/type governs \"Evidence\" platform-wide. The closest constitutional anchor for the most central instantiation is docs/architecture/ADR-MPS-CONSTITUTIONAL-INVARIANTS.md §3 (\"mps-decision-governance — Decision Truth\", the Lineage/Retrieval Boundary rules naming \"Raw Evidence\") together with docs/architecture/ADR-MPS-EVIDENCE-LINEAGE-SLOT.md and packages/mps-decision-governance/src/EvidenceSetArtifact.ts, but this governs only the Decision Governance domain's evidence family, not packages/mps-lu's DocumentEvidenceArtifact or mps-data-governance's DocumentFactCore, each of which is governed by its own separate freeze (OWNER FREEZE 2026-08-12 code comments in packages/mps-lu/src/artifacts/DocumentEvidenceArtifact.ts and packages/mps-data-governance/src/DocumentFactArtifact.ts, referencing a docs/architecture/F4B-DOCUMENT-FACT-MODEL-CHECK-2026-08-12.md file that no longer exists in docs/architecture/ — a concrete instance of documentation drift from implementation, worth flagging separately).",
+  "confidence": "STRONG",
+  "constitutional_dependencies_existing": [
+    "ADR-MPS-CONSTITUTIONAL-INVARIANTS.md (§3 Decision Truth: Lineage rules, Retrieval boundary, 'Raw Evidence' naming; §5b Lineage closure before authority)",
+    "ADR-MPS-EVIDENCE-LINEAGE-SLOT.md (LINEAGE_SLOT_UNIQUENESS)",
+    "ADR-MPS-INTELLIGENCE-PROJECTION-BOUNDARY.md / MIMER-SCALE-I01 (Raw Evidence retrieval boundary)",
+    "ADR-MPS-RETRIEVAL-TRACE.md (firewall between mechanism trace and Decision Truth/Evidence)",
+    "packages/mps-core/src/types.ts (CanonicalArtifact, ContentReference, HashDescriptor, ActorReference kernel base)"
+  ],
+  "constitutional_guarantees_required_by_delta": [
+    "Any cross-domain Evidence contract must preserve content-addressed identity (hash(identity) excludes provenance/timestamps per IMPORT-TIME-001/SV-I06)",
+    "Must preserve the compiler-enforced separation between unverified/candidate material and verified/authoritative material (no unioned status-flag type)",
+    "Must preserve the retrieval-boundary invariant that raw material is never the direct analytical entry point (MIMER-SCALE-I01) if the new domain's evidence feeds any analytical/autonomous decision loop",
+    "Must not let a mechanism/observation trace (e.g. an agent's tool-call trace) masquerade as normative Evidence, mirroring the RetrievalTrace vs EvidenceSet firewall (TRACE-I02)"
+  ],
+  "delta_category": "NEW_NORMATIVE_CONTRACT",
+  "discovered_candidates": [
+    {
+      "name": "PROVENANCE_CHAIN / raw_source_ref traceability",
+      "why": "Multiple artifacts (DocumentEvidenceArtifact.raw_source_ref, EvidenceSet lineage) independently implement 'chain back to preserved original' logic; this recurring need for a generic provenance-chain primitive (distinct from Evidence itself) could be its own future candidate."
+    },
+    {
+      "name": "VERIFICATION_POLICY (assertion vs verification, method-gated promotion)",
+      "why": "DocumentFactVerificationPolicy's versioned method-to-fact-type admission table, and the asserter != verifier identity check, is a reusable governance pattern (who may assert vs who may verify/promote) seen only in mps-data-governance today; could generalize beyond documents."
+    }
+  ],
+  "evidence_refs": [
+    "docs/architecture/ADR-MPS-CONSTITUTIONAL-INVARIANTS.md §3 (Decision Truth, lineage rules, retrieval boundary naming 'Raw Evidence')",
+    "docs/architecture/ADR-MPS-EVIDENCE-LINEAGE-SLOT.md (LINEAGE_SLOT_UNIQUENESS identity rule)",
+    "docs/architecture/ADR-MPS-RETRIEVAL-TRACE.md (TRACE-I02, mechanism/observation firewall)",
+    "docs/architecture/ADR-004-verified-tool-trace.md (older, narrower verified-computation-trace concept)",
+    "docs/architecture/DOCUMENT-FACT-HUMAN-VERIFICATION-V1-REJECTION-2026-08-24.md (real recorded rejection proving the CANDIDATE/VERIFIED gate is live)",
+    "docs/architecture/DOCUMENT-EVIDENCE-CANONICAL-ADMISSION-V1-PROPERTY-BINDING-GAP-2026-08-24.md (mandatory-field gap stop, evidence admission governance in practice)",
+    "packages/mps-decision-governance/src/EvidenceSetArtifact.ts:1-68",
+    "packages/mps-decision-governance/src/validation/validateEvidenceSetLineage.ts:1-200",
+    "packages/mps-decision-governance/src/MaterializationContract.ts:1-71",
+    "packages/mps-decision-governance/src/DecisionRetrievalContract.ts:1-133",
+    "packages/mps-decision-governance/src/DecisionImpactIdentity.ts:1-63",
+    "packages/mps-decision-governance/src/DecisionKnowledgeRepository.ts:1-45",
+    "packages/mps-lu/src/artifacts/DocumentEvidenceArtifact.ts:1-105",
+    "packages/mps-data-governance/src/DocumentFactArtifact.ts:1-267",
+    "packages/mps-data-governance/src/verifyRealDocumentFactCandidate.ts:1-176",
+    "packages/mps-core/src/types.ts:1-150"
+  ],
+  "existing_semantic_candidates_examined": [
+    {
+      "file": "packages/mps-decision-governance/src/EvidenceSetArtifact.ts:1-68",
+      "name": "EvidenceSetArtifact (mps-decision-governance)",
+      "why_considered_and_verdict": "Primary constitutional instantiation: EvidenceSetIdentity groups content-addressed EvidenceDocumentReference[] (document_hash-based), has its own hash (SHA-256 of canonical identity), append-only lineage (validateEvidenceSetLineage.ts, ADR-MPS-EVIDENCE-LINEAGE-SLOT.md), and is explicitly named 'Raw Evidence' in the platform constitution and firewalled from direct query access (DecisionRetrievalContract.ts). Verdict: fully satisfies the candidate's semantics within the Decision Governance domain; treated as one of the duplicate representations, not a single universal one."
+    },
+    {
+      "file": "packages/mps-lu/src/artifacts/DocumentEvidenceArtifact.ts:49-105",
+      "name": "DocumentEvidenceArtifact (mps-lu)",
+      "why_considered_and_verdict": "LU-domain evidentiary artifact: binds property_ref/document_ref, text_projection_ref (canonical text boundary), raw_source_ref (provenance chain to preserved original), fact_refs restricted to VERIFIED_DOCUMENT_FACT only (never CANDIDATE, enforced by OWNER FREEZE comment 2026-08-12), and explicitly disclaims owning interpretation authority. Verdict: independently reproduces the same material-vs-interpretation split as EvidenceSetArtifact, in a different domain and different schema -- a genuine duplicate, not a naming variant."
+    },
+    {
+      "file": "packages/mps-data-governance/src/DocumentFactArtifact.ts:34-266",
+      "name": "DocumentFactCore / DocumentFactCandidateArtifact / VerifiedDocumentFactArtifact (mps-data-governance)",
+      "why_considered_and_verdict": "Compiler-enforced two-state (CANDIDATE/VERIFIED) promotion model with a mandatory DocumentFactSourceSpan (offsets into a canonical text projection, never quoted text) as the evidentiary anchor, a verification policy gating which methods may promote a candidate, and a real recorded rejection (DOCUMENT-FACT-HUMAN-VERIFICATION-V1-REJECTION-2026-08-24.md) proving the gate is live. Verdict: this type itself models the 'fact/classification' (interpretive) layer per its own header comment, but its source_span/source_document_ref sub-structure and the CANDIDATE-vs-VERIFIED split is exactly the 'material distinct from interpretation, traceable, verifiable' pattern the candidate describes -- a third independent implementation."
+    },
+    {
+      "file": "packages/mps-lu/src/artifacts/DocumentEvidenceArtifact.ts:1-45",
+      "name": "EvidenceBundle / RankedEvidence / LegalEvidence (mps-lu retrieval)",
+      "why_considered_and_verdict": "Retrieval-time evidence for legal RAG answers: each item carries claim + relation (SUPPORTED/CONTRADICTED/INSUFFICIENT) + confidence, and EvidenceBundle extends ArtifactContract. Verdict: a fourth, RAG-flavored instantiation of the same core semantic (material that supports/contradicts a claim); reinforces SEMANTIC_DUPLICATE rather than a gap."
+    },
+    {
+      "file": "docs/architecture/ADR-MPS-RETRIEVAL-TRACE.md:1-40",
+      "name": "RetrievalTrace (mps-retrieval-trace)",
+      "why_considered_and_verdict": "Considered and rejected as a reuse candidate: explicitly 'Observation surface only -- not authority, cache, or DecisionImpact' and diagrammed as hard-firewalled from DecisionImpactArtifact (TRACE-I02: 'Trace can never create authority'). This is MECHANISM_ONLY (how retrieval executed), not the EVIDENCE candidate; useful as a boundary case showing the architecture already distinguishes mechanism-trace from normative evidence."
+    },
+    {
+      "file": "docs/architecture/ADR-004-verified-tool-trace.md:1-30",
+      "name": "verified tool trace / toolTrace[] (ADR-004)",
+      "why_considered_and_verdict": "An older, narrower concept: an auditable trace of which deterministic compute steps ran (lab_validate -> rule_engine_evaluate -> logistics_analyze), proving risk numbers come from code not LLM imagination. Considered and rejected as the candidate: it is evidence of computation, a MECHANISM_ONLY audit trail, not domain material supporting a claim about a past/present state of affairs."
+    },
+    {
+      "file": "packages/mps-core/src/types.ts:29-97",
+      "name": "CanonicalArtifact / ContentReference / HashDescriptor / ActorReference (mps-core)",
+      "why_considered_and_verdict": "The shared kernel primitives (id+type+content_hash+signature; content-addressed reference; who-acted reference) that every one of the above evidence families is built from. Considered as 'is this alone sufficient reuse' -- verdict: no, because it is generic to every governed artifact (decisions, outcomes, etc.), not evidence-specific; but it is the reusable substrate a new domain would extend (adding a mandatory source-binding field, as every existing evidence family does) rather than needing a new kernel EVIDENCE type."
+    }
+  ],
+  "explanation": "EVIDENCE (\"material that supports or documents a claim about a past/present state of affairs, distinct from interpretation/conclusion\") is not an unrepresented semantic in this repository — it is already a mature, constitutionally-frozen concept, but it exists as at least three independently-evolved artifact families in three different domains rather than one unified kernel type: (1) EvidenceSetArtifact in mps-decision-governance (content-addressed, lineage-DAG-governed sets of document refs feeding DecisionImpact, named \"Raw Evidence\" in the platform's own constitution), (2) DocumentEvidenceArtifact + DocumentFactCore/source_span in mps-lu/mps-data-governance (LU-domain evidentiary binding with a compiler-enforced CANDIDATE/VERIFIED split), and (3) EvidenceBundle/RankedEvidence/LegalEvidence in mps-lu's retrieval layer (RAG citation evidence with SUPPORTED/CONTRADICTED/INSUFFICIENT relation to a claim). All three independently satisfy the candidate's own governance-question set (traceable origin via content_hash, structural separation from interpretation, decision reconstructability, tamper/unreliability detection) using the same shared kernel primitives already in mps-core (CanonicalArtifact, ContentReference, HashDescriptor, ActorReference). Because the semantics is expressed multiple times, independently, by domain-owned artifact families built on shared generic primitives — rather than needing a wholly new kernel artifact type — this falls under SEMANTIC_DUPLICATE rather than a clean single ALREADY_REPRESENTED, and rather than CORE_SEMANTIC_SURVIVES. A future \"Governed Autonomous Operations\" capability's evidence need is very likely satisfiable the same way its predecessors were: by instantiating a domain-scoped evidence artifact on top of ContentReference/CanonicalArtifact plus a mandatory-source-span-style binding, not by minting a new top-level EVIDENCE core type. The residual gap, if any, is a cross-domain normative contract/interface that makes the repeated pattern explicit and reusable, not new semantics.",
+  "falsification_code": "SEMANTIC_DUPLICATE",
+  "lossless_reuse_test": {
+    "governance_questions_answered": [
+      {
+        "answerable_from_existing_representation": true,
+        "explanation": "EvidenceSetArtifact.identity.documents (EvidenceDocumentReference[] keyed by document_hash, packages/mps-decision-governance/src/EvidenceSetArtifact.ts:6-32) and, in the LU domain, DocumentEvidenceArtifact.payload.raw_source_ref/text_projection_ref plus DocumentFactCore.source_span (mandatory offsets into a canonical text projection, packages/mps-data-governance/src/DocumentFactArtifact.ts:68-102) both answer this directly and with governance force (source_span is MANDATORY, enforced by isValidSpan).",
+        "question": "What material supports the claim that a given fact/state/event is true?"
+      },
+      {
+        "answerable_from_existing_representation": true,
+        "explanation": "Content-addressing throughout: evidence_set_hash = SHA-256(canonical_version||canonical(identity)) (EvidenceSetArtifact.ts:47), and DocumentFactArtifact tamper detection via isDocumentFactCandidateContentHashValid / recomputeVerifiedDocumentFactContentHash (packages/mps-data-governance/src/verifyRealDocumentFactCandidate.ts:100-140), all built on mps-core's HashDescriptor+SignatureDescriptor base (packages/mps-core/src/types.ts:86-97).",
+        "question": "Can that material be traced back to its origin and verified as unaltered?"
+      },
+      {
+        "answerable_from_existing_representation": true,
+        "explanation": "Enforced at the type level, not by convention: DocumentFactCandidateArtifact vs VerifiedDocumentFactArtifact are deliberately distinct types so 'the compiler enforces it' (DocumentFactArtifact.ts:38-41); DocumentEvidenceArtifact.fact_refs MUST reference VERIFIED_DOCUMENT_FACT only, never a CANDIDATE (DocumentEvidenceArtifact.ts:75-83); and the constitution forbids GENERAL QUERY -> Raw Evidence directly, requiring passage through the interpretive DecisionImpact layer first (ADR-MPS-CONSTITUTIONAL-INVARIANTS.md §3, DecisionRetrievalContract.ts:6-14).",
+        "question": "Is the material kept structurally distinct from any interpretation, summary, or conclusion drawn from it?"
+      },
+      {
+        "answerable_from_existing_representation": true,
+        "explanation": "DecisionRetrievalContract.ts:41-59 defines exactly this chain (DecisionImpact -> EvidenceSet -> Raw Evidence) as a frozen, assert-enforced pipeline, and DecisionImpactIdentity.evidence_set_hashes (DecisionImpactIdentity.ts:44) binds each decision to the evidence sets it was built from, participating in the decision's own canonical hash (CanonicalDecisionImpactHash.ts:118-128).",
+        "question": "Can a decision be reconstructed or justified purely by tracing to this material?"
+      },
+      {
+        "answerable_from_existing_representation": true,
+        "explanation": "Partially by index, fully by reconstruction: there is no stored reverse index from an evidence_set_hash to the DecisionImpacts that consumed it, but because evidence_set_hashes is part of every DecisionImpact's identity and the repository is the authoritative CAS store, every consumer is deterministically reconstructable by scanning committed DecisionImpactArtifacts for that hash -- the same fail-closed, content-addressed guarantee the rest of the constitution relies on (no separate mechanism needed).",
+        "question": "If the material is later found unreliable, can everything derived from it be identified?"
+      },
+      {
+        "answerable_from_existing_representation": false,
+        "explanation": "No. The same semantic is independently reimplemented in mps-decision-governance (EvidenceSetArtifact), mps-lu/mps-data-governance (DocumentEvidenceArtifact + DocumentFactCore), and mps-lu's retrieval layer (EvidenceBundle/RankedEvidence), each with its own schema, hash domain, and ADR/freeze. A hypothetical fourth domain (Governed Autonomous Operations) could not point at one of these and get full coverage without loss -- it would have to build its own instance of the same pattern, as every prior domain did. This is why the overall test is marked FAIL at the 'single representation' bar even though every individual governance question is answerable within any one existing domain's own representation.",
+        "question": "Does one single existing representation (not several domain-specific ones) carry this uniformly across the platform?"
+      }
+    ],
+    "result": "FAIL"
+  },
+  "minimum_semantic_delta": "Not a new EVIDENCE artifact type. If anything is missing, it is a thin cross-domain normative contract/interface (built on the existing mps-core primitives: ContentReference, CanonicalArtifact, ActorReference) that makes explicit the pattern every existing evidence family already independently implements — mandatory content-addressed source binding, structural separation from any interpretation/conclusion type, and referenceability from a decision-like artifact's own identity — so a new domain (e.g. Governed Autonomous Operations) can conform to it instead of re-deriving the pattern from scratch a fourth time. This is a contract-level normalization across existing/future domains, not a new durable kernel type, new relation, or new field on a currently-existing type.",
+  "new_core_representation_required": "NO",
+  "primary_disposition": "LATENT_REUSE",
+  "semantic_conflicts": [
+    "Possible naming collision with a 'DECISION' kernel candidate: this repo's own constitution already uses 'Decision Truth' / DecisionImpactArtifact as the interpretive layer that Evidence feeds into (ADR-MPS-CONSTITUTIONAL-INVARIANTS.md §3) — any new kernel DECISION concept should be checked against DecisionImpactArtifact for the same kind of duplication found here for EVIDENCE.",
+    "The mps-data-governance DocumentFactArtifact sits ambiguously between 'evidence' and 'decision/interpretation' in its own domain (its header explicitly calls itself Tier 3 classification, i.e. interpretation, yet its source_span is evidentiary) — a kernel-level EVIDENCE/DECISION split should account for this existing domain's own layering (Tier 2 content -> Tier 3 fact -> Governance verification -> LU evidence -> LU rule) rather than assuming a clean two-way split."
+  ]
+}

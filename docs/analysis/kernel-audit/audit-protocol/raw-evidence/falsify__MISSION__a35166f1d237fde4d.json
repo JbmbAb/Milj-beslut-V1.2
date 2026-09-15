@@ -1,0 +1,125 @@
+{
+  "candidate": "MISSION",
+  "canonical_source_of_truth": "NONE — no single file/ADR governs \"purpose/mission\" as a normative core concept today. The semantic is split across two non-kernel mechanisms: docs/architecture/ADR-27-LU-Architecture-Charter.md (system/application-level purpose, governed by ADR/document review) and docs/architecture/LU-v1.0-Project-Context.md defining LUProjectContextArtifact (engagement-level purpose, explicitly excluded from governance). Neither is, nor claims to be, part of the CanonicalArtifact kernel governed by docs/architecture/ADR-MPS-CORE-001.md / docs/architecture/ADR-MPS-CONSTITUTIONAL-INVARIANTS.md.",
+  "confidence": "STRONG",
+  "delta_category": "NEW_NORMATIVE_ATTRIBUTE",
+  "discovered_candidates": [
+    {
+      "name": "PurposeContext / EngagementContext (generalized LUProjectContextArtifact)",
+      "why": "If a platform-wide, non-authoritative 'why is this work happening' field is ever needed outside the LU domain, the existing LUProjectContextArtifact pattern (domain payload, explicitly non-governance) is the template to generalize — worth a future, narrowly-scoped candidate review distinct from a governance-gating MISSION."
+    },
+    {
+      "name": "Charter-as-authority-record",
+      "why": "ADR-27 shows the platform already treats certain documents as 'bindande'/binding constitutional purpose statements outside the artifact kernel; a future candidate could examine whether ADR/document-governance itself deserves a formal, queryable representation (e.g. a signed ADR-identity record) distinct from both Policy and any future Mission-like concept."
+    }
+  ],
+  "evidence_refs": [
+    "docs/architecture/README.md:9-16 (authority chain: only ADR-MPS-CONSTITUTIONAL-INVARIANTS.md and PROGRAM-P0-P8-AUTHORITY define architectural/program truth; no Mission concept)",
+    "docs/architecture/ADR-MPS-CORE-001.md (§8 Governance Constitution) — exhaustive decision-input chain (CanonicalArtifact→Verified Reference→Verified Evidence→Recomputed Metrics→Decision Artifact); purpose/mission absent, 'Caller supplied score'/'Unverified reference' explicitly forbidden",
+    "docs/architecture/ADR-MPS-CONSTITUTIONAL-INVARIANTS.md §3 (Lineage rules table) — existing 'Scope stability'/LINEAGE_SCOPE_MISMATCH concept is jurisdiction/decision_type scope, not mission scope",
+    "packages/mps-decision-governance/src/DecisionImpactIdentity.ts:33-50 — DecisionImpactIdentity has no purpose/objective/rationale field",
+    "packages/mps-decision-governance/src/EvidenceSetArtifact.ts:14-21 — EvidenceSetLineageScope = {jurisdiction_level, decision_type}, not a mission scope",
+    "packages/mps-governance/src/contracts/PolicyArtifact.ts:4-15 — PolicyScope = applicable_domain/artifact_types/version_range; rule-constraint semantics only",
+    "packages/mps-governance/src/types.ts:13-18 — GovernanceRule/RuleCondition = procedural review-gating conditions, mechanism not purpose",
+    "packages/mps-governance/src/artifacts/GovernanceApprovalArtifact.ts:4-12 — rationale is free text 1:1 with one approval, no independent identity/lifecycle",
+    "packages/mps-governance/src/contracts/DecisionArtifact.ts:1-8, DecisionProvenance.ts:1-6, ApprovalProvenance.ts:1-5 — Decision→Approval→Policy chain, no purpose/mission link",
+    "packages/mps-governance/src/capabilities/CapabilityScopeArtifact.ts:1-15 — scope of an authorization, not an organizational purpose",
+    "packages/mps-governance/src/capabilities/CapabilityGrantArtifact.ts:1-24 — binds actor+capability+scope, no purpose field",
+    "docs/architecture/ADR-27-LU-Architecture-Charter.md:1-16 — system-level purpose expressed as a binding ADR/'Charter' document, governed by ADR review, not runtime artifact identity",
+    "docs/architecture/LU-v1.0-Project-Context.md:1-40 — LUProjectContextArtifact carries project_description/activity_description/planned_activity (the closest 'why' analog) but is explicitly declared outside governance ('Den är inte en del av governance', 'Den får aldrig påverka governance', 'Project Context is not truth')",
+    "docs/architecture/AI-GOVERNANCE-AND-HUMAN-AUTHORITY-01.md:33-58 — final decision authority mapped to human ActorReference; no purpose/objective concept anywhere in the human-authority mapping",
+    "packages/mps-evolution/src/EvolutionPolicy.ts:1-23 — the platform's one existing 'governed autonomous operation' loop is purely threshold-governed, no objective/goal field",
+    "packages/mps-capability/src/contracts/CapabilityDefinition.ts:1-12 — capability has no purpose field, confirming Capability≠Mission but also that no adjacent type absorbs Mission's semantics",
+    "repo-wide grep for 'mission' across docs/architecture, packages/, server/ — zero architectural hits (only an unrelated colloquial use in docs/ops/agent-instructions/TOR_INSTRUKTION_JURIDISK_RAG_IMPLEMENTATION.md:19)"
+  ],
+  "existing_semantic_candidates_examined": [
+    {
+      "file": "packages/mps-governance/src/contracts/PolicyArtifact.ts; packages/mps-governance/src/types.ts",
+      "name": "PolicyArtifact / PolicyScope / GovernanceRule",
+      "why_considered_and_verdict": "Considered because policy_scope (applicable_domain, applicable_artifact_types, effective_version_range) looks like it could carry 'why/scope.' Rejected: GovernanceRule/RuleCondition express procedural gating conditions (WHAT must hold for review), not an objective/purpose that justifies undertaking work. No field for organizational goal or rationale-for-existing."
+    },
+    {
+      "file": "packages/mps-governance/src/artifacts/GovernanceApprovalArtifact.ts:11",
+      "name": "GovernanceApprovalArtifact.rationale",
+      "why_considered_and_verdict": "Free-text field closest in spirit to 'why a decision was made.' Rejected: not independently governed — no own identity/hash/version/issuing-authority, exists only as a string attached 1:1 to one approval event; cannot answer 'was the purpose still valid' or 'can decisions under a changed purpose still be explained' since there is nothing to change independently of the approval itself."
+    },
+    {
+      "file": "packages/mps-governance/src/contracts/DecisionArtifact.ts; DecisionProvenance.ts; ApprovalProvenance.ts",
+      "name": "DecisionArtifact / DecisionProvenance / ApprovalProvenance (policy_ref chain)",
+      "why_considered_and_verdict": "The only 'why' traceability actually wired into a Decision today (Decision -> approval_ref -> policy_ref). Rejected as Mission-equivalent: it traces to a Policy (a rule set / constraint), not to an objective/mission that justified undertaking the work."
+    },
+    {
+      "file": "packages/mps-governance/src/capabilities/CapabilityScopeArtifact.ts; CapabilityGrantArtifact.ts",
+      "name": "CapabilityScopeArtifact / CapabilityGrantArtifact",
+      "why_considered_and_verdict": "Considered because it is an independently governed, hash-bound 'scope' object answering governance question Q3-style questions. Rejected: its scope is the scope of an authorization grant (what an actor may execute), not the scope of a purpose/objective that decisions are undertaken in service of."
+    },
+    {
+      "file": "docs/architecture/ADR-27-LU-Architecture-Charter.md:1-16",
+      "name": "ADR-27-LU-Architecture-Charter.md (\"Syfte\"/Charter)",
+      "why_considered_and_verdict": "Closest system-level analog to a Mission statement ('bindande för all utveckling av LU v1.0'). Rejected as kernel-equivalent: governed via ADR/document review (git history, human authorship), not via the ActorReference/signature/content-hash authority model the rest of the kernel uses — different governance mechanism entirely, and this is itself the evidence for WRONG_ABSTRACTION_LEVEL."
+    },
+    {
+      "file": "docs/architecture/LU-v1.0-Project-Context.md:1-40",
+      "name": "LUProjectContextArtifact",
+      "why_considered_and_verdict": "Strongest analog: fields project_description/activity_description/planned_activity literally are 'the reason work occurs' for an LU engagement, and it is a real CanonicalArtifact-based payload. Rejected as Mission-equivalent because the architects explicitly excluded it from governance authority ('Den får aldrig påverka governance', 'Project Context is not truth') — it cannot answer Q3 (scope compliance) or Q5 (validity gating) because it was deliberately built to never gate anything. This is the decisive piece of evidence for the WRONG_ABSTRACTION_LEVEL finding."
+    },
+    {
+      "file": "packages/mps-evolution/src/EvolutionPolicy.ts",
+      "name": "EvolutionPolicy / PromotionPolicy (autonomous mutation governance)",
+      "why_considered_and_verdict": "Considered as the closest existing 'governed autonomous operation' loop. Rejected: purely threshold-based (max_mutation_ratio, min_quality_gain, require_replay) — no objective/goal field the mutations are said to serve."
+    },
+    {
+      "file": "packages/mps-core/src/types.ts:45-60; packages/mps-evolution/src/core/ActorReference.ts",
+      "name": "ActorRole 'EVOLUTION_AGENT' / ActorReference",
+      "why_considered_and_verdict": "Considered whether autonomous-agent identity itself carries a goal-state. Rejected: role is a closed string-union identity tag only, carries no purpose/objective data."
+    }
+  ],
+  "explanation": "MISSION is defined as \"the reason a system-level course of action is undertaken.\" Searching the whole repository (docs/architecture, packages/, server/) turns up zero uses of \"Mission\" as an architectural term (only one unrelated colloquial hit: docs/ops/agent-instructions/TOR_INSTRUKTION_JURIDISK_RAG_IMPLEMENTATION.md:19, \"Din mission\" = \"your assignment,\" not a domain concept). So there is no naming collision to worry about, and the question is purely semantic: does anything in the frozen kernel need to carry \"why was this course of action undertaken, who authorized that purpose, and is it still valid\"?\n\nThe platform has, twice, independently confronted exactly this \"why\" semantic, and both times deliberately kept it OUT of the CanonicalArtifact-based normative decision kernel that ADR-MPS-CORE-001 / ADR-MPS-CONSTITUTIONAL-INVARIANTS.md governs:\n\n1. System/application-level purpose is expressed as an ADR/\"Charter\" (docs/architecture/ADR-27-LU-Architecture-Charter.md:1-16, \"## 0. Syfte\" / \"Detta dokument är bindande för all utveckling av LU v1.0\"). This is a human-authored, git-versioned prose document reviewed through the ADR process — not a runtime CanonicalArtifact with hash identity, signature, or an ActorReference-based authorization chain like every other kernel artifact (ADR-24-21/22). Its \"authority\" is document governance, not artifact governance.\n\n2. Engagement/analysis-level purpose is expressed as `LUProjectContextArtifact` (docs/architecture/LU-v1.0-Project-Context.md:1-40): fields `project_description`, `activity_description`, `planned_activity` are literally \"the reason work occurs\" for an LU engagement. Critically, the architects wrote explicit invariants excluding it from governance: \"Den är inte en del av governance.\" / \"Den får aldrig påverka governance.\" / \"Ny regel: Project Context is not truth.\" This is direct first-party evidence that when this exact semantic (why is this work happening) arose, the designers chose to keep it as inert, non-authoritative domain payload rather than a governance-gating kernel concept — precisely the role MISSION's own governance questions (Q3 scope-compliance, Q5 validity-at-decision-time) would require it to play.\n\nThis is reinforced by the kernel's own frozen, exhaustive decision-input chain: ADR-MPS-CORE-001 §8 states governance \"får endast fatta beslut baserat på: CanonicalArtifact → Verified Reference → Verified Evidence → Recomputed Metrics → Decision Artifact,\" explicitly forbidding \"Caller supplied score, Unverified reference, Cached fitness.\" Nothing resembling an externally asserted \"purpose/objective\" is in that enumerated chain in either of the two forms purpose currently takes on this platform. Elevating MISSION to a gating, authority-checked kernel concept would require rewriting this frozen constitutional chain, which is itself the signal that the concept — as the candidate defines it — sits at the ADR/document-governance layer or the non-authoritative domain-context layer, not the artifact kernel.\n\nSecondary observations supporting the same conclusion: PolicyArtifact/PolicyScope (packages/mps-governance/src/contracts/PolicyArtifact.ts:4-15) and GovernanceRule (packages/mps-governance/src/types.ts:13-18) express WHAT rules/conditions must hold (a procedural constraint gate — closer to MECHANISM_ONLY territory), never WHY the work exists. CapabilityScopeArtifact/CapabilityGrantArtifact (packages/mps-governance/src/capabilities/*.ts) express the scope of an AUTHORIZATION to execute a capability, not an organizational objective. GovernanceApprovalArtifact.rationale (packages/mps-governance/src/artifacts/GovernanceApprovalArtifact.ts:11) is free text tied 1:1 to a single approval event with no independent identity, versioning, or issuing authority of its own. EvolutionPolicy (packages/mps-evolution/src/EvolutionPolicy.ts) — the closest thing to an \"autonomous operation\" governor already in the codebase — is purely threshold-based (quality gain, mutation ratio) with no objective/goal field at all. None of these compete with MISSION as reuse candidates; they simply confirm no existing kernel artifact carries this semantic, while the two places that do carry it (Charter, ProjectContext) are both explicitly non-kernel by design.\n\nI therefore rule this WRONG_ABSTRACTION_LEVEL rather than CORE_SEMANTIC_SURVIVES: the semantics are real (the platform demonstrably needs to express \"why,\" and has built two different non-kernel mechanisms to do so), but the platform's own architects, when they hit this exact question, twice chose a layer other than the normative artifact-governance kernel this audit is testing candidates for.",
+  "falsification_code": "WRONG_ABSTRACTION_LEVEL",
+  "lossless_reuse_test": {
+    "governance_questions_answered": [
+      {
+        "answerable_from_existing_representation": false,
+        "explanation": "DecisionProvenance only traces to a Policy (rule set) via policy_ref, and GovernanceApprovalArtifact.rationale is free text on the approval itself; neither points to an organizational objective the work served.",
+        "question": "Why did a given Decision exist — what higher purpose was it in service of?"
+      },
+      {
+        "answerable_from_existing_representation": false,
+        "explanation": "ADR-27's authority is the ADR/document review process (git history), not the ActorReference + signature model (ADR-24-21/22) the rest of the kernel uses for authorization; LUProjectContextArtifact is created by LU-services from a consultant's UI form input with no signed authorization chain.",
+        "question": "Who issued the governing purpose, and were they authorized to issue it?"
+      },
+      {
+        "answerable_from_existing_representation": false,
+        "explanation": "CapabilityScopeArtifact and PolicyScope define scopes for authorization grants and rule applicability respectively; neither is a purpose-scope, and no code anywhere checks a Decision against a mission scope.",
+        "question": "What scope did that purpose cover, and did the Decision fall within that scope?"
+      },
+      {
+        "answerable_from_existing_representation": false,
+        "explanation": "No representation links a purpose object to a required capability; CapabilityDefinition/CapabilityScopeArtifact only run capability-to-execution, never referencing 'why' a capability is needed.",
+        "question": "Which capability/ability did the purpose require to remain intact or available?"
+      },
+      {
+        "answerable_from_existing_representation": false,
+        "explanation": "PolicyScope.effective_version_range gives temporal applicability for a Policy, not for a mission/purpose, and no artifact carries mission validity at all.",
+        "question": "Was the purpose still active/valid at the time the Decision was made?"
+      },
+      {
+        "answerable_from_existing_representation": false,
+        "explanation": "Both existing analogs (Charter, ProjectContext) happen to be human-originated in practice, consistent with docs/architecture/AI-GOVERNANCE-AND-HUMAN-AUTHORITY-01.md's human-decision-authority invariant, but neither enforces this as a checked rule for a 'purpose' object because no such governed object exists.",
+        "question": "Could the system itself originate or alter that purpose, or only a human/external authority?"
+      },
+      {
+        "answerable_from_existing_representation": false,
+        "explanation": "The content-hash-pinned ContentReference pattern used for policy_ref would mechanically support this if a Mission artifact existed, but no Decision today references any purpose/mission object, so nothing is currently reconstructable — this is a mechanism precedent, not existing coverage.",
+        "question": "If the purpose later changes or is retired, can every Decision made under it still be explained historically?"
+      }
+    ],
+    "result": "FAIL"
+  },
+  "minimum_semantic_delta": "If the platform ever needs machine-checkable traceability from a Decision back to the human-authored purpose it served, the minimum change consistent with existing precedent is NOT a new independently-governed, authority-checked MISSION artifact family (that would require a NEW_CORE_TYPE plus a NEW_NORMATIVE_CONTRACT rewriting ADR-MPS-CORE-001 §8's frozen decision-input chain). It is a single new optional, non-authoritative reference field on DecisionProvenance/GovernanceApprovalArtifact — e.g. `mission_context_ref: ContentReference` — pointing to either an ADR/charter document identity or a LUProjectContextArtifact-style context object, for audit/explainability only, explicitly forbidden (like LUProjectContextArtifact today) from gating or authorizing the Decision it is attached to. That is a NEW_NORMATIVE_ATTRIBUTE, not a new artifact family.",
+  "new_core_representation_required": "NO",
+  "primary_disposition": "FALSIFIED",
+  "semantic_conflicts": [
+    "MISSION's governance questions (Q3 scope-compliance, Q5 validity-at-decision-time) presuppose a purpose object with authority to gate/bound Decisions; this directly conflicts with docs/architecture/LU-v1.0-Project-Context.md's explicit invariant that the platform's one real analog to 'purpose' must never influence governance ('Project Context is not truth' / 'får aldrig påverka governance'), and with ADR-MPS-CORE-001 §8's frozen, exhaustive enumeration of what may feed a governance decision (which excludes any externally asserted purpose/score)."
+  ]
+}

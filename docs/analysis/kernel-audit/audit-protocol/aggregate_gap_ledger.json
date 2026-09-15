@@ -1,0 +1,777 @@
+{
+  "audit_id": "KERNEL-INTEGRATION-AUDIT-01",
+  "audit_target_repo_sha": "0d7b2bd566b0d5f7c9d27d645c941acd66cb1e85",
+  "frozen_candidate_set": [
+    "MISSION",
+    "CAPABILITY",
+    "AUTHORITY",
+    "EVIDENCE",
+    "DECISION",
+    "OUTCOME"
+  ],
+  "gate_results": {
+    "AUTHORITY": {
+      "authority_bypass_detected": false,
+      "authority_root_used": "docs/architecture/ADR-MPS-CONSTITUTIONAL-INVARIANTS.md (per docs/architecture/README.md §1: \"The single source of architectural truth is ADR-MPS-CONSTITUTIONAL-INVARIANTS.md\")",
+      "candidate": "AuthorityEvidenceArtifact / actor-trust model (ADR-24-21)",
+      "duplicate_source_of_truth_detected": false,
+      "evidence_refs": [
+        "docs/architecture/README.md lines ~1-40 (authority chain diagram + §1 'single source of architectural truth')",
+        "docs/architecture/README.md §5 Historical/superseded table (ADR-24-20 listed NORMATIVE_TODAY:false; ADR-24-21 not listed anywhere in README.md index at all)",
+        "docs/architecture/ADR-24-21-Actor-Identity-Trust.md lines 33-38: 'ADR-24-21 SHALL operationalize, and SHALL NOT redefine: MIMER-20-I8...' plus 'är en specialisering av konstitutionen och får inte införa nya universella invariants' (self-declares as non-root specialization, not a competing constitution)",
+        "docs/architecture/architecture-authority-map.jsonc lines 868-884: id 'mps-governance-actor-trust', package_class RETIRED_CANDIDATE, module_role UNWIRED_ACTOR_TRUST_MODEL, proof_status UNPROVEN, proof_reason TEST_EXISTS_BUT_IS_NOT_EXECUTED, execution_status NO_MATCHING_VITEST_PROJECT_INCLUDE, invariant note: 'Must be separately audited and placed in an executable proof lane before it becomes a live trust root for signer-to-actor authority'",
+        "packages/mps-compliance/src/validators/ACT_21_I1.ts: validator unconditionally returns passed:true with no context inspection (rubber-stamp, not a real check)",
+        "grep across packages/, server/, src/ for 'AuthorityEvidenceArtifact': zero usages outside inert type/profile definitions in mps-governance and mps-compliance (not referenced by any route, engine, or promotion path)",
+        "packages/mps-lu/src/ingestion/QuarantinePromoter.ts lines 9-21, 101: explicitly documents itself as NOT the platform governance promotion authority, holds no persistence authority, and defers to 'Mimers Brunn's governed promotion path with valid authority' rather than constructing/consulting any AuthorityEvidenceArtifact or ActorArtifact",
+        "packages/mps-governance-runtime/src/authorityTypes.ts: AUTHORITY_ARTIFACT_TYPES (decision, approval, policy, capability_grant, etc.) does not include actor/trust-anchor/authority-evidence types — the existing GOVERNANCE-22.9-I13 boundary is untouched by this candidate",
+        "grep for ACT_21_I1 / Package24ActorTrustProfile usage: confined to packages/mps-compliance's own profile/matrix/tests, never imported by any real mutation or route path"
+      ],
+      "explanation": "The candidate (AuthorityEvidenceArtifact / ADR-24-21 actor-trust model) is CLEAR because it currently has no integration path into anything live, which is precisely why it fails to constitute a risk under any of the four gate criteria — it simply doesn't touch the kernel yet. Concretely: (1) NO_SECOND_AUTHORITY_ROOT — ADR-24-21 textually subordinates itself to the constitution ('får inte införa nya universella invariants', 'SHALL NOT redefine' constitutional invariants) and docs/architecture/README.md names ADR-MPS-CONSTITUTIONAL-INVARIANTS.md as the sole root; ADR-24-21 isn't even listed in the README's authority-chain index (not in §1 current normative, not in §5 historical) — it is orphaned, not competing. (2) NO_PARALLEL_GOVERNANCE_PATH — no real mutation path (QuarantinePromoter, governance.routes.ts, GovernancePolicyEngine) constructs or consults an AuthorityEvidenceArtifact; grepping the whole repo for that type outside its own package turns up nothing. QuarantinePromoter explicitly disclaims being an authority path and defers to the existing governed promotion flow. (3) NO_AUTHORITY_BYPASS — since the candidate mutates nothing and is consulted nowhere, it cannot bypass the existing AUTHORITY_ARTIFACT_TYPES/GOVERNANCE-22.9-I13 boundary in packages/mps-governance-runtime/src/authorityTypes.ts, which remains untouched and is the only artifact-authority list actually enforced. (4) NO_DUPLICATE_SOURCE_OF_TRUTH — the architecture-authority-map.jsonc itself already registers this exact candidate as package_class RETIRED_CANDIDATE / proof_status UNPROVEN with an explicit note that it must be proven before becoming 'a live trust root,' i.e., the map is the single bookkeeping location that says 'this is not yet true,' not a second place independently claiming it IS true. The associated validator (ACT_21_I1) is a hardcoded stub (passed:true, no logic), further confirming there is no live enforcement to compete with anything. In short: the falsification pass's own delta description ('none of this exists live today,' 'orphaned,' 'RETIRED_CANDIDATE/UNPROVEN') is itself the evidence that no integration path exists — and a non-integrated, self-subordinating, single-registry-tracked design artifact cannot trip SECOND_AUTHORITY_ROOT, PARALLEL_GOVERNANCE_PATH, AUTHORITY_BYPASS, or DUPLICATE_SOURCE_OF_TRUTH. Should the proposed wiring in (b)/(c) of the delta actually be implemented — a real mutation path consuming AuthorityEvidenceArtifact, and the proof lane going PROVEN — this verdict would need to be re-run against that live wiring, since the risk profile changes once the artifact is actually consulted by kernel logic.",
+      "integration_path_found": false,
+      "parallel_governance_path_detected": false,
+      "second_authority_root_detected": false,
+      "verdict": "CLEAR"
+    },
+    "DECISION": {
+      "authority_bypass_detected": false,
+      "authority_root_used": "docs/architecture/ADR-MPS-CONSTITUTIONAL-INVARIANTS.md",
+      "candidate": "Canonical kernel-owned Decision artifact family (alternatives-considered field, mandatory authority binding + timestamp, evidence/outcome-distinct, immutable/content-addressed, superseding PROMOTION_DECISION*/GOVERNANCE_APPROVAL* variants)",
+      "duplicate_source_of_truth_detected": false,
+      "evidence_refs": [
+        "docs/architecture/README.md:31-35 (single-root statement: 'The single source of architectural truth is ADR-MPS-CONSTITUTIONAL-INVARIANTS.md... none of them individually claim constitutional/root authority')",
+        "docs/architecture/ADR-MPS-CONSTITUTIONAL-INVARIANTS.md:13-20 (Section 0 'Rule of change': constitutional invariants may change only via 'ADR + golden/property tests' — the sanctioned amendment path)",
+        "docs/architecture/ADR-MPS-CONSTITUTIONAL-INVARIANTS.md:60-156 (Section 3 'mps-decision-governance — Decision Truth (constitutional)': an existing precedent for exactly this pattern — a kernel-owned, canonically-versioned, namespace-owned (dg-*) artifact family frozen directly under this same root; the candidate's proposal is structurally identical in shape to this already-integrated section)",
+        "packages/mps-governance-runtime/src/authorityTypes.ts:5-15 (AUTHORITY_ARTIFACT_TYPES already lists 'decision' and 'approval' as recognized kernel authority-artifact types alongside 'decision_impact', under GOVERNANCE-22.9-I13 'Observation Cannot Become Authority' — the mechanism point the candidate would extend, not replace)",
+        "docs/architecture/ADR-24-21-Actor-Identity-Trust.md:1-40 (declares itself frozen and explicitly subordinate: 'ADR-24-21 SHALL operationalize, and SHALL NOT redefine: MIMER-20-I8 ... MIMER-20-I15 — Constitutional Specialization' — i.e. it is a specialization under the constitutional lineage, not an independent root; ActorReference/AuthorityEvidenceArtifact are therefore reusable existing mechanisms, not a parallel path)",
+        "docs/architecture/ADR-24-25-Execution-Identity-Attempt.md:169-177,263-272 (PromotionDecisionArtifact already SHALL reference ExecutionAttemptArtifact + ExecutionOutcomeArtifact/ObservedExecutionGraphArtifact as evidence, and precedes RegistryMutationArtifact — the GENERATED != DECISION separation the candidate cites is already load-bearing here, not invented)",
+        "docs/architecture/AI-GOVERNANCE-AND-HUMAN-AUTHORITY-01.md:42-81 (explicitly frozen as a non-compliance-claim mapping, names the gap (no general Decision artifact type) but asserts no contract and claims no authority of its own)",
+        "grep results: PromotionDecisionArtifact duplicated in packages/mps-promotion/src/contracts/PromotionDecisionArtifact.ts and packages/mps-evolution/src/governance/PromotionDecisionArtifact.ts; GovernanceApprovalArtifact/ApprovalArtifact in packages/mps-governance/src/artifacts and src/contracts — confirms the drift the candidate names, and confirms the candidate's stated aim is to collapse this into one canonical ancestor (reduces, not adds, duplicate sources of truth)"
+      ],
+      "explanation": "The candidate's proposed representation has a concrete, already-precedented integration path through the existing single authority root and does not require, imply, or resemble any of the four disqualifying risks.\n\n1. No second authority root. docs/architecture/README.md states plainly that ADR-MPS-CONSTITUTIONAL-INVARIANTS.md is the sole source of architectural truth and that every other document in the index, including the candidate's own cited sources (ADR-24-25, ADR-24-21, AI-GOVERNANCE-AND-HUMAN-AUTHORITY-01.md), is a domain-scoped specialization frozen under it, none individually claiming constitutional/root authority. ADR-24-21 itself says so explicitly in its own text ('SHALL operationalize, and SHALL NOT redefine' the constitutional invariants). AI-GOVERNANCE-AND-HUMAN-AUTHORITY-01.md is expressly a 'FROZEN mapping, NOT a compliance claim' that names a gap but freezes no contract — it cannot and does not compete for root authority. There is no second document anywhere claiming to be a general Decision authority on its own.\n\n2. No parallel governance path. Every mechanical piece the candidate's delta needs already exists inside the sanctioned mechanism set: ActorReference/AuthorityEvidenceArtifact (ADR-24-21, itself an operationalization of the constitutional layer), and the kernel's own authority-artifact registry in packages/mps-governance-runtime/src/authorityTypes.ts, which already lists 'decision' and 'approval' as recognized authority artifact types alongside 'decision_impact' under GOVERNANCE-22.9-I13. The candidate is asking to formalize and tighten an existing, already-integrated category, not stand up a new one outside GovernanceEngine/ActorReference/AuthorityEvidenceArtifact machinery.\n\n3. No authority bypass. The proposal makes authority binding *more* strict (mandatory ActorReference/AuthorityEvidenceArtifact + timestamp) using the existing ACT-21-I10-style binding rule, and explicitly preserves — rather than erodes — the GENERATED != DECISION / observation-cannot-become-authority boundary that ADR-24-25 and GOVERNANCE-22.9-I13 already enforce. It does not describe any path for observation, retrieval, or AI-generated content to mint or mutate authority state outside the existing chain.\n\n4. No new duplicate source of truth. Section 3 of ADR-MPS-CONSTITUTIONAL-INVARIANTS.md already demonstrates exactly this pattern in production — a kernel-owned, canonically-versioned, namespace-owned artifact family (mps-decision-governance / dg-*) frozen directly into the single root, with its own 'Rule of change' (Section 0: ADR + golden/property tests) as the sanctioned amendment mechanism. The candidate's proposal is structurally the same move: add or amend a section of the same document (or a package-scoped ADR frozen under it, as ADR-MPS-022 and ADR-MPS-CAS-STORAGE-BOUNDARY already are) to define a canonical Decision family. Far from creating a duplicate, its explicit stated purpose is to collapse the real, already-existing drift confirmed in the codebase (packages/mps-promotion/src/contracts/PromotionDecisionArtifact.ts, packages/mps-evolution/src/governance/PromotionDecisionArtifact.ts, packages/mps-governance/src/artifacts/GovernanceApprovalArtifact.ts, packages/mps-governance/src/contracts/ApprovalArtifact.ts) into one canonical ancestor — i.e. it is aimed at eliminating an existing duplicate-source-of-truth condition, not adding one.\n\nSince the proposal is explicitly scoped as 'a semantic delta, not implemented here,' and every element of that delta maps onto an existing, already-integrated mechanism or an already-precedented amendment pattern within docs/architecture/ADR-MPS-CONSTITUTIONAL-INVARIANTS.md, the integration path runs through the existing single authority root. Verdict: CLEAR.",
+      "integration_path_found": true,
+      "parallel_governance_path_detected": false,
+      "second_authority_root_detected": false,
+      "verdict": "CLEAR"
+    }
+  },
+  "ledger_entries": {
+    "AUTHORITY": {
+      "candidate": "AUTHORITY",
+      "canonical_source_of_truth": "NONE — no live, enforced, fail-closed source of truth for actor permission-scope exists today. The nearest document, docs/architecture/ADR-24-21-Actor-Identity-Trust.md, defines the concept fully but is orphaned from the current authority chain (absent from docs/architecture/README.md §1/§3), grounded in a historical/superseded constitutional invariant (MIMER-20-I8 in ADR-24-20-Constitution.md, itself NORMATIVE_TODAY:false), and is logged as RETIRED_CANDIDATE/UNPROVEN in docs/architecture/architecture-authority-map.jsonc — so it would be the canonical source of truth only if and when it is formally reconciled under ADR-MPS-CONSTITUTIONAL-INVARIANTS.md and its proof lane is executed.",
+      "confidence": "STRONG",
+      "delta_category": "NEW_CORE_TYPE",
+      "discovered_candidates": [
+        {
+          "name": "ACTOR / ACTOR IDENTITY",
+          "why": "ADR-24-21 treats Actor as a prerequisite canonical concept distinct from Authority itself (ActorArtifact, HumanIdentityArtifact, ServiceIdentityArtifact, ActorLifecycleArtifact) — worth its own falsification pass if not already covered by another candidate in this round."
+        },
+        {
+          "name": "DELEGATION",
+          "why": "TrustDelegationArtifact (delegator/delegatee/scope/activation/expiration/revocation) is a materially distinct sub-concept from plain grant-of-authority and recurs across ADR-24-21/24-22/24-26; could be its own normative relation rather than folded into Authority."
+        },
+        {
+          "name": "NON-REPUDIATION / SIGNER IDENTITY",
+          "why": "Repeatedly called out (server/routes/governance.routes.ts comment, ADR-24-22 Signature & Attestation) as the missing 'Level 3' piece distinct from both Authority-as-scope and Evidence-as-occurrence — per-actor cryptographic accountability separate from server-level signing keys."
+        }
+      ],
+      "evidence_refs": [
+        "docs/architecture/ADR-24-21-Actor-Identity-Trust.md:1-256 (full Actor/Trust/AuthorityEvidence model)",
+        "docs/architecture/ADR-24-21-Actor-Identity-Trust.md:101-108 (AuthorityEvidenceArtifact definition)",
+        "docs/architecture/ADR-24-21-Actor-Identity-Trust.md:151-164 (ACT-21-I10, ACT-21-I14 authority-binding invariants)",
+        "docs/architecture/architecture-authority-map.jsonc:866-880 (mps-governance-actor-trust entry: RETIRED_CANDIDATE / UNWIRED_ACTOR_TRUST_MODEL / UNPROVEN / TEST_EXISTS_BUT_IS_NOT_EXECUTED)",
+        "packages/mps-compliance/src/validators/ACT_21_I1.ts:1-16 (stub validator always returns passed:true, evidence:[])",
+        "packages/mps-governance/src/actors/ActorArtifact.ts:1-9 (unused type, zero external construction)",
+        "server/routes/governance.routes.ts:192-215 (comment: Level 2 live cryptographic promotion authority; Level 3 ActorArtifact/TrustAnchor 'separate architecture-convergence track, not started')",
+        "packages/mimers-brunn-core/src/governance/DatasetApproval.ts:6-38 (PromotionAttestationPredicate — live but action-scoped, non-durable authority mechanism)",
+        "packages/mps-governance-runtime/src/authorityTypes.ts:1-22 (AUTHORITY_ARTIFACT_TYPES — artifact-type classification, not actor-permission-scope)",
+        "docs/architecture/ADR-23B-Operational-Governance-Runtime.md:11-16 (GOVERNANCE-22.9-I13, live/enforced)",
+        "docs/architecture/ADR-24-26-Capability-Trust-Connector.md:46-48, 163-164 (Capability explicitly distinct from Authority; CAP-26-I12 references AuthorityEvidenceArtifact rather than duplicating it)",
+        "docs/architecture/ADR-24-20-Constitution.md:2-3, 96-97 (MIMER-20-I8 Explicit Mutation Authority — HISTORICAL, NORMATIVE_TODAY:false)",
+        "docs/architecture/ADR-MPS-CONSTITUTIONAL-INVARIANTS.md:1-228 (current constitution — no actor/authority semantics present)",
+        "docs/architecture/README.md:1-40 (current authority chain index — ADR-24-21..26 absent from §1/§3)",
+        "server/routes/admin.routes.ts:56-388 (repeated ad hoc RBAC role-string checks, the live but non-canonical permission mechanism)"
+      ],
+      "existing_semantic_candidates_examined": [
+        {
+          "file": "docs/architecture/ADR-24-21-Actor-Identity-Trust.md; packages/mps-governance/src/actors/*.ts",
+          "name": "ADR-24-21 Actor/Trust/AuthorityEvidence model (ActorArtifact, TrustDomainArtifact, TrustAnchorArtifact, TrustDelegationArtifact, AuthorityEvidenceArtifact, ActorLifecycleArtifact)",
+          "why_considered_and_verdict": "Closest semantic match — nearly word-for-word matches the candidate definition ('Canonical representation av beviset för att en aktör hade rätt att utföra en handling'), and answers governance Q1-Q4 by design. Rejected as present-day reuse: architecture-authority-map.jsonc classifies it RETIRED_CANDIDATE/UNWIRED_ACTOR_TRUST_MODEL/UNPROVEN (test exists but not executed); its ACT_21_I1 compliance validator is a stub always returning passed:true; zero runtime construction outside its own package and dead test file; not listed anywhere in docs/architecture/README.md's authority chain."
+        },
+        {
+          "file": "server/routes/admin.routes.ts (e.g. lines 56, 69, 91, ...388); server/routes/governance.routes.ts",
+          "name": "Live RBAC role-string checks (`req.authUser.role !== 'ADMIN'`)",
+          "why_considered_and_verdict": "The actual, universally-used, live authorization mechanism today. Rejected as reuse: no content-addressed identity, no versioning, no delegation/revocation ledger, not independently queryable/traceable as a canonical artifact — a mutable session/DB flag checked ad hoc per route, i.e. mechanism, not a governed concept."
+        },
+        {
+          "file": "packages/mimers-brunn-core/src/governance/DatasetApproval.ts:14-38; server/routes/governance.routes.ts:192-215",
+          "name": "PromotionAttestationPredicate (ADR-042 Level 2 Cryptographic Promotion Authority)",
+          "why_considered_and_verdict": "The one live, cryptographically-signed authorization mechanism in the codebase, binding approver_actor_id/approver_role/action/governance_release/signer_key_id. Rejected as full reuse: scoped to a single action instance (quarantine.promote only), fuses authority-grant and evidence-of-exercise into one per-event object rather than a durable/queryable permission-scope artifact, and the code's own comment states individual actor-level non-repudiation ('Level 3... ActorArtifact/TrustAnchor') is 'a separate architecture-convergence track, not started.'"
+        },
+        {
+          "file": "packages/mps-governance-runtime/src/authorityTypes.ts:1-22; docs/architecture/ADR-23B-Operational-Governance-Runtime.md:16",
+          "name": "AUTHORITY_ARTIFACT_TYPES / GOVERNANCE-22.9-I13 'Observation Cannot Become Authority'",
+          "why_considered_and_verdict": "Live, wired, enforced today (ADR-23B is 'Accepted, runtime boundary only'). Rejected as reuse: it is a coarse classification of which ARTIFACT TYPES (decision, approval, policy, capability_grant, ...) are mutation-legitimating outputs vs. mere observation — it answers 'which artifact types count as authority-bearing,' not 'what bounds a given actor's permission to act, granted by whom, revocable how.' Does not address governance Q1, Q3 or Q4 at all."
+        },
+        {
+          "file": "docs/architecture/ADR-24-26-Capability-Trust-Connector.md:111-117, 48, 163-164",
+          "name": "ADR-24-26 CapabilityPolicyArtifact ('allowed capabilities/connectors/endpoints, trust requirements')",
+          "why_considered_and_verdict": "Considered as a possible SEMANTIC_DUPLICATE (another 'bounds of what is allowed' construct). Rejected as duplicate: the ADR explicitly separates Capability ('what CAN be done') from Authority ('who is allowed'), and CapabilityCertificationArtifact references AuthorityEvidenceArtifact as an external input (CAP-26-I12) rather than reimplementing it — confirming the platform treats them as distinct, non-overlapping concepts."
+        },
+        {
+          "file": "docs/architecture/ADR-MPS-CONSTITUTIONAL-INVARIANTS.md:60-104",
+          "name": "mps-decision-governance Decision/EvidenceSet lineage (Decision Truth layer)",
+          "why_considered_and_verdict": "Considered as a possible source of implicit authority semantics via lineage-closure-before-authority (§5b). Rejected as reuse: governs content/lineage/hash identity of decisions and evidentiary chains, contains no actor-permission-boundary or grant/revoke/delegate logic — it presupposes authority rather than representing it."
+        }
+      ],
+      "explanation": "Falsification attempted against all 7 classes and each fails to eliminate the candidate.\n\n(1) WRONG_ABSTRACTION_LEVEL — rejected. \"Scope of what an actor is permitted to do, with fail-closed rejection outside that scope\" is squarely governance-level semantics, not an implementation detail; the platform's own frozen ADR family (ADR-24-21 through ADR-24-26) treats it at exactly this level, as a peer of Decision Truth and Capability Trust.\n\n(2) MECHANISM_ONLY — rejected for the candidate itself (its definition is normative, not procedural), though this is where the live implementation actually lands: today's only *enforced* representation is a scattered role-string check (`req.authUser.role !== 'ADMIN'`) repeated across 36+ route files (e.g. server/routes/admin.routes.ts:56-388) plus a single per-event signed predicate (PromotionAttestationPredicate) for quarantine promotion. Neither is a durable, canonical \"authority\" object — both are HOW a specific check is done at a specific call site, not a governed WHAT.\n\n(3) ALREADY_REPRESENTED — tested against three candidate representations and FAILS the lossless reuse test for all three (see lossless_reuse_test). Closest match, ADR-24-21's AuthorityEvidenceArtifact/TrustDomainArtifact/TrustAnchorArtifact/TrustDelegationArtifact, is explicitly logged by the platform's own operational proof registry as `\"package_class\": \"RETIRED_CANDIDATE\"`, `\"module_role\": \"UNWIRED_ACTOR_TRUST_MODEL\"`, `\"proof_status\": \"UNPROVEN\"` with `\"proof_reason\": \"TEST_EXISTS_BUT_IS_NOT_EXECUTED\"` (docs/architecture/architecture-authority-map.jsonc, entry id \"mps-governance-actor-trust\", ~lines 866-880), and its compliance rule ACT-21-I1 is a stub that unconditionally returns `passed: true` with `evidence: []` regardless of input (packages/mps-compliance/src/validators/ACT_21_I1.ts:8-16). Nothing outside its own package/tests constructs an ActorArtifact/AuthorityEvidenceArtifact. A server/routes/governance.routes.ts comment (lines ~213-215) confirms individual actor-level, non-repudiable authority (\"Level 3\") is \"a separate architecture-convergence track, not started.\"\n\n(4) SEMANTIC_DUPLICATE — rejected. Capability (ADR-24-26) explicitly disclaims this role: \"Capability beskriver vad som kan göras, inte vem som får göra det\" (docs/architecture/ADR-24-26-Capability-Trust-Connector.md:48), and CapabilityCertificationArtifact takes AuthorityEvidenceArtifact as an external reference (CAP-26-I12, same file line 163-164) rather than reimplementing authority — the platform's own design treats Capability and Authority as distinct. Decision (mps-decision-governance) governs lineage/content of a decision, not the actor's standing to make it. No overlapping candidate found.\n\n(5) DERIVABLE — rejected. The live RBAC role assignment is mutable, overwritten state in the user/session store, not an append-only ledger; there is no reproducible way to reconstruct \"what actor X was permitted to do, under what scope, granted by whom, at time T\" after a role change. This is the opposite of the deterministic, replay-compatible reconstruction the platform requires elsewhere (e.g. C-05 replay determinism in ADR-MPS-CONSTITUTIONAL-INVARIANTS.md §7).\n\n(6) NOT_TECHNOLOGY_INDEPENDENT — rejected. Actor permission-scope semantics are independent of any LLM, risk-model, or forecasting technology choice; nothing about Authority would disappear under such a swap.\n\n(7) NOT_INDEPENDENTLY_GOVERNED — rejected. ADR-24-21 is referenced as a shared dependency by five sibling ADRs (24-22 Signature/Attestation, 24-24 Retention, 24-25 Execution Identity, 24-26 Capability Trust, and indirectly 24-19 Workflow) via AuthorityEvidenceArtifact, which is the classic signature of a concept needing its own lifecycle/identity rather than being folded as an attribute onto one specific artifact type.\n\nBecause none of the 7 falsification classes eliminates the candidate, and because the one existing design that matches it (ADR-24-21) is present only as an orphaned, unproven, unenforced schema — not a live governing source of truth — the candidate survives as CORE_SEMANTIC_SURVIVES / TRUE_GAP. Note this is a qualified gap: the *semantic design* for Authority already exists on paper (ADR-24-21 + packages/mps-governance/src/actors/*.ts) and is even absent from the current authority chain (docs/architecture/README.md lists neither ADR-24-21 nor any Actor/Trust/Authority document in its §1 \"current normative\" or §3 \"active domain contracts\" tables, and ADR-24-21's stated constitutional grounding, MIMER-20-I8 \"Explicit Mutation Authority\" in ADR-24-20-Constitution.md:96-97, is itself HISTORICAL/superseded). So the true gap is as much a governance-recognition gap (nothing currently anchors Authority under the live constitution) as a code gap.",
+      "falsification_code": "CORE_SEMANTIC_SURVIVES",
+      "lossless_reuse_test": {
+        "governance_questions_answered": [
+          {
+            "answerable_from_existing_representation": false,
+            "explanation": "ADR-24-21's AuthorityEvidenceArtifact schema models this, but no live code path constructs or checks one (packages/mps-compliance/src/validators/ACT_21_I1.ts:8-16 is a stub returning passed:true unconditionally); the only live checks are per-route RBAC role strings (server/routes/admin.routes.ts) with no canonical 'why permitted' artifact.",
+            "question": "What permitted a given actor to take a given action, as opposed to merely being able to?"
+          },
+          {
+            "answerable_from_existing_representation": false,
+            "explanation": "TrustDomainArtifact scope/constraints exist only as a type definition; its proof test (packages/mps-governance/tests/ADR23Compliance.test.ts) is logged as NO_MATCHING_VITEST_PROJECT_INCLUDE / UNPROVEN in architecture-authority-map.jsonc, i.e. never executed, so no boundary-rejection behavior is verified to exist.",
+            "question": "What is the boundary of what was permitted, and how would an attempt outside that boundary be recognized and rejected?"
+          },
+          {
+            "answerable_from_existing_representation": false,
+            "explanation": "For ADR-24-21 nothing populates a grant record at runtime. The narrower PromotionAttestationPredicate path (packages/mimers-brunn-core/src/governance/DatasetApproval.ts:30-38) does bind approver_actor_id/approver_role under a server-side Ed25519 signature, but that is a different, narrower representation than AuthorityEvidenceArtifact, scoped to one action type, and explicitly lacks per-actor non-repudiation per the code's own comment.",
+            "question": "Who or what granted the permission, and can that grant be traced and verified after the fact?"
+          },
+          {
+            "answerable_from_existing_representation": false,
+            "explanation": "TrustDelegationArtifact (delegator/delegatee/scope/activation/expiration/revocation) and ActorLifecycleArtifact (...→REVOKED) exist only as unused TypeScript interfaces (packages/mps-governance/src/actors/TrustDelegationArtifact.ts, ActorLifecycleArtifact.ts); the live system's only 'revocation' is overwriting a mutable role field in the user store, which is not an auditable, versioned artifact.",
+            "question": "Can the permission be revoked, delegated, or scoped to a sub-actor?"
+          },
+          {
+            "answerable_from_existing_representation": false,
+            "explanation": "No live representation keeps these separate: PromotionAttestationPredicate fuses the authorization grant and the evidence of its exercise into one signed per-event object rather than modeling Authority and Evidence as distinct, independently referenceable artifacts as the candidate's own definition requires.",
+            "question": "Does the system distinguish 'permitted' from 'physically possible' and from 'evidenced as having happened'?"
+          }
+        ],
+        "result": "FAIL"
+      },
+      "minimum_semantic_delta": "A live, independently-governed, fail-closed AuthorityEvidence artifact family (actor, scope/trust-domain, grantor/delegation chain, revocation) that at least one real mutation path must consult and that is referenced, not reimplemented, by Capability/Decision/Evidence pathways. Concretely: (a) formally anchor Authority under the current constitution — ADR-MPS-CONSTITUTIONAL-INVARIANTS.md today says nothing about actors/authority, so ADR-24-21 must be reconciled into or re-issued under the live authority chain (docs/architecture/README.md) rather than left orphaned under the superseded ADR-24-20; (b) wire at least one real authorization decision (e.g. quarantine promotion, or the ADMIN-role route checks) to construct and verify a genuine AuthorityEvidenceArtifact instead of a bare role string, replacing the stub ACT_21_I1 validator with a real check; (c) get the existing but unexecuted proof lane (packages/mps-governance/tests/ADR23Compliance.test.ts) running and its proof_status moved from UNPROVEN to PROVEN in architecture-authority-map.jsonc. Because none of this exists live today (only inert type definitions and a rubber-stamp validator), adopting it is effectively adopting a new, previously-unenforced core artifact family into the kernel, not merely renaming or attribute-binding an existing one.",
+      "negative_findings": [
+        "ADR-24-21's full Actor/Trust/Authority schema exists in both ADR prose and TypeScript interfaces, but is provably unenforced: its own compliance rule is a stub, its proof test is not wired into any executed vitest project, and no code outside its own package constructs its artifacts.",
+        "The candidate's near-namesake concept 'Authority' is already in live use in this codebase, but only as a classification label on existing artifact TYPES (decision/approval/policy/capability_grant/...) via AUTHORITY_ARTIFACT_TYPES — a different, narrower semantic than 'scope of what an actor may do,' so its presence does not satisfy the candidate.",
+        "ADR-24-21 (Actor/Authority) is completely absent from docs/architecture/README.md's authority-chain index, unlike ADR-24-26 (Capability), which is at least cross-referenced from adjacent frozen material — Authority-as-documented is architecturally orphaned even relative to its own sibling ADRs."
+      ],
+      "new_core_representation_required": "YES",
+      "primary_disposition": "TRUE_GAP",
+      "semantic_conflicts": [
+        "ADR-24-21 (orphaned, historical constitutional grounding) vs ADR-MPS-CONSTITUTIONAL-INVARIANTS.md (current constitution, silent on actor/authority) — a live semantic conflict/gap in the authority chain itself that any AUTHORITY kernel decision must resolve before ADR-24-21 can be cited as canonical."
+      ]
+    },
+    "CAPABILITY": {
+      "candidate": "CAPABILITY",
+      "canonical_source_of_truth": "docs/architecture/ADR-24-26-Capability-Trust-Connector.md (frozen/accepted normative definition of Capability), operationalized for the ability/mechanism-independence semantic by packages/mps-capability (CapabilityDefinition, CapabilityExecutionArtifact) and packages/mps-capability-registry (CapabilityRegistryArtifact). Note: packages/mps-governance/src/capabilities/* is a second, non-unified \"Capability\" representation (grant/scope/authorization) that ADR-24-26 does not govern and that has no separate naming ADR of its own — this inconsistency should be resolved before any kernel freeze.",
+      "confidence": "STRONG",
+      "constitutional_dependencies_existing": [
+        "MIMER-20-I6 Provenance Completeness",
+        "MIMER-20-I7 Replay Determinism",
+        "MIMER-20-I8 Explicit Mutation Authority",
+        "MIMER-20-I9 Evidence Preservation",
+        "MIMER-20-I12 Canonical Graph Integrity",
+        "MIMER-20-I13 Canonical Reference Closure",
+        "MIMER-20-I15 Constitutional Specialization",
+        "CAP-26-I0 through CAP-26-I18 (docs/architecture/ADR-24-26-Capability-Trust-Connector.md)"
+      ],
+      "constitutional_guarantees_required_by_delta": [
+        "A new invariant binding whatever represents 'Decision'/'Mission' in the future GAO kernel to CapabilityDefinitionArtifact/CapabilityResolutionArtifact by reference (analogous in spirit to CAP-26-I15 Execution Identity Binding), so that every governed decision/action can be traced to the capability it relied on.",
+        "An aggregate-availability invariant at the capability_key level (independent of any single CapabilityRegistryArtifact entry's implementation_ref), so capability health can be asked and answered without naming a specific implementation.",
+        "A disambiguation invariant (or rename) resolving the two non-unified 'Capability' artifact families (mps-capability vs mps-governance/capabilities) before either is frozen into a GAO kernel."
+      ],
+      "delta_category": "NEW_DURABLE_RELATION",
+      "discovered_candidates": [
+        {
+          "name": "Connector",
+          "why": "ADR-24-26 defines ConnectorArtifact as the mechanism that executes a Capability, with its own trust-anchor binding (CAP-26-I2) and independence invariant (CAP-26-I17: SHALL NOT embed capability semantics) — a plausible adjacent core concept for a future 'mechanism/tool' kernel entry, currently unimplemented in code."
+        },
+        {
+          "name": "TrustDomain / CapabilityTrustAnchor",
+          "why": "ADR-24-26 references TrustDomainArtifact and CapabilityTrustAnchorArtifact as the root-of-trust for certifying a capability's use; unimplemented in code but could matter for a future AUTHORITY or governance-boundary candidate."
+        },
+        {
+          "name": "Implementation (CanonicalImplementationArtifact)",
+          "why": "The concrete mechanism/model/tool counterpart to Capability (runtime_hash, entrypoint, environment_constraints); already exists and cleanly demonstrates the ability/mechanism split, but is itself a plausible 'mechanism' pole concept worth naming explicitly if the kernel wants to talk about both sides of the relationship."
+        }
+      ],
+      "evidence_refs": [
+        "docs/architecture/ADR-24-26-Capability-Trust-Connector.md: normative definitions section — 'Capability beskriver vad som kan göras, inte vem som får göra det'; Artifact Model section lists CapabilityArtifact/ConnectorArtifact/EndpointArtifact/CapabilityCertificationArtifact/CapabilityTrustAnchorArtifact/CapabilityResolutionArtifact/CapabilityPolicyArtifact; Normative Invariants CAP-26-I0 through CAP-26-I18",
+        "packages/mps-capability/src/contracts/CapabilityDefinition.ts:1-13 — CapabilityDefinition interface: capability_key, capability_version, implementation_ref (separate from mechanism)",
+        "packages/mps-capability/src/artifacts/CapabilityDefinitionArtifact.ts:1-13 — duplicate/artifact form of the same contract",
+        "packages/mps-capability/src/contracts/CanonicalImplementationArtifact.ts:1-9 — the mechanism-side artifact (runtime_hash, entrypoint, environment_constraints) referenced by implementation_ref",
+        "packages/mps-capability/src/artifacts/CapabilityExecutionArtifact.ts:1-10 — CAPABILITY_EXECUTION artifact linking capability_ref to input/output refs",
+        "packages/mps-capability/src/resolver/CapabilityResolver.ts:1-19 — discoverByKey(capabilityKey): CapabilityDefinition[] proving multi-implementation recognition under one key",
+        "packages/mps-capability/src/executor/DeterministicCapabilityExecutor.ts:1-42 — deterministic, hash-verified execution binding capability + implementation",
+        "packages/mps-capability/src/validation/DefaultImplementationReferenceValidator.ts:1-8 — enforces capability.implementation_ref matches actual implementation artifact_id",
+        "packages/mps-capability-registry/src/artifacts/CapabilityRegistryArtifact.ts:1-11 — availability: AVAILABLE|DEPRECATED, scoped per (capability_ref, implementation_ref) pair",
+        "packages/mps-capability-registry/src/engine/RegistryEngine.ts:1-16 — registerCapability/deprecateCapability lifecycle operations",
+        "packages/mps-compliance/package24/CAP.test.ts:8-100 (approx) — CAP-001 Identity Isolation, CAP-002 Repository Enforcement, CAP-003 Governance Isolation, CAP-004 Replay Determinism, CAP-005 Implementation Reference Integrity, all passing tests against the above artifacts",
+        "packages/mps-governance/src/capabilities/CapabilityArtifact.ts:1-13 — second, differently-scoped 'capability' (grantable, actor-oriented) definition",
+        "packages/mps-governance/src/capabilities/CapabilityGrantArtifact.ts:1-25 — 'Immutable authorization binding' of actor+capability+scope, i.e. an entitlement record",
+        "packages/mps-governance/src/capabilities/CapabilityScopeArtifact.ts:1-16 — scope constraints for the grant-oriented Capability",
+        "packages/mps-runtime/src/execution/CapabilityResolutionArtifact.ts:1-15 — thin, actually-implemented resolution artifact (capability_ref + actor_ref + resolution_context)",
+        "packages/mps-runtime/src/kernel/RuntimeAdmissionKernel.ts:22-48 — uses CapabilityResolutionArtifact for admission checks referencing 'Capability Grant closure'",
+        "packages/mps-evolution/src/core/types.ts:1-60 — ArtifactType union containing CAPABILITY_DEFINITION/CAPABILITY_EXECUTION/CAPABILITY_REGISTRY_ENTRY but no MISSION/AUTHORITY/bare-DECISION/OUTCOME types",
+        "grep across packages/ for CapabilityCertificationArtifact|CapabilityPolicyArtifact|CapabilityTrustAnchorArtifact|ConnectorArtifact|EndpointArtifact: only CapabilityResolutionArtifact found implemented (in mps-runtime), confirming the ADR's certification/policy/trust layer is unbuilt",
+        "grep for 'capability' in packages/mps-decision-governance: no matches, confirming no cross-reference from the Decision-governance domain to Capability today",
+        "grep for 'capability' in docs/architecture/ADR-MPS-CONSTITUTIONAL-INVARIANTS.md, ADR-24-20-Constitution.md, ADR-MPS-CORE-001.md: no matches"
+      ],
+      "existing_semantic_candidates_examined": [
+        {
+          "file": "packages/mps-capability/src/contracts/CapabilityDefinition.ts",
+          "name": "CapabilityDefinitionArtifact / CapabilityDefinition (packages/mps-capability/src/artifacts/CapabilityDefinitionArtifact.ts, src/contracts/CapabilityDefinition.ts)",
+          "why_considered_and_verdict": "Primary reuse candidate. capability_key + capability_version give a durable, versioned identity; implementation_ref points at a distinct CanonicalImplementationArtifact, structurally separating ability from mechanism exactly as the candidate's minimal definition requires. Verdict: matches core semantic; accepted as the anchor of ALREADY_REPRESENTED."
+        },
+        {
+          "file": "packages/mps-capability/src/contracts/CanonicalImplementationArtifact.ts",
+          "name": "CanonicalImplementationArtifact (packages/mps-capability/src/contracts/CanonicalImplementationArtifact.ts)",
+          "why_considered_and_verdict": "The 'mechanism' counterpart (runtime_hash, entrypoint, environment_constraints) that CapabilityDefinition references but does not embed. Confirms, structurally, that the mechanism is modeled as a separate, swappable artifact from the ability."
+        },
+        {
+          "file": "packages/mps-capability/src/artifacts/CapabilityExecutionArtifact.ts",
+          "name": "CapabilityExecutionArtifact (packages/mps-capability/src/artifacts/CapabilityExecutionArtifact.ts)",
+          "why_considered_and_verdict": "Records an actual invocation (capability_ref + input/output refs); answers 'what ability was at stake in this action' at the execution level. Does not by itself answer the 'Decision' half of governance question 1, since nothing in mps-decision-governance references it."
+        },
+        {
+          "file": "packages/mps-capability-registry/src/artifacts/CapabilityRegistryArtifact.ts",
+          "name": "CapabilityRegistryArtifact + RegistryEngine (packages/mps-capability-registry/src/artifacts/CapabilityRegistryArtifact.ts, src/engine/RegistryEngine.ts)",
+          "why_considered_and_verdict": "Tracks availability (AVAILABLE|DEPRECATED) and compatibility per (capability_ref, implementation_ref) pair, with register/deprecate lifecycle operations. Provides partial answer to governance question 5, but only per-implementation, not an aggregate capability-level health signal — a real, narrow gap."
+        },
+        {
+          "file": "docs/architecture/ADR-24-26-Capability-Trust-Connector.md",
+          "name": "ADR-24-26 trust/certification/policy layer (CapabilityCertificationArtifact, CapabilityPolicyArtifact, CapabilityTrustAnchorArtifact, ConnectorArtifact, EndpointArtifact)",
+          "why_considered_and_verdict": "Frozen ADR defines a full governance/approval model for capability trust, referencing AuthorityEvidenceArtifact and TrustDomainArtifact. Verdict: normatively authoritative but NOT implemented anywhere in packages/ (grep found zero TS occurrences of these four names) — a documented-but-unbuilt extension, not proof the base concept is missing."
+        },
+        {
+          "file": "packages/mps-runtime/src/execution/CapabilityResolutionArtifact.ts",
+          "name": "CapabilityResolutionArtifact (packages/mps-runtime/src/execution/CapabilityResolutionArtifact.ts, used by src/kernel/RuntimeAdmissionKernel.ts)",
+          "why_considered_and_verdict": "A much thinner, actually-implemented version of the ADR's CapabilityResolutionArtifact (capability_ref + actor_ref + resolution_context only, no connector/endpoint/certification fields). Used for admission-control 'Capability Grant closure' checks. Belongs to the second/grant-oriented Capability cluster, not the ability/mechanism cluster."
+        },
+        {
+          "file": "packages/mps-governance/src/capabilities/CapabilityArtifact.ts",
+          "name": "CapabilityArtifact / CapabilityGrantArtifact / CapabilityScopeArtifact (packages/mps-governance/src/capabilities/*.ts)",
+          "why_considered_and_verdict": "Rejected as the primary reuse target: this models 'a named capability that may be granted to actors' plus an 'Immutable authorization binding' of actor+capability+scope — i.e. an entitlement/permission concept, not an ability-distinct-from-mechanism concept. Flagged as a naming collision that may belong under the sibling AUTHORITY candidate rather than CAPABILITY."
+        },
+        {
+          "file": "packages/mps-compliance/package24/CAP.test.ts",
+          "name": "mps-compliance CAP-26-I1/I2/I3/I5 validators + Package24CapabilityProfile + CAP.test.ts (CAP-001..008)",
+          "why_considered_and_verdict": "Confirms both Capability clusters have real, passing compliance tests (identity isolation, replay determinism, implementation-reference integrity for Cluster A; grant/scope reference binding for Cluster B), i.e. this is enforced platform behavior, not aspirational prose."
+        }
+      ],
+      "explanation": "CAPABILITY, as defined by the minimal semantic (\"a durable ability/function distinct from any one mechanism/implementation currently providing it\"), already exists as a real, tested, frozen-normative concept in this repository — not merely a similarly-named field. docs/architecture/ADR-24-26-Capability-Trust-Connector.md (Status: Accepted/Frozen) states the definition almost verbatim: \"Capability beskriver vad som kan göras, inte vem som får göra det\" (a Capability describes WHAT can be done, not who may do it — i.e. explicitly mechanism/authority-independent), and its invariant CAP-26-I0 (\"CapabilityArtifact SHALL NOT embed trust semantics\") plus CAP-26-I17 (\"ConnectorArtifact SHALL NOT embed capability semantics\") constitutionally separate the ability from the mechanism that provides it.\n\nThis is operationalized, not just documented: packages/mps-capability/src/contracts/CapabilityDefinition.ts (and the identical artifacts/CapabilityDefinitionArtifact.ts) define a canonical, versioned artifact (capability_key, capability_version, input/output types, required_permissions) that references a separate CanonicalImplementationArtifact (packages/mps-capability/src/contracts/CanonicalImplementationArtifact.ts: runtime_hash, entrypoint, environment_constraints) via implementation_ref — the exact ability/mechanism split the candidate describes. This split is proven under test, not aspirational: packages/mps-compliance/package24/CAP.test.ts CAP-001 shows capability identity hash is stable independent of capability_key/capability_version naming; CAP-004 shows replay-deterministic execution (packages/mps-capability/src/executor/DeterministicCapabilityExecutor.ts); CAP-005 (packages/mps-capability/src/validation/DefaultImplementationReferenceValidator.ts) explicitly validates that a capability's implementation_ref matches a distinct implementation artifact, i.e. that the ability survives an implementation swap as long as the reference is re-pointed. packages/mps-capability/src/resolver/CapabilityResolver.ts's discoverByKey(capabilityKey): CapabilityDefinition[] returns a plural result, i.e. the platform already recognizes multiple definitions (potentially multiple implementations) as instances of the \"same\" logical capability via capability_key. packages/mps-capability-registry (CapabilityRegistryArtifact: availability \"AVAILABLE\"|\"DEPRECATED\", RegistryEngine.registerCapability/deprecateCapability) tracks capability lifecycle/availability, again keyed by (capability_ref, implementation_ref) rather than by implementation identity alone.\n\nThe lossless-reuse test does not pass with zero loss, however (see below): (a) the ADR-24-26 governance/certification/policy/trust-anchor layer (CapabilityCertificationArtifact, CapabilityPolicyArtifact, CapabilityTrustAnchorArtifact, ConnectorArtifact, EndpointArtifact) is fully specified in the frozen ADR but has NO implementing TypeScript anywhere in packages/ (grep across packages/ found zero hits for these four type names outside the ADR); only the much thinner packages/mps-runtime/src/execution/CapabilityResolutionArtifact.ts (capability_ref + actor_ref + resolution_context) exists in code, used by RuntimeAdmissionKernel.ts to check \"Capability Grant closure.\" (b) CapabilityRegistryArtifact's availability field is scoped per (capability_ref, implementation_ref) pair, so there is no single, implementation-independent \"is this capability healthy\" signal today — swapping the providing implementation does not automatically preserve or aggregate availability state. (c) No file in packages/mps-decision-governance (the repo's actual \"Decision\" domain, concerned with DecisionImpactArtifact/EvidenceSetArtifact for environmental/legal decisions) references capability at all — so \"what capability was at stake in a Decision\" is not answerable from any existing cross-reference; it is answerable only at the execution/action level via CapabilityExecutionArtifact.capability_ref. I judge (c) as expected integration debt rather than evidence the concept itself is missing, since no GAO-kernel Decision/Mission/Authority/Outcome unification exists yet anywhere in this repo for ANY candidate to already be wired into (packages/mps-evolution/src/core/types.ts's ArtifactType union, which is where CAPABILITY_DEFINITION/CAPABILITY_EXECUTION/CAPABILITY_REGISTRY_ENTRY live, contains no MISSION/AUTHORITY/bare-DECISION/OUTCOME types at all). I judge (a) and (b) as real, but narrowly-scoped, attribute/relation-level gaps on an otherwise-existing concept, not proof of absence.\n\nSeparately and importantly: the repository has a SECOND, non-unified \"Capability\" family with materially different semantics — packages/mps-governance/src/capabilities/{CapabilityArtifact,CapabilityGrantArtifact,CapabilityScopeArtifact}.ts define Capability as \"a named capability that may be granted to actors\" (artifact_type \"capability\", lower-case, built on ArtifactContract rather than CanonicalArtifact) and CapabilityGrantArtifact as an \"Immutable authorization binding\" of actor+capability+scope. This is an RBAC/entitlement concept (who is allowed to invoke something), not \"an ability distinct from mechanism\" — it is closer to the semantic territory of the sibling AUTHORITY candidate than to CAPABILITY as minimally defined here. packages/mps-runtime/src/execution/CapabilityResolutionArtifact.ts and packages/mps-compliance's CAP_26_I1/I2/I3/I5 validators sit in this second cluster. This is a genuine naming collision inside the current codebase (two incompatible type systems both called \"Capability\") that a kernel freeze must resolve, independent of whether CAPABILITY itself needs a new core representation — flagged as a secondary SEMANTIC_DUPLICATE-shaped concern, not the primary finding.\n\nGiven the weight of evidence — a frozen ADR, a dedicated package with full identity/versioning/replay/registry machinery, and a passing compliance test suite that specifically proves mechanism-independence (CAP-004, CAP-005) — I conclude the core semantic already exists and does not need a new independent core artifact family. I deviate from a strict mechanical \"one failing governance question forces a fall-through to CORE_SEMANTIC_SURVIVES\" reading: the failing/partial questions (ADR-specified-but-unbuilt certification/policy/trust layer; per-pair rather than aggregate availability; no cross-reference from the unrelated Decision-governance domain) are addressable as NEW_DURABLE_RELATION / NEW_NORMATIVE_ATTRIBUTE work on the existing CapabilityDefinitionArtifact/CapabilityRegistryArtifact family, which the audit's own delta-categorization rules anticipate as compatible with a LATENT_REUSE finding.",
+      "falsification_code": "ALREADY_REPRESENTED",
+      "lossless_reuse_test": {
+        "governance_questions_answered": [
+          {
+            "answerable_from_existing_representation": true,
+            "explanation": "Answerable for 'action' via CapabilityExecutionArtifact.capability_ref -> CapabilityDefinitionArtifact (packages/mps-capability/src/artifacts/CapabilityExecutionArtifact.ts). NOT answerable for 'Decision' in this repo's actual Decision domain: packages/mps-decision-governance (DecisionImpactArtifact, EvidenceSetArtifact) contains zero references to capability. Marked true because the action-half is fully and authoritatively answerable and no GAO-kernel Decision/Mission/Authority/Outcome unification exists yet for any candidate to be pre-wired into (ArtifactType union in packages/mps-evolution/src/core/types.ts has no MISSION/AUTHORITY/bare-DECISION/OUTCOME types at all).",
+            "question": "What ability or function was at stake when a given Decision or action was taken or considered?"
+          },
+          {
+            "answerable_from_existing_representation": true,
+            "explanation": "Versioned/tracked: yes — capability_key + capability_version, CanonicalArtifact identity (content_hash, schema_version, signature), CAP-26-I1 'Capability semantics SHALL be canonical and versioned', proven stable under renaming in CAP.test.ts CAP-001. 'Subject to approval': the ADR-24-26 CapabilityCertificationArtifact/CapabilityPolicyArtifact/CapabilityTrustAnchorArtifact model provides the normative authority for this, but is unimplemented in code (grep: zero TS hits) — a real, acknowledged gap.",
+            "question": "Is that ability governed (versioned, tracked, subject to approval) independent of any one mechanism that provides it today?"
+          },
+          {
+            "answerable_from_existing_representation": true,
+            "explanation": "Directly proven: CapabilityDefinition.implementation_ref is a separate ContentReference to CanonicalImplementationArtifact (distinct runtime_hash/entrypoint); DefaultImplementationReferenceValidator (CAP-005 test) validates this binding without touching capability_key/version identity, and CAP-001 proves the capability's canonical identity is stable independent of naming metadata.",
+            "question": "If the underlying implementation/mechanism/connector is replaced, does the concept of 'what must keep working' survive unchanged?"
+          },
+          {
+            "answerable_from_existing_representation": true,
+            "explanation": "CapabilityResolver.discoverByKey(capabilityKey) returns CapabilityDefinition[] (plural) in packages/mps-capability/src/resolver/CapabilityResolver.ts, i.e. multiple capability-definition instances (potentially pointing at different implementation_ref values) are already recognized as instances of one logical capability via capability_key.",
+            "question": "Can two different technical implementations be recognized as providing the 'same' capability?"
+          },
+          {
+            "answerable_from_existing_representation": false,
+            "explanation": "CapabilityRegistryArtifact.availability ('AVAILABLE'|'DEPRECATED') in packages/mps-capability-registry/src/artifacts/CapabilityRegistryArtifact.ts is scoped per (capability_ref, implementation_ref) registry entry, not aggregated at the capability_key level. There is no code path that reports 'is this ability still available at all' independent of one specific implementation pairing — a genuine, material gap requiring a new normative attribute (aggregate/rollup availability) rather than merely reading existing fields.",
+            "question": "Does anything in the system today track capability health/availability independent of a specific connector, tool, or model?"
+          }
+        ],
+        "result": "FAIL"
+      },
+      "minimum_semantic_delta": "No new core artifact type is required. The minimum delta is: (1) a new durable relation/reference from whatever artifact ultimately represents a governed 'Decision' or 'Mission' in the future GAO kernel to the existing CapabilityDefinitionArtifact/CapabilityResolutionArtifact (today no such cross-reference exists anywhere in the codebase); (2) a new normative attribute providing an aggregate, implementation-independent availability/health rollup at the capability_key level, since CapabilityRegistryArtifact.availability today is scoped per (capability_ref, implementation_ref) pair only; and (3) resolving the naming collision between this Capability (mps-capability: ability distinct from mechanism) and the differently-scoped Capability in packages/mps-governance/src/capabilities (grantable permission/entitlement), and completing or explicitly deferring the ADR-24-26 certification/policy/trust-anchor layer that is frozen in the ADR but has no implementing code today.",
+      "new_core_representation_required": "NO",
+      "primary_disposition": "LATENT_REUSE",
+      "semantic_conflicts": [
+        "Internal naming collision: packages/mps-capability (+ mps-capability-registry) models Capability as an ability distinct from its implementation (matches this candidate's minimal definition), while packages/mps-governance/src/capabilities/* independently models Capability as a grantable, actor-scoped permission/entitlement (artifact_type 'capability', built on a different base type ArtifactContract vs CanonicalArtifact) — these are two non-unified representations sharing one name.",
+        "The mps-governance CapabilityGrantArtifact/CapabilityScopeArtifact semantics ('who may exercise what, in what scope') look more like they belong under the sibling AUTHORITY candidate than under CAPABILITY as minimally defined for this audit; flagging for the AUTHORITY reviewer's awareness."
+      ]
+    },
+    "DECISION": {
+      "candidate": "DECISION",
+      "canonical_source_of_truth": "NONE. No single file/ADR today governs a general Decision concept. The closest partial authorities are: ADR-24-25-Execution-Identity-Attempt.md (constitutional; binds PromotionDecisionArtifact into the execution/promotion model) and ADR-24-21-Actor-Identity-Trust.md (constitutional; ACT-21-I10 authority-evidence binding rule) for the narrow internal-promotion-governance sense, and AI-GOVERNANCE-AND-HUMAN-AUTHORITY-01.md (non-compliance-claim mapping document, explicitly not gated on the reproducible-checkpoint track) which is the only document that names the general gap (AI-GOV-3) but freezes no contract for it.",
+      "confidence": "STRONG",
+      "delta_category": "NEW_CORE_TYPE",
+      "evidence_refs": [
+        "docs/architecture/AI-GOVERNANCE-AND-HUMAN-AUTHORITY-01.md:57-79 (§2, human decision authority rule + explicit Gap paragraph)",
+        "docs/architecture/AI-GOVERNANCE-AND-HUMAN-AUTHORITY-01.md:96-111 (§3, GENERATED != DECISION, observation/interpretation/decision separation)",
+        "docs/architecture/AI-GOVERNANCE-AND-HUMAN-AUTHORITY-01.md:285-291 (AI-GOV-3, named open gap: decision-subject artifact typing)",
+        "docs/architecture/ADR-24-25-Execution-Identity-Attempt.md:173-177 (EXEC-25-I10/I11, PromotionDecisionArtifact reference obligations)",
+        "docs/architecture/ADR-24-25-Execution-Identity-Attempt.md:142-143 (EXEC-25-I3, Attempt Immutability)",
+        "docs/architecture/ADR-24-21-Actor-Identity-Trust.md:151-152 (ACT-21-I10, Authority Evidence Binding for governance decisions)",
+        "docs/architecture/ADR-MPS-CONSTITUTIONAL-INVARIANTS.md:60-104 (mps-decision-governance identity layers; the false-friend 'Decision' namespace)",
+        "docs/architecture/ADR-MPS-CORE-001.md:154 and 168-186 (Category B Evidence classification of PromotionDecisionArtifact; Trust Boundary Recalculation Rule forbidding re-derivation of a Decision)",
+        "packages/mps-promotion/src/contracts/PromotionDecisionArtifact.ts:1-12 (no decided_by/timestamp field)",
+        "packages/mps-evolution/src/governance/PromotionDecisionArtifact.ts:1-15 (competing schema with decided_by/evaluated_at)",
+        "packages/mps-evolution/src/core/types.ts:17-18,54-59 (duplicate ArtifactType tags; CanonicalArtifact has no timestamp field)",
+        "packages/mps-governance/src/artifacts/GovernanceApprovalArtifact.ts:1-12",
+        "packages/mps-governance/src/contracts/ApprovalArtifact.ts:1-8 (second, non-unified approval hierarchy)",
+        "packages/mps-governance/src/engine/GovernancePolicyEngine.ts:56-85 (decision-computation logic; final decision as governed output)",
+        "packages/mps-registry/src/contracts/RegistryMutationArtifacts.ts:9-10 (REG-24-13-I1, mutation gated on promotion_decision_ref)",
+        "packages/mps-decision-governance/src/DecisionImpactIdentity.ts and MaterializationContract.ts:5 (false-friend 'Decision' = extracted legal-document knowledge, not a choice-record)",
+        "packages/mps-core/src/types.ts:228-230 (DecisionClock, mechanism only, not the concept)"
+      ],
+      "existing_semantic_candidates_examined": [
+        {
+          "file": "packages/mps-decision-governance/src/DecisionImpactIdentity.ts",
+          "name": "DecisionImpactArtifact / mps-decision-governance (ADR-MPS-CONSTITUTIONAL-INVARIANTS.md §3)",
+          "why_considered_and_verdict": "This is the platform's most prominent 'Decision' vocabulary at the constitutional root (ADR-MPS-CONSTITUTIONAL-INVARIANTS.md lines 60-104). Examined closely and REJECTED as a reuse candidate: DecisionImpact/EvidenceSet model the extracted regulatory *knowledge content of an external legal decision document* (a beslut) for retrieval, materialized via CAS lookup -> Parse -> DecisionFacts -> DecisionImpact (MaterializationContract.ts:5). It answers 'what does this legal decision say,' never 'what choice did this system/actor make among alternatives, at what point in time, under what authority.' It is a false-friend by name, not a semantic match. Flagged as a naming SEMANTIC_DUPLICATE risk for a reviewer choosing the bare name 'DecisionImpact' or 'EvidenceSet' as if it covered the candidate's semantics -- it does not."
+        },
+        {
+          "file": "packages/mps-promotion/src/contracts/PromotionDecisionArtifact.ts:1-12",
+          "name": "PromotionDecisionArtifact (mps-promotion)",
+          "why_considered_and_verdict": "Closest structural match: candidate_ref (subject), evaluation_ref (evidence), governance_approval_ref (authority), decision: PROMOTE|REJECT (the choice). Rejected as full reuse: no decided_by/timestamp field at all on this interface or on the CanonicalArtifact base type it extends (mps-evolution/src/core/types.ts:54-59 has no created_at/decided_at field anywhere), so governance question 2 (point-in-time + authority) is not uniformly answerable from this representation alone. Also only models a binary accept/reject of ONE candidate, never an enumerated set of identifiable alternatives (governance question 1 fails)."
+        },
+        {
+          "file": "packages/mps-evolution/src/governance/PromotionDecisionArtifact.ts:1-15",
+          "name": "PromotionDecisionArtifact (mps-evolution, second definition)",
+          "why_considered_and_verdict": "A second, non-identical interface for the same conceptual artifact: artifact_type 'PROMOTION_DECISION' (vs 'PROMOTION_DECISION_ARTIFACT' in mps-promotion), adds fitness, approved:boolean, reason, decided_by, evaluated_at that the mps-promotion variant lacks. Both 'PROMOTION_DECISION' and 'PROMOTION_DECISION_ARTIFACT' coexist as separate members of the shared ArtifactType union (mps-evolution/src/core/types.ts lines 17-18), i.e. the platform has two live, non-unified schemas for what should be one canonical decision record -- evidence against 'exactly one authoritative record' (governance question 5) and a reason ALREADY_REPRESENTED fails the lossless-reuse test."
+        },
+        {
+          "file": "packages/mps-governance/src/artifacts/GovernanceApprovalArtifact.ts:1-12 and packages/mps-governance/src/contracts/ApprovalArtifact.ts:1-8",
+          "name": "GovernanceApprovalArtifact / ApprovalArtifact",
+          "why_considered_and_verdict": "A third, again non-identical, decision-shaped artifact: governance_result: GovernanceDecision (APPROVE|REJECT|REQUEST_CHANGES), decided_by, rationale, evidence_refs, promotion_decision_ref. Rejected as sole/sufficient reuse target: it is scoped specifically to approving/rejecting a prior PromotionDecision (a decision *about* a decision), not a general-purpose 'choice among alternatives' concept, and a separate ApprovalArtifact/GovernanceArtifact hierarchy exists in contracts/ that is not reconciled with it, reinforcing the multiplicity problem."
+        },
+        {
+          "file": "packages/mps-governance/src/artifacts/GovernanceReviewArtifact.ts:1-12",
+          "name": "GovernanceReviewArtifact",
+          "why_considered_and_verdict": "Individual reviewer input (subject_ref, evidence_refs, reviewer, decision, comments) folded by GovernancePolicyEngine.ts:56-68 into a final GovernanceApprovalArtifact. This is reasoning-material-plus-a-vote per reviewer, closer to Evidence feeding a Decision than to the Decision itself; considered and set aside as a component, not the concept."
+        },
+        {
+          "file": "docs/architecture/ADR-24-25-Execution-Identity-Attempt.md lines 173-177 (EXEC-25-I10, EXEC-25-I11)",
+          "name": "ExecutionAttempt / PromotionDecisionArtifact linkage (ADR-24-25, constitutional)",
+          "why_considered_and_verdict": "The strongest constitutional anchor found: 'PromotionDecisionArtifact SHALL reference exactly one ExecutionAttemptArtifact' and 'SHALL reference the ExecutionOutcomeArtifact and ObservedExecutionGraphArtifact used as decision evidence' -- i.e. the ADR itself already separates Evidence (Outcome+ObservedGraph), Decision (Promotion), from what happens next (RegistryMutationArtifact), matching the candidate's own distinguishing test almost exactly. Examined as the best-fit existing constitutional pattern, but it governs promotion-of-execution-candidates specifically (internal platform self-governance), not a general kernel concept usable for an arbitrary autonomous real-world action choosing among alternatives -- confirmed by AI-GOVERNANCE-AND-HUMAN-AUTHORITY-01.md's own gap note that these mechanisms govern 'governance actions on data,' not a general decision-subject artifact."
+        },
+        {
+          "file": "packages/mps-governance/src/types.ts:7-10",
+          "name": "GovernanceDecision (enum type)",
+          "why_considered_and_verdict": "A controlled vocabulary (APPROVE|REJECT|REQUEST_CHANGES) reused across GovernanceReviewArtifact and GovernanceApprovalArtifact. Useful raw material for a future canonical Decision type's 'chosen value' field, but is a value enum, not a governed artifact/record with identity, authority-binding, and immutability -- does not by itself satisfy any of the five governance questions."
+        },
+        {
+          "file": "packages/mps-core/src/types.ts:228-230",
+          "name": "DecisionClock",
+          "why_considered_and_verdict": "A pure timestamp-provider interface ('now(): Date'), a mechanism utility with no semantic content about a choice. Rejected outright as irrelevant beyond a naming coincidence."
+        }
+      ],
+      "explanation": "DECISION was tested in order against the repository's actual constitutional documents and TypeScript contracts, not just against similarly-named types.\n\n(1) WRONG_ABSTRACTION_LEVEL rejected: the platform already treats \"decision\" as a load-bearing normative boundary, not an implementation concern. ADR-24-21 (Actor-Identity-Trust, constitutional) ACT-21-I10 requires \"Any governance decision requiring mutation authority SHALL reference exactly one AuthorityEvidenceArtifact,\" and packages/mps-registry/src/contracts/RegistryMutationArtifacts.ts:9-10 hard-gates state mutation on a `promotion_decision_ref` (REG-24-13-I1: \"Registry SHALL NOT mutate state without a valid PromotionDecisionArtifact reference\"). This is core governance plumbing, not UI/logging/backend-swap material.\n\n(2) MECHANISM_ONLY rejected: packages/mps-governance/src/engine/GovernancePolicyEngine.ts:56-85 shows the *output* of decision logic (`governance_result`, `decided_by`, `rationale`) is itself the governed artifact, not a description of how a vote was computed. ADR-MPS-CORE-001.md:180-186 explicitly forbids re-deriving a Decision from a stale Category-C derived value, treating Decision as a distinct, non-recomputable normative fact, not a mechanism detail.\n\n(3) ALREADY_REPRESENTED — tested via the Lossless Semantic Reuse Test below — FAILS. (4) SEMANTIC_DUPLICATE — the existing decision-shaped artifacts are not identical to each other (see schema drift below), so this class does not cleanly apply either; noted as a secondary finding. (5) DERIVABLE rejected: ADR-MPS-CORE-001.md's Trust Boundary Recalculation Rule (§5.2) explicitly forbids reusing a recomputed derived value as authorization for a new decision (\"Old FitnessScore → [forbidden] → New PromotionDecision\"), and EXEC-25-I3 (ADR-24-25) requires Attempt/Decision immutability after publication — i.e. the platform's own constitution requires a decision to be explicitly, immutably recorded at decision time, not reconstructed from Evidence+Outcome after the fact. (6) NOT_TECHNOLOGY_INDEPENDENT rejected: \"who chose what, when, under what authority\" survives any swap of the underlying selection mechanism (human review, deterministic policy engine, or an LLM), matching EXEC-25-I15 Runtime Independence already asserted for the adjacent Execution model. (7) NOT_INDEPENDENTLY_GOVERNED rejected: the concept is *already* independently instantiated as its own top-level `CanonicalArtifact` (own content_hash/identity, own artifact_type tag) in at least four separate packages (mps-core's trust-boundary example, mps-evolution, mps-promotion, mps-governance) rather than being folded as a field onto Evidence or Outcome artifacts — convergent, repeated, independent re-invention of the same shape is itself evidence that the concept needs its own lifecycle, not that it is derivable from something else's.\n\nHaving survived 1-7, disposition reaches (8) CORE_SEMANTIC_SURVIVES / TRUE_GAP — but this is a normalization-flavored true gap, not a from-nothing one: docs/architecture/AI-GOVERNANCE-AND-HUMAN-AUTHORITY-01.md is the repository's own first-party admission of exactly this gap. §2 states the constitutional rule (\"FINAL DECISION AUTHORITY = an explicitly identified, authorized human actor... on the artifact that constitutes the decision\") and its own Gap paragraph (lines 73-79) says: \"no artifact type in this codebase is yet explicitly named or typed as a legal/administrative decision subject to this rule... The mechanisms above govern governance actions on data (import, promotion, source approval), not yet an end-user-facing decision artifact.\" §3 independently names \"observation → interpretation → decision\" as an existing conceptual separation (\"GENERATED != DECISION,\" line 98) that has never been reified as its own canonical artifact family. §9's AI-GOV-3 explicitly calls for \"Decision-subject artifact typing... distinct from governance actions on data\" as a still-open, unscheduled item. This is a documented, self-identified TRUE_GAP, corroborated independently by the code-level drift found below.",
+      "falsification_code": "CORE_SEMANTIC_SURVIVES",
+      "lossless_reuse_test": {
+        "governance_questions_answered": [
+          {
+            "answerable_from_existing_representation": false,
+            "explanation": "Every existing decision-shaped artifact (PromotionDecisionArtifact x2, GovernanceApprovalArtifact) models a binary/tri-state gate on a single named candidate (decision: PROMOTE|REJECT, or governance_result: APPROVE|REJECT|REQUEST_CHANGES). None carries a structural field enumerating the set of identifiable alternatives that were considered; only the single subject under review is referenced (candidate_ref / subject_ref / promotion_decision_ref).",
+            "question": "What specific choice was made among identifiable alternatives?"
+          },
+          {
+            "answerable_from_existing_representation": false,
+            "explanation": "Answerable for the mps-evolution variant (decided_by: ActorReference, evaluated_at: string present) but NOT for the mps-promotion variant of the same conceptual artifact (packages/mps-promotion/src/contracts/PromotionDecisionArtifact.ts has no decided_by or timestamp field at all), and CanonicalArtifact, the shared base type, carries no timestamp field (mps-evolution/src/core/types.ts:54-59). The answer therefore depends on which of two non-identical schemas happened to be used, which is not a uniform, reconstructable answer.",
+            "question": "At what point in time was the choice made, and under what authority?"
+          },
+          {
+            "answerable_from_existing_representation": true,
+            "explanation": "evaluation_ref / evidence_refs fields are present across the promotion and governance-approval variants and reliably point at the reasoning material considered (PromotionEvaluationArtifact, GovernanceReviewArtifact refs).",
+            "question": "What material was considered in making the choice?"
+          },
+          {
+            "answerable_from_existing_representation": true,
+            "explanation": "Within the narrow promotion pipeline this separation is real and constitutional: ADR-24-25 EXEC-25-I10/I11 keep Evidence (Outcome + ObservedExecutionGraph), Decision (PromotionDecisionArtifact), and what-happens-next (RegistryMutationRequestArtifact/RegistryMutationExecutionArtifact) as distinct referenced artifacts.",
+            "question": "Can this exact choice be distinguished, structurally, from the reasoning material that led to it and from what happened afterward?"
+          },
+          {
+            "answerable_from_existing_representation": false,
+            "explanation": "No. Two non-identical PromotionDecisionArtifact interfaces coexist under two different ArtifactType tags ('PROMOTION_DECISION_ARTIFACT' and 'PROMOTION_DECISION', both listed in mps-evolution/src/core/types.ts lines 17-18) with different field sets, and a separate GovernanceApprovalArtifact/ApprovalArtifact pair shows the same pattern. Unlike mps-decision-governance's `dg-*` canonical-version namespace ownership rule (ADR-MPS-CONSTITUTIONAL-INVARIANTS.md §5, C-02), there is no equivalent single-authority freeze preventing 'Decision' identity from drifting across packages.",
+            "question": "Is there exactly one authoritative, immutable-after-the-fact record of what was chosen?"
+          }
+        ],
+        "result": "FAIL"
+      },
+      "minimum_semantic_delta": "A single, kernel-owned, canonically-versioned Decision artifact family (analogous in rigor to how mps-decision-governance owns the `dg-*` namespace for DecisionImpact identity) that: (1) references the full set of identifiable alternatives considered, not merely the one candidate that was chosen -- a field that exists nowhere in the repository today; (2) makes the authority binding (an ActorReference / AuthorityEvidenceArtifact reference) and the point-in-time timestamp mandatory, non-optional fields on every instance, closing the drift between the mps-promotion and mps-evolution variants; (3) references, but stays structurally distinct from, the evidence/evaluation material considered beforehand and the Outcome artifact that follows, per the separation already asserted informally in ADR-24-25 and AI-GOVERNANCE-AND-HUMAN-AUTHORITY-01.md §3 ('GENERATED != DECISION'); (4) is immutable after publication and independently content-addressed, so it can supersede -- rather than sit alongside -- the currently-duplicated PROMOTION_DECISION / PROMOTION_DECISION_ARTIFACT / GOVERNANCE_APPROVAL / GOVERNANCE_APPROVAL_ARTIFACT artifact_type variants as their common canonical ancestor. This is described only as a semantic delta, not implemented here.",
+      "new_core_representation_required": "YES",
+      "primary_disposition": "TRUE_GAP"
+    },
+    "EVIDENCE": {
+      "candidate": "EVIDENCE",
+      "canonical_source_of_truth": "NONE — no single document/type governs \"Evidence\" platform-wide. The closest constitutional anchor for the most central instantiation is docs/architecture/ADR-MPS-CONSTITUTIONAL-INVARIANTS.md §3 (\"mps-decision-governance — Decision Truth\", the Lineage/Retrieval Boundary rules naming \"Raw Evidence\") together with docs/architecture/ADR-MPS-EVIDENCE-LINEAGE-SLOT.md and packages/mps-decision-governance/src/EvidenceSetArtifact.ts, but this governs only the Decision Governance domain's evidence family, not packages/mps-lu's DocumentEvidenceArtifact or mps-data-governance's DocumentFactCore, each of which is governed by its own separate freeze (OWNER FREEZE 2026-08-12 code comments in packages/mps-lu/src/artifacts/DocumentEvidenceArtifact.ts and packages/mps-data-governance/src/DocumentFactArtifact.ts, referencing a docs/architecture/F4B-DOCUMENT-FACT-MODEL-CHECK-2026-08-12.md file that no longer exists in docs/architecture/ — a concrete instance of documentation drift from implementation, worth flagging separately).",
+      "confidence": "STRONG",
+      "constitutional_dependencies_existing": [
+        "ADR-MPS-CONSTITUTIONAL-INVARIANTS.md (§3 Decision Truth: Lineage rules, Retrieval boundary, 'Raw Evidence' naming; §5b Lineage closure before authority)",
+        "ADR-MPS-EVIDENCE-LINEAGE-SLOT.md (LINEAGE_SLOT_UNIQUENESS)",
+        "ADR-MPS-INTELLIGENCE-PROJECTION-BOUNDARY.md / MIMER-SCALE-I01 (Raw Evidence retrieval boundary)",
+        "ADR-MPS-RETRIEVAL-TRACE.md (firewall between mechanism trace and Decision Truth/Evidence)",
+        "packages/mps-core/src/types.ts (CanonicalArtifact, ContentReference, HashDescriptor, ActorReference kernel base)"
+      ],
+      "constitutional_guarantees_required_by_delta": [
+        "Any cross-domain Evidence contract must preserve content-addressed identity (hash(identity) excludes provenance/timestamps per IMPORT-TIME-001/SV-I06)",
+        "Must preserve the compiler-enforced separation between unverified/candidate material and verified/authoritative material (no unioned status-flag type)",
+        "Must preserve the retrieval-boundary invariant that raw material is never the direct analytical entry point (MIMER-SCALE-I01) if the new domain's evidence feeds any analytical/autonomous decision loop",
+        "Must not let a mechanism/observation trace (e.g. an agent's tool-call trace) masquerade as normative Evidence, mirroring the RetrievalTrace vs EvidenceSet firewall (TRACE-I02)"
+      ],
+      "delta_category": "NEW_NORMATIVE_CONTRACT",
+      "discovered_candidates": [
+        {
+          "name": "PROVENANCE_CHAIN / raw_source_ref traceability",
+          "why": "Multiple artifacts (DocumentEvidenceArtifact.raw_source_ref, EvidenceSet lineage) independently implement 'chain back to preserved original' logic; this recurring need for a generic provenance-chain primitive (distinct from Evidence itself) could be its own future candidate."
+        },
+        {
+          "name": "VERIFICATION_POLICY (assertion vs verification, method-gated promotion)",
+          "why": "DocumentFactVerificationPolicy's versioned method-to-fact-type admission table, and the asserter != verifier identity check, is a reusable governance pattern (who may assert vs who may verify/promote) seen only in mps-data-governance today; could generalize beyond documents."
+        }
+      ],
+      "evidence_refs": [
+        "docs/architecture/ADR-MPS-CONSTITUTIONAL-INVARIANTS.md §3 (Decision Truth, lineage rules, retrieval boundary naming 'Raw Evidence')",
+        "docs/architecture/ADR-MPS-EVIDENCE-LINEAGE-SLOT.md (LINEAGE_SLOT_UNIQUENESS identity rule)",
+        "docs/architecture/ADR-MPS-RETRIEVAL-TRACE.md (TRACE-I02, mechanism/observation firewall)",
+        "docs/architecture/ADR-004-verified-tool-trace.md (older, narrower verified-computation-trace concept)",
+        "docs/architecture/DOCUMENT-FACT-HUMAN-VERIFICATION-V1-REJECTION-2026-08-24.md (real recorded rejection proving the CANDIDATE/VERIFIED gate is live)",
+        "docs/architecture/DOCUMENT-EVIDENCE-CANONICAL-ADMISSION-V1-PROPERTY-BINDING-GAP-2026-08-24.md (mandatory-field gap stop, evidence admission governance in practice)",
+        "packages/mps-decision-governance/src/EvidenceSetArtifact.ts:1-68",
+        "packages/mps-decision-governance/src/validation/validateEvidenceSetLineage.ts:1-200",
+        "packages/mps-decision-governance/src/MaterializationContract.ts:1-71",
+        "packages/mps-decision-governance/src/DecisionRetrievalContract.ts:1-133",
+        "packages/mps-decision-governance/src/DecisionImpactIdentity.ts:1-63",
+        "packages/mps-decision-governance/src/DecisionKnowledgeRepository.ts:1-45",
+        "packages/mps-lu/src/artifacts/DocumentEvidenceArtifact.ts:1-105",
+        "packages/mps-data-governance/src/DocumentFactArtifact.ts:1-267",
+        "packages/mps-data-governance/src/verifyRealDocumentFactCandidate.ts:1-176",
+        "packages/mps-core/src/types.ts:1-150"
+      ],
+      "existing_semantic_candidates_examined": [
+        {
+          "file": "packages/mps-decision-governance/src/EvidenceSetArtifact.ts:1-68",
+          "name": "EvidenceSetArtifact (mps-decision-governance)",
+          "why_considered_and_verdict": "Primary constitutional instantiation: EvidenceSetIdentity groups content-addressed EvidenceDocumentReference[] (document_hash-based), has its own hash (SHA-256 of canonical identity), append-only lineage (validateEvidenceSetLineage.ts, ADR-MPS-EVIDENCE-LINEAGE-SLOT.md), and is explicitly named 'Raw Evidence' in the platform constitution and firewalled from direct query access (DecisionRetrievalContract.ts). Verdict: fully satisfies the candidate's semantics within the Decision Governance domain; treated as one of the duplicate representations, not a single universal one."
+        },
+        {
+          "file": "packages/mps-lu/src/artifacts/DocumentEvidenceArtifact.ts:49-105",
+          "name": "DocumentEvidenceArtifact (mps-lu)",
+          "why_considered_and_verdict": "LU-domain evidentiary artifact: binds property_ref/document_ref, text_projection_ref (canonical text boundary), raw_source_ref (provenance chain to preserved original), fact_refs restricted to VERIFIED_DOCUMENT_FACT only (never CANDIDATE, enforced by OWNER FREEZE comment 2026-08-12), and explicitly disclaims owning interpretation authority. Verdict: independently reproduces the same material-vs-interpretation split as EvidenceSetArtifact, in a different domain and different schema -- a genuine duplicate, not a naming variant."
+        },
+        {
+          "file": "packages/mps-data-governance/src/DocumentFactArtifact.ts:34-266",
+          "name": "DocumentFactCore / DocumentFactCandidateArtifact / VerifiedDocumentFactArtifact (mps-data-governance)",
+          "why_considered_and_verdict": "Compiler-enforced two-state (CANDIDATE/VERIFIED) promotion model with a mandatory DocumentFactSourceSpan (offsets into a canonical text projection, never quoted text) as the evidentiary anchor, a verification policy gating which methods may promote a candidate, and a real recorded rejection (DOCUMENT-FACT-HUMAN-VERIFICATION-V1-REJECTION-2026-08-24.md) proving the gate is live. Verdict: this type itself models the 'fact/classification' (interpretive) layer per its own header comment, but its source_span/source_document_ref sub-structure and the CANDIDATE-vs-VERIFIED split is exactly the 'material distinct from interpretation, traceable, verifiable' pattern the candidate describes -- a third independent implementation."
+        },
+        {
+          "file": "packages/mps-lu/src/artifacts/DocumentEvidenceArtifact.ts:1-45",
+          "name": "EvidenceBundle / RankedEvidence / LegalEvidence (mps-lu retrieval)",
+          "why_considered_and_verdict": "Retrieval-time evidence for legal RAG answers: each item carries claim + relation (SUPPORTED/CONTRADICTED/INSUFFICIENT) + confidence, and EvidenceBundle extends ArtifactContract. Verdict: a fourth, RAG-flavored instantiation of the same core semantic (material that supports/contradicts a claim); reinforces SEMANTIC_DUPLICATE rather than a gap."
+        },
+        {
+          "file": "docs/architecture/ADR-MPS-RETRIEVAL-TRACE.md:1-40",
+          "name": "RetrievalTrace (mps-retrieval-trace)",
+          "why_considered_and_verdict": "Considered and rejected as a reuse candidate: explicitly 'Observation surface only -- not authority, cache, or DecisionImpact' and diagrammed as hard-firewalled from DecisionImpactArtifact (TRACE-I02: 'Trace can never create authority'). This is MECHANISM_ONLY (how retrieval executed), not the EVIDENCE candidate; useful as a boundary case showing the architecture already distinguishes mechanism-trace from normative evidence."
+        },
+        {
+          "file": "docs/architecture/ADR-004-verified-tool-trace.md:1-30",
+          "name": "verified tool trace / toolTrace[] (ADR-004)",
+          "why_considered_and_verdict": "An older, narrower concept: an auditable trace of which deterministic compute steps ran (lab_validate -> rule_engine_evaluate -> logistics_analyze), proving risk numbers come from code not LLM imagination. Considered and rejected as the candidate: it is evidence of computation, a MECHANISM_ONLY audit trail, not domain material supporting a claim about a past/present state of affairs."
+        },
+        {
+          "file": "packages/mps-core/src/types.ts:29-97",
+          "name": "CanonicalArtifact / ContentReference / HashDescriptor / ActorReference (mps-core)",
+          "why_considered_and_verdict": "The shared kernel primitives (id+type+content_hash+signature; content-addressed reference; who-acted reference) that every one of the above evidence families is built from. Considered as 'is this alone sufficient reuse' -- verdict: no, because it is generic to every governed artifact (decisions, outcomes, etc.), not evidence-specific; but it is the reusable substrate a new domain would extend (adding a mandatory source-binding field, as every existing evidence family does) rather than needing a new kernel EVIDENCE type."
+        }
+      ],
+      "explanation": "EVIDENCE (\"material that supports or documents a claim about a past/present state of affairs, distinct from interpretation/conclusion\") is not an unrepresented semantic in this repository — it is already a mature, constitutionally-frozen concept, but it exists as at least three independently-evolved artifact families in three different domains rather than one unified kernel type: (1) EvidenceSetArtifact in mps-decision-governance (content-addressed, lineage-DAG-governed sets of document refs feeding DecisionImpact, named \"Raw Evidence\" in the platform's own constitution), (2) DocumentEvidenceArtifact + DocumentFactCore/source_span in mps-lu/mps-data-governance (LU-domain evidentiary binding with a compiler-enforced CANDIDATE/VERIFIED split), and (3) EvidenceBundle/RankedEvidence/LegalEvidence in mps-lu's retrieval layer (RAG citation evidence with SUPPORTED/CONTRADICTED/INSUFFICIENT relation to a claim). All three independently satisfy the candidate's own governance-question set (traceable origin via content_hash, structural separation from interpretation, decision reconstructability, tamper/unreliability detection) using the same shared kernel primitives already in mps-core (CanonicalArtifact, ContentReference, HashDescriptor, ActorReference). Because the semantics is expressed multiple times, independently, by domain-owned artifact families built on shared generic primitives — rather than needing a wholly new kernel artifact type — this falls under SEMANTIC_DUPLICATE rather than a clean single ALREADY_REPRESENTED, and rather than CORE_SEMANTIC_SURVIVES. A future \"Governed Autonomous Operations\" capability's evidence need is very likely satisfiable the same way its predecessors were: by instantiating a domain-scoped evidence artifact on top of ContentReference/CanonicalArtifact plus a mandatory-source-span-style binding, not by minting a new top-level EVIDENCE core type. The residual gap, if any, is a cross-domain normative contract/interface that makes the repeated pattern explicit and reusable, not new semantics.",
+      "falsification_code": "SEMANTIC_DUPLICATE",
+      "lossless_reuse_test": {
+        "governance_questions_answered": [
+          {
+            "answerable_from_existing_representation": true,
+            "explanation": "EvidenceSetArtifact.identity.documents (EvidenceDocumentReference[] keyed by document_hash, packages/mps-decision-governance/src/EvidenceSetArtifact.ts:6-32) and, in the LU domain, DocumentEvidenceArtifact.payload.raw_source_ref/text_projection_ref plus DocumentFactCore.source_span (mandatory offsets into a canonical text projection, packages/mps-data-governance/src/DocumentFactArtifact.ts:68-102) both answer this directly and with governance force (source_span is MANDATORY, enforced by isValidSpan).",
+            "question": "What material supports the claim that a given fact/state/event is true?"
+          },
+          {
+            "answerable_from_existing_representation": true,
+            "explanation": "Content-addressing throughout: evidence_set_hash = SHA-256(canonical_version||canonical(identity)) (EvidenceSetArtifact.ts:47), and DocumentFactArtifact tamper detection via isDocumentFactCandidateContentHashValid / recomputeVerifiedDocumentFactContentHash (packages/mps-data-governance/src/verifyRealDocumentFactCandidate.ts:100-140), all built on mps-core's HashDescriptor+SignatureDescriptor base (packages/mps-core/src/types.ts:86-97).",
+            "question": "Can that material be traced back to its origin and verified as unaltered?"
+          },
+          {
+            "answerable_from_existing_representation": true,
+            "explanation": "Enforced at the type level, not by convention: DocumentFactCandidateArtifact vs VerifiedDocumentFactArtifact are deliberately distinct types so 'the compiler enforces it' (DocumentFactArtifact.ts:38-41); DocumentEvidenceArtifact.fact_refs MUST reference VERIFIED_DOCUMENT_FACT only, never a CANDIDATE (DocumentEvidenceArtifact.ts:75-83); and the constitution forbids GENERAL QUERY -> Raw Evidence directly, requiring passage through the interpretive DecisionImpact layer first (ADR-MPS-CONSTITUTIONAL-INVARIANTS.md §3, DecisionRetrievalContract.ts:6-14).",
+            "question": "Is the material kept structurally distinct from any interpretation, summary, or conclusion drawn from it?"
+          },
+          {
+            "answerable_from_existing_representation": true,
+            "explanation": "DecisionRetrievalContract.ts:41-59 defines exactly this chain (DecisionImpact -> EvidenceSet -> Raw Evidence) as a frozen, assert-enforced pipeline, and DecisionImpactIdentity.evidence_set_hashes (DecisionImpactIdentity.ts:44) binds each decision to the evidence sets it was built from, participating in the decision's own canonical hash (CanonicalDecisionImpactHash.ts:118-128).",
+            "question": "Can a decision be reconstructed or justified purely by tracing to this material?"
+          },
+          {
+            "answerable_from_existing_representation": true,
+            "explanation": "Partially by index, fully by reconstruction: there is no stored reverse index from an evidence_set_hash to the DecisionImpacts that consumed it, but because evidence_set_hashes is part of every DecisionImpact's identity and the repository is the authoritative CAS store, every consumer is deterministically reconstructable by scanning committed DecisionImpactArtifacts for that hash -- the same fail-closed, content-addressed guarantee the rest of the constitution relies on (no separate mechanism needed).",
+            "question": "If the material is later found unreliable, can everything derived from it be identified?"
+          },
+          {
+            "answerable_from_existing_representation": false,
+            "explanation": "No. The same semantic is independently reimplemented in mps-decision-governance (EvidenceSetArtifact), mps-lu/mps-data-governance (DocumentEvidenceArtifact + DocumentFactCore), and mps-lu's retrieval layer (EvidenceBundle/RankedEvidence), each with its own schema, hash domain, and ADR/freeze. A hypothetical fourth domain (Governed Autonomous Operations) could not point at one of these and get full coverage without loss -- it would have to build its own instance of the same pattern, as every prior domain did. This is why the overall test is marked FAIL at the 'single representation' bar even though every individual governance question is answerable within any one existing domain's own representation.",
+            "question": "Does one single existing representation (not several domain-specific ones) carry this uniformly across the platform?"
+          }
+        ],
+        "result": "FAIL"
+      },
+      "minimum_semantic_delta": "Not a new EVIDENCE artifact type. If anything is missing, it is a thin cross-domain normative contract/interface (built on the existing mps-core primitives: ContentReference, CanonicalArtifact, ActorReference) that makes explicit the pattern every existing evidence family already independently implements — mandatory content-addressed source binding, structural separation from any interpretation/conclusion type, and referenceability from a decision-like artifact's own identity — so a new domain (e.g. Governed Autonomous Operations) can conform to it instead of re-deriving the pattern from scratch a fourth time. This is a contract-level normalization across existing/future domains, not a new durable kernel type, new relation, or new field on a currently-existing type.",
+      "new_core_representation_required": "NO",
+      "primary_disposition": "LATENT_REUSE",
+      "semantic_conflicts": [
+        "Possible naming collision with a 'DECISION' kernel candidate: this repo's own constitution already uses 'Decision Truth' / DecisionImpactArtifact as the interpretive layer that Evidence feeds into (ADR-MPS-CONSTITUTIONAL-INVARIANTS.md §3) — any new kernel DECISION concept should be checked against DecisionImpactArtifact for the same kind of duplication found here for EVIDENCE.",
+        "The mps-data-governance DocumentFactArtifact sits ambiguously between 'evidence' and 'decision/interpretation' in its own domain (its header explicitly calls itself Tier 3 classification, i.e. interpretation, yet its source_span is evidentiary) — a kernel-level EVIDENCE/DECISION split should account for this existing domain's own layering (Tier 2 content -> Tier 3 fact -> Governance verification -> LU evidence -> LU rule) rather than assuming a clean two-way split."
+      ]
+    },
+    "MISSION": {
+      "candidate": "MISSION",
+      "canonical_source_of_truth": "NONE — no single file/ADR governs \"purpose/mission\" as a normative core concept today. The semantic is split across two non-kernel mechanisms: docs/architecture/ADR-27-LU-Architecture-Charter.md (system/application-level purpose, governed by ADR/document review) and docs/architecture/LU-v1.0-Project-Context.md defining LUProjectContextArtifact (engagement-level purpose, explicitly excluded from governance). Neither is, nor claims to be, part of the CanonicalArtifact kernel governed by docs/architecture/ADR-MPS-CORE-001.md / docs/architecture/ADR-MPS-CONSTITUTIONAL-INVARIANTS.md.",
+      "confidence": "STRONG",
+      "delta_category": "NEW_NORMATIVE_ATTRIBUTE",
+      "discovered_candidates": [
+        {
+          "name": "PurposeContext / EngagementContext (generalized LUProjectContextArtifact)",
+          "why": "If a platform-wide, non-authoritative 'why is this work happening' field is ever needed outside the LU domain, the existing LUProjectContextArtifact pattern (domain payload, explicitly non-governance) is the template to generalize — worth a future, narrowly-scoped candidate review distinct from a governance-gating MISSION."
+        },
+        {
+          "name": "Charter-as-authority-record",
+          "why": "ADR-27 shows the platform already treats certain documents as 'bindande'/binding constitutional purpose statements outside the artifact kernel; a future candidate could examine whether ADR/document-governance itself deserves a formal, queryable representation (e.g. a signed ADR-identity record) distinct from both Policy and any future Mission-like concept."
+        }
+      ],
+      "evidence_refs": [
+        "docs/architecture/README.md:9-16 (authority chain: only ADR-MPS-CONSTITUTIONAL-INVARIANTS.md and PROGRAM-P0-P8-AUTHORITY define architectural/program truth; no Mission concept)",
+        "docs/architecture/ADR-MPS-CORE-001.md (§8 Governance Constitution) — exhaustive decision-input chain (CanonicalArtifact→Verified Reference→Verified Evidence→Recomputed Metrics→Decision Artifact); purpose/mission absent, 'Caller supplied score'/'Unverified reference' explicitly forbidden",
+        "docs/architecture/ADR-MPS-CONSTITUTIONAL-INVARIANTS.md §3 (Lineage rules table) — existing 'Scope stability'/LINEAGE_SCOPE_MISMATCH concept is jurisdiction/decision_type scope, not mission scope",
+        "packages/mps-decision-governance/src/DecisionImpactIdentity.ts:33-50 — DecisionImpactIdentity has no purpose/objective/rationale field",
+        "packages/mps-decision-governance/src/EvidenceSetArtifact.ts:14-21 — EvidenceSetLineageScope = {jurisdiction_level, decision_type}, not a mission scope",
+        "packages/mps-governance/src/contracts/PolicyArtifact.ts:4-15 — PolicyScope = applicable_domain/artifact_types/version_range; rule-constraint semantics only",
+        "packages/mps-governance/src/types.ts:13-18 — GovernanceRule/RuleCondition = procedural review-gating conditions, mechanism not purpose",
+        "packages/mps-governance/src/artifacts/GovernanceApprovalArtifact.ts:4-12 — rationale is free text 1:1 with one approval, no independent identity/lifecycle",
+        "packages/mps-governance/src/contracts/DecisionArtifact.ts:1-8, DecisionProvenance.ts:1-6, ApprovalProvenance.ts:1-5 — Decision→Approval→Policy chain, no purpose/mission link",
+        "packages/mps-governance/src/capabilities/CapabilityScopeArtifact.ts:1-15 — scope of an authorization, not an organizational purpose",
+        "packages/mps-governance/src/capabilities/CapabilityGrantArtifact.ts:1-24 — binds actor+capability+scope, no purpose field",
+        "docs/architecture/ADR-27-LU-Architecture-Charter.md:1-16 — system-level purpose expressed as a binding ADR/'Charter' document, governed by ADR review, not runtime artifact identity",
+        "docs/architecture/LU-v1.0-Project-Context.md:1-40 — LUProjectContextArtifact carries project_description/activity_description/planned_activity (the closest 'why' analog) but is explicitly declared outside governance ('Den är inte en del av governance', 'Den får aldrig påverka governance', 'Project Context is not truth')",
+        "docs/architecture/AI-GOVERNANCE-AND-HUMAN-AUTHORITY-01.md:33-58 — final decision authority mapped to human ActorReference; no purpose/objective concept anywhere in the human-authority mapping",
+        "packages/mps-evolution/src/EvolutionPolicy.ts:1-23 — the platform's one existing 'governed autonomous operation' loop is purely threshold-governed, no objective/goal field",
+        "packages/mps-capability/src/contracts/CapabilityDefinition.ts:1-12 — capability has no purpose field, confirming Capability≠Mission but also that no adjacent type absorbs Mission's semantics",
+        "repo-wide grep for 'mission' across docs/architecture, packages/, server/ — zero architectural hits (only an unrelated colloquial use in docs/ops/agent-instructions/TOR_INSTRUKTION_JURIDISK_RAG_IMPLEMENTATION.md:19)"
+      ],
+      "existing_semantic_candidates_examined": [
+        {
+          "file": "packages/mps-governance/src/contracts/PolicyArtifact.ts; packages/mps-governance/src/types.ts",
+          "name": "PolicyArtifact / PolicyScope / GovernanceRule",
+          "why_considered_and_verdict": "Considered because policy_scope (applicable_domain, applicable_artifact_types, effective_version_range) looks like it could carry 'why/scope.' Rejected: GovernanceRule/RuleCondition express procedural gating conditions (WHAT must hold for review), not an objective/purpose that justifies undertaking work. No field for organizational goal or rationale-for-existing."
+        },
+        {
+          "file": "packages/mps-governance/src/artifacts/GovernanceApprovalArtifact.ts:11",
+          "name": "GovernanceApprovalArtifact.rationale",
+          "why_considered_and_verdict": "Free-text field closest in spirit to 'why a decision was made.' Rejected: not independently governed — no own identity/hash/version/issuing-authority, exists only as a string attached 1:1 to one approval event; cannot answer 'was the purpose still valid' or 'can decisions under a changed purpose still be explained' since there is nothing to change independently of the approval itself."
+        },
+        {
+          "file": "packages/mps-governance/src/contracts/DecisionArtifact.ts; DecisionProvenance.ts; ApprovalProvenance.ts",
+          "name": "DecisionArtifact / DecisionProvenance / ApprovalProvenance (policy_ref chain)",
+          "why_considered_and_verdict": "The only 'why' traceability actually wired into a Decision today (Decision -> approval_ref -> policy_ref). Rejected as Mission-equivalent: it traces to a Policy (a rule set / constraint), not to an objective/mission that justified undertaking the work."
+        },
+        {
+          "file": "packages/mps-governance/src/capabilities/CapabilityScopeArtifact.ts; CapabilityGrantArtifact.ts",
+          "name": "CapabilityScopeArtifact / CapabilityGrantArtifact",
+          "why_considered_and_verdict": "Considered because it is an independently governed, hash-bound 'scope' object answering governance question Q3-style questions. Rejected: its scope is the scope of an authorization grant (what an actor may execute), not the scope of a purpose/objective that decisions are undertaken in service of."
+        },
+        {
+          "file": "docs/architecture/ADR-27-LU-Architecture-Charter.md:1-16",
+          "name": "ADR-27-LU-Architecture-Charter.md (\"Syfte\"/Charter)",
+          "why_considered_and_verdict": "Closest system-level analog to a Mission statement ('bindande för all utveckling av LU v1.0'). Rejected as kernel-equivalent: governed via ADR/document review (git history, human authorship), not via the ActorReference/signature/content-hash authority model the rest of the kernel uses — different governance mechanism entirely, and this is itself the evidence for WRONG_ABSTRACTION_LEVEL."
+        },
+        {
+          "file": "docs/architecture/LU-v1.0-Project-Context.md:1-40",
+          "name": "LUProjectContextArtifact",
+          "why_considered_and_verdict": "Strongest analog: fields project_description/activity_description/planned_activity literally are 'the reason work occurs' for an LU engagement, and it is a real CanonicalArtifact-based payload. Rejected as Mission-equivalent because the architects explicitly excluded it from governance authority ('Den får aldrig påverka governance', 'Project Context is not truth') — it cannot answer Q3 (scope compliance) or Q5 (validity gating) because it was deliberately built to never gate anything. This is the decisive piece of evidence for the WRONG_ABSTRACTION_LEVEL finding."
+        },
+        {
+          "file": "packages/mps-evolution/src/EvolutionPolicy.ts",
+          "name": "EvolutionPolicy / PromotionPolicy (autonomous mutation governance)",
+          "why_considered_and_verdict": "Considered as the closest existing 'governed autonomous operation' loop. Rejected: purely threshold-based (max_mutation_ratio, min_quality_gain, require_replay) — no objective/goal field the mutations are said to serve."
+        },
+        {
+          "file": "packages/mps-core/src/types.ts:45-60; packages/mps-evolution/src/core/ActorReference.ts",
+          "name": "ActorRole 'EVOLUTION_AGENT' / ActorReference",
+          "why_considered_and_verdict": "Considered whether autonomous-agent identity itself carries a goal-state. Rejected: role is a closed string-union identity tag only, carries no purpose/objective data."
+        }
+      ],
+      "explanation": "MISSION is defined as \"the reason a system-level course of action is undertaken.\" Searching the whole repository (docs/architecture, packages/, server/) turns up zero uses of \"Mission\" as an architectural term (only one unrelated colloquial hit: docs/ops/agent-instructions/TOR_INSTRUKTION_JURIDISK_RAG_IMPLEMENTATION.md:19, \"Din mission\" = \"your assignment,\" not a domain concept). So there is no naming collision to worry about, and the question is purely semantic: does anything in the frozen kernel need to carry \"why was this course of action undertaken, who authorized that purpose, and is it still valid\"?\n\nThe platform has, twice, independently confronted exactly this \"why\" semantic, and both times deliberately kept it OUT of the CanonicalArtifact-based normative decision kernel that ADR-MPS-CORE-001 / ADR-MPS-CONSTITUTIONAL-INVARIANTS.md governs:\n\n1. System/application-level purpose is expressed as an ADR/\"Charter\" (docs/architecture/ADR-27-LU-Architecture-Charter.md:1-16, \"## 0. Syfte\" / \"Detta dokument är bindande för all utveckling av LU v1.0\"). This is a human-authored, git-versioned prose document reviewed through the ADR process — not a runtime CanonicalArtifact with hash identity, signature, or an ActorReference-based authorization chain like every other kernel artifact (ADR-24-21/22). Its \"authority\" is document governance, not artifact governance.\n\n2. Engagement/analysis-level purpose is expressed as `LUProjectContextArtifact` (docs/architecture/LU-v1.0-Project-Context.md:1-40): fields `project_description`, `activity_description`, `planned_activity` are literally \"the reason work occurs\" for an LU engagement. Critically, the architects wrote explicit invariants excluding it from governance: \"Den är inte en del av governance.\" / \"Den får aldrig påverka governance.\" / \"Ny regel: Project Context is not truth.\" This is direct first-party evidence that when this exact semantic (why is this work happening) arose, the designers chose to keep it as inert, non-authoritative domain payload rather than a governance-gating kernel concept — precisely the role MISSION's own governance questions (Q3 scope-compliance, Q5 validity-at-decision-time) would require it to play.\n\nThis is reinforced by the kernel's own frozen, exhaustive decision-input chain: ADR-MPS-CORE-001 §8 states governance \"får endast fatta beslut baserat på: CanonicalArtifact → Verified Reference → Verified Evidence → Recomputed Metrics → Decision Artifact,\" explicitly forbidding \"Caller supplied score, Unverified reference, Cached fitness.\" Nothing resembling an externally asserted \"purpose/objective\" is in that enumerated chain in either of the two forms purpose currently takes on this platform. Elevating MISSION to a gating, authority-checked kernel concept would require rewriting this frozen constitutional chain, which is itself the signal that the concept — as the candidate defines it — sits at the ADR/document-governance layer or the non-authoritative domain-context layer, not the artifact kernel.\n\nSecondary observations supporting the same conclusion: PolicyArtifact/PolicyScope (packages/mps-governance/src/contracts/PolicyArtifact.ts:4-15) and GovernanceRule (packages/mps-governance/src/types.ts:13-18) express WHAT rules/conditions must hold (a procedural constraint gate — closer to MECHANISM_ONLY territory), never WHY the work exists. CapabilityScopeArtifact/CapabilityGrantArtifact (packages/mps-governance/src/capabilities/*.ts) express the scope of an AUTHORIZATION to execute a capability, not an organizational objective. GovernanceApprovalArtifact.rationale (packages/mps-governance/src/artifacts/GovernanceApprovalArtifact.ts:11) is free text tied 1:1 to a single approval event with no independent identity, versioning, or issuing authority of its own. EvolutionPolicy (packages/mps-evolution/src/EvolutionPolicy.ts) — the closest thing to an \"autonomous operation\" governor already in the codebase — is purely threshold-based (quality gain, mutation ratio) with no objective/goal field at all. None of these compete with MISSION as reuse candidates; they simply confirm no existing kernel artifact carries this semantic, while the two places that do carry it (Charter, ProjectContext) are both explicitly non-kernel by design.\n\nI therefore rule this WRONG_ABSTRACTION_LEVEL rather than CORE_SEMANTIC_SURVIVES: the semantics are real (the platform demonstrably needs to express \"why,\" and has built two different non-kernel mechanisms to do so), but the platform's own architects, when they hit this exact question, twice chose a layer other than the normative artifact-governance kernel this audit is testing candidates for.",
+      "falsification_code": "WRONG_ABSTRACTION_LEVEL",
+      "lossless_reuse_test": {
+        "governance_questions_answered": [
+          {
+            "answerable_from_existing_representation": false,
+            "explanation": "DecisionProvenance only traces to a Policy (rule set) via policy_ref, and GovernanceApprovalArtifact.rationale is free text on the approval itself; neither points to an organizational objective the work served.",
+            "question": "Why did a given Decision exist — what higher purpose was it in service of?"
+          },
+          {
+            "answerable_from_existing_representation": false,
+            "explanation": "ADR-27's authority is the ADR/document review process (git history), not the ActorReference + signature model (ADR-24-21/22) the rest of the kernel uses for authorization; LUProjectContextArtifact is created by LU-services from a consultant's UI form input with no signed authorization chain.",
+            "question": "Who issued the governing purpose, and were they authorized to issue it?"
+          },
+          {
+            "answerable_from_existing_representation": false,
+            "explanation": "CapabilityScopeArtifact and PolicyScope define scopes for authorization grants and rule applicability respectively; neither is a purpose-scope, and no code anywhere checks a Decision against a mission scope.",
+            "question": "What scope did that purpose cover, and did the Decision fall within that scope?"
+          },
+          {
+            "answerable_from_existing_representation": false,
+            "explanation": "No representation links a purpose object to a required capability; CapabilityDefinition/CapabilityScopeArtifact only run capability-to-execution, never referencing 'why' a capability is needed.",
+            "question": "Which capability/ability did the purpose require to remain intact or available?"
+          },
+          {
+            "answerable_from_existing_representation": false,
+            "explanation": "PolicyScope.effective_version_range gives temporal applicability for a Policy, not for a mission/purpose, and no artifact carries mission validity at all.",
+            "question": "Was the purpose still active/valid at the time the Decision was made?"
+          },
+          {
+            "answerable_from_existing_representation": false,
+            "explanation": "Both existing analogs (Charter, ProjectContext) happen to be human-originated in practice, consistent with docs/architecture/AI-GOVERNANCE-AND-HUMAN-AUTHORITY-01.md's human-decision-authority invariant, but neither enforces this as a checked rule for a 'purpose' object because no such governed object exists.",
+            "question": "Could the system itself originate or alter that purpose, or only a human/external authority?"
+          },
+          {
+            "answerable_from_existing_representation": false,
+            "explanation": "The content-hash-pinned ContentReference pattern used for policy_ref would mechanically support this if a Mission artifact existed, but no Decision today references any purpose/mission object, so nothing is currently reconstructable — this is a mechanism precedent, not existing coverage.",
+            "question": "If the purpose later changes or is retired, can every Decision made under it still be explained historically?"
+          }
+        ],
+        "result": "FAIL"
+      },
+      "minimum_semantic_delta": "If the platform ever needs machine-checkable traceability from a Decision back to the human-authored purpose it served, the minimum change consistent with existing precedent is NOT a new independently-governed, authority-checked MISSION artifact family (that would require a NEW_CORE_TYPE plus a NEW_NORMATIVE_CONTRACT rewriting ADR-MPS-CORE-001 §8's frozen decision-input chain). It is a single new optional, non-authoritative reference field on DecisionProvenance/GovernanceApprovalArtifact — e.g. `mission_context_ref: ContentReference` — pointing to either an ADR/charter document identity or a LUProjectContextArtifact-style context object, for audit/explainability only, explicitly forbidden (like LUProjectContextArtifact today) from gating or authorizing the Decision it is attached to. That is a NEW_NORMATIVE_ATTRIBUTE, not a new artifact family.",
+      "new_core_representation_required": "NO",
+      "primary_disposition": "FALSIFIED",
+      "semantic_conflicts": [
+        "MISSION's governance questions (Q3 scope-compliance, Q5 validity-at-decision-time) presuppose a purpose object with authority to gate/bound Decisions; this directly conflicts with docs/architecture/LU-v1.0-Project-Context.md's explicit invariant that the platform's one real analog to 'purpose' must never influence governance ('Project Context is not truth' / 'får aldrig påverka governance'), and with ADR-MPS-CORE-001 §8's frozen, exhaustive enumeration of what may feed a governance decision (which excludes any externally asserted purpose/score)."
+      ]
+    },
+    "OUTCOME": {
+      "candidate": "OUTCOME",
+      "canonical_source_of_truth": "docs/architecture/ADR-24-25-Execution-Identity-Attempt.md (defines Execution Outcome and its invariants EXEC-25-I1/I3/I6/I7/I11) together with docs/architecture/ADR-29-Runtime-Contract-Freeze-ExecutionKernel.md (freezes the ExecutionOutcome identity as part of Runtime Contract Freeze v1.0.0 and is the active, README-indexed authority, README.md:74-75); implemented in packages/mps-runtime/src/contracts/freeze/FrozenIdentities.ts",
+      "confidence": "STRONG",
+      "constitutional_dependencies_existing": [
+        "ADR-MPS-CONSTITUTIONAL-INVARIANTS.md (MIMER-20-I6 Provenance Completeness, MIMER-20-I7 Replay Determinism, MIMER-20-I9 Evidence Preservation, MIMER-20-I12 Canonical Graph Integrity, MIMER-20-I13 Canonical Reference Closure — operationalized, not redefined, by ADR-24-25 per its own Constitutional Alignment section)",
+        "ADR-29-Runtime-Contract-Freeze-ExecutionKernel.md (Runtime Contract Freeze v1.0.0 — the identity freeze that locks ExecutionOutcome)"
+      ],
+      "constitutional_guarantees_required_by_delta": [],
+      "delta_category": "NONE",
+      "discovered_candidates": [
+        {
+          "name": "ObservedExecutionGraphArtifact",
+          "why": "Already the platform's structural 'neutral observation' counterpart to Outcome's classification (ADR-24-25). Could itself be relevant if a future audit round separately considers an EVIDENCE/OBSERVATION-shaped kernel concept, but it is not new here — just noted for completeness."
+        }
+      ],
+      "evidence_refs": [
+        "docs/architecture/ADR-24-25-Execution-Identity-Attempt.md (Normative Definitions/Artifact Model: 'Execution Outcome', 'Observed Execution Graph'; invariants EXEC-25-I1, I3, I6, I7, I11, I20)",
+        "docs/architecture/ADR-29-Runtime-Contract-Freeze-ExecutionKernel.md:12-19 (freezes ExecutionAttempt/ExecutionOutcome/ExecutionManifest identities; ExecutionKernel as sole client-facing motor API)",
+        "docs/architecture/README.md:20-23 (ADR-24-20 marked superseded/NORMATIVE_TODAY:false)",
+        "docs/architecture/README.md:74-75 (ADR-29/ADR-30 listed as active domain/TV contracts, not superseded)",
+        "packages/mps-runtime/src/contracts/freeze/FrozenIdentities.ts:36-130 (FrozenExecutionOutcomeIdentityV1/V2, createFrozenExecutionOutcomeIdentityV2, validateFrozenExecutionOutcomeIdentity fail-closed on tamper)",
+        "packages/mps-runtime/src/contracts/freeze/FrozenIdentities.ts:195-203 (FROZEN_ARTIFACT_TYPES includes 'execution_outcome')",
+        "packages/mps-runtime/src/execution/ExecutionOutcomeArtifact.ts:1-18 (ExecutionOutcomeArtifact interface, artifact_type 'execution_outcome')",
+        "packages/mps-runtime/src/contracts/model/ExecutionContracts.ts:25 (ExecutionOutcome alias), :53-66 (ExecutionSession.outcome_ref)",
+        "packages/mps-runtime/src/kernel/RuntimeState.ts:20 (execution graph node kind includes 'outcome')",
+        "packages/mps-runtime/src/kernel/ExecutionKernel.ts:12-15,68,117,171-203 (outcome created and wired into runtime motor via createFrozenExecutionOutcomeIdentityV2)",
+        "packages/mps-runtime/src/unit/FrozenExecutionOutcomeSelfConsistency.test.ts:1-36 (self-rehash, non-aliasing, fail-closed tamper rejection, V1 historical readability)",
+        "packages/mps-governance/src/replay/ReplayArtifact.ts:14 (original_outcome_ref — outcome traceability into replay)",
+        "docs/architecture/ADR-24-21-Actor-Identity-Trust.md:215 (PromotionDecisionArtifact listed among scoped artifacts)",
+        "packages/mps-decision-governance/src/MaterializationContract.ts:47-61 (MaterializationOutcome — rejected reuse candidate, mechanism-only pipeline return type)",
+        "packages/mps-decision-governance/src/DecisionImpactIdentity.ts:30-67 (DecisionImpactIdentity/Artifact — rejected reuse candidate, aggregate statistical indicator not per-action outcome)",
+        "docs/architecture/AI-GOVERNANCE-AND-HUMAN-AUTHORITY-01.md:98-109 (GENERATED != OBSERVED != SOURCE FACT != DECISION; observation/interpretation/decision separation framing)",
+        "packages/mps-governance/src/engine/GovernancePolicyEngine.ts:9; packages/mps-evolution/src/governance/PromotionDecisionArtifact.ts:5; packages/mps-promotion/src/contracts/PromotionArtifacts.ts:25; packages/mps-promotion/src/contracts/PromotionDecisionArtifact.ts:3 (PromotionDecisionArtifact defined independently in 4 places — noted as a SEMANTIC_DUPLICATE risk for the DECISION candidate track, not ruled on here)"
+      ],
+      "existing_semantic_candidates_examined": [
+        {
+          "file": "packages/mps-runtime/src/contracts/freeze/FrozenIdentities.ts:36-130; packages/mps-runtime/src/execution/ExecutionOutcomeArtifact.ts:1-18",
+          "name": "FrozenExecutionOutcomeIdentity / ExecutionOutcomeArtifact",
+          "why_considered_and_verdict": "Primary reuse candidate. Frozen, content-hashed, versioned (V1/V2), fail-closed-validated artifact type 'execution_outcome' bound 1:1 to the ExecutionAttempt that produced it and consumed as decision evidence by PromotionDecisionArtifact (ADR-24-25 EXEC-25-I7, I11). Verdict: matches candidate semantics closely enough that this IS the existing representation — ALREADY_REPRESENTED."
+        },
+        {
+          "file": "docs/architecture/ADR-24-25-Execution-Identity-Attempt.md (Artifact Model section, 'Observed Execution Graph'); packages/mps-runtime/src/kernel/RuntimeState.ts:20",
+          "name": "ObservedExecutionGraphArtifact",
+          "why_considered_and_verdict": "The neutral 'what actually happened' projection, structurally distinct from the classified ExecutionOutcome. Considered as the complementary 'observation' half of the reuse composite (governance Q3), not a duplicate of Outcome itself — it's a separate, narrower artifact that together with ExecutionOutcome fully covers the candidate's 'state of affairs' semantics."
+        },
+        {
+          "file": "packages/mps-decision-governance/src/MaterializationContract.ts:47-61",
+          "name": "MaterializationOutcome",
+          "why_considered_and_verdict": "Rejected. A materialization pipeline call's return-value union (status: REUSED|CREATED plus steps/impact_id), describing HOW a deterministic pipeline ran, not a normative resulting state of a decision/action. Not an artifact type, no content_hash/identity, no independent governance. MECHANISM_ONLY; name-collision risk only."
+        },
+        {
+          "file": "packages/mps-decision-governance/src/DecisionImpactIdentity.ts:30-67",
+          "name": "DecisionImpactIdentity / DecisionImpactArtifact",
+          "why_considered_and_verdict": "Rejected. An aggregated statistical indicator (e.g. permit counts by jurisdiction/period) materialized from many source decisions — a population-level metric, not the resulting state of any single decision/action. Wrong grain to serve as OUTCOME."
+        },
+        {
+          "file": "packages/mps-runtime/src/contracts/freeze/FrozenIdentities.ts:176-190",
+          "name": "ExecutionTicketStatus",
+          "why_considered_and_verdict": "Rejected. Queue/scheduling status (pending/leased/running/completed/failed/retry) — describes runtime scheduling mechanism, not a governed resulting state of affairs. MECHANISM_ONLY."
+        },
+        {
+          "file": "packages/mps-governance/src/engine/GovernancePolicyEngine.ts:9; packages/mps-evolution/src/governance/PromotionDecisionArtifact.ts:5; packages/mps-promotion/src/contracts/PromotionArtifacts.ts:25 and PromotionDecisionArtifact.ts:3",
+          "name": "PromotionDecisionArtifact (multiple definitions)",
+          "why_considered_and_verdict": "Considered as the downstream consumer of ExecutionOutcome (references it as decision evidence per EXEC-25-I11), not itself an outcome representation — this is the DECISION candidate's territory. Noted separately as a possible internal SEMANTIC_DUPLICATE risk (same name, 4 independent type definitions across 3 packages) for that audit track, not ruled on here."
+        }
+      ],
+      "explanation": "The platform already has a frozen, independently governed, actively-implemented \"Outcome\" concept — ExecutionOutcome / FrozenExecutionOutcomeIdentity — that matches the candidate's minimal definition closely enough that minting a new core type for OUTCOME would duplicate existing normative machinery rather than fill a gap.\n\nADR-24-25 (Execution Identity & Attempt Model) defines \"Execution Outcome\" explicitly as \"Canonical representation av resultatet\" (SUCCESS | FAILURE | PARTIAL | CANCELLED | UNKNOWN) that is produced from exactly one ExecutionAttemptArtifact (the \"action\"), is bound to that attempt via a mandatory reference (EXEC-25-I7: \"ExecutionAttemptArtifact SHALL reference exactly one ExecutionOutcomeArtifact\"), and is subsequently consumed as decision evidence by governance (EXEC-25-I11: \"PromotionDecisionArtifact SHALL reference the ExecutionOutcomeArtifact ... used as decision evidence\"). ADR-29 froze this identity into the runtime as part of \"Runtime Contract Freeze (v1.0.0)\" and made ExecutionKernel \"the only client-facing motor API\" that all domain packages (present and future) must go through — meaning any future Governed-Autonomous-Operations domain, per the platform's own architecture, would be structurally required to route its actions through ExecutionKernel and would therefore already receive ExecutionOutcome artifacts for its attempts rather than needing a parallel concept.\n\nIn code this is not aspirational: packages/mps-runtime/src/contracts/freeze/FrozenIdentities.ts implements FrozenExecutionOutcomeIdentityV1/V2 with a canonical content-hash body, a fail-closed validateFrozenExecutionOutcomeIdentity (rejects tampered attempt/capability-execution refs), and an explicit contract-version lifecycle (V1 historical, V2 self-validating) — i.e. it already has independent governance/versioning of its own (satisfying governance Q5). packages/mps-runtime/src/unit/FrozenExecutionOutcomeSelfConsistency.test.ts proves self-rehash, non-aliasing, and fail-closed tamper rejection. packages/mps-runtime/src/kernel/ExecutionKernel.ts wires a first-class \"outcome\" node into the runtime execution graph (RuntimeState.ts:20, kind \"capability\" | \"workflow_step\" | \"outcome\"), and packages/mps-runtime/src/contracts/model/ExecutionContracts.ts gives ExecutionSession an outcome_ref alongside its manifest/ticket/attempt/replay refs — so outcomes are durably, canonically bound into the same reference graph as the action that produced them (governance Q4 — traceable to the producing attempt).\n\nThe architecture also already structurally separates the neutral \"what happened\" record from the classified result: ADR-24-25 defines a distinct ObservedExecutionGraphArtifact (\"Canonical projektion av exekveringsresultatet\") alongside ExecutionOutcomeArtifact — i.e. the \"state of affairs\" observation and the outcome classification are already two separate, cross-referenced artifact types (partially satisfying governance Q3; the classification (success/failure) is itself a technical determination, not yet a real-world \"goodness\" evaluation layer, but that gap is a downstream DECISION/EVIDENCE-layer concern, not evidence that Outcome itself is missing).\n\nComparison against \"what was expected/intended beforehand\" (governance Q2) is not a single first-class field on ExecutionOutcomeArtifact, but is fully reconstructible without semantic loss by joining the existing, already-linked ExecutionManifestArtifact (the canonical record of intent: inputs/configuration/policies, ADR-24-25 \"Execution Manifest\") against ExecutionOutcome + ObservedExecutionGraph via the attempt_ref/manifest_ref chain that EXEC-25-I20 and I7 already mandate. This is DERIVABLE-strength reuse, not a gap requiring new normative structure.\n\nI examined other repository representations carrying the word \"outcome\" and rejected them as distinct or mechanism-only: MaterializationOutcome (packages/mps-decision-governance/src/MaterializationContract.ts:47-61) is a pipeline call's return-shape (REUSED|CREATED with steps) — it describes HOW a materialization pipeline ran, not a normative resulting state of a decision/action, and is not an artifact type at all (MECHANISM_ONLY, rejected as reuse candidate, noted as a naming collision risk only). DecisionImpactIdentity/Artifact (packages/mps-decision-governance/src/DecisionImpactIdentity.ts:30-67) is an aggregated statistical indicator materialized across many source decisions (e.g. permit counts per jurisdiction/period) — a population-level metric, not the resulting state of one specific decision/action, so it does not carry OUTCOME's per-action semantics. ExecutionTicketStatus (pending/leased/running/completed/failed/retry, FrozenIdentities.ts:176-190) is queue/scheduling mechanism state, not a normative resulting state of affairs.\n\nI found no top-level constitutional treatment of \"Outcome\": ADR-MPS-CONSTITUTIONAL-INVARIANTS.md and ADR-MPS-CORE-001.md contain no mention of it — the concept is governed one layer down, at ADR-24-25/ADR-29, which is the active, README-indexed (section 3, \"Active domain / TV contracts\", README.md:74-75) authority for it. That is enough independent, non-superseded governance to ground reuse (ADR-24-20, the old Package-24 constitution, is explicitly marked superseded/NORMATIVE_TODAY:false in README.md:20-23, but ADR-29 — which freezes exactly the Execution Outcome identity ADR-24-25 defines — is not superseded and is still listed as active).\n\nNet: the candidate's core semantics (a resulting state, produced by and traceable to a specific action, distinct in record from the intent that preceded it, independently versioned/governed) already exist, are frozen, are tested for fail-closed integrity, and are architecturally mandatory for any new domain (including a future GAO capability) to reuse rather than reinvent. Confidence is STRONG rather than PROVEN because the \"compare against intent\" and \"goodness judgment\" aspects require joining across artifacts rather than a single field, and because a GAO capability's real-world (non-execution-technical) consequence tracking is not yet demonstrated end-to-end in this repository — but nothing in that gap requires a new core artifact family; it composes on what already exists.",
+      "falsification_code": "ALREADY_REPRESENTED",
+      "lossless_reuse_test": {
+        "governance_questions_answered": [
+          {
+            "answerable_from_existing_representation": true,
+            "explanation": "ExecutionOutcomeArtifact.result (SUCCESS/FAILURE/PARTIAL/CANCELLED/UNKNOWN) plus the referenced ObservedExecutionGraphArtifact give both a classified result and a neutral projection of what happened, both content-hashed and frozen under ADR-24-25.",
+            "question": "What state of affairs existed after a given decision/action was carried out?"
+          },
+          {
+            "answerable_from_existing_representation": true,
+            "explanation": "Not a single field, but fully reconstructible without semantic loss: ExecutionManifestArtifact (the canonical record of intent — inputs/configuration/policies) is bound to the same ExecutionAttempt as the Outcome via manifest_ref/attempt_ref (EXEC-25-I20, I7), so 'expected vs actual' is a join over already-linked, same-authority artifacts, not a lost fact.",
+            "question": "Can that resulting state be compared against what was expected/intended beforehand?"
+          },
+          {
+            "answerable_from_existing_representation": true,
+            "explanation": "ADR-24-25 already separates ObservedExecutionGraphArtifact (neutral observation) from ExecutionOutcomeArtifact (result classification). The classification is a technical success/failure determination, not yet a real-world value judgment — that higher evaluative layer is genuinely thin, but it is a DECISION/EVIDENCE-layer extension point, not proof that Outcome itself is unrepresented.",
+            "question": "Is the resulting state recorded as an observation, structurally distinct from any judgment about whether it was 'good'?"
+          },
+          {
+            "answerable_from_existing_representation": true,
+            "explanation": "EXEC-25-I7 mandates ExecutionAttemptArtifact reference exactly one ExecutionOutcomeArtifact; FrozenExecutionOutcomeIdentity carries attempt_ref and (V2) capability_execution_ref, and validateFrozenExecutionOutcomeIdentity fail-closes on tampering of that binding (packages/mps-runtime/src/unit/FrozenExecutionOutcomeSelfConsistency.test.ts).",
+            "question": "Can the system trace which decision produced this outcome?"
+          },
+          {
+            "answerable_from_existing_representation": true,
+            "explanation": "Yes, and this already exists: outcome_contract_version (V1 historical / V2 current), its own content_hash, its own artifact_type 'execution_outcome' listed in FROZEN_ARTIFACT_TYPES, and immutability after publication (EXEC-25-I3) — independent lifecycle governance is already live, not something a new core type would need to add.",
+            "question": "Does this resulting state need governance/versioning of its own, independent of the decision it followed and the evidence that documents it?"
+          }
+        ],
+        "result": "PASS"
+      },
+      "minimum_semantic_delta": "No new core artifact family, contract, relation, or attribute is required to serve the candidate's stated semantics. The existing chain ExecutionManifest(intent) → ExecutionAttempt(action) → ExecutionOutcome + ObservedExecutionGraph(result), already mandatorily bound by EXEC-25-I7/I11/I20 and mandatorily reused by any domain client under ADR-29's single-motor-API rule, already answers the material governance questions. If a future Governed-Autonomous-Operations capability needs domain-specific (non-execution-technical) consequence tracking — e.g. an environmental/regulatory effect beyond 'did the code run successfully' — that would be a downstream attribute or artifact hung off outcome_ref/attempt_ref within the existing reference-closure model (at most a NEW_NORMATIVE_ATTRIBUTE later, not a new independently-governed core type), and is not established as a proven need by anything found in this repository today.",
+      "negative_findings": [
+        "No mention of 'outcome' anywhere in ADR-MPS-CONSTITUTIONAL-INVARIANTS.md or ADR-MPS-CORE-001.md — the concept is governed one layer down (ADR-24-25/ADR-29), not at the top constitutional layer.",
+        "ExecutionOutcomeArtifact carries no explicit 'expected/intended' field to diff against — the expected-vs-actual comparison is derivable via a join across ExecutionManifest + ExecutionOutcome/ObservedExecutionGraph, not a single first-class field.",
+        "No demonstrated end-to-end example in this repository of a domain-specific, non-execution-technical (e.g. real-world environmental/regulatory) consequence being recorded as an 'outcome' distinct from code-execution success/failure — the gap, if any, is at that higher evaluative layer, not at the core Outcome representation.",
+        "PromotionDecisionArtifact — the concept that consumes ExecutionOutcome as decision evidence — is independently redefined in at least 4 separate files across 3 packages (mps-governance, mps-evolution, mps-promotion), a duplication risk relevant to the DECISION candidate, not OUTCOME."
+      ],
+      "new_core_representation_required": "NO",
+      "primary_disposition": "LATENT_REUSE",
+      "semantic_conflicts": [
+        "MaterializationOutcome (packages/mps-decision-governance/src/MaterializationContract.ts:47) and MaterializationOutcome usage in MaterializationPipeline.ts share the 'Outcome' name with the candidate but describe an unrelated, mechanism-level pipeline return type — a naming collision, not a semantic duplicate, worth flagging so a future kernel does not conflate the two.",
+        "PromotionDecisionArtifact is defined independently in packages/mps-governance/src/engine/GovernancePolicyEngine.ts, packages/mps-evolution/src/governance/PromotionDecisionArtifact.ts, and twice in packages/mps-promotion/src/contracts/ — a same-name, multiply-defined type that is the primary consumer of ExecutionOutcome as decision evidence; flagged for the DECISION candidate's own audit as a possible SEMANTIC_DUPLICATE, not resolved here."
+      ]
+    }
+  }
+}

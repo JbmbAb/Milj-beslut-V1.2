@@ -1,0 +1,388 @@
+EXECUTION AMENDMENT
+KERNEL-INTEGRATION-AUDIT-01 — CLOUD / REPOSITORY-ONLY
+
+Du ska fortsätta det redan mottagna och frysta uppdraget:
+
+KERNEL-INTEGRATION-AUDIT-01
+
+VIKTIG ÄNDRING:
+
+STORAGE-PRESSURE-001 har brutits ut till en separat LOKAL agent.
+
+Du ska därför INTE:
+
+- inventera C:-disken
+- rensa storage
+- göra claims om lokala worktrees utanför din checkout
+- göra claims om lokal PostgreSQL/CAS/runtime
+- leta efter lokala scratchpads
+- bedöma de fyra untracked migrationsmapparna på den fysiska datorn
+- genomföra migration-regrade
+
+Ditt uppdrag är ENDAST den semantiska/repository-baserade kernel-auditen.
+
+==================================================
+STEP 0 — PIN THE AUDIT TARGET
+==================================================
+
+Innan analysen fortsätter, rapportera exakt:
+
+repository
+remote URL
+current branch
+HEAD SHA
+working tree status
+available relevant branches/PR base if known
+
+KERNEL-INTEGRATION-AUDIT-01 måste bindas till en EXAKT SHA.
+
+Gör inga commits/rebases/merges.
+
+Om du inte säkert kan fastställa att den checkout du har är den
+avsedda audit-basen:
+
+STOP och rapportera mismatch.
+
+Auditen får inte glida mellan commits.
+
+==================================================
+AUDIT STATUS
+==================================================
+
+Kernel är en HYPOTES, inte normativ arkitektur.
+
+Frozen candidate set:
+
+MISSION
+CAPABILITY
+AUTHORITY
+EVIDENCE
+DECISION
+OUTCOME
+
+Ingen kandidat får läggas till eller tas bort under omgången.
+
+Upptäckta andra kandidater får endast loggas som:
+
+DISCOVERED_CANDIDATE
+
+för en framtida audit.
+
+==================================================
+HIGHEST RULES
+==================================================
+
+SEMANTIC ABSENCE MUST BE PROVEN
+BEFORE SEMANTIC CREATION IS PERMITTED.
+
+ABSENCE BY NAMING IS NOT ABSENCE BY SEMANTICS.
+
+PRESENCE BY NAMING IS NOT PROOF OF SEMANTIC UNIQUENESS.
+
+Kernel-hypotesen ska AKTIVT FALSIFIERAS.
+
+Målet är inte att hitta de sex koncepten.
+
+Målet är att bevisa hur få självständiga normativa koncept som
+faktiskt behöver existera.
+
+==================================================
+INDEPENDENCE / ANTI-CONFIRMATION
+==================================================
+
+Behandla tidigare resonemang om vad resultatet "borde" bli som icke-evidens.
+
+Exempel såsom:
+
+"Mission är sannolikt gap"
+"Outcome är sannolikt derived"
+"Capability har två betydelser"
+
+är endast hypoteser.
+
+Verifiera dem från repo/ADR/kontrakt.
+
+Sök även efter representationskandidater som inte tidigare nämnts.
+
+Auditens sökrymd får inte begränsas av proponentens exempel.
+
+==================================================
+MANDATORY FALSIFICATION ORDER
+==================================================
+
+För varje fryst kandidat prövas, i denna ordning:
+
+1 WRONG_ABSTRACTION_LEVEL
+2 MECHANISM_ONLY
+3 ALREADY_REPRESENTED
+4 SEMANTIC_DUPLICATE
+5 DERIVABLE
+6 NOT_TECHNOLOGY_INDEPENDENT
+7 NOT_INDEPENDENTLY_GOVERNED
+8 CORE_SEMANTIC_SURVIVES
+
+Första tillämpliga primära kod vinner.
+
+Sekundära observationer får dokumenteras separat.
+
+UNRESOLVED är aldrig survival.
+
+UNRESOLVED
+→ DEFERRED
+→ NO IMPLEMENTATION
+
+CORE_SEMANTIC_SURVIVES kräver confidence >= STRONG
+innan någon framtida ny normativ representation ens får övervägas.
+
+==================================================
+LOSSLESS REUSE TEST
+==================================================
+
+För varje claim om:
+
+ALREADY_REPRESENTED
+SEMANTIC_DUPLICATE
+DERIVABLE
+LATENT_REUSE
+
+måste ett rekonstruktionstest göras.
+
+Definiera först governancefrågorna kandidatbegreppet måste besvara.
+
+Visa sedan att samma frågor kan besvaras ur den föreslagna
+befintliga representationen med:
+
+- samma semantik
+- samma authority
+- samma source of truth
+- samma provenance
+- samma historical reconstructability
+- samma fail-closed behavior
+
+Om EN materiell governancefråga går förlorad:
+
+LOSSLESS_REUSE_TEST = FAIL
+
+Ingen falsk kompression.
+
+==================================================
+REQUIRED ANALYSIS STREAMS
+==================================================
+
+Använd endast så mycket analys som behövs för Gap Ledger.
+
+1 Semantic Type Map
+2 Terminology Collision Matrix
+3 Source-of-Truth Matrix
+4 Authority-Path Crosswalk
+5 Contract Reuse Analysis
+6 Package Ownership Map
+7 Reuse-Before-Create Register
+8 Normalization/Deprecation Analysis
+9 Invariant/Test Coverage Matrix
+10 Constitutional Dependency Map
+
+Varje supporting analysis måste kunna spåras till en Gap Ledger-post.
+
+Producerar analysen inget ledgerbevis:
+håll den minimal eller utelämna den.
+
+==================================================
+AUTHORITY HARD GATE
+==================================================
+
+För varje kandidat/integrationsväg, försök explicit hitta:
+
+SECOND_AUTHORITY_ROOT
+PARALLEL_GOVERNANCE_PATH
+AUTHORITY_BYPASS
+DUPLICATE_SOURCE_OF_TRUTH
+
+Framtida GAO får inte skapa ett andra governance-universum bredvid
+befintlig authority chain.
+
+Om en överlevande semantik kräver parallell authority root:
+
+BLOCKED.
+
+==================================================
+KERNEL GAP LEDGER
+==================================================
+
+Detta är den ENDA normativa slutleverabeln.
+
+Exakt en post per frozen candidate.
+
+Schema:
+
+candidate
+
+primary_disposition:
+  TRUE_GAP
+  LATENT_REUSE
+  NORMALIZE
+  DERIVED
+  FALSIFIED
+  DEFERRED
+
+falsification_code:
+  WRONG_ABSTRACTION_LEVEL
+  MECHANISM_ONLY
+  ALREADY_REPRESENTED
+  SEMANTIC_DUPLICATE
+  DERIVABLE
+  NOT_TECHNOLOGY_INDEPENDENT
+  NOT_INDEPENDENTLY_GOVERNED
+  CORE_SEMANTIC_SURVIVES
+  UNRESOLVED
+
+confidence:
+  PROVEN
+  STRONG
+  PARTIAL
+  UNRESOLVED
+
+existing_semantic_candidates_examined
+
+canonical_source_of_truth
+
+lossless_reuse_test:
+  PASS
+  FAIL
+  NOT_APPLICABLE
+
+semantic_conflicts
+
+constitutional_dependencies_existing
+
+constitutional_guarantees_required_by_delta
+
+minimum_semantic_delta
+
+new_core_representation_required:
+  YES
+  NO
+  DEFERRED
+
+evidence_refs
+
+negative_findings
+
+==================================================
+CORE DELTA
+==================================================
+
+Core Delta är ALL ny normativ semantik, inte bara ArtifactTypes.
+
+Rapportera separat:
+
+new_core_types
+new_normative_contracts_or_invariants
+new_durable_normative_relations
+new_normative_attributes_or_bindings
+normalization_or_alias_only
+
+LATENT_REUSE får INTE automatiskt räknas som zero delta.
+
+Om reuse kräver en ny durable normative binding:
+den bindningen är Core Delta.
+
+Målet:
+
+MINIMIZE CORE DELTA
+WITHOUT SEMANTIC OR GOVERNANCE LOSS.
+
+==================================================
+NEGATIVE LEDGER
+==================================================
+
+Bevara negativa resultat.
+
+För varje FALSIFIED candidate dokumentera:
+
+what_was_falsified
+why
+evidence
+what_would_have_to_change_before_reopening
+
+Detta är arkitekturens negativa kunskap.
+
+==================================================
+NO-CREATE BOUNDARY
+==================================================
+
+Under denna audit:
+
+NO production code changes
+NO production type creation
+NO ArtifactType addition
+NO Mission implementation
+NO schema migrations
+NO kernel registry
+NO GAO subsystem
+NO semantic rename/refactor
+NO deprecation execution
+NO authority mutation
+NO invariant activation
+NO Kernel ADR
+
+Du får skapa audit-leverabler om sessionens arbetsform kräver det,
+men förändra inte den produktiva arkitekturen.
+
+==================================================
+COMPLETION RULE
+==================================================
+
+Auditten är klar endast när varje frozen candidate kan svara verifierbart:
+
+1. Finns motsvarande semantik redan?
+
+2. Om ja:
+   var och vad är canonical source of truth?
+
+3. Om nej:
+   vilken exakt semantik/governancefråga saknas?
+
+4. Vilket är minsta semantic delta?
+
+5. Kräver deltat verkligen självständig core representation?
+
+6. Vilka befintliga constitutional guarantees påverkas?
+
+7. Vilka nya constitutional guarantees skulle deltat kräva?
+
+Alla sex frozen candidates måste vara accounted for.
+
+UNRESOLVED får inte bli survival.
+
+==================================================
+FINAL OUTPUT
+==================================================
+
+Leverera:
+
+A. Exact audit target SHA
+
+B. KERNEL GAP LEDGER
+
+C. CORE DELTA
+
+D. Negative ledger
+
+E. Supporting evidence summary
+
+F. Explicit list:
+   WHAT NOT TO BUILD
+
+G. Explicit list:
+   MINIMUM VERIFIED NEXT DELTA
+
+Avsluta därefter.
+
+STOP.
+
+Skriv INTE Kernel ADR.
+Implementera INTE Mission.
+Bygg INTE GAO.
+
+Nästa fas sker först efter oberoende kall verifiering av Gap Ledgern.

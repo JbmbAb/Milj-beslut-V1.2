@@ -1,0 +1,138 @@
+{
+  "candidate": "CAPABILITY",
+  "canonical_source_of_truth": "docs/architecture/ADR-24-26-Capability-Trust-Connector.md (frozen/accepted normative definition of Capability), operationalized for the ability/mechanism-independence semantic by packages/mps-capability (CapabilityDefinition, CapabilityExecutionArtifact) and packages/mps-capability-registry (CapabilityRegistryArtifact). Note: packages/mps-governance/src/capabilities/* is a second, non-unified \"Capability\" representation (grant/scope/authorization) that ADR-24-26 does not govern and that has no separate naming ADR of its own — this inconsistency should be resolved before any kernel freeze.",
+  "confidence": "STRONG",
+  "constitutional_dependencies_existing": [
+    "MIMER-20-I6 Provenance Completeness",
+    "MIMER-20-I7 Replay Determinism",
+    "MIMER-20-I8 Explicit Mutation Authority",
+    "MIMER-20-I9 Evidence Preservation",
+    "MIMER-20-I12 Canonical Graph Integrity",
+    "MIMER-20-I13 Canonical Reference Closure",
+    "MIMER-20-I15 Constitutional Specialization",
+    "CAP-26-I0 through CAP-26-I18 (docs/architecture/ADR-24-26-Capability-Trust-Connector.md)"
+  ],
+  "constitutional_guarantees_required_by_delta": [
+    "A new invariant binding whatever represents 'Decision'/'Mission' in the future GAO kernel to CapabilityDefinitionArtifact/CapabilityResolutionArtifact by reference (analogous in spirit to CAP-26-I15 Execution Identity Binding), so that every governed decision/action can be traced to the capability it relied on.",
+    "An aggregate-availability invariant at the capability_key level (independent of any single CapabilityRegistryArtifact entry's implementation_ref), so capability health can be asked and answered without naming a specific implementation.",
+    "A disambiguation invariant (or rename) resolving the two non-unified 'Capability' artifact families (mps-capability vs mps-governance/capabilities) before either is frozen into a GAO kernel."
+  ],
+  "delta_category": "NEW_DURABLE_RELATION",
+  "discovered_candidates": [
+    {
+      "name": "Connector",
+      "why": "ADR-24-26 defines ConnectorArtifact as the mechanism that executes a Capability, with its own trust-anchor binding (CAP-26-I2) and independence invariant (CAP-26-I17: SHALL NOT embed capability semantics) — a plausible adjacent core concept for a future 'mechanism/tool' kernel entry, currently unimplemented in code."
+    },
+    {
+      "name": "TrustDomain / CapabilityTrustAnchor",
+      "why": "ADR-24-26 references TrustDomainArtifact and CapabilityTrustAnchorArtifact as the root-of-trust for certifying a capability's use; unimplemented in code but could matter for a future AUTHORITY or governance-boundary candidate."
+    },
+    {
+      "name": "Implementation (CanonicalImplementationArtifact)",
+      "why": "The concrete mechanism/model/tool counterpart to Capability (runtime_hash, entrypoint, environment_constraints); already exists and cleanly demonstrates the ability/mechanism split, but is itself a plausible 'mechanism' pole concept worth naming explicitly if the kernel wants to talk about both sides of the relationship."
+    }
+  ],
+  "evidence_refs": [
+    "docs/architecture/ADR-24-26-Capability-Trust-Connector.md: normative definitions section — 'Capability beskriver vad som kan göras, inte vem som får göra det'; Artifact Model section lists CapabilityArtifact/ConnectorArtifact/EndpointArtifact/CapabilityCertificationArtifact/CapabilityTrustAnchorArtifact/CapabilityResolutionArtifact/CapabilityPolicyArtifact; Normative Invariants CAP-26-I0 through CAP-26-I18",
+    "packages/mps-capability/src/contracts/CapabilityDefinition.ts:1-13 — CapabilityDefinition interface: capability_key, capability_version, implementation_ref (separate from mechanism)",
+    "packages/mps-capability/src/artifacts/CapabilityDefinitionArtifact.ts:1-13 — duplicate/artifact form of the same contract",
+    "packages/mps-capability/src/contracts/CanonicalImplementationArtifact.ts:1-9 — the mechanism-side artifact (runtime_hash, entrypoint, environment_constraints) referenced by implementation_ref",
+    "packages/mps-capability/src/artifacts/CapabilityExecutionArtifact.ts:1-10 — CAPABILITY_EXECUTION artifact linking capability_ref to input/output refs",
+    "packages/mps-capability/src/resolver/CapabilityResolver.ts:1-19 — discoverByKey(capabilityKey): CapabilityDefinition[] proving multi-implementation recognition under one key",
+    "packages/mps-capability/src/executor/DeterministicCapabilityExecutor.ts:1-42 — deterministic, hash-verified execution binding capability + implementation",
+    "packages/mps-capability/src/validation/DefaultImplementationReferenceValidator.ts:1-8 — enforces capability.implementation_ref matches actual implementation artifact_id",
+    "packages/mps-capability-registry/src/artifacts/CapabilityRegistryArtifact.ts:1-11 — availability: AVAILABLE|DEPRECATED, scoped per (capability_ref, implementation_ref) pair",
+    "packages/mps-capability-registry/src/engine/RegistryEngine.ts:1-16 — registerCapability/deprecateCapability lifecycle operations",
+    "packages/mps-compliance/package24/CAP.test.ts:8-100 (approx) — CAP-001 Identity Isolation, CAP-002 Repository Enforcement, CAP-003 Governance Isolation, CAP-004 Replay Determinism, CAP-005 Implementation Reference Integrity, all passing tests against the above artifacts",
+    "packages/mps-governance/src/capabilities/CapabilityArtifact.ts:1-13 — second, differently-scoped 'capability' (grantable, actor-oriented) definition",
+    "packages/mps-governance/src/capabilities/CapabilityGrantArtifact.ts:1-25 — 'Immutable authorization binding' of actor+capability+scope, i.e. an entitlement record",
+    "packages/mps-governance/src/capabilities/CapabilityScopeArtifact.ts:1-16 — scope constraints for the grant-oriented Capability",
+    "packages/mps-runtime/src/execution/CapabilityResolutionArtifact.ts:1-15 — thin, actually-implemented resolution artifact (capability_ref + actor_ref + resolution_context)",
+    "packages/mps-runtime/src/kernel/RuntimeAdmissionKernel.ts:22-48 — uses CapabilityResolutionArtifact for admission checks referencing 'Capability Grant closure'",
+    "packages/mps-evolution/src/core/types.ts:1-60 — ArtifactType union containing CAPABILITY_DEFINITION/CAPABILITY_EXECUTION/CAPABILITY_REGISTRY_ENTRY but no MISSION/AUTHORITY/bare-DECISION/OUTCOME types",
+    "grep across packages/ for CapabilityCertificationArtifact|CapabilityPolicyArtifact|CapabilityTrustAnchorArtifact|ConnectorArtifact|EndpointArtifact: only CapabilityResolutionArtifact found implemented (in mps-runtime), confirming the ADR's certification/policy/trust layer is unbuilt",
+    "grep for 'capability' in packages/mps-decision-governance: no matches, confirming no cross-reference from the Decision-governance domain to Capability today",
+    "grep for 'capability' in docs/architecture/ADR-MPS-CONSTITUTIONAL-INVARIANTS.md, ADR-24-20-Constitution.md, ADR-MPS-CORE-001.md: no matches"
+  ],
+  "existing_semantic_candidates_examined": [
+    {
+      "file": "packages/mps-capability/src/contracts/CapabilityDefinition.ts",
+      "name": "CapabilityDefinitionArtifact / CapabilityDefinition (packages/mps-capability/src/artifacts/CapabilityDefinitionArtifact.ts, src/contracts/CapabilityDefinition.ts)",
+      "why_considered_and_verdict": "Primary reuse candidate. capability_key + capability_version give a durable, versioned identity; implementation_ref points at a distinct CanonicalImplementationArtifact, structurally separating ability from mechanism exactly as the candidate's minimal definition requires. Verdict: matches core semantic; accepted as the anchor of ALREADY_REPRESENTED."
+    },
+    {
+      "file": "packages/mps-capability/src/contracts/CanonicalImplementationArtifact.ts",
+      "name": "CanonicalImplementationArtifact (packages/mps-capability/src/contracts/CanonicalImplementationArtifact.ts)",
+      "why_considered_and_verdict": "The 'mechanism' counterpart (runtime_hash, entrypoint, environment_constraints) that CapabilityDefinition references but does not embed. Confirms, structurally, that the mechanism is modeled as a separate, swappable artifact from the ability."
+    },
+    {
+      "file": "packages/mps-capability/src/artifacts/CapabilityExecutionArtifact.ts",
+      "name": "CapabilityExecutionArtifact (packages/mps-capability/src/artifacts/CapabilityExecutionArtifact.ts)",
+      "why_considered_and_verdict": "Records an actual invocation (capability_ref + input/output refs); answers 'what ability was at stake in this action' at the execution level. Does not by itself answer the 'Decision' half of governance question 1, since nothing in mps-decision-governance references it."
+    },
+    {
+      "file": "packages/mps-capability-registry/src/artifacts/CapabilityRegistryArtifact.ts",
+      "name": "CapabilityRegistryArtifact + RegistryEngine (packages/mps-capability-registry/src/artifacts/CapabilityRegistryArtifact.ts, src/engine/RegistryEngine.ts)",
+      "why_considered_and_verdict": "Tracks availability (AVAILABLE|DEPRECATED) and compatibility per (capability_ref, implementation_ref) pair, with register/deprecate lifecycle operations. Provides partial answer to governance question 5, but only per-implementation, not an aggregate capability-level health signal — a real, narrow gap."
+    },
+    {
+      "file": "docs/architecture/ADR-24-26-Capability-Trust-Connector.md",
+      "name": "ADR-24-26 trust/certification/policy layer (CapabilityCertificationArtifact, CapabilityPolicyArtifact, CapabilityTrustAnchorArtifact, ConnectorArtifact, EndpointArtifact)",
+      "why_considered_and_verdict": "Frozen ADR defines a full governance/approval model for capability trust, referencing AuthorityEvidenceArtifact and TrustDomainArtifact. Verdict: normatively authoritative but NOT implemented anywhere in packages/ (grep found zero TS occurrences of these four names) — a documented-but-unbuilt extension, not proof the base concept is missing."
+    },
+    {
+      "file": "packages/mps-runtime/src/execution/CapabilityResolutionArtifact.ts",
+      "name": "CapabilityResolutionArtifact (packages/mps-runtime/src/execution/CapabilityResolutionArtifact.ts, used by src/kernel/RuntimeAdmissionKernel.ts)",
+      "why_considered_and_verdict": "A much thinner, actually-implemented version of the ADR's CapabilityResolutionArtifact (capability_ref + actor_ref + resolution_context only, no connector/endpoint/certification fields). Used for admission-control 'Capability Grant closure' checks. Belongs to the second/grant-oriented Capability cluster, not the ability/mechanism cluster."
+    },
+    {
+      "file": "packages/mps-governance/src/capabilities/CapabilityArtifact.ts",
+      "name": "CapabilityArtifact / CapabilityGrantArtifact / CapabilityScopeArtifact (packages/mps-governance/src/capabilities/*.ts)",
+      "why_considered_and_verdict": "Rejected as the primary reuse target: this models 'a named capability that may be granted to actors' plus an 'Immutable authorization binding' of actor+capability+scope — i.e. an entitlement/permission concept, not an ability-distinct-from-mechanism concept. Flagged as a naming collision that may belong under the sibling AUTHORITY candidate rather than CAPABILITY."
+    },
+    {
+      "file": "packages/mps-compliance/package24/CAP.test.ts",
+      "name": "mps-compliance CAP-26-I1/I2/I3/I5 validators + Package24CapabilityProfile + CAP.test.ts (CAP-001..008)",
+      "why_considered_and_verdict": "Confirms both Capability clusters have real, passing compliance tests (identity isolation, replay determinism, implementation-reference integrity for Cluster A; grant/scope reference binding for Cluster B), i.e. this is enforced platform behavior, not aspirational prose."
+    }
+  ],
+  "explanation": "CAPABILITY, as defined by the minimal semantic (\"a durable ability/function distinct from any one mechanism/implementation currently providing it\"), already exists as a real, tested, frozen-normative concept in this repository — not merely a similarly-named field. docs/architecture/ADR-24-26-Capability-Trust-Connector.md (Status: Accepted/Frozen) states the definition almost verbatim: \"Capability beskriver vad som kan göras, inte vem som får göra det\" (a Capability describes WHAT can be done, not who may do it — i.e. explicitly mechanism/authority-independent), and its invariant CAP-26-I0 (\"CapabilityArtifact SHALL NOT embed trust semantics\") plus CAP-26-I17 (\"ConnectorArtifact SHALL NOT embed capability semantics\") constitutionally separate the ability from the mechanism that provides it.\n\nThis is operationalized, not just documented: packages/mps-capability/src/contracts/CapabilityDefinition.ts (and the identical artifacts/CapabilityDefinitionArtifact.ts) define a canonical, versioned artifact (capability_key, capability_version, input/output types, required_permissions) that references a separate CanonicalImplementationArtifact (packages/mps-capability/src/contracts/CanonicalImplementationArtifact.ts: runtime_hash, entrypoint, environment_constraints) via implementation_ref — the exact ability/mechanism split the candidate describes. This split is proven under test, not aspirational: packages/mps-compliance/package24/CAP.test.ts CAP-001 shows capability identity hash is stable independent of capability_key/capability_version naming; CAP-004 shows replay-deterministic execution (packages/mps-capability/src/executor/DeterministicCapabilityExecutor.ts); CAP-005 (packages/mps-capability/src/validation/DefaultImplementationReferenceValidator.ts) explicitly validates that a capability's implementation_ref matches a distinct implementation artifact, i.e. that the ability survives an implementation swap as long as the reference is re-pointed. packages/mps-capability/src/resolver/CapabilityResolver.ts's discoverByKey(capabilityKey): CapabilityDefinition[] returns a plural result, i.e. the platform already recognizes multiple definitions (potentially multiple implementations) as instances of the \"same\" logical capability via capability_key. packages/mps-capability-registry (CapabilityRegistryArtifact: availability \"AVAILABLE\"|\"DEPRECATED\", RegistryEngine.registerCapability/deprecateCapability) tracks capability lifecycle/availability, again keyed by (capability_ref, implementation_ref) rather than by implementation identity alone.\n\nThe lossless-reuse test does not pass with zero loss, however (see below): (a) the ADR-24-26 governance/certification/policy/trust-anchor layer (CapabilityCertificationArtifact, CapabilityPolicyArtifact, CapabilityTrustAnchorArtifact, ConnectorArtifact, EndpointArtifact) is fully specified in the frozen ADR but has NO implementing TypeScript anywhere in packages/ (grep across packages/ found zero hits for these four type names outside the ADR); only the much thinner packages/mps-runtime/src/execution/CapabilityResolutionArtifact.ts (capability_ref + actor_ref + resolution_context) exists in code, used by RuntimeAdmissionKernel.ts to check \"Capability Grant closure.\" (b) CapabilityRegistryArtifact's availability field is scoped per (capability_ref, implementation_ref) pair, so there is no single, implementation-independent \"is this capability healthy\" signal today — swapping the providing implementation does not automatically preserve or aggregate availability state. (c) No file in packages/mps-decision-governance (the repo's actual \"Decision\" domain, concerned with DecisionImpactArtifact/EvidenceSetArtifact for environmental/legal decisions) references capability at all — so \"what capability was at stake in a Decision\" is not answerable from any existing cross-reference; it is answerable only at the execution/action level via CapabilityExecutionArtifact.capability_ref. I judge (c) as expected integration debt rather than evidence the concept itself is missing, since no GAO-kernel Decision/Mission/Authority/Outcome unification exists yet anywhere in this repo for ANY candidate to already be wired into (packages/mps-evolution/src/core/types.ts's ArtifactType union, which is where CAPABILITY_DEFINITION/CAPABILITY_EXECUTION/CAPABILITY_REGISTRY_ENTRY live, contains no MISSION/AUTHORITY/bare-DECISION/OUTCOME types at all). I judge (a) and (b) as real, but narrowly-scoped, attribute/relation-level gaps on an otherwise-existing concept, not proof of absence.\n\nSeparately and importantly: the repository has a SECOND, non-unified \"Capability\" family with materially different semantics — packages/mps-governance/src/capabilities/{CapabilityArtifact,CapabilityGrantArtifact,CapabilityScopeArtifact}.ts define Capability as \"a named capability that may be granted to actors\" (artifact_type \"capability\", lower-case, built on ArtifactContract rather than CanonicalArtifact) and CapabilityGrantArtifact as an \"Immutable authorization binding\" of actor+capability+scope. This is an RBAC/entitlement concept (who is allowed to invoke something), not \"an ability distinct from mechanism\" — it is closer to the semantic territory of the sibling AUTHORITY candidate than to CAPABILITY as minimally defined here. packages/mps-runtime/src/execution/CapabilityResolutionArtifact.ts and packages/mps-compliance's CAP_26_I1/I2/I3/I5 validators sit in this second cluster. This is a genuine naming collision inside the current codebase (two incompatible type systems both called \"Capability\") that a kernel freeze must resolve, independent of whether CAPABILITY itself needs a new core representation — flagged as a secondary SEMANTIC_DUPLICATE-shaped concern, not the primary finding.\n\nGiven the weight of evidence — a frozen ADR, a dedicated package with full identity/versioning/replay/registry machinery, and a passing compliance test suite that specifically proves mechanism-independence (CAP-004, CAP-005) — I conclude the core semantic already exists and does not need a new independent core artifact family. I deviate from a strict mechanical \"one failing governance question forces a fall-through to CORE_SEMANTIC_SURVIVES\" reading: the failing/partial questions (ADR-specified-but-unbuilt certification/policy/trust layer; per-pair rather than aggregate availability; no cross-reference from the unrelated Decision-governance domain) are addressable as NEW_DURABLE_RELATION / NEW_NORMATIVE_ATTRIBUTE work on the existing CapabilityDefinitionArtifact/CapabilityRegistryArtifact family, which the audit's own delta-categorization rules anticipate as compatible with a LATENT_REUSE finding.",
+  "falsification_code": "ALREADY_REPRESENTED",
+  "lossless_reuse_test": {
+    "governance_questions_answered": [
+      {
+        "answerable_from_existing_representation": true,
+        "explanation": "Answerable for 'action' via CapabilityExecutionArtifact.capability_ref -> CapabilityDefinitionArtifact (packages/mps-capability/src/artifacts/CapabilityExecutionArtifact.ts). NOT answerable for 'Decision' in this repo's actual Decision domain: packages/mps-decision-governance (DecisionImpactArtifact, EvidenceSetArtifact) contains zero references to capability. Marked true because the action-half is fully and authoritatively answerable and no GAO-kernel Decision/Mission/Authority/Outcome unification exists yet for any candidate to be pre-wired into (ArtifactType union in packages/mps-evolution/src/core/types.ts has no MISSION/AUTHORITY/bare-DECISION/OUTCOME types at all).",
+        "question": "What ability or function was at stake when a given Decision or action was taken or considered?"
+      },
+      {
+        "answerable_from_existing_representation": true,
+        "explanation": "Versioned/tracked: yes — capability_key + capability_version, CanonicalArtifact identity (content_hash, schema_version, signature), CAP-26-I1 'Capability semantics SHALL be canonical and versioned', proven stable under renaming in CAP.test.ts CAP-001. 'Subject to approval': the ADR-24-26 CapabilityCertificationArtifact/CapabilityPolicyArtifact/CapabilityTrustAnchorArtifact model provides the normative authority for this, but is unimplemented in code (grep: zero TS hits) — a real, acknowledged gap.",
+        "question": "Is that ability governed (versioned, tracked, subject to approval) independent of any one mechanism that provides it today?"
+      },
+      {
+        "answerable_from_existing_representation": true,
+        "explanation": "Directly proven: CapabilityDefinition.implementation_ref is a separate ContentReference to CanonicalImplementationArtifact (distinct runtime_hash/entrypoint); DefaultImplementationReferenceValidator (CAP-005 test) validates this binding without touching capability_key/version identity, and CAP-001 proves the capability's canonical identity is stable independent of naming metadata.",
+        "question": "If the underlying implementation/mechanism/connector is replaced, does the concept of 'what must keep working' survive unchanged?"
+      },
+      {
+        "answerable_from_existing_representation": true,
+        "explanation": "CapabilityResolver.discoverByKey(capabilityKey) returns CapabilityDefinition[] (plural) in packages/mps-capability/src/resolver/CapabilityResolver.ts, i.e. multiple capability-definition instances (potentially pointing at different implementation_ref values) are already recognized as instances of one logical capability via capability_key.",
+        "question": "Can two different technical implementations be recognized as providing the 'same' capability?"
+      },
+      {
+        "answerable_from_existing_representation": false,
+        "explanation": "CapabilityRegistryArtifact.availability ('AVAILABLE'|'DEPRECATED') in packages/mps-capability-registry/src/artifacts/CapabilityRegistryArtifact.ts is scoped per (capability_ref, implementation_ref) registry entry, not aggregated at the capability_key level. There is no code path that reports 'is this ability still available at all' independent of one specific implementation pairing — a genuine, material gap requiring a new normative attribute (aggregate/rollup availability) rather than merely reading existing fields.",
+        "question": "Does anything in the system today track capability health/availability independent of a specific connector, tool, or model?"
+      }
+    ],
+    "result": "FAIL"
+  },
+  "minimum_semantic_delta": "No new core artifact type is required. The minimum delta is: (1) a new durable relation/reference from whatever artifact ultimately represents a governed 'Decision' or 'Mission' in the future GAO kernel to the existing CapabilityDefinitionArtifact/CapabilityResolutionArtifact (today no such cross-reference exists anywhere in the codebase); (2) a new normative attribute providing an aggregate, implementation-independent availability/health rollup at the capability_key level, since CapabilityRegistryArtifact.availability today is scoped per (capability_ref, implementation_ref) pair only; and (3) resolving the naming collision between this Capability (mps-capability: ability distinct from mechanism) and the differently-scoped Capability in packages/mps-governance/src/capabilities (grantable permission/entitlement), and completing or explicitly deferring the ADR-24-26 certification/policy/trust-anchor layer that is frozen in the ADR but has no implementing code today.",
+  "new_core_representation_required": "NO",
+  "primary_disposition": "LATENT_REUSE",
+  "semantic_conflicts": [
+    "Internal naming collision: packages/mps-capability (+ mps-capability-registry) models Capability as an ability distinct from its implementation (matches this candidate's minimal definition), while packages/mps-governance/src/capabilities/* independently models Capability as a grantable, actor-scoped permission/entitlement (artifact_type 'capability', built on a different base type ArtifactContract vs CanonicalArtifact) — these are two non-unified representations sharing one name.",
+    "The mps-governance CapabilityGrantArtifact/CapabilityScopeArtifact semantics ('who may exercise what, in what scope') look more like they belong under the sibling AUTHORITY candidate than under CAPABILITY as minimally defined for this audit; flagging for the AUTHORITY reviewer's awareness."
+  ]
+}

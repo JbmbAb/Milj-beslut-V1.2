@@ -1,0 +1,82 @@
+[
+  {
+    "stage": "falsify",
+    "label_candidate": "MISSION",
+    "internal_candidate_field": "MISSION",
+    "label_vs_internal_candidate_mismatch": false,
+    "agentId": "a35166f1d237fde4d",
+    "journal_key": "v2:4769eedb6d0925ef24683efd1a34616c83879c61139c4fda6ab447d4fdf83592",
+    "file": "falsify__MISSION__a35166f1d237fde4d.json",
+    "sha256_of_canonical_json": "398144c2ccab9a9f15c9ebf83eb8b31b240a9ef734038d7b56f85ab61c54cd75"
+  },
+  {
+    "stage": "falsify",
+    "label_candidate": "CAPABILITY",
+    "internal_candidate_field": "CAPABILITY",
+    "label_vs_internal_candidate_mismatch": false,
+    "agentId": "a825c5945f5e636c0",
+    "journal_key": "v2:bad42f74865830f990dec90309cd7d65ee863a17c9fd71da22d6f4345fd2f927",
+    "file": "falsify__CAPABILITY__a825c5945f5e636c0.json",
+    "sha256_of_canonical_json": "2595028d9084db4d05686d71e06c249170f6167c9d3c9985b9f0ac6f543e322d"
+  },
+  {
+    "stage": "falsify",
+    "label_candidate": "AUTHORITY",
+    "internal_candidate_field": "AUTHORITY",
+    "label_vs_internal_candidate_mismatch": false,
+    "agentId": "a7fc93193115acdbc",
+    "journal_key": "v2:a523130ff7d2c19046fefa05cc1e2673848fe27e9457cfd06b0da062af027430",
+    "file": "falsify__AUTHORITY__a7fc93193115acdbc.json",
+    "sha256_of_canonical_json": "26957f5e0bd9af91e883eaf655d138a48109dbe0be5fc3e6a92589ef24dcbbb0"
+  },
+  {
+    "stage": "falsify",
+    "label_candidate": "EVIDENCE",
+    "internal_candidate_field": "EVIDENCE",
+    "label_vs_internal_candidate_mismatch": false,
+    "agentId": "a8f7f05bfb439db79",
+    "journal_key": "v2:ec5bf6040b09d296d9774bb5d1f48d370119acef091ed3c8157bd0c9240c8607",
+    "file": "falsify__EVIDENCE__a8f7f05bfb439db79.json",
+    "sha256_of_canonical_json": "a9b3f5c7b907c534988bdc7aab3356fea5bc14df040563de662cbc1dbf50f242"
+  },
+  {
+    "stage": "falsify",
+    "label_candidate": "DECISION",
+    "internal_candidate_field": "DECISION",
+    "label_vs_internal_candidate_mismatch": false,
+    "agentId": "aabe1cb48a00d841f",
+    "journal_key": "v2:8754ac98d9c35a6582bcd20525ad7330aad39556c75b9db47931aad12fce3a03",
+    "file": "falsify__DECISION__aabe1cb48a00d841f.json",
+    "sha256_of_canonical_json": "df14296ff648853aaab9298a87e100f6f93067a7802c225bacd0f3594e01de93"
+  },
+  {
+    "stage": "falsify",
+    "label_candidate": "OUTCOME",
+    "internal_candidate_field": "OUTCOME",
+    "label_vs_internal_candidate_mismatch": false,
+    "agentId": "a22207601c1835af8",
+    "journal_key": "v2:756a03da227f7f61cf6ed2bba1642ccc95bf463cb014908e0a76e953034bee62",
+    "file": "falsify__OUTCOME__a22207601c1835af8.json",
+    "sha256_of_canonical_json": "a7e417133d7d4aed65bc74def6568208f75fb863965d409fa7c699c1c24a1bdb"
+  },
+  {
+    "stage": "gate",
+    "label_candidate": "AUTHORITY",
+    "internal_candidate_field": "AuthorityEvidenceArtifact / actor-trust model (ADR-24-21)",
+    "label_vs_internal_candidate_mismatch": true,
+    "agentId": "a2a8d0ce48eb1fc7a",
+    "journal_key": "v2:31e98f496e2ec6e65fa1f78d5ea14693a3d0e83928ab74e8fcaa8d179aaaa289",
+    "file": "gate__AUTHORITY__a2a8d0ce48eb1fc7a.json",
+    "sha256_of_canonical_json": "7ad34f72e19f7e67e9edb07e6804148d98fc18d193d7931c8e78e0a2db468da9"
+  },
+  {
+    "stage": "gate",
+    "label_candidate": "DECISION",
+    "internal_candidate_field": "Canonical kernel-owned Decision artifact family (alternatives-considered field, mandatory authority binding + timestamp, evidence/outcome-distinct, immutable/content-addressed, superseding PROMOTION_DECISION*/GOVERNANCE_APPROVAL* variants)",
+    "label_vs_internal_candidate_mismatch": true,
+    "agentId": "a638213b273e22e94",
+    "journal_key": "v2:4171b0d2ac348a8d9dbfbcbf6b646f5601aef0b2a8e9510d13868ff46dc1d04d",
+    "file": "gate__DECISION__a638213b273e22e94.json",
+    "sha256_of_canonical_json": "9a1d57b95df52947eef98661fbf9abd8b9908299dba1181dfb008d05d3c13b1c"
+  }
+]

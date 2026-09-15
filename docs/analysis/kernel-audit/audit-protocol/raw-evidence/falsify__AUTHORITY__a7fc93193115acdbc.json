@@ -1,0 +1,112 @@
+{
+  "candidate": "AUTHORITY",
+  "canonical_source_of_truth": "NONE — no live, enforced, fail-closed source of truth for actor permission-scope exists today. The nearest document, docs/architecture/ADR-24-21-Actor-Identity-Trust.md, defines the concept fully but is orphaned from the current authority chain (absent from docs/architecture/README.md §1/§3), grounded in a historical/superseded constitutional invariant (MIMER-20-I8 in ADR-24-20-Constitution.md, itself NORMATIVE_TODAY:false), and is logged as RETIRED_CANDIDATE/UNPROVEN in docs/architecture/architecture-authority-map.jsonc — so it would be the canonical source of truth only if and when it is formally reconciled under ADR-MPS-CONSTITUTIONAL-INVARIANTS.md and its proof lane is executed.",
+  "confidence": "STRONG",
+  "delta_category": "NEW_CORE_TYPE",
+  "discovered_candidates": [
+    {
+      "name": "ACTOR / ACTOR IDENTITY",
+      "why": "ADR-24-21 treats Actor as a prerequisite canonical concept distinct from Authority itself (ActorArtifact, HumanIdentityArtifact, ServiceIdentityArtifact, ActorLifecycleArtifact) — worth its own falsification pass if not already covered by another candidate in this round."
+    },
+    {
+      "name": "DELEGATION",
+      "why": "TrustDelegationArtifact (delegator/delegatee/scope/activation/expiration/revocation) is a materially distinct sub-concept from plain grant-of-authority and recurs across ADR-24-21/24-22/24-26; could be its own normative relation rather than folded into Authority."
+    },
+    {
+      "name": "NON-REPUDIATION / SIGNER IDENTITY",
+      "why": "Repeatedly called out (server/routes/governance.routes.ts comment, ADR-24-22 Signature & Attestation) as the missing 'Level 3' piece distinct from both Authority-as-scope and Evidence-as-occurrence — per-actor cryptographic accountability separate from server-level signing keys."
+    }
+  ],
+  "evidence_refs": [
+    "docs/architecture/ADR-24-21-Actor-Identity-Trust.md:1-256 (full Actor/Trust/AuthorityEvidence model)",
+    "docs/architecture/ADR-24-21-Actor-Identity-Trust.md:101-108 (AuthorityEvidenceArtifact definition)",
+    "docs/architecture/ADR-24-21-Actor-Identity-Trust.md:151-164 (ACT-21-I10, ACT-21-I14 authority-binding invariants)",
+    "docs/architecture/architecture-authority-map.jsonc:866-880 (mps-governance-actor-trust entry: RETIRED_CANDIDATE / UNWIRED_ACTOR_TRUST_MODEL / UNPROVEN / TEST_EXISTS_BUT_IS_NOT_EXECUTED)",
+    "packages/mps-compliance/src/validators/ACT_21_I1.ts:1-16 (stub validator always returns passed:true, evidence:[])",
+    "packages/mps-governance/src/actors/ActorArtifact.ts:1-9 (unused type, zero external construction)",
+    "server/routes/governance.routes.ts:192-215 (comment: Level 2 live cryptographic promotion authority; Level 3 ActorArtifact/TrustAnchor 'separate architecture-convergence track, not started')",
+    "packages/mimers-brunn-core/src/governance/DatasetApproval.ts:6-38 (PromotionAttestationPredicate — live but action-scoped, non-durable authority mechanism)",
+    "packages/mps-governance-runtime/src/authorityTypes.ts:1-22 (AUTHORITY_ARTIFACT_TYPES — artifact-type classification, not actor-permission-scope)",
+    "docs/architecture/ADR-23B-Operational-Governance-Runtime.md:11-16 (GOVERNANCE-22.9-I13, live/enforced)",
+    "docs/architecture/ADR-24-26-Capability-Trust-Connector.md:46-48, 163-164 (Capability explicitly distinct from Authority; CAP-26-I12 references AuthorityEvidenceArtifact rather than duplicating it)",
+    "docs/architecture/ADR-24-20-Constitution.md:2-3, 96-97 (MIMER-20-I8 Explicit Mutation Authority — HISTORICAL, NORMATIVE_TODAY:false)",
+    "docs/architecture/ADR-MPS-CONSTITUTIONAL-INVARIANTS.md:1-228 (current constitution — no actor/authority semantics present)",
+    "docs/architecture/README.md:1-40 (current authority chain index — ADR-24-21..26 absent from §1/§3)",
+    "server/routes/admin.routes.ts:56-388 (repeated ad hoc RBAC role-string checks, the live but non-canonical permission mechanism)"
+  ],
+  "existing_semantic_candidates_examined": [
+    {
+      "file": "docs/architecture/ADR-24-21-Actor-Identity-Trust.md; packages/mps-governance/src/actors/*.ts",
+      "name": "ADR-24-21 Actor/Trust/AuthorityEvidence model (ActorArtifact, TrustDomainArtifact, TrustAnchorArtifact, TrustDelegationArtifact, AuthorityEvidenceArtifact, ActorLifecycleArtifact)",
+      "why_considered_and_verdict": "Closest semantic match — nearly word-for-word matches the candidate definition ('Canonical representation av beviset för att en aktör hade rätt att utföra en handling'), and answers governance Q1-Q4 by design. Rejected as present-day reuse: architecture-authority-map.jsonc classifies it RETIRED_CANDIDATE/UNWIRED_ACTOR_TRUST_MODEL/UNPROVEN (test exists but not executed); its ACT_21_I1 compliance validator is a stub always returning passed:true; zero runtime construction outside its own package and dead test file; not listed anywhere in docs/architecture/README.md's authority chain."
+    },
+    {
+      "file": "server/routes/admin.routes.ts (e.g. lines 56, 69, 91, ...388); server/routes/governance.routes.ts",
+      "name": "Live RBAC role-string checks (`req.authUser.role !== 'ADMIN'`)",
+      "why_considered_and_verdict": "The actual, universally-used, live authorization mechanism today. Rejected as reuse: no content-addressed identity, no versioning, no delegation/revocation ledger, not independently queryable/traceable as a canonical artifact — a mutable session/DB flag checked ad hoc per route, i.e. mechanism, not a governed concept."
+    },
+    {
+      "file": "packages/mimers-brunn-core/src/governance/DatasetApproval.ts:14-38; server/routes/governance.routes.ts:192-215",
+      "name": "PromotionAttestationPredicate (ADR-042 Level 2 Cryptographic Promotion Authority)",
+      "why_considered_and_verdict": "The one live, cryptographically-signed authorization mechanism in the codebase, binding approver_actor_id/approver_role/action/governance_release/signer_key_id. Rejected as full reuse: scoped to a single action instance (quarantine.promote only), fuses authority-grant and evidence-of-exercise into one per-event object rather than a durable/queryable permission-scope artifact, and the code's own comment states individual actor-level non-repudiation ('Level 3... ActorArtifact/TrustAnchor') is 'a separate architecture-convergence track, not started.'"
+    },
+    {
+      "file": "packages/mps-governance-runtime/src/authorityTypes.ts:1-22; docs/architecture/ADR-23B-Operational-Governance-Runtime.md:16",
+      "name": "AUTHORITY_ARTIFACT_TYPES / GOVERNANCE-22.9-I13 'Observation Cannot Become Authority'",
+      "why_considered_and_verdict": "Live, wired, enforced today (ADR-23B is 'Accepted, runtime boundary only'). Rejected as reuse: it is a coarse classification of which ARTIFACT TYPES (decision, approval, policy, capability_grant, ...) are mutation-legitimating outputs vs. mere observation — it answers 'which artifact types count as authority-bearing,' not 'what bounds a given actor's permission to act, granted by whom, revocable how.' Does not address governance Q1, Q3 or Q4 at all."
+    },
+    {
+      "file": "docs/architecture/ADR-24-26-Capability-Trust-Connector.md:111-117, 48, 163-164",
+      "name": "ADR-24-26 CapabilityPolicyArtifact ('allowed capabilities/connectors/endpoints, trust requirements')",
+      "why_considered_and_verdict": "Considered as a possible SEMANTIC_DUPLICATE (another 'bounds of what is allowed' construct). Rejected as duplicate: the ADR explicitly separates Capability ('what CAN be done') from Authority ('who is allowed'), and CapabilityCertificationArtifact references AuthorityEvidenceArtifact as an external input (CAP-26-I12) rather than reimplementing it — confirming the platform treats them as distinct, non-overlapping concepts."
+    },
+    {
+      "file": "docs/architecture/ADR-MPS-CONSTITUTIONAL-INVARIANTS.md:60-104",
+      "name": "mps-decision-governance Decision/EvidenceSet lineage (Decision Truth layer)",
+      "why_considered_and_verdict": "Considered as a possible source of implicit authority semantics via lineage-closure-before-authority (§5b). Rejected as reuse: governs content/lineage/hash identity of decisions and evidentiary chains, contains no actor-permission-boundary or grant/revoke/delegate logic — it presupposes authority rather than representing it."
+    }
+  ],
+  "explanation": "Falsification attempted against all 7 classes and each fails to eliminate the candidate.\n\n(1) WRONG_ABSTRACTION_LEVEL — rejected. \"Scope of what an actor is permitted to do, with fail-closed rejection outside that scope\" is squarely governance-level semantics, not an implementation detail; the platform's own frozen ADR family (ADR-24-21 through ADR-24-26) treats it at exactly this level, as a peer of Decision Truth and Capability Trust.\n\n(2) MECHANISM_ONLY — rejected for the candidate itself (its definition is normative, not procedural), though this is where the live implementation actually lands: today's only *enforced* representation is a scattered role-string check (`req.authUser.role !== 'ADMIN'`) repeated across 36+ route files (e.g. server/routes/admin.routes.ts:56-388) plus a single per-event signed predicate (PromotionAttestationPredicate) for quarantine promotion. Neither is a durable, canonical \"authority\" object — both are HOW a specific check is done at a specific call site, not a governed WHAT.\n\n(3) ALREADY_REPRESENTED — tested against three candidate representations and FAILS the lossless reuse test for all three (see lossless_reuse_test). Closest match, ADR-24-21's AuthorityEvidenceArtifact/TrustDomainArtifact/TrustAnchorArtifact/TrustDelegationArtifact, is explicitly logged by the platform's own operational proof registry as `\"package_class\": \"RETIRED_CANDIDATE\"`, `\"module_role\": \"UNWIRED_ACTOR_TRUST_MODEL\"`, `\"proof_status\": \"UNPROVEN\"` with `\"proof_reason\": \"TEST_EXISTS_BUT_IS_NOT_EXECUTED\"` (docs/architecture/architecture-authority-map.jsonc, entry id \"mps-governance-actor-trust\", ~lines 866-880), and its compliance rule ACT-21-I1 is a stub that unconditionally returns `passed: true` with `evidence: []` regardless of input (packages/mps-compliance/src/validators/ACT_21_I1.ts:8-16). Nothing outside its own package/tests constructs an ActorArtifact/AuthorityEvidenceArtifact. A server/routes/governance.routes.ts comment (lines ~213-215) confirms individual actor-level, non-repudiable authority (\"Level 3\") is \"a separate architecture-convergence track, not started.\"\n\n(4) SEMANTIC_DUPLICATE — rejected. Capability (ADR-24-26) explicitly disclaims this role: \"Capability beskriver vad som kan göras, inte vem som får göra det\" (docs/architecture/ADR-24-26-Capability-Trust-Connector.md:48), and CapabilityCertificationArtifact takes AuthorityEvidenceArtifact as an external reference (CAP-26-I12, same file line 163-164) rather than reimplementing authority — the platform's own design treats Capability and Authority as distinct. Decision (mps-decision-governance) governs lineage/content of a decision, not the actor's standing to make it. No overlapping candidate found.\n\n(5) DERIVABLE — rejected. The live RBAC role assignment is mutable, overwritten state in the user/session store, not an append-only ledger; there is no reproducible way to reconstruct \"what actor X was permitted to do, under what scope, granted by whom, at time T\" after a role change. This is the opposite of the deterministic, replay-compatible reconstruction the platform requires elsewhere (e.g. C-05 replay determinism in ADR-MPS-CONSTITUTIONAL-INVARIANTS.md §7).\n\n(6) NOT_TECHNOLOGY_INDEPENDENT — rejected. Actor permission-scope semantics are independent of any LLM, risk-model, or forecasting technology choice; nothing about Authority would disappear under such a swap.\n\n(7) NOT_INDEPENDENTLY_GOVERNED — rejected. ADR-24-21 is referenced as a shared dependency by five sibling ADRs (24-22 Signature/Attestation, 24-24 Retention, 24-25 Execution Identity, 24-26 Capability Trust, and indirectly 24-19 Workflow) via AuthorityEvidenceArtifact, which is the classic signature of a concept needing its own lifecycle/identity rather than being folded as an attribute onto one specific artifact type.\n\nBecause none of the 7 falsification classes eliminates the candidate, and because the one existing design that matches it (ADR-24-21) is present only as an orphaned, unproven, unenforced schema — not a live governing source of truth — the candidate survives as CORE_SEMANTIC_SURVIVES / TRUE_GAP. Note this is a qualified gap: the *semantic design* for Authority already exists on paper (ADR-24-21 + packages/mps-governance/src/actors/*.ts) and is even absent from the current authority chain (docs/architecture/README.md lists neither ADR-24-21 nor any Actor/Trust/Authority document in its §1 \"current normative\" or §3 \"active domain contracts\" tables, and ADR-24-21's stated constitutional grounding, MIMER-20-I8 \"Explicit Mutation Authority\" in ADR-24-20-Constitution.md:96-97, is itself HISTORICAL/superseded). So the true gap is as much a governance-recognition gap (nothing currently anchors Authority under the live constitution) as a code gap.",
+  "falsification_code": "CORE_SEMANTIC_SURVIVES",
+  "lossless_reuse_test": {
+    "governance_questions_answered": [
+      {
+        "answerable_from_existing_representation": false,
+        "explanation": "ADR-24-21's AuthorityEvidenceArtifact schema models this, but no live code path constructs or checks one (packages/mps-compliance/src/validators/ACT_21_I1.ts:8-16 is a stub returning passed:true unconditionally); the only live checks are per-route RBAC role strings (server/routes/admin.routes.ts) with no canonical 'why permitted' artifact.",
+        "question": "What permitted a given actor to take a given action, as opposed to merely being able to?"
+      },
+      {
+        "answerable_from_existing_representation": false,
+        "explanation": "TrustDomainArtifact scope/constraints exist only as a type definition; its proof test (packages/mps-governance/tests/ADR23Compliance.test.ts) is logged as NO_MATCHING_VITEST_PROJECT_INCLUDE / UNPROVEN in architecture-authority-map.jsonc, i.e. never executed, so no boundary-rejection behavior is verified to exist.",
+        "question": "What is the boundary of what was permitted, and how would an attempt outside that boundary be recognized and rejected?"
+      },
+      {
+        "answerable_from_existing_representation": false,
+        "explanation": "For ADR-24-21 nothing populates a grant record at runtime. The narrower PromotionAttestationPredicate path (packages/mimers-brunn-core/src/governance/DatasetApproval.ts:30-38) does bind approver_actor_id/approver_role under a server-side Ed25519 signature, but that is a different, narrower representation than AuthorityEvidenceArtifact, scoped to one action type, and explicitly lacks per-actor non-repudiation per the code's own comment.",
+        "question": "Who or what granted the permission, and can that grant be traced and verified after the fact?"
+      },
+      {
+        "answerable_from_existing_representation": false,
+        "explanation": "TrustDelegationArtifact (delegator/delegatee/scope/activation/expiration/revocation) and ActorLifecycleArtifact (...→REVOKED) exist only as unused TypeScript interfaces (packages/mps-governance/src/actors/TrustDelegationArtifact.ts, ActorLifecycleArtifact.ts); the live system's only 'revocation' is overwriting a mutable role field in the user store, which is not an auditable, versioned artifact.",
+        "question": "Can the permission be revoked, delegated, or scoped to a sub-actor?"
+      },
+      {
+        "answerable_from_existing_representation": false,
+        "explanation": "No live representation keeps these separate: PromotionAttestationPredicate fuses the authorization grant and the evidence of its exercise into one signed per-event object rather than modeling Authority and Evidence as distinct, independently referenceable artifacts as the candidate's own definition requires.",
+        "question": "Does the system distinguish 'permitted' from 'physically possible' and from 'evidenced as having happened'?"
+      }
+    ],
+    "result": "FAIL"
+  },
+  "minimum_semantic_delta": "A live, independently-governed, fail-closed AuthorityEvidence artifact family (actor, scope/trust-domain, grantor/delegation chain, revocation) that at least one real mutation path must consult and that is referenced, not reimplemented, by Capability/Decision/Evidence pathways. Concretely: (a) formally anchor Authority under the current constitution — ADR-MPS-CONSTITUTIONAL-INVARIANTS.md today says nothing about actors/authority, so ADR-24-21 must be reconciled into or re-issued under the live authority chain (docs/architecture/README.md) rather than left orphaned under the superseded ADR-24-20; (b) wire at least one real authorization decision (e.g. quarantine promotion, or the ADMIN-role route checks) to construct and verify a genuine AuthorityEvidenceArtifact instead of a bare role string, replacing the stub ACT_21_I1 validator with a real check; (c) get the existing but unexecuted proof lane (packages/mps-governance/tests/ADR23Compliance.test.ts) running and its proof_status moved from UNPROVEN to PROVEN in architecture-authority-map.jsonc. Because none of this exists live today (only inert type definitions and a rubber-stamp validator), adopting it is effectively adopting a new, previously-unenforced core artifact family into the kernel, not merely renaming or attribute-binding an existing one.",
+  "negative_findings": [
+    "ADR-24-21's full Actor/Trust/Authority schema exists in both ADR prose and TypeScript interfaces, but is provably unenforced: its own compliance rule is a stub, its proof test is not wired into any executed vitest project, and no code outside its own package constructs its artifacts.",
+    "The candidate's near-namesake concept 'Authority' is already in live use in this codebase, but only as a classification label on existing artifact TYPES (decision/approval/policy/capability_grant/...) via AUTHORITY_ARTIFACT_TYPES — a different, narrower semantic than 'scope of what an actor may do,' so its presence does not satisfy the candidate.",
+    "ADR-24-21 (Actor/Authority) is completely absent from docs/architecture/README.md's authority-chain index, unlike ADR-24-26 (Capability), which is at least cross-referenced from adjacent frozen material — Authority-as-documented is architecturally orphaned even relative to its own sibling ADRs."
+  ],
+  "new_core_representation_required": "YES",
+  "primary_disposition": "TRUE_GAP",
+  "semantic_conflicts": [
+    "ADR-24-21 (orphaned, historical constitutional grounding) vs ADR-MPS-CONSTITUTIONAL-INVARIANTS.md (current constitution, silent on actor/authority) — a live semantic conflict/gap in the authority chain itself that any AUTHORITY kernel decision must resolve before ADR-24-21 can be cited as canonical."
+  ]
+}

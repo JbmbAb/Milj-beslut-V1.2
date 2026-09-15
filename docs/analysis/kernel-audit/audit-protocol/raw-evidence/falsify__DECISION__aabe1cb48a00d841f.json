@@ -1,0 +1,102 @@
+{
+  "candidate": "DECISION",
+  "canonical_source_of_truth": "NONE. No single file/ADR today governs a general Decision concept. The closest partial authorities are: ADR-24-25-Execution-Identity-Attempt.md (constitutional; binds PromotionDecisionArtifact into the execution/promotion model) and ADR-24-21-Actor-Identity-Trust.md (constitutional; ACT-21-I10 authority-evidence binding rule) for the narrow internal-promotion-governance sense, and AI-GOVERNANCE-AND-HUMAN-AUTHORITY-01.md (non-compliance-claim mapping document, explicitly not gated on the reproducible-checkpoint track) which is the only document that names the general gap (AI-GOV-3) but freezes no contract for it.",
+  "confidence": "STRONG",
+  "delta_category": "NEW_CORE_TYPE",
+  "evidence_refs": [
+    "docs/architecture/AI-GOVERNANCE-AND-HUMAN-AUTHORITY-01.md:57-79 (§2, human decision authority rule + explicit Gap paragraph)",
+    "docs/architecture/AI-GOVERNANCE-AND-HUMAN-AUTHORITY-01.md:96-111 (§3, GENERATED != DECISION, observation/interpretation/decision separation)",
+    "docs/architecture/AI-GOVERNANCE-AND-HUMAN-AUTHORITY-01.md:285-291 (AI-GOV-3, named open gap: decision-subject artifact typing)",
+    "docs/architecture/ADR-24-25-Execution-Identity-Attempt.md:173-177 (EXEC-25-I10/I11, PromotionDecisionArtifact reference obligations)",
+    "docs/architecture/ADR-24-25-Execution-Identity-Attempt.md:142-143 (EXEC-25-I3, Attempt Immutability)",
+    "docs/architecture/ADR-24-21-Actor-Identity-Trust.md:151-152 (ACT-21-I10, Authority Evidence Binding for governance decisions)",
+    "docs/architecture/ADR-MPS-CONSTITUTIONAL-INVARIANTS.md:60-104 (mps-decision-governance identity layers; the false-friend 'Decision' namespace)",
+    "docs/architecture/ADR-MPS-CORE-001.md:154 and 168-186 (Category B Evidence classification of PromotionDecisionArtifact; Trust Boundary Recalculation Rule forbidding re-derivation of a Decision)",
+    "packages/mps-promotion/src/contracts/PromotionDecisionArtifact.ts:1-12 (no decided_by/timestamp field)",
+    "packages/mps-evolution/src/governance/PromotionDecisionArtifact.ts:1-15 (competing schema with decided_by/evaluated_at)",
+    "packages/mps-evolution/src/core/types.ts:17-18,54-59 (duplicate ArtifactType tags; CanonicalArtifact has no timestamp field)",
+    "packages/mps-governance/src/artifacts/GovernanceApprovalArtifact.ts:1-12",
+    "packages/mps-governance/src/contracts/ApprovalArtifact.ts:1-8 (second, non-unified approval hierarchy)",
+    "packages/mps-governance/src/engine/GovernancePolicyEngine.ts:56-85 (decision-computation logic; final decision as governed output)",
+    "packages/mps-registry/src/contracts/RegistryMutationArtifacts.ts:9-10 (REG-24-13-I1, mutation gated on promotion_decision_ref)",
+    "packages/mps-decision-governance/src/DecisionImpactIdentity.ts and MaterializationContract.ts:5 (false-friend 'Decision' = extracted legal-document knowledge, not a choice-record)",
+    "packages/mps-core/src/types.ts:228-230 (DecisionClock, mechanism only, not the concept)"
+  ],
+  "existing_semantic_candidates_examined": [
+    {
+      "file": "packages/mps-decision-governance/src/DecisionImpactIdentity.ts",
+      "name": "DecisionImpactArtifact / mps-decision-governance (ADR-MPS-CONSTITUTIONAL-INVARIANTS.md §3)",
+      "why_considered_and_verdict": "This is the platform's most prominent 'Decision' vocabulary at the constitutional root (ADR-MPS-CONSTITUTIONAL-INVARIANTS.md lines 60-104). Examined closely and REJECTED as a reuse candidate: DecisionImpact/EvidenceSet model the extracted regulatory *knowledge content of an external legal decision document* (a beslut) for retrieval, materialized via CAS lookup -> Parse -> DecisionFacts -> DecisionImpact (MaterializationContract.ts:5). It answers 'what does this legal decision say,' never 'what choice did this system/actor make among alternatives, at what point in time, under what authority.' It is a false-friend by name, not a semantic match. Flagged as a naming SEMANTIC_DUPLICATE risk for a reviewer choosing the bare name 'DecisionImpact' or 'EvidenceSet' as if it covered the candidate's semantics -- it does not."
+    },
+    {
+      "file": "packages/mps-promotion/src/contracts/PromotionDecisionArtifact.ts:1-12",
+      "name": "PromotionDecisionArtifact (mps-promotion)",
+      "why_considered_and_verdict": "Closest structural match: candidate_ref (subject), evaluation_ref (evidence), governance_approval_ref (authority), decision: PROMOTE|REJECT (the choice). Rejected as full reuse: no decided_by/timestamp field at all on this interface or on the CanonicalArtifact base type it extends (mps-evolution/src/core/types.ts:54-59 has no created_at/decided_at field anywhere), so governance question 2 (point-in-time + authority) is not uniformly answerable from this representation alone. Also only models a binary accept/reject of ONE candidate, never an enumerated set of identifiable alternatives (governance question 1 fails)."
+    },
+    {
+      "file": "packages/mps-evolution/src/governance/PromotionDecisionArtifact.ts:1-15",
+      "name": "PromotionDecisionArtifact (mps-evolution, second definition)",
+      "why_considered_and_verdict": "A second, non-identical interface for the same conceptual artifact: artifact_type 'PROMOTION_DECISION' (vs 'PROMOTION_DECISION_ARTIFACT' in mps-promotion), adds fitness, approved:boolean, reason, decided_by, evaluated_at that the mps-promotion variant lacks. Both 'PROMOTION_DECISION' and 'PROMOTION_DECISION_ARTIFACT' coexist as separate members of the shared ArtifactType union (mps-evolution/src/core/types.ts lines 17-18), i.e. the platform has two live, non-unified schemas for what should be one canonical decision record -- evidence against 'exactly one authoritative record' (governance question 5) and a reason ALREADY_REPRESENTED fails the lossless-reuse test."
+    },
+    {
+      "file": "packages/mps-governance/src/artifacts/GovernanceApprovalArtifact.ts:1-12 and packages/mps-governance/src/contracts/ApprovalArtifact.ts:1-8",
+      "name": "GovernanceApprovalArtifact / ApprovalArtifact",
+      "why_considered_and_verdict": "A third, again non-identical, decision-shaped artifact: governance_result: GovernanceDecision (APPROVE|REJECT|REQUEST_CHANGES), decided_by, rationale, evidence_refs, promotion_decision_ref. Rejected as sole/sufficient reuse target: it is scoped specifically to approving/rejecting a prior PromotionDecision (a decision *about* a decision), not a general-purpose 'choice among alternatives' concept, and a separate ApprovalArtifact/GovernanceArtifact hierarchy exists in contracts/ that is not reconciled with it, reinforcing the multiplicity problem."
+    },
+    {
+      "file": "packages/mps-governance/src/artifacts/GovernanceReviewArtifact.ts:1-12",
+      "name": "GovernanceReviewArtifact",
+      "why_considered_and_verdict": "Individual reviewer input (subject_ref, evidence_refs, reviewer, decision, comments) folded by GovernancePolicyEngine.ts:56-68 into a final GovernanceApprovalArtifact. This is reasoning-material-plus-a-vote per reviewer, closer to Evidence feeding a Decision than to the Decision itself; considered and set aside as a component, not the concept."
+    },
+    {
+      "file": "docs/architecture/ADR-24-25-Execution-Identity-Attempt.md lines 173-177 (EXEC-25-I10, EXEC-25-I11)",
+      "name": "ExecutionAttempt / PromotionDecisionArtifact linkage (ADR-24-25, constitutional)",
+      "why_considered_and_verdict": "The strongest constitutional anchor found: 'PromotionDecisionArtifact SHALL reference exactly one ExecutionAttemptArtifact' and 'SHALL reference the ExecutionOutcomeArtifact and ObservedExecutionGraphArtifact used as decision evidence' -- i.e. the ADR itself already separates Evidence (Outcome+ObservedGraph), Decision (Promotion), from what happens next (RegistryMutationArtifact), matching the candidate's own distinguishing test almost exactly. Examined as the best-fit existing constitutional pattern, but it governs promotion-of-execution-candidates specifically (internal platform self-governance), not a general kernel concept usable for an arbitrary autonomous real-world action choosing among alternatives -- confirmed by AI-GOVERNANCE-AND-HUMAN-AUTHORITY-01.md's own gap note that these mechanisms govern 'governance actions on data,' not a general decision-subject artifact."
+    },
+    {
+      "file": "packages/mps-governance/src/types.ts:7-10",
+      "name": "GovernanceDecision (enum type)",
+      "why_considered_and_verdict": "A controlled vocabulary (APPROVE|REJECT|REQUEST_CHANGES) reused across GovernanceReviewArtifact and GovernanceApprovalArtifact. Useful raw material for a future canonical Decision type's 'chosen value' field, but is a value enum, not a governed artifact/record with identity, authority-binding, and immutability -- does not by itself satisfy any of the five governance questions."
+    },
+    {
+      "file": "packages/mps-core/src/types.ts:228-230",
+      "name": "DecisionClock",
+      "why_considered_and_verdict": "A pure timestamp-provider interface ('now(): Date'), a mechanism utility with no semantic content about a choice. Rejected outright as irrelevant beyond a naming coincidence."
+    }
+  ],
+  "explanation": "DECISION was tested in order against the repository's actual constitutional documents and TypeScript contracts, not just against similarly-named types.\n\n(1) WRONG_ABSTRACTION_LEVEL rejected: the platform already treats \"decision\" as a load-bearing normative boundary, not an implementation concern. ADR-24-21 (Actor-Identity-Trust, constitutional) ACT-21-I10 requires \"Any governance decision requiring mutation authority SHALL reference exactly one AuthorityEvidenceArtifact,\" and packages/mps-registry/src/contracts/RegistryMutationArtifacts.ts:9-10 hard-gates state mutation on a `promotion_decision_ref` (REG-24-13-I1: \"Registry SHALL NOT mutate state without a valid PromotionDecisionArtifact reference\"). This is core governance plumbing, not UI/logging/backend-swap material.\n\n(2) MECHANISM_ONLY rejected: packages/mps-governance/src/engine/GovernancePolicyEngine.ts:56-85 shows the *output* of decision logic (`governance_result`, `decided_by`, `rationale`) is itself the governed artifact, not a description of how a vote was computed. ADR-MPS-CORE-001.md:180-186 explicitly forbids re-deriving a Decision from a stale Category-C derived value, treating Decision as a distinct, non-recomputable normative fact, not a mechanism detail.\n\n(3) ALREADY_REPRESENTED — tested via the Lossless Semantic Reuse Test below — FAILS. (4) SEMANTIC_DUPLICATE — the existing decision-shaped artifacts are not identical to each other (see schema drift below), so this class does not cleanly apply either; noted as a secondary finding. (5) DERIVABLE rejected: ADR-MPS-CORE-001.md's Trust Boundary Recalculation Rule (§5.2) explicitly forbids reusing a recomputed derived value as authorization for a new decision (\"Old FitnessScore → [forbidden] → New PromotionDecision\"), and EXEC-25-I3 (ADR-24-25) requires Attempt/Decision immutability after publication — i.e. the platform's own constitution requires a decision to be explicitly, immutably recorded at decision time, not reconstructed from Evidence+Outcome after the fact. (6) NOT_TECHNOLOGY_INDEPENDENT rejected: \"who chose what, when, under what authority\" survives any swap of the underlying selection mechanism (human review, deterministic policy engine, or an LLM), matching EXEC-25-I15 Runtime Independence already asserted for the adjacent Execution model. (7) NOT_INDEPENDENTLY_GOVERNED rejected: the concept is *already* independently instantiated as its own top-level `CanonicalArtifact` (own content_hash/identity, own artifact_type tag) in at least four separate packages (mps-core's trust-boundary example, mps-evolution, mps-promotion, mps-governance) rather than being folded as a field onto Evidence or Outcome artifacts — convergent, repeated, independent re-invention of the same shape is itself evidence that the concept needs its own lifecycle, not that it is derivable from something else's.\n\nHaving survived 1-7, disposition reaches (8) CORE_SEMANTIC_SURVIVES / TRUE_GAP — but this is a normalization-flavored true gap, not a from-nothing one: docs/architecture/AI-GOVERNANCE-AND-HUMAN-AUTHORITY-01.md is the repository's own first-party admission of exactly this gap. §2 states the constitutional rule (\"FINAL DECISION AUTHORITY = an explicitly identified, authorized human actor... on the artifact that constitutes the decision\") and its own Gap paragraph (lines 73-79) says: \"no artifact type in this codebase is yet explicitly named or typed as a legal/administrative decision subject to this rule... The mechanisms above govern governance actions on data (import, promotion, source approval), not yet an end-user-facing decision artifact.\" §3 independently names \"observation → interpretation → decision\" as an existing conceptual separation (\"GENERATED != DECISION,\" line 98) that has never been reified as its own canonical artifact family. §9's AI-GOV-3 explicitly calls for \"Decision-subject artifact typing... distinct from governance actions on data\" as a still-open, unscheduled item. This is a documented, self-identified TRUE_GAP, corroborated independently by the code-level drift found below.",
+  "falsification_code": "CORE_SEMANTIC_SURVIVES",
+  "lossless_reuse_test": {
+    "governance_questions_answered": [
+      {
+        "answerable_from_existing_representation": false,
+        "explanation": "Every existing decision-shaped artifact (PromotionDecisionArtifact x2, GovernanceApprovalArtifact) models a binary/tri-state gate on a single named candidate (decision: PROMOTE|REJECT, or governance_result: APPROVE|REJECT|REQUEST_CHANGES). None carries a structural field enumerating the set of identifiable alternatives that were considered; only the single subject under review is referenced (candidate_ref / subject_ref / promotion_decision_ref).",
+        "question": "What specific choice was made among identifiable alternatives?"
+      },
+      {
+        "answerable_from_existing_representation": false,
+        "explanation": "Answerable for the mps-evolution variant (decided_by: ActorReference, evaluated_at: string present) but NOT for the mps-promotion variant of the same conceptual artifact (packages/mps-promotion/src/contracts/PromotionDecisionArtifact.ts has no decided_by or timestamp field at all), and CanonicalArtifact, the shared base type, carries no timestamp field (mps-evolution/src/core/types.ts:54-59). The answer therefore depends on which of two non-identical schemas happened to be used, which is not a uniform, reconstructable answer.",
+        "question": "At what point in time was the choice made, and under what authority?"
+      },
+      {
+        "answerable_from_existing_representation": true,
+        "explanation": "evaluation_ref / evidence_refs fields are present across the promotion and governance-approval variants and reliably point at the reasoning material considered (PromotionEvaluationArtifact, GovernanceReviewArtifact refs).",
+        "question": "What material was considered in making the choice?"
+      },
+      {
+        "answerable_from_existing_representation": true,
+        "explanation": "Within the narrow promotion pipeline this separation is real and constitutional: ADR-24-25 EXEC-25-I10/I11 keep Evidence (Outcome + ObservedExecutionGraph), Decision (PromotionDecisionArtifact), and what-happens-next (RegistryMutationRequestArtifact/RegistryMutationExecutionArtifact) as distinct referenced artifacts.",
+        "question": "Can this exact choice be distinguished, structurally, from the reasoning material that led to it and from what happened afterward?"
+      },
+      {
+        "answerable_from_existing_representation": false,
+        "explanation": "No. Two non-identical PromotionDecisionArtifact interfaces coexist under two different ArtifactType tags ('PROMOTION_DECISION_ARTIFACT' and 'PROMOTION_DECISION', both listed in mps-evolution/src/core/types.ts lines 17-18) with different field sets, and a separate GovernanceApprovalArtifact/ApprovalArtifact pair shows the same pattern. Unlike mps-decision-governance's `dg-*` canonical-version namespace ownership rule (ADR-MPS-CONSTITUTIONAL-INVARIANTS.md §5, C-02), there is no equivalent single-authority freeze preventing 'Decision' identity from drifting across packages.",
+        "question": "Is there exactly one authoritative, immutable-after-the-fact record of what was chosen?"
+      }
+    ],
+    "result": "FAIL"
+  },
+  "minimum_semantic_delta": "A single, kernel-owned, canonically-versioned Decision artifact family (analogous in rigor to how mps-decision-governance owns the `dg-*` namespace for DecisionImpact identity) that: (1) references the full set of identifiable alternatives considered, not merely the one candidate that was chosen -- a field that exists nowhere in the repository today; (2) makes the authority binding (an ActorReference / AuthorityEvidenceArtifact reference) and the point-in-time timestamp mandatory, non-optional fields on every instance, closing the drift between the mps-promotion and mps-evolution variants; (3) references, but stays structurally distinct from, the evidence/evaluation material considered beforehand and the Outcome artifact that follows, per the separation already asserted informally in ADR-24-25 and AI-GOVERNANCE-AND-HUMAN-AUTHORITY-01.md §3 ('GENERATED != DECISION'); (4) is immutable after publication and independently content-addressed, so it can supersede -- rather than sit alongside -- the currently-duplicated PROMOTION_DECISION / PROMOTION_DECISION_ARTIFACT / GOVERNANCE_APPROVAL / GOVERNANCE_APPROVAL_ARTIFACT artifact_type variants as their common canonical ancestor. This is described only as a semantic delta, not implemented here.",
+  "new_core_representation_required": "YES",
+  "primary_disposition": "TRUE_GAP"
+}

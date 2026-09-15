@@ -1,0 +1,113 @@
+{
+  "candidate": "OUTCOME",
+  "canonical_source_of_truth": "docs/architecture/ADR-24-25-Execution-Identity-Attempt.md (defines Execution Outcome and its invariants EXEC-25-I1/I3/I6/I7/I11) together with docs/architecture/ADR-29-Runtime-Contract-Freeze-ExecutionKernel.md (freezes the ExecutionOutcome identity as part of Runtime Contract Freeze v1.0.0 and is the active, README-indexed authority, README.md:74-75); implemented in packages/mps-runtime/src/contracts/freeze/FrozenIdentities.ts",
+  "confidence": "STRONG",
+  "constitutional_dependencies_existing": [
+    "ADR-MPS-CONSTITUTIONAL-INVARIANTS.md (MIMER-20-I6 Provenance Completeness, MIMER-20-I7 Replay Determinism, MIMER-20-I9 Evidence Preservation, MIMER-20-I12 Canonical Graph Integrity, MIMER-20-I13 Canonical Reference Closure — operationalized, not redefined, by ADR-24-25 per its own Constitutional Alignment section)",
+    "ADR-29-Runtime-Contract-Freeze-ExecutionKernel.md (Runtime Contract Freeze v1.0.0 — the identity freeze that locks ExecutionOutcome)"
+  ],
+  "constitutional_guarantees_required_by_delta": [],
+  "delta_category": "NONE",
+  "discovered_candidates": [
+    {
+      "name": "ObservedExecutionGraphArtifact",
+      "why": "Already the platform's structural 'neutral observation' counterpart to Outcome's classification (ADR-24-25). Could itself be relevant if a future audit round separately considers an EVIDENCE/OBSERVATION-shaped kernel concept, but it is not new here — just noted for completeness."
+    }
+  ],
+  "evidence_refs": [
+    "docs/architecture/ADR-24-25-Execution-Identity-Attempt.md (Normative Definitions/Artifact Model: 'Execution Outcome', 'Observed Execution Graph'; invariants EXEC-25-I1, I3, I6, I7, I11, I20)",
+    "docs/architecture/ADR-29-Runtime-Contract-Freeze-ExecutionKernel.md:12-19 (freezes ExecutionAttempt/ExecutionOutcome/ExecutionManifest identities; ExecutionKernel as sole client-facing motor API)",
+    "docs/architecture/README.md:20-23 (ADR-24-20 marked superseded/NORMATIVE_TODAY:false)",
+    "docs/architecture/README.md:74-75 (ADR-29/ADR-30 listed as active domain/TV contracts, not superseded)",
+    "packages/mps-runtime/src/contracts/freeze/FrozenIdentities.ts:36-130 (FrozenExecutionOutcomeIdentityV1/V2, createFrozenExecutionOutcomeIdentityV2, validateFrozenExecutionOutcomeIdentity fail-closed on tamper)",
+    "packages/mps-runtime/src/contracts/freeze/FrozenIdentities.ts:195-203 (FROZEN_ARTIFACT_TYPES includes 'execution_outcome')",
+    "packages/mps-runtime/src/execution/ExecutionOutcomeArtifact.ts:1-18 (ExecutionOutcomeArtifact interface, artifact_type 'execution_outcome')",
+    "packages/mps-runtime/src/contracts/model/ExecutionContracts.ts:25 (ExecutionOutcome alias), :53-66 (ExecutionSession.outcome_ref)",
+    "packages/mps-runtime/src/kernel/RuntimeState.ts:20 (execution graph node kind includes 'outcome')",
+    "packages/mps-runtime/src/kernel/ExecutionKernel.ts:12-15,68,117,171-203 (outcome created and wired into runtime motor via createFrozenExecutionOutcomeIdentityV2)",
+    "packages/mps-runtime/src/unit/FrozenExecutionOutcomeSelfConsistency.test.ts:1-36 (self-rehash, non-aliasing, fail-closed tamper rejection, V1 historical readability)",
+    "packages/mps-governance/src/replay/ReplayArtifact.ts:14 (original_outcome_ref — outcome traceability into replay)",
+    "docs/architecture/ADR-24-21-Actor-Identity-Trust.md:215 (PromotionDecisionArtifact listed among scoped artifacts)",
+    "packages/mps-decision-governance/src/MaterializationContract.ts:47-61 (MaterializationOutcome — rejected reuse candidate, mechanism-only pipeline return type)",
+    "packages/mps-decision-governance/src/DecisionImpactIdentity.ts:30-67 (DecisionImpactIdentity/Artifact — rejected reuse candidate, aggregate statistical indicator not per-action outcome)",
+    "docs/architecture/AI-GOVERNANCE-AND-HUMAN-AUTHORITY-01.md:98-109 (GENERATED != OBSERVED != SOURCE FACT != DECISION; observation/interpretation/decision separation framing)",
+    "packages/mps-governance/src/engine/GovernancePolicyEngine.ts:9; packages/mps-evolution/src/governance/PromotionDecisionArtifact.ts:5; packages/mps-promotion/src/contracts/PromotionArtifacts.ts:25; packages/mps-promotion/src/contracts/PromotionDecisionArtifact.ts:3 (PromotionDecisionArtifact defined independently in 4 places — noted as a SEMANTIC_DUPLICATE risk for the DECISION candidate track, not ruled on here)"
+  ],
+  "existing_semantic_candidates_examined": [
+    {
+      "file": "packages/mps-runtime/src/contracts/freeze/FrozenIdentities.ts:36-130; packages/mps-runtime/src/execution/ExecutionOutcomeArtifact.ts:1-18",
+      "name": "FrozenExecutionOutcomeIdentity / ExecutionOutcomeArtifact",
+      "why_considered_and_verdict": "Primary reuse candidate. Frozen, content-hashed, versioned (V1/V2), fail-closed-validated artifact type 'execution_outcome' bound 1:1 to the ExecutionAttempt that produced it and consumed as decision evidence by PromotionDecisionArtifact (ADR-24-25 EXEC-25-I7, I11). Verdict: matches candidate semantics closely enough that this IS the existing representation — ALREADY_REPRESENTED."
+    },
+    {
+      "file": "docs/architecture/ADR-24-25-Execution-Identity-Attempt.md (Artifact Model section, 'Observed Execution Graph'); packages/mps-runtime/src/kernel/RuntimeState.ts:20",
+      "name": "ObservedExecutionGraphArtifact",
+      "why_considered_and_verdict": "The neutral 'what actually happened' projection, structurally distinct from the classified ExecutionOutcome. Considered as the complementary 'observation' half of the reuse composite (governance Q3), not a duplicate of Outcome itself — it's a separate, narrower artifact that together with ExecutionOutcome fully covers the candidate's 'state of affairs' semantics."
+    },
+    {
+      "file": "packages/mps-decision-governance/src/MaterializationContract.ts:47-61",
+      "name": "MaterializationOutcome",
+      "why_considered_and_verdict": "Rejected. A materialization pipeline call's return-value union (status: REUSED|CREATED plus steps/impact_id), describing HOW a deterministic pipeline ran, not a normative resulting state of a decision/action. Not an artifact type, no content_hash/identity, no independent governance. MECHANISM_ONLY; name-collision risk only."
+    },
+    {
+      "file": "packages/mps-decision-governance/src/DecisionImpactIdentity.ts:30-67",
+      "name": "DecisionImpactIdentity / DecisionImpactArtifact",
+      "why_considered_and_verdict": "Rejected. An aggregated statistical indicator (e.g. permit counts by jurisdiction/period) materialized from many source decisions — a population-level metric, not the resulting state of any single decision/action. Wrong grain to serve as OUTCOME."
+    },
+    {
+      "file": "packages/mps-runtime/src/contracts/freeze/FrozenIdentities.ts:176-190",
+      "name": "ExecutionTicketStatus",
+      "why_considered_and_verdict": "Rejected. Queue/scheduling status (pending/leased/running/completed/failed/retry) — describes runtime scheduling mechanism, not a governed resulting state of affairs. MECHANISM_ONLY."
+    },
+    {
+      "file": "packages/mps-governance/src/engine/GovernancePolicyEngine.ts:9; packages/mps-evolution/src/governance/PromotionDecisionArtifact.ts:5; packages/mps-promotion/src/contracts/PromotionArtifacts.ts:25 and PromotionDecisionArtifact.ts:3",
+      "name": "PromotionDecisionArtifact (multiple definitions)",
+      "why_considered_and_verdict": "Considered as the downstream consumer of ExecutionOutcome (references it as decision evidence per EXEC-25-I11), not itself an outcome representation — this is the DECISION candidate's territory. Noted separately as a possible internal SEMANTIC_DUPLICATE risk (same name, 4 independent type definitions across 3 packages) for that audit track, not ruled on here."
+    }
+  ],
+  "explanation": "The platform already has a frozen, independently governed, actively-implemented \"Outcome\" concept — ExecutionOutcome / FrozenExecutionOutcomeIdentity — that matches the candidate's minimal definition closely enough that minting a new core type for OUTCOME would duplicate existing normative machinery rather than fill a gap.\n\nADR-24-25 (Execution Identity & Attempt Model) defines \"Execution Outcome\" explicitly as \"Canonical representation av resultatet\" (SUCCESS | FAILURE | PARTIAL | CANCELLED | UNKNOWN) that is produced from exactly one ExecutionAttemptArtifact (the \"action\"), is bound to that attempt via a mandatory reference (EXEC-25-I7: \"ExecutionAttemptArtifact SHALL reference exactly one ExecutionOutcomeArtifact\"), and is subsequently consumed as decision evidence by governance (EXEC-25-I11: \"PromotionDecisionArtifact SHALL reference the ExecutionOutcomeArtifact ... used as decision evidence\"). ADR-29 froze this identity into the runtime as part of \"Runtime Contract Freeze (v1.0.0)\" and made ExecutionKernel \"the only client-facing motor API\" that all domain packages (present and future) must go through — meaning any future Governed-Autonomous-Operations domain, per the platform's own architecture, would be structurally required to route its actions through ExecutionKernel and would therefore already receive ExecutionOutcome artifacts for its attempts rather than needing a parallel concept.\n\nIn code this is not aspirational: packages/mps-runtime/src/contracts/freeze/FrozenIdentities.ts implements FrozenExecutionOutcomeIdentityV1/V2 with a canonical content-hash body, a fail-closed validateFrozenExecutionOutcomeIdentity (rejects tampered attempt/capability-execution refs), and an explicit contract-version lifecycle (V1 historical, V2 self-validating) — i.e. it already has independent governance/versioning of its own (satisfying governance Q5). packages/mps-runtime/src/unit/FrozenExecutionOutcomeSelfConsistency.test.ts proves self-rehash, non-aliasing, and fail-closed tamper rejection. packages/mps-runtime/src/kernel/ExecutionKernel.ts wires a first-class \"outcome\" node into the runtime execution graph (RuntimeState.ts:20, kind \"capability\" | \"workflow_step\" | \"outcome\"), and packages/mps-runtime/src/contracts/model/ExecutionContracts.ts gives ExecutionSession an outcome_ref alongside its manifest/ticket/attempt/replay refs — so outcomes are durably, canonically bound into the same reference graph as the action that produced them (governance Q4 — traceable to the producing attempt).\n\nThe architecture also already structurally separates the neutral \"what happened\" record from the classified result: ADR-24-25 defines a distinct ObservedExecutionGraphArtifact (\"Canonical projektion av exekveringsresultatet\") alongside ExecutionOutcomeArtifact — i.e. the \"state of affairs\" observation and the outcome classification are already two separate, cross-referenced artifact types (partially satisfying governance Q3; the classification (success/failure) is itself a technical determination, not yet a real-world \"goodness\" evaluation layer, but that gap is a downstream DECISION/EVIDENCE-layer concern, not evidence that Outcome itself is missing).\n\nComparison against \"what was expected/intended beforehand\" (governance Q2) is not a single first-class field on ExecutionOutcomeArtifact, but is fully reconstructible without semantic loss by joining the existing, already-linked ExecutionManifestArtifact (the canonical record of intent: inputs/configuration/policies, ADR-24-25 \"Execution Manifest\") against ExecutionOutcome + ObservedExecutionGraph via the attempt_ref/manifest_ref chain that EXEC-25-I20 and I7 already mandate. This is DERIVABLE-strength reuse, not a gap requiring new normative structure.\n\nI examined other repository representations carrying the word \"outcome\" and rejected them as distinct or mechanism-only: MaterializationOutcome (packages/mps-decision-governance/src/MaterializationContract.ts:47-61) is a pipeline call's return-shape (REUSED|CREATED with steps) — it describes HOW a materialization pipeline ran, not a normative resulting state of a decision/action, and is not an artifact type at all (MECHANISM_ONLY, rejected as reuse candidate, noted as a naming collision risk only). DecisionImpactIdentity/Artifact (packages/mps-decision-governance/src/DecisionImpactIdentity.ts:30-67) is an aggregated statistical indicator materialized across many source decisions (e.g. permit counts per jurisdiction/period) — a population-level metric, not the resulting state of one specific decision/action, so it does not carry OUTCOME's per-action semantics. ExecutionTicketStatus (pending/leased/running/completed/failed/retry, FrozenIdentities.ts:176-190) is queue/scheduling mechanism state, not a normative resulting state of affairs.\n\nI found no top-level constitutional treatment of \"Outcome\": ADR-MPS-CONSTITUTIONAL-INVARIANTS.md and ADR-MPS-CORE-001.md contain no mention of it — the concept is governed one layer down, at ADR-24-25/ADR-29, which is the active, README-indexed (section 3, \"Active domain / TV contracts\", README.md:74-75) authority for it. That is enough independent, non-superseded governance to ground reuse (ADR-24-20, the old Package-24 constitution, is explicitly marked superseded/NORMATIVE_TODAY:false in README.md:20-23, but ADR-29 — which freezes exactly the Execution Outcome identity ADR-24-25 defines — is not superseded and is still listed as active).\n\nNet: the candidate's core semantics (a resulting state, produced by and traceable to a specific action, distinct in record from the intent that preceded it, independently versioned/governed) already exist, are frozen, are tested for fail-closed integrity, and are architecturally mandatory for any new domain (including a future GAO capability) to reuse rather than reinvent. Confidence is STRONG rather than PROVEN because the \"compare against intent\" and \"goodness judgment\" aspects require joining across artifacts rather than a single field, and because a GAO capability's real-world (non-execution-technical) consequence tracking is not yet demonstrated end-to-end in this repository — but nothing in that gap requires a new core artifact family; it composes on what already exists.",
+  "falsification_code": "ALREADY_REPRESENTED",
+  "lossless_reuse_test": {
+    "governance_questions_answered": [
+      {
+        "answerable_from_existing_representation": true,
+        "explanation": "ExecutionOutcomeArtifact.result (SUCCESS/FAILURE/PARTIAL/CANCELLED/UNKNOWN) plus the referenced ObservedExecutionGraphArtifact give both a classified result and a neutral projection of what happened, both content-hashed and frozen under ADR-24-25.",
+        "question": "What state of affairs existed after a given decision/action was carried out?"
+      },
+      {
+        "answerable_from_existing_representation": true,
+        "explanation": "Not a single field, but fully reconstructible without semantic loss: ExecutionManifestArtifact (the canonical record of intent — inputs/configuration/policies) is bound to the same ExecutionAttempt as the Outcome via manifest_ref/attempt_ref (EXEC-25-I20, I7), so 'expected vs actual' is a join over already-linked, same-authority artifacts, not a lost fact.",
+        "question": "Can that resulting state be compared against what was expected/intended beforehand?"
+      },
+      {
+        "answerable_from_existing_representation": true,
+        "explanation": "ADR-24-25 already separates ObservedExecutionGraphArtifact (neutral observation) from ExecutionOutcomeArtifact (result classification). The classification is a technical success/failure determination, not yet a real-world value judgment — that higher evaluative layer is genuinely thin, but it is a DECISION/EVIDENCE-layer extension point, not proof that Outcome itself is unrepresented.",
+        "question": "Is the resulting state recorded as an observation, structurally distinct from any judgment about whether it was 'good'?"
+      },
+      {
+        "answerable_from_existing_representation": true,
+        "explanation": "EXEC-25-I7 mandates ExecutionAttemptArtifact reference exactly one ExecutionOutcomeArtifact; FrozenExecutionOutcomeIdentity carries attempt_ref and (V2) capability_execution_ref, and validateFrozenExecutionOutcomeIdentity fail-closes on tampering of that binding (packages/mps-runtime/src/unit/FrozenExecutionOutcomeSelfConsistency.test.ts).",
+        "question": "Can the system trace which decision produced this outcome?"
+      },
+      {
+        "answerable_from_existing_representation": true,
+        "explanation": "Yes, and this already exists: outcome_contract_version (V1 historical / V2 current), its own content_hash, its own artifact_type 'execution_outcome' listed in FROZEN_ARTIFACT_TYPES, and immutability after publication (EXEC-25-I3) — independent lifecycle governance is already live, not something a new core type would need to add.",
+        "question": "Does this resulting state need governance/versioning of its own, independent of the decision it followed and the evidence that documents it?"
+      }
+    ],
+    "result": "PASS"
+  },
+  "minimum_semantic_delta": "No new core artifact family, contract, relation, or attribute is required to serve the candidate's stated semantics. The existing chain ExecutionManifest(intent) → ExecutionAttempt(action) → ExecutionOutcome + ObservedExecutionGraph(result), already mandatorily bound by EXEC-25-I7/I11/I20 and mandatorily reused by any domain client under ADR-29's single-motor-API rule, already answers the material governance questions. If a future Governed-Autonomous-Operations capability needs domain-specific (non-execution-technical) consequence tracking — e.g. an environmental/regulatory effect beyond 'did the code run successfully' — that would be a downstream attribute or artifact hung off outcome_ref/attempt_ref within the existing reference-closure model (at most a NEW_NORMATIVE_ATTRIBUTE later, not a new independently-governed core type), and is not established as a proven need by anything found in this repository today.",
+  "negative_findings": [
+    "No mention of 'outcome' anywhere in ADR-MPS-CONSTITUTIONAL-INVARIANTS.md or ADR-MPS-CORE-001.md — the concept is governed one layer down (ADR-24-25/ADR-29), not at the top constitutional layer.",
+    "ExecutionOutcomeArtifact carries no explicit 'expected/intended' field to diff against — the expected-vs-actual comparison is derivable via a join across ExecutionManifest + ExecutionOutcome/ObservedExecutionGraph, not a single first-class field.",
+    "No demonstrated end-to-end example in this repository of a domain-specific, non-execution-technical (e.g. real-world environmental/regulatory) consequence being recorded as an 'outcome' distinct from code-execution success/failure — the gap, if any, is at that higher evaluative layer, not at the core Outcome representation.",
+    "PromotionDecisionArtifact — the concept that consumes ExecutionOutcome as decision evidence — is independently redefined in at least 4 separate files across 3 packages (mps-governance, mps-evolution, mps-promotion), a duplication risk relevant to the DECISION candidate, not OUTCOME."
+  ],
+  "new_core_representation_required": "NO",
+  "primary_disposition": "LATENT_REUSE",
+  "semantic_conflicts": [
+    "MaterializationOutcome (packages/mps-decision-governance/src/MaterializationContract.ts:47) and MaterializationOutcome usage in MaterializationPipeline.ts share the 'Outcome' name with the candidate but describe an unrelated, mechanism-level pipeline return type — a naming collision, not a semantic duplicate, worth flagging so a future kernel does not conflate the two.",
+    "PromotionDecisionArtifact is defined independently in packages/mps-governance/src/engine/GovernancePolicyEngine.ts, packages/mps-evolution/src/governance/PromotionDecisionArtifact.ts, and twice in packages/mps-promotion/src/contracts/ — a same-name, multiply-defined type that is the primary consumer of ExecutionOutcome as decision evidence; flagged for the DECISION candidate's own audit as a possible SEMANTIC_DUPLICATE, not resolved here."
+  ]
+}
