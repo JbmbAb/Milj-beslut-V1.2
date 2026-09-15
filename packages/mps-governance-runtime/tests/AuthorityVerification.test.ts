@@ -23,6 +23,8 @@ import type { CapabilityScopeArtifact } from "../../mps-governance/src/capabilit
 import {
   DELEGATION_STATUS_PREDICATE_TYPE,
   DELEGATION_STATUS_SCHEMA_VERSION,
+  AUTHORITY_DECISION_BINDING_VERSION,
+  toAuthorityDecisionBinding,
   verifyAuthorityAtDecisionTime,
   type AuthorityVerificationPort,
   type AuthorityVerificationRequest,
@@ -283,6 +285,10 @@ describe("MINIMUM-AUTHORITY-DELTA-01 — authority verification", () => {
     expect(result.closure.decision_time).toBe(T_DECISION);
     expect(result.closure.authority_refs.some((ref) => ref.artifact_id === "grant-user")).toBe(true);
     expect(result.closure.verification_evidence_refs).toContainEqual(f.statusRef);
+    const binding = toAuthorityDecisionBinding(result.closure);
+    expect(binding.authority_binding_version).toBe(AUTHORITY_DECISION_BINDING_VERSION);
+    expect(binding.decision_time).toBe(T_DECISION);
+    expect(binding.authority_refs).toEqual(result.closure.authority_refs);
   });
 
   it("rejects a valid signature from a key that is not the trust-anchor key", async () => {
