@@ -199,7 +199,7 @@ export async function verifyLuSourceAuthorityForAssessment(input: {
         authorityVerifier: input.issuer_verification,
         expectedSubjectV3: input.expected_subject_v3,
       });
-      if (!identityResult.verified) {
+      if ("reason" in identityResult) {
         throw new Error(
           `REJECT_LU_SOURCE_AUTHORITY: execution identity verification ${identityResult.reason}`,
         );
