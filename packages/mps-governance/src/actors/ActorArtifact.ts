@@ -14,13 +14,15 @@ export interface ActorArtifact extends ArtifactContract {
   readonly kind: ActorKind;
 
   /**
-   * Stable canonical identity. Optional only for historical actor artifacts;
-   * authority-critical verification rejects an actor that lacks this closure.
+   * Stable canonical identity. ActorArtifact is a versioned representation of
+   * domain participation/lifecycle state; identity_ref + identity_hash are the
+   * stable actor identity required by ACT-21-I9.
    */
   readonly identity_ref?: ArtifactReference;
   readonly identity_hash?: ContentHash;
 
-  readonly trust_domain_ref: ArtifactReference;
+  /** ACT-21-I3 permits one actor to participate in multiple trust domains. */
+  readonly trust_domain_refs: readonly ArtifactReference[];
   readonly lifecycle_ref: ArtifactReference;
 }
 
@@ -28,16 +30,35 @@ export type CanonicalActorIdentity =
   | HumanIdentityArtifact
   | ServiceIdentityArtifact;
 
-function reference(
-  value: ArtifactReference,
-  field: "trust_domain_ref" | "lifecycle_ref",
-): ArtifactReference {
+function reference(value: ArtifactReference, field: string): ArtifactReference {
   const artifactId = value.artifact_id.trim();
   const artifactType = value.artifact_type.trim();
   if (!artifactId || !artifactType) {
     throw new Error(`REJECT_CANONICAL_ACTOR: ${field} is required`);
   }
   return { artifact_id: artifactId, artifact_type: artifactType };
+}
+
+function domainReferences(values: readonly ArtifactReference[]): readonly ArtifactReference[] {
+  const normalized = values
+    .map((value, index) => reference(value, `trust_domain_refs[${index}]`))
+    .sort((left, right) =>
+      `${left.artifact_type}\u0000${left.artifact_id}`.localeCompare(
+        `${right.artifact_type}\u0000${right.artifact_id}`,
+      ),
+    );
+
+  for (let index = 1; index < normalized.length; index += 1) {
+    const previous = normalized[index - 1]!;
+    const current = normalized[index]!;
+    if (
+      previous.artifact_id === current.artifact_id &&
+      previous.artifact_type === current.artifact_type
+    ) {
+      throw new Error("REJECT_CANONICAL_ACTOR: duplicate trust_domain_ref");
+    }
+  }
+  return normalized;
 }
 
 function identityKind(identity: CanonicalActorIdentity): "human" | "service" {
@@ -48,7 +69,7 @@ function identityKind(identity: CanonicalActorIdentity): "human" | "service" {
 
 function actorBody(input: {
   readonly identity: CanonicalActorIdentity;
-  readonly trust_domain_ref: ArtifactReference;
+  readonly trust_domain_refs: readonly ArtifactReference[];
   readonly lifecycle_ref: ArtifactReference;
 }): Omit<ActorArtifact, "content_hash"> {
   const kind = identityKind(input.identity);
@@ -56,46 +77,41 @@ function actorBody(input: {
     artifact_id: input.identity.artifact_id,
     artifact_type: input.identity.artifact_type,
   };
-  const trustDomainRef = reference(input.trust_domain_ref, "trust_domain_ref");
+  const trustDomainRefs = domainReferences(input.trust_domain_refs);
   const lifecycleRef = reference(input.lifecycle_ref, "lifecycle_ref");
 
-  const identity = sha256ContentHash({
+  const representationIdentity = sha256ContentHash({
     artifact_type: "actor",
     kind,
     identity_ref: identityRef,
     identity_hash: input.identity.content_hash,
-    trust_domain_ref: trustDomainRef,
+    trust_domain_refs: trustDomainRefs,
     lifecycle_ref: lifecycleRef,
   });
 
   return {
-    artifact_id: `actor-${identity.value.slice(0, 24)}`,
+    artifact_id: `actor-${representationIdentity.value.slice(0, 24)}`,
     artifact_type: "actor",
-    references: [identityRef, trustDomainRef, lifecycleRef],
+    references: [identityRef, ...trustDomainRefs, lifecycleRef],
     kind,
     identity_ref: identityRef,
     identity_hash: input.identity.content_hash,
-    trust_domain_ref: trustDomainRef,
+    trust_domain_refs: trustDomainRefs,
     lifecycle_ref: lifecycleRef,
   };
 }
 
 /**
- * MINIMUM-AUTHORITY-DELTA-04A — canonical actor projection.
+ * Canonical Actor projection.
  *
- * This is a representation bridge only:
- * - actor kind is derived from the already-canonical identity type;
- * - identity bytes/hash are pinned into the actor;
- * - domain/lifecycle must already exist as canonical references supplied by
- *   the caller;
- * - no role, capability, grant, delegation, issuer, trust root or signature
- *   is created here.
- *
- * Therefore creating an ActorArtifact cannot by itself satisfy authority.
+ * ActorArtifact may change when domain participation or lifecycle evidence
+ * changes. The actor's canonical identity does not: it remains the pinned
+ * HumanIdentityArtifact/ServiceIdentityArtifact. This keeps ACT-21-I3 and
+ * ACT-21-I9 compatible without making runtime authority part of identity.
  */
 export function createActorArtifact(input: {
   readonly identity: CanonicalActorIdentity;
-  readonly trust_domain_ref: ArtifactReference;
+  readonly trust_domain_refs: readonly ArtifactReference[];
   readonly lifecycle_ref: ArtifactReference;
 }): ActorArtifact {
   const body = actorBody(input);
@@ -105,12 +121,6 @@ export function createActorArtifact(input: {
   };
 }
 
-/**
- * Canonical self-check for an ActorArtifact against the identity it claims.
- * Resolution of trust_domain_ref/lifecycle_ref remains the responsibility of
- * the authority/conformance boundary; this validator deliberately does not
- * reinterpret unresolved references as authority.
- */
 export function validateActorArtifact(
   artifact: ActorArtifact,
   identity: CanonicalActorIdentity,
@@ -120,7 +130,7 @@ export function validateActorArtifact(
   }
   const rebuilt = createActorArtifact({
     identity,
-    trust_domain_ref: artifact.trust_domain_ref,
+    trust_domain_refs: artifact.trust_domain_refs,
     lifecycle_ref: artifact.lifecycle_ref,
   });
 

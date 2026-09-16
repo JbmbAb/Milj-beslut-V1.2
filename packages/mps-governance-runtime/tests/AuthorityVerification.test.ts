@@ -86,20 +86,29 @@ async function fixture(options: {
 
   const lifecycle = {
     ...base("lifecycle-user", "actor_lifecycle", "3".repeat(64)),
-    state: "active",
+    identity_ref: { artifact_id: identity.artifact_id, artifact_type: identity.artifact_type },
+    identity_hash: identity.content_hash,
+    state: "ACTIVE",
     effective_from: "2026-01-01T00:00:00.000Z",
   } satisfies ActorLifecycleArtifact;
 
   const rootLifecycle = {
     ...base("lifecycle-root", "actor_lifecycle", "4".repeat(64)),
-    state: "active",
+    identity_ref: { artifact_id: rootIdentity.artifact_id, artifact_type: rootIdentity.artifact_type },
+    identity_hash: rootIdentity.content_hash,
+    state: "ACTIVE",
     effective_from: "2020-01-01T00:00:00.000Z",
   } satisfies ActorLifecycleArtifact;
 
   const domain = {
     ...base("domain-1", "trust_domain", "5".repeat(64)),
     anchor_ref: { artifact_id: "anchor-1", artifact_type: "trust_anchor" },
+    anchor_hash: h("8".repeat(64)),
     domain_name: "production",
+    authority_scope: "production",
+    constraints: [],
+    allowed_actor_types: ["human"],
+    delegation_rules: ["actor-delegation"],
   } satisfies TrustDomainArtifact;
 
   const actor = {
@@ -107,7 +116,9 @@ async function fixture(options: {
     kind: "human",
     identity_ref: { artifact_id: identity.artifact_id, artifact_type: identity.artifact_type },
     identity_hash: identity.content_hash,
-    trust_domain_ref: { artifact_id: domain.artifact_id, artifact_type: domain.artifact_type },
+    trust_domain_refs: [
+      { artifact_id: domain.artifact_id, artifact_type: domain.artifact_type },
+    ],
     lifecycle_ref: { artifact_id: lifecycle.artifact_id, artifact_type: lifecycle.artifact_type },
   } satisfies ActorArtifact;
 
@@ -116,7 +127,7 @@ async function fixture(options: {
     kind: "system",
     identity_ref: { artifact_id: rootIdentity.artifact_id, artifact_type: rootIdentity.artifact_type },
     identity_hash: rootIdentity.content_hash,
-    trust_domain_ref: { artifact_id: domain.artifact_id, artifact_type: domain.artifact_type },
+    trust_domain_refs: [],
     lifecycle_ref: { artifact_id: rootLifecycle.artifact_id, artifact_type: rootLifecycle.artifact_type },
   } satisfies ActorArtifact;
 
@@ -124,8 +135,9 @@ async function fixture(options: {
     ...base("anchor-1", "trust_anchor", "8".repeat(64)),
     anchor_name: "production-root",
     governance_profile: "authority-v1",
-    root_actor_ref: { artifact_id: rootActor.artifact_id, artifact_type: rootActor.artifact_type },
-    root_actor_hash: rootActor.content_hash,
+    root_binding_type: "actor",
+    root_ref: { artifact_id: rootActor.artifact_id, artifact_type: rootActor.artifact_type },
+    root_hash: rootActor.content_hash,
     verification_key_id: rootKey.keyId,
   } satisfies TrustAnchorArtifact;
 
@@ -377,6 +389,85 @@ describe("MINIMUM-AUTHORITY-DELTA-01 — authority verification", () => {
     });
     expect(result).toMatchObject({ ok: false });
     if ("reason" in result) expect(result.reason).toMatch(/scope mismatch|non-canonical or ambiguous path/);
+  });
+
+  it("fails closed instead of recasting a source-authority root as an Actor root", async () => {
+    const f = await fixture();
+    const sourceRoot = base("source-root", "source_authority_root", "d".repeat(64));
+    const sourceAnchor = {
+      ...base("source-anchor", "trust_anchor", "e".repeat(64)),
+      anchor_name: "source-authority-root",
+      governance_profile: "authority-v1",
+      root_binding_type: "authority_artifact",
+      root_ref: {
+        artifact_id: sourceRoot.artifact_id,
+        artifact_type: sourceRoot.artifact_type,
+      },
+      root_hash: sourceRoot.content_hash,
+    } satisfies TrustAnchorArtifact;
+    const sourceDomain = {
+      ...base("source-domain", "trust_domain", "f".repeat(64)),
+      anchor_ref: {
+        artifact_id: sourceAnchor.artifact_id,
+        artifact_type: sourceAnchor.artifact_type,
+      },
+      anchor_hash: sourceAnchor.content_hash,
+      domain_name: "production-source-root",
+      authority_scope: "production",
+      constraints: [],
+      allowed_actor_types: ["human"],
+      delegation_rules: ["source-authority-chain"],
+    } satisfies TrustDomainArtifact;
+    const sourceActor = {
+      ...f.actor,
+      content_hash: h("0".repeat(64)),
+      trust_domain_refs: [
+        {
+          artifact_id: sourceDomain.artifact_id,
+          artifact_type: sourceDomain.artifact_type,
+        },
+      ],
+    } satisfies ActorArtifact;
+
+    const original = f.port.resolveVerifiedArtifact.bind(f.port);
+    const additional = new Map<string, ArtifactContract>([
+      [sourceRoot.artifact_id, sourceRoot],
+      [sourceAnchor.artifact_id, sourceAnchor],
+      [sourceDomain.artifact_id, sourceDomain],
+      [sourceActor.artifact_id, sourceActor],
+    ]);
+    const port: AuthorityVerificationPort = {
+      ...f.port,
+      async resolveVerifiedArtifact<T extends ArtifactContract>(
+        reference: PinnedArtifactReference,
+      ): Promise<VerifiedAuthorityArtifact<T>> {
+        const artifact = additional.get(reference.artifact_id);
+        if (artifact) {
+          if (
+            artifact.artifact_type !== reference.artifact_type ||
+            artifact.content_hash.algorithm !== reference.content_hash.algorithm ||
+            artifact.content_hash.value !== reference.content_hash.digest
+          ) {
+            throw new Error("REJECT_AUTHORITY_REFERENCE: source-root test pinned mismatch");
+          }
+          return { artifact: artifact as T };
+        }
+        return original(reference) as Promise<VerifiedAuthorityArtifact<T>>;
+      },
+    };
+
+    const result = await verifyAuthorityAtDecisionTime(port, {
+      ...f.request,
+      actor_ref: pinned(sourceActor),
+      trust_domain_ref: pinned(sourceDomain),
+      trust_anchor_ref: pinned(sourceAnchor),
+    });
+    expect(result.ok).toBe(false);
+    if ("reason" in result) {
+      expect(result.reason).toContain(
+        "source-authority root requires AuthorityEvidence source closure",
+      );
+    }
   });
 
   it("rejects an alternate trust root even when the rest of the closure is valid", async () => {
