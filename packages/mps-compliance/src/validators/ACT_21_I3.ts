@@ -27,11 +27,9 @@ export const ACT_21_I3: ValidationRule = {
         readonly trust_domain_refs?: readonly ArtifactReference[];
       };
       const refs = shapedActor.trust_domain_refs ?? [];
-      const allResolve =
-        refs.length > 0 &&
-        refs.every(
-          (reference) => context.resolve(reference)?.artifact_type === "trust_domain",
-        );
+      const allResolve = refs.every(
+        (reference) => context.resolve(reference)?.artifact_type === "trust_domain",
+      );
       const unique =
         new Set(
           refs.map(
@@ -51,8 +49,10 @@ export const ACT_21_I3: ValidationRule = {
             artifact_type: actor.artifact_type,
           },
           observation: ok
-            ? `actor explicitly participates in ${refs.length} resolvable trust domain(s)`
-            : "actor trust-domain participation is absent, duplicated, or unresolved",
+            ? refs.length === 0
+              ? "actor has no trust-domain participation; ACT-21-I3 permits zero or more domains"
+              : `actor explicitly participates in ${refs.length} resolvable trust domain(s)`
+            : "actor trust-domain participation is duplicated or unresolved",
           created_at: "",
         },
       };
