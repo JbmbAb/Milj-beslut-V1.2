@@ -197,19 +197,19 @@ describe("MINIMUM-AUTHORITY-DELTA-04A/04C — canonical Actor projection", () =>
     ).toThrow("REJECT_CANONICAL_ACTOR");
   });
 
-  it("rejects empty/duplicate domain references and empty lifecycle references", () => {
+  it("allows zero domains but rejects duplicate domains and empty lifecycle references", () => {
     const identity = createServiceIdentityArtifact({
       service_namespace: "mimer.lu",
       principal_id: LU_EXECUTION_PRINCIPAL_ID,
     });
 
-    expect(() =>
-      createActorArtifact({
-        identity,
-        trust_domain_refs: [],
-        lifecycle_ref: LIFECYCLE_REF,
-      }),
-    ).toThrow("trust_domain_refs is required");
+    const unaffiliated = createActorArtifact({
+      identity,
+      trust_domain_refs: [],
+      lifecycle_ref: LIFECYCLE_REF,
+    });
+    expect(unaffiliated.trust_domain_refs).toEqual([]);
+    expect(unaffiliated.identity_ref?.artifact_id).toBe(identity.artifact_id);
 
     expect(() =>
       createActorArtifact({
