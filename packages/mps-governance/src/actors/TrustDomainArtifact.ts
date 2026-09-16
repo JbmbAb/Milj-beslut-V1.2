@@ -67,7 +67,7 @@ function body(input: {
     allowed_actor_types: canonicalActorTypes(input.allowed_actor_types),
     delegation_rules: canonicalStrings(input.delegation_rules, "delegation_rules"),
   };
-  const identity = sha256ContentHash(canonical);
+  const identity = sha256ContentHash({ artifact_type: "trust_domain", ...canonical });
   return {
     artifact_id: `trust-domain-${identity.value.slice(0, 24)}`,
     artifact_type: "trust_domain",
