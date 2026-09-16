@@ -1,0 +1,67 @@
+{
+  "schema_version": "dev-gov-v1-unit-definition",
+  "unit": "AUTHORITY-TRUST-COMPATIBILITY-04B-V1",
+  "role": "producer",
+  "mode": "writer",
+  "branch": "audit/minimum-authority-delta-04b-trust-compatibility",
+  "base_sha": "d3f08076c8408dff9fbb9f9fff510a3f3759a0c0",
+  "ancestry_policy": "descendant_of_base",
+  "allowed_paths": [
+    "packages/mps-compliance/tests/AuthorityTrustCompatibility04B.test.ts",
+    "docs/architecture/audits/MINIMUM-AUTHORITY-DELTA-04B-TRUST-COMPATIBILITY.md",
+    "governance/devgov/units/authority-trust-compatibility-04b-v1.json"
+  ],
+  "forbidden_paths": [
+    ".github/**",
+    "scripts/devgov/**",
+    "governance/devgov/schema/**",
+    "server/**",
+    "services/**",
+    "prisma/**",
+    "packages/mps-governance/src/**",
+    "packages/mps-lu/src/**",
+    "packages/mps-runtime/src/**"
+  ],
+  "required_red": [
+    {
+      "id": "authority-trust-compatibility",
+      "command": "npx",
+      "args": [
+        "vitest",
+        "run",
+        "--config",
+        "vitest.config.ts",
+        "packages/mps-compliance/tests/AuthorityTrustCompatibility04B.test.ts"
+      ],
+      "expected_classification": "FAIL",
+      "required_head": "base_sha",
+      "timeout_ms": 120000
+    }
+  ],
+  "required_green": [
+    {
+      "id": "authority-trust-compatibility",
+      "command": "npx",
+      "args": [
+        "vitest",
+        "run",
+        "--config",
+        "vitest.config.ts",
+        "packages/mps-compliance/tests/AuthorityTrustCompatibility04B.test.ts"
+      ],
+      "expected_classification": "PASS",
+      "required_head": "candidate_sha",
+      "timeout_ms": 120000
+    }
+  ],
+  "trusted_execution": {
+    "issuer": "github-actions:JbmbAb/Milj-beslut-V1.2:devgov-v0-attest",
+    "key_id": "devgov-ci-ed25519-v1"
+  },
+  "remote": {
+    "name": "origin",
+    "branch": "audit/minimum-authority-delta-04b-trust-compatibility",
+    "push_policy": "no_force",
+    "absent_policy": "deny_absent"
+  }
+}
