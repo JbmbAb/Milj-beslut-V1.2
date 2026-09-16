@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
-  createHumanIdentityArtifactFromBankId,
+  createHumanIdentityArtifact,
   createServiceIdentityArtifact,
   validateHumanIdentityArtifact,
   validateServiceIdentityArtifact,
@@ -43,11 +43,11 @@ describe("MINIMUM-AUTHORITY-DELTA-03B — existing authority identity convergenc
 
     expect(firstGrant.artifact_id).not.toBe(secondGrant.artifact_id);
 
-    const firstIdentity = createHumanIdentityArtifactFromBankId(
-      firstGrant.payload.subject_bankid_id,
+    const firstIdentity = createHumanIdentityArtifact(
+      firstGrant.payload.subject_user_id,
     );
-    const secondIdentity = createHumanIdentityArtifactFromBankId(
-      secondGrant.payload.subject_bankid_id,
+    const secondIdentity = createHumanIdentityArtifact(
+      secondGrant.payload.subject_user_id,
     );
 
     expect(firstIdentity).toEqual(secondIdentity);
@@ -55,9 +55,9 @@ describe("MINIMUM-AUTHORITY-DELTA-03B — existing authority identity convergenc
     expect(firstIdentity.content_hash).toEqual(secondIdentity.content_hash);
   });
 
-  it("does not persist the raw BankID subject or authority semantics in HumanIdentity", () => {
-    const bankid = "bankid:sensitive-subject-02";
-    const identity = createHumanIdentityArtifactFromBankId(bankid);
+  it("does not persist the BankID personal number or authority semantics in HumanIdentity", () => {
+    const bankid = "191212121212";
+    const identity = createHumanIdentityArtifact("user-stable-subject-02");
     const serialized = JSON.stringify(identity);
 
     expect(serialized).not.toContain(bankid);
@@ -69,22 +69,19 @@ describe("MINIMUM-AUTHORITY-DELTA-03B — existing authority identity convergenc
     expect(identity.references).toEqual([]);
   });
 
-  it("separates distinct BankID subjects deterministically", () => {
-    const left = createHumanIdentityArtifactFromBankId("bankid:subject-left");
-    const right = createHumanIdentityArtifactFromBankId("bankid:subject-right");
+  it("separates distinct persistent Mimer subjects deterministically", () => {
+    const left = createHumanIdentityArtifact("user-subject-left");
+    const right = createHumanIdentityArtifact("user-subject-right");
 
     expect(left.artifact_id).not.toBe(right.artifact_id);
-    expect(left.subject_fingerprint.value).not.toBe(right.subject_fingerprint.value);
+    expect(left.subject_id).not.toBe(right.subject_id);
   });
 
   it("fails closed when a canonical HumanIdentity body is tampered", () => {
-    const identity = createHumanIdentityArtifactFromBankId("bankid:subject-tamper");
+    const identity = createHumanIdentityArtifact("user-subject-tamper");
     const tampered = {
       ...identity,
-      subject_fingerprint: {
-        algorithm: "sha256" as const,
-        value: "f".repeat(64),
-      },
+      subject_id: "user-attacker",
     };
 
     expect(() => validateHumanIdentityArtifact(tampered)).toThrow(
@@ -143,7 +140,7 @@ describe("MINIMUM-AUTHORITY-DELTA-03B — existing authority identity convergenc
       { id: "user-123", bankidId: "bankid:stable-subject-03" },
       { id: "user-123", bankidId: "bankid:stable-subject-03" },
     );
-    const direct = createHumanIdentityArtifactFromBankId("bankid:stable-subject-03");
+    const direct = createHumanIdentityArtifact("user-123");
 
     expect(bound).toEqual(direct);
   });
