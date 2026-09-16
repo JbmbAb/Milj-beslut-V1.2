@@ -20,7 +20,8 @@
     "governance/devgov/units/authority-generic-trust-reconciliation-04c-v1.json",
     "packages/mps-governance-runtime/src/AuthorityVerification.ts",
     "packages/mps-governance-runtime/tests/AuthorityVerification.test.ts",
-    "packages/mps-governance-runtime/tests/AuthorityRuntimeEnforcement.test.ts"
+    "packages/mps-governance-runtime/tests/AuthorityRuntimeEnforcement.test.ts",
+    "packages/mps-governance-runtime/tests/AuthorityGenericRuntimeReconciliation04C.test.ts"
   ],
   "forbidden_paths": [
     ".github/**",
@@ -44,9 +45,7 @@
         "--config",
         "vitest.config.ts",
         "packages/mps-compliance/tests/AuthorityGenericTrustReconciliation04C.test.ts",
-        "packages/mps-compliance/tests/AuthorityActorProjection.test.ts",
-        "packages/mps-governance-runtime/tests/AuthorityVerification.test.ts",
-        "packages/mps-governance-runtime/tests/AuthorityRuntimeEnforcement.test.ts"
+        "packages/mps-governance-runtime/tests/AuthorityGenericRuntimeReconciliation04C.test.ts"
       ],
       "expected_classification": "FAIL",
       "required_head": "base_sha",
@@ -63,9 +62,7 @@
         "--config",
         "vitest.config.ts",
         "packages/mps-compliance/tests/AuthorityGenericTrustReconciliation04C.test.ts",
-        "packages/mps-compliance/tests/AuthorityActorProjection.test.ts",
-        "packages/mps-governance-runtime/tests/AuthorityVerification.test.ts",
-        "packages/mps-governance-runtime/tests/AuthorityRuntimeEnforcement.test.ts"
+        "packages/mps-governance-runtime/tests/AuthorityGenericRuntimeReconciliation04C.test.ts"
       ],
       "expected_classification": "PASS",
       "required_head": "candidate_sha",
