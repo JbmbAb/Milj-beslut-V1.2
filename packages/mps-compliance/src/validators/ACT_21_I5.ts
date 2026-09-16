@@ -142,6 +142,10 @@ export const ACT_21_I5: ValidationRule = {
       const rootRef = shapedAnchor?.root_ref;
       const root = rootRef ? context.resolve(rootRef) : undefined;
 
+      const rootBindingMatches =
+        Boolean(root) &&
+        shapedAnchor?.root_binding_type ===
+          (root?.artifact_type === "actor" ? "actor" : "authority_artifact");
       const rootValid = Boolean(
         anchor?.artifact_type === "trust_anchor" &&
           shapedDomain.anchor_hash &&
@@ -150,6 +154,7 @@ export const ACT_21_I5: ValidationRule = {
           rootRef &&
           shapedAnchor?.root_hash &&
           root &&
+          rootBindingMatches &&
           root.content_hash.algorithm === shapedAnchor.root_hash.algorithm &&
           root.content_hash.value === shapedAnchor.root_hash.value,
       );
