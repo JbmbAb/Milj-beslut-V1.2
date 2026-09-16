@@ -77,7 +77,7 @@ allowed actor type = service
 
 ### 3. Actor supports multi-domain participation without changing actor identity
 
-`ActorArtifact` now carries `trust_domain_refs[]`, satisfying ACT-21-I3.
+`ActorArtifact` now carries `trust_domain_refs[]`, satisfying ACT-21-I3. The set is zero-or-more: an Actor may exist without trust-domain membership; authority evaluation still requires explicit membership in the one selected domain.
 
 The ActorArtifact representation remains immutable/content-addressed and therefore may change when
 domain participation or lifecycle evidence changes. The **canonical actor identity** remains the
