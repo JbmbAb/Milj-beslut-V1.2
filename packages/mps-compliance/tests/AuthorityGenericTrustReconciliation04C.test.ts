@@ -186,6 +186,21 @@ describe("MINIMUM-AUTHORITY-DELTA-04C — generic trust model reconciliation", (
     expect(result.evidence.some((entry) =>
       entry.observation.includes("source-authority root is hash-bound"),
     )).toBe(true);
+
+    const mislabeledAnchor = {
+      ...model.anchor,
+      root_binding_type: "actor" as const,
+    };
+    const tamperedContext = validationContext([
+      model.root,
+      mislabeledAnchor,
+      model.domain,
+      model.identity,
+      model.created,
+      model.active,
+      model.actor,
+    ]);
+    expect(ACT_21_I5.validate(tamperedContext).passed).toBe(false);
   });
 
   it("binds the proven LU cryptographic root as a generic source-authority TrustAnchor without fabricating an Actor", () => {
