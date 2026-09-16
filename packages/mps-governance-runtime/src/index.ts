@@ -39,6 +39,8 @@ export type {
 } from "./AuthorityVerification.js";
 
 export {
+  AUTHORITY_ARTIFACT_ATTESTATION_PREDICATE_TYPE,
+  AUTHORITY_ARTIFACT_ATTESTATION_SCHEMA_VERSION,
   DefaultAuthorityVerificationPort,
   createAuthorityTrustedKeyring,
   createInMemoryAuthorityArtifactAttestationIndex,
@@ -46,6 +48,7 @@ export {
 } from "./DefaultAuthorityVerificationPort.js";
 export type {
   AuthorityArtifactAttestationIndex,
+  AuthorityArtifactAttestationPredicate,
   AuthorityDelegationIndex,
   AuthorityTrustedKeyring,
   DefaultAuthorityVerificationPortDeps,
@@ -56,3 +59,8 @@ export type {
   AuthorityAttestationWriter,
   IssuedDelegationStatusEvidence,
 } from "./DelegationStatusIssuer.js";
+
+export { issueAuthorityArtifactIntegrityEvidence } from "./AuthorityArtifactIntegrityIssuer.js";
+export type {
+  IssuedAuthorityArtifactIntegrityEvidence,
+} from "./AuthorityArtifactIntegrityIssuer.js";
