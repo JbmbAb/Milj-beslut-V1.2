@@ -1,7 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
   LocalPemSigningKeyProvider,
-  createArtifactAttestation,
   type SigningKeyProvider,
 } from "../../mimers-brunn-core/src/index.js";
 import type {
@@ -35,6 +34,7 @@ import {
   createInMemoryAuthorityDelegationIndex,
 } from "../src/DefaultAuthorityVerificationPort.js";
 import { issueDelegationStatusEvidence } from "../src/DelegationStatusIssuer.js";
+import { issueAuthorityArtifactIntegrityEvidence } from "../src/AuthorityArtifactIntegrityIssuer.js";
 
 const T_DECISION = "2026-09-16T00:00:00.000Z";
 
@@ -77,26 +77,12 @@ async function persistAuthorityArtifact(
     content_hash: artifact.content_hash,
     body: artifact,
   });
-  const attestation = await createArtifactAttestation({
-    subjectDigest: `sha256:${artifact.content_hash.value}`,
-    predicateType: "mimer/authority/artifact-integrity/v1",
-    predicate: {
-      artifact_id: artifact.artifact_id,
-      artifact_type: artifact.artifact_type,
-    },
+  const issued = await issueAuthorityArtifactIntegrityEvidence({
+    artifact_ref: pinned(artifact),
     signing,
+    writer: repository,
   });
-  const hash = sha256ContentHash(attestation);
-  const reference: ContentReference = {
-    id: `authority-artifact-attestation-${artifact.artifact_id}-${hash.value.slice(0, 16)}`,
-    content_hash: { algorithm: hash.algorithm, digest: hash.value },
-  };
-  await repository.put({
-    artifact_id: reference.id,
-    content_hash: hash,
-    body: attestation,
-  });
-  return reference;
+  return issued.reference;
 }
 
 async function fixture(extraGraph: "none" | "ambiguous" | "cycle" = "none") {
