@@ -214,7 +214,7 @@ function body(input: {
       : {}),
   };
 
-  const identity = sha256ContentHash(canonical);
+  const identity = sha256ContentHash({\n    artifact_type: "authority_evidence",\n    ...canonical,\n  });
   const references: ArtifactReference[] = [
     actorRef,
     domainRef,
