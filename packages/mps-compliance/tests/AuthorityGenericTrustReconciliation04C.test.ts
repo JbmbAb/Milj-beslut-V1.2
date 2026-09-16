@@ -12,6 +12,7 @@ import {
 } from "../../mps-governance/src/actors/ActorLifecycleArtifact";
 import {
   createAuthorityEvidenceArtifact,
+  validateAuthorityEvidenceArtifact,
 } from "../../mps-governance/src/actors/AuthorityEvidenceArtifact";
 import {
   createServiceIdentityArtifact,
@@ -313,7 +314,7 @@ describe("MINIMUM-AUTHORITY-DELTA-04C — generic trust model reconciliation", (
     expect(actor.identity_hash).toEqual(identity.content_hash);
   });
 
-  it("creates deterministic AuthorityEvidence for the exact LU root→issuer→execution identity path at decision time", () => {
+  it("creates deterministic non-authoritative AuthorityEvidence representation for the exact LU root→issuer→execution identity path", () => {
     const model = genericModel();
 
     const first = createAuthorityEvidenceArtifact({
@@ -344,7 +345,9 @@ describe("MINIMUM-AUTHORITY-DELTA-04C — generic trust model reconciliation", (
     });
 
     expect(first).toEqual(second);
-    expect(first.authorized_at_decision_time).toBe(true);
+    expect(first.authority_claim_state).toBe("UNVERIFIED_REPRESENTATION");
+    expect("authorized_at_decision_time" in first).toBe(false);
+    expect("authorized_now" in first).toBe(false);
     expect(first.authority_scope).toBe(LU_EXECUTION_AUTHORITY_SCOPE);
     expect(first.action).toBe("lu.execute.site_assessment");
     expect(first.authority_path.map((entry) => entry.role)).toEqual([
@@ -357,7 +360,7 @@ describe("MINIMUM-AUTHORITY-DELTA-04C — generic trust model reconciliation", (
     expect(JSON.stringify(first)).not.toContain("authorized_now");
   });
 
-  it("preserves historical authorization evidence after later suspension/revocation", () => {
+  it("preserves decision-bound representation after later suspension/revocation without asserting current or historical authorization", () => {
     const model = genericModel();
     const historical = createAuthorityEvidenceArtifact({
       actor: model.actor,
@@ -387,8 +390,46 @@ describe("MINIMUM-AUTHORITY-DELTA-04C — generic trust model reconciliation", (
     });
 
     expect(revoked.state).toBe("REVOKED");
-    expect(historical.authorized_at_decision_time).toBe(true);
+    expect(historical.authority_claim_state).toBe("UNVERIFIED_REPRESENTATION");
+    expect("authorized_at_decision_time" in historical).toBe(false);
+    expect("authorized_now" in historical).toBe(false);
     expect(historical.lifecycle_ref.artifact_id).toBe(model.active.artifact_id);
+  });
+
+  it("cannot mint a positive authorization claim from caller-authored structural evidence", () => {
+    const model = genericModel();
+    const representation = createAuthorityEvidenceArtifact({
+      actor: model.actor,
+      trust_domain: model.domain,
+      trust_anchor: model.anchor,
+      lifecycle: model.active,
+      action: "attacker.chosen.action",
+      decision_time: "2026-09-02T12:00:00Z",
+      authority_path: [
+        { role: "root", artifact: model.root },
+        { role: "supporting", artifact: model.executionIdentity },
+      ],
+    });
+
+    expect(representation.authority_claim_state).toBe("UNVERIFIED_REPRESENTATION");
+    expect("authorized_at_decision_time" in representation).toBe(false);
+
+    const injected = {
+      ...representation,
+      authorized_at_decision_time: true,
+    };
+    expect(() =>
+      validateAuthorityEvidenceArtifact(injected, {
+        actor: model.actor,
+        trust_domain: model.domain,
+        trust_anchor: model.anchor,
+        lifecycle: model.active,
+        authority_path: [
+          { role: "root", artifact: model.root },
+          { role: "supporting", artifact: model.executionIdentity },
+        ],
+      }),
+    ).toThrow("representation cannot assert authorization");
   });
 
   it("rejects authority evidence if the source path is rooted somewhere other than the TrustAnchor", () => {
