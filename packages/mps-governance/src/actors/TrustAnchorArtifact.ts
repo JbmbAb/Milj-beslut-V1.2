@@ -55,7 +55,7 @@ function body(input: {
     root_hash: input.root.content_hash,
     ...(verificationKeyId ? { verification_key_id: verificationKeyId } : {}),
   };
-  const identity = sha256ContentHash(canonical);
+  const identity = sha256ContentHash({ artifact_type: "trust_anchor", ...canonical });
 
   return {
     artifact_id: `trust-anchor-${identity.value.slice(0, 24)}`,
