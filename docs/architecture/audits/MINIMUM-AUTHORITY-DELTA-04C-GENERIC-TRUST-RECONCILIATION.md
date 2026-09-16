@@ -103,11 +103,12 @@ Every transition:
 
 This provides an immutable lifecycle history without changing canonical Human/Service identity.
 
-### 5. AuthorityEvidenceArtifact is implemented
+### 5. AuthorityEvidenceArtifact is representation-only in 04C
 
-`AuthorityEvidenceArtifact` is the canonical decision-time authority boundary.
+`AuthorityEvidenceArtifact` is the canonical hash-bound **representation** boundary for
+decision-time authority inputs.
 
-It hash-binds:
+It binds:
 
 ```text
 ActorArtifact
@@ -117,7 +118,7 @@ ActorLifecycleArtifact
 action
 authority_scope
 decision_time
-authorized_at_decision_time = true
+authority_claim_state = UNVERIFIED_REPRESENTATION
 ordered source-authority path
 optional TrustDelegation
 optional EvaluationProfile
@@ -131,9 +132,16 @@ LuExecutionAuthorityRootArtifact
   → ExecutionIdentityArtifact
 ```
 
-The generic artifact does not cryptographically verify that source chain. That remains the
-responsibility of the existing LU verifier. Generic AuthorityEvidence records the exact already-
-verified artifacts/hashes required to reproduce the authority decision.
+04C deliberately does **not** assert that this path was cryptographically verified. Roles such as
+`root`, `issuer` and `subject` are representation labels until a source verifier proves their
+semantics.
+
+The public constructor cannot set `authorized_at_decision_time=true`, and canonical validation
+rejects injected `authorized_at_decision_time` or `authorized_now` fields.
+
+A later source-verifier wiring delta must derive a positive authorization result from executed
+verification evidence. This prevents a caller from turning structural self-consistency into
+authority.
 
 ## Existing generic runtime reconciliation
 
@@ -170,30 +178,41 @@ The Anchor itself is what binds that root Actor to the domain.
 
 ## Decision-time vs current authority
 
-04C intentionally stores:
+04C stores the exact `decision_time` and the artifacts/hashes needed for later verification, but
+does **not** itself assert either:
 
 ```text
-authorized_at_decision_time = true
-```
-
-It intentionally does **not** store:
-
-```text
+authorized_at_decision_time
 authorized_now
 ```
 
-A later SUSPENDED/REVOKED lifecycle artifact does not mutate or invalidate historical authority
-evidence. Current authority is a later runtime/currentness evaluation and is not allowed to rewrite
-T_decision.
+A later SUSPENDED/REVOKED lifecycle artifact does not mutate the historical representation.
+
+A later verifier/wiring delta is responsible for answering separately:
+
+```text
+authorized_at_decision_time
+authorized_now
+```
+
+from executed authority verification. Structural representation alone can never upgrade itself to a
+positive authorization decision.
 
 ## Conformance updates
 
 ACT-21-I3 now validates explicit `trust_domain_refs[]`.
 
 ACT-21-I5 now accepts a hash-bound source-authority root when a domain has no generic
-TrustDelegation edges. Generic TrustDelegation traversal still requires an actor-root entry point;
-source-authority delegation must remain in the hash-bound AuthorityEvidence source path rather than
-being silently recast as Actor delegation.
+TrustDelegation edges. This proves only root identity/hash binding, not issuer/subject/action
+authorization.
+
+Generic TrustDelegation traversal still requires an actor-root entry point; source-authority
+delegation remains in the hash-bound AuthorityEvidence representation rather than being silently
+recast as Actor delegation.
+
+`TrustDomain.constraints` and `delegation_rules` are canonical representation fields in 04C.
+They are not yet generic runtime enforcement predicates and MUST NOT be described as enforced until
+a later delta wires explicit semantics.
 
 ## Explicit non-claims
 
@@ -219,13 +238,32 @@ The focused proof covers:
 2. complete canonical TrustDomain semantics;
 3. exact lifecycle sequence and stable identity;
 4. multi-domain Actor representation;
-5. deterministic AuthorityEvidence over LU root→issuer→ExecutionIdentity;
-6. historical authority remains valid after later suspension/revocation;
-7. wrong authority-path root fails closed;
-8. non-ACTIVE decision authority fails closed;
-9. LU key purpose remains unchanged;
-10. existing actor-root governance-runtime verification remains valid under the reconciled contracts;
-11. source-authority roots are not silently accepted by the actor-root delegation verifier.
+5. deterministic non-authoritative AuthorityEvidence representation over LU root→issuer→ExecutionIdentity;
+6. direct structural construction cannot mint `authorized_at_decision_time=true`;
+7. injected positive/current authorization claims fail canonical validation;
+8. historical representation remains pinned after later suspension/revocation;
+9. wrong authority-path root fails closed;
+10. non-ACTIVE representation creation fails closed;
+11. LU key purpose remains unchanged;
+12. root Actor can delegate without becoming a trust-domain member;
+13. source-authority roots are not silently accepted by the actor-root delegation verifier.
 
 A GREEN 04C proof means **generic trust representation reconciliation is PROVEN for this contract**.
 It does not mean production authority convergence is complete.
+
+
+## RV6 minimum-delta corrections
+
+Cold audit GL-AUTHORITY-RV6 falsified the first 04C candidate on three independent points.
+
+04C now incorporates the minimum corrections:
+
+1. `AuthorityEvidenceArtifact` is representation-only and cannot emit a positive authorization
+   claim from caller-supplied structural evidence.
+2. Actor-root delegation traversal applies the existing root-domain-membership exemption when the
+   root is re-resolved as a delegator/delegatee.
+3. Dev-Gov RED/GREEN runs only 04C-specific test files that do not exist at the 04B base. Therefore
+   RED must genuinely fail on base and the exact same command must pass on the candidate.
+
+A GREEN trusted proof after these corrections establishes the 04C representation/runtime contract.
+It still does not establish LU production authority wiring.
