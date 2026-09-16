@@ -22,6 +22,18 @@ export interface AuthorityTrustedKeyring {
   resolve(keyId: string): VerificationKeyProvider | null;
 }
 
+export const AUTHORITY_ARTIFACT_ATTESTATION_PREDICATE_TYPE =
+  "mimer/authority/artifact-integrity/v1" as const;
+export const AUTHORITY_ARTIFACT_ATTESTATION_SCHEMA_VERSION = 1 as const;
+
+export interface AuthorityArtifactAttestationPredicate {
+  readonly artifact_id: string;
+  readonly artifact_type: string;
+  readonly artifact_content_hash: string;
+  readonly attestation_schema_version: typeof AUTHORITY_ARTIFACT_ATTESTATION_SCHEMA_VERSION;
+  readonly signer_key_id: string;
+}
+
 export function createAuthorityTrustedKeyring(
   publicKeysByKeyId: ReadonlyMap<string, string>,
 ): AuthorityTrustedKeyring {
@@ -180,8 +192,19 @@ export class DefaultAuthorityVerificationPort implements AuthorityVerificationPo
       throw new Error("REJECT_AUTHORITY_ATTESTATION: missing artifact attestation");
     }
     const attestation = await this.resolvePinnedAttestation(attestationRef);
+    const predicate = attestation.predicate as Partial<AuthorityArtifactAttestationPredicate>;
     if (attestation.subjectDigest !== `sha256:${reference.content_hash.digest}`) {
       throw new Error("REJECT_AUTHORITY_ATTESTATION: subject digest mismatch");
+    }
+    if (
+      attestation.predicateType !== AUTHORITY_ARTIFACT_ATTESTATION_PREDICATE_TYPE ||
+      predicate.artifact_id !== reference.artifact_id ||
+      predicate.artifact_type !== reference.artifact_type ||
+      predicate.artifact_content_hash !== reference.content_hash.digest ||
+      predicate.attestation_schema_version !== AUTHORITY_ARTIFACT_ATTESTATION_SCHEMA_VERSION ||
+      predicate.signer_key_id !== attestation.signer
+    ) {
+      throw new Error("REJECT_AUTHORITY_ATTESTATION: predicate binding mismatch");
     }
     const key = this.deps.trustedKeyring.resolve(attestation.signer);
     if (!key) {
