@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vitest";
 import { sha256ContentHash } from "../src/canonical/sha256Canonical";
+import { ACT_21_I3 } from "../src/validators/ACT_21_I3";
+import { ACT_21_I5 } from "../src/validators/ACT_21_I5";
+import type { ArtifactContract } from "../src/artifacts/ArtifactContract";
+import type { ValidationContext } from "../src/conformance/ValidationContext";
 import {
   createActorArtifact,
 } from "../../mps-governance/src/actors/ActorArtifact";
@@ -62,6 +66,26 @@ function sourceChain() {
   return { root, issuer, executionIdentity };
 }
 
+
+function validationContext(
+  artifacts: readonly ArtifactContract[],
+): ValidationContext {
+  const byRef = new Map(
+    artifacts.map((artifact) => [
+      `${artifact.artifact_type}\u0000${artifact.artifact_id}`,
+      artifact,
+    ]),
+  );
+  return {
+    artifacts,
+    resolve(reference) {
+      return byRef.get(
+        `${reference.artifact_type}\u0000${reference.artifact_id}`,
+      );
+    },
+  };
+}
+
 function genericModel() {
   const source = sourceChain();
   const identity = createServiceIdentityArtifact({
@@ -113,6 +137,57 @@ function genericModel() {
 }
 
 describe("MINIMUM-AUTHORITY-DELTA-04C — generic trust model reconciliation", () => {
+
+  it("validates zero-or-more ACT-21-I3 domain participation", () => {
+    const model = genericModel();
+    const unaffiliated = createActorArtifact({
+      identity: model.identity,
+      trust_domain_refs: [],
+      lifecycle_ref: {
+        artifact_id: model.active.artifact_id,
+        artifact_type: model.active.artifact_type,
+      },
+    });
+
+    const noDomainContext = validationContext([
+      model.identity,
+      model.created,
+      model.active,
+      unaffiliated,
+    ]);
+    expect(ACT_21_I3.validate(noDomainContext).passed).toBe(true);
+
+    const domainContext = validationContext([
+      model.root,
+      model.anchor,
+      model.domain,
+      model.identity,
+      model.created,
+      model.active,
+      model.actor,
+    ]);
+    expect(ACT_21_I3.validate(domainContext).passed).toBe(true);
+  });
+
+  it("validates ACT-21-I5 source-authority root-only closure without a root Actor", () => {
+    const model = genericModel();
+    const context = validationContext([
+      model.root,
+      model.anchor,
+      model.domain,
+      model.identity,
+      model.created,
+      model.active,
+      model.actor,
+    ]);
+
+    const result = ACT_21_I5.validate(context);
+    expect(result.passed).toBe(true);
+    expect(result.evidence.some((entry) =>
+      entry.observation.includes("source-authority root is hash-bound"),
+    )).toBe(true);
+  });
+
   it("binds the proven LU cryptographic root as a generic source-authority TrustAnchor without fabricating an Actor", () => {
     const { root, anchor } = genericModel();
 
