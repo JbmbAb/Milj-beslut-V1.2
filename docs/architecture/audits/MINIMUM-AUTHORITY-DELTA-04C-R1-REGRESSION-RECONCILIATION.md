@@ -78,3 +78,16 @@ production-code change.
 
 A trusted GREEN proves only regression reconciliation. It does not prove LU production
 AuthorityEvidence wiring; that remains the next 04D delta.
+
+
+## R1 proof-contract correction
+
+The first R1 proof contract incorrectly included `AuthorityTrustCompatibility04B.test.ts` in the
+forward GREEN corpus. That suite is a historical negative/blocker proof: it deliberately asserts
+that the pre-04C TrustAnchor, TrustDomain, ActorLifecycle and AuthorityEvidence incompatibilities
+still exist. A correct 04C implementation must make those assertions false.
+
+Therefore the 04B blocker suite is preserved unchanged as historical proof but excluded from the
+04C-R1 forward regression command. RED still runs the exact same corrected command at the 04C base
+`09af70554fe9b41eee856d62df6e3bd94a276a32`, where the two stale legacy regressions remain and must fail. GREEN runs that
+same command on the R1 candidate and must pass.
