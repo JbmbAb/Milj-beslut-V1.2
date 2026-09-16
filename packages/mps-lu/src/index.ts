@@ -53,6 +53,7 @@ export * from "./registry/createLuRegistryRuntime";
 // Deliberately exported: whoever provisions a run ahead of time is expected to be external to
 // this package (a composition-root/operator step, or a test acting as that step).
 export * from "./execution/LuExecutionIdentityIssuer";
+export * from "./execution/LuCanonicalServiceIdentity";
 
 // LU Runtime v1 Freeze (ADR-30)
 export * from "./runtime/LuRuntimeFreeze";
