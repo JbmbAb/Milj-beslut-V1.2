@@ -37,3 +37,22 @@ export type {
   DelegationStatusPredicate,
   VerifiedAuthorityArtifact,
 } from "./AuthorityVerification.js";
+
+export {
+  DefaultAuthorityVerificationPort,
+  createAuthorityTrustedKeyring,
+  createInMemoryAuthorityArtifactAttestationIndex,
+  createInMemoryAuthorityDelegationIndex,
+} from "./DefaultAuthorityVerificationPort.js";
+export type {
+  AuthorityArtifactAttestationIndex,
+  AuthorityDelegationIndex,
+  AuthorityTrustedKeyring,
+  DefaultAuthorityVerificationPortDeps,
+} from "./DefaultAuthorityVerificationPort.js";
+
+export { issueDelegationStatusEvidence } from "./DelegationStatusIssuer.js";
+export type {
+  AuthorityAttestationWriter,
+  IssuedDelegationStatusEvidence,
+} from "./DelegationStatusIssuer.js";
