@@ -37,7 +37,7 @@ function adminGrant(bankidId: string, issuedAt: string) {
 }
 
 describe("MINIMUM-AUTHORITY-DELTA-03B — existing authority identity convergence", () => {
-  it("projects repeated authority grants for the same BankID subject to one stable HumanIdentity", () => {
+  it("projects repeated authority grants for the same persistent Mimer subject to one stable HumanIdentity", () => {
     const firstGrant = adminGrant("bankid:stable-subject-01", "2026-01-01T00:00:00.000Z");
     const secondGrant = adminGrant("bankid:stable-subject-01", "2026-09-16T00:00:00.000Z");
 
@@ -132,7 +132,6 @@ describe("MINIMUM-AUTHORITY-DELTA-03B — existing authority identity convergenc
       "REJECT_CANONICAL_SERVICE_IDENTITY",
     );
   });
-
 
 
   it("binds an authenticated principal to canonical HumanIdentity only after exact persisted subject match", () => {
