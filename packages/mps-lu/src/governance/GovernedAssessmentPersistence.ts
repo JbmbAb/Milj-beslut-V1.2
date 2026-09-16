@@ -5,11 +5,11 @@ import type { OutcomeAttestation } from "../../../mps-runtime/src/security/Secur
 import type { ArtifactReference } from "@miljobeslut/mps-compliance/src/artifacts/ArtifactReference";
 import type { AssessmentFinding } from "../domain/AssessmentFinding.js";
 import type { ArtifactContract } from "../../../mps-compliance/src/artifacts/ArtifactContract.js";
-import type { AuthorityEvidenceArtifact } from "../../../mps-governance/src/actors/AuthorityEvidenceArtifact.js";
+import type { LuSourceAuthorityEvidenceArtifact } from "./LuSourceAuthorityEvidence.js";
 import {
-  isVerifiedSourceAuthorityDecision,
-  type VerifiedSourceAuthorityDecision,
-} from "../../../mps-governance-runtime/src/SourceAuthorityVerification.js";
+  isVerifiedLuSourceAuthorityDecision,
+  type VerifiedLuSourceAuthorityDecision,
+} from "./LuSourceAuthorityWiring.js";
 import {
   LOCALIZATION_ASSESSMENT_CONTRACT_VERSION_V2,
   LOCALIZATION_ASSESSMENT_CANONICALIZER_ID_V2,
@@ -207,7 +207,7 @@ export function createGovernedLocalizationAssessment(args: {
   readonly findings: readonly AssessmentFinding[];
   readonly outcome: FrozenExecutionOutcomeIdentity;
   readonly attestation: OutcomeAttestation;
-  readonly authority_evidence?: AuthorityEvidenceArtifact;
+  readonly authority_evidence?: LuSourceAuthorityEvidenceArtifact;
 }): LocalizationAssessmentArtifact {
   const executionOutcomeRef = {
     artifact_id: args.outcome.outcome_id,
@@ -281,8 +281,8 @@ export function createGovernedLocalizationAssessment(args: {
  * every binding and the canonical body hash are independently re-verified before persistence.
  */
 export interface AssessmentAuthorityBinding {
-  readonly decision: VerifiedSourceAuthorityDecision;
-  readonly evidence: AuthorityEvidenceArtifact;
+  readonly decision: VerifiedLuSourceAuthorityDecision;
+  readonly evidence: LuSourceAuthorityEvidenceArtifact;
   readonly supporting_artifacts: readonly ArtifactContract[];
 }
 
@@ -361,9 +361,10 @@ export class GovernedAssessmentPersistence {
       failed.push(`contract_version:${error instanceof Error ? error.message : String(error)}`);
     }
 
-    // ACT-21-I10, LU 04D: the canonical product mutation is not allowed to rely on a caller's
+    // ACT-21-I10, LU 04D-R1: the canonical product mutation is not allowed to rely on a caller's
     // structural claim. V4 must name exactly one AuthorityEvidence artifact, and the positive
-    // decision object must have been minted by the generic source verifier in this process.
+    // source-chain verification object must have been minted by the LU verifier in this process.
+    // No temporal/currentness authorization claim is made here.
     const authorityRefs = args.artifact.references.filter(
       (ref) => ref.artifact_type === "authority_evidence",
     );
@@ -376,7 +377,7 @@ export class GovernedAssessmentPersistence {
         failed.push("authority_evidence_missing");
       } else {
         const { decision, evidence } = args.authority;
-        if (!isVerifiedSourceAuthorityDecision(decision)) {
+        if (!isVerifiedLuSourceAuthorityDecision(decision)) {
           failed.push("authority_decision_unverified");
         }
         if (
@@ -395,10 +396,16 @@ export class GovernedAssessmentPersistence {
         ) {
           failed.push("authority_evidence_cardinality");
         }
+        const subjectEntry = evidence.authority_path.find(
+          (entry) => entry.role === "subject",
+        );
         if (
-          evidence.decision_time !== decision.decision_time ||
+          decision.source_authority_verified !== true ||
           evidence.action !== decision.action ||
-          evidence.authority_scope !== decision.authority_scope
+          evidence.authority_scope !== decision.authority_scope ||
+          !subjectEntry ||
+          !sameRef(subjectEntry.artifact_ref, decision.subject_ref) ||
+          !sameHash(subjectEntry.content_hash, decision.subject_hash)
         ) {
           failed.push("authority_decision_semantics");
         }

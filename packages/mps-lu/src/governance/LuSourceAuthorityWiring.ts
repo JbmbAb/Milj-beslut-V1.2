@@ -1,32 +1,16 @@
-import type { ArtifactAttestation, VerificationKeyProvider } from "@miljobeslut/mimers-brunn-core";
+import type { ArtifactAttestation } from "@miljobeslut/mimers-brunn-core";
 import type { ArtifactContract } from "../../../mps-compliance/src/artifacts/ArtifactContract.js";
 import type { ArtifactReference } from "../../../mps-compliance/src/artifacts/ArtifactReference.js";
+import type { ContentHash } from "../../../mps-compliance/src/artifacts/ContentHash.js";
 import type { ArtifactRepositoryPort } from "../../../mps-runtime/src/kernel/ExecutionKernel.js";
 import type { ExecutionIdentityArtifact } from "../../../mps-runtime/src/execution/ExecutionIdentityArtifact.js";
 import type { ExecutionIdentitySubjectV3 } from "../../../mps-runtime/src/execution/ExecutionIdentityScopeV2.js";
-import {
-  createActorArtifact,
-} from "../../../mps-governance/src/actors/ActorArtifact.js";
-import {
-  createActorLifecycleArtifact,
-} from "../../../mps-governance/src/actors/ActorLifecycleArtifact.js";
-import {
-  createAuthorityEvidenceArtifact,
-  type AuthorityEvidenceArtifact,
-} from "../../../mps-governance/src/actors/AuthorityEvidenceArtifact.js";
-import {
-  createServiceIdentityArtifact,
-} from "../../../mps-governance/src/actors/IdentityArtifacts.js";
 import {
   createTrustAnchorArtifact,
 } from "../../../mps-governance/src/actors/TrustAnchorArtifact.js";
 import {
   createTrustDomainArtifact,
 } from "../../../mps-governance/src/actors/TrustDomainArtifact.js";
-import {
-  verifySourceAuthorityAtDecisionTime,
-  type VerifiedSourceAuthorityDecision,
-} from "../../../mps-governance-runtime/src/SourceAuthorityVerification.js";
 import {
   LU_EXECUTION_AUTHORITY_ISSUER_TYPE,
   LU_EXECUTION_AUTHORITY_SCOPE,
@@ -39,38 +23,69 @@ import {
   verifyExecutionIdentityAttestation,
 } from "../execution/ExecutionIdentityAttestation.js";
 import { verifyLuExecutionAuthorityChain } from "../execution/LuExecutionAuthorityChain.js";
+import {
+  getLuExecutionAuthorityRootVerifier,
+  getLuExecutionAuthorityVerifier,
+} from "../execution/LuExecutionAuthorityVerifier.js";
 import { LU_EXECUTION_PRINCIPAL_ID } from "../execution/LuExecutionPrincipal.js";
+import { deriveLuCanonicalServiceIdentity } from "../execution/LuCanonicalServiceIdentity.js";
+import {
+  createLuSourceAuthorityEvidenceArtifact,
+  validateLuSourceAuthorityEvidenceArtifact,
+  type LuSourceAuthorityEvidenceArtifact,
+} from "./LuSourceAuthorityEvidence.js";
 
 export const LU_LOCALIZATION_ASSESSMENT_PERSIST_ACTION =
   "lu.localization_assessment.persist" as const;
 
+export interface VerifiedLuSourceAuthorityDecision {
+  readonly source_authority_verified: true;
+  readonly action: string;
+  readonly authority_scope: string;
+  readonly evidence_ref: {
+    readonly artifact_id: string;
+    readonly artifact_type: "authority_evidence";
+  };
+  readonly evidence_hash: ContentHash;
+  readonly subject_ref: ArtifactReference;
+  readonly subject_hash: ContentHash;
+}
+
 export interface VerifiedLuSourceAuthority {
-  readonly decision: VerifiedSourceAuthorityDecision;
-  readonly evidence: AuthorityEvidenceArtifact;
+  readonly decision: VerifiedLuSourceAuthorityDecision;
+  readonly evidence: LuSourceAuthorityEvidenceArtifact;
   readonly supporting_artifacts: readonly ArtifactContract[];
+}
+
+/**
+ * Positive authority provenance is process-local and LU-specific. A caller can construct an
+ * object with the same fields, but cannot insert it into this module-private WeakSet. More
+ * importantly, the function that mints membership below obtains the provisioned verification
+ * keys internally; callers cannot inject an "always true" VerificationKeyProvider.
+ */
+const verifiedLuSourceAuthorityDecisions = new WeakSet<object>();
+
+export function isVerifiedLuSourceAuthorityDecision(
+  value: unknown,
+): value is VerifiedLuSourceAuthorityDecision {
+  return (
+    typeof value === "object" &&
+    value !== null &&
+    verifiedLuSourceAuthorityDecisions.has(value as object)
+  );
 }
 
 function sameRef(left: ArtifactReference, right: ArtifactReference): boolean {
   return left.artifact_id === right.artifact_id && left.artifact_type === right.artifact_type;
 }
 
-function decisionInstant(value: string): { readonly iso: string; readonly milliseconds: number } {
-  const milliseconds = Date.parse(value);
-  if (Number.isNaN(milliseconds)) {
-    throw new Error("REJECT_LU_SOURCE_AUTHORITY: authority_decision_time must be ISO-8601");
-  }
-  return { iso: new Date(milliseconds).toISOString(), milliseconds };
-}
-
 /**
- * 04D adapter: executed LU cryptographic source authority -> generic authority representation ->
- * generic source-authority decision.
+ * 04D-R1 adapter: real LU root -> issuer -> ExecutionIdentity verification, followed by a
+ * deterministic, non-temporal AuthorityEvidence representation.
  *
- * The lifecycle artifacts below are explicitly evaluation-scoped projections. They do not claim
- * a historical provisioning instant or current authority. ArtifactAttestation has no signed
- * timestamp, so inventing one would be false evidence. CREATED at T-1ms and ACTIVE at T merely
- * represent the state used at this exact persisted decision boundary; the positive authority
- * result still comes exclusively from the cryptographic verifier callback.
+ * This function deliberately makes NO authorized_at_decision_time/currentness claim. The source
+ * artifacts carry no signed validity window, revocation state, or decision-time binding. Those
+ * claims remain unavailable until a later temporal/revocation authority delta supplies them.
  */
 export async function verifyLuSourceAuthorityForAssessment(input: {
   readonly repository: ArtifactRepositoryPort;
@@ -79,18 +94,15 @@ export async function verifyLuSourceAuthorityForAssessment(input: {
   readonly expected_capability_ref: ArtifactReference;
   readonly release_snapshot_id: string;
   readonly deterministic_seed: string;
-  readonly authority_decision_time: string;
-  readonly root_verification: VerificationKeyProvider;
-  readonly issuer_verification: VerificationKeyProvider;
 }): Promise<VerifiedLuSourceAuthority> {
-  const decision = decisionInstant(input.authority_decision_time);
   const canonicalActorRef: ArtifactReference = {
     artifact_id: LU_EXECUTION_PRINCIPAL_ID,
     artifact_type: "execution_identity",
   };
-
   if (!sameRef(input.execution_identity.actor_ref, canonicalActorRef)) {
-    throw new Error("REJECT_LU_SOURCE_AUTHORITY: execution identity actor is not the canonical LU principal");
+    throw new Error(
+      "REJECT_LU_SOURCE_AUTHORITY: execution identity actor is not the canonical LU principal",
+    );
   }
   if (!sameRef(input.execution_identity.capability_ref, input.expected_capability_ref)) {
     throw new Error("REJECT_LU_SOURCE_AUTHORITY: execution identity capability mismatch");
@@ -100,36 +112,55 @@ export async function verifyLuSourceAuthorityForAssessment(input: {
     (reference) => reference.artifact_type === LU_EXECUTION_AUTHORITY_ISSUER_TYPE,
   );
   if (issuerRefs.length !== 1) {
-    throw new Error("REJECT_LU_SOURCE_AUTHORITY: execution identity must reference exactly one LU issuer");
+    throw new Error(
+      "REJECT_LU_SOURCE_AUTHORITY: execution identity must reference exactly one LU issuer",
+    );
   }
 
-  // These first resolutions are representation input only. No authorization is derived here.
-  const representedIssuer = await input.repository.resolve<LuExecutionAuthorityIssuerArtifact>(
-    issuerRefs[0]!,
-  );
-  const representedRoot = await input.repository.resolve<LuExecutionAuthorityRootArtifact>(
-    representedIssuer.payload.root_ref,
-  );
+  // Trust roots are process provisioning, not caller parameters.
+  const rootVerification = getLuExecutionAuthorityRootVerifier();
+  const issuerVerification = getLuExecutionAuthorityVerifier();
 
-  const serviceIdentity = createServiceIdentityArtifact({
-    service_namespace: "mimer.lu",
-    principal_id: LU_EXECUTION_PRINCIPAL_ID,
+  const verifiedIssuer = await verifyLuExecutionAuthorityChain({
+    issuerRef: issuerRefs[0]!,
+    repository: input.repository,
+    rootVerification,
+    issuerVerification,
   });
-  const created = createActorLifecycleArtifact({
-    identity: serviceIdentity,
-    state: "CREATED",
-    effective_from: new Date(decision.milliseconds - 1).toISOString(),
+  const verifiedRoot = validateLuExecutionAuthorityRootArtifact(
+    await input.repository.resolve<LuExecutionAuthorityRootArtifact>(
+      verifiedIssuer.payload.root_ref,
+    ),
+  );
+  const attestation = await input.repository.resolve<ArtifactAttestation>(
+    input.execution_identity.signature_envelope_ref,
+  );
+  const identityResult = await verifyExecutionIdentityAttestation({
+    identity: input.execution_identity,
+    attestation,
+    expectedPredicate: buildExecutionIdentityAttestationPredicate({
+      execution_identity_id: input.execution_identity.artifact_id,
+      actor_ref: canonicalActorRef,
+      capability_ref: input.expected_capability_ref,
+      release_snapshot_id: input.release_snapshot_id,
+      site_id: input.expected_subject_v3.site_id,
+      deterministic_seed: input.deterministic_seed,
+    }),
+    authorityVerifier: issuerVerification,
+    expectedSubjectV3: input.expected_subject_v3,
   });
-  const active = createActorLifecycleArtifact({
-    identity: serviceIdentity,
-    state: "ACTIVE",
-    effective_from: decision.iso,
-    previous: created,
-  });
+  if ("reason" in identityResult) {
+    throw new Error(
+      `REJECT_LU_SOURCE_AUTHORITY: execution identity verification ${identityResult.reason}`,
+    );
+  }
+
+  // Canonical generic projection is built only AFTER source cryptography succeeds.
+  const serviceIdentity = deriveLuCanonicalServiceIdentity(identityResult);
   const anchor = createTrustAnchorArtifact({
     anchor_name: "LU execution authority",
-    governance_profile: "ADR-24-21/04D",
-    root: representedRoot,
+    governance_profile: "ADR-24-21/04D-R1",
+    root: verifiedRoot,
   });
   const domain = createTrustDomainArtifact({
     anchor,
@@ -142,81 +173,48 @@ export async function verifyLuSourceAuthorityForAssessment(input: {
     allowed_actor_types: ["service"],
     delegation_rules: ["source-authority-chain"],
   });
-  const actor = createActorArtifact({
-    identity: serviceIdentity,
-    trust_domain_refs: [{ artifact_id: domain.artifact_id, artifact_type: domain.artifact_type }],
-    lifecycle_ref: { artifact_id: active.artifact_id, artifact_type: active.artifact_type },
-  });
-  const evidence = createAuthorityEvidenceArtifact({
-    actor,
+  const evidence = createLuSourceAuthorityEvidenceArtifact({
+    service_identity: serviceIdentity,
     trust_domain: domain,
     trust_anchor: anchor,
-    lifecycle: active,
     action: LU_LOCALIZATION_ASSESSMENT_PERSIST_ACTION,
-    decision_time: decision.iso,
     authority_path: [
-      { role: "root", artifact: representedRoot },
-      { role: "issuer", artifact: representedIssuer },
-      { role: "subject", artifact: input.execution_identity },
+      { role: "root", artifact: verifiedRoot },
+      { role: "issuer", artifact: verifiedIssuer },
+      { role: "subject", artifact: identityResult.identity },
+    ],
+  });
+  validateLuSourceAuthorityEvidenceArtifact(evidence, {
+    service_identity: serviceIdentity,
+    trust_domain: domain,
+    trust_anchor: anchor,
+    authority_path: [
+      { role: "root", artifact: verifiedRoot },
+      { role: "issuer", artifact: verifiedIssuer },
+      { role: "subject", artifact: identityResult.identity },
     ],
   });
 
-  const verifiedDecision = await verifySourceAuthorityAtDecisionTime({
-    evidence,
-    actor,
-    lifecycle: active,
-    trust_domain: domain,
-    trust_anchor: anchor,
-    decision_time: decision.iso,
-    required_action: LU_LOCALIZATION_ASSESSMENT_PERSIST_ACTION,
-    required_scope: LU_EXECUTION_AUTHORITY_SCOPE,
-    verify_source_path: async () => {
-      const verifiedIssuer = await verifyLuExecutionAuthorityChain({
-        issuerRef: issuerRefs[0]!,
-        repository: input.repository,
-        rootVerification: input.root_verification,
-        issuerVerification: input.issuer_verification,
-      });
-      const verifiedRoot = validateLuExecutionAuthorityRootArtifact(
-        await input.repository.resolve<LuExecutionAuthorityRootArtifact>(
-          verifiedIssuer.payload.root_ref,
-        ),
-      );
-      const attestation = await input.repository.resolve<ArtifactAttestation>(
-        input.execution_identity.signature_envelope_ref,
-      );
-      const identityResult = await verifyExecutionIdentityAttestation({
-        identity: input.execution_identity,
-        attestation,
-        expectedPredicate: buildExecutionIdentityAttestationPredicate({
-          execution_identity_id: input.execution_identity.artifact_id,
-          actor_ref: canonicalActorRef,
-          capability_ref: input.expected_capability_ref,
-          release_snapshot_id: input.release_snapshot_id,
-          site_id: input.expected_subject_v3.site_id,
-          deterministic_seed: input.deterministic_seed,
-        }),
-        authorityVerifier: input.issuer_verification,
-        expectedSubjectV3: input.expected_subject_v3,
-      });
-      if ("reason" in identityResult) {
-        throw new Error(
-          `REJECT_LU_SOURCE_AUTHORITY: execution identity verification ${identityResult.reason}`,
-        );
-      }
-      return {
-        root: verifiedRoot,
-        issuer: verifiedIssuer,
-        subject: identityResult.identity,
-      };
+  const decision: VerifiedLuSourceAuthorityDecision = Object.freeze({
+    source_authority_verified: true as const,
+    action: LU_LOCALIZATION_ASSESSMENT_PERSIST_ACTION,
+    authority_scope: LU_EXECUTION_AUTHORITY_SCOPE,
+    evidence_ref: {
+      artifact_id: evidence.artifact_id,
+      artifact_type: evidence.artifact_type,
     },
+    evidence_hash: evidence.content_hash,
+    subject_ref: {
+      artifact_id: identityResult.identity.artifact_id,
+      artifact_type: identityResult.identity.artifact_type,
+    },
+    subject_hash: identityResult.identity.content_hash,
   });
+  verifiedLuSourceAuthorityDecisions.add(decision);
 
   return {
-    decision: verifiedDecision,
+    decision,
     evidence,
-    // The root/issuer/execution identity already exist in the source-authority CAS chain.
-    // Persist only the generic projection closure needed to resolve AuthorityEvidence transitively.
-    supporting_artifacts: [serviceIdentity, created, active, anchor, domain, actor],
+    supporting_artifacts: [serviceIdentity, anchor, domain],
   };
 }

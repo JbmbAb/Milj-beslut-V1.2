@@ -81,11 +81,10 @@ export interface LuKernelRunInput {
   readonly site_id: string;
   readonly deterministic_seed: string;
   /**
-   * 04D: explicit persisted authority evaluation instant. It is intentionally separate from
-   * deterministic_seed (a SHA-256 identity, not a clock). The canonical non-bootstrap product
-   * entrypoint requires this value and binds AuthorityEvidence to it.
+   * 04D-R1: source authority is bound only to deterministic execution semantics. The LU source
+   * chain carries no signed temporal/currentness facts, so no wall-clock "decision time" is
+   * accepted here or placed in the assessment hash domain.
    */
-  readonly authority_decision_time?: string;
   readonly evidence: SpatialEvidenceArtifact[];
   /**
    * F4A: document evidence is now transported to the rule engine. Optional so existing
@@ -455,8 +454,7 @@ export async function runLuAssessmentViaKernel(
       if (input.assessment_draft) {
         const sourceAuthorityRequired =
           !bootstrap &&
-          expectedSubjectV3 !== null &&
-          input.authority_decision_time !== undefined;
+          expectedSubjectV3 !== null;
         if (sourceAuthorityRequired && !verifiedExecutionIdentity) {
           throw new Error(
             "REJECT_LU_SOURCE_AUTHORITY: admitted canonical run has no verified execution identity",
@@ -473,9 +471,6 @@ export async function runLuAssessmentViaKernel(
               },
               release_snapshot_id: snapshot.snapshot_id,
               deterministic_seed: input.deterministic_seed,
-              authority_decision_time: input.authority_decision_time!,
-              root_verification: getLuExecutionAuthorityRootVerifier(),
-              issuer_verification: getLuExecutionAuthorityVerifier(),
             })
           : undefined;
 
@@ -541,10 +536,5 @@ export interface CanonicalLuKernelRunInput
 export async function runCanonicalLuProductAssessment(
   input: CanonicalLuKernelRunInput,
 ): Promise<LuKernelRunResult> {
-  if (!isLuBootstrapAdmitAllowed() && !input.authority_decision_time) {
-    throw new Error(
-      "REJECT_LU_SOURCE_AUTHORITY: authority_decision_time is required for canonical product execution",
-    );
-  }
   return runLuAssessmentViaKernel(input);
 }

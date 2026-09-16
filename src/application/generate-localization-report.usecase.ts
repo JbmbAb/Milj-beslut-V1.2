@@ -762,7 +762,6 @@ async function analyzeSite(
     const kernelResult = await runCanonicalLuProductAssessment({
       site_id: canonicalSiteId,
       deterministic_seed: canonicalDeterministicSeed,
-      authority_decision_time: new Date().toISOString(),
       evidence: mpsEvidence,
       document_evidence: governedDocumentEvidence,
       verified_document_facts: verifiedDocumentFacts,

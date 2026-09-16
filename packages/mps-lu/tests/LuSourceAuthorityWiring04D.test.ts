@@ -39,7 +39,7 @@ import {
   GovernedAssessmentPersistence,
   type AssessmentAuthorityBinding,
 } from "../src/governance/GovernedAssessmentPersistence.js";
-import type { AuthorityEvidenceArtifact } from "../../mps-governance/src/actors/AuthorityEvidenceArtifact.js";
+import type { LuSourceAuthorityEvidenceArtifact } from "../src/governance/LuSourceAuthorityEvidence.js";
 
 class RecordingRepository extends InMemoryArtifactRepository {
   readonly writes: Array<{
@@ -192,7 +192,6 @@ async function run(f: Awaited<ReturnType<typeof fixture>>, seed = f.seed) {
   return runCanonicalLuProductAssessment({
     site_id: f.subject.site_id,
     deterministic_seed: seed,
-    authority_decision_time: "2026-09-16T10:00:00.000Z",
     evidence: [],
     artifact_repository: f.repository,
     registry: f.registry,
@@ -242,11 +241,13 @@ describe("MINIMUM-AUTHORITY-DELTA-04D — LU source authority wiring", () => {
       result.assessment?.references.filter((candidate) => candidate.artifact_type === "authority_evidence"),
     ).toEqual([authorityRef]);
 
-    const evidence = await f.repository.resolve<AuthorityEvidenceArtifact>(authorityRef!);
+    const evidence = await f.repository.resolve<LuSourceAuthorityEvidenceArtifact>(authorityRef!);
+    expect(evidence.authority_evidence_contract_version).toBe("lu-source-authority-evidence-v1");
     expect(evidence.authority_claim_state).toBe("UNVERIFIED_REPRESENTATION");
     expect("authorized_at_decision_time" in evidence).toBe(false);
+    expect("authorized_now" in evidence).toBe(false);
+    expect("decision_time" in evidence).toBe(false);
     expect(evidence.action).toBe("lu.localization_assessment.persist");
-    expect(evidence.decision_time).toBe("2026-09-16T10:00:00.000Z");
     expect(evidence.authority_path.map((entry) => entry.role)).toEqual([
       "root",
       "issuer",
@@ -255,23 +256,17 @@ describe("MINIMUM-AUTHORITY-DELTA-04D — LU source authority wiring", () => {
     expect(evidence.authority_path[2]?.artifact_ref.artifact_id).toBe(f.identity.artifact_id);
   });
 
-  it("requires an explicit authority decision instant on the non-bootstrap canonical product path", async () => {
+  it("same exact canonical state reuses the same AuthorityEvidence and assessment identity", async () => {
     const f = await fixture();
-    await expect(
-      runCanonicalLuProductAssessment({
-        site_id: f.subject.site_id,
-        deterministic_seed: f.seed,
-        evidence: [],
-        artifact_repository: f.repository,
-        registry: f.registry,
-        identity_subject_v3: {
-          project_context_binding_ref: f.subject.project_context_binding_ref,
-          product_release_ref: f.subject.product_release_ref,
-          execution_contract_version: f.subject.execution_contract_version,
-          localization_geometry_ref: f.subject.localization_geometry_ref,
-        },
-      }),
-    ).rejects.toThrow("authority_decision_time is required");
+    const first = await run(f);
+    const second = await run(f);
+
+    expect(first.admitted).toBe(true);
+    expect(second.admitted).toBe(true);
+    expect(second.assessment?.artifact_id).toBe(first.assessment?.artifact_id);
+    expect(second.assessment?.payload.authority_evidence_ref).toEqual(
+      first.assessment?.payload.authority_evidence_ref,
+    );
   });
 
   it("denies a correctly signed identity for a caller-chosen actor before the assessment mutation", async () => {
@@ -300,7 +295,7 @@ describe("MINIMUM-AUTHORITY-DELTA-04D — LU source authority wiring", () => {
     const f = await fixture();
     const result = await run(f);
     const assessment = result.assessment!;
-    const evidence = await f.repository.resolve<AuthorityEvidenceArtifact>(
+    const evidence = await f.repository.resolve<LuSourceAuthorityEvidenceArtifact>(
       assessment.payload.authority_evidence_ref!,
     );
     const outcome = await f.repository.resolve<any>({
@@ -309,12 +304,13 @@ describe("MINIMUM-AUTHORITY-DELTA-04D — LU source authority wiring", () => {
     });
     const forged: AssessmentAuthorityBinding = {
       decision: {
-        authorized_at_decision_time: true,
-        decision_time: evidence.decision_time,
+        source_authority_verified: true,
         action: evidence.action,
         authority_scope: evidence.authority_scope,
         evidence_ref: { artifact_id: evidence.artifact_id, artifact_type: "authority_evidence" },
         evidence_hash: evidence.content_hash,
+        subject_ref: evidence.authority_path[2]!.artifact_ref,
+        subject_hash: evidence.authority_path[2]!.content_hash,
       },
       evidence,
       supporting_artifacts: [],

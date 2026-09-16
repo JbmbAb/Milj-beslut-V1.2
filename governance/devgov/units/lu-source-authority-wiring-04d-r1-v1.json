@@ -1,0 +1,68 @@
+{
+  "schema_version": "dev-gov-v1-unit-definition",
+  "unit": "LU-SOURCE-AUTHORITY-WIRING-04D-R1-V1",
+  "role": "producer",
+  "mode": "writer",
+  "branch": "audit/minimum-authority-delta-04d-lu-source-authority-wiring",
+  "base_sha": "31ac9192b02874e6b804de1185f5cd8093909e84",
+  "ancestry_policy": "descendant_of_base",
+  "allowed_paths": [
+    "packages/mps-governance-runtime/src/SourceAuthorityVerification.ts",
+    "packages/mps-lu/src/governance/LuSourceAuthorityEvidence.ts",
+    "packages/mps-lu/src/governance/LuSourceAuthorityWiring.ts",
+    "packages/mps-lu/src/governance/GovernedAssessmentPersistence.ts",
+    "packages/mps-lu/src/execution/LuExecutionKernelClient.ts",
+    "packages/mps-lu/src/index.ts",
+    "src/application/generate-localization-report.usecase.ts",
+    "packages/mps-lu/tests/LuSourceAuthorityWiring04D.test.ts",
+    "tests/unit/luExecutionIdentityScopeV2ProductWiring.test.ts",
+    "docs/architecture/audits/MINIMUM-AUTHORITY-DELTA-04D-R1-SOURCE-AUTHORITY-SEMANTIC-CLOSURE.md",
+    "governance/devgov/units/lu-source-authority-wiring-04d-r1-v1.json"
+  ],
+  "forbidden_paths": [
+    ".github/**",
+    "scripts/devgov/**",
+    "governance/devgov/schema/**",
+    "prisma/**",
+    "packages/mps-governance/src/**",
+    "packages/mps-compliance/src/**",
+    "packages/mps-runtime/src/**",
+    "server/security/**"
+  ],
+  "required_red": [
+    {
+      "id": "lu-source-authority-wiring-r1",
+      "command": "bash",
+      "args": [
+        "-lc",
+        "node -e \"const fs=require('fs');const app=fs.readFileSync('src/application/generate-localization-report.usecase.ts','utf8');const wiring=fs.readFileSync('packages/mps-lu/src/governance/LuSourceAuthorityWiring.ts','utf8');const persistence=fs.readFileSync('packages/mps-lu/src/governance/GovernedAssessmentPersistence.ts','utf8');if(app.includes('authority_decision_time: new Date().toISOString()'))process.exit(1);if(fs.existsSync('packages/mps-governance-runtime/src/SourceAuthorityVerification.ts'))process.exit(1);if(!fs.existsSync('packages/mps-lu/src/governance/LuSourceAuthorityEvidence.ts'))process.exit(1);if(wiring.includes('authorized_at_decision_time')||wiring.includes('authority_decision_time')||wiring.includes('verify_source_path')||wiring.includes('root_verification:')||wiring.includes('issuer_verification:'))process.exit(1);if(!wiring.includes('source_authority_verified: true')||!persistence.includes('isVerifiedLuSourceAuthorityDecision'))process.exit(1);\" && npx vitest run --config vitest.config.ts packages/mps-lu/tests/LuSourceAuthorityWiring04D.test.ts tests/unit/luExecutionIdentityScopeV2ProductWiring.test.ts packages/mps-compliance/tests/AuthorityGenericTrustReconciliation04C.test.ts packages/mps-governance-runtime/tests/AuthorityGenericRuntimeReconciliation04C.test.ts"
+      ],
+      "timeout_ms": 240000,
+      "expected_classification": "FAIL",
+      "required_head": "base_sha"
+    }
+  ],
+  "required_green": [
+    {
+      "id": "lu-source-authority-wiring-r1",
+      "command": "bash",
+      "args": [
+        "-lc",
+        "node -e \"const fs=require('fs');const app=fs.readFileSync('src/application/generate-localization-report.usecase.ts','utf8');const wiring=fs.readFileSync('packages/mps-lu/src/governance/LuSourceAuthorityWiring.ts','utf8');const persistence=fs.readFileSync('packages/mps-lu/src/governance/GovernedAssessmentPersistence.ts','utf8');if(app.includes('authority_decision_time: new Date().toISOString()'))process.exit(1);if(fs.existsSync('packages/mps-governance-runtime/src/SourceAuthorityVerification.ts'))process.exit(1);if(!fs.existsSync('packages/mps-lu/src/governance/LuSourceAuthorityEvidence.ts'))process.exit(1);if(wiring.includes('authorized_at_decision_time')||wiring.includes('authority_decision_time')||wiring.includes('verify_source_path')||wiring.includes('root_verification:')||wiring.includes('issuer_verification:'))process.exit(1);if(!wiring.includes('source_authority_verified: true')||!persistence.includes('isVerifiedLuSourceAuthorityDecision'))process.exit(1);\" && npx vitest run --config vitest.config.ts packages/mps-lu/tests/LuSourceAuthorityWiring04D.test.ts tests/unit/luExecutionIdentityScopeV2ProductWiring.test.ts packages/mps-compliance/tests/AuthorityGenericTrustReconciliation04C.test.ts packages/mps-governance-runtime/tests/AuthorityGenericRuntimeReconciliation04C.test.ts"
+      ],
+      "timeout_ms": 240000,
+      "expected_classification": "PASS",
+      "required_head": "candidate_sha"
+    }
+  ],
+  "trusted_execution": {
+    "issuer": "github-actions:JbmbAb/Milj-beslut-V1.2:devgov-v0-attest",
+    "key_id": "devgov-ci-ed25519-v1"
+  },
+  "remote": {
+    "name": "origin",
+    "branch": "audit/minimum-authority-delta-04d-lu-source-authority-wiring",
+    "push_policy": "no_force",
+    "absent_policy": "deny_absent"
+  }
+}
