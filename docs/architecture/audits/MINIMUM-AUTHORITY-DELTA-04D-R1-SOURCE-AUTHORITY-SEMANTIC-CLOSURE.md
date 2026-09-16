@@ -67,3 +67,23 @@ load-bearing:
 04D-R1 does not prove authority currentness, revocation, expiry, historical activation, or
 `authorized_now`. ActorLifecycle convergence for source authority is deferred until those facts
 have a real signed source.
+
+
+## Trusted proof-contract refinement after run 35097204213
+
+Run `35097204213` produced a valid signed RED against exact base
+`31ac9192b02874e6b804de1185f5cd8093909e84`. Its aggregate GREEN command then returned raw
+`exit_code=1` on exact candidate `4659b509ceeb4f54d58fbfbb65f8d8627df35453`.
+
+The prior proof command combined two different proof surfaces in one Vitest invocation:
+
+- compliance-project LU source-authority crypto/persistence tests;
+- unit-project real `GenerateLocalizationReportUseCase` product wiring/idempotency tests.
+
+The trusted execution record intentionally retains only stdout/stderr hashes, so an aggregate
+failure did not identify which surface failed. The unit is therefore refined without weakening
+either claim: `source-authority-semantics` and `product-idempotency` are now separate trusted
+RED/GREEN proof IDs, each with file parallelism disabled. Both must independently RED on the exact
+buggy base and independently GREEN on the candidate before the canonical evidence gate can pass.
+
+The failed aggregate run remains audit evidence and is not reinterpreted as success.
