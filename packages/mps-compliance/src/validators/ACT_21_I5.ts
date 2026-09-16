@@ -2,6 +2,7 @@ import { ValidationRule } from "../conformance/ValidationRule";
 import { ValidationContext } from "../conformance/ValidationContext";
 import type { ArtifactReference } from "../artifacts/ArtifactReference";
 import type { ArtifactContract } from "../artifacts/ArtifactContract";
+import type { ContentHash } from "../artifacts/ContentHash";
 
 function refKey(ref: { readonly artifact_id: string; readonly artifact_type: string }): string {
   return `${ref.artifact_type}\u0000${ref.artifact_id}`;
@@ -29,19 +30,54 @@ type DelegationShape = {
   readonly valid_until?: string;
 };
 
-function intervalIsWellFormed(delegation: DelegationShape): boolean {
-  if (!delegation.valid_from) return false;
-  const from = Date.parse(delegation.valid_from);
-  if (Number.isNaN(from)) return false;
-  if (delegation.valid_until === undefined) return true;
-  const until = Date.parse(delegation.valid_until);
-  return !Number.isNaN(until) && until > from;
+type TimeInterval = {
+  readonly start: number;
+  readonly end: number;
+};
+
+function delegationInterval(delegation: DelegationShape): TimeInterval | null {
+  if (!delegation.valid_from) return null;
+  const start = Date.parse(delegation.valid_from);
+  if (Number.isNaN(start)) return null;
+
+  const end =
+    delegation.valid_until === undefined
+      ? Number.POSITIVE_INFINITY
+      : Date.parse(delegation.valid_until);
+
+  if (Number.isNaN(end) || end <= start) return null;
+  return { start, end };
 }
 
+function intersectIntervals(
+  left: TimeInterval,
+  right: TimeInterval,
+): TimeInterval | null {
+  const start = Math.max(left.start, right.start);
+  const end = Math.min(left.end, right.end);
+  return start < end ? { start, end } : null;
+}
+
+function intervalsOverlap(left: TimeInterval, right: TimeInterval): boolean {
+  return Math.max(left.start, right.start) < Math.min(left.end, right.end);
+}
+
+/**
+ * ACT-21-I5 has no evaluation timestamp in ValidationContext. This validator
+ * therefore proves the stronger time-parametric invariant:
+ *
+ *   for every instant at which authority could be resolved, the active
+ *   root-reachable graph has no cycle and at most one root path per actor.
+ *
+ * Non-overlapping historical/future delegations are not ambiguous, because no
+ * single T_decision can activate both paths. Runtime authorization still
+ * evaluates the concrete T_decision.
+ */
 export const ACT_21_I5: ValidationRule = {
   rule_id: "ACT-21-I5",
-  implementation_hash: "act-21-i5-deterministic-delegation-v2",
-  description: "Trust delegation graph is deterministic: resolvable, acyclic and unambiguous",
+  implementation_hash: "act-21-i5-temporal-deterministic-closure-v3",
+  description:
+    "Trust delegation is deterministic at every evaluation instant: resolvable, temporally acyclic and unambiguous",
 
   validate(context: ValidationContext) {
     const domains = context.artifacts.filter(
@@ -50,6 +86,14 @@ export const ACT_21_I5: ValidationRule = {
     const delegations = context.artifacts.filter(
       (artifact) => artifact.artifact_type === "trust_delegation",
     ) as readonly (ArtifactContract & DelegationShape)[];
+
+    if (domains.length === 0) {
+      return {
+        rule_id: "ACT-21-I5",
+        passed: false,
+        evidence: [],
+      };
+    }
 
     const evidence: Array<{
       ok: boolean;
@@ -62,6 +106,35 @@ export const ACT_21_I5: ValidationRule = {
       };
     }> = [];
 
+    for (const delegation of delegations) {
+      if (
+        !delegation.from_actor_ref ||
+        !delegation.to_actor_ref ||
+        !delegation.domain_ref ||
+        typeof delegation.authority_scope !== "string" ||
+        delegation.authority_scope.length === 0 ||
+        !delegationInterval(delegation) ||
+        context.resolve(delegation.from_actor_ref)?.artifact_type !== "actor" ||
+        context.resolve(delegation.to_actor_ref)?.artifact_type !== "actor" ||
+        context.resolve(delegation.domain_ref)?.artifact_type !== "trust_domain"
+      ) {
+        evidence.push({
+          ok: false,
+          value: {
+            evidence_id: `evidence-ACT-21-I5-${delegation.artifact_id}-shape`,
+            rule_id: "ACT-21-I5",
+            artifact_ref: {
+              artifact_id: delegation.artifact_id,
+              artifact_type: delegation.artifact_type,
+            },
+            observation:
+              "delegation edge is unresolved, references a missing trust domain, lacks scope, or has an invalid validity interval",
+            created_at: "",
+          },
+        });
+      }
+    }
+
     for (const domain of domains) {
       const shapedDomain = domain as typeof domain & {
         readonly anchor_ref?: ArtifactReference;
@@ -70,25 +143,21 @@ export const ACT_21_I5: ValidationRule = {
         ? context.resolve(shapedDomain.anchor_ref)
         : undefined;
       const shapedAnchor = anchor as
-        | (typeof anchor & { readonly root_actor_ref?: ArtifactReference })
+        | (typeof anchor & {
+            readonly root_actor_ref?: ArtifactReference;
+            readonly root_actor_hash?: ContentHash;
+          })
         | undefined;
       const rootRef = shapedAnchor?.root_actor_ref;
       const rootActor = rootRef ? context.resolve(rootRef) : undefined;
 
-      const domainDelegations = delegations.filter(
-        (delegation) =>
-          delegation.domain_ref && sameRef(delegation.domain_ref, domain),
-      );
-      const scopes = [...new Set(
-        domainDelegations
-          .map((delegation) => delegation.authority_scope)
-          .filter((scope): scope is string => typeof scope === "string" && scope.length > 0),
-      )].sort();
-
       if (
         anchor?.artifact_type !== "trust_anchor" ||
         !rootRef ||
-        rootActor?.artifact_type !== "actor"
+        !shapedAnchor?.root_actor_hash ||
+        rootActor?.artifact_type !== "actor" ||
+        rootActor.content_hash.algorithm !== shapedAnchor.root_actor_hash.algorithm ||
+        rootActor.content_hash.value !== shapedAnchor.root_actor_hash.value
       ) {
         evidence.push({
           ok: false,
@@ -99,12 +168,30 @@ export const ACT_21_I5: ValidationRule = {
               artifact_id: domain.artifact_id,
               artifact_type: domain.artifact_type,
             },
-            observation: "trust domain lacks a resolvable trust-anchor root actor",
+            observation:
+              "trust domain lacks exactly one resolvable, hash-bound trust-anchor root actor",
             created_at: "",
           },
         });
         continue;
       }
+
+      const domainDelegations = delegations.filter(
+        (delegation) =>
+          delegation.domain_ref &&
+          sameRef(delegation.domain_ref, domain) &&
+          delegationInterval(delegation) !== null,
+      );
+      const scopes = [
+        ...new Set(
+          domainDelegations
+            .map((delegation) => delegation.authority_scope)
+            .filter(
+              (scope): scope is string =>
+                typeof scope === "string" && scope.length > 0,
+            ),
+        ),
+      ].sort();
 
       if (scopes.length === 0) {
         evidence.push({
@@ -116,7 +203,8 @@ export const ACT_21_I5: ValidationRule = {
               artifact_id: domain.artifact_id,
               artifact_type: domain.artifact_type,
             },
-            observation: "trust domain has no delegation edges; graph is trivially deterministic",
+            observation:
+              "trust domain has no valid delegation edges; root-only closure is deterministic",
             created_at: "",
           },
         });
@@ -128,59 +216,67 @@ export const ACT_21_I5: ValidationRule = {
           .filter((delegation) => delegation.authority_scope === scope)
           .sort((a, b) => a.artifact_id.localeCompare(b.artifact_id));
 
+        const adjacency = new Map<string, typeof edges>();
+        for (const edge of edges) {
+          const key = refKey(edge.from_actor_ref!);
+          const current = adjacency.get(key) ?? [];
+          current.push(edge);
+          adjacency.set(key, current);
+        }
+
         let graphValid = true;
         let failure = "";
+        const rootKey = refKey(rootRef);
+        const reached = new Map<string, TimeInterval[]>();
 
-        for (const edge of edges) {
-          if (
-            !edge.from_actor_ref ||
-            !edge.to_actor_ref ||
-            !intervalIsWellFormed(edge) ||
-            context.resolve(edge.from_actor_ref)?.artifact_type !== "actor" ||
-            context.resolve(edge.to_actor_ref)?.artifact_type !== "actor"
-          ) {
-            graphValid = false;
-            failure = "delegation edge is unresolved or has an invalid validity interval";
-            break;
-          }
-        }
+        const walk = (
+          actorKey: string,
+          activeInterval: TimeInterval,
+          pathActors: ReadonlySet<string>,
+        ): void => {
+          if (!graphValid) return;
 
-        const adjacency = new Map<string, typeof edges>();
-        if (graphValid) {
-          for (const edge of edges) {
-            const key = refKey(edge.from_actor_ref!);
-            const current = adjacency.get(key) ?? [];
-            current.push(edge);
-            adjacency.set(key, current);
-          }
-
-          const rootKey = refKey(rootRef);
-          const pathCounts = new Map<string, number>();
-          const walk = (
-            actorKey: string,
-            visited: ReadonlySet<string>,
-          ): void => {
-            if (!graphValid) return;
-            for (const edge of adjacency.get(actorKey) ?? []) {
-              const nextKey = refKey(edge.to_actor_ref!);
-              if (visited.has(nextKey)) {
-                graphValid = false;
-                failure = "delegation graph contains a reachable cycle";
-                return;
-              }
-              const count = (pathCounts.get(nextKey) ?? 0) + 1;
-              pathCounts.set(nextKey, count);
-              if (count > 1) {
-                graphValid = false;
-                failure = "delegation graph contains multiple paths to the same actor";
-                return;
-              }
-              walk(nextKey, new Set([...visited, nextKey]));
-              if (!graphValid) return;
+          for (const edge of adjacency.get(actorKey) ?? []) {
+            const interval = delegationInterval(edge)!;
+            const pathInterval = intersectIntervals(activeInterval, interval);
+            if (!pathInterval) {
+              continue;
             }
-          };
-          walk(rootKey, new Set([rootKey]));
-        }
+
+            const nextKey = refKey(edge.to_actor_ref!);
+            if (pathActors.has(nextKey)) {
+              graphValid = false;
+              failure =
+                "delegation graph contains a root-reachable cycle active at some evaluation instant";
+              return;
+            }
+
+            const priorPaths = reached.get(nextKey) ?? [];
+            if (priorPaths.some((prior) => intervalsOverlap(prior, pathInterval))) {
+              graphValid = false;
+              failure =
+                "delegation graph contains multiple root paths to the same actor active at the same evaluation instant";
+              return;
+            }
+            reached.set(nextKey, [...priorPaths, pathInterval]);
+
+            walk(
+              nextKey,
+              pathInterval,
+              new Set([...pathActors, nextKey]),
+            );
+            if (!graphValid) return;
+          }
+        };
+
+        walk(
+          rootKey,
+          {
+            start: Number.NEGATIVE_INFINITY,
+            end: Number.POSITIVE_INFINITY,
+          },
+          new Set([rootKey]),
+        );
 
         evidence.push({
           ok: graphValid,
@@ -192,7 +288,7 @@ export const ACT_21_I5: ValidationRule = {
               artifact_type: domain.artifact_type,
             },
             observation: graphValid
-              ? `delegation graph for scope '${scope}' is resolvable, acyclic and has at most one root path per actor`
+              ? `delegation graph for scope '${scope}' is deterministic for every evaluation instant`
               : failure,
             created_at: "",
           },
@@ -202,7 +298,7 @@ export const ACT_21_I5: ValidationRule = {
 
     return {
       rule_id: "ACT-21-I5",
-      passed: evidence.every((entry) => entry.ok),
+      passed: evidence.length > 0 && evidence.every((entry) => entry.ok),
       evidence: evidence.map((entry) => entry.value),
     };
   },
