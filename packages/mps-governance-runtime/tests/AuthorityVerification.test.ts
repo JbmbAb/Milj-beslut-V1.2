@@ -381,14 +381,16 @@ describe("MINIMUM-AUTHORITY-DELTA-01 — authority verification", () => {
     if ("reason" in result) expect(result.reason).toContain("capability name mismatch");
   });
 
-  it("rejects a delegation and scope outside the requested authority scope", async () => {
+  it("rejects a requested scope not bound by the trust-domain authority scope", async () => {
     const f = await fixture();
     const result = await verifyAuthorityAtDecisionTime(f.port, {
       ...f.request,
       required_scope: "staging",
     });
     expect(result).toMatchObject({ ok: false });
-    if ("reason" in result) expect(result.reason).toMatch(/scope mismatch|non-canonical or ambiguous path/);
+    if ("reason" in result) {
+      expect(result.reason).toContain("REJECT_TRUST_ROOT");
+    }
   });
 
   it("fails closed instead of recasting a source-authority root as an Actor root", async () => {
