@@ -101,11 +101,10 @@ function body(input: {
     effective_from: effectiveFrom,
     ...(previousRef ? { previous_lifecycle_ref: previousRef } : {}),
   };
-  const representationIdentity = sha256ContentHash({\n    artifact_type: "actor_lifecycle",\n    ...canonical,\n  });
+  const representationIdentity = sha256ContentHash(canonical);
 
   return {
     artifact_id: `actor-lifecycle-${representationIdentity.value.slice(0, 24)}`,
-    artifact_type: "actor_lifecycle",
     references: [identityRef, ...(previousRef ? [previousRef] : [])],
     ...canonical,
   };
