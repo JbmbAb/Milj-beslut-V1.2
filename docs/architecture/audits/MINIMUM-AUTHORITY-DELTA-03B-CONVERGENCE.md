@@ -91,8 +91,9 @@ runtime session. Identity existence alone therefore cannot satisfy `verifyAuthor
 `packages/mps-governance/src/actors/IdentityArtifacts.ts`
 
 - implements the already-frozen ADR-24-21 HumanIdentityArtifact concept;
-- derives a deterministic domain-separated SHA-256 fingerprint from an authenticated BankID subject;
-- never persists the raw BankID subject in the canonical artifact;
+- uses the stable persisted Mimer `User.id` as the canonical subject in namespace `mimer.user`;
+- never persists the BankID personal number, nor an enumerable unsalted hash of it, in the canonical artifact;
+- treats BankID only as authentication/binding evidence when resolving the runtime principal;
 - contains no role or authority semantics;
 - canonical artifact id/content hash are deterministic;
 - validation recomputes and fail-closes on mutation.
@@ -115,10 +116,15 @@ requireAuth AuthUser
   -> exact user-id equality
   -> exact BankID-subject equality
   -> reject admin:/mock-* synthetic identities
-  -> deterministic HumanIdentityArtifact
+  -> deterministic HumanIdentityArtifact(subject_id = persisted User.id)
 ```
 
 Role and organisation are deliberately ignored by this bridge because they are authorization state.
+
+The production BankID integration stores `completionData.user.personalNumber` in `User.bankidId`.
+03B therefore explicitly rejects using `bankidId` itself—or a plain deterministic hash of it—as
+canonical artifact identity. The exact BankID value is checked transiently against the current
+persisted User row and is not copied into HumanIdentityArtifact.
 
 ### LU service bridge
 
@@ -137,12 +143,15 @@ service identity.
 
 ## What remains open after this delta
 
-This delta closes:
+This delta implements and tests deterministic resolution:
 
 ```
-runtime/authenticated principal -> canonical identity
-verified LU execution principal -> canonical service identity
+runtime/authenticated principal -> canonical HumanIdentity derivation
+verified LU execution principal -> canonical ServiceIdentity derivation
 ```
+
+It does not yet persist these new generic identity artifacts or index them as production authority
+state. Persistence is intentionally left for the later Actor/provisioning convergence step.
 
 It deliberately does NOT yet claim:
 
