@@ -52,6 +52,7 @@ import { getLuExecutionAuthorityVerifier } from "./LuExecutionAuthorityVerifier.
 import { getLuExecutionAuthorityRootVerifier } from "./LuExecutionAuthorityVerifier.js";
 import { LU_EXECUTION_AUTHORITY_ISSUER_TYPE } from "../artifacts/LuExecutionAuthorityArtifact.js";
 import { verifyLuExecutionAuthorityChain } from "./LuExecutionAuthorityChain.js";
+import { verifyLuSourceAuthorityForAssessment } from "../governance/LuSourceAuthorityWiring.js";
 
 /** LU reference principal — domain composition root identity binding. */
 export const LU_EXECUTION_PRINCIPAL_ID = "lu.site_assessment.actor" as const;
@@ -80,6 +81,12 @@ export function createLuRuleEngineInvokeHandler(
 export interface LuKernelRunInput {
   readonly site_id: string;
   readonly deterministic_seed: string;
+  /**
+   * 04D: explicit persisted authority evaluation instant. It is intentionally separate from
+   * deterministic_seed (a SHA-256 identity, not a clock). The canonical non-bootstrap product
+   * entrypoint requires this value and binds AuthorityEvidence to it.
+   */
+  readonly authority_decision_time?: string;
   readonly evidence: SpatialEvidenceArtifact[];
   /**
    * F4A: document evidence is now transported to the rule engine. Optional so existing
@@ -264,6 +271,7 @@ export async function runLuAssessmentViaKernel(
 
   const bootstrap = isLuBootstrapAdmitAllowed();
   let verificationContext: FrozenCoreVerificationContext | null = null;
+  let verifiedExecutionIdentity: ExecutionIdentityArtifact | null = null;
 
   if (!bootstrap) {
     // PROD-LU-ADMISSION-02D: consume-only. If an authority-issued identity was explicitly
@@ -313,7 +321,7 @@ export async function runLuAssessmentViaKernel(
         site_id: input.site_id,
         deterministic_seed: input.deterministic_seed,
       });
-      const { artifactResolver } = await preVerifyExecutionIdentityForAdmission({
+      const preVerification = await preVerifyExecutionIdentityForAdmission({
         identity: resolvedIdentity,
         capabilityArtifact: capability,
         resolveAttestation: async (ref) => {
@@ -328,7 +336,10 @@ export async function runLuAssessmentViaKernel(
         expectedSubjectV2: expectedSubjectV2 ?? undefined,
         expectedSubjectV3: expectedSubjectV3 ?? undefined,
       });
-      verificationContext = buildAdmissionContext(artifactResolver);
+      if (preVerification.result.verified) {
+        verifiedExecutionIdentity = preVerification.result.identity;
+      }
+      verificationContext = buildAdmissionContext(preVerification.artifactResolver);
     } else {
       verificationContext = buildAdmissionContext({
         resolve: (ref) =>
@@ -443,16 +454,49 @@ export async function runLuAssessmentViaKernel(
         body: attestation,
       });
       if (input.assessment_draft) {
+        const sourceAuthorityRequired =
+          !bootstrap &&
+          expectedSubjectV3 !== null &&
+          input.authority_decision_time !== undefined;
+        if (sourceAuthorityRequired && !verifiedExecutionIdentity) {
+          throw new Error(
+            "REJECT_LU_SOURCE_AUTHORITY: admitted canonical run has no verified execution identity",
+          );
+        }
+        const sourceAuthority = sourceAuthorityRequired
+          ? await verifyLuSourceAuthorityForAssessment({
+              repository: repo,
+              execution_identity: verifiedExecutionIdentity!,
+              expected_subject_v3: expectedSubjectV3!,
+              expected_capability_ref: {
+                artifact_id: capability.artifact_id,
+                artifact_type: capability.artifact_type,
+              },
+              release_snapshot_id: snapshot.snapshot_id,
+              deterministic_seed: input.deterministic_seed,
+              authority_decision_time: input.authority_decision_time!,
+              root_verification: getLuExecutionAuthorityRootVerifier(),
+              issuer_verification: getLuExecutionAuthorityVerifier(),
+            })
+          : undefined;
+
         assessment = createGovernedLocalizationAssessment({
           draft: input.assessment_draft,
           findings,
           outcome: result.outcome,
           attestation,
+          authority_evidence: sourceAuthority?.evidence,
         });
         await new GovernedAssessmentPersistence(
           repo,
           (candidate) => security.verifyAttestation(candidate),
-        ).persist({ artifact: assessment, outcome: result.outcome, attestation });
+          { requireAuthorityEvidence: sourceAuthorityRequired },
+        ).persist({
+          artifact: assessment,
+          outcome: result.outcome,
+          attestation,
+          authority: sourceAuthority,
+        });
       }
     }
     await repo.put({
@@ -498,5 +542,10 @@ export interface CanonicalLuKernelRunInput
 export async function runCanonicalLuProductAssessment(
   input: CanonicalLuKernelRunInput,
 ): Promise<LuKernelRunResult> {
+  if (!isLuBootstrapAdmitAllowed() && !input.authority_decision_time) {
+    throw new Error(
+      "REJECT_LU_SOURCE_AUTHORITY: authority_decision_time is required for canonical product execution",
+    );
+  }
   return runLuAssessmentViaKernel(input);
 }
