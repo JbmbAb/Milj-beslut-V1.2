@@ -16,7 +16,9 @@
     "src/application/generate-localization-report.usecase.ts",
     "packages/mps-lu/tests/LuSourceAuthorityWiring04D.test.ts",
     "docs/architecture/audits/MINIMUM-AUTHORITY-DELTA-04D-LU-SOURCE-AUTHORITY-WIRING.md",
-    "governance/devgov/units/lu-source-authority-wiring-04d-v1.json"
+    "governance/devgov/units/lu-source-authority-wiring-04d-v1.json",
+    "packages/mps-lu/src/execution/LuExecutionPrincipal.ts",
+    "packages/mps-lu/src/execution/LuCanonicalServiceIdentity.ts"
   ],
   "forbidden_paths": [
     ".github/**",

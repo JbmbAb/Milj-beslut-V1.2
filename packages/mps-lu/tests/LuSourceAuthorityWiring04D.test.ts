@@ -134,7 +134,7 @@ async function fixture(options: {
   };
   const seed = options.signed_seed ?? "seed-04d";
   const artifactId = computeExecutionIdentityArtifactIdV3(subject);
-  const actorRef = options.actor_ref ?? {
+  const actorRef: ArtifactReference = options.actor_ref ?? {
     artifact_id: LU_EXECUTION_PRINCIPAL_ID,
     artifact_type: "execution_identity",
   };

@@ -53,9 +53,8 @@ import { getLuExecutionAuthorityRootVerifier } from "./LuExecutionAuthorityVerif
 import { LU_EXECUTION_AUTHORITY_ISSUER_TYPE } from "../artifacts/LuExecutionAuthorityArtifact.js";
 import { verifyLuExecutionAuthorityChain } from "./LuExecutionAuthorityChain.js";
 import { verifyLuSourceAuthorityForAssessment } from "../governance/LuSourceAuthorityWiring.js";
-
-/** LU reference principal — domain composition root identity binding. */
-export const LU_EXECUTION_PRINCIPAL_ID = "lu.site_assessment.actor" as const;
+import { LU_EXECUTION_PRINCIPAL_ID } from "./LuExecutionPrincipal.js";
+export { LU_EXECUTION_PRINCIPAL_ID } from "./LuExecutionPrincipal.js";
 
 /**
  * Domain registers LURuleEngine as an invoke handler — kernel never imports it.

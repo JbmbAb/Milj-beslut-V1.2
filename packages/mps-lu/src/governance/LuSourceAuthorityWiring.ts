@@ -39,7 +39,7 @@ import {
   verifyExecutionIdentityAttestation,
 } from "../execution/ExecutionIdentityAttestation.js";
 import { verifyLuExecutionAuthorityChain } from "../execution/LuExecutionAuthorityChain.js";
-import { LU_EXECUTION_PRINCIPAL_ID } from "../execution/LuExecutionKernelClient.js";
+import { LU_EXECUTION_PRINCIPAL_ID } from "../execution/LuExecutionPrincipal.js";
 
 export const LU_LOCALIZATION_ASSESSMENT_PERSIST_ACTION =
   "lu.localization_assessment.persist" as const;
