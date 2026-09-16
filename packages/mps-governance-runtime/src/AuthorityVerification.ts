@@ -497,6 +497,7 @@ export async function verifyAuthorityAtDecisionTime(
         decisionMs,
         externalEvidence,
         collectedAuthorityRefs,
+        !sameLooseRef(entry.delegator_actor_ref, request.trust_root_actor_ref),
       );
       await resolveActorClosure(
         port,
@@ -506,6 +507,7 @@ export async function verifyAuthorityAtDecisionTime(
         decisionMs,
         externalEvidence,
         collectedAuthorityRefs,
+        !sameLooseRef(entry.delegatee_actor_ref, request.trust_root_actor_ref),
       );
       requireWindowContains(
         decisionMs,
