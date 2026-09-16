@@ -266,39 +266,52 @@ export class DefaultAuthorityVerificationPort implements AuthorityVerificationPo
 
     const rootKey = looseKey(input.root_actor_ref);
     const targetKey = looseKey(input.actor_ref);
-    const paths: PinnedArtifactReference[][] = [];
-    let cycleDetected = false;
 
+    // First reject every cycle reachable from the authority root, including a
+    // cycle that begins after the requested target. Path discovery alone cannot
+    // prove this because it legitimately stops when it reaches the target.
+    const visiting = new Set<string>();
+    const visited = new Set<string>();
+    let cycleDetected = false;
+    const detectCycle = (actorKey: string): void => {
+      if (cycleDetected || visited.has(actorKey)) return;
+      if (visiting.has(actorKey)) {
+        cycleDetected = true;
+        return;
+      }
+      visiting.add(actorKey);
+      for (const edge of adjacency.get(actorKey) ?? []) {
+        detectCycle(looseKey(edge.artifact.to_actor_ref));
+        if (cycleDetected) return;
+      }
+      visiting.delete(actorKey);
+      visited.add(actorKey);
+    };
+    detectCycle(rootKey);
+    if (cycleDetected) return false;
+
+    const paths: PinnedArtifactReference[][] = [];
     const visit = (
       actorKey: string,
-      visitedActors: ReadonlySet<string>,
       path: readonly PinnedArtifactReference[],
     ): void => {
-      if (paths.length > 1 || cycleDetected) return;
+      if (paths.length > 1) return;
       if (actorKey === targetKey) {
         paths.push([...path]);
         return;
       }
-
-      const outgoing = adjacency.get(actorKey) ?? [];
-      for (const edge of outgoing) {
-        const nextKey = looseKey(edge.artifact.to_actor_ref);
-        if (visitedActors.has(nextKey)) {
-          cycleDetected = true;
-          return;
-        }
+      for (const edge of adjacency.get(actorKey) ?? []) {
         visit(
-          nextKey,
-          new Set([...visitedActors, nextKey]),
+          looseKey(edge.artifact.to_actor_ref),
           [...path, edge.ref],
         );
-        if (paths.length > 1 || cycleDetected) return;
+        if (paths.length > 1) return;
       }
     };
 
-    visit(rootKey, new Set([rootKey]), []);
+    visit(rootKey, []);
 
-    if (cycleDetected || paths.length !== 1) return false;
+    if (paths.length !== 1) return false;
     const canonical = paths[0]!;
     if (canonical.length !== input.delegation_refs.length) return false;
     return canonical.every(
