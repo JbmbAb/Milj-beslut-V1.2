@@ -38,11 +38,17 @@ export interface AuthorityEvidenceArtifact extends ArtifactContract {
   readonly authority_scope: string;
   readonly action: string;
   readonly decision_time: string;
-  readonly authorized_at_decision_time: true;
 
   /**
-   * Ordered, hash-bound source authority path. This is representation only:
-   * LU cryptographic verification remains in the LU authority verifier.
+   * 04C is representation-only. This artifact deliberately cannot assert
+   * authorization. A later source-verifier adapter must derive any positive
+   * authorized-at-decision-time claim from executed verification evidence.
+   */
+  readonly authority_claim_state: "UNVERIFIED_REPRESENTATION";
+
+  /**
+   * Ordered, hash-bound source authority path. Roles are descriptive until a
+   * source verifier proves the path semantics.
    */
   readonly authority_path: readonly AuthorityEvidencePathEntry[];
 
@@ -198,7 +204,7 @@ function body(input: {
     authority_scope: input.trust_domain.authority_scope,
     action: required(input.action, "action"),
     decision_time: normalizedDecisionTime,
-    authorized_at_decision_time: true as const,
+    authority_claim_state: "UNVERIFIED_REPRESENTATION" as const,
     authority_path: canonicalPath,
     ...(trustDelegationRef
       ? {
@@ -262,6 +268,19 @@ export function validateAuthorityEvidenceArtifact(
     "action" | "decision_time"
   >,
 ): AuthorityEvidenceArtifact {
+  const raw = artifact as AuthorityEvidenceArtifact & {
+    readonly authorized_at_decision_time?: unknown;
+    readonly authorized_now?: unknown;
+  };
+  if (
+    raw.authorized_at_decision_time !== undefined ||
+    raw.authorized_now !== undefined
+  ) {
+    throw new Error(
+      "REJECT_AUTHORITY_EVIDENCE: representation cannot assert authorization",
+    );
+  }
+
   const rebuilt = createAuthorityEvidenceArtifact({
     ...input,
     action: artifact.action,
@@ -269,7 +288,7 @@ export function validateAuthorityEvidenceArtifact(
   });
   if (
     artifact.artifact_id !== rebuilt.artifact_id ||
-    artifact.authorized_at_decision_time !== true ||
+    artifact.authority_claim_state !== "UNVERIFIED_REPRESENTATION" ||
     artifact.content_hash.algorithm !== rebuilt.content_hash.algorithm ||
     artifact.content_hash.value !== rebuilt.content_hash.value
   ) {
