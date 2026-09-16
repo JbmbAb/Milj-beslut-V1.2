@@ -47,7 +47,9 @@ TrustAnchorArtifact
 LuExecutionAuthorityRootArtifact
 ```
 
-No Actor is synthesized.
+No Actor is synthesized. For a source-authority root, `verification_key_id` is deliberately
+forbidden: the source verifier retains exclusive ownership of that key purpose. The generic anchor
+records only the exact root artifact reference/hash.
 
 ### 2. TrustDomain carries the frozen semantics
 
