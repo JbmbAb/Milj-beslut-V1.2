@@ -1,7 +1,7 @@
 import type { AuthUser } from "./types";
 import { isDisqualifiedBankIdSubject } from "../../packages/mps-compliance/src/artifacts/AdminRoleGrantArtifact";
 import {
-  createHumanIdentityArtifactFromBankId,
+  createHumanIdentityArtifact,
   type HumanIdentityArtifact,
 } from "../../packages/mps-governance/src/actors/IdentityArtifacts";
 
@@ -41,7 +41,7 @@ export function bindAuthUserToCanonicalHumanIdentity(
     throw new CanonicalHumanIdentityRejected("synthetic admin/mock identity cannot become canonical human authority identity");
   }
 
-  return createHumanIdentityArtifactFromBankId(persisted.bankidId);
+  return createHumanIdentityArtifact(persisted.id);
 }
 
 /**
