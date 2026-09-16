@@ -14,7 +14,7 @@ export const ACT_21_I3: ValidationRule = {
       (artifact) => artifact.artifact_type === "trust_domain",
     );
 
-    if (actors.length === 0 || domains.length === 0) {
+    if (actors.length === 0) {
       return {
         rule_id: "ACT-21-I3",
         passed: false,
