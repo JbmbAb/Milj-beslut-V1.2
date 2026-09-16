@@ -178,6 +178,15 @@ function hashMatchesPinned(hash: ContentHash | undefined, ref: PinnedArtifactRef
   );
 }
 
+function sameContentHash(left: ContentHash | undefined, right: ContentHash | undefined): boolean {
+  return Boolean(
+    left &&
+      right &&
+      left.algorithm === right.algorithm &&
+      left.value === right.value,
+  );
+}
+
 function parseInstant(value: string, label: string): number {
   const parsed = Date.parse(value);
   if (Number.isNaN(parsed)) {
@@ -255,7 +264,8 @@ async function resolveActorClosure(
   decisionMs: number,
   externalEvidence: ContentReference[],
   collectedRefs: PinnedArtifactReference[],
-): Promise<void> {
+  requireDomainMembership = true,
+): Promise<ActorArtifact> {
   const actor = await resolve<ActorArtifact>(port, actorRef, externalEvidence);
   const lifecycle = await resolve<ActorLifecycleArtifact>(port, lifecycleRef, externalEvidence);
 
@@ -275,20 +285,33 @@ async function resolveActorClosure(
   if (!sameLooseRef(actor.lifecycle_ref, lifecycleRef)) {
     throw new Error("REJECT_ACTOR_LIFECYCLE: lifecycle reference mismatch");
   }
-  if (!sameLooseRef(actor.trust_domain_ref, trustDomainRef)) {
+  if (
+    !sameLooseRef(lifecycle.identity_ref, actor.identity_ref) ||
+    !sameContentHash(lifecycle.identity_hash, actor.identity_hash)
+  ) {
+    throw new Error("REJECT_ACTOR_LIFECYCLE: lifecycle identity mismatch");
+  }
+  if (
+    requireDomainMembership &&
+    !actor.trust_domain_refs.some((reference) =>
+      sameLooseRef(reference, trustDomainRef),
+    )
+  ) {
     throw new Error("REJECT_TRUST_DOMAIN: actor domain mismatch");
   }
-  if (lifecycle.state !== "active") {
-    throw new Error("REJECT_ACTOR_LIFECYCLE: actor is not active");
+  if (lifecycle.state !== "ACTIVE") {
+    throw new Error("REJECT_ACTOR_LIFECYCLE: actor is not ACTIVE");
   }
-  requireWindowContains(
-    decisionMs,
+  const activeFrom = parseInstant(
     lifecycle.effective_from,
-    lifecycle.effective_to,
-    `actor_lifecycle:${actorRef.artifact_id}`,
+    `actor_lifecycle:${actorRef.artifact_id}.effective_from`,
   );
+  if (decisionMs < activeFrom) {
+    throw new Error("REJECT_ACTOR_LIFECYCLE: actor not active at decision_time");
+  }
 
   collectedRefs.push(actorRef, lifecycleRef, identityRef);
+  return actor;
 }
 
 async function verifyDelegationStatus(
@@ -378,7 +401,7 @@ export async function verifyAuthorityAtDecisionTime(
       resolve<TrustAnchorArtifact>(port, request.trust_anchor_ref, externalEvidence),
     ]);
 
-    await resolveActorClosure(
+    const actor = await resolveActorClosure(
       port,
       request.actor_ref,
       request.actor_lifecycle_ref,
@@ -395,13 +418,24 @@ export async function verifyAuthorityAtDecisionTime(
       decisionMs,
       externalEvidence,
       collectedAuthorityRefs,
+      false,
     );
+    if (anchor.root_binding_type !== "actor") {
+      throw new Error(
+        "REJECT_AUTHORITY_ROOT: source-authority root requires AuthorityEvidence source closure",
+      );
+    }
     if (
       !sameLooseRef(domain.anchor_ref, request.trust_anchor_ref) ||
-      !sameLooseRef(anchor.root_actor_ref, request.trust_root_actor_ref) ||
-      !hashMatchesPinned(anchor.root_actor_hash, request.trust_root_actor_ref)
+      !hashMatchesPinned(domain.anchor_hash, request.trust_anchor_ref) ||
+      domain.authority_scope !== request.required_scope ||
+      !sameLooseRef(anchor.root_ref, request.trust_root_actor_ref) ||
+      !hashMatchesPinned(anchor.root_hash, request.trust_root_actor_ref)
     ) {
-      throw new Error("REJECT_TRUST_ROOT: domain/anchor/root-actor closure mismatch");
+      throw new Error("REJECT_TRUST_ROOT: domain/anchor/root closure mismatch");
+    }
+    if (!domain.allowed_actor_types.includes(actor.kind)) {
+      throw new Error("REJECT_TRUST_DOMAIN: actor kind is not allowed");
     }
     if (capability.capability_name !== request.required_capability) {
       throw new Error("REJECT_CAPABILITY: capability name mismatch");
@@ -494,7 +528,7 @@ export async function verifyAuthorityAtDecisionTime(
     }
 
     if (request.delegation_path.length === 0) {
-      if (!sameLooseRef(anchor.root_actor_ref, request.actor_ref)) {
+      if (!sameLooseRef(anchor.root_ref, request.actor_ref)) {
         throw new Error("REJECT_DELEGATION_PATH: delegation required for non-root actor");
       }
     } else if (!sameLooseRef(expectedFrom, request.actor_ref)) {
