@@ -42,11 +42,22 @@
       "required_head": "base_sha"
     },
     {
+      "id": "product-current-accept",
+      "command": "bash",
+      "args": [
+        "-lc",
+        "npx vitest run --config vitest.config.ts --no-file-parallelism tests/unit/luExecutionIdentityScopeV2ProductWiring.test.ts -t \"CURRENT HEAD + matching V2 identity -> ACCEPT\""
+      ],
+      "timeout_ms": 240000,
+      "expected_classification": "FAIL",
+      "required_head": "base_sha"
+    },
+    {
       "id": "product-idempotency",
       "command": "bash",
       "args": [
         "-lc",
-        "npx vitest run --config vitest.config.ts --no-file-parallelism tests/unit/luExecutionIdentityScopeV2ProductWiring.test.ts"
+        "npx vitest run --config vitest.config.ts --no-file-parallelism tests/unit/luExecutionIdentityScopeV2ProductWiring.test.ts -t \"same exact product state replayed twice -> deterministic acceptance both times\""
       ],
       "timeout_ms": 240000,
       "expected_classification": "FAIL",
@@ -66,11 +77,22 @@
       "required_head": "candidate_sha"
     },
     {
+      "id": "product-current-accept",
+      "command": "bash",
+      "args": [
+        "-lc",
+        "npx vitest run --config vitest.config.ts --no-file-parallelism tests/unit/luExecutionIdentityScopeV2ProductWiring.test.ts -t \"CURRENT HEAD + matching V2 identity -> ACCEPT\""
+      ],
+      "timeout_ms": 240000,
+      "expected_classification": "PASS",
+      "required_head": "candidate_sha"
+    },
+    {
       "id": "product-idempotency",
       "command": "bash",
       "args": [
         "-lc",
-        "npx vitest run --config vitest.config.ts --no-file-parallelism tests/unit/luExecutionIdentityScopeV2ProductWiring.test.ts"
+        "npx vitest run --config vitest.config.ts --no-file-parallelism tests/unit/luExecutionIdentityScopeV2ProductWiring.test.ts -t \"same exact product state replayed twice -> deterministic acceptance both times\""
       ],
       "timeout_ms": 240000,
       "expected_classification": "PASS",
