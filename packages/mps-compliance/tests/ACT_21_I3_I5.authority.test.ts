@@ -68,16 +68,23 @@ function trustFixture() {
   return { root, user, mid, anchor, domain, actor, direct };
 }
 
-describe("ACT-21-I3 — trust-domain closure", () => {
-  it("passes only when actor -> domain -> anchor -> hash-bound root resolves", () => {
+describe("ACT-21-I3 — trust-domain participation", () => {
+  it("accepts a domain participant plus a hash-bound root actor with no self-domain reference", () => {
     const f = trustFixture();
     const result = ACT_21_I3.validate(
       context([f.root, f.anchor, f.domain, f.actor]),
     );
     expect(result.passed).toBe(true);
+    expect(
+      result.evidence.some(
+        (entry) =>
+          entry.artifact_ref.artifact_id === f.root.artifact_id &&
+          entry.observation.includes("hash-bound trust-anchor root"),
+      ),
+    ).toBe(true);
   });
 
-  it("fails closed on a root hash mismatch", () => {
+  it("fails closed when the claimed root actor hash does not bind to the resolved root", () => {
     const f = trustFixture();
     const badAnchor = artifact("anchor-1", "trust_anchor", "4".repeat(64), {
       root_actor_ref: ref(f.root),
@@ -85,6 +92,19 @@ describe("ACT-21-I3 — trust-domain closure", () => {
     });
     const result = ACT_21_I3.validate(
       context([f.root, badAnchor, f.domain, f.actor]),
+    );
+    expect(result.passed).toBe(false);
+  });
+
+  it("fails instead of vacuously passing when no actor/domain subject exists", () => {
+    expect(ACT_21_I3.validate(context([])).passed).toBe(false);
+  });
+
+  it("fails a non-root actor that has no resolvable trust-domain participation", () => {
+    const f = trustFixture();
+    const orphan = artifact("actor-orphan", "actor", "b".repeat(64));
+    const result = ACT_21_I3.validate(
+      context([f.root, f.anchor, f.domain, orphan]),
     );
     expect(result.passed).toBe(false);
   });
@@ -99,7 +119,7 @@ describe("ACT-21-I5 — deterministic delegation graph", () => {
     expect(result.passed).toBe(true);
   });
 
-  it("rejects two distinct root paths to the same actor", () => {
+  it("rejects two distinct root paths to the same actor when their validity overlaps", () => {
     const f = trustFixture();
     const rootMid = artifact("delegation-root-mid", "trust_delegation", "8".repeat(64), {
       from_actor_ref: ref(f.root),
@@ -131,10 +151,47 @@ describe("ACT-21-I5 — deterministic delegation graph", () => {
       ]),
     );
     expect(result.passed).toBe(false);
-    expect(result.evidence.some((entry) => entry.observation.includes("multiple paths"))).toBe(true);
+    expect(
+      result.evidence.some((entry) => entry.observation.includes("multiple root paths")),
+    ).toBe(true);
   });
 
-  it("rejects a root-reachable cycle", () => {
+  it("accepts parallel historical/future delegations that can never be active at the same T_decision", () => {
+    const f = trustFixture();
+    const historical = artifact(
+      "delegation-historical",
+      "trust_delegation",
+      "c".repeat(64),
+      {
+        from_actor_ref: ref(f.root),
+        to_actor_ref: ref(f.user),
+        domain_ref: ref(f.domain),
+        authority_scope: "production",
+        valid_from: "2025-01-01T00:00:00.000Z",
+        valid_until: "2026-01-01T00:00:00.000Z",
+      },
+    );
+    const future = artifact(
+      "delegation-future",
+      "trust_delegation",
+      "d".repeat(64),
+      {
+        from_actor_ref: ref(f.root),
+        to_actor_ref: ref(f.user),
+        domain_ref: ref(f.domain),
+        authority_scope: "production",
+        valid_from: "2027-01-01T00:00:00.000Z",
+        valid_until: "2028-01-01T00:00:00.000Z",
+      },
+    );
+
+    const result = ACT_21_I5.validate(
+      context([f.root, f.user, f.anchor, f.domain, historical, future]),
+    );
+    expect(result.passed).toBe(true);
+  });
+
+  it("rejects a root-reachable cycle when the cycle can be active at one instant", () => {
     const f = trustFixture();
     const back = artifact("delegation-user-root", "trust_delegation", "a".repeat(64), {
       from_actor_ref: ref(f.user),
@@ -149,6 +206,59 @@ describe("ACT-21-I5 — deterministic delegation graph", () => {
       context([f.root, f.user, f.anchor, f.domain, f.direct, back]),
     );
     expect(result.passed).toBe(false);
-    expect(result.evidence.some((entry) => entry.observation.includes("cycle"))).toBe(true);
+    expect(
+      result.evidence.some((entry) => entry.observation.includes("cycle")),
+    ).toBe(true);
+  });
+
+  it("does not report a temporal cycle when the return edge never overlaps the forward path", () => {
+    const f = trustFixture();
+    const forward = artifact(
+      "delegation-forward-old",
+      "trust_delegation",
+      "e".repeat(64),
+      {
+        from_actor_ref: ref(f.root),
+        to_actor_ref: ref(f.user),
+        domain_ref: ref(f.domain),
+        authority_scope: "production",
+        valid_from: "2025-01-01T00:00:00.000Z",
+        valid_until: "2026-01-01T00:00:00.000Z",
+      },
+    );
+    const returnEdge = artifact(
+      "delegation-return-new",
+      "trust_delegation",
+      "f".repeat(64),
+      {
+        from_actor_ref: ref(f.user),
+        to_actor_ref: ref(f.root),
+        domain_ref: ref(f.domain),
+        authority_scope: "production",
+        valid_from: "2026-01-01T00:00:00.000Z",
+        valid_until: "2027-01-01T00:00:00.000Z",
+      },
+    );
+
+    const result = ACT_21_I5.validate(
+      context([f.root, f.user, f.anchor, f.domain, forward, returnEdge]),
+    );
+    expect(result.passed).toBe(true);
+  });
+
+  it("fails instead of vacuously passing when no trust-domain subject exists", () => {
+    expect(ACT_21_I5.validate(context([])).passed).toBe(false);
+  });
+
+  it("fails closed on a trust-anchor root hash mismatch", () => {
+    const f = trustFixture();
+    const badAnchor = artifact("anchor-1", "trust_anchor", "4".repeat(64), {
+      root_actor_ref: ref(f.root),
+      root_actor_hash: { algorithm: "sha256", value: "0".repeat(64) },
+    });
+    const result = ACT_21_I5.validate(
+      context([f.root, f.user, badAnchor, f.domain, f.direct]),
+    );
+    expect(result.passed).toBe(false);
   });
 });
