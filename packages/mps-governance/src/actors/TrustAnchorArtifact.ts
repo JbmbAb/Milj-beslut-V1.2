@@ -45,6 +45,11 @@ function body(input: {
   if (input.verification_key_id !== undefined && !verificationKeyId) {
     throw new Error("REJECT_TRUST_ANCHOR: verification_key_id is empty");
   }
+  if (rootBindingType === "authority_artifact" && verificationKeyId) {
+    throw new Error(
+      "REJECT_TRUST_ANCHOR: source-authority root key purpose cannot be widened",
+    );
+  }
 
   const canonical = {
     artifact_type: "trust_anchor" as const,
