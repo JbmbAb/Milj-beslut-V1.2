@@ -14,7 +14,6 @@ import {
 import {
   LU_EXECUTION_AUTHORITY_ISSUER_TYPE,
   LU_EXECUTION_AUTHORITY_SCOPE,
-  type LuExecutionAuthorityIssuerArtifact,
   type LuExecutionAuthorityRootArtifact,
   validateLuExecutionAuthorityRootArtifact,
 } from "../artifacts/LuExecutionAuthorityArtifact.js";
