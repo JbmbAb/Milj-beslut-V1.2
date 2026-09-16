@@ -70,7 +70,6 @@ function body(input: {
   const identity = sha256ContentHash(canonical);
   return {
     artifact_id: `trust-domain-${identity.value.slice(0, 24)}`,
-    artifact_type: "trust_domain",
     references: [anchorRef],
     ...canonical,
   };
