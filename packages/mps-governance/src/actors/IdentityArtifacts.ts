@@ -1,22 +1,22 @@
 import type { ArtifactContract } from "../../../mps-compliance/src/artifacts/ArtifactContract.js";
-import type { ContentHash } from "../../../mps-compliance/src/artifacts/ContentHash.js";
 import { sha256ContentHash } from "../../../mps-compliance/src/canonical/sha256Canonical.js";
 
 export const HUMAN_IDENTITY_ARTIFACT_TYPE = "human_identity" as const;
 export const HUMAN_IDENTITY_CONTRACT_VERSION = "human-identity-v1" as const;
-export const HUMAN_IDENTITY_PROVIDER_BANKID = "BANKID" as const;
+export const HUMAN_IDENTITY_NAMESPACE = "mimer.user" as const;
 
 export const SERVICE_IDENTITY_ARTIFACT_TYPE = "service_identity" as const;
 export const SERVICE_IDENTITY_CONTRACT_VERSION = "service-identity-v1" as const;
 
 export interface HumanIdentityArtifact extends ArtifactContract {
   readonly artifact_type: typeof HUMAN_IDENTITY_ARTIFACT_TYPE;
-  readonly identity_provider: typeof HUMAN_IDENTITY_PROVIDER_BANKID;
   /**
-   * Domain-separated fingerprint of the provider subject.
-   * The raw BankID subject is deliberately not persisted in the canonical artifact.
+   * Canonical Mimer subject namespace. Authentication-provider identifiers
+   * (BankID personal number, OIDC subject, etc.) are deliberately not identity.
    */
-  readonly subject_fingerprint: ContentHash;
+  readonly identity_namespace: typeof HUMAN_IDENTITY_NAMESPACE;
+  /** Stable persisted Mimer User.id. Contains no role or authentication secret. */
+  readonly subject_id: string;
   readonly contract_version: typeof HUMAN_IDENTITY_CONTRACT_VERSION;
 }
 
@@ -35,48 +35,42 @@ function required(value: string, field: string): string {
   return normalized;
 }
 
-function humanSubjectFingerprint(bankidSubject: string): ContentHash {
-  return sha256ContentHash({
-    identity_contract: HUMAN_IDENTITY_CONTRACT_VERSION,
-    identity_provider: HUMAN_IDENTITY_PROVIDER_BANKID,
-    provider_subject: required(bankidSubject, "bankid_subject"),
-  });
-}
-
 function humanIdentityBody(input: {
-  readonly subject_fingerprint: ContentHash;
+  readonly subject_id: string;
 }): Omit<HumanIdentityArtifact, "content_hash"> {
-  const fingerprint = input.subject_fingerprint;
+  const subjectId = required(input.subject_id, "subject_id");
   const identity = sha256ContentHash({
     artifact_type: HUMAN_IDENTITY_ARTIFACT_TYPE,
-    identity_provider: HUMAN_IDENTITY_PROVIDER_BANKID,
-    subject_fingerprint: fingerprint,
+    identity_namespace: HUMAN_IDENTITY_NAMESPACE,
+    subject_id: subjectId,
     contract_version: HUMAN_IDENTITY_CONTRACT_VERSION,
   });
 
   return {
-    artifact_id: `human-identity-bankid-${identity.value.slice(0, 24)}`,
+    artifact_id: `human-identity-${identity.value.slice(0, 24)}`,
     artifact_type: HUMAN_IDENTITY_ARTIFACT_TYPE,
     references: [],
-    identity_provider: HUMAN_IDENTITY_PROVIDER_BANKID,
-    subject_fingerprint: fingerprint,
+    identity_namespace: HUMAN_IDENTITY_NAMESPACE,
+    subject_id: subjectId,
     contract_version: HUMAN_IDENTITY_CONTRACT_VERSION,
   };
 }
 
 /**
- * ADR-24-21 HumanIdentityArtifact implementation for an already authenticated
- * BankID subject.
+ * ADR-24-21 HumanIdentityArtifact implementation.
  *
- * This function establishes identity only. It grants no role, capability,
- * trust-domain membership or mutation authority.
+ * The canonical subject is Mimer's persistent User.id. External authentication
+ * identifiers are evidence used to bind a runtime principal to that subject,
+ * never persisted in this artifact. This avoids embedding BankID personal
+ * numbers (or reversibly enumerable hashes of them) in the canonical graph.
+ *
+ * This establishes identity only. It grants no role, capability, trust-domain
+ * membership or mutation authority.
  */
-export function createHumanIdentityArtifactFromBankId(
-  bankidSubject: string,
+export function createHumanIdentityArtifact(
+  subjectId: string,
 ): HumanIdentityArtifact {
-  const body = humanIdentityBody({
-    subject_fingerprint: humanSubjectFingerprint(bankidSubject),
-  });
+  const body = humanIdentityBody({ subject_id: subjectId });
   return {
     ...body,
     content_hash: sha256ContentHash(body),
@@ -88,20 +82,14 @@ export function validateHumanIdentityArtifact(
 ): HumanIdentityArtifact {
   if (
     artifact.artifact_type !== HUMAN_IDENTITY_ARTIFACT_TYPE ||
-    artifact.identity_provider !== HUMAN_IDENTITY_PROVIDER_BANKID ||
+    artifact.identity_namespace !== HUMAN_IDENTITY_NAMESPACE ||
     artifact.contract_version !== HUMAN_IDENTITY_CONTRACT_VERSION
   ) {
     throw new Error("REJECT_CANONICAL_HUMAN_IDENTITY: contract mismatch");
   }
-  if (
-    artifact.subject_fingerprint?.algorithm !== "sha256" ||
-    !artifact.subject_fingerprint.value
-  ) {
-    throw new Error("REJECT_CANONICAL_HUMAN_IDENTITY: invalid subject fingerprint");
-  }
 
   const rebuiltBody = humanIdentityBody({
-    subject_fingerprint: artifact.subject_fingerprint,
+    subject_id: artifact.subject_id,
   });
   const rebuiltHash = sha256ContentHash(rebuiltBody);
   if (
