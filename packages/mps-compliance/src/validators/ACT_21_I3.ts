@@ -10,10 +10,6 @@ export const ACT_21_I3: ValidationRule = {
 
   validate(context: ValidationContext) {
     const actors = context.artifacts.filter((artifact) => artifact.artifact_type === "actor");
-    const domains = context.artifacts.filter(
-      (artifact) => artifact.artifact_type === "trust_domain",
-    );
-
     if (actors.length === 0) {
       return {
         rule_id: "ACT-21-I3",
