@@ -62,22 +62,11 @@ function intervalsOverlap(left: TimeInterval, right: TimeInterval): boolean {
   return Math.max(left.start, right.start) < Math.min(left.end, right.end);
 }
 
-/**
- * ACT-21-I5 has no evaluation timestamp in ValidationContext. This validator
- * therefore proves the stronger time-parametric invariant:
- *
- *   for every instant at which authority could be resolved, the active
- *   root-reachable graph has no cycle and at most one root path per actor.
- *
- * Non-overlapping historical/future delegations are not ambiguous, because no
- * single T_decision can activate both paths. Runtime authorization still
- * evaluates the concrete T_decision.
- */
 export const ACT_21_I5: ValidationRule = {
   rule_id: "ACT-21-I5",
-  implementation_hash: "act-21-i5-temporal-deterministic-closure-v3",
+  implementation_hash: "act-21-i5-temporal-deterministic-closure-v4",
   description:
-    "Trust delegation is deterministic at every evaluation instant: resolvable, temporally acyclic and unambiguous",
+    "Trust closure is hash-bound at its canonical root; actor-root delegation graphs are temporally deterministic",
 
   validate(context: ValidationContext) {
     const domains = context.artifacts.filter(
@@ -138,27 +127,34 @@ export const ACT_21_I5: ValidationRule = {
     for (const domain of domains) {
       const shapedDomain = domain as typeof domain & {
         readonly anchor_ref?: ArtifactReference;
+        readonly anchor_hash?: ContentHash;
       };
       const anchor = shapedDomain.anchor_ref
         ? context.resolve(shapedDomain.anchor_ref)
         : undefined;
       const shapedAnchor = anchor as
         | (typeof anchor & {
-            readonly root_actor_ref?: ArtifactReference;
-            readonly root_actor_hash?: ContentHash;
+            readonly root_binding_type?: "actor" | "authority_artifact";
+            readonly root_ref?: ArtifactReference;
+            readonly root_hash?: ContentHash;
           })
         | undefined;
-      const rootRef = shapedAnchor?.root_actor_ref;
-      const rootActor = rootRef ? context.resolve(rootRef) : undefined;
+      const rootRef = shapedAnchor?.root_ref;
+      const root = rootRef ? context.resolve(rootRef) : undefined;
 
-      if (
-        anchor?.artifact_type !== "trust_anchor" ||
-        !rootRef ||
-        !shapedAnchor?.root_actor_hash ||
-        rootActor?.artifact_type !== "actor" ||
-        rootActor.content_hash.algorithm !== shapedAnchor.root_actor_hash.algorithm ||
-        rootActor.content_hash.value !== shapedAnchor.root_actor_hash.value
-      ) {
+      const rootValid = Boolean(
+        anchor?.artifact_type === "trust_anchor" &&
+          shapedDomain.anchor_hash &&
+          anchor.content_hash.algorithm === shapedDomain.anchor_hash.algorithm &&
+          anchor.content_hash.value === shapedDomain.anchor_hash.value &&
+          rootRef &&
+          shapedAnchor?.root_hash &&
+          root &&
+          root.content_hash.algorithm === shapedAnchor.root_hash.algorithm &&
+          root.content_hash.value === shapedAnchor.root_hash.value,
+      );
+
+      if (!rootValid) {
         evidence.push({
           ok: false,
           value: {
@@ -169,7 +165,7 @@ export const ACT_21_I5: ValidationRule = {
               artifact_type: domain.artifact_type,
             },
             observation:
-              "trust domain lacks exactly one resolvable, hash-bound trust-anchor root actor",
+              "trust domain lacks exactly one resolvable, hash-bound trust-anchor root",
             created_at: "",
           },
         });
@@ -182,6 +178,49 @@ export const ACT_21_I5: ValidationRule = {
           sameRef(delegation.domain_ref, domain) &&
           delegationInterval(delegation) !== null,
       );
+
+      if (domainDelegations.length === 0) {
+        evidence.push({
+          ok: true,
+          value: {
+            evidence_id: `evidence-ACT-21-I5-${domain.artifact_id}-root-only`,
+            rule_id: "ACT-21-I5",
+            artifact_ref: {
+              artifact_id: domain.artifact_id,
+              artifact_type: domain.artifact_type,
+            },
+            observation:
+              shapedAnchor?.root_binding_type === "authority_artifact"
+                ? "source-authority root is hash-bound; context-specific authority closure is carried by AuthorityEvidenceArtifact"
+                : "actor-root trust domain has no delegation edges; root-only closure is deterministic",
+            created_at: "",
+          },
+        });
+        continue;
+      }
+
+      if (
+        shapedAnchor?.root_binding_type !== "actor" ||
+        root?.artifact_type !== "actor" ||
+        !rootRef
+      ) {
+        evidence.push({
+          ok: false,
+          value: {
+            evidence_id: `evidence-ACT-21-I5-${domain.artifact_id}-delegation-root`,
+            rule_id: "ACT-21-I5",
+            artifact_ref: {
+              artifact_id: domain.artifact_id,
+              artifact_type: domain.artifact_type,
+            },
+            observation:
+              "generic TrustDelegation requires an actor-root entry point; source-authority delegation belongs in the hash-bound AuthorityEvidence path",
+            created_at: "",
+          },
+        });
+        continue;
+      }
+
       const scopes = [
         ...new Set(
           domainDelegations
@@ -192,24 +231,6 @@ export const ACT_21_I5: ValidationRule = {
             ),
         ),
       ].sort();
-
-      if (scopes.length === 0) {
-        evidence.push({
-          ok: true,
-          value: {
-            evidence_id: `evidence-ACT-21-I5-${domain.artifact_id}-empty`,
-            rule_id: "ACT-21-I5",
-            artifact_ref: {
-              artifact_id: domain.artifact_id,
-              artifact_type: domain.artifact_type,
-            },
-            observation:
-              "trust domain has no valid delegation edges; root-only closure is deterministic",
-            created_at: "",
-          },
-        });
-        continue;
-      }
 
       for (const scope of scopes) {
         const edges = domainDelegations
@@ -239,9 +260,7 @@ export const ACT_21_I5: ValidationRule = {
           for (const edge of adjacency.get(actorKey) ?? []) {
             const interval = delegationInterval(edge)!;
             const pathInterval = intersectIntervals(activeInterval, interval);
-            if (!pathInterval) {
-              continue;
-            }
+            if (!pathInterval) continue;
 
             const nextKey = refKey(edge.to_actor_ref!);
             if (pathActors.has(nextKey)) {
@@ -260,21 +279,14 @@ export const ACT_21_I5: ValidationRule = {
             }
             reached.set(nextKey, [...priorPaths, pathInterval]);
 
-            walk(
-              nextKey,
-              pathInterval,
-              new Set([...pathActors, nextKey]),
-            );
+            walk(nextKey, pathInterval, new Set([...pathActors, nextKey]));
             if (!graphValid) return;
           }
         };
 
         walk(
           rootKey,
-          {
-            start: Number.NEGATIVE_INFINITY,
-            end: Number.POSITIVE_INFINITY,
-          },
+          { start: Number.NEGATIVE_INFINITY, end: Number.POSITIVE_INFINITY },
           new Set([rootKey]),
         );
 
