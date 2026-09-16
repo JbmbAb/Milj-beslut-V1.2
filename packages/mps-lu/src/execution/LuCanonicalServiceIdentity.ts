@@ -16,7 +16,7 @@ import {
 export function deriveLuCanonicalServiceIdentity(
   verification: ExecutionIdentityVerificationResult,
 ): ServiceIdentityArtifact {
-  if (!verification.verified) {
+  if ("reason" in verification) {
     throw new Error(`REJECT_LU_CANONICAL_SERVICE_IDENTITY: execution identity is not verified (${verification.reason})`);
   }
 
