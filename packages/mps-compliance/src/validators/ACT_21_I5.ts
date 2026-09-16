@@ -1,6 +1,7 @@
 import { ValidationRule } from "../conformance/ValidationRule";
 import { ValidationContext } from "../conformance/ValidationContext";
 import type { ArtifactReference } from "../artifacts/ArtifactReference";
+import type { ArtifactContract } from "../artifacts/ArtifactContract";
 
 function refKey(ref: { readonly artifact_id: string; readonly artifact_type: string }): string {
   return `${ref.artifact_type}\u0000${ref.artifact_id}`;
@@ -48,7 +49,7 @@ export const ACT_21_I5: ValidationRule = {
     );
     const delegations = context.artifacts.filter(
       (artifact) => artifact.artifact_type === "trust_delegation",
-    ) as readonly (typeof context.artifacts[number] & DelegationShape)[];
+    ) as readonly (ArtifactContract & DelegationShape)[];
 
     const evidence: Array<{
       ok: boolean;
