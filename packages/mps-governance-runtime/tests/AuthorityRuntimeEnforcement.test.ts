@@ -106,58 +106,71 @@ async function fixture(extraGraph: "none" | "ambiguous" | "cycle" = "none") {
   const rootLifecycle = canonical({
     artifact_id: "lifecycle-root",
     artifact_type: "actor_lifecycle",
-    references: [],
-    state: "active",
+    references: [loose(rootIdentity)],
+    identity_ref: loose(rootIdentity),
+    identity_hash: rootIdentity.content_hash,
+    state: "ACTIVE",
     effective_from: "2026-01-01T00:00:00.000Z",
   }) satisfies ActorLifecycleArtifact;
   const userLifecycle = canonical({
     artifact_id: "lifecycle-user",
     artifact_type: "actor_lifecycle",
-    references: [],
-    state: "active",
+    references: [loose(userIdentity)],
+    identity_ref: loose(userIdentity),
+    identity_hash: userIdentity.content_hash,
+    state: "ACTIVE",
     effective_from: "2026-01-01T00:00:00.000Z",
   }) satisfies ActorLifecycleArtifact;
 
-  const domainDraft = {
-    artifact_id: "domain-production",
-    artifact_type: "trust_domain" as const,
-    references: [],
-    anchor_ref: { artifact_id: "anchor-production", artifact_type: "trust_anchor" },
-    domain_name: "production",
-  };
-  const domain = canonical(domainDraft) satisfies TrustDomainArtifact;
-
+  // Root Actor is bound into the domain by TrustAnchor. It need not itself
+  // participate in the domain, which avoids an Actor -> Domain -> Anchor ->
+  // Actor content-addressing cycle.
   const rootActor = canonical({
     artifact_id: "actor-root",
     artifact_type: "actor",
-    references: [],
+    references: [loose(rootIdentity), loose(rootLifecycle)],
     kind: "system",
     identity_ref: loose(rootIdentity),
     identity_hash: rootIdentity.content_hash,
-    trust_domain_ref: loose(domain),
+    trust_domain_refs: [],
     lifecycle_ref: loose(rootLifecycle),
-  }) satisfies ActorArtifact;
-  const userActor = canonical({
-    artifact_id: "actor-user",
-    artifact_type: "actor",
-    references: [],
-    kind: "human",
-    identity_ref: loose(userIdentity),
-    identity_hash: userIdentity.content_hash,
-    trust_domain_ref: loose(domain),
-    lifecycle_ref: loose(userLifecycle),
   }) satisfies ActorArtifact;
 
   const anchor = canonical({
     artifact_id: "anchor-production",
     artifact_type: "trust_anchor",
-    references: [],
+    references: [loose(rootActor)],
     anchor_name: "production",
     governance_profile: "authority-v1",
-    root_actor_ref: loose(rootActor),
-    root_actor_hash: rootActor.content_hash,
+    root_binding_type: "actor",
+    root_ref: loose(rootActor),
+    root_hash: rootActor.content_hash,
     verification_key_id: root.provider.keyId,
   }) satisfies TrustAnchorArtifact;
+
+  const domain = canonical({
+    artifact_id: "domain-production",
+    artifact_type: "trust_domain",
+    references: [loose(anchor)],
+    anchor_ref: loose(anchor),
+    anchor_hash: anchor.content_hash,
+    domain_name: "production",
+    authority_scope: "production",
+    constraints: [],
+    allowed_actor_types: ["human"],
+    delegation_rules: ["actor-delegation"],
+  }) satisfies TrustDomainArtifact;
+
+  const userActor = canonical({
+    artifact_id: "actor-user",
+    artifact_type: "actor",
+    references: [loose(userIdentity), loose(domain), loose(userLifecycle)],
+    kind: "human",
+    identity_ref: loose(userIdentity),
+    identity_hash: userIdentity.content_hash,
+    trust_domain_refs: [loose(domain)],
+    lifecycle_ref: loose(userLifecycle),
+  }) satisfies ActorArtifact;
 
   const capability = canonical({
     artifact_id: "capability-promote",
