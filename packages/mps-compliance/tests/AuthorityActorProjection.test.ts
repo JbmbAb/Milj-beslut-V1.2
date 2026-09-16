@@ -15,13 +15,18 @@ const TRUST_DOMAIN_REF = {
   artifact_type: "trust_domain",
 } as const;
 
+const OTHER_TRUST_DOMAIN_REF = {
+  artifact_id: "trust-domain-other-proof",
+  artifact_type: "trust_domain",
+} as const;
+
 const LIFECYCLE_REF = {
   artifact_id: "actor-lifecycle-existing-proof",
   artifact_type: "actor_lifecycle",
 } as const;
 
-describe("MINIMUM-AUTHORITY-DELTA-04A — canonical Actor projection", () => {
-  it("projects the canonical LU ServiceIdentity deterministically without creating new authority", () => {
+describe("MINIMUM-AUTHORITY-DELTA-04A/04C — canonical Actor projection", () => {
+  it("projects canonical LU ServiceIdentity without creating authority", () => {
     const identity = createServiceIdentityArtifact({
       service_namespace: "mimer.lu",
       principal_id: LU_EXECUTION_PRINCIPAL_ID,
@@ -29,12 +34,12 @@ describe("MINIMUM-AUTHORITY-DELTA-04A — canonical Actor projection", () => {
 
     const first = createActorArtifact({
       identity,
-      trust_domain_ref: TRUST_DOMAIN_REF,
+      trust_domain_refs: [TRUST_DOMAIN_REF],
       lifecycle_ref: LIFECYCLE_REF,
     });
     const second = createActorArtifact({
       identity,
-      trust_domain_ref: TRUST_DOMAIN_REF,
+      trust_domain_refs: [TRUST_DOMAIN_REF],
       lifecycle_ref: LIFECYCLE_REF,
     });
 
@@ -69,7 +74,7 @@ describe("MINIMUM-AUTHORITY-DELTA-04A — canonical Actor projection", () => {
     expect(
       createActorArtifact({
         identity: human,
-        trust_domain_ref: TRUST_DOMAIN_REF,
+        trust_domain_refs: [TRUST_DOMAIN_REF],
         lifecycle_ref: LIFECYCLE_REF,
       }).kind,
     ).toBe("human");
@@ -77,44 +82,65 @@ describe("MINIMUM-AUTHORITY-DELTA-04A — canonical Actor projection", () => {
     expect(
       createActorArtifact({
         identity: service,
-        trust_domain_ref: TRUST_DOMAIN_REF,
+        trust_domain_refs: [TRUST_DOMAIN_REF],
         lifecycle_ref: LIFECYCLE_REF,
       }).kind,
     ).toBe("service");
   });
 
-  it("keeps actor projection bound to exact identity/domain/lifecycle inputs", () => {
+  it("supports multiple trust domains while preserving the same canonical identity binding", () => {
     const identity = createServiceIdentityArtifact({
       service_namespace: "mimer.lu",
       principal_id: LU_EXECUTION_PRINCIPAL_ID,
     });
 
-    const baseline = createActorArtifact({
+    const oneDomain = createActorArtifact({
       identity,
-      trust_domain_ref: TRUST_DOMAIN_REF,
+      trust_domain_refs: [TRUST_DOMAIN_REF],
       lifecycle_ref: LIFECYCLE_REF,
     });
-    const otherDomain = createActorArtifact({
+    const twoDomains = createActorArtifact({
       identity,
-      trust_domain_ref: {
-        artifact_id: "trust-domain-other",
-        artifact_type: "trust_domain",
-      },
+      trust_domain_refs: [OTHER_TRUST_DOMAIN_REF, TRUST_DOMAIN_REF],
       lifecycle_ref: LIFECYCLE_REF,
     });
-    const otherLifecycle = createActorArtifact({
+
+    expect(twoDomains.trust_domain_refs).toEqual([
+      OTHER_TRUST_DOMAIN_REF,
+      TRUST_DOMAIN_REF,
+    ].sort((a, b) =>
+      `${a.artifact_type}\u0000${a.artifact_id}`.localeCompare(
+        `${b.artifact_type}\u0000${b.artifact_id}`,
+      ),
+    ));
+    expect(twoDomains.identity_ref).toEqual(oneDomain.identity_ref);
+    expect(twoDomains.identity_hash).toEqual(oneDomain.identity_hash);
+    expect(twoDomains.artifact_id).not.toBe(oneDomain.artifact_id);
+  });
+
+  it("keeps stable identity across lifecycle representation changes", () => {
+    const identity = createServiceIdentityArtifact({
+      service_namespace: "mimer.lu",
+      principal_id: LU_EXECUTION_PRINCIPAL_ID,
+    });
+
+    const active = createActorArtifact({
       identity,
-      trust_domain_ref: TRUST_DOMAIN_REF,
+      trust_domain_refs: [TRUST_DOMAIN_REF],
+      lifecycle_ref: LIFECYCLE_REF,
+    });
+    const changedLifecycle = createActorArtifact({
+      identity,
+      trust_domain_refs: [TRUST_DOMAIN_REF],
       lifecycle_ref: {
-        artifact_id: "actor-lifecycle-other",
+        artifact_id: "actor-lifecycle-revoked-proof",
         artifact_type: "actor_lifecycle",
       },
     });
 
-    expect(otherDomain.artifact_id).not.toBe(baseline.artifact_id);
-    expect(otherLifecycle.artifact_id).not.toBe(baseline.artifact_id);
-    expect(otherDomain.content_hash).not.toEqual(baseline.content_hash);
-    expect(otherLifecycle.content_hash).not.toEqual(baseline.content_hash);
+    expect(changedLifecycle.identity_ref).toEqual(active.identity_ref);
+    expect(changedLifecycle.identity_hash).toEqual(active.identity_hash);
+    expect(changedLifecycle.artifact_id).not.toBe(active.artifact_id);
   });
 
   it("fails closed when actor identity binding is tampered", () => {
@@ -124,7 +150,7 @@ describe("MINIMUM-AUTHORITY-DELTA-04A — canonical Actor projection", () => {
     });
     const actor = createActorArtifact({
       identity,
-      trust_domain_ref: TRUST_DOMAIN_REF,
+      trust_domain_refs: [TRUST_DOMAIN_REF],
       lifecycle_ref: LIFECYCLE_REF,
     });
 
@@ -149,7 +175,7 @@ describe("MINIMUM-AUTHORITY-DELTA-04A — canonical Actor projection", () => {
     });
     const actor = createActorArtifact({
       identity,
-      trust_domain_ref: TRUST_DOMAIN_REF,
+      trust_domain_refs: [TRUST_DOMAIN_REF],
       lifecycle_ref: LIFECYCLE_REF,
     });
 
@@ -171,7 +197,7 @@ describe("MINIMUM-AUTHORITY-DELTA-04A — canonical Actor projection", () => {
     ).toThrow("REJECT_CANONICAL_ACTOR");
   });
 
-  it("rejects empty domain/lifecycle references instead of inventing defaults", () => {
+  it("rejects empty/duplicate domain references and empty lifecycle references", () => {
     const identity = createServiceIdentityArtifact({
       service_namespace: "mimer.lu",
       principal_id: LU_EXECUTION_PRINCIPAL_ID,
@@ -180,18 +206,23 @@ describe("MINIMUM-AUTHORITY-DELTA-04A — canonical Actor projection", () => {
     expect(() =>
       createActorArtifact({
         identity,
-        trust_domain_ref: {
-          artifact_id: "",
-          artifact_type: "trust_domain",
-        },
+        trust_domain_refs: [],
         lifecycle_ref: LIFECYCLE_REF,
       }),
-    ).toThrow("trust_domain_ref is required");
+    ).toThrow("trust_domain_refs is required");
 
     expect(() =>
       createActorArtifact({
         identity,
-        trust_domain_ref: TRUST_DOMAIN_REF,
+        trust_domain_refs: [TRUST_DOMAIN_REF, TRUST_DOMAIN_REF],
+        lifecycle_ref: LIFECYCLE_REF,
+      }),
+    ).toThrow("duplicate trust_domain_ref");
+
+    expect(() =>
+      createActorArtifact({
+        identity,
+        trust_domain_refs: [TRUST_DOMAIN_REF],
         lifecycle_ref: {
           artifact_id: "",
           artifact_type: "actor_lifecycle",
