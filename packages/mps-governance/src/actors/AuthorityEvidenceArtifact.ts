@@ -214,7 +214,7 @@ function body(input: {
       : {}),
   };
 
-  const identity = sha256ContentHash({\n    artifact_type: "authority_evidence",\n    ...canonical,\n  });
+  const identity = sha256ContentHash(canonical);
   const references: ArtifactReference[] = [
     actorRef,
     domainRef,
@@ -235,7 +235,6 @@ function body(input: {
 
   return {
     artifact_id: `authority-evidence-${identity.value.slice(0, 24)}`,
-    artifact_type: "authority_evidence",
     references: uniqueReferences,
     ...canonical,
   };
