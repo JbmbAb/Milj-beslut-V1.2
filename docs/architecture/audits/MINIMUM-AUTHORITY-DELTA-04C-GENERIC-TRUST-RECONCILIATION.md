@@ -9,8 +9,7 @@
 Resolve the four PROVEN 04B compatibility blockers without changing LU's already-PROVEN
 cryptographic authority semantics and without fabricating authority.
 
-04C is a representation/conformance reconciliation. It does **not** wire generic authority into a
-production mutation yet.
+04C is a representation/conformance reconciliation plus the minimum existing generic authority-runtime adaptation required by the reconciled contracts. It does **not** wire generic authority into an LU production mutation yet.
 
 ## Frozen constraints
 
@@ -22,7 +21,8 @@ production mutation yet.
 - infer lifecycle state from process/session/key presence;
 - replace LU root → issuer → ExecutionIdentity cryptographic verification;
 - modify ADR-24-21;
-- make Postgres/runtime state authoritative.
+- make Postgres/runtime state authoritative;
+- reinterpret an LU source-authority root as an Actor-root delegation graph.
 
 ## Reconciled model
 
@@ -135,6 +135,39 @@ The generic artifact does not cryptographically verify that source chain. That r
 responsibility of the existing LU verifier. Generic AuthorityEvidence records the exact already-
 verified artifacts/hashes required to reproduce the authority decision.
 
+## Existing generic runtime reconciliation
+
+`mps-governance-runtime/AuthorityVerification.ts` was already a real consumer of the old
+Actor/Trust contracts, so leaving it unchanged would make 04C internally inconsistent.
+
+04C therefore reconciles that existing verifier for its **actor-root capability/delegation mode**:
+
+- subject Actor membership uses `trust_domain_refs[]`;
+- lifecycle is identity-bound and requires `ACTIVE` at the supplied decision time;
+- a root Actor is bound to the domain by TrustAnchor and is not required to be a domain member;
+- TrustDomain `anchor_hash` and `authority_scope` are load-bearing;
+- TrustDomain `allowed_actor_types` is enforced for the subject Actor;
+- TrustAnchor `root_ref/root_hash` replace the old root-actor-only fields.
+
+The existing generic delegation verifier remains actor-root-specific by design. If the selected
+TrustAnchor has `root_binding_type = authority_artifact`, it fails closed with:
+
+```text
+REJECT_AUTHORITY_ROOT: source-authority root requires AuthorityEvidence source closure
+```
+
+This is intentional. LU source authority is represented by AuthorityEvidence in 04C, but wiring
+that evidence into a real LU mutation is a later delta.
+
+The root Actor may have zero trust-domain memberships. This is necessary to avoid a
+content-addressing cycle:
+
+```text
+Actor -> Domain -> Anchor -> Actor
+```
+
+The Anchor itself is what binds that root Actor to the domain.
+
 ## Decision-time vs current authority
 
 04C intentionally stores:
@@ -190,7 +223,9 @@ The focused proof covers:
 6. historical authority remains valid after later suspension/revocation;
 7. wrong authority-path root fails closed;
 8. non-ACTIVE decision authority fails closed;
-9. LU key purpose remains unchanged.
+9. LU key purpose remains unchanged;
+10. existing actor-root governance-runtime verification remains valid under the reconciled contracts;
+11. source-authority roots are not silently accepted by the actor-root delegation verifier.
 
 A GREEN 04C proof means **generic trust representation reconciliation is PROVEN for this contract**.
 It does not mean production authority convergence is complete.
