@@ -4,11 +4,19 @@ import type { FrozenExecutionOutcomeIdentity } from "../../../mps-runtime/src/co
 import type { OutcomeAttestation } from "../../../mps-runtime/src/security/SecurityContracts.js";
 import type { ArtifactReference } from "@miljobeslut/mps-compliance/src/artifacts/ArtifactReference";
 import type { AssessmentFinding } from "../domain/AssessmentFinding.js";
+import type { ArtifactContract } from "../../../mps-compliance/src/artifacts/ArtifactContract.js";
+import type { LuSourceAuthorityEvidenceArtifact } from "./LuSourceAuthorityEvidence.js";
+import {
+  isVerifiedLuSourceAuthorityDecision,
+  type VerifiedLuSourceAuthorityDecision,
+} from "./LuSourceAuthorityWiring.js";
 import {
   LOCALIZATION_ASSESSMENT_CONTRACT_VERSION_V2,
   LOCALIZATION_ASSESSMENT_CANONICALIZER_ID_V2,
   LOCALIZATION_ASSESSMENT_CONTRACT_VERSION_V3,
   LOCALIZATION_ASSESSMENT_CANONICALIZER_ID_V3,
+  LOCALIZATION_ASSESSMENT_CONTRACT_VERSION_V4,
+  LOCALIZATION_ASSESSMENT_CANONICALIZER_ID_V4,
   type LocalizationAssessmentArtifact,
   type LocalizationAssessmentDraft,
   type LocalizationAssessmentPayload,
@@ -155,21 +163,39 @@ export function validateLocalizationAssessmentContractVersion(payload: Localizat
     }
     return;
   }
-  if (version === LOCALIZATION_ASSESSMENT_CONTRACT_VERSION_V3) {
-    if (payload.canonicalizer_id !== LOCALIZATION_ASSESSMENT_CANONICALIZER_ID_V3) {
-      throw new Error("REJECT_LOCALIZATION_ASSESSMENT_V3: canonicalizer_id mismatch");
+  if (
+    version === LOCALIZATION_ASSESSMENT_CONTRACT_VERSION_V3 ||
+    version === LOCALIZATION_ASSESSMENT_CONTRACT_VERSION_V4
+  ) {
+    const isV4 = version === LOCALIZATION_ASSESSMENT_CONTRACT_VERSION_V4;
+    const label = isV4 ? "V4" : "V3";
+    const expectedCanonicalizer = isV4
+      ? LOCALIZATION_ASSESSMENT_CANONICALIZER_ID_V4
+      : LOCALIZATION_ASSESSMENT_CANONICALIZER_ID_V3;
+    if (payload.canonicalizer_id !== expectedCanonicalizer) {
+      throw new Error(`REJECT_LOCALIZATION_ASSESSMENT_${label}: canonicalizer_id mismatch`);
+    }
+    if (isV4) {
+      if (
+        !payload.authority_evidence_ref ||
+        payload.authority_evidence_ref.artifact_type !== "authority_evidence"
+      ) {
+        throw new Error("REJECT_LOCALIZATION_ASSESSMENT_V4: authority_evidence_ref is required");
+      }
+    } else if (payload.authority_evidence_ref !== undefined) {
+      throw new Error("REJECT_LOCALIZATION_ASSESSMENT_V3: authority_evidence_ref is not a V3 field");
     }
     const canonicalEvidence = canonicalEvidenceRefs(payload.evidence_refs);
     if (JSON.stringify(canonicalEvidence) !== JSON.stringify(payload.evidence_refs)) {
-      throw new Error("REJECT_LOCALIZATION_ASSESSMENT_V3: evidence_refs is not the canonical deduplicated/sorted form");
+      throw new Error(`REJECT_LOCALIZATION_ASSESSMENT_${label}: evidence_refs is not the canonical deduplicated/sorted form`);
     }
     const canonicalRules = canonicalRuleRefs(payload.rule_refs);
     if (JSON.stringify(canonicalRules) !== JSON.stringify(payload.rule_refs)) {
-      throw new Error("REJECT_LOCALIZATION_ASSESSMENT_V3: rule_refs is not the canonical deduplicated/sorted form");
+      throw new Error(`REJECT_LOCALIZATION_ASSESSMENT_${label}: rule_refs is not the canonical deduplicated/sorted form`);
     }
     const canonicalFindingSet = canonicalFindings(payload.findings);
     if (JSON.stringify(canonicalFindingSet) !== JSON.stringify(payload.findings)) {
-      throw new Error("REJECT_LOCALIZATION_ASSESSMENT_V3: findings is not the canonical semantic set");
+      throw new Error(`REJECT_LOCALIZATION_ASSESSMENT_${label}: findings is not the canonical semantic set`);
     }
     return;
   }
@@ -181,6 +207,7 @@ export function createGovernedLocalizationAssessment(args: {
   readonly findings: readonly AssessmentFinding[];
   readonly outcome: FrozenExecutionOutcomeIdentity;
   readonly attestation: OutcomeAttestation;
+  readonly authority_evidence?: LuSourceAuthorityEvidenceArtifact;
 }): LocalizationAssessmentArtifact {
   const executionOutcomeRef = {
     artifact_id: args.outcome.outcome_id,
@@ -191,6 +218,12 @@ export function createGovernedLocalizationAssessment(args: {
     artifact_type: args.attestation.artifact_type,
   };
   const canonicalFindingSet = canonicalFindings(args.findings);
+  const authorityEvidenceRef = args.authority_evidence
+    ? {
+        artifact_id: args.authority_evidence.artifact_id,
+        artifact_type: args.authority_evidence.artifact_type,
+      }
+    : undefined;
   const payload: LocalizationAssessmentPayload = {
     project_context_ref: args.draft.project_context_ref,
     property_ref: args.draft.property_ref,
@@ -211,8 +244,13 @@ export function createGovernedLocalizationAssessment(args: {
     ...(args.draft.localization_geometry_ref
       ? { localization_geometry_ref: args.draft.localization_geometry_ref }
       : {}),
-    assessment_contract_version: LOCALIZATION_ASSESSMENT_CONTRACT_VERSION_V3,
-    canonicalizer_id: LOCALIZATION_ASSESSMENT_CANONICALIZER_ID_V3,
+    ...(authorityEvidenceRef ? { authority_evidence_ref: authorityEvidenceRef } : {}),
+    assessment_contract_version: authorityEvidenceRef
+      ? LOCALIZATION_ASSESSMENT_CONTRACT_VERSION_V4
+      : LOCALIZATION_ASSESSMENT_CONTRACT_VERSION_V3,
+    canonicalizer_id: authorityEvidenceRef
+      ? LOCALIZATION_ASSESSMENT_CANONICALIZER_ID_V4
+      : LOCALIZATION_ASSESSMENT_CANONICALIZER_ID_V3,
   };
   // Constructed FROM the already-canonical payload.evidence_refs -- never independently
   // re-discovering the caller's raw (potentially non-canonical) order.
@@ -223,6 +261,7 @@ export function createGovernedLocalizationAssessment(args: {
     executionOutcomeRef,
     outcomeAttestationRef,
     ...(args.draft.localization_geometry_ref ? [args.draft.localization_geometry_ref] : []),
+    ...(authorityEvidenceRef ? [authorityEvidenceRef] : []),
   ]);
   const identityBody = {
     artifact_type: "LOCALIZATION_ASSESSMENT" as const,
@@ -241,16 +280,24 @@ export function createGovernedLocalizationAssessment(args: {
  * HM1-C authority boundary. A caller may present an artifact, but cannot declare its truth:
  * every binding and the canonical body hash are independently re-verified before persistence.
  */
+export interface AssessmentAuthorityBinding {
+  readonly decision: VerifiedLuSourceAuthorityDecision;
+  readonly evidence: LuSourceAuthorityEvidenceArtifact;
+  readonly supporting_artifacts: readonly ArtifactContract[];
+}
+
 export class GovernedAssessmentPersistence {
   constructor(
     private readonly repository: ArtifactRepositoryPort,
     private readonly verifyAttestation: VerifyOutcomeAttestation,
+    private readonly options: { readonly requireAuthorityEvidence?: boolean } = {},
   ) {}
 
   async persist(args: {
     readonly artifact: LocalizationAssessmentArtifact;
     readonly outcome: FrozenExecutionOutcomeIdentity;
     readonly attestation: OutcomeAttestation;
+    readonly authority?: AssessmentAuthorityBinding;
   }): Promise<LocalizationAssessmentArtifact> {
     const failed: string[] = [];
     const outcomeRef = {
@@ -314,8 +361,76 @@ export class GovernedAssessmentPersistence {
       failed.push(`contract_version:${error instanceof Error ? error.message : String(error)}`);
     }
 
+    // ACT-21-I10, LU 04D-R1: the canonical product mutation is not allowed to rely on a caller's
+    // structural claim. V4 must name exactly one AuthorityEvidence artifact, and the positive
+    // source-chain verification object must have been minted by the LU verifier in this process.
+    // No temporal/currentness authorization claim is made here.
+    const authorityRefs = args.artifact.references.filter(
+      (ref) => ref.artifact_type === "authority_evidence",
+    );
+    const authorityDeclared = args.artifact.payload.authority_evidence_ref !== undefined;
+    const authorityRequired =
+      Boolean(this.options.requireAuthorityEvidence) || authorityDeclared || args.authority !== undefined;
+
+    if (authorityRequired) {
+      if (!args.authority) {
+        failed.push("authority_evidence_missing");
+      } else {
+        const { decision, evidence } = args.authority;
+        if (!isVerifiedLuSourceAuthorityDecision(decision)) {
+          failed.push("authority_decision_unverified");
+        }
+        if (
+          decision.evidence_ref.artifact_id !== evidence.artifact_id ||
+          decision.evidence_ref.artifact_type !== evidence.artifact_type ||
+          !sameHash(decision.evidence_hash, evidence.content_hash)
+        ) {
+          failed.push("authority_decision_evidence_binding");
+        }
+        if (!sameRef(args.artifact.payload.authority_evidence_ref, decision.evidence_ref)) {
+          failed.push("authority_evidence_payload_binding");
+        }
+        if (
+          authorityRefs.length !== 1 ||
+          !sameRef(authorityRefs[0], decision.evidence_ref)
+        ) {
+          failed.push("authority_evidence_cardinality");
+        }
+        const subjectEntry = evidence.authority_path.find(
+          (entry) => entry.role === "subject",
+        );
+        if (
+          decision.source_authority_verified !== true ||
+          evidence.action !== decision.action ||
+          evidence.authority_scope !== decision.authority_scope ||
+          !subjectEntry ||
+          !sameRef(subjectEntry.artifact_ref, decision.subject_ref) ||
+          !sameHash(subjectEntry.content_hash, decision.subject_hash)
+        ) {
+          failed.push("authority_decision_semantics");
+        }
+      }
+    } else if (authorityRefs.length !== 0) {
+      failed.push("authority_evidence_unverified");
+    }
+
     if (failed.length > 0) {
       throw new Error(`REJECT_LOCALIZATION_ASSESSMENT: ${failed.join(",")}`);
+    }
+
+    if (args.authority) {
+      for (const supporting of args.authority.supporting_artifacts) {
+        await this.repository.put({
+          artifact_id: supporting.artifact_id,
+          content_hash: supporting.content_hash,
+          body: supporting,
+        });
+      }
+      await this.repository.put({
+        artifact_id: args.authority.evidence.artifact_id,
+        content_hash: args.authority.evidence.content_hash,
+        body: args.authority.evidence,
+      });
     }
 
     await this.repository.put({

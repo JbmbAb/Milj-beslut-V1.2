@@ -1,5 +1,5 @@
 import type { ExecutionIdentityVerificationResult } from "./ExecutionIdentityAttestation.js";
-import { LU_EXECUTION_PRINCIPAL_ID } from "./LuExecutionKernelClient.js";
+import { LU_EXECUTION_PRINCIPAL_ID } from "./LuExecutionPrincipal.js";
 import {
   createServiceIdentityArtifact,
   type ServiceIdentityArtifact,
