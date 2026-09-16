@@ -4,12 +4,12 @@ import {
   createServiceIdentityArtifact,
   validateHumanIdentityArtifact,
   validateServiceIdentityArtifact,
-} from "../src/actors/IdentityArtifacts";
+} from "../../mps-governance/src/actors/IdentityArtifacts";
 import {
   ADMIN_ROLE_GRANT_AUTHORITY_SCOPE,
   ADMIN_ROLE_GRANT_CONTRACT_VERSION,
   createAdminRoleGrantArtifact,
-} from "../../mps-compliance/src/artifacts/AdminRoleGrantArtifact";
+} from "../src/artifacts/AdminRoleGrantArtifact";
 import {
   LU_EXECUTION_AUTHORITY_SCOPE,
 } from "../../mps-lu/src/artifacts/LuExecutionAuthorityArtifact";

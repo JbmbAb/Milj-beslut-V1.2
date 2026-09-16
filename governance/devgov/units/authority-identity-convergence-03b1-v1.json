@@ -1,0 +1,67 @@
+{
+  "schema_version": "dev-gov-v1-unit-definition",
+  "unit": "AUTHORITY-IDENTITY-CONVERGENCE-03B1-V1",
+  "role": "producer",
+  "mode": "writer",
+  "branch": "audit/minimum-authority-delta-03b1-test-discovery",
+  "base_sha": "b5d8c7a2300de74892cdc36396eac5474ac0d625",
+  "ancestry_policy": "descendant_of_base",
+  "allowed_paths": [
+    "packages/mps-governance/tests/AuthorityIdentityConvergence.test.ts",
+    "packages/mps-compliance/tests/AuthorityIdentityConvergence.test.ts",
+    "governance/devgov/units/authority-identity-convergence-03b1-v1.json"
+  ],
+  "forbidden_paths": [
+    ".github/**",
+    "scripts/devgov/**",
+    "governance/devgov/schema/**",
+    "server/**",
+    "services/**",
+    "prisma/**",
+    "packages/mps-governance/src/**",
+    "packages/mps-lu/src/**",
+    "packages/mps-runtime/src/**"
+  ],
+  "required_red": [
+    {
+      "id": "authority-identity-convergence-test-discovery",
+      "command": "npx",
+      "args": [
+        "vitest",
+        "run",
+        "--config",
+        "vitest.config.ts",
+        "packages/mps-compliance/tests/AuthorityIdentityConvergence.test.ts"
+      ],
+      "expected_classification": "FAIL",
+      "required_head": "base_sha",
+      "timeout_ms": 120000
+    }
+  ],
+  "required_green": [
+    {
+      "id": "authority-identity-convergence-test-discovery",
+      "command": "npx",
+      "args": [
+        "vitest",
+        "run",
+        "--config",
+        "vitest.config.ts",
+        "packages/mps-compliance/tests/AuthorityIdentityConvergence.test.ts"
+      ],
+      "expected_classification": "PASS",
+      "required_head": "candidate_sha",
+      "timeout_ms": 120000
+    }
+  ],
+  "trusted_execution": {
+    "issuer": "github-actions:JbmbAb/Milj-beslut-V1.2:devgov-v0-attest",
+    "key_id": "devgov-ci-ed25519-v1"
+  },
+  "remote": {
+    "name": "origin",
+    "branch": "audit/minimum-authority-delta-03b1-test-discovery",
+    "push_policy": "no_force",
+    "absent_policy": "deny_absent"
+  }
+}
