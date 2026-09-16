@@ -40,9 +40,6 @@ function reference(value: ArtifactReference, field: string): ArtifactReference {
 }
 
 function domainReferences(values: readonly ArtifactReference[]): readonly ArtifactReference[] {
-  if (values.length === 0) {
-    throw new Error("REJECT_CANONICAL_ACTOR: trust_domain_refs is required");
-  }
   const normalized = values
     .map((value, index) => reference(value, `trust_domain_refs[${index}]`))
     .sort((left, right) =>
