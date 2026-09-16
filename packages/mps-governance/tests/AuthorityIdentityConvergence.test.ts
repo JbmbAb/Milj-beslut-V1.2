@@ -14,6 +14,9 @@ import {
   LU_EXECUTION_AUTHORITY_SCOPE,
 } from "../../mps-lu/src/artifacts/LuExecutionAuthorityArtifact";
 import { LU_EXECUTION_PRINCIPAL_ID } from "../../mps-lu/src/execution/LuExecutionKernelClient";
+import { deriveLuCanonicalServiceIdentity } from "../../mps-lu/src/execution/LuCanonicalServiceIdentity";
+import { bindAuthUserToCanonicalHumanIdentity } from "../../../server/security/canonicalAuthorityIdentity";
+import type { ExecutionIdentityArtifact } from "../../mps-runtime/src/execution/ExecutionIdentityArtifact";
 
 const ISSUER_REF = {
   artifact_id: "admin-role-grant-issuer-proof",
@@ -131,6 +134,117 @@ describe("MINIMUM-AUTHORITY-DELTA-03B — existing authority identity convergenc
     expect(() => validateServiceIdentityArtifact(tampered)).toThrow(
       "REJECT_CANONICAL_SERVICE_IDENTITY",
     );
+  });
+
+
+
+  it("binds an authenticated principal to canonical HumanIdentity only after exact persisted subject match", () => {
+    const bound = bindAuthUserToCanonicalHumanIdentity(
+      { id: "user-123", bankidId: "bankid:stable-subject-03" },
+      { id: "user-123", bankidId: "bankid:stable-subject-03" },
+    );
+    const direct = createHumanIdentityArtifactFromBankId("bankid:stable-subject-03");
+
+    expect(bound).toEqual(direct);
+  });
+
+  it("fails closed when runtime user id and persisted principal diverge", () => {
+    expect(() =>
+      bindAuthUserToCanonicalHumanIdentity(
+        { id: "user-presented", bankidId: "bankid:stable-subject-04" },
+        { id: "user-persisted", bankidId: "bankid:stable-subject-04" },
+      ),
+    ).toThrow("authenticated user id does not match persisted principal");
+  });
+
+  it("fails closed when JWT BankID subject and persisted principal diverge", () => {
+    expect(() =>
+      bindAuthUserToCanonicalHumanIdentity(
+        { id: "user-123", bankidId: "bankid:presented" },
+        { id: "user-123", bankidId: "bankid:persisted" },
+      ),
+    ).toThrow("authenticated BankID subject does not match persisted principal");
+  });
+
+  it("rejects synthetic admin-console and mock identities as canonical human authority identities", () => {
+    for (const bankidId of ["admin:operator", "mock-bankid-subject"]) {
+      expect(() =>
+        bindAuthUserToCanonicalHumanIdentity(
+          { id: "user-123", bankidId },
+          { id: "user-123", bankidId },
+        ),
+      ).toThrow("synthetic admin/mock identity");
+    }
+  });
+
+  it("converges an already verified LU ExecutionIdentity to the canonical LU ServiceIdentity", () => {
+    const executionIdentity: ExecutionIdentityArtifact = {
+      artifact_id: "lu-identity-proof",
+      artifact_type: "execution_identity",
+      references: [],
+      actor_ref: {
+        artifact_id: LU_EXECUTION_PRINCIPAL_ID,
+        artifact_type: "execution_identity",
+      },
+      capability_ref: {
+        artifact_id: "capability-lu-proof",
+        artifact_type: "CAPABILITY_DEFINITION",
+      },
+      signature_envelope_ref: {
+        artifact_id: "attestation-lu-proof",
+        artifact_type: "outcome_attestation",
+      },
+      content_hash: { algorithm: "sha256", value: "1".repeat(64) },
+    };
+
+    const converged = deriveLuCanonicalServiceIdentity({
+      verified: true,
+      identity: executionIdentity,
+    });
+
+    expect(converged).toEqual(
+      createServiceIdentityArtifact({
+        service_namespace: "mimer.lu",
+        principal_id: LU_EXECUTION_PRINCIPAL_ID,
+      }),
+    );
+  });
+
+  it("never converges an unverified LU execution identity", () => {
+    expect(() =>
+      deriveLuCanonicalServiceIdentity({
+        verified: false,
+        reason: "INVALID_SIGNATURE",
+      }),
+    ).toThrow("execution identity is not verified");
+  });
+
+  it("rejects a verified execution identity for any principal other than the frozen LU principal", () => {
+    const executionIdentity: ExecutionIdentityArtifact = {
+      artifact_id: "lu-identity-wrong-principal",
+      artifact_type: "execution_identity",
+      references: [],
+      actor_ref: {
+        artifact_id: "attacker.actor",
+        artifact_type: "execution_identity",
+      },
+      capability_ref: {
+        artifact_id: "capability-lu-proof",
+        artifact_type: "CAPABILITY_DEFINITION",
+      },
+      signature_envelope_ref: {
+        artifact_id: "attestation-lu-proof",
+        artifact_type: "outcome_attestation",
+      },
+      content_hash: { algorithm: "sha256", value: "2".repeat(64) },
+    };
+
+    expect(() =>
+      deriveLuCanonicalServiceIdentity({
+        verified: true,
+        identity: executionIdentity,
+      }),
+    ).toThrow("execution actor_ref is not the canonical LU principal");
   });
 
   it("keeps existing authority scopes unchanged rather than widening issuer purpose", () => {
