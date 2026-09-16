@@ -44,16 +44,18 @@ function trustFixture() {
   const mid = artifact("actor-mid", "actor", "3".repeat(64));
 
   const anchor = artifact("anchor-1", "trust_anchor", "4".repeat(64), {
-    root_actor_ref: ref(root),
-    root_actor_hash: root.content_hash,
+    root_binding_type: "actor",
+    root_ref: ref(root),
+    root_hash: root.content_hash,
   });
   const domain = artifact("domain-1", "trust_domain", "5".repeat(64), {
     anchor_ref: ref(anchor),
+    anchor_hash: anchor.content_hash,
     domain_name: "production",
   });
 
   const actor = artifact("actor-subject", "actor", "6".repeat(64), {
-    trust_domain_ref: ref(domain),
+    trust_domain_refs: [ref(domain)],
   });
 
   const direct = artifact("delegation-direct", "trust_delegation", "7".repeat(64), {
@@ -69,44 +71,68 @@ function trustFixture() {
 }
 
 describe("ACT-21-I3 — trust-domain participation", () => {
-  it("accepts a domain participant plus a hash-bound root actor with no self-domain reference", () => {
+  it("accepts explicit participation and permits an actor with zero trust-domain memberships", () => {
     const f = trustFixture();
+    const unscoped = artifact("actor-unscoped", "actor", "a".repeat(64), {
+      trust_domain_refs: [],
+    });
     const result = ACT_21_I3.validate(
-      context([f.root, f.anchor, f.domain, f.actor]),
+      context([f.domain, f.actor, unscoped]),
     );
     expect(result.passed).toBe(true);
     expect(
       result.evidence.some(
         (entry) =>
-          entry.artifact_ref.artifact_id === f.root.artifact_id &&
-          entry.observation.includes("hash-bound trust-anchor root"),
+          entry.artifact_ref.artifact_id === f.actor.artifact_id &&
+          entry.observation.includes("explicitly participates in 1 resolvable trust domain"),
+      ),
+    ).toBe(true);
+    expect(
+      result.evidence.some(
+        (entry) =>
+          entry.artifact_ref.artifact_id === unscoped.artifact_id &&
+          entry.observation.includes("permits zero or more domains"),
       ),
     ).toBe(true);
   });
 
-  it("fails closed when the claimed root actor hash does not bind to the resolved root", () => {
+  it("fails closed when trust-domain participation contains duplicate canonical references", () => {
     const f = trustFixture();
-    const badAnchor = artifact("anchor-1", "trust_anchor", "4".repeat(64), {
-      root_actor_ref: ref(f.root),
-      root_actor_hash: { algorithm: "sha256", value: "f".repeat(64) },
+    const duplicated = artifact("actor-duplicated-domain", "actor", "b".repeat(64), {
+      trust_domain_refs: [ref(f.domain), ref(f.domain)],
     });
     const result = ACT_21_I3.validate(
-      context([f.root, badAnchor, f.domain, f.actor]),
+      context([f.domain, duplicated]),
     );
     expect(result.passed).toBe(false);
+    expect(
+      result.evidence.some(
+        (entry) =>
+          entry.artifact_ref.artifact_id === duplicated.artifact_id &&
+          entry.observation.includes("duplicated or unresolved"),
+      ),
+    ).toBe(true);
   });
 
-  it("fails instead of vacuously passing when no actor/domain subject exists", () => {
+  it("fails instead of vacuously passing when no actor exists", () => {
     expect(ACT_21_I3.validate(context([])).passed).toBe(false);
   });
 
-  it("fails a non-root actor that has no resolvable trust-domain participation", () => {
-    const f = trustFixture();
-    const orphan = artifact("actor-orphan", "actor", "b".repeat(64));
-    const result = ACT_21_I3.validate(
-      context([f.root, f.anchor, f.domain, orphan]),
-    );
+  it("fails an actor whose declared trust-domain participation cannot be resolved", () => {
+    const orphan = artifact("actor-orphan", "actor", "c".repeat(64), {
+      trust_domain_refs: [
+        { artifact_id: "domain-missing", artifact_type: "trust_domain" },
+      ],
+    });
+    const result = ACT_21_I3.validate(context([orphan]));
     expect(result.passed).toBe(false);
+    expect(
+      result.evidence.some(
+        (entry) =>
+          entry.artifact_ref.artifact_id === orphan.artifact_id &&
+          entry.observation.includes("duplicated or unresolved"),
+      ),
+    ).toBe(true);
   });
 });
 
@@ -253,8 +279,9 @@ describe("ACT-21-I5 — deterministic delegation graph", () => {
   it("fails closed on a trust-anchor root hash mismatch", () => {
     const f = trustFixture();
     const badAnchor = artifact("anchor-1", "trust_anchor", "4".repeat(64), {
-      root_actor_ref: ref(f.root),
-      root_actor_hash: { algorithm: "sha256", value: "0".repeat(64) },
+      root_binding_type: "actor",
+      root_ref: ref(f.root),
+      root_hash: { algorithm: "sha256", value: "0".repeat(64) },
     });
     const result = ACT_21_I5.validate(
       context([f.root, f.user, badAnchor, f.domain, f.direct]),
