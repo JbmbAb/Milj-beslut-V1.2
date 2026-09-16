@@ -1,5 +1,4 @@
 import type { AuthUser } from "./types";
-import { prisma } from "../db/prisma";
 import { isDisqualifiedBankIdSubject } from "../../packages/mps-compliance/src/artifacts/AdminRoleGrantArtifact";
 import {
   createHumanIdentityArtifactFromBankId,
@@ -55,6 +54,7 @@ export function bindAuthUserToCanonicalHumanIdentity(
 export async function resolveCanonicalHumanIdentityForAuthUser(
   authUser: Pick<AuthUser, "id" | "bankidId">,
 ): Promise<HumanIdentityArtifact> {
+  const { prisma } = await import("../db/prisma");
   const persisted = await prisma.user.findUnique({
     where: { id: authUser.id },
     select: { id: true, bankidId: true },
