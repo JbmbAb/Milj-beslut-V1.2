@@ -83,7 +83,6 @@ function genericModel() {
     anchor_name: "LU execution authority",
     governance_profile: "ADR-24-21",
     root: source.root,
-    verification_key_id: source.root.payload.root_key_id,
   });
   const domain = createTrustDomainArtifact({
     anchor,
@@ -367,7 +366,15 @@ describe("MINIMUM-AUTHORITY-DELTA-04C — generic trust model reconciliation", (
     expect(root.payload.allowed_artifact_type).toBe("execution_identity");
     expect(issuer.payload.delegated_scope).toBe(LU_EXECUTION_AUTHORITY_SCOPE);
     expect(issuer.payload.allowed_artifact_type).toBe("execution_identity");
-    expect(anchor.verification_key_id).toBe(root.payload.root_key_id);
+    expect(anchor.verification_key_id).toBeUndefined();
+    expect(() =>
+      createTrustAnchorArtifact({
+        anchor_name: "forbidden-key-widening",
+        governance_profile: "ADR-24-21",
+        root,
+        verification_key_id: root.payload.root_key_id,
+      }),
+    ).toThrow("source-authority root key purpose cannot be widened");
     expect(JSON.stringify(root)).not.toContain("trust_anchor");
     expect(JSON.stringify(issuer)).not.toContain("authority_evidence");
   });
