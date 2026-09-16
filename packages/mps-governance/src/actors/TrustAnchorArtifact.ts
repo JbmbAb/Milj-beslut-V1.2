@@ -64,7 +64,6 @@ function body(input: {
 
   return {
     artifact_id: `trust-anchor-${identity.value.slice(0, 24)}`,
-    artifact_type: "trust_anchor",
     references: [rootRef],
     ...canonical,
   };
