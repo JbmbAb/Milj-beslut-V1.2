@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   LocalPemSigningKeyProvider,
   LocalPemVerificationKeyProvider,
@@ -9,6 +9,12 @@ import {
   createLuExecutionAuthorityIssuerArtifact,
   createLuExecutionAuthorityRootArtifact,
 } from "../src/artifacts/LuExecutionAuthorityArtifact.js";
+import {
+  assertLuExecutionAuthorityLifecycleCurrent,
+  attestLuExecutionAuthorityLifecycle,
+  createLuExecutionAuthorityLifecycleArtifact,
+  verifyLuExecutionAuthorityLifecycle,
+} from "../src/governance/LuExecutionAuthorityLifecycle.js";
 import {
   attestLuSourceAuthorityTemporalStatus,
   createLuSourceAuthorityTemporalStatusArtifact,
@@ -37,6 +43,21 @@ async function fixture(input: {
     public_key_fingerprint: "issuer-fingerprint-04e",
     root_ref: ref(root),
   });
+  const bareLifecycle = createLuExecutionAuthorityLifecycleArtifact({
+    root,
+    issuer,
+    valid_from: input.valid_from ?? "2026-01-01T00:00:00.000Z",
+    valid_until: input.valid_until ?? "2027-01-01T00:00:00.000Z",
+    revoked_at: input.revoked_at ?? null,
+  });
+  const lifecycle = {
+    ...bareLifecycle,
+    attestation: await attestLuExecutionAuthorityLifecycle({
+      lifecycle: bareLifecycle,
+      root,
+      signing: rootKey.provider,
+    }),
+  };
   const subjectBody = {
     artifact_id: "execution-identity-04e",
     artifact_type: "execution_identity",
@@ -54,11 +75,9 @@ async function fixture(input: {
     issuer_ref: ref(issuer),
     subject,
     attempt_ref: attemptRef,
+    lifecycle,
     action: "lu.localization_assessment.persist",
-    valid_from: input.valid_from ?? "2026-01-01T00:00:00.000Z",
-    valid_until: input.valid_until ?? "2027-01-01T00:00:00.000Z",
     decision_time: input.decision_time ?? "2026-09-17T12:00:00.000Z",
-    revoked_at: input.revoked_at ?? null,
   });
   const status = {
     ...bareStatus,
@@ -67,60 +86,99 @@ async function fixture(input: {
       signing: issuerKey.provider,
     }),
   };
+  const rootVerification = new LocalPemVerificationKeyProvider(
+    rootKey.provider.keyId,
+    rootKey.publicKey,
+  );
   const issuerVerification = new LocalPemVerificationKeyProvider(
     issuerKey.provider.keyId,
     issuerKey.publicKey,
   );
-  return { issuer, subject, attemptRef, status, issuerVerification };
+  return {
+    root,
+    issuer,
+    lifecycle,
+    subject,
+    attemptRef,
+    status,
+    rootVerification,
+    issuerVerification,
+  };
 }
 
-async function verify(f: Awaited<ReturnType<typeof fixture>>) {
+async function verifyHistorical(f: Awaited<ReturnType<typeof fixture>>) {
+  await verifyLuExecutionAuthorityLifecycle({
+    lifecycle: f.lifecycle,
+    root: f.root,
+    issuer: f.issuer,
+    root_verification: f.rootVerification,
+  });
   return verifyLuSourceAuthorityTemporalStatus({
     status: f.status,
     issuer: f.issuer,
     subject: f.subject,
+    lifecycle: f.lifecycle,
     expected_attempt_ref: f.attemptRef,
     expected_action: "lu.localization_assessment.persist",
     issuer_verification: f.issuerVerification,
   });
 }
 
-describe("MINIMUM-AUTHORITY-DELTA-04E — exact-attempt temporal currentness and revocation", () => {
-  it("accepts an issuer-signed qualification active for the exact canonical attempt", async () => {
+describe("MINIMUM-AUTHORITY-DELTA-04E — lifecycle currentness + exact-attempt history", () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-09-17T12:00:00.000Z"));
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it("accepts when root-signed lifecycle is current and exact-attempt ticket is valid", async () => {
     const f = await fixture();
-    await expect(verify(f)).resolves.toEqual(f.status);
+    await expect(
+      verifyLuExecutionAuthorityLifecycle({
+        lifecycle: f.lifecycle,
+        root: f.root,
+        issuer: f.issuer,
+        root_verification: f.rootVerification,
+      }),
+    ).resolves.toEqual(f.lifecycle);
+    expect(() => assertLuExecutionAuthorityLifecycleCurrent(f.lifecycle)).not.toThrow();
+    await expect(verifyHistorical(f)).resolves.toEqual(f.status);
   });
 
-  it("fails closed before qualification activation", async () => {
-    const f = await fixture({
-      valid_from: "2026-10-01T00:00:00.000Z",
-      decision_time: "2026-09-17T12:00:00.000Z",
-    });
-    await expect(verify(f)).rejects.toThrow("qualification_not_active");
+  it("fails CURRENT admission before issuer qualification activation", async () => {
+    const f = await fixture({ valid_from: "2026-10-01T00:00:00.000Z" });
+    expect(() => assertLuExecutionAuthorityLifecycleCurrent(f.lifecycle)).toThrow(
+      "qualification_not_active",
+    );
   });
 
-  it("fails closed when the qualification is expired", async () => {
-    const f = await fixture({
-      valid_until: "2026-09-17T12:00:00.000Z",
-      decision_time: "2026-09-17T12:00:00.000Z",
-    });
-    await expect(verify(f)).rejects.toThrow("qualification_expired");
+  it("fails CURRENT admission when issuer qualification has expired", async () => {
+    const f = await fixture({ valid_until: "2026-09-17T12:00:00.000Z" });
+    expect(() => assertLuExecutionAuthorityLifecycleCurrent(f.lifecycle)).toThrow(
+      "qualification_expired",
+    );
   });
 
-  it("fails closed when revocation is effective at T_decision", async () => {
-    const f = await fixture({
-      revoked_at: "2026-09-17T11:59:59.000Z",
-      decision_time: "2026-09-17T12:00:00.000Z",
-    });
-    await expect(verify(f)).rejects.toThrow("authority_revoked");
+  it("fails CURRENT admission when root-signed issuer revocation is effective", async () => {
+    const f = await fixture({ revoked_at: "2026-09-17T11:59:59.000Z" });
+    expect(() => assertLuExecutionAuthorityLifecycleCurrent(f.lifecycle)).toThrow(
+      "authority_revoked",
+    );
   });
 
-  it("preserves historical authorized-then semantics when revocation is later", async () => {
+  it("preserves historical authorized-at-decision-time evidence before a later revocation", async () => {
     const f = await fixture({
       revoked_at: "2026-09-18T00:00:00.000Z",
       decision_time: "2026-09-17T12:00:00.000Z",
     });
-    await expect(verify(f)).resolves.toEqual(f.status);
+    await expect(verifyHistorical(f)).resolves.toEqual(f.status);
+    vi.setSystemTime(new Date("2026-09-18T00:00:01.000Z"));
+    expect(() => assertLuExecutionAuthorityLifecycleCurrent(f.lifecycle)).toThrow(
+      "authority_revoked",
+    );
   });
 
   it("cannot reuse an authorization ticket for another execution attempt", async () => {
@@ -130,6 +188,7 @@ describe("MINIMUM-AUTHORITY-DELTA-04E — exact-attempt temporal currentness and
         status: f.status,
         issuer: f.issuer,
         subject: f.subject,
+        lifecycle: f.lifecycle,
         expected_attempt_ref: {
           artifact_id: "attempt-lu-04e-2",
           artifact_type: "execution_attempt",
@@ -140,13 +199,44 @@ describe("MINIMUM-AUTHORITY-DELTA-04E — exact-attempt temporal currentness and
     ).rejects.toThrow("temporal_status_binding");
   });
 
-  it("rejects a mutated status body even when the old signed attestation is retained", async () => {
+  it("cannot reuse a ticket after lifecycle rotation", async () => {
+    const f = await fixture();
+    const nextBare = createLuExecutionAuthorityLifecycleArtifact({
+      root: f.root,
+      issuer: f.issuer,
+      valid_from: "2026-01-01T00:00:00.000Z",
+      valid_until: "2028-01-01T00:00:00.000Z",
+      previous_lifecycle_ref: ref(f.lifecycle),
+    });
+    const next = {
+      ...nextBare,
+      attestation: await attestLuExecutionAuthorityLifecycle({
+        lifecycle: nextBare,
+        root: f.root,
+        signing: LocalPemSigningKeyProvider.generate("ed25519:wrong-root").provider,
+      }).catch(() => undefined),
+    };
+    expect(next.artifact_id).not.toBe(f.lifecycle.artifact_id);
+    await expect(
+      verifyLuSourceAuthorityTemporalStatus({
+        status: f.status,
+        issuer: f.issuer,
+        subject: f.subject,
+        lifecycle: next,
+        expected_attempt_ref: f.attemptRef,
+        expected_action: "lu.localization_assessment.persist",
+        issuer_verification: f.issuerVerification,
+      }),
+    ).rejects.toThrow("canonical mismatch");
+  });
+
+  it("rejects a mutated historical ticket body with the old attestation", async () => {
     const f = await fixture();
     const mutated = {
       ...f.status,
       payload: {
         ...f.status.payload,
-        valid_until: "2030-01-01T00:00:00.000Z",
+        decision_time: "2026-09-17T12:00:01.000Z",
       },
     };
     await expect(
@@ -154,6 +244,7 @@ describe("MINIMUM-AUTHORITY-DELTA-04E — exact-attempt temporal currentness and
         status: mutated,
         issuer: f.issuer,
         subject: f.subject,
+        lifecycle: f.lifecycle,
         expected_attempt_ref: f.attemptRef,
         expected_action: "lu.localization_assessment.persist",
         issuer_verification: f.issuerVerification,
