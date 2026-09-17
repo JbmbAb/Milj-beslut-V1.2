@@ -187,7 +187,7 @@ jobs:
           done
           test -n "$gate_run_id" || { echo "::error::canonical gate run was not found"; exit 4; }
           echo "Waiting for canonical gate run $gate_run_id"
-          gh run watch "$gate_run_id" --exit-status
+          gh run watch "$gate_run_id" --repo "$GITHUB_REPOSITORY" --exit-status
 
   state:
     name: Publish machine-readable handoff
