@@ -76,12 +76,6 @@ export interface VerifiedLuSourceAuthority {
   readonly supporting_artifacts: readonly ArtifactContract[];
 }
 
-/**
- * Positive authority provenance is process-local and LU-specific. A caller can construct an
- * object with the same fields, but cannot insert it into this module-private WeakSet. Verification
- * keys are process provisioned; the temporal ticket reference is derived from the exact verified
- * subject + exact canonical execution attempt + action and is therefore not caller-selected.
- */
 const verifiedLuSourceAuthorityDecisions = new WeakSet<object>();
 
 export function isVerifiedLuSourceAuthorityDecision(
@@ -101,11 +95,10 @@ function sameRef(left: ArtifactReference, right: ArtifactReference): boolean {
 /**
  * 04E source-authority evaluator.
  *
- * The status is an issuer-signed authorization ticket for ONE exact canonical execution attempt.
- * Its id is derived rather than configured globally, so a long-running process can evaluate many
- * identities without cross-subject substitution. T_decision is the signed authority-decision
- * instant for that exact attempt. Re-running the same canonical subject resolves the same attempt
- * and is replay; a different canonical mutation derives a different attempt and cannot reuse it.
+ * The temporal artifact is an issuer-signed authorization ticket for ONE exact canonical
+ * execution attempt. Its id is derived rather than configured globally. The issuer itself is
+ * first verified through the root-qualified LU chain, so the temporal signature inherits that
+ * authority without bringing the root private key into the provisioning worker.
  */
 export async function verifyLuSourceAuthorityForAssessment(input: {
   readonly repository: ArtifactRepositoryPort;
@@ -191,7 +184,6 @@ export async function verifyLuSourceAuthorityForAssessment(input: {
   );
   await verifyLuSourceAuthorityTemporalStatus({
     status: temporalStatus,
-    root: verifiedRoot,
     issuer: verifiedIssuer,
     subject: identityResult.identity,
     expected_attempt_ref: expectedAttemptRef,
