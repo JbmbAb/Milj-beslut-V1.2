@@ -9,26 +9,23 @@ import type {
 import type { ServiceIdentityArtifact } from "../../../mps-governance/src/actors/IdentityArtifacts.js";
 import type { TrustAnchorArtifact } from "../../../mps-governance/src/actors/TrustAnchorArtifact.js";
 import type { TrustDomainArtifact } from "../../../mps-governance/src/actors/TrustDomainArtifact.js";
+import type { LuSourceAuthorityTemporalStatusArtifact } from "./LuSourceAuthorityTemporalStatus.js";
 
 export const LU_SOURCE_AUTHORITY_EVIDENCE_CONTRACT_VERSION =
   "lu-source-authority-evidence-v1" as const;
+export const LU_SOURCE_AUTHORITY_EVIDENCE_TEMPORAL_CONTRACT_VERSION =
+  "lu-source-authority-evidence-v2" as const;
 
 /**
- * 04D-R1 source-authority representation.
- *
- * This is deliberately a different contract from the 04C actor/lifecycle AuthorityEvidence
- * shape. The LU source artifacts prove an immutable cryptographic root -> issuer ->
- * ExecutionIdentity chain, but they do NOT carry signed activation, expiry, revocation, or
- * decision-time facts. Encoding a decision_time here would therefore manufacture temporal
- * semantics and, if sourced from the wall clock, would also destroy assessment determinism.
- *
- * The artifact_type remains "authority_evidence" so ACT-21-I10 can bind the mutation to exactly
- * one authority-evidence artifact. Positive runtime verification never lives in this artifact.
+ * LU source-authority representation. V1 is the historical 04D non-temporal form. V2 adds only
+ * hash-bound representation of a root-signed temporal status. Positive authorization still never
+ * lives in this artifact; it is minted by the verifier after cryptographic + temporal checks.
  */
 export interface LuSourceAuthorityEvidenceArtifact extends ArtifactContract {
   readonly artifact_type: "authority_evidence";
   readonly authority_evidence_contract_version:
-    typeof LU_SOURCE_AUTHORITY_EVIDENCE_CONTRACT_VERSION;
+    | typeof LU_SOURCE_AUTHORITY_EVIDENCE_CONTRACT_VERSION
+    | typeof LU_SOURCE_AUTHORITY_EVIDENCE_TEMPORAL_CONTRACT_VERSION;
 
   readonly service_identity_ref: ArtifactReference;
   readonly service_identity_hash: ContentHash;
@@ -41,6 +38,11 @@ export interface LuSourceAuthorityEvidenceArtifact extends ArtifactContract {
   readonly action: string;
   readonly authority_claim_state: "UNVERIFIED_REPRESENTATION";
   readonly authority_path: readonly AuthorityEvidencePathEntry[];
+
+  /** Present only in v2; both fields are derived from the root-signed temporal status. */
+  readonly decision_time?: string;
+  readonly temporal_status_ref?: ArtifactReference;
+  readonly temporal_status_hash?: ContentHash;
 }
 
 function ref(artifact: ArtifactContract): ArtifactReference {
@@ -62,9 +64,7 @@ function sameHash(left: ContentHash, right: ContentHash): boolean {
 
 function required(value: string, field: string): string {
   const normalized = value.trim();
-  if (!normalized) {
-    throw new Error(`REJECT_LU_SOURCE_AUTHORITY_EVIDENCE: ${field} is required`);
-  }
+  if (!normalized) throw new Error(`REJECT_LU_SOURCE_AUTHORITY_EVIDENCE: ${field} is required`);
   return normalized;
 }
 
@@ -87,8 +87,7 @@ function canonicalPath(
     content_hash: artifact.content_hash,
   }));
   const keys = result.map(
-    (entry) =>
-      `${entry.artifact_ref.artifact_type}\u0000${entry.artifact_ref.artifact_id}`,
+    (entry) => `${entry.artifact_ref.artifact_type}\u0000${entry.artifact_ref.artifact_id}`,
   );
   if (new Set(keys).size !== keys.length) {
     throw new Error("REJECT_LU_SOURCE_AUTHORITY_EVIDENCE: duplicate path artifact");
@@ -102,6 +101,7 @@ function body(input: {
   readonly trust_anchor: TrustAnchorArtifact;
   readonly action: string;
   readonly authority_path: readonly AuthorityEvidencePathInput[];
+  readonly temporal_status?: LuSourceAuthorityTemporalStatusArtifact;
 }): Omit<LuSourceAuthorityEvidenceArtifact, "content_hash"> {
   const identityRef = ref(input.service_identity);
   const domainRef = ref(input.trust_domain);
@@ -124,9 +124,12 @@ function body(input: {
     throw new Error("REJECT_LU_SOURCE_AUTHORITY_EVIDENCE: path root does not match trust anchor");
   }
 
+  const temporalRef = input.temporal_status ? ref(input.temporal_status) : undefined;
   const canonical = {
     artifact_type: "authority_evidence" as const,
-    authority_evidence_contract_version: LU_SOURCE_AUTHORITY_EVIDENCE_CONTRACT_VERSION,
+    authority_evidence_contract_version: input.temporal_status
+      ? LU_SOURCE_AUTHORITY_EVIDENCE_TEMPORAL_CONTRACT_VERSION
+      : LU_SOURCE_AUTHORITY_EVIDENCE_CONTRACT_VERSION,
     service_identity_ref: identityRef,
     service_identity_hash: input.service_identity.content_hash,
     trust_domain_ref: domainRef,
@@ -137,6 +140,13 @@ function body(input: {
     action: required(input.action, "action"),
     authority_claim_state: "UNVERIFIED_REPRESENTATION" as const,
     authority_path: path,
+    ...(input.temporal_status
+      ? {
+          decision_time: input.temporal_status.payload.decision_time,
+          temporal_status_ref: temporalRef!,
+          temporal_status_hash: input.temporal_status.content_hash,
+        }
+      : {}),
   };
 
   const identity = sha256ContentHash(canonical);
@@ -145,6 +155,7 @@ function body(input: {
     domainRef,
     anchorRef,
     ...path.map((entry) => entry.artifact_ref),
+    ...(temporalRef ? [temporalRef] : []),
   ];
   const seen = new Set<string>();
   const uniqueReferences = references.filter((reference) => {
@@ -167,6 +178,7 @@ export function createLuSourceAuthorityEvidenceArtifact(input: {
   readonly trust_anchor: TrustAnchorArtifact;
   readonly action: string;
   readonly authority_path: readonly AuthorityEvidencePathInput[];
+  readonly temporal_status?: LuSourceAuthorityTemporalStatusArtifact;
 }): LuSourceAuthorityEvidenceArtifact {
   const artifact = body(input);
   return { ...artifact, content_hash: sha256ContentHash(artifact) };
@@ -174,36 +186,30 @@ export function createLuSourceAuthorityEvidenceArtifact(input: {
 
 export function validateLuSourceAuthorityEvidenceArtifact(
   artifact: LuSourceAuthorityEvidenceArtifact,
-  input: Omit<
-    Parameters<typeof createLuSourceAuthorityEvidenceArtifact>[0],
-    "action"
-  >,
+  input: Omit<Parameters<typeof createLuSourceAuthorityEvidenceArtifact>[0], "action">,
 ): LuSourceAuthorityEvidenceArtifact {
   const raw = artifact as LuSourceAuthorityEvidenceArtifact & {
-    readonly decision_time?: unknown;
     readonly authorized_at_decision_time?: unknown;
     readonly authorized_now?: unknown;
     readonly source_authority_verified?: unknown;
   };
   if (
-    raw.decision_time !== undefined ||
     raw.authorized_at_decision_time !== undefined ||
     raw.authorized_now !== undefined ||
     raw.source_authority_verified !== undefined
   ) {
     throw new Error(
-      "REJECT_LU_SOURCE_AUTHORITY_EVIDENCE: representation cannot assert temporal or positive authority",
+      "REJECT_LU_SOURCE_AUTHORITY_EVIDENCE: representation cannot assert positive authority",
     );
   }
 
-  const rebuilt = createLuSourceAuthorityEvidenceArtifact({
-    ...input,
-    action: artifact.action,
-  });
+  const rebuilt = createLuSourceAuthorityEvidenceArtifact({ ...input, action: artifact.action });
+  const expectedVersion = input.temporal_status
+    ? LU_SOURCE_AUTHORITY_EVIDENCE_TEMPORAL_CONTRACT_VERSION
+    : LU_SOURCE_AUTHORITY_EVIDENCE_CONTRACT_VERSION;
   if (
     artifact.artifact_id !== rebuilt.artifact_id ||
-    artifact.authority_evidence_contract_version !==
-      LU_SOURCE_AUTHORITY_EVIDENCE_CONTRACT_VERSION ||
+    artifact.authority_evidence_contract_version !== expectedVersion ||
     artifact.authority_claim_state !== "UNVERIFIED_REPRESENTATION" ||
     !sameHash(artifact.content_hash, rebuilt.content_hash)
   ) {
