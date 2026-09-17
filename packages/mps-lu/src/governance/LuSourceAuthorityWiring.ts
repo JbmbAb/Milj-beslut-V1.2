@@ -31,19 +31,19 @@ import {
 } from "./LuSourceAuthorityEvidence.js";
 import {
   LU_SOURCE_AUTHORITY_TEMPORAL_STATUS_TYPE,
+  computeLuSourceAuthorityTemporalStatusArtifactId,
   verifyLuSourceAuthorityTemporalStatus,
   type LuSourceAuthorityTemporalStatusArtifact,
 } from "./LuSourceAuthorityTemporalStatus.js";
 
 export const LU_LOCALIZATION_ASSESSMENT_PERSIST_ACTION =
   "lu.localization_assessment.persist" as const;
-export const LU_SOURCE_AUTHORITY_TEMPORAL_STATUS_ID_ENV =
-  "LU_SOURCE_AUTHORITY_TEMPORAL_STATUS_ID" as const;
 
 export interface VerifiedLuSourceAuthorityDecision {
   readonly source_authority_verified: true;
   readonly authorized_at_decision_time: true;
   readonly decision_time: string;
+  readonly attempt_ref: ArtifactReference;
   readonly action: string;
   readonly authority_scope: string;
   readonly evidence_ref: {
@@ -66,9 +66,9 @@ export interface VerifiedLuSourceAuthority {
 
 /**
  * Positive authority provenance is process-local and LU-specific. A caller can construct an
- * object with the same fields, but cannot insert it into this module-private WeakSet. The minting
- * function also obtains all verification keys and the temporal-status id from process provisioning;
- * none are caller-supplied parameters.
+ * object with the same fields, but cannot insert it into this module-private WeakSet. Verification
+ * keys are process provisioned; the temporal ticket reference is derived from the exact verified
+ * subject + exact execution attempt + action and is therefore not caller-selected.
  */
 const verifiedLuSourceAuthorityDecisions = new WeakSet<object>();
 
@@ -89,17 +89,18 @@ function sameRef(left: ArtifactReference, right: ArtifactReference): boolean {
 /**
  * 04E source-authority evaluator.
  *
- * Cryptographic identity is verified first. Temporal authorization is then evaluated from a
- * root-signed, hash-bound status artifact selected by process provisioning. The status artifact
- * carries the replay-stable T_decision, qualification window and effective revocation time.
- * Therefore this function can make the strictly historical claim authorized_at_decision_time=true,
- * while still making no claim about authorized_now.
+ * The status is an issuer-signed authorization ticket for ONE exact execution attempt. Its id is
+ * derived rather than configured globally, so a long-running process can evaluate many identities
+ * without cross-subject substitution. T_decision is the signed logical start of that attempt; the
+ * caller must later prove the actual persisted attempt carries the same ref and started_at before
+ * assessment persistence is permitted.
  */
 export async function verifyLuSourceAuthorityForAssessment(input: {
   readonly repository: ArtifactRepositoryPort;
   readonly execution_identity: ExecutionIdentityArtifact;
   readonly expected_subject_v3: ExecutionIdentitySubjectV3;
   readonly expected_capability_ref: ArtifactReference;
+  readonly expected_attempt_ref: ArtifactReference;
   readonly release_snapshot_id: string;
   readonly deterministic_seed: string;
 }): Promise<VerifiedLuSourceAuthority> {
@@ -114,6 +115,9 @@ export async function verifyLuSourceAuthorityForAssessment(input: {
   }
   if (!sameRef(input.execution_identity.capability_ref, input.expected_capability_ref)) {
     throw new Error("REJECT_LU_SOURCE_AUTHORITY: execution identity capability mismatch");
+  }
+  if (input.expected_attempt_ref.artifact_type !== "execution_attempt") {
+    throw new Error("REJECT_LU_SOURCE_AUTHORITY: expected attempt type");
   }
 
   const issuerRefs = input.execution_identity.references.filter(
@@ -161,24 +165,31 @@ export async function verifyLuSourceAuthorityForAssessment(input: {
     );
   }
 
-  const temporalStatusId = process.env[LU_SOURCE_AUTHORITY_TEMPORAL_STATUS_ID_ENV]?.trim();
-  if (!temporalStatusId) {
-    throw new Error("REJECT_LU_SOURCE_AUTHORITY: temporal_status_unconfigured");
-  }
-  const temporalStatus = await input.repository.resolve<LuSourceAuthorityTemporalStatusArtifact>({
-    artifact_id: temporalStatusId,
+  const subjectRef: ArtifactReference = {
+    artifact_id: identityResult.identity.artifact_id,
+    artifact_type: identityResult.identity.artifact_type,
+  };
+  const temporalStatusRef: ArtifactReference = {
+    artifact_id: computeLuSourceAuthorityTemporalStatusArtifactId({
+      subject_ref: subjectRef,
+      attempt_ref: input.expected_attempt_ref,
+      action: LU_LOCALIZATION_ASSESSMENT_PERSIST_ACTION,
+    }),
     artifact_type: LU_SOURCE_AUTHORITY_TEMPORAL_STATUS_TYPE,
-  });
+  };
+  const temporalStatus = await input.repository.resolve<LuSourceAuthorityTemporalStatusArtifact>(
+    temporalStatusRef,
+  );
   await verifyLuSourceAuthorityTemporalStatus({
     status: temporalStatus,
     root: verifiedRoot,
     issuer: verifiedIssuer,
     subject: identityResult.identity,
+    expected_attempt_ref: input.expected_attempt_ref,
     expected_action: LU_LOCALIZATION_ASSESSMENT_PERSIST_ACTION,
-    root_verification: rootVerification,
+    issuer_verification: issuerVerification,
   });
 
-  // Canonical generic projection is built only AFTER source cryptography and temporal status pass.
   const serviceIdentity = deriveLuCanonicalServiceIdentity(identityResult);
   const anchor = createTrustAnchorArtifact({
     anchor_name: "LU execution authority",
@@ -192,10 +203,10 @@ export async function verifyLuSourceAuthorityForAssessment(input: {
     constraints: [
       "allowed_artifact_type=execution_identity",
       "owner_provisioning=OWNER_PROVISIONED",
-      "temporal_status=root_signed",
+      "temporal_status=issuer_signed_exact_attempt",
     ],
     allowed_actor_types: ["service"],
-    delegation_rules: ["source-authority-chain", "temporal-currentness"],
+    delegation_rules: ["source-authority-chain", "temporal-currentness", "attempt-binding"],
   });
   const evidence = createLuSourceAuthorityEvidenceArtifact({
     service_identity: serviceIdentity,
@@ -225,6 +236,7 @@ export async function verifyLuSourceAuthorityForAssessment(input: {
     source_authority_verified: true as const,
     authorized_at_decision_time: true as const,
     decision_time: temporalStatus.payload.decision_time,
+    attempt_ref: temporalStatus.payload.attempt_ref,
     action: LU_LOCALIZATION_ASSESSMENT_PERSIST_ACTION,
     authority_scope: LU_EXECUTION_AUTHORITY_SCOPE,
     evidence_ref: {
@@ -237,10 +249,7 @@ export async function verifyLuSourceAuthorityForAssessment(input: {
       artifact_type: temporalStatus.artifact_type,
     },
     temporal_status_hash: temporalStatus.content_hash,
-    subject_ref: {
-      artifact_id: identityResult.identity.artifact_id,
-      artifact_type: identityResult.identity.artifact_type,
-    },
+    subject_ref: subjectRef,
     subject_hash: identityResult.identity.content_hash,
   });
   verifiedLuSourceAuthorityDecisions.add(decision);
