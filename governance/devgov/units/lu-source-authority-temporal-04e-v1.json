@@ -1,0 +1,88 @@
+{
+  "schema_version": "dev-gov-v1-unit-definition",
+  "unit": "LU-SOURCE-AUTHORITY-TEMPORAL-04E-V1",
+  "role": "producer",
+  "mode": "writer",
+  "branch": "audit/minimum-authority-delta-04e-temporal-revocation",
+  "base_sha": "c2c47efaea8cb2fb38055bdd72bc2c0e55422039",
+  "ancestry_policy": "descendant_of_base",
+  "allowed_paths": [
+    "packages/mps-lu/src/governance/LuSourceAuthorityTemporalStatus.ts",
+    "packages/mps-lu/src/governance/LuSourceAuthorityEvidence.ts",
+    "packages/mps-lu/src/governance/LuSourceAuthorityWiring.ts",
+    "packages/mps-lu/src/governance/GovernedAssessmentPersistence.ts",
+    "packages/mps-lu/src/index.ts",
+    "packages/mps-lu/tests/LuSourceAuthorityTemporal04E.test.ts",
+    "packages/mps-lu/tests/LuSourceAuthorityWiring04D.test.ts",
+    "docs/architecture/audits/MINIMUM-AUTHORITY-DELTA-04E-TEMPORAL-REVOCATION.md",
+    "governance/devgov/units/lu-source-authority-temporal-04e-v1.json"
+  ],
+  "forbidden_paths": [
+    ".github/**",
+    "scripts/devgov/**",
+    "governance/devgov/schema/**",
+    "prisma/**",
+    "packages/mps-governance/src/**",
+    "packages/mps-compliance/src/**",
+    "packages/mps-runtime/src/**",
+    "server/security/**"
+  ],
+  "required_red": [
+    {
+      "id": "temporal-activation-expiry-revocation",
+      "command": "bash",
+      "args": [
+        "-lc",
+        "test -f packages/mps-lu/tests/LuSourceAuthorityTemporal04E.test.ts && npx vitest run --config vitest.config.ts --no-file-parallelism packages/mps-lu/tests/LuSourceAuthorityTemporal04E.test.ts"
+      ],
+      "timeout_ms": 240000,
+      "expected_classification": "FAIL",
+      "required_head": "base_sha"
+    },
+    {
+      "id": "canonical-temporal-authority-wiring",
+      "command": "bash",
+      "args": [
+        "-lc",
+        "node -e \"const fs=require('fs');if(!fs.existsSync('packages/mps-lu/src/governance/LuSourceAuthorityTemporalStatus.ts'))process.exit(1);const w=fs.readFileSync('packages/mps-lu/src/governance/LuSourceAuthorityWiring.ts','utf8');const p=fs.readFileSync('packages/mps-lu/src/governance/GovernedAssessmentPersistence.ts','utf8');const t=fs.readFileSync('packages/mps-lu/src/governance/LuSourceAuthorityTemporalStatus.ts','utf8');if(!w.includes('authorized_at_decision_time: true')||!w.includes('LU_SOURCE_AUTHORITY_TEMPORAL_STATUS_ID')||w.includes('new Date()'))process.exit(1);for(const x of ['qualification_not_active','qualification_expired','authority_revoked'])if(!t.includes(x))process.exit(1);if(!p.includes('authority_temporal_status_body_hash')||!p.includes('authority_execution_identity_binding'))process.exit(1);\" && npx vitest run --config vitest.config.ts --no-file-parallelism packages/mps-lu/tests/LuSourceAuthorityWiring04D.test.ts"
+      ],
+      "timeout_ms": 240000,
+      "expected_classification": "FAIL",
+      "required_head": "base_sha"
+    }
+  ],
+  "required_green": [
+    {
+      "id": "temporal-activation-expiry-revocation",
+      "command": "bash",
+      "args": [
+        "-lc",
+        "test -f packages/mps-lu/tests/LuSourceAuthorityTemporal04E.test.ts && npx vitest run --config vitest.config.ts --no-file-parallelism packages/mps-lu/tests/LuSourceAuthorityTemporal04E.test.ts"
+      ],
+      "timeout_ms": 240000,
+      "expected_classification": "PASS",
+      "required_head": "candidate_sha"
+    },
+    {
+      "id": "canonical-temporal-authority-wiring",
+      "command": "bash",
+      "args": [
+        "-lc",
+        "node -e \"const fs=require('fs');if(!fs.existsSync('packages/mps-lu/src/governance/LuSourceAuthorityTemporalStatus.ts'))process.exit(1);const w=fs.readFileSync('packages/mps-lu/src/governance/LuSourceAuthorityWiring.ts','utf8');const p=fs.readFileSync('packages/mps-lu/src/governance/GovernedAssessmentPersistence.ts','utf8');const t=fs.readFileSync('packages/mps-lu/src/governance/LuSourceAuthorityTemporalStatus.ts','utf8');if(!w.includes('authorized_at_decision_time: true')||!w.includes('LU_SOURCE_AUTHORITY_TEMPORAL_STATUS_ID')||w.includes('new Date()'))process.exit(1);for(const x of ['qualification_not_active','qualification_expired','authority_revoked'])if(!t.includes(x))process.exit(1);if(!p.includes('authority_temporal_status_body_hash')||!p.includes('authority_execution_identity_binding'))process.exit(1);\" && npx vitest run --config vitest.config.ts --no-file-parallelism packages/mps-lu/tests/LuSourceAuthorityWiring04D.test.ts"
+      ],
+      "timeout_ms": 240000,
+      "expected_classification": "PASS",
+      "required_head": "candidate_sha"
+    }
+  ],
+  "trusted_execution": {
+    "issuer": "github-actions:JbmbAb/Milj-beslut-V1.2:devgov-v0-attest",
+    "key_id": "devgov-ci-ed25519-v1"
+  },
+  "remote": {
+    "name": "origin",
+    "branch": "audit/minimum-authority-delta-04e-temporal-revocation",
+    "push_policy": "no_force",
+    "absent_policy": "deny_absent"
+  }
+}
