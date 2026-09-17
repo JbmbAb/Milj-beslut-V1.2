@@ -37,6 +37,10 @@ import {
   GovernedAssessmentPersistence,
   type AssessmentAuthorityBinding,
 } from "../src/governance/GovernedAssessmentPersistence.js";
+import {
+  attestLuExecutionAuthorityLifecycle,
+  createLuExecutionAuthorityLifecycleArtifact,
+} from "../src/governance/LuExecutionAuthorityLifecycle.js";
 import type { LuSourceAuthorityEvidenceArtifact } from "../src/governance/LuSourceAuthorityEvidence.js";
 import {
   attestLuSourceAuthorityTemporalStatus,
@@ -58,6 +62,7 @@ const ENV = [
   "LU_EXECUTION_AUTHORITY_SIGNING_KEY_ID",
   "LU_EXECUTION_AUTHORITY_ROOT_PUBLIC_KEY_PEM",
   "LU_EXECUTION_AUTHORITY_ROOT_KEY_ID",
+  "LU_EXECUTION_AUTHORITY_LIFECYCLE_ID",
 ] as const;
 const originals = new Map<string, string | undefined>();
 
@@ -93,6 +98,27 @@ async function fixture(options: { readonly actor_ref?: ArtifactReference; readon
   };
   await repository.put({ artifact_id: root.artifact_id, content_hash: root.content_hash, body: root });
   await repository.put({ artifact_id: issuer.artifact_id, content_hash: issuer.content_hash, body: issuer });
+
+  const bareLifecycle = createLuExecutionAuthorityLifecycleArtifact({
+    root,
+    issuer,
+    valid_from: "2020-01-01T00:00:00.000Z",
+    valid_until: "2035-01-01T00:00:00.000Z",
+  });
+  const lifecycle = {
+    ...bareLifecycle,
+    attestation: await attestLuExecutionAuthorityLifecycle({
+      lifecycle: bareLifecycle,
+      root,
+      signing: rootKey.provider,
+    }),
+  };
+  await repository.put({
+    artifact_id: lifecycle.artifact_id,
+    content_hash: lifecycle.content_hash,
+    body: lifecycle,
+  });
+  process.env.LU_EXECUTION_AUTHORITY_LIFECYCLE_ID = lifecycle.artifact_id;
 
   const registry = createLuRegistryRuntime();
   const capability = registry.resolveCapabilityByKey(LU_SITE_ASSESSMENT_CAPABILITY_KEY)!;
@@ -149,11 +175,9 @@ async function fixture(options: { readonly actor_ref?: ArtifactReference; readon
     issuer_ref: ref(issuer),
     subject: identity,
     attempt_ref: attemptRef,
+    lifecycle,
     action: "lu.localization_assessment.persist",
-    valid_from: "2026-01-01T00:00:00.000Z",
-    valid_until: "2027-01-01T00:00:00.000Z",
     decision_time: "2026-09-17T12:00:00.000Z",
-    revoked_at: null,
   });
   const status = {
     ...bareStatus,
@@ -161,7 +185,7 @@ async function fixture(options: { readonly actor_ref?: ArtifactReference; readon
   };
   await repository.put({ artifact_id: status.artifact_id, content_hash: status.content_hash, body: status });
 
-  return { repository, registry, capability, subject, seed, identity, status, attemptRef };
+  return { repository, registry, capability, subject, seed, identity, lifecycle, status, attemptRef };
 }
 
 async function run(f: Awaited<ReturnType<typeof fixture>>, seed = f.seed) {
@@ -198,7 +222,7 @@ describe("MINIMUM-AUTHORITY-DELTA-04D — LU source authority wiring", () => {
     __resetLuExecutionAuthorityVerifierForTests(null);
   });
 
-  it("binds verified root -> issuer -> ExecutionIdentity and exact-attempt temporal status to one AuthorityEvidence", async () => {
+  it("binds root -> issuer -> identity, current lifecycle and exact-attempt ticket to one AuthorityEvidence", async () => {
     const f = await fixture();
     const result = await run(f);
     expect(result.admitted).toBe(true);
@@ -257,6 +281,8 @@ describe("MINIMUM-AUTHORITY-DELTA-04D — LU source authority wiring", () => {
         authorized_at_decision_time: true,
         decision_time: f.status.payload.decision_time,
         attempt_ref: f.attemptRef,
+        lifecycle_ref: ref(f.lifecycle),
+        lifecycle_hash: f.lifecycle.content_hash,
         action: evidence.action,
         authority_scope: evidence.authority_scope,
         evidence_ref: { artifact_id: evidence.artifact_id, artifact_type: "authority_evidence" },
