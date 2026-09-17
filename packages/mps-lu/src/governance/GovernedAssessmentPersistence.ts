@@ -12,6 +12,11 @@ import {
   type VerifyOutcomeAttestation,
 } from "./GovernedAssessmentPersistenceBase.js";
 import {
+  LU_EXECUTION_AUTHORITY_LIFECYCLE_TYPE,
+  assertLuExecutionAuthorityLifecycleCurrent,
+  type LuExecutionAuthorityLifecycleArtifact,
+} from "./LuExecutionAuthorityLifecycle.js";
+import {
   LU_SOURCE_AUTHORITY_TEMPORAL_STATUS_TYPE,
   type LuSourceAuthorityTemporalStatusArtifact,
 } from "./LuSourceAuthorityTemporalStatus.js";
@@ -33,11 +38,10 @@ function sameHash(
 /**
  * F04 + 04E persistence hardening.
  *
- * Before the base implementation performs any write, this wrapper rehashes the presented
- * AuthorityEvidence, binds it to the outcome's exact execution identity, and binds the signed
- * 04E authority decision to the exact deterministic execution attempt. A later invocation of the
- * same canonical subject is therefore replay of the same attempt; a genuinely different mutation
- * has a different attempt ref and cannot reuse the old authority ticket.
+ * The verifier proves the source chain, current root-signed issuer lifecycle and historical
+ * exact-attempt ticket. This wrapper repeats the load-bearing CURRENT lifecycle predicate at the
+ * actual mutation boundary, then rehashes and cross-binds decision/evidence/lifecycle/ticket to the
+ * exact outcome attempt + execution identity before the base persistence layer can write to CAS.
  */
 export class GovernedAssessmentPersistence {
   constructor(
@@ -98,6 +102,34 @@ export class GovernedAssessmentPersistence {
           throw new Error("REJECT_LOCALIZATION_ASSESSMENT: authority_temporal_evidence_binding");
         }
 
+        const lifecycleCandidates = args.authority.supporting_artifacts.filter(
+          (artifact) => artifact.artifact_type === LU_EXECUTION_AUTHORITY_LIFECYCLE_TYPE,
+        );
+        if (lifecycleCandidates.length !== 1) {
+          throw new Error("REJECT_LOCALIZATION_ASSESSMENT: authority_lifecycle_cardinality");
+        }
+        const lifecycle = lifecycleCandidates[0] as LuExecutionAuthorityLifecycleArtifact;
+        if (
+          !sameRef(
+            { artifact_id: lifecycle.artifact_id, artifact_type: lifecycle.artifact_type },
+            decision.lifecycle_ref,
+          ) ||
+          !sameHash(lifecycle.content_hash, decision.lifecycle_hash)
+        ) {
+          throw new Error("REJECT_LOCALIZATION_ASSESSMENT: authority_lifecycle_binding");
+        }
+        const {
+          content_hash: declaredLifecycleHash,
+          attestation: _lifecycleAttestation,
+          ...lifecycleBody
+        } = lifecycle;
+        const computedLifecycleHash = sha256ContentHash(lifecycleBody);
+        if (!sameHash(declaredLifecycleHash, computedLifecycleHash)) {
+          throw new Error("REJECT_LOCALIZATION_ASSESSMENT: authority_lifecycle_body_hash");
+        }
+        // Currentness is intentionally checked again at the actual write boundary.
+        assertLuExecutionAuthorityLifecycleCurrent(lifecycle);
+
         const candidates = args.authority.supporting_artifacts.filter(
           (artifact) => artifact.artifact_type === LU_SOURCE_AUTHORITY_TEMPORAL_STATUS_TYPE,
         );
@@ -112,6 +144,8 @@ export class GovernedAssessmentPersistence {
           ) ||
           !sameHash(status.content_hash, decision.temporal_status_hash) ||
           !sameRef(status.payload.attempt_ref, decision.attempt_ref) ||
+          !sameRef(status.payload.lifecycle_ref, decision.lifecycle_ref) ||
+          !sameHash(status.payload.lifecycle_hash, decision.lifecycle_hash) ||
           status.payload.decision_time !== decision.decision_time
         ) {
           throw new Error("REJECT_LOCALIZATION_ASSESSMENT: authority_temporal_status_binding");
