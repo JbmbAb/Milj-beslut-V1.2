@@ -1,0 +1,55 @@
+{
+  "schema_version": "dev-gov-v1-unit-definition",
+  "unit": "DEVGOV-ORCHESTRATOR-EXPLICIT-REPO-WATCH-V1",
+  "role": "producer",
+  "mode": "writer",
+  "branch": "fix/devgov-orchestrator-watch-repo",
+  "base_sha": "7a4d2d976a2e7ed1e5749d7defaeb7998e4e5896",
+  "ancestry_policy": "descendant_of_base",
+  "allowed_paths": [
+    ".github/workflows/devgov-v0-orchestrate.yml",
+    "governance/devgov/units/devgov-orchestrator-explicit-repo-watch-v1.json"
+  ],
+  "forbidden_paths": [
+    ".github/workflows/devgov-v0-attest.yml",
+    ".github/workflows/devgov-v0-gate.yml",
+    "scripts/devgov/**",
+    "governance/devgov/schema/**",
+    "prisma/**",
+    "packages/**",
+    "server/**"
+  ],
+  "required_red": [
+    {
+      "id": "canonical-gate-watch-explicit-repo",
+      "command": "node",
+      "args": [
+        "-e",
+        "const fs=require('node:fs');const s=fs.readFileSync('.github/workflows/devgov-v0-orchestrate.yml','utf8');const marker='gh run watch \\\"$gate_run_id\\\" --repo \\\"$GITHUB_REPOSITORY\\\" --exit-status';if(!s.includes(marker)){console.error('EXPLICIT_REPO_WATCH_MISSING');process.exit(1)}"
+      ],
+      "expected_classification": "FAIL",
+      "required_head": "base_sha"
+    }
+  ],
+  "required_green": [
+    {
+      "id": "canonical-gate-watch-explicit-repo",
+      "command": "node",
+      "args": [
+        "-e",
+        "const fs=require('node:fs');const s=fs.readFileSync('.github/workflows/devgov-v0-orchestrate.yml','utf8');const marker='gh run watch \\\"$gate_run_id\\\" --repo \\\"$GITHUB_REPOSITORY\\\" --exit-status';if(!s.includes(marker)){console.error('EXPLICIT_REPO_WATCH_MISSING');process.exit(1)}"
+      ],
+      "required_head": "candidate_sha"
+    }
+  ],
+  "trusted_execution": {
+    "issuer": "github-actions:JbmbAb/Milj-beslut-V1.2:devgov-v0-attest",
+    "key_id": "devgov-ci-ed25519-v1"
+  },
+  "remote": {
+    "name": "origin",
+    "branch": "fix/devgov-orchestrator-watch-repo",
+    "push_policy": "no_force",
+    "absent_policy": "deny_absent"
+  }
+}
