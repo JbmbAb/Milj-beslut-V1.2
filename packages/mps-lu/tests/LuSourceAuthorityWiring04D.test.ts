@@ -293,7 +293,7 @@ describe("MINIMUM-AUTHORITY-DELTA-04D — LU source authority wiring", () => {
         subject_hash: evidence.authority_path[2]!.content_hash,
       },
       evidence,
-      supporting_artifacts: [],
+      supporting_artifacts: [f.lifecycle, f.status],
     };
     await expect(
       new GovernedAssessmentPersistence(f.repository, () => true, { requireAuthorityEvidence: true }).persist({
