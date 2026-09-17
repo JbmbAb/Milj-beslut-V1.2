@@ -18,14 +18,22 @@ import {
   LU_SITE_ASSESSMENT_CAPABILITY_KEY,
   LU_EXECUTION_PRINCIPAL_ID,
   LU_EXECUTION_AUTHORITY_ISSUER_TYPE,
+  LU_EXECUTION_AUTHORITY_LIFECYCLE_ID_ENV,
+  LU_EXECUTION_AUTHORITY_LIFECYCLE_TYPE,
   LU_LOCALIZATION_ASSESSMENT_PERSIST_ACTION,
   LU_SOURCE_AUTHORITY_TEMPORAL_STATUS_TYPE,
+  assertLuExecutionAuthorityLifecycleCurrent,
   attestLuSourceAuthorityTemporalStatus,
   computeLuSourceAuthorityTemporalStatusArtifactId,
   createLuSourceAuthorityTemporalStatusArtifact,
   deriveLuCanonicalAssessmentAttemptRef,
-  validateLuSourceAuthorityTemporalStatusArtifact,
+  validateLuExecutionAuthorityRootArtifact,
+  verifyLuExecutionAuthorityChain,
+  verifyLuExecutionAuthorityLifecycle,
+  verifyLuSourceAuthorityTemporalStatus,
   type LocalizationGeometryArtifact,
+  type LuExecutionAuthorityLifecycleArtifact,
+  type LuExecutionAuthorityRootArtifact,
   type LuSourceAuthorityTemporalStatusArtifact,
 } from '@miljobeslut/mps-lu';
 import type { ExecutionIdentityArtifact } from '../../../packages/mps-runtime/src/execution/ExecutionIdentityArtifact';
@@ -38,7 +46,10 @@ import {
   verifyExecutionIdentityAttestation,
 } from '../../../packages/mps-lu/src/execution/ExecutionIdentityAttestation';
 import { issueExecutionIdentityV3 } from '../../../packages/mps-lu/src/execution/LuExecutionIdentityIssuer';
-import { getLuExecutionAuthorityVerifier } from '../../../packages/mps-lu/src/execution/LuExecutionAuthorityVerifier';
+import {
+  getLuExecutionAuthorityRootVerifier,
+  getLuExecutionAuthorityVerifier,
+} from '../../../packages/mps-lu/src/execution/LuExecutionAuthorityVerifier';
 import { getLuExecutionAuthoritySigningProvider } from '../../security/luExecutionAuthoritySigningKey';
 import { prisma } from '../../db/prisma';
 import { assertProjectAccess } from '../../security/projectAccess';
@@ -47,9 +58,6 @@ import { resolveCanonicalProductRelease } from '../release/productReleaseRuntime
 
 const PRIVATE_KEY_ENV = 'LU_EXECUTION_AUTHORITY_PRIVATE_KEY_PEM';
 const ISSUER_ARTIFACT_ID_ENV = 'LU_EXECUTION_AUTHORITY_ISSUER_ARTIFACT_ID';
-const TEMPORAL_VALID_FROM_ENV = 'LU_SOURCE_AUTHORITY_VALID_FROM';
-const TEMPORAL_VALID_UNTIL_ENV = 'LU_SOURCE_AUTHORITY_VALID_UNTIL';
-const TEMPORAL_REVOKED_AT_ENV = 'LU_SOURCE_AUTHORITY_REVOKED_AT';
 const EXECUTION_CONTRACT_VERSION = 'lu-execution-identity-v1';
 
 export type ProvisioningOutcome =
@@ -66,14 +74,6 @@ function requiredEnv(name: string): string {
   const value = process.env[name]?.trim();
   if (!value) fail('TEMPORAL_AUTHORITY_CONFIGURATION_MISSING', `${name} is required`);
   return value;
-}
-
-function isoEnv(name: string, required: boolean): string | null {
-  const value = required ? requiredEnv(name) : process.env[name]?.trim();
-  if (!value) return null;
-  const parsed = Date.parse(value);
-  if (Number.isNaN(parsed)) fail('TEMPORAL_AUTHORITY_CONFIGURATION_INVALID', `${name} must be ISO-8601`);
-  return new Date(parsed).toISOString();
 }
 
 /** Fresh child process, private key deleted from its env first. */
@@ -103,66 +103,101 @@ async function ensureTemporalAuthorization(args: {
   readonly issuerRef: { readonly artifact_id: string; readonly artifact_type: typeof LU_EXECUTION_AUTHORITY_ISSUER_TYPE };
   readonly subject: ExecutionIdentitySubjectV3;
 }): Promise<LuSourceAuthorityTemporalStatusArtifact> {
+  const rootVerification = getLuExecutionAuthorityRootVerifier();
+  const issuerVerification = getLuExecutionAuthorityVerifier();
+  const verifiedIssuer = await verifyLuExecutionAuthorityChain({
+    issuerRef: args.issuerRef,
+    repository: args.repo,
+    rootVerification,
+    issuerVerification,
+  });
+  const verifiedRoot = validateLuExecutionAuthorityRootArtifact(
+    await args.repo.resolve<LuExecutionAuthorityRootArtifact>(verifiedIssuer.payload.root_ref),
+  );
+
+  const lifecycleId = requiredEnv(LU_EXECUTION_AUTHORITY_LIFECYCLE_ID_ENV);
+  const lifecycle = await args.repo.resolve<LuExecutionAuthorityLifecycleArtifact>({
+    artifact_id: lifecycleId,
+    artifact_type: LU_EXECUTION_AUTHORITY_LIFECYCLE_TYPE,
+  });
+  await verifyLuExecutionAuthorityLifecycle({
+    lifecycle,
+    root: verifiedRoot,
+    issuer: verifiedIssuer,
+    root_verification: rootVerification,
+  });
+  assertLuExecutionAuthorityLifecycleCurrent(lifecycle);
+
   const attemptRef = deriveLuCanonicalAssessmentAttemptRef(args.subject);
   const subjectRef = { artifact_id: args.identity.artifact_id, artifact_type: args.identity.artifact_type } as const;
+  const lifecycleRef = { artifact_id: lifecycle.artifact_id, artifact_type: lifecycle.artifact_type } as const;
   const expectedRef = {
     artifact_id: computeLuSourceAuthorityTemporalStatusArtifactId({
       subject_ref: subjectRef,
       attempt_ref: attemptRef,
+      lifecycle_ref: lifecycleRef,
       action: LU_LOCALIZATION_ASSESSMENT_PERSIST_ACTION,
     }),
     artifact_type: LU_SOURCE_AUTHORITY_TEMPORAL_STATUS_TYPE,
   } as const;
 
+  let existing: LuSourceAuthorityTemporalStatusArtifact | null = null;
   try {
-    const existing = await args.repo.resolve<LuSourceAuthorityTemporalStatusArtifact>(expectedRef);
-    return validateLuSourceAuthorityTemporalStatusArtifact(existing);
+    existing = await args.repo.resolve<LuSourceAuthorityTemporalStatusArtifact>(expectedRef);
   } catch {
-    // Missing or invalid ticket: only the issuer-side worker may mint the exact deterministic slot.
+    existing = null;
+  }
+  if (existing) {
+    await verifyLuSourceAuthorityTemporalStatus({
+      status: existing,
+      issuer: verifiedIssuer,
+      subject: args.identity,
+      lifecycle,
+      expected_attempt_ref: attemptRef,
+      expected_action: LU_LOCALIZATION_ASSESSMENT_PERSIST_ACTION,
+      issuer_verification: issuerVerification,
+    });
+    return existing;
   }
 
-  const validFrom = isoEnv(TEMPORAL_VALID_FROM_ENV, true)!;
-  const validUntil = isoEnv(TEMPORAL_VALID_UNTIL_ENV, true)!;
-  const revokedAt = isoEnv(TEMPORAL_REVOKED_AT_ENV, false);
   const decisionTime = new Date().toISOString();
-  const decisionMs = Date.parse(decisionTime);
-  if (decisionMs < Date.parse(validFrom)) {
-    fail('TEMPORAL_AUTHORITY_NOT_ACTIVE', 'LU source authority qualification is not active');
-  }
-  if (decisionMs >= Date.parse(validUntil)) {
-    fail('TEMPORAL_AUTHORITY_EXPIRED', 'LU source authority qualification has expired');
-  }
-  if (revokedAt !== null && Date.parse(revokedAt) <= decisionMs) {
-    fail('TEMPORAL_AUTHORITY_REVOKED', 'LU source authority has been revoked');
-  }
-
   const bareStatus = createLuSourceAuthorityTemporalStatusArtifact({
     issuer_ref: args.issuerRef,
     subject: args.identity,
     attempt_ref: attemptRef,
+    lifecycle,
     action: LU_LOCALIZATION_ASSESSMENT_PERSIST_ACTION,
-    valid_from: validFrom,
-    valid_until: validUntil,
     decision_time: decisionTime,
-    revoked_at: revokedAt,
   });
   if (bareStatus.artifact_id !== expectedRef.artifact_id) {
     fail('TEMPORAL_AUTHORITY_IDENTITY_MISMATCH', 'derived temporal status identity mismatch');
   }
   const signing = getLuExecutionAuthoritySigningProvider();
+  if (signing.keyId !== verifiedIssuer.payload.issuer_key_id) {
+    fail('TEMPORAL_AUTHORITY_SIGNER_MISMATCH', 'provisioned signing key is not the verified LU issuer');
+  }
   const status: LuSourceAuthorityTemporalStatusArtifact = {
     ...bareStatus,
     attestation: await attestLuSourceAuthorityTemporalStatus({ status: bareStatus, signing }),
   };
+  await verifyLuSourceAuthorityTemporalStatus({
+    status,
+    issuer: verifiedIssuer,
+    subject: args.identity,
+    lifecycle,
+    expected_attempt_ref: attemptRef,
+    expected_action: LU_LOCALIZATION_ASSESSMENT_PERSIST_ACTION,
+    issuer_verification: issuerVerification,
+  });
   await args.repo.put({ artifact_id: status.artifact_id, content_hash: status.content_hash, body: status });
   return status;
 }
 
 /**
  * Executes (or reconciles) V3 identity + exact-attempt authority provisioning for one request.
- * A reused identity MUST also have its deterministic temporal ticket reconciled before success is
- * returned, so upgrading an existing deployment does not leave previously issued V3 identities
- * permanently unable to reach the 04E verifier.
+ * A reused identity MUST also have its deterministic ticket for the CURRENT root-signed lifecycle
+ * reconciled before success is returned. Lifecycle rotation therefore cannot silently reuse a
+ * stale pre-revocation ticket.
  */
 export async function executeLocalizationIdentityProvisioning(input: {
   readonly projectId: string;
