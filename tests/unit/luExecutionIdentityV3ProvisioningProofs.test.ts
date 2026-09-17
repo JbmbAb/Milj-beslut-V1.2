@@ -113,6 +113,9 @@ describe('PRODUCT-LU-EXECUTION-IDENTITY-V3-PROVISIONING-01 — executor proof ma
     process.env.LU_EXECUTION_AUTHORITY_SIGNING_KEY_ID = authorityKey.provider.keyId;
     process.env.LU_EXECUTION_AUTHORITY_PUBLIC_KEY_PEM = authorityKey.publicKey;
     process.env.LU_EXECUTION_AUTHORITY_PRIVATE_KEY_PEM = authorityKey.privateKey;
+    process.env.LU_SOURCE_AUTHORITY_VALID_FROM = '2026-01-01T00:00:00.000Z';
+    process.env.LU_SOURCE_AUTHORITY_VALID_UNTIL = '2027-01-01T00:00:00.000Z';
+    delete process.env.LU_SOURCE_AUTHORITY_REVOKED_AT;
   });
 
   let capturedSpawnEnv: Record<string, string | undefined> | undefined;
@@ -123,6 +126,9 @@ describe('PRODUCT-LU-EXECUTION-IDENTITY-V3-PROVISIONING-01 — executor proof ma
     delete process.env.LU_EXECUTION_AUTHORITY_SIGNING_KEY_ID;
     delete process.env.LU_EXECUTION_AUTHORITY_PUBLIC_KEY_PEM;
     delete process.env.LU_EXECUTION_AUTHORITY_PRIVATE_KEY_PEM;
+    delete process.env.LU_SOURCE_AUTHORITY_VALID_FROM;
+    delete process.env.LU_SOURCE_AUTHORITY_VALID_UNTIL;
+    delete process.env.LU_SOURCE_AUTHORITY_REVOKED_AT;
     __resetLuExecutionAuthorityVerifierForTests(null);
     __resetLuExecutionAuthoritySigningProviderForTests(null);
     capturedSpawnEnv = undefined;
@@ -242,7 +248,6 @@ describe('PRODUCT-LU-EXECUTION-IDENTITY-V3-PROVISIONING-01 — executor proof ma
       expect(second.executionIdentityArtifactId).toBe(first.executionIdentityArtifactId);
       expect(second.reused).toBe(true);
     }
-    // No second mint attempt -> no second fresh-verify subprocess spawned.
     expect(spawnMock).not.toHaveBeenCalled();
   });
 
@@ -258,8 +263,6 @@ describe('PRODUCT-LU-EXECUTION-IDENTITY-V3-PROVISIONING-01 — executor proof ma
     expect(first.ok).toBe(true);
     if (!first.ok) return;
 
-    // Simulate a crash that left the identity written but never persisted its attestation --
-    // a genuinely partial state a real crash mid-issuance could produce.
     const orphaned = new InMemoryArtifactRepository();
     const identity = await repo.resolve({ artifact_id: first.executionIdentityArtifactId, artifact_type: 'execution_identity' });
     await orphaned.put({ artifact_id: first.executionIdentityArtifactId, content_hash: (identity as { content_hash: { algorithm: 'sha256'; value: string } }).content_hash, body: identity });
@@ -271,9 +274,6 @@ describe('PRODUCT-LU-EXECUTION-IDENTITY-V3-PROVISIONING-01 — executor proof ma
       geometryArtifactId: geometry.artifact_id,
       requestedByUserId: 'requester-1',
     });
-    // Re-issuing under the SAME subject is itself idempotent (content-addressed) -- the retry
-    // either mints the exact same id fresh (now with its attestation) or reuses; either is safe,
-    // it must never diverge to a DIFFERENT id for the same subject.
     expect(retry.ok).toBe(true);
     if (retry.ok && first.ok) {
       expect(retry.executionIdentityArtifactId).toBe(first.executionIdentityArtifactId);
@@ -286,9 +286,6 @@ describe('PRODUCT-LU-EXECUTION-IDENTITY-V3-PROVISIONING-01 — executor proof ma
     await repo.put({ artifact_id: geometryA.artifact_id, content_hash: geometryA.content_hash, body: geometryA });
     await repo.put({ artifact_id: geometryB.artifact_id, content_hash: geometryB.content_hash, body: geometryB });
 
-    // The request for A was enqueued first (pinned to A) but its worker only gets around to it
-    // AFTER B has already been saved -- exactly the race the recon flagged. The executor must
-    // still mint strictly for A, never silently substitute "whatever is current now".
     const outcomeForStaleA = await executeLocalizationIdentityProvisioning({
       projectId: PROJECT_ID,
       geometryArtifactId: geometryA.artifact_id,
@@ -312,7 +309,6 @@ describe('PRODUCT-LU-EXECUTION-IDENTITY-V3-PROVISIONING-01 — executor proof ma
         artifact_id: outcomeForB.executionIdentityArtifactId,
         artifact_type: 'execution_identity',
       });
-      // A's identity is genuinely, permanently scoped to A -- never silently reinterpreted as B.
       expect(identityA.subject_v3?.localization_geometry_ref.artifact_id).toBe(geometryA.artifact_id);
       expect(identityB.subject_v3?.localization_geometry_ref.artifact_id).toBe(geometryB.artifact_id);
     }
