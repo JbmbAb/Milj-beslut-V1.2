@@ -42,7 +42,7 @@ vi.mock('node:child_process', () => ({
   default: { spawn: spawnMock },
 }));
 
-import { LocalPemSigningKeyProvider, LocalPemVerificationKeyProvider } from '@miljobeslut/mimers-brunn-core';
+import { LocalPemSigningKeyProvider } from '@miljobeslut/mimers-brunn-core';
 import { InMemoryArtifactRepository } from '@miljobeslut/mps-runtime';
 import { createLocalizationGeometryArtifact, LU_EXECUTION_AUTHORITY_ISSUER_TYPE } from '@miljobeslut/mps-lu';
 import { executeLocalizationIdentityProvisioning } from '../../server/modules/localization/luExecutionIdentityV3Provisioning';
