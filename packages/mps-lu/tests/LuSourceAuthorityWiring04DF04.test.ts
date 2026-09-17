@@ -158,7 +158,7 @@ async function fixture(siteId: string, seed: string) {
       release_snapshot_id: registry.getReleaseSnapshot().snapshot_id,
       site_id: subject.site_id,
       deterministic_seed: seed,
-    }),
+    }) as unknown as Record<string, unknown>,
     signing: issuerKey.provider,
   });
   await repository.put({ artifact_id: identity.artifact_id, content_hash: identity.content_hash, body: identity });
