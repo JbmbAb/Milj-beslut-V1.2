@@ -4,7 +4,10 @@ import type { ArtifactReference } from "../../../mps-compliance/src/artifacts/Ar
 import type { ContentHash } from "../../../mps-compliance/src/artifacts/ContentHash.js";
 import type { ArtifactRepositoryPort } from "../../../mps-runtime/src/kernel/ExecutionKernel.js";
 import type { ExecutionIdentityArtifact } from "../../../mps-runtime/src/execution/ExecutionIdentityArtifact.js";
-import type { ExecutionIdentitySubjectV3 } from "../../../mps-runtime/src/execution/ExecutionIdentityScopeV2.js";
+import {
+  computeExecutionManifestIdV3,
+  type ExecutionIdentitySubjectV3,
+} from "../../../mps-runtime/src/execution/ExecutionIdentityScopeV2.js";
 import { createTrustAnchorArtifact } from "../../../mps-governance/src/actors/TrustAnchorArtifact.js";
 import { createTrustDomainArtifact } from "../../../mps-governance/src/actors/TrustDomainArtifact.js";
 import {
@@ -39,6 +42,15 @@ import {
 export const LU_LOCALIZATION_ASSESSMENT_PERSIST_ACTION =
   "lu.localization_assessment.persist" as const;
 
+export function deriveLuCanonicalAssessmentAttemptRef(
+  subject: ExecutionIdentitySubjectV3,
+): ArtifactReference {
+  return {
+    artifact_id: `attempt-${computeExecutionManifestIdV3(subject)}-1`,
+    artifact_type: "execution_attempt",
+  };
+}
+
 export interface VerifiedLuSourceAuthorityDecision {
   readonly source_authority_verified: true;
   readonly authorized_at_decision_time: true;
@@ -68,7 +80,7 @@ export interface VerifiedLuSourceAuthority {
  * Positive authority provenance is process-local and LU-specific. A caller can construct an
  * object with the same fields, but cannot insert it into this module-private WeakSet. Verification
  * keys are process provisioned; the temporal ticket reference is derived from the exact verified
- * subject + exact execution attempt + action and is therefore not caller-selected.
+ * subject + exact canonical execution attempt + action and is therefore not caller-selected.
  */
 const verifiedLuSourceAuthorityDecisions = new WeakSet<object>();
 
@@ -89,18 +101,17 @@ function sameRef(left: ArtifactReference, right: ArtifactReference): boolean {
 /**
  * 04E source-authority evaluator.
  *
- * The status is an issuer-signed authorization ticket for ONE exact execution attempt. Its id is
- * derived rather than configured globally, so a long-running process can evaluate many identities
- * without cross-subject substitution. T_decision is the signed logical start of that attempt; the
- * caller must later prove the actual persisted attempt carries the same ref and started_at before
- * assessment persistence is permitted.
+ * The status is an issuer-signed authorization ticket for ONE exact canonical execution attempt.
+ * Its id is derived rather than configured globally, so a long-running process can evaluate many
+ * identities without cross-subject substitution. T_decision is the signed authority-decision
+ * instant for that exact attempt. Re-running the same canonical subject resolves the same attempt
+ * and is replay; a different canonical mutation derives a different attempt and cannot reuse it.
  */
 export async function verifyLuSourceAuthorityForAssessment(input: {
   readonly repository: ArtifactRepositoryPort;
   readonly execution_identity: ExecutionIdentityArtifact;
   readonly expected_subject_v3: ExecutionIdentitySubjectV3;
   readonly expected_capability_ref: ArtifactReference;
-  readonly expected_attempt_ref: ArtifactReference;
   readonly release_snapshot_id: string;
   readonly deterministic_seed: string;
 }): Promise<VerifiedLuSourceAuthority> {
@@ -116,10 +127,8 @@ export async function verifyLuSourceAuthorityForAssessment(input: {
   if (!sameRef(input.execution_identity.capability_ref, input.expected_capability_ref)) {
     throw new Error("REJECT_LU_SOURCE_AUTHORITY: execution identity capability mismatch");
   }
-  if (input.expected_attempt_ref.artifact_type !== "execution_attempt") {
-    throw new Error("REJECT_LU_SOURCE_AUTHORITY: expected attempt type");
-  }
 
+  const expectedAttemptRef = deriveLuCanonicalAssessmentAttemptRef(input.expected_subject_v3);
   const issuerRefs = input.execution_identity.references.filter(
     (reference) => reference.artifact_type === LU_EXECUTION_AUTHORITY_ISSUER_TYPE,
   );
@@ -172,7 +181,7 @@ export async function verifyLuSourceAuthorityForAssessment(input: {
   const temporalStatusRef: ArtifactReference = {
     artifact_id: computeLuSourceAuthorityTemporalStatusArtifactId({
       subject_ref: subjectRef,
-      attempt_ref: input.expected_attempt_ref,
+      attempt_ref: expectedAttemptRef,
       action: LU_LOCALIZATION_ASSESSMENT_PERSIST_ACTION,
     }),
     artifact_type: LU_SOURCE_AUTHORITY_TEMPORAL_STATUS_TYPE,
@@ -185,7 +194,7 @@ export async function verifyLuSourceAuthorityForAssessment(input: {
     root: verifiedRoot,
     issuer: verifiedIssuer,
     subject: identityResult.identity,
-    expected_attempt_ref: input.expected_attempt_ref,
+    expected_attempt_ref: expectedAttemptRef,
     expected_action: LU_LOCALIZATION_ASSESSMENT_PERSIST_ACTION,
     issuer_verification: issuerVerification,
   });
