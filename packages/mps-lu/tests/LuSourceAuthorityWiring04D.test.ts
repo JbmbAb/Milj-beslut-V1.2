@@ -42,6 +42,7 @@ import {
   attestLuSourceAuthorityTemporalStatus,
   createLuSourceAuthorityTemporalStatusArtifact,
 } from "../src/governance/LuSourceAuthorityTemporalStatus.js";
+import { deriveLuCanonicalAssessmentAttemptRef } from "../src/governance/LuSourceAuthorityWiring.js";
 
 class RecordingRepository extends InMemoryArtifactRepository {
   readonly writes: Array<{ artifact_id: string; content_hash: ContentHash; body: unknown }> = [];
@@ -57,7 +58,6 @@ const ENV = [
   "LU_EXECUTION_AUTHORITY_SIGNING_KEY_ID",
   "LU_EXECUTION_AUTHORITY_ROOT_PUBLIC_KEY_PEM",
   "LU_EXECUTION_AUTHORITY_ROOT_KEY_ID",
-  "LU_SOURCE_AUTHORITY_TEMPORAL_STATUS_ID",
 ] as const;
 const originals = new Map<string, string | undefined>();
 
@@ -144,10 +144,11 @@ async function fixture(options: { readonly actor_ref?: ArtifactReference; readon
   await repository.put({ artifact_id: identity.artifact_id, content_hash: identity.content_hash, body: identity });
   await repository.put({ artifact_id: signatureRef.artifact_id, content_hash: sha256ContentHash(attestation), body: attestation });
 
+  const attemptRef = deriveLuCanonicalAssessmentAttemptRef(subject);
   const bareStatus = createLuSourceAuthorityTemporalStatusArtifact({
-    root,
-    issuer,
+    issuer_ref: ref(issuer),
     subject: identity,
+    attempt_ref: attemptRef,
     action: "lu.localization_assessment.persist",
     valid_from: "2026-01-01T00:00:00.000Z",
     valid_until: "2027-01-01T00:00:00.000Z",
@@ -156,12 +157,11 @@ async function fixture(options: { readonly actor_ref?: ArtifactReference; readon
   });
   const status = {
     ...bareStatus,
-    attestation: await attestLuSourceAuthorityTemporalStatus({ status: bareStatus, root, signing: rootKey.provider }),
+    attestation: await attestLuSourceAuthorityTemporalStatus({ status: bareStatus, signing: issuerKey.provider }),
   };
   await repository.put({ artifact_id: status.artifact_id, content_hash: status.content_hash, body: status });
-  process.env.LU_SOURCE_AUTHORITY_TEMPORAL_STATUS_ID = status.artifact_id;
 
-  return { repository, registry, capability, subject, seed, identity, status };
+  return { repository, registry, capability, subject, seed, identity, status, attemptRef };
 }
 
 async function run(f: Awaited<ReturnType<typeof fixture>>, seed = f.seed) {
@@ -198,7 +198,7 @@ describe("MINIMUM-AUTHORITY-DELTA-04D — LU source authority wiring", () => {
     __resetLuExecutionAuthorityVerifierForTests(null);
   });
 
-  it("binds verified root -> issuer -> ExecutionIdentity and temporal status to exactly one AuthorityEvidence", async () => {
+  it("binds verified root -> issuer -> ExecutionIdentity and exact-attempt temporal status to one AuthorityEvidence", async () => {
     const f = await fixture();
     const result = await run(f);
     expect(result.admitted).toBe(true);
@@ -220,12 +220,14 @@ describe("MINIMUM-AUTHORITY-DELTA-04D — LU source authority wiring", () => {
     expect(evidence.authority_path[2]?.artifact_ref.artifact_id).toBe(f.identity.artifact_id);
   });
 
-  it("same exact canonical state reuses the same temporal AuthorityEvidence and assessment identity", async () => {
+  it("same exact canonical state is replay of the same attempt and reuses authority/assessment identity", async () => {
     const f = await fixture();
     const first = await run(f);
     const second = await run(f);
     expect(first.admitted).toBe(true);
     expect(second.admitted).toBe(true);
+    expect(first.attempt_id).toBe(f.attemptRef.artifact_id);
+    expect(second.attempt_id).toBe(first.attempt_id);
     expect(second.assessment?.artifact_id).toBe(first.assessment?.artifact_id);
     expect(second.assessment?.payload.authority_evidence_ref).toEqual(first.assessment?.payload.authority_evidence_ref);
   });
@@ -254,6 +256,7 @@ describe("MINIMUM-AUTHORITY-DELTA-04D — LU source authority wiring", () => {
         source_authority_verified: true,
         authorized_at_decision_time: true,
         decision_time: f.status.payload.decision_time,
+        attempt_ref: f.attemptRef,
         action: evidence.action,
         authority_scope: evidence.authority_scope,
         evidence_ref: { artifact_id: evidence.artifact_id, artifact_type: "authority_evidence" },
