@@ -28,6 +28,13 @@ import {
 import { LU_EXECUTION_PRINCIPAL_ID } from "../execution/LuExecutionPrincipal.js";
 import { deriveLuCanonicalServiceIdentity } from "../execution/LuCanonicalServiceIdentity.js";
 import {
+  LU_EXECUTION_AUTHORITY_LIFECYCLE_ID_ENV,
+  LU_EXECUTION_AUTHORITY_LIFECYCLE_TYPE,
+  assertLuExecutionAuthorityLifecycleCurrent,
+  verifyLuExecutionAuthorityLifecycle,
+  type LuExecutionAuthorityLifecycleArtifact,
+} from "./LuExecutionAuthorityLifecycle.js";
+import {
   createLuSourceAuthorityEvidenceArtifact,
   validateLuSourceAuthorityEvidenceArtifact,
   type LuSourceAuthorityEvidenceArtifact,
@@ -56,6 +63,8 @@ export interface VerifiedLuSourceAuthorityDecision {
   readonly authorized_at_decision_time: true;
   readonly decision_time: string;
   readonly attempt_ref: ArtifactReference;
+  readonly lifecycle_ref: ArtifactReference;
+  readonly lifecycle_hash: ContentHash;
   readonly action: string;
   readonly authority_scope: string;
   readonly evidence_ref: {
@@ -72,6 +81,7 @@ export interface VerifiedLuSourceAuthorityDecision {
 export interface VerifiedLuSourceAuthority {
   readonly decision: VerifiedLuSourceAuthorityDecision;
   readonly evidence: LuSourceAuthorityEvidenceArtifact;
+  readonly lifecycle: LuExecutionAuthorityLifecycleArtifact;
   readonly temporal_status: LuSourceAuthorityTemporalStatusArtifact;
   readonly supporting_artifacts: readonly ArtifactContract[];
 }
@@ -95,10 +105,11 @@ function sameRef(left: ArtifactReference, right: ArtifactReference): boolean {
 /**
  * 04E source-authority evaluator.
  *
- * The temporal artifact is an issuer-signed authorization ticket for ONE exact canonical
- * execution attempt. Its id is derived rather than configured globally. The issuer itself is
- * first verified through the root-qualified LU chain, so the temporal signature inherits that
- * authority without bringing the root private key into the provisioning worker.
+ * Layer 1: verify root -> issuer -> ExecutionIdentity.
+ * Layer 2: resolve the deployment-selected, root-signed issuer lifecycle and check CURRENT wall-clock
+ * qualification/revocation. This is the blocking admission predicate for new mutations.
+ * Layer 3: resolve the issuer-signed exact-attempt ticket bound to that lifecycle. This proves the
+ * historical `authorized_at_decision_time` claim and supplies replay evidence.
  */
 export async function verifyLuSourceAuthorityForAssessment(input: {
   readonly repository: ArtifactRepositoryPort;
@@ -167,14 +178,35 @@ export async function verifyLuSourceAuthorityForAssessment(input: {
     );
   }
 
+  const lifecycleId = process.env[LU_EXECUTION_AUTHORITY_LIFECYCLE_ID_ENV]?.trim();
+  if (!lifecycleId) {
+    throw new Error("REJECT_LU_SOURCE_AUTHORITY: lifecycle_unconfigured");
+  }
+  const lifecycle = await input.repository.resolve<LuExecutionAuthorityLifecycleArtifact>({
+    artifact_id: lifecycleId,
+    artifact_type: LU_EXECUTION_AUTHORITY_LIFECYCLE_TYPE,
+  });
+  await verifyLuExecutionAuthorityLifecycle({
+    lifecycle,
+    root: verifiedRoot,
+    issuer: verifiedIssuer,
+    root_verification: rootVerification,
+  });
+  assertLuExecutionAuthorityLifecycleCurrent(lifecycle);
+
   const subjectRef: ArtifactReference = {
     artifact_id: identityResult.identity.artifact_id,
     artifact_type: identityResult.identity.artifact_type,
+  };
+  const lifecycleRef: ArtifactReference = {
+    artifact_id: lifecycle.artifact_id,
+    artifact_type: lifecycle.artifact_type,
   };
   const temporalStatusRef: ArtifactReference = {
     artifact_id: computeLuSourceAuthorityTemporalStatusArtifactId({
       subject_ref: subjectRef,
       attempt_ref: expectedAttemptRef,
+      lifecycle_ref: lifecycleRef,
       action: LU_LOCALIZATION_ASSESSMENT_PERSIST_ACTION,
     }),
     artifact_type: LU_SOURCE_AUTHORITY_TEMPORAL_STATUS_TYPE,
@@ -186,6 +218,7 @@ export async function verifyLuSourceAuthorityForAssessment(input: {
     status: temporalStatus,
     issuer: verifiedIssuer,
     subject: identityResult.identity,
+    lifecycle,
     expected_attempt_ref: expectedAttemptRef,
     expected_action: LU_LOCALIZATION_ASSESSMENT_PERSIST_ACTION,
     issuer_verification: issuerVerification,
@@ -204,10 +237,16 @@ export async function verifyLuSourceAuthorityForAssessment(input: {
     constraints: [
       "allowed_artifact_type=execution_identity",
       "owner_provisioning=OWNER_PROVISIONED",
+      "lifecycle=root_signed_current",
       "temporal_status=issuer_signed_exact_attempt",
     ],
     allowed_actor_types: ["service"],
-    delegation_rules: ["source-authority-chain", "temporal-currentness", "attempt-binding"],
+    delegation_rules: [
+      "source-authority-chain",
+      "current-lifecycle",
+      "temporal-currentness",
+      "attempt-binding",
+    ],
   });
   const evidence = createLuSourceAuthorityEvidenceArtifact({
     service_identity: serviceIdentity,
@@ -238,6 +277,8 @@ export async function verifyLuSourceAuthorityForAssessment(input: {
     authorized_at_decision_time: true as const,
     decision_time: temporalStatus.payload.decision_time,
     attempt_ref: temporalStatus.payload.attempt_ref,
+    lifecycle_ref: lifecycleRef,
+    lifecycle_hash: lifecycle.content_hash,
     action: LU_LOCALIZATION_ASSESSMENT_PERSIST_ACTION,
     authority_scope: LU_EXECUTION_AUTHORITY_SCOPE,
     evidence_ref: {
@@ -258,7 +299,8 @@ export async function verifyLuSourceAuthorityForAssessment(input: {
   return {
     decision,
     evidence,
+    lifecycle,
     temporal_status: temporalStatus,
-    supporting_artifacts: [serviceIdentity, anchor, domain, temporalStatus],
+    supporting_artifacts: [serviceIdentity, anchor, domain, lifecycle, temporalStatus],
   };
 }
