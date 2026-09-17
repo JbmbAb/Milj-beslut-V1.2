@@ -158,6 +158,7 @@ jobs:
         run: |
           set -euo pipefail
           gh workflow run devgov-v0-gate.yml \
+            --repo "$GITHUB_REPOSITORY" \
             --ref "$DEFAULT_BRANCH" \
             -f candidate_sha="$CANDIDATE_SHA" \
             -f unit_definition_path="$UNIT_DEFINITION_PATH" \
