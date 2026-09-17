@@ -24,6 +24,7 @@ async function fixture(input: {
   readonly valid_until?: string;
   readonly decision_time?: string;
   readonly revoked_at?: string | null;
+  readonly attempt_id?: string;
 } = {}) {
   const rootKey = LocalPemSigningKeyProvider.generate("ed25519:lu-root-04e");
   const issuerKey = LocalPemSigningKeyProvider.generate("ed25519:lu-issuer-04e");
@@ -45,10 +46,14 @@ async function fixture(input: {
     ...subjectBody,
     content_hash: sha256ContentHash(subjectBody),
   };
+  const attemptRef = {
+    artifact_id: input.attempt_id ?? "attempt-lu-04e-1",
+    artifact_type: "execution_attempt",
+  } as const;
   const bareStatus = createLuSourceAuthorityTemporalStatusArtifact({
-    root,
-    issuer,
+    issuer_ref: ref(issuer),
     subject,
+    attempt_ref: attemptRef,
     action: "lu.localization_assessment.persist",
     valid_from: input.valid_from ?? "2026-01-01T00:00:00.000Z",
     valid_until: input.valid_until ?? "2027-01-01T00:00:00.000Z",
@@ -59,30 +64,29 @@ async function fixture(input: {
     ...bareStatus,
     attestation: await attestLuSourceAuthorityTemporalStatus({
       status: bareStatus,
-      root,
-      signing: rootKey.provider,
+      signing: issuerKey.provider,
     }),
   };
-  const rootVerification = new LocalPemVerificationKeyProvider(
-    rootKey.provider.keyId,
-    rootKey.publicKey,
+  const issuerVerification = new LocalPemVerificationKeyProvider(
+    issuerKey.provider.keyId,
+    issuerKey.publicKey,
   );
-  return { root, issuer, subject, status, rootVerification };
+  return { issuer, subject, attemptRef, status, issuerVerification };
 }
 
 async function verify(f: Awaited<ReturnType<typeof fixture>>) {
   return verifyLuSourceAuthorityTemporalStatus({
     status: f.status,
-    root: f.root,
     issuer: f.issuer,
     subject: f.subject,
+    expected_attempt_ref: f.attemptRef,
     expected_action: "lu.localization_assessment.persist",
-    root_verification: f.rootVerification,
+    issuer_verification: f.issuerVerification,
   });
 }
 
-describe("MINIMUM-AUTHORITY-DELTA-04E — temporal currentness and revocation", () => {
-  it("accepts a root-signed qualification active at the canonical decision time", async () => {
+describe("MINIMUM-AUTHORITY-DELTA-04E — exact-attempt temporal currentness and revocation", () => {
+  it("accepts an issuer-signed qualification active for the exact canonical attempt", async () => {
     const f = await fixture();
     await expect(verify(f)).resolves.toEqual(f.status);
   });
@@ -111,12 +115,29 @@ describe("MINIMUM-AUTHORITY-DELTA-04E — temporal currentness and revocation", 
     await expect(verify(f)).rejects.toThrow("authority_revoked");
   });
 
-  it("does not retroactively invalidate a historical decision when revocation is later", async () => {
+  it("preserves historical authorized-then semantics when revocation is later", async () => {
     const f = await fixture({
       revoked_at: "2026-09-18T00:00:00.000Z",
       decision_time: "2026-09-17T12:00:00.000Z",
     });
     await expect(verify(f)).resolves.toEqual(f.status);
+  });
+
+  it("cannot reuse an authorization ticket for another execution attempt", async () => {
+    const f = await fixture();
+    await expect(
+      verifyLuSourceAuthorityTemporalStatus({
+        status: f.status,
+        issuer: f.issuer,
+        subject: f.subject,
+        expected_attempt_ref: {
+          artifact_id: "attempt-lu-04e-2",
+          artifact_type: "execution_attempt",
+        },
+        expected_action: "lu.localization_assessment.persist",
+        issuer_verification: f.issuerVerification,
+      }),
+    ).rejects.toThrow("temporal_status_binding");
   });
 
   it("rejects a mutated status body even when the old signed attestation is retained", async () => {
@@ -131,11 +152,11 @@ describe("MINIMUM-AUTHORITY-DELTA-04E — temporal currentness and revocation", 
     await expect(
       verifyLuSourceAuthorityTemporalStatus({
         status: mutated,
-        root: f.root,
         issuer: f.issuer,
         subject: f.subject,
+        expected_attempt_ref: f.attemptRef,
         expected_action: "lu.localization_assessment.persist",
-        root_verification: f.rootVerification,
+        issuer_verification: f.issuerVerification,
       }),
     ).rejects.toThrow("canonical mismatch");
   });
