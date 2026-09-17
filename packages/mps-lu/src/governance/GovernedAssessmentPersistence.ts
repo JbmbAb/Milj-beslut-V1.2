@@ -34,10 +34,11 @@ function sameHash(
  * F04 + 04E persistence hardening.
  *
  * Before the base implementation performs any write, this wrapper rehashes the presented
- * AuthorityEvidence, binds it to the exact outcome execution identity, and (for the 04E temporal
- * form) rehashes and binds the root-signed temporal status that justified the historical positive
- * authority decision. A WeakSet-approved decision can therefore not be replayed with mutated or
- * substituted temporal evidence.
+ * AuthorityEvidence, binds it to the outcome's exact execution identity, and binds the 04E
+ * positive authority decision to the exact persisted execution attempt. T_decision must equal
+ * that attempt's immutable started_at; an authorization ticket for attempt A therefore cannot be
+ * replayed as authority for attempt B, and an old logical decision instant cannot be attached to
+ * a newly-created mutation.
  */
 export class GovernedAssessmentPersistence {
   constructor(
@@ -59,25 +60,46 @@ export class GovernedAssessmentPersistence {
         throw new Error("REJECT_LOCALIZATION_ASSESSMENT: authority_evidence_body_hash");
       }
 
+      const decision = args.authority.decision;
+      let persistedAttempt:
+        | {
+            readonly manifest_ref: ArtifactReference;
+            readonly started_at: string;
+          }
+        | undefined;
       try {
-        const attempt = await this.repository.resolve<{ readonly manifest_ref: ArtifactReference }>(
-          args.outcome.attempt_ref,
-        );
-        const manifest = await this.repository.resolve<{ readonly execution_identity_ref: ArtifactReference }>(
-          attempt.manifest_ref,
-        );
-        if (!sameRef(manifest.execution_identity_ref, args.authority.decision.subject_ref)) {
+        if (
+          decision.authorized_at_decision_time === true &&
+          !sameRef(args.outcome.attempt_ref, decision.attempt_ref)
+        ) {
+          throw new Error("REJECT_LOCALIZATION_ASSESSMENT: authority_attempt_binding");
+        }
+        persistedAttempt = await this.repository.resolve<{
+          readonly manifest_ref: ArtifactReference;
+          readonly started_at: string;
+        }>(args.outcome.attempt_ref);
+        const manifest = await this.repository.resolve<{
+          readonly execution_identity_ref: ArtifactReference;
+        }>(persistedAttempt.manifest_ref);
+        if (!sameRef(manifest.execution_identity_ref, decision.subject_ref)) {
           throw new Error("REJECT_LOCALIZATION_ASSESSMENT: authority_execution_identity_binding");
         }
       } catch (error) {
-        if (error instanceof Error && error.message.includes("authority_execution_identity_binding")) {
+        if (
+          error instanceof Error &&
+          (error.message.includes("authority_attempt_binding") ||
+            error.message.includes("authority_execution_identity_binding"))
+        ) {
           throw error;
         }
         throw new Error("REJECT_LOCALIZATION_ASSESSMENT: authority_execution_identity_binding");
       }
 
-      const decision = args.authority.decision;
       if (decision.authorized_at_decision_time === true) {
+        if (persistedAttempt.started_at !== decision.decision_time) {
+          throw new Error("REJECT_LOCALIZATION_ASSESSMENT: authority_decision_time_binding");
+        }
+
         const evidence = args.authority.evidence;
         if (
           !evidence.decision_time ||
@@ -101,6 +123,7 @@ export class GovernedAssessmentPersistence {
             decision.temporal_status_ref,
           ) ||
           !sameHash(status.content_hash, decision.temporal_status_hash) ||
+          !sameRef(status.payload.attempt_ref, decision.attempt_ref) ||
           status.payload.decision_time !== decision.decision_time
         ) {
           throw new Error("REJECT_LOCALIZATION_ASSESSMENT: authority_temporal_status_binding");
