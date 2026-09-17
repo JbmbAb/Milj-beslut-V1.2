@@ -11,6 +11,10 @@ import {
   type AssessmentAuthorityBinding,
   type VerifyOutcomeAttestation,
 } from "./GovernedAssessmentPersistenceBase.js";
+import {
+  LU_SOURCE_AUTHORITY_TEMPORAL_STATUS_TYPE,
+  type LuSourceAuthorityTemporalStatusArtifact,
+} from "./LuSourceAuthorityTemporalStatus.js";
 
 function sameRef(
   left: { readonly artifact_id: string; readonly artifact_type: string } | undefined,
@@ -20,23 +24,20 @@ function sameRef(
 }
 
 function sameHash(
-  left: { readonly algorithm: string; readonly value: string },
+  left: { readonly algorithm: string; readonly value: string } | undefined,
   right: { readonly algorithm: string; readonly value: string },
 ): boolean {
-  return left.algorithm === right.algorithm && left.value === right.value;
+  return left?.algorithm === right.algorithm && left.value === right.value;
 }
 
 /**
- * 04D-R1-F04 persistence hardening.
+ * F04 + 04E persistence hardening.
  *
- * The existing base implementation keeps every pre-F04 binding and write-order check intact.
- * This wrapper adds two checks that must happen before those writes:
- *
- * 1. Recompute the AuthorityEvidence hash from the actual caller-presented body, excluding only
- *    its declared content_hash. A legitimate WeakSet-approved decision therefore cannot be paired
- *    with a mutated evidence body carrying the old id/hash.
- * 2. Bind the verified authority subject to the exact execution that produced the outcome being
- *    persisted by resolving outcome -> attempt -> manifest -> execution_identity_ref.
+ * Before the base implementation performs any write, this wrapper rehashes the presented
+ * AuthorityEvidence, binds it to the exact outcome execution identity, and (for the 04E temporal
+ * form) rehashes and binds the root-signed temporal status that justified the historical positive
+ * authority decision. A WeakSet-approved decision can therefore not be replayed with mutated or
+ * substituted temporal evidence.
  */
 export class GovernedAssessmentPersistence {
   constructor(
@@ -59,27 +60,61 @@ export class GovernedAssessmentPersistence {
       }
 
       try {
-        const attempt = await this.repository.resolve<{
-          readonly manifest_ref: ArtifactReference;
-        }>(args.outcome.attempt_ref);
-        const manifest = await this.repository.resolve<{
-          readonly execution_identity_ref: ArtifactReference;
-        }>(attempt.manifest_ref);
+        const attempt = await this.repository.resolve<{ readonly manifest_ref: ArtifactReference }>(
+          args.outcome.attempt_ref,
+        );
+        const manifest = await this.repository.resolve<{ readonly execution_identity_ref: ArtifactReference }>(
+          attempt.manifest_ref,
+        );
         if (!sameRef(manifest.execution_identity_ref, args.authority.decision.subject_ref)) {
-          throw new Error(
-            "REJECT_LOCALIZATION_ASSESSMENT: authority_execution_identity_binding",
-          );
+          throw new Error("REJECT_LOCALIZATION_ASSESSMENT: authority_execution_identity_binding");
         }
       } catch (error) {
-        if (
-          error instanceof Error &&
-          error.message.includes("authority_execution_identity_binding")
-        ) {
+        if (error instanceof Error && error.message.includes("authority_execution_identity_binding")) {
           throw error;
         }
-        throw new Error(
-          "REJECT_LOCALIZATION_ASSESSMENT: authority_execution_identity_binding",
+        throw new Error("REJECT_LOCALIZATION_ASSESSMENT: authority_execution_identity_binding");
+      }
+
+      const decision = args.authority.decision;
+      if (decision.authorized_at_decision_time === true) {
+        const evidence = args.authority.evidence;
+        if (
+          !evidence.decision_time ||
+          evidence.decision_time !== decision.decision_time ||
+          !sameRef(evidence.temporal_status_ref, decision.temporal_status_ref) ||
+          !sameHash(evidence.temporal_status_hash, decision.temporal_status_hash)
+        ) {
+          throw new Error("REJECT_LOCALIZATION_ASSESSMENT: authority_temporal_evidence_binding");
+        }
+
+        const candidates = args.authority.supporting_artifacts.filter(
+          (artifact) => artifact.artifact_type === LU_SOURCE_AUTHORITY_TEMPORAL_STATUS_TYPE,
         );
+        if (candidates.length !== 1) {
+          throw new Error("REJECT_LOCALIZATION_ASSESSMENT: authority_temporal_status_cardinality");
+        }
+        const status = candidates[0] as LuSourceAuthorityTemporalStatusArtifact;
+        if (
+          !sameRef(
+            { artifact_id: status.artifact_id, artifact_type: status.artifact_type },
+            decision.temporal_status_ref,
+          ) ||
+          !sameHash(status.content_hash, decision.temporal_status_hash) ||
+          status.payload.decision_time !== decision.decision_time
+        ) {
+          throw new Error("REJECT_LOCALIZATION_ASSESSMENT: authority_temporal_status_binding");
+        }
+
+        const {
+          content_hash: declaredStatusHash,
+          attestation: _statusAttestation,
+          ...statusBody
+        } = status;
+        const computedStatusHash = sha256ContentHash(statusBody);
+        if (!sameHash(declaredStatusHash, computedStatusHash)) {
+          throw new Error("REJECT_LOCALIZATION_ASSESSMENT: authority_temporal_status_body_hash");
+        }
       }
     }
 
