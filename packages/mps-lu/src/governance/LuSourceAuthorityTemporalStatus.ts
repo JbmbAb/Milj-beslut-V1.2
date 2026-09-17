@@ -18,10 +18,22 @@ import {
 export const LU_SOURCE_AUTHORITY_TEMPORAL_STATUS_TYPE =
   "lu_source_authority_temporal_status" as const;
 export const LU_SOURCE_AUTHORITY_TEMPORAL_STATUS_VERSION =
-  "lu-source-authority-temporal-status-v1" as const;
+  "lu-source-authority-temporal-status-v2" as const;
 export const LU_SOURCE_AUTHORITY_TEMPORAL_STATUS_PREDICATE =
-  "lu.source_authority_temporal_status.v1" as const;
+  "lu.source_authority_temporal_status.v2" as const;
 
+/**
+ * Immutable authorization ticket for exactly one canonical LU execution attempt.
+ *
+ * This is deliberately NOT a process-global "current status". Its artifact id is derivable from
+ * the verified execution identity + exact attempt ref + action, so the consumer can resolve the
+ * one ticket that belongs to the mutation it is about to execute. A different identity/attempt
+ * cannot reuse it, while replay of the same attempt resolves the same immutable ticket.
+ *
+ * The already root-qualified LU issuer signs the ticket. The LU consumer first verifies the
+ * root -> issuer chain, then verifies this attestation with that issuer's public key. No root
+ * private key is introduced into the execution-identity provisioning worker.
+ */
 export interface LuSourceAuthorityTemporalStatusArtifact extends ArtifactContract {
   readonly artifact_type: typeof LU_SOURCE_AUTHORITY_TEMPORAL_STATUS_TYPE;
   readonly payload: {
@@ -32,15 +44,16 @@ export interface LuSourceAuthorityTemporalStatusArtifact extends ArtifactContrac
     readonly issuer_hash: ContentHash;
     readonly subject_ref: ArtifactReference;
     readonly subject_hash: ContentHash;
+    readonly attempt_ref: ArtifactReference;
     readonly authority_scope: typeof LU_EXECUTION_AUTHORITY_SCOPE;
     readonly action: string;
     /** Inclusive lower bound of the qualification. */
     readonly valid_from: string;
     /** Exclusive upper bound of the qualification. */
     readonly valid_until: string;
-    /** Canonical historical evaluation instant. Never runtime wall clock. */
+    /** Canonical logical start of THIS exact execution attempt. */
     readonly decision_time: string;
-    /** Effective revocation instant, or null when not revoked at the signed snapshot. */
+    /** Effective revocation instant known at authorization issuance, or null. */
     readonly revoked_at: string | null;
   };
   readonly attestation?: ArtifactAttestation;
@@ -48,7 +61,9 @@ export interface LuSourceAuthorityTemporalStatusArtifact extends ArtifactContrac
 
 function required(value: string, field: string): string {
   const normalized = value.trim();
-  if (!normalized) throw new Error(`REJECT_LU_SOURCE_AUTHORITY_TEMPORAL_STATUS: ${field} is required`);
+  if (!normalized) {
+    throw new Error(`REJECT_LU_SOURCE_AUTHORITY_TEMPORAL_STATUS: ${field} is required`);
+  }
   return normalized;
 }
 
@@ -75,6 +90,20 @@ function sameHash(left: ContentHash, right: ContentHash): boolean {
   return left.algorithm === right.algorithm && left.value === right.value;
 }
 
+export function computeLuSourceAuthorityTemporalStatusArtifactId(input: {
+  readonly subject_ref: ArtifactReference;
+  readonly attempt_ref: ArtifactReference;
+  readonly action: string;
+}): string {
+  const identity = sha256ContentHash({
+    contract: LU_SOURCE_AUTHORITY_TEMPORAL_STATUS_VERSION,
+    subject_ref: ref(input.subject_ref, "subject_ref"),
+    attempt_ref: ref(input.attempt_ref, "attempt_ref"),
+    action: required(input.action, "action"),
+  });
+  return `lu-source-authority-status-${identity.value.slice(0, 24)}`;
+}
+
 function predicate(status: Omit<LuSourceAuthorityTemporalStatusArtifact, "attestation">) {
   return {
     contract_version: status.payload.contract_version,
@@ -84,6 +113,7 @@ function predicate(status: Omit<LuSourceAuthorityTemporalStatusArtifact, "attest
     issuer_hash: status.payload.issuer_hash,
     subject_ref: status.payload.subject_ref,
     subject_hash: status.payload.subject_hash,
+    attempt_ref: status.payload.attempt_ref,
     authority_scope: status.payload.authority_scope,
     action: status.payload.action,
     valid_from: status.payload.valid_from,
@@ -97,6 +127,7 @@ export function createLuSourceAuthorityTemporalStatusArtifact(input: {
   readonly root: LuExecutionAuthorityRootArtifact;
   readonly issuer: LuExecutionAuthorityIssuerArtifact;
   readonly subject: ArtifactContract;
+  readonly attempt_ref: ArtifactReference;
   readonly action: string;
   readonly valid_from: string;
   readonly valid_until: string;
@@ -122,6 +153,11 @@ export function createLuSourceAuthorityTemporalStatusArtifact(input: {
     { artifact_id: input.subject.artifact_id, artifact_type: input.subject.artifact_type },
     "subject_ref",
   );
+  const attemptRef = ref(input.attempt_ref, "attempt_ref");
+  if (attemptRef.artifact_type !== "execution_attempt") {
+    throw new Error("REJECT_LU_SOURCE_AUTHORITY_TEMPORAL_STATUS: attempt_ref type");
+  }
+
   const payload = {
     contract_version: LU_SOURCE_AUTHORITY_TEMPORAL_STATUS_VERSION,
     root_ref: rootRef,
@@ -130,6 +166,7 @@ export function createLuSourceAuthorityTemporalStatusArtifact(input: {
     issuer_hash: input.issuer.content_hash,
     subject_ref: subjectRef,
     subject_hash: input.subject.content_hash,
+    attempt_ref: attemptRef,
     authority_scope: LU_EXECUTION_AUTHORITY_SCOPE,
     action: required(input.action, "action"),
     valid_from: validFrom,
@@ -137,14 +174,14 @@ export function createLuSourceAuthorityTemporalStatusArtifact(input: {
     decision_time: decisionTime,
     revoked_at: revokedAt,
   } as const;
-  const identity = sha256ContentHash({
-    artifact_type: LU_SOURCE_AUTHORITY_TEMPORAL_STATUS_TYPE,
-    payload,
-  });
   const artifact = {
-    artifact_id: `lu-source-authority-status-${identity.value.slice(0, 24)}`,
+    artifact_id: computeLuSourceAuthorityTemporalStatusArtifactId({
+      subject_ref: subjectRef,
+      attempt_ref: attemptRef,
+      action: payload.action,
+    }),
     artifact_type: LU_SOURCE_AUTHORITY_TEMPORAL_STATUS_TYPE,
-    references: [rootRef, issuerRef, subjectRef],
+    references: [rootRef, issuerRef, subjectRef, attemptRef],
     payload,
   } as const;
   return { ...artifact, content_hash: sha256ContentHash(artifact) };
@@ -188,6 +225,7 @@ export function validateLuSourceAuthorityTemporalStatusArtifact(
       references: [],
       content_hash: artifact.payload.subject_hash,
     },
+    attempt_ref: artifact.payload.attempt_ref,
     action: artifact.payload.action,
     valid_from: artifact.payload.valid_from,
     valid_until: artifact.payload.valid_until,
@@ -195,8 +233,6 @@ export function validateLuSourceAuthorityTemporalStatusArtifact(
     revoked_at: artifact.payload.revoked_at,
   });
 
-  // Rebuild the canonical body directly with the persisted refs/hashes. The placeholder root/issuer
-  // payloads above never enter identity; only their persisted refs/hashes do.
   if (
     artifact.artifact_type !== rebuilt.artifact_type ||
     artifact.artifact_id !== rebuilt.artifact_id ||
@@ -209,17 +245,17 @@ export function validateLuSourceAuthorityTemporalStatusArtifact(
 
 export async function attestLuSourceAuthorityTemporalStatus(args: {
   readonly status: Omit<LuSourceAuthorityTemporalStatusArtifact, "attestation">;
-  readonly root: LuExecutionAuthorityRootArtifact;
+  readonly issuer: LuExecutionAuthorityIssuerArtifact;
   readonly signing: SigningKeyProvider;
 }): Promise<ArtifactAttestation> {
-  if (args.signing.keyId !== args.root.payload.root_key_id) {
-    throw new Error("REJECT_LU_SOURCE_AUTHORITY_TEMPORAL_STATUS: signer is not LU root");
+  if (args.signing.keyId !== args.issuer.payload.issuer_key_id) {
+    throw new Error("REJECT_LU_SOURCE_AUTHORITY_TEMPORAL_STATUS: signer is not verified LU issuer");
   }
   if (
-    args.status.payload.root_ref.artifact_id !== args.root.artifact_id ||
-    !sameHash(args.status.payload.root_hash, args.root.content_hash)
+    args.status.payload.issuer_ref.artifact_id !== args.issuer.artifact_id ||
+    !sameHash(args.status.payload.issuer_hash, args.issuer.content_hash)
   ) {
-    throw new Error("REJECT_LU_SOURCE_AUTHORITY_TEMPORAL_STATUS: root binding mismatch");
+    throw new Error("REJECT_LU_SOURCE_AUTHORITY_TEMPORAL_STATUS: issuer binding mismatch");
   }
   return createArtifactAttestation({
     subjectDigest: args.status.content_hash.value,
@@ -234,13 +270,23 @@ export async function verifyLuSourceAuthorityTemporalStatus(args: {
   readonly root: LuExecutionAuthorityRootArtifact;
   readonly issuer: LuExecutionAuthorityIssuerArtifact;
   readonly subject: ArtifactContract;
+  readonly expected_attempt_ref: ArtifactReference;
   readonly expected_action: string;
-  readonly root_verification: VerificationKeyProvider;
+  readonly issuer_verification: VerificationKeyProvider;
 }): Promise<LuSourceAuthorityTemporalStatusArtifact> {
   const status = validateLuSourceAuthorityTemporalStatusArtifact(args.status);
-  const expectedRootRef = { artifact_id: args.root.artifact_id, artifact_type: args.root.artifact_type };
-  const expectedIssuerRef = { artifact_id: args.issuer.artifact_id, artifact_type: args.issuer.artifact_type };
-  const expectedSubjectRef = { artifact_id: args.subject.artifact_id, artifact_type: args.subject.artifact_type };
+  const expectedRootRef = {
+    artifact_id: args.root.artifact_id,
+    artifact_type: args.root.artifact_type,
+  };
+  const expectedIssuerRef = {
+    artifact_id: args.issuer.artifact_id,
+    artifact_type: args.issuer.artifact_type,
+  };
+  const expectedSubjectRef = {
+    artifact_id: args.subject.artifact_id,
+    artifact_type: args.subject.artifact_type,
+  };
   if (
     !sameRef(status.payload.root_ref, expectedRootRef) ||
     !sameHash(status.payload.root_hash, args.root.content_hash) ||
@@ -248,19 +294,29 @@ export async function verifyLuSourceAuthorityTemporalStatus(args: {
     !sameHash(status.payload.issuer_hash, args.issuer.content_hash) ||
     !sameRef(status.payload.subject_ref, expectedSubjectRef) ||
     !sameHash(status.payload.subject_hash, args.subject.content_hash) ||
+    !sameRef(status.payload.attempt_ref, args.expected_attempt_ref) ||
     status.payload.authority_scope !== LU_EXECUTION_AUTHORITY_SCOPE ||
     status.payload.action !== args.expected_action
   ) {
     throw new Error("REJECT_LU_SOURCE_AUTHORITY: temporal_status_binding");
   }
+  const expectedId = computeLuSourceAuthorityTemporalStatusArtifactId({
+    subject_ref: expectedSubjectRef,
+    attempt_ref: args.expected_attempt_ref,
+    action: args.expected_action,
+  });
+  if (status.artifact_id !== expectedId) {
+    throw new Error("REJECT_LU_SOURCE_AUTHORITY: temporal_status_identity");
+  }
+
   const attestation = status.attestation;
   if (
     !attestation ||
-    attestation.signer !== args.root.payload.root_key_id ||
+    attestation.signer !== args.issuer.payload.issuer_key_id ||
     attestation.subjectDigest !== status.content_hash.value ||
     attestation.predicateType !== LU_SOURCE_AUTHORITY_TEMPORAL_STATUS_PREDICATE ||
     JSON.stringify(attestation.predicate) !== JSON.stringify(predicate(status)) ||
-    !(await verifyArtifactAttestation(attestation, args.root_verification))
+    !(await verifyArtifactAttestation(attestation, args.issuer_verification))
   ) {
     throw new Error("REJECT_LU_SOURCE_AUTHORITY: temporal_status_signature");
   }
@@ -272,10 +328,7 @@ export async function verifyLuSourceAuthorityTemporalStatus(args: {
   if (decision >= Date.parse(status.payload.valid_until)) {
     throw new Error("REJECT_LU_SOURCE_AUTHORITY: qualification_expired");
   }
-  if (
-    status.payload.revoked_at !== null &&
-    Date.parse(status.payload.revoked_at) <= decision
-  ) {
+  if (status.payload.revoked_at !== null && Date.parse(status.payload.revoked_at) <= decision) {
     throw new Error("REJECT_LU_SOURCE_AUTHORITY: authority_revoked");
   }
   return status;
