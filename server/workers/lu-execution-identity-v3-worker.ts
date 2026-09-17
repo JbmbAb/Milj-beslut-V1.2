@@ -11,12 +11,11 @@ import { bootstrapWorkerProcess } from './bootstrap';
 
 bootstrapWorkerProcess();
 
-const REQUIRED_TEMPORAL_ENV = [
-  'LU_SOURCE_AUTHORITY_VALID_FROM',
-  'LU_SOURCE_AUTHORITY_VALID_UNTIL',
-] as const;
+type RequiredTemporalEnv =
+  | 'LU_SOURCE_AUTHORITY_VALID_FROM'
+  | 'LU_SOURCE_AUTHORITY_VALID_UNTIL';
 
-function parseRequiredIso(name: (typeof REQUIRED_TEMPORAL_ENV)[number]): number {
+function parseRequiredIso(name: RequiredTemporalEnv): number {
   const value = process.env[name]?.trim();
   if (!value) {
     logger.error(`lu-identity-v3-worker: ${name} is not set -- refusing to start.`);
