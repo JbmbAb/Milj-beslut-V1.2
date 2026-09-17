@@ -21,6 +21,7 @@ import {
   LU_LOCALIZATION_ASSESSMENT_PERSIST_ACTION,
   LU_SOURCE_AUTHORITY_TEMPORAL_STATUS_TYPE,
   attestLuSourceAuthorityTemporalStatus,
+  computeLuSourceAuthorityTemporalStatusArtifactId,
   createLuSourceAuthorityTemporalStatusArtifact,
   deriveLuCanonicalAssessmentAttemptRef,
   validateLuSourceAuthorityTemporalStatusArtifact,
@@ -103,15 +104,13 @@ async function ensureTemporalAuthorization(args: {
   readonly subject: ExecutionIdentitySubjectV3;
 }): Promise<LuSourceAuthorityTemporalStatusArtifact> {
   const attemptRef = deriveLuCanonicalAssessmentAttemptRef(args.subject);
+  const subjectRef = { artifact_id: args.identity.artifact_id, artifact_type: args.identity.artifact_type } as const;
   const expectedRef = {
-    artifact_id: `lu-source-authority-status-${(
-      await import('../../../packages/mps-compliance/src/canonical/sha256Canonical')
-    ).sha256ContentHash({
-      contract: 'lu-source-authority-temporal-status-v2',
-      subject_ref: { artifact_id: args.identity.artifact_id, artifact_type: args.identity.artifact_type },
+    artifact_id: computeLuSourceAuthorityTemporalStatusArtifactId({
+      subject_ref: subjectRef,
       attempt_ref: attemptRef,
       action: LU_LOCALIZATION_ASSESSMENT_PERSIST_ACTION,
-    }).value.slice(0, 24)}`,
+    }),
     artifact_type: LU_SOURCE_AUTHORITY_TEMPORAL_STATUS_TYPE,
   } as const;
 
