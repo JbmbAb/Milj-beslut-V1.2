@@ -8,6 +8,8 @@
   "ancestry_policy": "descendant_of_base",
   "allowed_paths": [
     "packages/mps-lu/src/index.ts",
+    "packages/mps-lu/src/execution/LuDeterministicReExecution.ts",
+    "packages/mps-lu/src/execution/LuExecutionKernelClient.ts",
     "scripts/ops/prove-lu-replay-cold-verify-01.ts",
     "scripts/ops/prove-lu-deterministic-reexecution-01.ts",
     "packages/spatial-provider-postgis/tests/LUEnforcement.test.ts",
