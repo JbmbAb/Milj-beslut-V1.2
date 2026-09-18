@@ -1,0 +1,61 @@
+{
+  "schema_version": "dev-gov-v1-unit-definition",
+  "unit": "AUTHORITY-CHAIN-PROMOTION-01-PROVEN-DOC-V1",
+  "role": "producer",
+  "mode": "writer",
+  "branch": "docs/authority-chain-promotion-01-proven",
+  "base_sha": "f841c96d8f033379adef4228bb10f304bcb3435a",
+  "ancestry_policy": "descendant_of_base",
+  "allowed_paths": [
+    "docs/architecture/audits/AUTHORITY-CHAIN-PROMOTION-01-PROVEN.md",
+    "governance/devgov/units/authority-chain-promotion-01-proven-doc-v1.json"
+  ],
+  "forbidden_paths": [
+    ".github/workflows/**",
+    ".github/actions/**",
+    "scripts/devgov/**",
+    "governance/devgov/schema/**",
+    "prisma/**",
+    "packages/**",
+    "server/**",
+    "src/**"
+  ],
+  "required_red": [
+    {
+      "id": "proven-record-absent-on-base",
+      "command": "node",
+      "args": [
+        "-e",
+        "const fs=require('node:fs');const p='docs/architecture/audits/AUTHORITY-CHAIN-PROMOTION-01-PROVEN.md';let s='';try{s=fs.readFileSync(p,'utf8')}catch{process.exit(1)};const req=JSON.parse(process.argv[1]);for(const x of req){if(!s.includes(x)){console.error('MISSING:'+x);process.exit(1)}}process.exit(0);",
+        "[\"**Final state:** PROVEN\",\"41eea7eedbeeaf5d21935a1a0cd938bd31b9c56a\",\"f841c96d8f033379adef4228bb10f304bcb3435a\",\"4886d0f2a45f9f3a3755a18f812a40daa31f0bf0\",\"35376548502\",\"35377261004\",\"`AUTHORITY-CHAIN-PROMOTION-01 = PROVEN`\"]"
+      ],
+      "expected_classification": "FAIL",
+      "required_head": "base_sha",
+      "timeout_ms": 30000
+    }
+  ],
+  "required_green": [
+    {
+      "id": "proven-record-exact-evidence",
+      "command": "node",
+      "args": [
+        "-e",
+        "const fs=require('node:fs');const p='docs/architecture/audits/AUTHORITY-CHAIN-PROMOTION-01-PROVEN.md';let s='';try{s=fs.readFileSync(p,'utf8')}catch{process.exit(1)};const req=JSON.parse(process.argv[1]);for(const x of req){if(!s.includes(x)){console.error('MISSING:'+x);process.exit(1)}}process.exit(0);",
+        "[\"**Final state:** PROVEN\",\"41eea7eedbeeaf5d21935a1a0cd938bd31b9c56a\",\"f841c96d8f033379adef4228bb10f304bcb3435a\",\"4886d0f2a45f9f3a3755a18f812a40daa31f0bf0\",\"35376548502\",\"35377261004\",\"`AUTHORITY-CHAIN-PROMOTION-01 = PROVEN`\"]"
+      ],
+      "expected_classification": "PASS",
+      "required_head": "candidate_sha",
+      "timeout_ms": 30000
+    }
+  ],
+  "trusted_execution": {
+    "issuer": "github-actions:JbmbAb/Milj-beslut-V1.2:devgov-v0-attest",
+    "key_id": "devgov-ci-ed25519-v1"
+  },
+  "remote": {
+    "name": "origin",
+    "branch": "docs/authority-chain-promotion-01-proven",
+    "push_policy": "no_force",
+    "absent_policy": "deny_absent"
+  }
+}
