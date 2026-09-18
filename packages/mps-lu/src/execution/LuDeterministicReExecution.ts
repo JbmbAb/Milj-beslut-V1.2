@@ -17,7 +17,7 @@ import {
   validateLocalizationAssessmentContractVersion,
 } from "../governance/GovernedAssessmentPersistence.js";
 import { sha256ContentHash } from "../../../mps-runtime/src/kernel/ExecutionKernel.js";
-import { LURuleEngine } from "../rules/LURuleEngine.js";
+import { evaluateLuRuleSet } from "./LuExecutionKernelClient.js";
 import type { AssessmentFinding, RuleId, RuleVersion } from "../domain/AssessmentFinding.js";
 import {
   isVerifiedDocumentFact,
@@ -36,7 +36,7 @@ import {
  * Category B (re-execute-deterministically), explicitly separate from
  * `DefaultReplayEngine.replay()`/`replayFromManifestId()` (category A, verify-historical-
  * execution -- LU-REPLAY-COLD-VERIFY-V1). This does not change what REPLAY means; it is a new,
- * additive capability that actually re-runs `LURuleEngine.evaluate()` against the exact evidence
+ * additive capability that actually re-runs the canonical LU rule evaluator against the exact evidence
  * a stored assessment claims, and compares the result.
  *
  * Frozen invariants (owner-approved): CAS-only semantic inputs; no RuntimeState; no PostGIS; no
@@ -335,7 +335,7 @@ export async function reExecuteLocalizationAssessment(args: {
     };
   }
 
-  const freshFindings = new LURuleEngine().evaluate({ spatial_evidence, document_evidence, verified_document_facts });
+  const freshFindings = evaluateLuRuleSet(spatial_evidence, document_evidence, verified_document_facts);
   const freshRuleRefs = freshFindings.map((f) => ({ rule_id: f.rule_id, rule_version: f.rule_version }));
 
   const comparisonMismatches: LuReExecutionMismatch[] = [];
