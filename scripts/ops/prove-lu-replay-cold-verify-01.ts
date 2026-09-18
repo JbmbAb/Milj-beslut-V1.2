@@ -11,7 +11,7 @@
 import '../../server/loadEnvFirst';
 import { readFileSync } from 'node:fs';
 import { MimersIntegration } from '@miljobeslut/mps-runtime';
-import { runLuAssessmentViaKernel } from '@miljobeslut/mps-lu';
+import { runLuAssessmentViaKernel } from '../../packages/mps-lu/src/execution/LuExecutionKernelClient';
 import { DefaultReplayEngine } from '../../packages/mps-runtime/src/replay/DefaultReplayEngine';
 import type { SpatialEvidenceArtifact } from '@miljobeslut/mps-lu';
 import { SPATIAL_STACK_V1 } from '@miljobeslut/mps-lu';
