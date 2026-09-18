@@ -1,10 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { readdirSync, readFileSync, statSync } from "node:fs";
 import { join, relative, resolve, sep } from "node:path";
-import { fileURLToPath } from "node:url";
-
-const __dirname = resolve(fileURLToPath(new URL(".", import.meta.url)));
-const repoRoot = resolve(__dirname, "../../..");
+const repoRoot = resolve(process.cwd());
 
 const GENERAL_ENGINE = "runLuAssessmentViaKernel";
 const CANONICAL_ENGINE = "runCanonicalLuProductAssessment";
