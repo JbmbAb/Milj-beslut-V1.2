@@ -1,4 +1,4 @@
-name: Authority Promotion Baseline A
+name: Authority Promotion Dispatch C2
 
 on:
   pull_request:
@@ -6,185 +6,18 @@ on:
 
 permissions:
   contents: read
+  actions: write
 
 jobs:
-  baseline-a:
-    name: Run nine inherited commands on exact A
+  dispatch:
     runs-on: ubuntu-latest
-    timeout-minutes: 30
     steps:
-      - name: Checkout exact A
-        uses: actions/checkout@v4
-        with:
-          ref: 43ea32804cfa288b34051b6874185077a6ec3c50
-          persist-credentials: false
-      - uses: actions/setup-node@v4
-        with:
-          node-version: '22'
-          cache: npm
-      - name: Install dependencies
-        run: npm ci --ignore-scripts
-      - name: authority-identity-convergence-test-discovery
-        id: c1
-        continue-on-error: true
+      - name: Dispatch protected Dev-Gov orchestrator for exact C2
         env:
-          BASELINE_COMMAND: 'npx'
-          BASELINE_ARGS_JSON: '["vitest","run","--config","vitest.config.ts","packages/mps-compliance/tests/AuthorityIdentityConvergence.test.ts"]'
+          GH_TOKEN: ${{ github.token }}
         run: |
-          node - <<'NODE'
-          const { spawnSync } = require('node:child_process');
-          const command = process.env.BASELINE_COMMAND;
-          const args = JSON.parse(process.env.BASELINE_ARGS_JSON);
-          console.log('BASELINE_COMMAND=' + JSON.stringify({ command, args }));
-          const r = spawnSync(command, args, { stdio: 'inherit', shell: false, env: process.env });
-          if (r.error) { console.error(r.error); process.exit(125); }
-          process.exit(r.status ?? 125);
-          NODE
-      - name: authority-actor-projection
-        id: c2
-        continue-on-error: true
-        env:
-          BASELINE_COMMAND: 'npx'
-          BASELINE_ARGS_JSON: '["vitest","run","--config","vitest.config.ts","packages/mps-compliance/tests/AuthorityActorProjection.test.ts"]'
-        run: |
-          node - <<'NODE'
-          const { spawnSync } = require('node:child_process');
-          const command = process.env.BASELINE_COMMAND;
-          const args = JSON.parse(process.env.BASELINE_ARGS_JSON);
-          console.log('BASELINE_COMMAND=' + JSON.stringify({ command, args }));
-          const r = spawnSync(command, args, { stdio: 'inherit', shell: false, env: process.env });
-          if (r.error) { console.error(r.error); process.exit(125); }
-          process.exit(r.status ?? 125);
-          NODE
-      - name: authority-trust-compatibility
-        id: c3
-        continue-on-error: true
-        env:
-          BASELINE_COMMAND: 'npx'
-          BASELINE_ARGS_JSON: '["vitest","run","--config","vitest.config.ts","packages/mps-compliance/tests/AuthorityTrustCompatibility04B.test.ts"]'
-        run: |
-          node - <<'NODE'
-          const { spawnSync } = require('node:child_process');
-          const command = process.env.BASELINE_COMMAND;
-          const args = JSON.parse(process.env.BASELINE_ARGS_JSON);
-          console.log('BASELINE_COMMAND=' + JSON.stringify({ command, args }));
-          const r = spawnSync(command, args, { stdio: 'inherit', shell: false, env: process.env });
-          if (r.error) { console.error(r.error); process.exit(125); }
-          process.exit(r.status ?? 125);
-          NODE
-      - name: authority-generic-trust-reconciliation
-        id: c4
-        continue-on-error: true
-        env:
-          BASELINE_COMMAND: 'npx'
-          BASELINE_ARGS_JSON: '["vitest","run","--config","vitest.config.ts","packages/mps-compliance/tests/AuthorityGenericTrustReconciliation04C.test.ts","packages/mps-governance-runtime/tests/AuthorityGenericRuntimeReconciliation04C.test.ts"]'
-        run: |
-          node - <<'NODE'
-          const { spawnSync } = require('node:child_process');
-          const command = process.env.BASELINE_COMMAND;
-          const args = JSON.parse(process.env.BASELINE_ARGS_JSON);
-          console.log('BASELINE_COMMAND=' + JSON.stringify({ command, args }));
-          const r = spawnSync(command, args, { stdio: 'inherit', shell: false, env: process.env });
-          if (r.error) { console.error(r.error); process.exit(125); }
-          process.exit(r.status ?? 125);
-          NODE
-      - name: authority-regression-reconciliation
-        id: c5
-        continue-on-error: true
-        env:
-          BASELINE_COMMAND: 'npx'
-          BASELINE_ARGS_JSON: '["vitest","run","--config","vitest.config.ts","packages/mps-compliance/tests/ACT_21_I1.authority.test.ts","packages/mps-compliance/tests/ACT_21_I3_I5.authority.test.ts","packages/mps-compliance/tests/AuthorityActorProjection.test.ts","packages/mps-compliance/tests/AuthorityGenericTrustReconciliation04C.test.ts","packages/mps-compliance/tests/AuthorityIdentityConvergence.test.ts","packages/mps-governance-runtime/tests/AuthorityGenericRuntimeReconciliation04C.test.ts","packages/mps-governance-runtime/tests/AuthorityRuntimeEnforcement.test.ts","packages/mps-governance-runtime/tests/AuthorityVerification.test.ts","packages/mps-governance-runtime/tests/ObservationNotAuthority.test.ts"]'
-        run: |
-          node - <<'NODE'
-          const { spawnSync } = require('node:child_process');
-          const command = process.env.BASELINE_COMMAND;
-          const args = JSON.parse(process.env.BASELINE_ARGS_JSON);
-          console.log('BASELINE_COMMAND=' + JSON.stringify({ command, args }));
-          const r = spawnSync(command, args, { stdio: 'inherit', shell: false, env: process.env });
-          if (r.error) { console.error(r.error); process.exit(125); }
-          process.exit(r.status ?? 125);
-          NODE
-      - name: product-current-accept
-        id: c6
-        continue-on-error: true
-        env:
-          BASELINE_COMMAND: 'bash'
-          BASELINE_ARGS_JSON: '["-lc","npx vitest run --config vitest.config.ts --no-file-parallelism tests/unit/luExecutionIdentityScopeV2ProductWiring.test.ts -t \"CURRENT HEAD + matching V2 identity -> ACCEPT\""]'
-        run: |
-          node - <<'NODE'
-          const { spawnSync } = require('node:child_process');
-          const command = process.env.BASELINE_COMMAND;
-          const args = JSON.parse(process.env.BASELINE_ARGS_JSON);
-          console.log('BASELINE_COMMAND=' + JSON.stringify({ command, args }));
-          const r = spawnSync(command, args, { stdio: 'inherit', shell: false, env: process.env });
-          if (r.error) { console.error(r.error); process.exit(125); }
-          process.exit(r.status ?? 125);
-          NODE
-      - name: product-idempotency
-        id: c7
-        continue-on-error: true
-        env:
-          BASELINE_COMMAND: 'bash'
-          BASELINE_ARGS_JSON: '["-lc","npx vitest run --config vitest.config.ts --no-file-parallelism tests/unit/luExecutionIdentityScopeV2ProductWiring.test.ts -t \"same exact product state replayed twice -> deterministic acceptance both times\""]'
-        run: |
-          node - <<'NODE'
-          const { spawnSync } = require('node:child_process');
-          const command = process.env.BASELINE_COMMAND;
-          const args = JSON.parse(process.env.BASELINE_ARGS_JSON);
-          console.log('BASELINE_COMMAND=' + JSON.stringify({ command, args }));
-          const r = spawnSync(command, args, { stdio: 'inherit', shell: false, env: process.env });
-          if (r.error) { console.error(r.error); process.exit(125); }
-          process.exit(r.status ?? 125);
-          NODE
-      - name: f04-evidence-body-integrity
-        id: c8
-        continue-on-error: true
-        env:
-          BASELINE_COMMAND: 'bash'
-          BASELINE_ARGS_JSON: '["-lc","node -e \"const fs=require(''fs'');const p=fs.readFileSync(''packages/mps-lu/src/governance/GovernedAssessmentPersistence.ts'',''utf8'');if(!p.includes(''authority_evidence_body_hash''))process.exit(1);\" && npx vitest run --config vitest.config.ts --no-file-parallelism packages/mps-lu/tests/LuSourceAuthorityWiring04DF04.test.ts -t \"F04-A rejects a legitimate verified decision paired with a mutated evidence body and stale hash\""]'
-        run: |
-          node - <<'NODE'
-          const { spawnSync } = require('node:child_process');
-          const command = process.env.BASELINE_COMMAND;
-          const args = JSON.parse(process.env.BASELINE_ARGS_JSON);
-          console.log('BASELINE_COMMAND=' + JSON.stringify({ command, args }));
-          const r = spawnSync(command, args, { stdio: 'inherit', shell: false, env: process.env });
-          if (r.error) { console.error(r.error); process.exit(125); }
-          process.exit(r.status ?? 125);
-          NODE
-      - name: f04-execution-identity-binding
-        id: c9
-        continue-on-error: true
-        env:
-          BASELINE_COMMAND: 'bash'
-          BASELINE_ARGS_JSON: '["-lc","node -e \"const fs=require(''fs'');const p=fs.readFileSync(''packages/mps-lu/src/governance/GovernedAssessmentPersistence.ts'',''utf8'');if(!p.includes(''authority_execution_identity_binding''))process.exit(1);\" && npx vitest run --config vitest.config.ts --no-file-parallelism packages/mps-lu/tests/LuSourceAuthorityWiring04DF04.test.ts -t \"F04-B rejects replay of legitimate authority A onto an assessment/outcome produced by execution B\""]'
-        run: |
-          node - <<'NODE'
-          const { spawnSync } = require('node:child_process');
-          const command = process.env.BASELINE_COMMAND;
-          const args = JSON.parse(process.env.BASELINE_ARGS_JSON);
-          console.log('BASELINE_COMMAND=' + JSON.stringify({ command, args }));
-          const r = spawnSync(command, args, { stdio: 'inherit', shell: false, env: process.env });
-          if (r.error) { console.error(r.error); process.exit(125); }
-          process.exit(r.status ?? 125);
-          NODE
-      - name: Baseline summary
-        if: always()
-        run: |
-          cat <<'EOF' >> "$GITHUB_STEP_SUMMARY"
-          | Command | Outcome |
-          |---|---|
-          | authority-identity-convergence-test-discovery | ${{ steps.c1.outcome }} |
-          | authority-actor-projection | ${{ steps.c2.outcome }} |
-          | authority-trust-compatibility | ${{ steps.c3.outcome }} |
-          | authority-generic-trust-reconciliation | ${{ steps.c4.outcome }} |
-          | authority-regression-reconciliation | ${{ steps.c5.outcome }} |
-          | product-current-accept | ${{ steps.c6.outcome }} |
-          | product-idempotency | ${{ steps.c7.outcome }} |
-          | f04-evidence-body-integrity | ${{ steps.c8.outcome }} |
-          | f04-execution-identity-binding | ${{ steps.c9.outcome }} |
-          EOF
-      - name: Fail if any inherited command failed
-        if: always()
-        run: |
-          if [ "${{ steps.c1.outcome != 'success' || steps.c2.outcome != 'success' || steps.c3.outcome != 'success' || steps.c4.outcome != 'success' || steps.c5.outcome != 'success' || steps.c6.outcome != 'success' || steps.c7.outcome != 'success' || steps.c8.outcome != 'success' || steps.c9.outcome != 'success' }}" = "true" ]; then exit 1; fi
+          gh workflow run devgov-v0-orchestrate.yml \
+            --repo JbmbAb/Milj-beslut-V1.2 \
+            --ref main \
+            -f candidate_sha=41eea7eedbeeaf5d21935a1a0cd938bd31b9c56a \
+            -f unit_definition_path=governance/devgov/units/authority-chain-promotion-01-v1.json
