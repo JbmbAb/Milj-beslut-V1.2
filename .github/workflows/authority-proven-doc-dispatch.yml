@@ -1,0 +1,23 @@
+name: Authority Proven Doc Dispatch
+
+on:
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+  actions: write
+
+jobs:
+  dispatch:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Dispatch protected Dev-Gov orchestrator for exact proven-doc candidate
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh workflow run devgov-v0-orchestrate.yml \
+            --repo JbmbAb/Milj-beslut-V1.2 \
+            --ref main \
+            -f candidate_sha=0a24ad3f52bffd7fc6f810cb88d1badbaf1a9d85 \
+            -f unit_definition_path=governance/devgov/units/authority-chain-promotion-01-proven-doc-v1.json
