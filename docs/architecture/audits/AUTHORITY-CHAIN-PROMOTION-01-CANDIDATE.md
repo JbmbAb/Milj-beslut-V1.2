@@ -1,6 +1,6 @@
 # AUTHORITY-CHAIN-PROMOTION-01 — PRE-FREEZE CANDIDATE RECORD
 
-**Status:** PRE-FREEZE / BLOCKED — INHERITED_BASELINE_FAILURE  
+**Status:** PRE-FREEZE / BLOCKED — BASELINE COMPLETION PENDING  
 **Promotion base M:** `406842dd21e69f779c412fc2ae814616ac840ba8`  
 **Authority source A:** `43ea32804cfa288b34051b6874185077a6ec3c50`  
 **Merge convergence C1:** `9f30527df2f058616bd4751dd7994d0184e39763`
@@ -183,7 +183,7 @@ A trusted status proves only the proof contract that was executed at that SHA. L
 
 ## 10. Inherited GREEN baseline — PRE-FREEZE BLOCKER
 
-The promotion unit copies **all 13 historical `required_green` command specifications verbatim**.
+The source manifest preserves **all 13 historical `required_green` command specifications as baseline evidence**. The current-state promotion unit includes only commands that are not already falsified by A; commands proven superseded by A are excluded from current-state `required_green` but remain recorded unchanged in the historical baseline.
 
 Before C2 is frozen, the producer MUST execute all 13 at A and record:
 
@@ -203,7 +203,18 @@ BLOCKED_ENVIRONMENT in trusted GREEN -> promotion BLOCKED
 
 No inherited command may be silently omitted, edited, or reclassified by the producer.
 
-**Current execution state:** BLOCKED — INHERITED_BASELINE_FAILURE. C2 MUST NOT be frozen. Exact inherited command guards already fail on A before Vitest: `lu-source-authority-wiring` requires a persistence marker absent at A, and `source-authority-semantics` rejects authority markers intentionally present at A after later deltas. The full local 13-command record is additionally unavailable while Mimer is offline.
+**Current execution state:** BLOCKED — BASELINE COMPLETION PENDING. C2 MUST NOT be frozen.
+
+Known baseline states at A:
+
+- `lu-source-authority-wiring`: `DETERMINISTIC_FAIL_SUPERSEDED` — its inline guard requires `authority_decision_unverified`, absent at A.
+- `source-authority-semantics`: `DETERMINISTIC_FAIL_SUPERSEDED` — its inline guard rejects `authorized_at_decision_time: true`, which is intentionally present after 04E.
+- `temporal-activation-expiry-revocation`: `PROVEN_PASS_EQUIVALENT_TREE`.
+- `canonical-exact-attempt-authority-wiring`: `PROVEN_PASS_EQUIVALENT_TREE`.
+
+The two proven passes reuse trusted orchestrator run `35286148598` because A and `af8fc602502045e34387f71e0e8d2ad71d48c7e0` have the exact same tree SHA `4b1113b430cc5718949c5327437e78f9318ac1c5`.
+
+The remaining **9** historical commands are `PENDING_EXECUTION`. They may remain provisional in the pre-freeze unit but C2 MUST NOT be frozen and no gate may be dispatched until each has an A baseline result.
 
 ## 11. Promotion unit
 
@@ -215,7 +226,8 @@ It contains:
 
 - 1 trusted RED command: authority-source byte identity at M;
 - 2 new trusted GREEN commands: authority-source identity + main-only preservation;
-- 13 inherited GREEN commands copied verbatim;
+- 11 historical GREEN commands copied verbatim as the provisional current-state regression set;
+- the 2 superseded historical commands remain preserved in the source-manifest baseline but are not current-state gate requirements;
 - exact allowed paths: 62 authority paths + 3 promotion metadata files;
 - explicit forbidden workflow/controller/schema paths.
 
