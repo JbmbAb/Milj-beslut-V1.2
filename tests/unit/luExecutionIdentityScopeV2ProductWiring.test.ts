@@ -101,6 +101,10 @@ import {
   createLocalizationGeometryArtifactV2,
   quantizeToLocalizationGeometryGrid,
   LU_SITE_ASSESSMENT_CAPABILITY_KEY,
+  createLuExecutionAuthorityRootArtifact,
+  createLuExecutionAuthorityIssuerArtifact,
+  attestLuExecutionAuthorityRoot,
+  attestLuExecutionAuthorityIssuer,
   type ISpatialProvider,
   type ProjectContextBindingSupersessionIssuerArtifact,
 } from '@miljobeslut/mps-lu';
@@ -118,6 +122,8 @@ import {
 import { __resetProjectContextBindingSupersessionVerifierForTests } from '../../server/security/projectContextBindingSupersessionVerifier';
 import { installOwnerIssuedProjectContextBindingSupersession } from '../../server/modules/localization/installProjectContextBinding';
 import { issueExecutionIdentity, issueExecutionIdentityV2, issueExecutionIdentityV3 } from '../../packages/mps-lu/src/execution/LuExecutionIdentityIssuer';
+import { __resetLuExecutionAuthorityVerifierForTests } from '../../packages/mps-lu/src/execution/LuExecutionAuthorityVerifier';
+import { __resetLuExecutionAuthoritySigningProviderForTests } from '../../server/security/luExecutionAuthoritySigningKey';
 import { LU_EXECUTION_PRINCIPAL_ID } from '../../packages/mps-lu/src/execution/LuExecutionKernelClient';
 import type { ExecutionIdentitySubjectV2, ExecutionIdentitySubjectV3 } from '../../packages/mps-runtime/src/execution/ExecutionIdentityScopeV2';
 import { createProductReleaseIssuerArtifact, createProductReleaseManifestArtifact, type ProductReleaseManifestArtifact } from '../../packages/mps-governance/src/release/ProductReleaseAuthority';
@@ -130,6 +136,9 @@ const pcbSupersessionIssuerKey = LocalPemSigningKeyProvider.generate('ed25519:pc
 // releases, not bare id/hash literals -- the canonical resolver now requires trusted-issuer
 // verification, so "release A" and "release B" must each be a real signed artifact.
 const releaseIssuerKey = LocalPemSigningKeyProvider.generate('ed25519:product-release-issuer-v2-wiring-test');
+const luIssuerKey = LocalPemSigningKeyProvider.generate('ed25519:lu-execution-authority-v1');
+const luRootKey = LocalPemSigningKeyProvider.generate('ed25519:lu-execution-authority-root-v1');
+let luAuthorityIssuerRef: { artifact_id: string; artifact_type: string };
 const releaseIssuer = createProductReleaseIssuerArtifact(releaseIssuerKey.provider.keyId);
 let RELEASE_A_ID: string;
 let RELEASE_A_HASH: string;
@@ -348,9 +357,45 @@ describe('PRODUCT-LU-EXECUTION-IDENTITY-V2-WIRING-01 — real runtime proof thro
       attestation: await attestProjectContextBindingSupersessionIssuerArtifact({ issuer: supersessionIssuerUnsigned, signing: pcbSupersessionIssuerKey.provider }),
     };
     await repo.put({ artifact_id: supersessionIssuer.artifact_id, content_hash: supersessionIssuer.content_hash, body: supersessionIssuer });
-    const luKey = LocalPemSigningKeyProvider.generate('ed25519:lu-execution-authority-v1');
-    process.env.LU_EXECUTION_AUTHORITY_PRIVATE_KEY_PEM = luKey.privateKey;
-    process.env.LU_EXECUTION_AUTHORITY_PUBLIC_KEY_PEM = luKey.publicKey;
+    __resetLuExecutionAuthoritySigningProviderForTests(null);
+    __resetLuExecutionAuthorityVerifierForTests(null);
+    process.env.LU_EXECUTION_AUTHORITY_SIGNING_KEY_ID = luIssuerKey.provider.keyId;
+    process.env.LU_EXECUTION_AUTHORITY_PRIVATE_KEY_PEM = luIssuerKey.privateKey;
+    process.env.LU_EXECUTION_AUTHORITY_PUBLIC_KEY_PEM = luIssuerKey.publicKey;
+    process.env.LU_EXECUTION_AUTHORITY_ROOT_KEY_ID = luRootKey.provider.keyId;
+    process.env.LU_EXECUTION_AUTHORITY_ROOT_PUBLIC_KEY_PEM = luRootKey.publicKey;
+
+    const bareLuRoot = createLuExecutionAuthorityRootArtifact({
+      root_key_id: luRootKey.provider.keyId,
+      public_key_fingerprint: 'product-wiring-root-fingerprint',
+    });
+    const luRoot = {
+      ...bareLuRoot,
+      attestation: await attestLuExecutionAuthorityRoot({
+        root: bareLuRoot,
+        signing: luRootKey.provider,
+      }),
+    };
+    const bareLuIssuer = createLuExecutionAuthorityIssuerArtifact({
+      issuer_key_id: luIssuerKey.provider.keyId,
+      public_key_fingerprint: 'product-wiring-issuer-fingerprint',
+      root_ref: { artifact_id: luRoot.artifact_id, artifact_type: luRoot.artifact_type },
+    });
+    const luAuthorityIssuer = {
+      ...bareLuIssuer,
+      attestation: await attestLuExecutionAuthorityIssuer({
+        issuer: bareLuIssuer,
+        root: luRoot,
+        signing: luRootKey.provider,
+      }),
+    };
+    await repo.put({ artifact_id: luRoot.artifact_id, content_hash: luRoot.content_hash, body: luRoot });
+    await repo.put({ artifact_id: luAuthorityIssuer.artifact_id, content_hash: luAuthorityIssuer.content_hash, body: luAuthorityIssuer });
+    luAuthorityIssuerRef = {
+      artifact_id: luAuthorityIssuer.artifact_id,
+      artifact_type: luAuthorityIssuer.artifact_type,
+    };
+
     process.env.PRODUCT_RELEASE_ISSUER_KEY_ID = releaseIssuerKey.provider.keyId;
     process.env.PRODUCT_RELEASE_ISSUER_PUBLIC_KEY_PEM = releaseIssuerKey.publicKey;
     await repo.put({ artifact_id: releaseIssuer.artifact_id, content_hash: releaseIssuer.content_hash, body: releaseIssuer });
@@ -371,8 +416,13 @@ describe('PRODUCT-LU-EXECUTION-IDENTITY-V2-WIRING-01 — real runtime proof thro
     delete process.env.PROJECT_CONTEXT_BINDING_SUPERSESSION_ISSUER_KEY_ID;
     delete process.env.PROJECT_CONTEXT_BINDING_SUPERSESSION_ISSUER_PUBLIC_KEY_PEM;
     __resetProjectContextBindingSupersessionVerifierForTests(null);
+    delete process.env.LU_EXECUTION_AUTHORITY_SIGNING_KEY_ID;
     delete process.env.LU_EXECUTION_AUTHORITY_PRIVATE_KEY_PEM;
     delete process.env.LU_EXECUTION_AUTHORITY_PUBLIC_KEY_PEM;
+    delete process.env.LU_EXECUTION_AUTHORITY_ROOT_KEY_ID;
+    delete process.env.LU_EXECUTION_AUTHORITY_ROOT_PUBLIC_KEY_PEM;
+    __resetLuExecutionAuthoritySigningProviderForTests(null);
+    __resetLuExecutionAuthorityVerifierForTests(null);
     delete process.env.PRODUCT_RELEASE_ARTIFACT_ID;
     delete process.env.PRODUCT_RELEASE_ISSUER_KEY_ID;
     delete process.env.PRODUCT_RELEASE_ISSUER_PUBLIC_KEY_PEM;
@@ -427,6 +477,7 @@ describe('PRODUCT-LU-EXECUTION-IDENTITY-V2-WIRING-01 — real runtime proof thro
       actor_ref: { artifact_id: LU_EXECUTION_PRINCIPAL_ID, artifact_type: 'execution_identity' },
       capability_ref: { artifact_id: capability.artifact_id, artifact_type: capability.artifact_type },
       release_snapshot_id: registry.getReleaseSnapshot().snapshot_id,
+      issuer_ref: luAuthorityIssuerRef,
       artifact_repository: repo,
     });
 
@@ -472,6 +523,7 @@ describe('PRODUCT-LU-EXECUTION-IDENTITY-V2-WIRING-01 — real runtime proof thro
       actor_ref: { artifact_id: LU_EXECUTION_PRINCIPAL_ID, artifact_type: 'execution_identity' },
       capability_ref: { artifact_id: capability.artifact_id, artifact_type: capability.artifact_type },
       release_snapshot_id: registry.getReleaseSnapshot().snapshot_id,
+      issuer_ref: luAuthorityIssuerRef,
       artifact_repository: repo,
     });
 
@@ -514,6 +566,7 @@ describe('PRODUCT-LU-EXECUTION-IDENTITY-V2-WIRING-01 — real runtime proof thro
       actor_ref: { artifact_id: LU_EXECUTION_PRINCIPAL_ID, artifact_type: 'execution_identity' },
       capability_ref: { artifact_id: capability.artifact_id, artifact_type: capability.artifact_type },
       release_snapshot_id: registry.getReleaseSnapshot().snapshot_id,
+      issuer_ref: luAuthorityIssuerRef,
       artifact_repository: repo,
     });
 
@@ -567,6 +620,7 @@ describe('PRODUCT-LU-EXECUTION-IDENTITY-V2-WIRING-01 — real runtime proof thro
       actor_ref: { artifact_id: LU_EXECUTION_PRINCIPAL_ID, artifact_type: 'execution_identity' },
       capability_ref: { artifact_id: capability.artifact_id, artifact_type: capability.artifact_type },
       release_snapshot_id: registry.getReleaseSnapshot().snapshot_id,
+      issuer_ref: luAuthorityIssuerRef,
       artifact_repository: repo,
     });
 
@@ -606,6 +660,7 @@ describe('PRODUCT-LU-EXECUTION-IDENTITY-V2-WIRING-01 — real runtime proof thro
       actor_ref: { artifact_id: LU_EXECUTION_PRINCIPAL_ID, artifact_type: 'execution_identity' },
       capability_ref: { artifact_id: capability.artifact_id, artifact_type: capability.artifact_type },
       release_snapshot_id: registry.getReleaseSnapshot().snapshot_id,
+      issuer_ref: luAuthorityIssuerRef,
       artifact_repository: repo,
     });
 
@@ -640,6 +695,7 @@ describe('PRODUCT-LU-EXECUTION-IDENTITY-V2-WIRING-01 — real runtime proof thro
       actor_ref: { artifact_id: LU_EXECUTION_PRINCIPAL_ID, artifact_type: 'execution_identity' },
       capability_ref: { artifact_id: capability.artifact_id, artifact_type: capability.artifact_type },
       release_snapshot_id: registry.getReleaseSnapshot().snapshot_id,
+      issuer_ref: luAuthorityIssuerRef,
       artifact_repository: repo,
     });
 
@@ -673,6 +729,7 @@ describe('PRODUCT-LU-EXECUTION-IDENTITY-V2-WIRING-01 — real runtime proof thro
       actor_ref: { artifact_id: LU_EXECUTION_PRINCIPAL_ID, artifact_type: 'execution_identity' },
       capability_ref: { artifact_id: capability.artifact_id, artifact_type: capability.artifact_type },
       release_snapshot_id: registry.getReleaseSnapshot().snapshot_id,
+      issuer_ref: luAuthorityIssuerRef,
       artifact_repository: repo,
     });
 

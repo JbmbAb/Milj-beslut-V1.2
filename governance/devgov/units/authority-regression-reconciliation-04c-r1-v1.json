@@ -1,0 +1,86 @@
+{
+  "schema_version": "dev-gov-v1-unit-definition",
+  "unit": "AUTHORITY-REGRESSION-RECONCILIATION-04C-R1-V1",
+  "role": "producer",
+  "mode": "writer",
+  "branch": "audit/minimum-authority-delta-04c-r1-regression-reconciliation",
+  "base_sha": "09af70554fe9b41eee856d62df6e3bd94a276a32",
+  "ancestry_policy": "descendant_of_base",
+  "allowed_paths": [
+    "packages/mps-compliance/tests/ACT_21_I3_I5.authority.test.ts",
+    "packages/mps-governance-runtime/tests/AuthorityVerification.test.ts",
+    "docs/architecture/audits/MINIMUM-AUTHORITY-DELTA-04C-R1-REGRESSION-RECONCILIATION.md",
+    "governance/devgov/units/authority-regression-reconciliation-04c-r1-v1.json"
+  ],
+  "forbidden_paths": [
+    ".github/**",
+    "scripts/devgov/**",
+    "governance/devgov/schema/**",
+    "server/**",
+    "services/**",
+    "prisma/**",
+    "packages/mps-governance/src/**",
+    "packages/mps-governance-runtime/src/**",
+    "packages/mps-compliance/src/**",
+    "packages/mps-lu/src/**",
+    "packages/mps-runtime/src/**"
+  ],
+  "required_red": [
+    {
+      "id": "authority-regression-reconciliation",
+      "command": "npx",
+      "args": [
+        "vitest",
+        "run",
+        "--config",
+        "vitest.config.ts",
+        "packages/mps-compliance/tests/ACT_21_I1.authority.test.ts",
+        "packages/mps-compliance/tests/ACT_21_I3_I5.authority.test.ts",
+        "packages/mps-compliance/tests/AuthorityActorProjection.test.ts",
+        "packages/mps-compliance/tests/AuthorityGenericTrustReconciliation04C.test.ts",
+        "packages/mps-compliance/tests/AuthorityIdentityConvergence.test.ts",
+        "packages/mps-governance-runtime/tests/AuthorityGenericRuntimeReconciliation04C.test.ts",
+        "packages/mps-governance-runtime/tests/AuthorityRuntimeEnforcement.test.ts",
+        "packages/mps-governance-runtime/tests/AuthorityVerification.test.ts",
+        "packages/mps-governance-runtime/tests/ObservationNotAuthority.test.ts"
+      ],
+      "timeout_ms": 180000,
+      "expected_classification": "FAIL",
+      "required_head": "base_sha"
+    }
+  ],
+  "required_green": [
+    {
+      "id": "authority-regression-reconciliation",
+      "command": "npx",
+      "args": [
+        "vitest",
+        "run",
+        "--config",
+        "vitest.config.ts",
+        "packages/mps-compliance/tests/ACT_21_I1.authority.test.ts",
+        "packages/mps-compliance/tests/ACT_21_I3_I5.authority.test.ts",
+        "packages/mps-compliance/tests/AuthorityActorProjection.test.ts",
+        "packages/mps-compliance/tests/AuthorityGenericTrustReconciliation04C.test.ts",
+        "packages/mps-compliance/tests/AuthorityIdentityConvergence.test.ts",
+        "packages/mps-governance-runtime/tests/AuthorityGenericRuntimeReconciliation04C.test.ts",
+        "packages/mps-governance-runtime/tests/AuthorityRuntimeEnforcement.test.ts",
+        "packages/mps-governance-runtime/tests/AuthorityVerification.test.ts",
+        "packages/mps-governance-runtime/tests/ObservationNotAuthority.test.ts"
+      ],
+      "timeout_ms": 180000,
+      "expected_classification": "PASS",
+      "required_head": "candidate_sha"
+    }
+  ],
+  "trusted_execution": {
+    "issuer": "github-actions:JbmbAb/Milj-beslut-V1.2:devgov-v0-attest",
+    "key_id": "devgov-ci-ed25519-v1"
+  },
+  "remote": {
+    "name": "origin",
+    "branch": "audit/minimum-authority-delta-04c-r1-regression-reconciliation",
+    "push_policy": "no_force",
+    "absent_policy": "deny_absent"
+  }
+}

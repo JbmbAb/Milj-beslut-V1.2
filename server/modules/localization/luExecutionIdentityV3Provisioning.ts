@@ -1,20 +1,11 @@
 /**
- * PRODUCT-LU-EXECUTION-IDENTITY-V3-PROVISIONING-01 Phase B.
+ * PRODUCT-LU-EXECUTION-IDENTITY-V3-PROVISIONING-01 Phase B + AUTHORITY-04E.
  *
  * SECURITY BOUNDARY: this module is imported ONLY by the standalone V3 provisioning worker
  * process (server/workers/lu-execution-identity-v3-worker.ts). It must never be imported by
- * server/createApp.ts, any request-handling route, or LuExecutionKernelClient.ts -- the same
- * PROD-LU-ADMISSION-02 issuer/verifier split reapplied here: the live web server enqueues a
- * request and reads status; it must never hold LU_EXECUTION_AUTHORITY_PRIVATE_KEY_PEM.
- *
- * PINNING (owner-frozen, PRODUCT-LU-EXECUTION-IDENTITY-V3-PROVISIONING-01 Phase A recon): the
- * request names an EXACT `geometryArtifactId`, decided at enqueue time. This module mints an
- * ExecutionIdentity V3 scoped to exactly that geometry -- it never re-resolves "current
- * localization geometry" at lease time. That is what makes save-A-then-save-B safe: a request for
- * A, even if it finishes after B has become current, can only ever produce a valid-but-non-current
- * historical identity for A, because normal LU execution always derives its expected V3 subject
- * from whatever is CURRENT at run time, never from "the most recently issued identity". Stale A
- * requests are allowed to complete normally, as long as the pinned geometry is still CAS-valid.
+ * server/createApp.ts, any request-handling route, or LuExecutionKernelClient.ts. The same
+ * issuer/verifier split now provisions BOTH the ExecutionIdentity and its exact-attempt temporal
+ * authorization ticket; the live web server still never holds LU_EXECUTION_AUTHORITY_PRIVATE_KEY_PEM.
  */
 import { spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
@@ -27,7 +18,23 @@ import {
   LU_SITE_ASSESSMENT_CAPABILITY_KEY,
   LU_EXECUTION_PRINCIPAL_ID,
   LU_EXECUTION_AUTHORITY_ISSUER_TYPE,
+  LU_EXECUTION_AUTHORITY_LIFECYCLE_ID_ENV,
+  LU_EXECUTION_AUTHORITY_LIFECYCLE_TYPE,
+  LU_LOCALIZATION_ASSESSMENT_PERSIST_ACTION,
+  LU_SOURCE_AUTHORITY_TEMPORAL_STATUS_TYPE,
+  assertLuExecutionAuthorityLifecycleCurrent,
+  attestLuSourceAuthorityTemporalStatus,
+  computeLuSourceAuthorityTemporalStatusArtifactId,
+  createLuSourceAuthorityTemporalStatusArtifact,
+  deriveLuCanonicalAssessmentAttemptRef,
+  validateLuExecutionAuthorityRootArtifact,
+  verifyLuExecutionAuthorityChain,
+  verifyLuExecutionAuthorityLifecycle,
+  verifyLuSourceAuthorityTemporalStatus,
   type LocalizationGeometryArtifact,
+  type LuExecutionAuthorityLifecycleArtifact,
+  type LuExecutionAuthorityRootArtifact,
+  type LuSourceAuthorityTemporalStatusArtifact,
 } from '@miljobeslut/mps-lu';
 import type { ExecutionIdentityArtifact } from '../../../packages/mps-runtime/src/execution/ExecutionIdentityArtifact';
 import {
@@ -39,7 +46,11 @@ import {
   verifyExecutionIdentityAttestation,
 } from '../../../packages/mps-lu/src/execution/ExecutionIdentityAttestation';
 import { issueExecutionIdentityV3 } from '../../../packages/mps-lu/src/execution/LuExecutionIdentityIssuer';
-import { getLuExecutionAuthorityVerifier } from '../../../packages/mps-lu/src/execution/LuExecutionAuthorityVerifier';
+import {
+  getLuExecutionAuthorityRootVerifier,
+  getLuExecutionAuthorityVerifier,
+} from '../../../packages/mps-lu/src/execution/LuExecutionAuthorityVerifier';
+import { getLuExecutionAuthoritySigningProvider } from '../../security/luExecutionAuthoritySigningKey';
 import { prisma } from '../../db/prisma';
 import { assertProjectAccess } from '../../security/projectAccess';
 import { resolveCanonicalProjectContext } from '../../../src/application/resolveCanonicalProjectContext';
@@ -59,14 +70,16 @@ function fail(code: string, detail: string): never {
   throw error;
 }
 
-/** Fresh child process, private key deleted from its env first -- same pattern as luProjectContextBootstrap.ts's runFreshVerifier. */
+function requiredEnv(name: string): string {
+  const value = process.env[name]?.trim();
+  if (!value) fail('TEMPORAL_AUTHORITY_CONFIGURATION_MISSING', `${name} is required`);
+  return value;
+}
+
+/** Fresh child process, private key deleted from its env first. */
 async function runFreshVerifier(identityArtifactId: string, projectId: string, geometryArtifactId: string): Promise<void> {
   const env = { ...process.env };
   delete env[PRIVATE_KEY_ENV];
-  // import.meta.url is not always a resolvable file:// URL under a test runner's module
-  // transform (e.g. vitest) -- fall back to a repo-root-relative path, which is valid in both
-  // real execution (this module only ever runs from the repo root, like every worker/ops script
-  // in this codebase) and under test.
   let scriptPath: string;
   try {
     scriptPath = fileURLToPath(new URL('./luExecutionIdentityV3VerifyCli.ts', import.meta.url));
@@ -84,12 +97,107 @@ async function runFreshVerifier(identityArtifactId: string, projectId: string, g
   if (exitCode !== 0) fail('FRESH_VERIFICATION_FAILED', 'fresh public-key-only verification of the newly issued identity failed');
 }
 
+async function ensureTemporalAuthorization(args: {
+  readonly repo: Awaited<ReturnType<typeof MimersIntegration.create>>['artifactRepository'];
+  readonly identity: ExecutionIdentityArtifact;
+  readonly issuerRef: { readonly artifact_id: string; readonly artifact_type: typeof LU_EXECUTION_AUTHORITY_ISSUER_TYPE };
+  readonly subject: ExecutionIdentitySubjectV3;
+}): Promise<LuSourceAuthorityTemporalStatusArtifact> {
+  const rootVerification = getLuExecutionAuthorityRootVerifier();
+  const issuerVerification = getLuExecutionAuthorityVerifier();
+  const verifiedIssuer = await verifyLuExecutionAuthorityChain({
+    issuerRef: args.issuerRef,
+    repository: args.repo,
+    rootVerification,
+    issuerVerification,
+  });
+  const verifiedRoot = validateLuExecutionAuthorityRootArtifact(
+    await args.repo.resolve<LuExecutionAuthorityRootArtifact>(verifiedIssuer.payload.root_ref),
+  );
+
+  const lifecycleId = requiredEnv(LU_EXECUTION_AUTHORITY_LIFECYCLE_ID_ENV);
+  const lifecycle = await args.repo.resolve<LuExecutionAuthorityLifecycleArtifact>({
+    artifact_id: lifecycleId,
+    artifact_type: LU_EXECUTION_AUTHORITY_LIFECYCLE_TYPE,
+  });
+  await verifyLuExecutionAuthorityLifecycle({
+    lifecycle,
+    root: verifiedRoot,
+    issuer: verifiedIssuer,
+    root_verification: rootVerification,
+  });
+  assertLuExecutionAuthorityLifecycleCurrent(lifecycle);
+
+  const attemptRef = deriveLuCanonicalAssessmentAttemptRef(args.subject);
+  const subjectRef = { artifact_id: args.identity.artifact_id, artifact_type: args.identity.artifact_type } as const;
+  const lifecycleRef = { artifact_id: lifecycle.artifact_id, artifact_type: lifecycle.artifact_type } as const;
+  const expectedRef = {
+    artifact_id: computeLuSourceAuthorityTemporalStatusArtifactId({
+      subject_ref: subjectRef,
+      attempt_ref: attemptRef,
+      lifecycle_ref: lifecycleRef,
+      action: LU_LOCALIZATION_ASSESSMENT_PERSIST_ACTION,
+    }),
+    artifact_type: LU_SOURCE_AUTHORITY_TEMPORAL_STATUS_TYPE,
+  } as const;
+
+  let existing: LuSourceAuthorityTemporalStatusArtifact | null = null;
+  try {
+    existing = await args.repo.resolve<LuSourceAuthorityTemporalStatusArtifact>(expectedRef);
+  } catch {
+    existing = null;
+  }
+  if (existing) {
+    await verifyLuSourceAuthorityTemporalStatus({
+      status: existing,
+      issuer: verifiedIssuer,
+      subject: args.identity,
+      lifecycle,
+      expected_attempt_ref: attemptRef,
+      expected_action: LU_LOCALIZATION_ASSESSMENT_PERSIST_ACTION,
+      issuer_verification: issuerVerification,
+    });
+    return existing;
+  }
+
+  const decisionTime = new Date().toISOString();
+  const bareStatus = createLuSourceAuthorityTemporalStatusArtifact({
+    issuer_ref: args.issuerRef,
+    subject: args.identity,
+    attempt_ref: attemptRef,
+    lifecycle,
+    action: LU_LOCALIZATION_ASSESSMENT_PERSIST_ACTION,
+    decision_time: decisionTime,
+  });
+  if (bareStatus.artifact_id !== expectedRef.artifact_id) {
+    fail('TEMPORAL_AUTHORITY_IDENTITY_MISMATCH', 'derived temporal status identity mismatch');
+  }
+  const signing = getLuExecutionAuthoritySigningProvider();
+  if (signing.keyId !== verifiedIssuer.payload.issuer_key_id) {
+    fail('TEMPORAL_AUTHORITY_SIGNER_MISMATCH', 'provisioned signing key is not the verified LU issuer');
+  }
+  const status: LuSourceAuthorityTemporalStatusArtifact = {
+    ...bareStatus,
+    attestation: await attestLuSourceAuthorityTemporalStatus({ status: bareStatus, signing }),
+  };
+  await verifyLuSourceAuthorityTemporalStatus({
+    status,
+    issuer: verifiedIssuer,
+    subject: args.identity,
+    lifecycle,
+    expected_attempt_ref: attemptRef,
+    expected_action: LU_LOCALIZATION_ASSESSMENT_PERSIST_ACTION,
+    issuer_verification: issuerVerification,
+  });
+  await args.repo.put({ artifact_id: status.artifact_id, content_hash: status.content_hash, body: status });
+  return status;
+}
+
 /**
- * Executes (or reconciles) V3 identity provisioning for exactly one request. Idempotent: if a
- * valid identity for the exact derived subject already exists (same property + binding + release
- * + contract + PINNED geometry), it is recognized and reused -- never re-minted. Safe to retry
- * after a crash at any point: content-addressing means a retry either finds the already-genuine
- * identity (reused: true) or mints exactly once.
+ * Executes (or reconciles) V3 identity + exact-attempt authority provisioning for one request.
+ * A reused identity MUST also have its deterministic ticket for the CURRENT root-signed lifecycle
+ * reconciled before success is returned. Lifecycle rotation therefore cannot silently reuse a
+ * stale pre-revocation ticket.
  */
 export async function executeLocalizationIdentityProvisioning(input: {
   readonly projectId: string;
@@ -141,7 +249,6 @@ export async function executeLocalizationIdentityProvisioning(input: {
       fail('GEOMETRY_PROPERTY_MISMATCH', `geometry ${input.geometryArtifactId} is not bound to project ${input.projectId}'s current property context`);
     }
 
-    // PRODUCT-RELEASE-AUTHORITY-BINDING-V1 (H13): trusted-issuer-signed release only.
     const canonicalRelease = await resolveCanonicalProductRelease({ artifactRepository: repo });
     const currentRelease = {
       releaseRef: { artifact_id: canonicalRelease.artifact_id, artifact_type: canonicalRelease.artifact_type },
@@ -176,9 +283,6 @@ export async function executeLocalizationIdentityProvisioning(input: {
     const capabilityRef = { artifact_id: capability.artifact_id, artifact_type: capability.artifact_type };
     const expectedIdentityId = computeExecutionIdentityArtifactIdV3(subject);
 
-    // Reconciliation-first: an identity for this EXACT subject may already exist (a prior attempt
-    // got far enough to mint, or a duplicate request for the same point). Never re-mint; verify
-    // and reuse.
     const reuseOutcome = await tryReuseExistingIdentity({
       repo,
       expectedIdentityId,
@@ -193,6 +297,11 @@ export async function executeLocalizationIdentityProvisioning(input: {
       }),
     });
     if (reuseOutcome) {
+      const identity = await repo.resolve<ExecutionIdentityArtifact>({
+        artifact_id: reuseOutcome,
+        artifact_type: 'execution_identity',
+      });
+      await ensureTemporalAuthorization({ repo, identity, issuerRef, subject });
       return { ok: true, executionIdentityArtifactId: reuseOutcome, reused: true };
     }
 
@@ -213,6 +322,7 @@ export async function executeLocalizationIdentityProvisioning(input: {
       artifact_repository: repo,
     });
 
+    await ensureTemporalAuthorization({ repo, identity, issuerRef, subject });
     await runFreshVerifier(identity.artifact_id, input.projectId, input.geometryArtifactId);
 
     return { ok: true, executionIdentityArtifactId: identity.artifact_id, reused: false };
@@ -236,13 +346,13 @@ async function tryReuseExistingIdentity(args: {
       artifact_type: 'execution_identity',
     });
   } catch {
-    return null; // not minted yet -- proceed to issue.
+    return null;
   }
   let attestation;
   try {
     attestation = await args.repo.resolve(existing.signature_envelope_ref);
   } catch {
-    return null; // orphaned/partial CAS state from a crashed prior attempt -- re-issue rather than trust it.
+    return null;
   }
   const result = await verifyExecutionIdentityAttestation({
     identity: existing,
