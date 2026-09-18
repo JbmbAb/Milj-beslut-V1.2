@@ -1,0 +1,24 @@
+name: LU Canonical Path Diagnostic
+
+on:
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  diagnose:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: 82383acedbb63d9d4b45a622aa998caea6729e75
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - run: npm ci --ignore-scripts
+      - name: Run failing LU canonical guard with full output
+        run: npx vitest run --config vitest.config.ts src/application/unit/LuCanonicalPath01.test.ts --reporter=verbose
