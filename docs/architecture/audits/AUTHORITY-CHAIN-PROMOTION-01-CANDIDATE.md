@@ -1,6 +1,6 @@
 # AUTHORITY-CHAIN-PROMOTION-01 — PRE-FREEZE CANDIDATE RECORD
 
-**Status:** PRE-FREEZE / BLOCKED — BASELINE COMPLETION PENDING  
+**Status:** PROMOTION_CANDIDATE / BASELINE FROZEN  
 **Promotion base M:** `406842dd21e69f779c412fc2ae814616ac840ba8`  
 **Authority source A:** `43ea32804cfa288b34051b6874185077a6ec3c50`  
 **Merge convergence C1:** `9f30527df2f058616bd4751dd7994d0184e39763`
@@ -203,18 +203,21 @@ BLOCKED_ENVIRONMENT in trusted GREEN -> promotion BLOCKED
 
 No inherited command may be silently omitted, edited, or reclassified by the producer.
 
-**Current execution state:** BLOCKED — BASELINE COMPLETION PENDING. C2 MUST NOT be frozen.
+**Current execution state:** BASELINE COMPLETE.
 
-Known baseline states at A:
+Exact-A execution evidence:
 
-- `lu-source-authority-wiring`: `DETERMINISTIC_FAIL_SUPERSEDED` — its inline guard requires `authority_decision_unverified`, absent at A.
-- `source-authority-semantics`: `DETERMINISTIC_FAIL_SUPERSEDED` — its inline guard rejects `authorized_at_decision_time: true`, which is intentionally present after 04E.
-- `temporal-activation-expiry-revocation`: `PROVEN_PASS_EQUIVALENT_TREE`.
-- `canonical-exact-attempt-authority-wiring`: `PROVEN_PASS_EQUIVALENT_TREE`.
+- GitHub Actions run `35376158791`, job `105701212865`, checked out exact A = `43ea32804cfa288b34051b6874185077a6ec3c50`.
+- 9 historical commands were executed with their exact command/args.
+- 4 passed: identity convergence, actor projection, generic trust reconciliation, authority regression reconciliation.
+- 5 failed and are preserved as non-current historical evidence:
+  - 04B compatibility test: superseded by 04C; its assertions intentionally expect semantics to be absent that 04C later implemented.
+  - product current/idempotency: fail before test execution because `.prisma/client/default` is not generated after `npm ci --ignore-scripts`; trusted execution uses the same install mode.
+  - F04-A/F04-B: old fixtures now fail earlier on 04E's `lifecycle_unconfigured` precondition.
 
-The two proven passes reuse trusted orchestrator run `35286148598` because A and `af8fc602502045e34387f71e0e8d2ad71d48c7e0` have the exact same tree SHA `4b1113b430cc5718949c5327437e78f9318ac1c5`.
+Additionally, the two 04E GREEN commands are trusted PASS on `af8fc602...`, whose tree SHA is exactly identical to A.
 
-The remaining **9** historical commands are `PENDING_EXECUTION`. They may remain provisional in the pre-freeze unit but C2 MUST NOT be frozen and no gate may be dispatched until each has an A baseline result.
+Current inherited regression set therefore contains exactly **6** A-valid historical commands. Together with the two new byte-identity GREEN proofs, the promotion unit has **8 required GREEN commands**.
 
 ## 11. Promotion unit
 
@@ -226,10 +229,15 @@ It contains:
 
 - 1 trusted RED command: authority-source byte identity at M;
 - 2 new trusted GREEN commands: authority-source identity + main-only preservation;
-- 11 historical GREEN commands copied verbatim as the provisional current-state regression set;
-- the 2 superseded historical commands remain preserved in the source-manifest baseline but are not current-state gate requirements;
-- exact allowed paths: 62 authority paths + 3 promotion metadata files;
-- explicit forbidden workflow/controller/schema paths.
+- 6 inherited historical GREEN commands with PASS evidence at A:
+  - `authority-identity-convergence-test-discovery`
+  - `authority-actor-projection`
+  - `authority-generic-trust-reconciliation`
+  - `authority-regression-reconciliation`
+  - `temporal-activation-expiry-revocation`
+  - `canonical-exact-attempt-authority-wiring`
+
+The remaining seven historical commands stay in the source manifest with their exact original specs and observed/superseded failure classification. They are not current-state gate requirements.
 
 No helper script under `scripts/audit` exists or is required.
 
@@ -274,3 +282,10 @@ Stop and report BLOCKED if any of the following occurs:
 - main moves relative to M before merge;
 - merge result tree differs from C2.
 
+
+
+## 14. Freeze decision
+
+The pre-freeze baseline is complete. The promotion candidate may now be frozen provided C1 -> candidate still touches only the three promotion metadata files and both byte manifests remain equal to their frozen sources.
+
+The candidate itself MUST NOT claim PROVEN. Only the protected orchestrator + canonical gate may advance it beyond PROMOTION_CANDIDATE.
