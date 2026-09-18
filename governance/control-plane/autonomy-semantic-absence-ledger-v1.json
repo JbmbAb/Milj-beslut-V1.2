@@ -1,0 +1,176 @@
+{
+  "schema_version": "semantic-absence-ledger-v1",
+  "ledger_id": "AUTONOMY-SEMANTIC-ABSENCE-01",
+  "policy_ref": "governance/control-plane/semantic-absence-falsification-v1.json",
+  "status": "OPEN",
+  "default_disposition": "UNRESOLVED",
+  "known_blockers": [
+    {
+      "id": "AUTO-PRE-01",
+      "description": "CapabilityScopeArtifact.constraints is currently not evaluated by verifyAuthorityAtDecisionTime(); placing an autonomy caveat there would be silently non-binding.",
+      "evidence_paths": [
+        "packages/mps-governance/src/capabilities/CapabilityScopeArtifact.ts",
+        "packages/mps-governance-runtime/src/AuthorityVerification.ts"
+      ],
+      "required_before_use": "Define and prove fail-closed constraint evaluation. Unknown, unsupported or unevaluated critical constraints must deny authority rather than be ignored."
+    },
+    {
+      "id": "AUTO-PRE-02",
+      "description": "Existing grants may have no autonomy caveat.",
+      "required_before_use": "Prove that absence resolves to the minimum autonomy ceiling and cannot silently mean unrestricted autonomy; assess compatibility with existing governed flows."
+    },
+    {
+      "id": "AUTO-PRE-03",
+      "description": "Authority and autonomy evaluation could otherwise be assembled from different grants.",
+      "required_before_use": "Any autonomy ceiling used by a gate must be derived from the exact same pinned capability grant ref/hash present in the authority verification closure for that action."
+    },
+    {
+      "id": "AUTO-PRE-04",
+      "description": "Delegation paths can attenuate authority but no autonomy-ceiling monotonicity rule exists.",
+      "required_before_use": "If autonomy constraints propagate through delegation, each child ceiling must be verifier-proven less than or equal to its parent ceiling across the complete canonical delegation path."
+    }
+  ],
+  "rows": [
+    {
+      "concept_id": "AUTO-L0-L6-SCALE",
+      "proposed_semantics": "Ordinal autonomy scale L0-L6 describing human-supervision topology only; no level grants action authority.",
+      "disposition": "UNRESOLVED",
+      "falsification_tests": [
+        "DERIVABLE from existing workflow/checkpoint or delegation semantics",
+        "SEMANTIC_DUPLICATE with existing execution/governance levels",
+        "MECHANISM_ONLY if the scale is only presentation over existing constraints",
+        "WRONG_ABSTRACTION_LEVEL if one ordinal collapses distinct supervision dimensions"
+      ],
+      "preconditions": [
+        "Define exact ordering and prove monotonicity",
+        "Define whether every adjacent level is strictly stronger in autonomous execution topology"
+      ],
+      "evidence_paths": []
+    },
+    {
+      "concept_id": "AUTO-CEILING-CONSTRAINT",
+      "proposed_semantics": "A critical, monotone autonomy ceiling attached to an already-authorized grant or equivalent canonical authority surface.",
+      "disposition": "UNRESOLVED",
+      "falsification_tests": [
+        "DERIVABLE from CapabilityScopeArtifact.constraints",
+        "SEMANTIC_DUPLICATE with CapabilityGrantArtifact or TrustDelegationArtifact constraints",
+        "MECHANISM_ONLY if the ceiling is merely a verifier projection"
+      ],
+      "preconditions": [
+        "AUTO-PRE-01",
+        "AUTO-PRE-02",
+        "AUTO-PRE-03",
+        "AUTO-PRE-04",
+        "Unknown constraint types must fail closed",
+        "Missing caveat must resolve to minimum autonomy ceiling"
+      ],
+      "evidence_paths": [
+        "packages/mps-governance/src/capabilities/CapabilityGrantArtifact.ts",
+        "packages/mps-governance/src/capabilities/CapabilityScopeArtifact.ts",
+        "packages/mps-governance-runtime/src/AuthorityVerification.ts",
+        "packages/mps-governance/src/actors/TrustDelegationArtifact.ts"
+      ]
+    },
+    {
+      "concept_id": "AUTONOMY-POLICY",
+      "proposed_semantics": "Canonical policy describing supervision constraints, execution-identity binding, checkpoint requirements and derivation rules without granting authority.",
+      "disposition": "UNRESOLVED",
+      "falsification_tests": [
+        "DERIVABLE from CapabilityPolicyArtifact, ExecutionIdentityArtifact and workflow contract semantics",
+        "SEMANTIC_DUPLICATE with an existing policy artifact",
+        "MECHANISM_ONLY if all fields are verifier configuration",
+        "WRONG_ABSTRACTION_LEVEL if policy is specialized to one agent or prematurely platform-generic"
+      ],
+      "preconditions": [
+        "Execution identity must bind load-bearing execution config",
+        "Model identity requirement must be derived from capability/execution dependency, never self-declared",
+        "Checkpoint applicability must derive from pinned workflow/action definitions"
+      ],
+      "evidence_paths": [
+        "docs/architecture/ADR-24-25-Execution-Identity-Attempt.md",
+        "docs/architecture/ADR-24-26-Capability-Trust-Connector.md"
+      ]
+    },
+    {
+      "concept_id": "AUTONOMY-DECISION",
+      "proposed_semantics": "Verifier result that derives the effective autonomy ceiling from pinned sources; it does not decide action authority or material action allowance.",
+      "disposition": "UNRESOLVED",
+      "falsification_tests": [
+        "DERIVABLE as a pure recomputable projection from policy/grant/evidence/runtime/checkpoint inputs",
+        "MECHANISM_ONLY as verifier output that need not be a canonical artifact",
+        "SEMANTIC_DUPLICATE with existing decision bindings or execution verification artifacts"
+      ],
+      "preconditions": [
+        "Every ceiling source must be pinned by ref/hash",
+        "Missing or unverifiable source maps to minimum ceiling",
+        "Verifier release ref/hash must be preserved because derivation semantics are versioned",
+        "Historical re-verification must retain every status attestation used at evaluated_at"
+      ],
+      "evidence_paths": [
+        "packages/mps-governance-runtime/src/AuthorityVerification.ts"
+      ]
+    },
+    {
+      "concept_id": "GOVERNED-ACTION-GATE-DECISION",
+      "proposed_semantics": "ALLOW/DENY decision that crosses independently verified authority, autonomy, runtime eligibility, evidence sufficiency and pinned action semantics.",
+      "disposition": "UNRESOLVED",
+      "falsification_tests": [
+        "SEMANTIC_DUPLICATE with AuthorityDecisionBinding",
+        "SEMANTIC_DUPLICATE with LU 04E authority-decision/persistence closure semantics",
+        "DERIVABLE as a recomputable binding rather than a new artifact family",
+        "MECHANISM_ONLY if it is only a transient mutation-boundary verifier result",
+        "WRONG_ABSTRACTION_LEVEL if a generic gate is introduced before a second concrete consumer exists"
+      ],
+      "preconditions": [
+        "Gate must prove authority and autonomy use the exact same grant ref/hash",
+        "required_autonomy_level must derive from pinned action definition, never request data",
+        "deny_reasons must be set-valued and deterministic",
+        "valid_until must equal the minimum valid-until/freshness bound of all load-bearing inputs",
+        "Mutation boundary must re-check freshness or require a fresh status attestation",
+        "Endpoint/mutation implementation must declare and enforce its own action_id"
+      ],
+      "evidence_paths": [
+        "packages/mps-governance-runtime/src/AuthorityVerification.ts",
+        "packages/mps-lu/src/governance/LuSourceAuthorityWiring.ts",
+        "packages/mps-lu/src/governance/GovernedAssessmentPersistence.ts"
+      ]
+    },
+    {
+      "concept_id": "GATE-CONSUMPTION",
+      "proposed_semantics": "Replay-prevention binding between one accepted gate decision and one mutation slot.",
+      "disposition": "UNRESOLVED",
+      "falsification_tests": [
+        "DERIVABLE from existing idempotency/mutation-slot semantics",
+        "SEMANTIC_DUPLICATE with an existing execution-attempt or persistence ledger",
+        "MECHANISM_ONLY if a unique transactional constraint provides the full semantics without a new artifact"
+      ],
+      "preconditions": [
+        "Consumption must be atomic with the mutation using a unique mutation-slot constraint in the same transaction",
+        "Define whether a failed mutation consumes the decision",
+        "TTL/freshness and consumption/replay prevention must remain separate semantics"
+      ],
+      "evidence_paths": []
+    },
+    {
+      "concept_id": "ACTION-DEFINITION-REGISTRY",
+      "proposed_semantics": "Canonical mapping from action_id to materiality, required autonomy level, mutation semantics and checkpoint applicability.",
+      "disposition": "UNRESOLVED",
+      "falsification_tests": [
+        "DERIVABLE from capability and workflow definitions",
+        "SEMANTIC_DUPLICATE with an existing capability/workflow registry",
+        "MECHANISM_ONLY if endpoint-owned constants plus canonical workflow policy already provide the same binding",
+        "WRONG_ABSTRACTION_LEVEL if a platform-wide registry is generalized before multiple consumers require it"
+      ],
+      "preconditions": [
+        "Unknown action/class/materiality must fail closed as material",
+        "Changing materiality or required autonomy level is itself a governed material mutation",
+        "Entries require canonical identity, pinning, versioning and authority",
+        "Mutation boundary must reject gate decisions for action_id values other than the endpoint's declared action"
+      ],
+      "evidence_paths": [
+        "docs/architecture/ADR-24-19-Workflow-Contract.md",
+        "docs/architecture/ADR-24-26-Capability-Trust-Connector.md"
+      ]
+    }
+  ]
+}
