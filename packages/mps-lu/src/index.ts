@@ -29,7 +29,9 @@ export * from "./artifacts/CanonicalPropertyArtifacts";
 export * from "./artifacts/ProductViewerCapabilityArtifact";
 export * from "./artifacts/ViewerIdentityArtifact";
 export * from "./governance/GovernedAssessmentPersistence";
+export * from "./governance/LuExecutionAuthorityLifecycle";
 export * from "./governance/LuSourceAuthorityEvidence";
+export * from "./governance/LuSourceAuthorityTemporalStatus";
 export * from "./governance/LuSourceAuthorityWiring";
 export * from "./viewer/ViewerKernel";
 
