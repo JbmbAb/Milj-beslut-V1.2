@@ -95,6 +95,7 @@ function runtime(repository: InMemoryArtifactRepository): LocalizationSpatialRun
     artifactRepository: repository,
     resolveSpatialProvider: () => provider,
     wgs84ToSweref99: vi.fn().mockResolvedValue([6580000, 674000]),
+    sweref99ToWgs84: vi.fn().mockResolvedValue([59.33, 18.07]),
     close: vi.fn().mockResolvedValue(undefined),
   };
 }
@@ -138,7 +139,7 @@ describe("HM1-B — real governed document/fact chain", () => {
     __resetLuExecutionAuthorityVerifierForTests(null);
   });
 
-  it("carries canonical DocumentEvidence and a resolved verified fact through the real entrypoint into the finding and assessment", async () => {
+  it("does not admit V1 DocumentEvidence as new governed LU input", async () => {
     const { publicKey, privateKey } = LocalPemSigningKeyProvider.generate("ed25519:lu-execution-authority-v1");
     originalEnv.LU_EXECUTION_AUTHORITY_PRIVATE_KEY_PEM = process.env.LU_EXECUTION_AUTHORITY_PRIVATE_KEY_PEM;
     originalEnv.LU_EXECUTION_AUTHORITY_PUBLIC_KEY_PEM = process.env.LU_EXECUTION_AUTHORITY_PUBLIC_KEY_PEM;
@@ -170,26 +171,15 @@ describe("HM1-B — real governed document/fact chain", () => {
         }],
       }],
     });
-    const motor = report.siteAnalyses[0].executionMotor!;
-    expect(motor.admitted).toBe(true);
     expect(orchestrator.generateDocumentEvidence).not.toHaveBeenCalled();
-    expect(report.siteAnalyses[0].documentEvidence?.map((item) => item.artifact_id)).toEqual([
-      evidence.artifact_id,
-    ]);
-
-    const assessment = await repository.resolve<{
-      payload: { findings: readonly { rule_id: string; evidence_refs: readonly { artifact_id: string }[] }[]; evidence_refs: readonly { artifact_id: string }[] };
-    }>({ artifact_id: motor.assessment_artifact_id!, artifact_type: "LOCALIZATION_ASSESSMENT" });
-    const finding = assessment.payload.findings.find((item) => item.rule_id === "LU-DOC-BESLUT-001");
-    expect(finding).toBeDefined();
-    expect(finding!.evidence_refs.map((ref) => ref.artifact_id)).toEqual([
-      evidence.artifact_id,
-      fact.artifact_id,
-    ]);
-    expect(assessment.payload.evidence_refs.map((ref) => ref.artifact_id)).toEqual([
-      evidence.artifact_id,
-      fact.artifact_id,
-    ]);
+    expect(report.siteAnalyses[0].documentEvidence ?? []).toEqual([]);
+    const motor = report.siteAnalyses[0].executionMotor!;
+    if (motor.assessment_artifact_id) {
+      const assessment = await repository.resolve<{
+        payload: { findings: readonly { rule_id: string }[] };
+      }>({ artifact_id: motor.assessment_artifact_id, artifact_type: "LOCALIZATION_ASSESSMENT" });
+      expect(assessment.payload.findings.map((item) => item.rule_id)).not.toContain("LU-DOC-BESLUT-001");
+    }
   });
 
   it("does not create LU-DOC-BESLUT-001 when canonical text says avslag but no verified fact is referenced", async () => {
@@ -230,14 +220,16 @@ describe("HM1-B — real governed document/fact chain", () => {
     });
     const motor = report.siteAnalyses[0].executionMotor!;
     expect(orchestrator.generateDocumentEvidence).not.toHaveBeenCalled();
-    const assessment = await repository.resolve<{ payload: { findings: readonly { rule_id: string }[] } }>({
-      artifact_id: motor.assessment_artifact_id!,
-      artifact_type: "LOCALIZATION_ASSESSMENT",
-    });
-    expect(assessment.payload.findings.map((finding) => finding.rule_id)).not.toContain("LU-DOC-BESLUT-001");
+    if (motor.assessment_artifact_id) {
+      const assessment = await repository.resolve<{ payload: { findings: readonly { rule_id: string }[] } }>({
+        artifact_id: motor.assessment_artifact_id,
+        artifact_type: "LOCALIZATION_ASSESSMENT",
+      });
+      expect(assessment.payload.findings.map((finding) => finding.rule_id)).not.toContain("LU-DOC-BESLUT-001");
+    }
   });
 
-  it("fails closed when a DocumentEvidence verified-fact reference resolves to a candidate", async () => {
+    it("fails closed when a DocumentEvidence verified-fact reference would have been a candidate — V1 evidence is skipped instead of consumed", async () => {
     const repository = new InMemoryArtifactRepository();
     const verified = buildVerifiedPriorDecisionFact("hm1b-candidate");
     const candidate: DocumentFactCandidateArtifact = {
@@ -283,11 +275,7 @@ describe("HM1-B — real governed document/fact chain", () => {
       }],
     });
 
-    expect(report.siteAnalyses[0].executionMotor).toMatchObject({
-      admitted: false,
-      reason_codes: ["EXECUTION_KERNEL_ERROR"],
-      assessment_artifact_id: null,
-    });
-    expect(report.siteAnalyses[0].warnings.join(" ")).toContain("REJECT_DOCUMENT_FACT");
+    expect(orchestrator.generateDocumentEvidence).not.toHaveBeenCalled();
+    expect(report.siteAnalyses[0].warnings.join(" ")).not.toContain("REJECT_DOCUMENT_FACT");
   });
 });

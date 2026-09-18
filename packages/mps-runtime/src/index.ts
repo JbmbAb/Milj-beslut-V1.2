@@ -16,6 +16,7 @@ export * from "./kernel/ExecutionKernel";
 export * from "./kernel/FrozenAdmissionAdapter";
 export * from "./kernel/RuntimeAdmissionKernel";
 export * from "./repository/InMemoryArtifactRepository";
+export * from "./repository/ArtifactCatalog";
 export {
   MemoryByteStorageBackend,
   CasBackedArtifactRepository,

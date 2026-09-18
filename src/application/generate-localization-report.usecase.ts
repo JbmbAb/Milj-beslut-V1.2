@@ -18,18 +18,27 @@ import { logger } from '../../server/logger';
 import type { AuthUser } from '../../server/security/types';
 import {
   LU_SPATIAL_CAPABILITY_KEY,
-  orchestrator,
   runCanonicalLuProductAssessment,
   deriveLuExecutionSeed,
   createLuRegistryRuntime,
-  type DocumentEvidenceArtifact,
+  type AnyDocumentEvidenceArtifact,
   type AssessmentFinding,
 } from '@miljobeslut/mps-lu';
+import {
+  isDocumentEvidenceV2,
+} from '../../packages/mps-lu/src/artifacts/DocumentEvidenceArtifactV2';
 import {
   isVerifiedDocumentFact,
   type DocumentFactCandidateArtifact,
   type VerifiedDocumentFactArtifact,
 } from '../../packages/mps-data-governance/src/DocumentFactArtifact';
+import {
+  isVerifiedDocumentFactContentHashValid,
+} from '../../packages/mps-data-governance/src/verifyRealDocumentFactCandidate';
+import {
+  isVerifiedDocumentFactV2ContentHashValid,
+  type VerifiedDocumentFactArtifactV2,
+} from '../../packages/mps-data-governance/src/VerifiedDocumentFactV2';
 import { enqueueAdmittedLuTicket } from './enqueue-lu-execution-ticket';
 import {
   createLocalizationSpatialRuntime,
@@ -39,17 +48,22 @@ import { resolveCanonicalProjectContext } from './resolveCanonicalProjectContext
 import { resolveCanonicalProductRelease } from '../../server/modules/release/productReleaseRuntime';
 import { registerAssessmentProjection } from '../../server/modules/localization/assessmentProjection';
 import { resolveOrDeriveCurrentLocalizationGeometry } from '../../server/modules/localization/localizationGeometryService';
+import {
+  resolveGovernedDocumentEvidenceForLuAssessment,
+  type GovernedDocumentEvidenceClientRef,
+} from './resolveGovernedDocumentEvidenceForLuAssessment';
 
 export interface SiteAlternative {
   id: string;
   name?: string;
   lat: number;
   lng: number;
-  /** Canonical, governed DocumentEvidence selected for this site assessment. */
-  documentEvidenceRefs?: readonly {
-    artifact_id: string;
-    artifact_type: 'DOCUMENT_EVIDENCE';
-  }[];
+  /**
+   * Optional additional governed DocumentEvidence refs (scripts/tests). LuWorkspace does not
+   * send these — production generate-report resolves V2 evidence from the selected property
+   * via PropertyBinding V3. V1 refs are not eligible as new governed LU input.
+   */
+  documentEvidenceRefs?: readonly GovernedDocumentEvidenceClientRef[];
 }
 
 export interface SluObservation {
@@ -228,45 +242,16 @@ export interface LocalizationReport {
   humanInTheLoop: string;
 }
 
-async function resolveCanonicalDocumentEvidence(
-  refs: SiteAlternative['documentEvidenceRefs'],
-  expectedPropertyId: string,
-  repository: LocalizationSpatialRuntime['artifactRepository'],
-): Promise<DocumentEvidenceArtifact[]> {
-  const resolved: DocumentEvidenceArtifact[] = [];
-  for (const ref of refs ?? []) {
-    if (ref.artifact_type !== 'DOCUMENT_EVIDENCE') {
-      throw new Error(`REJECT_DOCUMENT_EVIDENCE: '${ref.artifact_id}' has the wrong artifact type`);
-    }
-    const canonical = await repository.resolve<DocumentEvidenceArtifact>({
-      artifact_id: ref.artifact_id,
-      artifact_type: ref.artifact_type,
-    });
-    if (
-      canonical.artifact_id !== ref.artifact_id ||
-      canonical.artifact_type !== 'DOCUMENT_EVIDENCE'
-    ) {
-      throw new Error(
-        `REJECT_DOCUMENT_EVIDENCE: '${ref.artifact_id}' did not resolve to canonical DocumentEvidence`,
-      );
-    }
-    if (canonical.payload.property_ref.artifact_id !== expectedPropertyId) {
-      throw new Error(
-        `REJECT_DOCUMENT_EVIDENCE: '${ref.artifact_id}' is not bound to '${expectedPropertyId}'`,
-      );
-    }
-    resolved.push(canonical);
-  }
-  return resolved;
-}
-
 async function resolveVerifiedDocumentFacts(
-  documentEvidence: readonly DocumentEvidenceArtifact[],
+  documentEvidence: readonly AnyDocumentEvidenceArtifact[],
   repository: LocalizationSpatialRuntime['artifactRepository'],
-): Promise<VerifiedDocumentFactArtifact[]> {
+): Promise<(VerifiedDocumentFactArtifact | VerifiedDocumentFactArtifactV2)[]> {
   const refs = new Map<string, { artifact_id: string; artifact_type: string }>();
   for (const evidence of documentEvidence) {
-    for (const ref of evidence.payload.fact_refs ?? []) {
+    const evidenceRefs = isDocumentEvidenceV2(evidence)
+      ? evidence.payload.verified_fact_refs
+      : (evidence.payload.fact_refs ?? []);
+    for (const ref of evidenceRefs) {
       if (ref.artifact_type !== 'VERIFIED_DOCUMENT_FACT') {
         throw new Error(
           `REJECT_DOCUMENT_FACT: '${ref.artifact_id}' is not a VERIFIED_DOCUMENT_FACT`,
@@ -279,12 +264,18 @@ async function resolveVerifiedDocumentFacts(
   const facts: VerifiedDocumentFactArtifact[] = [];
   for (const ref of refs.values()) {
     const resolved = await repository.resolve<
-      DocumentFactCandidateArtifact | VerifiedDocumentFactArtifact
+      DocumentFactCandidateArtifact | VerifiedDocumentFactArtifact | VerifiedDocumentFactArtifactV2
     >(ref);
     if (!isVerifiedDocumentFact(resolved) || resolved.artifact_id !== ref.artifact_id) {
       throw new Error(
         `REJECT_DOCUMENT_FACT: '${ref.artifact_id}' did not resolve to the referenced verified fact`,
       );
+    }
+    const hashValid = (resolved as Partial<VerifiedDocumentFactArtifactV2>).contract_version === 'verified-document-fact-v2'
+      ? isVerifiedDocumentFactV2ContentHashValid(resolved as VerifiedDocumentFactArtifactV2)
+      : isVerifiedDocumentFactContentHashValid(resolved);
+    if (!hashValid) {
+      throw new Error(`REJECT_DOCUMENT_FACT: '${ref.artifact_id}' content_hash is invalid`);
     }
     facts.push(resolved);
   }
@@ -687,25 +678,15 @@ async function analyzeSite(
       localization_geometry_ref: locationRef,
     };
 
-    try {
-      // Canonical refs are the only governed rule input. The legacy provider remains a
-      // presentation-only fallback when no governed evidence was selected for this assessment --
-      // now bound to the real canonical property/geometry, never a synthetic lat/lng bbox.
-      if (site.documentEvidenceRefs?.length) {
-        documentEvidence = [];
-      } else {
-        documentEvidence = await orchestrator.generateDocumentEvidence(
-          propRef,
-          // The real canonical property geometry may be a MultiPolygon (multi-part parcels);
-          // CanonicalGeometry's coordinates type only declares Polygon's 3-level nesting. The
-          // runtime shape is valid GeoJSON either way -- this is a pre-existing type-only gap in
-          // the shared domain type, not a runtime concern for this call site.
-          canonicalContext.geometry as unknown as Parameters<typeof orchestrator.generateDocumentEvidence>[1],
-        );
-      }
-    } catch (err) {
-      logger.warn(`Failed to generate document evidence for site ${site.id}`, { err: String(err) });
-    }
+    const governedResolution = await resolveGovernedDocumentEvidenceForLuAssessment({
+      propertyContextArtifactId: propRef.artifact_id,
+      documentEvidenceRefs: site.documentEvidenceRefs,
+      repository: repo,
+    });
+    const governedDocumentEvidence = governedResolution.evidence;
+    documentEvidence = [...governedDocumentEvidence];
+    dataSources.push(governedResolution.coverage);
+    warnings.push(...governedResolution.warnings);
 
     // Magic Moment spatial contract: fixed 500 m buffer for water/ebh/protected_area.
     // Do not inherit legacy distanceToWater fallback (200 m) — that collapses EBH/protected hits.
@@ -732,14 +713,6 @@ async function analyzeSite(
     };
 
     const mpsEvidence = await provider.query(queryRequest);
-    const governedDocumentEvidence = await resolveCanonicalDocumentEvidence(
-      site.documentEvidenceRefs,
-      propRef.artifact_id,
-      repo,
-    );
-    if (site.documentEvidenceRefs?.length) {
-      documentEvidence = governedDocumentEvidence;
-    }
     const verifiedDocumentFacts = await resolveVerifiedDocumentFacts(governedDocumentEvidence, repo);
     const assessmentEvidenceRefs = Array.from(
       new Map(

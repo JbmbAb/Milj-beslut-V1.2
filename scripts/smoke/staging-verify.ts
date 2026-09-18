@@ -8,7 +8,7 @@
  *   1. Inga mock/demo-flaggor är aktiva
  *   2. Kritiska nycklar finns
  *   3. Staging-URL är satt
- *   4. BankID är konfigurerat med riktiga certifikat (ej mock)
+ *   4. BankID är inte mockat; dedikerad CI-smoke-auth är inte produkt-BankID-bevis
  *
  * Kör: npx tsx scripts/smoke/staging-verify.ts
  * Eller: npm run smoke:staging-verify
@@ -51,17 +51,22 @@ const allowBankIdPending = isTrue('STAGING_VERIFY_ALLOW_BANKID_PENDING');
 
 // ── 1. Mock-flaggor ─────────────────────────────────────────────────────────
 
+if (env('BANKID_MODE').toLowerCase() === 'mock') {
+  fail('BANKID_MODE', 'mock – staging proof får inte använda BankID mock-läge');
+} else if (env('BANKID_MODE')) {
+  pass('BANKID_MODE', `${env('BANKID_MODE')} – OK`);
+}
+
 if (isTrue('BANKID_MOCK_MODE')) {
-  if (allowBankIdPending) {
-    warn(
-      'BANKID_MOCK_MODE',
-      'Är true men STAGING_VERIFY_ALLOW_BANKID_PENDING=true – tillfälligt tillåtet tills avtal/cert är klart',
-    );
-  } else {
-    fail('BANKID_MOCK_MODE', 'Är true – måste vara false i staging för äkta BankID');
-  }
+  fail('BANKID_MOCK_MODE', 'Är true – staging proof får inte använda BankID mock-läge');
 } else {
   pass('BANKID_MOCK_MODE', 'false – OK');
+}
+
+if (isTrue('ALLOW_DEV_LOGIN')) {
+  fail('ALLOW_DEV_LOGIN', 'true – staging proof får inte använda dev login');
+} else {
+  pass('ALLOW_DEV_LOGIN', 'false – OK');
 }
 
 if (isTrue('AUTHORITY_MOCK_MODE')) {
@@ -99,7 +104,8 @@ if (isTrue('LANTMATERIET_DEMO_MODE')) {
 const requiredKeys: Array<{ key: string; label: string; allowEmpty?: boolean }> = [
   { key: 'JWT_ACCESS_SECRET', label: 'JWT Access Secret' },
   { key: 'JWT_REFRESH_SECRET', label: 'JWT Refresh Secret' },
-  { key: 'ADMIN_CONSOLE_PASSWORD', label: 'Admin lösenord' },
+  { key: 'E2E_ADMIN_USERNAME', label: 'Dedikerad staging E2E admin-användare' },
+  { key: 'E2E_ADMIN_PASSWORD', label: 'Dedikerat staging E2E admin-lösenord' },
   { key: 'DATABASE_URL', label: 'Databas-URL' },
 ];
 
@@ -111,6 +117,20 @@ for (const { key, label } of requiredKeys) {
     warn(key, `${label} verkar vara ett dev-värde – byt till staging-specifikt`);
   } else {
     pass(key, `${label} är satt`);
+  }
+}
+
+pass(
+  'STAGING_RELEASE_SMOKE_AUTH',
+  'CI_SMOKE_AUTHORITY via E2E_ADMIN_USERNAME/E2E_ADMIN_PASSWORD – inte produkt-BankID-auktoritet',
+);
+pass('PRODUCT_BANKID_AUTH', 'NOT_TESTED_BY_THIS_WORKFLOW');
+
+for (const key of ['LU_FIXTURE_PATH', 'FIXTURE_SPATIAL_EVIDENCE', 'SYNTHETIC_EVIDENCE_FALLBACK']) {
+  if (env(key)) {
+    fail(key, 'Satt – staging proof får inte använda fixture/synthetic evidence path');
+  } else {
+    pass(key, 'absent – OK');
   }
 }
 

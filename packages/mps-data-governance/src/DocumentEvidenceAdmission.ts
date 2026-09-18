@@ -1,5 +1,6 @@
 import { verifyArtifactAttestation } from "@miljobeslut/mimers-brunn-core";
-import type { ArtifactAttestation, CASRepository, SigningKeyProvider } from "@miljobeslut/mimers-brunn-core";
+import type { ArtifactAttestation, CASRepository, VerificationKeyProvider } from "@miljobeslut/mimers-brunn-core";
+import type { ActorReference } from "../../mps-core/src/types";
 
 /**
  * DOCUMENT-EVIDENCE-CANONICAL-ADMISSION-V1 (resumed on the V2 contract).
@@ -44,8 +45,13 @@ export interface DocumentEvidenceAdmissionPredicate {
   readonly action: typeof DOCUMENT_EVIDENCE_ADMISSION_ACTION;
   readonly evidence_artifact_id: string;
   readonly evidence_content_hash: string;
-  readonly approver_actor_id: string;
-  readonly approver_role: string;
+  /** Derived from a verified GovernanceReviewerGrant; never request-supplied authority. */
+  readonly approver_actor_ref: ActorReference;
+  readonly approver_role: "GOVERNANCE_REVIEWER";
+  /** Repeats the V2 evidence semantic set in the signed admission predicate. */
+  readonly verified_fact_refs: readonly AdmittableRef[];
+  /** The independently reviewed property applicability claim. */
+  readonly property_binding_ref: AdmittableRef;
   readonly governance_release: string;
   readonly attestation_schema_version: number;
   readonly signer_key_id: string;
@@ -87,7 +93,7 @@ export interface DocumentEvidenceAdmissionResult {
 export class DocumentEvidenceAdmitter {
   constructor(
     private readonly cas: CASRepository,
-    private readonly signing: SigningKeyProvider,
+    private readonly verification: VerificationKeyProvider,
   ) {}
 
   async admit(
@@ -127,17 +133,22 @@ export class DocumentEvidenceAdmitter {
     const recomputed = recomputeContentHash(evidence);
     const contentHashValid = recomputed === evidence.content_hash.value;
 
-    const signatureValid = await verifyArtifactAttestation(attestation, this.signing);
-    const signerKeyBound = predicate.signer_key_id === this.signing.keyId && attestation.signer === this.signing.keyId;
+    const signatureValid = await verifyArtifactAttestation(attestation, this.verification);
+    const signerKeyBound = predicate.signer_key_id === this.verification.keyId && attestation.signer === this.verification.keyId;
     const actionBound = predicate.action === DOCUMENT_EVIDENCE_ADMISSION_ACTION;
     const artifactBound = predicate.evidence_artifact_id === evidence.artifact_id;
     const contentHashBound = predicate.evidence_content_hash === evidence.content_hash.value;
     const releaseBound = predicate.governance_release === governanceRelease;
-    const approverActorId = predicate.approver_actor_id;
+    const approverActor = predicate.approver_actor_ref;
     const approverRole = predicate.approver_role;
     const approverBound =
-      typeof approverActorId === "string" && approverActorId.length > 0 &&
-      typeof approverRole === "string" && approverRole.length > 0;
+      typeof approverActor?.identity_ref?.id === "string" && approverActor.identity_ref.id.length > 0 &&
+      typeof approverActor.identity_ref.content_hash?.digest === "string" && approverActor.identity_ref.content_hash.digest.length > 0 &&
+      approverActor.role === "GOVERNANCE_REVIEWER" && approverRole === "GOVERNANCE_REVIEWER";
+    const predicateFacts = predicate.verified_fact_refs;
+    const factRefsBound = sameSemanticRefSet(predicateFacts, evidence.payload.verified_fact_refs);
+    const propertyBindingBound = isAdmittableRef(predicate.property_binding_ref);
+    const subjectBound = attestation.subjectDigest === `sha256:${evidence.content_hash.value}`;
 
     const checks: ReadonlyArray<readonly [boolean, string]> = [
       [
@@ -148,11 +159,14 @@ export class DocumentEvidenceAdmitter {
       ],
       [signatureValid, "Attestation's cryptographic signature is invalid."],
       [signerKeyBound, "Attestation is not signed with the expected governance key."],
+      [subjectBound, "Attestation subject digest does not match the evidence content hash."],
       [actionBound, `Attestation action is not '${DOCUMENT_EVIDENCE_ADMISSION_ACTION}'.`],
       [artifactBound, "Attestation is bound to a different evidence artifact than the one being admitted."],
       [contentHashBound, "Attestation's evidence_content_hash does not match the evidence's current content_hash."],
       [releaseBound, "Attestation's governance_release does not match the call's value."],
-      [approverBound, "Attestation lacks a valid approver_actor_id/approver_role in the signed predicate."],
+      [approverBound, "Attestation lacks a verified GOVERNANCE_REVIEWER approver actor/reference."],
+      [factRefsBound, "Attestation's verified fact set does not exactly bind the evidence's verified fact set."],
+      [propertyBindingBound, "Attestation lacks a complete property binding reference."],
     ];
     const failed = checks.find(([ok]) => !ok);
     if (failed) {
@@ -164,4 +178,21 @@ export class DocumentEvidenceAdmitter {
 
     return { cas_content_hash: casResult.hash, is_duplicate: casResult.existed };
   }
+}
+
+function isAdmittableRef(value: unknown): value is AdmittableRef {
+  if (!value || typeof value !== "object") return false;
+  const ref = value as Partial<AdmittableRef>;
+  return typeof ref.artifact_id === "string" && ref.artifact_id.length > 0 &&
+    typeof ref.artifact_type === "string" && ref.artifact_type.length > 0 &&
+    typeof ref.content_hash === "string" && ref.content_hash.length > 0;
+}
+
+function sameSemanticRefSet(candidate: unknown, expected: readonly AdmittableRef[]): boolean {
+  if (!Array.isArray(candidate) || candidate.some((ref) => !isAdmittableRef(ref))) return false;
+  const key = (ref: AdmittableRef) => `${ref.artifact_id}\u0000${ref.artifact_type}\u0000${ref.content_hash}`;
+  const candidateKeys = candidate.map(key).sort();
+  const expectedKeys = expected.map(key).sort();
+  if (candidateKeys.length !== expectedKeys.length) return false;
+  return candidateKeys.every((value, index) => value === expectedKeys[index]);
 }

@@ -144,6 +144,10 @@ function buildMockLaunchUrl(orderRef: string): string {
   return `/api/auth/bankid/mock/launch/${encodeURIComponent(orderRef)}`;
 }
 
+function buildBankIdLaunchUrl(autoStartToken: string): string {
+  return `bankid:///?autostarttoken=${encodeURIComponent(autoStartToken)}&redirect=null`;
+}
+
 function buildMockCompletionData(bankidId: string, endUserIp: string) {
   const now = new Date();
   const givenName = process.env.BANKID_MOCK_GIVEN_NAME || 'Mock';
@@ -251,7 +255,11 @@ export async function initiateBankIdAuth(
   };
   const response = await postBankId<typeof payload, BankIdAuthResponse>('/auth', payload);
   await persistentReplayProtection.registerSession(response.orderRef, endUserIp, identityEnvironmentForCurrentMode());
-  return response;
+  return {
+    ...response,
+    launchMode: 'bankid',
+    launchUrl: buildBankIdLaunchUrl(response.autoStartToken),
+  };
 }
 
 /**

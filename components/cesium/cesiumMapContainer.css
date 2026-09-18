@@ -1,0 +1,9 @@
+.cesium-map-container,
+.cesium-map-container .cesium-viewer,
+.cesium-map-container .cesium-viewer-cesiumWidgetContainer,
+.cesium-map-container .cesium-widget,
+.cesium-map-container .cesium-widget canvas {
+  width: 100%;
+  height: 100%;
+  display: block;
+}

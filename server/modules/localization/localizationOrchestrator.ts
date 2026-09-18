@@ -65,7 +65,27 @@ function parseSiteAlternatives(raw: unknown): SiteAlternative[] | null {
         const ref = value as Record<string, unknown>;
         const artifactId = String(ref.artifact_id || '').trim();
         if (!artifactId || ref.artifact_type !== 'DOCUMENT_EVIDENCE') return null;
-        parsedRefs.push({ artifact_id: artifactId, artifact_type: 'DOCUMENT_EVIDENCE' });
+        const parsed: NonNullable<SiteAlternative['documentEvidenceRefs']>[number] = {
+          artifact_id: artifactId,
+          artifact_type: 'DOCUMENT_EVIDENCE',
+        };
+        if (typeof ref.content_hash === 'string' && ref.content_hash.trim()) {
+          parsed.content_hash = ref.content_hash.trim();
+        }
+        if (ref.property_binding_ref !== undefined) {
+          if (!ref.property_binding_ref || typeof ref.property_binding_ref !== 'object') return null;
+          const bindingRef = ref.property_binding_ref as Record<string, unknown>;
+          const bindingId = String(bindingRef.artifact_id || '').trim();
+          if (!bindingId || bindingRef.artifact_type !== 'document_evidence_property_binding') return null;
+          parsed.property_binding_ref = {
+            artifact_id: bindingId,
+            artifact_type: 'document_evidence_property_binding',
+            ...(typeof bindingRef.content_hash === 'string' && bindingRef.content_hash.trim()
+              ? { content_hash: bindingRef.content_hash.trim() }
+              : {}),
+          };
+        }
+        parsedRefs.push(parsed);
       }
       documentEvidenceRefs = parsedRefs;
     }

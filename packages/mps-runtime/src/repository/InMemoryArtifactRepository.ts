@@ -1,12 +1,13 @@
 import type { ContentHash } from "../../../mps-compliance/src/artifacts/ContentHash.js";
 import type { ArtifactReference } from "../../../mps-compliance/src/artifacts/ArtifactReference.js";
 import type { ArtifactRepositoryPort } from "../kernel/ExecutionKernel.js";
+import type { ArtifactCatalogPort } from "./ArtifactCatalog.js";
 
 /**
  * In-memory ArtifactRepository for kernel tests and early strangler.
  * Production wiring uses Mimers/CAS-backed store (Fas 1).
  */
-export class InMemoryArtifactRepository implements ArtifactRepositoryPort {
+export class InMemoryArtifactRepository implements ArtifactRepositoryPort, ArtifactCatalogPort {
   private readonly store = new Map<string, { content_hash: ContentHash; body: unknown }>();
 
   async put(artifact: {
@@ -30,5 +31,9 @@ export class InMemoryArtifactRepository implements ArtifactRepositoryPort {
       throw new Error(`Artifact not found: ${ref.artifact_id}`);
     }
     return hit.body as T;
+  }
+
+  async listArtifactIds(): Promise<readonly string[]> {
+    return [...this.store.keys()];
   }
 }

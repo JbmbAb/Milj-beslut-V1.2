@@ -74,6 +74,57 @@ describe("Mimers CAS artifact repository", () => {
     expect(Buffer.compare(Buffer.from(viaIndex!), Buffer.from(direct!))).toBe(0);
   });
 
+  it("lists artifact ids from the id index as a locator, not as content authority", async () => {
+    const content_hash = sha256ContentHash({ listed: true });
+    const artifact_id = "catalog-me";
+    const repo = (await createKernelArtifactRepository({
+      env: mimersEnv(),
+      forceMimers: true,
+    })) as CasBackedArtifactRepository;
+
+    await repo.put({
+      artifact_id,
+      content_hash,
+      body: { listed: true },
+    });
+
+    const ids = await repo.listArtifactIds();
+    expect(ids).toContain(artifact_id);
+    const resolved = await repo.resolve<{ listed: boolean }>({
+      artifact_id,
+      artifact_type: "execution_manifest",
+    });
+    expect(resolved).toEqual({ listed: true });
+  });
+
+  it("recovers artifact ids from legacy hash-only index files via the CAS envelope", async () => {
+    const content_hash = sha256ContentHash({ legacy: true });
+    const artifact_id = "legacy-idx";
+    const repo = (await createKernelArtifactRepository({
+      env: mimersEnv(),
+      forceMimers: true,
+    })) as CasBackedArtifactRepository;
+
+    await repo.put({
+      artifact_id,
+      content_hash,
+      body: { legacy: true },
+    });
+
+    const backend = getCachedMimersBackendForTests()!;
+    const casHash = await backend.resolveContentAddress(artifact_id);
+    expect(casHash).toBeTruthy();
+    const indexDir = path.join(root, "cas", "artifact-id-index");
+    const idxPath = path.join(
+      indexDir,
+      `${createHash("sha256").update(artifact_id).digest("hex")}.idx`,
+    );
+    await fs.writeFile(idxPath, JSON.stringify({ hash: casHash }), "utf8");
+
+    const ids = await repo.listArtifactIds();
+    expect(ids).toContain(artifact_id);
+  });
+
   it("rebuilds id→hash index from CAS after index loss", async () => {
     const content_hash = sha256ContentHash({ n: 1 });
     const artifact_id = "rebuild-me";

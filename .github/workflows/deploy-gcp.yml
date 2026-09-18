@@ -24,6 +24,14 @@ on:
         default: staging
         type: choice
         options: [staging, production]
+      release_ref:
+        description: Immutable tag or pinned ref to deploy
+        required: true
+        type: string
+      expected_sha:
+        description: Expected commit SHA resolved by release_ref
+        required: true
+        type: string
 
 concurrency:
   group: deploy-gcp-${{ github.event.inputs.environment || 'staging' }}
@@ -68,7 +76,68 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: ${{ github.event.workflow_run.head_sha || github.sha }}
+          ref: ${{ inputs.release_ref || github.event.workflow_run.head_sha || github.sha }}
+          fetch-depth: 0
+
+      - name: Verify exact staging ref
+        shell: bash
+        env:
+          RELEASE_REF: ${{ inputs.release_ref || github.event.workflow_run.head_sha || github.sha }}
+          EXPECTED_SHA: ${{ inputs.expected_sha || github.event.workflow_run.head_sha || github.sha }}
+        run: |
+          set -euo pipefail
+
+          if [ -z "$RELEASE_REF" ]; then
+            echo "release_ref saknas."
+            exit 1
+          fi
+
+          if [ -z "$EXPECTED_SHA" ]; then
+            echo "expected_sha saknas."
+            exit 1
+          fi
+
+          REF_MATCHES="$(git ls-remote --refs origin "$RELEASE_REF" "refs/heads/$RELEASE_REF" "refs/tags/$RELEASE_REF" | awk '{print $1}' | sort -u)"
+          REF_MATCH_COUNT="$(printf '%s\n' "$REF_MATCHES" | sed '/^$/d' | wc -l | tr -d ' ')"
+
+          if [ "$REF_MATCH_COUNT" != "1" ]; then
+            echo "release_ref must resolve to exactly one remote ref; got $REF_MATCH_COUNT"
+            printf '%s\n' "$REF_MATCHES"
+            exit 1
+          fi
+
+          RESOLVED_REF_SHA="$REF_MATCHES"
+          CHECKOUT_SHA="$(git rev-parse HEAD)"
+
+          echo "EXPECTED_SHA=$EXPECTED_SHA"
+          echo "RESOLVED_REF_SHA=$RESOLVED_REF_SHA"
+          echo "CHECKOUT_SHA=$CHECKOUT_SHA"
+
+          if [ "$RESOLVED_REF_SHA" != "$EXPECTED_SHA" ]; then
+            echo "release_ref resolves to $RESOLVED_REF_SHA, expected $EXPECTED_SHA"
+            exit 1
+          fi
+
+          if [ "$CHECKOUT_SHA" != "$EXPECTED_SHA" ]; then
+            echo "checkout HEAD is $CHECKOUT_SHA, expected $EXPECTED_SHA"
+            exit 1
+          fi
+
+          {
+            echo "RELEASE_REF=$RELEASE_REF"
+            echo "EXPECTED_SHA=$EXPECTED_SHA"
+            echo "RESOLVED_REF_SHA=$RESOLVED_REF_SHA"
+            echo "CHECKOUT_SHA=$CHECKOUT_SHA"
+          } >> "$GITHUB_ENV"
+
+          {
+            echo "## Exact SHA staging identity"
+            echo ""
+            echo "- Release ref: $RELEASE_REF"
+            echo "- Expected SHA: $EXPECTED_SHA"
+            echo "- Resolved ref SHA: $RESOLVED_REF_SHA"
+            echo "- Checkout SHA: $CHECKOUT_SHA"
+          } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Authenticate to Google Cloud
         id: auth
@@ -88,8 +157,8 @@ jobs:
           docker build \
             -f Dockerfile.gcp \
             --target production \
-            --build-arg CACHEBUST=${{ github.sha }} \
-            --tag ${{ env.REGION }}-docker.pkg.dev/${{ env.PROJECT_ID }}/${{ env.REPO }}/${{ env.SERVICE }}:${{ github.sha }} \
+            --build-arg CACHEBUST="${CHECKOUT_SHA}" \
+            --tag ${{ env.REGION }}-docker.pkg.dev/${{ env.PROJECT_ID }}/${{ env.REPO }}/${{ env.SERVICE }}:${CHECKOUT_SHA} \
             --tag ${{ env.REGION }}-docker.pkg.dev/${{ env.PROJECT_ID }}/${{ env.REPO }}/${{ env.SERVICE }}:latest \
             .
 
@@ -109,7 +178,7 @@ jobs:
           fi
 
           SA_EMAIL="${RUNTIME_SA}@${PROJECT_ID}.iam.gserviceaccount.com"
-          IMAGE="${REGION}-docker.pkg.dev/${PROJECT_ID}/${REPO}/${SERVICE}:${{ github.sha }}"
+          IMAGE="${REGION}-docker.pkg.dev/${PROJECT_ID}/${REPO}/${SERVICE}:${CHECKOUT_SHA}"
           MIGRATE_COMMAND='set -e; npx prisma migrate deploy && npx tsx scripts/db/spatial-bootstrap.ts'
 
           JOB_FLAGS=(
@@ -139,7 +208,7 @@ jobs:
         id: deploy
         run: |
           SERVICE_URL=$(gcloud run deploy ${{ env.SERVICE }} \
-            --image=${{ env.REGION }}-docker.pkg.dev/${{ env.PROJECT_ID }}/${{ env.REPO }}/${{ env.SERVICE }}:${{ github.sha }} \
+            --image=${{ env.REGION }}-docker.pkg.dev/${{ env.PROJECT_ID }}/${{ env.REPO }}/${{ env.SERVICE }}:${CHECKOUT_SHA} \
             --region=${{ env.REGION }} \
             --platform=managed \
             --service-account=${{ env.RUNTIME_SA }}@${{ env.PROJECT_ID }}.iam.gserviceaccount.com \
@@ -149,7 +218,9 @@ jobs:
             --no-allow-unauthenticated \
             --format="value(status.url)")
           echo "DEPLOYED_SERVICE_URL=$SERVICE_URL" >> "$GITHUB_ENV"
+          echo "DEPLOYED_SHA=${CHECKOUT_SHA}" >> "$GITHUB_ENV"
           echo "Cloud Run URL: $SERVICE_URL"
+          echo "Deployed SHA: ${CHECKOUT_SHA}"
 
       - name: Get Cloud Run ID token
         id: cloud-run-id-token

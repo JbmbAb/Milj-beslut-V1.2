@@ -426,6 +426,8 @@ describe('P3-LU-CESIUM-PRESENTATION-WIRING-01: resolveLuViewerPresentation', () 
     const orchestratorSource = readFileSync(path.resolve(here, '../../server/modules/localization/localizationOrchestrator.ts'), 'utf8');
     expect(orchestratorSource).not.toMatch(/from\s+["'][^"']*spatial-provider-postgis[^"']*["']/);
     expect(orchestratorSource).not.toContain('new SpatialProviderPostGIS');
+    expect(orchestratorSource).toContain('resolveLocalizationViewerRuntimeConfigForProject');
+    expect(orchestratorSource).not.toContain('readLocalizationViewerRuntimeConfig');
     // The route itself never calls the legacy raw-PostGIS evidence endpoint (the doc comment
     // legitimately names it by way of explaining what this route is NOT a replacement for).
     const routeSource = readFileSync(path.resolve(here, '../../server/routes/localization.routes.ts'), 'utf8');
@@ -446,5 +448,25 @@ describe('P3-LU-CESIUM-PRESENTATION-WIRING-01: resolveLuViewerPresentation', () 
       assessmentProjectionIndex: projectionIndex, config: s.configFor(capability.artifact_id, s.newBindingRef),
     });
     expect(result.ok).toBe(true);
+  });
+
+  it('capability bound to a different project -> 404 not configured, no governed presentation fallback', async () => {
+    const s = await setup();
+    const capability = await s.buildCapability(s.newBindingRef);
+    const assessment = await s.buildAndPersistAssessment(contextNew);
+    const projectionIndex = new FakeAssessmentProjectionIndex();
+    await registerAssessmentProjection({ projectId: PROJECT_ID, assessment, contextBindingRef: s.newBindingRef, releaseRef: RELEASE_REF, index: projectionIndex });
+
+    const result = await resolveLuViewerPresentation({
+      authUser: AUTH_USER, projectId: PROJECT_ID,
+      artifactRepository: s.repository, currentBindingProvider: s.currentBindingProvider(),
+      assessmentProjectionIndex: projectionIndex,
+      config: { ...s.configFor(capability.artifact_id, s.newBindingRef), expectedProjectId: 'other-project' },
+    });
+    expect(result).toEqual({
+      ok: false,
+      status: 404,
+      error: 'Governed viewer capability is not configured for this project.',
+    });
   });
 });

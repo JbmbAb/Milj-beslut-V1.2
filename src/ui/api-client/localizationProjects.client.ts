@@ -15,6 +15,16 @@ export interface LocalizationProjectListItem {
   readonly createdAt: string;
 }
 
+export interface CanonicalPropertyCandidate {
+  readonly sourceKey: string;
+  readonly sourceDataset: string;
+  readonly designation: string;
+  readonly municipality: string | null;
+  readonly municipalityCode: string | null;
+  readonly countyCode: string | null;
+  readonly matchKind: 'exact' | 'fuzzy';
+}
+
 export interface BootstrapStatus {
   readonly id: string;
   readonly projectId: string;
@@ -23,6 +33,24 @@ export interface BootstrapStatus {
   readonly contextBindingArtifactId: string | null;
   readonly failureCode: string | null;
   readonly failureDetail: string | null;
+  readonly createdAt?: string;
+}
+
+export interface BootstrapStatusDiagnostics {
+  readonly code: 'WORKER_LIKELY_UNAVAILABLE' | 'WORKER_NOT_CONFIGURED';
+  readonly message: string;
+  readonly staleForMs: number;
+  readonly workerStartCommand: string;
+  readonly projectContextWorkerConfigured: boolean;
+}
+
+export interface BootstrapStatusResponse {
+  readonly status: BootstrapStatus;
+  readonly diagnostics: BootstrapStatusDiagnostics | null;
+  readonly runtime?: {
+    readonly webHasProjectContextSigningKey: boolean;
+    readonly workerStartCommand: string;
+  };
 }
 
 export async function listPropertyProjects(propertyDesignation: string): Promise<LocalizationProjectListItem[]> {
@@ -33,23 +61,35 @@ export async function listPropertyProjects(propertyDesignation: string): Promise
   return result.projects;
 }
 
+export async function searchCanonicalPropertyCandidates(query: string): Promise<CanonicalPropertyCandidate[]> {
+  const result = await callApi<{ ok: boolean; candidates: CanonicalPropertyCandidate[] }>(
+    '/api/localization/property-candidates',
+    { method: 'GET', query: { query } },
+  );
+  return result.candidates;
+}
+
 export async function createLocalizationProjectRequest(input: {
-  readonly propertyDesignation: string;
+  readonly property: Pick<CanonicalPropertyCandidate, 'sourceKey' | 'sourceDataset' | 'designation'>;
   readonly name: string;
 }): Promise<{ project: LocalizationProjectListItem; bootstrapRequestId: string; bootstrapStatus: BootstrapStatus['status'] }> {
   return callApi('/api/localization/localization-projects', {
     method: 'POST',
-    body: { propertyDesignation: input.propertyDesignation, name: input.name },
+    body: { property: input.property, name: input.name },
   });
 }
 
-export async function getBootstrapStatus(projectId: string): Promise<BootstrapStatus | null> {
+export async function getBootstrapStatus(projectId: string): Promise<BootstrapStatusResponse | null> {
   try {
-    const result = await callApi<{ ok: boolean; status: BootstrapStatus }>(
+    const result = await callApi<{ ok: boolean; status: BootstrapStatus; diagnostics: BootstrapStatusDiagnostics | null; runtime?: BootstrapStatusResponse['runtime'] }>(
       `/api/localization/${encodeURIComponent(projectId)}/bootstrap-status`,
       { method: 'GET' },
     );
-    return result.status;
+    return {
+      status: result.status,
+      diagnostics: result.diagnostics ?? null,
+      runtime: result.runtime,
+    };
   } catch (error) {
     // No bootstrap request exists yet for this project -- not an error the caller should
     // surface as a failure, just "nothing to report". Matched on the server's own message text

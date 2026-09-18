@@ -63,9 +63,25 @@ export async function createInvitation(params: {
   role: string;
   actingUserId: string;
 }): Promise<OrgInvitation> {
+  const requestedRole = params.role.trim().toUpperCase();
+  if (!['ADMIN', 'CONSULTANT'].includes(requestedRole)) {
+    throw new Error(`Ogiltig inbjudningsroll ${params.role}`);
+  }
+
   // Verify organisation exists
   const org = await prisma.organisation.findUnique({ where: { id: params.orgId } });
   if (!org) throw new Error(`Organisation ${params.orgId} hittades inte`);
+
+  const actingUser = await prisma.user.findUnique({
+    where: { id: params.actingUserId },
+    select: { id: true, organisationId: true, role: true },
+  });
+  if (!actingUser || actingUser.organisationId !== params.orgId) {
+    throw new Error('Du har inte tillgång till denna organisation');
+  }
+  if (requestedRole === 'ADMIN' && actingUser.role !== 'ADMIN') {
+    throw new Error('ADMIN-inbjudan kräver ADMIN-behörighet');
+  }
 
   // Check for existing pending invite for same email in same org
   const existing = Array.from(invitations.values()).find(
@@ -85,7 +101,7 @@ export async function createInvitation(params: {
     id,
     orgId: params.orgId,
     email: params.email.toLowerCase().trim(),
-    role: params.role,
+    role: requestedRole,
     token,
     expiresAt,
     status: 'PENDING',
@@ -100,7 +116,7 @@ export async function createInvitation(params: {
     entityId: id,
     action: 'INVITATION_CREATED',
     userId: params.actingUserId,
-    payload: { orgId: params.orgId, email: params.email, role: params.role, expiresAt },
+    payload: { orgId: params.orgId, email: params.email, role: requestedRole, expiresAt },
   });
 
   logger.info('org-invitation: created', { id, orgId: params.orgId, email: params.email });
@@ -130,7 +146,7 @@ export function listInvitations(orgId: string): OrgInvitation[] {
 export async function acceptInvitation(params: {
   orgId: string;
   token: string;
-  bankidId: string;
+  verifiedBankidId: string;
 }): Promise<{ userId: string; orgId: string; role: string }> {
   const invite = Array.from(invitations.values()).find(
     (inv) => inv.orgId === params.orgId && inv.token === params.token,
@@ -151,13 +167,13 @@ export async function acceptInvitation(params: {
 
   // Find or create user
   let user = await prisma.user.findFirst({
-    where: { bankidId: params.bankidId, organisationId: invite.orgId },
+    where: { bankidId: params.verifiedBankidId, organisationId: invite.orgId },
   });
 
   if (!user) {
     user = await prisma.user.create({
       data: {
-        bankidId: params.bankidId,
+        bankidId: params.verifiedBankidId,
         organisationId: invite.orgId,
         role: invite.role === 'ADMIN' ? 'ADMIN' : 'CONSULTANT',
       },
@@ -172,7 +188,7 @@ export async function acceptInvitation(params: {
     entityId: invite.id,
     action: 'INVITATION_ACCEPTED',
     userId: user.id,
-    payload: { orgId: invite.orgId, bankidId: params.bankidId, role: invite.role },
+    payload: { orgId: invite.orgId, bankidId: params.verifiedBankidId, role: invite.role },
   });
 
   logger.info('org-invitation: accepted', { id: invite.id, userId: user.id });

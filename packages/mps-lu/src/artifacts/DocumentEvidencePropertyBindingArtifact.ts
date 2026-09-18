@@ -1,4 +1,5 @@
 import type { ArtifactContract, ArtifactReference } from "@miljobeslut/mps-compliance/src/artifacts/ArtifactContract";
+import type { ActorReference } from "@miljobeslut/mps-core/src/types";
 import { sha256ContentHash } from "@miljobeslut/mps-compliance/src/canonical/sha256Canonical";
 import type { DocumentEvidenceHashedRef } from "./DocumentEvidenceArtifactV2";
 
@@ -19,6 +20,7 @@ import type { DocumentEvidenceHashedRef } from "./DocumentEvidenceArtifactV2";
  */
 export const DOCUMENT_EVIDENCE_PROPERTY_BINDING_ARTIFACT_TYPE = "document_evidence_property_binding" as const;
 export const DOCUMENT_EVIDENCE_PROPERTY_BINDING_CONTRACT_VERSION = "document-evidence-property-binding-v1" as const;
+export const DOCUMENT_EVIDENCE_PROPERTY_BINDING_V2_CONTRACT_VERSION = "document-evidence-property-binding-v2" as const;
 
 export type DocumentEvidencePropertyBindingMethod =
   /** A human governance reviewer confirmed the match against real cadastral data. */
@@ -39,9 +41,28 @@ export interface DocumentEvidencePropertyBindingPayload {
   readonly justification_refs: readonly ArtifactReference[];
 }
 
+/**
+ * The current producer contract binds a reviewer to the immutable, public-key-verifiable grant
+ * identity. V1 stays historical: its free ArtifactReference lacks the content hash required to
+ * establish reviewer authority at a later admission boundary.
+ */
+export interface DocumentEvidencePropertyBindingPayloadV2 {
+  readonly contract_version: typeof DOCUMENT_EVIDENCE_PROPERTY_BINDING_V2_CONTRACT_VERSION;
+  readonly document_evidence_ref: DocumentEvidenceHashedRef;
+  readonly property_ref: DocumentEvidenceHashedRef;
+  readonly binding_method: DocumentEvidencePropertyBindingMethod;
+  readonly binding_authority: ActorReference;
+  readonly justification_refs: readonly ArtifactReference[];
+}
+
 export interface DocumentEvidencePropertyBindingArtifact extends ArtifactContract {
   readonly artifact_type: typeof DOCUMENT_EVIDENCE_PROPERTY_BINDING_ARTIFACT_TYPE;
   readonly payload: DocumentEvidencePropertyBindingPayload;
+}
+
+export interface DocumentEvidencePropertyBindingArtifactV2 extends ArtifactContract {
+  readonly artifact_type: typeof DOCUMENT_EVIDENCE_PROPERTY_BINDING_ARTIFACT_TYPE;
+  readonly payload: DocumentEvidencePropertyBindingPayloadV2;
 }
 
 export class DocumentEvidencePropertyBindingError extends Error {
@@ -66,6 +87,14 @@ export interface DocumentEvidencePropertyBindingInput {
   readonly justification_refs: readonly ArtifactReference[];
 }
 
+export interface DocumentEvidencePropertyBindingV2Input {
+  readonly document_evidence_ref: DocumentEvidenceHashedRef;
+  readonly property_ref: DocumentEvidenceHashedRef;
+  readonly binding_method: DocumentEvidencePropertyBindingMethod;
+  readonly binding_authority: ActorReference;
+  readonly justification_refs: readonly ArtifactReference[];
+}
+
 function buildPayload(input: DocumentEvidencePropertyBindingInput): DocumentEvidencePropertyBindingPayload {
   if (!input.justification_refs || input.justification_refs.length === 0) {
     throw new DocumentEvidencePropertyBindingError("REJECT_DOCUMENT_EVIDENCE_PROPERTY_BINDING: at least one justification_ref is required");
@@ -75,6 +104,25 @@ function buildPayload(input: DocumentEvidencePropertyBindingInput): DocumentEvid
   }
   return {
     contract_version: DOCUMENT_EVIDENCE_PROPERTY_BINDING_CONTRACT_VERSION,
+    document_evidence_ref: requiredHashedRef(input.document_evidence_ref, "document_evidence_ref"),
+    property_ref: requiredHashedRef(input.property_ref, "property_ref"),
+    binding_method: input.binding_method,
+    binding_authority: input.binding_authority,
+    justification_refs: input.justification_refs,
+  };
+}
+
+function buildPayloadV2(input: DocumentEvidencePropertyBindingV2Input): DocumentEvidencePropertyBindingPayloadV2 {
+  if (!input.justification_refs || input.justification_refs.length === 0) {
+    throw new DocumentEvidencePropertyBindingError("REJECT_DOCUMENT_EVIDENCE_PROPERTY_BINDING: at least one justification_ref is required");
+  }
+  if (input.binding_authority?.role !== "GOVERNANCE_REVIEWER" ||
+      !input.binding_authority.identity_ref?.id ||
+      !input.binding_authority.identity_ref.content_hash?.digest) {
+    throw new DocumentEvidencePropertyBindingError("REJECT_DOCUMENT_EVIDENCE_PROPERTY_BINDING: V2 requires a hash-bound GOVERNANCE_REVIEWER authority");
+  }
+  return {
+    contract_version: DOCUMENT_EVIDENCE_PROPERTY_BINDING_V2_CONTRACT_VERSION,
     document_evidence_ref: requiredHashedRef(input.document_evidence_ref, "document_evidence_ref"),
     property_ref: requiredHashedRef(input.property_ref, "property_ref"),
     binding_method: input.binding_method,
@@ -112,8 +160,32 @@ export function createDocumentEvidencePropertyBindingArtifact(
   return { ...bare, content_hash: sha256ContentHash(bare) };
 }
 
+export function createDocumentEvidencePropertyBindingArtifactV2(
+  input: DocumentEvidencePropertyBindingV2Input,
+): DocumentEvidencePropertyBindingArtifactV2 {
+  const payload = buildPayloadV2(input);
+  const identityHash = sha256ContentHash({
+    artifact_type: DOCUMENT_EVIDENCE_PROPERTY_BINDING_ARTIFACT_TYPE,
+    canonicalizer_id: "rfc8785-sha256-v1",
+    payload,
+  });
+  const artifactId = `document-evidence-property-binding-${identityHash.value.slice(0, 24)}`;
+  const references: ArtifactReference[] = [
+    { artifact_id: payload.document_evidence_ref.artifact_id, artifact_type: payload.document_evidence_ref.artifact_type },
+    { artifact_id: payload.property_ref.artifact_id, artifact_type: payload.property_ref.artifact_type },
+    ...payload.justification_refs,
+  ];
+  const bare = {
+    artifact_id: artifactId,
+    artifact_type: DOCUMENT_EVIDENCE_PROPERTY_BINDING_ARTIFACT_TYPE,
+    references,
+    payload,
+  };
+  return { ...bare, content_hash: sha256ContentHash(bare) };
+}
+
 export function recomputeDocumentEvidencePropertyBindingContentHash(
-  artifact: DocumentEvidencePropertyBindingArtifact,
+  artifact: DocumentEvidencePropertyBindingArtifact | DocumentEvidencePropertyBindingArtifactV2,
 ): string {
   return sha256ContentHash({
     artifact_id: artifact.artifact_id,
@@ -124,7 +196,7 @@ export function recomputeDocumentEvidencePropertyBindingContentHash(
 }
 
 export function isDocumentEvidencePropertyBindingContentHashValid(
-  artifact: DocumentEvidencePropertyBindingArtifact,
+  artifact: DocumentEvidencePropertyBindingArtifact | DocumentEvidencePropertyBindingArtifactV2,
 ): boolean {
   return recomputeDocumentEvidencePropertyBindingContentHash(artifact) === artifact.content_hash.value;
 }

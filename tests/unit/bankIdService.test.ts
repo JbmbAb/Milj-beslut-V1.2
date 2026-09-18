@@ -291,6 +291,8 @@ describe('bankIdService', () => {
       autoStartToken: 'auto-token',
       qrStartToken: 'qr-token',
       qrStartSecret: 'qr-secret',
+      launchMode: 'bankid',
+      launchUrl: 'bankid:///?autostarttoken=auto-token&redirect=null',
     });
     expect(mocks.Agent).toHaveBeenCalledWith(
       expect.objectContaining({
