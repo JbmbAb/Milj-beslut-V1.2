@@ -47,8 +47,14 @@ export * from "./providers/NullDocumentProvider";
 // Rules
 export * from "./rules/LURuleEngine";
 
-// ExecutionKernel client
-export * from "./execution/LuExecutionKernelClient";
+// Canonical LU product execution entrypoint.
+// LU-CANONICAL-PATH-01: the general/legacy-capable runLuAssessmentViaKernel remains an internal
+// engine for tests/ops and is intentionally NOT exported through the package root. Product code
+// importing @miljobeslut/mps-lu can only enter assessment execution through the V3-scoped
+// canonical wrapper.
+export { runCanonicalLuProductAssessment } from "./execution/LuExecutionKernelClient";
+export type { CanonicalLuKernelRunInput, LuKernelRunResult } from "./execution/LuExecutionKernelClient";
+export { LU_EXECUTION_PRINCIPAL_ID } from "./execution/LuExecutionPrincipal";
 export * from "./execution/LuDeterministicReExecution";
 export * from "./registry/LuSiteAssessmentRegistry";
 export * from "./registry/createLuRegistryRuntime";
