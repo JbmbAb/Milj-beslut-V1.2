@@ -168,7 +168,9 @@
         "Mutation boundary must reject gate decisions for action_id values other than the endpoint's declared action"
       ],
       "evidence_paths": [
-        "docs/architecture/ADR-24-19-Workflow-Contract.md",
+        "docs/architecture/ADR-MPS-CONSTITUTIONAL-INVARIANTS.md",
+        "packages/mps-workflow/src/contracts/WorkflowDefinitionArtifact.ts",
+        "packages/mps-workflow/src/contracts/WorkflowStep.ts",
         "docs/architecture/ADR-24-26-Capability-Trust-Connector.md"
       ]
     }
