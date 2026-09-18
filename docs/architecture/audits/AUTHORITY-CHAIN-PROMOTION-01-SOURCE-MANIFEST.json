@@ -1,0 +1,294 @@
+{
+  "schema_version": "authority-chain-promotion-source-manifest-v1",
+  "promotion_id": "AUTHORITY-CHAIN-PROMOTION-01",
+  "status": "PRE_FREEZE_BASELINE_PENDING",
+  "anchors": {
+    "M": "406842dd21e69f779c412fc2ae814616ac840ba8",
+    "A": "43ea32804cfa288b34051b6874185077a6ec3c50",
+    "C1": "9f30527df2f058616bd4751dd7994d0184e39763"
+  },
+  "digest_spec": {
+    "sort": "JavaScript Array.prototype.sort() default ordinal UTF-16 code-unit ordering over repository-relative paths",
+    "blob_sha": "SHA1(UTF8(\"blob \" + byte_length(file_bytes) + \"\\0\") || file_bytes)",
+    "record": "UTF8(path) || 0x00 || ASCII(blob_sha_hex) || 0x0a",
+    "aggregate": "SHA256(record_1 || ... || record_n)"
+  },
+  "authority_source": {
+    "file_count": 62,
+    "expected_aggregate_sha256": "5f852a98f110d6c5c6a2a1eff3667928e214c8384541e564a6d724680efadd7c",
+    "files": [
+      {
+        "path": "docs/architecture/audits/COLD-AUDIT-04D-R1-F04.md",
+        "git_blob_sha1": "49451502f5f028478112ec768caa41cec193953b"
+      },
+      {
+        "path": "docs/architecture/audits/MINIMUM-AUTHORITY-DELTA-03B-CONVERGENCE.md",
+        "git_blob_sha1": "4d5fadae044104f13f06d1e3fc89b66a1bd1c1f6"
+      },
+      {
+        "path": "docs/architecture/audits/MINIMUM-AUTHORITY-DELTA-04A-ACTOR-PROJECTION.md",
+        "git_blob_sha1": "dd71863cfc963a6845577348af51cccffb552976"
+      },
+      {
+        "path": "docs/architecture/audits/MINIMUM-AUTHORITY-DELTA-04B-TRUST-COMPATIBILITY.md",
+        "git_blob_sha1": "7e83cdef39b95b24fcb7e2d67115faa0f530e68f"
+      },
+      {
+        "path": "docs/architecture/audits/MINIMUM-AUTHORITY-DELTA-04C-GENERIC-TRUST-RECONCILIATION.md",
+        "git_blob_sha1": "d8400ed454f139cbc0085e5481814754d0160107"
+      },
+      {
+        "path": "docs/architecture/audits/MINIMUM-AUTHORITY-DELTA-04C-R1-REGRESSION-RECONCILIATION.md",
+        "git_blob_sha1": "adedca49e7f2642e3d8182ebccb851b232076b4e"
+      },
+      {
+        "path": "docs/architecture/audits/MINIMUM-AUTHORITY-DELTA-04D-LU-SOURCE-AUTHORITY-WIRING.md",
+        "git_blob_sha1": "9fd7760dd60e9e5e0fc501959cdb7e67f78b767b"
+      },
+      {
+        "path": "docs/architecture/audits/MINIMUM-AUTHORITY-DELTA-04D-R1-SOURCE-AUTHORITY-SEMANTIC-CLOSURE.md",
+        "git_blob_sha1": "09149bb793a6dcabda8a018a24c96798b8192dc4"
+      },
+      {
+        "path": "docs/architecture/audits/MINIMUM-AUTHORITY-DELTA-04E-TEMPORAL-REVOCATION.md",
+        "git_blob_sha1": "2b0ab47b563044bf76eec911bac05a7d13db5fd5"
+      },
+      {
+        "path": "governance/devgov/units/authority-actor-projection-04a-v1.json",
+        "git_blob_sha1": "105fe24788b34d25ee29924f9f03220fbc441279"
+      },
+      {
+        "path": "governance/devgov/units/authority-generic-trust-reconciliation-04c-v1.json",
+        "git_blob_sha1": "83b17d232452777e8afa2ca1bc6cf630facda4f2"
+      },
+      {
+        "path": "governance/devgov/units/authority-identity-convergence-03b1-v1.json",
+        "git_blob_sha1": "fc3daeb8c38d8ed390491dceb29f051c6770a6d9"
+      },
+      {
+        "path": "governance/devgov/units/authority-regression-reconciliation-04c-r1-v1.json",
+        "git_blob_sha1": "e7d904c65124a2fcd1532a137f2abcd895fe9348"
+      },
+      {
+        "path": "governance/devgov/units/authority-trust-compatibility-04b-v1.json",
+        "git_blob_sha1": "e10b474aab5d24495a732be218352162bb1a59a7"
+      },
+      {
+        "path": "governance/devgov/units/lu-source-authority-temporal-04e-v1.json",
+        "git_blob_sha1": "db2ac7331125be67faf77df9646ac3c6e984646d"
+      },
+      {
+        "path": "governance/devgov/units/lu-source-authority-wiring-04d-r1-f04-v1.json",
+        "git_blob_sha1": "f20bc9aaab3eb299a7b0d7f7795a48cd16edc4ba"
+      },
+      {
+        "path": "governance/devgov/units/lu-source-authority-wiring-04d-r1-v1.json",
+        "git_blob_sha1": "097dc23db92a0022ff95f4e30f66873e430ad74a"
+      },
+      {
+        "path": "governance/devgov/units/lu-source-authority-wiring-04d-v1.json",
+        "git_blob_sha1": "d03d37cf9e66167e1e8a92b5392957991e594ed7"
+      },
+      {
+        "path": "packages/mps-compliance/src/validators/ACT_21_I1.ts",
+        "git_blob_sha1": "fd4d5b5222d329fd329206fcb6581d49ad110131"
+      },
+      {
+        "path": "packages/mps-compliance/src/validators/ACT_21_I3.ts",
+        "git_blob_sha1": "cffa402441ac9f9d7f08ff404e43cd7f82ba1ebf"
+      },
+      {
+        "path": "packages/mps-compliance/src/validators/ACT_21_I5.ts",
+        "git_blob_sha1": "6d0276ebf5b1427d3c1c5ab9e2d705baf7f83931"
+      },
+      {
+        "path": "packages/mps-compliance/tests/ACT_21_I1.authority.test.ts",
+        "git_blob_sha1": "1890901dd05da1a09340d886e6f9647ed0e9ce4b"
+      },
+      {
+        "path": "packages/mps-compliance/tests/ACT_21_I3_I5.authority.test.ts",
+        "git_blob_sha1": "d03f40c184c39196a5af0d3e6dbb8ef771301cf8"
+      },
+      {
+        "path": "packages/mps-compliance/tests/AuthorityActorProjection.test.ts",
+        "git_blob_sha1": "0f0d9366bb7f21269b5ca347e29d6feaace737b7"
+      },
+      {
+        "path": "packages/mps-compliance/tests/AuthorityGenericTrustReconciliation04C.test.ts",
+        "git_blob_sha1": "52cd4dfbc25fa2e095df763b109600350aacdc2c"
+      },
+      {
+        "path": "packages/mps-compliance/tests/AuthorityIdentityConvergence.test.ts",
+        "git_blob_sha1": "1ad3a714cc9550fb5afaa08fb22618f59ab06d2f"
+      },
+      {
+        "path": "packages/mps-compliance/tests/AuthorityTrustCompatibility04B.test.ts",
+        "git_blob_sha1": "1e54bccd71e3653925f2b4aca4c7d86e1c2ab65b"
+      },
+      {
+        "path": "packages/mps-governance-runtime/src/AuthorityArtifactIntegrityIssuer.ts",
+        "git_blob_sha1": "b4148cce56d8c72aede99dfdb5c38669b157273b"
+      },
+      {
+        "path": "packages/mps-governance-runtime/src/AuthorityVerification.ts",
+        "git_blob_sha1": "c899981b3e5922bc1567c341ebb1f73d28e5283a"
+      },
+      {
+        "path": "packages/mps-governance-runtime/src/DefaultAuthorityVerificationPort.ts",
+        "git_blob_sha1": "185cb39f886f22c19367d1505c6d689ac5b7435d"
+      },
+      {
+        "path": "packages/mps-governance-runtime/src/DelegationStatusIssuer.ts",
+        "git_blob_sha1": "0b945c7c592ae4a104c408d67a67d85e5c213e7a"
+      },
+      {
+        "path": "packages/mps-governance-runtime/src/index.ts",
+        "git_blob_sha1": "857b48e7c60f1bad33a276f8213185661c7bed2b"
+      },
+      {
+        "path": "packages/mps-governance-runtime/tests/AuthorityGenericRuntimeReconciliation04C.test.ts",
+        "git_blob_sha1": "602cc9d96e19e535f7da0fbe3359c98471cd2cfd"
+      },
+      {
+        "path": "packages/mps-governance-runtime/tests/AuthorityRuntimeEnforcement.test.ts",
+        "git_blob_sha1": "ed1434c0ff66ba918581ed346b98db834dead152"
+      },
+      {
+        "path": "packages/mps-governance-runtime/tests/AuthorityVerification.test.ts",
+        "git_blob_sha1": "447582e9d0c3179c58255c66b47ab47121a2cbcd"
+      },
+      {
+        "path": "packages/mps-governance/src/actors/ActorArtifact.ts",
+        "git_blob_sha1": "708c5b44c4d224971ac5bda777ad251713574c6c"
+      },
+      {
+        "path": "packages/mps-governance/src/actors/ActorLifecycleArtifact.ts",
+        "git_blob_sha1": "2cec2e8b6973dd59018120b83eeff9337720e5c7"
+      },
+      {
+        "path": "packages/mps-governance/src/actors/AuthorityEvidenceArtifact.ts",
+        "git_blob_sha1": "d0812df831f5102532656cdb910cfc99412817e7"
+      },
+      {
+        "path": "packages/mps-governance/src/actors/IdentityArtifacts.ts",
+        "git_blob_sha1": "c4c9e4c54bf0eabc4b450b924ed7de5c06f391b9"
+      },
+      {
+        "path": "packages/mps-governance/src/actors/TrustAnchorArtifact.ts",
+        "git_blob_sha1": "c8f38fad6b7f890076491e0ec6b446721910009e"
+      },
+      {
+        "path": "packages/mps-governance/src/actors/TrustDelegationArtifact.ts",
+        "git_blob_sha1": "d26576b689a1e1c6192aa0d1de937095ad2c4e98"
+      },
+      {
+        "path": "packages/mps-governance/src/actors/TrustDomainArtifact.ts",
+        "git_blob_sha1": "e94d3297f11310e85d222997f53a0a0a990fbc56"
+      },
+      {
+        "path": "packages/mps-lu/src/artifacts/LocalizationAssessmentArtifact.ts",
+        "git_blob_sha1": "eb1d747044f505586a6e012cffebf2b2ddbae8cc"
+      },
+      {
+        "path": "packages/mps-lu/src/execution/LuCanonicalServiceIdentity.ts",
+        "git_blob_sha1": "fc83dd879a3875609dcfbeaee184da5cd7af02b8"
+      },
+      {
+        "path": "packages/mps-lu/src/execution/LuExecutionKernelClient.ts",
+        "git_blob_sha1": "78a59791cf9fc60c6dc75f01c4b24bfa3ac057ae"
+      },
+      {
+        "path": "packages/mps-lu/src/execution/LuExecutionPrincipal.ts",
+        "git_blob_sha1": "c0020aa4038017e6e6ec856d5a3befbfd037ee35"
+      },
+      {
+        "path": "packages/mps-lu/src/governance/GovernedAssessmentPersistence.ts",
+        "git_blob_sha1": "b389eaa8ab3c801965090653d067169f375361b9"
+      },
+      {
+        "path": "packages/mps-lu/src/governance/GovernedAssessmentPersistenceBase.ts",
+        "git_blob_sha1": "2f1877e923186843b689df2222e8d8f854e4f9f2"
+      },
+      {
+        "path": "packages/mps-lu/src/governance/LuExecutionAuthorityLifecycle.ts",
+        "git_blob_sha1": "a6d9116f0919fbf886c349756e5fdb97d40494c5"
+      },
+      {
+        "path": "packages/mps-lu/src/governance/LuSourceAuthorityEvidence.ts",
+        "git_blob_sha1": "c68dd14aa158bc951b901113894373ebb5643052"
+      },
+      {
+        "path": "packages/mps-lu/src/governance/LuSourceAuthorityTemporalStatus.ts",
+        "git_blob_sha1": "6ff01cbd0418d47c3da20524659c987f4e86a85a"
+      },
+      {
+        "path": "packages/mps-lu/src/governance/LuSourceAuthorityWiring.ts",
+        "git_blob_sha1": "268c7ef822cc86e45779f7a6dc6794dccdf3610e"
+      },
+      {
+        "path": "packages/mps-lu/src/index.ts",
+        "git_blob_sha1": "75f4a2b19460d5b182c25b639d93637777a5f077"
+      },
+      {
+        "path": "packages/mps-lu/tests/LuSourceAuthorityTemporal04E.test.ts",
+        "git_blob_sha1": "2dbc9a075db451e1d534ca2e89352df3b0f7d155"
+      },
+      {
+        "path": "packages/mps-lu/tests/LuSourceAuthorityWiring04D.test.ts",
+        "git_blob_sha1": "d4fb480501f86340cb49b0b7ad19fc7b8854a914"
+      },
+      {
+        "path": "packages/mps-lu/tests/LuSourceAuthorityWiring04DF04.test.ts",
+        "git_blob_sha1": "a06eb341958cb313a0240572b8b712f69fb6169e"
+      },
+      {
+        "path": "scripts/ops/provision-lu-execution-authority-lifecycle.ts",
+        "git_blob_sha1": "36b5550baa9f4dfe84d9563abdb7f1129917a460"
+      },
+      {
+        "path": "server/modules/localization/luExecutionIdentityV3Provisioning.ts",
+        "git_blob_sha1": "f718c7b43f48b923fea7e5fe955505828ef38127"
+      },
+      {
+        "path": "server/security/canonicalAuthorityIdentity.ts",
+        "git_blob_sha1": "da5898ba4b3b9ced63ac88daa54288fabd9a7469"
+      },
+      {
+        "path": "server/workers/lu-execution-identity-v3-worker.ts",
+        "git_blob_sha1": "4fbdd17f7837287707205a8e2d4dda1c3c28342b"
+      },
+      {
+        "path": "tests/unit/luExecutionIdentityScopeV2ProductWiring.test.ts",
+        "git_blob_sha1": "f3dc4840a6afcba72d8ccc8a7f6651f1d5bd51a9"
+      },
+      {
+        "path": "tests/unit/luExecutionIdentityV3ProvisioningProofs.test.ts",
+        "git_blob_sha1": "9f63cf89e3519e36e7bbf0dfd658f7ad107b9bf9"
+      }
+    ]
+  },
+  "main_only_preservation": {
+    "file_count": 3,
+    "expected_aggregate_sha256": "45f0d902730f000c39b1c14d7debed10f69e5f23db21a5ea55a1ee17bfbc7949",
+    "files": [
+      {
+        "path": ".github/workflows/devgov-v0-orchestrate.yml",
+        "git_blob_sha1": "01ef745b663e706bb8ff3ddcc7c5db885126637b"
+      },
+      {
+        "path": "governance/devgov/units/devgov-orchestrator-explicit-repo-dispatch-v1.json",
+        "git_blob_sha1": "cc17a8b40c9c9ce3aa8fcda6e199ac33e939d175"
+      },
+      {
+        "path": "governance/devgov/units/devgov-orchestrator-explicit-repo-watch-v1.json",
+        "git_blob_sha1": "8c87720b997e2af3bf14701aa3b375768ffad023"
+      }
+    ]
+  },
+  "invariants": [
+    "Trusted proof MUST use the frozen path arrays and expected digests embedded in the Dev-Gov unit; this manifest is diagnostic evidence and MUST NOT be used as the runtime source of expected values.",
+    "Trusted proof MUST NOT invoke git, inspect .git, traverse commit history, or use network access.",
+    "A missing, non-regular, symlinked, or byte-different file MUST fail the digest proof.",
+    "C2 SHA is intentionally absent to avoid self-reference."
+  ]
+}
