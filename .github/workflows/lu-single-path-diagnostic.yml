@@ -1,0 +1,24 @@
+name: LU Single Path Diagnostic
+
+on:
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  diagnose:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: 56be8cb6d59ee3324591db3fe37c62f920015696
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - run: npm ci --ignore-scripts
+      - name: Run remaining LU single-path proof with full output
+        run: npx vitest run --config vitest.config.ts src/application/unit/LuCutoverSinglePath.test.ts src/application/unit/NoAlternateLuDecisionPath.test.ts --reporter=verbose
