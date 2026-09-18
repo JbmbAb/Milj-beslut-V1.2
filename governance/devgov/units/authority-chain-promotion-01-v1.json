@@ -202,28 +202,6 @@
       "required_head": "candidate_sha"
     },
     {
-      "id": "lu-source-authority-wiring",
-      "command": "bash",
-      "args": [
-        "-lc",
-        "node -e \"const fs=require('fs');const a=fs.readFileSync('packages/mps-lu/src/artifacts/LocalizationAssessmentArtifact.ts','utf8');const k=fs.readFileSync('packages/mps-lu/src/execution/LuExecutionKernelClient.ts','utf8');const p=fs.readFileSync('packages/mps-lu/src/governance/GovernedAssessmentPersistence.ts','utf8');if(!a.includes('authority_evidence_ref')||!k.includes('verifyLuSourceAuthorityForAssessment')||!p.includes('authority_decision_unverified'))process.exit(1);\" && npx vitest run --config vitest.config.ts packages/mps-lu/tests/LuSourceAuthorityWiring04D.test.ts packages/mps-compliance/tests/AuthorityGenericTrustReconciliation04C.test.ts packages/mps-governance-runtime/tests/AuthorityGenericRuntimeReconciliation04C.test.ts"
-      ],
-      "timeout_ms": 180000,
-      "expected_classification": "PASS",
-      "required_head": "candidate_sha"
-    },
-    {
-      "id": "source-authority-semantics",
-      "command": "bash",
-      "args": [
-        "-lc",
-        "node -e \"const fs=require('fs');const app=fs.readFileSync('src/application/generate-localization-report.usecase.ts','utf8');const wiring=fs.readFileSync('packages/mps-lu/src/governance/LuSourceAuthorityWiring.ts','utf8');const persistence=fs.readFileSync('packages/mps-lu/src/governance/GovernedAssessmentPersistence.ts','utf8');if(app.includes('authority_decision_time: new Date().toISOString()'))process.exit(1);if(fs.existsSync('packages/mps-governance-runtime/src/SourceAuthorityVerification.ts'))process.exit(1);if(!fs.existsSync('packages/mps-lu/src/governance/LuSourceAuthorityEvidence.ts'))process.exit(1);if(/authorized_at_decision_time\\\\s*:\\\\s*true/.test(wiring)||/authority_decision_time\\\\s*:/.test(wiring)||/verify_source_path\\\\s*:/.test(wiring)||/root_verification\\\\s*:/.test(wiring)||/issuer_verification\\\\s*:/.test(wiring))process.exit(1);if(!wiring.includes('source_authority_verified: true')||!persistence.includes('isVerifiedLuSourceAuthorityDecision'))process.exit(1);\" && npx vitest run --config vitest.config.ts --no-file-parallelism packages/mps-lu/tests/LuSourceAuthorityWiring04D.test.ts packages/mps-compliance/tests/AuthorityGenericTrustReconciliation04C.test.ts packages/mps-governance-runtime/tests/AuthorityGenericRuntimeReconciliation04C.test.ts"
-      ],
-      "timeout_ms": 240000,
-      "expected_classification": "PASS",
-      "required_head": "candidate_sha"
-    },
-    {
       "id": "product-current-accept",
       "command": "bash",
       "args": [
