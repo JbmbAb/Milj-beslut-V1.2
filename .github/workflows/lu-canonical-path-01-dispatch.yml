@@ -1,0 +1,23 @@
+name: LU Canonical Path Dispatch
+
+on:
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+  actions: write
+
+jobs:
+  dispatch:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Dispatch protected Dev-Gov orchestrator for exact LU canonical candidate
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh workflow run devgov-v0-orchestrate.yml \
+            --repo JbmbAb/Milj-beslut-V1.2 \
+            --ref main \
+            -f candidate_sha=82383acedbb63d9d4b45a622aa998caea6729e75 \
+            -f unit_definition_path=governance/devgov/units/lu-canonical-path-01-v1.json
