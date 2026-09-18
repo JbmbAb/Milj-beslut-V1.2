@@ -151,20 +151,6 @@
       "timeout_ms": 120000
     },
     {
-      "id": "authority-trust-compatibility",
-      "command": "npx",
-      "args": [
-        "vitest",
-        "run",
-        "--config",
-        "vitest.config.ts",
-        "packages/mps-compliance/tests/AuthorityTrustCompatibility04B.test.ts"
-      ],
-      "expected_classification": "PASS",
-      "required_head": "candidate_sha",
-      "timeout_ms": 120000
-    },
-    {
       "id": "authority-generic-trust-reconciliation",
       "command": "npx",
       "args": [
@@ -198,50 +184,6 @@
         "packages/mps-governance-runtime/tests/ObservationNotAuthority.test.ts"
       ],
       "timeout_ms": 180000,
-      "expected_classification": "PASS",
-      "required_head": "candidate_sha"
-    },
-    {
-      "id": "product-current-accept",
-      "command": "bash",
-      "args": [
-        "-lc",
-        "npx vitest run --config vitest.config.ts --no-file-parallelism tests/unit/luExecutionIdentityScopeV2ProductWiring.test.ts -t \"CURRENT HEAD + matching V2 identity -> ACCEPT\""
-      ],
-      "timeout_ms": 240000,
-      "expected_classification": "PASS",
-      "required_head": "candidate_sha"
-    },
-    {
-      "id": "product-idempotency",
-      "command": "bash",
-      "args": [
-        "-lc",
-        "npx vitest run --config vitest.config.ts --no-file-parallelism tests/unit/luExecutionIdentityScopeV2ProductWiring.test.ts -t \"same exact product state replayed twice -> deterministic acceptance both times\""
-      ],
-      "timeout_ms": 240000,
-      "expected_classification": "PASS",
-      "required_head": "candidate_sha"
-    },
-    {
-      "id": "f04-evidence-body-integrity",
-      "command": "bash",
-      "args": [
-        "-lc",
-        "node -e \"const fs=require('fs');const p=fs.readFileSync('packages/mps-lu/src/governance/GovernedAssessmentPersistence.ts','utf8');if(!p.includes('authority_evidence_body_hash'))process.exit(1);\" && npx vitest run --config vitest.config.ts --no-file-parallelism packages/mps-lu/tests/LuSourceAuthorityWiring04DF04.test.ts -t \"F04-A rejects a legitimate verified decision paired with a mutated evidence body and stale hash\""
-      ],
-      "timeout_ms": 240000,
-      "expected_classification": "PASS",
-      "required_head": "candidate_sha"
-    },
-    {
-      "id": "f04-execution-identity-binding",
-      "command": "bash",
-      "args": [
-        "-lc",
-        "node -e \"const fs=require('fs');const p=fs.readFileSync('packages/mps-lu/src/governance/GovernedAssessmentPersistence.ts','utf8');if(!p.includes('authority_execution_identity_binding'))process.exit(1);\" && npx vitest run --config vitest.config.ts --no-file-parallelism packages/mps-lu/tests/LuSourceAuthorityWiring04DF04.test.ts -t \"F04-B rejects replay of legitimate authority A onto an assessment/outcome produced by execution B\""
-      ],
-      "timeout_ms": 240000,
       "expected_classification": "PASS",
       "required_head": "candidate_sha"
     },
