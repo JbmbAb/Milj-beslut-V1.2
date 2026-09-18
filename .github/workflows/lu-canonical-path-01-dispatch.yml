@@ -19,5 +19,5 @@ jobs:
           gh workflow run devgov-v0-orchestrate.yml \
             --repo JbmbAb/Milj-beslut-V1.2 \
             --ref main \
-            -f candidate_sha=82383acedbb63d9d4b45a622aa998caea6729e75 \
+            -f candidate_sha=56be8cb6d59ee3324591db3fe37c62f920015696 \
             -f unit_definition_path=governance/devgov/units/lu-canonical-path-01-v1.json
