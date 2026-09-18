@@ -1,0 +1,223 @@
+{
+  "schema_version": "dev-gov-v1-unit-definition",
+  "unit": "AUTHORITY-CHAIN-PROMOTION-01-V1",
+  "role": "producer",
+  "mode": "writer",
+  "branch": "authority/chain-promotion-01",
+  "base_sha": "406842dd21e69f779c412fc2ae814616ac840ba8",
+  "ancestry_policy": "descendant_of_base",
+  "allowed_paths": [
+    "docs/architecture/audits/COLD-AUDIT-04D-R1-F04.md",
+    "docs/architecture/audits/MINIMUM-AUTHORITY-DELTA-03B-CONVERGENCE.md",
+    "docs/architecture/audits/MINIMUM-AUTHORITY-DELTA-04A-ACTOR-PROJECTION.md",
+    "docs/architecture/audits/MINIMUM-AUTHORITY-DELTA-04B-TRUST-COMPATIBILITY.md",
+    "docs/architecture/audits/MINIMUM-AUTHORITY-DELTA-04C-GENERIC-TRUST-RECONCILIATION.md",
+    "docs/architecture/audits/MINIMUM-AUTHORITY-DELTA-04C-R1-REGRESSION-RECONCILIATION.md",
+    "docs/architecture/audits/MINIMUM-AUTHORITY-DELTA-04D-LU-SOURCE-AUTHORITY-WIRING.md",
+    "docs/architecture/audits/MINIMUM-AUTHORITY-DELTA-04D-R1-SOURCE-AUTHORITY-SEMANTIC-CLOSURE.md",
+    "docs/architecture/audits/MINIMUM-AUTHORITY-DELTA-04E-TEMPORAL-REVOCATION.md",
+    "governance/devgov/units/authority-actor-projection-04a-v1.json",
+    "governance/devgov/units/authority-generic-trust-reconciliation-04c-v1.json",
+    "governance/devgov/units/authority-identity-convergence-03b1-v1.json",
+    "governance/devgov/units/authority-regression-reconciliation-04c-r1-v1.json",
+    "governance/devgov/units/authority-trust-compatibility-04b-v1.json",
+    "governance/devgov/units/lu-source-authority-temporal-04e-v1.json",
+    "governance/devgov/units/lu-source-authority-wiring-04d-r1-f04-v1.json",
+    "governance/devgov/units/lu-source-authority-wiring-04d-r1-v1.json",
+    "governance/devgov/units/lu-source-authority-wiring-04d-v1.json",
+    "packages/mps-compliance/src/validators/ACT_21_I1.ts",
+    "packages/mps-compliance/src/validators/ACT_21_I3.ts",
+    "packages/mps-compliance/src/validators/ACT_21_I5.ts",
+    "packages/mps-compliance/tests/ACT_21_I1.authority.test.ts",
+    "packages/mps-compliance/tests/ACT_21_I3_I5.authority.test.ts",
+    "packages/mps-compliance/tests/AuthorityActorProjection.test.ts",
+    "packages/mps-compliance/tests/AuthorityGenericTrustReconciliation04C.test.ts",
+    "packages/mps-compliance/tests/AuthorityIdentityConvergence.test.ts",
+    "packages/mps-compliance/tests/AuthorityTrustCompatibility04B.test.ts",
+    "packages/mps-governance-runtime/src/AuthorityArtifactIntegrityIssuer.ts",
+    "packages/mps-governance-runtime/src/AuthorityVerification.ts",
+    "packages/mps-governance-runtime/src/DefaultAuthorityVerificationPort.ts",
+    "packages/mps-governance-runtime/src/DelegationStatusIssuer.ts",
+    "packages/mps-governance-runtime/src/index.ts",
+    "packages/mps-governance-runtime/tests/AuthorityGenericRuntimeReconciliation04C.test.ts",
+    "packages/mps-governance-runtime/tests/AuthorityRuntimeEnforcement.test.ts",
+    "packages/mps-governance-runtime/tests/AuthorityVerification.test.ts",
+    "packages/mps-governance/src/actors/ActorArtifact.ts",
+    "packages/mps-governance/src/actors/ActorLifecycleArtifact.ts",
+    "packages/mps-governance/src/actors/AuthorityEvidenceArtifact.ts",
+    "packages/mps-governance/src/actors/IdentityArtifacts.ts",
+    "packages/mps-governance/src/actors/TrustAnchorArtifact.ts",
+    "packages/mps-governance/src/actors/TrustDelegationArtifact.ts",
+    "packages/mps-governance/src/actors/TrustDomainArtifact.ts",
+    "packages/mps-lu/src/artifacts/LocalizationAssessmentArtifact.ts",
+    "packages/mps-lu/src/execution/LuCanonicalServiceIdentity.ts",
+    "packages/mps-lu/src/execution/LuExecutionKernelClient.ts",
+    "packages/mps-lu/src/execution/LuExecutionPrincipal.ts",
+    "packages/mps-lu/src/governance/GovernedAssessmentPersistence.ts",
+    "packages/mps-lu/src/governance/GovernedAssessmentPersistenceBase.ts",
+    "packages/mps-lu/src/governance/LuExecutionAuthorityLifecycle.ts",
+    "packages/mps-lu/src/governance/LuSourceAuthorityEvidence.ts",
+    "packages/mps-lu/src/governance/LuSourceAuthorityTemporalStatus.ts",
+    "packages/mps-lu/src/governance/LuSourceAuthorityWiring.ts",
+    "packages/mps-lu/src/index.ts",
+    "packages/mps-lu/tests/LuSourceAuthorityTemporal04E.test.ts",
+    "packages/mps-lu/tests/LuSourceAuthorityWiring04D.test.ts",
+    "packages/mps-lu/tests/LuSourceAuthorityWiring04DF04.test.ts",
+    "scripts/ops/provision-lu-execution-authority-lifecycle.ts",
+    "server/modules/localization/luExecutionIdentityV3Provisioning.ts",
+    "server/security/canonicalAuthorityIdentity.ts",
+    "server/workers/lu-execution-identity-v3-worker.ts",
+    "tests/unit/luExecutionIdentityScopeV2ProductWiring.test.ts",
+    "tests/unit/luExecutionIdentityV3ProvisioningProofs.test.ts",
+    "docs/architecture/audits/AUTHORITY-CHAIN-PROMOTION-01-SOURCE-MANIFEST.json",
+    "docs/architecture/audits/AUTHORITY-CHAIN-PROMOTION-01-CANDIDATE.md",
+    "governance/devgov/units/authority-chain-promotion-01-v1.json"
+  ],
+  "forbidden_paths": [
+    ".github/workflows/**",
+    ".github/actions/**",
+    "scripts/devgov/**",
+    "governance/devgov/schema/**",
+    "prisma/**"
+  ],
+  "required_red": [
+    {
+      "id": "authority-source-byte-identity",
+      "command": "node",
+      "args": [
+        "-e",
+        "const fs=require('node:fs'),crypto=require('node:crypto');const [expected,pathsJson]=process.argv.slice(1);const fail=m=>{console.error(m);process.exit(1)};if(!/^[0-9a-f]{64}$/.test(expected||''))fail('INVALID_EXPECTED_DIGEST');let paths;try{paths=JSON.parse(pathsJson)}catch{fail('INVALID_PATH_JSON')}if(!Array.isArray(paths)||paths.length===0)fail('EMPTY_PATH_SET');if(new Set(paths).size!==paths.length)fail('DUPLICATE_PATH');const blobSha=b=>crypto.createHash('sha1').update(Buffer.from('blob '+b.length+'\\0','utf8')).update(b).digest('hex');let aggregate='';for(const path of [...paths].sort()){if(typeof path!=='string'||!path||path.includes('\\0')||path.includes('\\n')||path.startsWith('/')||path.split('/').includes('..'))fail('INVALID_PATH:'+path);let st;try{st=fs.lstatSync(path)}catch{fail('MISSING:'+path)}if(!st.isFile()||st.isSymbolicLink())fail('NOT_REGULAR_FILE:'+path);const bytes=fs.readFileSync(path);aggregate+=path+'\\0'+blobSha(bytes)+'\\n'}const actual=crypto.createHash('sha256').update(Buffer.from(aggregate,'utf8')).digest('hex');if(actual!==expected)fail('DIGEST_MISMATCH expected='+expected+' actual='+actual);console.log('DIGEST_OK '+actual);",
+        "5f852a98f110d6c5c6a2a1eff3667928e214c8384541e564a6d724680efadd7c",
+        "[\"docs/architecture/audits/COLD-AUDIT-04D-R1-F04.md\",\"docs/architecture/audits/MINIMUM-AUTHORITY-DELTA-03B-CONVERGENCE.md\",\"docs/architecture/audits/MINIMUM-AUTHORITY-DELTA-04A-ACTOR-PROJECTION.md\",\"docs/architecture/audits/MINIMUM-AUTHORITY-DELTA-04B-TRUST-COMPATIBILITY.md\",\"docs/architecture/audits/MINIMUM-AUTHORITY-DELTA-04C-GENERIC-TRUST-RECONCILIATION.md\",\"docs/architecture/audits/MINIMUM-AUTHORITY-DELTA-04C-R1-REGRESSION-RECONCILIATION.md\",\"docs/architecture/audits/MINIMUM-AUTHORITY-DELTA-04D-LU-SOURCE-AUTHORITY-WIRING.md\",\"docs/architecture/audits/MINIMUM-AUTHORITY-DELTA-04D-R1-SOURCE-AUTHORITY-SEMANTIC-CLOSURE.md\",\"docs/architecture/audits/MINIMUM-AUTHORITY-DELTA-04E-TEMPORAL-REVOCATION.md\",\"governance/devgov/units/authority-actor-projection-04a-v1.json\",\"governance/devgov/units/authority-generic-trust-reconciliation-04c-v1.json\",\"governance/devgov/units/authority-identity-convergence-03b1-v1.json\",\"governance/devgov/units/authority-regression-reconciliation-04c-r1-v1.json\",\"governance/devgov/units/authority-trust-compatibility-04b-v1.json\",\"governance/devgov/units/lu-source-authority-temporal-04e-v1.json\",\"governance/devgov/units/lu-source-authority-wiring-04d-r1-f04-v1.json\",\"governance/devgov/units/lu-source-authority-wiring-04d-r1-v1.json\",\"governance/devgov/units/lu-source-authority-wiring-04d-v1.json\",\"packages/mps-compliance/src/validators/ACT_21_I1.ts\",\"packages/mps-compliance/src/validators/ACT_21_I3.ts\",\"packages/mps-compliance/src/validators/ACT_21_I5.ts\",\"packages/mps-compliance/tests/ACT_21_I1.authority.test.ts\",\"packages/mps-compliance/tests/ACT_21_I3_I5.authority.test.ts\",\"packages/mps-compliance/tests/AuthorityActorProjection.test.ts\",\"packages/mps-compliance/tests/AuthorityGenericTrustReconciliation04C.test.ts\",\"packages/mps-compliance/tests/AuthorityIdentityConvergence.test.ts\",\"packages/mps-compliance/tests/AuthorityTrustCompatibility04B.test.ts\",\"packages/mps-governance-runtime/src/AuthorityArtifactIntegrityIssuer.ts\",\"packages/mps-governance-runtime/src/AuthorityVerification.ts\",\"packages/mps-governance-runtime/src/DefaultAuthorityVerificationPort.ts\",\"packages/mps-governance-runtime/src/DelegationStatusIssuer.ts\",\"packages/mps-governance-runtime/src/index.ts\",\"packages/mps-governance-runtime/tests/AuthorityGenericRuntimeReconciliation04C.test.ts\",\"packages/mps-governance-runtime/tests/AuthorityRuntimeEnforcement.test.ts\",\"packages/mps-governance-runtime/tests/AuthorityVerification.test.ts\",\"packages/mps-governance/src/actors/ActorArtifact.ts\",\"packages/mps-governance/src/actors/ActorLifecycleArtifact.ts\",\"packages/mps-governance/src/actors/AuthorityEvidenceArtifact.ts\",\"packages/mps-governance/src/actors/IdentityArtifacts.ts\",\"packages/mps-governance/src/actors/TrustAnchorArtifact.ts\",\"packages/mps-governance/src/actors/TrustDelegationArtifact.ts\",\"packages/mps-governance/src/actors/TrustDomainArtifact.ts\",\"packages/mps-lu/src/artifacts/LocalizationAssessmentArtifact.ts\",\"packages/mps-lu/src/execution/LuCanonicalServiceIdentity.ts\",\"packages/mps-lu/src/execution/LuExecutionKernelClient.ts\",\"packages/mps-lu/src/execution/LuExecutionPrincipal.ts\",\"packages/mps-lu/src/governance/GovernedAssessmentPersistence.ts\",\"packages/mps-lu/src/governance/GovernedAssessmentPersistenceBase.ts\",\"packages/mps-lu/src/governance/LuExecutionAuthorityLifecycle.ts\",\"packages/mps-lu/src/governance/LuSourceAuthorityEvidence.ts\",\"packages/mps-lu/src/governance/LuSourceAuthorityTemporalStatus.ts\",\"packages/mps-lu/src/governance/LuSourceAuthorityWiring.ts\",\"packages/mps-lu/src/index.ts\",\"packages/mps-lu/tests/LuSourceAuthorityTemporal04E.test.ts\",\"packages/mps-lu/tests/LuSourceAuthorityWiring04D.test.ts\",\"packages/mps-lu/tests/LuSourceAuthorityWiring04DF04.test.ts\",\"scripts/ops/provision-lu-execution-authority-lifecycle.ts\",\"server/modules/localization/luExecutionIdentityV3Provisioning.ts\",\"server/security/canonicalAuthorityIdentity.ts\",\"server/workers/lu-execution-identity-v3-worker.ts\",\"tests/unit/luExecutionIdentityScopeV2ProductWiring.test.ts\",\"tests/unit/luExecutionIdentityV3ProvisioningProofs.test.ts\"]"
+      ],
+      "expected_classification": "FAIL",
+      "required_head": "base_sha",
+      "timeout_ms": 120000
+    }
+  ],
+  "required_green": [
+    {
+      "id": "authority-source-byte-identity",
+      "command": "node",
+      "args": [
+        "-e",
+        "const fs=require('node:fs'),crypto=require('node:crypto');const [expected,pathsJson]=process.argv.slice(1);const fail=m=>{console.error(m);process.exit(1)};if(!/^[0-9a-f]{64}$/.test(expected||''))fail('INVALID_EXPECTED_DIGEST');let paths;try{paths=JSON.parse(pathsJson)}catch{fail('INVALID_PATH_JSON')}if(!Array.isArray(paths)||paths.length===0)fail('EMPTY_PATH_SET');if(new Set(paths).size!==paths.length)fail('DUPLICATE_PATH');const blobSha=b=>crypto.createHash('sha1').update(Buffer.from('blob '+b.length+'\\0','utf8')).update(b).digest('hex');let aggregate='';for(const path of [...paths].sort()){if(typeof path!=='string'||!path||path.includes('\\0')||path.includes('\\n')||path.startsWith('/')||path.split('/').includes('..'))fail('INVALID_PATH:'+path);let st;try{st=fs.lstatSync(path)}catch{fail('MISSING:'+path)}if(!st.isFile()||st.isSymbolicLink())fail('NOT_REGULAR_FILE:'+path);const bytes=fs.readFileSync(path);aggregate+=path+'\\0'+blobSha(bytes)+'\\n'}const actual=crypto.createHash('sha256').update(Buffer.from(aggregate,'utf8')).digest('hex');if(actual!==expected)fail('DIGEST_MISMATCH expected='+expected+' actual='+actual);console.log('DIGEST_OK '+actual);",
+        "5f852a98f110d6c5c6a2a1eff3667928e214c8384541e564a6d724680efadd7c",
+        "[\"docs/architecture/audits/COLD-AUDIT-04D-R1-F04.md\",\"docs/architecture/audits/MINIMUM-AUTHORITY-DELTA-03B-CONVERGENCE.md\",\"docs/architecture/audits/MINIMUM-AUTHORITY-DELTA-04A-ACTOR-PROJECTION.md\",\"docs/architecture/audits/MINIMUM-AUTHORITY-DELTA-04B-TRUST-COMPATIBILITY.md\",\"docs/architecture/audits/MINIMUM-AUTHORITY-DELTA-04C-GENERIC-TRUST-RECONCILIATION.md\",\"docs/architecture/audits/MINIMUM-AUTHORITY-DELTA-04C-R1-REGRESSION-RECONCILIATION.md\",\"docs/architecture/audits/MINIMUM-AUTHORITY-DELTA-04D-LU-SOURCE-AUTHORITY-WIRING.md\",\"docs/architecture/audits/MINIMUM-AUTHORITY-DELTA-04D-R1-SOURCE-AUTHORITY-SEMANTIC-CLOSURE.md\",\"docs/architecture/audits/MINIMUM-AUTHORITY-DELTA-04E-TEMPORAL-REVOCATION.md\",\"governance/devgov/units/authority-actor-projection-04a-v1.json\",\"governance/devgov/units/authority-generic-trust-reconciliation-04c-v1.json\",\"governance/devgov/units/authority-identity-convergence-03b1-v1.json\",\"governance/devgov/units/authority-regression-reconciliation-04c-r1-v1.json\",\"governance/devgov/units/authority-trust-compatibility-04b-v1.json\",\"governance/devgov/units/lu-source-authority-temporal-04e-v1.json\",\"governance/devgov/units/lu-source-authority-wiring-04d-r1-f04-v1.json\",\"governance/devgov/units/lu-source-authority-wiring-04d-r1-v1.json\",\"governance/devgov/units/lu-source-authority-wiring-04d-v1.json\",\"packages/mps-compliance/src/validators/ACT_21_I1.ts\",\"packages/mps-compliance/src/validators/ACT_21_I3.ts\",\"packages/mps-compliance/src/validators/ACT_21_I5.ts\",\"packages/mps-compliance/tests/ACT_21_I1.authority.test.ts\",\"packages/mps-compliance/tests/ACT_21_I3_I5.authority.test.ts\",\"packages/mps-compliance/tests/AuthorityActorProjection.test.ts\",\"packages/mps-compliance/tests/AuthorityGenericTrustReconciliation04C.test.ts\",\"packages/mps-compliance/tests/AuthorityIdentityConvergence.test.ts\",\"packages/mps-compliance/tests/AuthorityTrustCompatibility04B.test.ts\",\"packages/mps-governance-runtime/src/AuthorityArtifactIntegrityIssuer.ts\",\"packages/mps-governance-runtime/src/AuthorityVerification.ts\",\"packages/mps-governance-runtime/src/DefaultAuthorityVerificationPort.ts\",\"packages/mps-governance-runtime/src/DelegationStatusIssuer.ts\",\"packages/mps-governance-runtime/src/index.ts\",\"packages/mps-governance-runtime/tests/AuthorityGenericRuntimeReconciliation04C.test.ts\",\"packages/mps-governance-runtime/tests/AuthorityRuntimeEnforcement.test.ts\",\"packages/mps-governance-runtime/tests/AuthorityVerification.test.ts\",\"packages/mps-governance/src/actors/ActorArtifact.ts\",\"packages/mps-governance/src/actors/ActorLifecycleArtifact.ts\",\"packages/mps-governance/src/actors/AuthorityEvidenceArtifact.ts\",\"packages/mps-governance/src/actors/IdentityArtifacts.ts\",\"packages/mps-governance/src/actors/TrustAnchorArtifact.ts\",\"packages/mps-governance/src/actors/TrustDelegationArtifact.ts\",\"packages/mps-governance/src/actors/TrustDomainArtifact.ts\",\"packages/mps-lu/src/artifacts/LocalizationAssessmentArtifact.ts\",\"packages/mps-lu/src/execution/LuCanonicalServiceIdentity.ts\",\"packages/mps-lu/src/execution/LuExecutionKernelClient.ts\",\"packages/mps-lu/src/execution/LuExecutionPrincipal.ts\",\"packages/mps-lu/src/governance/GovernedAssessmentPersistence.ts\",\"packages/mps-lu/src/governance/GovernedAssessmentPersistenceBase.ts\",\"packages/mps-lu/src/governance/LuExecutionAuthorityLifecycle.ts\",\"packages/mps-lu/src/governance/LuSourceAuthorityEvidence.ts\",\"packages/mps-lu/src/governance/LuSourceAuthorityTemporalStatus.ts\",\"packages/mps-lu/src/governance/LuSourceAuthorityWiring.ts\",\"packages/mps-lu/src/index.ts\",\"packages/mps-lu/tests/LuSourceAuthorityTemporal04E.test.ts\",\"packages/mps-lu/tests/LuSourceAuthorityWiring04D.test.ts\",\"packages/mps-lu/tests/LuSourceAuthorityWiring04DF04.test.ts\",\"scripts/ops/provision-lu-execution-authority-lifecycle.ts\",\"server/modules/localization/luExecutionIdentityV3Provisioning.ts\",\"server/security/canonicalAuthorityIdentity.ts\",\"server/workers/lu-execution-identity-v3-worker.ts\",\"tests/unit/luExecutionIdentityScopeV2ProductWiring.test.ts\",\"tests/unit/luExecutionIdentityV3ProvisioningProofs.test.ts\"]"
+      ],
+      "expected_classification": "PASS",
+      "required_head": "candidate_sha",
+      "timeout_ms": 120000
+    },
+    {
+      "id": "main-only-preservation-byte-identity",
+      "command": "node",
+      "args": [
+        "-e",
+        "const fs=require('node:fs'),crypto=require('node:crypto');const [expected,pathsJson]=process.argv.slice(1);const fail=m=>{console.error(m);process.exit(1)};if(!/^[0-9a-f]{64}$/.test(expected||''))fail('INVALID_EXPECTED_DIGEST');let paths;try{paths=JSON.parse(pathsJson)}catch{fail('INVALID_PATH_JSON')}if(!Array.isArray(paths)||paths.length===0)fail('EMPTY_PATH_SET');if(new Set(paths).size!==paths.length)fail('DUPLICATE_PATH');const blobSha=b=>crypto.createHash('sha1').update(Buffer.from('blob '+b.length+'\\0','utf8')).update(b).digest('hex');let aggregate='';for(const path of [...paths].sort()){if(typeof path!=='string'||!path||path.includes('\\0')||path.includes('\\n')||path.startsWith('/')||path.split('/').includes('..'))fail('INVALID_PATH:'+path);let st;try{st=fs.lstatSync(path)}catch{fail('MISSING:'+path)}if(!st.isFile()||st.isSymbolicLink())fail('NOT_REGULAR_FILE:'+path);const bytes=fs.readFileSync(path);aggregate+=path+'\\0'+blobSha(bytes)+'\\n'}const actual=crypto.createHash('sha256').update(Buffer.from(aggregate,'utf8')).digest('hex');if(actual!==expected)fail('DIGEST_MISMATCH expected='+expected+' actual='+actual);console.log('DIGEST_OK '+actual);",
+        "45f0d902730f000c39b1c14d7debed10f69e5f23db21a5ea55a1ee17bfbc7949",
+        "[\".github/workflows/devgov-v0-orchestrate.yml\",\"governance/devgov/units/devgov-orchestrator-explicit-repo-dispatch-v1.json\",\"governance/devgov/units/devgov-orchestrator-explicit-repo-watch-v1.json\"]"
+      ],
+      "expected_classification": "PASS",
+      "required_head": "candidate_sha",
+      "timeout_ms": 120000
+    },
+    {
+      "id": "authority-identity-convergence-test-discovery",
+      "command": "npx",
+      "args": [
+        "vitest",
+        "run",
+        "--config",
+        "vitest.config.ts",
+        "packages/mps-compliance/tests/AuthorityIdentityConvergence.test.ts"
+      ],
+      "expected_classification": "PASS",
+      "required_head": "candidate_sha",
+      "timeout_ms": 120000
+    },
+    {
+      "id": "authority-actor-projection",
+      "command": "npx",
+      "args": [
+        "vitest",
+        "run",
+        "--config",
+        "vitest.config.ts",
+        "packages/mps-compliance/tests/AuthorityActorProjection.test.ts"
+      ],
+      "expected_classification": "PASS",
+      "required_head": "candidate_sha",
+      "timeout_ms": 120000
+    },
+    {
+      "id": "authority-generic-trust-reconciliation",
+      "command": "npx",
+      "args": [
+        "vitest",
+        "run",
+        "--config",
+        "vitest.config.ts",
+        "packages/mps-compliance/tests/AuthorityGenericTrustReconciliation04C.test.ts",
+        "packages/mps-governance-runtime/tests/AuthorityGenericRuntimeReconciliation04C.test.ts"
+      ],
+      "expected_classification": "PASS",
+      "required_head": "candidate_sha",
+      "timeout_ms": 120000
+    },
+    {
+      "id": "authority-regression-reconciliation",
+      "command": "npx",
+      "args": [
+        "vitest",
+        "run",
+        "--config",
+        "vitest.config.ts",
+        "packages/mps-compliance/tests/ACT_21_I1.authority.test.ts",
+        "packages/mps-compliance/tests/ACT_21_I3_I5.authority.test.ts",
+        "packages/mps-compliance/tests/AuthorityActorProjection.test.ts",
+        "packages/mps-compliance/tests/AuthorityGenericTrustReconciliation04C.test.ts",
+        "packages/mps-compliance/tests/AuthorityIdentityConvergence.test.ts",
+        "packages/mps-governance-runtime/tests/AuthorityGenericRuntimeReconciliation04C.test.ts",
+        "packages/mps-governance-runtime/tests/AuthorityRuntimeEnforcement.test.ts",
+        "packages/mps-governance-runtime/tests/AuthorityVerification.test.ts",
+        "packages/mps-governance-runtime/tests/ObservationNotAuthority.test.ts"
+      ],
+      "timeout_ms": 180000,
+      "expected_classification": "PASS",
+      "required_head": "candidate_sha"
+    },
+    {
+      "id": "temporal-activation-expiry-revocation",
+      "command": "bash",
+      "args": [
+        "-lc",
+        "test -f packages/mps-lu/tests/LuSourceAuthorityTemporal04E.test.ts && npx vitest run --config vitest.config.ts --no-file-parallelism packages/mps-lu/tests/LuSourceAuthorityTemporal04E.test.ts"
+      ],
+      "timeout_ms": 240000,
+      "expected_classification": "PASS",
+      "required_head": "candidate_sha"
+    },
+    {
+      "id": "canonical-exact-attempt-authority-wiring",
+      "command": "bash",
+      "args": [
+        "-lc",
+        "node -e \"const fs=require('fs');for(const f of ['packages/mps-lu/src/governance/LuSourceAuthorityTemporalStatus.ts','packages/mps-lu/src/governance/LuExecutionAuthorityLifecycle.ts','scripts/ops/provision-lu-execution-authority-lifecycle.ts','server/modules/localization/luExecutionIdentityV3Provisioning.ts','server/workers/lu-execution-identity-v3-worker.ts'])if(!fs.existsSync(f))process.exit(1);const w=fs.readFileSync('packages/mps-lu/src/governance/LuSourceAuthorityWiring.ts','utf8');const p=fs.readFileSync('packages/mps-lu/src/governance/GovernedAssessmentPersistence.ts','utf8');const t=fs.readFileSync('packages/mps-lu/src/governance/LuSourceAuthorityTemporalStatus.ts','utf8');const l=fs.readFileSync('packages/mps-lu/src/governance/LuExecutionAuthorityLifecycle.ts','utf8');const o=fs.readFileSync('scripts/ops/provision-lu-execution-authority-lifecycle.ts','utf8');const q=fs.readFileSync('server/modules/localization/luExecutionIdentityV3Provisioning.ts','utf8');const x=fs.readFileSync('server/workers/lu-execution-identity-v3-worker.ts','utf8');if(!w.includes('authorized_at_decision_time: true')||!w.includes('deriveLuCanonicalAssessmentAttemptRef')||[w,q,x].some(s=>s.includes('LU_SOURCE_AUTHORITY_TEMPORAL_STATUS_ID')))process.exit(1);for(const s of ['qualification_not_active','qualification_expired','authority_revoked','expected_attempt_ref'])if(!t.includes(s))process.exit(1);for(const s of ['authority_attempt_binding','authority_temporal_status_body_hash','authority_execution_identity_binding'])if(!p.includes(s))process.exit(1);for(const s of ['attestLuExecutionAuthorityLifecycle','verifyLuExecutionAuthorityLifecycle','assertLuExecutionAuthorityLifecycleCurrent','signer is not LU root'])if(!l.includes(s))process.exit(1);for(const s of ['LU_EXECUTION_AUTHORITY_ROOT_PRIVATE_KEY_PEM','attestLuExecutionAuthorityLifecycle','verifyLuExecutionAuthorityLifecycle','private key available during verification'])if(!o.includes(s))process.exit(1);for(const s of ['ensureTemporalAuthorization','LU_EXECUTION_AUTHORITY_LIFECYCLE_ID_ENV','verifyLuExecutionAuthorityLifecycle','assertLuExecutionAuthorityLifecycleCurrent','getLuExecutionAuthoritySigningProvider'])if(!q.includes(s))process.exit(1);for(const s of ['LU_EXECUTION_AUTHORITY_LIFECYCLE_ID','refusing to start','lifecycle-bound temporal-authority'])if(!x.includes(s))process.exit(1);for(const s of ['LU_SOURCE_AUTHORITY_VALID_FROM','LU_SOURCE_AUTHORITY_VALID_UNTIL'])if(q.includes(s)||x.includes(s))process.exit(1);\" && npx vitest run --config vitest.config.ts --no-file-parallelism packages/mps-lu/tests/LuSourceAuthorityWiring04D.test.ts tests/unit/luExecutionIdentityV3ProvisioningProofs.test.ts"
+      ],
+      "timeout_ms": 300000,
+      "expected_classification": "PASS",
+      "required_head": "candidate_sha"
+    }
+  ],
+  "trusted_execution": {
+    "issuer": "github-actions:JbmbAb/Milj-beslut-V1.2:devgov-v0-attest",
+    "key_id": "devgov-ci-ed25519-v1"
+  },
+  "remote": {
+    "name": "origin",
+    "branch": "authority/chain-promotion-01",
+    "push_policy": "no_force",
+    "absent_policy": "deny_absent"
+  }
+}

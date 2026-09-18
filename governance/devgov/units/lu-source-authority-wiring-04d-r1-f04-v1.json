@@ -1,0 +1,84 @@
+{
+  "schema_version": "dev-gov-v1-unit-definition",
+  "unit": "LU-SOURCE-AUTHORITY-WIRING-04D-R1-F04-V1",
+  "role": "producer",
+  "mode": "writer",
+  "branch": "audit/04d-r1-f04-cold-audit",
+  "base_sha": "abe09effc6d685058f0f13bbe9ac74b1fae94e16",
+  "ancestry_policy": "descendant_of_base",
+  "allowed_paths": [
+    "packages/mps-lu/src/governance/GovernedAssessmentPersistence.ts",
+    "packages/mps-lu/src/governance/GovernedAssessmentPersistenceBase.ts",
+    "packages/mps-lu/tests/LuSourceAuthorityWiring04DF04.test.ts",
+    "docs/architecture/audits/COLD-AUDIT-04D-R1-F04.md",
+    "governance/devgov/units/lu-source-authority-wiring-04d-r1-f04-v1.json"
+  ],
+  "forbidden_paths": [
+    ".github/**",
+    "scripts/devgov/**",
+    "governance/devgov/schema/**",
+    "prisma/**",
+    "packages/mps-governance/src/**",
+    "packages/mps-compliance/src/**",
+    "packages/mps-runtime/src/**",
+    "server/security/**"
+  ],
+  "required_red": [
+    {
+      "id": "f04-evidence-body-integrity",
+      "command": "bash",
+      "args": [
+        "-lc",
+        "node -e \"const fs=require('fs');const p=fs.readFileSync('packages/mps-lu/src/governance/GovernedAssessmentPersistence.ts','utf8');if(!p.includes('authority_evidence_body_hash'))process.exit(1);\""
+      ],
+      "timeout_ms": 60000,
+      "expected_classification": "FAIL",
+      "required_head": "base_sha"
+    },
+    {
+      "id": "f04-execution-identity-binding",
+      "command": "bash",
+      "args": [
+        "-lc",
+        "node -e \"const fs=require('fs');const p=fs.readFileSync('packages/mps-lu/src/governance/GovernedAssessmentPersistence.ts','utf8');if(!p.includes('authority_execution_identity_binding'))process.exit(1);\""
+      ],
+      "timeout_ms": 60000,
+      "expected_classification": "FAIL",
+      "required_head": "base_sha"
+    }
+  ],
+  "required_green": [
+    {
+      "id": "f04-evidence-body-integrity",
+      "command": "bash",
+      "args": [
+        "-lc",
+        "node -e \"const fs=require('fs');const p=fs.readFileSync('packages/mps-lu/src/governance/GovernedAssessmentPersistence.ts','utf8');if(!p.includes('authority_evidence_body_hash'))process.exit(1);\" && npx vitest run --config vitest.config.ts --no-file-parallelism packages/mps-lu/tests/LuSourceAuthorityWiring04DF04.test.ts -t \"F04-A rejects a legitimate verified decision paired with a mutated evidence body and stale hash\""
+      ],
+      "timeout_ms": 240000,
+      "expected_classification": "PASS",
+      "required_head": "candidate_sha"
+    },
+    {
+      "id": "f04-execution-identity-binding",
+      "command": "bash",
+      "args": [
+        "-lc",
+        "node -e \"const fs=require('fs');const p=fs.readFileSync('packages/mps-lu/src/governance/GovernedAssessmentPersistence.ts','utf8');if(!p.includes('authority_execution_identity_binding'))process.exit(1);\" && npx vitest run --config vitest.config.ts --no-file-parallelism packages/mps-lu/tests/LuSourceAuthorityWiring04DF04.test.ts -t \"F04-B rejects replay of legitimate authority A onto an assessment/outcome produced by execution B\""
+      ],
+      "timeout_ms": 240000,
+      "expected_classification": "PASS",
+      "required_head": "candidate_sha"
+    }
+  ],
+  "trusted_execution": {
+    "issuer": "github-actions:JbmbAb/Milj-beslut-V1.2:devgov-v0-attest",
+    "key_id": "devgov-ci-ed25519-v1"
+  },
+  "remote": {
+    "name": "origin",
+    "branch": "audit/04d-r1-f04-cold-audit",
+    "push_policy": "no_force",
+    "absent_policy": "deny_absent"
+  }
+}

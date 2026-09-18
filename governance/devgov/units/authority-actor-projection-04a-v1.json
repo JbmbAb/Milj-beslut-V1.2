@@ -1,0 +1,71 @@
+{
+  "schema_version": "dev-gov-v1-unit-definition",
+  "unit": "AUTHORITY-ACTOR-PROJECTION-04A-V1",
+  "role": "producer",
+  "mode": "writer",
+  "branch": "audit/minimum-authority-delta-04a-actor-projection",
+  "base_sha": "e5584d8a087962ce6a9fa6249c11e352b1cab9c5",
+  "ancestry_policy": "descendant_of_base",
+  "allowed_paths": [
+    "packages/mps-governance/src/actors/ActorArtifact.ts",
+    "packages/mps-compliance/tests/AuthorityActorProjection.test.ts",
+    "docs/architecture/audits/MINIMUM-AUTHORITY-DELTA-04A-ACTOR-PROJECTION.md",
+    "governance/devgov/units/authority-actor-projection-04a-v1.json"
+  ],
+  "forbidden_paths": [
+    ".github/**",
+    "scripts/devgov/**",
+    "governance/devgov/schema/**",
+    "server/**",
+    "services/**",
+    "prisma/**",
+    "packages/mps-lu/**",
+    "packages/mps-governance/src/actors/TrustAnchorArtifact.ts",
+    "packages/mps-governance/src/actors/TrustDomainArtifact.ts",
+    "packages/mps-governance/src/actors/TrustDelegationArtifact.ts",
+    "packages/mps-governance/src/actors/ActorLifecycleArtifact.ts",
+    "packages/mps-governance/src/capabilities/**"
+  ],
+  "required_red": [
+    {
+      "id": "authority-actor-projection",
+      "command": "npx",
+      "args": [
+        "vitest",
+        "run",
+        "--config",
+        "vitest.config.ts",
+        "packages/mps-compliance/tests/AuthorityActorProjection.test.ts"
+      ],
+      "expected_classification": "FAIL",
+      "required_head": "base_sha",
+      "timeout_ms": 120000
+    }
+  ],
+  "required_green": [
+    {
+      "id": "authority-actor-projection",
+      "command": "npx",
+      "args": [
+        "vitest",
+        "run",
+        "--config",
+        "vitest.config.ts",
+        "packages/mps-compliance/tests/AuthorityActorProjection.test.ts"
+      ],
+      "expected_classification": "PASS",
+      "required_head": "candidate_sha",
+      "timeout_ms": 120000
+    }
+  ],
+  "trusted_execution": {
+    "issuer": "github-actions:JbmbAb/Milj-beslut-V1.2:devgov-v0-attest",
+    "key_id": "devgov-ci-ed25519-v1"
+  },
+  "remote": {
+    "name": "origin",
+    "branch": "audit/minimum-authority-delta-04a-actor-projection",
+    "push_policy": "no_force",
+    "absent_policy": "deny_absent"
+  }
+}

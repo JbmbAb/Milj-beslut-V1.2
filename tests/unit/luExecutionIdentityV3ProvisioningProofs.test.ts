@@ -1,14 +1,9 @@
 /**
- * PRODUCT-LU-EXECUTION-IDENTITY-V3-PROVISIONING-01 Phase B — proof matrix.
+ * PRODUCT-LU-EXECUTION-IDENTITY-V3-PROVISIONING-01 Phase B + AUTHORITY-04E proof matrix.
  *
- * Mirrors the established test pattern for this exact class of module
- * (tests/unit/luProjectContextBootstrap.test.ts): mock MimersIntegration.create, the Prisma
- * singleton, and the canonical-context resolvers, then exercise the REAL executor/queue logic.
- * The fresh-verify subprocess (a real spawned child process against real disk CAS) cannot share
- * an in-memory CAS across a process boundary, so `spawn` is mocked here to short-circuit it while
- * still asserting on HOW it was invoked (private key env var deleted) -- the subprocess's own
- * real, unmocked behavior is proven separately by the live ops-script proof against the real dev
- * DB/CAS, matching how every prior unit in this session split "fast unit proof" from "live proof".
+ * The provisioning worker now has two issuer-side responsibilities: issue/reconcile the V3
+ * ExecutionIdentity and issue/reconcile the exact-attempt ticket for the CURRENT root-signed LU
+ * issuer lifecycle. The fresh-verifier child still receives no private signing key.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -42,21 +37,36 @@ vi.mock('node:child_process', () => ({
   default: { spawn: spawnMock },
 }));
 
-import { LocalPemSigningKeyProvider, LocalPemVerificationKeyProvider } from '@miljobeslut/mimers-brunn-core';
+import { LocalPemSigningKeyProvider } from '@miljobeslut/mimers-brunn-core';
 import { InMemoryArtifactRepository } from '@miljobeslut/mps-runtime';
-import { createLocalizationGeometryArtifact, LU_EXECUTION_AUTHORITY_ISSUER_TYPE } from '@miljobeslut/mps-lu';
+import {
+  LU_EXECUTION_AUTHORITY_ISSUER_TYPE,
+  attestLuExecutionAuthorityIssuer,
+  attestLuExecutionAuthorityLifecycle,
+  attestLuExecutionAuthorityRoot,
+  createLocalizationGeometryArtifact,
+  createLuExecutionAuthorityIssuerArtifact,
+  createLuExecutionAuthorityLifecycleArtifact,
+  createLuExecutionAuthorityRootArtifact,
+  type LuExecutionAuthorityIssuerArtifact,
+  type LuExecutionAuthorityLifecycleArtifact,
+  type LuExecutionAuthorityRootArtifact,
+} from '@miljobeslut/mps-lu';
 import { executeLocalizationIdentityProvisioning } from '../../server/modules/localization/luExecutionIdentityV3Provisioning';
 import {
   __resetLuExecutionAuthorityVerifierForTests,
 } from '../../packages/mps-lu/src/execution/LuExecutionAuthorityVerifier';
 import { __resetLuExecutionAuthoritySigningProviderForTests } from '../../server/security/luExecutionAuthoritySigningKey';
 
-const ISSUER_ARTIFACT_ID = 'lu-execution-authority-issuer-test-fixture';
 const PROJECT_ID = 'project-v3-provisioning-proof';
 const PROPERTY_CONTEXT_REF = { artifact_id: 'lu_property_context-fixture', artifact_type: 'LU_PROPERTY_CONTEXT' } as const;
 const BINDING_REF = { artifact_id: 'project-context-binding-fixture', artifact_type: 'project_context_binding' } as const;
 const PROJECT_CONTEXT_REF = { artifact_id: 'lu_project_context-fixture', artifact_type: 'LU_PROJECT_CONTEXT' } as const;
 const RELEASE_REF = { artifact_id: 'product-release-fixture', artifact_type: 'product_release_manifest' } as const;
+
+function ref(artifact: { readonly artifact_id: string; readonly artifact_type: string }) {
+  return { artifact_id: artifact.artifact_id, artifact_type: artifact.artifact_type };
+}
 
 function makeGeometry(overrides?: Partial<Parameters<typeof createLocalizationGeometryArtifact>[0]>) {
   return createLocalizationGeometryArtifact({
@@ -73,9 +83,15 @@ function makeGeometry(overrides?: Partial<Parameters<typeof createLocalizationGe
 
 describe('PRODUCT-LU-EXECUTION-IDENTITY-V3-PROVISIONING-01 — executor proof matrix', () => {
   let repo: InMemoryArtifactRepository;
+  let rootKey: ReturnType<typeof LocalPemSigningKeyProvider.generate>;
   let authorityKey: ReturnType<typeof LocalPemSigningKeyProvider.generate>;
+  let rootArtifact: LuExecutionAuthorityRootArtifact;
+  let issuerArtifact: LuExecutionAuthorityIssuerArtifact;
+  let lifecycleArtifact: LuExecutionAuthorityLifecycleArtifact;
+  let capturedSpawnEnv: Record<string, string | undefined> | undefined;
+  let capturedSpawnArgs: string[] | undefined;
 
-  beforeEach(() => {
+  beforeEach(async () => {
     repo = new InMemoryArtifactRepository();
     mimersCreate.mockResolvedValue({ artifactRepository: repo });
     resolveCanonicalContextMock.mockResolvedValue({
@@ -108,21 +124,69 @@ describe('PRODUCT-LU-EXECUTION-IDENTITY-V3-PROVISIONING-01 — executor proof ma
       };
     });
 
+    rootKey = LocalPemSigningKeyProvider.generate('ed25519:lu-root-v3-provisioning-proof');
     authorityKey = LocalPemSigningKeyProvider.generate('ed25519:lu-authority-v3-provisioning-proof');
-    process.env.LU_EXECUTION_AUTHORITY_ISSUER_ARTIFACT_ID = ISSUER_ARTIFACT_ID;
+    process.env.LU_EXECUTION_AUTHORITY_ROOT_KEY_ID = rootKey.provider.keyId;
+    process.env.LU_EXECUTION_AUTHORITY_ROOT_PUBLIC_KEY_PEM = rootKey.publicKey;
     process.env.LU_EXECUTION_AUTHORITY_SIGNING_KEY_ID = authorityKey.provider.keyId;
     process.env.LU_EXECUTION_AUTHORITY_PUBLIC_KEY_PEM = authorityKey.publicKey;
     process.env.LU_EXECUTION_AUTHORITY_PRIVATE_KEY_PEM = authorityKey.privateKey;
-  });
+    __resetLuExecutionAuthorityVerifierForTests(null);
+    __resetLuExecutionAuthoritySigningProviderForTests(null);
 
-  let capturedSpawnEnv: Record<string, string | undefined> | undefined;
-  let capturedSpawnArgs: string[] | undefined;
+    const bareRoot = createLuExecutionAuthorityRootArtifact({
+      root_key_id: rootKey.provider.keyId,
+      public_key_fingerprint: 'root-fingerprint-provisioning-proof',
+    });
+    rootArtifact = {
+      ...bareRoot,
+      attestation: await attestLuExecutionAuthorityRoot({
+        root: bareRoot,
+        signing: rootKey.provider,
+      }),
+    };
+    const bareIssuer = createLuExecutionAuthorityIssuerArtifact({
+      issuer_key_id: authorityKey.provider.keyId,
+      public_key_fingerprint: 'issuer-fingerprint-provisioning-proof',
+      root_ref: ref(rootArtifact),
+    });
+    issuerArtifact = {
+      ...bareIssuer,
+      attestation: await attestLuExecutionAuthorityIssuer({
+        issuer: bareIssuer,
+        root: rootArtifact,
+        signing: rootKey.provider,
+      }),
+    };
+    const bareLifecycle = createLuExecutionAuthorityLifecycleArtifact({
+      root: rootArtifact,
+      issuer: issuerArtifact,
+      valid_from: '2020-01-01T00:00:00.000Z',
+      valid_until: '2035-01-01T00:00:00.000Z',
+    });
+    lifecycleArtifact = {
+      ...bareLifecycle,
+      attestation: await attestLuExecutionAuthorityLifecycle({
+        lifecycle: bareLifecycle,
+        root: rootArtifact,
+        signing: rootKey.provider,
+      }),
+    };
+    await repo.put({ artifact_id: rootArtifact.artifact_id, content_hash: rootArtifact.content_hash, body: rootArtifact });
+    await repo.put({ artifact_id: issuerArtifact.artifact_id, content_hash: issuerArtifact.content_hash, body: issuerArtifact });
+    await repo.put({ artifact_id: lifecycleArtifact.artifact_id, content_hash: lifecycleArtifact.content_hash, body: lifecycleArtifact });
+    process.env.LU_EXECUTION_AUTHORITY_ISSUER_ARTIFACT_ID = issuerArtifact.artifact_id;
+    process.env.LU_EXECUTION_AUTHORITY_LIFECYCLE_ID = lifecycleArtifact.artifact_id;
+  });
 
   afterEach(() => {
     delete process.env.LU_EXECUTION_AUTHORITY_ISSUER_ARTIFACT_ID;
     delete process.env.LU_EXECUTION_AUTHORITY_SIGNING_KEY_ID;
     delete process.env.LU_EXECUTION_AUTHORITY_PUBLIC_KEY_PEM;
     delete process.env.LU_EXECUTION_AUTHORITY_PRIVATE_KEY_PEM;
+    delete process.env.LU_EXECUTION_AUTHORITY_ROOT_KEY_ID;
+    delete process.env.LU_EXECUTION_AUTHORITY_ROOT_PUBLIC_KEY_PEM;
+    delete process.env.LU_EXECUTION_AUTHORITY_LIFECYCLE_ID;
     __resetLuExecutionAuthorityVerifierForTests(null);
     __resetLuExecutionAuthoritySigningProviderForTests(null);
     capturedSpawnEnv = undefined;
@@ -194,7 +258,7 @@ describe('PRODUCT-LU-EXECUTION-IDENTITY-V3-PROVISIONING-01 — executor proof ma
     if (!outcome.ok) expect(outcome.failureCode).toBe('GEOMETRY_PROPERTY_MISMATCH');
   });
 
-  it('proof 2 + hard invariant: full mint succeeds, spawns fresh verifier with the private key env var deleted', async () => {
+  it('proof 2 + hard invariant: full mint succeeds and fresh verifier gets no private key', async () => {
     const geometry = makeGeometry();
     await repo.put({ artifact_id: geometry.artifact_id, content_hash: geometry.content_hash, body: geometry });
 
@@ -212,7 +276,7 @@ describe('PRODUCT-LU-EXECUTION-IDENTITY-V3-PROVISIONING-01 — executor proof ma
       artifact_id: outcome.executionIdentityArtifactId,
       artifact_type: 'execution_identity',
     });
-    expect(identity.references.some((r) => r.artifact_id === ISSUER_ARTIFACT_ID && r.artifact_type === LU_EXECUTION_AUTHORITY_ISSUER_TYPE)).toBe(true);
+    expect(identity.references.some((r) => r.artifact_id === issuerArtifact.artifact_id && r.artifact_type === LU_EXECUTION_AUTHORITY_ISSUER_TYPE)).toBe(true);
 
     expect(spawnMock).toHaveBeenCalledOnce();
     expect(capturedSpawnEnv).toBeDefined();
@@ -220,7 +284,7 @@ describe('PRODUCT-LU-EXECUTION-IDENTITY-V3-PROVISIONING-01 — executor proof ma
     expect(capturedSpawnArgs?.[capturedSpawnArgs.length - 1]).toBe(geometry.artifact_id);
   });
 
-  it('proof 3 (reused): same exact request twice -> second call reuses, no duplicate signing', async () => {
+  it('proof 3 (reused): same exact request reuses identity and lifecycle-bound ticket', async () => {
     const geometry = makeGeometry();
     await repo.put({ artifact_id: geometry.artifact_id, content_hash: geometry.content_hash, body: geometry });
 
@@ -242,11 +306,10 @@ describe('PRODUCT-LU-EXECUTION-IDENTITY-V3-PROVISIONING-01 — executor proof ma
       expect(second.executionIdentityArtifactId).toBe(first.executionIdentityArtifactId);
       expect(second.reused).toBe(true);
     }
-    // No second mint attempt -> no second fresh-verify subprocess spawned.
     expect(spawnMock).not.toHaveBeenCalled();
   });
 
-  it('proof 5 (crash/retry safety): a partially-written CAS state (identity present, attestation missing) is not trusted -- re-issues cleanly', async () => {
+  it('proof 5: partial CAS identity without attestation is not trusted and retry re-issues cleanly', async () => {
     const geometry = makeGeometry();
     await repo.put({ artifact_id: geometry.artifact_id, content_hash: geometry.content_hash, body: geometry });
 
@@ -258,10 +321,11 @@ describe('PRODUCT-LU-EXECUTION-IDENTITY-V3-PROVISIONING-01 — executor proof ma
     expect(first.ok).toBe(true);
     if (!first.ok) return;
 
-    // Simulate a crash that left the identity written but never persisted its attestation --
-    // a genuinely partial state a real crash mid-issuance could produce.
     const orphaned = new InMemoryArtifactRepository();
     const identity = await repo.resolve({ artifact_id: first.executionIdentityArtifactId, artifact_type: 'execution_identity' });
+    await orphaned.put({ artifact_id: rootArtifact.artifact_id, content_hash: rootArtifact.content_hash, body: rootArtifact });
+    await orphaned.put({ artifact_id: issuerArtifact.artifact_id, content_hash: issuerArtifact.content_hash, body: issuerArtifact });
+    await orphaned.put({ artifact_id: lifecycleArtifact.artifact_id, content_hash: lifecycleArtifact.content_hash, body: lifecycleArtifact });
     await orphaned.put({ artifact_id: first.executionIdentityArtifactId, content_hash: (identity as { content_hash: { algorithm: 'sha256'; value: string } }).content_hash, body: identity });
     await orphaned.put({ artifact_id: geometry.artifact_id, content_hash: geometry.content_hash, body: geometry });
     mimersCreate.mockResolvedValue({ artifactRepository: orphaned });
@@ -271,25 +335,17 @@ describe('PRODUCT-LU-EXECUTION-IDENTITY-V3-PROVISIONING-01 — executor proof ma
       geometryArtifactId: geometry.artifact_id,
       requestedByUserId: 'requester-1',
     });
-    // Re-issuing under the SAME subject is itself idempotent (content-addressed) -- the retry
-    // either mints the exact same id fresh (now with its attestation) or reuses; either is safe,
-    // it must never diverge to a DIFFERENT id for the same subject.
     expect(retry.ok).toBe(true);
-    if (retry.ok && first.ok) {
-      expect(retry.executionIdentityArtifactId).toBe(first.executionIdentityArtifactId);
-    }
+    if (retry.ok) expect(retry.executionIdentityArtifactId).toBe(first.executionIdentityArtifactId);
   });
 
-  it("proof 4 (A->B race): a stale request for A completes as a valid, non-current historical identity -- B's own request produces a distinct identity", async () => {
+  it("proof 4 (A->B race): A and B get distinct identities/tickets under one current lifecycle", async () => {
     const geometryA = makeGeometry({ wgs84LngLat: [18.07, 59.33], sweref99NorthingEasting: [6580000, 674000] });
     const geometryB = makeGeometry({ wgs84LngLat: [18.2, 59.4], sweref99NorthingEasting: [6600000, 680000] });
     await repo.put({ artifact_id: geometryA.artifact_id, content_hash: geometryA.content_hash, body: geometryA });
     await repo.put({ artifact_id: geometryB.artifact_id, content_hash: geometryB.content_hash, body: geometryB });
 
-    // The request for A was enqueued first (pinned to A) but its worker only gets around to it
-    // AFTER B has already been saved -- exactly the race the recon flagged. The executor must
-    // still mint strictly for A, never silently substitute "whatever is current now".
-    const outcomeForStaleA = await executeLocalizationIdentityProvisioning({
+    const outcomeForA = await executeLocalizationIdentityProvisioning({
       projectId: PROJECT_ID,
       geometryArtifactId: geometryA.artifact_id,
       requestedByUserId: 'requester-1',
@@ -300,19 +356,18 @@ describe('PRODUCT-LU-EXECUTION-IDENTITY-V3-PROVISIONING-01 — executor proof ma
       requestedByUserId: 'requester-1',
     });
 
-    expect(outcomeForStaleA.ok).toBe(true);
+    expect(outcomeForA.ok).toBe(true);
     expect(outcomeForB.ok).toBe(true);
-    if (outcomeForStaleA.ok && outcomeForB.ok) {
-      expect(outcomeForStaleA.executionIdentityArtifactId).not.toBe(outcomeForB.executionIdentityArtifactId);
+    if (outcomeForA.ok && outcomeForB.ok) {
+      expect(outcomeForA.executionIdentityArtifactId).not.toBe(outcomeForB.executionIdentityArtifactId);
       const identityA = await repo.resolve<{ subject_v3?: { localization_geometry_ref: { artifact_id: string } } }>({
-        artifact_id: outcomeForStaleA.executionIdentityArtifactId,
+        artifact_id: outcomeForA.executionIdentityArtifactId,
         artifact_type: 'execution_identity',
       });
       const identityB = await repo.resolve<{ subject_v3?: { localization_geometry_ref: { artifact_id: string } } }>({
         artifact_id: outcomeForB.executionIdentityArtifactId,
         artifact_type: 'execution_identity',
       });
-      // A's identity is genuinely, permanently scoped to A -- never silently reinterpreted as B.
       expect(identityA.subject_v3?.localization_geometry_ref.artifact_id).toBe(geometryA.artifact_id);
       expect(identityB.subject_v3?.localization_geometry_ref.artifact_id).toBe(geometryB.artifact_id);
     }
