@@ -15,13 +15,13 @@ import {
   createProjectContextBindingSupersessionArtifact,
   createProjectContextBindingIssuerArtifact,
   createProjectContextBindingSupersessionIssuerArtifact,
-  runLuAssessmentViaKernel,
-  buildSpatialEvidenceContentHash,
+    buildSpatialEvidenceContentHash,
   SPATIAL_STACK_V1,
   type AssessmentFinding,
   type SpatialEvidenceArtifact,
   type LocalizationAssessmentArtifact,
 } from '@miljobeslut/mps-lu';
+import { runLuAssessmentViaKernel } from '../../packages/mps-lu/src/execution/LuExecutionKernelClient';
 import {
   installOwnerIssuedProjectContextBinding,
   installOwnerIssuedProjectContextBindingSupersession,

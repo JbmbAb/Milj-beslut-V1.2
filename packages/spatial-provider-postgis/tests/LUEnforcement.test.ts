@@ -2,7 +2,7 @@ import { describe, it, expect, beforeAll, afterAll, beforeEach, afterEach } from
 import { SpatialProviderPostGIS } from "../src/SpatialProviderPostGIS";
 import { LUProjectContextArtifact } from "@miljobeslut/mps-lu";
 import { LUPropertyContextArtifact } from "@miljobeslut/mps-lu";
-import { runLuAssessmentViaKernel } from "@miljobeslut/mps-lu";
+import { runLuAssessmentViaKernel } from "../../mps-lu/src/execution/LuExecutionKernelClient";
 import { ArtifactReference } from "@miljobeslut/mps-compliance/src/artifacts/ArtifactContract";
 import { MimersIntegration } from "../../mps-runtime/src/mimers/index";
 import { DefaultReplayEngine } from "../../mps-runtime/src/replay/DefaultReplayEngine";

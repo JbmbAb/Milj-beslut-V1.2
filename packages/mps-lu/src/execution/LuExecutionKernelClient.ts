@@ -57,24 +57,35 @@ import { LU_EXECUTION_PRINCIPAL_ID } from "./LuExecutionPrincipal.js";
 export { LU_EXECUTION_PRINCIPAL_ID } from "./LuExecutionPrincipal.js";
 
 /**
- * Domain registers LURuleEngine as an invoke handler — kernel never imports it.
+ * The single LU rule-evaluation construction point.
+ *
+ * Both governed kernel execution and deterministic re-execution reuse this internal evaluator,
+ * so no second module can construct LURuleEngine or grow independent rule semantics.
+ */
+export function evaluateLuRuleSet(
+  evidence: SpatialEvidenceArtifact[],
+  documentEvidence: readonly DocumentEvidenceArtifact[] = [],
+  verifiedDocumentFacts: readonly VerifiedDocumentFactArtifact[] = [],
+): AssessmentFinding[] {
+  return new LURuleEngine().evaluate({
+    spatial_evidence: evidence,
+    document_evidence: documentEvidence,
+    verified_document_facts: verifiedDocumentFacts,
+  });
+}
+
+/**
+ * Domain registers the canonical evaluator as an invoke handler — kernel never imports the rule engine.
  */
 export function createLuRuleEngineInvokeHandler(
   evidence: SpatialEvidenceArtifact[],
   documentEvidence: readonly DocumentEvidenceArtifact[] = [],
   verifiedDocumentFacts: readonly VerifiedDocumentFactArtifact[] = [],
 ): (inputs: readonly ContentReference[]) => Promise<readonly ContentReference[]> {
-  return async () => {
-    const engine = new LURuleEngine();
-    const findings = engine.evaluate({
-      spatial_evidence: evidence,
-      document_evidence: documentEvidence,
-      verified_document_facts: verifiedDocumentFacts,
-    });
-    return findings.map((f: AssessmentFinding) => ({
-      artifact_id: f.finding_id,
-    }));
-  };
+  return async () =>
+    evaluateLuRuleSet(evidence, documentEvidence, verifiedDocumentFacts).map(
+      (f: AssessmentFinding) => ({ artifact_id: f.finding_id }),
+    );
 }
 
 export interface LuKernelRunInput {
@@ -223,18 +234,17 @@ export async function runLuAssessmentViaKernel(
     );
   }
 
-  const engine = new LURuleEngine();
   let findings: AssessmentFinding[] = [];
 
   const handlers = new Map([
     [
       capability.implementation_ref.artifact_id,
       async () => {
-        findings = engine.evaluate({
-          spatial_evidence: input.evidence,
-          document_evidence: input.document_evidence ?? [],
-          verified_document_facts: input.verified_document_facts ?? [],
-        });
+        findings = evaluateLuRuleSet(
+          input.evidence,
+          input.document_evidence ?? [],
+          input.verified_document_facts ?? [],
+        );
         return findings.map((f) => ({ artifact_id: f.finding_id }));
       },
     ],

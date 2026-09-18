@@ -1,0 +1,108 @@
+{
+  "schema_version": "dev-gov-v1-unit-definition",
+  "unit": "LU-CANONICAL-PATH-01-V1",
+  "role": "producer",
+  "mode": "writer",
+  "branch": "governance/lu-canonical-path-01",
+  "base_sha": "9d8d39d8e879f1062c95db62175b8bbf11f82a9b",
+  "ancestry_policy": "descendant_of_base",
+  "allowed_paths": [
+    "packages/mps-lu/src/index.ts",
+    "packages/mps-lu/src/execution/LuDeterministicReExecution.ts",
+    "packages/mps-lu/src/execution/LuExecutionKernelClient.ts",
+    "scripts/ops/prove-lu-replay-cold-verify-01.ts",
+    "scripts/ops/prove-lu-deterministic-reexecution-01.ts",
+    "packages/spatial-provider-postgis/tests/LUEnforcement.test.ts",
+    "packages/spatial-provider-postgis/tests/LUMagicMomentPostGIS.test.ts",
+    "tests/unit/verifyCurrentLuAssessment.test.ts",
+    "src/application/unit/LuCanonicalPath01.test.ts",
+    "docs/architecture/audits/LU-CANONICAL-PATH-01.md",
+    "governance/devgov/units/lu-canonical-path-01-v1.json"
+  ],
+  "forbidden_paths": [
+    ".github/workflows/**",
+    ".github/actions/**",
+    "governance/devgov/schema/**",
+    "prisma/**"
+  ],
+  "required_red": [
+    {
+      "id": "canonical-public-api-closed",
+      "command": "node",
+      "args": [
+        "-e",
+        "const fs=require('node:fs');let s=fs.readFileSync('packages/mps-lu/src/index.ts','utf8');s=s.replace(/\\/\\*[\\s\\S]*?\\*\\//g,'').replace(/^\\s*\\/\\/.*$/gm,'');const ok=s.includes('export { runCanonicalLuProductAssessment } from \"./execution/LuExecutionKernelClient\";')&&s.includes('export type { CanonicalLuKernelRunInput, LuKernelRunResult } from \"./execution/LuExecutionKernelClient\";')&&!s.includes('export * from \"./execution/LuExecutionKernelClient\";')&&!/\\brunLuAssessmentViaKernel\\b/.test(s)&&!/\\bcreateLuRuleEngineInvokeHandler\\b/.test(s);if(!ok){console.error('LU_CANONICAL_PUBLIC_API_VIOLATION');process.exit(1)}console.log('LU_CANONICAL_PUBLIC_API_OK');"
+      ],
+      "expected_classification": "FAIL",
+      "required_head": "base_sha",
+      "timeout_ms": 30000
+    }
+  ],
+  "required_green": [
+    {
+      "id": "canonical-public-api-closed",
+      "command": "node",
+      "args": [
+        "-e",
+        "const fs=require('node:fs');let s=fs.readFileSync('packages/mps-lu/src/index.ts','utf8');s=s.replace(/\\/\\*[\\s\\S]*?\\*\\//g,'').replace(/^\\s*\\/\\/.*$/gm,'');const ok=s.includes('export { runCanonicalLuProductAssessment } from \"./execution/LuExecutionKernelClient\";')&&s.includes('export type { CanonicalLuKernelRunInput, LuKernelRunResult } from \"./execution/LuExecutionKernelClient\";')&&!s.includes('export * from \"./execution/LuExecutionKernelClient\";')&&!/\\brunLuAssessmentViaKernel\\b/.test(s)&&!/\\bcreateLuRuleEngineInvokeHandler\\b/.test(s);if(!ok){console.error('LU_CANONICAL_PUBLIC_API_VIOLATION');process.exit(1)}console.log('LU_CANONICAL_PUBLIC_API_OK');"
+      ],
+      "expected_classification": "PASS",
+      "required_head": "candidate_sha",
+      "timeout_ms": 30000
+    },
+    {
+      "id": "lu-canonical-path-repo-guard",
+      "command": "npx",
+      "args": [
+        "vitest",
+        "run",
+        "--config",
+        "vitest.config.ts",
+        "src/application/unit/LuCanonicalPath01.test.ts"
+      ],
+      "expected_classification": "PASS",
+      "required_head": "candidate_sha",
+      "timeout_ms": 120000
+    },
+    {
+      "id": "lu-single-path-and-no-alternate-verdict",
+      "command": "npx",
+      "args": [
+        "vitest",
+        "run",
+        "--config",
+        "vitest.config.ts",
+        "src/application/unit/LuCutoverSinglePath.test.ts",
+        "src/application/unit/NoAlternateLuDecisionPath.test.ts"
+      ],
+      "expected_classification": "PASS",
+      "required_head": "candidate_sha",
+      "timeout_ms": 180000
+    },
+    {
+      "id": "lu-release-and-source-authority-regression",
+      "command": "npx",
+      "args": [
+        "vitest",
+        "run",
+        "--config",
+        "vitest.config.ts",
+        "packages/mps-lu/tests/LocalizationAssessmentReleaseBindingProof.test.ts",
+        "packages/mps-lu/tests/LuSourceAuthorityTemporal04E.test.ts"
+      ],
+      "expected_classification": "PASS",
+      "required_head": "candidate_sha",
+      "timeout_ms": 240000
+    }
+  ],
+  "trusted_execution": {
+    "issuer": "github-actions:JbmbAb/Milj-beslut-V1.2:devgov-v0-attest",
+    "key_id": "devgov-ci-ed25519-v1"
+  },
+  "remote": {
+    "name": "origin",
+    "branch": "governance/lu-canonical-path-01",
+    "push_policy": "no_force",
+    "absent_policy": "deny_absent"
+  }
+}
