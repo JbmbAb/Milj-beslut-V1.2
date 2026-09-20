@@ -147,18 +147,30 @@ describe("ASSESSMENT-RELEASE-BINDING-RECON-01", () => {
     const repo = new InMemoryArtifactRepository();
     const viaGeneral = await runWithRelease(repo, RELEASE_A);
     const canonicalRepo = new InMemoryArtifactRepository();
-    const viaCanonical = await runCanonicalLuProductAssessment({
-      site_id: "site-release-binding-proof",
-      deterministic_seed: `seed:release-binding-proof:${RELEASE_A.artifact_id}`,
-      evidence: evidence(),
-      artifact_repository: canonicalRepo,
-      identity_subject_v3: {
-        project_context_binding_ref: BINDING,
-        product_release_ref: RELEASE_A,
-        execution_contract_version: "lu-execution-identity-v1",
-        localization_geometry_ref: GEOMETRY_REF,
-      },
-    });
+    // LU-CANONICAL-RUNTIME-HARDENING-R1: the canonical product entrypoint refuses to run while
+    // bootstrap admission is enabled, so it must be called with the flag cleared -- the general
+    // engine above is the only side that legitimately runs under bootstrap. manifest_id is derived
+    // from the execution subject alone, so the parity being proven here does not depend on
+    // admission (the canonical run is simply denied for lack of a provisioned identity).
+    const bootstrapBefore = process.env.MPS_LU_BOOTSTRAP_ADMIT;
+    delete process.env.MPS_LU_BOOTSTRAP_ADMIT;
+    let viaCanonical;
+    try {
+      viaCanonical = await runCanonicalLuProductAssessment({
+        site_id: "site-release-binding-proof",
+        deterministic_seed: `seed:release-binding-proof:${RELEASE_A.artifact_id}`,
+        evidence: evidence(),
+        artifact_repository: canonicalRepo,
+        identity_subject_v3: {
+          project_context_binding_ref: BINDING,
+          product_release_ref: RELEASE_A,
+          execution_contract_version: "lu-execution-identity-v1",
+          localization_geometry_ref: GEOMETRY_REF,
+        },
+      });
+    } finally {
+      if (bootstrapBefore !== undefined) process.env.MPS_LU_BOOTSTRAP_ADMIT = bootstrapBefore;
+    }
     expect(viaCanonical.manifest_id).toBe(viaGeneral.manifest_id);
   });
 });

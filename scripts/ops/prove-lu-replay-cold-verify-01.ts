@@ -6,11 +6,15 @@
  * -- under deliberately hostile conditions: DATABASE_URL unset, no PostGIS import anywhere in the
  * replay path, no "current" release/geometry/binding resolver reachable.
  *
- * Usage: MIMERS_ROOT="C:\Users\jimmy\.mimers" npx tsx scripts/ops/prove-lu-replay-cold-verify-01.ts
+ * Usage: npx tsx scripts/ops/prove-lu-replay-cold-verify-01.ts
+ *
+ * LU-CANONICAL-RUNTIME-HARDENING-R1: this script enables MPS_LU_BOOTSTRAP_ADMIT=1, so it runs against
+ * its own isolated temporary Mimers root (real filesystem CAS) and never opens, inspects or writes
+ * the caller's configured MIMERS_ROOT. The temporary root is removed when the proof finishes.
  */
 import '../../server/loadEnvFirst';
 import { readFileSync } from 'node:fs';
-import { MimersIntegration } from '@miljobeslut/mps-runtime';
+import { createIsolatedMimersProof, type IsolatedMimersProof } from './lib/luProofIsolatedMimers';
 import { runLuAssessmentViaKernel } from '../../packages/mps-lu/src/execution/LuExecutionKernelClient';
 import { DefaultReplayEngine } from '../../packages/mps-runtime/src/replay/DefaultReplayEngine';
 import type { SpatialEvidenceArtifact } from '@miljobeslut/mps-lu';
@@ -40,17 +44,25 @@ function evidence(): SpatialEvidenceArtifact {
 }
 
 async function main() {
+  const proof = await createIsolatedMimersProof();
+  try {
+    await runProof(proof);
+  } finally {
+    await proof.cleanup();
+  }
+}
+
+async function runProof(proof: IsolatedMimersProof) {
   console.log('########## PROVE-LU-REPLAY-COLD-VERIFY-01 ##########\n');
-  if (!process.env.MIMERS_ROOT?.trim()) throw new Error('MIMERS_ROOT is required.');
   const results: Record<string, boolean> = {};
 
   process.env.MPS_LU_BOOTSTRAP_ADMIT = '1';
-  const mimers = await MimersIntegration.create({ forceMimers: true });
-  const repo = mimers.artifactRepository;
+  const repo = proof.mimers.artifactRepository;
 
   console.log('=== STEP 1: run a real assessment, capture manifest_id ===\n');
   const ev = evidence();
   await repo.put({ artifact_id: ev.artifact_id, content_hash: ev.content_hash, body: ev });
+  console.log(`PROOF_ISOLATION ${JSON.stringify(await proof.attest())}\n`);
   const siteId = `site-cold-verify-live-${Date.now()}`;
   const result = await runLuAssessmentViaKernel({
     site_id: siteId,
