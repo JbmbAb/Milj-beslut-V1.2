@@ -1,0 +1,70 @@
+{
+  "schema_version": "dev-gov-v1-unit-definition",
+  "unit": "LU-CANONICAL-RUNTIME-HARDENING-R1-PROVEN-DOC-V1",
+  "role": "producer",
+  "mode": "writer",
+  "branch": "docs/lu-canonical-runtime-hardening-r1-proven",
+  "base_sha": "551c3112cee5b77f615310c6da04ebd56f8879df",
+  "ancestry_policy": "descendant_of_base",
+  "allowed_paths": [
+    "docs/architecture/audits/LU-CANONICAL-RUNTIME-HARDENING-R1-PROVEN.md",
+    "governance/devgov/units/lu-canonical-runtime-hardening-r1-proven-doc-v1.json"
+  ],
+  "forbidden_paths": [
+    ".github/**",
+    "scripts/**",
+    "governance/devgov/schema/**",
+    "prisma/**",
+    "packages/**",
+    "server/**",
+    "src/**",
+    "tests/**",
+    "components/**",
+    "docs/architecture/audits/LU-CANONICAL-RUNTIME-HARDENING-R1.md",
+    "governance/devgov/units/lu-canonical-runtime-hardening-r1-v1.json"
+  ],
+  "required_red": [
+    {
+      "id": "proven-record-binds-r1-evidence",
+      "command": "node",
+      "args": [
+        "-e",
+        "\nconst fs = require('node:fs');\nconst V = (m) => { console.error('LU_R1_PROVEN_VIOLATION: ' + m); process.exit(1); };\nconst H = (m) => { console.error('LU_R1_PROVEN_HARNESS_ERROR: ' + m); process.exit(2); };\ntry {\n  const p = \"docs/architecture/audits/LU-CANONICAL-RUNTIME-HARDENING-R1-PROVEN.md\";\n  let s;\n  try { s = fs.readFileSync(p, 'utf8'); }\n  catch (e) { if (e && e.code === 'ENOENT') V('the PROVEN record does not exist on this tree: ' + p); H('cannot read ' + p + ': ' + (e && e.message)); }\n  const req = JSON.parse(process.argv[1]);\n  if (!Array.isArray(req) || req.length === 0) H('no required bindings supplied');\n  const missing = req.filter((x) => !s.includes(x));\n  if (missing.length > 0) V('the PROVEN record lacks required bindings: ' + missing.join(' | '));\n  const grab = (label) => { const m = new RegExp('\\\\*\\\\*' + label + ':\\\\*\\\\* `([0-9a-f]{40})`').exec(s); return m && m[1]; };\n  const mt = grab('Merge tree'), ct = grab('Candidate tree');\n  if (!mt || !ct) V('merge tree / candidate tree are not both stated as 40-hex SHAs');\n  if (mt !== ct) V('merge tree ' + mt + ' differs from candidate tree ' + ct + ': finalization is blocked');\n  console.log('LU_R1_PROVEN_OK: record binds all required evidence; merge tree == candidate tree ' + mt);\n} catch (e) { H('unexpected: ' + (e && e.stack ? e.stack : e)); }\n",
+        "[\"**Final state:** PROVEN\",\"b0558c43b160aaa9b9e8e989c8c4c3a7096e3d83\",\"c6839f6e2d0cc7b0c367b5abd588a640257a0343\",\"8d82f0aec7a8dcdf84a321cd1421b479a21e2d7f\",\"7186f187e4b34a6ae6b99ace544f34f4270b0b78\",\"551c3112cee5b77f615310c6da04ebd56f8879df\",\"0718edf396b7cbc8a3b6380b3369f89bd43574d3\",\"7456e28c3b3559f5770bfb1e8822e28f7466522b7b46b17abb4e2ff7255095b3\",\"35568596702\",\"35578070021\",\"35556115424\",\"#167\",\"DEV-GOV-V0 / trusted-execution\",\"Trusted RED/GREEN verified for exact candidate SHA\",\"Squash and rebase were not used.\",\"can never obtain bootstrap admission\",\"enforces the V3 execution subject at runtime\",\"`LURuleEngine` is not exported\",\"no longer open or mutate the caller\",\"same scan function\",\"`runLuAssessmentViaKernel`\",\"SecurityRuntime admission\",\"grant lifecycle or revocation\",\"OPS_TOOLING\",\"`LU-CANONICAL-RUNTIME-HARDENING-R1 = PROVEN`\"]"
+      ],
+      "expected_classification": "FAIL",
+      "required_head": "base_sha",
+      "blocked_exit_codes": [
+        2
+      ],
+      "timeout_ms": 30000
+    }
+  ],
+  "required_green": [
+    {
+      "id": "proven-record-binds-r1-evidence",
+      "command": "node",
+      "args": [
+        "-e",
+        "\nconst fs = require('node:fs');\nconst V = (m) => { console.error('LU_R1_PROVEN_VIOLATION: ' + m); process.exit(1); };\nconst H = (m) => { console.error('LU_R1_PROVEN_HARNESS_ERROR: ' + m); process.exit(2); };\ntry {\n  const p = \"docs/architecture/audits/LU-CANONICAL-RUNTIME-HARDENING-R1-PROVEN.md\";\n  let s;\n  try { s = fs.readFileSync(p, 'utf8'); }\n  catch (e) { if (e && e.code === 'ENOENT') V('the PROVEN record does not exist on this tree: ' + p); H('cannot read ' + p + ': ' + (e && e.message)); }\n  const req = JSON.parse(process.argv[1]);\n  if (!Array.isArray(req) || req.length === 0) H('no required bindings supplied');\n  const missing = req.filter((x) => !s.includes(x));\n  if (missing.length > 0) V('the PROVEN record lacks required bindings: ' + missing.join(' | '));\n  const grab = (label) => { const m = new RegExp('\\\\*\\\\*' + label + ':\\\\*\\\\* `([0-9a-f]{40})`').exec(s); return m && m[1]; };\n  const mt = grab('Merge tree'), ct = grab('Candidate tree');\n  if (!mt || !ct) V('merge tree / candidate tree are not both stated as 40-hex SHAs');\n  if (mt !== ct) V('merge tree ' + mt + ' differs from candidate tree ' + ct + ': finalization is blocked');\n  console.log('LU_R1_PROVEN_OK: record binds all required evidence; merge tree == candidate tree ' + mt);\n} catch (e) { H('unexpected: ' + (e && e.stack ? e.stack : e)); }\n",
+        "[\"**Final state:** PROVEN\",\"b0558c43b160aaa9b9e8e989c8c4c3a7096e3d83\",\"c6839f6e2d0cc7b0c367b5abd588a640257a0343\",\"8d82f0aec7a8dcdf84a321cd1421b479a21e2d7f\",\"7186f187e4b34a6ae6b99ace544f34f4270b0b78\",\"551c3112cee5b77f615310c6da04ebd56f8879df\",\"0718edf396b7cbc8a3b6380b3369f89bd43574d3\",\"7456e28c3b3559f5770bfb1e8822e28f7466522b7b46b17abb4e2ff7255095b3\",\"35568596702\",\"35578070021\",\"35556115424\",\"#167\",\"DEV-GOV-V0 / trusted-execution\",\"Trusted RED/GREEN verified for exact candidate SHA\",\"Squash and rebase were not used.\",\"can never obtain bootstrap admission\",\"enforces the V3 execution subject at runtime\",\"`LURuleEngine` is not exported\",\"no longer open or mutate the caller\",\"same scan function\",\"`runLuAssessmentViaKernel`\",\"SecurityRuntime admission\",\"grant lifecycle or revocation\",\"OPS_TOOLING\",\"`LU-CANONICAL-RUNTIME-HARDENING-R1 = PROVEN`\"]"
+      ],
+      "expected_classification": "PASS",
+      "required_head": "candidate_sha",
+      "blocked_exit_codes": [
+        2
+      ],
+      "timeout_ms": 30000
+    }
+  ],
+  "trusted_execution": {
+    "issuer": "github-actions:JbmbAb/Milj-beslut-V1.2:devgov-v0-attest",
+    "key_id": "devgov-ci-ed25519-v1"
+  },
+  "remote": {
+    "name": "origin",
+    "branch": "docs/lu-canonical-runtime-hardening-r1-proven",
+    "push_policy": "no_force",
+    "absent_policy": "deny_absent"
+  }
+}
