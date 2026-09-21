@@ -44,8 +44,9 @@ export * from "./providers/SpatialProviderResolver";
 export * from "./providers/DocumentProviderContract";
 export * from "./providers/NullDocumentProvider";
 
-// Rules
-export * from "./rules/LURuleEngine";
+// Rules: LURuleEngine is deliberately NOT exported (LU-CANONICAL-RUNTIME-HARDENING-R1). It is an
+// internal implementation detail reached only through the governed kernel client; internal
+// modules and tests import it by explicit path (`./rules/LURuleEngine`).
 
 // Canonical LU product execution entrypoint.
 // LU-CANONICAL-PATH-01: the general/legacy-capable runLuAssessmentViaKernel remains an internal

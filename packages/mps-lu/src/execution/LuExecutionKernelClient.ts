@@ -225,6 +225,19 @@ function buildAdmissionContext(
 export async function runLuAssessmentViaKernel(
   input: LuKernelRunInput,
 ): Promise<LuKernelRunResult> {
+  return executeLuAssessment(input, isLuBootstrapAdmitAllowed());
+}
+
+/**
+ * LU-CANONICAL-RUNTIME-HARDENING-R1: the engine body. Whether bootstrap admission is in force is an
+ * explicit argument, decided once by the caller, so the canonical product path can pass `false`
+ * without ever consulting ambient `process.env` again (no check-then-read window across the
+ * `await`s below).
+ */
+async function executeLuAssessment(
+  input: LuKernelRunInput,
+  bootstrap: boolean,
+): Promise<LuKernelRunResult> {
   const repo = input.artifact_repository ?? (await MimersIntegration.create()).artifactRepository;
   const registry = input.registry ?? createLuRegistryRuntime();
   const capability = registry.resolveCapabilityByKey(LU_SITE_ASSESSMENT_CAPABILITY_KEY);
@@ -277,7 +290,6 @@ export async function runLuAssessmentViaKernel(
     artifact_type: "execution_identity" as const,
   };
 
-  const bootstrap = isLuBootstrapAdmitAllowed();
   let verificationContext: FrozenCoreVerificationContext | null = null;
   let verifiedExecutionIdentity: ExecutionIdentityArtifact | null = null;
 
@@ -543,8 +555,89 @@ export interface CanonicalLuKernelRunInput
   readonly identity_subject_v3: NonNullable<LuKernelRunInput["identity_subject_v3"]>;
 }
 
+/**
+ * LU-CANONICAL-RUNTIME-HARDENING-R1: a canonical product call violated a contract the type system
+ * cannot enforce at runtime (untyped/JavaScript callers, `any`). `code` is stable and machine-read.
+ */
+export type LuCanonicalRuntimeContractErrorCode =
+  | "LU_CANONICAL_BOOTSTRAP_ADMIT_FORBIDDEN"
+  | "LU_CANONICAL_IDENTITY_SUBJECT_V3_INVALID";
+
+export class LuCanonicalRuntimeContractError extends Error {
+  readonly code: LuCanonicalRuntimeContractErrorCode;
+
+  constructor(code: LuCanonicalRuntimeContractErrorCode, message: string) {
+    super(message);
+    this.name = "LuCanonicalRuntimeContractError";
+    this.code = code;
+  }
+}
+
+function isNonEmptyString(value: unknown): value is string {
+  return typeof value === "string" && value.trim().length > 0;
+}
+
+/** The `ArtifactReference` contract: an object carrying non-empty string `artifact_id` and `artifact_type`. */
+function isArtifactReferenceShape(value: unknown): boolean {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) return false;
+  const ref = value as Record<string, unknown>;
+  return isNonEmptyString(ref.artifact_id) && isNonEmptyString(ref.artifact_type);
+}
+
+/**
+ * Enforces, at runtime, exactly what `ExecutionIdentitySubjectV3` (minus the `site_id` the engine
+ * adds itself) already requires: three artifact references plus an execution-contract version. No
+ * new semantics -- only the shape the identity/manifest derivation already consumes.
+ */
+function assertCanonicalIdentitySubjectV3(input: unknown): void {
+  const subject = (input as { identity_subject_v3?: unknown } | null | undefined)?.identity_subject_v3;
+  const invalid: string[] = [];
+  if (typeof subject !== "object" || subject === null || Array.isArray(subject)) {
+    invalid.push("identity_subject_v3");
+  } else {
+    const fields = subject as Record<string, unknown>;
+    for (const name of [
+      "project_context_binding_ref",
+      "product_release_ref",
+      "localization_geometry_ref",
+    ] as const) {
+      if (!isArtifactReferenceShape(fields[name])) invalid.push(`identity_subject_v3.${name}`);
+    }
+    if (!isNonEmptyString(fields.execution_contract_version)) {
+      invalid.push("identity_subject_v3.execution_contract_version");
+    }
+  }
+  if (invalid.length > 0) {
+    throw new LuCanonicalRuntimeContractError(
+      "LU_CANONICAL_IDENTITY_SUBJECT_V3_INVALID",
+      `runCanonicalLuProductAssessment requires a complete identity_subject_v3; missing or malformed: ${invalid.join(", ")}`,
+    );
+  }
+}
+
+/**
+ * LU-CANONICAL-RUNTIME-HARDENING-R1 -- the public product boundary.
+ *
+ * Fails closed BEFORE the general engine is entered:
+ *  - if MPS_LU_BOOTSTRAP_ADMIT enables bootstrap admission, the call is rejected. The canonical path
+ *    never clears or rewrites the ambient flag to work around it (that would be ambient-state
+ *    mutation with race semantics); and even past this check it hands the engine an explicit
+ *    `bootstrap = false`, so it cannot obtain bootstrap admission through a later env read either;
+ *  - if `identity_subject_v3` is missing or structurally broken, the call is rejected -- the type
+ *    requirement above is not the only line of defence for untyped callers.
+ *
+ * A valid call reaches the unchanged engine.
+ */
 export async function runCanonicalLuProductAssessment(
   input: CanonicalLuKernelRunInput,
 ): Promise<LuKernelRunResult> {
-  return runLuAssessmentViaKernel(input);
+  if (isLuBootstrapAdmitAllowed()) {
+    throw new LuCanonicalRuntimeContractError(
+      "LU_CANONICAL_BOOTSTRAP_ADMIT_FORBIDDEN",
+      "runCanonicalLuProductAssessment refuses to run while MPS_LU_BOOTSTRAP_ADMIT enables bootstrap admission; " +
+        "bootstrap is available only through the explicit general engine used by tests and proof tooling",
+    );
+  }
+  assertCanonicalIdentitySubjectV3(input);
+  return executeLuAssessment(input, false);
 }
