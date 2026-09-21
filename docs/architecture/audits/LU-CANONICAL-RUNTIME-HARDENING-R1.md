@@ -11,23 +11,23 @@
 |---|---|
 | Frozen RED base (`base_sha`) | `b0558c43b160aaa9b9e8e989c8c4c3a7096e3d83` |
 | Cold-audited implementation | `c6839f6e2d0cc7b0c367b5abd588a640257a0343` |
-| Packaging commit (the candidate) | the commit that introduces this file — see below |
+| First packaging commit — published and dispatched, **superseded**, never PROVEN | `8d82f0aec7a8dcdf84a321cd1421b479a21e2d7f` |
+| Candidate | the tip commit of `governance/lu-canonical-runtime-hardening-r1` carrying this revision |
 
-The packaging SHA cannot be written inside the file that the packaging commit itself adds. It is
-the commit returned by `git log -1 --format=%H -- docs/architecture/audits/LU-CANONICAL-RUNTIME-HARDENING-R1.md`,
-and it is the only SHA that Dev-Gov derives as `candidate_sha`.
+A commit cannot contain its own SHA. The candidate is the only SHA Dev-Gov derives as
+`candidate_sha`; it is the `candidate_sha` input of the orchestration run that proves it.
 
 ### Packaging delta
 
-The delta between the cold-audited implementation `c6839f6e…` and the packaging commit consists of
-exactly two added files and nothing else:
+The delta between the cold-audited implementation `c6839f6e…` and the candidate consists of exactly
+two added files and nothing else, across both packaging commits:
 
 - `governance/devgov/units/lu-canonical-runtime-hardening-r1-v1.json`
 - `docs/architecture/audits/LU-CANONICAL-RUNTIME-HARDENING-R1.md`
 
 No product code, test code, script, workflow, Dev-Gov controller/verifier/gate, CAS, SecurityRuntime,
-or grant/revocation file changed in the packaging commit. Verify with
-`git diff --name-status c6839f6e2d0cc7b0c367b5abd588a640257a0343 <packaging SHA>`.
+or grant/revocation file changed in either packaging commit. Verify with
+`git diff --name-status c6839f6e2d0cc7b0c367b5abd588a640257a0343 <candidate SHA>`.
 
 The unit-definition JSON matches the repository's `*.json` ignore rule, exactly as the existing
 `governance/devgov/units/*.json` definitions do; it is tracked by explicit add. `.gitignore` is
@@ -91,11 +91,42 @@ exception exits 2 rather than 1.
 A RED is invalid, and the unit must not be advanced, if its failure cause is a missing file, a
 module that does not exist on base, or any harness fault (exit 2).
 
+### Trusted-environment provisioning, and the first dispatch
+
+The trusted attest workflow installs with `npm ci --ignore-scripts`, so the repository's own
+`postinstall` (`prisma generate`, `scripts/postinstall-prisma-generate.mjs`) never runs there.
+Anything that imports the `mps-lu` package root loads `server/db/prisma.ts`, which needs the
+generated client. Three proofs do: `package-root-does-not-export-rule-engine` and both
+`proof-script-*` proofs, plus every test file that imports the root or runs a proof script.
+
+Orchestration run `35556115424` dispatched the first packaging commit `8d82f0ae…`:
+
+- `canonical-rejects-bootstrap-admission` and `canonical-enforces-v3-at-runtime` executed as
+  `FAIL` (exit 1) on `b0558c43…` and reached the signing job.
+- `package-root-does-not-export-rule-engine` and both `proof-script-*` proofs ended
+  `BLOCKED_ENVIRONMENT` (exit 2, the harness-fault exit). The exit-code contract worked as designed:
+  an environment fault was not counted as a valid RED.
+- The run was cancelled by the operator. It is evidence of nothing beyond the above.
+
+The CI stderr is only logged as a hash, so the cause was established by reproducing a fresh
+`--ignore-scripts`-style install locally (no generated Prisma client): the same three proofs then
+exit 2 with `SyntaxError: The requested module '@prisma/client' does not provide an export named
+'Prisma'` at `server/db/prisma.ts:81`, and the same two proofs exit 1.
+
+Correction (definition-only): the affected commands now run `prisma generate` first — the same
+command and the same dummy `DATABASE_URL` as the repository's own `postinstall` — which writes only
+under `node_modules`. The provisioning is inside the proof command, so it is covered by the unit
+definition hash. A failure to provision exits 2, never a verdict. The vitest GREEN commands became
+`node` wrappers that provision and then run the same vitest invocation (vitest failing exits 1).
+
 ## Trusted GREEN (executed at the candidate SHA)
 
 The five inline programs above are executed again, unchanged, at the candidate and must exit 0. The
 isolation programs additionally require that the script attests a distinct temporary root under the
-OS temp directory, backed by the real Mimers CAS, and removed after the run.
+OS temp directory, backed by the real Mimers CAS, and removed after the run. The six vitest commands
+below are `node` wrappers that provision the Prisma client (see above) and then run the stated files
+with `vitest run --config vitest.config.ts`; a vitest failure exits 1 (`FAIL`), a provisioning or
+launch fault exits 2 (`BLOCKED_ENVIRONMENT`).
 
 | GREEN proof ID | Evidence |
 |---|---|
@@ -153,10 +184,12 @@ is unset (CAS layer).
 
 ## Local pre-dispatch evidence (not attestation)
 
-Before packaging, the RED programs were run on a clean detached checkout of `b0558c43…` and the GREEN
-commands on the implementation candidate, with controller classification semantics and a
-clean-tree check before and after each command. That is author-side provenance only. It is not an
-externally signed execution attestation and establishes nothing by itself.
+The RED programs were run on a clean detached checkout of `b0558c43…` and the GREEN commands on the
+candidate, in a checkout with **no generated Prisma client** (reproducing a fresh
+`npm ci --ignore-scripts`), using controller classification semantics and a clean-tree check before
+and after each command. Where the local OS allowed it, the commands were run through the
+repository's own `scripts/devgov/devgov.mjs execute-proof`. That is author-side provenance only. It is
+not an externally signed execution attestation and establishes nothing by itself.
 
 ## Finalization rule
 
