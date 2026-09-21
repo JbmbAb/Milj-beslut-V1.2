@@ -1,0 +1,310 @@
+{
+  "schema_version": "dev-gov-v1-unit-definition",
+  "unit": "LU-CANONICAL-RUNTIME-HARDENING-R1-V1",
+  "role": "producer",
+  "mode": "writer",
+  "branch": "governance/lu-canonical-runtime-hardening-r1",
+  "base_sha": "b0558c43b160aaa9b9e8e989c8c4c3a7096e3d83",
+  "ancestry_policy": "descendant_of_base",
+  "allowed_paths": [
+    "packages/mps-lu/src/execution/LuExecutionKernelClient.ts",
+    "packages/mps-lu/src/index.ts",
+    "packages/mps-lu/src/unit/LuCanonicalRuntimeHardening.test.ts",
+    "packages/mps-lu/tests/LocalizationAssessmentReleaseBindingProof.test.ts",
+    "scripts/ops/lib/luProofIsolatedMimers.ts",
+    "scripts/ops/prove-lu-replay-cold-verify-01.ts",
+    "scripts/ops/prove-lu-deterministic-reexecution-01.ts",
+    "src/application/unit/LuCanonicalPath01.test.ts",
+    "tests/unit/luBootstrapProofScriptsIsolation.test.ts",
+    "docs/architecture/audits/LU-CANONICAL-RUNTIME-HARDENING-R1.md",
+    "governance/devgov/units/lu-canonical-runtime-hardening-r1-v1.json"
+  ],
+  "forbidden_paths": [
+    ".github/**",
+    "governance/devgov/schema/**",
+    "scripts/devgov/**",
+    "packages/mps-runtime/src/mimers/**",
+    "packages/mps-runtime/src/repository/**",
+    "packages/mps-runtime/src/security/**",
+    "packages/mimers-brunn-core/**",
+    "prisma/**"
+  ],
+  "required_red": [
+    {
+      "id": "canonical-rejects-bootstrap-admission",
+      "command": "node",
+      "args": [
+        "--import",
+        "tsx",
+        "--input-type=module",
+        "-e",
+        "\nconst V = (m) => { console.error('LU_R1_VIOLATION: ' + m); process.exit(1); };\nconst H = (m) => { console.error('LU_R1_HARNESS_ERROR: ' + m); process.exit(2); };\ntry {\n\nconst client = await import('./packages/mps-lu/src/execution/LuExecutionKernelClient.ts');\nconst { InMemoryArtifactRepository: Repo } = await import('./packages/mps-runtime/src/repository/InMemoryArtifactRepository.ts');\nconst { SPATIAL_STACK_V1: FP } = await import('./packages/mps-lu/src/artifacts/SpatialEngineFingerprint.ts');\nif (typeof client.runCanonicalLuProductAssessment !== 'function' || typeof client.runLuAssessmentViaKernel !== 'function') H('engine entrypoints not found on the checked-out tree');\nconst HASH = '2b4b514f8b18a1a614d9aeac75c32eff8c52a3864c54770be112fd88fa263ddc';\nconst prop = { artifact_id: 'prop-r1-proof', artifact_type: 'PROPERTY' };\nconst EV = () => [{ artifact_id: 'ev-water-r1-proof', artifact_type: 'SPATIAL_EVIDENCE', payload: {\n  result_semantics: { kind: 'EXISTENCE_WITHIN_DISTANCE', query: { subject_ref: prop, srid: 3006, distance_meters: 100 }, result: { exists: true, match_count_observed: 1, max_features_per_layer: 50 } },\n  property_ref: prop,\n  source_metadata: { provider: 'SGU', dataset: 'water', dataset_version: HASH, retrieved_at: '2026-08-13T08:00:00.000Z' },\n  geometry: null, srid: 3006,\n  operation: { algorithm: 'spatial.dwithin_existence', engine: 'PostGIS', engine_fingerprint: FP },\n  layer_ref: { layer_id: 'water', version_hash: HASH, layer_version: 'v1' },\n  query_context: { query_id: 'q-r1-proof', query_type: 'SPATIAL_DWITHIN', parameters: { search_distance_meters: 100 } } } }];\nconst subject = () => ({\n  project_context_binding_ref: { artifact_id: 'project-context-binding-r1', artifact_type: 'project_context_binding' },\n  product_release_ref: { artifact_id: 'product-release-r1', artifact_type: 'product_release_manifest' },\n  execution_contract_version: 'lu-execution-identity-v1',\n  localization_geometry_ref: { artifact_id: 'localization-geometry-r1', artifact_type: 'localization_geometry' } });\nconst input = (over) => ({ site_id: 'site-r1-proof', deterministic_seed: 'seed:r1-proof', evidence: EV(), artifact_repository: new Repo(), identity_subject_v3: subject(), ...over });\n// Runs fn and reports how it settled: { kind: 'resolved', value } | { kind: 'rejected', error }.\nconst settle = async (fn) => { try { return { kind: 'resolved', value: await fn() }; } catch (error) { return { kind: 'rejected', error }; } };\nfor (const k of Object.keys(process.env)) if (k.startsWith('MIMERS_') || k === 'LU_MPS_CAS') delete process.env[k];\n\nprocess.env.MPS_LU_BOOTSTRAP_ADMIT = '1';\n// Control: the GENERAL engine must still be able to use the flag, on every tree (harness sanity).\nconst control = await settle(() => client.runLuAssessmentViaKernel(input()));\nif (control.kind !== 'resolved' || control.value.admitted !== true) H('control failed: the general engine did not bootstrap-admit under MPS_LU_BOOTSTRAP_ADMIT=1');\nconst res = await settle(() => client.runCanonicalLuProductAssessment(input()));\nif (res.kind === 'resolved') {\n  if (res.value.admitted === true) V('runCanonicalLuProductAssessment obtained bootstrap admission from MPS_LU_BOOTSTRAP_ADMIT=1 (admitted:true)');\n  H('canonical call resolved without admission and without a contract rejection: unexpected');\n}\nif (res.error && res.error.code === 'LU_CANONICAL_BOOTSTRAP_ADMIT_FORBIDDEN') { console.log('LU_R1_OK: canonical call rejected with LU_CANONICAL_BOOTSTRAP_ADMIT_FORBIDDEN'); process.exit(0); }\nH('canonical call rejected with an unrelated error: ' + (res.error && res.error.message));\n\n} catch (e) { H('unexpected: ' + (e && e.stack ? e.stack : e)); }\n"
+      ],
+      "expected_classification": "FAIL",
+      "required_head": "base_sha",
+      "blocked_exit_codes": [
+        2
+      ],
+      "timeout_ms": 60000
+    },
+    {
+      "id": "canonical-enforces-v3-at-runtime",
+      "command": "node",
+      "args": [
+        "--import",
+        "tsx",
+        "--input-type=module",
+        "-e",
+        "\nconst V = (m) => { console.error('LU_R1_VIOLATION: ' + m); process.exit(1); };\nconst H = (m) => { console.error('LU_R1_HARNESS_ERROR: ' + m); process.exit(2); };\ntry {\n\nconst client = await import('./packages/mps-lu/src/execution/LuExecutionKernelClient.ts');\nconst { InMemoryArtifactRepository: Repo } = await import('./packages/mps-runtime/src/repository/InMemoryArtifactRepository.ts');\nconst { SPATIAL_STACK_V1: FP } = await import('./packages/mps-lu/src/artifacts/SpatialEngineFingerprint.ts');\nif (typeof client.runCanonicalLuProductAssessment !== 'function' || typeof client.runLuAssessmentViaKernel !== 'function') H('engine entrypoints not found on the checked-out tree');\nconst HASH = '2b4b514f8b18a1a614d9aeac75c32eff8c52a3864c54770be112fd88fa263ddc';\nconst prop = { artifact_id: 'prop-r1-proof', artifact_type: 'PROPERTY' };\nconst EV = () => [{ artifact_id: 'ev-water-r1-proof', artifact_type: 'SPATIAL_EVIDENCE', payload: {\n  result_semantics: { kind: 'EXISTENCE_WITHIN_DISTANCE', query: { subject_ref: prop, srid: 3006, distance_meters: 100 }, result: { exists: true, match_count_observed: 1, max_features_per_layer: 50 } },\n  property_ref: prop,\n  source_metadata: { provider: 'SGU', dataset: 'water', dataset_version: HASH, retrieved_at: '2026-08-13T08:00:00.000Z' },\n  geometry: null, srid: 3006,\n  operation: { algorithm: 'spatial.dwithin_existence', engine: 'PostGIS', engine_fingerprint: FP },\n  layer_ref: { layer_id: 'water', version_hash: HASH, layer_version: 'v1' },\n  query_context: { query_id: 'q-r1-proof', query_type: 'SPATIAL_DWITHIN', parameters: { search_distance_meters: 100 } } } }];\nconst subject = () => ({\n  project_context_binding_ref: { artifact_id: 'project-context-binding-r1', artifact_type: 'project_context_binding' },\n  product_release_ref: { artifact_id: 'product-release-r1', artifact_type: 'product_release_manifest' },\n  execution_contract_version: 'lu-execution-identity-v1',\n  localization_geometry_ref: { artifact_id: 'localization-geometry-r1', artifact_type: 'localization_geometry' } });\nconst input = (over) => ({ site_id: 'site-r1-proof', deterministic_seed: 'seed:r1-proof', evidence: EV(), artifact_repository: new Repo(), identity_subject_v3: subject(), ...over });\n// Runs fn and reports how it settled: { kind: 'resolved', value } | { kind: 'rejected', error }.\nconst settle = async (fn) => { try { return { kind: 'resolved', value: await fn() }; } catch (error) { return { kind: 'rejected', error }; } };\nfor (const k of Object.keys(process.env)) if (k.startsWith('MIMERS_') || k === 'LU_MPS_CAS') delete process.env[k];\n\ndelete process.env.MPS_LU_BOOTSTRAP_ADMIT;\n// Control: a complete V3 subject must be accepted (resolves, denied for lack of a provisioned identity).\nconst ok = await settle(() => client.runCanonicalLuProductAssessment(input()));\nif (ok.kind !== 'resolved') H('control failed: a valid V3 subject was rejected: ' + (ok.error && ok.error.message));\nconst broken = {\n  'identity_subject_v3 omitted': undefined,\n  'identity_subject_v3 null': null,\n  'identity_subject_v3 empty object': {},\n  'localization_geometry_ref missing': { ...subject(), localization_geometry_ref: undefined },\n  'product_release_ref has empty artifact_id': { ...subject(), product_release_ref: { artifact_id: '', artifact_type: 'product_release_manifest' } },\n  'execution_contract_version missing': { ...subject(), execution_contract_version: undefined },\n};\nconst accepted = [];\nfor (const [name, value] of Object.entries(broken)) {\n  const r = await settle(() => client.runCanonicalLuProductAssessment(input({ identity_subject_v3: value })));\n  if (r.kind === 'resolved') { accepted.push(name); continue; }\n  if (!(r.error && r.error.code === 'LU_CANONICAL_IDENTITY_SUBJECT_V3_INVALID')) H('\"' + name + '\" rejected with an unrelated error: ' + (r.error && r.error.message));\n}\nif (accepted.length > 0) V('canonical entrypoint let a call through the general engine without a valid V3 subject: ' + accepted.join('; '));\nconsole.log('LU_R1_OK: every broken V3 subject rejected with LU_CANONICAL_IDENTITY_SUBJECT_V3_INVALID');\n\n} catch (e) { H('unexpected: ' + (e && e.stack ? e.stack : e)); }\n"
+      ],
+      "expected_classification": "FAIL",
+      "required_head": "base_sha",
+      "blocked_exit_codes": [
+        2
+      ],
+      "timeout_ms": 60000
+    },
+    {
+      "id": "package-root-does-not-export-rule-engine",
+      "command": "node",
+      "args": [
+        "--import",
+        "tsx",
+        "--input-type=module",
+        "-e",
+        "\nconst V = (m) => { console.error('LU_R1_VIOLATION: ' + m); process.exit(1); };\nconst H = (m) => { console.error('LU_R1_HARNESS_ERROR: ' + m); process.exit(2); };\ntry {\n\nconst root = await import('./packages/mps-lu/src/index.ts');\nif (typeof root.runCanonicalLuProductAssessment !== 'function') H('control failed: package root does not expose runCanonicalLuProductAssessment');\nconst leaked = ['LURuleEngine', 'runLuAssessmentViaKernel', 'evaluateLuRuleSet', 'createLuRuleEngineInvokeHandler'].filter((n) => n in root);\nif (leaked.length > 0) V('package root runtime namespace exposes: ' + leaked.join(', '));\nconsole.log('LU_R1_OK: package root exposes no rule engine / general engine symbols');\n\n} catch (e) { H('unexpected: ' + (e && e.stack ? e.stack : e)); }\n"
+      ],
+      "expected_classification": "FAIL",
+      "required_head": "base_sha",
+      "blocked_exit_codes": [
+        2
+      ],
+      "timeout_ms": 60000
+    },
+    {
+      "id": "proof-script-cold-verify-isolated-root",
+      "command": "node",
+      "args": [
+        "--import",
+        "tsx",
+        "--input-type=module",
+        "-e",
+        "\nconst V = (m) => { console.error('LU_R1_VIOLATION: ' + m); process.exit(1); };\nconst H = (m) => { console.error('LU_R1_HARNESS_ERROR: ' + m); process.exit(2); };\ntry {\n\nconst fs = await import('node:fs');\nconst os = await import('node:os');\nconst path = await import('node:path');\nconst crypto = await import('node:crypto');\nconst cp = await import('node:child_process');\nconst script = process.argv[1];\nif (!script || !/^scripts\\/ops\\/prove-lu-[a-z0-9-]+\\.ts$/.test(script)) H('a proof script path argument is required, got: ' + script);\nif (!fs.existsSync(script)) H('proof script does not exist on this tree: ' + script);\nconst snap = (root) => { const out = {}; const walk = (d) => { for (const n of fs.readdirSync(d).sort()) { const f = path.join(d, n); const rel = path.relative(root, f).split(path.sep).join('/'); if (fs.statSync(f).isDirectory()) { out[rel] = '<dir>'; walk(f); } else out[rel] = crypto.createHash('sha256').update(fs.readFileSync(f)).digest('hex'); } }; walk(root); return out; };\nconst sandbox = fs.mkdtempSync(path.join(os.tmpdir(), 'lu-r1-red-sentinel-'));\nconst clean = () => fs.rmSync(sandbox, { recursive: true, force: true });\nconst VC = (m) => { clean(); V(m); };\nconst HC = (m) => { clean(); H(m); };\ntry {\n  const sentinel = path.join(sandbox, 'caller-owned-mimers-root');\n  fs.mkdirSync(path.join(sentinel, 'cas', 'objects'), { recursive: true });\n  fs.writeFileSync(path.join(sentinel, 'MARKER'), 'caller-owned persistent root');\n  fs.writeFileSync(path.join(sentinel, 'cas', 'objects', 'keep.bin'), 'caller-owned object');\n  const before = snap(sentinel);\n  const env = { ...process.env, MIMERS_ROOT: sentinel };\n  for (const k of Object.keys(env)) if (k.startsWith('VITEST') || (k.startsWith('MIMERS_') && k !== 'MIMERS_ROOT') || k === 'NODE_ENV' || k === 'LU_MPS_CAS' || k === 'MPS_LU_BOOTSTRAP_ADMIT') delete env[k];\n  const r = cp.spawnSync(process.execPath, ['--import', 'tsx', script], { cwd: process.cwd(), env, encoding: 'utf8', timeout: 150000 });\n  if (r.error) HC('could not run the proof script: ' + r.error.message);\n  const after = snap(sentinel);\n  const changed = Object.keys({ ...before, ...after }).filter((k) => before[k] !== after[k]);\n  if (changed.length > 0) VC(script + ' mutated the caller-configured MIMERS_ROOT (' + changed.length + ' added/changed entries, e.g. ' + changed.slice(0, 3).join(', ') + ')');\n  const out = r.stdout || '';\n  if (!/\"originalRunAdmitted\": true/.test(out)) HC('the proof script did not reach its real assessment step; cannot tell isolation from a crash. stderr: ' + String(r.stderr).slice(0, 300));\n  const line = out.split(/\\r?\\n/).find((l) => l.startsWith('PROOF_ISOLATION '));\n  if (!line) VC('sentinel untouched, but the script reports no distinct isolated proof root (no PROOF_ISOLATION attestation)');\n  const iso = JSON.parse(line.slice('PROOF_ISOLATION '.length));\n  const rel = path.relative(fs.realpathSync(os.tmpdir()), path.resolve(iso.root));\n  if (path.resolve(iso.root) === path.resolve(sentinel) || rel.startsWith('..') || path.isAbsolute(rel)) VC('proof root is not a distinct directory under the OS temp dir: ' + iso.root);\n  if (iso.mimers_backed !== true || iso.cas_dir_present !== true) VC('proof repository is not the real filesystem-backed Mimers CAS: ' + line);\n  if (fs.existsSync(iso.root)) VC('isolated proof root was not cleaned up: ' + iso.root);\n  console.log('LU_R1_OK: ' + script + ' left the caller root untouched and ran on isolated real-CAS root ' + iso.root);\n} finally { fs.rmSync(sandbox, { recursive: true, force: true }); }\n\n} catch (e) { H('unexpected: ' + (e && e.stack ? e.stack : e)); }\n",
+        "scripts/ops/prove-lu-replay-cold-verify-01.ts"
+      ],
+      "expected_classification": "FAIL",
+      "required_head": "base_sha",
+      "blocked_exit_codes": [
+        2
+      ],
+      "timeout_ms": 170000
+    },
+    {
+      "id": "proof-script-deterministic-reexecution-isolated-root",
+      "command": "node",
+      "args": [
+        "--import",
+        "tsx",
+        "--input-type=module",
+        "-e",
+        "\nconst V = (m) => { console.error('LU_R1_VIOLATION: ' + m); process.exit(1); };\nconst H = (m) => { console.error('LU_R1_HARNESS_ERROR: ' + m); process.exit(2); };\ntry {\n\nconst fs = await import('node:fs');\nconst os = await import('node:os');\nconst path = await import('node:path');\nconst crypto = await import('node:crypto');\nconst cp = await import('node:child_process');\nconst script = process.argv[1];\nif (!script || !/^scripts\\/ops\\/prove-lu-[a-z0-9-]+\\.ts$/.test(script)) H('a proof script path argument is required, got: ' + script);\nif (!fs.existsSync(script)) H('proof script does not exist on this tree: ' + script);\nconst snap = (root) => { const out = {}; const walk = (d) => { for (const n of fs.readdirSync(d).sort()) { const f = path.join(d, n); const rel = path.relative(root, f).split(path.sep).join('/'); if (fs.statSync(f).isDirectory()) { out[rel] = '<dir>'; walk(f); } else out[rel] = crypto.createHash('sha256').update(fs.readFileSync(f)).digest('hex'); } }; walk(root); return out; };\nconst sandbox = fs.mkdtempSync(path.join(os.tmpdir(), 'lu-r1-red-sentinel-'));\nconst clean = () => fs.rmSync(sandbox, { recursive: true, force: true });\nconst VC = (m) => { clean(); V(m); };\nconst HC = (m) => { clean(); H(m); };\ntry {\n  const sentinel = path.join(sandbox, 'caller-owned-mimers-root');\n  fs.mkdirSync(path.join(sentinel, 'cas', 'objects'), { recursive: true });\n  fs.writeFileSync(path.join(sentinel, 'MARKER'), 'caller-owned persistent root');\n  fs.writeFileSync(path.join(sentinel, 'cas', 'objects', 'keep.bin'), 'caller-owned object');\n  const before = snap(sentinel);\n  const env = { ...process.env, MIMERS_ROOT: sentinel };\n  for (const k of Object.keys(env)) if (k.startsWith('VITEST') || (k.startsWith('MIMERS_') && k !== 'MIMERS_ROOT') || k === 'NODE_ENV' || k === 'LU_MPS_CAS' || k === 'MPS_LU_BOOTSTRAP_ADMIT') delete env[k];\n  const r = cp.spawnSync(process.execPath, ['--import', 'tsx', script], { cwd: process.cwd(), env, encoding: 'utf8', timeout: 150000 });\n  if (r.error) HC('could not run the proof script: ' + r.error.message);\n  const after = snap(sentinel);\n  const changed = Object.keys({ ...before, ...after }).filter((k) => before[k] !== after[k]);\n  if (changed.length > 0) VC(script + ' mutated the caller-configured MIMERS_ROOT (' + changed.length + ' added/changed entries, e.g. ' + changed.slice(0, 3).join(', ') + ')');\n  const out = r.stdout || '';\n  if (!/\"originalRunAdmitted\": true/.test(out)) HC('the proof script did not reach its real assessment step; cannot tell isolation from a crash. stderr: ' + String(r.stderr).slice(0, 300));\n  const line = out.split(/\\r?\\n/).find((l) => l.startsWith('PROOF_ISOLATION '));\n  if (!line) VC('sentinel untouched, but the script reports no distinct isolated proof root (no PROOF_ISOLATION attestation)');\n  const iso = JSON.parse(line.slice('PROOF_ISOLATION '.length));\n  const rel = path.relative(fs.realpathSync(os.tmpdir()), path.resolve(iso.root));\n  if (path.resolve(iso.root) === path.resolve(sentinel) || rel.startsWith('..') || path.isAbsolute(rel)) VC('proof root is not a distinct directory under the OS temp dir: ' + iso.root);\n  if (iso.mimers_backed !== true || iso.cas_dir_present !== true) VC('proof repository is not the real filesystem-backed Mimers CAS: ' + line);\n  if (fs.existsSync(iso.root)) VC('isolated proof root was not cleaned up: ' + iso.root);\n  console.log('LU_R1_OK: ' + script + ' left the caller root untouched and ran on isolated real-CAS root ' + iso.root);\n} finally { fs.rmSync(sandbox, { recursive: true, force: true }); }\n\n} catch (e) { H('unexpected: ' + (e && e.stack ? e.stack : e)); }\n",
+        "scripts/ops/prove-lu-deterministic-reexecution-01.ts"
+      ],
+      "expected_classification": "FAIL",
+      "required_head": "base_sha",
+      "blocked_exit_codes": [
+        2
+      ],
+      "timeout_ms": 170000
+    }
+  ],
+  "required_green": [
+    {
+      "id": "canonical-rejects-bootstrap-admission",
+      "command": "node",
+      "args": [
+        "--import",
+        "tsx",
+        "--input-type=module",
+        "-e",
+        "\nconst V = (m) => { console.error('LU_R1_VIOLATION: ' + m); process.exit(1); };\nconst H = (m) => { console.error('LU_R1_HARNESS_ERROR: ' + m); process.exit(2); };\ntry {\n\nconst client = await import('./packages/mps-lu/src/execution/LuExecutionKernelClient.ts');\nconst { InMemoryArtifactRepository: Repo } = await import('./packages/mps-runtime/src/repository/InMemoryArtifactRepository.ts');\nconst { SPATIAL_STACK_V1: FP } = await import('./packages/mps-lu/src/artifacts/SpatialEngineFingerprint.ts');\nif (typeof client.runCanonicalLuProductAssessment !== 'function' || typeof client.runLuAssessmentViaKernel !== 'function') H('engine entrypoints not found on the checked-out tree');\nconst HASH = '2b4b514f8b18a1a614d9aeac75c32eff8c52a3864c54770be112fd88fa263ddc';\nconst prop = { artifact_id: 'prop-r1-proof', artifact_type: 'PROPERTY' };\nconst EV = () => [{ artifact_id: 'ev-water-r1-proof', artifact_type: 'SPATIAL_EVIDENCE', payload: {\n  result_semantics: { kind: 'EXISTENCE_WITHIN_DISTANCE', query: { subject_ref: prop, srid: 3006, distance_meters: 100 }, result: { exists: true, match_count_observed: 1, max_features_per_layer: 50 } },\n  property_ref: prop,\n  source_metadata: { provider: 'SGU', dataset: 'water', dataset_version: HASH, retrieved_at: '2026-08-13T08:00:00.000Z' },\n  geometry: null, srid: 3006,\n  operation: { algorithm: 'spatial.dwithin_existence', engine: 'PostGIS', engine_fingerprint: FP },\n  layer_ref: { layer_id: 'water', version_hash: HASH, layer_version: 'v1' },\n  query_context: { query_id: 'q-r1-proof', query_type: 'SPATIAL_DWITHIN', parameters: { search_distance_meters: 100 } } } }];\nconst subject = () => ({\n  project_context_binding_ref: { artifact_id: 'project-context-binding-r1', artifact_type: 'project_context_binding' },\n  product_release_ref: { artifact_id: 'product-release-r1', artifact_type: 'product_release_manifest' },\n  execution_contract_version: 'lu-execution-identity-v1',\n  localization_geometry_ref: { artifact_id: 'localization-geometry-r1', artifact_type: 'localization_geometry' } });\nconst input = (over) => ({ site_id: 'site-r1-proof', deterministic_seed: 'seed:r1-proof', evidence: EV(), artifact_repository: new Repo(), identity_subject_v3: subject(), ...over });\n// Runs fn and reports how it settled: { kind: 'resolved', value } | { kind: 'rejected', error }.\nconst settle = async (fn) => { try { return { kind: 'resolved', value: await fn() }; } catch (error) { return { kind: 'rejected', error }; } };\nfor (const k of Object.keys(process.env)) if (k.startsWith('MIMERS_') || k === 'LU_MPS_CAS') delete process.env[k];\n\nprocess.env.MPS_LU_BOOTSTRAP_ADMIT = '1';\n// Control: the GENERAL engine must still be able to use the flag, on every tree (harness sanity).\nconst control = await settle(() => client.runLuAssessmentViaKernel(input()));\nif (control.kind !== 'resolved' || control.value.admitted !== true) H('control failed: the general engine did not bootstrap-admit under MPS_LU_BOOTSTRAP_ADMIT=1');\nconst res = await settle(() => client.runCanonicalLuProductAssessment(input()));\nif (res.kind === 'resolved') {\n  if (res.value.admitted === true) V('runCanonicalLuProductAssessment obtained bootstrap admission from MPS_LU_BOOTSTRAP_ADMIT=1 (admitted:true)');\n  H('canonical call resolved without admission and without a contract rejection: unexpected');\n}\nif (res.error && res.error.code === 'LU_CANONICAL_BOOTSTRAP_ADMIT_FORBIDDEN') { console.log('LU_R1_OK: canonical call rejected with LU_CANONICAL_BOOTSTRAP_ADMIT_FORBIDDEN'); process.exit(0); }\nH('canonical call rejected with an unrelated error: ' + (res.error && res.error.message));\n\n} catch (e) { H('unexpected: ' + (e && e.stack ? e.stack : e)); }\n"
+      ],
+      "expected_classification": "PASS",
+      "required_head": "candidate_sha",
+      "blocked_exit_codes": [
+        2
+      ],
+      "timeout_ms": 60000
+    },
+    {
+      "id": "canonical-enforces-v3-at-runtime",
+      "command": "node",
+      "args": [
+        "--import",
+        "tsx",
+        "--input-type=module",
+        "-e",
+        "\nconst V = (m) => { console.error('LU_R1_VIOLATION: ' + m); process.exit(1); };\nconst H = (m) => { console.error('LU_R1_HARNESS_ERROR: ' + m); process.exit(2); };\ntry {\n\nconst client = await import('./packages/mps-lu/src/execution/LuExecutionKernelClient.ts');\nconst { InMemoryArtifactRepository: Repo } = await import('./packages/mps-runtime/src/repository/InMemoryArtifactRepository.ts');\nconst { SPATIAL_STACK_V1: FP } = await import('./packages/mps-lu/src/artifacts/SpatialEngineFingerprint.ts');\nif (typeof client.runCanonicalLuProductAssessment !== 'function' || typeof client.runLuAssessmentViaKernel !== 'function') H('engine entrypoints not found on the checked-out tree');\nconst HASH = '2b4b514f8b18a1a614d9aeac75c32eff8c52a3864c54770be112fd88fa263ddc';\nconst prop = { artifact_id: 'prop-r1-proof', artifact_type: 'PROPERTY' };\nconst EV = () => [{ artifact_id: 'ev-water-r1-proof', artifact_type: 'SPATIAL_EVIDENCE', payload: {\n  result_semantics: { kind: 'EXISTENCE_WITHIN_DISTANCE', query: { subject_ref: prop, srid: 3006, distance_meters: 100 }, result: { exists: true, match_count_observed: 1, max_features_per_layer: 50 } },\n  property_ref: prop,\n  source_metadata: { provider: 'SGU', dataset: 'water', dataset_version: HASH, retrieved_at: '2026-08-13T08:00:00.000Z' },\n  geometry: null, srid: 3006,\n  operation: { algorithm: 'spatial.dwithin_existence', engine: 'PostGIS', engine_fingerprint: FP },\n  layer_ref: { layer_id: 'water', version_hash: HASH, layer_version: 'v1' },\n  query_context: { query_id: 'q-r1-proof', query_type: 'SPATIAL_DWITHIN', parameters: { search_distance_meters: 100 } } } }];\nconst subject = () => ({\n  project_context_binding_ref: { artifact_id: 'project-context-binding-r1', artifact_type: 'project_context_binding' },\n  product_release_ref: { artifact_id: 'product-release-r1', artifact_type: 'product_release_manifest' },\n  execution_contract_version: 'lu-execution-identity-v1',\n  localization_geometry_ref: { artifact_id: 'localization-geometry-r1', artifact_type: 'localization_geometry' } });\nconst input = (over) => ({ site_id: 'site-r1-proof', deterministic_seed: 'seed:r1-proof', evidence: EV(), artifact_repository: new Repo(), identity_subject_v3: subject(), ...over });\n// Runs fn and reports how it settled: { kind: 'resolved', value } | { kind: 'rejected', error }.\nconst settle = async (fn) => { try { return { kind: 'resolved', value: await fn() }; } catch (error) { return { kind: 'rejected', error }; } };\nfor (const k of Object.keys(process.env)) if (k.startsWith('MIMERS_') || k === 'LU_MPS_CAS') delete process.env[k];\n\ndelete process.env.MPS_LU_BOOTSTRAP_ADMIT;\n// Control: a complete V3 subject must be accepted (resolves, denied for lack of a provisioned identity).\nconst ok = await settle(() => client.runCanonicalLuProductAssessment(input()));\nif (ok.kind !== 'resolved') H('control failed: a valid V3 subject was rejected: ' + (ok.error && ok.error.message));\nconst broken = {\n  'identity_subject_v3 omitted': undefined,\n  'identity_subject_v3 null': null,\n  'identity_subject_v3 empty object': {},\n  'localization_geometry_ref missing': { ...subject(), localization_geometry_ref: undefined },\n  'product_release_ref has empty artifact_id': { ...subject(), product_release_ref: { artifact_id: '', artifact_type: 'product_release_manifest' } },\n  'execution_contract_version missing': { ...subject(), execution_contract_version: undefined },\n};\nconst accepted = [];\nfor (const [name, value] of Object.entries(broken)) {\n  const r = await settle(() => client.runCanonicalLuProductAssessment(input({ identity_subject_v3: value })));\n  if (r.kind === 'resolved') { accepted.push(name); continue; }\n  if (!(r.error && r.error.code === 'LU_CANONICAL_IDENTITY_SUBJECT_V3_INVALID')) H('\"' + name + '\" rejected with an unrelated error: ' + (r.error && r.error.message));\n}\nif (accepted.length > 0) V('canonical entrypoint let a call through the general engine without a valid V3 subject: ' + accepted.join('; '));\nconsole.log('LU_R1_OK: every broken V3 subject rejected with LU_CANONICAL_IDENTITY_SUBJECT_V3_INVALID');\n\n} catch (e) { H('unexpected: ' + (e && e.stack ? e.stack : e)); }\n"
+      ],
+      "expected_classification": "PASS",
+      "required_head": "candidate_sha",
+      "blocked_exit_codes": [
+        2
+      ],
+      "timeout_ms": 60000
+    },
+    {
+      "id": "package-root-does-not-export-rule-engine",
+      "command": "node",
+      "args": [
+        "--import",
+        "tsx",
+        "--input-type=module",
+        "-e",
+        "\nconst V = (m) => { console.error('LU_R1_VIOLATION: ' + m); process.exit(1); };\nconst H = (m) => { console.error('LU_R1_HARNESS_ERROR: ' + m); process.exit(2); };\ntry {\n\nconst root = await import('./packages/mps-lu/src/index.ts');\nif (typeof root.runCanonicalLuProductAssessment !== 'function') H('control failed: package root does not expose runCanonicalLuProductAssessment');\nconst leaked = ['LURuleEngine', 'runLuAssessmentViaKernel', 'evaluateLuRuleSet', 'createLuRuleEngineInvokeHandler'].filter((n) => n in root);\nif (leaked.length > 0) V('package root runtime namespace exposes: ' + leaked.join(', '));\nconsole.log('LU_R1_OK: package root exposes no rule engine / general engine symbols');\n\n} catch (e) { H('unexpected: ' + (e && e.stack ? e.stack : e)); }\n"
+      ],
+      "expected_classification": "PASS",
+      "required_head": "candidate_sha",
+      "blocked_exit_codes": [
+        2
+      ],
+      "timeout_ms": 60000
+    },
+    {
+      "id": "proof-script-cold-verify-isolated-root",
+      "command": "node",
+      "args": [
+        "--import",
+        "tsx",
+        "--input-type=module",
+        "-e",
+        "\nconst V = (m) => { console.error('LU_R1_VIOLATION: ' + m); process.exit(1); };\nconst H = (m) => { console.error('LU_R1_HARNESS_ERROR: ' + m); process.exit(2); };\ntry {\n\nconst fs = await import('node:fs');\nconst os = await import('node:os');\nconst path = await import('node:path');\nconst crypto = await import('node:crypto');\nconst cp = await import('node:child_process');\nconst script = process.argv[1];\nif (!script || !/^scripts\\/ops\\/prove-lu-[a-z0-9-]+\\.ts$/.test(script)) H('a proof script path argument is required, got: ' + script);\nif (!fs.existsSync(script)) H('proof script does not exist on this tree: ' + script);\nconst snap = (root) => { const out = {}; const walk = (d) => { for (const n of fs.readdirSync(d).sort()) { const f = path.join(d, n); const rel = path.relative(root, f).split(path.sep).join('/'); if (fs.statSync(f).isDirectory()) { out[rel] = '<dir>'; walk(f); } else out[rel] = crypto.createHash('sha256').update(fs.readFileSync(f)).digest('hex'); } }; walk(root); return out; };\nconst sandbox = fs.mkdtempSync(path.join(os.tmpdir(), 'lu-r1-red-sentinel-'));\nconst clean = () => fs.rmSync(sandbox, { recursive: true, force: true });\nconst VC = (m) => { clean(); V(m); };\nconst HC = (m) => { clean(); H(m); };\ntry {\n  const sentinel = path.join(sandbox, 'caller-owned-mimers-root');\n  fs.mkdirSync(path.join(sentinel, 'cas', 'objects'), { recursive: true });\n  fs.writeFileSync(path.join(sentinel, 'MARKER'), 'caller-owned persistent root');\n  fs.writeFileSync(path.join(sentinel, 'cas', 'objects', 'keep.bin'), 'caller-owned object');\n  const before = snap(sentinel);\n  const env = { ...process.env, MIMERS_ROOT: sentinel };\n  for (const k of Object.keys(env)) if (k.startsWith('VITEST') || (k.startsWith('MIMERS_') && k !== 'MIMERS_ROOT') || k === 'NODE_ENV' || k === 'LU_MPS_CAS' || k === 'MPS_LU_BOOTSTRAP_ADMIT') delete env[k];\n  const r = cp.spawnSync(process.execPath, ['--import', 'tsx', script], { cwd: process.cwd(), env, encoding: 'utf8', timeout: 150000 });\n  if (r.error) HC('could not run the proof script: ' + r.error.message);\n  const after = snap(sentinel);\n  const changed = Object.keys({ ...before, ...after }).filter((k) => before[k] !== after[k]);\n  if (changed.length > 0) VC(script + ' mutated the caller-configured MIMERS_ROOT (' + changed.length + ' added/changed entries, e.g. ' + changed.slice(0, 3).join(', ') + ')');\n  const out = r.stdout || '';\n  if (!/\"originalRunAdmitted\": true/.test(out)) HC('the proof script did not reach its real assessment step; cannot tell isolation from a crash. stderr: ' + String(r.stderr).slice(0, 300));\n  const line = out.split(/\\r?\\n/).find((l) => l.startsWith('PROOF_ISOLATION '));\n  if (!line) VC('sentinel untouched, but the script reports no distinct isolated proof root (no PROOF_ISOLATION attestation)');\n  const iso = JSON.parse(line.slice('PROOF_ISOLATION '.length));\n  const rel = path.relative(fs.realpathSync(os.tmpdir()), path.resolve(iso.root));\n  if (path.resolve(iso.root) === path.resolve(sentinel) || rel.startsWith('..') || path.isAbsolute(rel)) VC('proof root is not a distinct directory under the OS temp dir: ' + iso.root);\n  if (iso.mimers_backed !== true || iso.cas_dir_present !== true) VC('proof repository is not the real filesystem-backed Mimers CAS: ' + line);\n  if (fs.existsSync(iso.root)) VC('isolated proof root was not cleaned up: ' + iso.root);\n  console.log('LU_R1_OK: ' + script + ' left the caller root untouched and ran on isolated real-CAS root ' + iso.root);\n} finally { fs.rmSync(sandbox, { recursive: true, force: true }); }\n\n} catch (e) { H('unexpected: ' + (e && e.stack ? e.stack : e)); }\n",
+        "scripts/ops/prove-lu-replay-cold-verify-01.ts"
+      ],
+      "expected_classification": "PASS",
+      "required_head": "candidate_sha",
+      "blocked_exit_codes": [
+        2
+      ],
+      "timeout_ms": 170000
+    },
+    {
+      "id": "proof-script-deterministic-reexecution-isolated-root",
+      "command": "node",
+      "args": [
+        "--import",
+        "tsx",
+        "--input-type=module",
+        "-e",
+        "\nconst V = (m) => { console.error('LU_R1_VIOLATION: ' + m); process.exit(1); };\nconst H = (m) => { console.error('LU_R1_HARNESS_ERROR: ' + m); process.exit(2); };\ntry {\n\nconst fs = await import('node:fs');\nconst os = await import('node:os');\nconst path = await import('node:path');\nconst crypto = await import('node:crypto');\nconst cp = await import('node:child_process');\nconst script = process.argv[1];\nif (!script || !/^scripts\\/ops\\/prove-lu-[a-z0-9-]+\\.ts$/.test(script)) H('a proof script path argument is required, got: ' + script);\nif (!fs.existsSync(script)) H('proof script does not exist on this tree: ' + script);\nconst snap = (root) => { const out = {}; const walk = (d) => { for (const n of fs.readdirSync(d).sort()) { const f = path.join(d, n); const rel = path.relative(root, f).split(path.sep).join('/'); if (fs.statSync(f).isDirectory()) { out[rel] = '<dir>'; walk(f); } else out[rel] = crypto.createHash('sha256').update(fs.readFileSync(f)).digest('hex'); } }; walk(root); return out; };\nconst sandbox = fs.mkdtempSync(path.join(os.tmpdir(), 'lu-r1-red-sentinel-'));\nconst clean = () => fs.rmSync(sandbox, { recursive: true, force: true });\nconst VC = (m) => { clean(); V(m); };\nconst HC = (m) => { clean(); H(m); };\ntry {\n  const sentinel = path.join(sandbox, 'caller-owned-mimers-root');\n  fs.mkdirSync(path.join(sentinel, 'cas', 'objects'), { recursive: true });\n  fs.writeFileSync(path.join(sentinel, 'MARKER'), 'caller-owned persistent root');\n  fs.writeFileSync(path.join(sentinel, 'cas', 'objects', 'keep.bin'), 'caller-owned object');\n  const before = snap(sentinel);\n  const env = { ...process.env, MIMERS_ROOT: sentinel };\n  for (const k of Object.keys(env)) if (k.startsWith('VITEST') || (k.startsWith('MIMERS_') && k !== 'MIMERS_ROOT') || k === 'NODE_ENV' || k === 'LU_MPS_CAS' || k === 'MPS_LU_BOOTSTRAP_ADMIT') delete env[k];\n  const r = cp.spawnSync(process.execPath, ['--import', 'tsx', script], { cwd: process.cwd(), env, encoding: 'utf8', timeout: 150000 });\n  if (r.error) HC('could not run the proof script: ' + r.error.message);\n  const after = snap(sentinel);\n  const changed = Object.keys({ ...before, ...after }).filter((k) => before[k] !== after[k]);\n  if (changed.length > 0) VC(script + ' mutated the caller-configured MIMERS_ROOT (' + changed.length + ' added/changed entries, e.g. ' + changed.slice(0, 3).join(', ') + ')');\n  const out = r.stdout || '';\n  if (!/\"originalRunAdmitted\": true/.test(out)) HC('the proof script did not reach its real assessment step; cannot tell isolation from a crash. stderr: ' + String(r.stderr).slice(0, 300));\n  const line = out.split(/\\r?\\n/).find((l) => l.startsWith('PROOF_ISOLATION '));\n  if (!line) VC('sentinel untouched, but the script reports no distinct isolated proof root (no PROOF_ISOLATION attestation)');\n  const iso = JSON.parse(line.slice('PROOF_ISOLATION '.length));\n  const rel = path.relative(fs.realpathSync(os.tmpdir()), path.resolve(iso.root));\n  if (path.resolve(iso.root) === path.resolve(sentinel) || rel.startsWith('..') || path.isAbsolute(rel)) VC('proof root is not a distinct directory under the OS temp dir: ' + iso.root);\n  if (iso.mimers_backed !== true || iso.cas_dir_present !== true) VC('proof repository is not the real filesystem-backed Mimers CAS: ' + line);\n  if (fs.existsSync(iso.root)) VC('isolated proof root was not cleaned up: ' + iso.root);\n  console.log('LU_R1_OK: ' + script + ' left the caller root untouched and ran on isolated real-CAS root ' + iso.root);\n} finally { fs.rmSync(sandbox, { recursive: true, force: true }); }\n\n} catch (e) { H('unexpected: ' + (e && e.stack ? e.stack : e)); }\n",
+        "scripts/ops/prove-lu-deterministic-reexecution-01.ts"
+      ],
+      "expected_classification": "PASS",
+      "required_head": "candidate_sha",
+      "blocked_exit_codes": [
+        2
+      ],
+      "timeout_ms": 170000
+    },
+    {
+      "id": "lu-canonical-runtime-hardening-tests",
+      "command": "npx",
+      "args": [
+        "vitest",
+        "run",
+        "--config",
+        "vitest.config.ts",
+        "packages/mps-lu/src/unit/LuCanonicalRuntimeHardening.test.ts"
+      ],
+      "expected_classification": "PASS",
+      "required_head": "candidate_sha",
+      "timeout_ms": 180000
+    },
+    {
+      "id": "lu-bootstrap-proof-scripts-isolation-tests",
+      "command": "npx",
+      "args": [
+        "vitest",
+        "run",
+        "--config",
+        "vitest.config.ts",
+        "tests/unit/luBootstrapProofScriptsIsolation.test.ts"
+      ],
+      "expected_classification": "PASS",
+      "required_head": "candidate_sha",
+      "timeout_ms": 300000
+    },
+    {
+      "id": "lu-canonical-path-repo-guard",
+      "command": "npx",
+      "args": [
+        "vitest",
+        "run",
+        "--config",
+        "vitest.config.ts",
+        "src/application/unit/LuCanonicalPath01.test.ts"
+      ],
+      "expected_classification": "PASS",
+      "required_head": "candidate_sha",
+      "timeout_ms": 180000
+    },
+    {
+      "id": "lu-single-path-and-no-alternate-verdict",
+      "command": "npx",
+      "args": [
+        "vitest",
+        "run",
+        "--config",
+        "vitest.config.ts",
+        "src/application/unit/LuCutoverSinglePath.test.ts",
+        "src/application/unit/NoAlternateLuDecisionPath.test.ts"
+      ],
+      "expected_classification": "PASS",
+      "required_head": "candidate_sha",
+      "timeout_ms": 240000
+    },
+    {
+      "id": "lu-release-binding-regression",
+      "command": "npx",
+      "args": [
+        "vitest",
+        "run",
+        "--config",
+        "vitest.config.ts",
+        "packages/mps-lu/tests/LocalizationAssessmentReleaseBindingProof.test.ts"
+      ],
+      "expected_classification": "PASS",
+      "required_head": "candidate_sha",
+      "timeout_ms": 240000
+    },
+    {
+      "id": "lu-runnable-source-authority-admission-replay-regression",
+      "command": "npx",
+      "args": [
+        "vitest",
+        "run",
+        "--config",
+        "vitest.config.ts",
+        "packages/mps-lu/tests/LuSourceAuthorityTemporal04E.test.ts",
+        "packages/mps-lu/tests/LuSourceAuthorityWiring04D.test.ts",
+        "packages/mps-lu/tests/LuExecutionKernelClient.test.ts",
+        "packages/mps-lu/tests/LuDeterministicReExecution.test.ts",
+        "packages/mps-lu/tests/LuReplayColdVerify.test.ts",
+        "packages/mps-lu/tests/P4ALU03NoAlternateSpatialPath.test.ts"
+      ],
+      "expected_classification": "PASS",
+      "required_head": "candidate_sha",
+      "timeout_ms": 300000
+    }
+  ],
+  "trusted_execution": {
+    "issuer": "github-actions:JbmbAb/Milj-beslut-V1.2:devgov-v0-attest",
+    "key_id": "devgov-ci-ed25519-v1"
+  },
+  "remote": {
+    "name": "origin",
+    "branch": "governance/lu-canonical-runtime-hardening-r1",
+    "push_policy": "no_force",
+    "absent_policy": "deny_absent"
+  }
+}
