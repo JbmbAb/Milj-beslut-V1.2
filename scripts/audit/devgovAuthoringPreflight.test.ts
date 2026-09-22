@@ -5,7 +5,7 @@ import {
   collectRedHarnessWarnings,
   collectRepoLikePaths,
   findUnusedAllowedPaths,
-} from '../devgov/authoring-preflight.mjs';
+} from '../tooling/devgov-authoring-preflight.mjs';
 
 const BASE = 'a'.repeat(40);
 const CANDIDATE = 'b'.repeat(40);

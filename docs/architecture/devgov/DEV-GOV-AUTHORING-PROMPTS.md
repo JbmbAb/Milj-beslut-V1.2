@@ -52,7 +52,7 @@ RED must fail on the frozen base for the semantic property under test.
 When a candidate definition exists, run:
 
 ~~~text
-node scripts/devgov/authoring-preflight.mjs \
+node scripts/tooling/devgov-authoring-preflight.mjs \
   --definition governance/devgov/units/<unit>.json \
   --candidate-sha <candidate> \
   --worktree <repo>

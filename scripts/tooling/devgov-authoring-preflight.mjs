@@ -5,7 +5,7 @@ import { existsSync, readFileSync } from "node:fs";
 import { isAbsolute, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { classifyDiffScope, validateUnitDefinition } from "./devgov.mjs";
+import { classifyDiffScope, validateUnitDefinition } from "../devgov/devgov.mjs";
 
 const REPO_PATH_RE =
   /(?:^|["'(\s])((?:\.github|packages|src|server|components|scripts|tests|governance|docs|prisma)\/[A-Za-z0-9_.@/+~-]+)/g;
