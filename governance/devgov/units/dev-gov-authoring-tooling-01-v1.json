@@ -1,0 +1,95 @@
+{
+  "schema_version": "dev-gov-v1-unit-definition",
+  "unit": "DEV-GOV-AUTHORING-TOOLING-01-V1",
+  "role": "producer",
+  "mode": "writer",
+  "branch": "tooling/devgov-authoring-preflight-v1",
+  "base_sha": "864a62f7d1f6f480c41a9c9395e6ce7b920fed99",
+  "ancestry_policy": "descendant_of_base",
+  "allowed_paths": [
+    "scripts/tooling/devgov-authoring-preflight.mjs",
+    "tests/unit/devgovAuthoringPreflight.test.ts",
+    "docs/architecture/devgov/DEV-GOV-AUTHORING-PROMPTS.md",
+    "docs/architecture/audits/DEV-GOV-AUTHORING-TOOLING-01.md",
+    "governance/devgov/units/dev-gov-authoring-tooling-01-v1.json"
+  ],
+  "forbidden_paths": [
+    ".github/**",
+    "scripts/devgov/**",
+    "governance/devgov/schema/**",
+    "packages/mps-runtime/src/security/**",
+    "packages/mimers-brunn-core/**",
+    "server/security/**",
+    "prisma/**"
+  ],
+  "required_red": [
+    {
+      "id": "authoring-tooling-present",
+      "command": "node",
+      "args": [
+        "-e",
+        "\nconst fs = require('node:fs');\nconst V = (m) => { console.error('AUTHORING_TOOLING_VIOLATION: ' + m); process.exit(1); };\nconst H = (m) => { console.error('AUTHORING_TOOLING_HARNESS_ERROR: ' + m); process.exit(2); };\ntry {\n  const control = 'scripts/devgov/devgov.mjs';\n  if (!fs.existsSync(control)) H('load-bearing controller control file is missing: ' + control);\n  const required = [\n    'scripts/tooling/devgov-authoring-preflight.mjs',\n    'tests/unit/devgovAuthoringPreflight.test.ts',\n    'docs/architecture/devgov/DEV-GOV-AUTHORING-PROMPTS.md',\n  ];\n  const missing = required.filter((p) => !fs.existsSync(p));\n  if (missing.length > 0) V('non-authoritative authoring tooling is absent: ' + missing.join(', '));\n  console.log('AUTHORING_TOOLING_OK: helper, focused test, and prompt template are present while controller control exists');\n} catch (e) {\n  H('unexpected: ' + (e && e.stack ? e.stack : e));\n}\n"
+      ],
+      "expected_classification": "FAIL",
+      "required_head": "base_sha",
+      "blocked_exit_codes": [
+        2
+      ],
+      "timeout_ms": 30000
+    }
+  ],
+  "required_green": [
+    {
+      "id": "authoring-tooling-present",
+      "command": "node",
+      "args": [
+        "-e",
+        "\nconst fs = require('node:fs');\nconst V = (m) => { console.error('AUTHORING_TOOLING_VIOLATION: ' + m); process.exit(1); };\nconst H = (m) => { console.error('AUTHORING_TOOLING_HARNESS_ERROR: ' + m); process.exit(2); };\ntry {\n  const control = 'scripts/devgov/devgov.mjs';\n  if (!fs.existsSync(control)) H('load-bearing controller control file is missing: ' + control);\n  const required = [\n    'scripts/tooling/devgov-authoring-preflight.mjs',\n    'tests/unit/devgovAuthoringPreflight.test.ts',\n    'docs/architecture/devgov/DEV-GOV-AUTHORING-PROMPTS.md',\n  ];\n  const missing = required.filter((p) => !fs.existsSync(p));\n  if (missing.length > 0) V('non-authoritative authoring tooling is absent: ' + missing.join(', '));\n  console.log('AUTHORING_TOOLING_OK: helper, focused test, and prompt template are present while controller control exists');\n} catch (e) {\n  H('unexpected: ' + (e && e.stack ? e.stack : e));\n}\n"
+      ],
+      "expected_classification": "PASS",
+      "required_head": "candidate_sha",
+      "blocked_exit_codes": [
+        2
+      ],
+      "timeout_ms": 30000
+    },
+    {
+      "id": "authoring-preflight-focused-tests",
+      "command": "node",
+      "args": [
+        "-e",
+        "\nconst cp = require('node:child_process');\nconst V = (m) => { console.error('AUTHORING_TOOLING_VIOLATION: ' + m); process.exit(1); };\nconst H = (m) => { console.error('AUTHORING_TOOLING_HARNESS_ERROR: ' + m); process.exit(2); };\ntry {\n  const win = process.platform === 'win32';\n  const command = win ? 'npx.cmd' : 'npx';\n  const r = cp.spawnSync(command, [\n    'vitest', 'run', '--config', 'vitest.config.ts', '--project', 'unit',\n    'tests/unit/devgovAuthoringPreflight.test.ts'\n  ], { stdio: 'inherit', shell: win, timeout: 180000 });\n  if (r.error || r.status === null) H('focused test could not execute: ' + (r.error ? r.error.message : 'signal ' + r.signal));\n  if (r.status !== 0) V('focused authoring-preflight tests failed with exit ' + r.status);\n  console.log('AUTHORING_TOOLING_OK: focused unit tests passed');\n} catch (e) {\n  H('unexpected: ' + (e && e.stack ? e.stack : e));\n}\n"
+      ],
+      "expected_classification": "PASS",
+      "required_head": "candidate_sha",
+      "blocked_exit_codes": [
+        2
+      ],
+      "timeout_ms": 240000
+    },
+    {
+      "id": "authoring-preflight-self-check",
+      "command": "node",
+      "args": [
+        "-e",
+        "\nconst cp = require('node:child_process');\nconst V = (m) => { console.error('AUTHORING_TOOLING_VIOLATION: ' + m); process.exit(1); };\nconst H = (m) => { console.error('AUTHORING_TOOLING_HARNESS_ERROR: ' + m); process.exit(2); };\ntry {\n  const sha = cp.execFileSync('git', ['rev-parse', 'HEAD'], { encoding: 'utf8' }).trim();\n  if (!/^[0-9a-f]{40}$/.test(sha)) H('could not resolve candidate HEAD');\n  const r = cp.spawnSync(process.execPath, [\n    'scripts/tooling/devgov-authoring-preflight.mjs',\n    '--definition', 'governance/devgov/units/dev-gov-authoring-tooling-01-v1.json',\n    '--candidate-sha', sha,\n    '--worktree', process.cwd(),\n  ], { encoding: 'utf8', timeout: 240000 });\n  if (r.error || r.status === null) H('authoring preflight could not execute: ' + (r.error ? r.error.message : 'signal ' + r.signal));\n  let report;\n  try { report = JSON.parse(r.stdout || ''); } catch (e) { H('authoring preflight did not emit JSON: ' + String(r.stdout).slice(0, 500)); }\n  if (r.status !== 0 || report.result !== 'PASS') V('authoring preflight failed: ' + String(r.stderr).slice(0, 500) + ' ' + JSON.stringify(report.errors || []));\n  if (report.authoritative !== false) H('authoring helper must explicitly report authoritative=false');\n  if (report.controller_preflight?.status !== 'PASS') V('real controller preflight was not reused successfully');\n  if (report.hygiene?.prettier?.status !== 'PASS') V('changed-file Prettier did not PASS: ' + JSON.stringify(report.hygiene?.prettier));\n  if (report.hygiene?.eslint?.status !== 'PASS') V('changed-file ESLint did not PASS: ' + JSON.stringify(report.hygiene?.eslint));\n  if (!Array.isArray(report.static_checks?.candidateOnlyRedReferences) || report.static_checks.candidateOnlyRedReferences.length === 0) {\n    V('candidate-only RED reference detector was not exercised by this unit');\n  }\n  console.log('AUTHORING_TOOLING_OK: controller preflight reused, changed-file hygiene passed, authoring warnings remained non-authoritative');\n} catch (e) {\n  H('unexpected: ' + (e && e.stack ? e.stack : e));\n}\n"
+      ],
+      "expected_classification": "PASS",
+      "required_head": "candidate_sha",
+      "blocked_exit_codes": [
+        2
+      ],
+      "timeout_ms": 300000
+    }
+  ],
+  "trusted_execution": {
+    "issuer": "github-actions:JbmbAb/Milj-beslut-V1.2:devgov-v0-attest",
+    "key_id": "devgov-ci-ed25519-v1"
+  },
+  "remote": {
+    "name": "origin",
+    "branch": "tooling/devgov-authoring-preflight-v1",
+    "push_policy": "no_force",
+    "absent_policy": "deny_absent"
+  }
+}
