@@ -123,7 +123,7 @@
     "lru-cache": "^11.5.2",
     "lucide-react": "^0.575.0",
     "motion": "^12.42.2",
-    "nodemailer": "^9.0.3",
+    "nodemailer": "^9.0.6",
     "openai": "^6.27.0",
     "pdf-parse": "^2.4.5",
     "pdfkit": "^0.19.1",
