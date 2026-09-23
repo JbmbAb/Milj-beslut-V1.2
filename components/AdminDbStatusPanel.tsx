@@ -58,7 +58,7 @@ const AdminDbStatusPanel: React.FC = () => {
     if (hasFetched.current) return;
     if (!token) return;
     hasFetched.current = true;
-    // eslint-disable-next-line react-hooks/set-state-in-effect
+     
     void load();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
