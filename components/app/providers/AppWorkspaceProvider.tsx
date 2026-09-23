@@ -67,7 +67,7 @@ export function AppWorkspaceProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     if (sessionState !== 'ready' && sessionState !== 'loading') {
-      // eslint-disable-next-line react-hooks/set-state-in-effect
+       
       setMode(null);
 
       setPermits([]);
