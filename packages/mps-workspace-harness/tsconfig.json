@@ -1,0 +1,38 @@
+{
+  // WORKSPACE-LIFECYCLE-CONTROLLER-V1 — package-local typecheck project.
+  //
+  // Deliberately NOT `extends: ../../tsconfig.json`. The root project runs with `strict` OFF, so
+  // extending it would make this check no stronger than the one that already passes, and the whole
+  // reason this file exists is that a root-only typecheck masked a real defect: an
+  // `Observed<undefined>` assigned to `Observed<string>` in correlate.ts compiled cleanly at root
+  // and failed here. A package-local project that inherits the root's leniency proves nothing.
+  //
+  // `noEmit` because nothing builds these packages: they are consumed as TypeScript source through
+  // the vitest and tsconfig aliases. `declaration`/`outDir`/`rootDir` would describe a build step
+  // that does not exist, and `rootDir` in particular makes a legitimate sibling-source import an
+  // error.
+  //
+  // `paths` mirrors this package's declared `dependencies` EXACTLY — no more, no less. A test
+  // asserts that equality, so resolution can never be widened past what the manifest admits.
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "ESNext",
+    "moduleResolution": "Bundler",
+    "lib": ["ES2022"],
+    "types": ["node"],
+    "strict": true,
+    "noEmit": true,
+    "composite": false,
+    "esModuleInterop": true,
+    "skipLibCheck": true,
+    "forceConsistentCasingInFileNames": true,
+    "baseUrl": ".",
+  "paths": {
+    "@miljobeslut/mps-canonical": ["../mps-canonical/src/index.ts"],
+    "@miljobeslut/mps-workspace-observer": ["../mps-workspace-observer/src/index.ts"],
+    "@miljobeslut/mps-workspace-classifier": ["../mps-workspace-classifier/src/index.ts"]
+  }
+  },
+  "include": ["src/**/*"],
+  "exclude": ["node_modules", "dist"]
+}
