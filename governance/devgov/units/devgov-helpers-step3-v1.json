@@ -1,0 +1,114 @@
+{
+  "schema_version": "dev-gov-v1-unit-definition",
+  "unit": "DEVGOV-HELPERS-STEP3-V1",
+  "role": "producer",
+  "mode": "writer",
+  "branch": "tooling/devgov-helpers-step3",
+  "base_sha": "864a62f7d1f6f480c41a9c9395e6ce7b920fed99",
+  "ancestry_policy": "descendant_of_base",
+  "allowed_paths": [
+    "docs/templates/devgov-unit-prompt-templates.md",
+    "scripts/dev-helpers/devgov-helper.mjs",
+    "scripts/dev-helpers/lib/importClosure.mjs",
+    "scripts/dev-helpers/lib/preflight.mjs",
+    "scripts/dev-helpers/lib/unitLint.mjs",
+    "scripts/dev-helpers/unit/devgovHelpers.test.ts",
+    "tests/unit/luBootstrapProofScriptsIsolation.test.ts",
+    "governance/devgov/units/devgov-helpers-step3-v1.json",
+    "docs/architecture/audits/DEVGOV-HELPERS-STEP3.md"
+  ],
+  "forbidden_paths": [
+    ".github/**",
+    "scripts/devgov/**",
+    "governance/devgov/schema/**",
+    "prisma/**",
+    "packages/**",
+    "server/**",
+    "src/**",
+    "components/**"
+  ],
+  "required_red": [
+    {
+      "id": "isolation-test-prettier-violation",
+      "command": "node",
+      "args": [
+        "-e",
+        "\nconst cp = require('node:child_process');\nconst win = process.platform === 'win32';\nconst target = 'tests/unit/luBootstrapProofScriptsIsolation.test.ts';\nconst r = cp.spawnSync(win ? 'npx.cmd' : 'npx', ['prettier', '--check', target], { encoding: 'utf8', shell: win });\nif (r.error) { console.error('HARNESS: could not run prettier: ' + r.error.message); process.exit(2); }\nif (r.status === 0) { console.log('OK: prettier reports ' + target + ' already formatted'); process.exit(0); }\nif (r.status === 1) { console.error('VIOLATION: prettier flags formatting issues in ' + target); process.exit(1); }\nconsole.error('HARNESS: unexpected prettier exit ' + r.status + '; stderr=' + String(r.stderr).slice(0, 300));\nprocess.exit(2);\n"
+      ],
+      "expected_classification": "FAIL",
+      "required_head": "base_sha",
+      "blocked_exit_codes": [
+        2
+      ],
+      "timeout_ms": 90000
+    },
+    {
+      "id": "dev-helpers-cli-absent",
+      "command": "node",
+      "args": [
+        "-e",
+        "\nconst fs = require('node:fs');\nconst files = [\n  'scripts/dev-helpers/devgov-helper.mjs',\n  'scripts/dev-helpers/lib/unitLint.mjs',\n  'scripts/dev-helpers/lib/preflight.mjs',\n  'scripts/dev-helpers/lib/importClosure.mjs',\n];\nconst present = files.filter((f) => fs.existsSync(f));\nif (present.length === 0) { console.error('VIOLATION: no dev-helpers tooling exists on this tree'); process.exit(1); }\nif (present.length === files.length) { console.log('OK: dev-helpers tooling fully present (' + files.length + ' files)'); process.exit(0); }\nconsole.error('HARNESS: partial presence, unexpected: ' + present.join(', '));\nprocess.exit(2);\n"
+      ],
+      "expected_classification": "FAIL",
+      "required_head": "base_sha",
+      "blocked_exit_codes": [
+        2
+      ],
+      "timeout_ms": 30000
+    }
+  ],
+  "required_green": [
+    {
+      "id": "isolation-test-prettier-violation",
+      "command": "node",
+      "args": [
+        "-e",
+        "\nconst cp = require('node:child_process');\nconst win = process.platform === 'win32';\nconst target = 'tests/unit/luBootstrapProofScriptsIsolation.test.ts';\nconst r = cp.spawnSync(win ? 'npx.cmd' : 'npx', ['prettier', '--check', target], { encoding: 'utf8', shell: win });\nif (r.error) { console.error('HARNESS: could not run prettier: ' + r.error.message); process.exit(2); }\nif (r.status === 0) { console.log('OK: prettier reports ' + target + ' already formatted'); process.exit(0); }\nif (r.status === 1) { console.error('VIOLATION: prettier flags formatting issues in ' + target); process.exit(1); }\nconsole.error('HARNESS: unexpected prettier exit ' + r.status + '; stderr=' + String(r.stderr).slice(0, 300));\nprocess.exit(2);\n"
+      ],
+      "expected_classification": "PASS",
+      "required_head": "candidate_sha",
+      "blocked_exit_codes": [
+        2
+      ],
+      "timeout_ms": 90000
+    },
+    {
+      "id": "dev-helpers-cli-absent",
+      "command": "node",
+      "args": [
+        "-e",
+        "\nconst fs = require('node:fs');\nconst files = [\n  'scripts/dev-helpers/devgov-helper.mjs',\n  'scripts/dev-helpers/lib/unitLint.mjs',\n  'scripts/dev-helpers/lib/preflight.mjs',\n  'scripts/dev-helpers/lib/importClosure.mjs',\n];\nconst present = files.filter((f) => fs.existsSync(f));\nif (present.length === 0) { console.error('VIOLATION: no dev-helpers tooling exists on this tree'); process.exit(1); }\nif (present.length === files.length) { console.log('OK: dev-helpers tooling fully present (' + files.length + ' files)'); process.exit(0); }\nconsole.error('HARNESS: partial presence, unexpected: ' + present.join(', '));\nprocess.exit(2);\n"
+      ],
+      "expected_classification": "PASS",
+      "required_head": "candidate_sha",
+      "blocked_exit_codes": [
+        2
+      ],
+      "timeout_ms": 30000
+    },
+    {
+      "id": "dev-helpers-unit-tests",
+      "command": "node",
+      "args": [
+        "-e",
+        "\nconst cp = require('node:child_process');\nconst win = process.platform === 'win32';\nconst t = cp.spawnSync(win ? 'npx.cmd' : 'npx', ['vitest', 'run', '--config', 'vitest.config.ts', 'scripts/dev-helpers/unit/devgovHelpers.test.ts'], { stdio: 'inherit', shell: win });\nif (t.error || t.status === null) { console.error('HARNESS: vitest could not be run to completion'); process.exit(2); }\nif (t.status !== 0) { console.error('VIOLATION: the dev-helpers test suite failed (exit ' + t.status + ')'); process.exit(1); }\nconsole.log('OK: dev-helpers test suite passed');\nprocess.exit(0);\n"
+      ],
+      "expected_classification": "PASS",
+      "required_head": "candidate_sha",
+      "blocked_exit_codes": [
+        2
+      ],
+      "timeout_ms": 300000
+    }
+  ],
+  "trusted_execution": {
+    "issuer": "github-actions:JbmbAb/Milj-beslut-V1.2:devgov-v0-attest",
+    "key_id": "devgov-ci-ed25519-v1"
+  },
+  "remote": {
+    "name": "origin",
+    "branch": "tooling/devgov-helpers-step3",
+    "push_policy": "no_force",
+    "absent_policy": "deny_absent"
+  }
+}
