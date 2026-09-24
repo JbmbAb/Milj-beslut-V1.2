@@ -21,6 +21,9 @@
     "docs/architecture/audits/DEVGOV-INVARIANT-PACKS-V1.md"
   ],
   "forbidden_paths": [
+    ".github/workflows/devgov-v0-attest.yml",
+    "scripts/devgov/devgov.mjs",
+    "governance/devgov/schema/**",
     "packages/**",
     "server/**",
     "src/**",
