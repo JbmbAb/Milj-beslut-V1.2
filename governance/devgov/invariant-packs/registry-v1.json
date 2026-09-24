@@ -1,0 +1,9 @@
+{
+  "schema_version": "dev-gov-invariant-pack-registry-v1",
+  "registry_version": 1,
+  "activation_model": "protected-controller-only",
+  "active_packs": [
+    "governance/devgov/invariant-packs/devgov-controller-core-v1.json"
+  ],
+  "upgrade_rule": "A candidate may propose a later registry or pack version, but the current run resolves active packs only from the protected controller checkout. A later version becomes normative only after merge to the protected controller."
+}
