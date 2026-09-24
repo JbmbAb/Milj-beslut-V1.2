@@ -70,8 +70,9 @@ describe('DEV-GOV-V0 multi-proof orchestration', () => {
     expect(workflow.jobs.green.uses).toBe('./.github/workflows/devgov-v0-attest.yml');
     expect(workflow.jobs.red.secrets).toBe('inherit');
     expect(workflow.jobs.green.secrets).toBe('inherit');
-    expect(workflow.jobs.green.needs).toEqual(['plan', 'red']);
-    expect(workflow.jobs.gate.needs).toEqual(['plan', 'red', 'green']);
+    expect(workflow.jobs.red.needs).toEqual(['plan', 'invariant-packs']);
+    expect(workflow.jobs.green.needs).toEqual(['plan', 'invariant-packs', 'red']);
+    expect(workflow.jobs.gate.needs).toEqual(['plan', 'invariant-packs', 'red', 'green']);
     expect(workflow.jobs.gate['runs-on']).toBe('ubuntu-latest');
     expect(JSON.stringify(workflow.jobs.red.strategy.matrix)).toContain('needs.plan.outputs.red_ids');
     expect(JSON.stringify(workflow.jobs.green.strategy.matrix)).toContain('needs.plan.outputs.green_ids');
@@ -87,6 +88,21 @@ describe('DEV-GOV-V0 multi-proof orchestration', () => {
     expect(source).toContain('-f attestation_run_id="$ATTESTATION_RUN_ID"');
     expect(source).toContain('gh run watch "$gate_run_id" --exit-status');
     expect(source).not.toContain('uses: ./.github/workflows/devgov-v0-gate.yml');
+  });
+
+  it('runs the complete controller-owned invariant pack set before declared unit proofs', () => {
+    const source = readFileSync(orchestratorPath, 'utf8');
+    const workflow = parse(source);
+    const packs = workflow.jobs['invariant-packs'];
+
+    expect(packs['runs-on']).toBe('ubuntu-latest');
+    expect(packs.permissions).toEqual({ contents: 'read' });
+    expect(source).toContain('ref: ${{ github.sha }}');
+    expect(source).toContain('ref: ${{ inputs.candidate_sha }}');
+    expect(source).toContain('node controller/scripts/devgov/invariant-packs.mjs');
+    expect(source).toContain('--target candidate');
+    expect(source).toContain('devgov-invariant-packs-${{ inputs.candidate_sha }}');
+    expect(source).not.toContain('--pack ');
   });
 
   it('does not give the orchestrator signer or promoter credentials', () => {
@@ -105,7 +121,7 @@ describe('DEV-GOV-V0 multi-proof orchestration', () => {
     const source = readFileSync(orchestratorPath, 'utf8');
     const workflow = parse(source);
 
-    expect(workflow.jobs.state.needs).toEqual(['plan', 'red', 'green', 'gate']);
+    expect(workflow.jobs.state.needs).toEqual(['plan', 'invariant-packs', 'red', 'green', 'gate']);
     expect(source).toContain("schema_version: 'dev-gov-orchestration-state-v1'");
     expect(source).toContain("state: 'GATE_PASSED'");
     expect(source).toContain('devgov-orchestration-${{ inputs.candidate_sha }}');

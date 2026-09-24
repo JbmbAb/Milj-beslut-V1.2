@@ -94,9 +94,67 @@ jobs:
           fs.appendFileSync(process.argv[3], `green_count=${greenIds.length}\n`);
           NODE
 
+  invariant-packs:
+    name: Controller-owned invariant packs
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Require protected default-branch orchestrator
+        env:
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+          DISPATCH_REF: ${{ github.ref }}
+        run: |
+          test "$DISPATCH_REF" = "refs/heads/$DEFAULT_BRANCH"
+
+      - name: Checkout protected controller
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          path: controller
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Checkout exact candidate as invariant target
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.candidate_sha }}
+          path: candidate
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Verify exact candidate target
+        env:
+          CANDIDATE_SHA: ${{ inputs.candidate_sha }}
+        run: |
+          set -euo pipefail
+          test "$(git -C candidate rev-parse HEAD)" = "$CANDIDATE_SHA"
+          test -z "$(git -C controller status --porcelain)"
+          test -z "$(git -C candidate status --porcelain)"
+
+      - name: Run all controller-owned invariant packs
+        env:
+          CANDIDATE_SHA: ${{ inputs.candidate_sha }}
+        run: |
+          set -euo pipefail
+          node controller/scripts/devgov/invariant-packs.mjs \
+            --target candidate \
+            --candidate-sha "$CANDIDATE_SHA" \
+            --output "$RUNNER_TEMP/devgov-invariant-pack-report.json"
+
+      - name: Upload invariant-pack report
+        uses: actions/upload-artifact@v4
+        with:
+          name: devgov-invariant-packs-${{ inputs.candidate_sha }}
+          path: ${{ runner.temp }}/devgov-invariant-pack-report.json
+          if-no-files-found: error
+          retention-days: 90
+
   red:
     name: RED / ${{ matrix.test_id }}
-    needs: plan
+    needs:
+      - plan
+      - invariant-packs
     strategy:
       fail-fast: false
       matrix:
@@ -115,6 +173,7 @@ jobs:
     name: GREEN / ${{ matrix.test_id }}
     needs:
       - plan
+      - invariant-packs
       - red
     strategy:
       fail-fast: false
@@ -134,6 +193,7 @@ jobs:
     name: Dispatch canonical trusted evidence gate
     needs:
       - plan
+      - invariant-packs
       - red
       - green
     runs-on: ubuntu-latest
@@ -193,6 +253,7 @@ jobs:
     name: Publish machine-readable handoff
     needs:
       - plan
+      - invariant-packs
       - red
       - green
       - gate
