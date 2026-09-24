@@ -86,7 +86,7 @@ describe('DEV-GOV-V0 multi-proof orchestration', () => {
     expect(gate.permissions).toEqual({ actions: 'write', contents: 'read' });
     expect(source).toContain('gh workflow run devgov-v0-gate.yml');
     expect(source).toContain('-f attestation_run_id="$ATTESTATION_RUN_ID"');
-    expect(source).toContain('gh run watch "$gate_run_id" --exit-status');
+    expect(source).toContain('gh run watch "$gate_run_id" --repo "$GITHUB_REPOSITORY" --exit-status');
     expect(source).not.toContain('uses: ./.github/workflows/devgov-v0-gate.yml');
   });
 
