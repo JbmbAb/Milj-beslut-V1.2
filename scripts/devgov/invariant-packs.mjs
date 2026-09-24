@@ -136,7 +136,13 @@ function evaluateInvariant(id, targetRoot) {
           'loadRegistry(controllerRoot)',
           'loadPack(controllerRoot, packPath)',
         ]),
-        hasNone(source, ["'--pack'", '"--pack"']),
+        {
+          pass:
+            JSON.stringify(
+              Array.from(source.matchAll(/arg === '(--[^']+)'/g), (match) => match[1]).sort(),
+            ) === JSON.stringify(['--candidate-sha', '--output', '--target']),
+          detail: 'CLI exposes only target, candidate-sha and output; no caller-selectable pack',
+        },
         hasNone(orchestrator(), ['--pack ']),
         hasNone(gate(), ['--pack ']),
         hasNone(prPacks(), ['--pack ']),
