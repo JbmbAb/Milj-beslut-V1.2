@@ -83,6 +83,24 @@ jobs:
           git check-ref-format --branch "$branch"
           git -C candidate switch -c "$branch"
 
+      - name: Verify controller-owned invariant packs
+        env:
+          CANDIDATE_SHA: ${{ inputs.candidate_sha }}
+        run: |
+          set -euo pipefail
+          node controller/scripts/devgov/invariant-packs.mjs \
+            --target candidate \
+            --candidate-sha "$CANDIDATE_SHA" \
+            --output "$RUNNER_TEMP/devgov-invariant-pack-report.json"
+
+      - name: Upload invariant-pack report
+        uses: actions/upload-artifact@v4
+        with:
+          name: devgov-invariant-packs-${{ inputs.candidate_sha }}
+          path: ${{ runner.temp }}/devgov-invariant-pack-report.json
+          if-no-files-found: error
+          retention-days: 90
+
       - name: Inspect required proof cardinality
         id: proof_plan
         env:
