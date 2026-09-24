@@ -1,0 +1,70 @@
+{
+  "schema_version": "dev-gov-v1-unit-definition",
+  "unit": "LU-API-BOUNDARY-STEP4-PROVEN-DOC-V1",
+  "role": "producer",
+  "mode": "writer",
+  "branch": "docs/lu-api-boundary-step4-proven",
+  "base_sha": "5a172745c8d1db7ebd774e8a1485081e837318d0",
+  "ancestry_policy": "descendant_of_base",
+  "allowed_paths": [
+    "docs/architecture/audits/LU-API-BOUNDARY-STEP4-PROVEN.md",
+    "governance/devgov/units/lu-api-boundary-step4-proven-doc-v1.json"
+  ],
+  "forbidden_paths": [
+    ".github/**",
+    "scripts/**",
+    "governance/devgov/schema/**",
+    "prisma/**",
+    "packages/**",
+    "server/**",
+    "src/**",
+    "tests/**",
+    "components/**",
+    "docs/architecture/audits/LU-API-BOUNDARY-STEP4.md",
+    "governance/devgov/units/lu-api-boundary-step4-v1.json"
+  ],
+  "required_red": [
+    {
+      "id": "proven-record-binds-lu-api-boundary-step4-evidence",
+      "command": "node",
+      "args": [
+        "-e",
+        "\nconst fs = require('node:fs');\nconst V = (m) => { console.error('LU_API_BOUNDARY_STEP4_PROVEN_VIOLATION: ' + m); process.exit(1); };\nconst H = (m) => { console.error('LU_API_BOUNDARY_STEP4_PROVEN_HARNESS_ERROR: ' + m); process.exit(2); };\ntry {\n  const p = \"docs/architecture/audits/LU-API-BOUNDARY-STEP4-PROVEN.md\";\n  let s;\n  try { s = fs.readFileSync(p, 'utf8'); }\n  catch (e) { if (e && e.code === 'ENOENT') V('the PROVEN record does not exist on this tree: ' + p); H('cannot read ' + p + ': ' + (e && e.message)); }\n  const req = JSON.parse(process.argv[1]);\n  if (!Array.isArray(req) || req.length === 0) H('no required bindings supplied');\n  const missing = req.filter((x) => !s.includes(x));\n  if (missing.length > 0) V('the PROVEN record lacks required bindings: ' + missing.join(' | '));\n  const grab = (label) => { const m = new RegExp('\\\\*\\\\*' + label + ':\\\\*\\\\* `([0-9a-f]{40})`').exec(s); return m && m[1]; };\n  const mt = grab('Merge tree'), ct = grab('Candidate tree');\n  if (!mt || !ct) V('merge tree / candidate tree are not both stated as 40-hex SHAs');\n  if (mt !== ct) V('merge tree ' + mt + ' differs from candidate tree ' + ct + ': finalization is blocked');\n  console.log('LU_API_BOUNDARY_STEP4_PROVEN_OK: record binds all required evidence; merge tree == candidate tree ' + mt);\n} catch (e) { H('unexpected: ' + (e && e.stack ? e.stack : e)); }\n",
+        "[\"**Final state:** PROVEN\",\"70dbb4c66ca7ba4d662a54aa3e384b69349a2bd9\",\"6999cb7dbd181184f685b7bd56c898b1e9e73a7e\",\"5a172745c8d1db7ebd774e8a1485081e837318d0\",\"75383ca102dd05db101ce64dbb64b17db4a4065c\",\"35875066537\",\"35905402228\",\"#172\",\"DEV-GOV-V0 / trusted-execution\",\"Trusted RED/GREEN verified for exact candidate SHA\",\"Squash and rebase were not used.\",\"lu-api-boundary-artifacts-present\",\"lu-api-boundary-contract\",\"lu-api-boundary-focused-tests\",\"lu-api-boundary-targeted-format\",\"authoritative: false\",\"grandfathered\",\"`scripts/devgov/**`\",\"`.github/workflows/**`\",\"`governance/devgov/schema/**`\",\"`LU-API-BOUNDARY-STEP4 = PROVEN`\"]"
+      ],
+      "expected_classification": "FAIL",
+      "required_head": "base_sha",
+      "blocked_exit_codes": [
+        2
+      ],
+      "timeout_ms": 30000
+    }
+  ],
+  "required_green": [
+    {
+      "id": "proven-record-binds-lu-api-boundary-step4-evidence",
+      "command": "node",
+      "args": [
+        "-e",
+        "\nconst fs = require('node:fs');\nconst V = (m) => { console.error('LU_API_BOUNDARY_STEP4_PROVEN_VIOLATION: ' + m); process.exit(1); };\nconst H = (m) => { console.error('LU_API_BOUNDARY_STEP4_PROVEN_HARNESS_ERROR: ' + m); process.exit(2); };\ntry {\n  const p = \"docs/architecture/audits/LU-API-BOUNDARY-STEP4-PROVEN.md\";\n  let s;\n  try { s = fs.readFileSync(p, 'utf8'); }\n  catch (e) { if (e && e.code === 'ENOENT') V('the PROVEN record does not exist on this tree: ' + p); H('cannot read ' + p + ': ' + (e && e.message)); }\n  const req = JSON.parse(process.argv[1]);\n  if (!Array.isArray(req) || req.length === 0) H('no required bindings supplied');\n  const missing = req.filter((x) => !s.includes(x));\n  if (missing.length > 0) V('the PROVEN record lacks required bindings: ' + missing.join(' | '));\n  const grab = (label) => { const m = new RegExp('\\\\*\\\\*' + label + ':\\\\*\\\\* `([0-9a-f]{40})`').exec(s); return m && m[1]; };\n  const mt = grab('Merge tree'), ct = grab('Candidate tree');\n  if (!mt || !ct) V('merge tree / candidate tree are not both stated as 40-hex SHAs');\n  if (mt !== ct) V('merge tree ' + mt + ' differs from candidate tree ' + ct + ': finalization is blocked');\n  console.log('LU_API_BOUNDARY_STEP4_PROVEN_OK: record binds all required evidence; merge tree == candidate tree ' + mt);\n} catch (e) { H('unexpected: ' + (e && e.stack ? e.stack : e)); }\n",
+        "[\"**Final state:** PROVEN\",\"70dbb4c66ca7ba4d662a54aa3e384b69349a2bd9\",\"6999cb7dbd181184f685b7bd56c898b1e9e73a7e\",\"5a172745c8d1db7ebd774e8a1485081e837318d0\",\"75383ca102dd05db101ce64dbb64b17db4a4065c\",\"35875066537\",\"35905402228\",\"#172\",\"DEV-GOV-V0 / trusted-execution\",\"Trusted RED/GREEN verified for exact candidate SHA\",\"Squash and rebase were not used.\",\"lu-api-boundary-artifacts-present\",\"lu-api-boundary-contract\",\"lu-api-boundary-focused-tests\",\"lu-api-boundary-targeted-format\",\"authoritative: false\",\"grandfathered\",\"`scripts/devgov/**`\",\"`.github/workflows/**`\",\"`governance/devgov/schema/**`\",\"`LU-API-BOUNDARY-STEP4 = PROVEN`\"]"
+      ],
+      "expected_classification": "PASS",
+      "required_head": "candidate_sha",
+      "blocked_exit_codes": [
+        2
+      ],
+      "timeout_ms": 30000
+    }
+  ],
+  "trusted_execution": {
+    "issuer": "github-actions:JbmbAb/Milj-beslut-V1.2:devgov-v0-attest",
+    "key_id": "devgov-ci-ed25519-v1"
+  },
+  "remote": {
+    "name": "origin",
+    "branch": "docs/lu-api-boundary-step4-proven",
+    "push_policy": "no_force",
+    "absent_policy": "deny_absent"
+  }
+}
