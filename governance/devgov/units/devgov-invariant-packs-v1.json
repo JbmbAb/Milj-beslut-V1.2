@@ -1,0 +1,148 @@
+{
+  "schema_version": "dev-gov-v1-unit-definition",
+  "unit": "DEVGOV-INVARIANT-PACKS-V1",
+  "role": "producer",
+  "mode": "writer",
+  "branch": "governance/devgov-invariant-packs-v1",
+  "base_sha": "9b3605c2f008983c93f89ef441165b35b37d6703",
+  "ancestry_policy": "descendant_of_base",
+  "allowed_paths": [
+    ".github/workflows/devgov-invariant-packs.yml",
+    ".github/workflows/devgov-v0-gate.yml",
+    ".github/workflows/devgov-v0-orchestrate.yml",
+    ".github/workflows/devgov-v0.yml",
+    "governance/devgov/invariant-packs/devgov-controller-core-v1.json",
+    "governance/devgov/invariant-packs/registry-v1.json",
+    "scripts/audit/devgovInvariantPacks.test.ts",
+    "scripts/audit/devgovOrchestration.test.ts",
+    "scripts/audit/devgovTrustedWorkflow.test.ts",
+    "scripts/devgov/invariant-packs.mjs",
+    "governance/devgov/units/devgov-invariant-packs-v1.json",
+    "docs/architecture/audits/DEVGOV-INVARIANT-PACKS-V1.md"
+  ],
+  "forbidden_paths": [
+    "packages/**",
+    "server/**",
+    "src/**",
+    "components/**",
+    "services/**",
+    "integrations/**",
+    "prisma/**",
+    "scripts/ops/**",
+    "scripts/import/**"
+  ],
+  "required_red": [
+    {
+      "id": "controller-owned-invariant-packs-v1-present",
+      "command": "node",
+      "args": [
+        "-e",
+        "const fs = require('node:fs');\nconst V = (m) => { console.error('DEVGOV_INVARIANT_PACKS_V1_VIOLATION: ' + m); process.exit(1); };\nconst H = (m) => { console.error('DEVGOV_INVARIANT_PACKS_V1_HARNESS_ERROR: ' + m); process.exit(2); };\ntry {\n  const positive = ['scripts/devgov/devgov.mjs','.github/workflows/devgov-v0-orchestrate.yml','.github/workflows/devgov-v0-gate.yml'];\n  for (const p of positive) if (!fs.existsSync(p)) H('positive-control path missing: ' + p);\n  const oldOrch = fs.readFileSync('.github/workflows/devgov-v0-orchestrate.yml','utf8');\n  if (!oldOrch.includes('gh workflow run devgov-v0-gate.yml')) H('canonical gate positive control missing');\n  const required = ['governance/devgov/invariant-packs/registry-v1.json','governance/devgov/invariant-packs/devgov-controller-core-v1.json','scripts/devgov/invariant-packs.mjs','scripts/audit/devgovInvariantPacks.test.ts','.github/workflows/devgov-invariant-packs.yml'];\n  const present = required.filter((p) => fs.existsSync(p));\n  if (present.length === 0) V('controller-owned invariant pack V1 is absent');\n  if (present.length !== required.length) H('partial invariant-pack installation: ' + present.join(', '));\n  const orch = fs.readFileSync('.github/workflows/devgov-v0-orchestrate.yml','utf8');\n  const gate = fs.readFileSync('.github/workflows/devgov-v0-gate.yml','utf8');\n  const pr = fs.readFileSync('.github/workflows/devgov-invariant-packs.yml','utf8');\n  const runner = fs.readFileSync('scripts/devgov/invariant-packs.mjs','utf8');\n  const registry = JSON.parse(fs.readFileSync('governance/devgov/invariant-packs/registry-v1.json','utf8'));\n  const bindings = [\n    ['orchestrator invariant job', orch.includes('  invariant-packs:')],\n    ['orchestrator protected runner', orch.includes('node controller/scripts/devgov/invariant-packs.mjs')],\n    ['orchestrator proof dependency', orch.includes('      - invariant-packs')],\n    ['gate invariant step', gate.includes('Verify controller-owned invariant packs')],\n    ['gate protected runner', gate.includes('node controller/scripts/devgov/invariant-packs.mjs')],\n    ['all-PR protected event', pr.includes('pull_request_target:')],\n    ['all-PR base controller', pr.includes('ref: ${{ github.event.pull_request.base.sha }}')],\n    ['all-PR head target', pr.includes('ref: ${{ github.event.pull_request.head.sha }}')],\n    ['runner controller root', runner.includes(\"const controllerRoot = realpathSync(resolve(dirname(fileURLToPath(import.meta.url)), '../..'));\")],\n    ['runner protected registry', runner.includes('loadRegistry(controllerRoot)')],\n    ['registry active packs', Array.isArray(registry.active_packs) && registry.active_packs.length > 0],\n  ];\n  const failed = bindings.filter(([, ok]) => !ok).map(([name]) => name);\n  if (failed.length) V('required controller-owned bindings missing: ' + failed.join(' | '));\n  const cliFlags = Array.from(runner.matchAll(/arg === '(--[^']+)'/g), (m) => m[1]).sort();\n  if (JSON.stringify(cliFlags) !== JSON.stringify(['--candidate-sha','--output','--target'])) V('caller-selectable invariant-pack CLI surface detected: ' + JSON.stringify(cliFlags));\n  if (orch.includes('--pack ') || gate.includes('--pack ') || pr.includes('--pack ')) V('workflow exposes caller-selected pack');\n  console.log('DEVGOV_INVARIANT_PACKS_V1_OK: controller-owned V1 bindings present');\n} catch (e) { H('unexpected: ' + (e && e.stack ? e.stack : e)); }"
+      ],
+      "expected_classification": "FAIL",
+      "required_head": "base_sha",
+      "blocked_exit_codes": [
+        2
+      ],
+      "timeout_ms": 30000
+    }
+  ],
+  "required_green": [
+    {
+      "id": "controller-owned-invariant-packs-v1-present",
+      "command": "node",
+      "args": [
+        "-e",
+        "const fs = require('node:fs');\nconst V = (m) => { console.error('DEVGOV_INVARIANT_PACKS_V1_VIOLATION: ' + m); process.exit(1); };\nconst H = (m) => { console.error('DEVGOV_INVARIANT_PACKS_V1_HARNESS_ERROR: ' + m); process.exit(2); };\ntry {\n  const positive = ['scripts/devgov/devgov.mjs','.github/workflows/devgov-v0-orchestrate.yml','.github/workflows/devgov-v0-gate.yml'];\n  for (const p of positive) if (!fs.existsSync(p)) H('positive-control path missing: ' + p);\n  const oldOrch = fs.readFileSync('.github/workflows/devgov-v0-orchestrate.yml','utf8');\n  if (!oldOrch.includes('gh workflow run devgov-v0-gate.yml')) H('canonical gate positive control missing');\n  const required = ['governance/devgov/invariant-packs/registry-v1.json','governance/devgov/invariant-packs/devgov-controller-core-v1.json','scripts/devgov/invariant-packs.mjs','scripts/audit/devgovInvariantPacks.test.ts','.github/workflows/devgov-invariant-packs.yml'];\n  const present = required.filter((p) => fs.existsSync(p));\n  if (present.length === 0) V('controller-owned invariant pack V1 is absent');\n  if (present.length !== required.length) H('partial invariant-pack installation: ' + present.join(', '));\n  const orch = fs.readFileSync('.github/workflows/devgov-v0-orchestrate.yml','utf8');\n  const gate = fs.readFileSync('.github/workflows/devgov-v0-gate.yml','utf8');\n  const pr = fs.readFileSync('.github/workflows/devgov-invariant-packs.yml','utf8');\n  const runner = fs.readFileSync('scripts/devgov/invariant-packs.mjs','utf8');\n  const registry = JSON.parse(fs.readFileSync('governance/devgov/invariant-packs/registry-v1.json','utf8'));\n  const bindings = [\n    ['orchestrator invariant job', orch.includes('  invariant-packs:')],\n    ['orchestrator protected runner', orch.includes('node controller/scripts/devgov/invariant-packs.mjs')],\n    ['orchestrator proof dependency', orch.includes('      - invariant-packs')],\n    ['gate invariant step', gate.includes('Verify controller-owned invariant packs')],\n    ['gate protected runner', gate.includes('node controller/scripts/devgov/invariant-packs.mjs')],\n    ['all-PR protected event', pr.includes('pull_request_target:')],\n    ['all-PR base controller', pr.includes('ref: ${{ github.event.pull_request.base.sha }}')],\n    ['all-PR head target', pr.includes('ref: ${{ github.event.pull_request.head.sha }}')],\n    ['runner controller root', runner.includes(\"const controllerRoot = realpathSync(resolve(dirname(fileURLToPath(import.meta.url)), '../..'));\")],\n    ['runner protected registry', runner.includes('loadRegistry(controllerRoot)')],\n    ['registry active packs', Array.isArray(registry.active_packs) && registry.active_packs.length > 0],\n  ];\n  const failed = bindings.filter(([, ok]) => !ok).map(([name]) => name);\n  if (failed.length) V('required controller-owned bindings missing: ' + failed.join(' | '));\n  const cliFlags = Array.from(runner.matchAll(/arg === '(--[^']+)'/g), (m) => m[1]).sort();\n  if (JSON.stringify(cliFlags) !== JSON.stringify(['--candidate-sha','--output','--target'])) V('caller-selectable invariant-pack CLI surface detected: ' + JSON.stringify(cliFlags));\n  if (orch.includes('--pack ') || gate.includes('--pack ') || pr.includes('--pack ')) V('workflow exposes caller-selected pack');\n  console.log('DEVGOV_INVARIANT_PACKS_V1_OK: controller-owned V1 bindings present');\n} catch (e) { H('unexpected: ' + (e && e.stack ? e.stack : e)); }"
+      ],
+      "expected_classification": "PASS",
+      "required_head": "candidate_sha",
+      "blocked_exit_codes": [
+        2
+      ],
+      "timeout_ms": 30000
+    },
+    {
+      "id": "controller-owned-invariant-packs-v1-live",
+      "command": "node",
+      "args": [
+        "scripts/devgov/invariant-packs.mjs",
+        "--target",
+        "."
+      ],
+      "expected_classification": "PASS",
+      "required_head": "candidate_sha",
+      "blocked_exit_codes": [
+        2
+      ],
+      "timeout_ms": 60000
+    },
+    {
+      "id": "controller-owned-invariant-packs-v1-focused-tests",
+      "command": "npx",
+      "args": [
+        "vitest",
+        "run",
+        "--config",
+        "scripts/devgov/vitest.config.mjs",
+        "scripts/audit/devgovInvariantPacks.test.ts",
+        "scripts/audit/devgovOrchestration.test.ts",
+        "scripts/audit/devgovTrustedWorkflow.test.ts"
+      ],
+      "expected_classification": "PASS",
+      "required_head": "candidate_sha",
+      "blocked_exit_codes": [
+        2
+      ],
+      "timeout_ms": 180000
+    },
+    {
+      "id": "controller-owned-invariant-packs-v1-full-devgov-suite",
+      "command": "npm",
+      "args": [
+        "run",
+        "devgov:test"
+      ],
+      "expected_classification": "PASS",
+      "required_head": "candidate_sha",
+      "blocked_exit_codes": [
+        2
+      ],
+      "timeout_ms": 240000
+    },
+    {
+      "id": "controller-owned-invariant-packs-v1-targeted-format",
+      "command": "npx",
+      "args": [
+        "prettier",
+        "--check",
+        ".github/workflows/devgov-invariant-packs.yml",
+        ".github/workflows/devgov-v0-gate.yml",
+        ".github/workflows/devgov-v0-orchestrate.yml",
+        ".github/workflows/devgov-v0.yml",
+        "governance/devgov/invariant-packs/devgov-controller-core-v1.json",
+        "governance/devgov/invariant-packs/registry-v1.json",
+        "scripts/audit/devgovInvariantPacks.test.ts",
+        "scripts/audit/devgovOrchestration.test.ts",
+        "scripts/audit/devgovTrustedWorkflow.test.ts",
+        "scripts/devgov/invariant-packs.mjs"
+      ],
+      "expected_classification": "PASS",
+      "required_head": "candidate_sha",
+      "blocked_exit_codes": [
+        2
+      ],
+      "timeout_ms": 180000
+    }
+  ],
+  "trusted_execution": {
+    "issuer": "github-actions:JbmbAb/Milj-beslut-V1.2:devgov-v0-attest",
+    "key_id": "devgov-ci-ed25519-v1"
+  },
+  "remote": {
+    "name": "origin",
+    "branch": "governance/devgov-invariant-packs-v1",
+    "push_policy": "no_force",
+    "absent_policy": "deny_absent"
+  }
+}
